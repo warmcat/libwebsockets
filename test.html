@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset=utf-8 />
+ <title>Minimal Websocket message sender</title>
+</head>
+
+<body>
+<script>
+	var pos = 0;
+
+    var socket = new WebSocket("ws://127.0.0.1:7681");  
+
+	try {
+//        alert('<p class="event">Socket Status: '+socket.readyState);  
+  
+        socket.onopen = function(){  
+             alert('<p class="event">Socket Status: '+socket.readyState+' (open)');  
+        }  
+  
+        socket.onmessage = got_packet;
+  
+        socket.onclose = function(){  
+             alert('<p class="event">Socket Status:  (Closed)');  
+        }
+          } catch(exception){  
+             alert('<p>Error'+exception);  
+          }
+	
+function got_packet(msg){
+//	alert('got packet' + msg);
+
+	document.write(msg.data + "\n");
+	
+}  
+</script>
+
+</body>
+</html>

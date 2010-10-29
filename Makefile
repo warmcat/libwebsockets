@@ -1,8 +1,14 @@
+CFLAGS= -Wall -Werror -rdynamic -fPIC -c
+
 all:
-	gcc -Wall -Werror -rdynamic -fPIC -c libwebsockets.c
-	gcc -Wall -Werror -rdynamic -fPIC -c md5.c
+	gcc $(CFLAGS) libwebsockets.c
+	gcc $(CFLAGS) md5.c
 	gcc libwebsockets.o md5.o --shared -o libwebsockets.so
+	
+	gcc $(CFLAGS) test-server.c
+	gcc  test-server.o ./libwebsockets.so -o test-server
 
 clean:
-	rm -f *.o *.so
+	rm -f *.o *.so test-server
+	
 	
