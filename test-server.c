@@ -6,11 +6,11 @@
 
 #define PORT 7681
 
-int websocket_callback(struct libwebsocket * wsi,
-				      enum libwebsocket_callback_reasons reason)
+static int websocket_callback(struct libwebsocket * wsi,
+	       enum libwebsocket_callback_reasons reason, void *in, size_t len)
 {
 	int n;
-	char buf[256];
+	char buf[LWS_SEND_BUFFER_PRE_PADDING + 256 + LWS_SEND_BUFFER_POST_PADDING];
 	static int bump;
 	
 	switch (reason) {
@@ -24,8 +24,8 @@ int websocket_callback(struct libwebsocket * wsi,
 
 	case LWS_CALLBACK_SEND:	
 		sleep(1);
-		n = sprintf(buf, "%d\n", bump++);
-		n = libwebsocket_write(wsi, buf, n);
+		n = sprintf(&buf[LWS_SEND_BUFFER_PRE_PADDING], "%d\n", bump++);
+		n = libwebsocket_write(wsi, (unsigned char *)&buf[LWS_SEND_BUFFER_PRE_PADDING], n, 0);
 		if (n < 0) {
 			fprintf(stderr, "ERROR writing to socket");
 			exit(1);
@@ -33,6 +33,7 @@ int websocket_callback(struct libwebsocket * wsi,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
+		fprintf(stderr, "Received %d bytes payload\n", (int)len);
 		break;
 	}
 	return 0;
