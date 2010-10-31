@@ -89,9 +89,8 @@ static int websocket_callback(struct libwebsocket * wsi,
 		/* send the script... when it runs it'll start websockets */
 
 		if (libwebsockets_serve_http_file(wsi, "./test.html",
-								 "text/html")) {
+								   "text/html"))
 			fprintf(stderr, "Failed to send HTTP file\n");
-		}
 
 		break;
 	}

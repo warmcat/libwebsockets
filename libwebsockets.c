@@ -26,30 +26,6 @@ static void libwebsocket_service(struct libwebsocket *wsi, int sock);
 #define LWS_ADDITIONAL_HDR_ALLOC 64
 
 
-/*
- * Chrome (v0)
- * 
- * GET / HTTP/1.1
- * Upgrade: WebSocket
- * Connection: Upgrade
- * Host: 127.0.0.1:7681
- * Origin: null
- * Sec-WebSocket-Key1: +46 3      1 75 7Y 60
- * Sec-WebSocket-Key2: m^+J358s0 6N 6e0 Q1 0  ~4~
- *
- * Firefox (v76)
- *
- * GET / HTTP/1.1
- * Upgrade: WebSocket
- * Host: 127.0.0.1:7681
- * Connection: Upgrade
- * Sec-WebSocket-Key1: EC."/$14 7 687YG+gZ 44d 16
- * Origin: file://
- * Sec-WebSocket-Key2: 2  /  9 0. 4 B8 77|ov968
- *
- */
-
-
 enum lws_connection_states {
 	WSI_STATE_HTTP,
 	WSI_STATE_HTTP_HEADERS,
@@ -228,8 +204,9 @@ int libwebsocket_create_server(int port,
 	while (1) {
 		clilen = sizeof(cli_addr);
 
-		 newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-		 if (newsockfd < 0) {
+		newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr,
+								       &clilen);
+		if (newsockfd < 0) {
 			fprintf(stderr, "ERROR on accept");
 			continue;
 		}
@@ -238,8 +215,8 @@ int libwebsocket_create_server(int port,
 			
 		/* fork off a new server instance */
 			
-		 pid = fork();
-		 if (pid < 0) {
+		pid = fork();
+		if (pid < 0) {
 			fprintf(stderr, "ERROR on fork");
 			continue;
 		}
@@ -307,7 +284,7 @@ static int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_ORIGIN:
 	case WSI_TOKEN_CHALLENGE:
 	
-//		fprintf(stderr, "WSI_TOKEN_(body %d) '%c'\n", wsi->parser_state, c);
+//		fprintf(stderr, "WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);
 
 		/* collect into malloc'd buffers */
 		/* optional space swallow */
@@ -377,7 +354,7 @@ static int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				continue;
 			if (strcmp(lws_tokens[n].token, wsi->name_buffer))
 				continue;
-			fprintf(stderr, "known header '%s'\n", wsi->name_buffer);
+//			fprintf(stderr, "known hdr '%s'\n", wsi->name_buffer);
 			wsi->parser_state = WSI_TOKEN_GET_URI + n;
 			wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
 			wsi->utf8_token[wsi->parser_state].token =
@@ -389,7 +366,8 @@ static int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		/* colon delimiter means we just don't know this name */
 
 		if (wsi->parser_state == WSI_TOKEN_NAME_PART && c == ':') {
-			fprintf(stderr, "skipping unknown header '%s'\n", wsi->name_buffer);
+//			fprintf(stderr, "skipping unknown header '%s'\n",
+//							      wsi->name_buffer);
 			wsi->parser_state = WSI_TOKEN_SKIPPING;
 			break;
 		}
@@ -399,7 +377,8 @@ static int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->parser_state == WSI_TOKEN_CHALLENGE &&
 				!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len) {
 			/* they're HTTP headers, not websocket upgrade! */
-			fprintf(stderr, "Setting WSI_PARSING_COMPLETE from http headers\n");
+//			fprintf(stderr, "Setting WSI_PARSING_COMPLETE "
+//							 "from http headers\n");
 			wsi->parser_state = WSI_PARSING_COMPLETE;
 		}
 		break;
@@ -486,7 +465,8 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			break;
 		}
 
-		fprintf(stderr, "Seen that client is requesting a v76 close, sending ack\n");
+		fprintf(stderr, "Seen that client is requesting "
+				"a v76 close, sending ack\n");
 		buf[0] = 0xff;
 		buf[1] = 0;
 		n = write(wsi->sock, buf, 2);
@@ -494,7 +474,7 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			fprintf(stderr, "ERROR writing to socket");
 			return -1;
 		}
-		fprintf(stderr, "  v76 close ack sent, server closing socket\n");
+		fprintf(stderr, "  v76 close ack sent, server closing skt\n");
 		/* returning < 0 will get it closed in parent */
 		return -1;
 
@@ -525,10 +505,8 @@ static int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 		if (libwebsocket_rx_sm(wsi, buf[n++]) < 0)
 			return -1;
 		
-	if (n != len) {
-		if (wsi->callback)
-			wsi->callback(wsi, LWS_CALLBACK_RECEIVE, &buf[n], len - n);
-	}
+	if (n != len && wsi->callback)
+		wsi->callback(wsi, LWS_CALLBACK_RECEIVE, &buf[n], len - n);
 	
 	return -0;
 }
@@ -557,9 +535,9 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		/* fallthru */
 	case WSI_STATE_HTTP_HEADERS:
 	
-		fprintf(stderr, "issuing %d bytes to parser\n", (int)len);
-	
-		fwrite(buf, 1, len, stderr);
+//		fprintf(stderr, "issuing %d bytes to parser\n", (int)len);	
+//		fwrite(buf, 1, len, stderr);
+
 		for (n = 0; n< len; n++)
 			libwebsocket_parse(wsi, *buf++);
 			
@@ -571,13 +549,14 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		if (!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
 			     !wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len) {
 			if (wsi->callback)
-				(wsi->callback)(wsi, LWS_CALLBACK_HTTP, NULL, 0);
+				(wsi->callback)(wsi, LWS_CALLBACK_HTTP,
+								       NULL, 0);
 			wsi->state = WSI_STATE_HTTP;
 			return 0;
 		}
 
 			
-		fprintf(stderr, "Preparing return packet\n");
+//		fprintf(stderr, "Preparing return packet\n");
 
 		/* Websocket - confirm we have all the necessary pieces */
 		
@@ -610,8 +589,10 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 						  "Upgrade: WebSocket\x0d\x0a");
 		p += strlen("HTTP/1.1 101 WebSocket Protocol Handshake\x0d\x0a"
 						  "Upgrade: WebSocket\x0d\x0a");
-		strcpy(p,   "Connection: Upgrade\x0d\x0aSec-WebSocket-Origin: ");
-		p += strlen("Connection: Upgrade\x0d\x0aSec-WebSocket-Origin: ");
+		strcpy(p,   "Connection: Upgrade\x0d\x0a"
+			    "Sec-WebSocket-Origin: ");
+		p += strlen("Connection: Upgrade\x0d\x0a"
+			    "Sec-WebSocket-Origin: ");
 		strcpy(p, wsi->utf8_token[WSI_TOKEN_ORIGIN].token);
 		p += wsi->utf8_token[WSI_TOKEN_ORIGIN].token_len;
 		strcpy(p,   "\x0d\x0aSec-WebSocket-Location: ws://");
@@ -663,9 +644,9 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 
 		/* it's complete: go ahead and send it */
 		
-		fprintf(stderr, "issuing response packet %d len\n",
-							   (int)(p - response));
-		fwrite(response, 1,  p - response, stderr);
+//		fprintf(stderr, "issuing response packet %d len\n",
+//							   (int)(p - response));
+//		fwrite(response, 1,  p - response, stderr);
 			
 		n = write(wsi->sock, response, p - response);
 		if (n < 0) {
@@ -888,7 +869,7 @@ static void libwebsocket_service(struct libwebsocket *wsi, int sock)
 		}
 		
 		if (wsi->state == WSI_STATE_DEAD_SOCKET) {
-			fprintf(stderr, "Seen socket dead, returning from service\n");
+			fprintf(stderr, "Seen socket dead, returning\n");
 			return;
 		}
 		
@@ -904,7 +885,7 @@ static void libwebsocket_service(struct libwebsocket *wsi, int sock)
 			if (n)
 				libwebsocket_read(wsi, buf, n);
 			else {
-//				fprintf(stderr, "POLLIN with zero length waiting\n");
+//				fprintf(stderr, "POLLIN with 0 len waiting\n");
 				usleep(50000);
 			}
 		}
@@ -945,7 +926,8 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
 			"Server: libwebsockets\x0d\x0a"
 			"\x0d\x0a"
 		);
-		libwebsocket_write(wsi, (unsigned char *)buf, p - buf, LWS_WRITE_HTTP);
+		libwebsocket_write(wsi, (unsigned char *)buf, p - buf,
+								LWS_WRITE_HTTP);
 		
 		return -1;
 	}
@@ -955,15 +937,15 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
 			"Server: libwebsockets\x0d\x0a"
 			"Content-Type: %s\x0d\x0a"
 			"Content-Length: %u\x0d\x0a"
-			"\x0d\x0a", content_type, (unsigned int)stat.st_size
-			);
+			"\x0d\x0a", content_type, (unsigned int)stat.st_size);
 			
 	libwebsocket_write(wsi, (unsigned char *)buf, p - buf, LWS_WRITE_HTTP);
 
 	n = 1;
 	while (n > 0) {
 		n = read(fd, buf, 512);
-		libwebsocket_write(wsi, (unsigned char *)buf, n, LWS_WRITE_HTTP);
+		libwebsocket_write(wsi, (unsigned char *)buf, n,
+								LWS_WRITE_HTTP);
 	}
 	
 	close(fd);
