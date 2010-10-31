@@ -18,34 +18,6 @@ enum libwebsocket_write_protocol {
 
 struct libwebsocket;
 
-/**
- * libwebsocket_callback() - User server actions
- * @wsi:	Opaque websocket instance pointer
- * @reason:	The reason for the call
- * @in:		Pointer used for some callback reasons
- * @len:	Length set for some callback reasons
- * 
- * 	This callback is the way the user controls what is served.  All the
- * 	protocol detail is hidden and handled by the library.
- * 
- * 	LWS_CALLBACK_ESTABLISHED:  after successful websocket handshake
- * 	LWS_CALLBACK_CLOSED: when the websocket session ends
- * 	LWS_CALLBACK_SEND: opportunity to send to client (you would use
- * 				libwebsocket_write() taking care about the
- * 				special buffer requirements
- * 	LWS_CALLBACK_RECEIVE: data has appeared for the server, it can be
- * 				found at *in and is len bytes long
- * 	LWS_CALLBACK_HTTP: an http request has come from a client that is not
- * 				asking to upgrade the connection to a websocket
- * 				one.  This is a chance to serve http content,
- * 				for example, to send a script to the client
- * 				which will then open the websockets connection.
- * 				libwebsocket_get_uri() lets you find out the
- * 				URI path requested and 
- * 				libwebsockets_serve_http_file() makes it very
- * 				simple to send back a file to the client.
- */
-
 extern int libwebsocket_create_server(int port,
 		  int (*callback)(struct libwebsocket *wsi,
 				  enum libwebsocket_callback_reasons reason,

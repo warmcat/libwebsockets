@@ -1,8 +1,8 @@
 Using test-server as a quickstart
 ---------------------------------
 
-# make
-# ./test-server
+$ make
+$ ./test-server
 
 should be enough to get a test server listening on port 7861.
 
