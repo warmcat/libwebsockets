@@ -95,7 +95,8 @@ struct lws_tokens {
 
 /*
  * This is totally opaque to code using the library.  It's exported as a
- * forward-reference pointer-only declaration.
+ * forward-reference pointer-only declaration; the user can use the pointer with
+ * other APIs to get information out of it.
  */
 
 struct libwebsocket {
@@ -130,6 +131,27 @@ const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
 	{ "\x0d\x0a", 2 },
 };
 
+/**
+ * libwebsocket_create_server() - Create the listening websockets server
+ * @port:	Port to listen on
+ * @callback:	The callback in user code to perform actual serving
+ * @protocol:	Which version of the websockets protocol (currently 76)
+ * 
+ * 	This function forks to create the listening socket and takes care
+ * 	of all initialization in one step.
+ * 
+ * 	The callback function is called for a handful of events including
+ * 	http requests coming in, websocket connections becoming
+ * 	established, and data arriving; it's also called periodically to allow
+ * 	async transmission.
+ * 
+ * 	The server created is a simple http server by default; part of the
+ * 	websocket standard is upgrading this http connection to a websocket one.
+ * 
+ * 	This allows the same server to provide files like scripts and favicon /
+ * 	images or whatever over http and dynamic data over websockets all in
+ * 	one place; they're all handled in the user callback.
+ */
 
 int libwebsocket_create_server(int port,
 		int (*callback)(struct libwebsocket *,
@@ -238,7 +260,7 @@ int libwebsocket_create_server(int port,
 	}
 }
 
-void libwebsocket_close(struct libwebsocket *wsi)
+static void libwebsocket_close(struct libwebsocket *wsi)
 {
 	int n;
 
@@ -251,6 +273,16 @@ void libwebsocket_close(struct libwebsocket *wsi)
 		if (wsi->utf8_token[n].token)
 			free(wsi->utf8_token[n].token);
 }
+
+/**
+ * libwebsocket_get_uri() - Return the URI path being requested
+ * @wsi:	Websocket instance
+ * 
+ * 	The user code can find out the local path being opened from this
+ * 	call, it's valid on HTTP or established websocket connections.
+ * 	If the client opened the connection with "http://127.0.0.1/xyz/abc.d"
+ * 	then this call will return a pointer to "/xyz/abc.d"
+ */
 
 const char * libwebsocket_get_uri(struct libwebsocket *wsi)
 {
@@ -509,7 +541,8 @@ static int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
  * machine that is completely independent of packet size.
  */
 
-int libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
+static int 
+libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 {
 	size_t n;
 	char *p;
@@ -667,14 +700,29 @@ bail:
 	return -1;
 }
 
-
-/*
- * notice, we will use up to LWS_SEND_BUFFER_PRE_PADDING bytes BEFORE the
- * buffer pointer given and LWS_SEND_BUFFER_POST_PADDING bytes AFTER
- * buf + len !!!  Caller must allocate and offset pointer accordingly!
+/**
+ * libwebsocket_write() - Apply protocol then write data to client
+ * @wsi:	Websocket instance (available from user callback)
+ * @buf:	The data to send.  For data being sent on a websocket
+ * 		connection (ie, not default http), this buffer MUST have
+ * 		LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE the pointer
+ * 		and an additional LWS_SEND_BUFFER_POST_PADDING bytes valid
+ * 		in the buffer after (buf + len).  This is so the protocol
+ * 		header and trailer data can be added in-situ.
+ * @len:	Count of the data bytes in the payload starting from buf
+ * @protocol:	Use LWS_WRITE_HTTP to reply to an http connection, and one
+ * 		of LWS_WRITE_BINARY or LWS_WRITE_TEXT to send appropriate
+ * 		data on a websockets connection.  Remember to allow the extra
+ * 		bytes before and after buf if LWS_WRITE_BINARY or LWS_WRITE_TEXT
+ * 		are used.
+ *
+ * 	This function provides the way to issue data back to the client
+ * 	for both http and websocket protocols.
  * 
- * This lets us send packets in one write() action including the protocol
- * pre- and post- data without copying the payload around.
+ * 	In the case of sending using websocket protocol, be sure to allocate
+ * 	valid storage before and after buf as explained above.  This scheme
+ * 	allows maximum efficiency of sending data and protocol in a single
+ * 	packet while not burdening the user code with any protocol knowledge.
  */
 
 int libwebsocket_write(struct libwebsocket * wsi, unsigned char *buf,
@@ -870,6 +918,17 @@ pout:
 			wsi->callback(wsi, LWS_CALLBACK_SEND, NULL, 0);
 	}
 }
+
+/**
+ * libwebsockets_serve_http_file() - Send a file back to the client using http
+ * @wsi:		Websocket instance (available from user callback)
+ * @file:		The file to issue over http
+ * @content_type:	The http content type, eg, text/html
+ * 
+ * 	This function is intended to be called from the callback in response
+ * 	to http requests from the client.  It allows the callback to issue
+ * 	local files down the http link in a single step.
+ */
 
 int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
 						      const char * content_type)

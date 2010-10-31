@@ -1,3 +1,6 @@
+#ifndef __LIBWEBSOCKET_H__
+#define __LIBWEBSOCKET_H__
+
 
 enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_ESTABLISHED,
@@ -33,12 +36,12 @@ extern int libwebsocket_create_server(int port,
  * So for example you need this kind of code to use libwebsocket_write with a
  * 128-byte payload 
  * 
- * char buf[LWS_SEND_BUFFER_PRE_PADDING + 128 + LWS_SEND_BUFFER_POST_PADDING];
+ *   char buf[LWS_SEND_BUFFER_PRE_PADDING + 128 + LWS_SEND_BUFFER_POST_PADDING];
  * 
- * // fill your part of the buffer... for example here it's all zeros
- * memset(&buf[LWS_SEND_BUFFER_PRE_PADDING], 0, 128);
+ *   // fill your part of the buffer... for example here it's all zeros
+ *   memset(&buf[LWS_SEND_BUFFER_PRE_PADDING], 0, 128);
  * 
- * libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128);
+ *   libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128);
  * 
  * When sending LWS_WRITE_HTTP, there is no protocol addition and you can just
  * use the whole buffer without taking care of the above.
@@ -52,6 +55,9 @@ libwebsocket_write(struct libwebsocket *, unsigned char *buf, size_t len,
 				     enum libwebsocket_write_protocol protocol);
 extern const char *
 libwebsocket_get_uri(struct libwebsocket *wsi);
+
 extern int
 libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
 						     const char * content_type);
+
+#endif
