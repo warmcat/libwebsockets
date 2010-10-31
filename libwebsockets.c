@@ -4,6 +4,9 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include <sys/types.h> 
 #include <sys/socket.h>
@@ -48,8 +51,8 @@ static void libwebsocket_service(struct libwebsocket *wsi, int sock);
 
 
 enum lws_connection_states {
-	WSI_STATE_CLOSED,
-	WSI_STATE_HANDSHAKE_RX,
+	WSI_STATE_HTTP,
+	WSI_STATE_HTTP_HEADERS,
 	WSI_STATE_DEAD_SOCKET,
 	WSI_STATE_ESTABLISHED
 };
@@ -143,7 +146,7 @@ int libwebsocket_create_server(int port,
 	if (!wsi)
 		return -1;
      
-	wsi->state = WSI_STATE_CLOSED;
+	wsi->state = WSI_STATE_HTTP;
 	wsi->name_buffer_pos = 0;
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
@@ -156,7 +159,7 @@ int libwebsocket_create_server(int port,
 	case 0:
 	case 2:
 	case 76:
-		fprintf(stderr, "Using protocol v%d\n", protocol);
+		fprintf(stderr, " Using protocol v%d\n", protocol);
 		wsi->ietf_spec_revision = protocol;
 		break;
 	default:
@@ -196,7 +199,7 @@ int libwebsocket_create_server(int port,
 	if (n)
 		return 0;
  
-	fprintf(stderr, "Listening on port %d\n", port);
+	fprintf(stderr, " Listening on port %d\n", port);
  
 	listen(sockfd, 5);
     
@@ -208,6 +211,8 @@ int libwebsocket_create_server(int port,
 			fprintf(stderr, "ERROR on accept");
 			continue;
 		}
+		
+//		fcntl(newsockfd, F_SETFL, O_NONBLOCK);
 			
 		/* fork off a new server instance */
 			
@@ -247,6 +252,13 @@ void libwebsocket_close(struct libwebsocket *wsi)
 			free(wsi->utf8_token[n].token);
 }
 
+const char * libwebsocket_get_uri(struct libwebsocket *wsi)
+{
+	if (wsi->utf8_token[WSI_TOKEN_GET_URI].token)
+		return wsi->utf8_token[WSI_TOKEN_GET_URI].token;
+	
+	return NULL;
+}
 
 static int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 {
@@ -333,6 +345,7 @@ static int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				continue;
 			if (strcmp(lws_tokens[n].token, wsi->name_buffer))
 				continue;
+			fprintf(stderr, "known header '%s'\n", wsi->name_buffer);
 			wsi->parser_state = WSI_TOKEN_GET_URI + n;
 			wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
 			wsi->utf8_token[wsi->parser_state].token =
@@ -340,8 +353,23 @@ static int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			wsi->utf8_token[wsi->parser_state].token_len = 0;
 			n = WSI_TOKEN_COUNT;
 		}
-		if (wsi->parser_state != WSI_TOKEN_NAME_PART)
+
+		/* colon delimiter means we just don't know this name */
+
+		if (wsi->parser_state == WSI_TOKEN_NAME_PART && c == ':') {
+			fprintf(stderr, "skipping unknown header '%s'\n", wsi->name_buffer);
+			wsi->parser_state = WSI_TOKEN_SKIPPING;
 			break;
+		}
+		
+		/* don't look for payload when it can just be http headers */
+		
+		if (wsi->parser_state == WSI_TOKEN_CHALLENGE &&
+				!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len) {
+			/* they're HTTP headers, not websocket upgrade! */
+			fprintf(stderr, "Setting WSI_PARSING_COMPLETE from http headers\n");
+			wsi->parser_state = WSI_PARSING_COMPLETE;
+		}
 		break;
 			
 		/* skipping arg part of a name we didn't recognize */
@@ -490,11 +518,11 @@ int libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 	char *response;
 	
 	switch (wsi->state) {
-	case WSI_STATE_CLOSED:
-		wsi->state = WSI_STATE_HANDSHAKE_RX;
+	case WSI_STATE_HTTP:
+		wsi->state = WSI_STATE_HTTP_HEADERS;
 		wsi->parser_state = WSI_TOKEN_NAME_PART;
 		/* fallthru */
-	case WSI_STATE_HANDSHAKE_RX:
+	case WSI_STATE_HTTP_HEADERS:
 	
 		fprintf(stderr, "issuing %d bytes to parser\n", (int)len);
 	
@@ -504,24 +532,29 @@ int libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 			
 		if (wsi->parser_state != WSI_PARSING_COMPLETE)
 			break;
+
+		/* is this websocket protocol or normal http 1.0? */
+		
+		if (!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
+			     !wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len) {
+			if (wsi->callback)
+				(wsi->callback)(wsi, LWS_CALLBACK_HTTP, NULL, 0);
+			wsi->state = WSI_STATE_HTTP;
+			return 0;
+		}
+
 			
 		fprintf(stderr, "Preparing return packet\n");
 
-
-		/* Confirm we have all the necessary pieces */
+		/* Websocket - confirm we have all the necessary pieces */
 		
-		if (
-			!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
-			!wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len ||
-			!wsi->utf8_token[WSI_TOKEN_ORIGIN].token_len ||
+		if (!wsi->utf8_token[WSI_TOKEN_ORIGIN].token_len ||
 			!wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
 			!wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len ||
 			!wsi->utf8_token[WSI_TOKEN_KEY1].token_len ||
-			!wsi->utf8_token[WSI_TOKEN_KEY2].token_len) {
-				
+				     !wsi->utf8_token[WSI_TOKEN_KEY2].token_len)
 			/* completed header processing, but missing some bits */
 			goto bail;
-		}
 		
 		/* create the response packet */
 		
@@ -645,12 +678,17 @@ bail:
  */
 
 int libwebsocket_write(struct libwebsocket * wsi, unsigned char *buf,
-						      size_t len, int is_binary)
+			  size_t len, enum libwebsocket_write_protocol protocol)
 {
 	int n;
 	int pre = 0;
 	int post = 0;
 	unsigned int shift = 7;
+	
+	if (protocol == LWS_WRITE_HTTP)
+		goto send_raw;
+	
+	/* websocket protocol, either binary or text */
 	
 	if (wsi->state != WSI_STATE_ESTABLISHED)
 		return -1;
@@ -658,7 +696,7 @@ int libwebsocket_write(struct libwebsocket * wsi, unsigned char *buf,
 	switch (wsi->ietf_spec_revision) {
 	/* Firefox 4.0b6 likes this as of 30 Oct */
 	case 76:
-		if (is_binary) {
+		if (protocol == LWS_WRITE_BINARY) {
 			/* in binary mode we send 7-bit used length blocks */
 			pre = 1;
 			while (len & (127 << shift)) {
@@ -712,7 +750,7 @@ int libwebsocket_write(struct libwebsocket * wsi, unsigned char *buf,
 	/* just an unimplemented spec right now apparently */
 	case 2:
 		n = 4; /* text */
-		if (is_binary)
+		if (protocol == LWS_WRITE_BINARY)
 			n = 5; /* binary */
 		if (len < 126) {
 			buf[-2] = n;
@@ -749,18 +787,20 @@ int libwebsocket_write(struct libwebsocket * wsi, unsigned char *buf,
 		break;
 	}
 	
-	for (n = 0; n < (len + pre + post); n++)
-		fprintf(stderr, "%02X ", buf[n - pre]);
-		
-	fprintf(stderr, "\n");
+//	for (n = 0; n < (len + pre + post); n++)
+//		fprintf(stderr, "%02X ", buf[n - pre]);
+//		
+//	fprintf(stderr, "\n");
 
-	n = write(wsi->sock, buf - pre, len + pre + post);
+send_raw:
+
+	n = send(wsi->sock, buf - pre, len + pre + post, 0);
 	if (n < 0) {
 		fprintf(stderr, "ERROR writing to socket");
 		return -1;
 	}
 
-	fprintf(stderr, "written %d bytes to websocket\n", (int)len);
+//	fprintf(stderr, "written %d bytes to client\n", (int)len);
 	
 	return 0;
 }
@@ -772,45 +812,102 @@ static void libwebsocket_service(struct libwebsocket *wsi, int sock)
 	struct pollfd fds;
 	
 	wsi->sock = sock;
-	
-	fds.fd = sock;
-	fds.events = POLLIN | POLLOUT;
-      
+	    
 	while (1) {
-		
-		n = poll(&fds, 1, 10);
+		fds.fd = sock;
+		fds.events = POLLIN;
+		fds.revents = 0;
+ 		n = poll(&fds, 1, 50);
+
+		/* 
+		 * we seem to get a ton of POLLINs coming when there's nothing
+		 * to read (at least, 0 bytes read)... don't understand why yet
+		 * but I stuck a usleep() in the 0 byte read case to regulate
+		 * CPU
+		 */
+
+
 		if (n < 0) {
 			fprintf(stderr, "Socket dead (poll = %d)\n", n);
 			return;
 		}
+		if (n == 0)
+			goto pout;
 
 		if (fds.revents & (POLLERR | POLLHUP)) {
 			fprintf(stderr, "Socket dead\n");
 			return;
 		}
 		
-		if (wsi->state == WSI_STATE_DEAD_SOCKET)
+		if (wsi->state == WSI_STATE_DEAD_SOCKET) {
+			fprintf(stderr, "Seen socket dead, returning from service\n");
 			return;
-		
+		}
 		
 		if (fds.revents & POLLIN) {
 			
 //			fprintf(stderr, "POLLIN\n");
 			
-			n = read(sock, buf, sizeof(buf));
+			n = recv(sock, buf, sizeof(buf), 0);
 			if (n < 0) {
 				fprintf(stderr, "Socket read returned %d\n", n);
 				continue;
 			}
 			if (n)
 				libwebsocket_read(wsi, buf, n);
+			else {
+//				fprintf(stderr, "POLLIN with zero length waiting\n");
+				usleep(50000);
+			}
 		}
-		
+pout:
 		if (wsi->state != WSI_STATE_ESTABLISHED)
 			continue;
-		
+
+//		fprintf(stderr, "POLLOUT\n");
+					
 		if (wsi->callback)
 			wsi->callback(wsi, LWS_CALLBACK_SEND, NULL, 0);
 	}
 }
 
+int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
+						      const char * content_type)
+{
+	int fd;
+	struct stat stat;
+	char buf[512];
+	char *p = buf;
+	int n;
+
+	fd = open(file, O_RDONLY);
+	if (fd < 1) {
+		p += sprintf(p, "HTTP/1.0 400 Bad\x0d\x0a"
+			"Server: libwebsockets\x0d\x0a"
+			"\x0d\x0a"
+		);
+		libwebsocket_write(wsi, (unsigned char *)buf, p - buf, LWS_WRITE_HTTP);
+		
+		return -1;
+	}
+
+	fstat(fd, &stat);
+	p += sprintf(p, "HTTP/1.0 200 OK\x0d\x0a"
+			"Server: libwebsockets\x0d\x0a"
+			"Content-Type: %s\x0d\x0a"
+			"Content-Length: %u\x0d\x0a"
+			"\x0d\x0a", content_type, (unsigned int)stat.st_size
+			);
+			
+	libwebsocket_write(wsi, (unsigned char *)buf, p - buf, LWS_WRITE_HTTP);
+
+	n = 1;
+	while (n > 0) {
+		n = read(fd, buf, 512);
+		libwebsocket_write(wsi, (unsigned char *)buf, n, LWS_WRITE_HTTP);
+	}
+	
+	close(fd);
+		
+	return 0;
+}
