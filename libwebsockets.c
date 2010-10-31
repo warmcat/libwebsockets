@@ -128,7 +128,10 @@ const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
 };
 
 
-int libwebsocket_create_server(int port, int (*callback)(struct libwebsocket *, enum libwebsocket_callback_reasons, void *, size_t))
+int libwebsocket_create_server(int port,
+		int (*callback)(struct libwebsocket *,
+			enum libwebsocket_callback_reasons, void *, size_t),
+								   int protocol)
 {
 	int n;
 	int sockfd, newsockfd;
@@ -149,8 +152,18 @@ int libwebsocket_create_server(int port, int (*callback)(struct libwebsocket *, 
 	}
 	
 	wsi->callback = callback;
-//	wsi->ietf_spec_revision = 0;
- 	wsi->ietf_spec_revision = 76;
+	switch (protocol) {
+	case 0:
+	case 2:
+	case 76:
+		fprintf(stderr, "Using protocol v%d\n", protocol);
+		wsi->ietf_spec_revision = protocol;
+		break;
+	default:
+		fprintf(stderr, "protocol %d not supported (try 0 2 or 76)\n",
+								      protocol);
+		return -1;
+	}
  
 	/* sit there listening for connects, accept and spawn session servers */
  
@@ -165,7 +178,8 @@ int libwebsocket_create_server(int port, int (*callback)(struct libwebsocket *, 
 	serv_addr.sin_port = htons(port);
 	n = bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
 	if (n < 0) {
-              fprintf(stderr, "ERROR on binding %d %d\n", n, errno);
+              fprintf(stderr, "ERROR on binding to port %d (%d %d)\n", port, n,
+									 errno);
               return -1;
         }
  
@@ -182,7 +196,8 @@ int libwebsocket_create_server(int port, int (*callback)(struct libwebsocket *, 
 	if (n)
 		return 0;
  
-              
+	fprintf(stderr, "Listening on port %d\n", port);
+ 
 	listen(sockfd, 5);
     
 	while (1) {
@@ -539,15 +554,14 @@ int libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		p += wsi->utf8_token[WSI_TOKEN_HOST].token_len;
 		strcpy(p, wsi->utf8_token[WSI_TOKEN_GET_URI].token);
 		p += wsi->utf8_token[WSI_TOKEN_GET_URI].token_len;
-		strcpy(p,   "\x0d\x0aSec-WebSocket-Protocol: ");
-		p += strlen("\x0d\x0aSec-WebSocket-Protocol: ");
+
 		if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token) {
+			strcpy(p,   "\x0d\x0aSec-WebSocket-Protocol: ");
+			p += strlen("\x0d\x0aSec-WebSocket-Protocol: ");
 			strcpy(p, wsi->utf8_token[WSI_TOKEN_PROTOCOL].token);
 			p += wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len;
-		} else {
-			strcpy(p,   "none");
-			p += strlen("none");
 		}
+
 		strcpy(p,   "\x0d\x0a\x0d\x0a");
 		p += strlen("\x0d\x0a\x0d\x0a");
 		
@@ -734,6 +748,11 @@ int libwebsocket_write(struct libwebsocket * wsi, unsigned char *buf,
 		}
 		break;
 	}
+	
+	for (n = 0; n < (len + pre + post); n++)
+		fprintf(stderr, "%02X ", buf[n - pre]);
+		
+	fprintf(stderr, "\n");
 
 	n = write(wsi->sock, buf - pre, len + pre + post);
 	if (n < 0) {
