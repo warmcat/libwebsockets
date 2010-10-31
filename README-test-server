@@ -1,0 +1,21 @@
+Using test-server as a quickstart
+---------------------------------
+
+# make
+# ./test-server
+
+should be enough to get a test server listening on port 7861.
+
+If you point your browser (eg, Chrome) to
+
+  http://127.0.0.1:7681
+
+It will fetch "test.html", and then run the script in there
+on the browser to open a websocket connection.  Incrementing
+numbers should appear in the browser display.
+
+test-server.c is all that is needed to use libwebsockets for
+serving both the script html over http and websockets.
+
+2010-10-31  Andy Green <andy@warmcat.com>
+
