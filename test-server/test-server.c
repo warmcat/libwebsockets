@@ -14,6 +14,7 @@
  * Shows how to use libwebsocket 
  */
 
+#define LOCAL_RESOURCE_PATH "/usr/share/libwebsockets-test-server"
 static int port = 7681;
 static int ws_protocol = 76;
 
@@ -102,16 +103,16 @@ static int websocket_callback(struct libwebsocket * wsi,
 
 		uri = libwebsocket_get_uri(wsi);
 		if (uri && strcmp(uri, "/favicon.ico") == 0) {
-			if (libwebsockets_serve_http_file(wsi, "./favicon.ico",
-								"image/x-icon"))
+			if (libwebsockets_serve_http_file(wsi,
+			     LOCAL_RESOURCE_PATH"/favicon.ico", "image/x-icon"))
 				fprintf(stderr, "Failed to send favicon\n");
 			break;
 		}
 		
 		/* send the script... when it runs it'll start websockets */
 
-		if (libwebsockets_serve_http_file(wsi, "./test.html",
-								   "text/html"))
+		if (libwebsockets_serve_http_file(wsi,
+				  LOCAL_RESOURCE_PATH"/test.html", "text/html"))
 			fprintf(stderr, "Failed to send HTTP file\n");
 
 		break;
