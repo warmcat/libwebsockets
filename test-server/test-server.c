@@ -4,7 +4,7 @@
 #include <getopt.h>
 #include <string.h>
 
-#include "libwebsockets.h"
+#include "../lib/libwebsockets.h"
 
 /*
  * libwebsocket Example server  Copyright 2010 Andy Green <andy@warmcat.com>
