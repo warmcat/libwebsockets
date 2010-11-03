@@ -18,15 +18,27 @@
 static int port = 7681;
 static int ws_protocol = 76;
 
+struct per_session_data {
+	int number;
+};
+
  /**
  * libwebsocket_callback() - User server actions
  * @wsi:	Opaque websocket instance pointer
  * @reason:	The reason for the call
+ * @user:	Pointer to per-session user data allocated by library
  * @in:		Pointer used for some callback reasons
  * @len:	Length set for some callback reasons
  * 
  * 	This callback is the way the user controls what is served.  All the
  * 	protocol detail is hidden and handled by the library.
+ * 
+ * 	For each connection / session there is user data allocated that is
+ * 	pointed to by "user".  You set the size of this user data area when
+ * 	the library is initialized with libwebsocket_create_server.
+ * 
+ * 	You get an opportunity to initialize user data when called back with
+ * 	LWS_CALLBACK_ESTABLISHED reason.
  * 
  * 	LWS_CALLBACK_ESTABLISHED:  after successful websocket handshake
  * 	LWS_CALLBACK_CLOSED: when the websocket session ends
@@ -47,14 +59,15 @@ static int ws_protocol = 76;
  */
 
 static int websocket_callback(struct libwebsocket * wsi,
-		enum libwebsocket_callback_reasons reason, void *in, size_t len)
+		enum libwebsocket_callback_reasons reason, void * user,
+							   void *in, size_t len)
 {
 	int n;
 	char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
 						  LWS_SEND_BUFFER_POST_PADDING];
-	static int bump;
 	char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
 	const char *uri;
+	struct per_session_data * pss = user;
 	
 	switch (reason) {
 	/*
@@ -62,6 +75,7 @@ static int websocket_callback(struct libwebsocket * wsi,
 	 */
 	case LWS_CALLBACK_ESTABLISHED:
 		fprintf(stderr, "Websocket connection established\n");
+		pss->number = 0;
 		break;
 
 	/*
@@ -75,7 +89,7 @@ static int websocket_callback(struct libwebsocket * wsi,
 	 * Opportunity for us to send something on the connection
 	 */
 	case LWS_CALLBACK_SEND:	
-		n = sprintf(p, "%d", bump++);
+		n = sprintf(p, "%d", pss->number++);
 		n = libwebsocket_write(wsi, (unsigned char *)p, n, 0);
 		if (n < 0) {
 			fprintf(stderr, "ERROR writing to socket");
@@ -154,8 +168,8 @@ int main(int argc, char **argv)
 		}
 	}
 	
-	if (libwebsocket_create_server(port, websocket_callback, ws_protocol) <
-									    0) {
+	if (libwebsocket_create_server(port, websocket_callback, ws_protocol,
+					 sizeof(struct per_session_data)) < 0) {
 		fprintf(stderr, "libwebsocket init failed\n");
 		return -1;
 	}

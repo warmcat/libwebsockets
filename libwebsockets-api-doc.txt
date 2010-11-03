@@ -5,8 +5,9 @@ libwebsocket_create_server - Create the listening websockets server
 Synopsis:
 
 int libwebsocket_create_server (int port,
-                                int (*callback) (struct libwebsocket *, 			enum libwebsocket_callback_reasons, void *, size_t,
-                                int protocol);
+                                int (*callback) (struct libwebsocket *, 				enum libwebsocket_callback_reasons,  				void *, void *, size_t,
+                                int protocol,
+                                size_t user_area_size);
 
 Arguments:
 
@@ -18,6 +19,12 @@ callback
 
 protocol
 	Which version of the websockets protocol (currently 76)
+
+user_area_size
+	How much memory to allocate per connection session
+which will be used by the user application to store
+per-session data.  A pointer to this space is given
+when the user callback is called.
 
 
 Description:

@@ -21,7 +21,8 @@ struct libwebsocket;
 extern int libwebsocket_create_server(int port,
 		  int (*callback)(struct libwebsocket *wsi,
 				  enum libwebsocket_callback_reasons reason,
-				  void *in, size_t len), int protocol);
+				  void *user, void *in, size_t len),
+					       int protocol, size_t user_space);
 
 /*
  * IMPORTANT NOTICE!
