@@ -1,0 +1,116 @@
+<h2>libwebsocket_create_server - Create the listening websockets server</h2>
+<i>int</i>
+<b>libwebsocket_create_server</b>
+(<i>int</i> <b>port</b>,
+<i>int (*</i><b>callback</b>) <i>(struct libwebsocket *, 				enum libwebsocket_callback_reasons,  				void *, void *, size_t)</i>,
+<i>int</i> <b>protocol</b>,
+<i>size_t</i> <b>user_area_size</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>port</b>
+<dd>Port to listen on
+<dt><b>callback</b>
+<dd>The callback in user code to perform actual serving
+<dt><b>protocol</b>
+<dd>Which version of the websockets protocol (currently 76)
+<dt><b>user_area_size</b>
+<dd>How much memory to allocate per connection session
+which will be used by the user application to store
+per-session data.  A pointer to this space is given
+when the user callback is called.
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function forks to create the listening socket and takes care
+of all initialization in one step.
+<p>
+The callback function is called for a handful of events including
+http requests coming in, websocket connections becoming
+established, and data arriving; it's also called periodically to allow
+async transmission.
+<p>
+The server created is a simple http server by default; part of the
+websocket standard is upgrading this http connection to a websocket one.
+<p>
+This allows the same server to provide files like scripts and favicon /
+images or whatever over http and dynamic data over websockets all in
+one place; they're all handled in the user callback.
+</blockquote>
+<hr>
+<h2>libwebsocket_get_uri - Return the URI path being requested</h2>
+<i>const char *</i>
+<b>libwebsocket_get_uri</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket instance
+</dl>
+<h3>Description</h3>
+<blockquote>
+The user code can find out the local path being opened from this
+call, it's valid on HTTP or established websocket connections.
+If the client opened the connection with "http://127.0.0.1/xyz/abc.d"
+then this call will return a pointer to "/xyz/abc.d"
+</blockquote>
+<hr>
+<h2>libwebsocket_write - Apply protocol then write data to client</h2>
+<i>int</i>
+<b>libwebsocket_write</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>,
+<i>unsigned char *</i> <b>buf</b>,
+<i>size_t</i> <b>len</b>,
+<i>enum libwebsocket_write_protocol</i> <b>protocol</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket instance (available from user callback)
+<dt><b>buf</b>
+<dd>The data to send.  For data being sent on a websocket
+connection (ie, not default http), this buffer MUST have
+LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE the pointer
+and an additional LWS_SEND_BUFFER_POST_PADDING bytes valid
+in the buffer after (buf + len).  This is so the protocol
+header and trailer data can be added in-situ.
+<dt><b>len</b>
+<dd>Count of the data bytes in the payload starting from buf
+<dt><b>protocol</b>
+<dd>Use LWS_WRITE_HTTP to reply to an http connection, and one
+of LWS_WRITE_BINARY or LWS_WRITE_TEXT to send appropriate
+data on a websockets connection.  Remember to allow the extra
+bytes before and after buf if LWS_WRITE_BINARY or LWS_WRITE_TEXT
+are used.
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function provides the way to issue data back to the client
+for both http and websocket protocols.
+<p>
+In the case of sending using websocket protocol, be sure to allocate
+valid storage before and after buf as explained above.  This scheme
+allows maximum efficiency of sending data and protocol in a single
+packet while not burdening the user code with any protocol knowledge.
+</blockquote>
+<hr>
+<h2>libwebsockets_serve_http_file - Send a file back to the client using http</h2>
+<i>int</i>
+<b>libwebsockets_serve_http_file</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>,
+<i>const char *</i> <b>file</b>,
+<i>const char *</i> <b>content_type</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket instance (available from user callback)
+<dt><b>file</b>
+<dd>The file to issue over http
+<dt><b>content_type</b>
+<dd>The http content type, eg, text/html
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function is intended to be called from the callback in response
+to http requests from the client.  It allows the callback to issue
+local files down the http link in a single step.
+</blockquote>
+<hr>
