@@ -207,7 +207,7 @@ static const unsigned char md5_padding[64] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
 
-void md5(const unsigned char *input, int ilen, unsigned char output[16])
+void libwebsockets_md5(const unsigned char *input, int ilen, unsigned char output[16])
 {
 	struct md5_context ctx;
 	unsigned long last, padn;

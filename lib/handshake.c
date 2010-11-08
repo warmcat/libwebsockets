@@ -21,7 +21,8 @@
 
 #include "private-libwebsockets.h"
 
-void md5(const unsigned char *input, int ilen, unsigned char output[16]);
+void libwebsockets_md5(const unsigned char *input, int ilen,
+						      unsigned char output[16]);
 
 static int interpret_key(const char *key, unsigned int *result)
 {
@@ -191,7 +192,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		 * payload after our headers
 		 */
 
-		md5(sum, 16, (unsigned char *)p);
+		libwebsockets_md5(sum, 16, (unsigned char *)p);
 		p += 16;
 
 		/* it's complete: go ahead and send it */
@@ -201,8 +202,8 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 #ifdef DEBUG
 		fwrite(response, 1,  p - response, stderr);
 #endif
-		n = libwebsocket_write(wsi, (unsigned char *)response, p - response,
-								LWS_WRITE_HTTP);
+		n = libwebsocket_write(wsi, (unsigned char *)response,
+						  p - response, LWS_WRITE_HTTP);
 		if (n < 0) {
 			fprintf(stderr, "ERROR writing to socket");
 			goto bail;
@@ -218,7 +219,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 				
 		if (wsi->callback)
 			wsi->callback(wsi, LWS_CALLBACK_ESTABLISHED,
-						&wsi->user_space[0], NULL, 0);
+						  &wsi->user_space[0], NULL, 0);
 		break;
 
 	case WSI_STATE_ESTABLISHED:

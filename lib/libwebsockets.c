@@ -127,14 +127,14 @@ int libwebsocket_create_server(int port,
 	if (use_ssl)
 		fprintf(stderr, " Compiled with SSL support, using it\n");
 	else
-		fprintf(stderr, " Compiled with SSL support, but not using it\n");
+		fprintf(stderr, " Compiled with SSL support, not using it\n");
 
 #else
 	if (ssl_cert_filepath != NULL && ssl_private_key_filepath != NULL) {
 		fprintf(stderr, " Not compiled for OpenSSl support!\n");
 		return -1;
 	}
-	fprintf(stderr, " Compiled without SSL support, listening unencrypted\n");
+	fprintf(stderr, " Compiled without SSL support, serving unencrypted\n");
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -169,14 +169,17 @@ int libwebsocket_create_server(int port,
 			return -1;
 		}
 		/* set the private key from KeyFile */
-		if (SSL_CTX_use_PrivateKey_file(ssl_ctx, ssl_private_key_filepath,
-		    SSL_FILETYPE_PEM) != 1) {
-			fprintf(stderr, "ssl problem getting key '%s': %s\n", ssl_private_key_filepath, ERR_error_string(ERR_get_error(), ssl_err_buf));
+		if (SSL_CTX_use_PrivateKey_file(ssl_ctx,
+						ssl_private_key_filepath,
+						SSL_FILETYPE_PEM) != 1) {
+			fprintf(stderr, "ssl problem getting key '%s': %s\n",
+						ssl_private_key_filepath,
+				ERR_error_string(ERR_get_error(), ssl_err_buf));
 			return (-1);
 		}
 		/* verify private key */
 		if (!SSL_CTX_check_private_key(ssl_ctx)) {
-			fprintf(stderr, "Private SSL key does not match cert\n");
+			fprintf(stderr, "Private SSL key doesn't match cert\n");
 			return (-1);
 		}
 
@@ -294,29 +297,36 @@ int libwebsocket_create_server(int port,
 #ifdef LWS_OPENSSL_SUPPORT
 			if (use_ssl) {
 
-				wsi[fds_count]->ssl = SSL_new(ssl_ctx);  // get new SSL state with context
+				wsi[fds_count]->ssl = SSL_new(ssl_ctx);
 				if (wsi[fds_count]->ssl == NULL) {
 					fprintf(stderr, "SSL_new failed: %s\n",
-					    ERR_error_string(SSL_get_error(wsi[fds_count]->ssl, 0), NULL));
+					    ERR_error_string(SSL_get_error(
+					        wsi[fds_count]->ssl, 0), NULL));
 					free(wsi[fds_count]);
 					continue;
 				}
 
-				SSL_set_fd(wsi[fds_count]->ssl, fd);    // set SSL socket
+				SSL_set_fd(wsi[fds_count]->ssl, fd);
 
 				n = SSL_accept(wsi[fds_count]->ssl);
 				if (n != 1) {
-					/* browsers seem to probe with various ssl params which fail then retry */
-					debug("SSL_accept failed for socket %u: %s\n",
+					/*
+					 * browsers seem to probe with various
+					 * ssl params which fail then retry
+					 * and succeed
+					 */
+					debug("SSL_accept failed skt %u: %s\n",
 						fd,
-						ERR_error_string(SSL_get_error(wsi[fds_count]->ssl, n),
-						NULL));
+						ERR_error_string(SSL_get_error(
+						wsi[fds_count]->ssl, n), NULL));
 					SSL_free(wsi[fds_count]->ssl);
 					free(wsi[fds_count]);
 					continue;
 				}
-				debug("accepted new SSL conn  port %u on fd=%d SSL ver %s\n",
-						  ntohs(cli_addr.sin_port), fd, SSL_get_version(wsi[fds_count]->ssl));
+				debug("accepted new SSL conn  "
+				      "port %u on fd=%d SSL ver %s\n",
+					ntohs(cli_addr.sin_port), fd,
+					  SSL_get_version(wsi[fds_count]->ssl));
 				
 			} else {
 //			fprintf(stderr, "accepted new conn  port %u on fd=%d\n",
@@ -352,7 +362,8 @@ int libwebsocket_create_server(int port,
 				
 				fprintf(stderr, "Session Socket dead\n");
 
-				libwebsocket_close_and_free_session(wsi[client]);
+				libwebsocket_close_and_free_session(
+								   wsi[client]);
 				goto nuke_this;
 			}
 			
@@ -378,7 +389,8 @@ int libwebsocket_create_server(int port,
 			}
 			if (!n) {
 //				fprintf(stderr, "POLLIN with 0 len waiting\n");
-				libwebsocket_close_and_free_session(wsi[client]);
+				libwebsocket_close_and_free_session(
+								   wsi[client]);
 				goto nuke_this;
 			}
 			
