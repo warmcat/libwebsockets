@@ -1,0 +1,148 @@
+/*
+ * libwebsockets - small server side websockets and web server implementation
+ * 
+ * Copyright (C) 2010 Andy Green <andy@warmcat.com>
+ *
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Lesser General Public
+ *  License as published by the Free Software Foundation:
+ *  version 2.1 of the License.
+ *
+ *  This library is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Lesser General Public License for more details.
+ *
+ *  You should have received a copy of the GNU Lesser General Public
+ *  License along with this library; if not, write to the Free Software
+ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ *  MA  02110-1301  USA
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <signal.h>
+
+#include <sys/types.h> 
+#include <sys/socket.h>
+#include <netinet/in.h>
+
+#include <poll.h>
+#include <sys/mman.h>
+
+#ifdef LWS_OPENSSL_SUPPORT
+#include <openssl/ssl.h>
+#include <openssl/evp.h>
+#include <openssl/err.h>
+#endif
+
+#include "libwebsockets.h"
+
+//#define DEBUG
+
+
+#ifdef DEBUG
+#define debug(format, args...)  \
+      fprintf(stderr, format , ## args)
+#else
+#define debug(format, args...) 
+#endif
+
+#ifdef LWS_OPENSSL_SUPPORT
+extern SSL_CTX *ssl_ctx;
+extern int use_ssl;
+#endif
+
+
+#define MAX_CLIENTS 100
+#define LWS_MAX_HEADER_NAME_LENGTH 64
+#define LWS_MAX_HEADER_LEN 4096
+#define LWS_INITIAL_HDR_ALLOC 256
+#define LWS_ADDITIONAL_HDR_ALLOC 64
+
+
+
+enum lws_connection_states {
+	WSI_STATE_HTTP,
+	WSI_STATE_HTTP_HEADERS,
+	WSI_STATE_DEAD_SOCKET,
+	WSI_STATE_ESTABLISHED
+};
+
+enum lws_token_indexes {
+	WSI_TOKEN_GET_URI,
+	WSI_TOKEN_HOST,
+	WSI_TOKEN_CONNECTION,
+	WSI_TOKEN_KEY1,
+	WSI_TOKEN_KEY2,
+	WSI_TOKEN_PROTOCOL,
+	WSI_TOKEN_UPGRADE,
+	WSI_TOKEN_ORIGIN,
+	WSI_TOKEN_CHALLENGE,
+	
+	/* always last real token index*/
+	WSI_TOKEN_COUNT,
+	/* parser state additions */
+	WSI_TOKEN_NAME_PART,
+	WSI_TOKEN_SKIPPING,
+	WSI_TOKEN_SKIPPING_SAW_CR,
+	WSI_PARSING_COMPLETE
+};
+
+enum lws_rx_parse_state {
+	LWS_RXPS_NEW,
+	
+	LWS_RXPS_SEEN_76_FF,
+	LWS_RXPS_PULLING_76_LENGTH,
+	
+	LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED
+};
+
+
+struct lws_tokens {
+	char * token;
+	int token_len;
+};
+
+
+/*
+ * This is totally opaque to code using the library.  It's exported as a
+ * forward-reference pointer-only declaration; the user can use the pointer with
+ * other APIs to get information out of it.
+ */
+
+struct libwebsocket {
+	int (*callback)(struct libwebsocket *,
+	     enum libwebsocket_callback_reasons reason, void *, void *, size_t);
+
+	enum lws_connection_states state;
+
+	char name_buffer[LWS_MAX_HEADER_NAME_LENGTH];
+	int name_buffer_pos;
+	int current_alloc_len;
+	enum lws_token_indexes parser_state;
+	struct lws_tokens utf8_token[WSI_TOKEN_COUNT];
+	int ietf_spec_revision;
+	
+	int sock;
+
+	enum lws_rx_parse_state lws_rx_parse_state;
+	size_t rx_packet_length;
+	
+#ifdef LWS_OPENSSL_SUPPORT
+	SSL *ssl;
+#endif
+
+	/* last */
+	char user_space[0];
+};
+
+extern void 
+libwebsocket_close_and_free_session(struct libwebsocket *wsi);

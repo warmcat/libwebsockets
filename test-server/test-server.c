@@ -104,7 +104,8 @@ static int websocket_callback(struct libwebsocket * wsi,
 	 */
 	case LWS_CALLBACK_SEND:	
 		n = sprintf(p, "%d", pss->number++);
-		n = libwebsocket_write(wsi, (unsigned char *)p, n, LWS_WRITE_TEXT);
+		n = libwebsocket_write(wsi, (unsigned char *)p, n,
+								LWS_WRITE_TEXT);
 		if (n < 0) {
 			fprintf(stderr, "ERROR writing to socket");
 			exit(1);
@@ -163,8 +164,10 @@ static struct option options[] = {
 int main(int argc, char **argv)
 {
 	int n = 0;
-	const char * cert_path = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
-	const char * key_path = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
+	const char * cert_path =
+			    LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
+	const char * key_path =
+			LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 
 	fprintf(stderr, "libwebsockets test server\n"
 			"Copyright 2010 Andy Green <andy@warmcat.com> "
