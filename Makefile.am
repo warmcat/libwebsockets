@@ -1,0 +1,2 @@
+SUBDIRS=lib test-server
+

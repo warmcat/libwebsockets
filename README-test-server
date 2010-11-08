@@ -1,6 +1,7 @@
 Using test-server as a quickstart
 ---------------------------------
 
+$ ./configure --enable-openssl
 $ make
 $ sudo make install
 $ libwebsockets-test-server
@@ -11,12 +12,27 @@ If you point your browser (eg, Chrome) to
 
   http://127.0.0.1:7681
 
-It will fetch "./test-server/test.html", and then run the
+It will fetch a script in the form of test.html, and then run the
 script in there on the browser to open a websocket connection.
 Incrementing numbers should appear in the browser display.
+
+To test it using SSL/WSS, just run the test server with
+
+$ libwebsockets-test-server --ssl
+
+and use the URL
+
+  https://127.0.0.1:7681
+
+The connection will be entirely encrypted using some generated
+certificates that your browser will not accept, since they are
+not signed by any real Certificate Authority.  Just accept the
+certificates in the browser and the connection will proceed
+in first https and then websocket wss, acting exactly the
+same.
 
 test-server.c is all that is needed to use libwebsockets for
 serving both the script html over http and websockets.
 
-2010-10-31  Andy Green <andy@warmcat.com>
+2010-11-08  Andy Green <andy@warmcat.com>
 
