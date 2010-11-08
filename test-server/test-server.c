@@ -17,6 +17,7 @@
 #define LOCAL_RESOURCE_PATH "/usr/share/libwebsockets-test-server"
 static int port = 7681;
 static int ws_protocol = 76;
+static int use_ssl = 0;
 
 struct per_session_data {
 	int number;
@@ -90,7 +91,7 @@ static int websocket_callback(struct libwebsocket * wsi,
 	 */
 	case LWS_CALLBACK_SEND:	
 		n = sprintf(p, "%d", pss->number++);
-		n = libwebsocket_write(wsi, (unsigned char *)p, n, 0);
+		n = libwebsocket_write(wsi, (unsigned char *)p, n, LWS_WRITE_TEXT);
 		if (n < 0) {
 			fprintf(stderr, "ERROR writing to socket");
 			exit(1);
@@ -116,6 +117,9 @@ static int websocket_callback(struct libwebsocket * wsi,
 	case LWS_CALLBACK_HTTP:
 
 		uri = libwebsocket_get_uri(wsi);
+
+		fprintf(stderr, "serving HTTP URI %s\n", uri);
+		
 		if (uri && strcmp(uri, "/favicon.ico") == 0) {
 			if (libwebsockets_serve_http_file(wsi,
 			     LOCAL_RESOURCE_PATH"/favicon.ico", "image/x-icon"))
@@ -139,12 +143,15 @@ static struct option options[] = {
 	{ "help", 	no_argument, NULL, 'h' },
 	{ "port", 	required_argument, NULL, 'p' },
 	{ "protocol", 	required_argument, NULL, 'r' },
+	{ "ssl", 	no_argument, NULL, 's' },
 	{ NULL, 0, 0, 0 }
 };
 
 int main(int argc, char **argv)
 {
 	int n = 0;
+	const char * cert_path = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
+	const char * key_path = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 
 	fprintf(stderr, "libwebsockets test server\n"
 			"Copyright 2010 Andy Green <andy@warmcat.com> "
@@ -155,6 +162,9 @@ int main(int argc, char **argv)
 		if (n < 0)
 			continue;
 		switch (n) {
+		case 's':
+			use_ssl = 1;
+			break;
 		case 'p':
 			port = atoi(optarg);
 			break;
@@ -167,9 +177,13 @@ int main(int argc, char **argv)
 			exit(1);
 		}
 	}
+
+	if (!use_ssl)
+		cert_path = key_path = NULL;
 	
 	if (libwebsocket_create_server(port, websocket_callback, ws_protocol,
-					 sizeof(struct per_session_data)) < 0) {
+					 sizeof(struct per_session_data),
+					     cert_path, key_path, -1, -1) < 0) {
 		fprintf(stderr, "libwebsocket init failed\n");
 		return -1;
 	}

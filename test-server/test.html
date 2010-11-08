@@ -8,8 +8,19 @@
 <body>
 <script>
 	var pos = 0;
+	var websocket_ads;
 
-    var socket = new WebSocket("ws://127.0.0.1:7681");  
+	/*
+	 * We open the websocket encrypted if this page came on an
+	 * https:// url itself, otherwise unencrypted
+	 */
+
+	if (document.URL.substring(0, 5) == "https")
+		websocket_ads = "wss://127.0.0.1:7681";
+	else
+		websocket_ads = "ws://127.0.0.1:7681"
+	
+    var socket = new WebSocket(websocket_ads);  
 
 	try {
 //        alert('<p class="event">Socket Status: '+socket.readyState);  

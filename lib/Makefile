@@ -3,7 +3,7 @@ export LDIR=$(shell if [ -z "gcc --print-search-dirs | grep libraries | sed s/\\
 all:
 	gcc $(CFLAGS) libwebsockets.c
 	gcc $(CFLAGS) md5.c
-	gcc libwebsockets.o md5.o --shared -o libwebsockets.so
+	gcc $(LFLAGS) libwebsockets.o md5.o --shared -o libwebsockets.so
 	
 clean:
 	rm -f *.o *.so

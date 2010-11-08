@@ -1,4 +1,5 @@
-export CFLAGS= -Wall -Werror -rdynamic -fPIC -c
+export CFLAGS= -Wall -Werror -rdynamic -fPIC -c -DLWS_OPENSSL_SUPPORT
+export LFLAGS= -lssl
 all:
 	make -C lib
 	make -C test-server
@@ -14,4 +15,6 @@ install:
 	make -C lib install
 	make -C test-server install
 
+gencert:
+	make -C test-server gencert
 	
