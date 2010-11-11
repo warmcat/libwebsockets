@@ -2,10 +2,23 @@
 <html lang="en">
 <head>
  <meta charset=utf-8 />
- <title>Minimal Websocket message sender</title>
+ <title>Minimal Websocket test app</title>
 </head>
 
 <body>
+<h2>libwebsockets "dumb-increment-protocol" test applet</h2>
+The incrementing number is coming from the server.
+Click the button to send the server a websocket message to
+reset the number.<br><br>
+
+<table>
+	<tr>
+		<td align=center><input type=button id=offset value="Reset counter" onclick="reset();" ></td>
+		<td width=100 align=center><div id=number> </div></td>
+		<td id=statustd align=center><div id=wsstatus>Not initialized</div></td>
+	</tr>
+</table>
+
 <script>
 	var pos = 0;
 	var websocket_ads;
@@ -20,30 +33,30 @@
 	else
 		websocket_ads = "ws://127.0.0.1:7681"
 	
-    var socket = new WebSocket(websocket_ads, "dumb-increment-protocol");  
+	var socket = new WebSocket(websocket_ads, "dumb-increment-protocol");  
 
 	try {
-//        alert('<p class="event">Socket Status: '+socket.readyState);  
-  
-        socket.onopen = function(){  
- //            alert('<p class="event">Socket Status: '+socket.readyState+' (open)');  
-        }  
-  
-        socket.onmessage = got_packet;
-  
-        socket.onclose = function(){  
-             alert('<p class="event">Socket Status:  (Closed)');  
-        }
-          } catch(exception){  
-             alert('<p>Error'+exception);  
-          }
-	
-function got_packet(msg){
+		socket.onopen = function() {
+			statustd.style.backgroundColor = "#40ff40";
+			wsstatus.textContent = " websocket connection opened ";
+		} 
 
-//	alert('got packet' + msg.data);
-	document.body.textContent = msg.data + "\n";
-	
-}  
+		socket.onmessage =function got_packet(msg) {
+			number.textContent = msg.data + "\n";
+		} 
+
+		socket.onclose = function(){
+			statustd.style.backgroundColor = "#ff4040";
+			wsstatus.textContent = " websocket connection closed ";
+		}
+	} catch(exception) {
+		alert('<p>Error'+exception);  
+	}
+
+function reset() {
+	socket.send("reset\n");
+}
+
 </script>
 
 </body>

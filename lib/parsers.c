@@ -248,11 +248,12 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 {
 	int n;
 
+#ifdef DEBUG
 	fprintf(stderr, "received %d byte packet\n", (int)len);
 	for (n = 0; n < len; n++)
 		fprintf(stderr, "%02X ", buf[n]);
 	fprintf(stderr, "\n");
-
+#endif
 	/* let the rx protocol state machine have as much as it needs */
 	
 	n = 0;

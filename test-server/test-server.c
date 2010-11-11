@@ -126,6 +126,8 @@ static int websocket_callback(struct libwebsocket * wsi,
 	 */
 	case LWS_CALLBACK_RECEIVE:
 		fprintf(stderr, "Received %d bytes payload\n", (int)len);
+		if (strcmp(in, "reset\n") == 0)
+			pss->number = 0;
 		break;
 
 	/*
