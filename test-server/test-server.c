@@ -170,8 +170,8 @@ int main(int argc, char **argv)
 			LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 
 	fprintf(stderr, "libwebsockets test server\n"
-			"Copyright 2010 Andy Green <andy@warmcat.com> "
-						       "licensed under GPL2\n");
+			"(C) Copyright 2010 Andy Green <andy@warmcat.com> "
+						    "licensed under LGPL2.1\n");
 	
 	while (n >= 0) {
 		n = getopt_long(argc, argv, "hp:r:", options, NULL);

@@ -210,6 +210,29 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		case 0:
 			break;
 		}
+
+		if (c == 0) {
+			wsi->lws_rx_parse_state = LWS_RXPS_EAT_UNTIL_76_FF;
+			wsi->rx_user_buffer_head = 0;
+		}
+		break;
+	case LWS_RXPS_EAT_UNTIL_76_FF:
+		if (c == 0xff) {
+			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+			goto issue;
+		}
+		wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
+					      (wsi->rx_user_buffer_head++)] = c;
+
+		if (wsi->rx_user_buffer_head != MAX_USER_RX_BUFFER)
+			break;
+issue:
+		if (wsi->callback)
+			wsi->callback(wsi, LWS_CALLBACK_RECEIVE,
+			  &wsi->user_space[0],
+			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+			  wsi->rx_user_buffer_head);
+		wsi->rx_user_buffer_head = 0;
 		break;
 	case LWS_RXPS_SEEN_76_FF:
 		if (c)
@@ -254,10 +277,6 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 			     LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED && n < len)
 		if (libwebsocket_rx_sm(wsi, buf[n++]) < 0)
 			return -1;
-		
-	if (n != len && wsi->callback)
-		wsi->callback(wsi, LWS_CALLBACK_RECEIVE, &wsi->user_space[0],
-							      &buf[n], len - n);
 	
 	return -0;
 }

@@ -1,2 +1,3 @@
-SUBDIRS=lib test-server
+SUBDIRS=lib test-server 
+#communal-server
 

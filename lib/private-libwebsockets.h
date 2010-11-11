@@ -66,7 +66,7 @@ extern int use_ssl;
 #define LWS_MAX_HEADER_LEN 4096
 #define LWS_INITIAL_HDR_ALLOC 256
 #define LWS_ADDITIONAL_HDR_ALLOC 64
-
+#define MAX_USER_RX_BUFFER 512
 
 
 enum lws_connection_states {
@@ -101,6 +101,7 @@ enum lws_rx_parse_state {
 	
 	LWS_RXPS_SEEN_76_FF,
 	LWS_RXPS_PULLING_76_LENGTH,
+	LWS_RXPS_EAT_UNTIL_76_FF,
 	
 	LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED
 };
@@ -130,7 +131,10 @@ struct libwebsocket {
 	enum lws_token_indexes parser_state;
 	struct lws_tokens utf8_token[WSI_TOKEN_COUNT];
 	int ietf_spec_revision;
-	
+	char rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING + MAX_USER_RX_BUFFER +
+						  LWS_SEND_BUFFER_POST_PADDING];
+	int rx_user_buffer_head;
+
 	int sock;
 
 	enum lws_rx_parse_state lws_rx_parse_state;
