@@ -33,36 +33,6 @@ const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
 	{ "\x0d\x0a", 2 },
 };
 
-/**
- * libwebsocket_get_uri() - Return the URI path being requested
- * @wsi:	Websocket instance
- * 
- * 	The user code can find out the local path being opened from this
- * 	call, it's valid on HTTP or established websocket connections.
- * 	If the client opened the connection with "http://127.0.0.1/xyz/abc.d"
- * 	then this call will return a pointer to "/xyz/abc.d"
- */
-
-const char * libwebsocket_get_uri(struct libwebsocket *wsi)
-{
-	return wsi->utf8_token[WSI_TOKEN_GET_URI].token;
-}
-
-/**
- * libwebsocket_get_protocol() - Return the list of protocols being requested
- * @wsi:	Websocket instance
- * 
- * 	The user code can find out which protocols the client is asking to
- * 	work with by calling this.  It may return NULL if there was no
- * 	protocol header specified.
- */
-
-const char * libwebsocket_get_protocol(struct libwebsocket *wsi)
-{
-	return wsi->utf8_token[WSI_TOKEN_PROTOCOL].token;
-}
-
-
 int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;

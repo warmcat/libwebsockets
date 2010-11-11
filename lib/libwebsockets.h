@@ -79,11 +79,6 @@ extern int libwebsocket_create_server(int port,
 extern int
 libwebsocket_write(struct libwebsocket *, unsigned char *buf, size_t len,
 				     enum libwebsocket_write_protocol protocol);
-extern const char *
-libwebsocket_get_uri(struct libwebsocket *wsi);
-
-extern const char *
-libwebsocket_get_protocol(struct libwebsocket *wsi);
 
 extern int
 libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
