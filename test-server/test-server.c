@@ -55,21 +55,32 @@ struct per_session_data {
  * 	LWS_CALLBACK_ESTABLISHED reason.
  * 
  * 	LWS_CALLBACK_ESTABLISHED:  after successful websocket handshake
+ * 
  * 	LWS_CALLBACK_CLOSED: when the websocket session ends
+ *
  * 	LWS_CALLBACK_SEND: opportunity to send to client (you would use
  * 				libwebsocket_write() taking care about the
  * 				special buffer requirements
  * 	LWS_CALLBACK_RECEIVE: data has appeared for the server, it can be
- * 				found at *in and is len bytes long
- * 	LWS_CALLBACK_HTTP: an http request has come from a client that is not
+ *				found at *in and is len bytes long
+ *
+ *  	LWS_CALLBACK_HTTP: an http request has come from a client that is not
  * 				asking to upgrade the connection to a websocket
  * 				one.  This is a chance to serve http content,
  * 				for example, to send a script to the client
  * 				which will then open the websockets connection.
- * 				libwebsocket_get_uri() lets you find out the
- * 				URI path requested and 
+ * 				@in points to the URI path requested and 
  * 				libwebsockets_serve_http_file() makes it very
  * 				simple to send back a file to the client.
+ *
+ * 	LWS_CALLBACK_PROTOCOL_FILTER: before the confirmation handshake is sent
+ * 				the user callback is given a chance to confirm
+ * 				it's OK with the protocol that was requested
+ * 				from the client.  The protocol string (which
+ * 				may be NULL if no protocol header was sent)
+ * 				can be found at parameter @in.  Return 0 from
+ * 				the callback to allow the connection or nonzero
+ * 				to abort the connection.
  */
 
 static int websocket_callback(struct libwebsocket * wsi,
@@ -80,7 +91,6 @@ static int websocket_callback(struct libwebsocket * wsi,
 	char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
-	const char *uri;
 	struct per_session_data * pss = user;
 	
 	switch (reason) {
@@ -130,11 +140,9 @@ static int websocket_callback(struct libwebsocket * wsi,
 		 
 	case LWS_CALLBACK_HTTP:
 
-		uri = libwebsocket_get_uri(wsi);
-
-		fprintf(stderr, "serving HTTP URI %s\n", uri);
+		fprintf(stderr, "serving HTTP URI %s\n", in);
 		
-		if (uri && strcmp(uri, "/favicon.ico") == 0) {
+		if (in && strcmp(in, "/favicon.ico") == 0) {
 			if (libwebsockets_serve_http_file(wsi,
 			     LOCAL_RESOURCE_PATH"/favicon.ico", "image/x-icon"))
 				fprintf(stderr, "Failed to send favicon\n");
@@ -146,8 +154,23 @@ static int websocket_callback(struct libwebsocket * wsi,
 		if (libwebsockets_serve_http_file(wsi,
 				  LOCAL_RESOURCE_PATH"/test.html", "text/html"))
 			fprintf(stderr, "Failed to send HTTP file\n");
-
 		break;
+
+	/*
+	 * This is our chance to choose if we support one of the requested
+	 * protocols or not.  in points to the protocol string.  Nonzero return
+	 * aborts the connection handshake
+	 */
+
+	case LWS_CALLBACK_PROTOCOL_FILTER:
+		if (in == NULL) {
+			fprintf(stderr, "Client did not request protocol\n");
+			/* accept it */
+			return 0;
+		}
+		fprintf(stderr, "Client requested protocol '%s'\n", in);
+		/* accept it */
+		return 0;
 	}
 
 	return 0;

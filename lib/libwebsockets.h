@@ -28,7 +28,8 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLOSED,
 	LWS_CALLBACK_SEND,
 	LWS_CALLBACK_RECEIVE,
-	LWS_CALLBACK_HTTP
+	LWS_CALLBACK_HTTP,
+	LWS_CALLBACK_PROTOCOL_FILTER,
 };
 
 enum libwebsocket_write_protocol {
@@ -80,6 +81,9 @@ libwebsocket_write(struct libwebsocket *, unsigned char *buf, size_t len,
 				     enum libwebsocket_write_protocol protocol);
 extern const char *
 libwebsocket_get_uri(struct libwebsocket *wsi);
+
+extern const char *
+libwebsocket_get_protocol(struct libwebsocket *wsi);
 
 extern int
 libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,

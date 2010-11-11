@@ -97,7 +97,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 			if (wsi->callback)
 				(wsi->callback)(wsi, LWS_CALLBACK_HTTP,
 							&wsi->user_space[0],
-								       NULL, 0);
+				   wsi->utf8_token[WSI_TOKEN_GET_URI].token, 0);
 			wsi->state = WSI_STATE_HTTP;
 			return 0;
 		}
@@ -111,6 +111,14 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 				     !wsi->utf8_token[WSI_TOKEN_KEY2].token_len)
 			/* completed header processing, but missing some bits */
 			goto bail;
+
+		/* Make sure user side is happy about protocol */
+
+		if (wsi->callback)
+			wsi->callback(wsi, LWS_CALLBACK_PROTOCOL_FILTER,
+				      &wsi->user_space[0],
+				      wsi->utf8_token[WSI_TOKEN_PROTOCOL].token,
+				      0);
 		
 		/* create the response packet */
 		

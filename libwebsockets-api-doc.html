@@ -69,6 +69,22 @@ If the client opened the connection with "http://127.0.0.1/xyz/abc.d"
 then this call will return a pointer to "/xyz/abc.d"
 </blockquote>
 <hr>
+<h2>libwebsocket_get_protocol - Return the list of protocols being requested</h2>
+<i>const char *</i>
+<b>libwebsocket_get_protocol</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket instance
+</dl>
+<h3>Description</h3>
+<blockquote>
+The user code can find out which protocols the client is asking to
+work with by calling this.  It may return NULL if there was no
+protocol header specified.
+</blockquote>
+<hr>
 <h2>libwebsocket_write - Apply protocol then write data to client</h2>
 <i>int</i>
 <b>libwebsocket_write</b>

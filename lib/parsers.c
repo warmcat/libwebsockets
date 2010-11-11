@@ -45,10 +45,21 @@ const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
 
 const char * libwebsocket_get_uri(struct libwebsocket *wsi)
 {
-	if (wsi->utf8_token[WSI_TOKEN_GET_URI].token)
-		return wsi->utf8_token[WSI_TOKEN_GET_URI].token;
-	
-	return NULL;
+	return wsi->utf8_token[WSI_TOKEN_GET_URI].token;
+}
+
+/**
+ * libwebsocket_get_protocol() - Return the list of protocols being requested
+ * @wsi:	Websocket instance
+ * 
+ * 	The user code can find out which protocols the client is asking to
+ * 	work with by calling this.  It may return NULL if there was no
+ * 	protocol header specified.
+ */
+
+const char * libwebsocket_get_protocol(struct libwebsocket *wsi)
+{
+	return wsi->utf8_token[WSI_TOKEN_PROTOCOL].token;
 }
 
 
