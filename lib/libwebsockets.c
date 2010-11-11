@@ -69,7 +69,6 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
  * libwebsocket_create_server() - Create the listening websockets server
  * @port:	Port to listen on
  * @callback:	The callback in user code to perform actual serving
- * @protocol:	Which version of the websockets protocol (currently 76)
  * @user_area_size:	How much memory to allocate per connection session
  * 			which will be used by the user application to store
  * 			per-session data.  A pointer to this space is given
@@ -99,13 +98,13 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
  */
 
 int libwebsocket_create_server(int port,
-		int (*callback)(struct libwebsocket *,
-				enum libwebsocket_callback_reasons, 
-				void *, void *, size_t),
-					int protocol, size_t user_area_size,
-				const char * ssl_cert_filepath,
-				const char * ssl_private_key_filepath,
-				int gid, int uid)
+			       int (*callback)(struct libwebsocket *,
+					enum libwebsocket_callback_reasons, 
+					void *, void *, size_t),
+			       size_t user_area_size,
+			       const char * ssl_cert_filepath,
+			       const char * ssl_private_key_filepath,
+			       int gid, int uid)
 {
 	int n;
 	int client;
@@ -186,20 +185,6 @@ int libwebsocket_create_server(int port,
 		/* SSL is happy and has a cert it's content with */
 	}
 #endif
-
-	/* sanity check */
-
-	switch (protocol) {
-	case 0:
-	case 2:
-	case 76:
-		fprintf(stderr, " Using protocol v%d\n", protocol);
-		break;
-	default:
-		fprintf(stderr, "protocol %d not supported (try 0 2 or 76)\n",
-								      protocol);
-		return -1;
-	}
 	
 	if (!callback) {
 		fprintf(stderr, "callback is not optional!\n");
@@ -346,7 +331,12 @@ int libwebsocket_create_server(int port,
 			}
 
 			wsi[fds_count]->callback = callback;
-			wsi[fds_count]->ietf_spec_revision = protocol;
+			/*
+			 * Default protocol is 76
+			 * After 76, there's a header specified to inform which
+			 * draft the client wants
+			 */
+			wsi[fds_count]->ietf_spec_revision = 76;
 
 			fds[fds_count].events = POLLIN;
 			fds[fds_count++].fd = fd;

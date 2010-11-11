@@ -44,7 +44,7 @@ extern int libwebsocket_create_server(int port,
 		  int (*callback)(struct libwebsocket *wsi,
 				  enum libwebsocket_callback_reasons reason,
 				  void *user, void *in, size_t len),
-					       int protocol, size_t user_space,
+					       size_t user_space,
 					       const char * ssl_cert_filepath,
 					const char * ssl_private_key_filepath,
 							      int gid, int uid);

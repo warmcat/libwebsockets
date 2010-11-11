@@ -30,6 +30,7 @@ const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
 	{ "Sec-WebSocket-Protocol:", 23 },
 	{ "Upgrade:", 8 },
 	{ "Origin:", 7 },
+	{ "Sec-WebSocket-Draft:", 20 },
 	{ "\x0d\x0a", 2 },
 };
 
@@ -46,6 +47,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_PROTOCOL:
 	case WSI_TOKEN_UPGRADE:
 	case WSI_TOKEN_ORIGIN:
+	case WSI_TOKEN_DRAFT:
 	case WSI_TOKEN_CHALLENGE:
 	
 		debug("WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);

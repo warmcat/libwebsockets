@@ -112,6 +112,24 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 			/* completed header processing, but missing some bits */
 			goto bail;
 
+		/* are we happy about the draft version client side wants? */
+
+		if (wsi->utf8_token[WSI_TOKEN_DRAFT].token) {
+			wsi->ietf_spec_revision =
+				   atoi(wsi->utf8_token[WSI_TOKEN_DRAFT].token);
+			switch (wsi->ietf_spec_revision) {
+			case 76:
+				break;
+			case 2:
+				break;
+			default:
+				fprintf(stderr, "Rejecting handshake on seeing "
+					"unsupported draft request %d\n",
+						       wsi->ietf_spec_revision);
+				goto bail;
+			}
+		}
+
 		/* Make sure user side is happy about protocol */
 
 		if (wsi->callback)

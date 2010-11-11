@@ -29,7 +29,6 @@
 
 #define LOCAL_RESOURCE_PATH "/usr/share/libwebsockets-test-server"
 static int port = 7681;
-static int ws_protocol = 76;
 static int use_ssl = 0;
 
 struct per_session_data {
@@ -207,9 +206,6 @@ int main(int argc, char **argv)
 		case 'p':
 			port = atoi(optarg);
 			break;
-		case 'r':
-			ws_protocol = atoi(optarg);
-			break;
 		case 'h':
 			fprintf(stderr, "Usage: test-server "
 					     "[--port=<p>] [--protocol=<v>]\n");
@@ -220,7 +216,7 @@ int main(int argc, char **argv)
 	if (!use_ssl)
 		cert_path = key_path = NULL;
 	
-	if (libwebsocket_create_server(port, websocket_callback, ws_protocol,
+	if (libwebsocket_create_server(port, websocket_callback,
 					 sizeof(struct per_session_data),
 					     cert_path, key_path, -1, -1) < 0) {
 		fprintf(stderr, "libwebsocket init failed\n");

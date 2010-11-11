@@ -85,6 +85,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_PROTOCOL,
 	WSI_TOKEN_UPGRADE,
 	WSI_TOKEN_ORIGIN,
+	WSI_TOKEN_DRAFT,
 	WSI_TOKEN_CHALLENGE,
 	
 	/* always last real token index*/

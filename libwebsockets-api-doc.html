@@ -2,8 +2,7 @@
 <i>int</i>
 <b>libwebsocket_create_server</b>
 (<i>int</i> <b>port</b>,
-<i>int (*</i><b>callback</b>) <i>(struct libwebsocket *, 				enum libwebsocket_callback_reasons,  				void *, void *, size_t)</i>,
-<i>int</i> <b>protocol</b>,
+<i>int (*</i><b>callback</b>) <i>(struct libwebsocket *, 					enum libwebsocket_callback_reasons,  					void *, void *, size_t)</i>,
 <i>size_t</i> <b>user_area_size</b>,
 <i>const char *</i> <b>ssl_cert_filepath</b>,
 <i>const char *</i> <b>ssl_private_key_filepath</b>,
@@ -15,8 +14,6 @@
 <dd>Port to listen on
 <dt><b>callback</b>
 <dd>The callback in user code to perform actual serving
-<dt><b>protocol</b>
-<dd>Which version of the websockets protocol (currently 76)
 <dt><b>user_area_size</b>
 <dd>How much memory to allocate per connection session
 which will be used by the user application to store
@@ -50,39 +47,6 @@ websocket standard is upgrading this http connection to a websocket one.
 This allows the same server to provide files like scripts and favicon /
 images or whatever over http and dynamic data over websockets all in
 one place; they're all handled in the user callback.
-</blockquote>
-<hr>
-<h2>libwebsocket_get_uri - Return the URI path being requested</h2>
-<i>const char *</i>
-<b>libwebsocket_get_uri</b>
-(<i>struct libwebsocket *</i> <b>wsi</b>)
-<h3>Arguments</h3>
-<dl>
-<dt><b>wsi</b>
-<dd>Websocket instance
-</dl>
-<h3>Description</h3>
-<blockquote>
-The user code can find out the local path being opened from this
-call, it's valid on HTTP or established websocket connections.
-If the client opened the connection with "http://127.0.0.1/xyz/abc.d"
-then this call will return a pointer to "/xyz/abc.d"
-</blockquote>
-<hr>
-<h2>libwebsocket_get_protocol - Return the list of protocols being requested</h2>
-<i>const char *</i>
-<b>libwebsocket_get_protocol</b>
-(<i>struct libwebsocket *</i> <b>wsi</b>)
-<h3>Arguments</h3>
-<dl>
-<dt><b>wsi</b>
-<dd>Websocket instance
-</dl>
-<h3>Description</h3>
-<blockquote>
-The user code can find out which protocols the client is asking to
-work with by calling this.  It may return NULL if there was no
-protocol header specified.
 </blockquote>
 <hr>
 <h2>libwebsocket_write - Apply protocol then write data to client</h2>
