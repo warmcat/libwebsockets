@@ -164,12 +164,16 @@ static int websocket_callback(struct libwebsocket * wsi,
 	case LWS_CALLBACK_PROTOCOL_FILTER:
 		if (in == NULL) {
 			fprintf(stderr, "Client did not request protocol\n");
-			/* accept it */
-			return 0;
+			/* reject it */
+			return 1;
 		}
 		fprintf(stderr, "Client requested protocol '%s'\n", in);
-		/* accept it */
-		return 0;
+		if (strcmp(in, "dumb-increment-protocol") == 0)
+			/* accept it */
+			return 0;
+
+		/* reject the connection */
+		return 1;
 	}
 
 	return 0;

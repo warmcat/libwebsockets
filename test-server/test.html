@@ -20,7 +20,7 @@
 	else
 		websocket_ads = "ws://127.0.0.1:7681"
 	
-    var socket = new WebSocket(websocket_ads);  
+    var socket = new WebSocket(websocket_ads, "dumb-increment-protocol");  
 
 	try {
 //        alert('<p class="event">Socket Status: '+socket.readyState);  
