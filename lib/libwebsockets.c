@@ -280,7 +280,7 @@ int libwebsocket_create_server(int port,
 
  		n = poll(fds, fds_count, 50);
 		if (n < 0 || fds[0].revents & (POLLERR | POLLHUP)) {
-//			fprintf(stderr, "Listen Socket dead\n");
+			fprintf(stderr, "Listen Socket dead\n");
 			goto fatal;
 		}
 		if (n == 0) /* poll timeout */
@@ -379,6 +379,13 @@ int libwebsocket_create_server(int port,
 
 			fds[fds_count].events = POLLIN;
 			fds[fds_count++].fd = fd;
+
+			/*
+			 * make sure NO events are seen yet on this new socket
+			 * (otherwise we inherit old fds[client].revents from
+			 * previous socket there and die mysteriously! )
+			 */
+			fds[client].revents = 0;
 		}
 		
 		/* check for activity on client sockets */
@@ -389,7 +396,8 @@ int libwebsocket_create_server(int port,
 			
 			if (fds[client].revents & (POLLERR | POLLHUP)) {
 				
-				fprintf(stderr, "Session Socket dead\n");
+				debug("Session Socket %d %p (fd=%d) dead\n",
+					      client, wsi[client], fds[client]);
 
 				libwebsocket_close_and_free_session(
 								   wsi[client]);
@@ -429,12 +437,16 @@ int libwebsocket_create_server(int port,
 			 * socket handle and wsi from our service list
 			 */
 nuke_this:
-			for (n = client; n < fds_count - 1; n++) {
+
+			debug("nuking wsi %p, fsd_count = %d\n",
+						   wsi[client], fds_count - 1);
+
+			fds_count--;
+			for (n = client; n < fds_count; n++) {
 				fds[n] = fds[n + 1];
 				wsi[n] = wsi[n + 1];
 			}
-			fds_count--;
-			client--;
+			break;
 		}
 
 poll_out:		

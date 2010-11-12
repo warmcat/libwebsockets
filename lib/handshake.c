@@ -169,7 +169,6 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 							   "conn user space\n");
 				goto bail;
 			}
-			fprintf(stderr, "user allocated %d at %p for wsi %p\n", wsi->protocol->per_session_data_size, wsi->user_space, wsi);
 		} else
 			wsi->user_space = NULL;
 		
