@@ -121,8 +121,7 @@ struct lws_tokens {
  */
 
 struct libwebsocket {
-	int (*callback)(struct libwebsocket *,
-	     enum libwebsocket_callback_reasons reason, void *, void *, size_t);
+	const struct libwebsocket_protocols *protocol;
 
 	enum lws_connection_states state;
 
@@ -145,8 +144,7 @@ struct libwebsocket {
 	SSL *ssl;
 #endif
 
-	/* last */
-	char user_space[0];
+	void *user_space;
 };
 
 extern void 

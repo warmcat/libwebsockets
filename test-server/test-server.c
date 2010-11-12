@@ -31,116 +31,14 @@
 static int port = 7681;
 static int use_ssl = 0;
 
-struct per_session_data {
-	int number;
-};
+/* this protocol server (always the first one) just knows how to do HTTP */
 
- /**
- * libwebsocket_callback() - User server actions
- * @wsi:	Opaque websocket instance pointer
- * @reason:	The reason for the call
- * @user:	Pointer to per-session user data allocated by library
- * @in:		Pointer used for some callback reasons
- * @len:	Length set for some callback reasons
- * 
- * 	This callback is the way the user controls what is served.  All the
- * 	protocol detail is hidden and handled by the library.
- * 
- * 	For each connection / session there is user data allocated that is
- * 	pointed to by "user".  You set the size of this user data area when
- * 	the library is initialized with libwebsocket_create_server.
- * 
- * 	You get an opportunity to initialize user data when called back with
- * 	LWS_CALLBACK_ESTABLISHED reason.
- * 
- * 	LWS_CALLBACK_ESTABLISHED:  after successful websocket handshake
- * 
- * 	LWS_CALLBACK_CLOSED: when the websocket session ends
- *
- * 	LWS_CALLBACK_SEND: opportunity to send to client (you would use
- * 				libwebsocket_write() taking care about the
- * 				special buffer requirements
- * 	LWS_CALLBACK_RECEIVE: data has appeared for the server, it can be
- *				found at *in and is len bytes long
- *
- *  	LWS_CALLBACK_HTTP: an http request has come from a client that is not
- * 				asking to upgrade the connection to a websocket
- * 				one.  This is a chance to serve http content,
- * 				for example, to send a script to the client
- * 				which will then open the websockets connection.
- * 				@in points to the URI path requested and 
- * 				libwebsockets_serve_http_file() makes it very
- * 				simple to send back a file to the client.
- *
- * 	LWS_CALLBACK_PROTOCOL_FILTER: before the confirmation handshake is sent
- * 				the user callback is given a chance to confirm
- * 				it's OK with the protocol that was requested
- * 				from the client.  The protocol string (which
- * 				may be NULL if no protocol header was sent)
- * 				can be found at parameter @in.  Return 0 from
- * 				the callback to allow the connection or nonzero
- * 				to abort the connection.
- */
-
-static int websocket_callback(struct libwebsocket * wsi,
+static int callback_http(struct libwebsocket * wsi,
 		enum libwebsocket_callback_reasons reason, void * user,
 							   void *in, size_t len)
 {
-	int n;
-	char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
-						  LWS_SEND_BUFFER_POST_PADDING];
-	char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
-	struct per_session_data * pss = user;
-	
 	switch (reason) {
-	/*
-	 * Websockets session handshake completed and is established
-	 */
-	case LWS_CALLBACK_ESTABLISHED:
-		fprintf(stderr, "Websocket connection established\n");
-		pss->number = 0;
-		break;
-
-	/*
-	 * Websockets session is closed
-	 */
-	case LWS_CALLBACK_CLOSED:
-		fprintf(stderr, "Websocket connection closed\n");
-		break;
-
-	/*
-	 * Opportunity for us to send something on the connection
-	 */
-	case LWS_CALLBACK_SEND:	
-		n = sprintf(p, "%d", pss->number++);
-		n = libwebsocket_write(wsi, (unsigned char *)p, n,
-								LWS_WRITE_TEXT);
-		if (n < 0) {
-			fprintf(stderr, "ERROR writing to socket");
-			exit(1);
-		}
-		break;
-	/*
-	 * Something has arrived for us on the connection, it's len bytes long
-	 * and is available at *in
-	 */
-	case LWS_CALLBACK_RECEIVE:
-		fprintf(stderr, "Received %d bytes payload\n", (int)len);
-		if (strcmp(in, "reset\n") == 0)
-			pss->number = 0;
-		break;
-
-	/*
-	 * The client has asked us for something in normal HTTP mode,
-	 * not websockets mode.  Normally it means we want to send
-	 * our script / html to the client, and when that script runs
-	 * it will start up separate websocket connections.
-	 * 
-	 * Interpret the URI string to figure out what is needed to send
-	 */
-		 
 	case LWS_CALLBACK_HTTP:
-
 		fprintf(stderr, "serving HTTP URI %s\n", in);
 		
 		if (in && strcmp(in, "/favicon.ico") == 0) {
@@ -157,34 +55,82 @@ static int websocket_callback(struct libwebsocket * wsi,
 			fprintf(stderr, "Failed to send HTTP file\n");
 		break;
 
-	/*
-	 * This is our chance to choose if we support one of the requested
-	 * protocols or not.  in points to the protocol string.  Nonzero return
-	 * aborts the connection handshake
-	 */
-
-	case LWS_CALLBACK_PROTOCOL_FILTER:
-		if (in == NULL) {
-			fprintf(stderr, "Client did not request protocol\n");
-			/* reject it */
-			return 1;
-		}
-		fprintf(stderr, "Client requested protocol '%s'\n", in);
-		if (strcmp(in, "dumb-increment-protocol") == 0)
-			/* accept it */
-			return 0;
-
-		/* reject the connection */
-		return 1;
+	default:
+		break;
 	}
 
 	return 0;
 }
 
+/* dumb_increment protocol */
+
+struct per_session_data__dumb_increment {
+	int number;
+};
+
+static int
+callback_dumb_increment(struct libwebsocket * wsi,
+			enum libwebsocket_callback_reasons reason,
+			void * user, void *in, size_t len)
+{
+	int n;
+	char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
+						  LWS_SEND_BUFFER_POST_PADDING];
+	unsigned char *p = (unsigned char *)&buf[LWS_SEND_BUFFER_PRE_PADDING];
+	struct per_session_data__dumb_increment * pss = user;
+	
+	switch (reason) {
+
+	case LWS_CALLBACK_ESTABLISHED:
+		pss->number = 0;
+		break;
+
+	case LWS_CALLBACK_SEND:	
+		n = sprintf(p, "%d", pss->number++);
+		n = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
+		if (n < 0) {
+			fprintf(stderr, "ERROR writing to socket");
+			return 1;
+		}
+		break;
+
+	case LWS_CALLBACK_RECEIVE:
+		if (len < 6)
+			break;
+		if (strcmp(in, "reset\n") == 0)
+			pss->number = 0;
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+
+/* list of supported protocols and callbacks */
+
+static const struct libwebsocket_protocols protocols[] = {
+	{
+		.name = "http-only",
+		.callback = callback_http,
+		.per_session_data_size = 0,
+	},
+	{
+		.name = "dumb-increment-protocol",
+		.callback = callback_dumb_increment,
+		.per_session_data_size =
+				sizeof(struct per_session_data__dumb_increment),
+	},
+	{  /* end of list */
+		.callback = NULL
+	}
+};
+
 static struct option options[] = {
 	{ "help", 	no_argument, NULL, 'h' },
 	{ "port", 	required_argument, NULL, 'p' },
-	{ "protocol", 	required_argument, NULL, 'r' },
 	{ "ssl", 	no_argument, NULL, 's' },
 	{ NULL, 0, 0, 0 }
 };
@@ -202,7 +148,7 @@ int main(int argc, char **argv)
 						    "licensed under LGPL2.1\n");
 	
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "hp:r:", options, NULL);
+		n = getopt_long(argc, argv, "hp:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -214,7 +160,7 @@ int main(int argc, char **argv)
 			break;
 		case 'h':
 			fprintf(stderr, "Usage: test-server "
-					     "[--port=<p>] [--protocol=<v>]\n");
+					     "[--port=<p>] [--ssl]\n");
 			exit(1);
 		}
 	}
@@ -222,9 +168,8 @@ int main(int argc, char **argv)
 	if (!use_ssl)
 		cert_path = key_path = NULL;
 	
-	if (libwebsocket_create_server(port, websocket_callback,
-					 sizeof(struct per_session_data),
-					     cert_path, key_path, -1, -1) < 0) {
+	if (libwebsocket_create_server(port, protocols,
+				       cert_path, key_path, -1, -1) < 0) {
 		fprintf(stderr, "libwebsocket init failed\n");
 		return -1;
 	}

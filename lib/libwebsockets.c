@@ -31,6 +31,48 @@ extern int
 libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len);
 
 
+/* document the generic callback (it's a fake prototype under this) */
+/**
+ * callback() - User server actions
+ * @wsi:	Opaque websocket instance pointer
+ * @reason:	The reason for the call
+ * @user:	Pointer to per-session user data allocated by library
+ * @in:		Pointer used for some callback reasons
+ * @len:	Length set for some callback reasons
+ * 
+ * 	This callback is the way the user controls what is served.  All the
+ * 	protocol detail is hidden and handled by the library.
+ * 
+ * 	For each connection / session there is user data allocated that is
+ * 	pointed to by "user".  You set the size of this user data area when
+ * 	the library is initialized with libwebsocket_create_server.
+ * 
+ * 	You get an opportunity to initialize user data when called back with
+ * 	LWS_CALLBACK_ESTABLISHED reason.
+ * 
+ * 	LWS_CALLBACK_ESTABLISHED:  after successful websocket handshake
+ * 
+ * 	LWS_CALLBACK_CLOSED: when the websocket session ends
+ *
+ * 	LWS_CALLBACK_SEND: opportunity to send to client (you would use
+ * 				libwebsocket_write() taking care about the
+ * 				special buffer requirements
+ * 	LWS_CALLBACK_RECEIVE: data has appeared for the server, it can be
+ *				found at *in and is len bytes long
+ *
+ *  	LWS_CALLBACK_HTTP: an http request has come from a client that is not
+ * 				asking to upgrade the connection to a websocket
+ * 				one.  This is a chance to serve http content,
+ * 				for example, to send a script to the client
+ * 				which will then open the websockets connection.
+ * 				@in points to the URI path requested and 
+ * 				libwebsockets_serve_http_file() makes it very
+ * 				simple to send back a file to the client.
+ */
+extern int callback(struct libwebsocket * wsi,
+			 enum libwebsocket_callback_reasons reason, void * user,
+							  void *in, size_t len);
+
 
 void 
 libwebsocket_close_and_free_session(struct libwebsocket *wsi)
@@ -39,8 +81,8 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 
-	if (wsi->callback && n == WSI_STATE_ESTABLISHED)
-		wsi->callback(wsi, LWS_CALLBACK_CLOSED, &wsi->user_space[0], 
+	if (wsi->protocol->callback && n == WSI_STATE_ESTABLISHED)
+		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED, &wsi->user_space, 
 								       NULL, 0);
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++)
@@ -62,17 +104,18 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 #ifdef LWS_OPENSSL_SUPPORT
 	}
 #endif
+	if (wsi->user_space)
+		free(wsi->user_space);
+
 	free(wsi);
 }
 
 /**
  * libwebsocket_create_server() - Create the listening websockets server
  * @port:	Port to listen on
- * @callback:	The callback in user code to perform actual serving
- * @user_area_size:	How much memory to allocate per connection session
- * 			which will be used by the user application to store
- * 			per-session data.  A pointer to this space is given
- * 			when the user callback is called.
+ * @protocols:	Array of structures listing supported protocols and a protocol-
+ * 		specific callback for each one.  The list is ended with an
+ * 		entry that has a NULL callback pointer.
  * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
  * 			to listen using SSL, set to the filepath to fetch the
  * 			server cert from, otherwise NULL for unencrypted
@@ -98,10 +141,7 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
  */
 
 int libwebsocket_create_server(int port,
-			       int (*callback)(struct libwebsocket *,
-					enum libwebsocket_callback_reasons, 
-					void *, void *, size_t),
-			       size_t user_area_size,
+			       const struct libwebsocket_protocols *protocols,
 			       const char * ssl_cert_filepath,
 			       const char * ssl_private_key_filepath,
 			       int gid, int uid)
@@ -185,14 +225,7 @@ int libwebsocket_create_server(int port,
 		/* SSL is happy and has a cert it's content with */
 	}
 #endif
-	
-	if (!callback) {
-		fprintf(stderr, "callback is not optional!\n");
-		return -1;
-	}
- 
-	/* sit there listening for connects, accept and spawn session servers */
- 
+  
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd < 0) {
 		fprintf(stderr, "ERROR opening socket");
@@ -226,7 +259,7 @@ int libwebsocket_create_server(int port,
 	if (n)
 		return sockfd;
  
-	// drop any root privs for this thread
+	/* drop any root privs for this thread */
 
 	if (gid != -1)
 		if (setgid(gid))
@@ -235,8 +268,11 @@ int libwebsocket_create_server(int port,
 		if (setuid(uid))
 			fprintf(stderr, "setuid: %s\n", strerror(errno));
 
-	/* we are running in a forked subprocess now */
- 
+ 	/*
+	 * sit there listening for connects, accept and service connections
+	 * in a poll loop, without any further forking
+	 */
+
 	listen(sockfd, 5);
 	fprintf(stderr, " Listening on port %d\n", port);
  	
@@ -273,8 +309,7 @@ int libwebsocket_create_server(int port,
 				continue;
 			}
 
-			wsi[fds_count] = malloc(sizeof(struct libwebsocket) +
-								user_area_size);
+			wsi[fds_count] = malloc(sizeof(struct libwebsocket));
 			if (!wsi[fds_count])
 				return -1;
 
@@ -313,11 +348,10 @@ int libwebsocket_create_server(int port,
 					ntohs(cli_addr.sin_port), fd,
 					  SSL_get_version(wsi[fds_count]->ssl));
 				
-			} else {
-//			fprintf(stderr, "accepted new conn  port %u on fd=%d\n",
-//						  ntohs(cli_addr.sin_port), fd);
-			}
+			} else
 #endif
+				debug("accepted new conn  port %u on fd=%d\n",
+						  ntohs(cli_addr.sin_port), fd);
 			
 			/* intialize the instance struct */
 
@@ -330,11 +364,20 @@ int libwebsocket_create_server(int port,
 				wsi[fds_count]->utf8_token[n].token_len = 0;
 			}
 
-			wsi[fds_count]->callback = callback;
+			/*
+			 * these can only be set once the protocol is known
+			 * we set an unestablished connection's protocol pointer
+			 * to the start of the supported list, so it can look
+			 * for matching ones during the handshake
+			 */
+			wsi[fds_count]->protocol = protocols;
+			wsi[fds_count]->user_space = NULL;
+
 			/*
 			 * Default protocol is 76
 			 * After 76, there's a header specified to inform which
-			 * draft the client wants
+			 * draft the client wants, when that's seen we modify
+			 * the individual connection's spec revision accordingly
 			 */
 			wsi[fds_count]->ietf_spec_revision = 76;
 
@@ -361,8 +404,6 @@ int libwebsocket_create_server(int port,
 
 			if (!(fds[client].revents & POLLIN))
 				continue;
-				
-//			fprintf(stderr, "POLLIN\n");
 
 #ifdef LWS_OPENSSL_SUPPORT
 			if (use_ssl)
@@ -370,8 +411,6 @@ int libwebsocket_create_server(int port,
 			else
 #endif
 				n = recv(fds[client].fd, buf, sizeof(buf), 0);
-
-//			fprintf(stderr, "read returned %d\n", n);
 
 			if (n < 0) {
 				fprintf(stderr, "Socket read returned %d\n", n);
@@ -389,7 +428,10 @@ int libwebsocket_create_server(int port,
 			if (libwebsocket_read(wsi[client], buf, n) >= 0)
 				continue;
 			
-			/* it closed and nuked wsi[client] */
+			/*
+			 * it closed and nuked wsi[client], so remove the
+			 * socket handle and wsi from our service list
+			 */
 nuke_this:
 			for (n = client; n < fds_count - 1; n++) {
 				fds[n] = fds[n + 1];
@@ -404,12 +446,9 @@ poll_out:
 
 			if (wsi[client]->state != WSI_STATE_ESTABLISHED)
 				continue;
-						
-			if (!wsi[client]->callback)
-				continue;
 
-			wsi[client]->callback(wsi[client], LWS_CALLBACK_SEND, 
-					  &wsi[client]->user_space[0], NULL, 0);
+			wsi[client]->protocol->callback(wsi[client], LWS_CALLBACK_SEND, 
+					  &wsi[client]->user_space, NULL, 0);
 		}
 		
 		continue;		

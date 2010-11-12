@@ -12,7 +12,7 @@ libwebsockets_la_LDFLAGS=-version-info 0:1
 all-local:
 	 ../scripts/kernel-doc -html \
                 libwebsockets.c \
-                parsers.c \
-                ../test-server/test-server.c \
+		parsers.c \
+                libwebsockets.h \
 			> ../libwebsockets-api-doc.html
 

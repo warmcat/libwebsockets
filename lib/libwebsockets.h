@@ -29,7 +29,6 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_SEND,
 	LWS_CALLBACK_RECEIVE,
 	LWS_CALLBACK_HTTP,
-	LWS_CALLBACK_PROTOCOL_FILTER,
 };
 
 enum libwebsocket_write_protocol {
@@ -40,14 +39,36 @@ enum libwebsocket_write_protocol {
 
 struct libwebsocket;
 
+/**
+ * struct libwebsocket_protocols - 	List of protocols and handlers server
+ * 					supports.
+ * @name:	Protocol name that must match the one given in the client
+ * 		Javascript new WebSocket(url, 'protocol') name
+ * @callback:	The service callback used for this protocol.  It allows the
+ * 		service action for an entire protocol to be encapsulated in
+ * 		the protocol-specific callback
+ * @per_session_data_size:	Each new connection using this protocol gets
+ * 		this much memory allocated on connection establishment and
+ * 		freed on connection takedown.  A pointer to this per-connection
+ * 		allocation is passed into the callback in the 'user' parameter
+ * 
+ * 	This structure represents one protocol supported by the server.  An
+ * 	array of these structures is passed to libwebsocket_create_server()
+ * 	allows as many protocols as you like to be handled by one server.
+ */
+
+struct libwebsocket_protocols {
+	const char *name;
+	int (*callback)(struct libwebsocket * wsi,
+			 enum libwebsocket_callback_reasons reason, void * user,
+							  void *in, size_t len);
+	size_t per_session_data_size;
+};
+
 extern int libwebsocket_create_server(int port,
-		  int (*callback)(struct libwebsocket *wsi,
-				  enum libwebsocket_callback_reasons reason,
-				  void *user, void *in, size_t len),
-					       size_t user_space,
-					       const char * ssl_cert_filepath,
-					const char * ssl_private_key_filepath,
-							      int gid, int uid);
+		  const struct libwebsocket_protocols *protocols,
+		  const char * ssl_cert_filepath,
+		  const char * ssl_private_key_filepath, int gid, int uid);
 
 /*
  * IMPORTANT NOTICE!

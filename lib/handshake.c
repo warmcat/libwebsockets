@@ -94,9 +94,9 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		
 		if (!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
 			     !wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len) {
-			if (wsi->callback)
-				(wsi->callback)(wsi, LWS_CALLBACK_HTTP,
-							&wsi->user_space[0],
+			if (wsi->protocol->callback)
+				(wsi->protocol->callback)(wsi, LWS_CALLBACK_HTTP,
+							&wsi->user_space,
 				   wsi->utf8_token[WSI_TOKEN_GET_URI].token, 0);
 			wsi->state = WSI_STATE_HTTP;
 			return 0;
@@ -132,11 +132,41 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 
 		/* Make sure user side is happy about protocol */
 
-		if (wsi->callback)
-			wsi->callback(wsi, LWS_CALLBACK_PROTOCOL_FILTER,
-				      &wsi->user_space[0],
-				      wsi->utf8_token[WSI_TOKEN_PROTOCOL].token,
-				      0);
+		while (wsi->protocol->callback) {
+
+			if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token == NULL) {
+				if (wsi->protocol->name == NULL)
+					break;
+			} else
+				if (strcmp(
+				     wsi->utf8_token[WSI_TOKEN_PROTOCOL].token,
+						      wsi->protocol->name) == 0)
+					break;
+							
+			wsi->protocol++;
+		}
+		if (wsi->protocol->callback == NULL) {
+			if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token == NULL)
+				fprintf(stderr, "[no protocol] "
+					"not supported (use NULL .name)\n");
+			else
+				fprintf(stderr, "Requested protocol %s "
+						"not supported\n",
+				     wsi->utf8_token[WSI_TOKEN_PROTOCOL].token);
+			goto bail;
+		}
+
+		/* allocate the per-connection user memory (if any) */
+
+		if (wsi->protocol->per_session_data_size) {
+			wsi->user_space = malloc(
+					  wsi->protocol->per_session_data_size);
+			if (wsi->user_space  == NULL) {
+				fprintf(stderr, "Out of memory for "
+							   "conn user space\n");
+				goto bail;
+			}
+		}
 		
 		/* create the response packet */
 		
@@ -243,9 +273,9 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		
 		/* notify user code that we're ready to roll */
 				
-		if (wsi->callback)
-			wsi->callback(wsi, LWS_CALLBACK_ESTABLISHED,
-						  &wsi->user_space[0], NULL, 0);
+		if (wsi->protocol->callback)
+			wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
+						  &wsi->user_space, NULL, 0);
 		break;
 
 	case WSI_STATE_ESTABLISHED:

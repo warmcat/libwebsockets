@@ -578,8 +578,8 @@ uninstall-am: uninstall-includeHEADERS uninstall-libLTLIBRARIES
 all-local:
 	 ../scripts/kernel-doc -html \
                 libwebsockets.c \
-                parsers.c \
-                ../test-server/test-server.c \
+		parsers.c \
+                libwebsockets.h \
 			> ../libwebsockets-api-doc.html
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.

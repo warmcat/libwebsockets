@@ -1,9 +1,72 @@
+<h2>callback - User server actions</h2>
+<i>int</i>
+<b>callback</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>,
+<i>enum libwebsocket_callback_reasons</i> <b>reason</b>,
+<i>void *</i> <b>user</b>,
+<i>void *</i> <b>in</b>,
+<i>size_t</i> <b>len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Opaque websocket instance pointer
+<dt><b>reason</b>
+<dd>The reason for the call
+<dt><b>user</b>
+<dd>Pointer to per-session user data allocated by library
+<dt><b>in</b>
+<dd>Pointer used for some callback reasons
+<dt><b>len</b>
+<dd>Length set for some callback reasons
+</dl>
+<h3>Description</h3>
+<blockquote>
+This callback is the way the user controls what is served.  All the
+protocol detail is hidden and handled by the library.
+<p>
+For each connection / session there is user data allocated that is
+pointed to by "user".  You set the size of this user data area when
+the library is initialized with libwebsocket_create_server.
+<p>
+You get an opportunity to initialize user data when called back with
+LWS_CALLBACK_ESTABLISHED reason.
+</blockquote>
+<h3>LWS_CALLBACK_ESTABLISHED</h3>
+<blockquote>
+after successful websocket handshake
+</blockquote>
+<h3>LWS_CALLBACK_CLOSED</h3>
+<blockquote>
+when the websocket session ends
+</blockquote>
+<h3>LWS_CALLBACK_SEND</h3>
+<blockquote>
+opportunity to send to client (you would use
+<b>libwebsocket_write</b> taking care about the
+special buffer requirements
+</blockquote>
+<h3>LWS_CALLBACK_RECEIVE</h3>
+<blockquote>
+data has appeared for the server, it can be
+found at *in and is len bytes long
+</blockquote>
+<h3>LWS_CALLBACK_HTTP</h3>
+<blockquote>
+an http request has come from a client that is not
+asking to upgrade the connection to a websocket
+one.  This is a chance to serve http content,
+for example, to send a script to the client
+which will then open the websockets connection.
+<tt><b>in</b></tt> points to the URI path requested and 
+<b>libwebsockets_serve_http_file</b> makes it very
+simple to send back a file to the client.
+</blockquote>
+<hr>
 <h2>libwebsocket_create_server - Create the listening websockets server</h2>
 <i>int</i>
 <b>libwebsocket_create_server</b>
 (<i>int</i> <b>port</b>,
-<i>int (*</i><b>callback</b>) <i>(struct libwebsocket *, 					enum libwebsocket_callback_reasons,  					void *, void *, size_t)</i>,
-<i>size_t</i> <b>user_area_size</b>,
+<i>const struct libwebsocket_protocols *</i> <b>protocols</b>,
 <i>const char *</i> <b>ssl_cert_filepath</b>,
 <i>const char *</i> <b>ssl_private_key_filepath</b>,
 <i>int</i> <b>gid</b>,
@@ -12,13 +75,10 @@
 <dl>
 <dt><b>port</b>
 <dd>Port to listen on
-<dt><b>callback</b>
-<dd>The callback in user code to perform actual serving
-<dt><b>user_area_size</b>
-<dd>How much memory to allocate per connection session
-which will be used by the user application to store
-per-session data.  A pointer to this space is given
-when the user callback is called.
+<dt><b>protocols</b>
+<dd>Array of structures listing supported protocols and a protocol-
+specific callback for each one.  The list is ended with an
+entry that has a NULL callback pointer.
 <dt><b>ssl_cert_filepath</b>
 <dd>If libwebsockets was compiled to use ssl, and you want
 to listen using SSL, set to the filepath to fetch the
@@ -107,5 +167,33 @@ packet while not burdening the user code with any protocol knowledge.
 This function is intended to be called from the callback in response
 to http requests from the client.  It allows the callback to issue
 local files down the http link in a single step.
+</blockquote>
+<hr>
+<h2>struct libwebsocket_protocols - List of protocols and handlers server supports.</h2>
+<b>struct libwebsocket_protocols</b> {<br>
+&nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
+&nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket * wsi,enum libwebsocket_callback_reasons reason, void * user,void *in, size_t len)</i>;<br>
+&nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
+};<br>
+<h3>Members</h3>
+<dl>
+<dt><b>name</b>
+<dd>Protocol name that must match the one given in the client
+Javascript new WebSocket(url, 'protocol') name
+<dt><b>callback</b>
+<dd>The service callback used for this protocol.  It allows the
+service action for an entire protocol to be encapsulated in
+the protocol-specific callback
+<dt><b>per_session_data_size</b>
+<dd>Each new connection using this protocol gets
+this much memory allocated on connection establishment and
+freed on connection takedown.  A pointer to this per-connection
+allocation is passed into the callback in the 'user' parameter
+</dl>
+<h3>Description</h3>
+<blockquote>
+This structure represents one protocol supported by the server.  An
+array of these structures is passed to <b>libwebsocket_create_server</b>
+allows as many protocols as you like to be handled by one server.
 </blockquote>
 <hr>

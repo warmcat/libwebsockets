@@ -210,9 +210,9 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->rx_user_buffer_head != MAX_USER_RX_BUFFER)
 			break;
 issue:
-		if (wsi->callback)
-			wsi->callback(wsi, LWS_CALLBACK_RECEIVE,
-			  &wsi->user_space[0],
+		if (wsi->protocol->callback)
+			wsi->protocol->callback(wsi, LWS_CALLBACK_RECEIVE,
+			  &wsi->user_space,
 			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 			  wsi->rx_user_buffer_head);
 		wsi->rx_user_buffer_head = 0;
