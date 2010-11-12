@@ -82,7 +82,7 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 
 	if (wsi->protocol->callback && n == WSI_STATE_ESTABLISHED)
-		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED, &wsi->user_space, 
+		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED, wsi->user_space, 
 								       NULL, 0);
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++)
@@ -444,7 +444,7 @@ poll_out:
 				continue;
 
 			wsi[client]->protocol->callback(wsi[client], LWS_CALLBACK_SEND, 
-					  &wsi[client]->user_space, NULL, 0);
+					  wsi[client]->user_space, NULL, 0);
 		}
 		
 		continue;		

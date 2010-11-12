@@ -93,13 +93,22 @@ else ignored
 </dl>
 <h3>Description</h3>
 <blockquote>
-This function forks to create the listening socket and takes care
+This function creates the listening socket and takes care
 of all initialization in one step.
 <p>
-The callback function is called for a handful of events including
-http requests coming in, websocket connections becoming
+It does not return since it sits in a service loop and operates via the
+callbacks given in <tt><b>protocol</b></tt>.  User code should fork before calling
+<b>libwebsocket_create_server</b> if it wants to do other things in
+parallel other than serve websockets.
+<p>
+The protocol callback functions are called for a handful of events
+including http requests coming in, websocket connections becoming
 established, and data arriving; it's also called periodically to allow
 async transmission.
+<p>
+HTTP requests are sent always to the FIRST protocol in <tt><b>protocol</b></tt>, since
+at that time websocket protocol has not been negotiated.  Other
+protocols after the first one never see any HTTP callack activity.
 <p>
 The server created is a simple http server by default; part of the
 websocket standard is upgrading this http connection to a websocket one.

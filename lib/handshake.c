@@ -96,7 +96,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 			     !wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len) {
 			if (wsi->protocol->callback)
 				(wsi->protocol->callback)(wsi, LWS_CALLBACK_HTTP,
-							&wsi->user_space,
+							wsi->user_space,
 				   wsi->utf8_token[WSI_TOKEN_GET_URI].token, 0);
 			wsi->state = WSI_STATE_HTTP;
 			return 0;
@@ -145,6 +145,9 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 							
 			wsi->protocol++;
 		}
+
+		/* we didn't find a protocol he wanted? */
+		
 		if (wsi->protocol->callback == NULL) {
 			if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token == NULL)
 				fprintf(stderr, "[no protocol] "
@@ -166,7 +169,9 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 							   "conn user space\n");
 				goto bail;
 			}
-		}
+			fprintf(stderr, "user allocated %d at %p for wsi %p\n", wsi->protocol->per_session_data_size, wsi->user_space, wsi);
+		} else
+			wsi->user_space = NULL;
 		
 		/* create the response packet */
 		
@@ -275,7 +280,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 				
 		if (wsi->protocol->callback)
 			wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
-						  &wsi->user_space, NULL, 0);
+						  wsi->user_space, NULL, 0);
 		break;
 
 	case WSI_STATE_ESTABLISHED:
