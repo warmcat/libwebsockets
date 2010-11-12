@@ -69,17 +69,17 @@ function get_appropriate_ws_url(ads)
 
 	try {
 		socket_di.onopen = function() {
-			wsdi_statustd.style.backgroundColor = "#40ff40";
-			wsdi_status.textContent = " websocket connection opened ";
+			document.getElementById("wsdi_statustd").style.backgroundColor = "#40ff40";
+			document.getElementById("wsdi_status").textContent = " websocket connection opened ";
 		} 
 
 		socket_di.onmessage =function got_packet(msg) {
-			number.textContent = msg.data + "\n";
+			document.getElementById("number").textContent = msg.data + "\n";
 		} 
 
 		socket_di.onclose = function(){
-			wsdi_statustd.style.backgroundColor = "#ff4040";
-			wsdi_status.textContent = " websocket connection closed ";
+			document.getElementById("wsdi_statustd").style.backgroundColor = "#ff4040";
+			document.getElementById("wsdi_status").textContent = " websocket connection CLOSED ";
 		}
 	} catch(exception) {
 		alert('<p>Error' + exception);  
@@ -94,7 +94,7 @@ function reset() {
 
 	var down = 0;
 	var no_last = 1;
-	var last_x, last_y;
+	var last_x = 0, last_y = 0;
 	var ctx;
 	var socket_lm = new WebSocket(get_appropriate_ws_url("127.0.0.1:7681"),
 				   "lws-mirror-protocol");
@@ -102,8 +102,8 @@ function reset() {
 
 	try {
 		socket_lm.onopen = function() {
-			wslm_statustd.style.backgroundColor = "#40ff40";
-			wslm_status.textContent = " websocket connection opened ";
+			document.getElementById("wslm_statustd").style.backgroundColor = "#40ff40";
+			document.getElementById("wslm_status").textContent = " websocket connection opened ";
 		} 
 
 		socket_lm.onmessage =function got_packet(msg) {
@@ -111,15 +111,15 @@ function reset() {
 			if (i[0] == 'd') {
 				ctx.strokeStyle = i[1];
 				ctx.beginPath();
-				ctx.moveTo(i[2], i[3]);
-				ctx.lineTo(i[4], i[5]);
+				ctx.moveTo(+(i[2]), +(i[3]));
+				ctx.lineTo(+(i[4]), +(i[5]));
 				ctx.stroke();
 			}
 		}
 
 		socket_lm.onclose = function(){
-			wslm_statustd.style.backgroundColor = "#ff4040";
-			wslm_status.textContent = " websocket connection closed ";
+			document.getElementById("wslm_statustd").style.backgroundColor = "#ff4040";
+			document.getElementById("wslm_status").textContent = " websocket connection CLOSED ";
 		}
 	} catch(exception) {
 		alert('<p>Error' + exception);  
@@ -136,6 +136,15 @@ function reset() {
 	canvas.addEventListener('mousedown', ev_mousedown, false);
 	canvas.addEventListener('mouseup', ev_mouseup, false);
 
+	offsetX = offsetY = 0;
+	element = canvas;
+      if (element.offsetParent) {
+        do {
+          offsetX += element.offsetLeft;
+          offsetY += element.offsetTop;
+        } while ((element = element.offsetParent));
+      }
+ 
 function update_color() {
 	color = document.getElementById("color").value;
 }
@@ -152,8 +161,14 @@ function ev_mouseup(ev) {
 function ev_mousemove (ev) {
 	var x, y;
 
-	x = ev.offsetX;
-	y = ev.offsetY;
+	if (ev.offsetX) {
+		x = ev.offsetX;
+		y = ev.offsetY;
+	} else {
+		x = ev.layerX - offsetX;
+		y = ev.layerY - offsetY;
+
+	}
 
 	if (!down)
 		return;

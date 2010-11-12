@@ -37,7 +37,9 @@
  *				ascii string is sent down it every 50ms.
  * 				If you send "reset\n" on the websocket, then
  * 				the incrementing number is reset to 0.
- * 
+ *
+ *  lws-mirror-protocol: copies any received packet to every connection also
+ * 				using this protocol, including the sender
  */
 
 
@@ -127,7 +129,6 @@ callback_dumb_increment(struct libwebsocket * wsi,
 /* lws-mirror_protocol */
 
 #define MAX_MESSAGE_QUEUE 64
-const int MAX_COMMUNE_MEMBERS = 20;
 
 struct per_session_data__lws_mirror {
 	struct libwebsocket * wsi;
@@ -135,16 +136,12 @@ struct per_session_data__lws_mirror {
 };
 
 struct a_message {
-	struct per_session_data * sender;
 	void * payload;
 	size_t len;
 };
 
 static struct a_message ringbuffer[MAX_MESSAGE_QUEUE];
 static int ringbuffer_head;
-
-
-struct per_session_data * all_members;
 
 
 static int
@@ -187,12 +184,13 @@ callback_lws_mirror(struct libwebsocket * wsi,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-//		fprintf(stderr, "Received %d bytes payload\n", (int)len);
+		if (ringbuffer[ringbuffer_head].payload)
+			free(ringbuffer[ringbuffer_head].payload );
+
 		ringbuffer[ringbuffer_head].payload =
 				malloc(LWS_SEND_BUFFER_PRE_PADDING + len +
 						  LWS_SEND_BUFFER_POST_PADDING);
 		ringbuffer[ringbuffer_head].len = len;
-		ringbuffer[ringbuffer_head].sender = pss;
 		memcpy(ringbuffer[ringbuffer_head].payload +
 					  LWS_SEND_BUFFER_PRE_PADDING, in, len);
 		if (ringbuffer_head == (MAX_MESSAGE_QUEUE - 1))
