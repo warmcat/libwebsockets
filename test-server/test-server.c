@@ -173,11 +173,6 @@ int main(int argc, char **argv)
 		fprintf(stderr, "libwebsocket init failed\n");
 		return -1;
 	}
-	
-	/* just sit there until killed */
-		
-	while (1)
-		sleep(10);
 
 	return 0;
 }

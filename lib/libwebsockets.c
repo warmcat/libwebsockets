@@ -124,13 +124,22 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
  * @gid:	group id to change to after setting listen socket, or -1.
  * @uid:	user id to change to after setting listen socket, or -1.
  * 
- * 	This function forks to create the listening socket and takes care
+ * 	This function creates the listening socket and takes care
  * 	of all initialization in one step.
+ *
+ * 	It does not return since it sits in a service loop and operates via the
+ * 	callbacks given in @protocol.  User code should fork before calling
+ * 	libwebsocket_create_server() if it wants to do other things in
+ * 	parallel other than serve websockets.
  * 
- * 	The callback function is called for a handful of events including
- * 	http requests coming in, websocket connections becoming
+ * 	The protocol callback functions are called for a handful of events
+ * 	including http requests coming in, websocket connections becoming
  * 	established, and data arriving; it's also called periodically to allow
  * 	async transmission.
+ *
+ * 	HTTP requests are sent always to the FIRST protocol in @protocol, since
+ * 	at that time websocket protocol has not been negotiated.  Other
+ * 	protocols after the first one never see any HTTP callack activity.
  * 
  * 	The server created is a simple http server by default; part of the
  * 	websocket standard is upgrading this http connection to a websocket one.
@@ -246,19 +255,6 @@ int libwebsocket_create_server(int port,
               return -1;
         }
  
- 	/* fork off a master server for this websocket server */
- 
-	n = fork();
-	if (n < 0) {
-		fprintf(stderr, "Failed on forking server thread: %d\n", n);
-		return -1;
-	}
-	
-	/* we are done as far as the caller is concerned */
-	
-	if (n)
-		return sockfd;
- 
 	/* drop any root privs for this thread */
 
 	if (gid != -1)
@@ -270,7 +266,7 @@ int libwebsocket_create_server(int port,
 
  	/*
 	 * sit there listening for connects, accept and service connections
-	 * in a poll loop, without any further forking
+	 * in a poll loop, without any forking
 	 */
 
 	listen(sockfd, 5);
