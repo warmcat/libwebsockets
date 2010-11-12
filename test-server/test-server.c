@@ -27,6 +27,20 @@
 
 #include "../lib/libwebsockets.h"
 
+/*
+ * This demo server shows how to use libwebsockets for one or more
+ * websocket protocols in the same server
+ *
+ * It defines the following websocket protocols:
+ *
+ *  dumb-increment-protocol:  once the socket is opened, an incrementing
+ *				ascii string is sent down it every 50ms.
+ * 				If you send "reset\n" on the websocket, then
+ * 				the incrementing number is reset to 0.
+ * 
+ */
+
+
 #define LOCAL_RESOURCE_PATH "/usr/share/libwebsockets-test-server"
 static int port = 7681;
 static int use_ssl = 0;
@@ -95,10 +109,96 @@ callback_dumb_increment(struct libwebsocket * wsi,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
+		fprintf(stderr, "rx %d\n", len);
 		if (len < 6)
 			break;
 		if (strcmp(in, "reset\n") == 0)
 			pss->number = 0;
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+
+/* lws-mirror_protocol */
+
+#define MAX_MESSAGE_QUEUE 64
+const int MAX_COMMUNE_MEMBERS = 20;
+
+struct per_session_data__lws_mirror {
+	struct libwebsocket * wsi;
+	int ringbuffer_tail;
+};
+
+struct a_message {
+	struct per_session_data * sender;
+	void * payload;
+	size_t len;
+};
+
+static struct a_message ringbuffer[MAX_MESSAGE_QUEUE];
+static int ringbuffer_head;
+
+
+struct per_session_data * all_members;
+
+
+static int
+callback_lws_mirror(struct libwebsocket * wsi,
+			enum libwebsocket_callback_reasons reason,
+			void * user, void *in, size_t len)
+{
+	int n;
+	char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
+						  LWS_SEND_BUFFER_POST_PADDING];
+	unsigned char *p = (unsigned char *)&buf[LWS_SEND_BUFFER_PRE_PADDING];
+	struct per_session_data__lws_mirror * pss = user;
+	
+	switch (reason) {
+
+	case LWS_CALLBACK_ESTABLISHED:
+		pss->wsi = wsi;
+		pss->ringbuffer_tail = ringbuffer_head;
+		break;
+
+	case LWS_CALLBACK_SEND:	
+		/* send everything that's pending */
+		while (pss->ringbuffer_tail != ringbuffer_head) {
+
+			n = libwebsocket_write(wsi,
+				(unsigned char *)ringbuffer[pss->ringbuffer_tail].payload +
+					LWS_SEND_BUFFER_PRE_PADDING,
+				   ringbuffer[pss->ringbuffer_tail].len,
+							LWS_WRITE_TEXT);
+			if (n < 0) {
+				fprintf(stderr, "ERROR writing to socket");
+				exit(1);
+			}
+
+			if (pss->ringbuffer_tail == (MAX_MESSAGE_QUEUE - 1))
+				pss->ringbuffer_tail = 0;
+			else
+				pss->ringbuffer_tail++;
+		}
+		break;
+
+	case LWS_CALLBACK_RECEIVE:
+//		fprintf(stderr, "Received %d bytes payload\n", (int)len);
+		ringbuffer[ringbuffer_head].payload =
+				malloc(LWS_SEND_BUFFER_PRE_PADDING + len +
+						  LWS_SEND_BUFFER_POST_PADDING);
+		ringbuffer[ringbuffer_head].len = len;
+		ringbuffer[ringbuffer_head].sender = pss;
+		memcpy(ringbuffer[ringbuffer_head].payload +
+					  LWS_SEND_BUFFER_PRE_PADDING, in, len);
+		if (ringbuffer_head == (MAX_MESSAGE_QUEUE - 1))
+			ringbuffer_head = 0;
+		else
+			ringbuffer_head++;
 		break;
 
 	default:
@@ -122,6 +222,12 @@ static const struct libwebsocket_protocols protocols[] = {
 		.callback = callback_dumb_increment,
 		.per_session_data_size =
 				sizeof(struct per_session_data__dumb_increment),
+	},
+	{
+		.name = "lws-mirror-protocol",
+		.callback = callback_lws_mirror,
+		.per_session_data_size =
+				sizeof(struct per_session_data__lws_mirror),
 	},
 	{  /* end of list */
 		.callback = NULL

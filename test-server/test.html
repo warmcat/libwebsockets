@@ -15,47 +15,160 @@ reset the number.<br><br>
 	<tr>
 		<td align=center><input type=button id=offset value="Reset counter" onclick="reset();" ></td>
 		<td width=100 align=center><div id=number> </div></td>
-		<td id=statustd align=center><div id=wsstatus>Not initialized</div></td>
+		<td id=wsdi_statustd align=center><div id=wsdi_status>Not initialized</div></td>
+	</tr>
+</table>
+
+<h2>libwebsockets "lws-mirror-protocol" test applet</h2>
+Use the mouse to draw on the canvas below -- all other browser windows open
+on this page see your drawing in realtime and you can see any of theirs as
+well.
+<p>
+The lws-mirror protocol doesn't interpret what is being sent to it, it just
+re-sends it to every other websocket it has a connection with using that
+protocol, including the guy who sent the packet.
+<br><br>
+
+<table>
+	<tr>
+		<td>Drawing color:
+		<select id="color" onchange="update_color();">
+			<option value=#000000>Black</option>
+			<option value=#0000ff>Blue</option>
+			<option value=#20ff20>Green</option>
+			<option value=#802020>Dark Red</option>
+		</select>
+		</td>
+		<td id=wslm_statustd align=center><div id=wslm_status>Not initialized</div></td>
+	</tr>
+	<tr>
+		<td colspan=2 width=500 align=center style="background-color: #e0e0e0;"><div id=wslm_drawing> </div></td>
 	</tr>
 </table>
 
 <script>
 	var pos = 0;
-	var websocket_ads;
 
+function get_appropriate_ws_url(ads)
+{
 	/*
 	 * We open the websocket encrypted if this page came on an
 	 * https:// url itself, otherwise unencrypted
 	 */
 
 	if (document.URL.substring(0, 5) == "https")
-		websocket_ads = "wss://127.0.0.1:7681";
+		return "wss://"+ads;
 	else
-		websocket_ads = "ws://127.0.0.1:7681"
+		return "ws://"+ads;
+}
+
+/* dumb increment protocol */
 	
-	var socket = new WebSocket(websocket_ads, "dumb-increment-protocol");  
+	var socket_di = new WebSocket(get_appropriate_ws_url("127.0.0.1:7681"),
+				   "dumb-increment-protocol");  
 
 	try {
-		socket.onopen = function() {
-			statustd.style.backgroundColor = "#40ff40";
-			wsstatus.textContent = " websocket connection opened ";
+		socket_di.onopen = function() {
+			wsdi_statustd.style.backgroundColor = "#40ff40";
+			wsdi_status.textContent = " websocket connection opened ";
 		} 
 
-		socket.onmessage =function got_packet(msg) {
+		socket_di.onmessage =function got_packet(msg) {
 			number.textContent = msg.data + "\n";
 		} 
 
-		socket.onclose = function(){
-			statustd.style.backgroundColor = "#ff4040";
-			wsstatus.textContent = " websocket connection closed ";
+		socket_di.onclose = function(){
+			wsdi_statustd.style.backgroundColor = "#ff4040";
+			wsdi_status.textContent = " websocket connection closed ";
 		}
 	} catch(exception) {
-		alert('<p>Error'+exception);  
+		alert('<p>Error' + exception);  
 	}
 
 function reset() {
-	socket.send("reset\n");
+	socket_di.send("reset\n");
 }
+
+
+/* lws-mirror protocol */
+
+	var down = 0;
+	var no_last = 1;
+	var last_x, last_y;
+	var ctx;
+	var socket_lm = new WebSocket(get_appropriate_ws_url("127.0.0.1:7681"),
+				   "lws-mirror-protocol");
+	var color = "#000000";
+
+	try {
+		socket_lm.onopen = function() {
+			wslm_statustd.style.backgroundColor = "#40ff40";
+			wslm_status.textContent = " websocket connection opened ";
+		} 
+
+		socket_lm.onmessage =function got_packet(msg) {
+			i = msg.data.split(' ');
+			if (i[0] == 'd') {
+				ctx.strokeStyle = i[1];
+				ctx.beginPath();
+				ctx.moveTo(i[2], i[3]);
+				ctx.lineTo(i[4], i[5]);
+				ctx.stroke();
+			}
+		}
+
+		socket_lm.onclose = function(){
+			wslm_statustd.style.backgroundColor = "#ff4040";
+			wslm_status.textContent = " websocket connection closed ";
+		}
+	} catch(exception) {
+		alert('<p>Error' + exception);  
+	}
+
+	var canvas = document.createElement('canvas');
+	canvas.height = 300;
+	canvas.width = 480;
+	ctx = canvas.getContext("2d");
+
+	document.getElementById('wslm_drawing').appendChild(canvas);
+
+	canvas.addEventListener('mousemove', ev_mousemove, false);
+	canvas.addEventListener('mousedown', ev_mousedown, false);
+	canvas.addEventListener('mouseup', ev_mouseup, false);
+
+function update_color() {
+	color = document.getElementById("color").value;
+}
+
+function ev_mousedown (ev) {
+	down = 1;
+}
+
+function ev_mouseup(ev) {
+	down = 0;
+	no_last = 1;
+}
+
+function ev_mousemove (ev) {
+	var x, y;
+
+	x = ev.offsetX;
+	y = ev.offsetY;
+
+	if (!down)
+		return;
+	if (no_last) {
+		no_last = 0;
+		last_x = x;
+		last_y = y;
+		return;
+	}
+	socket_lm.send("d " + color + " " + last_x + " " + last_y + " " + x + ' ' + y);
+
+	last_x = x;
+	last_y = y;
+}
+
 
 </script>
 
