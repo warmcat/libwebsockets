@@ -1,6 +1,6 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
- * 
+ *
  * Copyright (C) 2010 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
@@ -49,14 +49,14 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_ORIGIN:
 	case WSI_TOKEN_DRAFT:
 	case WSI_TOKEN_CHALLENGE:
-	
+
 		debug("WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);
 
 		/* collect into malloc'd buffers */
 		/* optional space swallow */
 		if (!wsi->utf8_token[wsi->parser_state].token_len && c == ' ')
 			break;
-			
+
 		/* special case space terminator for get-uri */
 		if (wsi->parser_state == WSI_TOKEN_GET_URI && c == ' ') {
 			wsi->utf8_token[wsi->parser_state].token[
@@ -100,7 +100,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			wsi->parser_state = WSI_PARSING_COMPLETE;
 			break;
 		}
-		
+
 		break;
 
 		/* collecting and checking a name part */
@@ -114,7 +114,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		}
 		wsi->name_buffer[wsi->name_buffer_pos++] = c;
 		wsi->name_buffer[wsi->name_buffer_pos] = '\0';
-		
+
 		for (n = 0; n < WSI_TOKEN_COUNT; n++) {
 			if (wsi->name_buffer_pos != lws_tokens[n].token_len)
 				continue;
@@ -137,9 +137,9 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			wsi->parser_state = WSI_TOKEN_SKIPPING;
 			break;
 		}
-		
+
 		/* don't look for payload when it can just be http headers */
-		
+
 		if (wsi->parser_state == WSI_TOKEN_CHALLENGE &&
 				!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len) {
 			/* they're HTTP headers, not websocket upgrade! */
@@ -148,7 +148,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			wsi->parser_state = WSI_PARSING_COMPLETE;
 		}
 		break;
-			
+
 		/* skipping arg part of a name we didn't recognize */
 	case WSI_TOKEN_SKIPPING:
 		debug("WSI_TOKEN_SKIPPING '%c'\n", c);
@@ -167,11 +167,11 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_PARSING_COMPLETE:
 		debug("WSI_PARSING_COMPLETE '%c'\n", c);
 		break;
-		
+
 	default:	/* keep gcc happy */
 		break;
 	}
-	
+
 	return 0;
 }
 
@@ -183,7 +183,7 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
-	
+
 		switch (wsi->ietf_spec_revision) {
 		/* Firefox 4.0b6 likes this as of 30 Oct */
 		case 76:
@@ -255,13 +255,13 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 	fprintf(stderr, "\n");
 #endif
 	/* let the rx protocol state machine have as much as it needs */
-	
+
 	n = 0;
 	while (wsi->lws_rx_parse_state !=
 			     LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED && n < len)
 		if (libwebsocket_rx_sm(wsi, buf[n++]) < 0)
 			return -1;
-	
+
 	return -0;
 }
 
@@ -285,26 +285,26 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
  *
  * 	This function provides the way to issue data back to the client
  * 	for both http and websocket protocols.
- * 
+ *
  * 	In the case of sending using websocket protocol, be sure to allocate
  * 	valid storage before and after buf as explained above.  This scheme
  * 	allows maximum efficiency of sending data and protocol in a single
  * 	packet while not burdening the user code with any protocol knowledge.
  */
 
-int libwebsocket_write(struct libwebsocket * wsi, unsigned char *buf,
+int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			  size_t len, enum libwebsocket_write_protocol protocol)
 {
 	int n;
 	int pre = 0;
 	int post = 0;
 	unsigned int shift = 7;
-	
+
 	if (protocol == LWS_WRITE_HTTP)
 		goto send_raw;
-	
+
 	/* websocket protocol, either binary or text */
-	
+
 	if (wsi->state != WSI_STATE_ESTABLISHED)
 		return -1;
 
@@ -361,7 +361,7 @@ int libwebsocket_write(struct libwebsocket * wsi, unsigned char *buf,
 		buf[-1] = len;
 		pre = 9;
 		break;
-		
+
 	/* just an unimplemented spec right now apparently */
 	case 2:
 		n = 4; /* text */
@@ -405,7 +405,7 @@ int libwebsocket_write(struct libwebsocket * wsi, unsigned char *buf,
 #if 0
 	for (n = 0; n < (len + pre + post); n++)
 		fprintf(stderr, "%02X ", buf[n - pre]);
-		
+
 	fprintf(stderr, "\n");
 #endif
 
@@ -427,8 +427,8 @@ send_raw:
 #ifdef LWS_OPENSSL_SUPPORT
 	}
 #endif
-//	fprintf(stderr, "written %d bytes to client\n", (int)len);
-	
+	debug("written %d bytes to client\n", (int)len);
+
 	return 0;
 }
 
@@ -438,14 +438,14 @@ send_raw:
  * @wsi:		Websocket instance (available from user callback)
  * @file:		The file to issue over http
  * @content_type:	The http content type, eg, text/html
- * 
+ *
  * 	This function is intended to be called from the callback in response
  * 	to http requests from the client.  It allows the callback to issue
  * 	local files down the http link in a single step.
  */
 
-int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
-						      const char * content_type)
+int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
+						       const char *content_type)
 {
 	int fd;
 	struct stat stat;
@@ -461,7 +461,7 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
 		);
 		libwebsocket_write(wsi, (unsigned char *)buf, p - buf,
 								LWS_WRITE_HTTP);
-		
+
 		return -1;
 	}
 
@@ -471,7 +471,7 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
 			"Content-Type: %s\x0d\x0a"
 			"Content-Length: %u\x0d\x0a"
 			"\x0d\x0a", content_type, (unsigned int)stat.st_size);
-			
+
 	libwebsocket_write(wsi, (unsigned char *)buf, p - buf, LWS_WRITE_HTTP);
 
 	n = 1;
@@ -480,8 +480,8 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
 		libwebsocket_write(wsi, (unsigned char *)buf, n,
 								LWS_WRITE_HTTP);
 	}
-	
+
 	close(fd);
-		
+
 	return 0;
 }

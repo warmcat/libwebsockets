@@ -1,6 +1,6 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
- * 
+ *
  * Copyright (C) 2010 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
@@ -21,8 +21,6 @@
 
 #include "private-libwebsockets.h"
 
-void libwebsockets_md5(const unsigned char *input, int ilen,
-						      unsigned char output[16]);
 
 static int interpret_key(const char *key, unsigned int *result)
 {
@@ -30,7 +28,7 @@ static int interpret_key(const char *key, unsigned int *result)
 	int digit_pos = 0;
 	const char *p = key;
 	int spaces = 0;
-	
+
 	while (*p) {
 		if (isdigit(*p)) {
 			if (digit_pos == sizeof(digits) - 1)
@@ -42,18 +40,18 @@ static int interpret_key(const char *key, unsigned int *result)
 	digits[digit_pos] = '\0';
 	if (!digit_pos)
 		return -2;
-		
+
 	while (*key) {
 		if (*key == ' ')
 			spaces++;
 		key++;
 	}
-	
+
 	if (!spaces)
 		return -3;
-		
+
 	*result = atol(digits) / spaces;
-	
+
 	return 0;
 }
 
@@ -64,7 +62,7 @@ static int interpret_key(const char *key, unsigned int *result)
  * machine that is completely independent of packet size.
  */
 
-int 
+int
 libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 {
 	size_t n;
@@ -72,38 +70,38 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 	unsigned int key1, key2;
 	unsigned char sum[16];
 	char *response;
-	
+
 	switch (wsi->state) {
 	case WSI_STATE_HTTP:
 		wsi->state = WSI_STATE_HTTP_HEADERS;
 		wsi->parser_state = WSI_TOKEN_NAME_PART;
 		/* fallthru */
 	case WSI_STATE_HTTP_HEADERS:
-	
-		debug("issuing %d bytes to parser\n", (int)len);	
+
+		debug("issuing %d bytes to parser\n", (int)len);
 #ifdef DEBUG
 		fwrite(buf, 1, len, stderr);
 #endif
-		for (n = 0; n< len; n++)
+		for (n = 0; n < len; n++)
 			libwebsocket_parse(wsi, *buf++);
-			
+
 		if (wsi->parser_state != WSI_PARSING_COMPLETE)
 			break;
 
 		/* is this websocket protocol or normal http 1.0? */
-		
+
 		if (!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
 			     !wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len) {
 			if (wsi->protocol->callback)
-				(wsi->protocol->callback)(wsi, LWS_CALLBACK_HTTP,
-							wsi->user_space,
+				(wsi->protocol->callback)(wsi,
+				   LWS_CALLBACK_HTTP, wsi->user_space,
 				   wsi->utf8_token[WSI_TOKEN_GET_URI].token, 0);
 			wsi->state = WSI_STATE_HTTP;
 			return 0;
 		}
 
 		/* Websocket - confirm we have all the necessary pieces */
-		
+
 		if (!wsi->utf8_token[WSI_TOKEN_ORIGIN].token_len ||
 			!wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
 			!wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len ||
@@ -119,7 +117,6 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 				   atoi(wsi->utf8_token[WSI_TOKEN_DRAFT].token);
 			switch (wsi->ietf_spec_revision) {
 			case 76:
-				break;
 			case 2:
 				break;
 			default:
@@ -142,12 +139,12 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 				     wsi->utf8_token[WSI_TOKEN_PROTOCOL].token,
 						      wsi->protocol->name) == 0)
 					break;
-							
+
 			wsi->protocol++;
 		}
 
 		/* we didn't find a protocol he wanted? */
-		
+
 		if (wsi->protocol->callback == NULL) {
 			if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token == NULL)
 				fprintf(stderr, "[no protocol] "
@@ -171,11 +168,11 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 			}
 		} else
 			wsi->user_space = NULL;
-		
+
 		/* create the response packet */
-		
+
 		/* make a buffer big enough for everything */
-		
+
 		response = malloc(256 +
 			wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len +
 			wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len +
@@ -187,7 +184,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 			fprintf(stderr, "Out of memory for response buffer\n");
 			goto bail;
 		}
-		
+
 		p = response;
 		strcpy(p,   "HTTP/1.1 101 WebSocket Protocol Handshake\x0d\x0a"
 						  "Upgrade: WebSocket\x0d\x0a");
@@ -224,14 +221,14 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 
 		strcpy(p,   "\x0d\x0a\x0d\x0a");
 		p += strlen("\x0d\x0a\x0d\x0a");
-		
+
 		/* convert the two keys into 32-bit integers */
-		
+
 		if (interpret_key(wsi->utf8_token[WSI_TOKEN_KEY1].token, &key1))
 			goto bail;
 		if (interpret_key(wsi->utf8_token[WSI_TOKEN_KEY2].token, &key2))
 			goto bail;
-			
+
 		/* lay them out in network byte order (MSB first */
 
 		sum[0] = key1 >> 24;
@@ -242,12 +239,12 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		sum[5] = key2 >> 16;
 		sum[6] = key2 >> 8;
 		sum[7] = key2;
-		
+
 		/* follow them with the challenge token we were sent */
-		
+
 		memcpy(&sum[8], wsi->utf8_token[WSI_TOKEN_CHALLENGE].token, 8);
 
-		/* 
+		/*
 		 * compute the md5sum of that 16-byte series and use as our
 		 * payload after our headers
 		 */
@@ -256,9 +253,8 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		p += 16;
 
 		/* it's complete: go ahead and send it */
-		
-		debug("issuing response packet %d len\n",
-							   (int)(p - response));
+
+		debug("issuing response packet %d len\n", (int)(p - response));
 #ifdef DEBUG
 		fwrite(response, 1,  p - response, stderr);
 #endif
@@ -268,15 +264,15 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 			fprintf(stderr, "ERROR writing to socket");
 			goto bail;
 		}
-		
+
 		/* alright clean up and set ourselves into established state */
 
 		free(response);
 		wsi->state = WSI_STATE_ESTABLISHED;
 		wsi->lws_rx_parse_state = LWS_RXPS_NEW;
-		
+
 		/* notify user code that we're ready to roll */
-				
+
 		if (wsi->protocol->callback)
 			wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
 						  wsi->user_space, NULL, 0);
@@ -289,9 +285,9 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 	default:
 		break;
 	}
-	
+
 	return 0;
-	
+
 bail:
 	libwebsocket_close_and_free_session(wsi);
 	return -1;

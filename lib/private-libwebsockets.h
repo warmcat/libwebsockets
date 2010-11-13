@@ -1,6 +1,6 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
- * 
+ *
  * Copyright (C) 2010 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
@@ -30,7 +30,7 @@
 #include <fcntl.h>
 #include <signal.h>
 
-#include <sys/types.h> 
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -45,14 +45,14 @@
 
 #include "libwebsockets.h"
 
-//#define DEBUG
+/* #define DEBUG */
 
 
 #ifdef DEBUG
 #define debug(format, args...)  \
       fprintf(stderr, format , ## args)
 #else
-#define debug(format, args...) 
+#define debug(format, args...)
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -87,7 +87,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_ORIGIN,
 	WSI_TOKEN_DRAFT,
 	WSI_TOKEN_CHALLENGE,
-	
+
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,
 	/* parser state additions */
@@ -99,17 +99,17 @@ enum lws_token_indexes {
 
 enum lws_rx_parse_state {
 	LWS_RXPS_NEW,
-	
+
 	LWS_RXPS_SEEN_76_FF,
 	LWS_RXPS_PULLING_76_LENGTH,
 	LWS_RXPS_EAT_UNTIL_76_FF,
-	
+
 	LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED
 };
 
 
 struct lws_tokens {
-	char * token;
+	char *token;
 	int token_len;
 };
 
@@ -139,7 +139,7 @@ struct libwebsocket {
 
 	enum lws_rx_parse_state lws_rx_parse_state;
 	size_t rx_packet_length;
-	
+
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;
 #endif
@@ -147,5 +147,8 @@ struct libwebsocket {
 	void *user_space;
 };
 
-extern void 
+extern void
 libwebsocket_close_and_free_session(struct libwebsocket *wsi);
+
+extern void
+libwebsockets_md5(const unsigned char *input, int ilen, unsigned char *output);

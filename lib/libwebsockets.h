@@ -1,6 +1,6 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
- * 
+ *
  * Copyright (C) 2010 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
@@ -51,7 +51,7 @@ struct libwebsocket;
  * 		this much memory allocated on connection establishment and
  * 		freed on connection takedown.  A pointer to this per-connection
  * 		allocation is passed into the callback in the 'user' parameter
- * 
+ *
  * 	This structure represents one protocol supported by the server.  An
  * 	array of these structures is passed to libwebsocket_create_server()
  * 	allows as many protocols as you like to be handled by one server.
@@ -59,37 +59,37 @@ struct libwebsocket;
 
 struct libwebsocket_protocols {
 	const char *name;
-	int (*callback)(struct libwebsocket * wsi,
-			 enum libwebsocket_callback_reasons reason, void * user,
+	int (*callback)(struct libwebsocket *wsi,
+			enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
 	size_t per_session_data_size;
 };
 
 extern int libwebsocket_create_server(int port,
 		  const struct libwebsocket_protocols *protocols,
-		  const char * ssl_cert_filepath,
-		  const char * ssl_private_key_filepath, int gid, int uid);
+		  const char *ssl_cert_filepath,
+		  const char *ssl_private_key_filepath, int gid, int uid);
 
 /*
  * IMPORTANT NOTICE!
- * 
+ *
  * When sending with websocket protocol (LWS_WRITE_TEXT or LWS_WRITE_BINARY)
  * the send buffer has to have LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE
  * buf, and LWS_SEND_BUFFER_POST_PADDING bytes valid AFTER (buf + len).
- * 
+ *
  * This allows us to add protocol info before and after the data, and send as
  * one packet on the network without payload copying, for maximum efficiency.
- * 
+ *
  * So for example you need this kind of code to use libwebsocket_write with a
- * 128-byte payload 
- * 
+ * 128-byte payload
+ *
  *   char buf[LWS_SEND_BUFFER_PRE_PADDING + 128 + LWS_SEND_BUFFER_POST_PADDING];
- * 
+ *
  *   // fill your part of the buffer... for example here it's all zeros
  *   memset(&buf[LWS_SEND_BUFFER_PRE_PADDING], 0, 128);
- * 
+ *
  *   libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128);
- * 
+ *
  * When sending LWS_WRITE_HTTP, there is no protocol addition and you can just
  * use the whole buffer without taking care of the above.
  */
@@ -98,11 +98,11 @@ extern int libwebsocket_create_server(int port,
 #define LWS_SEND_BUFFER_POST_PADDING 1
 
 extern int
-libwebsocket_write(struct libwebsocket *, unsigned char *buf, size_t len,
+libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf, size_t len,
 				     enum libwebsocket_write_protocol protocol);
 
 extern int
-libwebsockets_serve_http_file(struct libwebsocket *wsi, const char * file,
-						     const char * content_type);
+libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
+						     const char *content_type);
 
 #endif

@@ -1,6 +1,6 @@
 /*
  * libwebsockets-test-server - libwebsockets test implementation
- * 
+ *
  * Copyright (C) 2010 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
@@ -45,25 +45,25 @@
 
 #define LOCAL_RESOURCE_PATH "/usr/share/libwebsockets-test-server"
 static int port = 7681;
-static int use_ssl = 0;
+static int use_ssl;
 
 /* this protocol server (always the first one) just knows how to do HTTP */
 
-static int callback_http(struct libwebsocket * wsi,
-		enum libwebsocket_callback_reasons reason, void * user,
+static int callback_http(struct libwebsocket *wsi,
+		enum libwebsocket_callback_reasons reason, void *user,
 							   void *in, size_t len)
 {
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 		fprintf(stderr, "serving HTTP URI %s\n", in);
-		
+
 		if (in && strcmp(in, "/favicon.ico") == 0) {
 			if (libwebsockets_serve_http_file(wsi,
 			     LOCAL_RESOURCE_PATH"/favicon.ico", "image/x-icon"))
 				fprintf(stderr, "Failed to send favicon\n");
 			break;
 		}
-		
+
 		/* send the script... when it runs it'll start websockets */
 
 		if (libwebsockets_serve_http_file(wsi,
@@ -85,23 +85,23 @@ struct per_session_data__dumb_increment {
 };
 
 static int
-callback_dumb_increment(struct libwebsocket * wsi,
+callback_dumb_increment(struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
-			void * user, void *in, size_t len)
+					       void *user, void *in, size_t len)
 {
 	int n;
 	char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	unsigned char *p = (unsigned char *)&buf[LWS_SEND_BUFFER_PRE_PADDING];
-	struct per_session_data__dumb_increment * pss = user;
-	
+	struct per_session_data__dumb_increment *pss = user;
+
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
 		pss->number = 0;
 		break;
 
-	case LWS_CALLBACK_SEND:	
+	case LWS_CALLBACK_SEND:
 		n = sprintf(p, "%d", pss->number++);
 		n = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (n < 0) {
@@ -131,12 +131,12 @@ callback_dumb_increment(struct libwebsocket * wsi,
 #define MAX_MESSAGE_QUEUE 64
 
 struct per_session_data__lws_mirror {
-	struct libwebsocket * wsi;
+	struct libwebsocket *wsi;
 	int ringbuffer_tail;
 };
 
 struct a_message {
-	void * payload;
+	void *payload;
 	size_t len;
 };
 
@@ -145,16 +145,16 @@ static int ringbuffer_head;
 
 
 static int
-callback_lws_mirror(struct libwebsocket * wsi,
+callback_lws_mirror(struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
-			void * user, void *in, size_t len)
+					       void *user, void *in, size_t len)
 {
 	int n;
 	char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	unsigned char *p = (unsigned char *)&buf[LWS_SEND_BUFFER_PRE_PADDING];
-	struct per_session_data__lws_mirror * pss = user;
-	
+	struct per_session_data__lws_mirror *pss = user;
+
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
@@ -162,15 +162,15 @@ callback_lws_mirror(struct libwebsocket * wsi,
 		pss->ringbuffer_tail = ringbuffer_head;
 		break;
 
-	case LWS_CALLBACK_SEND:	
+	case LWS_CALLBACK_SEND:
 		/* send everything that's pending */
 		while (pss->ringbuffer_tail != ringbuffer_head) {
 
-			n = libwebsocket_write(wsi,
-				(unsigned char *)ringbuffer[pss->ringbuffer_tail].payload +
-					LWS_SEND_BUFFER_PRE_PADDING,
+			n = libwebsocket_write(wsi, (unsigned char *)
+				   ringbuffer[pss->ringbuffer_tail].payload +
+				   LWS_SEND_BUFFER_PRE_PADDING,
 				   ringbuffer[pss->ringbuffer_tail].len,
-							LWS_WRITE_TEXT);
+								LWS_WRITE_TEXT);
 			if (n < 0) {
 				fprintf(stderr, "ERROR writing to socket");
 				exit(1);
@@ -185,7 +185,7 @@ callback_lws_mirror(struct libwebsocket * wsi,
 
 	case LWS_CALLBACK_RECEIVE:
 		if (ringbuffer[ringbuffer_head].payload)
-			free(ringbuffer[ringbuffer_head].payload );
+			free(ringbuffer[ringbuffer_head].payload);
 
 		ringbuffer[ringbuffer_head].payload =
 				malloc(LWS_SEND_BUFFER_PRE_PADDING + len +
@@ -242,15 +242,15 @@ static struct option options[] = {
 int main(int argc, char **argv)
 {
 	int n = 0;
-	const char * cert_path =
+	const char *cert_path =
 			    LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
-	const char * key_path =
+	const char *key_path =
 			LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 
 	fprintf(stderr, "libwebsockets test server\n"
 			"(C) Copyright 2010 Andy Green <andy@warmcat.com> "
 						    "licensed under LGPL2.1\n");
-	
+
 	while (n >= 0) {
 		n = getopt_long(argc, argv, "hp:", options, NULL);
 		if (n < 0)
@@ -271,7 +271,7 @@ int main(int argc, char **argv)
 
 	if (!use_ssl)
 		cert_path = key_path = NULL;
-	
+
 	if (libwebsocket_create_server(port, protocols,
 				       cert_path, key_path, -1, -1) < 0) {
 		fprintf(stderr, "libwebsocket init failed\n");

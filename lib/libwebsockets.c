@@ -82,8 +82,8 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 
 	if (wsi->protocol->callback && n == WSI_STATE_ESTABLISHED)
-		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED, wsi->user_space, 
-								       NULL, 0);
+		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
+						      wsi->user_space, NULL, 0);
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++)
 		if (wsi->utf8_token[n].token)
@@ -248,6 +248,7 @@ int libwebsocket_create_server(int port,
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = INADDR_ANY;
 	serv_addr.sin_port = htons(port);
+
 	n = bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
 	if (n < 0) {
               fprintf(stderr, "ERROR on binding to port %d (%d %d)\n", port, n,
@@ -255,7 +256,7 @@ int libwebsocket_create_server(int port,
               return -1;
         }
  
-	/* drop any root privs for this thread */
+	/* drop any root privs for this process */
 
 	if (gid != -1)
 		if (setgid(gid))
@@ -308,7 +309,6 @@ int libwebsocket_create_server(int port,
 			wsi[fds_count] = malloc(sizeof(struct libwebsocket));
 			if (!wsi[fds_count])
 				return -1;
-
 
 #ifdef LWS_OPENSSL_SUPPORT
 			if (use_ssl) {
@@ -455,8 +455,10 @@ poll_out:
 			if (wsi[client]->state != WSI_STATE_ESTABLISHED)
 				continue;
 
-			wsi[client]->protocol->callback(wsi[client], LWS_CALLBACK_SEND, 
-					  wsi[client]->user_space, NULL, 0);
+			wsi[client]->protocol->callback(wsi[client],
+							LWS_CALLBACK_SEND, 
+							wsi[client]->user_space,
+								       NULL, 0);
 		}
 		
 		continue;		

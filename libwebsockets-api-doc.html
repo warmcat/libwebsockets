@@ -181,7 +181,7 @@ local files down the http link in a single step.
 <h2>struct libwebsocket_protocols - List of protocols and handlers server supports.</h2>
 <b>struct libwebsocket_protocols</b> {<br>
 &nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
-&nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket * wsi,enum libwebsocket_callback_reasons reason, void * user,void *in, size_t len)</i>;<br>
+&nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket *wsi,enum libwebsocket_callback_reasons reason, void *user,void *in, size_t len)</i>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
 };<br>
 <h3>Members</h3>
