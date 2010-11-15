@@ -49,22 +49,36 @@ protocol, including the guy who sent the packet.
 <script>
 	var pos = 0;
 
-function get_appropriate_ws_url(ads)
+function get_appropriate_ws_url()
 {
+	var pcol;
+	var u = document.URL;
+
 	/*
 	 * We open the websocket encrypted if this page came on an
 	 * https:// url itself, otherwise unencrypted
 	 */
 
-	if (document.URL.substring(0, 5) == "https")
-		return "wss://"+ads;
-	else
-		return "ws://"+ads;
+	if (u.substring(0, 5) == "https") {
+		pcol = "wss://";
+		u = u.substr(8);
+	} else {
+		pcol = "ws://";
+		if (u.substring(0, 4) == "http")
+			u = u.substr(7);
+	}
+
+	u = u.split('/');
+
+	return pcol + u[0];
 }
+
+
+document.getElementById("number").textContent = get_appropriate_ws_url();
 
 /* dumb increment protocol */
 	
-	var socket_di = new WebSocket(get_appropriate_ws_url("127.0.0.1:7681"),
+	var socket_di = new WebSocket(get_appropriate_ws_url(),
 				   "dumb-increment-protocol");  
 
 	try {
@@ -96,7 +110,7 @@ function reset() {
 	var no_last = 1;
 	var last_x = 0, last_y = 0;
 	var ctx;
-	var socket_lm = new WebSocket(get_appropriate_ws_url("127.0.0.1:7681"),
+	var socket_lm = new WebSocket(get_appropriate_ws_url(),
 				   "lws-mirror-protocol");
 	var color = "#000000";
 
