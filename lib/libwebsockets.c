@@ -168,7 +168,7 @@ int libwebsocket_create_server(int port,
 	int opt = 1;
 
 #ifdef LWS_OPENSSL_SUPPORT
-	const SSL_METHOD *method;
+	SSL_METHOD *method;
 	char ssl_err_buf[512];
 
 	use_ssl = ssl_cert_filepath != NULL && ssl_private_key_filepath != NULL;

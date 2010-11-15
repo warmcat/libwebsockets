@@ -1,57 +1,39 @@
 /*
- * Loosely based from GPL2+later Polarssl MD5 available here in its
- * original form:
- * 
+ * Modified from Polarssl here
  * http://polarssl.org/show_source?file=md5
+ * under GPL2 or later
  */
 
 
 #include <string.h>
 #include <stdio.h>
-#include <endian.h>
-
-#ifdef htobe16
-#else
-/* Conversion interfaces.  */
-# include <byteswap.h>
-
-# if __BYTE_ORDER == __LITTLE_ENDIAN
-#  define htobe16(x) __bswap_16 (x)
-#  define htole16(x) (x)
-#  define be16toh(x) __bswap_16 (x)
-#  define le16toh(x) (x)
-
-#  define htobe32(x) __bswap_32 (x)
-#  define htole32(x) (x)
-#  define be32toh(x) __bswap_32 (x)
-#  define le32toh(x) (x)
-
-#  define htobe64(x) __bswap_64 (x)
-#  define htole64(x) (x)
-#  define be64toh(x) __bswap_64 (x)
-#  define le64toh(x) (x)
-# else
-#  define htobe16(x) (x)
-#  define htole16(x) __bswap_16 (x)
-#  define be16toh(x) (x)
-#  define le16toh(x) __bswap_16 (x)
-
-#  define htobe32(x) (x)
-#  define htole32(x) __bswap_32 (x)
-#  define be32toh(x) (x)
-#  define le32toh(x) __bswap_32 (x)
-
-#  define htobe64(x) (x)
-#  define htole64(x) __bswap_64 (x)
-#  define be64toh(x) (x)
-#  define le64toh(x) __bswap_64 (x)
-# endif
-#endif
 
 
+#define GET_ULONG_LE(n, b, i)                             \
+{                                                       \
+	(n) = ((unsigned long)(b)[i])			\
+	| ((unsigned long)(b)[(i) + 1] <<  8)        \
+	| ((unsigned long)(b)[(i) + 2] << 16)        \
+	| ((unsigned long)(b)[(i) + 3] << 24);       \
+}
+
+#define PUT_ULONG_LE(n, b, i)				\
+{							\
+	(b)[i] = (unsigned char)(n);	\
+	(b)[(i) + 1] = (unsigned char)((n) >>  8);	\
+	(b)[(i) + 2] = (unsigned char)((n) >> 16);	\
+	(b)[(i) + 3] = (unsigned char)((n) >> 24);	\
+}
 
 static const unsigned char md5_padding[64] = {
-	0x80
+	0x80, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,	
 };
 
 static const unsigned long state_init[] = {
@@ -61,11 +43,11 @@ static const unsigned long state_init[] = {
 static void
 md5_process(unsigned long *state, const unsigned char *data)
 {
-    unsigned long X[16], A, B, C, D;
-    int n;
-
-    for (n = 0; n < 16; n++)
-	X[n] = htole32(*(unsigned long *)(&data[n << 2]));
+	unsigned long X[16], A, B, C, D;
+	int v;
+ 
+	for (v = 0; v < 16; v++)
+		GET_ULONG_LE(X[v], data, v << 2);
 
 #define S(x, n) ((x << n) | ((x & 0xFFFFFFFF) >> (32 - n)))
 
@@ -186,7 +168,7 @@ void md5_update(unsigned long * state, unsigned char * buffer,
 		state[1]++;
 
 	if (left && ilen >= fill) {
-		memcpy((void *)(buffer + left), (void *)input, fill);
+		memcpy(buffer + left, input, fill);
 		md5_process(&state[2], buffer);
 		input += fill;
 		ilen -= fill;
@@ -200,7 +182,7 @@ void md5_update(unsigned long * state, unsigned char * buffer,
 	}
 
 	if (ilen > 0)
-		memcpy((void *)(buffer + left), (void *) input, ilen);
+		memcpy(buffer + left, input, ilen);
 }
 
 void
@@ -211,7 +193,6 @@ libwebsockets_md5(const unsigned char *input, int ilen, unsigned char *output)
 	unsigned char msglen[8];
 	unsigned long state[6];
 	unsigned char buffer[64];
-	unsigned long *p = (unsigned long *)&msglen[0];
 
 	memcpy(&state[0], &state_init[0], sizeof(state_init));
 
@@ -220,8 +201,8 @@ libwebsockets_md5(const unsigned char *input, int ilen, unsigned char *output)
 	high = (state[0] >> 29) | (state[1] <<  3);
 	low  = state[0] <<  3;
 
-	*p++ = le32toh(low);
-	*p = le32toh(high);
+	PUT_ULONG_LE(low, msglen, 0);
+	PUT_ULONG_LE(high, msglen, 4);
 
 	last = state[0] & 0x3F;
 	padn = (last < 56) ? (56 - last) : (120 - last);
@@ -229,11 +210,10 @@ libwebsockets_md5(const unsigned char *input, int ilen, unsigned char *output)
 	md5_update(state, buffer, md5_padding, padn);
 	md5_update(state, buffer, msglen, 8);
 
-	p = (unsigned long *)&output[0];
-	*p++ = le32toh(state[2]);
-	*p++ = le32toh(state[3]);
-	*p++ = le32toh(state[4]);
-	*p++ = le32toh(state[5]);
+	PUT_ULONG_LE(state[2], output, 0);
+	PUT_ULONG_LE(state[3], output, 4);
+	PUT_ULONG_LE(state[4], output, 8);
+	PUT_ULONG_LE(state[5], output, 12);
 }
 
 

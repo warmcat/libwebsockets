@@ -22,12 +22,13 @@
 #include "private-libwebsockets.h"
 
 
-static int interpret_key(const char *key, unsigned int *result)
+static int interpret_key(const char *key, unsigned long *result)
 {
 	char digits[20];
 	int digit_pos = 0;
 	const char *p = key;
-	int spaces = 0;
+	unsigned int spaces = 0;
+	unsigned long long acc;
 
 	while (*p) {
 		if (isdigit(*p)) {
@@ -50,7 +51,12 @@ static int interpret_key(const char *key, unsigned int *result)
 	if (!spaces)
 		return -3;
 
-	*result = atol(digits) / spaces;
+	/*
+	 * long long is absolutely needed since "digits" can be a multiple
+	 * of a 32-bit range number
+	 */
+	acc = atoll(digits);
+	*result = acc / spaces;
 
 	return 0;
 }
@@ -67,7 +73,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 {
 	size_t n;
 	char *p;
-	unsigned int key1, key2;
+	unsigned long key1, key2;
 	unsigned char sum[16];
 	char *response;
 
