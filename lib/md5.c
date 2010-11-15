@@ -8,17 +8,6 @@
 #include <string.h>
 #include <stdio.h>
 
-
-struct md5_context {
-	unsigned long total[2];
-	unsigned long state[4];
-	unsigned char buffer[64];
-};
-
-/*
- * 32-bit integer manipulation macros (little endian)
- */
-#ifndef GET_ULONG_LE
 #define GET_ULONG_LE(n, b, i)                             \
 {                                                       \
 	(n) = ((unsigned long)(b)[i])			\
@@ -26,20 +15,25 @@ struct md5_context {
 	| ((unsigned long)(b)[(i) + 2] << 16)        \
 	| ((unsigned long)(b)[(i) + 3] << 24);       \
 }
-#endif
 
-#ifndef PUT_ULONG_LE
 #define PUT_ULONG_LE(n, b, i)				\
 {							\
 	(b)[i] = (unsigned char)(n);	\
 	(b)[(i) + 1] = (unsigned char)((n) >>  8);	\
 	(b)[(i) + 2] = (unsigned char)((n) >> 16);	\
 	(b)[(i) + 3] = (unsigned char)((n) >> 24);	\
-	}
-#endif
+}
 
+static const unsigned char md5_padding[64] = {
+	0x80
+};
 
-static void md5_process(struct md5_context *ctx, const unsigned char data[64])
+static const unsigned long state_init[] = {
+	0, 0, 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476
+};
+
+static void
+md5_process(unsigned long *state, const unsigned char *data)
 {
     unsigned long X[16], A, B, C, D;
 
@@ -62,15 +56,12 @@ static void md5_process(struct md5_context *ctx, const unsigned char data[64])
 
 #define S(x, n) ((x << n) | ((x & 0xFFFFFFFF) >> (32 - n)))
 
-#define P(a, b, c, d, k, s, t)                                \
-{                                                       \
-    a += F(b, c, d) + X[k] + t; a = S(a, s) + b;           \
-}
+#define P(a, b, c, d, k, s, t) { a += F(b, c, d) + X[k] + t; a = S(a, s) + b; }
 
-	A = ctx->state[0];
-	B = ctx->state[1];
-	C = ctx->state[2];
-	D = ctx->state[3];
+	A = state[0];
+	B = state[1];
+	C = state[2];
+	D = state[3];
 
 #define F(x, y, z) (z ^ (x & (y ^ z)))
 
@@ -156,14 +147,15 @@ static void md5_process(struct md5_context *ctx, const unsigned char data[64])
 
 #undef F
 
-	ctx->state[0] += A;
-	ctx->state[1] += B;
-	ctx->state[2] += C;
-	ctx->state[3] += D;
+	state[0] += A;
+	state[1] += B;
+	state[2] += C;
+	state[3] += D;
 }
 
 static
-void md5_update(struct md5_context *ctx, const unsigned char *input, int ilen)
+void md5_update(unsigned long * state, unsigned char * buffer,
+					   const unsigned char *input, int ilen)
 {
 	int fill;
 	unsigned long left;
@@ -171,74 +163,62 @@ void md5_update(struct md5_context *ctx, const unsigned char *input, int ilen)
 	if (ilen <= 0)
 		return;
 
-	left = ctx->total[0] & 0x3F;
+	left = state[0] & 0x3F;
 	fill = 64 - left;
 
-	ctx->total[0] += ilen;
-	ctx->total[0] &= 0xFFFFFFFF;
+	state[0] += ilen;
+	state[0] &= 0xFFFFFFFF;
 
-	if (ctx->total[0] < (unsigned long)ilen)
-		ctx->total[1]++;
+	if (state[0] < (unsigned long)ilen)
+		state[1]++;
 
 	if (left && ilen >= fill) {
-		memcpy((void *)(ctx->buffer + left), (void *)input, fill);
-		md5_process(ctx, ctx->buffer);
+		memcpy((void *)(buffer + left), (void *)input, fill);
+		md5_process(&state[2], buffer);
 		input += fill;
 		ilen -= fill;
 		left = 0;
 	}
 
 	while (ilen >= 64) {
-		md5_process(ctx, input);
+		md5_process(&state[2], input);
 		input += 64;
 		ilen -= 64;
 	}
 
 	if (ilen > 0)
-		memcpy((void *)(ctx->buffer + left), (void *) input, ilen);
+		memcpy((void *)(buffer + left), (void *) input, ilen);
 }
-
-static const unsigned char md5_padding[64] = {
-	0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-};
 
 void
 libwebsockets_md5(const unsigned char *input, int ilen, unsigned char *output)
 {
-	struct md5_context ctx;
 	unsigned long last, padn;
 	unsigned long high, low;
 	unsigned char msglen[8];
+	unsigned long state[6];
+	unsigned char buffer[64];
 
-	ctx.total[0] = 0;
-	ctx.total[1] = 0;
+	memcpy(&state[0], &state_init[0], sizeof(state_init));
 
-	ctx.state[0] = 0x67452301;
-	ctx.state[1] = 0xEFCDAB89;
-	ctx.state[2] = 0x98BADCFE;
-	ctx.state[3] = 0x10325476;
+	md5_update(state, buffer, input, ilen);
 
-	md5_update(&ctx, input, ilen);
-
-	high = (ctx.total[0] >> 29) | (ctx.total[1] <<  3);
-	low  = (ctx.total[0] <<  3);
+	high = (state[0] >> 29) | (state[1] <<  3);
+	low  = state[0] <<  3;
 
 	PUT_ULONG_LE(low, msglen, 0);
 	PUT_ULONG_LE(high, msglen, 4);
 
-	last = ctx.total[0] & 0x3F;
+	last = state[0] & 0x3F;
 	padn = (last < 56) ? (56 - last) : (120 - last);
 
-	md5_update(&ctx, md5_padding, padn);
-	md5_update(&ctx, msglen, 8);
+	md5_update(state, buffer, md5_padding, padn);
+	md5_update(state, buffer, msglen, 8);
 
-	PUT_ULONG_LE(ctx.state[0], output, 0);
-	PUT_ULONG_LE(ctx.state[1], output, 4);
-	PUT_ULONG_LE(ctx.state[2], output, 8);
-	PUT_ULONG_LE(ctx.state[3], output, 12);
+	PUT_ULONG_LE(state[2], output, 0);
+	PUT_ULONG_LE(state[3], output, 4);
+	PUT_ULONG_LE(state[4], output, 8);
+	PUT_ULONG_LE(state[5], output, 12);
 }
 
 

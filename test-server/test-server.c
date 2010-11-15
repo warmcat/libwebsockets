@@ -92,7 +92,7 @@ callback_dumb_increment(struct libwebsocket *wsi,
 	int n;
 	char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
 						  LWS_SEND_BUFFER_POST_PADDING];
-	unsigned char *p = (unsigned char *)&buf[LWS_SEND_BUFFER_PRE_PADDING];
+	char *p = (char *)&buf[LWS_SEND_BUFFER_PRE_PADDING];
 	struct per_session_data__dumb_increment *pss = user;
 
 	switch (reason) {
