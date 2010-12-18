@@ -32,7 +32,9 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/prctl.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <poll.h>
 #include <sys/mman.h>
@@ -45,7 +47,7 @@
 
 #include "libwebsockets.h"
 
-/* #define DEBUG */
+/* #define DEBUG  */
 
 
 #ifdef DEBUG
@@ -67,7 +69,8 @@ extern int use_ssl;
 #define LWS_INITIAL_HDR_ALLOC 256
 #define LWS_ADDITIONAL_HDR_ALLOC 64
 #define MAX_USER_RX_BUFFER 512
-
+#define MAX_BROADCAST_PAYLOAD 1024
+#define LWS_MAX_PROTOCOLS 10
 
 enum lws_connection_states {
 	WSI_STATE_HTTP,
@@ -113,6 +116,16 @@ struct lws_tokens {
 	int token_len;
 };
 
+struct libwebsocket_context {
+	struct libwebsocket *wsi[MAX_CLIENTS + 1];
+	struct pollfd fds[MAX_CLIENTS + 1];
+	int fds_count;
+#ifdef LWS_OPENSSL_SUPPORT
+	int use_ssl;
+#endif
+	int count_protocols;
+};
+
 
 /*
  * This is totally opaque to code using the library.  It's exported as a
@@ -152,3 +165,10 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi);
 
 extern void
 libwebsockets_md5(const unsigned char *input, int ilen, unsigned char *output);
+
+extern int
+libwebsocket_parse(struct libwebsocket *wsi, unsigned char c);
+
+extern int
+libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
+						unsigned char *buf, size_t len);

@@ -39,9 +39,9 @@ after successful websocket handshake
 <blockquote>
 when the websocket session ends
 </blockquote>
-<h3>LWS_CALLBACK_SEND</h3>
+<h3>LWS_CALLBACK_BROADCAST</h3>
 <blockquote>
-opportunity to send to client (you would use
+signal to send to client (you would use
 <b>libwebsocket_write</b> taking care about the
 special buffer requirements
 </blockquote>
@@ -66,7 +66,7 @@ simple to send back a file to the client.
 <i>int</i>
 <b>libwebsocket_create_server</b>
 (<i>int</i> <b>port</b>,
-<i>const struct libwebsocket_protocols *</i> <b>protocols</b>,
+<i>struct libwebsocket_protocols *</i> <b>protocols</b>,
 <i>const char *</i> <b>ssl_cert_filepath</b>,
 <i>const char *</i> <b>ssl_private_key_filepath</b>,
 <i>int</i> <b>gid</b>,
@@ -79,6 +79,7 @@ simple to send back a file to the client.
 <dd>Array of structures listing supported protocols and a protocol-
 specific callback for each one.  The list is ended with an
 entry that has a NULL callback pointer.
+It's not const because we write the owning_server member
 <dt><b>ssl_cert_filepath</b>
 <dd>If libwebsockets was compiled to use ssl, and you want
 to listen using SSL, set to the filepath to fetch the
@@ -96,10 +97,10 @@ else ignored
 This function creates the listening socket and takes care
 of all initialization in one step.
 <p>
-It does not return since it sits in a service loop and operates via the
-callbacks given in <tt><b>protocol</b></tt>.  User code should fork before calling
-<b>libwebsocket_create_server</b> if it wants to do other things in
-parallel other than serve websockets.
+After initialization, it forks a thread that will sits in a service loop
+and returns to the caller.  The actual service actions are performed by
+user code in a per-protocol callback from the appropriate one selected
+by the client from the list in <tt><b>protocols</b></tt>.
 <p>
 The protocol callback functions are called for a handful of events
 including http requests coming in, websocket connections becoming
@@ -116,6 +117,53 @@ websocket standard is upgrading this http connection to a websocket one.
 This allows the same server to provide files like scripts and favicon /
 images or whatever over http and dynamic data over websockets all in
 one place; they're all handled in the user callback.
+</blockquote>
+<hr>
+<h2>libwebsockets_get_protocol - Returns a protocol pointer from a websocket connection.</h2>
+<i>const struct libwebsocket_protocols *</i>
+<b>libwebsockets_get_protocol</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>pointer to struct websocket you want to know the protocol of
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+This is useful to get the protocol to broadcast back to from inside
+the callback.
+</blockquote>
+<hr>
+<h2>libwebsockets_broadcast - Sends a buffer to rthe callback for all active connections of the given protocol.</h2>
+<i>int</i>
+<b>libwebsockets_broadcast</b>
+(<i>const struct libwebsocket_protocols *</i> <b>protocol</b>,
+<i>unsigned char *</i> <b>buf</b>,
+<i>size_t</i> <b>len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>protocol</b>
+<dd>pointer to the protocol you will broadcast to all members of
+<dt><b>buf</b>
+<dd>buffer containing the data to be broadcase.  NOTE: this has to be
+allocated with LWS_SEND_BUFFER_PRE_PADDING valid bytes before
+the pointer and LWS_SEND_BUFFER_POST_PADDING afterwards in the
+case you are calling this function from callback context.
+<dt><b>len</b>
+<dd>length of payload data in buf, starting from buf.
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function allows bulk sending of a packet to every connection using
+the given protocol.  It does not send the data directly; instead it calls
+the callback with a reason type of LWS_CALLBACK_BROADCAST.  If the callback
+wants to actually send the data for that connection, the callback itself
+should call <b>libwebsocket_write</b>.
+<p>
+<b>libwebsockets_broadcast</b> can be called from another fork context without
+having to take any care about data visibility between the processes, it'll
+"just work".
 </blockquote>
 <hr>
 <h2>libwebsocket_write - Apply protocol then write data to client</h2>
@@ -183,6 +231,10 @@ local files down the http link in a single step.
 &nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
 &nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket *wsi,enum libwebsocket_callback_reasons reason, void *user,void *in, size_t len)</i>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
+&nbsp; &nbsp; <i>struct libwebsocket_context *</i> <b>owning_server</b>;<br>
+&nbsp; &nbsp; <i>int</i> <b>broadcast_socket_port</b>;<br>
+&nbsp; &nbsp; <i>int</i> <b>broadcast_socket_user_fd</b>;<br>
+&nbsp; &nbsp; <i>int</i> <b>protocol_index</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
@@ -198,6 +250,20 @@ the protocol-specific callback
 this much memory allocated on connection establishment and
 freed on connection takedown.  A pointer to this per-connection
 allocation is passed into the callback in the 'user' parameter
+<dt><b>owning_server</b>
+<dd>the server init call fills in this opaque pointer when
+registering this protocol with the server.
+<dt><b>broadcast_socket_port</b>
+<dd>the server init call fills this in with the
+localhost port number used to forward broadcasts for this
+protocol
+<dt><b>broadcast_socket_user_fd</b>
+<dd>the server init call fills this in ... the <b>main</b>
+process context can write to this socket to perform broadcasts
+(use the <b>libwebsockets_broadcast</b> api to do this instead,
+it works from any process context)
+<dt><b>protocol_index</b>
+<dd>which protocol we are starting from zero
 </dl>
 <h3>Description</h3>
 <blockquote>

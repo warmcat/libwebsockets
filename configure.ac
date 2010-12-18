@@ -2,12 +2,14 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.66])
-AC_INIT(libwebsockets, 0.1, andy@warmcat.com)
+AC_INIT(libwebsockets, 0.2, andy@warmcat.com)
 AC_CONFIG_SRCDIR([test-server/test-server.c])
 AC_CONFIG_HEADERS([config.h])
 
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 LT_INIT(shared)
+
+#AX_PTHREAD
 
 # Checks for programs.
 AC_PROG_CC

@@ -1,6 +1,6 @@
 Name: libwebsockets
 Version: 0.1
-Release: 26.gmaster_6d972248%{?dist}
+Release: 31.gmaster_f2f54d5d%{?dist}
 Summary: Websocket Server Library
 
 Group: System

@@ -111,6 +111,7 @@ CPPFLAGS = @CPPFLAGS@
 CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
+DLLTOOL = @DLLTOOL@
 DSYMUTIL = @DSYMUTIL@
 DUMPBIN = @DUMPBIN@
 ECHO_C = @ECHO_C@
@@ -134,6 +135,7 @@ LIPO = @LIPO@
 LN_S = @LN_S@
 LTLIBOBJS = @LTLIBOBJS@
 MAKEINFO = @MAKEINFO@
+MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
 NM = @NM@
 NMEDIT = @NMEDIT@
@@ -159,6 +161,7 @@ abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
 abs_top_srcdir = @abs_top_srcdir@
+ac_ct_AR = @ac_ct_AR@
 ac_ct_CC = @ac_ct_CC@
 ac_ct_DUMPBIN = @ac_ct_DUMPBIN@
 am__include = @am__include@
@@ -215,8 +218,8 @@ dist_libwebsockets_la_SOURCES = libwebsockets.c \
 				libwebsockets.h \
 				private-libwebsockets.h
 
-libwebsockets_la_CFLAGS = -rdynamic -fPIC -c
-libwebsockets_la_LDFLAGS = -version-info 0:1
+libwebsockets_la_CFLAGS = -Wall -Werror -rdynamic -fPIC -c
+libwebsockets_la_LDFLAGS = -version-info 0:2
 all: all-am
 
 .SUFFIXES:
