@@ -1,6 +1,6 @@
 Name: libwebsockets
 Version: 0.1
-Release: 31.gmaster_f2f54d5d%{?dist}
+Release: 34.gmaster_8f037e4c%{?dist}
 Summary: Websocket Server Library
 
 Group: System
@@ -44,7 +44,7 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root,-)
 %attr(755,root,root) /usr/bin/libwebsockets-test-server
 %attr(755,root,root) 
-/%{_libdir}/libwebsockets.so.0.0.1
+/%{_libdir}/libwebsockets.so.0.0.2
 /%{_libdir}/libwebsockets.so.0
 /%{_libdir}/libwebsockets.so
 /%{_libdir}/libwebsockets.la
