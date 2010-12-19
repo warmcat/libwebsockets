@@ -22,13 +22,15 @@
 #include "private-libwebsockets.h"
 
 
-static int interpret_key(const char *key, unsigned long *result)
+static int
+interpret_key(const char *key, unsigned long *result)
 {
 	char digits[20];
 	int digit_pos = 0;
 	const char *p = key;
 	unsigned int spaces = 0;
-	unsigned long long acc;
+	unsigned long acc = 0;
+	int rem = 0;
 
 	while (*p) {
 		if (isdigit(*p)) {
@@ -51,12 +53,19 @@ static int interpret_key(const char *key, unsigned long *result)
 	if (!spaces)
 		return -3;
 
-	/*
-	 * long long is absolutely needed since "digits" can be a multiple
-	 * of a 32-bit range number
-	 */
-	acc = atoll(digits);
-	*result = acc / spaces;
+	p = &digits[0];
+	while (*p) {
+		rem = (rem * 10) + ((*p++) - '0');
+		acc = (acc * 10) + (rem / spaces);
+		rem -= (rem / spaces) * spaces;
+	}
+
+	if (rem) {
+		fprintf(stderr, "nonzero handshake remainder\n");
+		return -1;
+	}
+
+	*result = acc;
 
 	return 0;
 }

@@ -44,8 +44,6 @@
 
 
 #define LOCAL_RESOURCE_PATH "/usr/share/libwebsockets-test-server"
-static int port = 7681;
-static int use_ssl;
 
 /* this protocol server (always the first one) just knows how to do HTTP */
 
@@ -79,6 +77,14 @@ static int callback_http(struct libwebsocket *wsi,
 }
 
 /* dumb_increment protocol */
+
+/*
+ * one of these is auto-created for each connection and a pointer to the
+ * appropriate instance is passed to the callback in the user parameter
+ *
+ * for this example protocol we use it to individualize the count for each
+ * connection.
+ */
 
 struct per_session_data__dumb_increment {
 	int number;
@@ -134,39 +140,14 @@ callback_dumb_increment(struct libwebsocket *wsi,
 
 /* lws-mirror_protocol */
 
-#define MAX_MESSAGE_QUEUE 64
-
-struct per_session_data__lws_mirror {
-	struct libwebsocket *wsi;
-	int ringbuffer_tail;
-};
-
-struct a_message {
-	void *payload;
-	size_t len;
-};
-
-static struct a_message ringbuffer[MAX_MESSAGE_QUEUE];
-static int ringbuffer_head;
-
-
 static int
 callback_lws_mirror(struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
 	int n;
-	char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
-						  LWS_SEND_BUFFER_POST_PADDING];
-	unsigned char *p = (unsigned char *)&buf[LWS_SEND_BUFFER_PRE_PADDING];
-	struct per_session_data__lws_mirror *pss = user;
 
 	switch (reason) {
-
-	case LWS_CALLBACK_ESTABLISHED:
-		pss->wsi = wsi;
-		pss->ringbuffer_tail = ringbuffer_head;
-		break;
 
 	case LWS_CALLBACK_BROADCAST:
 		n = libwebsocket_write(wsi, in, len, LWS_WRITE_TEXT);
@@ -199,24 +180,22 @@ callback_lws_mirror(struct libwebsocket *wsi,
 /* list of supported protocols and callbacks */
 
 static struct libwebsocket_protocols protocols[] = {
-	{
+	/* first protocol must always be HTTP handler */
+	[0] = {
 		.name = "http-only",
 		.callback = callback_http,
-		.per_session_data_size = 0,
 	},
-	{
+	[1] = {
 		.name = "dumb-increment-protocol",
 		.callback = callback_dumb_increment,
 		.per_session_data_size =
 				sizeof(struct per_session_data__dumb_increment),
 	},
-	{
+	[2] = {
 		.name = "lws-mirror-protocol",
 		.callback = callback_lws_mirror,
-		.per_session_data_size =
-				sizeof(struct per_session_data__lws_mirror),
 	},
-	{  /* end of list */
+	[3] = {  /* end of list */
 		.callback = NULL
 	}
 };
@@ -237,13 +216,15 @@ int main(int argc, char **argv)
 			LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1024 +
 						  LWS_SEND_BUFFER_POST_PADDING];
+	int port = 7681;
+	int use_ssl = 0;
 
 	fprintf(stderr, "libwebsockets test server\n"
 			"(C) Copyright 2010 Andy Green <andy@warmcat.com> "
 						    "licensed under LGPL2.1\n");
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "hp:", options, NULL);
+		n = getopt_long(argc, argv, "hsp:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -278,11 +259,11 @@ int main(int argc, char **argv)
 
 	while (1) {
 		
-		sleep(1);
+		usleep(50000);
 
 		/*
 		 * This broadcasts to all dumb-increment-protocol connections
-		 * once per second.
+		 * at 20Hz.
 		 * 
 		 * We're just sending a character 'x', in these examples the
 		 * callbacks send their own per-connection content.
@@ -293,7 +274,7 @@ int main(int argc, char **argv)
 		 * We take care of pre-and-post padding allocation.
 		 */
 
-		/* [1] == dumb-increment-protocol */
+		/* protocols[1] == dumb-increment-protocol */
 		libwebsockets_broadcast(&protocols[1],
 					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
 	}

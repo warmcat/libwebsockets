@@ -94,7 +94,7 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 		if (wsi->utf8_token[n].token)
 			free(wsi->utf8_token[n].token);
 
-//	fprintf(stderr, "closing fd=%d\n", wsi->sock);
+/*	fprintf(stderr, "closing fd=%d\n", wsi->sock); */
 
 #ifdef LWS_OPENSSL_SUPPORT
 	if (use_ssl) {
@@ -184,9 +184,9 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 					continue;
 
 				this->wsi[n]->protocol-> callback(this->wsi[n],
-						 LWS_CALLBACK_BROADCAST, 
-						 this->wsi[n]->user_space,
-						 buf + LWS_SEND_BUFFER_PRE_PADDING, len);
+					LWS_CALLBACK_BROADCAST, 
+					this->wsi[n]->user_space,
+					buf + LWS_SEND_BUFFER_PRE_PADDING, len);
 			}
 
 			continue;
@@ -204,7 +204,7 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 			continue;
 		}
 		if (!n) {
-//			fprintf(stderr, "POLLIN with 0 len waiting\n");
+/*			fprintf(stderr, "POLLIN with 0 len waiting\n"); */
 				libwebsocket_close_and_free_session(
 							     this->wsi[client]);
 			goto nuke_this;
@@ -319,8 +319,10 @@ int libwebsocket_create_server(int port,
 		OpenSSL_add_all_algorithms();
 		SSL_load_error_strings();
 
-			// Firefox insists on SSLv23 not SSLv3
-			// Konq disables SSLv2 by default now, SSLv23 works
+		/*
+		 * Firefox insists on SSLv23 not SSLv3
+		 * Konq disables SSLv2 by default now, SSLv23 works
+		 */
 
 		method = (SSL_METHOD *)SSLv23_server_method();
 		if (!method) {
@@ -485,7 +487,7 @@ int libwebsocket_create_server(int port,
 		 */
 
 		/* give server fork a chance to start up */
-		sleep(1);
+		usleep(500000);
 
 		for (client = 1; client < this->count_protocols + 1; client++) {
 			fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -763,6 +765,16 @@ libwebsockets_broadcast(const struct libwebsocket_protocols * protocol,
 
 		return 0;
 	}
+
+	/*
+	 * We're being called from a different process context than the server
+	 * loop.  Instead of broadcasting directly, we send our
+	 * payload on a socket to do the IPC; the server process will serialize
+	 * the broadcast action in its main poll() loop.
+	 *
+	 * There's one broadcast socket listening for each protocol supported
+	 * set up when the websocket server initializes
+	 */
 
 	n = send(protocol->broadcast_socket_user_fd, buf, len, 0);
 

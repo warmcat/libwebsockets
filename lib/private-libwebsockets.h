@@ -51,10 +51,10 @@
 
 
 #ifdef DEBUG
-#define debug(format, args...)  \
-      fprintf(stderr, format , ## args)
+#define debug(  \
+      fprintf(stderr, 
 #else
-#define debug(format, args...)
+static void inline debug(const char *format, ...) { }
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT

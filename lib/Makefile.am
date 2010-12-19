@@ -6,7 +6,7 @@ dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				md5.c \
 				libwebsockets.h \
 				private-libwebsockets.h
-libwebsockets_la_CFLAGS=-Wall -Werror -rdynamic -fPIC -c
+libwebsockets_la_CFLAGS=-Wall -Werror -pedantic -rdynamic -fPIC -c
 libwebsockets_la_LDFLAGS=-version-info 0:2
 
 all-local:

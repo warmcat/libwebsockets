@@ -28,7 +28,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLOSED,
 	LWS_CALLBACK_RECEIVE,
 	LWS_CALLBACK_HTTP,
-	LWS_CALLBACK_BROADCAST,
+	LWS_CALLBACK_BROADCAST
 };
 
 enum libwebsocket_write_protocol {
