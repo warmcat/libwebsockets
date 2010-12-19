@@ -40,6 +40,48 @@ enum libwebsocket_write_protocol {
 struct libwebsocket;
 struct libwebsocket_context;
 
+/* document the generic callback (it's a fake prototype under this) */
+/**
+ * callback() - User server actions
+ * @wsi:	Opaque websocket instance pointer
+ * @reason:	The reason for the call
+ * @user:	Pointer to per-session user data allocated by library
+ * @in:		Pointer used for some callback reasons
+ * @len:	Length set for some callback reasons
+ *
+ *	This callback is the way the user controls what is served.  All the
+ *	protocol detail is hidden and handled by the library.
+ * 
+ *	For each connection / session there is user data allocated that is
+ *	pointed to by "user".  You set the size of this user data area when
+ *	the library is initialized with libwebsocket_create_server.
+ * 
+ *	You get an opportunity to initialize user data when called back with
+ *	LWS_CALLBACK_ESTABLISHED reason.
+ *
+ *	LWS_CALLBACK_ESTABLISHED:  after successful websocket handshake
+ *
+ *	LWS_CALLBACK_CLOSED: when the websocket session ends
+ *
+ *	LWS_CALLBACK_BROADCAST: signal to send to client (you would use
+ *				libwebsocket_write() taking care about the
+ *				special buffer requirements
+ *	LWS_CALLBACK_RECEIVE: data has appeared for the server, it can be
+ *				found at *in and is len bytes long
+ *
+ * 	LWS_CALLBACK_HTTP: an http request has come from a client that is not
+ *				asking to upgrade the connection to a websocket
+ *				one.  This is a chance to serve http content,
+ *				for example, to send a script to the client
+ *				which will then open the websockets connection.
+ *				@in points to the URI path requested and 
+ *				libwebsockets_serve_http_file() makes it very
+ *				simple to send back a file to the client.
+ */
+extern int callback(struct libwebsocket * wsi,
+			 enum libwebsocket_callback_reasons reason, void * user,
+							  void *in, size_t len);
+
 /**
  * struct libwebsocket_protocols - 	List of protocols and handlers server
  * 					supports.

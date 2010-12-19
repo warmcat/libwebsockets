@@ -51,10 +51,10 @@
 
 
 #ifdef DEBUG
-#define debug(  \
-      fprintf(stderr, 
+#define debug  \
+      fprintf(stderr,
 #else
-static void inline debug(const char *format, ...) { }
+static inline void debug(const char *format, ...) { }
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -172,3 +172,6 @@ libwebsocket_parse(struct libwebsocket *wsi, unsigned char c);
 extern int
 libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 						unsigned char *buf, size_t len);
+
+extern int
+libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len);

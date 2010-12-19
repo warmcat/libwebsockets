@@ -1,6 +1,6 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
- * 
+ *
  * Copyright (C) 2010 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
@@ -26,55 +26,7 @@ SSL_CTX *ssl_ctx;
 int use_ssl;
 #endif
 
-
-extern int 
-libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len);
-
-
-/* document the generic callback (it's a fake prototype under this) */
-/**
- * callback() - User server actions
- * @wsi:	Opaque websocket instance pointer
- * @reason:	The reason for the call
- * @user:	Pointer to per-session user data allocated by library
- * @in:		Pointer used for some callback reasons
- * @len:	Length set for some callback reasons
- * 
- * 	This callback is the way the user controls what is served.  All the
- * 	protocol detail is hidden and handled by the library.
- * 
- * 	For each connection / session there is user data allocated that is
- * 	pointed to by "user".  You set the size of this user data area when
- * 	the library is initialized with libwebsocket_create_server.
- * 
- * 	You get an opportunity to initialize user data when called back with
- * 	LWS_CALLBACK_ESTABLISHED reason.
- * 
- * 	LWS_CALLBACK_ESTABLISHED:  after successful websocket handshake
- * 
- * 	LWS_CALLBACK_CLOSED: when the websocket session ends
- *
- * 	LWS_CALLBACK_BROADCAST: signal to send to client (you would use
- * 				libwebsocket_write() taking care about the
- * 				special buffer requirements
- * 	LWS_CALLBACK_RECEIVE: data has appeared for the server, it can be
- *				found at *in and is len bytes long
- *
- *  	LWS_CALLBACK_HTTP: an http request has come from a client that is not
- * 				asking to upgrade the connection to a websocket
- * 				one.  This is a chance to serve http content,
- * 				for example, to send a script to the client
- * 				which will then open the websockets connection.
- * 				@in points to the URI path requested and 
- * 				libwebsockets_serve_http_file() makes it very
- * 				simple to send back a file to the client.
- */
-extern int callback(struct libwebsocket * wsi,
-			 enum libwebsocket_callback_reasons reason, void * user,
-							  void *in, size_t len);
-
-
-void 
+void
 libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 {
 	int n;
@@ -120,26 +72,26 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 {
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + MAX_BROADCAST_PAYLOAD +
 						  LWS_SEND_BUFFER_POST_PADDING];
-	int client;
+	int client = this->count_protocols + 1;
+	struct libwebsocket *wsi;
 	int n;
 	size_t len;
 
 	/* check for activity on client sockets */
-	
-	for (client = this->count_protocols + 1; client < this->fds_count;
-								     client++) {
-		
+
+	for (; client < this->fds_count; client++) {
+
 		/* handle session socket closed */
-		
+
 		if (this->fds[client].revents & (POLLERR | POLLHUP)) {
-			
+
 			debug("Session Socket %d %p (fd=%d) dead\n",
 				  client, this->wsi[client], this->fds[client]);
 
 			libwebsocket_close_and_free_session(this->wsi[client]);
 			goto nuke_this;
 		}
-		
+
 		/* any incoming data ready? */
 
 		if (!(this->fds[client].revents & POLLIN))
@@ -149,11 +101,15 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 
 		if ((unsigned long)this->wsi[client] < LWS_MAX_PROTOCOLS) {
 
+			/* get the issued broadcast payload from the socket */
+
 			len = read(this->fds[client].fd,
 				   buf + LWS_SEND_BUFFER_PRE_PADDING,
 				   MAX_BROADCAST_PAYLOAD);
+
 			if (len < 0) {
-				fprintf(stderr, "Error receiving broadcast payload\n");
+				fprintf(stderr,
+					   "Error reading broadcast payload\n");
 				continue;
 			}
 
@@ -162,8 +118,9 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 			for (n = this->count_protocols + 1;
 						     n < this->fds_count; n++) {
 
-				if ((unsigned long)this->wsi[n] <
-							      LWS_MAX_PROTOCOLS)
+				wsi = this->wsi[n];
+
+				if ((unsigned long)wsi < LWS_MAX_PROTOCOLS)
 					continue;
 
 				/*
@@ -171,7 +128,7 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 				 * connection
 				 */
 
-				if (this->wsi[n]->state != WSI_STATE_ESTABLISHED)
+				if (wsi->state != WSI_STATE_ESTABLISHED)
 					continue;
 
 				/*
@@ -179,13 +136,15 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 				 * the requested protocol
 				 */
 
-				if (this->wsi[n]->protocol->protocol_index !=
-					       (unsigned long)this->wsi[client])
+				if (wsi->protocol->protocol_index !=
+					  (int)(unsigned long)this->wsi[client])
 					continue;
 
-				this->wsi[n]->protocol-> callback(this->wsi[n],
-					LWS_CALLBACK_BROADCAST, 
-					this->wsi[n]->user_space,
+				/* broadcast it to this connection */
+
+				wsi->protocol->callback(wsi,
+					LWS_CALLBACK_BROADCAST,
+					wsi->user_space,
 					buf + LWS_SEND_BUFFER_PRE_PADDING, len);
 			}
 
@@ -204,18 +163,15 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 			continue;
 		}
 		if (!n) {
-/*			fprintf(stderr, "POLLIN with 0 len waiting\n"); */
-				libwebsocket_close_and_free_session(
-							     this->wsi[client]);
+			libwebsocket_close_and_free_session(this->wsi[client]);
 			goto nuke_this;
 		}
-
 
 		/* service incoming data */
 
 		if (libwebsocket_read(this->wsi[client], buf, n) >= 0)
 			continue;
-		
+
 		/*
 		 * it closed and nuked wsi[client], so remove the
 		 * socket handle and wsi from our service list
@@ -242,46 +198,46 @@ nuke_this:
  * libwebsocket_create_server() - Create the listening websockets server
  * @port:	Port to listen on
  * @protocols:	Array of structures listing supported protocols and a protocol-
- * 		specific callback for each one.  The list is ended with an
- * 		entry that has a NULL callback pointer.
- * 	        It's not const because we write the owning_server member
+ *		specific callback for each one.  The list is ended with an
+ *		entry that has a NULL callback pointer.
+ *	        It's not const because we write the owning_server member
  * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
- * 			to listen using SSL, set to the filepath to fetch the
- * 			server cert from, otherwise NULL for unencrypted
+ *			to listen using SSL, set to the filepath to fetch the
+ *			server cert from, otherwise NULL for unencrypted
  * @ssl_private_key_filepath: filepath to private key if wanting SSL mode,
- * 			else ignored
+ *			else ignored
  * @gid:	group id to change to after setting listen socket, or -1.
  * @uid:	user id to change to after setting listen socket, or -1.
- * 
- * 	This function creates the listening socket and takes care
- * 	of all initialization in one step.
  *
- * 	After initialization, it forks a thread that will sits in a service loop
+ *	This function creates the listening socket and takes care
+ *	of all initialization in one step.
+ *
+ *	After initialization, it forks a thread that will sits in a service loop
  *	and returns to the caller.  The actual service actions are performed by
- * 	user code in a per-protocol callback from the appropriate one selected
+ *	user code in a per-protocol callback from the appropriate one selected
  *	by the client from the list in @protocols.
- * 
- * 	The protocol callback functions are called for a handful of events
- * 	including http requests coming in, websocket connections becoming
- * 	established, and data arriving; it's also called periodically to allow
- * 	async transmission.
  *
- * 	HTTP requests are sent always to the FIRST protocol in @protocol, since
- * 	at that time websocket protocol has not been negotiated.  Other
- * 	protocols after the first one never see any HTTP callack activity.
- * 
- * 	The server created is a simple http server by default; part of the
- * 	websocket standard is upgrading this http connection to a websocket one.
- * 
- * 	This allows the same server to provide files like scripts and favicon /
- * 	images or whatever over http and dynamic data over websockets all in
- * 	one place; they're all handled in the user callback.
+ *	The protocol callback functions are called for a handful of events
+ *	including http requests coming in, websocket connections becoming
+ *	established, and data arriving; it's also called periodically to allow
+ *	async transmission.
+ *
+ *	HTTP requests are sent always to the FIRST protocol in @protocol, since
+ *	at that time websocket protocol has not been negotiated.  Other
+ *	protocols after the first one never see any HTTP callack activity.
+ *
+ *	The server created is a simple http server by default; part of the
+ *	websocket standard is upgrading this http connection to a websocket one.
+ *
+ *	This allows the same server to provide files like scripts and favicon /
+ *	images or whatever over http and dynamic data over websockets all in
+ *	one place; they're all handled in the user callback.
  */
 
 int libwebsocket_create_server(int port,
 			       struct libwebsocket_protocols *protocols,
-			       const char * ssl_cert_filepath,
-			       const char * ssl_private_key_filepath,
+			       const char *ssl_cert_filepath,
+			       const char *ssl_private_key_filepath,
 			       int gid, int uid)
 {
 	int n;
@@ -291,7 +247,7 @@ int libwebsocket_create_server(int port,
 	unsigned int clilen;
 	struct sockaddr_in serv_addr, cli_addr;
 	int opt = 1;
-	struct libwebsocket_context * this = NULL;
+	struct libwebsocket_context *this = NULL;
 	unsigned int slen;
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -352,28 +308,28 @@ int libwebsocket_create_server(int port,
 			fprintf(stderr, "ssl problem getting key '%s': %s\n",
 						ssl_private_key_filepath,
 				ERR_error_string(ERR_get_error(), ssl_err_buf));
-			return (-1);
+			return -1;
 		}
 		/* verify private key */
 		if (!SSL_CTX_check_private_key(ssl_ctx)) {
 			fprintf(stderr, "Private SSL key doesn't match cert\n");
-			return (-1);
+			return -1;
 		}
 
 		/* SSL is happy and has a cert it's content with */
 	}
 #endif
 
-	this = malloc(sizeof (struct libwebsocket_context));
+	this = malloc(sizeof(struct libwebsocket_context));
 
 	/* set up our external listening socket we serve on */
-  
+
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd < 0) {
 		fprintf(stderr, "ERROR opening socket");
 		return -1;
 	}
-	
+
 	/* allow us to restart even if old sockets in TIME_WAIT */
 	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
@@ -384,10 +340,10 @@ int libwebsocket_create_server(int port,
 
 	n = bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
 	if (n < 0) {
-              fprintf(stderr, "ERROR on binding to port %d (%d %d)\n", port, n,
-									 errno);
-              return -1;
-        }
+		fprintf(stderr, "ERROR on binding to port %d (%d %d)\n",
+								port, n, errno);
+		return -1;
+	}
 
 	/* drop any root privs for this process */
 
@@ -398,7 +354,7 @@ int libwebsocket_create_server(int port,
 		if (setuid(uid))
 			fprintf(stderr, "setuid: %s\n", strerror(errno));
 
- 	/*
+	/*
 	 * prepare the poll() fd array... it's like this
 	 *
 	 * [0] = external listening socket
@@ -430,7 +386,7 @@ int libwebsocket_create_server(int port,
 			fprintf(stderr, "ERROR opening socket");
 			return -1;
 		}
-		
+
 		/* allow us to restart even if old sockets in TIME_WAIT */
 		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
@@ -441,9 +397,9 @@ int libwebsocket_create_server(int port,
 
 		n = bind(fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
 		if (n < 0) {
-		      fprintf(stderr, "ERROR on binding to port %d (%d %d)\n",
+			fprintf(stderr, "ERROR on binding to port %d (%d %d)\n",
 								port, n, errno);
-		      return -1;
+			return -1;
 		}
 
 		slen = sizeof cli_addr;
@@ -492,7 +448,7 @@ int libwebsocket_create_server(int port,
 		for (client = 1; client < this->count_protocols + 1; client++) {
 			fd = socket(AF_INET, SOCK_STREAM, 0);
 			if (fd < 0) {
-				fprintf(stderr,"Unable to create socket\n");
+				fprintf(stderr, "Unable to create socket\n");
 				return -1;
 			}
 			cli_addr.sin_family = AF_INET;
@@ -512,7 +468,7 @@ int libwebsocket_create_server(int port,
 		}
 
 		fprintf(stderr, "libwebsocket poll process forked\n");
-		
+
 		return 0;
 	}
 
@@ -520,7 +476,7 @@ int libwebsocket_create_server(int port,
 	prctl(PR_SET_PDEATHSIG, SIGHUP);
 
 	/* in this forked process, sit and service websocket connections */
-    
+
 	while (1) {
 
 		n = poll(this->fds, this->fds_count, 1000);
@@ -612,12 +568,12 @@ int libwebsocket_create_server(int port,
 					ntohs(cli_addr.sin_port), fd,
 					  SSL_get_version(this->wsi[
 							this->fds_count]->ssl));
-				
+
 			} else
 	#endif
 				debug("accepted new conn  port %u on fd=%d\n",
 						  ntohs(cli_addr.sin_port), fd);
-				
+
 			/* intialize the instance struct */
 
 			this->wsi[this->fds_count]->sock = fd;
@@ -667,7 +623,7 @@ fill_in_fds:
 
 		libwebsocket_poll_connections(this);
 	}
-	
+
 fatal:
 
 	/* close listening skt and per-protocol broadcast sockets */
@@ -681,17 +637,17 @@ fatal:
 
 	if (this)
 		free(this);
-	
+
 	return 0;
 }
 
 /**
  * libwebsockets_get_protocol() - Returns a protocol pointer from a websocket
- * 				  connection.
+ *				  connection.
  * @wsi:	pointer to struct websocket you want to know the protocol of
  *
- * 
- * 	This is useful to get the protocol to broadcast back to from inside
+ *
+ *	This is useful to get the protocol to broadcast back to from inside
  * the callback.
  */
 
@@ -703,15 +659,15 @@ libwebsockets_get_protocol(struct libwebsocket *wsi)
 
 /**
  * libwebsockets_broadcast() - Sends a buffer to rthe callback for all active
- * 				  connections of the given protocol.
+ *				  connections of the given protocol.
  * @protocol:	pointer to the protocol you will broadcast to all members of
  * @buf:  buffer containing the data to be broadcase.  NOTE: this has to be
- * 		allocated with LWS_SEND_BUFFER_PRE_PADDING valid bytes before
- * 		the pointer and LWS_SEND_BUFFER_POST_PADDING afterwards in the
- * 		case you are calling this function from callback context.
+ *		allocated with LWS_SEND_BUFFER_PRE_PADDING valid bytes before
+ *		the pointer and LWS_SEND_BUFFER_POST_PADDING afterwards in the
+ *		case you are calling this function from callback context.
  * @len:	length of payload data in buf, starting from buf.
- * 
- * 	This function allows bulk sending of a packet to every connection using
+ *
+ *	This function allows bulk sending of a packet to every connection using
  * the given protocol.  It does not send the data directly; instead it calls
  * the callback with a reason type of LWS_CALLBACK_BROADCAST.  If the callback
  * wants to actually send the data for that connection, the callback itself
@@ -724,10 +680,10 @@ libwebsockets_get_protocol(struct libwebsocket *wsi)
 
 
 int
-libwebsockets_broadcast(const struct libwebsocket_protocols * protocol,
+libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 						 unsigned char *buf, size_t len)
 {
-	struct libwebsocket_context * this = protocol->owning_server;
+	struct libwebsocket_context *this = protocol->owning_server;
 	int n;
 
 	if (!protocol->broadcast_socket_user_fd) {
@@ -757,8 +713,8 @@ libwebsockets_broadcast(const struct libwebsocket_protocols * protocol,
 			if (this->wsi[n]->protocol != protocol)
 				continue;
 
-			this->wsi[n]->protocol-> callback(this->wsi[n],
-					 LWS_CALLBACK_BROADCAST, 
+			this->wsi[n]->protocol->callback(this->wsi[n],
+					 LWS_CALLBACK_BROADCAST,
 					 this->wsi[n]->user_space,
 					 buf, len);
 		}

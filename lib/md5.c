@@ -9,20 +9,20 @@
 #include <stdio.h>
 
 
-#define GET_ULONG_LE(n, b, i)                             \
-{                                                       \
-	(n) = ((unsigned long)(b)[i])			\
+#define GET_ULONG_LE(n, b, i)                        \
+{                                                    \
+	(n) = ((unsigned long)(b)[i])		     \
 	| ((unsigned long)(b)[(i) + 1] <<  8)        \
 	| ((unsigned long)(b)[(i) + 2] << 16)        \
 	| ((unsigned long)(b)[(i) + 3] << 24);       \
 }
 
-#define PUT_ULONG_LE(n, b, i)				\
-{							\
-	(b)[i] = (unsigned char)(n);	\
-	(b)[(i) + 1] = (unsigned char)((n) >>  8);	\
-	(b)[(i) + 2] = (unsigned char)((n) >> 16);	\
-	(b)[(i) + 3] = (unsigned char)((n) >> 24);	\
+#define PUT_ULONG_LE(n, b, i)			     \
+{						     \
+	(b)[i] = (unsigned char)(n);		     \
+	(b)[(i) + 1] = (unsigned char)((n) >>  8);   \
+	(b)[(i) + 2] = (unsigned char)((n) >> 16);   \
+	(b)[(i) + 3] = (unsigned char)((n) >> 24);   \
 }
 
 static const unsigned char md5_padding[64] = {
@@ -33,7 +33,7 @@ static const unsigned char md5_padding[64] = {
 	0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,	
+	0, 0, 0, 0, 0, 0, 0, 0,
 };
 
 static const unsigned long state_init[] = {
@@ -45,7 +45,7 @@ md5_process(unsigned long *state, const unsigned char *data)
 {
 	unsigned long X[16], A, B, C, D;
 	int v;
- 
+
 	for (v = 0; v < 16; v++)
 		GET_ULONG_LE(X[v], data, v << 2);
 
@@ -149,7 +149,7 @@ md5_process(unsigned long *state, const unsigned char *data)
 }
 
 static
-void md5_update(unsigned long * state, unsigned char * buffer,
+void md5_update(unsigned long *state, unsigned char *buffer,
 					   const unsigned char *input, int ilen)
 {
 	int fill;
