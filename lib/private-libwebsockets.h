@@ -19,18 +19,18 @@
  *  MA  02110-1301  USA
  */
 
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <ctype.h>
-#include <unistd.h>
 #include <errno.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <signal.h>
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/prctl.h>
 #include <netinet/in.h>
@@ -45,6 +45,7 @@
 #include <openssl/err.h>
 #endif
 
+#include <openssl/md5.h>
 #include "libwebsockets.h"
 
 /* #define DEBUG  */
@@ -162,9 +163,6 @@ struct libwebsocket {
 
 extern void
 libwebsocket_close_and_free_session(struct libwebsocket *wsi);
-
-extern void
-libwebsockets_md5(const unsigned char *input, int ilen, unsigned char *output);
 
 extern int
 libwebsocket_parse(struct libwebsocket *wsi, unsigned char c);

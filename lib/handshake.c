@@ -264,7 +264,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		 * payload after our headers
 		 */
 
-		libwebsockets_md5(sum, 16, (unsigned char *)p);
+		MD5(sum, 16, (unsigned char *)p);
 		p += 16;
 
 		/* it's complete: go ahead and send it */
