@@ -22,16 +22,16 @@
 #include "private-libwebsockets.h"
 
 const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
-	{ "GET ", 4 },
-	{ "Host:", 5 },
-	{ "Connection:", 11 },
-	{ "Sec-WebSocket-Key1:", 19 },
-	{ "Sec-WebSocket-Key2:", 19 },
-	{ "Sec-WebSocket-Protocol:", 23 },
-	{ "Upgrade:", 8 },
-	{ "Origin:", 7 },
-	{ "Sec-WebSocket-Draft:", 20 },
-	{ "\x0d\x0a", 2 },
+	[WSI_TOKEN_GET_URI]	= { "GET ",			4 },
+	[WSI_TOKEN_HOST]	= { "Host:",			5 },
+	[WSI_TOKEN_CONNECTION]	= { "Connection:",		11 },
+	[WSI_TOKEN_KEY1]	= { "Sec-WebSocket-Key1:",	19 },
+	[WSI_TOKEN_KEY2]	= { "Sec-WebSocket-Key2:",	19 },
+	[WSI_TOKEN_PROTOCOL]	= { "Sec-WebSocket-Protocol:",	23 },
+	[WSI_TOKEN_UPGRADE]	= { "Upgrade:",			8 },
+	[WSI_TOKEN_ORIGIN]	= { "Origin:",			7 },
+	[WSI_TOKEN_DRAFT]	= { "Sec-WebSocket-Draft:",	20 },
+	[WSI_TOKEN_CHALLENGE]	= { "\x0d\x0a",			2 },
 };
 
 int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
@@ -363,7 +363,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		break;
 
 	/* just an unimplemented spec right now apparently */
-	case 2:
+	case 3:
 		n = 4; /* text */
 		if (protocol == LWS_WRITE_BINARY)
 			n = 5; /* binary */

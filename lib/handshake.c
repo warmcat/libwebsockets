@@ -132,7 +132,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 				   atoi(wsi->utf8_token[WSI_TOKEN_DRAFT].token);
 			switch (wsi->ietf_spec_revision) {
 			case 76:
-			case 2:
+			case 3:
 				break;
 			default:
 				fprintf(stderr, "Rejecting handshake on seeing "
