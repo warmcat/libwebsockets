@@ -173,3 +173,12 @@ libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 
 extern int
 libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len);
+
+extern int
+lws_b64_encode_string(const char *in, char *out, int out_size);
+
+extern int
+lws_b64_decode_string(const char *in, char *out, int out_size);
+
+extern int
+lws_b64_selftest(void);

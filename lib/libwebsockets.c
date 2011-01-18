@@ -320,6 +320,12 @@ int libwebsocket_create_server(int port,
 	}
 #endif
 
+	/* selftest */
+
+	if (lws_b64_selftest())
+		return -1;
+
+
 	this = malloc(sizeof(struct libwebsocket_context));
 
 	/* set up our external listening socket we serve on */
