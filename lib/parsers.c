@@ -192,11 +192,21 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	return 0;
 }
 
+static unsigned char inline
+unmask(struct libwebsocket *wsi, unsigned char c)
+{
+	c ^= wsi->masking_key_04[wsi->frame_mask_index++];
+	if (wsi->frame_mask_index == 20)
+		wsi->frame_mask_index = 0;
+
+	return c;
+}
+
 
 static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;
-	unsigned char buf[2];
+	unsigned char buf[20 + 4];
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
@@ -208,6 +218,8 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 				wsi->lws_rx_parse_state = LWS_RXPS_SEEN_76_FF;
 			break;
 		case 4:
+			wsi->frame_masking_nonce_04[0] = c;
+			wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_1;
 			break;
 		}
 
@@ -215,6 +227,48 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			wsi->lws_rx_parse_state = LWS_RXPS_EAT_UNTIL_76_FF;
 			wsi->rx_user_buffer_head = 0;
 		}
+		break;
+	case LWS_RXPS_04_MASK_NONCE_1:
+		wsi->frame_masking_nonce_04[1] = c;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_2;
+		break;
+	case LWS_RXPS_04_MASK_NONCE_2:
+		wsi->frame_masking_nonce_04[2] = c;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_3;
+		break;
+	case LWS_RXPS_04_MASK_NONCE_3:
+		wsi->frame_masking_nonce_04[3] = c;
+
+		/*
+		 * we are able to compute the frame key now
+		 * it's a SHA1 of ( frame nonce we were just sent, concatenated
+		 * with the connection masking key we computed at handshake
+		 * time ) -- yeah every frame from the client invokes a SHA1
+		 * for no real reason so much for lightweight.
+		 */
+
+		buf[0] = wsi->frame_masking_nonce_04[0];
+		buf[1] = wsi->frame_masking_nonce_04[1];
+		buf[2] = wsi->frame_masking_nonce_04[2];
+		buf[3] = wsi->frame_masking_nonce_04[3];
+
+		memcpy(buf + 4, wsi->masking_key_04, 20);
+
+		/*
+		 * wsi->frame_mask_04 is our recirculating 20-byte XOR key
+		 * for this frame
+		 */
+	
+		SHA1((unsigned char *)buf, 4 + 20, wsi->frame_mask_04);
+
+		/*
+		 * start from the zero'th byte in the XOR key buffer since
+		 * this is the start of a frame with a new key
+		 */
+
+		wsi->frame_mask_index = 0;
+		
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_1;
 		break;
 	case LWS_RXPS_EAT_UNTIL_76_FF:
 		if (c == 0xff) {

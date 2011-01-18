@@ -116,6 +116,12 @@ enum lws_rx_parse_state {
 	LWS_RXPS_PULLING_76_LENGTH,
 	LWS_RXPS_EAT_UNTIL_76_FF,
 
+	LWS_RXPS_04_MASK_NONCE_1,
+	LWS_RXPS_04_MASK_NONCE_2,
+	LWS_RXPS_04_MASK_NONCE_3,
+
+	LWS_RXPS_04_FRAME_HDR_1,
+
 	LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED
 };
 
@@ -154,6 +160,9 @@ struct libwebsocket {
 	struct lws_tokens utf8_token[WSI_TOKEN_COUNT];
 	int ietf_spec_revision;
 	unsigned char masking_key_04[20];
+	unsigned char frame_mask_04[20];
+	unsigned char frame_masking_nonce_04[4];
+	unsigned char frame_mask_index;
 	char rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING + MAX_USER_RX_BUFFER +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	int rx_user_buffer_head;
