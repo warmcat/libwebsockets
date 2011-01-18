@@ -226,12 +226,19 @@ handshake_04(struct libwebsocket *wsi)
 {
 	static const char *websocket_magic_guid_04 =
 					 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-	char buf[MAX_WEBSOCKET_04_KEY_LEN + 37];
+	static const char *websocket_magic_guid_04_masking =
+					 "61AC5F19-FBBA-4540-B96F-6561F1AB40A8";
+	char accept_buf[MAX_WEBSOCKET_04_KEY_LEN + 37];
+	char nonce_buf[256];
+	char mask_summing_buf[256 + MAX_WEBSOCKET_04_KEY_LEN + 37];
 	unsigned char hash[20];
 	int n;
 	char *response;
 	char *p;
+	char *m = mask_summing_buf;
 	int fd;
+	int nonce_len;
+	int accept_len;
 
 	if (!wsi->utf8_token[WSI_TOKEN_ORIGIN].token_len ||
 	    !wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
@@ -247,15 +254,17 @@ handshake_04(struct libwebsocket *wsi)
 		goto bail;
 	}
 
-	strcpy(buf, wsi->utf8_token[WSI_TOKEN_KEY].token);
-	strcpy(buf + wsi->utf8_token[WSI_TOKEN_KEY].token_len,
+	strcpy(accept_buf, wsi->utf8_token[WSI_TOKEN_KEY].token);
+	strcpy(accept_buf + wsi->utf8_token[WSI_TOKEN_KEY].token_len,
 						       websocket_magic_guid_04);
 
-	SHA1((unsigned char *)buf, wsi->utf8_token[WSI_TOKEN_KEY].token_len +
+	SHA1((unsigned char *)accept_buf,
+			wsi->utf8_token[WSI_TOKEN_KEY].token_len +
 					 strlen(websocket_magic_guid_04), hash);
 
-	n = lws_b64_encode_string((char *)hash, buf, sizeof buf);
-	if (n < 0) {
+	accept_len = lws_b64_encode_string((char *)hash, accept_buf,
+							     sizeof accept_buf);
+	if (accept_len < 0) {
 		fprintf(stderr, "Base64 encoded hash too long\n");
 		goto bail;
 	}
@@ -295,8 +304,8 @@ handshake_04(struct libwebsocket *wsi)
 		    "Sec-WebSocket-Accept: ");
 	p += strlen("Connection: Upgrade\x0d\x0a"
 		    "Sec-WebSocket-Accept: ");
-	strcpy(p, buf);
-	p += n;
+	strcpy(p, accept_buf);
+	p += accept_len;
 
 	/* select the nonce */
 
@@ -318,8 +327,9 @@ handshake_04(struct libwebsocket *wsi)
 
 	/* encode the nonce */
 
-	n = lws_b64_encode_string((const char *)hash, buf, sizeof buf);
-	if (n < 0) {
+	nonce_len = lws_b64_encode_string((const char *)hash, nonce_buf,
+							      sizeof nonce_buf);
+	if (nonce_len < 0) {
 		fprintf(stderr, "Failed to base 64 encode the nonce\n");
 		free(wsi->user_space);
 		goto bail;
@@ -327,8 +337,8 @@ handshake_04(struct libwebsocket *wsi)
 
 	/* apply the nonce */
 
-	strcpy(p, buf);
-	p += n;
+	strcpy(p, nonce_buf);
+	p += nonce_len;
 
 	if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token) {
 		strcpy(p,   "\x0d\x0aSec-WebSocket-Protocol: ");
@@ -341,6 +351,29 @@ handshake_04(struct libwebsocket *wsi)
 
 	strcpy(p,   "\x0d\x0a\x0d\x0a");
 	p += strlen("\x0d\x0a\x0d\x0a");
+
+	/*
+	 * precompute the masking key the client will use from the SHA1 hash of
+	 * ( base 64 client key we were sent, concatenated with the base 64
+	 * nonce we sent, concatenated with a magic constant guid specified by
+	 * the 04 standard )
+	 *
+	 * We store the hash in the connection's wsi ready to use with
+	 * undoing the masking the client has done on framed data it sends
+	 * (we send our data to the client in clear).
+	 */
+
+	strcpy(mask_summing_buf, wsi->utf8_token[WSI_TOKEN_KEY].token);
+	m += wsi->utf8_token[WSI_TOKEN_KEY].token_len;
+	strcpy(m, nonce_buf);
+	m += nonce_len;
+	strcpy(m, websocket_magic_guid_04_masking);
+	m += strlen(websocket_magic_guid_04_masking);
+	
+	SHA1((unsigned char *)mask_summing_buf, m - mask_summing_buf,
+							   wsi->masking_key_04);
+
+	/* okay send the handshake response accepting the connection */
 
 	debug("issuing response packet %d len\n", (int)(p - response));
 #ifdef DEBUG

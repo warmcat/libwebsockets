@@ -153,6 +153,7 @@ struct libwebsocket {
 	enum lws_token_indexes parser_state;
 	struct lws_tokens utf8_token[WSI_TOKEN_COUNT];
 	int ietf_spec_revision;
+	unsigned char masking_key_04[20];
 	char rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING + MAX_USER_RX_BUFFER +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	int rx_user_buffer_head;
