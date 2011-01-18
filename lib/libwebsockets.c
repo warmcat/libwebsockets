@@ -603,12 +603,12 @@ int libwebsocket_create_server(int port,
 			this->wsi[this->fds_count]->user_space = NULL;
 
 			/*
-			 * Default protocol is 76
+			 * Default protocol is 76 / 00
 			 * After 76, there's a header specified to inform which
 			 * draft the client wants, when that's seen we modify
 			 * the individual connection's spec revision accordingly
 			 */
-			this->wsi[this->fds_count]->ietf_spec_revision = 76;
+			this->wsi[this->fds_count]->ietf_spec_revision = 0;
 
 fill_in_fds:
 

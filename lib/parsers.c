@@ -203,11 +203,11 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 		switch (wsi->ietf_spec_revision) {
 		/* Firefox 4.0b6 likes this as of 30 Oct */
-		case 76:
+		case 0:
 			if (c == 0xff)
 				wsi->lws_rx_parse_state = LWS_RXPS_SEEN_76_FF;
 			break;
-		case 0:
+		case 4:
 			break;
 		}
 

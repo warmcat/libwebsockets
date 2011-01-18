@@ -46,6 +46,7 @@
 #endif
 
 #include <openssl/md5.h>
+#include <openssl/sha.h>
 #include "libwebsockets.h"
 
 /* #define DEBUG  */
@@ -72,6 +73,9 @@ extern int use_ssl;
 #define MAX_USER_RX_BUFFER 512
 #define MAX_BROADCAST_PAYLOAD 1024
 #define LWS_MAX_PROTOCOLS 10
+
+#define MAX_WEBSOCKET_04_KEY_LEN 128
+#define SYSTEM_RANDOM_FILEPATH "/dev/random"
 
 enum lws_connection_states {
 	WSI_STATE_HTTP,
