@@ -27,6 +27,7 @@
 
 #include "../lib/libwebsockets.h"
 
+
 /*
  * This demo server shows how to use libwebsockets for one or more
  * websocket protocols in the same server
@@ -41,6 +42,17 @@
  *  lws-mirror-protocol: copies any received packet to every connection also
  * 				using this protocol, including the sender
  */
+
+enum demo_protocols {
+	/* always first */
+	PROTOCOL_HTTP = 0,
+
+	PROTOCOL_DUMB_INCREMENT,
+	PROTOCOL_LWS_MIRROR,
+
+	/* always last */
+	DEMO_PROTOCOL_COUNT
+};
 
 
 #define LOCAL_RESOURCE_PATH "/usr/share/libwebsockets-test-server"
@@ -181,21 +193,21 @@ callback_lws_mirror(struct libwebsocket *wsi,
 
 static struct libwebsocket_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
-	[0] = {
+	[PROTOCOL_HTTP] = {
 		.name = "http-only",
 		.callback = callback_http,
 	},
-	[1] = {
+	[PROTOCOL_DUMB_INCREMENT] = {
 		.name = "dumb-increment-protocol",
 		.callback = callback_dumb_increment,
 		.per_session_data_size =
 				sizeof(struct per_session_data__dumb_increment),
 	},
-	[2] = {
+	[PROTOCOL_LWS_MIRROR] = {
 		.name = "lws-mirror-protocol",
 		.callback = callback_lws_mirror,
 	},
-	[3] = {  /* end of list */
+	[DEMO_PROTOCOL_COUNT] = {  /* end of list */
 		.callback = NULL
 	}
 };
@@ -274,8 +286,7 @@ int main(int argc, char **argv)
 		 * We take care of pre-and-post padding allocation.
 		 */
 
-		/* protocols[1] == dumb-increment-protocol */
-		libwebsockets_broadcast(&protocols[1],
+		libwebsockets_broadcast(&protocols[PROTOCOL_DUMB_INCREMENT],
 					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
 	}
 
