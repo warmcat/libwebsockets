@@ -92,6 +92,10 @@ enum lws_token_indexes {
 	WSI_TOKEN_DRAFT,
 	WSI_TOKEN_CHALLENGE,
 
+	/* new for 04 */
+	WSI_TOKEN_KEY,
+	WSI_TOKEN_VERSION,
+
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,
 	/* parser state additions */

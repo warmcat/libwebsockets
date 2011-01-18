@@ -32,6 +32,10 @@ const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
 	[WSI_TOKEN_ORIGIN]	= { "Origin:",			7 },
 	[WSI_TOKEN_DRAFT]	= { "Sec-WebSocket-Draft:",	20 },
 	[WSI_TOKEN_CHALLENGE]	= { "\x0d\x0a",			2 },
+
+	[WSI_TOKEN_KEY]		= { "Sec-WebSocket-Key:",	18 },
+	[WSI_TOKEN_VERSION]	= { "Sec-WebSocket-Version:",	22 },
+
 };
 
 int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
@@ -49,7 +53,8 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_ORIGIN:
 	case WSI_TOKEN_DRAFT:
 	case WSI_TOKEN_CHALLENGE:
-
+	case WSI_TOKEN_KEY:
+	case WSI_TOKEN_VERSION:
 		debug("WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);
 
 		/* collect into malloc'd buffers */
@@ -93,14 +98,26 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		wsi->utf8_token[wsi->parser_state].token[
 			    wsi->utf8_token[wsi->parser_state].token_len++] = c;
 
-		/* special payload limiting */
-		if (wsi->parser_state == WSI_TOKEN_CHALLENGE &&
-			    wsi->utf8_token[wsi->parser_state].token_len == 8) {
-			debug("Setting WSI_PARSING_COMPLETE\n");
-			wsi->parser_state = WSI_PARSING_COMPLETE;
-			break;
-		}
+		/* per-protocol end of headers management */
 
+		if (wsi->parser_state != WSI_TOKEN_CHALLENGE)
+			break;
+
+		/* -76 has no version header */
+		if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
+			      wsi->utf8_token[wsi->parser_state].token_len != 8)
+			break;
+
+		/* <= 03 has old handshake with version header */
+		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
+			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) < 4 &&
+			      wsi->utf8_token[wsi->parser_state].token_len != 8)
+			break;
+
+		/* For any supported protocol we have enough payload */
+
+		debug("Setting WSI_PARSING_COMPLETE\n");
+		wsi->parser_state = WSI_PARSING_COMPLETE;
 		break;
 
 		/* collecting and checking a name part */

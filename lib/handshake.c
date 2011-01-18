@@ -71,6 +71,31 @@ interpret_key(const char *key, unsigned long *result)
 }
 
 /*
+ * -04 of the protocol (actually the 80th version) has a radically different
+ * handshake.  The 04 spec gives the following idea
+ *
+ *    The handshake from the client looks as follows:
+ *
+ *      GET /chat HTTP/1.1
+ *      Host: server.example.com
+ *      Upgrade: websocket
+ *      Connection: Upgrade
+ *      Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+ *      Sec-WebSocket-Origin: http://example.com
+ *      Sec-WebSocket-Protocol: chat, superchat
+ * 	Sec-WebSocket-Version: 4
+ *
+ *  The handshake from the server looks as follows:
+ *
+ *       HTTP/1.1 101 Switching Protocols
+ *       Upgrade: websocket
+ *       Connection: Upgrade
+ *       Sec-WebSocket-Accept: me89jWimTRKTWwrS3aRrL53YZSo=
+ *       Sec-WebSocket-Nonce: AQIDBAUGBwgJCgsMDQ4PEC==
+ *       Sec-WebSocket-Protocol: chat
+ */
+
+/*
  * We have to take care about parsing because the headers may be split
  * into multiple fragments.  They may contain unknown headers with arbitrary
  * argument lengths.  So, we parse using a single-character at a time state
