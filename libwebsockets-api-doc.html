@@ -1,5 +1,5 @@
 <h2>libwebsocket_create_server - Create the listening websockets server</h2>
-<i>int</i>
+<i>struct libwebsocket_context *</i>
 <b>libwebsocket_create_server</b>
 (<i>int</i> <b>port</b>,
 <i>struct libwebsocket_protocols *</i> <b>protocols</b>,
@@ -33,10 +33,11 @@ else ignored
 This function creates the listening socket and takes care
 of all initialization in one step.
 <p>
-After initialization, it forks a thread that will sits in a service loop
-and returns to the caller.  The actual service actions are performed by
-user code in a per-protocol callback from the appropriate one selected
-by the client from the list in <tt><b>protocols</b></tt>.
+After initialization, it returns a struct libwebsocket_context * that
+represents this server.  After calling, user code needs to take care
+of calling <b>libwebsocket_service</b> with the context pointer to get the
+server's sockets serviced.  This can be done in the same process context
+or a forked process, or another thread,
 <p>
 The protocol callback functions are called for a handful of events
 including http requests coming in, websocket connections becoming
@@ -55,6 +56,16 @@ images or whatever over http and dynamic data over websockets all in
 one place; they're all handled in the user callback.
 </blockquote>
 <hr>
+<h2>libwebsockets_fork_service_loop - Optional helper function forks off a process for the websocket server loop. You don't have to use this but if not, you have to make sure you are calling libwebsocket_service periodically to service the websocket traffic</h2>
+<i>int</i>
+<b>libwebsockets_fork_service_loop</b>
+(<i>struct libwebsocket_context *</i> <b>this</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>this</b>
+<dd>server context returned by creation function
+</dl>
+<hr>
 <h2>libwebsockets_get_protocol - Returns a protocol pointer from a websocket connection.</h2>
 <i>const struct libwebsocket_protocols *</i>
 <b>libwebsockets_get_protocol</b>
@@ -71,7 +82,7 @@ This is useful to get the protocol to broadcast back to from inside
 the callback.
 </blockquote>
 <hr>
-<h2>libwebsockets_broadcast - Sends a buffer to rthe callback for all active connections of the given protocol.</h2>
+<h2>libwebsockets_broadcast - Sends a buffer to the callback for all active connections of the given protocol.</h2>
 <i>int</i>
 <b>libwebsockets_broadcast</b>
 (<i>const struct libwebsocket_protocols *</i> <b>protocol</b>,

@@ -151,6 +151,8 @@ struct lws_tokens {
 	int token_len;
 };
 
+struct libwebsocket_protocols;
+
 struct libwebsocket_context {
 	struct libwebsocket *wsi[MAX_CLIENTS + 1];
 	struct pollfd fds[MAX_CLIENTS + 1];
@@ -158,6 +160,7 @@ struct libwebsocket_context {
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;
 #endif
+	struct libwebsocket_protocols *protocols;
 	int count_protocols;
 };
 

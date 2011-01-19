@@ -230,6 +230,7 @@ int main(int argc, char **argv)
 						  LWS_SEND_BUFFER_POST_PADDING];
 	int port = 7681;
 	int use_ssl = 0;
+	struct libwebsocket_context *server;
 
 	fprintf(stderr, "libwebsockets test server\n"
 			"(C) Copyright 2010 Andy Green <andy@warmcat.com> "
@@ -256,8 +257,9 @@ int main(int argc, char **argv)
 	if (!use_ssl)
 		cert_path = key_path = NULL;
 
-	if (libwebsocket_create_server(port, protocols, cert_path, key_path,
-								  -1, -1) < 0) {
+	server = libwebsocket_create_server(port, protocols, cert_path,
+							      key_path, -1, -1);
+	if (server == NULL) {
 		fprintf(stderr, "libwebsocket init failed\n");
 		return -1;
 	}
@@ -288,6 +290,20 @@ int main(int argc, char **argv)
 
 		libwebsockets_broadcast(&protocols[PROTOCOL_DUMB_INCREMENT],
 					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
+
+		/*
+		 * This example server does not fork or create a thread for
+		 * websocket service, it all runs in this single loop.  So,
+		 * we have to give the websockets an opportunity to service
+		 * "manually".
+		 *
+		 * There's an optional call libwebsockets_fork_service_loop()
+		 * we could have used before this while loop, then the
+		 * websockets would have been serviced in a forked process
+		 * and we would not have to do the call below inside our loop.
+		 */
+
+		libwebsocket_service(server, 0);
 	}
 
 	return 0;

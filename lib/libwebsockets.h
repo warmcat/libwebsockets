@@ -134,10 +134,17 @@ struct libwebsocket_protocols {
 	int protocol_index;
 };
 
-extern int libwebsocket_create_server(int port,
+extern struct libwebsocket_context *
+libwebsocket_create_server(int port,
 		  struct libwebsocket_protocols *protocols,
 		  const char *ssl_cert_filepath,
 		  const char *ssl_private_key_filepath, int gid, int uid);
+
+extern int
+libwebsockets_fork_service_loop(struct libwebsocket_context *this);
+
+extern int
+libwebsocket_service(struct libwebsocket_context *this, int timeout_ms);
 
 /*
  * IMPORTANT NOTICE!
