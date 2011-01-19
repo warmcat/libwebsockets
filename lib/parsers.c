@@ -216,16 +216,15 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		case 0:
 			if (c == 0xff)
 				wsi->lws_rx_parse_state = LWS_RXPS_SEEN_76_FF;
+			if (c == 0) {
+				wsi->lws_rx_parse_state = LWS_RXPS_EAT_UNTIL_76_FF;
+				wsi->rx_user_buffer_head = 0;
+			}
 			break;
 		case 4:
 			wsi->frame_masking_nonce_04[0] = c;
 			wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_1;
 			break;
-		}
-
-		if (c == 0) {
-			wsi->lws_rx_parse_state = LWS_RXPS_EAT_UNTIL_76_FF;
-			wsi->rx_user_buffer_head = 0;
 		}
 		break;
 	case LWS_RXPS_04_MASK_NONCE_1:
@@ -255,7 +254,7 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		memcpy(buf + 4, wsi->masking_key_04, 20);
 
 		/*
-		 * wsi->frame_mask_04 is our recirculating 20-byte XOR key
+		 * wsi->frame_mask_04 will be our recirculating 20-byte XOR key
 		 * for this frame
 		 */
 	
@@ -270,6 +269,188 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_1;
 		break;
+
+	/*
+	 *  04 logical framing from the spec (all this is masked when incoming
+	 *  and has to be unmasked)
+	 *
+	 * We ignore the possibility of extension data because we don't
+	 * negotiate any extensions at the moment.
+	 * 
+	 *    0                   1                   2                   3
+	 *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+	 *   +-+-+-+-+-------+-+-------------+-------------------------------+
+	 *   |F|R|R|R| opcode|R| Payload len |    Extended payload length    |
+	 *   |I|S|S|S|  (4)  |S|     (7)     |             (16/63)           |
+	 *   |N|V|V|V|       |V|             |   (if payload len==126/127)   |
+	 *   | |1|2|3|       |4|             |                               |
+	 *   +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+	 *   |     Extended payload length continued, if payload len == 127  |
+	 *   + - - - - - - - - - - - - - - - +-------------------------------+
+	 *   |                               |         Extension data        |
+	 *   +-------------------------------+ - - - - - - - - - - - - - - - +
+	 *   :                                                               :
+	 *   +---------------------------------------------------------------+
+	 *   :                       Application data                        :
+	 *   +---------------------------------------------------------------+
+	 *
+	 *  We pass payload through to userland as soon as we get it, ignoring
+	 *  FIN.  It's up to userland to buffer it up if it wants to see a
+	 *  whole unfragmented block of the original size (which may be up to
+	 *  2^63 long!)
+	 */
+
+	case LWS_RXPS_04_FRAME_HDR_1:
+		/*
+		 * 04 spec defines the opcode like this: (1, 2, and 3 are
+		 * "control frame" opcodes which may not be fragmented or
+		 * have size larger than 126)
+		 * 
+		 *       frame-opcode           =
+		 * 	       %x0 ; continuation frame
+		 *           / %x1 ; connection close
+		 *           / %x2 ; ping
+		 *           / %x3 ; pong
+		 *           / %x4 ; text frame
+		 *           / %x5 ; binary frame
+		 *           / %x6-F ; reserved
+		 *
+		 * 	  FIN (b7)
+		 */
+
+		c = unmask(wsi, c);
+
+		if (c & 0x70) {
+			fprintf(stderr, "Frame has extensions set illegally\n");
+			/* kill the connection */
+			return -1;
+		}
+
+		wsi->opcode = c & 0xf;
+		wsi->final = !!((c >> 7) & 1);
+
+		if (wsi->final &&
+			wsi->opcode == LWS_WS_OPCODE_04__CONTINUATION &&
+						   wsi->rx_packet_length == 0) {
+			fprintf(stderr,
+				      "Frame starts with final continuation\n");
+			/* kill the connection */
+			return -1;
+		}
+
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN:
+		c = unmask(wsi, c);
+
+		if (c & 0x80) {
+			fprintf(stderr, "Frame has extensions set illegally\n");
+			/* kill the connection */
+			return -1;
+		}
+
+		switch (c) {
+		case 126:
+			/* control frames are not allowed to have big lengths */
+			switch (wsi->opcode) {
+			case LWS_WS_OPCODE_04__CLOSE:
+			case LWS_WS_OPCODE_04__PING:
+			case LWS_WS_OPCODE_04__PONG:
+				fprintf(stderr, "Control frame asking for "
+						"extended length is illegal\n");
+				/* kill the connection */
+				return -1;
+			default:
+				break;
+			}
+			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_2;
+			break;
+		case 127:
+			/* control frames are not allowed to have big lengths */
+			switch (wsi->opcode) {
+			case LWS_WS_OPCODE_04__CLOSE:
+			case LWS_WS_OPCODE_04__PING:
+			case LWS_WS_OPCODE_04__PONG:
+				fprintf(stderr, "Control frame asking for "
+						"extended length is illegal\n");
+				/* kill the connection */
+				return -1;
+			default:
+				break;
+			}
+			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_8;
+			break;
+		default:
+			wsi->rx_packet_length = c;
+			wsi->lws_rx_parse_state =
+					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+			break;
+		}
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN16_2:
+		c = unmask(wsi, c);
+
+		wsi->rx_packet_length = c << 8;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_1;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN16_1:
+		c = unmask(wsi, c);
+
+		wsi->rx_packet_length |= c;
+		wsi->lws_rx_parse_state =
+					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
+		c = unmask(wsi, c);
+		if (c & 0x80) {
+			fprintf(stderr, "b63 of length must be zero\n");
+			/* kill the connection */
+			return -1;
+		}
+		wsi->rx_packet_length = ((size_t)c) << 56;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_7;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_7:
+		wsi->rx_packet_length |= ((size_t)unmask(wsi, c)) << 48;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_6;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_6:
+		wsi->rx_packet_length |= ((size_t)unmask(wsi, c)) << 40;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_5;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_5:
+		wsi->rx_packet_length |= ((size_t)unmask(wsi, c)) << 32;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_4;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_4:
+		wsi->rx_packet_length |= ((size_t)unmask(wsi, c)) << 24;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_3;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_3:
+		wsi->rx_packet_length |= ((size_t)unmask(wsi, c)) << 16;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_2;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_2:
+		wsi->rx_packet_length |= ((size_t)unmask(wsi, c)) << 8;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_1;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
+		wsi->rx_packet_length |= ((size_t)unmask(wsi, c));
+		wsi->lws_rx_parse_state =
+					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		break;
+
 	case LWS_RXPS_EAT_UNTIL_76_FF:
 		if (c == 0xff) {
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
@@ -307,7 +488,61 @@ issue:
 
 	case LWS_RXPS_PULLING_76_LENGTH:
 		break;
+
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
+		wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
+				 (wsi->rx_user_buffer_head++)] = unmask(wsi, c);
+		if (--wsi->rx_packet_length == 0) {
+			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+			goto spill;
+		}
+		if (wsi->rx_user_buffer_head != MAX_USER_RX_BUFFER)
+			break;
+spill:
+		/*
+		 * is this frame a control packet we should take care of at this
+		 * layer?  If so service it and hide it from the user callback
+		 */
+
+		switch (wsi->opcode) {
+		case LWS_WS_OPCODE_04__CLOSE:
+			/* parrot the close packet payload back */
+			n = libwebsocket_write(wsi, (unsigned char *)
+			   &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+				     wsi->rx_user_buffer_head, LWS_WRITE_CLOSE);
+			/* close the connection */
+			return -1;
+
+		case LWS_WS_OPCODE_04__PING:
+			/* parrot the ping packet payload back as a pong*/
+			n = libwebsocket_write(wsi, (unsigned char *)
+			    &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+				    wsi->rx_user_buffer_head, LWS_WRITE_PONG);
+			break;
+
+		case LWS_WS_OPCODE_04__PONG:
+			/* keep the statistics... */
+			wsi->pings_vs_pongs--;
+			/* ... then just drop it */
+			wsi->rx_user_buffer_head = 0;
+			return 0;
+
+		default:
+			break;
+		}
+
+		/*
+		 * No it's real payload, pass it up to the user callback.
+		 * It's nicely buffered with the pre-padding taken care of
+		 * so it can be sent straight out again using libwebsocket_write
+		 */
+
+		if (wsi->protocol->callback)
+			wsi->protocol->callback(wsi, LWS_CALLBACK_RECEIVE,
+			  wsi->user_space,
+			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+			  wsi->rx_user_buffer_head);
+		wsi->rx_user_buffer_head = 0;
 		break;
 	}
 
@@ -325,6 +560,7 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 		fprintf(stderr, "%02X ", buf[n]);
 	fprintf(stderr, "\n");
 #endif
+
 	/* let the rx protocol state machine have as much as it needs */
 
 	n = 0;
@@ -363,6 +599,8 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
  *	packet while not burdening the user code with any protocol knowledge.
  */
 
+ /* FIXME FIN bit */
+
 int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			  size_t len, enum libwebsocket_write_protocol protocol)
 {
@@ -382,7 +620,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	switch (wsi->ietf_spec_revision) {
 	/* chrome likes this as of 30 Oct */
 	/* Firefox 4.0b6 likes this as of 30 Oct */
-	case 76:
+	case 0:
 		if (protocol == LWS_WRITE_BINARY) {
 			/* in binary mode we send 7-bit used length blocks */
 			pre = 1;
@@ -413,31 +651,31 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		post = 1;
 		break;
 
-	case 0:
-		buf[-9] = 0xff;
-#if defined __LP64__
-			buf[-8] = len >> 56;
-			buf[-7] = len >> 48;
-			buf[-6] = len >> 40;
-			buf[-5] = len >> 32;
-#else
-			buf[-8] = 0;
-			buf[-7] = 0;
-			buf[-6] = 0;
-			buf[-5] = 0;
-#endif
-		buf[-4] = len >> 24;
-		buf[-3] = len >> 16;
-		buf[-2] = len >> 8;
-		buf[-1] = len;
-		pre = 9;
-		break;
+	case 4:
 
-	/* just an unimplemented spec right now apparently */
-	case 3:
-		n = 4; /* text */
-		if (protocol == LWS_WRITE_BINARY)
-			n = 5; /* binary */
+		switch (protocol) {
+		case LWS_WRITE_TEXT:
+			n = LWS_WS_OPCODE_04__TEXT_FRAME;
+			break;
+		case LWS_WRITE_BINARY:
+			n = LWS_WS_OPCODE_04__BINARY_FRAME;
+			break;
+		case LWS_WRITE_CLOSE:
+			n = LWS_WS_OPCODE_04__CLOSE;
+			break;
+		case LWS_WRITE_PING:
+			n = LWS_WS_OPCODE_04__PING;
+			wsi->pings_vs_pongs++;
+			break;
+		case LWS_WRITE_PONG:
+			n = LWS_WS_OPCODE_04__PONG;
+			break;
+		default:
+			fprintf(stderr, "libwebsocket_write: unknown write "
+							 "opcode / protocol\n");
+			return -1;
+		}
+
 		if (len < 126) {
 			buf[-2] = n;
 			buf[-1] = len;
@@ -555,4 +793,27 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
 	close(fd);
 
 	return 0;
+}
+
+/**
+ * libwebsockets_remaining_packet_payload() - Bytes to come before "overall"
+ * 					      rx packet is complete
+ * @wsi:		Websocket instance (available from user callback)
+ *
+ *	This function is intended to be called from the callback if the
+ *  user code is interested in "complete packets" from the client.
+ *  libwebsockets just passes through payload as it comes and issues a buffer
+ *  additionally when it hits a built-in limit.  The LWS_CALLBACK_RECEIVE
+ *  callback handler can use this API to find out if the buffer it has just
+ *  been given is the last piece of a "complete packet" from the client --
+ *  when that is the case libwebsockets_remaining_packet_payload() will return
+ *  0.
+ *
+ *  Many protocols won't care becuse their packets are always small.
+ */
+
+size_t
+libwebsockets_remaining_packet_payload(struct libwebsocket *wsi)
+{
+	return wsi->rx_packet_length;
 }

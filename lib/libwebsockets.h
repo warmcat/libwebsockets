@@ -34,7 +34,13 @@ enum libwebsocket_callback_reasons {
 enum libwebsocket_write_protocol {
 	LWS_WRITE_TEXT,
 	LWS_WRITE_BINARY,
-	LWS_WRITE_HTTP
+	LWS_WRITE_HTTP,
+
+	/* special 04 opcodes */
+
+	LWS_WRITE_CLOSE,
+	LWS_WRITE_PING,
+	LWS_WRITE_PONG
 };
 
 struct libwebsocket;
@@ -176,5 +182,8 @@ libwebsockets_broadcast(const struct libwebsocket_protocols * protocol,
 
 extern const struct libwebsocket_protocols *
 libwebsockets_get_protocol(struct libwebsocket *wsi);
+
+extern size_t
+libwebsockets_remaining_packet_payload(struct libwebsocket *wsi);
 
 #endif

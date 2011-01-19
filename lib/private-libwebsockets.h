@@ -77,6 +77,15 @@ extern int use_ssl;
 #define MAX_WEBSOCKET_04_KEY_LEN 128
 #define SYSTEM_RANDOM_FILEPATH "/dev/random"
 
+enum lws_websocket_opcodes_04 {
+	LWS_WS_OPCODE_04__CONTINUATION = 0,
+	LWS_WS_OPCODE_04__CLOSE = 1,
+	LWS_WS_OPCODE_04__PING = 2,
+	LWS_WS_OPCODE_04__PONG = 3,
+	LWS_WS_OPCODE_04__TEXT_FRAME = 4,
+	LWS_WS_OPCODE_04__BINARY_FRAME = 5,
+};
+
 enum lws_connection_states {
 	WSI_STATE_HTTP,
 	WSI_STATE_HTTP_HEADERS,
@@ -121,6 +130,17 @@ enum lws_rx_parse_state {
 	LWS_RXPS_04_MASK_NONCE_3,
 
 	LWS_RXPS_04_FRAME_HDR_1,
+	LWS_RXPS_04_FRAME_HDR_LEN,
+	LWS_RXPS_04_FRAME_HDR_LEN16_2,
+	LWS_RXPS_04_FRAME_HDR_LEN16_1,
+	LWS_RXPS_04_FRAME_HDR_LEN64_8,
+	LWS_RXPS_04_FRAME_HDR_LEN64_7,
+	LWS_RXPS_04_FRAME_HDR_LEN64_6,
+	LWS_RXPS_04_FRAME_HDR_LEN64_5,
+	LWS_RXPS_04_FRAME_HDR_LEN64_4,
+	LWS_RXPS_04_FRAME_HDR_LEN64_3,
+	LWS_RXPS_04_FRAME_HDR_LEN64_2,
+	LWS_RXPS_04_FRAME_HDR_LEN64_1,
 
 	LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED
 };
@@ -159,10 +179,6 @@ struct libwebsocket {
 	enum lws_token_indexes parser_state;
 	struct lws_tokens utf8_token[WSI_TOKEN_COUNT];
 	int ietf_spec_revision;
-	unsigned char masking_key_04[20];
-	unsigned char frame_mask_04[20];
-	unsigned char frame_masking_nonce_04[4];
-	unsigned char frame_mask_index;
 	char rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING + MAX_USER_RX_BUFFER +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	int rx_user_buffer_head;
@@ -170,7 +186,18 @@ struct libwebsocket {
 	int sock;
 
 	enum lws_rx_parse_state lws_rx_parse_state;
+
+	/* 04 protocol specific */
+
+	unsigned char masking_key_04[20];
+	unsigned char frame_masking_nonce_04[4];
+	unsigned char frame_mask_04[20];
+	unsigned char frame_mask_index;
 	size_t rx_packet_length;
+	unsigned char opcode;
+	unsigned char final;
+
+	int pings_vs_pongs;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;

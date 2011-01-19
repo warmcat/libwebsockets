@@ -162,6 +162,29 @@ to http requests from the client.  It allows the callback to issue
 local files down the http link in a single step.
 </blockquote>
 <hr>
+<h2>libwebsockets_remaining_packet_payload - Bytes to come before "overall" rx packet is complete</h2>
+<i>size_t</i>
+<b>libwebsockets_remaining_packet_payload</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket instance (available from user callback)
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function is intended to be called from the callback if the
+user code is interested in "complete packets" from the client.
+libwebsockets just passes through payload as it comes and issues a buffer
+additionally when it hits a built-in limit.  The LWS_CALLBACK_RECEIVE
+callback handler can use this API to find out if the buffer it has just
+been given is the last piece of a "complete packet" from the client --
+when that is the case <b>libwebsockets_remaining_packet_payload</b> will return
+0.
+<p>
+Many protocols won't care becuse their packets are always small.
+</blockquote>
+<hr>
 <h2>callback - User server actions</h2>
 <i>int</i>
 <b>callback</b>

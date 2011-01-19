@@ -72,7 +72,7 @@ interpret_key(const char *key, unsigned long *result)
 
 
 static int
-handshake_76(struct libwebsocket *wsi)
+handshake_00(struct libwebsocket *wsi)
 {
 	unsigned long key1, key2;
 	unsigned char sum[16];
@@ -80,7 +80,7 @@ handshake_76(struct libwebsocket *wsi)
 	char *p;
 	int n;
 
-	/* Websocket 76? - confirm we have all the necessary pieces */
+	/* Confirm we have all the necessary pieces */
 
 	if (!wsi->utf8_token[WSI_TOKEN_ORIGIN].token_len ||
 		!wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
@@ -391,6 +391,7 @@ handshake_04(struct libwebsocket *wsi)
 	free(response);
 	wsi->state = WSI_STATE_ESTABLISHED;
 	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+	wsi->rx_packet_length = 0;
 
 	/* notify user code that we're ready to roll */
 
@@ -514,14 +515,15 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 			wsi->ietf_spec_revision =
 				 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token);
 
+
 		/*
-		 * Websocket 04+?
-		 * confirm we have all the necessary pieces
+		 * Perform the handshake according to the protocol version the
+		 * client announced
 		 */
 
 		switch (wsi->ietf_spec_revision) {
 		case 0: /* applies to 76 and 00 */
-			if (handshake_76(wsi))
+			if (handshake_00(wsi))
 				goto bail;
 			break;
 		case 4: /* 04 */
