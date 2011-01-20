@@ -617,6 +617,8 @@ libwebsocket_create_server(int port,
 	return this;
 }
 
+#ifndef LWS_NO_FORK
+
 /**
  * libwebsockets_fork_service_loop() - Optional helper function forks off
  *				  a process for the websocket server loop.
@@ -635,29 +637,38 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *this)
 	struct sockaddr_in cli_addr;
 	int n;
 
-	if (fork())
+	n = fork();
+	if (n < 0)
+		return n;
+
+	if (!n) {
+
+		/* main process context */
+
+		for (client = 1; client < this->count_protocols + 1; client++) {
+			fd = socket(AF_INET, SOCK_STREAM, 0);
+			if (fd < 0) {
+				fprintf(stderr, "Unable to create socket\n");
+				return -1;
+			}
+			cli_addr.sin_family = AF_INET;
+			cli_addr.sin_port = htons(
+				   this->protocols[client - 1].broadcast_socket_port);
+			cli_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+			n = connect(fd, (struct sockaddr *)&cli_addr,
+							       sizeof cli_addr);
+			if (n < 0) {
+				fprintf(stderr, "Unable to connect to "
+						"broadcast socket %d, %s\n",
+						client, strerror(errno));
+				return -1;
+			}
+
+			this->protocols[client - 1].broadcast_socket_user_fd = fd;
+		}
+
+
 		return 0;
-
-	for (client = 1; client < this->count_protocols + 1; client++) {
-		fd = socket(AF_INET, SOCK_STREAM, 0);
-		if (fd < 0) {
-			fprintf(stderr, "Unable to create socket\n");
-			return -1;
-		}
-		cli_addr.sin_family = AF_INET;
-		cli_addr.sin_port = htons(
-			   this->protocols[client - 1].broadcast_socket_port);
-		cli_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-		n = connect(fd, (struct sockaddr *)&cli_addr,
-						       sizeof cli_addr);
-		if (n < 0) {
-			fprintf(stderr, "Unable to connect to "
-					"broadcast socket %d, %s\n",
-					client, strerror(errno));
-			return -1;
-		}
-
-		this->protocols[client - 1].broadcast_socket_user_fd = fd;
 	}
 
 	/* we want a SIGHUP when our parent goes down */
@@ -671,6 +682,8 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *this)
 
 	return 0;
 }
+
+#endif
 
 /**
  * libwebsockets_get_protocol() - Returns a protocol pointer from a websocket

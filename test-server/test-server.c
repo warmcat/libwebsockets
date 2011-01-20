@@ -264,12 +264,15 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+	buf[LWS_SEND_BUFFER_PRE_PADDING] = 'x';
+
+#ifdef LWS_NO_FORK
+
 	/*
-	 * After initializing and creating the websocket server in its own fork
-	 * we return to the main process here
+	 * This example shows how to work with no forked service loop
 	 */
 
-	buf[LWS_SEND_BUFFER_PRE_PADDING] = 'x';
+	fprintf(stderr, " Using no-fork service loop\n");
 
 	while (1) {
 		
@@ -297,14 +300,54 @@ int main(int argc, char **argv)
 		 * we have to give the websockets an opportunity to service
 		 * "manually".
 		 *
-		 * There's an optional call libwebsockets_fork_service_loop()
-		 * we could have used before this while loop, then the
-		 * websockets would have been serviced in a forked process
-		 * and we would not have to do the call below inside our loop.
+		 * If no socket is needing service, the call below returns
+		 * immediately and quickly.
 		 */
 
 		libwebsocket_service(server, 0);
 	}
+
+#else
+
+	/*
+	 * This example shows how to work with the forked websocket service loop
+	 */
+
+	fprintf(stderr, " Using forked service loop\n");
+
+	/*
+	 * This forks the websocket service action into a subprocess so we
+	 * don't have to take care about it.
+	 */
+
+	n = libwebsockets_fork_service_loop(server);
+	if (n < 0) {
+		fprintf(stderr, "Unable to fork service loop %d\n", n);
+		return 1;
+	}
+
+	while (1) {
+		
+		usleep(50000);
+
+		/*
+		 * This broadcasts to all dumb-increment-protocol connections
+		 * at 20Hz.
+		 * 
+		 * We're just sending a character 'x', in these examples the
+		 * callbacks send their own per-connection content.
+		 *
+		 * You have to send something with nonzero length to get the
+		 * callback actions delivered.
+		 *
+		 * We take care of pre-and-post padding allocation.
+		 */
+
+		libwebsockets_broadcast(&protocols[PROTOCOL_DUMB_INCREMENT],
+					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
+	}
+
+#endif
 
 	return 0;
 }

@@ -28,6 +28,17 @@ AC_CHECK_LIB([ssl], [SSL_library_init])
 CFLAGS="$CFLAGS -DLWS_OPENSSL_SUPPORT"
 fi
 
+AC_ARG_ENABLE(nofork,
+ [  --enable-nofork  Disables fork-related options],
+ [ nofork=yes
+ ])
+
+if test "x$nofork" = "xyes" ; then
+CFLAGS="$CFLAGS -DLWS_NO_FORK"
+else
+AC_FUNC_FORK
+fi
+
 
 
 # Checks for header files.
@@ -37,7 +48,7 @@ AC_CHECK_HEADERS([fcntl.h netinet/in.h stdlib.h string.h sys/socket.h unistd.h])
 AC_TYPE_SIZE_T
 
 # Checks for library functions.
-AC_FUNC_FORK
+
 AC_FUNC_MALLOC
 AC_FUNC_REALLOC
 AC_CHECK_FUNCS([bzero memset socket strerror])

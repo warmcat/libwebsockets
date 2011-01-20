@@ -32,7 +32,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#ifndef LWS_NO_FORK
 #include <sys/prctl.h>
+#endif
 #include <netinet/in.h>
 #include <arpa/inet.h>
 

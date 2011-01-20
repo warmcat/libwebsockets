@@ -15,6 +15,9 @@ $ libwebsockets-test-server
 
 should be enough to get a test server listening on port 7861.
 
+Testing
+-------
+
 If you point your browser (eg, Chrome) to
 
   http://127.0.0.1:7681
@@ -22,6 +25,9 @@ If you point your browser (eg, Chrome) to
 It will fetch a script in the form of test.html, and then run the
 script in there on the browser to open a websocket connection.
 Incrementing numbers should appear in the browser display.
+
+Using SSL
+---------
 
 To test it using SSL/WSS, just run the test server with
 
@@ -41,5 +47,23 @@ same.
 test-server.c is all that is needed to use libwebsockets for
 serving both the script html over http and websockets.
 
-2010-11-08  Andy Green <andy@warmcat.com>
+Forkless operation
+------------------
+
+If your target device does not offer fork(), you can use
+libwebsockets from your own main loop instead.  Use the
+configure option --nofork and simply call libwebsocket_service()
+from your own main loop as shown in the test app sources.
+
+
+Websocket version supported
+---------------------------
+
+Right now this is tested and working on websockets protocol 76/00
+Untested code is in for 04 support, there is no browser support
+available yet to test it with.  Libwebsockets should autoselect
+between the supported versions according to what the browser
+asks for.
+
+2011-01-20  Andy Green <andy@warmcat.com>
 
