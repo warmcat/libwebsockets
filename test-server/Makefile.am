@@ -1,7 +1,8 @@
-bin_PROGRAMS=libwebsockets-test-server
+bin_PROGRAMS=libwebsockets-test-server libwebsockets-test-client
 libwebsockets_test_server_SOURCES=test-server.c
 libwebsockets_test_server_LDADD=-L../lib -lwebsockets
-
+libwebsockets_test_client_SOURCES=test-client.c
+libwebsockets_test_client_LDADD=-L../lib -lwebsockets
 #
 # cook a random test cert and key
 # notice your real cert and key will want to be 0600 permissions

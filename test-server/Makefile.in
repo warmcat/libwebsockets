@@ -34,7 +34,8 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-bin_PROGRAMS = libwebsockets-test-server$(EXEEXT)
+bin_PROGRAMS = libwebsockets-test-server$(EXEEXT) \
+	libwebsockets-test-client$(EXEEXT)
 subdir = test-server
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -47,6 +48,10 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
+am_libwebsockets_test_client_OBJECTS = test-client.$(OBJEXT)
+libwebsockets_test_client_OBJECTS =  \
+	$(am_libwebsockets_test_client_OBJECTS)
+libwebsockets_test_client_DEPENDENCIES =
 am_libwebsockets_test_server_OBJECTS = test-server.$(OBJEXT)
 libwebsockets_test_server_OBJECTS =  \
 	$(am_libwebsockets_test_server_OBJECTS)
@@ -64,8 +69,10 @@ CCLD = $(CC)
 LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
-SOURCES = $(libwebsockets_test_server_SOURCES)
-DIST_SOURCES = $(libwebsockets_test_server_SOURCES)
+SOURCES = $(libwebsockets_test_client_SOURCES) \
+	$(libwebsockets_test_server_SOURCES)
+DIST_SOURCES = $(libwebsockets_test_client_SOURCES) \
+	$(libwebsockets_test_server_SOURCES)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -184,6 +191,8 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 libwebsockets_test_server_SOURCES = test-server.c
 libwebsockets_test_server_LDADD = -L../lib -lwebsockets
+libwebsockets_test_client_SOURCES = test-client.c
+libwebsockets_test_client_LDADD = -L../lib -lwebsockets
 all: all-am
 
 .SUFFIXES:
@@ -261,6 +270,9 @@ clean-binPROGRAMS:
 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
 	echo " rm -f" $$list; \
 	rm -f $$list
+libwebsockets-test-client$(EXEEXT): $(libwebsockets_test_client_OBJECTS) $(libwebsockets_test_client_DEPENDENCIES) 
+	@rm -f libwebsockets-test-client$(EXEEXT)
+	$(LINK) $(libwebsockets_test_client_OBJECTS) $(libwebsockets_test_client_LDADD) $(LIBS)
 libwebsockets-test-server$(EXEEXT): $(libwebsockets_test_server_OBJECTS) $(libwebsockets_test_server_DEPENDENCIES) 
 	@rm -f libwebsockets-test-server$(EXEEXT)
 	$(LINK) $(libwebsockets_test_server_OBJECTS) $(libwebsockets_test_server_LDADD) $(LIBS)
@@ -271,6 +283,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test-client.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test-server.Po@am__quote@
 
 .c.o:
@@ -500,7 +513,6 @@ uninstall-am: uninstall-binPROGRAMS
 	maintainer-clean-generic mostlyclean mostlyclean-compile \
 	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
 	tags uninstall uninstall-am uninstall-binPROGRAMS
-
 
 #
 # cook a random test cert and key

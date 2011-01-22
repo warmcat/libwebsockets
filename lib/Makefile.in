@@ -72,7 +72,8 @@ LTLIBRARIES = $(lib_LTLIBRARIES)
 libwebsockets_la_LIBADD =
 dist_libwebsockets_la_OBJECTS = libwebsockets_la-libwebsockets.lo \
 	libwebsockets_la-handshake.lo libwebsockets_la-parsers.lo \
-	libwebsockets_la-base64-decode.lo
+	libwebsockets_la-base64-decode.lo \
+	libwebsockets_la-client-handshake.lo
 libwebsockets_la_OBJECTS = $(dist_libwebsockets_la_OBJECTS)
 libwebsockets_la_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(libwebsockets_la_CFLAGS) \
@@ -216,6 +217,7 @@ dist_libwebsockets_la_SOURCES = libwebsockets.c \
 				parsers.c \
 				libwebsockets.h \
 				base64-decode.c \
+				client-handshake.c \
 				private-libwebsockets.h
 
 libwebsockets_la_CFLAGS = -Wall -Werror -std=gnu99 -pedantic -rdynamic -fPIC -c
@@ -295,6 +297,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-base64-decode.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-client-handshake.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-handshake.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-libwebsockets.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-parsers.Plo@am__quote@
@@ -347,6 +350,13 @@ libwebsockets_la-base64-decode.lo: base64-decode.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='base64-decode.c' object='libwebsockets_la-base64-decode.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_la_CFLAGS) $(CFLAGS) -c -o libwebsockets_la-base64-decode.lo `test -f 'base64-decode.c' || echo '$(srcdir)/'`base64-decode.c
+
+libwebsockets_la-client-handshake.lo: client-handshake.c
+@am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_la_CFLAGS) $(CFLAGS) -MT libwebsockets_la-client-handshake.lo -MD -MP -MF $(DEPDIR)/libwebsockets_la-client-handshake.Tpo -c -o libwebsockets_la-client-handshake.lo `test -f 'client-handshake.c' || echo '$(srcdir)/'`client-handshake.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libwebsockets_la-client-handshake.Tpo $(DEPDIR)/libwebsockets_la-client-handshake.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='client-handshake.c' object='libwebsockets_la-client-handshake.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_la_CFLAGS) $(CFLAGS) -c -o libwebsockets_la-client-handshake.lo `test -f 'client-handshake.c' || echo '$(srcdir)/'`client-handshake.c
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -582,6 +592,7 @@ all-local:
 	 ../scripts/kernel-doc -html \
                 libwebsockets.c \
 		parsers.c \
+		client-handshake.c \
                 libwebsockets.h \
 			> ../libwebsockets-api-doc.html
 

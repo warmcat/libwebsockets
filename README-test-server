@@ -15,8 +15,8 @@ $ libwebsockets-test-server
 
 should be enough to get a test server listening on port 7861.
 
-Testing
--------
+Testing server with a browser
+-----------------------------
 
 If you point your browser (eg, Chrome) to
 
@@ -28,6 +28,9 @@ Incrementing numbers should appear in the browser display.
 
 Using SSL
 ---------
+
+The client side operation does not support SSL yet, but the
+server side does.
 
 To test it using SSL/WSS, just run the test server with
 
@@ -55,15 +58,27 @@ libwebsockets from your own main loop instead.  Use the
 configure option --nofork and simply call libwebsocket_service()
 from your own main loop as shown in the test app sources.
 
+Testing websocket client support
+--------------------------------
+
+If you run the test server as described above, you can also
+connect to it using the test client as well as a browser.
+
+$ libwebsockets-test-client localhost
+
+will by default connect to the test server on localhost:7681
+and print the dumb increment number from the server at the
+same time as drawing random circles in the mirror protocol;
+if you connect to the test server using a browser at the
+same time you will be able to see the circles being drawn.
+
 
 Websocket version supported
 ---------------------------
 
-Right now this is tested and working on websockets protocol 76/00
-Untested code is in for 04 support, there is no browser support
-available yet to test it with.  Libwebsockets should autoselect
-between the supported versions according to what the browser
-asks for.
+The websocket client code is 04 version, the server supports
+both 00/76 in text mode and 04 dynamically per-connection
+depending on the version of the client / browser.
 
-2011-01-20  Andy Green <andy@warmcat.com>
+2011-01-22  Andy Green <andy@warmcat.com>
 

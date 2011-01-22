@@ -131,6 +131,11 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 				if (wsi->state != WSI_STATE_ESTABLISHED)
 					continue;
 
+				/* only to clients connected to us */
+				
+				if (wsi->client_mode)
+					continue;
+
 				/*
 				 * only broadcast to connections using
 				 * the requested protocol
@@ -207,7 +212,13 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
 	if (this == NULL)
 		return 1;
 
-	n = poll(this->fds, this->fds_count, timeout_ms);
+	/* don't check listen socket if we are not listening */
+
+	if (this->listen_port)
+		n = poll(this->fds, this->fds_count, timeout_ms);
+	else
+		n = poll(&this->fds[1], this->fds_count - 1, timeout_ms);
+	
 
 	if (n < 0 || this->fds[0].revents & (POLLERR | POLLHUP)) {
 		fprintf(stderr, "Listen Socket dead\n");
@@ -308,6 +319,7 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
 		this->wsi[this->fds_count]->sock = fd;
 		this->wsi[this->fds_count]->state = WSI_STATE_HTTP;
 		this->wsi[this->fds_count]->name_buffer_pos = 0;
+		this->wsi[this->fds_count]->client_mode = 0;
 
 		for (n = 0; n < WSI_TOKEN_COUNT; n++) {
 			this->wsi[this->fds_count]->
@@ -378,8 +390,10 @@ fatal:
 
 
 /**
- * libwebsocket_create_server() - Create the listening websockets server
- * @port:	Port to listen on
+ * libwebsocket_create_context() - Create the websocket handler
+ * @port:	Port to listen on... you can use 0 to suppress listening on
+ * 		any port, that's what you want if you are not running a
+ * 		websocket server at all but just using it as a client
  * @protocols:	Array of structures listing supported protocols and a protocol-
  *		specific callback for each one.  The list is ended with an
  *		entry that has a NULL callback pointer.
@@ -419,14 +433,14 @@ fatal:
  */
 
 struct libwebsocket_context *
-libwebsocket_create_server(int port,
+libwebsocket_create_context(int port,
 			       struct libwebsocket_protocols *protocols,
 			       const char *ssl_cert_filepath,
 			       const char *ssl_private_key_filepath,
 			       int gid, int uid)
 {
 	int n;
-	int sockfd;
+	int sockfd = 0;
 	int fd;
 	struct sockaddr_in serv_addr, cli_addr;
 	int opt = 1;
@@ -487,7 +501,7 @@ libwebsocket_create_server(int port,
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(ssl_ctx,
 						ssl_private_key_filepath,
-						SSL_FILETYPE_PEM) != 1) {
+						       SSL_FILETYPE_PEM) != 1) {
 			fprintf(stderr, "ssl problem getting key '%s': %s\n",
 						ssl_private_key_filepath,
 				ERR_error_string(ERR_get_error(), ssl_err_buf));
@@ -512,28 +526,33 @@ libwebsocket_create_server(int port,
 	this = malloc(sizeof(struct libwebsocket_context));
 
 	this->protocols = protocols;
+	this->listen_port = port;
 
 	/* set up our external listening socket we serve on */
 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (sockfd < 0) {
-		fprintf(stderr, "ERROR opening socket");
-		return NULL;
-	}
+	if (port) {
 
-	/* allow us to restart even if old sockets in TIME_WAIT */
-	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+		sockfd = socket(AF_INET, SOCK_STREAM, 0);
+		if (sockfd < 0) {
+			fprintf(stderr, "ERROR opening socket");
+			return NULL;
+		}
 
-	bzero((char *) &serv_addr, sizeof(serv_addr));
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = INADDR_ANY;
-	serv_addr.sin_port = htons(port);
+		/* allow us to restart even if old sockets in TIME_WAIT */
+		setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-	n = bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
-	if (n < 0) {
-		fprintf(stderr, "ERROR on binding to port %d (%d %d)\n",
+		bzero((char *) &serv_addr, sizeof(serv_addr));
+		serv_addr.sin_family = AF_INET;
+		serv_addr.sin_addr.s_addr = INADDR_ANY;
+		serv_addr.sin_port = htons(port);
+
+		n = bind(sockfd, (struct sockaddr *) &serv_addr,
+							     sizeof(serv_addr));
+		if (n < 0) {
+			fprintf(stderr, "ERROR on binding to port %d (%d %d)\n",
 								port, n, errno);
-		return NULL;
+			return NULL;
+		}
 	}
 
 	/* drop any root privs for this process */
@@ -561,8 +580,10 @@ libwebsocket_create_server(int port,
 	this->use_ssl = use_ssl;
 #endif
 
-	listen(sockfd, 5);
-	fprintf(stderr, " Listening on port %d\n", port);
+	if (port) {
+		listen(sockfd, 5);
+		fprintf(stderr, " Listening on port %d\n", port);
+	}
 
 	/* set up our internal broadcast trigger sockets per-protocol */
 
@@ -617,6 +638,7 @@ libwebsocket_create_server(int port,
 	return this;
 }
 
+
 #ifndef LWS_NO_FORK
 
 /**
@@ -653,7 +675,7 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *this)
 			}
 			cli_addr.sin_family = AF_INET;
 			cli_addr.sin_port = htons(
-				   this->protocols[client - 1].broadcast_socket_port);
+			     this->protocols[client - 1].broadcast_socket_port);
 			cli_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 			n = connect(fd, (struct sockaddr *)&cli_addr,
 							       sizeof cli_addr);
@@ -664,7 +686,8 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *this)
 				return -1;
 			}
 
-			this->protocols[client - 1].broadcast_socket_user_fd = fd;
+			this->protocols[client - 1].broadcast_socket_user_fd =
+									     fd;
 		}
 
 
@@ -749,12 +772,10 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 				continue;
 
 			/* never broadcast to non-established connection */
-
 			if (this->wsi[n]->state != WSI_STATE_ESTABLISHED)
 				continue;
 
 			/* only broadcast to guys using requested protocol */
-
 			if (this->wsi[n]->protocol != protocol)
 				continue;
 

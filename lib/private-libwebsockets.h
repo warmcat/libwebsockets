@@ -51,12 +51,14 @@
 #include <openssl/sha.h>
 #include "libwebsockets.h"
 
-/* #define DEBUG  */
+//#define DEBUG 
 
 
 #ifdef DEBUG
-#define debug  \
-      fprintf(stderr,
+static inline void debug(const char *format, ...) {
+	va_list ap;
+	va_start(ap, format); vfprintf(stderr, format, ap); va_end(ap);
+}
 #else
 static inline void debug(const char *format, ...) { }
 #endif
@@ -77,7 +79,7 @@ extern int use_ssl;
 #define LWS_MAX_PROTOCOLS 10
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
-#define SYSTEM_RANDOM_FILEPATH "/dev/random"
+#define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
 
 enum lws_websocket_opcodes_04 {
 	LWS_WS_OPCODE_04__CONTINUATION = 0,
@@ -92,7 +94,8 @@ enum lws_connection_states {
 	WSI_STATE_HTTP,
 	WSI_STATE_HTTP_HEADERS,
 	WSI_STATE_DEAD_SOCKET,
-	WSI_STATE_ESTABLISHED
+	WSI_STATE_ESTABLISHED,
+	WSI_STATE_CLIENT_UNCONNECTED
 };
 
 enum lws_token_indexes {
@@ -110,6 +113,12 @@ enum lws_token_indexes {
 	/* new for 04 */
 	WSI_TOKEN_KEY,
 	WSI_TOKEN_VERSION,
+	WSI_TOKEN_SWORIGIN,
+
+	/* client receives these */
+	WSI_TOKEN_ACCEPT,
+	WSI_TOKEN_NONCE,
+	WSI_TOKEN_HTTP,
 
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,
@@ -159,6 +168,7 @@ struct libwebsocket_context {
 	struct libwebsocket *wsi[MAX_CLIENTS + 1];
 	struct pollfd fds[MAX_CLIENTS + 1];
 	int fds_count;
+	int listen_port;
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;
 #endif
@@ -204,12 +214,19 @@ struct libwebsocket {
 
 	int pings_vs_pongs;
 
+	/* client support */
+	char initial_handshake_hash_base64[30];
+	int client_mode;
+
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;
 #endif
 
 	void *user_space;
 };
+
+extern int
+libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c);
 
 extern void
 libwebsocket_close_and_free_session(struct libwebsocket *wsi);
@@ -225,7 +242,7 @@ extern int
 libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len);
 
 extern int
-lws_b64_encode_string(const char *in, char *out, int out_size);
+lws_b64_encode_string(const char *in, int in_len, char *out, int out_size);
 
 extern int
 lws_b64_decode_string(const char *in, char *out, int out_size);

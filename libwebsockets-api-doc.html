@@ -1,6 +1,6 @@
-<h2>libwebsocket_create_server - Create the listening websockets server</h2>
+<h2>libwebsocket_create_context - Create the websocket handler</h2>
 <i>struct libwebsocket_context *</i>
-<b>libwebsocket_create_server</b>
+<b>libwebsocket_create_context</b>
 (<i>int</i> <b>port</b>,
 <i>struct libwebsocket_protocols *</i> <b>protocols</b>,
 <i>const char *</i> <b>ssl_cert_filepath</b>,
@@ -10,7 +10,9 @@
 <h3>Arguments</h3>
 <dl>
 <dt><b>port</b>
-<dd>Port to listen on
+<dd>Port to listen on... you can use 0 to suppress listening on
+any port, that's what you want if you are not running a
+websocket server at all but just using it as a client
 <dt><b>protocols</b>
 <dd>Array of structures listing supported protocols and a protocol-
 specific callback for each one.  The list is ended with an

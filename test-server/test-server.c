@@ -230,7 +230,7 @@ int main(int argc, char **argv)
 						  LWS_SEND_BUFFER_POST_PADDING];
 	int port = 7681;
 	int use_ssl = 0;
-	struct libwebsocket_context *server;
+	struct libwebsocket_context *context;
 
 	fprintf(stderr, "libwebsockets test server\n"
 			"(C) Copyright 2010 Andy Green <andy@warmcat.com> "
@@ -257,9 +257,9 @@ int main(int argc, char **argv)
 	if (!use_ssl)
 		cert_path = key_path = NULL;
 
-	server = libwebsocket_create_server(port, protocols, cert_path,
+	context = libwebsocket_create_context(port, protocols, cert_path,
 							      key_path, -1, -1);
-	if (server == NULL) {
+	if (context == NULL) {
 		fprintf(stderr, "libwebsocket init failed\n");
 		return -1;
 	}
@@ -304,7 +304,7 @@ int main(int argc, char **argv)
 		 * immediately and quickly.
 		 */
 
-		libwebsocket_service(server, 0);
+		libwebsocket_service(context, 0);
 	}
 
 #else
@@ -320,7 +320,7 @@ int main(int argc, char **argv)
 	 * don't have to take care about it.
 	 */
 
-	n = libwebsockets_fork_service_loop(server);
+	n = libwebsockets_fork_service_loop(context);
 	if (n < 0) {
 		fprintf(stderr, "Unable to fork service loop %d\n", n);
 		return 1;

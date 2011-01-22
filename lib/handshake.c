@@ -240,12 +240,13 @@ handshake_04(struct libwebsocket *wsi)
 	int nonce_len;
 	int accept_len;
 
-	if (!wsi->utf8_token[WSI_TOKEN_ORIGIN].token_len ||
+	if (!wsi->utf8_token[WSI_TOKEN_SWORIGIN].token_len ||
 	    !wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
-	    !wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len ||
-	    !wsi->utf8_token[WSI_TOKEN_KEY].token_len)
+	    !wsi->utf8_token[WSI_TOKEN_KEY].token_len) {
+		debug("handshake_04 missing pieces\n");
 		/* completed header processing, but missing some bits */
 		goto bail;
+	}
 
 	if (wsi->utf8_token[WSI_TOKEN_KEY].token_len >=
 						     MAX_WEBSOCKET_04_KEY_LEN) {
@@ -262,7 +263,7 @@ handshake_04(struct libwebsocket *wsi)
 			wsi->utf8_token[WSI_TOKEN_KEY].token_len +
 					 strlen(websocket_magic_guid_04), hash);
 
-	accept_len = lws_b64_encode_string((char *)hash, accept_buf,
+	accept_len = lws_b64_encode_string((char *)hash, 20, accept_buf,
 							     sizeof accept_buf);
 	if (accept_len < 0) {
 		fprintf(stderr, "Base64 encoded hash too long\n");
@@ -307,31 +308,37 @@ handshake_04(struct libwebsocket *wsi)
 	strcpy(p, accept_buf);
 	p += accept_len;
 
+	strcpy(p,   "\x0d\x0aSec-WebSocket-Nonce: ");
+	p += strlen("\x0d\x0aSec-WebSocket-Nonce: ");
+
 	/* select the nonce */
 
 	fd = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 	if (fd < 1) {
 		fprintf(stderr, "Unable to open random device %s\n",
 							SYSTEM_RANDOM_FILEPATH);
-		free(wsi->user_space);
+		if (wsi->user_space)
+			free(wsi->user_space);
 		goto bail;
 	}
 	n = read(fd, hash, 16);
 	if (n != 16) {
-		fprintf(stderr, "Unable to read from random device %s\n",
-							SYSTEM_RANDOM_FILEPATH);
-		free(wsi->user_space);
+		fprintf(stderr, "Unable to read from random device %s %d\n",
+						     SYSTEM_RANDOM_FILEPATH, n);
+		if (wsi->user_space)
+			free(wsi->user_space);
 		goto bail;
 	}
 	close(fd);
 
 	/* encode the nonce */
 
-	nonce_len = lws_b64_encode_string((const char *)hash, nonce_buf,
+	nonce_len = lws_b64_encode_string((const char *)hash, 16, nonce_buf,
 							      sizeof nonce_buf);
 	if (nonce_len < 0) {
 		fprintf(stderr, "Failed to base 64 encode the nonce\n");
-		free(wsi->user_space);
+		if (wsi->user_space)
+			free(wsi->user_space);
 		goto bail;
 	}
 
@@ -455,11 +462,21 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 #ifdef DEBUG
 		fwrite(buf, 1, len, stderr);
 #endif
+
+		if (wsi->client_mode) {
+			for (n = 0; n < len; n++)
+				libwebsocket_client_rx_sm(wsi, *buf++);
+
+			return 0;
+		}
+
 		for (n = 0; n < len; n++)
 			libwebsocket_parse(wsi, *buf++);
 
 		if (wsi->parser_state != WSI_PARSING_COMPLETE)
 			break;
+
+		debug("libwebsocket_parse sees parsing complete\n");
 
 		/* is this websocket protocol or normal http 1.0? */
 
@@ -527,6 +544,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 				goto bail;
 			break;
 		case 4: /* 04 */
+			debug("libwebsocket_parse calling handshake_04\n");
 			if (handshake_04(wsi))
 				goto bail;
 			break;
@@ -539,6 +557,14 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		break;
 
 	case WSI_STATE_ESTABLISHED:
+		if (wsi->client_mode) {
+			for (n = 0; n < len; n++)
+				libwebsocket_client_rx_sm(wsi, *buf++);
+
+			return 0;
+		}
+
+
 		if (libwebsocket_interpret_incoming_packet(wsi, buf, len) < 0)
 			goto bail;
 		break;

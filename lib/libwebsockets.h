@@ -22,11 +22,13 @@
 #ifndef __LIBWEBSOCKET_H__
 #define __LIBWEBSOCKET_H__
 
+#define CONTEXT_PORT_NO_LISTEN 0
 
 enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_ESTABLISHED,
 	LWS_CALLBACK_CLOSED,
 	LWS_CALLBACK_RECEIVE,
+	LWS_CALLBACK_CLIENT_RECEIVE,
 	LWS_CALLBACK_HTTP,
 	LWS_CALLBACK_BROADCAST
 };
@@ -135,7 +137,7 @@ struct libwebsocket_protocols {
 };
 
 extern struct libwebsocket_context *
-libwebsocket_create_server(int port,
+libwebsocket_create_context(int port,
 		  struct libwebsocket_protocols *protocols,
 		  const char *ssl_cert_filepath,
 		  const char *ssl_private_key_filepath, int gid, int uid);
@@ -170,7 +172,9 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms);
  * use the whole buffer without taking care of the above.
  */
 
-#define LWS_SEND_BUFFER_PRE_PADDING 12
+/* this is the frame nonce plus two header plus 8 length */
+
+#define LWS_SEND_BUFFER_PRE_PADDING (4 + 10)
 #define LWS_SEND_BUFFER_POST_PADDING 1
 
 extern int
@@ -192,5 +196,17 @@ libwebsockets_get_protocol(struct libwebsocket *wsi);
 
 extern size_t
 libwebsockets_remaining_packet_payload(struct libwebsocket *wsi);
+
+extern struct libwebsocket *
+libwebsocket_client_connect(struct libwebsocket_context *clients,
+			      const char *address,
+			      int port,
+			      const char *path,
+			      const char *host,
+			      const char *origin,
+			      const char *protocol);
+
+void
+libwebsocket_client_close(struct libwebsocket *wsi);
 
 #endif

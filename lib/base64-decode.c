@@ -48,7 +48,7 @@ static const char decode[] = "|$$$}rstuvwxyz{$$$$$$$>?@ABCDEFGHIJKLMNOPQRSTUVW"
 			     "$$$$$$XYZ[\\]^_`abcdefghijklmnopq";
 
 int
-lws_b64_encode_string(const char *in, char *out, int out_size)
+lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
 {
 	unsigned char triple[3];
 	int i;
@@ -56,12 +56,13 @@ lws_b64_encode_string(const char *in, char *out, int out_size)
 	int line = 0;
 	int done = 0;
 
-	while (*in) {
+	while (in_len) {
 		len = 0;
 		for (i = 0; i < 3; i++) {
-			if (*in) {
+			if (in_len) {
 				triple[i] = *in++;
 				len++;
+				in_len--;
 			} else
 				triple[i] = 0;
 		}
@@ -175,7 +176,8 @@ lws_b64_selftest(void)
 	for (test = 0; test < sizeof plaintext / sizeof(plaintext[0]); test++) {
 
 		buf[sizeof(buf) - 1] = '\0';
-		n = lws_b64_encode_string(plaintext[test], buf, sizeof buf);
+		n = lws_b64_encode_string(plaintext[test],
+				      strlen(plaintext[test]), buf, sizeof buf);
 		if (n != strlen(coded[test]) || strcmp(buf, coded[test])) {
 			fprintf(stderr, "Failed lws_b64 encode selftest "
 					   "%d result '%s' %d\n", test, buf, n);
