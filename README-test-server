@@ -9,11 +9,29 @@ needed:
 otherwise if /usr/local/... and /usr/local/lib are OK then...
 
 $ ./configure --enable-openssl
+$ make clean
 $ make
 $ sudo make install
 $ libwebsockets-test-server
 
 should be enough to get a test server listening on port 7861.
+
+There are a couple of other possible configure options
+
+--enable-nofork		disables the fork into the background API
+			and removes all references to fork() and
+			pr_ctl() from the sources.  Use it if your
+			platform doesn't support forking.
+
+--enable-libcrypto	by default libwebsockets uses its own
+			built-in md5 and sha-1 implementation for
+			simplicity.  However the libcrypto ones
+			may be faster, and in a distro context it
+			may be highly desirable to use a common
+			library implementation for ease of security
+			upgrades.  Give this configure option
+			to disable the built-in ones and force use
+			of the libcrypto (part of openssl) ones.
 
 Testing server with a browser
 -----------------------------
