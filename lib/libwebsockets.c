@@ -86,7 +86,8 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 		if (this->fds[client].revents & (POLLERR | POLLHUP)) {
 
 			debug("Session Socket %d %p (fd=%d) dead\n",
-				  client, this->wsi[client], this->fds[client]);
+				client, (void *)this->wsi[client],
+							  this->fds[client].fd);
 
 			libwebsocket_close_and_free_session(this->wsi[client]);
 			goto nuke_this;
@@ -132,7 +133,7 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 					continue;
 
 				/* only to clients connected to us */
-				
+
 				if (wsi->client_mode)
 					continue;
 
@@ -174,9 +175,9 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 
 		/* service incoming data */
 
-		if (libwebsocket_read(this->wsi[client], buf, n) >= 0)
+		n = libwebsocket_read(this->wsi[client], buf, n);
+		if (n >= 0)
 			continue;
-
 		/*
 		 * it closed and nuked wsi[client], so remove the
 		 * socket handle and wsi from our service list
@@ -184,18 +185,81 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 nuke_this:
 
 		debug("nuking wsi %p, fsd_count = %d\n",
-					this->wsi[client], this->fds_count - 1);
+				(void *)this->wsi[client], this->fds_count - 1);
 
 		this->fds_count--;
 		for (n = client; n < this->fds_count; n++) {
 			this->fds[n] = this->fds[n + 1];
 			this->wsi[n] = this->wsi[n + 1];
 		}
-		break;
+
+		return 0;
+
 	}
 
 	return 0;
 }
+
+/**
+ * libwebsocket_context_destroy() - Destroy the websocket context
+ * @this:	Websocket context
+ *
+ *	This function closes any active connections and then frees the
+ *	context.  After calling this, any further use of the context is
+ *	undefined.
+ */
+void
+libwebsocket_context_destroy(struct libwebsocket_context *this)
+{
+	int client;
+
+	/* close listening skt and per-protocol broadcast sockets */
+	for (client = 0; client < this->fds_count; client++)
+		libwebsocket_close_and_free_session(this->wsi[client]);
+
+#ifdef LWS_OPENSSL_SUPPORT
+	if (ssl_ctx)
+		SSL_CTX_free(ssl_ctx);
+#endif
+
+	if (this)
+		free(this);
+}
+
+/**
+ * libwebsocket_service() - Service any pending websocket activity
+ * @this:	Websocket context
+ * @timeout_ms:	Timeout for poll; 0 means return immediately if nothing needed
+ *		service otherwise block and service immediately, returning
+ *		after the timeout if nothing needed service.
+ *
+ *	This function deals with any pending websocket traffic, for three
+ *	kinds of event.  It handles these events on both server and client
+ *	types of connection the same.
+ *
+ *	1) Accept new connections to our context's server
+ *
+ *	2) Perform pending broadcast writes initiated from other forked
+ *	   processes (effectively serializing asynchronous broadcasts)
+ *
+ *	3) Call the receive callback for incoming frame data received by
+ *	    server or client connections.
+ *
+ *	You need to call this service function periodically to all the above
+ *	functions to happen; if your application is single-threaded you can
+ *	just call it in your main event loop.
+ *
+ *	Alternatively you can fork a new process that asynchronously handles
+ *	calling this service in a loop.  In that case you are happy if this
+ *	call blocks your thread until it needs to take care of something and
+ *	would call it with a large nonzero timeout.  Your loop then takes no
+ *	CPU while there is nothing happening.
+ *
+ *	If you are calling it in a single-threaded app, you don't want it to
+ *	wait around blocking other things in your loop from happening, so you
+ *	would call it with a timeout_ms of 0, so it returns immediately if
+ *	nothing is pending, or as soon as it services whatever was pending.
+ */
 
 
 int
@@ -218,7 +282,7 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
 		n = poll(this->fds, this->fds_count, timeout_ms);
 	else
 		n = poll(&this->fds[1], this->fds_count - 1, timeout_ms);
-	
+
 
 	if (n < 0 || this->fds[0].revents & (POLLERR | POLLHUP)) {
 		fprintf(stderr, "Listen Socket dead\n");
@@ -369,6 +433,8 @@ fill_in_fds:
 
 fatal:
 
+	fprintf(stderr, "service hits fatal\n");
+
 	/* close listening skt and per-protocol broadcast sockets */
 	for (client = 0; client < this->fds_count; client++)
 		close(this->fds[0].fd);
@@ -376,7 +442,6 @@ fatal:
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX_free(ssl_ctx);
 #endif
-	kill(0, SIGTERM);
 
 	if (this)
 		free(this);
@@ -392,12 +457,12 @@ fatal:
 /**
  * libwebsocket_create_context() - Create the websocket handler
  * @port:	Port to listen on... you can use 0 to suppress listening on
- * 		any port, that's what you want if you are not running a
- * 		websocket server at all but just using it as a client
+ *		any port, that's what you want if you are not running a
+ *		websocket server at all but just using it as a client
  * @protocols:	Array of structures listing supported protocols and a protocol-
  *		specific callback for each one.  The list is ended with an
  *		entry that has a NULL callback pointer.
- *	        It's not const because we write the owning_server member
+ *		It's not const because we write the owning_server member
  * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
  *			to listen using SSL, set to the filepath to fetch the
  *			server cert from, otherwise NULL for unencrypted
@@ -644,10 +709,10 @@ libwebsocket_create_context(int port,
 /**
  * libwebsockets_fork_service_loop() - Optional helper function forks off
  *				  a process for the websocket server loop.
- * 				You don't have to use this but if not, you
- * 				have to make sure you are calling
- * 				libwebsocket_service periodically to service
- * 				the websocket traffic
+ *				You don't have to use this but if not, you
+ *				have to make sure you are calling
+ *				libwebsocket_service periodically to service
+ *				the websocket traffic
  * @this:	server context returned by creation function
  */
 
@@ -798,7 +863,7 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 	 * set up when the websocket server initializes
 	 */
 
-	n = send(protocol->broadcast_socket_user_fd, buf, len, 0);
+	n = send(protocol->broadcast_socket_user_fd, buf, len, MSG_NOSIGNAL);
 
 	return n;
 }

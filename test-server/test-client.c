@@ -380,6 +380,8 @@ int main(int argc, char **argv)
 	libwebsocket_client_close(wsi_dumb);
 	libwebsocket_client_close(wsi_mirror);
 
+	libwebsocket_context_destroy(context);
+
 	return 0;
 
 usage:

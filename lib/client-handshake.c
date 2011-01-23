@@ -89,13 +89,13 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 					 "61AC5F19-FBBA-4540-B96F-6561F1AB40A8";
 	char pkt[1024];
 	char *p = &pkt[0];
-	const char * pc;
+	const char *pc;
 	int len;
 	int okay = 0;
 	struct libwebsocket *wsi;
 	int n;
 
-	wsi = malloc(sizeof (struct libwebsocket));
+	wsi = malloc(sizeof(struct libwebsocket));
 	if (wsi == NULL)
 		return NULL;
 
@@ -123,7 +123,7 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 	}
 
 	wsi->sock = socket(AF_INET, SOCK_STREAM, 0);
-	
+
 	if (wsi->sock < 0) {
 		fprintf(stderr, "Unable to open socket\n");
 		goto bail1;
@@ -139,11 +139,11 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 					      sizeof(struct sockaddr)) == -1)  {
 		fprintf(stderr, "Connect failed");
 		goto bail1;
-        }
+	}
 
-        /*
-         * create the random key
-         */
+	/*
+	 * create the random key
+	 */
 
 	fd = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 	if (fd < 1) {
@@ -160,7 +160,7 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 	}
 	close(fd);
 
-	lws_b64_encode_string(hash, 16, key_b64, sizeof key_b64);	
+	lws_b64_encode_string(hash, 16, key_b64, sizeof key_b64);
 
 	/*
 	 * 04 example client handshake
@@ -283,7 +283,7 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 				" Upgrade header '%s'\n",
 				      wsi->utf8_token[WSI_TOKEN_UPGRADE].token);
 		goto bail2;
-	}	
+	}
 
 	strtolower(wsi->utf8_token[WSI_TOKEN_CONNECTION].token);
 	if (strcmp(wsi->utf8_token[WSI_TOKEN_CONNECTION].token, "upgrade")) {

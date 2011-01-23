@@ -51,16 +51,20 @@
 #include <openssl/sha.h>
 #include "libwebsockets.h"
 
-//#define DEBUG 
-
+#if 0
+#define DEBUG
+#endif
 
 #ifdef DEBUG
-static inline void debug(const char *format, ...) {
+static inline void debug(const char *format, ...)
+{
 	va_list ap;
 	va_start(ap, format); vfprintf(stderr, format, ap); va_end(ap);
 }
 #else
-static inline void debug(const char *format, ...) { }
+static inline void debug(const char *format, ...)
+{
+}
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT

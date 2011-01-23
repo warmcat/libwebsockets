@@ -376,7 +376,7 @@ handshake_04(struct libwebsocket *wsi)
 	m += nonce_len;
 	strcpy(m, websocket_magic_guid_04_masking);
 	m += strlen(websocket_magic_guid_04_masking);
-	
+
 	SHA1((unsigned char *)mask_summing_buf, m - mask_summing_buf,
 							   wsi->masking_key_04);
 
@@ -564,9 +564,9 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 			return 0;
 		}
 
-
 		if (libwebsocket_interpret_incoming_packet(wsi, buf, len) < 0)
 			goto bail;
+
 		break;
 	default:
 		break;
@@ -576,5 +576,6 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 
 bail:
 	libwebsocket_close_and_free_session(wsi);
+
 	return -1;
 }

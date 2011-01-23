@@ -59,11 +59,11 @@ struct libwebsocket_context;
  *
  *	This callback is the way the user controls what is served.  All the
  *	protocol detail is hidden and handled by the library.
- * 
+ *
  *	For each connection / session there is user data allocated that is
  *	pointed to by "user".  You set the size of this user data area when
  *	the library is initialized with libwebsocket_create_server.
- * 
+ *
  *	You get an opportunity to initialize user data when called back with
  *	LWS_CALLBACK_ESTABLISHED reason.
  *
@@ -77,45 +77,45 @@ struct libwebsocket_context;
  *	LWS_CALLBACK_RECEIVE: data has appeared for the server, it can be
  *				found at *in and is len bytes long
  *
- * 	LWS_CALLBACK_HTTP: an http request has come from a client that is not
+ *	LWS_CALLBACK_HTTP: an http request has come from a client that is not
  *				asking to upgrade the connection to a websocket
  *				one.  This is a chance to serve http content,
  *				for example, to send a script to the client
  *				which will then open the websockets connection.
- *				@in points to the URI path requested and 
+ *				@in points to the URI path requested and
  *				libwebsockets_serve_http_file() makes it very
  *				simple to send back a file to the client.
  */
-extern int callback(struct libwebsocket * wsi,
-			 enum libwebsocket_callback_reasons reason, void * user,
+extern int callback(struct libwebsocket *wsi,
+			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
 
 /**
- * struct libwebsocket_protocols - 	List of protocols and handlers server
- * 					supports.
+ * struct libwebsocket_protocols -	List of protocols and handlers server
+ *					supports.
  * @name:	Protocol name that must match the one given in the client
- * 		Javascript new WebSocket(url, 'protocol') name
+ *		Javascript new WebSocket(url, 'protocol') name
  * @callback:	The service callback used for this protocol.  It allows the
- * 		service action for an entire protocol to be encapsulated in
- * 		the protocol-specific callback
+ *		service action for an entire protocol to be encapsulated in
+ *		the protocol-specific callback
  * @per_session_data_size:	Each new connection using this protocol gets
- * 		this much memory allocated on connection establishment and
- * 		freed on connection takedown.  A pointer to this per-connection
- * 		allocation is passed into the callback in the 'user' parameter
+ *		this much memory allocated on connection establishment and
+ *		freed on connection takedown.  A pointer to this per-connection
+ *		allocation is passed into the callback in the 'user' parameter
  * @owning_server:	the server init call fills in this opaque pointer when
- * 		registering this protocol with the server.
+ *		registering this protocol with the server.
  * @broadcast_socket_port: the server init call fills this in with the
- * 		localhost port number used to forward broadcasts for this
- * 		protocol
+ *		localhost port number used to forward broadcasts for this
+ *		protocol
  * @broadcast_socket_user_fd:  the server init call fills this in ... the main()
- * 		process context can write to this socket to perform broadcasts
- * 		(use the libwebsockets_broadcast() api to do this instead,
- * 		it works from any process context)
+ *		process context can write to this socket to perform broadcasts
+ *		(use the libwebsockets_broadcast() api to do this instead,
+ *		it works from any process context)
  * @protocol_index: which protocol we are starting from zero
  *
- * 	This structure represents one protocol supported by the server.  An
- * 	array of these structures is passed to libwebsocket_create_server()
- * 	allows as many protocols as you like to be handled by one server.
+ *	This structure represents one protocol supported by the server.  An
+ *	array of these structures is passed to libwebsocket_create_server()
+ *	allows as many protocols as you like to be handled by one server.
  */
 
 struct libwebsocket_protocols {
@@ -129,7 +129,7 @@ struct libwebsocket_protocols {
 	 * below are filled in on server init and can be left uninitialized,
 	 * no need for user to use them directly either
 	 */
-	
+
 	struct libwebsocket_context *owning_server;
 	int broadcast_socket_port;
 	int broadcast_socket_user_fd;
@@ -141,6 +141,9 @@ libwebsocket_create_context(int port,
 		  struct libwebsocket_protocols *protocols,
 		  const char *ssl_cert_filepath,
 		  const char *ssl_private_key_filepath, int gid, int uid);
+
+extern void
+libwebsocket_context_destroy(struct libwebsocket_context *this);
 
 extern int
 libwebsockets_fork_service_loop(struct libwebsocket_context *this);
@@ -188,7 +191,7 @@ libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
 /* notice - you need the pre- and post- padding allocation for buf below */
 
 extern int
-libwebsockets_broadcast(const struct libwebsocket_protocols * protocol,
+libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 						unsigned char *buf, size_t len);
 
 extern const struct libwebsocket_protocols *

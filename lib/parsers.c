@@ -149,7 +149,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			debug("known hdr '%s'\n", wsi->name_buffer);
 			wsi->parser_state = WSI_TOKEN_GET_URI + n;
 			wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
-			
+
 			wsi->utf8_token[wsi->parser_state].token =
 						 malloc(wsi->current_alloc_len);
 			wsi->utf8_token[wsi->parser_state].token_len = 0;
@@ -220,7 +220,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	return 0;
 }
 
-static unsigned char inline
+static inline unsigned char
 xor_mask(struct libwebsocket *wsi, unsigned char c)
 {
 	c ^= wsi->masking_key_04[wsi->frame_mask_index++];
@@ -286,7 +286,7 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		 * wsi->frame_mask_04 will be our recirculating 20-byte XOR key
 		 * for this frame
 		 */
-	
+
 		SHA1((unsigned char *)buf, 4 + 20, wsi->frame_mask_04);
 
 		/*
@@ -295,7 +295,7 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		 */
 
 		wsi->frame_mask_index = 0;
-		
+
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_1;
 		break;
 
@@ -305,7 +305,7 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	 *
 	 * We ignore the possibility of extension data because we don't
 	 * negotiate any extensions at the moment.
-	 * 
+	 *
 	 *    0                   1                   2                   3
 	 *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 	 *   +-+-+-+-+-------+-+-------------+-------------------------------+
@@ -334,23 +334,24 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		 * 04 spec defines the opcode like this: (1, 2, and 3 are
 		 * "control frame" opcodes which may not be fragmented or
 		 * have size larger than 126)
-		 * 
-		 *       frame-opcode           =
-		 * 	       %x0 ; continuation frame
-		 *           / %x1 ; connection close
-		 *           / %x2 ; ping
-		 *           / %x3 ; pong
-		 *           / %x4 ; text frame
-		 *           / %x5 ; binary frame
-		 *           / %x6-F ; reserved
 		 *
-		 * 	  FIN (b7)
+		 *       frame-opcode           =
+		 *	       %x0 ; continuation frame
+		 *		/ %x1 ; connection close
+		 *		/ %x2 ; ping
+		 *		/ %x3 ; pong
+		 *		/ %x4 ; text frame
+		 *		/ %x5 ; binary frame
+		 *		/ %x6-F ; reserved
+		 *
+		 *		FIN (b7)
 		 */
 
 		c = xor_mask(wsi, c);
 
 		if (c & 0x70) {
-			fprintf(stderr, "Frame has extensions set illegally 1\n");
+			fprintf(stderr,
+				      "Frame has extensions set illegally 1\n");
 			/* kill the connection */
 			return -1;
 		}
@@ -412,7 +413,6 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_8;
 			break;
 		default:
-//			fprintf(stderr, "seen incoming 04 frame len %d\n", c);
 			wsi->rx_packet_length = c;
 			wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
@@ -605,51 +605,51 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			}
 			break;
 		case 4:
-		/*
-		 *  04 logical framing from the spec (all this is masked when incoming
-		 *  and has to be unmasked)
-		 *
-		 * We ignore the possibility of extension data because we don't
-		 * negotiate any extensions at the moment.
-		 * 
-		 *    0                   1                   2                   3
-		 *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-		 *   +-+-+-+-+-------+-+-------------+-------------------------------+
-		 *   |F|R|R|R| opcode|R| Payload len |    Extended payload length    |
-		 *   |I|S|S|S|  (4)  |S|     (7)     |             (16/63)           |
-		 *   |N|V|V|V|       |V|             |   (if payload len==126/127)   |
-		 *   | |1|2|3|       |4|             |                               |
-		 *   +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
-		 *   |     Extended payload length continued, if payload len == 127  |
-		 *   + - - - - - - - - - - - - - - - +-------------------------------+
-		 *   |                               |         Extension data        |
-		 *   +-------------------------------+ - - - - - - - - - - - - - - - +
-		 *   :                                                               :
-		 *   +---------------------------------------------------------------+
-		 *   :                       Application data                        :
-		 *   +---------------------------------------------------------------+
-		 *
-		 *  We pass payload through to userland as soon as we get it, ignoring
-		 *  FIN.  It's up to userland to buffer it up if it wants to see a
-		 *  whole unfragmented block of the original size (which may be up to
-		 *  2^63 long!)
-		 */
+	/*
+	 *  04 logical framing from the spec (all this is masked when
+	 *  incoming and has to be unmasked)
+	 *
+	 * We ignore the possibility of extension data because we don't
+	 * negotiate any extensions at the moment.
+	 *
+	 *    0                   1                   2                   3
+	 *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+	 *   +-+-+-+-+-------+-+-------------+-------------------------------+
+	 *   |F|R|R|R| opcode|R| Payload len |    Extended payload length    |
+	 *   |I|S|S|S|  (4)  |S|     (7)     |             (16/63)           |
+	 *   |N|V|V|V|       |V|             |   (if payload len==126/127)   |
+	 *   | |1|2|3|       |4|             |                               |
+	 *   +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+	 *   |     Extended payload length continued, if payload len == 127  |
+	 *   + - - - - - - - - - - - - - - - +-------------------------------+
+	 *   |                               |         Extension data        |
+	 *   +-------------------------------+ - - - - - - - - - - - - - - - +
+	 *   :                                                               :
+	 *   +---------------------------------------------------------------+
+	 *   :                       Application data                        :
+	 *   +---------------------------------------------------------------+
+	 *
+	 *  We pass payload through to userland as soon as we get it, ignoring
+	 *  FIN.  It's up to userland to buffer it up if it wants to see a
+	 *  whole unfragmented block of the original size (which may be up to
+	 *  2^63 long!)
+	 */
 
 		/*
 		 * 04 spec defines the opcode like this: (1, 2, and 3 are
 		 * "control frame" opcodes which may not be fragmented or
 		 * have size larger than 126)
-		 * 
-		 *       frame-opcode           =
-		 * 	       %x0 ; continuation frame
-		 *           / %x1 ; connection close
-		 *           / %x2 ; ping
-		 *           / %x3 ; pong
-		 *           / %x4 ; text frame
-		 *           / %x5 ; binary frame
-		 *           / %x6-F ; reserved
 		 *
-		 * 	  FIN (b7)
+		 *       frame-opcode           =
+		 *		  %x0 ; continuation frame
+		 *		/ %x1 ; connection close
+		 *		/ %x2 ; ping
+		 *		/ %x3 ; pong
+		 *		/ %x4 ; text frame
+		 *		/ %x5 ; binary frame
+		 *		/ %x6-F ; reserved
+		 *
+		 *		FIN (b7)
 		 */
 
 			if (c & 0x70) {
@@ -1136,14 +1136,14 @@ send_raw:
 	if (use_ssl) {
 		n = SSL_write(wsi->ssl, buf - pre, len + pre + post);
 		if (n < 0) {
-			fprintf(stderr, "ERROR writing to socket");
+			fprintf(stderr, "ERROR writing to socket\n");
 			return -1;
 		}
 	} else {
 #endif
-		n = send(wsi->sock, buf - pre, len + pre + post, 0);
+		n = send(wsi->sock, buf - pre, len + pre + post, MSG_NOSIGNAL);
 		if (n < 0) {
-			fprintf(stderr, "ERROR writing to socket");
+			fprintf(stderr, "ERROR writing to socket\n");
 			return -1;
 		}
 #ifdef LWS_OPENSSL_SUPPORT
@@ -1211,7 +1211,7 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
 
 /**
  * libwebsockets_remaining_packet_payload() - Bytes to come before "overall"
- * 					      rx packet is complete
+ *					      rx packet is complete
  * @wsi:		Websocket instance (available from user callback)
  *
  *	This function is intended to be called from the callback if the

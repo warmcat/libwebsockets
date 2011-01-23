@@ -1,7 +1,7 @@
 /*
  * libwebsockets-test-server - libwebsockets test implementation
  *
- * Copyright (C) 2010 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2011 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -233,7 +233,7 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 
 	fprintf(stderr, "libwebsockets test server\n"
-			"(C) Copyright 2010 Andy Green <andy@warmcat.com> "
+			"(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> "
 						    "licensed under LGPL2.1\n");
 
 	while (n >= 0) {
@@ -348,6 +348,8 @@ int main(int argc, char **argv)
 	}
 
 #endif
+
+	libwebsocket_context_destroy(context);
 
 	return 0;
 }
