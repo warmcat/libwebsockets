@@ -616,6 +616,8 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
+LIBCRYPTO_FALSE
+LIBCRYPTO_TRUE
 CPP
 OTOOL64
 OTOOL
@@ -736,6 +738,7 @@ with_sysroot
 enable_libtool_lock
 enable_openssl
 enable_nofork
+enable_libcrypto
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1380,6 +1383,7 @@ Optional Features:
   --disable-libtool-lock  avoid locking (might break parallel builds)
   --enable-openssl  Enables https support and needs openssl libs
   --enable-nofork  Disables fork-related options
+  --enable-libcrypto  Use libcrypto MD5 and SHA1 implemntations
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -11959,7 +11963,9 @@ fi
 
 
 
-
+#
+#
+#
 # Check whether --enable-openssl was given.
 if test "${enable_openssl+set}" = set; then :
   enableval=$enable_openssl;  openssl=yes
@@ -12016,6 +12022,9 @@ fi
 CFLAGS="$CFLAGS -DLWS_OPENSSL_SUPPORT"
 fi
 
+#
+#
+#
 # Check whether --enable-nofork was given.
 if test "${enable_nofork+set}" = set; then :
   enableval=$enable_nofork;  nofork=yes
@@ -12251,6 +12260,29 @@ $as_echo "#define HAVE_WORKING_FORK 1" >>confdefs.h
 fi
 
 fi
+
+#
+#
+#
+# Check whether --enable-libcrypto was given.
+if test "${enable_libcrypto+set}" = set; then :
+  enableval=$enable_libcrypto;  libcrypto=yes
+
+fi
+
+
+if test "x$libcrypto" = "xyes" ; then
+CFLAGS="$CFLAGS -DLWS_LIBCRYPTO"
+LDFLAGS="$LDFLAGS -lcrypto"
+fi
+ if test x$libcrypto = xyes; then
+  LIBCRYPTO_TRUE=
+  LIBCRYPTO_FALSE='#'
+else
+  LIBCRYPTO_TRUE='#'
+  LIBCRYPTO_FALSE=
+fi
+
 
 
 
@@ -12561,6 +12593,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${am__fastdepCC_TRUE}" && test -z "${am__fastdepCC_FALSE}"; then
   as_fn_error $? "conditional \"am__fastdepCC\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${LIBCRYPTO_TRUE}" && test -z "${LIBCRYPTO_FALSE}"; then
+  as_fn_error $? "conditional \"LIBCRYPTO\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 

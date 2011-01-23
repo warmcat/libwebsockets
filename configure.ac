@@ -17,7 +17,9 @@ AC_PROG_INSTALL
 AC_PROG_MAKE_SET
 AC_CONFIG_MACRO_DIR([m4])
 
-
+#
+#
+#
 AC_ARG_ENABLE(openssl,
  [  --enable-openssl  Enables https support and needs openssl libs],
  [ openssl=yes
@@ -28,6 +30,9 @@ AC_CHECK_LIB([ssl], [SSL_library_init])
 CFLAGS="$CFLAGS -DLWS_OPENSSL_SUPPORT"
 fi
 
+#
+#
+#
 AC_ARG_ENABLE(nofork,
  [  --enable-nofork  Disables fork-related options],
  [ nofork=yes
@@ -38,6 +43,20 @@ CFLAGS="$CFLAGS -DLWS_NO_FORK"
 else
 AC_FUNC_FORK
 fi
+
+#
+#
+#
+AC_ARG_ENABLE(libcrypto,
+ [  --enable-libcrypto  Use libcrypto MD5 and SHA1 implemntations],
+ [ libcrypto=yes
+ ])
+
+if test "x$libcrypto" = "xyes" ; then
+CFLAGS="$CFLAGS -DLWS_LIBCRYPTO"
+LDFLAGS="$LDFLAGS -lcrypto"
+fi
+AM_CONDITIONAL(LIBCRYPTO, test x$libcrypto = xyes)
 
 
 

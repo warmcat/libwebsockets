@@ -7,8 +7,13 @@ dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				base64-decode.c \
 				client-handshake.c \
 				private-libwebsockets.h
+if LIBCRYPTO
+else
+dist_libwebsockets_la_SOURCES += md5.c sha-1.c
+endif
+
 libwebsockets_la_CFLAGS=-Wall -Werror -std=gnu99 -pedantic -rdynamic -fPIC -c
-libwebsockets_la_LDFLAGS=-version-info 0:2 -lcrypto
+libwebsockets_la_LDFLAGS=-version-info 0:2
 
 all-local:
 	 ../scripts/kernel-doc -html \
