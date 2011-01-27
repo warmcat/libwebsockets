@@ -442,22 +442,32 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			/* kill the connection */
 			return -1;
 		}
+#if defined __LP64__
 		wsi->rx_packet_length = ((size_t)c) << 56;
+#else
+		wsi->rx_packet_length = 0;
+#endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_7;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_7:
+#if defined __LP64__
 		wsi->rx_packet_length |= ((size_t)xor_mask(wsi, c)) << 48;
+#endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_6;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_6:
+#if defined __LP64__
 		wsi->rx_packet_length |= ((size_t)xor_mask(wsi, c)) << 40;
+#endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_5;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_5:
+#if defined __LP64__
 		wsi->rx_packet_length |= ((size_t)xor_mask(wsi, c)) << 32;
+#endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_4;
 		break;
 
@@ -742,22 +752,32 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			/* kill the connection */
 			return -1;
 		}
+#if defined __LP64__
 		wsi->rx_packet_length = ((size_t)c) << 56;
+#else
+		wsi->rx_packet_length =0;
+#endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_7;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_7:
+#if defined __LP64__
 		wsi->rx_packet_length |= ((size_t)c) << 48;
+#endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_6;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_6:
+#if defined __LP64__
 		wsi->rx_packet_length |= ((size_t)c) << 40;
+#endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_5;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_5:
+#if defined __LP64__
 		wsi->rx_packet_length |= ((size_t)c) << 32;
+#endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_4;
 		break;
 
