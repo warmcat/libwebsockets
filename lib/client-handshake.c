@@ -9,8 +9,10 @@
 void
 strtolower(char *s)
 {
-	while (*s)
-		*s++ = tolower(*s);
+	while (*s) {
+		*s = tolower(*s);
+		s++;
+	}
 }
 
 void
@@ -53,7 +55,7 @@ libwebsocket_client_close(struct libwebsocket *wsi)
 	/* shut down reasonably cleanly */
 
 #ifdef LWS_OPENSSL_SUPPORT
-	if (use_ssl) {
+	if (wsi->ssl) {
 		n = SSL_get_fd(wsi->ssl);
 		SSL_shutdown(wsi->ssl);
 		close(n);
@@ -67,10 +69,29 @@ libwebsocket_client_close(struct libwebsocket *wsi)
 #endif
 }
 
+
+/**
+ * libwebsocket_client_connect() - Connect to another websocket server
+ * @this:	Websocket context
+ * @address:	Remote server address, eg, "myserver.com"
+ * @port:	Port to connect to on the remote server, eg, 80
+ * @ssl_connection:	0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
+ *			signed certs
+ * @path:	Websocket path on server
+ * @host:	Hostname on server
+ * @origin:	Socket origin name
+ * @protocol:	Comma-separated list of protocols being asked for from
+ *		the server, or just one.  The server will pick the one it
+ *		likes best.
+ *
+ *	This function creates a connection to a remote server
+ */
+
 struct libwebsocket *
-libwebsocket_client_connect(struct libwebsocket_context *clients,
+libwebsocket_client_connect(struct libwebsocket_context *this,
 			      const char *address,
 			      int port,
+			      int ssl_connection,
 			      const char *path,
 			      const char *host,
 			      const char *origin,
@@ -94,12 +115,22 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 	int okay = 0;
 	struct libwebsocket *wsi;
 	int n;
+#ifdef LWS_OPENSSL_SUPPORT
+	char ssl_err_buf[512];
+#else
+	if (ssl_connection) {
+		fprintf(stderr, "libwebsockets not configured for ssl\n");
+		return NULL;
+	}
+#endif
 
 	wsi = malloc(sizeof(struct libwebsocket));
-	if (wsi == NULL)
+	if (wsi == NULL) {
+		fprintf(stderr, "Out of memort allocing new connection\n");
 		return NULL;
+	}
 
-	clients->wsi[clients->fds_count] = wsi;
+	this->wsi[this->fds_count] = wsi;
 
 	wsi->ietf_spec_revision = 4;
 	wsi->name_buffer_pos = 0;
@@ -137,10 +168,36 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
 					      sizeof(struct sockaddr)) == -1)  {
-		fprintf(stderr, "Connect failed");
+		fprintf(stderr, "Connect failed\n");
 		goto bail1;
 	}
 
+#ifdef LWS_OPENSSL_SUPPORT
+	if (ssl_connection) {
+
+		wsi->ssl = SSL_new(this->ssl_client_ctx);
+		wsi->client_bio = BIO_new_socket(wsi->sock, BIO_NOCLOSE);
+		SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
+
+		if (SSL_connect(wsi->ssl) <= 0) {
+			fprintf(stderr, "SSL connect error %s\n",
+				ERR_error_string(ERR_get_error(), ssl_err_buf));
+			goto bail2;
+		}
+
+		n = SSL_get_verify_result(wsi->ssl);
+		if (n != X509_V_OK) {
+			if (n == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT &&
+							    ssl_connection == 2)
+				goto cert_okay;
+
+		    fprintf(stderr, "server's cert didn't look good %d\n", n);
+		    goto bail2;
+		}
+	} else
+		wsi->ssl = NULL;
+cert_okay:
+#endif
 	/*
 	 * create the random key
 	 */
@@ -199,7 +256,17 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 
 	/* send our request to the server */
 
-	n = send(wsi->sock, pkt, p - pkt, 0);
+#ifdef LWS_OPENSSL_SUPPORT
+	if (ssl_connection)
+		n = SSL_write(wsi->ssl, pkt, p - pkt);
+	else
+#endif
+		n = send(wsi->sock, pkt, p - pkt, 0);
+
+	if (n < 0) {
+		fprintf(stderr, "ERROR writing to client socket\n");
+		goto bail2;
+	}
 
 	wsi->parser_state = WSI_TOKEN_NAME_PART;
 
@@ -230,7 +297,13 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 	 *  Sec-WebSocket-Protocol: chat
 	 */
 
-	len = recv(wsi->sock, pkt, sizeof pkt, 0);
+#ifdef LWS_OPENSSL_SUPPORT
+	if (ssl_connection)
+		len = SSL_read(wsi->ssl, pkt, sizeof pkt);
+	else
+#endif
+		len = recv(wsi->sock, pkt, sizeof pkt, 0);
+
 	if (len < 0) {
 		fprintf(stderr, "libwebsocket_client_handshake read error\n");
 		goto bail2;
@@ -300,7 +373,7 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 	if (!wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len) {
 
 		/* no protocol name to work from, default to first protocol */
-		wsi->protocol = &clients->protocols[0];
+		wsi->protocol = &this->protocols[0];
 
 		goto check_accept;
 	}
@@ -331,10 +404,10 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 	 */
 	n = 0;
 	wsi->protocol = NULL;
-	while (clients->protocols[n].callback) {
+	while (this->protocols[n].callback) {
 		if (strcmp(wsi->utf8_token[WSI_TOKEN_PROTOCOL].token,
-				       clients->protocols[n].name) == 0)
-			wsi->protocol = &clients->protocols[n];
+				       this->protocols[n].name) == 0)
+			wsi->protocol = &this->protocols[n];
 		n++;
 	}
 
@@ -373,15 +446,21 @@ check_accept:
 
 	/* okay he is good to go */
 
-	clients->fds[clients->fds_count].fd = wsi->sock;
-	clients->fds[clients->fds_count].revents = 0;
-	clients->fds[clients->fds_count++].events = POLLIN;
+	this->fds[this->fds_count].fd = wsi->sock;
+	this->fds[this->fds_count].revents = 0;
+	this->fds[this->fds_count++].events = POLLIN;
 
 	wsi->state = WSI_STATE_ESTABLISHED;
 	wsi->client_mode = 1;
 
 	fprintf(stderr, "handshake OK for protocol %s\n", wsi->protocol->name);
 
+	/* call him back to inform him he is up */
+
+	wsi->protocol->callback(wsi,
+			 LWS_CALLBACK_CLIENT_ESTABLISHED,
+			 wsi->user_space,
+			 NULL, 0);
 	return wsi;
 
 

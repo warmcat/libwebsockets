@@ -48,14 +48,24 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
-am_libwebsockets_test_client_OBJECTS = test-client.$(OBJEXT)
+am_libwebsockets_test_client_OBJECTS =  \
+	libwebsockets_test_client-test-client.$(OBJEXT)
 libwebsockets_test_client_OBJECTS =  \
 	$(am_libwebsockets_test_client_OBJECTS)
 libwebsockets_test_client_DEPENDENCIES =
-am_libwebsockets_test_server_OBJECTS = test-server.$(OBJEXT)
+libwebsockets_test_client_LINK = $(LIBTOOL) --tag=CC \
+	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
+	$(libwebsockets_test_client_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
+	$(LDFLAGS) -o $@
+am_libwebsockets_test_server_OBJECTS =  \
+	libwebsockets_test_server-test-server.$(OBJEXT)
 libwebsockets_test_server_OBJECTS =  \
 	$(am_libwebsockets_test_server_OBJECTS)
 libwebsockets_test_server_DEPENDENCIES =
+libwebsockets_test_server_LINK = $(LIBTOOL) --tag=CC \
+	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
+	$(libwebsockets_test_server_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
+	$(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -156,6 +166,7 @@ build_cpu = @build_cpu@
 build_os = @build_os@
 build_vendor = @build_vendor@
 builddir = @builddir@
+clientcertdir = @clientcertdir@
 datadir = @datadir@
 datarootdir = @datarootdir@
 docdir = @docdir@
@@ -193,6 +204,8 @@ libwebsockets_test_server_SOURCES = test-server.c
 libwebsockets_test_server_LDADD = -L../lib -lwebsockets
 libwebsockets_test_client_SOURCES = test-client.c
 libwebsockets_test_client_LDADD = -L../lib -lwebsockets
+libwebsockets_test_server_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+libwebsockets_test_client_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 all: all-am
 
 .SUFFIXES:
@@ -272,10 +285,10 @@ clean-binPROGRAMS:
 	rm -f $$list
 libwebsockets-test-client$(EXEEXT): $(libwebsockets_test_client_OBJECTS) $(libwebsockets_test_client_DEPENDENCIES) 
 	@rm -f libwebsockets-test-client$(EXEEXT)
-	$(LINK) $(libwebsockets_test_client_OBJECTS) $(libwebsockets_test_client_LDADD) $(LIBS)
+	$(libwebsockets_test_client_LINK) $(libwebsockets_test_client_OBJECTS) $(libwebsockets_test_client_LDADD) $(LIBS)
 libwebsockets-test-server$(EXEEXT): $(libwebsockets_test_server_OBJECTS) $(libwebsockets_test_server_DEPENDENCIES) 
 	@rm -f libwebsockets-test-server$(EXEEXT)
-	$(LINK) $(libwebsockets_test_server_OBJECTS) $(libwebsockets_test_server_LDADD) $(LIBS)
+	$(libwebsockets_test_server_LINK) $(libwebsockets_test_server_OBJECTS) $(libwebsockets_test_server_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -283,8 +296,8 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test-client.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test-server.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_test_client-test-client.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_test_server-test-server.Po@am__quote@
 
 .c.o:
 @am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
@@ -306,6 +319,34 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(LTCOMPILE) -c -o $@ $<
+
+libwebsockets_test_client-test-client.o: test-client.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_client_CFLAGS) $(CFLAGS) -MT libwebsockets_test_client-test-client.o -MD -MP -MF $(DEPDIR)/libwebsockets_test_client-test-client.Tpo -c -o libwebsockets_test_client-test-client.o `test -f 'test-client.c' || echo '$(srcdir)/'`test-client.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libwebsockets_test_client-test-client.Tpo $(DEPDIR)/libwebsockets_test_client-test-client.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='test-client.c' object='libwebsockets_test_client-test-client.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_client_CFLAGS) $(CFLAGS) -c -o libwebsockets_test_client-test-client.o `test -f 'test-client.c' || echo '$(srcdir)/'`test-client.c
+
+libwebsockets_test_client-test-client.obj: test-client.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_client_CFLAGS) $(CFLAGS) -MT libwebsockets_test_client-test-client.obj -MD -MP -MF $(DEPDIR)/libwebsockets_test_client-test-client.Tpo -c -o libwebsockets_test_client-test-client.obj `if test -f 'test-client.c'; then $(CYGPATH_W) 'test-client.c'; else $(CYGPATH_W) '$(srcdir)/test-client.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libwebsockets_test_client-test-client.Tpo $(DEPDIR)/libwebsockets_test_client-test-client.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='test-client.c' object='libwebsockets_test_client-test-client.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_client_CFLAGS) $(CFLAGS) -c -o libwebsockets_test_client-test-client.obj `if test -f 'test-client.c'; then $(CYGPATH_W) 'test-client.c'; else $(CYGPATH_W) '$(srcdir)/test-client.c'; fi`
+
+libwebsockets_test_server-test-server.o: test-server.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_server_CFLAGS) $(CFLAGS) -MT libwebsockets_test_server-test-server.o -MD -MP -MF $(DEPDIR)/libwebsockets_test_server-test-server.Tpo -c -o libwebsockets_test_server-test-server.o `test -f 'test-server.c' || echo '$(srcdir)/'`test-server.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libwebsockets_test_server-test-server.Tpo $(DEPDIR)/libwebsockets_test_server-test-server.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='test-server.c' object='libwebsockets_test_server-test-server.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_server_CFLAGS) $(CFLAGS) -c -o libwebsockets_test_server-test-server.o `test -f 'test-server.c' || echo '$(srcdir)/'`test-server.c
+
+libwebsockets_test_server-test-server.obj: test-server.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_server_CFLAGS) $(CFLAGS) -MT libwebsockets_test_server-test-server.obj -MD -MP -MF $(DEPDIR)/libwebsockets_test_server-test-server.Tpo -c -o libwebsockets_test_server-test-server.obj `if test -f 'test-server.c'; then $(CYGPATH_W) 'test-server.c'; else $(CYGPATH_W) '$(srcdir)/test-server.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libwebsockets_test_server-test-server.Tpo $(DEPDIR)/libwebsockets_test_server-test-server.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='test-server.c' object='libwebsockets_test_server-test-server.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_server_CFLAGS) $(CFLAGS) -c -o libwebsockets_test_server-test-server.obj `if test -f 'test-server.c'; then $(CYGPATH_W) 'test-server.c'; else $(CYGPATH_W) '$(srcdir)/test-server.c'; fi`
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -513,6 +554,7 @@ uninstall-am: uninstall-binPROGRAMS
 	maintainer-clean-generic mostlyclean mostlyclean-compile \
 	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
 	tags uninstall uninstall-am uninstall-binPROGRAMS
+
 
 #
 # cook a random test cert and key

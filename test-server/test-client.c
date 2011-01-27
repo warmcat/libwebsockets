@@ -35,11 +35,11 @@
  * server just it simplifies the demo).
  *
  *  dumb-increment-protocol:  we connect to the server and print the number
- * 				we are given
+ *				we are given
  *
  *  lws-mirror-protocol: draws random circles, which are mirrored on to every
- * 				client (see them being drawn in every browser
- * 				session also using the test server)
+ *				client (see them being drawn in every browser
+ *				session also using the test server)
  */
 
 enum demo_protocols {
@@ -62,7 +62,8 @@ callback_dumb_increment(struct libwebsocket *wsi,
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
-		fprintf(stderr, "rx %d '%s'\n", len, in);
+		((char *)in)[len] = '\0';
+		fprintf(stderr, "rx %d '%s'\n", (int)len, (char *)in);
 		break;
 
 	default:
@@ -75,148 +76,49 @@ callback_dumb_increment(struct libwebsocket *wsi,
 
 /* lws-mirror_protocol */
 
-/* "how to draw a circle" */
-
-struct coord {
-	int x;
-	int y;
-};
-
-static struct coord circle[] = {
-
-{ 0, 240 },
-{ 12, 239 },
-{ 25, 238 },
-{ 37, 237 },
-{ 49, 234 },
-{ 62, 231 },
-{ 74, 228 },
-{ 86, 224 },
-{ 97, 219 },
-{ 108, 213 },
-{ 120, 207 },
-{ 130, 201 },
-{ 141, 194 },
-{ 151, 186 },
-{ 160, 178 },
-{ 169, 169 },
-{ 178, 160 },
-{ 186, 151 },
-{ 194, 141 },
-{ 201, 130 },
-{ 207, 120 },
-{ 213, 108 },
-{ 219, 97 },
-{ 224, 86 },
-{ 228, 74 },
-{ 231, 62 },
-{ 234, 49 },
-{ 237, 37 },
-{ 238, 25 },
-{ 239, 12 },
-{ 240, 0 },
-{ 239, -12 },
-{ 238, -25 },
-{ 237, -37 },
-{ 234, -49 },
-{ 231, -62 },
-{ 228, -74 },
-{ 224, -86 },
-{ 219, -97 },
-{ 213, -108 },
-{ 207, -120 },
-{ 201, -130 },
-{ 194, -141 },
-{ 186, -151 },
-{ 178, -160 },
-{ 169, -169 },
-{ 160, -178 },
-{ 151, -186 },
-{ 141, -194 },
-{ 130, -201 },
-{ 120, -207 },
-{ 108, -213 },
-{ 97, -219 },
-{ 86, -224 },
-{ 74, -228 },
-{ 62, -231 },
-{ 49, -234 },
-{ 37, -237 },
-{ 25, -238 },
-{ 12, -239 },
-{ 0, -240 },
-{ -12, -239 },
-{ -25, -238 },
-{ -37, -237 },
-{ -49, -234 },
-{ -62, -231 },
-{ -74, -228 },
-{ -86, -224 },
-{ -97, -219 },
-{ -108, -213 },
-{ -119, -207 },
-{ -130, -201 },
-{ -141, -194 },
-{ -151, -186 },
-{ -160, -178 },
-{ -169, -169 },
-{ -178, -160 },
-{ -186, -151 },
-{ -194, -141 },
-{ -201, -130 },
-{ -207, -120 },
-{ -213, -108 },
-{ -219, -97 },
-{ -224, -86 },
-{ -228, -74 },
-{ -231, -62 },
-{ -234, -49 },
-{ -237, -37 },
-{ -238, -25 },
-{ -239, -12 },
-{ -240, 0 },
-{ -239, 12 },
-{ -238, 25 },
-{ -237, 37 },
-{ -234, 49 },
-{ -231, 62 },
-{ -228, 74 },
-{ -224, 86 },
-{ -219, 97 },
-{ -213, 108 },
-{ -207, 120 },
-{ -201, 130 },
-{ -194, 141 },
-{ -186, 151 },
-{ -178, 160 },
-{ -169, 169 },
-{ -160, 178 },
-{ -151, 186 },
-{ -141, 194 },
-{ -130, 201 },
-{ -119, 207 },
-{ -108, 213 },
-{ -97, 219 },
-{ -86, 224 },
-{ -74, 228 },
-{ -62, 231 },
-{ -49, 234 },
-{ -37, 237 },
-{ -25, 238 },
-{ -12, 239 },
-{ 0, 240 },
-	
-};
 
 static int
 callback_lws_mirror(struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 4096 +
+						  LWS_SEND_BUFFER_POST_PADDING];
+	int l;
+
 	switch (reason) {
 
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+
+		/*
+		 * start the ball rolling,
+		 * LWS_CALLBACK_CLIENT_WRITEABLE will come immediately
+		 */
+
+		libwebsocket_callback_on_writable(wsi);
+		break;
+
 	case LWS_CALLBACK_CLIENT_RECEIVE:
-//		fprintf(stderr, "rx %d '%s'\n", len, in);
+/*		fprintf(stderr, "rx %d '%s'\n", (int)len, (char *)in); */
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+
+		l = sprintf((char *)&buf[LWS_SEND_BUFFER_PRE_PADDING],
+					"c #%06X %d %d %d;",
+					(int)random() & 0xffffff,
+					(int)random() % 500,
+					(int)random() % 250,
+					(int)random() % 24);
+
+		libwebsocket_write(wsi,
+			&buf[LWS_SEND_BUFFER_PRE_PADDING], l, LWS_WRITE_TEXT);
+
+		/* get notified as soon as we can write again */
+
+		libwebsocket_callback_on_writable(wsi);
+
+		usleep(200);
 		break;
 
 	default:
@@ -245,9 +147,9 @@ static struct libwebsocket_protocols protocols[] = {
 };
 
 static struct option options[] = {
-	{ "help", 	no_argument, NULL, 'h' },
-	{ "port", 	required_argument, NULL, 'p' },
-	{ "ssl", 	no_argument, NULL, 's' },
+	{ "help",	no_argument,		NULL, 'h' },
+	{ "port",	required_argument,	NULL, 'p' },
+	{ "ssl",	no_argument,		NULL, 's' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -258,19 +160,10 @@ int main(int argc, char **argv)
 	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
-	const char * address = argv[1];
+	const char *address = argv[1];
 	struct libwebsocket *wsi_dumb;
 	struct libwebsocket *wsi_mirror;
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1024 +
-						  LWS_SEND_BUFFER_POST_PADDING];
-	int len;
-	int i = 0;
-	int xofs;
-	int yofs;
-	int oldx;
-	int oldy;
-	int scale;
-	int colour;
+
 
 	fprintf(stderr, "libwebsockets test client\n"
 			"(C) Copyright 2010 Andy Green <andy@warmcat.com> "
@@ -287,7 +180,7 @@ int main(int argc, char **argv)
 			continue;
 		switch (n) {
 		case 's':
-			use_ssl = 1;
+			use_ssl = 2; /* 2 = allow selfsigned */
 			break;
 		case 'p':
 			port = atoi(optarg);
@@ -315,8 +208,8 @@ int main(int argc, char **argv)
 
 	/* create a client websocket using dumb increment protocol */
 
-	wsi_dumb = libwebsocket_client_connect(context, address, port, "/",
-				       "http://host", "origin",
+	wsi_dumb = libwebsocket_client_connect(context, address, port, use_ssl,
+					"/", "http://host", "origin",
 				       protocols[PROTOCOL_DUMB_INCREMENT].name);
 
 	if (wsi_dumb == NULL) {
@@ -326,8 +219,8 @@ int main(int argc, char **argv)
 
 	/* create a client websocket using mirror protocol */
 
-	wsi_mirror = libwebsocket_client_connect(context, address, port, "/",
-				       "http://host", "origin",
+	wsi_mirror = libwebsocket_client_connect(context, address, port,
+					use_ssl,  "/", "http://host", "origin",
 				       protocols[PROTOCOL_LWS_MIRROR].name);
 
 	if (wsi_mirror == NULL) {
@@ -343,39 +236,8 @@ int main(int argc, char **argv)
 	 */
 
 	n = 0;
-	while (n >= 0) {
-
-		usleep(10000);
-
-		if (i == sizeof circle / sizeof circle[0])
-			i = 0;
-
-		if (i == 0) {
-			xofs = random() % 500;
-			yofs = random() % 250;
-			scale = random() % 24;
-			if (!scale)
-				scale = 1;
-
-			oldx = xofs + (circle[i].x / scale);
-			oldy = yofs + (circle[i].y / scale);
-			colour = random() & 0xffffff;
-		}
-
-		len = sprintf(&buf[LWS_SEND_BUFFER_PRE_PADDING],
-			"d #%06X %d %d %d %d", colour, oldx, oldy,
-				xofs + (circle[i].x / scale),
-				yofs + (circle[i].y / scale));
-		oldx = xofs + (circle[i].x / scale);
-		oldy = yofs + (circle[i].y / scale);
-		i++;
-
-		libwebsocket_write(wsi_mirror,
-			&buf[LWS_SEND_BUFFER_PRE_PADDING], len, LWS_WRITE_TEXT);
-
-
-		n = libwebsocket_service(context, 0);
-	}
+	while (n >= 0)
+		n = libwebsocket_service(context, 1000);
 
 	libwebsocket_client_close(wsi_dumb);
 	libwebsocket_client_close(wsi_mirror);

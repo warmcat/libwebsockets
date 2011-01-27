@@ -3,6 +3,12 @@ libwebsockets_test_server_SOURCES=test-server.c
 libwebsockets_test_server_LDADD=-L../lib -lwebsockets
 libwebsockets_test_client_SOURCES=test-client.c
 libwebsockets_test_client_LDADD=-L../lib -lwebsockets
+
+
+
+libwebsockets_test_server_CFLAGS:= -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+libwebsockets_test_client_CFLAGS:= -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+
 #
 # cook a random test cert and key
 # notice your real cert and key will want to be 0600 permissions

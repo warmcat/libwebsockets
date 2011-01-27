@@ -131,7 +131,7 @@ handshake_00(struct libwebsocket *wsi)
 	strcpy(p, wsi->utf8_token[WSI_TOKEN_ORIGIN].token);
 	p += wsi->utf8_token[WSI_TOKEN_ORIGIN].token_len;
 #ifdef LWS_OPENSSL_SUPPORT
-	if (use_ssl) {
+	if (wsi->ssl) {
 		strcpy(p,   "\x0d\x0aSec-WebSocket-Location: wss://");
 		p += strlen("\x0d\x0aSec-WebSocket-Location: wss://");
 	} else {

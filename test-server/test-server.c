@@ -24,6 +24,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <string.h>
+#include <sys/time.h>
 
 #include "../lib/libwebsockets.h"
 
@@ -36,11 +37,11 @@
  *
  *  dumb-increment-protocol:  once the socket is opened, an incrementing
  *				ascii string is sent down it every 50ms.
- * 				If you send "reset\n" on the websocket, then
- * 				the incrementing number is reset to 0.
+ *				If you send "reset\n" on the websocket, then
+ *				the incrementing number is reset to 0.
  *
  *  lws-mirror-protocol: copies any received packet to every connection also
- * 				using this protocol, including the sender
+ *				using this protocol, including the sender
  */
 
 enum demo_protocols {
@@ -55,7 +56,7 @@ enum demo_protocols {
 };
 
 
-#define LOCAL_RESOURCE_PATH "/usr/share/libwebsockets-test-server"
+#define LOCAL_RESOURCE_PATH DATADIR"/libwebsockets-test-server"
 
 /* this protocol server (always the first one) just knows how to do HTTP */
 
@@ -65,7 +66,7 @@ static int callback_http(struct libwebsocket *wsi,
 {
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
-		fprintf(stderr, "serving HTTP URI %s\n", in);
+		fprintf(stderr, "serving HTTP URI %s\n", (char *)in);
 
 		if (in && strcmp(in, "/favicon.ico") == 0) {
 			if (libwebsockets_serve_http_file(wsi,
@@ -108,9 +109,9 @@ callback_dumb_increment(struct libwebsocket *wsi,
 					       void *user, void *in, size_t len)
 {
 	int n;
-	char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
 						  LWS_SEND_BUFFER_POST_PADDING];
-	char *p = (char *)&buf[LWS_SEND_BUFFER_PRE_PADDING];
+	unsigned char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
 	struct per_session_data__dumb_increment *pss = user;
 
 	switch (reason) {
@@ -126,7 +127,7 @@ callback_dumb_increment(struct libwebsocket *wsi,
 	 */
 
 	case LWS_CALLBACK_BROADCAST:
-		n = sprintf(p, "%d", pss->number++);
+		n = sprintf((char *)p, "%d", pss->number++);
 		n = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (n < 0) {
 			fprintf(stderr, "ERROR writing to socket");
@@ -135,7 +136,7 @@ callback_dumb_increment(struct libwebsocket *wsi,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-		fprintf(stderr, "rx %d\n", len);
+		fprintf(stderr, "rx %d\n", (int)len);
 		if (len < 6)
 			break;
 		if (strcmp(in, "reset\n") == 0)
@@ -152,33 +153,92 @@ callback_dumb_increment(struct libwebsocket *wsi,
 
 /* lws-mirror_protocol */
 
+#define MAX_MESSAGE_QUEUE 64
+
+struct per_session_data__lws_mirror {
+	struct libwebsocket *wsi;
+	int ringbuffer_tail;
+};
+
+struct a_message {
+	void *payload;
+	size_t len;
+};
+
+static struct a_message ringbuffer[MAX_MESSAGE_QUEUE];
+static int ringbuffer_head;
+
+
 static int
 callback_lws_mirror(struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
 	int n;
+	struct per_session_data__lws_mirror *pss = user;
 
 	switch (reason) {
 
+	case LWS_CALLBACK_ESTABLISHED:
+		pss->ringbuffer_tail = ringbuffer_head;
+		pss->wsi = wsi;
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (pss->ringbuffer_tail != ringbuffer_head) {
+
+			n = libwebsocket_write(wsi, (unsigned char *)
+				   ringbuffer[pss->ringbuffer_tail].payload +
+				   LWS_SEND_BUFFER_PRE_PADDING,
+				   ringbuffer[pss->ringbuffer_tail].len,
+								LWS_WRITE_TEXT);
+			if (n < 0) {
+				fprintf(stderr, "ERROR writing to socket");
+				exit(1);
+			}
+
+			if (pss->ringbuffer_tail == (MAX_MESSAGE_QUEUE - 1))
+				pss->ringbuffer_tail = 0;
+			else
+				pss->ringbuffer_tail++;
+
+			if (((ringbuffer_head - pss->ringbuffer_tail) %
+				  MAX_MESSAGE_QUEUE) < (MAX_MESSAGE_QUEUE - 15))
+				libwebsocket_rx_flow_control(wsi, 1);
+
+			libwebsocket_callback_on_writable(wsi);
+
+		}
+		break;
+
 	case LWS_CALLBACK_BROADCAST:
 		n = libwebsocket_write(wsi, in, len, LWS_WRITE_TEXT);
+		if (n < 0)
+			fprintf(stderr, "mirror write failed\n");
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-		/*
-		 * copy the incoming packet to all other protocol users
-		 *
-		 * This demonstrates how easy it is to broadcast from inside
-		 * a callback.
-		 * 
-		 * How this works is it calls back to the callback for all
-		 * connected sockets using this protocol with
-		 * LWS_CALLBACK_BROADCAST reason.  Our handler for that above
-		 * writes the data down the socket.
-		 */
-		libwebsockets_broadcast(libwebsockets_get_protocol(wsi),
-								       in, len);
+
+		if (ringbuffer[ringbuffer_head].payload)
+			free(ringbuffer[ringbuffer_head].payload);
+
+		ringbuffer[ringbuffer_head].payload =
+				malloc(LWS_SEND_BUFFER_PRE_PADDING + len +
+						  LWS_SEND_BUFFER_POST_PADDING);
+		ringbuffer[ringbuffer_head].len = len;
+		memcpy((char *)ringbuffer[ringbuffer_head].payload +
+					  LWS_SEND_BUFFER_PRE_PADDING, in, len);
+		if (ringbuffer_head == (MAX_MESSAGE_QUEUE - 1))
+			ringbuffer_head = 0;
+		else
+			ringbuffer_head++;
+
+		if (((ringbuffer_head - pss->ringbuffer_tail) %
+				  MAX_MESSAGE_QUEUE) > (MAX_MESSAGE_QUEUE - 10))
+			libwebsocket_rx_flow_control(wsi, 0);
+
+		libwebsocket_callback_on_writable_all_protocol(
+					       libwebsockets_get_protocol(wsi));
 		break;
 
 	default:
@@ -206,6 +266,8 @@ static struct libwebsocket_protocols protocols[] = {
 	[PROTOCOL_LWS_MIRROR] = {
 		.name = "lws-mirror-protocol",
 		.callback = callback_lws_mirror,
+		.per_session_data_size =
+				sizeof(struct per_session_data__lws_mirror),
 	},
 	[DEMO_PROTOCOL_COUNT] = {  /* end of list */
 		.callback = NULL
@@ -213,9 +275,9 @@ static struct libwebsocket_protocols protocols[] = {
 };
 
 static struct option options[] = {
-	{ "help", 	no_argument, NULL, 'h' },
-	{ "port", 	required_argument, NULL, 'p' },
-	{ "ssl", 	no_argument, NULL, 's' },
+	{ "help",	no_argument,		NULL, 'h' },
+	{ "port",	required_argument,	NULL, 'p' },
+	{ "ssl",	no_argument,		NULL, 's' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -231,6 +293,9 @@ int main(int argc, char **argv)
 	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
+#ifdef LWS_NO_FORK
+	unsigned int oldus = 0;
+#endif
 
 	fprintf(stderr, "libwebsockets test server\n"
 			"(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> "
@@ -275,13 +340,14 @@ int main(int argc, char **argv)
 	fprintf(stderr, " Using no-fork service loop\n");
 
 	while (1) {
-		
-		usleep(50000);
+		struct timeval tv;
+
+		gettimeofday(&tv, NULL);
 
 		/*
 		 * This broadcasts to all dumb-increment-protocol connections
 		 * at 20Hz.
-		 * 
+		 *
 		 * We're just sending a character 'x', in these examples the
 		 * callbacks send their own per-connection content.
 		 *
@@ -291,8 +357,12 @@ int main(int argc, char **argv)
 		 * We take care of pre-and-post padding allocation.
 		 */
 
-		libwebsockets_broadcast(&protocols[PROTOCOL_DUMB_INCREMENT],
+		if (((unsigned int)tv.tv_usec - oldus) > 50000) {
+			libwebsockets_broadcast(
+					&protocols[PROTOCOL_DUMB_INCREMENT],
 					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
+			oldus = tv.tv_usec;
+		}
 
 		/*
 		 * This example server does not fork or create a thread for
@@ -304,7 +374,7 @@ int main(int argc, char **argv)
 		 * immediately and quickly.
 		 */
 
-		libwebsocket_service(context, 0);
+		libwebsocket_service(context, 50);
 	}
 
 #else
@@ -327,13 +397,13 @@ int main(int argc, char **argv)
 	}
 
 	while (1) {
-		
+
 		usleep(50000);
 
 		/*
 		 * This broadcasts to all dumb-increment-protocol connections
 		 * at 20Hz.
-		 * 
+		 *
 		 * We're just sending a character 'x', in these examples the
 		 * callbacks send their own per-connection content.
 		 *

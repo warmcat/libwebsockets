@@ -7,7 +7,8 @@
 
 <body>
 <h2>libwebsockets "dumb-increment-protocol" test applet</h2>
-The incrementing number is coming from the server.
+The incrementing number is coming from the server and is individual for
+each connection to the server... try opening a second browser window.
 Click the button to send the server a websocket message to
 reset the number.<br><br>
 
@@ -27,6 +28,8 @@ well.
 The lws-mirror protocol doesn't interpret what is being sent to it, it just
 re-sends it to every other websocket it has a connection with using that
 protocol, including the guy who sent the packet.
+<p>libwebsockets-test-client spams circles on to this shared canvas when
+run.</p>
 <br><br>
 
 <table>
@@ -121,13 +124,25 @@ function reset() {
 		} 
 
 		socket_lm.onmessage =function got_packet(msg) {
-			i = msg.data.split(' ');
-			if (i[0] == 'd') {
-				ctx.strokeStyle = i[1];
-				ctx.beginPath();
-				ctx.moveTo(+(i[2]), +(i[3]));
-				ctx.lineTo(+(i[4]), +(i[5]));
-				ctx.stroke();
+			j = msg.data.split(';');
+			f = 0;
+			while (f < j.length - 1) {
+				i = j[f].split(' ');
+				if (i[0] == 'd') {
+					ctx.strokeStyle = i[1];
+					ctx.beginPath();
+					ctx.moveTo(+(i[2]), +(i[3]));
+					ctx.lineTo(+(i[4]), +(i[5]));
+					ctx.stroke();
+				}
+				if (i[0] == 'c') {
+					ctx.strokeStyle = i[1];
+					ctx.beginPath();
+					ctx.arc(+(i[2]), +(i[3]), +(i[4]), 0, Math.PI*2, true); 
+					ctx.stroke();
+				}
+
+				f++;
 			}
 		}
 
@@ -192,7 +207,7 @@ function ev_mousemove (ev) {
 		last_y = y;
 		return;
 	}
-	socket_lm.send("d " + color + " " + last_x + " " + last_y + " " + x + ' ' + y);
+	socket_lm.send("d " + color + " " + last_x + " " + last_y + " " + x + ' ' + y + ';');
 
 	last_x = x;
 	last_y = y;

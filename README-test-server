@@ -33,6 +33,10 @@ There are a couple of other possible configure options
 			to disable the built-in ones and force use
 			of the libcrypto (part of openssl) ones.
 
+--with-client-cert-dir=dir   tells the client ssl support where to
+			     look for trust certificates to validate
+			     the remote certificate against.
+
 Testing server with a browser
 -----------------------------
 
@@ -44,11 +48,8 @@ It will fetch a script in the form of test.html, and then run the
 script in there on the browser to open a websocket connection.
 Incrementing numbers should appear in the browser display.
 
-Using SSL
----------
-
-The client side operation does not support SSL yet, but the
-server side does.
+Using SSL on the server side
+----------------------------
 
 To test it using SSL/WSS, just run the test server with
 
@@ -68,6 +69,7 @@ same.
 test-server.c is all that is needed to use libwebsockets for
 serving both the script html over http and websockets.
 
+
 Forkless operation
 ------------------
 
@@ -75,6 +77,7 @@ If your target device does not offer fork(), you can use
 libwebsockets from your own main loop instead.  Use the
 configure option --nofork and simply call libwebsocket_service()
 from your own main loop as shown in the test app sources.
+
 
 Testing websocket client support
 --------------------------------
@@ -89,6 +92,19 @@ and print the dumb increment number from the server at the
 same time as drawing random circles in the mirror protocol;
 if you connect to the test server using a browser at the
 same time you will be able to see the circles being drawn.
+
+
+Testing SSL on the client side
+------------------------------
+
+To test SSL/WSS client action, just run the client test with
+
+$ libwebsockets-test-client localhost --ssl
+
+By default the client test applet is set to accept selfsigned
+certificates used by the test server, this is indicated by the
+use_ssl var being set to 2.  Set it to 1 to reject any server
+certificate that it doesn't have a trusted CA cert for.
 
 
 Websocket version supported

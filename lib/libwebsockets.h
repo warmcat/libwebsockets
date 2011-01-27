@@ -26,9 +26,11 @@
 
 enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_ESTABLISHED,
+	LWS_CALLBACK_CLIENT_ESTABLISHED,
 	LWS_CALLBACK_CLOSED,
 	LWS_CALLBACK_RECEIVE,
 	LWS_CALLBACK_CLIENT_RECEIVE,
+	LWS_CALLBACK_CLIENT_WRITEABLE,
 	LWS_CALLBACK_HTTP,
 	LWS_CALLBACK_BROADCAST
 };
@@ -42,7 +44,9 @@ enum libwebsocket_write_protocol {
 
 	LWS_WRITE_CLOSE,
 	LWS_WRITE_PING,
-	LWS_WRITE_PONG
+	LWS_WRITE_PONG,
+
+	LWS_WRITE_NO_FIN = 0x40
 };
 
 struct libwebsocket;
@@ -67,15 +71,25 @@ struct libwebsocket_context;
  *	You get an opportunity to initialize user data when called back with
  *	LWS_CALLBACK_ESTABLISHED reason.
  *
- *	LWS_CALLBACK_ESTABLISHED:  after successful websocket handshake
+ *	LWS_CALLBACK_ESTABLISHED:  after the server completes a handshake with
+ *				an incoming client
+ *
+ *      LWS_CALLBACK_CLIENT_ESTABLISHED: after your client connection completed
+ *				a handshake with the remote server
  *
  *	LWS_CALLBACK_CLOSED: when the websocket session ends
  *
  *	LWS_CALLBACK_BROADCAST: signal to send to client (you would use
  *				libwebsocket_write() taking care about the
  *				special buffer requirements
- *	LWS_CALLBACK_RECEIVE: data has appeared for the server, it can be
- *				found at *in and is len bytes long
+ *
+ *	LWS_CALLBACK_RECEIVE: data has appeared for this server endpoint from a
+ *				remote client, it can be found at *in and is
+ *				len bytes long
+ *
+ *	LWS_CALLBACK_CLIENT_RECEIVE: data has appeared from the server for the
+ *				client connection, it can be found at *in and
+ *				is len bytes long
  *
  *	LWS_CALLBACK_HTTP: an http request has come from a client that is not
  *				asking to upgrade the connection to a websocket
@@ -85,6 +99,13 @@ struct libwebsocket_context;
  *				@in points to the URI path requested and
  *				libwebsockets_serve_http_file() makes it very
  *				simple to send back a file to the client.
+ *
+ *	LWS_CALLBACK_CLIENT_WRITEABLE:  if you call
+ *		libwebsocket_callback_on_writable() on a connection, you will
+ *		get this callback coming when the connection socket is able to
+ *		accept another write packet without blocking.  If it already
+ *		was able to take another packet without blocking, you'll get
+ *		this callback at the next call to the service loop function.
  */
 extern int callback(struct libwebsocket *wsi,
 			 enum libwebsocket_callback_reasons reason, void *user,
@@ -197,6 +218,17 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 extern const struct libwebsocket_protocols *
 libwebsockets_get_protocol(struct libwebsocket *wsi);
 
+extern int
+libwebsocket_callback_on_writable(struct libwebsocket *wsi);
+
+extern int
+libwebsocket_callback_on_writable_all_protocol(
+				 const struct libwebsocket_protocols *protocol);
+
+
+extern int
+libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable);
+
 extern size_t
 libwebsockets_remaining_packet_payload(struct libwebsocket *wsi);
 
@@ -204,6 +236,7 @@ extern struct libwebsocket *
 libwebsocket_client_connect(struct libwebsocket_context *clients,
 			      const char *address,
 			      int port,
+			      int ssl_connection,
 			      const char *path,
 			      const char *host,
 			      const char *origin,

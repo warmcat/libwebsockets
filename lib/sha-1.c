@@ -146,27 +146,31 @@ sha1_step(struct sha1_ctxt *ctxt)
 
 	for (t = 0; t < 20; t++) {
 		s = t & 0x0f;
-		if (t >= 16) {
-			W(s) = S(1, W((s+13) & 0x0f) ^ W((s+8) & 0x0f) ^ W((s+2) & 0x0f) ^ W(s));
-		}
+		if (t >= 16)
+			W(s) = S(1, W((s+13) & 0x0f) ^ W((s+8) & 0x0f) ^
+							W((s+2) & 0x0f) ^ W(s));
+
 		tmp = S(5, a) + F0(b, c, d) + e + W(s) + K(t);
 		e = d; d = c; c = S(30, b); b = a; a = tmp;
 	}
 	for (t = 20; t < 40; t++) {
 		s = t & 0x0f;
-		W(s) = S(1, W((s+13) & 0x0f) ^ W((s+8) & 0x0f) ^ W((s+2) & 0x0f) ^ W(s));
+		W(s) = S(1, W((s+13) & 0x0f) ^ W((s+8) & 0x0f) ^
+							W((s+2) & 0x0f) ^ W(s));
 		tmp = S(5, a) + F1(b, c, d) + e + W(s) + K(t);
 		e = d; d = c; c = S(30, b); b = a; a = tmp;
 	}
 	for (t = 40; t < 60; t++) {
 		s = t & 0x0f;
-		W(s) = S(1, W((s+13) & 0x0f) ^ W((s+8) & 0x0f) ^ W((s+2) & 0x0f) ^ W(s));
+		W(s) = S(1, W((s+13) & 0x0f) ^ W((s+8) & 0x0f) ^
+							W((s+2) & 0x0f) ^ W(s));
 		tmp = S(5, a) + F2(b, c, d) + e + W(s) + K(t);
 		e = d; d = c; c = S(30, b); b = a; a = tmp;
 	}
 	for (t = 60; t < 80; t++) {
 		s = t & 0x0f;
-		W(s) = S(1, W((s+13) & 0x0f) ^ W((s+8) & 0x0f) ^ W((s+2) & 0x0f) ^ W(s));
+		W(s) = S(1, W((s+13) & 0x0f) ^ W((s+8) & 0x0f) ^
+							W((s+2) & 0x0f) ^ W(s));
 		tmp = S(5, a) + F3(b, c, d) + e + W(s) + K(t);
 		e = d; d = c; c = S(30, b); b = a; a = tmp;
 	}

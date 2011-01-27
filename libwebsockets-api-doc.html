@@ -58,6 +58,45 @@ would call it with a timeout_ms of 0, so it returns immediately if
 nothing is pending, or as soon as it services whatever was pending.
 </blockquote>
 <hr>
+<h2>libwebsocket_callback_on_writable - Request a callback when this socket becomes able to be written to without blocking</h2>
+<i>int</i>
+<b>libwebsocket_callback_on_writable</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket connection instance to get callback for
+</dl>
+<hr>
+<h2>libwebsocket_callback_on_writable_all_protocol - Request a callback for all connections using the given protocol when it becomes possible to write to each socket without blocking in turn.</h2>
+<i>int</i>
+<b>libwebsocket_callback_on_writable_all_protocol</b>
+(<i>const struct libwebsocket_protocols *</i> <b>protocol</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>protocol</b>
+<dd>Protocol whose connections will get callbacks
+</dl>
+<hr>
+<h2>libwebsocket_rx_flow_control - Enable and disable socket servicing for receieved packets.</h2>
+<i>int</i>
+<b>libwebsocket_rx_flow_control</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>,
+<i>int</i> <b>enable</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket connection instance to get callback for
+<dt><b>enable</b>
+<dd>0 = disable read servicing for this connection, 1 = enable
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+If the output side of a server process becomes choked, this allows flow
+control for the input side.
+</blockquote>
+<hr>
 <h2>libwebsocket_create_context - Create the websocket handler</h2>
 <i>struct libwebsocket_context *</i>
 <b>libwebsocket_create_context</b>
@@ -258,6 +297,44 @@ when that is the case <b>libwebsockets_remaining_packet_payload</b> will return
 Many protocols won't care becuse their packets are always small.
 </blockquote>
 <hr>
+<h2>libwebsocket_client_connect - Connect to another websocket server</h2>
+<i>struct libwebsocket *</i>
+<b>libwebsocket_client_connect</b>
+(<i>struct libwebsocket_context *</i> <b>this</b>,
+<i>const char *</i> <b>address</b>,
+<i>int</i> <b>port</b>,
+<i>int</i> <b>ssl_connection</b>,
+<i>const char *</i> <b>path</b>,
+<i>const char *</i> <b>host</b>,
+<i>const char *</i> <b>origin</b>,
+<i>const char *</i> <b>protocol</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>this</b>
+<dd>Websocket context
+<dt><b>address</b>
+<dd>Remote server address, eg, "myserver.com"
+<dt><b>port</b>
+<dd>Port to connect to on the remote server, eg, 80
+<dt><b>ssl_connection</b>
+<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
+signed certs
+<dt><b>path</b>
+<dd>Websocket path on server
+<dt><b>host</b>
+<dd>Hostname on server
+<dt><b>origin</b>
+<dd>Socket origin name
+<dt><b>protocol</b>
+<dd>Comma-separated list of protocols being asked for from
+the server, or just one.  The server will pick the one it
+likes best.
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function creates a connection to a remote server
+</blockquote>
+<hr>
 <h2>callback - User server actions</h2>
 <i>int</i>
 <b>callback</b>
@@ -293,7 +370,13 @@ LWS_CALLBACK_ESTABLISHED reason.
 </blockquote>
 <h3>LWS_CALLBACK_ESTABLISHED</h3>
 <blockquote>
-after successful websocket handshake
+after the server completes a handshake with
+an incoming client
+</blockquote>
+<h3>LWS_CALLBACK_CLIENT_ESTABLISHED</h3>
+<blockquote>
+after your client connection completed
+a handshake with the remote server
 </blockquote>
 <h3>LWS_CALLBACK_CLOSED</h3>
 <blockquote>
@@ -307,8 +390,15 @@ special buffer requirements
 </blockquote>
 <h3>LWS_CALLBACK_RECEIVE</h3>
 <blockquote>
-data has appeared for the server, it can be
-found at *in and is len bytes long
+data has appeared for this server endpoint from a
+remote client, it can be found at *in and is
+len bytes long
+</blockquote>
+<h3>LWS_CALLBACK_CLIENT_RECEIVE</h3>
+<blockquote>
+data has appeared from the server for the
+client connection, it can be found at *in and
+is len bytes long
 </blockquote>
 <h3>LWS_CALLBACK_HTTP</h3>
 <blockquote>
@@ -320,6 +410,15 @@ which will then open the websockets connection.
 <tt><b>in</b></tt> points to the URI path requested and
 <b>libwebsockets_serve_http_file</b> makes it very
 simple to send back a file to the client.
+</blockquote>
+<h3>LWS_CALLBACK_CLIENT_WRITEABLE</h3>
+<blockquote>
+if you call
+<b>libwebsocket_callback_on_writable</b> on a connection, you will
+get this callback coming when the connection socket is able to
+accept another write packet without blocking.  If it already
+was able to take another packet without blocking, you'll get
+this callback at the next call to the service loop function.
 </blockquote>
 <hr>
 <h2>struct libwebsocket_protocols - List of protocols and handlers server supports.</h2>

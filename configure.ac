@@ -17,6 +17,7 @@ AC_PROG_INSTALL
 AC_PROG_MAKE_SET
 AC_CONFIG_MACRO_DIR([m4])
 
+
 #
 #
 #
@@ -48,7 +49,7 @@ fi
 #
 #
 AC_ARG_ENABLE(libcrypto,
- [  --enable-libcrypto  Use libcrypto MD5 and SHA1 implemntations],
+ [  --enable-libcrypto  Use libcrypto MD5 and SHA1 implementations],
  [ libcrypto=yes
  ])
 
@@ -57,6 +58,19 @@ CFLAGS="$CFLAGS -DLWS_LIBCRYPTO"
 LDFLAGS="$LDFLAGS -lcrypto"
 fi
 AM_CONDITIONAL(LIBCRYPTO, test x$libcrypto = xyes)
+
+
+#
+#
+#
+AC_ARG_WITH([client-cert-dir],
+[AS_HELP_STRING([--with-client-cert-dir],[directory containing client certs, defaults to /etc/pki/tls/certs/])],
+[clientcertdir=$withval],
+[clientcertdir=/etc/pki/tls/certs/]
+)
+AC_SUBST([clientcertdir])
+
+AC_SUBST([CFLAGS])
 
 
 

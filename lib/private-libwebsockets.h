@@ -67,11 +67,6 @@ static inline void debug(const char *format, ...)
 }
 #endif
 
-#ifdef LWS_OPENSSL_SUPPORT
-extern SSL_CTX *ssl_ctx;
-extern int use_ssl;
-#endif
-
 
 #define MAX_CLIENTS 100
 #define LWS_MAX_HEADER_NAME_LENGTH 64
@@ -79,7 +74,7 @@ extern int use_ssl;
 #define LWS_INITIAL_HDR_ALLOC 256
 #define LWS_ADDITIONAL_HDR_ALLOC 64
 #define MAX_USER_RX_BUFFER 512
-#define MAX_BROADCAST_PAYLOAD 1024
+#define MAX_BROADCAST_PAYLOAD 2048
 #define LWS_MAX_PROTOCOLS 10
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
@@ -175,6 +170,8 @@ struct libwebsocket_context {
 	int listen_port;
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;
+	SSL_CTX *ssl_ctx;
+	SSL_CTX *ssl_client_ctx;
 #endif
 	struct libwebsocket_protocols *protocols;
 	int count_protocols;
@@ -224,6 +221,7 @@ struct libwebsocket {
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;
+	BIO *client_bio;
 #endif
 
 	void *user_space;

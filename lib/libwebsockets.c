@@ -21,11 +21,6 @@
 
 #include "private-libwebsockets.h"
 
-#ifdef LWS_OPENSSL_SUPPORT
-SSL_CTX *ssl_ctx;
-int use_ssl;
-#endif
-
 void
 libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 {
@@ -49,7 +44,7 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 /*	fprintf(stderr, "closing fd=%d\n", wsi->sock); */
 
 #ifdef LWS_OPENSSL_SUPPORT
-	if (use_ssl) {
+	if (wsi->ssl) {
 		n = SSL_get_fd(wsi->ssl);
 		SSL_shutdown(wsi->ssl);
 		close(n);
@@ -91,6 +86,19 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 
 			libwebsocket_close_and_free_session(this->wsi[client]);
 			goto nuke_this;
+		}
+
+		/* the guy requested a callback when it was OK to write */
+
+		if ((unsigned long)this->wsi[client] > LWS_MAX_PROTOCOLS &&
+					  this->fds[client].revents & POLLOUT) {
+
+			this->fds[client].events &= ~POLLOUT;
+
+			this->wsi[client]->protocol->callback(this->wsi[client],
+				LWS_CALLBACK_CLIENT_WRITEABLE,
+				this->wsi[client]->user_space,
+				NULL, 0);
 		}
 
 		/* any incoming data ready? */
@@ -158,7 +166,7 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 		}
 
 #ifdef LWS_OPENSSL_SUPPORT
-		if (this->use_ssl)
+		if (this->wsi[client]->ssl)
 			n = SSL_read(this->wsi[client]->ssl, buf, sizeof buf);
 		else
 #endif
@@ -218,8 +226,8 @@ libwebsocket_context_destroy(struct libwebsocket_context *this)
 		libwebsocket_close_and_free_session(this->wsi[client]);
 
 #ifdef LWS_OPENSSL_SUPPORT
-	if (ssl_ctx)
-		SSL_CTX_free(ssl_ctx);
+	if (this->ssl_ctx)
+		SSL_CTX_free(this->ssl_ctx);
 #endif
 
 	if (this)
@@ -336,9 +344,12 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
 		}
 
 #ifdef LWS_OPENSSL_SUPPORT
+		this->wsi[this->fds_count]->ssl = NULL;
+
 		if (this->use_ssl) {
 
-			this->wsi[this->fds_count]->ssl = SSL_new(ssl_ctx);
+			this->wsi[this->fds_count]->ssl =
+							 SSL_new(this->ssl_ctx);
 			if (this->wsi[this->fds_count]->ssl == NULL) {
 				fprintf(stderr, "SSL_new failed: %s\n",
 				    ERR_error_string(SSL_get_error(
@@ -440,7 +451,8 @@ fatal:
 		close(this->fds[0].fd);
 
 #ifdef LWS_OPENSSL_SUPPORT
-	SSL_CTX_free(ssl_ctx);
+	if (this->ssl_ctx)
+		SSL_CTX_free(this->ssl_ctx);
 #endif
 
 	if (this)
@@ -451,6 +463,91 @@ fatal:
 	/* inform caller we are dead */
 
 	return 1;
+}
+
+/**
+ * libwebsocket_callback_on_writable() - Request a callback when this socket
+ *					 becomes able to be written to without
+ *					 blocking
+ *
+ * @wsi:	Websocket connection instance to get callback for
+ */
+
+int
+libwebsocket_callback_on_writable(struct libwebsocket *wsi)
+{
+	struct libwebsocket_context *this = wsi->protocol->owning_server;
+	int n;
+
+	for (n = this->count_protocols + 1; n < this->fds_count; n++)
+		if (this->wsi[n] == wsi) {
+			this->fds[n].events |= POLLOUT;
+			return 0;
+		}
+
+	fprintf(stderr, "libwebsocket_callback_on_writable "
+							"didn't find socket\n");
+	return 1;
+}
+
+/**
+ * libwebsocket_callback_on_writable_all_protocol() - Request a callback for
+ *			all connections using the given protocol when it
+ *			becomes possible to write to each socket without
+ *			blocking in turn.
+ *
+ * @protocol:	Protocol whose connections will get callbacks
+ */
+
+int
+libwebsocket_callback_on_writable_all_protocol(
+				  const struct libwebsocket_protocols *protocol)
+{
+	struct libwebsocket_context *this = protocol->owning_server;
+	int n;
+
+	for (n = this->count_protocols + 1; n < this->fds_count; n++)
+		if ((unsigned long)this->wsi[n] > LWS_MAX_PROTOCOLS)
+			if (this->wsi[n]->protocol == protocol)
+				this->fds[n].events |= POLLOUT;
+
+	return 0;
+}
+
+/**
+ * libwebsocket_rx_flow_control() - Enable and disable socket servicing for
+ *				receieved packets.
+ *
+ * If the output side of a server process becomes choked, this allows flow
+ * control for the input side.
+ *
+ * @wsi:	Websocket connection instance to get callback for
+ * @enable:	0 = disable read servicing for this connection, 1 = enable
+ */
+
+int
+libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable)
+{
+	struct libwebsocket_context *this = wsi->protocol->owning_server;
+	int n;
+
+	for (n = this->count_protocols + 1; n < this->fds_count; n++)
+		if (this->wsi[n] == wsi) {
+			if (enable)
+				this->fds[n].events |= POLLIN;
+			else
+				this->fds[n].events &= ~POLLIN;
+
+			return 0;
+		}
+
+	fprintf(stderr, "libwebsocket_callback_on_writable "
+						     "unable to find socket\n");
+	return 1;
+}
+
+static void sigpipe_handler(int x)
+{
 }
 
 
@@ -515,47 +612,103 @@ libwebsocket_create_context(int port,
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_METHOD *method;
 	char ssl_err_buf[512];
-
-	use_ssl = ssl_cert_filepath != NULL && ssl_private_key_filepath != NULL;
-	if (use_ssl)
-		fprintf(stderr, " Compiled with SSL support, using it\n");
-	else
-		fprintf(stderr, " Compiled with SSL support, not using it\n");
-
-#else
-	if (ssl_cert_filepath != NULL && ssl_private_key_filepath != NULL) {
-		fprintf(stderr, " Not compiled for OpenSSl support!\n");
-		return NULL;
-	}
-	fprintf(stderr, " Compiled without SSL support, serving unencrypted\n");
 #endif
 
+	this = malloc(sizeof(struct libwebsocket_context));
+	if (!this) {
+		fprintf(stderr, "No memory for websocket context\n");
+		return NULL;
+	}
+	this->protocols = protocols;
+	this->listen_port = port;
+
+	if (port) {
+
 #ifdef LWS_OPENSSL_SUPPORT
-	if (use_ssl) {
-		SSL_library_init();
+		this->use_ssl = ssl_cert_filepath != NULL &&
+					       ssl_private_key_filepath != NULL;
+		if (this->use_ssl)
+			fprintf(stderr, " Compiled with SSL support, "
+								  "using it\n");
+		else
+			fprintf(stderr, " Compiled with SSL support, "
+							      "not using it\n");
 
-		OpenSSL_add_all_algorithms();
-		SSL_load_error_strings();
-
-		/*
-		 * Firefox insists on SSLv23 not SSLv3
-		 * Konq disables SSLv2 by default now, SSLv23 works
-		 */
-
-		method = (SSL_METHOD *)SSLv23_server_method();
-		if (!method) {
-			fprintf(stderr, "problem creating ssl method: %s\n",
-				ERR_error_string(ERR_get_error(), ssl_err_buf));
+#else
+		if (ssl_cert_filepath != NULL &&
+					     ssl_private_key_filepath != NULL) {
+			fprintf(stderr, " Not compiled for OpenSSl support!\n");
 			return NULL;
 		}
-		ssl_ctx = SSL_CTX_new(method);	/* create context */
-		if (!ssl_ctx) {
-			printf("problem creating ssl context: %s\n",
-				ERR_error_string(ERR_get_error(), ssl_err_buf));
-			return NULL;
-		}
+		fprintf(stderr, " Compiled without SSL support, "
+						       "serving unencrypted\n");
+#endif
+	}
+
+	/* ignore SIGPIPE */
+
+	signal(SIGPIPE, sigpipe_handler);
+
+
+#ifdef LWS_OPENSSL_SUPPORT
+
+	/* basic openssl init */
+
+	SSL_library_init();
+
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+
+	/*
+	 * Firefox insists on SSLv23 not SSLv3
+	 * Konq disables SSLv2 by default now, SSLv23 works
+	 */
+
+	method = (SSL_METHOD *)SSLv23_server_method();
+	if (!method) {
+		fprintf(stderr, "problem creating ssl method: %s\n",
+			ERR_error_string(ERR_get_error(), ssl_err_buf));
+		return NULL;
+	}
+	this->ssl_ctx = SSL_CTX_new(method);	/* create context */
+	if (!this->ssl_ctx) {
+		fprintf(stderr, "problem creating ssl context: %s\n",
+			ERR_error_string(ERR_get_error(), ssl_err_buf));
+		return NULL;
+	}
+
+	/* client context */
+
+	method = (SSL_METHOD *)SSLv23_client_method();
+	if (!method) {
+		fprintf(stderr, "problem creating ssl method: %s\n",
+			ERR_error_string(ERR_get_error(), ssl_err_buf));
+		return NULL;
+	}
+	this->ssl_client_ctx = SSL_CTX_new(method);	/* create context */
+	if (!this->ssl_client_ctx) {
+		fprintf(stderr, "problem creating ssl context: %s\n",
+			ERR_error_string(ERR_get_error(), ssl_err_buf));
+		return NULL;
+	}
+
+
+	/* openssl init for cert verification (used with client sockets) */
+
+	if (!SSL_CTX_load_verify_locations(this->ssl_client_ctx, NULL,
+						    LWS_OPENSSL_CLIENT_CERTS)) {
+		fprintf(stderr, "Unable to load SSL Client certs from %s "
+			"(set by --with-client-cert-dir= in configure) -- "
+			" client ssl isn't going to work",
+						      LWS_OPENSSL_CLIENT_CERTS);
+	}
+
+	if (this->use_ssl) {
+
+		/* openssl init for server sockets */
+
 		/* set the local certificate from CertFile */
-		n = SSL_CTX_use_certificate_file(ssl_ctx,
+		n = SSL_CTX_use_certificate_file(this->ssl_ctx,
 					ssl_cert_filepath, SSL_FILETYPE_PEM);
 		if (n != 1) {
 			fprintf(stderr, "problem getting cert '%s': %s\n",
@@ -564,7 +717,7 @@ libwebsocket_create_context(int port,
 			return NULL;
 		}
 		/* set the private key from KeyFile */
-		if (SSL_CTX_use_PrivateKey_file(ssl_ctx,
+		if (SSL_CTX_use_PrivateKey_file(this->ssl_ctx,
 						ssl_private_key_filepath,
 						       SSL_FILETYPE_PEM) != 1) {
 			fprintf(stderr, "ssl problem getting key '%s': %s\n",
@@ -573,7 +726,7 @@ libwebsocket_create_context(int port,
 			return NULL;
 		}
 		/* verify private key */
-		if (!SSL_CTX_check_private_key(ssl_ctx)) {
+		if (!SSL_CTX_check_private_key(this->ssl_ctx)) {
 			fprintf(stderr, "Private SSL key doesn't match cert\n");
 			return NULL;
 		}
@@ -586,12 +739,6 @@ libwebsocket_create_context(int port,
 
 	if (lws_b64_selftest())
 		return NULL;
-
-
-	this = malloc(sizeof(struct libwebsocket_context));
-
-	this->protocols = protocols;
-	this->listen_port = port;
 
 	/* set up our external listening socket we serve on */
 
@@ -641,9 +788,6 @@ libwebsocket_create_context(int port,
 	this->fds[0].fd = sockfd;
 	this->fds[0].events = POLLIN;
 	this->count_protocols = 0;
-#ifdef LWS_OPENSSL_SUPPORT
-	this->use_ssl = use_ssl;
-#endif
 
 	if (port) {
 		listen(sockfd, 5);

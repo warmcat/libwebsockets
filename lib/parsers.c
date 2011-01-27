@@ -977,8 +977,6 @@ libwebsocket_04_frame_mask_generate(struct libwebsocket *wsi)
  *	packet while not burdening the user code with any protocol knowledge.
  */
 
- /* FIXME FIN bit */
-
 int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			  size_t len, enum libwebsocket_write_protocol protocol)
 {
@@ -986,6 +984,11 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	int pre = 0;
 	int post = 0;
 	unsigned int shift = 7;
+
+	if (len == 0) {
+		fprintf(stderr, "zero length libwebsocket_write attempt\n");
+		return 0;
+	}
 
 	if (protocol == LWS_WRITE_HTTP)
 		goto send_raw;
@@ -999,7 +1002,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	/* chrome likes this as of 30 Oct */
 	/* Firefox 4.0b6 likes this as of 30 Oct */
 	case 0:
-		if (protocol == LWS_WRITE_BINARY) {
+		if ((protocol & 0xf) == LWS_WRITE_BINARY) {
 			/* in binary mode we send 7-bit used length blocks */
 			pre = 1;
 			while (len & (127 << shift)) {
@@ -1031,7 +1034,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 	case 4:
 
-		switch (protocol) {
+		switch (protocol & 0xf) {
 		case LWS_WRITE_TEXT:
 			n = LWS_WS_OPCODE_04__TEXT_FRAME;
 			break;
@@ -1054,12 +1057,8 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			return -1;
 		}
 
-		/*
-		 * We don't really support the metaframe concept with FIN.
-		 * Just set FIN on every packet for now
-		 */
-
-		n |= 1 << 7;
+		if (!(protocol & LWS_WRITE_NO_FIN))
+			n |= 1 << 7;
 
 		if (len < 126) {
 			buf[-2] = n;
@@ -1130,10 +1129,9 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		memcpy(&buf[0 - pre], wsi->frame_masking_nonce_04, 4);
 	}
 
-
 send_raw:
 #ifdef LWS_OPENSSL_SUPPORT
-	if (use_ssl) {
+	if (wsi->ssl) {
 		n = SSL_write(wsi->ssl, buf - pre, len + pre + post);
 		if (n < 0) {
 			fprintf(stderr, "ERROR writing to socket\n");
@@ -1149,6 +1147,7 @@ send_raw:
 #ifdef LWS_OPENSSL_SUPPORT
 	}
 #endif
+
 	debug("written %d bytes to client\n", (int)len);
 
 	return 0;
@@ -1199,6 +1198,8 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
 	n = 1;
 	while (n > 0) {
 		n = read(fd, buf, 512);
+		if (n <= 0)
+			continue;
 		libwebsocket_write(wsi, (unsigned char *)buf, n,
 								LWS_WRITE_HTTP);
 	}

@@ -183,6 +183,7 @@ build_cpu = @build_cpu@
 build_os = @build_os@
 build_vendor = @build_vendor@
 builddir = @builddir@
+clientcertdir = @clientcertdir@
 datadir = @datadir@
 datarootdir = @datarootdir@
 docdir = @docdir@
@@ -221,7 +222,7 @@ include_HEADERS = libwebsockets.h
 dist_libwebsockets_la_SOURCES = libwebsockets.c handshake.c parsers.c \
 	libwebsockets.h base64-decode.c client-handshake.c \
 	private-libwebsockets.h $(am__append_1)
-libwebsockets_la_CFLAGS = -Wall -Werror -std=gnu99 -pedantic -rdynamic -fPIC -c
+libwebsockets_la_CFLAGS := -rdynamic -fPIC -Wall -Werror -std=gnu99 -pedantic -c -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 libwebsockets_la_LDFLAGS = -version-info 0:2
 all: all-am
 
