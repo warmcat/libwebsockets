@@ -159,6 +159,19 @@ another server, you can specify the protcol to handshake with
 by --protocol=protocolname
 
 
+proxy support
+-------------
+
+The http_proxy environment variable is respected by the client
+connection code for both ws:// and wss://.  It doesn't support
+authentication yet.
+
+You use it like this
+
+export http_proxy=myproxy.com:3128
+libwebsockets-test-client someserver.com
+
+
 Websocket version supported
 ---------------------------
 

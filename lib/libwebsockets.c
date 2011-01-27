@@ -623,6 +623,7 @@ libwebsocket_create_context(int port,
 	int opt = 1;
 	struct libwebsocket_context *this = NULL;
 	unsigned int slen;
+	char *p;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_METHOD *method;
@@ -636,6 +637,30 @@ libwebsocket_create_context(int port,
 	}
 	this->protocols = protocols;
 	this->listen_port = port;
+	this->http_proxy_port = 0;
+	this->http_proxy_address[0] = '\0';
+
+	/* split the proxy ads:port if given */
+
+	p = getenv("http_proxy");
+	if (p) {
+		strncpy(this->http_proxy_address, p,
+					   sizeof this->http_proxy_address - 1);
+		this->http_proxy_address[
+				    sizeof this->http_proxy_address - 1] = '\0';
+
+		p = strchr(this->http_proxy_address, ':');
+		if (p == NULL) {
+			fprintf(stderr, "http_proxy needs to be ads:port\n");
+			return NULL;
+		}
+		*p = '\0';
+		this->http_proxy_port = atoi(p + 1);
+
+		fprintf(stderr, "Using proxy %s:%u\n",
+				this->http_proxy_address,
+							this->http_proxy_port);
+	}
 
 	if (port) {
 

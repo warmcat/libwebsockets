@@ -115,6 +115,7 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	int okay = 0;
 	struct libwebsocket *wsi;
 	int n;
+	int plen = 0;
 #ifdef LWS_OPENSSL_SUPPORT
 	char ssl_err_buf[512];
 #else
@@ -126,7 +127,7 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 
 	wsi = malloc(sizeof(struct libwebsocket));
 	if (wsi == NULL) {
-		fprintf(stderr, "Out of memort allocing new connection\n");
+		fprintf(stderr, "Out of memory allocing new connection\n");
 		return NULL;
 	}
 
@@ -144,7 +145,23 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	}
 
 	/*
-	 * prepare the actual connection
+	 * proxy?
+	 */
+
+	if (this->http_proxy_port) {
+		plen = sprintf(pkt, "CONNECT %s:%u HTTP/1.0\x0d\x0a"
+			"User-agent: libwebsockets\x0d\x0a"
+/*Proxy-authorization: basic aGVsbG86d29ybGQ= */
+			"\x0d\x0a", address, port);
+
+		/* OK from now on we talk via the proxy */
+
+		address = this->http_proxy_address;
+		port = this->http_proxy_port;
+	}
+
+	/*
+	 * prepare the actual connection (to the proxy, if any)
 	 */
 
 	server_hostent = gethostbyname(address);
@@ -172,6 +189,35 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 		goto bail1;
 	}
 
+	/* we are connected to server, or proxy */
+
+	/* non-SSL connection */
+
+	if (this->http_proxy_port) {
+
+		n = send(wsi->sock, pkt, plen, 0);
+		if (n < 0) {
+			fprintf(stderr, "ERROR writing to "
+						      "proxy socket\n");
+			goto bail2;
+		}
+
+		n = recv(wsi->sock, pkt, sizeof pkt, 0);
+		if (n < 0) {
+			fprintf(stderr, "ERROR reading from "
+						      "proxy socket\n");
+			goto bail2;
+		}
+
+		pkt[13] = '\0';
+		if (strcmp(pkt, "HTTP/1.0 200 ") != 0) {
+			fprintf(stderr, "ERROR from proxy: %s\n", pkt);
+			goto bail2;
+		}
+
+		/* we can just start sending to proxy */
+	}
+
 #ifdef LWS_OPENSSL_SUPPORT
 	if (ssl_connection) {
 
@@ -182,22 +228,28 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 		if (SSL_connect(wsi->ssl) <= 0) {
 			fprintf(stderr, "SSL connect error %s\n",
 				ERR_error_string(ERR_get_error(), ssl_err_buf));
-			goto bail2;
+			goto bail1;
 		}
 
 		n = SSL_get_verify_result(wsi->ssl);
 		if (n != X509_V_OK) {
-			if (n == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT &&
-							    ssl_connection == 2)
-				goto cert_okay;
+			if (n != X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
+							  ssl_connection != 2) {
 
-		    fprintf(stderr, "server's cert didn't look good %d\n", n);
-		    goto bail2;
+				fprintf(stderr, "server's cert didn't "
+							   "look good %d\n", n);
+				goto bail2;
+			}
 		}
-	} else
+	} else {
 		wsi->ssl = NULL;
-cert_okay:
 #endif
+
+
+#ifdef LWS_OPENSSL_SUPPORT
+	}
+#endif
+
 	/*
 	 * create the random key
 	 */

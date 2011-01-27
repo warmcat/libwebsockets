@@ -168,6 +168,8 @@ struct libwebsocket_context {
 	struct pollfd fds[MAX_CLIENTS + 1];
 	int fds_count;
 	int listen_port;
+	char http_proxy_address[256];
+	unsigned int http_proxy_port;
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;
 	SSL_CTX *ssl_ctx;
