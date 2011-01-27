@@ -92,7 +92,7 @@ callback_lws_mirror(struct libwebsocket *wsi,
 
 		/*
 		 * start the ball rolling,
-		 * LWS_CALLBACK_CLIENT_WRITEABLE will come immediately
+		 * LWS_CALLBACK_CLIENT_WRITEABLE will come next service
 		 */
 
 		libwebsocket_callback_on_writable(wsi);
@@ -117,6 +117,12 @@ callback_lws_mirror(struct libwebsocket *wsi,
 		/* get notified as soon as we can write again */
 
 		libwebsocket_callback_on_writable(wsi);
+
+		/*
+		 * without at least this delay, we choke the browser
+		 * and the connection stalls, despite we now take care about
+		 * flow control
+		 */
 
 		usleep(200);
 		break;

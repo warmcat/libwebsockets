@@ -13,7 +13,7 @@ dist_libwebsockets_la_SOURCES += md5.c sha-1.c
 endif
 
 libwebsockets_la_CFLAGS:=-rdynamic -fPIC -Wall -Werror -std=gnu99 -pedantic -c -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
-libwebsockets_la_LDFLAGS=-version-info 0:2
+libwebsockets_la_LDFLAGS=-version-info 0:3
 
 all-local:
 	 ../scripts/kernel-doc -html \

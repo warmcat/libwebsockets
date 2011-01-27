@@ -223,7 +223,7 @@ dist_libwebsockets_la_SOURCES = libwebsockets.c handshake.c parsers.c \
 	libwebsockets.h base64-decode.c client-handshake.c \
 	private-libwebsockets.h $(am__append_1)
 libwebsockets_la_CFLAGS := -rdynamic -fPIC -Wall -Werror -std=gnu99 -pedantic -c -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
-libwebsockets_la_LDFLAGS = -version-info 0:2
+libwebsockets_la_LDFLAGS = -version-info 0:3
 all: all-am
 
 .SUFFIXES:
