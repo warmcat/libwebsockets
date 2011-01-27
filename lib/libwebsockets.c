@@ -514,6 +514,21 @@ libwebsocket_callback_on_writable_all_protocol(
 	return 0;
 }
 
+
+/**
+ * libwebsocket_get_socket_fd() - returns the socket file descriptor
+ *
+ * You will not need this unless you are doing something special
+ *
+ * @wsi:	Websocket connection instance
+ */
+
+int
+libwebsocket_get_socket_fd(struct libwebsocket *wsi)
+{
+	return wsi->sock;
+}
+
 /**
  * libwebsocket_rx_flow_control() - Enable and disable socket servicing for
  *				receieved packets.

@@ -616,6 +616,8 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
+NOPING_FALSE
+NOPING_TRUE
 clientcertdir
 LIBCRYPTO_FALSE
 LIBCRYPTO_TRUE
@@ -741,6 +743,7 @@ enable_openssl
 enable_nofork
 enable_libcrypto
 with_client_cert_dir
+enable_noping
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1386,6 +1389,7 @@ Optional Features:
   --enable-openssl  Enables https support and needs openssl libs
   --enable-nofork  Disables fork-related options
   --enable-libcrypto  Use libcrypto MD5 and SHA1 implementations
+  --enable-noping  Do not build ping test app, which has some unixy stuff in sources
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -12307,6 +12311,26 @@ fi
 
 
 
+#
+#
+#
+# Check whether --enable-noping was given.
+if test "${enable_noping+set}" = set; then :
+  enableval=$enable_noping;  noping=yes
+
+fi
+
+
+ if test x$noping = xyes; then
+  NOPING_TRUE=
+  NOPING_FALSE='#'
+else
+  NOPING_TRUE='#'
+  NOPING_FALSE=
+fi
+
+
+
 
 # Checks for header files.
 for ac_header in fcntl.h netinet/in.h stdlib.h string.h sys/socket.h unistd.h
@@ -12619,6 +12643,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${LIBCRYPTO_TRUE}" && test -z "${LIBCRYPTO_FALSE}"; then
   as_fn_error $? "conditional \"LIBCRYPTO\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${NOPING_TRUE}" && test -z "${NOPING_FALSE}"; then
+  as_fn_error $? "conditional \"NOPING\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 

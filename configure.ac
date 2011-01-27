@@ -73,6 +73,17 @@ AC_SUBST([clientcertdir])
 AC_SUBST([CFLAGS])
 
 
+#
+#
+#
+AC_ARG_ENABLE(noping,
+ [  --enable-noping  Do not build ping test app, which has some unixy stuff in sources],
+ [ noping=yes
+ ])
+
+AM_CONDITIONAL(NOPING, test x$noping = xyes)
+
+
 
 # Checks for header files.
 AC_CHECK_HEADERS([fcntl.h netinet/in.h stdlib.h string.h sys/socket.h unistd.h])

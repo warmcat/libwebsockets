@@ -73,7 +73,7 @@ static inline void debug(const char *format, ...)
 #define LWS_MAX_HEADER_LEN 4096
 #define LWS_INITIAL_HDR_ALLOC 256
 #define LWS_ADDITIONAL_HDR_ALLOC 64
-#define MAX_USER_RX_BUFFER 512
+#define MAX_USER_RX_BUFFER 4096
 #define MAX_BROADCAST_PAYLOAD 2048
 #define LWS_MAX_PROTOCOLS 10
 

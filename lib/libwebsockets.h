@@ -30,6 +30,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLOSED,
 	LWS_CALLBACK_RECEIVE,
 	LWS_CALLBACK_CLIENT_RECEIVE,
+	LWS_CALLBACK_CLIENT_RECEIVE_PONG,
 	LWS_CALLBACK_CLIENT_WRITEABLE,
 	LWS_CALLBACK_HTTP,
 	LWS_CALLBACK_BROADCAST
@@ -86,6 +87,10 @@ struct libwebsocket_context;
  *	LWS_CALLBACK_RECEIVE: data has appeared for this server endpoint from a
  *				remote client, it can be found at *in and is
  *				len bytes long
+ *
+ *	LWS_CALLBACK_CLIENT_RECEIVE_PONG: if you elected to see PONG packets,
+ *				they appear with this callback reason.  PONG
+ *				packets only exist in 04+ protocol
  *
  *	LWS_CALLBACK_CLIENT_RECEIVE: data has appeared from the server for the
  *				client connection, it can be found at *in and
@@ -225,6 +230,8 @@ extern int
 libwebsocket_callback_on_writable_all_protocol(
 				 const struct libwebsocket_protocols *protocol);
 
+extern int
+libwebsocket_get_socket_fd(struct libwebsocket *wsi);
 
 extern int
 libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable);

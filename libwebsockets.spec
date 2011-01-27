@@ -1,6 +1,6 @@
 Name: libwebsockets
 Version: 0.1
-Release: 44.gmaster_f55830db%{?dist}
+Release: 45.gmaster_f1d2113d%{?dist}
 Summary: Websocket Server Library
 
 Group: System
@@ -50,6 +50,7 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/libwebsockets.la
 %attr(755,root,root) /usr/share/libwebsockets-test-server
 %attr(755,root,root) /usr/share/libwebsockets-test-client
+%attr(755,root,root) /usr/share/libwebsockets-test-ping
 %doc
 %files devel
 %defattr(-,root,root,-)

@@ -5,9 +5,17 @@ libwebsockets_test_client_SOURCES=test-client.c
 libwebsockets_test_client_LDADD=-L../lib -lwebsockets
 
 
-
 libwebsockets_test_server_CFLAGS:= -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 libwebsockets_test_client_CFLAGS:= -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+
+if NOPING
+else
+bin_PROGRAMS+=libwebsockets-test-ping
+libwebsockets_test_ping_SOURCES=test-ping.c
+libwebsockets_test_ping_LDADD=-L../lib -lwebsockets
+libwebsockets_test_ping_CFLAGS:= -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+endif
+
 
 #
 # cook a random test cert and key

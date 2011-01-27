@@ -78,6 +78,21 @@ nothing is pending, or as soon as it services whatever was pending.
 <dd>Protocol whose connections will get callbacks
 </dl>
 <hr>
+<h2>libwebsocket_get_socket_fd - returns the socket file descriptor</h2>
+<i>int</i>
+<b>libwebsocket_get_socket_fd</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket connection instance
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+You will not need this unless you are doing something special
+</blockquote>
+<hr>
 <h2>libwebsocket_rx_flow_control - Enable and disable socket servicing for receieved packets.</h2>
 <i>int</i>
 <b>libwebsocket_rx_flow_control</b>
@@ -393,6 +408,12 @@ special buffer requirements
 data has appeared for this server endpoint from a
 remote client, it can be found at *in and is
 len bytes long
+</blockquote>
+<h3>LWS_CALLBACK_CLIENT_RECEIVE_PONG</h3>
+<blockquote>
+if you elected to see PONG packets,
+they appear with this callback reason.  PONG
+packets only exist in 04+ protocol
 </blockquote>
 <h3>LWS_CALLBACK_CLIENT_RECEIVE</h3>
 <blockquote>

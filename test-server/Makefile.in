@@ -35,7 +35,8 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = libwebsockets-test-server$(EXEEXT) \
-	libwebsockets-test-client$(EXEEXT)
+	libwebsockets-test-client$(EXEEXT) $(am__EXEEXT_1)
+@NOPING_FALSE@am__append_1 = libwebsockets-test-ping
 subdir = test-server
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -46,6 +47,7 @@ mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = $(top_builddir)/config.h
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
+@NOPING_FALSE@am__EXEEXT_1 = libwebsockets-test-ping$(EXEEXT)
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
 am_libwebsockets_test_client_OBJECTS =  \
@@ -56,6 +58,16 @@ libwebsockets_test_client_DEPENDENCIES =
 libwebsockets_test_client_LINK = $(LIBTOOL) --tag=CC \
 	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
 	$(libwebsockets_test_client_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
+	$(LDFLAGS) -o $@
+am__libwebsockets_test_ping_SOURCES_DIST = test-ping.c
+@NOPING_FALSE@am_libwebsockets_test_ping_OBJECTS =  \
+@NOPING_FALSE@	libwebsockets_test_ping-test-ping.$(OBJEXT)
+libwebsockets_test_ping_OBJECTS =  \
+	$(am_libwebsockets_test_ping_OBJECTS)
+libwebsockets_test_ping_DEPENDENCIES =
+libwebsockets_test_ping_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=link $(CCLD) \
+	$(libwebsockets_test_ping_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
 am_libwebsockets_test_server_OBJECTS =  \
 	libwebsockets_test_server-test-server.$(OBJEXT)
@@ -80,8 +92,10 @@ LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
 SOURCES = $(libwebsockets_test_client_SOURCES) \
+	$(libwebsockets_test_ping_SOURCES) \
 	$(libwebsockets_test_server_SOURCES)
 DIST_SOURCES = $(libwebsockets_test_client_SOURCES) \
+	$(am__libwebsockets_test_ping_SOURCES_DIST) \
 	$(libwebsockets_test_server_SOURCES)
 ETAGS = etags
 CTAGS = ctags
@@ -206,6 +220,9 @@ libwebsockets_test_client_SOURCES = test-client.c
 libwebsockets_test_client_LDADD = -L../lib -lwebsockets
 libwebsockets_test_server_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 libwebsockets_test_client_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+@NOPING_FALSE@libwebsockets_test_ping_SOURCES = test-ping.c
+@NOPING_FALSE@libwebsockets_test_ping_LDADD = -L../lib -lwebsockets
+@NOPING_FALSE@libwebsockets_test_ping_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 all: all-am
 
 .SUFFIXES:
@@ -286,6 +303,9 @@ clean-binPROGRAMS:
 libwebsockets-test-client$(EXEEXT): $(libwebsockets_test_client_OBJECTS) $(libwebsockets_test_client_DEPENDENCIES) 
 	@rm -f libwebsockets-test-client$(EXEEXT)
 	$(libwebsockets_test_client_LINK) $(libwebsockets_test_client_OBJECTS) $(libwebsockets_test_client_LDADD) $(LIBS)
+libwebsockets-test-ping$(EXEEXT): $(libwebsockets_test_ping_OBJECTS) $(libwebsockets_test_ping_DEPENDENCIES) 
+	@rm -f libwebsockets-test-ping$(EXEEXT)
+	$(libwebsockets_test_ping_LINK) $(libwebsockets_test_ping_OBJECTS) $(libwebsockets_test_ping_LDADD) $(LIBS)
 libwebsockets-test-server$(EXEEXT): $(libwebsockets_test_server_OBJECTS) $(libwebsockets_test_server_DEPENDENCIES) 
 	@rm -f libwebsockets-test-server$(EXEEXT)
 	$(libwebsockets_test_server_LINK) $(libwebsockets_test_server_OBJECTS) $(libwebsockets_test_server_LDADD) $(LIBS)
@@ -297,6 +317,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_test_client-test-client.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_test_ping-test-ping.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_test_server-test-server.Po@am__quote@
 
 .c.o:
@@ -333,6 +354,20 @@ libwebsockets_test_client-test-client.obj: test-client.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='test-client.c' object='libwebsockets_test_client-test-client.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_client_CFLAGS) $(CFLAGS) -c -o libwebsockets_test_client-test-client.obj `if test -f 'test-client.c'; then $(CYGPATH_W) 'test-client.c'; else $(CYGPATH_W) '$(srcdir)/test-client.c'; fi`
+
+libwebsockets_test_ping-test-ping.o: test-ping.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_ping_CFLAGS) $(CFLAGS) -MT libwebsockets_test_ping-test-ping.o -MD -MP -MF $(DEPDIR)/libwebsockets_test_ping-test-ping.Tpo -c -o libwebsockets_test_ping-test-ping.o `test -f 'test-ping.c' || echo '$(srcdir)/'`test-ping.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libwebsockets_test_ping-test-ping.Tpo $(DEPDIR)/libwebsockets_test_ping-test-ping.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='test-ping.c' object='libwebsockets_test_ping-test-ping.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_ping_CFLAGS) $(CFLAGS) -c -o libwebsockets_test_ping-test-ping.o `test -f 'test-ping.c' || echo '$(srcdir)/'`test-ping.c
+
+libwebsockets_test_ping-test-ping.obj: test-ping.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_ping_CFLAGS) $(CFLAGS) -MT libwebsockets_test_ping-test-ping.obj -MD -MP -MF $(DEPDIR)/libwebsockets_test_ping-test-ping.Tpo -c -o libwebsockets_test_ping-test-ping.obj `if test -f 'test-ping.c'; then $(CYGPATH_W) 'test-ping.c'; else $(CYGPATH_W) '$(srcdir)/test-ping.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libwebsockets_test_ping-test-ping.Tpo $(DEPDIR)/libwebsockets_test_ping-test-ping.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='test-ping.c' object='libwebsockets_test_ping-test-ping.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_ping_CFLAGS) $(CFLAGS) -c -o libwebsockets_test_ping-test-ping.obj `if test -f 'test-ping.c'; then $(CYGPATH_W) 'test-ping.c'; else $(CYGPATH_W) '$(srcdir)/test-ping.c'; fi`
 
 libwebsockets_test_server-test-server.o: test-server.c
 @am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_server_CFLAGS) $(CFLAGS) -MT libwebsockets_test_server-test-server.o -MD -MP -MF $(DEPDIR)/libwebsockets_test_server-test-server.Tpo -c -o libwebsockets_test_server-test-server.o `test -f 'test-server.c' || echo '$(srcdir)/'`test-server.c

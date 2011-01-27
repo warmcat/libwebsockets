@@ -560,7 +560,9 @@ spill:
 			n = libwebsocket_write(wsi, (unsigned char *)
 			    &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				    wsi->rx_user_buffer_head, LWS_WRITE_PONG);
-			break;
+			/* ... then just drop it */
+			wsi->rx_user_buffer_head = 0;
+			return 0;
 
 		case LWS_WS_OPCODE_04__PONG:
 			/* keep the statistics... */
@@ -599,6 +601,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;
 	unsigned char buf[20 + 4];
+	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
@@ -875,9 +878,10 @@ spill:
 		case LWS_WS_OPCODE_04__PONG:
 			/* keep the statistics... */
 			wsi->pings_vs_pongs--;
-			/* ... then just drop it */
-			wsi->rx_user_buffer_head = 0;
-			return 0;
+
+			/* issue it */
+			callback_action = LWS_CALLBACK_CLIENT_RECEIVE_PONG;
+			break;
 
 		default:
 			break;
@@ -890,8 +894,7 @@ spill:
 		 */
 
 		if (wsi->protocol->callback)
-			wsi->protocol->callback(wsi,
-						LWS_CALLBACK_CLIENT_RECEIVE,
+			wsi->protocol->callback(wsi, callback_action,
 						wsi->user_space,
 			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 						      wsi->rx_user_buffer_head);
