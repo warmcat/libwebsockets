@@ -199,20 +199,22 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 		if (n < 0) {
 			fprintf(stderr, "ERROR writing to "
 						      "proxy socket\n");
-			goto bail2;
+			goto bail1;
 		}
 
 		n = recv(wsi->sock, pkt, sizeof pkt, 0);
 		if (n < 0) {
+			close(wsi->sock);
 			fprintf(stderr, "ERROR reading from "
 						      "proxy socket\n");
-			goto bail2;
+			goto bail1;
 		}
 
 		pkt[13] = '\0';
 		if (strcmp(pkt, "HTTP/1.0 200 ") != 0) {
+			close(wsi->sock);
 			fprintf(stderr, "ERROR from proxy: %s\n", pkt);
-			goto bail2;
+			goto bail1;
 		}
 
 		/* we can just start sending to proxy */
