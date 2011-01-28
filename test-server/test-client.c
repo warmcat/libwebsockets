@@ -25,7 +25,6 @@
 #include <getopt.h>
 #include <string.h>
 
-
 #include "../lib/libwebsockets.h"
 #include <poll.h>
 
@@ -170,7 +169,6 @@ int main(int argc, char **argv)
 	struct libwebsocket *wsi_dumb;
 	struct libwebsocket *wsi_mirror;
 
-
 	fprintf(stderr, "libwebsockets test client\n"
 			"(C) Copyright 2010 Andy Green <andy@warmcat.com> "
 						    "licensed under LGPL2.1\n");
@@ -215,7 +213,7 @@ int main(int argc, char **argv)
 	/* create a client websocket using dumb increment protocol */
 
 	wsi_dumb = libwebsocket_client_connect(context, address, port, use_ssl,
-					"/", "http://host", "origin",
+			"/", libwebsocket_canonical_hostname(context), "origin",
 				       protocols[PROTOCOL_DUMB_INCREMENT].name);
 
 	if (wsi_dumb == NULL) {
@@ -226,7 +224,7 @@ int main(int argc, char **argv)
 	/* create a client websocket using mirror protocol */
 
 	wsi_mirror = libwebsocket_client_connect(context, address, port,
-					use_ssl,  "/", "http://host", "origin",
+	     use_ssl,  "/", libwebsocket_canonical_hostname(context), "origin",
 				       protocols[PROTOCOL_LWS_MIRROR].name);
 
 	if (wsi_mirror == NULL) {

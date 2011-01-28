@@ -112,6 +112,23 @@ If the output side of a server process becomes choked, this allows flow
 control for the input side.
 </blockquote>
 <hr>
+<h2>libwebsocket_canonical_hostname - returns this host's hostname</h2>
+<i>const char *</i>
+<b>libwebsocket_canonical_hostname</b>
+(<i>struct libwebsocket_context *</i> <b>this</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>this</b>
+<dd>Websocket context
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+This is typically used by client code to fill in the host parameter
+when making a client connection.  You can only call it after the context
+has been created.
+</blockquote>
+<hr>
 <h2>libwebsocket_create_context - Create the websocket handler</h2>
 <i>struct libwebsocket_context *</i>
 <b>libwebsocket_create_context</b>

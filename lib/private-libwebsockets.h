@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <netdb.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -169,6 +170,7 @@ struct libwebsocket_context {
 	int fds_count;
 	int listen_port;
 	char http_proxy_address[256];
+	char canonical_hostname[1024];
 	unsigned int http_proxy_port;
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;

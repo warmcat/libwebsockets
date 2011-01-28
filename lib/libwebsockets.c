@@ -561,6 +561,24 @@ libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable)
 	return 1;
 }
 
+/**
+ * libwebsocket_canonical_hostname() - returns this host's hostname
+ *
+ * This is typically used by client code to fill in the host parameter
+ * when making a client connection.  You can only call it after the context
+ * has been created.
+ *
+ * @this:	Websocket context
+ */
+
+
+extern const char *
+libwebsocket_canonical_hostname(struct libwebsocket_context *this)
+{
+	return (const char *)this->canonical_hostname;
+}
+
+
 static void sigpipe_handler(int x)
 {
 }
@@ -624,6 +642,8 @@ libwebsocket_create_context(int port,
 	struct libwebsocket_context *this = NULL;
 	unsigned int slen;
 	char *p;
+	char hostname[1024];
+	struct hostent* he;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_METHOD *method;
@@ -639,6 +659,15 @@ libwebsocket_create_context(int port,
 	this->listen_port = port;
 	this->http_proxy_port = 0;
 	this->http_proxy_address[0] = '\0';
+
+	/* find canonical hostname */
+
+	hostname[(sizeof hostname) - 1] = '\0';
+	gethostname(hostname, (sizeof hostname) - 1);
+	he = gethostbyname(hostname);
+	strncpy(this->canonical_hostname, he->h_name,
+					   sizeof this->canonical_hostname - 1);
+	this->canonical_hostname[sizeof this->canonical_hostname - 1] = '\0';
 
 	/* split the proxy ads:port if given */
 

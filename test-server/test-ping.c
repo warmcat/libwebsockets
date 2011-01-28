@@ -370,9 +370,9 @@ int main(int argc, char **argv)
 
 	/* create a client websocket using dumb increment protocol */
 
-	wsi_mirror = libwebsocket_client_connect(context, address, port, use_ssl,
-					"/", "http://host", "origin",
-				       protocols[PROTOCOL_LWS_MIRROR].name);
+	wsi_mirror = libwebsocket_client_connect(context, address, port,
+			use_ssl, "/", libwebsocket_canonical_hostname(context),
+				 "origin", protocols[PROTOCOL_LWS_MIRROR].name);
 
 	if (wsi_mirror == NULL) {
 		fprintf(stderr, "libwebsocket connect failed\n");

@@ -249,7 +249,10 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 			      const char *origin,
 			      const char *protocol);
 
-void
+extern const char *
+libwebsocket_canonical_hostname(struct libwebsocket_context *this);
+
+extern void
 libwebsocket_client_close(struct libwebsocket *wsi);
 
 #endif
