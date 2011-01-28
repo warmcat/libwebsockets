@@ -191,22 +191,31 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 
 	/* we are connected to server, or proxy */
 
-	/* non-SSL connection */
-
 	if (this->http_proxy_port) {
 
 		n = send(wsi->sock, pkt, plen, 0);
 		if (n < 0) {
-			fprintf(stderr, "ERROR writing to "
-						      "proxy socket\n");
+			close(wsi->sock);
+			fprintf(stderr, "ERROR writing to proxy socket\n");
+			goto bail1;
+		}
+
+		pfd.fd = wsi->sock;
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+
+		n = poll(&pfd, 1, 5000);
+		if (n <= 0) {
+			close(wsi->sock);
+			fprintf(stderr, "libwebsocket_client_handshake "
+					"timeout on proxy response");
 			goto bail1;
 		}
 
 		n = recv(wsi->sock, pkt, sizeof pkt, 0);
 		if (n < 0) {
 			close(wsi->sock);
-			fprintf(stderr, "ERROR reading from "
-						      "proxy socket\n");
+			fprintf(stderr, "ERROR reading from proxy socket\n");
 			goto bail1;
 		}
 
