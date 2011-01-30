@@ -46,21 +46,20 @@
 
 static unsigned int interval_us = 1000000;
 static unsigned int size = 64;
-static int flood = 0;
+static int flood;
 static const char *address;
 static unsigned char pingbuf[LWS_SEND_BUFFER_PRE_PADDING + MAX_MIRROR_PAYLOAD +
 						  LWS_SEND_BUFFER_POST_PADDING];
-static unsigned long oldus = 0;
 static unsigned long ping_index = 1;
 static char *hname = "(unknown)";
-static unsigned long rx_count = 0;
+static unsigned long rx_count;
 static unsigned long started;
 
 static unsigned long rtt_min = 100000000;
-static unsigned long rtt_max = 0;
-static unsigned long rtt_avg = 0;
+static unsigned long rtt_max;
+static unsigned long rtt_avg;
 static int screen_width = 80;
-static int use_mirror = 0;
+static int use_mirror;
 
 struct ping {
 	unsigned long issue_timestamp;
@@ -142,18 +141,18 @@ callback_lws_mirror(struct libwebsocket *wsi,
 				match = -1;
 				continue;
 			}
-			
+
 			if (n == 0)
 				n = PING_RINGBUFFER_SIZE - 1;
 			else
-				n--;		
+				n--;
 		}
 
 		if (match < 1) {
-			
+
 			if (!flood)
 				fprintf(stderr, "%d bytes from %s: req=%ld "
-					"time=(unknown)\n", (int)len, address, l);
+				      "time=(unknown)\n", (int)len, address, l);
 			else
 				fprintf(stderr, "\b \b");
 
@@ -171,13 +170,12 @@ callback_lws_mirror(struct libwebsocket *wsi,
 
 		rtt_avg += iv - ringbuffer[n].issue_timestamp;
 
-	
+
 		if (!flood)
 			fprintf(stderr, "%d bytes from %s: req=%ld "
-					"time=%lu.%lums\n", (int)len, address, l,
-					(iv - ringbuffer[n].issue_timestamp) / 1000,
-					((iv - ringbuffer[n].issue_timestamp) / 100) % 10
-					);
+				"time=%lu.%lums\n", (int)len, address, l,
+				(iv - ringbuffer[n].issue_timestamp) / 1000,
+			     ((iv - ringbuffer[n].issue_timestamp) / 100) % 10);
 		else
 			fprintf(stderr, "\b \b");
 		break;
@@ -191,9 +189,9 @@ callback_lws_mirror(struct libwebsocket *wsi,
 			*p++ = ping_index >> shift;
 			shift -= 8;
 		}
-	
+
 		gettimeofday(&tv, NULL);
-		
+
 		ringbuffer[ringbuffer_head].issue_timestamp =
 					     (tv.tv_sec * 1000000) + tv.tv_usec;
 		ringbuffer[ringbuffer_head].index = ping_index++;
@@ -270,7 +268,8 @@ signal_handler(int sig, siginfo_t *si, void *v)
 	l = (tv.tv_sec * 1000000) + tv.tv_usec;
 
 	fprintf(stderr, "\n--- %s websocket ping statistics ---\n"
-		"%lu packets transmitted, %lu received, %lu%% packet loss, time %ldms\n"
+		"%lu packets transmitted, %lu received, "
+		"%lu%% packet loss, time %ldms\n"
 		"rtt min/avg/max = %0.3f/%0.3f/%0.3f ms\n",
 		hname, ping_index - 1, rx_count,
 		(((ping_index - 1) - rx_count) * 100) / (ping_index - 1),
@@ -301,7 +300,8 @@ int main(int argc, char **argv)
 	struct sigaction sa;
 	struct timeval tv;
 	struct winsize w;
-                
+	unsigned long oldus = 0;
+
 	if (argc < 2)
 		goto usage;
 
@@ -324,7 +324,7 @@ int main(int argc, char **argv)
 			break;
 		case 'n':
 			strncpy(protocol_name, optarg, sizeof protocol_name);
-			protocol_name[(sizeof protocol_name) -1] = '\0';
+			protocol_name[(sizeof protocol_name) - 1] = '\0';
 			protocols[PROTOCOL_LWS_MIRROR].name = protocol_name;
 			break;
 		case 'i':
@@ -356,10 +356,10 @@ int main(int argc, char **argv)
 	}
 
 
-        if (isatty(STDOUT_FILENO))
-                if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1)
-                        if (w.ws_col > 0)
-                                screen_width = w.ws_col;
+	if (isatty(STDOUT_FILENO))
+		if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1)
+			if (w.ws_col > 0)
+				screen_width = w.ws_col;
 
 	context = libwebsocket_create_context(CONTEXT_PORT_NO_LISTEN,
 						 protocols, NULL, NULL, -1, -1);

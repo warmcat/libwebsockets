@@ -643,7 +643,7 @@ libwebsocket_create_context(int port,
 	unsigned int slen;
 	char *p;
 	char hostname[1024];
-	struct hostent* he;
+	struct hostent *he;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_METHOD *method;

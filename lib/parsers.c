@@ -758,7 +758,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 #if defined __LP64__
 		wsi->rx_packet_length = ((size_t)c) << 56;
 #else
-		wsi->rx_packet_length =0;
+		wsi->rx_packet_length = 0;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_7;
 		break;
