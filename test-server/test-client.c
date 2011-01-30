@@ -28,6 +28,8 @@
 #include "../lib/libwebsockets.h"
 #include <poll.h>
 
+static unsigned int opts;
+
 /*
  * This demo shows how to connect multiple websockets simultaneously to a
  * websocket server (there is no restriction on their having to be the same
@@ -111,7 +113,7 @@ callback_lws_mirror(struct libwebsocket *wsi,
 					(int)random() % 24);
 
 		libwebsocket_write(wsi,
-			&buf[LWS_SEND_BUFFER_PRE_PADDING], l, LWS_WRITE_TEXT);
+		   &buf[LWS_SEND_BUFFER_PRE_PADDING], l, opts | LWS_WRITE_TEXT);
 
 		/* get notified as soon as we can write again */
 
@@ -155,6 +157,7 @@ static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
+	{ "killmask",	no_argument,		NULL, 'k' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -179,7 +182,7 @@ int main(int argc, char **argv)
 	optind++;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "hsp:", options, NULL);
+		n = getopt_long(argc, argv, "khsp:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -188,6 +191,9 @@ int main(int argc, char **argv)
 			break;
 		case 'p':
 			port = atoi(optarg);
+			break;
+		case 'k':
+			opts = LWS_WRITE_CLIENT_IGNORE_XOR_MASK;
 			break;
 		case 'h':
 			goto usage;
