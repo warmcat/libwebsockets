@@ -507,6 +507,19 @@ check_accept:
 	strcpy(p, magic_websocket_04_masking_guid);
 	SHA1((unsigned char *)buf, strlen(buf), wsi->masking_key_04);
 
+	/* allocate the per-connection user memory (if any) */
+
+	if (wsi->protocol->per_session_data_size) {
+		wsi->user_space = malloc(
+				  wsi->protocol->per_session_data_size);
+		if (wsi->user_space  == NULL) {
+			fprintf(stderr, "Out of memory for "
+						   "conn user space\n");
+			goto bail2;
+		}
+	} else
+		wsi->user_space = NULL;
+
 	/* okay he is good to go */
 
 	this->fds[this->fds_count].fd = wsi->sock;
