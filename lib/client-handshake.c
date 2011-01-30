@@ -39,6 +39,7 @@ libwebsocket_client_close(struct libwebsocket *wsi)
 				while (n < clients->fds_count - 1) {
 					clients->fds[n] = clients->fds[n + 1];
 					clients->wsi[n] = clients->wsi[n + 1];
+					n++;
 				}
 				/* we only have to deal with one */
 				n = clients->fds_count;
