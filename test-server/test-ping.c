@@ -489,12 +489,6 @@ int main(int argc, char **argv)
 		((double)global_rx_count * (double)size) /
 				  ((double)(l - started) / 1000000.0) / 1024.0);
 
-//	return 0;
-fprintf(stderr, "a\n");
-	for (n = 0; n < clients; n++)
-		libwebsocket_client_close(wsi[n]);
-
-fprintf(stderr, "b\n");
 	libwebsocket_context_destroy(context);
 
 	return 0;

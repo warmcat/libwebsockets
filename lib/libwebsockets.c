@@ -222,8 +222,11 @@ libwebsocket_context_destroy(struct libwebsocket_context *this)
 	int client;
 
 	/* close listening skt and per-protocol broadcast sockets */
-	for (client = 0; client < this->fds_count; client++)
-		libwebsocket_close_and_free_session(this->wsi[client]);
+	for (client = this->count_protocols + 1; client < this->fds_count; client++)
+		if (this->wsi[client]->client_mode)
+			libwebsocket_client_close(this->wsi[client]);
+		else
+			libwebsocket_close_and_free_session(this->wsi[client]);
 
 #ifdef LWS_OPENSSL_SUPPORT
 	if (this->ssl_ctx)

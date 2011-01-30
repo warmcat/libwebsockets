@@ -243,9 +243,6 @@ int main(int argc, char **argv)
 	while (n >= 0)
 		n = libwebsocket_service(context, 1000);
 
-	libwebsocket_client_close(wsi_dumb);
-	libwebsocket_client_close(wsi_mirror);
-
 	libwebsocket_context_destroy(context);
 
 	return 0;

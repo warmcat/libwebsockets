@@ -21,6 +21,9 @@ libwebsocket_client_close(struct libwebsocket *wsi)
 	int n = wsi->state;
 	struct libwebsocket_context *clients;
 
+	if (n == WSI_STATE_DEAD_SOCKET)
+		return;
+
 	/* mark the WSI as dead and let the callback know */
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
