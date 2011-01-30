@@ -278,6 +278,7 @@ static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
+	{ "killmask",	no_argument,		NULL, 'k' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -293,6 +294,7 @@ int main(int argc, char **argv)
 	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
+	int opts = 0;
 #ifdef LWS_NO_FORK
 	unsigned int oldus = 0;
 #endif
@@ -302,12 +304,15 @@ int main(int argc, char **argv)
 						    "licensed under LGPL2.1\n");
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "hsp:", options, NULL);
+		n = getopt_long(argc, argv, "khsp:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
 		case 's':
 			use_ssl = 1;
+			break;
+		case 'k':
+			opts = LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK;
 			break;
 		case 'p':
 			port = atoi(optarg);
@@ -323,7 +328,7 @@ int main(int argc, char **argv)
 		cert_path = key_path = NULL;
 
 	context = libwebsocket_create_context(port, protocols, cert_path,
-							      key_path, -1, -1);
+						key_path, -1, -1, opts);
 	if (context == NULL) {
 		fprintf(stderr, "libwebsocket init failed\n");
 		return -1;

@@ -24,6 +24,8 @@
 
 #define CONTEXT_PORT_NO_LISTEN 0
 
+#define LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK 1
+
 enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_ESTABLISHED,
 	LWS_CALLBACK_CLIENT_ESTABLISHED,
@@ -174,7 +176,8 @@ extern struct libwebsocket_context *
 libwebsocket_create_context(int port,
 		  struct libwebsocket_protocols *protocols,
 		  const char *ssl_cert_filepath,
-		  const char *ssl_private_key_filepath, int gid, int uid);
+		  const char *ssl_private_key_filepath, int gid, int uid,
+		  unsigned int options);
 
 extern void
 libwebsocket_context_destroy(struct libwebsocket_context *this);

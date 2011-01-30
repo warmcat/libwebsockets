@@ -635,7 +635,7 @@ libwebsocket_create_context(int port,
 			       struct libwebsocket_protocols *protocols,
 			       const char *ssl_cert_filepath,
 			       const char *ssl_private_key_filepath,
-			       int gid, int uid)
+			       int gid, int uid, unsigned int options)
 {
 	int n;
 	int sockfd = 0;
@@ -662,6 +662,7 @@ libwebsocket_create_context(int port,
 	this->listen_port = port;
 	this->http_proxy_port = 0;
 	this->http_proxy_address[0] = '\0';
+	this->options = options;
 
 	/* find canonical hostname */
 

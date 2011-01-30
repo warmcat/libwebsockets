@@ -223,6 +223,10 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 static inline unsigned char
 xor_mask(struct libwebsocket *wsi, unsigned char c)
 {
+	if (wsi->protocol->owning_server->options &
+					   LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK)
+		return c;
+	
 	c ^= wsi->masking_key_04[wsi->frame_mask_index++];
 	if (wsi->frame_mask_index == 20)
 		wsi->frame_mask_index = 0;
@@ -267,6 +271,10 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	case LWS_RXPS_04_MASK_NONCE_3:
 		wsi->frame_masking_nonce_04[3] = c;
 
+		if (wsi->protocol->owning_server->options &
+					   LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK)
+			goto post_mask;
+
 		/*
 		 * we are able to compute the frame key now
 		 * it's a SHA1 of ( frame nonce we were just sent, concatenated
@@ -296,6 +304,7 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 		wsi->frame_mask_index = 0;
 
+post_mask:
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_1;
 		break;
 

@@ -56,6 +56,7 @@ static char *hname = "(unknown)";
 static unsigned long started;
 static int screen_width = 80;
 static int use_mirror;
+static unsigned int write_options;
 
 static unsigned long rtt_min = 100000000;
 static unsigned long rtt_max;
@@ -232,11 +233,11 @@ callback_lws_mirror(struct libwebsocket *wsi,
 		if (use_mirror)
 			libwebsocket_write(wsi,
 				&pingbuf[LWS_SEND_BUFFER_PRE_PADDING],
-							size, LWS_WRITE_BINARY);
+					size, write_options | LWS_WRITE_BINARY);
 		else
 			libwebsocket_write(wsi,
 				&pingbuf[LWS_SEND_BUFFER_PRE_PADDING],
-							  size, LWS_WRITE_PING);
+					size, write_options | LWS_WRITE_PING);
 
 		if (flood &&
 			 (psd->ping_index - psd->rx_count) < (screen_width - 1))
@@ -275,6 +276,7 @@ static struct option options[] = {
 	{ "flood",	no_argument,		NULL, 'f' },
 	{ "mirror",	no_argument,		NULL, 'm' },
 	{ "replicate",	required_argument,	NULL, 'r' },
+	{ "killmask",	no_argument,		NULL, 'k' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -316,7 +318,7 @@ int main(int argc, char **argv)
 	optind++;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "r:hmfts:n:i:p:", options, NULL);
+		n = getopt_long(argc, argv, "kr:hmfts:n:i:p:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -351,6 +353,10 @@ int main(int argc, char **argv)
 				return 1;
 			}
 			break;
+		case 'k':
+			write_options = LWS_WRITE_CLIENT_IGNORE_XOR_MASK;
+			break;
+
 		case 'h':
 			goto usage;
 		}
@@ -377,7 +383,7 @@ int main(int argc, char **argv)
 				screen_width = w.ws_col;
 
 	context = libwebsocket_create_context(CONTEXT_PORT_NO_LISTEN,
-						 protocols, NULL, NULL, -1, -1);
+					      protocols, NULL, NULL, -1, -1, 0);
 	if (context == NULL) {
 		fprintf(stderr, "Creating libwebsocket context failed\n");
 		return 1;
@@ -454,7 +460,8 @@ int main(int argc, char **argv)
 		if (!interrupted_time) {
 			if ((l - oldus) > interval_us) {
 				for (n = 0; n < clients; n++)
-					libwebsocket_callback_on_writable(wsi[n]);
+					libwebsocket_callback_on_writable(
+									wsi[n]);
 				oldus = l;
 			}
 		} else
