@@ -47,7 +47,15 @@ enum libwebsocket_write_protocol {
 	LWS_WRITE_PING,
 	LWS_WRITE_PONG,
 
-	LWS_WRITE_NO_FIN = 0x40
+	/* flags */
+
+	LWS_WRITE_NO_FIN = 0x40,
+	/*
+	 * client packet payload goes out on wire unmunged
+	 * only useful for security tests since normal servers cannot
+	 * decode the content if used
+	 */
+	LWS_WRITE_CLIENT_IGNORE_XOR_MASK = 0x80
 };
 
 struct libwebsocket;

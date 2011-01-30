@@ -1131,19 +1131,27 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 	if (wsi->client_mode && wsi->ietf_spec_revision == 4) {
 
-		if (libwebsocket_04_frame_mask_generate(wsi)) {
-			fprintf(stderr, "libwebsocket_write: "
-					      "frame mask generation failed\n");
-			return 1;
-		}
-
 		/*
-		 * use the XOR masking against everything we send
-		 * past the frame nonce
+		 * this is only useful for security tests where it's required
+		 * to control the raw packet payload content
 		 */
 
-		for (n = 0; n < (len + pre + post); n++)
-			buf[n - pre] = xor_mask(wsi, buf[n - pre]);
+		if (!(protocol & LWS_WRITE_CLIENT_IGNORE_XOR_MASK)) {
+
+			if (libwebsocket_04_frame_mask_generate(wsi)) {
+				fprintf(stderr, "libwebsocket_write: "
+					      "frame mask generation failed\n");
+				return 1;
+			}
+
+			/*
+			 * use the XOR masking against everything we send
+			 * past the frame nonce
+			 */
+
+			for (n = 0; n < (len + pre + post); n++)
+				buf[n - pre] = xor_mask(wsi, buf[n - pre]);
+		}
 
 		/* make space for the frame nonce in clear */
 		pre += 4;
