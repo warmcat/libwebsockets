@@ -142,6 +142,7 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	wsi->user_space = NULL;
 	wsi->state = WSI_STATE_CLIENT_UNCONNECTED;
 	wsi->pings_vs_pongs = 0;
+	wsi->protocol = NULL;
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
 		wsi->utf8_token[n].token = NULL;
@@ -399,7 +400,8 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 			(!wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len &&
 							    protocol != NULL)) {
 		fprintf(stderr, "libwebsocket_client_handshake "
-						   "missing required header\n");
+						"missing required header(s)\n");
+		fprintf(stderr, "%s", pkt);
 		goto bail2;
 	}
 
