@@ -672,6 +672,8 @@ libwebsocket_create_context(int port,
 	strncpy(this->canonical_hostname, he->h_name,
 					   sizeof this->canonical_hostname - 1);
 	this->canonical_hostname[sizeof this->canonical_hostname - 1] = '\0';
+	fprintf(stderr, "  canonical hostname = '%s'\n",
+					this->canonical_hostname);
 
 	/* split the proxy ads:port if given */
 

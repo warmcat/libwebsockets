@@ -401,6 +401,7 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 							    protocol != NULL)) {
 		fprintf(stderr, "libwebsocket_client_handshake "
 						"missing required header(s)\n");
+		pkt[len] = '\0';
 		fprintf(stderr, "%s", pkt);
 		goto bail2;
 	}

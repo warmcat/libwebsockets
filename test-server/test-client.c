@@ -168,7 +168,7 @@ int main(int argc, char **argv)
 	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
-	const char *address = argv[1];
+	const char *address;
 	struct libwebsocket *wsi_dumb;
 	struct libwebsocket *wsi_mirror;
 
@@ -200,6 +200,11 @@ int main(int argc, char **argv)
 		}
 	}
 
+	if (optind >= argc)
+		goto usage;
+
+	address = argv[optind];
+
 	/*
 	 * create the websockets context.  This tracks open connections and
 	 * knows how to route any traffic and which protocol version to use,
@@ -219,7 +224,7 @@ int main(int argc, char **argv)
 	/* create a client websocket using dumb increment protocol */
 
 	wsi_dumb = libwebsocket_client_connect(context, address, port, use_ssl,
-			"/", libwebsocket_canonical_hostname(context), "origin",
+			"/", argv[optind], argv[optind],
 				       protocols[PROTOCOL_DUMB_INCREMENT].name);
 
 	if (wsi_dumb == NULL) {
@@ -230,7 +235,7 @@ int main(int argc, char **argv)
 	/* create a client websocket using mirror protocol */
 
 	wsi_mirror = libwebsocket_client_connect(context, address, port,
-	     use_ssl,  "/", libwebsocket_canonical_hostname(context), "origin",
+	     use_ssl,  "/", argv[optind], argv[optind],
 				       protocols[PROTOCOL_LWS_MIRROR].name);
 
 	if (wsi_mirror == NULL) {
