@@ -1138,7 +1138,8 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	 * Deal with masking if appropriate
 	 */
 
-	if (wsi->client_mode && wsi->ietf_spec_revision == 4) {
+	if (wsi->mode == LWS_CONNMODE_WS_CLIENT &&
+						 wsi->ietf_spec_revision == 4) {
 
 		/*
 		 * this is only useful for security tests where it's required

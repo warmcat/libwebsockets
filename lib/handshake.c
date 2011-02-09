@@ -463,12 +463,17 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		fwrite(buf, 1, len, stderr);
 #endif
 
-		if (wsi->client_mode) {
+		switch (wsi->mode) {
+		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
 				libwebsocket_client_rx_sm(wsi, *buf++);
 
 			return 0;
+		default:
+			break;
 		}
+		
+		/* LWS_CONNMODE_WS_SERVING */
 
 		for (n = 0; n < len; n++)
 			libwebsocket_parse(wsi, *buf++);
@@ -557,12 +562,17 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 		break;
 
 	case WSI_STATE_ESTABLISHED:
-		if (wsi->client_mode) {
+		switch (wsi->mode) {
+		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
 				libwebsocket_client_rx_sm(wsi, *buf++);
 
 			return 0;
+		default:
+			break;
 		}
+
+		/* LWS_CONNMODE_WS_SERVING */
 
 		if (libwebsocket_interpret_incoming_packet(wsi, buf, len) < 0)
 			goto bail;

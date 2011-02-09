@@ -534,7 +534,7 @@ check_accept:
 	this->fds[this->fds_count++].events = POLLIN;
 
 	wsi->state = WSI_STATE_ESTABLISHED;
-	wsi->client_mode = 1;
+	wsi->mode = LWS_CONNMODE_WS_CLIENT;
 
 	fprintf(stderr, "handshake OK for protocol %s\n", wsi->protocol->name);
 

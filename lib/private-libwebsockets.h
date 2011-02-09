@@ -182,6 +182,11 @@ struct libwebsocket_context {
 	int count_protocols;
 };
 
+enum connection_mode {
+	LWS_CONNMODE_WS_SERVING,
+	LWS_CONNMODE_WS_CLIENT,
+};
+
 
 /*
  * This is totally opaque to code using the library.  It's exported as a
@@ -222,7 +227,7 @@ struct libwebsocket {
 
 	/* client support */
 	char initial_handshake_hash_base64[30];
-	int client_mode;
+	enum connection_mode mode;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;

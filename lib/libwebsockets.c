@@ -142,7 +142,7 @@ libwebsocket_poll_connections(struct libwebsocket_context *this)
 
 				/* only to clients connected to us */
 
-				if (wsi->client_mode)
+				if (wsi->mode != LWS_CONNMODE_WS_SERVING)
 					continue;
 
 				/*
@@ -223,10 +223,14 @@ libwebsocket_context_destroy(struct libwebsocket_context *this)
 
 	/* close listening skt and per-protocol broadcast sockets */
 	for (client = this->count_protocols + 1; client < this->fds_count; client++)
-		if (this->wsi[client]->client_mode)
-			libwebsocket_client_close(this->wsi[client]);
-		else
+		switch (this->wsi[client]->mode) {
+		case LWS_CONNMODE_WS_SERVING:
 			libwebsocket_close_and_free_session(this->wsi[client]);
+			break;
+		case LWS_CONNMODE_WS_CLIENT:
+			libwebsocket_client_close(this->wsi[client]);
+			break;
+		}
 
 #ifdef LWS_OPENSSL_SUPPORT
 	if (this->ssl_ctx)
@@ -397,7 +401,7 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
 		this->wsi[this->fds_count]->sock = fd;
 		this->wsi[this->fds_count]->state = WSI_STATE_HTTP;
 		this->wsi[this->fds_count]->name_buffer_pos = 0;
-		this->wsi[this->fds_count]->client_mode = 0;
+		this->wsi[this->fds_count]->mode = LWS_CONNMODE_WS_SERVING;
 
 		for (n = 0; n < WSI_TOKEN_COUNT; n++) {
 			this->wsi[this->fds_count]->
