@@ -277,6 +277,7 @@ static struct option options[] = {
 	{ "mirror",	no_argument,		NULL, 'm' },
 	{ "replicate",	required_argument,	NULL, 'r' },
 	{ "killmask",	no_argument,		NULL, 'k' },
+	{ "version",	required_argument,	NULL, 'v' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -310,6 +311,7 @@ int main(int argc, char **argv)
 	struct winsize w;
 	unsigned long oldus = 0;
 	unsigned long l;
+	int ietf_version = -1;
 
 	if (argc < 2)
 		goto usage;
@@ -318,7 +320,7 @@ int main(int argc, char **argv)
 	optind++;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "kr:hmfts:n:i:p:", options, NULL);
+		n = getopt_long(argc, argv, "v:kr:hmfts:n:i:p:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -355,6 +357,9 @@ int main(int argc, char **argv)
 			break;
 		case 'k':
 			write_options = LWS_WRITE_CLIENT_IGNORE_XOR_MASK;
+			break;
+		case 'v':
+			ietf_version = atoi(optarg);
 			break;
 
 		case 'h':
@@ -393,8 +398,9 @@ int main(int argc, char **argv)
 
 	for (n = 0; n < clients; n++) {
 		wsi[n] = libwebsocket_client_connect(context, address, port,
-			use_ssl, "/", libwebsocket_canonical_hostname(context),
-				 "origin", protocols[PROTOCOL_LWS_MIRROR].name);
+						     use_ssl, "/", address,
+				 "origin", protocols[PROTOCOL_LWS_MIRROR].name,
+								  ietf_version);
 		if (wsi[n] == NULL) {
 			fprintf(stderr, "client connnection %d failed to "
 								"connect\n", n);

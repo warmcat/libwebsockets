@@ -607,6 +607,7 @@ static void sigpipe_handler(int x)
  *			else ignored
  * @gid:	group id to change to after setting listen socket, or -1.
  * @uid:	user id to change to after setting listen socket, or -1.
+ * @options:	0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
  *
  *	This function creates the listening socket and takes care
  *	of all initialization in one step.

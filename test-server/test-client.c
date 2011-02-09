@@ -158,6 +158,7 @@ static struct option options[] = {
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "killmask",	no_argument,		NULL, 'k' },
+	{ "version",	required_argument,	NULL, 'v' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -171,6 +172,7 @@ int main(int argc, char **argv)
 	const char *address;
 	struct libwebsocket *wsi_dumb;
 	struct libwebsocket *wsi_mirror;
+	int ietf_version = -1; /* latest */
 
 	fprintf(stderr, "libwebsockets test client\n"
 			"(C) Copyright 2010 Andy Green <andy@warmcat.com> "
@@ -179,10 +181,8 @@ int main(int argc, char **argv)
 	if (argc < 2)
 		goto usage;
 
-	optind++;
-
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "khsp:", options, NULL);
+		n = getopt_long(argc, argv, "v:khsp:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -194,6 +194,9 @@ int main(int argc, char **argv)
 			break;
 		case 'k':
 			opts = LWS_WRITE_CLIENT_IGNORE_XOR_MASK;
+			break;
+		case 'v':
+			ietf_version = atoi(optarg);
 			break;
 		case 'h':
 			goto usage;
@@ -225,7 +228,7 @@ int main(int argc, char **argv)
 
 	wsi_dumb = libwebsocket_client_connect(context, address, port, use_ssl,
 			"/", argv[optind], argv[optind],
-				       protocols[PROTOCOL_DUMB_INCREMENT].name);
+			 protocols[PROTOCOL_DUMB_INCREMENT].name, ietf_version);
 
 	if (wsi_dumb == NULL) {
 		fprintf(stderr, "libwebsocket dumb connect failed\n");
@@ -236,7 +239,7 @@ int main(int argc, char **argv)
 
 	wsi_mirror = libwebsocket_client_connect(context, address, port,
 	     use_ssl,  "/", argv[optind], argv[optind],
-				       protocols[PROTOCOL_LWS_MIRROR].name);
+			     protocols[PROTOCOL_LWS_MIRROR].name, ietf_version);
 
 	if (wsi_mirror == NULL) {
 		fprintf(stderr, "libwebsocket dumb connect failed\n");

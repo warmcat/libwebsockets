@@ -87,6 +87,8 @@ libwebsocket_client_close(struct libwebsocket *wsi)
  * @protocol:	Comma-separated list of protocols being asked for from
  *		the server, or just one.  The server will pick the one it
  *		likes best.
+ * @ietf_version_or_minus_one: -1 to ask to connect using the default, latest
+ * 		protocol supported, or the specific protocol ordinal
  *
  *	This function creates a connection to a remote server
  */
@@ -99,7 +101,8 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 			      const char *path,
 			      const char *host,
 			      const char *origin,
-			      const char *protocol)
+			      const char *protocol,
+			      int ietf_version_or_minus_one)
 {
 	struct hostent *server_hostent;
 	struct sockaddr_in server_addr;
@@ -137,12 +140,40 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 
 	this->wsi[this->fds_count] = wsi;
 
-	wsi->ietf_spec_revision = 4;
+	/* -1 means just use latest supported */
+
+	if (ietf_version_or_minus_one == -1)
+		ietf_version_or_minus_one = 5;
+
+	wsi->ietf_spec_revision = ietf_version_or_minus_one;
 	wsi->name_buffer_pos = 0;
 	wsi->user_space = NULL;
 	wsi->state = WSI_STATE_CLIENT_UNCONNECTED;
 	wsi->pings_vs_pongs = 0;
 	wsi->protocol = NULL;
+
+	/* set up appropriate masking */
+
+	wsi->xor_mask = xor_no_mask;
+
+	switch (wsi->ietf_spec_revision) {
+	case 4:
+		wsi->xor_mask = xor_mask_04;
+		break;
+	case 5:
+		wsi->xor_mask = xor_mask_05;
+		break;
+	default:
+		fprintf(stderr,
+			"Client ietf version %d not supported\n",
+						       wsi->ietf_spec_revision);
+		return NULL;
+	}
+
+	/* force no mask if he asks for that though */
+
+	if (this->options & LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK)
+		wsi->xor_mask = xor_no_mask;
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
 		wsi->utf8_token[n].token = NULL;
@@ -309,7 +340,8 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	 p += sprintf(p, "\x0d\x0aSec-WebSocket-Origin: %s\x0d\x0a", origin);
 	 if (protocol != NULL)
 		p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a", protocol);
-	 p += sprintf(p, "Sec-WebSocket-Version: 4\x0d\x0a\x0d\x0a");
+	 p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a\x0d\x0a",
+						       wsi->ietf_spec_revision);
 
 
 	/* prepare the expected server accept response */

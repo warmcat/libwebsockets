@@ -24,7 +24,10 @@
 
 #define CONTEXT_PORT_NO_LISTEN 0
 
-#define LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK 1
+
+enum libwebsocket_context_options {
+	LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK = 1,
+};
 
 enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_ESTABLISHED,
@@ -258,7 +261,8 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 			      const char *path,
 			      const char *host,
 			      const char *origin,
-			      const char *protocol);
+			      const char *protocol,
+			      int ietf_version_or_minus_one);
 
 extern const char *
 libwebsocket_canonical_hostname(struct libwebsocket_context *this);

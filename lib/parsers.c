@@ -220,19 +220,28 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	return 0;
 }
 
-static inline unsigned char
-xor_mask(struct libwebsocket *wsi, unsigned char c)
+unsigned char
+xor_no_mask(struct libwebsocket *wsi, unsigned char c)
 {
-	if (wsi->protocol->owning_server->options &
-					   LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK)
-		return c;
-	
+	return c;
+}
+
+unsigned char
+xor_mask_04(struct libwebsocket *wsi, unsigned char c)
+{
 	c ^= wsi->masking_key_04[wsi->frame_mask_index++];
 	if (wsi->frame_mask_index == 20)
 		wsi->frame_mask_index = 0;
 
 	return c;
 }
+
+unsigned char
+xor_mask_05(struct libwebsocket *wsi, unsigned char c)
+{
+	return c ^ wsi->frame_masking_nonce_04[(wsi->frame_mask_index++) & 3];
+}
+
 
 
 static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
@@ -255,8 +264,13 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			}
 			break;
 		case 4:
+		case 5:
 			wsi->frame_masking_nonce_04[0] = c;
 			wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_1;
+			break;
+		default:
+			fprintf(stderr, "libwebsocket_rx_sm doesn't know "
+			    "about spec version %d\n", wsi->ietf_spec_revision);
 			break;
 		}
 		break;
@@ -274,6 +288,9 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->protocol->owning_server->options &
 					   LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK)
 			goto post_mask;
+
+		if (wsi->ietf_spec_revision > 4)
+			goto post_sha1;
 
 		/*
 		 * we are able to compute the frame key now
@@ -296,6 +313,8 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		 */
 
 		SHA1((unsigned char *)buf, 4 + 20, wsi->frame_mask_04);
+
+post_sha1:
 
 		/*
 		 * start from the zero'th byte in the XOR key buffer since
@@ -356,7 +375,7 @@ post_mask:
 		 *		FIN (b7)
 		 */
 
-		c = xor_mask(wsi, c);
+		c = wsi->xor_mask(wsi, c);
 
 		if (c & 0x70) {
 			fprintf(stderr,
@@ -381,7 +400,7 @@ post_mask:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN:
-		c = xor_mask(wsi, c);
+		c = wsi->xor_mask(wsi, c);
 
 		if (c & 0x80) {
 			fprintf(stderr, "Frame has extensions "
@@ -430,14 +449,14 @@ post_mask:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_2:
-		c = xor_mask(wsi, c);
+		c = wsi->xor_mask(wsi, c);
 
 		wsi->rx_packet_length = c << 8;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_1;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_1:
-		c = xor_mask(wsi, c);
+		c = wsi->xor_mask(wsi, c);
 
 		wsi->rx_packet_length |= c;
 		wsi->lws_rx_parse_state =
@@ -445,7 +464,7 @@ post_mask:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
-		c = xor_mask(wsi, c);
+		c = wsi->xor_mask(wsi, c);
 		if (c & 0x80) {
 			fprintf(stderr, "b63 of length must be zero\n");
 			/* kill the connection */
@@ -461,42 +480,42 @@ post_mask:
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_7:
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)xor_mask(wsi, c)) << 48;
+		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 48;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_6;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_6:
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)xor_mask(wsi, c)) << 40;
+		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 40;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_5;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_5:
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)xor_mask(wsi, c)) << 32;
+		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 32;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_4;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_4:
-		wsi->rx_packet_length |= ((size_t)xor_mask(wsi, c)) << 24;
+		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 24;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_3;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_3:
-		wsi->rx_packet_length |= ((size_t)xor_mask(wsi, c)) << 16;
+		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 16;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_2;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_2:
-		wsi->rx_packet_length |= ((size_t)xor_mask(wsi, c)) << 8;
+		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 8;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_1;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
-		wsi->rx_packet_length |= ((size_t)xor_mask(wsi, c));
+		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c));
 		wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
 		break;
@@ -541,7 +560,8 @@ issue:
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
 		wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-			       (wsi->rx_user_buffer_head++)] = xor_mask(wsi, c);
+			       (wsi->rx_user_buffer_head++)] =
+							  wsi->xor_mask(wsi, c);
 
 		if (--wsi->rx_packet_length == 0) {
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
@@ -627,6 +647,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			}
 			break;
 		case 4:
+		case 5:
 	/*
 	 *  04 logical framing from the spec (all this is masked when
 	 *  incoming and has to be unmasked)
@@ -694,6 +715,11 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			}
 
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
+			break;
+		default:
+			fprintf(stderr, "client_rx_sm doesn't know how "
+				"to handle spec version %02d\n",
+						       wsi->ietf_spec_revision);
 			break;
 		}
 		break;
@@ -943,7 +969,7 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 
 
 static int
-libwebsocket_04_frame_mask_generate(struct libwebsocket *wsi)
+libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 {
 	int fd;
 	char buf[4 + 20];
@@ -965,20 +991,26 @@ libwebsocket_04_frame_mask_generate(struct libwebsocket *wsi)
 	}
 	close(fd);
 
+	/* start masking from first byte of masking key buffer */
+	wsi->frame_mask_index = 0;
+
+	if (wsi->ietf_spec_revision != 4)
+		return 0;
+
+	/* 04 only does SHA-1 more complex key */
+
 	/*
 	 * the frame key is the frame nonce (4 bytes) followed by the
 	 * connection masking key, hashed by SHA1
 	 */
 
 	memcpy(buf, wsi->frame_masking_nonce_04, 4);
+	
 	memcpy(buf + 4, wsi->masking_key_04, 20);
 
 	/* concatenate the nonce with the connection key then hash it */
 
 	SHA1((unsigned char *)buf, 4 + 20, wsi->frame_mask_04);
-
-	/* start masking from first byte of masking key buffer */
-	wsi->frame_mask_index = 0;
 
 	return 0;
 }
@@ -1065,7 +1097,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		break;
 
 	case 4:
-
+	case 5:
 		switch (protocol & 0xf) {
 		case LWS_WRITE_TEXT:
 			n = LWS_WS_OPCODE_04__TEXT_FRAME;
@@ -1135,11 +1167,12 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 #endif
 
 	/*
-	 * Deal with masking if appropriate
+	 * Deal with masking if we are in client -> server direction and
+	 * the protocol demands it
 	 */
 
 	if (wsi->mode == LWS_CONNMODE_WS_CLIENT &&
-						 wsi->ietf_spec_revision == 4) {
+						 wsi->ietf_spec_revision >= 4) {
 
 		/*
 		 * this is only useful for security tests where it's required
@@ -1148,7 +1181,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 		if (!(protocol & LWS_WRITE_CLIENT_IGNORE_XOR_MASK)) {
 
-			if (libwebsocket_04_frame_mask_generate(wsi)) {
+			if (libwebsocket_0405_frame_mask_generate(wsi)) {
 				fprintf(stderr, "libwebsocket_write: "
 					      "frame mask generation failed\n");
 				return 1;
@@ -1160,7 +1193,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			 */
 
 			for (n = 0; n < (len + pre + post); n++)
-				buf[n - pre] = xor_mask(wsi, buf[n - pre]);
+				buf[n - pre] = wsi->xor_mask(wsi, buf[n - pre]);
 		}
 
 		/* make space for the frame nonce in clear */
@@ -1168,6 +1201,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 		/* copy the frame nonce into place */
 		memcpy(&buf[0 - pre], wsi->frame_masking_nonce_04, 4);
+
 	}
 
 send_raw:

@@ -161,6 +161,8 @@ else ignored
 <dd>group id to change to after setting listen socket, or -1.
 <dt><b>uid</b>
 <dd>user id to change to after setting listen socket, or -1.
+<dt><b>options</b>
+<dd>0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
 </dl>
 <h3>Description</h3>
 <blockquote>
@@ -340,7 +342,8 @@ Many protocols won't care becuse their packets are always small.
 <i>const char *</i> <b>path</b>,
 <i>const char *</i> <b>host</b>,
 <i>const char *</i> <b>origin</b>,
-<i>const char *</i> <b>protocol</b>)
+<i>const char *</i> <b>protocol</b>,
+<i>int</i> <b>ietf_version_or_minus_one</b>)
 <h3>Arguments</h3>
 <dl>
 <dt><b>this</b>
@@ -362,6 +365,9 @@ signed certs
 <dd>Comma-separated list of protocols being asked for from
 the server, or just one.  The server will pick the one it
 likes best.
+<dt><b>ietf_version_or_minus_one</b>
+<dd>-1 to ask to connect using the default, latest
+protocol supported, or the specific protocol ordinal
 </dl>
 <h3>Description</h3>
 <blockquote>

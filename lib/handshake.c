@@ -222,7 +222,7 @@ bail:
  */
 
 static int
-handshake_04(struct libwebsocket *wsi)
+handshake_0405(struct libwebsocket *wsi)
 {
 	static const char *websocket_magic_guid_04 =
 					 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -537,7 +537,6 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 			wsi->ietf_spec_revision =
 				 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token);
 
-
 		/*
 		 * Perform the handshake according to the protocol version the
 		 * client announced
@@ -545,19 +544,31 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 
 		switch (wsi->ietf_spec_revision) {
 		case 0: /* applies to 76 and 00 */
+			wsi->xor_mask = xor_no_mask;
 			if (handshake_00(wsi))
 				goto bail;
 			break;
 		case 4: /* 04 */
+			wsi->xor_mask = xor_mask_04;
 			debug("libwebsocket_parse calling handshake_04\n");
-			if (handshake_04(wsi))
+			if (handshake_0405(wsi))
 				goto bail;
 			break;
+		case 5: /* 05 */
+			wsi->xor_mask = xor_mask_05;
+			debug("libwebsocket_parse calling handshake_04\n");
+			if (handshake_0405(wsi))
+				goto bail;
+			break;
+
 		default:
 			fprintf(stderr, "Unknown client spec version %d\n",
 						       wsi->ietf_spec_revision);
 			goto bail;
 		}
+
+		fprintf(stderr, "accepted v%02d connection\n",
+						       wsi->ietf_spec_revision);
 
 		break;
 

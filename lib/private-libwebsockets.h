@@ -224,6 +224,7 @@ struct libwebsocket {
 	unsigned char final;
 
 	int pings_vs_pongs;
+	unsigned char (*xor_mask)(struct libwebsocket *, unsigned char);
 
 	/* client support */
 	char initial_handshake_hash_base64[30];
@@ -261,3 +262,12 @@ lws_b64_decode_string(const char *in, char *out, int out_size);
 
 extern int
 lws_b64_selftest(void);
+
+extern unsigned char
+xor_no_mask(struct libwebsocket *wsi, unsigned char c);
+
+extern unsigned char
+xor_mask_04(struct libwebsocket *wsi, unsigned char c);
+
+extern unsigned char
+xor_mask_05(struct libwebsocket *wsi, unsigned char c);
