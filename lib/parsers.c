@@ -29,6 +29,7 @@ const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
 	[WSI_TOKEN_KEY2]	= { "Sec-WebSocket-Key2:",	19 },
 	[WSI_TOKEN_PROTOCOL]	= { "Sec-WebSocket-Protocol:",	23 },
 	[WSI_TOKEN_UPGRADE]	= { "Upgrade:",			 8 },
+	[WSI_TOKEN_EXTENSIONS]	= { "Sec-WebSocket-Extensions:", 25 },
 	[WSI_TOKEN_ORIGIN]	= { "Origin:",			 7 },
 	[WSI_TOKEN_DRAFT]	= { "Sec-WebSocket-Draft:",	20 },
 	[WSI_TOKEN_CHALLENGE]	= { "\x0d\x0a",			 2 },
@@ -63,6 +64,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_VERSION:
 	case WSI_TOKEN_ACCEPT:
 	case WSI_TOKEN_NONCE:
+	case WSI_TOKEN_EXTENSIONS:
 	case WSI_TOKEN_HTTP:
 		debug("WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);
 

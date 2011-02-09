@@ -115,6 +115,9 @@ enum lws_token_indexes {
 	WSI_TOKEN_VERSION,
 	WSI_TOKEN_SWORIGIN,
 
+	/* new for 05 */
+	WSI_TOKEN_EXTENSIONS,
+
 	/* client receives these */
 	WSI_TOKEN_ACCEPT,
 	WSI_TOKEN_NONCE,
