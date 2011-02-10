@@ -514,6 +514,7 @@ usage:
 					     "[--protocol=<protocolname>] "
 					     "[--mirror] "
 					     "[--replicate=clients>]"
+					     "[--version <version>]"
 					     "\n");
 	return 1;
 }

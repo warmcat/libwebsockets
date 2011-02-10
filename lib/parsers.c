@@ -583,11 +583,12 @@ spill:
 			n = libwebsocket_write(wsi, (unsigned char *)
 			   &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				     wsi->rx_user_buffer_head, LWS_WRITE_CLOSE);
+			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
 			return -1;
 
 		case LWS_WS_OPCODE_04__PING:
-			/* parrot the ping packet payload back as a pong*/
+			/* parrot the ping packet payload back as a pong */
 			n = libwebsocket_write(wsi, (unsigned char *)
 			    &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				    wsi->rx_user_buffer_head, LWS_WRITE_PONG);
@@ -902,6 +903,7 @@ spill:
 			n = libwebsocket_write(wsi, (unsigned char *)
 			   &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				     wsi->rx_user_buffer_head, LWS_WRITE_CLOSE);
+			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
 			return -1;
 
@@ -980,9 +982,9 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 	/* fetch the per-frame nonce */
 
 	fd = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
-	if (fd < 1) {
-		fprintf(stderr, "Unable to open random device %s\n",
-							SYSTEM_RANDOM_FILEPATH);
+	if (fd < 0) {
+		fprintf(stderr, "Unable to open random device %s %d\n",
+					SYSTEM_RANDOM_FILEPATH, fd);
 		return 1;
 	}
 	n = read(fd, wsi->frame_masking_nonce_04, 4);
@@ -1051,7 +1053,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	int post = 0;
 	unsigned int shift = 7;
 
-	if (len == 0) {
+	if (len == 0 && protocol != LWS_WRITE_CLOSE) {
 		fprintf(stderr, "zero length libwebsocket_write attempt\n");
 		return 0;
 	}
@@ -1109,6 +1111,34 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			break;
 		case LWS_WRITE_CLOSE:
 			n = LWS_WS_OPCODE_04__CLOSE;
+
+			/*
+			 * v5 mandates the first byte of close packet
+			 * in both client and server directions
+			 */
+			
+			if (wsi->ietf_spec_revision >= 5) {
+
+				/* we can do this because we demand post-buf */
+
+				if (len < 1)
+					len = 1;
+				
+				switch (wsi->mode) {
+				case LWS_CONNMODE_WS_SERVING:
+					/*
+					fprintf(stderr, "LWS_WRITE_CLOSE S\n");
+					*/
+					buf[0] = 'S';
+					break;
+				case LWS_CONNMODE_WS_CLIENT:
+					/*
+					fprintf(stderr, "LWS_WRITE_CLOSE C\n");
+					*/
+					buf[0] = 'C';
+					break;
+				}
+			}
 			break;
 		case LWS_WRITE_PING:
 			n = LWS_WS_OPCODE_04__PING;

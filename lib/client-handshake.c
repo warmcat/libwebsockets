@@ -20,10 +20,23 @@ libwebsocket_client_close(struct libwebsocket *wsi)
 {
 	int n = wsi->state;
 	struct libwebsocket_context *clients;
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
+						  LWS_SEND_BUFFER_POST_PADDING];
 
 	if (n == WSI_STATE_DEAD_SOCKET)
 		return;
 
+	/*
+	 * signal we are closing, libsocket_write will
+	 * add any necessary version-specific stuff.  If the write fails,
+	 * no worries we are closing anyway.  If we didn't initiate this
+	 * close, then our state has been changed to
+	 * WSI_STATE_RETURNED_CLOSE_ALREADY and we can skip this
+	 */
+
+	if (n == WSI_STATE_ESTABLISHED)
+		libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 0,
+							       LWS_WRITE_CLOSE);
 	/* mark the WSI as dead and let the callback know */
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;

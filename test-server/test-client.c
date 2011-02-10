@@ -264,6 +264,6 @@ int main(int argc, char **argv)
 usage:
 	fprintf(stderr, "Usage: libwebsockets-test-client "
 					     "<server address> [--port=<p>] "
-					     "[--ssl]\n");
+					     "[--ssl] [-k] [-v <ver>]\n");
 	return 1;
 }

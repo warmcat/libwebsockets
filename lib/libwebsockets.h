@@ -46,7 +46,7 @@ enum libwebsocket_write_protocol {
 	LWS_WRITE_BINARY,
 	LWS_WRITE_HTTP,
 
-	/* special 04 opcodes */
+	/* special 04+ opcodes */
 
 	LWS_WRITE_CLOSE,
 	LWS_WRITE_PING,

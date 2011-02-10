@@ -25,11 +25,28 @@ void
 libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 {
 	int n;
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
+						  LWS_SEND_BUFFER_POST_PADDING];
 
 	if ((unsigned long)wsi < LWS_MAX_PROTOCOLS)
 		return;
 
 	n = wsi->state;
+
+	if (n == WSI_STATE_DEAD_SOCKET)
+		return;
+
+	/*
+	 * signal we are closing, libsocket_write will
+	 * add any necessary version-specific stuff.  If the write fails,
+	 * no worries we are closing anyway.  If we didn't initiate this
+	 * close, then our state has been changed to
+	 * WSI_STATE_RETURNED_CLOSE_ALREADY and we can skip this
+	 */
+
+	if (n == WSI_STATE_ESTABLISHED)
+		libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 0,
+							       LWS_WRITE_CLOSE);
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 
@@ -233,8 +250,10 @@ libwebsocket_context_destroy(struct libwebsocket_context *this)
 		}
 
 #ifdef LWS_OPENSSL_SUPPORT
-	if (this->ssl_ctx)
+	if (this && this->ssl_ctx)
 		SSL_CTX_free(this->ssl_ctx);
+	if (this && this->ssl_client_ctx)
+		SSL_CTX_free(this->ssl_client_ctx);
 #endif
 
 	if (this)
@@ -300,7 +319,9 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
 
 
 	if (n < 0 || this->fds[0].revents & (POLLERR | POLLHUP)) {
+		/*
 		fprintf(stderr, "Listen Socket dead\n");
+		*/
 		goto fatal;
 	}
 	if (n == 0) /* poll timeout */
@@ -352,6 +373,7 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
 
 #ifdef LWS_OPENSSL_SUPPORT
 		this->wsi[this->fds_count]->ssl = NULL;
+		this->ssl_ctx = NULL;
 
 		if (this->use_ssl) {
 
@@ -450,22 +472,6 @@ fill_in_fds:
 	return 0;
 
 fatal:
-
-	fprintf(stderr, "service hits fatal\n");
-
-	/* close listening skt and per-protocol broadcast sockets */
-	for (client = 0; client < this->fds_count; client++)
-		close(this->fds[0].fd);
-
-#ifdef LWS_OPENSSL_SUPPORT
-	if (this->ssl_ctx)
-		SSL_CTX_free(this->ssl_ctx);
-#endif
-
-	if (this)
-		free(this);
-
-	this = NULL;
 
 	/* inform caller we are dead */
 
