@@ -267,7 +267,10 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			break;
 		case 4:
 		case 5:
+			wsi->all_zero_nonce = 1;
 			wsi->frame_masking_nonce_04[0] = c;
+			if (c)
+				wsi->all_zero_nonce = 0;
 			wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_1;
 			break;
 		default:
@@ -278,14 +281,20 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		break;
 	case LWS_RXPS_04_MASK_NONCE_1:
 		wsi->frame_masking_nonce_04[1] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_2;
 		break;
 	case LWS_RXPS_04_MASK_NONCE_2:
 		wsi->frame_masking_nonce_04[2] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_3;
 		break;
 	case LWS_RXPS_04_MASK_NONCE_3:
 		wsi->frame_masking_nonce_04[3] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
 
 		if (wsi->protocol->owning_server->options &
 					   LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK)
@@ -561,7 +570,11 @@ issue:
 		break;
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
-		wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
+		if (wsi->all_zero_nonce && wsi->ietf_spec_revision >= 5)
+			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
+			       (wsi->rx_user_buffer_head++)] = c;
+		else
+			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
 			       (wsi->rx_user_buffer_head++)] =
 							  wsi->xor_mask(wsi, c);
 
@@ -1226,13 +1239,22 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 			for (n = 0; n < (len + pre + post); n++)
 				buf[n - pre] = wsi->xor_mask(wsi, buf[n - pre]);
+
+
+			/* make space for the frame nonce in clear */
+			pre += 4;
+
+			/* copy the frame nonce into place */
+			memcpy(&buf[0 - pre], wsi->frame_masking_nonce_04, 4);
+		} else {
+			/* make space for the frame nonce in clear */
+			pre += 4;
+
+			buf[0 - pre] = 0;
+			buf[1 - pre] = 0;
+			buf[2 - pre] = 0;
+			buf[3 - pre] = 0;
 		}
-
-		/* make space for the frame nonce in clear */
-		pre += 4;
-
-		/* copy the frame nonce into place */
-		memcpy(&buf[0 - pre], wsi->frame_masking_nonce_04, 4);
 
 	}
 

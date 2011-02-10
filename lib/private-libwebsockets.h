@@ -229,6 +229,7 @@ struct libwebsocket {
 
 	int pings_vs_pongs;
 	unsigned char (*xor_mask)(struct libwebsocket *, unsigned char);
+	char all_zero_nonce;
 
 	/* client support */
 	char initial_handshake_hash_base64[30];
