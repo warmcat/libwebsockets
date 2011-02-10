@@ -249,15 +249,16 @@ libwebsocket_context_destroy(struct libwebsocket_context *this)
 			break;
 		}
 
+	close(this->fd_random);
+
 #ifdef LWS_OPENSSL_SUPPORT
-	if (this && this->ssl_ctx)
+	if (this->ssl_ctx)
 		SSL_CTX_free(this->ssl_ctx);
-	if (this && this->ssl_client_ctx)
+	if (this->ssl_client_ctx)
 		SSL_CTX_free(this->ssl_client_ctx);
 #endif
 
-	if (this)
-		free(this);
+	free(this);
 }
 
 /**
@@ -674,6 +675,13 @@ libwebsocket_create_context(int port,
 	this->http_proxy_port = 0;
 	this->http_proxy_address[0] = '\0';
 	this->options = options;
+
+	this->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
+	if (this->fd_random < 0) {
+		fprintf(stderr, "Unable to open random device %s %d\n",
+				       SYSTEM_RANDOM_FILEPATH, this->fd_random);
+		return NULL;
+	}
 
 	/* find canonical hostname */
 

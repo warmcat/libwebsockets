@@ -236,7 +236,6 @@ handshake_0405(struct libwebsocket *wsi)
 	char *response;
 	char *p;
 	char *m = mask_summing_buf;
-	int fd;
 	int nonce_len;
 	int accept_len;
 
@@ -318,15 +317,7 @@ handshake_0405(struct libwebsocket *wsi)
 
 	/* select the nonce */
 
-	fd = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
-	if (fd < 1) {
-		fprintf(stderr, "Unable to open random device %s\n",
-							SYSTEM_RANDOM_FILEPATH);
-		if (wsi->user_space)
-			free(wsi->user_space);
-		goto bail;
-	}
-	n = read(fd, hash, 16);
+	n = read(wsi->protocol->owning_server->fd_random, hash, 16);
 	if (n != 16) {
 		fprintf(stderr, "Unable to read from random device %s %d\n",
 						     SYSTEM_RANDOM_FILEPATH, n);
@@ -334,7 +325,6 @@ handshake_0405(struct libwebsocket *wsi)
 			free(wsi->user_space);
 		goto bail;
 	}
-	close(fd);
 
 	/* encode the nonce */
 

@@ -988,25 +988,18 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 static int
 libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 {
-	int fd;
 	char buf[4 + 20];
 	int n;
 
 	/* fetch the per-frame nonce */
 
-	fd = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
-	if (fd < 0) {
-		fprintf(stderr, "Unable to open random device %s %d\n",
-					SYSTEM_RANDOM_FILEPATH, fd);
-		return 1;
-	}
-	n = read(fd, wsi->frame_masking_nonce_04, 4);
+	n = read(wsi->protocol->owning_server->fd_random,
+						wsi->frame_masking_nonce_04, 4);
 	if (n != 4) {
 		fprintf(stderr, "Unable to read from random device %s %d\n",
 						     SYSTEM_RANDOM_FILEPATH, n);
 		return 1;
 	}
-	close(fd);
 
 	/* start masking from first byte of masking key buffer */
 	wsi->frame_mask_index = 0;

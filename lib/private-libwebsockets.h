@@ -177,6 +177,9 @@ struct libwebsocket_context {
 	char canonical_hostname[1024];
 	unsigned int http_proxy_port;
 	unsigned int options;
+
+	int fd_random;
+	
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;
 	SSL_CTX *ssl_ctx;

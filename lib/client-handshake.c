@@ -122,7 +122,6 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	char buf[150];
 	char key_b64[150];
 	char hash[20];
-	int fd;
 	struct pollfd pfd;
 	static const char magic_websocket_guid[] =
 					 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -314,20 +313,12 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	 * create the random key
 	 */
 
-	fd = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
-	if (fd < 1) {
-		fprintf(stderr, "Unable to open random device %s\n",
-							SYSTEM_RANDOM_FILEPATH);
-		goto bail2;
-	}
-	n = read(fd, hash, 16);
+	n = read(this->fd_random, hash, 16);
 	if (n != 16) {
 		fprintf(stderr, "Unable to read from random device %s\n",
 							SYSTEM_RANDOM_FILEPATH);
-		close(fd);
 		goto bail2;
 	}
-	close(fd);
 
 	lws_b64_encode_string(hash, 16, key_b64, sizeof key_b64);
 
