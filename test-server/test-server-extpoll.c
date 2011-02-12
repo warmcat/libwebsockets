@@ -76,6 +76,8 @@ static int callback_http(struct libwebsocket *wsi,
 		enum libwebsocket_callback_reasons reason, void *user,
 							   void *in, size_t len)
 {
+	int n;
+
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 		fprintf(stderr, "serving HTTP URI %s\n", (char *)in);
@@ -92,6 +94,39 @@ static int callback_http(struct libwebsocket *wsi,
 		if (libwebsockets_serve_http_file(wsi,
 				  LOCAL_RESOURCE_PATH"/test.html", "text/html"))
 			fprintf(stderr, "Failed to send HTTP file\n");
+		break;
+
+	/*
+	 * callbacks for managing the external poll() array appear in
+	 * protocl 0 callback
+	 */
+
+	case LWS_CALLBACK_ADD_POLL_FD:
+		pollfds[count_pollfds].fd = (int)(long)user;
+		pollfds[count_pollfds].events = (int)len;
+		pollfds[count_pollfds++].revents = 0;
+		break;
+
+	case LWS_CALLBACK_DEL_POLL_FD:
+		for (n = 0; n < count_pollfds; n++)
+			if (pollfds[n].fd == (int)(long)user)
+				while (n < count_pollfds) {
+					pollfds[n] = pollfds[n + 1];
+					n++;
+				}
+		count_pollfds--;
+		break;
+
+	case LWS_CALLBACK_SET_MODE_POLL_FD:
+		for (n = 0; n < count_pollfds; n++)
+			if (pollfds[n].fd == (int)(long)user)
+				pollfds[n].events |= (int)(long)len;
+		break;
+
+	case LWS_CALLBACK_CLEAR_MODE_POLL_FD:
+		for (n = 0; n < count_pollfds; n++)
+			if (pollfds[n].fd == (int)(long)user)
+				pollfds[n].events &= ~(int)(long)len;
 		break;
 
 	default:
@@ -194,9 +229,11 @@ callback_lws_mirror(struct libwebsocket *wsi,
 	case LWS_CALLBACK_ESTABLISHED:
 		pss->ringbuffer_tail = ringbuffer_head;
 		pss->wsi = wsi;
+		libwebsocket_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+
 		if (pss->ringbuffer_tail != ringbuffer_head) {
 
 			n = libwebsocket_write(wsi, (unsigned char *)
@@ -204,6 +241,7 @@ callback_lws_mirror(struct libwebsocket *wsi,
 				   LWS_SEND_BUFFER_PRE_PADDING,
 				   ringbuffer[pss->ringbuffer_tail].len,
 								LWS_WRITE_TEXT);
+
 			if (n < 0) {
 				fprintf(stderr, "ERROR writing to socket");
 				exit(1);
