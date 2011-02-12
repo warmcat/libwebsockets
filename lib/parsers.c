@@ -1143,6 +1143,8 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 					*/
 					buf[0] = 'C';
 					break;
+				default:
+					break;
 				}
 			}
 			break;

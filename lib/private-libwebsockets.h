@@ -68,7 +68,7 @@ static inline void debug(const char *format, ...)
 }
 #endif
 
-
+#define FD_HASHTABLE_MODULUS 32
 #define MAX_CLIENTS 100
 #define LWS_MAX_HEADER_NAME_LENGTH 64
 #define LWS_MAX_HEADER_LEN 4096
@@ -166,11 +166,29 @@ struct lws_tokens {
 	int token_len;
 };
 
+enum connection_mode {
+	LWS_CONNMODE_WS_SERVING,
+	LWS_CONNMODE_WS_CLIENT,
+
+	/* special internal types */
+	LWS_CONNMODE_SERVER_LISTENER,
+	LWS_CONNMODE_BROADCAST_PROXY_LISTENER,
+	LWS_CONNMODE_BROADCAST_PROXY
+};
+
+
+#define LWS_FD_HASH(fd) ((fd ^ (fd >> 8) ^ (fd >> 16)) % FD_HASHTABLE_MODULUS)
+
+struct libwebsocket_fd_hashtable {
+	struct libwebsocket *wsi[MAX_CLIENTS + 1];
+	int length;
+};
+
 struct libwebsocket_protocols;
 
 struct libwebsocket_context {
-	struct libwebsocket *wsi[MAX_CLIENTS + 1];
-	struct pollfd fds[MAX_CLIENTS + 1];
+	struct libwebsocket_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
+	struct pollfd fds[MAX_CLIENTS * FD_HASHTABLE_MODULUS + 1];
 	int fds_count;
 	int listen_port;
 	char http_proxy_address[256];
@@ -189,10 +207,6 @@ struct libwebsocket_context {
 	int count_protocols;
 };
 
-enum connection_mode {
-	LWS_CONNMODE_WS_SERVING,
-	LWS_CONNMODE_WS_CLIENT,
-};
 
 
 /*
@@ -215,6 +229,7 @@ struct libwebsocket {
 	char rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING + MAX_USER_RX_BUFFER +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	int rx_user_buffer_head;
+	int protocol_index_for_broadcast_proxy;
 
 	int sock;
 
@@ -279,3 +294,12 @@ xor_mask_04(struct libwebsocket *wsi, unsigned char c);
 
 extern unsigned char
 xor_mask_05(struct libwebsocket *wsi, unsigned char c);
+
+extern struct libwebsocket *
+wsi_from_fd(struct libwebsocket_context *this, int fd);
+
+extern int
+insert_wsi(struct libwebsocket_context *this, struct libwebsocket *wsi);
+
+extern int
+delete_from_fd(struct libwebsocket_context *this, int fd);

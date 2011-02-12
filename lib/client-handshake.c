@@ -50,11 +50,10 @@ libwebsocket_client_close(struct libwebsocket *wsi)
 		clients = wsi->protocol->owning_server;
 		if (clients)
 			for (n = 0; n < clients->fds_count; n++) {
-				if (clients->wsi[n] != wsi)
+				if (clients->fds[n].fd != wsi->sock)
 					continue;
 				while (n < clients->fds_count - 1) {
 					clients->fds[n] = clients->fds[n + 1];
-					clients->wsi[n] = clients->wsi[n + 1];
 					n++;
 				}
 				/* we only have to deal with one */
@@ -150,8 +149,6 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 		return NULL;
 	}
 
-	this->wsi[this->fds_count] = wsi;
-
 	/* -1 means just use latest supported */
 
 	if (ietf_version_or_minus_one == -1)
@@ -225,6 +222,7 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 		goto bail1;
 	}
 
+	insert_wsi(this, wsi);
 
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_port = htons(port);
