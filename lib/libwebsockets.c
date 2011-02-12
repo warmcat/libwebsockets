@@ -133,7 +133,19 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 	free(wsi);
 }
 
-static int
+
+/**
+ * libwebsocket_service_fd() - Service polled socket with something waiting
+ * @this:	Websocket context
+ * @pollfd:	The pollfd entry describing the socket fd and which events
+ * 		happened.
+ *
+ *	This function closes any active connections and then frees the
+ *	context.  After calling this, any further use of the context is
+ *	undefined.
+ */
+
+int
 libwebsocket_service_fd(struct libwebsocket_context *this,
 							  struct pollfd *pollfd)
 {

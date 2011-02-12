@@ -22,6 +22,8 @@
 #ifndef __LIBWEBSOCKET_H__
 #define __LIBWEBSOCKET_H__
 
+#include <poll.h>
+
 #define CONTEXT_PORT_NO_LISTEN 0
 
 
@@ -190,6 +192,10 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *this);
 
 extern int
 libwebsocket_service(struct libwebsocket_context *this, int timeout_ms);
+
+extern int
+libwebsocket_service_fd(struct libwebsocket_context *this,
+							 struct pollfd *pollfd);
 
 /*
  * IMPORTANT NOTICE!

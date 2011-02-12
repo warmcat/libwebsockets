@@ -1,3 +1,23 @@
+<h2>libwebsocket_service_fd - Service polled socket with something waiting</h2>
+<i>int</i>
+<b>libwebsocket_service_fd</b>
+(<i>struct libwebsocket_context *</i> <b>this</b>,
+<i>struct pollfd *</i> <b>pollfd</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>this</b>
+<dd>Websocket context
+<dt><b>pollfd</b>
+<dd>The pollfd entry describing the socket fd and which events
+happened.
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function closes any active connections and then frees the
+context.  After calling this, any further use of the context is
+undefined.
+</blockquote>
+<hr>
 <h2>libwebsocket_context_destroy - Destroy the websocket context</h2>
 <i>void</i>
 <b>libwebsocket_context_destroy</b>
