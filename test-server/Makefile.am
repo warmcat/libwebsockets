@@ -1,12 +1,15 @@
-bin_PROGRAMS=libwebsockets-test-server libwebsockets-test-client
+bin_PROGRAMS=libwebsockets-test-server libwebsockets-test-client libwebsockets-test-server-extpoll
 libwebsockets_test_server_SOURCES=test-server.c
 libwebsockets_test_server_LDADD=-L../lib -lwebsockets
 libwebsockets_test_client_SOURCES=test-client.c
 libwebsockets_test_client_LDADD=-L../lib -lwebsockets
+libwebsockets_test_server_extpoll_SOURCES=test-server-extpoll.c
+libwebsockets_test_server_extpoll_LDADD=-L../lib -lwebsockets
 
 
 libwebsockets_test_server_CFLAGS:= -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 libwebsockets_test_client_CFLAGS:= -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+libwebsockets_test_server_extpoll_CFLAGS:= -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 
 if NOPING
 else
