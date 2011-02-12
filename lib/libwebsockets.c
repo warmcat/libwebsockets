@@ -182,7 +182,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		}
 
 		if (this->fds_count >= MAX_CLIENTS) {
-			fprintf(stderr, "too busy");
+			fprintf(stderr, "too busy to accept new client\n");
 			close(accept_fd);
 			break;
 		}
@@ -271,7 +271,6 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 		insert_wsi(this, new_wsi);
 
-
 		/*
 		 * make sure NO events are seen yet on this new socket
 		 * (otherwise we inherit old fds[client].revents from
@@ -281,6 +280,11 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 		this->fds[this->fds_count].events = POLLIN;
 		this->fds[this->fds_count++].fd = accept_fd;
+
+		/* external POLL support via protocol 0 */
+		this->protocols[0].callback(new_wsi,
+			LWS_CALLBACK_ADD_POLL_FD,
+			(void *)(long)accept_fd, NULL, POLLIN);
 
 		break;
 
@@ -302,7 +306,8 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		}
 
 		if (this->fds_count >= MAX_CLIENTS) {
-			fprintf(stderr, "too busy");
+			fprintf(stderr, "too busy to accept new broadcast "
+							      "proxy client\n");
 			close(accept_fd);
 			break;
 		}
@@ -324,6 +329,11 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		this->fds[this->fds_count].revents = 0;
 		this->fds[this->fds_count].events = POLLIN;
 		this->fds[this->fds_count++].fd = accept_fd;
+
+		/* external POLL support via protocol 0 */
+		this->protocols[0].callback(new_wsi,
+			LWS_CALLBACK_ADD_POLL_FD,
+			(void *)(long)accept_fd, NULL, POLLIN);
 
 		break;
 
@@ -347,6 +357,11 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			/* one shot */
 
 			pollfd->events &= ~POLLOUT;
+
+			/* external POLL support via protocol 0 */
+			this->protocols[0].callback(wsi,
+				LWS_CALLBACK_CLEAR_MODE_POLL_FD,
+				(void *)(long)wsi->sock, NULL, POLLOUT);
 
 			wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_WRITEABLE,
@@ -428,6 +443,11 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 			pollfd->events &= ~POLLOUT;
 
+			/* external POLL support via protocol 0 */
+			this->protocols[0].callback(wsi,
+				LWS_CALLBACK_CLEAR_MODE_POLL_FD,
+				(void *)(long)wsi->sock, NULL, POLLOUT);
+
 			wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_WRITEABLE,
 				wsi->user_space,
@@ -480,6 +500,12 @@ nuke_this:
 				}
 				n = this->fds_count;
 			}
+
+		/* external POLL support via protocol 0 */
+		this->protocols[0].callback(wsi,
+			LWS_CALLBACK_DEL_POLL_FD,
+			(void *)(long)pollfd->fd, NULL, 0);
+
 
 		break;
 	}
@@ -583,6 +609,8 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
 	/* wait for something to need service */
 
 	n = poll(this->fds, this->fds_count, timeout_ms);
+	if (n == 0) /* poll timeout */
+		return 0;
 
 	if (n < 0 || this->fds[0].revents & (POLLERR | POLLHUP)) {
 		/*
@@ -590,8 +618,6 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
 		*/
 		return 1;
 	}
-	if (n == 0) /* poll timeout */
-		return 0;
 
 	/* handle accept on listening socket? */
 
@@ -606,11 +632,7 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
  * libwebsocket_callback_on_writable() - Request a callback when this socket
  *					 becomes able to be written to without
  *					 blocking
- *
- * This only works for internal poll() management, (ie, calling the libwebsocket
- * service loop, you will have to make your own arrangements if your poll()
- * loop is managed externally.
- *
+ * *
  * @wsi:	Websocket connection instance to get callback for
  */
 
@@ -623,11 +645,14 @@ libwebsocket_callback_on_writable(struct libwebsocket *wsi)
 	for (n = 0; n < this->fds_count; n++)
 		if (this->fds[n].fd == wsi->sock) {
 			this->fds[n].events |= POLLOUT;
-			return 0;
+			n = this->fds_count;
 		}
 
-	fprintf(stderr, "libwebsocket_callback_on_writable "
-							"didn't find socket\n");
+	/* external POLL support via protocol 0 */
+	this->protocols[0].callback(wsi,
+		LWS_CALLBACK_SET_MODE_POLL_FD,
+		(void *)(long)wsi->sock, NULL, POLLOUT);
+
 	return 1;
 }
 
@@ -636,10 +661,6 @@ libwebsocket_callback_on_writable(struct libwebsocket *wsi)
  *			all connections using the given protocol when it
  *			becomes possible to write to each socket without
  *			blocking in turn.
- *
- * This only works for internal poll() management, (ie, calling the libwebsocket
- * service loop, you will have to make your own arrangements if your poll()
- * loop is managed externally.
  *
  * @protocol:	Protocol whose connections will get callbacks
  */
@@ -689,10 +710,6 @@ libwebsocket_get_socket_fd(struct libwebsocket *wsi)
  * If the output side of a server process becomes choked, this allows flow
  * control for the input side.
  *
- * This only works for internal poll() management, (ie, calling the libwebsocket
- * service loop, you will have to make your own arrangements if your poll()
- * loop is managed externally.
- *
  * @wsi:	Websocket connection instance to get callback for
  * @enable:	0 = disable read servicing for this connection, 1 = enable
  */
@@ -712,6 +729,18 @@ libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable)
 
 			return 0;
 		}
+
+	if (enable)
+		/* external POLL support via protocol 0 */
+		this->protocols[0].callback(wsi,
+			LWS_CALLBACK_SET_MODE_POLL_FD,
+			(void *)(long)wsi->sock, NULL, POLLIN);
+	else
+		/* external POLL support via protocol 0 */
+		this->protocols[0].callback(wsi,
+			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
+			(void *)(long)wsi->sock, NULL, POLLIN);
+
 
 	fprintf(stderr, "libwebsocket_callback_on_writable "
 						     "unable to find socket\n");
@@ -1024,6 +1053,12 @@ libwebsocket_create_context(int port,
 		
 		this->fds[this->fds_count].fd = sockfd;
 		this->fds[this->fds_count++].events = POLLIN;
+
+		/* external POLL support via protocol 0 */
+		this->protocols[0].callback(wsi,
+			LWS_CALLBACK_ADD_POLL_FD,
+			(void *)(long)sockfd, NULL, POLLIN);
+
 	}
 
 	/* drop any root privs for this process */
@@ -1094,7 +1129,13 @@ libwebsocket_create_context(int port,
 
 		this->fds[this->fds_count].fd = fd;
 		this->fds[this->fds_count].events = POLLIN;
+		this->fds[this->fds_count].revents = 0;
 		this->fds_count++;
+
+		/* external POLL support via protocol 0 */
+		this->protocols[0].callback(wsi,
+			LWS_CALLBACK_ADD_POLL_FD,
+			(void *)(long)fd, NULL, POLLIN);
 	}
 
 	return this;
@@ -1116,10 +1157,10 @@ libwebsocket_create_context(int port,
 int
 libwebsockets_fork_service_loop(struct libwebsocket_context *this)
 {
-	int client;
 	int fd;
 	struct sockaddr_in cli_addr;
 	int n;
+	int p;
 
 	n = fork();
 	if (n < 0)
@@ -1129,7 +1170,12 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *this)
 
 		/* main process context */
 
-		for (client = 1; client < this->count_protocols + 1; client++) {
+		/*
+		 * set up the proxy sockets to allow broadcast from
+		 * service process context
+		 */
+
+		for (p = 0; p < this->count_protocols; p++) {
 			fd = socket(AF_INET, SOCK_STREAM, 0);
 			if (fd < 0) {
 				fprintf(stderr, "Unable to create socket\n");
@@ -1137,21 +1183,19 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *this)
 			}
 			cli_addr.sin_family = AF_INET;
 			cli_addr.sin_port = htons(
-			     this->protocols[client - 1].broadcast_socket_port);
+			     this->protocols[p].broadcast_socket_port);
 			cli_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 			n = connect(fd, (struct sockaddr *)&cli_addr,
 							       sizeof cli_addr);
 			if (n < 0) {
 				fprintf(stderr, "Unable to connect to "
 						"broadcast socket %d, %s\n",
-						client, strerror(errno));
+						n, strerror(errno));
 				return -1;
 			}
 
-			this->protocols[client - 1].broadcast_socket_user_fd =
-									     fd;
+			this->protocols[p].broadcast_socket_user_fd = fd;
 		}
-
 
 		return 0;
 	}

@@ -78,7 +78,7 @@ would call it with a timeout_ms of 0, so it returns immediately if
 nothing is pending, or as soon as it services whatever was pending.
 </blockquote>
 <hr>
-<h2>libwebsocket_callback_on_writable - Request a callback when this socket becomes able to be written to without blocking</h2>
+<h2>libwebsocket_callback_on_writable - Request a callback when this socket becomes able to be written to without blocking *</h2>
 <i>int</i>
 <b>libwebsocket_callback_on_writable</b>
 (<i>struct libwebsocket *</i> <b>wsi</b>)
@@ -87,13 +87,6 @@ nothing is pending, or as soon as it services whatever was pending.
 <dt><b>wsi</b>
 <dd>Websocket connection instance to get callback for
 </dl>
-<h3>Description</h3>
-<blockquote>
-<p>
-This only works for internal <b>poll</b> management, (ie, calling the libwebsocket
-service loop, you will have to make your own arrangements if your <b>poll</b>
-loop is managed externally.
-</blockquote>
 <hr>
 <h2>libwebsocket_callback_on_writable_all_protocol - Request a callback for all connections using the given protocol when it becomes possible to write to each socket without blocking in turn.</h2>
 <i>int</i>
@@ -104,13 +97,6 @@ loop is managed externally.
 <dt><b>protocol</b>
 <dd>Protocol whose connections will get callbacks
 </dl>
-<h3>Description</h3>
-<blockquote>
-<p>
-This only works for internal <b>poll</b> management, (ie, calling the libwebsocket
-service loop, you will have to make your own arrangements if your <b>poll</b>
-loop is managed externally.
-</blockquote>
 <hr>
 <h2>libwebsocket_get_socket_fd - returns the socket file descriptor</h2>
 <i>int</i>
@@ -144,10 +130,6 @@ You will not need this unless you are doing something special
 <p>
 If the output side of a server process becomes choked, this allows flow
 control for the input side.
-<p>
-This only works for internal <b>poll</b> management, (ie, calling the libwebsocket
-service loop, you will have to make your own arrangements if your <b>poll</b>
-loop is managed externally.
 </blockquote>
 <hr>
 <h2>libwebsocket_canonical_hostname - returns this host's hostname</h2>
