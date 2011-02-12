@@ -175,9 +175,25 @@ libwebsockets-test-client someserver.com
 Websocket version supported
 ---------------------------
 
-The websocket client code is 04 version, the server supports
-both 00/76 in text mode and 04 dynamically per-connection
-depending on the version of the client / browser.
+The websocket client code is 04 and 05 version, the server
+supports 00/76 in text mode and 04 and 05 dynamically
+per-connection depending on the version of the
+client / browser.
 
-2011-01-22  Andy Green <andy@warmcat.com>
+
+External Polling Loop support
+-----------------------------
+
+libwebsockets maintains an internal poll() array for all of its
+sockets, but you can instead integrate the sockets into an
+external polling array.  That's needed if libwebsockets will
+cooperate with an existing poll array maintained by another
+server.
+
+Four callbacks LWS_CALLBACK_ADD_POLL_FD, LWS_CALLBACK_DEL_POLL_FD,
+LWS_CALLBACK_SET_MODE_POLL_FD and LWS_CALLBACK_CLEAR_MODE_POLL_FD
+appear in the callback for protocol 0 and allow interface code to
+manage socket descriptors in other poll loops.
+
+2011-02-12  Andy Green <andy@warmcat.com>
 

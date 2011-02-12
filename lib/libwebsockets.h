@@ -132,6 +132,40 @@ struct libwebsocket_context;
  *		accept another write packet without blocking.  If it already
  *		was able to take another packet without blocking, you'll get
  *		this callback at the next call to the service loop function.
+ *
+ *	The next four reasons are optional and only need taking care of if you
+ * 	will be integrating libwebsockets sockets into an external polling
+ * 	array.
+ * 
+ * 	LWS_CALLBACK_ADD_POLL_FD: libwebsocket deals with its poll() loop
+ * 		internally, but in the case you are integrating with another
+ * 		server you will need to have libwebsocket sockets share a
+ * 		polling array with the other server.  This and the other
+ * 		POLL_FD related callbacks let you put your specialized
+ * 		poll array interface code in the callback for protocol 0, the
+ * 		first protocol you support, usually the HTTP protocol in the
+ * 		serving case.  This callback happens when a socket needs to be
+ *		added to the polling loop: @user contains the fd, and
+ * 		@len is the events bitmap (like, POLLIN).  If you are using the
+ *		internal polling loop (the "service" callback), you can just
+ * 		ignore these callbacks.
+ *
+ * 	LWS_CALLBACK_DEL_POLL_FD: This callback happens when a socket descriptor
+ * 		needs to be removed from an external polling array.  @user is
+ * 		the socket desricptor.  If you are using the internal polling
+ * 		loop, you can just ignore it.
+ *
+ * 	LWS_CALLBACK_SET_MODE_POLL_FD: This callback happens when libwebsockets
+ * 		wants to modify the events for the socket descriptor in @user.
+ *		The handler should OR @len on to the events member of the pollfd
+ * 		struct for this socket descriptor.  If you are using the
+ *		internal polling loop, you can just ignore it.
+ *
+ *	LWS_CALLBACK_CLEAR_MODE_POLL_FD: This callback occurs when libwebsockets
+ * 		wants to modify the events for the socket descriptor in @user.
+ *		The handler should AND ~@len on to the events member of the
+ * 		pollfd struct for this socket descriptor.  If you are using the
+ *		internal polling loop, you can just ignore it.
  */
 extern int callback(struct libwebsocket *wsi,
 			 enum libwebsocket_callback_reasons reason, void *user,
