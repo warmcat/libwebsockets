@@ -99,6 +99,25 @@ static int callback_http(struct libwebsocket *wsi,
 		break;
 
 	/*
+	 * callback for confirming to continue with client IP appear in
+	 * protocol 0 callback since no websocket protocol has been agreed
+	 * yet.  You can just ignore this if you won't filter on client IP
+	 * since the default uhandled callback return is 0 meaning let the
+	 * connection continue.
+	 */
+
+	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
+
+		libwebsockets_get_peer_addresses((int)(long)user, client_name,
+			     sizeof(client_name), client_ip, sizeof(client_ip));
+
+		fprintf(stderr, "Received network connect from %s (%s)\n",
+							client_name, client_ip);
+
+		/* if we returned non-zero from here, we kill the connection */
+		break;
+
+	/*
 	 * callbacks for managing the external poll() array appear in
 	 * protocol 0 callback
 	 */

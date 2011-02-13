@@ -64,6 +64,9 @@ static int callback_http(struct libwebsocket *wsi,
 		enum libwebsocket_callback_reasons reason, void *user,
 							   void *in, size_t len)
 {
+	char client_name[128];
+	char client_ip[128];
+
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 		fprintf(stderr, "serving HTTP URI %s\n", (char *)in);
@@ -80,6 +83,25 @@ static int callback_http(struct libwebsocket *wsi,
 		if (libwebsockets_serve_http_file(wsi,
 				  LOCAL_RESOURCE_PATH"/test.html", "text/html"))
 			fprintf(stderr, "Failed to send HTTP file\n");
+		break;
+
+	/*
+	 * callback for confirming to continue with client IP appear in
+	 * protocol 0 callback since no websocket protocol has been agreed
+	 * yet.  You can just ignore this if you won't filter on client IP
+	 * since the default uhandled callback return is 0 meaning let the
+	 * connection continue.
+	 */
+
+	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
+
+		libwebsockets_get_peer_addresses((int)(long)user, client_name,
+			     sizeof(client_name), client_ip, sizeof(client_ip));
+
+		fprintf(stderr, "Received network connect from %s (%s)\n",
+							client_name, client_ip);
+
+		/* if we returned non-zero from here, we kill the connection */
 		break;
 
 	default:
