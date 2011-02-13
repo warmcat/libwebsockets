@@ -49,6 +49,7 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/libwebsockets.so
 /%{_libdir}/libwebsockets.la
 %attr(755,root,root) /usr/share/libwebsockets-test-server
+%attr(755,root,root) /usr/share/libwebsockets-test-server-extpoll
 %attr(755,root,root) /usr/share/libwebsockets-test-client
 %attr(755,root,root) /usr/share/libwebsockets-test-ping
 %doc
