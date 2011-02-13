@@ -388,4 +388,7 @@ extern void
 libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 					char *rip, int rip_len);
 
+extern void
+libwebsockets_hangup_on_client(struct libwebsocket_context *this, int fd);
+
 #endif

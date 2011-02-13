@@ -134,6 +134,25 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 }
 
 /**
+ * libwebsockets_hangup_on_client() - Server calls to terminate client
+ * 					connection
+ * @this:	libwebsockets context
+ * @fd:		Connection socket descriptor
+ */
+
+void
+libwebsockets_hangup_on_client(struct libwebsocket_context *this, int fd)
+{
+	struct libwebsocket *wsi = wsi_from_fd(this, fd);
+
+	if (wsi == NULL)
+		return;
+
+	libwebsocket_close_and_free_session(wsi);
+}
+
+
+/**
  * libwebsockets_get_peer_addresses() - Get client address information
  * @fd:		Connection socket descriptor
  * @name:	Buffer to take client address name
