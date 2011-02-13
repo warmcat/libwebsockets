@@ -157,6 +157,50 @@ static int callback_http(struct libwebsocket *wsi,
 	return 0;
 }
 
+/*
+ * this is just an example of parsing handshake headers, you don't need this
+ * in your code unless you will filter allowing connections by the header
+ * content
+ */
+
+static void
+dump_handshake_info(struct lws_tokens *lwst)
+{
+	int n;
+	static const char *token_names[] = {
+		[WSI_TOKEN_GET_URI] = "GET URI",
+		[WSI_TOKEN_HOST] = "Host",
+		[WSI_TOKEN_CONNECTION] = "Connection",
+		[WSI_TOKEN_KEY1] = "key 1",
+		[WSI_TOKEN_KEY2] = "key 2",
+		[WSI_TOKEN_PROTOCOL] = "Protocol",
+		[WSI_TOKEN_UPGRADE] = "Upgrade",
+		[WSI_TOKEN_ORIGIN] = "Origin",
+		[WSI_TOKEN_DRAFT] = "Draft",
+		[WSI_TOKEN_CHALLENGE] = "Challenge",
+
+		/* new for 04 */
+		[WSI_TOKEN_KEY] = "Key",
+		[WSI_TOKEN_VERSION] = "Version",
+		[WSI_TOKEN_SWORIGIN] = "Sworigin",
+
+		/* new for 05 */
+		[WSI_TOKEN_EXTENSIONS] = "Extensions",
+
+		/* client receives these */
+		[WSI_TOKEN_ACCEPT] = "Accept",
+		[WSI_TOKEN_NONCE] = "Nonce",
+		[WSI_TOKEN_HTTP] = "Http",
+	};
+	
+	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
+		if (lwst[n].token == NULL)
+			continue;
+
+		fprintf(stderr, "    %s = %s\n", token_names[n], lwst[n].token);
+	}
+}
+
 /* dumb_increment protocol */
 
 /*
@@ -209,6 +253,17 @@ callback_dumb_increment(struct libwebsocket *wsi,
 			break;
 		if (strcmp(in, "reset\n") == 0)
 			pss->number = 0;
+		break;
+
+	/*
+	 * this just demonstrates how to use the protocol filter. If you won't
+	 * study and reject connections based on header content, you don't need
+	 * to handle this callback
+	 */
+
+	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
+		dump_handshake_info((struct lws_tokens *)(long)user);
+		/* you could return non-zero here and kill the connection */
 		break;
 
 	default:
@@ -310,6 +365,17 @@ callback_lws_mirror(struct libwebsocket *wsi,
 
 		libwebsocket_callback_on_writable_all_protocol(
 					       libwebsockets_get_protocol(wsi));
+		break;
+
+	/*
+	 * this just demonstrates how to use the protocol filter. If you won't
+	 * study and reject connections based on header content, you don't need
+	 * to handle this callback
+	 */
+
+	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
+		dump_handshake_info((struct lws_tokens *)(long)user);
+		/* you could return non-zero here and kill the connection */
 		break;
 
 	default:
