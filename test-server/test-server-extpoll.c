@@ -77,6 +77,8 @@ static int callback_http(struct libwebsocket *wsi,
 							   void *in, size_t len)
 {
 	int n;
+	char client_name[128];
+	char client_ip[128];
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
@@ -98,7 +100,7 @@ static int callback_http(struct libwebsocket *wsi,
 
 	/*
 	 * callbacks for managing the external poll() array appear in
-	 * protocl 0 callback
+	 * protocol 0 callback
 	 */
 
 	case LWS_CALLBACK_ADD_POLL_FD:

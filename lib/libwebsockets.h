@@ -41,6 +41,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLIENT_WRITEABLE,
 	LWS_CALLBACK_HTTP,
 	LWS_CALLBACK_BROADCAST,
+	LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 
 	/* external poll() management support */
@@ -179,6 +180,16 @@ struct libwebsocket_context;
  *		accept another write packet without blocking.  If it already
  *		was able to take another packet without blocking, you'll get
  *		this callback at the next call to the service loop function.
+ *
+ *	LWS_CALLBACK_FILTER_NETWORK_CONNECTION: called when a client connects to
+ *		the server at network level; the connection is accepted but then
+ *		passed to this callback to decide whether to hang up immediately
+ *		or not, based on the client IP.  @user contains the connection
+ *		socket's descriptor.  Return non-zero to terminate
+ *		the connection before sending or receiving anything.
+ * 		Because this happens immediately after the network connection
+ *		from the client, there's no websocket protocol selected yet so
+ *		this callback is issued only to protocol 0.
  *
  * 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION: called when the handshake has
  * 		been received and parsed from the client, but the response is
@@ -372,5 +383,9 @@ libwebsocket_canonical_hostname(struct libwebsocket_context *this);
 
 extern void
 libwebsocket_client_close(struct libwebsocket *wsi);
+
+extern void
+libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
+					char *rip, int rip_len);
 
 #endif

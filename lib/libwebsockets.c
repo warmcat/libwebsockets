@@ -133,6 +133,70 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 	free(wsi);
 }
 
+/**
+ * libwebsockets_get_peer_addresses() - Get client address information
+ * @fd:		Connection socket descriptor
+ * @name:	Buffer to take client address name
+ * @name_len:	Length of client address name buffer
+ * @rip:	Buffer to take client address IP qotted quad
+ * @rip_len:	Length of client address IP buffer
+ *
+ *	This function fills in @name and @rip with the name and IP of
+ * 	the client connected with socket descriptor @fd.  Names may be
+ * 	truncated if there is not enough room.  If either cannot be
+ * 	determined, they will be returned as valid zero-length strings.
+ */
+
+void
+libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
+					char *rip, int rip_len)
+{
+	unsigned int len;
+	struct sockaddr_in sin;
+	struct hostent *host;
+	struct hostent *host1;
+	char ip[128];
+	char *p;
+	int n;
+
+	rip[0] = '\0';
+	name[0] = '\0';
+
+	len = sizeof sin;
+	if (getpeername(fd, (struct sockaddr *) &sin, &len) < 0) {
+		perror("getpeername");
+		return;
+	}
+		
+	host = gethostbyaddr((char *) &sin.sin_addr, sizeof sin.sin_addr,
+								       AF_INET);
+	if (host == NULL) {
+		perror("gethostbyaddr");
+		return;
+	}
+
+	strncpy(name, host->h_name, name_len);
+	name[name_len - 1] = '\0';
+
+	host1 = gethostbyname(host->h_name);
+	if (host1 == NULL)
+		return;
+	p = (char *)host1;
+	n = 0;
+	while (p != NULL) {
+		p = host1->h_addr_list[n++];
+		if (p == NULL)
+			continue;
+		if (host1->h_addrtype != AF_INET)
+			continue;
+
+		sprintf(ip, "%d.%d.%d.%d",
+				p[0], p[1], p[2], p[3]);
+		p = NULL;
+		strncpy(rip, ip, rip_len);
+		rip[rip_len - 1] = '\0';
+	}
+}
 
 /**
  * libwebsocket_service_fd() - Service polled socket with something waiting
@@ -183,6 +247,20 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 		if (this->fds_count >= MAX_CLIENTS) {
 			fprintf(stderr, "too busy to accept new client\n");
+			close(accept_fd);
+			break;
+		}
+
+		/*
+		 * look at who we connected to and give user code a chance
+		 * to reject based on client IP.  There's no protocol selected
+		 * yet so we issue this to protocols[0]
+		 */
+
+		if ((this->protocols[0].callback)(wsi,
+				LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
+					     (void*)(long)accept_fd, NULL, 0)) {
+			fprintf(stderr, "Callback denied network connection\n");
 			close(accept_fd);
 			break;
 		}

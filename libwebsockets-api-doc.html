@@ -1,3 +1,32 @@
+<h2>libwebsockets_get_peer_addresses - Get client address information</h2>
+<i>void</i>
+<b>libwebsockets_get_peer_addresses</b>
+(<i>int</i> <b>fd</b>,
+<i>char *</i> <b>name</b>,
+<i>int</i> <b>name_len</b>,
+<i>char *</i> <b>rip</b>,
+<i>int</i> <b>rip_len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>fd</b>
+<dd>Connection socket descriptor
+<dt><b>name</b>
+<dd>Buffer to take client address name
+<dt><b>name_len</b>
+<dd>Length of client address name buffer
+<dt><b>rip</b>
+<dd>Buffer to take client address IP qotted quad
+<dt><b>rip_len</b>
+<dd>Length of client address IP buffer
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function fills in <tt><b>name</b></tt> and <tt><b>rip</b></tt> with the name and IP of
+the client connected with socket descriptor <tt><b>fd</b></tt>.  Names may be
+truncated if there is not enough room.  If either cannot be
+determined, they will be returned as valid zero-length strings.
+</blockquote>
+<hr>
 <h2>libwebsocket_service_fd - Service polled socket with something waiting</h2>
 <i>int</i>
 <b>libwebsocket_service_fd</b>
@@ -485,12 +514,28 @@ accept another write packet without blocking.  If it already
 was able to take another packet without blocking, you'll get
 this callback at the next call to the service loop function.
 </blockquote>
+<h3>LWS_CALLBACK_FILTER_NETWORK_CONNECTION</h3>
+<blockquote>
+called when a client connects to
+the server at network level; the connection is accepted but then
+passed to this callback to decide whether to hang up immediately
+or not, based on the client IP.  <tt><b>user</b></tt> contains the connection
+socket's descriptor.  Return non-zero to terminate
+the connection before sending or receiving anything.
+Because this happens immediately after the network connection
+from the client, there's no websocket protocol selected yet so
+this callback is issued only to protocol 0.
+</blockquote>
 <h3>LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION</h3>
 <blockquote>
 called when the handshake has
 been received and parsed from the client, but the response is
 not sent yet.  Return non-zero to disallow the connection.
-<tt><b>user</b></tt> is a pointer to an array of 
+<tt><b>user</b></tt> is a pointer to an array of struct lws_tokens, you can
+use the header enums lws_token_indexes from libwebsockets.h
+to check for and read the supported header presence and
+content before deciding to allow the handshake to proceed or
+to kill the connection.
 <p>
 <p>
 The next four reasons are optional and only need taking care of if you
