@@ -533,6 +533,19 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 				 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token);
 
 		/*
+		 * Give the user code a chance to study the request and
+		 * have the opportunity to deny it
+		 */
+
+		if ((wsi->protocol->callback)(wsi,
+				LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
+						&wsi->utf8_token[0], NULL, 0)) {
+			fprintf(stderr, "User code denied connection\n");
+			goto bail;
+		}
+
+
+		/*
 		 * Perform the handshake according to the protocol version the
 		 * client announced
 		 */

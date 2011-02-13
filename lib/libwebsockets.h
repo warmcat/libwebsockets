@@ -41,6 +41,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLIENT_WRITEABLE,
 	LWS_CALLBACK_HTTP,
 	LWS_CALLBACK_BROADCAST,
+	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 
 	/* external poll() management support */
 	LWS_CALLBACK_ADD_POLL_FD,
@@ -69,6 +70,52 @@ enum libwebsocket_write_protocol {
 	 * decode the content if used
 	 */
 	LWS_WRITE_CLIENT_IGNORE_XOR_MASK = 0x80
+};
+
+/*
+ * you need these to look at headers that have been parsed if using the
+ * LWS_CALLBACK_FILTER_CONNECTION callback.  If a header from the enum
+ * list below is absent, .token = NULL and token_len = 0.  Otherwise .token
+ * points to .token_len chars containing that header content.
+ */
+
+struct lws_tokens {
+	char *token;
+	int token_len;
+};
+
+enum lws_token_indexes {
+	WSI_TOKEN_GET_URI,
+	WSI_TOKEN_HOST,
+	WSI_TOKEN_CONNECTION,
+	WSI_TOKEN_KEY1,
+	WSI_TOKEN_KEY2,
+	WSI_TOKEN_PROTOCOL,
+	WSI_TOKEN_UPGRADE,
+	WSI_TOKEN_ORIGIN,
+	WSI_TOKEN_DRAFT,
+	WSI_TOKEN_CHALLENGE,
+
+	/* new for 04 */
+	WSI_TOKEN_KEY,
+	WSI_TOKEN_VERSION,
+	WSI_TOKEN_SWORIGIN,
+
+	/* new for 05 */
+	WSI_TOKEN_EXTENSIONS,
+
+	/* client receives these */
+	WSI_TOKEN_ACCEPT,
+	WSI_TOKEN_NONCE,
+	WSI_TOKEN_HTTP,
+
+	/* always last real token index*/
+	WSI_TOKEN_COUNT,
+	/* parser state additions */
+	WSI_TOKEN_NAME_PART,
+	WSI_TOKEN_SKIPPING,
+	WSI_TOKEN_SKIPPING_SAW_CR,
+	WSI_PARSING_COMPLETE
 };
 
 struct libwebsocket;
@@ -132,6 +179,16 @@ struct libwebsocket_context;
  *		accept another write packet without blocking.  If it already
  *		was able to take another packet without blocking, you'll get
  *		this callback at the next call to the service loop function.
+ *
+ * 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION: called when the handshake has
+ * 		been received and parsed from the client, but the response is
+ * 		not sent yet.  Return non-zero to disallow the connection.
+ *		@user is a pointer to an array of struct lws_tokens, you can
+ *		use the header enums lws_token_indexes from libwebsockets.h
+ *		to check for and read the supported header presence and
+ *		content before deciding to allow the handshake to proceed or
+ *		to kill the connection.
+ *
  *
  *	The next four reasons are optional and only need taking care of if you
  * 	will be integrating libwebsockets sockets into an external polling

@@ -485,6 +485,59 @@ accept another write packet without blocking.  If it already
 was able to take another packet without blocking, you'll get
 this callback at the next call to the service loop function.
 </blockquote>
+<h3>LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION</h3>
+<blockquote>
+called when the handshake has
+been received and parsed from the client, but the response is
+not sent yet.  Return non-zero to disallow the connection.
+<tt><b>user</b></tt> is a pointer to an array of 
+<p>
+<p>
+The next four reasons are optional and only need taking care of if you
+will be integrating libwebsockets sockets into an external polling
+array.
+</blockquote>
+<h3>LWS_CALLBACK_ADD_POLL_FD</h3>
+<blockquote>
+libwebsocket deals with its <b>poll</b> loop
+internally, but in the case you are integrating with another
+server you will need to have libwebsocket sockets share a
+polling array with the other server.  This and the other
+POLL_FD related callbacks let you put your specialized
+poll array interface code in the callback for protocol 0, the
+first protocol you support, usually the HTTP protocol in the
+serving case.  This callback happens when a socket needs to be
+</blockquote>
+<h3>added to the polling loop</h3>
+<blockquote>
+<tt><b>user</b></tt> contains the fd, and
+<tt><b>len</b></tt> is the events bitmap (like, POLLIN).  If you are using the
+internal polling loop (the "service" callback), you can just
+ignore these callbacks.
+</blockquote>
+<h3>LWS_CALLBACK_DEL_POLL_FD</h3>
+<blockquote>
+This callback happens when a socket descriptor
+needs to be removed from an external polling array.  <tt><b>user</b></tt> is
+the socket desricptor.  If you are using the internal polling
+loop, you can just ignore it.
+</blockquote>
+<h3>LWS_CALLBACK_SET_MODE_POLL_FD</h3>
+<blockquote>
+This callback happens when libwebsockets
+wants to modify the events for the socket descriptor in <tt><b>user</b></tt>.
+The handler should OR <tt><b>len</b></tt> on to the events member of the pollfd
+struct for this socket descriptor.  If you are using the
+internal polling loop, you can just ignore it.
+</blockquote>
+<h3>LWS_CALLBACK_CLEAR_MODE_POLL_FD</h3>
+<blockquote>
+This callback occurs when libwebsockets
+wants to modify the events for the socket descriptor in <tt><b>user</b></tt>.
+The handler should AND ~<tt><b>len</b></tt> on to the events member of the
+pollfd struct for this socket descriptor.  If you are using the
+internal polling loop, you can just ignore it.
+</blockquote>
 <hr>
 <h2>struct libwebsocket_protocols - List of protocols and handlers server supports.</h2>
 <b>struct libwebsocket_protocols</b> {<br>

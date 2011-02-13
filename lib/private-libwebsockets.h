@@ -99,40 +99,6 @@ enum lws_connection_states {
 	WSI_STATE_RETURNED_CLOSE_ALREADY
 };
 
-enum lws_token_indexes {
-	WSI_TOKEN_GET_URI,
-	WSI_TOKEN_HOST,
-	WSI_TOKEN_CONNECTION,
-	WSI_TOKEN_KEY1,
-	WSI_TOKEN_KEY2,
-	WSI_TOKEN_PROTOCOL,
-	WSI_TOKEN_UPGRADE,
-	WSI_TOKEN_ORIGIN,
-	WSI_TOKEN_DRAFT,
-	WSI_TOKEN_CHALLENGE,
-
-	/* new for 04 */
-	WSI_TOKEN_KEY,
-	WSI_TOKEN_VERSION,
-	WSI_TOKEN_SWORIGIN,
-
-	/* new for 05 */
-	WSI_TOKEN_EXTENSIONS,
-
-	/* client receives these */
-	WSI_TOKEN_ACCEPT,
-	WSI_TOKEN_NONCE,
-	WSI_TOKEN_HTTP,
-
-	/* always last real token index*/
-	WSI_TOKEN_COUNT,
-	/* parser state additions */
-	WSI_TOKEN_NAME_PART,
-	WSI_TOKEN_SKIPPING,
-	WSI_TOKEN_SKIPPING_SAW_CR,
-	WSI_PARSING_COMPLETE
-};
-
 enum lws_rx_parse_state {
 	LWS_RXPS_NEW,
 
@@ -160,11 +126,6 @@ enum lws_rx_parse_state {
 	LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED
 };
 
-
-struct lws_tokens {
-	char *token;
-	int token_len;
-};
 
 enum connection_mode {
 	LWS_CONNMODE_WS_SERVING,
