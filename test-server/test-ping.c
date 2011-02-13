@@ -52,7 +52,7 @@ static int flood;
 static const char *address;
 static unsigned char pingbuf[LWS_SEND_BUFFER_PRE_PADDING + MAX_MIRROR_PAYLOAD +
 						  LWS_SEND_BUFFER_POST_PADDING];
-static char *hname = "(unknown)";
+static char peer_name[128];
 static unsigned long started;
 static int screen_width = 80;
 static int use_mirror;
@@ -300,12 +300,7 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 	struct libwebsocket *wsi[MAX_PING_CLIENTS];
 	char protocol_name[256];
-	unsigned int len;
-	struct sockaddr_in sin;
-	struct hostent *host;
-	struct hostent *host1;
 	char ip[30];
-	char *p;
 	struct sigaction sa;
 	struct timeval tv;
 	struct winsize w;
@@ -408,41 +403,11 @@ int main(int argc, char **argv)
 		}
 	}
 
-	strcpy(ip, "(unknown)");
-	len = sizeof sin;
-	if (getpeername(libwebsocket_get_socket_fd(wsi[0]),
-					    (struct sockaddr *) &sin, &len) < 0)
-		perror("getpeername");
-	else {
-		host = gethostbyaddr((char *) &sin.sin_addr,
-				    sizeof sin.sin_addr,
-				    AF_INET);
-		if (host == NULL)
-			perror("gethostbyaddr");
-		else {
-			hname = host->h_name;
-
-			host1 = gethostbyname(hname);
-			if (host1 != NULL) {
-				p = (char *)host1;
-				n = 0;
-				while (p != NULL) {
-					p = host1->h_addr_list[n++];
-					if (p == NULL)
-						continue;
-					if (host1->h_addrtype != AF_INET)
-						continue;
-
-					sprintf(ip, "%d.%d.%d.%d",
-							p[0], p[1], p[2], p[3]);
-					p = NULL;
-				}
-			}
-		}
-	}
+	libwebsockets_get_peer_addresses(libwebsocket_get_socket_fd(wsi[0]),
+				    peer_name, sizeof peer_name, ip, sizeof ip);
 
 	fprintf(stderr, "Websocket PING %s (%s) %d bytes of data.\n",
-							       hname, ip, size);
+							   peer_name, ip, size);
 
 	/* set the ^C handler */
 
@@ -493,7 +458,7 @@ int main(int argc, char **argv)
 		"%lu%% packet loss, time %ldms\n"
 		"rtt min/avg/max = %0.3f/%0.3f/%0.3f ms\n"
 		"payload bandwidth average %0.3f KiBytes/sec\n",
-		hname, clients, global_tx_count, global_rx_count,
+		peer_name, clients, global_tx_count, global_rx_count,
 		((global_tx_count - global_rx_count) * 100) / global_tx_count,
 		(l - started) / 1000,
 		((double)rtt_min) / 1000.0,
