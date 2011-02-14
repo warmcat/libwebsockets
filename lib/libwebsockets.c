@@ -965,9 +965,14 @@ libwebsocket_create_context(int port,
 	hostname[(sizeof hostname) - 1] = '\0';
 	gethostname(hostname, (sizeof hostname) - 1);
 	he = gethostbyname(hostname);
-	strncpy(this->canonical_hostname, he->h_name,
+	if (he) {
+		strncpy(this->canonical_hostname, he->h_name,
 					   sizeof this->canonical_hostname - 1);
-	this->canonical_hostname[sizeof this->canonical_hostname - 1] = '\0';
+		this->canonical_hostname[sizeof this->canonical_hostname - 1] =
+									   '\0';
+	} else
+		strncpy(this->canonical_hostname, hostname,
+					   sizeof this->canonical_hostname - 1);
 
 	/* split the proxy ads:port if given */
 

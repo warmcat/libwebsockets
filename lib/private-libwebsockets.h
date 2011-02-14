@@ -68,6 +68,16 @@ static inline void debug(const char *format, ...)
 }
 #endif
 
+
+/*
+ * Mac OSX as well as iOS do not define the MSG_NOSIGNAL flag,
+ * but happily have something equivalent in the SO_NOSIGPIPE flag.
+ */
+#ifdef __APPLE__
+#define MSG_NOSIGNAL SO_NOSIGPIPE 
+#endif
+
+
 #define FD_HASHTABLE_MODULUS 32
 #define MAX_CLIENTS 100
 #define LWS_MAX_HEADER_NAME_LENGTH 64
@@ -262,3 +272,13 @@ insert_wsi(struct libwebsocket_context *this, struct libwebsocket *wsi);
 
 extern int
 delete_from_fd(struct libwebsocket_context *this, int fd);
+
+#ifndef LWS_OPENSSL_SUPPORT
+
+unsigned char *
+SHA1(const unsigned char *d, size_t n, unsigned char *md);
+
+void
+MD5(const unsigned char *input, int ilen, unsigned char *output);
+
+#endif

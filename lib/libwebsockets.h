@@ -236,7 +236,7 @@ struct libwebsocket_context;
  * 		pollfd struct for this socket descriptor.  If you are using the
  *		internal polling loop, you can just ignore it.
  */
-extern int callback(struct libwebsocket_context * this,
+extern int callback(struct libwebsocket_context * context,
 			struct libwebsocket *wsi,
 			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
@@ -271,7 +271,7 @@ extern int callback(struct libwebsocket_context * this,
 
 struct libwebsocket_protocols {
 	const char *name;
-	int (*callback)(struct libwebsocket_context * this,
+	int (*callback)(struct libwebsocket_context * context,
 			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
@@ -296,16 +296,16 @@ libwebsocket_create_context(int port,
 		  unsigned int options);
 
 extern void
-libwebsocket_context_destroy(struct libwebsocket_context *this);
+libwebsocket_context_destroy(struct libwebsocket_context *context);
 
 extern int
-libwebsockets_fork_service_loop(struct libwebsocket_context *this);
+libwebsockets_fork_service_loop(struct libwebsocket_context *context);
 
 extern int
-libwebsocket_service(struct libwebsocket_context *this, int timeout_ms);
+libwebsocket_service(struct libwebsocket_context *context, int timeout_ms);
 
 extern int
-libwebsocket_service_fd(struct libwebsocket_context *this,
+libwebsocket_service_fd(struct libwebsocket_context *context,
 							 struct pollfd *pollfd);
 
 /*
@@ -355,7 +355,7 @@ extern const struct libwebsocket_protocols *
 libwebsockets_get_protocol(struct libwebsocket *wsi);
 
 extern int
-libwebsocket_callback_on_writable(struct libwebsocket_context *this,
+libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi);
 
 extern int
@@ -383,7 +383,7 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 			      int ietf_version_or_minus_one);
 
 extern const char *
-libwebsocket_canonical_hostname(struct libwebsocket_context *this);
+libwebsocket_canonical_hostname(struct libwebsocket_context *context);
 
 
 extern void
@@ -391,10 +391,10 @@ libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 					char *rip, int rip_len);
 
 extern void
-libwebsockets_hangup_on_client(struct libwebsocket_context *this, int fd);
+libwebsockets_hangup_on_client(struct libwebsocket_context *context, int fd);
 
 extern void
-libwebsocket_close_and_free_session(struct libwebsocket_context *this,
+libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi);
 
 #endif

@@ -440,7 +440,7 @@ This function creates a connection to a remote server
 <h2>callback - User server actions</h2>
 <i>int</i>
 <b>callback</b>
-(<i>struct libwebsocket_context *</i> <b>this</b>,
+(<i>struct libwebsocket_context *</i> <b>context</b>,
 <i>struct libwebsocket *</i> <b>wsi</b>,
 <i>enum libwebsocket_callback_reasons</i> <b>reason</b>,
 <i>void *</i> <b>user</b>,
@@ -448,8 +448,6 @@ This function creates a connection to a remote server
 <i>size_t</i> <b>len</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>this</b>
-<dd>Websockets context
 <dt><b>wsi</b>
 <dd>Opaque websocket instance pointer
 <dt><b>reason</b>
@@ -604,7 +602,7 @@ internal polling loop, you can just ignore it.
 <h2>struct libwebsocket_protocols - List of protocols and handlers server supports.</h2>
 <b>struct libwebsocket_protocols</b> {<br>
 &nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
-&nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket_context * this,struct libwebsocket *wsi,enum libwebsocket_callback_reasons reason, void *user,void *in, size_t len)</i>;<br>
+&nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket_context * context,struct libwebsocket *wsi,enum libwebsocket_callback_reasons reason, void *user,void *in, size_t len)</i>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
 &nbsp; &nbsp; <i>struct libwebsocket_context *</i> <b>owning_server</b>;<br>
 &nbsp; &nbsp; <i>int</i> <b>broadcast_socket_port</b>;<br>

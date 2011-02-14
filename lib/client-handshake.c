@@ -79,6 +79,8 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 		return NULL;
 	}
 
+	memset(wsi, 0, sizeof *wsi);
+
 	/* -1 means just use latest supported */
 
 	if (ietf_version_or_minus_one == -1)
