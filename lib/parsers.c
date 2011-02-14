@@ -128,10 +128,10 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		/* no payload challenge in 01 + */
 
 		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
-			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) > 0) {
-			wsi->utf8_token[wsi->parser_state].token_len = 0;
-			free(wsi->utf8_token[wsi->parser_state].token);
-			wsi->utf8_token[wsi->parser_state].token = NULL;
+			   atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) > 0) {
+			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len = 0;
+			free(wsi->utf8_token[WSI_TOKEN_CHALLENGE].token);
+			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token = NULL;
 		}
 
 		/* For any supported protocol we have enough payload */
@@ -555,7 +555,8 @@ post_mask:
 			break;
 issue:
 		if (wsi->protocol->callback)
-			wsi->protocol->callback(wsi, LWS_CALLBACK_RECEIVE,
+			wsi->protocol->callback(wsi->protocol->owning_server,
+			  wsi, LWS_CALLBACK_RECEIVE,
 			  wsi->user_space,
 			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 			  wsi->rx_user_buffer_head);
@@ -642,7 +643,8 @@ spill:
 					       wsi->rx_user_buffer_head] = '\0';
 
 		if (wsi->protocol->callback)
-			wsi->protocol->callback(wsi, LWS_CALLBACK_RECEIVE,
+			wsi->protocol->callback(wsi->protocol->owning_server,
+						wsi, LWS_CALLBACK_RECEIVE,
 						wsi->user_space,
 			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 						      wsi->rx_user_buffer_head);
@@ -880,7 +882,8 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			break;
 issue:
 		if (wsi->protocol->callback)
-			wsi->protocol->callback(wsi,
+			wsi->protocol->callback(wsi->protocol->owning_server,
+						wsi,
 						LWS_CALLBACK_CLIENT_RECEIVE,
 						wsi->user_space,
 			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
@@ -958,7 +961,8 @@ spill:
 		 */
 
 		if (wsi->protocol->callback)
-			wsi->protocol->callback(wsi, callback_action,
+			wsi->protocol->callback(wsi->protocol->owning_server,
+						wsi, callback_action,
 						wsi->user_space,
 			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 						      wsi->rx_user_buffer_head);

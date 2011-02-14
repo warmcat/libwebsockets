@@ -72,7 +72,8 @@ enum demo_protocols {
 
 /* this protocol server (always the first one) just knows how to do HTTP */
 
-static int callback_http(struct libwebsocket *wsi,
+static int callback_http(struct libwebsocket_context * this,
+		struct libwebsocket *wsi,
 		enum libwebsocket_callback_reasons reason, void *user,
 							   void *in, size_t len)
 {
@@ -216,7 +217,8 @@ struct per_session_data__dumb_increment {
 };
 
 static int
-callback_dumb_increment(struct libwebsocket *wsi,
+callback_dumb_increment(struct libwebsocket_context * this,
+			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
@@ -293,7 +295,8 @@ static int ringbuffer_head;
 
 
 static int
-callback_lws_mirror(struct libwebsocket *wsi,
+callback_lws_mirror(struct libwebsocket_context * this,
+			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
@@ -305,7 +308,7 @@ callback_lws_mirror(struct libwebsocket *wsi,
 	case LWS_CALLBACK_ESTABLISHED:
 		pss->ringbuffer_tail = ringbuffer_head;
 		pss->wsi = wsi;
-		libwebsocket_callback_on_writable(wsi);
+		libwebsocket_callback_on_writable(this, wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
@@ -332,7 +335,7 @@ callback_lws_mirror(struct libwebsocket *wsi,
 				  MAX_MESSAGE_QUEUE) < (MAX_MESSAGE_QUEUE - 15))
 				libwebsocket_rx_flow_control(wsi, 1);
 
-			libwebsocket_callback_on_writable(wsi);
+			libwebsocket_callback_on_writable(this, wsi);
 
 		}
 		break;

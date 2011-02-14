@@ -56,7 +56,8 @@ enum demo_protocols {
 /* dumb_increment protocol */
 
 static int
-callback_dumb_increment(struct libwebsocket *wsi,
+callback_dumb_increment(struct libwebsocket_context * this,
+			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
@@ -79,7 +80,8 @@ callback_dumb_increment(struct libwebsocket *wsi,
 
 
 static int
-callback_lws_mirror(struct libwebsocket *wsi,
+callback_lws_mirror(struct libwebsocket_context * this,
+			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
@@ -96,7 +98,7 @@ callback_lws_mirror(struct libwebsocket *wsi,
 		 * LWS_CALLBACK_CLIENT_WRITEABLE will come next service
 		 */
 
-		libwebsocket_callback_on_writable(wsi);
+		libwebsocket_callback_on_writable(this, wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
@@ -117,7 +119,7 @@ callback_lws_mirror(struct libwebsocket *wsi,
 
 		/* get notified as soon as we can write again */
 
-		libwebsocket_callback_on_writable(wsi);
+		libwebsocket_callback_on_writable(this, wsi);
 
 		/*
 		 * without at least this delay, we choke the browser

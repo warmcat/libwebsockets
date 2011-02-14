@@ -498,7 +498,7 @@ check_accept:
 	this->fds[this->fds_count++].events = POLLIN;
 
 	/* external POLL support via protocol 0 */
-	this->protocols[0].callback(wsi,
+	this->protocols[0].callback(this, wsi,
 		LWS_CALLBACK_ADD_POLL_FD,
 		(void *)(long)wsi->sock, NULL, POLLIN);
 
@@ -510,7 +510,7 @@ check_accept:
 
 	/* call him back to inform him he is up */
 
-	wsi->protocol->callback(wsi,
+	wsi->protocol->callback(this, wsi,
 			 LWS_CALLBACK_CLIENT_ESTABLISHED,
 			 wsi->user_space,
 			 NULL, 0);

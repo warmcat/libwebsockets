@@ -80,15 +80,16 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *this,
 						       struct libwebsocket *wsi)
 {
 	int n;
+	int old_state;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
 						  LWS_SEND_BUFFER_POST_PADDING];
 
 	if (!wsi)
 		return;
 
-	n = wsi->state;
+	old_state = wsi->state;
 
-	if (n == WSI_STATE_DEAD_SOCKET)
+	if (old_state == WSI_STATE_DEAD_SOCKET)
 		return;
 
 	/* remove this fd from wsi mapping hashtable */
@@ -111,7 +112,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *this,
 
 	/* remove also from external POLL support via protocol 0 */
 
-	this->protocols[0].callback(wsi,
+	this->protocols[0].callback(this, wsi,
 		    LWS_CALLBACK_DEL_POLL_FD, (void *)(long)wsi->sock, NULL, 0);
 
 	/*
@@ -122,7 +123,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *this,
 	 * WSI_STATE_RETURNED_CLOSE_ALREADY and we will skip this
 	 */
 
-	if (n == WSI_STATE_ESTABLISHED)
+	if (old_state == WSI_STATE_ESTABLISHED)
 		libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 0,
 							       LWS_WRITE_CLOSE);
 
@@ -130,8 +131,8 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *this,
 
 	/* tell the user it's all over for this guy */
 
-	if (wsi->protocol->callback && n == WSI_STATE_ESTABLISHED)
-		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
+	if (wsi->protocol->callback && old_state == WSI_STATE_ESTABLISHED)
+		wsi->protocol->callback(this, wsi, LWS_CALLBACK_CLOSED,
 						      wsi->user_space, NULL, 0);
 
 	/* free up his allocations */
@@ -317,7 +318,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		 * yet so we issue this to protocols[0]
 		 */
 
-		if ((this->protocols[0].callback)(wsi,
+		if ((this->protocols[0].callback)(this, wsi,
 				LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 					     (void*)(long)accept_fd, NULL, 0)) {
 			fprintf(stderr, "Callback denied network connection\n");
@@ -420,7 +421,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		this->fds[this->fds_count++].fd = accept_fd;
 
 		/* external POLL support via protocol 0 */
-		this->protocols[0].callback(new_wsi,
+		this->protocols[0].callback(this, new_wsi,
 			LWS_CALLBACK_ADD_POLL_FD,
 			(void *)(long)accept_fd, NULL, POLLIN);
 
@@ -469,7 +470,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		this->fds[this->fds_count++].fd = accept_fd;
 
 		/* external POLL support via protocol 0 */
-		this->protocols[0].callback(new_wsi,
+		this->protocols[0].callback(this, new_wsi,
 			LWS_CALLBACK_ADD_POLL_FD,
 			(void *)(long)accept_fd, NULL, POLLIN);
 
@@ -497,11 +498,11 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			pollfd->events &= ~POLLOUT;
 
 			/* external POLL support via protocol 0 */
-			this->protocols[0].callback(wsi,
+			this->protocols[0].callback(this, wsi,
 				LWS_CALLBACK_CLEAR_MODE_POLL_FD,
 				(void *)(long)wsi->sock, NULL, POLLOUT);
 
-			wsi->protocol->callback(wsi,
+			wsi->protocol->callback(this, wsi,
 				LWS_CALLBACK_CLIENT_WRITEABLE,
 				wsi->user_space,
 				NULL, 0);
@@ -553,7 +554,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 				/* broadcast it to this connection */
 
-				new_wsi->protocol->callback(new_wsi,
+				new_wsi->protocol->callback(this, new_wsi,
 					LWS_CALLBACK_BROADCAST,
 					new_wsi->user_space,
 					buf + LWS_SEND_BUFFER_PRE_PADDING, len);
@@ -568,7 +569,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 		if (pollfd->revents & (POLLERR | POLLHUP)) {
 
-			debug("Session Socket %p (fd=%d) dead\n",
+			fprintf(stderr, "Session Socket %p (fd=%d) dead\n",
 				(void *)wsi, pollfd->fd);
 
 			libwebsocket_close_and_free_session(this, wsi);
@@ -582,11 +583,11 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			pollfd->events &= ~POLLOUT;
 
 			/* external POLL support via protocol 0 */
-			this->protocols[0].callback(wsi,
+			this->protocols[0].callback(this, wsi,
 				LWS_CALLBACK_CLEAR_MODE_POLL_FD,
 				(void *)(long)wsi->sock, NULL, POLLOUT);
 
-			wsi->protocol->callback(wsi,
+			wsi->protocol->callback(this, wsi,
 				LWS_CALLBACK_CLIENT_WRITEABLE,
 				wsi->user_space,
 				NULL, 0);
@@ -713,7 +714,7 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
 	if (n == 0) /* poll timeout */
 		return 0;
 
-	if (n < 0 || this->fds[0].revents & (POLLERR | POLLHUP)) {
+	if (n < 0) {
 		/*
 		fprintf(stderr, "Listen Socket dead\n");
 		*/
@@ -738,9 +739,9 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
  */
 
 int
-libwebsocket_callback_on_writable(struct libwebsocket *wsi)
+libwebsocket_callback_on_writable(struct libwebsocket_context *this,
+						       struct libwebsocket *wsi)
 {
-	struct libwebsocket_context *this = wsi->protocol->owning_server;
 	int n;
 
 	for (n = 0; n < this->fds_count; n++)
@@ -750,7 +751,7 @@ libwebsocket_callback_on_writable(struct libwebsocket *wsi)
 		}
 
 	/* external POLL support via protocol 0 */
-	this->protocols[0].callback(wsi,
+	this->protocols[0].callback(this, wsi,
 		LWS_CALLBACK_SET_MODE_POLL_FD,
 		(void *)(long)wsi->sock, NULL, POLLOUT);
 
@@ -782,7 +783,7 @@ libwebsocket_callback_on_writable_all_protocol(
 			wsi = this->fd_hashtable[n].wsi[m];
 
 			if (wsi->protocol == protocol)
-				libwebsocket_callback_on_writable(wsi);
+				libwebsocket_callback_on_writable(this, wsi);
 		}
 	}
 
@@ -833,12 +834,12 @@ libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable)
 
 	if (enable)
 		/* external POLL support via protocol 0 */
-		this->protocols[0].callback(wsi,
+		this->protocols[0].callback(this, wsi,
 			LWS_CALLBACK_SET_MODE_POLL_FD,
 			(void *)(long)wsi->sock, NULL, POLLIN);
 	else
 		/* external POLL support via protocol 0 */
-		this->protocols[0].callback(wsi,
+		this->protocols[0].callback(this, wsi,
 			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
 			(void *)(long)wsi->sock, NULL, POLLIN);
 
@@ -1154,7 +1155,7 @@ libwebsocket_create_context(int port,
 		this->fds[this->fds_count++].events = POLLIN;
 
 		/* external POLL support via protocol 0 */
-		this->protocols[0].callback(wsi,
+		this->protocols[0].callback(this, wsi,
 			LWS_CALLBACK_ADD_POLL_FD,
 			(void *)(long)sockfd, NULL, POLLIN);
 
@@ -1232,7 +1233,7 @@ libwebsocket_create_context(int port,
 		this->fds_count++;
 
 		/* external POLL support via protocol 0 */
-		this->protocols[0].callback(wsi,
+		this->protocols[0].callback(this, wsi,
 			LWS_CALLBACK_ADD_POLL_FD,
 			(void *)(long)fd, NULL, POLLIN);
 	}
@@ -1395,7 +1396,7 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 				if (wsi->protocol != protocol)
 					continue;
 
-				wsi->protocol->callback(wsi,
+				wsi->protocol->callback(this, wsi,
 					 LWS_CALLBACK_BROADCAST,
 					 wsi->user_space,
 					 buf, len);

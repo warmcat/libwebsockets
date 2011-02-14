@@ -125,6 +125,7 @@ struct libwebsocket_context;
 /* document the generic callback (it's a fake prototype under this) */
 /**
  * callback() - User server actions
+ * @this:	Websockets context
  * @wsi:	Opaque websocket instance pointer
  * @reason:	The reason for the call
  * @user:	Pointer to per-session user data allocated by library
@@ -235,7 +236,8 @@ struct libwebsocket_context;
  * 		pollfd struct for this socket descriptor.  If you are using the
  *		internal polling loop, you can just ignore it.
  */
-extern int callback(struct libwebsocket *wsi,
+extern int callback(struct libwebsocket_context * this,
+			struct libwebsocket *wsi,
 			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
 
@@ -269,7 +271,8 @@ extern int callback(struct libwebsocket *wsi,
 
 struct libwebsocket_protocols {
 	const char *name;
-	int (*callback)(struct libwebsocket *wsi,
+	int (*callback)(struct libwebsocket_context * this,
+			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
 	size_t per_session_data_size;
@@ -352,7 +355,8 @@ extern const struct libwebsocket_protocols *
 libwebsockets_get_protocol(struct libwebsocket *wsi);
 
 extern int
-libwebsocket_callback_on_writable(struct libwebsocket *wsi);
+libwebsocket_callback_on_writable(struct libwebsocket_context *this,
+						      struct libwebsocket *wsi);
 
 extern int
 libwebsocket_callback_on_writable_all_protocol(

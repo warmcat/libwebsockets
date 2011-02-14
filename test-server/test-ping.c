@@ -46,6 +46,7 @@
 #define MAX_PING_CLIENTS 256
 #define PING_RINGBUFFER_SIZE 256
 
+static struct libwebsocket *ping_wsi[MAX_PING_CLIENTS];
 static unsigned int interval_us = 1000000;
 static unsigned int size = 64;
 static int flood;
@@ -97,7 +98,8 @@ enum demo_protocols {
 
 
 static int
-callback_lws_mirror(struct libwebsocket *wsi,
+callback_lws_mirror(struct libwebsocket_context * this,
+			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
@@ -111,6 +113,23 @@ callback_lws_mirror(struct libwebsocket *wsi,
 	struct per_session_data__ping *psd = user;
 
 	switch (reason) {
+	case LWS_CALLBACK_CLOSED:
+
+		fprintf(stderr, "LWS_CALLBACK_CLOSED on %p\n", (void *)wsi);
+
+		/* remove closed guy */
+	
+		for (n = 0; n < clients; n++)
+			if (ping_wsi[n] == wsi) {				
+				clients--;
+				while (n < clients) {
+					ping_wsi[n] = ping_wsi[n + 1];
+					n++;
+				}
+			}
+
+		break;
+
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 
 		psd->rx_count = 0;
@@ -123,7 +142,7 @@ callback_lws_mirror(struct libwebsocket *wsi,
 		 * LWS_CALLBACK_CLIENT_WRITEABLE will come next service
 		 */
 
-		libwebsocket_callback_on_writable(wsi);
+		libwebsocket_callback_on_writable(this, wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
@@ -298,7 +317,6 @@ int main(int argc, char **argv)
 	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
-	struct libwebsocket *wsi[MAX_PING_CLIENTS];
 	char protocol_name[256];
 	char ip[30];
 	struct sigaction sa;
@@ -392,18 +410,19 @@ int main(int argc, char **argv)
 	/* create client websockets using dumb increment protocol */
 
 	for (n = 0; n < clients; n++) {
-		wsi[n] = libwebsocket_client_connect(context, address, port,
-						     use_ssl, "/", address,
+		ping_wsi[n] = libwebsocket_client_connect(context, address,
+						   port, use_ssl, "/", address,
 				 "origin", protocols[PROTOCOL_LWS_MIRROR].name,
 								  ietf_version);
-		if (wsi[n] == NULL) {
+		if (ping_wsi[n] == NULL) {
 			fprintf(stderr, "client connnection %d failed to "
 								"connect\n", n);
 			return 1;
 		}
 	}
 
-	libwebsockets_get_peer_addresses(libwebsocket_get_socket_fd(wsi[0]),
+	libwebsockets_get_peer_addresses(
+			libwebsocket_get_socket_fd(ping_wsi[0]),
 				    peer_name, sizeof peer_name, ip, sizeof ip);
 
 	fprintf(stderr, "Websocket PING %s (%s) %d bytes of data.\n",
@@ -427,12 +446,18 @@ int main(int argc, char **argv)
 		gettimeofday(&tv, NULL);
 		l = (tv.tv_sec * 1000000) + tv.tv_usec;
 
+		/* servers can hang up on us */
+
+		if (clients == 0) {
+			n = -1;
+			continue;
+		}
 
 		if (!interrupted_time) {
 			if ((l - oldus) > interval_us) {
 				for (n = 0; n < clients; n++)
 					libwebsocket_callback_on_writable(
-									wsi[n]);
+							  context, ping_wsi[n]);
 				oldus = l;
 			}
 		} else

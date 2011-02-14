@@ -208,7 +208,8 @@ handshake_00(struct libwebsocket *wsi)
 	/* notify user code that we're ready to roll */
 
 	if (wsi->protocol->callback)
-		wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
+		wsi->protocol->callback(wsi->protocol->owning_server,
+				wsi, LWS_CALLBACK_ESTABLISHED,
 					  wsi->user_space, NULL, 0);
 
 	return 0;
@@ -398,7 +399,8 @@ handshake_0405(struct libwebsocket *wsi)
 	/* notify user code that we're ready to roll */
 
 	if (wsi->protocol->callback)
-		wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
+		wsi->protocol->callback(wsi->protocol->owning_server,
+				wsi, LWS_CALLBACK_ESTABLISHED,
 					  wsi->user_space, NULL, 0);
 
 	return 0;
@@ -484,7 +486,7 @@ libwebsocket_read(struct libwebsocket_context *this, struct libwebsocket *wsi,
 		if (!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
 			     !wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len) {
 			if (wsi->protocol->callback)
-				(wsi->protocol->callback)(wsi,
+				(wsi->protocol->callback)(this, wsi,
 				   LWS_CALLBACK_HTTP, wsi->user_space,
 				   wsi->utf8_token[WSI_TOKEN_GET_URI].token, 0);
 			wsi->state = WSI_STATE_HTTP;
@@ -538,7 +540,7 @@ libwebsocket_read(struct libwebsocket_context *this, struct libwebsocket *wsi,
 		 * have the opportunity to deny it
 		 */
 
-		if ((wsi->protocol->callback)(wsi,
+		if ((wsi->protocol->callback)(wsi->protocol->owning_server, wsi,
 				LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 						&wsi->utf8_token[0], NULL, 0)) {
 			fprintf(stderr, "User code denied connection\n");
