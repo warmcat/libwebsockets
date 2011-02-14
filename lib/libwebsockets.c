@@ -87,6 +87,19 @@ delete_from_fd(struct libwebsocket_context *this, int fd)
 	return 1;
 }
 
+#ifdef LWS_OPENSSL_SUPPORT
+static void
+libwebsockets_decode_ssl_error(void)
+{
+	char buf[256];
+	u_long err;
+
+	while ((err = ERR_get_error()) != 0) {
+		ERR_error_string_n(err, buf, sizeof(buf));
+		fprintf(stderr, "*** %s\n", buf);
+	}
+}
+#endif
 
 void
 libwebsocket_close_and_free_session(struct libwebsocket_context *this,
@@ -402,7 +415,6 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 #ifdef LWS_OPENSSL_SUPPORT
 		new_wsi->ssl = NULL;
-		this->ssl_ctx = NULL;
 
 		if (this->use_ssl) {
 
@@ -411,6 +423,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 				fprintf(stderr, "SSL_new failed: %s\n",
 				    ERR_error_string(SSL_get_error(
 				    new_wsi->ssl, 0), NULL));
+				    libwebsockets_decode_ssl_error();
 				free(new_wsi);
 				break;
 			}
@@ -1346,7 +1359,6 @@ libwebsocket_canonical_hostname(struct libwebsocket_context *this)
 static void sigpipe_handler(int x)
 {
 }
-
 
 
 /**
