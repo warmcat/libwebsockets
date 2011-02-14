@@ -29,6 +29,7 @@
 #include <poll.h>
 
 static unsigned int opts;
+static int was_closed;
 
 /*
  * This demo shows how to connect multiple websockets simultaneously to a
@@ -90,6 +91,11 @@ callback_lws_mirror(struct libwebsocket_context * this,
 	int l;
 
 	switch (reason) {
+
+	case LWS_CALLBACK_CLOSED:
+		fprintf(stderr, "LWS_CALLBACK_CLOSED\n");
+		was_closed = 1;
+		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 
@@ -256,8 +262,10 @@ int main(int argc, char **argv)
 	 */
 
 	n = 0;
-	while (n >= 0)
+	while (n >= 0 && !was_closed)
 		n = libwebsocket_service(context, 1000);
+
+	fprintf(stderr, "Exiting\n");
 
 	libwebsocket_context_destroy(context);
 
