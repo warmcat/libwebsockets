@@ -76,13 +76,14 @@ delete_from_fd(struct libwebsocket_context *this, int fd)
 
 
 void
-libwebsocket_close_and_free_session(struct libwebsocket *wsi)
+libwebsocket_close_and_free_session(struct libwebsocket_context *this,
+						       struct libwebsocket *wsi)
 {
 	int n;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
 						  LWS_SEND_BUFFER_POST_PADDING];
 
-	if ((unsigned long)wsi < LWS_MAX_PROTOCOLS)
+	if (!wsi)
 		return;
 
 	n = wsi->state;
@@ -90,12 +91,35 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 	if (n == WSI_STATE_DEAD_SOCKET)
 		return;
 
+	/* remove this fd from wsi mapping hashtable */
+
+	delete_from_fd(this, wsi->sock);
+
+	/* delete it from the internal poll list if still present */
+
+	for (n = 0; n < this->fds_count; n++) {
+		if (this->fds[n].fd != wsi->sock)
+			continue;
+		while (n < this->fds_count - 1) {
+			this->fds[n] = this->fds[n + 1];
+			n++;
+		}
+		this->fds_count--;
+		/* we only have to deal with one */
+		n = this->fds_count;
+	}
+
+	/* remove also from external POLL support via protocol 0 */
+
+	this->protocols[0].callback(wsi,
+		    LWS_CALLBACK_DEL_POLL_FD, (void *)(long)wsi->sock, NULL, 0);
+
 	/*
 	 * signal we are closing, libsocket_write will
 	 * add any necessary version-specific stuff.  If the write fails,
 	 * no worries we are closing anyway.  If we didn't initiate this
 	 * close, then our state has been changed to
-	 * WSI_STATE_RETURNED_CLOSE_ALREADY and we can skip this
+	 * WSI_STATE_RETURNED_CLOSE_ALREADY and we will skip this
 	 */
 
 	if (n == WSI_STATE_ESTABLISHED)
@@ -104,9 +128,13 @@ libwebsocket_close_and_free_session(struct libwebsocket *wsi)
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 
+	/* tell the user it's all over for this guy */
+
 	if (wsi->protocol->callback && n == WSI_STATE_ESTABLISHED)
 		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 						      wsi->user_space, NULL, 0);
+
+	/* free up his allocations */
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++)
 		if (wsi->utf8_token[n].token)
@@ -161,7 +189,7 @@ libwebsockets_hangup_on_client(struct libwebsocket_context *this, int fd)
 			this->fds_count--;
 		}
 
-	libwebsocket_close_and_free_session(wsi);
+	libwebsocket_close_and_free_session(this, wsi);
 }
 
 
@@ -456,8 +484,8 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			debug("Session Socket %p (fd=%d) dead\n",
 				(void *)wsi, accept_fd);
 
-			libwebsocket_close_and_free_session(wsi);
-			goto nuke_this;
+			libwebsocket_close_and_free_session(this, wsi);
+			return 1;
 		}
 
 		/* the guy requested a callback when it was OK to write */
@@ -490,7 +518,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 							 MAX_BROADCAST_PAYLOAD);
 		if (len < 0) {
 			fprintf(stderr, "Error reading broadcast payload\n");
-			break;;
+			break;
 		}
 
 		/* broadcast it to all guys with this protocol index */
@@ -543,8 +571,8 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			debug("Session Socket %p (fd=%d) dead\n",
 				(void *)wsi, pollfd->fd);
 
-			libwebsocket_close_and_free_session(wsi);
-			goto nuke_this;
+			libwebsocket_close_and_free_session(this, wsi);
+			return 1;
 		}
 
 		/* the guy requested a callback when it was OK to write */
@@ -578,46 +606,22 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 		if (n < 0) {
 			fprintf(stderr, "Socket read returned %d\n", n);
-			break;;
+			break;
 		}
 		if (!n) {
-			libwebsocket_close_and_free_session(wsi);
-			goto nuke_this;
+			libwebsocket_close_and_free_session(this, wsi);
+			return 1;
 		}
 
 		/* service incoming data */
 
-		n = libwebsocket_read(wsi, buf, n);
+		n = libwebsocket_read(this, wsi, buf, n);
 		if (n >= 0)
-			break;;
-		/*
-		 * it closed and nuked wsi[client], so remove the
-		 * socket handle and wsi from our service list
-		 */
-nuke_this:
+			break;
 
-		debug("nuking wsi %p, fsd_count = %d\n",
-				(void *)wsi, this->fds_count - 1);
+		/* we closed wsi */
 
-		delete_from_fd(this, pollfd->fd);
-
-		this->fds_count--;
-		for (n = 0; n < this->fds_count; n++)
-			if (this->fds[n].fd == pollfd->fd) {
-				while (n < this->fds_count) {
-					this->fds[n] = this->fds[n + 1];
-					n++;
-				}
-				n = this->fds_count;
-			}
-
-		/* external POLL support via protocol 0 */
-		this->protocols[0].callback(wsi,
-			LWS_CALLBACK_DEL_POLL_FD,
-			(void *)(long)pollfd->fd, NULL, 0);
-
-
-		break;
+		return 1;
 	}
 
 	return 0;
@@ -639,24 +643,11 @@ libwebsocket_context_destroy(struct libwebsocket_context *this)
 	int m;
 	struct libwebsocket *wsi;
 
-	for (n = 0; n < FD_HASHTABLE_MODULUS; n++) {
-
+	for (n = 0; n < FD_HASHTABLE_MODULUS; n++)
 		for (m = 0; m < this->fd_hashtable[n].length; m++) {
-
 			wsi = this->fd_hashtable[n].wsi[m];
-
-			switch (wsi->mode) {
-			case LWS_CONNMODE_WS_SERVING:
-				libwebsocket_close_and_free_session(wsi);
-				break;
-			case LWS_CONNMODE_WS_CLIENT:
-				libwebsocket_client_close(wsi);
-				break;
-			default:
-				break;
-			}
+			libwebsocket_close_and_free_session(this, wsi);
 		}
-	}
 
 	close(this->fd_random);
 

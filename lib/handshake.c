@@ -442,7 +442,8 @@ bail:
  */
 
 int
-libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
+libwebsocket_read(struct libwebsocket_context *this, struct libwebsocket *wsi,
+						unsigned char * buf, size_t len)
 {
 	size_t n;
 
@@ -604,7 +605,7 @@ libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len)
 	return 0;
 
 bail:
-	libwebsocket_close_and_free_session(wsi);
+	libwebsocket_close_and_free_session(this, wsi);
 
 	return -1;
 }

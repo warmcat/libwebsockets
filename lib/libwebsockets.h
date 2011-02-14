@@ -381,8 +381,6 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 extern const char *
 libwebsocket_canonical_hostname(struct libwebsocket_context *this);
 
-extern void
-libwebsocket_client_close(struct libwebsocket *wsi);
 
 extern void
 libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
@@ -390,5 +388,9 @@ libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 
 extern void
 libwebsockets_hangup_on_client(struct libwebsocket_context *this, int fd);
+
+extern void
+libwebsocket_close_and_free_session(struct libwebsocket_context *this,
+						      struct libwebsocket *wsi);
 
 #endif

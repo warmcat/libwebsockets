@@ -225,9 +225,6 @@ struct libwebsocket {
 extern int
 libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c);
 
-extern void
-libwebsocket_close_and_free_session(struct libwebsocket *wsi);
-
 extern int
 libwebsocket_parse(struct libwebsocket *wsi, unsigned char c);
 
@@ -236,7 +233,8 @@ libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 						unsigned char *buf, size_t len);
 
 extern int
-libwebsocket_read(struct libwebsocket *wsi, unsigned char * buf, size_t len);
+libwebsocket_read(struct libwebsocket_context *this, struct libwebsocket *wsi,
+					       unsigned char * buf, size_t len);
 
 extern int
 lws_b64_encode_string(const char *in, int in_len, char *out, int out_size);

@@ -15,76 +15,6 @@ strtolower(char *s)
 	}
 }
 
-void
-libwebsocket_client_close(struct libwebsocket *wsi)
-{
-	int n = wsi->state;
-	struct libwebsocket_context *clients;
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
-						  LWS_SEND_BUFFER_POST_PADDING];
-
-	if (n == WSI_STATE_DEAD_SOCKET)
-		return;
-
-	/*
-	 * signal we are closing, libsocket_write will
-	 * add any necessary version-specific stuff.  If the write fails,
-	 * no worries we are closing anyway.  If we didn't initiate this
-	 * close, then our state has been changed to
-	 * WSI_STATE_RETURNED_CLOSE_ALREADY and we can skip this
-	 */
-
-	if (n == WSI_STATE_ESTABLISHED)
-		libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 0,
-							       LWS_WRITE_CLOSE);
-	/* mark the WSI as dead and let the callback know */
-
-	wsi->state = WSI_STATE_DEAD_SOCKET;
-
-	if (wsi->protocol) {
-		if (wsi->protocol->callback && n == WSI_STATE_ESTABLISHED)
-			wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
-						      wsi->user_space, NULL, 0);
-
-		/* remove it from the client polling list */
-		clients = wsi->protocol->owning_server;
-		if (clients)
-			for (n = 0; n < clients->fds_count; n++) {
-				if (clients->fds[n].fd != wsi->sock)
-					continue;
-				while (n < clients->fds_count - 1) {
-					clients->fds[n] = clients->fds[n + 1];
-					n++;
-				}
-				/* we only have to deal with one */
-				n = clients->fds_count;
-			}
-
-	}
-
-	/* clean out any parsing allocations */
-
-	for (n = 0; n < WSI_TOKEN_COUNT; n++)
-		if (wsi->utf8_token[n].token)
-			free(wsi->utf8_token[n].token);
-
-	/* shut down reasonably cleanly */
-
-#ifdef LWS_OPENSSL_SUPPORT
-	if (wsi->ssl) {
-		n = SSL_get_fd(wsi->ssl);
-		SSL_shutdown(wsi->ssl);
-		close(n);
-		SSL_free(wsi->ssl);
-	} else {
-#endif
-		shutdown(wsi->sock, SHUT_RDWR);
-		close(wsi->sock);
-#ifdef LWS_OPENSSL_SUPPORT
-	}
-#endif
-}
-
 
 /**
  * libwebsocket_client_connect() - Connect to another websocket server
@@ -588,7 +518,7 @@ check_accept:
 
 
 bail2:
-	libwebsocket_client_close(wsi);
+	libwebsocket_close_and_free_session(this, wsi);
 bail1:
 	free(wsi);
 
