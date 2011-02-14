@@ -106,7 +106,7 @@ enum lws_connection_states {
 	WSI_STATE_DEAD_SOCKET,
 	WSI_STATE_ESTABLISHED,
 	WSI_STATE_CLIENT_UNCONNECTED,
-	WSI_STATE_RETURNED_CLOSE_ALREADY
+	WSI_STATE_RETURNED_CLOSE_ALREADY,
 };
 
 enum lws_rx_parse_state {
@@ -140,6 +140,11 @@ enum lws_rx_parse_state {
 enum connection_mode {
 	LWS_CONNMODE_WS_SERVING,
 	LWS_CONNMODE_WS_CLIENT,
+
+	/* transient modes */
+	LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY,
+	LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE,
+	LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY,
 
 	/* special internal types */
 	LWS_CONNMODE_SERVER_LISTENER,
@@ -182,7 +187,9 @@ struct libwebsocket_context {
 
 enum pending_timeout {
 	NO_PENDING_TIMEOUT = 0,
+	PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
 	PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+	PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 	PENDING_TIMEOUT_AWAITING_PING,
 };
 
@@ -217,6 +224,7 @@ struct libwebsocket {
 
 	/* 04 protocol specific */
 
+	char key_b64[150];
 	unsigned char masking_key_04[20];
 	unsigned char frame_masking_nonce_04[4];
 	unsigned char frame_mask_04[20];
@@ -232,10 +240,15 @@ struct libwebsocket {
 	/* client support */
 	char initial_handshake_hash_base64[30];
 	enum connection_mode mode;
+	char *c_path;
+	char *c_host;
+	char *c_origin;
+	char *c_protocol;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;
 	BIO *client_bio;
+	int use_ssl;
 #endif
 
 	void *user_space;
@@ -281,6 +294,10 @@ insert_wsi(struct libwebsocket_context *this, struct libwebsocket *wsi);
 
 extern int
 delete_from_fd(struct libwebsocket_context *this, int fd);
+
+extern void
+libwebsocket_set_timeout(struct libwebsocket *wsi,
+					 enum pending_timeout reason, int secs);
 
 #ifndef LWS_OPENSSL_SUPPORT
 

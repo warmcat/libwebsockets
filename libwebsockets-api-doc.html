@@ -141,6 +141,27 @@ nothing is pending, or as soon as it services whatever was pending.
 <dd>Protocol whose connections will get callbacks
 </dl>
 <hr>
+<h2>libwebsocket_set_timeout - marks the wsi as subject to a timeout</h2>
+<i>void</i>
+<b>libwebsocket_set_timeout</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>,
+<i>enum pending_timeout</i> <b>reason</b>,
+<i>int</i> <b>secs</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket connection instance
+<dt><b>reason</b>
+<dd>timeout reason
+<dt><b>secs</b>
+<dd>how many seconds
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+You will not need this unless you are doing something special
+</blockquote>
+<hr>
 <h2>libwebsocket_get_socket_fd - returns the socket file descriptor</h2>
 <i>int</i>
 <b>libwebsocket_get_socket_fd</b>
