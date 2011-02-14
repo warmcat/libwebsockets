@@ -483,7 +483,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		if (pollfd->revents & (POLLERR | POLLHUP)) {
 
 			debug("Session Socket %p (fd=%d) dead\n",
-				(void *)wsi, accept_fd);
+				(void *)wsi, pollfd->fd);
 
 			libwebsocket_close_and_free_session(this, wsi);
 			return 1;
