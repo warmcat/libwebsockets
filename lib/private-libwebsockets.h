@@ -41,6 +41,7 @@
 
 #include <poll.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 
 #ifdef LWS_OPENSSL_SUPPORT
 #include <openssl/ssl.h>
