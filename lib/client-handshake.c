@@ -92,6 +92,7 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	wsi->state = WSI_STATE_CLIENT_UNCONNECTED;
 	wsi->pings_vs_pongs = 0;
 	wsi->protocol = NULL;
+	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 
 	/* set up appropriate masking */
 

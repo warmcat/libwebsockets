@@ -166,6 +166,7 @@ struct libwebsocket_context {
 	char canonical_hostname[1024];
 	unsigned int http_proxy_port;
 	unsigned int options;
+	unsigned long last_timeout_check_s;
 
 	int fd_random;
 	
@@ -178,6 +179,12 @@ struct libwebsocket_context {
 	int count_protocols;
 };
 
+
+enum pending_timeout {
+	NO_PENDING_TIMEOUT = 0,
+	PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+	PENDING_TIMEOUT_AWAITING_PING,
+};
 
 
 /*
@@ -201,6 +208,8 @@ struct libwebsocket {
 						  LWS_SEND_BUFFER_POST_PADDING];
 	int rx_user_buffer_head;
 	int protocol_index_for_broadcast_proxy;
+	enum pending_timeout pending_timeout;
+	unsigned long pending_timeout_limit;
 
 	int sock;
 

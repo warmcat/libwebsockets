@@ -276,7 +276,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 {
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + MAX_BROADCAST_PAYLOAD +
 						  LWS_SEND_BUFFER_POST_PADDING];
-	struct libwebsocket *wsi = wsi_from_fd(this, pollfd->fd);
+	struct libwebsocket *wsi;
 	struct libwebsocket *new_wsi;
 	int n;
 	int m;
@@ -284,6 +284,44 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 	int accept_fd;
 	unsigned int clilen;
 	struct sockaddr_in cli_addr;
+	struct timeval tv;
+
+	/*
+	 * you can call us with pollfd = NULL to just allow the once-per-second
+	 * global timeout checks; if less than a second since the last check
+	 * it returns immediately then.
+	 */
+
+	gettimeofday(&tv, NULL);
+
+	if (this->last_timeout_check_s != tv.tv_sec) {
+		this->last_timeout_check_s = tv.tv_sec;
+
+		/* global timeout check once per second */
+
+		for (n = 0; n < this->fds_count; n++) {
+			wsi = wsi_from_fd(this, this->fds[n].fd);
+			if (!wsi->pending_timeout)
+				continue;
+
+			/*
+			 * if we went beyond the allowed time, kill the
+			 * connection
+			 */
+
+			if (tv.tv_sec > wsi->pending_timeout_limit)
+				libwebsocket_close_and_free_session(this, wsi);
+		}
+	}
+
+	/* just here for timeout management? */
+
+	if (pollfd == NULL)
+		return 0;
+
+	/* no, here to service a socket descriptor */
+
+	wsi = wsi_from_fd(this, pollfd->fd);
 
 	if (wsi == NULL)
 		return 1;
@@ -336,6 +374,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 		memset(new_wsi, 0, sizeof (struct libwebsocket));
 		new_wsi->sock = accept_fd;
+		new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 
 #ifdef LWS_OPENSSL_SUPPORT
 		new_wsi->ssl = NULL;
