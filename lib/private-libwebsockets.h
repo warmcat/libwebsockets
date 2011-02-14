@@ -46,10 +46,11 @@
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
-#endif
-
 #include <openssl/md5.h>
 #include <openssl/sha.h>
+#endif
+
+
 #include "libwebsockets.h"
 
 #if 0
