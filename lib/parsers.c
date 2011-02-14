@@ -119,11 +119,20 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			      wsi->utf8_token[wsi->parser_state].token_len != 8)
 			break;
 
-		/* <= 03 has old handshake with version header */
+		/* <= 03 has old handshake with version header needs 8 bytes */
 		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
 			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) < 4 &&
 			      wsi->utf8_token[wsi->parser_state].token_len != 8)
 			break;
+
+		/* no payload challenge in 01 + */
+
+		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
+			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) > 0) {
+			wsi->utf8_token[wsi->parser_state].token_len = 0;
+			free(wsi->utf8_token[wsi->parser_state].token);
+			wsi->utf8_token[wsi->parser_state].token = NULL;
+		}
 
 		/* For any supported protocol we have enough payload */
 
@@ -185,6 +194,9 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) >= 4) {
 			debug("04 header completed\n");
 			wsi->parser_state = WSI_PARSING_COMPLETE;
+			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len = 0;
+			free(wsi->utf8_token[WSI_TOKEN_CHALLENGE].token);
+			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token = NULL;
 		}
 
 		/* client parser? */
