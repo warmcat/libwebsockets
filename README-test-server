@@ -4,11 +4,15 @@ Using test-server as a quickstart
 For a Fedora x86_86 box, the following config line was
 needed:
 
-./configure --prefix=/usr --libdir=/usr/lib64 --enable-openssl
+ ./configure --prefix=/usr --libdir=/usr/lib64 --enable-openssl
+
+For Apple systems, in addition to whatever other typical
+configure magic you need, you will also need --enable-nofork and
+it seems don't enable openssl.
 
 otherwise if /usr/local/... and /usr/local/lib are OK then...
 
-$ ./configure --enable-openssl
+$ ./configure
 $ make clean
 $ make
 $ sudo make install
