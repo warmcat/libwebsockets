@@ -224,7 +224,7 @@ int main(int argc, char **argv)
 	 * For this client-only demo, we tell it to not listen on any port.
 	 */
 
-	context = libwebsocket_create_context(CONTEXT_PORT_NO_LISTEN,
+	context = libwebsocket_create_context(CONTEXT_PORT_NO_LISTEN, NULL,
 					      protocols, NULL, NULL, -1, -1, 0);
 	if (context == NULL) {
 		fprintf(stderr, "Creating libwebsocket context failed\n");

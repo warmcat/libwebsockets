@@ -120,13 +120,15 @@ would call it with a timeout_ms of 0, so it returns immediately if
 nothing is pending, or as soon as it services whatever was pending.
 </blockquote>
 <hr>
-<h2>libwebsocket_callback_on_writable - Request a callback when this socket becomes able to be written to without blocking *</h2>
+<h2>libwebsocket_callback_on_writable - Request a callback when this socket becomes able to be written to without blocking</h2>
 <i>int</i>
 <b>libwebsocket_callback_on_writable</b>
 (<i>struct libwebsocket_context *</i> <b>this</b>,
 <i>struct libwebsocket *</i> <b>wsi</b>)
 <h3>Arguments</h3>
 <dl>
+<dt><b>this</b>
+<dd>libwebsockets context
 <dt><b>wsi</b>
 <dd>Websocket connection instance to get callback for
 </dl>
@@ -217,6 +219,7 @@ has been created.
 <i>struct libwebsocket_context *</i>
 <b>libwebsocket_create_context</b>
 (<i>int</i> <b>port</b>,
+<i>const char *</i> <b>interface</b>,
 <i>struct libwebsocket_protocols *</i> <b>protocols</b>,
 <i>const char *</i> <b>ssl_cert_filepath</b>,
 <i>const char *</i> <b>ssl_private_key_filepath</b>,
@@ -229,6 +232,9 @@ has been created.
 <dd>Port to listen on... you can use 0 to suppress listening on
 any port, that's what you want if you are not running a
 websocket server at all but just using it as a client
+<dt><b>interface</b>
+<dd>NULL to bind the listen socket to all interfaces, or the
+interface name, eg, "eth2"
 <dt><b>protocols</b>
 <dd>Array of structures listing supported protocols and a protocol-
 specific callback for each one.  The list is ended with an
@@ -469,6 +475,8 @@ This function creates a connection to a remote server
 <i>size_t</i> <b>len</b>)
 <h3>Arguments</h3>
 <dl>
+<dt><b>context</b>
+<dd>Websockets context
 <dt><b>wsi</b>
 <dd>Opaque websocket instance pointer
 <dt><b>reason</b>

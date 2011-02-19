@@ -20,6 +20,7 @@
  */
 
 #include "private-libwebsockets.h"
+#include <ifaddrs.h>
 
 /*
  * In-place str to lower case
@@ -100,6 +101,33 @@ libwebsockets_decode_ssl_error(void)
 	}
 }
 #endif
+
+
+static int
+interface_to_sa(const char* ifname, struct sockaddr_in *addr, size_t addrlen)
+{
+	int rc = -1;
+	struct ifaddrs *ifr;
+	struct ifaddrs *ifc;
+	struct sockaddr_in *sin;
+
+	getifaddrs(&ifr);
+	for (ifc = ifr; ifc != NULL; ifc = ifc->ifa_next) {
+		if (strcmp(ifc->ifa_name, ifname))
+			continue;
+		if (ifc->ifa_addr == NULL)
+			continue;
+		sin = (struct sockaddr_in *)ifc->ifa_addr;
+		if (sin->sin_family != AF_INET)
+			continue;
+		memcpy(addr, sin, addrlen);
+		rc = 0; 
+	}
+
+	freeifaddrs(ifr);
+
+	return rc;
+}
 
 void
 libwebsocket_close_and_free_session(struct libwebsocket_context *this,
@@ -1201,7 +1229,8 @@ libwebsocket_service(struct libwebsocket_context *this, int timeout_ms)
  * libwebsocket_callback_on_writable() - Request a callback when this socket
  *					 becomes able to be written to without
  *					 blocking
- * *
+ *
+ * @this:	libwebsockets context
  * @wsi:	Websocket connection instance to get callback for
  */
 
@@ -1366,6 +1395,8 @@ static void sigpipe_handler(int x)
  * @port:	Port to listen on... you can use 0 to suppress listening on
  *		any port, that's what you want if you are not running a
  *		websocket server at all but just using it as a client
+ * @interface:  NULL to bind the listen socket to all interfaces, or the
+ *		interface name, eg, "eth2"
  * @protocols:	Array of structures listing supported protocols and a protocol-
  *		specific callback for each one.  The list is ended with an
  *		entry that has a NULL callback pointer.
@@ -1406,7 +1437,7 @@ static void sigpipe_handler(int x)
  */
 
 struct libwebsocket_context *
-libwebsocket_create_context(int port,
+libwebsocket_create_context(int port, const char *interface,
 			       struct libwebsocket_protocols *protocols,
 			       const char *ssl_cert_filepath,
 			       const char *ssl_private_key_filepath,
@@ -1622,7 +1653,11 @@ libwebsocket_create_context(int port,
 
 		bzero((char *) &serv_addr, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;
-		serv_addr.sin_addr.s_addr = INADDR_ANY;
+		if (interface == NULL)
+			serv_addr.sin_addr.s_addr = INADDR_ANY;
+		else
+			interface_to_sa(interface, &serv_addr,
+						sizeof(serv_addr));
 		serv_addr.sin_port = htons(port);
 
 		n = bind(sockfd, (struct sockaddr *) &serv_addr,

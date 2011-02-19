@@ -419,6 +419,7 @@ static struct option options[] = {
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "killmask",	no_argument,		NULL, 'k' },
+	{ "interface",  required_argument, 	NULL, 'i' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -436,13 +437,15 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 	int opts = 0;
 	unsigned int oldus = 0;
+	char interface_name[128] = "";
+	const char * interface = NULL;
 
 	fprintf(stderr, "libwebsockets test server with external poll()\n"
 			"(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> "
 						    "licensed under LGPL2.1\n");
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "khsp:", options, NULL);
+		n = getopt_long(argc, argv, "i:khsp:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -455,6 +458,11 @@ int main(int argc, char **argv)
 		case 'p':
 			port = atoi(optarg);
 			break;
+		case 'i':
+			strncpy(interface_name, optarg, sizeof interface_name);
+			interface_name[(sizeof interface_name) - 1] = '\0';
+			interface = interface_name;
+			break;
 		case 'h':
 			fprintf(stderr, "Usage: test-server "
 					     "[--port=<p>] [--ssl]\n");
@@ -465,8 +473,8 @@ int main(int argc, char **argv)
 	if (!use_ssl)
 		cert_path = key_path = NULL;
 
-	context = libwebsocket_create_context(port, protocols, cert_path,
-						key_path, -1, -1, opts);
+	context = libwebsocket_create_context(port, interface, protocols,
+					cert_path, key_path, -1, -1, opts);
 	if (context == NULL) {
 		fprintf(stderr, "libwebsocket init failed\n");
 		return -1;

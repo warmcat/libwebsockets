@@ -125,7 +125,7 @@ struct libwebsocket_context;
 /* document the generic callback (it's a fake prototype under this) */
 /**
  * callback() - User server actions
- * @this:	Websockets context
+ * @context:	Websockets context
  * @wsi:	Opaque websocket instance pointer
  * @reason:	The reason for the call
  * @user:	Pointer to per-session user data allocated by library
@@ -289,7 +289,7 @@ struct libwebsocket_protocols {
 };
 
 extern struct libwebsocket_context *
-libwebsocket_create_context(int port,
+libwebsocket_create_context(int port, const char * interface,
 		  struct libwebsocket_protocols *protocols,
 		  const char *ssl_cert_filepath,
 		  const char *ssl_private_key_filepath, int gid, int uid,
