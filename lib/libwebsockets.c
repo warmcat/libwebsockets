@@ -1596,6 +1596,16 @@ libwebsocket_create_context(int port, const char *interface,
 						      LWS_OPENSSL_CLIENT_CERTS);
 	}
 
+	/*
+	 * callback allowing user code to load extra verification certs
+	 * helping the client to verify server identity
+	 */
+
+	this->protocols[0].callback(this, wsi,
+		LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
+		this->ssl_client_ctx, NULL, 0);
+
+
 	if (this->use_ssl) {
 
 		/* openssl init for server sockets */

@@ -580,7 +580,15 @@ use the header enums lws_token_indexes from libwebsockets.h
 to check for and read the supported header presence and
 content before deciding to allow the handshake to proceed or
 to kill the connection.
-<p>
+</blockquote>
+<h3>LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS</h3>
+<blockquote>
+if configure for
+including OpenSSL support, this callback allows your user code
+to perform extra <b>SSL_CTX_load_verify_locations</b> or similar
+calls to direct OpenSSL where to find certificates the client
+can use to confirm the remote server identity.  <tt><b>user</b></tt> is the
+OpenSSL SSL_CTX*
 <p>
 The next four reasons are optional and only need taking care of if you
 will be integrating libwebsockets sockets into an external polling
