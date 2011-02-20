@@ -474,6 +474,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 				free(new_wsi);
 				break;
 			}
+			
 			debug("accepted new SSL conn  "
 			      "port %u on fd=%d SSL ver %s\n",
 				ntohs(cli_addr.sin_port), accept_fd,
@@ -1601,9 +1602,28 @@ libwebsocket_create_context(int port, const char *interface,
 	 * helping the client to verify server identity
 	 */
 
-	this->protocols[0].callback(this, wsi,
+	this->protocols[0].callback(this, NULL,
 		LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
 		this->ssl_client_ctx, NULL, 0);
+
+	/* as a server, are we requiring clients to identify themselves? */
+
+	if (options & LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
+
+		/* absolutely require the client cert */
+		
+		SSL_CTX_set_verify(this->ssl_ctx,
+		       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+
+		/*
+		 * give user code a chance to load certs into the server
+		 * allowing it to verify incoming client certs
+		 */
+
+		this->protocols[0].callback(this, NULL,
+			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
+							this->ssl_ctx, NULL, 0);
+	}
 
 
 	if (this->use_ssl) {

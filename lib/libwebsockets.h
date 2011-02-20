@@ -29,6 +29,7 @@
 
 enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK = 1,
+	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT = 2,
 };
 
 enum libwebsocket_callback_reasons {
@@ -44,6 +45,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
+	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 
 	/* external poll() management support */
 	LWS_CALLBACK_ADD_POLL_FD,
@@ -202,12 +204,18 @@ struct libwebsocket_context;
  *		content before deciding to allow the handshake to proceed or
  *		to kill the connection.
  *
- * 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS: if configure for
+ * 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS: if configured for
  * 		including OpenSSL support, this callback allows your user code
  * 		to perform extra SSL_CTX_load_verify_locations() or similar
  *		calls to direct OpenSSL where to find certificates the client
  *		can use to confirm the remote server identity.  @user is the
  *		OpenSSL SSL_CTX*
+ *
+ *	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS: if configured for
+ *		including OpenSSL support, this callback allows your user code
+ *		to load extra certifcates into the server which allow it to
+ *		verify the validity of certificates returned by clients.  @user
+ *		is the server's OpenSSL SSL_CTX*
  *
  *	The next four reasons are optional and only need taking care of if you
  * 	will be integrating libwebsockets sockets into an external polling
