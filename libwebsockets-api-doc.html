@@ -583,12 +583,44 @@ to kill the connection.
 </blockquote>
 <h3>LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS</h3>
 <blockquote>
-if configure for
+if configured for
 including OpenSSL support, this callback allows your user code
 to perform extra <b>SSL_CTX_load_verify_locations</b> or similar
 calls to direct OpenSSL where to find certificates the client
 can use to confirm the remote server identity.  <tt><b>user</b></tt> is the
 OpenSSL SSL_CTX*
+</blockquote>
+<h3>LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS</h3>
+<blockquote>
+if configured for
+including OpenSSL support, this callback allows your user code
+to load extra certifcates into the server which allow it to
+verify the validity of certificates returned by clients.  <tt><b>user</b></tt>
+is the server's OpenSSL SSL_CTX*
+</blockquote>
+<h3>LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION</h3>
+<blockquote>
+if the
+libwebsockets context was created with the option
+LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT, then this
+callback is generated during OpenSSL verification of the cert
+sent from the client.  It is sent to protocol[0] callback as
+no protocol has been negotiated on the connection yet.
+Notice that the libwebsockets context and wsi are both NULL
+during this callback.  See
+</blockquote>
+<h3>http</h3>
+<blockquote>
+//www.openssl.org/docs/ssl/SSL_CTX_set_verify.html
+to understand more detail about the OpenSSL callback that
+generates this libwebsockets callback and the meanings of the
+arguments passed.  In this callback, <tt><b>user</b></tt> is the x509_ctx,
+<tt><b>in</b></tt> is the ssl pointer and <tt><b>len</b></tt> is preverify_ok
+Notice that this callback maintains libwebsocket return
+conventions, return 0 to mean the cert is OK or 1 to fail it.
+This also means that if you don't handle this callback then
+the default callback action of returning 0 allows the client
+certificates.
 <p>
 The next four reasons are optional and only need taking care of if you
 will be integrating libwebsockets sockets into an external polling

@@ -709,6 +709,9 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			wsi->client_bio = BIO_new_socket(wsi->sock, BIO_NOCLOSE);
 			SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
 
+			SSL_set_ex_data(wsi->ssl,
+			      this->openssl_websocket_private_data_index, this);
+
 			if (SSL_connect(wsi->ssl) <= 0) {
 				fprintf(stderr, "SSL connect error %s\n",
 					ERR_error_string(ERR_get_error(), ssl_err_buf));
@@ -1390,6 +1393,39 @@ static void sigpipe_handler(int x)
 {
 }
 
+#ifdef LWS_OPENSSL_SUPPORT
+static int
+OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
+{
+
+	SSL *ssl;
+	int n;
+//	struct libwebsocket_context *this;
+
+	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
+		SSL_get_ex_data_X509_STORE_CTX_idx());
+
+	/*
+	 * !!! can't get this->openssl_websocket_private_data_index
+	 * can't store as a static either
+	 */
+//	this = SSL_get_ex_data(ssl, this->openssl_websocket_private_data_index);
+	
+	n = this->protocols[0].callback(NULL, NULL,
+		LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
+						   x509_ctx, ssl, preverify_ok);
+
+	/* convert return code from 0 = OK to 1 = OK */
+
+	if (!n)
+		n = 1;
+	else
+		n = 0;
+
+	return n;
+}
+#endif
+
 
 /**
  * libwebsocket_create_context() - Create the websocket handler
@@ -1553,6 +1589,9 @@ libwebsocket_create_context(int port, const char *interface,
 	OpenSSL_add_all_algorithms();
 	SSL_load_error_strings();
 
+	this->openssl_websocket_private_data_index =
+		SSL_get_ex_new_index(0, "libwebsockets", NULL, NULL, NULL);
+
 	/*
 	 * Firefox insists on SSLv23 not SSLv3
 	 * Konq disables SSLv2 by default now, SSLv23 works
@@ -1613,7 +1652,8 @@ libwebsocket_create_context(int port, const char *interface,
 		/* absolutely require the client cert */
 		
 		SSL_CTX_set_verify(this->ssl_ctx,
-		       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+		       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+						       OpenSSL_verify_callback);
 
 		/*
 		 * give user code a chance to load certs into the server
@@ -1624,7 +1664,6 @@ libwebsocket_create_context(int port, const char *interface,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 							this->ssl_ctx, NULL, 0);
 	}
-
 
 	if (this->use_ssl) {
 

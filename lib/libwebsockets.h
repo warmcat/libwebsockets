@@ -46,6 +46,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
+	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 
 	/* external poll() management support */
 	LWS_CALLBACK_ADD_POLL_FD,
@@ -216,6 +217,25 @@ struct libwebsocket_context;
  *		to load extra certifcates into the server which allow it to
  *		verify the validity of certificates returned by clients.  @user
  *		is the server's OpenSSL SSL_CTX*
+ *
+ *	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION: if the
+ *		libwebsockets context was created with the option
+ *		LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT, then this
+ *		callback is generated during OpenSSL verification of the cert
+ *		sent from the client.  It is sent to protocol[0] callback as
+ *		no protocol has been negotiated on the connection yet.
+ *		Notice that the libwebsockets context and wsi are both NULL
+ *		during this callback.  See
+ *		 http://www.openssl.org/docs/ssl/SSL_CTX_set_verify.html
+ *		to understand more detail about the OpenSSL callback that
+ *		generates this libwebsockets callback and the meanings of the
+ *		arguments passed.  In this callback, @user is the x509_ctx,
+ *		@in is the ssl pointer and @len is preverify_ok
+ *		Notice that this callback maintains libwebsocket return
+ *		conventions, return 0 to mean the cert is OK or 1 to fail it.
+ *		This also means that if you don't handle this callback then
+ *		the default callback action of returning 0 allows the client
+ *		certificates.
  *
  *	The next four reasons are optional and only need taking care of if you
  * 	will be integrating libwebsockets sockets into an external polling
