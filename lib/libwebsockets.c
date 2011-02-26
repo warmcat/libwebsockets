@@ -229,24 +229,12 @@ void
 libwebsockets_hangup_on_client(struct libwebsocket_context *this, int fd)
 {
 	struct libwebsocket *wsi = wsi_from_fd(this, fd);
-	int n;
 
 	if (wsi == NULL)
 		return;
 
-	delete_from_fd(this, fd);
-
-	for (n = 0; n < this->fds_count - 1; n++)
-		if (this->fds[n].fd == fd) {
-			while (n < this->fds_count - 1) {
-				this->fds[n] = this->fds[n + 1];
-				n++;
-			}
-			n = this->fds_count;
-			this->fds_count--;
-		}
-
-	libwebsocket_close_and_free_session(this, wsi, 0);
+	libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 }
 
 
