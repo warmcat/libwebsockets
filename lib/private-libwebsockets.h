@@ -89,6 +89,7 @@ static inline void debug(const char *format, ...)
 #define MAX_USER_RX_BUFFER 4096
 #define MAX_BROADCAST_PAYLOAD 2048
 #define LWS_MAX_PROTOCOLS 10
+#define SPEC_LATEST_SUPPORTED 6
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"

@@ -55,7 +55,7 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	/* -1 means just use latest supported */
 
 	if (ietf_version_or_minus_one == -1)
-		ietf_version_or_minus_one = 5;
+		ietf_version_or_minus_one = SPEC_LATEST_SUPPORTED;
 
 	wsi->ietf_spec_revision = ietf_version_or_minus_one;
 	wsi->name_buffer_pos = 0;
