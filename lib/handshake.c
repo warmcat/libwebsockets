@@ -240,8 +240,7 @@ handshake_0405(struct libwebsocket *wsi)
 	int nonce_len;
 	int accept_len;
 
-	if (!wsi->utf8_token[WSI_TOKEN_SWORIGIN].token_len ||
-	    !wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
+	if (!wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
 	    !wsi->utf8_token[WSI_TOKEN_KEY].token_len) {
 		debug("handshake_04 missing pieces\n");
 		/* completed header processing, but missing some bits */
