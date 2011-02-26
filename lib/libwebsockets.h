@@ -123,6 +123,45 @@ enum lws_token_indexes {
 	WSI_PARSING_COMPLETE
 };
 
+/*
+ * From 06 sped
+   1000
+
+      1000 indicates a normal closure, meaning whatever purpose the
+      connection was established for has been fulfilled.
+
+   1001
+
+      1001 indicates that an endpoint is "going away", such as a server
+      going down, or a browser having navigated away from a page.
+
+   1002
+
+      1002 indicates that an endpoint is terminating the connection due
+      to a protocol error.
+
+   1003
+
+      1003 indicates that an endpoint is terminating the connection
+      because it has received a type of data it cannot accept (e.g. an
+      endpoint that understands only text data may send this if it
+      receives a binary message.)
+
+   1004
+
+      1004 indicates that an endpoint is terminating the connection
+      because it has received a message that is too large.
+*/
+
+enum lws_close_status {
+	LWS_CLOSE_STATUS_NOSTATUS = 0,
+	LWS_CLOSE_STATUS_NORMAL = 1000,
+	LWS_CLOSE_STATUS_GOINGAWAY = 1001,
+	LWS_CLOSE_STATUS_PROTOCOL_ERR = 1002,
+	LWS_CLOSE_STATUS_UNACCEPTABLE_OPCODE = 1003,
+	LWS_CLOSE_STATUS_PAYLOAD_TOO_LARGE = 1004,
+};
+
 struct libwebsocket;
 struct libwebsocket_context;
 
@@ -367,7 +406,11 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
  * use the whole buffer without taking care of the above.
  */
 
-/* this is the frame nonce plus two header plus 8 length */
+/*
+ * this is the frame nonce plus two header plus 8 length
+ * 2 byte prepend on close will already fit because control frames cannot use
+ * the big length style
+ */
 
 #define LWS_SEND_BUFFER_PRE_PADDING (4 + 10)
 #define LWS_SEND_BUFFER_POST_PADDING 1
@@ -430,6 +473,6 @@ libwebsockets_hangup_on_client(struct libwebsocket_context *context, int fd);
 
 extern void
 libwebsocket_close_and_free_session(struct libwebsocket_context *context,
-						      struct libwebsocket *wsi);
+			       struct libwebsocket *wsi, enum lws_close_status);
 
 #endif

@@ -131,7 +131,7 @@ interface_to_sa(const char* ifname, struct sockaddr_in *addr, size_t addrlen)
 
 void
 libwebsocket_close_and_free_session(struct libwebsocket_context *this,
-						       struct libwebsocket *wsi)
+			 struct libwebsocket *wsi, enum lws_close_status reason)
 {
 	int n;
 	int old_state;
@@ -168,6 +168,8 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *this,
 
 	this->protocols[0].callback(this, wsi,
 		    LWS_CALLBACK_DEL_POLL_FD, (void *)(long)wsi->sock, NULL, 0);
+
+	wsi->close_reason = reason;
 
 	/*
 	 * signal we are closing, libsocket_write will
@@ -244,7 +246,7 @@ libwebsockets_hangup_on_client(struct libwebsocket_context *this, int fd)
 			this->fds_count--;
 		}
 
-	libwebsocket_close_and_free_session(this, wsi);
+	libwebsocket_close_and_free_session(this, wsi, 0);
 }
 
 
@@ -375,7 +377,8 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			 */
 
 			if (tv.tv_sec > wsi->pending_timeout_limit)
-				libwebsocket_close_and_free_session(this, wsi);
+				libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 		}
 	}
 
@@ -590,7 +593,8 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			debug("Session Socket %p (fd=%d) dead\n",
 				(void *)wsi, pollfd->fd);
 
-			libwebsocket_close_and_free_session(this, wsi);
+			libwebsocket_close_and_free_session(this, wsi,
+						       LWS_CLOSE_STATUS_NORMAL);
 			return 1;
 		}
 
@@ -676,20 +680,23 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			fprintf(stderr, "Proxy connection %p (fd=%d) dead\n",
 				(void *)wsi, pollfd->fd);
 
-			libwebsocket_close_and_free_session(this, wsi);
+			libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 1;
 		}
 
 		n = recv(wsi->sock, pkt, sizeof pkt, 0);
 		if (n < 0) {
-			libwebsocket_close_and_free_session(this, wsi);
+			libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 			fprintf(stderr, "ERROR reading from proxy socket\n");
 			return 1;
 		}
 
 		pkt[13] = '\0';
 		if (strcmp(pkt, "HTTP/1.0 200 ") != 0) {
-			libwebsocket_close_and_free_session(this, wsi);
+			libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 			fprintf(stderr, "ERROR from proxy: %s\n", pkt);
 			return 1;
 		}
@@ -714,21 +721,23 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 			if (SSL_connect(wsi->ssl) <= 0) {
 				fprintf(stderr, "SSL connect error %s\n",
-					ERR_error_string(ERR_get_error(), ssl_err_buf));
-				libwebsocket_close_and_free_session(this, wsi);
+					ERR_error_string(ERR_get_error(),
+								  ssl_err_buf));
+				libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 				return 1;
 			}
 
 			n = SSL_get_verify_result(wsi->ssl);
-			if (n != X509_V_OK) {
-				if (n != X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
-							    wsi->use_ssl != 2) {
+			if (n != X509_V_OK) && (
+				n != X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
+							   wsi->use_ssl != 2)) {
 
-					fprintf(stderr, "server's cert didn't "
-								   "look good %d\n", n);
-					libwebsocket_close_and_free_session(this, wsi);
-					return 1;
-				}
+				fprintf(stderr, "server's cert didn't "
+							   "look good %d\n", n);
+				libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
+				return 1;
 			}
 		} else {
 			wsi->ssl = NULL;
@@ -753,7 +762,8 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 				free(wsi->c_origin);
 			if (wsi->c_protocol)
 				free(wsi->c_protocol);
-			libwebsocket_close_and_free_session(this, wsi);
+			libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 1;
 		}
 
@@ -819,7 +829,8 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 
 		if (n < 0) {
 			fprintf(stderr, "ERROR writing to client socket\n");
-			libwebsocket_close_and_free_session(this, wsi);
+			libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 1;
 		}
 
@@ -890,7 +901,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			(!wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len &&
 						     wsi->c_protocol != NULL)) {
 			fprintf(stderr, "libwebsocket_client_handshake "
-							"missing required header(s)\n");
+						"missing required header(s)\n");
 			pkt[len] = '\0';
 			fprintf(stderr, "%s", pkt);
 			goto bail3;
@@ -1061,7 +1072,8 @@ bail3:
 			free(wsi->c_protocol);
 
 bail2:
-		libwebsocket_close_and_free_session(this, wsi);
+		libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 		return 1;
 		
 
@@ -1075,7 +1087,8 @@ bail2:
 			fprintf(stderr, "Session Socket %p (fd=%d) dead\n",
 				(void *)wsi, pollfd->fd);
 
-			libwebsocket_close_and_free_session(this, wsi);
+			libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 1;
 		}
 
@@ -1113,7 +1126,8 @@ bail2:
 			break;
 		}
 		if (!n) {
-			libwebsocket_close_and_free_session(this, wsi);
+			libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 1;
 		}
 
@@ -1150,7 +1164,8 @@ libwebsocket_context_destroy(struct libwebsocket_context *this)
 	for (n = 0; n < FD_HASHTABLE_MODULUS; n++)
 		for (m = 0; m < this->fd_hashtable[n].length; m++) {
 			wsi = this->fd_hashtable[n].wsi[m];
-			libwebsocket_close_and_free_session(this, wsi);
+			libwebsocket_close_and_free_session(this, wsi,
+						    LWS_CLOSE_STATUS_GOINGAWAY);
 		}
 
 	close(this->fd_random);

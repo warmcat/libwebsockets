@@ -93,44 +93,6 @@ static inline void debug(const char *format, ...)
 #define MAX_WEBSOCKET_04_KEY_LEN 128
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
 
-/*
- * From 06 sped
-   1000
-
-      1000 indicates a normal closure, meaning whatever purpose the
-      connection was established for has been fulfilled.
-
-   1001
-
-      1001 indicates that an endpoint is "going away", such as a server
-      going down, or a browser having navigated away from a page.
-
-   1002
-
-      1002 indicates that an endpoint is terminating the connection due
-      to a protocol error.
-
-   1003
-
-      1003 indicates that an endpoint is terminating the connection
-      because it has received a type of data it cannot accept (e.g. an
-      endpoint that understands only text data may send this if it
-      receives a binary message.)
-
-   1004
-
-      1004 indicates that an endpoint is terminating the connection
-      because it has received a message that is too large.
-*/
-
-enum lws_close_status {
-	LWS_CLOSE_STATUS_NORMAL = 1000,
-	LWS_CLOSE_STATUS_GOINGAWAY = 1001,
-	LWS_CLOSE_STATUS_PROTOCOL_ERR = 1002,
-	LWS_CLOSE_STATUS_UNACCEPTABLE_OPCODE = 1003,
-	LWS_CLOSE_STATUS_PAYLOAD_TOO_LARGE = 1004,
-};
-
 enum lws_websocket_opcodes_04 {
 	LWS_WS_OPCODE_04__CONTINUATION = 0,
 	LWS_WS_OPCODE_04__CLOSE = 1,
@@ -277,6 +239,8 @@ struct libwebsocket {
 	int pings_vs_pongs;
 	unsigned char (*xor_mask)(struct libwebsocket *, unsigned char);
 	char all_zero_nonce;
+
+	enum lws_close_status close_reason;
 
 	/* client support */
 	char initial_handshake_hash_base64[30];

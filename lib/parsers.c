@@ -1139,8 +1139,11 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			 * in both client and server directions
 			 */
 			
-			if (wsi->ietf_spec_revision >= 5) {
-
+			switch (wsi->ietf_spec_revision) {
+			case 0:
+			case 4:
+				break;
+			case 5:
 				/* we can do this because we demand post-buf */
 
 				if (len < 1)
@@ -1162,6 +1165,19 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 				default:
 					break;
 				}
+				break;
+			default:
+				/*
+				 * 06 has a 2-byte status code in network order
+				 * we can do this because we demand post-buf
+				 */
+
+				if (wsi->close_reason) {
+					buf[pre - 2] = wsi->close_reason >> 8;
+					buf[pre - 1] = wsi->close_reason;
+					pre += 2;
+				}
+				break;
 			}
 			break;
 		case LWS_WRITE_PING:
@@ -1181,35 +1197,35 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			n |= 1 << 7;
 
 		if (len < 126) {
-			buf[-2] = n;
-			buf[-1] = len;
-			pre = 2;
+			buf[pre - 2] = n;
+			buf[pre - 1] = len;
+			pre += 2;
 		} else {
 			if (len < 65536) {
-				buf[-4] = n;
-				buf[-3] = 126;
-				buf[-2] = len >> 8;
-				buf[-1] = len;
-				pre = 4;
+				buf[pre - 4] = n;
+				buf[pre - 3] = 126;
+				buf[pre - 2] = len >> 8;
+				buf[pre - 1] = len;
+				pre += 4;
 			} else {
-				buf[-10] = n;
-				buf[-9] = 127;
+				buf[pre - 10] = n;
+				buf[pre - 9] = 127;
 #if defined __LP64__
-					buf[-8] = (len >> 56) & 0x7f;
-					buf[-7] = len >> 48;
-					buf[-6] = len >> 40;
-					buf[-5] = len >> 32;
+					buf[pre - 8] = (len >> 56) & 0x7f;
+					buf[pre - 7] = len >> 48;
+					buf[pre - 6] = len >> 40;
+					buf[pre - 5] = len >> 32;
 #else
-					buf[-8] = 0;
-					buf[-7] = 0;
-					buf[-6] = 0;
-					buf[-5] = 0;
+					buf[pre - 8] = 0;
+					buf[pre - 7] = 0;
+					buf[pre - 6] = 0;
+					buf[pre - 5] = 0;
 #endif
-				buf[-4] = len >> 24;
-				buf[-3] = len >> 16;
-				buf[-2] = len >> 8;
-				buf[-1] = len;
-				pre = 10;
+				buf[pre - 4] = len >> 24;
+				buf[pre - 3] = len >> 16;
+				buf[pre - 2] = len >> 8;
+				buf[pre - 1] = len;
+				pre += 10;
 			}
 		}
 		break;

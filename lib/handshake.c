@@ -611,7 +611,8 @@ libwebsocket_read(struct libwebsocket_context *this, struct libwebsocket *wsi,
 	return 0;
 
 bail:
-	libwebsocket_close_and_free_session(this, wsi);
+	libwebsocket_close_and_free_session(this, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 
 	return -1;
 }
