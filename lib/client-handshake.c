@@ -78,10 +78,13 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	if (wsi->c_host == NULL)
 		goto oom1;
 	strcpy(wsi->c_host, host);
-	wsi->c_origin = malloc(strlen(origin) + 1);
-	if (wsi->c_origin == NULL)
-		goto oom2;
-	strcpy(wsi->c_origin, origin);
+	if (origin) {
+		wsi->c_origin = malloc(strlen(origin) + 1);
+		strcpy(wsi->c_origin, origin);
+		if (wsi->c_origin == NULL)
+			goto oom2;
+	} else
+		wsi->c_origin = NULL;
 	if (protocol) {
 		wsi->c_protocol = malloc(strlen(protocol) + 1);
 		if (wsi->c_protocol == NULL)
@@ -216,7 +219,8 @@ oom4:
 		free(wsi->c_protocol);
 
 oom3:
-	free(wsi->c_origin);
+	if (wsi->c_origin)
+		free(wsi->c_origin);
 
 oom2:
 	free(wsi->c_host);

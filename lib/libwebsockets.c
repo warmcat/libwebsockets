@@ -749,7 +749,8 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 							SYSTEM_RANDOM_FILEPATH);
 			free(wsi->c_path);
 			free(wsi->c_host);
-			free(wsi->c_origin);
+			if (wsi->c_origin)
+				free(wsi->c_origin);
 			if (wsi->c_protocol)
 				free(wsi->c_protocol);
 			libwebsocket_close_and_free_session(this, wsi);
@@ -772,26 +773,29 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		 * Sec-WebSocket-Version: 4
 		 */
 
-		 p += sprintf(p, "GET %s HTTP/1.1\x0d\x0a", wsi->c_path);
-		 p += sprintf(p, "Host: %s\x0d\x0a", wsi->c_host);
-		 p += sprintf(p, "Upgrade: websocket\x0d\x0a");
-		 p += sprintf(p, "Connection: Upgrade\x0d\x0a"
+		p += sprintf(p, "GET %s HTTP/1.1\x0d\x0a", wsi->c_path);
+		p += sprintf(p, "Host: %s\x0d\x0a", wsi->c_host);
+		p += sprintf(p, "Upgrade: websocket\x0d\x0a");
+		p += sprintf(p, "Connection: Upgrade\x0d\x0a"
 					"Sec-WebSocket-Key: ");
-		 strcpy(p, wsi->key_b64);
-		 p += strlen(wsi->key_b64);
-		 p += sprintf(p, "\x0d\x0aSec-WebSocket-Origin: %s\x0d\x0a",
+		strcpy(p, wsi->key_b64);
+		p += strlen(wsi->key_b64);
+		p += sprintf(p, "\x0d\x0a");
+		if (wsi->c_origin)
+			p += sprintf(p, "Sec-WebSocket-Origin: %s\x0d\x0a",
 								 wsi->c_origin);
-		 if (wsi->c_protocol != NULL)
+		if (wsi->c_protocol)
 			p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
 							       wsi->c_protocol);
-		 p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a\x0d\x0a",
+		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a\x0d\x0a",
 						       wsi->ietf_spec_revision);
 
 		/* done with these now */
 
 		free(wsi->c_path);
 		free(wsi->c_host);
-		free(wsi->c_origin);
+		if (wsi->c_origin)
+			free(wsi->c_origin);
 
 		/* prepare the expected server accept response */
 
