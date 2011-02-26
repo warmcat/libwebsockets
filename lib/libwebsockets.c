@@ -885,7 +885,8 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
 			!wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len ||
 			!wsi->utf8_token[WSI_TOKEN_ACCEPT].token_len ||
-			!wsi->utf8_token[WSI_TOKEN_NONCE].token_len ||
+			(!wsi->utf8_token[WSI_TOKEN_NONCE].token_len &&
+					   wsi->ietf_spec_revision == 4) ||
 			(!wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len &&
 						     wsi->c_protocol != NULL)) {
 			fprintf(stderr, "libwebsocket_client_handshake "
@@ -1010,16 +1011,19 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			goto bail2;
 		}
 
-		/*
-		 * Calculate the masking key to use when sending data to server
-		 */
+		if (wsi->ietf_spec_revision == 4) {
+			/*
+			 * Calculate the 04 masking key to use when
+			 * sending data to server
+			 */
 
-		strcpy((char *)buf, wsi->key_b64);
-		p = (char *)buf + strlen(wsi->key_b64);
-		strcpy(p, wsi->utf8_token[WSI_TOKEN_NONCE].token);
-		p += wsi->utf8_token[WSI_TOKEN_NONCE].token_len;
-		strcpy(p, magic_websocket_04_masking_guid);
-		SHA1(buf, strlen((char *)buf), wsi->masking_key_04);
+			strcpy((char *)buf, wsi->key_b64);
+			p = (char *)buf + strlen(wsi->key_b64);
+			strcpy(p, wsi->utf8_token[WSI_TOKEN_NONCE].token);
+			p += wsi->utf8_token[WSI_TOKEN_NONCE].token_len;
+			strcpy(p, magic_websocket_04_masking_guid);
+			SHA1(buf, strlen((char *)buf), wsi->masking_key_04);
+		}
 
 		/* allocate the per-connection user memory (if any) */
 
