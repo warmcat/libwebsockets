@@ -279,6 +279,7 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			break;
 		case 4:
 		case 5:
+		case 6:
 			wsi->all_zero_nonce = 1;
 			wsi->frame_masking_nonce_04[0] = c;
 			if (c)
@@ -678,6 +679,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			break;
 		case 4:
 		case 5:
+		case 6:
 	/*
 	 *  04 logical framing from the spec (all this is masked when
 	 *  incoming and has to be unmasked)
@@ -1124,6 +1126,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 	case 4:
 	case 5:
+	case 6:
 		switch (protocol & 0xf) {
 		case LWS_WRITE_TEXT:
 			n = LWS_WS_OPCODE_04__TEXT_FRAME;
