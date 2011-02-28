@@ -187,7 +187,8 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *this,
 
 	/* tell the user it's all over for this guy */
 
-	if (wsi->protocol->callback && old_state == WSI_STATE_ESTABLISHED)
+	if (wsi->protocol && wsi->protocol->callback &&
+					     old_state == WSI_STATE_ESTABLISHED)
 		wsi->protocol->callback(this, wsi, LWS_CALLBACK_CLOSED,
 						      wsi->user_space, NULL, 0);
 
