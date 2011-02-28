@@ -6,9 +6,12 @@ needed:
 
  ./configure --prefix=/usr --libdir=/usr/lib64 --enable-openssl
 
-For Apple systems, in addition to whatever other typical
-configure magic you need, you will also need --enable-nofork and
-it seems don't enable openssl.
+For Apple systems, Christopher Baker reported that this is needed
+(and I was told separately enabling openssl makes trouble somehow)
+
+./configure CC="gcc -arch i386 -arch x86_64" CXX="g++ -arch i386 -arch
+x86_64" CPP="gcc -E" CXXCPP="g++ -E" --enable-nofork
+
 
 otherwise if /usr/local/... and /usr/local/lib are OK then...
 
