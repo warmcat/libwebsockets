@@ -99,6 +99,8 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	wsi->xor_mask = xor_no_mask;
 
 	switch (wsi->ietf_spec_revision) {
+	case 0:
+		break;
 	case 4:
 		wsi->xor_mask = xor_mask_04;
 		break;

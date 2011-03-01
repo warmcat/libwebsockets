@@ -304,6 +304,47 @@ libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 	}
 }
 
+void libwebsockets_00_spaceout(char *key, int spaces, int seed)
+{
+	char *p;
+
+	key++;
+	while (spaces--) {
+		if (*key && (seed & 1))
+			key++;
+		seed >>= 1;
+
+		p = key + strlen(key);
+		while (p >= key) {
+			p[1] = p[0];
+			p--;
+		}
+		*key++ = ' ';
+	}
+}
+
+void libwebsockets_00_spam(char *key, int count, int seed)
+{
+	char *p;
+
+	key++;
+	while (count--) {
+		
+		if (*key && (seed & 1))
+			key++;
+		seed >>= 1;
+
+		p = key + strlen(key);
+		while (p >= key) {
+			p[1] = p[0];
+			p--;
+		}
+		*key++ = 0x21 + ((seed & 0xffff) % 15);
+		/* 4 would use it up too fast.. not like it matters */
+		seed >>= 1;
+	}
+}
+
 /**
  * libwebsocket_service_fd() - Service polled socket with something waiting
  * @this:	Websocket context
@@ -760,6 +801,19 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 							   sizeof wsi->key_b64);
 
 		/*
+		 * 00 example client handshake
+		 *
+		 * GET /socket.io/websocket HTTP/1.1
+		 * Upgrade: WebSocket
+		 * Connection: Upgrade
+		 * Host: 127.0.0.1:9999
+		 * Origin: http://127.0.0.1
+		 * Sec-WebSocket-Key1: 1 0 2#0W 9 89 7  92 ^
+		 * Sec-WebSocket-Key2: 7 7Y 4328 B2v[8(z1
+		 * Cookie: socketio=websocket
+		 * 
+		 * (Á®Ä0¶†≥
+		 * 
 		 * 04 example client handshake
 		 *
 		 * GET /chat HTTP/1.1
@@ -773,6 +827,93 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		 */
 
 		p += sprintf(p, "GET %s HTTP/1.1\x0d\x0a", wsi->c_path);
+
+		if (wsi->ietf_spec_revision == 0) {
+			unsigned char spaces_1, spaces_2;
+			unsigned int max_1, max_2;
+			unsigned int num_1, num_2;
+			unsigned long product_1, product_2;
+			char key_1[40];
+			char key_2[40];
+			unsigned int seed;
+			unsigned int count;
+			char challenge[16];
+
+			read(this->fd_random, &spaces_1, sizeof(char));
+			read(this->fd_random, &spaces_2, sizeof(char));
+
+			spaces_1 = (spaces_1 % 12) + 1;
+			spaces_2 = (spaces_2 % 12) + 1;
+
+			max_1 = 4294967295 / spaces_1;
+			max_2 = 4294967295 / spaces_2;
+
+			read(this->fd_random, &num_1, sizeof(int));
+			read(this->fd_random, &num_2, sizeof(int));
+
+			num_1 = (num_1 % max_1);
+			num_2 = (num_2 % max_2);
+
+			challenge[0] = num_1 >> 24;
+			challenge[1] = num_1 >> 16;
+			challenge[2] = num_1 >> 8;
+			challenge[3] = num_1;
+			challenge[4] = num_2 >> 24;
+			challenge[5] = num_2 >> 16;
+			challenge[6] = num_2 >> 8;
+			challenge[7] = num_2;
+
+			product_1 = num_1 * spaces_1;
+			product_2 = num_2 * spaces_2;
+
+			sprintf(key_1, "%lu", product_1);
+			sprintf(key_2, "%lu", product_2);
+
+			read(this->fd_random, &seed, sizeof(int));
+			read(this->fd_random, &count, sizeof(int));
+
+			libwebsockets_00_spam(key_1, (count % 12) + 1, seed);
+
+			read(this->fd_random, &seed, sizeof(int));
+			read(this->fd_random, &count, sizeof(int));
+
+			libwebsockets_00_spam(key_2, (count % 12) + 1, seed);
+
+			read(this->fd_random, &seed, sizeof(int));
+
+			libwebsockets_00_spaceout(key_1, spaces_1, seed);
+			libwebsockets_00_spaceout(key_2, spaces_2, seed >> 16);
+
+			p += sprintf(p, "Upgrade: websocket\x0d\x0a"
+				"Connection: Upgrade\x0d\x0aHost: %s\x0d\x0a",
+					wsi->c_host);
+			if (wsi->c_origin)
+				p += sprintf(p, "Origin: %s\x0d\x0a",
+								 wsi->c_origin);
+
+			if (wsi->c_protocol)
+				p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
+							       wsi->c_protocol);
+
+			p += sprintf(p, "Sec-WebSocket-Key1: %s\x0d\x0a",
+									 key_1);
+			p += sprintf(p, "Sec-WebSocket-Key2: %s\x0d\x0a",
+									 key_2);
+
+			p += sprintf(p, "\x0d\x0a");
+
+			read(this->fd_random, p, 8);
+			memcpy(&challenge[8], p, 8);
+			p += 8;
+
+			/* precompute what we want to see from the server */
+
+			MD5((unsigned char *)challenge, 16,
+			   (unsigned char *)wsi->initial_handshake_hash_base64);
+
+			goto issue_hdr;
+		}
+
 		p += sprintf(p, "Host: %s\x0d\x0a", wsi->c_host);
 		p += sprintf(p, "Upgrade: websocket\x0d\x0a");
 		p += sprintf(p, "Connection: Upgrade\x0d\x0a"
@@ -789,13 +930,6 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a\x0d\x0a",
 						       wsi->ietf_spec_revision);
 
-		/* done with these now */
-
-		free(wsi->c_path);
-		free(wsi->c_host);
-		if (wsi->c_origin)
-			free(wsi->c_origin);
-
 		/* prepare the expected server accept response */
 
 		strcpy((char *)buf, wsi->key_b64);
@@ -806,6 +940,15 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		lws_b64_encode_string(hash, 20,
 				wsi->initial_handshake_hash_base64,
 				     sizeof wsi->initial_handshake_hash_base64);
+issue_hdr:
+
+		/* done with these now */
+
+		free(wsi->c_path);
+		free(wsi->c_host);
+		if (wsi->c_origin)
+			free(wsi->c_origin);
+
 
 		/* send our request to the server */
 
@@ -878,6 +1021,54 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		}
 
 		/*
+		 * 00 / 76 -->
+		 *
+		 * HTTP/1.1 101 WebSocket Protocol Handshake
+		 * Upgrade: WebSocket
+		 * Connection: Upgrade
+		 * Sec-WebSocket-Origin: http://127.0.0.1
+		 * Sec-WebSocket-Location: ws://127.0.0.1:9999/socket.io/websocket
+		 *
+		 * xxxxxxxxxxxxxxxx
+		 */
+
+		if (wsi->ietf_spec_revision == 0) {
+			if (!wsi->utf8_token[WSI_TOKEN_HTTP].token_len ||
+				!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
+				!wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len ||
+				!wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len ||
+				(!wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len &&
+							     wsi->c_protocol != NULL)) {
+				fprintf(stderr, "libwebsocket_client_handshake "
+							"missing required header(s)\n");
+				pkt[len] = '\0';
+				fprintf(stderr, "%s", pkt);
+				goto bail3;
+			}
+
+			strtolower(wsi->utf8_token[WSI_TOKEN_HTTP].token);
+			if (strcmp(wsi->utf8_token[WSI_TOKEN_HTTP].token,
+					  "101 websocket protocol handshake")) {
+				fprintf(stderr, "libwebsocket_client_handshake "
+						"server sent bad HTTP response '%s'\n",
+						 wsi->utf8_token[WSI_TOKEN_HTTP].token);
+				goto bail3;
+			}
+			
+			if (wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len < 16) {
+				fprintf(stderr, "libwebsocket_client_handshake "
+						 "challenge reply too short %d\n",
+				wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len);
+				pkt[len] = '\0';
+				fprintf(stderr, "%s", pkt);
+				goto bail3;
+
+			}
+
+			goto select_protocol;
+		}
+
+		/*
 		 * well, what the server sent looked reasonable for syntax.
 		 * Now let's confirm it sent all the necessary headers
 		 */
@@ -929,6 +1120,7 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			goto bail3;
 		}
 
+select_protocol:
 
 		pc = wsi->c_protocol;
 
@@ -999,6 +1191,22 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		}
 
 	check_accept:
+
+		if (wsi->ietf_spec_revision == 0) {
+
+			if (memcmp(wsi->initial_handshake_hash_base64,
+				wsi->utf8_token[WSI_TOKEN_CHALLENGE].token, 16)) {
+				fprintf(stderr, "libwebsocket_client_handshake "
+					       "failed 00 challenge compare\n");
+
+				pkt[len] = '\0';
+				fprintf(stderr, "%s", pkt);
+				goto bail2;
+			}
+
+			goto accept_ok;
+		}
+	
 		/*
 		 * Confirm his accept token is the one we precomputed
 		 */
@@ -1025,6 +1233,8 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			strcpy(p, magic_websocket_04_masking_guid);
 			SHA1(buf, strlen((char *)buf), wsi->masking_key_04);
 		}
+
+accept_ok:
 
 		/* allocate the per-connection user memory (if any) */
 

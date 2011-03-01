@@ -114,10 +114,18 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->parser_state != WSI_TOKEN_CHALLENGE)
 			break;
 
-		/* -76 has no version header */
+		/* -76 has no version header ... server */
 		if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
+				wsi->mode != LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY &&
 			      wsi->utf8_token[wsi->parser_state].token_len != 8)
 			break;
+
+		/* -76 has no version header ... client */
+		if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
+				wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY &&
+			      wsi->utf8_token[wsi->parser_state].token_len != 16)
+			break;
+
 
 		/* <= 03 has old handshake with version header needs 8 bytes */
 		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&

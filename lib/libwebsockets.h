@@ -124,7 +124,7 @@ enum lws_token_indexes {
 };
 
 /*
- * From 06 sped
+ * From 06 spec
    1000
 
       1000 indicates a normal closure, meaning whatever purpose the
