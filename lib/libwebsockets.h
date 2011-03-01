@@ -47,6 +47,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
+	LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 
 	/* external poll() management support */
 	LWS_CALLBACK_ADD_POLL_FD,
@@ -275,6 +276,30 @@ struct libwebsocket_context;
  *		This also means that if you don't handle this callback then
  *		the default callback action of returning 0 allows the client
  *		certificates.
+ *
+ *	LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: this callback happens
+ *		when a client handshake is being compiled.  @user is NULL,
+ *		@in is a char **, it's pointing to a char * which holds the
+ *		next location in the header buffer where you can add
+ *		headers, and @len is the remaining space in the header buffer,
+ *		which is typically some hundreds of bytes.  So, to add a canned
+ *		cookie, your handler code might look similar to:
+ *
+ *		char **p = (char **)in;
+ *
+ *  		if (len < 100)
+ * 			return 1;
+ *
+ *		*p += sprintf(*p, "Cookie: a=b\x0d\x0a");
+ *
+ *		return 0;
+ *
+ *		Notice if you add anything, you just have to take care about
+ *		the CRLF on the line you added.  Obviously this callback is
+ *		optional, if you don't handle it everything is fine.
+ *
+ * 		Notice the callback is coming to protocols[0] all the time,
+ *		because there is no specific protocol handshook yet.
  *
  *	The next four reasons are optional and only need taking care of if you
  * 	will be integrating libwebsockets sockets into an external polling

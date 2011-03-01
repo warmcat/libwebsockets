@@ -900,6 +900,12 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 			p += sprintf(p, "Sec-WebSocket-Key2: %s\x0d\x0a",
 									 key_2);
 
+			/* give userland a chance to append, eg, cookies */
+
+			this->protocols[0].callback(this, wsi,
+				 LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
+					NULL, &p, (pkt + sizeof(pkt)) - p - 12);
+
 			p += sprintf(p, "\x0d\x0a");
 
 			read(this->fd_random, p, 8);
@@ -927,8 +933,16 @@ libwebsocket_service_fd(struct libwebsocket_context *this,
 		if (wsi->c_protocol)
 			p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
 							       wsi->c_protocol);
-		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a\x0d\x0a",
+		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
 						       wsi->ietf_spec_revision);
+
+		/* give userland a chance to append, eg, cookies */
+
+		this->protocols[0].callback(this, wsi,
+			 LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
+					NULL, &p, (pkt + sizeof(pkt)) - p - 12);
+
+		p += sprintf(p, "\x0d\x0a");
 
 		/* prepare the expected server accept response */
 

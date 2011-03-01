@@ -621,6 +621,32 @@ conventions, return 0 to mean the cert is OK or 1 to fail it.
 This also means that if you don't handle this callback then
 the default callback action of returning 0 allows the client
 certificates.
+</blockquote>
+<h3>LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER</h3>
+<blockquote>
+this callback happens
+when a client handshake is being compiled.  <tt><b>user</b></tt> is NULL,
+<tt><b>in</b></tt> is a char **, it's pointing to a char * which holds the
+next location in the header buffer where you can add
+headers, and <tt><b>len</b></tt> is the remaining space in the header buffer,
+which is typically some hundreds of bytes.  So, to add a canned
+cookie, your handler code might look similar to:
+<p>
+char **p = (char **)in;
+<p>
+if (len &lt; 100)
+return 1;
+<p>
+*p += sprintf(*p, "Cookie: a=b\x0d\x0a");
+<p>
+return 0;
+<p>
+Notice if you add anything, you just have to take care about
+the CRLF on the line you added.  Obviously this callback is
+optional, if you don't handle it everything is fine.
+<p>
+Notice the callback is coming to protocols[0] all the time,
+because there is no specific protocol handshook yet.
 <p>
 The next four reasons are optional and only need taking care of if you
 will be integrating libwebsockets sockets into an external polling
