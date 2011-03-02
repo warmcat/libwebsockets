@@ -4,7 +4,7 @@
 
 /**
  * libwebsocket_client_connect() - Connect to another websocket server
- * @this:	Websocket context
+ * @context:	Websocket context
  * @address:	Remote server address, eg, "myserver.com"
  * @port:	Port to connect to on the remote server, eg, 80
  * @ssl_connection:	0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
@@ -22,7 +22,7 @@
  */
 
 struct libwebsocket *
-libwebsocket_client_connect(struct libwebsocket_context *this,
+libwebsocket_client_connect(struct libwebsocket_context *context,
 			      const char *address,
 			      int port,
 			      int ssl_connection,
@@ -117,7 +117,7 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 
 	/* force no mask if he asks for that though */
 
-	if (this->options & LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK)
+	if (context->options & LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK)
 		wsi->xor_mask = xor_no_mask;
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
@@ -129,7 +129,7 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	 * proxy?
 	 */
 
-	if (this->http_proxy_port) {
+	if (context->http_proxy_port) {
 		plen = sprintf(pkt, "CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a"
 /*Proxy-authorization: basic aGVsbG86d29ybGQ= */
@@ -137,8 +137,8 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 
 		/* OK from now on we talk via the proxy */
 
-		address = this->http_proxy_address;
-		port = this->http_proxy_port;
+		address = context->http_proxy_address;
+		port = context->http_proxy_port;
 	}
 
 	/*
@@ -171,26 +171,30 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 
 	/* into fd -> wsi hashtable */
 
-	insert_wsi(this, wsi);
+	insert_wsi(context, wsi);
 
 	/* into internal poll list */
 
-	this->fds[this->fds_count].fd = wsi->sock;
-	this->fds[this->fds_count].revents = 0;
-	this->fds[this->fds_count++].events = POLLIN;
+	context->fds[context->fds_count].fd = wsi->sock;
+	context->fds[context->fds_count].revents = 0;
+	context->fds[context->fds_count++].events = POLLIN;
 
 	/* external POLL support via protocol 0 */
-	this->protocols[0].callback(this, wsi,
+	context->protocols[0].callback(context, wsi,
 		LWS_CALLBACK_ADD_POLL_FD,
 		(void *)(long)wsi->sock, NULL, POLLIN);
 
 	/* we are connected to server, or proxy */
 
-	if (this->http_proxy_port) {
+	if (context->http_proxy_port) {
 
 		n = send(wsi->sock, pkt, plen, 0);
 		if (n < 0) {
+#ifdef WIN32
+			closesocket(wsi->sock);
+#else
 			close(wsi->sock);
+#endif
 			fprintf(stderr, "ERROR writing to proxy socket\n");
 			goto bail1;
 		}
@@ -213,7 +217,7 @@ libwebsocket_client_connect(struct libwebsocket_context *this,
 	wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE;
 	pfd.fd = wsi->sock;
 	pfd.revents = POLLIN;
-	libwebsocket_service_fd(this, &pfd);
+	libwebsocket_service_fd(context, &pfd);
 
 	return wsi;
 

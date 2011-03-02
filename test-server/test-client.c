@@ -26,7 +26,6 @@
 #include <string.h>
 
 #include "../lib/libwebsockets.h"
-#include <poll.h>
 
 static unsigned int opts;
 static int was_closed;
@@ -147,17 +146,20 @@ callback_lws_mirror(struct libwebsocket_context * this,
 /* list of supported protocols and callbacks */
 
 static struct libwebsocket_protocols protocols[] = {
-
-	[PROTOCOL_DUMB_INCREMENT] = {
-		.name = "dumb-increment-protocol",
-		.callback = callback_dumb_increment,
+	{
+		"dumb-increment-protocol",
+		callback_dumb_increment,
+		0,
 	},
-	[PROTOCOL_LWS_MIRROR] = {
-		.name = "lws-mirror-protocol",
-		.callback = callback_lws_mirror,
+	{
+		"lws-mirror-protocol",
+		callback_lws_mirror,
+		0,
 	},
-	[DEMO_PROTOCOL_COUNT] = {  /* end of list */
-		.callback = NULL
+	{  /* end of list */
+		NULL,
+		NULL,
+		0
 	}
 };
 

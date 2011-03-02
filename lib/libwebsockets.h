@@ -22,7 +22,22 @@
 #ifndef __LIBWEBSOCKET_H__
 #define __LIBWEBSOCKET_H__
 
+#ifdef WIN32
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include "websock-w32.h"
+#include "gettimeofday.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#else
 #include <poll.h>
+#endif
 
 #define CONTEXT_PORT_NO_LISTEN 0
 
@@ -48,7 +63,6 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 	LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
-
 	/* external poll() management support */
 	LWS_CALLBACK_ADD_POLL_FD,
 	LWS_CALLBACK_DEL_POLL_FD,
@@ -388,7 +402,7 @@ struct libwebsocket_protocols {
 };
 
 extern struct libwebsocket_context *
-libwebsocket_create_context(int port, const char * interface,
+libwebsocket_create_context(int port, const char * interf,
 		  struct libwebsocket_protocols *protocols,
 		  const char *ssl_cert_filepath,
 		  const char *ssl_private_key_filepath, int gid, int uid,
@@ -500,4 +514,9 @@ extern void
 libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 			       struct libwebsocket *wsi, enum lws_close_status);
 
+#ifdef WIN32
+#ifdef __cplusplus
+}
+#endif
+#endif
 #endif

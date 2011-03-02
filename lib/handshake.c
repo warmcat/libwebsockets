@@ -318,7 +318,8 @@ handshake_0405(struct libwebsocket *wsi)
 
 		/* select the nonce */
 
-		n = read(wsi->protocol->owning_server->fd_random, hash, 16);
+		n = libwebsockets_get_random(wsi->protocol->owning_server,
+								      hash, 16);
 		if (n != 16) {
 			fprintf(stderr, "Unable to read random device %s %d\n",
 						     SYSTEM_RANDOM_FILEPATH, n);
@@ -448,7 +449,7 @@ bail:
  */
 
 int
-libwebsocket_read(struct libwebsocket_context *this, struct libwebsocket *wsi,
+libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi,
 						unsigned char * buf, size_t len)
 {
 	size_t n;
@@ -490,7 +491,7 @@ libwebsocket_read(struct libwebsocket_context *this, struct libwebsocket *wsi,
 		if (!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
 			     !wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len) {
 			if (wsi->protocol->callback)
-				(wsi->protocol->callback)(this, wsi,
+				(wsi->protocol->callback)(context, wsi,
 				   LWS_CALLBACK_HTTP, wsi->user_space,
 				   wsi->utf8_token[WSI_TOKEN_GET_URI].token, 0);
 			wsi->state = WSI_STATE_HTTP;
@@ -612,7 +613,7 @@ libwebsocket_read(struct libwebsocket_context *this, struct libwebsocket *wsi,
 	return 0;
 
 bail:
-	libwebsocket_close_and_free_session(this, wsi,
+	libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 
 	return -1;

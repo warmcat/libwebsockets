@@ -29,9 +29,20 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <netdb.h>
+#include <stdarg.h>
+
+#include <sys/stat.h>
+
+#ifdef WIN32
+
+#include <time.h >
+#include <winsock2.h>
+#include <ws2ipdef.h>
+#include <windows.h>
+
+#else
 
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <sys/socket.h>
 #ifndef LWS_NO_FORK
 #include <sys/prctl.h>
@@ -42,6 +53,8 @@
 #include <poll.h>
 #include <sys/mman.h>
 #include <sys/time.h>
+
+#endif
 
 #ifdef LWS_OPENSSL_SUPPORT
 #include <openssl/ssl.h>
@@ -59,7 +72,12 @@
 #endif
 
 #ifdef DEBUG
-static inline void debug(const char *format, ...)
+#ifdef WIN32
+static
+#else
+static inline
+#endif
+void debug(const char *format, ...)
 {
 	va_list ap;
 	va_start(ap, format); vfprintf(stderr, format, ap); va_end(ap);
@@ -271,7 +289,7 @@ libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 						unsigned char *buf, size_t len);
 
 extern int
-libwebsocket_read(struct libwebsocket_context *this, struct libwebsocket *wsi,
+libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi,
 					       unsigned char * buf, size_t len);
 
 extern int
@@ -293,17 +311,21 @@ extern unsigned char
 xor_mask_05(struct libwebsocket *wsi, unsigned char c);
 
 extern struct libwebsocket *
-wsi_from_fd(struct libwebsocket_context *this, int fd);
+wsi_from_fd(struct libwebsocket_context *context, int fd);
 
 extern int
-insert_wsi(struct libwebsocket_context *this, struct libwebsocket *wsi);
+insert_wsi(struct libwebsocket_context *context, struct libwebsocket *wsi);
 
 extern int
-delete_from_fd(struct libwebsocket_context *this, int fd);
+delete_from_fd(struct libwebsocket_context *context, int fd);
 
 extern void
 libwebsocket_set_timeout(struct libwebsocket *wsi,
 					 enum pending_timeout reason, int secs);
+
+extern int
+libwebsockets_get_random(struct libwebsocket_context *context,
+							    void *buf, int len);
 
 #ifndef LWS_OPENSSL_SUPPORT
 

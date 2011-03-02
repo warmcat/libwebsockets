@@ -22,25 +22,29 @@
 #include "private-libwebsockets.h"
 
 const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
-	[WSI_TOKEN_GET_URI]	= { "GET ",			 4 },
-	[WSI_TOKEN_HOST]	= { "Host:",			 5 },
-	[WSI_TOKEN_CONNECTION]	= { "Connection:",		11 },
-	[WSI_TOKEN_KEY1]	= { "Sec-WebSocket-Key1:",	19 },
-	[WSI_TOKEN_KEY2]	= { "Sec-WebSocket-Key2:",	19 },
-	[WSI_TOKEN_PROTOCOL]	= { "Sec-WebSocket-Protocol:",	23 },
-	[WSI_TOKEN_UPGRADE]	= { "Upgrade:",			 8 },
-	[WSI_TOKEN_EXTENSIONS]	= { "Sec-WebSocket-Extensions:", 25 },
-	[WSI_TOKEN_ORIGIN]	= { "Origin:",			 7 },
-	[WSI_TOKEN_DRAFT]	= { "Sec-WebSocket-Draft:",	20 },
-	[WSI_TOKEN_CHALLENGE]	= { "\x0d\x0a",			 2 },
 
-	[WSI_TOKEN_KEY]		= { "Sec-WebSocket-Key:",	18 },
-	[WSI_TOKEN_VERSION]	= { "Sec-WebSocket-Version:",	22 },
+	/* win32 can't do C99 */
 
-	[WSI_TOKEN_ACCEPT]	= { "Sec-WebSocket-Accept:",	21 },
-	[WSI_TOKEN_NONCE]	= { "Sec-WebSocket-Nonce:",	20 },
-	[WSI_TOKEN_HTTP]	= { "HTTP/1.1 ",		 9 },
-	[WSI_TOKEN_SWORIGIN]	= { "Sec-WebSocket-Origin:",	21 },
+/*	[WSI_TOKEN_GET_URI]	=	*/{ "GET ",			 4 },
+/*	[WSI_TOKEN_HOST]	=	*/{ "Host:",			 5 },
+/*	[WSI_TOKEN_CONNECTION]	=	*/{ "Connection:",		11 },
+/*	[WSI_TOKEN_KEY1]	=	*/{ "Sec-WebSocket-Key1:",	19 },
+/*	[WSI_TOKEN_KEY2]	=	*/{ "Sec-WebSocket-Key2:",	19 },
+/*	[WSI_TOKEN_PROTOCOL]	=	*/{ "Sec-WebSocket-Protocol:",	23 },
+/*	[WSI_TOKEN_UPGRADE]	=	*/{ "Upgrade:",			 8 },
+/*	[WSI_TOKEN_ORIGIN]	=	*/{ "Origin:",			 7 },
+/*	[WSI_TOKEN_DRAFT]	=	*/{ "Sec-WebSocket-Draft:",	20 },
+/*	[WSI_TOKEN_CHALLENGE]	=	*/{ "\x0d\x0a",			 2 },
+
+/*	[WSI_TOKEN_KEY]		=	*/{ "Sec-WebSocket-Key:",	18 },
+/*	[WSI_TOKEN_VERSION]	=	*/{ "Sec-WebSocket-Version:",	22 },
+/*	[WSI_TOKEN_SWORIGIN]=		*/{ "Sec-WebSocket-Origin:",	21 },
+
+/*	[WSI_TOKEN_EXTENSIONS]	=	*/{ "Sec-WebSocket-Extensions:", 25 },
+
+/*	[WSI_TOKEN_ACCEPT]	=	*/{ "Sec-WebSocket-Accept:",	21 },
+/*	[WSI_TOKEN_NONCE]	=	*/{ "Sec-WebSocket-Nonce:",	20 },
+/*	[WSI_TOKEN_HTTP]	=	*/{ "HTTP/1.1 ",		 9 },
 
 };
 
@@ -116,16 +120,15 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		/* -76 has no version header ... server */
 		if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
-				wsi->mode != LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY &&
+		   wsi->mode != LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY &&
 			      wsi->utf8_token[wsi->parser_state].token_len != 8)
 			break;
 
 		/* -76 has no version header ... client */
 		if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
-				wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY &&
-			      wsi->utf8_token[wsi->parser_state].token_len != 16)
+		   wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY &&
+			wsi->utf8_token[wsi->parser_state].token_len != 16)
 			break;
-
 
 		/* <= 03 has old handshake with version header needs 8 bytes */
 		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
@@ -1019,7 +1022,7 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 
 	/* fetch the per-frame nonce */
 
-	n = read(wsi->protocol->owning_server->fd_random,
+	n = libwebsockets_get_random(wsi->protocol->owning_server,
 						wsi->frame_masking_nonce_04, 4);
 	if (n != 4) {
 		fprintf(stderr, "Unable to read from random device %s %d\n",
@@ -1336,7 +1339,7 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
 						       const char *content_type)
 {
 	int fd;
-	struct stat stat;
+	struct stat stat_buf;
 	char buf[512];
 	char *p = buf;
 	int n;
@@ -1353,12 +1356,12 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
 		return -1;
 	}
 
-	fstat(fd, &stat);
+	fstat(fd, &stat_buf);
 	p += sprintf(p, "HTTP/1.0 200 OK\x0d\x0a"
 			"Server: libwebsockets\x0d\x0a"
 			"Content-Type: %s\x0d\x0a"
 			"Content-Length: %u\x0d\x0a"
-			"\x0d\x0a", content_type, (unsigned int)stat.st_size);
+			"\x0d\x0a", content_type, (unsigned int)stat_buf.st_size);
 
 	libwebsocket_write(wsi, (unsigned char *)buf, p - buf, LWS_WRITE_HTTP);
 

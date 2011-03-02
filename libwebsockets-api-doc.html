@@ -1,11 +1,11 @@
 <h2>libwebsockets_hangup_on_client - Server calls to terminate client connection</h2>
 <i>void</i>
 <b>libwebsockets_hangup_on_client</b>
-(<i>struct libwebsocket_context *</i> <b>this</b>,
+(<i>struct libwebsocket_context *</i> <b>context</b>,
 <i>int</i> <b>fd</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>this</b>
+<dt><b>context</b>
 <dd>libwebsockets context
 <dt><b>fd</b>
 <dd>Connection socket descriptor
@@ -43,11 +43,11 @@ determined, they will be returned as valid zero-length strings.
 <h2>libwebsocket_service_fd - Service polled socket with something waiting</h2>
 <i>int</i>
 <b>libwebsocket_service_fd</b>
-(<i>struct libwebsocket_context *</i> <b>this</b>,
+(<i>struct libwebsocket_context *</i> <b>context</b>,
 <i>struct pollfd *</i> <b>pollfd</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>this</b>
+<dt><b>context</b>
 <dd>Websocket context
 <dt><b>pollfd</b>
 <dd>The pollfd entry describing the socket fd and which events
@@ -63,10 +63,10 @@ undefined.
 <h2>libwebsocket_context_destroy - Destroy the websocket context</h2>
 <i>void</i>
 <b>libwebsocket_context_destroy</b>
-(<i>struct libwebsocket_context *</i> <b>this</b>)
+(<i>struct libwebsocket_context *</i> <b>context</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>this</b>
+<dt><b>context</b>
 <dd>Websocket context
 </dl>
 <h3>Description</h3>
@@ -79,11 +79,11 @@ undefined.
 <h2>libwebsocket_service - Service any pending websocket activity</h2>
 <i>int</i>
 <b>libwebsocket_service</b>
-(<i>struct libwebsocket_context *</i> <b>this</b>,
+(<i>struct libwebsocket_context *</i> <b>context</b>,
 <i>int</i> <b>timeout_ms</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>this</b>
+<dt><b>context</b>
 <dd>Websocket context
 <dt><b>timeout_ms</b>
 <dd>Timeout for poll; 0 means return immediately if nothing needed
@@ -123,11 +123,11 @@ nothing is pending, or as soon as it services whatever was pending.
 <h2>libwebsocket_callback_on_writable - Request a callback when this socket becomes able to be written to without blocking</h2>
 <i>int</i>
 <b>libwebsocket_callback_on_writable</b>
-(<i>struct libwebsocket_context *</i> <b>this</b>,
+(<i>struct libwebsocket_context *</i> <b>context</b>,
 <i>struct libwebsocket *</i> <b>wsi</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>this</b>
+<dt><b>context</b>
 <dd>libwebsockets context
 <dt><b>wsi</b>
 <dd>Websocket connection instance to get callback for
@@ -201,10 +201,10 @@ control for the input side.
 <h2>libwebsocket_canonical_hostname - returns this host's hostname</h2>
 <i>const char *</i>
 <b>libwebsocket_canonical_hostname</b>
-(<i>struct libwebsocket_context *</i> <b>this</b>)
+(<i>struct libwebsocket_context *</i> <b>context</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>this</b>
+<dt><b>context</b>
 <dd>Websocket context
 </dl>
 <h3>Description</h3>
@@ -219,7 +219,7 @@ has been created.
 <i>struct libwebsocket_context *</i>
 <b>libwebsocket_create_context</b>
 (<i>int</i> <b>port</b>,
-<i>const char *</i> <b>interface</b>,
+<i>const char *</i> <b>interf</b>,
 <i>struct libwebsocket_protocols *</i> <b>protocols</b>,
 <i>const char *</i> <b>ssl_cert_filepath</b>,
 <i>const char *</i> <b>ssl_private_key_filepath</b>,
@@ -232,7 +232,7 @@ has been created.
 <dd>Port to listen on... you can use 0 to suppress listening on
 any port, that's what you want if you are not running a
 websocket server at all but just using it as a client
-<dt><b>interface</b>
+<dt><b>interf</b>
 <dd>NULL to bind the listen socket to all interfaces, or the
 interface name, eg, "eth2"
 <dt><b>protocols</b>
@@ -285,10 +285,10 @@ one place; they're all handled in the user callback.
 <h2>libwebsockets_fork_service_loop - Optional helper function forks off a process for the websocket server loop. You don't have to use this but if not, you have to make sure you are calling libwebsocket_service periodically to service the websocket traffic</h2>
 <i>int</i>
 <b>libwebsockets_fork_service_loop</b>
-(<i>struct libwebsocket_context *</i> <b>this</b>)
+(<i>struct libwebsocket_context *</i> <b>context</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>this</b>
+<dt><b>context</b>
 <dd>server context returned by creation function
 </dl>
 <hr>
@@ -425,7 +425,7 @@ Many protocols won't care becuse their packets are always small.
 <h2>libwebsocket_client_connect - Connect to another websocket server</h2>
 <i>struct libwebsocket *</i>
 <b>libwebsocket_client_connect</b>
-(<i>struct libwebsocket_context *</i> <b>this</b>,
+(<i>struct libwebsocket_context *</i> <b>context</b>,
 <i>const char *</i> <b>address</b>,
 <i>int</i> <b>port</b>,
 <i>int</i> <b>ssl_connection</b>,
@@ -436,7 +436,7 @@ Many protocols won't care becuse their packets are always small.
 <i>int</i> <b>ietf_version_or_minus_one</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>this</b>
+<dt><b>context</b>
 <dd>Websocket context
 <dt><b>address</b>
 <dd>Remote server address, eg, "myserver.com"

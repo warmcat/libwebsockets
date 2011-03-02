@@ -60,7 +60,7 @@ enum demo_protocols {
 
 /* this protocol server (always the first one) just knows how to do HTTP */
 
-static int callback_http(struct libwebsocket_context * this,
+static int callback_http(struct libwebsocket_context * context,
 		struct libwebsocket *wsi,
 		enum libwebsocket_callback_reasons reason, void *user,
 							   void *in, size_t len)
@@ -124,29 +124,29 @@ dump_handshake_info(struct lws_tokens *lwst)
 {
 	int n;
 	static const char *token_names[] = {
-		[WSI_TOKEN_GET_URI] = "GET URI",
-		[WSI_TOKEN_HOST] = "Host",
-		[WSI_TOKEN_CONNECTION] = "Connection",
-		[WSI_TOKEN_KEY1] = "key 1",
-		[WSI_TOKEN_KEY2] = "key 2",
-		[WSI_TOKEN_PROTOCOL] = "Protocol",
-		[WSI_TOKEN_UPGRADE] = "Upgrade",
-		[WSI_TOKEN_ORIGIN] = "Origin",
-		[WSI_TOKEN_DRAFT] = "Draft",
-		[WSI_TOKEN_CHALLENGE] = "Challenge",
+		/*[WSI_TOKEN_GET_URI]		=*/ "GET URI",
+		/*[WSI_TOKEN_HOST]		=*/ "Host",
+		/*[WSI_TOKEN_CONNECTION]	=*/ "Connection",
+		/*[WSI_TOKEN_KEY1]		=*/ "key 1",
+		/*[WSI_TOKEN_KEY2]		=*/ "key 2",
+		/*[WSI_TOKEN_PROTOCOL]		=*/ "Protocol",
+		/*[WSI_TOKEN_UPGRADE]		=*/ "Upgrade",
+		/*[WSI_TOKEN_ORIGIN]		=*/ "Origin",
+		/*[WSI_TOKEN_DRAFT]		=*/ "Draft",
+		/*[WSI_TOKEN_CHALLENGE]		=*/ "Challenge",
 
 		/* new for 04 */
-		[WSI_TOKEN_KEY] = "Key",
-		[WSI_TOKEN_VERSION] = "Version",
-		[WSI_TOKEN_SWORIGIN] = "Sworigin",
+		/*[WSI_TOKEN_KEY]		=*/ "Key",
+		/*[WSI_TOKEN_VERSION]		=*/ "Version",
+		/*[WSI_TOKEN_SWORIGIN]		=*/ "Sworigin",
 
 		/* new for 05 */
-		[WSI_TOKEN_EXTENSIONS] = "Extensions",
+		/*[WSI_TOKEN_EXTENSIONS]	=*/ "Extensions",
 
 		/* client receives these */
-		[WSI_TOKEN_ACCEPT] = "Accept",
-		[WSI_TOKEN_NONCE] = "Nonce",
-		[WSI_TOKEN_HTTP] = "Http",
+		/*[WSI_TOKEN_ACCEPT]		=*/ "Accept",
+		/*[WSI_TOKEN_NONCE]		=*/ "Nonce",
+		/*[WSI_TOKEN_HTTP]		=*/ "Http",
 	};
 	
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
@@ -172,7 +172,7 @@ struct per_session_data__dumb_increment {
 };
 
 static int
-callback_dumb_increment(struct libwebsocket_context * this,
+callback_dumb_increment(struct libwebsocket_context * context,
 			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
@@ -249,7 +249,7 @@ static int ringbuffer_head;
 
 
 static int
-callback_lws_mirror(struct libwebsocket_context * this,
+callback_lws_mirror(struct libwebsocket_context * context,
 			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
@@ -286,7 +286,7 @@ callback_lws_mirror(struct libwebsocket_context * this,
 				  MAX_MESSAGE_QUEUE) < (MAX_MESSAGE_QUEUE - 15))
 				libwebsocket_rx_flow_control(wsi, 1);
 
-			libwebsocket_callback_on_writable(this, wsi);
+			libwebsocket_callback_on_writable(context, wsi);
 
 		}
 		break;
@@ -343,24 +343,24 @@ callback_lws_mirror(struct libwebsocket_context * this,
 
 static struct libwebsocket_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
-	[PROTOCOL_HTTP] = {
-		.name = "http-only",
-		.callback = callback_http,
+
+	{
+		"http-only",		/* name */
+		callback_http,		/* callback */
+		0			/* per_session_data_size */
 	},
-	[PROTOCOL_DUMB_INCREMENT] = {
-		.name = "dumb-increment-protocol",
-		.callback = callback_dumb_increment,
-		.per_session_data_size =
-				sizeof(struct per_session_data__dumb_increment),
+	{
+		"dumb-increment-protocol",
+		callback_dumb_increment,
+		sizeof(struct per_session_data__dumb_increment),
 	},
-	[PROTOCOL_LWS_MIRROR] = {
-		.name = "lws-mirror-protocol",
-		.callback = callback_lws_mirror,
-		.per_session_data_size =
-				sizeof(struct per_session_data__lws_mirror),
+	{
+		"lws-mirror-protocol",
+		callback_lws_mirror,
+		sizeof(struct per_session_data__lws_mirror)
 	},
-	[DEMO_PROTOCOL_COUNT] = {  /* end of list */
-		.callback = NULL
+	{
+		NULL, NULL, 0		/* End of list */
 	}
 };
 

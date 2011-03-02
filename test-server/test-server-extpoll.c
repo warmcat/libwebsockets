@@ -393,24 +393,24 @@ callback_lws_mirror(struct libwebsocket_context * this,
 
 static struct libwebsocket_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
-	[PROTOCOL_HTTP] = {
-		.name = "http-only",
-		.callback = callback_http,
+
+	{
+		"http-only",		/* name */
+		callback_http,		/* callback */
+		0			/* per_session_data_size */
 	},
-	[PROTOCOL_DUMB_INCREMENT] = {
-		.name = "dumb-increment-protocol",
-		.callback = callback_dumb_increment,
-		.per_session_data_size =
-				sizeof(struct per_session_data__dumb_increment),
+	{
+		"dumb-increment-protocol",
+		callback_dumb_increment,
+		sizeof(struct per_session_data__dumb_increment),
 	},
-	[PROTOCOL_LWS_MIRROR] = {
-		.name = "lws-mirror-protocol",
-		.callback = callback_lws_mirror,
-		.per_session_data_size =
-				sizeof(struct per_session_data__lws_mirror),
+	{
+		"lws-mirror-protocol",
+		callback_lws_mirror,
+		sizeof(struct per_session_data__lws_mirror)
 	},
-	[DEMO_PROTOCOL_COUNT] = {  /* end of list */
-		.callback = NULL
+	{
+		NULL, NULL, 0		/* End of list */
 	}
 };
 
