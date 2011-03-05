@@ -200,7 +200,6 @@ struct libwebsocket_context {
 	int use_ssl;
 	SSL_CTX *ssl_ctx;
 	SSL_CTX *ssl_client_ctx;
-	int openssl_websocket_private_data_index;
 #endif
 	struct libwebsocket_protocols *protocols;
 	int count_protocols;

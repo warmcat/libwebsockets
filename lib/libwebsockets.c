@@ -26,6 +26,11 @@
 #else
 #include <ifaddrs.h>
 #endif
+
+#ifdef LWS_OPENSSL_SUPPORT
+int openssl_websocket_private_data_index;
+#endif
+
 /*
  * In-place str to lower case
  */
@@ -791,7 +796,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
 
 			SSL_set_ex_data(wsi->ssl,
-			      context->openssl_websocket_private_data_index,
+					openssl_websocket_private_data_index,
 								       context);
 
 			if (SSL_connect(wsi->ssl) <= 0) {
@@ -804,7 +809,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			}
 
 			n = SSL_get_verify_result(wsi->ssl);
-			if (n != X509_V_OK) && (
+			if ((n != X509_V_OK) && (
 				n != X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
 							   wsi->use_ssl != 2)) {
 
@@ -1688,17 +1693,16 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 
 	SSL *ssl;
 	int n;
-//	struct libwebsocket_context *context;
+	struct libwebsocket_context *context;
 
 	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
 		SSL_get_ex_data_X509_STORE_CTX_idx());
 
 	/*
-	 * !!! can't get context->openssl_websocket_private_data_index
-	 * can't store as a static either
+	 * !!! nasty openssl requires the index to come as a library-scope
+	 * static
 	 */
-//	context = SSL_get_ex_data(ssl,
-//				 context->openssl_websocket_private_data_index);
+	context = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
 	
 	n = context->protocols[0].callback(NULL, NULL,
 		LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
@@ -1834,7 +1838,7 @@ libwebsocket_create_context(int port, const char *interf,
 	context->use_ssl = 0;
 	context->ssl_ctx = NULL;
 	context->ssl_client_ctx = NULL;
-	context->openssl_websocket_private_data_index = 0;
+	openssl_websocket_private_data_index = 0;
 #endif
 	/* find canonical hostname */
 
@@ -1911,7 +1915,7 @@ libwebsocket_create_context(int port, const char *interf,
 	OpenSSL_add_all_algorithms();
 	SSL_load_error_strings();
 
-	context->openssl_websocket_private_data_index =
+	openssl_websocket_private_data_index =
 		SSL_get_ex_new_index(0, "libwebsockets", NULL, NULL, NULL);
 
 	/*
