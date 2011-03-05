@@ -12,10 +12,13 @@
 #define MSG_NOSIGNAL 0
 #define SHUT_RDWR SD_BOTH
 
+#define random rand
+#define usleep _sleep
 #define poll WSAPoll
 
-#define LWS_NO_FORK
+/* override configure because we are not using Makefiles */
 
+#define LWS_NO_FORK
 #define DATADIR "."
 
 #endif
