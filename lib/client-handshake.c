@@ -64,6 +64,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	wsi->pings_vs_pongs = 0;
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
+	wsi->count_active_extensions = 0;
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = ssl_connection;
 #endif

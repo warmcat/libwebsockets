@@ -221,6 +221,7 @@ has been created.
 (<i>int</i> <b>port</b>,
 <i>const char *</i> <b>interf</b>,
 <i>struct libwebsocket_protocols *</i> <b>protocols</b>,
+<i>struct libwebsocket_extension *</i> <b>extensions</b>,
 <i>const char *</i> <b>ssl_cert_filepath</b>,
 <i>const char *</i> <b>ssl_private_key_filepath</b>,
 <i>int</i> <b>gid</b>,
@@ -739,4 +740,22 @@ This structure represents one protocol supported by the server.  An
 array of these structures is passed to <b>libwebsocket_create_server</b>
 allows as many protocols as you like to be handled by one server.
 </blockquote>
+<hr>
+<h2>struct libwebsocket_extension - An extension we know how to cope with</h2>
+<b>struct libwebsocket_extension</b> {<br>
+&nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
+&nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket_context *context,struct libwebsocket *wsi,enum libwebsocket_callback_reasons reason, void *user,void *in, size_t len)</i>;<br>
+&nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
+};<br>
+<h3>Members</h3>
+<dl>
+<dt><b>name</b>
+<dd>Formal extension name, eg, "deflate-stream"
+<dt><b>callback</b>
+<dd>Service callback
+<dt><b>per_session_data_size</b>
+<dd>Libwebsockets will auto-malloc this much
+memory for the use of the extension, a pointer
+to it comes in the <tt><b>user</b></tt> callback parameter
+</dl>
 <hr>

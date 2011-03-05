@@ -107,6 +107,7 @@ static inline void debug(const char *format, ...)
 #define MAX_USER_RX_BUFFER 4096
 #define MAX_BROADCAST_PAYLOAD 2048
 #define LWS_MAX_PROTOCOLS 10
+#define LWS_MAX_EXTENSIONS_ACTIVE 10
 #define SPEC_LATEST_SUPPORTED 6
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
@@ -203,6 +204,7 @@ struct libwebsocket_context {
 #endif
 	struct libwebsocket_protocols *protocols;
 	int count_protocols;
+	struct libwebsocket_extension *extensions;
 };
 
 
@@ -223,6 +225,10 @@ enum pending_timeout {
 
 struct libwebsocket {
 	const struct libwebsocket_protocols *protocol;
+	const struct libwebsocket_extension *
+				   active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
+	void * active_extensions_user[LWS_MAX_EXTENSIONS_ACTIVE];
+	int count_active_extensions;
 
 	enum lws_connection_states state;
 

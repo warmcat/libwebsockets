@@ -516,6 +516,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		memset(new_wsi, 0, sizeof (struct libwebsocket));
 		new_wsi->sock = accept_fd;
+		new_wsi->count_active_extensions = 0;
 		new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -644,6 +645,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		new_wsi->sock = accept_fd;
 		new_wsi->mode = LWS_CONNMODE_BROADCAST_PROXY;
 		new_wsi->state = WSI_STATE_ESTABLISHED;
+		new_wsi->count_active_extensions = 0;
 		/* note which protocol we are proxying */
 		new_wsi->protocol_index_for_broadcast_proxy =
 					wsi->protocol_index_for_broadcast_proxy;
@@ -1769,6 +1771,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 struct libwebsocket_context *
 libwebsocket_create_context(int port, const char *interf,
 			       struct libwebsocket_protocols *protocols,
+			       struct libwebsocket_extension *extensions,
 			       const char *ssl_cert_filepath,
 			       const char *ssl_private_key_filepath,
 			       int gid, int uid, unsigned int options)
@@ -1822,6 +1825,7 @@ libwebsocket_create_context(int port, const char *interf,
 	context->http_proxy_address[0] = '\0';
 	context->options = options;
 	context->fds_count = 0;
+	context->extensions = extensions;
 
 #ifdef WIN32
 	context->fd_random = 0;
@@ -2067,6 +2071,7 @@ libwebsocket_create_context(int port, const char *interf,
 		wsi = malloc(sizeof(struct libwebsocket));
 		memset(wsi, 0, sizeof (struct libwebsocket));
 		wsi->sock = sockfd;
+		wsi->count_active_extensions = 0;
 		wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
 		insert_wsi(context, wsi);
 
@@ -2146,6 +2151,7 @@ libwebsocket_create_context(int port, const char *interf,
 		memset(wsi, 0, sizeof (struct libwebsocket));
 		wsi->sock = fd;
 		wsi->mode = LWS_CONNMODE_BROADCAST_PROXY_LISTENER;
+		wsi->count_active_extensions = 0;
 		/* note which protocol we are proxying */
 		wsi->protocol_index_for_broadcast_proxy =
 						       context->count_protocols;

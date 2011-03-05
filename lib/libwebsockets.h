@@ -401,9 +401,31 @@ struct libwebsocket_protocols {
 	int protocol_index;
 };
 
+/**
+ * struct libwebsocket_extension -	An extension we know how to cope with
+ *
+ * @name:			Formal extension name, eg, "deflate-stream"
+ * @callback:			Service callback
+ * @per_session_data_size: 	Libwebsockets will auto-malloc this much
+ * 				memory for the use of the extension, a pointer
+ *				to it comes in the @user callback parameter
+ */
+
+struct libwebsocket_extension {
+	const char *name;
+	int (*callback)(struct libwebsocket_context *context,
+			struct libwebsocket *wsi,
+			enum libwebsocket_callback_reasons reason, void *user,
+							  void *in, size_t len);
+	size_t per_session_data_size;
+};
+
+
+
 extern struct libwebsocket_context *
 libwebsocket_create_context(int port, const char * interf,
 		  struct libwebsocket_protocols *protocols,
+		  struct libwebsocket_extension *extensions,
 		  const char *ssl_cert_filepath,
 		  const char *ssl_private_key_filepath, int gid, int uid,
 		  unsigned int options);
