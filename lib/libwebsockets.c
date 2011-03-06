@@ -555,6 +555,9 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	int okay = 0;
 	struct lws_tokens eff_buf;
 	int more = 1;
+	int ext_count = 0;
+	struct libwebsocket_extension *ext;
+
 #ifdef LWS_OPENSSL_SUPPORT
 	char ssl_err_buf[512];
 #endif
@@ -1119,8 +1122,47 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		if (wsi->c_protocol)
 			p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
 							       wsi->c_protocol);
-		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
-			wsi->ietf_spec_revision); 
+
+		/* tell the server what extensions we could support */
+
+		p += sprintf(p, "Sec-WebSocket-Extensions: ");
+
+		ext =context->extensions;
+		while (ext && ext->callback) {
+
+			n = 0;
+			n = context->protocols[0].callback(context, wsi,
+				LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
+					wsi->user_space, (char *)ext->name, 0);
+
+			/*
+			 * zero return from callback means
+			 * go ahead and allow the extension,
+			 * it's what we get if the callback is
+			 * unhandled
+			 */
+
+			if (n) {
+				ext++;
+				continue;
+			}
+
+			/* apply it */
+			
+			if (ext_count)
+				*p++ = ',';
+			p += sprintf(p, ext->name);
+			ext_count++;
+
+			ext++;
+		}
+
+		p += sprintf(p, "\x0d\x0a");
+
+		if (wsi->ietf_spec_revision)
+			p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
+						       wsi->ietf_spec_revision); 
+
 		/* give userland a chance to append, eg, cookies */
 		
 		context->protocols[0].callback(context, wsi,

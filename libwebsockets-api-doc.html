@@ -664,6 +664,17 @@ valid.  Note though at this time the ESTABLISHED callback hasn't
 happened yet so if you initialize <tt><b>user</b></tt> content there, <tt><b>user</b></tt>
 content during this callback might not be useful for anything.
 Notice this callback comes to protocols[0].
+</blockquote>
+<h3>LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED</h3>
+<blockquote>
+When a client
+connection is being prepared to start a handshake to a server,
+each supported extension is checked with protocols[0] callback
+with this reason, giving the user code a chance to suppress the
+claim to support that extension by returning non-zero.  If
+unhandled, by default 0 will be returned and the extension
+support included in the header to the server.  Notice this
+callback comes to protocols[0].
 <p>
 The next four reasons are optional and only need taking care of if you
 will be integrating libwebsockets sockets into an external polling

@@ -64,6 +64,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 	LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 	LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
+	LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 	/* external poll() management support */
 	LWS_CALLBACK_ADD_POLL_FD,
 	LWS_CALLBACK_DEL_POLL_FD,
@@ -333,6 +334,15 @@ struct libwebsocket_context;
  *		happened yet so if you initialize @user content there, @user
  *		content during this callback might not be useful for anything.
  *		Notice this callback comes to protocols[0].
+ *
+ *	LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:	When a client
+ *		connection is being prepared to start a handshake to a server,
+ *		each supported extension is checked with protocols[0] callback
+ *		with this reason, giving the user code a chance to suppress the
+ *		claim to support that extension by returning non-zero.  If
+ *		unhandled, by default 0 will be returned and the extension
+ *		support included in the header to the server.  Notice this
+ *		callback comes to protocols[0].
  *
  *	The next four reasons are optional and only need taking care of if you
  * 	will be integrating libwebsockets sockets into an external polling
