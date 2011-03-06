@@ -552,7 +552,10 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	char pkt[1024];
 	char *p = &pkt[0];
 	const char *pc;
+	const char *c;
+	int more = 1;
 	int okay = 0;
+	char ext_name[128];
 	struct lws_tokens eff_buf;
 	int more = 1;
 	int ext_count = 0;
@@ -1431,6 +1434,74 @@ select_protocol:
 				     wsi->utf8_token[WSI_TOKEN_PROTOCOL].token);
 			goto bail2;
 		}
+
+
+		/* instantiate the accepted extensions */
+
+		if (!wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token_len)
+			goto check_accept;
+
+		/*
+		 * break down the list of server accepted extensions
+		 * and go through matching them or identifying bogons
+		 */
+
+		c = wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token;
+		n = 0;
+		while (more) {
+			
+			if (*c && *c != ',') {
+				ext_name[n] = *c++;
+				if (n < sizeof(ext_name) - 1)
+					n++;
+				continue;
+			}
+			ext_name[n] = '\0';
+			if (!*c)
+				more = 0;
+
+			/* check we actually support it */
+
+			n = 0;
+			ext = wsi->protocol->owning_server->extensions;
+			while (ext && ext->callback) {
+
+				if (strcmp(ext_name, ext->name)) {
+					ext++;
+					continue;
+				}
+
+				n = 1;
+
+				/* instantiate the extension on this conn */
+
+				wsi->active_extensions_user[
+					wsi->count_active_extensions] =
+					     malloc(ext->per_session_data_size);
+				wsi->active_extensions[
+					  wsi->count_active_extensions] = ext;
+
+				/* allow him to construct his context */
+
+				ext->callback(wsi->protocol->owning_server,
+					wsi, LWS_EXT_CALLBACK_CLIENT_CONSTRUCT,
+						wsi->active_extensions_user[
+					wsi->count_active_extensions], NULL, 0);
+
+				wsi->count_active_extensions++;
+
+				ext++;
+			}
+
+			if (n == 0) {
+				fprintf(stderr, "Server said we should use"
+				      "an unknown extension '%s'!\n", ext_name);
+				goto bail2;
+			}
+
+			n = 0;
+		}
+
 
 	check_accept:
 

@@ -74,6 +74,7 @@ enum libwebsocket_callback_reasons {
 
 enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_CONSTRUCT,
+	LWS_EXT_CALLBACK_CLIENT_CONSTRUCT,
 	LWS_EXT_CALLBACK_DESTROY,
 	LWS_EXT_CALLBACK_PACKET_RX_PREPARSE,
 	LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
@@ -408,11 +409,17 @@ extern int callback(struct libwebsocket_context * context,
  *		extension a chance to initialize its connection context found
  *		in @user.
  *
+ * 	LWS_EXT_CALLBACK_CLIENT_CONSTRUCT: same as LWS_EXT_CALLBACK_CONSTRUCT
+ *		but called when client is instantiating this extension.  Some
+ *		extensions will work the same on client and server side and then
+ *		you can just merge handlers for both CONSTRUCTS.
+ *
  *	LWS_EXT_CALLBACK_DESTROY:  called when the connection the extension was
  *		being used on is about to be closed and deallocated.  It's the
  *		last chance for the extension to deallocate anything it has
  *		allocated in the user data (pointed to by @user) before the
- *		user data is deleted.
+ *		user data is deleted.  This same callback is used whether you
+ *		are in client or server instantiation context.
  *
  *	LWS_EXT_CALLBACK_PACKET_RX_PREPARSE: when this extension was active on
  *		a connection, and a packet of data arrived at the connection,
