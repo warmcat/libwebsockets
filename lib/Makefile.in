@@ -73,14 +73,16 @@ LTLIBRARIES = $(lib_LTLIBRARIES)
 libwebsockets_la_LIBADD =
 am__dist_libwebsockets_la_SOURCES_DIST = libwebsockets.c handshake.c \
 	parsers.c libwebsockets.h base64-decode.c client-handshake.c \
-	extension.c private-libwebsockets.h md5.c sha-1.c
+	extension.c extension-deflate-stream.c private-libwebsockets.h \
+	md5.c sha-1.c
 @LIBCRYPTO_FALSE@am__objects_1 = libwebsockets_la-md5.lo \
 @LIBCRYPTO_FALSE@	libwebsockets_la-sha-1.lo
 dist_libwebsockets_la_OBJECTS = libwebsockets_la-libwebsockets.lo \
 	libwebsockets_la-handshake.lo libwebsockets_la-parsers.lo \
 	libwebsockets_la-base64-decode.lo \
 	libwebsockets_la-client-handshake.lo \
-	libwebsockets_la-extension.lo $(am__objects_1)
+	libwebsockets_la-extension.lo \
+	libwebsockets_la-extension-deflate-stream.lo $(am__objects_1)
 libwebsockets_la_OBJECTS = $(dist_libwebsockets_la_OBJECTS)
 libwebsockets_la_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(libwebsockets_la_CFLAGS) \
@@ -222,7 +224,8 @@ lib_LTLIBRARIES = libwebsockets.la
 include_HEADERS = libwebsockets.h
 dist_libwebsockets_la_SOURCES = libwebsockets.c handshake.c parsers.c \
 	libwebsockets.h base64-decode.c client-handshake.c extension.c \
-	private-libwebsockets.h $(am__append_1)
+	extension-deflate-stream.c private-libwebsockets.h \
+	$(am__append_1)
 libwebsockets_la_CFLAGS := -rdynamic -fPIC -Wall -Werror -std=gnu99 -pedantic -c \
 	-DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 
@@ -303,6 +306,7 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-base64-decode.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-client-handshake.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-extension-deflate-stream.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-extension.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-handshake.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_la-libwebsockets.Plo@am__quote@
@@ -372,6 +376,13 @@ libwebsockets_la-extension.lo: extension.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='extension.c' object='libwebsockets_la-extension.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_la_CFLAGS) $(CFLAGS) -c -o libwebsockets_la-extension.lo `test -f 'extension.c' || echo '$(srcdir)/'`extension.c
+
+libwebsockets_la-extension-deflate-stream.lo: extension-deflate-stream.c
+@am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_la_CFLAGS) $(CFLAGS) -MT libwebsockets_la-extension-deflate-stream.lo -MD -MP -MF $(DEPDIR)/libwebsockets_la-extension-deflate-stream.Tpo -c -o libwebsockets_la-extension-deflate-stream.lo `test -f 'extension-deflate-stream.c' || echo '$(srcdir)/'`extension-deflate-stream.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libwebsockets_la-extension-deflate-stream.Tpo $(DEPDIR)/libwebsockets_la-extension-deflate-stream.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='extension-deflate-stream.c' object='libwebsockets_la-extension-deflate-stream.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_la_CFLAGS) $(CFLAGS) -c -o libwebsockets_la-extension-deflate-stream.lo `test -f 'extension-deflate-stream.c' || echo '$(srcdir)/'`extension-deflate-stream.c
 
 libwebsockets_la-md5.lo: md5.c
 @am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_la_CFLAGS) $(CFLAGS) -MT libwebsockets_la-md5.lo -MD -MP -MF $(DEPDIR)/libwebsockets_la-md5.Tpo -c -o libwebsockets_la-md5.lo `test -f 'md5.c' || echo '$(srcdir)/'`md5.c

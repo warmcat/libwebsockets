@@ -557,7 +557,6 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	int okay = 0;
 	char ext_name[128];
 	struct lws_tokens eff_buf;
-	int more = 1;
 	int ext_count = 0;
 	struct libwebsocket_extension *ext;
 

@@ -7,6 +7,7 @@ dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				base64-decode.c \
 				client-handshake.c \
 				extension.c \
+				extension-deflate-stream.c \
 				private-libwebsockets.h
 if LIBCRYPTO
 else
