@@ -394,6 +394,25 @@ void libwebsockets_00_spam(char *key, int count, int seed)
 	}
 }
 
+int lws_send_pipe_choked(struct libwebsocket *wsi)
+{
+	struct pollfd fds;
+
+	fds.fd = wsi->sock;
+	fds.events = POLLOUT;
+	fds.revents = 0;
+
+	if (poll(&fds, 1, 0) != 1)
+		return 1;
+
+	if ((fds.revents & POLLOUT) == 0)
+		return 1;
+
+	/* okay to send another packet without blocking */
+
+	return 0;
+}
+
 /**
  * libwebsocket_service_fd() - Service polled socket with something waiting
  * @context:	Websocket context

@@ -335,6 +335,9 @@ libwebsockets_get_random(struct libwebsocket_context *context,
 extern int
 lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len);
 
+extern int
+lws_send_pipe_choked(struct libwebsocket *wsi);
+
 #ifndef LWS_OPENSSL_SUPPORT
 
 unsigned char *
