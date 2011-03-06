@@ -1054,6 +1054,31 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 	return 0;
 }
 
+int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
+{
+	int n;
+
+#ifdef LWS_OPENSSL_SUPPORT
+	if (wsi->ssl) {
+		n = SSL_write(wsi->ssl, buf, len);
+		if (n < 0) {
+			fprintf(stderr,
+				   "ERROR writing to socket\n");
+			return -1;
+		}
+	} else {
+#endif
+		n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
+		if (n < 0) {
+			fprintf(stderr,
+				   "ERROR writing to socket\n");
+			return -1;
+		}
+#ifdef LWS_OPENSSL_SUPPORT
+	}
+#endif
+	return 0;
+}
 
 /**
  * libwebsocket_write() - Apply protocol then write data to client
@@ -1300,23 +1325,9 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	}
 
 send_raw:
-#ifdef LWS_OPENSSL_SUPPORT
-	if (wsi->ssl) {
-		n = SSL_write(wsi->ssl, buf - pre, len + pre + post);
-		if (n < 0) {
-			fprintf(stderr, "ERROR writing to socket\n");
-			return -1;
-		}
-	} else {
-#endif
-		n = send(wsi->sock, buf - pre, len + pre + post, MSG_NOSIGNAL);
-		if (n < 0) {
-			fprintf(stderr, "ERROR writing to socket\n");
-			return -1;
-		}
-#ifdef LWS_OPENSSL_SUPPORT
-	}
-#endif
+
+	if (lws_issue_raw(wsi, buf - pre, len + pre + post))
+		return -1;
 
 	debug("written %d bytes to client\n", (int)len);
 

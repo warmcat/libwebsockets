@@ -332,6 +332,9 @@ extern int
 libwebsockets_get_random(struct libwebsocket_context *context,
 							    void *buf, int len);
 
+extern int
+lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len);
+
 #ifndef LWS_OPENSSL_SUPPORT
 
 unsigned char *
