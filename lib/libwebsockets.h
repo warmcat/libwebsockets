@@ -631,6 +631,8 @@ extern void
 libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 			       struct libwebsocket *wsi, enum lws_close_status);
 
+extern struct libwebsocket_extension libwebsocket_internal_extensions[];
+
 #ifdef WIN32
 #ifdef __cplusplus
 }
