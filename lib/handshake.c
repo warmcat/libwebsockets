@@ -252,11 +252,6 @@ handshake_0405(struct libwebsocket *wsi)
 		goto bail;
 	}
 
-	if (wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token_len) {
-		fprintf(stderr, "extensions not supported\n");
-		goto bail;
-	}
-
 	if (wsi->utf8_token[WSI_TOKEN_KEY].token_len >=
 						     MAX_WEBSOCKET_04_KEY_LEN) {
 		fprintf(stderr, "Client sent handshake key longer "
