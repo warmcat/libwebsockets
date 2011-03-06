@@ -63,11 +63,17 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 	LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
+	LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
 	/* external poll() management support */
 	LWS_CALLBACK_ADD_POLL_FD,
 	LWS_CALLBACK_DEL_POLL_FD,
 	LWS_CALLBACK_SET_MODE_POLL_FD,
 	LWS_CALLBACK_CLEAR_MODE_POLL_FD,
+};
+
+enum libwebsocket_extension_callback_reasons {
+	LWS_EXT_CALLBACK_CONSTRUCT,
+	LWS_EXT_CALLBACK_DESTROY,
 };
 
 enum libwebsocket_write_protocol {
@@ -315,6 +321,17 @@ struct libwebsocket_context;
  * 		Notice the callback is coming to protocols[0] all the time,
  *		because there is no specific protocol handshook yet.
  *
+ * 	LWS_CALLBACK_CONFIRM_EXTENSION_OKAY: When the server handshake code
+ *		sees that it does support a requested extension, before
+ *		accepting the extension by additing to the list sent back to
+ *		the client it gives this callback just to check that it's okay
+ *		to use that extension.  It calls back to the requested protocol
+ *		and with @in being the extension name, @len is 0 and @user is
+ *		valid.  Note though at this time the ESTABLISHED callback hasn't
+ *		happened yet so if you initialize @user content there, @user
+ *		content during this callback might not be useful for anything.
+ *		Notice this callback comes to protocols[0].
+ *
  *	The next four reasons are optional and only need taking care of if you
  * 	will be integrating libwebsockets sockets into an external polling
  * 	array.
@@ -415,8 +432,8 @@ struct libwebsocket_extension {
 	const char *name;
 	int (*callback)(struct libwebsocket_context *context,
 			struct libwebsocket *wsi,
-			enum libwebsocket_callback_reasons reason, void *user,
-							  void *in, size_t len);
+			enum libwebsocket_extension_callback_reasons reason,
+					      void *user, void *in, size_t len);
 	size_t per_session_data_size;
 };
 

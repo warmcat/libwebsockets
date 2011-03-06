@@ -239,6 +239,11 @@ handshake_0405(struct libwebsocket *wsi)
 	char *m = mask_summing_buf;
 	int nonce_len = 0;
 	int accept_len;
+	char *c;
+	char ext_name[128];
+	struct libwebsocket_extension * ext;
+	int ext_count = 0;
+	int more = 1;
 
 	if (!wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
 	    !wsi->utf8_token[WSI_TOKEN_KEY].token_len) {
@@ -351,6 +356,103 @@ handshake_0405(struct libwebsocket *wsi)
 		strcpy(p, wsi->utf8_token[WSI_TOKEN_PROTOCOL].token);
 		p += wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len;
 	}
+
+	/*
+	 * Figure out which extensions the client has that we want to
+	 * enable on this connection, and give him back the list
+	 */
+
+	if (wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token_len) {
+		strcpy(p,   "\x0d\x0aSec-WebSocket-Extensions: ");
+		p += strlen("\x0d\x0aSec-WebSocket-Extensions: ");
+
+		/*
+		 * break down the list of client extensions
+		 * and go through them
+		 */
+
+		c = wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token;
+		n = 0;
+		while (more) {
+			
+			if (*c && *c != ',') {
+				ext_name[n] = *c++;
+				if (n < sizeof(ext_name) - 1)
+					n++;
+				continue;
+			}
+			ext_name[n] = '\0';
+			if (!*c)
+				more = 0;
+
+			/* check a client's extension against our support */
+
+			ext = wsi->protocol->owning_server->extensions;
+
+			while (ext && ext->callback) {
+
+				if (strcmp(ext_name, ext->name)) {
+					ext++;
+					continue;
+				}
+
+				/*
+				 * oh, we do support this one he
+				 * asked for... but let's ask user
+				 * code if it's OK to apply it on this
+				 * particular connection + protocol
+				 */
+
+				n = wsi->protocol->owning_server->
+					protocols[0].callback(
+						wsi->protocol->owning_server,
+						wsi,
+					  LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
+						  wsi->user_space, ext_name, 0);
+
+				/*
+				 * zero return from callback means
+				 * go ahead and allow the extension,
+				 * it's what we get if the callback is
+				 * unhandled
+				 */
+
+				if (n) {
+					ext++;
+					continue;
+				}
+
+				/* apply it */
+				
+				if (ext_count)
+					*p++ = ',';
+				p += sprintf(p, ext_name);
+				ext_count++;
+
+				/* instantiate the extension on this conn */
+
+				wsi->active_extensions_user[
+					wsi->count_active_extensions] =
+					     malloc(ext->per_session_data_size);
+				wsi->active_extensions[
+					  wsi->count_active_extensions] = ext;
+
+				/* allow him to construct his context */
+
+				ext->callback(wsi->protocol->owning_server,
+						wsi, LWS_EXT_CALLBACK_CONSTRUCT,
+						wsi->active_extensions_user[
+					wsi->count_active_extensions], NULL, 0);
+
+				wsi->count_active_extensions++;
+
+				ext++;
+			}
+
+			n = 0;
+		}
+	}
+
 
 	/* end of response packet */
 

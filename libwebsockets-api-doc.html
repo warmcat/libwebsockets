@@ -241,6 +241,9 @@ interface name, eg, "eth2"
 specific callback for each one.  The list is ended with an
 entry that has a NULL callback pointer.
 It's not const because we write the owning_server member
+<dt><b>extensions</b>
+<dd>NULL or array of libwebsocket_extension structs listing the
+extensions this context supports
 <dt><b>ssl_cert_filepath</b>
 <dd>If libwebsockets was compiled to use ssl, and you want
 to listen using SSL, set to the filepath to fetch the
@@ -648,6 +651,19 @@ optional, if you don't handle it everything is fine.
 <p>
 Notice the callback is coming to protocols[0] all the time,
 because there is no specific protocol handshook yet.
+</blockquote>
+<h3>LWS_CALLBACK_CONFIRM_EXTENSION_OKAY</h3>
+<blockquote>
+When the server handshake code
+sees that it does support a requested extension, before
+accepting the extension by additing to the list sent back to
+the client it gives this callback just to check that it's okay
+to use that extension.  It calls back to the requested protocol
+and with <tt><b>in</b></tt> being the extension name, <tt><b>len</b></tt> is 0 and <tt><b>user</b></tt> is
+valid.  Note though at this time the ESTABLISHED callback hasn't
+happened yet so if you initialize <tt><b>user</b></tt> content there, <tt><b>user</b></tt>
+content during this callback might not be useful for anything.
+Notice this callback comes to protocols[0].
 <p>
 The next four reasons are optional and only need taking care of if you
 will be integrating libwebsockets sockets into an external polling
