@@ -373,6 +373,65 @@ extern int callback(struct libwebsocket_context * context,
 			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
 
+/* document the generic extension callback (it's a fake prototype under this) */
+/**
+ * extension_callback() - Hooks to allow extensions to operate
+ * @context:	Websockets context
+ * @wsi:	Opaque websocket instance pointer
+ * @reason:	The reason for the call
+ * @user:	Pointer to per-session user data allocated by library
+ * @in:		Pointer used for some callback reasons
+ * @len:	Length set for some callback reasons
+ *
+ *	Each extension that is active on a particular connection receives
+ *	callbacks during the connection lifetime to allow the extension to
+ *	operate on websocket data and manage itself.
+ *
+ *	Libwebsockets takes care of allocating and freeing "user" memory for
+ *	each active extension on each connection.  That is what is pointed to
+ *	by the @user parameter.
+ *
+ *	LWS_EXT_CALLBACK_CONSTRUCT:  called when the server has decided to
+ *		select this extension from the list provided by the client,
+ *		just before the server will send back the handshake accepting
+ *		the connection with this extension active.  This gives the
+ *		extension a chance to initialize its connection context found
+ *		in @user.
+ *
+ *	LWS_EXT_CALLBACK_DESTROY:  called when the connection the extension was
+ *		being used on is about to be closed and deallocated.  It's the
+ *		last chance for the extension to deallocate anything it has
+ *		allocated in the user data (pointed to by @user) before the
+ *		user data is deleted.
+ *
+ *	LWS_EXT_CALLBACK_PACKET_RX_PREPARSE: when this extension was active on
+ *		a connection, and a packet of data arrived at the connection,
+ *		it is passed to this callback to give the extension a chance to
+ *		change the data, eg, decompress it.  @user is pointing to the
+ *		extension's private connection context data, @in is pointing
+ *		to an lws_tokens struct, it consists of a char * pointer called
+ *		token, and an int called token_len.  At entry, these are
+ *		set to point to the received buffer and set to the content
+ *		length.  If the extension will grow the content, it should use
+ *		a new buffer allocated in its private user context data and
+ *		set the pointed-to lws_tokens members to point to its buffer.
+ *
+ *	LWS_EXT_CALLBACK_PACKET_TX_PRESEND: this works the same way as
+ *		LWS_EXT_CALLBACK_PACKET_RX_PREPARSE above, except it gives the
+ *		extension a chance to change websocket data just before it will
+ *		be sent out.  Using the same lws_token pointer scheme in @in,
+ *		the extension can change the buffer and the length to be
+ *		transmitted how it likes.  Again if it wants to grow the
+ *		buffer safely, it should copy the data into its own buffer and
+ *		set the lws_tokens token pointer to it.
+ */
+
+extern int extension_callback(struct libwebsocket_context * context,
+			struct libwebsocket *wsi,
+			 enum libwebsocket_callback_reasons reason, void *user,
+							  void *in, size_t len);
+
+
 /**
  * struct libwebsocket_protocols -	List of protocols and handlers server
  *					supports.
