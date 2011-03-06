@@ -1109,9 +1109,12 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			  size_t len, enum libwebsocket_write_protocol protocol)
 {
 	int n;
+	int m;
 	int pre = 0;
 	int post = 0;
 	unsigned int shift = 7;
+	struct lws_tokens eff_buf;
+	int ret;
 
 	if (len == 0 && protocol != LWS_WRITE_CLOSE) {
 		fprintf(stderr, "zero length libwebsocket_write attempt\n");
@@ -1326,10 +1329,95 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 send_raw:
 
-	if (lws_issue_raw(wsi, buf - pre, len + pre + post))
-		return -1;
+	if (protocol == LWS_WRITE_HTTP) {
+		if (lws_issue_raw(wsi, (unsigned char *)buf - pre,
+							      len + pre + post))
+			return -1;
 
-	debug("written %d bytes to client\n", (int)len);
+		return 0;
+	}
+
+	/*
+	 * give any active extensions a chance to munge the buffer
+	 * before send.  We pass in a pointer to an lws_tokens struct
+	 * prepared with the default buffer and content length that's in
+	 * there.  Rather than rewrite the default buffer, extensions
+	 * that expect to grow the buffer can adapt .token to
+	 * point to their own per-connection buffer in the extension
+	 * user allocation.  By default with no extensions or no
+	 * extension callback handling, just the normal input buffer is
+	 * used then so it is efficient.
+	 *
+	 * callback returns 1 in case it wants to spill more buffers
+	 */
+
+	eff_buf.token = (char *)buf - pre;
+	eff_buf.token_len = len + pre + post;
+
+	/*
+	 * while we have original buf to spill ourselves, or extensions report
+	 * more in their pipeline
+	 */
+
+	ret = 1;
+	while (ret == 1) {
+
+		/* default to nobody has more to spill */
+
+		ret = 0;
+
+		/* show every extension the new incoming data */
+
+		for (n = 0; n < wsi->count_active_extensions; n++) {
+			m = wsi->active_extensions[n]->callback(
+				wsi->protocol->owning_server, wsi,
+					LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
+				   wsi->active_extensions_user[n], &eff_buf, 0);
+			if (m < 0) {
+				fprintf(stderr, "Extension reports fatal error\n");
+				return -1;
+			}
+			if (m)
+				/*
+				 * at least one extension told us he has more
+				 * to spill, so we will go around again after
+				 */
+				ret = 1;
+		}
+
+		/* assuming they left us something to send, send it */
+
+		if (eff_buf.token_len)
+			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
+							     eff_buf.token_len))
+				return -1;
+
+		/* we used up what we had */
+
+		eff_buf.token = NULL;
+		eff_buf.token_len = 0;
+
+		/*
+		 * Did that leave the pipe choked?
+		 */
+
+		if (!lws_send_pipe_choked(wsi))
+			/* no we could add more */
+			continue;
+
+		fprintf(stderr, "choked\n");
+
+		/*
+		 * Yes, he's choked.  Don't spill the rest now get a callback
+		 * when he is ready to send and take care of it there
+		 */
+		libwebsocket_callback_on_writable(
+					     wsi->protocol->owning_server, wsi);
+		wsi->extension_data_pending = 1;
+		ret = 0;
+	}
+
+	debug("written %d bytes to client\n", eff_buf.token_len);
 
 	return 0;
 }

@@ -248,6 +248,7 @@ struct libwebsocket {
 	int sock;
 
 	enum lws_rx_parse_state lws_rx_parse_state;
+	char extension_data_pending;
 
 	/* 04 protocol specific */
 
