@@ -204,7 +204,20 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		wsi->protocol->callback(context, wsi, LWS_CALLBACK_CLOSED,
 						      wsi->user_space, NULL, 0);
 
-	/* free up his allocations */
+	/* deallocate any active extension contexts */
+
+	for (n = 0; n < wsi->count_active_extensions; n++) {
+		if (!wsi->active_extensions[n]->callback)
+			continue;
+
+		wsi->active_extensions[n]->callback(context, wsi,
+			LWS_EXT_CALLBACK_DESTROY,
+			wsi->active_extensions_user[n], NULL, 0);
+
+		free(wsi->active_extensions_user[n]);
+	}
+
+	/* free up his parsing allocations */
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++)
 		if (wsi->utf8_token[n].token)
