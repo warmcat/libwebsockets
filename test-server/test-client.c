@@ -29,6 +29,7 @@
 
 static unsigned int opts;
 static int was_closed;
+static int deny_deflate;
 
 /*
  * This demo shows how to connect multiple websockets simultaneously to a
@@ -66,6 +67,16 @@ callback_dumb_increment(struct libwebsocket_context * this,
 	case LWS_CALLBACK_CLIENT_RECEIVE:
 		((char *)in)[len] = '\0';
 		fprintf(stderr, "rx %d '%s'\n", (int)len, (char *)in);
+		break;
+
+	/* because we are protocols[0] ... */
+
+	case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:
+		if (strcmp(in, "deflate-stream") == 0)
+			if (deny_deflate) {
+				fprintf(stderr, "denied deflate-stream extension\n");
+				return 1;
+			}
 		break;
 
 	default:
@@ -169,6 +180,7 @@ static struct option options[] = {
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "killmask",	no_argument,		NULL, 'k' },
 	{ "version",	required_argument,	NULL, 'v' },
+	{ "undeflated",	no_argument,		NULL, 'u' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -192,7 +204,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "v:khsp:", options, NULL);
+		n = getopt_long(argc, argv, "uv:khsp:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -207,6 +219,9 @@ int main(int argc, char **argv)
 			break;
 		case 'v':
 			ietf_version = atoi(optarg);
+			break;
+		case 'u':
+			deny_deflate = 1;
 			break;
 		case 'h':
 			goto usage;
