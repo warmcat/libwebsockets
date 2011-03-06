@@ -74,6 +74,7 @@ enum libwebsocket_callback_reasons {
 enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_CONSTRUCT,
 	LWS_EXT_CALLBACK_DESTROY,
+	LWS_EXT_CALLBACK_PACKET_RX_PREPARSE,
 };
 
 enum libwebsocket_write_protocol {

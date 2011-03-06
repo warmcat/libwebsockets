@@ -448,6 +448,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	char *p = &pkt[0];
 	const char *pc;
 	int okay = 0;
+	struct lws_tokens eff_buf;
+	int more = 1;
 #ifdef LWS_OPENSSL_SUPPORT
 	char ssl_err_buf[512];
 #endif
@@ -1417,30 +1419,70 @@ bail2:
 
 #ifdef LWS_OPENSSL_SUPPORT
 		if (wsi->ssl)
-			n = SSL_read(wsi->ssl, buf, sizeof buf);
+			eff_buf.token_len = SSL_read(wsi->ssl, buf, sizeof buf);
 		else
 #endif
-			n = recv(pollfd->fd, buf, sizeof buf, 0);
+			eff_buf.token_len =
+					   recv(pollfd->fd, buf, sizeof buf, 0);
 
-		if (n < 0) {
-			fprintf(stderr, "Socket read returned %d\n", n);
+		if (eff_buf.token_len < 0) {
+			fprintf(stderr, "Socket read returned %d\n",
+							    eff_buf.token_len);
 			break;
 		}
-		if (!n) {
+		if (!eff_buf.token_len) {
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 1;
 		}
 
-		/* service incoming data */
+		/*
+		 * give any active extensions a chance to munge the buffer
+		 * before parse.  We pass in a pointer to an lws_tokens struct
+		 * prepared with the default buffer and content length that's in
+		 * there.  Rather than rewrite the default buffer, extensions
+		 * that expect to grow the buffer can adapt .token to
+		 * point to their own per-connection buffer in the extension
+		 * user allocation.  By default with no extensions or no
+		 * extension callback handling, just the normal input buffer is
+		 * used then so it is efficient.
+		 */
 
-		n = libwebsocket_read(context, wsi, buf, n);
-		if (n >= 0)
-			break;
+		eff_buf.token = (char *)buf;
 
-		/* we closed wsi */
+		more = 1;
+		while (more) {
 
-		return 1;
+			more = 0;
+
+			for (n = 0; n < wsi->count_active_extensions; n++) {
+				m = wsi->active_extensions[n]->callback(context, wsi,
+					LWS_EXT_CALLBACK_PACKET_RX_PREPARSE,
+				     wsi->active_extensions_user[n], &eff_buf, 0);
+				if (m < 0) {
+					fprintf(stderr, "Extension reports fatal error\n");
+					libwebsocket_close_and_free_session(context, wsi,
+							     LWS_CLOSE_STATUS_NOSTATUS);
+					return 1;
+				}
+				if (m)
+					more = 1;
+			}
+
+			/* service incoming data */
+
+			if (eff_buf.token_len) {
+				n = libwebsocket_read(context, wsi,
+				     (unsigned char *)eff_buf.token, eff_buf.token_len);
+				if (n < 0)
+					/* we closed wsi */
+					return 1;
+			}
+
+			eff_buf.token = NULL;
+			eff_buf.token_len = 0;
+		}
+		break;
 	}
 
 	return 0;
