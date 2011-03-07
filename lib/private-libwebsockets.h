@@ -332,10 +332,6 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
 					 enum pending_timeout reason, int secs);
 
 extern int
-libwebsockets_get_random(struct libwebsocket_context *context,
-							    void *buf, int len);
-
-extern int
 lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len);
 
 extern int
