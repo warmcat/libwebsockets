@@ -85,6 +85,7 @@ enum libwebsocket_extension_callback_reasons {
 enum libwebsocket_write_protocol {
 	LWS_WRITE_TEXT,
 	LWS_WRITE_BINARY,
+	LWS_WRITE_CONTINUATION,
 	LWS_WRITE_HTTP,
 
 	/* special 04+ opcodes */

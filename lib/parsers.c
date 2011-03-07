@@ -1194,6 +1194,10 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		case LWS_WRITE_BINARY:
 			n = LWS_WS_OPCODE_04__BINARY_FRAME;
 			break;
+		case LWS_WRITE_CONTINUATION:
+			n = LWS_WS_OPCODE_04__CONTINUATION;
+			break;
+
 		case LWS_WRITE_CLOSE:
 			n = LWS_WS_OPCODE_04__CLOSE;
 
