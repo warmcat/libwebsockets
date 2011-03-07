@@ -1215,9 +1215,11 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 				 */
 
 				if (wsi->close_reason) {
-					buf[pre - 2] = wsi->close_reason >> 8;
-					buf[pre - 1] = wsi->close_reason;
-					pre += 2;
+					/* reason codes count as data bytes */
+					buf -= 2;
+					buf[0] = wsi->close_reason >> 8;
+					buf[1] = wsi->close_reason;
+					len += 2;
 				}
 				break;
 			}
