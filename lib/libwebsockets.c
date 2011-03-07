@@ -158,7 +158,49 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	if (old_state == WSI_STATE_DEAD_SOCKET)
 		return;
 
-	/* remove this fd from wsi mapping hashtable */
+	wsi->close_reason = reason;
+
+	/*
+	 * signal we are closing, libsocket_write will
+	 * add any necessary version-specific stuff.  If the write fails,
+	 * no worries we are closing anyway.  If we didn't initiate this
+	 * close, then our state has been changed to
+	 * WSI_STATE_RETURNED_CLOSE_ALREADY and we will skip this.
+	 *
+	 * Likewise if it's a second call to close this connection after we
+	 * sent the close indication to the peer already, we are in state
+	 * WSI_STATE_AWAITING_CLOSE_ACK and will skip doing this a second time.
+	 */
+
+	if (old_state == WSI_STATE_ESTABLISHED &&
+					  reason != LWS_CLOSE_STATUS_NOSTATUS) {
+		n = libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING],
+							    0, LWS_WRITE_CLOSE);
+		if (!n) {
+			/*
+			 * we have sent a nice protocol level indication we
+			 * now wish to close, we should not send anything more
+			 */
+
+			wsi->state = WSI_STATE_AWAITING_CLOSE_ACK;
+
+			/* and we should wait for a reply for a bit */
+
+			libwebsocket_set_timeout(wsi,
+						  PENDING_TIMEOUT_CLOSE_ACK, 5);
+
+			fprintf(stderr, "sent close indication, awaiting ack\n");
+
+			return;
+		}
+
+		/* else, the send failed and we should just hang up */
+	}
+
+	/*
+	 * we won't be servicing or receiving anything further from this guy
+	 * remove this fd from wsi mapping hashtable
+	 */
 
 	delete_from_fd(context, wsi->sock);
 
@@ -180,20 +222,6 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 	context->protocols[0].callback(context, wsi,
 		    LWS_CALLBACK_DEL_POLL_FD, (void *)(long)wsi->sock, NULL, 0);
-
-	wsi->close_reason = reason;
-
-	/*
-	 * signal we are closing, libsocket_write will
-	 * add any necessary version-specific stuff.  If the write fails,
-	 * no worries we are closing anyway.  If we didn't initiate this
-	 * close, then our state has been changed to
-	 * WSI_STATE_RETURNED_CLOSE_ALREADY and we will skip this
-	 */
-
-	if (old_state == WSI_STATE_ESTABLISHED)
-		libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 0,
-							       LWS_WRITE_CLOSE);
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 
@@ -586,9 +614,11 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			 * connection
 			 */
 
-			if (tv.tv_sec > wsi->pending_timeout_limit)
+			if (tv.tv_sec > wsi->pending_timeout_limit) {
+				fprintf(stderr, "TIMEDOUT WAITING\n");
 				libwebsocket_close_and_free_session(context,
 						wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			}
 		}
 	}
 
@@ -1607,10 +1637,12 @@ bail2:
 
 		/* the guy requested a callback when it was OK to write */
 
-		if (pollfd->revents & POLLOUT)
-			if (lws_handle_POLLOUT_event(context, wsi, pollfd) < 0) {
-				libwebsocket_close_and_free_session(context, wsi,
-						       LWS_CLOSE_STATUS_NORMAL);
+		if ((pollfd->revents & POLLOUT) &&
+					    wsi->state == WSI_STATE_ESTABLISHED)
+			if (lws_handle_POLLOUT_event(context, wsi,
+								  pollfd) < 0) {
+				libwebsocket_close_and_free_session(
+					 context, wsi, LWS_CLOSE_STATUS_NORMAL);
 				return 1;
 			}
 

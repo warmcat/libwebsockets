@@ -686,6 +686,7 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 
 		break;
 
+	case WSI_STATE_AWAITING_CLOSE_ACK:
 	case WSI_STATE_ESTABLISHED:
 		switch (wsi->mode) {
 		case LWS_CONNMODE_WS_CLIENT:
