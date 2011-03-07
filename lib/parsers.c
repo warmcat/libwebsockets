@@ -422,15 +422,6 @@ post_mask:
 		wsi->opcode = c & 0xf;
 		wsi->final = !!((c >> 7) & 1);
 
-		if (wsi->final &&
-			wsi->opcode == LWS_WS_OPCODE_04__CONTINUATION &&
-						   wsi->rx_packet_length == 0) {
-			fprintf(stderr,
-				      "Frame starts with final continuation\n");
-			/* kill the connection */
-			return -1;
-		}
-
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
 		break;
 
@@ -757,15 +748,6 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 			wsi->opcode = c & 0xf;
 			wsi->final = !!((c >> 7) & 1);
-
-			if (wsi->final &&
-			    wsi->opcode == LWS_WS_OPCODE_04__CONTINUATION &&
-						   wsi->rx_packet_length == 0) {
-				fprintf(stderr,
-				      "Frame starts with final continuation\n");
-				/* kill the connection */
-				return -1;
-			}
 
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
 			break;
