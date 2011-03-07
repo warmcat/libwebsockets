@@ -1,4 +1,4 @@
-﻿/*
+/*
  * libwebsockets - small server side websockets and web server implementation
  *
  * Copyright (C) 2010 Andy Green <andy@warmcat.com>
