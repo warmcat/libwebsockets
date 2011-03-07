@@ -28,6 +28,7 @@
 
 #include "../lib/libwebsockets.h"
 
+static int close_testing;
 
 /*
  * This demo server shows how to use libwebsockets for one or more
@@ -202,6 +203,11 @@ callback_dumb_increment(struct libwebsocket_context * context,
 			fprintf(stderr, "ERROR writing to socket");
 			return 1;
 		}
+		if (close_testing && pss->number == 50) {
+			fprintf(stderr, "close tesing limit, closing\n");
+			libwebsocket_close_and_free_session(context, wsi,
+						       LWS_CLOSE_STATUS_NORMAL);
+		}
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
@@ -265,6 +271,8 @@ callback_lws_mirror(struct libwebsocket_context * context,
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (close_testing)
+			break;
 		if (pss->ringbuffer_tail != ringbuffer_head) {
 
 			n = libwebsocket_write(wsi, (unsigned char *)
@@ -370,6 +378,7 @@ static struct option options[] = {
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "killmask",	no_argument,		NULL, 'k' },
 	{ "interface",  required_argument, 	NULL, 'i' },
+	{ "closetest",  no_argument,		NULL, 'c' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -397,7 +406,7 @@ int main(int argc, char **argv)
 						    "licensed under LGPL2.1\n");
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "i:khsp:", options, NULL);
+		n = getopt_long(argc, argv, "ci:khsp:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -414,6 +423,12 @@ int main(int argc, char **argv)
 			strncpy(interface_name, optarg, sizeof interface_name);
 			interface_name[(sizeof interface_name) - 1] = '\0';
 			interface = interface_name;
+			break;
+		case 'c':
+			close_testing = 1;
+			fprintf(stderr, " Close testing mode -- closes on "
+					   "client after 50 dumb increments"
+					   "and suppresses lws_mirror spam\n");
 			break;
 		case 'h':
 			fprintf(stderr, "Usage: test-server "
