@@ -36,7 +36,8 @@ build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = libwebsockets-test-server$(EXEEXT) \
 	libwebsockets-test-client$(EXEEXT) \
-	libwebsockets-test-server-extpoll$(EXEEXT) $(am__EXEEXT_1)
+	libwebsockets-test-server-extpoll$(EXEEXT) \
+	libwebsockets-test-fraggle$(EXEEXT) $(am__EXEEXT_1)
 @NOPING_FALSE@am__append_1 = libwebsockets-test-ping
 subdir = test-server
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
@@ -59,6 +60,15 @@ libwebsockets_test_client_DEPENDENCIES =
 libwebsockets_test_client_LINK = $(LIBTOOL) --tag=CC \
 	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
 	$(libwebsockets_test_client_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
+	$(LDFLAGS) -o $@
+am_libwebsockets_test_fraggle_OBJECTS =  \
+	libwebsockets_test_fraggle-test-fraggle.$(OBJEXT)
+libwebsockets_test_fraggle_OBJECTS =  \
+	$(am_libwebsockets_test_fraggle_OBJECTS)
+libwebsockets_test_fraggle_DEPENDENCIES =
+libwebsockets_test_fraggle_LINK = $(LIBTOOL) --tag=CC \
+	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
+	$(libwebsockets_test_fraggle_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
 am__libwebsockets_test_ping_SOURCES_DIST = test-ping.c
 @NOPING_FALSE@am_libwebsockets_test_ping_OBJECTS =  \
@@ -101,10 +111,12 @@ LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
 SOURCES = $(libwebsockets_test_client_SOURCES) \
+	$(libwebsockets_test_fraggle_SOURCES) \
 	$(libwebsockets_test_ping_SOURCES) \
 	$(libwebsockets_test_server_SOURCES) \
 	$(libwebsockets_test_server_extpoll_SOURCES)
 DIST_SOURCES = $(libwebsockets_test_client_SOURCES) \
+	$(libwebsockets_test_fraggle_SOURCES) \
 	$(am__libwebsockets_test_ping_SOURCES_DIST) \
 	$(libwebsockets_test_server_SOURCES) \
 	$(libwebsockets_test_server_extpoll_SOURCES)
@@ -231,9 +243,12 @@ libwebsockets_test_client_SOURCES = test-client.c
 libwebsockets_test_client_LDADD = -L../lib -lwebsockets
 libwebsockets_test_server_extpoll_SOURCES = test-server-extpoll.c
 libwebsockets_test_server_extpoll_LDADD = -L../lib -lwebsockets
+libwebsockets_test_fraggle_SOURCES = test-fraggle.c
+libwebsockets_test_fraggle_LDADD = -L../lib -lwebsockets
 libwebsockets_test_server_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 libwebsockets_test_client_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 libwebsockets_test_server_extpoll_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+libwebsockets_test_fraggle_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 @NOPING_FALSE@libwebsockets_test_ping_SOURCES = test-ping.c
 @NOPING_FALSE@libwebsockets_test_ping_LDADD = -L../lib -lwebsockets
 @NOPING_FALSE@libwebsockets_test_ping_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
@@ -317,6 +332,9 @@ clean-binPROGRAMS:
 libwebsockets-test-client$(EXEEXT): $(libwebsockets_test_client_OBJECTS) $(libwebsockets_test_client_DEPENDENCIES) 
 	@rm -f libwebsockets-test-client$(EXEEXT)
 	$(libwebsockets_test_client_LINK) $(libwebsockets_test_client_OBJECTS) $(libwebsockets_test_client_LDADD) $(LIBS)
+libwebsockets-test-fraggle$(EXEEXT): $(libwebsockets_test_fraggle_OBJECTS) $(libwebsockets_test_fraggle_DEPENDENCIES) 
+	@rm -f libwebsockets-test-fraggle$(EXEEXT)
+	$(libwebsockets_test_fraggle_LINK) $(libwebsockets_test_fraggle_OBJECTS) $(libwebsockets_test_fraggle_LDADD) $(LIBS)
 libwebsockets-test-ping$(EXEEXT): $(libwebsockets_test_ping_OBJECTS) $(libwebsockets_test_ping_DEPENDENCIES) 
 	@rm -f libwebsockets-test-ping$(EXEEXT)
 	$(libwebsockets_test_ping_LINK) $(libwebsockets_test_ping_OBJECTS) $(libwebsockets_test_ping_LDADD) $(LIBS)
@@ -334,6 +352,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_test_client-test-client.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_test_fraggle-test-fraggle.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_test_ping-test-ping.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_test_server-test-server.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libwebsockets_test_server_extpoll-test-server-extpoll.Po@am__quote@
@@ -372,6 +391,20 @@ libwebsockets_test_client-test-client.obj: test-client.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='test-client.c' object='libwebsockets_test_client-test-client.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_client_CFLAGS) $(CFLAGS) -c -o libwebsockets_test_client-test-client.obj `if test -f 'test-client.c'; then $(CYGPATH_W) 'test-client.c'; else $(CYGPATH_W) '$(srcdir)/test-client.c'; fi`
+
+libwebsockets_test_fraggle-test-fraggle.o: test-fraggle.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_fraggle_CFLAGS) $(CFLAGS) -MT libwebsockets_test_fraggle-test-fraggle.o -MD -MP -MF $(DEPDIR)/libwebsockets_test_fraggle-test-fraggle.Tpo -c -o libwebsockets_test_fraggle-test-fraggle.o `test -f 'test-fraggle.c' || echo '$(srcdir)/'`test-fraggle.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libwebsockets_test_fraggle-test-fraggle.Tpo $(DEPDIR)/libwebsockets_test_fraggle-test-fraggle.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='test-fraggle.c' object='libwebsockets_test_fraggle-test-fraggle.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_fraggle_CFLAGS) $(CFLAGS) -c -o libwebsockets_test_fraggle-test-fraggle.o `test -f 'test-fraggle.c' || echo '$(srcdir)/'`test-fraggle.c
+
+libwebsockets_test_fraggle-test-fraggle.obj: test-fraggle.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_fraggle_CFLAGS) $(CFLAGS) -MT libwebsockets_test_fraggle-test-fraggle.obj -MD -MP -MF $(DEPDIR)/libwebsockets_test_fraggle-test-fraggle.Tpo -c -o libwebsockets_test_fraggle-test-fraggle.obj `if test -f 'test-fraggle.c'; then $(CYGPATH_W) 'test-fraggle.c'; else $(CYGPATH_W) '$(srcdir)/test-fraggle.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libwebsockets_test_fraggle-test-fraggle.Tpo $(DEPDIR)/libwebsockets_test_fraggle-test-fraggle.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='test-fraggle.c' object='libwebsockets_test_fraggle-test-fraggle.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_fraggle_CFLAGS) $(CFLAGS) -c -o libwebsockets_test_fraggle-test-fraggle.obj `if test -f 'test-fraggle.c'; then $(CYGPATH_W) 'test-fraggle.c'; else $(CYGPATH_W) '$(srcdir)/test-fraggle.c'; fi`
 
 libwebsockets_test_ping-test-ping.o: test-ping.c
 @am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libwebsockets_test_ping_CFLAGS) $(CFLAGS) -MT libwebsockets_test_ping-test-ping.o -MD -MP -MF $(DEPDIR)/libwebsockets_test_ping-test-ping.Tpo -c -o libwebsockets_test_ping-test-ping.o `test -f 'test-ping.c' || echo '$(srcdir)/'`test-ping.c

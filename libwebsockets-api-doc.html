@@ -553,14 +553,16 @@ which will then open the websockets connection.
 <b>libwebsockets_serve_http_file</b> makes it very
 simple to send back a file to the client.
 </blockquote>
-<h3>LWS_CALLBACK_CLIENT_WRITEABLE</h3>
+<h3>LWS_CALLBACK_SERVER_WRITEABLE</h3>
 <blockquote>
-if you call
+If you call
 <b>libwebsocket_callback_on_writable</b> on a connection, you will
-get this callback coming when the connection socket is able to
-accept another write packet without blocking.  If it already
-was able to take another packet without blocking, you'll get
-this callback at the next call to the service loop function.
+get one of these callbacks coming when the connection socket
+is able to accept another write packet without blocking.
+If it already was able to take another packet without blocking,
+you'll get this callback at the next call to the service loop
+function.  Notice that CLIENTs get LWS_CALLBACK_CLIENT_WRITEABLE
+and servers get LWS_CALLBACK_SERVER_WRITEABLE.
 </blockquote>
 <h3>LWS_CALLBACK_FILTER_NETWORK_CONNECTION</h3>
 <blockquote>
