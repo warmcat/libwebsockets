@@ -582,10 +582,12 @@ user_service:
 		LWS_CALLBACK_CLEAR_MODE_POLL_FD,
 		(void *)(long)wsi->sock, NULL, POLLOUT);
 
-	wsi->protocol->callback(context, wsi,
-		LWS_CALLBACK_CLIENT_WRITEABLE,
-		wsi->user_space,
-		NULL, 0);
+	if (wsi->mode == LWS_CONNMODE_WS_CLIENT)
+		n = LWS_CALLBACK_CLIENT_WRITEABLE;
+	else
+		n = LWS_CALLBACK_SERVER_WRITEABLE;
+
+	wsi->protocol->callback(context, wsi, n, wsi->user_space, NULL, 0);
 
 	return 0;
 }

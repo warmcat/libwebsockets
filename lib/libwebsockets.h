@@ -55,6 +55,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLIENT_RECEIVE,
 	LWS_CALLBACK_CLIENT_RECEIVE_PONG,
 	LWS_CALLBACK_CLIENT_WRITEABLE,
+	LWS_CALLBACK_SERVER_WRITEABLE,
 	LWS_CALLBACK_HTTP,
 	LWS_CALLBACK_BROADCAST,
 	LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
@@ -244,12 +245,15 @@ struct libwebsocket_context;
  *				libwebsockets_serve_http_file() makes it very
  *				simple to send back a file to the client.
  *
- *	LWS_CALLBACK_CLIENT_WRITEABLE:  if you call
+ *	LWS_CALLBACK_CLIENT_WRITEABLE:
+ *      LWS_CALLBACK_SERVER_WRITEABLE:   If you call
  *		libwebsocket_callback_on_writable() on a connection, you will
- *		get this callback coming when the connection socket is able to
- *		accept another write packet without blocking.  If it already
- *		was able to take another packet without blocking, you'll get
- *		this callback at the next call to the service loop function.
+ *		get one of these callbacks coming when the connection socket
+ *		is able to accept another write packet without blocking.
+ *		If it already was able to take another packet without blocking,
+ *		you'll get this callback at the next call to the service loop
+ *		function.  Notice that CLIENTs get LWS_CALLBACK_CLIENT_WRITEABLE
+ *		and servers get LWS_CALLBACK_SERVER_WRITEABLE.
  *
  *	LWS_CALLBACK_FILTER_NETWORK_CONNECTION: called when a client connects to
  *		the server at network level; the connection is accepted but then

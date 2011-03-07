@@ -270,7 +270,7 @@ callback_lws_mirror(struct libwebsocket_context * context,
 		pss->wsi = wsi;
 		break;
 
-	case LWS_CALLBACK_CLIENT_WRITEABLE:
+	case LWS_CALLBACK_SERVER_WRITEABLE:
 		if (close_testing)
 			break;
 		if (pss->ringbuffer_tail != ringbuffer_head) {

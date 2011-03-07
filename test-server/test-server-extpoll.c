@@ -311,7 +311,7 @@ callback_lws_mirror(struct libwebsocket_context * this,
 		libwebsocket_callback_on_writable(this, wsi);
 		break;
 
-	case LWS_CALLBACK_CLIENT_WRITEABLE:
+	case LWS_CALLBACK_SERVER_WRITEABLE:
 
 		if (pss->ringbuffer_tail != ringbuffer_head) {
 
