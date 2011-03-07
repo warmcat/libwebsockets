@@ -640,6 +640,9 @@ extern int
 libwebsockets_get_random(struct libwebsocket_context *context,
 							    void *buf, int len);
 
+extern unsigned char *
+libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md);
+
 extern struct libwebsocket_extension libwebsocket_internal_extensions[];
 
 #ifdef WIN32

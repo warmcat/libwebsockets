@@ -427,6 +427,12 @@ int libwebsockets_get_random(struct libwebsocket_context *context,
 	return n;
 }
 
+unsigned char *
+libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md)
+{
+	return SHA1(d, n, md);
+}
+
 void libwebsockets_00_spaceout(char *key, int spaces, int seed)
 {
 	char *p;
