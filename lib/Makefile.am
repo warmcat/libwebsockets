@@ -16,7 +16,7 @@ endif
 
 libwebsockets_la_CFLAGS:=-rdynamic -fPIC -Wall -Werror -std=gnu99 -pedantic -c \
 	-DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
-libwebsockets_la_LDFLAGS=-version-info 0:3
+libwebsockets_la_LDFLAGS=-lz -version-info 0:3
 
 all-local:
 	 ../scripts/kernel-doc -html \
