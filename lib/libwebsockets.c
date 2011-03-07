@@ -149,6 +149,9 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	int old_state;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
 						  LWS_SEND_BUFFER_POST_PADDING];
+	int ret;
+	int m;
+	struct lws_tokens eff_buf;
 
 	if (!wsi)
 		return;
@@ -159,6 +162,48 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		return;
 
 	wsi->close_reason = reason;
+
+	/*
+	 * flush any tx pending from extensions, since we may send close packet
+	 * if there are problems with send, just nuke the connection
+	 */
+
+	ret = 1;
+	while (ret == 1) {
+
+		/* default to nobody has more to spill */
+
+		ret = 0;
+		eff_buf.token = NULL;
+		eff_buf.token_len = 0;
+
+		/* show every extension the new incoming data */
+
+		for (n = 0; n < wsi->count_active_extensions; n++) {
+			m = wsi->active_extensions[n]->callback(
+				wsi->protocol->owning_server, wsi,
+					LWS_EXT_CALLBACK_FLUSH_PENDING_TX,
+				   wsi->active_extensions_user[n], &eff_buf, 0);
+			if (m < 0) {
+				fprintf(stderr, "Extension reports "
+							       "fatal error\n");
+				goto just_kill_connection;
+			}
+			if (m)
+				/*
+				 * at least one extension told us he has more
+				 * to spill, so we will go around again after
+				 */
+				ret = 1;
+		}
+
+		/* assuming they left us something to send, send it */
+
+		if (eff_buf.token_len)
+			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
+							     eff_buf.token_len))
+				goto just_kill_connection;
+	}
 
 	/*
 	 * signal we are closing, libsocket_write will
@@ -197,6 +242,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		/* else, the send failed and we should just hang up */
 	}
 
+just_kill_connection:
 	/*
 	 * we won't be servicing or receiving anything further from this guy
 	 * remove this fd from wsi mapping hashtable

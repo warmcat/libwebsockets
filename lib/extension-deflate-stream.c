@@ -91,6 +91,7 @@ int lws_extension_callback_deflate_stream(
 
 		return 0;
 
+	case LWS_EXT_CALLBACK_FLUSH_PENDING_TX:
 	case LWS_EXT_CALLBACK_PACKET_TX_PRESEND:
 
 		/*
@@ -103,7 +104,11 @@ int lws_extension_callback_deflate_stream(
 		conn->zs_out.next_out = conn->buf;
 		conn->zs_out.avail_out = sizeof(conn->buf);
 
-		n = deflate(&conn->zs_out, Z_PARTIAL_FLUSH);
+		n = Z_PARTIAL_FLUSH;
+		if (reason == LWS_EXT_CALLBACK_FLUSH_PENDING_TX)
+			n = Z_FULL_FLUSH;
+
+		n = deflate(&conn->zs_out, n);
 		if (n == Z_STREAM_ERROR) {
 			/*
 			 * screwed.. close the connection... we will get a
