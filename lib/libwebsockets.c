@@ -2717,3 +2717,9 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 
 	return n;
 }
+
+int
+libwebsocket_is_final_fragment(struct libwebsocket *wsi)
+{
+	return wsi->final;
+}

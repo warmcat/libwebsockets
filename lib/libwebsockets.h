@@ -606,6 +606,9 @@ extern int
 libwebsocket_get_socket_fd(struct libwebsocket *wsi);
 
 extern int
+libwebsocket_is_final_fragment(struct libwebsocket *wsi);
+
+extern int
 libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable);
 
 extern size_t
