@@ -641,6 +641,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	struct lws_tokens eff_buf;
 	int ext_count = 0;
 	struct libwebsocket_extension *ext;
+	int opt = 1;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	char ssl_err_buf[512];
@@ -705,6 +706,10 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			fprintf(stderr, "ERROR on accept");
 			break;
 		}
+
+		/* Disable Nagle */
+		opt = 1;
+		setsockopt(accept_fd, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
 
 		if (context->fds_count >= MAX_CLIENTS) {
 			fprintf(stderr, "too busy to accept new client\n");
@@ -2415,6 +2420,11 @@ libwebsocket_create_context(int port, const char *interf,
 
 		/* allow us to restart even if old sockets in TIME_WAIT */
 		setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+
+		/* Disable Nagle */
+		opt = 1;
+		setsockopt(sockfd, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
 
 		bzero((char *) &serv_addr, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;

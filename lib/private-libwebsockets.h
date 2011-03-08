@@ -48,6 +48,7 @@
 #include <sys/prctl.h>
 #endif
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 
 #include <poll.h>

@@ -38,6 +38,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	struct pollfd pfd;
 	struct libwebsocket *wsi;
 	int n;
+	int opt = 1;
 	int plen = 0;
 #ifndef LWS_OPENSSL_SUPPORT
 	if (ssl_connection) {
@@ -163,6 +164,9 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	server_addr.sin_port = htons(port);
 	server_addr.sin_addr = *((struct in_addr *)server_hostent->h_addr);
 	bzero(&server_addr.sin_zero, 8);
+
+	/* Disable Nagle */
+	setsockopt(wsi->sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
 
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
 					      sizeof(struct sockaddr)) == -1)  {
