@@ -41,14 +41,6 @@ enum demo_protocols {
 
 /* fraggle protocol */
 
-/*
- * one of these is auto-created for each connection and a pointer to the
- * appropriate instance is passed to the callback in the user parameter
- *
- * for this example protocol we use it to individualize the count for each
- * connection.
- */
-
 struct per_session_data__fraggle {
 	int packets_left;
 	int total_message;
@@ -111,7 +103,7 @@ callback_fraggle(struct libwebsocket_context * context,
 			psf->sum = 0;
 			psf->total_message = 0;
 			psf->packets_left = 0;
-//			fprintf(stderr, "starting receiving a message\n");
+
 			/* fallthru */
 
 		case 1:
@@ -139,13 +131,13 @@ callback_fraggle(struct libwebsocket_context * context,
 					"len = %d. sum = 0x%lX\n",
 						psf->total_message, psf->sum);
 
-			buf[LWS_SEND_BUFFER_PRE_PADDING + 0] = psf->sum >> 24;
-			buf[LWS_SEND_BUFFER_PRE_PADDING + 1] = psf->sum >> 16;
-			buf[LWS_SEND_BUFFER_PRE_PADDING + 2] = psf->sum >> 8;
-			buf[LWS_SEND_BUFFER_PRE_PADDING + 3] = psf->sum;
+			p[0] = psf->sum >> 24;
+			p[1] = psf->sum >> 16;
+			p[2] = psf->sum >> 8;
+			p[3] = psf->sum;
 							
-			n = libwebsocket_write(wsi, (unsigned char *)
-			  &buf[LWS_SEND_BUFFER_PRE_PADDING], 4, LWS_WRITE_TEXT);
+			n = libwebsocket_write(wsi, (unsigned char *)p,
+							     4, LWS_WRITE_TEXT);
 
 			libwebsocket_callback_on_writable(context, wsi);
 

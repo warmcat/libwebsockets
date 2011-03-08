@@ -166,6 +166,50 @@ another server, you can specify the protcol to handshake with
 by --protocol=protocolname
 
 
+Fraggle test app
+----------------
+
+By default it runs in server mode
+
+$ libwebsockets-test-fraggle
+libwebsockets test fraggle
+(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under LGPL2.1
+ Compiled with SSL support, not using it
+ Listening on port 7681
+server sees client connect
+accepted v06 connection
+Spamming 360 random fragments
+Spamming session over, len = 371913. sum = 0x2D3C0AE
+Spamming 895 random fragments
+Spamming session over, len = 875970. sum = 0x6A74DA1
+...
+
+You need to run a second session in client mode, you have to
+give the -c switch and the server address at least:
+
+$ libwebsockets-test-fraggle -c localhost 
+libwebsockets test fraggle
+(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under LGPL2.1
+ Client mode
+Connecting to localhost:7681
+denied deflate-stream extension
+handshake OK for protocol fraggle-protocol
+client connects to server
+EOM received 371913 correctly from 360 fragments
+EOM received 875970 correctly from 895 fragments
+EOM received 247140 correctly from 258 fragments
+EOM received 695451 correctly from 692 fragments
+...
+
+The fraggle test sends a random number up to 1024 fragmented websocket frames
+each of a random size between 1 and 2001 bytes in a single message, then sends
+a checksum and starts sending a new randomly sized and fragmented message.
+
+The fraggle test client receives the same message fragments and computes the
+same checksum using websocket framing to see when the message has ended.  It
+then accepts the server checksum message and compares that to its checksum.
+
+
 proxy support
 -------------
 
