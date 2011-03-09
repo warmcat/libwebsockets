@@ -31,6 +31,7 @@
 #define LOCAL_RESOURCE_PATH DATADIR"/libwebsockets-test-server"
 
 static int client;
+static int terminate;
 
 enum demo_protocols {
 	PROTOCOL_FRAGGLE,
@@ -41,11 +42,17 @@ enum demo_protocols {
 
 /* fraggle protocol */
 
+enum fraggle_states {
+	FRAGSTATE_START_MESSAGE,
+	FRAGSTATE_RANDOM_PAYLOAD,
+	FRAGSTATE_POST_PAYLOAD_SUM,
+};
+
 struct per_session_data__fraggle {
 	int packets_left;
 	int total_message;
 	unsigned long sum;
-	int rx_state;
+	enum fraggle_states state;
 };
 
 static int
@@ -62,25 +69,51 @@ callback_fraggle(struct libwebsocket_context * context,
 	int write_mode = LWS_WRITE_CONTINUATION;
 	unsigned long sum;
 	unsigned char *p = (unsigned char *)in;
+	unsigned char *bp = &buf[LWS_SEND_BUFFER_PRE_PADDING];
 
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
+
 		fprintf(stderr, "server sees client connect\n");
-		psf->packets_left = -1;
+		psf->state = FRAGSTATE_START_MESSAGE;
 		/* start the ball rolling */
 		libwebsocket_callback_on_writable(context, wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+
 		fprintf(stderr, "client connects to server\n");
-		/* next guy will be start of new message */
-		psf->rx_state = 0;
+		psf->state = FRAGSTATE_START_MESSAGE;
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
-		switch (psf->rx_state) {
-		case 2:
+
+		switch (psf->state) {
+
+		case FRAGSTATE_START_MESSAGE:
+
+			psf->state = FRAGSTATE_RANDOM_PAYLOAD;
+			psf->sum = 0;
+			psf->total_message = 0;
+			psf->packets_left = 0;
+
+			/* fallthru */
+
+		case FRAGSTATE_RANDOM_PAYLOAD:
+
+			for (n = 0; n < len; n++)
+				psf->sum += p[n];
+
+			psf->total_message += len;
+			psf->packets_left++;
+
+			if (libwebsocket_is_final_fragment(wsi))
+				psf->state = FRAGSTATE_POST_PAYLOAD_SUM;
+			break;
+
+		case FRAGSTATE_POST_PAYLOAD_SUM:
+
 			sum = p[0] << 24;
 			sum |= p[1] << 16;
 			sum |= p[2] << 8;
@@ -94,59 +127,17 @@ callback_fraggle(struct libwebsocket_context * context,
 						"length %d, rx sum = 0x%lX, "
 						"server says it sent 0x%lX\n",
 					     psf->total_message, psf->sum, sum);
-			/* next guy will be start of new message */
-			psf->rx_state = 0;
-			break;
-		case 0:
-			/* expect the start of the message */
-			psf->rx_state = 1;
-			psf->sum = 0;
-			psf->total_message = 0;
-			psf->packets_left = 0;
 
-			/* fallthru */
-
-		case 1:
-			for (n = 0; n < len; n++)
-				psf->sum += p[n];
-
-			psf->total_message += len;
-			psf->packets_left++;
-
-			if (libwebsocket_is_final_fragment(wsi))
-				/*
-				 * next guy will be server's
-				 * computed checksum
-				 */
-				psf->rx_state = 2;
+			psf->state = FRAGSTATE_START_MESSAGE;
 			break;
 		}
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 
-		if (psf->packets_left == 0) {
-			/* reached the end */
-			fprintf(stderr, "Spamming session over, "
-					"len = %d. sum = 0x%lX\n",
-						psf->total_message, psf->sum);
+		switch (psf->state) {
 
-			p[0] = psf->sum >> 24;
-			p[1] = psf->sum >> 16;
-			p[2] = psf->sum >> 8;
-			p[3] = psf->sum;
-							
-			n = libwebsocket_write(wsi, (unsigned char *)p,
-							     4, LWS_WRITE_TEXT);
-
-			libwebsocket_callback_on_writable(context, wsi);
-
-			psf->packets_left--;
-			break;
-		}
-
-		if (psf->packets_left < 1) {
-			/* start a new blob */
+		case FRAGSTATE_START_MESSAGE:
 
 			psf->packets_left = (random() % 1024) + 1;
 			fprintf(stderr, "Spamming %d random fragments\n",
@@ -154,33 +145,63 @@ callback_fraggle(struct libwebsocket_context * context,
 			psf->sum = 0;
 			psf->total_message = 0;
 			write_mode = LWS_WRITE_BINARY;
+			psf->state = FRAGSTATE_RANDOM_PAYLOAD;
+
+			/* fallthru */
+
+		case FRAGSTATE_RANDOM_PAYLOAD:
+
+			chunk = (random() % 2000) + 1;
+			psf->total_message += chunk;
+
+			libwebsockets_get_random(context, bp, chunk);
+			for (n = 0; n < chunk; n++)
+				psf->sum += bp[n];
+
+			psf->packets_left--;
+			if (psf->packets_left)
+				write_mode |= LWS_WRITE_NO_FIN;
+			else
+				psf->state = FRAGSTATE_POST_PAYLOAD_SUM;
+
+			n = libwebsocket_write(wsi, bp, chunk, write_mode);
+
+			libwebsocket_callback_on_writable(context, wsi);
+			break;
+
+		case FRAGSTATE_POST_PAYLOAD_SUM:
+
+			fprintf(stderr, "Spamming session over, "
+					"len = %d. sum = 0x%lX\n",
+						  psf->total_message, psf->sum);
+
+			bp[0] = psf->sum >> 24;
+			bp[1] = psf->sum >> 16;
+			bp[2] = psf->sum >> 8;
+			bp[3] = psf->sum;
+							
+			n = libwebsocket_write(wsi, (unsigned char *)bp,
+							   4, LWS_WRITE_BINARY);
+
+			psf->state = FRAGSTATE_START_MESSAGE;
+
+			libwebsocket_callback_on_writable(context, wsi);
+			break;
 		}
-
-		chunk = (random() % 2000) + 1;
-		psf->total_message += chunk;
-
-		libwebsockets_get_random(context,
-				      &buf[LWS_SEND_BUFFER_PRE_PADDING], chunk);
-		for (n = 0; n < chunk; n++)
-			psf->sum += buf[LWS_SEND_BUFFER_PRE_PADDING + n];
-
-		psf->packets_left--;
-		if (psf->packets_left)
-			write_mode |= LWS_WRITE_NO_FIN;
-
-		n = libwebsocket_write(wsi, (unsigned char *)
-			  &buf[LWS_SEND_BUFFER_PRE_PADDING], chunk, write_mode);
-
-		libwebsocket_callback_on_writable(context, wsi);
 		break;
 
+	case LWS_CALLBACK_CLOSED:
+
+		terminate = 1;
+		break;
 
 	/* because we are protocols[0] ... */
 
 	case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:
-		if (strcmp(in, "deflate-stream") == 0)
+		if (strcmp(in, "deflate-stream") == 0) {
 			fprintf(stderr, "denied deflate-stream extension\n");
 			return 1;
+		}
 		break;
 
 	default:
@@ -261,8 +282,8 @@ int main(int argc, char **argv)
 			fprintf(stderr, " Client mode\n");
 			break;
 		case 'h':
-			fprintf(stderr, "Usage: test-server "
-					     "[--port=<p>] [--ssl]\n");
+			fprintf(stderr, "Usage: libwebsockets-test-fraggle "
+					   "[--port=<p>] [--ssl] [--client]\n");
 			exit(1);
 		}
 	}
@@ -300,8 +321,10 @@ int main(int argc, char **argv)
 	}
 
 	n = 0;
-	while (!n)
+	while (!n && !terminate)
 		n = libwebsocket_service(context, 50);
+
+	fprintf(stderr, "Terminating...\n");
 
 bail:
 	libwebsocket_context_destroy(context);
