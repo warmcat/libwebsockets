@@ -369,7 +369,7 @@ libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 	struct hostent *host;
 	struct hostent *host1;
 	char ip[128];
-	char *p;
+	unsigned char *p;
 	int n;
 
 	rip[0] = '\0';
@@ -394,16 +394,16 @@ libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 	host1 = gethostbyname(host->h_name);
 	if (host1 == NULL)
 		return;
-	p = (char *)host1;
+	p = (unsigned char *)host1;
 	n = 0;
 	while (p != NULL) {
-		p = host1->h_addr_list[n++];
+		p = (unsigned char *)host1->h_addr_list[n++];
 		if (p == NULL)
 			continue;
 		if (host1->h_addrtype != AF_INET)
 			continue;
 
-		sprintf(ip, "%d.%d.%d.%d",
+		sprintf(ip, "%u.%u.%u.%u",
 				p[0], p[1], p[2], p[3]);
 		p = NULL;
 		strncpy(rip, ip, rip_len);
