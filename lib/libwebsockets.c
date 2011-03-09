@@ -1187,8 +1187,9 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 					NULL, &p, (pkt + sizeof(pkt)) - p - 12);
 
 			p += sprintf(p, "\x0d\x0a");
-			
-			read(context->fd_random, p, 8);
+
+			if (libwebsockets_get_random(context, p, 8) != 8)
+				return -1;
 			memcpy(&challenge[8], p, 8);
 			p += 8;
 			
@@ -1242,7 +1243,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			
 			if (ext_count)
 				*p++ = ',';
-			p += sprintf(p, ext->name);
+			p += sprintf(p, "%s", ext->name);
 			ext_count++;
 
 			ext++;

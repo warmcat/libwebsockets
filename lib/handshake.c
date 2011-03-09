@@ -421,7 +421,7 @@ handshake_0405(struct libwebsocket *wsi)
 				
 				if (ext_count)
 					*p++ = ',';
-				p += sprintf(p, ext_name);
+				p += sprintf(p, "%s", ext_name);
 				ext_count++;
 
 				/* instantiate the extension on this conn */
