@@ -30,6 +30,9 @@
     <ProjectReference Include="..\libwebsocketswin32\libwebsocketswin32.vcxproj">
       <Project>{332bf17e-fd30-4363-975a-aa731a827b4f}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\zlib\ZLib.vcxproj">
+      <Project>{4156fc56-8443-2973-4fe2-a0bb2c621525}</Project>
+    </ProjectReference>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{E585B64F-9365-4C58-9EF8-56393EB27F8B}</ProjectGuid>

@@ -45,7 +45,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>../win32helpers</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../win32helpers;../zlib</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -61,7 +61,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>../win32helpers</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../win32helpers;../zlib</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -73,6 +73,8 @@
   <ItemGroup>
     <ClCompile Include="..\..\lib\base64-decode.c" />
     <ClCompile Include="..\..\lib\client-handshake.c" />
+    <ClCompile Include="..\..\lib\extension-deflate-stream.c" />
+    <ClCompile Include="..\..\lib\extension.c" />
     <ClCompile Include="..\..\lib\handshake.c" />
     <ClCompile Include="..\..\lib\libwebsockets.c" />
     <ClCompile Include="..\..\lib\md5.c" />
@@ -80,6 +82,7 @@
     <ClCompile Include="..\..\lib\sha-1.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\lib\extension-deflate-stream.h" />
     <ClInclude Include="..\..\lib\libwebsockets.h" />
     <ClInclude Include="..\..\lib\private-libwebsockets.h" />
   </ItemGroup>
