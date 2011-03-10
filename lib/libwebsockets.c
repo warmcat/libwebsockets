@@ -402,17 +402,22 @@ libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 		p = (unsigned char *)host1->h_addr_list[n++];
 		if (p == NULL)
 			continue;
-		if ((host1->h_addrtype != AF_INET) &&
-						(host1->h_addrtype != AF_LOCAL))
+		if ((host1->h_addrtype != AF_INET)
+#ifdef AF_LOCAL
+			&& (host1->h_addrtype != AF_LOCAL)
+#endif
+			)
 			continue;
 
 		if (host1->h_addrtype == AF_INET)
 			sprintf(ip, "%u.%u.%u.%u", p[0], p[1], p[2], p[3]);
+#ifdef AF_LOCAL
 		else {
 			un = (struct sockaddr_un *)p;
 			strncpy(ip, un->sun_path, sizeof(ip) -1);
 			ip[sizeof(ip) - 1] = '\0';
 		}
+#endif
 		p = NULL;
 		strncpy(rip, ip, rip_len);
 		rip[rip_len - 1] = '\0';
