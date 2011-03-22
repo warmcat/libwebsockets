@@ -192,6 +192,7 @@ enum lws_close_status {
 
 struct libwebsocket;
 struct libwebsocket_context;
+struct libwebsocket_extension;
 
 /* document the generic callback (it's a fake prototype under this) */
 /**
@@ -394,6 +395,7 @@ extern int callback(struct libwebsocket_context * context,
 /**
  * extension_callback() - Hooks to allow extensions to operate
  * @context:	Websockets context
+ * @ext:	This extension
  * @wsi:	Opaque websocket instance pointer
  * @reason:	The reason for the call
  * @user:	Pointer to per-session user data allocated by library
@@ -450,6 +452,7 @@ extern int callback(struct libwebsocket_context * context,
  */
 
 extern int extension_callback(struct libwebsocket_context * context,
+			struct libwebsocket_extension *ext,
 			struct libwebsocket *wsi,
 			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
@@ -515,6 +518,7 @@ struct libwebsocket_protocols {
 struct libwebsocket_extension {
 	const char *name;
 	int (*callback)(struct libwebsocket_context *context,
+			struct libwebsocket_extension *ext,
 			struct libwebsocket *wsi,
 			enum libwebsocket_extension_callback_reasons reason,
 					      void *user, void *in, size_t len);

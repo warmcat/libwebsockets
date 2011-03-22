@@ -182,7 +182,8 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 		for (n = 0; n < wsi->count_active_extensions; n++) {
 			m = wsi->active_extensions[n]->callback(
-				wsi->protocol->owning_server, wsi,
+					wsi->protocol->owning_server,
+					wsi->active_extensions[n], wsi,
 					LWS_EXT_CALLBACK_FLUSH_PENDING_TX,
 				   wsi->active_extensions_user[n], &eff_buf, 0);
 			if (m < 0) {
@@ -285,9 +286,10 @@ just_kill_connection:
 		if (!wsi->active_extensions[n]->callback)
 			continue;
 
-		wsi->active_extensions[n]->callback(context, wsi,
-			LWS_EXT_CALLBACK_DESTROY,
-			wsi->active_extensions_user[n], NULL, 0);
+		wsi->active_extensions[n]->callback(context,
+			wsi->active_extensions[n], wsi,
+				LWS_EXT_CALLBACK_DESTROY,
+				       wsi->active_extensions_user[n], NULL, 0);
 
 		free(wsi->active_extensions_user[n]);
 	}
@@ -539,7 +541,8 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 
 		for (n = 0; n < wsi->count_active_extensions; n++) {
 			m = wsi->active_extensions[n]->callback(
-				wsi->protocol->owning_server, wsi,
+				wsi->protocol->owning_server,
+				wsi->active_extensions[n], wsi,
 					LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
 				   wsi->active_extensions_user[n], &eff_buf, 0);
 			if (m < 0) {
@@ -1586,9 +1589,11 @@ select_protocol:
 				/* allow him to construct his context */
 
 				ext->callback(wsi->protocol->owning_server,
-					wsi, LWS_EXT_CALLBACK_CLIENT_CONSTRUCT,
+					ext, wsi,
+					   LWS_EXT_CALLBACK_CLIENT_CONSTRUCT,
 						wsi->active_extensions_user[
-					wsi->count_active_extensions], NULL, 0);
+						 wsi->count_active_extensions],
+								       NULL, 0);
 
 				wsi->count_active_extensions++;
 
@@ -1764,9 +1769,11 @@ bail2:
 			more = 0;
 
 			for (n = 0; n < wsi->count_active_extensions; n++) {
-				m = wsi->active_extensions[n]->callback(context, wsi,
+				m = wsi->active_extensions[n]->callback(context,
+					wsi->active_extensions[n], wsi,
 					LWS_EXT_CALLBACK_PACKET_RX_PREPARSE,
-				     wsi->active_extensions_user[n], &eff_buf, 0);
+					wsi->active_extensions_user[n],
+								   &eff_buf, 0);
 				if (m < 0) {
 					fprintf(stderr, "Extension reports fatal error\n");
 					libwebsocket_close_and_free_session(context, wsi,

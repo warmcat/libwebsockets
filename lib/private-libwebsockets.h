@@ -228,7 +228,7 @@ enum pending_timeout {
 
 struct libwebsocket {
 	const struct libwebsocket_protocols *protocol;
-	const struct libwebsocket_extension *
+	struct libwebsocket_extension *
 				   active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
 	void * active_extensions_user[LWS_MAX_EXTENSIONS_ACTIVE];
 	int count_active_extensions;

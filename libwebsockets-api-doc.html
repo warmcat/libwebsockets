@@ -728,6 +728,7 @@ internal polling loop, you can just ignore it.
 <i>int</i>
 <b>extension_callback</b>
 (<i>struct libwebsocket_context *</i> <b>context</b>,
+<i>struct libwebsocket_extension *</i> <b>ext</b>,
 <i>struct libwebsocket *</i> <b>wsi</b>,
 <i>enum libwebsocket_callback_reasons</i> <b>reason</b>,
 <i>void *</i> <b>user</b>,
@@ -737,6 +738,8 @@ internal polling loop, you can just ignore it.
 <dl>
 <dt><b>context</b>
 <dd>Websockets context
+<dt><b>ext</b>
+<dd>This extension
 <dt><b>wsi</b>
 <dd>Opaque websocket instance pointer
 <dt><b>reason</b>
@@ -858,7 +861,7 @@ allows as many protocols as you like to be handled by one server.
 <h2>struct libwebsocket_extension - An extension we know how to cope with</h2>
 <b>struct libwebsocket_extension</b> {<br>
 &nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
-&nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket_context *context,struct libwebsocket *wsi,enum libwebsocket_extension_callback_reasons reason,void *user, void *in, size_t len)</i>;<br>
+&nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket_context *context,struct libwebsocket_extension *ext,struct libwebsocket *wsi,enum libwebsocket_extension_callback_reasons reason,void *user, void *in, size_t len)</i>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
 };<br>
 <h3>Members</h3>

@@ -435,7 +435,8 @@ handshake_0405(struct libwebsocket *wsi)
 				/* allow him to construct his context */
 
 				ext->callback(wsi->protocol->owning_server,
-						wsi, LWS_EXT_CALLBACK_CONSTRUCT,
+						ext, wsi,
+						LWS_EXT_CALLBACK_CONSTRUCT,
 						wsi->active_extensions_user[
 					wsi->count_active_extensions], NULL, 0);
 

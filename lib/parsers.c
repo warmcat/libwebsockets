@@ -1379,7 +1379,8 @@ send_raw:
 
 		for (n = 0; n < wsi->count_active_extensions; n++) {
 			m = wsi->active_extensions[n]->callback(
-				wsi->protocol->owning_server, wsi,
+					wsi->protocol->owning_server,
+					wsi->active_extensions[n], wsi,
 					LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
 				   wsi->active_extensions_user[n], &eff_buf, 0);
 			if (m < 0) {
