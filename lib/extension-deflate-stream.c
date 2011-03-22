@@ -4,7 +4,8 @@
 #include <string.h>
 #include <assert.h>
 
-
+#define LWS_ZLIB_WINDOW_BITS 8
+#define LWS_ZLIB_MEMLEVEL 8
 
 int lws_extension_callback_deflate_stream(
 		struct libwebsocket_context *context,
@@ -29,13 +30,15 @@ int lws_extension_callback_deflate_stream(
 		conn->zs_in.zalloc = conn->zs_out.zalloc = Z_NULL;
 		conn->zs_in.zfree = conn->zs_out.zfree = Z_NULL;
 		conn->zs_in.opaque = conn->zs_out.opaque = Z_NULL;
-		n = inflateInit(&conn->zs_in);
+		n = inflateInit2(&conn->zs_in, -LWS_ZLIB_WINDOW_BITS);
 		if (n != Z_OK) {
 			fprintf(stderr, "deflateInit returned %d\n", n);
 			return 1;
 		}
-		n = deflateInit(&conn->zs_out,
-					      DEFLATE_STREAM_COMPRESSION_LEVEL);
+		n = deflateInit2(&conn->zs_out,
+				 DEFLATE_STREAM_COMPRESSION_LEVEL, Z_DEFLATED,
+				 -LWS_ZLIB_WINDOW_BITS, LWS_ZLIB_MEMLEVEL,
+							    Z_DEFAULT_STRATEGY);
 		if (n != Z_OK) {
 			fprintf(stderr, "deflateInit returned %d\n", n);
 			return 1;
