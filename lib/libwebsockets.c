@@ -1180,7 +1180,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			libwebsockets_00_spaceout(key_1, spaces_1, seed);
 			libwebsockets_00_spaceout(key_2, spaces_2, seed >> 16);
 			
-			p += sprintf(p, "Upgrade: websocket\x0d\x0a"
+			p += sprintf(p, "Upgrade: WebSocket\x0d\x0a"
 				"Connection: Upgrade\x0d\x0aHost: %s\x0d\x0a",
 				wsi->c_host);
 			if (wsi->c_origin)
