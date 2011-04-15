@@ -1115,7 +1115,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	int m;
 	int pre = 0;
 	int post = 0;
-	unsigned int shift = 7;
+	int shift = 7;
 	struct lws_tokens eff_buf;
 	int ret;
 
