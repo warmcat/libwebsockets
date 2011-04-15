@@ -166,7 +166,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	bzero(&server_addr.sin_zero, 8);
 
 	/* Disable Nagle */
-	setsockopt(wsi->sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
+	setsockopt(wsi->sock, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
 
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
 					      sizeof(struct sockaddr)) == -1)  {

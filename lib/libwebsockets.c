@@ -725,7 +725,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		/* Disable Nagle */
 		opt = 1;
-		setsockopt(accept_fd, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
+		setsockopt(accept_fd, IPPROTO_TCP, TCP_NODELAY, &opt,
+				sizeof(opt));
 
 		if (context->fds_count >= MAX_CLIENTS) {
 			fprintf(stderr, "too busy to accept new client\n");
@@ -2445,7 +2446,7 @@ libwebsocket_create_context(int port, const char *interf,
 
 		/* Disable Nagle */
 		opt = 1;
-		setsockopt(sockfd, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
+		setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
 
 		bzero((char *) &serv_addr, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;
