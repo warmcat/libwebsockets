@@ -1364,11 +1364,14 @@ issue_hdr:
 		for (n = 0; n < len; n++)
 			libwebsocket_parse(wsi, *p++);
 
-		if (wsi->parser_state != WSI_PARSING_COMPLETE) {
-			fprintf(stderr, "libwebsocket_client_handshake "
-					"server response failed parsing\n");
-			goto bail3;
-		}
+		/*
+		 * may be coming in multiple packets, there is a 5-second
+		 * libwebsocket timeout still active here too, so if parsing did
+		 * not complete just wait for next packet coming in this state
+		 */
+
+		if (wsi->parser_state != WSI_PARSING_COMPLETE)
+			break;
 
 		/*
 		 * 00 / 76 -->
