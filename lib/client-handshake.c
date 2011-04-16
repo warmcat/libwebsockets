@@ -34,7 +34,6 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 {
 	struct hostent *server_hostent;
 	struct sockaddr_in server_addr;
-	struct timeval tv;
 	char pkt[512];
 	struct pollfd pfd;
 	struct libwebsocket *wsi;
@@ -168,12 +167,6 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 
 	/* Disable Nagle */
 	setsockopt(wsi->sock, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
-
-	/* Set receiving timeout */
-	tv.tv_sec = 0;
-	tv.tv_usec = 100 * 1000;
-	setsockopt(wsi->sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv,
-			sizeof(tv));
 
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
 					      sizeof(struct sockaddr)) == -1)  {

@@ -614,19 +614,7 @@ user_service:
 	return 0;
 }
 
-static ssize_t
-libwebsocket_recv(int sock, void *buf, size_t len, int flags)
-{
-	int n, ret = 0;
 
-	while ((len > 0) && (n = recv(sock, (char *)buf + ret, len,
-			flags)) > 0) {
-		ret += n;
-		len -= n;
-	}
-
-	return ret;
-}
 
 /**
  * libwebsocket_service_fd() - Service polled socket with something waiting
@@ -1020,7 +1008,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			return 1;
 		}
 
-		n = libwebsocket_recv(wsi->sock, pkt, sizeof pkt, 0);
+		n = recv(wsi->sock, pkt, sizeof pkt, 0);
 		if (n < 0) {
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
@@ -1364,7 +1352,7 @@ issue_hdr:
 			len = SSL_read(wsi->ssl, pkt, sizeof pkt);
 		else
 	#endif
-		len = libwebsocket_recv(wsi->sock, pkt, sizeof pkt, 0);
+			len = recv(wsi->sock, pkt, sizeof pkt, 0);
 
 		if (len < 0) {
 			fprintf(stderr,
@@ -1749,8 +1737,7 @@ bail2:
 		else
 #endif
 			eff_buf.token_len =
-					libwebsocket_recv(pollfd->fd, buf,
-					sizeof buf, 0);
+					   recv(pollfd->fd, buf, sizeof buf, 0);
 
 		if (eff_buf.token_len < 0) {
 			fprintf(stderr, "Socket read returned %d\n",
