@@ -123,6 +123,15 @@ enum lws_websocket_opcodes_04 {
 	LWS_WS_OPCODE_04__BINARY_FRAME = 5,
 };
 
+enum lws_websocket_opcodes_07 {
+	LWS_WS_OPCODE_07__CONTINUATION = 0,
+	LWS_WS_OPCODE_07__TEXT_FRAME = 1,
+	LWS_WS_OPCODE_07__BINARY_FRAME = 2,
+	LWS_WS_OPCODE_07__CLOSE = 8,
+	LWS_WS_OPCODE_07__PING = 9,
+	LWS_WS_OPCODE_07__PONG = 0xa,
+};
+
 enum lws_connection_states {
 	WSI_STATE_HTTP,
 	WSI_STATE_HTTP_HEADERS,
