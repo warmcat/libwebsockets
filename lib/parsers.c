@@ -302,9 +302,6 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			 * no prepended frame key any more
 			 */
 			wsi->all_zero_nonce = 1;
-			wsi->frame_masking_nonce_04[0] = c;
-			if (c)
-				wsi->all_zero_nonce = 0;
 			goto handle_first;
 
 		default:
@@ -427,7 +424,7 @@ handle_first:
 
 		if (c & 0x70) {
 			fprintf(stderr,
-				      "Frame has extensions set illegally 1\n");
+				      "Frame has extensions set illegally 1 %02X\n", c);
 			/* kill the connection */
 			return -1;
 		}
@@ -496,7 +493,7 @@ handle_first:
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_8;
 			break;
 		default:
-			wsi->rx_packet_length = c;
+			wsi->rx_packet_length = c & 0x7f;
 			if (wsi->this_frame_masked)
 				wsi->lws_rx_parse_state =
 						LWS_RXPS_07_COLLECT_FRAME_KEY_1;
@@ -548,7 +545,7 @@ handle_first:
 		if (wsi->ietf_spec_revision < 7)
 			c = wsi->xor_mask(wsi, c);
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)c)) << 48;
+		wsi->rx_packet_length |= ((size_t)c) << 48;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_6;
 		break;
@@ -557,7 +554,7 @@ handle_first:
 		if (wsi->ietf_spec_revision < 7)
 			c = wsi->xor_mask(wsi, c);
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)c)) << 40;
+		wsi->rx_packet_length |= ((size_t)c) << 40;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_5;
 		break;
@@ -671,11 +668,12 @@ issue:
 			wsi->all_zero_nonce = 0;
 		wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		wsi->frame_mask_index = 0;
 		break;
 
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
-		if (wsi->all_zero_nonce && wsi->ietf_spec_revision >= 5)
+		if (wsi->ietf_spec_revision < 4 || (wsi->all_zero_nonce && wsi->ietf_spec_revision >= 5))
 			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
 			       (wsi->rx_user_buffer_head++)] = c;
 		else
@@ -1070,8 +1068,14 @@ issue:
 		break;
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
-		wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-				 (wsi->rx_user_buffer_head++)] = c;
+		if ((!wsi->this_frame_masked) || wsi->all_zero_nonce)
+			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
+			       (wsi->rx_user_buffer_head++)] = c;
+		else
+			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
+			       (wsi->rx_user_buffer_head++)] =
+							  wsi->xor_mask(wsi, c);
+
 		if (--wsi->rx_packet_length == 0) {
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 			goto spill;
@@ -1280,7 +1284,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	int shift = 7;
 	struct lws_tokens eff_buf;
 	int ret;
-	int masked_7 = wsi->mode == LWS_CONNMODE_WS_CLIENT;
+	int masked7 = wsi->mode == LWS_CONNMODE_WS_CLIENT;
 	unsigned char *dropmask = NULL;
 	unsigned char is_masked_bit = 0;
 
@@ -1325,16 +1329,16 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 		/* frame type = text, length-free spam mode */
 
-		buf[-1] = 0;
-		buf[len] = 0xff; /* EOT marker */
 		pre = 1;
+		buf[-pre] = 0;
+		buf[len] = 0xff; /* EOT marker */
 		post = 1;
 		break;
 
 	case 7:
 		if (masked7) {
-			pre -= 4;
-			dropmask = &buf[pre];
+			pre += 4;
+			dropmask = &buf[0 - pre];
 			is_masked_bit = 0x80;
 		}
 		/* fallthru */
@@ -1366,7 +1370,6 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 				n = LWS_WS_OPCODE_04__CLOSE;
 			else
 				n = LWS_WS_OPCODE_07__CLOSE;
-			break;
 
 			/*
 			 * v5 mandates the first byte of close packet
@@ -1440,46 +1443,39 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			n |= 1 << 7;
 
 		if (len < 126) {
-			buf[pre - 2] = n;
-			buf[pre - 1] = len | is_masked_bit;
 			pre += 2;
+			buf[-pre] = n;
+			buf[-pre + 1] = len | is_masked_bit;
 		} else {
 			if (len < 65536) {
-				buf[pre - 4] = n;
-				buf[pre - 3] = 126 | is_masked_bit;
-				buf[pre - 2] = len >> 8;
-				buf[pre - 1] = len;
 				pre += 4;
+				buf[-pre] = n;
+				buf[-pre + 1] = 126 | is_masked_bit;
+				buf[-pre + 2] = len >> 8;
+				buf[-pre + 3] = len;
 			} else {
-				buf[pre - 10] = n;
-				buf[pre - 9] = 127 | is_masked_bit;
-#if defined __LP64__
-					buf[pre - 8] = (len >> 56) & 0x7f;
-					buf[pre - 7] = len >> 48;
-					buf[pre - 6] = len >> 40;
-					buf[pre - 5] = len >> 32;
-#else
-					buf[pre - 8] = 0;
-					buf[pre - 7] = 0;
-					buf[pre - 6] = 0;
-					buf[pre - 5] = 0;
-#endif
-				buf[pre - 4] = len >> 24;
-				buf[pre - 3] = len >> 16;
-				buf[pre - 2] = len >> 8;
-				buf[pre - 1] = len;
 				pre += 10;
+				buf[-pre] = n;
+				buf[-pre + 1] = 127 | is_masked_bit;
+#if defined __LP64__
+					buf[-pre + 2] = (len >> 56) & 0x7f;
+					buf[-pre + 3] = len >> 48;
+					buf[-pre + 4] = len >> 40;
+					buf[-pre + 5] = len >> 32;
+#else
+					buf[-pre + 2] = 0;
+					buf[-pre + 3] = 0;
+					buf[-pre + 4] = 0;
+					buf[-pre + 5] = 0;
+#endif
+				buf[-pre + 6] = len >> 24;
+				buf[-pre + 7] = len >> 16;
+				buf[-pre + 8] = len >> 8;
+				buf[-pre + 9] = len;
 			}
 		}
 		break;
 	}
-
-#if 0
-	for (n = 0; n < (len + pre + post); n++)
-		fprintf(stderr, "%02X ", buf[n - pre]);
-
-	fprintf(stderr, "\n");
-#endif
 
 	/*
 	 * Deal with masking if we are in client -> server direction and
@@ -1502,13 +1498,21 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 				return 1;
 			}
 
-			/*
-			 * use the XOR masking against everything we send
-			 * past the frame nonce
-			 */
 
-			for (n = 0; n < (len + pre + post); n++)
-				buf[n - pre] = wsi->xor_mask(wsi, buf[n - pre]);
+			if (wsi->ietf_spec_revision < 7)
+				/*
+				 * use the XOR masking against everything we
+				 * send past the frame key
+				 */
+				for (n = -pre; n < ((int)len + post); n++)
+					buf[n] = wsi->xor_mask(wsi, buf[n]);
+			else
+				/*
+				 * in v7, just mask the payload
+				 */
+				for (n = 0; n < (int)len; n++)
+					dropmask[n + 4] = wsi->xor_mask(wsi, dropmask[n + 4]);
+
 
 			if (wsi->ietf_spec_revision < 7) {
 				/* make space for the frame nonce in clear */
@@ -1522,18 +1526,34 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 				memcpy(dropmask, wsi->frame_masking_nonce_04, 4);
 
 		} else {
-			/* make space for the frame nonce in clear */
-			pre += 4;
+			if (wsi->ietf_spec_revision < 7) {
 
-			buf[0 - pre] = 0;
-			buf[1 - pre] = 0;
-			buf[2 - pre] = 0;
-			buf[3 - pre] = 0;
+				/* make space for the frame nonce in clear */
+				pre += 4;
+
+				buf[0 - pre] = 0;
+				buf[1 - pre] = 0;
+				buf[2 - pre] = 0;
+				buf[3 - pre] = 0;
+			} else {
+				dropmask[0] = 0;
+				dropmask[1] = 0;
+				dropmask[2] = 0;
+				dropmask[3] = 0;
+			}
 		}
 
 	}
 
 send_raw:
+
+#if 0
+	fprintf(stderr, "send %ld: ", len + post);
+	for (n = -pre; n < ((int)len + post); n++)
+		fprintf(stderr, "%02X ", buf[n]);
+
+	fprintf(stderr, "\n");
+#endif
 
 	if (protocol == LWS_WRITE_HTTP) {
 		if (lws_issue_raw(wsi, (unsigned char *)buf - pre,
