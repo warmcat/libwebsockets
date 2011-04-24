@@ -1244,6 +1244,9 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	int shift = 7;
 	struct lws_tokens eff_buf;
 	int ret;
+	int masked_7 = wsi->mode == LWS_CONNMODE_WS_CLIENT;
+	unsigned char *dropmask = NULL;
+	unsigned char is_masked_bit = 0;
 
 	if (len == 0 && protocol != LWS_WRITE_CLOSE) {
 		fprintf(stderr, "zero length libwebsocket_write attempt\n");
@@ -1292,10 +1295,16 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		post = 1;
 		break;
 
+	case 7:
+		if (masked7) {
+			pre -= 4;
+			dropmask = &buf[pre];
+			is_masked_bit = 0x80;
+		}
+		/* fallthru */
 	case 4:
 	case 5:
 	case 6:
-	case 7:
 		switch (protocol & 0xf) {
 		case LWS_WRITE_TEXT:
 			n = LWS_WS_OPCODE_04__TEXT_FRAME;
@@ -1376,18 +1385,18 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 		if (len < 126) {
 			buf[pre - 2] = n;
-			buf[pre - 1] = len;
+			buf[pre - 1] = len | is_masked_bit;
 			pre += 2;
 		} else {
 			if (len < 65536) {
 				buf[pre - 4] = n;
-				buf[pre - 3] = 126;
+				buf[pre - 3] = 126 | is_masked_bit;
 				buf[pre - 2] = len >> 8;
 				buf[pre - 1] = len;
 				pre += 4;
 			} else {
 				buf[pre - 10] = n;
-				buf[pre - 9] = 127;
+				buf[pre - 9] = 127 | is_masked_bit;
 #if defined __LP64__
 					buf[pre - 8] = (len >> 56) & 0x7f;
 					buf[pre - 7] = len >> 48;
@@ -1445,12 +1454,17 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			for (n = 0; n < (len + pre + post); n++)
 				buf[n - pre] = wsi->xor_mask(wsi, buf[n - pre]);
 
+			if (wsi->ietf_spec_revision < 7) {
+				/* make space for the frame nonce in clear */
+				pre += 4;
 
-			/* make space for the frame nonce in clear */
-			pre += 4;
+				dropmask = &buf[0 - pre];
+			}
 
-			/* copy the frame nonce into place */
-			memcpy(&buf[0 - pre], wsi->frame_masking_nonce_04, 4);
+			if (dropmask)
+				/* copy the frame nonce into place */
+				memcpy(dropmask, wsi->frame_masking_nonce_04, 4);
+
 		} else {
 			/* make space for the frame nonce in clear */
 			pre += 4;
