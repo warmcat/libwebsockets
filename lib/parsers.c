@@ -432,7 +432,35 @@ handle_first:
 			return -1;
 		}
 
-		wsi->opcode = c & 0xf;
+		/* translate all incoming opcodes into v7+ map */
+		if (wsi->ietf_spec_revision < 7)
+			switch (c & 0xf) {
+			case LWS_WS_OPCODE_04__CONTINUATION:
+				wsi->opcode = LWS_WS_OPCODE_07__CONTINUATION;
+				break;
+			case LWS_WS_OPCODE_04__CLOSE:
+				wsi->opcode = LWS_WS_OPCODE_07__CLOSE;
+				break;
+			case LWS_WS_OPCODE_04__PING:
+				wsi->opcode = LWS_WS_OPCODE_07__PING;
+				break;
+			case LWS_WS_OPCODE_04__PONG:
+				wsi->opcode = LWS_WS_OPCODE_07__PONG;
+				break;
+			case LWS_WS_OPCODE_04__TEXT_FRAME:
+				wsi->opcode = LWS_WS_OPCODE_07__TEXT_FRAME;
+				break;
+			case LWS_WS_OPCODE_04__BINARY_FRAME:
+				wsi->opcode = LWS_WS_OPCODE_07__BINARY_FRAME;
+				break;
+			default:
+				fprintf(stderr, "reserved opcodes not "
+						    "usable pre v7 protocol\n");
+				return -1;
+			}
+		else
+			wsi->opcode = c & 0xf;
+
 		wsi->final = !!((c >> 7) & 1);
 
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
@@ -455,32 +483,16 @@ handle_first:
 		switch (c) {
 		case 126:
 			/* control frames are not allowed to have big lengths */
-			switch (wsi->opcode) {
-			case LWS_WS_OPCODE_04__CLOSE:
-			case LWS_WS_OPCODE_04__PING:
-			case LWS_WS_OPCODE_04__PONG:
-				fprintf(stderr, "Control frame asking for "
-						"extended length is illegal\n");
-				/* kill the connection */
-				return -1;
-			default:
-				break;
-			}
+			if (wsi->opcode & 8)
+				goto illegal_ctl_length;
+
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_2;
 			break;
 		case 127:
 			/* control frames are not allowed to have big lengths */
-			switch (wsi->opcode) {
-			case LWS_WS_OPCODE_04__CLOSE:
-			case LWS_WS_OPCODE_04__PING:
-			case LWS_WS_OPCODE_04__PONG:
-				fprintf(stderr, "Control frame asking for "
-						"extended length is illegal\n");
-				/* kill the connection */
-				return -1;
-			default:
-				break;
-			}
+			if (wsi->opcode & 8)
+				goto illegal_ctl_length;
+
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_8;
 			break;
 		default:
@@ -684,7 +696,7 @@ spill:
 		 */
 
 		switch (wsi->opcode) {
-		case LWS_WS_OPCODE_04__CLOSE:
+		case LWS_WS_OPCODE_07__CLOSE:
 			/* is this an acknowledgement of our close? */
 			if (wsi->state == WSI_STATE_AWAITING_CLOSE_ACK) {
 				/*
@@ -703,7 +715,7 @@ spill:
 			/* close the connection */
 			return -1;
 
-		case LWS_WS_OPCODE_04__PING:
+		case LWS_WS_OPCODE_07__PING:
 			/* parrot the ping packet payload back as a pong */
 			n = libwebsocket_write(wsi, (unsigned char *)
 			    &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
@@ -712,7 +724,7 @@ spill:
 			wsi->rx_user_buffer_head = 0;
 			return 0;
 
-		case LWS_WS_OPCODE_04__PONG:
+		case LWS_WS_OPCODE_07__PONG:
 			/* keep the statistics... */
 			wsi->pings_vs_pongs--;
 			/* ... then just drop it */
@@ -743,6 +755,13 @@ spill:
 	}
 
 	return 0;
+
+illegal_ctl_length:
+
+	fprintf(stderr, "Control frame asking for "
+			"extended length is illegal\n");
+	/* kill the connection */
+	return -1;
 }
 
 
@@ -828,7 +847,34 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 				return -1;
 			}
 
-			wsi->opcode = c & 0xf;
+			if (wsi->ietf_spec_revision < 7)
+				switch (c & 0xf) {
+				case LWS_WS_OPCODE_04__CONTINUATION:
+					wsi->opcode = LWS_WS_OPCODE_07__CONTINUATION;
+					break;
+				case LWS_WS_OPCODE_04__CLOSE:
+					wsi->opcode = LWS_WS_OPCODE_07__CLOSE;
+					break;
+				case LWS_WS_OPCODE_04__PING:
+					wsi->opcode = LWS_WS_OPCODE_07__PING;
+					break;
+				case LWS_WS_OPCODE_04__PONG:
+					wsi->opcode = LWS_WS_OPCODE_07__PONG;
+					break;
+				case LWS_WS_OPCODE_04__TEXT_FRAME:
+					wsi->opcode = LWS_WS_OPCODE_07__TEXT_FRAME;
+					break;
+				case LWS_WS_OPCODE_04__BINARY_FRAME:
+					wsi->opcode = LWS_WS_OPCODE_07__BINARY_FRAME;
+					break;
+				default:
+					fprintf(stderr, "reserved opcodes not "
+							    "usable pre v7 protocol\n");
+					return -1;
+				}
+			else
+				wsi->opcode = c & 0xf;
+
 			wsi->final = !!((c >> 7) & 1);
 
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
@@ -857,32 +903,14 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		switch (c) {
 		case 126:
 			/* control frames are not allowed to have big lengths */
-			switch (wsi->opcode) {
-			case LWS_WS_OPCODE_04__CLOSE:
-			case LWS_WS_OPCODE_04__PING:
-			case LWS_WS_OPCODE_04__PONG:
-				fprintf(stderr, "Control frame asking for "
-						"extended length is illegal\n");
-				/* kill the connection */
-				return -1;
-			default:
-				break;
-			}
+			if (wsi->opcode & 8)
+				goto illegal_ctl_length;
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_2;
 			break;
 		case 127:
 			/* control frames are not allowed to have big lengths */
-			switch (wsi->opcode) {
-			case LWS_WS_OPCODE_04__CLOSE:
-			case LWS_WS_OPCODE_04__PING:
-			case LWS_WS_OPCODE_04__PONG:
-				fprintf(stderr, "Control frame asking for "
-						"extended length is illegal\n");
-				/* kill the connection */
-				return -1;
-			default:
-				break;
-			}
+			if (wsi->opcode & 8)
+				goto illegal_ctl_length;
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_8;
 			break;
 		default:
@@ -1057,7 +1085,7 @@ spill:
 		 */
 
 		switch (wsi->opcode) {
-		case LWS_WS_OPCODE_04__CLOSE:
+		case LWS_WS_OPCODE_07__CLOSE:
 			/* is this an acknowledgement of our close? */
 			if (wsi->state == WSI_STATE_AWAITING_CLOSE_ACK) {
 				/*
@@ -1077,14 +1105,14 @@ spill:
 			/* close the connection */
 			return -1;
 
-		case LWS_WS_OPCODE_04__PING:
+		case LWS_WS_OPCODE_07__PING:
 			/* parrot the ping packet payload back as a pong*/
 			n = libwebsocket_write(wsi, (unsigned char *)
 			    &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				    wsi->rx_user_buffer_head, LWS_WRITE_PONG);
 			break;
 
-		case LWS_WS_OPCODE_04__PONG:
+		case LWS_WS_OPCODE_07__PONG:
 			/* keep the statistics... */
 			wsi->pings_vs_pongs--;
 
@@ -1116,6 +1144,14 @@ spill:
 	}
 
 	return 0;
+
+illegal_ctl_length:
+
+	fprintf(stderr, "Control frame asking for "
+				"extended length is illegal\n");
+	/* kill the connection */
+	return -1;
+
 }
 
 
