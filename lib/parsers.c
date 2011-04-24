@@ -1307,17 +1307,30 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	case 6:
 		switch (protocol & 0xf) {
 		case LWS_WRITE_TEXT:
-			n = LWS_WS_OPCODE_04__TEXT_FRAME;
+			if (wsi->ietf_spec_revision < 7)
+				n = LWS_WS_OPCODE_04__TEXT_FRAME;
+			else
+				n = LWS_WS_OPCODE_07__TEXT_FRAME;
 			break;
 		case LWS_WRITE_BINARY:
-			n = LWS_WS_OPCODE_04__BINARY_FRAME;
+			if (wsi->ietf_spec_revision < 7)
+				n = LWS_WS_OPCODE_04__BINARY_FRAME;
+			else
+				n = LWS_WS_OPCODE_07__BINARY_FRAME;
 			break;
 		case LWS_WRITE_CONTINUATION:
-			n = LWS_WS_OPCODE_04__CONTINUATION;
+			if (wsi->ietf_spec_revision < 7)
+				n = LWS_WS_OPCODE_04__CONTINUATION;
+			else
+				n = LWS_WS_OPCODE_07__CONTINUATION;
 			break;
 
 		case LWS_WRITE_CLOSE:
-			n = LWS_WS_OPCODE_04__CLOSE;
+			if (wsi->ietf_spec_revision < 7)
+				n = LWS_WS_OPCODE_04__CLOSE;
+			else
+				n = LWS_WS_OPCODE_07__CLOSE;
+			break;
 
 			/*
 			 * v5 mandates the first byte of close packet
@@ -1368,11 +1381,18 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			}
 			break;
 		case LWS_WRITE_PING:
-			n = LWS_WS_OPCODE_04__PING;
+			if (wsi->ietf_spec_revision < 7)
+				n = LWS_WS_OPCODE_04__PING;
+			else
+				n = LWS_WS_OPCODE_07__PING;
+
 			wsi->pings_vs_pongs++;
 			break;
 		case LWS_WRITE_PONG:
-			n = LWS_WS_OPCODE_04__PONG;
+			if (wsi->ietf_spec_revision < 7)
+				n = LWS_WS_OPCODE_04__PONG;
+			else
+				n = LWS_WS_OPCODE_07__PONG;
 			break;
 		default:
 			fprintf(stderr, "libwebsocket_write: unknown write "
