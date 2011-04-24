@@ -109,7 +109,7 @@ static inline void debug(const char *format, ...)
 #define MAX_BROADCAST_PAYLOAD 2048
 #define LWS_MAX_PROTOCOLS 10
 #define LWS_MAX_EXTENSIONS_ACTIVE 10
-#define SPEC_LATEST_SUPPORTED 6
+#define SPEC_LATEST_SUPPORTED 7
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
@@ -165,6 +165,11 @@ enum lws_rx_parse_state {
 	LWS_RXPS_04_FRAME_HDR_LEN64_3,
 	LWS_RXPS_04_FRAME_HDR_LEN64_2,
 	LWS_RXPS_04_FRAME_HDR_LEN64_1,
+
+	LWS_RXPS_07_COLLECT_FRAME_KEY_1,
+	LWS_RXPS_07_COLLECT_FRAME_KEY_2,
+	LWS_RXPS_07_COLLECT_FRAME_KEY_3,
+	LWS_RXPS_07_COLLECT_FRAME_KEY_4,
 
 	LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED
 };
@@ -278,6 +283,9 @@ struct libwebsocket {
 	char all_zero_nonce;
 
 	enum lws_close_status close_reason;
+
+	/* 07 specific */
+	char this_frame_masked;
 
 	/* client support */
 	char initial_handshake_hash_base64[30];

@@ -297,6 +297,16 @@ static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 				wsi->all_zero_nonce = 0;
 			wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_1;
 			break;
+		case 7:
+			/*
+			 * no prepended frame key any more
+			 */
+			wsi->all_zero_nonce = 1;
+			wsi->frame_masking_nonce_04[0] = c;
+			if (c)
+				wsi->all_zero_nonce = 0;
+			goto handle_first;
+
 		default:
 			fprintf(stderr, "libwebsocket_rx_sm doesn't know "
 			    "about spec version %d\n", wsi->ietf_spec_revision);
@@ -393,6 +403,8 @@ post_mask:
 	 */
 
 	case LWS_RXPS_04_FRAME_HDR_1:
+handle_first:
+
 		/*
 		 * 04 spec defines the opcode like this: (1, 2, and 3 are
 		 * "control frame" opcodes which may not be fragmented or
@@ -410,7 +422,8 @@ post_mask:
 		 *		FIN (b7)
 		 */
 
-		c = wsi->xor_mask(wsi, c);
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
 
 		if (c & 0x70) {
 			fprintf(stderr,
@@ -426,14 +439,18 @@ post_mask:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN:
-		c = wsi->xor_mask(wsi, c);
 
-		if (c & 0x80) {
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
+
+		if ((c & 0x80) && wsi->ietf_spec_revision < 7) {
 			fprintf(stderr, "Frame has extensions "
 							   "set illegally 2\n");
 			/* kill the connection */
 			return -1;
 		}
+
+		wsi->this_frame_masked = !!(c & 0x80);
 
 		switch (c) {
 		case 126:
@@ -468,29 +485,40 @@ post_mask:
 			break;
 		default:
 			wsi->rx_packet_length = c;
-			wsi->lws_rx_parse_state =
+			if (wsi->this_frame_masked)
+				wsi->lws_rx_parse_state =
+						LWS_RXPS_07_COLLECT_FRAME_KEY_1;
+			else
+				wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
 			break;
 		}
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_2:
-		c = wsi->xor_mask(wsi, c);
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
 
 		wsi->rx_packet_length = c << 8;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_1;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_1:
-		c = wsi->xor_mask(wsi, c);
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
 
 		wsi->rx_packet_length |= c;
-		wsi->lws_rx_parse_state =
-					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		if (wsi->this_frame_masked)
+			wsi->lws_rx_parse_state =
+					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
+		else
+			wsi->lws_rx_parse_state =
+				LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
-		c = wsi->xor_mask(wsi, c);
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
 		if (c & 0x80) {
 			fprintf(stderr, "b63 of length must be zero\n");
 			/* kill the connection */
@@ -505,45 +533,63 @@ post_mask:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_7:
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 48;
+		wsi->rx_packet_length |= ((size_t)c)) << 48;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_6;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_6:
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 40;
+		wsi->rx_packet_length |= ((size_t)c)) << 40;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_5;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_5:
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 32;
+		wsi->rx_packet_length |= ((size_t)c) << 32;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_4;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_4:
-		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 24;
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
+		wsi->rx_packet_length |= ((size_t)c) << 24;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_3;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_3:
-		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 16;
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
+		wsi->rx_packet_length |= ((size_t)c) << 16;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_2;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_2:
-		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c)) << 8;
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
+		wsi->rx_packet_length |= ((size_t)c) << 8;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_1;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
-		wsi->rx_packet_length |= ((size_t)wsi->xor_mask(wsi, c));
-		wsi->lws_rx_parse_state =
-					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		if (wsi->ietf_spec_revision < 7)
+			c = wsi->xor_mask(wsi, c);
+		wsi->rx_packet_length |= ((size_t)c);
+		if (wsi->this_frame_masked)
+			wsi->lws_rx_parse_state =
+					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
+		else
+			wsi->lws_rx_parse_state =
+				LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
 		break;
 
 	case LWS_RXPS_EAT_UNTIL_76_FF:
@@ -584,6 +630,37 @@ issue:
 
 	case LWS_RXPS_PULLING_76_LENGTH:
 		break;
+
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_1:
+		wsi->frame_masking_nonce_04[0] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_2;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_2:
+		wsi->frame_masking_nonce_04[1] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_3;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_3:
+		wsi->frame_masking_nonce_04[2] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_4;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_4:
+		wsi->frame_masking_nonce_04[3] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state =
+					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		break;
+
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
 		if (wsi->all_zero_nonce && wsi->ietf_spec_revision >= 5)
@@ -692,6 +769,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		case 4:
 		case 5:
 		case 6:
+		case 7:
 	/*
 	 *  04 logical framing from the spec (all this is masked when
 	 *  incoming and has to be unmasked)
@@ -720,6 +798,10 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	 *  FIN.  It's up to userland to buffer it up if it wants to see a
 	 *  whole unfragmented block of the original size (which may be up to
 	 *  2^63 long!)
+	 *
+	 *  Notice in v7 RSV4 is set to indicate 32-bit frame key is coming in
+	 *  after length, unlike extension data which is now deprecated, this
+	 *  does not impact the payload length calculation.
 	 */
 
 		/*
@@ -751,6 +833,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
 			break;
+
 		default:
 			fprintf(stderr, "client_rx_sm doesn't know how "
 				"to handle spec version %02d\n",
@@ -762,12 +845,14 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 	case LWS_RXPS_04_FRAME_HDR_LEN:
 
-		if (c & 0x80) {
+		if ((c & 0x80) && wsi->ietf_spec_revision < 7) {
 			fprintf(stderr,
 				      "Frame has extensions set illegally 4\n");
 			/* kill the connection */
 			return -1;
 		}
+
+		wsi->this_frame_masked = !!(c & 0x80);
 
 		switch (c) {
 		case 126:
@@ -802,7 +887,11 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			break;
 		default:
 			wsi->rx_packet_length = c;
-			wsi->lws_rx_parse_state =
+			if (wsi->this_frame_masked)
+				wsi->lws_rx_parse_state =
+						LWS_RXPS_07_COLLECT_FRAME_KEY_1;
+			else
+				wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
 			break;
 		}
@@ -815,8 +904,12 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_1:
 		wsi->rx_packet_length |= c;
-		wsi->lws_rx_parse_state =
-					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		if (wsi->this_frame_masked)
+			wsi->lws_rx_parse_state =
+					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
+		else
+			wsi->lws_rx_parse_state =
+				LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
@@ -871,6 +964,39 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
 		wsi->rx_packet_length |= (size_t)c;
+		if (wsi->this_frame_masked)
+			wsi->lws_rx_parse_state =
+					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
+		else
+			wsi->lws_rx_parse_state =
+				LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_1:
+		wsi->frame_masking_nonce_04[0] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_2;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_2:
+		wsi->frame_masking_nonce_04[1] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_3;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_3:
+		wsi->frame_masking_nonce_04[2] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_4;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_4:
+		wsi->frame_masking_nonce_04[3] = c;
+		if (c)
+			wsi->all_zero_nonce = 0;
 		wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
 		break;
