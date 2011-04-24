@@ -670,6 +670,7 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 			break;
 		case 5:
 		case 6:
+		case 7:
 			wsi->xor_mask = xor_mask_05;
 			debug("libwebsocket_parse calling handshake_04\n");
 			if (handshake_0405(wsi))

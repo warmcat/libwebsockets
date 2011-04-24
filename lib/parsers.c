@@ -1295,6 +1295,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	case 4:
 	case 5:
 	case 6:
+	case 7:
 		switch (protocol & 0xf) {
 		case LWS_WRITE_TEXT:
 			n = LWS_WS_OPCODE_04__TEXT_FRAME;
