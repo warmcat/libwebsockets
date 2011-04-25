@@ -648,6 +648,9 @@ extern int
 libwebsockets_get_random(struct libwebsocket_context *context,
 							    void *buf, int len);
 
+extern int
+lws_send_pipe_choked(struct libwebsocket *wsi);
+
 extern unsigned char *
 libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md);
 

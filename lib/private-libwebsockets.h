@@ -352,8 +352,6 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
 extern int
 lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len);
 
-extern int
-lws_send_pipe_choked(struct libwebsocket *wsi);
 
 #ifndef LWS_OPENSSL_SUPPORT
 
