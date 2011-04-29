@@ -4,7 +4,7 @@
 #include <string.h>
 #include <assert.h>
 
-#define LWS_ZLIB_WINDOW_BITS 8
+#define LWS_ZLIB_WINDOW_BITS 15
 #define LWS_ZLIB_MEMLEVEL 8
 
 int lws_extension_callback_deflate_stream(

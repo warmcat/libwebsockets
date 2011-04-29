@@ -258,6 +258,7 @@ struct libwebsocket {
 	char rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING + MAX_USER_RX_BUFFER +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	int rx_user_buffer_head;
+	enum libwebsocket_write_protocol rx_frame_type;
 	int protocol_index_for_broadcast_proxy;
 	enum pending_timeout pending_timeout;
 	unsigned long pending_timeout_limit;
