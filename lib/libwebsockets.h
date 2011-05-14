@@ -30,10 +30,10 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include "websock-w32.h"
-#include "gettimeofday.h"
 
 #ifdef __cplusplus
 extern "C" {
+#include "gettimeofday.h"
 #endif
 #else
 #include <poll.h>
@@ -653,6 +653,12 @@ lws_send_pipe_choked(struct libwebsocket *wsi);
 
 extern unsigned char *
 libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md);
+
+extern int
+lws_b64_encode_string(const char *in, int in_len, char *out, int out_size);
+
+extern int
+lws_b64_decode_string(const char *in, char *out, int out_size);
 
 extern struct libwebsocket_extension libwebsocket_internal_extensions[];
 
