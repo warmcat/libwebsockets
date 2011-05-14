@@ -325,12 +325,6 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 					       unsigned char * buf, size_t len);
 
 extern int
-lws_b64_encode_string(const char *in, int in_len, char *out, int out_size);
-
-extern int
-lws_b64_decode_string(const char *in, char *out, int out_size);
-
-extern int
 lws_b64_selftest(void);
 
 extern unsigned char
