@@ -81,6 +81,7 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
 			done += 4;
 			line += 4;
 		}
+#if 0
 		if (line >= 72) {
 
 			if (done + 2 >= out_size)
@@ -91,6 +92,7 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
 			done += 2;
 			line = 0;
 		}
+#endif
 	}
 
 	if (done + 1 >= out_size)
