@@ -1670,7 +1670,11 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
 	char *p = buf;
 	int n;
 
+#ifdef WIN32
+	fd = open(file, O_RDONLY | _O_BINARY);
+#else
 	fd = open(file, O_RDONLY);
+#endif
 	if (fd < 1) {
 		p += sprintf(p, "HTTP/1.0 400 Bad\x0d\x0a"
 			"Server: libwebsockets\x0d\x0a"
