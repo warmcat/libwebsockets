@@ -84,7 +84,12 @@ void debug(const char *format, ...)
 	va_start(ap, format); vfprintf(stderr, format, ap); va_end(ap);
 }
 #else
-static inline void debug(const char *format, ...)
+#ifdef WIN32
+static
+#else
+static inline
+#endif
+void debug(const char *format, ...)
 {
 }
 #endif
