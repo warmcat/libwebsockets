@@ -9,6 +9,11 @@ dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				extension.c \
 				extension-deflate-stream.c \
 				private-libwebsockets.h
+				
+if EXT_GOOGLE_MUX
+dist_libwebsockets_la_SOURCES += extension-x-google-mux.c
+endif
+
 if LIBCRYPTO
 else
 dist_libwebsockets_la_SOURCES += md5.c sha-1.c

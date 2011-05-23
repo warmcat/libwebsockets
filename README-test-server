@@ -48,6 +48,9 @@ There are a couple of other possible configure options
 			It needs some unixy environment that
 			may choke in other build contexts, this
 			lets you cleanly stop it being built
+			
+--enable-x-google-mux   Enable experimental x-google-mux support
+                        in the build (see notes later in document)
 
 Testing server with a browser
 -----------------------------
@@ -246,5 +249,39 @@ LWS_CALLBACK_SET_MODE_POLL_FD and LWS_CALLBACK_CLEAR_MODE_POLL_FD
 appear in the callback for protocol 0 and allow interface code to
 manage socket descriptors in other poll loops.
 
-2011-02-12  Andy Green <andy@warmcat.com>
+
+x-google-mux support
+--------------------
+
+Experimental and super-preliminary x-google-mux support is available if
+enabled in ./configure with --enable-x-google-mux.  Note that when changing
+configurations, you will need to do a make distclean before, then the new
+configure and then make ; make install.  Don't forget the necessary other
+flags for your platform as described at the top of the readme.
+
+It has the following notes:
+
+    1) To enable it, reconfigure with --enable-x-google-mux
+    
+    2) It conflicts with deflate-stream, use the -u switch on
+       the test client to disable deflate-stream
+    
+    3) It deviates from the google standard by sending full
+       headers in the addchannel subcommand rather than just
+       changed ones from original connect
+    
+    4) Quota is not implemented yet
+    
+    5) Close of subchannel is not really implemented yet
+    
+    6) Google opcode 0xf is changed to 0x7 to account for
+       v7 protocol changes to opcode layout
+    
+    However despite those caveats, in fact it can run the
+    test client reliably over one socket (both dumb-increment
+    and lws-mirror-protocol), you can open a browser on the
+    same test server too and see the circles, etc.
+
+
+2011-05-23  Andy Green <andy@warmcat.com>
 

@@ -72,7 +72,7 @@ interpret_key(const char *key, unsigned long *result)
 
 
 static int
-handshake_00(struct libwebsocket *wsi)
+handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 {
 	unsigned long key1, key2;
 	unsigned char sum[16];
@@ -223,7 +223,7 @@ bail:
  */
 
 static int
-handshake_0405(struct libwebsocket *wsi)
+handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 {
 	static const char *websocket_magic_guid_04 =
 					 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -367,10 +367,12 @@ handshake_0405(struct libwebsocket *wsi)
 		 */
 
 		c = wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token;
+		fprintf(stderr, "wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token = %s\n", wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token);
+		wsi->count_active_extensions = 0;
 		n = 0;
 		while (more) {
-			
-			if (*c && *c != ',') {
+		
+			if (*c && (*c != ',' && *c != ' ' && *c != '\t')) {
 				ext_name[n] = *c++;
 				if (n < sizeof(ext_name) - 1)
 					n++;
@@ -379,6 +381,11 @@ handshake_0405(struct libwebsocket *wsi)
 			ext_name[n] = '\0';
 			if (!*c)
 				more = 0;
+			else {
+				c++;
+				if (!n)
+					continue;
+			}
 
 			/* check a client's extension against our support */
 
@@ -429,6 +436,10 @@ handshake_0405(struct libwebsocket *wsi)
 				wsi->active_extensions_user[
 					wsi->count_active_extensions] =
 					     malloc(ext->per_session_data_size);
+				memset(wsi->active_extensions_user[
+					wsi->count_active_extensions], 0,
+						    ext->per_session_data_size);
+							
 				wsi->active_extensions[
 					  wsi->count_active_extensions] = ext;
 
@@ -441,6 +452,7 @@ handshake_0405(struct libwebsocket *wsi)
 					wsi->count_active_extensions], NULL, 0);
 
 				wsi->count_active_extensions++;
+				fprintf(stderr, "wsi->count_active_extensions <- %d", wsi->count_active_extensions);
 
 				ext++;
 			}
@@ -479,17 +491,23 @@ handshake_0405(struct libwebsocket *wsi)
 							   wsi->masking_key_04);
 	}
 
-	/* okay send the handshake response accepting the connection */
+	if (!lws_any_extension_handled(context, wsi,
+			LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
+								response, p - response)) {
 
-	debug("issuing response packet %d len\n", (int)(p - response));
-#ifdef DEBUG
-	fwrite(response, 1,  p - response, stderr);
-#endif
-	n = libwebsocket_write(wsi, (unsigned char *)response,
-					  p - response, LWS_WRITE_HTTP);
-	if (n < 0) {
-		fprintf(stderr, "ERROR writing to socket");
-		goto bail;
+		/* okay send the handshake response accepting the connection */
+
+		debug("issuing response packet %d len\n", (int)(p - response));
+	#ifdef DEBUG
+		fwrite(response, 1,  p - response, stderr);
+	#endif
+		n = libwebsocket_write(wsi, (unsigned char *)response,
+						  p - response, LWS_WRITE_HTTP);
+		if (n < 0) {
+			fprintf(stderr, "ERROR writing to socket");
+			goto bail;
+		}
+
 	}
 
 	/* alright clean up and set ourselves into established state */
@@ -565,6 +583,10 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 #endif
 
 		switch (wsi->mode) {
+		case LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY:
+		case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE:
+		case LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY:
+		case LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT:
 		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
 				libwebsocket_client_rx_sm(wsi, *buf++);
@@ -582,7 +604,9 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 		if (wsi->parser_state != WSI_PARSING_COMPLETE)
 			break;
 
-		debug("libwebsocket_parse sees parsing complete\n");
+		fprintf(stderr, "seem to be serving, mode is %d\n", wsi->mode);
+
+		fprintf(stderr, "libwebsocket_parse sees parsing complete\n");
 
 		/* is this websocket protocol or normal http 1.0? */
 
@@ -594,6 +618,10 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 				   wsi->utf8_token[WSI_TOKEN_GET_URI].token, 0);
 			wsi->state = WSI_STATE_HTTP;
 			return 0;
+		}
+
+		if (!wsi->protocol) {
+			fprintf(stderr, "NULL protocol coming on libwebsocket_read\n");
 		}
 
 		/*
@@ -659,13 +687,13 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 		switch (wsi->ietf_spec_revision) {
 		case 0: /* applies to 76 and 00 */
 			wsi->xor_mask = xor_no_mask;
-			if (handshake_00(wsi))
+			if (handshake_00(context, wsi))
 				goto bail;
 			break;
 		case 4: /* 04 */
 			wsi->xor_mask = xor_mask_04;
 			debug("libwebsocket_parse calling handshake_04\n");
-			if (handshake_0405(wsi))
+			if (handshake_0405(context, wsi))
 				goto bail;
 			break;
 		case 5:
@@ -673,7 +701,7 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 		case 7:
 			wsi->xor_mask = xor_mask_05;
 			debug("libwebsocket_parse calling handshake_04\n");
-			if (handshake_0405(wsi))
+			if (handshake_0405(context, wsi))
 				goto bail;
 			break;
 

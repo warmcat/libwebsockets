@@ -619,6 +619,8 @@ LIBOBJS
 NOPING_FALSE
 NOPING_TRUE
 clientcertdir
+EXT_GOOGLE_MUX_FALSE
+EXT_GOOGLE_MUX_TRUE
 LIBCRYPTO_FALSE
 LIBCRYPTO_TRUE
 CPP
@@ -742,6 +744,7 @@ enable_libtool_lock
 enable_openssl
 enable_nofork
 enable_libcrypto
+enable_x_google_mux
 with_client_cert_dir
 enable_noping
 '
@@ -753,12 +756,7 @@ CFLAGS
 LDFLAGS
 LIBS
 CPPFLAGS
-CPP
-CPPFLAGS
-CC
-LDFLAGS
-LIBS
-CPPFLAGS'
+CPP'
 
 
 # Initialize some variables set by options.
@@ -1389,6 +1387,7 @@ Optional Features:
   --enable-openssl  Enables https support and needs openssl libs
   --enable-nofork  Disables fork-related options
   --enable-libcrypto  Use libcrypto MD5 and SHA1 implementations
+  --enable-x-google-mux  Build experimental x-google-mux
   --enable-noping  Do not build ping test app, which has some unixy stuff in sources
 
 Optional Packages:
@@ -12297,6 +12296,28 @@ fi
 #
 #
 #
+# Check whether --enable-x-google-mux was given.
+if test "${enable_x_google_mux+set}" = set; then :
+  enableval=$enable_x_google_mux;  x_google_mux=yes
+
+fi
+
+if test "x$x_google_mux" = "xyes" ; then
+CFLAGS="$CFLAGS -DLWS_EXT_GOOGLE_MUX"
+fi
+ if test x$x_google_mux = xyes; then
+  EXT_GOOGLE_MUX_TRUE=
+  EXT_GOOGLE_MUX_FALSE='#'
+else
+  EXT_GOOGLE_MUX_TRUE='#'
+  EXT_GOOGLE_MUX_FALSE=
+fi
+
+
+
+#
+#
+#
 
 # Check whether --with-client-cert-dir was given.
 if test "${with_client_cert_dir+set}" = set; then :
@@ -12643,6 +12664,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${LIBCRYPTO_TRUE}" && test -z "${LIBCRYPTO_FALSE}"; then
   as_fn_error $? "conditional \"LIBCRYPTO\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${EXT_GOOGLE_MUX_TRUE}" && test -z "${EXT_GOOGLE_MUX_FALSE}"; then
+  as_fn_error $? "conditional \"EXT_GOOGLE_MUX\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${NOPING_TRUE}" && test -z "${NOPING_FALSE}"; then

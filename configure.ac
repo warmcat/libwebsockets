@@ -63,6 +63,19 @@ AM_CONDITIONAL(LIBCRYPTO, test x$libcrypto = xyes)
 #
 #
 #
+AC_ARG_ENABLE(x-google-mux,
+ [  --enable-x-google-mux  Build experimental x-google-mux],
+ [ x_google_mux=yes
+ ])
+if test "x$x_google_mux" = "xyes" ; then
+CFLAGS="$CFLAGS -DLWS_EXT_GOOGLE_MUX"
+fi
+AM_CONDITIONAL(EXT_GOOGLE_MUX, test x$x_google_mux = xyes)
+
+
+#
+#
+#
 AC_ARG_WITH([client-cert-dir],
 [AS_HELP_STRING([--with-client-cert-dir],[directory containing client certs, defaults to /etc/pki/tls/certs/])],
 [clientcertdir=$withval],

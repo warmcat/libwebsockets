@@ -45,6 +45,7 @@ const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
 /*	[WSI_TOKEN_ACCEPT]	=	*/{ "Sec-WebSocket-Accept:",	21 },
 /*	[WSI_TOKEN_NONCE]	=	*/{ "Sec-WebSocket-Nonce:",	20 },
 /*	[WSI_TOKEN_HTTP]	=	*/{ "HTTP/1.1 ",		 9 },
+/*	[WSI_TOKEN_MUXURL]	=	*/{ "",		 -1 },
 
 };
 
@@ -70,6 +71,8 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_NONCE:
 	case WSI_TOKEN_EXTENSIONS:
 	case WSI_TOKEN_HTTP:
+	case WSI_TOKEN_MUXURL:
+
 		debug("WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);
 
 		/* collect into malloc'd buffers */
@@ -107,6 +110,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			wsi->utf8_token[wsi->parser_state].token[
 			   wsi->utf8_token[wsi->parser_state].token_len] = '\0';
 			wsi->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
+			fprintf(stderr, "*\n");
 			break;
 		}
 
@@ -149,6 +153,15 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		debug("Setting WSI_PARSING_COMPLETE\n");
 		wsi->parser_state = WSI_PARSING_COMPLETE;
+		break;
+
+	case WSI_INIT_TOKEN_MUXURL:
+		wsi->parser_state = WSI_TOKEN_MUXURL;
+		wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
+
+		wsi->utf8_token[wsi->parser_state].token =
+					 malloc(wsi->current_alloc_len);
+		wsi->utf8_token[wsi->parser_state].token_len = 0;
 		break;
 
 		/* collecting and checking a name part */
@@ -269,10 +282,16 @@ xor_mask_05(struct libwebsocket *wsi, unsigned char c)
 
 
 
-static int libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
+int
+libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;
 	unsigned char buf[20 + 4];
+	struct lws_tokens eff_buf;
+	int handled;
+	int m;
+
+//	fprintf(stderr, "RX: %02X ", c);
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
@@ -693,6 +712,8 @@ spill:
 		 * layer?  If so service it and hide it from the user callback
 		 */
 
+		debug("spill on %s\n", wsi->protocol->name);
+
 		switch (wsi->opcode) {
 		case LWS_WS_OPCODE_07__CLOSE:
 			/* is this an acknowledgement of our close? */
@@ -729,8 +750,45 @@ spill:
 			wsi->rx_user_buffer_head = 0;
 			return 0;
 
-		default:
+		case LWS_WS_OPCODE_07__TEXT_FRAME:
+		case LWS_WS_OPCODE_07__BINARY_FRAME:
 			break;
+
+		default:
+
+			debug("passing opcode %x up to exts\n", wsi->opcode);
+
+			/*
+			 * It's something special we can't understand here.
+			 * Pass the payload up to the extension's parsing
+			 * state machine.
+			 */
+
+			eff_buf.token = &wsi->rx_user_buffer[
+						   LWS_SEND_BUFFER_PRE_PADDING];
+			eff_buf.token_len = wsi->rx_user_buffer_head;
+
+			handled = 0;
+			for (n = 0; n < wsi->count_active_extensions; n++) {
+				m = wsi->active_extensions[n]->callback(
+					wsi->protocol->owning_server,
+					wsi->active_extensions[n], wsi,
+					LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
+					    wsi->active_extensions_user[n],
+								   &eff_buf, 0);
+				if (m)
+					handled = 1;
+			}
+
+			if (!handled) {
+				/* kill the connection */
+				fprintf(stderr, "Unhandled extended opcode "
+							 "0x%x\n", wsi->opcode);
+				return -1;
+			}
+
+			wsi->rx_user_buffer_head = 0;
+			return 0;
 		}
 
 		/*
@@ -748,6 +806,9 @@ spill:
 						wsi->user_space,
 			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 						      wsi->rx_user_buffer_head);
+		else
+			fprintf(stderr, "No callback on payload spill!\n");
+
 		wsi->rx_user_buffer_head = 0;
 		break;
 	}
@@ -768,6 +829,11 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	int n;
 	unsigned char buf[20 + 4];
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
+	int handled;
+	struct lws_tokens eff_buf;
+	int m;
+
+	debug(" CRX: %02X %d\n", c, wsi->lws_rx_parse_state);
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
@@ -1083,6 +1149,9 @@ issue:
 		if (wsi->rx_user_buffer_head != MAX_USER_RX_BUFFER)
 			break;
 spill:
+
+		handled = 0;
+
 		/*
 		 * is this frame a control packet we should take care of at this
 		 * layer?  If so service it and hide it from the user callback
@@ -1124,7 +1193,42 @@ spill:
 			callback_action = LWS_CALLBACK_CLIENT_RECEIVE_PONG;
 			break;
 
+		case LWS_WS_OPCODE_07__CONTINUATION:
+		case LWS_WS_OPCODE_07__TEXT_FRAME:
+		case LWS_WS_OPCODE_07__BINARY_FRAME:
+			break;
+
 		default:
+
+			fprintf(stderr, "Reserved opcode 0x%2X\n", wsi->opcode);
+			/*
+			 * It's something special we can't understand here.
+			 * Pass the payload up to the extension's parsing
+			 * state machine.
+			 */
+
+			eff_buf.token = &wsi->rx_user_buffer[
+						   LWS_SEND_BUFFER_PRE_PADDING];
+			eff_buf.token_len = wsi->rx_user_buffer_head;
+
+			for (n = 0; n < wsi->count_active_extensions; n++) {
+				m = wsi->active_extensions[n]->callback(
+					wsi->protocol->owning_server,
+					wsi->active_extensions[n], wsi,
+					LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
+					    wsi->active_extensions_user[n],
+								   &eff_buf, 0);
+				if (m)
+					handled = 1;
+			}
+
+			if (!handled) {
+				/* kill the connection */
+				fprintf(stderr, "Unhandled extended opcode "
+							 "0x%x\n", wsi->opcode);
+				return -1;
+			}
+
 			break;
 		}
 
@@ -1134,7 +1238,7 @@ spill:
 		 * so it can be sent straight out again using libwebsocket_write
 		 */
 
-		if (wsi->protocol->callback)
+		if (!handled && wsi->protocol->callback)
 			wsi->protocol->callback(wsi->protocol->owning_server,
 						wsi, callback_action,
 						wsi->user_space,
@@ -1223,9 +1327,75 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 	return 0;
 }
 
+void lws_stderr_hexdump(unsigned char *buf, size_t len)
+{
+	int n;
+	int m;
+	int start;
+
+	fprintf(stderr, "\n");
+
+	for (n = 0; n < len;) {
+		start = n;
+
+		fprintf(stderr, "%04X: ", start);
+		
+		for (m = 0; m < 16 && n < len; m++)
+			fprintf(stderr, "%02X ", buf[n++]);
+		while (m++ < 16)
+			fprintf(stderr, "   ");
+
+		fprintf(stderr, "   ");
+
+		for (m = 0; m < 16 && (start + m) < len; m++) {
+			if (buf[start + m] >= ' ' && buf[start + m] <= 127)
+				fprintf(stderr, "%c", buf[start + m]);
+			else
+				fprintf(stderr, ".");
+		}
+		while (m++ < 16)
+			fprintf(stderr, " ");
+
+		fprintf(stderr, "\n");
+	}
+	fprintf(stderr, "\n");
+}
+
 int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
 	int n;
+	int m;
+
+	/*
+	 * one of the extensions is carrying our data itself?  Like mux?
+	 */
+
+	for (n = 0; n < wsi->count_active_extensions; n++) {
+		/*
+		 * there can only be active extensions after handshake completed
+		 * so we can rely on protocol being set already in here
+		 */
+		m = wsi->active_extensions[n]->callback(
+				wsi->protocol->owning_server,
+				wsi->active_extensions[n], wsi,
+				LWS_EXT_CALLBACK_PACKET_TX_DO_SEND,
+				     wsi->active_extensions_user[n], &buf, len);
+		if (m < 0) {
+			fprintf(stderr, "Extension reports fatal error\n");
+			return -1;
+		}
+		if (m) /* handled */
+			return 0;
+	}
+
+	/*
+	 * nope, send it on the socket directly
+	 */
+
+#if 0
+	fprintf(stderr, "  TX: ");
+	lws_stderr_hexdump(buf, len);
+#endif
 
 #ifdef LWS_OPENSSL_SUPPORT
 	if (wsi->ssl) {
@@ -1284,7 +1454,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	int shift = 7;
 	struct lws_tokens eff_buf;
 	int ret;
-	int masked7 = wsi->mode == LWS_CONNMODE_WS_CLIENT;
+	int masked7 = wsi->mode == LWS_CONNMODE_WS_CLIENT && wsi->xor_mask != xor_no_mask;
 	unsigned char *dropmask = NULL;
 	unsigned char is_masked_bit = 0;
 
@@ -1490,7 +1660,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		 * to control the raw packet payload content
 		 */
 
-		if (!(protocol & LWS_WRITE_CLIENT_IGNORE_XOR_MASK)) {
+		if (!(protocol & LWS_WRITE_CLIENT_IGNORE_XOR_MASK) && wsi->xor_mask != xor_no_mask) {
 
 			if (libwebsocket_0405_frame_mask_generate(wsi)) {
 				fprintf(stderr, "libwebsocket_write: "
@@ -1536,10 +1706,12 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 				buf[2 - pre] = 0;
 				buf[3 - pre] = 0;
 			} else {
-				dropmask[0] = 0;
-				dropmask[1] = 0;
-				dropmask[2] = 0;
-				dropmask[3] = 0;
+				if (dropmask && wsi->xor_mask != xor_no_mask) {
+					dropmask[0] = 0;
+					dropmask[1] = 0;
+					dropmask[2] = 0;
+					dropmask[3] = 0;
+				}
 			}
 		}
 

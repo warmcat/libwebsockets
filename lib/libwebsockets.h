@@ -40,7 +40,7 @@ extern "C" {
 #endif
 
 #define CONTEXT_PORT_NO_LISTEN 0
-
+#define MAX_MUX_RECURSION 2
 
 enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK = 1,
@@ -74,12 +74,25 @@ enum libwebsocket_callback_reasons {
 };
 
 enum libwebsocket_extension_callback_reasons {
+	LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT,
+	LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT,
+	LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT,
+	LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT,
 	LWS_EXT_CALLBACK_CONSTRUCT,
 	LWS_EXT_CALLBACK_CLIENT_CONSTRUCT,
 	LWS_EXT_CALLBACK_DESTROY,
+	LWS_EXT_CALLBACK_DESTROY_ANY_WSI_CLOSING,
+	LWS_EXT_CALLBACK_ANY_WSI_ESTABLISHED,
 	LWS_EXT_CALLBACK_PACKET_RX_PREPARSE,
 	LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
+	LWS_EXT_CALLBACK_PACKET_TX_DO_SEND,
+	LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
 	LWS_EXT_CALLBACK_FLUSH_PENDING_TX,
+	LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
+	LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION,
+	LWS_EXT_CALLBACK_1HZ,
+	LWS_EXT_CALLBACK_REQUEST_ON_WRITEABLE,
+	LWS_EXT_CALLBACK_IS_WRITEABLE,
 };
 
 enum libwebsocket_write_protocol {
@@ -141,6 +154,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_ACCEPT,
 	WSI_TOKEN_NONCE,
 	WSI_TOKEN_HTTP,
+	WSI_TOKEN_MUXURL,
 
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,
@@ -148,7 +162,8 @@ enum lws_token_indexes {
 	WSI_TOKEN_NAME_PART,
 	WSI_TOKEN_SKIPPING,
 	WSI_TOKEN_SKIPPING_SAW_CR,
-	WSI_PARSING_COMPLETE
+	WSI_PARSING_COMPLETE,
+	WSI_INIT_TOKEN_MUXURL,
 };
 
 /*
@@ -523,6 +538,7 @@ struct libwebsocket_extension {
 			enum libwebsocket_extension_callback_reasons reason,
 					      void *user, void *in, size_t len);
 	size_t per_session_data_size;
+	void * per_context_private_data;
 };
 
 
@@ -574,11 +590,12 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 /*
  * this is the frame nonce plus two header plus 8 length
+ *   there's an additional two for mux extension per mux nesting level
  * 2 byte prepend on close will already fit because control frames cannot use
  * the big length style
  */
 
-#define LWS_SEND_BUFFER_PRE_PADDING (4 + 10)
+#define LWS_SEND_BUFFER_PRE_PADDING (4 + 10 + (2 * MAX_MUX_RECURSION))
 #define LWS_SEND_BUFFER_POST_PADDING 1
 
 extern int

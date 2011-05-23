@@ -2,6 +2,147 @@
 #include <netdb.h>
 
 
+struct libwebsocket * __libwebsocket_client_connect_2(
+	struct libwebsocket_context *context,
+	struct libwebsocket *wsi
+) {
+	struct pollfd pfd;
+	struct timeval tv;
+	struct hostent *server_hostent;
+	struct sockaddr_in server_addr;
+	int n;
+	int plen = 0;
+	char pkt[512];
+	int opt = 1;
+
+	fprintf(stderr, "__libwebsocket_client_connect_2\n");
+
+	wsi->candidate_children_list = NULL;
+
+	/*
+	 * proxy?
+	 */
+
+	if (context->http_proxy_port) {
+		plen = sprintf(pkt, "CONNECT %s:%u HTTP/1.0\x0d\x0a"
+			"User-agent: libwebsockets\x0d\x0a"
+/*Proxy-authorization: basic aGVsbG86d29ybGQ= */
+			"\x0d\x0a", wsi->c_address, wsi->c_port);
+
+		/* OK from now on we talk via the proxy */
+
+		free(wsi->c_address);
+		wsi->c_address = strdup(context->http_proxy_address);
+		wsi->c_port = context->http_proxy_port;
+	}
+
+	/*
+	 * prepare the actual connection (to the proxy, if any)
+	 */
+
+	server_hostent = gethostbyname(wsi->c_address);
+	if (server_hostent == NULL) {
+		fprintf(stderr, "Unable to get host name from %s\n",
+								wsi->c_address);
+		goto oom4;
+	}
+
+	wsi->sock = socket(AF_INET, SOCK_STREAM, 0);
+
+	if (wsi->sock < 0) {
+		fprintf(stderr, "Unable to open socket\n");
+		goto oom4;
+	}
+
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(wsi->c_port);
+	server_addr.sin_addr = *((struct in_addr *)server_hostent->h_addr);
+	bzero(&server_addr.sin_zero, 8);
+
+	/* Disable Nagle */
+	setsockopt(wsi->sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
+
+	/* Set receiving timeout */
+	tv.tv_sec = 0;
+	tv.tv_usec = 100 * 1000;
+	setsockopt(wsi->sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof tv);
+
+	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
+					      sizeof(struct sockaddr)) == -1)  {
+		fprintf(stderr, "Connect failed\n");
+		goto oom4;
+	}
+
+	fprintf(stderr, "connected\n");
+
+	/* into fd -> wsi hashtable */
+
+	insert_wsi(context, wsi);
+
+	/* into internal poll list */
+
+	context->fds[context->fds_count].fd = wsi->sock;
+	context->fds[context->fds_count].revents = 0;
+	context->fds[context->fds_count++].events = POLLIN;
+
+	/* external POLL support via protocol 0 */
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_ADD_POLL_FD,
+		(void *)(long)wsi->sock, NULL, POLLIN);
+
+	/* we are connected to server, or proxy */
+
+	if (context->http_proxy_port) {
+
+		n = send(wsi->sock, pkt, plen, 0);
+		if (n < 0) {
+#ifdef WIN32
+			closesocket(wsi->sock);
+#else
+			close(wsi->sock);
+#endif
+			fprintf(stderr, "ERROR writing to proxy socket\n");
+			goto bail1;
+		}
+
+		libwebsocket_set_timeout(wsi,
+			PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE, 5);
+
+		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY;
+
+		return wsi;
+	}
+
+	/*
+	 * provoke service to issue the handshake directly
+	 * we need to do it this way because in the proxy case, this is the
+	 * next state and executed only if and when we get a good proxy
+	 * response inside the state machine
+	 */
+
+	wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE;
+	pfd.fd = wsi->sock;
+	pfd.revents = POLLIN;
+	libwebsocket_service_fd(context, &pfd);
+
+	return wsi;
+
+oom4:
+	if (wsi->c_protocol)
+		free(wsi->c_protocol);
+
+	if (wsi->c_origin)
+		free(wsi->c_origin);
+
+	free(wsi->c_host);
+	free(wsi->c_path);
+
+bail1:
+	free(wsi);
+
+	return NULL;
+}
+
 /**
  * libwebsocket_client_connect() - Connect to another websocket server
  * @context:	Websocket context
@@ -32,14 +173,11 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 			      const char *protocol,
 			      int ietf_version_or_minus_one)
 {
-	struct hostent *server_hostent;
-	struct sockaddr_in server_addr;
-	char pkt[512];
-	struct pollfd pfd;
 	struct libwebsocket *wsi;
 	int n;
-	int opt = 1;
-	int plen = 0;
+	int m;
+	struct libwebsocket_extension *ext;
+	int handled;
 #ifndef LWS_OPENSSL_SUPPORT
 	if (ssl_connection) {
 		fprintf(stderr, "libwebsockets not configured for ssl\n");
@@ -69,6 +207,9 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = ssl_connection;
 #endif
+
+	wsi->c_port = port;
+	wsi->c_address = strdup(address);
 
 	/* copy parameters over so state machine has access */
 
@@ -129,103 +270,42 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	}
 
 	/*
-	 * proxy?
+	 * Check with each extension if it is able to route and proxy this
+	 * connection for us.  For example, an extension like x-google-mux
+	 * can handle this and then we don't need an actual socket for this
+	 * connection.
 	 */
 
-	if (context->http_proxy_port) {
-		plen = sprintf(pkt, "CONNECT %s:%u HTTP/1.0\x0d\x0a"
-			"User-agent: libwebsockets\x0d\x0a"
-/*Proxy-authorization: basic aGVsbG86d29ybGQ= */
-			"\x0d\x0a", address, port);
+	handled = 0;
+	ext = context->extensions;
+	n = 0;
 
-		/* OK from now on we talk via the proxy */
+	while (ext && ext->callback && !handled) {
+		m = ext->callback(context, ext, wsi,
+			LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION,
+				 (void *)(long)n, (void *)address, port);
+		if (m)
+			handled = 1;
 
-		address = context->http_proxy_address;
-		port = context->http_proxy_port;
+		ext++;
+		n++;
 	}
 
-	/*
-	 * prepare the actual connection (to the proxy, if any)
-	 */
-
-	server_hostent = gethostbyname(address);
-	if (server_hostent == NULL) {
-		fprintf(stderr, "Unable to get host name from %s\n", address);
-		goto oom4;
-	}
-
-	wsi->sock = socket(AF_INET, SOCK_STREAM, 0);
-
-	if (wsi->sock < 0) {
-		fprintf(stderr, "Unable to open socket\n");
-		goto oom4;
-	}
-
-	server_addr.sin_family = AF_INET;
-	server_addr.sin_port = htons(port);
-	server_addr.sin_addr = *((struct in_addr *)server_hostent->h_addr);
-	bzero(&server_addr.sin_zero, 8);
-
-	/* Disable Nagle */
-	setsockopt(wsi->sock, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
-
-	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
-					      sizeof(struct sockaddr)) == -1)  {
-		fprintf(stderr, "Connect failed\n");
-		goto oom4;
-	}
-
-	/* into fd -> wsi hashtable */
-
-	insert_wsi(context, wsi);
-
-	/* into internal poll list */
-
-	context->fds[context->fds_count].fd = wsi->sock;
-	context->fds[context->fds_count].revents = 0;
-	context->fds[context->fds_count++].events = POLLIN;
-
-	/* external POLL support via protocol 0 */
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_ADD_POLL_FD,
-		(void *)(long)wsi->sock, NULL, POLLIN);
-
-	/* we are connected to server, or proxy */
-
-	if (context->http_proxy_port) {
-
-		n = send(wsi->sock, pkt, plen, 0);
-		if (n < 0) {
-#ifdef WIN32
-			closesocket(wsi->sock);
-#else
-			close(wsi->sock);
-#endif
-			fprintf(stderr, "ERROR writing to proxy socket\n");
-			goto bail1;
-		}
+	if (handled) {
+		fprintf(stderr, "libwebsocket_client_connect: "
+							 "ext handling conn\n");
 
 		libwebsocket_set_timeout(wsi,
-			PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE, 5);
+			PENDING_TIMEOUT_AWAITING_EXTENSION_CONNECT_RESPONSE, 5);
 
-		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY;
-
+		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT;
 		return wsi;
 	}
 
-	/*
-	 * provoke service to issue the handshake directly
-	 * we need to do it this way because in the proxy case, this is the
-	 * next state and executed only if and when we get a good proxy
-	 * response inside the state machine
-	 */
+	fprintf(stderr, "libwebsocket_client_connect: direct conn\n");
 
-	wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE;
-	pfd.fd = wsi->sock;
-	pfd.revents = POLLIN;
-	libwebsocket_service_fd(context, &pfd);
+	return __libwebsocket_client_connect_2(context, wsi);
 
-	return wsi;
 
 oom4:
 	if (wsi->c_protocol)

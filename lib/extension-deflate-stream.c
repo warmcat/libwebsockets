@@ -140,7 +140,10 @@ int lws_extension_callback_deflate_stream(
 
 		/* we don't need calling again until new input data comes */
 
-		return 0;	
+		return 0;
+
+	default:
+		break;
 	}
 
 	return 0;

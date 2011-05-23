@@ -124,7 +124,7 @@ static void
 dump_handshake_info(struct lws_tokens *lwst)
 {
 	int n;
-	static const char *token_names[] = {
+	static const char *token_names[WSI_TOKEN_COUNT] = {
 		/*[WSI_TOKEN_GET_URI]		=*/ "GET URI",
 		/*[WSI_TOKEN_HOST]		=*/ "Host",
 		/*[WSI_TOKEN_CONNECTION]	=*/ "Connection",
@@ -148,6 +148,7 @@ dump_handshake_info(struct lws_tokens *lwst)
 		/*[WSI_TOKEN_ACCEPT]		=*/ "Accept",
 		/*[WSI_TOKEN_NONCE]		=*/ "Nonce",
 		/*[WSI_TOKEN_HTTP]		=*/ "Http",
+		/*[WSI_TOKEN_MUXURL]	=*/ "MuxURL",
 	};
 	
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
@@ -187,6 +188,7 @@ callback_dumb_increment(struct libwebsocket_context * context,
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
+		fprintf(stderr, "callback_dumb_increment: LWS_CALLBACK_ESTABLISHED\n");
 		pss->number = 0;
 		break;
 
@@ -266,6 +268,7 @@ callback_lws_mirror(struct libwebsocket_context * context,
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
+		fprintf(stderr, "callback_lws_mirror: LWS_CALLBACK_ESTABLISHED\n");
 		pss->ringbuffer_tail = ringbuffer_head;
 		pss->wsi = wsi;
 		break;
