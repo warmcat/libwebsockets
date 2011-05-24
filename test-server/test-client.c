@@ -30,6 +30,7 @@
 static unsigned int opts;
 static int was_closed;
 static int deny_deflate;
+static int deny_mux;
 static struct libwebsocket *wsi_mirror;
 
 /*
@@ -78,11 +79,15 @@ callback_dumb_increment(struct libwebsocket_context * this,
 	/* because we are protocols[0] ... */
 
 	case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:
-		if (strcmp(in, "deflate-stream") == 0)
-			if (deny_deflate) {
-				fprintf(stderr, "denied deflate-stream extension\n");
-				return 1;
-			}
+		if ((strcmp(in, "deflate-stream") == 0) && deny_deflate) {
+			fprintf(stderr, "denied deflate-stream extension\n");
+			return 1;
+		}
+		if ((strcmp(in, "x-google-mux") == 0) && deny_mux) {
+			fprintf(stderr, "denied x-google-mux extension\n");
+			return 1;
+		}
+
 		break;
 
 	default:
@@ -187,6 +192,7 @@ static struct option options[] = {
 	{ "killmask",	no_argument,		NULL, 'k' },
 	{ "version",	required_argument,	NULL, 'v' },
 	{ "undeflated",	no_argument,		NULL, 'u' },
+	{ "nomux",	no_argument,		NULL, 'n' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -210,7 +216,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "uv:khsp:", options, NULL);
+		n = getopt_long(argc, argv, "nuv:khsp:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -228,6 +234,9 @@ int main(int argc, char **argv)
 			break;
 		case 'u':
 			deny_deflate = 1;
+			break;
+		case 'n':
+			deny_mux = 1;
 			break;
 		case 'h':
 			goto usage;
