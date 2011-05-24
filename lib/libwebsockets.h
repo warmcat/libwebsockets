@@ -33,8 +33,10 @@
 
 #ifdef __cplusplus
 extern "C" {
-#include "gettimeofday.h"
 #endif
+
+#include "gettimeofday.h"
+
 #else
 #include <poll.h>
 #endif
