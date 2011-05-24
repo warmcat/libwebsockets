@@ -32,19 +32,33 @@ static int lws_addheader_mux_opcode(unsigned char *pb, int len)
 	return pb - start;
 }
 
-static int lws_mux_subcommand_header(int cmd, int channel, unsigned char *pb, int len)
+static int
+lws_mux_subcommand_header(int cmd, int channel, unsigned char *pb, int len)
 {
 	unsigned char *start = pb;
 
-	*pb++ = ((channel >> 8) << 3) | cmd;
-	*pb++ = channel;
+	if (channel < 31)
+		*pb++ = (channel << 3) | cmd;
+	else {
+		*pb++ = (31 << 3) | cmd;
+		*pb++ = channel >> 8;
+		*pb++ = channel;
+	}
 
 	if (len <= 253)
 		*pb++ = len;
 	else {
-		*pb++ = 254;
-		*pb++ = len >> 8;
-		*pb++ = len;
+		if (len <= 65535) {
+			*pb++ = 254;
+			*pb++ = len >> 8;
+			*pb++ = len;
+		} else {
+			*pb++ = 255;
+			*pb++ = len >> 24;
+			*pb++ = len >> 16;
+			*pb++ = len >> 8;
+			*pb++ = len;
+		}
 	}
 
 	return pb - start;
@@ -134,15 +148,25 @@ lws_extension_x_google_mux_parser(struct libwebsocket_context *context,
 	case LWS_EXT_XGM_STATE__MUX_BLOCK_1:
 		muxdebug("LWS_EXT_XGM_STATE__MUX_BLOCK_1: opc=%d\n", c & 7);
 		conn->block_subopcode = c & 7;
-		conn->block_subchannel = (c << 5) & ~0xff;
-		conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_2;
+		conn->block_subchannel = (c >> 3) & ~0x1f;
+		if (conn->block_subchannel != 31)
+			goto interpret;
+		else
+			conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_2;
 		break;
 
 	case LWS_EXT_XGM_STATE__MUX_BLOCK_2:
+		conn->block_subchannel = c << 8;
+		conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_3;
+		break;
+
+	case LWS_EXT_XGM_STATE__MUX_BLOCK_3:
 		conn->block_subchannel |= c;
+
 		muxdebug("LWS_EXT_XGM_STATE__MUX_BLOCK_2: subchannel=%d\n", conn->block_subchannel);
 
-		ongoing_subchannel = ongoing_subchannel;
+interpret:
+		ongoing_subchannel = conn->block_subchannel;
 
 		/*
 		 * convert the subchannel index to a child wsi
