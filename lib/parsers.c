@@ -982,9 +982,15 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			if (wsi->this_frame_masked)
 				wsi->lws_rx_parse_state =
 						LWS_RXPS_07_COLLECT_FRAME_KEY_1;
-			else
-				wsi->lws_rx_parse_state =
-					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+			else {
+				if (c)
+					wsi->lws_rx_parse_state =
+							LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+				else {
+					wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+					goto spill;
+				}
+			}
 			break;
 		}
 		break;
@@ -999,9 +1005,15 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->this_frame_masked)
 			wsi->lws_rx_parse_state =
 					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
-		else
-			wsi->lws_rx_parse_state =
-				LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		else {
+			if (wsi->rx_packet_length)
+				wsi->lws_rx_parse_state =
+						LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+			else {
+				wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+				goto spill;
+			}
+		}
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
@@ -1059,9 +1071,15 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->this_frame_masked)
 			wsi->lws_rx_parse_state =
 					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
-		else
-			wsi->lws_rx_parse_state =
-				LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		else {
+			if (wsi->rx_packet_length)
+				wsi->lws_rx_parse_state =
+						LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+			else {
+				wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+				goto spill;
+			}
+		}
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_1:
@@ -1089,8 +1107,14 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		wsi->frame_masking_nonce_04[3] = c;
 		if (c)
 			wsi->all_zero_nonce = 0;
-		wsi->lws_rx_parse_state =
+
+		if (wsi->rx_packet_length)
+			wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		else {
+			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+			goto spill;
+		}
 		break;
 
 	case LWS_RXPS_EAT_UNTIL_76_FF:
