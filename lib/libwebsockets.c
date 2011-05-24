@@ -2749,6 +2749,9 @@ libwebsocket_create_context(int port, const char *interf,
 	for (context->count_protocols = 0;
 			protocols[context->count_protocols].callback;
 						   context->count_protocols++) {
+
+		fprintf(stderr, "  Protocol: %s\n", protocols[context->count_protocols].name);
+
 		protocols[context->count_protocols].owning_server = context;
 		protocols[context->count_protocols].protocol_index =
 						       context->count_protocols;
@@ -2822,6 +2825,7 @@ libwebsocket_create_context(int port, const char *interf,
 	if (port)
 		m = LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT;
 	while (extensions->callback) {
+		fprintf(stderr, "  Extension: %s\n", extensions->name);
 		extensions->callback(context, extensions,
 							NULL, m, NULL, NULL, 0);
 		extensions++;
