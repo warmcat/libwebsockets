@@ -1183,6 +1183,7 @@ spill:
 			n = libwebsocket_write(wsi, (unsigned char *)
 			    &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				    wsi->rx_user_buffer_head, LWS_WRITE_PONG);
+			handled = 1;
 			break;
 
 		case LWS_WS_OPCODE_07__PONG:
