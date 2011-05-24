@@ -342,11 +342,11 @@ bail2:
 
 		wsi_child = conn->wsi_children[conn->block_subchannel];
 
-		muxdebug("Server LWS_EXT_XGM_STATE__ADDCHANNEL_HEADERS in\n");
+		muxdebug("Server LWS_EXT_XGM_STATE__ADDCHANNEL_HEADERS in %d\n", conn->length);
 
 		libwebsocket_read(context, wsi_child, &c, 1);
 
-		if (--conn->length >= 0)
+		if (--conn->length > 0)
 			break;
 
 		muxdebug("Server LWS_EXT_XGM_STATE__ADDCHANNEL_HEADERS done\n");
@@ -359,7 +359,10 @@ bail2:
 		/* reply with ADDCHANNEL to ack it */
 
 		wsi->xor_mask = xor_no_mask;
+		child_conn = lws_get_extension_user_matching_ext(wsi_child, this_ext);
+		child_conn->wsi_parent = wsi;
 
+		muxdebug("Setting child conn parent to %p\n", (void *)wsi);
 
 //		lws_ext_x_google_mux__send_addchannel(context, wsi, wsi_child,
 //						    conn->block_subchannel, "url-parsing-not-done-yet");
@@ -450,7 +453,12 @@ bail2:
 		case LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY:
 		case LWS_CONNMODE_WS_CLIENT:
 //			fprintf(stderr, "  client\n");
-			libwebsocket_client_rx_sm(wsi_child, c);
+			if (libwebsocket_client_rx_sm(wsi_child, c) < 0) {
+				libwebsocket_close_and_free_session(
+					context,
+					wsi_child,
+					LWS_CLOSE_STATUS_GOINGAWAY);
+			}
 
 			return 0;
 
@@ -458,9 +466,13 @@ bail2:
 
 		default:
 //			fprintf(stderr, "  server\n");
-			if (libwebsocket_rx_sm(wsi_child, c) < 0)
+			if (libwebsocket_rx_sm(wsi_child, c) < 0) {
 				fprintf(stderr, "probs\n");
-
+				libwebsocket_close_and_free_session(
+					context,
+					wsi_child,
+					LWS_CLOSE_STATUS_GOINGAWAY);
+			}
 			break;
 		}
 		break;
@@ -611,28 +623,17 @@ int lws_extension_callback_x_google_mux(
 			 * connection
 			 */
 
-			conn->wsi_parent = wsi_parent;
-			parent_conn->wsi_children[
-					     parent_conn->count_children] = wsi;
+			wsi->candidate_children_list = wsi_parent->candidate_children_list;
+			wsi_parent->candidate_children_list = wsi;
+			wsi->mode = LWS_CONNMODE_WS_CLIENT_PENDING_CANDIDATE_CHILD;
 
-			/*
-			 * and now we have to ask the server to allow us to do
-			 * this
-			 */
+			fprintf(stderr, "attaching to existing mux\n");
 
-			if (lws_ext_x_google_mux__send_addchannel(context,
-				   wsi_parent, wsi, parent_conn->count_children,
-					    (const char *)in) < 0) {
-				fprintf(stderr, "Addchannel failed\n");
-				continue;
-			}
+			conn = parent_conn;
+			wsi = wsi_parent;
 
-			parent_conn->count_children++;
+			goto handle_additions;
 
-			fprintf(stderr, "!x-google-mux: muxing connection!  CHILD ADD %d to %p\n", parent_conn->count_children - 1, (void *)wsi);
-
-			done = 1;
-			n = mux_ctx->active_conns;
 		}
 
 		/*
@@ -663,6 +664,28 @@ int lws_extension_callback_x_google_mux(
 
 	case LWS_EXT_CALLBACK_DESTROY:
 		muxdebug("LWS_EXT_CALLBACK_DESTROY\n");
+
+		/*
+		 * remove us from parent if noted in parent
+		 */
+
+		if (conn->wsi_parent) {
+
+			parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
+			if (parent_conn == 0) {
+				fprintf(stderr, "failed to get parent conn\n");
+				break;
+			}
+			for (n = 0; n < parent_conn->count_children; n++)
+				if (parent_conn->wsi_children[n] == wsi) {
+					parent_conn->count_children--;
+					while (n < parent_conn->count_children) {
+						parent_conn->wsi_children[n] = parent_conn->wsi_children[n + 1];
+						n++;
+					}
+				}
+		}
+
 		break;
 
 	case LWS_EXT_CALLBACK_DESTROY_ANY_WSI_CLOSING:
@@ -694,6 +717,7 @@ int lws_extension_callback_x_google_mux(
 	case LWS_EXT_CALLBACK_ANY_WSI_ESTABLISHED:
 		muxdebug("LWS_EXT_CALLBACK_ANY_WSI_ESTABLISHED\n");
 
+handle_additions:
 		/*
 		 * did this putative parent get x-google-mux authorized in the
 		 * end?
@@ -716,7 +740,7 @@ int lws_extension_callback_x_google_mux(
 				wsi_parent = wsi_temp;
 			}
 
-			break;
+			return 1;
 		}
 
 		/*
@@ -741,7 +765,7 @@ int lws_extension_callback_x_google_mux(
 			wsi_parent = wsi_temp;
 		}
 		wsi->candidate_children_list = NULL;
-		break;
+		return 1;
 
 	/*
 	 * whenever we receive something on a muxed link
@@ -776,8 +800,10 @@ int lws_extension_callback_x_google_mux(
 		 * he's not a child connection of a mux
 		 */
 
-		if (!conn->wsi_parent)
+		if (!conn->wsi_parent) {
+//			fprintf(stderr, "conn %p has no parent\n", (void *)conn);
 			return 0;
+		}
 
 		/*
 		 * get parent / transport mux context
@@ -794,8 +820,10 @@ int lws_extension_callback_x_google_mux(
 		 * no more muxified than it already is
 		 */
 
-		if (parent_conn->count_children == 0)
+		if (parent_conn->count_children == 0) {
+//			fprintf(stderr, "parent in singular mode\n");
 			return 0;
+		}
 
 		/*
 		 * otherwise we need to take care of the sending action using

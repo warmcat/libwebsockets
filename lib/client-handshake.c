@@ -40,6 +40,8 @@ struct libwebsocket * __libwebsocket_client_connect_2(
 	 * prepare the actual connection (to the proxy, if any)
 	 */
 
+	fprintf(stderr, "__libwebsocket_client_connect_2: address %s", wsi->c_address);
+
 	server_hostent = gethostbyname(wsi->c_address);
 	if (server_hostent == NULL) {
 		fprintf(stderr, "Unable to get host name from %s\n",

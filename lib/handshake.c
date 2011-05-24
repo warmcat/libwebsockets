@@ -721,7 +721,8 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 		switch (wsi->mode) {
 		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
-				libwebsocket_client_rx_sm(wsi, *buf++);
+				if (libwebsocket_client_rx_sm(wsi, *buf++) < 0)
+					goto bail;
 
 			return 0;
 		default:

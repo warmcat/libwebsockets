@@ -192,6 +192,7 @@ dump_handshake_info(struct lws_tokens *lwst)
 		[WSI_TOKEN_ACCEPT] = "Accept",
 		[WSI_TOKEN_NONCE] = "Nonce",
 		[WSI_TOKEN_HTTP] = "Http",
+		[WSI_TOKEN_MUXURL]	= "MuxURL",
 	};
 	
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {

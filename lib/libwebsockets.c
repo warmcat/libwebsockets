@@ -222,6 +222,9 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 	if (old_state == WSI_STATE_ESTABLISHED &&
 					  reason != LWS_CLOSE_STATUS_NOSTATUS) {
+
+		fprintf(stderr, "sending close indication...\n");
+
 		n = libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING],
 							    0, LWS_WRITE_CLOSE);
 		if (!n) {
@@ -246,6 +249,9 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	}
 
 just_kill_connection:
+
+	fprintf(stderr, "libwebsocket_close_and_free_session: just_kill_connection\n");
+
 	/*
 	 * we won't be servicing or receiving anything further from this guy
 	 * remove this fd from wsi mapping hashtable
@@ -278,9 +284,15 @@ just_kill_connection:
 	/* tell the user it's all over for this guy */
 
 	if (wsi->protocol && wsi->protocol->callback &&
-					     old_state == WSI_STATE_ESTABLISHED)
+				((old_state == WSI_STATE_ESTABLISHED) ||
+				 (old_state == WSI_STATE_RETURNED_CLOSE_ALREADY) ||
+				 (old_state == WSI_STATE_AWAITING_CLOSE_ACK))) {
+		fprintf(stderr, "calling back CLOSED\n");
 		wsi->protocol->callback(context, wsi, LWS_CALLBACK_CLOSED,
 						      wsi->user_space, NULL, 0);
+	} else {
+		fprintf(stderr, "not calling back closed due to old_state=%d\n", old_state);
+	}
 
 	/* deallocate any active extension contexts */
 
@@ -334,9 +346,11 @@ just_kill_connection:
 #endif
 		shutdown(wsi->sock, SHUT_RDWR);
 #ifdef WIN32
-		closesocket(wsi->sock);
+		if (wsi->sock)
+			closesocket(wsi->sock);
 #else
-		close(wsi->sock);
+		if (wsi->sock)
+			close(wsi->sock);
 #endif
 #ifdef LWS_OPENSSL_SUPPORT
 	}

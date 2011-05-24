@@ -1409,8 +1409,14 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 			fprintf(stderr, "Extension reports fatal error\n");
 			return -1;
 		}
-		if (m) /* handled */
+		if (m) /* handled */ {
+//			fprintf(stderr, "ext sent it\n");
 			return 0;
+		}
+	}
+
+	if (!wsi->sock) {
+		fprintf(stderr, "** error 0 sock but expected to send\n");
 	}
 
 	/*
