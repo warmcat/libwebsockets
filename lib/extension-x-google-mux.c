@@ -53,6 +53,7 @@ static int lws_mux_subcommand_header(int cmd, int channel, unsigned char *pb, in
 static int lws_ext_x_google_mux__send_addchannel(
 	struct libwebsocket_context *context,
 	struct libwebsocket *wsi,
+	struct lws_ext_x_google_mux_conn *parent_conn,
 	struct libwebsocket *wsi_child,
 	int channel,
 	const char *url
@@ -65,6 +66,7 @@ static int lws_ext_x_google_mux__send_addchannel(
 	char delta_headers[1536];
 	int delta_headers_len;
 	int subcommand_length;
+	int n;
 
 	wsi_child->ietf_spec_revision = wsi->ietf_spec_revision;
 
@@ -85,12 +87,18 @@ static int lws_ext_x_google_mux__send_addchannel(
 	pb += delta_headers_len;
 
 	muxdebug("add channel sends %ld\n",
-								   pb - &send_buf[LWS_SEND_BUFFER_PRE_PADDING]);
+				   pb - &send_buf[LWS_SEND_BUFFER_PRE_PADDING]);
+
+	parent_conn->defeat_mux_opcode_wrapping = 1;
 
 	/* send the request to the server */
 
-	return lws_issue_raw(wsi, &send_buf[LWS_SEND_BUFFER_PRE_PADDING],
+	n = lws_issue_raw(wsi, &send_buf[LWS_SEND_BUFFER_PRE_PADDING],
 				   pb - &send_buf[LWS_SEND_BUFFER_PRE_PADDING]);
+
+	parent_conn->defeat_mux_opcode_wrapping = 0;
+
+	return n;
 }
 
 /**
@@ -361,10 +369,11 @@ bail2:
 		wsi->xor_mask = xor_no_mask;
 		child_conn = lws_get_extension_user_matching_ext(wsi_child, this_ext);
 		child_conn->wsi_parent = wsi;
+		child_conn->sticky_mux_used = 1;
 
 		muxdebug("Setting child conn parent to %p\n", (void *)wsi);
 
-//		lws_ext_x_google_mux__send_addchannel(context, wsi, wsi_child,
+//		lws_ext_x_google_mux__send_addchannel(context, wsi, conn, wsi_child,
 //						    conn->block_subchannel, "url-parsing-not-done-yet");
 
 		wsi_child->mode = LWS_CONNMODE_WS_SERVING;
@@ -757,11 +766,14 @@ handle_additions:
 			wsi_temp = wsi_parent->candidate_children_list;
 			/* let them each connect privately then */
 			lws_ext_x_google_mux__send_addchannel(context, wsi,
-					wsi_parent,
-				conn->count_children, wsi->c_path);
+					conn, wsi_parent,
+					     conn->count_children, wsi->c_path);
+
+			conn->sticky_mux_used = 1;
 
 			conn->wsi_children[conn->count_children++] = wsi_parent;
-			muxdebug("Setting CHILD LIST entry %d to %p\n", conn->count_children - 1, (void *)wsi_parent);
+			muxdebug("Setting CHILD LIST entry %d to %p\n",
+				  conn->count_children - 1, (void *)wsi_parent);
 			wsi_parent = wsi_temp;
 		}
 		wsi->candidate_children_list = NULL;
@@ -795,6 +807,7 @@ handle_additions:
 		muxdebug("LWS_EXT_CALLBACK_PACKET_TX_DO_SEND: %p\n", (void *)conn->wsi_parent);
 
 		pin = *((unsigned char **)in);
+		basepin = pin;
 
 		/*
 		 * he's not a child connection of a mux
@@ -820,22 +833,26 @@ handle_additions:
 		 * no more muxified than it already is
 		 */
 
-		if (parent_conn->count_children == 0) {
+		if (!parent_conn->sticky_mux_used) {
 //			fprintf(stderr, "parent in singular mode\n");
 			return 0;
 		}
 
-		/*
-		 * otherwise we need to take care of the sending action using
-		 * mux protocol.  Prepend the channel + opcode
-		 */
+		if (!conn->defeat_mux_opcode_wrapping) {
 
-		pin -= lws_addheader_mux_opcode(send_buf, len + 2) + 2;
-		basepin = pin;
-		pin += lws_addheader_mux_opcode(pin, len + 2);
+			/*
+			 * otherwise we need to take care of the sending action using
+			 * mux protocol.  Prepend the channel + opcode
+			 */
 
-		*pin++ = (conn->subchannel >> 8) | LWS_EXT_XGM_OPC__DATA;
-		*pin++ = conn->subchannel;
+			pin -= lws_addheader_mux_opcode(send_buf, len + 2) + 2;
+			basepin = pin;
+			pin += lws_addheader_mux_opcode(pin, len + 2);
+
+			*pin++ = (conn->subchannel >> 8) | LWS_EXT_XGM_OPC__DATA;
+			*pin++ = conn->subchannel;
+
+		}
 
 		/*
 		 * recurse to allow nesting
