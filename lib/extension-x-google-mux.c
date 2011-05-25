@@ -39,6 +39,11 @@ lws_mux_subcommand_header(int cmd, int channel, unsigned char *pb, int len)
 {
 	unsigned char *start = pb;
 
+	if (channel == 0) {
+		fprintf(stderr, "lws_mux_subcommand_header: given ch 0\n");
+		*((int *)0) = 0;
+	}
+
 	if (channel < 31)
 		*pb++ = (channel << 3) | cmd;
 	else {
@@ -83,6 +88,11 @@ static int lws_ext_x_google_mux__send_addchannel(
 	int delta_headers_len;
 	int subcommand_length;
 	int n;
+
+	if (channel == 0) {
+		fprintf(stderr, "lws_ext_x_google_mux__send_addchannel: given ch 0\n");
+		*((int *)0) = 0;
+	}
 
 	wsi_child->ietf_spec_revision = wsi->ietf_spec_revision;
 
@@ -148,9 +158,9 @@ lws_extension_x_google_mux_parser(struct libwebsocket_context *context,
 	switch (conn->state) {
 
 	case LWS_EXT_XGM_STATE__MUX_BLOCK_1:
-		muxdebug("LWS_EXT_XGM_STATE__MUX_BLOCK_1: opc=%d\n", c & 7);
+//		fprintf(stderr, "LWS_EXT_XGM_STATE__MUX_BLOCK_1: opc=%d channel=%d\n", c & 7, c >> 3);
 		conn->block_subopcode = c & 7;
-		conn->block_subchannel = (c >> 3) & ~0x1f;
+		conn->block_subchannel = (c >> 3) & 0x1f;
 		if (conn->block_subchannel != 31)
 			goto interpret;
 		else
@@ -165,9 +175,8 @@ lws_extension_x_google_mux_parser(struct libwebsocket_context *context,
 	case LWS_EXT_XGM_STATE__MUX_BLOCK_3:
 		conn->block_subchannel |= c;
 
-		muxdebug("LWS_EXT_XGM_STATE__MUX_BLOCK_2: subchannel=%d\n", conn->block_subchannel);
-
 interpret:
+//		fprintf(stderr, "LWS_EXT_XGM_STATE__MUX_BLOCK_3: subchannel=%d\n", conn->block_subchannel);
 		ongoing_subchannel = conn->block_subchannel;
 
 		/*
@@ -304,6 +313,7 @@ interpret:
 
 			conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_1;
 			child_conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_1;
+			child_conn->subchannel = conn->block_subchannel;
 
 			/* allocate the per-connection user memory (if any) */
 
@@ -395,7 +405,9 @@ bail2:
 		wsi->xor_mask = xor_no_mask;
 		child_conn = lws_get_extension_user_matching_ext(wsi_child, this_ext);
 		child_conn->wsi_parent = wsi;
-		child_conn->sticky_mux_used = 1;
+		conn->sticky_mux_used = 1;
+		child_conn->subchannel = conn->block_subchannel;
+
 
 		muxdebug("Setting child conn parent to %p\n", (void *)wsi);
 
@@ -469,11 +481,12 @@ bail2:
 		 * to tell us when it ate a full frame, so we watch its state
 		 * afterwards
 		 */
-		if (conn->block_subchannel > conn->count_children) {
+		if (conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET > conn->count_children) {
 			fprintf(stderr, "Illegal subchannel\n");
 			return -1;
 		}
 
+//		fprintf(stderr, "LWS_EXT_XGM_STATE__DATA: ch %d\n", conn->block_subchannel);
 		wsi_child = conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET];
 
 		switch (wsi_child->mode) {
@@ -827,7 +840,7 @@ handle_additions:
 
 	case LWS_EXT_CALLBACK_PACKET_TX_DO_SEND:
 
-		muxdebug("LWS_EXT_CALLBACK_PACKET_TX_DO_SEND: %p\n", (void *)conn->wsi_parent);
+		muxdebug("LWS_EXT_CALLBACK_PACKET_TX_DO_SEND: %p, my subchannel=%d\n", (void *)conn->wsi_parent, conn->subchannel);
 
 		pin = *((unsigned char **)in);
 		basepin = pin;
@@ -863,18 +876,25 @@ handle_additions:
 
 		if (!conn->defeat_mux_opcode_wrapping) {
 
+			n = 1;
+			if (conn->subchannel >= 31)
+				n = 3;
+
 			/*
 			 * otherwise we need to take care of the sending action using
 			 * mux protocol.  Prepend the channel + opcode
 			 */
 
-			pin -= lws_addheader_mux_opcode(send_buf, len + 2) + 2;
+			pin -= lws_addheader_mux_opcode(send_buf, len + n) + n;
 			basepin = pin;
-			pin += lws_addheader_mux_opcode(pin, len + 2);
+			pin += lws_addheader_mux_opcode(pin, len + n);
 
-			*pin++ = (conn->subchannel >> 8) | LWS_EXT_XGM_OPC__DATA;
-			*pin++ = conn->subchannel;
-
+			if (conn->subchannel >= 31) {
+				*pin++ = (31 << 3) | LWS_EXT_XGM_OPC__DATA;
+				*pin++ = conn->subchannel >> 8;
+				*pin++ = conn->subchannel;
+			} else
+				*pin++ = (conn->subchannel << 3) | LWS_EXT_XGM_OPC__DATA;
 		}
 
 		/*
