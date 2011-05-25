@@ -1248,6 +1248,9 @@ select_protocol:
 			wsi->active_extensions_user[
 				wsi->count_active_extensions] =
 					 malloc(ext->per_session_data_size);
+			memset(wsi->active_extensions_user[
+				wsi->count_active_extensions], 0,
+						    ext->per_session_data_size);
 			wsi->active_extensions[
 				  wsi->count_active_extensions] = ext;
 
