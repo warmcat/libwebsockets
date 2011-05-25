@@ -53,5 +53,8 @@
     <ClInclude Include="..\..\lib\extension-deflate-stream.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\lib\extension-x-google-mux.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
