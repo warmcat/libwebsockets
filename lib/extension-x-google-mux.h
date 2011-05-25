@@ -68,9 +68,6 @@ struct lws_ext_x_google_mux_context {
 	int active_conns;
 };
 
-inline int use_mux_blocks(struct lws_ext_x_google_mux_context * mux_context) { \
-				     return !!(mux_context->active_conns > 1); }
-
 /* one of these per connection (server or client) */
 
 struct lws_ext_x_google_mux_conn {

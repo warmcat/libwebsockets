@@ -1,6 +1,8 @@
 #include "private-libwebsockets.h"
 #include "extension-x-google-mux.h"
 
+#define MUX_REAL_CHILD_INDEX_OFFSET 2
+
 static int ongoing_subchannel;
 static struct libwebsocket * tag_with_parent = NULL;
 
@@ -188,13 +190,13 @@ interpret:
 			case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE:
 			case LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY:
 			case LWS_CONNMODE_WS_CLIENT:
-				wsi_child = conn->wsi_children[conn->block_subchannel];
+				wsi_child = conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET];
 				wsi_child->state = WSI_STATE_HTTP_HEADERS;
 				wsi_child->parser_state = WSI_TOKEN_NAME_PART;
 				break;
 			default:
 				wsi_child = libwebsocket_create_new_server_wsi(context);
-				conn->wsi_children[conn->block_subchannel] = wsi_child;
+				conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET] = wsi_child;
 				wsi_child->state = WSI_STATE_HTTP_HEADERS;
 				wsi_child->parser_state = WSI_TOKEN_NAME_PART;
 				wsi_child->extension_handles = wsi;
@@ -274,7 +276,7 @@ interpret:
 		case LWS_CONNMODE_WS_CLIENT:
 
 			muxdebug("Client LWS_EXT_XGM_STATE__ADDCHANNEL_HEADERS in %c\n", c);
-			wsi_child = conn->wsi_children[conn->block_subchannel];
+			wsi_child = conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET];
 
 			libwebsocket_parse(wsi_child, c);
 
@@ -372,7 +374,7 @@ bail2:
 		 * SERVER
 		 */
 
-		wsi_child = conn->wsi_children[conn->block_subchannel];
+		wsi_child = conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET];
 
 		muxdebug("Server LWS_EXT_XGM_STATE__ADDCHANNEL_HEADERS in %d\n", conn->length);
 
@@ -397,9 +399,6 @@ bail2:
 
 		muxdebug("Setting child conn parent to %p\n", (void *)wsi);
 
-//		lws_ext_x_google_mux__send_addchannel(context, wsi, conn, wsi_child,
-//						    conn->block_subchannel, "url-parsing-not-done-yet");
-
 		wsi_child->mode = LWS_CONNMODE_WS_SERVING;
 		wsi_child->state = WSI_STATE_ESTABLISHED;
 		wsi_child->lws_rx_parse_state = LWS_RXPS_NEW;
@@ -419,9 +418,9 @@ bail2:
 			wsi_child->user_space = NULL;
 
 
-		conn->wsi_children[conn->block_subchannel] = wsi_child;
-		if (conn->count_children <= conn->block_subchannel)
-			conn->count_children = conn->block_subchannel + 1;
+		conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET] = wsi_child;
+		if (conn->count_children <= conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET)
+			conn->count_children = conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET + 1;
 
 
 		/* notify user code that we're ready to roll */
@@ -475,7 +474,7 @@ bail2:
 			return -1;
 		}
 
-		wsi_child = conn->wsi_children[conn->block_subchannel];
+		wsi_child = conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET];
 
 		switch (wsi_child->mode) {
 
@@ -791,7 +790,7 @@ handle_additions:
 			/* let them each connect privately then */
 			lws_ext_x_google_mux__send_addchannel(context, wsi,
 					conn, wsi_parent,
-					     conn->count_children, wsi->c_path);
+					conn->count_children + MUX_REAL_CHILD_INDEX_OFFSET, wsi->c_path);
 
 			conn->sticky_mux_used = 1;
 
