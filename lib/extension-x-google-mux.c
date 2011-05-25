@@ -660,8 +660,8 @@ int lws_extension_callback_x_google_mux(
 			}
 
 			if (parent_conn->highest_child_subchannel >=
-					sizeof(parent_conn->wsi_children) /
-					   sizeof(parent_conn->wsi_children[0])) {
+					(sizeof(parent_conn->wsi_children) /
+					   sizeof(parent_conn->wsi_children[0]))) {
 				fprintf(stderr, "Can't add any more children\n");
 				continue;
 			}
@@ -710,6 +710,53 @@ int lws_extension_callback_x_google_mux(
 		conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_1;
 		break;
 
+	case LWS_EXT_CALLBACK_CHECK_OK_TO_REALLY_CLOSE:
+		muxdebug("LWS_EXT_CALLBACK_CHECK_OK_TO_REALLY_CLOSE\n");
+
+		if (conn->subchannel == 1) {
+
+			/*
+			 * special case of original mux parent channel closing
+			 */
+
+			conn->original_ch1_closed = 1;
+
+			fprintf(stderr, "original mux parent channel closing\n");
+
+			parent_conn = conn;
+		} else {
+
+			parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
+			if (parent_conn == 0) {
+				fprintf(stderr, "failed to get parent conn\n");
+				break;
+			}
+		}
+
+		/* see if that was the end of the mux entirely */
+
+		if (!parent_conn->original_ch1_closed)
+			break;
+
+		done = 0;
+		for (n = 0; n < !done && parent_conn->highest_child_subchannel; n++)
+			if (parent_conn->wsi_children[n])
+				done = 1;
+
+		/* if he has children, don't let him close for real! */
+
+		if (done) {
+			fprintf(stderr, "VETO closure\n");
+			return 1;
+		}
+
+		/* no children, ch1 is closed, let him destroy himself */
+
+		if (conn->subchannel == 1)
+			fprintf(stderr, "ALLOW closure of mux parent\n");
+
+		break;
+
 	case LWS_EXT_CALLBACK_DESTROY:
 		muxdebug("LWS_EXT_CALLBACK_DESTROY\n");
 
@@ -717,8 +764,21 @@ int lws_extension_callback_x_google_mux(
 		 * remove us from parent if noted in parent
 		 */
 
-		if (conn->wsi_parent) {
+		if (conn->subchannel == 1) {
 
+			/*
+			 * special case of original mux parent channel closing
+			 */
+
+			conn->original_ch1_closed = 1;
+
+			fprintf(stderr, "original mux parent channel closing\n");
+
+			parent_conn = conn;
+			wsi_parent = wsi;
+		} else {
+
+			wsi_parent = conn->wsi_parent;
 			parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
 			if (parent_conn == 0) {
 				fprintf(stderr, "failed to get parent conn\n");
@@ -728,6 +788,26 @@ int lws_extension_callback_x_google_mux(
 				if (parent_conn->wsi_children[n] == wsi)
 					parent_conn->wsi_children[n] = NULL;
 		}
+
+		/* see if that was the end of the mux entirely */
+
+		if (!parent_conn->original_ch1_closed)
+			break;
+
+		done = 0;
+		for (n = 0; n < !done && parent_conn->highest_child_subchannel; n++)
+			if (parent_conn->wsi_children[n])
+				done = 1;
+
+		if (done == 0)
+			if (parent_conn != conn)
+
+				/*
+				 * parent closed last and no children left
+				 * ... and we are not parent already ourselves
+				 */
+
+				libwebsocket_close_and_free_session(context, wsi_parent, LWS_CLOSE_STATUS_NORMAL);
 
 		break;
 
@@ -863,33 +943,55 @@ handle_additions:
 		pin = *((unsigned char **)in);
 		basepin = pin;
 
-		/*
-		 * he's not a child connection of a mux
-		 */
+		wsi_parent = conn->wsi_parent;
 
-		if (!conn->wsi_parent) {
-//			fprintf(stderr, "conn %p has no parent\n", (void *)conn);
-			return 0;
-		}
+		if (conn->subchannel == 1) {
 
-		/*
-		 * get parent / transport mux context
-		 */
+			/*
+			 * if we weren't 'closed', then we were the original
+			 * connection that established this link, ie, it's
+			 * the parent wsi
+			 */
 
-		parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
-		if (parent_conn == 0) {
-			fprintf(stderr, "failed to get parent conn\n");
-			return 0;
-		}
+			if (conn->original_ch1_closed) {
+				fprintf(stderr, "Trying to send on dead original ch1\n");
+				return 0;
+			}
 
-		/*
-		 * mux transport is in singular mode, let the caller send it
-		 * no more muxified than it already is
-		 */
+			/* send on ourselves */
 
-		if (!parent_conn->sticky_mux_used) {
-//			fprintf(stderr, "parent in singular mode\n");
-			return 0;
+			wsi_parent = wsi;
+
+		} else {
+
+			/*
+			 * he's not a child connection of a mux
+			 */
+
+			if (!conn->wsi_parent) {
+	//			fprintf(stderr, "conn %p has no parent\n", (void *)conn);
+				return 0;
+			}
+
+			/*
+			 * get parent / transport mux context
+			 */
+
+			parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
+			if (parent_conn == 0) {
+				fprintf(stderr, "failed to get parent conn\n");
+				return 0;
+			}
+
+			/*
+			 * mux transport is in singular mode, let the caller send it
+			 * no more muxified than it already is
+			 */
+
+			if (!parent_conn->sticky_mux_used) {
+	//			fprintf(stderr, "parent in singular mode\n");
+				return 0;
+			}
 		}
 
 		if (!conn->defeat_mux_opcode_wrapping) {
@@ -919,7 +1021,7 @@ handle_additions:
 		 * recurse to allow nesting
 		 */
 
-		lws_issue_raw(conn->wsi_parent, basepin, (pin - basepin) + len);
+		lws_issue_raw(wsi_parent, basepin, (pin - basepin) + len);
 
 		return 1; /* handled */
 

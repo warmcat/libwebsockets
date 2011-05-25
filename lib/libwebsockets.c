@@ -166,6 +166,35 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	wsi->close_reason = reason;
 
 	/*
+	 * are his extensions okay with him closing?  Eg he might be a mux
+	 * parent and just his ch1 aspect is closing?
+	 */
+
+
+	for (n = 0; n < wsi->count_active_extensions; n++) {
+		if (!wsi->active_extensions[n]->callback)
+			continue;
+
+		m = wsi->active_extensions[n]->callback(context,
+			wsi->active_extensions[n], wsi,
+			LWS_EXT_CALLBACK_CHECK_OK_TO_REALLY_CLOSE,
+				       wsi->active_extensions_user[n], NULL, 0);
+
+		/*
+		 * if somebody vetoed actually closing him at this time....
+		 * up to the extension to track the attempted close, let's
+		 * just bail
+		 */
+
+		if (m) {
+			fprintf(stderr, "extension vetoed close\n");
+			return;
+		}
+	}
+
+
+
+	/*
 	 * flush any tx pending from extensions, since we may send close packet
 	 * if there are problems with send, just nuke the connection
 	 */
@@ -2144,6 +2173,9 @@ lws_get_extension_user_matching_ext(struct libwebsocket *wsi,
 							struct libwebsocket_extension * ext)
 {
 	int n = 0;
+
+	if (wsi == NULL)
+		return NULL;
 
 	while (n < wsi->count_active_extensions) {
 		if (wsi->active_extensions[n] != ext) {
