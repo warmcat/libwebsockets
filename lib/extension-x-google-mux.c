@@ -431,8 +431,8 @@ bail2:
 
 
 		conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET] = wsi_child;
-		if (conn->count_children <= conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET)
-			conn->count_children = conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET + 1;
+		if (conn->highest_child_subchannel <= conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET)
+			conn->highest_child_subchannel = conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET + 1;
 
 
 		/* notify user code that we're ready to roll */
@@ -481,7 +481,7 @@ bail2:
 		 * to tell us when it ate a full frame, so we watch its state
 		 * afterwards
 		 */
-		if (conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET > conn->count_children) {
+		if (conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET >= conn->highest_child_subchannel) {
 			fprintf(stderr, "Illegal subchannel\n");
 			return -1;
 		}
@@ -547,6 +547,7 @@ int lws_extension_callback_x_google_mux(
 	struct lws_ext_x_google_mux_context *mux_ctx =
 						  ext->per_context_private_data;
 	struct libwebsocket *wsi_parent;
+	struct libwebsocket *wsi_child;
 	struct libwebsocket *wsi_temp;
 	unsigned char *pin = (unsigned char *)in;
 	unsigned char *basepin;
@@ -658,10 +659,12 @@ int lws_extension_callback_x_google_mux(
 				 continue;
 			}
 
-			if (parent_conn->count_children >=
+			if (parent_conn->highest_child_subchannel >=
 					sizeof(parent_conn->wsi_children) /
-					   sizeof(parent_conn->wsi_children[0]))
+					   sizeof(parent_conn->wsi_children[0])) {
+				fprintf(stderr, "Can't add any more children\n");
 				continue;
+			}
 			/*
 			 * this established connection will do, bind them
 			 * from now on child will only operate through parent
@@ -721,14 +724,9 @@ int lws_extension_callback_x_google_mux(
 				fprintf(stderr, "failed to get parent conn\n");
 				break;
 			}
-			for (n = 0; n < parent_conn->count_children; n++)
-				if (parent_conn->wsi_children[n] == wsi) {
-					parent_conn->count_children--;
-					while (n < parent_conn->count_children) {
-						parent_conn->wsi_children[n] = parent_conn->wsi_children[n + 1];
-						n++;
-					}
-				}
+			for (n = 0; n < parent_conn->highest_child_subchannel; n++)
+				if (parent_conn->wsi_children[n] == wsi)
+					parent_conn->wsi_children[n] = NULL;
 		}
 
 		break;
@@ -777,12 +775,12 @@ handle_additions:
 			 * them all go it alone
 			 */
 
-			wsi_parent = wsi->candidate_children_list;
-			while (wsi_parent) {
-				wsi_temp = wsi_parent->candidate_children_list;
+			wsi_child = wsi->candidate_children_list;
+			while (wsi_child) {
+				wsi_temp = wsi_child->candidate_children_list;
 				/* let them each connect privately then */
-				__libwebsocket_client_connect_2(context, wsi_parent);
-				wsi_parent = wsi_temp;
+				__libwebsocket_client_connect_2(context, wsi_child);
+				wsi_child = wsi_temp;
 			}
 
 			return 1;
@@ -794,23 +792,43 @@ handle_additions:
 		 * as mux subchannel real children
 		 */
 		
-		wsi_parent = wsi->candidate_children_list;
-		while (wsi_parent) {
+		wsi_child = wsi->candidate_children_list;
+		n = 0;
+		while (wsi_child) {
+
+			wsi_temp = wsi_child->candidate_children_list;
+
+			/* find an empty subchannel */
+
+			while ((n < (sizeof(conn->wsi_children) / sizeof(conn->wsi_children[0]))) &&
+					conn->wsi_children[n] != NULL)
+				n++;
+
+			if (n >= (sizeof(conn->wsi_children) / sizeof(conn->wsi_children[0]))) {
+				/* no room at the inn */
+
+				/* let them each connect privately then */
+				__libwebsocket_client_connect_2(context, wsi_child);
+				wsi_child = wsi_temp;
+				continue;
+			}
 
 			muxdebug("  using mux addchannel action for candidate child\n");
 			
-			wsi_temp = wsi_parent->candidate_children_list;
-			/* let them each connect privately then */
+			/* pile the children on the parent */
 			lws_ext_x_google_mux__send_addchannel(context, wsi,
-					conn, wsi_parent,
-					conn->count_children + MUX_REAL_CHILD_INDEX_OFFSET, wsi->c_path);
+					conn, wsi_child,
+					n + MUX_REAL_CHILD_INDEX_OFFSET, wsi->c_path);
 
 			conn->sticky_mux_used = 1;
 
-			conn->wsi_children[conn->count_children++] = wsi_parent;
+			conn->wsi_children[n] = wsi_child;
+			if ((n + 1) > conn->highest_child_subchannel)
+				conn->highest_child_subchannel = n + 1;
+
 			muxdebug("Setting CHILD LIST entry %d to %p\n",
-				  conn->count_children - 1, (void *)wsi_parent);
-			wsi_parent = wsi_temp;
+				  n + MUX_REAL_CHILD_INDEX_OFFSET, (void *)wsi_parent);
+			wsi_child = wsi_temp;
 		}
 		wsi->candidate_children_list = NULL;
 		return 1;
@@ -910,8 +928,9 @@ handle_additions:
 		 * if we have children, service their timeouts using the same
 		 * handler as toplevel guys to allow recursion
 		 */
-		for (n = 0; n < conn->count_children; n++)
-			libwebsocket_service_timeout_check(context,
+		for (n = 0; n < conn->highest_child_subchannel; n++)
+			if (conn->wsi_children[n])
+				libwebsocket_service_timeout_check(context,
 						    conn->wsi_children[n], len);
 		break;
 
@@ -983,7 +1002,10 @@ handle_additions:
 			return 0;
 		}
 
-		for (n = 0; n < conn->count_children; n++) {
+		for (n = 0; n < conn->highest_child_subchannel; n++) {
+
+			if (!conn->wsi_children[n])
+				continue;
 
 			child_conn = NULL;
 			for (m = 0; m < conn->wsi_children[n]->count_active_extensions; m++)
