@@ -85,6 +85,7 @@ struct lws_ext_x_google_mux_conn {
 	int sticky_mux_used;
 	int defeat_mux_opcode_wrapping;
 	int original_ch1_closed;
+	int ignore_cmd;
 };
 
 extern int

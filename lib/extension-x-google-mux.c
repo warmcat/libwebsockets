@@ -96,13 +96,16 @@ static int lws_ext_x_google_mux__send_addchannel(
 
 	wsi_child->ietf_spec_revision = wsi->ietf_spec_revision;
 
-	p = libwebsockets_generate_client_handshake(context, wsi_child, delta_headers);
+	p = libwebsockets_generate_client_handshake(context, wsi_child,
+								 delta_headers);
 	delta_headers_len = p - delta_headers;
 
-	subcommand_length = lws_mux_subcommand_header(LWS_EXT_XGM_OPC__ADDCHANNEL, channel, pb, delta_headers_len);
+	subcommand_length = lws_mux_subcommand_header(
+		   LWS_EXT_XGM_OPC__ADDCHANNEL, channel, pb, delta_headers_len);
 
 	pb += lws_addheader_mux_opcode(pb, subcommand_length + delta_headers_len);
-	pb += lws_mux_subcommand_header(LWS_EXT_XGM_OPC__ADDCHANNEL, channel, pb, delta_headers_len);
+	pb += lws_mux_subcommand_header(LWS_EXT_XGM_OPC__ADDCHANNEL, channel,
+							 pb, delta_headers_len);
 
 //	n = sprintf((char *)pb, "%s\x0d\x0a", url);
 //	pb += n;
@@ -161,6 +164,8 @@ lws_extension_x_google_mux_parser(struct libwebsocket_context *context,
 //		fprintf(stderr, "LWS_EXT_XGM_STATE__MUX_BLOCK_1: opc=%d channel=%d\n", c & 7, c >> 3);
 		conn->block_subopcode = c & 7;
 		conn->block_subchannel = (c >> 3) & 0x1f;
+		conn->ignore_cmd = 0;
+
 		if (conn->block_subchannel != 31)
 			goto interpret;
 		else
@@ -274,6 +279,27 @@ interpret:
 
 	case LWS_EXT_XGM_STATE__ADDCHANNEL_HEADERS:
 
+		if (conn->block_subchannel == 0 || conn->block_subchannel >=
+				(sizeof(conn->wsi_children) /
+					       sizeof(conn->wsi_children[0]))) {
+			fprintf(stderr, "Illegal subchannel %d in "
+			   "LWS_EXT_XGM_STATE__ADDCHANNEL_HEADERS, ignoring",
+							conn->block_subchannel);
+			conn->ignore_cmd = 1;
+		}
+
+		if (conn->block_subchannel == 1 && !conn->original_ch1_closed) {
+			fprintf(stderr, "illegal request to add ch1 when it's still live, ignoring\n");
+			conn->ignore_cmd = 1;
+		}
+
+		if (conn->ignore_cmd) {
+			if (--conn->length)
+				return 0;
+			conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_1;
+			return 0;
+		}
+
 		switch (wsi->mode) {
 
 		/* client: parse accepted headers returned by server */
@@ -285,7 +311,14 @@ interpret:
 		case LWS_CONNMODE_WS_CLIENT:
 
 			muxdebug("Client LWS_EXT_XGM_STATE__ADDCHANNEL_HEADERS in %c\n", c);
-			wsi_child = conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET];
+			if (conn->block_subchannel == 1) {
+				fprintf(stderr, "adding ch1\n");
+				wsi_child = wsi;
+				child_conn = conn;
+			} else
+				wsi_child = conn->wsi_children[
+				            conn->block_subchannel -
+			  	  	  	   MUX_REAL_CHILD_INDEX_OFFSET];
 
 			libwebsocket_parse(wsi_child, c);
 
@@ -297,32 +330,37 @@ interpret:
 			lws_client_interpret_server_handshake(context, wsi_child);
 			tag_with_parent = NULL;
 
-			//			if (wsi->parser_state != WSI_PARSING_COMPLETE)
+			//if (wsi->parser_state != WSI_PARSING_COMPLETE)
 //				break;
 
 			/* client: we received all server's ADD ack */
 
-			child_conn = lws_get_extension_user_matching_ext(wsi_child, this_ext);
-			muxdebug("Received server's ADD Channel ACK for subchannel %d child_conn=%p!\n", conn->block_subchannel, (void *)child_conn);
+			if (conn->block_subchannel != 1) {
+				child_conn = lws_get_extension_user_matching_ext(
+								   wsi_child, this_ext);
+				muxdebug("Received server's ADD Channel ACK for "
+					 "subchannel %d child_conn=%p!\n",
+					    conn->block_subchannel, (void *)child_conn);
 
-			wsi_child->xor_mask = xor_no_mask;
-			wsi_child->ietf_spec_revision = wsi->ietf_spec_revision;
+				wsi_child->xor_mask = xor_no_mask;
+				wsi_child->ietf_spec_revision = wsi->ietf_spec_revision;
 
-			wsi_child->mode = LWS_CONNMODE_WS_CLIENT;
-			wsi_child->state = WSI_STATE_ESTABLISHED;
+				wsi_child->mode = LWS_CONNMODE_WS_CLIENT;
+				wsi_child->state = WSI_STATE_ESTABLISHED;
+				child_conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_1;
+			}
 
 			conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_1;
-			child_conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_1;
 			child_conn->subchannel = conn->block_subchannel;
 
 			/* allocate the per-connection user memory (if any) */
 
 			if (wsi_child->protocol->per_session_data_size) {
 				wsi_child->user_space = malloc(
-						wsi_child->protocol->per_session_data_size);
+				    wsi_child->protocol->per_session_data_size);
 				if (wsi_child->user_space  == NULL) {
 					fprintf(stderr, "Out of memory for "
-								   "conn user space\n");
+							   "conn user space\n");
 					goto bail2;
 				}
 			} else
@@ -403,7 +441,8 @@ bail2:
 		/* reply with ADDCHANNEL to ack it */
 
 		wsi->xor_mask = xor_no_mask;
-		child_conn = lws_get_extension_user_matching_ext(wsi_child, this_ext);
+		child_conn = lws_get_extension_user_matching_ext(wsi_child,
+								      this_ext);
 		child_conn->wsi_parent = wsi;
 		conn->sticky_mux_used = 1;
 		child_conn->subchannel = conn->block_subchannel;
@@ -420,7 +459,7 @@ bail2:
 
 		if (wsi_child->protocol->per_session_data_size) {
 			wsi_child->user_space = malloc(
-					  wsi_child->protocol->per_session_data_size);
+				    wsi_child->protocol->per_session_data_size);
 			if (wsi_child->user_space  == NULL) {
 				fprintf(stderr, "Out of memory for "
 							   "conn user space\n");
@@ -430,19 +469,24 @@ bail2:
 			wsi_child->user_space = NULL;
 
 
-		conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET] = wsi_child;
-		if (conn->highest_child_subchannel <= conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET)
-			conn->highest_child_subchannel = conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET + 1;
+		conn->wsi_children[conn->block_subchannel -
+		                       MUX_REAL_CHILD_INDEX_OFFSET] = wsi_child;
+		if (conn->highest_child_subchannel <=
+			   conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET)
+			conn->highest_child_subchannel =
+					conn->block_subchannel -
+						MUX_REAL_CHILD_INDEX_OFFSET + 1;
 
 
 		/* notify user code that we're ready to roll */
 
 		if (wsi_child->protocol->callback)
-			wsi_child->protocol->callback(wsi_child->protocol->owning_server,
-					wsi_child, LWS_CALLBACK_ESTABLISHED, wsi_child->user_space,
-																	   NULL, 0);
+			wsi_child->protocol->callback(
+					wsi_child->protocol->owning_server,
+					wsi_child, LWS_CALLBACK_ESTABLISHED,
+						wsi_child->user_space, NULL, 0);
 
-		muxdebug("setting conn state to LWS_EXT_XGM_STATE__MUX_BLOCK_1\n");
+		muxdebug("setting conn state LWS_EXT_XGM_STATE__MUX_BLOCK_1\n");
 		conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_1;
 		break;
 
@@ -486,8 +530,16 @@ bail2:
 			return -1;
 		}
 
-//		fprintf(stderr, "LWS_EXT_XGM_STATE__DATA: ch %d\n", conn->block_subchannel);
-		wsi_child = conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET];
+		// fprintf(stderr, "LWS_EXT_XGM_STATE__DATA: ch %d\n", conn->block_subchannel);
+
+		if (conn->block_subchannel == 1) {
+			if (conn->original_ch1_closed) {
+				fprintf(stderr, "data sent to closed ch1\n");
+				return -1;
+			}
+			wsi_child = wsi;
+		} else
+			wsi_child = conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET];
 
 		switch (wsi_child->mode) {
 
@@ -576,18 +628,17 @@ int lws_extension_callback_x_google_mux(
 	case LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT:
 	case LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT:
 
-		if (mux_ctx) {
-			for (n = 0; n < mux_ctx->active_conns; n++)
-				if (mux_ctx->wsi_muxconns[n]) {
-					libwebsocket_close_and_free_session(
-						context,
-						mux_ctx->wsi_muxconns[n],
-						LWS_CLOSE_STATUS_GOINGAWAY);
-					mux_ctx->wsi_muxconns[n] = NULL;
-				}
+		if (!mux_ctx)
+			break;
+		for (n = 0; n < mux_ctx->active_conns; n++)
+			if (mux_ctx->wsi_muxconns[n]) {
+				libwebsocket_close_and_free_session(
+					context, mux_ctx->wsi_muxconns[n],
+					LWS_CLOSE_STATUS_GOINGAWAY);
+				mux_ctx->wsi_muxconns[n] = NULL;
+			}
 
-			free(mux_ctx);
-		}
+		free(mux_ctx);
 		break;
 
 	/*
@@ -596,7 +647,8 @@ int lws_extension_callback_x_google_mux(
 
 	case LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION:
 
-		muxdebug("LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION %s:%u\n", (char *)in, (unsigned int)len);
+		muxdebug("LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION %s:%u\n",
+						 (char *)in, (unsigned int)len);
 
 		/*
 		 * Does a physcial connection to the same server:port already
@@ -702,7 +754,8 @@ int lws_extension_callback_x_google_mux(
 	case LWS_EXT_CALLBACK_CLIENT_CONSTRUCT:
 		muxdebug("LWS_EXT_CALLBACK_CLIENT_CONSTRUCT: setting parent = %p\n", (void *)tag_with_parent);
 		conn->state = LWS_EXT_XGM_STATE__MUX_BLOCK_1;
-		conn->wsi_parent = tag_with_parent;
+		if (conn->block_subchannel != 1)
+			conn->wsi_parent = tag_with_parent;
 		break;
 
 	case LWS_EXT_CALLBACK_CONSTRUCT:
@@ -928,8 +981,10 @@ handle_additions:
 
 		n = eff_buf->token_len;
 		while (n--)
-			lws_extension_x_google_mux_parser(context, wsi, ext, conn, *p++);
-
+			if (lws_extension_x_google_mux_parser(context, wsi, ext,
+							      conn, *p++) < 0) {
+				return -1;
+			}
 		return 1; /* handled */
 
 	/*
@@ -938,7 +993,9 @@ handle_additions:
 
 	case LWS_EXT_CALLBACK_PACKET_TX_DO_SEND:
 
-		muxdebug("LWS_EXT_CALLBACK_PACKET_TX_DO_SEND: %p, my subchannel=%d\n", (void *)conn->wsi_parent, conn->subchannel);
+		muxdebug("LWS_EXT_CALLBACK_PACKET_TX_DO_SEND: %p, "
+			 "my subchannel=%d\n",
+			 (void *)conn->wsi_parent, conn->subchannel);
 
 		pin = *((unsigned char **)in);
 		basepin = pin;
