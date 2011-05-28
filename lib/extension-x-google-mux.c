@@ -5,6 +5,7 @@
 
 static int ongoing_subchannel;
 static struct libwebsocket * tag_with_parent = NULL;
+static int client_handshake_generation_is_for_mux_child;
 
 static int lws_addheader_mux_opcode(unsigned char *pb, int len)
 {
@@ -96,8 +97,10 @@ static int lws_ext_x_google_mux__send_addchannel(
 
 	wsi_child->ietf_spec_revision = wsi->ietf_spec_revision;
 
+	client_handshake_generation_is_for_mux_child = 1;
 	p = libwebsockets_generate_client_handshake(context, wsi_child,
 								 delta_headers);
+	client_handshake_generation_is_for_mux_child = 0;
 	delta_headers_len = p - delta_headers;
 
 	subcommand_length = lws_mux_subcommand_header(
@@ -122,7 +125,7 @@ static int lws_ext_x_google_mux__send_addchannel(
 
 	/* send the request to the server */
 
-	n = lws_issue_raw(wsi, &send_buf[LWS_SEND_BUFFER_PRE_PADDING],
+	n = lws_issue_raw_ext_access(wsi, &send_buf[LWS_SEND_BUFFER_PRE_PADDING],
 				   pb - &send_buf[LWS_SEND_BUFFER_PRE_PADDING]);
 
 	parent_conn->defeat_mux_opcode_wrapping = 0;
@@ -443,6 +446,10 @@ bail2:
 		wsi->xor_mask = xor_no_mask;
 		child_conn = lws_get_extension_user_matching_ext(wsi_child,
 								      this_ext);
+		if (!child_conn) {
+			fprintf(stderr, "wsi_child %p has no child conn!", (void *)wsi_child);
+			break;
+		}
 		child_conn->wsi_parent = wsi;
 		conn->sticky_mux_used = 1;
 		child_conn->subchannel = conn->block_subchannel;
@@ -526,7 +533,7 @@ bail2:
 		 * afterwards
 		 */
 		if (conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET >= conn->highest_child_subchannel) {
-			fprintf(stderr, "Illegal subchannel\n");
+			fprintf(stderr, "Illegal subchannel %d\n", conn->block_subchannel);
 			return -1;
 		}
 
@@ -540,6 +547,11 @@ bail2:
 			wsi_child = wsi;
 		} else
 			wsi_child = conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET];
+
+		if (!wsi_child) {
+			fprintf(stderr, "Bad subchannel %d\n", conn->block_subchannel);
+			return -1;
+		}
 
 		switch (wsi_child->mode) {
 
@@ -1078,7 +1090,7 @@ handle_additions:
 		 * recurse to allow nesting
 		 */
 
-		lws_issue_raw(wsi_parent, basepin, (pin - basepin) + len);
+		lws_issue_raw_ext_access(wsi_parent, basepin, (pin - basepin) + len);
 
 		return 1; /* handled */
 
@@ -1144,7 +1156,7 @@ handle_additions:
 		memcpy(pb, in, len);
 		pb += len;
 
-		lws_issue_raw(wsi->extension_handles, &send_buf[LWS_SEND_BUFFER_PRE_PADDING],
+		lws_issue_raw_ext_access(wsi->extension_handles, &send_buf[LWS_SEND_BUFFER_PRE_PADDING],
 					   pb - &send_buf[LWS_SEND_BUFFER_PRE_PADDING]);
 
 
@@ -1187,6 +1199,18 @@ handle_additions:
 				return 2; /* all handled */
 			else
 				return 1; /* handled but need more */
+		}
+		break;
+
+	case LWS_EXT_CALLBACK_CHECK_OK_TO_PROPOSE_EXTENSION:
+
+		/* disallow deflate-stream if we are a mux child connection */
+
+		if (strcmp(in, "deflate-stream") == 0 &&
+				 client_handshake_generation_is_for_mux_child) {
+
+			fprintf(stderr, "mux banned deflate-stream on child connection\n");
+			return 1; /* disallow */
 		}
 		break;
 

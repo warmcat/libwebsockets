@@ -1450,6 +1450,87 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	return 0;
 }
 
+int
+lws_issue_raw_ext_access(struct libwebsocket *wsi,
+						 unsigned char *buf, size_t len)
+{
+	int ret;
+	struct lws_tokens eff_buf;
+	int m;
+	int n;
+
+	eff_buf.token = (char *)buf;
+	eff_buf.token_len = len;
+
+	/*
+	 * while we have original buf to spill ourselves, or extensions report
+	 * more in their pipeline
+	 */
+
+	ret = 1;
+	while (ret == 1) {
+
+		/* default to nobody has more to spill */
+
+		ret = 0;
+
+		/* show every extension the new incoming data */
+
+		for (n = 0; n < wsi->count_active_extensions; n++) {
+			m = wsi->active_extensions[n]->callback(
+					wsi->protocol->owning_server,
+					wsi->active_extensions[n], wsi,
+					LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
+				   wsi->active_extensions_user[n], &eff_buf, 0);
+			if (m < 0) {
+				fprintf(stderr, "Extension reports fatal error\n");
+				return -1;
+			}
+			if (m)
+				/*
+				 * at least one extension told us he has more
+				 * to spill, so we will go around again after
+				 */
+				ret = 1;
+		}
+
+		/* assuming they left us something to send, send it */
+
+		if (eff_buf.token_len)
+			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
+							     eff_buf.token_len))
+				return -1;
+
+		/* we used up what we had */
+
+		eff_buf.token = NULL;
+		eff_buf.token_len = 0;
+
+		/*
+		 * Did that leave the pipe choked?
+		 */
+
+		if (!lws_send_pipe_choked(wsi))
+			/* no we could add more */
+			continue;
+
+		fprintf(stderr, "choked\n");
+
+		/*
+		 * Yes, he's choked.  Don't spill the rest now get a callback
+		 * when he is ready to send and take care of it there
+		 */
+		libwebsocket_callback_on_writable(
+					     wsi->protocol->owning_server, wsi);
+		wsi->extension_data_pending = 1;
+		ret = 0;
+	}
+
+	debug("written %d bytes to client\n", eff_buf.token_len);
+
+	return 0;
+}
+
 /**
  * libwebsocket_write() - Apply protocol then write data to client
  * @wsi:	Websocket instance (available from user callback)
@@ -1479,12 +1560,9 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			  size_t len, enum libwebsocket_write_protocol protocol)
 {
 	int n;
-	int m;
 	int pre = 0;
 	int post = 0;
 	int shift = 7;
-	struct lws_tokens eff_buf;
-	int ret;
 	int masked7 = wsi->mode == LWS_CONNMODE_WS_CLIENT && wsi->xor_mask != xor_no_mask;
 	unsigned char *dropmask = NULL;
 	unsigned char is_masked_bit = 0;
@@ -1780,76 +1858,7 @@ send_raw:
 	 * callback returns 1 in case it wants to spill more buffers
 	 */
 
-	eff_buf.token = (char *)buf - pre;
-	eff_buf.token_len = len + pre + post;
-
-	/*
-	 * while we have original buf to spill ourselves, or extensions report
-	 * more in their pipeline
-	 */
-
-	ret = 1;
-	while (ret == 1) {
-
-		/* default to nobody has more to spill */
-
-		ret = 0;
-
-		/* show every extension the new incoming data */
-
-		for (n = 0; n < wsi->count_active_extensions; n++) {
-			m = wsi->active_extensions[n]->callback(
-					wsi->protocol->owning_server,
-					wsi->active_extensions[n], wsi,
-					LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
-				   wsi->active_extensions_user[n], &eff_buf, 0);
-			if (m < 0) {
-				fprintf(stderr, "Extension reports fatal error\n");
-				return -1;
-			}
-			if (m)
-				/*
-				 * at least one extension told us he has more
-				 * to spill, so we will go around again after
-				 */
-				ret = 1;
-		}
-
-		/* assuming they left us something to send, send it */
-
-		if (eff_buf.token_len)
-			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-							     eff_buf.token_len))
-				return -1;
-
-		/* we used up what we had */
-
-		eff_buf.token = NULL;
-		eff_buf.token_len = 0;
-
-		/*
-		 * Did that leave the pipe choked?
-		 */
-
-		if (!lws_send_pipe_choked(wsi))
-			/* no we could add more */
-			continue;
-
-		fprintf(stderr, "choked\n");
-
-		/*
-		 * Yes, he's choked.  Don't spill the rest now get a callback
-		 * when he is ready to send and take care of it there
-		 */
-		libwebsocket_callback_on_writable(
-					     wsi->protocol->owning_server, wsi);
-		wsi->extension_data_pending = 1;
-		ret = 0;
-	}
-
-	debug("written %d bytes to client\n", eff_buf.token_len);
-
-	return 0;
+	return lws_issue_raw_ext_access(wsi, buf - pre, len + pre + post);
 }
 
 

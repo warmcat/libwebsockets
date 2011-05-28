@@ -263,25 +263,18 @@ It has the following notes:
 
     1) To enable it, reconfigure with --enable-x-google-mux
     
-    2) It conflicts with deflate-stream, use the -u switch on
-       the test client to disable deflate-stream
-    
-    3) It deviates from the google standard by sending full
+    2) It deviates from the google standard by sending full
        headers in the addchannel subcommand rather than just
        changed ones from original connect
     
-    4) Quota is not implemented yet
+    3) Quota is not implemented yet
     
-    5) Close of subchannel is not really implemented yet
-    
-    6) Google opcode 0xf is changed to 0x7 to account for
-       v7 protocol changes to opcode layout
-    
-    However despite those caveats, in fact it can run the
-    test client reliably over one socket (both dumb-increment
-    and lws-mirror-protocol), you can open a browser on the
-    same test server too and see the circles, etc.
+However despite those caveats, in fact it can run the
+test client reliably over one socket (both dumb-increment
+and lws-mirror-protocol), you can open a browser on the
+same test server too and see the circles, etc.
 
+It also works compatibly with deflate-stream automatically.
 
-2011-05-23  Andy Green <andy@warmcat.com>
+2011-05-28  Andy Green <andy@warmcat.com>
 

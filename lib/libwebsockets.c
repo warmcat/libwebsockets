@@ -784,6 +784,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	char *p = pkt;
 	int n;
 	struct libwebsocket_extension *ext;
+	struct libwebsocket_extension *ext1;
 	int ext_count = 0;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 + MAX_BROADCAST_PAYLOAD +
 						  LWS_SEND_BUFFER_POST_PADDING];
@@ -957,6 +958,24 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	while (ext && ext->callback) {
 
 		n = 0;
+		ext1 = context->extensions;
+		while (ext1 && ext1->callback) {
+
+			n |= ext1->callback(context, ext1, wsi,
+				LWS_EXT_CALLBACK_CHECK_OK_TO_PROPOSE_EXTENSION,
+					NULL, (char *)ext->name, 0);
+
+			ext1++;
+		}
+
+		if (n) {
+
+			/* an extension vetos us */
+			fprintf(stderr, "ext %s vetoed\n", (char *)ext->name);
+			ext++;
+			continue;
+		}
+
 		n = context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 				wsi->user_space, (char *)ext->name, 0);
@@ -1009,6 +1028,8 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 			     sizeof wsi->initial_handshake_hash_base64);
 
 issue_hdr:
+
+	puts(pkt);
 
 	/* done with these now */
 

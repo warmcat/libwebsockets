@@ -415,6 +415,10 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 extern int
 libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c);
 
+extern int
+lws_issue_raw_ext_access(struct libwebsocket *wsi,
+						unsigned char *buf, size_t len);
+
 #ifndef LWS_OPENSSL_SUPPORT
 
 unsigned char *
