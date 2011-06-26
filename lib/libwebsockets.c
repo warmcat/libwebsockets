@@ -1056,7 +1056,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	char ext_name[128];
 	struct libwebsocket_extension *ext;
 	void *v;
-	int len;
+	int len = 0;
 	int n;
 	static const char magic_websocket_04_masking_guid[] =
 					 "61AC5F19-FBBA-4540-B96F-6561F1AB40A8";
