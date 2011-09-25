@@ -777,12 +777,9 @@ spill:
 					handled = 1;
 			}
 
-			if (!handled) {
-				/* kill the connection */
+			if (!handled)
 				fprintf(stderr, "Unhandled extended opcode "
-							 "0x%x\n", wsi->opcode);
-				return -1;
-			}
+					"0x%x - ignoring frame\n", wsi->opcode);
 
 			wsi->rx_user_buffer_head = 0;
 			return 0;
@@ -1242,10 +1239,11 @@ spill:
 			}
 
 			if (!handled) {
-				/* kill the connection */
 				fprintf(stderr, "Unhandled extended opcode "
-							 "0x%x\n", wsi->opcode);
-				return -1;
+					"0x%x - ignoring frame\n", wsi->opcode);
+				wsi->rx_user_buffer_head = 0;
+
+				return 0;
 			}
 
 			break;
