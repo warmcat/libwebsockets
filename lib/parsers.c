@@ -297,7 +297,7 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	case LWS_RXPS_NEW:
 
 		switch (wsi->ietf_spec_revision) {
-		/* Firefox 4.0b6 likes this as of 30 Oct */
+		/* Firefox 4.0b6 likes this as of 30 Oct 2010 */
 		case 0:
 			if (c == 0xff)
 				wsi->lws_rx_parse_state = LWS_RXPS_SEEN_76_FF;
@@ -317,6 +317,8 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_1;
 			break;
 		case 7:
+		case 8:
+		case 13:
 			/*
 			 * no prepended frame key any more
 			 */
@@ -847,6 +849,8 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		case 5:
 		case 6:
 		case 7:
+		case 8:
+		case 13:
 	/*
 	 *  04 logical framing from the spec (all this is masked when
 	 *  incoming and has to be unmasked)
@@ -1573,8 +1577,8 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		return -1;
 
 	switch (wsi->ietf_spec_revision) {
-	/* chrome likes this as of 30 Oct */
-	/* Firefox 4.0b6 likes this as of 30 Oct */
+	/* chrome likes this as of 30 Oct 2010 */
+	/* Firefox 4.0b6 likes this as of 30 Oct 2010 */
 	case 0:
 		if ((protocol & 0xf) == LWS_WRITE_BINARY) {
 			/* in binary mode we send 7-bit used length blocks */
@@ -1607,6 +1611,8 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		break;
 
 	case 7:
+	case 8:
+	case 13:
 		if (masked7) {
 			pre += 4;
 			dropmask = &buf[0 - pre];

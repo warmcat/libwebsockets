@@ -252,6 +252,8 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	case 5:
 	case 6:
 	case 7:
+	case 8:
+	case 13:
 		wsi->xor_mask = xor_mask_05;
 		break;
 	default:

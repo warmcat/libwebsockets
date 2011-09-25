@@ -114,7 +114,7 @@ void debug(const char *format, ...)
 #define MAX_BROADCAST_PAYLOAD 2048
 #define LWS_MAX_PROTOCOLS 10
 #define LWS_MAX_EXTENSIONS_ACTIVE 10
-#define SPEC_LATEST_SUPPORTED 7
+#define SPEC_LATEST_SUPPORTED 13
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
