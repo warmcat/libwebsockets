@@ -441,12 +441,9 @@ handle_first:
 		if (wsi->ietf_spec_revision < 7)
 			c = wsi->xor_mask(wsi, c);
 
-		if (c & 0x70) {
+		if (c & 0x70)
 			fprintf(stderr,
-				      "Frame has extensions set illegally 1 %02X\n", c);
-			/* kill the connection */
-			return -1;
-		}
+			    "Frame has unknown extension bits set 1 %02X\n", c);
 
 		/* translate all incoming opcodes into v7+ map */
 		if (wsi->ietf_spec_revision < 7)
@@ -904,12 +901,9 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		 *		FIN (b7)
 		 */
 
-			if (c & 0x70) {
-				fprintf(stderr, "Frame has extensions set "
-				   "illegally on first framing byte %02X\n", c);
-				/* kill the connection */
-				return -1;
-			}
+			if (c & 0x70)
+				fprintf(stderr, "Frame has unknown extension "
+				    "bits set on first framing byte %02X\n", c);
 
 			if (wsi->ietf_spec_revision < 7)
 				switch (c & 0xf) {
