@@ -495,7 +495,7 @@ handle_first:
 
 		wsi->this_frame_masked = !!(c & 0x80);
 
-		switch (c) {
+		switch (c & 0x7f) {
 		case 126:
 			/* control frames are not allowed to have big lengths */
 			if (wsi->opcode & 8)
@@ -959,7 +959,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 		wsi->this_frame_masked = !!(c & 0x80);
 
-		switch (c) {
+		switch (c & 0x7f) {
 		case 126:
 			/* control frames are not allowed to have big lengths */
 			if (wsi->opcode & 8)
