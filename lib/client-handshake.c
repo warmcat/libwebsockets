@@ -14,6 +14,9 @@ struct libwebsocket * __libwebsocket_client_connect_2(
 	int plen = 0;
 	char pkt[512];
 	int opt = 1;
+#if defined(__APPLE__)
+    struct protoent* tcp_proto;
+#endif
 
 	fprintf(stderr, "__libwebsocket_client_connect_2\n");
 
@@ -62,7 +65,12 @@ struct libwebsocket * __libwebsocket_client_connect_2(
 	bzero(&server_addr.sin_zero, 8);
 
 	/* Disable Nagle */
+#if !defined(__APPLE__)
 	setsockopt(wsi->sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
+#else
+    tcp_proto = getprotobyname("TCP");
+    setsockopt(wsi->sock, tcp_proto->p_proto, TCP_NODELAY, &opt, sizeof(opt));
+#endif
 
 	/* Set receiving timeout */
 	tv.tv_sec = 0;
