@@ -22,6 +22,10 @@
 #ifndef __LIBWEBSOCKET_H__
 #define __LIBWEBSOCKET_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef WIN32
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -30,10 +34,6 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include "websock-w32.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #include "gettimeofday.h"
 
@@ -683,9 +683,8 @@ lws_b64_decode_string(const char *in, char *out, int out_size);
 
 extern struct libwebsocket_extension libwebsocket_internal_extensions[];
 
-#ifdef WIN32
 #ifdef __cplusplus
 }
 #endif
-#endif
+
 #endif
