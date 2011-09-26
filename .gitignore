@@ -1,6 +1,7 @@
 output/
 win32port/ipch/
 win32port/Debug*/
+win32port/Release*/
 win32port/server/Debug*/
 win32port/server/Release*/
 win32port/client/Debug*/
@@ -10,5 +11,6 @@ win32port/libwebsocketswin32/Release*/
 win32port/zlib/Debug*/
 win32port/zlib/Release*/
 *.vcxproj.user
+*.opensdf
 *.sdf
 *.suo
