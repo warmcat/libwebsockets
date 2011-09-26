@@ -66,7 +66,7 @@ struct libwebsocket * __libwebsocket_client_connect_2(
 
 	/* Disable Nagle */
 #if !defined(__APPLE__)
-	setsockopt(wsi->sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
+	setsockopt(wsi->sock, SOL_TCP, TCP_NODELAY, (const void *)&opt, sizeof(opt));
 #else
     tcp_proto = getprotobyname("TCP");
     setsockopt(wsi->sock, tcp_proto->p_proto, TCP_NODELAY, &opt, sizeof(opt));

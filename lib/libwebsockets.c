@@ -1512,6 +1512,11 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		if (!pollfd->revents & POLLIN)
 			break;
 
+		if (context->fds_count >= MAX_CLIENTS) {
+			fprintf(stderr, "too busy to accept new client\n");
+			break;
+		}
+
 		/* listen socket got an unencrypted connection... */
 
 		clilen = sizeof(cli_addr);
@@ -1524,18 +1529,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		/* Disable Nagle */
 		opt = 1;
-		setsockopt(accept_fd, IPPROTO_TCP, TCP_NODELAY, &opt,
+        setsockopt(accept_fd, IPPROTO_TCP, TCP_NODELAY, (const void *)&opt,
 				sizeof(opt));
-
-		if (context->fds_count >= MAX_CLIENTS) {
-			fprintf(stderr, "too busy to accept new client\n");
-#ifdef WIN32
-			closesocket(accept_fd);
-#else
-			close(accept_fd);
-#endif
-			break;
-		}
 
 		/*
 		 * look at who we connected to and give user code a chance
@@ -2757,12 +2752,12 @@ libwebsocket_create_context(int port, const char *interf,
 		}
 
 		/* allow us to restart even if old sockets in TIME_WAIT */
-		setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+		setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const void *)&opt, sizeof(opt));
 
 
 		/* Disable Nagle */
 		opt = 1;
-		setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
+		setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, (const void *)&opt, sizeof(opt));
 
 		bzero((char *) &serv_addr, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;
@@ -2833,7 +2828,7 @@ libwebsocket_create_context(int port, const char *interf,
 		}
 
 		/* allow us to restart even if old sockets in TIME_WAIT */
-		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const void *)&opt, sizeof(opt));
 
 		bzero((char *) &serv_addr, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;
