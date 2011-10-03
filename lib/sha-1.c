@@ -35,6 +35,16 @@
 #include <sys/types.h>
 #ifdef WIN32
 
+#ifndef BIG_ENDIAN
+#define BIG_ENDIAN    4321  /* to show byte order (taken from gcc) */
+#endif
+#ifndef LITTLE_ENDIAN
+#define LITTLE_ENDIAN 1234
+#endif
+#ifndef BYTE_ORDER
+#define BYTE_ORDER LITTLE_ENDIAN
+#endif
+
 typedef unsigned char u_int8_t;
 typedef unsigned int u_int32_t;
 typedef unsigned __int64 u_int64_t;
@@ -317,4 +327,3 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md)
 }
 
 #endif /*unsupported*/
-
