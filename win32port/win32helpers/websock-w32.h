@@ -18,7 +18,11 @@
 
 #define random rand
 #define usleep _sleep
-#define poll WSAPoll
+
+typedef INT (WSAAPI *PFNWSAPOLL)(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout);
+extern PFNWSAPOLL poll;
+
+extern INT WSAAPI emulated_poll(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout);
 
 /* override configure because we are not using Makefiles */
 

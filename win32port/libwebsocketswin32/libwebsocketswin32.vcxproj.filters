@@ -45,6 +45,9 @@
     <ClCompile Include="..\win32helpers\gettimeofday.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\win32helpers\websock-w32.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\lib\libwebsockets.h">
@@ -61,6 +64,9 @@
     </ClInclude>
     <ClInclude Include="..\win32helpers\gettimeofday.h">
       <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\win32helpers\websock-w32.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

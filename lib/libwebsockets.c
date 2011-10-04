@@ -2501,6 +2501,7 @@ libwebsocket_create_context(int port, const char *interf,
 		WORD wVersionRequested;
 		WSADATA wsaData;
 		int err;
+        HMODULE wsdll;
 
 		/* Use the MAKEWORD(lowbyte, highbyte) macro from Windef.h */
 		wVersionRequested = MAKEWORD(2, 2);
@@ -2513,6 +2514,17 @@ libwebsocket_create_context(int port, const char *interf,
 									   err);
 			return NULL;
 		}
+
+        wsdll = GetModuleHandle("Ws2_32.dll");
+        if (wsdll)
+        {
+            poll = (PFNWSAPOLL)GetProcAddress(wsdll, "WSAPoll");
+        }
+
+        if (!poll)
+        {
+            poll = emulated_poll;
+        }
 	}
 #endif
 

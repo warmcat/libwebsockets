@@ -243,6 +243,7 @@
       <AdditionalDependencies>Ws2_32.lib;..\..\output\ZLib_vc100-mt-s.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <ProjectReference />
   </ItemDefinitionGroup>
@@ -257,6 +258,7 @@
     <ClCompile Include="..\..\lib\parsers.c" />
     <ClCompile Include="..\..\lib\sha-1.c" />
     <ClCompile Include="..\win32helpers\gettimeofday.c" />
+    <ClCompile Include="..\win32helpers\websock-w32.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\lib\extension-deflate-stream.h" />
@@ -264,6 +266,7 @@
     <ClInclude Include="..\..\lib\libwebsockets.h" />
     <ClInclude Include="..\..\lib\private-libwebsockets.h" />
     <ClInclude Include="..\win32helpers\gettimeofday.h" />
+    <ClInclude Include="..\win32helpers\websock-w32.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
