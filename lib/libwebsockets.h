@@ -37,6 +37,8 @@ extern "C" {
 
 #include "gettimeofday.h"
 
+#define strcasecmp stricmp
+
 #ifdef LWS_DLL
 #ifdef LWS_INTERNAL
 #define LWS_EXTERN extern __declspec(dllexport)

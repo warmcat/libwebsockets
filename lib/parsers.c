@@ -179,7 +179,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		for (n = 0; n < WSI_TOKEN_COUNT; n++) {
 			if (wsi->name_buffer_pos != lws_tokens[n].token_len)
 				continue;
-			if (strcmp(lws_tokens[n].token, wsi->name_buffer))
+			if (strcasecmp(lws_tokens[n].token, wsi->name_buffer))
 				continue;
 			debug("known hdr '%s'\n", wsi->name_buffer);
 			wsi->parser_state = WSI_TOKEN_GET_URI + n;
