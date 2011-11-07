@@ -1373,17 +1373,8 @@ check_accept:
 	accept_ok:
 
 	/* allocate the per-connection user memory (if any) */
-
-	if (wsi->protocol->per_session_data_size) {
-		wsi->user_space = malloc(
-				  wsi->protocol->per_session_data_size);
-		if (wsi->user_space  == NULL) {
-			fprintf(stderr, "Out of memory for "
-						   "conn user space\n");
-			goto bail2;
-		}
-	} else
-		wsi->user_space = NULL;
+	if (wsi->protocol->per_session_data_size && !libwebsocket_ensure_user_space(wsi))
+	  goto bail2;
 
 	/* clear his proxy connection timeout */
 
@@ -3095,4 +3086,22 @@ int
 libwebsocket_is_final_fragment(struct libwebsocket *wsi)
 {
 	return wsi->final;
+}
+
+void *
+libwebsocket_ensure_user_space(struct libwebsocket *wsi)
+{
+	/* allocate the per-connection user memory (if any) */
+
+	if (wsi->protocol->per_session_data_size && !wsi->user_space) {
+		wsi->user_space = malloc(
+				  wsi->protocol->per_session_data_size);
+		if (wsi->user_space  == NULL) {
+			fprintf(stderr, "Out of memory for "
+						   "conn user space\n");
+			return NULL;
+		}
+		memset(wsi->user_space, 0, wsi->protocol->per_session_data_size);
+	}
+	return wsi->user_space;
 }

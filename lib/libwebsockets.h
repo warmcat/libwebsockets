@@ -647,6 +647,9 @@ libwebsocket_get_socket_fd(struct libwebsocket *wsi);
 LWS_EXTERN int
 libwebsocket_is_final_fragment(struct libwebsocket *wsi);
 
+LWS_EXTERN void *
+libwebsocket_ensure_user_space(struct libwebsocket *wsi);
+
 LWS_EXTERN int
 libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable);
 

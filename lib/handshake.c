@@ -91,17 +91,8 @@ handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		goto bail;
 
 	/* allocate the per-connection user memory (if any) */
-
-	if (wsi->protocol->per_session_data_size) {
-		wsi->user_space = malloc(
-				  wsi->protocol->per_session_data_size);
-		if (wsi->user_space  == NULL) {
-			fprintf(stderr, "Out of memory for "
-						   "conn user space\n");
-			goto bail;
-		}
-	} else
-		wsi->user_space = NULL;
+	if (wsi->protocol->per_session_data_size && !libwebsocket_ensure_user_space(wsi))
+          goto bail;
 
 	/* create the response packet */
 
@@ -275,17 +266,8 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	}
 
 	/* allocate the per-connection user memory (if any) */
-
-	if (wsi->protocol->per_session_data_size) {
-		wsi->user_space = malloc(
-				  wsi->protocol->per_session_data_size);
-		if (wsi->user_space  == NULL) {
-			fprintf(stderr, "Out of memory for "
-						   "conn user space\n");
-			goto bail;
-		}
-	} else
-		wsi->user_space = NULL;
+	if (wsi->protocol->per_session_data_size && !libwebsocket_ensure_user_space(wsi))
+          goto bail;
 
 	/* create the response packet */
 
