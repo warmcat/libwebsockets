@@ -43,13 +43,13 @@ int lws_extension_callback_deflate_stream(
 			fprintf(stderr, "deflateInit returned %d\n", n);
 			return 1;
 		}
-		fprintf(stderr, "zlibs constructed\n");
+		debug("zlibs constructed\n");
 		break;
 
 	case LWS_EXT_CALLBACK_DESTROY:
 		(void)inflateEnd(&conn->zs_in);
 		(void)deflateEnd(&conn->zs_out);
-		fprintf(stderr, "zlibs destructed\n");
+		debug("zlibs destructed\n");
 		break;
 
 	case LWS_EXT_CALLBACK_PACKET_RX_PREPARSE:

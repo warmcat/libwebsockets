@@ -110,7 +110,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			wsi->utf8_token[wsi->parser_state].token[
 			   wsi->utf8_token[wsi->parser_state].token_len] = '\0';
 			wsi->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
-			fprintf(stderr, "*\n");
+			debug("*\n");
 			break;
 		}
 
@@ -724,7 +724,7 @@ spill:
 				fprintf(stderr, "seen client close ack\n");
 				return -1;
 			}
-			fprintf(stderr, "server sees client close packet\n");
+			debug("server sees client close packet\n");
 			/* parrot the close packet payload back */
 			n = libwebsocket_write(wsi, (unsigned char *)
 			   &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
@@ -1184,7 +1184,7 @@ spill:
 				 * fine he has told us he is closing too, let's
 				 * finish our close
 				 */
-				fprintf(stderr, "seen server's close ack\n");
+				debug("seen server's close ack\n");
 				return -1;
 			}
 			fprintf(stderr, "client sees server close packet len = %d\n", wsi->rx_user_buffer_head);
@@ -1220,7 +1220,7 @@ spill:
 
 		default:
 
-			fprintf(stderr, "Reserved opcode 0x%2X\n", wsi->opcode);
+			debug("Reserved opcode 0x%2X\n", wsi->opcode);
 			/*
 			 * It's something special we can't understand here.
 			 * Pass the payload up to the extension's parsing
@@ -1510,7 +1510,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 			/* no we could add more */
 			continue;
 
-		fprintf(stderr, "choked\n");
+		debug("choked\n");
 
 		/*
 		 * Yes, he's choked.  Don't spill the rest now get a callback

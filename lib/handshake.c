@@ -349,7 +349,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		 */
 
 		c = wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token;
-		fprintf(stderr, "wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token = %s\n", wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token);
+		debug("wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token = %s\n", wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token);
 		wsi->count_active_extensions = 0;
 		n = 0;
 		while (more) {
@@ -434,7 +434,8 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 					wsi->count_active_extensions], NULL, 0);
 
 				wsi->count_active_extensions++;
-				fprintf(stderr, "wsi->count_active_extensions <- %d", wsi->count_active_extensions);
+				debug("wsi->count_active_extensions <- %d",
+						  wsi->count_active_extensions);
 
 				ext++;
 			}
@@ -586,9 +587,9 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 		if (wsi->parser_state != WSI_PARSING_COMPLETE)
 			break;
 
-		fprintf(stderr, "seem to be serving, mode is %d\n", wsi->mode);
+		debug("seem to be serving, mode is %d\n", wsi->mode);
 
-		fprintf(stderr, "libwebsocket_parse sees parsing complete\n");
+		debug("libwebsocket_parse sees parsing complete\n");
 
 		/* is this websocket protocol or normal http 1.0? */
 
@@ -602,9 +603,8 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 			return 0;
 		}
 
-		if (!wsi->protocol) {
+		if (!wsi->protocol)
 			fprintf(stderr, "NULL protocol coming on libwebsocket_read\n");
-		}
 
 		/*
 		 * It's websocket
@@ -695,7 +695,7 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 			goto bail;
 		}
 
-		fprintf(stderr, "accepted v%02d connection\n",
+		debug("accepted v%02d connection\n",
 						       wsi->ietf_spec_revision);
 
 		break;

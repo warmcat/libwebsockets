@@ -41,7 +41,7 @@ lws_mux_subcommand_header(int cmd, int channel, unsigned char *pb, int len)
 	unsigned char *start = pb;
 
 	if (channel == 0) {
-		fprintf(stderr, "lws_mux_subcommand_header: given ch 0\n");
+		muxdebug("lws_mux_subcommand_header: given ch 0\n");
 		*((int *)0) = 0;
 	}
 
@@ -91,7 +91,7 @@ static int lws_ext_x_google_mux__send_addchannel(
 	int n;
 
 	if (channel == 0) {
-		fprintf(stderr, "lws_ext_x_google_mux__send_addchannel: given ch 0\n");
+		muxdebug("lws_ext_x_google_mux__send_addchannel: given ch 0\n");
 		*((int *)0) = 0;
 	}
 
@@ -315,7 +315,7 @@ interpret:
 
 			muxdebug("Client LWS_EXT_XGM_STATE__ADDCHANNEL_HEADERS in %c\n", c);
 			if (conn->block_subchannel == 1) {
-				fprintf(stderr, "adding ch1\n");
+				muxdebug("adding ch1\n");
 				wsi_child = wsi;
 				child_conn = conn;
 			} else
@@ -379,10 +379,10 @@ interpret:
 			wsi_child->mode = LWS_CONNMODE_WS_CLIENT;
 
 			if (wsi_child->protocol)
-				fprintf(stderr, "mux handshake OK for protocol %s\n",
+				muxdebug("mux handshake OK for protocol %s\n",
 					wsi_child->protocol->name);
 			else
-				fprintf(stderr, "mux child handshake ends up with no protocol!\n");
+				muxdebug("mux child handshake ends up with no protocol!\n");
 
 			/*
 			 * inform all extensions, not just active ones since they
@@ -576,7 +576,7 @@ bail2:
 		default:
 //			fprintf(stderr, "  server\n");
 			if (libwebsocket_rx_sm(wsi_child, c) < 0) {
-				fprintf(stderr, "probs\n");
+				muxdebug("probs\n");
 				libwebsocket_close_and_free_session(
 					context,
 					wsi_child,
@@ -739,7 +739,7 @@ int lws_extension_callback_x_google_mux(
 			wsi_parent->candidate_children_list = wsi;
 			wsi->mode = LWS_CONNMODE_WS_CLIENT_PENDING_CANDIDATE_CHILD;
 
-			fprintf(stderr, "attaching to existing mux\n");
+			muxdebug("attaching to existing mux\n");
 
 			conn = parent_conn;
 			wsi = wsi_parent;
@@ -757,7 +757,7 @@ int lws_extension_callback_x_google_mux(
 		if (done)
 			return 1;
 
-		fprintf(stderr, "x-google-mux: unable to mux connection\n");
+		muxdebug("x-google-mux: unable to mux connection\n");
 
 		break;
 
@@ -793,7 +793,7 @@ int lws_extension_callback_x_google_mux(
 
 			parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
 			if (parent_conn == 0) {
-				fprintf(stderr, "failed to get parent conn\n");
+				muxdebug("failed to get parent conn\n");
 				break;
 			}
 		}
@@ -846,7 +846,7 @@ int lws_extension_callback_x_google_mux(
 			wsi_parent = conn->wsi_parent;
 			parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
 			if (parent_conn == 0) {
-				fprintf(stderr, "failed to get parent conn\n");
+				muxdebug("failed to get parent conn\n");
 				break;
 			}
 			for (n = 0; n < parent_conn->highest_child_subchannel; n++)
@@ -1048,7 +1048,7 @@ handle_additions:
 
 			parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
 			if (parent_conn == 0) {
-				fprintf(stderr, "failed to get parent conn\n");
+				muxdebug("failed to get parent conn\n");
 				return 0;
 			}
 
@@ -1133,7 +1133,7 @@ handle_additions:
 				parent_conn->count_children_needing_POLLOUT++;
 				muxdebug("  count_children_needing_POLLOUT bumped\n");
 			} else
-				fprintf(stderr, "unable to identify parent conn\n");
+				muxdebug("unable to identify parent conn\n");
 		}
 		muxdebug("  requesting on parent %p\n", (void *)conn->wsi_parent);
 		libwebsocket_callback_on_writable(context, conn->wsi_parent);
@@ -1142,7 +1142,8 @@ handle_additions:
 
 	case LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX:
 
-		fprintf(stderr, "LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX %p\n", (void *)wsi->extension_handles);
+		muxdebug("LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX %p\n",
+						(void *)wsi->extension_handles);
 
 		/* send raw if we're not a child */
 
@@ -1185,7 +1186,7 @@ handle_additions:
 							conn->wsi_children[n]->active_extensions_user[m];
 
 			if (!child_conn) {
-				fprintf(stderr, "unable to identify child conn\n");
+				muxdebug("unable to identify child conn\n");
 				continue;
 			}
 
@@ -1209,7 +1210,7 @@ handle_additions:
 		if (strcmp(in, "deflate-stream") == 0 &&
 				 client_handshake_generation_is_for_mux_child) {
 
-			fprintf(stderr, "mux banned deflate-stream on child connection\n");
+			muxdebug("mux banned deflate-stream on child connection\n");
 			return 1; /* disallow */
 		}
 		break;
