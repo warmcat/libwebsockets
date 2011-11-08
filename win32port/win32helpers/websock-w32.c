@@ -5,152 +5,91 @@
 #include <errno.h>
 #include "websock-w32.h"
 
-
 PFNWSAPOLL poll = NULL;
-
 
 INT WSAAPI emulated_poll(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout)
 {
-    fd_set readfds, writefds;
-    struct timeval tv, *ptv;
-    SOCKET max_socket;
-    ULONG n;
-    int num_bits, num_sockets_ready;
+	fd_set readfds;
+	fd_set writefds;
+	struct timeval tv;
+	struct timeval *ptv = &tv;
+	SOCKET max_socket = 0;
+	ULONG n = 0;
+	int waiting;
+	int pending = 0;
+	WSAPOLLFD * const poll_fd = fdarray;
 
-    if (NULL == fdarray)
-    {
-        errno = EFAULT;
-        return -1;
-    }
+	if (NULL == fdarray) {
+		errno = EFAULT;
+		return -1;
+	}
 
-    FD_ZERO(&readfds);
-    FD_ZERO(&writefds);
+	FD_ZERO(&readfds);
+	FD_ZERO(&writefds);
 
-    max_socket = 0;
-    n = 0;
-    while (n < nfds)
-    {
-        WSAPOLLFD * const poll_fd = (fdarray + n);
-        SOCKET sock = poll_fd->fd;
-        poll_fd->revents = 0;
-        if (0 <= sock)
-        {
-            const SHORT events = poll_fd->events;
-            if (events)
-            {
-                if (max_socket < sock)
-                {
-                    max_socket = sock;
-                }
+	tv.tv_sec = timeout / 1000;
+	tv.tv_usec = (timeout % 1000) * 1000;
 
-                if (events & POLLIN)
-                {
-                    FD_SET(sock, &readfds);
-                }
+	if (timeout < 0)
+		ptv = NULL;
 
-                if (events & POLLOUT)
-                {
-                    FD_SET(sock, &writefds);
-                }
-            }
-        }
-        n++;
-    }
+	while (n < nfds) {
 
-    if (0 > timeout)
-    {
-        ptv = NULL;
-    }
-    else
-    {
-        ptv = &tv;
-        if (0 == timeout)
-        {
-            tv.tv_sec = 0;
-            tv.tv_usec = 0;
-        }
-        else if (1000 <= timeout)
-        {
-            tv.tv_sec = (timeout / 1000);
-            tv.tv_usec = ((timeout % 1000) * 1000);
-        }
-        else
-        {
-            tv.tv_sec = 0;
-            tv.tv_usec = (timeout * 1000);
-        }
-    }
+		poll_fd->revents = 0;
 
-    num_bits = select((int)max_socket + 1, &readfds, &writefds, NULL, ptv);
-    if (0 >= num_bits)
-    {
-        return num_bits;
-    }
+		if (poll_fd->fd < 0 || !poll_fd->events)
+			goto skip;
 
-    num_sockets_ready = 0;
-    n = 0;
-    do
-    {
-        WSAPOLLFD * const poll_fd = (fdarray + n);
-        SOCKET sock = poll_fd->fd;
-        if (0 <= sock)
-        {
-            const SHORT events = poll_fd->events;
-            if (events)
-            {
-                if (FD_ISSET(sock, &readfds))
-                {
-                    const int saved_error = WSAGetLastError();
-                    char test_data[4] = {0};
-                    int ret;
+		if (max_socket < poll_fd->fd)
+			max_socket = poll_fd->fd;
 
-                    /* support for POLLHUP */
-                    ret = recv(poll_fd->fd, test_data, sizeof(test_data), MSG_PEEK);
-                    if (SOCKET_ERROR == ret)
-                    {
-                        const int err = WSAGetLastError();
-                        if (err == WSAESHUTDOWN || err == WSAECONNRESET ||
-                            err == WSAECONNABORTED || err == WSAENETRESET)
-                        {
-                            poll_fd->revents |= POLLHUP;
-                        }
-                    }
-                    else
-                    {
-                        if (events & POLLIN)
-                        {
-                            poll_fd->revents |= POLLIN;
-                        }
-                    }
+		if (poll_fd->events & POLLIN)
+			FD_SET(sock, &readfds);
 
-                    WSASetLastError(saved_error);
+		if (poll_fd->events & POLLOUT)
+			FD_SET(sock, &writefds);
+skip:
+		poll_fd++;
+		n++;
+	}
 
-                    --num_bits;
-                }
+	waiting = select((int)max_socket + 1, &readfds, &writefds, NULL, ptv);
 
-                if (FD_ISSET(sock, &writefds))
-                {
-                    if (events & POLLOUT)
-                    {
-                        poll_fd->revents |= POLLOUT;
-                    }
+	if (waiting <= 0)
+		return waiting;
 
-                    --num_bits;
-                }
+	poll_fd = fdarray;
 
-                if (poll_fd->revents)
-                {
-                    num_sockets_ready++;
-                }
-            }
-        }
-        else
-        {
-            poll_fd->revents = POLLNVAL;
-        }
-        n++;
-    }
-    while (0 < num_bits && n < nfds);
+	while (waiting && nfds--) {
 
-    return num_sockets_ready;
+		if (!poll_fd->events)
+			goto skip;
+
+		if (poll_fd->fd <= 0) {
+			poll_fd->revents = POLLNVAL;
+			goto skip;
+		}
+
+		if (FD_ISSET(poll_fd->fd, &readfds)) {
+
+			/* defer POLLHUP / error detect to false read attempt */
+
+			poll_fd->revents |= POLLIN;
+			waiting--;
+		}
+
+		if (FD_ISSET(poll_fd->fd, &writefds)) {
+
+			poll_fd->revents |= poll_fd->events & POLLOUT;
+			waiting--;
+		}
+
+		if (poll_fd->revents)
+			pending++;
+
+skip:
+		poll_fd++;
+	}
+
+	return pending;
 }
