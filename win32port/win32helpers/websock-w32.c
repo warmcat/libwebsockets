@@ -17,7 +17,7 @@ INT WSAAPI emulated_poll(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout)
 	ULONG n = 0;
 	int waiting;
 	int pending = 0;
-	WSAPOLLFD * const poll_fd = fdarray;
+	WSAPOLLFD * poll_fd = fdarray;
 
 	if (NULL == fdarray) {
 		errno = EFAULT;
@@ -38,17 +38,17 @@ INT WSAAPI emulated_poll(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout)
 		poll_fd->revents = 0;
 
 		if (poll_fd->fd < 0 || !poll_fd->events)
-			goto skip;
+			goto skip1;
 
 		if (max_socket < poll_fd->fd)
 			max_socket = poll_fd->fd;
 
 		if (poll_fd->events & POLLIN)
-			FD_SET(sock, &readfds);
+			FD_SET(poll_fd->fd, &readfds);
 
 		if (poll_fd->events & POLLOUT)
-			FD_SET(sock, &writefds);
-skip:
+			FD_SET(poll_fd->fd, &writefds);
+skip1:
 		poll_fd++;
 		n++;
 	}
@@ -63,11 +63,11 @@ skip:
 	while (waiting && nfds--) {
 
 		if (!poll_fd->events)
-			goto skip;
+			goto skip2;
 
 		if (poll_fd->fd <= 0) {
 			poll_fd->revents = POLLNVAL;
-			goto skip;
+			goto skip2;
 		}
 
 		if (FD_ISSET(poll_fd->fd, &readfds)) {
@@ -87,7 +87,7 @@ skip:
 		if (poll_fd->revents)
 			pending++;
 
-skip:
+skip2:
 		poll_fd++;
 	}
 
