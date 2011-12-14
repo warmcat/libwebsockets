@@ -3021,14 +3021,28 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *context)
 		return 0;
 	}
 
+#ifdef HAVE_SYS_PRCTL_H
 	/* we want a SIGHUP when our parent goes down */
 	prctl(PR_SET_PDEATHSIG, SIGHUP);
+#endif
 
 	/* in this forked process, sit and service websocket connections */
 
-	while (1)
+	while (1) {
 		if (libwebsocket_service(context, 1000))
 			return -1;
+#ifndef HAVE_SYS_PRCTL_H
+/*
+ * on systems without prctl() (i.e. anything but linux) we can notice that our
+ * parent is dead if getppid() returns 1. FIXME apparently this is not true for
+ * solaris, could remember ppid right after fork and wait for it to change.
+ */
+
+        if (getppid() == 1)
+            break;
+#endif
+    }
+
 
 	return 0;
 }
