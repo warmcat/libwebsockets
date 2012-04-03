@@ -619,7 +619,7 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 				if (wsi->protocol->name == NULL)
 					break;
 			} else
-				if (strcmp(
+				if (wsi->protocol->name && strcmp(
 				     wsi->utf8_token[WSI_TOKEN_PROTOCOL].token,
 						      wsi->protocol->name) == 0)
 					break;
