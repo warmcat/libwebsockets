@@ -182,6 +182,18 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			if (strcasecmp(lws_tokens[n].token, wsi->name_buffer))
 				continue;
 			debug("known hdr '%s'\n", wsi->name_buffer);
+
+			/*
+			 * WSORIGIN is protocol equiv to ORIGIN,
+			 * JWebSocket likes to send it, map to ORIGIN
+			 */
+			if (n == WSI_TOKEN_SWORIGIN)
+				n = WSI_TOKEN_ORIGIN;
+
+			/* check for dupe header -> mem leak... skip dupes */
+                        if (wsi->utf8_token[WSI_TOKEN_GET_URI + n].token)
+                                continue;
+
 			wsi->parser_state = WSI_TOKEN_GET_URI + n;
 			wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
 
