@@ -596,11 +596,11 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 
 		if (!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
 			     !wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len) {
+			wsi->state = WSI_STATE_HTTP;
 			if (wsi->protocol->callback)
 				(wsi->protocol->callback)(context, wsi,
 				   LWS_CALLBACK_HTTP, wsi->user_space,
 				   wsi->utf8_token[WSI_TOKEN_GET_URI].token, 0);
-			wsi->state = WSI_STATE_HTTP;
 			return 0;
 		}
 
