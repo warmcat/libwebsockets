@@ -190,17 +190,18 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			if (n == WSI_TOKEN_SWORIGIN)
 				n = WSI_TOKEN_ORIGIN;
 
-			/* check for dupe header -> mem leak... skip dupes */
-                        if (wsi->utf8_token[WSI_TOKEN_GET_URI + n].token)
-                                continue;
-
 			wsi->parser_state = WSI_TOKEN_GET_URI + n;
-			wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
 
-			wsi->utf8_token[wsi->parser_state].token =
-						 malloc(wsi->current_alloc_len);
-			wsi->utf8_token[wsi->parser_state].token_len = 0;
 			n = WSI_TOKEN_COUNT;
+
+			/*  If the header has been seen already, just append */
+			if (wsi->utf8_token[wsi->parser_state].token)
+				continue;
+
+			wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
+			wsi->utf8_token[wsi->parser_state].token =
+							 malloc(wsi->current_alloc_len);
+			wsi->utf8_token[wsi->parser_state].token_len = 0;
 		}
 
 		/* colon delimiter means we just don't know this name */
