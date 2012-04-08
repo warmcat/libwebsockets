@@ -1458,6 +1458,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	int more = 1;
 	struct lws_tokens eff_buf;
 	int opt = 1;
+	char c;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	char ssl_err_buf[512];
@@ -1877,31 +1878,40 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		 *  Sec-WebSocket-Protocol: chat
 		 */
 
-	#ifdef LWS_OPENSSL_SUPPORT
-		if (wsi->use_ssl)
-			len = SSL_read(wsi->ssl, pkt, sizeof pkt);
-		else
-	#endif
-			len = recv(wsi->sock, pkt, sizeof pkt, 0);
+		/*
+		 * we have to take some care here to only take from the
+		 * socket bytewise.  The browser may (and has been seen to
+		 * in the case that onopen() performs websocket traffic)
+		 * coalesce both handshake response and websocket traffic
+		 * in one packet, since at that point the connection is
+		 * definitively ready from browser pov.
+		 */
 
-		if (len < 0) {
-			fprintf(stderr,
-				  "libwebsocket_client_handshake read error\n");
-			goto bail3;
+		while (wsi->parser_state != WSI_PARSING_COMPLETE && len > 0) {
+#ifdef LWS_OPENSSL_SUPPORT
+			if (wsi->use_ssl)
+				len = SSL_read(wsi->ssl, &c, 1);
+			 else
+#endif
+				len = recv(wsi->sock, &c, 1, 0);
+
+			libwebsocket_parse(wsi, c);
 		}
 
-		p = pkt;
-		for (n = 0; n < len; n++)
-			libwebsocket_parse(wsi, *p++);
-
 		/*
-		 * may be coming in multiple packets, there is a 5-second
+		 * hs may also be coming in multiple packets, there is a 5-second
 		 * libwebsocket timeout still active here too, so if parsing did
 		 * not complete just wait for next packet coming in this state
 		 */
 
 		if (wsi->parser_state != WSI_PARSING_COMPLETE)
 			break;
+
+		/*
+		 * otherwise deal with the handshake.  If there's any
+		 * packet traffic already arrived we'll trigger poll() again
+		 * right away and deal with it that way
+		 */
 
 		return lws_client_interpret_server_handshake(context, wsi);
 
