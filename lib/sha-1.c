@@ -45,10 +45,7 @@
 #define BYTE_ORDER LITTLE_ENDIAN
 #endif
 
-typedef unsigned char u_int8_t;
-typedef unsigned int u_int32_t;
 typedef unsigned __int64 u_int64_t;
-typedef void* caddr_t;
 
 #undef __P
 #ifndef __P
@@ -59,7 +56,7 @@ typedef void* caddr_t;
 #endif
 #endif
 
-#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
+#define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
 
 #else
 #include <sys/cdefs.h>
@@ -70,18 +67,18 @@ typedef void* caddr_t;
 
 struct sha1_ctxt {
 	union {
-		u_int8_t	b8[20];
-		u_int32_t	b32[5];
+		unsigned char		b8[20];
+		unsigned int		b32[5];
 	} h;
 	union {
-		u_int8_t	b8[8];
-		u_int64_t	b64[1];
+		unsigned char		b8[8];
+		u_int64_t		b64[1];
 	} c;
 	union {
-		u_int8_t	b8[64];
-		u_int32_t	b32[16];
+		unsigned char		b8[64];
+		unsigned int		b32[16];
 	} m;
-	u_int8_t	count;
+	unsigned char			count;
 };
 
 /* sanity check */
@@ -94,7 +91,7 @@ struct sha1_ctxt {
 #ifndef unsupported
 
 /* constant table */
-static u_int32_t _K[] = { 0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6 };
+static unsigned int _K[] = { 0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6 };
 #define	K(t)	_K[(t) / 20]
 
 #define	F0(b, c, d)	(((b) & (c)) | ((~(b)) & (d)))
@@ -116,7 +113,7 @@ static u_int32_t _K[] = { 0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6 };
 	ctxt->c.b64[0] += 8;			\
 	if (COUNT % 64 == 0)			\
 		sha1_step(ctxt);		\
-     }
+	}
 
 #define	PUTPAD(x)	{ \
 	ctxt->m.b8[(COUNT % 64)] = (x);		\
@@ -124,16 +121,15 @@ static u_int32_t _K[] = { 0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6 };
 	COUNT %= 64;				\
 	if (COUNT % 64 == 0)			\
 		sha1_step(ctxt);		\
-     }
+	}
 
 static void sha1_step __P((struct sha1_ctxt *));
 
 static void
 sha1_step(struct sha1_ctxt *ctxt)
 {
-	u_int32_t	a, b, c, d, e;
+	unsigned int	a, b, c, d, e, tmp;
 	size_t t, s;
-	u_int32_t	tmp;
 
 #if BYTE_ORDER == LITTLE_ENDIAN
 	struct sha1_ctxt tctxt;
@@ -263,7 +259,7 @@ sha1_pad(struct sha1_ctxt *ctxt)
 }
 
 void
-sha1_loop(struct sha1_ctxt *ctxt, const u_int8_t *input, size_t len)
+sha1_loop(struct sha1_ctxt *ctxt, const unsigned char *input, size_t len)
 {
 	size_t gaplen;
 	size_t gapstart;
@@ -288,11 +284,11 @@ sha1_loop(struct sha1_ctxt *ctxt, const u_int8_t *input, size_t len)
 }
 
 void
-sha1_result(struct sha1_ctxt *ctxt, caddr_t digest0)
+sha1_result(struct sha1_ctxt *ctxt, void *digest0)
 {
-	u_int8_t *digest;
+	unsigned char *digest;
 
-	digest = (u_int8_t *)digest0;
+	digest = (unsigned char *)digest0;
 	sha1_pad(ctxt);
 #if BYTE_ORDER == BIG_ENDIAN
 	memcpy(digest, &ctxt->h.b8[0], 20);
@@ -321,7 +317,7 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md)
 
 	sha1_init(&ctx);
 	sha1_loop(&ctx, d, n);
-	sha1_result(&ctx, (caddr_t)md);
+	sha1_result(&ctx, (void *)md);
 
 	return md;
 }

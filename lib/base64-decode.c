@@ -66,33 +66,21 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
 			} else
 				triple[i] = 0;
 		}
-		if (len) {
+		if (!len)
+			continue;
 
-			if (done + 4 >= out_size)
-				return -1;
+		if (done + 4 >= out_size)
+			return -1;
 
-			*out++ = encode[triple[0] >> 2];
-			*out++ = encode[((triple[0] & 0x03) << 4) |
-						     ((triple[1] & 0xf0) >> 4)];
-			*out++ = (len > 1 ? encode[((triple[1] & 0x0f) << 2) |
+		*out++ = encode[triple[0] >> 2];
+		*out++ = encode[((triple[0] & 0x03) << 4) |
+					     ((triple[1] & 0xf0) >> 4)];
+		*out++ = (len > 1 ? encode[((triple[1] & 0x0f) << 2) |
 					     ((triple[2] & 0xc0) >> 6)] : '=');
-			*out++ = (len > 2 ? encode[triple[2] & 0x3f] : '=');
+		*out++ = (len > 2 ? encode[triple[2] & 0x3f] : '=');
 
-			done += 4;
-			line += 4;
-		}
-#if 0
-		if (line >= 72) {
-
-			if (done + 2 >= out_size)
-				return -1;
-
-			*out++ = '\r';
-			*out++ = '\n';
-			done += 2;
-			line = 0;
-		}
-#endif
+		done += 4;
+		line += 4;
 	}
 
 	if (done + 1 >= out_size)
@@ -168,10 +156,10 @@ lws_b64_selftest(void)
 	char buf[64];
 	int n;
 	int test;
-	static const char *plaintext[] = {
+	static const char * const plaintext[] = {
 		"sanity check base 64"
 	};
-	static const char *coded[] = {
+	static const char * const coded[] = {
 		"c2FuaXR5IGNoZWNrIGJhc2UgNjQ="
 	};
 

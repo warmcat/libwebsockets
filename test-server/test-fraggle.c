@@ -56,7 +56,7 @@ struct per_session_data__fraggle {
 };
 
 static int
-callback_fraggle(struct libwebsocket_context * context,
+callback_fraggle(struct libwebsocket_context *context,
 			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
@@ -179,7 +179,7 @@ callback_fraggle(struct libwebsocket_context * context,
 			bp[1] = psf->sum >> 16;
 			bp[2] = psf->sum >> 8;
 			bp[3] = psf->sum;
-							
+
 			n = libwebsocket_write(wsi, (unsigned char *)bp,
 							   4, LWS_WRITE_BINARY);
 
@@ -231,8 +231,8 @@ static struct option options[] = {
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "killmask",	no_argument,		NULL, 'k' },
-	{ "interface",  required_argument, 	NULL, 'i' },
-	{ "client", 	no_argument,		NULL, 'c' },
+	{ "interface",  required_argument,	NULL, 'i' },
+	{ "client",	no_argument,		NULL, 'c' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -248,7 +248,7 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 	int opts = 0;
 	char interface_name[128] = "";
-	const char * interface = NULL;
+	const char *interface = NULL;
 	struct libwebsocket *wsi;
 	const char *address;
 	int server_port = port;

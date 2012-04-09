@@ -2,7 +2,7 @@
 #include <netdb.h>
 
 
-struct libwebsocket * __libwebsocket_client_connect_2(
+struct libwebsocket *__libwebsocket_client_connect_2(
 	struct libwebsocket_context *context,
 	struct libwebsocket *wsi
 ) {
@@ -15,7 +15,7 @@ struct libwebsocket * __libwebsocket_client_connect_2(
 	char pkt[512];
 	int opt = 1;
 #if defined(__APPLE__)
-    struct protoent* tcp_proto;
+	struct protoent *tcp_proto;
 #endif
 
 	debug("__libwebsocket_client_connect_2\n");
@@ -66,10 +66,12 @@ struct libwebsocket * __libwebsocket_client_connect_2(
 
 	/* Disable Nagle */
 #if !defined(__APPLE__)
-	setsockopt(wsi->sock, SOL_TCP, TCP_NODELAY, (const void *)&opt, sizeof(opt));
+	setsockopt(wsi->sock, SOL_TCP, TCP_NODELAY,
+					      (const void *)&opt, sizeof(opt));
 #else
-    tcp_proto = getprotobyname("TCP");
-    setsockopt(wsi->sock, tcp_proto->p_proto, TCP_NODELAY, &opt, sizeof(opt));
+	tcp_proto = getprotobyname("TCP");
+	setsockopt(wsi->sock, tcp_proto->p_proto, TCP_NODELAY,
+							    &opt, sizeof(opt));
 #endif
 
 	/* Set receiving timeout */
@@ -78,7 +80,7 @@ struct libwebsocket * __libwebsocket_client_connect_2(
 	setsockopt(wsi->sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof tv);
 
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
-					      sizeof(struct sockaddr)) == -1)  {
+					     sizeof(struct sockaddr)) == -1)  {
 		fprintf(stderr, "Connect failed\n");
 		goto oom4;
 	}
@@ -167,7 +169,7 @@ bail1:
  *		the server, or just one.  The server will pick the one it
  *		likes best.
  * @ietf_version_or_minus_one: -1 to ask to connect using the default, latest
- * 		protocol supported, or the specific protocol ordinal
+ *		protocol supported, or the specific protocol ordinal
  *
  *	This function creates a connection to a remote server
  */
@@ -227,10 +229,12 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	if (wsi->c_path == NULL)
 		goto bail1;
 	strcpy(wsi->c_path, path);
+
 	wsi->c_host = malloc(strlen(host) + 1);
 	if (wsi->c_host == NULL)
 		goto oom1;
 	strcpy(wsi->c_host, host);
+
 	if (origin) {
 		wsi->c_origin = malloc(strlen(origin) + 1);
 		strcpy(wsi->c_origin, origin);
@@ -238,6 +242,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 			goto oom2;
 	} else
 		wsi->c_origin = NULL;
+
 	if (protocol) {
 		wsi->c_protocol = malloc(strlen(protocol) + 1);
 		if (wsi->c_protocol == NULL)
@@ -245,7 +250,6 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 		strcpy(wsi->c_protocol, protocol);
 	} else
 		wsi->c_protocol = NULL;
-
 
 	/* set up appropriate masking */
 

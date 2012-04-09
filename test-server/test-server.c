@@ -61,7 +61,7 @@ enum demo_protocols {
 
 /* this protocol server (always the first one) just knows how to do HTTP */
 
-static int callback_http(struct libwebsocket_context * context,
+static int callback_http(struct libwebsocket_context *context,
 		struct libwebsocket *wsi,
 		enum libwebsocket_callback_reasons reason, void *user,
 							   void *in, size_t len)
@@ -150,7 +150,7 @@ dump_handshake_info(struct lws_tokens *lwst)
 		/*[WSI_TOKEN_HTTP]		=*/ "Http",
 		/*[WSI_TOKEN_MUXURL]	=*/ "MuxURL",
 	};
-	
+
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
 		if (lwst[n].token == NULL)
 			continue;
@@ -174,7 +174,7 @@ struct per_session_data__dumb_increment {
 };
 
 static int
-callback_dumb_increment(struct libwebsocket_context * context,
+callback_dumb_increment(struct libwebsocket_context *context,
 			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
@@ -188,7 +188,8 @@ callback_dumb_increment(struct libwebsocket_context * context,
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
-		fprintf(stderr, "callback_dumb_increment: LWS_CALLBACK_ESTABLISHED\n");
+		fprintf(stderr, "callback_dumb_increment: "
+						 "LWS_CALLBACK_ESTABLISHED\n");
 		pss->number = 0;
 		break;
 
@@ -257,7 +258,7 @@ static int ringbuffer_head;
 
 
 static int
-callback_lws_mirror(struct libwebsocket_context * context,
+callback_lws_mirror(struct libwebsocket_context *context,
 			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
@@ -268,7 +269,8 @@ callback_lws_mirror(struct libwebsocket_context * context,
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
-		fprintf(stderr, "callback_lws_mirror: LWS_CALLBACK_ESTABLISHED\n");
+		fprintf(stderr, "callback_lws_mirror: "
+						 "LWS_CALLBACK_ESTABLISHED\n");
 		pss->ringbuffer_tail = ringbuffer_head;
 		pss->wsi = wsi;
 		break;
@@ -380,7 +382,7 @@ static struct option options[] = {
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "killmask",	no_argument,		NULL, 'k' },
-	{ "interface",  required_argument, 	NULL, 'i' },
+	{ "interface",  required_argument,	NULL, 'i' },
 	{ "closetest",  no_argument,		NULL, 'c' },
 	{ NULL, 0, 0, 0 }
 };
@@ -399,7 +401,7 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 	int opts = 0;
 	char interface_name[128] = "";
-	const char * interface = NULL;
+	const char *interface = NULL;
 #ifdef LWS_NO_FORK
 	unsigned int oldus = 0;
 #endif

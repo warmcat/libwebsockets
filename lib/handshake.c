@@ -21,6 +21,9 @@
 
 #include "private-libwebsockets.h"
 
+#define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
+#define LWS_CPYAPP_TOKEN(ptr, tok) { strcpy(p, wsi->utf8_token[tok].token); \
+		p += wsi->utf8_token[tok].token_len; }
 
 static int
 interpret_key(const char *key, unsigned long *result)
@@ -33,12 +36,13 @@ interpret_key(const char *key, unsigned long *result)
 	int rem = 0;
 
 	while (*p) {
-		if (isdigit(*p)) {
-			if (digit_pos == sizeof(digits) - 1)
-				return -1;
-			digits[digit_pos++] = *p;
+		if (!isdigit(*p)) {
+			p++;
+			continue;
 		}
-		p++;
+		if (digit_pos == sizeof(digits) - 1)
+			return -1;
+		digits[digit_pos++] = *p++;
 	}
 	digits[digit_pos] = '\0';
 	if (!digit_pos)
@@ -91,8 +95,9 @@ handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		goto bail;
 
 	/* allocate the per-connection user memory (if any) */
-	if (wsi->protocol->per_session_data_size && !libwebsocket_ensure_user_space(wsi))
-          goto bail;
+	if (wsi->protocol->per_session_data_size &&
+					  !libwebsocket_ensure_user_space(wsi))
+		goto bail;
 
 	/* create the response packet */
 
@@ -111,41 +116,28 @@ handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	}
 
 	p = response;
-	strcpy(p,   "HTTP/1.1 101 WebSocket Protocol Handshake\x0d\x0a"
-					  "Upgrade: WebSocket\x0d\x0a");
-	p += strlen("HTTP/1.1 101 WebSocket Protocol Handshake\x0d\x0a"
-					  "Upgrade: WebSocket\x0d\x0a");
-	strcpy(p,   "Connection: Upgrade\x0d\x0a"
-		    "Sec-WebSocket-Origin: ");
-	p += strlen("Connection: Upgrade\x0d\x0a"
-		    "Sec-WebSocket-Origin: ");
+	LWS_CPYAPP(p, "HTTP/1.1 101 WebSocket Protocol Handshake\x0d\x0a"
+		      "Upgrade: WebSocket\x0d\x0a"
+		      "Connection: Upgrade\x0d\x0a"
+		      "Sec-WebSocket-Origin: ");
 	strcpy(p, wsi->utf8_token[WSI_TOKEN_ORIGIN].token);
 	p += wsi->utf8_token[WSI_TOKEN_ORIGIN].token_len;
 #ifdef LWS_OPENSSL_SUPPORT
-	if (wsi->ssl) {
-		strcpy(p,   "\x0d\x0aSec-WebSocket-Location: wss://");
-		p += strlen("\x0d\x0aSec-WebSocket-Location: wss://");
-	} else {
+	if (wsi->ssl)
+		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Location: wss://");
+	else
 #endif
-		strcpy(p,   "\x0d\x0aSec-WebSocket-Location: ws://");
-		p += strlen("\x0d\x0aSec-WebSocket-Location: ws://");
-#ifdef LWS_OPENSSL_SUPPORT
-	}
-#endif
-	strcpy(p, wsi->utf8_token[WSI_TOKEN_HOST].token);
-	p += wsi->utf8_token[WSI_TOKEN_HOST].token_len;
-	strcpy(p, wsi->utf8_token[WSI_TOKEN_GET_URI].token);
-	p += wsi->utf8_token[WSI_TOKEN_GET_URI].token_len;
+		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Location: ws://");
+
+	LWS_CPYAPP_TOKEN(p, WSI_TOKEN_HOST);
+	LWS_CPYAPP_TOKEN(p, WSI_TOKEN_GET_URI);
 
 	if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token) {
-		strcpy(p,   "\x0d\x0aSec-WebSocket-Protocol: ");
-		p += strlen("\x0d\x0aSec-WebSocket-Protocol: ");
-		strcpy(p, wsi->utf8_token[WSI_TOKEN_PROTOCOL].token);
-		p += wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len;
+		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Protocol: ");
+		LWS_CPYAPP_TOKEN(p, WSI_TOKEN_PROTOCOL);
 	}
 
-	strcpy(p,   "\x0d\x0a\x0d\x0a");
-	p += strlen("\x0d\x0a\x0d\x0a");
+	LWS_CPYAPP(p, "\x0d\x0a\x0d\x0a");
 
 	/* convert the two keys into 32-bit integers */
 
@@ -232,7 +224,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	int accept_len;
 	char *c;
 	char ext_name[128];
-	struct libwebsocket_extension * ext;
+	struct libwebsocket_extension *ext;
 	int ext_count = 0;
 	int more = 1;
 
@@ -266,8 +258,9 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	}
 
 	/* allocate the per-connection user memory (if any) */
-	if (wsi->protocol->per_session_data_size && !libwebsocket_ensure_user_space(wsi))
-          goto bail;
+	if (wsi->protocol->per_session_data_size &&
+					  !libwebsocket_ensure_user_space(wsi))
+		goto bail;
 
 	/* create the response packet */
 
@@ -283,20 +276,15 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	}
 
 	p = response;
-	strcpy(p,   "HTTP/1.1 101 Switching Protocols\x0d\x0a"
-					  "Upgrade: WebSocket\x0d\x0a");
-	p += strlen("HTTP/1.1 101 Switching Protocols\x0d\x0a"
-					  "Upgrade: WebSocket\x0d\x0a");
-	strcpy(p,   "Connection: Upgrade\x0d\x0a"
-		    "Sec-WebSocket-Accept: ");
-	p += strlen("Connection: Upgrade\x0d\x0a"
-		    "Sec-WebSocket-Accept: ");
+	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
+		      "Upgrade: WebSocket\x0d\x0a"
+		      "Connection: Upgrade\x0d\x0a"
+		      "Sec-WebSocket-Accept: ");
 	strcpy(p, accept_buf);
 	p += accept_len;
 
 	if (wsi->ietf_spec_revision == 4) {
-		strcpy(p,   "\x0d\x0aSec-WebSocket-Nonce: ");
-		p += strlen("\x0d\x0aSec-WebSocket-Nonce: ");
+		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Nonce: ");
 
 		/* select the nonce */
 
@@ -328,10 +316,8 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	}
 
 	if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token) {
-		strcpy(p,   "\x0d\x0aSec-WebSocket-Protocol: ");
-		p += strlen("\x0d\x0aSec-WebSocket-Protocol: ");
-		strcpy(p, wsi->utf8_token[WSI_TOKEN_PROTOCOL].token);
-		p += wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len;
+		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Protocol: ");
+		LWS_CPYAPP_TOKEN(p, WSI_TOKEN_PROTOCOL);
 	}
 
 	/*
@@ -347,11 +333,12 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		 */
 
 		c = wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token;
-		debug("wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token = %s\n", wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token);
+		debug("wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token = %s\n",
+				  wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token);
 		wsi->count_active_extensions = 0;
 		n = 0;
 		while (more) {
-		
+
 			if (*c && (*c != ',' && *c != ' ' && *c != '\t')) {
 				ext_name[n] = *c++;
 				if (n < sizeof(ext_name) - 1)
@@ -405,13 +392,12 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 				}
 
 				/* apply it */
-				
+
 				if (ext_count)
 					*p++ = ',';
-				else {
-			                strcpy(p,   "\x0d\x0aSec-WebSocket-Extensions: ");
-			                p += strlen("\x0d\x0aSec-WebSocket-Extensions: ");
-				}
+				else
+					LWS_CPYAPP(p,
+					 "\x0d\x0aSec-WebSocket-Extensions: ");
 				p += sprintf(p, "%s", ext_name);
 				ext_count++;
 
@@ -423,7 +409,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 				memset(wsi->active_extensions_user[
 					wsi->count_active_extensions], 0,
 						    ext->per_session_data_size);
-							
+
 				wsi->active_extensions[
 					  wsi->count_active_extensions] = ext;
 
@@ -448,8 +434,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	/* end of response packet */
 
-	strcpy(p,   "\x0d\x0a\x0d\x0a");
-	p += strlen("\x0d\x0a\x0d\x0a");
+	LWS_CPYAPP(p, "\x0d\x0a\x0d\x0a");
 
 	if (wsi->ietf_spec_revision == 4) {
 
@@ -477,7 +462,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	if (!lws_any_extension_handled(context, wsi,
 			LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
-								response, p - response)) {
+						     response, p - response)) {
 
 		/* okay send the handshake response accepting the connection */
 
@@ -549,8 +534,8 @@ bail:
  */
 
 int
-libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi,
-						unsigned char * buf, size_t len)
+libwebsocket_read(struct libwebsocket_context *context,
+		     struct libwebsocket *wsi, unsigned char * buf, size_t len)
 {
 	size_t n;
 
@@ -579,7 +564,7 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 		default:
 			break;
 		}
-		
+
 		/* LWS_CONNMODE_WS_SERVING */
 
 		for (n = 0; n < len; n++)
@@ -605,7 +590,7 @@ libwebsocket_read(struct libwebsocket_context *context, struct libwebsocket *wsi
 		}
 
 		if (!wsi->protocol)
-			fprintf(stderr, "NULL protocol coming on libwebsocket_read\n");
+			fprintf(stderr, "NULL protocol at libwebsocket_read\n");
 
 		/*
 		 * It's websocket

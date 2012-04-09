@@ -59,7 +59,7 @@ enum demo_protocols {
 /* dumb_increment protocol */
 
 static int
-callback_dumb_increment(struct libwebsocket_context * this,
+callback_dumb_increment(struct libwebsocket_context *this,
 			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
@@ -102,7 +102,7 @@ callback_dumb_increment(struct libwebsocket_context * this,
 
 
 static int
-callback_lws_mirror(struct libwebsocket_context * this,
+callback_lws_mirror(struct libwebsocket_context *this,
 			struct libwebsocket *wsi,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
@@ -291,18 +291,22 @@ int main(int argc, char **argv)
 
 			/* create a client websocket using mirror protocol */
 
-			wsi_mirror = libwebsocket_client_connect(context, address, port,
-			     use_ssl,  "/", argv[optind], argv[optind],
-					     protocols[PROTOCOL_LWS_MIRROR].name, ietf_version);
+			wsi_mirror = libwebsocket_client_connect(context,
+				address, port, use_ssl,  "/",
+				argv[optind], argv[optind],
+				protocols[PROTOCOL_LWS_MIRROR].name,
+								 ietf_version);
 
 			if (wsi_mirror == NULL) {
-				fprintf(stderr, "libwebsocket dumb connect failed\n");
+				fprintf(stderr, "libwebsocket "
+						      "dumb connect failed\n");
 				return -1;
 			}
 
 			mirror_lifetime = 10 + (random() & 1023);
 
-			fprintf(stderr, "opened mirror connection with %d lifetime\n", mirror_lifetime);
+			fprintf(stderr, "opened mirror connection with "
+					     "%d lifetime\n", mirror_lifetime);
 
 		} else {
 
