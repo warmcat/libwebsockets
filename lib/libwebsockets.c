@@ -1887,6 +1887,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		 * definitively ready from browser pov.
 		 */
 
+		len = 1;
 		while (wsi->parser_state != WSI_PARSING_COMPLETE && len > 0) {
 #ifdef LWS_OPENSSL_SUPPORT
 			if (wsi->use_ssl)
