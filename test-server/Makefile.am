@@ -14,10 +14,10 @@ libwebsockets_test_client_CFLAGS:= -w   -I../win32port/win32helpers
 libwebsockets_test_server_extpoll_CFLAGS:= -w  -I../win32port/win32helpers
 libwebsockets_test_fraggle_CFLAGS:= -w   -I../win32port/win32helpers
 
-libwebsockets_test_server_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lpthread -ldl -lws2_32 -lz -L../win32port/win32helpers/ -lwebsock-w32
-libwebsockets_test_client_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lpthread -ldl -lws2_32 -lz -L../win32port/win32helpers/ -lwebsock-w32
-libwebsockets_test_server_extpoll_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lpthread -ldl -lws2_32 -lz -L../win32port/win32helpers/ -lwebsock-w32
-libwebsockets_test_fraggle_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lpthread -ldl -lws2_32 -lz -L../win32port/win32helpers/ -lwebsock-w32
+libwebsockets_test_server_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz
+libwebsockets_test_client_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz 
+libwebsockets_test_server_extpoll_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz
+libwebsockets_test_fraggle_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz
 
 else
 libwebsockets_test_server_CFLAGS:= -Werror

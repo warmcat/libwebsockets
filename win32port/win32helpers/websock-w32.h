@@ -28,6 +28,8 @@
 
 #ifdef DEF_POLL_STUFF
 
+#include <winsock2.h>
+
 typedef struct pollfd {
 	SOCKET fd;
 	short  events;

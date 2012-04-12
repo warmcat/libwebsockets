@@ -1,6 +1,15 @@
 #define FD_SETSIZE 256
 
+#ifdef __MINGW32__
+#include <winsock2.h>
+#else
+#ifdef __MINGW64__
+#include <winsock2.h>
+#else
 #include <WinSock2.h>
+#endif
+#endif
+
 #include <stdlib.h>
 #include <errno.h>
 #include "websock-w32.h"

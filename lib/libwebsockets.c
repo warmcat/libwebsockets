@@ -32,6 +32,14 @@
 int openssl_websocket_private_data_index;
 #endif
 
+#ifdef __MINGW32__
+#include "../win32port/win32helpers/websock-w32.c"
+#else
+#ifdef __MINGW64__
+#include "../win32port/win32helpers/websock-w32.c"
+#endif
+#endif
+
 /*
  * In-place str to lower case
  */

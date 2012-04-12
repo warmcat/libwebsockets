@@ -38,10 +38,10 @@ bin_PROGRAMS = libwebsockets-test-server$(EXEEXT) \
 	libwebsockets-test-client$(EXEEXT) \
 	libwebsockets-test-server-extpoll$(EXEEXT) \
 	libwebsockets-test-fraggle$(EXEEXT) $(am__EXEEXT_1)
-@MINGW_TRUE@am__append_1 = -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lpthread -ldl -lws2_32 -lz -L../win32port/win32helpers/ -lwebsock-w32
-@MINGW_TRUE@am__append_2 = -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lpthread -ldl -lws2_32 -lz -L../win32port/win32helpers/ -lwebsock-w32
-@MINGW_TRUE@am__append_3 = -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lpthread -ldl -lws2_32 -lz -L../win32port/win32helpers/ -lwebsock-w32
-@MINGW_TRUE@am__append_4 = -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lpthread -ldl -lws2_32 -lz -L../win32port/win32helpers/ -lwebsock-w32
+@MINGW_TRUE@am__append_1 = -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz
+@MINGW_TRUE@am__append_2 = -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz 
+@MINGW_TRUE@am__append_3 = -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz
+@MINGW_TRUE@am__append_4 = -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz
 @NOPING_FALSE@am__append_5 = libwebsockets-test-ping
 subdir = test-server
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in

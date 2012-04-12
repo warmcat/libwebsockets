@@ -30,7 +30,15 @@
 #include <getopt.h>
 #include <string.h>
 #include <sys/time.h>
+#ifdef __MINGW32__
+#include "../win32port/win32helpers/websock-w32.h"
+#else
+#ifdef __MINGW64__
+#include "../win32port/win32helpers/websock-w32.h"
+#else
 #include <poll.h>
+#endif
+#endif
 
 #include "../lib/libwebsockets.h"
 
@@ -428,9 +436,9 @@ int main(int argc, char **argv)
 {
 	int n = 0;
 	const char *cert_path =
-			    LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
+			   LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
 	const char *key_path =
-			LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
+		       LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1024 +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	int port = 7681;
@@ -439,7 +447,7 @@ int main(int argc, char **argv)
 	int opts = 0;
 	unsigned int oldus = 0;
 	char interface_name[128] = "";
-	const char * interface = NULL;
+	const char *interface_ptr = NULL;
 
 	fprintf(stderr, "libwebsockets test server with external poll()\n"
 			"(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> "
@@ -462,7 +470,7 @@ int main(int argc, char **argv)
 		case 'i':
 			strncpy(interface_name, optarg, sizeof interface_name);
 			interface_name[(sizeof interface_name) - 1] = '\0';
-			interface = interface_name;
+			interface_ptr = interface_name;
 			break;
 		case 'h':
 			fprintf(stderr, "Usage: test-server "
@@ -474,7 +482,7 @@ int main(int argc, char **argv)
 	if (!use_ssl)
 		cert_path = key_path = NULL;
 
-	context = libwebsocket_create_context(port, interface, protocols,
+	context = libwebsocket_create_context(port, interface_ptr, protocols,
 					libwebsocket_internal_extensions,
 					cert_path, key_path, -1, -1, opts);
 	if (context == NULL) {
