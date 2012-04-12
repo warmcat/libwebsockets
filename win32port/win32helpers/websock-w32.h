@@ -50,6 +50,13 @@ extern INT WSAAPI emulated_poll(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout);
 /* override configure because we are not using Makefiles */
 
 #define LWS_NO_FORK
-#define DATADIR "."
+
+/* windows can't cope with this idea, needs assets in cwd */
+
+#ifdef INSTALL_DATADIR
+#undef INSTALL_DATADIR
+#endif
+
+#define INSTALL_DATADIR "."
 
 #endif

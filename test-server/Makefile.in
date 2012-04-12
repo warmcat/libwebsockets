@@ -256,36 +256,40 @@ libwebsockets_test_fraggle_SOURCES = test-fraggle.c
 libwebsockets_test_fraggle_LDADD = -L../lib -lwebsockets \
 	$(am__append_4)
 @MINGW_FALSE@libwebsockets_test_server_CFLAGS := -Werror -Wall \
-@MINGW_FALSE@	-std=gnu99 -pedantic -DDATADIR=\"@datadir@\" \
+@MINGW_FALSE@	-std=gnu99 -pedantic \
+@MINGW_FALSE@	-DINSTALL_DATADIR=\"@datadir@\" \
 @MINGW_FALSE@	-DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 @MINGW_TRUE@libwebsockets_test_server_CFLAGS := -w \
 @MINGW_TRUE@	-I../win32port/win32helpers -Wall -std=gnu99 \
-@MINGW_TRUE@	-pedantic -DDATADIR=\"@datadir@\" \
+@MINGW_TRUE@	-pedantic -DINSTALL_DATADIR=\"@datadir@\" \
 @MINGW_TRUE@	-DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 @MINGW_FALSE@libwebsockets_test_client_CFLAGS := -Werror -Wall \
-@MINGW_FALSE@	-std=gnu99 -pedantic -DDATADIR=\"@datadir@\" \
+@MINGW_FALSE@	-std=gnu99 -pedantic \
+@MINGW_FALSE@	-DINSTALL_DATADIR=\"@datadir@\" \
 @MINGW_FALSE@	-DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 @MINGW_TRUE@libwebsockets_test_client_CFLAGS := -w \
 @MINGW_TRUE@	-I../win32port/win32helpers -Wall -std=gnu99 \
-@MINGW_TRUE@	-pedantic -DDATADIR=\"@datadir@\" \
+@MINGW_TRUE@	-pedantic -DINSTALL_DATADIR=\"@datadir@\" \
 @MINGW_TRUE@	-DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 @MINGW_FALSE@libwebsockets_test_server_extpoll_CFLAGS := -Werror -Wall \
-@MINGW_FALSE@	-std=gnu99 -pedantic -DDATADIR=\"@datadir@\" \
+@MINGW_FALSE@	-std=gnu99 -pedantic \
+@MINGW_FALSE@	-DINSTALL_DATADIR=\"@datadir@\" \
 @MINGW_FALSE@	-DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 @MINGW_TRUE@libwebsockets_test_server_extpoll_CFLAGS := -w \
 @MINGW_TRUE@	-I../win32port/win32helpers -Wall -std=gnu99 \
-@MINGW_TRUE@	-pedantic -DDATADIR=\"@datadir@\" \
+@MINGW_TRUE@	-pedantic -DINSTALL_DATADIR=\"@datadir@\" \
 @MINGW_TRUE@	-DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 @MINGW_FALSE@libwebsockets_test_fraggle_CFLAGS := -Werror -Wall \
-@MINGW_FALSE@	-std=gnu99 -pedantic -DDATADIR=\"@datadir@\" \
+@MINGW_FALSE@	-std=gnu99 -pedantic \
+@MINGW_FALSE@	-DINSTALL_DATADIR=\"@datadir@\" \
 @MINGW_FALSE@	-DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 @MINGW_TRUE@libwebsockets_test_fraggle_CFLAGS := -w \
 @MINGW_TRUE@	-I../win32port/win32helpers -Wall -std=gnu99 \
-@MINGW_TRUE@	-pedantic -DDATADIR=\"@datadir@\" \
+@MINGW_TRUE@	-pedantic -DINSTALL_DATADIR=\"@datadir@\" \
 @MINGW_TRUE@	-DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 @NOPING_FALSE@libwebsockets_test_ping_SOURCES = test-ping.c
 @NOPING_FALSE@libwebsockets_test_ping_LDADD = -L../lib -lwebsockets
-@NOPING_FALSE@libwebsockets_test_ping_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+@NOPING_FALSE@libwebsockets_test_ping_CFLAGS := -Wall -Werror -std=gnu99 -pedantic -DINSTALL_DATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 all: all-am
 
 .SUFFIXES:

@@ -57,7 +57,7 @@ enum demo_protocols {
 };
 
 
-#define LOCAL_RESOURCE_PATH DATADIR"/libwebsockets-test-server"
+#define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
 
 /* this protocol server (always the first one) just knows how to do HTTP */
 

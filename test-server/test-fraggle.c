@@ -28,7 +28,7 @@
 
 #include "../lib/libwebsockets.h"
 
-#define LOCAL_RESOURCE_PATH DATADIR"/libwebsockets-test-server"
+#define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
 
 static int client;
 static int terminate;

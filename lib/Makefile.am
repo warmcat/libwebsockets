@@ -31,7 +31,7 @@ libwebsockets_la_LDFLAGS+=  -version-info 0:3
 endif
 
 libwebsockets_la_CFLAGS+= -c \
-	-DDATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+	-DINSTALL_DATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 libwebsockets_la_LDFLAGS+= -lz
 
 all-local:

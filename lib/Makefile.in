@@ -240,7 +240,7 @@ dist_libwebsockets_la_SOURCES = libwebsockets.c handshake.c parsers.c \
 	extension-deflate-stream.c private-libwebsockets.h \
 	$(am__append_1) $(am__append_2)
 libwebsockets_la_CFLAGS := -Wall -std=gnu99 -pedantic $(am__append_3) \
-	$(am__append_5) -c -DDATADIR=\"@datadir@\" \
+	$(am__append_5) -c -DINSTALL_DATADIR=\"@datadir@\" \
 	-DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 libwebsockets_la_LDFLAGS := $(am__append_4) $(am__append_6) -lz
 all: all-am
