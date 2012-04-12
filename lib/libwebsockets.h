@@ -33,7 +33,7 @@ extern "C" {
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include "websock-w32.h"
+#include "../win32port/win32helpers/websock-w32.h"
 
 #include "gettimeofday.h"
 

@@ -28,14 +28,25 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#ifdef  __MINGW64__
+#else
+#ifdef  __MINGW32__
+#else
 #include <netdb.h>
+#endif
+#endif
 #include <stdarg.h>
 
 #include <sys/stat.h>
 
 #ifdef WIN32
-
+#ifdef  __MINGW64__                                                             
+#else                                                                           
+#ifdef  __MINGW32__                                                             
+#else
 #include <time.h >
+#endif
+#endif
 #include <winsock2.h>
 #include <ws2ipdef.h>
 #include <windows.h>
