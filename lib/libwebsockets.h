@@ -546,6 +546,9 @@ struct libwebsocket_protocols {
  * @per_session_data_size: 	Libwebsockets will auto-malloc this much
  * 				memory for the use of the extension, a pointer
  *				to it comes in the @user callback parameter
+ * @per_context_private_data:   Optional storage for this externsion that
+ * 				is per-context, so it can track stuff across
+ * 				all sessions, etc, if it wants
  */
 
 struct libwebsocket_extension {
