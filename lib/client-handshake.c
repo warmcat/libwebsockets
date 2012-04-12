@@ -1,5 +1,4 @@
 #include "private-libwebsockets.h"
-#include <netdb.h>
 
 struct libwebsocket *__libwebsocket_client_connect_2(
 	struct libwebsocket_context *context,
