@@ -12,6 +12,13 @@ For Apple systems, Christopher Baker reported that this is needed
 ./configure CC="gcc -arch i386 -arch x86_64" CXX="g++ -arch i386 -arch
 x86_64" CPP="gcc -E" CXXCPP="g++ -E" --enable-nofork
 
+For mingw build, I did the following to get working build, ping test is
+disabled when building this way
+
+1) install mingw64_w32 compiler packages from Fedora
+2) additionally install mingw64-zlib package
+3) ./configure --prefix=/usr --enable-mingw --host=x86_64-w64-mingw32
+4) make
 
 otherwise if /usr/local/... and /usr/local/lib are OK then...
 
@@ -276,5 +283,5 @@ same test server too and see the circles, etc.
 
 It also works compatibly with deflate-stream automatically.
 
-2011-05-28  Andy Green <andy@warmcat.com>
+2012-04-12  Andy Green <andy@warmcat.com>
 
