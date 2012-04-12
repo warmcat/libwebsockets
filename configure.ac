@@ -72,6 +72,19 @@ CFLAGS="$CFLAGS -DLWS_EXT_GOOGLE_MUX"
 fi
 AM_CONDITIONAL(EXT_GOOGLE_MUX, test x$x_google_mux = xyes)
 
+#                                                                               
+#                                                                               
+#                                                                               
+AC_ARG_ENABLE(mingw,                                                          
+ [  --enable-mingw  Using mingw compilers, disables ping test build],            
+ [ mingw=yes
+   noping=yes
+ ])                                                                             
+                                                                                
+if test "x$mingw" = "xyes" ; then                                             
+CFLAGS="$CFLAGS -DLWS_MINGW_SUPPORT"                                          
+fi
+AM_CONDITIONAL(MINGW, test x$mingw = xyes)
 
 #
 #
