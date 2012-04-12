@@ -23,8 +23,8 @@ libwebsockets_la_CFLAGS:=-Wall -std=gnu99 -pedantic
 libwebsockets_la_LDFLAGS:=
 
 if MINGW
-libwebsockets_la_CFLAGS+= -w -Iwin32port/win32helpers
-libwebsockets_la_LDFLAGS+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lpthread -ldl -lws2_32 -L../win32port/win32helpers/ -lwebsock-w32
+libwebsockets_la_CFLAGS+= -w -I../win32port/win32helpers -I ../win32port/zlib/
+libwebsockets_la_LDFLAGS+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lpthread -ldl -lws2_32 -L../win32port/zlib -L../win32port/win32helpers/ -lwebsock-w32
 else
 libwebsockets_la_CFLAGS+= -rdynamic -fPIC -Werror
 libwebsockets_la_LDFLAGS+=  -version-info 0:3
