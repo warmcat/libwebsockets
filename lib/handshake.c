@@ -126,8 +126,10 @@ handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	if (wsi->ssl)
 		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Location: wss://");
 	else
-#endif
 		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Location: ws://");
+#else
+	LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Location: ws://");
+#endif
 
 	LWS_CPYAPP_TOKEN(p, WSI_TOKEN_HOST);
 	LWS_CPYAPP_TOKEN(p, WSI_TOKEN_GET_URI);
