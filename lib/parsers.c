@@ -737,7 +737,7 @@ spill:
 				 * fine he has told us he is closing too, let's
 				 * finish our close
 				 */
-				fprintf(stderr, "seen client close ack\n");
+				debug("seen client close ack\n");
 				return -1;
 			}
 			debug("server sees client close packet\n");
@@ -1206,14 +1206,12 @@ spill:
 				debug("seen server's close ack\n");
 				return -1;
 			}
-			fprintf(stderr, "client sees server close packet "
-				       "len = %d\n", wsi->rx_user_buffer_head);
+			debug("client sees server close packet len = %d\n", wsi->rx_user_buffer_head);
 			/* parrot the close packet payload back */
 			n = libwebsocket_write(wsi, (unsigned char *)
 			   &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				     wsi->rx_user_buffer_head, LWS_WRITE_CLOSE);
-			fprintf(stderr, "client writing close "
-						       "ack returned %d\n", n);
+			debug("client writing close ack returned %d\n", n);
 			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
 			return -1;
