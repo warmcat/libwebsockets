@@ -65,6 +65,7 @@ enum libwebsocket_context_options {
 
 enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_ESTABLISHED,
+	LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 	LWS_CALLBACK_CLIENT_ESTABLISHED,
 	LWS_CALLBACK_CLOSED,
 	LWS_CALLBACK_RECEIVE,
@@ -249,7 +250,10 @@ struct libwebsocket_extension;
  *	LWS_CALLBACK_ESTABLISHED:  after the server completes a handshake with
  *				an incoming client
  *
- *      LWS_CALLBACK_CLIENT_ESTABLISHED: after your client connection completed
+ *  LWS_CALLBACK_CLIENT_CONNECTION_ERROR: the request client connection has
+ *        been unable to complete a handshake with the remote server
+ *
+ *  LWS_CALLBACK_CLIENT_ESTABLISHED: after your client connection completed
  *				a handshake with the remote server
  *
  *	LWS_CALLBACK_CLOSED: when the websocket session ends

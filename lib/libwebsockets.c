@@ -1425,8 +1425,13 @@ bail3:
 		free(wsi->c_protocol);
 
 bail2:
+	if (wsi->c_callback) wsi->c_callback(context, wsi,
+       LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+			 wsi->user_space,
+			 NULL, 0);
 	libwebsocket_close_and_free_session(context, wsi,
-						 LWS_CLOSE_STATUS_NOSTATUS);
+						 LWS_CLOSE_STATUS_NOSTATUS);  // But this should be LWS_CLOSE_STATUS_PROTOCOL_ERR
+
 	return 1;
 }
 
