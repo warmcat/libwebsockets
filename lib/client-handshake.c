@@ -358,3 +358,45 @@ bail1:
 
 	return NULL;
 }
+
+
+/**
+ * libwebsocket_client_connect_extended() - Connect to another websocket server
+ * @context:	Websocket context
+ * @address:	Remote server address, eg, "myserver.com"
+ * @port:	Port to connect to on the remote server, eg, 80
+ * @ssl_connection:	0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
+ *			signed certs
+ * @path:	Websocket path on server
+ * @host:	Hostname on server
+ * @origin:	Socket origin name
+ * @protocol:	Comma-separated list of protocols being asked for from
+ *		the server, or just one.  The server will pick the one it
+ *		likes best.
+ * @ietf_version_or_minus_one: -1 to ask to connect using the default, latest
+ * 		protocol supported, or the specific protocol ordinal
+ * @userdata: Pre-allocated user data
+ *
+ *	This function creates a connection to a remote server
+ */
+
+struct libwebsocket *
+libwebsocket_client_connect_extended(struct libwebsocket_context *context,
+			      const char *address,
+			      int port,
+			      int ssl_connection,
+			      const char *path,
+			      const char *host,
+			      const char *origin,
+			      const char *protocol,
+			      int ietf_version_or_minus_one,
+            void *userdata)
+{
+	struct libwebsocket *ws =
+		libwebsocket_client_connect(context, address, port, ssl_connection, path, host, origin, protocol, ietf_version_or_minus_one) ;
+
+	if (ws && !ws->user_space && userdata)
+		ws->user_space = userdata ;
+
+	return ws ;
+  }

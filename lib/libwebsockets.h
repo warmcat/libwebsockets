@@ -675,6 +675,18 @@ libwebsocket_client_connect(struct libwebsocket_context *clients,
 			      const char *protocol,
 			      int ietf_version_or_minus_one);
 
+LWS_EXTERN struct libwebsocket *
+libwebsocket_client_connect_extended(struct libwebsocket_context *clients,
+			      const char *address,
+			      int port,
+			      int ssl_connection,
+			      const char *path,
+			      const char *host,
+			      const char *origin,
+			      const char *protocol,
+			      int ietf_version_or_minus_one,
+			      void *userdata);
+
 LWS_EXTERN const char *
 libwebsocket_canonical_hostname(struct libwebsocket_context *context);
 

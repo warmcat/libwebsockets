@@ -391,7 +391,7 @@ just_kill_connection:
 #ifdef LWS_OPENSSL_SUPPORT
 	}
 #endif
-	if (wsi->user_space)
+	if (wsi->protocol && wsi->protocol->per_session_data_size && wsi->user_space) /* user code may own */
 		free(wsi->user_space);
 
 	free(wsi);
@@ -1198,7 +1198,7 @@ select_protocol:
 		 * default to first protocol
 		 */
 		wsi->protocol = &context->protocols[0];
-
+		wsi->c_callback = wsi->protocol->callback;
 		free(wsi->c_protocol);
 
 		goto check_accept;
@@ -1235,10 +1235,12 @@ select_protocol:
 	 */
 	n = 0;
 	wsi->protocol = NULL;
-	while (context->protocols[n].callback) {
+	while (context->protocols[n].callback && !wsi->protocol) {  /* Stop after finding first one?? */
 		if (strcmp(wsi->utf8_token[WSI_TOKEN_PROTOCOL].token,
-					   context->protocols[n].name) == 0)
+					   context->protocols[n].name) == 0) {
 			wsi->protocol = &context->protocols[n];
+			wsi->c_callback = wsi->protocol->callback;
+		}
 		n++;
 	}
 

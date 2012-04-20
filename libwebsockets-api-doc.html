@@ -468,6 +468,51 @@ protocol supported, or the specific protocol ordinal
 This function creates a connection to a remote server
 </blockquote>
 <hr>
+<h2>libwebsocket_client_connect_extended - Connect to another websocket server</h2>
+<i>struct libwebsocket *</i>
+<b>libwebsocket_client_connect_extended</b>
+(<i>struct libwebsocket_context *</i> <b>context</b>,
+<i>const char *</i> <b>address</b>,
+<i>int</i> <b>port</b>,
+<i>int</i> <b>ssl_connection</b>,
+<i>const char *</i> <b>path</b>,
+<i>const char *</i> <b>host</b>,
+<i>const char *</i> <b>origin</b>,
+<i>const char *</i> <b>protocol</b>,
+<i>int</i> <b>ietf_version_or_minus_one</b>,
+<i>void *</i> <b>userdata</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>context</b>
+<dd>Websocket context
+<dt><b>address</b>
+<dd>Remote server address, eg, "myserver.com"
+<dt><b>port</b>
+<dd>Port to connect to on the remote server, eg, 80
+<dt><b>ssl_connection</b>
+<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
+signed certs
+<dt><b>path</b>
+<dd>Websocket path on server
+<dt><b>host</b>
+<dd>Hostname on server
+<dt><b>origin</b>
+<dd>Socket origin name
+<dt><b>protocol</b>
+<dd>Comma-separated list of protocols being asked for from
+the server, or just one.  The server will pick the one it
+likes best.
+<dt><b>ietf_version_or_minus_one</b>
+<dd>-1 to ask to connect using the default, latest
+protocol supported, or the specific protocol ordinal
+<dt><b>userdata</b>
+<dd>Pre-allocated user data
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function creates a connection to a remote server
+</blockquote>
+<hr>
 <h2>callback - User server actions</h2>
 <i>LWS_EXTERN int</i>
 <b>callback</b>
@@ -508,6 +553,11 @@ LWS_CALLBACK_ESTABLISHED reason.
 <blockquote>
 after the server completes a handshake with
 an incoming client
+</blockquote>
+<h3>LWS_CALLBACK_CLIENT_CONNECTION_ERROR</h3>
+<blockquote>
+the request client connection has
+been unable to complete a handshake with the remote server
 </blockquote>
 <h3>LWS_CALLBACK_CLIENT_ESTABLISHED</h3>
 <blockquote>
@@ -730,7 +780,7 @@ internal polling loop, you can just ignore it.
 (<i>struct libwebsocket_context *</i> <b>context</b>,
 <i>struct libwebsocket_extension *</i> <b>ext</b>,
 <i>struct libwebsocket *</i> <b>wsi</b>,
-<i>enum libwebsocket_callback_reasons</i> <b>reason</b>,
+<i>enum libwebsocket_extension_callback_reasons</i> <b>reason</b>,
 <i>void *</i> <b>user</b>,
 <i>void *</i> <b>in</b>,
 <i>size_t</i> <b>len</b>)
@@ -815,7 +865,7 @@ set the lws_tokens token pointer to it.
 <h2>struct libwebsocket_protocols - List of protocols and handlers server supports.</h2>
 <b>struct libwebsocket_protocols</b> {<br>
 &nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
-&nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket_context * context,struct libwebsocket *wsi,enum libwebsocket_callback_reasons reason, void *user,void *in, size_t len)</i>;<br>
+&nbsp; &nbsp; <i>callback_function *</i> <b>callback</b>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
 &nbsp; &nbsp; <i>struct libwebsocket_context *</i> <b>owning_server</b>;<br>
 &nbsp; &nbsp; <i>int</i> <b>broadcast_socket_port</b>;<br>
@@ -861,7 +911,7 @@ allows as many protocols as you like to be handled by one server.
 <h2>struct libwebsocket_extension - An extension we know how to cope with</h2>
 <b>struct libwebsocket_extension</b> {<br>
 &nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
-&nbsp; &nbsp; <i>int (*</i><b>callback</b>) <i>(struct libwebsocket_context *context,struct libwebsocket_extension *ext,struct libwebsocket *wsi,enum libwebsocket_extension_callback_reasons reason,void *user, void *in, size_t len)</i>;<br>
+&nbsp; &nbsp; <i>extension_callback_function *</i> <b>callback</b>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
 &nbsp; &nbsp; <i>void *</i> <b>per_context_private_data</b>;<br>
 };<br>
