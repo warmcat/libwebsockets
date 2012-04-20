@@ -333,6 +333,7 @@ struct libwebsocket {
 	char *c_host;
 	char *c_origin;
 	char *c_protocol;
+	callback_function *c_callback;
 
 	char *c_address;
 	int c_port;

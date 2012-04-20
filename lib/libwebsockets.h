@@ -227,9 +227,8 @@ struct libwebsocket;
 struct libwebsocket_context;
 struct libwebsocket_extension;
 
-/* document the generic callback (it's a fake prototype under this) */
 /**
- * callback() - User server actions
+ * callback_function() - User server actions
  * @context:	Websockets context
  * @wsi:	Opaque websocket instance pointer
  * @reason:	The reason for the call
@@ -424,9 +423,14 @@ LWS_EXTERN int callback(struct libwebsocket_context * context,
 			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
 
-/* document the generic extension callback (it's a fake prototype under this) */
+typedef int (callback_function)(struct libwebsocket_context * context,
+			struct libwebsocket *wsi,
+			 enum libwebsocket_callback_reasons reason, void *user,
+							  void *in, size_t len);
+
+
 /**
- * extension_callback() - Hooks to allow extensions to operate
+ * extension_callback_function() - Hooks to allow extensions to operate
  * @context:	Websockets context
  * @ext:	This extension
  * @wsi:	Opaque websocket instance pointer
@@ -483,13 +487,17 @@ LWS_EXTERN int callback(struct libwebsocket_context * context,
  *		buffer safely, it should copy the data into its own buffer and
  *		set the lws_tokens token pointer to it.
  */
-
 LWS_EXTERN int extension_callback(struct libwebsocket_context * context,
 			struct libwebsocket_extension *ext,
 			struct libwebsocket *wsi,
-			 enum libwebsocket_callback_reasons reason, void *user,
+			 enum libwebsocket_extension_callback_reasons reason, void *user,
 							  void *in, size_t len);
 
+typedef int (extension_callback_function)(struct libwebsocket_context * context,
+			struct libwebsocket_extension *ext,
+			struct libwebsocket *wsi,
+			 enum libwebsocket_extension_callback_reasons reason, void *user,
+							  void *in, size_t len);
 
 /**
  * struct libwebsocket_protocols -	List of protocols and handlers server
@@ -521,10 +529,7 @@ LWS_EXTERN int extension_callback(struct libwebsocket_context * context,
 
 struct libwebsocket_protocols {
 	const char *name;
-	int (*callback)(struct libwebsocket_context * context,
-			struct libwebsocket *wsi,
-			enum libwebsocket_callback_reasons reason, void *user,
-							  void *in, size_t len);
+	callback_function *callback;
 	size_t per_session_data_size;
 
 	/*
@@ -553,11 +558,7 @@ struct libwebsocket_protocols {
 
 struct libwebsocket_extension {
 	const char *name;
-	int (*callback)(struct libwebsocket_context *context,
-			struct libwebsocket_extension *ext,
-			struct libwebsocket *wsi,
-			enum libwebsocket_extension_callback_reasons reason,
-					      void *user, void *in, size_t len);
+	extension_callback_function *callback;
 	size_t per_session_data_size;
 	void * per_context_private_data;
 };
