@@ -241,13 +241,32 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	} else
 		wsi->c_origin = NULL;
 
+	wsi->c_callback = NULL;
 	if (protocol) {
+		const char *pc;
+		struct libwebsocket_protocols *pp;
+
 		wsi->c_protocol = malloc(strlen(protocol) + 1);
 		if (wsi->c_protocol == NULL)
 			goto oom3;
+
 		strcpy(wsi->c_protocol, protocol);
+
+		pc = protocol;
+		while (*pc && *pc != ',')
+			pc++;
+		n = pc - protocol;
+		pp = context->protocols;
+		while (pp->name && !wsi->c_callback) {
+			if (!strncmp(protocol, pp->name, n))
+				wsi->c_callback = pp->callback;
+			pp++;
+		}
 	} else
 		wsi->c_protocol = NULL;
+
+	if (!wsi->c_callback)
+		wsi->c_callback = context->protocols[0].callback;
 
 	/* set up appropriate masking */
 
