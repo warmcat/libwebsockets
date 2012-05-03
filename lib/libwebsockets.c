@@ -1800,7 +1800,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE:
 
 	#ifdef LWS_OPENSSL_SUPPORT
-		if (wsi->use_ssl) {
+		if (wsi->use_ssl && !wsi->ssl) {
 
 			wsi->ssl = SSL_new(context->ssl_client_ctx);
 			wsi->client_bio = BIO_new_socket(wsi->sock,
@@ -1810,14 +1810,20 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			SSL_set_ex_data(wsi->ssl,
 					openssl_websocket_private_data_index,
 								       context);
+		}		
 
+		if (wsi->use_ssl) {
 			if (SSL_connect(wsi->ssl) <= 0) {
+
+				/*
+				 * retry if new data comes until we
+				 * run into the connection timeout or win
+				 */
+
 				fprintf(stderr, "SSL connect error %s\n",
 					ERR_error_string(ERR_get_error(),
 								  ssl_err_buf));
-				libwebsocket_close_and_free_session(context,
-					       wsi, LWS_CLOSE_STATUS_NOSTATUS);
-				return 1;
+				return 0;
 			}
 
 			n = SSL_get_verify_result(wsi->ssl);
@@ -1831,13 +1837,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 						wsi, LWS_CLOSE_STATUS_NOSTATUS);
 				return 1;
 			}
-		} else {
+		} else
 			wsi->ssl = NULL;
-	#endif
-
-
-	#ifdef LWS_OPENSSL_SUPPORT
-		}
 	#endif
 
 		p = libwebsockets_generate_client_handshake(context, wsi, p);
