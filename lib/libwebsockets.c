@@ -26,6 +26,8 @@
 #else
 #include <ifaddrs.h>
 #include <sys/un.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -2513,8 +2515,9 @@ libwebsocket_create_context(int port, const char *interf,
 	unsigned int slen;
 	char *p;
 	char hostname[1024];
-	struct hostent *he;
+//	struct hostent *he;
 	struct libwebsocket *wsi;
+	struct sockaddr sa;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_METHOD *method;
@@ -2584,16 +2587,29 @@ libwebsocket_create_context(int port, const char *interf,
 	/* find canonical hostname */
 
 	hostname[(sizeof hostname) - 1] = '\0';
+	sa.sa_family = AF_INET;
+	sa.sa_data[(sizeof sa.sa_data) - 1] = '\0';
 	gethostname(hostname, (sizeof hostname) - 1);
-	he = gethostbyname(hostname);
-	if (he) {
-		strncpy(context->canonical_hostname, he->h_name,
+
+	n = 0;
+
+	if (strlen(hostname) < sizeof(sa.sa_data) - 1) {	
+//		fprintf(stderr, "my host name is %s\n", sa.sa_data);
+		n = getnameinfo(&sa, sizeof(sa), hostname, (sizeof hostname) - 1,
+			NULL, 0, 0);
+	}
+
+	if (!n) {
+		strncpy(context->canonical_hostname, hostname,
 					sizeof context->canonical_hostname - 1);
 		context->canonical_hostname[
 				sizeof context->canonical_hostname - 1] = '\0';
 	} else
 		strncpy(context->canonical_hostname, hostname,
 					sizeof context->canonical_hostname - 1);
+
+//	fprintf(stderr, "context->canonical_hostname = %s\n",
+//						context->canonical_hostname);
 
 	/* split the proxy ads:port if given */
 
