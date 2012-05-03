@@ -208,7 +208,7 @@ document.getElementById("number").textContent = get_appropriate_ws_url();
 	
 	var socket_di;
 
-	if (BrowserDetect.browser == "Firefox") {
+	if (BrowserDetect.browser == "Firefox" && BrowserDetect.version < 12) {
 		socket_di = new MozWebSocket(get_appropriate_ws_url(),
 				   "dumb-increment-protocol");
 	} else {
@@ -249,7 +249,7 @@ function reset() {
 	var socket_lm;
 	var color = "#000000";
 
-	if (BrowserDetect.browser == "Firefox") {
+	if (BrowserDetect.browser == "Firefox" && BrowserDetect.version < 12) {
 		socket_lm = new MozWebSocket(get_appropriate_ws_url(),
 				   "lws-mirror-protocol");
 	} else {
