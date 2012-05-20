@@ -2946,11 +2946,14 @@ libwebsocket_create_context(int port, const char *interf,
 	m = LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT;
 	if (port)
 		m = LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT;
-	while (extensions->callback) {
-		debug("  Extension: %s\n", extensions->name);
-		extensions->callback(context, extensions,
-							NULL, m, NULL, NULL, 0);
-		extensions++;
+	
+	if (extensions) {
+	    while (extensions->callback) {
+		    debug("  Extension: %s\n", extensions->name);
+		    extensions->callback(context, extensions,
+						NULL, m, NULL, NULL, 0);
+		    extensions++;
+	    }
 	}
 
 	return context;
