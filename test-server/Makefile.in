@@ -244,16 +244,16 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 libwebsockets_test_server_SOURCES = test-server.c
-libwebsockets_test_server_LDADD = -L../lib -lwebsockets \
+libwebsockets_test_server_LDADD = -L../lib -lwebsockets -lz \
 	$(am__append_1)
 libwebsockets_test_client_SOURCES = test-client.c
-libwebsockets_test_client_LDADD = -L../lib -lwebsockets \
+libwebsockets_test_client_LDADD = -L../lib -lwebsockets -lz \
 	$(am__append_2)
 libwebsockets_test_server_extpoll_SOURCES = test-server-extpoll.c
-libwebsockets_test_server_extpoll_LDADD = -L../lib -lwebsockets \
+libwebsockets_test_server_extpoll_LDADD = -L../lib -lwebsockets -lz \
 	$(am__append_3)
 libwebsockets_test_fraggle_SOURCES = test-fraggle.c
-libwebsockets_test_fraggle_LDADD = -L../lib -lwebsockets \
+libwebsockets_test_fraggle_LDADD = -L../lib -lwebsockets -lz \
 	$(am__append_4)
 @MINGW_FALSE@libwebsockets_test_server_CFLAGS := -Werror -Wall \
 @MINGW_FALSE@	-std=gnu99 -pedantic \
