@@ -2514,7 +2514,7 @@ libwebsocket_create_context(int port, const char *interf,
 	struct libwebsocket_context *context = NULL;
 	unsigned int slen;
 	char *p;
-	char hostname[1024];
+	char hostname[1024] = "";
 //	struct hostent *he;
 	struct libwebsocket *wsi;
 	struct sockaddr sa;
@@ -2566,6 +2566,7 @@ libwebsocket_create_context(int port, const char *interf,
 	context->options = options;
 	context->fds_count = 0;
 	context->extensions = extensions;
+	context->last_timeout_check_s = 0;
 
 #ifdef WIN32
 	context->fd_random = 0;
@@ -2587,6 +2588,7 @@ libwebsocket_create_context(int port, const char *interf,
 	/* find canonical hostname */
 
 	hostname[(sizeof hostname) - 1] = '\0';
+	memset(&sa, 0, sizeof(sa));
 	sa.sa_family = AF_INET;
 	sa.sa_data[(sizeof sa.sa_data) - 1] = '\0';
 	gethostname(hostname, (sizeof hostname) - 1);
