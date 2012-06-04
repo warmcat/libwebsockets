@@ -2094,7 +2094,7 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	m = LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT;
 	if (context->listen_port)
 		m = LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT;
-	while (ext->callback) {
+	while (ext && ext->callback) {
 		ext->callback(context, ext, NULL, m, NULL, NULL, 0);
 		ext++;
 	}
