@@ -2594,9 +2594,10 @@ libwebsocket_create_context(int port, const char *interf,
 	n = 0;
 
 	if (strlen(hostname) < sizeof(sa.sa_data) - 1) {	
+		strcpy(sa.sa_data, hostname);
 //		fprintf(stderr, "my host name is %s\n", sa.sa_data);
-		n = getnameinfo(&sa, sizeof(sa), hostname, (sizeof hostname) - 1,
-			NULL, 0, 0);
+		n = getnameinfo(&sa, sizeof(sa), hostname,
+			(sizeof hostname) - 1, NULL, 0, 0);
 	}
 
 	if (!n) {
