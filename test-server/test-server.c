@@ -463,7 +463,8 @@ int main(int argc, char **argv)
 
 	fprintf(stderr, " Using no-fork service loop\n");
 
-	while (1) {
+	n = 0;
+	while (n >= 0) {
 		struct timeval tv;
 
 		gettimeofday(&tv, NULL);
@@ -495,10 +496,11 @@ int main(int argc, char **argv)
 		 * "manually".
 		 *
 		 * If no socket is needing service, the call below returns
-		 * immediately and quickly.
+		 * immediately and quickly.  Negative return means we are
+		 * in process of closing
 		 */
 
-		libwebsocket_service(context, 50);
+		n = libwebsocket_service(context, 50);
 	}
 
 #else

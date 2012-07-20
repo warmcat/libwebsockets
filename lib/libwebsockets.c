@@ -1529,8 +1529,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
 								       &clilen);
 		if (accept_fd < 0) {
-			fprintf(stderr, "ERROR on accept");
-			break;
+			debug("ERROR on accept\n");
+			return -1;
 		}
 
 		/* Disable Nagle */
@@ -1641,8 +1641,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
 								       &clilen);
 		if (accept_fd < 0) {
-			fprintf(stderr, "ERROR on accept");
-			break;
+			debug("ERROR on accept\n");
+			return -1;
 		}
 
 		if (context->fds_count >= MAX_CLIENTS) {
@@ -2174,15 +2174,16 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 		/*
 		fprintf(stderr, "Listen Socket dead\n");
 		*/
-		return 1;
+		return -1;
 	}
 
 	/* handle accept on listening socket? */
 
 	for (n = 0; n < context->fds_count; n++)
 		if (context->fds[n].revents)
-			libwebsocket_service_fd(context, &context->fds[n]);
-
+			if (libwebsocket_service_fd(context,
+							&context->fds[n]) < 0)
+				return -1;
 	return 0;
 }
 
@@ -3030,7 +3031,7 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *context)
 
 	while (1) {
 		if (libwebsocket_service(context, 1000))
-			return -1;
+			break;
 #ifndef HAVE_SYS_PRCTL_H
 /*
  * on systems without prctl() (i.e. anything but linux) we can notice that our
@@ -3044,7 +3045,7 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *context)
     }
 
 
-	return 0;
+	return 1;
 }
 
 #endif

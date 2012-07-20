@@ -517,8 +517,9 @@ int main(int argc, char **argv)
 					* match anything under libwebsockets
 					* control
 					*/
-					libwebsocket_service_fd(context,
-								   &pollfds[n]);
+					if (libwebsocket_service_fd(context,
+								  &pollfds[n]))
+						goto done;
 
 		/* do our broadcast periodically */
 

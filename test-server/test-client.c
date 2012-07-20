@@ -287,6 +287,9 @@ int main(int argc, char **argv)
 	while (n >= 0 && !was_closed) {
 		n = libwebsocket_service(context, 1000);
 
+		if (n < 0)
+			continue;
+
 		if (wsi_mirror == NULL) {
 
 			/* create a client websocket using mirror protocol */
