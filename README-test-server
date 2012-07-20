@@ -1,7 +1,12 @@
 Using test-server as a quickstart
 ---------------------------------
 
-For a Fedora x86_86 box, the following config line was
+You need to regenerate the autotools and libtoolize stuff for your system
+
+$ autoreconf
+$ libtoolize
+
+Then for a Fedora x86_86 box, the following config line was
 needed:
 
  ./configure --prefix=/usr --libdir=/usr/lib64 --enable-openssl
