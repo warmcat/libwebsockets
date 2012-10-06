@@ -19,8 +19,8 @@ else
 dist_libwebsockets_la_SOURCES += md5.c sha-1.c
 endif
 
-libwebsockets_la_CFLAGS:=-Wall -std=gnu99 -pedantic
-libwebsockets_la_LDFLAGS:=
+libwebsockets_la_CFLAGS=-Wall -std=gnu99 -pedantic
+libwebsockets_la_LDFLAGS=
 
 if MINGW
 libwebsockets_la_CFLAGS+= -w -I../win32port/win32helpers -I ../win32port/zlib/

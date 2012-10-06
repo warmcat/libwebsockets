@@ -3,8 +3,7 @@ Using test-server as a quickstart
 
 You need to regenerate the autotools and libtoolize stuff for your system
 
-$ autoreconf
-$ libtoolize
+$ ./autogen.sh
 
 Then for a Fedora x86_86 box, the following config line was
 needed:

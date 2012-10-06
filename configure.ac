@@ -12,11 +12,11 @@ LT_INIT(shared)
 #AX_PTHREAD
 
 # Checks for programs.
-AC_PROG_CC
+AM_PROG_CC_C_O
 AC_PROG_INSTALL
 AC_PROG_MAKE_SET
 AC_CONFIG_MACRO_DIR([m4])
-
+AM_PROG_AR
 
 #
 #
