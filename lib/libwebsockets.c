@@ -1508,7 +1508,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	wsi = wsi_from_fd(context, pollfd->fd);
 
 	if (wsi == NULL)
-		return 1;
+		return 0;
 
 	switch (wsi->mode) {
 	case LWS_CONNMODE_SERVER_LISTENER:
@@ -2001,7 +2001,7 @@ bail3:
 		if (!eff_buf.token_len) {
 			libwebsocket_close_and_free_session(context, wsi,
 						    LWS_CLOSE_STATUS_NOSTATUS);
-			return 1;
+			return 0;
 		}
 
 		/*
