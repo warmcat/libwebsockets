@@ -40,6 +40,7 @@ libwebsockets_test_ping_LDADD=-L../lib -lwebsockets
 libwebsockets_test_ping_CFLAGS= -Wall -Werror -std=gnu99 -pedantic -DINSTALL_DATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 endif
 
+EXTRA_DIST=test.html favicon.ico
 
 #
 # cook a random test cert and key
