@@ -3032,7 +3032,7 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *context)
 	while (1) {
 		if (libwebsocket_service(context, 1000))
 			break;
-#ifndef HAVE_SYS_PRCTL_H
+//#ifndef HAVE_SYS_PRCTL_H
 /*
  * on systems without prctl() (i.e. anything but linux) we can notice that our
  * parent is dead if getppid() returns 1. FIXME apparently this is not true for
@@ -3041,7 +3041,7 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *context)
 
         if (getppid() == 1)
             break;
-#endif
+//#endif
     }
 
 
