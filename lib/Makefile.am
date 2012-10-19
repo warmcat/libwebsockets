@@ -9,7 +9,8 @@ dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				extension.c \
 				extension-deflate-stream.c extension-deflate-stream.h \
 				private-libwebsockets.h
-				
+
+
 if EXT_GOOGLE_MUX
 dist_libwebsockets_la_SOURCES += extension-x-google-mux.c extension-x-google-mux.h
 endif
