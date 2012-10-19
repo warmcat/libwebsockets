@@ -127,4 +127,6 @@ AC_CONFIG_FILES([Makefile
                  lib/Makefile
                  test-server/Makefile])
 
-AC_OUTPUT
+AC_OUTPUT([
+libwebsockets.pc
+])
