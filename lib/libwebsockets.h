@@ -579,7 +579,7 @@ libwebsocket_create_context(int port, const char * interf,
 		  struct libwebsocket_extension *extensions,
 		  const char *ssl_cert_filepath,
 		  const char *ssl_private_key_filepath, int gid, int uid,
-		  unsigned int options);
+		  unsigned int options, void *user);
 
 LWS_EXTERN void
 libwebsocket_context_destroy(struct libwebsocket_context *context);
@@ -593,6 +593,9 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms);
 LWS_EXTERN int
 libwebsocket_service_fd(struct libwebsocket_context *context,
 							 struct pollfd *pollfd);
+
+LWS_EXTERN void *
+libwebsocket_context_user(struct libwebsocket_context *context);
 
 /*
  * IMPORTANT NOTICE!

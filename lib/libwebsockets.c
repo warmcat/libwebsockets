@@ -2118,6 +2118,12 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 #endif
 }
 
+LWS_EXTERN void *
+libwebsocket_context_user(struct libwebsocket_context *context)
+{
+    return context->user_space;
+}
+
 /**
  * libwebsocket_service() - Service any pending websocket activity
  * @context:	Websocket context
@@ -2504,7 +2510,8 @@ libwebsocket_create_context(int port, const char *interf,
 			       struct libwebsocket_extension *extensions,
 			       const char *ssl_cert_filepath,
 			       const char *ssl_private_key_filepath,
-			       int gid, int uid, unsigned int options)
+			       int gid, int uid, unsigned int options,
+                   void *user)
 {
 	int n;
 	int m;
@@ -2568,6 +2575,7 @@ libwebsocket_create_context(int port, const char *interf,
 	context->fds_count = 0;
 	context->extensions = extensions;
 	context->last_timeout_check_s = 0;
+    context->user_space = user;
 
 #ifdef WIN32
 	context->fd_random = 0;
