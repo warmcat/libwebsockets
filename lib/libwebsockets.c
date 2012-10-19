@@ -1993,7 +1993,7 @@ bail3:
 		if (eff_buf.token_len < 0) {
 			fprintf(stderr, "Socket read returned %d\n",
 							    eff_buf.token_len);
-			if (errno != EINTR)
+			if (errno != EINTR && errno != EAGAIN)
 				libwebsocket_close_and_free_session(context,
 					       wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			return 1;
