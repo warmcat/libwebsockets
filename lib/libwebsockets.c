@@ -2477,6 +2477,8 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
  * @gid:	group id to change to after setting listen socket, or -1.
  * @uid:	user id to change to after setting listen socket, or -1.
  * @options:	0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
+ * @user:	optional user pointer that can be recovered via the context
+ * 		pointer using libwebsocket_context_user 
  *
  *	This function creates the listening socket and takes care
  *	of all initialization in one step.
