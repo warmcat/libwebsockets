@@ -2596,34 +2596,42 @@ libwebsocket_create_context(int port, const char *interf,
 	context->ssl_client_ctx = NULL;
 	openssl_websocket_private_data_index = 0;
 #endif
-	/* find canonical hostname */
 
-	hostname[(sizeof hostname) - 1] = '\0';
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_family = AF_INET;
-	sa.sa_data[(sizeof sa.sa_data) - 1] = '\0';
-	gethostname(hostname, (sizeof hostname) - 1);
+	if (options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME) {
 
-	n = 0;
+		strcpy(context->canonical_hostname, "unknown");
 
-	if (strlen(hostname) < sizeof(sa.sa_data) - 1) {	
-		strcpy(sa.sa_data, hostname);
-//		fprintf(stderr, "my host name is %s\n", sa.sa_data);
-		n = getnameinfo(&sa, sizeof(sa), hostname,
-			(sizeof hostname) - 1, NULL, 0, 0);
+	} else {
+
+		/* find canonical hostname */
+
+		hostname[(sizeof hostname) - 1] = '\0';
+		memset(&sa, 0, sizeof(sa));
+		sa.sa_family = AF_INET;
+		sa.sa_data[(sizeof sa.sa_data) - 1] = '\0';
+		gethostname(hostname, (sizeof hostname) - 1);
+
+		n = 0;
+
+		if (strlen(hostname) < sizeof(sa.sa_data) - 1) {	
+			strcpy(sa.sa_data, hostname);
+	//		fprintf(stderr, "my host name is %s\n", sa.sa_data);
+			n = getnameinfo(&sa, sizeof(sa), hostname,
+				(sizeof hostname) - 1, NULL, 0, 0);
+		}
+
+		if (!n) {
+			strncpy(context->canonical_hostname, hostname,
+						sizeof context->canonical_hostname - 1);
+			context->canonical_hostname[
+					sizeof context->canonical_hostname - 1] = '\0';
+		} else
+			strncpy(context->canonical_hostname, hostname,
+						sizeof context->canonical_hostname - 1);
+
+	//	fprintf(stderr, "context->canonical_hostname = %s\n",
+	//						context->canonical_hostname);
 	}
-
-	if (!n) {
-		strncpy(context->canonical_hostname, hostname,
-					sizeof context->canonical_hostname - 1);
-		context->canonical_hostname[
-				sizeof context->canonical_hostname - 1] = '\0';
-	} else
-		strncpy(context->canonical_hostname, hostname,
-					sizeof context->canonical_hostname - 1);
-
-//	fprintf(stderr, "context->canonical_hostname = %s\n",
-//						context->canonical_hostname);
 
 	/* split the proxy ads:port if given */
 
