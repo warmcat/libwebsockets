@@ -1,0 +1,8 @@
+#Ignore build files
+Makefile
+*.o
+*.lo
+*.la
+.libs
+.deps
+

@@ -1,3 +1,10 @@
+#Ignore build files
+Makefile
+config.h
+config.log
+config.status
+libtool
+stamp-h1
 output/
 win32port/ipch/
 win32port/Debug*/

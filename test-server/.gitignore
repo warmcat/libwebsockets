@@ -1,0 +1,9 @@
+#Ignore build files
+libwebsockets-test-*
+Makefile
+*.o
+*.lo
+*.la
+.libs
+.deps
+
