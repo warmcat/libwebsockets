@@ -950,9 +950,16 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	strcpy(p, wsi->key_b64);
 	p += strlen(wsi->key_b64);
 	p += sprintf(p, "\x0d\x0a");
-	if (wsi->c_origin)
+	if (wsi->c_origin) {
+        if (wsi->ietf_spec_revision == 13) {
+            p += sprintf(p, "Origin: %s\x0d\x0a",
+							 wsi->c_origin);
+        }
+        else {
 		    p += sprintf(p, "Sec-WebSocket-Origin: %s\x0d\x0a",
 							 wsi->c_origin);
+        }
+    }
 	if (wsi->c_protocol)
 		p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
 						       wsi->c_protocol);
