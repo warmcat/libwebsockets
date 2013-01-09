@@ -3201,6 +3201,12 @@ libwebsocket_is_final_fragment(struct libwebsocket *wsi)
 	return wsi->final;
 }
 
+unsigned char
+libwebsocket_get_reserved_bits(struct libwebsocket *wsi)
+{
+	return wsi->rsv;
+}
+
 void *
 libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 {

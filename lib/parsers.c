@@ -462,10 +462,6 @@ handle_first:
 		if (wsi->ietf_spec_revision < 7)
 			c = wsi->xor_mask(wsi, c);
 
-		if (c & 0x70)
-			fprintf(stderr,
-			    "Frame has unknown extension bits set 1 %02X\n", c);
-
 		/* translate all incoming opcodes into v7+ map */
 		if (wsi->ietf_spec_revision < 7)
 			switch (c & 0xf) {
@@ -494,7 +490,7 @@ handle_first:
 			}
 		else
 			wsi->opcode = c & 0xf;
-
+		wsi->rsv = (c & 0x70);
 		wsi->final = !!((c >> 7) & 1);
 
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
@@ -813,17 +809,37 @@ spill:
 		 * so it can be sent straight out again using libwebsocket_write
 		 */
 
-		wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-					       wsi->rx_user_buffer_head] = '\0';
+		eff_buf.token = &wsi->rx_user_buffer[
+						LWS_SEND_BUFFER_PRE_PADDING];
+		eff_buf.token_len = wsi->rx_user_buffer_head;
 
-		if (wsi->protocol->callback)
-			wsi->protocol->callback(wsi->protocol->owning_server,
-						wsi, LWS_CALLBACK_RECEIVE,
-						wsi->user_space,
-			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
-						      wsi->rx_user_buffer_head);
-		else
-			fprintf(stderr, "No callback on payload spill!\n");
+		for (n = 0; n < wsi->count_active_extensions; n++) {
+			m = wsi->active_extensions[n]->callback(
+				wsi->protocol->owning_server,
+				wsi->active_extensions[n], wsi,
+				LWS_EXT_CALLBACK_PAYLOAD_RX,
+				wsi->active_extensions_user[n],
+				&eff_buf, 0);
+			if (m < 0) {
+				fprintf(stderr,
+			          "Extension '%s' failed to handle payload!",
+			        	      wsi->active_extensions[n]->name);
+				return -1;
+			}
+		}
+
+		if (eff_buf.token_len > 0) {
+		    eff_buf.token[eff_buf.token_len] = '\0';
+
+		    if (wsi->protocol->callback)
+			    wsi->protocol->callback(wsi->protocol->owning_server,
+						    wsi, LWS_CALLBACK_RECEIVE,
+						    wsi->user_space,
+			                	    eff_buf.token,
+						    eff_buf.token_len);
+		    else
+			    fprintf(stderr, "No callback on payload spill!");
+		}
 
 		wsi->rx_user_buffer_head = 0;
 		break;
@@ -922,10 +938,6 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		 *		FIN (b7)
 		 */
 
-			if (c & 0x70)
-				fprintf(stderr, "Frame has unknown extension "
-				    "bits set on first framing byte %02X\n", c);
-
 			if (wsi->ietf_spec_revision < 7)
 				switch (c & 0xf) {
 				case LWS_WS_OPCODE_04__CONTINUATION:
@@ -956,7 +968,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 				}
 			else
 				wsi->opcode = c & 0xf;
-
+			wsi->rsv = (c & 0x70);
 			wsi->final = !!((c >> 7) & 1);
 
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
@@ -1281,13 +1293,40 @@ spill:
 		 * It's nicely buffered with the pre-padding taken care of
 		 * so it can be sent straight out again using libwebsocket_write
 		 */
+		if (handled)
+			goto already_done;
 
-		if (!handled && wsi->protocol->callback)
-			wsi->protocol->callback(wsi->protocol->owning_server,
+		eff_buf.token = &wsi->rx_user_buffer[
+						LWS_SEND_BUFFER_PRE_PADDING];
+		eff_buf.token_len = wsi->rx_user_buffer_head;
+
+		for (n = 0; n < wsi->count_active_extensions; n++) {
+			m = wsi->active_extensions[n]->callback(
+				wsi->protocol->owning_server,
+				wsi->active_extensions[n], wsi,
+				LWS_EXT_CALLBACK_PAYLOAD_RX,
+				wsi->active_extensions_user[n],
+				&eff_buf, 0);
+			if (m < 0) {
+				fprintf(stderr,
+					"Extension '%s' failed to handle payload!",
+						wsi->active_extensions[n]->name);
+				return -1;
+			}
+		}
+
+		if (eff_buf.token_len > 0) {
+			eff_buf.token[eff_buf.token_len] = '\0';
+
+			if (wsi->protocol->callback)
+				wsi->protocol->callback(
+						wsi->protocol->owning_server,
 						wsi, callback_action,
 						wsi->user_space,
-						&wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
-						wsi->rx_user_buffer_head);
+						eff_buf.token,
+						eff_buf.token_len);
+		}
+already_done:
 		wsi->rx_user_buffer_head = 0;
 		break;
 	default:
@@ -1519,6 +1558,8 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 							    eff_buf.token_len))
 				return -1;
 
+		debug("written %d bytes to client\n", eff_buf.token_len);
+
 		/* we used up what we had */
 
 		eff_buf.token = NULL;
@@ -1543,8 +1584,6 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 		wsi->extension_data_pending = 1;
 		ret = 0;
 	}
-
-	debug("written %d bytes to client\n", eff_buf.token_len);
 
 	return 0;
 }
@@ -1585,6 +1624,8 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 						  wsi->xor_mask != xor_no_mask;
 	unsigned char *dropmask = NULL;
 	unsigned char is_masked_bit = 0;
+	struct lws_tokens eff_buf;
+	int m;
 
 	if (len == 0 && protocol != LWS_WRITE_CLOSE) {
 		fprintf(stderr, "zero length libwebsocket_write attempt\n");
@@ -1598,6 +1639,23 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 	if (wsi->state != WSI_STATE_ESTABLISHED)
 		return -1;
+
+	/* give a change to the extensions to modify payload */
+	eff_buf.token = (char *)buf;
+	eff_buf.token_len = len;
+
+	for (n = 0; n < wsi->count_active_extensions; n++) {
+		m = wsi->active_extensions[n]->callback(
+			wsi->protocol->owning_server,
+			wsi->active_extensions[n], wsi,
+			LWS_EXT_CALLBACK_PAYLOAD_TX,
+			wsi->active_extensions_user[n], &eff_buf, 0);
+		if (m < 0)
+			return -1;
+	}
+
+	buf = (unsigned char *)eff_buf.token;
+	len = eff_buf.token_len;
 
 	switch (wsi->ietf_spec_revision) {
 	/* chrome likes this as of 30 Oct 2010 */
