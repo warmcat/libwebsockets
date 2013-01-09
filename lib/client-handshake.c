@@ -138,8 +138,14 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE;
 	pfd.fd = wsi->sock;
 	pfd.revents = POLLIN;
-	if (libwebsocket_service_fd(context, &pfd) < 0)
+
+	n = libwebsocket_service_fd(context, &pfd);
+
+	if (n < 0)
 		goto oom4;
+
+	if (n) /* returns 1 on failure after closing wsi */
+		return NULL;
 
 	return wsi;
 
