@@ -224,6 +224,7 @@ has been created.
 <i>struct libwebsocket_extension *</i> <b>extensions</b>,
 <i>const char *</i> <b>ssl_cert_filepath</b>,
 <i>const char *</i> <b>ssl_private_key_filepath</b>,
+<i>const char *</i> <b>ssl_ca_filepath</b>,
 <i>int</i> <b>gid</b>,
 <i>int</i> <b>uid</b>,
 <i>unsigned int</i> <b>options</b>,
@@ -251,6 +252,9 @@ to listen using SSL, set to the filepath to fetch the
 server cert from, otherwise NULL for unencrypted
 <dt><b>ssl_private_key_filepath</b>
 <dd>filepath to private key if wanting SSL mode,
+else ignored
+<dt><b>ssl_ca_filepath</b>
+<dd>filepath to CA certificates file if wanting SSL mode,
 else ignored
 <dt><b>gid</b>
 <dd>group id to change to after setting listen socket, or -1.

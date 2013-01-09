@@ -646,7 +646,9 @@ libwebsocket_create_context(int port, const char * interf,
 		  struct libwebsocket_protocols *protocols,
 		  struct libwebsocket_extension *extensions,
 		  const char *ssl_cert_filepath,
-		  const char *ssl_private_key_filepath, int gid, int uid,
+		  const char *ssl_private_key_filepath,
+		  const char *ssl_ca_filepath,
+		  int gid, int uid,
 		  unsigned int options, void *user);
 
 LWS_EXTERN void

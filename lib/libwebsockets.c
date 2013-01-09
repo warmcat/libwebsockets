@@ -2484,6 +2484,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
  *			server cert from, otherwise NULL for unencrypted
  * @ssl_private_key_filepath: filepath to private key if wanting SSL mode,
  *			else ignored
+ * @ssl_ca_filepath: CA certificate filepath or NULL
  * @gid:	group id to change to after setting listen socket, or -1.
  * @uid:	user id to change to after setting listen socket, or -1.
  * @options:	0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
@@ -2522,8 +2523,9 @@ libwebsocket_create_context(int port, const char *interf,
 			       struct libwebsocket_extension *extensions,
 			       const char *ssl_cert_filepath,
 			       const char *ssl_private_key_filepath,
+			       const char *ssl_ca_filepath,
 			       int gid, int uid, unsigned int options,
-                   void *user)
+			       void *user)
 {
 	int n;
 	int m;
@@ -2743,15 +2745,23 @@ libwebsocket_create_context(int port, const char *interf,
 		}
 
 		/* openssl init for cert verification (for client sockets) */
-
-		if (!SSL_CTX_load_verify_locations(
-					context->ssl_client_ctx, NULL,
-						      LWS_OPENSSL_CLIENT_CERTS))
-			fprintf(stderr,
-			    "Unable to load SSL Client certs from %s "
-			    "(set by --with-client-cert-dir= in configure) -- "
-				" client ssl isn't going to work",
-						      LWS_OPENSSL_CLIENT_CERTS);
+		if (!ssl_ca_filepath) {
+			if (!SSL_CTX_load_verify_locations(
+				context->ssl_client_ctx, NULL,
+						     LWS_OPENSSL_CLIENT_CERTS))
+				fprintf(stderr,
+					"Unable to load SSL Client certs from %s "
+					"(set by --with-client-cert-dir= in configure) -- "
+					" client ssl isn't going to work",
+						     LWS_OPENSSL_CLIENT_CERTS);
+		} else
+			if (!SSL_CTX_load_verify_locations(
+				context->ssl_client_ctx, ssl_ca_filepath,
+								  NULL))
+				fprintf(stderr,
+					"Unable to load SSL Client certs "
+					"file from %s -- client ssl isn't "
+					"going to work", ssl_ca_filepath);
 
 		/*
 		 * callback allowing user code to load extra verification certs
