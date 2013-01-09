@@ -1286,8 +1286,8 @@ spill:
 			wsi->protocol->callback(wsi->protocol->owning_server,
 						wsi, callback_action,
 						wsi->user_space,
-			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
-						      wsi->rx_user_buffer_head);
+						&wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+						wsi->rx_user_buffer_head);
 		wsi->rx_user_buffer_head = 0;
 		break;
 	default:
