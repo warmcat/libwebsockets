@@ -128,6 +128,7 @@ void debug(const char *format, ...)
 #define LWS_MAX_PROTOCOLS 10
 #define LWS_MAX_EXTENSIONS_ACTIVE 10
 #define SPEC_LATEST_SUPPORTED 13
+#define AWAITING_TIMEOUT 5
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"

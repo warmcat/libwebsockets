@@ -278,7 +278,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 			/* and we should wait for a reply for a bit */
 
 			libwebsocket_set_timeout(wsi,
-						  PENDING_TIMEOUT_CLOSE_ACK, 5);
+						  PENDING_TIMEOUT_CLOSE_ACK, AWAITING_TIMEOUT);
 
 			debug("sent close indication, awaiting ack\n");
 
@@ -1876,7 +1876,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		wsi->parser_state = WSI_TOKEN_NAME_PART;
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY;
 		libwebsocket_set_timeout(wsi,
-				PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE, 5);
+				PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE, AWAITING_TIMEOUT);
 
 		break;
 
