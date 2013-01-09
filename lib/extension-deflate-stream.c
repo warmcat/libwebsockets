@@ -44,6 +44,7 @@ int lws_extension_callback_deflate_stream(
 			return 1;
 		}
 		debug("zlibs constructed\n");
+		conn->remaining_in = 0;
 		break;
 
 	case LWS_EXT_CALLBACK_DESTROY:
@@ -59,12 +60,20 @@ int lws_extension_callback_deflate_stream(
 		 * Notice, length may be 0 and pointer NULL
 		 * in the case we are flushing with nothing new coming in
 		 */
+		if (conn->remaining_in)
+		{
+			conn->zs_in.next_in = conn->buf_in;
+			conn->zs_in.avail_in = conn->remaining_in;
+			conn->remaining_in = 0;
+		}
+		else
+		{
+			conn->zs_in.next_in = (unsigned char *)eff_buf->token;
+			conn->zs_in.avail_in = eff_buf->token_len;
+		}
 
-		conn->zs_in.next_in = (unsigned char *)eff_buf->token;
-		conn->zs_in.avail_in = eff_buf->token_len;
-
-		conn->zs_in.next_out = conn->buf;
-		conn->zs_in.avail_out = sizeof(conn->buf);
+		conn->zs_in.next_out = conn->buf_out;
+		conn->zs_in.avail_out = sizeof(conn->buf_out);
 
 		n = inflate(&conn->zs_in, Z_SYNC_FLUSH);
 		switch (n) {
@@ -81,15 +90,23 @@ int lws_extension_callback_deflate_stream(
 
 		/* rewrite the buffer pointers and length */
 
-		eff_buf->token = (char *)conn->buf;
-		eff_buf->token_len = sizeof(conn->buf) - conn->zs_in.avail_out;
+		eff_buf->token = (char *)conn->buf_out;
+		eff_buf->token_len = sizeof(conn->buf_out) - conn->zs_in.avail_out;
+
+		/* copy avail data if not consumed */
+		if (conn->zs_in.avail_in > 0)
+		{
+			conn->remaining_in = conn->zs_in.avail_in;
+			memcpy(conn->buf_in, conn->zs_in.next_in, conn->zs_in.avail_in);
+			return 1;
+		}
 
 		/*
 		 * if we filled the output buffer, signal that we likely have
 		 * more and need to be called again
 		 */
 
-		if (eff_buf->token_len == sizeof(conn->buf))
+		if (eff_buf->token_len == sizeof(conn->buf_out))
 			return 1;
 
 		/* we don't need calling again until new input data comes */
@@ -106,8 +123,8 @@ int lws_extension_callback_deflate_stream(
 		conn->zs_out.next_in = (unsigned char *)eff_buf->token;
 		conn->zs_out.avail_in = eff_buf->token_len;
 
-		conn->zs_out.next_out = conn->buf;
-		conn->zs_out.avail_out = sizeof(conn->buf);
+		conn->zs_out.next_out = conn->buf_out;
+		conn->zs_out.avail_out = sizeof(conn->buf_out);
 
 		n = Z_PARTIAL_FLUSH;
 		if (reason == LWS_EXT_CALLBACK_FLUSH_PENDING_TX)
@@ -126,8 +143,8 @@ int lws_extension_callback_deflate_stream(
 
 		/* rewrite the buffer pointers and length */
 
-		eff_buf->token = (char *)conn->buf;
-		eff_buf->token_len = sizeof(conn->buf) - conn->zs_out.avail_out;
+		eff_buf->token = (char *)conn->buf_out;
+		eff_buf->token_len = sizeof(conn->buf_out) - conn->zs_out.avail_out;
 
 		/*
 		 * if we filled the output buffer, signal that we likely have
@@ -135,7 +152,7 @@ int lws_extension_callback_deflate_stream(
 		 * we might sometimes need to spill more than came in
 		 */
 
-		if (eff_buf->token_len == sizeof(conn->buf))
+		if (eff_buf->token_len == sizeof(conn->buf_out))
 			return 1;
 
 		/* we don't need calling again until new input data comes */
