@@ -21,6 +21,10 @@
 
 #include "private-libwebsockets.h"
 
+#ifdef WIN32
+#include <io.h>
+#endif
+
 const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
 
 	/* win32 can't do C99 */
@@ -1307,7 +1311,7 @@ illegal_ctl_length:
 int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 						 unsigned char *buf, size_t len)
 {
-	int n;
+	size_t n;
 
 #ifdef DEBUG
 	fprintf(stderr, "received %d byte packet\n", (int)len);
