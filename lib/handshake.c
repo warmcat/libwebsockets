@@ -151,14 +151,14 @@ handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	/* lay them out in network byte order (MSB first */
 
-	sum[0] = key1 >> 24;
-	sum[1] = key1 >> 16;
-	sum[2] = key1 >> 8;
-	sum[3] = key1;
-	sum[4] = key2 >> 24;
-	sum[5] = key2 >> 16;
-	sum[6] = key2 >> 8;
-	sum[7] = key2;
+	sum[0] = (unsigned char)(key1 >> 24);
+	sum[1] = (unsigned char)(key1 >> 16);
+	sum[2] = (unsigned char)(key1 >> 8);
+	sum[3] = (unsigned char)(key1);
+	sum[4] = (unsigned char)(key2 >> 24);
+	sum[5] = (unsigned char)(key2 >> 16);
+	sum[6] = (unsigned char)(key2 >> 8);
+	sum[7] = (unsigned char)(key2);
 
 	/* follow them with the challenge token we were sent */
 
