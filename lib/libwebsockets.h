@@ -191,16 +191,16 @@ enum lws_token_indexes {
 };
 
 /*
- * From 06 spec
+ * From RFC 6455
    1000
 
-      1000 indicates a normal closure, meaning whatever purpose the
-      connection was established for has been fulfilled.
+      1000 indicates a normal closure, meaning that the purpose for
+      which the connection was established has been fulfilled.
 
    1001
 
       1001 indicates that an endpoint is "going away", such as a server
-      going down, or a browser having navigated away from a page.
+      going down or a browser having navigated away from a page.
 
    1002
 
@@ -210,14 +210,73 @@ enum lws_token_indexes {
    1003
 
       1003 indicates that an endpoint is terminating the connection
-      because it has received a type of data it cannot accept (e.g. an
-      endpoint that understands only text data may send this if it
-      receives a binary message.)
+      because it has received a type of data it cannot accept (e.g., an
+      endpoint that understands only text data MAY send this if it
+      receives a binary message).
 
    1004
 
-      1004 indicates that an endpoint is terminating the connection
-      because it has received a message that is too large.
+      Reserved.  The specific meaning might be defined in the future.
+
+   1005
+
+      1005 is a reserved value and MUST NOT be set as a status code in a
+      Close control frame by an endpoint.  It is designated for use in
+      applications expecting a status code to indicate that no status
+      code was actually present.
+
+   1006
+
+      1006 is a reserved value and MUST NOT be set as a status code in a
+      Close control frame by an endpoint.  It is designated for use in
+      applications expecting a status code to indicate that the
+      connection was closed abnormally, e.g., without sending or
+      receiving a Close control frame.
+
+   1007
+
+      1007 indicates that an endpoint is terminating the connection
+      because it has received data within a message that was not
+      consistent with the type of the message (e.g., non-UTF-8 [RFC3629]
+      data within a text message).
+
+   1008
+
+      1008 indicates that an endpoint is terminating the connection
+      because it has received a message that violates its policy.  This
+      is a generic status code that can be returned when there is no
+      other more suitable status code (e.g., 1003 or 1009) or if there
+      is a need to hide specific details about the policy.
+
+   1009
+
+      1009 indicates that an endpoint is terminating the connection
+      because it has received a message that is too big for it to
+      process.
+
+   1010
+
+      1010 indicates that an endpoint (client) is terminating the
+      connection because it has expected the server to negotiate one or
+      more extension, but the server didn't return them in the response
+      message of the WebSocket handshake.  The list of extensions that
+      are needed SHOULD appear in the /reason/ part of the Close frame.
+      Note that this status code is not used by the server, because it
+      can fail the WebSocket handshake instead.
+
+   1011
+
+      1011 indicates that a server is terminating the connection because
+      it encountered an unexpected condition that prevented it from
+      fulfilling the request.
+
+   1015
+
+      1015 is a reserved value and MUST NOT be set as a status code in a
+      Close control frame by an endpoint.  It is designated for use in
+      applications expecting a status code to indicate that the
+      connection was closed due to a failure to perform a TLS handshake
+      (e.g., the server certificate can't be verified).
 */
 
 enum lws_close_status {
@@ -226,7 +285,15 @@ enum lws_close_status {
 	LWS_CLOSE_STATUS_GOINGAWAY = 1001,
 	LWS_CLOSE_STATUS_PROTOCOL_ERR = 1002,
 	LWS_CLOSE_STATUS_UNACCEPTABLE_OPCODE = 1003,
-	LWS_CLOSE_STATUS_PAYLOAD_TOO_LARGE = 1004,
+	LWS_CLOSE_STATUS_RESERVED = 1004,
+	LWS_CLOSE_STATUS_NO_STATUS = 1005,
+	LWS_CLOSE_STATUS_ABNORMAL_CLOSE = 1006,
+	LWS_CLOSE_STATUS_INVALID_PAYLOAD = 1007,
+	LWS_CLOSE_STATUS_POLICY_VIOLATION = 1008,
+	LWS_CLOSE_STATUS_MESSAGE_TOO_LARGE = 1009,
+	LWS_CLOSE_STATUS_EXTENSION_REQUIRED = 1010,
+    LWS_CLOSE_STATUS_UNEXPECTED_CONDITION = 1011,
+    LWS_CLOSE_STATUS_TLS_FAILURE = 1015,
 };
 
 struct libwebsocket;
