@@ -42,10 +42,13 @@
     <ClCompile Include="..\..\lib\extension-deflate-stream.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\win32helpers\websock-w32.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\win32helpers\gettimeofday.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\win32helpers\websock-w32.c">
+    <ClCompile Include="..\..\lib\extension-deflate-frame.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -62,10 +65,13 @@
     <ClInclude Include="..\..\lib\extension-x-google-mux.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\win32helpers\gettimeofday.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\win32helpers\websock-w32.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\win32helpers\gettimeofday.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\lib\extension-deflate-frame.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

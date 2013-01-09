@@ -8,6 +8,7 @@ dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				client-handshake.c \
 				extension.c \
 				extension-deflate-stream.c extension-deflate-stream.h \
+				extension-deflate-frame.c extension-deflate-frame.h\
 				private-libwebsockets.h
 
 
