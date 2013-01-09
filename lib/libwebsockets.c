@@ -1213,7 +1213,7 @@ select_protocol:
 		wsi->c_callback = wsi->protocol->callback;
 		free(wsi->c_protocol);
 
-		goto check_accept;
+		goto check_extensions;
 	}
 
 	while (*pc && !okay) {
@@ -1264,6 +1264,8 @@ select_protocol:
 		goto bail2;
 	}
 
+
+check_extensions:
 
 	/* instantiate the accepted extensions */
 
