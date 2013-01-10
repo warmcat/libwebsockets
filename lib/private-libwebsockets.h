@@ -98,13 +98,13 @@ void debug(const char *format, ...)
 }
 #else
 #ifdef WIN32
-static __inline
+#define debug(...)
 #else
 static inline
-#endif
 void debug(const char *format, ...)
 {
 }
+#endif
 #endif
 
 
