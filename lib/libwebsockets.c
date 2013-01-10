@@ -2730,6 +2730,7 @@ libwebsocket_create_context(int port, const char *interf,
 	}
 
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
+	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
 	/* client context */
 
@@ -2749,6 +2750,7 @@ libwebsocket_create_context(int port, const char *interf,
 		}
 
 		SSL_CTX_set_options(context->ssl_client_ctx, SSL_OP_NO_COMPRESSION);
+		SSL_CTX_set_options(context->ssl_client_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
 		/* openssl init for cert verification (for client sockets) */
 		if (!ssl_ca_filepath) {
