@@ -1574,8 +1574,14 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		/* accepting connection to main listener */
 
 		new_wsi = libwebsocket_create_new_server_wsi(context);
-		if (new_wsi == NULL)
+		if (new_wsi == NULL) {
+#ifdef WIN32
+			closesocket(accept_fd);
+#else
+			close(accept_fd);
+#endif
 			break;
+		}
 
 		new_wsi->sock = accept_fd;
 
@@ -1592,6 +1598,11 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				    new_wsi->ssl, 0), NULL));
 				    libwebsockets_decode_ssl_error();
 				free(new_wsi);
+#ifdef WIN32
+				closesocket(accept_fd);
+#else
+				close(accept_fd);
+#endif
 				break;
 			}
 
@@ -1611,6 +1622,11 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				SSL_free(
 				       new_wsi->ssl);
 				free(new_wsi);
+#ifdef WIN32
+				closesocket(accept_fd);
+#else
+				close(accept_fd);
+#endif
 				break;
 			}
 
@@ -2636,7 +2652,7 @@ libwebsocket_create_context(int port, const char *interf,
 
 		n = 0;
 
-		if (strlen(hostname) < sizeof(sa.sa_data) - 1) {	
+		if (strlen(hostname) < sizeof(sa.sa_data) - 1) {
 			strcpy(sa.sa_data, hostname);
 	//		fprintf(stderr, "my host name is %s\n", sa.sa_data);
 			n = getnameinfo(&sa, sizeof(sa), hostname,
