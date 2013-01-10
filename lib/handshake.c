@@ -588,7 +588,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 			if (wsi->protocol->callback)
 				(wsi->protocol->callback)(context, wsi,
 				   LWS_CALLBACK_HTTP, wsi->user_space,
-				   wsi->utf8_token[WSI_TOKEN_GET_URI].token, 0);
+				   wsi->utf8_token[WSI_TOKEN_GET_URI].token,
+				   wsi->utf8_token[WSI_TOKEN_GET_URI].token_len);
 			return 0;
 		}
 
