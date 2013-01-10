@@ -29,7 +29,7 @@ libwebsockets_la_CFLAGS+= -w -I../win32port/win32helpers -I ../win32port/zlib/
 libwebsockets_la_LDFLAGS+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc
 else
 libwebsockets_la_CFLAGS+= -rdynamic -fPIC -Werror
-libwebsockets_la_LDFLAGS+=  -version-info 0:3
+libwebsockets_la_LDFLAGS+=  -version-info 1:0
 endif
 
 libwebsockets_la_CFLAGS+= -c \
