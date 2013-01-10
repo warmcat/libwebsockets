@@ -142,6 +142,7 @@ int lws_extension_callback_deflate_frame(
 			n = inflate(&conn->zs_in, Z_SYNC_FLUSH);
 			switch (n) {
 			case Z_NEED_DICT:
+			case Z_STREAM_ERROR:
 			case Z_DATA_ERROR:
 			case Z_MEM_ERROR:
 				/*
@@ -153,10 +154,11 @@ int lws_extension_callback_deflate_frame(
 				return -1;
 			}
 
-			if (conn->zs_in.avail_in > 0) {
+			if (!conn->zs_in.avail_in) {
 				size_t len_so_far = (conn->zs_in.next_out -
 				 (conn->buf_in + LWS_SEND_BUFFER_PRE_PADDING));
 				unsigned char *new_buf;
+
 				conn->buf_in_length *= 2;
 				new_buf = (unsigned char *)
 					malloc(LWS_SEND_BUFFER_PRE_PADDING +
