@@ -47,7 +47,7 @@ int lws_extension_callback_deflate_frame(
 				 -LWS_ZLIB_WINDOW_BITS, LWS_ZLIB_MEMLEVEL,
 				 Z_DEFAULT_STRATEGY);
 		if (n != Z_OK) {
-			fprintf(stderr, "deflateInit returned %d", n);
+			fprintf(stderr, "deflateInit2 returned %d", n);
 			return 1;
 		}
 		conn->buf_pre_used = 0;
@@ -60,18 +60,25 @@ int lws_extension_callback_deflate_frame(
 				malloc(LWS_SEND_BUFFER_PRE_PADDING +
 					       conn->buf_in_length +
 					       LWS_SEND_BUFFER_POST_PADDING);
+		if (!conn->buf_in)
+			goto bail;
 		conn->buf_out = (unsigned char *)
 				malloc(LWS_SEND_BUFFER_PRE_PADDING +
 						conn->buf_out_length +
 						LWS_SEND_BUFFER_POST_PADDING);
-		fprintf(stderr, "zlibs constructed");
+		if (!conn->buf_out)
+			goto bail;
+		fprintf(stderr, "zlibs constructed\n");
 		break;
+bail:
+		fprintf(stderr, "Out of mem\n");
+		(void)inflateEnd(&conn->zs_in);
+		(void)deflateEnd(&conn->zs_out);
+		return -1;
 
 	case LWS_EXT_CALLBACK_DESTROY:
 		if (conn->buf_pre)
-		{
 			free(conn->buf_pre);
-		}
 		free(conn->buf_in);
 		free(conn->buf_out);
 		conn->buf_pre_used = 0;
@@ -81,7 +88,7 @@ int lws_extension_callback_deflate_frame(
 		conn->compressed_out = 0;
 		(void)inflateEnd(&conn->zs_in);
 		(void)deflateEnd(&conn->zs_out);
-		fprintf(stderr, "zlibs destructed");
+		fprintf(stderr, "zlibs destructed\n");
 		break;
 
 	case LWS_EXT_CALLBACK_PAYLOAD_RX:
@@ -105,6 +112,10 @@ int lws_extension_callback_deflate_frame(
 					free(conn->buf_pre);
 				conn->buf_pre =
 				    (unsigned char *)malloc(total_payload + 4);
+				if (!conn->buf_pre) {
+					fprintf(stderr, "Out of memory\n");
+					return -1;
+				}
 			}
 
 			memcpy(conn->buf_pre + conn->buf_pre_used,
@@ -141,43 +152,19 @@ int lws_extension_callback_deflate_frame(
 		conn->zs_in.next_out = conn->buf_in + LWS_SEND_BUFFER_PRE_PADDING;
 		conn->zs_in.avail_out = conn->buf_in_length;
 
-		while (1) {
-			n = inflate(&conn->zs_in, Z_SYNC_FLUSH);
-			switch (n) {
-			case Z_NEED_DICT:
-			case Z_STREAM_ERROR:
-			case Z_DATA_ERROR:
-			case Z_MEM_ERROR:
-				/*
-				 * screwed.. close the connection... we will get a
-				 * destroy callback to take care of closing nicely
-				 */
-				fprintf(stderr, "zlib error inflate %d: %s",
-							   n, conn->zs_in.msg);
-				return -1;
-			}
-
-			if (!conn->zs_in.avail_in) {
-				size_t len_so_far = (conn->zs_in.next_out -
-				 (conn->buf_in + LWS_SEND_BUFFER_PRE_PADDING));
-				unsigned char *new_buf;
-
-				conn->buf_in_length *= 2;
-				new_buf = (unsigned char *)
-					malloc(LWS_SEND_BUFFER_PRE_PADDING +
-						  conn->buf_in_length +
-						  LWS_SEND_BUFFER_POST_PADDING);
-				memcpy(new_buf + LWS_SEND_BUFFER_PRE_PADDING,
-					conn->buf_in + LWS_SEND_BUFFER_PRE_PADDING,
-					len_so_far);
-				free(conn->buf_in);
-				conn->buf_in = new_buf;
-				conn->zs_in.next_out = (new_buf +
-				     LWS_SEND_BUFFER_PRE_PADDING + len_so_far);
-				conn->zs_in.avail_out =
-					      conn->buf_in_length - len_so_far;
-			} else
-				break;
+		n = inflate(&conn->zs_in, Z_SYNC_FLUSH);
+		switch (n) {
+		case Z_NEED_DICT:
+		case Z_STREAM_ERROR:
+		case Z_DATA_ERROR:
+		case Z_MEM_ERROR:
+			/*
+			 * screwed.. close the connection... we will get a
+			 * destroy callback to take care of closing nicely
+			 */
+			fprintf(stderr, "zlib error inflate %d: %s",
+						   n, conn->zs_in.msg);
+			return -1;
 		}
 
 		/* rewrite the buffer pointers and length */
@@ -214,6 +201,10 @@ int lws_extension_callback_deflate_frame(
 				return -1;
 			}
 
+			/*
+			 * AG: uncertain about this log buffer expansion approach...
+			 * same approach in Rx led to memory runaway OOM
+			 */
 			if (!conn->zs_out.avail_out) {
 				size_t len_so_far = (conn->zs_out.next_out -
 					(conn->buf_out +
@@ -224,6 +215,10 @@ int lws_extension_callback_deflate_frame(
 					malloc(LWS_SEND_BUFFER_PRE_PADDING +
 						  conn->buf_out_length +
 						  LWS_SEND_BUFFER_POST_PADDING);
+				if (!new_buf) {
+					fprintf(stderr, "Out of memory\n");
+					return -1;
+				}
 				memcpy(new_buf + LWS_SEND_BUFFER_PRE_PADDING,
 					conn->buf_out + LWS_SEND_BUFFER_PRE_PADDING,
 					len_so_far);
