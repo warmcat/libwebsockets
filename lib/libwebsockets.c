@@ -1544,7 +1544,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
 								       &clilen);
 		if (accept_fd < 0) {
-			debug("ERROR on accept\n");
+			debug("ERROR on accept: %d\n", strerror(errno));
 			return -1;
 		}
 
