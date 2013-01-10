@@ -40,7 +40,10 @@ int lws_extension_callback_deflate_frame(
 			return 1;
 		}
 		n = deflateInit2(&conn->zs_out,
-				 DEFLATE_FRAME_COMPRESSION_LEVEL, Z_DEFLATED,
+				 (context->listen_port ?
+					DEFLATE_FRAME_COMPRESSION_LEVEL_SERVER :
+					DEFLATE_FRAME_COMPRESSION_LEVEL_CLIENT),
+				 Z_DEFLATED,
 				 -LWS_ZLIB_WINDOW_BITS, LWS_ZLIB_MEMLEVEL,
 				 Z_DEFAULT_STRATEGY);
 		if (n != Z_OK) {
