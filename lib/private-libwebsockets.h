@@ -98,7 +98,7 @@ void debug(const char *format, ...)
 }
 #else
 #ifdef WIN32
-static
+static __inline
 #else
 static inline
 #endif
