@@ -1998,6 +1998,7 @@ bail3:
 			break;
 
 #ifdef LWS_OPENSSL_SUPPORT
+read_pending:
 		if (wsi->ssl)
 			eff_buf.token_len = SSL_read(wsi->ssl, buf, sizeof buf);
 		else
@@ -2070,6 +2071,11 @@ bail3:
 			eff_buf.token = NULL;
 			eff_buf.token_len = 0;
 		}
+
+#ifdef LWS_OPENSSL_SUPPORT
+		if (wsi->ssl && SSL_pending(wsi->ssl))
+			goto read_pending;
+#endif
 		break;
 	}
 
