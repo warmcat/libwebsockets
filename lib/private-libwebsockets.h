@@ -82,12 +82,12 @@
 #include "libwebsockets.h"
 
 #if 0
-#define DEBUG
+#define _DEBUG
 #endif
 
-#ifdef DEBUG
+#ifdef _DEBUG
 #ifdef WIN32
-static
+#define _debug(...) lws_log(LWS_LOG_DEBUG, __VA_ARGS__)
 #else
 static inline
 #endif
@@ -98,10 +98,10 @@ void debug(const char *format, ...)
 }
 #else
 #ifdef WIN32
-#define debug(...)
+#define _debug(...)
 #else
 static inline
-void debug(const char *format, ...)
+void _debug(const char *format, ...)
 {
 }
 #endif

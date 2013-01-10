@@ -77,7 +77,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_HTTP:
 	case WSI_TOKEN_MUXURL:
 
-		debug("WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);
+		_debug("WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);
 
 		/* collect into malloc'd buffers */
 		/* optional space swallow */
@@ -105,7 +105,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				wsi->parser_state = WSI_TOKEN_SKIPPING;
 				break;
 			}
-			wsi->utf8_token[wsi->parser_state].token =
+			wsi->utf8_token[wsi->parser_state].token = (char *)
 			       realloc(wsi->utf8_token[wsi->parser_state].token,
 							wsi->current_alloc_len);
 		}
@@ -115,7 +115,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			wsi->utf8_token[wsi->parser_state].token[
 			   wsi->utf8_token[wsi->parser_state].token_len] = '\0';
 			wsi->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
-			debug("*\n");
+			_debug("*\n");
 			break;
 		}
 
@@ -156,7 +156,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		/* For any supported protocol we have enough payload */
 
-		debug("Setting WSI_PARSING_COMPLETE\n");
+		_debug("Setting WSI_PARSING_COMPLETE\n");
 		wsi->parser_state = WSI_PARSING_COMPLETE;
 		break;
 
@@ -164,14 +164,14 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		wsi->parser_state = WSI_TOKEN_MUXURL;
 		wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
 
-		wsi->utf8_token[wsi->parser_state].token =
+		wsi->utf8_token[wsi->parser_state].token = (char *)
 					 malloc(wsi->current_alloc_len);
 		wsi->utf8_token[wsi->parser_state].token_len = 0;
 		break;
 
 		/* collecting and checking a name part */
 	case WSI_TOKEN_NAME_PART:
-		debug("WSI_TOKEN_NAME_PART '%c'\n", c);
+		_debug("WSI_TOKEN_NAME_PART '%c'\n", c);
 
 		if (wsi->name_buffer_pos == sizeof(wsi->name_buffer) - 1) {
 			/* name bigger than we can handle, skip until next */
@@ -186,7 +186,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				continue;
 			if (strcasecmp(lws_tokens[n].token, wsi->name_buffer))
 				continue;
-			debug("known hdr '%s'\n", wsi->name_buffer);
+			_debug("known hdr '%s'\n", wsi->name_buffer);
 
 			/*
 			 * WSORIGIN is protocol equiv to ORIGIN,
@@ -195,7 +195,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			if (n == WSI_TOKEN_SWORIGIN)
 				n = WSI_TOKEN_ORIGIN;
 
-			wsi->parser_state = WSI_TOKEN_GET_URI + n;
+			wsi->parser_state = (enum lws_token_indexes) (WSI_TOKEN_GET_URI + n);
 
 			n = WSI_TOKEN_COUNT;
 
@@ -204,7 +204,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				continue;
 
 			wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
-			wsi->utf8_token[wsi->parser_state].token =
+			wsi->utf8_token[wsi->parser_state].token = (char *)
 						 malloc(wsi->current_alloc_len);
 			wsi->utf8_token[wsi->parser_state].token_len = 0;
 		}
@@ -226,7 +226,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				wsi->parser_state = WSI_TOKEN_GET_URI;
 				wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
 				wsi->utf8_token[WSI_TOKEN_GET_URI].token =
-						 malloc(wsi->current_alloc_len);
+					(char *)malloc(wsi->current_alloc_len);
 				break;
 			}
 		}
@@ -238,7 +238,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		if (!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len) {
 			/* they're HTTP headers, not websocket upgrade! */
-			debug("Setting WSI_PARSING_COMPLETE "
+			_debug("Setting WSI_PARSING_COMPLETE "
 							 "from http headers\n");
 			wsi->parser_state = WSI_PARSING_COMPLETE;
 		}
@@ -247,7 +247,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
 			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) >= 4) {
-			debug("04 header completed\n");
+			_debug("04 header completed\n");
 			wsi->parser_state = WSI_PARSING_COMPLETE;
 			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len = 0;
 			free(wsi->utf8_token[WSI_TOKEN_CHALLENGE].token);
@@ -257,7 +257,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		/* client parser? */
 
 		if (wsi->ietf_spec_revision >= 4) {
-			debug("04 header completed\n");
+			_debug("04 header completed\n");
 			wsi->parser_state = WSI_PARSING_COMPLETE;
 		}
 
@@ -265,12 +265,12 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		/* skipping arg part of a name we didn't recognize */
 	case WSI_TOKEN_SKIPPING:
-		debug("WSI_TOKEN_SKIPPING '%c'\n", c);
+		_debug("WSI_TOKEN_SKIPPING '%c'\n", c);
 		if (c == '\x0d')
 			wsi->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 		break;
 	case WSI_TOKEN_SKIPPING_SAW_CR:
-		debug("WSI_TOKEN_SKIPPING_SAW_CR '%c'\n", c);
+		_debug("WSI_TOKEN_SKIPPING_SAW_CR '%c'\n", c);
 		if (c == '\x0a')
 			wsi->parser_state = WSI_TOKEN_NAME_PART;
 		else
@@ -279,7 +279,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		break;
 		/* we're done, ignore anything else */
 	case WSI_PARSING_COMPLETE:
-		debug("WSI_PARSING_COMPLETE '%c'\n", c);
+		_debug("WSI_PARSING_COMPLETE '%c'\n", c);
 		break;
 
 	default:	/* keep gcc happy */
@@ -671,7 +671,7 @@ issue:
 		if (c)
 			break;
 
-		debug("Seen that client is requesting "
+		_debug("Seen that client is requesting "
 				"a v76 close, sending ack\n");
 		buf[0] = 0xff;
 		buf[1] = 0;
@@ -680,7 +680,7 @@ issue:
 			fprintf(stderr, "ERROR writing to socket");
 			return -1;
 		}
-		debug("  v76 close ack sent, server closing skt\n");
+		_debug("  v76 close ack sent, server closing skt\n");
 		/* returning < 0 will get it closed in parent */
 		return -1;
 
@@ -741,7 +741,7 @@ spill:
 		 * layer?  If so service it and hide it from the user callback
 		 */
 
-		debug("spill on %s\n", wsi->protocol->name);
+		_debug("spill on %s\n", wsi->protocol->name);
 
 		switch (wsi->opcode) {
 		case LWS_WS_OPCODE_07__CLOSE:
@@ -751,7 +751,7 @@ spill:
 				 * fine he has told us he is closing too, let's
 				 * finish our close
 				 */
-				debug("seen client close ack\n");
+				_debug("seen client close ack\n");
 				return -1;
 			}
 			debug("server sees client close packet\n");
@@ -786,7 +786,7 @@ spill:
 
 		default:
 
-			debug("passing opcode %x up to exts\n", wsi->opcode);
+			_debug("passing opcode %x up to exts\n", wsi->opcode);
 
 			/*
 			 * It's something special we can't understand here.
@@ -880,7 +880,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	struct lws_tokens eff_buf;
 	int m;
 
-	debug(" CRX: %02X %d\n", c, wsi->lws_rx_parse_state);
+	_debug(" CRX: %02X %d\n", c, wsi->lws_rx_parse_state);
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
@@ -1186,7 +1186,7 @@ issue:
 		if (c)
 			break;
 
-		debug("Seen that client is requesting "
+		_debug("Seen that client is requesting "
 				"a v76 close, sending ack\n");
 		buf[0] = 0xff;
 		buf[1] = 0;
@@ -1195,7 +1195,7 @@ issue:
 			fprintf(stderr, "ERROR writing to socket");
 			return -1;
 		}
-		debug("  v76 close ack sent, server closing skt\n");
+		_debug("  v76 close ack sent, server closing skt\n");
 		/* returning < 0 will get it closed in parent */
 		return -1;
 
@@ -1237,12 +1237,12 @@ spill:
 				debug("seen server's close ack\n");
 				return -1;
 			}
-			debug("client sees server close packet len = %d\n", wsi->rx_user_buffer_head);
+			_debug("client sees server close packet len = %d\n", wsi->rx_user_buffer_head);
 			/* parrot the close packet payload back */
 			n = libwebsocket_write(wsi, (unsigned char *)
 			   &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				     wsi->rx_user_buffer_head, LWS_WRITE_CLOSE);
-			debug("client writing close ack returned %d\n", n);
+			_debug("client writing close ack returned %d\n", n);
 			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
 			return -1;
@@ -1336,7 +1336,8 @@ spill:
 			if (wsi->protocol->callback)
 				wsi->protocol->callback(
 						wsi->protocol->owning_server,
-						wsi, callback_action,
+						wsi,
+			(enum libwebsocket_callback_reasons)callback_action,
 						wsi->user_space,
 						eff_buf.token,
 						eff_buf.token_len);
@@ -1573,7 +1574,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 							    eff_buf.token_len))
 				return -1;
 
-		debug("written %d bytes to client\n", eff_buf.token_len);
+		_debug("written %d bytes to client\n", eff_buf.token_len);
 
 		/* no extension has more to spill */
 

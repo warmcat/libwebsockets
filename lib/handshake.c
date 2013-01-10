@@ -103,7 +103,7 @@ handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	/* make a buffer big enough for everything */
 
-	response = malloc(256 +
+	response = (char *)malloc(256 +
 		wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len +
 		wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len +
 		wsi->utf8_token[WSI_TOKEN_HOST].token_len +
@@ -174,8 +174,8 @@ handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	/* it's complete: go ahead and send it */
 
-	debug("issuing response packet %d len\n", (int)(p - response));
-#ifdef DEBUG
+	_debug("issuing response packet %d len\n", (int)(p - response));
+#ifdef _DEBUG
 	fwrite(response, 1,  p - response, stderr);
 #endif
 	n = libwebsocket_write(wsi, (unsigned char *)response,
@@ -233,7 +233,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	if (!wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
 	    !wsi->utf8_token[WSI_TOKEN_KEY].token_len) {
-		debug("handshake_04 missing pieces\n");
+		_debug("handshake_04 missing pieces\n");
 		/* completed header processing, but missing some bits */
 		goto bail;
 	}
@@ -269,7 +269,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	/* make a buffer big enough for everything */
 
-	response = malloc(256 +
+	response = (char *)malloc(256 +
 		wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len +
 		wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len +
 		wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len);
@@ -469,7 +469,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 		/* okay send the handshake response accepting the connection */
 
-		debug("issuing response packet %d len\n", (int)(p - response));
+		_debug("issuing response packet %d len\n", (int)(p - response));
 	#ifdef DEBUG
 		fwrite(response, 1,  p - response, stderr);
 	#endif
@@ -549,8 +549,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 		/* fallthru */
 	case WSI_STATE_HTTP_HEADERS:
 
-		debug("issuing %d bytes to parser\n", (int)len);
-#ifdef DEBUG
+		_debug("issuing %d bytes to parser\n", (int)len);
+#ifdef _DEBUG
 		fwrite(buf, 1, len, stderr);
 #endif
 
@@ -665,7 +665,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 			break;
 		case 4: /* 04 */
 			wsi->xor_mask = xor_mask_04;
-			debug("libwebsocket_parse calling handshake_04\n");
+			_debug("libwebsocket_parse calling handshake_04\n");
 			if (handshake_0405(context, wsi))
 				goto bail;
 			break;
@@ -675,7 +675,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 		case 8:
 		case 13:
 			wsi->xor_mask = xor_mask_05;
-			debug("libwebsocket_parse calling handshake_04\n");
+			_debug("libwebsocket_parse calling handshake_04\n");
 			if (handshake_0405(context, wsi))
 				goto bail;
 			break;

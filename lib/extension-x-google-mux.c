@@ -42,7 +42,7 @@ lws_mux_subcommand_header(int cmd, int channel, unsigned char *pb, int len)
 
 	if (channel == 0) {
 		muxdebug("lws_mux_subcommand_header: given ch 0\n");
-		*((int *)0) = 0;
+		assert(0);
 	}
 
 	if (channel < 31)
@@ -92,7 +92,7 @@ static int lws_ext_x_google_mux__send_addchannel(
 
 	if (channel == 0) {
 		muxdebug("lws_ext_x_google_mux__send_addchannel: given ch 0\n");
-		*((int *)0) = 0;
+    assert(0);
 	}
 
 	wsi_child->ietf_spec_revision = wsi->ietf_spec_revision;
@@ -165,7 +165,7 @@ lws_extension_x_google_mux_parser(struct libwebsocket_context *context,
 
 	case LWS_EXT_XGM_STATE__MUX_BLOCK_1:
 //		fprintf(stderr, "LWS_EXT_XGM_STATE__MUX_BLOCK_1: opc=%d channel=%d\n", c & 7, c >> 3);
-		conn->block_subopcode = c & 7;
+		conn->block_subopcode = (enum lws_ext_x_goole_mux__mux_opcodes)(c & 7);
 		conn->block_subchannel = (c >> 3) & 0x1f;
 		conn->ignore_cmd = 0;
 
@@ -339,7 +339,7 @@ interpret:
 			/* client: we received all server's ADD ack */
 
 			if (conn->block_subchannel != 1) {
-				child_conn = lws_get_extension_user_matching_ext(
+				child_conn = (struct lws_ext_x_google_mux_conn *) lws_get_extension_user_matching_ext(
 								   wsi_child, this_ext);
 				muxdebug("Received server's ADD Channel ACK for "
 					 "subchannel %d child_conn=%p!\n",
@@ -444,7 +444,7 @@ bail2:
 		/* reply with ADDCHANNEL to ack it */
 
 		wsi->xor_mask = xor_no_mask;
-		child_conn = lws_get_extension_user_matching_ext(wsi_child,
+		child_conn = (struct lws_ext_x_google_mux_conn *)lws_get_extension_user_matching_ext(wsi_child,
 								      this_ext);
 		if (!child_conn) {
 			fprintf(stderr, "wsi_child %p has no child conn!", (void *)wsi_child);
@@ -608,7 +608,7 @@ int lws_extension_callback_x_google_mux(
 	int n;
 	struct lws_tokens *eff_buf = (struct lws_tokens *)in;
 	unsigned char *p = NULL;
-	struct lws_ext_x_google_mux_context *mux_ctx =
+	struct lws_ext_x_google_mux_context *mux_ctx = (struct lws_ext_x_google_mux_context *)
 						  ext->per_context_private_data;
 	struct libwebsocket *wsi_parent;
 	struct libwebsocket *wsi_child;
@@ -674,7 +674,7 @@ int lws_extension_callback_x_google_mux(
 				continue;
 
 			muxdebug("  %s / %s\n", wsi_parent->c_address, (char *)in);
-			if (strcmp(wsi_parent->c_address, in))
+			if (strcmp((const char*)wsi_parent->c_address, (const char *)in))
 				continue;
 			muxdebug("  %u / %u\n", wsi_parent->c_port, (unsigned int)len);
 
@@ -791,7 +791,7 @@ int lws_extension_callback_x_google_mux(
 			parent_conn = conn;
 		} else {
 
-			parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
+			parent_conn = (struct lws_ext_x_google_mux_conn *)lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
 			if (parent_conn == 0) {
 				muxdebug("failed to get parent conn\n");
 				break;
@@ -844,7 +844,7 @@ int lws_extension_callback_x_google_mux(
 		} else {
 
 			wsi_parent = conn->wsi_parent;
-			parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
+			parent_conn = (struct lws_ext_x_google_mux_conn *)lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
 			if (parent_conn == 0) {
 				muxdebug("failed to get parent conn\n");
 				break;
@@ -1046,7 +1046,7 @@ handle_additions:
 			 * get parent / transport mux context
 			 */
 
-			parent_conn = lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
+			parent_conn = (struct lws_ext_x_google_mux_conn *)lws_get_extension_user_matching_ext(conn->wsi_parent, ext);
 			if (parent_conn == 0) {
 				muxdebug("failed to get parent conn\n");
 				return 0;
@@ -1207,7 +1207,7 @@ handle_additions:
 
 		/* disallow deflate-stream if we are a mux child connection */
 
-		if (strcmp(in, "deflate-stream") == 0 &&
+		if (strcmp((const char*)in, "deflate-stream") == 0 &&
 				 client_handshake_generation_is_for_mux_child) {
 
 			muxdebug("mux banned deflate-stream on child connection\n");

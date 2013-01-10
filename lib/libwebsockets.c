@@ -503,7 +503,7 @@ int libwebsockets_get_random(struct libwebsocket_context *context,
 							     void *buf, int len)
 {
 	int n;
-	char *p = buf;
+	char *p = (char *)buf;
 
 #ifdef WIN32
 	for (n = 0; n < len; n++)
@@ -702,7 +702,7 @@ notify_action:
 	else
 		n = LWS_CALLBACK_SERVER_WRITEABLE;
 
-	wsi->protocol->callback(context, wsi, n, wsi->user_space, NULL, 0);
+	wsi->protocol->callback(context, wsi, (enum libwebsocket_callback_reasons) n, wsi->user_space, NULL, 0);
 
 	return 0;
 }
@@ -747,7 +747,7 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	struct libwebsocket *new_wsi;
 	int n;
 
-	new_wsi = malloc(sizeof(struct libwebsocket));
+	new_wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
 	if (new_wsi == NULL) {
 		fprintf(stderr, "Out of memory for new connection\n");
 		return NULL;
@@ -1411,7 +1411,7 @@ accept_ok:
 	wsi->state = WSI_STATE_ESTABLISHED;
 	wsi->mode = LWS_CONNMODE_WS_CLIENT;
 
-	debug("handshake OK for protocol %s\n", wsi->protocol->name);
+	_debug("handshake OK for protocol %s\n", wsi->protocol->name);
 
 	/* call him back to inform him he is up */
 
@@ -1615,7 +1615,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				 * ssl params which fail then retry
 				 * and succeed
 				 */
-				debug("SSL_accept failed skt %u: %s\n",
+				_debug("SSL_accept failed skt %u: %s\n",
 				      pollfd->fd,
 				      ERR_error_string(SSL_get_error(
 				      new_wsi->ssl, n), NULL));
@@ -1630,14 +1630,14 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				break;
 			}
 
-			debug("accepted new SSL conn  "
+			_debug("accepted new SSL conn  "
 			      "port %u on fd=%d SSL ver %s\n",
 				ntohs(cli_addr.sin_port), accept_fd,
 				  SSL_get_version(new_wsi->ssl));
 
 		} else
 #endif
-			debug("accepted new conn  port %u on fd=%d\n",
+			_debug("accepted new conn  port %u on fd=%d\n",
 					  ntohs(cli_addr.sin_port), accept_fd);
 
 		insert_wsi(context, new_wsi);
@@ -1689,8 +1689,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		/* create a dummy wsi for the connection and add it */
 
-		new_wsi = malloc(sizeof(struct libwebsocket));
-		memset(new_wsi, 0, sizeof(struct libwebsocket));
+		new_wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
+		memset(new_wsi, 0, sizeof (struct libwebsocket));
 		new_wsi->sock = accept_fd;
 		new_wsi->mode = LWS_CONNMODE_BROADCAST_PROXY;
 		new_wsi->state = WSI_STATE_ESTABLISHED;
@@ -1719,7 +1719,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		if (pollfd->revents & (POLLERR | POLLHUP)) {
 
-			debug("Session Socket %p (fd=%d) dead\n",
+			_debug("Session Socket %p (fd=%d) dead\n",
 				(void *)wsi, pollfd->fd);
 
 			libwebsocket_close_and_free_session(context, wsi,
@@ -2132,7 +2132,7 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	if (context->listen_port)
 		m = LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT;
 	while (ext && ext->callback) {
-		ext->callback(context, ext, NULL, m, NULL, NULL, 0);
+		ext->callback(context, ext, NULL, (enum libwebsocket_extension_callback_reasons)m, NULL, NULL, 0);
 		ext++;
 	}
 
@@ -2603,7 +2603,7 @@ libwebsocket_create_context(int port, const char *interf,
 #endif
 
 
-	context = malloc(sizeof(struct libwebsocket_context));
+	context = (struct libwebsocket_context *) malloc(sizeof(struct libwebsocket_context));
 	if (!context) {
 		fprintf(stderr, "No memory for websocket context\n");
 		return NULL;
@@ -2909,8 +2909,8 @@ libwebsocket_create_context(int port, const char *interf,
 			return NULL;
 		}
 
-		wsi = malloc(sizeof(struct libwebsocket));
-		memset(wsi, 0, sizeof(struct libwebsocket));
+		wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
+		memset(wsi, 0, sizeof (struct libwebsocket));
 		wsi->sock = sockfd;
 		wsi->count_active_extensions = 0;
 		wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
@@ -2952,7 +2952,7 @@ libwebsocket_create_context(int port, const char *interf,
 			protocols[context->count_protocols].callback;
 						   context->count_protocols++) {
 
-		debug("  Protocol: %s\n", protocols[context->count_protocols].name);
+		_debug("  Protocol: %s\n", protocols[context->count_protocols].name);
 
 		protocols[context->count_protocols].owning_server = context;
 		protocols[context->count_protocols].protocol_index =
@@ -2990,14 +2990,14 @@ libwebsocket_create_context(int port, const char *interf,
 						       ntohs(cli_addr.sin_port);
 		listen(fd, 5);
 
-		debug("  Protocol %s broadcast socket %d\n",
+		_debug("  Protocol %s broadcast socket %d\n",
 				protocols[context->count_protocols].name,
 						      ntohs(cli_addr.sin_port));
 
 		/* dummy wsi per broadcast proxy socket */
 
-		wsi = malloc(sizeof(struct libwebsocket));
-		memset(wsi, 0, sizeof(struct libwebsocket));
+		wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
+		memset(wsi, 0, sizeof (struct libwebsocket));
 		wsi->sock = fd;
 		wsi->mode = LWS_CONNMODE_BROADCAST_PROXY_LISTENER;
 		wsi->count_active_extensions = 0;
@@ -3031,8 +3031,9 @@ libwebsocket_create_context(int port, const char *interf,
 	if (extensions) {
 	    while (extensions->callback) {
 		    debug("  Extension: %s\n", extensions->name);
-		    extensions->callback(context, extensions,
-						NULL, m, NULL, NULL, 0);
+		    extensions->callback(context, extensions, NULL,
+			(enum libwebsocket_extension_callback_reasons)m,
+								NULL, NULL, 0);
 		    extensions++;
 	    }
 	}

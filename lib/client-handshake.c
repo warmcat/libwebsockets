@@ -207,7 +207,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	}
 #endif
 
-	wsi = malloc(sizeof(struct libwebsocket));
+	wsi = (struct libwebsocket *) malloc(sizeof(struct libwebsocket));
 	if (wsi == NULL)
 		goto bail1;
 
@@ -235,18 +235,18 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 
 	/* copy parameters over so state machine has access */
 
-	wsi->c_path = malloc(strlen(path) + 1);
+	wsi->c_path = (char *)malloc(strlen(path) + 1);
 	if (wsi->c_path == NULL)
 		goto bail1;
 	strcpy(wsi->c_path, path);
 
-	wsi->c_host = malloc(strlen(host) + 1);
+	wsi->c_host = (char *)malloc(strlen(host) + 1);
 	if (wsi->c_host == NULL)
 		goto oom1;
 	strcpy(wsi->c_host, host);
 
 	if (origin) {
-		wsi->c_origin = malloc(strlen(origin) + 1);
+		wsi->c_origin = (char *)malloc(strlen(origin) + 1);
 		strcpy(wsi->c_origin, origin);
 		if (wsi->c_origin == NULL)
 			goto oom2;
@@ -258,7 +258,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 		const char *pc;
 		struct libwebsocket_protocols *pp;
 
-		wsi->c_protocol = malloc(strlen(protocol) + 1);
+		wsi->c_protocol = (char *)malloc(strlen(protocol) + 1);
 		if (wsi->c_protocol == NULL)
 			goto oom3;
 
