@@ -6,9 +6,12 @@
 struct lws_ext_deflate_frame_conn {
 	z_stream zs_in;
 	z_stream zs_out;
+	int buf_pre_used;
+	int buf_pre_length;
 	int buf_in_length;
 	int buf_out_length;
 	int compressed_out;
+	unsigned char *buf_pre;
 	unsigned char *buf_in;
 	unsigned char *buf_out;
 };
