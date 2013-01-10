@@ -853,6 +853,9 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 
 	p += sprintf(p, "GET %s HTTP/1.1\x0d\x0a", wsi->c_path);
 
+	p += sprintf(p, "Pragma: no-cache\x0d\x0a"
+					"Cache-Control: no-cache\x0d\x0a");
+
 	if (wsi->ietf_spec_revision == 0) {
 		unsigned char spaces_1, spaces_2;
 		unsigned int max_1, max_2;
@@ -944,9 +947,9 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	}
 
 	p += sprintf(p, "Host: %s\x0d\x0a", wsi->c_host);
-	p += sprintf(p, "Upgrade: websocket\x0d\x0a");
-	p += sprintf(p, "Connection: Upgrade\x0d\x0a"
-				"Sec-WebSocket-Key: ");
+	p += sprintf(p, "Upgrade: websocket\x0d\x0a"
+					"Connection: Upgrade\x0d\x0a"
+					"Sec-WebSocket-Key: ");
 	strcpy(p, wsi->key_b64);
 	p += strlen(wsi->key_b64);
 	p += sprintf(p, "\x0d\x0a");
