@@ -2729,6 +2729,8 @@ libwebsocket_create_context(int port, const char *interf,
 		return NULL;
 	}
 
+	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
+
 	/* client context */
 
 	if (port == CONTEXT_PORT_NO_LISTEN) {
@@ -2745,6 +2747,8 @@ libwebsocket_create_context(int port, const char *interf,
 				ERR_error_string(ERR_get_error(), ssl_err_buf));
 			return NULL;
 		}
+
+		SSL_CTX_set_options(context->ssl_client_ctx, SSL_OP_NO_COMPRESSION);
 
 		/* openssl init for cert verification (for client sockets) */
 		if (!ssl_ca_filepath) {
