@@ -1527,7 +1527,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		/* pollin means a client has connected to us then */
 
-		if (!pollfd->revents & POLLIN)
+		if (!(pollfd->revents & POLLIN))
 			break;
 
 		if (context->fds_count >= MAX_CLIENTS) {
@@ -1644,7 +1644,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		/* as we are listening, POLLIN means accept() is needed */
 
-		if (!pollfd->revents & POLLIN)
+		if (!(pollfd->revents & POLLIN))
 			break;
 
 		/* listen socket got an unencrypted connection... */
