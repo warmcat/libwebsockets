@@ -1560,6 +1560,11 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 
 		debug("written %d bytes to client\n", eff_buf.token_len);
 
+		/* no extension has more to spill */
+
+		if (!ret)
+			break;
+
 		/* we used up what we had */
 
 		eff_buf.token = NULL;
