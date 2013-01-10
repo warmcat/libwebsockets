@@ -7,6 +7,7 @@ AC_CONFIG_SRCDIR([test-server/test-server.c])
 AC_CONFIG_HEADERS([config.h])
 
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
+AM_PROG_AR
 LT_INIT(shared)
 
 #AX_PTHREAD
@@ -16,7 +17,6 @@ AM_PROG_CC_C_O
 AC_PROG_INSTALL
 AC_PROG_MAKE_SET
 AC_CONFIG_MACRO_DIR([m4])
-AM_PROG_AR
 
 #
 #
