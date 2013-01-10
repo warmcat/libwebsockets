@@ -2729,7 +2729,9 @@ libwebsocket_create_context(int port, const char *interf,
 		return NULL;
 	}
 
+#ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
+#endif
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 	SSL_CTX_set_cipher_list(context->ssl_ctx, CIPHERS_LIST_STRING);
 
@@ -2750,7 +2752,9 @@ libwebsocket_create_context(int port, const char *interf,
 			return NULL;
 		}
 
+#ifdef SSL_OP_NO_COMPRESSION
 		SSL_CTX_set_options(context->ssl_client_ctx, SSL_OP_NO_COMPRESSION);
+#endif
 		SSL_CTX_set_options(context->ssl_client_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 		SSL_CTX_set_cipher_list(context->ssl_client_ctx, CIPHERS_LIST_STRING);
 
