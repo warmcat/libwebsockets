@@ -25,7 +25,7 @@
 #include <io.h>
 #endif
 
-const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
+static const struct lws_tokens lws_tokens[WSI_TOKEN_COUNT] = {
 
 	/* win32 can't do C99 */
 
@@ -88,6 +88,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->parser_state == WSI_TOKEN_GET_URI && c == ' ') {
 			wsi->utf8_token[wsi->parser_state].token[
 			   wsi->utf8_token[wsi->parser_state].token_len] = '\0';
+//			debug("uri '%s'\n", wsi->utf8_token[wsi->parser_state].token);
 			wsi->parser_state = WSI_TOKEN_SKIPPING;
 			break;
 		}
@@ -210,11 +211,24 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		/* colon delimiter means we just don't know this name */
 
-		if (wsi->parser_state == WSI_TOKEN_NAME_PART && c == ':') {
-			debug("skipping unknown header '%s'\n",
-							      wsi->name_buffer);
-			wsi->parser_state = WSI_TOKEN_SKIPPING;
-			break;
+		if (wsi->parser_state == WSI_TOKEN_NAME_PART) {
+			if (c == ':') {
+				debug("skipping unknown header '%s'\n",
+							  wsi->name_buffer);
+				wsi->parser_state = WSI_TOKEN_SKIPPING;
+				break;
+			}
+
+			if (c == ' ' &&
+				!wsi->utf8_token[WSI_TOKEN_GET_URI].token_len) {
+				debug("unknown method '%s'\n",
+							  wsi->name_buffer);
+				wsi->parser_state = WSI_TOKEN_GET_URI;
+				wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
+				wsi->utf8_token[WSI_TOKEN_GET_URI].token =
+						 malloc(wsi->current_alloc_len);
+				break;
+			}
 		}
 
 		if (wsi->parser_state != WSI_TOKEN_CHALLENGE)
