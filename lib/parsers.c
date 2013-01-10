@@ -779,6 +779,7 @@ spill:
 			wsi->rx_user_buffer_head = 0;
 			return 0;
 
+		case LWS_WS_OPCODE_07__CONTINUATION:
 		case LWS_WS_OPCODE_07__TEXT_FRAME:
 		case LWS_WS_OPCODE_07__BINARY_FRAME:
 			break;
