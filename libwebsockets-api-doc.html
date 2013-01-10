@@ -350,6 +350,21 @@ having to take any care about data visibility between the processes, it'll
 "just work".
 </blockquote>
 <hr>
+<h2>lws_set_log_level - Set the logging bitfield</h2>
+<i>void</i>
+<b>lws_set_log_level</b>
+(<i>int</i> <b>level</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>level</b>
+<dd>OR together the LLL_ debug contexts you want output from
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+defaults to err and warn contexts enabled
+</blockquote>
+<hr>
 <h2>libwebsocket_write - Apply protocol then write data to client</h2>
 <i>int</i>
 <b>libwebsocket_write</b>

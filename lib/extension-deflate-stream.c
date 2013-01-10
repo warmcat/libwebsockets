@@ -32,7 +32,7 @@ int lws_extension_callback_deflate_stream(
 		conn->zs_in.opaque = conn->zs_out.opaque = Z_NULL;
 		n = inflateInit2(&conn->zs_in, -LWS_ZLIB_WINDOW_BITS);
 		if (n != Z_OK) {
-			fprintf(stderr, "deflateInit returned %d\n", n);
+			lwsl_err("deflateInit returned %d\n", n);
 			return 1;
 		}
 		n = deflateInit2(&conn->zs_out,
@@ -40,17 +40,17 @@ int lws_extension_callback_deflate_stream(
 				 -LWS_ZLIB_WINDOW_BITS, LWS_ZLIB_MEMLEVEL,
 							    Z_DEFAULT_STRATEGY);
 		if (n != Z_OK) {
-			fprintf(stderr, "deflateInit returned %d\n", n);
+			lwsl_err("deflateInit returned %d\n", n);
 			return 1;
 		}
-		debug("zlibs constructed\n");
+		lwsl_ext("zlibs constructed\n");
 		conn->remaining_in = 0;
 		break;
 
 	case LWS_EXT_CALLBACK_DESTROY:
 		(void)inflateEnd(&conn->zs_in);
 		(void)deflateEnd(&conn->zs_out);
-		debug("zlibs destructed\n");
+		lwsl_ext("zlibs destructed\n");
 		break;
 
 	case LWS_EXT_CALLBACK_PACKET_RX_PREPARSE:
@@ -84,7 +84,7 @@ int lws_extension_callback_deflate_stream(
 			 * screwed.. close the connection... we will get a
 			 * destroy callback to take care of closing nicely
 			 */
-			fprintf(stderr, "zlib error inflate %d\n", n);
+			lwsl_err("zlib error inflate %d\n", n);
 			return -1;
 		}
 
@@ -136,7 +136,7 @@ int lws_extension_callback_deflate_stream(
 			 * screwed.. close the connection... we will get a
 			 * destroy callback to take care of closing nicely
 			 */
-			fprintf(stderr, "zlib error deflate\n");
+			lwsl_ext("zlib error deflate\n");
 
 			return -1;
 		}

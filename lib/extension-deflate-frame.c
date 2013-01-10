@@ -36,7 +36,7 @@ int lws_extension_callback_deflate_frame(
 		conn->zs_in.opaque = conn->zs_out.opaque = Z_NULL;
 		n = inflateInit2(&conn->zs_in, -LWS_ZLIB_WINDOW_BITS);
 		if (n != Z_OK) {
-			fprintf(stderr, "deflateInit returned %d", n);
+			lwsl_ext("deflateInit returned %d", n);
 			return 1;
 		}
 		n = deflateInit2(&conn->zs_out,
@@ -47,7 +47,7 @@ int lws_extension_callback_deflate_frame(
 				 -LWS_ZLIB_WINDOW_BITS, LWS_ZLIB_MEMLEVEL,
 				 Z_DEFAULT_STRATEGY);
 		if (n != Z_OK) {
-			fprintf(stderr, "deflateInit2 returned %d", n);
+			lwsl_ext("deflateInit2 returned %d", n);
 			return 1;
 		}
 		conn->buf_pre_used = 0;
@@ -68,10 +68,10 @@ int lws_extension_callback_deflate_frame(
 						LWS_SEND_BUFFER_POST_PADDING);
 		if (!conn->buf_out)
 			goto bail;
-		fprintf(stderr, "zlibs constructed\n");
+		lwsl_ext("zlibs constructed\n");
 		break;
 bail:
-		fprintf(stderr, "Out of mem\n");
+		lwsl_err("Out of mem\n");
 		(void)inflateEnd(&conn->zs_in);
 		(void)deflateEnd(&conn->zs_out);
 		return -1;
@@ -88,7 +88,7 @@ bail:
 		conn->compressed_out = 0;
 		(void)inflateEnd(&conn->zs_in);
 		(void)deflateEnd(&conn->zs_out);
-		fprintf(stderr, "zlibs destructed\n");
+		lwsl_ext("zlibs destructed\n");
 		break;
 
 	case LWS_EXT_CALLBACK_PAYLOAD_RX:
@@ -113,7 +113,7 @@ bail:
 				conn->buf_pre =
 				    (unsigned char *)malloc(total_payload + 4);
 				if (!conn->buf_pre) {
-					fprintf(stderr, "Out of memory\n");
+					lwsl_err("Out of memory\n");
 					return -1;
 				}
 			}
@@ -162,7 +162,7 @@ bail:
 			 * screwed.. close the connection... we will get a
 			 * destroy callback to take care of closing nicely
 			 */
-			fprintf(stderr, "zlib error inflate %d: %s",
+			lwsl_ext("zlib error inflate %d: %s",
 						   n, conn->zs_in.msg);
 			return -1;
 		}
@@ -196,7 +196,7 @@ bail:
 				 * screwed.. close the connection... we will get a
 				 * destroy callback to take care of closing nicely
 				 */
-				fprintf(stderr, "zlib error deflate");
+				lwsl_ext("zlib error deflate");
 
 				return -1;
 			}
@@ -216,7 +216,7 @@ bail:
 						  conn->buf_out_length +
 						  LWS_SEND_BUFFER_POST_PADDING);
 				if (!new_buf) {
-					fprintf(stderr, "Out of memory\n");
+					lwsl_err("Out of memory\n");
 					return -1;
 				}
 				memcpy(new_buf + LWS_SEND_BUFFER_PRE_PADDING,

@@ -62,6 +62,19 @@ typedef int ssize_t;
 #define CONTEXT_PORT_NO_LISTEN 0
 #define MAX_MUX_RECURSION 2
 
+enum lws_log_levels {
+	LLL_ERR = 1 << 0,
+	LLL_WARN = 1 << 1,
+	LLL_INFO = 1 << 2,
+	LLL_DEBUG = 1 << 3,
+	LLL_PARSER = 1 << 4,
+	LLL_HEADER = 1 << 5,
+	LLL_EXT = 1 << 6,
+	LLL_CLIENT = 1 << 7,
+
+	LLL_COUNT = 8 /* set to count of valid flags */
+};
+
 enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK = 1,
 	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT = 2,
@@ -641,7 +654,8 @@ struct libwebsocket_extension {
 	void * per_context_private_data;
 };
 
-
+LWS_EXTERN
+void lws_set_log_level(int level);
 
 LWS_EXTERN struct libwebsocket_context *
 libwebsocket_create_context(int port, const char * interf,

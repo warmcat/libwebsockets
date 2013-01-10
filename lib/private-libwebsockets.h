@@ -78,35 +78,34 @@
 #include <openssl/sha.h>
 #endif
 
-
 #include "libwebsockets.h"
 
-#if 0
-#define _DEBUG
-#endif
+extern void _lws_log(int filter, const char *format, ...);
 
+/* warn and log are always compiled in */
+#define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
+#define lwsl_err(...) _lws_log(LLL_ERR, __VA_ARGS__)
+
+/*
+ *  weaker logging can be deselected at configure time using disable_debug
+ *  that gets rid of the overhead of checking while keeping _warn and _err
+ *  active
+ */
 #ifdef _DEBUG
-#ifdef WIN32
-#define _debug(...) lws_log(LWS_LOG_DEBUG, __VA_ARGS__)
-#else
-static inline
+#define lwsl_info(...) _lws_log(LLL_INFO, __VA_ARGS__)
+#define lwsl_debug(...) _lws_log(LLL_DEBUG, __VA_ARGS__)
+#define lwsl_parser(...) _lws_log(LLL_PARSER, __VA_ARGS__)
+#define lwsl_header(...)  _lws_log(LLL_HEADER, __VA_ARGS__)
+#define lwsl_ext(...)  _lws_log(LLL_HEADER, __VA_ARGS__)
+#define lwsl_client(...) _lws_log(LLL_CLIENT, __VA_ARGS__)
+#else /* no debug */
+#define lwsl_info(...)
+#define lwsl_debug(...)
+#define lwsl_parser(...)
+#define lwsl_header(...)
+#define lwsl_ext(...)
+#define lwsl_client(...)
 #endif
-void debug(const char *format, ...)
-{
-	va_list ap;
-	va_start(ap, format); vfprintf(stderr, format, ap); va_end(ap);
-}
-#else
-#ifdef WIN32
-#define _debug(...)
-#else
-static inline
-void _debug(const char *format, ...)
-{
-}
-#endif
-#endif
-
 
 /*
  * Mac OSX as well as iOS do not define the MSG_NOSIGNAL flag,

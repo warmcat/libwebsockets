@@ -65,7 +65,7 @@ interpret_key(const char *key, unsigned long *result)
 	}
 
 	if (rem) {
-		fprintf(stderr, "nonzero handshake remainder\n");
+		lwsl_warn("nonzero handshake remainder\n");
 		return -1;
 	}
 
@@ -111,7 +111,7 @@ handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		wsi->utf8_token[WSI_TOKEN_GET_URI].token_len +
 		wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len);
 	if (!response) {
-		fprintf(stderr, "Out of memory for response buffer\n");
+		lwsl_err("Out of memory for response buffer\n");
 		goto bail;
 	}
 
@@ -174,14 +174,14 @@ handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	/* it's complete: go ahead and send it */
 
-	_debug("issuing response packet %d len\n", (int)(p - response));
+	lwsl_parser("issuing response packet %d len\n", (int)(p - response));
 #ifdef _DEBUG
 	fwrite(response, 1,  p - response, stderr);
 #endif
 	n = libwebsocket_write(wsi, (unsigned char *)response,
 					  p - response, LWS_WRITE_HTTP);
 	if (n < 0) {
-		fprintf(stderr, "ERROR writing to socket");
+		lwsl_debug("ERROR writing to socket");
 		goto bail;
 	}
 
@@ -233,14 +233,14 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	if (!wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
 	    !wsi->utf8_token[WSI_TOKEN_KEY].token_len) {
-		_debug("handshake_04 missing pieces\n");
+		lwsl_parser("handshake_04 missing pieces\n");
 		/* completed header processing, but missing some bits */
 		goto bail;
 	}
 
 	if (wsi->utf8_token[WSI_TOKEN_KEY].token_len >=
 						     MAX_WEBSOCKET_04_KEY_LEN) {
-		fprintf(stderr, "Client sent handshake key longer "
+		lwsl_warn("Client sent handshake key longer "
 			   "than max supported %d\n", MAX_WEBSOCKET_04_KEY_LEN);
 		goto bail;
 	}
@@ -256,7 +256,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	accept_len = lws_b64_encode_string((char *)hash, 20, accept_buf,
 							     sizeof accept_buf);
 	if (accept_len < 0) {
-		fprintf(stderr, "Base64 encoded hash too long\n");
+		lwsl_warn("Base64 encoded hash too long\n");
 		goto bail;
 	}
 
@@ -274,7 +274,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len +
 		wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len);
 	if (!response) {
-		fprintf(stderr, "Out of memory for response buffer\n");
+		lwsl_err("Out of memory for response buffer\n");
 		goto bail;
 	}
 
@@ -294,7 +294,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		n = libwebsockets_get_random(wsi->protocol->owning_server,
 								      hash, 16);
 		if (n != 16) {
-			fprintf(stderr, "Unable to read random device %s %d\n",
+			lwsl_err("Unable to read random device %s %d\n",
 						     SYSTEM_RANDOM_FILEPATH, n);
 			if (wsi->user_space)
 				free(wsi->user_space);
@@ -306,7 +306,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		nonce_len = lws_b64_encode_string((const char *)hash, 16,
 						   nonce_buf, sizeof nonce_buf);
 		if (nonce_len < 0) {
-			fprintf(stderr, "Failed to base 64 encode the nonce\n");
+			lwsl_err("Failed to base 64 encode the nonce\n");
 			if (wsi->user_space)
 				free(wsi->user_space);
 			goto bail;
@@ -336,7 +336,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		 */
 
 		c = wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token;
-		debug("wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token = %s\n",
+		lwsl_parser("wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token = %s\n",
 				  wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token);
 		wsi->count_active_extensions = 0;
 		n = 0;
@@ -425,7 +425,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 					wsi->count_active_extensions], NULL, 0);
 
 				wsi->count_active_extensions++;
-				debug("wsi->count_active_extensions <- %d",
+				lwsl_parser("wsi->count_active_extensions <- %d",
 						  wsi->count_active_extensions);
 
 				ext++;
@@ -469,14 +469,14 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 		/* okay send the handshake response accepting the connection */
 
-		_debug("issuing response packet %d len\n", (int)(p - response));
+		lwsl_parser("issuing response packet %d len\n", (int)(p - response));
 	#ifdef DEBUG
 		fwrite(response, 1,  p - response, stderr);
 	#endif
 		n = libwebsocket_write(wsi, (unsigned char *)response,
 						  p - response, LWS_WRITE_HTTP);
 		if (n < 0) {
-			fprintf(stderr, "ERROR writing to socket");
+			lwsl_debug("ERROR writing to socket");
 			goto bail;
 		}
 
@@ -549,9 +549,9 @@ libwebsocket_read(struct libwebsocket_context *context,
 		/* fallthru */
 	case WSI_STATE_HTTP_HEADERS:
 
-		_debug("issuing %d bytes to parser\n", (int)len);
+		lwsl_parser("issuing %d bytes to parser\n", (int)len);
 #ifdef _DEBUG
-		fwrite(buf, 1, len, stderr);
+		//fwrite(buf, 1, len, stderr);
 #endif
 
 		switch (wsi->mode) {
@@ -576,9 +576,9 @@ libwebsocket_read(struct libwebsocket_context *context,
 		if (wsi->parser_state != WSI_PARSING_COMPLETE)
 			break;
 
-		debug("seem to be serving, mode is %d\n", wsi->mode);
+		lwsl_parser("seem to be serving, mode is %d\n", wsi->mode);
 
-		debug("libwebsocket_parse sees parsing complete\n");
+		lwsl_parser("libwebsocket_parse sees parsing complete\n");
 
 		/* is this websocket protocol or normal http 1.0? */
 
@@ -595,7 +595,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 		}
 
 		if (!wsi->protocol)
-			fprintf(stderr, "NULL protocol at libwebsocket_read\n");
+			lwsl_err("NULL protocol at libwebsocket_read\n");
 
 		/*
 		 * It's websocket
@@ -621,10 +621,10 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 		if (wsi->protocol->callback == NULL) {
 			if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token == NULL)
-				fprintf(stderr, "[no protocol] "
+				lwsl_err("[no protocol] "
 					"not supported (use NULL .name)\n");
 			else
-				fprintf(stderr, "Requested protocol %s "
+				lwsl_err("Requested protocol %s "
 						"not supported\n",
 				     wsi->utf8_token[WSI_TOKEN_PROTOCOL].token);
 			goto bail;
@@ -647,7 +647,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 		if ((wsi->protocol->callback)(wsi->protocol->owning_server, wsi,
 				LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 						&wsi->utf8_token[0], NULL, 0)) {
-			fprintf(stderr, "User code denied connection\n");
+			lwsl_warn("User code denied connection\n");
 			goto bail;
 		}
 
@@ -665,7 +665,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 			break;
 		case 4: /* 04 */
 			wsi->xor_mask = xor_mask_04;
-			_debug("libwebsocket_parse calling handshake_04\n");
+			lwsl_parser("libwebsocket_parse calling handshake_04\n");
 			if (handshake_0405(context, wsi))
 				goto bail;
 			break;
@@ -675,18 +675,18 @@ libwebsocket_read(struct libwebsocket_context *context,
 		case 8:
 		case 13:
 			wsi->xor_mask = xor_mask_05;
-			_debug("libwebsocket_parse calling handshake_04\n");
+			lwsl_parser("libwebsocket_parse calling handshake_04\n");
 			if (handshake_0405(context, wsi))
 				goto bail;
 			break;
 
 		default:
-			fprintf(stderr, "Unknown client spec version %d\n",
+			lwsl_warn("Unknown client spec version %d\n",
 						       wsi->ietf_spec_revision);
 			goto bail;
 		}
 
-		debug("accepted v%02d connection\n",
+		lwsl_parser("accepted v%02d connection\n",
 						       wsi->ietf_spec_revision);
 
 		break;

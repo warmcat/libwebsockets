@@ -41,6 +41,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <private-libwebsockets.h>
 
 static const char encode[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 			     "abcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -169,7 +170,7 @@ lws_b64_selftest(void)
 		n = lws_b64_encode_string(plaintext[test],
 				      strlen(plaintext[test]), buf, sizeof buf);
 		if (n != strlen(coded[test]) || strcmp(buf, coded[test])) {
-			fprintf(stderr, "Failed lws_b64 encode selftest "
+			lwsl_err("Failed lws_b64 encode selftest "
 					   "%d result '%s' %d\n", test, buf, n);
 			return -1;
 		}
@@ -178,7 +179,7 @@ lws_b64_selftest(void)
 		n = lws_b64_decode_string(coded[test], buf, sizeof buf);
 		if (n != strlen(plaintext[test]) ||
 						 strcmp(buf, plaintext[test])) {
-			fprintf(stderr, "Failed lws_b64 decode selftest "
+			lwsl_err("Failed lws_b64 decode selftest "
 					   "%d result '%s' %d\n", test, buf, n);
 			return -1;
 		}

@@ -109,6 +109,18 @@ AC_ARG_ENABLE(noping,
 
 AM_CONDITIONAL(NOPING, test x$noping = xyes)
 
+#
+#
+#
+AC_ARG_ENABLE(debug,
+ [  --disable-debug  Stops debug-related code from even being compiled in, useful for best speed],
+ [ disable_debug=yes
+ ])
+
+if test "x$disable_debug" != "xyes" ; then
+CFLAGS="$CFLAGS -D_DEBUG"
+fi
+AM_CONDITIONAL(DISABLE_DEBUG, test x$disable_debug = xyes)
 
 
 # Checks for header files.

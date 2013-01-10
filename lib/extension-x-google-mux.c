@@ -154,7 +154,7 @@ lws_extension_x_google_mux_parser(struct libwebsocket_context *context,
 	int n;
 	void *v;
 
-//	fprintf(stderr, "XRX: %02X %d %d\n", c, conn->state, conn->length);
+//	lwsl_debug("XRX: %02X %d %d\n", c, conn->state, conn->length);
 
 	/*
 	 * [ <Channel ID b12.. b8> <Mux Opcode b2..b0> ]
@@ -164,7 +164,7 @@ lws_extension_x_google_mux_parser(struct libwebsocket_context *context,
 	switch (conn->state) {
 
 	case LWS_EXT_XGM_STATE__MUX_BLOCK_1:
-//		fprintf(stderr, "LWS_EXT_XGM_STATE__MUX_BLOCK_1: opc=%d channel=%d\n", c & 7, c >> 3);
+//		lwsl_ext("LWS_EXT_XGM_STATE__MUX_BLOCK_1: opc=%d channel=%d\n", c & 7, c >> 3);
 		conn->block_subopcode = (enum lws_ext_x_goole_mux__mux_opcodes)(c & 7);
 		conn->block_subchannel = (c >> 3) & 0x1f;
 		conn->ignore_cmd = 0;
@@ -184,7 +184,7 @@ lws_extension_x_google_mux_parser(struct libwebsocket_context *context,
 		conn->block_subchannel |= c;
 
 interpret:
-//		fprintf(stderr, "LWS_EXT_XGM_STATE__MUX_BLOCK_3: subchannel=%d\n", conn->block_subchannel);
+//		lwsl_ext("LWS_EXT_XGM_STATE__MUX_BLOCK_3: subchannel=%d\n", conn->block_subchannel);
 		ongoing_subchannel = conn->block_subchannel;
 
 		/*
@@ -229,7 +229,7 @@ interpret:
 			conn->state = LWS_EXT_XGM_STATE__FLOWCONTROL_1;
 			break;
 		default:
-			fprintf(stderr, "xgm: unknown subopcode\n");
+			lwsl_ext("xgm: unknown subopcode\n");
 			return -1;
 		}
 		break;
@@ -285,14 +285,14 @@ interpret:
 		if (conn->block_subchannel == 0 || conn->block_subchannel >=
 				(sizeof(conn->wsi_children) /
 					       sizeof(conn->wsi_children[0]))) {
-			fprintf(stderr, "Illegal subchannel %d in "
+			lwsl_ext("Illegal subchannel %d in "
 			   "LWS_EXT_XGM_STATE__ADDCHANNEL_HEADERS, ignoring",
 							conn->block_subchannel);
 			conn->ignore_cmd = 1;
 		}
 
 		if (conn->block_subchannel == 1 && !conn->original_ch1_closed) {
-			fprintf(stderr, "illegal request to add ch1 when it's still live, ignoring\n");
+			lwsl_ext("illegal request to add ch1 when it's still live, ignoring\n");
 			conn->ignore_cmd = 1;
 		}
 
@@ -362,7 +362,7 @@ interpret:
 				wsi_child->user_space = malloc(
 				    wsi_child->protocol->per_session_data_size);
 				if (wsi_child->user_space  == NULL) {
-					fprintf(stderr, "Out of memory for "
+					lwsl_ext("Out of memory for "
 							   "conn user space\n");
 					goto bail2;
 				}
@@ -447,7 +447,7 @@ bail2:
 		child_conn = (struct lws_ext_x_google_mux_conn *)lws_get_extension_user_matching_ext(wsi_child,
 								      this_ext);
 		if (!child_conn) {
-			fprintf(stderr, "wsi_child %p has no child conn!", (void *)wsi_child);
+			lwsl_ext("wsi_child %p has no child conn!", (void *)wsi_child);
 			break;
 		}
 		child_conn->wsi_parent = wsi;
@@ -468,7 +468,7 @@ bail2:
 			wsi_child->user_space = malloc(
 				    wsi_child->protocol->per_session_data_size);
 			if (wsi_child->user_space  == NULL) {
-				fprintf(stderr, "Out of memory for "
+				lwsl_err("Out of memory for "
 							   "conn user space\n");
 				break;
 			}
@@ -519,7 +519,7 @@ bail2:
 
 	case LWS_EXT_XGM_STATE__DATA:
 
-//		fprintf(stderr, "LWS_EXT_XGM_STATE__DATA in\n");
+//		lwsl_debug("LWS_EXT_XGM_STATE__DATA in\n");
 
 		/*
 		 * we have cooked websocket frame content following just like
@@ -533,15 +533,15 @@ bail2:
 		 * afterwards
 		 */
 		if (conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET >= conn->highest_child_subchannel) {
-			fprintf(stderr, "Illegal subchannel %d\n", conn->block_subchannel);
+			lwsl_ext("Illegal subchannel %d\n", conn->block_subchannel);
 			return -1;
 		}
 
-		// fprintf(stderr, "LWS_EXT_XGM_STATE__DATA: ch %d\n", conn->block_subchannel);
+		// lwsl_debug("LWS_EXT_XGM_STATE__DATA: ch %d\n", conn->block_subchannel);
 
 		if (conn->block_subchannel == 1) {
 			if (conn->original_ch1_closed) {
-				fprintf(stderr, "data sent to closed ch1\n");
+				lwsl_debug("data sent to closed ch1\n");
 				return -1;
 			}
 			wsi_child = wsi;
@@ -549,7 +549,7 @@ bail2:
 			wsi_child = conn->wsi_children[conn->block_subchannel - MUX_REAL_CHILD_INDEX_OFFSET];
 
 		if (!wsi_child) {
-			fprintf(stderr, "Bad subchannel %d\n", conn->block_subchannel);
+			lwsl_ext("Bad subchannel %d\n", conn->block_subchannel);
 			return -1;
 		}
 
@@ -561,7 +561,7 @@ bail2:
 		case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE:
 		case LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY:
 		case LWS_CONNMODE_WS_CLIENT:
-//			fprintf(stderr, "  client\n");
+//			lwsl_ext("  client\n");
 			if (libwebsocket_client_rx_sm(wsi_child, c) < 0) {
 				libwebsocket_close_and_free_session(
 					context,
@@ -574,7 +574,7 @@ bail2:
 		/* server is receiving from client */
 
 		default:
-//			fprintf(stderr, "  server\n");
+//			lwsl_ext("  server\n");
 			if (libwebsocket_rx_sm(wsi_child, c) < 0) {
 				muxdebug("probs\n");
 				libwebsocket_close_and_free_session(
@@ -726,7 +726,7 @@ int lws_extension_callback_x_google_mux(
 			if (parent_conn->highest_child_subchannel >=
 					(sizeof(parent_conn->wsi_children) /
 					   sizeof(parent_conn->wsi_children[0]))) {
-				fprintf(stderr, "Can't add any more children\n");
+				lwsl_ext("Can't add any more children\n");
 				continue;
 			}
 			/*
@@ -786,7 +786,7 @@ int lws_extension_callback_x_google_mux(
 
 			conn->original_ch1_closed = 1;
 
-			fprintf(stderr, "original mux parent channel closing\n");
+			lwsl_ext("original mux parent channel closing\n");
 
 			parent_conn = conn;
 		} else {
@@ -811,14 +811,14 @@ int lws_extension_callback_x_google_mux(
 		/* if he has children, don't let him close for real! */
 
 		if (done) {
-			fprintf(stderr, "VETO closure\n");
+			lwsl_ext("VETO closure\n");
 			return 1;
 		}
 
 		/* no children, ch1 is closed, let him destroy himself */
 
 		if (conn->subchannel == 1)
-			fprintf(stderr, "ALLOW closure of mux parent\n");
+			lwsl_ext("ALLOW closure of mux parent\n");
 
 		break;
 
@@ -837,7 +837,7 @@ int lws_extension_callback_x_google_mux(
 
 			conn->original_ch1_closed = 1;
 
-			fprintf(stderr, "original mux parent channel closing\n");
+			lwsl_ext("original mux parent channel closing\n");
 
 			parent_conn = conn;
 			wsi_parent = wsi;
@@ -1023,7 +1023,7 @@ handle_additions:
 			 */
 
 			if (conn->original_ch1_closed) {
-				fprintf(stderr, "Trying to send on dead original ch1\n");
+				lwsl_ext("Trying to send on dead original ch1\n");
 				return 0;
 			}
 
@@ -1038,7 +1038,7 @@ handle_additions:
 			 */
 
 			if (!conn->wsi_parent) {
-	//			fprintf(stderr, "conn %p has no parent\n", (void *)conn);
+	//			lwsl_ext("conn %p has no parent\n", (void *)conn);
 				return 0;
 			}
 
@@ -1058,7 +1058,7 @@ handle_additions:
 			 */
 
 			if (!parent_conn->sticky_mux_used) {
-	//			fprintf(stderr, "parent in singular mode\n");
+	//			lwsl_ext("parent in singular mode\n");
 				return 0;
 			}
 		}

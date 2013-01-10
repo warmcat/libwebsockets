@@ -77,7 +77,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_HTTP:
 	case WSI_TOKEN_MUXURL:
 
-		_debug("WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);
+		lwsl_parser("WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);
 
 		/* collect into malloc'd buffers */
 		/* optional space swallow */
@@ -88,7 +88,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->parser_state == WSI_TOKEN_GET_URI && c == ' ') {
 			wsi->utf8_token[wsi->parser_state].token[
 			   wsi->utf8_token[wsi->parser_state].token_len] = '\0';
-//			debug("uri '%s'\n", wsi->utf8_token[wsi->parser_state].token);
+//			lwsl_parser("uri '%s'\n", wsi->utf8_token[wsi->parser_state].token);
 			wsi->parser_state = WSI_TOKEN_SKIPPING;
 			break;
 		}
@@ -115,7 +115,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			wsi->utf8_token[wsi->parser_state].token[
 			   wsi->utf8_token[wsi->parser_state].token_len] = '\0';
 			wsi->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
-			_debug("*\n");
+			lwsl_parser("*\n");
 			break;
 		}
 
@@ -156,7 +156,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		/* For any supported protocol we have enough payload */
 
-		_debug("Setting WSI_PARSING_COMPLETE\n");
+		lwsl_parser("Setting WSI_PARSING_COMPLETE\n");
 		wsi->parser_state = WSI_PARSING_COMPLETE;
 		break;
 
@@ -171,7 +171,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		/* collecting and checking a name part */
 	case WSI_TOKEN_NAME_PART:
-		_debug("WSI_TOKEN_NAME_PART '%c'\n", c);
+		lwsl_parser("WSI_TOKEN_NAME_PART '%c'\n", c);
 
 		if (wsi->name_buffer_pos == sizeof(wsi->name_buffer) - 1) {
 			/* name bigger than we can handle, skip until next */
@@ -186,7 +186,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				continue;
 			if (strcasecmp(lws_tokens[n].token, wsi->name_buffer))
 				continue;
-			_debug("known hdr '%s'\n", wsi->name_buffer);
+			lwsl_parser("known hdr '%s'\n", wsi->name_buffer);
 
 			/*
 			 * WSORIGIN is protocol equiv to ORIGIN,
@@ -213,7 +213,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		if (wsi->parser_state == WSI_TOKEN_NAME_PART) {
 			if (c == ':') {
-				debug("skipping unknown header '%s'\n",
+				lwsl_parser("skipping unknown header '%s'\n",
 							  wsi->name_buffer);
 				wsi->parser_state = WSI_TOKEN_SKIPPING;
 				break;
@@ -221,7 +221,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 			if (c == ' ' &&
 				!wsi->utf8_token[WSI_TOKEN_GET_URI].token_len) {
-				debug("unknown method '%s'\n",
+				lwsl_parser("unknown method '%s'\n",
 							  wsi->name_buffer);
 				wsi->parser_state = WSI_TOKEN_GET_URI;
 				wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
@@ -238,7 +238,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		if (!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len) {
 			/* they're HTTP headers, not websocket upgrade! */
-			_debug("Setting WSI_PARSING_COMPLETE "
+			lwsl_parser("Setting WSI_PARSING_COMPLETE "
 							 "from http headers\n");
 			wsi->parser_state = WSI_PARSING_COMPLETE;
 		}
@@ -247,7 +247,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
 			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) >= 4) {
-			_debug("04 header completed\n");
+			lwsl_parser("04 header completed\n");
 			wsi->parser_state = WSI_PARSING_COMPLETE;
 			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len = 0;
 			free(wsi->utf8_token[WSI_TOKEN_CHALLENGE].token);
@@ -257,7 +257,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		/* client parser? */
 
 		if (wsi->ietf_spec_revision >= 4) {
-			_debug("04 header completed\n");
+			lwsl_parser("04 header completed\n");
 			wsi->parser_state = WSI_PARSING_COMPLETE;
 		}
 
@@ -265,12 +265,12 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		/* skipping arg part of a name we didn't recognize */
 	case WSI_TOKEN_SKIPPING:
-		_debug("WSI_TOKEN_SKIPPING '%c'\n", c);
+		lwsl_parser("WSI_TOKEN_SKIPPING '%c'\n", c);
 		if (c == '\x0d')
 			wsi->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 		break;
 	case WSI_TOKEN_SKIPPING_SAW_CR:
-		_debug("WSI_TOKEN_SKIPPING_SAW_CR '%c'\n", c);
+		lwsl_parser("WSI_TOKEN_SKIPPING_SAW_CR '%c'\n", c);
 		if (c == '\x0a')
 			wsi->parser_state = WSI_TOKEN_NAME_PART;
 		else
@@ -279,7 +279,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		break;
 		/* we're done, ignore anything else */
 	case WSI_PARSING_COMPLETE:
-		_debug("WSI_PARSING_COMPLETE '%c'\n", c);
+		lwsl_parser("WSI_PARSING_COMPLETE '%c'\n", c);
 		break;
 
 	default:	/* keep gcc happy */
@@ -323,7 +323,7 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	int m;
 
 #if 0
-	fprintf(stderr, "RX: %02X ", c);
+	lwsl_debug("RX: %02X ", c);
 #endif
 
 	switch (wsi->lws_rx_parse_state) {
@@ -359,7 +359,7 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			goto handle_first;
 
 		default:
-			fprintf(stderr, "libwebsocket_rx_sm doesn't know "
+			lwsl_warn("libwebsocket_rx_sm doesn't know "
 			    "about spec version %d\n", wsi->ietf_spec_revision);
 			break;
 		}
@@ -498,7 +498,7 @@ handle_first:
 				wsi->opcode = LWS_WS_OPCODE_07__BINARY_FRAME;
 				break;
 			default:
-				fprintf(stderr, "reserved opcodes not "
+				lwsl_warn("reserved opcodes not "
 						    "usable pre v7 protocol\n");
 				return -1;
 			}
@@ -516,8 +516,7 @@ handle_first:
 			c = wsi->xor_mask(wsi, c);
 
 		if ((c & 0x80) && wsi->ietf_spec_revision < 7) {
-			fprintf(stderr, "Frame has extensions "
-							   "set illegally 2\n");
+			lwsl_warn("Frame has extensions set illegally 2\n");
 			/* kill the connection */
 			return -1;
 		}
@@ -576,7 +575,7 @@ handle_first:
 		if (wsi->ietf_spec_revision < 7)
 			c = wsi->xor_mask(wsi, c);
 		if (c & 0x80) {
-			fprintf(stderr, "b63 of length must be zero\n");
+			lwsl_warn("b63 of length must be zero\n");
 			/* kill the connection */
 			return -1;
 		}
@@ -671,16 +670,16 @@ issue:
 		if (c)
 			break;
 
-		_debug("Seen that client is requesting "
+		lwsl_parser("Seen that client is requesting "
 				"a v76 close, sending ack\n");
 		buf[0] = 0xff;
 		buf[1] = 0;
 		n = libwebsocket_write(wsi, buf, 2, LWS_WRITE_HTTP);
 		if (n < 0) {
-			fprintf(stderr, "ERROR writing to socket");
+			lwsl_warn("ERROR writing to socket");
 			return -1;
 		}
-		_debug("  v76 close ack sent, server closing skt\n");
+		lwsl_parser("  v76 close ack sent, server closing skt\n");
 		/* returning < 0 will get it closed in parent */
 		return -1;
 
@@ -741,7 +740,7 @@ spill:
 		 * layer?  If so service it and hide it from the user callback
 		 */
 
-		_debug("spill on %s\n", wsi->protocol->name);
+		lwsl_parser("spill on %s\n", wsi->protocol->name);
 
 		switch (wsi->opcode) {
 		case LWS_WS_OPCODE_07__CLOSE:
@@ -751,10 +750,10 @@ spill:
 				 * fine he has told us he is closing too, let's
 				 * finish our close
 				 */
-				_debug("seen client close ack\n");
+				lwsl_parser("seen client close ack\n");
 				return -1;
 			}
-			debug("server sees client close packet\n");
+			lwsl_parser("server sees client close packet\n");
 			/* parrot the close packet payload back */
 			n = libwebsocket_write(wsi, (unsigned char *)
 			   &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
@@ -786,7 +785,7 @@ spill:
 
 		default:
 
-			_debug("passing opcode %x up to exts\n", wsi->opcode);
+			lwsl_parser("passing opcode %x up to exts\n", wsi->opcode);
 
 			/*
 			 * It's something special we can't understand here.
@@ -811,7 +810,7 @@ spill:
 			}
 
 			if (!handled)
-				fprintf(stderr, "Unhandled extended opcode "
+				lwsl_ext("Unhandled extended opcode "
 					"0x%x - ignoring frame\n", wsi->opcode);
 
 			wsi->rx_user_buffer_head = 0;
@@ -836,7 +835,7 @@ spill:
 				wsi->active_extensions_user[n],
 				&eff_buf, 0);
 			if (m < 0) {
-				fprintf(stderr,
+				lwsl_ext(
 			          "Extension '%s' failed to handle payload!",
 			        	      wsi->active_extensions[n]->name);
 				return -1;
@@ -853,7 +852,7 @@ spill:
 			                	    eff_buf.token,
 						    eff_buf.token_len);
 		    else
-			    fprintf(stderr, "No callback on payload spill!");
+			    lwsl_err("No callback on payload spill!");
 		}
 
 		wsi->rx_user_buffer_head = 0;
@@ -864,7 +863,7 @@ spill:
 
 illegal_ctl_length:
 
-	fprintf(stderr, "Control frame asking for "
+	lwsl_warn("Control frame asking for "
 			"extended length is illegal\n");
 	/* kill the connection */
 	return -1;
@@ -880,7 +879,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	struct lws_tokens eff_buf;
 	int m;
 
-	_debug(" CRX: %02X %d\n", c, wsi->lws_rx_parse_state);
+	lwsl_parser(" CRX: %02X %d\n", c, wsi->lws_rx_parse_state);
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
@@ -977,7 +976,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 						LWS_WS_OPCODE_07__BINARY_FRAME;
 					break;
 				default:
-					fprintf(stderr, "reserved opcodes not "
+					lwsl_warn("reserved opcodes not "
 						   "usable pre v7 protocol\n");
 					return -1;
 				}
@@ -990,7 +989,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			break;
 
 		default:
-			fprintf(stderr, "client_rx_sm doesn't know how "
+			lwsl_err("client_rx_sm doesn't know how "
 				"to handle spec version %02d\n",
 						       wsi->ietf_spec_revision);
 			break;
@@ -1001,8 +1000,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	case LWS_RXPS_04_FRAME_HDR_LEN:
 
 		if ((c & 0x80) && wsi->ietf_spec_revision < 7) {
-			fprintf(stderr,
-				      "Frame has extensions set illegally 4\n");
+			lwsl_warn("Frame has extensions set illegally 4\n");
 			/* kill the connection */
 			return -1;
 		}
@@ -1063,7 +1061,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
 		if (c & 0x80) {
-			fprintf(stderr, "b63 of length must be zero\n");
+			lwsl_warn("b63 of length must be zero\n");
 			/* kill the connection */
 			return -1;
 		}
@@ -1186,16 +1184,16 @@ issue:
 		if (c)
 			break;
 
-		_debug("Seen that client is requesting "
+		lwsl_parser("Seen that client is requesting "
 				"a v76 close, sending ack\n");
 		buf[0] = 0xff;
 		buf[1] = 0;
 		n = libwebsocket_write(wsi, buf, 2, LWS_WRITE_HTTP);
 		if (n < 0) {
-			fprintf(stderr, "ERROR writing to socket");
+			lwsl_warn("ERROR writing to socket");
 			return -1;
 		}
-		_debug("  v76 close ack sent, server closing skt\n");
+		lwsl_parser("  v76 close ack sent, server closing skt\n");
 		/* returning < 0 will get it closed in parent */
 		return -1;
 
@@ -1234,15 +1232,15 @@ spill:
 				 * fine he has told us he is closing too, let's
 				 * finish our close
 				 */
-				debug("seen server's close ack\n");
+				lwsl_parser("seen server's close ack\n");
 				return -1;
 			}
-			_debug("client sees server close packet len = %d\n", wsi->rx_user_buffer_head);
+			lwsl_parser("client sees server close packet len = %d\n", wsi->rx_user_buffer_head);
 			/* parrot the close packet payload back */
 			n = libwebsocket_write(wsi, (unsigned char *)
 			   &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				     wsi->rx_user_buffer_head, LWS_WRITE_CLOSE);
-			_debug("client writing close ack returned %d\n", n);
+			lwsl_parser("client writing close ack returned %d\n", n);
 			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
 			return -1;
@@ -1270,7 +1268,7 @@ spill:
 
 		default:
 
-			debug("Reserved opcode 0x%2X\n", wsi->opcode);
+			lwsl_parser("Reserved opcode 0x%2X\n", wsi->opcode);
 			/*
 			 * It's something special we can't understand here.
 			 * Pass the payload up to the extension's parsing
@@ -1293,7 +1291,7 @@ spill:
 			}
 
 			if (!handled) {
-				fprintf(stderr, "Unhandled extended opcode "
+				lwsl_ext("Unhandled extended opcode "
 					"0x%x - ignoring frame\n", wsi->opcode);
 				wsi->rx_user_buffer_head = 0;
 
@@ -1323,7 +1321,7 @@ spill:
 				wsi->active_extensions_user[n],
 				&eff_buf, 0);
 			if (m < 0) {
-				fprintf(stderr,
+				lwsl_ext(
 					"Extension '%s' failed to handle payload!",
 						wsi->active_extensions[n]->name);
 				return -1;
@@ -1346,7 +1344,7 @@ already_done:
 		wsi->rx_user_buffer_head = 0;
 		break;
 	default:
-		fprintf(stderr, "client rx illegal state\n");
+		lwsl_err("client rx illegal state\n");
 		return 1;
 	}
 
@@ -1354,7 +1352,7 @@ already_done:
 
 illegal_ctl_length:
 
-	fprintf(stderr, "Control frame asking for "
+	lwsl_warn("Control frame asking for "
 				"extended length is illegal\n");
 	/* kill the connection */
 	return -1;
@@ -1369,10 +1367,10 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 	size_t n;
 
 #ifdef DEBUG
-	fprintf(stderr, "received %d byte packet\n", (int)len);
+	lwsl_parser("received %d byte packet\n", (int)len);
 	for (n = 0; n < len; n++)
-		fprintf(stderr, "%02X ", buf[n]);
-	fprintf(stderr, "\n");
+		lwsl_parser("%02X ", buf[n]);
+	lwsl_parser("\n");
 #endif
 
 	/* let the rx protocol state machine have as much as it needs */
@@ -1397,7 +1395,7 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 	n = libwebsockets_get_random(wsi->protocol->owning_server,
 						wsi->frame_masking_nonce_04, 4);
 	if (n != 4) {
-		fprintf(stderr, "Unable to read from random device %s %d\n",
+		lwsl_parser("Unable to read from random device %s %d\n",
 						     SYSTEM_RANDOM_FILEPATH, n);
 		return 1;
 	}
@@ -1432,32 +1430,32 @@ void lws_stderr_hexdump(unsigned char *buf, size_t len)
 	int m;
 	int start;
 
-	fprintf(stderr, "\n");
+	lwsl_parser("\n");
 
 	for (n = 0; n < len;) {
 		start = n;
 
-		fprintf(stderr, "%04X: ", start);
+		lwsl_debug("%04X: ", start);
 
 		for (m = 0; m < 16 && n < len; m++)
-			fprintf(stderr, "%02X ", buf[n++]);
+			lwsl_debug("%02X ", buf[n++]);
 		while (m++ < 16)
-			fprintf(stderr, "   ");
+			lwsl_debug("   ");
 
-		fprintf(stderr, "   ");
+		lwsl_debug("   ");
 
 		for (m = 0; m < 16 && (start + m) < len; m++) {
 			if (buf[start + m] >= ' ' && buf[start + m] <= 127)
-				fprintf(stderr, "%c", buf[start + m]);
+				lwsl_debug("%c", buf[start + m]);
 			else
-				fprintf(stderr, ".");
+				lwsl_debug(".");
 		}
 		while (m++ < 16)
-			fprintf(stderr, " ");
+			lwsl_debug(" ");
 
-		fprintf(stderr, "\n");
+		lwsl_debug("\n");
 	}
-	fprintf(stderr, "\n");
+	lwsl_debug("\n");
 }
 
 int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
@@ -1480,24 +1478,24 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 				LWS_EXT_CALLBACK_PACKET_TX_DO_SEND,
 				     wsi->active_extensions_user[n], &buf, len);
 		if (m < 0) {
-			fprintf(stderr, "Extension reports fatal error\n");
+			lwsl_ext("Extension reports fatal error\n");
 			return -1;
 		}
 		if (m) /* handled */ {
-/*			fprintf(stderr, "ext sent it\n"); */
+/*			lwsl_ext("ext sent it\n"); */
 			return 0;
 		}
 	}
 
 	if (!wsi->sock)
-		fprintf(stderr, "** error 0 sock but expected to send\n");
+		lwsl_warn("** error 0 sock but expected to send\n");
 
 	/*
 	 * nope, send it on the socket directly
 	 */
 
 #if 0
-	fprintf(stderr, "  TX: ");
+	lwsl_debug("  TX: ");
 	lws_stderr_hexdump(buf, len);
 #endif
 
@@ -1505,16 +1503,14 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	if (wsi->ssl) {
 		n = SSL_write(wsi->ssl, buf, len);
 		if (n < 0) {
-			fprintf(stderr,
-				   "ERROR writing to socket\n");
+			lwsl_debug("ERROR writing to socket\n");
 			return -1;
 		}
 	} else {
 #endif
 		n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
 		if (n < 0) {
-			fprintf(stderr,
-				   "ERROR writing to socket\n");
+			lwsl_debug("ERROR writing to socket\n");
 			return -1;
 		}
 #ifdef LWS_OPENSSL_SUPPORT
@@ -1556,7 +1552,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 					LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
 				   wsi->active_extensions_user[n], &eff_buf, 0);
 			if (m < 0) {
-				fprintf(stderr, "Extension: fatal error\n");
+				lwsl_ext("Extension: fatal error\n");
 				return -1;
 			}
 			if (m)
@@ -1574,7 +1570,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 							    eff_buf.token_len))
 				return -1;
 
-		_debug("written %d bytes to client\n", eff_buf.token_len);
+		lwsl_parser("written %d bytes to client\n", eff_buf.token_len);
 
 		/* no extension has more to spill */
 
@@ -1594,7 +1590,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 			/* no we could add more */
 			continue;
 
-		debug("choked\n");
+		lwsl_debug("choked\n");
 
 		/*
 		 * Yes, he's choked.  Don't spill the rest now get a callback
@@ -1649,7 +1645,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	int m;
 
 	if (len == 0 && protocol != LWS_WRITE_CLOSE) {
-		fprintf(stderr, "zero length libwebsocket_write attempt\n");
+		lwsl_warn("zero length libwebsocket_write attempt\n");
 		return 0;
 	}
 
@@ -1768,13 +1764,13 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 				switch (wsi->mode) {
 				case LWS_CONNMODE_WS_SERVING:
 					/*
-					fprintf(stderr, "LWS_WRITE_CLOSE S\n");
+					lwsl_debug("LWS_WRITE_CLOSE S\n");
 					*/
 					buf[0] = 'S';
 					break;
 				case LWS_CONNMODE_WS_CLIENT:
 					/*
-					fprintf(stderr, "LWS_WRITE_CLOSE C\n");
+					lwsl_debug("LWS_WRITE_CLOSE C\n");
 					*/
 					buf[0] = 'C';
 					break;
@@ -1813,7 +1809,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 				n = LWS_WS_OPCODE_07__PONG;
 			break;
 		default:
-			fprintf(stderr, "libwebsocket_write: unknown write "
+			lwsl_warn("libwebsocket_write: unknown write "
 							 "opcode / protocol\n");
 			return -1;
 		}
@@ -1873,7 +1869,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 						wsi->xor_mask != xor_no_mask) {
 
 			if (libwebsocket_0405_frame_mask_generate(wsi)) {
-				fprintf(stderr, "libwebsocket_write: "
+				lwsl_err("libwebsocket_write: "
 					      "frame mask generation failed\n");
 				return 1;
 			}
@@ -1932,11 +1928,11 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 send_raw:
 
 #if 0
-	fprintf(stderr, "send %ld: ", len + post);
+	lwsl_debug("send %ld: ", len + post);
 	for (n = -pre; n < ((int)len + post); n++)
-		fprintf(stderr, "%02X ", buf[n]);
+		lwsl_debug("%02X ", buf[n]);
 
-	fprintf(stderr, "\n");
+	lwsl_debug("\n");
 #endif
 
 	if (protocol == LWS_WRITE_HTTP) {
