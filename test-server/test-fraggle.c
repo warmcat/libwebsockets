@@ -228,6 +228,7 @@ static struct libwebsocket_protocols protocols[] = {
 
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
+	{ "debug",	required_argument,	NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "killmask",	no_argument,		NULL, 'k' },
@@ -258,10 +259,13 @@ int main(int argc, char **argv)
 						    "licensed under LGPL2.1\n");
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "ci:khsp:", options, NULL);
+		n = getopt_long(argc, argv, "ci:khsp:d:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
+		case 'd':
+			lws_set_log_level(atoi(optarg));
+			break;
 		case 's':
 			use_ssl = 1;
 			break;
@@ -283,7 +287,9 @@ int main(int argc, char **argv)
 			break;
 		case 'h':
 			fprintf(stderr, "Usage: libwebsockets-test-fraggle "
-					   "[--port=<p>] [--ssl] [--client]\n");
+					"[--port=<p>] [--ssl] "
+					"[-d <log bitfield>] "
+					"[--client]\n");
 			exit(1);
 		}
 	}

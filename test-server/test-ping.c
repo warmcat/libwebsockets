@@ -287,6 +287,7 @@ static struct libwebsocket_protocols protocols[] = {
 
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
+	{ "debug",	required_argument,	NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 't' },
 	{ "interval",	required_argument,	NULL, 'i' },
@@ -333,10 +334,13 @@ int main(int argc, char **argv)
 	optind++;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "v:kr:hmfts:n:i:p:", options, NULL);
+		n = getopt_long(argc, argv, "v:kr:hmfts:n:i:p:d:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
+		case 'd':
+			lws_set_log_level(atoi(optarg));
+			break;
 		case 'm':
 			use_mirror = 1;
 			break;
@@ -505,8 +509,9 @@ usage:
 					     "[--size=<bytes>] "
 					     "[--protocol=<protocolname>] "
 					     "[--mirror] "
-					     "[--replicate=clients>]"
-					     "[--version <version>]"
+					     "[--replicate=clients>] "
+					     "[--version <version>] "
+					     "[-d <log bitfield> ]"
 					     "\n");
 	return 1;
 }

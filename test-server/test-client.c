@@ -187,6 +187,7 @@ static struct libwebsocket_protocols protocols[] = {
 
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
+	{ "debug",      required_argument,      NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "killmask",	no_argument,		NULL, 'k' },
@@ -209,17 +210,20 @@ int main(int argc, char **argv)
 	int mirror_lifetime = 0;
 
 	fprintf(stderr, "libwebsockets test client\n"
-			"(C) Copyright 2010 Andy Green <andy@warmcat.com> "
+			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> "
 						    "licensed under LGPL2.1\n");
 
 	if (argc < 2)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "nuv:khsp:", options, NULL);
+		n = getopt_long(argc, argv, "nuv:khsp:d:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
+		case 'd':
+			lws_set_log_level(atoi(optarg));
+			break;
 		case 's':
 			use_ssl = 2; /* 2 = allow selfsigned */
 			break;
@@ -263,7 +267,6 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Creating libwebsocket context failed\n");
 		return 1;
 	}
-
 
 	/* create a client websocket using dumb increment protocol */
 
@@ -335,7 +338,8 @@ int main(int argc, char **argv)
 
 usage:
 	fprintf(stderr, "Usage: libwebsockets-test-client "
-					     "<server address> [--port=<p>] "
-					     "[--ssl] [-k] [-v <ver>]\n");
+				"<server address> [--port=<p>] "
+				"[--ssl] [-k] [-v <ver>] "
+				"[-d <log bitfield>]\n");
 	return 1;
 }
