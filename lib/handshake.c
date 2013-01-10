@@ -586,10 +586,11 @@ libwebsocket_read(struct libwebsocket_context *context,
 			     !wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len) {
 			wsi->state = WSI_STATE_HTTP;
 			if (wsi->protocol->callback)
-				(wsi->protocol->callback)(context, wsi,
-				   LWS_CALLBACK_HTTP, wsi->user_space,
-				   wsi->utf8_token[WSI_TOKEN_GET_URI].token,
-				   wsi->utf8_token[WSI_TOKEN_GET_URI].token_len);
+				if (wsi->protocol->callback(context, wsi,
+								LWS_CALLBACK_HTTP, wsi->user_space,
+								wsi->utf8_token[WSI_TOKEN_GET_URI].token,
+								wsi->utf8_token[WSI_TOKEN_GET_URI].token_len))
+					goto bail;
 			return 0;
 		}
 
