@@ -7,6 +7,9 @@
 #define LWS_ZLIB_WINDOW_BITS 15
 #define LWS_ZLIB_MEMLEVEL 8
 
+#define MIN_SIZE_TO_DEFLATE 4
+
+
 int lws_extension_callback_deflate_frame(
 		struct libwebsocket_context *context,
 		struct libwebsocket_extension *ext,
@@ -157,12 +160,11 @@ int lws_extension_callback_deflate_frame(
 				conn->buf_in_length *= 2;
 				new_buf = (unsigned char *)
 					malloc(LWS_SEND_BUFFER_PRE_PADDING +
-							 conn->buf_in_length +
-						 LWS_SEND_BUFFER_POST_PADDING);
+						  conn->buf_in_length +
+						  LWS_SEND_BUFFER_POST_PADDING);
 				memcpy(new_buf + LWS_SEND_BUFFER_PRE_PADDING,
-					   conn->buf_in +
-						LWS_SEND_BUFFER_PRE_PADDING,
-					   len_so_far);
+					conn->buf_in + LWS_SEND_BUFFER_PRE_PADDING,
+					len_so_far);
 				free(conn->buf_in);
 				conn->buf_in = new_buf;
 				conn->zs_in.next_out = (new_buf +
@@ -184,8 +186,13 @@ int lws_extension_callback_deflate_frame(
 		/*
 		 * deflate the outgoing payload
 		 */
+		current_payload = eff_buf->token_len;
+
+		if (current_payload < MIN_SIZE_TO_DEFLATE)
+			return 0;
+
 		conn->zs_out.next_in = (unsigned char *)eff_buf->token;
-		conn->zs_out.avail_in = eff_buf->token_len;
+		conn->zs_out.avail_in = current_payload;
 
 		conn->zs_out.next_out = conn->buf_out + LWS_SEND_BUFFER_PRE_PADDING;
 		conn->zs_out.avail_out = conn->buf_out_length;
@@ -211,11 +218,10 @@ int lws_extension_callback_deflate_frame(
 				new_buf = (unsigned char *)
 					malloc(LWS_SEND_BUFFER_PRE_PADDING +
 						  conn->buf_out_length +
-				  		 LWS_SEND_BUFFER_POST_PADDING);
+						  LWS_SEND_BUFFER_POST_PADDING);
 				memcpy(new_buf + LWS_SEND_BUFFER_PRE_PADDING,
-					   conn->buf_out +
-					   LWS_SEND_BUFFER_PRE_PADDING,
-					   len_so_far);
+					conn->buf_out + LWS_SEND_BUFFER_PRE_PADDING,
+					len_so_far);
 				free(conn->buf_out);
 				conn->buf_out = new_buf;
 				conn->zs_out.next_out = (new_buf +
