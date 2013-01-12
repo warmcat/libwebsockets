@@ -70,6 +70,21 @@ There are a couple of other possible configure options
 			one is used.
 
 
+Externally configurable important constants
+-------------------------------------------
+
+You can control these from configure by just setting them as commandline
+args throgh CFLAGS, eg
+
+./configure CFLAGS="-DLWS_MAX_ZLIB_CONN_BUFFER=8192"
+
+They all have defaults so you only need to take care about them if you want
+to tune them to the amount of memory available.
+
+ - LWS_MAX_ZLIB_CONN_BUFFER  maximum size a compression buffer is allowed to
+grow to before closing the connection.  Default is 64KBytes.
+
+
 Testing server with a browser
 -----------------------------
 
