@@ -246,9 +246,9 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 
 	if (origin) {
 		wsi->c_origin = (char *)malloc(strlen(origin) + 1);
-		strcpy(wsi->c_origin, origin);
 		if (wsi->c_origin == NULL)
 			goto oom2;
+		strcpy(wsi->c_origin, origin);
 	} else
 		wsi->c_origin = NULL;
 

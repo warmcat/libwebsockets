@@ -1336,6 +1336,11 @@ check_extensions:
 			wsi->active_extensions_user[
 				wsi->count_active_extensions] =
 					 malloc(ext->per_session_data_size);
+			if (wsi->active_extensions_user[
+				wsi->count_active_extensions] == NULL) {
+				lwsl_err("Out of mem\n");
+				goto bail2;
+			}
 			memset(wsi->active_extensions_user[
 				wsi->count_active_extensions], 0,
 						    ext->per_session_data_size);
@@ -1692,17 +1697,16 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		if (context->fds_count >= MAX_CLIENTS) {
 			lwsl_err("too busy to accept new broadcast "
 							      "proxy client\n");
-#ifdef WIN32
-			closesocket(accept_fd);
-#else
-			close(accept_fd);
-#endif
-			break;
+			goto bail_prox_listener;
 		}
 
 		/* create a dummy wsi for the connection and add it */
 
 		new_wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
+		if (new_wsi == NULL) {
+			lwsl_err("Out of mem\n");
+			goto bail_prox_listener;
+		}
 		memset(new_wsi, 0, sizeof (struct libwebsocket));
 		new_wsi->sock = accept_fd;
 		new_wsi->mode = LWS_CONNMODE_BROADCAST_PROXY;
@@ -1724,6 +1728,14 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			LWS_CALLBACK_ADD_POLL_FD,
 			(void *)(long)accept_fd, NULL, POLLIN);
 
+		break;
+
+bail_prox_listener:
+#ifdef WIN32
+		closesocket(accept_fd);
+#else
+		close(accept_fd);
+#endif
 		break;
 
 	case LWS_CONNMODE_BROADCAST_PROXY:
@@ -2915,10 +2927,16 @@ libwebsocket_create_context(int port, const char *interf,
 		if (n < 0) {
 			lwsl_err("ERROR on binding to port %d (%d %d)\n",
 								port, n, errno);
+			close(sockfd);
 			return NULL;
 		}
 
 		wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
+		if (wsi == NULL) {
+			lwsl_err("Out of mem\n");
+			close(sockfd);
+			return NULL;
+		}
 		memset(wsi, 0, sizeof (struct libwebsocket));
 		wsi->sock = sockfd;
 		wsi->count_active_extensions = 0;
@@ -3007,6 +3025,11 @@ libwebsocket_create_context(int port, const char *interf,
 		/* dummy wsi per broadcast proxy socket */
 
 		wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
+		if (wsi == NULL) {
+			lwsl_err("Out of mem\n");
+			close(fd);
+			return NULL;
+		}
 		memset(wsi, 0, sizeof (struct libwebsocket));
 		wsi->sock = fd;
 		wsi->mode = LWS_CONNMODE_BROADCAST_PROXY_LISTENER;

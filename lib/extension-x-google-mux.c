@@ -632,6 +632,10 @@ int lws_extension_callback_x_google_mux(
 
 		ext->per_context_private_data = malloc(
 				  sizeof (struct lws_ext_x_google_mux_context));
+		if (ext->per_context_private_data == NULL) {
+			lwsl_err("Out of memory\n");
+			return -1;
+		}
 		mux_ctx = (struct lws_ext_x_google_mux_context *)
 						  ext->per_context_private_data;
 		mux_ctx->active_conns = 0;

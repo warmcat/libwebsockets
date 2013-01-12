@@ -409,6 +409,12 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 				wsi->active_extensions_user[
 					wsi->count_active_extensions] =
 					     malloc(ext->per_session_data_size);
+				if (wsi->active_extensions_user[
+					 wsi->count_active_extensions] == NULL) {
+					lwsl_err("Out of mem\n");
+					free(response);
+					goto bail;
+				}
 				memset(wsi->active_extensions_user[
 					wsi->count_active_extensions], 0,
 						    ext->per_session_data_size);

@@ -108,6 +108,10 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			wsi->utf8_token[wsi->parser_state].token = (char *)
 			       realloc(wsi->utf8_token[wsi->parser_state].token,
 							wsi->current_alloc_len);
+			if (wsi->utf8_token[wsi->parser_state].token == NULL) {
+				lwsl_err("Out of mem\n");
+				return -1;
+			}
 		}
 
 		/* bail at EOL */
@@ -166,6 +170,10 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		wsi->utf8_token[wsi->parser_state].token = (char *)
 					 malloc(wsi->current_alloc_len);
+		if (wsi->utf8_token[wsi->parser_state].token == NULL) {
+			lwsl_err("Out of mem\n");
+			return -1;
+		}
 		wsi->utf8_token[wsi->parser_state].token_len = 0;
 		break;
 
@@ -206,6 +214,10 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
 			wsi->utf8_token[wsi->parser_state].token = (char *)
 						 malloc(wsi->current_alloc_len);
+			if (wsi->utf8_token[wsi->parser_state].token == NULL) {
+				lwsl_err("Out of mem\n");
+				return -1;
+			}
 			wsi->utf8_token[wsi->parser_state].token_len = 0;
 		}
 
@@ -227,6 +239,10 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
 				wsi->utf8_token[WSI_TOKEN_GET_URI].token =
 					(char *)malloc(wsi->current_alloc_len);
+				if (wsi->utf8_token[WSI_TOKEN_GET_URI].token == NULL) {
+					lwsl_err("Out of mem\n");
+					return -1;
+				}
 				break;
 			}
 		}
