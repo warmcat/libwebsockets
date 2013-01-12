@@ -81,6 +81,50 @@ args throgh CFLAGS, eg
 They all have defaults so you only need to take care about them if you want
 to tune them to the amount of memory available.
 
+
+ - FD_HASHTABLE_MODULUS default 32: size of the file descriptor hash map,
+affects server performance with large numbers of connections, at the cost of
+increased memory consumption
+
+ - MAX_CLIENTS default 100: total number of simultaneous connections
+allowed... reserves some memory even when not in use, so reduce for embedded
+applications that only expect one or two connections
+
+ - LWS_MAX_HEADER_NAME_LENGTH default 64: max characters in an HTTP header
+name that libwebsockets can cope with
+
+ - LWS_MAX_HEADER_LEN default 4096: largest HTTP header value string length
+libwebsockets can cope with
+
+ - LWS_INITIAL_HDR_ALLOC default 256: amount of memory to allocate initially,
+tradeoff between taking too much and needless realloc
+
+ - LWS_ADDITIONAL_HDR_ALLOC default 64: how much to additionally realloc if
+the header value string keeps coming
+
+ - MAX_USER_RX_BUFFER default 4096: max amount of user rx data to buffer at a
+time and pass to user callback
+
+ - MAX_BROADCAST_PAYLOAD default 4096: largest amount of user tx data we can
+broadcast at a time
+
+ - LWS_MAX_PROTOCOLS default 10: largest amount of different protocols the
+server can serve
+
+ - LWS_MAX_EXTENSIONS_ACTIVE default 10: largest amount of extensions we can
+choose to have active on one connection
+
+ - SPEC_LATEST_SUPPORTED default 13: only change if you want to remove support
+for later protocol versions... unlikely
+
+ - AWAITING_TIMEOUT default 5: after this many seconds without a response, the
+server will hang up on the client
+
+ - CIPHERS_LIST_STRING default "DEFAULT": SSL Cipher selection
+
+ - SYSTEM_RANDOM_FILEPATH default "/dev/urandom": if your random device differs
+you can set it here
+
  - LWS_MAX_ZLIB_CONN_BUFFER  maximum size a compression buffer is allowed to
 grow to before closing the connection.  Default is 64KBytes.
 

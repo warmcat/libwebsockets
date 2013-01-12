@@ -9,10 +9,6 @@
 
 #define MIN_SIZE_TO_DEFLATE 4
 
-#ifndef LWS_MAX_ZLIB_CONN_BUFFER
-#define LWS_MAX_ZLIB_CONN_BUFFER (64 * 1024)
-#endif
-
 int lws_extension_callback_deflate_frame(
 		struct libwebsocket_context *context,
 		struct libwebsocket_extension *ext,

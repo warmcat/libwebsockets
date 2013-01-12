@@ -116,22 +116,55 @@ extern void _lws_log(int filter, const char *format, ...);
 #endif
 
 
+#ifndef FD_HASHTABLE_MODULUS
 #define FD_HASHTABLE_MODULUS 32
+#endif
+#ifndef MAX_CLIENTS
 #define MAX_CLIENTS 100
+#endif
+#ifndef LWS_MAX_HEADER_NAME_LENGTH
 #define LWS_MAX_HEADER_NAME_LENGTH 64
+#endif
+#ifndef LWS_MAX_HEADER_LEN
 #define LWS_MAX_HEADER_LEN 4096
+#endif
+#ifndef LWS_INITIAL_HDR_ALLOC
 #define LWS_INITIAL_HDR_ALLOC 256
+#endif
+#ifndef LWS_ADDITIONAL_HDR_ALLOC
 #define LWS_ADDITIONAL_HDR_ALLOC 64
+#endif
+#ifndef MAX_USER_RX_BUFFER
 #define MAX_USER_RX_BUFFER 4096
+#endif
+#ifndef MAX_BROADCAST_PAYLOAD
 #define MAX_BROADCAST_PAYLOAD 4096
+#endif
+#ifndef LWS_MAX_PROTOCOLS
 #define LWS_MAX_PROTOCOLS 10
+#endif
+#ifndef LWS_MAX_EXTENSIONS_ACTIVE
 #define LWS_MAX_EXTENSIONS_ACTIVE 10
+#endif
+#ifndef SPEC_LATEST_SUPPORTED
 #define SPEC_LATEST_SUPPORTED 13
+#endif
+#ifndef AWAITING_TIMEOUT
 #define AWAITING_TIMEOUT 5
+#endif
+#ifndef CIPHERS_LIST_STRING
 #define CIPHERS_LIST_STRING "DEFAULT"
+#endif
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
+
+#ifndef SYSTEM_RANDOM_FILEPATH
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
+#endif
+#ifndef LWS_MAX_ZLIB_CONN_BUFFER
+#define LWS_MAX_ZLIB_CONN_BUFFER (64 * 1024)
+#endif
+
 
 enum lws_websocket_opcodes_04 {
 	LWS_WS_OPCODE_04__CONTINUATION = 0,

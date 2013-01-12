@@ -2600,6 +2600,21 @@ libwebsocket_create_context(int port, const char *interf,
 #endif
 
 	lwsl_info("Initial logging level %d\n", log_level);
+	lwsl_info(" FD_HASHTABLE_MODULUS: %u\n", FD_HASHTABLE_MODULUS);
+	lwsl_info(" MAX_CLIENTS: %u\n", MAX_CLIENTS);
+	lwsl_info(" LWS_MAX_HEADER_NAME_LENGTH: %u\n", LWS_MAX_HEADER_NAME_LENGTH);
+	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
+	lwsl_info(" LWS_INITIAL_HDR_ALLOC: %u\n", LWS_INITIAL_HDR_ALLOC);
+	lwsl_info(" LWS_ADDITIONAL_HDR_ALLOC: %u\n", LWS_ADDITIONAL_HDR_ALLOC);
+	lwsl_info(" MAX_USER_RX_BUFFER: %u\n", MAX_USER_RX_BUFFER);
+	lwsl_info(" MAX_BROADCAST_PAYLOAD: %u\n", MAX_BROADCAST_PAYLOAD);
+	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
+	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
+	lwsl_info(" SPEC_LATEST_SUPPORTED: %u\n", SPEC_LATEST_SUPPORTED);
+	lwsl_info(" AWAITING_TIMEOUT: %u\n", AWAITING_TIMEOUT);
+	lwsl_info(" CIPHERS_LIST_STRING: '%s'\n", CIPHERS_LIST_STRING);
+	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
+	lwsl_info(" LWS_MAX_ZLIB_CONN_BUFFER: %u\n", LWS_MAX_ZLIB_CONN_BUFFER);
 
 #ifdef _WIN32
 	{
