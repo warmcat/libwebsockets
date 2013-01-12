@@ -123,6 +123,20 @@ fi
 AM_CONDITIONAL(DISABLE_DEBUG, test x$disable_debug = xyes)
 
 
+#
+#
+#
+AC_ARG_ENABLE(builtin-getifaddrs,
+ [  --enable-builtin-getifaddrs  Use BSD getifaddrs implementation from libwebsockets... default is your libc provides it],
+ [ builtin_getifaddrs=yes
+ ])
+if test "x$x_google_mux" = "xyes" ; then
+CFLAGS="$CFLAGS -DLWS_BUILTIN_GETIFADDRS"
+fi
+AM_CONDITIONAL(USE_BUILTIN_GETIFADDRS, test x$builtin_getifaddrs = xyes)
+
+
+
 # Checks for header files.
 AC_CHECK_HEADERS([zlib.h fcntl.h netinet/in.h stdlib.h string.h sys/socket.h unistd.h sys/prctl.h])
 

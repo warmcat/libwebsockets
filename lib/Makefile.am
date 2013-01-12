@@ -11,6 +11,9 @@ dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				extension-deflate-frame.c extension-deflate-frame.h\
 				private-libwebsockets.h
 
+if USE_BUILTIN_GETIFADDRS
+dist_libwebsockets_la_SOURCES += getifaddrs.c
+endif
 
 if EXT_GOOGLE_MUX
 dist_libwebsockets_la_SOURCES += extension-x-google-mux.c extension-x-google-mux.h

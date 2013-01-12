@@ -24,6 +24,8 @@ disabled when building this way
 3) ./configure --prefix=/usr --enable-mingw --host=x86_64-w64-mingw32
 4) make
 
+For uClibc, you will likely need --enable-builtin-getifaddrs
+
 otherwise if /usr/local/... and /usr/local/lib are OK then...
 
 $ ./configure
@@ -62,6 +64,11 @@ There are a couple of other possible configure options
 			
 --enable-x-google-mux   Enable experimental x-google-mux support
                         in the build (see notes later in document)
+
+--enable-builtin-getifaddrs  if your libc lacks getifaddrs, you can build an
+			implementation into the library.  By default your libc
+			one is used.
+
 
 Testing server with a browser
 -----------------------------

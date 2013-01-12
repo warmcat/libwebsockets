@@ -25,7 +25,11 @@
 #include <tchar.h>
 #include <io.h>
 #else
+#ifdef LWS_BUILTIN_GETIFADDRS
+#include <getifaddrs.h>
+#else
 #include <ifaddrs.h>
+#endif
 #include <sys/un.h>
 #include <sys/socket.h>
 #include <netdb.h>
