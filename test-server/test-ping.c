@@ -339,7 +339,7 @@ int main(int argc, char **argv)
 			continue;
 		switch (n) {
 		case 'd':
-			lws_set_log_level(atoi(optarg));
+			lws_set_log_level(atoi(optarg), NULL);
 			break;
 		case 'm':
 			use_mirror = 1;

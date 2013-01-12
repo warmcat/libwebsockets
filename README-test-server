@@ -262,6 +262,10 @@ available are (OR together the numbers to select multiple)
  64  EXTENSION
  128 CLIENT
 
+Also using lws_set_log_level api you may provide a custom callback to actually
+emit the log string.  By default, this points to an internal emit function
+that sends to stderr.  Setting it to NULL leaves it as it is instead.
+
 
 Websocket version supported
 ---------------------------

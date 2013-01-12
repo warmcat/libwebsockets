@@ -353,16 +353,21 @@ having to take any care about data visibility between the processes, it'll
 <h2>lws_set_log_level - Set the logging bitfield</h2>
 <i>void</i>
 <b>lws_set_log_level</b>
-(<i>int</i> <b>level</b>)
+(<i>int</i> <b>level</b>,
+<i>void (*</i><b>log_emit_function</b>) <i>(const char *line)</i>)
 <h3>Arguments</h3>
 <dl>
 <dt><b>level</b>
 <dd>OR together the LLL_ debug contexts you want output from
+<dt><b>log_emit_function</b>
+<dd>NULL to leave it as it is, or a user-supplied
+function to perform log string emission instead of
+the default stderr one.
 </dl>
 <h3>Description</h3>
 <blockquote>
-<p>
-defaults to err and warn contexts enabled
+log level defaults to "err" and "warn" contexts enabled only and
+emission on stderr.
 </blockquote>
 <hr>
 <h2>libwebsocket_write - Apply protocol then write data to client</h2>

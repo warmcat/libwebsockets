@@ -44,6 +44,8 @@ int openssl_websocket_private_data_index;
 #endif
 
 static int log_level = LLL_ERR | LLL_WARN;
+static void lwsl_emit_stderr(const char *line);
+static void (*lwsl_emit)(const char *line) = lwsl_emit_stderr;
 static const char *log_level_names[] = {
 	"ERR",
 	"WARN",
@@ -3273,35 +3275,50 @@ libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 	return wsi->user_space;
 }
 
+
+static void lwsl_emit_stderr(const char *line)
+{
+	fprintf(stderr, "%s", line);
+}
+
 void _lws_log(int filter, const char *format, ...)
 {
+	char buf[256];
 	va_list ap;
 	int n;
+	int pos = 0;
 
 	if (!(log_level & filter))
 		return;
 
 	for (n = 0; n < LLL_COUNT; n++)
 		if (filter == (1 << n)) {
-			fprintf(stderr, "%s: ", log_level_names[n]);
+			pos = sprintf(buf, "%s: ", log_level_names[n]);
 			break;
 		}
 
 	va_start(ap, format);
-	vfprintf(stderr, format, ap);
-	va_end(ap);         
+	vsnprintf(buf + pos, (sizeof buf) - pos, format, ap);
+	buf[(sizeof buf) - 1] = '\0';
+	va_end(ap);
+
+	lwsl_emit(buf);
 }
 
 /**
  * lws_set_log_level() - Set the logging bitfield
  * @level:	OR together the LLL_ debug contexts you want output from
+ * @log_emit_function:	NULL to leave it as it is, or a user-supplied
+ *			function to perform log string emission instead of
+ *			the default stderr one.
  *
- *
- *	defaults to err and warn contexts enabled
+ *	log level defaults to "err" and "warn" contexts enabled only and
+ *	emission on stderr.
  */
 
-void lws_set_log_level(int level)
+void lws_set_log_level(int level, void (*log_emit_function)(const char *line))
 {
 	log_level = level;
+	if (log_emit_function)
+		lwsl_emit = log_emit_function;
 }
-

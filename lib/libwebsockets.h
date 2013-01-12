@@ -655,7 +655,7 @@ struct libwebsocket_extension {
 };
 
 LWS_EXTERN
-void lws_set_log_level(int level);
+void lws_set_log_level(int level, void (*log_emit_function)(const char *line));
 
 LWS_EXTERN struct libwebsocket_context *
 libwebsocket_create_context(int port, const char * interf,
