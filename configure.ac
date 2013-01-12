@@ -130,7 +130,7 @@ AC_ARG_ENABLE(builtin-getifaddrs,
  [  --enable-builtin-getifaddrs  Use BSD getifaddrs implementation from libwebsockets... default is your libc provides it],
  [ builtin_getifaddrs=yes
  ])
-if test "x$x_google_mux" = "xyes" ; then
+if test "x$builtin-getifaddrs" = "xyes" ; then
 CFLAGS="$CFLAGS -DLWS_BUILTIN_GETIFADDRS"
 fi
 AM_CONDITIONAL(USE_BUILTIN_GETIFADDRS, test x$builtin_getifaddrs = xyes)
