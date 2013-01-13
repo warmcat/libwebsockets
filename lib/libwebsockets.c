@@ -1834,7 +1834,27 @@ bail_prox_listener:
 
 	case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE:
 
+		/*
+		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
+		 * timeout protection set in client-handshake.c
+		 */
+
 	#ifdef LWS_OPENSSL_SUPPORT
+
+		/*
+		 * take care of our libwebsocket_callback_on_writable
+		 * happening at a time when there's no real connection yet
+		 */
+
+		pollfd->events &= ~POLLOUT;
+
+		/* external POLL support via protocol 0 */
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
+			(void *)(long)wsi->sock, NULL, POLLOUT);
+
+		/* we can retry this... so just cook the SSL BIO the first time */
+
 		if (wsi->use_ssl && !wsi->ssl) {
 
 			wsi->ssl = SSL_new(context->ssl_client_ctx);
@@ -1848,8 +1868,33 @@ bail_prox_listener:
 		}		
 
 		if (wsi->use_ssl) {
-			if (SSL_connect(wsi->ssl) <= 0) {
+			n = SSL_connect(wsi->ssl);
 
+			if (n < 0) {
+				n = SSL_get_error(wsi->ssl, n);
+
+				if (n == SSL_ERROR_WANT_READ ||
+					n == SSL_ERROR_WANT_WRITE) {
+					/*
+					 * wants us to retry connect due to state of the
+					 * underlying ssl layer... but since it may be
+					 * stalled on blocked write, no incoming data may
+					 * arrive to trigger the retry.  Force (possibly
+					 * many if the SSL state persists in returning the
+					 * condition code, but other sockets are getting
+					 * serviced inbetweentimes) us to get called back
+					 * when writable.
+					 */
+
+					lwsl_info("SSL_connect -> SSL_ERROR_WANT_... retrying\n");
+					libwebsocket_callback_on_writable(context, wsi);
+
+					return 0; /* no error */
+				}
+				n = -1;
+			}
+
+			if (n <= 0) {
 				/*
 				 * retry if new data comes until we
 				 * run into the connection timeout or win

@@ -123,8 +123,14 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	 * provoke service to issue the handshake directly
 	 * we need to do it this way because in the proxy case, this is the
 	 * next state and executed only if and when we get a good proxy
-	 * response inside the state machine
+	 * response inside the state machine... but notice in SSL case this
+	 * may not have sent anything yet with 0 return, and won't until some
+	 * many retries from main loop.  To stop that becoming endless,
+	 * cover with a timeout.
 	 */
+
+	libwebsocket_set_timeout(wsi,
+		PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE, AWAITING_TIMEOUT);
 
 	wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE;
 	pfd.fd = wsi->sock;
