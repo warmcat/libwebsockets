@@ -105,7 +105,8 @@ static int callback_http(struct libwebsocket_context * this,
 		if (libwebsockets_serve_http_file(wsi,
 				  LOCAL_RESOURCE_PATH"/test.html", "text/html"))
 			fprintf(stderr, "Failed to send HTTP file\n");
-		break;
+		/* we are done with this connnection */
+		return 1;
 
 	/*
 	 * callback for confirming to continue with client IP appear in

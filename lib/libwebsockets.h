@@ -369,6 +369,14 @@ struct libwebsocket_extension;
  *				@in points to the URI path requested and
  *				libwebsockets_serve_http_file() makes it very
  *				simple to send back a file to the client.
+ *				Normally after sending the file you are done
+ *				with the http connection, since the rest of the
+ *				activity will come by websockets from the script
+ *				that was delivered by http, so you will want to
+ *				return 1; to close and free up the connection.
+ *				That's important because it uses a slot in the
+ *				total number of client connections allowed set
+ *				by MAX_CLIENTS.
  *
  *	LWS_CALLBACK_CLIENT_WRITEABLE:
  *      LWS_CALLBACK_SERVER_WRITEABLE:   If you call

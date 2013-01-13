@@ -36,7 +36,11 @@ $ libwebsockets-test-server
 
 should be enough to get a test server listening on port 7861.
 
-There are a couple of other possible configure options
+
+Configure script options
+------------------------
+
+There are several other possible configure options
 
 --enable-nofork		disables the fork into the background API
 			and removes all references to fork() and
@@ -103,7 +107,11 @@ tradeoff between taking too much and needless realloc
 the header value string keeps coming
 
  - MAX_USER_RX_BUFFER default 4096: max amount of user rx data to buffer at a
-time and pass to user callback
+time and pass to user callback LWS_CALLBACK_RECEIVE or
+LWS_CALLBACK_CLIENT_RECEIVE.  Large frames are passed to the user callback
+in chunks of this size.  Tradeoff between per-connection static memory
+allocation and if you expect to deal with large frames, how much you can
+see at once which can affect efficiency.
 
  - MAX_BROADCAST_PAYLOAD default 4096: largest amount of user tx data we can
 broadcast at a time
@@ -120,7 +128,14 @@ for later protocol versions... unlikely
  - AWAITING_TIMEOUT default 5: after this many seconds without a response, the
 server will hang up on the client
 
- - CIPHERS_LIST_STRING default "DEFAULT": SSL Cipher selection
+ - CIPHERS_LIST_STRING default "DEFAULT": SSL Cipher selection.  It's advisable
+to tweak the ciphers allowed to be negotiated on secure connections for
+performance reasons, otherwise a slow algorithm may be selected by the two
+endpoints and the server could expend most of its time just encrypting and
+decrypting data, severely limiting the amount of messages it will be able to
+handle per second.  For example::
+
+    "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
 
  - SYSTEM_RANDOM_FILEPATH default "/dev/urandom": if your random device differs
 you can set it here
@@ -169,6 +184,37 @@ If your target device does not offer fork(), you can use
 libwebsockets from your own main loop instead.  Use the
 configure option --nofork and simply call libwebsocket_service()
 from your own main loop as shown in the test app sources.
+
+
+Fragmented messages
+-------------------
+
+To support fragmented messages you need to check for the final
+frame of a message with libwebsocket_is_final_fragment. This
+check can be combined with libwebsockets_remaining_packet_payload
+to gather the whole contents of a message, eg:
+
+    case LWS_CALLBACK_RECEIVE:
+    {
+        Client * const client = (Client *)user;
+        const size_t remaining = libwebsockets_remaining_packet_payload(wsi);
+
+        if (!remaining && libwebsocket_is_final_fragment(wsi)) {
+            if (client->HasFragments()) {
+                client->AppendMessageFragment(in, len, 0);
+                in = (void *)client->GetMessage();
+                len = client->GetMessageLength();
+            }
+
+            client->ProcessMessage((char *)in, len, wsi);
+            client->ResetMessage();
+        } else
+            client->AppendMessageFragment(in, len, remaining);
+    }
+    break;
+
+The test app llibwebsockets-test-fraggle sources also show how to
+deal with fragmented messages.
 
 
 Testing websocket client support
