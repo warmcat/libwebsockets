@@ -194,6 +194,7 @@ static struct option options[] = {
 	{ "version",	required_argument,	NULL, 'v' },
 	{ "undeflated",	no_argument,		NULL, 'u' },
 	{ "nomux",	no_argument,		NULL, 'n' },
+	{ "longlived",	no_argument,		NULL, 'l' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -208,6 +209,7 @@ int main(int argc, char **argv)
 	struct libwebsocket *wsi_dumb;
 	int ietf_version = -1; /* latest */
 	int mirror_lifetime = 0;
+	int longlived = 0;
 
 	fprintf(stderr, "libwebsockets test client\n"
 			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> "
@@ -217,7 +219,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "nuv:khsp:d:", options, NULL);
+		n = getopt_long(argc, argv, "nuv:khsp:d:l", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -229,6 +231,9 @@ int main(int argc, char **argv)
 			break;
 		case 'p':
 			port = atoi(optarg);
+			break;
+		case 'l':
+			longlived = 1;
 			break;
 		case 'k':
 			opts = LWS_WRITE_CLIENT_IGNORE_XOR_MASK;
@@ -310,6 +315,9 @@ int main(int argc, char **argv)
 			}
 
 			mirror_lifetime = 10 + (random() & 1023);
+			/* useful to test single connection stability */
+			if (longlived)
+				mirror_lifetime += 50000;
 
 			fprintf(stderr, "opened mirror connection with "
 					     "%d lifetime\n", mirror_lifetime);
@@ -340,6 +348,6 @@ usage:
 	fprintf(stderr, "Usage: libwebsockets-test-client "
 				"<server address> [--port=<p>] "
 				"[--ssl] [-k] [-v <ver>] "
-				"[-d <log bitfield>]\n");
+				"[-d <log bitfield>] [-l]\n");
 	return 1;
 }
