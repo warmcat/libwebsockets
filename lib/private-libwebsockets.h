@@ -40,6 +40,7 @@
 #include <sys/stat.h>
 
 #ifdef WIN32
+#define compatible_close(fd) closesocket(fd);
 #ifdef  __MINGW64__                                                             
 #else                                                                           
 #ifdef  __MINGW32__                                                             
@@ -50,9 +51,7 @@
 #include <winsock2.h>
 #include <ws2ipdef.h>
 #include <windows.h>
-
 #else
-
 #include <sys/types.h>
 #include <sys/socket.h>
 #ifndef LWS_NO_FORK
@@ -68,6 +67,7 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 
+#define compatible_close(fd) close(fd);
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT

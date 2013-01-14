@@ -392,22 +392,14 @@ just_kill_connection:
 	if (wsi->ssl) {
 		n = SSL_get_fd(wsi->ssl);
 		SSL_shutdown(wsi->ssl);
-#ifdef WIN32
-		closesocket(n);
-#else
-		close(n);
-#endif
+		compatible_close(n);
 		SSL_free(wsi->ssl);
 	} else {
 #endif
 		shutdown(wsi->sock, SHUT_RDWR);
-#ifdef WIN32
+
 		if (wsi->sock)
-			closesocket(wsi->sock);
-#else
-		if (wsi->sock)
-			close(wsi->sock);
-#endif
+			compatible_close(wsi->sock);
 #ifdef LWS_OPENSSL_SUPPORT
 	}
 #endif
@@ -1585,21 +1577,13 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 					   (void *)(long)accept_fd, NULL, 0)) {
 			lwsl_debug("Callback denied network connection\n");
-#ifdef WIN32
-			closesocket(accept_fd);
-#else
-			close(accept_fd);
-#endif
+			compatible_close(accept_fd);
 			break;
 		}
 
 		new_wsi = libwebsocket_create_new_server_wsi(context);
 		if (new_wsi == NULL) {
-#ifdef WIN32
-			closesocket(accept_fd);
-#else
-			close(accept_fd);
-#endif
+			compatible_close(accept_fd);
 			break;
 		}
 
@@ -1618,11 +1602,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				    new_wsi->ssl, 0), NULL));
 				    libwebsockets_decode_ssl_error();
 				free(new_wsi);
-#ifdef WIN32
-				closesocket(accept_fd);
-#else
-				close(accept_fd);
-#endif
+				compatible_close(accept_fd);
 				break;
 			}
 
@@ -1645,11 +1625,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				SSL_free(
 				       new_wsi->ssl);
 				free(new_wsi);
-#ifdef WIN32
-				closesocket(accept_fd);
-#else
-				close(accept_fd);
-#endif
+				compatible_close(accept_fd);
 				break;
 			}
 
@@ -1736,11 +1712,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		break;
 
 bail_prox_listener:
-#ifdef WIN32
-		closesocket(accept_fd);
-#else
-		close(accept_fd);
-#endif
+		compatible_close(accept_fd);
 		break;
 
 	case LWS_CONNMODE_BROADCAST_PROXY:

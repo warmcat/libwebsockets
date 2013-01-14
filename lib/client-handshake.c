@@ -79,11 +79,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
 					     sizeof(struct sockaddr)) == -1)  {
 		lwsl_debug("Connect failed\n");
-#ifdef WIN32
-		closesocket(wsi->sock);
-#else
-		close(wsi->sock);
-#endif
+		compatible_close(wsi->sock);
 		goto oom4;
 	}
 
@@ -110,11 +106,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 
 		n = send(wsi->sock, pkt, plen, 0);
 		if (n < 0) {
-#ifdef WIN32
-			closesocket(wsi->sock);
-#else
-			close(wsi->sock);
-#endif
+			compatible_close(wsi->sock);
 			lwsl_debug("ERROR writing to proxy socket\n");
 			goto bail1;
 		}
