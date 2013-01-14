@@ -1593,8 +1593,6 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			break;
 		}
 
-		/* accepting connection to main listener */
-
 		new_wsi = libwebsocket_create_new_server_wsi(context);
 		if (new_wsi == NULL) {
 #ifdef WIN32
@@ -1627,6 +1625,9 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 #endif
 				break;
 			}
+
+			SSL_set_ex_data(new_wsi->ssl,
+				openssl_websocket_private_data_index, context);
 
 			SSL_set_fd(new_wsi->ssl, accept_fd);
 
