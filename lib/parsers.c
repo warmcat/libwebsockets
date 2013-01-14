@@ -852,7 +852,7 @@ spill:
 				&eff_buf, 0);
 			if (m < 0) {
 				lwsl_ext(
-			          "Extension '%s' failed to handle payload!",
+			          "Extension '%s' failed to handle payload!\n",
 			        	      wsi->active_extensions[n]->name);
 				return -1;
 			}
@@ -868,7 +868,7 @@ spill:
 			                	    eff_buf.token,
 						    eff_buf.token_len);
 		    else
-			    lwsl_err("No callback on payload spill!");
+			    lwsl_err("No callback on payload spill!\n");
 		}
 
 		wsi->rx_user_buffer_head = 0;
@@ -1206,7 +1206,7 @@ issue:
 		buf[1] = 0;
 		n = libwebsocket_write(wsi, buf, 2, LWS_WRITE_HTTP);
 		if (n < 0) {
-			lwsl_warn("ERROR writing to socket");
+			lwsl_warn("LWS_RXPS_SEEN_76_FF: ERROR writing to socket\n");
 			return -1;
 		}
 		lwsl_parser("  v76 close ack sent, server closing skt\n");
@@ -1338,7 +1338,7 @@ spill:
 				&eff_buf, 0);
 			if (m < 0) {
 				lwsl_ext(
-					"Extension '%s' failed to handle payload!",
+					"Extension '%s' failed to handle payload!\n",
 						wsi->active_extensions[n]->name);
 				return -1;
 			}

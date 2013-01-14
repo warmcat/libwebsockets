@@ -36,7 +36,7 @@ int lws_extension_callback_deflate_frame(
 		conn->zs_in.opaque = conn->zs_out.opaque = Z_NULL;
 		n = inflateInit2(&conn->zs_in, -LWS_ZLIB_WINDOW_BITS);
 		if (n != Z_OK) {
-			lwsl_ext("deflateInit returned %d", n);
+			lwsl_ext("deflateInit returned %d\n", n);
 			return 1;
 		}
 		n = deflateInit2(&conn->zs_out,
@@ -47,7 +47,7 @@ int lws_extension_callback_deflate_frame(
 				 -LWS_ZLIB_WINDOW_BITS, LWS_ZLIB_MEMLEVEL,
 				 Z_DEFAULT_STRATEGY);
 		if (n != Z_OK) {
-			lwsl_ext("deflateInit2 returned %d", n);
+			lwsl_ext("deflateInit2 returned %d\n", n);
 			return 1;
 		}
 		conn->buf_pre_used = 0;
@@ -227,7 +227,7 @@ bail:
 				 * screwed.. close the connection... we will get a
 				 * destroy callback to take care of closing nicely
 				 */
-				lwsl_ext("zlib error deflate");
+				lwsl_ext("zlib error deflate\n");
 
 				return -1;
 			}

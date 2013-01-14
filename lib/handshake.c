@@ -181,7 +181,7 @@ handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	n = libwebsocket_write(wsi, (unsigned char *)response,
 					  p - response, LWS_WRITE_HTTP);
 	if (n < 0) {
-		lwsl_debug("ERROR writing to socket");
+		lwsl_debug("handshake_00: ERROR writing to socket\n");
 		goto bail;
 	}
 
@@ -431,7 +431,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 					wsi->count_active_extensions], NULL, 0);
 
 				wsi->count_active_extensions++;
-				lwsl_parser("wsi->count_active_extensions <- %d",
+				lwsl_parser("wsi->count_active_extensions <- %d\n",
 						  wsi->count_active_extensions);
 
 				ext++;
@@ -482,7 +482,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		n = libwebsocket_write(wsi, (unsigned char *)response,
 						  p - response, LWS_WRITE_HTTP);
 		if (n < 0) {
-			lwsl_debug("ERROR writing to socket");
+			lwsl_debug("handshake_0405: ERROR writing to socket\n");
 			goto bail;
 		}
 

@@ -254,7 +254,7 @@ callback_dumb_increment(struct libwebsocket_context * this,
 		n = sprintf((char *)p, "%d", pss->number++);
 		n = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (n < 0) {
-			fprintf(stderr, "ERROR writing to socket");
+			fprintf(stderr, "ERROR %d writing to socket\n", n);
 			return 1;
 		}
 		break;
@@ -332,7 +332,7 @@ callback_lws_mirror(struct libwebsocket_context * this,
 								LWS_WRITE_TEXT);
 
 			if (n < 0) {
-				fprintf(stderr, "ERROR writing to socket");
+				fprintf(stderr, "ERROR %d writing to socket\n", n);
 				exit(1);
 			}
 

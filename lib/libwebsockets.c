@@ -2892,7 +2892,7 @@ libwebsocket_create_context(int port, const char *interf,
 
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
 		if (sockfd < 0) {
-			lwsl_err("ERROR opening socket");
+			lwsl_err("ERROR opening socket\n");
 			return NULL;
 		}
 
@@ -2980,7 +2980,7 @@ libwebsocket_create_context(int port, const char *interf,
 
 		fd = socket(AF_INET, SOCK_STREAM, 0);
 		if (fd < 0) {
-			lwsl_err("ERROR opening socket");
+			lwsl_err("ERROR opening socket\n");
 			return NULL;
 		}
 
