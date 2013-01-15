@@ -139,13 +139,18 @@ static int callback_http(struct libwebsocket_context * this,
 		break;
 
 	case LWS_CALLBACK_DEL_POLL_FD:
-		for (n = 0; n < count_pollfds; n++)
-			if (pollfds[n].fd == (int)(long)user)
-				while (n < count_pollfds) {
-					pollfds[n] = pollfds[n + 1];
-					n++;
-				}
-		count_pollfds--;
+		for (n = 0; n < count_pollfds; n++) {
+			if (pollfds[n].fd != (int)(long)user)
+				continue;
+			/*
+			 * swap the end guy into our vacant slot...
+			 * works ok if n is the end guy
+			 */
+			pollfds[n] = pollfds[count_pollfds - 1];
+			pollfds[count_pollfds - 1].fd = -1;
+			count_pollfds--;
+			break;
+		}
 		break;
 
 	case LWS_CALLBACK_SET_MODE_POLL_FD:
