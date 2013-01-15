@@ -30,6 +30,17 @@
 
 static int close_testing;
 
+#ifdef EXTERNAL_POLL
+#define LWS_NO_FORK
+#ifndef MAX_CLIENTS
+#define MAX_POLL_ELEMENTS 100
+#else
+#define MAX_POLL_ELEMENTS (MAX_CLIENTS)
+#endif
+struct pollfd pollfds[MAX_POLL_ELEMENTS];
+int count_pollfds = 0;
+#endif
+
 /*
  * This demo server shows how to use libwebsockets for one or more
  * websocket protocols in the same server
@@ -68,6 +79,9 @@ static int callback_http(struct libwebsocket_context *context,
 {
 	char client_name[128];
 	char client_ip[128];
+#ifdef EXTERNAL_POLL
+	int n;
+#endif
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
@@ -108,6 +122,48 @@ static int callback_http(struct libwebsocket_context *context,
 		/* if we returned non-zero from here, we kill the connection */
 		break;
 
+#ifdef EXTERNAL_POLL
+	/*
+	 * callbacks for managing the external poll() array appear in
+	 * protocol 0 callback
+	 */
+
+	case LWS_CALLBACK_ADD_POLL_FD:
+		if (count_pollfds == MAX_POLL_ELEMENTS)
+			return 1;
+
+		pollfds[count_pollfds].fd = (int)(long)user;
+		pollfds[count_pollfds].events = (int)len;
+		pollfds[count_pollfds++].revents = 0;
+		break;
+
+	case LWS_CALLBACK_DEL_POLL_FD:
+		for (n = 0; n < count_pollfds; n++) {
+			if (pollfds[n].fd != (int)(long)user)
+				continue;
+			/*
+			 * swap the end guy into our vacant slot...
+			 * works ok if n is the end guy
+			 */
+			pollfds[n] = pollfds[count_pollfds - 1];
+			pollfds[count_pollfds - 1].fd = -1;
+			count_pollfds--;
+			break;
+		}
+		break;
+
+	case LWS_CALLBACK_SET_MODE_POLL_FD:
+		for (n = 0; n < count_pollfds; n++)
+			if (pollfds[n].fd == (int)(long)user)
+				pollfds[n].events |= (int)(long)len;
+		break;
+
+	case LWS_CALLBACK_CLEAR_MODE_POLL_FD:
+		for (n = 0; n < count_pollfds; n++)
+			if (pollfds[n].fd == (int)(long)user)
+				pollfds[n].events &= ~(int)(long)len;
+		break;
+#endif
 	default:
 		break;
 	}
@@ -506,8 +562,32 @@ int main(int argc, char **argv)
 		 * immediately and quickly.  Negative return means we are
 		 * in process of closing
 		 */
+#ifdef EXTERNAL_POLL
 
+		/*
+		 * this represents an existing server's single poll action
+		 * which also includes libwebsocket sockets
+		 */
+
+		n = poll(pollfds, count_pollfds, 50);
+		if (n < 0)
+			continue;
+
+		if (n)
+			for (n = 0; n < count_pollfds; n++)
+				if (pollfds[n].revents)
+					/*
+					* returns immediately if the fd does not
+					* match anything under libwebsockets
+					* control
+					*/
+					if (libwebsocket_service_fd(context,
+								  &pollfds[n]) < 0)
+						goto done;
+
+#else
 		n = libwebsocket_service(context, 50);
+#endif
 	}
 
 #else
@@ -550,6 +630,9 @@ int main(int argc, char **argv)
 					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
 	}
 
+#endif
+#ifdef EXTERNAL_POLL
+done:
 #endif
 
 	libwebsocket_context_destroy(context);
