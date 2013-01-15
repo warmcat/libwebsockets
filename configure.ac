@@ -72,7 +72,17 @@ CFLAGS="$CFLAGS -DLWS_EXT_GOOGLE_MUX"
 fi
 AM_CONDITIONAL(EXT_GOOGLE_MUX, test x$x_google_mux = xyes)
 
-#                                                                               
+# 
+#
+#
+AC_ARG_WITH(testapps,
+ [  --without-testapps  dont build the libwebsocket-test- apps],
+ [ no_testapps=yes
+ ])
+
+AM_CONDITIONAL(NO_TESTAPPS, test x$no_testapps = xyes)
+
+
 #                                                                               
 #                                                                               
 AC_ARG_ENABLE(mingw,                                                          

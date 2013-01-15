@@ -73,6 +73,8 @@ There are several other possible configure options
 			implementation into the library.  By default your libc
 			one is used.
 
+--without-testapps	Just build the library not the test apps
+
 
 Externally configurable important constants
 -------------------------------------------
