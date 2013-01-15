@@ -3040,7 +3040,7 @@ libwebsocket_create_context(int port, const char *interf,
 		wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
 		insert_wsi(context, wsi);
 
-		listen(sockfd, SOMAXCONN);
+		listen(sockfd, LWS_SOMAXCONN);
 		lwsl_info(" Listening on port %d\n", port);
 
 		/* list in the internal poll array */

@@ -160,6 +160,9 @@ extern void _lws_log(int filter, const char *format, ...);
 #ifndef CIPHERS_LIST_STRING
 #define CIPHERS_LIST_STRING "DEFAULT"
 #endif
+#ifndef LWS_SOMAXCONN
+#define LWS_SOMAXCONN SOMAXCONN
+#endif
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
 
