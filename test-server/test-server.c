@@ -164,14 +164,18 @@ static int callback_http(struct libwebsocket_context *context,
 
 	case LWS_CALLBACK_SET_MODE_POLL_FD:
 		for (n = 0; n < count_pollfds; n++)
-			if (pollfds[n].fd == (int)(long)user)
+			if (pollfds[n].fd == (int)(long)user) {
 				pollfds[n].events |= (int)(long)len;
+				break;
+			}
 		break;
 
 	case LWS_CALLBACK_CLEAR_MODE_POLL_FD:
 		for (n = 0; n < count_pollfds; n++)
-			if (pollfds[n].fd == (int)(long)user)
+			if (pollfds[n].fd == (int)(long)user) {
 				pollfds[n].events &= ~(int)(long)len;
+				break;
+			}
 		break;
 #endif
 	default:
