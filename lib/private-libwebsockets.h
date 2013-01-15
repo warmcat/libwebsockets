@@ -173,6 +173,11 @@ extern void _lws_log(int filter, const char *format, ...);
 #define LWS_MAX_ZLIB_CONN_BUFFER (64 * 1024)
 #endif
 
+/*
+ * if not in a connection storm, check for incoming
+ * connections this many normal connection services
+ */
+#define LWS_LISTEN_SERVICE_MODULO 10
 
 enum lws_websocket_opcodes_04 {
 	LWS_WS_OPCODE_04__CONTINUATION = 0,
@@ -294,6 +299,10 @@ struct libwebsocket_context {
 	unsigned long last_timeout_check_s;
 
 	int fd_random;
+	int listen_service_modulo;
+	int listen_service_count;
+	int listen_service_fd;
+	int listen_service_extraseen;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;

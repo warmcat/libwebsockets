@@ -1534,6 +1534,41 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 	/* no, here to service a socket descriptor */
 
+	/*
+	 * deal with listen service piggybacking
+	 * every listen_service_modulo services of other fds, we
+	 * sneak one in to service the listen socket if there's anything waiting
+	 *
+	 * To handle connection storms, as found in ab, if we previously saw a
+	 * pending connection here, it causes us to check again next time.
+	 */
+
+	if (context->listen_service_fd && pollfd->fd != context->listen_service_fd) {
+		context->listen_service_count++;
+		if (context->listen_service_extraseen ||
+				context->listen_service_count == context->listen_service_modulo) {
+			context->listen_service_count = 0;
+			m = 1;
+			if (context->listen_service_extraseen > 5)
+				m = 2;
+			while (m--) {
+				/* even with extpoll, we prepared this internal fds for listen */
+				n = poll(&context->fds[0], 1, 0);
+				if (n > 0) { /* there's a connection waiting for us */
+					libwebsocket_service_fd(context, &context->fds[0]);
+					context->listen_service_extraseen++;
+				} else {
+					if (context->listen_service_extraseen)
+						context->listen_service_extraseen--;
+					break;
+				}
+			}
+		}
+
+	}
+
+	/* okay, what we came here to do... */
+
 	wsi = wsi_from_fd(context, pollfd->fd);
 
 	if (wsi == NULL) {
@@ -3040,10 +3075,14 @@ libwebsocket_create_context(int port, const char *interf,
 		wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
 		insert_wsi(context, wsi);
 
+		context->listen_service_modulo = LWS_LISTEN_SERVICE_MODULO;
+		context->listen_service_count = 0;
+		context->listen_service_fd = sockfd;
+
 		listen(sockfd, LWS_SOMAXCONN);
 		lwsl_info(" Listening on port %d\n", port);
 
-		/* list in the internal poll array */
+		/* list in the internal poll array - we're always first */
 
 		context->fds[context->fds_count].fd = sockfd;
 		context->fds[context->fds_count++].events = POLLIN;
