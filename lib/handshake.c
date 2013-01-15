@@ -549,6 +549,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 	size_t n;
 
 	switch (wsi->state) {
+	case WSI_STATE_HTTP_ISSUING_FILE:
 	case WSI_STATE_HTTP:
 		wsi->state = WSI_STATE_HTTP_HEADERS;
 		wsi->parser_state = WSI_TOKEN_NAME_PART;
@@ -692,6 +693,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 			goto bail;
 		}
 
+		wsi->mode = LWS_CONNMODE_WS_SERVING;
+
 		lwsl_parser("accepted v%02d connection\n",
 						       wsi->ietf_spec_revision);
 
@@ -717,6 +720,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 		break;
 	default:
+		lwsl_err("libwebsocket_read: Unhandled state\n");
 		break;
 	}
 

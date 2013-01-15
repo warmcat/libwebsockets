@@ -203,6 +203,7 @@ enum lws_websocket_opcodes_07 {
 
 enum lws_connection_states {
 	WSI_STATE_HTTP,
+	WSI_STATE_HTTP_ISSUING_FILE,
 	WSI_STATE_HTTP_HEADERS,
 	WSI_STATE_DEAD_SOCKET,
 	WSI_STATE_ESTABLISHED,
@@ -245,6 +246,8 @@ enum lws_rx_parse_state {
 
 
 enum connection_mode {
+	LWS_CONNMODE_HTTP_SERVING,
+
 	LWS_CONNMODE_WS_SERVING,
 	LWS_CONNMODE_WS_CLIENT,
 
@@ -384,6 +387,11 @@ struct libwebsocket {
 	BIO *client_bio;
 	int use_ssl;
 #endif
+
+	/* http send file */
+	char filepath[PATH_MAX];
+	unsigned long filepos;
+	unsigned long filelen;
 
 	void *user_space;
 };

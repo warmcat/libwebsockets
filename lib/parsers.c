@@ -1988,19 +1988,22 @@ send_raw:
  *	local files down the http link in a single step.
  */
 
-int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
+int libwebsockets_serve_http_file(struct libwebsocket_context *context,
+			struct libwebsocket *wsi, const char *file,
 						       const char *content_type)
 {
 	int fd;
 	struct stat stat_buf;
 	char buf[512];
 	char *p = buf;
-	int n;
+
+	strncpy(wsi->filepath, file, sizeof wsi->filepath);
+	wsi->filepath[sizeof(wsi->filepath) - 1] = '\0';
 
 #ifdef WIN32
-	fd = open(file, O_RDONLY | _O_BINARY);
+	fd = open(wsi->filepath, O_RDONLY | _O_BINARY);
 #else
-	fd = open(file, O_RDONLY);
+	fd = open(wsi->filepath, O_RDONLY);
 #endif
 	if (fd < 1) {
 		p += sprintf(p, "HTTP/1.0 400 Bad\x0d\x0a"
@@ -2014,6 +2017,7 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
 	}
 
 	fstat(fd, &stat_buf);
+	wsi->filelen = stat_buf.st_size;
 	p += sprintf(p, "HTTP/1.0 200 OK\x0d\x0a"
 			"Server: libwebsockets\x0d\x0a"
 			"Content-Type: %s\x0d\x0a"
@@ -2023,18 +2027,51 @@ int libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
 
 	libwebsocket_write(wsi, (unsigned char *)buf, p - buf, LWS_WRITE_HTTP);
 
-	n = 1;
-	while (n > 0) {
-		n = read(fd, buf, 512);
-		if (n <= 0)
-			continue;
-		libwebsocket_write(wsi, (unsigned char *)buf, n,
-								LWS_WRITE_HTTP);
-	}
+	wsi->filepos = 0;
+	libwebsocket_callback_on_writable(context, wsi);
+	wsi->state = WSI_STATE_HTTP_ISSUING_FILE;
 
 	close(fd);
 
 	return 0;
+}
+
+int libwebsockets_serve_http_file_fragment(struct libwebsocket_context *context,
+							struct libwebsocket *wsi)
+{
+	int fd;
+	int ret = 0;
+	char buf[512];
+	int n;
+
+#ifdef WIN32
+	fd = open(wsi->filepath, O_RDONLY | _O_BINARY);
+#else
+	fd = open(wsi->filepath, O_RDONLY);
+#endif
+	if (fd < 1)
+		return -1;
+
+	lseek(fd, wsi->filepos, SEEK_SET);
+
+	n = read(fd, buf, 512);
+	if (n > 0) {
+		libwebsocket_write(wsi, (unsigned char *)buf, n, LWS_WRITE_HTTP);
+		wsi->filepos += n;
+	}
+
+	if (n < 0)
+		ret = -1;
+
+	if (n < 512 || wsi->filepos == wsi->filelen)
+		wsi->state = WSI_STATE_HTTP;
+	else
+		if (!ret)
+			libwebsocket_callback_on_writable(context, wsi);
+
+	close(fd);
+
+	return ret;
 }
 
 

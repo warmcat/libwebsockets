@@ -770,7 +770,7 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 
 	new_wsi->state = WSI_STATE_HTTP;
 	new_wsi->name_buffer_pos = 0;
-	new_wsi->mode = LWS_CONNMODE_WS_SERVING;
+	new_wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
 		new_wsi->utf8_token[n].token = NULL;
@@ -1536,10 +1536,68 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 	wsi = wsi_from_fd(context, pollfd->fd);
 
-	if (wsi == NULL)
+	if (wsi == NULL) {
+		lwsl_debug("hm fd %d has NULL wsi\n", pollfd->fd);
 		return 0;
+	}
 
 	switch (wsi->mode) {
+
+	case LWS_CONNMODE_HTTP_SERVING:
+
+		/* handle http headers coming in */
+
+		/* any incoming data ready? */
+
+		if (pollfd->revents & POLLIN) {
+
+	#ifdef LWS_OPENSSL_SUPPORT
+			if (wsi->ssl)
+				len = SSL_read(wsi->ssl, buf, sizeof buf);
+			else
+	#endif
+				len = recv(pollfd->fd, buf, sizeof buf, 0);
+
+			if (len < 0) {
+				lwsl_debug("Socket read returned %d\n", len);
+				if (errno != EINTR && errno != EAGAIN)
+					libwebsocket_close_and_free_session(context,
+						       wsi, LWS_CLOSE_STATUS_NOSTATUS);
+				return 1;
+			}
+			if (!len) {
+				libwebsocket_close_and_free_session(context, wsi,
+							    LWS_CLOSE_STATUS_NOSTATUS);
+				return 0;
+			}
+
+			n = libwebsocket_read(context, wsi, buf, len);
+			if (n < 0)
+				/* we closed wsi */
+				return 1;
+		}
+
+		/* this handles POLLOUT for http serving fragments */
+
+		if (!(pollfd->revents & POLLOUT))
+			break;
+
+		/* one shot */
+		pollfd->events &= ~POLLOUT;
+		
+		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE)
+			break;
+
+		if (libwebsockets_serve_http_file_fragment(context, wsi) < 0)
+			libwebsocket_close_and_free_session(context, wsi,
+					       LWS_CLOSE_STATUS_NOSTATUS);
+		else
+			if (wsi->state == WSI_STATE_HTTP && wsi->protocol->callback)
+				if (wsi->protocol->callback(context, wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION, wsi->user_space,
+								wsi->filepath, wsi->filepos))
+					libwebsocket_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+		break;
+
 	case LWS_CONNMODE_SERVER_LISTENER:
 
 		/* pollin means a client has connected to us then */
@@ -2257,6 +2315,8 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	n = poll(context->fds, context->fds_count, timeout_ms);
 	if (n == 0) /* poll timeout */
 		return 0;
+
+
 
 	if (n < 0) {
 		/*

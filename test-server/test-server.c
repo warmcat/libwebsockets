@@ -85,10 +85,10 @@ static int callback_http(struct libwebsocket_context *context,
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
-		fprintf(stderr, "serving HTTP URI %s\n", (char *)in);
+//		fprintf(stderr, "serving HTTP URI %s\n", (char *)in);
 
 		if (in && strcmp(in, "/favicon.ico") == 0) {
-			if (libwebsockets_serve_http_file(wsi,
+			if (libwebsockets_serve_http_file(context, wsi,
 			     LOCAL_RESOURCE_PATH"/favicon.ico", "image/x-icon"))
 				fprintf(stderr, "Failed to send favicon\n");
 			break;
@@ -96,11 +96,21 @@ static int callback_http(struct libwebsocket_context *context,
 
 		/* send the script... when it runs it'll start websockets */
 
-		if (libwebsockets_serve_http_file(wsi,
+		if (libwebsockets_serve_http_file(context, wsi,
 				  LOCAL_RESOURCE_PATH"/test.html", "text/html"))
 			fprintf(stderr, "Failed to send HTTP file\n");
 
-		/* we are done with this http connection */
+		/*
+		 * notice that the sending of the file completes asynchronously,
+		 * we'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION callback when
+		 * it's done
+		 */
+
+		return 0;
+
+	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
+//		fprintf(stderr, "LWS_CALLBACK_HTTP_FILE_COMPLETION seen\n");
+		/* kill the connection after we sent one file */
 		return 1;
 
 	/*
@@ -116,8 +126,8 @@ static int callback_http(struct libwebsocket_context *context,
 		libwebsockets_get_peer_addresses((int)(long)user, client_name,
 			     sizeof(client_name), client_ip, sizeof(client_ip));
 
-		fprintf(stderr, "Received network connect from %s (%s)\n",
-							client_name, client_ip);
+//		fprintf(stderr, "Received network connect from %s (%s)\n",
+//							client_name, client_ip);
 
 		/* if we returned non-zero from here, we kill the connection */
 		break;
@@ -573,6 +583,7 @@ int main(int argc, char **argv)
 		if (n < 0)
 			continue;
 
+
 		if (n)
 			for (n = 0; n < count_pollfds; n++)
 				if (pollfds[n].revents)
@@ -584,13 +595,12 @@ int main(int argc, char **argv)
 					if (libwebsocket_service_fd(context,
 								  &pollfds[n]) < 0)
 						goto done;
-
 #else
 		n = libwebsocket_service(context, 50);
 #endif
 	}
 
-#else
+#else /* !LWS_NO_FORK */
 
 	/*
 	 * This example shows how to work with the forked websocket service loop

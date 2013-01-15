@@ -92,6 +92,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLIENT_WRITEABLE,
 	LWS_CALLBACK_SERVER_WRITEABLE,
 	LWS_CALLBACK_HTTP,
+	LWS_CALLBACK_HTTP_FILE_COMPLETION,
 	LWS_CALLBACK_BROADCAST,
 	LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
@@ -377,6 +378,9 @@ struct libwebsocket_extension;
  *				That's important because it uses a slot in the
  *				total number of client connections allowed set
  *				by MAX_CLIENTS.
+ *
+ *	LWS_CALLBACK_HTTP_FILE_COMPLETION: a file requested to be send down
+ *				http link has completed.
  *
  *	LWS_CALLBACK_CLIENT_WRITEABLE:
  *      LWS_CALLBACK_SERVER_WRITEABLE:   If you call
@@ -730,8 +734,12 @@ libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf, size_t len,
 				     enum libwebsocket_write_protocol protocol);
 
 LWS_EXTERN int
-libwebsockets_serve_http_file(struct libwebsocket *wsi, const char *file,
+libwebsockets_serve_http_file(struct libwebsocket_context *context,
+			struct libwebsocket *wsi, const char *file,
 						     const char *content_type);
+LWS_EXTERN int
+libwebsockets_serve_http_file_fragment(struct libwebsocket_context *context,
+			struct libwebsocket *wsi);
 
 /* notice - you need the pre- and post- padding allocation for buf below */
 

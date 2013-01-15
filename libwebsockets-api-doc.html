@@ -411,7 +411,8 @@ packet while not burdening the user code with any protocol knowledge.
 <h2>libwebsockets_serve_http_file - Send a file back to the client using http</h2>
 <i>int</i>
 <b>libwebsockets_serve_http_file</b>
-(<i>struct libwebsocket *</i> <b>wsi</b>,
+(<i>struct libwebsocket_context *</i> <b>context</b>,
+<i>struct libwebsocket *</i> <b>wsi</b>,
 <i>const char *</i> <b>file</b>,
 <i>const char *</i> <b>content_type</b>)
 <h3>Arguments</h3>
@@ -637,6 +638,11 @@ return 1; to close and free up the connection.
 That's important because it uses a slot in the
 total number of client connections allowed set
 by MAX_CLIENTS.
+</blockquote>
+<h3>LWS_CALLBACK_HTTP_FILE_COMPLETION</h3>
+<blockquote>
+a file requested to be send down
+http link has completed.
 </blockquote>
 <h3>LWS_CALLBACK_SERVER_WRITEABLE</h3>
 <blockquote>
