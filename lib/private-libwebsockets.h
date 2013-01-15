@@ -78,6 +78,11 @@
 #include <openssl/sha.h>
 #endif
 
+/* some Linux toolchains don't have this from the above, some do */
+#ifndef PATH_MAX
+#include <linux/limits.h>
+#endif
+
 #include "libwebsockets.h"
 
 extern void _lws_log(int filter, const char *format, ...);
