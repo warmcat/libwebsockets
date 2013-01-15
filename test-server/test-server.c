@@ -25,6 +25,7 @@
 #include <getopt.h>
 #include <string.h>
 #include <sys/time.h>
+#include <assert.h>
 
 #include "../lib/libwebsockets.h"
 
@@ -37,9 +38,47 @@ static int close_testing;
 #else
 #define MAX_POLL_ELEMENTS (MAX_CLIENTS)
 #endif
+
+struct poll_hash_map {
+	int fd;
+	int index;
+};
+
+#define POLL_HASH_BITS 8
+
+#define POLL_HASH_BUCKETS (1 << POLL_HASH_BITS)
+#define POLL_ENTRIES_PER_BUCKET (MAX_POLL_ELEMENTS / (1 << (POLL_HASH_BITS - 2)))
+#define POLL_HASH(num) (num & (POLL_HASH_BUCKETS - 1))
+
 struct pollfd pollfds[MAX_POLL_ELEMENTS];
+struct poll_hash_map pollfd_maps[POLL_HASH_BUCKETS][POLL_ENTRIES_PER_BUCKET];
+int pollfd_count[POLL_HASH_BUCKETS];
 int count_pollfds = 0;
-#endif
+
+static int find_poll_map_index(int hash, int fd)
+{
+	int n;
+
+	for (n = 0; n < pollfd_count[hash]; n++)
+		if (pollfd_maps[hash][n].fd == fd)
+			return n;
+
+	return -1;
+}
+
+static int find_pollfd_index(int fd)
+{
+	int n;
+	int hash = POLL_HASH(fd);
+
+	n = find_poll_map_index(hash, fd);
+	if (n < 0)
+		return n;
+
+	return pollfd_maps[hash][n].index;
+}
+
+#endif /* EXTERNAL_POLL */
 
 /*
  * This demo server shows how to use libwebsockets for one or more
@@ -80,7 +119,9 @@ static int callback_http(struct libwebsocket_context *context,
 	char client_name[128];
 	char client_ip[128];
 #ifdef EXTERNAL_POLL
-	int n;
+	int n, m, m1;
+	int hash, hash1;
+	int fd = (int)(long)user;
 #endif
 
 	switch (reason) {
@@ -139,8 +180,20 @@ static int callback_http(struct libwebsocket_context *context,
 	 */
 
 	case LWS_CALLBACK_ADD_POLL_FD:
-		if (count_pollfds == MAX_POLL_ELEMENTS)
+		if (count_pollfds == MAX_POLL_ELEMENTS) {
+			fprintf(stderr, "LWS_CALLBACK_ADD_POLL_FD: too many sockets to track\n");
 			return 1;
+		}
+		hash = POLL_HASH(fd);
+		if (pollfd_count[hash] == POLL_ENTRIES_PER_BUCKET) {
+			fprintf(stderr, "LWS_CALLBACK_ADD_POLL_FD: hash table overflow\n");
+			return 1;
+		}
+
+//		fprintf(stderr, "Adding fd %d at pollfd_maps[%d][%d], pollfds[%d]\n", fd, hash, pollfd_count[hash], count_pollfds);
+
+		pollfd_maps[hash][pollfd_count[hash]].fd = fd;
+		pollfd_maps[hash][pollfd_count[hash]++].index = count_pollfds;
 
 		pollfds[count_pollfds].fd = (int)(long)user;
 		pollfds[count_pollfds].events = (int)len;
@@ -148,34 +201,71 @@ static int callback_http(struct libwebsocket_context *context,
 		break;
 
 	case LWS_CALLBACK_DEL_POLL_FD:
-		for (n = 0; n < count_pollfds; n++) {
-			if (pollfds[n].fd != (int)(long)user)
-				continue;
-			/*
-			 * swap the end guy into our vacant slot...
-			 * works ok if n is the end guy
-			 */
-			pollfds[n] = pollfds[count_pollfds - 1];
-			pollfds[count_pollfds - 1].fd = -1;
-			count_pollfds--;
-			break;
+		hash = POLL_HASH(fd);
+		n = find_poll_map_index(hash, fd);
+		if (n < 0) {
+			fprintf(stderr, "unable to find fd %d in poll_maps\n", fd);
+			return 1;
+		}
+		m = pollfd_maps[hash][n].index;
+
+		assert(pollfds[m].fd == fd);
+		assert(count_pollfds);
+		assert(pollfd_count[hash]);
+
+//		fprintf(stderr, "Removing fd %d at pollfd_maps[%d][%d], pollfds[%d]\n", fd, hash, n, m);
+
+		/*
+		 * swap the end guy into our vacant slot...
+		 * works ok if n is the end guy
+		 */
+
+		count_pollfds--;
+		if (count_pollfds) {
+
+			/* end guy... */
+			hash1 = POLL_HASH(pollfds[count_pollfds].fd);
+			m1 = find_poll_map_index(hash1, pollfds[count_pollfds].fd);
+			/* your index has changed... */
+			pollfd_maps[hash1][m1].index = m;
+
+			pollfds[m] = pollfds[count_pollfds];
+			pollfds[count_pollfds].fd = -1;
+		}
+
+		/*
+		 * similar trick with hashtable
+		 * old end guy goes into vacant slot in hash table
+		 */
+
+		pollfd_count[hash]--;
+		if (pollfd_count[hash]) {
+			pollfd_maps[hash][n].index = pollfd_maps[hash][pollfd_count[hash]].index;
+			pollfd_maps[hash][n].fd = pollfd_maps[hash][pollfd_count[hash]].fd;
 		}
 		break;
 
 	case LWS_CALLBACK_SET_MODE_POLL_FD:
-		for (n = 0; n < count_pollfds; n++)
-			if (pollfds[n].fd == (int)(long)user) {
-				pollfds[n].events |= (int)(long)len;
-				break;
-			}
+		n = find_pollfd_index(fd);
+		if (n < 0) {
+			fprintf(stderr, "unable to find fd %d\n", fd);
+			return 1;
+		}
+		if(pollfds[n].fd != fd) {
+			fprintf(stderr, "Setting fd %d, found at pollfd_index %d, actually fd %d\n", fd, n, pollfds[n].fd);
+			assert(0);
+		}
+		pollfds[n].events |= (int)(long)len;
 		break;
 
 	case LWS_CALLBACK_CLEAR_MODE_POLL_FD:
-		for (n = 0; n < count_pollfds; n++)
-			if (pollfds[n].fd == (int)(long)user) {
-				pollfds[n].events &= ~(int)(long)len;
-				break;
-			}
+		n = find_pollfd_index(fd);
+		if (n < 0) {
+			fprintf(stderr, "unable to find fd %d\n", fd);
+			return 1;
+		}
+		assert(pollfds[n].fd == fd);
+		pollfds[n].events &= ~(int)(long)len;
 		break;
 #endif
 	default:
