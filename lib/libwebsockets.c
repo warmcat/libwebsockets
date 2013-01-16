@@ -1651,8 +1651,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
 								       &clilen);
 		if (accept_fd < 0) {
-			lwsl_warn("ERROR on accept: %d\n", strerror(errno));
-			return -1;
+			lwsl_warn("ERROR on accept: %s\n", strerror(errno));
+			break;
 		}
 
 		/* Disable Nagle */
