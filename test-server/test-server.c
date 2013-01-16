@@ -252,11 +252,18 @@ static int callback_http(struct libwebsocket_context *context,
 		 * old end guy goes into vacant slot in hash table
 		 */
 
+/* some versions of gcc see a false positive here, workaround */
+#ifdef __GNUC__
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
 		pollfd_count[hash]--;
 		if (pollfd_count[hash]) {
 			pollfd_maps[hash][n].index = pollfd_maps[hash][pollfd_count[hash]].index;
 			pollfd_maps[hash][n].fd = pollfd_maps[hash][pollfd_count[hash]].fd;
 		}
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 		break;
 
 	case LWS_CALLBACK_SET_MODE_POLL_FD:
