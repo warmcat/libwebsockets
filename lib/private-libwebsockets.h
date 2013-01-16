@@ -103,6 +103,7 @@ extern void _lws_log(int filter, const char *format, ...);
 #define lwsl_header(...)  _lws_log(LLL_HEADER, __VA_ARGS__)
 #define lwsl_ext(...)  _lws_log(LLL_HEADER, __VA_ARGS__)
 #define lwsl_client(...) _lws_log(LLL_CLIENT, __VA_ARGS__)
+extern void lwsl_hexdump(void *buf, size_t len);
 #else /* no debug */
 #define lwsl_info(...)
 #define lwsl_debug(...)
@@ -110,6 +111,7 @@ extern void _lws_log(int filter, const char *format, ...);
 #define lwsl_header(...)
 #define lwsl_ext(...)
 #define lwsl_client(...)
+#define lwsl_hexdump(a, b)
 #endif
 
 /*

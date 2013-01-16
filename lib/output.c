@@ -65,40 +65,49 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 	return 0;
 }
 
+#ifdef _DEBUG
 
-void lws_stderr_hexdump(unsigned char *buf, size_t len)
+void lwsl_hexdump(void *vbuf, size_t len)
 {
 	int n;
 	int m;
 	int start;
+	unsigned char *buf = (unsigned char *)vbuf;
+	char line[80];
+	char *p;
 
 	lwsl_parser("\n");
 
 	for (n = 0; n < len;) {
 		start = n;
+		p = line;
 
-		lwsl_debug("%04X: ", start);
+		p += sprintf(p, "%04X: ", start);
 
 		for (m = 0; m < 16 && n < len; m++)
-			lwsl_debug("%02X ", buf[n++]);
+			p += sprintf(p, "%02X ", buf[n++]);
 		while (m++ < 16)
-			lwsl_debug("   ");
+			p += sprintf(p, "   ");
 
-		lwsl_debug("   ");
+		p += sprintf(p, "   ");
 
 		for (m = 0; m < 16 && (start + m) < len; m++) {
 			if (buf[start + m] >= ' ' && buf[start + m] <= 127)
-				lwsl_debug("%c", buf[start + m]);
+				*p++ = buf[start + m];
 			else
-				lwsl_debug(".");
+				*p++ = '.';
 		}
 		while (m++ < 16)
-			lwsl_debug(" ");
+			*p++ = ' ';
 
-		lwsl_debug("\n");
+		*p++ = '\n';
+		*p = '\0';
+		lwsl_debug(line);
 	}
 	lwsl_debug("\n");
 }
+
+#endif
 
 int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
