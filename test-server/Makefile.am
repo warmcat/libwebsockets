@@ -44,7 +44,7 @@ libwebsockets_test_ping_LDADD=-L../lib -lwebsockets
 libwebsockets_test_ping_CFLAGS= -Wall -Werror -std=gnu99 -pedantic -DINSTALL_DATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 endif
 
-EXTRA_DIST=test.html favicon.ico
+EXTRA_DIST=test.html favicon.ico libwebsockets.org-logo.png
 
 #
 # cook a random test cert and key
@@ -61,6 +61,6 @@ clean-local:
 
 install-data-local:libwebsockets-test-server.key.pem libwebsockets-test-server.pem
 	mkdir -p $(DESTDIR)$(datadir)/libwebsockets-test-server
-	cp -a test.html favicon.ico libwebsockets-test-server.key.pem libwebsockets-test-server.pem \
+	cp -a $(EXTRA_DIST) libwebsockets-test-server.key.pem libwebsockets-test-server.pem \
 		$(DESTDIR)$(datadir)/libwebsockets-test-server
 
