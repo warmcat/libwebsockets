@@ -147,14 +147,6 @@ callback_lws_mirror(struct libwebsocket_context *this,
 		/* get notified as soon as we can write again */
 
 		libwebsocket_callback_on_writable(this, wsi);
-
-		/*
-		 * without at least this delay, we choke the browser
-		 * and the connection stalls, despite we now take care about
-		 * flow control
-		 */
-
-		usleep(200);
 		break;
 
 	default:
