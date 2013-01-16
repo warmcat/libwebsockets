@@ -341,9 +341,8 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		if (!wsi->utf8_token[WSI_TOKEN_HTTP].token_len ||
 			!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len ||
 			!wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len ||
-			!wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len ||
-			(!wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len &&
-			wsi->c_protocol != NULL)) {
+			!wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len
+		) {
 			lwsl_parser("libwebsocket_client_handshake "
 					"missing required header(s)\n");
 			pkt[len] = '\0';
@@ -396,11 +395,10 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	    !wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len ||
 	    !wsi->utf8_token[WSI_TOKEN_ACCEPT].token_len ||
 	    (!wsi->utf8_token[WSI_TOKEN_NONCE].token_len &&
-				   wsi->ietf_spec_revision == 4) ||
-	    (!wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len &&
-						    wsi->c_protocol != NULL)) {
+				   wsi->ietf_spec_revision == 4)
+	) {
 		lwsl_parser("libwebsocket_client_handshake "
-					"missing required header(s)\n");
+					"missing required header(s) revision=%d\n", wsi->ietf_spec_revision);
 		pkt[len] = '\0';
 		lwsl_parser("%s", pkt);
 		goto bail3;
@@ -453,7 +451,7 @@ select_protocol:
 
 	if (!wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len) {
 
-		lwsl_warn("lws_client_interpret_server_handshake "
+		lwsl_info("lws_client_interpret_server_handshake "
 					       "WSI_TOKEN_PROTOCOL is null\n");
 		/*
 		 * no protocol name to work from,
