@@ -868,7 +868,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				if (errno != EINTR && errno != EAGAIN)
 					libwebsocket_close_and_free_session(context,
 						       wsi, LWS_CLOSE_STATUS_NOSTATUS);
-				return 1;
+				return 0;
 			}
 			if (!len) {
 				libwebsocket_close_and_free_session(context, wsi,
@@ -879,7 +879,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			n = libwebsocket_read(context, wsi, buf, len);
 			if (n < 0)
 				/* we closed wsi */
-				return 1;
+				return 0;
 		}
 
 		/* this handles POLLOUT for http serving fragments */
@@ -1035,7 +1035,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 								       &clilen);
 		if (accept_fd < 0) {
 			lwsl_warn("ERROR on accept %d\n", accept_fd);
-			return -1;
+			return 0;
 		}
 
 		if (context->fds_count >= MAX_CLIENTS) {
@@ -1089,7 +1089,7 @@ bail_prox_listener:
 
 			libwebsocket_close_and_free_session(context, wsi,
 						       LWS_CLOSE_STATUS_NORMAL);
-			return 1;
+			return 0;
 		}
 
 		/*
@@ -1102,7 +1102,7 @@ bail_prox_listener:
 								 pollfd) < 0) {
 				libwebsocket_close_and_free_session(
 					context, wsi, LWS_CLOSE_STATUS_NORMAL);
-				return 1;
+				return 0;
 			}
 
 		/* any incoming data ready? */
@@ -1172,7 +1172,7 @@ bail_prox_listener:
 
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
-			return 1;
+			return 0;
 		}
 
 		/* the guy requested a callback when it was OK to write */
@@ -1183,7 +1183,7 @@ bail_prox_listener:
 								  pollfd) < 0) {
 				libwebsocket_close_and_free_session(
 					 context, wsi, LWS_CLOSE_STATUS_NORMAL);
-				return 1;
+				return 0;
 			}
 
 
@@ -1207,7 +1207,7 @@ read_pending:
 			if (errno != EINTR && errno != EAGAIN)
 				libwebsocket_close_and_free_session(context,
 					       wsi, LWS_CLOSE_STATUS_NOSTATUS);
-			return 1;
+			return 0;
 		}
 		if (!eff_buf.token_len) {
 			libwebsocket_close_and_free_session(context, wsi,
@@ -1246,7 +1246,7 @@ read_pending:
 					libwebsocket_close_and_free_session(
 						context, wsi,
 						    LWS_CLOSE_STATUS_NOSTATUS);
-					return 1;
+					return 0;
 				}
 				if (m)
 					more = 1;
@@ -1260,7 +1260,7 @@ read_pending:
 							    eff_buf.token_len);
 				if (n < 0)
 					/* we closed wsi */
-					return 1;
+					return 0;
 			}
 
 			eff_buf.token = NULL;

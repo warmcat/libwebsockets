@@ -63,7 +63,7 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
-			return 1;
+			return 0;
 		}
 
 		n = recv(wsi->sock, pkt, sizeof pkt, 0);
@@ -71,7 +71,7 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR reading from proxy socket\n");
-			return 1;
+			return 0;
 		}
 
 		pkt[13] = '\0';
@@ -79,7 +79,7 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR from proxy: %s\n", pkt);
-			return 1;
+			return 0;
 		}
 
 		/* clear his proxy connection timeout */
@@ -171,15 +171,19 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 							   "look good %d\n", n);
 				libwebsocket_close_and_free_session(context,
 						wsi, LWS_CLOSE_STATUS_NOSTATUS);
-				return 1;
+				return 0;
 			}
 		} else
 			wsi->ssl = NULL;
 	#endif
 
 		p = libwebsockets_generate_client_handshake(context, wsi, p);
-		if (p == NULL)
-			return 1;
+		if (p == NULL) {
+			lwsl_err("Failed to generate handshake for client, closing it\n");
+			libwebsocket_close_and_free_session(context, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
+			return 0;
+		}
 
 		/* send our request to the server */
 
@@ -194,7 +198,7 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 			lwsl_debug("ERROR writing to client socket\n");
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
-			return 1;
+			return 0;
 		}
 
 		wsi->parser_state = WSI_TOKEN_NAME_PART;
@@ -271,7 +275,7 @@ bail3:
 			free(wsi->c_protocol);
 		libwebsocket_close_and_free_session(context, wsi,
 						    LWS_CLOSE_STATUS_NOSTATUS);
-		return 1;
+		return 0;
 
 	case LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT:
 		lwsl_ext("LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT\n");
