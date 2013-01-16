@@ -1979,6 +1979,7 @@ send_raw:
 
 /**
  * libwebsockets_serve_http_file() - Send a file back to the client using http
+ * @context:		libwebsockets context
  * @wsi:		Websocket instance (available from user callback)
  * @file:		The file to issue over http
  * @content_type:	The http content type, eg, text/html
