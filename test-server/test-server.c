@@ -109,6 +109,23 @@ enum demo_protocols {
 
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
 
+/*
+ * We take a strict whitelist approach to stop ../ attacks
+ */
+
+struct serveable {
+	const char *urlpath;
+	const char *mimetype;
+}; 
+
+static const struct serveable whitelist[] = {
+	{ "/favicon.ico", "image/x-icon" },
+	{ "/libwebsockets.org-logo.png", "image/png" },
+
+	/* last one is the default served if no match */
+	{ "/test.html", "text/html" },
+};
+
 /* this protocol server (always the first one) just knows how to do HTTP */
 
 static int callback_http(struct libwebsocket_context *context,
@@ -118,27 +135,24 @@ static int callback_http(struct libwebsocket_context *context,
 {
 	char client_name[128];
 	char client_ip[128];
+	char buf[256];
+	int n;
 #ifdef EXTERNAL_POLL
-	int n, m, m1;
+	int m, m1;
 	int hash, hash1;
 	int fd = (int)(long)user;
 #endif
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
-//		fprintf(stderr, "serving HTTP URI %s\n", (char *)in);
 
-		if (in && strcmp(in, "/favicon.ico") == 0) {
-			if (libwebsockets_serve_http_file(context, wsi,
-			     LOCAL_RESOURCE_PATH"/favicon.ico", "image/x-icon"))
-				fprintf(stderr, "Failed to send favicon\n");
-			break;
-		}
+		for (n = 0; n < (sizeof(whitelist) / sizeof(whitelist[0]) - 1); n++)
+			if (in && strcmp(in, whitelist[n].urlpath) == 0)
+				break;
 
-		/* send the script... when it runs it'll start websockets */
+		sprintf(buf, LOCAL_RESOURCE_PATH"%s", whitelist[n].urlpath);
 
-		if (libwebsockets_serve_http_file(context, wsi,
-				  LOCAL_RESOURCE_PATH"/test.html", "text/html"))
+		if (libwebsockets_serve_http_file(context, wsi, buf, whitelist[n].mimetype))
 			fprintf(stderr, "Failed to send HTTP file\n");
 
 		/*
@@ -147,7 +161,7 @@ static int callback_http(struct libwebsocket_context *context,
 		 * it's done
 		 */
 
-		return 0;
+		break;
 
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
 //		fprintf(stderr, "LWS_CALLBACK_HTTP_FILE_COMPLETION seen\n");
