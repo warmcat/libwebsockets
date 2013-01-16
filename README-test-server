@@ -75,6 +75,10 @@ There are several other possible configure options
 
 --without-testapps	Just build the library not the test apps
 
+--without-client	Don't build the client part of the library nor the
+			test apps that need the client part.  Useful to
+			minimize library footprint for embedded server-only
+			case
 
 Externally configurable important constants
 -------------------------------------------

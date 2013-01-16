@@ -773,8 +773,9 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	int more = 1;
 	struct lws_tokens eff_buf;
 	int opt = 1;
+#ifndef LWS_NO_CLIENT
 	extern int lws_client_socket_service(struct libwebsocket_context *context, struct libwebsocket *wsi, struct pollfd *pollfd);
-
+#endif
 	/*
 	 * you can call us with pollfd = NULL to just allow the once-per-second
 	 * global timeout checks; if less than a second since the last check
@@ -1273,7 +1274,11 @@ read_pending:
 		break;
 
 	default:
+#ifdef LWS_NO_CLIENT
+		break;
+#else
 		return  lws_client_socket_service(context, wsi, pollfd);
+#endif
 	}
 
 	return 0;

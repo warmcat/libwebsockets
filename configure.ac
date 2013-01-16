@@ -82,6 +82,18 @@ AC_ARG_WITH(testapps,
 
 AM_CONDITIONAL(NO_TESTAPPS, test x$no_testapps = xyes)
 
+# 
+#
+#
+AC_ARG_WITH(client,
+ [  --without-client  dont build the client part of the library ],
+ [ no_client=yes
+ ])
+
+if test "x$no_client" = "xyes" ; then                                             
+CFLAGS="$CFLAGS -DLWS_NO_CLIENT"                                          
+fi
+AM_CONDITIONAL(NO_CLIENT, test x$no_client = xyes)
 
 #                                                                               
 #                                                                               

@@ -3,16 +3,20 @@ include_HEADERS=libwebsockets.h
 dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				handshake.c \
 				parsers.c \
-				client.c \
-				client-parser.c \
-				output.c \
 				libwebsockets.h \
 				base64-decode.c \
-				client-handshake.c \
+				output.c \
 				extension.c \
 				extension-deflate-stream.c extension-deflate-stream.h \
 				extension-deflate-frame.c extension-deflate-frame.h\
 				private-libwebsockets.h
+
+if NO_CLIENT
+else
+dist_libwebsockets_la_SOURCES+= client.c \
+				client-parser.c \
+				client-handshake.c
+endif
 
 if USE_BUILTIN_GETIFADDRS
 dist_libwebsockets_la_SOURCES += getifaddrs.c

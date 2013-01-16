@@ -561,6 +561,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 		//fwrite(buf, 1, len, stderr);
 #endif
 
+#ifndef LWS_NO_CLIENT
 		switch (wsi->mode) {
 		case LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY:
 		case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE:
@@ -574,7 +575,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 		default:
 			break;
 		}
-
+#endif
 		/* LWS_CONNMODE_WS_SERVING */
 
 		for (n = 0; n < len; n++)
@@ -702,6 +703,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 	case WSI_STATE_AWAITING_CLOSE_ACK:
 	case WSI_STATE_ESTABLISHED:
+#ifndef LWS_NO_CLIENT
 		switch (wsi->mode) {
 		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
@@ -712,7 +714,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 		default:
 			break;
 		}
-
+#endif
 		/* LWS_CONNMODE_WS_SERVING */
 
 		if (libwebsocket_interpret_incoming_packet(wsi, buf, len) < 0)
