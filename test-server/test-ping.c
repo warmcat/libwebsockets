@@ -226,6 +226,9 @@ callback_lws_mirror(struct libwebsocket_context * this,
 			shift -= 8;
 		}
 
+		while (p - &pingbuf[LWS_SEND_BUFFER_PRE_PADDING] < size)
+			*p++ = 0;
+
 		gettimeofday(&tv, NULL);
 
 		psd->ringbuffer[psd->ringbuffer_head].issue_timestamp =

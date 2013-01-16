@@ -562,6 +562,9 @@ libwebsocket_read(struct libwebsocket_context *context,
 #endif
 
 #ifndef LWS_NO_CLIENT
+
+//		lwsl_info("mode=%d\n", wsi->mode);
+
 		switch (wsi->mode) {
 		case LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY:
 		case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE:

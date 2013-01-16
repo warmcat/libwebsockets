@@ -779,10 +779,11 @@ spill:
 			return -1;
 
 		case LWS_WS_OPCODE_07__PING:
+			lwsl_info("received %d byte ping, sending pong\n", wsi->rx_user_buffer_head);
+			lwsl_hexdump(&wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING], wsi->rx_user_buffer_head);
 			/* parrot the ping packet payload back as a pong */
 			n = libwebsocket_write(wsi, (unsigned char *)
-			    &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
-				    wsi->rx_user_buffer_head, LWS_WRITE_PONG);
+			    &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING], wsi->rx_user_buffer_head, LWS_WRITE_PONG);
 			/* ... then just drop it */
 			wsi->rx_user_buffer_head = 0;
 			return 0;

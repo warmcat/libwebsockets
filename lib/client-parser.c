@@ -34,7 +34,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	struct lws_tokens eff_buf;
 	int m;
 
-	lwsl_parser(" CRX: %02X %d\n", c, wsi->lws_rx_parse_state);
+//	lwsl_parser(" CRX: %02X %d\n", c, wsi->lws_rx_parse_state);
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
@@ -401,6 +401,7 @@ spill:
 			return -1;
 
 		case LWS_WS_OPCODE_07__PING:
+			lwsl_info("client received ping, doing pong\n");
 			/* parrot the ping packet payload back as a pong*/
 			n = libwebsocket_write(wsi, (unsigned char *)
 			    &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
@@ -409,6 +410,9 @@ spill:
 			break;
 
 		case LWS_WS_OPCODE_07__PONG:
+			lwsl_info("client receied pong\n");
+			lwsl_hexdump(&wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+				    wsi->rx_user_buffer_head);
 			/* keep the statistics... */
 			wsi->pings_vs_pongs--;
 
@@ -486,7 +490,9 @@ spill:
 		if (eff_buf.token_len > 0) {
 			eff_buf.token[eff_buf.token_len] = '\0';
 
-			if (wsi->protocol->callback)
+			if (wsi->protocol->callback) {
+				if (callback_action == LWS_CALLBACK_CLIENT_RECEIVE_PONG)
+					lwsl_info("Client doing pong callback\n");
 				wsi->protocol->callback(
 						wsi->protocol->owning_server,
 						wsi,
@@ -494,6 +500,7 @@ spill:
 						wsi->user_space,
 						eff_buf.token,
 						eff_buf.token_len);
+			}
 		}
 already_done:
 		wsi->rx_user_buffer_head = 0;

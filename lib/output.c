@@ -312,14 +312,17 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	eff_buf.token = (char *)buf;
 	eff_buf.token_len = len;
 
-	for (n = 0; n < wsi->count_active_extensions; n++) {
-		m = wsi->active_extensions[n]->callback(
-			wsi->protocol->owning_server,
-			wsi->active_extensions[n], wsi,
-			LWS_EXT_CALLBACK_PAYLOAD_TX,
-			wsi->active_extensions_user[n], &eff_buf, 0);
-		if (m < 0)
-			return -1;
+	if (protocol != LWS_WRITE_PING && protocol != LWS_WRITE_PONG) {
+
+		for (n = 0; n < wsi->count_active_extensions; n++) {
+			m = wsi->active_extensions[n]->callback(
+				wsi->protocol->owning_server,
+				wsi->active_extensions[n], wsi,
+				LWS_EXT_CALLBACK_PAYLOAD_TX,
+				wsi->active_extensions_user[n], &eff_buf, 0);
+			if (m < 0)
+				return -1;
+		}
 	}
 
 	buf = (unsigned char *)eff_buf.token;
@@ -586,7 +589,7 @@ send_raw:
 	lwsl_debug("\n");
 #endif
 
-	if (protocol == LWS_WRITE_HTTP) {
+	if (protocol == LWS_WRITE_HTTP || protocol == LWS_WRITE_PONG || protocol == LWS_WRITE_PING) {
 		if (lws_issue_raw(wsi, (unsigned char *)buf - pre,
 							      len + pre + post))
 			return -1;

@@ -306,9 +306,11 @@ just_kill_connection:
 
 	/* delete it from the internal poll list if still present */
 
+	m = 0;
 	for (n = 0; n < context->fds_count; n++) {
 		if (context->fds[n].fd != wsi->sock)
 			continue;
+		m = 1;
 		while (n < context->fds_count - 1) {
 			context->fds[n] = context->fds[n + 1];
 			n++;
@@ -317,6 +319,9 @@ just_kill_connection:
 		/* we only have to deal with one */
 		n = context->fds_count;
 	}
+
+	if (!m)
+		lwsl_err("Failed to remove fd %d from fds array\n", wsi->sock);
 
 	/* remove also from external POLL support via protocol 0 */
 	if (wsi->sock)
