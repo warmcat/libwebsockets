@@ -3,6 +3,8 @@ include_HEADERS=libwebsockets.h
 dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				handshake.c \
 				parsers.c \
+				client.c \
+				client-parser.c \
 				libwebsockets.h \
 				base64-decode.c \
 				client-handshake.c \
