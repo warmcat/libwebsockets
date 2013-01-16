@@ -5,6 +5,7 @@ dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				parsers.c \
 				client.c \
 				client-parser.c \
+				output.c \
 				libwebsockets.h \
 				base64-decode.c \
 				client-handshake.c \

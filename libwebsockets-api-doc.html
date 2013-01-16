@@ -370,69 +370,6 @@ log level defaults to "err" and "warn" contexts enabled only and
 emission on stderr.
 </blockquote>
 <hr>
-<h2>libwebsocket_write - Apply protocol then write data to client</h2>
-<i>int</i>
-<b>libwebsocket_write</b>
-(<i>struct libwebsocket *</i> <b>wsi</b>,
-<i>unsigned char *</i> <b>buf</b>,
-<i>size_t</i> <b>len</b>,
-<i>enum libwebsocket_write_protocol</i> <b>protocol</b>)
-<h3>Arguments</h3>
-<dl>
-<dt><b>wsi</b>
-<dd>Websocket instance (available from user callback)
-<dt><b>buf</b>
-<dd>The data to send.  For data being sent on a websocket
-connection (ie, not default http), this buffer MUST have
-LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE the pointer
-and an additional LWS_SEND_BUFFER_POST_PADDING bytes valid
-in the buffer after (buf + len).  This is so the protocol
-header and trailer data can be added in-situ.
-<dt><b>len</b>
-<dd>Count of the data bytes in the payload starting from buf
-<dt><b>protocol</b>
-<dd>Use LWS_WRITE_HTTP to reply to an http connection, and one
-of LWS_WRITE_BINARY or LWS_WRITE_TEXT to send appropriate
-data on a websockets connection.  Remember to allow the extra
-bytes before and after buf if LWS_WRITE_BINARY or LWS_WRITE_TEXT
-are used.
-</dl>
-<h3>Description</h3>
-<blockquote>
-This function provides the way to issue data back to the client
-for both http and websocket protocols.
-<p>
-In the case of sending using websocket protocol, be sure to allocate
-valid storage before and after buf as explained above.  This scheme
-allows maximum efficiency of sending data and protocol in a single
-packet while not burdening the user code with any protocol knowledge.
-</blockquote>
-<hr>
-<h2>libwebsockets_serve_http_file - Send a file back to the client using http</h2>
-<i>int</i>
-<b>libwebsockets_serve_http_file</b>
-(<i>struct libwebsocket_context *</i> <b>context</b>,
-<i>struct libwebsocket *</i> <b>wsi</b>,
-<i>const char *</i> <b>file</b>,
-<i>const char *</i> <b>content_type</b>)
-<h3>Arguments</h3>
-<dl>
-<dt><b>context</b>
-<dd>libwebsockets context
-<dt><b>wsi</b>
-<dd>Websocket instance (available from user callback)
-<dt><b>file</b>
-<dd>The file to issue over http
-<dt><b>content_type</b>
-<dd>The http content type, eg, text/html
-</dl>
-<h3>Description</h3>
-<blockquote>
-This function is intended to be called from the callback in response
-to http requests from the client.  It allows the callback to issue
-local files down the http link in a single step.
-</blockquote>
-<hr>
 <h2>libwebsockets_remaining_packet_payload - Bytes to come before "overall" rx packet is complete</h2>
 <i>size_t</i>
 <b>libwebsockets_remaining_packet_payload</b>
