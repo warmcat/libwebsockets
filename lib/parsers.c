@@ -1994,8 +1994,9 @@ int libwebsockets_serve_http_file(struct libwebsocket_context *context,
 {
 	int fd;
 	struct stat stat_buf;
-	char buf[512];
+	char buf[1400];
 	char *p = buf;
+	int n, m;
 
 	strncpy(wsi->filepath, file, sizeof wsi->filepath);
 	wsi->filepath[sizeof(wsi->filepath) - 1] = '\0';
@@ -2025,11 +2026,48 @@ int libwebsockets_serve_http_file(struct libwebsocket_context *context,
 			"\x0d\x0a", content_type,
 					(unsigned int)stat_buf.st_size);
 
-	libwebsocket_write(wsi, (unsigned char *)buf, p - buf, LWS_WRITE_HTTP);
+	n = libwebsocket_write(wsi, (unsigned char *)buf, p - buf, LWS_WRITE_HTTP);
+	if (n) {
+		close(fd);
+		return n;
+	}
 
 	wsi->filepos = 0;
-	libwebsocket_callback_on_writable(context, wsi);
 	wsi->state = WSI_STATE_HTTP_ISSUING_FILE;
+
+	while (!lws_send_pipe_choked(wsi)) {
+
+		n = read(fd, buf, sizeof buf);
+		if (n > 0) {
+			wsi->filepos += n;
+			m = libwebsocket_write(wsi, (unsigned char *)buf, n, LWS_WRITE_HTTP);
+			if (m) {
+				close(fd);
+				return m;
+			}
+		}
+
+		if (n < 0) {
+			close(fd);
+			return -1;
+		}
+
+		if (n < sizeof(buf) || wsi->filepos == wsi->filelen) {
+			/* oh, we were able to finish here! */
+			wsi->state = WSI_STATE_HTTP;
+			close(fd);
+
+			if (wsi->protocol->callback(context, wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION, wsi->user_space,
+							wsi->filepath, wsi->filepos))
+				libwebsocket_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+
+			return 0;
+		}
+	}
+
+	/* we choked, no worries schedule service for the rest of it */
+
+	libwebsocket_callback_on_writable(context, wsi);
 
 	close(fd);
 
@@ -2041,7 +2079,7 @@ int libwebsockets_serve_http_file_fragment(struct libwebsocket_context *context,
 {
 	int fd;
 	int ret = 0;
-	char buf[512];
+	char buf[1400];
 	int n;
 
 #ifdef WIN32
@@ -2054,20 +2092,26 @@ int libwebsockets_serve_http_file_fragment(struct libwebsocket_context *context,
 
 	lseek(fd, wsi->filepos, SEEK_SET);
 
-	n = read(fd, buf, 512);
-	if (n > 0) {
-		libwebsocket_write(wsi, (unsigned char *)buf, n, LWS_WRITE_HTTP);
-		wsi->filepos += n;
+	while (!lws_send_pipe_choked(wsi)) {
+		n = read(fd, buf, sizeof buf);
+		if (n > 0) {
+			libwebsocket_write(wsi, (unsigned char *)buf, n, LWS_WRITE_HTTP);
+			wsi->filepos += n;
+		}
+
+		if (n < 0) {
+			close(fd);
+			return -1;
+		}
+
+		if (n < sizeof(buf) || wsi->filepos == wsi->filelen) {
+			wsi->state = WSI_STATE_HTTP;
+			close(fd);
+			return 0;
+		}
 	}
 
-	if (n < 0)
-		ret = -1;
-
-	if (n < 512 || wsi->filepos == wsi->filelen)
-		wsi->state = WSI_STATE_HTTP;
-	else
-		if (!ret)
-			libwebsocket_callback_on_writable(context, wsi);
+	libwebsocket_callback_on_writable(context, wsi);
 
 	close(fd);
 
