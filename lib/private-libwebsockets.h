@@ -345,6 +345,10 @@ struct libwebsocket {
 
 	int sock;
 	int position_in_fds_table;
+	unsigned char *rxflow_buffer;
+	int rxflow_len;
+	int rxflow_pos;
+	int rxflow_change_to;
 
 	enum lws_rx_parse_state lws_rx_parse_state;
 	char extension_data_pending;
@@ -479,6 +483,15 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c);
 extern int
 lws_issue_raw_ext_access(struct libwebsocket *wsi,
 						unsigned char *buf, size_t len);
+
+extern int
+_libwebsocket_rx_flow_control(struct libwebsocket *wsi);
+
+extern int
+user_callback_handle_rxflow(callback_function, struct libwebsocket_context * context,
+			struct libwebsocket *wsi,
+			 enum libwebsocket_callback_reasons reason, void *user,
+							  void *in, size_t len);
 
 #ifndef LWS_OPENSSL_SUPPORT
 

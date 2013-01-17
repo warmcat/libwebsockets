@@ -664,6 +664,7 @@ handle_first:
 		break;
 
 	case LWS_RXPS_EAT_UNTIL_76_FF:
+
 		if (c == 0xff) {
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 			goto issue;
@@ -675,7 +676,8 @@ handle_first:
 			break;
 issue:
 		if (wsi->protocol->callback)
-			wsi->protocol->callback(wsi->protocol->owning_server,
+			user_callback_handle_rxflow(wsi->protocol->callback,
+			  wsi->protocol->owning_server,
 			  wsi, LWS_CALLBACK_RECEIVE,
 			  wsi->user_space,
 			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
@@ -865,7 +867,8 @@ spill:
 		    eff_buf.token[eff_buf.token_len] = '\0';
 
 		    if (wsi->protocol->callback)
-			    wsi->protocol->callback(wsi->protocol->owning_server,
+			    user_callback_handle_rxflow(wsi->protocol->callback,
+						    wsi->protocol->owning_server,
 						    wsi, LWS_CALLBACK_RECEIVE,
 						    wsi->user_space,
 			                	    eff_buf.token,
@@ -895,18 +898,58 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 						 unsigned char *buf, size_t len)
 {
 	size_t n;
+	int m;
+	int clear_rxflow = !!wsi->rxflow_buffer;
+	struct libwebsocket_context *context = wsi->protocol->owning_server;
 
 #ifdef DEBUG
 	lwsl_parser("received %d byte packet\n", (int)len);
 	lwsl_hexdump(buf, len);
 #endif
 
+	if (buf && wsi->rxflow_buffer)
+		lwsl_err("!!!! libwebsocket_interpret_incoming_packet: was pending rxflow, data loss\n");
+
 	/* let the rx protocol state machine have as much as it needs */
 
 	n = 0;
-	while (n < len)
-		if (libwebsocket_rx_sm(wsi, buf[n++]) < 0)
+	if (!buf) {
+		lwsl_info("dumping stored rxflow buffer len %d pos=%d\n", wsi->rxflow_len, wsi->rxflow_pos);
+		buf = wsi->rxflow_buffer;
+		n = wsi->rxflow_pos;
+		len = wsi->rxflow_len;
+		/* let's pretend he's already allowing input */
+		context->fds[wsi->position_in_fds_table].events |= POLLIN;
+	}
+
+	while (n < len) {
+		if (!(context->fds[wsi->position_in_fds_table].events & POLLIN)) {
+			/* his RX is flowcontrolled */
+			if (!wsi->rxflow_buffer) { /* a new rxflow in effect, buffer it and warn caller */
+				lwsl_info("new rxflow input buffer len %d\n", len - n);
+				wsi->rxflow_buffer = (unsigned char *)malloc(len - n);
+				wsi->rxflow_len = len - n;
+				wsi->rxflow_pos = 0;
+				memcpy(wsi->rxflow_buffer, buf + n, len - n);
+			} else {
+				lwsl_info("re-using rxflow input buffer\n");
+				/* rxflow while we were spilling previous rxflow buffer */
+				wsi->rxflow_pos = n;
+			}
+			return 1;
+		}
+		m = libwebsocket_rx_sm(wsi, buf[n]);
+		if (m < 0)
 			return -1;
+		n++;
+	}
+
+	if (clear_rxflow) {
+		lwsl_info("flow: clearing it\n");
+		free(wsi->rxflow_buffer);
+		wsi->rxflow_buffer = NULL;
+		context->fds[wsi->position_in_fds_table].events &= ~POLLIN;
+	}
 
 	return 0;
 }

@@ -163,7 +163,7 @@ bail:
 				 * screwed.. close the connection... we will get a
 				 * destroy callback to take care of closing nicely
 				 */
-				fprintf(stderr, "zlib error inflate %d: %s",
+				lwsl_err("zlib error inflate %d: %s\n",
 							   n, conn->zs_in.msg);
 				return -1;
 			}

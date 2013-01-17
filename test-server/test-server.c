@@ -334,6 +334,8 @@ struct a_message {
 static struct a_message ringbuffer[MAX_MESSAGE_QUEUE];
 static int ringbuffer_head;
 
+static struct libwebsocket *wsi_choked[20];
+static int num_wsi_choked;
 
 static int
 callback_lws_mirror(struct libwebsocket_context *context,
@@ -365,7 +367,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 								LWS_WRITE_TEXT);
 			if (n < 0) {
 				fprintf(stderr, "ERROR %d writing to socket\n", n);
-				exit(1);
+				return 1;
 			}
 
 			if (pss->ringbuffer_tail == (MAX_MESSAGE_QUEUE - 1))
@@ -373,9 +375,14 @@ callback_lws_mirror(struct libwebsocket_context *context,
 			else
 				pss->ringbuffer_tail++;
 
-			if (((ringbuffer_head - pss->ringbuffer_tail) %
-				  MAX_MESSAGE_QUEUE) < (MAX_MESSAGE_QUEUE - 15))
-				libwebsocket_rx_flow_control(wsi, 1);
+			if (((ringbuffer_head - pss->ringbuffer_tail) &
+				  (MAX_MESSAGE_QUEUE - 1)) < (MAX_MESSAGE_QUEUE - 15)) {
+				for (n = 0; n < num_wsi_choked; n++)
+					libwebsocket_rx_flow_control(wsi_choked[n], 1);
+				num_wsi_choked = 0;
+			}
+
+//			fprintf(stderr, "tx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
 
 			libwebsocket_callback_on_writable(context, wsi);
 
@@ -389,6 +396,12 @@ callback_lws_mirror(struct libwebsocket_context *context,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
+
+		if (((ringbuffer_head - pss->ringbuffer_tail) &
+				  (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 1)) {
+			fprintf(stderr, "dropping!\n");
+			goto choke;
+		}
 
 		if (ringbuffer[ringbuffer_head].payload)
 			free(ringbuffer[ringbuffer_head].payload);
@@ -404,13 +417,22 @@ callback_lws_mirror(struct libwebsocket_context *context,
 		else
 			ringbuffer_head++;
 
-		if (((ringbuffer_head - pss->ringbuffer_tail) %
-				  MAX_MESSAGE_QUEUE) > (MAX_MESSAGE_QUEUE - 10))
-			libwebsocket_rx_flow_control(wsi, 0);
+		if (((ringbuffer_head - pss->ringbuffer_tail) &
+				  (MAX_MESSAGE_QUEUE - 1)) < (MAX_MESSAGE_QUEUE - 10))
+			goto done;
 
+choke:
+		if (num_wsi_choked < sizeof wsi_choked / sizeof wsi_choked[0]) {
+			libwebsocket_rx_flow_control(wsi, 0);
+			wsi_choked[num_wsi_choked++] = wsi;
+		}
+
+//		fprintf(stderr, "rx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
+done:
 		libwebsocket_callback_on_writable_all_protocol(
 					       libwebsockets_get_protocol(wsi));
 		break;
+
 	/*
 	 * this just demonstrates how to use the protocol filter. If you won't
 	 * study and reject connections based on header content, you don't need
