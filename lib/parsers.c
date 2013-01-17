@@ -774,6 +774,8 @@ spill:
 			n = libwebsocket_write(wsi, (unsigned char *)
 			   &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				     wsi->rx_user_buffer_head, LWS_WRITE_CLOSE);
+			if (n)
+				lwsl_info("write of close ack failed %d\n", n);
 			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
 			return -1;
@@ -896,9 +898,7 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 
 #ifdef DEBUG
 	lwsl_parser("received %d byte packet\n", (int)len);
-	for (n = 0; n < len; n++)
-		lwsl_parser("%02X ", buf[n]);
-	lwsl_parser("\n");
+	lwsl_hexdump(buf, len);
 #endif
 
 	/* let the rx protocol state machine have as much as it needs */

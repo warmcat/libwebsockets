@@ -147,7 +147,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 
 #if 0
 	lwsl_debug("  TX: ");
-	lws_stderr_hexdump(buf, len);
+	lws_hexdump(buf, len);
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -160,8 +160,8 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	} else {
 #endif
 		n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
-		if (n < 0) {
-			lwsl_debug("ERROR writing to socket\n");
+		if (n != len) {
+			lwsl_debug("ERROR writing len %d to socket %d\n", len, n);
 			return -1;
 		}
 #ifdef LWS_OPENSSL_SUPPORT
@@ -312,7 +312,12 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	eff_buf.token = (char *)buf;
 	eff_buf.token_len = len;
 
-	if (protocol != LWS_WRITE_PING && protocol != LWS_WRITE_PONG) {
+	switch (protocol) {
+	case LWS_WRITE_PING:
+	case LWS_WRITE_PONG:
+	case LWS_WRITE_CLOSE:
+		break;
+	default:
 
 		for (n = 0; n < wsi->count_active_extensions; n++) {
 			m = wsi->active_extensions[n]->callback(
@@ -583,18 +588,22 @@ send_raw:
 
 #if 0
 	lwsl_debug("send %ld: ", len + post);
-	for (n = -pre; n < ((int)len + post); n++)
-		lwsl_debug("%02X ", buf[n]);
-
-	lwsl_debug("\n");
+	lwsl_hexdump(&buf[-pre], len + post);
 #endif
 
-	if (protocol == LWS_WRITE_HTTP || protocol == LWS_WRITE_PONG || protocol == LWS_WRITE_PING) {
+	switch (protocol) {
+	case LWS_WRITE_CLOSE:
+//		lwsl_hexdump(&buf[-pre], len + post);
+	case LWS_WRITE_HTTP:
+	case LWS_WRITE_PONG:
+	case LWS_WRITE_PING:
 		if (lws_issue_raw(wsi, (unsigned char *)buf - pre,
 							      len + pre + post))
 			return -1;
 
 		return 0;
+	default:
+		break;
 	}
 
 	/*

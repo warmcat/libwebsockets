@@ -262,8 +262,10 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 		if (eff_buf.token_len)
 			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-							     eff_buf.token_len))
+							     eff_buf.token_len)) {
+				lwsl_debug("close: sending final extension spill had problems\n");
 				goto just_kill_connection;
+			}
 	}
 
 	/*
@@ -293,15 +295,17 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 			wsi->state = WSI_STATE_AWAITING_CLOSE_ACK;
 
-			/* and we should wait for a reply for a bit */
+			/* and we should wait for a reply for a bit out of politeness */
 
 			libwebsocket_set_timeout(wsi,
-						  PENDING_TIMEOUT_CLOSE_ACK, AWAITING_TIMEOUT);
+						  PENDING_TIMEOUT_CLOSE_ACK, 1);
 
 			lwsl_debug("sent close indication, awaiting ack\n");
 
 			return;
 		}
+
+		lwsl_info("close: sending the close packet failed, hanging up\n");
 
 		/* else, the send failed and we should just hang up */
 	}
@@ -377,10 +381,15 @@ just_kill_connection:
 		SSL_free(wsi->ssl);
 	} else {
 #endif
-		shutdown(wsi->sock, SHUT_RDWR);
+		if (wsi->sock) {
+			n = shutdown(wsi->sock, SHUT_RDWR);
+			if (n)
+				lwsl_debug("closing: shutdown returned %d\n", errno);
 
-		if (wsi->sock)
-			compatible_close(wsi->sock);
+			n = compatible_close(wsi->sock);
+			if (n)
+				lwsl_debug("closing: close returned %d\n", errno);
+		}
 #ifdef LWS_OPENSSL_SUPPORT
 	}
 #endif
