@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <limits.h>
 #ifdef  __MINGW64__
 #else
 #ifdef  __MINGW32__
@@ -76,11 +77,6 @@
 #include <openssl/err.h>
 #include <openssl/md5.h>
 #include <openssl/sha.h>
-#endif
-
-/* some Linux toolchains don't have this from the above, some do */
-#ifndef PATH_MAX
-#include <linux/limits.h>
 #endif
 
 #include "libwebsockets.h"
