@@ -118,13 +118,6 @@ extern void lwsl_hexdump(void *buf, size_t len);
 #define MSG_NOSIGNAL SO_NOSIGPIPE
 #endif
 
-
-#ifndef FD_HASHTABLE_MODULUS
-#define FD_HASHTABLE_MODULUS 32
-#endif
-#ifndef MAX_CLIENTS
-#define MAX_CLIENTS 100
-#endif
 #ifndef LWS_MAX_HEADER_NAME_LENGTH
 #define LWS_MAX_HEADER_NAME_LENGTH 64
 #endif
@@ -275,20 +268,14 @@ enum connection_mode {
 	LWS_CONNMODE_BROADCAST_PROXY
 };
 
-
-#define LWS_FD_HASH(fd) ((fd ^ (fd >> 8) ^ (fd >> 16)) % FD_HASHTABLE_MODULUS)
-
-struct libwebsocket_fd_hashtable {
-	struct libwebsocket *wsi[MAX_CLIENTS + 1];
-	int length;
-};
-
 struct libwebsocket_protocols;
+struct libwebsocket;
 
 struct libwebsocket_context {
-	struct libwebsocket_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
-	struct pollfd fds[MAX_CLIENTS * FD_HASHTABLE_MODULUS + 1];
+	struct pollfd *fds;
+	struct libwebsocket **lws_lookup; /* fd to wsi */
 	int fds_count;
+	int max_fds;
 	int listen_port;
 	char http_proxy_address[256];
 	char canonical_hostname[1024];
@@ -357,6 +344,7 @@ struct libwebsocket {
 	unsigned long pending_timeout_limit;
 
 	int sock;
+	int position_in_fds_table;
 
 	enum lws_rx_parse_state lws_rx_parse_state;
 	char extension_data_pending;
@@ -442,10 +430,7 @@ extern struct libwebsocket *
 wsi_from_fd(struct libwebsocket_context *context, int fd);
 
 extern int
-insert_wsi(struct libwebsocket_context *context, struct libwebsocket *wsi);
-
-extern int
-delete_from_fd(struct libwebsocket_context *context, int fd);
+insert_wsi_socket_into_fds(struct libwebsocket_context *context, struct libwebsocket *wsi);
 
 extern void
 libwebsocket_set_timeout(struct libwebsocket *wsi,

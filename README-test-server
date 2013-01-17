@@ -98,15 +98,6 @@ args throgh CFLAGS, eg
 They all have defaults so you only need to take care about them if you want
 to tune them to the amount of memory available.
 
-
- - FD_HASHTABLE_MODULUS default 32: size of the file descriptor hash map,
-affects server performance with large numbers of connections, at the cost of
-increased memory consumption
-
- - MAX_CLIENTS default 100: total number of simultaneous connections
-allowed... reserves some memory even when not in use, so reduce for embedded
-applications that only expect one or two connections
-
  - LWS_MAX_HEADER_NAME_LENGTH default 64: max characters in an HTTP header
 name that libwebsockets can cope with
 
@@ -159,8 +150,8 @@ grow to before closing the connection.  Default is 64KBytes.
  - LWS_SOMAXCONN  maximum number of pending connect requests the listening
 socket can cope with.  Default is SOMAXCONN.  If you need to use synthetic
 tests that just spam hundreds of connect requests at once without dropping
-any, you can try setting this to MAX_CLIENTS and mess with your box's tcp
-config like this (courtesy Edwin van der Oetelaar)
+any, you can try messing with these as well as ulimit (see later)
+(courtesy Edwin van der Oetelaar)
 
 echo "2048 64512" > /proc/sys/net/ipv4/ip_local_port_range
 echo "1" > /proc/sys/net/ipv4/tcp_tw_recycle
@@ -224,6 +215,20 @@ headless background process and exit the starting process.
 Notice stdout, stderr, stdin are all redirected to /dev/null to enforce your
 daemon is headless, so you'll need to sort out alternative logging, by, eg,
 syslog.
+
+
+Maximum number of connections
+-----------------------------
+
+The maximum number of connections the library can deal with is decided when
+it starts by querying the OS to find out how many file descriptors it is
+allowed to open (1024 on Fedora for example).  It then allocates arrays that
+allow up to that many connections, minus whatever other file descriptors are
+in use by the user code.
+
+If you want to restrict that allocation, or increase it, you can use ulimit or
+similar to change the avaiable number of file descriptors, and when restarted
+libwebsockets will adapt accordingly.
 
 
 Fragmented messages

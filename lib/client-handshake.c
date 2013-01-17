@@ -85,20 +85,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 
 	lwsl_client("connected\n");
 
-	/* into fd -> wsi hashtable */
-
-	insert_wsi(context, wsi);
-
-	/* into internal poll list */
-
-	context->fds[context->fds_count].fd = wsi->sock;
-	context->fds[context->fds_count].revents = 0;
-	context->fds[context->fds_count++].events = POLLIN;
-
-	/* external POLL support via protocol 0 */
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_ADD_POLL_FD,
-		(void *)(long)wsi->sock, NULL, POLLIN);
+	insert_wsi_socket_into_fds(context, wsi);
 
 	/* we are connected to server, or proxy */
 

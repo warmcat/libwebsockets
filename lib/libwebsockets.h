@@ -40,6 +40,7 @@ extern "C" {
 #include "../win32port/win32helpers/gettimeofday.h"
 
 #define strcasecmp stricmp
+#define getdtablesize() 30000
 
 typedef int ssize_t;
 
@@ -53,6 +54,7 @@ typedef int ssize_t;
 
 #else
 #include <poll.h>
+#include <unistd.h>
 #endif
 
 #include <assert.h>
