@@ -11,6 +11,11 @@ dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				extension-deflate-frame.c extension-deflate-frame.h\
 				private-libwebsockets.h
 
+if NO_DAEMONIZE
+else
+dist_libwebsockets_la_SOURCES+= daemonize.c
+endif
+
 if NO_CLIENT
 else
 dist_libwebsockets_la_SOURCES+= client.c \

@@ -80,6 +80,9 @@ There are several other possible configure options
 			minimize library footprint for embedded server-only
 			case
 
+--without-daemonize	Don't build daemonize.c / lws_daemonize
+
+
 Externally configurable important constants
 -------------------------------------------
 
@@ -204,6 +207,19 @@ If your target device does not offer fork(), you can use
 libwebsockets from your own main loop instead.  Use the
 configure option --nofork and simply call libwebsocket_service()
 from your own main loop as shown in the test app sources.
+
+
+Daemonization
+-------------
+
+There's a helper api lws_daemonize built by default that does everything you
+need to daemonize well, including creating a lock file.  If you're making
+what's basically a daemon, just call this early in your init to fork to a
+headless background process and exit the starting process.
+
+Notice stdout, stderr, stdin are all redirected to /dev/null to enforce your
+daemon is headless, so you'll need to sort out alternative logging, by, eg,
+syslog.
 
 
 Fragmented messages

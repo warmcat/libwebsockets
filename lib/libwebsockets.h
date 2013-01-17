@@ -819,6 +819,9 @@ libwebsockets_get_random(struct libwebsocket_context *context,
 							    void *buf, int len);
 
 LWS_EXTERN int
+lws_daemonize(const char *_lock_path);
+
+LWS_EXTERN int
 lws_send_pipe_choked(struct libwebsocket *wsi);
 
 LWS_EXTERN unsigned char *

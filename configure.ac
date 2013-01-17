@@ -95,6 +95,16 @@ CFLAGS="$CFLAGS -DLWS_NO_CLIENT"
 fi
 AM_CONDITIONAL(NO_CLIENT, test x$no_client = xyes)
 
+# 
+#
+#
+AC_ARG_WITH(daemonize,
+ [  --without-daemonize  dont build the daemonization api ],
+ [ no_daemonize=yes
+ ])
+
+AM_CONDITIONAL(NO_DAEMONIZE, test x$no_daemonize = xyes)
+
 #                                                                               
 #                                                                               
 AC_ARG_ENABLE(mingw,                                                          
