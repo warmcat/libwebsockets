@@ -27,10 +27,6 @@ if USE_BUILTIN_GETIFADDRS
 dist_libwebsockets_la_SOURCES += getifaddrs.c
 endif
 
-if EXT_GOOGLE_MUX
-dist_libwebsockets_la_SOURCES += extension-x-google-mux.c extension-x-google-mux.h
-endif
-
 if LIBCRYPTO
 else
 dist_libwebsockets_la_SOURCES += md5.c sha-1.c

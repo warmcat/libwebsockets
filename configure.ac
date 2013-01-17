@@ -59,19 +59,6 @@ LDFLAGS="$LDFLAGS -lcrypto"
 fi
 AM_CONDITIONAL(LIBCRYPTO, test x$libcrypto = xyes)
 
-
-#
-#
-#
-AC_ARG_ENABLE(x-google-mux,
- [  --enable-x-google-mux  Build experimental x-google-mux],
- [ x_google_mux=yes
- ])
-if test "x$x_google_mux" = "xyes" ; then
-CFLAGS="$CFLAGS -DLWS_EXT_GOOGLE_MUX"
-fi
-AM_CONDITIONAL(EXT_GOOGLE_MUX, test x$x_google_mux = xyes)
-
 # 
 #
 #
@@ -105,6 +92,7 @@ AC_ARG_WITH(daemonize,
 
 AM_CONDITIONAL(NO_DAEMONIZE, test x$no_daemonize = xyes)
 
+#                                                                               
 #                                                                               
 #                                                                               
 AC_ARG_ENABLE(mingw,                                                          

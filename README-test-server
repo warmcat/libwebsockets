@@ -66,9 +66,6 @@ There are several other possible configure options
 			may choke in other build contexts, this
 			lets you cleanly stop it being built
 			
---enable-x-google-mux   Enable experimental x-google-mux support
-                        in the build (see notes later in document)
-
 --enable-builtin-getifaddrs  if your libc lacks getifaddrs, you can build an
 			implementation into the library.  By default your libc
 			one is used.
@@ -446,31 +443,5 @@ appear in the callback for protocol 0 and allow interface code to
 manage socket descriptors in other poll loops.
 
 
-x-google-mux support
---------------------
-
-Experimental and super-preliminary x-google-mux support is available if
-enabled in ./configure with --enable-x-google-mux.  Note that when changing
-configurations, you will need to do a make distclean before, then the new
-configure and then make ; make install.  Don't forget the necessary other
-flags for your platform as described at the top of the readme.
-
-It has the following notes:
-
-    1) To enable it, reconfigure with --enable-x-google-mux
-    
-    2) It deviates from the google standard by sending full
-       headers in the addchannel subcommand rather than just
-       changed ones from original connect
-    
-    3) Quota is not implemented yet
-    
-However despite those caveats, in fact it can run the
-test client reliably over one socket (both dumb-increment
-and lws-mirror-protocol), you can open a browser on the
-same test server too and see the circles, etc.
-
-It also works compatibly with deflate-stream automatically.
-
-2012-04-12  Andy Green <andy@warmcat.com>
+2013-01-14  Andy Green <andy@warmcat.com>
 
