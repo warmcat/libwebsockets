@@ -82,6 +82,10 @@ There are several other possible configure options
 
 --without-daemonize	Don't build daemonize.c / lws_daemonize
 
+--disable-debug		Remove all debug logging below lwsl_warn in severity
+			from the code -- it's not just defeated from logging
+			but removed from compilation
+
 
 Externally configurable important constants
 -------------------------------------------
