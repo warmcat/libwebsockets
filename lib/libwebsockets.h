@@ -55,6 +55,8 @@ typedef int ssize_t;
 #include <poll.h>
 #endif
 
+#include <assert.h>
+
 #ifndef LWS_EXTERN
 #define LWS_EXTERN extern
 #endif
