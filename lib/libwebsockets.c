@@ -2508,8 +2508,8 @@ void _lws_log(int filter, const char *format, ...)
 
 	for (n = 0; n < LLL_COUNT; n++)
 		if (filter == (1 << n)) {
-			pos = sprintf(buf, "[%ld:%04ld] %s: ", tv.tv_sec,
-					tv.tv_usec / 100, log_level_names[n]);
+			pos = sprintf(buf, "[%ld:%04d] %s: ", tv.tv_sec,
+					(int)(tv.tv_usec / 100), log_level_names[n]);
 			break;
 		}
 
