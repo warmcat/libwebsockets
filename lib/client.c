@@ -202,6 +202,7 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 		}
 
 		wsi->parser_state = WSI_TOKEN_NAME_PART;
+		wsi->lextable_pos = 0;
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY;
 		libwebsocket_set_timeout(wsi,
 				PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE, AWAITING_TIMEOUT);

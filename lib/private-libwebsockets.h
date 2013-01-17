@@ -331,6 +331,7 @@ struct libwebsocket {
 
 	char name_buffer[LWS_MAX_HEADER_NAME_LENGTH];
 	int name_buffer_pos;
+	int lextable_pos;
 	int current_alloc_len;
 	enum lws_token_indexes parser_state;
 	struct lws_tokens utf8_token[WSI_TOKEN_COUNT];

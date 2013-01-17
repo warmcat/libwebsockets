@@ -553,6 +553,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 	case WSI_STATE_HTTP:
 		wsi->state = WSI_STATE_HTTP_HEADERS;
 		wsi->parser_state = WSI_TOKEN_NAME_PART;
+		wsi->lextable_pos = 0;
 		/* fallthru */
 	case WSI_STATE_HTTP_HEADERS:
 
