@@ -24,9 +24,12 @@
 static int pid_daemon;
 static char lock_path[PATH_MAX];
 
-static void child_handler(int signum)
+static void
+child_handler(int signum)
 {
 	int fd;
+	int len;
+	int sent;
 	char sz[20];
 
 	switch (signum) {
@@ -45,10 +48,15 @@ static void child_handler(int signum)
 				lock_path, errno, strerror(errno));
 			exit(1);
 		}
-		sprintf(sz, "%u", pid_daemon);
-		write(fd, sz, strlen(sz));
-		close(fd);
-		exit(0);
+		len = sprintf(sz, "%u", pid_daemon);
+		sent = write(fd, sz, len);
+		if (sent != len)
+			fprintf(stderr, "unable write pid to lock"
+				" file %s, code=%d (%s)",
+					lock_path, errno, strerror(errno));
+
+               close(fd);
+               exit(!!(sent == len));
 
 	case SIGCHLD: /* daemonization failed */
 		exit(1);
@@ -64,7 +72,8 @@ static void child_handler(int signum)
  * The process context you called from has been terminated then.
  */
 
-int lws_daemonize(const char *_lock_path)
+int
+lws_daemonize(const char *_lock_path)
 {
 	pid_t sid, parent;
 
@@ -129,7 +138,7 @@ int lws_daemonize(const char *_lock_path)
 	 * Change the current working directory.  This prevents the current
 	 * directory from being locked; hence not being able to remove it.
 	 */
-	if ((chdir("/")) < 0) {
+	if (chdir("/") < 0) {
 		fprintf(stderr,
 			"unable to change directory to %s, code %d (%s)",
 			"/", errno, strerror(errno));
@@ -137,9 +146,17 @@ int lws_daemonize(const char *_lock_path)
 	}
 
 	/* Redirect standard files to /dev/null */
-	freopen("/dev/null", "r", stdin);
-	freopen("/dev/null", "w", stdout);
-	freopen("/dev/null", "w", stderr);
+	if (!freopen("/dev/null", "r", stdin))
+		fprintf(stderr, "unable to freopen() stdin, code %d (%s)",
+						       errno, strerror(errno));
+
+	if (!freopen("/dev/null", "w", stdout))
+		fprintf(stderr, "unable to freopen() stdout, code %d (%s)",
+						       errno, strerror(errno));
+
+	if (!freopen("/dev/null", "w", stderr))
+		fprintf(stderr, "unable to freopen() stderr, code %d (%s)",
+						       errno, strerror(errno));
 
 	/* Tell the parent process that we are A-okay */
 	kill(parent, SIGUSR1);
