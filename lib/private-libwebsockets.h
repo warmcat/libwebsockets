@@ -492,6 +492,9 @@ extern int
 _libwebsocket_rx_flow_control(struct libwebsocket *wsi);
 
 extern int
+lws_confirm_legit_wsi(struct libwebsocket *wsi);
+
+extern int
 user_callback_handle_rxflow(callback_function, struct libwebsocket_context * context,
 			struct libwebsocket *wsi,
 			 enum libwebsocket_callback_reasons reason, void *user,

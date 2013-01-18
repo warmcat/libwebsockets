@@ -2117,6 +2117,38 @@ libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 	return wsi->user_space;
 }
 
+/**
+ * lws_confirm_legit_wsi: returns nonzero if the wsi looks bad
+ *
+ * @wsi: struct libwebsocket to assess
+ *
+ * Performs consistecy checks on what the wsi claims and what the
+ * polling arrays hold.  This'll catch a closed wsi still in use.
+ * Don't try to use on the listen (nonconnection) wsi as it will
+ * fail it.  Otherwise 0 return == wsi seems consistent.
+ */
+
+int lws_confirm_legit_wsi(struct libwebsocket *wsi)
+{
+	struct libwebsocket_context *context;
+
+	if (!(wsi && wsi->protocol && wsi->protocol->owning_server))
+		return 1;
+
+	context = wsi->protocol->owning_server;
+
+	if (!context)
+		return 2;
+
+	if (!wsi->position_in_fds_table)
+		return 3; /* position in fds table looks bad */
+	if (context->fds[wsi->position_in_fds_table].fd != wsi->sock)
+		return 4; /* pollfd entry does not wait on our socket descriptor */
+	if (context->lws_lookup[wsi->sock] != wsi)
+		return 5; /* lookup table does not agree with wsi */
+
+	return 0;
+}
 
 static void lwsl_emit_stderr(const char *line)
 {

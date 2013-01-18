@@ -350,6 +350,23 @@ having to take any care about data visibility between the processes, it'll
 "just work".
 </blockquote>
 <hr>
+<h2>lws_confirm_legit_wsi - </h2>
+<i>int</i>
+<b>lws_confirm_legit_wsi</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>struct libwebsocket to assess
+</dl>
+<h3>Description</h3>
+<blockquote>
+Performs consistecy checks on what the wsi claims and what the
+polling arrays hold.  This'll catch a closed wsi still in use.
+Don't try to use on the listen (nonconnection) wsi as it will
+fail it.  Otherwise 0 return == wsi seems consistent.
+</blockquote>
+<hr>
 <h2>lws_set_log_level - Set the logging bitfield</h2>
 <i>void</i>
 <b>lws_set_log_level</b>

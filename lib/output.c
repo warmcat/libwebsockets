@@ -295,6 +295,10 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	struct lws_tokens eff_buf;
 	int m;
 
+	if (lws_confirm_legit_wsi(wsi)) {
+		lwsl_err("libwebsocket_write on illegitimate wsi\n");
+		return -1;
+	}
 	if (len == 0 && protocol != LWS_WRITE_CLOSE) {
 		lwsl_warn("zero length libwebsocket_write attempt\n");
 		return 0;
