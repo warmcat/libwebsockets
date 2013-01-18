@@ -370,6 +370,22 @@ log level defaults to "err" and "warn" contexts enabled only and
 emission on stderr.
 </blockquote>
 <hr>
+<h2>lws_frame_is_binary - </h2>
+<i>int</i>
+<b>lws_frame_is_binary</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>the connection we are inquiring about
+</dl>
+<h3>Description</h3>
+<blockquote>
+This is intended to be called from the LWS_CALLBACK_RECEIVE callback if
+it's interested to see if the frame it's dealing with was sent in binary
+mode.
+</blockquote>
+<hr>
 <h2>libwebsockets_remaining_packet_payload - Bytes to come before "overall" rx packet is complete</h2>
 <i>size_t</i>
 <b>libwebsockets_remaining_packet_payload</b>

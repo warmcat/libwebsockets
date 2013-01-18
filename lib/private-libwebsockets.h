@@ -367,6 +367,7 @@ struct libwebsocket {
 	unsigned char opcode;
 	unsigned char final;
 	unsigned char rsv;
+	int frame_is_binary:1;
 
 	int pings_vs_pongs;
 	unsigned char (*xor_mask)(struct libwebsocket *, unsigned char);

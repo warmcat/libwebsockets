@@ -828,6 +828,9 @@ lws_daemonize(const char *_lock_path);
 LWS_EXTERN int
 lws_send_pipe_choked(struct libwebsocket *wsi);
 
+LWS_EXTERN int
+lws_frame_is_binary(struct libwebsocket *wsi);
+
 LWS_EXTERN unsigned char *
 libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md);
 

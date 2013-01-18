@@ -611,6 +611,20 @@ xor_mask_05(struct libwebsocket *wsi, unsigned char c)
 	return c ^ wsi->frame_masking_nonce_04[(wsi->frame_mask_index++) & 3];
 }
 
+/**
+ * lws_frame_is_binary: true if the current frame was sent in binary mode
+ *
+ * @wsi: the connection we are inquiring about
+ *
+ * This is intended to be called from the LWS_CALLBACK_RECEIVE callback if
+ * it's interested to see if the frame it's dealing with was sent in binary
+ * mode.
+ */
+
+int lws_frame_is_binary(struct libwebsocket *wsi)
+{
+	return wsi->frame_is_binary;
+}
 
 
 int
@@ -1083,9 +1097,10 @@ spill:
 			wsi->rx_user_buffer_head = 0;
 			return 0;
 
-		case LWS_WS_OPCODE_07__CONTINUATION:
 		case LWS_WS_OPCODE_07__TEXT_FRAME:
 		case LWS_WS_OPCODE_07__BINARY_FRAME:
+			wsi->frame_is_binary = wsi->opcode == LWS_WS_OPCODE_07__BINARY_FRAME;
+		case LWS_WS_OPCODE_07__CONTINUATION:
 			break;
 
 		default:
