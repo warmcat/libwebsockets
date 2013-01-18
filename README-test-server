@@ -77,6 +77,11 @@ There are several other possible configure options
 			minimize library footprint for embedded server-only
 			case
 
+--without-server	Don't build the server part of the library nor the
+			test apps that need the server part.  Useful to
+			minimize library footprint for embedded client-only
+			case
+
 --without-daemonize	Don't build daemonize.c / lws_daemonize
 
 --disable-debug		Remove all debug logging below lwsl_warn in severity

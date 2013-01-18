@@ -1,59 +1,98 @@
-bin_PROGRAMS=libwebsockets-test-server libwebsockets-test-server-extpoll
+bin_PROGRAMS=
 
 if NO_CLIENT
 else
-bin_PROGRAMS+=libwebsockets-test-client libwebsockets-test-fraggle
+bin_PROGRAMS+= libwebsockets-test-client
+if NO_SERVER
+else
+bin_PROGRAMS+= libwebsockets-test-fraggle
+endif
 endif
 
+if NO_SERVER
+else
+bin_PROGRAMS+=libwebsockets-test-server libwebsockets-test-server-extpoll
+endif
+
+if NO_SERVER
+else
 libwebsockets_test_server_SOURCES=test-server.c
 libwebsockets_test_server_CFLAGS=
 libwebsockets_test_server_LDADD=-L../lib -lwebsockets -lz
 libwebsockets_test_server_extpoll_SOURCES=test-server.c
 libwebsockets_test_server_extpoll_CFLAGS=$(AM_CFLAGS) -DEXTERNAL_POLL
 libwebsockets_test_server_extpoll_LDADD=-L../lib -lwebsockets -lz
+endif
 if NO_CLIENT
 else
 libwebsockets_test_client_SOURCES=test-client.c
 libwebsockets_test_client_CFLAGS=
 libwebsockets_test_client_LDADD=-L../lib -lwebsockets -lz
+if NO_SERVER
+else
 libwebsockets_test_fraggle_SOURCES=test-fraggle.c
 libwebsockets_test_fraggle_CFLAGS=
 libwebsockets_test_fraggle_LDADD=-L../lib -lwebsockets -lz
 endif
+endif
 
-if MINGW                                                                        
+if MINGW
+if NO_SERVER
+else
 libwebsockets_test_server_CFLAGS+= -w  -I../win32port/win32helpers
 libwebsockets_test_server_extpoll_CFLAGS+= -w  -I../win32port/win32helpers
+endif
 if NO_CLIENT
 else
 libwebsockets_test_client_CFLAGS+= -w   -I../win32port/win32helpers
+if NO_SERVER
+else
 libwebsockets_test_fraggle_CFLAGS+= -w   -I../win32port/win32helpers
 endif
+endif
 
+if NO_SERVER
+else
 libwebsockets_test_server_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz
 libwebsockets_test_server_extpoll_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz
+endif
 if NO_CLIENT
 else
 libwebsockets_test_client_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz 
+if NO_SERVER
+else
 libwebsockets_test_fraggle_LDADD+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc -lws2_32 -lz
 endif
+endif
 
+else
+if NO_SERVER
 else
 libwebsockets_test_server_CFLAGS+= -Werror
 libwebsockets_test_server_extpoll_CFLAGS+= -Werror
+endif
 if NO_CLIENT
 else
 libwebsockets_test_client_CFLAGS+= -Werror
+if NO_SERVER
+else
 libwebsockets_test_fraggle_CFLAGS+= -Werror
+endif
 endif
 endif   
 
+if NO_SERVER
+else
 libwebsockets_test_server_CFLAGS+= -Wall -std=gnu99 -pedantic -DINSTALL_DATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 libwebsockets_test_server_extpoll_CFLAGS+= -Wall -std=gnu99 -pedantic -DINSTALL_DATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+endif
 if NO_CLIENT
 else
 libwebsockets_test_client_CFLAGS+= -Wall -std=gnu99 -pedantic -DINSTALL_DATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+if NO_SERVER
+else
 libwebsockets_test_fraggle_CFLAGS+= -Wall -std=gnu99 -pedantic -DINSTALL_DATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+endif
 endif
 
 if NOPING

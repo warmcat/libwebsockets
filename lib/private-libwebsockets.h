@@ -378,9 +378,11 @@ struct libwebsocket {
 	/* 07 specific */
 	char this_frame_masked;
 
+	enum connection_mode mode;
+
+#ifndef LWS_NO_CLIENT
 	/* client support */
 	char initial_handshake_hash_base64[30];
-	enum connection_mode mode;
 	char *c_path;
 	char *c_host;
 	char *c_origin;
@@ -389,7 +391,7 @@ struct libwebsocket {
 
 	char *c_address;
 	int c_port;
-
+#endif
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;

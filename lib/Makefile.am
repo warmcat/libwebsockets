@@ -1,8 +1,8 @@
 lib_LTLIBRARIES=libwebsockets.la
 include_HEADERS=libwebsockets.h
 dist_libwebsockets_la_SOURCES=libwebsockets.c \
-				handshake.c \
 				parsers.c \
+				handshake.c \
 				libwebsockets.h \
 				base64-decode.c \
 				output.c \
@@ -21,6 +21,12 @@ else
 dist_libwebsockets_la_SOURCES+= client.c \
 				client-parser.c \
 				client-handshake.c
+endif
+
+if NO_SERVER
+else
+dist_libwebsockets_la_SOURCES+= server.c \
+				server-handshake.c
 endif
 
 if USE_BUILTIN_GETIFADDRS

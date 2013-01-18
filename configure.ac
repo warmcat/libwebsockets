@@ -85,6 +85,21 @@ AM_CONDITIONAL(NO_CLIENT, test x$no_client = xyes)
 # 
 #
 #
+AC_ARG_WITH(server,
+ [  --without-server  dont build the client part of the library ],
+ [ no_server=yes
+ ])
+
+if test "x$no_server" = "xyes" ; then                                             
+CFLAGS="$CFLAGS -DLWS_NO_SERVER"                                          
+fi
+AM_CONDITIONAL(NO_SERVER, test x$no_server = xyes)
+
+
+
+# 
+#
+#
 AC_ARG_WITH(daemonize,
  [  --without-daemonize  dont build the daemonization api ],
  [ no_daemonize=yes
