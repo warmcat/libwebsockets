@@ -84,7 +84,7 @@ There are several other possible configure options
 
 --without-daemonize	Don't build daemonize.c / lws_daemonize
 
---disable-debug		Remove all debug logging below lwsl_warn in severity
+--disable-debug		Remove all debug logging below lwsl_notice in severity
 			from the code -- it's not just defeated from logging
 			but removed from compilation
 
@@ -399,11 +399,11 @@ libwebsockets-test-client someserver.com
 debug logging
 -------------
 
-By default logging of severity "warn" or "err" is enabled to stderr.
+By default logging of severity "notice", "warn" or "err" is enabled to stderr.
 
 Again by default other logging is comiled in but disabled from printing.
 
-If you want to eliminate the debug logging below warn in severity, use the
+If you want to eliminate the debug logging below notice  in severity, use the
 --disable-debug configure option to have it removed from the code by the
 preprocesser.
 
@@ -414,12 +414,13 @@ available are (OR together the numbers to select multiple)
 
  1   ERR
  2   WARN
- 4   INFO
- 8   DEBUG
- 16  PARSER
- 32  HEADER
- 64  EXTENSION
- 128 CLIENT
+ 4   NOTICE
+ 8   INFO
+ 16  DEBUG
+ 32  PARSER
+ 64  HEADER
+ 128 EXTENSION
+ 256 CLIENT
 
 Also using lws_set_log_level api you may provide a custom callback to actually
 emit the log string.  By default, this points to an internal emit function

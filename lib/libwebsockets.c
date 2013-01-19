@@ -47,12 +47,13 @@ int openssl_websocket_private_data_index;
 #endif
 #endif
 
-static int log_level = LLL_ERR | LLL_WARN;
+static int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
 static void lwsl_emit_stderr(const char *line);
 static void (*lwsl_emit)(const char *line) = lwsl_emit_stderr;
 static const char *log_level_names[] = {
 	"ERR",
 	"WARN",
+	"NOTICE",
 	"INFO",
 	"DEBUG",
 	"PARSER",

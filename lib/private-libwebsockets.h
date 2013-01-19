@@ -83,7 +83,8 @@
 
 extern void _lws_log(int filter, const char *format, ...);
 
-/* warn and log are always compiled in */
+/* notice, warn and log are always compiled in */
+#define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
 #define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
 #define lwsl_err(...) _lws_log(LLL_ERR, __VA_ARGS__)
 
