@@ -105,6 +105,9 @@ AC_ARG_WITH(daemonize,
  [ no_daemonize=yes
  ])
 
+if test "x$no_daemonize" = "xyes" ; then                                             
+CFLAGS="$CFLAGS -DLWS_NO_DAEMONIZE"                                          
+fi
 AM_CONDITIONAL(NO_DAEMONIZE, test x$no_daemonize = xyes)
 
 #                                                                               

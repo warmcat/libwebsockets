@@ -1923,7 +1923,7 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *context)
 	if (n < 0)
 		return n;
 
-	if (!n) {
+	if (n) {
 
 		/* main process context */
 
@@ -1959,6 +1959,7 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *context)
 
 #ifdef HAVE_SYS_PRCTL_H
 	/* we want a SIGHUP when our parent goes down */
+	signal(SIGHUP, SIG_DFL);
 	prctl(PR_SET_PDEATHSIG, SIGHUP);
 #endif
 

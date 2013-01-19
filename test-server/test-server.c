@@ -43,6 +43,8 @@ int count_pollfds;
 
 #endif /* EXTERNAL_POLL */
 
+//#define LWS_NO_FORK
+
 /*
  * This demo server shows how to use libwebsockets for one or more
  * websocket protocols in the same server
@@ -488,6 +490,9 @@ static struct option options[] = {
 	{ "killmask",	no_argument,		NULL, 'k' },
 	{ "interface",  required_argument,	NULL, 'i' },
 	{ "closetest",  no_argument,		NULL, 'c' },
+#ifndef NO_DAEMONIZE
+	{ "daemonize", 	no_argument,		NULL, 'D' },
+#endif
 	{ NULL, 0, 0, 0 }
 };
 
@@ -506,16 +511,26 @@ int main(int argc, char **argv)
 	int opts = 0;
 	char interface_name[128] = "";
 	const char *interface = NULL;
+	int syslog_options = LOG_PID | LOG_PERROR;
 #ifdef LWS_NO_FORK
 	unsigned int oldus = 0;
 #endif
 	int debug_level = 7;
+#ifndef NO_DAEMONIZE
+	int daemonize = 0;
+#endif
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "ci:khsp:d:", options, NULL);
+		n = getopt_long(argc, argv, "ci:khsp:d:D", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
+#ifndef NO_DAEMONIZE
+		case 'D':
+			daemonize = 1;
+			syslog_options &= ~LOG_PERROR;
+			break;
+#endif
 		case 'd':
 			debug_level = atoi(optarg);
 			break;
@@ -547,16 +562,26 @@ int main(int argc, char **argv)
 		}
 	}
 
-	setlogmask(LOG_UPTO (LOG_NOTICE));
-	openlog("lwsts", LOG_PID | LOG_PERROR, LOG_DAEMON);
+	/* 
+	 * normally lock path would be /var/lock/lwsts or similar, to
+	 * simplify getting started without having to take care about
+	 * permissions or running as root, set to /tmp/.lwsts-lock
+	 */
+	if (daemonize && lws_daemonize("/tmp/.lwsts-lock")) {
+		fprintf(stderr, "Failed to daemonize\n");
+		return 1;
+	}
+
+	/* we will only try to log things according to our debug_level */
+	setlogmask(LOG_UPTO (LOG_DEBUG));
+	openlog("lwsts", syslog_options, LOG_DAEMON);
 
 	/* tell the library what debug level to emit and to send it to syslog */
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
 
-	lwsl_notice("libwebsockets test server\n"
-			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> "
+	lwsl_notice("libwebsockets test server - "
+			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> - "
 						    "licensed under LGPL2.1\n");
-
 	if (!use_ssl)
 		cert_path = key_path = NULL;
 

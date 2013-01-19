@@ -44,7 +44,7 @@ child_handler(int signum)
 		fd = open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
 		if (fd < 0) {
 			fprintf(stderr, "unable to create lock"
-				" file %s, code=%d (%s)",
+				" file %s, code=%d (%s)\n",
 				lock_path, errno, strerror(errno));
 			exit(1);
 		}
@@ -52,7 +52,7 @@ child_handler(int signum)
 		sent = write(fd, sz, len);
 		if (sent != len)
 			fprintf(stderr, "unable write pid to lock"
-				" file %s, code=%d (%s)",
+				" file %s, code=%d (%s)\n",
 					lock_path, errno, strerror(errno));
 
                close(fd);
