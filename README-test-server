@@ -430,6 +430,17 @@ A helper function lwsl_emit_syslog() is exported from the library to simplify
 logging to syslog.  You still need to use setlogmask, openlog and closelog
 in your user code.
 
+The logging apis are made available for user code.
+
+lwsl_err(...)
+lwsl_warn(...)
+lwsl_notice(...)
+lwsl_info(...)
+lwsl_debug(...)
+
+The difference between notice and info is that notice will be logged by default
+whereas info is ignored by default.
+
 
 Websocket version supported
 ---------------------------
