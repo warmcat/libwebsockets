@@ -257,6 +257,8 @@ struct libwebsocket_context {
 	unsigned int options;
 	unsigned long last_timeout_check_s;
 
+	int started_with_parent;
+
 	int fd_random;
 	int listen_service_modulo;
 	int listen_service_count;

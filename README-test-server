@@ -177,6 +177,29 @@ Incrementing numbers should appear in the browser display.
 
 By default the test server logs to both stderr and syslog.
 
+
+Running test server as a Daemon
+-------------------------------
+
+You can use the -D option on the test server to have it fork into the
+background and return immediately.  In this daemonized mode all stderr is
+disabled and logging goes only to syslog, eg, /var/log/messages or similar.
+
+The server maintains a lockfile at /tmp/.lwsts-lock that contains the pid
+of the master process, and deletes this file when the master process
+terminates.
+
+To stop the daemon, do
+
+  kill `cat /tmp/.lwsts-lock`
+
+If it finds a stale lock (the pid mentioned in the file does not exist
+any more) it will delete the lock and create a new one during startup.
+
+If the lock is valid, the daemon will exit with a note on stderr that
+it was already running.s
+
+
 Using SSL on the server side
 ----------------------------
 

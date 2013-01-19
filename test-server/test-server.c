@@ -43,7 +43,6 @@ int count_pollfds;
 
 #endif /* EXTERNAL_POLL */
 
-//#define LWS_NO_FORK
 
 /*
  * This demo server shows how to use libwebsockets for one or more
@@ -562,6 +561,7 @@ int main(int argc, char **argv)
 		}
 	}
 
+#ifndef NO_DAEMONIZE
 	/* 
 	 * normally lock path would be /var/lock/lwsts or similar, to
 	 * simplify getting started without having to take care about
@@ -571,7 +571,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Failed to daemonize\n");
 		return 1;
 	}
-
+#endif
 	/* we will only try to log things according to our debug_level */
 	setlogmask(LOG_UPTO (LOG_DEBUG));
 	openlog("lwsts", syslog_options, LOG_DAEMON);
@@ -685,6 +685,8 @@ int main(int argc, char **argv)
 		lwsl_err("Unable to fork service loop %d\n", n);
 		return 1;
 	}
+	if (n)
+		exit(0);
 
 	while (1) {
 

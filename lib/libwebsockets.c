@@ -703,6 +703,10 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	if (context->last_timeout_check_s != tv.tv_sec) {
 		context->last_timeout_check_s = tv.tv_sec;
 
+		/* if our parent went down, don't linger around */
+		if (context->started_with_parent && kill(context->started_with_parent, 0) < 0)
+			kill(getpid(), SIGTERM);
+
 		/* global timeout check once per second */
 
 		for (n = 0; n < context->fds_count; n++) {
@@ -1443,12 +1447,17 @@ libwebsocket_create_context(int port, const char *interf,
 	}
 #endif
 
-
 	context = (struct libwebsocket_context *) malloc(sizeof(struct libwebsocket_context));
 	if (!context) {
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
+#ifndef NO_DAEMONIZE
+	extern int pid_daemon;
+	context->started_with_parent = pid_daemon;
+	lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
+#endif
+
 	context->protocols = protocols;
 	context->listen_port = port;
 	context->http_proxy_port = 0;
@@ -1975,10 +1984,14 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *context)
  * solaris, could remember ppid right after fork and wait for it to change.
  */
 
-        if (getppid() == 1)
-            break;
+		/* if our parent went down, don't linger around */
+		if (context->started_with_parent && kill(context->started_with_parent, 0) < 0)
+			kill(getpid(), SIGTERM);
+
+	        if (getppid() == 1)
+	            break;
 //#endif
-    }
+	}
 
 
 	return 1;

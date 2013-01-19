@@ -21,7 +21,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-static int pid_daemon;
+int pid_daemon;
 static char lock_path[PATH_MAX];
 
 static void
@@ -64,6 +64,14 @@ child_handler(int signum)
 	}
 }
 
+static void lws_daemon_closing(int sigact)
+{
+	if (getpid() == pid_daemon)
+		unlink(lock_path);
+
+	kill(getpid(), SIGKILL);
+}
+
 /*
  * You just need to call this from your main(), when it
  * returns you are all set "in the background" decoupled
@@ -76,10 +84,30 @@ int
 lws_daemonize(const char *_lock_path)
 {
 	pid_t sid, parent;
+	int fd;
+	char buf[10];
+	int n, ret;
+	struct sigaction act;
 
 	/* already a daemon */
 	if (getppid() == 1)
 		return (1);
+
+	fd = open(_lock_path, O_RDONLY);
+	if (fd > 0) {
+		n = read(fd, buf, sizeof buf);
+		close(fd);
+		if (n) {
+			n = atoi(buf);
+			ret = kill(n, 0);
+			if (ret >= 0) {
+				fprintf(stderr, "Daemon already running from pid %d, aborting\n", n);
+				exit(1);
+			}
+			fprintf(stderr, "Removing stale lock file %s from dead pid %d\n", _lock_path, n);
+			unlink(lock_path);
+		}
+	}
 
 	strncpy(lock_path, _lock_path, sizeof lock_path);
 	lock_path[sizeof(lock_path) - 1] = '\0';
@@ -114,6 +142,7 @@ lws_daemonize(const char *_lock_path)
 
 	/* At this point we are executing as the child process */
 	parent = getppid();
+	pid_daemon = getpid();
 
 	/* Cancel certain signals */
 	signal(SIGCHLD, SIG_DFL); /* A child process dies */
@@ -160,6 +189,13 @@ lws_daemonize(const char *_lock_path)
 
 	/* Tell the parent process that we are A-okay */
 	kill(parent, SIGUSR1);
+
+	act.sa_handler = lws_daemon_closing;
+	sigemptyset(&act.sa_mask);
+	act.sa_flags = 0;
+	act.sa_restorer = NULL;
+	
+	sigaction(SIGTERM, &act, NULL);
 
 	/* return to continue what is now "the daemon" */
 
