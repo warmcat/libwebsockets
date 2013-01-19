@@ -2150,37 +2150,40 @@ int lws_confirm_legit_wsi(struct libwebsocket *wsi)
 	return 0;
 }
 
-static void lwsl_emit_stderr(const char *line)
+static void lwsl_emit_stderr(int level, const char *line)
 {
-	fprintf(stderr, "%s", line);
+	char buf[300];
+	struct timeval tv;
+	int pos = 0;
+	int n;
+
+	gettimeofday(&tv, NULL);
+
+	buf[0] = '\0';
+	for (n = 0; n < LLL_COUNT; n++)
+		if (level == (1 << n)) {
+			pos = sprintf(buf, "[%ld:%04d] %s: ", tv.tv_sec,
+					(int)(tv.tv_usec / 100), log_level_names[n]);
+			break;
+		}
+	
+	fprintf(stderr, "%s%s", buf, line);
 }
 
 void _lws_log(int filter, const char *format, ...)
 {
 	char buf[256];
 	va_list ap;
-	int n;
-	int pos = 0;
-	struct timeval tv;
 
 	if (!(log_level & filter))
 		return;
 
-	gettimeofday(&tv, NULL);
-
-	for (n = 0; n < LLL_COUNT; n++)
-		if (filter == (1 << n)) {
-			pos = sprintf(buf, "[%ld:%04d] %s: ", tv.tv_sec,
-					(int)(tv.tv_usec / 100), log_level_names[n]);
-			break;
-		}
-
 	va_start(ap, format);
-	vsnprintf(buf + pos, (sizeof buf) - pos, format, ap);
+	vsnprintf(buf, (sizeof buf), format, ap);
 	buf[(sizeof buf) - 1] = '\0';
 	va_end(ap);
 
-	lwsl_emit(buf);
+	lwsl_emit(filter, buf);
 }
 
 /**
