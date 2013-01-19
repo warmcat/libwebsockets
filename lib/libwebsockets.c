@@ -1473,7 +1473,7 @@ libwebsocket_create_context(int port, const char *interf,
 		free(context);
 		return NULL;
 	}
-	context->lws_lookup = (struct libwebsocket **)malloc(sizeof(struct libwebsocke *) * context->max_fds);
+	context->lws_lookup = (struct libwebsocket **)malloc(sizeof(struct libwebsocket *) * context->max_fds);
 	if (context->lws_lookup == NULL) {
 		lwsl_err("Unable to allocate lws_lookup array for %d connections\n", context->max_fds);
 		free(context->fds);
@@ -2204,7 +2204,7 @@ void lwsl_emit_syslog(int level, const char *line)
 		syslog_level = LOG_INFO;
 		break;
 	}
-	syslog(syslog_level, line);
+	syslog(syslog_level, "%s", line);
 }
 
 void _lws_log(int filter, const char *format, ...)
