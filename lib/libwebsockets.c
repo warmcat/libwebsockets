@@ -1398,7 +1398,7 @@ libwebsocket_create_context(int port, const char *interf,
 	char ssl_err_buf[512];
 #endif
 
-	lwsl_info("Initial logging level %d\n", log_level);
+	lwsl_notice("Initial logging level %d\n", log_level);
 	lwsl_info(" LWS_MAX_HEADER_NAME_LENGTH: %u\n", LWS_MAX_HEADER_NAME_LENGTH);
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
 	lwsl_info(" LWS_INITIAL_HDR_ALLOC: %u\n", LWS_INITIAL_HDR_ALLOC);
@@ -1454,7 +1454,7 @@ libwebsocket_create_context(int port, const char *interf,
 	context->options = options;
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
-	lwsl_info(" max fd tracked: %u\n", context->max_fds);
+	lwsl_notice(" max fd tracked: %u\n", context->max_fds);
 
 	context->fds = (struct pollfd *)malloc(sizeof(struct pollfd) * context->max_fds);
 	if (context->fds == NULL) {
@@ -1526,7 +1526,7 @@ libwebsocket_create_context(int port, const char *interf,
 			strncpy(context->canonical_hostname, hostname,
 						sizeof context->canonical_hostname - 1);
 
-		lwsl_info(" canonical_hostname = %s\n", context->canonical_hostname);
+		lwsl_notice(" canonical_hostname = %s\n", context->canonical_hostname);
 	}
 #endif
 
@@ -1547,7 +1547,7 @@ libwebsocket_create_context(int port, const char *interf,
 		*p = '\0';
 		context->http_proxy_port = atoi(p + 1);
 
-		lwsl_info(" Proxy %s:%u\n",
+		lwsl_notice(" Proxy %s:%u\n",
 				context->http_proxy_address,
 						      context->http_proxy_port);
 	}
@@ -1559,17 +1559,17 @@ libwebsocket_create_context(int port, const char *interf,
 		context->use_ssl = ssl_cert_filepath != NULL &&
 					       ssl_private_key_filepath != NULL;
 		if (context->use_ssl)
-			lwsl_info(" Compiled with SSL support, using it\n");
+			lwsl_notice(" Compiled with SSL support, using it\n");
 		else
-			lwsl_info(" Compiled with SSL support, not using it\n");
+			lwsl_notice(" Compiled with SSL support, not using it\n");
 
 #else
 		if (ssl_cert_filepath != NULL &&
 					     ssl_private_key_filepath != NULL) {
-			lwsl_info(" Not compiled for OpenSSl support!\n");
+			lwsl_notice(" Not compiled for OpenSSl support!\n");
 			return NULL;
 		}
-		lwsl_info(" Compiled without SSL support, "
+		lwsl_notice(" Compiled without SSL support, "
 						       "serving unencrypted\n");
 #endif
 	}
@@ -1787,7 +1787,7 @@ libwebsocket_create_context(int port, const char *interf,
 		context->listen_service_fd = sockfd;
 
 		listen(sockfd, LWS_SOMAXCONN);
-		lwsl_info(" Listening on port %d\n", port);
+		lwsl_notice(" Listening on port %d\n", port);
 	}
 #endif
 
