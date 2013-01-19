@@ -371,7 +371,7 @@ fail it.  Otherwise 0 return == wsi seems consistent.
 <i>void</i>
 <b>lws_set_log_level</b>
 (<i>int</i> <b>level</b>,
-<i>void (*</i><b>log_emit_function</b>) <i>(const char *line)</i>)
+<i>void (*</i><b>log_emit_function</b>) <i>(int level, const char *line)</i>)
 <h3>Arguments</h3>
 <dl>
 <dt><b>level</b>

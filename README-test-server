@@ -175,6 +175,8 @@ It will fetch a script in the form of test.html, and then run the
 script in there on the browser to open a websocket connection.
 Incrementing numbers should appear in the browser display.
 
+By default the test server logs to both stderr and syslog.
+
 Using SSL on the server side
 ----------------------------
 

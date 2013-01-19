@@ -49,8 +49,9 @@ int openssl_websocket_private_data_index;
 #endif
 
 static int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
-static void lwsl_emit_stderr(const char *line);
-static void (*lwsl_emit)(const char *line) = lwsl_emit_stderr;
+static void lwsl_emit_stderr(int level, const char *line);
+static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
+
 static const char *log_level_names[] = {
 	"ERR",
 	"WARN",
@@ -2156,7 +2157,6 @@ static void lwsl_emit_stderr(int level, const char *line)
 {
 	char buf[300];
 	struct timeval tv;
-	int pos = 0;
 	int n;
 
 	gettimeofday(&tv, NULL);
@@ -2164,7 +2164,7 @@ static void lwsl_emit_stderr(int level, const char *line)
 	buf[0] = '\0';
 	for (n = 0; n < LLL_COUNT; n++)
 		if (level == (1 << n)) {
-			pos = sprintf(buf, "[%ld:%04d] %s: ", tv.tv_sec,
+			sprintf(buf, "[%ld:%04d] %s: ", tv.tv_sec,
 					(int)(tv.tv_usec / 100), log_level_names[n]);
 			break;
 		}
@@ -2220,7 +2220,7 @@ void _lws_log(int filter, const char *format, ...)
  *	emission on stderr.
  */
 
-void lws_set_log_level(int level, void (*log_emit_function)(const char *line))
+void lws_set_log_level(int level, void (*log_emit_function)(int level, const char *line))
 {
 	log_level = level;
 	if (log_emit_function)

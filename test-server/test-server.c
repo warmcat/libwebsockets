@@ -26,6 +26,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <assert.h>
+#include <syslog.h>
 
 #include "../lib/libwebsockets.h"
 
@@ -95,8 +96,10 @@ static int callback_http(struct libwebsocket_context *context,
 		enum libwebsocket_callback_reasons reason, void *user,
 							   void *in, size_t len)
 {
+#if 0
 	char client_name[128];
 	char client_ip[128];
+#endif
 	char buf[256];
 	int n;
 #ifdef EXTERNAL_POLL
@@ -114,7 +117,7 @@ static int callback_http(struct libwebsocket_context *context,
 		sprintf(buf, LOCAL_RESOURCE_PATH"%s", whitelist[n].urlpath);
 
 		if (libwebsockets_serve_http_file(context, wsi, buf, whitelist[n].mimetype))
-			fprintf(stderr, "Failed to send HTTP file\n");
+			lwsl_err("Failed to send HTTP file\n");
 
 		/*
 		 * notice that the sending of the file completes asynchronously,
@@ -125,7 +128,7 @@ static int callback_http(struct libwebsocket_context *context,
 		break;
 
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
-//		fprintf(stderr, "LWS_CALLBACK_HTTP_FILE_COMPLETION seen\n");
+//		lwsl_info("LWS_CALLBACK_HTTP_FILE_COMPLETION seen\n");
 		/* kill the connection after we sent one file */
 		return 1;
 
@@ -138,13 +141,13 @@ static int callback_http(struct libwebsocket_context *context,
 	 */
 
 	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
-
+#if 0
 		libwebsockets_get_peer_addresses((int)(long)user, client_name,
 			     sizeof(client_name), client_ip, sizeof(client_ip));
 
-//		fprintf(stderr, "Received network connect from %s (%s)\n",
-//							client_name, client_ip);
-
+		fprintf(stderr, "Received network connect from %s (%s)\n",
+							client_name, client_ip);
+#endif
 		/* if we returned non-zero from here, we kill the connection */
 		break;
 
@@ -157,7 +160,7 @@ static int callback_http(struct libwebsocket_context *context,
 	case LWS_CALLBACK_ADD_POLL_FD:
 
 		if (count_pollfds >= MAX_POLL_ELEMENTS) {
-			fprintf(stderr, "LWS_CALLBACK_ADD_POLL_FD: too many sockets to track\n");
+			lwsl_err("LWS_CALLBACK_ADD_POLL_FD: too many sockets to track\n");
 			return 1;
 		}
 
@@ -266,7 +269,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
-		fprintf(stderr, "callback_dumb_increment: "
+		lwsl_info("callback_dumb_increment: "
 						 "LWS_CALLBACK_ESTABLISHED\n");
 		pss->number = 0;
 		break;
@@ -281,18 +284,18 @@ callback_dumb_increment(struct libwebsocket_context *context,
 		n = sprintf((char *)p, "%d", pss->number++);
 		n = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (n < 0) {
-			fprintf(stderr, "ERROR %d writing to socket\n", n);
+			lwsl_err("ERROR %d writing to socket\n", n);
 			return 1;
 		}
 		if (close_testing && pss->number == 50) {
-			fprintf(stderr, "close tesing limit, closing\n");
+			lwsl_info("close tesing limit, closing\n");
 			libwebsocket_close_and_free_session(context, wsi,
 						       LWS_CLOSE_STATUS_NORMAL);
 		}
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-		fprintf(stderr, "rx %d\n", (int)len);
+//		fprintf(stderr, "rx %d\n", (int)len);
 		if (len < 6)
 			break;
 		if (strcmp(in, "reset\n") == 0)
@@ -349,7 +352,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
-		fprintf(stderr, "callback_lws_mirror: "
+		lwsl_info("callback_lws_mirror: "
 						 "LWS_CALLBACK_ESTABLISHED\n");
 		pss->ringbuffer_tail = ringbuffer_head;
 		pss->wsi = wsi;
@@ -366,7 +369,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 				   ringbuffer[pss->ringbuffer_tail].len,
 								LWS_WRITE_TEXT);
 			if (n < 0) {
-				fprintf(stderr, "ERROR %d writing to socket\n", n);
+				lwsl_err("ERROR %d writing to socket\n", n);
 				return 1;
 			}
 
@@ -382,7 +385,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 				num_wsi_choked = 0;
 			}
 
-//			fprintf(stderr, "tx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
+//			lwsl_debug("tx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
 
 			libwebsocket_callback_on_writable(context, wsi);
 
@@ -392,14 +395,14 @@ callback_lws_mirror(struct libwebsocket_context *context,
 	case LWS_CALLBACK_BROADCAST:
 		n = libwebsocket_write(wsi, in, len, LWS_WRITE_TEXT);
 		if (n < 0)
-			fprintf(stderr, "mirror write failed\n");
+			lwsl_err("mirror write failed\n");
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
 
 		if (((ringbuffer_head - pss->ringbuffer_tail) &
 				  (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 1)) {
-			fprintf(stderr, "dropping!\n");
+			lwsl_err("dropping!\n");
 			goto choke;
 		}
 
@@ -427,7 +430,7 @@ choke:
 			wsi_choked[num_wsi_choked++] = wsi;
 		}
 
-//		fprintf(stderr, "rx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
+//		lwsl_debug("rx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
 done:
 		libwebsocket_callback_on_writable_all_protocol(
 					       libwebsockets_get_protocol(wsi));
@@ -506,10 +509,7 @@ int main(int argc, char **argv)
 #ifdef LWS_NO_FORK
 	unsigned int oldus = 0;
 #endif
-
-	fprintf(stderr, "libwebsockets test server\n"
-			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> "
-						    "licensed under LGPL2.1\n");
+	int debug_level = 7;
 
 	while (n >= 0) {
 		n = getopt_long(argc, argv, "ci:khsp:d:", options, NULL);
@@ -517,7 +517,7 @@ int main(int argc, char **argv)
 			continue;
 		switch (n) {
 		case 'd':
-			lws_set_log_level(atoi(optarg), NULL);
+			debug_level = atoi(optarg);
 			break;
 		case 's':
 			use_ssl = 1;
@@ -547,6 +547,16 @@ int main(int argc, char **argv)
 		}
 	}
 
+	setlogmask(LOG_UPTO (LOG_NOTICE));
+	openlog("lwsts", LOG_PID | LOG_PERROR, LOG_DAEMON);
+
+	/* tell the library what debug level to emit and to send it to syslog */
+	lws_set_log_level(debug_level, lwsl_emit_syslog);
+
+	lwsl_notice("libwebsockets test server\n"
+			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> "
+						    "licensed under LGPL2.1\n");
+
 	if (!use_ssl)
 		cert_path = key_path = NULL;
 
@@ -554,7 +564,7 @@ int main(int argc, char **argv)
 				libwebsocket_internal_extensions,
 				cert_path, key_path, NULL, -1, -1, opts, NULL);
 	if (context == NULL) {
-		fprintf(stderr, "libwebsocket init failed\n");
+		lwsl_err("libwebsocket init failed\n");
 		return -1;
 	}
 
@@ -566,7 +576,7 @@ int main(int argc, char **argv)
 	 * This example shows how to work with no forked service loop
 	 */
 
-	fprintf(stderr, " Using no-fork service loop\n");
+	lwsl_info(" Using no-fork service loop\n");
 
 	n = 0;
 	while (n >= 0) {
@@ -638,7 +648,7 @@ int main(int argc, char **argv)
 	 * This example shows how to work with the forked websocket service loop
 	 */
 
-	fprintf(stderr, " Using forked service loop\n");
+	lwsl_info(" Using forked service loop\n");
 
 	/*
 	 * This forks the websocket service action into a subprocess so we
@@ -647,7 +657,7 @@ int main(int argc, char **argv)
 
 	n = libwebsockets_fork_service_loop(context);
 	if (n < 0) {
-		fprintf(stderr, "Unable to fork service loop %d\n", n);
+		lwsl_err("Unable to fork service loop %d\n", n);
 		return 1;
 	}
 
@@ -678,6 +688,10 @@ done:
 #endif
 
 	libwebsocket_context_destroy(context);
+
+	lwsl_notice("libwebsockets-test-server exited cleanly\n");
+
+	closelog();
 
 	return 0;
 }
