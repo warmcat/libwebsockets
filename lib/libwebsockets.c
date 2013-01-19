@@ -20,6 +20,7 @@
  */
 
 #include "private-libwebsockets.h"
+#include <syslog.h>
 
 #ifdef WIN32
 #include <tchar.h>
@@ -2169,6 +2170,27 @@ static void lwsl_emit_stderr(int level, const char *line)
 		}
 	
 	fprintf(stderr, "%s%s", buf, line);
+}
+
+void lwsl_emit_syslog(int level, const char *line)
+{
+	int syslog_level = LOG_DEBUG;
+
+	switch (level) {
+	case LLL_ERR:
+		syslog_level = LOG_ERR;
+		break;
+	case LLL_WARN:
+		syslog_level = LOG_WARNING;
+		break;
+	case LLL_NOTICE:
+		syslog_level = LOG_NOTICE;
+		break;
+	case LLL_INFO:
+		syslog_level = LOG_INFO;
+		break;
+	}
+	syslog(syslog_level, line);
 }
 
 void _lws_log(int filter, const char *format, ...)
