@@ -18,12 +18,14 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  *  MA  02110-1301  USA
  */
-
+#if _MSC_VER > 1000 || defined(_WIN32)
+#else
 #include <unistd.h>
+#include <strings.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -32,6 +34,7 @@
 #ifdef  __MINGW64__
 #else
 #ifdef  __MINGW32__
+#elif _MSC_VER > 1000 || defined(_WIN32)
 #else
 #include <netdb.h>
 #endif
