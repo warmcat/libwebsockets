@@ -794,10 +794,8 @@ handle_first:
 		wsi->final = !!((c >> 7) & 1);
 		switch (wsi->opcode) {
 		case LWS_WS_OPCODE_07__TEXT_FRAME:
-			wsi->frame_is_binary = 0;
-			break;
 		case LWS_WS_OPCODE_07__BINARY_FRAME:
-			wsi->frame_is_binary = 1;
+			wsi->frame_is_binary = wsi->opcode == LWS_WS_OPCODE_07__BINARY_FRAME;
 			break;
 		}
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
