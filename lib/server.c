@@ -94,7 +94,9 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	}
 
 	memset(new_wsi, 0, sizeof(struct libwebsocket));
+#ifndef LWS_NO_EXTENSIONS
 	new_wsi->count_active_extensions = 0;
+#endif
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 
 	/* intialize the instance struct */
@@ -323,7 +325,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		new_wsi->sock = accept_fd;
 		new_wsi->mode = LWS_CONNMODE_BROADCAST_PROXY;
 		new_wsi->state = WSI_STATE_ESTABLISHED;
+#ifndef LWS_NO_EXTENSIONS
 		new_wsi->count_active_extensions = 0;
+#endif
 		/* note which protocol we are proxying */
 		new_wsi->protocol_index_for_broadcast_proxy =
 					wsi->protocol_index_for_broadcast_proxy;

@@ -88,6 +88,13 @@ There are several other possible configure options
 			from the code -- it's not just defeated from logging
 			but removed from compilation
 
+--without-extensions	Remove all code and data around protocol extensions.
+			This reduces the code footprint considerably but
+			you will lose extension features like compression.
+			However that may be irrelevant for embedded use and
+			the code / data size / speed improvements may be
+			critical.
+
 
 Externally configurable important constants
 -------------------------------------------

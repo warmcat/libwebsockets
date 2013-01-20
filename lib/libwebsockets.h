@@ -144,6 +144,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLEAR_MODE_POLL_FD,
 };
 
+#ifndef LWS_NO_EXTENSIONS
 enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT,
 	LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT,
@@ -169,6 +170,7 @@ enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_PAYLOAD_TX,
 	LWS_EXT_CALLBACK_PAYLOAD_RX,
 };
+#endif
 
 enum libwebsocket_write_protocol {
 	LWS_WRITE_TEXT,
@@ -349,6 +351,7 @@ enum lws_close_status {
 
 struct libwebsocket;
 struct libwebsocket_context;
+/* needed even with extensions disabled for create context */
 struct libwebsocket_extension;
 
 /**
@@ -566,7 +569,7 @@ typedef int (callback_function)(struct libwebsocket_context * context,
 			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
 
-
+#ifndef LWS_NO_EXTENSIONS
 /**
  * extension_callback_function() - Hooks to allow extensions to operate
  * @context:	Websockets context
@@ -636,6 +639,7 @@ typedef int (extension_callback_function)(struct libwebsocket_context * context,
 			struct libwebsocket *wsi,
 			 enum libwebsocket_extension_callback_reasons reason, void *user,
 							  void *in, size_t len);
+#endif
 
 /**
  * struct libwebsocket_protocols -	List of protocols and handlers server
@@ -681,6 +685,7 @@ struct libwebsocket_protocols {
 	int protocol_index;
 };
 
+#ifndef LWS_NO_EXTENSIONS
 /**
  * struct libwebsocket_extension -	An extension we know how to cope with
  *
@@ -700,6 +705,7 @@ struct libwebsocket_extension {
 	size_t per_session_data_size;
 	void * per_context_private_data;
 };
+#endif
 
 LWS_EXTERN
 void lws_set_log_level(int level, void (*log_emit_function)(int level, const char *line));
@@ -874,7 +880,9 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size);
 LWS_EXTERN int
 lws_b64_decode_string(const char *in, char *out, int out_size);
 
+#ifndef LWS_NO_EXTENSIONS
 LWS_EXTERN struct libwebsocket_extension libwebsocket_internal_extensions[];
+#endif
 
 #ifdef __cplusplus
 }

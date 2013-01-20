@@ -272,8 +272,9 @@ struct libwebsocket_context {
 #endif
 	struct libwebsocket_protocols *protocols;
 	int count_protocols;
+#ifndef LWS_NO_EXTENSIONS
 	struct libwebsocket_extension *extensions;
-
+#endif
     void *user_space;
 };
 
@@ -298,11 +299,15 @@ enum pending_timeout {
 
 struct libwebsocket {
 	const struct libwebsocket_protocols *protocol;
+#ifndef LWS_NO_EXTENSIONS
 	struct libwebsocket_extension *
 				   active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
 	void *active_extensions_user[LWS_MAX_EXTENSIONS_ACTIVE];
 	int count_active_extensions;
-
+	char extension_data_pending;
+	struct libwebsocket *extension_handles;
+	struct libwebsocket *candidate_children_list;
+#endif
 	enum lws_connection_states state;
 
 	char name_buffer[LWS_MAX_HEADER_NAME_LENGTH];
@@ -328,9 +333,6 @@ struct libwebsocket {
 	int rxflow_change_to;
 
 	enum lws_rx_parse_state lws_rx_parse_state;
-	char extension_data_pending;
-	struct libwebsocket *candidate_children_list;
-	struct libwebsocket *extension_handles;
 
 	/* 04 protocol specific */
 
@@ -442,7 +444,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 extern int
 lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 			      struct libwebsocket *wsi, struct pollfd *pollfd);
-
+#ifndef LWS_NO_EXTENSIONS
 extern int
 lws_any_extension_handled(struct libwebsocket_context *context,
 			  struct libwebsocket *wsi,
@@ -452,6 +454,7 @@ lws_any_extension_handled(struct libwebsocket_context *context,
 extern void *
 lws_get_extension_user_matching_ext(struct libwebsocket *wsi,
 			  struct libwebsocket_extension *ext);
+#endif
 
 extern int
 lws_client_interpret_server_handshake(struct libwebsocket_context *context,

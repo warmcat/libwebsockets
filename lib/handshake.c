@@ -116,13 +116,16 @@ libwebsocket_read(struct libwebsocket_context *context,
 				if (wsi->protocol->callback(context, wsi,
 								LWS_CALLBACK_HTTP, wsi->user_space,
 								wsi->utf8_token[WSI_TOKEN_GET_URI].token,
-								wsi->utf8_token[WSI_TOKEN_GET_URI].token_len))
+								wsi->utf8_token[WSI_TOKEN_GET_URI].token_len)) {
+					lwsl_info("LWS_CALLBACK_HTTP wanted to close\n");
 					goto bail;
+				}
 			return 0;
 		}
 
 		if (!wsi->protocol)
 			lwsl_err("NULL protocol at libwebsocket_read\n");
+
 
 		/*
 		 * It's websocket
@@ -187,14 +190,18 @@ libwebsocket_read(struct libwebsocket_context *context,
 		switch (wsi->ietf_spec_revision) {
 		case 0: /* applies to 76 and 00 */
 			wsi->xor_mask = xor_no_mask;
-			if (handshake_00(context, wsi))
+			if (handshake_00(context, wsi)) {
+				lwsl_info("handshake_00 has failed the connection\n");
 				goto bail;
+			}
 			break;
 		case 4: /* 04 */
 			wsi->xor_mask = xor_mask_04;
 			lwsl_parser("libwebsocket_parse calling handshake_04\n");
-			if (handshake_0405(context, wsi))
+			if (handshake_0405(context, wsi)) {
+				lwsl_info("handshake_0405 has failed the connection\n");
 				goto bail;
+			}
 			break;
 		case 5:
 		case 6:
@@ -203,8 +210,10 @@ libwebsocket_read(struct libwebsocket_context *context,
 		case 13:
 			wsi->xor_mask = xor_mask_05;
 			lwsl_parser("libwebsocket_parse calling handshake_04\n");
-			if (handshake_0405(context, wsi))
+			if (handshake_0405(context, wsi)) {
+				lwsl_info("handshake_0405 xor 05 has failed the connection\n");
 				goto bail;
+			}
 			break;
 
 		default:
@@ -226,8 +235,10 @@ libwebsocket_read(struct libwebsocket_context *context,
 		switch (wsi->mode) {
 		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
-				if (libwebsocket_client_rx_sm(wsi, *buf++) < 0)
+				if (libwebsocket_client_rx_sm(wsi, *buf++) < 0) {
+					lwsl_info("client rx has bailed\n");
 					goto bail;
+				}
 
 			return 0;
 		default:
@@ -237,8 +248,10 @@ libwebsocket_read(struct libwebsocket_context *context,
 #ifndef LWS_NO_SERVER
 		/* LWS_CONNMODE_WS_SERVING */
 
-		if (libwebsocket_interpret_incoming_packet(wsi, buf, len) < 0)
+		if (libwebsocket_interpret_incoming_packet(wsi, buf, len) < 0) {
+			lwsl_info("interpret_incoming_packet has bailed\n");
 			goto bail;
+		}
 #endif
 		break;
 	default:
@@ -249,6 +262,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 	return 0;
 
 bail:
+	lwsl_info("closing connection at libwebsocket_read bail:\n");
 	libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 

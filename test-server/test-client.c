@@ -109,7 +109,8 @@ callback_lws_mirror(struct libwebsocket_context *this,
 {
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 4096 +
 						  LWS_SEND_BUFFER_POST_PADDING];
-	int l;
+	int l = 0;
+	int n;
 
 	switch (reason) {
 
@@ -134,7 +135,8 @@ callback_lws_mirror(struct libwebsocket_context *this,
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
 
-		l = sprintf((char *)&buf[LWS_SEND_BUFFER_PRE_PADDING],
+		for (n = 0; n < 1; n++)
+			l += sprintf((char *)&buf[LWS_SEND_BUFFER_PRE_PADDING + l],
 					"c #%06X %d %d %d;",
 					(int)random() & 0xffffff,
 					(int)random() % 500,
@@ -258,7 +260,12 @@ int main(int argc, char **argv)
 	 */
 
 	context = libwebsocket_create_context(CONTEXT_PORT_NO_LISTEN, NULL,
-				protocols, libwebsocket_internal_extensions,
+				protocols,
+#ifndef LWS_NO_EXTENSIONS
+				libwebsocket_internal_extensions,
+#else
+				NULL,
+#endif
 				NULL, NULL, NULL, -1, -1, 0, NULL);
 	if (context == NULL) {
 		fprintf(stderr, "Creating libwebsocket context failed\n");

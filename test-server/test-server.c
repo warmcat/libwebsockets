@@ -323,7 +323,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 
 /* lws-mirror_protocol */
 
-#define MAX_MESSAGE_QUEUE 64
+#define MAX_MESSAGE_QUEUE 128
 
 struct per_session_data__lws_mirror {
 	struct libwebsocket *wsi;
@@ -362,7 +362,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		if (close_testing)
 			break;
-		if (pss->ringbuffer_tail != ringbuffer_head) {
+		while (pss->ringbuffer_tail != ringbuffer_head) {
 
 			n = libwebsocket_write(wsi, (unsigned char *)
 				   ringbuffer[pss->ringbuffer_tail].payload +
@@ -380,16 +380,17 @@ callback_lws_mirror(struct libwebsocket_context *context,
 				pss->ringbuffer_tail++;
 
 			if (((ringbuffer_head - pss->ringbuffer_tail) &
-				  (MAX_MESSAGE_QUEUE - 1)) < (MAX_MESSAGE_QUEUE - 15)) {
+				  (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 15)) {
 				for (n = 0; n < num_wsi_choked; n++)
 					libwebsocket_rx_flow_control(wsi_choked[n], 1);
 				num_wsi_choked = 0;
 			}
+			// lwsl_debug("tx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
 
-//			lwsl_debug("tx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
-
-			libwebsocket_callback_on_writable(context, wsi);
-
+			if (lws_send_pipe_choked(wsi)) {
+				libwebsocket_callback_on_writable(context, wsi);
+				return 0;
+			}
 		}
 		break;
 
@@ -422,7 +423,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 			ringbuffer_head++;
 
 		if (((ringbuffer_head - pss->ringbuffer_tail) &
-				  (MAX_MESSAGE_QUEUE - 1)) < (MAX_MESSAGE_QUEUE - 10))
+				  (MAX_MESSAGE_QUEUE - 1)) != (MAX_MESSAGE_QUEUE - 2))
 			goto done;
 
 choke:
@@ -586,7 +587,11 @@ int main(int argc, char **argv)
 		cert_path = key_path = NULL;
 
 	context = libwebsocket_create_context(port, interface, protocols,
+#ifndef LWS_NO_EXTENSIONS
 				libwebsocket_internal_extensions,
+#else
+				NULL,
+#endif
 				cert_path, key_path, NULL, -1, -1, opts, NULL);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");

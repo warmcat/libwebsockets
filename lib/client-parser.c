@@ -32,7 +32,9 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	int handled;
 	struct lws_tokens eff_buf;
+#ifndef LWS_NO_EXTENSIONS
 	int m;
+#endif
 
 //	lwsl_parser(" CRX: %02X %d\n", c, wsi->lws_rx_parse_state);
 
@@ -433,6 +435,7 @@ spill:
 		default:
 
 			lwsl_parser("Reserved opcode 0x%2X\n", wsi->opcode);
+#ifndef LWS_NO_EXTENSIONS
 			/*
 			 * It's something special we can't understand here.
 			 * Pass the payload up to the extension's parsing
@@ -455,6 +458,9 @@ spill:
 			}
 
 			if (!handled) {
+#else
+			{
+#endif
 				lwsl_ext("Unhandled extended opcode "
 					"0x%x - ignoring frame\n", wsi->opcode);
 				wsi->rx_user_buffer_head = 0;
@@ -476,7 +482,7 @@ spill:
 		eff_buf.token = &wsi->rx_user_buffer[
 						LWS_SEND_BUFFER_PRE_PADDING];
 		eff_buf.token_len = wsi->rx_user_buffer_head;
-
+#ifndef LWS_NO_EXTENSIONS
 		for (n = 0; n < wsi->count_active_extensions; n++) {
 			m = wsi->active_extensions[n]->callback(
 				wsi->protocol->owning_server,
@@ -491,7 +497,7 @@ spill:
 				return -1;
 			}
 		}
-
+#endif
 		if (eff_buf.token_len > 0) {
 			eff_buf.token[eff_buf.token_len] = '\0';
 

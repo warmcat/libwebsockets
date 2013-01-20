@@ -17,8 +17,9 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 #endif
 
 	lwsl_client("__libwebsocket_client_connect_2\n");
-
+#ifndef LWS_NO_EXTENSIONS
 	wsi->candidate_children_list = NULL;
+#endif
 
 	/*
 	 * proxy?
@@ -181,9 +182,12 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 {
 	struct libwebsocket *wsi;
 	int n;
+#ifndef LWS_NO_EXTENSIONS
 	int m;
 	struct libwebsocket_extension *ext;
 	int handled;
+#endif
+
 #ifndef LWS_OPENSSL_SUPPORT
 	if (ssl_connection) {
 		lwsl_err("libwebsockets not configured for ssl\n");
@@ -209,7 +213,9 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	wsi->pings_vs_pongs = 0;
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
+#ifndef LWS_NO_EXTENSIONS
 	wsi->count_active_extensions = 0;
+#endif
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = ssl_connection;
 #endif
@@ -297,6 +303,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 		wsi->utf8_token[n].token_len = 0;
 	}
 
+#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * Check with each extension if it is able to route and proxy this
 	 * connection for us.  For example, an extension like x-google-mux
@@ -328,7 +335,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT;
 		return wsi;
 	}
-
+#endif
 	lwsl_client("libwebsocket_client_connect: direct conn\n");
 
 	return __libwebsocket_client_connect_2(context, wsi);

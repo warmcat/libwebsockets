@@ -92,7 +92,7 @@ void lwsl_hexdump(void *vbuf, size_t len)
 		p += sprintf(p, "   ");
 
 		for (m = 0; m < 16 && (start + m) < len; m++) {
-			if (buf[start + m] >= ' ' && buf[start + m] <= 127)
+			if (buf[start + m] >= ' ' && buf[start + m] < 127)
 				*p++ = buf[start + m];
 			else
 				*p++ = '.';
@@ -102,7 +102,7 @@ void lwsl_hexdump(void *vbuf, size_t len)
 
 		*p++ = '\n';
 		*p = '\0';
-		lwsl_debug(line);
+		lwsl_debug("%s", line);
 	}
 	lwsl_debug("\n");
 }
@@ -112,6 +112,7 @@ void lwsl_hexdump(void *vbuf, size_t len)
 int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
 	int n;
+#ifndef LWS_NO_EXTENSIONS
 	int m;
 
 	/*
@@ -137,7 +138,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 			return 0;
 		}
 	}
-
+#endif
 	if (!wsi->sock)
 		lwsl_warn("** error 0 sock but expected to send\n");
 
@@ -170,6 +171,14 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	return 0;
 }
 
+#ifdef LWS_NO_EXTENSIONS
+int
+lws_issue_raw_ext_access(struct libwebsocket *wsi,
+						 unsigned char *buf, size_t len)
+{
+	return lws_issue_raw(wsi, buf, len);
+}
+#else
 int
 lws_issue_raw_ext_access(struct libwebsocket *wsi,
 						 unsigned char *buf, size_t len)
@@ -255,6 +264,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 
 	return 0;
 }
+#endif
 
 /**
  * libwebsocket_write() - Apply protocol then write data to client
@@ -292,8 +302,10 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 						  wsi->xor_mask != xor_no_mask;
 	unsigned char *dropmask = NULL;
 	unsigned char is_masked_bit = 0;
+#ifndef LWS_NO_EXTENSIONS
 	struct lws_tokens eff_buf;
 	int m;
+#endif
 
 	if (lws_confirm_legit_wsi(wsi)) {
 		lwsl_err("libwebsocket_write on illegitimate wsi\n");
@@ -312,6 +324,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	if (wsi->state != WSI_STATE_ESTABLISHED)
 		return -1;
 
+#ifndef LWS_NO_EXTENSIONS
 	/* give a change to the extensions to modify payload */
 	eff_buf.token = (char *)buf;
 	eff_buf.token_len = len;
@@ -336,6 +349,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 	buf = (unsigned char *)eff_buf.token;
 	len = eff_buf.token_len;
+#endif
 
 	switch (wsi->ietf_spec_revision) {
 	/* chrome likes this as of 30 Oct 2010 */
@@ -710,8 +724,10 @@ int libwebsockets_serve_http_file(struct libwebsocket_context *context,
 			close(fd);
 
 			if (wsi->protocol->callback(context, wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION, wsi->user_space,
-							wsi->filepath, wsi->filepos))
+							wsi->filepath, wsi->filepos)) {
+				lwsl_info("closing connecton after file_completion returned nonzero\n");
 				libwebsocket_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			}
 
 			return 0;
 		}

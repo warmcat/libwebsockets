@@ -245,7 +245,8 @@ entry that has a NULL callback pointer.
 It's not const because we write the owning_server member
 <dt><b>extensions</b>
 <dd>NULL or array of libwebsocket_extension structs listing the
-extensions this context supports
+extensions this context supports.  If you configured with
+--without-extensions, you should give NULL here.
 <dt><b>ssl_cert_filepath</b>
 <dd>If libwebsockets was compiled to use ssl, and you want
 to listen using SSL, set to the filepath to fetch the

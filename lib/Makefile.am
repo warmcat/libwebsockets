@@ -6,10 +6,14 @@ dist_libwebsockets_la_SOURCES=libwebsockets.c \
 				libwebsockets.h \
 				base64-decode.c \
 				output.c \
-				extension.c \
-				extension-deflate-stream.c extension-deflate-stream.h \
-				extension-deflate-frame.c extension-deflate-frame.h\
 				private-libwebsockets.h
+
+if NO_EXTENSIONS
+else
+dist_libwebsockets_la_SOURCES+= extension.c \
+				extension-deflate-stream.c extension-deflate-stream.h \
+				extension-deflate-frame.c extension-deflate-frame.h
+endif
 
 if NO_DAEMONIZE
 else

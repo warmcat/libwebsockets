@@ -95,7 +95,18 @@ CFLAGS="$CFLAGS -DLWS_NO_SERVER"
 fi
 AM_CONDITIONAL(NO_SERVER, test x$no_server = xyes)
 
+# 
+#
+#
+AC_ARG_WITH(extensions,
+ [  --without-extensions  dont build any stuff related to extensions ],
+ [ no_extensions=yes
+ ])
 
+if test "x$no_extensions" = "xyes" ; then                                             
+CFLAGS="$CFLAGS -DLWS_NO_EXTENSIONS"                                          
+fi
+AM_CONDITIONAL(NO_EXTENSIONS, test x$no_extensions = xyes)
 
 # 
 #

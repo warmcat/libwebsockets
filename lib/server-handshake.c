@@ -224,11 +224,13 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	char *m = mask_summing_buf;
 	int nonce_len = 0;
 	int accept_len;
+#ifndef LWS_NO_EXTENSIONS
 	char *c;
 	char ext_name[128];
 	struct libwebsocket_extension *ext;
 	int ext_count = 0;
 	int more = 1;
+#endif
 
 	if (!wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
 	    !wsi->utf8_token[WSI_TOKEN_KEY].token_len) {
@@ -322,6 +324,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		LWS_CPYAPP_TOKEN(p, WSI_TOKEN_PROTOCOL);
 	}
 
+#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * Figure out which extensions the client has that we want to
 	 * enable on this connection, and give him back the list
@@ -439,7 +442,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 			n = 0;
 		}
 	}
-
+#endif
 	/* end of response packet */
 
 	LWS_CPYAPP(p, "\x0d\x0a\x0d\x0a");
@@ -468,10 +471,12 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 							   wsi->masking_key_04);
 	}
 
+#ifndef LWS_NO_EXTENSIONS
 	if (!lws_any_extension_handled(context, wsi,
 			LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
-						     response, p - response)) {
-
+						     response, p - response))
+#endif
+	{
 		/* okay send the handshake response accepting the connection */
 
 		lwsl_parser("issuing response packet %d len\n", (int)(p - response));

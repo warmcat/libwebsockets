@@ -605,8 +605,10 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	int n;
 	unsigned char buf[20 + 4];
 	struct lws_tokens eff_buf;
+#ifndef LWS_NO_EXTENSIONS
 	int handled;
 	int m;
+#endif
 
 #if 0
 	lwsl_debug("RX: %02X ", c);
@@ -1012,6 +1014,7 @@ issue:
 
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
+
 		if (wsi->ietf_spec_revision < 4 ||
 			 (wsi->all_zero_nonce && wsi->ietf_spec_revision >= 5))
 			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
@@ -1080,7 +1083,7 @@ spill:
 			break;
 
 		default:
-
+#ifndef LWS_NO_EXTENSIONS
 			lwsl_parser("passing opcode %x up to exts\n", wsi->opcode);
 
 			/*
@@ -1106,6 +1109,7 @@ spill:
 			}
 
 			if (!handled)
+#endif
 				lwsl_ext("Unhandled extended opcode "
 					"0x%x - ignoring frame\n", wsi->opcode);
 
@@ -1122,7 +1126,7 @@ spill:
 		eff_buf.token = &wsi->rx_user_buffer[
 						LWS_SEND_BUFFER_PRE_PADDING];
 		eff_buf.token_len = wsi->rx_user_buffer_head;
-
+#ifndef LWS_NO_EXTENSIONS
 		for (n = 0; n < wsi->count_active_extensions; n++) {
 			m = wsi->active_extensions[n]->callback(
 				wsi->protocol->owning_server,
@@ -1137,7 +1141,7 @@ spill:
 				return -1;
 			}
 		}
-
+#endif
 		if (eff_buf.token_len > 0) {
 		    eff_buf.token[eff_buf.token_len] = '\0';
 
@@ -1175,7 +1179,7 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 	int clear_rxflow = !!wsi->rxflow_buffer;
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
 
-#ifdef DEBUG
+#if 0
 	lwsl_parser("received %d byte packet\n", (int)len);
 	lwsl_hexdump(buf, len);
 #endif

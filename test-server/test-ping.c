@@ -409,7 +409,11 @@ int main(int argc, char **argv)
 
 	context = libwebsocket_create_context(CONTEXT_PORT_NO_LISTEN, NULL,
 					      protocols,
-					      libwebsocket_internal_extensions,
+#ifndef LWS_NO_EXTENSIONS
+				libwebsocket_internal_extensions,
+#else
+				NULL,
+#endif
 					      NULL, NULL, NULL, -1, -1, 0, NULL);
 	if (context == NULL) {
 		fprintf(stderr, "Creating libwebsocket context failed\n");

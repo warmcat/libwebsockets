@@ -315,12 +315,14 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	char pkt[1024];
 	char *p = &pkt[0];
 	const char *pc;
-	const char *c;
-	int more = 1;
 	int okay = 0;
+#ifndef LWS_NO_EXTENSIONS
 	char ext_name[128];
 	struct libwebsocket_extension *ext;
 	void *v;
+	int more = 1;
+	const char *c;
+#endif
 	int len = 0;
 	int n;
 	static const char magic_websocket_04_masking_guid[] =
@@ -515,7 +517,7 @@ select_protocol:
 
 
 check_extensions:
-
+#ifndef LWS_NO_EXTENSIONS
 	/* instantiate the accepted extensions */
 
 	if (!wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token_len) {
@@ -603,8 +605,8 @@ check_extensions:
 		n = 0;
 	}
 
-
 check_accept:
+#endif
 
 	if (wsi->ietf_spec_revision == 0) {
 
@@ -669,7 +671,7 @@ accept_ok:
 	wsi->protocol->callback(context, wsi,
 				LWS_CALLBACK_CLIENT_ESTABLISHED,
 						     wsi->user_space, NULL, 0);
-
+#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * inform all extensions, not just active ones since they
 	 * already know
@@ -687,6 +689,7 @@ accept_ok:
 			  LWS_EXT_CALLBACK_ANY_WSI_ESTABLISHED, v, NULL, 0);
 		ext++;
 	}
+#endif
 
 	return 0;
 
@@ -753,9 +756,11 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	char hash[20];
 	char *p = pkt;
 	int n;
+#ifndef LWS_NO_EXTENSIONS
 	struct libwebsocket_extension *ext;
 	struct libwebsocket_extension *ext1;
 	int ext_count = 0;
+#endif
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
 			 MAX_BROADCAST_PAYLOAD + LWS_SEND_BUFFER_POST_PADDING];
 	static const char magic_websocket_guid[] =
@@ -928,7 +933,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	/* tell the server what extensions we could support */
 
 	p += sprintf(p, "Sec-WebSocket-Extensions: ");
-
+#ifndef LWS_NO_EXTENSIONS
 	ext = context->extensions;
 	while (ext && ext->callback) {
 
@@ -974,7 +979,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 
 		ext++;
 	}
-
+#endif
 	p += sprintf(p, "\x0d\x0a");
 
 	if (wsi->ietf_spec_revision)
