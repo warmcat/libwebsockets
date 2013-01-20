@@ -55,7 +55,10 @@ endif
 
 libwebsockets_la_CFLAGS+= -c \
 	-DINSTALL_DATADIR=\"@datadir@\" -DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
+if NO_EXTENSIONS
+else
 libwebsockets_la_LDFLAGS+= -lz
+endif
 
 all-local:
 	 ../scripts/kernel-doc -html \

@@ -18,21 +18,21 @@ if NO_SERVER
 else
 libwebsockets_test_server_SOURCES=test-server.c
 libwebsockets_test_server_CFLAGS=
-libwebsockets_test_server_LDADD=-L../lib -lwebsockets -lz
+libwebsockets_test_server_LDADD=-L../lib -lwebsockets
 libwebsockets_test_server_extpoll_SOURCES=test-server.c
 libwebsockets_test_server_extpoll_CFLAGS=$(AM_CFLAGS) -DEXTERNAL_POLL
-libwebsockets_test_server_extpoll_LDADD=-L../lib -lwebsockets -lz
+libwebsockets_test_server_extpoll_LDADD=-L../lib -lwebsockets
 endif
 if NO_CLIENT
 else
 libwebsockets_test_client_SOURCES=test-client.c
 libwebsockets_test_client_CFLAGS=
-libwebsockets_test_client_LDADD=-L../lib -lwebsockets -lz
+libwebsockets_test_client_LDADD=-L../lib -lwebsockets
 if NO_SERVER
 else
 libwebsockets_test_fraggle_SOURCES=test-fraggle.c
 libwebsockets_test_fraggle_CFLAGS=
-libwebsockets_test_fraggle_LDADD=-L../lib -lwebsockets -lz
+libwebsockets_test_fraggle_LDADD=-L../lib -lwebsockets
 endif
 endif
 
