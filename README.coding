@@ -1,0 +1,95 @@
+Daemonization
+-------------
+
+There's a helper api lws_daemonize built by default that does everything you
+need to daemonize well, including creating a lock file.  If you're making
+what's basically a daemon, just call this early in your init to fork to a
+headless background process and exit the starting process.
+
+Notice stdout, stderr, stdin are all redirected to /dev/null to enforce your
+daemon is headless, so you'll need to sort out alternative logging, by, eg,
+syslog.
+
+
+Maximum number of connections
+-----------------------------
+
+The maximum number of connections the library can deal with is decided when
+it starts by querying the OS to find out how many file descriptors it is
+allowed to open (1024 on Fedora for example).  It then allocates arrays that
+allow up to that many connections, minus whatever other file descriptors are
+in use by the user code.
+
+If you want to restrict that allocation, or increase it, you can use ulimit or
+similar to change the avaiable number of file descriptors, and when restarted
+libwebsockets will adapt accordingly.
+
+
+Fragmented messages
+-------------------
+
+To support fragmented messages you need to check for the final
+frame of a message with libwebsocket_is_final_fragment. This
+check can be combined with libwebsockets_remaining_packet_payload
+to gather the whole contents of a message, eg:
+
+    case LWS_CALLBACK_RECEIVE:
+    {
+        Client * const client = (Client *)user;
+        const size_t remaining = libwebsockets_remaining_packet_payload(wsi);
+
+        if (!remaining && libwebsocket_is_final_fragment(wsi)) {
+            if (client->HasFragments()) {
+                client->AppendMessageFragment(in, len, 0);
+                in = (void *)client->GetMessage();
+                len = client->GetMessageLength();
+            }
+
+            client->ProcessMessage((char *)in, len, wsi);
+            client->ResetMessage();
+        } else
+            client->AppendMessageFragment(in, len, remaining);
+    }
+    break;
+
+The test app llibwebsockets-test-fraggle sources also show how to
+deal with fragmented messages.
+
+Debug Logging
+-------------
+
+Also using lws_set_log_level api you may provide a custom callback to actually
+emit the log string.  By default, this points to an internal emit function
+that sends to stderr.  Setting it to NULL leaves it as it is instead.
+
+A helper function lwsl_emit_syslog() is exported from the library to simplify
+logging to syslog.  You still need to use setlogmask, openlog and closelog
+in your user code.
+
+The logging apis are made available for user code.
+
+lwsl_err(...)
+lwsl_warn(...)
+lwsl_notice(...)
+lwsl_info(...)
+lwsl_debug(...)
+
+The difference between notice and info is that notice will be logged by default
+whereas info is ignored by default.
+
+
+External Polling Loop support
+-----------------------------
+
+libwebsockets maintains an internal poll() array for all of its
+sockets, but you can instead integrate the sockets into an
+external polling array.  That's needed if libwebsockets will
+cooperate with an existing poll array maintained by another
+server.
+
+Four callbacks LWS_CALLBACK_ADD_POLL_FD, LWS_CALLBACK_DEL_POLL_FD,
+LWS_CALLBACK_SET_MODE_POLL_FD and LWS_CALLBACK_CLEAR_MODE_POLL_FD
+appear in the callback for protocol 0 and allow interface code to
+manage socket descriptors in other poll loops.
+
+

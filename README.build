@@ -1,0 +1,169 @@
+Building the library and test apps
+----------------------------------
+
+You need to regenerate the autotools and libtoolize stuff for your system
+
+$ ./autogen.sh
+
+Then for a Fedora x86_86 box, the following config line was
+needed:
+
+ ./configure --prefix=/usr --libdir=/usr/lib64 --enable-openssl
+
+For Apple systems, Christopher Baker reported that this is needed
+(and I was told separately enabling openssl makes trouble somehow)
+
+./configure CC="gcc -arch i386 -arch x86_64" CXX="g++ -arch i386 -arch
+x86_64" CPP="gcc -E" CXXCPP="g++ -E" --enable-nofork
+
+For mingw build, I did the following to get working build, ping test is
+disabled when building this way
+
+1) install mingw64_w32 compiler packages from Fedora
+2) additionally install mingw64-zlib package
+3) ./configure --prefix=/usr --enable-mingw --host=x86_64-w64-mingw32
+4) make
+
+For uClibc, you will likely need --enable-builtin-getifaddrs
+
+
+otherwise if /usr/local/... and /usr/local/lib are OK then...
+
+$ ./configure
+$ make clean
+$ make && sudo make install
+$ libwebsockets-test-server
+
+should be enough to get a test server listening on port 7861.
+
+
+Configure script options
+------------------------
+
+There are several other possible configure options
+
+--enable-nofork		disables the fork into the background API
+			and removes all references to fork() and
+			pr_ctl() from the sources.  Use it if your
+			platform doesn't support forking.
+
+--enable-libcrypto	by default libwebsockets uses its own
+			built-in md5 and sha-1 implementation for
+			simplicity.  However the libcrypto ones
+			may be faster, and in a distro context it
+			may be highly desirable to use a common
+			library implementation for ease of security
+			upgrades.  Give this configure option
+			to disable the built-in ones and force use
+			of the libcrypto (part of openssl) ones.
+
+--with-client-cert-dir=dir   tells the client ssl support where to
+			     look for trust certificates to validate
+			     the remote certificate against.
+
+--enable-noping		Don't try to build the ping test app
+			It needs some unixy environment that
+			may choke in other build contexts, this
+			lets you cleanly stop it being built
+			
+--enable-builtin-getifaddrs  if your libc lacks getifaddrs, you can build an
+			implementation into the library.  By default your libc
+			one is used.
+
+--without-testapps	Just build the library not the test apps
+
+--without-client	Don't build the client part of the library nor the
+			test apps that need the client part.  Useful to
+			minimize library footprint for embedded server-only
+			case
+
+--without-server	Don't build the server part of the library nor the
+			test apps that need the server part.  Useful to
+			minimize library footprint for embedded client-only
+			case
+
+--without-daemonize	Don't build daemonize.c / lws_daemonize
+
+--disable-debug		Remove all debug logging below lwsl_notice in severity
+			from the code -- it's not just defeated from logging
+			but removed from compilation
+
+
+Externally configurable important constants
+-------------------------------------------
+
+You can control these from configure by just setting them as commandline
+args throgh CFLAGS, eg
+
+./configure CFLAGS="-DLWS_MAX_ZLIB_CONN_BUFFER=8192"
+
+
+They all have reasonable defaults usable for all use-cases except resource-
+constrained, so you only need to take care about them if you want to tune them
+to the amount of memory available.
+
+ - LWS_MAX_HEADER_NAME_LENGTH default 64: max characters in an HTTP header
+name that libwebsockets can cope with
+
+ - LWS_MAX_HEADER_LEN default 4096: largest HTTP header value string length
+libwebsockets can cope with
+
+ - LWS_INITIAL_HDR_ALLOC default 256: amount of memory to allocate initially,
+tradeoff between taking too much and needless realloc
+
+ - LWS_ADDITIONAL_HDR_ALLOC default 64: how much to additionally realloc if
+the header value string keeps coming
+
+ - MAX_USER_RX_BUFFER default 4096: max amount of user rx data to buffer at a
+time and pass to user callback LWS_CALLBACK_RECEIVE or
+LWS_CALLBACK_CLIENT_RECEIVE.  Large frames are passed to the user callback
+in chunks of this size.  Tradeoff between per-connection static memory
+allocation and if you expect to deal with large frames, how much you can
+see at once which can affect efficiency.
+
+ - MAX_BROADCAST_PAYLOAD default 4096: largest amount of user tx data we can
+broadcast at a time
+
+ - LWS_MAX_PROTOCOLS default 10: largest amount of different protocols the
+server can serve
+
+ - LWS_MAX_EXTENSIONS_ACTIVE default 10: largest amount of extensions we can
+choose to have active on one connection
+
+ - SPEC_LATEST_SUPPORTED default 13: only change if you want to remove support
+for later protocol versions... unlikely
+
+ - AWAITING_TIMEOUT default 5: after this many seconds without a response, the
+server will hang up on the client
+
+ - CIPHERS_LIST_STRING default "DEFAULT": SSL Cipher selection.  It's advisable
+to tweak the ciphers allowed to be negotiated on secure connections for
+performance reasons, otherwise a slow algorithm may be selected by the two
+endpoints and the server could expend most of its time just encrypting and
+decrypting data, severely limiting the amount of messages it will be able to
+handle per second.  For example::
+
+    "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
+
+ - SYSTEM_RANDOM_FILEPATH default "/dev/urandom": if your random device differs
+you can set it here
+
+ - LWS_MAX_ZLIB_CONN_BUFFER  maximum size a compression buffer is allowed to
+grow to before closing the connection.  Some limit is needed or any connecton
+can exhaust all server memory by sending it 4G buffers full of zeros which the
+server is expect to expand atomically.  Default is 64KBytes.
+
+ - LWS_SOMAXCONN  maximum number of pending connect requests the listening
+socket can cope with.  Default is SOMAXCONN.  If you need to use synthetic
+tests that just spam hundreds of connect requests at once without dropping
+any, you can try messing with these as well as ulimit (see later)
+(courtesy Edwin van der Oetelaar)
+
+echo "2048 64512" > /proc/sys/net/ipv4/ip_local_port_range
+echo "1" > /proc/sys/net/ipv4/tcp_tw_recycle
+echo "1" > /proc/sys/net/ipv4/tcp_tw_reuse
+echo "10" > /proc/sys/net/ipv4/tcp_fin_timeout
+echo "65536" > /proc/sys/net/core/somaxconn
+echo "65536" > /proc/sys/net/ipv4/tcp_max_syn_backlog
+echo "262144" > /proc/sys/net/netfilter/nf_conntrack_max
+
