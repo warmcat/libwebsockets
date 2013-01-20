@@ -35,10 +35,10 @@ static int close_testing;
 #ifdef EXTERNAL_POLL
 #define LWS_NO_FORK
 
-#define MAX_POLL_ELEMENTS 32000
+int max_poll_elements;
 
-struct pollfd pollfds[MAX_POLL_ELEMENTS];
-int fd_lookup[MAX_POLL_ELEMENTS];
+struct pollfd *pollfds;
+int *fd_lookup;
 int count_pollfds;
 
 #endif /* EXTERNAL_POLL */
@@ -160,7 +160,7 @@ static int callback_http(struct libwebsocket_context *context,
 
 	case LWS_CALLBACK_ADD_POLL_FD:
 
-		if (count_pollfds >= MAX_POLL_ELEMENTS) {
+		if (count_pollfds >= max_poll_elements) {
 			lwsl_err("LWS_CALLBACK_ADD_POLL_FD: too many sockets to track\n");
 			return 1;
 		}
@@ -585,6 +585,15 @@ int main(int argc, char **argv)
 						    "licensed under LGPL2.1\n");
 	if (!use_ssl)
 		cert_path = key_path = NULL;
+#ifdef EXTERNAL_POLL
+	max_poll_elements = getdtablesize();
+	pollfds = malloc(max_poll_elements * sizeof (struct pollfd));
+	fd_lookup = malloc(max_poll_elements * sizeof (int));
+	if (pollfds == NULL || fd_lookup == NULL) {
+		lwsl_err("Out of memory pollfds=%d\n", max_poll_elements);
+		return -1;
+	}
+#endif
 
 	context = libwebsocket_create_context(port, interface, protocols,
 #ifndef LWS_NO_EXTENSIONS
