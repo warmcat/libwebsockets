@@ -26,6 +26,14 @@ disabled when building this way
 
 For uClibc, you will likely need --enable-builtin-getifaddrs
 
+For cross-building, here's an example using the Linaro ARM toolchain
+
+./configure --prefix=/usr --host=arm-linux-gnueabi --without-client --without-extensions
+
+you can build cross with client and extensions perfectly well, but
+apart from the size shrink this has the nice characteristic that no
+non-toolchain libraries are needed to build it.
+
 
 otherwise if /usr/local/... and /usr/local/lib are OK then...
 
@@ -174,3 +182,42 @@ echo "65536" > /proc/sys/net/core/somaxconn
 echo "65536" > /proc/sys/net/ipv4/tcp_max_syn_backlog
 echo "262144" > /proc/sys/net/netfilter/nf_conntrack_max
 
+
+Memory efficiency
+-----------------
+
+This shows the impact of the major configuration with/without options at
+13ba5bbc633ea962d46d using Ubuntu ARM on a PandaBoard ES.
+
+These are accounting for static allocations from the library elf, there are
+additional dynamic allocations via malloc
+
+Static allocations, ARM9
+				.text	.rodata	.data	.bss
+ All (no without)		35024	9940	336	4104
+ without client			25684	7144	336	4104
+ without client, exts		21652	6288	288	4104
+ without client, exts, debug[1]	19756	3768	288	4104
+ without server			30304	8160	336	4104
+ without server, exts		25382	7204	288	4104
+ without server, exts, debug[1]	23712	4256	288	4104
+
+Dynamic allocations: ARM9 (32 bit)
+
+ Context Creation, 1024 fd limit[2] in ulimit:	12288  (12 bytes per fd)
+ Per-connection (excluding headers[3]):		 8740
+
+Dynamic allocations: x86_64 (64 bit)
+
+ Context Creation, 1024 fd limit[2] in ulimit:	16384  (16 bytes per fd)
+ Per-connection (excluding headers[3]):		 9224
+
+[1] --disable-debug only removes messages below lwsl_notice.  Since that is
+the default logging level the impact is not noticable, error, warn and notice
+logs are all still there.
+
+[2] 1024 fd per process is the default limit (set by ulimit) in at least Fedora
+and Ubuntu.
+
+[3] known headers are retained via additional mallocs for the lifetime of the
+connection
