@@ -1492,6 +1492,9 @@ libwebsocket_create_context(int port, const char *interf,
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
 	lwsl_notice(" max fd tracked: %u\n", context->max_fds);
+	lwsl_notice(" static allocation: %u bytes\n",
+		(sizeof(struct pollfd) * context->max_fds) +
+		(sizeof(struct libwebsocket *) * context->max_fds));
 
 	context->fds = (struct pollfd *)malloc(sizeof(struct pollfd) * context->max_fds);
 	if (context->fds == NULL) {
@@ -1506,6 +1509,7 @@ libwebsocket_create_context(int port, const char *interf,
 		free(context);
 		return NULL;
 	}
+
 	context->fds_count = 0;
 #ifndef LWS_NO_EXTENSIONS
 	context->extensions = extensions;
@@ -1611,6 +1615,8 @@ libwebsocket_create_context(int port, const char *interf,
 		lwsl_notice(" Compiled without SSL support, "
 						       "serving unencrypted\n");
 #endif
+
+		lwsl_notice(" per-connection allocation: %u + headers\n", sizeof(struct libwebsocket));
 	}
 #endif
 
