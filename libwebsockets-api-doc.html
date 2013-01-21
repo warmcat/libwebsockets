@@ -517,6 +517,11 @@ packet while not burdening the user code with any protocol knowledge.
 This function is intended to be called from the callback in response
 to http requests from the client.  It allows the callback to issue
 local files down the http link in a single step.
+<p>
+Returning &lt;0 indicates error and the wsi should be closed.  Returning
+&gt;0 indicates the file was completely sent and the wsi should be closed.
+==0 indicates the file transfer is started and needs more service later,
+the wsi should be left alone.
 </blockquote>
 <hr>
 <h2>lws_frame_is_binary - </h2>

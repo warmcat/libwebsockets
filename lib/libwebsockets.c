@@ -178,6 +178,11 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 	wsi->u.ws.close_reason = reason;
 
+	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING && wsi->u.http.fd) {
+		close(wsi->u.http.fd);
+		wsi->u.http.fd = 0;
+	}
+
 #ifndef LWS_NO_EXTENSIONS
 	/*
 	 * are his extensions okay with him closing?  Eg he might be a mux
@@ -653,10 +658,8 @@ notify_action:
 	else
 		n = LWS_CALLBACK_SERVER_WRITEABLE;
 
-	user_callback_handle_rxflow(wsi->protocol->callback, context,
+	return user_callback_handle_rxflow(wsi->protocol->callback, context,
 		wsi, (enum libwebsocket_callback_reasons) n, wsi->user_space, NULL, 0);
-
-	return 0;
 }
 
 
@@ -1419,8 +1422,11 @@ int user_callback_handle_rxflow(callback_function callback_function,
 	int n;
 
 	n = callback_function(context, wsi, reason, user, in, len);
-	if (n < 0)
+	if (n) {
+		libwebsocket_close_and_free_session(context, wsi,
+					       LWS_CLOSE_STATUS_NOSTATUS);
 		return n;
+	}
 
 	_libwebsocket_rx_flow_control(wsi);
 

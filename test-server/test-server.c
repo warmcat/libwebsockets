@@ -118,7 +118,7 @@ static int callback_http(struct libwebsocket_context *context,
 		sprintf(buf, LOCAL_RESOURCE_PATH"%s", whitelist[n].urlpath);
 
 		if (libwebsockets_serve_http_file(context, wsi, buf, whitelist[n].mimetype))
-			lwsl_err("Failed to send HTTP file\n");
+			return 1; /* through completion or error, close the socket */
 
 		/*
 		 * notice that the sending of the file completes asynchronously,

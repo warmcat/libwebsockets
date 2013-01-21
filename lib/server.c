@@ -189,14 +189,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE)
 			break;
 
-		if (libwebsockets_serve_http_file_fragment(context, wsi) < 0)
+		if (libwebsockets_serve_http_file_fragment(context, wsi)) /* nonzero for completion or error */
 			libwebsocket_close_and_free_session(context, wsi,
 					       LWS_CLOSE_STATUS_NOSTATUS);
-		else
-			if (wsi->state == WSI_STATE_HTTP && wsi->protocol->callback)
-				if (user_callback_handle_rxflow(wsi->protocol->callback, context, wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION, wsi->user_space,
-								wsi->u.http.filepath, wsi->u.http.filepos))
-					libwebsocket_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		break;
 
 	case LWS_CONNMODE_SERVER_LISTENER:

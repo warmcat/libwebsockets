@@ -256,6 +256,13 @@ struct libwebsocket_context {
 	unsigned int options;
 	unsigned long last_timeout_check_s;
 
+	/*
+	 * usable by anything in the service code, but only if the scope
+	 * does not last longer than the service action (since next service
+	 * of any socket can likewise use it and overwrite)
+	 */
+	unsigned char service_buffer[4096];
+
 	int started_with_parent;
 
 	int fd_random;
@@ -303,7 +310,7 @@ enum pending_timeout {
  */
 
 struct _lws_http_mode_related {
-	char filepath[PATH_MAX];
+	int fd;
 	unsigned long filepos;
 	unsigned long filelen;
 };
