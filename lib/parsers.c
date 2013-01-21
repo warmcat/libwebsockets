@@ -313,7 +313,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;
 
-	switch (wsi->parser_state) {
+	switch (wsi->u.hdr.parser_state) {
 	case WSI_TOKEN_GET_URI:
 	case WSI_TOKEN_HOST:
 	case WSI_TOKEN_CONNECTION:
@@ -333,76 +333,76 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_HTTP:
 	case WSI_TOKEN_MUXURL:
 
-		lwsl_parser("WSI_TOKEN_(%d) '%c'\n", wsi->parser_state, c);
+		lwsl_parser("WSI_TOKEN_(%d) '%c'\n", wsi->u.hdr.parser_state, c);
 
 		/* collect into malloc'd buffers */
 		/* optional space swallow */
-		if (!wsi->utf8_token[wsi->parser_state].token_len && c == ' ')
+		if (!wsi->utf8_token[wsi->u.hdr.parser_state].token_len && c == ' ')
 			break;
 
 		/* special case space terminator for get-uri */
-		if (wsi->parser_state == WSI_TOKEN_GET_URI && c == ' ') {
-			wsi->utf8_token[wsi->parser_state].token[
-			   wsi->utf8_token[wsi->parser_state].token_len] = '\0';
-//			lwsl_parser("uri '%s'\n", wsi->utf8_token[wsi->parser_state].token);
-			wsi->parser_state = WSI_TOKEN_SKIPPING;
+		if (wsi->u.hdr.parser_state == WSI_TOKEN_GET_URI && c == ' ') {
+			wsi->utf8_token[wsi->u.hdr.parser_state].token[
+			   wsi->utf8_token[wsi->u.hdr.parser_state].token_len] = '\0';
+//			lwsl_parser("uri '%s'\n", wsi->utf8_token[wsi->u.hdr.parser_state].token);
+			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
 			break;
 		}
 
 		/* allocate appropriate memory */
-		if (wsi->utf8_token[wsi->parser_state].token_len ==
-						   wsi->current_alloc_len - 1) {
+		if (wsi->utf8_token[wsi->u.hdr.parser_state].token_len ==
+						   wsi->u.hdr.current_alloc_len - 1) {
 			/* need to extend */
-			wsi->current_alloc_len += LWS_ADDITIONAL_HDR_ALLOC;
-			if (wsi->current_alloc_len >= LWS_MAX_HEADER_LEN) {
+			wsi->u.hdr.current_alloc_len += LWS_ADDITIONAL_HDR_ALLOC;
+			if (wsi->u.hdr.current_alloc_len >= LWS_MAX_HEADER_LEN) {
 				/* it's waaay to much payload, fail it */
-				strcpy(wsi->utf8_token[wsi->parser_state].token,
+				strcpy(wsi->utf8_token[wsi->u.hdr.parser_state].token,
 				   "!!! Length exceeded maximum supported !!!");
-				wsi->parser_state = WSI_TOKEN_SKIPPING;
+				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
 				break;
 			}
-			wsi->utf8_token[wsi->parser_state].token = (char *)
-			       realloc(wsi->utf8_token[wsi->parser_state].token,
-							wsi->current_alloc_len);
-			if (wsi->utf8_token[wsi->parser_state].token == NULL) {
+			wsi->utf8_token[wsi->u.hdr.parser_state].token = (char *)
+			       realloc(wsi->utf8_token[wsi->u.hdr.parser_state].token,
+							wsi->u.hdr.current_alloc_len);
+			if (wsi->utf8_token[wsi->u.hdr.parser_state].token == NULL) {
 				lwsl_err("Out of mem\n");
 				return -1;
 			}
 		}
 
 		/* bail at EOL */
-		if (wsi->parser_state != WSI_TOKEN_CHALLENGE && c == '\x0d') {
-			wsi->utf8_token[wsi->parser_state].token[
-			   wsi->utf8_token[wsi->parser_state].token_len] = '\0';
-			wsi->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
+		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE && c == '\x0d') {
+			wsi->utf8_token[wsi->u.hdr.parser_state].token[
+			   wsi->utf8_token[wsi->u.hdr.parser_state].token_len] = '\0';
+			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 			lwsl_parser("*\n");
 			break;
 		}
 
-		wsi->utf8_token[wsi->parser_state].token[
-			    wsi->utf8_token[wsi->parser_state].token_len++] = c;
+		wsi->utf8_token[wsi->u.hdr.parser_state].token[
+			    wsi->utf8_token[wsi->u.hdr.parser_state].token_len++] = c;
 
 		/* per-protocol end of headers management */
 
-		if (wsi->parser_state != WSI_TOKEN_CHALLENGE)
+		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE)
 			break;
 
 		/* -76 has no version header ... server */
 		if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
 		   wsi->mode != LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY &&
-			      wsi->utf8_token[wsi->parser_state].token_len != 8)
+			      wsi->utf8_token[wsi->u.hdr.parser_state].token_len != 8)
 			break;
 
 		/* -76 has no version header ... client */
 		if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
 		   wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY &&
-			wsi->utf8_token[wsi->parser_state].token_len != 16)
+			wsi->utf8_token[wsi->u.hdr.parser_state].token_len != 16)
 			break;
 
 		/* <= 03 has old handshake with version header needs 8 bytes */
 		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
 			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) < 4 &&
-			      wsi->utf8_token[wsi->parser_state].token_len != 8)
+			      wsi->utf8_token[wsi->u.hdr.parser_state].token_len != 8)
 			break;
 
 		/* no payload challenge in 01 + */
@@ -417,40 +417,40 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		/* For any supported protocol we have enough payload */
 
 		lwsl_parser("Setting WSI_PARSING_COMPLETE\n");
-		wsi->parser_state = WSI_PARSING_COMPLETE;
+		wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
 		break;
 
 	case WSI_INIT_TOKEN_MUXURL:
-		wsi->parser_state = WSI_TOKEN_MUXURL;
-		wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
+		wsi->u.hdr.parser_state = WSI_TOKEN_MUXURL;
+		wsi->u.hdr.current_alloc_len = LWS_INITIAL_HDR_ALLOC;
 
-		wsi->utf8_token[wsi->parser_state].token = (char *)
-					 malloc(wsi->current_alloc_len);
-		if (wsi->utf8_token[wsi->parser_state].token == NULL) {
+		wsi->utf8_token[wsi->u.hdr.parser_state].token = (char *)
+					 malloc(wsi->u.hdr.current_alloc_len);
+		if (wsi->utf8_token[wsi->u.hdr.parser_state].token == NULL) {
 			lwsl_err("Out of mem\n");
 			return -1;
 		}
-		wsi->utf8_token[wsi->parser_state].token_len = 0;
+		wsi->utf8_token[wsi->u.hdr.parser_state].token_len = 0;
 		break;
 
 		/* collecting and checking a name part */
 	case WSI_TOKEN_NAME_PART:
 		lwsl_parser("WSI_TOKEN_NAME_PART '%c'\n", c);
 
-		if (wsi->name_buffer_pos == sizeof(wsi->name_buffer) - 1) {
+		if (wsi->u.hdr.name_buffer_pos == sizeof(wsi->u.hdr.name_buffer) - 1) {
 			/* name bigger than we can handle, skip until next */
-			wsi->parser_state = WSI_TOKEN_SKIPPING;
+			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
 			break;
 		}
-		wsi->name_buffer[wsi->name_buffer_pos++] = c;
-		wsi->name_buffer[wsi->name_buffer_pos] = '\0';
+		wsi->u.hdr.name_buffer[wsi->u.hdr.name_buffer_pos++] = c;
+		wsi->u.hdr.name_buffer[wsi->u.hdr.name_buffer_pos] = '\0';
 
-		wsi->lextable_pos = lextable_decode(wsi->lextable_pos, c);
-		if (lextable[wsi->lextable_pos + 1] == 0) {
+		wsi->u.hdr.lextable_pos = lextable_decode(wsi->u.hdr.lextable_pos, c);
+		if (lextable[wsi->u.hdr.lextable_pos + 1] == 0) {
 
-			n = lextable[wsi->lextable_pos] & 0x7f;
+			n = lextable[wsi->u.hdr.lextable_pos] & 0x7f;
 
-			lwsl_parser("known hdr '%s'\n", wsi->name_buffer);
+			lwsl_parser("known hdr '%s'\n", wsi->u.hdr.name_buffer);
 
 			/*
 			 * WSORIGIN is protocol equiv to ORIGIN,
@@ -459,42 +459,42 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			if (n == WSI_TOKEN_SWORIGIN)
 				n = WSI_TOKEN_ORIGIN;
 
-			wsi->parser_state = (enum lws_token_indexes) (WSI_TOKEN_GET_URI + n);
+			wsi->u.hdr.parser_state = (enum lws_token_indexes) (WSI_TOKEN_GET_URI + n);
 
 			n = WSI_TOKEN_COUNT;
 
 			/*  If the header has been seen already, just append */
-			if (!wsi->utf8_token[wsi->parser_state].token) {
+			if (!wsi->utf8_token[wsi->u.hdr.parser_state].token) {
 
-				wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
-				wsi->utf8_token[wsi->parser_state].token = (char *)
-							 malloc(wsi->current_alloc_len);
-				if (wsi->utf8_token[wsi->parser_state].token == NULL) {
+				wsi->u.hdr.current_alloc_len = LWS_INITIAL_HDR_ALLOC;
+				wsi->utf8_token[wsi->u.hdr.parser_state].token = (char *)
+							 malloc(wsi->u.hdr.current_alloc_len);
+				if (wsi->utf8_token[wsi->u.hdr.parser_state].token == NULL) {
 					lwsl_err("Out of mem\n");
 					return -1;
 				}
-				wsi->utf8_token[wsi->parser_state].token_len = 0;
+				wsi->utf8_token[wsi->u.hdr.parser_state].token_len = 0;
 			}
 		}
 
 		/* colon delimiter means we just don't know this name */
 
-		if (wsi->parser_state == WSI_TOKEN_NAME_PART) {
+		if (wsi->u.hdr.parser_state == WSI_TOKEN_NAME_PART) {
 			if (c == ':') {
 				lwsl_parser("skipping unknown header '%s'\n",
-							  wsi->name_buffer);
-				wsi->parser_state = WSI_TOKEN_SKIPPING;
+							  wsi->u.hdr.name_buffer);
+				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
 				break;
 			}
 
 			if (c == ' ' &&
 				!wsi->utf8_token[WSI_TOKEN_GET_URI].token_len) {
 				lwsl_parser("unknown method '%s'\n",
-							  wsi->name_buffer);
-				wsi->parser_state = WSI_TOKEN_GET_URI;
-				wsi->current_alloc_len = LWS_INITIAL_HDR_ALLOC;
+							  wsi->u.hdr.name_buffer);
+				wsi->u.hdr.parser_state = WSI_TOKEN_GET_URI;
+				wsi->u.hdr.current_alloc_len = LWS_INITIAL_HDR_ALLOC;
 				wsi->utf8_token[WSI_TOKEN_GET_URI].token =
-					(char *)malloc(wsi->current_alloc_len);
+					(char *)malloc(wsi->u.hdr.current_alloc_len);
 				if (wsi->utf8_token[WSI_TOKEN_GET_URI].token == NULL) {
 					lwsl_err("Out of mem\n");
 					return -1;
@@ -503,7 +503,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			}
 		}
 
-		if (wsi->parser_state != WSI_TOKEN_CHALLENGE)
+		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE)
 			break;
 
 		/* don't look for payload when it can just be http headers */
@@ -512,7 +512,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			/* they're HTTP headers, not websocket upgrade! */
 			lwsl_parser("Setting WSI_PARSING_COMPLETE "
 							 "from http headers\n");
-			wsi->parser_state = WSI_PARSING_COMPLETE;
+			wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
 		}
 
 		/* 04 version has no packet content after end of hdrs */
@@ -520,7 +520,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
 			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) >= 4) {
 			lwsl_parser("04 header completed\n");
-			wsi->parser_state = WSI_PARSING_COMPLETE;
+			wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
 			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len = 0;
 			free(wsi->utf8_token[WSI_TOKEN_CHALLENGE].token);
 			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token = NULL;
@@ -529,7 +529,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		/* client parser? */
 
 		lwsl_parser("04 header completed\n");
-		wsi->parser_state = WSI_PARSING_COMPLETE;
+		wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
 
 		break;
 
@@ -537,16 +537,16 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_SKIPPING:
 		lwsl_parser("WSI_TOKEN_SKIPPING '%c'\n", c);
 		if (c == '\x0d')
-			wsi->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
+			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 		break;
 	case WSI_TOKEN_SKIPPING_SAW_CR:
 		lwsl_parser("WSI_TOKEN_SKIPPING_SAW_CR '%c'\n", c);
 		if (c == '\x0a') {
-			wsi->parser_state = WSI_TOKEN_NAME_PART;
-			wsi->lextable_pos = 0;
+			wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
+			wsi->u.hdr.lextable_pos = 0;
 		} else
-			wsi->parser_state = WSI_TOKEN_SKIPPING;
-		wsi->name_buffer_pos = 0;
+			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
+		wsi->u.hdr.name_buffer_pos = 0;
 		break;
 		/* we're done, ignore anything else */
 	case WSI_PARSING_COMPLETE:
@@ -573,7 +573,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 int lws_frame_is_binary(struct libwebsocket *wsi)
 {
-	return wsi->frame_is_binary;
+	return wsi->u.ws.frame_is_binary;
 }
 
 int
@@ -598,7 +598,7 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			/*
 			 * no prepended frame key any more
 			 */
-			wsi->all_zero_nonce = 1;
+			wsi->u.ws.all_zero_nonce = 1;
 			goto handle_first;
 
 		default:
@@ -608,28 +608,28 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		}
 		break;
 	case LWS_RXPS_04_MASK_NONCE_1:
-		wsi->frame_masking_nonce_04[1] = c;
+		wsi->u.ws.frame_masking_nonce_04[1] = c;
 		if (c)
-			wsi->all_zero_nonce = 0;
+			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_2;
 		break;
 	case LWS_RXPS_04_MASK_NONCE_2:
-		wsi->frame_masking_nonce_04[2] = c;
+		wsi->u.ws.frame_masking_nonce_04[2] = c;
 		if (c)
-			wsi->all_zero_nonce = 0;
+			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_3;
 		break;
 	case LWS_RXPS_04_MASK_NONCE_3:
-		wsi->frame_masking_nonce_04[3] = c;
+		wsi->u.ws.frame_masking_nonce_04[3] = c;
 		if (c)
-			wsi->all_zero_nonce = 0;
+			wsi->u.ws.all_zero_nonce = 0;
 
 		/*
 		 * start from the zero'th byte in the XOR key buffer since
 		 * this is the start of a frame with a new key
 		 */
 
-		wsi->frame_mask_index = 0;
+		wsi->u.ws.frame_mask_index = 0;
 
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_1;
 		break;
@@ -684,13 +684,13 @@ handle_first:
 		 *		FIN (b7)
 		 */
 
-		wsi->opcode = c & 0xf;
-		wsi->rsv = c & 0x70;
-		wsi->final = !!((c >> 7) & 1);
-		switch (wsi->opcode) {
+		wsi->u.ws.opcode = c & 0xf;
+		wsi->u.ws.rsv = c & 0x70;
+		wsi->u.ws.final = !!((c >> 7) & 1);
+		switch (wsi->u.ws.opcode) {
 		case LWS_WS_OPCODE_07__TEXT_FRAME:
 		case LWS_WS_OPCODE_07__BINARY_FRAME:
-			wsi->frame_is_binary = wsi->opcode == LWS_WS_OPCODE_07__BINARY_FRAME;
+			wsi->u.ws.frame_is_binary = wsi->u.ws.opcode == LWS_WS_OPCODE_07__BINARY_FRAME;
 			break;
 		}
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
@@ -698,26 +698,26 @@ handle_first:
 
 	case LWS_RXPS_04_FRAME_HDR_LEN:
 
-		wsi->this_frame_masked = !!(c & 0x80);
+		wsi->u.ws.this_frame_masked = !!(c & 0x80);
 
 		switch (c & 0x7f) {
 		case 126:
 			/* control frames are not allowed to have big lengths */
-			if (wsi->opcode & 8)
+			if (wsi->u.ws.opcode & 8)
 				goto illegal_ctl_length;
 
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_2;
 			break;
 		case 127:
 			/* control frames are not allowed to have big lengths */
-			if (wsi->opcode & 8)
+			if (wsi->u.ws.opcode & 8)
 				goto illegal_ctl_length;
 
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_8;
 			break;
 		default:
-			wsi->rx_packet_length = c & 0x7f;
-			if (wsi->this_frame_masked)
+			wsi->u.ws.rx_packet_length = c & 0x7f;
+			if (wsi->u.ws.this_frame_masked)
 				wsi->lws_rx_parse_state =
 						LWS_RXPS_07_COLLECT_FRAME_KEY_1;
 			else
@@ -728,13 +728,13 @@ handle_first:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_2:
-		wsi->rx_packet_length = c << 8;
+		wsi->u.ws.rx_packet_length = c << 8;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_1;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_1:
-		wsi->rx_packet_length |= c;
-		if (wsi->this_frame_masked)
+		wsi->u.ws.rx_packet_length |= c;
+		if (wsi->u.ws.this_frame_masked)
 			wsi->lws_rx_parse_state =
 					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
 		else
@@ -749,52 +749,52 @@ handle_first:
 			return -1;
 		}
 #if defined __LP64__
-		wsi->rx_packet_length = ((size_t)c) << 56;
+		wsi->u.ws.rx_packet_length = ((size_t)c) << 56;
 #else
-		wsi->rx_packet_length = 0;
+		wsi->u.ws.rx_packet_length = 0;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_7;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_7:
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)c) << 48;
+		wsi->u.ws.rx_packet_length |= ((size_t)c) << 48;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_6;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_6:
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)c) << 40;
+		wsi->u.ws.rx_packet_length |= ((size_t)c) << 40;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_5;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_5:
 #if defined __LP64__
-		wsi->rx_packet_length |= ((size_t)c) << 32;
+		wsi->u.ws.rx_packet_length |= ((size_t)c) << 32;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_4;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_4:
-		wsi->rx_packet_length |= ((size_t)c) << 24;
+		wsi->u.ws.rx_packet_length |= ((size_t)c) << 24;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_3;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_3:
-		wsi->rx_packet_length |= ((size_t)c) << 16;
+		wsi->u.ws.rx_packet_length |= ((size_t)c) << 16;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_2;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_2:
-		wsi->rx_packet_length |= ((size_t)c) << 8;
+		wsi->u.ws.rx_packet_length |= ((size_t)c) << 8;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_1;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
-		wsi->rx_packet_length |= ((size_t)c);
-		if (wsi->this_frame_masked)
+		wsi->u.ws.rx_packet_length |= ((size_t)c);
+		if (wsi->u.ws.this_frame_masked)
 			wsi->lws_rx_parse_state =
 					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
 		else
@@ -803,51 +803,51 @@ handle_first:
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_1:
-		wsi->frame_masking_nonce_04[0] = c;
+		wsi->u.ws.frame_masking_nonce_04[0] = c;
 		if (c)
-			wsi->all_zero_nonce = 0;
+			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_2;
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_2:
-		wsi->frame_masking_nonce_04[1] = c;
+		wsi->u.ws.frame_masking_nonce_04[1] = c;
 		if (c)
-			wsi->all_zero_nonce = 0;
+			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_3;
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_3:
-		wsi->frame_masking_nonce_04[2] = c;
+		wsi->u.ws.frame_masking_nonce_04[2] = c;
 		if (c)
-			wsi->all_zero_nonce = 0;
+			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_4;
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_4:
-		wsi->frame_masking_nonce_04[3] = c;
+		wsi->u.ws.frame_masking_nonce_04[3] = c;
 		if (c)
-			wsi->all_zero_nonce = 0;
+			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
-		wsi->frame_mask_index = 0;
+		wsi->u.ws.frame_mask_index = 0;
 		break;
 
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
 
-		if (wsi->all_zero_nonce)
-			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-			       (wsi->rx_user_buffer_head++)] = c;
+		if (wsi->u.ws.all_zero_nonce)
+			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
+			       (wsi->u.ws.rx_user_buffer_head++)] = c;
 		else
-			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-			       (wsi->rx_user_buffer_head++)] =
-		c ^ wsi->frame_masking_nonce_04[(wsi->frame_mask_index++) & 3];
+			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
+			       (wsi->u.ws.rx_user_buffer_head++)] =
+		c ^ wsi->u.ws.frame_masking_nonce_04[(wsi->u.ws.frame_mask_index++) & 3];
 
-		if (--wsi->rx_packet_length == 0) {
+		if (--wsi->u.ws.rx_packet_length == 0) {
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 			goto spill;
 		}
-		if (wsi->rx_user_buffer_head != MAX_USER_RX_BUFFER)
+		if (wsi->u.ws.rx_user_buffer_head != MAX_USER_RX_BUFFER)
 			break;
 spill:
 		/*
@@ -857,7 +857,7 @@ spill:
 
 		lwsl_parser("spill on %s\n", wsi->protocol->name);
 
-		switch (wsi->opcode) {
+		switch (wsi->u.ws.opcode) {
 		case LWS_WS_OPCODE_07__CLOSE:
 			/* is this an acknowledgement of our close? */
 			if (wsi->state == WSI_STATE_AWAITING_CLOSE_ACK) {
@@ -871,8 +871,8 @@ spill:
 			lwsl_parser("server sees client close packet\n");
 			/* parrot the close packet payload back */
 			n = libwebsocket_write(wsi, (unsigned char *)
-			   &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
-				     wsi->rx_user_buffer_head, LWS_WRITE_CLOSE);
+			   &wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+				     wsi->u.ws.rx_user_buffer_head, LWS_WRITE_CLOSE);
 			if (n)
 				lwsl_info("write of close ack failed %d\n", n);
 			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
@@ -880,20 +880,20 @@ spill:
 			return -1;
 
 		case LWS_WS_OPCODE_07__PING:
-			lwsl_info("received %d byte ping, sending pong\n", wsi->rx_user_buffer_head);
-			lwsl_hexdump(&wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING], wsi->rx_user_buffer_head);
+			lwsl_info("received %d byte ping, sending pong\n", wsi->u.ws.rx_user_buffer_head);
+			lwsl_hexdump(&wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING], wsi->u.ws.rx_user_buffer_head);
 			/* parrot the ping packet payload back as a pong */
 			n = libwebsocket_write(wsi, (unsigned char *)
-			    &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING], wsi->rx_user_buffer_head, LWS_WRITE_PONG);
+			    &wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING], wsi->u.ws.rx_user_buffer_head, LWS_WRITE_PONG);
 			/* ... then just drop it */
-			wsi->rx_user_buffer_head = 0;
+			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;
 
 		case LWS_WS_OPCODE_07__PONG:
 			/* keep the statistics... */
-			wsi->pings_vs_pongs--;
+			wsi->u.ws.pings_vs_pongs--;
 			/* ... then just drop it */
-			wsi->rx_user_buffer_head = 0;
+			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;
 
 		case LWS_WS_OPCODE_07__TEXT_FRAME:
@@ -903,7 +903,7 @@ spill:
 
 		default:
 #ifndef LWS_NO_EXTENSIONS
-			lwsl_parser("passing opcode %x up to exts\n", wsi->opcode);
+			lwsl_parser("passing opcode %x up to exts\n", wsi->u.ws.opcode);
 
 			/*
 			 * It's something special we can't understand here.
@@ -911,9 +911,9 @@ spill:
 			 * state machine.
 			 */
 
-			eff_buf.token = &wsi->rx_user_buffer[
+			eff_buf.token = &wsi->u.ws.rx_user_buffer[
 						   LWS_SEND_BUFFER_PRE_PADDING];
-			eff_buf.token_len = wsi->rx_user_buffer_head;
+			eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
 
 			handled = 0;
 			for (n = 0; n < wsi->count_active_extensions; n++) {
@@ -930,9 +930,9 @@ spill:
 			if (!handled)
 #endif
 				lwsl_ext("Unhandled extended opcode "
-					"0x%x - ignoring frame\n", wsi->opcode);
+					"0x%x - ignoring frame\n", wsi->u.ws.opcode);
 
-			wsi->rx_user_buffer_head = 0;
+			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;
 		}
 
@@ -942,9 +942,9 @@ spill:
 		 * so it can be sent straight out again using libwebsocket_write
 		 */
 
-		eff_buf.token = &wsi->rx_user_buffer[
+		eff_buf.token = &wsi->u.ws.rx_user_buffer[
 						LWS_SEND_BUFFER_PRE_PADDING];
-		eff_buf.token_len = wsi->rx_user_buffer_head;
+		eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
 #ifndef LWS_NO_EXTENSIONS
 		for (n = 0; n < wsi->count_active_extensions; n++) {
 			m = wsi->active_extensions[n]->callback(
@@ -975,7 +975,7 @@ spill:
 			    lwsl_err("No callback on payload spill!\n");
 		}
 
-		wsi->rx_user_buffer_head = 0;
+		wsi->u.ws.rx_user_buffer_head = 0;
 		break;
 	}
 
@@ -995,7 +995,7 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 {
 	size_t n;
 	int m;
-	int clear_rxflow = !!wsi->rxflow_buffer;
+	int clear_rxflow = !!wsi->u.ws.rxflow_buffer;
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
 
 #if 0
@@ -1003,17 +1003,17 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 	lwsl_hexdump(buf, len);
 #endif
 
-	if (buf && wsi->rxflow_buffer)
+	if (buf && wsi->u.ws.rxflow_buffer)
 		lwsl_err("!!!! libwebsocket_interpret_incoming_packet: was pending rxflow, data loss\n");
 
 	/* let the rx protocol state machine have as much as it needs */
 
 	n = 0;
 	if (!buf) {
-		lwsl_info("dumping stored rxflow buffer len %d pos=%d\n", wsi->rxflow_len, wsi->rxflow_pos);
-		buf = wsi->rxflow_buffer;
-		n = wsi->rxflow_pos;
-		len = wsi->rxflow_len;
+		lwsl_info("dumping stored rxflow buffer len %d pos=%d\n", wsi->u.ws.rxflow_len, wsi->u.ws.rxflow_pos);
+		buf = wsi->u.ws.rxflow_buffer;
+		n = wsi->u.ws.rxflow_pos;
+		len = wsi->u.ws.rxflow_len;
 		/* let's pretend he's already allowing input */
 		context->fds[wsi->position_in_fds_table].events |= POLLIN;
 	}
@@ -1021,16 +1021,16 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 	while (n < len) {
 		if (!(context->fds[wsi->position_in_fds_table].events & POLLIN)) {
 			/* his RX is flowcontrolled */
-			if (!wsi->rxflow_buffer) { /* a new rxflow in effect, buffer it and warn caller */
+			if (!wsi->u.ws.rxflow_buffer) { /* a new rxflow in effect, buffer it and warn caller */
 				lwsl_info("new rxflow input buffer len %d\n", len - n);
-				wsi->rxflow_buffer = (unsigned char *)malloc(len - n);
-				wsi->rxflow_len = len - n;
-				wsi->rxflow_pos = 0;
-				memcpy(wsi->rxflow_buffer, buf + n, len - n);
+				wsi->u.ws.rxflow_buffer = (unsigned char *)malloc(len - n);
+				wsi->u.ws.rxflow_len = len - n;
+				wsi->u.ws.rxflow_pos = 0;
+				memcpy(wsi->u.ws.rxflow_buffer, buf + n, len - n);
 			} else {
 				lwsl_info("re-using rxflow input buffer\n");
 				/* rxflow while we were spilling previous rxflow buffer */
-				wsi->rxflow_pos = n;
+				wsi->u.ws.rxflow_pos = n;
 			}
 			return 1;
 		}
@@ -1042,8 +1042,8 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 
 	if (clear_rxflow) {
 		lwsl_info("flow: clearing it\n");
-		free(wsi->rxflow_buffer);
-		wsi->rxflow_buffer = NULL;
+		free(wsi->u.ws.rxflow_buffer);
+		wsi->u.ws.rxflow_buffer = NULL;
 		context->fds[wsi->position_in_fds_table].events &= ~POLLIN;
 	}
 
@@ -1071,5 +1071,5 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 size_t
 libwebsockets_remaining_packet_payload(struct libwebsocket *wsi)
 {
-	return wsi->rx_packet_length;
+	return wsi->u.ws.rx_packet_length;
 }

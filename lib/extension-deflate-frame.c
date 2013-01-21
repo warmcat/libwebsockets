@@ -92,7 +92,7 @@ bail:
 		break;
 
 	case LWS_EXT_CALLBACK_PAYLOAD_RX:
-		if (!(wsi->rsv & 0x40))
+		if (!(wsi->u.ws.rsv & 0x40))
 			return 0;
 
 		/*
@@ -100,7 +100,7 @@ bail:
 		 */
 		current_payload = eff_buf->token_len;
 
-		remaining_payload = wsi->rx_packet_length;
+		remaining_payload = wsi->u.ws.rx_packet_length;
 		if (remaining_payload) {
 			total_payload = conn->buf_pre_used +
 					current_payload +

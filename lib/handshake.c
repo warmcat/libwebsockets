@@ -63,8 +63,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 	case WSI_STATE_HTTP_ISSUING_FILE:
 	case WSI_STATE_HTTP:
 		wsi->state = WSI_STATE_HTTP_HEADERS;
-		wsi->parser_state = WSI_TOKEN_NAME_PART;
-		wsi->lextable_pos = 0;
+		wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
+		wsi->u.hdr.lextable_pos = 0;
 		/* fallthru */
 	case WSI_STATE_HTTP_HEADERS:
 
@@ -99,7 +99,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 		for (n = 0; n < len; n++)
 			libwebsocket_parse(wsi, *buf++);
 
-		if (wsi->parser_state != WSI_PARSING_COMPLETE)
+		if (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE)
 			break;
 
 		lwsl_parser("seem to be serving, mode is %d\n", wsi->mode);
@@ -202,6 +202,9 @@ libwebsocket_read(struct libwebsocket_context *context,
 		}
 
 		wsi->mode = LWS_CONNMODE_WS_SERVING;
+
+		/* union transition */
+		memset(&wsi->u, 0, sizeof wsi->u);
 
 		lwsl_parser("accepted v%02d connection\n",
 						       wsi->ietf_spec_revision);

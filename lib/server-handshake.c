@@ -257,7 +257,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	free(response);
 	wsi->state = WSI_STATE_ESTABLISHED;
 	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
-	wsi->rx_packet_length = 0;
+	wsi->u.ws.rx_packet_length = 0;
 
 	/* notify user code that we're ready to roll */
 

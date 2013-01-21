@@ -201,8 +201,8 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 			return 0;
 		}
 
-		wsi->parser_state = WSI_TOKEN_NAME_PART;
-		wsi->lextable_pos = 0;
+		wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
+		wsi->u.hdr.lextable_pos = 0;
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY;
 		libwebsocket_set_timeout(wsi,
 				PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE, AWAITING_TIMEOUT);
@@ -243,7 +243,7 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 		 */
 
 		len = 1;
-		while (wsi->parser_state != WSI_PARSING_COMPLETE && len > 0) {
+		while (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE && len > 0) {
 #ifdef LWS_OPENSSL_SUPPORT
 			if (wsi->use_ssl)
 				len = SSL_read(wsi->ssl, &c, 1);
@@ -260,7 +260,7 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 		 * not complete just wait for next packet coming in this state
 		 */
 
-		if (wsi->parser_state != WSI_PARSING_COMPLETE)
+		if (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE)
 			break;
 
 		/*
@@ -540,11 +540,11 @@ check_accept:
 	 */
 
 	if (strcmp(wsi->utf8_token[WSI_TOKEN_ACCEPT].token,
-				  wsi->initial_handshake_hash_base64)) {
+				  wsi->u.hdr.initial_handshake_hash_base64)) {
 		lwsl_warn("libwebsocket_client_handshake server "
 			"sent bad ACCEPT '%s' vs computed '%s'\n",
 			wsi->utf8_token[WSI_TOKEN_ACCEPT].token,
-					wsi->initial_handshake_hash_base64);
+					wsi->u.hdr.initial_handshake_hash_base64);
 		goto bail2;
 	}
 
@@ -561,6 +561,9 @@ check_accept:
 
 	wsi->state = WSI_STATE_ESTABLISHED;
 	wsi->mode = LWS_CONNMODE_WS_CLIENT;
+
+	/* union transition */
+	memset(&wsi->u, 0, sizeof wsi->u);
 
 	lwsl_debug("handshake OK for protocol %s\n", wsi->protocol->name);
 
@@ -767,8 +770,8 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	SHA1(buf, strlen((char *)buf), (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
-			wsi->initial_handshake_hash_base64,
-			     sizeof wsi->initial_handshake_hash_base64);
+			wsi->u.hdr.initial_handshake_hash_base64,
+			     sizeof wsi->u.hdr.initial_handshake_hash_base64);
 
 	/* done with these now */
 

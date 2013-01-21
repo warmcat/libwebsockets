@@ -156,7 +156,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	if (old_state == WSI_STATE_DEAD_SOCKET)
 		return;
 
-	wsi->close_reason = reason;
+	wsi->u.ws.close_reason = reason;
 
 #ifndef LWS_NO_EXTENSIONS
 	/*
@@ -337,8 +337,8 @@ just_kill_connection:
 	if (wsi->c_address)
 		free(wsi->c_address);
 #endif
-	if (wsi->rxflow_buffer)
-		free(wsi->rxflow_buffer);
+	if (wsi->u.ws.rxflow_buffer)
+		free(wsi->u.ws.rxflow_buffer);
 
 /*	lwsl_info("closing fd=%d\n", wsi->sock); */
 
@@ -1209,15 +1209,15 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
 	int n;
 
-	if (!(wsi->rxflow_change_to & 2))
+	if (!(wsi->u.ws.rxflow_change_to & 2))
 		return 0;
 
-	wsi->rxflow_change_to &= ~2;
+	wsi->u.ws.rxflow_change_to &= ~2;
 
-	lwsl_info("rxflow: wsi %p change_to %d\n", wsi, wsi->rxflow_change_to);
+	lwsl_info("rxflow: wsi %p change_to %d\n", wsi, wsi->u.ws.rxflow_change_to);
 
 	/* if we're letting it come again, did we interrupt anything? */
-	if ((wsi->rxflow_change_to & 1) && wsi->rxflow_buffer) {
+	if ((wsi->u.ws.rxflow_change_to & 1) && wsi->u.ws.rxflow_buffer) {
 		n = libwebsocket_interpret_incoming_packet(wsi, NULL, 0);
 		if (n < 0) {
 			libwebsocket_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
@@ -1228,12 +1228,12 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 			return 0;
 	}
 
-	if (wsi->rxflow_change_to & 1)
+	if (wsi->u.ws.rxflow_change_to & 1)
 		context->fds[wsi->position_in_fds_table].events |= POLLIN;
 	else
 		context->fds[wsi->position_in_fds_table].events &= ~POLLIN;
 
-	if (wsi->rxflow_change_to & 1)
+	if (wsi->u.ws.rxflow_change_to & 1)
 		/* external POLL support via protocol 0 */
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_SET_MODE_POLL_FD,
@@ -1262,7 +1262,7 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 int
 libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable)
 {
-	wsi->rxflow_change_to = 2 | !!enable;
+	wsi->u.ws.rxflow_change_to = 2 | !!enable;
 
 	return 0;
 }
@@ -2152,13 +2152,13 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 int
 libwebsocket_is_final_fragment(struct libwebsocket *wsi)
 {
-	return wsi->final;
+	return wsi->u.ws.final;
 }
 
 unsigned char
 libwebsocket_get_reserved_bits(struct libwebsocket *wsi)
 {
-	return wsi->rsv;
+	return wsi->u.ws.rsv;
 }
 
 void *

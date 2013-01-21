@@ -102,7 +102,7 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	/* intialize the instance struct */
 
 	new_wsi->state = WSI_STATE_HTTP;
-	new_wsi->name_buffer_pos = 0;
+	new_wsi->u.hdr.name_buffer_pos = 0;
 	new_wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
@@ -196,7 +196,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		else
 			if (wsi->state == WSI_STATE_HTTP && wsi->protocol->callback)
 				if (user_callback_handle_rxflow(wsi->protocol->callback, context, wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION, wsi->user_space,
-								wsi->filepath, wsi->filepos))
+								wsi->u.http.filepath, wsi->u.http.filepos))
 					libwebsocket_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		break;
 
