@@ -491,7 +491,7 @@ static struct option options[] = {
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "interface",  required_argument,	NULL, 'i' },
 	{ "closetest",  no_argument,		NULL, 'c' },
-#ifndef NO_DAEMONIZE
+#ifndef LWS_NO_DAEMONIZE
 	{ "daemonize", 	no_argument,		NULL, 'D' },
 #endif
 	{ NULL, 0, 0, 0 }
@@ -517,7 +517,7 @@ int main(int argc, char **argv)
 	unsigned int oldus = 0;
 #endif
 	int debug_level = 7;
-#ifndef NO_DAEMONIZE
+#ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
 #endif
 
@@ -526,7 +526,7 @@ int main(int argc, char **argv)
 		if (n < 0)
 			continue;
 		switch (n) {
-#ifndef NO_DAEMONIZE
+#ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
 			syslog_options &= ~LOG_PERROR;
@@ -560,7 +560,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-#ifndef NO_DAEMONIZE
+#ifndef LWS_NO_DAEMONIZE
 	/* 
 	 * normally lock path would be /var/lock/lwsts or similar, to
 	 * simplify getting started without having to take care about
