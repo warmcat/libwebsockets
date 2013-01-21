@@ -186,6 +186,21 @@ echo "262144" > /proc/sys/net/netfilter/nf_conntrack_max
 Memory efficiency
 -----------------
 
+Update at 35f332bb46464feb87eb
+
+Embedded server-only configuration without extensions (ie, no compression
+on websocket connections), but with full v13 websocket features and http
+server, built on ARM Cortex-A9:
+
+./configure --without-client --without-extensions --disable-debug --enable-nofork --without-daemonize
+
+.text	.rodata	.data	.bss
+11476	2664	288	4
+
+Context Creation, 1024 fd limit[2]: 12288 (12 bytes per fd)
+Per-connection [3]: 4400 bytes
+
+
 This shows the impact of the major configuration with/without options at
 13ba5bbc633ea962d46d using Ubuntu ARM on a PandaBoard ES.
 
