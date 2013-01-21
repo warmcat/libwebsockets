@@ -45,6 +45,12 @@ endif
 libwebsockets_la_CFLAGS=-Wall -std=gnu99 -pedantic -g
 libwebsockets_la_LDFLAGS=
 
+if DISABLE_DEBUG
+libwebsockets_la_CFLAGS+= -O4
+else
+libwebsockets_la_CFLAGS+= -g
+endif
+
 if MINGW
 libwebsockets_la_CFLAGS+= -w -I../win32port/win32helpers -I ../win32port/zlib/
 libwebsockets_la_LDFLAGS+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc
