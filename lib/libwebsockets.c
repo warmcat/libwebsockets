@@ -1475,7 +1475,7 @@ libwebsocket_create_context(int port, const char *interf,
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
-#ifndef NO_DAEMONIZE
+#ifndef LWS_NO_DAEMONIZE
 	extern int pid_daemon;
 	context->started_with_parent = pid_daemon;
 	lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
