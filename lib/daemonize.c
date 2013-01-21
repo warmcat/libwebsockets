@@ -22,7 +22,7 @@
 #include <errno.h>
 
 int pid_daemon;
-static char lock_path[PATH_MAX];
+static char *lock_path;
 
 static void
 child_handler(int signum)
@@ -67,7 +67,11 @@ child_handler(int signum)
 static void lws_daemon_closing(int sigact)
 {
 	if (getpid() == pid_daemon)
-		unlink(lock_path);
+		if (lock_path) {
+			unlink(lock_path);
+			free(lock_path);
+			lock_path = NULL;
+		}
 
 	kill(getpid(), SIGKILL);
 }
@@ -91,7 +95,7 @@ lws_daemonize(const char *_lock_path)
 
 	/* already a daemon */
 	if (getppid() == 1)
-		return (1);
+		return 1;
 
 	fd = open(_lock_path, O_RDONLY);
 	if (fd > 0) {
@@ -109,8 +113,13 @@ lws_daemonize(const char *_lock_path)
 		}
 	}
 
-	strncpy(lock_path, _lock_path, sizeof lock_path);
-	lock_path[sizeof(lock_path) - 1] = '\0';
+	n = strlen(_lock_path) + 1;
+	lock_path = malloc(n);
+	if (!lock_path) {
+		fprintf(stderr, "Out of mem in lws_daemonize\n");
+		return 1;
+	}
+	strcpy(lock_path, _lock_path);
 
 	/* Trap signals that we expect to recieve */
 	signal(SIGCHLD, child_handler);	/* died */
