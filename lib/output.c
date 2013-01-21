@@ -28,7 +28,6 @@
 static int
 libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 {
-	char buf[4 + 20];
 	int n;
 
 	/* fetch the per-frame nonce */
@@ -43,24 +42,6 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 
 	/* start masking from first byte of masking key buffer */
 	wsi->frame_mask_index = 0;
-
-	if (wsi->ietf_spec_revision != 4)
-		return 0;
-
-	/* 04 only does SHA-1 more complex key */
-
-	/*
-	 * the frame key is the frame nonce (4 bytes) followed by the
-	 * connection masking key, hashed by SHA1
-	 */
-
-	memcpy(buf, wsi->frame_masking_nonce_04, 4);
-
-	memcpy(buf + 4, wsi->masking_key_04, 20);
-
-	/* concatenate the nonce with the connection key then hash it */
-
-	SHA1((unsigned char *)buf, 4 + 20, wsi->frame_mask_04);
 
 	return 0;
 }
@@ -297,9 +278,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	int n;
 	int pre = 0;
 	int post = 0;
-	int shift = 7;
-	int masked7 = wsi->mode == LWS_CONNMODE_WS_CLIENT &&
-						  wsi->xor_mask != xor_no_mask;
+	int masked7 = wsi->mode == LWS_CONNMODE_WS_CLIENT;
 	unsigned char *dropmask = NULL;
 	unsigned char is_masked_bit = 0;
 #ifndef LWS_NO_EXTENSIONS
@@ -352,138 +331,46 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 #endif
 
 	switch (wsi->ietf_spec_revision) {
-	/* chrome likes this as of 30 Oct 2010 */
-	/* Firefox 4.0b6 likes this as of 30 Oct 2010 */
-	case 0:
-		if ((protocol & 0xf) == LWS_WRITE_BINARY) {
-			/* in binary mode we send 7-bit used length blocks */
-			pre = 1;
-			while (len & (127 << shift)) {
-				pre++;
-				shift += 7;
-			}
-			n = 0;
-			shift -= 7;
-			while (shift >= 0) {
-				if (shift)
-					buf[0 - pre + n] =
-						  ((len >> shift) & 127) | 0x80;
-				else
-					buf[0 - pre + n] =
-						  ((len >> shift) & 127);
-				n++;
-				shift -= 7;
-			}
-			break;
-		}
-
-		/* frame type = text, length-free spam mode */
-
-		pre = 1;
-		buf[-pre] = 0;
-		buf[len] = 0xff; /* EOT marker */
-		post = 1;
-		break;
-
-	case 7:
-	case 8:
 	case 13:
 		if (masked7) {
 			pre += 4;
 			dropmask = &buf[0 - pre];
 			is_masked_bit = 0x80;
 		}
-		/* fallthru */
-	case 4:
-	case 5:
-	case 6:
+
 		switch (protocol & 0xf) {
 		case LWS_WRITE_TEXT:
-			if (wsi->ietf_spec_revision < 7)
-				n = LWS_WS_OPCODE_04__TEXT_FRAME;
-			else
-				n = LWS_WS_OPCODE_07__TEXT_FRAME;
+			n = LWS_WS_OPCODE_07__TEXT_FRAME;
 			break;
 		case LWS_WRITE_BINARY:
-			if (wsi->ietf_spec_revision < 7)
-				n = LWS_WS_OPCODE_04__BINARY_FRAME;
-			else
-				n = LWS_WS_OPCODE_07__BINARY_FRAME;
+			n = LWS_WS_OPCODE_07__BINARY_FRAME;
 			break;
 		case LWS_WRITE_CONTINUATION:
-			if (wsi->ietf_spec_revision < 7)
-				n = LWS_WS_OPCODE_04__CONTINUATION;
-			else
-				n = LWS_WS_OPCODE_07__CONTINUATION;
+			n = LWS_WS_OPCODE_07__CONTINUATION;
 			break;
 
 		case LWS_WRITE_CLOSE:
-			if (wsi->ietf_spec_revision < 7)
-				n = LWS_WS_OPCODE_04__CLOSE;
-			else
-				n = LWS_WS_OPCODE_07__CLOSE;
+			n = LWS_WS_OPCODE_07__CLOSE;
 
 			/*
-			 * v5 mandates the first byte of close packet
-			 * in both client and server directions
+			 * 06+ has a 2-byte status code in network order
+			 * we can do this because we demand post-buf
 			 */
 
-			switch (wsi->ietf_spec_revision) {
-			case 0:
-			case 4:
-				break;
-			case 5:
-				/* we can do this because we demand post-buf */
-
-				if (len < 1)
-					len = 1;
-
-				switch (wsi->mode) {
-				case LWS_CONNMODE_WS_SERVING:
-					/*
-					lwsl_debug("LWS_WRITE_CLOSE S\n");
-					*/
-					buf[0] = 'S';
-					break;
-				case LWS_CONNMODE_WS_CLIENT:
-					/*
-					lwsl_debug("LWS_WRITE_CLOSE C\n");
-					*/
-					buf[0] = 'C';
-					break;
-				default:
-					break;
-				}
-				break;
-			default:
-				/*
-				 * 06 has a 2-byte status code in network order
-				 * we can do this because we demand post-buf
-				 */
-
-				if (wsi->close_reason) {
-					/* reason codes count as data bytes */
-					buf -= 2;
-					buf[0] = wsi->close_reason >> 8;
-					buf[1] = wsi->close_reason;
-					len += 2;
-				}
-				break;
+			if (wsi->close_reason) {
+				/* reason codes count as data bytes */
+				buf -= 2;
+				buf[0] = wsi->close_reason >> 8;
+				buf[1] = wsi->close_reason;
+				len += 2;
 			}
 			break;
 		case LWS_WRITE_PING:
-			if (wsi->ietf_spec_revision < 7)
-				n = LWS_WS_OPCODE_04__PING;
-			else
-				n = LWS_WS_OPCODE_07__PING;
-
+			n = LWS_WS_OPCODE_07__PING;
 			wsi->pings_vs_pongs++;
 			break;
 		case LWS_WRITE_PONG:
-			if (wsi->ietf_spec_revision < 7)
-				n = LWS_WS_OPCODE_04__PONG;
-			else
-				n = LWS_WS_OPCODE_07__PONG;
+			n = LWS_WS_OPCODE_07__PONG;
 			break;
 		default:
 			lwsl_warn("libwebsocket_write: unknown write "
@@ -534,72 +421,24 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	 * the protocol demands it
 	 */
 
-	if (wsi->mode == LWS_CONNMODE_WS_CLIENT &&
-						 wsi->ietf_spec_revision >= 4) {
+	if (wsi->mode == LWS_CONNMODE_WS_CLIENT) {
 
-		/*
-		 * this is only useful for security tests where it's required
-		 * to control the raw packet payload content
-		 */
-
-		if (!(protocol & LWS_WRITE_CLIENT_IGNORE_XOR_MASK) &&
-						wsi->xor_mask != xor_no_mask) {
-
-			if (libwebsocket_0405_frame_mask_generate(wsi)) {
-				lwsl_err("libwebsocket_write: "
-					      "frame mask generation failed\n");
-				return 1;
-			}
-
-
-			if (wsi->ietf_spec_revision < 7)
-				/*
-				 * use the XOR masking against everything we
-				 * send past the frame key
-				 */
-				for (n = -pre; n < ((int)len + post); n++)
-					buf[n] = wsi->xor_mask(wsi, buf[n]);
-			else
-				/*
-				 * in v7, just mask the payload
-				 */
-				for (n = 0; n < (int)len; n++)
-					dropmask[n + 4] =
-					   wsi->xor_mask(wsi, dropmask[n + 4]);
-
-
-			if (wsi->ietf_spec_revision < 7) {
-				/* make space for the frame nonce in clear */
-				pre += 4;
-
-				dropmask = &buf[0 - pre];
-			}
-
-			if (dropmask)
-				/* copy the frame nonce into place */
-				memcpy(dropmask,
-					       wsi->frame_masking_nonce_04, 4);
-
-		} else {
-			if (wsi->ietf_spec_revision < 7) {
-
-				/* make space for the frame nonce in clear */
-				pre += 4;
-
-				buf[0 - pre] = 0;
-				buf[1 - pre] = 0;
-				buf[2 - pre] = 0;
-				buf[3 - pre] = 0;
-			} else {
-				if (dropmask && wsi->xor_mask != xor_no_mask) {
-					dropmask[0] = 0;
-					dropmask[1] = 0;
-					dropmask[2] = 0;
-					dropmask[3] = 0;
-				}
-			}
+		if (libwebsocket_0405_frame_mask_generate(wsi)) {
+			lwsl_err("libwebsocket_write: "
+				      "frame mask generation failed\n");
+			return 1;
 		}
 
+		/*
+		 * in v7, just mask the payload
+		 */
+		for (n = 4; n < (int)len + 4; n++)
+			dropmask[n] = dropmask[n] ^ wsi->frame_masking_nonce_04[(wsi->frame_mask_index++) & 3];
+
+		if (dropmask)
+			/* copy the frame nonce into place */
+			memcpy(dropmask,
+				       wsi->frame_masking_nonce_04, 4);
 	}
 
 send_raw:

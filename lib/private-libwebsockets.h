@@ -144,26 +144,6 @@
  */
 #define LWS_LISTEN_SERVICE_MODULO 10
 
-enum lws_websocket_opcodes_04 {
-	LWS_WS_OPCODE_04__CONTINUATION = 0,
-	LWS_WS_OPCODE_04__CLOSE = 1,
-	LWS_WS_OPCODE_04__PING = 2,
-	LWS_WS_OPCODE_04__PONG = 3,
-	LWS_WS_OPCODE_04__TEXT_FRAME = 4,
-	LWS_WS_OPCODE_04__BINARY_FRAME = 5,
-
-	LWS_WS_OPCODE_04__RESERVED_6 = 6,
-	LWS_WS_OPCODE_04__RESERVED_7 = 7,
-	LWS_WS_OPCODE_04__RESERVED_8 = 8,
-	LWS_WS_OPCODE_04__RESERVED_9 = 9,
-	LWS_WS_OPCODE_04__RESERVED_A = 0xa,
-	LWS_WS_OPCODE_04__RESERVED_B = 0xb,
-	LWS_WS_OPCODE_04__RESERVED_C = 0xc,
-	LWS_WS_OPCODE_04__RESERVED_D = 0xd,
-	LWS_WS_OPCODE_04__RESERVED_E = 0xe,
-	LWS_WS_OPCODE_04__RESERVED_F = 0xf,
-};
-
 enum lws_websocket_opcodes_07 {
 	LWS_WS_OPCODE_07__CONTINUATION = 0,
 	LWS_WS_OPCODE_07__TEXT_FRAME = 1,
@@ -192,10 +172,6 @@ enum lws_connection_states {
 
 enum lws_rx_parse_state {
 	LWS_RXPS_NEW,
-
-	LWS_RXPS_SEEN_76_FF,
-	LWS_RXPS_PULLING_76_LENGTH,
-	LWS_RXPS_EAT_UNTIL_76_FF,
 
 	LWS_RXPS_04_MASK_NONCE_1,
 	LWS_RXPS_04_MASK_NONCE_2,
@@ -350,7 +326,6 @@ struct libwebsocket {
 	int frame_is_binary:1;
 
 	int pings_vs_pongs;
-	unsigned char (*xor_mask)(struct libwebsocket *, unsigned char);
 	char all_zero_nonce;
 
 	enum lws_close_status close_reason;
@@ -404,15 +379,6 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 extern int
 lws_b64_selftest(void);
-
-extern unsigned char
-xor_no_mask(struct libwebsocket *wsi, unsigned char c);
-
-extern unsigned char
-xor_mask_04(struct libwebsocket *wsi, unsigned char c);
-
-extern unsigned char
-xor_mask_05(struct libwebsocket *wsi, unsigned char c);
 
 extern struct libwebsocket *
 wsi_from_fd(struct libwebsocket_context *context, int fd);

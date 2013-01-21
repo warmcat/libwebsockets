@@ -28,7 +28,6 @@
 int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;
-	unsigned char buf[20 + 4];
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	int handled;
 	struct lws_tokens eff_buf;
@@ -42,103 +41,9 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	case LWS_RXPS_NEW:
 
 		switch (wsi->ietf_spec_revision) {
-		/* Firefox 4.0b6 likes this as of 30 Oct */
-		case 0:
-			if (c == 0xff)
-				wsi->lws_rx_parse_state = LWS_RXPS_SEEN_76_FF;
-			if (c == 0) {
-				wsi->lws_rx_parse_state =
-						       LWS_RXPS_EAT_UNTIL_76_FF;
-				wsi->rx_user_buffer_head = 0;
-			}
-			break;
-		case 4:
-		case 5:
-		case 6:
-		case 7:
-		case 8:
+
 		case 13:
-	/*
-	 *  04 logical framing from the spec (all this is masked when
-	 *  incoming and has to be unmasked)
-	 *
-	 * We ignore the possibility of extension data because we don't
-	 * negotiate any extensions at the moment.
-	 *
-	 *    0                   1                   2                   3
-	 *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-	 *   +-+-+-+-+-------+-+-------------+-------------------------------+
-	 *   |F|R|R|R| opcode|R| Payload len |    Extended payload length    |
-	 *   |I|S|S|S|  (4)  |S|     (7)     |             (16/63)           |
-	 *   |N|V|V|V|       |V|             |   (if payload len==126/127)   |
-	 *   | |1|2|3|       |4|             |                               |
-	 *   +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
-	 *   |     Extended payload length continued, if payload len == 127  |
-	 *   + - - - - - - - - - - - - - - - +-------------------------------+
-	 *   |                               |         Extension data        |
-	 *   +-------------------------------+ - - - - - - - - - - - - - - - +
-	 *   :                                                               :
-	 *   +---------------------------------------------------------------+
-	 *   :                       Application data                        :
-	 *   +---------------------------------------------------------------+
-	 *
-	 *  We pass payload through to userland as soon as we get it, ignoring
-	 *  FIN.  It's up to userland to buffer it up if it wants to see a
-	 *  whole unfragmented block of the original size (which may be up to
-	 *  2^63 long!)
-	 *
-	 *  Notice in v7 RSV4 is set to indicate 32-bit frame key is coming in
-	 *  after length, unlike extension data which is now deprecated, this
-	 *  does not impact the payload length calculation.
-	 */
-
-		/*
-		 * 04 spec defines the opcode like this: (1, 2, and 3 are
-		 * "control frame" opcodes which may not be fragmented or
-		 * have size larger than 126)
-		 *
-		 *       frame-opcode           =
-		 *		  %x0 ; continuation frame
-		 *		/ %x1 ; connection close
-		 *		/ %x2 ; ping
-		 *		/ %x3 ; pong
-		 *		/ %x4 ; text frame
-		 *		/ %x5 ; binary frame
-		 *		/ %x6-F ; reserved
-		 *
-		 *		FIN (b7)
-		 */
-
-			if (wsi->ietf_spec_revision < 7)
-				switch (c & 0xf) {
-				case LWS_WS_OPCODE_04__CONTINUATION:
-					wsi->opcode =
-						LWS_WS_OPCODE_07__CONTINUATION;
-					break;
-				case LWS_WS_OPCODE_04__CLOSE:
-					wsi->opcode = LWS_WS_OPCODE_07__CLOSE;
-					break;
-				case LWS_WS_OPCODE_04__PING:
-					wsi->opcode = LWS_WS_OPCODE_07__PING;
-					break;
-				case LWS_WS_OPCODE_04__PONG:
-					wsi->opcode = LWS_WS_OPCODE_07__PONG;
-					break;
-				case LWS_WS_OPCODE_04__TEXT_FRAME:
-					wsi->opcode =
-						  LWS_WS_OPCODE_07__TEXT_FRAME;
-					break;
-				case LWS_WS_OPCODE_04__BINARY_FRAME:
-					wsi->opcode =
-						LWS_WS_OPCODE_07__BINARY_FRAME;
-					break;
-				default:
-					lwsl_warn("reserved opcodes not "
-						   "usable pre v7 protocol\n");
-					return -1;
-				}
-			else
-				wsi->opcode = c & 0xf;
+			wsi->opcode = c & 0xf;
 			wsi->rsv = (c & 0x70);
 			wsi->final = !!((c >> 7) & 1);
 			switch (wsi->opcode) {
@@ -160,12 +65,6 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 
 	case LWS_RXPS_04_FRAME_HDR_LEN:
-
-		if ((c & 0x80) && wsi->ietf_spec_revision < 7) {
-			lwsl_warn("Frame has extensions set illegally 4\n");
-			/* kill the connection */
-			return -1;
-		}
 
 		wsi->this_frame_masked = !!(c & 0x80);
 
@@ -322,46 +221,6 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		}
 		break;
 
-	case LWS_RXPS_EAT_UNTIL_76_FF:
-		if (c == 0xff) {
-			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
-			goto issue;
-		}
-		wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-					      (wsi->rx_user_buffer_head++)] = c;
-
-		if (wsi->rx_user_buffer_head != MAX_USER_RX_BUFFER)
-			break;
-issue:
-		if (wsi->protocol->callback)
-			wsi->protocol->callback(wsi->protocol->owning_server,
-						wsi,
-						LWS_CALLBACK_CLIENT_RECEIVE,
-						wsi->user_space,
-			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
-						      wsi->rx_user_buffer_head);
-		wsi->rx_user_buffer_head = 0;
-		break;
-	case LWS_RXPS_SEEN_76_FF:
-		if (c)
-			break;
-
-		lwsl_parser("Seen that client is requesting "
-				"a v76 close, sending ack\n");
-		buf[0] = 0xff;
-		buf[1] = 0;
-		n = libwebsocket_write(wsi, buf, 2, LWS_WRITE_HTTP);
-		if (n < 0) {
-			lwsl_warn("LWS_RXPS_SEEN_76_FF: ERROR writing to socket\n");
-			return -1;
-		}
-		lwsl_parser("  v76 close ack sent, server closing skt\n");
-		/* returning < 0 will get it closed in parent */
-		return -1;
-
-	case LWS_RXPS_PULLING_76_LENGTH:
-		break;
-
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
 		if ((!wsi->this_frame_masked) || wsi->all_zero_nonce)
 			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
@@ -369,7 +228,7 @@ issue:
 		else
 			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
 			       (wsi->rx_user_buffer_head++)] =
-							  wsi->xor_mask(wsi, c);
+			c ^ wsi->frame_masking_nonce_04[(wsi->frame_mask_index++) & 3];
 
 		if (--wsi->rx_packet_length == 0) {
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;

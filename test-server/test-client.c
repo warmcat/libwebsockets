@@ -184,7 +184,6 @@ static struct option options[] = {
 	{ "debug",      required_argument,      NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
-	{ "killmask",	no_argument,		NULL, 'k' },
 	{ "version",	required_argument,	NULL, 'v' },
 	{ "undeflated",	no_argument,		NULL, 'u' },
 	{ "nomux",	no_argument,		NULL, 'n' },
@@ -213,7 +212,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "nuv:khsp:d:l", options, NULL);
+		n = getopt_long(argc, argv, "nuv:hsp:d:l", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -228,9 +227,6 @@ int main(int argc, char **argv)
 			break;
 		case 'l':
 			longlived = 1;
-			break;
-		case 'k':
-			opts = LWS_WRITE_CLIENT_IGNORE_XOR_MASK;
 			break;
 		case 'v':
 			ietf_version = atoi(optarg);

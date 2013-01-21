@@ -528,10 +528,8 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		/* client parser? */
 
-		if (wsi->ietf_spec_revision >= 4) {
-			lwsl_parser("04 header completed\n");
-			wsi->parser_state = WSI_PARSING_COMPLETE;
-		}
+		lwsl_parser("04 header completed\n");
+		wsi->parser_state = WSI_PARSING_COMPLETE;
 
 		break;
 
@@ -562,27 +560,6 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	return 0;
 }
 
-unsigned char
-xor_no_mask(struct libwebsocket *wsi, unsigned char c)
-{
-	return c;
-}
-
-unsigned char
-xor_mask_04(struct libwebsocket *wsi, unsigned char c)
-{
-	c ^= wsi->masking_key_04[wsi->frame_mask_index++];
-	if (wsi->frame_mask_index == 20)
-		wsi->frame_mask_index = 0;
-
-	return c;
-}
-
-unsigned char
-xor_mask_05(struct libwebsocket *wsi, unsigned char c)
-{
-	return c ^ wsi->frame_masking_nonce_04[(wsi->frame_mask_index++) & 3];
-}
 
 /**
  * lws_frame_is_binary: true if the current frame was sent in binary mode
@@ -603,7 +580,6 @@ int
 libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;
-	unsigned char buf[20 + 4];
 	struct lws_tokens eff_buf;
 #ifndef LWS_NO_EXTENSIONS
 	int handled;
@@ -618,27 +594,6 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	case LWS_RXPS_NEW:
 
 		switch (wsi->ietf_spec_revision) {
-		/* Firefox 4.0b6 likes this as of 30 Oct 2010 */
-		case 0:
-			if (c == 0xff)
-				wsi->lws_rx_parse_state = LWS_RXPS_SEEN_76_FF;
-			if (c == 0) {
-				wsi->lws_rx_parse_state =
-						       LWS_RXPS_EAT_UNTIL_76_FF;
-				wsi->rx_user_buffer_head = 0;
-			}
-			break;
-		case 4:
-		case 5:
-		case 6:
-			wsi->all_zero_nonce = 1;
-			wsi->frame_masking_nonce_04[0] = c;
-			if (c)
-				wsi->all_zero_nonce = 0;
-			wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_1;
-			break;
-		case 7:
-		case 8:
 		case 13:
 			/*
 			 * no prepended frame key any more
@@ -669,37 +624,6 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		if (c)
 			wsi->all_zero_nonce = 0;
 
-		if (wsi->protocol->owning_server->options &
-					   LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK)
-			goto post_mask;
-
-		if (wsi->ietf_spec_revision > 4)
-			goto post_sha1;
-
-		/*
-		 * we are able to compute the frame key now
-		 * it's a SHA1 of ( frame nonce we were just sent, concatenated
-		 * with the connection masking key we computed at handshake
-		 * time ) -- yeah every frame from the client invokes a SHA1
-		 * for no real reason so much for lightweight.
-		 */
-
-		buf[0] = wsi->frame_masking_nonce_04[0];
-		buf[1] = wsi->frame_masking_nonce_04[1];
-		buf[2] = wsi->frame_masking_nonce_04[2];
-		buf[3] = wsi->frame_masking_nonce_04[3];
-
-		memcpy(buf + 4, wsi->masking_key_04, 20);
-
-		/*
-		 * wsi->frame_mask_04 will be our recirculating 20-byte XOR key
-		 * for this frame
-		 */
-
-		SHA1((unsigned char *)buf, 4 + 20, wsi->frame_mask_04);
-
-post_sha1:
-
 		/*
 		 * start from the zero'th byte in the XOR key buffer since
 		 * this is the start of a frame with a new key
@@ -707,7 +631,6 @@ post_sha1:
 
 		wsi->frame_mask_index = 0;
 
-post_mask:
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_1;
 		break;
 
@@ -761,38 +684,8 @@ handle_first:
 		 *		FIN (b7)
 		 */
 
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
-
-		/* translate all incoming opcodes into v7+ map */
-		if (wsi->ietf_spec_revision < 7)
-			switch (c & 0xf) {
-			case LWS_WS_OPCODE_04__CONTINUATION:
-				wsi->opcode = LWS_WS_OPCODE_07__CONTINUATION;
-				break;
-			case LWS_WS_OPCODE_04__CLOSE:
-				wsi->opcode = LWS_WS_OPCODE_07__CLOSE;
-				break;
-			case LWS_WS_OPCODE_04__PING:
-				wsi->opcode = LWS_WS_OPCODE_07__PING;
-				break;
-			case LWS_WS_OPCODE_04__PONG:
-				wsi->opcode = LWS_WS_OPCODE_07__PONG;
-				break;
-			case LWS_WS_OPCODE_04__TEXT_FRAME:
-				wsi->opcode = LWS_WS_OPCODE_07__TEXT_FRAME;
-				break;
-			case LWS_WS_OPCODE_04__BINARY_FRAME:
-				wsi->opcode = LWS_WS_OPCODE_07__BINARY_FRAME;
-				break;
-			default:
-				lwsl_warn("reserved opcodes not "
-						    "usable pre v7 protocol\n");
-				return -1;
-			}
-		else
-			wsi->opcode = c & 0xf;
-		wsi->rsv = (c & 0x70);
+		wsi->opcode = c & 0xf;
+		wsi->rsv = c & 0x70;
 		wsi->final = !!((c >> 7) & 1);
 		switch (wsi->opcode) {
 		case LWS_WS_OPCODE_07__TEXT_FRAME:
@@ -804,15 +697,6 @@ handle_first:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN:
-
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
-
-		if ((c & 0x80) && wsi->ietf_spec_revision < 7) {
-			lwsl_warn("Frame has extensions set illegally 2\n");
-			/* kill the connection */
-			return -1;
-		}
 
 		wsi->this_frame_masked = !!(c & 0x80);
 
@@ -844,17 +728,11 @@ handle_first:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_2:
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
-
 		wsi->rx_packet_length = c << 8;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_1;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_1:
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
-
 		wsi->rx_packet_length |= c;
 		if (wsi->this_frame_masked)
 			wsi->lws_rx_parse_state =
@@ -865,8 +743,6 @@ handle_first:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
 		if (c & 0x80) {
 			lwsl_warn("b63 of length must be zero\n");
 			/* kill the connection */
@@ -881,8 +757,6 @@ handle_first:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_7:
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
 #if defined __LP64__
 		wsi->rx_packet_length |= ((size_t)c) << 48;
 #endif
@@ -890,8 +764,6 @@ handle_first:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_6:
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
 #if defined __LP64__
 		wsi->rx_packet_length |= ((size_t)c) << 40;
 #endif
@@ -899,8 +771,6 @@ handle_first:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_5:
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
 #if defined __LP64__
 		wsi->rx_packet_length |= ((size_t)c) << 32;
 #endif
@@ -908,29 +778,21 @@ handle_first:
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_4:
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
 		wsi->rx_packet_length |= ((size_t)c) << 24;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_3;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_3:
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
 		wsi->rx_packet_length |= ((size_t)c) << 16;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_2;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_2:
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
 		wsi->rx_packet_length |= ((size_t)c) << 8;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_1;
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
-		if (wsi->ietf_spec_revision < 7)
-			c = wsi->xor_mask(wsi, c);
 		wsi->rx_packet_length |= ((size_t)c);
 		if (wsi->this_frame_masked)
 			wsi->lws_rx_parse_state =
@@ -939,48 +801,6 @@ handle_first:
 			wsi->lws_rx_parse_state =
 				LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
 		break;
-
-	case LWS_RXPS_EAT_UNTIL_76_FF:
-
-		if (c == 0xff) {
-			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
-			goto issue;
-		}
-		wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-					      (wsi->rx_user_buffer_head++)] = c;
-
-		if (wsi->rx_user_buffer_head != MAX_USER_RX_BUFFER)
-			break;
-issue:
-		if (wsi->protocol->callback)
-			user_callback_handle_rxflow(wsi->protocol->callback,
-			  wsi->protocol->owning_server,
-			  wsi, LWS_CALLBACK_RECEIVE,
-			  wsi->user_space,
-			  &wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
-			  wsi->rx_user_buffer_head);
-		wsi->rx_user_buffer_head = 0;
-		break;
-	case LWS_RXPS_SEEN_76_FF:
-		if (c)
-			break;
-
-		lwsl_parser("Seen that client is requesting "
-				"a v76 close, sending ack\n");
-		buf[0] = 0xff;
-		buf[1] = 0;
-		n = libwebsocket_write(wsi, buf, 2, LWS_WRITE_HTTP);
-		if (n < 0) {
-			lwsl_warn("ERROR writing to socket");
-			return -1;
-		}
-		lwsl_parser("  v76 close ack sent, server closing skt\n");
-		/* returning < 0 will get it closed in parent */
-		return -1;
-
-	case LWS_RXPS_PULLING_76_LENGTH:
-		break;
-
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_1:
 		wsi->frame_masking_nonce_04[0] = c;
@@ -1015,14 +835,13 @@ issue:
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
 
-		if (wsi->ietf_spec_revision < 4 ||
-			 (wsi->all_zero_nonce && wsi->ietf_spec_revision >= 5))
+		if (wsi->all_zero_nonce)
 			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
 			       (wsi->rx_user_buffer_head++)] = c;
 		else
 			wsi->rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
 			       (wsi->rx_user_buffer_head++)] =
-							  wsi->xor_mask(wsi, c);
+		c ^ wsi->frame_masking_nonce_04[(wsi->frame_mask_index++) & 3];
 
 		if (--wsi->rx_packet_length == 0) {
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;

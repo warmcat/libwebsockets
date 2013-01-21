@@ -483,12 +483,6 @@ int libwebsockets_get_random(struct libwebsocket_context *context,
 	return n;
 }
 
-unsigned char *
-libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md)
-{
-	return SHA1(d, n, md);
-}
-
 int lws_send_pipe_choked(struct libwebsocket *wsi)
 {
 	struct pollfd fds;

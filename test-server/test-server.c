@@ -489,7 +489,6 @@ static struct option options[] = {
 	{ "debug",	required_argument,	NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
-	{ "killmask",	no_argument,		NULL, 'k' },
 	{ "interface",  required_argument,	NULL, 'i' },
 	{ "closetest",  no_argument,		NULL, 'c' },
 #ifndef NO_DAEMONIZE
@@ -523,7 +522,7 @@ int main(int argc, char **argv)
 #endif
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "ci:khsp:d:D", options, NULL);
+		n = getopt_long(argc, argv, "ci:hsp:d:D", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -538,9 +537,6 @@ int main(int argc, char **argv)
 			break;
 		case 's':
 			use_ssl = 1;
-			break;
-		case 'k':
-			opts = LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK;
 			break;
 		case 'p':
 			port = atoi(optarg);

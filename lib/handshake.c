@@ -94,7 +94,6 @@ libwebsocket_read(struct libwebsocket_context *context,
 #ifndef LWS_NO_SERVER
 		/* LWS_CONNMODE_WS_SERVING */
 
-		extern int handshake_00(struct libwebsocket_context *context, struct libwebsocket *wsi);
 		extern int handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi);
 
 		for (n = 0; n < len; n++)
@@ -188,27 +187,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 		 */
 
 		switch (wsi->ietf_spec_revision) {
-		case 0: /* applies to 76 and 00 */
-			wsi->xor_mask = xor_no_mask;
-			if (handshake_00(context, wsi)) {
-				lwsl_info("handshake_00 has failed the connection\n");
-				goto bail;
-			}
-			break;
-		case 4: /* 04 */
-			wsi->xor_mask = xor_mask_04;
-			lwsl_parser("libwebsocket_parse calling handshake_04\n");
-			if (handshake_0405(context, wsi)) {
-				lwsl_info("handshake_0405 has failed the connection\n");
-				goto bail;
-			}
-			break;
-		case 5:
-		case 6:
-		case 7:
-		case 8:
 		case 13:
-			wsi->xor_mask = xor_mask_05;
 			lwsl_parser("libwebsocket_parse calling handshake_04\n");
 			if (handshake_0405(context, wsi)) {
 				lwsl_info("handshake_0405 xor 05 has failed the connection\n");

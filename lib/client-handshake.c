@@ -270,34 +270,6 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	if (!wsi->c_callback)
 		wsi->c_callback = context->protocols[0].callback;
 
-	/* set up appropriate masking */
-
-	wsi->xor_mask = xor_no_mask;
-
-	switch (wsi->ietf_spec_revision) {
-	case 0:
-		break;
-	case 4:
-		wsi->xor_mask = xor_mask_04;
-		break;
-	case 5:
-	case 6:
-	case 7:
-	case 8:
-	case 13:
-		wsi->xor_mask = xor_mask_05;
-		break;
-	default:
-		lwsl_parser("Client ietf version %d not supported\n",
-						       wsi->ietf_spec_revision);
-		goto oom4;
-	}
-
-	/* force no mask if he asks for that though */
-
-	if (context->options & LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK)
-		wsi->xor_mask = xor_no_mask;
-
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
 		wsi->utf8_token[n].token = NULL;
 		wsi->utf8_token[n].token_len = 0;
@@ -339,11 +311,6 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	lwsl_client("libwebsocket_client_connect: direct conn\n");
 
 	return __libwebsocket_client_connect_2(context, wsi);
-
-
-oom4:
-	if (wsi->c_protocol)
-		free(wsi->c_protocol);
 
 oom3:
 	if (wsi->c_origin)
