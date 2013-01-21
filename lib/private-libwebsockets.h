@@ -314,7 +314,6 @@ struct libwebsocket {
 
 	/* 04 protocol specific */
 
-	char key_b64[150];
 	unsigned char masking_key_04[20];
 	unsigned char frame_masking_nonce_04[4];
 	unsigned char frame_mask_04[20];

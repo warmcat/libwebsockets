@@ -612,6 +612,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, char *pkt)
 {
 	char hash[20];
+	char key_b64[40];
 	char *p = pkt;
 	int n;
 #ifndef LWS_NO_EXTENSIONS
@@ -643,8 +644,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 		return NULL;
 	}
 
-	lws_b64_encode_string(hash, 16, wsi->key_b64,
-						   sizeof wsi->key_b64);
+	lws_b64_encode_string(hash, 16, key_b64, sizeof key_b64);
 
 	/*
 	 * 00 example client handshake
@@ -681,8 +681,8 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	p += sprintf(p, "Upgrade: websocket\x0d\x0a"
 					"Connection: Upgrade\x0d\x0a"
 					"Sec-WebSocket-Key: ");
-	strcpy(p, wsi->key_b64);
-	p += strlen(wsi->key_b64);
+	strcpy(p, key_b64);
+	p += strlen(key_b64);
 	p += sprintf(p, "\x0d\x0a");
 	if (wsi->c_origin) {
 	        if (wsi->ietf_spec_revision == 13)
@@ -761,7 +761,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 
 	/* prepare the expected server accept response */
 
-	strcpy((char *)buf, wsi->key_b64);
+	strcpy((char *)buf, key_b64);
 	strcpy((char *)&buf[strlen((char *)buf)], magic_websocket_guid);
 
 	SHA1(buf, strlen((char *)buf), (unsigned char *)hash);
