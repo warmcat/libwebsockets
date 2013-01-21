@@ -33,7 +33,9 @@
 static int close_testing;
 
 #ifdef EXTERNAL_POLL
+#ifndef LWS_NO_FORK
 #define LWS_NO_FORK
+#endif
 
 int max_poll_elements;
 

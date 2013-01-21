@@ -321,7 +321,9 @@ struct libwebsocket {
 						  LWS_SEND_BUFFER_POST_PADDING];
 	int rx_user_buffer_head;
 	enum libwebsocket_write_protocol rx_frame_type;
+#ifndef LWS_NO_FORK
 	int protocol_index_for_broadcast_proxy;
+#endif
 	enum pending_timeout pending_timeout;
 	unsigned long pending_timeout_limit;
 

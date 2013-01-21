@@ -1410,11 +1410,14 @@ libwebsocket_create_context(int port, const char *interf,
 			       void *user)
 {
 	int n;
-	int fd;
-	struct sockaddr_in serv_addr, cli_addr;
+	struct sockaddr_in serv_addr;
 	int opt = 1;
 	struct libwebsocket_context *context = NULL;
+#ifndef LWS_NO_FORK
 	unsigned int slen;
+	struct sockaddr_in cli_addr;
+	int fd;
+#endif
 	char *p;
 	struct libwebsocket *wsi;
 #ifndef LWS_NO_EXTENSIONS
@@ -1866,6 +1869,7 @@ libwebsocket_create_context(int port, const char *interf,
 		protocols[context->count_protocols].protocol_index =
 						       context->count_protocols;
 
+#ifndef LWS_NO_FORK
 		fd = socket(AF_INET, SOCK_STREAM, 0);
 		if (fd < 0) {
 			lwsl_err("ERROR opening socket\n");
@@ -1921,7 +1925,9 @@ libwebsocket_create_context(int port, const char *interf,
 						       context->count_protocols;
 
 		insert_wsi_socket_into_fds(context, wsi);
+#endif
 	}
+
 #ifndef LWS_NO_EXTENSIONS
 	/*
 	 * give all extensions a chance to create any per-context
@@ -2083,7 +2089,12 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 	int n;
 	struct libwebsocket *wsi;
 
+	if (!context)
+		return 1;
+
+#ifndef LWS_NO_FORK
 	if (!protocol->broadcast_socket_user_fd) {
+#endif
 		/*
 		 * We are either running unforked / flat, or we are being
 		 * called from poll thread context
@@ -2125,6 +2136,7 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 		}
 
 		return 0;
+#ifndef LWS_NO_FORK
 	}
 
 	/*
@@ -2140,6 +2152,7 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 	n = send(protocol->broadcast_socket_user_fd, buf, len, MSG_NOSIGNAL);
 
 	return n;
+#endif
 }
 
 int

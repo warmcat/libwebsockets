@@ -297,6 +297,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		insert_wsi_socket_into_fds(context, new_wsi);
 		break;
 
+#ifndef LWS_NO_FORK
 	case LWS_CONNMODE_BROADCAST_PROXY_LISTENER:
 
 		/* as we are listening, POLLIN means accept() is needed */
@@ -418,6 +419,7 @@ bail_prox_listener:
 				buf + LWS_SEND_BUFFER_PRE_PADDING, len);
 		}
 		break;
+#endif
 	default:
 		break;
 	}
