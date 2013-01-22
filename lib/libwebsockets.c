@@ -968,6 +968,17 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 #endif
 }
 
+/**
+ * libwebsocket_context_user() - get the user data associated with the whole context
+ * @context: Websocket context
+ *
+ *	This returns the optional user allocation that can be attached to
+ *	the context the sockets live in at context_create time.  It's a way
+ *	to let all sockets serviced in the same context share data without
+ *	using globals statics in the user code.
+ */
+
+
 LWS_EXTERN void *
 libwebsocket_context_user(struct libwebsocket_context *context)
 {

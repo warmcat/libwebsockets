@@ -68,9 +68,7 @@ endif
 
 all-local:
 	 ../scripts/kernel-doc -html \
-                libwebsockets.c \
-		parsers.c \
-		client-handshake.c \
+                *.c \
                 libwebsockets.h \
 			> ../libwebsockets-api-doc.html
 

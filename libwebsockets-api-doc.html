@@ -1,3 +1,90 @@
+<h2>libwebsocket_client_connect - Connect to another websocket server</h2>
+<i>struct libwebsocket *</i>
+<b>libwebsocket_client_connect</b>
+(<i>struct libwebsocket_context *</i> <b>context</b>,
+<i>const char *</i> <b>address</b>,
+<i>int</i> <b>port</b>,
+<i>int</i> <b>ssl_connection</b>,
+<i>const char *</i> <b>path</b>,
+<i>const char *</i> <b>host</b>,
+<i>const char *</i> <b>origin</b>,
+<i>const char *</i> <b>protocol</b>,
+<i>int</i> <b>ietf_version_or_minus_one</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>context</b>
+<dd>Websocket context
+<dt><b>address</b>
+<dd>Remote server address, eg, "myserver.com"
+<dt><b>port</b>
+<dd>Port to connect to on the remote server, eg, 80
+<dt><b>ssl_connection</b>
+<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
+signed certs
+<dt><b>path</b>
+<dd>Websocket path on server
+<dt><b>host</b>
+<dd>Hostname on server
+<dt><b>origin</b>
+<dd>Socket origin name
+<dt><b>protocol</b>
+<dd>Comma-separated list of protocols being asked for from
+the server, or just one.  The server will pick the one it
+likes best.
+<dt><b>ietf_version_or_minus_one</b>
+<dd>-1 to ask to connect using the default, latest
+protocol supported, or the specific protocol ordinal
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function creates a connection to a remote server
+</blockquote>
+<hr>
+<h2>libwebsocket_client_connect_extended - Connect to another websocket server</h2>
+<i>struct libwebsocket *</i>
+<b>libwebsocket_client_connect_extended</b>
+(<i>struct libwebsocket_context *</i> <b>context</b>,
+<i>const char *</i> <b>address</b>,
+<i>int</i> <b>port</b>,
+<i>int</i> <b>ssl_connection</b>,
+<i>const char *</i> <b>path</b>,
+<i>const char *</i> <b>host</b>,
+<i>const char *</i> <b>origin</b>,
+<i>const char *</i> <b>protocol</b>,
+<i>int</i> <b>ietf_version_or_minus_one</b>,
+<i>void *</i> <b>userdata</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>context</b>
+<dd>Websocket context
+<dt><b>address</b>
+<dd>Remote server address, eg, "myserver.com"
+<dt><b>port</b>
+<dd>Port to connect to on the remote server, eg, 80
+<dt><b>ssl_connection</b>
+<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
+signed certs
+<dt><b>path</b>
+<dd>Websocket path on server
+<dt><b>host</b>
+<dd>Hostname on server
+<dt><b>origin</b>
+<dd>Socket origin name
+<dt><b>protocol</b>
+<dd>Comma-separated list of protocols being asked for from
+the server, or just one.  The server will pick the one it
+likes best.
+<dt><b>ietf_version_or_minus_one</b>
+<dd>-1 to ask to connect using the default, latest
+protocol supported, or the specific protocol ordinal
+<dt><b>userdata</b>
+<dd>Pre-allocated user data
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function creates a connection to a remote server
+</blockquote>
+<hr>
 <h2>libwebsockets_hangup_on_client - Server calls to terminate client connection</h2>
 <i>void</i>
 <b>libwebsockets_hangup_on_client</b>
@@ -76,6 +163,23 @@ including listen accepts, http files as well as websocket protocol.
 This function closes any active connections and then frees the
 context.  After calling this, any further use of the context is
 undefined.
+</blockquote>
+<hr>
+<h2>libwebsocket_context_user - get the user data associated with the whole context</h2>
+<i>LWS_EXTERN void *</i>
+<b>libwebsocket_context_user</b>
+(<i>struct libwebsocket_context *</i> <b>context</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>context</b>
+<dd>Websocket context
+</dl>
+<h3>Description</h3>
+<blockquote>
+This returns the optional user allocation that can be attached to
+the context the sockets live in at context_create time.  It's a way
+to let all sockets serviced in the same context share data without
+using globals statics in the user code.
 </blockquote>
 <hr>
 <h2>libwebsocket_service - Service any pending websocket activity</h2>
@@ -390,6 +494,69 @@ log level defaults to "err" and "warn" contexts enabled only and
 emission on stderr.
 </blockquote>
 <hr>
+<h2>libwebsocket_write - Apply protocol then write data to client</h2>
+<i>int</i>
+<b>libwebsocket_write</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>,
+<i>unsigned char *</i> <b>buf</b>,
+<i>size_t</i> <b>len</b>,
+<i>enum libwebsocket_write_protocol</i> <b>protocol</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket instance (available from user callback)
+<dt><b>buf</b>
+<dd>The data to send.  For data being sent on a websocket
+connection (ie, not default http), this buffer MUST have
+LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE the pointer
+and an additional LWS_SEND_BUFFER_POST_PADDING bytes valid
+in the buffer after (buf + len).  This is so the protocol
+header and trailer data can be added in-situ.
+<dt><b>len</b>
+<dd>Count of the data bytes in the payload starting from buf
+<dt><b>protocol</b>
+<dd>Use LWS_WRITE_HTTP to reply to an http connection, and one
+of LWS_WRITE_BINARY or LWS_WRITE_TEXT to send appropriate
+data on a websockets connection.  Remember to allow the extra
+bytes before and after buf if LWS_WRITE_BINARY or LWS_WRITE_TEXT
+are used.
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function provides the way to issue data back to the client
+for both http and websocket protocols.
+<p>
+In the case of sending using websocket protocol, be sure to allocate
+valid storage before and after buf as explained above.  This scheme
+allows maximum efficiency of sending data and protocol in a single
+packet while not burdening the user code with any protocol knowledge.
+</blockquote>
+<hr>
+<h2>libwebsockets_serve_http_file - Send a file back to the client using http</h2>
+<i>int</i>
+<b>libwebsockets_serve_http_file</b>
+(<i>struct libwebsocket_context *</i> <b>context</b>,
+<i>struct libwebsocket *</i> <b>wsi</b>,
+<i>const char *</i> <b>file</b>,
+<i>const char *</i> <b>content_type</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>context</b>
+<dd>libwebsockets context
+<dt><b>wsi</b>
+<dd>Websocket instance (available from user callback)
+<dt><b>file</b>
+<dd>The file to issue over http
+<dt><b>content_type</b>
+<dd>The http content type, eg, text/html
+</dl>
+<h3>Description</h3>
+<blockquote>
+This function is intended to be called from the callback in response
+to http requests from the client.  It allows the callback to issue
+local files down the http link in a single step.
+</blockquote>
+<hr>
 <h2>lws_frame_is_binary - </h2>
 <i>int</i>
 <b>lws_frame_is_binary</b>
@@ -427,93 +594,6 @@ when that is the case <b>libwebsockets_remaining_packet_payload</b> will return
 0.
 <p>
 Many protocols won't care becuse their packets are always small.
-</blockquote>
-<hr>
-<h2>libwebsocket_client_connect - Connect to another websocket server</h2>
-<i>struct libwebsocket *</i>
-<b>libwebsocket_client_connect</b>
-(<i>struct libwebsocket_context *</i> <b>context</b>,
-<i>const char *</i> <b>address</b>,
-<i>int</i> <b>port</b>,
-<i>int</i> <b>ssl_connection</b>,
-<i>const char *</i> <b>path</b>,
-<i>const char *</i> <b>host</b>,
-<i>const char *</i> <b>origin</b>,
-<i>const char *</i> <b>protocol</b>,
-<i>int</i> <b>ietf_version_or_minus_one</b>)
-<h3>Arguments</h3>
-<dl>
-<dt><b>context</b>
-<dd>Websocket context
-<dt><b>address</b>
-<dd>Remote server address, eg, "myserver.com"
-<dt><b>port</b>
-<dd>Port to connect to on the remote server, eg, 80
-<dt><b>ssl_connection</b>
-<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
-signed certs
-<dt><b>path</b>
-<dd>Websocket path on server
-<dt><b>host</b>
-<dd>Hostname on server
-<dt><b>origin</b>
-<dd>Socket origin name
-<dt><b>protocol</b>
-<dd>Comma-separated list of protocols being asked for from
-the server, or just one.  The server will pick the one it
-likes best.
-<dt><b>ietf_version_or_minus_one</b>
-<dd>-1 to ask to connect using the default, latest
-protocol supported, or the specific protocol ordinal
-</dl>
-<h3>Description</h3>
-<blockquote>
-This function creates a connection to a remote server
-</blockquote>
-<hr>
-<h2>libwebsocket_client_connect_extended - Connect to another websocket server</h2>
-<i>struct libwebsocket *</i>
-<b>libwebsocket_client_connect_extended</b>
-(<i>struct libwebsocket_context *</i> <b>context</b>,
-<i>const char *</i> <b>address</b>,
-<i>int</i> <b>port</b>,
-<i>int</i> <b>ssl_connection</b>,
-<i>const char *</i> <b>path</b>,
-<i>const char *</i> <b>host</b>,
-<i>const char *</i> <b>origin</b>,
-<i>const char *</i> <b>protocol</b>,
-<i>int</i> <b>ietf_version_or_minus_one</b>,
-<i>void *</i> <b>userdata</b>)
-<h3>Arguments</h3>
-<dl>
-<dt><b>context</b>
-<dd>Websocket context
-<dt><b>address</b>
-<dd>Remote server address, eg, "myserver.com"
-<dt><b>port</b>
-<dd>Port to connect to on the remote server, eg, 80
-<dt><b>ssl_connection</b>
-<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
-signed certs
-<dt><b>path</b>
-<dd>Websocket path on server
-<dt><b>host</b>
-<dd>Hostname on server
-<dt><b>origin</b>
-<dd>Socket origin name
-<dt><b>protocol</b>
-<dd>Comma-separated list of protocols being asked for from
-the server, or just one.  The server will pick the one it
-likes best.
-<dt><b>ietf_version_or_minus_one</b>
-<dd>-1 to ask to connect using the default, latest
-protocol supported, or the specific protocol ordinal
-<dt><b>userdata</b>
-<dd>Pre-allocated user data
-</dl>
-<h3>Description</h3>
-<blockquote>
-This function creates a connection to a remote server
 </blockquote>
 <hr>
 <h2>callback - User server actions</h2>
