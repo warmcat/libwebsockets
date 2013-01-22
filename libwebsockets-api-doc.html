@@ -55,9 +55,11 @@ happened.
 </dl>
 <h3>Description</h3>
 <blockquote>
-This function closes any active connections and then frees the
-context.  After calling this, any further use of the context is
-undefined.
+This function takes a pollfd that has POLLIN or POLLOUT activity and
+services it according to the state of the associated struct libwebsocket.
+<p>
+The one call deals with all "service" that might happen on a socket
+including listen accepts, http files as well as websocket protocol.
 </blockquote>
 <hr>
 <h2>libwebsocket_context_destroy - Destroy the websocket context</h2>

@@ -674,9 +674,11 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
  * @pollfd:	The pollfd entry describing the socket fd and which events
  *		happened.
  *
- *	This function closes any active connections and then frees the
- *	context.  After calling this, any further use of the context is
- *	undefined.
+ *	This function takes a pollfd that has POLLIN or POLLOUT activity and
+ *	services it according to the state of the associated struct libwebsocket.
+ *
+ *	The one call deals with all "service" that might happen on a socket
+ *	including listen accepts, http files as well as websocket protocol.
  */
 
 int
