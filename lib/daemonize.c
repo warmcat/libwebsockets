@@ -202,7 +202,6 @@ lws_daemonize(const char *_lock_path)
 	act.sa_handler = lws_daemon_closing;
 	sigemptyset(&act.sa_mask);
 	act.sa_flags = 0;
-	act.sa_restorer = NULL;
 	
 	sigaction(SIGTERM, &act, NULL);
 
