@@ -717,7 +717,7 @@ int main(int argc, char **argv)
 		 * We take care of pre-and-post padding allocation.
 		 */
 
-		libwebsockets_broadcast(&protocols[PROTOCOL_DUMB_INCREMENT],
+		libwebsockets_broadcast_foreign(&protocols[PROTOCOL_DUMB_INCREMENT],
 					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
 	}
 

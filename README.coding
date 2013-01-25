@@ -25,6 +25,26 @@ similar to change the avaiable number of file descriptors, and when restarted
 libwebsockets will adapt accordingly.
 
 
+Procedure for sending data from other threads or process contexts
+-----------------------------------------------------------------
+
+Libwebsockets is carefully designed to work with no blocking in a single thread.
+In some cases where you will add libwebsockets to something else that uses the
+same single thread approach, you can so a safe implementation by combining the
+poll() loops as described in "External Polling loop support" below.
+
+In other cases, you find you have asynchronous events coming from other thread
+or process contexts and there's not much you can do about it.  If you just try
+to randomly send, or broadcast using libwebsockets_broadcast() from these other
+places things will blow up either quickly or when the events on the two threads
+interefere with each other.  It's not legal to do this.
+
+For those situations, you can use libwebsockets_broadcast_foreign().  This
+serializes the data you're sending using a private, per-protocol socket, so the
+service thread picks it up when it's ready, and it is serviced from the service
+thread context only.
+
+
 Fragmented messages
 -------------------
 
@@ -54,6 +74,7 @@ to gather the whole contents of a message, eg:
 
 The test app llibwebsockets-test-fraggle sources also show how to
 deal with fragmented messages.
+
 
 Debug Logging
 -------------

@@ -1974,10 +1974,7 @@ libwebsocket_create_context(int port, const char *interf,
 int
 libwebsockets_fork_service_loop(struct libwebsocket_context *context)
 {
-	int fd;
-	struct sockaddr_in cli_addr;
 	int n;
-	int p;
 
 	n = fork();
 	if (n < 0)
@@ -1986,33 +1983,6 @@ libwebsockets_fork_service_loop(struct libwebsocket_context *context)
 	if (n) {
 
 		/* main process context */
-
-		/*
-		 * set up the proxy sockets to allow broadcast from
-		 * service process context
-		 */
-
-		for (p = 0; p < context->count_protocols; p++) {
-			fd = socket(AF_INET, SOCK_STREAM, 0);
-			if (fd < 0) {
-				lwsl_err("Unable to create socket\n");
-				return -1;
-			}
-			cli_addr.sin_family = AF_INET;
-			cli_addr.sin_port = htons(
-			     context->protocols[p].broadcast_socket_port);
-			cli_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-			n = connect(fd, (struct sockaddr *)&cli_addr,
-							       sizeof cli_addr);
-			if (n < 0) {
-				lwsl_err("Unable to connect to "
-						"broadcast socket %d, %s\n",
-						n, strerror(errno));
-				return -1;
-			}
-
-			context->protocols[p].broadcast_socket_user_fd = fd;
-		}
 
 		return 0;
 	}
@@ -2067,8 +2037,8 @@ libwebsockets_get_protocol(struct libwebsocket *wsi)
 }
 
 /**
- * libwebsockets_broadcast() - Sends a buffer to the callback for all active
- *				  connections of the given protocol.
+ * libwebsockets_broadcast() - Sends a buffer to tx callback for all connections of given protocol from single thread
+ *
  * @protocol:	pointer to the protocol you will broadcast to all members of
  * @buf:  buffer containing the data to be broadcase.  NOTE: this has to be
  *		allocated with LWS_SEND_BUFFER_PRE_PADDING valid bytes before
@@ -2082,9 +2052,9 @@ libwebsockets_get_protocol(struct libwebsocket *wsi)
  * wants to actually send the data for that connection, the callback itself
  * should call libwebsocket_write().
  *
- * libwebsockets_broadcast() can be called from another fork context without
- * having to take any care about data visibility between the processes, it'll
- * "just work".
+ * This version only works from the same thread / process context as the service
+ * loop.  Use libwesockets_broadcast_foreign(...) to do the same job from a different
+ * thread in a safe way.
  */
 
 
@@ -2099,52 +2069,83 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 	if (!context)
 		return 1;
 
-#ifndef LWS_NO_FORK
-	if (!protocol->broadcast_socket_user_fd) {
-#endif
+	/*
+	 * We are either running unforked / flat, or we are being
+	 * called from poll thread context
+	 * eg, from a callback.  In that case don't use sockets for
+	 * broadcast IPC (since we can't open a socket connection to
+	 * a socket listening on our own thread) but directly do the
+	 * send action.
+	 *
+	 * Locking is not needed because we are by definition being
+	 * called in the poll thread context and are serialized.
+	 */
+
+	for (n = 0; n < context->fds_count; n++) {
+
+		wsi = context->lws_lookup[context->fds[n].fd];
+		if (!wsi)
+			continue;
+
+		if (wsi->mode != LWS_CONNMODE_WS_SERVING)
+			continue;
+
 		/*
-		 * We are either running unforked / flat, or we are being
-		 * called from poll thread context
-		 * eg, from a callback.  In that case don't use sockets for
-		 * broadcast IPC (since we can't open a socket connection to
-		 * a socket listening on our own thread) but directly do the
-		 * send action.
-		 *
-		 * Locking is not needed because we are by definition being
-		 * called in the poll thread context and are serialized.
+		 * never broadcast to non-established connections
 		 */
+		if (wsi->state != WSI_STATE_ESTABLISHED)
+			continue;
 
-		for (n = 0; n < context->fds_count; n++) {
+		/* only broadcast to guys using
+		 * requested protocol
+		 */
+		if (wsi->protocol != protocol)
+			continue;
 
-			wsi = context->lws_lookup[context->fds[n].fd];
-			if (!wsi)
-				continue;
-
-			if (wsi->mode != LWS_CONNMODE_WS_SERVING)
-				continue;
-
-			/*
-			 * never broadcast to non-established connections
-			 */
-			if (wsi->state != WSI_STATE_ESTABLISHED)
-				continue;
-
-			/* only broadcast to guys using
-			 * requested protocol
-			 */
-			if (wsi->protocol != protocol)
-				continue;
-
-			user_callback_handle_rxflow(wsi->protocol->callback,
-				 context, wsi,
-				 LWS_CALLBACK_BROADCAST,
-				 wsi->user_space,
-				 buf, len);
-		}
-
-		return 0;
-#ifndef LWS_NO_FORK
+		user_callback_handle_rxflow(wsi->protocol->callback,
+			 context, wsi,
+			 LWS_CALLBACK_BROADCAST,
+			 wsi->user_space,
+			 buf, len);
 	}
+
+	return 0;
+}
+
+
+#ifndef LWS_NO_FORK
+/**
+ * libwebsockets_broadcast_foreign() - Sends a buffer to the callback for all active
+ *				  connections of the given protocol.
+ * @protocol:	pointer to the protocol you will broadcast to all members of
+ * @buf:  buffer containing the data to be broadcase.  NOTE: this has to be
+ *		allocated with LWS_SEND_BUFFER_PRE_PADDING valid bytes before
+ *		the pointer and LWS_SEND_BUFFER_POST_PADDING afterwards in the
+ *		case you are calling this function from callback context.
+ * @len:	length of payload data in buf, starting from buf.
+ *
+ *	This function allows bulk sending of a packet to every connection using
+ * the given protocol.  It does not send the data directly; instead it calls
+ * the callback with a reason type of LWS_CALLBACK_BROADCAST.  If the callback
+ * wants to actually send the data for that connection, the callback itself
+ * should call libwebsocket_write().
+ *
+ * This ..._foreign() version is designed to be randomly called from other thread or
+ * process contexts than the main libwebsocket service one.  A private socket is used
+ * to serialize accesses here with the main service loop. 
+ */
+
+int
+libwebsockets_broadcast_foreign(struct libwebsocket_protocols *protocol,
+						 unsigned char *buf, size_t len)
+{
+	struct libwebsocket_context *context = protocol->owning_server;
+	int n;
+	int fd;
+	struct sockaddr_in cli_addr;
+
+	if (!context)
+		return 1;
 
 	/*
 	 * We're being called from a different process context than the server
@@ -2156,11 +2157,37 @@ libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 	 * set up when the websocket server initializes
 	 */
 
+
+	/*
+	 * autoconnect to this protocol's broadcast proxy socket for this
+	 * thread if needed
+	 */
+
+	if (protocol->broadcast_socket_user_fd <= 0) {
+		fd = socket(AF_INET, SOCK_STREAM, 0);
+		if (fd < 0) {
+			lwsl_err("Unable to create socket\n");
+			return -1;
+		}
+		cli_addr.sin_family = AF_INET;
+		cli_addr.sin_port = htons(protocol->broadcast_socket_port);
+		cli_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+		n = connect(fd, (struct sockaddr *)&cli_addr, sizeof cli_addr);
+		if (n < 0) {
+			lwsl_err("Unable to connect to "
+					"broadcast socket %d, %s\n",
+					n, strerror(errno));
+			return -1;
+		}
+
+		protocol->broadcast_socket_user_fd = fd;
+	}
+
 	n = send(protocol->broadcast_socket_user_fd, buf, len, MSG_NOSIGNAL);
 
 	return n;
-#endif
 }
+#endif
 
 int
 libwebsocket_is_final_fragment(struct libwebsocket *wsi)

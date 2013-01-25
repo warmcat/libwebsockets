@@ -790,6 +790,12 @@ LWS_EXTERN int
 libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
 						unsigned char *buf, size_t len);
 
+/* notice - you need the pre- and post- padding allocation for buf below */
+
+LWS_EXTERN int
+libwebsockets_broadcast_foreign(struct libwebsocket_protocols *protocol,
+						 unsigned char *buf, size_t len);
+
 LWS_EXTERN const struct libwebsocket_protocols *
 libwebsockets_get_protocol(struct libwebsocket *wsi);
 
