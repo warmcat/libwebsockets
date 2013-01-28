@@ -222,6 +222,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		setsockopt(accept_fd, IPPROTO_TCP, TCP_NODELAY,
 					      (const void *)&opt, sizeof(opt));
 
+		/* We are nonblocking... */
+		fcntl(accept_fd, F_SETFL, O_NONBLOCK);
+
 		/*
 		 * look at who we connected to and give user code a chance
 		 * to reject based on client IP.  There's no protocol selected
