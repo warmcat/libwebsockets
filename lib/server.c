@@ -140,10 +140,12 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 	unsigned int clilen;
 	struct sockaddr_in cli_addr;
 	int n;
-	int m;
 	int opt = 1;
 	ssize_t len;
+#ifdef LWS_OPENSSL_SUPPORT
+	int m;
 	BIO *bio;
+#endif
 
 	switch (wsi->mode) {
 
