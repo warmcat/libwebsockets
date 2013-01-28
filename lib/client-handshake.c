@@ -12,7 +12,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	int plen = 0;
 	char pkt[512];
 	int opt = 1;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(__FreeBSD__)
 	struct protoent *tcp_proto;
 #endif
 
@@ -63,7 +63,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	bzero(&server_addr.sin_zero, 8);
 
 	/* Disable Nagle */
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) && !defined(__FreeBSD__)
 	setsockopt(wsi->sock, SOL_TCP, TCP_NODELAY,
 					      (const void *)&opt, sizeof(opt));
 #else
