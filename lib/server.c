@@ -291,6 +291,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		wsi->mode = LWS_CONNMODE_SSL_ACK_PENDING;
 		insert_wsi_socket_into_fds(context, wsi);
 
+		libwebsocket_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
+							AWAITING_TIMEOUT);
+
 		lwsl_info("inserted SSL acceipt into fds, trying actual SSL_accept\n");
 
 		/* fallthru */
@@ -339,6 +342,8 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		}
 
 		/* OK, we are accepted */
+
+		libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
