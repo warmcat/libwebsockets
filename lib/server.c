@@ -143,6 +143,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 	int m;
 	int opt = 1;
 	ssize_t len;
+	BIO *bio;
 
 	switch (wsi->mode) {
 
@@ -280,6 +281,17 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			openssl_websocket_private_data_index, context);
 
 		SSL_set_fd(new_wsi->ssl, accept_fd);
+
+		bio = SSL_get_rbio(new_wsi->ssl);
+		if (bio)
+			BIO_set_nbio(bio, 1); /* nonblocking */
+		else
+			lwsl_notice("NULL rbio\n");
+		bio = SSL_get_wbio(new_wsi->ssl);
+		if (bio)
+			BIO_set_nbio(bio, 1); /* nonblocking */
+		else
+			lwsl_notice("NULL rbio\n");
 
 		/* 
 		 * we are not accepted yet, but we need to enter ourselves
