@@ -885,6 +885,16 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size);
 LWS_EXTERN int
 lws_b64_decode_string(const char *in, char *out, int out_size);
 
+/*
+ * Note: this is not normally needed as a user api.  It's provided in case it is
+ * useful when integrating with other app poll loop service code.
+ */
+
+LWS_EXTERN int
+libwebsocket_read(struct libwebsocket_context *context,
+				struct libwebsocket *wsi,
+					       unsigned char *buf, size_t len);
+
 #ifndef LWS_NO_EXTENSIONS
 LWS_EXTERN struct libwebsocket_extension libwebsocket_internal_extensions[];
 #endif

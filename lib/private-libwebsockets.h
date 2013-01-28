@@ -389,11 +389,6 @@ libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 						unsigned char *buf, size_t len);
 
 extern int
-libwebsocket_read(struct libwebsocket_context *context,
-				struct libwebsocket *wsi,
-					       unsigned char *buf, size_t len);
-
-extern int
 lws_b64_selftest(void);
 
 extern struct libwebsocket *
