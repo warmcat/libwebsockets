@@ -116,7 +116,10 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 			wsi->ssl = SSL_new(context->ssl_client_ctx);
 			wsi->client_bio = BIO_new_socket(wsi->sock,
 								   BIO_NOCLOSE);
+
 			SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
+
+			BIO_set_nbio(wsi->client_bio, 1); /* nonblocking */
 
 			SSL_set_ex_data(wsi->ssl,
 					openssl_websocket_private_data_index,
