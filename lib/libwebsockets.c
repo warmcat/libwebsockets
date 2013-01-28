@@ -783,6 +783,9 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	case LWS_CONNMODE_SERVER_LISTENER:
 	case LWS_CONNMODE_BROADCAST_PROXY_LISTENER:
 	case LWS_CONNMODE_BROADCAST_PROXY:
+	case LWS_CONNMODE_SSL_ACK_PENDING:
+
+lwsl_debug("*\n");
 		return lws_server_socket_service(context, wsi, pollfd);
 #endif
 
@@ -1805,6 +1808,8 @@ libwebsocket_create_context(int port, const char *interf,
 		opt = 1;
 		setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY,
 					      (const void *)&opt, sizeof(opt));
+
+		fcntl(sockfd, F_SETFL, O_NONBLOCK);
 
 		bzero((char *) &serv_addr, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;

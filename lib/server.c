@@ -140,6 +140,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 	unsigned int clilen;
 	struct sockaddr_in cli_addr;
 	int n;
+	int m;
 	int opt = 1;
 	ssize_t len;
 
@@ -213,6 +214,10 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
 								       &clilen);
 		if (accept_fd < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				lwsl_debug("accept asks to try again\n");
+				break;
+			}
 			lwsl_warn("ERROR on accept: %s\n", strerror(errno));
 			break;
 		}
@@ -247,58 +252,103 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		new_wsi->sock = accept_fd;
 
-
 #ifdef LWS_OPENSSL_SUPPORT
 		new_wsi->ssl = NULL;
-
-		if (context->use_ssl) {
-
-			new_wsi->ssl = SSL_new(context->ssl_ctx);
-			if (new_wsi->ssl == NULL) {
-				lwsl_err("SSL_new failed: %s\n",
-				    ERR_error_string(SSL_get_error(
-				    new_wsi->ssl, 0), NULL));
-				    libwebsockets_decode_ssl_error();
-				free(new_wsi);
-				compatible_close(accept_fd);
-				break;
-			}
-
-			SSL_set_ex_data(new_wsi->ssl,
-				openssl_websocket_private_data_index, context);
-
-			SSL_set_fd(new_wsi->ssl, accept_fd);
-
-			n = SSL_accept(new_wsi->ssl);
-			if (n != 1) {
-				/*
-				 * browsers seem to probe with various
-				 * ssl params which fail then retry
-				 * and succeed
-				 */
-				lwsl_debug("SSL_accept failed skt %u: %s\n",
-				      pollfd->fd,
-				      ERR_error_string(SSL_get_error(
-				      new_wsi->ssl, n), NULL));
-				SSL_free(
-				       new_wsi->ssl);
-				free(new_wsi);
-				compatible_close(accept_fd);
-				break;
-			}
-
-			lwsl_debug("accepted new SSL conn  "
-			      "port %u on fd=%d SSL ver %s\n",
-				ntohs(cli_addr.sin_port), accept_fd,
-				  SSL_get_version(new_wsi->ssl));
-
-		} else
+		if (!context->use_ssl) {
 #endif
+
 			lwsl_debug("accepted new conn  port %u on fd=%d\n",
 					  ntohs(cli_addr.sin_port), accept_fd);
 
-		insert_wsi_socket_into_fds(context, new_wsi);
+			insert_wsi_socket_into_fds(context, new_wsi);
+			break;
+#ifdef LWS_OPENSSL_SUPPORT
+		}
+
+		new_wsi->ssl = SSL_new(context->ssl_ctx);
+		if (new_wsi->ssl == NULL) {
+			lwsl_err("SSL_new failed: %s\n",
+			    ERR_error_string(SSL_get_error(
+			    new_wsi->ssl, 0), NULL));
+			    libwebsockets_decode_ssl_error();
+			free(new_wsi);
+			compatible_close(accept_fd);
+			break;
+		}
+
+		SSL_set_ex_data(new_wsi->ssl,
+			openssl_websocket_private_data_index, context);
+
+		SSL_set_fd(new_wsi->ssl, accept_fd);
+
+		/* 
+		 * we are not accepted yet, but we need to enter ourselves
+		 * as a live connection.  That way we can retry when more
+		 * pieces come if we're not sorted yet
+		 */
+
+		wsi = new_wsi;
+		wsi->mode = LWS_CONNMODE_SSL_ACK_PENDING;
+		insert_wsi_socket_into_fds(context, wsi);
+
+		lwsl_info("inserted SSL acceipt into fds, trying actual SSL_accept\n");
+
+		/* fallthru */
+
+	case LWS_CONNMODE_SSL_ACK_PENDING:
+
+		pollfd->events &= ~POLLOUT;
+
+		/* external POLL support via protocol 0 */
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
+			(void *)(long)wsi->sock, NULL, POLLOUT);
+
+		//lwsl_notice("LWS_CONNMODE_SSL_ACK_PENDING: pre\n");
+		n = SSL_accept(wsi->ssl);
+		//lwsl_notice("LWS_CONNMODE_SSL_ACK_PENDING: post %d\n", n);
+
+		if (n != 1) {
+			m = SSL_get_error(wsi->ssl, n);
+			lwsl_debug("SSL_accept failed %d / %s\n", m, ERR_error_string(m, NULL));
+
+			if (m == SSL_ERROR_WANT_READ) {
+				context->fds[wsi->position_in_fds_table].events |= POLLIN;
+
+				/* external POLL support via protocol 0 */
+				context->protocols[0].callback(context, wsi,
+					LWS_CALLBACK_SET_MODE_POLL_FD,
+					(void *)(long)wsi->sock, NULL, POLLIN);
+				lwsl_info("SSL_ERROR_WANT_READ\n");
+				break;
+			}
+			if (m == SSL_ERROR_WANT_WRITE) {
+				context->fds[wsi->position_in_fds_table].events |= POLLOUT;
+
+				/* external POLL support via protocol 0 */
+				context->protocols[0].callback(context, wsi,
+					LWS_CALLBACK_SET_MODE_POLL_FD,
+					(void *)(long)wsi->sock, NULL, POLLOUT);
+				break;
+			}
+			lwsl_debug("SSL_accept failed skt %u: %s\n",
+			      pollfd->fd,
+			      ERR_error_string(m, NULL));
+			libwebsocket_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			break;
+		}
+
+		/* OK, we are accepted */
+
+		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
+
+		lwsl_debug("accepted new SSL conn  "
+		      "port %u on fd=%d SSL ver %s\n",
+			ntohs(cli_addr.sin_port),
+			  SSL_get_version(wsi->ssl));
 		break;
+#endif
+
 
 #ifndef LWS_NO_FORK
 	case LWS_CONNMODE_BROADCAST_PROXY_LISTENER:

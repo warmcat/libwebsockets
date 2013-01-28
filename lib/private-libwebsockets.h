@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2013 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -204,6 +204,9 @@ enum connection_mode {
 
 	LWS_CONNMODE_WS_SERVING,
 	LWS_CONNMODE_WS_CLIENT,
+
+	/* transient, ssl delay hiding */
+	LWS_CONNMODE_SSL_ACK_PENDING,
 
 	/* transient modes */
 	LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY,
