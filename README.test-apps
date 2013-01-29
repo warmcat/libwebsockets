@@ -215,6 +215,7 @@ available are (OR together the numbers to select multiple)
  64  HEADER
  128 EXTENSION
  256 CLIENT
+ 512 LATENCY
 
 
 Websocket version supported
@@ -223,4 +224,27 @@ Websocket version supported
 The final IETF standard is supported for both client and server, protocol
 version 13.
 
+
+Latency Tracking
+----------------
+
+Since libwebsockets runs using poll() and a single threaded approach, any
+unexpected latency coming from system calls would be bad news.  There's now
+a latency tracking scheme that can be built in with --with-latency at
+configure-time, logging the time taken for system calls to complete and if
+the whole action did complete that time or was deferred.
+
+You can see the detailed data by enabling logging level 512 (eg, -d 519 on
+the test server to see that and the usual logs), however even without that
+the "worst" latency is kept and reported to the logs with NOTICE severity
+when the context is destroyed.
+
+Some care is needed interpreting them, if the action completed the first figure
+(in us) is the time taken for the whole action, which may have retried through
+the poll loop many times and will depend on network roundtrip times.  High
+figures here don't indicate a problem.  The figure in us reported after "lat"
+in the logging is the time taken by this particular attempt.  High figures
+here may indicate a problem, or if you system is loaded with another app at
+that time, such as the browser, it may simply indicate the OS gave preferential
+treatment to the other app during that call.
 

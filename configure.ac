@@ -97,6 +97,19 @@ AM_CONDITIONAL(NO_EXTENSIONS, test x$no_extensions = xyes)
 # 
 #
 #
+AC_ARG_WITH(latency,
+ [  --with-latency  Build latency measuring code into the library ],
+ [ latency=yes
+ ])
+
+if test "x$latency" = "xyes" ; then                                             
+CFLAGS="$CFLAGS -DLWS_LATENCY"                                          
+fi
+AM_CONDITIONAL(LATENCY, test x$latency = xyes)
+
+# 
+#
+#
 AC_ARG_WITH(daemonize,
  [  --without-daemonize  dont build the daemonization api ],
  [ no_daemonize=yes

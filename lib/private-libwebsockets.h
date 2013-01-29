@@ -239,6 +239,11 @@ struct libwebsocket_context {
 	int listen_service_fd;
 	int listen_service_extraseen;
 
+#ifdef LWS_LATENCY
+	unsigned long worst_latency;
+	char worst_latency_info[256];
+#endif
+
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;
 	SSL_CTX *ssl_ctx;
@@ -337,6 +342,10 @@ struct libwebsocket {
 
 	int sock;
 	int position_in_fds_table;
+#ifdef LWS_LATENCY
+	unsigned long action_start;
+	unsigned long latency_start;
+#endif
 
 	void *user_space;
 
@@ -369,6 +378,15 @@ struct libwebsocket {
 	int use_ssl;
 #endif	
 };
+
+#ifndef LWS_LATENCY
+static inline void lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi, const char *action, int ret, int completion) { while (0); }
+static inline void lws_latency_pre(struct libwebsocket_context *context, struct libwebsocket *wsi) { while (0); }
+#else
+#define lws_latency_pre(_context, _wsi) lws_latency(_context, _wsi, NULL, 0, 0)
+extern void
+lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi, const char *action, int ret, int completion);
+#endif
 
 extern int
 libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c);

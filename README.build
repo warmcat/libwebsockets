@@ -98,6 +98,12 @@ There are several other possible configure options
 			the code / data size / speed improvements may be
 			critical.
 
+--with-latency		Builds the latency-tracking code into the library...
+			this slows your library down a bit but is very useful
+			to find the cause of unexpected latencies occurring
+			inside the library.  See README.test-apps for more
+			info
+
 
 Externally configurable important constants
 -------------------------------------------

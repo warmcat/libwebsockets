@@ -63,6 +63,7 @@ static const char *log_level_names[] = {
 	"HEADER",
 	"EXTENSION",
 	"CLIENT",
+	"LATENCY",
 };
 
 int
@@ -929,6 +930,11 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	int m;
 	struct libwebsocket_extension *ext;
 
+#ifdef LWS_LATENCY
+	if (context->worst_latency_info[0])
+		lwsl_notice("Worst latency: %s\n", context->worst_latency_info);
+#endif
+
 	for (n = 0; n < context->fds_count; n++) {
 		struct libwebsocket *wsi = context->lws_lookup[context->fds[n].fd];
 		libwebsocket_close_and_free_session(context,
@@ -1206,6 +1212,40 @@ libwebsocket_get_socket_fd(struct libwebsocket *wsi)
 {
 	return wsi->sock;
 }
+
+#ifdef LWS_LATENCY
+void
+lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi, const char *action, int ret, int completed)
+{
+	struct timeval tv;
+	unsigned long u;
+	char buf[256];
+
+	gettimeofday(&tv, NULL);
+
+	u = (tv.tv_sec * 1000000) + tv.tv_usec;
+
+	if (action) {
+		if (completed) {
+			if (wsi->action_start == wsi->latency_start)
+				sprintf(buf, "Completion first try lat %luus: %p: ret %d: %s\n", u - wsi->latency_start, (void *)wsi, ret, action);
+			else
+				sprintf(buf, "Completion %luus: lat %luus: %p: ret %d: %s\n", u - wsi->action_start, u - wsi->latency_start, (void *)wsi, ret, action);
+			wsi->action_start = 0;
+		} else
+			sprintf(buf, "lat %luus: %p: ret %d: %s\n", u - wsi->latency_start, (void *)wsi, ret, action);
+		if (u - wsi->latency_start > context->worst_latency) {
+			context->worst_latency = u - wsi->latency_start;
+			strcpy(context->worst_latency_info, buf);
+		}
+		lwsl_latency("%s", buf);
+	} else {
+		wsi->latency_start = u;
+		if (!wsi->action_start)
+			wsi->action_start = u;
+	}
+}
+#endif
 
 #ifdef LWS_NO_SERVER
 int

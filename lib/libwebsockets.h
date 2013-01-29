@@ -76,38 +76,44 @@ enum lws_log_levels {
 	LLL_HEADER = 1 << 6,
 	LLL_EXT = 1 << 7,
 	LLL_CLIENT = 1 << 8,
+	LLL_LATENCY = 1 << 9,
 
-	LLL_COUNT = 9 /* set to count of valid flags */
+	LLL_COUNT = 10 /* set to count of valid flags */
 };
 
 extern void _lws_log(int filter, const char *format, ...);
 
-/* warn and log are always compiled in */
+/* notice, warn and log are always compiled in */
 #define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
 #define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
 #define lwsl_err(...) _lws_log(LLL_ERR, __VA_ARGS__)
-
 /*
- *  weaker logging can be deselected at configure time using disable_debug
+ *  weaker logging can be deselected at configure time using --disable-debug
  *  that gets rid of the overhead of checking while keeping _warn and _err
  *  active
  */
 #ifdef _DEBUG
+
 #define lwsl_info(...) _lws_log(LLL_INFO, __VA_ARGS__)
 #define lwsl_debug(...) _lws_log(LLL_DEBUG, __VA_ARGS__)
 #define lwsl_parser(...) _lws_log(LLL_PARSER, __VA_ARGS__)
 #define lwsl_header(...)  _lws_log(LLL_HEADER, __VA_ARGS__)
-#define lwsl_ext(...)  _lws_log(LLL_HEADER, __VA_ARGS__)
+#define lwsl_ext(...)  _lws_log(LLL_EXT, __VA_ARGS__)
 #define lwsl_client(...) _lws_log(LLL_CLIENT, __VA_ARGS__)
+#define lwsl_latency(...) _lws_log(LLL_LATENCY, __VA_ARGS__)
 extern void lwsl_hexdump(void *buf, size_t len);
+
 #else /* no debug */
+
 #define lwsl_info(...)
 #define lwsl_debug(...)
 #define lwsl_parser(...)
 #define lwsl_header(...)
 #define lwsl_ext(...)
 #define lwsl_client(...)
+#define lwsl_latency(...)
 #define lwsl_hexdump(a, b)
+
 #endif
 
 enum libwebsocket_context_options {
