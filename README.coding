@@ -25,24 +25,46 @@ similar to change the avaiable number of file descriptors, and when restarted
 libwebsockets will adapt accordingly.
 
 
-Procedure for sending data from other threads or process contexts
------------------------------------------------------------------
+Libwebsockets is singlethreaded
+-------------------------------
 
-Libwebsockets is carefully designed to work with no blocking in a single thread.
-In some cases where you will add libwebsockets to something else that uses the
-same single thread approach, you can so a safe implementation by combining the
-poll() loops as described in "External Polling loop support" below.
+Directly performing websocket actions from other threads is not allowed.
+Aside from the internal data being inconsistent in forked() processes,
+the scope of a wsi (struct websocket) can end at any time during service
+with the socket closing and the wsi freed.
 
-In other cases, you find you have asynchronous events coming from other thread
-or process contexts and there's not much you can do about it.  If you just try
-to randomly send, or broadcast using libwebsockets_broadcast() from these other
-places things will blow up either quickly or when the events on the two threads
-interefere with each other.  It's not legal to do this.
+Websocket write activities should only take place in the
+"LWS_CALLBACK_SERVER_WRITEABLE" callback as described below.
 
-For those situations, you can use libwebsockets_broadcast_foreign().  This
-serializes the data you're sending using a private, per-protocol socket, so the
-service thread picks it up when it's ready, and it is serviced from the service
-thread context only.
+Only live connections appear in the user callbacks, so this removes any
+possibility of trying to used closed and freed wsis.
+
+If you need to service other socket or file descriptors as well as the
+websocket ones, you can combine them together with the websocket ones
+in one poll loop, see "External Polling Loop support" below, and
+still do it all in one thread / process context.
+
+
+Only send data when socket writeable
+------------------------------------
+
+You should only send data on a websocket connection from the user callback
+"LWS_CALLBACK_SERVER_WRITEABLE" (or "LWS_CALLBACK_CLIENT_WRITEABLE" for
+clients).
+
+If you want to send something, do not just send it but request a callback
+when the socket is writeable using
+
+ - libwebsocket_callback_on_writable(context, wsi) for a specific wsi, or
+ - libwebsocket_callback_on_writable_all_protocol(protocol) for all connections
+using that protocol to get a callback when next writeable.
+
+Usually you will get called back immediately next time around the service
+loop, but if your peer is slow or temporarily inactive the callback will be
+delayed accordingly.  Generating what to write and sending it should be done
+in the ...WRITEABLE callback.
+
+See the test server code for an example of how to do this.
 
 
 Fragmented messages

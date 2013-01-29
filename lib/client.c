@@ -627,7 +627,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	int ext_count = 0;
 #endif
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
-			 MAX_BROADCAST_PAYLOAD + LWS_SEND_BUFFER_POST_PADDING];
+			 MAX_USER_RX_BUFFER + LWS_SEND_BUFFER_POST_PADDING];
 	static const char magic_websocket_guid[] =
 					 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 

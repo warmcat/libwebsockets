@@ -58,17 +58,6 @@ test-server.c is all that is needed to use libwebsockets for
 serving both the script html over http and websockets.
 
 
-Forkless operation
-------------------
-
-If your target device does not offer fork(), you can use
-libwebsockets from your own main loop instead.  Use the
-configure option --nofork and simply call libwebsocket_service()
-from your own main loop as shown in the test app sources.
-
-
-
-
 Testing websocket client support
 --------------------------------
 

@@ -507,6 +507,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 				struct libwebsocket *wsi, struct pollfd *pollfd)
 {
 	int n;
+
 #ifndef LWS_NO_EXTENSIONS
 	struct lws_tokens eff_buf;
 	int ret;
@@ -686,11 +687,12 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 							  struct pollfd *pollfd)
 {
 	struct libwebsocket *wsi;
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
-			 MAX_BROADCAST_PAYLOAD + LWS_SEND_BUFFER_POST_PADDING];
 	int n;
 	int m;
 	struct timeval tv;
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
+			 MAX_USER_RX_BUFFER + LWS_SEND_BUFFER_POST_PADDING];
+
 #ifndef LWS_NO_EXTENSIONS
 	int more = 1;
 #endif
@@ -781,11 +783,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 #ifndef LWS_NO_SERVER
 	case LWS_CONNMODE_HTTP_SERVING:
 	case LWS_CONNMODE_SERVER_LISTENER:
-	case LWS_CONNMODE_BROADCAST_PROXY_LISTENER:
-	case LWS_CONNMODE_BROADCAST_PROXY:
 	case LWS_CONNMODE_SSL_ACK_PENDING:
-
-lwsl_debug("*\n");
 		return lws_server_socket_service(context, wsi, pollfd);
 #endif
 
@@ -1001,10 +999,7 @@ libwebsocket_context_user(struct libwebsocket_context *context)
  *
  *	1) Accept new connections to our context's server
  *
- *	2) Perform pending broadcast writes initiated from other forked
- *	   processes (effectively serializing asynchronous broadcasts)
- *
- *	3) Call the receive callback for incoming frame data received by
+ *	2) Call the receive callback for incoming frame data received by
  *	    server or client connections.
  *
  *	You need to call this service function periodically to all the above
@@ -1423,11 +1418,6 @@ libwebsocket_create_context(int port, const char *interf,
 	struct sockaddr_in serv_addr;
 	int opt = 1;
 	struct libwebsocket_context *context = NULL;
-#ifndef LWS_NO_FORK
-	unsigned int slen;
-	struct sockaddr_in cli_addr;
-	int fd;
-#endif
 	char *p;
 	struct libwebsocket *wsi;
 #ifndef LWS_NO_EXTENSIONS
@@ -1445,7 +1435,6 @@ libwebsocket_create_context(int port, const char *interf,
 	lwsl_info(" LWS_INITIAL_HDR_ALLOC: %u\n", LWS_INITIAL_HDR_ALLOC);
 	lwsl_info(" LWS_ADDITIONAL_HDR_ALLOC: %u\n", LWS_ADDITIONAL_HDR_ALLOC);
 	lwsl_info(" MAX_USER_RX_BUFFER: %u\n", MAX_USER_RX_BUFFER);
-	lwsl_info(" MAX_BROADCAST_PAYLOAD: %u\n", MAX_BROADCAST_PAYLOAD);
 	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
 #ifndef LWS_NO_EXTENSIONS
 	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
@@ -1868,7 +1857,7 @@ libwebsocket_create_context(int port, const char *interf,
 			lwsl_warn("setuid: %s\n", strerror(errno));
 #endif
 
-	/* set up our internal broadcast trigger sockets per-protocol */
+	/* initialize supported protocols */
 
 	for (context->count_protocols = 0;
 			protocols[context->count_protocols].callback;
@@ -1880,64 +1869,6 @@ libwebsocket_create_context(int port, const char *interf,
 		protocols[context->count_protocols].owning_server = context;
 		protocols[context->count_protocols].protocol_index =
 						       context->count_protocols;
-
-#ifndef LWS_NO_FORK
-		fd = socket(AF_INET, SOCK_STREAM, 0);
-		if (fd < 0) {
-			lwsl_err("ERROR opening socket\n");
-			return NULL;
-		}
-
-		/* allow us to restart even if old sockets in TIME_WAIT */
-		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const void *)&opt,
-								  sizeof(opt));
-
-		bzero((char *) &serv_addr, sizeof(serv_addr));
-		serv_addr.sin_family = AF_INET;
-		serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-		serv_addr.sin_port = 0; /* pick the port for us */
-
-		n = bind(fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
-		if (n < 0) {
-			lwsl_err("ERROR on binding to port %d (%d %d)\n",
-								port, n, errno);
-			return NULL;
-		}
-
-		slen = sizeof cli_addr;
-		n = getsockname(fd, (struct sockaddr *)&cli_addr, &slen);
-		if (n < 0) {
-			lwsl_err("getsockname failed\n");
-			return NULL;
-		}
-		protocols[context->count_protocols].broadcast_socket_port =
-						       ntohs(cli_addr.sin_port);
-		listen(fd, 5);
-
-		lwsl_debug("  Protocol %s broadcast socket %d\n",
-				protocols[context->count_protocols].name,
-						      ntohs(cli_addr.sin_port));
-
-		/* dummy wsi per broadcast proxy socket */
-
-		wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
-		if (wsi == NULL) {
-			lwsl_err("Out of mem\n");
-			close(fd);
-			return NULL;
-		}
-		memset(wsi, 0, sizeof (struct libwebsocket));
-		wsi->sock = fd;
-		wsi->mode = LWS_CONNMODE_BROADCAST_PROXY_LISTENER;
-#ifndef LWS_NO_EXTENSIONS
-		wsi->count_active_extensions = 0;
-#endif
-		/* note which protocol we are proxying */
-		wsi->protocol_index_for_broadcast_proxy =
-						       context->count_protocols;
-
-		insert_wsi_socket_into_fds(context, wsi);
-#endif
 	}
 
 #ifndef LWS_NO_EXTENSIONS
@@ -1963,76 +1894,14 @@ libwebsocket_create_context(int port, const char *interf,
 	return context;
 }
 
-
-#ifndef LWS_NO_FORK
-
-/**
- * libwebsockets_fork_service_loop() - Optional helper function forks off
- *				  a process for the websocket server loop.
- *				You don't have to use this but if not, you
- *				have to make sure you are calling
- *				libwebsocket_service periodically to service
- *				the websocket traffic
- * @context:	server context returned by creation function
- */
-
-int
-libwebsockets_fork_service_loop(struct libwebsocket_context *context)
-{
-	int n;
-
-	n = fork();
-	if (n < 0)
-		return n;
-
-	if (n) {
-
-		/* main process context */
-
-		return 0;
-	}
-
-#ifdef HAVE_SYS_PRCTL_H
-	/* we want a SIGHUP when our parent goes down */
-	signal(SIGHUP, SIG_DFL);
-	prctl(PR_SET_PDEATHSIG, SIGHUP);
-#endif
-
-	/* in this forked process, sit and service websocket connections */
-
-	while (1) {
-		if (libwebsocket_service(context, 1000))
-			break;
-//#ifndef HAVE_SYS_PRCTL_H
-/*
- * on systems without prctl() (i.e. anything but linux) we can notice that our
- * parent is dead if getppid() returns 1. FIXME apparently this is not true for
- * solaris, could remember ppid right after fork and wait for it to change.
- */
-
-		/* if our parent went down, don't linger around */
-		if (context->started_with_parent && kill(context->started_with_parent, 0) < 0)
-			kill(getpid(), SIGTERM);
-
-	        if (getppid() == 1)
-	            break;
-//#endif
-	}
-
-
-	return 1;
-}
-
-#endif
-
 /**
  * libwebsockets_get_protocol() - Returns a protocol pointer from a websocket
  *				  connection.
  * @wsi:	pointer to struct websocket you want to know the protocol of
  *
  *
- *	This is useful to get the protocol to broadcast back to from inside
- * the callback.
+ *	Some apis can act on all live connections of a given protocol,
+ *	this is how you can get a pointer to the active protocol if needed.
  */
 
 const struct libwebsocket_protocols *
@@ -2040,159 +1909,6 @@ libwebsockets_get_protocol(struct libwebsocket *wsi)
 {
 	return wsi->protocol;
 }
-
-/**
- * libwebsockets_broadcast() - Sends a buffer to tx callback for all connections of given protocol from single thread
- *
- * @protocol:	pointer to the protocol you will broadcast to all members of
- * @buf:  buffer containing the data to be broadcase.  NOTE: this has to be
- *		allocated with LWS_SEND_BUFFER_PRE_PADDING valid bytes before
- *		the pointer and LWS_SEND_BUFFER_POST_PADDING afterwards in the
- *		case you are calling this function from callback context.
- * @len:	length of payload data in buf, starting from buf.
- *
- *	This function allows bulk sending of a packet to every connection using
- * the given protocol.  It does not send the data directly; instead it calls
- * the callback with a reason type of LWS_CALLBACK_BROADCAST.  If the callback
- * wants to actually send the data for that connection, the callback itself
- * should call libwebsocket_write().
- *
- * This version only works from the same thread / process context as the service
- * loop.  Use libwesockets_broadcast_foreign(...) to do the same job from a different
- * thread in a safe way.
- */
-
-
-int
-libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
-						 unsigned char *buf, size_t len)
-{
-	struct libwebsocket_context *context = protocol->owning_server;
-	int n;
-	struct libwebsocket *wsi;
-
-	if (!context)
-		return 1;
-
-	/*
-	 * We are either running unforked / flat, or we are being
-	 * called from poll thread context
-	 * eg, from a callback.  In that case don't use sockets for
-	 * broadcast IPC (since we can't open a socket connection to
-	 * a socket listening on our own thread) but directly do the
-	 * send action.
-	 *
-	 * Locking is not needed because we are by definition being
-	 * called in the poll thread context and are serialized.
-	 */
-
-	for (n = 0; n < context->fds_count; n++) {
-
-		wsi = context->lws_lookup[context->fds[n].fd];
-		if (!wsi)
-			continue;
-
-		if (wsi->mode != LWS_CONNMODE_WS_SERVING)
-			continue;
-
-		/*
-		 * never broadcast to non-established connections
-		 */
-		if (wsi->state != WSI_STATE_ESTABLISHED)
-			continue;
-
-		/* only broadcast to guys using
-		 * requested protocol
-		 */
-		if (wsi->protocol != protocol)
-			continue;
-
-		user_callback_handle_rxflow(wsi->protocol->callback,
-			 context, wsi,
-			 LWS_CALLBACK_BROADCAST,
-			 wsi->user_space,
-			 buf, len);
-	}
-
-	return 0;
-}
-
-
-#ifndef LWS_NO_FORK
-/**
- * libwebsockets_broadcast_foreign() - Sends a buffer to the callback for all active
- *				  connections of the given protocol.
- * @protocol:	pointer to the protocol you will broadcast to all members of
- * @buf:  buffer containing the data to be broadcase.  NOTE: this has to be
- *		allocated with LWS_SEND_BUFFER_PRE_PADDING valid bytes before
- *		the pointer and LWS_SEND_BUFFER_POST_PADDING afterwards in the
- *		case you are calling this function from callback context.
- * @len:	length of payload data in buf, starting from buf.
- *
- *	This function allows bulk sending of a packet to every connection using
- * the given protocol.  It does not send the data directly; instead it calls
- * the callback with a reason type of LWS_CALLBACK_BROADCAST.  If the callback
- * wants to actually send the data for that connection, the callback itself
- * should call libwebsocket_write().
- *
- * This ..._foreign() version is designed to be randomly called from other thread or
- * process contexts than the main libwebsocket service one.  A private socket is used
- * to serialize accesses here with the main service loop. 
- */
-
-int
-libwebsockets_broadcast_foreign(struct libwebsocket_protocols *protocol,
-						 unsigned char *buf, size_t len)
-{
-	struct libwebsocket_context *context = protocol->owning_server;
-	int n;
-	int fd;
-	struct sockaddr_in cli_addr;
-
-	if (!context)
-		return 1;
-
-	/*
-	 * We're being called from a different process context than the server
-	 * loop.  Instead of broadcasting directly, we send our
-	 * payload on a socket to do the IPC; the server process will serialize
-	 * the broadcast action in its main poll() loop.
-	 *
-	 * There's one broadcast socket listening for each protocol supported
-	 * set up when the websocket server initializes
-	 */
-
-
-	/*
-	 * autoconnect to this protocol's broadcast proxy socket for this
-	 * thread if needed
-	 */
-
-	if (protocol->broadcast_socket_user_fd <= 0) {
-		fd = socket(AF_INET, SOCK_STREAM, 0);
-		if (fd < 0) {
-			lwsl_err("Unable to create socket\n");
-			return -1;
-		}
-		cli_addr.sin_family = AF_INET;
-		cli_addr.sin_port = htons(protocol->broadcast_socket_port);
-		cli_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-		n = connect(fd, (struct sockaddr *)&cli_addr, sizeof cli_addr);
-		if (n < 0) {
-			lwsl_err("Unable to connect to "
-					"broadcast socket %d, %s\n",
-					n, strerror(errno));
-			return -1;
-		}
-
-		protocol->broadcast_socket_user_fd = fd;
-	}
-
-	n = send(protocol->broadcast_socket_user_fd, buf, len, MSG_NOSIGNAL);
-
-	return n;
-}
-#endif
 
 int
 libwebsocket_is_final_fragment(struct libwebsocket *wsi)
@@ -2222,39 +1938,6 @@ libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 					 wsi->protocol->per_session_data_size);
 	}
 	return wsi->user_space;
-}
-
-/**
- * lws_confirm_legit_wsi: returns nonzero if the wsi looks bad
- *
- * @wsi: struct libwebsocket to assess
- *
- * Performs consistecy checks on what the wsi claims and what the
- * polling arrays hold.  This'll catch a closed wsi still in use.
- * Don't try to use on the listen (nonconnection) wsi as it will
- * fail it.  Otherwise 0 return == wsi seems consistent.
- */
-
-int lws_confirm_legit_wsi(struct libwebsocket *wsi)
-{
-	struct libwebsocket_context *context;
-
-	if (!(wsi && wsi->protocol && wsi->protocol->owning_server))
-		return 1;
-
-	context = wsi->protocol->owning_server;
-
-	if (!context)
-		return 2;
-
-	if (!wsi->position_in_fds_table)
-		return 3; /* position in fds table looks bad */
-	if (context->fds[wsi->position_in_fds_table].fd != wsi->sock)
-		return 4; /* pollfd entry does not wait on our socket descriptor */
-	if (context->lws_lookup[wsi->sock] != wsi)
-		return 5; /* lookup table does not agree with wsi */
-
-	return 0;
 }
 
 static void lwsl_emit_stderr(int level, const char *line)

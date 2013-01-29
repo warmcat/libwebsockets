@@ -31,19 +31,11 @@
 #include "../lib/libwebsockets.h"
 
 static int close_testing;
-
-#ifdef EXTERNAL_POLL
-#ifndef LWS_NO_FORK
-#define LWS_NO_FORK
-#endif
-
 int max_poll_elements;
 
 struct pollfd *pollfds;
 int *fd_lookup;
 int count_pollfds;
-
-#endif /* EXTERNAL_POLL */
 
 
 /*
@@ -277,13 +269,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 		pss->number = 0;
 		break;
 
-	/*
-	 * in this protocol, we just use the broadcast action as the chance to
-	 * send our own connection-specific data and ignore the broadcast info
-	 * that is available in the 'in' parameter
-	 */
-
-	case LWS_CALLBACK_BROADCAST:
+	case LWS_CALLBACK_SERVER_WRITEABLE:
 		n = sprintf((char *)p, "%d", pss->number++);
 		n = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (n < 0) {
@@ -396,12 +382,6 @@ callback_lws_mirror(struct libwebsocket_context *context,
 		}
 		break;
 
-	case LWS_CALLBACK_BROADCAST:
-		n = libwebsocket_write(wsi, in, len, LWS_WRITE_TEXT);
-		if (n < 0)
-			lwsl_err("mirror write failed\n");
-		break;
-
 	case LWS_CALLBACK_RECEIVE:
 
 		if (((ringbuffer_head - pss->ringbuffer_tail) &
@@ -504,8 +484,6 @@ int main(int argc, char **argv)
 			    LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
 	const char *key_path =
 			LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1024 +
-						  LWS_SEND_BUFFER_POST_PADDING];
 	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
@@ -513,9 +491,8 @@ int main(int argc, char **argv)
 	char interface_name[128] = "";
 	const char *interface = NULL;
 	int syslog_options = LOG_PID | LOG_PERROR;
-#ifdef LWS_NO_FORK
 	unsigned int oldus = 0;
-#endif
+
 	int debug_level = 7;
 #ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
@@ -605,16 +582,6 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	buf[LWS_SEND_BUFFER_PRE_PADDING] = 'x';
-
-#ifdef LWS_NO_FORK
-
-	/*
-	 * This example shows how to work with no forked service loop
-	 */
-
-	lwsl_info(" Using no-fork service loop\n");
-
 	n = 0;
 	while (n >= 0) {
 		struct timeval tv;
@@ -622,22 +589,13 @@ int main(int argc, char **argv)
 		gettimeofday(&tv, NULL);
 
 		/*
-		 * This broadcasts to all dumb-increment-protocol connections
-		 * at 20Hz.
-		 *
-		 * We're just sending a character 'x', in these examples the
-		 * callbacks send their own per-connection content.
-		 *
-		 * You have to send something with nonzero length to get the
-		 * callback actions delivered.
-		 *
-		 * We take care of pre-and-post padding allocation.
+		 * This provokes the LWS_CALLBACK_SERVER_WRITEABLE for every
+		 * live websocket connection using the DUMB_INCREMENT protocol,
+		 * as soon as it can take more packets (usually immediately)
 		 */
 
 		if (((unsigned int)tv.tv_usec - oldus) > 50000) {
-			libwebsockets_broadcast(
-					&protocols[PROTOCOL_DUMB_INCREMENT],
-					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
+			libwebsocket_callback_on_writable_all_protocol(&protocols[PROTOCOL_DUMB_INCREMENT]);
 			oldus = tv.tv_usec;
 		}
 
@@ -679,49 +637,6 @@ int main(int argc, char **argv)
 #endif
 	}
 
-#else /* !LWS_NO_FORK */
-
-	/*
-	 * This example shows how to work with the forked websocket service loop
-	 */
-
-	lwsl_info(" Using forked service loop\n");
-
-	/*
-	 * This forks the websocket service action into a subprocess so we
-	 * don't have to take care about it.
-	 */
-
-	n = libwebsockets_fork_service_loop(context);
-	if (n < 0) {
-		lwsl_err("Unable to fork service loop %d\n", n);
-		return 1;
-	}
-	if (n)
-		exit(0);
-
-	while (1) {
-
-		usleep(50000);
-
-		/*
-		 * This broadcasts to all dumb-increment-protocol connections
-		 * at 20Hz.
-		 *
-		 * We're just sending a character 'x', in these examples the
-		 * callbacks send their own per-connection content.
-		 *
-		 * You have to send something with nonzero length to get the
-		 * callback actions delivered.
-		 *
-		 * We take care of pre-and-post padding allocation.
-		 */
-
-		libwebsockets_broadcast_foreign(&protocols[PROTOCOL_DUMB_INCREMENT],
-					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
-	}
-
-#endif
 #ifdef EXTERNAL_POLL
 done:
 #endif

@@ -204,10 +204,7 @@ types of connection the same.
 <p>
 1) Accept new connections to our context's server
 <p>
-2) Perform pending broadcast writes initiated from other forked
-processes (effectively serializing asynchronous broadcasts)
-<p>
-3) Call the receive callback for incoming frame data received by
+2) Call the receive callback for incoming frame data received by
 server or client connections.
 <p>
 You need to call this service function periodically to all the above
@@ -400,16 +397,6 @@ images or whatever over http and dynamic data over websockets all in
 one place; they're all handled in the user callback.
 </blockquote>
 <hr>
-<h2>libwebsockets_fork_service_loop - Optional helper function forks off a process for the websocket server loop. You don't have to use this but if not, you have to make sure you are calling libwebsocket_service periodically to service the websocket traffic</h2>
-<i>int</i>
-<b>libwebsockets_fork_service_loop</b>
-(<i>struct libwebsocket_context *</i> <b>context</b>)
-<h3>Arguments</h3>
-<dl>
-<dt><b>context</b>
-<dd>server context returned by creation function
-</dl>
-<hr>
 <h2>libwebsockets_get_protocol - Returns a protocol pointer from a websocket connection.</h2>
 <i>const struct libwebsocket_protocols *</i>
 <b>libwebsockets_get_protocol</b>
@@ -422,87 +409,8 @@ one place; they're all handled in the user callback.
 <h3>Description</h3>
 <blockquote>
 <p>
-This is useful to get the protocol to broadcast back to from inside
-the callback.
-</blockquote>
-<hr>
-<h2>libwebsockets_broadcast - Sends a buffer to tx callback for all connections of given protocol from single thread</h2>
-<i>int</i>
-<b>libwebsockets_broadcast</b>
-(<i>const struct libwebsocket_protocols *</i> <b>protocol</b>,
-<i>unsigned char *</i> <b>buf</b>,
-<i>size_t</i> <b>len</b>)
-<h3>Arguments</h3>
-<dl>
-<dt><b>protocol</b>
-<dd>pointer to the protocol you will broadcast to all members of
-<dt><b>buf</b>
-<dd>buffer containing the data to be broadcase.  NOTE: this has to be
-allocated with LWS_SEND_BUFFER_PRE_PADDING valid bytes before
-the pointer and LWS_SEND_BUFFER_POST_PADDING afterwards in the
-case you are calling this function from callback context.
-<dt><b>len</b>
-<dd>length of payload data in buf, starting from buf.
-</dl>
-<h3>Description</h3>
-<blockquote>
-This function allows bulk sending of a packet to every connection using
-the given protocol.  It does not send the data directly; instead it calls
-the callback with a reason type of LWS_CALLBACK_BROADCAST.  If the callback
-wants to actually send the data for that connection, the callback itself
-should call <b>libwebsocket_write</b>.
-<p>
-This version only works from the same thread / process context as the service
-loop.  Use libwesockets_broadcast_foreign(...) to do the same job from a different
-thread in a safe way.
-</blockquote>
-<hr>
-<h2>libwebsockets_broadcast_foreign - Sends a buffer to the callback for all active connections of the given protocol.</h2>
-<i>int</i>
-<b>libwebsockets_broadcast_foreign</b>
-(<i>struct libwebsocket_protocols *</i> <b>protocol</b>,
-<i>unsigned char *</i> <b>buf</b>,
-<i>size_t</i> <b>len</b>)
-<h3>Arguments</h3>
-<dl>
-<dt><b>protocol</b>
-<dd>pointer to the protocol you will broadcast to all members of
-<dt><b>buf</b>
-<dd>buffer containing the data to be broadcase.  NOTE: this has to be
-allocated with LWS_SEND_BUFFER_PRE_PADDING valid bytes before
-the pointer and LWS_SEND_BUFFER_POST_PADDING afterwards in the
-case you are calling this function from callback context.
-<dt><b>len</b>
-<dd>length of payload data in buf, starting from buf.
-</dl>
-<h3>Description</h3>
-<blockquote>
-This function allows bulk sending of a packet to every connection using
-the given protocol.  It does not send the data directly; instead it calls
-the callback with a reason type of LWS_CALLBACK_BROADCAST.  If the callback
-wants to actually send the data for that connection, the callback itself
-should call <b>libwebsocket_write</b>.
-<p>
-This ...<b>_foreign</b> version is designed to be randomly called from other thread or
-process contexts than the main libwebsocket service one.  A private socket is used
-to serialize accesses here with the main service loop. 
-</blockquote>
-<hr>
-<h2>lws_confirm_legit_wsi - </h2>
-<i>int</i>
-<b>lws_confirm_legit_wsi</b>
-(<i>struct libwebsocket *</i> <b>wsi</b>)
-<h3>Arguments</h3>
-<dl>
-<dt><b>wsi</b>
-<dd>struct libwebsocket to assess
-</dl>
-<h3>Description</h3>
-<blockquote>
-Performs consistecy checks on what the wsi claims and what the
-polling arrays hold.  This'll catch a closed wsi still in use.
-Don't try to use on the listen (nonconnection) wsi as it will
-fail it.  Otherwise 0 return == wsi seems consistent.
+Some apis can act on all live connections of a given protocol,
+this is how you can get a pointer to the active protocol if needed.
 </blockquote>
 <hr>
 <h2>lws_set_log_level - Set the logging bitfield</h2>

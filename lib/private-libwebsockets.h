@@ -107,9 +107,6 @@
 #ifndef MAX_USER_RX_BUFFER
 #define MAX_USER_RX_BUFFER 4096
 #endif
-#ifndef MAX_BROADCAST_PAYLOAD
-#define MAX_BROADCAST_PAYLOAD 4096
-#endif
 #ifndef LWS_MAX_PROTOCOLS
 #define LWS_MAX_PROTOCOLS 10
 #endif
@@ -217,8 +214,6 @@ enum connection_mode {
 
 	/* special internal types */
 	LWS_CONNMODE_SERVER_LISTENER,
-	LWS_CONNMODE_BROADCAST_PROXY_LISTENER,
-	LWS_CONNMODE_BROADCAST_PROXY
 };
 
 struct libwebsocket_protocols;
@@ -356,9 +351,6 @@ struct libwebsocket {
 	struct lws_tokens utf8_token[WSI_TOKEN_COUNT];
 	
 	enum libwebsocket_write_protocol rx_frame_type;
-#ifndef LWS_NO_FORK
-	int protocol_index_for_broadcast_proxy;
-#endif
 
 #ifndef LWS_NO_CLIENT
 	char *c_path;
@@ -448,9 +440,6 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 
 extern int
 _libwebsocket_rx_flow_control(struct libwebsocket *wsi);
-
-extern int
-lws_confirm_legit_wsi(struct libwebsocket *wsi);
 
 extern int
 user_callback_handle_rxflow(callback_function, struct libwebsocket_context * context,

@@ -50,11 +50,6 @@ Configure script options
 
 There are several other possible configure options
 
---enable-nofork		disables the fork into the background API
-			and removes all references to fork() and
-			pr_ctl() from the sources.  Use it if your
-			platform doesn't support forking.
-
 --enable-libcrypto	by default libwebsockets uses its own
 			built-in md5 and sha-1 implementation for
 			simplicity.  However the libcrypto ones

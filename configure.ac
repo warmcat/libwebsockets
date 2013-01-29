@@ -34,20 +34,6 @@ fi
 #
 #
 #
-AC_ARG_ENABLE(nofork,
- [  --enable-nofork  Disables fork-related options],
- [ nofork=yes
- ])
-
-if test "x$nofork" = "xyes" ; then
-CFLAGS="$CFLAGS -DLWS_NO_FORK"
-else
-AC_FUNC_FORK
-fi
-
-#
-#
-#
 AC_ARG_ENABLE(libcrypto,
  [  --enable-libcrypto  Use libcrypto MD5 and SHA1 implementations],
  [ libcrypto=yes

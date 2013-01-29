@@ -726,9 +726,6 @@ LWS_EXTERN void
 libwebsocket_context_destroy(struct libwebsocket_context *context);
 
 LWS_EXTERN int
-libwebsockets_fork_service_loop(struct libwebsocket_context *context);
-
-LWS_EXTERN int
 libwebsocket_service(struct libwebsocket_context *context, int timeout_ms);
 
 LWS_EXTERN int

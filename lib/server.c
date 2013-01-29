@@ -134,7 +134,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, struct pollfd *pollfd)
 {
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
-			 MAX_BROADCAST_PAYLOAD + LWS_SEND_BUFFER_POST_PADDING];
+			 MAX_USER_RX_BUFFER + LWS_SEND_BUFFER_POST_PADDING];
 	struct libwebsocket *new_wsi;
 	int accept_fd;
 	unsigned int clilen;
@@ -368,130 +368,6 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		break;
 #endif
 
-
-#ifndef LWS_NO_FORK
-	case LWS_CONNMODE_BROADCAST_PROXY_LISTENER:
-
-		/* as we are listening, POLLIN means accept() is needed */
-
-		if (!(pollfd->revents & POLLIN))
-			break;
-
-		/* listen socket got an unencrypted connection... */
-
-		clilen = sizeof(cli_addr);
-		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
-								       &clilen);
-		if (accept_fd < 0) {
-			lwsl_warn("ERROR on accept %d\n", accept_fd);
-			return 0;
-		}
-
-		/* create a dummy wsi for the connection and add it */
-
-		new_wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
-		if (new_wsi == NULL) {
-			lwsl_err("Out of mem\n");
-			goto bail_prox_listener;
-		}
-		memset(new_wsi, 0, sizeof (struct libwebsocket));
-		new_wsi->sock = accept_fd;
-		new_wsi->mode = LWS_CONNMODE_BROADCAST_PROXY;
-		new_wsi->state = WSI_STATE_ESTABLISHED;
-#ifndef LWS_NO_EXTENSIONS
-		new_wsi->count_active_extensions = 0;
-#endif
-		/* note which protocol we are proxying */
-		new_wsi->protocol_index_for_broadcast_proxy =
-					wsi->protocol_index_for_broadcast_proxy;
-
-		insert_wsi_socket_into_fds(context, new_wsi);
-		break;
-
-bail_prox_listener:
-		compatible_close(accept_fd);
-		break;
-
-	case LWS_CONNMODE_BROADCAST_PROXY:
-
-		/* handle session socket closed */
-
-		if (pollfd->revents & (POLLERR | POLLHUP)) {
-
-			lwsl_debug("Session Socket %p (fd=%d) dead\n",
-				(void *)wsi, pollfd->fd);
-
-			libwebsocket_close_and_free_session(context, wsi,
-						       LWS_CLOSE_STATUS_NORMAL);
-			return 0;
-		}
-
-		/*
-		 * either extension code with stuff to spill, or the user code,
-		 * requested a callback when it was OK to write
-		 */
-
-		if (pollfd->revents & POLLOUT)
-			if (lws_handle_POLLOUT_event(context, wsi,
-								 pollfd) < 0) {
-				libwebsocket_close_and_free_session(
-					context, wsi, LWS_CLOSE_STATUS_NORMAL);
-				return 0;
-			}
-
-		/* any incoming data ready? */
-
-		if (!(pollfd->revents & POLLIN))
-			break;
-
-		/* get the issued broadcast payload from the socket */
-
-		len = read(pollfd->fd, buf + LWS_SEND_BUFFER_PRE_PADDING,
-							 MAX_BROADCAST_PAYLOAD);
-		if (len < 0) {
-			lwsl_err("Error reading broadcast payload\n");
-			break;
-		}
-
-		/* broadcast it to all guys with this protocol index */
-
-		for (n = 0; n < context->fds_count; n++) {
-
-			new_wsi = context->lws_lookup[context->fds[n].fd];
-			if (new_wsi == NULL)
-				continue;
-
-			/* only to clients we are serving to */
-
-			if (new_wsi->mode != LWS_CONNMODE_WS_SERVING)
-				continue;
-
-			/*
-			 * never broadcast to non-established
-			 * connection
-			 */
-
-			if (new_wsi->state != WSI_STATE_ESTABLISHED)
-				continue;
-
-			/*
-			 * only broadcast to connections using
-			 * the requested protocol
-			 */
-
-			if (new_wsi->protocol->protocol_index !=
-				wsi->protocol_index_for_broadcast_proxy)
-				continue;
-
-			/* broadcast it to this connection */
-
-			user_callback_handle_rxflow(new_wsi->protocol->callback, context, new_wsi,
-				LWS_CALLBACK_BROADCAST,
-				new_wsi->user_space,
-				buf + LWS_SEND_BUFFER_PRE_PADDING, len);
-		}
-		break;
-#endif
 	default:
 		break;
 	}
