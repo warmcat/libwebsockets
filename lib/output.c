@@ -92,6 +92,7 @@ void lwsl_hexdump(void *vbuf, size_t len)
 
 int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
+	struct libwebsocket_context *context = wsi->protocol->owning_server;
 	int n;
 #ifndef LWS_NO_EXTENSIONS
 	int m;
@@ -132,9 +133,11 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	lws_hexdump(buf, len);
 #endif
 
+	lws_latency_pre(context, wsi);
 #ifdef LWS_OPENSSL_SUPPORT
 	if (wsi->ssl) {
 		n = SSL_write(wsi->ssl, buf, len);
+		lws_latency(context, wsi, "SSL_write lws_issue_raw", n, n >= 0);
 		if (n < 0) {
 			lwsl_debug("ERROR writing to socket\n");
 			return -1;
@@ -142,6 +145,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	} else {
 #endif
 		n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
+		lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
 		if (n != len) {
 			lwsl_debug("ERROR writing len %d to socket %d\n", len, n);
 			return -1;

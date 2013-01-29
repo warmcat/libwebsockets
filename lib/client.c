@@ -127,7 +127,9 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 		}		
 
 		if (wsi->use_ssl) {
+			lws_latency_pre(context, wsi);
 			n = SSL_connect(wsi->ssl);
+			lws_latency(context, wsi, "SSL_connect LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE", n, n > 0);
 
 			if (n < 0) {
 				n = SSL_get_error(wsi->ssl, n);
@@ -165,7 +167,9 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 				return 0;
 			}
 
+			lws_latency_pre(context, wsi);
 			n = SSL_get_verify_result(wsi->ssl);
+			lws_latency(context, wsi, "SSL_get_verify_result LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE", n, n > 0);
 			if ((n != X509_V_OK) && (
 				n != X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
 							   wsi->use_ssl != 2)) {
@@ -190,12 +194,14 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 
 		/* send our request to the server */
 
+		lws_latency_pre(context, wsi);
 	#ifdef LWS_OPENSSL_SUPPORT
 		if (wsi->use_ssl)
 			n = SSL_write(wsi->ssl, pkt, p - pkt);
 		else
 	#endif
 			n = send(wsi->sock, pkt, p - pkt, 0);
+		lws_latency(context, wsi, "send or SSL_write LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE", n, n >= 0);
 
 		if (n < 0) {
 			lwsl_debug("ERROR writing to client socket\n");

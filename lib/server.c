@@ -214,8 +214,10 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		/* listen socket got an unencrypted connection... */
 
 		clilen = sizeof(cli_addr);
+		lws_latency_pre(context, wsi);
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
 								       &clilen);
+		lws_latency(context, wsi, "unencrypted accept LWS_CONNMODE_SERVER_LISTENER", accept_fd, accept_fd >= 0);
 		if (accept_fd < 0) {
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				lwsl_debug("accept asks to try again\n");
@@ -321,9 +323,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
 			(void *)(long)wsi->sock, NULL, POLLOUT);
 
-		//lwsl_notice("LWS_CONNMODE_SSL_ACK_PENDING: pre\n");
+		lws_latency_pre(context, wsi);
 		n = SSL_accept(wsi->ssl);
-		//lwsl_notice("LWS_CONNMODE_SSL_ACK_PENDING: post %d\n", n);
+		lws_latency(context, wsi, "SSL_accept LWS_CONNMODE_SSL_ACK_PENDING\n", n, n == 1);
 
 		if (n != 1) {
 			m = SSL_get_error(wsi->ssl, n);
