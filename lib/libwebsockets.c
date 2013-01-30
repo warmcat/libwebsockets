@@ -704,7 +704,9 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	struct timeval tv;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
 			 MAX_USER_RX_BUFFER + LWS_SEND_BUFFER_POST_PADDING];
+#ifdef LWS_OPENSSL_SUPPORT
 	char ssl_err_buf[512];
+#endif
 
 #ifndef LWS_NO_EXTENSIONS
 	int more = 1;
