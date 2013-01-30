@@ -856,7 +856,8 @@ libwebsocket_canonical_hostname(struct libwebsocket_context *context);
 
 
 LWS_EXTERN void
-libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
+libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
+		struct libwebsocket *wsi, int fd, char *name, int name_len,
 					char *rip, int rip_len);
 
 LWS_EXTERN void

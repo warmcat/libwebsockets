@@ -391,6 +391,8 @@ libwebsockets_hangup_on_client(struct libwebsocket_context *context, int fd)
 
 /**
  * libwebsockets_get_peer_addresses() - Get client address information
+ * @context:	Libwebsockets context
+ * @wsi:	Local struct libwebsocket associated with
  * @fd:		Connection socket descriptor
  * @name:	Buffer to take client address name
  * @name_len:	Length of client address name buffer
@@ -404,7 +406,8 @@ libwebsockets_hangup_on_client(struct libwebsocket_context *context, int fd)
  */
 
 void
-libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
+libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
+	struct libwebsocket *wsi, int fd, char *name, int name_len,
 					char *rip, int rip_len)
 {
 	unsigned int len;
@@ -414,6 +417,7 @@ libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 	char ip[128];
 	unsigned char *p;
 	int n;
+	int ret = -1;
 #ifdef AF_LOCAL
     struct sockaddr_un *un;
 #endif
@@ -421,17 +425,19 @@ libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 	rip[0] = '\0';
 	name[0] = '\0';
 
+	lws_latency_pre(context, wsi);
+
 	len = sizeof sin;
 	if (getpeername(fd, (struct sockaddr *) &sin, &len) < 0) {
 		perror("getpeername");
-		return;
+		goto bail;
 	}
 
 	host = gethostbyaddr((char *) &sin.sin_addr, sizeof sin.sin_addr,
 								       AF_INET);
 	if (host == NULL) {
 		perror("gethostbyaddr");
-		return;
+		goto bail;
 	}
 
 	strncpy(name, host->h_name, name_len);
@@ -439,7 +445,7 @@ libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 
 	host1 = gethostbyname(host->h_name);
 	if (host1 == NULL)
-		return;
+		goto bail;
 	p = (unsigned char *)host1;
 	n = 0;
 	while (p != NULL) {
@@ -466,6 +472,10 @@ libwebsockets_get_peer_addresses(int fd, char *name, int name_len,
 		strncpy(rip, ip, rip_len);
 		rip[rip_len - 1] = '\0';
 	}
+
+	ret = 0;
+bail:
+	lws_latency(context, wsi, "libwebsockets_get_peer_addresses", ret, 1);
 }
 
 int libwebsockets_get_random(struct libwebsocket_context *context,

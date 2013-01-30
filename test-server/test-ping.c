@@ -434,7 +434,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	libwebsockets_get_peer_addresses(
+	libwebsockets_get_peer_addresses(context, ping_wsi[0],
 			libwebsocket_get_socket_fd(ping_wsi[0]),
 				    peer_name, sizeof peer_name, ip, sizeof ip);
 

@@ -101,13 +101,19 @@ This function creates a connection to a remote server
 <h2>libwebsockets_get_peer_addresses - Get client address information</h2>
 <i>void</i>
 <b>libwebsockets_get_peer_addresses</b>
-(<i>int</i> <b>fd</b>,
+(<i>struct libwebsocket_context *</i> <b>context</b>,
+<i>struct libwebsocket *</i> <b>wsi</b>,
+<i>int</i> <b>fd</b>,
 <i>char *</i> <b>name</b>,
 <i>int</i> <b>name_len</b>,
 <i>char *</i> <b>rip</b>,
 <i>int</i> <b>rip_len</b>)
 <h3>Arguments</h3>
 <dl>
+<dt><b>context</b>
+<dd>Libwebsockets context
+<dt><b>wsi</b>
+<dd>Local struct libwebsocket associated with
 <dt><b>fd</b>
 <dd>Connection socket descriptor
 <dt><b>name</b>
