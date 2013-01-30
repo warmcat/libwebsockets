@@ -220,7 +220,7 @@ available are (OR together the numbers to select multiple)
 Websocket version supported
 ---------------------------
 
-The final IETF standard is supported along with various older ones that will
-be removed at some point, -76, -04 and -05.
+The final IETF standard is supported for both client and server, protocol
+version 13.
 
 
