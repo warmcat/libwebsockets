@@ -1,4 +1,7 @@
-bin_PROGRAMS=
+bin_PROGRAMS=libwebsockets-test-echo
+libwebsockets_test_echo_SOURCES=test-echo.c
+libwebsockets_test_echo_CFLAGS= -Wall -Werror -std=gnu99 -pedantic -DINSTALL_DATADIR=\"@datadir@\"
+libwebsockets_test_echo_LDADD=-L../lib -lwebsockets
 
 if NO_CLIENT
 else

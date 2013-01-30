@@ -73,6 +73,28 @@ if you connect to the test server using a browser at the
 same time you will be able to see the circles being drawn.
 
 
+Testing simple echo
+-------------------
+
+You can test against echo.websockets.org as a sanity test like
+this (the client connects to port 80 by default):
+
+$ libwebsockets-test-echo --client echo.websocket.org
+
+This echo test is of limited use though because it doesn't
+negotiate any protocol.  You can run the same test app as a
+local server, by default on localhost:7681
+
+$ libwebsockets-test-echo
+
+and do the echo test against the local echo server
+
+$ libwebsockets-test-echo --client localhost --port 7681
+
+If you add the --ssl switch to both the client and server, you can also test
+with an encrypted link.
+
+
 Testing SSL on the client side
 ------------------------------
 
