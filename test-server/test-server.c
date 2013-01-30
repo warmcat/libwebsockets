@@ -27,6 +27,7 @@
 #include <sys/time.h>
 #include <assert.h>
 #include <syslog.h>
+#include <signal.h>
 
 #include "../lib/libwebsockets.h"
 
@@ -36,7 +37,7 @@ int max_poll_elements;
 struct pollfd *pollfds;
 int *fd_lookup;
 int count_pollfds;
-
+int force_exit = 0;
 
 /*
  * This demo server shows how to use libwebsockets for one or more
@@ -464,6 +465,11 @@ static struct libwebsocket_protocols protocols[] = {
 	}
 };
 
+void sighandler(int sig)
+{
+	force_exit = 1;
+}
+
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
@@ -548,6 +554,9 @@ int main(int argc, char **argv)
 		return 1;
 	}
 #endif
+
+	signal(SIGINT, sighandler);
+
 	/* we will only try to log things according to our debug_level */
 	setlogmask(LOG_UPTO (LOG_DEBUG));
 	openlog("lwsts", syslog_options, LOG_DAEMON);
@@ -583,7 +592,7 @@ int main(int argc, char **argv)
 	}
 
 	n = 0;
-	while (n >= 0) {
+	while (n >= 0 && !force_exit) {
 		struct timeval tv;
 
 		gettimeofday(&tv, NULL);
