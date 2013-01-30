@@ -230,6 +230,8 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 			goto bail3;
 		}
 
+		if (!(pollfd->revents & POLLIN))
+			goto bail3;
 
 		/* interpret the server response */
 
@@ -254,11 +256,20 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 		len = 1;
 		while (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE && len > 0) {
 #ifdef LWS_OPENSSL_SUPPORT
-			if (wsi->use_ssl)
+			if (wsi->use_ssl) {
 				len = SSL_read(wsi->ssl, &c, 1);
-			 else
+				if (len < 0) {
+					n = SSL_get_error(wsi->ssl, len);
+					if (n ==  SSL_ERROR_WANT_READ ||
+							n ==  SSL_ERROR_WANT_WRITE)
+						return 0;
+				}
+			} else
 #endif
 				len = recv(wsi->sock, &c, 1, 0);
+
+			if (len < 0)
+				goto bail3;
 
 			libwebsocket_parse(wsi, c);
 		}
@@ -283,6 +294,7 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 bail3:
 		if (wsi->c_protocol)
 			free(wsi->c_protocol);
+		lwsl_info("closing connection at LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY\n");
 		libwebsocket_close_and_free_session(context, wsi,
 						    LWS_CLOSE_STATUS_NOSTATUS);
 		return 0;
@@ -612,8 +624,9 @@ bail2:
        LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 			 wsi->user_space,
 			 NULL, 0);
+	lwsl_info("closing connection due to bail2 connection error\n");
 	libwebsocket_close_and_free_session(context, wsi,
-						 LWS_CLOSE_STATUS_NOSTATUS);  // But this should be LWS_CLOSE_STATUS_PROTOCOL_ERR
+						 LWS_CLOSE_STATUS_PROTOCOL_ERR);
 
 	return 1;
 }
