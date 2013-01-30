@@ -382,6 +382,7 @@ libwebsockets_hangup_on_client(struct libwebsocket_context *context, int fd)
 	struct libwebsocket *wsi = context->lws_lookup[fd];
 
 	if (wsi) {
+		lwsl_info("closing connection at libwebsockets_hangup_on_client:\n");
 		libwebsocket_close_and_free_session(context,
 			wsi, LWS_CLOSE_STATUS_NOSTATUS);
 	} else
@@ -703,6 +704,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	struct timeval tv;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
 			 MAX_USER_RX_BUFFER + LWS_SEND_BUFFER_POST_PADDING];
+	char ssl_err_buf[512];
 
 #ifndef LWS_NO_EXTENSIONS
 	int more = 1;
@@ -832,9 +834,13 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 #ifdef LWS_OPENSSL_SUPPORT
 read_pending:
-		if (wsi->ssl)
+		if (wsi->ssl) {
 			eff_buf.token_len = SSL_read(wsi->ssl, buf, sizeof buf);
-		else
+			if (!eff_buf.token_len) {
+				n = SSL_get_error(wsi->ssl, eff_buf.token_len);
+				lwsl_err("SSL_read returned 0 with reason %s\n", ERR_error_string(n, ssl_err_buf));
+			}
+		} else
 #endif
 			eff_buf.token_len =
 					   recv(pollfd->fd, buf, sizeof buf, 0);
@@ -848,6 +854,7 @@ read_pending:
 			return 0;
 		}
 		if (!eff_buf.token_len) {
+			lwsl_info("closing connection due to zero length read\n");
 			libwebsocket_close_and_free_session(context, wsi,
 						    LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
@@ -1281,6 +1288,7 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 	if ((wsi->u.ws.rxflow_change_to & 1) && wsi->u.ws.rxflow_buffer) {
 		n = libwebsocket_interpret_incoming_packet(wsi, NULL, 0);
 		if (n < 0) {
+			lwsl_info("closing connection at libwebsocket_rx_flow_control:\n");
 			libwebsocket_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			return -1;
 		}
