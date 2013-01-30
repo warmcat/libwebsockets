@@ -149,14 +149,16 @@ libwebsocket_read(struct libwebsocket_context *context,
 		/* we didn't find a protocol he wanted? */
 
 		if (wsi->protocol->callback == NULL) {
-			if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token == NULL)
-				lwsl_err("[no protocol] "
-					"not supported (use NULL .name)\n");
-			else
+			if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token == NULL) {
+				lwsl_info("[no protocol] "
+					"mapped to protocol 0 handler\n");
+				wsi->protocol = &context->protocols[0];
+			} else {
 				lwsl_err("Requested protocol %s "
 						"not supported\n",
 				     wsi->utf8_token[WSI_TOKEN_PROTOCOL].token);
-			goto bail;
+				goto bail;
+			}
 		}
 
 		/*
