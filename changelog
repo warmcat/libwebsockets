@@ -1,0 +1,179 @@
+Changelog
+---------
+
+v1.1-chrome25-firefox17
+=======================
+
+Diffstat
+--------
+
+ Makefile.am                            |    4 +
+ README-test-server                     |  291 ---
+ README.build                           |  239 ++
+ README.coding                          |  138 ++
+ README.rst                             |   72 -
+ README.test-apps                       |  272 +++
+ configure.ac                           |  116 +-
+ lib/Makefile.am                        |   55 +-
+ lib/base64-decode.c                    |    5 +-
+ lib/client-handshake.c                 |  121 +-
+ lib/client-parser.c                    |  394 ++++
+ lib/client.c                           |  807 +++++++
+ lib/daemonize.c                        |  212 ++
+ lib/extension-deflate-frame.c          |  132 +-
+ lib/extension-deflate-stream.c         |   12 +-
+ lib/extension-x-google-mux.c           | 1223 ----------
+ lib/extension-x-google-mux.h           |   96 -
+ lib/extension.c                        |    8 -
+ lib/getifaddrs.c                       |  271 +++
+ lib/getifaddrs.h                       |   76 +
+ lib/handshake.c                        |  582 +----
+ lib/libwebsockets.c                    | 2493 ++++++---------------
+ lib/libwebsockets.h                    |  115 +-
+ lib/md5.c                              |  217 --
+ lib/minilex.c                          |  440 ++++
+ lib/output.c                           |  628 ++++++
+ lib/parsers.c                          | 2016 +++++------------
+ lib/private-libwebsockets.h            |  284 +--
+ lib/server-handshake.c                 |  275 +++
+ lib/server.c                           |  377 ++++
+ libwebsockets-api-doc.html             |  300 +--
+ m4/ignore-me                           |    2 +
+ test-server/Makefile.am                |  111 +-
+ test-server/libwebsockets.org-logo.png |  Bin 0 -> 7029 bytes
+ test-server/test-client.c              |   45 +-
+ test-server/test-echo.c                |  330 +++
+ test-server/test-fraggle.c             |   20 +-
+ test-server/test-ping.c                |   22 +-
+ test-server/test-server-extpoll.c      |  554 -----
+ test-server/test-server.c              |  349 ++-
+ test-server/test.html                  |    3 +-
+ win32port/zlib/ZLib.vcxproj            |  749 ++++---
+ win32port/zlib/ZLib.vcxproj.filters    |  188 +-
+ win32port/zlib/adler32.c               |  348 ++-
+ win32port/zlib/compress.c              |  160 +-
+ win32port/zlib/crc32.c                 |  867 ++++----
+ win32port/zlib/crc32.h                 |  882 ++++----
+ win32port/zlib/deflate.c               | 3799 +++++++++++++++-----------------
+ win32port/zlib/deflate.h               |  688 +++---
+ win32port/zlib/gzclose.c               |   50 +-
+ win32port/zlib/gzguts.h                |  325 ++-
+ win32port/zlib/gzlib.c                 | 1157 +++++-----
+ win32port/zlib/gzread.c                | 1242 ++++++-----
+ win32port/zlib/gzwrite.c               | 1096 +++++----
+ win32port/zlib/infback.c               | 1272 ++++++-----
+ win32port/zlib/inffast.c               |  680 +++---
+ win32port/zlib/inffast.h               |   22 +-
+ win32port/zlib/inffixed.h              |  188 +-
+ win32port/zlib/inflate.c               | 2976 +++++++++++++------------
+ win32port/zlib/inflate.h               |  244 +-
+ win32port/zlib/inftrees.c              |  636 +++---
+ win32port/zlib/inftrees.h              |  124 +-
+ win32port/zlib/trees.c                 | 2468 +++++++++++----------
+ win32port/zlib/trees.h                 |  256 +--
+ win32port/zlib/uncompr.c               |  118 +-
+ win32port/zlib/zconf.h                 |  934 ++++----
+ win32port/zlib/zlib.h                  | 3357 ++++++++++++++--------------
+ win32port/zlib/zutil.c                 |  642 +++---
+ win32port/zlib/zutil.h                 |  526 ++---
+ 69 files changed, 19556 insertions(+), 20145 deletions(-)
+
+user api changes
+----------------
+
+ - libwebsockets_serve_http_file() now takes a context as first argument
+
+ - libwebsockets_get_peer_addresses() now takes a context and wsi as first
+	two arguments
+
+
+user api additions
+------------------
+
+ - lwsl_...() logging apis, default to stderr but retargetable by user code;
+	may be used also by user code
+
+ - lws_set_log_level() set which logging apis are able to emit (defaults to
+	notice, warn, err severities), optionally set the emit callback
+
+ - lwsl_emit_syslog() helper callback emits to syslog
+
+ - lws_daemonize() helper code that forks the app into a headless daemon
+	properly, maintains a lock file with pid in suitable for sysvinit etc to
+	control lifecycle
+
+ - LWS_CALLBACK_HTTP_FILE_COMPLETION callback added since http file
+	transfer is now asynchronous (see test server code)
+
+ - lws_frame_is_binary() from a wsi pointer, let you know if the received
+	data was sent in BINARY mode
+
+
+user api removals
+-----------------
+
+ - libwebsockets_fork_service_loop() - no longer supported (had intractable problems)
+	arrange your code to act from the user callback instead from same
+	process context as the service loop
+
+ - libwebsockets_broadcast() - use libwebsocket_callback_on_writable[_all_protocol]()
+	instead from same process context as the service loop.  See the test apps
+	for examples.
+
+ - x-google-mux() removed until someone wants it
+
+ - pre -v13 (ancient) protocol support removed
+
+
+New features
+------------
+
+ - echo test server and client compatible with echo.websocket.org added
+
+ - many new configure options (see README.build) to reduce footprint of the
+	library to what you actually need, eg, --without-client and
+	--without-server
+
+ - http + websocket server can build to as little as 12K .text for ARM
+
+ - no more MAX_CLIENTS limitation; adapts to support the max number of fds
+	allowed to the process by ulimit, defaults to 1024 on Fedora and
+	Ubuntu.  Use ulimit to control this without needing to configure
+	the library.  Code here is smaller and faster.
+
+ - adaptive ratio of listen socket to connection socket service allows
+	good behaviour under Apache ab test load.  Tested with thousands
+	of simultaneous connections
+
+ - reduction in per-connection memory footprint by moving to a union to hold
+	mutually-exclusive state for the connection
+
+ - robustness: Out of Memory taken care of for all allocation code now
+
+ - internal getifaddrs option if your toolchain lacks it (some uclibc)
+
+ - configurable memory limit for deflate operations
+
+ - improvements in SSL code nonblocking operation, possible hang solved,
+	some SSL operations broken down into pollable states so there is
+	no library blocking, timeout coverage for SSL_connect
+
+ - extpoll test server merged into single test server source
+
+ - robustness: library should deal with all recoverable socket conditions
+
+ - rx flowcontrol for backpressure notification fixed and implmeneted
+	correctly in the test server
+
+ - optimal lexical parser added for header processing; all headers in a
+	single 276-byte state table
+
+ - latency tracking api added (configure --with-latency)
+
+ - Improved in-tree documentation, REAME.build, README.coding,
+	README.test-apps, changelog
+
+ - Many small fixes
+
+
+v1.0-chrome25-firefox17 (6cd1ea9b005933f)
