@@ -1619,9 +1619,9 @@ libwebsocket_create_context(int port, const char *interf,
 
 		if (strlen(hostname) < sizeof(sa.sa_data) - 1) {
 			strcpy(sa.sa_data, hostname);
-	//		lwsl_debug("my host name is %s\n", sa.sa_data);
+			lwsl_debug("my host name is %s\n", sa.sa_data);
 			n = getnameinfo(&sa, sizeof(sa), hostname,
-				(sizeof hostname) - 1, NULL, 0, 0);
+				(sizeof hostname) - 1, NULL, 0, NI_NAMEREQD);
 		}
 
 		if (!n) {
