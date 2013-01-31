@@ -1,40 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
- <meta charset=utf-8 />
+ <meta charset=utf-8 http-equiv="Content-Language" content="en"/>
  <title>Minimal Websocket test app</title>
+<style type="text/css">
+	div.title { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#000000; }
+	.browser { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px;}
+	.group2 { width:600px; vertical-align:middle; text-align:center; background:#f0f0e0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
+	.explain { vertical-align:middle; text-align:center; background:#f0f0c0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; color:#404000; }
+	.content { vertical-align:top; text-align:center; background:#fffff0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
+	.canvas { vertical-align:top; text-align:center; background:#efefd0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
+</style>
 </head>
 
 <body>
-<table><tr><td><img src="/libwebsockets.org-logo.png"></td><td>
-<h3>Detected Browser: <div id=brow>...</div></h3></td></tr></table>
-<h2>libwebsockets "dumb-increment-protocol" test applet</h2>
-The incrementing number is coming from the server and is individual for
-each connection to the server... try opening a second browser window.
-Click the button to send the server a websocket message to
-reset the number.<br><br>
+<header></header>
+<article>
 
-<table>
-	<tr>
-		<td align=center><input type=button id=offset value="Reset counter" onclick="reset();" ></td>
-		<td width=100 align=center><div id=number> </div></td>
-		<td id=wsdi_statustd align=center><div id=wsdi_status>Not initialized</div></td>
+<table><tr><td>
+
+<table width="100%"><tr><td valign=middle align=center><a href="http://libwebsockets.org"><img src="/libwebsockets.org-logo.png"></a></td><td>
+<section class="browser">Detected Browser: <div id=brow>...</div></section></td></tr></table>
+
+</td></tr><tr><td>
+
+<section id="increment" class="group2">
+<div class="title">libwebsockets "dumb-increment-protocol"</div>
+<table><tr><td>
+<table class="content" width="200px">
+		<tr><td align=center><input type=button id=offset value="Reset counter" onclick="reset();" ></td></tr>
+		<tr><td width=200px align=center><div id=number> </div></td></tr>
+		<tr><td id=wsdi_statustd align=center class="explain"><div id=wsdi_status>Not initialized</div></td></tr>
 	</tr>
 </table>
-
-<h2>libwebsockets "lws-mirror-protocol" test applet</h2>
+</td><td class="explain">
+The incrementing number is coming from the server and is individual for
+each connection to the server... try opening a second browser window.
+<br/><br/>
+Click the button to send the server a websocket message to
+reset the number.
+</td></tr></table>
+</section>
+<br>
+<section id="mirror" class="group2">
+<div class="title">libwebsockets "lws-mirror-protocol"</div>
+<div class="explain">
 Use the mouse to draw on the canvas below -- all other browser windows open
 on this page see your drawing in realtime and you can see any of theirs as
 well.
-<p>
+<br/><br/>
 The lws-mirror protocol doesn't interpret what is being sent to it, it just
 re-sends it to every other websocket it has a connection with using that
 protocol, including the guy who sent the packet.
-<p>libwebsockets-test-client spams circles on to this shared canvas when
-run.</p>
-<br><br>
-
-<table>
+<br/><br/>
+<b>libwebsockets-test-client</b> joins in by spamming circles on to this shared canvas when
+run.
+</div>
+<table class="content">
 	<tr>
 		<td>Drawing color:
 		<select id="color" onchange="update_color();">
@@ -44,12 +66,23 @@ run.</p>
 			<option value=#802020>Dark Red</option>
 		</select>
 		</td>
-		<td id=wslm_statustd align=center><div id=wslm_status>Not initialized</div></td>
+		<td id=wslm_statustd align=center class="explain"><div id=wslm_status>Not initialized</div></td>
 	</tr>
 	<tr>
-		<td colspan=2 width=500 align=center style="background-color: #e0e0e0;"><div id=wslm_drawing> </div></td>
+		<td colspan=2 width=500 class="content">
+		<div id="wslm_drawing">
+		</div></td>
 	</tr>
 </table>
+</section>
+
+</td></tr><tr><td>
+Looking for support? <a href="http://libwebsockets.org">http://libwebsockets.org</a><br/>
+Join the mailing list: ​<a href="http://ml.libwebsockets.org/mailman/listinfo/libwebsockets">http://ml.libwebsockets.org/mailman/listinfo/libwebsockets</a>
+
+</td></tr></table>
+
+</article>
 
 <script>
 
