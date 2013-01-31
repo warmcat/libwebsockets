@@ -660,13 +660,6 @@ typedef int (extension_callback_function)(struct libwebsocket_context * context,
  *		allocation is passed into the callback in the 'user' parameter
  * @owning_server:	the server init call fills in this opaque pointer when
  *		registering this protocol with the server.
- * @broadcast_socket_port: the server init call fills this in with the
- *		localhost port number used to forward broadcasts for this
- *		protocol
- * @broadcast_socket_user_fd:  the server init call fills this in ... the main()
- *		process context can write to this socket to perform broadcasts
- *		(use the libwebsockets_broadcast() api to do this instead,
- *		it works from any process context)
  * @protocol_index: which protocol we are starting from zero
  *
  *	This structure represents one protocol supported by the server.  An
@@ -685,8 +678,6 @@ struct libwebsocket_protocols {
 	 */
 
 	struct libwebsocket_context *owning_server;
-	int broadcast_socket_port;
-	int broadcast_socket_user_fd;
 	int protocol_index;
 };
 
@@ -786,18 +777,6 @@ libwebsockets_serve_http_file(struct libwebsocket_context *context,
 LWS_EXTERN int
 libwebsockets_serve_http_file_fragment(struct libwebsocket_context *context,
 			struct libwebsocket *wsi);
-
-/* notice - you need the pre- and post- padding allocation for buf below */
-
-LWS_EXTERN int
-libwebsockets_broadcast(const struct libwebsocket_protocols *protocol,
-						unsigned char *buf, size_t len);
-
-/* notice - you need the pre- and post- padding allocation for buf below */
-
-LWS_EXTERN int
-libwebsockets_broadcast_foreign(struct libwebsocket_protocols *protocol,
-						 unsigned char *buf, size_t len);
 
 LWS_EXTERN const struct libwebsocket_protocols *
 libwebsockets_get_protocol(struct libwebsocket *wsi);

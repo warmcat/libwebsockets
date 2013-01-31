@@ -909,8 +909,6 @@ set the lws_tokens token pointer to it.
 &nbsp; &nbsp; <i>callback_function *</i> <b>callback</b>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
 &nbsp; &nbsp; <i>struct libwebsocket_context *</i> <b>owning_server</b>;<br>
-&nbsp; &nbsp; <i>int</i> <b>broadcast_socket_port</b>;<br>
-&nbsp; &nbsp; <i>int</i> <b>broadcast_socket_user_fd</b>;<br>
 &nbsp; &nbsp; <i>int</i> <b>protocol_index</b>;<br>
 };<br>
 <h3>Members</h3>
@@ -930,15 +928,6 @@ allocation is passed into the callback in the 'user' parameter
 <dt><b>owning_server</b>
 <dd>the server init call fills in this opaque pointer when
 registering this protocol with the server.
-<dt><b>broadcast_socket_port</b>
-<dd>the server init call fills this in with the
-localhost port number used to forward broadcasts for this
-protocol
-<dt><b>broadcast_socket_user_fd</b>
-<dd>the server init call fills this in ... the <b>main</b>
-process context can write to this socket to perform broadcasts
-(use the <b>libwebsockets_broadcast</b> api to do this instead,
-it works from any process context)
 <dt><b>protocol_index</b>
 <dd>which protocol we are starting from zero
 </dl>
