@@ -1475,11 +1475,13 @@ libwebsocket_create_context(int port, const char *interf,
 			       void *user)
 {
 	int n;
-	struct sockaddr_in serv_addr;
-	int opt = 1;
 	struct libwebsocket_context *context = NULL;
 	char *p;
+#ifndef LWS_NO_SERVER
+	int opt = 1;
 	struct libwebsocket *wsi;
+	struct sockaddr_in serv_addr;
+#endif
 #ifndef LWS_NO_EXTENSIONS
 	int m;
 #endif

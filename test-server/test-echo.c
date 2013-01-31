@@ -56,6 +56,7 @@ callback_echo(struct libwebsocket_context *context,
 
 	switch (reason) {
 
+#ifndef LWS_NO_SERVER
 	/* when the callback is used for server operations --> */
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -75,7 +76,9 @@ callback_echo(struct libwebsocket_context *context,
 		pss->len = len;
 		libwebsocket_callback_on_writable(context, wsi);
 		break;
+#endif
 
+#ifndef LWS_NO_CLIENT
 	/* when the callback is used for client operations --> */
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -97,7 +100,7 @@ callback_echo(struct libwebsocket_context *context,
 			return 1;
 		}
 		break;
-
+#endif
 	default:
 		break;
 	}
@@ -129,8 +132,10 @@ static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
+#ifndef LWS_NO_CLIENT
 	{ "client",	required_argument,	NULL, 'c' },
 	{ "ratems",	required_argument,	NULL, 'r' },
+#endif
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "interface",  required_argument,	NULL, 'i' },
 #ifndef LWS_NO_DAEMONIZE
@@ -149,24 +154,37 @@ int main(int argc, char **argv)
 	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
-	struct libwebsocket *wsi;
 	int opts = 0;
 	char interface_name[128] = "";
 	const char *interface = NULL;
 	int syslog_options = LOG_PID | LOG_PERROR;
-	unsigned int oldus = 0;
 	int client = 0;
 	int listen_port;
+#ifndef LWS_NO_CLIENT
 	char address[256];
 	int rate_us = 250000;
+	unsigned int oldus = 0;
+	struct libwebsocket *wsi;
+#endif
 
 	int debug_level = 7;
 #ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
 #endif
 
+#ifndef LWS_NO_CLIENT
+	lwsl_notice("Built to support client operations\n");
+#endif
+#ifndef LWS_NO_SERVER
+	lwsl_notice("Built to support server operations\n");
+#endif
+
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "ci:hsp:d:Dr:", options, NULL);
+		n = getopt_long(argc, argv, "i:hsp:d:D"
+#ifndef LWS_NO_CLIENT
+			"c:r:"
+#endif
+				, options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -176,16 +194,18 @@ int main(int argc, char **argv)
 			syslog_options &= ~LOG_PERROR;
 			break;
 #endif
+#ifndef LWS_NO_CLIENT
 		case 'c':
 			client = 1;
 			strcpy(address, optarg);
 			port = 80;
 			break;
-		case 'd':
-			debug_level = atoi(optarg);
-			break;
 		case 'r':
 			rate_us = atoi(optarg) * 1000;
+			break;
+#endif
+		case 'd':
+			debug_level = atoi(optarg);
 			break;
 		case 's':
 			use_ssl = 1; /* 1 = take care about cert verification, 2 = allow anything */
@@ -198,10 +218,15 @@ int main(int argc, char **argv)
 			interface_name[(sizeof interface_name) - 1] = '\0';
 			interface = interface_name;
 			break;
+		case '?':
 		case 'h':
 			fprintf(stderr, "Usage: libwebsockets-test-echo "
-					"[--ssl] [--client <remote ads>] [--port=<p>] "
+					"[--ssl] "
+#ifndef LWS_NO_CLIENT
+					"[--client <remote ads>] "
 					"[--ratems <ms>] "
+#endif
+					"[--port=<p>] "
 					"[-d <log bitfield>]\n");
 			exit(1);
 		}
@@ -226,21 +251,27 @@ int main(int argc, char **argv)
 	/* tell the library what debug level to emit and to send it to syslog */
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
 
-	lwsl_notice("libwebsockets echo client + server - "
+	lwsl_notice("libwebsockets echo test - "
 			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> - "
 						    "licensed under LGPL2.1\n");
 	if (!use_ssl || client)
 		cert_path = key_path = NULL;
 
+#ifndef LWS_NO_CLIENT
 	if (client) {
 		lwsl_notice("Running in client mode\n");
 		listen_port = CONTEXT_PORT_NO_LISTEN;
 		if (use_ssl)
 			use_ssl = 2;
 	} else {
+#endif
+#ifndef LWS_NO_SERVER
 		lwsl_notice("Running in server mode\n");
 		listen_port = port;
+#endif
+#ifndef LWS_NO_CLIENT
 	}
+#endif
 	context = libwebsocket_create_context(listen_port, interface, protocols,
 #ifndef LWS_NO_EXTENSIONS
 				libwebsocket_internal_extensions,
@@ -254,6 +285,7 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+#ifndef LWS_NO_CLIENT
 	if (client) {
 		lwsl_notice("Client connecting to %s:%u....\n", address, port);
 		/* we are in client mode */
@@ -266,11 +298,12 @@ int main(int argc, char **argv)
 		}
 		lwsl_notice("Client connected to %s:%u\n", address, port);
 	}
-
+#endif
 	signal(SIGINT, sighandler);
 
 	n = 0;
 	while (n >= 0 && !force_exit) {
+#ifndef LWS_NO_CLIENT
 		struct timeval tv;
 
 		if (client) {
@@ -281,9 +314,12 @@ int main(int argc, char **argv)
 				oldus = tv.tv_usec;
 			}
 		}
+#endif
 		n = libwebsocket_service(context, 10);
 	}
+#ifndef LWS_NO_CLIENT
 bail:
+#endif
 	libwebsocket_context_destroy(context);
 
 	lwsl_notice("libwebsockets-test-echo exited cleanly\n");
