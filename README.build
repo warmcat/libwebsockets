@@ -137,9 +137,6 @@ in chunks of this size.  Tradeoff between per-connection static memory
 allocation and if you expect to deal with large frames, how much you can
 see at once which can affect efficiency.
 
- - MAX_BROADCAST_PAYLOAD default 4096: largest amount of user tx data we can
-broadcast at a time
-
  - LWS_MAX_PROTOCOLS default 10: largest amount of different protocols the
 server can serve
 
