@@ -107,7 +107,7 @@ static int callback_http(struct libwebsocket_context *context,
 	case LWS_CALLBACK_HTTP:
 
 		for (n = 0; n < (sizeof(whitelist) / sizeof(whitelist[0]) - 1); n++)
-			if (in && strcmp(in, whitelist[n].urlpath) == 0)
+			if (in && strcmp((const char *)in, whitelist[n].urlpath) == 0)
 				break;
 
 		sprintf(buf, LOCAL_RESOURCE_PATH"%s", whitelist[n].urlpath);
@@ -260,7 +260,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	unsigned char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
-	struct per_session_data__dumb_increment *pss = user;
+	struct per_session_data__dumb_increment *pss = (struct per_session_data__dumb_increment *)user;
 
 	switch (reason) {
 
@@ -288,7 +288,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 //		fprintf(stderr, "rx %d\n", (int)len);
 		if (len < 6)
 			break;
-		if (strcmp(in, "reset\n") == 0)
+		if (strcmp((const char *)in, "reset\n") == 0)
 			pss->number = 0;
 		break;
 	/*
@@ -337,7 +337,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 					       void *user, void *in, size_t len)
 {
 	int n;
-	struct per_session_data__lws_mirror *pss = user;
+	struct per_session_data__lws_mirror *pss = (struct per_session_data__lws_mirror *)user;
 
 	switch (reason) {
 

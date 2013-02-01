@@ -136,3 +136,18 @@ appear in the callback for protocol 0 and allow interface code to
 manage socket descriptors in other poll loops.
 
 
+Using with in c++ apps
+----------------------
+
+The library is ready for use by C++ apps.  You can get started quickly by
+copying the test server
+
+$ cp test-server/test-server.c test.cpp
+
+and building it in C++ like this
+
+$ g++ -DINSTALL_DATADIR=\"/usr/share\" -ocpptest test.cpp -lwebsockets
+
+INSTALL_DATADIR is only needed because the test server uses it as shipped, if
+you remove the references to it in your app you don't need to define it on
+the g++ line either.
