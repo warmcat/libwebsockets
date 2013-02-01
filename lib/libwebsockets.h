@@ -133,7 +133,6 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_SERVER_WRITEABLE,
 	LWS_CALLBACK_HTTP,
 	LWS_CALLBACK_HTTP_FILE_COMPLETION,
-	LWS_CALLBACK_BROADCAST,
 	LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
@@ -388,10 +387,6 @@ struct libwebsocket_extension;
  *				a handshake with the remote server
  *
  *	LWS_CALLBACK_CLOSED: when the websocket session ends
- *
- *	LWS_CALLBACK_BROADCAST: signal to send to client (you would use
- *				libwebsocket_write() taking care about the
- *				special buffer requirements
  *
  *	LWS_CALLBACK_RECEIVE: data has appeared for this server endpoint from a
  *				remote client, it can be found at *in and is
