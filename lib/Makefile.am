@@ -1,3 +1,5 @@
+@applyhash@
+
 lib_LTLIBRARIES=libwebsockets.la
 include_HEADERS=libwebsockets.h
 dist_libwebsockets_la_SOURCES=libwebsockets.c \
@@ -42,7 +44,7 @@ else
 dist_libwebsockets_la_SOURCES += sha-1.c
 endif
 
-libwebsockets_la_CFLAGS=-Wall -std=gnu99 -pedantic -g
+libwebsockets_la_CFLAGS=-Wall -std=gnu99 -pedantic
 libwebsockets_la_LDFLAGS=
 
 if DISABLE_DEBUG

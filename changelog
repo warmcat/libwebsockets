@@ -1,6 +1,17 @@
 Changelog
 ---------
 
+(development since 1.1....)
+
+User api additions
+------------------
+
+ - lws_get_library_version() returns a const char * with a string like
+ 	 "1.1 9e7f737", representing the library version from configure.ac
+	 and the git HEAD hash the library was built from
+
+
+
 v1.1-chrome26-firefox18
 =======================
 

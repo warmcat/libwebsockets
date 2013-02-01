@@ -48,10 +48,15 @@ int openssl_websocket_private_data_index;
 #endif
 #endif
 
+#ifndef LWS_BUILD_HASH
+#define LWS_BUILD_HASH "unknown-build-hash"
+#endif
 
 static int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
 static void lwsl_emit_stderr(int level, const char *line);
 static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
+
+static const char *library_version = LWS_LIBRARY_VERSION " " LWS_BUILD_HASH;
 
 static const char *log_level_names[] = {
 	"ERR",
@@ -65,6 +70,20 @@ static const char *log_level_names[] = {
 	"CLIENT",
 	"LATENCY",
 };
+
+/**
+ * lws_get_library_version: get version and git hash library built from
+ *
+ *	returns a const char * to a string like "1.1 178d78c"
+ *	representing the library version followed by the git head hash it
+ *	was built from
+ */
+
+const char *
+lws_get_library_version(void)
+{
+	return library_version;
+}
 
 int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context, struct libwebsocket *wsi)
@@ -1492,6 +1511,7 @@ libwebsocket_create_context(int port, const char *interf,
 #endif
 
 	lwsl_notice("Initial logging level %d\n", log_level);
+	lwsl_notice("Library version: %s\n", library_version);
 	lwsl_info(" LWS_MAX_HEADER_NAME_LENGTH: %u\n", LWS_MAX_HEADER_NAME_LENGTH);
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
 	lwsl_info(" LWS_INITIAL_HDR_ALLOC: %u\n", LWS_INITIAL_HDR_ALLOC);

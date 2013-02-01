@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -867,6 +867,9 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size);
 
 LWS_EXTERN int
 lws_b64_decode_string(const char *in, char *out, int out_size);
+
+LWS_EXTERN const char *
+lws_get_library_version(void);
 
 /*
  * Note: this is not normally needed as a user api.  It's provided in case it is

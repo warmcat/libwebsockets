@@ -85,6 +85,23 @@ protocol supported, or the specific protocol ordinal
 This function creates a connection to a remote server
 </blockquote>
 <hr>
+<h2>lws_get_library_version - </h2>
+<i>const char *</i>
+<b>lws_get_library_version</b>
+(<i></i> <b>void</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>void</b>
+<dd>no arguments
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+returns a const char * to a string like "1.1 178d78c"
+representing the library version followed by the git head hash it
+was built from
+</blockquote>
+<hr>
 <h2>libwebsockets_hangup_on_client - Server calls to terminate client connection</h2>
 <i>void</i>
 <b>libwebsockets_hangup_on_client</b>
