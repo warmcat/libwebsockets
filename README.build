@@ -5,28 +5,42 @@ You need to regenerate the autotools and libtoolize stuff for your system
 
 $ ./autogen.sh
 
-Then for a Fedora x86_86 box, the following config line was
-needed:
+
+------Fedora x86_64
 
  ./configure --prefix=/usr --libdir=/usr/lib64 --enable-openssl
 
-For Apple systems, Christopher Baker reported that this is needed
+------Apple
+
+Christopher Baker reported that this is needed
 (and I was told separately enabling openssl makes trouble somehow)
 
 ./configure CC="gcc -arch i386 -arch x86_64" CXX="g++ -arch i386 -arch
 x86_64" CPP="gcc -E" CXXCPP="g++ -E" --enable-nofork
 
-For mingw build, I did the following to get working build, ping test is
-disabled when building this way
+------mingw
+
+I did the following to get working build, ping test is disabled when
+building this way
 
 1) install mingw64_w32 compiler packages from Fedora
 2) additionally install mingw64-zlib package
 3) ./configure --prefix=/usr --enable-mingw --host=x86_64-w64-mingw32
 4) make
 
-For uClibc, you will likely need --enable-builtin-getifaddrs
+------MIPS cross-build using OpenWRT
 
-For cross-building, here's an example using the Linaro ARM toolchain
+ ./configure --prefix=/usr --without-extensions --host mips-openwrt-linux
+
+I did not try building the extensions since they need cross-zlib, but it
+should also be workable.
+
+------Other uClibc
+
+you may need --enable-builtin-getifaddrs if your toolchain
+doesn't have it - openWRT uclibc has it so you don't need this option.
+
+------ARM cross-build
 
 ./configure --prefix=/usr --host=arm-linux-gnueabi --without-client --without-extensions
 
