@@ -608,16 +608,6 @@ int main(int argc, char **argv)
 			oldus = tv.tv_usec;
 		}
 
-		/*
-		 * This example server does not fork or create a thread for
-		 * websocket service, it all runs in this single loop.  So,
-		 * we have to give the websockets an opportunity to service
-		 * "manually".
-		 *
-		 * If no socket is needing service, the call below returns
-		 * immediately and quickly.  Negative return means we are
-		 * in process of closing
-		 */
 #ifdef EXTERNAL_POLL
 
 		/*
@@ -642,6 +632,15 @@ int main(int argc, char **argv)
 								  &pollfds[n]) < 0)
 						goto done;
 #else
+		/*
+		 * If libwebsockets sockets are all we care about,
+		 * you can use this api which takes care of the poll()
+		 * and looping through finding who needed service.
+		 *
+		 * If no socket needs service, it'll return anyway after
+		 * the number of ms in the second argument.
+		 */
+
 		n = libwebsocket_service(context, 50);
 #endif
 	}
