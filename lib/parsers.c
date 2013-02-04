@@ -387,38 +387,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE)
 			break;
 
-		/* -76 has no version header ... server */
-		if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
-		   wsi->mode != LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY &&
-			      wsi->utf8_token[wsi->u.hdr.parser_state].token_len != 8)
-			break;
-
-		/* -76 has no version header ... client */
-		if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
-		   wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY &&
-			wsi->utf8_token[wsi->u.hdr.parser_state].token_len != 16)
-			break;
-
-		/* <= 03 has old handshake with version header needs 8 bytes */
-		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
-			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) < 4 &&
-			      wsi->utf8_token[wsi->u.hdr.parser_state].token_len != 8)
-			break;
-
-		/* no payload challenge in 01 + */
-
-		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
-			   atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) > 0) {
-			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len = 0;
-			free(wsi->utf8_token[WSI_TOKEN_CHALLENGE].token);
-			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token = NULL;
-		}
-
-		/* For any supported protocol we have enough payload */
-
-		lwsl_parser("Setting WSI_PARSING_COMPLETE\n");
-		wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
-		break;
+		goto set_parsing_complete;
 
 	case WSI_INIT_TOKEN_MUXURL:
 		wsi->u.hdr.parser_state = WSI_TOKEN_MUXURL;
@@ -506,32 +475,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE)
 			break;
 
-		/* don't look for payload when it can just be http headers */
-
-		if (!wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len) {
-			/* they're HTTP headers, not websocket upgrade! */
-			lwsl_parser("Setting WSI_PARSING_COMPLETE "
-							 "from http headers\n");
-			wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
-		}
-
-		/* 04 version has no packet content after end of hdrs */
-
-		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len &&
-			 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token) >= 4) {
-			lwsl_parser("04 header completed\n");
-			wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
-			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len = 0;
-			free(wsi->utf8_token[WSI_TOKEN_CHALLENGE].token);
-			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token = NULL;
-		}
-
-		/* client parser? */
-
-		lwsl_parser("04 header completed\n");
-		wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
-
-		break;
+		goto set_parsing_complete;
 
 		/* skipping arg part of a name we didn't recognize */
 	case WSI_TOKEN_SKIPPING:
@@ -539,6 +483,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		if (c == '\x0d')
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 		break;
+
 	case WSI_TOKEN_SKIPPING_SAW_CR:
 		lwsl_parser("WSI_TOKEN_SKIPPING_SAW_CR '%c'\n", c);
 		if (c == '\x0a') {
@@ -556,6 +501,20 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	default:	/* keep gcc happy */
 		break;
 	}
+
+	return 0;
+
+set_parsing_complete:
+
+	if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len) {
+		lwsl_info("Missing Version Header\n");
+		return 1;
+	}
+	wsi->ietf_spec_revision =
+		 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token);
+
+	lwsl_parser("v%02d headers completed\n", wsi->ietf_spec_revision);
+	wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
 
 	return 0;
 }
