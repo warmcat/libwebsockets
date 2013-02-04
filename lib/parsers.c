@@ -351,7 +351,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		/* allocate appropriate memory */
 		if (wsi->utf8_token[wsi->u.hdr.parser_state].token_len ==
-						   wsi->u.hdr.current_alloc_len - 1) {
+					     wsi->u.hdr.current_alloc_len - 1) {
 			/* need to extend */
 			wsi->u.hdr.current_alloc_len += LWS_ADDITIONAL_HDR_ALLOC;
 			if (wsi->u.hdr.current_alloc_len >= LWS_MAX_HEADER_LEN) {
@@ -415,7 +415,31 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		wsi->u.hdr.name_buffer[wsi->u.hdr.name_buffer_pos] = '\0';
 
 		wsi->u.hdr.lextable_pos = lextable_decode(wsi->u.hdr.lextable_pos, c);
+		if (wsi->u.hdr.lextable_pos < 0) {
+			/* this is not a header we know about */
+			if (wsi->utf8_token[WSI_TOKEN_GET_URI].token_len) {
+				/* if not the method, just skip it all */
+				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
+				break;
+			}
+			/* hm it's an unknown http method in fact */
+			if (c == ' ') {
+				lwsl_info("Unknown method %s\n", wsi->u.hdr.name_buffer);
+				/* treat it as GET */
+				wsi->u.hdr.parser_state = WSI_TOKEN_GET_URI;
+				wsi->u.hdr.current_alloc_len = LWS_INITIAL_HDR_ALLOC;
+				wsi->utf8_token[WSI_TOKEN_GET_URI].token =
+					(char *)malloc(wsi->u.hdr.current_alloc_len);
+				if (wsi->utf8_token[WSI_TOKEN_GET_URI].token == NULL) {
+					lwsl_err("Out of mem\n");
+					return -1;
+				}
+				break;
+			}
+		}
 		if (lextable[wsi->u.hdr.lextable_pos + 1] == 0) {
+
+			/* terminal state */
 
 			n = lextable[wsi->u.hdr.lextable_pos] & 0x7f;
 
@@ -446,36 +470,10 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			}
 		}
 
-		/* colon delimiter means we just don't know this name */
+		if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE)
+			goto set_parsing_complete;
 
-		if (wsi->u.hdr.parser_state == WSI_TOKEN_NAME_PART) {
-			if (c == ':') {
-				lwsl_parser("skipping unknown header '%s'\n",
-							  wsi->u.hdr.name_buffer);
-				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
-				break;
-			}
-
-			if (c == ' ' &&
-				!wsi->utf8_token[WSI_TOKEN_GET_URI].token_len) {
-				lwsl_parser("unknown method '%s'\n",
-							  wsi->u.hdr.name_buffer);
-				wsi->u.hdr.parser_state = WSI_TOKEN_GET_URI;
-				wsi->u.hdr.current_alloc_len = LWS_INITIAL_HDR_ALLOC;
-				wsi->utf8_token[WSI_TOKEN_GET_URI].token =
-					(char *)malloc(wsi->u.hdr.current_alloc_len);
-				if (wsi->utf8_token[WSI_TOKEN_GET_URI].token == NULL) {
-					lwsl_err("Out of mem\n");
-					return -1;
-				}
-				break;
-			}
-		}
-
-		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE)
-			break;
-
-		goto set_parsing_complete;
+		break;
 
 		/* skipping arg part of a name we didn't recognize */
 	case WSI_TOKEN_SKIPPING:
