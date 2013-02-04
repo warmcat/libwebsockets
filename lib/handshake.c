@@ -88,8 +88,10 @@ libwebsocket_read(struct libwebsocket_context *context,
 		case LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT:
 		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
-				libwebsocket_client_rx_sm(wsi, *buf++);
-
+				if (libwebsocket_client_rx_sm(wsi, *buf++)) {
+					lwsl_info("libwebsocket_client_rx_sm failed\n");
+					goto bail;
+				}
 			return 0;
 		default:
 			break;
@@ -99,12 +101,13 @@ libwebsocket_read(struct libwebsocket_context *context,
 		/* LWS_CONNMODE_WS_SERVING */
 
 		for (n = 0; n < len; n++)
-			libwebsocket_parse(wsi, *buf++);
+			if (libwebsocket_parse(wsi, *buf++)) {
+				lwsl_info("libwebsocket_parse failed\n");
+				goto bail;
+			}
 
 		if (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE)
 			break;
-
-		lwsl_parser("seem to be serving, mode is %d\n", wsi->mode);
 
 		lwsl_parser("libwebsocket_parse sees parsing complete\n");
 
@@ -115,9 +118,10 @@ libwebsocket_read(struct libwebsocket_context *context,
 			wsi->state = WSI_STATE_HTTP;
 			if (wsi->protocol->callback)
 				if (wsi->protocol->callback(context, wsi,
-								LWS_CALLBACK_HTTP, wsi->user_space,
-								wsi->utf8_token[WSI_TOKEN_GET_URI].token,
-								wsi->utf8_token[WSI_TOKEN_GET_URI].token_len)) {
+						LWS_CALLBACK_HTTP,
+						wsi->user_space,
+						wsi->utf8_token[WSI_TOKEN_GET_URI].token,
+						wsi->utf8_token[WSI_TOKEN_GET_URI].token_len)) {
 					lwsl_info("LWS_CALLBACK_HTTP wanted to close\n");
 					goto bail;
 				}

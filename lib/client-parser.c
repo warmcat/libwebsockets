@@ -21,10 +21,6 @@
 
 #include "private-libwebsockets.h"
 
-#ifdef WIN32
-#include <io.h>
-#endif
-
 int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;

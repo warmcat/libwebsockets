@@ -288,7 +288,10 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 			if (len < 0)
 				goto bail3;
 
-			libwebsocket_parse(wsi, c);
+			if (libwebsocket_parse(wsi, c)) {
+				/* problems */
+				goto bail3;
+			}
 		}
 
 		/*
