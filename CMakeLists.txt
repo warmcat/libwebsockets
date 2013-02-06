@@ -320,7 +320,7 @@ if (WITH_SSL)
 	if (USE_CYASSL)
 		# Use CyaSSL as OpenSSL replacement.
 		set(OPENSSL_LIBRARIES ${CYASSL_LIB})
-		set(OPENSSL_INCLUDE_DIRS ${CYASSL_INCLUDE_DIRS})
+		set(OPENSSL_INCLUDE_DIR ${CYASSL_INCLUDE_DIRS})
 		set(OPENSSL_FOUND 1)
 	else()
 		# TODO: Add support for STATIC also.

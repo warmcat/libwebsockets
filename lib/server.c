@@ -291,6 +291,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		SSL_set_fd(new_wsi->ssl, accept_fd);
 
+		#ifdef USE_CYASSL
+		CyaSSL_set_using_nonblock(new_wsi->ssl, 1);
+		#else
 		bio = SSL_get_rbio(new_wsi->ssl);
 		if (bio)
 			BIO_set_nbio(bio, 1); /* nonblocking */
@@ -301,6 +304,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			BIO_set_nbio(bio, 1); /* nonblocking */
 		else
 			lwsl_notice("NULL rbio\n");
+		#endif
 
 		/* 
 		 * we are not accepted yet, but we need to enter ourselves

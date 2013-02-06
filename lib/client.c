@@ -114,17 +114,31 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 		if (wsi->use_ssl && !wsi->ssl) {
 
 			wsi->ssl = SSL_new(context->ssl_client_ctx);
-			wsi->client_bio = BIO_new_socket(wsi->sock,
-								   BIO_NOCLOSE);
+
+			#ifdef USE_CYASSL
+			/* CyaSSL does certificate verification differently from OpenSSL.
+			 * If we should ignore the certificate, we need to set this before
+			 * SSL_new and SSL_connect is called. Otherwise the connect will
+			 * simply fail with error code -155 */
+			if (wsi->use_ssl == 2) {
+				CyaSSL_set_verify(wsi->ssl, SSL_VERIFY_NONE, NULL);
+			}
+			#endif // USE_CYASSL
+
+			wsi->client_bio = BIO_new_socket(wsi->sock, BIO_NOCLOSE);
 
 			SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
 
+			#ifdef USE_CYASSL
+			CyaSSL_set_using_nonblock(wsi->ssl, 1);
+			#else
 			BIO_set_nbio(wsi->client_bio, 1); /* nonblocking */
+			#endif
 
 			SSL_set_ex_data(wsi->ssl,
 					openssl_websocket_private_data_index,
 								       context);
-		}		
+		}
 
 		if (wsi->use_ssl) {
 			lws_latency_pre(context, wsi);
@@ -167,6 +181,8 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 				return 0;
 			}
 
+			#ifndef USE_CYASSL
+			/* See note above about CyaSSL certificate verification */
 			lws_latency_pre(context, wsi);
 			n = SSL_get_verify_result(wsi->ssl);
 			lws_latency(context, wsi, "SSL_get_verify_result LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE", n, n > 0);
@@ -180,6 +196,7 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 						wsi, LWS_CLOSE_STATUS_NOSTATUS);
 				return 0;
 			}
+			#endif // USE_CYASSL
 		} else
 			wsi->ssl = NULL;
 	#endif
