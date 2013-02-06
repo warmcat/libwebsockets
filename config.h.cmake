@@ -1,6 +1,17 @@
 /* config.h.in.  Generated from configure.ac by autoheader.  */
 
+/* Define to 1 to use CyaSSL as a replacement for OpenSSL. 
+ * LWS_OPENSSL_SUPPORT needs to be set also for this to work. */
 #cmakedefine USE_CYASSL
+
+/* The Libwebsocket version */
+#cmakedefine LWS_LIBRARY_VERSION "${LWS_LIBRARY_VERSION}"
+
+/* The current git commit hash that we're building from */
+#cmakedefine LWS_BUILD_HASH "${LWS_BUILD_HASH}"
+
+/* build with OpenSSL support */
+#cmakedefine LWS_OPENSSL_SUPPORT
 
 /* Define to 1 if you have the `bzero' function. */
 #cmakedefine HAVE_BZERO

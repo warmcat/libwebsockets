@@ -11,8 +11,23 @@ set(PACKAGE_TARNAME "${PACKAGE}")
 set(PACKAGE_URL "http://libwebsockets.org")
 set(VERSION "{PACKAGE_VERSION}")
 
+set(LWS_LIBRARY_VERSION ${PACKAGE_VERSION})
+
+# Try to find the current Git hash.
+find_package(Git)
+if(GIT_EXECUTABLE)
+	execute_process(
+    COMMAND "${GIT_EXECUTABLE}" log -n 1 --pretty=%h
+    OUTPUT_VARIABLE GIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+    set(LWS_BUILD_HASH ${GIT_HASH})
+    message("Git commit hash: ${LWS_BUILD_HASH}")
+endif()
+
 option(WITH_SSL "Include SSL support (default OpenSSL, CyaSSL if USE_CYASSL is set)" ON)
-option(USE_INCLUDED_WIN32_ZLIB "Use the internal version of ZLib instead of searching the system" ON)
+option(USE_EXTERNAL_ZLIB "Search the system for ZLib instead of using the included one (on Windows)" OFF)
 option(USE_CYASSL "Use CyaSSL replacement for OpenSSL" OFF)
 option(WITH_BUILTIN_GETIFADDRS "Use BSD getifaddrs implementation from libwebsockets... default is your libc provides it" OFF)
 option(WITHOUT_TESTAPPS "Don't build the libwebsocket-test-apps" OFF)
@@ -34,6 +49,16 @@ endif()
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
 include_directories(${PROJECT_BINARY_DIR})
 
+# Put the libaries and binaries that get built into directories at the
+# top of the build tree rather than in hard-to-find leaf directories. 
+SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
+SET(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
+SET(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
+
+# So we can include the CMake generated config file only when
+# building with CMAKE.
+add_definitions(-DCMAKE_BUILD)
+
 include(CheckFunctionExists)
 include(CheckIncludeFile)
 include(CheckIncludeFiles)
@@ -48,6 +73,10 @@ CHECK_FUNCTION_EXISTS(socket HAVE_SOCKET)
 CHECK_FUNCTION_EXISTS(strerror HAVE_STRERROR)
 CHECK_FUNCTION_EXISTS(vfork HAVE_VFORK)
 CHECK_FUNCTION_EXISTS(getifaddrs HAVE_GETIFADDRS)
+
+if (HAVE_GETIFADDRS AND WITH_BUILTIN_GETIFADDRS)
+	warning("getifaddrs already exists on the system, are you sure you want to build using the BSD version? (This is normally only needed on systems running uclibc)")
+endif()
 
 CHECK_INCLUDE_FILE(dlfcn.h HAVE_DLFCN_H)
 CHECK_INCLUDE_FILE(fcntl.h HAVE_FCNTL_H)
@@ -92,7 +121,7 @@ endif()
 # Generate the config.h that includes all the compilation settings.
 configure_file(
 		${PROJECT_SOURCE_DIR}/config.h.cmake 
-		${PROJECT_BINARY_DIR}/config.h)
+		${PROJECT_BINARY_DIR}/lws_config.h)
 
 set(LIB_LIST)
 
@@ -101,17 +130,16 @@ if (MSVC)
 	add_definitions(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_NONSTDC_NO_DEPRECATE)
 endif()
 
-if (WIN32)
-	# For windows, do not allow the compiler to use default target (Vista).
-	add_definitions(-D_WIN32_WINNT=0x0501)
-endif(WIN32)
+include_directories(${PROJECT_SOURCE_DIR}/lib)
 
 # Group headers and sources.
 # Some IDEs use this for nicer file structure.
 set(HDR_PRIVATE
 	lib/private-libwebsockets.h
 	lib/extension-deflate-frame.h
-	lib/lib/extension-deflate-stream.h)
+	lib/extension-deflate-stream.h
+	${PROJECT_BINARY_DIR}/lws_config.h
+	)
 
 set(HDR_PUBLIC	
 	lib/libwebsockets.h
@@ -122,7 +150,6 @@ set(SOURCES
 	lib/client.c
 	lib/client-handshake.c
 	lib/client-parser.c
-	lib/daemonize.c
 	lib/extension.c
 	lib/extension-deflate-frame.c
 	lib/extension-deflate-stream.c
@@ -138,7 +165,7 @@ set(SOURCES
 
 # Add helper files for Windows.
 if (WIN32)
-	set(WIN32_HELPERS_PATH ${PROJECT_SOURCE_DIR}/win32port/win32helpers)
+	set(WIN32_HELPERS_PATH win32port/win32helpers)
 
 	list(APPEND HDR_PRIVATE
 		${WIN32_HELPERS_PATH}/websock-w32.h
@@ -148,6 +175,13 @@ if (WIN32)
 	list(APPEND SOURCES 
 		${WIN32_HELPERS_PATH}/websock-w32.c
 		${WIN32_HELPERS_PATH}/gettimeofday.c
+		)
+
+	include_directories(${WIN32_HELPERS_PATH})
+else()
+	# Unix.
+	list(APPEND SOURCES
+		lib/daemonize.c
 		)
 endif()
 
@@ -177,41 +211,43 @@ add_library(websocket STATIC
 #
 # ZLIB.
 #
-if (WIN32 AND USE_INCLUDED_WIN32_ZLIB)
+if (WIN32 AND NOT USE_EXTERNAL_ZLIB)
+	message("Using included Zlib version")
+
 	# Compile ZLib if needed.
-	if (USE_INCLUDED_WIN32_ZLIB)
-		set(WIN32_ZLIB_PATH "${PROJECT_SOURCE_DIR}/win32port/zlib")
-		set(ZLIB_SRCS
-			${WIN32_ZLIB_PATH}/adler32.c
-			${WIN32_ZLIB_PATH}/compress.c
-			${WIN32_ZLIB_PATH}/crc32.c
-			${WIN32_ZLIB_PATH}/deflate.c
-			${WIN32_ZLIB_PATH}/gzclose.c
-			${WIN32_ZLIB_PATH}/gzio.c
-			${WIN32_ZLIB_PATH}/gzlib.c
-			${WIN32_ZLIB_PATH}/gzread.c
-			${WIN32_ZLIB_PATH}/gzwrite.c
-			${WIN32_ZLIB_PATH}/infback.c
-			${WIN32_ZLIB_PATH}/inffast.c
-			${WIN32_ZLIB_PATH}/inflate.c
-			${WIN32_ZLIB_PATH}/inftrees.c
-			${WIN32_ZLIB_PATH}/trees.c
-			${WIN32_ZLIB_PATH}/uncompr.c
-			${WIN32_ZLIB_PATH}/zutil.c
-		)
+	set(WIN32_ZLIB_PATH "win32port/zlib")
+	set(ZLIB_SRCS
+		${WIN32_ZLIB_PATH}/adler32.c
+		${WIN32_ZLIB_PATH}/compress.c
+		${WIN32_ZLIB_PATH}/crc32.c
+		${WIN32_ZLIB_PATH}/deflate.c
+		${WIN32_ZLIB_PATH}/gzclose.c
+		${WIN32_ZLIB_PATH}/gzio.c
+		${WIN32_ZLIB_PATH}/gzlib.c
+		${WIN32_ZLIB_PATH}/gzread.c
+		${WIN32_ZLIB_PATH}/gzwrite.c
+		${WIN32_ZLIB_PATH}/infback.c
+		${WIN32_ZLIB_PATH}/inffast.c
+		${WIN32_ZLIB_PATH}/inflate.c
+		${WIN32_ZLIB_PATH}/inftrees.c
+		${WIN32_ZLIB_PATH}/trees.c
+		${WIN32_ZLIB_PATH}/uncompr.c
+		${WIN32_ZLIB_PATH}/zutil.c
+	)
 
-		# Create the library.
-		add_library(zlib STATIC ${ZLIB_SRCS})
+	# Create the library.
+	add_library(zlib STATIC ${ZLIB_SRCS})
 
-		# Set the same variables as find_package would.
-		set(${ZLIB_INCLUDE_DIRS} ${WIN32_ZLIB_PATH})
-		get_property(ZLIB_LIBRARIES TARGET zlib PROPERTY LOCATION)
-		set(ZLIB_FOUND 1)
-	endif()
+	# Set the same variables as find_package would.
+	set(ZLIB_INCLUDE_DIRS ${WIN32_ZLIB_PATH})
+	get_property(ZLIB_LIBRARIES TARGET zlib PROPERTY LOCATION)
+	set(ZLIB_FOUND 1)
 else()
 	find_package(zlib REQUIRED)
 endif()
 
+message("ZLib include dirs: ${ZLIB_INCLUDE_DIRS}")
+message("ZLib libraries: ${ZLIB_LIBRARIES}")
 include_directories(${ZLIB_INCLUDE_DIRS})
 target_link_libraries(websocket ${ZLIB_LIBRARIES})
 
@@ -219,6 +255,8 @@ target_link_libraries(websocket ${ZLIB_LIBRARIES})
 # OpenSSL
 #
 if (WITH_SSL)
+	message("Compiling with SSL support")
+
 	if (USE_CYASSL)
 		# Use CyaSSL as OpenSSL replacement.
 		set(OPENSSL_LIBRARIES ${CYASSL_LIB})
@@ -227,10 +265,128 @@ if (WITH_SSL)
 	else()
 		# TODO: Add support for STATIC also.
 		find_package(OpenSSL REQUIRED)
+
+		# TODO: Find OpenSSL binaries and copy them to the output directories for the test-apps so that they can be run out of the box.
 	endif()
 
+	message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
+	message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
 	include_directories(${OPENSSL_INCLUDE_DIR})
 	target_link_libraries(websocket ${OPENSSL_LIBRARIES})
+endif(WITH_SSL)
+
+#
+# Platform specific libs.
+#
+if (WIN32)
+	target_link_libraries(websocket ws2_32.lib)
 endif()
 
+if (UNIX)
+	target_link_libraries(websocket m)
+endif()
 
+#
+# Test applications
+#
+if (NOT WITHOUT_TESTAPPS)
+	#
+	# Helper function for adding a test app.
+	#
+	function(create_test_app TEST_NAME MAIN_SRC WIN32_SRCS WIN32_HDRS)
+		
+		set(TEST_CLIENT_NAME test-client)
+		set(TEST_SRCS ${MAIN_SRC})
+		set(TEST_HDR)
+
+		if (WIN32)
+			list(APPEND TEST_SRCS 
+				${WIN32_HELPERS_PATH}/getopt.c
+				${WIN32_HELPERS_PATH}/getopt_long.c
+				${WIN32_HELPERS_PATH}/gettimeofday.c
+				${WIN32_SRCS})
+
+			list(APPEND TEST_HDR 
+				${WIN32_HELPERS_PATH}/getopt.h
+				${WIN32_HELPERS_PATH}/gettimeofday.h
+				${WIN32_HDRS})
+		endif(WIN32)
+
+		source_group("Headers"   FILES ${TEST_HDR})
+		source_group("Sources"   FILES ${TEST_SRCS})
+		add_executable(${TEST_NAME} ${TEST_SRCS} ${TEST_HDR})
+		target_link_libraries(${TEST_NAME} websocket)
+	endfunction()
+
+	#
+	# test-client
+	#
+	if (NOT WITHOUT_CLIENT)
+		create_test_app(test-client
+			"test-server/test-client.c"
+			""
+			"")
+	endif(NOT WITHOUT_CLIENT)
+
+	#
+	# test-server
+	#
+	if (NOT WITHOUT_SERVER)
+		create_test_app(test-server
+			"test-server/test-server.c"
+			""
+			"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
+	endif(NOT WITHOUT_SERVER)
+
+	#
+	# test-fraggle
+	#
+	if (NOT WITHOUT_FRAGGLE)
+		create_test_app(test-fraggle
+			"test-server/test-fraggle.c"
+			""
+			"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+	endif(NOT WITHOUT_FRAGGLE)
+
+	#
+	# test-ping
+	#
+	if (NOT WITHOUT_PING)
+		create_test_app(test-ping
+			"test-server/test-ping.c"
+			""
+			"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+	endif(NOT WITHOUT_PING)
+
+	#
+	# Copy OpenSSL dlls to the output directory on Windows.
+	# (Otherwise we'll get an error when trying to run)
+	#
+	if (WIN32 AND WITH_SSL AND NOT USE_CYASSL)
+
+		message("Searching for OpenSSL dlls")
+		find_package(OpenSSLbins)
+
+		if(OPENSSL_BIN_FOUND)
+			message("OpenSSL dlls found, copying to output directory")
+			message("Libeay: ${LIBEAY_BIN}")
+			message("SSLeay: ${SSLEAY_BIN}")
+
+			foreach(TARGET_BIN 
+					test-client 
+					test-server
+					test-fraggle
+					test-echo
+					test-ping
+					)			
+				add_custom_command(TARGET ${TARGET_BIN}
+					POST_BUILD 
+					COMMAND ${CMAKE_COMMAND} -E copy ${LIBEAY_BIN} $<TARGET_FILE_DIR:${TARGET_BIN}> VERBATIM)
+					
+				add_custom_command(TARGET ${TARGET_BIN}
+					POST_BUILD 
+					COMMAND ${CMAKE_COMMAND} -E copy ${SSLEAY_BIN} $<TARGET_FILE_DIR:${TARGET_BIN}> VERBATIM)
+			endforeach()
+		endif()
+	endif()
+endif(NOT WITHOUT_TESTAPPS)

@@ -233,7 +233,12 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 					      (const void *)&opt, sizeof(opt));
 
 		/* We are nonblocking... */
+		#ifdef WIN32
+		opt = 0;
+		ioctlsocket(accept_fd, FIONBIO, (unsigned long *)&opt );
+		#else
 		fcntl(accept_fd, F_SETFL, O_NONBLOCK);
+		#endif
 
 		/*
 		 * look at who we connected to and give user code a chance

@@ -29,13 +29,15 @@
 
 #include <sys/time.h>
 #include <sys/types.h>
+#ifndef WIN32
 #include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <poll.h>
+#endif
+
 #include <netdb.h>
 
-#include <sys/ioctl.h>
-
 #include "../lib/libwebsockets.h"
-#include <poll.h>
 
 /*
  * this is specified in the 04 standard, control frames can only have small
@@ -278,13 +280,13 @@ callback_lws_mirror(struct libwebsocket_context * this,
 
 static struct libwebsocket_protocols protocols[] = {
 
-	[PROTOCOL_LWS_MIRROR] = {
-		.name = "lws-mirror-protocol",
-		.callback = callback_lws_mirror,
-		.per_session_data_size = sizeof (struct per_session_data__ping),
+	{
+		"lws-mirror-protocol",
+		callback_lws_mirror,
+		sizeof (struct per_session_data__ping),
 	},
-	[DEMO_PROTOCOL_COUNT] = {  /* end of list */
-		.callback = NULL
+	{ 
+		NULL, NULL, 0/* end of list */		
 	}
 };
 
@@ -304,7 +306,7 @@ static struct option options[] = {
 	{ NULL, 0, 0, 0 }
 };
 
-
+#ifndef WIN32
 static void
 signal_handler(int sig, siginfo_t *si, void *v)
 {
@@ -313,7 +315,7 @@ signal_handler(int sig, siginfo_t *si, void *v)
 	gettimeofday(&tv, NULL);
 	interrupted_time = (tv.tv_sec * 1000000) + tv.tv_usec;
 }
-
+#endif
 
 int main(int argc, char **argv)
 {
@@ -323,9 +325,11 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 	char protocol_name[256];
 	char ip[30];
+#ifndef WIN32
 	struct sigaction sa;
-	struct timeval tv;
 	struct winsize w;
+#endif
+	struct timeval tv;
 	unsigned long oldus = 0;
 	unsigned long l;
 	int ietf_version = -1;
@@ -401,11 +405,12 @@ int main(int argc, char **argv)
 		}
 	}
 
-
+#ifndef WIN32
 	if (isatty(STDOUT_FILENO))
 		if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1)
 			if (w.ws_col > 0)
 				screen_width = w.ws_col;
+#endif
 
 	context = libwebsocket_create_context(CONTEXT_PORT_NO_LISTEN, NULL,
 					      protocols,
@@ -441,12 +446,13 @@ int main(int argc, char **argv)
 	fprintf(stderr, "Websocket PING %s (%s) %d bytes of data.\n",
 							   peer_name, ip, size);
 
+#ifndef WIN32
 	/* set the ^C handler */
-
 	sa.sa_sigaction = signal_handler;
 	sa.sa_flags = SA_SIGINFO;
 	sigemptyset(&sa.sa_mask);
 	sigaction(SIGINT, &sa, NULL);
+#endif
 
 	gettimeofday(&tv, NULL);
 	started = (tv.tv_sec * 1000000) + tv.tv_usec;

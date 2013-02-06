@@ -18,6 +18,10 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  *  MA  02110-1301  USA
  */
+#ifdef CMAKE_BUILD
+#include "lws_config.h"
+#endif
+
 #if _MSC_VER > 1000 || defined(_WIN32)
 #else
 #include <unistd.h>
@@ -44,6 +48,12 @@
 #include <sys/stat.h>
 
 #ifdef WIN32
+#define LWS_NO_DAEMONIZE
+
+#ifndef PATH_MAX
+#define PATH_MAX MAX_PATH
+#endif
+
 #define compatible_close(fd) closesocket(fd);
 #ifdef  __MINGW64__                                                             
 #else                                                                           
@@ -380,8 +390,8 @@ struct libwebsocket {
 };
 
 #ifndef LWS_LATENCY
-static inline void lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi, const char *action, int ret, int completion) { while (0); }
-static inline void lws_latency_pre(struct libwebsocket_context *context, struct libwebsocket *wsi) { while (0); }
+#define lws_latency(context, wsi, action, ret, completion)
+#define lws_latency_pre(context, wsi)
 #else
 #define lws_latency_pre(_context, _wsi) lws_latency(_context, _wsi, NULL, 0, 0)
 extern void

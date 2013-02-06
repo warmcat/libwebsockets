@@ -26,7 +26,9 @@
 #include <string.h>
 #include <sys/time.h>
 #include <assert.h>
+#ifndef WIN32
 #include <syslog.h>
+#endif
 #include <signal.h>
 
 #include "../lib/libwebsockets.h"
@@ -496,7 +498,9 @@ int main(int argc, char **argv)
 	int opts = 0;
 	char interface_name[128] = "";
 	const char *interface = NULL;
+#ifndef WIN32
 	int syslog_options = LOG_PID | LOG_PERROR;
+#endif
 	unsigned int oldus = 0;
 
 	int debug_level = 7;
@@ -512,7 +516,9 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
+			#ifndef WIN32
 			syslog_options &= ~LOG_PERROR;
+			#endif
 			break;
 #endif
 		case 'd':
@@ -543,7 +549,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-#ifndef LWS_NO_DAEMONIZE
+#if !defined(LWS_NO_DAEMONIZE) && !defined(WIN32)
 	/* 
 	 * normally lock path would be /var/lock/lwsts or similar, to
 	 * simplify getting started without having to take care about
@@ -557,9 +563,11 @@ int main(int argc, char **argv)
 
 	signal(SIGINT, sighandler);
 
+#ifndef WIN32
 	/* we will only try to log things according to our debug_level */
 	setlogmask(LOG_UPTO (LOG_DEBUG));
 	openlog("lwsts", syslog_options, LOG_DAEMON);
+#endif
 
 	/* tell the library what debug level to emit and to send it to syslog */
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
@@ -653,7 +661,9 @@ done:
 
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
+#ifndef WIN32
 	closelog();
+#endif
 
 	return 0;
 }

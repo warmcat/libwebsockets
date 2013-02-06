@@ -41,7 +41,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <private-libwebsockets.h>
+#include "private-libwebsockets.h"
 
 static const char encode[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 			     "abcdefghijklmnopqrstuvwxyz0123456789+/";

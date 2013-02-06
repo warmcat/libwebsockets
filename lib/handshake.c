@@ -53,6 +53,10 @@
  * machine that is completely independent of packet size.
  */
 
+#ifndef LWS_NO_SERVER
+extern int handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi);
+#endif
+
 int
 libwebsocket_read(struct libwebsocket_context *context,
 		     struct libwebsocket *wsi, unsigned char * buf, size_t len)
@@ -93,8 +97,6 @@ libwebsocket_read(struct libwebsocket_context *context,
 #endif
 #ifndef LWS_NO_SERVER
 		/* LWS_CONNMODE_WS_SERVING */
-
-		extern int handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi);
 
 		for (n = 0; n < len; n++)
 			libwebsocket_parse(wsi, *buf++);

@@ -20,7 +20,6 @@
  */
 
 #include "private-libwebsockets.h"
-#include <syslog.h>
 
 #ifdef WIN32
 #include <tchar.h>
@@ -31,6 +30,7 @@
 #else
 #include <ifaddrs.h>
 #endif
+#include <syslog.h>
 #include <sys/un.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -748,9 +748,11 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	if (context->last_timeout_check_s != tv.tv_sec) {
 		context->last_timeout_check_s = tv.tv_sec;
 
+		#ifndef WIN32
 		/* if our parent went down, don't linger around */
 		if (context->started_with_parent && kill(context->started_with_parent, 0) < 0)
 			kill(getpid(), SIGTERM);
+		#endif
 
 		/* global timeout check once per second */
 
@@ -1510,6 +1512,10 @@ libwebsocket_create_context(int port, const char *interf,
 	char ssl_err_buf[512];
 #endif
 
+#ifndef LWS_NO_DAEMONIZE
+	extern int pid_daemon;
+#endif
+
 	lwsl_notice("Initial logging level %d\n", log_level);
 	lwsl_notice("Library version: %s\n", library_version);
 	lwsl_info(" LWS_MAX_HEADER_NAME_LENGTH: %u\n", LWS_MAX_HEADER_NAME_LENGTH);
@@ -1554,6 +1560,9 @@ libwebsocket_create_context(int port, const char *interf,
 		wsdll = GetModuleHandle(_T("Ws2_32.dll"));
 		if (wsdll)
 			poll = (PFNWSAPOLL)GetProcAddress(wsdll, "WSAPoll");
+
+		if (!poll)
+			poll = emulated_poll;
 	}
 #endif
 
@@ -1563,11 +1572,11 @@ libwebsocket_create_context(int port, const char *interf,
 		return NULL;
 	}
 #ifndef LWS_NO_DAEMONIZE
-	extern int pid_daemon;
 	context->started_with_parent = pid_daemon;
 	lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
 #endif
-
+	
+	context->listen_service_extraseen = 0;
 	context->protocols = protocols;
 	context->listen_port = port;
 	context->http_proxy_port = 0;
@@ -1871,16 +1880,26 @@ libwebsocket_create_context(int port, const char *interf,
 			return NULL;
 		}
 
-		/* allow us to restart even if old sockets in TIME_WAIT */
+#ifndef WIN32
+		/* allow us to restart even if old sockets in TIME_WAIT
+		 * (REUSEADDR on Unix means, "don't hang on to this address after the
+		 * listener is closed."  On Windows, though, it means "don't keep other
+		 * processes from binding to this address while we're using it) */
 		setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
 					      (const void *)&opt, sizeof(opt));
+#endif
 
 		/* Disable Nagle */
 		opt = 1;
 		setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY,
 					      (const void *)&opt, sizeof(opt));
 
+		#ifdef WIN32
+		opt = 0;
+		ioctlsocket(sockfd, FIONBIO, (unsigned long *)&opt );
+		#else
 		fcntl(sockfd, F_SETFL, O_NONBLOCK);
+		#endif
 
 		bzero((char *) &serv_addr, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;
@@ -2041,6 +2060,12 @@ static void lwsl_emit_stderr(int level, const char *line)
 	fprintf(stderr, "%s%s", buf, line);
 }
 
+#ifdef WIN32
+void lwsl_emit_syslog(int level, const char *line)
+{
+	lwsl_emit_stderr(level, line);
+}
+#else
 void lwsl_emit_syslog(int level, const char *line)
 {
 	int syslog_level = LOG_DEBUG;
@@ -2061,6 +2086,7 @@ void lwsl_emit_syslog(int level, const char *line)
 	}
 	syslog(syslog_level, "%s", line);
 }
+#endif
 
 void _lws_log(int filter, const char *format, ...)
 {
