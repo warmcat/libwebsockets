@@ -327,20 +327,22 @@ if (WITH_SSL)
 
 	if (USE_CYASSL)
 		# Use CyaSSL as OpenSSL replacement.
-		set(OPENSSL_LIBRARIES ${CYASSL_LIB})
-		set(OPENSSL_INCLUDE_DIR ${CYASSL_INCLUDE_DIRS})
-		set(OPENSSL_FOUND 1)
+		# TODO: Add a find_package command for this also.
+		message("CyaSSL include dir: ${CYASSL_INCLUDE_DIRS}")
+		message("CyaSSL libraries: ${CYASSL_LIB}")
+
+		include_directories(${CYASSL_INCLUDE_DIRS})
+		target_link_libraries(websockets ${CYASSL_LIB})
 	else()
 		# TODO: Add support for STATIC also.
 		find_package(OpenSSL REQUIRED)
 
-		# TODO: Find OpenSSL binaries and copy them to the output directories for the test-apps so that they can be run out of the box.
-	endif()
+		message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
+		message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
 
-	message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
-	message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
-	include_directories(${OPENSSL_INCLUDE_DIR})
-	target_link_libraries(websockets ${OPENSSL_LIBRARIES})
+		include_directories(${OPENSSL_INCLUDE_DIR})
+		target_link_libraries(websockets ${OPENSSL_LIBRARIES})
+	endif()
 endif(WITH_SSL)
 
 #
