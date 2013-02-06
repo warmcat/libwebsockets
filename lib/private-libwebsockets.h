@@ -18,10 +18,16 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  *  MA  02110-1301  USA
  */
+
+// System introspection configs.
 #ifdef CMAKE_BUILD
 #include "lws_config.h"
 #else
+#ifdef WIN32
+#define inline __inline
+#else
 #include "config.h"
+#endif
 #endif
 
 #if _MSC_VER > 1000 || defined(_WIN32)
