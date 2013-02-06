@@ -1691,10 +1691,15 @@ libwebsocket_create_context(int port, const char *interf,
 #ifdef LWS_OPENSSL_SUPPORT
 		context->use_ssl = ssl_cert_filepath != NULL &&
 					       ssl_private_key_filepath != NULL;
+#ifdef USE_CYASSL
+		lwsl_notice(" Compiled with CYASSL support\n");
+#else
+		lwsl_notice(" Compiled with OpenSSL support\n");
+#endif
 		if (context->use_ssl)
-			lwsl_notice(" Compiled with SSL support, using it\n");
+			lwsl_notice(" Using SSL mode\n");
 		else
-			lwsl_notice(" Compiled with SSL support, not using it\n");
+			lwsl_notice(" Using non-SSL mode\n");
 
 #else
 		if (ssl_cert_filepath != NULL &&

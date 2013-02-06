@@ -73,6 +73,12 @@ Configure script options
 
 There are several other possible configure options
 
+--enable-openssl	Builds in the SSL support
+
+--with-cyassl		Use cyassl instead of OpenSSL... you will need CyaSSL
+			to have been configured with --enable-opensslExtra
+\			when it was built.
+
 --enable-libcrypto	by default libwebsockets uses its own
 			built-in md5 and sha-1 implementation for
 			simplicity.  However the libcrypto ones

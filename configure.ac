@@ -190,6 +190,18 @@ CFLAGS="$CFLAGS -DLWS_BUILTIN_GETIFADDRS"
 fi
 AM_CONDITIONAL(USE_BUILTIN_GETIFADDRS, test x$builtin_getifaddrs = xyes)
 
+# 
+#
+#
+AC_ARG_WITH(cyassl,
+ [  --with-cyassl  Use CyaSSL instead of OpenSSL ],
+ [ use_cyassl=yes
+ ])
+
+if test "x$use_cyassl" = "xyes" ; then                                     
+CFLAGS="$CFLAGS -DUSE_CYASSL -DLWS_OPENSSL_SUPPORT"
+fi
+AM_CONDITIONAL(USE_CYASSL, test x$use_cyassl = xyes)
 
 
 # Checks for header files.

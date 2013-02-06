@@ -137,7 +137,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 	ssize_t len;
 #ifdef LWS_OPENSSL_SUPPORT
 	int m;
+#ifndef USE_CYASSL
 	BIO *bio;
+#endif
 #endif
 
 	switch (wsi->mode) {

@@ -93,11 +93,18 @@
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
+#ifdef USE_CYASSL
+#include <cyassl/openssl/ssl.h>
+#include <cyassl/error.h>
+unsigned char *
+SHA1(const unsigned char *d, size_t n, unsigned char *md);
+#else
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/md5.h>
 #include <openssl/sha.h>
+#endif /* not USE_CYASSL */
 #endif
 
 #include "libwebsockets.h"
@@ -486,8 +493,5 @@ user_callback_handle_rxflow(callback_function, struct libwebsocket_context * con
 
 unsigned char *
 SHA1(const unsigned char *d, size_t n, unsigned char *md);
-
-void
-MD5(const unsigned char *input, int ilen, unsigned char *output);
 
 #endif

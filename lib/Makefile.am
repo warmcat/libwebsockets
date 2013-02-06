@@ -47,6 +47,10 @@ endif
 libwebsockets_la_CFLAGS=-Wall -std=gnu99 -pedantic
 libwebsockets_la_LDFLAGS=
 
+if USE_CYASSL
+libwebsockets_la_LDFLAGS+= -lcyassl
+endif
+
 if DISABLE_DEBUG
 libwebsockets_la_CFLAGS+= -O4
 else
