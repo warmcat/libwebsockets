@@ -271,8 +271,8 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 		wsi->c_callback = context->protocols[0].callback;
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
-		wsi->utf8_token[n].token = NULL;
-		wsi->utf8_token[n].token_len = 0;
+		wsi->u.hdr.hdrs[n].token = NULL;
+		wsi->u.hdr.hdrs[n].token_len = 0;
 	}
 
 #ifndef LWS_NO_EXTENSIONS

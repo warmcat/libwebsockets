@@ -304,6 +304,7 @@ struct _lws_http_mode_related {
 struct _lws_header_related {
 	char name_buffer[LWS_MAX_HEADER_NAME_LENGTH];
 	int name_buffer_pos;
+	struct lws_tokens hdrs[WSI_TOKEN_COUNT];
 	int lextable_pos;
 	enum lws_token_indexes parser_state;
 	int current_alloc_len;
@@ -374,8 +375,6 @@ struct libwebsocket {
 		struct _lws_header_related hdr;
 		struct _lws_websocket_related ws;
 	} u;
-
-	struct lws_tokens utf8_token[WSI_TOKEN_COUNT];
 	
 	enum libwebsocket_write_protocol rx_frame_type;
 

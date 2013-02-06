@@ -368,42 +368,42 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	 */
 #if 0
 	lwsl_parser("WSI_TOKEN_HTTP: %d\n",
-				    wsi->utf8_token[WSI_TOKEN_HTTP].token_len);
+				    wsi->u.hdr.hdrs[WSI_TOKEN_HTTP].token_len);
 	lwsl_parser("WSI_TOKEN_UPGRADE: %d\n",
-				 wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len);
+				 wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token_len);
 	lwsl_parser("WSI_TOKEN_CONNECTION: %d\n",
-			      wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len);
+			      wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token_len);
 	lwsl_parser("WSI_TOKEN_ACCEPT: %d\n",
-				  wsi->utf8_token[WSI_TOKEN_ACCEPT].token_len);
+				  wsi->u.hdr.hdrs[WSI_TOKEN_ACCEPT].token_len);
 	lwsl_parser("WSI_TOKEN_NONCE: %d\n",
-				   wsi->utf8_token[WSI_TOKEN_NONCE].token_len);
+				   wsi->u.hdr.hdrs[WSI_TOKEN_NONCE].token_len);
 	lwsl_parser("WSI_TOKEN_PROTOCOL: %d\n",
-				wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len);
+				wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len);
 #endif
 
-	strtolower(wsi->utf8_token[WSI_TOKEN_HTTP].token);
-	if (strncmp(wsi->utf8_token[WSI_TOKEN_HTTP].token, "101", 3)) {
+	strtolower(wsi->u.hdr.hdrs[WSI_TOKEN_HTTP].token);
+	if (strncmp(wsi->u.hdr.hdrs[WSI_TOKEN_HTTP].token, "101", 3)) {
 		lwsl_warn("libwebsocket_client_handshake "
 				"server sent bad HTTP response '%s'\n",
-				 wsi->utf8_token[WSI_TOKEN_HTTP].token);
+				 wsi->u.hdr.hdrs[WSI_TOKEN_HTTP].token);
 		goto bail3;
 	}
 
-	strtolower(wsi->utf8_token[WSI_TOKEN_UPGRADE].token);
-	if (strcmp(wsi->utf8_token[WSI_TOKEN_UPGRADE].token,
+	strtolower(wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token);
+	if (strcmp(wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token,
 							 "websocket")) {
 		lwsl_warn("libwebsocket_client_handshake server "
 				"sent bad Upgrade header '%s'\n",
-				  wsi->utf8_token[WSI_TOKEN_UPGRADE].token);
+				  wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token);
 		goto bail3;
 	}
 
-	strtolower(wsi->utf8_token[WSI_TOKEN_CONNECTION].token);
-	if (strcmp(wsi->utf8_token[WSI_TOKEN_CONNECTION].token,
+	strtolower(wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token);
+	if (strcmp(wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token,
 							   "upgrade")) {
 		lwsl_warn("libwebsocket_client_handshake server "
 				"sent bad Connection hdr '%s'\n",
-			   wsi->utf8_token[WSI_TOKEN_CONNECTION].token);
+			   wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token);
 		goto bail3;
 	}
 
@@ -420,7 +420,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	 * of protocols we offered
 	 */
 
-	if (!wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len) {
+	if (!wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len) {
 
 		lwsl_info("lws_client_interpret_server_handshake "
 					       "WSI_TOKEN_PROTOCOL is null\n");
@@ -436,10 +436,10 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	}
 
 	while (*pc && !okay) {
-		if ((!strncmp(pc, wsi->utf8_token[WSI_TOKEN_PROTOCOL].token,
-		 wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len)) &&
-		 (pc[wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len] == ',' ||
-		  pc[wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len] == '\0')) {
+		if ((!strncmp(pc, wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token,
+		 wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len)) &&
+		 (pc[wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len] == ',' ||
+		  pc[wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len] == '\0')) {
 			okay = 1;
 			continue;
 		}
@@ -457,7 +457,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	if (!okay) {
 		lwsl_err("libwebsocket_client_handshake server "
 					"sent bad protocol '%s'\n",
-				 wsi->utf8_token[WSI_TOKEN_PROTOCOL].token);
+				 wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token);
 		goto bail2;
 	}
 
@@ -467,7 +467,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	n = 0;
 	wsi->protocol = NULL;
 	while (context->protocols[n].callback && !wsi->protocol) {  /* Stop after finding first one?? */
-		if (strcmp(wsi->utf8_token[WSI_TOKEN_PROTOCOL].token,
+		if (strcmp(wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token,
 					   context->protocols[n].name) == 0) {
 			wsi->protocol = &context->protocols[n];
 			wsi->c_callback = wsi->protocol->callback;
@@ -479,7 +479,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		lwsl_err("libwebsocket_client_handshake server "
 				"requested protocol '%s', which we "
 				"said we supported but we don't!\n",
-				 wsi->utf8_token[WSI_TOKEN_PROTOCOL].token);
+				 wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token);
 		goto bail2;
 	}
 
@@ -488,7 +488,7 @@ check_extensions:
 #ifndef LWS_NO_EXTENSIONS
 	/* instantiate the accepted extensions */
 
-	if (!wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token_len) {
+	if (!wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token_len) {
 		lwsl_ext("no client extenstions allowed by server\n");
 		goto check_accept;
 	}
@@ -498,7 +498,7 @@ check_extensions:
 	 * and go through matching them or identifying bogons
 	 */
 
-	c = wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token;
+	c = wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token;
 	n = 0;
 	while (more) {
 
@@ -580,11 +580,11 @@ check_accept:
 	 * Confirm his accept token is the one we precomputed
 	 */
 
-	if (strcmp(wsi->utf8_token[WSI_TOKEN_ACCEPT].token,
+	if (strcmp(wsi->u.hdr.hdrs[WSI_TOKEN_ACCEPT].token,
 				  wsi->u.hdr.initial_handshake_hash_base64)) {
 		lwsl_warn("libwebsocket_client_handshake server "
 			"sent bad ACCEPT '%s' vs computed '%s'\n",
-			wsi->utf8_token[WSI_TOKEN_ACCEPT].token,
+			wsi->u.hdr.hdrs[WSI_TOKEN_ACCEPT].token,
 					wsi->u.hdr.initial_handshake_hash_base64);
 		goto bail2;
 	}
@@ -610,8 +610,8 @@ check_accept:
 	/* free up his parsing allocations */
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++)
-		if (wsi->utf8_token[n].token)
-			free(wsi->utf8_token[n].token);
+		if (wsi->u.hdr.hdrs[n].token)
+			free(wsi->u.hdr.hdrs[n].token);
 
 	/* mark him as being alive */
 
@@ -663,8 +663,8 @@ bail2:
 	/* free up his parsing allocations */
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++)
-		if (wsi->utf8_token[n].token)
-			free(wsi->utf8_token[n].token);
+		if (wsi->u.hdr.hdrs[n].token)
+			free(wsi->u.hdr.hdrs[n].token);
 
 	libwebsocket_close_and_free_session(context, wsi,
 						 LWS_CLOSE_STATUS_PROTOCOL_ERR);

@@ -106,8 +106,8 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	new_wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
-		new_wsi->utf8_token[n].token = NULL;
-		new_wsi->utf8_token[n].token_len = 0;
+		new_wsi->u.hdr.hdrs[n].token = NULL;
+		new_wsi->u.hdr.hdrs[n].token_len = 0;
 	}
 
 	/*

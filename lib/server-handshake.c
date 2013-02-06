@@ -22,8 +22,8 @@
 #include "private-libwebsockets.h"
 
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
-#define LWS_CPYAPP_TOKEN(ptr, tok) { strcpy(p, wsi->utf8_token[tok].token); \
-		p += wsi->utf8_token[tok].token_len; }
+#define LWS_CPYAPP_TOKEN(ptr, tok) { strcpy(p, wsi->u.hdr.hdrs[tok].token); \
+		p += wsi->u.hdr.hdrs[tok].token_len; }
 
 /*
  * Perform the newer BASE64-encoded handshake scheme
@@ -48,26 +48,26 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	int more = 1;
 #endif
 
-	if (!wsi->utf8_token[WSI_TOKEN_HOST].token_len ||
-	    !wsi->utf8_token[WSI_TOKEN_KEY].token_len) {
+	if (!wsi->u.hdr.hdrs[WSI_TOKEN_HOST].token_len ||
+	    !wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token_len) {
 		lwsl_parser("handshake_04 missing pieces\n");
 		/* completed header processing, but missing some bits */
 		goto bail;
 	}
 
-	if (wsi->utf8_token[WSI_TOKEN_KEY].token_len >=
+	if (wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token_len >=
 						     MAX_WEBSOCKET_04_KEY_LEN) {
 		lwsl_warn("Client sent handshake key longer "
 			   "than max supported %d\n", MAX_WEBSOCKET_04_KEY_LEN);
 		goto bail;
 	}
 
-	strcpy(accept_buf, wsi->utf8_token[WSI_TOKEN_KEY].token);
-	strcpy(accept_buf + wsi->utf8_token[WSI_TOKEN_KEY].token_len,
+	strcpy(accept_buf, wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token);
+	strcpy(accept_buf + wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token_len,
 						       websocket_magic_guid_04);
 
 	SHA1((unsigned char *)accept_buf,
-			wsi->utf8_token[WSI_TOKEN_KEY].token_len +
+			wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token_len +
 					 strlen(websocket_magic_guid_04), hash);
 
 	accept_len = lws_b64_encode_string((char *)hash, 20, accept_buf,
@@ -87,9 +87,9 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	/* make a buffer big enough for everything */
 
 	response = (char *)malloc(256 +
-		wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len +
-		wsi->utf8_token[WSI_TOKEN_CONNECTION].token_len +
-		wsi->utf8_token[WSI_TOKEN_PROTOCOL].token_len);
+		wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token_len +
+		wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token_len +
+		wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len);
 	if (!response) {
 		lwsl_err("Out of memory for response buffer\n");
 		goto bail;
@@ -103,7 +103,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	strcpy(p, accept_buf);
 	p += accept_len;
 
-	if (wsi->utf8_token[WSI_TOKEN_PROTOCOL].token) {
+	if (wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token) {
 		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Protocol: ");
 		LWS_CPYAPP_TOKEN(p, WSI_TOKEN_PROTOCOL);
 	}
@@ -114,16 +114,16 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	 * enable on this connection, and give him back the list
 	 */
 
-	if (wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token_len) {
+	if (wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token_len) {
 
 		/*
 		 * break down the list of client extensions
 		 * and go through them
 		 */
 
-		c = wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token;
-		lwsl_parser("wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token = %s\n",
-				  wsi->utf8_token[WSI_TOKEN_EXTENSIONS].token);
+		c = wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token;
+		lwsl_parser("wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token = %s\n",
+				  wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token);
 		wsi->count_active_extensions = 0;
 		n = 0;
 		while (more) {
@@ -273,8 +273,8 @@ bail:
 	/* free up his parsing allocations */
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++)
-		if (wsi->utf8_token[n].token)
-			free(wsi->utf8_token[n].token);
+		if (wsi->u.hdr.hdrs[n].token)
+			free(wsi->u.hdr.hdrs[n].token);
 
 	return -1;
 }
