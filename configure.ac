@@ -22,6 +22,9 @@ applyhash='CFLAGS+= -DLWS_LIBRARY_VERSION=\"$(PACKAGE_VERSION)\" -DLWS_BUILD_HAS
 AC_SUBST([applyhash])
 AM_SUBST_NOTMAKE([applyhash])
 
+# Check for existance of the inline keyword.
+AC_C_INLINE
+
 #
 #
 #

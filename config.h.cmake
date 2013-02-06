@@ -162,3 +162,6 @@
 
 /* Define as `fork' if `vfork' does not work. */
 //#cmakedefine vfork
+
+/* Define if the inline keyword doesn't exist. */
+#cmakedefine inline
