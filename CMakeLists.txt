@@ -33,6 +33,7 @@ option(WITH_BUILTIN_GETIFADDRS "Use BSD getifaddrs implementation from libwebsoc
 option(WITHOUT_TESTAPPS "Don't build the libwebsocket-test-apps" OFF)
 option(WITHOUT_CLIENT "Don't build the client part of the library" OFF)
 option(WITHOUT_SERVER "Don't build the server part of the library" OFF)
+option(WITHOUT_SERVER_EXTPOLL "Don't build a server version that uses external poll" OFF)
 option(WITH_LIBCRYPTO "Use libcrypto MD5 and SHA1 implementations" ON)
 option(WITHOUT_PING "Don't build the ping test application" OFF)
 option(WITHOUT_DEBUG "Don't compile debug related code" OFF)
@@ -237,7 +238,7 @@ source_group("Sources"          FILES ${SOURCES})
 #
 # Create the lib.
 #
-add_library(websocket STATIC
+add_library(websockets STATIC
 			${HDR_PRIVATE}
 			${HDR_PUBLIC}
 			${SOURCES})
@@ -287,7 +288,7 @@ endif()
 message("ZLib include dirs: ${ZLIB_INCLUDE_DIRS}")
 message("ZLib libraries: ${ZLIB_LIBRARIES}")
 include_directories(${ZLIB_INCLUDE_DIRS})
-target_link_libraries(websocket ${ZLIB_LIBRARIES})
+target_link_libraries(websockets ${ZLIB_LIBRARIES})
 
 #
 # OpenSSL
@@ -310,18 +311,18 @@ if (WITH_SSL)
 	message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
 	message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
 	include_directories(${OPENSSL_INCLUDE_DIR})
-	target_link_libraries(websocket ${OPENSSL_LIBRARIES})
+	target_link_libraries(websockets ${OPENSSL_LIBRARIES})
 endif(WITH_SSL)
 
 #
 # Platform specific libs.
 #
 if (WIN32)
-	target_link_libraries(websocket ws2_32.lib)
+	target_link_libraries(websockets ws2_32.lib)
 endif()
 
 if (UNIX)
-	target_link_libraries(websocket m)
+	target_link_libraries(websockets m)
 endif()
 
 #
@@ -352,7 +353,7 @@ if (NOT WITHOUT_TESTAPPS)
 		source_group("Headers"   FILES ${TEST_HDR})
 		source_group("Sources"   FILES ${TEST_SRCS})
 		add_executable(${TEST_NAME} ${TEST_SRCS} ${TEST_HDR})
-		target_link_libraries(${TEST_NAME} websocket)
+		target_link_libraries(${TEST_NAME} websockets)
 
 		set_property(
 					TARGET ${TEST_NAME}
@@ -381,6 +382,22 @@ if (NOT WITHOUT_TESTAPPS)
 			""
 			"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
 	endif(NOT WITHOUT_SERVER)
+
+	#
+	# test-server-extpoll
+	#
+	if (NOT WITHOUT_SERVER_EXTPOLL)
+		create_test_app(test-server-extpoll
+			"test-server/test-server.c"
+			""
+			"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
+			
+			# Set defines for this executable only.
+			set_property(
+				TARGET test-server-extpoll
+				PROPERTY COMPILE_DEFINITIONS EXTERNAL_POLL INSTALL_DATADIR="${SSL_CERT_DIR}"
+				)
+	endif(NOT WITHOUT_SERVER_EXTPOLL)
 
 	#
 	# test-fraggle

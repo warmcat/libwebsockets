@@ -47,6 +47,14 @@
 
 #include <sys/stat.h>
 
+#ifndef inline
+ #ifdef __inline
+  #define inline __inline
+ #elif defined(__inline__)
+  #define inline __inline__
+ #endif
+#endif
+
 #ifdef WIN32
 #define LWS_NO_DAEMONIZE
 
@@ -390,8 +398,8 @@ struct libwebsocket {
 };
 
 #ifndef LWS_LATENCY
-#define lws_latency(context, wsi, action, ret, completion)
-#define lws_latency_pre(context, wsi)
+static void lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi, const char *action, int ret, int completion) { while (0); }
+static void lws_latency_pre(struct libwebsocket_context *context, struct libwebsocket *wsi) { while (0); }
 #else
 #define lws_latency_pre(_context, _wsi) lws_latency(_context, _wsi, NULL, 0, 0)
 extern void

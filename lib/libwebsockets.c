@@ -1513,7 +1513,8 @@ libwebsocket_create_context(int port, const char *interf,
 #endif
 
 #ifndef LWS_NO_DAEMONIZE
-	extern int pid_daemon;
+	extern int get_daemonize_pid();
+	int pid_daemon = get_daemonize_pid();
 #endif
 
 	lwsl_notice("Initial logging level %d\n", log_level);
@@ -1561,6 +1562,7 @@ libwebsocket_create_context(int port, const char *interf,
 		if (wsdll)
 			poll = (PFNWSAPOLL)GetProcAddress(wsdll, "WSAPoll");
 
+		/* Finally fall back to emulated poll if all else fails */
 		if (!poll)
 			poll = emulated_poll;
 	}

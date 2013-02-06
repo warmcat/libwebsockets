@@ -24,6 +24,11 @@
 int pid_daemon;
 static char *lock_path;
 
+int get_daemonize_pid()
+{
+	return pid_daemon;
+}
+
 static void
 child_handler(int signum)
 {
