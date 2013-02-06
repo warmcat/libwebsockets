@@ -11,6 +11,13 @@ User api additions
 	 and the git HEAD hash the library was built from
 
 
+New features
+------------
+
+Cmake project file added, aimed initially at Windows support: this replaces
+the visual studio project files that were in the tree until now.
+
+
 
 v1.1-chrome26-firefox18
 =======================
