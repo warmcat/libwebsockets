@@ -10,8 +10,26 @@
 /* The current git commit hash that we're building from */
 #cmakedefine LWS_BUILD_HASH "${LWS_BUILD_HASH}"
 
-/* build with OpenSSL support */
+/* Build with OpenSSL support */
 #cmakedefine LWS_OPENSSL_SUPPORT
+
+/* Sets the path where the client certs should be installed. */
+#cmakedefine LWS_OPENSSL_CLIENT_CERTS "${LWS_OPENSSL_CLIENT_CERTS}"
+
+/* Turn off websocket extensions */
+#cmakedefine LWS_NO_EXTENSIONS
+
+/* Turn on latency measuring code */
+#cmakedefine LWS_LATENCY
+
+/* Don't build the daemonizeation api */
+#cmakedefine LWS_NO_DAEMONIZE
+
+/* If we should compile with MinGW support */
+#cmakedefine LWS_MINGW_SUPPORT
+
+/* Use the BSD getifaddrs that comes with libwebsocket, for uclibc support */
+#cmakedefine LWS_BUILTIN_GETIFADDRS
 
 /* Define to 1 if you have the `bzero' function. */
 #cmakedefine HAVE_BZERO

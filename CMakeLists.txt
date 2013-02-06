@@ -36,14 +36,51 @@ option(WITHOUT_SERVER "Don't build the server part of the library" OFF)
 option(WITH_LIBCRYPTO "Use libcrypto MD5 and SHA1 implementations" ON)
 option(WITHOUT_PING "Don't build the ping test application" OFF)
 option(WITHOUT_DEBUG "Don't compile debug related code" OFF)
+option(WITHOUT_EXTENSIONS "Don't compile with extensions" OFF)
+option(WITH_LATENCY "Build latency measuring code into the library" OFF)
+option(WITHOUT_DAEMONIZE "Don't build the daemonization api" OFF)
 
-set(CYASSL_LIB ON CACHE STRING "")
-set(CYASSL_INCLUDE_DIRS ON CACHE STRING "")
+# The base dir where the SSL dirs should be looked for.
+set(SSL_CERT_DIR CACHE STRING "")
+set(SSL_CLIENT_CERT_DIR CACHE STRING "")
+
+if ("${SSL_CERT_DIR}" STREQUAL "")
+	set(SSL_CERT_DIR ".")
+endif()
+
+if ("${SSL_CLIENT_CERT_DIR}" STREQUAL "")
+	set(LWS_OPENSSL_CLIENT_CERTS ".")
+else()
+	set(LWS_OPENSSL_CLIENT_CERTS "${SSL_CLIENT_CERT_DIR}")
+endif()
+
+set(CYASSL_LIB CACHE STRING "")
+set(CYASSL_INCLUDE_DIRS CACHE STRING "")
 
 if (USE_CYASSL)
-	if (NOT CYASSL_LIB OR NOT CYASSL_INCLUDE_DIRS)
+	if ("${CYASSL_LIB}" STREQUAL "" OR "${CYASSL_INCLUDE_DIRS}" STREQUAL "")
 		error("You must set CYASSL_LIB and CYASSL_INCLUDE_DIRS when USE_CYASSL is turned on")
 	endif()
+endif()
+
+if (WITHOUT_EXTENSIONS)
+	set(LWS_NO_EXTENSIONS 1)
+endif()
+
+if (WITH_SSL)
+	set(LWS_OPENSSL_SUPPORT 1)
+endif()
+
+if (WITH_LATENCY)
+	set(LWS_LATENCY 1)
+endif()
+
+if (WITHOUT_DAEMONIZE)
+	set(LWS_NO_DAEMONIZE 1)
+endif()
+
+if (MINGW)
+	set(LWS_MINGW_SUPPORT 1)
 endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
@@ -74,8 +111,11 @@ CHECK_FUNCTION_EXISTS(strerror HAVE_STRERROR)
 CHECK_FUNCTION_EXISTS(vfork HAVE_VFORK)
 CHECK_FUNCTION_EXISTS(getifaddrs HAVE_GETIFADDRS)
 
-if (HAVE_GETIFADDRS AND WITH_BUILTIN_GETIFADDRS)
-	warning("getifaddrs already exists on the system, are you sure you want to build using the BSD version? (This is normally only needed on systems running uclibc)")
+if (WITH_BUILTIN_GETIFADDRS)
+	if (HAVE_GETIFADDRS)
+		warning("getifaddrs already exists on the system, are you sure you want to build using the BSD version? (This is normally only needed on systems running uclibc)")
+	endif()
+	set(LWS_BUILTIN_GETIFADDRS 1)
 endif()
 
 CHECK_INCLUDE_FILE(dlfcn.h HAVE_DLFCN_H)
@@ -112,10 +152,6 @@ endif()
 
 if (NOT HAVE_REALLOC)
 	set(realloc rpl_realloc)
-endif()
-
-if (WITH_SSL)
-	set(LWS_OPENSSL_SUPPORT)
 endif()
 
 # Generate the config.h that includes all the compilation settings.
@@ -180,9 +216,11 @@ if (WIN32)
 	include_directories(${WIN32_HELPERS_PATH})
 else()
 	# Unix.
-	list(APPEND SOURCES
-		lib/daemonize.c
-		)
+	if (NOT WITHOUT_DAEMONIZE)
+		list(APPEND SOURCES
+			lib/daemonize.c
+			)
+	endif()
 endif()
 
 if (UNIX)
@@ -236,14 +274,14 @@ if (WIN32 AND NOT USE_EXTERNAL_ZLIB)
 	)
 
 	# Create the library.
-	add_library(zlib STATIC ${ZLIB_SRCS})
+	add_library(ZLIB STATIC ${ZLIB_SRCS})
 
 	# Set the same variables as find_package would.
 	set(ZLIB_INCLUDE_DIRS ${WIN32_ZLIB_PATH})
 	get_property(ZLIB_LIBRARIES TARGET zlib PROPERTY LOCATION)
 	set(ZLIB_FOUND 1)
 else()
-	find_package(zlib REQUIRED)
+	find_package(ZLIB REQUIRED)
 endif()
 
 message("ZLib include dirs: ${ZLIB_INCLUDE_DIRS}")
@@ -295,7 +333,6 @@ if (NOT WITHOUT_TESTAPPS)
 	#
 	function(create_test_app TEST_NAME MAIN_SRC WIN32_SRCS WIN32_HDRS)
 		
-		set(TEST_CLIENT_NAME test-client)
 		set(TEST_SRCS ${MAIN_SRC})
 		set(TEST_HDR)
 
@@ -316,6 +353,13 @@ if (NOT WITHOUT_TESTAPPS)
 		source_group("Sources"   FILES ${TEST_SRCS})
 		add_executable(${TEST_NAME} ${TEST_SRCS} ${TEST_HDR})
 		target_link_libraries(${TEST_NAME} websocket)
+
+		set_property(
+					TARGET ${TEST_NAME}
+					PROPERTY COMPILE_DEFINITIONS INSTALL_DATADIR="${SSL_CERT_DIR}"
+					)
+
+
 	endfunction()
 
 	#
