@@ -25,6 +25,12 @@
 /* Don't build the daemonizeation api */
 #cmakedefine LWS_NO_DAEMONIZE
 
+/* Build without server support */
+#cmakedefine LWS_NO_SERVER
+
+/* Build without client support */
+#cmakedefine LWS_NO_CLIENT
+
 /* If we should compile with MinGW support */
 #cmakedefine LWS_MINGW_SUPPORT
 

@@ -60,7 +60,7 @@ set(CYASSL_INCLUDE_DIRS CACHE STRING "")
 
 if (USE_CYASSL)
 	if ("${CYASSL_LIB}" STREQUAL "" OR "${CYASSL_INCLUDE_DIRS}" STREQUAL "")
-		error("You must set CYASSL_LIB and CYASSL_INCLUDE_DIRS when USE_CYASSL is turned on")
+		message(FATAL_ERROR "You must set CYASSL_LIB and CYASSL_INCLUDE_DIRS when USE_CYASSL is turned on")
 	endif()
 endif()
 
@@ -78,6 +78,14 @@ endif()
 
 if (WITHOUT_DAEMONIZE)
 	set(LWS_NO_DAEMONIZE 1)
+endif()
+
+if (WITHOUT_SERVER)
+	set(LWS_NO_SERVER 1)
+endif()
+
+if (WITHOUT_CLIENT)
+	set(LWS_NO_CLIENT 1)
 endif()
 
 if (MINGW)
@@ -380,8 +388,6 @@ if (NOT WITHOUT_TESTAPPS)
 					TARGET ${TEST_NAME}
 					PROPERTY COMPILE_DEFINITIONS INSTALL_DATADIR="${SSL_CERT_DIR}"
 					)
-
-
 	endfunction()
 
 	#
@@ -392,7 +398,7 @@ if (NOT WITHOUT_TESTAPPS)
 			"test-server/test-client.c"
 			""
 			"")
-	endif(NOT WITHOUT_CLIENT)
+	endif()
 
 	#
 	# test-server
@@ -402,12 +408,12 @@ if (NOT WITHOUT_TESTAPPS)
 			"test-server/test-server.c"
 			""
 			"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
-	endif(NOT WITHOUT_SERVER)
+	endif()
 
 	#
 	# test-server-extpoll
 	#
-	if (NOT WITHOUT_SERVER_EXTPOLL)
+	if (NOT WITHOUT_SERVER AND NOT WITHOUT_SERVER_EXTPOLL)
 		create_test_app(test-server-extpoll
 			"test-server/test-server.c"
 			""
@@ -418,7 +424,7 @@ if (NOT WITHOUT_TESTAPPS)
 				TARGET test-server-extpoll
 				PROPERTY COMPILE_DEFINITIONS EXTERNAL_POLL INSTALL_DATADIR="${SSL_CERT_DIR}"
 				)
-	endif(NOT WITHOUT_SERVER_EXTPOLL)
+	endif()
 
 	#
 	# test-fraggle
@@ -428,7 +434,7 @@ if (NOT WITHOUT_TESTAPPS)
 			"test-server/test-fraggle.c"
 			""
 			"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
-	endif(NOT WITHOUT_FRAGGLE)
+	endif()
 
 	#
 	# test-ping
@@ -438,7 +444,7 @@ if (NOT WITHOUT_TESTAPPS)
 			"test-server/test-ping.c"
 			""
 			"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
-	endif(NOT WITHOUT_PING)
+	endif()
 
 	#
 	# Copy OpenSSL dlls to the output directory on Windows.
