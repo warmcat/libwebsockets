@@ -11,12 +11,25 @@ set(PACKAGE_TARNAME "${PACKAGE}")
 set(PACKAGE_URL "http://libwebsockets.org")
 set(VERSION "{PACKAGE_VERSION}")
 
-option(WITH_SSL "Include SSL support", ON)
+option(WITH_SSL "Include SSL support (default OpenSSL, CyaSSL if USE_CYASSL is set)" ON)
 option(USE_INCLUDED_WIN32_ZLIB "Use the internal version of ZLib instead of searching the system" ON)
 option(USE_CYASSL "Use CyaSSL replacement for OpenSSL" OFF)
 option(WITH_BUILTIN_GETIFADDRS "Use BSD getifaddrs implementation from libwebsockets... default is your libc provides it" OFF)
+option(WITHOUT_TESTAPPS "Don't build the libwebsocket-test-apps" OFF)
+option(WITHOUT_CLIENT "Don't build the client part of the library" OFF)
+option(WITHOUT_SERVER "Don't build the server part of the library" OFF)
+option(WITH_LIBCRYPTO "Use libcrypto MD5 and SHA1 implementations" ON)
+option(WITHOUT_PING "Don't build the ping test application" OFF)
+option(WITHOUT_DEBUG "Don't compile debug related code" OFF)
+
 set(CYASSL_LIB ON CACHE STRING "")
 set(CYASSL_INCLUDE_DIRS ON CACHE STRING "")
+
+if (USE_CYASSL)
+	if (NOT CYASSL_LIB OR NOT CYASSL_INCLUDE_DIRS)
+		error("You must set CYASSL_LIB and CYASSL_INCLUDE_DIRS when USE_CYASSL is turned on")
+	endif()
+endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
 include_directories(${PROJECT_BINARY_DIR})
@@ -93,13 +106,14 @@ if (WIN32)
 	add_definitions(-D_WIN32_WINNT=0x0501)
 endif(WIN32)
 
-
+# Group headers and sources.
+# Some IDEs use this for nicer file structure.
 set(HDR_PRIVATE
-	lib/private-libwebsockets.h)
-
-set(HDR_PUBLIC
+	lib/private-libwebsockets.h
 	lib/extension-deflate-frame.h
-	lib/lib/extension-deflate-stream.h
+	lib/lib/extension-deflate-stream.h)
+
+set(HDR_PUBLIC	
 	lib/libwebsockets.h
 	)
 
@@ -110,7 +124,7 @@ set(SOURCES
 	lib/client-parser.c
 	lib/daemonize.c
 	lib/extension.c
-	lib/extension-defalte-frame.c
+	lib/extension-deflate-frame.c
 	lib/extension-deflate-stream.c
 	lib/handshake.c
 	lib/libwebsockets.c
@@ -122,16 +136,43 @@ set(SOURCES
 	lib/sha-1.c
 	)
 
+# Add helper files for Windows.
+if (WIN32)
+	set(WIN32_HELPERS_PATH ${PROJECT_SOURCE_DIR}/win32port/win32helpers)
+
+	list(APPEND HDR_PRIVATE
+		${WIN32_HELPERS_PATH}/websock-w32.h
+		${WIN32_HELPERS_PATH}/gettimeofday.h
+		)
+
+	list(APPEND SOURCES 
+		${WIN32_HELPERS_PATH}/websock-w32.c
+		${WIN32_HELPERS_PATH}/gettimeofday.c
+		)
+endif()
+
+if (UNIX)
+	if (!WITH_BUILTIN_GETIFADDRS)
+		list(APPEND HDR_PRIVATE lib/getifaddrs.h)
+		list(APPEND SOURCES lib/getifaddrs.c)
+	endif()
+endif()
+
 source_group("Headers Private"  FILES ${HDR_PRIVATE})
 source_group("Headers Public"   FILES ${HDR_PUBLIC})
 source_group("Sources"          FILES ${SOURCES})
 
-if (UNIX)
-	if (!WITH_BUILTIN_GETIFADDRS)
-		list(APPEND HDR_PUBLIC lib/getifaddrs.h)
-		list(APPEND SOURCES lib/getifaddrs.c)
-	endif()
-endif()
+#
+# Create the lib.
+#
+add_library(websocket STATIC
+			${HDR_PRIVATE}
+			${HDR_PUBLIC}
+			${SOURCES})
+
+#
+# Find libraries.
+#
 
 #
 # ZLIB.
@@ -172,7 +213,7 @@ else()
 endif()
 
 include_directories(${ZLIB_INCLUDE_DIRS})
-target_link_libraries(websockets ${ZLIB_LIBRARIES})
+target_link_libraries(websocket ${ZLIB_LIBRARIES})
 
 #
 # OpenSSL
@@ -187,8 +228,9 @@ if (WITH_SSL)
 		# TODO: Add support for STATIC also.
 		find_package(OpenSSL REQUIRED)
 	endif()
+
+	include_directories(${OPENSSL_INCLUDE_DIR})
+	target_link_libraries(websocket ${OPENSSL_LIBRARIES})
 endif()
 
-include_directories(${OPENSSL_INCLUDE_DIR})
-target_link_libraries(websockets ${OPENSSL_LIBRARIES})
 
