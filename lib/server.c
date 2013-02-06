@@ -127,7 +127,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, struct pollfd *pollfd)
 {
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
-			 MAX_USER_RX_BUFFER + LWS_SEND_BUFFER_POST_PADDING];
+	                  LWS_MAX_SOCKET_IO_BUF + LWS_SEND_BUFFER_POST_PADDING];
 	struct libwebsocket *new_wsi;
 	int accept_fd;
 	unsigned int clilen;

@@ -312,6 +312,11 @@ just_kill_connection:
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 
+	if (old_state == WSI_STATE_ESTABLISHED && wsi->u.ws.rx_user_buffer) {
+		free(wsi->u.ws.rx_user_buffer);
+		wsi->u.ws.rx_user_buffer = NULL;
+	}
+
 	/* tell the user it's all over for this guy */
 
 	if (wsi->protocol && wsi->protocol->callback &&
@@ -1526,7 +1531,6 @@ libwebsocket_create_context(int port, const char *interf,
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
 	lwsl_info(" LWS_INITIAL_HDR_ALLOC: %u\n", LWS_INITIAL_HDR_ALLOC);
 	lwsl_info(" LWS_ADDITIONAL_HDR_ALLOC: %u\n", LWS_ADDITIONAL_HDR_ALLOC);
-	lwsl_info(" MAX_USER_RX_BUFFER: %u\n", MAX_USER_RX_BUFFER);
 	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
 #ifndef LWS_NO_EXTENSIONS
 	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
@@ -1720,7 +1724,7 @@ libwebsocket_create_context(int port, const char *interf,
 						       "serving unencrypted\n");
 #endif
 
-		lwsl_notice(" per-connection allocation: %u + headers\n", sizeof(struct libwebsocket));
+		lwsl_notice(" per-connection allocation: %u + headers during handshake + frame buffer set by protocol\n", sizeof(struct libwebsocket));
 	}
 #endif
 

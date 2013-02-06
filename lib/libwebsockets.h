@@ -662,6 +662,14 @@ typedef int (extension_callback_function)(struct libwebsocket_context * context,
  *		this much memory allocated on connection establishment and
  *		freed on connection takedown.  A pointer to this per-connection
  *		allocation is passed into the callback in the 'user' parameter
+ * @rx_buffer_size: if you want atomic frames delivered to the callback, you
+ * 		should set this to the size of the biggest legal frame that
+ * 		you support.  If the frame size is exceeded, there is no
+ * 		error, but the buffer will spill to the user callback when
+ * 		full, which you can detect by using
+ * 		libwebsockets_remaining_packet_payload().  Notice that you
+ * 		just talk about frame size here, the LWS_SEND_BUFFER_PRE_PADDING
+ * 		and post-padding are automatically also allocated on top.
  * @owning_server:	the server init call fills in this opaque pointer when
  *		registering this protocol with the server.
  * @protocol_index: which protocol we are starting from zero
@@ -675,6 +683,7 @@ struct libwebsocket_protocols {
 	const char *name;
 	callback_function *callback;
 	size_t per_session_data_size;
+	size_t rx_buffer_size;
 
 	/*
 	 * below are filled in on server init and can be left uninitialized,

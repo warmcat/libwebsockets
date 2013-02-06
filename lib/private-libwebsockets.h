@@ -125,9 +125,6 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #ifndef LWS_ADDITIONAL_HDR_ALLOC
 #define LWS_ADDITIONAL_HDR_ALLOC 64
 #endif
-#ifndef MAX_USER_RX_BUFFER
-#define MAX_USER_RX_BUFFER 4096
-#endif
 #ifndef LWS_MAX_PROTOCOLS
 #define LWS_MAX_PROTOCOLS 10
 #endif
@@ -148,6 +145,7 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #endif
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
+#define LWS_MAX_SOCKET_IO_BUF 4096
 
 #ifndef SYSTEM_RANDOM_FILEPATH
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
@@ -257,7 +255,7 @@ struct libwebsocket_context {
 	 * does not last longer than the service action (since next service
 	 * of any socket can likewise use it and overwrite)
 	 */
-	unsigned char service_buffer[4096];
+	unsigned char service_buffer[LWS_MAX_SOCKET_IO_BUF];
 
 	int started_with_parent;
 
@@ -324,8 +322,7 @@ struct _lws_header_related {
 };
 
 struct _lws_websocket_related {
-	char rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING + MAX_USER_RX_BUFFER +
-						  LWS_SEND_BUFFER_POST_PADDING];
+	char *rx_user_buffer;
 	int rx_user_buffer_head;
 	unsigned char masking_key_04[20];
 	unsigned char frame_masking_nonce_04[4];

@@ -166,17 +166,15 @@ static struct libwebsocket_protocols protocols[] = {
 		"dumb-increment-protocol",
 		callback_dumb_increment,
 		0,
+		20,
 	},
 	{
 		"lws-mirror-protocol",
 		callback_lws_mirror,
 		0,
+		4096,
 	},
-	{  /* end of list */
-		NULL,
-		NULL,
-		0
-	}
+	{ NULL, NULL, 0, 0 } /* end */
 };
 
 static struct option options[] = {

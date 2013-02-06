@@ -212,6 +212,23 @@ libwebsocket_read(struct libwebsocket_context *context,
 		/* union transition */
 		memset(&wsi->u, 0, sizeof wsi->u);
 
+		/*
+		 * create the frame buffer for this connection according to the
+		 * size mentioned in the protocol definition.  If 0 there, use
+		 * a big default for compatibility
+		 */
+
+		n = wsi->protocol->rx_buffer_size;
+		if (!n)
+			n = LWS_MAX_SOCKET_IO_BUF;
+		n += LWS_SEND_BUFFER_PRE_PADDING + LWS_SEND_BUFFER_POST_PADDING;
+		wsi->u.ws.rx_user_buffer = malloc(n);
+		if (!wsi->u.ws.rx_user_buffer) {
+			lwsl_err("Out of Mem allocating rx buffer %d\n", n);
+			goto bail3;
+		}
+		lwsl_info("Allocating client RX buffer %d\n", n);
+
 		lwsl_parser("accepted v%02d connection\n",
 						       wsi->ietf_spec_revision);
 #endif

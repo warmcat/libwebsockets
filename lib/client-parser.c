@@ -218,6 +218,10 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		break;
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
+
+		if (!wsi->u.ws.rx_user_buffer)
+			lwsl_err("NULL client rx_user_buffer\n");
+
 		if ((!wsi->u.ws.this_frame_masked) || wsi->u.ws.all_zero_nonce)
 			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
 			       (wsi->u.ws.rx_user_buffer_head++)] = c;
@@ -230,7 +234,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 			goto spill;
 		}
-		if (wsi->u.ws.rx_user_buffer_head != MAX_USER_RX_BUFFER)
+		if (wsi->u.ws.rx_user_buffer_head != wsi->protocol->rx_buffer_size)
 			break;
 spill:
 

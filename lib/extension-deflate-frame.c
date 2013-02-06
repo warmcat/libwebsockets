@@ -52,8 +52,8 @@ int lws_extension_callback_deflate_frame(
 		}
 		conn->buf_pre_used = 0;
 		conn->buf_pre_length = 0;
-		conn->buf_in_length = MAX_USER_RX_BUFFER;
-		conn->buf_out_length = MAX_USER_RX_BUFFER;
+		conn->buf_in_length = sizeof conn->buf_in;;
+		conn->buf_out_length = sizeof conn->buf_out;
 		conn->compressed_out = 0;
 		conn->buf_pre = NULL;
 		conn->buf_in = (unsigned char *)

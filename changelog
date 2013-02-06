@@ -15,9 +15,35 @@ User api changes
 ----------------
 
  - Header tokens are now deleted after the websocket connection is
- established.  Not just the header data is saved, but the pointer and length
- array is also removed from (union) scope saving several hundred bytes per
- connection once it is established
+	established.  Not just the header data is saved, but the pointer and
+	length array is also removed from (union) scope saving several hundred
+	bytes per connection once it is established
+
+ - struct libwebsocket_protocols has a new member rx_buffer_size, this
+	controls rx buffer size per connection of that protocol now.  Sources
+	for apps built against older versions of the library won't declare
+	this in their protocols, defaulting it to 0.  Zero buffer is legal,
+	it causes a default buffer to be allocated (currently 4096)
+
+	If you want to receive only atomic frames in your user callback, you
+	should set this to greater than your largest frame size.  If a frame
+	comes that exceeds that, no error occurs but the callback happens as
+	soon as the buffer limit is reached, and again if it is reached again
+	or the frame completes.  You can detect that has happened by seeing
+	there is still frame content pending using
+	libwebsockets_remaining_packet_payload()
+
+	By correctly setting this, you can save a lot of memory when your
+	protocol has small frames (see the test server and client sources).
+
+
+User api removals
+-----------------
+
+The configuration-time option MAX_USER_RX_BUFFER has been replaced by a
+buffer size chosen per-protocol.  For compatibility, there's a default of
+4096 rx buffer, but user code should set the appropriate size for the
+protocol frames.
 
 
 New features
@@ -27,6 +53,9 @@ New features
 the visual studio project files that were in the tree until now.
 
  - PATH_MAX or MAX_PATH no longer needed
+
+ - cutomizable frame rx buffer size by protocol
+
 
 
 v1.1-chrome26-firefox18

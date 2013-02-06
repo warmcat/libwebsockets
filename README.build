@@ -159,13 +159,6 @@ tradeoff between taking too much and needless realloc
  - LWS_ADDITIONAL_HDR_ALLOC default 64: how much to additionally realloc if
 the header value string keeps coming
 
- - MAX_USER_RX_BUFFER default 4096: max amount of user rx data to buffer at a
-time and pass to user callback LWS_CALLBACK_RECEIVE or
-LWS_CALLBACK_CLIENT_RECEIVE.  Large frames are passed to the user callback
-in chunks of this size.  Tradeoff between per-connection static memory
-allocation and if you expect to deal with large frames, how much you can
-see at once which can affect efficiency.
-
  - LWS_MAX_PROTOCOLS default 10: largest amount of different protocols the
 server can serve
 

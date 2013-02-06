@@ -453,21 +453,22 @@ static struct libwebsocket_protocols protocols[] = {
 	{
 		"http-only",		/* name */
 		callback_http,		/* callback */
-		0			/* per_session_data_size */
+		0,			/* per_session_data_size */
+		0,			/* max frame size / rx buffer */
 	},
 	{
 		"dumb-increment-protocol",
 		callback_dumb_increment,
 		sizeof(struct per_session_data__dumb_increment),
+		10,
 	},
 	{
 		"lws-mirror-protocol",
 		callback_lws_mirror,
-		sizeof(struct per_session_data__lws_mirror)
+		sizeof(struct per_session_data__lws_mirror),
+		4096,
 	},
-	{
-		NULL, NULL, 0		/* End of list */
-	}
+	{ NULL, NULL, 0, 0 } /* terminator */
 };
 
 void sighandler(int sig)

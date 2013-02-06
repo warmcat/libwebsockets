@@ -621,6 +621,23 @@ check_accept:
 	/* union transition */
 	memset(&wsi->u, 0, sizeof wsi->u);
 
+	/*
+	 * create the frame buffer for this connection according to the
+	 * size mentioned in the protocol definition.  If 0 there, then
+	 * use a big default for compatibility
+	 */
+
+	n = wsi->protocol->rx_buffer_size;
+	if (!n)
+		n = LWS_MAX_SOCKET_IO_BUF;
+	n += LWS_SEND_BUFFER_PRE_PADDING + LWS_SEND_BUFFER_POST_PADDING;
+	wsi->u.ws.rx_user_buffer = malloc(n);
+	if (!wsi->u.ws.rx_user_buffer) {
+		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
+		goto bail3;
+	}
+	lwsl_info("Allocating client RX buffer %d\n", n);
+
 	lwsl_debug("handshake OK for protocol %s\n", wsi->protocol->name);
 
 	/* call him back to inform him he is up */
@@ -686,8 +703,6 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	struct libwebsocket_extension *ext1;
 	int ext_count = 0;
 #endif
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
-			 MAX_USER_RX_BUFFER + LWS_SEND_BUFFER_POST_PADDING];
 	static const char magic_websocket_guid[] =
 					 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -827,10 +842,10 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 
 	/* prepare the expected server accept response */
 
-	strcpy((char *)buf, key_b64);
-	strcpy((char *)&buf[strlen((char *)buf)], magic_websocket_guid);
+	strcpy((char *)context->service_buffer, key_b64);
+	strcpy((char *)&context->service_buffer[strlen((char *)context->service_buffer)], magic_websocket_guid);
 
-	SHA1(buf, strlen((char *)buf), (unsigned char *)hash);
+	SHA1(context->service_buffer, strlen((char *)context->service_buffer), (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
 			wsi->u.hdr.initial_handshake_hash_base64,

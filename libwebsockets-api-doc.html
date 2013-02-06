@@ -934,6 +934,7 @@ set the lws_tokens token pointer to it.
 &nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
 &nbsp; &nbsp; <i>callback_function *</i> <b>callback</b>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
+&nbsp; &nbsp; <i>size_t</i> <b>rx_buffer_size</b>;<br>
 &nbsp; &nbsp; <i>struct libwebsocket_context *</i> <b>owning_server</b>;<br>
 &nbsp; &nbsp; <i>int</i> <b>protocol_index</b>;<br>
 };<br>
@@ -951,6 +952,15 @@ the protocol-specific callback
 this much memory allocated on connection establishment and
 freed on connection takedown.  A pointer to this per-connection
 allocation is passed into the callback in the 'user' parameter
+<dt><b>rx_buffer_size</b>
+<dd>if you want atomic frames delivered to the callback, you
+should set this to the size of the biggest legal frame that
+you support.  If the frame size is exceeded, there is no
+error, but the buffer will spill to the user callback when
+full, which you can detect by using
+<b>libwebsockets_remaining_packet_payload</b>.  Notice that you
+just talk about frame size here, the LWS_SEND_BUFFER_PRE_PADDING
+and post-padding are automatically also allocated on top.
 <dt><b>owning_server</b>
 <dd>the server init call fills in this opaque pointer when
 registering this protocol with the server.
