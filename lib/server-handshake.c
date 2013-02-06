@@ -270,6 +270,12 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 
 bail:
+	/* free up his parsing allocations */
+
+	for (n = 0; n < WSI_TOKEN_COUNT; n++)
+		if (wsi->utf8_token[n].token)
+			free(wsi->utf8_token[n].token);
+
 	return -1;
 }
 

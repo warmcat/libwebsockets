@@ -604,6 +604,16 @@ an incoming client
 the request client connection has
 been unable to complete a handshake with the remote server
 </blockquote>
+<h3>LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH</h3>
+<blockquote>
+this is the last chance for the
+client user code to examine the http headers
+and decide to reject the connection.  If the
+content in the headers is interesting to the
+client (url, etc) it needs to copy it out at
+this point since it will be destroyed before
+the CLIENT_ESTABLISHED call
+</blockquote>
 <h3>LWS_CALLBACK_CLIENT_ESTABLISHED</h3>
 <blockquote>
 after your client connection completed

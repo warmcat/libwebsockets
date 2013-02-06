@@ -124,6 +124,7 @@ enum libwebsocket_context_options {
 enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_ESTABLISHED,
 	LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+	LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
 	LWS_CALLBACK_CLIENT_ESTABLISHED,
 	LWS_CALLBACK_CLOSED,
 	LWS_CALLBACK_RECEIVE,
@@ -377,11 +378,19 @@ struct libwebsocket_extension;
  *	You get an opportunity to initialize user data when called back with
  *	LWS_CALLBACK_ESTABLISHED reason.
  *
- *	LWS_CALLBACK_ESTABLISHED:  after the server completes a handshake with
+ *  LWS_CALLBACK_ESTABLISHED:  after the server completes a handshake with
  *				an incoming client
  *
  *  LWS_CALLBACK_CLIENT_CONNECTION_ERROR: the request client connection has
  *        been unable to complete a handshake with the remote server
+ *
+ *  LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH: this is the last chance for the
+ *  				client user code to examine the http headers
+ *  				and decide to reject the connection.  If the
+ *  				content in the headers is interesting to the
+ *  				client (url, etc) it needs to copy it out at
+ *  				this point since it will be destroyed before
+ *  				the CLIENT_ESTABLISHED call
  *
  *  LWS_CALLBACK_CLIENT_ESTABLISHED: after your client connection completed
  *				a handshake with the remote server

@@ -131,7 +131,6 @@ libwebsocket_read(struct libwebsocket_context *context,
 		if (!wsi->protocol)
 			lwsl_err("NULL protocol at libwebsocket_read\n");
 
-
 		/*
 		 * It's websocket
 		 *
@@ -168,15 +167,6 @@ libwebsocket_read(struct libwebsocket_context *context,
 		}
 
 		/*
-		 * find out which spec version the client is using
-		 * if this header is not given, we default to 00 (aka 76)
-		 */
-
-		if (wsi->utf8_token[WSI_TOKEN_VERSION].token_len)
-			wsi->ietf_spec_revision =
-				 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token);
-
-		/*
 		 * Give the user code a chance to study the request and
 		 * have the opportunity to deny it
 		 */
@@ -208,6 +198,14 @@ libwebsocket_read(struct libwebsocket_context *context,
 						       wsi->ietf_spec_revision);
 			goto bail;
 		}
+
+		/* drop the header info */
+
+		/* free up his parsing allocations... these are gone... */
+
+		for (n = 0; n < WSI_TOKEN_COUNT; n++)
+			if (wsi->utf8_token[n].token)
+				free(wsi->utf8_token[n].token);
 
 		wsi->mode = LWS_CONNMODE_WS_SERVING;
 
@@ -253,6 +251,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 bail:
 	lwsl_info("closing connection at libwebsocket_read bail:\n");
+
 	libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 

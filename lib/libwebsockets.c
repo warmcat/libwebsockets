@@ -348,11 +348,6 @@ just_kill_connection:
 	}
 #endif
 
-	/* free up his parsing allocations */
-
-	for (n = 0; n < WSI_TOKEN_COUNT; n++)
-		if (wsi->utf8_token[n].token)
-			free(wsi->utf8_token[n].token);
 #ifndef LWS_NO_CLIENT
 	if (wsi->c_address)
 		free(wsi->c_address);

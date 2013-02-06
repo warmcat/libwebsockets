@@ -118,13 +118,6 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	 */
 	new_wsi->protocol = context->protocols;
 	new_wsi->user_space = NULL;
-
-	/*
-	 * Default protocol is 76 / 00
-	 * After 76, there's a header specified to inform which
-	 * draft the client wants, when that's seen we modify
-	 * the individual connection's spec revision accordingly
-	 */
 	new_wsi->ietf_spec_revision = 0;
 
 	return new_wsi;

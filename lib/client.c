@@ -594,9 +594,24 @@ check_accept:
 					  !libwebsocket_ensure_user_space(wsi))
 		goto bail2;
 
+	/*
+	 * we seem to be good to go, give client last chance to check
+	 * headers and OK it
+	 */
+
+	wsi->protocol->callback(context, wsi,
+				LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
+						     wsi->user_space, NULL, 0);
+
 	/* clear his proxy connection timeout */
 
 	libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	/* free up his parsing allocations */
+
+	for (n = 0; n < WSI_TOKEN_COUNT; n++)
+		if (wsi->utf8_token[n].token)
+			free(wsi->utf8_token[n].token);
 
 	/* mark him as being alive */
 
@@ -645,6 +660,12 @@ bail2:
 			 wsi->user_space,
 			 NULL, 0);
 	lwsl_info("closing connection due to bail2 connection error\n");
+	/* free up his parsing allocations */
+
+	for (n = 0; n < WSI_TOKEN_COUNT; n++)
+		if (wsi->utf8_token[n].token)
+			free(wsi->utf8_token[n].token);
+
 	libwebsocket_close_and_free_session(context, wsi,
 						 LWS_CLOSE_STATUS_PROTOCOL_ERR);
 

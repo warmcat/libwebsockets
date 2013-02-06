@@ -470,8 +470,14 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			}
 		}
 
-		if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE)
+		if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE) {
+			if (wsi->utf8_token[WSI_TOKEN_CHALLENGE].token) {
+				free(wsi->utf8_token[WSI_TOKEN_CHALLENGE].token);
+				wsi->utf8_token[WSI_TOKEN_CHALLENGE].token = NULL;
+			}
+			wsi->utf8_token[WSI_TOKEN_CHALLENGE].token_len = 0;
 			goto set_parsing_complete;
+		}
 
 		break;
 
@@ -504,14 +510,16 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 set_parsing_complete:
 
-	if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len) {
-		lwsl_info("Missing Version Header\n");
-		return 1;
-	}
-	wsi->ietf_spec_revision =
-		 atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token);
+	if (wsi->utf8_token[WSI_TOKEN_UPGRADE].token_len) {
+		if (!wsi->utf8_token[WSI_TOKEN_VERSION].token_len) {
+//			lwsl_info("Missing Version Header\n");
+//			return 1;
+		} else
+			wsi->ietf_spec_revision =
+				atoi(wsi->utf8_token[WSI_TOKEN_VERSION].token);
 
-	lwsl_parser("v%02d headers completed\n", wsi->ietf_spec_revision);
+		lwsl_parser("v%02d headers completed\n", wsi->ietf_spec_revision);
+	}
 	wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
 
 	return 0;
