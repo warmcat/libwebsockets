@@ -433,7 +433,7 @@ int main(int argc, char **argv)
 				 "origin", protocols[PROTOCOL_LWS_MIRROR].name,
 								  ietf_version);
 		if (ping_wsi[n] == NULL) {
-			fprintf(stderr, "client connnection %d failed to "
+			fprintf(stderr, "client connection %d failed to "
 								"connect\n", n);
 			return 1;
 		}
