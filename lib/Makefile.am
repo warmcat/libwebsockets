@@ -78,4 +78,8 @@ all-local:
                 *.c \
                 libwebsockets.h \
 			> ../libwebsockets-api-doc.html
+	 ../scripts/kernel-doc -text \
+                *.c \
+                libwebsockets.h \
+			> ../libwebsockets-api-doc.txt
 
