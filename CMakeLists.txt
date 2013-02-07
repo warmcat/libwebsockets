@@ -28,7 +28,7 @@ endif()
 
 option(WITH_SSL "Include SSL support (default OpenSSL, CyaSSL if USE_CYASSL is set)" ON)
 option(USE_EXTERNAL_ZLIB "Search the system for ZLib instead of using the included one (on Windows)" OFF)
-option(USE_CYASSL "Use CyaSSL replacement for OpenSSL" OFF)
+option(USE_CYASSL "Use CyaSSL replacement for OpenSSL. When settings this, you also need to specify CYASSL_LIB and CYASSL_INCLUDE_DIRS" OFF)
 option(WITH_BUILTIN_GETIFADDRS "Use BSD getifaddrs implementation from libwebsockets... default is your libc provides it" OFF)
 option(WITHOUT_TESTAPPS "Don't build the libwebsocket-test-apps" OFF)
 option(WITHOUT_CLIENT "Don't build the client part of the library" OFF)
@@ -331,7 +331,13 @@ if (WITH_SSL)
 		message("CyaSSL include dir: ${CYASSL_INCLUDE_DIRS}")
 		message("CyaSSL libraries: ${CYASSL_LIB}")
 
-		include_directories(${CYASSL_INCLUDE_DIRS})
+		# Additional to the root directory we need to include
+		# the cyassl/ subdirectory which contains the OpenSSL
+		# compatability layer headers.
+		foreach(inc ${CYASSL_INCLUDE_DIRS})
+			include_directories(${inc} ${inc}/cyassl)
+		endforeach()
+
 		target_link_libraries(websockets ${CYASSL_LIB})
 	else()
 		# TODO: Add support for STATIC also.

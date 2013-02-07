@@ -1,3 +1,12 @@
+Introduction
+------------
+Libwebsockets can be built using two different build systems
+autoconf or CMake. autoconf only works on Unix systems, or mingw/cygwin
+on Windows. CMake works differently and can generate platform specific
+project files for most popular IDEs and build systems.
+
+################################### Autoconf ###################################
+
 Building the library and test apps
 ----------------------------------
 
@@ -248,3 +257,171 @@ and Ubuntu.
 
 [3] known headers are retained via additional mallocs for the lifetime of the
 connection
+
+
+#################################### CMake ####################################
+
+CMake is a multi-platform build tool that can generate build files for many
+different target platforms. See more info at http://www.cmake.org
+
+CMake also allows/recommends you to do "out of source"-builds, that is, 
+the build files are separated from your sources, so there is no need to 
+create elaborate clean scripts to get a clean source tree, instead you 
+simply remove your build directory.
+
+Libwebsockets has been tested to build successfully on the following platforms
+with SSL support (both OpenSSL/CyaSSL):
+
+- Windows
+- Linux (x86 and ARM)
+- OSX
+- NetBSD
+
+Building the library and test apps
+----------------------------------
+
+The project settings used by CMake to generate the platform specific build
+files is called CMakeLists.txt. CMake then uses one of its "Generators" to
+output a Visual Studio project or Make file for instance. To see a list of
+the available generators for your platform, simply run the "cmake" command.
+
+Note that by default OpenSSL will be linked, if you don't want SSL support
+see below on how to toggle compile options.
+
+Building on Unix:
+-----------------
+
+1. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
+   (Most Unix distributions comes with a packaged version also)
+
+2. Install OpenSSL.
+
+3. Generate the build files (default is Make files):
+
+	cd /path/to/src
+	mkdir build
+	cd build
+	cmake ..
+
+	(NOTE: The build/ directory can have any name and be located anywhere
+	 on your filesystem, and that the argument ".." given to cmake is simply
+	 the source directory of libwebsockets containing the CMakeLists.txt project
+	 file. All examples in this file assumes you use "..")
+
+4. Finally you can build using the generated Makefile:
+
+	make
+
+Building on Windows (Visual Studio)
+-----------------------------------
+1. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
+
+2. Install OpenSSL binaries. http://www.openssl.org/related/binaries.html
+   (Preferably in the default location to make it easier for CMake to find them)
+
+3. Generate the Visual studio project by opening the Visual Studio cmd prompt:
+
+   cd <path to src>
+   md build
+   cd build
+   cmake -G "Visual Studio 10" ..
+
+   (NOTE: There is also a cmake-gui available on Windows if you prefer that)
+
+4. Now you should have a generated Visual Studio Solution in  your
+   <path to src>/build directory, which can be used to build.
+
+Setting compile options
+-----------------------
+
+To set compile time flags you can either use one of the CMake gui applications
+or do it via command line.
+
+Command line
+------------
+To list avaialable options (ommit the H if you don't want the help text):
+
+	cmake -LH ..
+
+Then to set an option and build (for example turn off SSL support):
+
+	cmake -DWITH_SSL=0 ..
+or
+	cmake -DWITH_SSL:BOOL=OFF ..
+
+Unix GUI
+--------
+If you have a curses enabled build you simply type:
+(not all packages include this, my debian install does not for example).
+	
+	ccmake
+
+Windows GUI
+-----------
+On windows CMake comes with a gui application:
+	Start -> Programs -> CMake -> CMake (cmake-gui)
+
+CyaSSL replacement for OpenSSL
+------------------------------
+CyaSSL is a lightweight SSL library targeted at embedded system:
+http://www.yassl.com/yaSSL/Products-cyassl.html
+
+It contains a OpenSSL compatability layer which makes it possible to pretty
+much link to it instead of OpenSSL, giving a much smaller footprint.
+
+NOTE: At the time of writing this the current release of CyaSSL contains a 
+crash bug due to some APIs libwebsocket uses. To be able to use this you will
+need to use the current HEAD in their official repository:
+	https://github.com/cyassl/cyassl
+
+NOTE: cyassl needs to be compiled using the --enable-opensslExtra flag for
+this to work.
+
+Compiling libwebsockets with CyaSSL
+-----------------------------------
+
+cmake -DUSE_CYASSL=1 
+	  -DCYASSL_INCLUDE_DIRS=/path/to/cyassl 
+	  -DCYASSL_LIB=/path/to/cyassl/cyassl.a ..
+
+NOTE: On windows use the .lib file extension for CYASSL_LIB instead.
+
+Cross compiling
+---------------
+To enable cross compiling libwebsockets using CMake you need to create
+a "Toolchain file" that you supply to CMake when generating your build files.
+CMake will then use the cross compilers and build paths specified in this file
+to look for dependencies and such.
+
+Below is an example of how one of these files might look like:
+
+	#
+	# CMake Toolchain file for crosscompiling on ARM.
+	#
+	# This can be used when running cmake in the following way:
+	#  cd build/
+	#  cmake .. -DCMAKE_TOOLCHAIN_FILE=/path/to/this/file/TC_arm-linux-gcc.cmake
+	#
+
+	set(CROSS_PATH /path/to/cross_environment/uClibc)
+
+	# Target operating system name.
+	set(CMAKE_SYSTEM_NAME Linux)
+
+	# Name of C compiler.
+	set(CMAKE_C_COMPILER "${CROSS_PATH}/bin/arm-linux-uclibc-gcc")
+	set(CMAKE_CXX_COMPILER "${CROSS_PATH}/bin/arm-linux-uclibc-g++")
+
+	# Where to look for the target environment. (More paths can be added here)
+	set(CMAKE_FIND_ROOT_PATH "${CROSS_PATH}")
+
+	# Adjust the default behavior of the FIND_XXX() commands:
+	# search programs in the host environment only.
+	set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+
+	# Search headers and libraries in the target environment only.
+	set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+	set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+
+Additional information on cross compilation with CMake:
+	http://www.vtk.org/Wiki/CMake_Cross_Compiling
