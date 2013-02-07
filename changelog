@@ -11,6 +11,15 @@ User api additions
 	 and the git HEAD hash the library was built from
 
 
+User api changes
+----------------
+
+ - Header tokens are now deleted after the websocket connection is
+ established.  Not just the header data is saved, but the pointer and length
+ array is also removed from (union) scope saving several hundred bytes per
+ connection once it is established
+
+
 New features
 ------------
 
