@@ -1568,6 +1568,7 @@ libwebsocket_create_context(int port, const char *interf,
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
+	memset(context, 0, sizeof(*context));
 #ifndef LWS_NO_DAEMONIZE
 	context->started_with_parent = pid_daemon;
 	lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
@@ -1612,10 +1613,9 @@ libwebsocket_create_context(int port, const char *interf,
 #else
 	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 	if (context->fd_random < 0) {
-		free(context);
 		lwsl_err("Unable to open random device %s %d\n",
 				    SYSTEM_RANDOM_FILEPATH, context->fd_random);
-		return NULL;
+		goto bail;
 	}
 #endif
 
@@ -1675,7 +1675,7 @@ libwebsocket_create_context(int port, const char *interf,
 		p = strchr(context->http_proxy_address, ':');
 		if (p == NULL) {
 			lwsl_err("http_proxy needs to be ads:port\n");
-			return NULL;
+			goto bail;
 		}
 		*p = '\0';
 		context->http_proxy_port = atoi(p + 1);
@@ -1705,7 +1705,7 @@ libwebsocket_create_context(int port, const char *interf,
 		if (ssl_cert_filepath != NULL &&
 					     ssl_private_key_filepath != NULL) {
 			lwsl_notice(" Not compiled for OpenSSl support!\n");
-			return NULL;
+			goto bail;
 		}
 		lwsl_notice(" Compiled without SSL support, "
 						       "serving unencrypted\n");
@@ -1743,13 +1743,13 @@ libwebsocket_create_context(int port, const char *interf,
 	if (!method) {
 		lwsl_err("problem creating ssl method: %s\n",
 			ERR_error_string(ERR_get_error(), ssl_err_buf));
-		return NULL;
+		goto bail;
 	}
 	context->ssl_ctx = SSL_CTX_new(method);	/* create context */
 	if (!context->ssl_ctx) {
 		lwsl_err("problem creating ssl context: %s\n",
 			ERR_error_string(ERR_get_error(), ssl_err_buf));
-		return NULL;
+		goto bail;
 	}
 
 #ifdef SSL_OP_NO_COMPRESSION
@@ -1767,14 +1767,14 @@ libwebsocket_create_context(int port, const char *interf,
 		if (!method) {
 			lwsl_err("problem creating ssl method: %s\n",
 				ERR_error_string(ERR_get_error(), ssl_err_buf));
-			return NULL;
+			goto bail;
 		}
 		/* create context */
 		context->ssl_client_ctx = SSL_CTX_new(method);
 		if (!context->ssl_client_ctx) {
 			lwsl_err("problem creating ssl context: %s\n",
 				ERR_error_string(ERR_get_error(), ssl_err_buf));
-			return NULL;
+			goto bail;
 		}
 
 #ifdef SSL_OP_NO_COMPRESSION
@@ -1844,7 +1844,7 @@ libwebsocket_create_context(int port, const char *interf,
 			lwsl_err("problem getting cert '%s': %s\n",
 				ssl_cert_filepath,
 				ERR_error_string(ERR_get_error(), ssl_err_buf));
-			return NULL;
+			goto bail;
 		}
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
@@ -1852,12 +1852,12 @@ libwebsocket_create_context(int port, const char *interf,
 			lwsl_err("ssl problem getting key '%s': %s\n",
 						ssl_private_key_filepath,
 				ERR_error_string(ERR_get_error(), ssl_err_buf));
-			return NULL;
+			goto bail;
 		}
 		/* verify private key */
 		if (!SSL_CTX_check_private_key(context->ssl_ctx)) {
 			lwsl_err("Private SSL key doesn't match cert\n");
-			return NULL;
+			goto bail;
 		}
 
 		/* SSL is happy and has a cert it's content with */
@@ -1867,7 +1867,7 @@ libwebsocket_create_context(int port, const char *interf,
 	/* selftest */
 
 	if (lws_b64_selftest())
-		return NULL;
+		goto bail;
 
 #ifndef LWS_NO_SERVER
 	/* set up our external listening socket we serve on */
@@ -1879,7 +1879,7 @@ libwebsocket_create_context(int port, const char *interf,
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
 		if (sockfd < 0) {
 			lwsl_err("ERROR opening socket\n");
-			return NULL;
+			goto bail;
 		}
 
 #ifndef WIN32
@@ -1918,14 +1918,14 @@ libwebsocket_create_context(int port, const char *interf,
 			lwsl_err("ERROR on binding to port %d (%d %d)\n",
 								port, n, errno);
 			close(sockfd);
-			return NULL;
+			goto bail;
 		}
 
 		wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
 		if (wsi == NULL) {
 			lwsl_err("Out of mem\n");
 			close(sockfd);
-			return NULL;
+			goto bail;
 		}
 		memset(wsi, 0, sizeof (struct libwebsocket));
 		wsi->sock = sockfd;
@@ -1995,6 +1995,10 @@ libwebsocket_create_context(int port, const char *interf,
 	}
 #endif
 	return context;
+
+bail:
+	libwebsocket_context_destroy(context);
+	return NULL;
 }
 
 /**
