@@ -719,8 +719,6 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	int n;
 	int m;
 	struct timeval tv;
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
-			 MAX_USER_RX_BUFFER + LWS_SEND_BUFFER_POST_PADDING];
 #ifdef LWS_OPENSSL_SUPPORT
 	char ssl_err_buf[512];
 #endif
@@ -856,15 +854,19 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 #ifdef LWS_OPENSSL_SUPPORT
 read_pending:
 		if (wsi->ssl) {
-			eff_buf.token_len = SSL_read(wsi->ssl, buf, sizeof buf);
+			eff_buf.token_len = SSL_read(wsi->ssl,
+					context->service_buffer,
+						sizeof context->service_buffer);
 			if (!eff_buf.token_len) {
 				n = SSL_get_error(wsi->ssl, eff_buf.token_len);
-				lwsl_err("SSL_read returned 0 with reason %s\n", ERR_error_string(n, ssl_err_buf));
+				lwsl_err("SSL_read returned 0 with reason %s\n",
+					      ERR_error_string(n, ssl_err_buf));
 			}
 		} else
 #endif
-			eff_buf.token_len =
-					   recv(pollfd->fd, buf, sizeof buf, 0);
+			eff_buf.token_len = recv(pollfd->fd,
+					context->service_buffer,
+					     sizeof context->service_buffer, 0);
 
 		if (eff_buf.token_len < 0) {
 			lwsl_debug("Socket read returned %d\n",
@@ -893,7 +895,7 @@ read_pending:
 		 * used then so it is efficient.
 		 */
 
-		eff_buf.token = (char *)buf;
+		eff_buf.token = (char *)context->service_buffer;
 #ifndef LWS_NO_EXTENSIONS
 		more = 1;
 		while (more) {
