@@ -23,9 +23,10 @@ User api changes
 New features
 ------------
 
-Cmake project file added, aimed initially at Windows support: this replaces
+ - Cmake project file added, aimed initially at Windows support: this replaces
 the visual studio project files that were in the tree until now.
 
+ - PATH_MAX or MAX_PATH no longer needed
 
 
 v1.1-chrome26-firefox18

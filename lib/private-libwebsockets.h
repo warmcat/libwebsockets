@@ -58,10 +58,6 @@
 #ifdef WIN32
 #define LWS_NO_DAEMONIZE
 
-#ifndef PATH_MAX
-#define PATH_MAX MAX_PATH
-#endif
-
 #define compatible_close(fd) closesocket(fd);
 #ifdef  __MINGW64__                                                             
 #else                                                                           
