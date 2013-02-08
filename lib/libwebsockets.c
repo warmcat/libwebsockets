@@ -1592,6 +1592,7 @@ libwebsocket_create_context(int port, const char *interf,
 	context->max_fds = getdtablesize();
 	lwsl_notice(" max fd tracked: %u\n", context->max_fds);
 	lwsl_notice(" static allocation: %u bytes\n",
+		sizeof(struct libwebsocket_context) +
 		(sizeof(struct pollfd) * context->max_fds) +
 		(sizeof(struct libwebsocket *) * context->max_fds));
 
