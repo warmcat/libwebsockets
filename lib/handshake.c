@@ -225,9 +225,9 @@ libwebsocket_read(struct libwebsocket_context *context,
 		wsi->u.ws.rx_user_buffer = malloc(n);
 		if (!wsi->u.ws.rx_user_buffer) {
 			lwsl_err("Out of Mem allocating rx buffer %d\n", n);
-			goto bail3;
+			goto bail;
 		}
-		lwsl_info("Allocating client RX buffer %d\n", n);
+		lwsl_info("Allocating RX buffer %d\n", n);
 
 		lwsl_parser("accepted v%02d connection\n",
 						       wsi->ietf_spec_revision);
