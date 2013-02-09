@@ -1443,31 +1443,9 @@ int user_callback_handle_rxflow(callback_function callback_function,
 
 /**
  * libwebsocket_create_context() - Create the websocket handler
- * @port:	Port to listen on... you can use 0 to suppress listening on
- *		any port, that's what you want if you are not running a
- *		websocket server at all but just using it as a client
- * @interf:  NULL to bind the listen socket to all interfaces, or the
- *		interface name, eg, "eth2"
- * @protocols:	Array of structures listing supported protocols and a protocol-
- *		specific callback for each one.  The list is ended with an
- *		entry that has a NULL callback pointer.
- *		It's not const because we write the owning_server member
- * @extensions: NULL or array of libwebsocket_extension structs listing the
- *		extensions this context supports.  If you configured with
- *		--without-extensions, you should give NULL here.
- * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
- *			to listen using SSL, set to the filepath to fetch the
- *			server cert from, otherwise NULL for unencrypted
- * @ssl_private_key_filepath: filepath to private key if wanting SSL mode,
- *			else ignored
- * @ssl_ca_filepath: CA certificate filepath or NULL
- * @gid:	group id to change to after setting listen socket, or -1.
- * @uid:	user id to change to after setting listen socket, or -1.
- * @options:	0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
- * @user:	optional user pointer that can be recovered via the context
- * 		pointer using libwebsocket_context_user 
+ * @info:	pointer to struct with parameters
  *
- *	This function creates the listening socket and takes care
+ *	This function creates the listening socket (if serving) and takes care
  *	of all initialization in one step.
  *
  *	After initialization, it returns a struct libwebsocket_context * that
@@ -1494,14 +1472,7 @@ int user_callback_handle_rxflow(callback_function callback_function,
  */
 
 struct libwebsocket_context *
-libwebsocket_create_context(int port, const char *interf,
-			       struct libwebsocket_protocols *protocols,
-			       struct libwebsocket_extension *extensions,
-			       const char *ssl_cert_filepath,
-			       const char *ssl_private_key_filepath,
-			       const char *ssl_ca_filepath,
-			       int gid, int uid, unsigned int options,
-			       void *user)
+libwebsocket_create_context(struct lws_context_creation_info *info)
 {
 	int n;
 	struct libwebsocket_context *context = NULL;
@@ -1513,6 +1484,7 @@ libwebsocket_create_context(int port, const char *interf,
 #endif
 #ifndef LWS_NO_EXTENSIONS
 	int m;
+	struct libwebsocket_extension *ext;
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -1587,11 +1559,11 @@ libwebsocket_create_context(int port, const char *interf,
 #endif
 	
 	context->listen_service_extraseen = 0;
-	context->protocols = protocols;
-	context->listen_port = port;
+	context->protocols = info->protocols;
+	context->listen_port = info->port;
 	context->http_proxy_port = 0;
 	context->http_proxy_address[0] = '\0';
-	context->options = options;
+	context->options = info->options;
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
 	lwsl_notice(" max fd tracked: %u\n", context->max_fds);
@@ -1616,10 +1588,10 @@ libwebsocket_create_context(int port, const char *interf,
 
 	context->fds_count = 0;
 #ifndef LWS_NO_EXTENSIONS
-	context->extensions = extensions;
+	context->extensions = info->extensions;
 #endif
 	context->last_timeout_check_s = 0;
-	context->user_space = user;
+	context->user_space = info->user;
 
 #ifdef WIN32
 	context->fd_random = 0;
@@ -1642,7 +1614,7 @@ libwebsocket_create_context(int port, const char *interf,
 	strcpy(context->canonical_hostname, "unknown");
 
 #ifndef LWS_NO_SERVER
-	if (!(options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME)) {
+	if (!(info->options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME)) {
 		struct sockaddr sa;
 		char hostname[1024] = "";
 
@@ -1699,11 +1671,11 @@ libwebsocket_create_context(int port, const char *interf,
 	}
 
 #ifndef LWS_NO_SERVER
-	if (port) {
+	if (info->port) {
 
 #ifdef LWS_OPENSSL_SUPPORT
-		context->use_ssl = ssl_cert_filepath != NULL &&
-					       ssl_private_key_filepath != NULL;
+		context->use_ssl = info->ssl_cert_filepath != NULL &&
+					 info->ssl_private_key_filepath != NULL;
 #ifdef USE_CYASSL
 		lwsl_notice(" Compiled with CYASSL support\n");
 #else
@@ -1775,7 +1747,7 @@ libwebsocket_create_context(int port, const char *interf,
 
 	/* client context */
 
-	if (port == CONTEXT_PORT_NO_LISTEN) {
+	if (info->port == CONTEXT_PORT_NO_LISTEN) {
 		method = (SSL_METHOD *)SSLv23_client_method();
 		if (!method) {
 			lwsl_err("problem creating ssl method: %s\n",
@@ -1797,7 +1769,7 @@ libwebsocket_create_context(int port, const char *interf,
 		SSL_CTX_set_cipher_list(context->ssl_client_ctx, CIPHERS_LIST_STRING);
 
 		/* openssl init for cert verification (for client sockets) */
-		if (!ssl_ca_filepath) {
+		if (!info->ssl_ca_filepath) {
 			if (!SSL_CTX_load_verify_locations(
 				context->ssl_client_ctx, NULL,
 						     LWS_OPENSSL_CLIENT_CERTS))
@@ -1808,12 +1780,12 @@ libwebsocket_create_context(int port, const char *interf,
 						     LWS_OPENSSL_CLIENT_CERTS);
 		} else
 			if (!SSL_CTX_load_verify_locations(
-				context->ssl_client_ctx, ssl_ca_filepath,
+				context->ssl_client_ctx, info->ssl_ca_filepath,
 								  NULL))
 				lwsl_err(
 					"Unable to load SSL Client certs "
 					"file from %s -- client ssl isn't "
-					"going to work", ssl_ca_filepath);
+					"going to work", info->ssl_ca_filepath);
 
 		/*
 		 * callback allowing user code to load extra verification certs
@@ -1828,7 +1800,7 @@ libwebsocket_create_context(int port, const char *interf,
 
 	/* as a server, are we requiring clients to identify themselves? */
 
-	if (options & LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
+	if (info->options & LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
 
 		/* absolutely require the client cert */
 
@@ -1852,18 +1824,19 @@ libwebsocket_create_context(int port, const char *interf,
 
 		/* set the local certificate from CertFile */
 		n = SSL_CTX_use_certificate_chain_file(context->ssl_ctx,
-					ssl_cert_filepath);
+					info->ssl_cert_filepath);
 		if (n != 1) {
 			lwsl_err("problem getting cert '%s': %s\n",
-				ssl_cert_filepath,
+				info->ssl_cert_filepath,
 				ERR_error_string(ERR_get_error(), ssl_err_buf));
 			goto bail;
 		}
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
-			     ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
+			     info->ssl_private_key_filepath,
+						       SSL_FILETYPE_PEM) != 1) {
 			lwsl_err("ssl problem getting key '%s': %s\n",
-						ssl_private_key_filepath,
+						info->ssl_private_key_filepath,
 				ERR_error_string(ERR_get_error(), ssl_err_buf));
 			goto bail;
 		}
@@ -1885,7 +1858,7 @@ libwebsocket_create_context(int port, const char *interf,
 #ifndef LWS_NO_SERVER
 	/* set up our external listening socket we serve on */
 
-	if (port) {
+	if (info->port) {
 		extern int interface_to_sa(const char *ifname, struct sockaddr_in *addr, size_t addrlen);
 		int sockfd;
 
@@ -1918,18 +1891,18 @@ libwebsocket_create_context(int port, const char *interf,
 
 		bzero((char *) &serv_addr, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;
-		if (interf == NULL)
+		if (info->interface == NULL)
 			serv_addr.sin_addr.s_addr = INADDR_ANY;
 		else
-			interface_to_sa(interf, &serv_addr,
+			interface_to_sa(info->interface, &serv_addr,
 						sizeof(serv_addr));
-		serv_addr.sin_port = htons(port);
+		serv_addr.sin_port = htons(info->port);
 
 		n = bind(sockfd, (struct sockaddr *) &serv_addr,
 							     sizeof(serv_addr));
 		if (n < 0) {
 			lwsl_err("ERROR on binding to port %d (%d %d)\n",
-								port, n, errno);
+							info->port, n, errno);
 			close(sockfd);
 			goto bail;
 		}
@@ -1954,7 +1927,7 @@ libwebsocket_create_context(int port, const char *interf,
 		context->listen_service_fd = sockfd;
 
 		listen(sockfd, LWS_SOMAXCONN);
-		lwsl_notice(" Listening on port %d\n", port);
+		lwsl_notice(" Listening on port %d\n", info->port);
 	}
 #endif
 
@@ -1965,25 +1938,26 @@ libwebsocket_create_context(int port, const char *interf,
 	 */
 #ifdef WIN32
 #else
-	if (gid != -1)
-		if (setgid(gid))
+	if (info->gid != -1)
+		if (setgid(info->gid))
 			lwsl_warn("setgid: %s\n", strerror(errno));
-	if (uid != -1)
-		if (setuid(uid))
+	if (info->uid != -1)
+		if (setuid(info->uid))
 			lwsl_warn("setuid: %s\n", strerror(errno));
 #endif
 
 	/* initialize supported protocols */
 
 	for (context->count_protocols = 0;
-			protocols[context->count_protocols].callback;
+		info->protocols[context->count_protocols].callback;
 						   context->count_protocols++) {
 
 		lwsl_parser("  Protocol: %s\n",
-				protocols[context->count_protocols].name);
+				info->protocols[context->count_protocols].name);
 
-		protocols[context->count_protocols].owning_server = context;
-		protocols[context->count_protocols].protocol_index =
+		info->protocols[context->count_protocols].owning_server =
+									context;
+		info->protocols[context->count_protocols].protocol_index =
 						       context->count_protocols;
 	}
 
@@ -1994,17 +1968,18 @@ libwebsocket_create_context(int port, const char *interf,
 	 */
 
 	m = LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT;
-	if (port)
+	if (info->port)
 		m = LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT;
 	
-	if (extensions) {
-	    while (extensions->callback) {
-		    lwsl_ext("  Extension: %s\n", extensions->name);
-		    extensions->callback(context, extensions, NULL,
+	if (info->extensions) {
+		ext = info->extensions;
+		while (ext->callback) {
+			lwsl_ext("  Extension: %s\n", ext->name);
+			ext->callback(context, ext, NULL,
 			(enum libwebsocket_extension_callback_reasons)m,
 								NULL, NULL, 0);
-		    extensions++;
-	    }
+			ext++;
+		}
 	}
 #endif
 	return context;

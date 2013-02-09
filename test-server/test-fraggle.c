@@ -239,10 +239,6 @@ static struct option options[] = {
 int main(int argc, char **argv)
 {
 	int n = 0;
-	const char *cert_path =
-			    LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
-	const char *key_path =
-			LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
@@ -252,6 +248,9 @@ int main(int argc, char **argv)
 	struct libwebsocket *wsi;
 	const char *address;
 	int server_port = port;
+	struct lws_context_creation_info info;
+
+	memset(&info, 0, sizeof info);
 
 	fprintf(stderr, "libwebsockets test fraggle\n"
 			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> "
@@ -298,16 +297,21 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (!use_ssl)
-		cert_path = key_path = NULL;
-
-	context = libwebsocket_create_context(server_port, interface, protocols,
+	info.port = server_port;
+	info.interface = interface;
+	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-				libwebsocket_internal_extensions,
-#else
-				NULL,
+	info.extensions = libwebsocket_internal_extensions;
 #endif
-				cert_path, key_path, NULL, -1, -1, opts, NULL);
+	if (use_ssl) {
+		info.ssl_cert_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
+		info.ssl_private_key_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
+	}
+	info.gid = -1;
+	info.uid = -1;
+	info.options = opts;
+
+	context = libwebsocket_create_context(&info);
 	if (context == NULL) {
 		fprintf(stderr, "libwebsocket init failed\n");
 		return -1;

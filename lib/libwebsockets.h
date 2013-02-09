@@ -716,6 +716,48 @@ struct libwebsocket_extension {
 };
 #endif
 
+/**
+ * struct lws_context_creation_info: parameters to create context with
+ *
+ * @port:	Port to listen on... you can use 0 to suppress listening on
+ *		any port, that's what you want if you are not running a
+ *		websocket server at all but just using it as a client
+ * @interface:  NULL to bind the listen socket to all interfaces, or the
+ *		interface name, eg, "eth2"
+ * @protocols:	Array of structures listing supported protocols and a protocol-
+ *		specific callback for each one.  The list is ended with an
+ *		entry that has a NULL callback pointer.
+ *		It's not const because we write the owning_server member
+ * @extensions: NULL or array of libwebsocket_extension structs listing the
+ *		extensions this context supports.  If you configured with
+ *		--without-extensions, you should give NULL here.
+ * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
+ *			to listen using SSL, set to the filepath to fetch the
+ *			server cert from, otherwise NULL for unencrypted
+ * @ssl_private_key_filepath: filepath to private key if wanting SSL mode,
+ *			else ignored
+ * @ssl_ca_filepath: CA certificate filepath or NULL
+ * @gid:	group id to change to after setting listen socket, or -1.
+ * @uid:	user id to change to after setting listen socket, or -1.
+ * @options:	0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
+ * @user:	optional user pointer that can be recovered via the context
+ * 		pointer using libwebsocket_context_user
+ */
+
+struct lws_context_creation_info {
+	int port;
+	const char *interface;
+	struct libwebsocket_protocols *protocols;
+	struct libwebsocket_extension *extensions;
+	const char *ssl_cert_filepath;
+	const char *ssl_private_key_filepath;
+	const char *ssl_ca_filepath;
+	int gid;
+	int uid;
+	unsigned int options;
+	void *user;
+};
+
 LWS_EXTERN
 void lws_set_log_level(int level, void (*log_emit_function)(int level, const char *line));
 
@@ -723,14 +765,7 @@ LWS_EXTERN void
 lwsl_emit_syslog(int level, const char *line);
 
 LWS_EXTERN struct libwebsocket_context *
-libwebsocket_create_context(int port, const char * interf,
-		  struct libwebsocket_protocols *protocols,
-		  struct libwebsocket_extension *extensions,
-		  const char *ssl_cert_filepath,
-		  const char *ssl_private_key_filepath,
-		  const char *ssl_ca_filepath,
-		  int gid, int uid,
-		  unsigned int options, void *user);
+libwebsocket_create_context(struct lws_context_creation_info *info);
 
 LWS_EXTERN void
 libwebsocket_context_destroy(struct libwebsocket_context *context);

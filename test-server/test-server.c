@@ -492,11 +492,6 @@ static struct option options[] = {
 int main(int argc, char **argv)
 {
 	int n = 0;
-	const char *cert_path =
-			    LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
-	const char *key_path =
-			LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
-	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
 	int opts = 0;
@@ -506,11 +501,15 @@ int main(int argc, char **argv)
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
 	unsigned int oldus = 0;
+	struct lws_context_creation_info info;
 
 	int debug_level = 7;
 #ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
 #endif
+
+	memset(&info, 0, sizeof info);
+	info.port = 7681;
 
 	while (n >= 0) {
 		n = getopt_long(argc, argv, "ci:hsp:d:D", options, NULL);
@@ -532,7 +531,7 @@ int main(int argc, char **argv)
 			use_ssl = 1;
 			break;
 		case 'p':
-			port = atoi(optarg);
+			info.port = atoi(optarg);
 			break;
 		case 'i':
 			strncpy(interface_name, optarg, sizeof interface_name);
@@ -579,8 +578,6 @@ int main(int argc, char **argv)
 	lwsl_notice("libwebsockets test server - "
 			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> - "
 						    "licensed under LGPL2.1\n");
-	if (!use_ssl)
-		cert_path = key_path = NULL;
 #ifdef EXTERNAL_POLL
 	max_poll_elements = getdtablesize();
 	pollfds = malloc(max_poll_elements * sizeof (struct pollfd));
@@ -591,13 +588,23 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	context = libwebsocket_create_context(port, interface, protocols,
+	info.interface = interface;
+	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-				libwebsocket_internal_extensions,
-#else
-				NULL,
+	info.extensions = libwebsocket_internal_extensions;
 #endif
-				cert_path, key_path, NULL, -1, -1, opts, NULL);
+	if (!use_ssl) {
+		info.ssl_cert_filepath = NULL;
+		info.ssl_private_key_filepath = NULL;
+	} else {
+		info.ssl_cert_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
+		info.ssl_private_key_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
+	}
+	info.gid = -1;
+	info.uid = -1;
+	info.options = opts;
+
+	context = libwebsocket_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
 		return -1;

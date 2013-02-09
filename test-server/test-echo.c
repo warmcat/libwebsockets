@@ -147,10 +147,6 @@ static struct option options[] = {
 int main(int argc, char **argv)
 {
 	int n = 0;
-	const char *cert_path =
-			    LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
-	const char *key_path =
-			LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
@@ -160,6 +156,7 @@ int main(int argc, char **argv)
 	int syslog_options = LOG_PID | LOG_PERROR;
 	int client = 0;
 	int listen_port;
+	struct lws_context_creation_info info;
 #ifndef LWS_NO_CLIENT
 	char address[256];
 	int rate_us = 250000;
@@ -171,6 +168,8 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
 #endif
+
+	memset(&info, 0, sizeof info);
 
 #ifndef LWS_NO_CLIENT
 	lwsl_notice("Built to support client operations\n");
@@ -254,9 +253,6 @@ int main(int argc, char **argv)
 	lwsl_notice("libwebsockets echo test - "
 			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> - "
 						    "licensed under LGPL2.1\n");
-	if (!use_ssl || client)
-		cert_path = key_path = NULL;
-
 #ifndef LWS_NO_CLIENT
 	if (client) {
 		lwsl_notice("Running in client mode\n");
@@ -272,13 +268,22 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_CLIENT
 	}
 #endif
-	context = libwebsocket_create_context(listen_port, interface, protocols,
+
+	info.port = listen_port;
+	info.interface = interface;
+	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-				libwebsocket_internal_extensions,
-#else
-				NULL,
+	info.extensions = libwebsocket_internal_extensions;
 #endif
-				cert_path, key_path, NULL, -1, -1, opts, NULL);
+	if (use_ssl && !client) {
+		info.ssl_cert_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
+		info.ssl_private_key_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
+	}
+	info.gid = -1;
+	info.uid = -1;
+	info.options = opts;
+
+	context = libwebsocket_create_context(&info);
 
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");

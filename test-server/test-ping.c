@@ -333,6 +333,9 @@ int main(int argc, char **argv)
 	unsigned long oldus = 0;
 	unsigned long l;
 	int ietf_version = -1;
+	struct lws_context_creation_info info;
+
+	memset(&info, 0, sizeof info);
 
 	if (argc < 2)
 		goto usage;
@@ -412,14 +415,15 @@ int main(int argc, char **argv)
 				screen_width = w.ws_col;
 #endif
 
-	context = libwebsocket_create_context(CONTEXT_PORT_NO_LISTEN, NULL,
-					      protocols,
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-				libwebsocket_internal_extensions,
-#else
-				NULL,
+	info.extensions = libwebsocket_internal_extensions;
 #endif
-					      NULL, NULL, NULL, -1, -1, 0, NULL);
+	info.gid = -1;
+	info.uid = -1;
+
+	context = libwebsocket_create_context(&info);
 	if (context == NULL) {
 		fprintf(stderr, "Creating libwebsocket context failed\n");
 		return 1;

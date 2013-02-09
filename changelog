@@ -14,6 +14,13 @@ User api additions
 User api changes
 ----------------
 
+ - libwebsocket_create_context() has changed from taking a ton of parameters
+	to just taking a pointer to a struct containing the parameters.  The
+	struct lws_context_creation_info is in libwebsockets.h, the members
+	are in the same order as when they were parameters to the call
+	previously.  The test apps are all updated accordingly so you can
+	see example code there.
+
  - Header tokens are now deleted after the websocket connection is
 	established.  Not just the header data is saved, but the pointer and
 	length array is also removed from (union) scope saving several hundred

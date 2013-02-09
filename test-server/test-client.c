@@ -201,6 +201,9 @@ int main(int argc, char **argv)
 	int ietf_version = -1; /* latest */
 	int mirror_lifetime = 0;
 	int longlived = 0;
+	struct lws_context_creation_info info;
+
+	memset(&info, 0, sizeof info);
 
 	fprintf(stderr, "libwebsockets test client\n"
 			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> "
@@ -253,14 +256,15 @@ int main(int argc, char **argv)
 	 * For this client-only demo, we tell it to not listen on any port.
 	 */
 
-	context = libwebsocket_create_context(CONTEXT_PORT_NO_LISTEN, NULL,
-				protocols,
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-				libwebsocket_internal_extensions,
-#else
-				NULL,
+	info.extensions = libwebsocket_internal_extensions;
 #endif
-				NULL, NULL, NULL, -1, -1, 0, NULL);
+	info.gid = -1;
+	info.uid = -1;
+
+	context = libwebsocket_create_context(&info);
 	if (context == NULL) {
 		fprintf(stderr, "Creating libwebsocket context failed\n");
 		return 1;
