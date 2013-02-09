@@ -133,7 +133,6 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 	unsigned int clilen;
 	struct sockaddr_in cli_addr;
 	int n;
-	int opt = 1;
 	ssize_t len;
 #ifdef LWS_OPENSSL_SUPPORT
 	int m;
@@ -217,18 +216,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			break;
 		}
 
-		/* Disable Nagle */
-		opt = 1;
-		setsockopt(accept_fd, IPPROTO_TCP, TCP_NODELAY,
-					      (const void *)&opt, sizeof(opt));
-
-		/* We are nonblocking... */
-		#ifdef WIN32
-		opt = 0;
-		ioctlsocket(accept_fd, FIONBIO, (unsigned long *)&opt );
-		#else
-		fcntl(accept_fd, F_SETFL, O_NONBLOCK);
-		#endif
+		lws_set_socket_options(context, accept_fd);
 
 		/*
 		 * look at who we connected to and give user code a chance

@@ -742,6 +742,13 @@ struct libwebsocket_extension {
  * @options:	0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
  * @user:	optional user pointer that can be recovered via the context
  * 		pointer using libwebsocket_context_user
+ * @ka_time:	0 for no keepalive, otherwise apply this keepalive timeout to
+ *		all libwebsocket sockets, client or server
+ * @ka_probes:	if ka_time was nonzero, after the timeout expires how many
+ *		times to try to get a response from the peer before giving up
+ *		and killing the connection
+ * @ka_interval: if ka_time was nonzero, how long to wait before each ka_probes
+ *		attempt
  */
 
 struct lws_context_creation_info {
@@ -756,6 +763,10 @@ struct lws_context_creation_info {
 	int uid;
 	unsigned int options;
 	void *user;
+	int ka_time;
+	int ka_probes;
+	int ka_interval;
+
 };
 
 LWS_EXTERN

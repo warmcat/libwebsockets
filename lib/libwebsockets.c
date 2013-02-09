@@ -519,6 +519,60 @@ int libwebsockets_get_random(struct libwebsocket_context *context,
 	return n;
 }
 
+int lws_set_socket_options(struct libwebsocket_context *context, int fd)
+{
+	int optval = 1;
+	socklen_t optlen = sizeof(optval);
+#ifdef WIN32
+	unsigned long optl = 0;
+#endif
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
+	struct protoent *tcp_proto;
+#endif
+
+	if (context->ka_time) {
+		/* enable keepalive on this socket */
+		optval = 1;
+		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
+					     (const void *)&optval, optlen) < 0)
+			return 1;
+
+		/* set the keepalive conditions we want on it too */
+		optval = context->ka_time;
+		if (setsockopt(fd, IPPROTO_IP, TCP_KEEPIDLE,
+					     (const void *)&optval, optlen) < 0)
+			return 1;
+
+		optval = context->ka_probes;
+		if (setsockopt(fd, IPPROTO_IP, TCP_KEEPINTVL,
+					     (const void *)&optval, optlen) < 0)
+			return 1;
+
+		optval = context->ka_interval;
+		if (setsockopt(fd, IPPROTO_IP, TCP_KEEPCNT,
+					     (const void *)&optval, optlen) < 0)
+			return 1;
+	}
+
+	/* Disable Nagle */
+	optval = 1;
+#if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__NetBSD__)
+	setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen);
+#else
+	tcp_proto = getprotobyname("TCP");
+	setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, &optval, optlen);
+#endif
+
+	/* We are nonblocking... */
+#ifdef WIN32
+	ioctlsocket(fd, FIONBIO, &optl);
+#else
+	fcntl(fd, F_SETFL, O_NONBLOCK);
+#endif
+
+	return 0;
+}
+
 int lws_send_pipe_choked(struct libwebsocket *wsi)
 {
 	struct pollfd fds;

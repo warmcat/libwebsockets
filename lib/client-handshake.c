@@ -10,10 +10,6 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	int n;
 	int plen = 0;
 	char pkt[512];
-	int opt = 1;
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
-	struct protoent *tcp_proto;
-#endif
 
 	lwsl_client("__libwebsocket_client_connect_2\n");
 #ifndef LWS_NO_EXTENSIONS
@@ -41,7 +37,8 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	 * prepare the actual connection (to the proxy, if any)
 	 */
 
-	lwsl_client("__libwebsocket_client_connect_2: address %s", wsi->c_address);
+	lwsl_client("__libwebsocket_client_connect_2: address %s\n",
+								wsi->c_address);
 
 	server_hostent = gethostbyname(wsi->c_address);
 	if (server_hostent == NULL) {
@@ -61,16 +58,6 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	server_addr.sin_addr = *((struct in_addr *)server_hostent->h_addr);
 	bzero(&server_addr.sin_zero, 8);
 
-	/* Disable Nagle */
-#if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__NetBSD__)
-	setsockopt(wsi->sock, SOL_TCP, TCP_NODELAY,
-					      (const void *)&opt, sizeof(opt));
-#else
-	tcp_proto = getprotobyname("TCP");
-	setsockopt(wsi->sock, tcp_proto->p_proto, TCP_NODELAY,
-							    &opt, sizeof(opt));
-#endif
-
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
 					     sizeof(struct sockaddr)) == -1)  {
 		lwsl_debug("Connect failed\n");
@@ -79,6 +66,12 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	}
 
 	lwsl_client("connected\n");
+
+	if (lws_set_socket_options(context, wsi->sock)) {
+		lwsl_err("Failed to set wsi socket options\n");
+		close(wsi->sock);
+		goto oom4;
+	}
 
 	insert_wsi_socket_into_fds(context, wsi);
 

@@ -162,3 +162,25 @@ copy interesting headers by handling LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION
 callback, for clients there's a new callback just for this purpose
 LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH.
 
+
+TCP Keepalive
+-------------
+
+It is possible for a connection which is not being used to send to die
+silently somewhere between the peer and the side not sending.  In this case
+by default TCP will just not report anything and you will never get any more
+incoming data or sign the link is dead until you try to send.
+
+To deal with getting a notification of that situation, you can choose to
+enable TCP keepalives on all libwebsockets sockets, when you create the
+context.
+
+To enable keepalive, set the ka_time member of the context creation parameter
+struct to a nonzero value (in seconds) at context creation time.  You should
+also fill ka_probes and ka_interval in that case.
+
+With keepalive enabled, the TCP layer will send control packets that should
+stimulate a response from the peer without affecting link traffic.  If the
+response is not coming, the socket will announce an error at poll() forcing
+a close.
+

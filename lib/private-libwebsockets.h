@@ -265,6 +265,10 @@ struct libwebsocket_context {
 	int listen_service_fd;
 	int listen_service_extraseen;
 
+	int ka_time;
+	int ka_probes;
+	int ka_interval;
+
 #ifdef LWS_LATENCY
 	unsigned long worst_latency;
 	char worst_latency_info[256];
@@ -488,6 +492,9 @@ user_callback_handle_rxflow(callback_function, struct libwebsocket_context * con
 			struct libwebsocket *wsi,
 			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
+
+extern int
+lws_set_socket_options(struct libwebsocket_context *context, int fd);
 
 #ifndef LWS_OPENSSL_SUPPORT
 

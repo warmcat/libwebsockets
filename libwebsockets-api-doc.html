@@ -968,6 +968,9 @@ all sessions, etc, if it wants
 &nbsp; &nbsp; <i>int</i> <b>uid</b>;<br>
 &nbsp; &nbsp; <i>unsigned int</i> <b>options</b>;<br>
 &nbsp; &nbsp; <i>void *</i> <b>user</b>;<br>
+&nbsp; &nbsp; <i>int</i> <b>ka_time</b>;<br>
+&nbsp; &nbsp; <i>int</i> <b>ka_probes</b>;<br>
+&nbsp; &nbsp; <i>int</i> <b>ka_interval</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
@@ -1005,5 +1008,15 @@ else ignored
 <dt><b>user</b>
 <dd>optional user pointer that can be recovered via the context
 pointer using libwebsocket_context_user
+<dt><b>ka_time</b>
+<dd>0 for no keepalive, otherwise apply this keepalive timeout to
+all libwebsocket sockets, client or server
+<dt><b>ka_probes</b>
+<dd>if ka_time was nonzero, after the timeout expires how many
+times to try to get a response from the peer before giving up
+and killing the connection
+<dt><b>ka_interval</b>
+<dd>if ka_time was nonzero, how long to wait before each ka_probes
+attempt
 </dl>
 <hr>
