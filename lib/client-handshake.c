@@ -5,7 +5,6 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	struct libwebsocket *wsi
 ) {
 	struct pollfd pfd;
-	struct timeval tv;
 	struct hostent *server_hostent;
 	struct sockaddr_in server_addr;
 	int n;
@@ -71,11 +70,6 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	setsockopt(wsi->sock, tcp_proto->p_proto, TCP_NODELAY,
 							    &opt, sizeof(opt));
 #endif
-
-	/* Set receiving timeout */
-	tv.tv_sec = 0;
-	tv.tv_usec = 100 * 1000;
-	setsockopt(wsi->sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof tv);
 
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
 					     sizeof(struct sockaddr)) == -1)  {
