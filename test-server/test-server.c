@@ -466,7 +466,7 @@ static struct libwebsocket_protocols protocols[] = {
 		"lws-mirror-protocol",
 		callback_lws_mirror,
 		sizeof(struct per_session_data__lws_mirror),
-		4096,
+		128,
 	},
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
