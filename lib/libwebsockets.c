@@ -1756,8 +1756,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 			lwsl_notice(" Using non-SSL mode\n");
 
 #else
-		if (ssl_cert_filepath != NULL &&
-					     ssl_private_key_filepath != NULL) {
+		if (info->ssl_cert_filepath != NULL &&
+				       info->ssl_private_key_filepath != NULL) {
 			lwsl_notice(" Not compiled for OpenSSl support!\n");
 			goto bail;
 		}
