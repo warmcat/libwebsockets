@@ -788,9 +788,6 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	int m;
 	int listen_socket_fds_index = 0;
 	struct timeval tv;
-#ifdef LWS_OPENSSL_SUPPORT
-	char ssl_err_buf[512];
-#endif
 
 #ifndef LWS_NO_EXTENSIONS
 	int more = 1;
@@ -934,7 +931,7 @@ read_pending:
 			if (!eff_buf.token_len) {
 				n = SSL_get_error(wsi->ssl, eff_buf.token_len);
 				lwsl_err("SSL_read returned 0 with reason %s\n",
-					      ERR_error_string(n, ssl_err_buf));
+				  ERR_error_string(n, (char *)context->service_buffer));
 			}
 		} else
 #endif
@@ -1558,7 +1555,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_METHOD *method;
-	char ssl_err_buf[512];
 #endif
 
 #ifndef LWS_NO_DAEMONIZE
@@ -1685,32 +1681,32 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #ifndef LWS_NO_SERVER
 	if (!(info->options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME)) {
 		struct sockaddr sa;
-		char hostname[1024] = "";
+		context->service_buffer[0] = '\0';
 
 		/* find canonical hostname */
 
-		hostname[(sizeof hostname) - 1] = '\0';
+		context->service_buffer[(sizeof context->service_buffer) - 1] = '\0';
 		memset(&sa, 0, sizeof(sa));
 		sa.sa_family = AF_INET;
 		sa.sa_data[(sizeof sa.sa_data) - 1] = '\0';
-		gethostname(hostname, (sizeof hostname) - 1);
+		gethostname((char *)context->service_buffer, (sizeof context->service_buffer) - 1);
 
 		n = 0;
 
-		if (strlen(hostname) < sizeof(sa.sa_data) - 1) {
-			strcpy(sa.sa_data, hostname);
+		if (strlen((char *)context->service_buffer) < sizeof(sa.sa_data) - 1) {
+			strcpy(sa.sa_data, (char *)context->service_buffer);
 			lwsl_debug("my host name is %s\n", sa.sa_data);
-			n = getnameinfo(&sa, sizeof(sa), hostname,
-				(sizeof hostname) - 1, NULL, 0, NI_NAMEREQD);
+			n = getnameinfo(&sa, sizeof(sa), (char *)context->service_buffer,
+				(sizeof context->service_buffer) - 1, NULL, 0, NI_NAMEREQD);
 		}
 
 		if (!n) {
-			strncpy(context->canonical_hostname, hostname,
+			strncpy(context->canonical_hostname, (char *)context->service_buffer,
 						sizeof context->canonical_hostname - 1);
 			context->canonical_hostname[
 					sizeof context->canonical_hostname - 1] = '\0';
 		} else
-			strncpy(context->canonical_hostname, hostname,
+			strncpy(context->canonical_hostname, (char *)context->service_buffer,
 						sizeof context->canonical_hostname - 1);
 
 		lwsl_notice(" canonical_hostname = %s\n", context->canonical_hostname);
@@ -1796,13 +1792,13 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	method = (SSL_METHOD *)SSLv23_server_method();
 	if (!method) {
 		lwsl_err("problem creating ssl method: %s\n",
-			ERR_error_string(ERR_get_error(), ssl_err_buf));
+			ERR_error_string(ERR_get_error(), (char *)context->service_buffer));
 		goto bail;
 	}
 	context->ssl_ctx = SSL_CTX_new(method);	/* create context */
 	if (!context->ssl_ctx) {
 		lwsl_err("problem creating ssl context: %s\n",
-			ERR_error_string(ERR_get_error(), ssl_err_buf));
+			ERR_error_string(ERR_get_error(), (char *)context->service_buffer));
 		goto bail;
 	}
 
@@ -1820,14 +1816,14 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		method = (SSL_METHOD *)SSLv23_client_method();
 		if (!method) {
 			lwsl_err("problem creating ssl method: %s\n",
-				ERR_error_string(ERR_get_error(), ssl_err_buf));
+				ERR_error_string(ERR_get_error(), (char *)context->service_buffer));
 			goto bail;
 		}
 		/* create context */
 		context->ssl_client_ctx = SSL_CTX_new(method);
 		if (!context->ssl_client_ctx) {
 			lwsl_err("problem creating ssl context: %s\n",
-				ERR_error_string(ERR_get_error(), ssl_err_buf));
+				ERR_error_string(ERR_get_error(), (char *)context->service_buffer));
 			goto bail;
 		}
 
@@ -1897,7 +1893,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		if (n != 1) {
 			lwsl_err("problem getting cert '%s': %s\n",
 				info->ssl_cert_filepath,
-				ERR_error_string(ERR_get_error(), ssl_err_buf));
+				ERR_error_string(ERR_get_error(), (char *)context->service_buffer));
 			goto bail;
 		}
 		/* set the private key from KeyFile */
@@ -1906,7 +1902,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 						       SSL_FILETYPE_PEM) != 1) {
 			lwsl_err("ssl problem getting key '%s': %s\n",
 						info->ssl_private_key_filepath,
-				ERR_error_string(ERR_get_error(), ssl_err_buf));
+				ERR_error_string(ERR_get_error(), (char *)context->service_buffer));
 			goto bail;
 		}
 		/* verify private key */
