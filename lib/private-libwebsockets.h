@@ -126,10 +126,10 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #define LWS_ADDITIONAL_HDR_ALLOC 64
 #endif
 #ifndef LWS_MAX_PROTOCOLS
-#define LWS_MAX_PROTOCOLS 10
+#define LWS_MAX_PROTOCOLS 5
 #endif
 #ifndef LWS_MAX_EXTENSIONS_ACTIVE
-#define LWS_MAX_EXTENSIONS_ACTIVE 10
+#define LWS_MAX_EXTENSIONS_ACTIVE 3
 #endif
 #ifndef SPEC_LATEST_SUPPORTED
 #define SPEC_LATEST_SUPPORTED 13
@@ -315,10 +315,10 @@ struct _lws_http_mode_related {
 
 struct _lws_header_related {
 	char name_buffer[LWS_MAX_HEADER_NAME_LENGTH];
-	int name_buffer_pos;
+	unsigned char name_buffer_pos;
 	struct lws_tokens hdrs[WSI_TOKEN_COUNT];
 	int lextable_pos;
-	enum lws_token_indexes parser_state;
+	unsigned char parser_state; /* enum lws_token_indexes */
 	int current_alloc_len;
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
@@ -334,17 +334,17 @@ struct _lws_websocket_related {
 	unsigned char frame_mask_index;
 	size_t rx_packet_length;
 	unsigned char opcode;
-	unsigned char final;
+	unsigned int final:1;
 	unsigned char rsv;
-	int frame_is_binary:1;
+	unsigned int frame_is_binary:1;
 	int pings_vs_pongs;
-	char all_zero_nonce;
+	unsigned int all_zero_nonce:1;
 	enum lws_close_status close_reason;
 	unsigned char *rxflow_buffer;
 	int rxflow_len;
 	int rxflow_pos;
 	int rxflow_change_to;
-	char this_frame_masked;
+	unsigned int this_frame_masked:1;
 };
 
 struct libwebsocket {
@@ -356,18 +356,19 @@ struct libwebsocket {
 	struct libwebsocket_extension *
 				   active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
 	void *active_extensions_user[LWS_MAX_EXTENSIONS_ACTIVE];
-	int count_active_extensions;
-	char extension_data_pending;
+	unsigned char count_active_extensions;
+	unsigned int extension_data_pending:1;
 	struct libwebsocket *extension_handles;
 	struct libwebsocket *candidate_children_list;
 #endif
-	int ietf_spec_revision;
+	unsigned char ietf_spec_revision;
 
-	enum connection_mode mode;
-	enum lws_connection_states state;
-	enum lws_rx_parse_state lws_rx_parse_state;
+	char mode; /* enum connection_mode */
+	char state; /* enum lws_connection_states */
+	char lws_rx_parse_state; /* enum lws_rx_parse_state */
+	char rx_frame_type; /* enum libwebsocket_write_protocol */
 
-	enum pending_timeout pending_timeout;
+	char pending_timeout; /* enum pending_timeout */
 	unsigned long pending_timeout_limit;
 
 	int sock;
@@ -386,8 +387,6 @@ struct libwebsocket {
 		struct _lws_header_related hdr;
 		struct _lws_websocket_related ws;
 	} u;
-	
-	enum libwebsocket_write_protocol rx_frame_type;
 
 #ifndef LWS_NO_CLIENT
 	char *c_path;
@@ -397,13 +396,13 @@ struct libwebsocket {
 	callback_function *c_callback;
 
 	char *c_address;
-	int c_port;
+	unsigned short c_port;
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;
 	BIO *client_bio;
-	int use_ssl;
+	unsigned int use_ssl:2;
 #endif	
 };
 
