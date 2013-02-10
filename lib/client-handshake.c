@@ -20,7 +20,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	 */
 
 	if (context->http_proxy_port) {
-		plen = sprintf(context->service_buffer,
+		plen = sprintf((char *)context->service_buffer,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a"
 /*Proxy-authorization: basic aGVsbG86d29ybGQ= */

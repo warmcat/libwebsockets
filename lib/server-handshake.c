@@ -32,9 +32,6 @@
 int
 handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 {
-	static const char *websocket_magic_guid_04 =
-					 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-	char accept_buf[MAX_WEBSOCKET_04_KEY_LEN + 37];
 	unsigned char hash[20];
 	int n;
 	char *response;
@@ -62,16 +59,16 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		goto bail;
 	}
 
-	strcpy(accept_buf, wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token);
-	strcpy(accept_buf + wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token_len,
-						       websocket_magic_guid_04);
+	n = snprintf((char *)context->service_buffer,
+		sizeof context->service_buffer,
+		"%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
+		wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token);
 
-	SHA1((unsigned char *)accept_buf,
-			wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token_len +
-					 strlen(websocket_magic_guid_04), hash);
+	SHA1(context->service_buffer, n, hash);
 
-	accept_len = lws_b64_encode_string((char *)hash, 20, accept_buf,
-							     sizeof accept_buf);
+	accept_len = lws_b64_encode_string((char *)hash, 20,
+			(char *)context->service_buffer,
+			sizeof context->service_buffer);
 	if (accept_len < 0) {
 		lwsl_warn("Base64 encoded hash too long\n");
 		goto bail;
@@ -100,7 +97,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		      "Upgrade: WebSocket\x0d\x0a"
 		      "Connection: Upgrade\x0d\x0a"
 		      "Sec-WebSocket-Accept: ");
-	strcpy(p, accept_buf);
+	strcpy(p, (char *)context->service_buffer);
 	p += accept_len;
 
 	if (wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token) {

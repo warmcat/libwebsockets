@@ -45,9 +45,6 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 	char *p = (char *)&context->service_buffer[0];
 	int len;
 	char c;
-#ifdef LWS_OPENSSL_SUPPORT
-	char ssl_err_buf[512];
-#endif
 
 	switch (wsi->mode) {
 
@@ -177,7 +174,7 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 
 				lwsl_err("SSL connect error %s\n",
 					ERR_error_string(ERR_get_error(),
-								  ssl_err_buf));
+						(char *)context->service_buffer));
 				return 0;
 			}
 
