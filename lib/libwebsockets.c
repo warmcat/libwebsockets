@@ -911,6 +911,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 					    wsi->state == WSI_STATE_ESTABLISHED)
 			if (lws_handle_POLLOUT_event(context, wsi,
 								  pollfd) < 0) {
+				lwsl_info("libwebsocket_service_fd: closing");
 				libwebsocket_close_and_free_session(
 					 context, wsi, LWS_CLOSE_STATUS_NORMAL);
 				return 0;
@@ -1565,8 +1566,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	lwsl_notice("Library version: %s\n", library_version);
 	lwsl_info(" LWS_MAX_HEADER_NAME_LENGTH: %u\n", LWS_MAX_HEADER_NAME_LENGTH);
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
-	lwsl_info(" LWS_INITIAL_HDR_ALLOC: %u\n", LWS_INITIAL_HDR_ALLOC);
-	lwsl_info(" LWS_ADDITIONAL_HDR_ALLOC: %u\n", LWS_ADDITIONAL_HDR_ALLOC);
 	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
 #ifndef LWS_NO_EXTENSIONS
 	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
@@ -1760,7 +1759,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 						       "serving unencrypted\n");
 #endif
 
-		lwsl_notice(" per-connection allocation: %u + headers during handshake + frame buffer set by protocol\n", sizeof(struct libwebsocket));
+		lwsl_notice(" per-connection allocation: %u + %u headers (only during handshake) + frame buffer set by protocol\n", sizeof(struct libwebsocket), sizeof(struct allocated_headers));
 	}
 #endif
 

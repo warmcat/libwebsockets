@@ -85,7 +85,6 @@ struct libwebsocket *
 libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 {
 	struct libwebsocket *new_wsi;
-	int n;
 
 	new_wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
 	if (new_wsi == NULL) {
@@ -105,9 +104,9 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	new_wsi->u.hdr.name_buffer_pos = 0;
 	new_wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
-	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
-		new_wsi->u.hdr.hdrs[n].token = NULL;
-		new_wsi->u.hdr.hdrs[n].token_len = 0;
+	if (lws_allocate_header_table(new_wsi)) {
+		free(new_wsi);
+		return NULL;
 	}
 
 	/*
@@ -164,6 +163,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				return 0;
 			}
 			if (!len) {
+				lwsl_info("lws_server_socket_service: closing on zero length read\n");
 				libwebsocket_close_and_free_session(context, wsi,
 							    LWS_CLOSE_STATUS_NOSTATUS);
 				return 0;
@@ -186,9 +186,11 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE)
 			break;
 
-		if (libwebsockets_serve_http_file_fragment(context, wsi)) /* nonzero for completion or error */
+		if (libwebsockets_serve_http_file_fragment(context, wsi)) { /* nonzero for completion or error */
+			lwsl_info("lws_server_socket_service: libwebsockets_serve_http_file_fragment says to close\n");
 			libwebsocket_close_and_free_session(context, wsi,
 					       LWS_CLOSE_STATUS_NOSTATUS);
+		}
 		break;
 
 	case LWS_CONNMODE_SERVER_LISTENER:

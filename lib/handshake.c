@@ -113,15 +113,15 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 		/* is this websocket protocol or normal http 1.0? */
 
-		if (!wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token_len ||
-			     !wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token_len) {
+		if (!lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE) ||
+			     !lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
 			wsi->state = WSI_STATE_HTTP;
 			if (wsi->protocol->callback)
 				if (wsi->protocol->callback(context, wsi,
 						LWS_CALLBACK_HTTP,
 						wsi->user_space,
-						wsi->u.hdr.hdrs[WSI_TOKEN_GET_URI].token,
-						wsi->u.hdr.hdrs[WSI_TOKEN_GET_URI].token_len)) {
+						lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI),
+						lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI))) {
 					lwsl_info("LWS_CALLBACK_HTTP wanted to close\n");
 					goto bail;
 				}
@@ -139,12 +139,12 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 		while (wsi->protocol->callback) {
 
-			if (wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token == NULL) {
+			if (!lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL)) {
 				if (wsi->protocol->name == NULL)
 					break;
 			} else
 				if (wsi->protocol->name && strcmp(
-				     wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token,
+					lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL),
 						      wsi->protocol->name) == 0)
 					break;
 
@@ -154,14 +154,14 @@ libwebsocket_read(struct libwebsocket_context *context,
 		/* we didn't find a protocol he wanted? */
 
 		if (wsi->protocol->callback == NULL) {
-			if (wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token == NULL) {
+			if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL) == NULL) {
 				lwsl_info("[no protocol] "
 					"mapped to protocol 0 handler\n");
 				wsi->protocol = &context->protocols[0];
 			} else {
 				lwsl_err("Requested protocol %s "
 						"not supported\n",
-				     wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token);
+						lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL));
 				goto bail;
 			}
 		}
@@ -173,7 +173,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 		if ((wsi->protocol->callback)(wsi->protocol->owning_server, wsi,
 				LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
-						&wsi->u.hdr.hdrs[0], NULL, 0)) {
+				lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL),
+								     NULL, 0)) {
 			lwsl_warn("User code denied connection\n");
 			goto bail;
 		}
@@ -201,11 +202,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 		/* drop the header info */
 
-		/* free up his parsing allocations... these are gone... */
-
-		for (n = 0; n < WSI_TOKEN_COUNT; n++)
-			if (wsi->u.hdr.hdrs[n].token)
-				free(wsi->u.hdr.hdrs[n].token);
+		if (wsi->u.hdr.ah)
+			free(wsi->u.hdr.ah);
 
 		wsi->mode = LWS_CONNMODE_WS_SERVING;
 

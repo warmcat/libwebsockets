@@ -54,21 +54,30 @@ User api changes
 	By correctly setting this, you can save a lot of memory when your
 	protocol has small frames (see the test server and client sources).
 
+ - LWS_MAX_HEADER_LEN now defaults to 1024 and is the total amount of known
+ 	header payload lws can cope with, that includes the GET URL, origin
+	etc.  Headers not understood by lws are ignored and their payload
+	not included in this.
+
 
 User api removals
 -----------------
 
-The configuration-time option MAX_USER_RX_BUFFER has been replaced by a
-buffer size chosen per-protocol.  For compatibility, there's a default of
-4096 rx buffer, but user code should set the appropriate size for the
-protocol frames.
+ - The configuration-time option MAX_USER_RX_BUFFER has been replaced by a
+	buffer size chosen per-protocol.  For compatibility, there's a default
+	of 4096 rx buffer, but user code should set the appropriate size for
+	the protocol frames.
+
+ - LWS_INITIAL_HDR_ALLOC and LWS_ADDITIONAL_HDR_ALLOC are no longer needed
+ 	and have been removed.  There's a new header management scheme that
+	handles them in a much more compact way.
 
 
 New features
 ------------
 
  - Cmake project file added, aimed initially at Windows support: this replaces
-the visual studio project files that were in the tree until now.
+	the visual studio project files that were in the tree until now.
 
  - PATH_MAX or MAX_PATH no longer needed
 
@@ -83,6 +92,15 @@ the visual studio project files that were in the tree until now.
  	seems to break when confronted with a mixture of frames above and
 	below the threshold, so it's removed.  Veto the compression extension
 	in your user callback if you will typically have very small frames.
+
+ - There are many memory usage improvements, both a reduction in malloc/
+ 	realloc and architectural changes.  A websocket connection now
+	consumes only 296 bytes with SSL or 272 bytes without on x86_64,
+	during header processing an additional 1262 bytes is allocated in a
+	single malloc, but is freed when the websocket connection starts.
+	The RX frame buffer defined by the protocol in user
+	code is also allocated per connection, this represents the largest
+	frame you can receive atomically in that protocol.
 
 
 v1.1-chrome26-firefox18

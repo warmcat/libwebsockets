@@ -253,10 +253,8 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	if (!wsi->c_callback)
 		wsi->c_callback = context->protocols[0].callback;
 
-	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
-		wsi->u.hdr.hdrs[n].token = NULL;
-		wsi->u.hdr.hdrs[n].token_len = 0;
-	}
+	if (lws_allocate_header_table(wsi))
+		goto oom3;
 
 #ifndef LWS_NO_EXTENSIONS
 	/*

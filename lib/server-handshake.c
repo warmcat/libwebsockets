@@ -22,8 +22,6 @@
 #include "private-libwebsockets.h"
 
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
-#define LWS_CPYAPP_TOKEN(ptr, tok) { strcpy(p, wsi->u.hdr.hdrs[tok].token); \
-		p += wsi->u.hdr.hdrs[tok].token_len; }
 
 /*
  * Perform the newer BASE64-encoded handshake scheme
@@ -45,24 +43,23 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	int more = 1;
 #endif
 
-	if (!wsi->u.hdr.hdrs[WSI_TOKEN_HOST].token_len ||
-	    !wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token_len) {
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST) ||
+				!lws_hdr_total_length(wsi, WSI_TOKEN_KEY)) {
 		lwsl_parser("handshake_04 missing pieces\n");
 		/* completed header processing, but missing some bits */
 		goto bail;
 	}
 
-	if (wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token_len >=
-						     MAX_WEBSOCKET_04_KEY_LEN) {
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_KEY) >= MAX_WEBSOCKET_04_KEY_LEN) {
 		lwsl_warn("Client sent handshake key longer "
 			   "than max supported %d\n", MAX_WEBSOCKET_04_KEY_LEN);
 		goto bail;
 	}
 
 	n = snprintf((char *)context->service_buffer,
-		sizeof context->service_buffer,
-		"%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
-		wsi->u.hdr.hdrs[WSI_TOKEN_KEY].token);
+			sizeof context->service_buffer,
+				"%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
+				lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
 
 	SHA1(context->service_buffer, n, hash);
 
@@ -92,9 +89,12 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	strcpy(p, (char *)context->service_buffer);
 	p += accept_len;
 
-	if (wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token) {
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL)) {
 		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Protocol: ");
-		LWS_CPYAPP_TOKEN(p, WSI_TOKEN_PROTOCOL);
+		n = lws_hdr_copy(wsi, p, 128, WSI_TOKEN_PROTOCOL);
+		if (n < 0)
+			goto bail;
+		p += n;
 	}
 
 #ifndef LWS_NO_EXTENSIONS
@@ -103,16 +103,18 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	 * enable on this connection, and give him back the list
 	 */
 
-	if (wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token_len) {
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_EXTENSIONS)) {
 
 		/*
 		 * break down the list of client extensions
 		 * and go through them
 		 */
 
-		c = wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token;
-		lwsl_parser("wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token = %s\n",
-				  wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token);
+		if (lws_hdr_copy(wsi, (char *)context->service_buffer, sizeof context->service_buffer, WSI_TOKEN_EXTENSIONS) < 0)
+			goto bail;
+
+		c = (char *)context->service_buffer;
+		lwsl_parser("WSI_TOKEN_EXTENSIONS = '%s'\n", c);
 		wsi->count_active_extensions = 0;
 		n = 0;
 		while (more) {
@@ -259,9 +261,8 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 bail:
 	/* free up his parsing allocations */
 
-	for (n = 0; n < WSI_TOKEN_COUNT; n++)
-		if (wsi->u.hdr.hdrs[n].token)
-			free(wsi->u.hdr.hdrs[n].token);
+	if (wsi->u.hdr.ah)
+		free(wsi->u.hdr.ah);
 
 	return -1;
 }

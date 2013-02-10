@@ -930,6 +930,14 @@ lws_b64_decode_string(const char *in, char *out, int out_size);
 LWS_EXTERN const char *
 lws_get_library_version(void);
 
+/* access to headers... only valid while headers valid */
+
+extern int
+lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h);
+
+extern int
+lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len, enum lws_token_indexes h);
+
 /*
  * Note: this is not normally needed as a user api.  It's provided in case it is
  * useful when integrating with other app poll loop service code.

@@ -307,7 +307,68 @@ int lextable_decode(int pos, char c)
 	return pos;
 }
 
+int lws_allocate_header_table(struct libwebsocket *wsi)
+{
+	wsi->u.hdr.ah = malloc(sizeof *wsi->u.hdr.ah);
+	if (wsi->u.hdr.ah == NULL) {
+		lwsl_err("Out of memory\n");
+		return -1;
+	}
+	memset(wsi->u.hdr.ah->frag_index, 0, sizeof wsi->u.hdr.ah->frag_index);
+	wsi->u.hdr.ah->next_frag_index = 0;
+	wsi->u.hdr.ah->pos = 0;
 
+	return 0;
+}
+
+int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h)
+{
+	int n;
+	int len = 0;
+
+	n = wsi->u.hdr.ah->frag_index[h];
+	if (n == 0)
+		return 0;
+
+	do {
+		len += wsi->u.hdr.ah->frags[n].len;
+		n = wsi->u.hdr.ah->frags[n].next_frag_index;
+	} while (n);
+
+	return len;
+}
+
+int lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len, enum lws_token_indexes h)
+{
+	int toklen = lws_hdr_total_length(wsi, h);
+	int n;
+
+	if (toklen >= len)
+		return -1;
+
+	n = wsi->u.hdr.ah->frag_index[h];
+	if (n == 0)
+		return 0;
+
+	do {
+		strcpy(dest, &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset]);
+		dest += wsi->u.hdr.ah->frags[n].len;
+		n = wsi->u.hdr.ah->frags[n].next_frag_index;
+	} while (n);
+
+	return toklen;
+}
+
+char * lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h)
+{
+	int n;
+
+	n = wsi->u.hdr.ah->frag_index[h];
+	if (!n)
+		return NULL;
+
+	return &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset];
+}
 
 int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 {
@@ -331,75 +392,39 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_NONCE:
 	case WSI_TOKEN_EXTENSIONS:
 	case WSI_TOKEN_HTTP:
-	case WSI_TOKEN_MUXURL:
 
 		lwsl_parser("WSI_TOKEN_(%d) '%c'\n", wsi->u.hdr.parser_state, c);
 
 		/* collect into malloc'd buffers */
-		/* optional space swallow */
-		if (!wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token_len && c == ' ')
+		/* optional initial space swallow */
+		if (!wsi->u.hdr.ah->frags[wsi->u.hdr.ah->frag_index[wsi->u.hdr.parser_state]].len && c == ' ')
 			break;
 
 		/* special case space terminator for get-uri */
 		if (wsi->u.hdr.parser_state == WSI_TOKEN_GET_URI && c == ' ') {
-			wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token[
-			   wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token_len] = '\0';
-//			lwsl_parser("uri '%s'\n", wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token);
+			c = '\0';
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
-			break;
-		}
-
-		/* allocate appropriate memory */
-		if (wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token_len ==
-					     wsi->u.hdr.current_alloc_len - 1) {
-			/* need to extend */
-			wsi->u.hdr.current_alloc_len += LWS_ADDITIONAL_HDR_ALLOC;
-			if (wsi->u.hdr.current_alloc_len >= LWS_MAX_HEADER_LEN) {
-				/* it's waaay to much payload, fail it */
-				strcpy(wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token,
-				   "!!! Length exceeded maximum supported !!!");
-				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
-				break;
-			}
-			wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token = (char *)
-			       realloc(wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token,
-							wsi->u.hdr.current_alloc_len);
-			if (wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token == NULL) {
-				lwsl_err("Out of mem\n");
-				return -1;
-			}
 		}
 
 		/* bail at EOL */
 		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE && c == '\x0d') {
-			wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token[
-			   wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token_len] = '\0';
+			c = '\0';
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 			lwsl_parser("*\n");
-			break;
 		}
 
-		wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token[
-			    wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token_len++] = c;
+		if (wsi->u.hdr.ah->pos == sizeof wsi->u.hdr.ah->data) {
+			lwsl_warn("excessive header content\n");
+			return -1;
+		}
+		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = c;
+		if (c)
+			wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
 
 		/* per-protocol end of headers management */
 
-		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE)
-			break;
-
-		goto set_parsing_complete;
-
-	case WSI_INIT_TOKEN_MUXURL:
-		wsi->u.hdr.parser_state = WSI_TOKEN_MUXURL;
-		wsi->u.hdr.current_alloc_len = LWS_INITIAL_HDR_ALLOC;
-
-		wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token = (char *)
-					 malloc(wsi->u.hdr.current_alloc_len);
-		if (wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token == NULL) {
-			lwsl_err("Out of mem\n");
-			return -1;
-		}
-		wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token_len = 0;
+		if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE)
+			goto set_parsing_complete;
 		break;
 
 		/* collecting and checking a name part */
@@ -415,10 +440,11 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		wsi->u.hdr.name_buffer[wsi->u.hdr.name_buffer_pos] = '\0';
 
 		wsi->u.hdr.lextable_pos = lextable_decode(wsi->u.hdr.lextable_pos, c);
+
 		if (wsi->u.hdr.lextable_pos < 0) {
 			/* this is not a header we know about */
-			if (wsi->u.hdr.hdrs[WSI_TOKEN_GET_URI].token_len) {
-				/* if not the method, just skip it all */
+			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
+				/* altready had the method, no idea what this crap is, ignore */
 				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
 				break;
 			}
@@ -427,14 +453,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				lwsl_info("Unknown method %s\n", wsi->u.hdr.name_buffer);
 				/* treat it as GET */
 				wsi->u.hdr.parser_state = WSI_TOKEN_GET_URI;
-				wsi->u.hdr.current_alloc_len = LWS_INITIAL_HDR_ALLOC;
-				wsi->u.hdr.hdrs[WSI_TOKEN_GET_URI].token =
-					(char *)malloc(wsi->u.hdr.current_alloc_len);
-				if (wsi->u.hdr.hdrs[WSI_TOKEN_GET_URI].token == NULL) {
-					lwsl_err("Out of mem\n");
-					return -1;
-				}
-				break;
+				goto start_fragment;
 			}
 		}
 		if (lextable[wsi->u.hdr.lextable_pos + 1] == 0) {
@@ -452,34 +471,47 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			if (n == WSI_TOKEN_SWORIGIN)
 				n = WSI_TOKEN_ORIGIN;
 
-			wsi->u.hdr.parser_state = (enum lws_token_indexes) (WSI_TOKEN_GET_URI + n);
+			wsi->u.hdr.parser_state = (enum lws_token_indexes)
+							(WSI_TOKEN_GET_URI + n);
+			if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE)
+				goto set_parsing_complete;
 
-			n = WSI_TOKEN_COUNT;
+			goto start_fragment;
+		}
+		break;
 
-			/*  If the header has been seen already, just append */
-			if (!wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token) {
-
-				wsi->u.hdr.current_alloc_len = LWS_INITIAL_HDR_ALLOC;
-				wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token = (char *)
-							 malloc(wsi->u.hdr.current_alloc_len);
-				if (wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token == NULL) {
-					lwsl_err("Out of mem\n");
-					return -1;
-				}
-				wsi->u.hdr.hdrs[wsi->u.hdr.parser_state].token_len = 0;
-			}
+start_fragment:
+		wsi->u.hdr.ah->next_frag_index++;
+		if (wsi->u.hdr.ah->next_frag_index == sizeof(wsi->u.hdr.ah->frags) / sizeof(wsi->u.hdr.ah->frags[0])) {
+			lwsl_warn("More header fragments than we can deal with, dropping\n");
+			return -1;
 		}
 
-		if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE) {
-			if (wsi->u.hdr.hdrs[WSI_TOKEN_CHALLENGE].token) {
-				free(wsi->u.hdr.hdrs[WSI_TOKEN_CHALLENGE].token);
-				wsi->u.hdr.hdrs[WSI_TOKEN_CHALLENGE].token = NULL;
+		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].offset = wsi->u.hdr.ah->pos;
+		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len = 0;
+		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].next_frag_index = 0;
+
+		n = wsi->u.hdr.ah->frag_index[wsi->u.hdr.parser_state];
+		if (!n) { /* first fragment */
+			wsi->u.hdr.ah->frag_index[wsi->u.hdr.parser_state] =
+						 wsi->u.hdr.ah->next_frag_index;
+		} else { /* continuation */
+			while (wsi->u.hdr.ah->frags[n].next_frag_index)
+				n = wsi->u.hdr.ah->frags[n].next_frag_index;
+			wsi->u.hdr.ah->frags[n].next_frag_index =
+						 wsi->u.hdr.ah->next_frag_index;
+
+			if (wsi->u.hdr.ah->pos == sizeof wsi->u.hdr.ah->data) {
+				lwsl_warn("excessive header content\n");
+				return -1;
 			}
-			wsi->u.hdr.hdrs[WSI_TOKEN_CHALLENGE].token_len = 0;
-			goto set_parsing_complete;
+
+			wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = ' ';
+			wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
 		}
 
 		break;
+
 
 		/* skipping arg part of a name we didn't recognize */
 	case WSI_TOKEN_SKIPPING:
@@ -510,13 +542,13 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 set_parsing_complete:
 
-	if (wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token_len) {
-		if (!wsi->u.hdr.hdrs[WSI_TOKEN_VERSION].token_len) {
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
+		if (!lws_hdr_total_length(wsi, WSI_TOKEN_VERSION)) {
 //			lwsl_info("Missing Version Header\n");
 //			return 1;
 		} else
 			wsi->ietf_spec_revision =
-				atoi(wsi->u.hdr.hdrs[WSI_TOKEN_VERSION].token);
+			       atoi(lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION));
 
 		lwsl_parser("v%02d headers completed\n", wsi->ietf_spec_revision);
 	}

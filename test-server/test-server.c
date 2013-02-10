@@ -203,7 +203,7 @@ static int callback_http(struct libwebsocket_context *context,
  */
 
 static void
-dump_handshake_info(struct lws_tokens *lwst)
+dump_handshake_info(struct libwebsocket *wsi)
 {
 	int n;
 	static const char *token_names[WSI_TOKEN_COUNT] = {
@@ -232,12 +232,15 @@ dump_handshake_info(struct lws_tokens *lwst)
 		/*[WSI_TOKEN_HTTP]		=*/ "Http",
 		/*[WSI_TOKEN_MUXURL]	=*/ "MuxURL",
 	};
+	char buf[256];
 
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
-		if (lwst[n].token == NULL)
+		if (!lws_hdr_total_length(wsi, n))
 			continue;
 
-		fprintf(stderr, "    %s = %s\n", token_names[n], lwst[n].token);
+		lws_hdr_copy(wsi, buf, sizeof buf, n);
+
+		fprintf(stderr, "    %s = %s\n", token_names[n], buf);
 	}
 }
 
@@ -303,7 +306,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 	 */
 
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
-		dump_handshake_info((struct lws_tokens *)(long)user);
+		dump_handshake_info(wsi);
 		/* you could return non-zero here and kill the connection */
 		break;
 
@@ -433,7 +436,7 @@ done:
 	 */
 
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
-		dump_handshake_info((struct lws_tokens *)(long)user);
+		dump_handshake_info(wsi);
 		/* you could return non-zero here and kill the connection */
 		break;
 

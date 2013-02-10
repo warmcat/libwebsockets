@@ -14,6 +14,7 @@ You need to regenerate the autotools and libtoolize stuff for your system
 
 $ ./autogen.sh
 
+Then,
 
 ------Fedora x86_64
 
@@ -22,7 +23,6 @@ $ ./autogen.sh
 ------Apple
 
 Christopher Baker reported that this is needed
-(and I was told separately enabling openssl makes trouble somehow)
 
 ./configure CC="gcc -arch i386 -arch x86_64" CXX="g++ -arch i386 -arch
 x86_64" CPP="gcc -E" CXXCPP="g++ -E" --enable-nofork
@@ -148,21 +148,19 @@ constrained, so you only need to take care about them if you want to tune them
 to the amount of memory available.
 
  - LWS_MAX_HEADER_NAME_LENGTH default 64: max characters in an HTTP header
-name that libwebsockets can cope with
+name that libwebsockets can cope with, if a header arrives bigger than this
+it's ignored until the next header is seen
 
- - LWS_MAX_HEADER_LEN default 4096: largest HTTP header value string length
-libwebsockets can cope with
+ - LWS_MAX_HEADER_LEN default 1024: allocated area to copy http headers that
+libwebsockets knows about into.  You only need to think about increasing this
+if your application might have monster length URLs for example, or some other
+header that lws cares about will be abnormally large (headers it does not
+know about are skipped).
 
- - LWS_INITIAL_HDR_ALLOC default 256: amount of memory to allocate initially,
-tradeoff between taking too much and needless realloc
-
- - LWS_ADDITIONAL_HDR_ALLOC default 64: how much to additionally realloc if
-the header value string keeps coming
-
- - LWS_MAX_PROTOCOLS default 10: largest amount of different protocols the
+ - LWS_MAX_PROTOCOLS default 5: largest amount of different protocols the
 server can serve
 
- - LWS_MAX_EXTENSIONS_ACTIVE default 10: largest amount of extensions we can
+ - LWS_MAX_EXTENSIONS_ACTIVE default 3: largest amount of extensions we can
 choose to have active on one connection
 
  - SPEC_LATEST_SUPPORTED default 13: only change if you want to remove support

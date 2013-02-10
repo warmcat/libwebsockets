@@ -350,6 +350,8 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 {
 	const char *pc;
 	int okay = 0;
+	char *p;
+	int len;
 #ifndef LWS_NO_EXTENSIONS
 	char ext_name[128];
 	struct libwebsocket_extension *ext;
@@ -363,44 +365,36 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	 * well, what the server sent looked reasonable for syntax.
 	 * Now let's confirm it sent all the necessary headers
 	 */
-#if 0
-	lwsl_parser("WSI_TOKEN_HTTP: %d\n",
-				    wsi->u.hdr.hdrs[WSI_TOKEN_HTTP].token_len);
-	lwsl_parser("WSI_TOKEN_UPGRADE: %d\n",
-				 wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token_len);
-	lwsl_parser("WSI_TOKEN_CONNECTION: %d\n",
-			      wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token_len);
-	lwsl_parser("WSI_TOKEN_ACCEPT: %d\n",
-				  wsi->u.hdr.hdrs[WSI_TOKEN_ACCEPT].token_len);
-	lwsl_parser("WSI_TOKEN_NONCE: %d\n",
-				   wsi->u.hdr.hdrs[WSI_TOKEN_NONCE].token_len);
-	lwsl_parser("WSI_TOKEN_PROTOCOL: %d\n",
-				wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len);
-#endif
 
-	strtolower(wsi->u.hdr.hdrs[WSI_TOKEN_HTTP].token);
-	if (strncmp(wsi->u.hdr.hdrs[WSI_TOKEN_HTTP].token, "101", 3)) {
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0)
+		goto bail3;
+
+	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
+	if (!p)
+		goto bail3;
+	if (p && strncmp(p, "101", 3)) {
 		lwsl_warn("libwebsocket_client_handshake "
-				"server sent bad HTTP response '%s'\n",
-				 wsi->u.hdr.hdrs[WSI_TOKEN_HTTP].token);
+				"server sent bad HTTP response '%s'\n", p);
 		goto bail3;
 	}
 
-	strtolower(wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token);
-	if (strcmp(wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token,
-							 "websocket")) {
+	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE);
+	if (!p)
+		goto bail3;
+	strtolower(p);
+	if (strcmp(p, "websocket")) {
 		lwsl_warn("libwebsocket_client_handshake server "
-				"sent bad Upgrade header '%s'\n",
-				  wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token);
+				"sent bad Upgrade header '%s'\n", p);
 		goto bail3;
 	}
 
-	strtolower(wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token);
-	if (strcmp(wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token,
-							   "upgrade")) {
+	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_CONNECTION);
+	if (!p)
+		goto bail3;
+	strtolower(p);
+	if (strcmp(p, "upgrade")) {
 		lwsl_warn("libwebsocket_client_handshake server "
-				"sent bad Connection hdr '%s'\n",
-			   wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token);
+				"sent bad Connection hdr '%s'\n", p);
 		goto bail3;
 	}
 
@@ -417,7 +411,8 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	 * of protocols we offered
 	 */
 
-	if (!wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len) {
+	len = lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL);
+	if (!len) {
 
 		lwsl_info("lws_client_interpret_server_handshake "
 					       "WSI_TOKEN_PROTOCOL is null\n");
@@ -432,11 +427,11 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		goto check_extensions;
 	}
 
+	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL);
+	len = strlen(p);
+
 	while (*pc && !okay) {
-		if ((!strncmp(pc, wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token,
-		 wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len)) &&
-		 (pc[wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len] == ',' ||
-		  pc[wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len] == '\0')) {
+		if (!strncmp(pc, p, len) && (pc[len] == ',' || pc[len] == '\0')) {
 			okay = 1;
 			continue;
 		}
@@ -453,8 +448,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 
 	if (!okay) {
 		lwsl_err("libwebsocket_client_handshake server "
-					"sent bad protocol '%s'\n",
-				 wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token);
+					"sent bad protocol '%s'\n", p);
 		goto bail2;
 	}
 
@@ -463,11 +457,11 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	 */
 	n = 0;
 	wsi->protocol = NULL;
-	while (context->protocols[n].callback && !wsi->protocol) {  /* Stop after finding first one?? */
-		if (strcmp(wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token,
-					   context->protocols[n].name) == 0) {
+	while (context->protocols[n].callback && !wsi->protocol) {
+		if (strcmp(p, context->protocols[n].name) == 0) {
 			wsi->protocol = &context->protocols[n];
 			wsi->c_callback = wsi->protocol->callback;
+			break;
 		}
 		n++;
 	}
@@ -475,8 +469,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	if (wsi->protocol == NULL) {
 		lwsl_err("libwebsocket_client_handshake server "
 				"requested protocol '%s', which we "
-				"said we supported but we don't!\n",
-				 wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token);
+				"said we supported but we don't!\n", p);
 		goto bail2;
 	}
 
@@ -485,7 +478,7 @@ check_extensions:
 #ifndef LWS_NO_EXTENSIONS
 	/* instantiate the accepted extensions */
 
-	if (!wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token_len) {
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_EXTENSIONS)) {
 		lwsl_ext("no client extenstions allowed by server\n");
 		goto check_accept;
 	}
@@ -495,7 +488,10 @@ check_extensions:
 	 * and go through matching them or identifying bogons
 	 */
 
-	c = wsi->u.hdr.hdrs[WSI_TOKEN_EXTENSIONS].token;
+	if (lws_hdr_copy(wsi, (char *)context->service_buffer, sizeof(context->service_buffer), WSI_TOKEN_EXTENSIONS) < 0)
+		goto bail2;
+
+	c = (char *)context->service_buffer;
 	n = 0;
 	while (more) {
 
@@ -577,12 +573,11 @@ check_accept:
 	 * Confirm his accept token is the one we precomputed
 	 */
 
-	if (strcmp(wsi->u.hdr.hdrs[WSI_TOKEN_ACCEPT].token,
-				  wsi->u.hdr.initial_handshake_hash_base64)) {
+	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_ACCEPT);
+	if (strcmp(p, wsi->u.hdr.initial_handshake_hash_base64)) {
 		lwsl_warn("libwebsocket_client_handshake server "
-			"sent bad ACCEPT '%s' vs computed '%s'\n",
-			wsi->u.hdr.hdrs[WSI_TOKEN_ACCEPT].token,
-					wsi->u.hdr.initial_handshake_hash_base64);
+			"sent bad ACCEPT '%s' vs computed '%s'\n", p,
+				      wsi->u.hdr.initial_handshake_hash_base64);
 		goto bail2;
 	}
 
@@ -605,10 +600,8 @@ check_accept:
 	libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 	/* free up his parsing allocations */
-
-	for (n = 0; n < WSI_TOKEN_COUNT; n++)
-		if (wsi->u.hdr.hdrs[n].token)
-			free(wsi->u.hdr.hdrs[n].token);
+	if (wsi->u.hdr.ah)
+		free(wsi->u.hdr.ah);
 
 	/* mark him as being alive */
 
@@ -616,6 +609,7 @@ check_accept:
 	wsi->mode = LWS_CONNMODE_WS_CLIENT;
 
 	/* union transition */
+
 	memset(&wsi->u, 0, sizeof wsi->u);
 
 	/*
@@ -669,16 +663,17 @@ bail3:
 		free(wsi->c_protocol);
 
 bail2:
-	if (wsi->c_callback) wsi->c_callback(context, wsi,
-       LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-			 wsi->user_space,
-			 NULL, 0);
+	if (wsi->c_callback)
+		wsi->c_callback(context, wsi,
+			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+						      wsi->user_space, NULL, 0);
+
 	lwsl_info("closing connection due to bail2 connection error\n");
+
 	/* free up his parsing allocations */
 
-	for (n = 0; n < WSI_TOKEN_COUNT; n++)
-		if (wsi->u.hdr.hdrs[n].token)
-			free(wsi->u.hdr.hdrs[n].token);
+	if (wsi->u.hdr.ah)
+		free(wsi->u.hdr.ah);
 
 	libwebsocket_close_and_free_session(context, wsi,
 						 LWS_CLOSE_STATUS_PROTOCOL_ERR);

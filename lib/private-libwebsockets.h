@@ -117,13 +117,7 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #define LWS_MAX_HEADER_NAME_LENGTH 64
 #endif
 #ifndef LWS_MAX_HEADER_LEN
-#define LWS_MAX_HEADER_LEN 4096
-#endif
-#ifndef LWS_INITIAL_HDR_ALLOC
-#define LWS_INITIAL_HDR_ALLOC 256
-#endif
-#ifndef LWS_ADDITIONAL_HDR_ALLOC
-#define LWS_ADDITIONAL_HDR_ALLOC 64
+#define LWS_MAX_HEADER_LEN 1024
 #endif
 #ifndef LWS_MAX_PROTOCOLS
 #define LWS_MAX_PROTOCOLS 5
@@ -313,10 +307,24 @@ struct _lws_http_mode_related {
 	unsigned long filelen;
 };
 
+struct lws_fragments {
+	unsigned short offset;
+	unsigned short len;
+	unsigned char next_frag_index;
+};
+
+struct allocated_headers {
+	unsigned short next_frag_index;
+	unsigned short pos;
+	unsigned char frag_index[WSI_TOKEN_COUNT];
+	struct lws_fragments frags[WSI_TOKEN_COUNT * 2];
+	char data[LWS_MAX_HEADER_LEN];
+};
+
 struct _lws_header_related {
 	char name_buffer[LWS_MAX_HEADER_NAME_LENGTH];
 	unsigned char name_buffer_pos;
-	struct lws_tokens hdrs[WSI_TOKEN_COUNT];
+	struct allocated_headers *ah;
 	int lextable_pos;
 	unsigned char parser_state; /* enum lws_token_indexes */
 	int current_alloc_len;
@@ -489,6 +497,12 @@ user_callback_handle_rxflow(callback_function, struct libwebsocket_context * con
 
 extern int
 lws_set_socket_options(struct libwebsocket_context *context, int fd);
+
+extern int
+lws_allocate_header_table(struct libwebsocket *wsi);
+
+extern char *
+lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h);
 
 #ifndef LWS_OPENSSL_SUPPORT
 
