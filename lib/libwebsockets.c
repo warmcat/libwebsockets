@@ -786,7 +786,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	struct libwebsocket *wsi;
 	int n;
 	int m;
-	int listen_socket_fds_index = context->lws_lookup[context->listen_service_fd]->position_in_fds_table;
+	int listen_socket_fds_index = 0;
 	struct timeval tv;
 #ifdef LWS_OPENSSL_SUPPORT
 	char ssl_err_buf[512];
@@ -802,6 +802,11 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 #ifndef LWS_NO_SERVER
 	extern int lws_server_socket_service(struct libwebsocket_context *context, struct libwebsocket *wsi, struct pollfd *pollfd);
 #endif
+
+	if (context->listen_service_fd)
+		listen_socket_fds_index = context->lws_lookup[
+			     context->listen_service_fd]->position_in_fds_table;
+
 	/*
 	 * you can call us with pollfd = NULL to just allow the once-per-second
 	 * global timeout checks; if less than a second since the last check
