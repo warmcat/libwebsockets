@@ -44,7 +44,7 @@ else
 dist_libwebsockets_la_SOURCES += sha-1.c
 endif
 
-libwebsockets_la_CFLAGS=-Wall -std=gnu99 -pedantic
+libwebsockets_la_CFLAGS=-Wall -std=gnu99 -pedantic -fstack-usage
 libwebsockets_la_LDFLAGS=
 
 if USE_CYASSL
