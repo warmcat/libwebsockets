@@ -10,10 +10,13 @@ User api additions
  	 "1.1 9e7f737", representing the library version from configure.ac
 	 and the git HEAD hash the library was built from
 
- - TCP Keepalive can now optionally be applied to all lws sockets, with
-	controllable timeout, number of probes and probe interval.  This
-	enables detection of idle connections which are logically okay, but
-	are in fact dead, due to network connectivity issues at the server,
+ - TCP Keepalive can now optionally be applied to all lws sockets, on Linux
+ 	also with controllable timeout, number of probes and probe interval.
+	(On BSD type OS, you can only use system default settings for the
+	timing and retries, although enabling it is supported by setting
+	ka_time to nonzero, the exact value has no meaning.)
+	This enables detection of idle connections which are logically okay,
+	but are in fact dead, due to network connectivity issues at the server,
 	client, or any intermediary.  By default it's not enabled, but you
 	can enable it by setting a non-zero timeout (in seconds) at the new
 	ka_time member at context creation time.

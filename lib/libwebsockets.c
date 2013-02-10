@@ -537,6 +537,14 @@ int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 					     (const void *)&optval, optlen) < 0)
 			return 1;
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
+
+		/*
+		 * didn't find a way to set these per-socket, need to
+		 * tune kernel systemwide values
+		 */
+
+#else
 		/* set the keepalive conditions we want on it too */
 		optval = context->ka_time;
 		if (setsockopt(fd, IPPROTO_IP, TCP_KEEPIDLE,
@@ -552,6 +560,7 @@ int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 		if (setsockopt(fd, IPPROTO_IP, TCP_KEEPCNT,
 					     (const void *)&optval, optlen) < 0)
 			return 1;
+#endif
 	}
 
 	/* Disable Nagle */

@@ -184,3 +184,7 @@ stimulate a response from the peer without affecting link traffic.  If the
 response is not coming, the socket will announce an error at poll() forcing
 a close.
 
+Note that BSDs don't support keepalive time / probes / inteveral per-socket
+like Linux does.  On those systems you can enable keepalive by a nonzero
+value in ka_time, but the systemwide kernel settings for the time / probes/
+interval are used, regardless of what nonzero value is in ka_time.
