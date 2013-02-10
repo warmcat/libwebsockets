@@ -858,8 +858,6 @@ spill:
 			return 0;
 
 		case LWS_WS_OPCODE_07__PONG:
-			/* keep the statistics... */
-			wsi->u.ws.pings_vs_pongs--;
 			/* ... then just drop it */
 			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;

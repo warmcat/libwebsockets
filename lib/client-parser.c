@@ -279,8 +279,6 @@ spill:
 			lwsl_info("client receied pong\n");
 			lwsl_hexdump(&wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				    wsi->u.ws.rx_user_buffer_head);
-			/* keep the statistics... */
-			wsi->u.ws.pings_vs_pongs--;
 
 			/* issue it */
 			callback_action = LWS_CALLBACK_CLIENT_RECEIVE_PONG;

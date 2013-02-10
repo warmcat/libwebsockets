@@ -328,16 +328,13 @@ struct _lws_header_related {
 struct _lws_websocket_related {
 	char *rx_user_buffer;
 	int rx_user_buffer_head;
-	unsigned char masking_key_04[20];
 	unsigned char frame_masking_nonce_04[4];
-	unsigned char frame_mask_04[20];
 	unsigned char frame_mask_index;
 	size_t rx_packet_length;
 	unsigned char opcode;
 	unsigned int final:1;
 	unsigned char rsv;
 	unsigned int frame_is_binary:1;
-	int pings_vs_pongs;
 	unsigned int all_zero_nonce:1;
 	enum lws_close_status close_reason;
 	unsigned char *rxflow_buffer;

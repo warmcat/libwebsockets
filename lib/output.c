@@ -367,7 +367,6 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			break;
 		case LWS_WRITE_PING:
 			n = LWS_WS_OPCODE_07__PING;
-			wsi->u.ws.pings_vs_pongs++;
 			break;
 		case LWS_WRITE_PONG:
 			n = LWS_WS_OPCODE_07__PONG;

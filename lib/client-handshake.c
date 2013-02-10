@@ -197,7 +197,6 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	wsi->u.hdr.name_buffer_pos = 0;
 	wsi->user_space = NULL;
 	wsi->state = WSI_STATE_CLIENT_UNCONNECTED;
-	wsi->u.ws.pings_vs_pongs = 0;
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 #ifndef LWS_NO_EXTENSIONS
