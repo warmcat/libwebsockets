@@ -42,8 +42,7 @@ extern int openssl_websocket_private_data_index;
 int lws_client_socket_service(struct libwebsocket_context *context, struct libwebsocket *wsi, struct pollfd *pollfd)
 {
 	int n;
-	char pkt[1024];
-	char *p = &pkt[0];
+	char *p = (char *)&context->service_buffer[0];
 	int len;
 	char c;
 #ifdef LWS_OPENSSL_SUPPORT
@@ -66,7 +65,8 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 			return 0;
 		}
 
-		n = recv(wsi->sock, pkt, sizeof pkt, 0);
+		n = recv(wsi->sock, context->service_buffer,
+					sizeof context->service_buffer, 0);
 		if (n < 0) {
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
@@ -74,11 +74,11 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 			return 0;
 		}
 
-		pkt[13] = '\0';
-		if (strcmp(pkt, "HTTP/1.0 200 ") != 0) {
+		context->service_buffer[13] = '\0';
+		if (strcmp((char *)context->service_buffer, "HTTP/1.0 200 ")) {
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
-			lwsl_err("ERROR from proxy: %s\n", pkt);
+			lwsl_err("ERROR from proxy: %s\n", context->service_buffer);
 			return 0;
 		}
 
@@ -214,10 +214,10 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 		lws_latency_pre(context, wsi);
 	#ifdef LWS_OPENSSL_SUPPORT
 		if (wsi->use_ssl)
-			n = SSL_write(wsi->ssl, pkt, p - pkt);
+			n = SSL_write(wsi->ssl, context->service_buffer, p - (char *)context->service_buffer);
 		else
 	#endif
-			n = send(wsi->sock, pkt, p - pkt, 0);
+			n = send(wsi->sock, context->service_buffer, p - (char *)context->service_buffer, 0);
 		lws_latency(context, wsi, "send or SSL_write LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE", n, n >= 0);
 
 		if (n < 0) {
@@ -694,6 +694,7 @@ char *
 libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, char *pkt)
 {
+	char buf[128];
 	char hash[20];
 	char key_b64[40];
 	char *p = pkt;
@@ -836,16 +837,15 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 
 	context->protocols[0].callback(context, wsi,
 		LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
-		NULL, &p, (pkt + sizeof(pkt)) - p - 12);
+		NULL, &p, (pkt + sizeof(context->service_buffer)) - p - 12);
 
 	p += sprintf(p, "\x0d\x0a");
 
 	/* prepare the expected server accept response */
 
-	strcpy((char *)context->service_buffer, key_b64);
-	strcpy((char *)&context->service_buffer[strlen((char *)context->service_buffer)], magic_websocket_guid);
-
-	SHA1(context->service_buffer, strlen((char *)context->service_buffer), (unsigned char *)hash);
+	n = snprintf(buf, sizeof buf, "%s%s", key_b64, magic_websocket_guid);
+	buf[sizeof(buf) - 1] = '\0';
+	SHA1((unsigned char *)buf, n, (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
 			wsi->u.hdr.initial_handshake_hash_base64,
