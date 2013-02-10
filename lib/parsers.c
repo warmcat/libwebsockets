@@ -546,6 +546,7 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;
 	struct lws_tokens eff_buf;
+	int ret = 0;
 #ifndef LWS_NO_EXTENSIONS
 	int handled;
 	int m;
@@ -928,10 +929,10 @@ spill:
 		}
 #endif
 		if (eff_buf.token_len > 0) {
-		    eff_buf.token[eff_buf.token_len] = '\0';
+			eff_buf.token[eff_buf.token_len] = '\0';
 
-		    if (wsi->protocol->callback)
-			    user_callback_handle_rxflow(wsi->protocol->callback,
+			if (wsi->protocol->callback)
+				ret = user_callback_handle_rxflow(wsi->protocol->callback,
 						    wsi->protocol->owning_server,
 						    wsi, LWS_CALLBACK_RECEIVE,
 						    wsi->user_space,
@@ -945,7 +946,7 @@ spill:
 		break;
 	}
 
-	return 0;
+	return ret;
 
 illegal_ctl_length:
 

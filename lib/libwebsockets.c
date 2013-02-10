@@ -1382,8 +1382,7 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 	if ((wsi->u.ws.rxflow_change_to & 1) && wsi->u.ws.rxflow_buffer) {
 		n = libwebsocket_interpret_incoming_packet(wsi, NULL, 0);
 		if (n < 0) {
-			lwsl_info("closing connection at libwebsocket_rx_flow_control:\n");
-			libwebsocket_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			lwsl_info("returning that we want to close connection at libwebsocket_rx_flow_control:\n");
 			return -1;
 		}
 		if (n)
@@ -1495,15 +1494,10 @@ int user_callback_handle_rxflow(callback_function callback_function,
 	int n;
 
 	n = callback_function(context, wsi, reason, user, in, len);
-	if (n) {
-		libwebsocket_close_and_free_session(context, wsi,
-					       LWS_CLOSE_STATUS_NOSTATUS);
-		return n;
-	}
+	if (!n)
+		n = _libwebsocket_rx_flow_control(wsi);
 
-	_libwebsocket_rx_flow_control(wsi);
-
-	return 0;
+	return n;
 }
 
 

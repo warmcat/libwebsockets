@@ -501,8 +501,7 @@ int libwebsockets_serve_http_file_fragment(struct libwebsocket_context *context,
 			if (wsi->protocol->callback)
 				ret = user_callback_handle_rxflow(wsi->protocol->callback, context, wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION, wsi->user_space,
 					NULL, 0);
-			/* user_callback_handle_rxflow did any close already */
-			return 0;
+			return ret;
 		}
 	}
 
