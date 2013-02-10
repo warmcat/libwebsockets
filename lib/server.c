@@ -126,8 +126,6 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 int lws_server_socket_service(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, struct pollfd *pollfd)
 {
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1 +
-	                  LWS_MAX_SOCKET_IO_BUF + LWS_SEND_BUFFER_POST_PADDING];
 	struct libwebsocket *new_wsi;
 	int accept_fd;
 	unsigned int clilen;
@@ -153,10 +151,10 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 	#ifdef LWS_OPENSSL_SUPPORT
 			if (wsi->ssl)
-				len = SSL_read(wsi->ssl, buf, sizeof buf);
+				len = SSL_read(wsi->ssl, context->service_buffer, sizeof context->service_buffer);
 			else
 	#endif
-				len = recv(pollfd->fd, buf, sizeof buf, 0);
+				len = recv(pollfd->fd, context->service_buffer, sizeof context->service_buffer, 0);
 
 			if (len < 0) {
 				lwsl_debug("Socket read returned %d\n", len);
@@ -171,7 +169,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				return 0;
 			}
 
-			n = libwebsocket_read(context, wsi, buf, len);
+			n = libwebsocket_read(context, wsi, context->service_buffer, len);
 			if (n < 0)
 				/* we closed wsi */
 				return 0;
