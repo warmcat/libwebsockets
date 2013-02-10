@@ -9,7 +9,6 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	struct sockaddr_in server_addr;
 	int n;
 	int plen = 0;
-	char pkt[512];
 
 	lwsl_client("__libwebsocket_client_connect_2\n");
 #ifndef LWS_NO_EXTENSIONS
@@ -21,7 +20,8 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	 */
 
 	if (context->http_proxy_port) {
-		plen = sprintf(pkt, "CONNECT %s:%u HTTP/1.0\x0d\x0a"
+		plen = sprintf(context->service_buffer,
+			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a"
 /*Proxy-authorization: basic aGVsbG86d29ybGQ= */
 			"\x0d\x0a", wsi->c_address, wsi->c_port);
@@ -79,7 +79,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 
 	if (context->http_proxy_port) {
 
-		n = send(wsi->sock, pkt, plen, 0);
+		n = send(wsi->sock, context->service_buffer, plen, 0);
 		if (n < 0) {
 			compatible_close(wsi->sock);
 			lwsl_debug("ERROR writing to proxy socket\n");
