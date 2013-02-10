@@ -777,6 +777,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	struct libwebsocket *wsi;
 	int n;
 	int m;
+	int listen_socket_fds_index = context->lws_lookup[context->listen_service_fd]->position_in_fds_table;
 	struct timeval tv;
 #ifdef LWS_OPENSSL_SUPPORT
 	char ssl_err_buf[512];
@@ -836,7 +837,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	 * pending connection here, it causes us to check again next time.
 	 */
 
-	if (context->listen_service_fd && pollfd->fd != context->listen_service_fd) {
+	if (context->listen_service_fd && pollfd != &context->fds[listen_socket_fds_index]) {
 		context->listen_service_count++;
 		if (context->listen_service_extraseen ||
 				context->listen_service_count == context->listen_service_modulo) {
@@ -846,9 +847,9 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				m = 2;
 			while (m--) {
 				/* even with extpoll, we prepared this internal fds for listen */
-				n = poll(&context->fds[0], 1, 0);
+				n = poll(&context->fds[listen_socket_fds_index], 1, 0);
 				if (n > 0) { /* there's a connection waiting for us */
-					libwebsocket_service_fd(context, &context->fds[0]);
+					libwebsocket_service_fd(context, &context->fds[listen_socket_fds_index]);
 					context->listen_service_extraseen++;
 				} else {
 					if (context->listen_service_extraseen)
