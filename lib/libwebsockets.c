@@ -312,7 +312,7 @@ just_kill_connection:
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 
-	if ((old_state == WSI_STATE_ESTABLISHED || wsi->mode == LWS_CONNMODE_WS_SERVING) && wsi->u.ws.rx_user_buffer) {
+	if ((old_state == WSI_STATE_ESTABLISHED || wsi->mode == LWS_CONNMODE_WS_SERVING || wsi->mode == LWS_CONNMODE_WS_CLIENT) && wsi->u.ws.rx_user_buffer) {
 		free(wsi->u.ws.rx_user_buffer);
 		wsi->u.ws.rx_user_buffer = NULL;
 	}
