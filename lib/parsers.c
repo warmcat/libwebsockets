@@ -598,6 +598,7 @@ set_parsing_complete:
 		lwsl_parser("v%02d hdrs completed\n", wsi->ietf_spec_revision);
 	}
 	wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
+	wsi->hdr_parsing_completed = 1;
 
 	return 0;
 }

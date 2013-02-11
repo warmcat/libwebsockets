@@ -89,7 +89,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 		if (n < 0) {
 			compatible_close(wsi->sock);
 			lwsl_debug("ERROR writing to proxy socket\n");
-			goto bail1;
+			goto oom4;
 		}
 
 		libwebsocket_set_timeout(wsi,
@@ -130,7 +130,6 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 
 oom4:
 	free(wsi->u.hdr.ah);
-bail1:
 	free(wsi);
 
 	return NULL;
@@ -183,7 +182,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 
 	wsi = (struct libwebsocket *) malloc(sizeof(struct libwebsocket));
 	if (wsi == NULL)
-		goto bail1;
+		goto bail;
 
 	memset(wsi, 0, sizeof(*wsi));
 

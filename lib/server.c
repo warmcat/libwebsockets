@@ -102,6 +102,7 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	new_wsi->state = WSI_STATE_HTTP;
 	new_wsi->u.hdr.name_buffer_pos = 0;
 	new_wsi->mode = LWS_CONNMODE_HTTP_SERVING;
+	new_wsi->hdr_parsing_completed = 0;
 
 	if (lws_allocate_header_table(new_wsi)) {
 		free(new_wsi);
@@ -167,7 +168,10 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				return 0;
 			}
 			if (!len) {
-				lwsl_info("lws_server_sktt_srv: read 0 len\n");
+				lwsl_info("lws_server_skt_srv: read 0 len\n");
+				/* lwsl_info("   state=%d\n", wsi->state); */
+				if (!wsi->hdr_parsing_completed)
+					free(wsi->u.hdr.ah);
 				libwebsocket_close_and_free_session(
 				       context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
 				return 0;
