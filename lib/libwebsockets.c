@@ -1608,10 +1608,10 @@ int user_callback_handle_rxflow(callback_function callback_function,
 struct libwebsocket_context *
 libwebsocket_create_context(struct lws_context_creation_info *info)
 {
-	int n;
 	struct libwebsocket_context *context = NULL;
 	char *p;
 #ifndef LWS_NO_SERVER
+	int n;
 	int opt = 1;
 	struct libwebsocket *wsi;
 	struct sockaddr_in serv_addr;
