@@ -24,6 +24,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <string.h>
+#include <signal.h>
 
 #include "../lib/libwebsockets.h"
 
@@ -33,6 +34,7 @@ static int deny_deflate;
 static int deny_mux;
 static struct libwebsocket *wsi_mirror;
 static int mirror_lifetime = 0;
+static int force_exit = 0;
 
 /*
  * This demo shows how to connect multiple websockets simultaneously to a
@@ -182,6 +184,11 @@ static struct libwebsocket_protocols protocols[] = {
 	{ NULL, NULL, 0, 0 } /* end */
 };
 
+void sighandler(int sig)
+{
+	force_exit = 1;
+}
+
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",      required_argument,      NULL, 'd' },
@@ -251,6 +258,8 @@ int main(int argc, char **argv)
 	if (optind >= argc)
 		goto usage;
 
+	signal(SIGINT, sighandler);
+
 	address = argv[optind];
 
 	/*
@@ -295,7 +304,7 @@ int main(int argc, char **argv)
 	 */
 
 	n = 0;
-	while (n >= 0 && !was_closed) {
+	while (n >= 0 && !was_closed && !force_exit) {
 		n = libwebsocket_service(context, 10);
 
 		if (n < 0)
