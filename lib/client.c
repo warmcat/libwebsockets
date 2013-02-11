@@ -260,8 +260,10 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 			goto bail3;
 		}
 
-		if (!(pollfd->revents & POLLIN))
+		if (!(pollfd->revents & POLLIN)) {
+			lwsl_warn("server reply no POLLIN\n");
 			goto bail3;
+		}
 
 		/* interpret the server response */
 
@@ -299,11 +301,13 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 #endif
 				len = recv(wsi->sock, &c, 1, 0);
 
-			if (len < 0)
+			if (len < 0) {
+				lwsl_warn("error on parsing recv\n");
 				goto bail3;
+			}
 
 			if (libwebsocket_parse(wsi, c)) {
-				/* problems */
+				lwsl_warn("problems parsing header\n");
 				goto bail3;
 			}
 		}
@@ -382,12 +386,16 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	 * Now let's confirm it sent all the necessary headers
 	 */
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0)
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
+		lwsl_info("no ACCEPT\n");
 		goto bail3;
+	}
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
-	if (!p)
+	if (!p) {
+		lwsl_info("no URI\n");
 		goto bail3;
+	}
 	if (p && strncmp(p, "101", 3)) {
 		lwsl_warn(
 		       "lws_client_handshake: got bad HTTP response '%s'\n", p);
@@ -395,8 +403,10 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	}
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE);
-	if (!p)
+	if (!p) {
+		lwsl_info("no UPGRADE\n");
 		goto bail3;
+	}
 	strtolower(p);
 	if (strcmp(p, "websocket")) {
 		lwsl_warn(
@@ -405,8 +415,10 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	}
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_CONNECTION);
-	if (!p)
+	if (!p) {
+		lwsl_info("no Connection hdr\n");
 		goto bail3;
+	}
 	strtolower(p);
 	if (strcmp(p, "upgrade")) {
 		lwsl_warn("lws_client_int_s_hs: bad header %s\n", p);
@@ -490,8 +502,10 @@ check_extensions:
 	 */
 
 	if (lws_hdr_copy(wsi, (char *)context->service_buffer,
-		     sizeof(context->service_buffer), WSI_TOKEN_EXTENSIONS) < 0)
+		   sizeof(context->service_buffer), WSI_TOKEN_EXTENSIONS) < 0) {
+		lwsl_warn("ext list from server failed to copy\n");
 		goto bail2;
+	}
 
 	c = (char *)context->service_buffer;
 	n = 0;
@@ -583,8 +597,10 @@ check_accept:
 
 	/* allocate the per-connection user memory (if any) */
 	if (wsi->protocol->per_session_data_size &&
-					  !libwebsocket_ensure_user_space(wsi))
+					 !libwebsocket_ensure_user_space(wsi)) {
+		lwsl_err("Problem allocating wsi user mem\n");
 		goto bail2;
+	}
 
 	/*
 	 * we seem to be good to go, give client last chance to check
@@ -747,7 +763,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	p += sprintf(p, "Host: %s\x0d\x0a",
 			       lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
 	p += sprintf(p,
-"Upgrade: websocket\x0d\x0aConnection: Upgrade\x0d\x0aSec-WebSocket-Key: ");
+"Upgrade: websocket\x0d\x0a""Connection: Upgrade\x0d\x0a""Sec-WebSocket-Key: ");
 	strcpy(p, key_b64);
 	p += strlen(key_b64);
 	p += sprintf(p, "\x0d\x0a");
