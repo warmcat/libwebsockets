@@ -370,6 +370,33 @@ char * lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h)
 	return &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset];
 }
 
+int lws_hdr_simple_create(struct libwebsocket *wsi, enum lws_token_indexes h, const char *s)
+{
+	wsi->u.hdr.ah->next_frag_index++;
+	if (wsi->u.hdr.ah->next_frag_index == sizeof(wsi->u.hdr.ah->frags) / sizeof(wsi->u.hdr.ah->frags[0])) {
+		lwsl_warn("More header fragments than we can deal with, dropping\n");
+		return -1;
+	}
+
+	wsi->u.hdr.ah->frag_index[h] = wsi->u.hdr.ah->next_frag_index;
+
+	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].offset = wsi->u.hdr.ah->pos;
+	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len = 0;
+	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].next_frag_index = 0;
+
+	do {
+		if (wsi->u.hdr.ah->pos == sizeof wsi->u.hdr.ah->data) {
+			lwsl_err("Ran out of header data space\n");
+			return -1;
+		}
+		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = *s;
+		if (*s)
+			wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
+	} while (*s++);
+
+	return 0;
+}
+
 int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;

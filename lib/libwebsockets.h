@@ -240,6 +240,14 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP,
 	WSI_TOKEN_MUXURL,
 
+	/* use token storage to stash these */
+
+	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	_WSI_TOKEN_CLIENT_PEER_ADDRESS,
+	_WSI_TOKEN_CLIENT_URI,
+	_WSI_TOKEN_CLIENT_HOST,
+	_WSI_TOKEN_CLIENT_ORIGIN,
+
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,
 	/* parser state additions */

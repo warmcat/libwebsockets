@@ -358,10 +358,6 @@ just_kill_connection:
 	}
 #endif
 
-#ifndef LWS_NO_CLIENT
-	if (wsi->c_address)
-		free(wsi->c_address);
-#endif
 	if (wsi->u.ws.rxflow_buffer)
 		free(wsi->u.ws.rxflow_buffer);
 

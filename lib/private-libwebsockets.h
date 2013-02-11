@@ -330,6 +330,7 @@ struct _lws_header_related {
 	int current_alloc_len;
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
+	unsigned short c_port;
 #endif
 };
 
@@ -390,17 +391,6 @@ struct libwebsocket {
 		struct _lws_header_related hdr;
 		struct _lws_websocket_related ws;
 	} u;
-
-#ifndef LWS_NO_CLIENT
-	char *c_path;
-	char *c_host;
-	char *c_origin;
-	char *c_protocol;
-	callback_function *c_callback;
-
-	char *c_address;
-	unsigned short c_port;
-#endif
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;
@@ -503,6 +493,9 @@ lws_allocate_header_table(struct libwebsocket *wsi);
 
 extern char *
 lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h);
+
+extern int
+lws_hdr_simple_create(struct libwebsocket *wsi, enum lws_token_indexes h, const char *s);
 
 #ifndef LWS_OPENSSL_SUPPORT
 

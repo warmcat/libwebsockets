@@ -309,8 +309,6 @@ int lws_client_socket_service(struct libwebsocket_context *context, struct libwe
 		return lws_client_interpret_server_handshake(context, wsi);
 
 bail3:
-		if (wsi->c_protocol)
-			free(wsi->c_protocol);
 		lwsl_info("closing connection at LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY\n");
 		libwebsocket_close_and_free_session(context, wsi,
 						    LWS_CLOSE_STATUS_NOSTATUS);
@@ -398,7 +396,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		goto bail3;
 	}
 
-	pc = wsi->c_protocol;
+	pc = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
 	if (pc == NULL)
 		lwsl_parser("lws_client_interpret_server_handshake: "
 							  "NULL c_protocol\n");
@@ -421,9 +419,6 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		 * default to first protocol
 		 */
 		wsi->protocol = &context->protocols[0];
-		wsi->c_callback = wsi->protocol->callback;
-		free(wsi->c_protocol);
-
 		goto check_extensions;
 	}
 
@@ -441,11 +436,6 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 			pc++;
 	}
 
-	/* done with him now */
-
-	if (wsi->c_protocol)
-		free(wsi->c_protocol);
-
 	if (!okay) {
 		lwsl_err("libwebsocket_client_handshake server "
 					"sent bad protocol '%s'\n", p);
@@ -460,7 +450,6 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	while (context->protocols[n].callback && !wsi->protocol) {
 		if (strcmp(p, context->protocols[n].name) == 0) {
 			wsi->protocol = &context->protocols[n];
-			wsi->c_callback = wsi->protocol->callback;
 			break;
 		}
 		n++;
@@ -659,12 +648,10 @@ check_accept:
 	return 0;
 
 bail3:
-	if (wsi->c_protocol)
-		free(wsi->c_protocol);
 
 bail2:
-	if (wsi->c_callback)
-		wsi->c_callback(context, wsi,
+	if (wsi->protocol)
+		wsi->protocol->callback(context, wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 						      wsi->user_space, NULL, 0);
 
@@ -707,12 +694,6 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	if (n != 16) {
 		lwsl_err("Unable to read from random dev %s\n",
 						SYSTEM_RANDOM_FILEPATH);
-		free(wsi->c_path);
-		free(wsi->c_host);
-		if (wsi->c_origin)
-			free(wsi->c_origin);
-		if (wsi->c_protocol)
-			free(wsi->c_protocol);
 		libwebsocket_close_and_free_session(context, wsi,
 					     LWS_CLOSE_STATUS_NOSTATUS);
 		return NULL;
@@ -746,28 +727,24 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	 * Sec-WebSocket-Version: 4
 	 */
 
-	p += sprintf(p, "GET %s HTTP/1.1\x0d\x0a", wsi->c_path);
+	p += sprintf(p, "GET %s HTTP/1.1\x0d\x0a", lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI));
 
 	p += sprintf(p, "Pragma: no-cache\x0d\x0a"
 					"Cache-Control: no-cache\x0d\x0a");
 
-	p += sprintf(p, "Host: %s\x0d\x0a", wsi->c_host);
+	p += sprintf(p, "Host: %s\x0d\x0a", lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
 	p += sprintf(p, "Upgrade: websocket\x0d\x0a"
 					"Connection: Upgrade\x0d\x0a"
 					"Sec-WebSocket-Key: ");
 	strcpy(p, key_b64);
 	p += strlen(key_b64);
 	p += sprintf(p, "\x0d\x0a");
-	if (wsi->c_origin) {
-	        if (wsi->ietf_spec_revision == 13)
-			p += sprintf(p, "Origin: %s\x0d\x0a", wsi->c_origin);
-	        else
-			p += sprintf(p, "Sec-WebSocket-Origin: %s\x0d\x0a",
-							 wsi->c_origin);
-	}
-	if (wsi->c_protocol)
+	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN))
+		p += sprintf(p, "Origin: %s\x0d\x0a", lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN));
+
+	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS))
 		p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
-						       wsi->c_protocol);
+				lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS));
 
 	/* tell the server what extensions we could support */
 
@@ -842,13 +819,6 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	lws_b64_encode_string(hash, 20,
 			wsi->u.hdr.initial_handshake_hash_base64,
 			     sizeof wsi->u.hdr.initial_handshake_hash_base64);
-
-	/* done with these now */
-
-	free(wsi->c_path);
-	free(wsi->c_host);
-	if (wsi->c_origin)
-		free(wsi->c_origin);
 
 	return p;
 }

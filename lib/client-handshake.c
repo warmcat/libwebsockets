@@ -9,6 +9,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	struct sockaddr_in server_addr;
 	int n;
 	int plen = 0;
+	const char *ads;
 
 	lwsl_client("__libwebsocket_client_connect_2\n");
 
@@ -21,25 +22,29 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a"
 /*Proxy-authorization: basic aGVsbG86d29ybGQ= */
-			"\x0d\x0a", wsi->c_address, wsi->c_port);
+			"\x0d\x0a",
+			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
+			wsi->u.hdr.c_port);
 
-		/* OK from now on we talk via the proxy */
+		/* OK from now on we talk via the proxy, so connect to that */
 
-		free(wsi->c_address);
-		wsi->c_address = strdup(context->http_proxy_address);
-		wsi->c_port = context->http_proxy_port;
+		/* (will overwrite existing pointer, leaving old string/frag there but unreferenced) */
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, context->http_proxy_address))
+			goto oom4;
+		wsi->u.hdr.c_port = context->http_proxy_port;
 	}
 
 	/*
 	 * prepare the actual connection (to the proxy, if any)
 	 */
 
-	lwsl_client("__libwebsocket_client_connect_2: address %s\n",
-								wsi->c_address);
+	ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 
-	server_hostent = gethostbyname(wsi->c_address);
+	lwsl_client("__libwebsocket_client_connect_2: address %s\n", ads);
+
+	server_hostent = gethostbyname(ads);
 	if (server_hostent == NULL) {
-		lwsl_err("Unable to get host name from %s\n", wsi->c_address);
+		lwsl_err("Unable to get host name from %s\n", ads);
 		goto oom4;
 	}
 
@@ -51,7 +56,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	}
 
 	server_addr.sin_family = AF_INET;
-	server_addr.sin_port = htons(wsi->c_port);
+	server_addr.sin_port = htons(wsi->u.hdr.c_port);
 	server_addr.sin_addr = *((struct in_addr *)server_hostent->h_addr);
 	bzero(&server_addr.sin_zero, 8);
 
@@ -119,15 +124,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	return wsi;
 
 oom4:
-	if (wsi->c_protocol)
-		free(wsi->c_protocol);
-
-	if (wsi->c_origin)
-		free(wsi->c_origin);
-
-	free(wsi->c_host);
-	free(wsi->c_path);
-
+	free(wsi->u.hdr.ah);
 bail1:
 	free(wsi);
 
@@ -203,58 +200,37 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	wsi->use_ssl = ssl_connection;
 #endif
 
-	wsi->c_port = port;
-	wsi->c_address = strdup(address);
-
-	/* copy parameters over so state machine has access */
-
-	wsi->c_path = (char *)malloc(strlen(path) + 1);
-	if (wsi->c_path == NULL)
-		goto bail1;
-	strcpy(wsi->c_path, path);
-
-	wsi->c_host = (char *)malloc(strlen(host) + 1);
-	if (wsi->c_host == NULL)
-		goto oom1;
-	strcpy(wsi->c_host, host);
-
-	if (origin) {
-		wsi->c_origin = (char *)malloc(strlen(origin) + 1);
-		if (wsi->c_origin == NULL)
-			goto oom2;
-		strcpy(wsi->c_origin, origin);
-	} else
-		wsi->c_origin = NULL;
-
-	wsi->c_callback = NULL;
-	if (protocol) {
-		const char *pc;
-		struct libwebsocket_protocols *pp;
-
-		wsi->c_protocol = (char *)malloc(strlen(protocol) + 1);
-		if (wsi->c_protocol == NULL)
-			goto oom3;
-
-		strcpy(wsi->c_protocol, protocol);
-
-		pc = protocol;
-		while (*pc && *pc != ',')
-			pc++;
-		n = pc - protocol;
-		pp = context->protocols;
-		while (pp->name && !wsi->c_callback) {
-			if (!strncmp(protocol, pp->name, n))
-				wsi->c_callback = pp->callback;
-			pp++;
-		}
-	} else
-		wsi->c_protocol = NULL;
-
-	if (!wsi->c_callback)
-		wsi->c_callback = context->protocols[0].callback;
-
 	if (lws_allocate_header_table(wsi))
-		goto oom3;
+		goto bail;
+
+	/*
+	 * we're not necessarily in a position to action these right away,
+	 * stash them... we only need during connect phase so u.hdr is fine
+	 */
+	wsi->u.hdr.c_port = port;
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
+		goto bail1;
+
+	/* these only need u.hdr lifetime as well */
+
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, path))
+		goto bail1;
+
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, host))
+		goto bail1;
+
+	if (origin)
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ORIGIN, origin))
+			goto bail1;
+	/*
+	 * this is a list of protocols we tell the server we're okay with
+	 * stash it for later when we compare server response with it
+	 */
+	if (protocol)
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS, protocol))
+			goto bail1;
+
+	wsi->protocol = &context->protocols[0];
 
 #ifndef LWS_NO_EXTENSIONS
 	/*
@@ -293,17 +269,9 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 
 	return __libwebsocket_client_connect_2(context, wsi);
 
-oom3:
-	if (wsi->c_origin)
-		free(wsi->c_origin);
-
-oom2:
-	free(wsi->c_host);
-
-oom1:
-	free(wsi->c_path);
-
 bail1:
+	free(wsi->u.hdr.ah);
+bail:
 	free(wsi);
 
 	return NULL;
