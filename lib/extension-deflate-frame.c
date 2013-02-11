@@ -7,8 +7,6 @@
 #define LWS_ZLIB_WINDOW_BITS 15
 #define LWS_ZLIB_MEMLEVEL 8
 
-#define MIN_SIZE_TO_DEFLATE 4
-
 int lws_extension_callback_deflate_frame(
 		struct libwebsocket_context *context,
 		struct libwebsocket_extension *ext,
@@ -210,9 +208,6 @@ bail:
 		 * deflate the outgoing payload
 		 */
 		current_payload = eff_buf->token_len;
-
-		if (current_payload < MIN_SIZE_TO_DEFLATE)
-			return 0;
 
 		conn->zs_out.next_in = (unsigned char *)eff_buf->token;
 		conn->zs_out.avail_in = current_payload;

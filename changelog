@@ -79,6 +79,12 @@ the visual studio project files that were in the tree until now.
 	and no -g (debug info), obviously providing best performance and
 	reduced binary size.
 
+ - 1.0 introduced some code to try to not deflate small frames, however this
+ 	seems to break when confronted with a mixture of frames above and
+	below the threshold, so it's removed.  Veto the compression extension
+	in your user callback if you will typically have very small frames.
+
+
 v1.1-chrome26-firefox18
 =======================
 
