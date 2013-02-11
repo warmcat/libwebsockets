@@ -199,6 +199,7 @@ static struct option options[] = {
 int main(int argc, char **argv)
 {
 	int n = 0;
+	int ret = 0;
 	int port = 7681;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
@@ -283,7 +284,8 @@ int main(int argc, char **argv)
 
 	if (wsi_dumb == NULL) {
 		fprintf(stderr, "libwebsocket dumb connect failed\n");
-		return -1;
+		ret = 1;
+		goto bail;
 	}
 
 	fprintf(stderr, "Websocket connections opened\n");
@@ -313,7 +315,8 @@ int main(int argc, char **argv)
 		if (wsi_mirror == NULL) {
 			fprintf(stderr, "libwebsocket "
 					      "dumb connect failed\n");
-			return -1;
+			ret = 1;
+			goto bail;
 		}
 
 		mirror_lifetime = 10 + (random() & 1023);
@@ -332,11 +335,12 @@ int main(int argc, char **argv)
 		 */
 	}
 
+bail:
 	fprintf(stderr, "Exiting\n");
 
 	libwebsocket_context_destroy(context);
 
-	return 0;
+	return ret;
 
 usage:
 	fprintf(stderr, "Usage: libwebsockets-test-client "
