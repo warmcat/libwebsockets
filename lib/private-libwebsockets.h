@@ -355,8 +355,6 @@ struct libwebsocket {
 	void *active_extensions_user[LWS_MAX_EXTENSIONS_ACTIVE];
 	unsigned char count_active_extensions;
 	unsigned int extension_data_pending:1;
-	struct libwebsocket *extension_handles;
-	struct libwebsocket *candidate_children_list;
 #endif
 	unsigned char ietf_spec_revision;
 

@@ -11,9 +11,6 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	int plen = 0;
 
 	lwsl_client("__libwebsocket_client_connect_2\n");
-#ifndef LWS_NO_EXTENSIONS
-	wsi->candidate_children_list = NULL;
-#endif
 
 	/*
 	 * proxy?
