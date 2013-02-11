@@ -1630,11 +1630,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	context->options = info->options;
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
-	lwsl_notice(" max fd tracked: %u\n", context->max_fds);
-	lwsl_notice(" static allocation: %u bytes\n",
-		sizeof(struct libwebsocket_context) +
-		(sizeof(struct pollfd) * context->max_fds) +
-		(sizeof(struct libwebsocket *) * context->max_fds));
+	lwsl_notice(" static allocation: %u + (%u x %u fds) = %u bytes\n",
+		sizeof(struct libwebsocket_context),
+		sizeof(struct pollfd) + sizeof(struct libwebsocket *),
+		context->max_fds,
+		sizeof(struct libwebsocket_context) + ((sizeof(struct pollfd) + sizeof(struct libwebsocket *)) * context->max_fds));
 
 	context->fds = (struct pollfd *)malloc(sizeof(struct pollfd) * context->max_fds);
 	if (context->fds == NULL) {
