@@ -272,7 +272,9 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 		lwsl_debug("sending close indication...\n");
 
-		n = libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING],
+		/* make valgrind happy */
+		memset(buf, 0, sizeof buf);
+		n = libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING + 2],
 							    0, LWS_WRITE_CLOSE);
 		if (!n) {
 			/*
