@@ -1041,6 +1041,7 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	int n;
 	int m;
 	struct libwebsocket_extension *ext;
+	struct libwebsocket_protocols *protocol = context->protocols;
 
 #ifdef LWS_LATENCY
 	if (context->worst_latency_info[0])
@@ -1067,6 +1068,18 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 		ext->callback(context, ext, NULL, (enum libwebsocket_extension_callback_reasons)m, NULL, NULL, 0);
 		ext++;
 	}
+
+	/*
+	 * inform all the protocols that they are done and will have no more
+	 * callbacks
+	 */
+
+	while (protocol->callback) {
+		protocol->callback(context, NULL, LWS_CALLBACK_PROTOCOL_DESTROY,
+				NULL, NULL, 0);
+		protocol++;
+	}
+
 #endif
 
 #ifdef WIN32
@@ -2023,6 +2036,13 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 									context;
 		info->protocols[context->count_protocols].protocol_index =
 						       context->count_protocols;
+
+		/*
+		 * inform all the protocols that they are doing their one-time
+		 * initialization if they want to
+		 */
+		info->protocols[context->count_protocols].callback(context,
+			       NULL, LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
 	}
 
 #ifndef LWS_NO_EXTENSIONS

@@ -752,6 +752,18 @@ claim to support that extension by returning non-zero.  If
 unhandled, by default 0 will be returned and the extension
 support included in the header to the server.  Notice this
 callback comes to protocols[0].
+</blockquote>
+<h3>LWS_CALLBACK_PROTOCOL_INIT</h3>
+<blockquote>
+One-time call per protocol so it can
+do initial setup / allocations etc
+</blockquote>
+<h3>LWS_CALLBACK_PROTOCOL_DESTROY</h3>
+<blockquote>
+One-time call per protocol indicating
+this protocol won't get used at all after this callback, the
+context is getting destroyed.  Take the opportunity to
+deallocate everything that was allocated by the protocol.
 <p>
 The next four reasons are optional and only need taking care of if you
 will be integrating libwebsockets sockets into an external polling

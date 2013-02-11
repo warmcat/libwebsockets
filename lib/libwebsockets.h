@@ -142,6 +142,8 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 	LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
 	LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
+	LWS_CALLBACK_PROTOCOL_INIT,
+	LWS_CALLBACK_PROTOCOL_DESTROY,
 	/* external poll() management support */
 	LWS_CALLBACK_ADD_POLL_FD,
 	LWS_CALLBACK_DEL_POLL_FD,
@@ -533,6 +535,14 @@ struct libwebsocket_extension;
  *		unhandled, by default 0 will be returned and the extension
  *		support included in the header to the server.  Notice this
  *		callback comes to protocols[0].
+ *
+ *	LWS_CALLBACK_PROTOCOL_INIT:	One-time call per protocol so it can
+ *		do initial setup / allocations etc
+ *
+ *	LWS_CALLBACK_PROTOCOL_DESTROY:	One-time call per protocol indicating
+ *		this protocol won't get used at all after this callback, the
+ *		context is getting destroyed.  Take the opportunity to
+ *		deallocate everything that was allocated by the protocol.
  *
  *	The next four reasons are optional and only need taking care of if you
  * 	will be integrating libwebsockets sockets into an external polling

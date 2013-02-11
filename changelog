@@ -21,6 +21,12 @@ User api additions
 	can enable it by setting a non-zero timeout (in seconds) at the new
 	ka_time member at context creation time.
 
+ - Two new optional user callbacks added, LWS_CALLBACK_PROTOCOL_DESTROY which
+ 	is called one-time per protocol as the context is being destroyed, and
+	LWS_CALLBACK_PROTOCOL_INIT which is called when the context is created
+	and the protocols are added, again it's a one-time affair.
+	This lets you manage per-protocol allocations properly including
+	cleaning up after yourself when the server goes down.
 
 User api changes
 ----------------

@@ -356,6 +356,13 @@ callback_lws_mirror(struct libwebsocket_context *context,
 		pss->wsi = wsi;
 		break;
 
+	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		lwsl_notice("mirror protocol cleaning up\n");
+		for (n = 0; n < sizeof ringbuffer / sizeof ringbuffer[0]; n++)
+			if (ringbuffer[n].payload)
+				free(ringbuffer[n].payload);
+		break;
+
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		if (close_testing)
 			break;
