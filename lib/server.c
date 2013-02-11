@@ -361,9 +361,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
-		lwsl_debug(
-			"accepted new SSL conn  port %u on fd=%d SSL ver %s\n",
-			ntohs(cli_addr.sin_port), SSL_get_version(wsi->ssl));
+		lwsl_debug("accepted new SSL conn\n");
 		break;
 #endif
 
