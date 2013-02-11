@@ -116,15 +116,23 @@ libwebsocket_read(struct libwebsocket_context *context,
 		if (!lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE) ||
 			     !lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
 			wsi->state = WSI_STATE_HTTP;
+			n = 0;
 			if (wsi->protocol->callback)
-				if (wsi->protocol->callback(context, wsi,
+				n = wsi->protocol->callback(context, wsi,
 						LWS_CALLBACK_HTTP,
 						wsi->user_space,
 						lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI),
-						lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI))) {
-					lwsl_info("LWS_CALLBACK_HTTP wanted to close\n");
-					goto bail;
-				}
+						lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI));
+
+			/* drop the header info */
+			if (wsi->u.hdr.ah)
+				free(wsi->u.hdr.ah);
+
+			if (n) {
+				lwsl_info("LWS_CALLBACK_HTTP wanted to close\n");
+				goto bail;
+			}
+
 			return 0;
 		}
 
