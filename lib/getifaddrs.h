@@ -6,25 +6,25 @@
 extern "C" {
 #endif
 /*
- * Copyright (c) 2000 Kungliga Tekniska Högskolan
+ * Copyright (c) 2000 Kungliga Tekniska Hï¿½gskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
- * 
+ *
  * 1. Redistributions of source code must retain the above copyright
  *    notice, this list of conditions and the following disclaimer.
- * 
+ *
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 
+ *
  * 3. Neither the name of the Institute nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -51,22 +51,22 @@ extern "C" {
 #undef ifa_dstaddr
 
 struct ifaddrs {
-    struct ifaddrs *ifa_next;
-    char *ifa_name;
-    unsigned int ifa_flags;
-    struct sockaddr *ifa_addr;
-    struct sockaddr *ifa_netmask;
-    struct sockaddr *ifa_dstaddr;
-    void *ifa_data;
+	struct ifaddrs *ifa_next;
+	char *ifa_name;
+	unsigned int ifa_flags;
+	struct sockaddr *ifa_addr;
+	struct sockaddr *ifa_netmask;
+	struct sockaddr *ifa_dstaddr;
+	void *ifa_data;
 };
 
 #ifndef ifa_broadaddr
 #define ifa_broadaddr ifa_dstaddr
 #endif
 
-int getifaddrs(struct ifaddrs**);
+int getifaddrs(struct ifaddrs **);
 
-void freeifaddrs(struct ifaddrs*);
+void freeifaddrs(struct ifaddrs *);
 
 #endif /* __ifaddrs_h__ */
 

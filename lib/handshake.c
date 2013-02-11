@@ -53,13 +53,9 @@
  * machine that is completely independent of packet size.
  */
 
-#ifndef LWS_NO_SERVER
-extern int handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi);
-#endif
-
 int
 libwebsocket_read(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char * buf, size_t len)
+		     struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
 	size_t n;
 
@@ -73,14 +69,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 	case WSI_STATE_HTTP_HEADERS:
 
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
-#ifdef _DEBUG
-		//fwrite(buf, 1, len, stderr);
-#endif
 
 #ifndef LWS_NO_CLIENT
-
-//		lwsl_info("mode=%d\n", wsi->mode);
-
 		switch (wsi->mode) {
 		case LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY:
 		case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE:
@@ -89,7 +79,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
 				if (libwebsocket_client_rx_sm(wsi, *buf++)) {
-					lwsl_info("libwebsocket_client_rx_sm failed\n");
+					lwsl_info("client_rx_sm failed\n");
 					goto bail;
 				}
 			return 0;
@@ -119,17 +109,17 @@ libwebsocket_read(struct libwebsocket_context *context,
 			n = 0;
 			if (wsi->protocol->callback)
 				n = wsi->protocol->callback(context, wsi,
-						LWS_CALLBACK_HTTP,
-						wsi->user_space,
-						lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI),
-						lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI));
+				    LWS_CALLBACK_HTTP,
+				    wsi->user_space,
+				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI),
+				  lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI));
 
 			/* drop the header info */
 			if (wsi->u.hdr.ah)
 				free(wsi->u.hdr.ah);
 
 			if (n) {
-				lwsl_info("LWS_CALLBACK_HTTP wanted to close\n");
+				lwsl_info("LWS_CALLBACK_HTTP closing\n");
 				goto bail;
 			}
 
@@ -152,7 +142,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 					break;
 			} else
 				if (wsi->protocol->name && strcmp(
-					lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL),
+					lws_hdr_simple_ptr(wsi,
+						WSI_TOKEN_PROTOCOL),
 						      wsi->protocol->name) == 0)
 					break;
 
@@ -162,14 +153,13 @@ libwebsocket_read(struct libwebsocket_context *context,
 		/* we didn't find a protocol he wanted? */
 
 		if (wsi->protocol->callback == NULL) {
-			if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL) == NULL) {
-				lwsl_info("[no protocol] "
-					"mapped to protocol 0 handler\n");
+			if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL) ==
+									 NULL) {
+				lwsl_info("no protocol -> prot 0 handler\n");
 				wsi->protocol = &context->protocols[0];
 			} else {
-				lwsl_err("Requested protocol %s "
-						"not supported\n",
-						lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL));
+				lwsl_err("Req protocol %s not supported\n",
+				   lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL));
 				goto bail;
 			}
 		}
@@ -195,9 +185,9 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 		switch (wsi->ietf_spec_revision) {
 		case 13:
-			lwsl_parser("libwebsocket_parse calling handshake_04\n");
+			lwsl_parser("lws_parse calling handshake_04\n");
 			if (handshake_0405(context, wsi)) {
-				lwsl_info("handshake_0405 xor 05 has failed the connection\n");
+				lwsl_info("hs0405 has failed the connection\n");
 				goto bail;
 			}
 			break;
@@ -216,7 +206,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 		wsi->mode = LWS_CONNMODE_WS_SERVING;
 
 		/* union transition */
-		memset(&wsi->u, 0, sizeof wsi->u);
+		memset(&wsi->u, 0, sizeof(wsi->u));
 
 		/*
 		 * create the frame buffer for this connection according to the
@@ -246,7 +236,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 		switch (wsi->mode) {
 		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
-				if (libwebsocket_client_rx_sm(wsi, *buf++) < 0) {
+				if (libwebsocket_client_rx_sm(
+							     wsi, *buf++) < 0) {
 					lwsl_info("client rx has bailed\n");
 					goto bail;
 				}

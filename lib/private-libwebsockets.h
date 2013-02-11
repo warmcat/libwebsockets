@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-// System introspection configs.
+/* System introspection configs */
 #ifdef CMAKE_BUILD
 #include "lws_config.h"
 #else
@@ -43,9 +43,9 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <limits.h>
-#ifdef  __MINGW64__
+#ifdef __MINGW64__
 #else
-#ifdef  __MINGW32__
+#ifdef __MINGW32__
 #elif _MSC_VER > 1000 || defined(_WIN32)
 #else
 #include <netdb.h>
@@ -59,9 +59,9 @@
 #define LWS_NO_DAEMONIZE
 
 #define compatible_close(fd) closesocket(fd);
-#ifdef  __MINGW64__                                                             
-#else                                                                           
-#ifdef  __MINGW32__                                                             
+#ifdef __MINGW64__
+#else
+#ifdef __MINGW32__
 #else
 #include <time.h >
 #endif
@@ -278,7 +278,7 @@ struct libwebsocket_context {
 #ifndef LWS_NO_EXTENSIONS
 	struct libwebsocket_extension *extensions;
 #endif
-    void *user_space;
+	void *user_space;
 };
 
 
@@ -396,16 +396,21 @@ struct libwebsocket {
 	SSL *ssl;
 	BIO *client_bio;
 	unsigned int use_ssl:2;
-#endif	
+#endif
 };
 
 #ifndef LWS_LATENCY
-static inline void lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi, const char *action, int ret, int completion) { while (0); }
-static inline void lws_latency_pre(struct libwebsocket_context *context, struct libwebsocket *wsi) { while (0); }
+static inline void lws_latency(struct libwebsocket_context *context,
+		struct libwebsocket *wsi, const char *action,
+					 int ret, int completion) { while (0); }
+static inline void lws_latency_pre(struct libwebsocket_context *context,
+					struct libwebsocket *wsi) { while (0); }
 #else
 #define lws_latency_pre(_context, _wsi) lws_latency(_context, _wsi, NULL, 0, 0)
 extern void
-lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi, const char *action, int ret, int completion);
+lws_latency(struct libwebsocket_context *context,
+			struct libwebsocket *wsi, const char *action,
+						       int ret, int completion);
 #endif
 
 extern int
@@ -425,7 +430,8 @@ extern struct libwebsocket *
 wsi_from_fd(struct libwebsocket_context *context, int fd);
 
 extern int
-insert_wsi_socket_into_fds(struct libwebsocket_context *context, struct libwebsocket *wsi);
+insert_wsi_socket_into_fds(struct libwebsocket_context *context,
+						      struct libwebsocket *wsi);
 
 extern void
 libwebsocket_set_timeout(struct libwebsocket *wsi,
@@ -480,7 +486,8 @@ extern int
 _libwebsocket_rx_flow_control(struct libwebsocket *wsi);
 
 extern int
-user_callback_handle_rxflow(callback_function, struct libwebsocket_context * context,
+user_callback_handle_rxflow(callback_function,
+		struct libwebsocket_context *context,
 			struct libwebsocket *wsi,
 			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
@@ -495,11 +502,28 @@ extern char *
 lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h);
 
 extern int
-lws_hdr_simple_create(struct libwebsocket *wsi, enum lws_token_indexes h, const char *s);
+lws_hdr_simple_create(struct libwebsocket *wsi,
+				enum lws_token_indexes h, const char *s);
+
+#ifndef LWS_NO_SERVER
+extern int handshake_0405(struct libwebsocket_context *context,
+						      struct libwebsocket *wsi);
+#endif
+
+#ifndef LWS_NO_DAEMONIZE
+extern int get_daemonize_pid();
+#endif
+
+extern int interface_to_sa(const char *ifname,
+		      struct sockaddr_in *addr, size_t addrlen);
 
 #ifndef LWS_OPENSSL_SUPPORT
 
 unsigned char *
 SHA1(const unsigned char *d, size_t n, unsigned char *md);
+
+#else
+
+extern int openssl_websocket_private_data_index;
 
 #endif

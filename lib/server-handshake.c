@@ -50,14 +50,14 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		goto bail;
 	}
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_KEY) >= MAX_WEBSOCKET_04_KEY_LEN) {
-		lwsl_warn("Client sent handshake key longer "
-			   "than max supported %d\n", MAX_WEBSOCKET_04_KEY_LEN);
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_KEY) >=
+						     MAX_WEBSOCKET_04_KEY_LEN) {
+		lwsl_warn("Client key too long %d\n", MAX_WEBSOCKET_04_KEY_LEN);
 		goto bail;
 	}
 
 	n = snprintf((char *)context->service_buffer,
-			sizeof context->service_buffer,
+			sizeof(context->service_buffer),
 				"%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
 
@@ -65,7 +65,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	accept_len = lws_b64_encode_string((char *)hash, 20,
 			(char *)context->service_buffer,
-			sizeof context->service_buffer);
+			sizeof(context->service_buffer));
 	if (accept_len < 0) {
 		lwsl_warn("Base64 encoded hash too long\n");
 		goto bail;
@@ -110,7 +110,9 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		 * and go through them
 		 */
 
-		if (lws_hdr_copy(wsi, (char *)context->service_buffer, sizeof context->service_buffer, WSI_TOKEN_EXTENSIONS) < 0)
+		if (lws_hdr_copy(wsi, (char *)context->service_buffer,
+				sizeof(context->service_buffer),
+						      WSI_TOKEN_EXTENSIONS) < 0)
 			goto bail;
 
 		c = (char *)context->service_buffer;
@@ -187,7 +189,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 					wsi->count_active_extensions] =
 					     malloc(ext->per_session_data_size);
 				if (wsi->active_extensions_user[
-					 wsi->count_active_extensions] == NULL) {
+				     wsi->count_active_extensions] == NULL) {
 					lwsl_err("Out of mem\n");
 					free(response);
 					goto bail;
@@ -208,7 +210,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 					wsi->count_active_extensions], NULL, 0);
 
 				wsi->count_active_extensions++;
-				lwsl_parser("wsi->count_active_extensions <- %d\n",
+				lwsl_parser("count_active_extensions <- %d\n",
 						  wsi->count_active_extensions);
 
 				ext++;
@@ -225,12 +227,13 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 #ifndef LWS_NO_EXTENSIONS
 	if (!lws_any_extension_handled(context, wsi,
 			LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
-						     response, p - response))
-#endif
+						     response, p - response)) {
+#else
 	{
+#endif
 		/* okay send the handshake response accepting the connection */
 
-		lwsl_parser("issuing response packet %d len\n", (int)(p - response));
+		lwsl_parser("issuing resp pkt %d len\n", (int)(p - response));
 	#ifdef DEBUG
 		fwrite(response, 1,  p - response, stderr);
 	#endif

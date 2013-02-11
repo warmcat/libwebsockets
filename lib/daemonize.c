@@ -48,20 +48,20 @@ child_handler(int signum)
 
 		fd = open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
 		if (fd < 0) {
-			fprintf(stderr, "unable to create lock"
-				" file %s, code=%d (%s)\n",
+			fprintf(stderr,
+			   "unable to create lock file %s, code=%d (%s)\n",
 				lock_path, errno, strerror(errno));
 			exit(1);
 		}
 		len = sprintf(sz, "%u", pid_daemon);
 		sent = write(fd, sz, len);
 		if (sent != len)
-			fprintf(stderr, "unable write pid to lock"
-				" file %s, code=%d (%s)\n",
-					lock_path, errno, strerror(errno));
+			fprintf(stderr,
+			  "unable write pid to lock file %s, code=%d (%s)\n",
+					     lock_path, errno, strerror(errno));
 
-               close(fd);
-               exit(!!(sent == len));
+		close(fd);
+		exit(!!(sent == len));
 
 	case SIGCHLD: /* daemonization failed */
 		exit(1);
@@ -104,16 +104,19 @@ lws_daemonize(const char *_lock_path)
 
 	fd = open(_lock_path, O_RDONLY);
 	if (fd > 0) {
-		n = read(fd, buf, sizeof buf);
+		n = read(fd, buf, sizeof(buf));
 		close(fd);
 		if (n) {
 			n = atoi(buf);
 			ret = kill(n, 0);
 			if (ret >= 0) {
-				fprintf(stderr, "Daemon already running from pid %d, aborting\n", n);
+				fprintf(stderr,
+				     "Daemon already running from pid %d\n", n);
 				exit(1);
 			}
-			fprintf(stderr, "Removing stale lock file %s from dead pid %d\n", _lock_path, n);
+			fprintf(stderr,
+			    "Removing stale lock file %s from dead pid %d\n",
+								 _lock_path, n);
 			unlink(lock_path);
 		}
 	}
@@ -207,11 +210,11 @@ lws_daemonize(const char *_lock_path)
 	act.sa_handler = lws_daemon_closing;
 	sigemptyset(&act.sa_mask);
 	act.sa_flags = 0;
-	
+
 	sigaction(SIGTERM, &act, NULL);
 
 	/* return to continue what is now "the daemon" */
 
-	return (0);
+	return 0;
 }
 

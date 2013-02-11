@@ -60,14 +60,11 @@ int lws_extension_callback_deflate_stream(
 		 * Notice, length may be 0 and pointer NULL
 		 * in the case we are flushing with nothing new coming in
 		 */
-		if (conn->remaining_in)
-		{
+		if (conn->remaining_in) {
 			conn->zs_in.next_in = conn->buf_in;
 			conn->zs_in.avail_in = conn->remaining_in;
 			conn->remaining_in = 0;
-		}
-		else
-		{
+		} else {
 			conn->zs_in.next_in = (unsigned char *)eff_buf->token;
 			conn->zs_in.avail_in = eff_buf->token_len;
 		}
@@ -91,13 +88,14 @@ int lws_extension_callback_deflate_stream(
 		/* rewrite the buffer pointers and length */
 
 		eff_buf->token = (char *)conn->buf_out;
-		eff_buf->token_len = sizeof(conn->buf_out) - conn->zs_in.avail_out;
+		eff_buf->token_len =
+			sizeof(conn->buf_out) - conn->zs_in.avail_out;
 
 		/* copy avail data if not consumed */
-		if (conn->zs_in.avail_in > 0)
-		{
+		if (conn->zs_in.avail_in > 0) {
 			conn->remaining_in = conn->zs_in.avail_in;
-			memcpy(conn->buf_in, conn->zs_in.next_in, conn->zs_in.avail_in);
+			memcpy(conn->buf_in, conn->zs_in.next_in,
+							conn->zs_in.avail_in);
 			return 1;
 		}
 
@@ -144,7 +142,8 @@ int lws_extension_callback_deflate_stream(
 		/* rewrite the buffer pointers and length */
 
 		eff_buf->token = (char *)conn->buf_out;
-		eff_buf->token_len = sizeof(conn->buf_out) - conn->zs_out.avail_out;
+		eff_buf->token_len =
+				sizeof(conn->buf_out) - conn->zs_out.avail_out;
 
 		/*
 		 * if we filled the output buffer, signal that we likely have

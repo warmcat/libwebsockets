@@ -37,7 +37,6 @@
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
-extern int openssl_websocket_private_data_index;
 
 static void
 libwebsockets_decode_ssl_error(void)
@@ -150,26 +149,32 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 	#ifdef LWS_OPENSSL_SUPPORT
 			if (wsi->ssl)
-				len = SSL_read(wsi->ssl, context->service_buffer, sizeof context->service_buffer);
+				len = SSL_read(wsi->ssl,
+					context->service_buffer,
+					       sizeof(context->service_buffer));
 			else
 	#endif
-				len = recv(pollfd->fd, context->service_buffer, sizeof context->service_buffer, 0);
+				len = recv(pollfd->fd,
+					context->service_buffer,
+					sizeof(context->service_buffer), 0);
 
 			if (len < 0) {
 				lwsl_debug("Socket read returned %d\n", len);
 				if (errno != EINTR && errno != EAGAIN)
-					libwebsocket_close_and_free_session(context,
-						       wsi, LWS_CLOSE_STATUS_NOSTATUS);
+					libwebsocket_close_and_free_session(
+						context, wsi,
+						LWS_CLOSE_STATUS_NOSTATUS);
 				return 0;
 			}
 			if (!len) {
-				lwsl_info("lws_server_socket_service: closing on zero length read\n");
-				libwebsocket_close_and_free_session(context, wsi,
-							    LWS_CLOSE_STATUS_NOSTATUS);
+				lwsl_info("lws_server_sktt_srv: read 0 len\n");
+				libwebsocket_close_and_free_session(
+				       context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
 				return 0;
 			}
 
-			n = libwebsocket_read(context, wsi, context->service_buffer, len);
+			n = libwebsocket_read(context, wsi,
+						context->service_buffer, len);
 			if (n < 0)
 				/* we closed wsi */
 				return 0;
@@ -182,15 +187,14 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		/* one shot */
 		pollfd->events &= ~POLLOUT;
-		
+
 		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE)
 			break;
 
-		if (libwebsockets_serve_http_file_fragment(context, wsi)) { /* nonzero for completion or error */
-			lwsl_info("lws_server_socket_service: libwebsockets_serve_http_file_fragment says to close\n");
+		/* nonzero for completion or error */
+		if (libwebsockets_serve_http_file_fragment(context, wsi))
 			libwebsocket_close_and_free_session(context, wsi,
 					       LWS_CLOSE_STATUS_NOSTATUS);
-		}
 		break;
 
 	case LWS_CONNMODE_SERVER_LISTENER:
@@ -206,7 +210,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		lws_latency_pre(context, wsi);
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
 								       &clilen);
-		lws_latency(context, wsi, "unencrypted accept LWS_CONNMODE_SERVER_LISTENER", accept_fd, accept_fd >= 0);
+		lws_latency(context, wsi,
+			"unencrypted accept LWS_CONNMODE_SERVER_LISTENER",
+						     accept_fd, accept_fd >= 0);
 		if (accept_fd < 0) {
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				lwsl_debug("accept asks to try again\n");
@@ -284,7 +290,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			lwsl_notice("NULL rbio\n");
 		#endif
 
-		/* 
+		/*
 		 * we are not accepted yet, but we need to enter ourselves
 		 * as a live connection.  That way we can retry when more
 		 * pieces come if we're not sorted yet
@@ -297,7 +303,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		libwebsocket_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
 							AWAITING_TIMEOUT);
 
-		lwsl_info("inserted SSL acceipt into fds, trying actual SSL_accept\n");
+		lwsl_info("inserted SSL accept into fds, trying SSL_accept\n");
 
 		/* fallthru */
 
@@ -312,14 +318,17 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		lws_latency_pre(context, wsi);
 		n = SSL_accept(wsi->ssl);
-		lws_latency(context, wsi, "SSL_accept LWS_CONNMODE_SSL_ACK_PENDING\n", n, n == 1);
+		lws_latency(context, wsi,
+			"SSL_accept LWS_CONNMODE_SSL_ACK_PENDING\n", n, n == 1);
 
 		if (n != 1) {
 			m = SSL_get_error(wsi->ssl, n);
-			lwsl_debug("SSL_accept failed %d / %s\n", m, ERR_error_string(m, NULL));
+			lwsl_debug("SSL_accept failed %d / %s\n",
+						  m, ERR_error_string(m, NULL));
 
 			if (m == SSL_ERROR_WANT_READ) {
-				context->fds[wsi->position_in_fds_table].events |= POLLIN;
+				context->fds[
+				   wsi->position_in_fds_table].events |= POLLIN;
 
 				/* external POLL support via protocol 0 */
 				context->protocols[0].callback(context, wsi,
@@ -329,7 +338,8 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				break;
 			}
 			if (m == SSL_ERROR_WANT_WRITE) {
-				context->fds[wsi->position_in_fds_table].events |= POLLOUT;
+				context->fds[
+				  wsi->position_in_fds_table].events |= POLLOUT;
 
 				/* external POLL support via protocol 0 */
 				context->protocols[0].callback(context, wsi,
@@ -340,7 +350,8 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			lwsl_debug("SSL_accept failed skt %u: %s\n",
 			      pollfd->fd,
 			      ERR_error_string(m, NULL));
-			libwebsocket_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			libwebsocket_close_and_free_session(context, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 			break;
 		}
 
@@ -350,10 +361,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
-		lwsl_debug("accepted new SSL conn  "
-		      "port %u on fd=%d SSL ver %s\n",
-			ntohs(cli_addr.sin_port),
-			  SSL_get_version(wsi->ssl));
+		lwsl_debug(
+			"accepted new SSL conn  port %u on fd=%d SSL ver %s\n",
+			ntohs(cli_addr.sin_port), SSL_get_version(wsi->ssl));
 		break;
 #endif
 

@@ -28,8 +28,12 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 
 		/* OK from now on we talk via the proxy, so connect to that */
 
-		/* (will overwrite existing pointer, leaving old string/frag there but unreferenced) */
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, context->http_proxy_address))
+		/*
+		 * (will overwrite existing pointer,
+		 * leaving old string/frag there but unreferenced)
+		 */
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
+						   context->http_proxy_address))
 			goto oom4;
 		wsi->u.hdr.c_port = context->http_proxy_port;
 	}
@@ -89,7 +93,8 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 		}
 
 		libwebsocket_set_timeout(wsi,
-			PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE, AWAITING_TIMEOUT);
+			PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
+							      AWAITING_TIMEOUT);
 
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY;
 
@@ -180,7 +185,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	if (wsi == NULL)
 		goto bail1;
 
-	memset(wsi, 0, sizeof *wsi);
+	memset(wsi, 0, sizeof(*wsi));
 
 	/* -1 means just use latest supported */
 
@@ -220,14 +225,16 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 		goto bail1;
 
 	if (origin)
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ORIGIN, origin))
+		if (lws_hdr_simple_create(wsi,
+				_WSI_TOKEN_CLIENT_ORIGIN, origin))
 			goto bail1;
 	/*
 	 * this is a list of protocols we tell the server we're okay with
 	 * stash it for later when we compare server response with it
 	 */
 	if (protocol)
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS, protocol))
+		if (lws_hdr_simple_create(wsi,
+				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS, protocol))
 			goto bail1;
 
 	wsi->protocol = &context->protocols[0];
@@ -259,7 +266,8 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 		lwsl_client("libwebsocket_client_connect: ext handling conn\n");
 
 		libwebsocket_set_timeout(wsi,
-			PENDING_TIMEOUT_AWAITING_EXTENSION_CONNECT_RESPONSE, AWAITING_TIMEOUT);
+			PENDING_TIMEOUT_AWAITING_EXTENSION_CONNECT_RESPONSE,
+							      AWAITING_TIMEOUT);
 
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT;
 		return wsi;
@@ -292,7 +300,7 @@ bail:
  *		the server, or just one.  The server will pick the one it
  *		likes best.
  * @ietf_version_or_minus_one: -1 to ask to connect using the default, latest
- * 		protocol supported, or the specific protocol ordinal
+ *		protocol supported, or the specific protocol ordinal
  * @userdata: Pre-allocated user data
  *
  *	This function creates a connection to a remote server
@@ -308,13 +316,15 @@ libwebsocket_client_connect_extended(struct libwebsocket_context *context,
 			      const char *origin,
 			      const char *protocol,
 			      int ietf_version_or_minus_one,
-            void *userdata)
+			      void *userdata)
 {
 	struct libwebsocket *ws =
-		libwebsocket_client_connect(context, address, port, ssl_connection, path, host, origin, protocol, ietf_version_or_minus_one) ;
+		libwebsocket_client_connect(context, address, port,
+			ssl_connection, path, host, origin, protocol,
+						     ietf_version_or_minus_one);
 
 	if (ws && !ws->user_space && userdata)
 		ws->user_space = userdata ;
 
 	return ws ;
-  }
+}

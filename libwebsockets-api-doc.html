@@ -166,7 +166,8 @@ happened.
 <h3>Description</h3>
 <blockquote>
 This function takes a pollfd that has POLLIN or POLLOUT activity and
-services it according to the state of the associated struct libwebsocket.
+services it according to the state of the associated
+struct libwebsocket.
 <p>
 The one call deals with all "service" that might happen on a socket
 including listen accepts, http files as well as websocket protocol.
@@ -188,7 +189,7 @@ context.  After calling this, any further use of the context is
 undefined.
 </blockquote>
 <hr>
-<h2>libwebsocket_context_user - get the user data associated with the whole context</h2>
+<h2>libwebsocket_context_user - get the user data associated with the context</h2>
 <i>LWS_EXTERN void *</i>
 <b>libwebsocket_context_user</b>
 (<i>struct libwebsocket_context *</i> <b>context</b>)
@@ -398,7 +399,7 @@ this is how you can get a pointer to the active protocol if needed.
 <i>void</i>
 <b>lws_set_log_level</b>
 (<i>int</i> <b>level</b>,
-<i>void (*</i><b>log_emit_function</b>) <i>(int level, const char *line)</i>)
+<i>void (*</i><b>log_emit_function</b>) <i>(int level, 							      const char *line)</i>)
 <h3>Arguments</h3>
 <dl>
 <dt><b>level</b>
