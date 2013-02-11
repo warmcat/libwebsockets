@@ -83,15 +83,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	/* make a buffer big enough for everything */
 
-	response = (char *)malloc(256 +
-		wsi->u.hdr.hdrs[WSI_TOKEN_UPGRADE].token_len +
-		wsi->u.hdr.hdrs[WSI_TOKEN_CONNECTION].token_len +
-		wsi->u.hdr.hdrs[WSI_TOKEN_PROTOCOL].token_len);
-	if (!response) {
-		lwsl_err("Out of memory for response buffer\n");
-		goto bail;
-	}
-
+	response = (char *)context->service_buffer + MAX_WEBSOCKET_04_KEY_LEN;
 	p = response;
 	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 		      "Upgrade: WebSocket\x0d\x0a"
@@ -251,7 +243,6 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	/* alright clean up and set ourselves into established state */
 
-	free(response);
 	wsi->state = WSI_STATE_ESTABLISHED;
 	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 
