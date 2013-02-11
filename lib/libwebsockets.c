@@ -1050,7 +1050,8 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	for (n = 0; n < context->fds_count; n++) {
 		struct libwebsocket *wsi = context->lws_lookup[context->fds[n].fd];
 		libwebsocket_close_and_free_session(context,
-			wsi, LWS_CLOSE_STATUS_GOINGAWAY);
+			wsi, LWS_CLOSE_STATUS_NOSTATUS /* no protocol close */);
+		n--;
 	}
 
 	/*
