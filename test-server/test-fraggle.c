@@ -244,7 +244,7 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 	int opts = 0;
 	char interface_name[128] = "";
-	const char *interface = NULL;
+	const char *iface = NULL;
 	struct libwebsocket *wsi;
 	const char *address;
 	int server_port = port;
@@ -274,7 +274,7 @@ int main(int argc, char **argv)
 		case 'i':
 			strncpy(interface_name, optarg, sizeof interface_name);
 			interface_name[(sizeof interface_name) - 1] = '\0';
-			interface = interface_name;
+			iface = interface_name;
 			break;
 		case 'c':
 			client = 1;
@@ -298,7 +298,7 @@ int main(int argc, char **argv)
 	}
 
 	info.port = server_port;
-	info.interface = interface;
+	info.iface = iface;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
 	info.extensions = libwebsocket_internal_extensions;

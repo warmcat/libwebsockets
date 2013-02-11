@@ -841,7 +841,11 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 
 	/* prepare the expected server accept response */
 
+#ifdef WIN32
+	n = _snprintf(buf, sizeof(buf), "%s%s", key_b64, magic_websocket_guid);
+#else
 	n = snprintf(buf, sizeof(buf), "%s%s", key_b64, magic_websocket_guid);
+#endif
 	buf[sizeof(buf) - 1] = '\0';
 	SHA1((unsigned char *)buf, n, (unsigned char *)hash);
 

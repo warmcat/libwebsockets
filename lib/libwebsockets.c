@@ -24,6 +24,7 @@
 #ifdef WIN32
 #include <tchar.h>
 #include <io.h>
+#include <mstcpip.h>
 #else
 #ifdef LWS_BUILTIN_GETIFADDRS
 #include <getifaddrs.h>
@@ -572,7 +573,18 @@ int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 		 * didn't find a way to set these per-socket, need to
 		 * tune kernel systemwide values
 		 */
+#elif WIN32
+		{
+			DWORD dwBytesRet;
+			struct tcp_keepalive alive;
+			alive.onoff = TRUE;
+			alive.keepalivetime = context->ka_time;
+			alive.keepaliveinterval = context->ka_interval;
 
+			if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive), 
+									NULL, 0, &dwBytesRet, NULL, NULL))
+				return 1;
+		}
 #else
 		/* set the keepalive conditions we want on it too */
 		optval = context->ka_time;
@@ -2053,10 +2065,10 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 		bzero((char *) &serv_addr, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;
-		if (info->interface == NULL)
+		if (info->iface == NULL)
 			serv_addr.sin_addr.s_addr = INADDR_ANY;
 		else
-			interface_to_sa(info->interface, &serv_addr,
+			interface_to_sa(info->iface, &serv_addr,
 						sizeof(serv_addr));
 		serv_addr.sin_port = htons(info->port);
 

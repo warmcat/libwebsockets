@@ -771,7 +771,7 @@ struct libwebsocket_extension {
 
 struct lws_context_creation_info {
 	int port;
-	const char *interface;
+	const char *iface;
 	struct libwebsocket_protocols *protocols;
 	struct libwebsocket_extension *extensions;
 	const char *ssl_cert_filepath;

@@ -506,7 +506,7 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 	int opts = 0;
 	char interface_name[128] = "";
-	const char *interface = NULL;
+	const char *iface = NULL;
 #ifndef WIN32
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
@@ -546,7 +546,7 @@ int main(int argc, char **argv)
 		case 'i':
 			strncpy(interface_name, optarg, sizeof interface_name);
 			interface_name[(sizeof interface_name) - 1] = '\0';
-			interface = interface_name;
+			iface = interface_name;
 			break;
 		case 'c':
 			close_testing = 1;
@@ -598,7 +598,7 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	info.interface = interface;
+	info.iface = iface;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
 	info.extensions = libwebsocket_internal_extensions;
