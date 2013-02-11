@@ -1079,6 +1079,11 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 		SSL_CTX_free(context->ssl_client_ctx);
 #endif
 
+	if (context->fds)
+		free(context->fds);
+	if (context->lws_lookup)
+		free(context->lws_lookup);
+
 	free(context);
 
 #ifdef WIN32
