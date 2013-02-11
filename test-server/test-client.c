@@ -150,8 +150,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 		mirror_lifetime--;
 		if (!mirror_lifetime) {
 			fprintf(stderr, "closing mirror session\n");
-			libwebsocket_close_and_free_session(context,
-				wsi_mirror, LWS_CLOSE_STATUS_GOINGAWAY);
+			return -1;
 		} else
 			/* get notified as soon as we can write again */
 			libwebsocket_callback_on_writable(context, wsi);
