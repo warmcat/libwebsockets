@@ -6,6 +6,7 @@ AC_INIT(libwebsockets, 1.1, andy@warmcat.com, libwebsockets, http://libwebsocket
 AC_CONFIG_SRCDIR([test-server/test-server.c])
 AC_CONFIG_HEADERS([config.h])
 
+: ${CFLAGS=""}
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AM_PROG_AR
 LT_INIT(shared)

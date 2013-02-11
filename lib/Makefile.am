@@ -54,7 +54,7 @@ endif
 if DISABLE_DEBUG
 libwebsockets_la_CFLAGS+= -O4
 else
-libwebsockets_la_CFLAGS+= -g
+libwebsockets_la_CFLAGS+= -O0 -g
 endif
 
 if MINGW

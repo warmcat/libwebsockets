@@ -74,7 +74,10 @@ the visual studio project files that were in the tree until now.
 
  - cutomizable frame rx buffer size by protocol
 
-
+ - By default debug is enabled and the library is built for -O0 -g to faclitate
+	that.  Use --disable-debug configure option to build instead with -O4
+	and no -g (debug info), obviously providing best performance and
+	reduced binary size.
 
 v1.1-chrome26-firefox18
 =======================
