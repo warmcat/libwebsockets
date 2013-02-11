@@ -1090,6 +1090,11 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 		SSL_CTX_free(context->ssl_ctx);
 	if (context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
+
+	ERR_remove_state(0);
+	ERR_free_strings();
+	EVP_cleanup();
+	CRYPTO_cleanup_all_ex_data();
 #endif
 
 	if (context->fds)
