@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 2.6)
 project(libwebsockets)
 
 set(PACKAGE "libwebsockets")
-set(PACKAGE_VERSION "1.1")
+set(PACKAGE_VERSION "1.2")
 set(PACKAGE_BUGREPORT "andy@warmcat.com")
 set(PACKAGE_NAME "${PACKAGE}")
 set(PACKAGE_STRING "${PACKAGE} ${PACKAGE_VERSION}")

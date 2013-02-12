@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.61])
-AC_INIT(libwebsockets, 1.1, andy@warmcat.com, libwebsockets, http://libwebsockets.org)
+AC_INIT(libwebsockets, 1.2, andy@warmcat.com, libwebsockets, http://libwebsockets.org)
 AC_CONFIG_SRCDIR([test-server/test-server.c])
 AC_CONFIG_HEADERS([config.h])
 

@@ -63,7 +63,7 @@ libwebsockets_la_LDFLAGS+= -lm -luser32 -ladvapi32 -lkernel32 -lgcc
 else
 libwebsockets_la_CFLAGS+= -rdynamic -fPIC -Werror
 # notice http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html has rules for how to bump this
-libwebsockets_la_LDFLAGS+=  -version-info 2:0:0
+libwebsockets_la_LDFLAGS+=  -version-info 3:0:0
 endif
 
 libwebsockets_la_CFLAGS+= -c \
