@@ -1,6 +1,6 @@
 Name: libwebsockets
-Version: 0.1
-Release: 45.gmaster_f1d2113d%{?dist}
+Version: 1.2
+Release: 46.gmaster_f59d56cbd8305ed%{?dist}
 Summary: Websocket Server Library
 
 Group: System
@@ -43,21 +43,24 @@ rm -rf $RPM_BUILD_ROOT
 %files
 %defattr(-,root,root,-)
 %attr(755,root,root) /usr/bin/libwebsockets-test-server
+%attr(755,root,root) /usr/bin/libwebsockets-test-server-extpoll
+%attr(755,root,root) /usr/bin/libwebsockets-test-client
+%attr(755,root,root) /usr/bin/libwebsockets-test-ping
+%attr(755,root,root) /usr/bin/libwebsockets-test-echo
+%attr(755,root,root) /usr/bin/libwebsockets-test-fraggle
 %attr(755,root,root) 
-/%{_libdir}/libwebsockets.so.0.0.3
-/%{_libdir}/libwebsockets.so.0
+/%{_libdir}/libwebsockets.so.3.0.0
+/%{_libdir}/libwebsockets.so.3
 /%{_libdir}/libwebsockets.so
 /%{_libdir}/libwebsockets.la
 %attr(755,root,root) /usr/share/libwebsockets-test-server
-%attr(755,root,root) /usr/share/libwebsockets-test-server-extpoll
-%attr(755,root,root) /usr/share/libwebsockets-test-client
-%attr(755,root,root) /usr/share/libwebsockets-test-ping
 %doc
 %files devel
 %defattr(-,root,root,-)
 /usr/include/*
 %attr(755,root,root)
 /%{_libdir}/libwebsockets.a
+/%{_libdir}/pkgconfig/libwebsockets.pc
 
 %changelog
 
