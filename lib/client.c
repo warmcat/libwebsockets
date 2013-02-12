@@ -710,8 +710,6 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	struct libwebsocket_extension *ext1;
 	int ext_count = 0;
 #endif
-	static const char magic_websocket_guid[] =
-					 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 	/*
 	 * create the random key
@@ -841,12 +839,9 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 
 	/* prepare the expected server accept response */
 
-#ifdef WIN32
-	n = _snprintf(buf, sizeof(buf), "%s%s", key_b64, magic_websocket_guid);
-#else
-	n = snprintf(buf, sizeof(buf), "%s%s", key_b64, magic_websocket_guid);
-#endif
-	buf[sizeof(buf) - 1] = '\0';
+	key_b64[39] = '\0'; /* enforce composed length below buf sizeof */
+	n = sprintf(buf, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key_b64);
+
 	SHA1((unsigned char *)buf, n, (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
