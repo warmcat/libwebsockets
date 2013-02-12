@@ -424,27 +424,6 @@ just_kill_connection:
 }
 
 /**
- * libwebsockets_hangup_on_client() - Server calls to terminate client
- *					connection
- * @context:	libwebsockets context
- * @fd:		Connection socket descriptor
- */
-
-void
-libwebsockets_hangup_on_client(struct libwebsocket_context *context, int fd)
-{
-	struct libwebsocket *wsi = context->lws_lookup[fd];
-
-	if (wsi) {
-		lwsl_info("close connection at hangup_on_client:\n");
-		libwebsocket_close_and_free_session(context,
-			wsi, LWS_CLOSE_STATUS_NOSTATUS);
-	} else
-		close(fd);
-}
-
-
-/**
  * libwebsockets_get_peer_addresses() - Get client address information
  * @context:	Libwebsockets context
  * @wsi:	Local struct libwebsocket associated with

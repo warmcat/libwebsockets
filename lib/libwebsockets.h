@@ -918,9 +918,6 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 					char *rip, int rip_len);
 
 LWS_EXTERN void
-libwebsockets_hangup_on_client(struct libwebsocket_context *context, int fd);
-
-LWS_EXTERN void
 libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 			       struct libwebsocket *wsi, enum lws_close_status);
 

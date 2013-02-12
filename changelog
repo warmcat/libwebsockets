@@ -78,6 +78,10 @@ User api removals
  	and have been removed.  There's a new header management scheme that
 	handles them in a much more compact way.
 
+ - libwebsockets_hangup_on_client() is removed.  If you want to close the
+ 	connection you must do so from the user callback and by returning
+	-1 from there.
+
 
 New features
 ------------
