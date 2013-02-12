@@ -94,9 +94,18 @@ New features
  - Cmake project file added, aimed initially at Windows support: this replaces
 	the visual studio project files that were in the tree until now.
 
+ - CyaSSL now supported in place of OpenSSL (--use-cyassl on configure)
+
  - PATH_MAX or MAX_PATH no longer needed
 
  - cutomizable frame rx buffer size by protocol
+
+ - optional TCP keepalive so dead peers can be detected, can be enabled at
+ 	context-creation time
+
+ - valgrind-clean: no SSL or CyaSSL: completely clean.  With OpenSSL, 88 bytes
+ 	lost at OpenSSL library init and symptomless reports of uninitialized
+	memory usage... seems to be a known and ignored problem at OpenSSL
 
  - By default debug is enabled and the library is built for -O0 -g to faclitate
 	that.  Use --disable-debug configure option to build instead with -O4
@@ -116,6 +125,9 @@ New features
 	The RX frame buffer defined by the protocol in user
 	code is also allocated per connection, this represents the largest
 	frame you can receive atomically in that protocol.
+
+ - On ARM9 build, just http+ws server no extensions or ssl, <12Kbytes .text
+ 	and 112 bytes per connection (+1328 only during header processing)
 
 
 v1.1-chrome26-firefox18
