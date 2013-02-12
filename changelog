@@ -82,6 +82,11 @@ User api removals
  	connection you must do so from the user callback and by returning
 	-1 from there.
 
+ - libwebsocket_close_and_free_session() is now private to the library code
+ 	only and not exposed for user code.  If you want to close the
+	connection, you must do so from the user callback by returning -1
+	from there.
+
 
 New features
 ------------

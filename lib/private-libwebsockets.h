@@ -401,6 +401,10 @@ struct libwebsocket {
 #endif
 };
 
+extern void
+libwebsocket_close_and_free_session(struct libwebsocket_context *context,
+			       struct libwebsocket *wsi, enum lws_close_status);
+
 #ifndef LWS_LATENCY
 static inline void lws_latency(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, const char *action,

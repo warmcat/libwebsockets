@@ -917,10 +917,6 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, int fd, char *name, int name_len,
 					char *rip, int rip_len);
 
-LWS_EXTERN void
-libwebsocket_close_and_free_session(struct libwebsocket_context *context,
-			       struct libwebsocket *wsi, enum lws_close_status);
-
 LWS_EXTERN int
 libwebsockets_get_random(struct libwebsocket_context *context,
 							    void *buf, int len);

@@ -287,8 +287,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 		}
 		if (close_testing && pss->number == 50) {
 			lwsl_info("close tesing limit, closing\n");
-			libwebsocket_close_and_free_session(context, wsi,
-						       LWS_CLOSE_STATUS_NORMAL);
+			return -1;
 		}
 		break;
 
