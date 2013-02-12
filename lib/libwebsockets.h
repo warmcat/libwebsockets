@@ -740,7 +740,7 @@ struct libwebsocket_extension {
  * @port:	Port to listen on... you can use 0 to suppress listening on
  *		any port, that's what you want if you are not running a
  *		websocket server at all but just using it as a client
- * @interface:  NULL to bind the listen socket to all interfaces, or the
+ * @iface:	NULL to bind the listen socket to all interfaces, or the
  *		interface name, eg, "eth2"
  * @protocols:	Array of structures listing supported protocols and a protocol-
  *		specific callback for each one.  The list is ended with an
