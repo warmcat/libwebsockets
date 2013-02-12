@@ -512,6 +512,12 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 			lwsl_parser("known hdr '%s'\n", wsi->u.hdr.name_buffer);
 
+			if (n == WSI_TOKEN_GET_URI &&
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
+				lwsl_warn("Duplicated GET\n");
+				return -1;
+			}
+
 			/*
 			 * WSORIGIN is protocol equiv to ORIGIN,
 			 * JWebSocket likes to send it, map to ORIGIN
