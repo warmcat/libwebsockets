@@ -270,7 +270,7 @@ int main(int argc, char **argv)
 #endif
 
 	info.port = listen_port;
-	info.interface = interface;
+	info.iface = interface;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
 	info.extensions = libwebsocket_internal_extensions;
