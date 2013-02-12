@@ -237,7 +237,7 @@ int main(int argc, char **argv)
 	 * simplify getting started without having to take care about
 	 * permissions or running as root, set to /tmp/.lwsts-lock
 	 */
-	if (!client && daemonize && lws_daemonize("/tmp/.lwsts-lock")) {
+	if (!client && daemonize && lws_daemonize("/tmp/.lwstecho-lock")) {
 		fprintf(stderr, "Failed to daemonize\n");
 		return 1;
 	}
