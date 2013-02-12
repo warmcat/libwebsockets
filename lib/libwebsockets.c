@@ -343,9 +343,16 @@ just_kill_connection:
 
 	if ((old_state == WSI_STATE_ESTABLISHED ||
 	     wsi->mode == LWS_CONNMODE_WS_SERVING ||
-	     wsi->mode == LWS_CONNMODE_WS_CLIENT) && wsi->u.ws.rx_user_buffer) {
-		free(wsi->u.ws.rx_user_buffer);
-		wsi->u.ws.rx_user_buffer = NULL;
+	     wsi->mode == LWS_CONNMODE_WS_CLIENT)) {
+
+		if (wsi->u.ws.rx_user_buffer) {
+			free(wsi->u.ws.rx_user_buffer);
+			wsi->u.ws.rx_user_buffer = NULL;
+		}
+		if (wsi->u.ws.rxflow_buffer) {
+			free(wsi->u.ws.rxflow_buffer);
+			wsi->u.ws.rxflow_buffer = NULL;
+		}
 	}
 
 	/* tell the user it's all over for this guy */
@@ -388,9 +395,6 @@ just_kill_connection:
 		ext++;
 	}
 #endif
-
-	if (wsi->u.ws.rxflow_buffer)
-		free(wsi->u.ws.rxflow_buffer);
 
 /*	lwsl_info("closing fd=%d\n", wsi->sock); */
 

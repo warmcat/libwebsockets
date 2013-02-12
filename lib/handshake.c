@@ -105,6 +105,19 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 		if (!lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE) ||
 			     !lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
+
+			/* it's not websocket.... shall we accept it as http? */
+
+			if (!lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) {
+				lwsl_warn("Missing URI in HTTP request\n");
+				/* drop the header info */
+				if (wsi->u.hdr.ah)
+					free(wsi->u.hdr.ah);
+				goto bail;
+			}
+
+			lwsl_info("HTTP request for '%s'\n", lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
+
 			wsi->state = WSI_STATE_HTTP;
 			n = 0;
 			if (wsi->protocol->callback)

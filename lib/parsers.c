@@ -470,7 +470,13 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		if (wsi->u.hdr.name_buffer_pos ==
 					   sizeof(wsi->u.hdr.name_buffer) - 1) {
+			/* did we see HTTP token yet? */
+			if (!wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
+				lwsl_info("junk before method\n");
+				return -1;
+			}
 			/* name bigger than we can handle, skip until next */
+			wsi->u.hdr.name_buffer_pos = 0;
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
 			break;
 		}
@@ -490,14 +496,13 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
 				break;
 			}
-			/* hm it's an unknown http method in fact */
-			if (c == ' ') {
-				lwsl_info("Unknown method %s\n",
-							wsi->u.hdr.name_buffer);
-				/* treat it as GET */
-				wsi->u.hdr.parser_state = WSI_TOKEN_GET_URI;
-				goto start_fragment;
-			}
+			/*
+			 * hm it's an unknown http method in fact,
+			 * treat as dangerous
+			 */
+
+			lwsl_info("Unknown method - dropping\n");
+			return -1;
 		}
 		if (lextable[wsi->u.hdr.lextable_pos + 1] == 0) {
 
