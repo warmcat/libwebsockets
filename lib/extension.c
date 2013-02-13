@@ -26,3 +26,8 @@ struct libwebsocket_extension libwebsocket_internal_extensions[] = {
 		NULL, NULL, 0
 	}
 };
+
+struct libwebsocket_extension *libwebsocket_get_internal_extensions()
+{
+	return libwebsocket_internal_extensions;
+}

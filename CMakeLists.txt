@@ -274,13 +274,21 @@ add_library(websockets_shared SHARED
 			${HDR_PUBLIC}
 			${SOURCES})
 
-# On Windows libs have the same file ending
-# for both static and shared libraries, so we
-# need a unique name for the STATIC one.
 if (WIN32)
+	# On Windows libs have the same file ending (.lib)
+	# for both static and shared libraries, so we
+	# need a unique name for the static one.
 	set_target_properties(websockets 
-		PROPERTIES 
+		PROPERTIES
 		OUTPUT_NAME websockets_static)
+
+	# Compile as DLL (export function declarations)
+	set_property(
+		TARGET websockets_shared
+		PROPERTY COMPILE_DEFINITIONS 
+		LWS_DLL
+		LWS_INTERNAL
+		)
 endif()
 
 # We want the shared lib to be named "libwebsockets"
@@ -292,13 +300,11 @@ set_target_properties(websockets_shared
 # Set the so version of the lib.
 # Equivalent to LDFLAGS=-version-info 3:0:0
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
-	set_target_properties(websockets 
-		PROPERTIES
-		SOVERSION ${SOVERSION})
-
-	set_target_properties(websockets_shared 
-		PROPERTIES
-		SOVERSION ${SOVERSION})
+	foreach(lib websockets websockets_shared)
+		set_target_properties(${lib} 
+			PROPERTIES
+			SOVERSION ${SOVERSION})
+	endforeach()
 endif()
 
 set(LIB_LIST)
@@ -344,6 +350,11 @@ if (WIN32 AND NOT USE_EXTERNAL_ZLIB)
 else()
 	find_package(ZLIB REQUIRED)
 endif()
+
+# Make sure ZLib is compiled before the libs.
+foreach (lib websockets websockets_shared)
+	add_dependencies(${lib} ZLIB)
+endforeach()
 
 message("ZLib include dirs: ${ZLIB_INCLUDE_DIRS}")
 message("ZLib libraries: ${ZLIB_LIBRARIES}")
@@ -393,8 +404,10 @@ if (UNIX)
 	list(APPEND LIB_LIST m)
 endif()
 
-target_link_libraries(websockets ${LIB_LIST})
-target_link_libraries(websockets_shared ${LIB_LIST})
+# Setup the linking for all libs.
+foreach (lib websockets websockets_shared)
+	target_link_libraries(${lib} ${LIB_LIST})
+endforeach()
 
 #
 # Test applications
@@ -425,10 +438,11 @@ if (NOT WITHOUT_TESTAPPS)
 		source_group("Sources"   FILES ${TEST_SRCS})
 		add_executable(${TEST_NAME} ${TEST_SRCS} ${TEST_HDR})
 		target_link_libraries(${TEST_NAME} websockets)
-
+		add_dependencies(${TEST_NAME} websockets)
 		set_property(
 					TARGET ${TEST_NAME}
-					PROPERTY COMPILE_DEFINITIONS INSTALL_DATADIR="${SSL_CERT_DIR}"
+					PROPERTY COMPILE_DEFINITIONS 
+						INSTALL_DATADIR="${SSL_CERT_DIR}"
 					)
 	endfunction()
 
@@ -458,14 +472,21 @@ if (NOT WITHOUT_TESTAPPS)
 	if (NOT WITHOUT_SERVER AND NOT WITHOUT_SERVER_EXTPOLL)
 		create_test_app(test-server-extpoll
 			"test-server/test-server.c"
-			""
+			"win32port/win32helpers/websock-w32.c"
 			"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
 			
-			# Set defines for this executable only.
-			set_property(
-				TARGET test-server-extpoll
-				PROPERTY COMPILE_DEFINITIONS EXTERNAL_POLL INSTALL_DATADIR="${SSL_CERT_DIR}"
-				)
+		# Set defines for this executable only.
+		set_property(
+			TARGET test-server-extpoll
+			PROPERTY COMPILE_DEFINITIONS 
+				EXTERNAL_POLL 
+				INSTALL_DATADIR="${SSL_CERT_DIR}"
+			)
+
+		# We need to link against winsock code.
+		if (WIN32)
+			target_link_libraries(test-server-extpoll ws2_32.lib)
+		endif()
 	endif()
 
 	#
@@ -505,6 +526,7 @@ if (NOT WITHOUT_TESTAPPS)
 			foreach(TARGET_BIN 
 					test-client 
 					test-server
+					test-server-extpoll
 					test-fraggle
 					test-echo
 					test-ping

@@ -301,7 +301,7 @@ int main(int argc, char **argv)
 	info.iface = iface;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-	info.extensions = libwebsocket_internal_extensions;
+	info.extensions = libwebsocket_get_internal_extensions();
 #endif
 	if (use_ssl) {
 		info.ssl_cert_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";

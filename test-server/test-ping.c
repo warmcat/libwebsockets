@@ -418,7 +418,7 @@ int main(int argc, char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-	info.extensions = libwebsocket_internal_extensions;
+	info.extensions = libwebsocket_get_internal_extensions();
 #endif
 	info.gid = -1;
 	info.uid = -1;

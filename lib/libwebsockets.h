@@ -52,7 +52,7 @@ typedef int ssize_t;
 #endif
 #endif
 
-#else
+#else // NOT WIN32
 #include <poll.h>
 #include <unistd.h>
 #endif
@@ -81,7 +81,7 @@ enum lws_log_levels {
 	LLL_COUNT = 10 /* set to count of valid flags */
 };
 
-extern void _lws_log(int filter, const char *format, ...);
+LWS_EXTERN void _lws_log(int filter, const char *format, ...);
 
 /* notice, warn and log are always compiled in */
 #define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
@@ -101,7 +101,7 @@ extern void _lws_log(int filter, const char *format, ...);
 #define lwsl_ext(...)  _lws_log(LLL_EXT, __VA_ARGS__)
 #define lwsl_client(...) _lws_log(LLL_CLIENT, __VA_ARGS__)
 #define lwsl_latency(...) _lws_log(LLL_LATENCY, __VA_ARGS__)
-extern void lwsl_hexdump(void *buf, size_t len);
+LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 
 #else /* no debug */
 
@@ -944,10 +944,10 @@ lws_get_library_version(void);
 
 /* access to headers... only valid while headers valid */
 
-extern int
+LWS_EXTERN int
 lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h);
 
-extern int
+LWS_EXTERN int
 lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
 						enum lws_token_indexes h);
 
@@ -962,7 +962,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 					       unsigned char *buf, size_t len);
 
 #ifndef LWS_NO_EXTENSIONS
-LWS_EXTERN struct libwebsocket_extension libwebsocket_internal_extensions[];
+LWS_EXTERN struct libwebsocket_extension *libwebsocket_get_internal_extensions();
 #endif
 
 #ifdef __cplusplus

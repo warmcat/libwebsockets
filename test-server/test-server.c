@@ -29,9 +29,23 @@
 #include <string.h>
 #include <sys/time.h>
 #include <assert.h>
-#ifndef WIN32
+#ifdef WIN32
+
+#ifdef EXTERNAL_POLL
+	#ifndef WIN32_LEAN_AND_MEAN
+	#define WIN32_LEAN_AND_MEAN
+	#endif
+	#include <winsock2.h>
+	#include <ws2tcpip.h>
+	#include <stddef.h>
+
+	#include "websock-w32.h"
+#endif
+
+#else // NOT WIN32
 #include <syslog.h>
 #endif
+
 #include <signal.h>
 
 #include "../lib/libwebsockets.h"
@@ -600,7 +614,7 @@ int main(int argc, char **argv)
 	info.iface = iface;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-	info.extensions = libwebsocket_internal_extensions;
+	info.extensions = libwebsocket_get_internal_extensions();
 #endif
 	if (!use_ssl) {
 		info.ssl_cert_filepath = NULL;
