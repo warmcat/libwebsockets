@@ -10,6 +10,7 @@ set(PACKAGE_STRING "${PACKAGE} ${PACKAGE_VERSION}")
 set(PACKAGE_TARNAME "${PACKAGE}")
 set(PACKAGE_URL "http://libwebsockets.org")
 set(VERSION "{PACKAGE_VERSION}")
+set(SOVERSION "3:0:0")
 
 set(LWS_LIBRARY_VERSION ${PACKAGE_VERSION})
 
@@ -271,6 +272,18 @@ add_library(websockets STATIC
 			${HDR_PRIVATE}
 			${HDR_PUBLIC}
 			${SOURCES})
+# TODO: Add dynamic lib also. 
+#(instead of doing target_link_libraries on each lib, 
+# add the libs to a list and do just one call, so both
+# the static and dynamic lib can use the same stuff).
+
+# Set the so version of the lib.
+# Equivalent to LDFLAGS=-version-info 3:0:0
+if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
+	set_target_properties(websockets 
+		PROPERTIES
+		SOVERSION "${SOVERSION}")
+endif()
 
 #
 # Find libraries.
