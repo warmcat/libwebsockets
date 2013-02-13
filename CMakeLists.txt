@@ -10,7 +10,7 @@ set(PACKAGE_STRING "${PACKAGE} ${PACKAGE_VERSION}")
 set(PACKAGE_TARNAME "${PACKAGE}")
 set(PACKAGE_URL "http://libwebsockets.org")
 set(VERSION "{PACKAGE_VERSION}")
-set(SOVERSION "3:0:0")
+set(SOVERSION "3.0.0")
 
 set(LWS_LIBRARY_VERSION ${PACKAGE_VERSION})
 
@@ -190,8 +190,6 @@ configure_file(
 		${PROJECT_SOURCE_DIR}/config.h.cmake 
 		${PROJECT_BINARY_DIR}/lws_config.h)
 
-set(LIB_LIST)
-
 if (MSVC)
 	# Turn off stupid microsoft security warnings.
 	add_definitions(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_NONSTDC_NO_DEPRECATE)
@@ -222,7 +220,6 @@ set(SOURCES
 	lib/extension-deflate-stream.c
 	lib/handshake.c
 	lib/libwebsockets.c
-	lib/minilex.c
 	lib/output.c
 	lib/parsers.c
 	lib/server.c
@@ -272,18 +269,39 @@ add_library(websockets STATIC
 			${HDR_PRIVATE}
 			${HDR_PUBLIC}
 			${SOURCES})
-# TODO: Add dynamic lib also. 
-#(instead of doing target_link_libraries on each lib, 
-# add the libs to a list and do just one call, so both
-# the static and dynamic lib can use the same stuff).
+add_library(websockets_shared SHARED
+			${HDR_PRIVATE}
+			${HDR_PUBLIC}
+			${SOURCES})
+
+# On Windows libs have the same file ending
+# for both static and shared libraries, so we
+# need a unique name for the STATIC one.
+if (WIN32)
+	set_target_properties(websockets 
+		PROPERTIES 
+		OUTPUT_NAME websockets_static)
+endif()
+
+# We want the shared lib to be named "libwebsockets"
+# not "libwebsocket_shared".
+set_target_properties(websockets_shared
+		PROPERTIES 
+		OUTPUT_NAME websockets)
 
 # Set the so version of the lib.
 # Equivalent to LDFLAGS=-version-info 3:0:0
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
 	set_target_properties(websockets 
 		PROPERTIES
-		SOVERSION "${SOVERSION}")
+		SOVERSION ${SOVERSION})
+
+	set_target_properties(websockets_shared 
+		PROPERTIES
+		SOVERSION ${SOVERSION})
 endif()
+
+set(LIB_LIST)
 
 #
 # Find libraries.
@@ -330,7 +348,7 @@ endif()
 message("ZLib include dirs: ${ZLIB_INCLUDE_DIRS}")
 message("ZLib libraries: ${ZLIB_LIBRARIES}")
 include_directories(${ZLIB_INCLUDE_DIRS})
-target_link_libraries(websockets ${ZLIB_LIBRARIES})
+list(APPEND LIB_LIST ${ZLIB_LIBRARIES})
 
 #
 # OpenSSL
@@ -351,7 +369,7 @@ if (WITH_SSL)
 			include_directories(${inc} ${inc}/cyassl)
 		endforeach()
 
-		target_link_libraries(websockets ${CYASSL_LIB})
+		list(APPEND ${LIB_LIST} ${CYASSL_LIB})
 	else()
 		# TODO: Add support for STATIC also.
 		find_package(OpenSSL REQUIRED)
@@ -360,7 +378,7 @@ if (WITH_SSL)
 		message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
 
 		include_directories(${OPENSSL_INCLUDE_DIR})
-		target_link_libraries(websockets ${OPENSSL_LIBRARIES})
+		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
 	endif()
 endif(WITH_SSL)
 
@@ -368,12 +386,15 @@ endif(WITH_SSL)
 # Platform specific libs.
 #
 if (WIN32)
-	target_link_libraries(websockets ws2_32.lib)
+	list(APPEND LIB_LIST ws2_32.lib)
 endif()
 
 if (UNIX)
-	target_link_libraries(websockets m)
+	list(APPEND LIB_LIST m)
 endif()
+
+target_link_libraries(websockets ${LIB_LIST})
+target_link_libraries(websockets_shared ${LIB_LIST})
 
 #
 # Test applications
@@ -400,7 +421,7 @@ if (NOT WITHOUT_TESTAPPS)
 				${WIN32_HDRS})
 		endif(WIN32)
 
-		source_group("Headers"   FILES ${TEST_HDR})
+		source_group("Headers Private"   FILES ${TEST_HDR})
 		source_group("Sources"   FILES ${TEST_SRCS})
 		add_executable(${TEST_NAME} ${TEST_SRCS} ${TEST_HDR})
 		target_link_libraries(${TEST_NAME} websockets)
