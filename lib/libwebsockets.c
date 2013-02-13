@@ -943,7 +943,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 					    wsi->state == WSI_STATE_ESTABLISHED)
 			if (lws_handle_POLLOUT_event(context, wsi,
 								  pollfd) < 0) {
-				lwsl_info("libwebsocket_service_fd: closing");
+				lwsl_info("libwebsocket_service_fd: closing\n");
 				libwebsocket_close_and_free_session(
 					 context, wsi, LWS_CLOSE_STATUS_NORMAL);
 				return 0;
