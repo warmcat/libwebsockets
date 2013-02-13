@@ -44,8 +44,12 @@ else
 dist_libwebsockets_la_SOURCES += sha-1.c
 endif
 
-libwebsockets_la_CFLAGS=-Wall -std=gnu99 -pedantic -fstack-usage
+libwebsockets_la_CFLAGS=-Wall -std=gnu99 -pedantic
 libwebsockets_la_LDFLAGS=
+
+# uncomment below and use cat ./lib/.libs/*.su | sort -k2g | tac
+# to get a worst-first list of static stack usage if you have gcc 4.6+
+#libwebsockets_la_CFLAGS+= -fstack-usage
 
 if USE_CYASSL
 libwebsockets_la_LDFLAGS+= -lcyassl
