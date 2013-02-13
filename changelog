@@ -1,7 +1,55 @@
 Changelog
 ---------
 
-(development since 1.1....)
+v1.2-chrome26-firefox18
+=======================
+
+Diffstat
+--------
+
+ .gitignore                                                      |  16 +++
+ CMakeLists.txt                                                  | 544 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ LICENSE                                                         | 526 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ Makefile.am                                                     |   1 +
+ README                                                          |  20 +++
+ README.build                                                    | 258 ++++++++++++++++++++++++++++++++-----
+ README.coding                                                   |  52 ++++++++
+ changelog                                                       | 136 ++++++++++++++++++++
+ cmake/FindOpenSSLbins.cmake                                     |  33 +++++
+ config.h.cmake                                                  | 173 +++++++++++++++++++++++++
+ configure.ac                                                    |  22 +++-
+ lib/Makefile.am                                                 |  20 ++-
+ lib/base64-decode.c                                             |   2 +-
+ lib/client-handshake.c                                          | 190 +++++++++++-----------------
+ lib/client-parser.c                                             |  88 +++++++------
+ lib/client.c                                                    | 384 ++++++++++++++++++++++++++++++-------------------------
+ lib/daemonize.c                                                 |  32 +++--
+ lib/extension-deflate-frame.c                                   |  58 +++++----
+ lib/extension-deflate-stream.c                                  |  19 ++-
+ lib/extension-deflate-stream.h                                  |   4 +-
+ lib/extension.c                                                 |  11 +-
+ lib/getifaddrs.c                                                | 315 +++++++++++++++++++++++-----------------------
+ lib/getifaddrs.h                                                |  30 ++---
+ lib/handshake.c                                                 | 124 +++++++++++-------
+ lib/libwebsockets.c                                             | 736 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--------------------------------------
+ lib/libwebsockets.h                                             | 237 ++++++++++++++++++++++------------
+ lib/output.c                                                    | 192 +++++++++++-----------------
+ lib/parsers.c                                                   | 966 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++----------------------------------------------------------------
+ lib/private-libwebsockets.h                                     | 225 +++++++++++++++++++++------------
+ lib/server-handshake.c                                          |  82 ++++++------
+ lib/server.c                                                    |  96 +++++++-------
+ libwebsockets-api-doc.html                                      | 189 ++++++++++++++++++----------
+ libwebsockets.spec                                              |  17 +--
+ test-server/attack.sh                                           | 148 ++++++++++++++++++++++
+ test-server/test-client.c                                       | 125 +++++++++---------
+ test-server/test-echo.c                                         |  31 +++--
+ test-server/test-fraggle.c                                      |  32 ++---
+ test-server/test-ping.c                                         |  52 ++++----
+ test-server/test-server.c                                       | 129 ++++++++++++-------
+ win32port/libwebsocketswin32/libwebsocketswin32.vcxproj         | 279 ----------------------------------------
+ win32port/libwebsocketswin32/libwebsocketswin32.vcxproj.filters |  23 +++-
+ 41 files changed, 4398 insertions(+), 2219 deletions(-)
+
 
 User api additions
 ------------------
