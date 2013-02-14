@@ -1750,40 +1750,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 #ifndef LWS_NO_SERVER
 	if (!(info->options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME)) {
-		struct sockaddr sa;
-		context->service_buffer[0] = '\0';
-
 		/* find canonical hostname */
-
-		context->service_buffer[
-				   sizeof(context->service_buffer) - 1] = '\0';
-		memset(&sa, 0, sizeof(sa));
-		sa.sa_family = AF_INET;
-		sa.sa_data[sizeof(sa.sa_data) - 1] = '\0';
-		gethostname((char *)context->service_buffer,
-					  sizeof(context->service_buffer) - 1);
-
-		n = 0;
-
-		if (strlen((char *)context->service_buffer) <
-						       sizeof(sa.sa_data) - 1) {
-			strcpy(sa.sa_data, (char *)context->service_buffer);
-			lwsl_debug("my host name is %s\n", sa.sa_data);
-			n = getnameinfo(&sa, sizeof(sa),
-				(char *)context->service_buffer,
-				sizeof(context->service_buffer) - 1,
-							  NULL, 0, NI_NAMEREQD);
-		}
-
-		if (!n) {
-			strncpy(context->canonical_hostname,
-				(char *)context->service_buffer,
-				       sizeof(context->canonical_hostname) - 1);
-			context->canonical_hostname[
-				sizeof(context->canonical_hostname) - 1] = '\0';
-		} else
-			strncpy(context->canonical_hostname,
-				(char *)context->service_buffer,
+		gethostname((char *)context->canonical_hostname,
 				       sizeof(context->canonical_hostname) - 1);
 
 		lwsl_notice(" canonical_hostname = %s\n",
