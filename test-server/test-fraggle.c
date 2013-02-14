@@ -62,7 +62,7 @@ callback_fraggle(struct libwebsocket_context *context,
 					       void *user, void *in, size_t len)
 {
 	int n;
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2048 +
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 8000 +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	struct per_session_data__fraggle *psf = user;
 	int chunk;
@@ -151,7 +151,13 @@ callback_fraggle(struct libwebsocket_context *context,
 
 		case FRAGSTATE_RANDOM_PAYLOAD:
 
-			chunk = (random() % 2000) + 1;
+			/*
+			 * note how one chunk can be 8000, but we use the
+			 * default rx buffer size of 4096, so we exercise the
+			 * code for rx spill because the rx buffer is full
+			 */
+
+			chunk = (random() % 8000) + 1;
 			psf->total_message += chunk;
 
 			libwebsockets_get_random(context, bp, chunk);
