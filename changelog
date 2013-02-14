@@ -1,6 +1,16 @@
 Changelog
 ---------
 
+(development since 1.22)
+
+User api additions
+------------------
+
+ - You can now call libwebsocket_callback_on_writable() on http connectons,
+ 	and get a LWS_CALLBACK_HTTP_WRITEABLE callback, the same way you can
+	regulate writes with a websocket protocol connection.
+
+
 v1.21-chrome26-firefox18
 ========================
 

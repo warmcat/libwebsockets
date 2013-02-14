@@ -134,6 +134,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_SERVER_WRITEABLE,
 	LWS_CALLBACK_HTTP,
 	LWS_CALLBACK_HTTP_FILE_COMPLETION,
+	LWS_CALLBACK_HTTP_WRITEABLE,
 	LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
@@ -435,6 +436,9 @@ struct libwebsocket_extension;
  *				That's important because it uses a slot in the
  *				total number of client connections allowed set
  *				by MAX_CLIENTS.
+ *
+ *	LWS_CALLBACK_HTTP_WRITEABLE: you can write more down the http protocol
+ *		link now.
  *
  *	LWS_CALLBACK_HTTP_FILE_COMPLETION: a file requested to be send down
  *				http link has completed.

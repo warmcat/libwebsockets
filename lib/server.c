@@ -192,8 +192,19 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		/* one shot */
 		pollfd->events &= ~POLLOUT;
 
-		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE)
+		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE) {
+			n = user_callback_handle_rxflow(
+					wsi->protocol->callback,
+					wsi->protocol->owning_server,
+					wsi, LWS_CALLBACK_HTTP_WRITEABLE,
+					wsi->user_space,
+					NULL,
+					0);
+			if (n < 0)
+				libwebsocket_close_and_free_session(
+				       context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			break;
+		}
 
 		/* nonzero for completion or error */
 		if (libwebsockets_serve_http_file_fragment(context, wsi))
