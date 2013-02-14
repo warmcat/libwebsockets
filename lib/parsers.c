@@ -904,12 +904,27 @@ handle_first:
 					    (wsi->u.ws.frame_mask_index++) & 3];
 
 		if (--wsi->u.ws.rx_packet_length == 0) {
+			/* spill because we have the whole frame */
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 			goto spill;
 		}
-		if (wsi->u.ws.rx_user_buffer_head !=
-					wsi->protocol->rx_buffer_size)
+
+		/*
+		 * if there's no protocol max frame size given, we are
+		 * supposed to default to LWS_MAX_SOCKET_IO_BUF
+		 */
+
+		if (!wsi->protocol->rx_buffer_size &&
+			 		wsi->u.ws.rx_user_buffer_head !=
+			 				  LWS_MAX_SOCKET_IO_BUF)
 			break;
+		else
+			if (wsi->protocol->rx_buffer_size &&
+					wsi->u.ws.rx_user_buffer_head !=
+						  wsi->protocol->rx_buffer_size)
+			break;
+
+		/* spill because we filled our rx buffer */
 spill:
 		/*
 		 * is this frame a control packet we should take care of at this
