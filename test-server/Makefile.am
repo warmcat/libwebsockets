@@ -109,7 +109,7 @@ libwebsockets_test_ping_CFLAGS= -Wall -Werror -std=gnu99 -pedantic -DINSTALL_DAT
 endif
 endif
 
-EXTRA_DIST=test.html favicon.ico libwebsockets.org-logo.png
+EXTRA_DIST=test.html favicon.ico libwebsockets.org-logo.png leaf.jpg
 
 #
 # cook a random test cert and key
