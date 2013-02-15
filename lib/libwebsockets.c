@@ -2150,9 +2150,17 @@ libwebsocket_get_reserved_bits(struct libwebsocket *wsi)
 	return wsi->u.ws.rsv;
 }
 
+/**
+ * libwebsocket_ensure_user_space(): return the user context for the connection if possible
+ * @wsi:	websocket connection instance
+ */
+
 void *
 libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 {
+	if (!wsi->protocol)
+		return NULL;
+
 	/* allocate the per-connection user memory (if any) */
 
 	if (wsi->protocol->per_session_data_size && !wsi->user_space) {
