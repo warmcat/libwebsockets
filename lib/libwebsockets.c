@@ -945,7 +945,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 								  pollfd) < 0) {
 				lwsl_info("libwebsocket_service_fd: closing\n");
 				libwebsocket_close_and_free_session(
-					 context, wsi, LWS_CLOSE_STATUS_NORMAL);
+				       context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
 				return 0;
 			}
 
