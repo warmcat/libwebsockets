@@ -127,7 +127,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	/* external POLL support via protocol 0 */
 	context->protocols[0].callback(context, wsi,
 		LWS_CALLBACK_ADD_POLL_FD,
-		(void *)(long)wsi->sock, NULL, POLLIN);
+		wsi->user_space, (void *)(long)wsi->sock, POLLIN);
 
 	return 0;
 }
@@ -170,7 +170,8 @@ do_ext:
 	/* remove also from external POLL support via protocol 0 */
 	if (wsi->sock)
 		context->protocols[0].callback(context, wsi,
-		    LWS_CALLBACK_DEL_POLL_FD, (void *)(long)wsi->sock, NULL, 0);
+		    LWS_CALLBACK_DEL_POLL_FD, wsi->user_space,
+		    				    (void *)(long)wsi->sock, 0);
 
 	return 0;
 }
@@ -739,7 +740,7 @@ user_service:
 		/* external POLL support via protocol 0 */
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
-			(void *)(long)wsi->sock, NULL, POLLOUT);
+			wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
 	}
 #ifndef LWS_NO_EXTENSIONS
 notify_action:
@@ -1312,7 +1313,7 @@ libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 	/* external POLL support via protocol 0 */
 	context->protocols[0].callback(context, wsi,
 		LWS_CALLBACK_SET_MODE_POLL_FD,
-		(void *)(long)wsi->sock, NULL, POLLOUT);
+		wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
 
 	return 1;
 }
@@ -1468,12 +1469,12 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 		/* external POLL support via protocol 0 */
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_SET_MODE_POLL_FD,
-			(void *)(long)wsi->sock, NULL, POLLIN);
+			wsi->user_space, (void *)(long)wsi->sock, POLLIN);
 	else
 		/* external POLL support via protocol 0 */
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
-			(void *)(long)wsi->sock, NULL, POLLIN);
+			wsi->user_space, (void *)(long)wsi->sock, POLLIN);
 
 	return 1;
 }

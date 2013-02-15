@@ -785,7 +785,7 @@ serving case.  This callback happens when a socket needs to be
 </blockquote>
 <h3>added to the polling loop</h3>
 <blockquote>
-<tt><b>user</b></tt> contains the fd, and
+<tt><b>in</b></tt> contains the fd, and
 <tt><b>len</b></tt> is the events bitmap (like, POLLIN).  If you are using the
 internal polling loop (the "service" callback), you can just
 ignore these callbacks.
@@ -793,14 +793,14 @@ ignore these callbacks.
 <h3>LWS_CALLBACK_DEL_POLL_FD</h3>
 <blockquote>
 This callback happens when a socket descriptor
-needs to be removed from an external polling array.  <tt><b>user</b></tt> is
+needs to be removed from an external polling array.  <tt><b>in</b></tt> is
 the socket desricptor.  If you are using the internal polling
 loop, you can just ignore it.
 </blockquote>
 <h3>LWS_CALLBACK_SET_MODE_POLL_FD</h3>
 <blockquote>
 This callback happens when libwebsockets
-wants to modify the events for the socket descriptor in <tt><b>user</b></tt>.
+wants to modify the events for the socket descriptor in <tt><b>in</b></tt>.
 The handler should OR <tt><b>len</b></tt> on to the events member of the pollfd
 struct for this socket descriptor.  If you are using the
 internal polling loop, you can just ignore it.
@@ -808,7 +808,7 @@ internal polling loop, you can just ignore it.
 <h3>LWS_CALLBACK_CLEAR_MODE_POLL_FD</h3>
 <blockquote>
 This callback occurs when libwebsockets
-wants to modify the events for the socket descriptor in <tt><b>user</b></tt>.
+wants to modify the events for the socket descriptor in <tt><b>in</b></tt>.
 The handler should AND ~<tt><b>len</b></tt> on to the events member of the
 pollfd struct for this socket descriptor.  If you are using the
 internal polling loop, you can just ignore it.

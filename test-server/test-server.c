@@ -129,7 +129,7 @@ static int callback_http(struct libwebsocket_context *context,
 	struct per_session_data__http *pss = (struct per_session_data__http *)user;
 #ifdef EXTERNAL_POLL
 	int m;
-	int fd = (int)(long)user;
+	int fd = (int)(long)in;
 #endif
 
 	switch (reason) {

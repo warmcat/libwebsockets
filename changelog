@@ -10,6 +10,14 @@ User api additions
  	and get a LWS_CALLBACK_HTTP_WRITEABLE callback, the same way you can
 	regulate writes with a websocket protocol connection.
 
+User api changes
+----------------
+
+ - the external poll callbacks now get the socket descriptor coming from the
+ 	"in" parameter.  The user parameter provides the user_space for the
+	wsi as it normally does on the other callbacks.
+
+
 
 v1.21-chrome26-firefox18
 ========================
