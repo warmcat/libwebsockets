@@ -200,6 +200,10 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	if (old_state == WSI_STATE_DEAD_SOCKET)
 		return;
 
+	/* we tried the polite way... */
+	if (old_state == WSI_STATE_AWAITING_CLOSE_ACK)
+		goto just_kill_connection;
+
 	wsi->u.ws.close_reason = reason;
 
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING && wsi->u.http.fd) {
