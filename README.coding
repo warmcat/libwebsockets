@@ -67,6 +67,27 @@ in the ...WRITEABLE callback.
 See the test server code for an example of how to do this.
 
 
+Closing connections from the user side
+--------------------------------------
+
+When you want to close a connection, you do it by returning -1 from a
+callback for that connection.
+
+You can provoke a callback by calling libwebsocket_callback_on_writable on
+the wsi, then notice in the callback you want to close it and just return -1.
+But usually, the decision to close is made in a callback already and returning
+-1 is simple.
+
+If the socket knows the connection is dead, because the peer closed or there
+was an affirmitive network error like a FIN coming, then libwebsockets  will
+take care of closing the connection automatically.
+
+If you have a silently dead connection, it's possible to enter a state where
+the send pipe on the connection is choked but no ack will ever come, so the
+dead connection will never become writeable.  To cover that, you can use TCP
+keepalives (see later in this document)
+
+
 Fragmented messages
 -------------------
 
