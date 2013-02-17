@@ -385,8 +385,8 @@ callback_dumb_increment(struct libwebsocket_context *context,
 		n = sprintf((char *)p, "%d", pss->number++);
 		n = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (n < 0) {
-			lwsl_err("ERROR %d writing to socket\n", n);
-			return 1;
+			lwsl_err("ERROR %d writing to di socket\n", n);
+			return -1;
 		}
 		if (close_testing && pss->number == 50) {
 			lwsl_info("close tesing limit, closing\n");
@@ -476,8 +476,8 @@ callback_lws_mirror(struct libwebsocket_context *context,
 				   ringbuffer[pss->ringbuffer_tail].len,
 								LWS_WRITE_TEXT);
 			if (n < 0) {
-				lwsl_err("ERROR %d writing to socket\n", n);
-				return 1;
+				lwsl_err("ERROR %d writing to mirror socket\n", n);
+				return -1;
 			}
 
 			if (pss->ringbuffer_tail == (MAX_MESSAGE_QUEUE - 1))
