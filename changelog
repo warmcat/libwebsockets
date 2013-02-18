@@ -18,6 +18,13 @@ User api changes
 	wsi as it normally does on the other callbacks.
 
 
+User api removal
+----------------
+
+ - libwebsocket_ensure_user_space() is removed from the public api, if you
+ 	were using it to get user_space, you need to adapt your code to only
+	use user_space inside the user callback.
+
 
 v1.21-chrome26-firefox18
 ========================
