@@ -124,7 +124,7 @@ static int callback_http(struct libwebsocket_context *context,
 	char buf[256];
 	int n;
 	unsigned char *p;
-	static unsigned char buffer[8192];
+	static unsigned char buffer[4096];
 	struct stat stat_buf;
 	struct per_session_data__http *pss = (struct per_session_data__http *)user;
 #ifdef EXTERNAL_POLL
