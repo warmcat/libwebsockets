@@ -58,6 +58,9 @@ libwebsocket_read(struct libwebsocket_context *context,
 		     struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
 	size_t n;
+	struct allocated_headers *ah;
+	char *uri_ptr;
+	int uri_len;
 
 	switch (wsi->state) {
 	case WSI_STATE_HTTP_ISSUING_FILE:
@@ -116,7 +119,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 				goto bail;
 			}
 
-			lwsl_info("HTTP request for '%s'\n", lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
+			lwsl_info("HTTP request for '%s'\n",
+				lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
 
 			if (libwebsocket_ensure_user_space(wsi) == NULL) {
 				/* drop the header info */
@@ -125,18 +129,30 @@ libwebsocket_read(struct libwebsocket_context *context,
 				goto bail;
 			}
 
+			/*
+			 * Hm we still need the headers so the
+			 * callback can look at leaders like the URI, but we
+			 * need to transition to http union state.... hold a
+			 * copy of u.hdr.ah and deallocate afterwards
+			 */
+
+			ah = wsi->u.hdr.ah;
+			uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI);
+			uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI);
+
+			/* union transition */
+			memset(&wsi->u, 0, sizeof(wsi->u));
+
 			wsi->state = WSI_STATE_HTTP;
 			n = 0;
 			if (wsi->protocol->callback)
 				n = wsi->protocol->callback(context, wsi,
 				    LWS_CALLBACK_HTTP,
-				    wsi->user_space,
-				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI),
-				  lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI));
+				    wsi->user_space, uri_ptr, uri_len);
 
-			/* drop the header info */
-			if (wsi->u.hdr.ah)
-				free(wsi->u.hdr.ah);
+			/* now drop the header info we kept a pointer to */
+			if (ah)
+				free(ah);
 
 			if (n) {
 				lwsl_info("LWS_CALLBACK_HTTP closing\n");
