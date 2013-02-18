@@ -2154,16 +2154,11 @@ libwebsocket_get_reserved_bits(struct libwebsocket *wsi)
 	return wsi->u.ws.rsv;
 }
 
-/**
- * libwebsocket_ensure_user_space(): return the user context for the connection if possible
- * @wsi:	websocket connection instance
- */
-
-void *
+int
 libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 {
 	if (!wsi->protocol)
-		return NULL;
+		return 1;
 
 	/* allocate the per-connection user memory (if any) */
 
@@ -2172,12 +2167,12 @@ libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 				  wsi->protocol->per_session_data_size);
 		if (wsi->user_space  == NULL) {
 			lwsl_err("Out of memory for conn user space\n");
-			return NULL;
+			return 1;
 		}
 		memset(wsi->user_space, 0,
 					 wsi->protocol->per_session_data_size);
 	}
-	return wsi->user_space;
+	return 0;
 }
 
 static void lwsl_emit_stderr(int level, const char *line)

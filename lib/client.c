@@ -596,8 +596,7 @@ check_accept:
 	}
 
 	/* allocate the per-connection user memory (if any) */
-	if (wsi->protocol->per_session_data_size &&
-					 !libwebsocket_ensure_user_space(wsi)) {
+	if (libwebsocket_ensure_user_space(wsi)) {
 		lwsl_err("Problem allocating wsi user mem\n");
 		goto bail2;
 	}

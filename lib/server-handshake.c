@@ -75,8 +75,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	}
 
 	/* allocate the per-connection user memory (if any) */
-	if (wsi->protocol->per_session_data_size &&
-					  !libwebsocket_ensure_user_space(wsi))
+	if (libwebsocket_ensure_user_space(wsi))
 		goto bail;
 
 	/* create the response packet */

@@ -880,9 +880,6 @@ libwebsocket_is_final_fragment(struct libwebsocket *wsi);
 LWS_EXTERN unsigned char
 libwebsocket_get_reserved_bits(struct libwebsocket *wsi);
 
-LWS_EXTERN void *
-libwebsocket_ensure_user_space(struct libwebsocket *wsi);
-
 LWS_EXTERN int
 libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable);
 

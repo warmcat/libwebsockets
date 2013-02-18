@@ -122,7 +122,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 			lwsl_info("HTTP request for '%s'\n",
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
 
-			if (libwebsocket_ensure_user_space(wsi) == NULL) {
+			if (libwebsocket_ensure_user_space(wsi)) {
 				/* drop the header info */
 				if (wsi->u.hdr.ah)
 					free(wsi->u.hdr.ah);

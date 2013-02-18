@@ -508,6 +508,9 @@ LWS_EXTERN int
 lws_hdr_simple_create(struct libwebsocket *wsi,
 				enum lws_token_indexes h, const char *s);
 
+LWS_EXTERN int
+libwebsocket_ensure_user_space(struct libwebsocket *wsi);
+
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int handshake_0405(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi);
