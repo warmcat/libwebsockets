@@ -319,16 +319,16 @@ struct allocated_headers {
 	unsigned char frag_index[WSI_TOKEN_COUNT];
 	struct lws_fragments frags[WSI_TOKEN_COUNT * 2];
 	char data[LWS_MAX_HEADER_LEN];
+#ifndef LWS_NO_CLIENT
+	char initial_handshake_hash_base64[30];
+	unsigned short c_port;
+#endif
 };
 
 struct _lws_header_related {
 	struct allocated_headers *ah;
 	short lextable_pos;
 	unsigned char parser_state; /* enum lws_token_indexes */
-#ifndef LWS_NO_CLIENT
-	char initial_handshake_hash_base64[30];
-	unsigned short c_port;
-#endif
 };
 
 struct _lws_websocket_related {

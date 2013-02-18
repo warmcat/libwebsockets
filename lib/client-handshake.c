@@ -24,7 +24,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 /*Proxy-authorization: basic aGVsbG86d29ybGQ= */
 			"\x0d\x0a",
 			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
-			wsi->u.hdr.c_port);
+			wsi->u.hdr.ah->c_port);
 
 		/* OK from now on we talk via the proxy, so connect to that */
 
@@ -35,7 +35,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
 						   context->http_proxy_address))
 			goto oom4;
-		wsi->u.hdr.c_port = context->http_proxy_port;
+		wsi->u.hdr.ah->c_port = context->http_proxy_port;
 	}
 
 	/*
@@ -60,7 +60,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	}
 
 	server_addr.sin_family = AF_INET;
-	server_addr.sin_port = htons(wsi->u.hdr.c_port);
+	server_addr.sin_port = htons(wsi->u.hdr.ah->c_port);
 	server_addr.sin_addr = *((struct in_addr *)server_hostent->h_addr);
 	bzero(&server_addr.sin_zero, 8);
 
@@ -210,7 +210,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	 * we're not necessarily in a position to action these right away,
 	 * stash them... we only need during connect phase so u.hdr is fine
 	 */
-	wsi->u.hdr.c_port = port;
+	wsi->u.hdr.ah->c_port = port;
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
 		goto bail1;
 

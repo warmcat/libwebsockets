@@ -589,9 +589,9 @@ check_accept:
 	 */
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_ACCEPT);
-	if (strcmp(p, wsi->u.hdr.initial_handshake_hash_base64)) {
+	if (strcmp(p, wsi->u.hdr.ah->initial_handshake_hash_base64)) {
 		lwsl_warn("lws_client_int_s_hs: accept %s wrong vs %s\n", p,
-				      wsi->u.hdr.initial_handshake_hash_base64);
+				  wsi->u.hdr.ah->initial_handshake_hash_base64);
 		goto bail2;
 	}
 
@@ -845,8 +845,8 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	SHA1((unsigned char *)buf, n, (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
-			wsi->u.hdr.initial_handshake_hash_base64,
-			     sizeof(wsi->u.hdr.initial_handshake_hash_base64));
+			wsi->u.hdr.ah->initial_handshake_hash_base64,
+			  sizeof(wsi->u.hdr.ah->initial_handshake_hash_base64));
 
 	return p;
 }
