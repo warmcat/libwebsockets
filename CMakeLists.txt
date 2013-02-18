@@ -13,6 +13,7 @@ set(VERSION "{PACKAGE_VERSION}")
 set(SOVERSION "3.0.0")
 
 set(LWS_LIBRARY_VERSION ${PACKAGE_VERSION})
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
 
 # Try to find the current Git hash.
 find_package(Git)
@@ -93,7 +94,6 @@ if (MINGW)
 	set(LWS_MINGW_SUPPORT 1)
 endif()
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
 include_directories(${PROJECT_BINARY_DIR})
 
 include(CheckCSourceCompiles)
