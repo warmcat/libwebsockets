@@ -323,7 +323,7 @@ struct allocated_headers {
 
 struct _lws_header_related {
 	struct allocated_headers *ah;
-	int lextable_pos;
+	short lextable_pos;
 	unsigned char parser_state; /* enum lws_token_indexes */
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
@@ -342,11 +342,11 @@ struct _lws_websocket_related {
 	unsigned char rsv;
 	unsigned int frame_is_binary:1;
 	unsigned int all_zero_nonce:1;
-	enum lws_close_status close_reason;
+	short close_reason; /* enum lws_close_status */
 	unsigned char *rxflow_buffer;
 	int rxflow_len;
 	int rxflow_pos;
-	int rxflow_change_to;
+	unsigned int rxflow_change_to:2;
 	unsigned int this_frame_masked:1;
 };
 
