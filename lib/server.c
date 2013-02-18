@@ -100,7 +100,6 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	/* intialize the instance struct */
 
 	new_wsi->state = WSI_STATE_HTTP;
-	new_wsi->u.hdr.name_buffer_pos = 0;
 	new_wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 	new_wsi->hdr_parsing_completed = 0;
 

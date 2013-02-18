@@ -147,10 +147,6 @@ They all have reasonable defaults usable for all use-cases except resource-
 constrained, so you only need to take care about them if you want to tune them
 to the amount of memory available.
 
- - LWS_MAX_HEADER_NAME_LENGTH default 64: max characters in an HTTP header
-name that libwebsockets can cope with, if a header arrives bigger than this
-it's ignored until the next header is seen
-
  - LWS_MAX_HEADER_LEN default 1024: allocated area to copy http headers that
 libwebsockets knows about into.  You only need to think about increasing this
 if your application might have monster length URLs for example, or some other

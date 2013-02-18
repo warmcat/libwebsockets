@@ -468,21 +468,6 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_NAME_PART:
 		lwsl_parser("WSI_TOKEN_NAME_PART '%c'\n", c);
 
-		if (wsi->u.hdr.name_buffer_pos ==
-					   sizeof(wsi->u.hdr.name_buffer) - 1) {
-			/* did we see HTTP token yet? */
-			if (!wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
-				lwsl_info("junk before method\n");
-				return -1;
-			}
-			/* name bigger than we can handle, skip until next */
-			wsi->u.hdr.name_buffer_pos = 0;
-			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
-			break;
-		}
-		wsi->u.hdr.name_buffer[wsi->u.hdr.name_buffer_pos++] = c;
-		wsi->u.hdr.name_buffer[wsi->u.hdr.name_buffer_pos] = '\0';
-
 		wsi->u.hdr.lextable_pos =
 				lextable_decode(wsi->u.hdr.lextable_pos, c);
 
@@ -510,7 +495,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 			n = lextable[wsi->u.hdr.lextable_pos] & 0x7f;
 
-			lwsl_parser("known hdr '%s'\n", wsi->u.hdr.name_buffer);
+			lwsl_parser("known hdr %d\n", n);
 
 			if (n == WSI_TOKEN_GET_URI &&
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
@@ -586,7 +571,6 @@ start_fragment:
 			wsi->u.hdr.lextable_pos = 0;
 		} else
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
-		wsi->u.hdr.name_buffer_pos = 0;
 		break;
 		/* we're done, ignore anything else */
 	case WSI_PARSING_COMPLETE:

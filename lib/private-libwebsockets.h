@@ -322,8 +322,6 @@ struct allocated_headers {
 };
 
 struct _lws_header_related {
-	char name_buffer[LWS_MAX_HEADER_NAME_LENGTH];
-	unsigned char name_buffer_pos;
 	struct allocated_headers *ah;
 	int lextable_pos;
 	unsigned char parser_state; /* enum lws_token_indexes */
