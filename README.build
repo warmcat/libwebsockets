@@ -204,33 +204,22 @@ Embedded server-only configuration without extensions (ie, no compression
 on websocket connections), but with full v13 websocket features and http
 server, built on ARM Cortex-A9:
 
-Update at 224149ai (2013-02-11)
+Update at 8dac94d (2013-02-18)
 
 ./configure --without-client --without-extensions --disable-debug --without-daemonize
 
-Context Creation, 1024 fd limit[2]: 17444 (incl. 12 bytes per fd)
-Per-connection [3]: 112 bytes, additional 1328 bytes only during headers
+Context Creation, 1024 fd limit[2]:   16720 (includes 12 bytes per fd)
+Per-connection [3]:                      72 bytes, +1328 during headers
 
 .text	.rodata	.data	.bss
-11548	2736	288	4
-
-
-Update at 35f332bb46464feb87eb
-
-./configure --without-client --without-extensions --disable-debug --enable-nofork --without-daemonize
-
-.text	.rodata	.data	.bss
-11476	2664	288	4
-
-Context Creation, 1024 fd limit[2]: 12288 (12 bytes per fd)
-Per-connection [3]: 4400 bytes
-
+11512	2784	288	4
 
 This shows the impact of the major configuration with/without options at
 13ba5bbc633ea962d46d using Ubuntu ARM on a PandaBoard ES.
 
 These are accounting for static allocations from the library elf, there are
-additional dynamic allocations via malloc
+additional dynamic allocations via malloc.  These are a bit old now but give
+the right idea for relative "expense" of features.
 
 Static allocations, ARM9
 				.text	.rodata	.data	.bss
@@ -242,25 +231,16 @@ Static allocations, ARM9
  without server, exts		25382	7204	288	4104
  without server, exts, debug[1]	23712	4256	288	4104
 
-Dynamic allocations: ARM9 (32 bit)
-
- Context Creation, 1024 fd limit[2] in ulimit:	12288  (12 bytes per fd)
- Per-connection (excluding headers[3]):		 8740
-
-Dynamic allocations: x86_64 (64 bit)
-
- Context Creation, 1024 fd limit[2] in ulimit:	16384  (16 bytes per fd)
- Per-connection (excluding headers[3]):		 9224
-
 [1] --disable-debug only removes messages below lwsl_notice.  Since that is
 the default logging level the impact is not noticable, error, warn and notice
 logs are all still there.
 
 [2] 1024 fd per process is the default limit (set by ulimit) in at least Fedora
-and Ubuntu.
+and Ubuntu.  You can make significant savings tailoring this to actual expected
+peak fds, ie, at a limit of 20, context creation allocation reduces to 4432 +
+240 = 4672)
 
-[3] known headers are retained via additional mallocs for the lifetime of the
-connection
+[3] known header content is freed after connection establishment
 
 
 #################################### CMake ####################################
