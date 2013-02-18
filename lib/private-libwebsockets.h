@@ -325,7 +325,6 @@ struct _lws_header_related {
 	struct allocated_headers *ah;
 	int lextable_pos;
 	unsigned char parser_state; /* enum lws_token_indexes */
-	int current_alloc_len;
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
 	unsigned short c_port;
