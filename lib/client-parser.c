@@ -23,11 +23,11 @@
 
 int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
-	int n;
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	int handled;
 	struct lws_tokens eff_buf;
 #ifndef LWS_NO_EXTENSIONS
+	int n;
 	int m;
 #endif
 
@@ -274,11 +274,10 @@ spill:
 			lwsl_parser("client sees server close len = %d\n",
 						 wsi->u.ws.rx_user_buffer_head);
 			/* parrot the close packet payload back */
-			n = libwebsocket_write(wsi, (unsigned char *)
+			libwebsocket_write(wsi, (unsigned char *)
 			   &wsi->u.ws.rx_user_buffer[
 				LWS_SEND_BUFFER_PRE_PADDING],
 				wsi->u.ws.rx_user_buffer_head, LWS_WRITE_CLOSE);
-			lwsl_parser("client send close ack returned %d\n", n);
 			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
 			return -1;
@@ -286,7 +285,7 @@ spill:
 		case LWS_WS_OPCODE_07__PING:
 			lwsl_info("client received ping, doing pong\n");
 			/* parrot the ping packet payload back as a pong*/
-			n = libwebsocket_write(wsi, (unsigned char *)
+			libwebsocket_write(wsi, (unsigned char *)
 			    &wsi->u.ws.rx_user_buffer[
 				LWS_SEND_BUFFER_PRE_PADDING],
 					wsi->u.ws.rx_user_buffer_head,

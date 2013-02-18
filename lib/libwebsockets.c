@@ -331,9 +331,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		/* else, the send failed and we should just hang up */
 	}
 
-#ifndef LWS_NO_EXTENSIONS
 just_kill_connection:
-#endif
 
 	lwsl_debug("close: just_kill_connection\n");
 

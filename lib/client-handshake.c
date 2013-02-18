@@ -166,8 +166,8 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 			      int ietf_version_or_minus_one)
 {
 	struct libwebsocket *wsi;
-	int n;
 #ifndef LWS_NO_EXTENSIONS
+	int n;
 	int m;
 	struct libwebsocket_extension *ext;
 	int handled;
