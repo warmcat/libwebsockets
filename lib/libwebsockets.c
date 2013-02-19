@@ -2245,7 +2245,7 @@ void _lws_log(int filter, const char *format, ...)
  *			function to perform log string emission instead of
  *			the default stderr one.
  *
- *	log level defaults to "err" and "warn" contexts enabled only and
+ *	log level defaults to "err", "warn" and "notice" contexts enabled and
  *	emission on stderr.
  */
 
