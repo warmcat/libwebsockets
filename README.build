@@ -292,6 +292,12 @@ Building on Unix:
 	 the source directory of libwebsockets containing the CMakeLists.txt project
 	 file. All examples in this file assumes you use "..")
 
+	A common option you may want to give is to set the install path, same
+	as --prefix= with autotools.  It defaults to /usr/local.
+	You can do this by, eg
+
+	cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr
+
 4. Finally you can build using the generated Makefile:
 
 	make
