@@ -1,11 +1,18 @@
 
-# On Windows, we need to copy the OpenSSL dlls to the output directory, so find them here.
 if(OPENSSL_FOUND)
+
+	find_program(OPENSSL_EXECUTABLE openssl openssl.exe
+		HINTS ${_OPENSSL_ROOT_HINTS}
+		PATH /usr/bin/
+	  	DOC "Openssl executable")
+
+	mark_as_advanced(OPENSSL_EXECUTABLE)
 	
+	# On Windows, we need to copy the OpenSSL dlls 
+	# to the output directory.
 	if(WIN32)
 		set(OPENSSL_BIN_FOUND 0)
-	
-		# Find the .dll files so we can copy them to the output directory.
+
 		find_file(LIBEAY_BIN
 			NAMES
 			libeay32.dll

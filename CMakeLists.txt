@@ -48,11 +48,15 @@ set(SSL_CERT_DIR CACHE STRING "")
 set(SSL_CLIENT_CERT_DIR CACHE STRING "")
 
 if ("${SSL_CERT_DIR}" STREQUAL "")
-	set(SSL_CERT_DIR ".")
+	set(SSL_CERT_DIR "$ENV{DESTDIR}/usr/local/share")
 endif()
 
 if ("${SSL_CLIENT_CERT_DIR}" STREQUAL "")
-	set(LWS_OPENSSL_CLIENT_CERTS ".")
+	if (WIN32)
+		set(LWS_OPENSSL_CLIENT_CERTS ".")
+	else()
+		set(LWS_OPENSSL_CLIENT_CERTS "/etc/pki/tls/certs/")
+	endif()
 else()
 	set(LWS_OPENSSL_CLIENT_CERTS "${SSL_CLIENT_CERT_DIR}")
 endif()
@@ -201,8 +205,6 @@ include_directories(${PROJECT_SOURCE_DIR}/lib)
 # Some IDEs use this for nicer file structure.
 set(HDR_PRIVATE
 	lib/private-libwebsockets.h
-	lib/extension-deflate-frame.h
-	lib/extension-deflate-stream.h
 	${PROJECT_BINARY_DIR}/lws_config.h
 	)
 
@@ -215,9 +217,6 @@ set(SOURCES
 	lib/client.c
 	lib/client-handshake.c
 	lib/client-parser.c
-	lib/extension.c
-	lib/extension-deflate-frame.c
-	lib/extension-deflate-stream.c
 	lib/handshake.c
 	lib/libwebsockets.c
 	lib/output.c
@@ -226,6 +225,19 @@ set(SOURCES
 	lib/server-handshake.c
 	lib/sha-1.c
 	)
+
+if (NOT WITHOUT_EXTENSIONS)
+	list(APPEND HDR_PRIVATE
+		lib/extension-deflate-frame.h
+		lib/extension-deflate-stream.h
+		)
+
+	list(APPEND SOURCES
+		lib/extension.c
+		lib/extension-deflate-frame.c
+		lib/extension-deflate-stream.c
+		)
+endif()
 
 # Add helper files for Windows.
 if (WIN32)
@@ -314,52 +326,54 @@ set(LIB_LIST)
 #
 
 #
-# ZLIB.
+# ZLIB (Only needed for deflate extensions).
 #
-if (WIN32 AND NOT USE_EXTERNAL_ZLIB)
-	message("Using included Zlib version")
+if (NOT WITHOUT_EXTENSIONS)
+	if (WIN32 AND NOT USE_EXTERNAL_ZLIB)
+		message("Using included Zlib version")
 
-	# Compile ZLib if needed.
-	set(WIN32_ZLIB_PATH "win32port/zlib")
-	set(ZLIB_SRCS
-		${WIN32_ZLIB_PATH}/adler32.c
-		${WIN32_ZLIB_PATH}/compress.c
-		${WIN32_ZLIB_PATH}/crc32.c
-		${WIN32_ZLIB_PATH}/deflate.c
-		${WIN32_ZLIB_PATH}/gzclose.c
-		${WIN32_ZLIB_PATH}/gzio.c
-		${WIN32_ZLIB_PATH}/gzlib.c
-		${WIN32_ZLIB_PATH}/gzread.c
-		${WIN32_ZLIB_PATH}/gzwrite.c
-		${WIN32_ZLIB_PATH}/infback.c
-		${WIN32_ZLIB_PATH}/inffast.c
-		${WIN32_ZLIB_PATH}/inflate.c
-		${WIN32_ZLIB_PATH}/inftrees.c
-		${WIN32_ZLIB_PATH}/trees.c
-		${WIN32_ZLIB_PATH}/uncompr.c
-		${WIN32_ZLIB_PATH}/zutil.c
-	)
+		# Compile ZLib if needed.
+		set(WIN32_ZLIB_PATH "win32port/zlib")
+		set(ZLIB_SRCS
+			${WIN32_ZLIB_PATH}/adler32.c
+			${WIN32_ZLIB_PATH}/compress.c
+			${WIN32_ZLIB_PATH}/crc32.c
+			${WIN32_ZLIB_PATH}/deflate.c
+			${WIN32_ZLIB_PATH}/gzclose.c
+			${WIN32_ZLIB_PATH}/gzio.c
+			${WIN32_ZLIB_PATH}/gzlib.c
+			${WIN32_ZLIB_PATH}/gzread.c
+			${WIN32_ZLIB_PATH}/gzwrite.c
+			${WIN32_ZLIB_PATH}/infback.c
+			${WIN32_ZLIB_PATH}/inffast.c
+			${WIN32_ZLIB_PATH}/inflate.c
+			${WIN32_ZLIB_PATH}/inftrees.c
+			${WIN32_ZLIB_PATH}/trees.c
+			${WIN32_ZLIB_PATH}/uncompr.c
+			${WIN32_ZLIB_PATH}/zutil.c
+		)
 
-	# Create the library.
-	add_library(ZLIB STATIC ${ZLIB_SRCS})
+		# Create the library.
+		add_library(ZLIB STATIC ${ZLIB_SRCS})
 
-	# Set the same variables as find_package would.
-	set(ZLIB_INCLUDE_DIRS ${WIN32_ZLIB_PATH})
-	get_property(ZLIB_LIBRARIES TARGET ZLIB PROPERTY LOCATION)
-	set(ZLIB_FOUND 1)
-else()
-	find_package(ZLIB REQUIRED)
-endif()
+		# Set the same variables as find_package would.
+		set(ZLIB_INCLUDE_DIRS ${WIN32_ZLIB_PATH})
+		get_property(ZLIB_LIBRARIES TARGET ZLIB PROPERTY LOCATION)
+		set(ZLIB_FOUND 1)
+	else()
+		find_package(ZLIB REQUIRED)
+	endif()
 
-# Make sure ZLib is compiled before the libs.
-foreach (lib websockets websockets_shared)
-	add_dependencies(${lib} ZLIB)
-endforeach()
+	# Make sure ZLib is compiled before the libs.
+	foreach (lib websockets websockets_shared)
+		add_dependencies(${lib} ZLIB)
+	endforeach()
 
-message("ZLib include dirs: ${ZLIB_INCLUDE_DIRS}")
-message("ZLib libraries: ${ZLIB_LIBRARIES}")
-include_directories(${ZLIB_INCLUDE_DIRS})
-list(APPEND LIB_LIST ${ZLIB_LIBRARIES})
+	message("ZLib include dirs: ${ZLIB_INCLUDE_DIRS}")
+	message("ZLib libraries: ${ZLIB_LIBRARIES}")
+	include_directories(${ZLIB_INCLUDE_DIRS})
+	list(APPEND LIB_LIST ${ZLIB_LIBRARIES})
+endif(NOT WITHOUT_EXTENSIONS)
 
 #
 # OpenSSL
@@ -412,6 +426,7 @@ endforeach()
 #
 # Test applications
 #
+set(TEST_APP_LIST)
 if (NOT WITHOUT_TESTAPPS)
 	#
 	# Helper function for adding a test app.
@@ -439,11 +454,23 @@ if (NOT WITHOUT_TESTAPPS)
 		add_executable(${TEST_NAME} ${TEST_SRCS} ${TEST_HDR})
 		target_link_libraries(${TEST_NAME} websockets)
 		add_dependencies(${TEST_NAME} websockets)
-		set_property(
-					TARGET ${TEST_NAME}
+		
+		# Set test app specific defines.
+		set_property(TARGET ${TEST_NAME}
 					PROPERTY COMPILE_DEFINITIONS 
 						INSTALL_DATADIR="${SSL_CERT_DIR}"
 					)
+
+		# Prefix the binary names with libwebsockets.
+		set_target_properties(${TEST_NAME} 
+			PROPERTIES
+			OUTPUT_NAME libwebsockets-${TEST_NAME})
+
+		# Add to the list of tests.
+		list(APPEND TEST_APP_LIST $TEST_NAME)
+
+		install(TARGETS ${TEST_NAME} 
+				RUNTIME DESTINATION /usr/local/bin)
 	endfunction()
 
 	#
@@ -456,6 +483,12 @@ if (NOT WITHOUT_TESTAPPS)
 			"")
 	endif()
 
+	if (WITH_SSL AND NOT USE_CYASSL)
+		message("Searching for OpenSSL executable and dlls")
+		find_package(OpenSSLbins)
+		message("OpenSSL executable: ${OPENSSL_EXECUTABLE}")
+	endif()
+
 	#
 	# test-server
 	#
@@ -464,28 +497,67 @@ if (NOT WITHOUT_TESTAPPS)
 			"test-server/test-server.c"
 			""
 			"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
-	endif()
 
-	#
-	# test-server-extpoll
-	#
-	if (NOT WITHOUT_SERVER AND NOT WITHOUT_SERVER_EXTPOLL)
-		create_test_app(test-server-extpoll
-			"test-server/test-server.c"
-			"win32port/win32helpers/websock-w32.c"
-			"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
-			
-		# Set defines for this executable only.
-		set_property(
-			TARGET test-server-extpoll
-			PROPERTY COMPILE_DEFINITIONS 
-				EXTERNAL_POLL 
-				INSTALL_DATADIR="${SSL_CERT_DIR}"
-			)
+		#
+		# test-server-extpoll
+		#
+		if (NOT WITHOUT_SERVER_EXTPOLL)
+			create_test_app(test-server-extpoll
+				"test-server/test-server.c"
+				"win32port/win32helpers/websock-w32.c"
+				"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
+			# Set defines for this executable only.
+			set_property(
+				TARGET test-server-extpoll
+				PROPERTY COMPILE_DEFINITIONS 
+					EXTERNAL_POLL 
+					INSTALL_DATADIR="${SSL_CERT_DIR}"
+				)
 
-		# We need to link against winsock code.
-		if (WIN32)
-			target_link_libraries(test-server-extpoll ws2_32.lib)
+			# We need to link against winsock code.
+			if (WIN32)
+				target_link_libraries(test-server-extpoll ws2_32.lib)
+			endif()
+		endif()
+
+		# Data files for running the test server.
+		set(TEST_SERVER_DATA
+			test-server/favicon.ico 
+			test-server/leaf.jpg
+			test-server/libwebsockets.org-logo.png
+			test-server/test.html)
+
+		# Generate self-signed SSL certs for the test-server.
+		if (WITH_SSL AND OPENSSL_EXECUTABLE)
+		
+			set(TEST_SERVER_SSL_KEY ${PROJECT_BINARY_DIR}/libwebsockets-test-server.key.pem)
+			set(TEST_SERVER_SSL_CERT ${PROJECT_BINARY_DIR}/libwebsockets-test-server.pem)
+
+			if (WIN32)
+				file(WRITE ${PROJECT_BINARY_DIR}/openssl_input.txt
+					"GB\n"
+					"Erewhon\n"
+					"All around\n"
+					"libwebsockets-test\n"
+					"localhost\n"
+					"none@invalid.org\n"
+					)
+
+				execute_process(
+					COMMAND type ${PROJECT_BINARY_DIR}/openssl_input.txt
+					COMMAND ${OPENSSL_EXECUTABLE} req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout ${TEST_SERVER_SSL_KEY} -out ${TEST_SERVER_SSL_CERT}
+					)
+			else()
+				execute_process(
+					COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
+					COMMAND ${OPENSSL_EXECUTABLE} 
+						req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout ${TEST_SERVER_SSL_KEY} -out ${TEST_SERVER_SSL_CERT}
+					)
+			endif()
+
+			list(APPEND TEST_SERVER_DATA 
+				${TEST_SERVER_SSL_KEY} 
+				${TEST_SERVER_SSL_CERT})
 		endif()
 	endif()
 
@@ -514,23 +586,12 @@ if (NOT WITHOUT_TESTAPPS)
 	# (Otherwise we'll get an error when trying to run)
 	#
 	if (WIN32 AND WITH_SSL AND NOT USE_CYASSL)
-
-		message("Searching for OpenSSL dlls")
-		find_package(OpenSSLbins)
-
 		if(OPENSSL_BIN_FOUND)
 			message("OpenSSL dlls found, copying to output directory")
 			message("Libeay: ${LIBEAY_BIN}")
 			message("SSLeay: ${SSLEAY_BIN}")
 
-			foreach(TARGET_BIN 
-					test-client 
-					test-server
-					test-server-extpoll
-					test-fraggle
-					test-echo
-					test-ping
-					)			
+			foreach(TARGET_BIN ${TEST_APP_LIST})			
 				add_custom_command(TARGET ${TARGET_BIN}
 					POST_BUILD 
 					COMMAND ${CMAKE_COMMAND} -E copy ${LIBEAY_BIN} $<TARGET_FILE_DIR:${TARGET_BIN}> VERBATIM)
@@ -542,3 +603,58 @@ if (NOT WITHOUT_TESTAPPS)
 		endif()
 	endif()
 endif(NOT WITHOUT_TESTAPPS)
+
+if (UNIX)
+	# Generate documentation.
+	# TODO: Fix this on Windows.
+	message("Generating API documentation")
+	file(GLOB C_FILES ${PROJECT_SOURCE_DIR}/lib/*.c)
+	execute_process(
+		COMMAND ${PROJECT_SOURCE_DIR}/scripts/kernel-doc -html ${C_FILES} ${HDR_PUBLIC} 
+		OUTPUT_FILE ${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.html
+		)
+
+	execute_process(
+		COMMAND ${PROJECT_SOURCE_DIR}/scripts/kernel-doc -text ${C_FILES} ${HDR_PUBLIC}
+		OUTPUT_FILE ${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.txt
+		)
+
+# Generate and install pkgconfig.
+# (This is not indented, because the tabs will be part of the output)
+file(WRITE ${PROJECT_BINARY_DIR}/libwebsockets.pc
+"prefix=/usr/local
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+
+Name: libwebsockets
+Description: Websockets server and client library
+Version: ${PACKAGE_VERSION}
+
+Libs: -L\${libdir} -lwebsockets
+Cflags: -I\${includedir}"
+)
+
+	install(FILES ${PROJECT_BINARY_DIR}/libwebsockets.pc
+		DESTINATION /usr/local/include/pkgconfig)
+endif()
+
+# Install headers.
+install(FILES ${HDR_PUBLIC} 
+		DESTINATION /usr/local/include)
+
+# Install libs.
+install(TARGETS websockets websockets_shared
+		LIBRARY DESTINATION /usr/local/lib
+		ARCHIVE DESTINATION /usr/local/lib)
+
+# Install test apps.
+install(TARGETS ${TEST_APP_LIST}
+		RUNTIME DESTINATION /usr/local/bin)
+
+# Install shared files used by the test-server.
+if (NOT WITHOUT_TESTAPPS AND NOT WITHOUT_SERVER)
+	install(FILES ${TEST_SERVER_DATA}
+			DESTINATION /usr/local/share/libwebsockets-test-server)
+endif()
+
