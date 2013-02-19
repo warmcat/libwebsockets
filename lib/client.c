@@ -101,7 +101,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		/* external POLL support via protocol 0 */
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
-			(void *)(long)wsi->sock, NULL, POLLOUT);
+			wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
 
 		/* we can retry this... just cook the SSL BIO the first time */
 
