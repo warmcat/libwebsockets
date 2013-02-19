@@ -609,6 +609,8 @@ if (UNIX)
 	# TODO: Fix this on Windows.
 	message("Generating API documentation")
 	file(GLOB C_FILES ${PROJECT_SOURCE_DIR}/lib/*.c)
+	execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_BINARY_DIR}/doc/)
+
 	execute_process(
 		COMMAND ${PROJECT_SOURCE_DIR}/scripts/kernel-doc -html ${C_FILES} ${HDR_PUBLIC} 
 		OUTPUT_FILE ${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.html
