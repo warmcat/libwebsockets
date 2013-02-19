@@ -209,7 +209,7 @@ set(HDR_PRIVATE
 	)
 
 set(HDR_PUBLIC	
-	lib/libwebsockets.h
+	${PROJECT_SOURCE_DIR}/lib/libwebsockets.h
 	)
 
 set(SOURCES
