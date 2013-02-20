@@ -760,7 +760,7 @@ notify_action:
 
 
 
-void
+int
 libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 				     struct libwebsocket *wsi, unsigned int sec)
 {
@@ -780,7 +780,7 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 
 #endif
 	if (!wsi->pending_timeout)
-		return;
+		return 0;
 
 	/*
 	 * if we went beyond the allowed time, kill the
@@ -791,7 +791,10 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 		lwsl_info("TIMEDOUT WAITING\n");
 		libwebsocket_close_and_free_session(context,
 				wsi, LWS_CLOSE_STATUS_NOSTATUS);
+		return 1;
 	}
+
+	return 0;
 }
 
 /**
@@ -817,6 +820,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	int m;
 	int listen_socket_fds_index = 0;
 	struct timeval tv;
+	int timed_out = 0;
+	int our_fd = 0;
 
 #ifndef LWS_NO_EXTENSIONS
 	int more = 1;
@@ -847,15 +852,27 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		/* global timeout check once per second */
 
+		if (pollfd)
+			our_fd = pollfd->fd;
+
 		for (n = 0; n < context->fds_count; n++) {
-			struct libwebsocket *new_wsi =
-					context->lws_lookup[context->fds[n].fd];
-			if (!new_wsi)
+			m = context->fds[n].fd;
+			wsi = context->lws_lookup[m];
+			if (!wsi)
 				continue;
-			libwebsocket_service_timeout_check(context,
-				new_wsi, tv.tv_sec);
+
+			if (libwebsocket_service_timeout_check(context, wsi,
+								     tv.tv_sec))
+				/* he did time out... */
+				if (m == our_fd)
+					/* it was the guy we came to service! */
+					timed_out = 1;
 		}
 	}
+
+	/* the socket we came to service timed out, nothing to do */
+	if (timed_out)
+		return 0;
 
 	/* just here for timeout management? */
 

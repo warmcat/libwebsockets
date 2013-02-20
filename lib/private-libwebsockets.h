@@ -444,7 +444,7 @@ LWS_EXTERN int
 lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len);
 
 
-LWS_EXTERN void
+LWS_EXTERN int
 libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 				    struct libwebsocket *wsi, unsigned int sec);
 
