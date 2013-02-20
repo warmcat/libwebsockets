@@ -246,7 +246,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		if ((context->protocols[0].callback)(context, wsi,
 				LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
-					   (void *)(long)accept_fd, NULL, 0)) {
+					   NULL, (void *)(long)accept_fd, 0)) {
 			lwsl_debug("Callback denied network connection\n");
 			compatible_close(accept_fd);
 			break;

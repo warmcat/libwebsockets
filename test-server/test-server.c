@@ -246,7 +246,7 @@ bail:
 
 	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
 #if 0
-		libwebsockets_get_peer_addresses(context, wsi, (int)(long)user, client_name,
+		libwebsockets_get_peer_addresses(context, wsi, (int)(long)in, client_name,
 			     sizeof(client_name), client_ip, sizeof(client_ip));
 
 		fprintf(stderr, "Received network connect from %s (%s)\n",

@@ -16,6 +16,8 @@ User api changes
  - the external poll callbacks now get the socket descriptor coming from the
  	"in" parameter.  The user parameter provides the user_space for the
 	wsi as it normally does on the other callbacks.
+	LWS_CALLBACK_FILTER_NETWORK_CONNECTION also has the socket descriptor
+	delivered by @in now instead of @user.
 
 
 User api removal

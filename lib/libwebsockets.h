@@ -456,7 +456,7 @@ struct libwebsocket_extension;
  *	LWS_CALLBACK_FILTER_NETWORK_CONNECTION: called when a client connects to
  *		the server at network level; the connection is accepted but then
  *		passed to this callback to decide whether to hang up immediately
- *		or not, based on the client IP.  @user contains the connection
+ *		or not, based on the client IP.  @in contains the connection
  *		socket's descriptor.  Return non-zero to terminate
  *		the connection before sending or receiving anything.
  *		Because this happens immediately after the network connection
