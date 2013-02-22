@@ -1626,8 +1626,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 {
 	struct libwebsocket_context *context = NULL;
 	char *p;
-#ifndef LWS_NO_SERVER
 	int n;
+#ifndef LWS_NO_SERVER
 	int opt = 1;
 	struct libwebsocket *wsi;
 	struct sockaddr_in serv_addr;
