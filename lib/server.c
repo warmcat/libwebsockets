@@ -46,7 +46,7 @@ libwebsockets_decode_ssl_error(void)
 
 	while ((err = ERR_get_error()) != 0) {
 		ERR_error_string_n(err, buf, sizeof(buf));
-		lwsl_err("*** %s\n", buf);
+		lwsl_err("*** %lu %s\n", err, buf);
 	}
 }
 #endif

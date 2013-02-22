@@ -179,7 +179,8 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 				 * run into the connection timeout or win
 				 */
 
-				lwsl_err("SSL connect error %s\n",
+				lwsl_err("SSL connect error %lu: %s\n", 
+					ERR_get_error(),
 					ERR_error_string(ERR_get_error(),
 					      (char *)context->service_buffer));
 				return 0;
