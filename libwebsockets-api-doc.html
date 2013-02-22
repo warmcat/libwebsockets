@@ -637,7 +637,7 @@ and servers get LWS_CALLBACK_SERVER_WRITEABLE.
 called when a client connects to
 the server at network level; the connection is accepted but then
 passed to this callback to decide whether to hang up immediately
-or not, based on the client IP.  <tt><b>user</b></tt> contains the connection
+or not, based on the client IP.  <tt><b>in</b></tt> contains the connection
 socket's descriptor.  Return non-zero to terminate
 the connection before sending or receiving anything.
 Because this happens immediately after the network connection
@@ -969,6 +969,7 @@ all sessions, etc, if it wants
 &nbsp; &nbsp; <i>const char *</i> <b>ssl_cert_filepath</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>ssl_private_key_filepath</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>ssl_ca_filepath</b>;<br>
+&nbsp; &nbsp; <i>const char *</i> <b>ssl_cipher_list</b>;<br>
 &nbsp; &nbsp; <i>int</i> <b>gid</b>;<br>
 &nbsp; &nbsp; <i>int</i> <b>uid</b>;<br>
 &nbsp; &nbsp; <i>unsigned int</i> <b>options</b>;<br>
@@ -1004,6 +1005,10 @@ server cert from, otherwise NULL for unencrypted
 else ignored
 <dt><b>ssl_ca_filepath</b>
 <dd>CA certificate filepath or NULL
+<dt><b>ssl_cipher_list</b>
+<dd>List of valid ciphers to use (eg,
+"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
+or you can leave it as NULL to get "DEFAULT"
 <dt><b>gid</b>
 <dd>group id to change to after setting listen socket, or -1.
 <dt><b>uid</b>

@@ -165,15 +165,6 @@ for later protocol versions... unlikely
  - AWAITING_TIMEOUT default 5: after this many seconds without a response, the
 server will hang up on the client
 
- - CIPHERS_LIST_STRING default "DEFAULT": SSL Cipher selection.  It's advisable
-to tweak the ciphers allowed to be negotiated on secure connections for
-performance reasons, otherwise a slow algorithm may be selected by the two
-endpoints and the server could expend most of its time just encrypting and
-decrypting data, severely limiting the amount of messages it will be able to
-handle per second.  For example::
-
-    "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
-
  - SYSTEM_RANDOM_FILEPATH default "/dev/urandom": if your random device differs
 you can set it here
 

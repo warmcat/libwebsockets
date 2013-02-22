@@ -209,3 +209,18 @@ Note that BSDs don't support keepalive time / probes / inteveral per-socket
 like Linux does.  On those systems you can enable keepalive by a nonzero
 value in ka_time, but the systemwide kernel settings for the time / probes/
 interval are used, regardless of what nonzero value is in ka_time.
+
+Optimizing SSL connections
+--------------------------
+
+There's a member ssl_cipher_list in the lws_context_creation_info struct
+which allows the user code to restrict the possible cipher selection at
+context-creation time.
+
+You might want to look into that to stop the ssl peers selecting a ciher which
+is too computationally expensive.  To use it, point it to a string like
+
+"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
+
+if left NULL, then the "DEFAULT" set of ciphers are all possible to select.
+

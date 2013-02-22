@@ -10,6 +10,10 @@ User api additions
  	and get a LWS_CALLBACK_HTTP_WRITEABLE callback, the same way you can
 	regulate writes with a websocket protocol connection.
 
+ - A new member in the context creation parameter struct "ssl_cipher_list" is
+ 	added, replacing CIPHERS_LIST_STRING.  NULL means use the ssl library
+	default list of ciphers.
+
 User api changes
 ----------------
 
@@ -26,6 +30,8 @@ User api removal
  - libwebsocket_ensure_user_space() is removed from the public api, if you
  	were using it to get user_space, you need to adapt your code to only
 	use user_space inside the user callback.
+
+ - CIPHERS_LIST_STRING is removed
 
 
 v1.21-chrome26-firefox18

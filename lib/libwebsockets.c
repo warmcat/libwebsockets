@@ -1657,7 +1657,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #endif
 	lwsl_info(" SPEC_LATEST_SUPPORTED: %u\n", SPEC_LATEST_SUPPORTED);
 	lwsl_info(" AWAITING_TIMEOUT: %u\n", AWAITING_TIMEOUT);
-	lwsl_info(" CIPHERS_LIST_STRING: '%s'\n", CIPHERS_LIST_STRING);
+	if (info->ssl_cipher_list)
+		lwsl_info(" SSL ciphers: '%s'\n", info->ssl_cipher_list);
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
 	lwsl_info(" LWS_MAX_ZLIB_CONN_BUFFER: %u\n", LWS_MAX_ZLIB_CONN_BUFFER);
 
@@ -1877,7 +1878,9 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
-	SSL_CTX_set_cipher_list(context->ssl_ctx, CIPHERS_LIST_STRING);
+	if (info->ssl_cipher_list)
+		SSL_CTX_set_cipher_list(context->ssl_ctx,
+						info->ssl_cipher_list);
 
 #ifndef LWS_NO_CLIENT
 
@@ -1908,8 +1911,9 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #endif
 		SSL_CTX_set_options(context->ssl_client_ctx,
 					       SSL_OP_CIPHER_SERVER_PREFERENCE);
-		SSL_CTX_set_cipher_list(context->ssl_client_ctx,
-							   CIPHERS_LIST_STRING);
+		if (info->ssl_cipher_list)
+			SSL_CTX_set_cipher_list(context->ssl_client_ctx,
+							info->ssl_cipher_list);
 
 		/* openssl init for cert verification (for client sockets) */
 		if (!info->ssl_ca_filepath) {
