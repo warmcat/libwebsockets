@@ -1,9 +1,11 @@
 
 if(OPENSSL_FOUND)
 
-	find_program(OPENSSL_EXECUTABLE openssl openssl.exe
+	find_program(OPENSSL_EXECUTABLE openssl openssl.exe bin/openssl.exe
 		HINTS ${_OPENSSL_ROOT_HINTS}
-		PATH /usr/bin/
+		PATH 
+			/usr/bin/ 
+			bin/
 	  	DOC "Openssl executable")
 
 	mark_as_advanced(OPENSSL_EXECUTABLE)

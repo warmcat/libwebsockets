@@ -545,7 +545,8 @@ if (NOT WITHOUT_TESTAPPS)
 
 		# Generate self-signed SSL certs for the test-server.
 		if (WITH_SSL AND OPENSSL_EXECUTABLE)
-		
+			message("Generating SSL Certificates for the test-server...")
+
 			set(TEST_SERVER_SSL_KEY ${PROJECT_BINARY_DIR}/libwebsockets-test-server.key.pem)
 			set(TEST_SERVER_SSL_CERT ${PROJECT_BINARY_DIR}/libwebsockets-test-server.pem)
 
@@ -556,13 +557,20 @@ if (NOT WITHOUT_TESTAPPS)
 					"All around\n"
 					"libwebsockets-test\n"
 					"localhost\n"
-					"none@invalid.org\n"
+					"none@invalid.org\n\n"
 					)
+				
+				# The "type" command is a bit picky with paths.
+				file(TO_NATIVE_PATH "${PROJECT_BINARY_DIR}/openssl_input.txt" OPENSSL_INPUT_WIN_PATH)
 
 				execute_process(
-					COMMAND type ${PROJECT_BINARY_DIR}/openssl_input.txt
-					COMMAND ${OPENSSL_EXECUTABLE} req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout ${TEST_SERVER_SSL_KEY} -out ${TEST_SERVER_SSL_CERT}
-					)
+					COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
+					COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+					RESULT_VARIABLE OPENSSL_RETURN_CODE)
+				
+				if (OPENSSL_RETURN_CODE)
+					message("!!! Failed to generate SSL certificate:\n${OPENSSL_RETURN_CODE} !!!")
+				endif()
 			else()
 				execute_process(
 					COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
@@ -615,9 +623,9 @@ if (NOT WITHOUT_TESTAPPS)
 	#
 	if (WIN32 AND WITH_SSL AND NOT USE_CYASSL)
 		if(OPENSSL_BIN_FOUND)
-			message("OpenSSL dlls found, copying to output directory")
-			message("Libeay: ${LIBEAY_BIN}")
-			message("SSLeay: ${SSLEAY_BIN}")
+			message("OpenSSL dlls found:")
+			message("  Libeay: ${LIBEAY_BIN}")
+			message("  SSLeay: ${SSLEAY_BIN}")
 
 			foreach(TARGET_BIN ${TEST_APP_LIST})			
 				add_custom_command(TARGET ${TARGET_BIN}
@@ -696,7 +704,6 @@ if (NOT WITHOUT_TESTAPPS AND NOT WITHOUT_SERVER)
 			DESTINATION share/libwebsockets-test-server
 			COMPONENT examples)
 endif()
-
 
 # Most people are more used to "make dist" compared to "make package_source"
 add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
