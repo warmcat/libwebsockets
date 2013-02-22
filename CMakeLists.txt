@@ -264,7 +264,7 @@ else()
 endif()
 
 if (UNIX)
-	if (!WITH_BUILTIN_GETIFADDRS)
+	if (NOT WITH_BUILTIN_GETIFADDRS)
 		list(APPEND HDR_PRIVATE lib/getifaddrs.h)
 		list(APPEND SOURCES lib/getifaddrs.c)
 	endif()
