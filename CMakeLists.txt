@@ -32,16 +32,23 @@ option(WITH_SSL "Include SSL support (default OpenSSL, CyaSSL if USE_CYASSL is s
 option(USE_EXTERNAL_ZLIB "Search the system for ZLib instead of using the included one (on Windows)" OFF)
 option(USE_CYASSL "Use CyaSSL replacement for OpenSSL. When settings this, you also need to specify CYASSL_LIB and CYASSL_INCLUDE_DIRS" OFF)
 option(WITHOUT_BUILTIN_GETIFADDRS "Don't use BSD getifaddrs implementation from libwebsockets if it is missing (this will result in a compilation error) ... Default is your libc provides it. On some systems such as uclibc it doesn't exist." OFF)
-option(WITHOUT_TESTAPPS "Don't build the libwebsocket-test-apps" OFF)
 option(WITHOUT_CLIENT "Don't build the client part of the library" OFF)
 option(WITHOUT_SERVER "Don't build the server part of the library" OFF)
-option(WITHOUT_SERVER_EXTPOLL "Don't build a server version that uses external poll" OFF)
-option(WITH_LIBCRYPTO "Use libcrypto MD5 and SHA1 implementations" ON)
-option(WITHOUT_PING "Don't build the ping test application" OFF)
+#option(WITH_LIBCRYPTO "Use libcrypto MD5 and SHA1 implementations" ON)
+option(WITHOUT_TESTAPPS "Don't build the libwebsocket-test-apps" OFF)
+option(WITHOUT_TEST_SERVER "Don't build the test server" OFF)
+option(WITHOUT_TEST_SERVER_EXTPOLL "Don't build the test server version that uses external poll" OFF)
+option(WITHOUT_TEST_PING "Don't build the ping test application" OFF)
+option(WITHOUT_TEST_CLIENT "Don't build the client test application" OFF)
+option(WITHOUT_TEST_FRAGGLE "Don't build the ping test application" OFF)
 option(WITHOUT_DEBUG "Don't compile debug related code" OFF)
 option(WITHOUT_EXTENSIONS "Don't compile with extensions" OFF)
 option(WITH_LATENCY "Build latency measuring code into the library" OFF)
 option(WITHOUT_DAEMONIZE "Don't build the daemonization api" OFF)
+
+if (WITHOUT_CLIENT AND WITHOUT_SERVER)
+	message(FATAL_ERROR "Makes no sense to compile without both client or server.")
+endif()
 
 # The base dir where the SSL dirs should be looked for.
 set(SSL_CERT_DIR CACHE STRING "")
@@ -215,17 +222,27 @@ set(HDR_PUBLIC
 
 set(SOURCES
 	lib/base64-decode.c
-	lib/client.c
-	lib/client-handshake.c
-	lib/client-parser.c
 	lib/handshake.c
 	lib/libwebsockets.c
 	lib/output.c
 	lib/parsers.c
-	lib/server.c
-	lib/server-handshake.c
 	lib/sha-1.c
 	)
+
+if (NOT WITHOUT_CLIENT)
+	list(APPEND SOURCES
+		lib/client.c
+		lib/client-handshake.c
+		lib/client-parser.c
+		)
+endif()
+
+if (NOT WITHOUT_SERVER)
+	list(APPEND SOURCES
+		lib/server.c
+		lib/server-handshake.c
+		)
+endif()
 
 if (NOT WITHOUT_EXTENSIONS)
 	list(APPEND HDR_PRIVATE
@@ -468,21 +485,8 @@ if (NOT WITHOUT_TESTAPPS)
 			OUTPUT_NAME libwebsockets-${TEST_NAME})
 
 		# Add to the list of tests.
-		list(APPEND TEST_APP_LIST $TEST_NAME)
-
-		install(TARGETS ${TEST_NAME} 
-				RUNTIME DESTINATION /usr/local/bin)
+		list(APPEND TEST_APP_LIST ${TEST_NAME})
 	endfunction()
-
-	#
-	# test-client
-	#
-	if (NOT WITHOUT_CLIENT)
-		create_test_app(test-client
-			"test-server/test-client.c"
-			""
-			"")
-	endif()
 
 	if (WITH_SSL AND NOT USE_CYASSL)
 		message("Searching for OpenSSL executable and dlls")
@@ -490,19 +494,21 @@ if (NOT WITHOUT_TESTAPPS)
 		message("OpenSSL executable: ${OPENSSL_EXECUTABLE}")
 	endif()
 
-	#
-	# test-server
-	#
 	if (NOT WITHOUT_SERVER)
-		create_test_app(test-server
-			"test-server/test-server.c"
-			""
-			"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
+		#
+		# test-server
+		#
+		if (NOT WITHOUT_TEST_SERVER)
+			create_test_app(test-server
+				"test-server/test-server.c"
+				""
+				"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
+		endif()
 
 		#
 		# test-server-extpoll
 		#
-		if (NOT WITHOUT_SERVER_EXTPOLL)
+		if (NOT WITHOUT_TEST_SERVER_EXTPOLL)
 			create_test_app(test-server-extpoll
 				"test-server/test-server.c"
 				"win32port/win32helpers/websock-w32.c"
@@ -560,27 +566,39 @@ if (NOT WITHOUT_TESTAPPS)
 				${TEST_SERVER_SSL_KEY} 
 				${TEST_SERVER_SSL_CERT})
 		endif()
-	endif()
+	endif(NOT WITHOUT_SERVER)
 
-	#
-	# test-fraggle
-	#
-	if (NOT WITHOUT_FRAGGLE)
-		create_test_app(test-fraggle
-			"test-server/test-fraggle.c"
-			""
-			"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
-	endif()
+	if (NOT WITHOUT_CLIENT)
+		#
+		# test-client
+		#
+		if (NOT WITHOUT_TEST_CLIENT)
+			create_test_app(test-client
+				"test-server/test-client.c"
+				""
+				"")
+		endif()
 
-	#
-	# test-ping
-	#
-	if (NOT WITHOUT_PING)
-		create_test_app(test-ping
-			"test-server/test-ping.c"
-			""
-			"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
-	endif()
+		#
+		# test-fraggle
+		#
+		if (NOT WITHOUT_TEST_FRAGGLE)
+			create_test_app(test-fraggle
+				"test-server/test-fraggle.c"
+				""
+				"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+		endif()
+
+		#
+		# test-ping
+		#
+		if (NOT WITHOUT_TEST_PING)
+			create_test_app(test-ping
+				"test-server/test-ping.c"
+				""
+				"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+		endif()
+	endif(NOT WITHOUT_CLIENT)
 
 	#
 	# Copy OpenSSL dlls to the output directory on Windows.
@@ -615,12 +633,12 @@ if (UNIX)
 	execute_process(
 		COMMAND ${PROJECT_SOURCE_DIR}/scripts/kernel-doc -html ${C_FILES} ${HDR_PUBLIC} 
 		OUTPUT_FILE ${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.html
-		)
+		ERROR_QUIET)
 
 	execute_process(
 		COMMAND ${PROJECT_SOURCE_DIR}/scripts/kernel-doc -text ${C_FILES} ${HDR_PUBLIC}
 		OUTPUT_FILE ${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.txt
-		)
+		ERROR_QUIET)
 
 # Generate and install pkgconfig.
 # (This is not indented, because the tabs will be part of the output)

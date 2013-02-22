@@ -26,6 +26,10 @@
 #include <string.h>
 #include <sys/time.h>
 
+#ifdef CMAKE_BUILD
+#include "lws_config.h"
+#endif
+
 #include "../lib/libwebsockets.h"
 
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"

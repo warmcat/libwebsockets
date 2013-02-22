@@ -35,6 +35,10 @@
 #include <poll.h>
 #endif
 
+#ifdef CMAKE_BUILD
+#include "lws_config.h"
+#endif
+
 #include <netdb.h>
 
 #include "../lib/libwebsockets.h"

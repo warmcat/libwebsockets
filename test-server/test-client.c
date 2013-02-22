@@ -26,6 +26,10 @@
 #include <string.h>
 #include <signal.h>
 
+#ifdef CMAKE_BUILD
+#include "lws_config.h"
+#endif
+
 #include "../lib/libwebsockets.h"
 
 static unsigned int opts;

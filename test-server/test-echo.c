@@ -32,6 +32,10 @@
 #include <syslog.h>
 #include <signal.h>
 
+#ifdef CMAKE_BUILD
+#include "lws_config.h"
+#endif
+
 #include "../lib/libwebsockets.h"
 
 int force_exit = 0;
