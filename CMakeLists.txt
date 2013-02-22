@@ -3,16 +3,18 @@ cmake_minimum_required(VERSION 2.6)
 project(libwebsockets)
 
 set(PACKAGE "libwebsockets")
-set(PACKAGE_VERSION "1.2")
-set(PACKAGE_BUGREPORT "andy@warmcat.com")
-set(PACKAGE_NAME "${PACKAGE}")
-set(PACKAGE_STRING "${PACKAGE} ${PACKAGE_VERSION}")
-set(PACKAGE_TARNAME "${PACKAGE}")
-set(PACKAGE_URL "http://libwebsockets.org")
-set(VERSION "{PACKAGE_VERSION}")
+set(CPACK_PACKAGE_NAME "${PACKAGE}")
+set(CPACK_PACKAGE_VERSION_MAJOR "1")
+set(CPACK_PACKAGE_VERSION_MINOR "2")
+set(CPACK_PACKAGE_VERSION "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}")
+set(CPACK_PACKAGE_VENDOR "andy@warmcat.com")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PACKAGE} ${PACKAGE_VERSION}")
 set(SOVERSION "3.0.0")
+set(CPACK_SOURCE_GENERATOR "TGZ")
+set(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}")
+set(VERSION "${CPACK_PACKAGE_VERSION}")
 
-set(LWS_LIBRARY_VERSION ${PACKAGE_VERSION})
+set(LWS_LIBRARY_VERSION ${CPACK_PACKAGE_VERSION})
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
 
 # Try to find the current Git hash.
@@ -35,6 +37,7 @@ option(WITHOUT_BUILTIN_GETIFADDRS "Don't use BSD getifaddrs implementation from 
 option(WITHOUT_CLIENT "Don't build the client part of the library" OFF)
 option(WITHOUT_SERVER "Don't build the server part of the library" OFF)
 #option(WITH_LIBCRYPTO "Use libcrypto MD5 and SHA1 implementations" ON)
+option(LINK_TESTAPPS_DYNAMIC "Link the test apps to the shared version of the library. Default is to link statically" OFF)
 option(WITHOUT_TESTAPPS "Don't build the libwebsocket-test-apps" OFF)
 option(WITHOUT_TEST_SERVER "Don't build the test server" OFF)
 option(WITHOUT_TEST_SERVER_EXTPOLL "Don't build the test server version that uses external poll" OFF)
@@ -50,12 +53,12 @@ if (WITHOUT_CLIENT AND WITHOUT_SERVER)
 	message(FATAL_ERROR "Makes no sense to compile without both client or server.")
 endif()
 
-# The base dir where the SSL dirs should be looked for.
+# The base dir where the test-apps look for the SSL certs.
 set(SSL_CERT_DIR CACHE STRING "")
 set(SSL_CLIENT_CERT_DIR CACHE STRING "")
 
 if ("${SSL_CERT_DIR}" STREQUAL "")
-	set(SSL_CERT_DIR "$ENV{DESTDIR}/usr/local/share")
+	set(SSL_CERT_DIR "../share")
 endif()
 
 if ("${SSL_CLIENT_CERT_DIR}" STREQUAL "")
@@ -470,9 +473,15 @@ if (NOT WITHOUT_TESTAPPS)
 		source_group("Headers Private"   FILES ${TEST_HDR})
 		source_group("Sources"   FILES ${TEST_SRCS})
 		add_executable(${TEST_NAME} ${TEST_SRCS} ${TEST_HDR})
-		target_link_libraries(${TEST_NAME} websockets)
-		add_dependencies(${TEST_NAME} websockets)
 		
+		if (LINK_TESTAPPS_DYNAMIC)
+			target_link_libraries(${TEST_NAME} websockets_shared)
+			add_dependencies(${TEST_NAME} websockets_shared)
+		else()
+			target_link_libraries(${TEST_NAME} websockets)
+			add_dependencies(${TEST_NAME} websockets)
+		endif()
+
 		# Set test app specific defines.
 		set_property(TARGET ${TEST_NAME}
 					PROPERTY COMPILE_DEFINITIONS 
@@ -657,25 +666,40 @@ Cflags: -I\${includedir}"
 )
 
 	install(FILES ${PROJECT_BINARY_DIR}/libwebsockets.pc
-		DESTINATION /usr/local/include/pkgconfig)
+		DESTINATION include/pkgconfig)
 endif()
 
 # Install headers.
 install(FILES ${HDR_PUBLIC} 
-		DESTINATION /usr/local/include)
+		DESTINATION include
+		COMPONENT headers)
+set(CPACK_COMPONENT_HEADERS_DISPLAY_NAME "Header files")
 
 # Install libs.
 install(TARGETS websockets websockets_shared
-		LIBRARY DESTINATION /usr/local/lib
-		ARCHIVE DESTINATION /usr/local/lib)
+		LIBRARY DESTINATION lib
+		ARCHIVE DESTINATION lib
+		COMPONENT libraries)
+set(CPACK_COMPONENT_LIBRARIES_DISPLAY_NAME "Libraries")
 
 # Install test apps.
-install(TARGETS ${TEST_APP_LIST}
-		RUNTIME DESTINATION /usr/local/bin)
-
-# Install shared files used by the test-server.
-if (NOT WITHOUT_TESTAPPS AND NOT WITHOUT_SERVER)
-	install(FILES ${TEST_SERVER_DATA}
-			DESTINATION /usr/local/share/libwebsockets-test-server)
+if (NOT WITHOUT_TESTAPPS)
+	install(TARGETS test-client ${TEST_APP_LIST}
+			RUNTIME DESTINATION bin
+			COMPONENT examples)
+	set(CPACK_COMPONENT_EXAMPLES_DISPLAY_NAME "Example Install")
 endif()
 
+# Programs shared files used by the test-server.
+if (NOT WITHOUT_TESTAPPS AND NOT WITHOUT_SERVER)
+	install(FILES ${TEST_SERVER_DATA}
+			DESTINATION share/libwebsockets-test-server
+			COMPONENT examples)
+endif()
+
+
+# Most people are more used to "make dist" compared to "make package_source"
+add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
+
+# This must always be last!
+include(CPack)
