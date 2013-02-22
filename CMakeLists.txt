@@ -449,7 +449,7 @@ if (NOT WITHOUT_TESTAPPS)
 	#
 	# Helper function for adding a test app.
 	#
-	function(create_test_app TEST_NAME MAIN_SRC WIN32_SRCS WIN32_HDRS)
+	macro(create_test_app TEST_NAME MAIN_SRC WIN32_SRCS WIN32_HDRS)
 		
 		set(TEST_SRCS ${MAIN_SRC})
 		set(TEST_HDR)
@@ -486,7 +486,7 @@ if (NOT WITHOUT_TESTAPPS)
 
 		# Add to the list of tests.
 		list(APPEND TEST_APP_LIST ${TEST_NAME})
-	endfunction()
+	endmacro()
 
 	if (WITH_SSL AND NOT USE_CYASSL)
 		message("Searching for OpenSSL executable and dlls")
