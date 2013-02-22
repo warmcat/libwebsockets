@@ -1,5 +1,9 @@
 /* config.h.in.  Generated from configure.ac by autoheader.  */
 
+#ifndef WIN32
+#cmakedefine _DEBUG
+#endif
+
 /* Define to 1 to use CyaSSL as a replacement for OpenSSL. 
  * LWS_OPENSSL_SUPPORT needs to be set also for this to work. */
 #cmakedefine USE_CYASSL

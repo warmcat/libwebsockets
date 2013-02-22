@@ -104,6 +104,12 @@ if (WITHOUT_CLIENT)
 	set(LWS_NO_CLIENT 1)
 endif()
 
+if (WITHOUT_DEBUG)
+	set(_DEBUG 0)
+else()
+	set(_DEBUG 1)
+endif()
+
 if (MINGW)
 	set(LWS_MINGW_SUPPORT 1)
 endif()
