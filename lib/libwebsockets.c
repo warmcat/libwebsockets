@@ -578,12 +578,12 @@ int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 					     (const void *)&optval, optlen) < 0)
 			return 1;
 
-		optval = context->ka_probes;
+		optval = context->ka_interval;
 		if (setsockopt(fd, IPPROTO_IP, TCP_KEEPINTVL,
 					     (const void *)&optval, optlen) < 0)
 			return 1;
 
-		optval = context->ka_interval;
+		optval = context->ka_probes;
 		if (setsockopt(fd, IPPROTO_IP, TCP_KEEPCNT,
 					     (const void *)&optval, optlen) < 0)
 			return 1;
