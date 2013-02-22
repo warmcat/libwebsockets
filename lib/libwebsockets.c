@@ -1647,8 +1647,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	lwsl_notice("Initial logging level %d\n", log_level);
 	lwsl_notice("Library version: %s\n", library_version);
-	lwsl_info(" LWS_MAX_HEADER_NAME_LENGTH: %u\n",
-						LWS_MAX_HEADER_NAME_LENGTH);
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
 #ifndef LWS_NO_EXTENSIONS

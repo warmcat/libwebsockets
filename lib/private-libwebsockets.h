@@ -113,9 +113,6 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #define MSG_NOSIGNAL SO_NOSIGPIPE
 #endif
 
-#ifndef LWS_MAX_HEADER_NAME_LENGTH
-#define LWS_MAX_HEADER_NAME_LENGTH 64
-#endif
 #ifndef LWS_MAX_HEADER_LEN
 #define LWS_MAX_HEADER_LEN 1024
 #endif
