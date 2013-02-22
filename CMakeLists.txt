@@ -544,10 +544,10 @@ if (NOT WITHOUT_TESTAPPS)
 
 		# Data files for running the test server.
 		set(TEST_SERVER_DATA
-			test-server/favicon.ico 
-			test-server/leaf.jpg
-			test-server/libwebsockets.org-logo.png
-			test-server/test.html)
+			${PROJECT_SOURCE_DIR}/test-server/favicon.ico 
+			${PROJECT_SOURCE_DIR}/test-server/leaf.jpg
+			${PROJECT_SOURCE_DIR}/test-server/libwebsockets.org-logo.png
+			${PROJECT_SOURCE_DIR}/test-server/test.html)
 
 		# Generate self-signed SSL certs for the test-server.
 		if (WITH_SSL AND OPENSSL_EXECUTABLE)
@@ -574,6 +574,8 @@ if (NOT WITHOUT_TESTAPPS)
 					COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
 					RESULT_VARIABLE OPENSSL_RETURN_CODE)
 				
+				message("\n")
+
 				if (OPENSSL_RETURN_CODE)
 					message("!!! Failed to generate SSL certificate:\n${OPENSSL_RETURN_CODE} !!!")
 				endif()
@@ -589,6 +591,15 @@ if (NOT WITHOUT_TESTAPPS)
 				${TEST_SERVER_SSL_KEY} 
 				${TEST_SERVER_SSL_CERT})
 		endif()
+
+		# Copy the file needed to run the server so that the test apps can
+		# reach them from their default output location
+		foreach (TEST_FILE ${TEST_SERVER_DATA})
+			add_custom_command(TARGET test-server
+						POST_BUILD 
+						COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server"
+						COMMAND ${CMAKE_COMMAND} -E copy ${TEST_FILE} "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server" VERBATIM)
+		endforeach()
 	endif(NOT WITHOUT_SERVER)
 
 	if (NOT WITHOUT_CLIENT)

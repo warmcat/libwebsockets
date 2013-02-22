@@ -55,10 +55,8 @@ extern INT WSAAPI emulated_poll(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout);
 
 /* windows can't cope with this idea, needs assets in cwd */
 
-#ifdef INSTALL_DATADIR
-#undef INSTALL_DATADIR
-#endif
-
+#ifndef INSTALL_DATADIR
 #define INSTALL_DATADIR "."
+#endif
 
 #endif
