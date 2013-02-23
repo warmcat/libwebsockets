@@ -157,7 +157,7 @@ static int callback_http(struct libwebsocket_context *context,
 			p += sprintf((char *)p,
 				"HTTP/1.0 200 OK\x0d\x0a"
 				"Server: libwebsockets\x0d\x0a"
-				"Content-Type: image-jpeg\x0d\x0a"
+				"Content-Type: image/jpeg\x0d\x0a"
 					"Content-Length: %u\x0d\x0a\x0d\x0a",
 					(unsigned int)stat_buf.st_size);
 
