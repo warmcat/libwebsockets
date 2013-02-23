@@ -259,13 +259,20 @@ callback_lws_mirror(struct libwebsocket_context * this,
 		global_tx_count++;
 
 		if (use_mirror)
-			libwebsocket_write(wsi,
+			n = libwebsocket_write(wsi,
 				&pingbuf[LWS_SEND_BUFFER_PRE_PADDING],
 					size, write_options | LWS_WRITE_BINARY);
 		else
-			libwebsocket_write(wsi,
+			n = libwebsocket_write(wsi,
 				&pingbuf[LWS_SEND_BUFFER_PRE_PADDING],
 					size, write_options | LWS_WRITE_PING);
+
+		if (n < 0)
+			return -1;
+		if (n < size) {
+			lwsl_err("Partial write\n");
+			return -1;
+		}
 
 		if (flood &&
 			 (psd->ping_index - psd->rx_count) < (screen_width - 1))

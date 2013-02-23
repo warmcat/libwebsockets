@@ -150,8 +150,15 @@ callback_lws_mirror(struct libwebsocket_context *context,
 					(int)random() % 250,
 					(int)random() % 24);
 
-		libwebsocket_write(wsi,
+		n = libwebsocket_write(wsi,
 		   &buf[LWS_SEND_BUFFER_PRE_PADDING], l, opts | LWS_WRITE_TEXT);
+
+		if (n < 0)
+			return -1;
+		if (n < l) {
+			lwsl_err("Partial write LWS_CALLBACK_CLIENT_WRITEABLE\n");
+			return -1;
+		}
 
 		mirror_lifetime--;
 		if (!mirror_lifetime) {

@@ -241,7 +241,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	#endif
 		n = libwebsocket_write(wsi, (unsigned char *)response,
 						  p - response, LWS_WRITE_HTTP);
-		if (n < 0) {
+		if (n != (p - response)) {
 			lwsl_debug("handshake_0405: ERROR writing to socket\n");
 			goto bail;
 		}

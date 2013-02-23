@@ -438,6 +438,11 @@ In the case of sending using websocket protocol, be sure to allocate
 valid storage before and after buf as explained above.  This scheme
 allows maximum efficiency of sending data and protocol in a single
 packet while not burdening the user code with any protocol knowledge.
+<p>
+Return may be -1 for a fatal error needing connection close, or a
+positive number reflecting the amount of bytes actually sent.  This
+can be less than the requested number of bytes due to OS memory
+pressure at any given time.
 </blockquote>
 <hr>
 <h2>libwebsockets_serve_http_file - Send a file back to the client using http</h2>

@@ -122,13 +122,12 @@ static int callback_http(struct libwebsocket_context *context,
 	char client_ip[128];
 #endif
 	char buf[256];
-	int n;
+	int n, m;
 	unsigned char *p;
 	static unsigned char buffer[4096];
 	struct stat stat_buf;
 	struct per_session_data__http *pss = (struct per_session_data__http *)user;
 #ifdef EXTERNAL_POLL
-	int m;
 	int fd = (int)(long)in;
 #endif
 
@@ -166,6 +165,7 @@ static int callback_http(struct libwebsocket_context *context,
 			 * send the http headers...
 			 * this won't block since it's the first payload sent
 			 * on the connection since it was established
+			 * (too small for partial)
 			 */
 
 			n = libwebsocket_write(wsi, buffer,
@@ -223,10 +223,13 @@ static int callback_http(struct libwebsocket_context *context,
 			 * because it's HTTP and not websocket, don't need to take
 			 * care about pre and postamble
 			 */
-			n = libwebsocket_write(wsi, buffer, n, LWS_WRITE_HTTP);
-			if (n < 0)
+			m = libwebsocket_write(wsi, buffer, n, LWS_WRITE_HTTP);
+			if (m < 0)
 				/* write failed, close conn */
 				goto bail;
+			if (m != n)
+				/* partial write, adjust */
+				lseek(pss->fd, m - n, SEEK_CUR);
 
 		} while (!lws_send_pipe_choked(wsi));
 		libwebsocket_callback_on_writable(context, wsi);
@@ -383,6 +386,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		n = sprintf((char *)p, "%d", pss->number++);
+		/* too small for partial */
 		n = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (n < 0) {
 			lwsl_err("ERROR %d writing to di socket\n", n);
@@ -478,6 +482,9 @@ callback_lws_mirror(struct libwebsocket_context *context,
 			if (n < 0) {
 				lwsl_err("ERROR %d writing to mirror socket\n", n);
 				return -1;
+			}
+			if (n < ringbuffer[pss->ringbuffer_tail].len) {
+				lwsl_err("mirror partial write %d vs %d\n", n, ringbuffer[pss->ringbuffer_tail].len);
 			}
 
 			if (pss->ringbuffer_tail == (MAX_MESSAGE_QUEUE - 1))

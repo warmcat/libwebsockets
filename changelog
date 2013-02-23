@@ -23,6 +23,11 @@ User api changes
 	LWS_CALLBACK_FILTER_NETWORK_CONNECTION also has the socket descriptor
 	delivered by @in now instead of @user.
 
+ - libwebsocket_write() now returns -1 for error, or the amount of data
+ 	actually accepted for send.  Under load, the OS may signal it is
+	ready to send new data on the socket, but have only a restricted
+	amount of memory to buffer the packet compared to usual.
+
 
 User api removal
 ----------------

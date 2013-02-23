@@ -175,6 +175,12 @@ callback_fraggle(struct libwebsocket_context *context,
 				psf->state = FRAGSTATE_POST_PAYLOAD_SUM;
 
 			n = libwebsocket_write(wsi, bp, chunk, write_mode);
+			if (n < 0)
+				return -1;
+			if (n < chunk) {
+				lwsl_err("Partial write\n");
+				return -1;
+			}
 
 			libwebsocket_callback_on_writable(context, wsi);
 			break;
@@ -192,6 +198,12 @@ callback_fraggle(struct libwebsocket_context *context,
 
 			n = libwebsocket_write(wsi, (unsigned char *)bp,
 							   4, LWS_WRITE_BINARY);
+			if (n < 0)
+				return -1;
+			if (n < 4) {
+				lwsl_err("Partial write\n");
+				return -1;
+			}
 
 			psf->state = FRAGSTATE_START_MESSAGE;
 

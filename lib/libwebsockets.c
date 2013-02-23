@@ -276,7 +276,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 		if (eff_buf.token_len)
 			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-							   eff_buf.token_len)) {
+				      eff_buf.token_len) != eff_buf.token_len) {
 				lwsl_debug("close: ext spill failed\n");
 				goto just_kill_connection;
 			}
@@ -305,7 +305,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		n = libwebsocket_write(wsi,
 				&buf[LWS_SEND_BUFFER_PRE_PADDING + 2],
 							    0, LWS_WRITE_CLOSE);
-		if (!n) {
+		if (n >= 0) {
 			/*
 			 * we have sent a nice protocol level indication we
 			 * now wish to close, we should not send anything more
@@ -698,9 +698,18 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		/* assuming they gave us something to send, send it */
 
 		if (eff_buf.token_len) {
-			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-							     eff_buf.token_len))
+			n = lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
+							     eff_buf.token_len);
+			if (n < 0)
 				return -1;
+			/*
+			 * Keep amount spilled small to minimize chance of this
+			 */
+			if (n != eff_buf.token_len) {
+				lwsl_err("Unable to spill ext %d vs %s\n",
+							  eff_buf.token_len, n);
+				return -1;
+			}
 		} else
 			continue;
 

@@ -935,7 +935,7 @@ spill:
 					LWS_SEND_BUFFER_PRE_PADDING],
 					wsi->u.ws.rx_user_buffer_head,
 							       LWS_WRITE_CLOSE);
-			if (n)
+			if (n < 0)
 				lwsl_info("write of close ack failed %d\n", n);
 			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
@@ -951,6 +951,8 @@ spill:
 			n = libwebsocket_write(wsi, (unsigned char *)
 			&wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				 wsi->u.ws.rx_user_buffer_head, LWS_WRITE_PONG);
+			if (n < 0)
+				return -1;
 			/* ... then just drop it */
 			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;

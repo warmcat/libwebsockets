@@ -273,7 +273,11 @@ spill:
 			}
 			lwsl_parser("client sees server close len = %d\n",
 						 wsi->u.ws.rx_user_buffer_head);
-			/* parrot the close packet payload back */
+			/*
+			 * parrot the close packet payload back
+			 * we do not care about how it went, we are closing
+			 * immediately afterwards
+			 */
 			libwebsocket_write(wsi, (unsigned char *)
 			   &wsi->u.ws.rx_user_buffer[
 				LWS_SEND_BUFFER_PRE_PADDING],
@@ -284,7 +288,11 @@ spill:
 
 		case LWS_WS_OPCODE_07__PING:
 			lwsl_info("client received ping, doing pong\n");
-			/* parrot the ping packet payload back as a pong*/
+			/*
+			 * parrot the ping packet payload back as a pong
+			 * !!! this may block or have partial write or fail
+			 * !!! very unlikely if the ping size is small
+			 */
 			libwebsocket_write(wsi, (unsigned char *)
 			    &wsi->u.ws.rx_user_buffer[
 				LWS_SEND_BUFFER_PRE_PADDING],

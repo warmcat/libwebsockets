@@ -90,6 +90,10 @@ void lwsl_hexdump(void *vbuf, size_t len)
 
 #endif
 
+/*
+ * notice this returns number of bytes sent, or -1
+ */
+
 int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
@@ -117,7 +121,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		}
 		if (m) /* handled */ {
 /*			lwsl_ext("ext sent it\n"); */
-			return 0;
+			return m;
 		}
 	}
 #endif
@@ -146,14 +150,14 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 #endif
 		n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
 		lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
-		if (n != len) {
+		if (n < 0) {
 			lwsl_debug("ERROR writing len %d to skt %d\n", len, n);
 			return -1;
 		}
 #ifdef LWS_OPENSSL_SUPPORT
 	}
 #endif
-	return 0;
+	return n;
 }
 
 #ifdef LWS_NO_EXTENSIONS
@@ -210,10 +214,21 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 
 		/* assuming they left us something to send, send it */
 
-		if (eff_buf.token_len)
-			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-							    eff_buf.token_len))
+		if (eff_buf.token_len) {
+			n = lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
+							    eff_buf.token_len);
+			if (n < 0)
 				return -1;
+			/*
+			 * Keep amount spilled small to minimize chance of this
+			 */
+			if (n != eff_buf.token_len) {
+				lwsl_err("Unable to spill ext %d vs %s\n",
+							  eff_buf.token_len, n);
+				return -1;
+			}
+
+		}
 
 		lwsl_parser("written %d bytes to client\n", eff_buf.token_len);
 
@@ -247,7 +262,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 		ret = 0;
 	}
 
-	return 0;
+	return len;
 }
 #endif
 
@@ -274,6 +289,11 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
  *	valid storage before and after buf as explained above.  This scheme
  *	allows maximum efficiency of sending data and protocol in a single
  *	packet while not burdening the user code with any protocol knowledge.
+ *
+ *	Return may be -1 for a fatal error needing connection close, or a
+ *	positive number reflecting the amount of bytes actually sent.  This
+ *	can be less than the requested number of bytes due to OS memory
+ *	pressure at any given time.
  */
 
 int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
@@ -285,6 +305,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	int masked7 = wsi->mode == LWS_CONNMODE_WS_CLIENT;
 	unsigned char *dropmask = NULL;
 	unsigned char is_masked_bit = 0;
+	size_t orig_len = len;
 #ifndef LWS_NO_EXTENSIONS
 	struct lws_tokens eff_buf;
 	int m;
@@ -423,7 +444,7 @@ int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 		if (libwebsocket_0405_frame_mask_generate(wsi)) {
 			lwsl_err("lws_write: frame mask generation failed\n");
-			return 1;
+			return -1;
 		}
 
 		/*
@@ -453,11 +474,8 @@ send_raw:
 	case LWS_WRITE_HTTP:
 	case LWS_WRITE_PONG:
 	case LWS_WRITE_PING:
-		if (lws_issue_raw(wsi, (unsigned char *)buf - pre,
-							      len + pre + post))
-			return -1;
-
-		return 0;
+		return lws_issue_raw(wsi, (unsigned char *)buf - pre,
+							      len + pre + post);
 	default:
 		break;
 	}
@@ -476,26 +494,36 @@ send_raw:
 	 * callback returns 1 in case it wants to spill more buffers
 	 */
 
-	return lws_issue_raw_ext_access(wsi, buf - pre, len + pre + post);
+	n = lws_issue_raw_ext_access(wsi, buf - pre, len + pre + post);
+	if (n < 0)
+		return n;
+
+	return orig_len - ((len - pre + post) -n );
 }
 
 int libwebsockets_serve_http_file_fragment(
 		struct libwebsocket_context *context, struct libwebsocket *wsi)
 {
 	int ret = 0;
-	int n;
+	int n, m;
 
 	while (!lws_send_pipe_choked(wsi)) {
 		n = read(wsi->u.http.fd, context->service_buffer,
 					       sizeof(context->service_buffer));
 		if (n > 0) {
-			libwebsocket_write(wsi, context->service_buffer, n,
+			m = libwebsocket_write(wsi, context->service_buffer, n,
 								LWS_WRITE_HTTP);
+			if (m < 0)
+				return -1;
+
 			wsi->u.http.filepos += n;
+			if (m != n)
+				/* adjust for what was not sent */
+				lseek(wsi->u.http.fd, m - n, SEEK_CUR);
 		}
 
 		if (n < 0)
-			return 1; /* caller will close */
+			return -1; /* caller will close */
 
 		if (n < sizeof(context->service_buffer) ||
 				wsi->u.http.filepos == wsi->u.http.filelen) {
@@ -552,6 +580,7 @@ int libwebsockets_serve_http_file(struct libwebsocket_context *context,
 		 "HTTP/1.0 400 Bad\x0d\x0aServer: libwebsockets\x0d\x0a\x0d\x0a"
 		);
 		wsi->u.http.fd = 0;
+		/* too small to care about partial, closing anyway */
 		libwebsocket_write(wsi, context->service_buffer,
 				p - context->service_buffer, LWS_WRITE_HTTP);
 
@@ -569,8 +598,10 @@ int libwebsockets_serve_http_file(struct libwebsocket_context *context,
 
 	ret = libwebsocket_write(wsi, context->service_buffer,
 				   p - context->service_buffer, LWS_WRITE_HTTP);
-	if (ret)
+	if (ret != (p - context->service_buffer)) {
+		lwsl_err("_write returned %d from %d\n", ret, (p - context->service_buffer));
 		return -1;
+	}
 
 	wsi->u.http.filepos = 0;
 	wsi->state = WSI_STATE_HTTP_ISSUING_FILE;

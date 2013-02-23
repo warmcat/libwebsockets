@@ -69,6 +69,10 @@ callback_echo(struct libwebsocket_context *context,
 			lwsl_err("ERROR %d writing to socket, hanging up\n", n);
 			return 1;
 		}
+		if (n < pss->len) {
+			lwsl_err("Partial write\n");
+			return -1;
+		}
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
@@ -101,7 +105,11 @@ callback_echo(struct libwebsocket_context *context,
 		n = libwebsocket_write(wsi, &pss->buf[LWS_SEND_BUFFER_PRE_PADDING], pss->len, LWS_WRITE_TEXT);
 		if (n < 0) {
 			lwsl_err("ERROR %d writing to socket, hanging up\n", n);
-			return 1;
+			return -1;
+		}
+		if (n < pss->len) {
+			lwsl_err("Partial write\n");
+			return -1;
 		}
 		break;
 #endif
