@@ -679,7 +679,7 @@ if (UNIX)
 file(WRITE ${PROJECT_BINARY_DIR}/libwebsockets.pc
 "prefix=/usr/local
 exec_prefix=\${prefix}
-libdir=\${exec_prefix}/lib
+libdir=\${exec_prefix}/lib${LIB_SUFFIX}
 includedir=\${prefix}/include
 
 Name: libwebsockets
@@ -702,8 +702,8 @@ set(CPACK_COMPONENT_HEADERS_DISPLAY_NAME "Header files")
 
 # Install libs.
 install(TARGETS websockets websockets_shared
-		LIBRARY DESTINATION lib
-		ARCHIVE DESTINATION lib
+		LIBRARY DESTINATION lib${LIB_SUFFIX}
+		ARCHIVE DESTINATION lib${LIB_SUFFIX}
 		COMPONENT libraries)
 set(CPACK_COMPONENT_LIBRARIES_DISPLAY_NAME "Libraries")
 
