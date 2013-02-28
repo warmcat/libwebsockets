@@ -274,12 +274,16 @@ if (WIN32)
 		${WIN32_HELPERS_PATH}/websock-w32.h
 		${WIN32_HELPERS_PATH}/gettimeofday.h
 		)
-
+if (MINGW)
+	list(APPEND SOURCES
+		${WIN32_HELPERS_PATH}/gettimeofday.c
+		)
+else()
 	list(APPEND SOURCES 
 		${WIN32_HELPERS_PATH}/websock-w32.c
 		${WIN32_HELPERS_PATH}/gettimeofday.c
 		)
-
+endif()
 	include_directories(${WIN32_HELPERS_PATH})
 else()
 	# Unix.
