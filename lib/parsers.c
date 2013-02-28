@@ -706,26 +706,10 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	case LWS_RXPS_04_FRAME_HDR_1:
 handle_first:
 
-		/*
-		 * 04 spec defines the opcode like this: (1, 2, and 3 are
-		 * "control frame" opcodes which may not be fragmented or
-		 * have size larger than 126)
-		 *
-		 *       frame-opcode           =
-		 *	       %x0 ; continuation frame
-		 *		/ %x1 ; connection close
-		 *		/ %x2 ; ping
-		 *		/ %x3 ; pong
-		 *		/ %x4 ; text frame
-		 *		/ %x5 ; binary frame
-		 *		/ %x6-F ; reserved
-		 *
-		 *		FIN (b7)
-		 */
-
 		wsi->u.ws.opcode = c & 0xf;
 		wsi->u.ws.rsv = c & 0x70;
 		wsi->u.ws.final = !!((c >> 7) & 1);
+
 		switch (wsi->u.ws.opcode) {
 		case LWS_WS_OPCODE_07__TEXT_FRAME:
 		case LWS_WS_OPCODE_07__BINARY_FRAME:
@@ -870,6 +854,8 @@ handle_first:
 		wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
 		wsi->u.ws.frame_mask_index = 0;
+		if (wsi->u.ws.rx_packet_length == 0)
+			goto spill;
 		break;
 
 
