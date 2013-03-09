@@ -1,240 +1,5 @@
-Introduction
-------------
-Libwebsockets can be built using two different build systems
-autoconf or CMake. autoconf only works on Unix systems, or mingw/cygwin
-on Windows. CMake works differently and can generate platform specific
-project files for most popular IDEs and build systems.
-
-################################### Autoconf ###################################
-
-Building the library and test apps
-----------------------------------
-
-You need to regenerate the autotools and libtoolize stuff for your system
-
-$ ./autogen.sh
-
-Then,
-
-------Fedora x86_64
-
- ./configure --prefix=/usr --libdir=/usr/lib64 --enable-openssl
-
-------Apple
-
-Christopher Baker reported that this is needed
-
-./configure CC="gcc -arch i386 -arch x86_64" CXX="g++ -arch i386 -arch
-x86_64" CPP="gcc -E" CXXCPP="g++ -E" --enable-nofork
-
-------mingw
-
-I did the following to get working build, ping test is disabled when
-building this way
-
-1) install mingw64_w32 compiler packages from Fedora
-2) additionally install mingw64-zlib package
-3) ./configure --prefix=/usr --enable-mingw --host=x86_64-w64-mingw32
-4) make
-
-------MIPS cross-build using OpenWRT
-
- ./configure --prefix=/usr --without-extensions --host mips-openwrt-linux
-
-I did not try building the extensions since they need cross-zlib, but it
-should also be workable.
-
-------Other uClibc
-
-you may need --enable-builtin-getifaddrs if your toolchain
-doesn't have it - openWRT uclibc has it so you don't need this option.
-
-------ARM cross-build
-
-./configure --prefix=/usr --host=arm-linux-gnueabi --without-client --without-extensions
-
-you can build cross with client and extensions perfectly well, but
-apart from the size shrink this has the nice characteristic that no
-non-toolchain libraries are needed to build it.
-
-
-otherwise if /usr/local/... and /usr/local/lib are OK then...
-
-$ ./configure
-$ make clean
-$ make && sudo make install
-$ libwebsockets-test-server
-
-should be enough to get a test server listening on port 7861.
-
-
-Configure script options
-------------------------
-
-There are several other possible configure options
-
---enable-openssl	Builds in the SSL support
-
---with-cyassl		Use cyassl instead of OpenSSL... you will need CyaSSL
-			to have been configured with --enable-opensslExtra
-\			when it was built.
-
---enable-libcrypto	by default libwebsockets uses its own
-			built-in md5 and sha-1 implementation for
-			simplicity.  However the libcrypto ones
-			may be faster, and in a distro context it
-			may be highly desirable to use a common
-			library implementation for ease of security
-			upgrades.  Give this configure option
-			to disable the built-in ones and force use
-			of the libcrypto (part of openssl) ones.
-
---with-client-cert-dir=dir   tells the client ssl support where to
-			     look for trust certificates to validate
-			     the remote certificate against.
-
---enable-noping		Don't try to build the ping test app
-			It needs some unixy environment that
-			may choke in other build contexts, this
-			lets you cleanly stop it being built
-			
---enable-builtin-getifaddrs  if your libc lacks getifaddrs, you can build an
-			implementation into the library.  By default your libc
-			one is used.
-
---without-testapps	Just build the library not the test apps
-
---without-client	Don't build the client part of the library nor the
-			test apps that need the client part.  Useful to
-			minimize library footprint for embedded server-only
-			case
-
---without-server	Don't build the server part of the library nor the
-			test apps that need the server part.  Useful to
-			minimize library footprint for embedded client-only
-			case
-
---without-daemonize	Don't build daemonize.c / lws_daemonize
-
---disable-debug		Remove all debug logging below lwsl_notice in severity
-			from the code -- it's not just defeated from logging
-			but removed from compilation
-
---without-extensions	Remove all code and data around protocol extensions.
-			This reduces the code footprint considerably but
-			you will lose extension features like compression.
-			However that may be irrelevant for embedded use and
-			the code / data size / speed improvements may be
-			critical.
-
---with-latency		Builds the latency-tracking code into the library...
-			this slows your library down a bit but is very useful
-			to find the cause of unexpected latencies occurring
-			inside the library.  See README.test-apps for more
-			info
-
-
-Externally configurable important constants
--------------------------------------------
-
-You can control these from configure by just setting them as commandline
-args throgh CFLAGS, eg
-
-./configure CFLAGS="-DLWS_MAX_ZLIB_CONN_BUFFER=8192"
-
-
-They all have reasonable defaults usable for all use-cases except resource-
-constrained, so you only need to take care about them if you want to tune them
-to the amount of memory available.
-
- - LWS_MAX_HEADER_LEN default 1024: allocated area to copy http headers that
-libwebsockets knows about into.  You only need to think about increasing this
-if your application might have monster length URLs for example, or some other
-header that lws cares about will be abnormally large (headers it does not
-know about are skipped).
-
- - LWS_MAX_PROTOCOLS default 5: largest amount of different protocols the
-server can serve
-
- - LWS_MAX_EXTENSIONS_ACTIVE default 3: largest amount of extensions we can
-choose to have active on one connection
-
- - SPEC_LATEST_SUPPORTED default 13: only change if you want to remove support
-for later protocol versions... unlikely
-
- - AWAITING_TIMEOUT default 5: after this many seconds without a response, the
-server will hang up on the client
-
- - SYSTEM_RANDOM_FILEPATH default "/dev/urandom": if your random device differs
-you can set it here
-
- - LWS_MAX_ZLIB_CONN_BUFFER  maximum size a compression buffer is allowed to
-grow to before closing the connection.  Some limit is needed or any connecton
-can exhaust all server memory by sending it 4G buffers full of zeros which the
-server is expect to expand atomically.  Default is 64KBytes.
-
- - LWS_SOMAXCONN  maximum number of pending connect requests the listening
-socket can cope with.  Default is SOMAXCONN.  If you need to use synthetic
-tests that just spam hundreds of connect requests at once without dropping
-any, you can try messing with these as well as ulimit (see later)
-(courtesy Edwin van der Oetelaar)
-
-echo "2048 64512" > /proc/sys/net/ipv4/ip_local_port_range
-echo "1" > /proc/sys/net/ipv4/tcp_tw_recycle
-echo "1" > /proc/sys/net/ipv4/tcp_tw_reuse
-echo "10" > /proc/sys/net/ipv4/tcp_fin_timeout
-echo "65536" > /proc/sys/net/core/somaxconn
-echo "65536" > /proc/sys/net/ipv4/tcp_max_syn_backlog
-echo "262144" > /proc/sys/net/netfilter/nf_conntrack_max
-
-
-Memory efficiency
------------------
-
-Embedded server-only configuration without extensions (ie, no compression
-on websocket connections), but with full v13 websocket features and http
-server, built on ARM Cortex-A9:
-
-Update at 8dac94d (2013-02-18)
-
-./configure --without-client --without-extensions --disable-debug --without-daemonize
-
-Context Creation, 1024 fd limit[2]:   16720 (includes 12 bytes per fd)
-Per-connection [3]:                      72 bytes, +1328 during headers
-
-.text	.rodata	.data	.bss
-11512	2784	288	4
-
-This shows the impact of the major configuration with/without options at
-13ba5bbc633ea962d46d using Ubuntu ARM on a PandaBoard ES.
-
-These are accounting for static allocations from the library elf, there are
-additional dynamic allocations via malloc.  These are a bit old now but give
-the right idea for relative "expense" of features.
-
-Static allocations, ARM9
-				.text	.rodata	.data	.bss
- All (no without)		35024	9940	336	4104
- without client			25684	7144	336	4104
- without client, exts		21652	6288	288	4104
- without client, exts, debug[1]	19756	3768	288	4104
- without server			30304	8160	336	4104
- without server, exts		25382	7204	288	4104
- without server, exts, debug[1]	23712	4256	288	4104
-
-[1] --disable-debug only removes messages below lwsl_notice.  Since that is
-the default logging level the impact is not noticable, error, warn and notice
-logs are all still there.
-
-[2] 1024 fd per process is the default limit (set by ulimit) in at least Fedora
-and Ubuntu.  You can make significant savings tailoring this to actual expected
-peak fds, ie, at a limit of 20, context creation allocation reduces to 4432 +
-240 = 4672)
-
-[3] known header content is freed after connection establishment
-
-
-#################################### CMake ####################################
+Introduction to CMake
+---------------------
 
 CMake is a multi-platform build tool that can generate build files for many
 different target platforms. See more info at http://www.cmake.org
@@ -280,8 +45,8 @@ Building on Unix:
 
 	(NOTE: The build/ directory can have any name and be located anywhere
 	 on your filesystem, and that the argument ".." given to cmake is simply
-	 the source directory of libwebsockets containing the CMakeLists.txt project
-	 file. All examples in this file assumes you use "..")
+	 the source directory of libwebsockets containing the CMakeLists.txt
+	 project file. All examples in this file assumes you use "..")
 
 	NOTE2
 	A common option you may want to give is to set the install path, same
@@ -413,3 +178,52 @@ Below is an example of how one of these files might look like:
 
 Additional information on cross compilation with CMake:
 	http://www.vtk.org/Wiki/CMake_Cross_Compiling
+
+
+Memory efficiency
+-----------------
+
+Embedded server-only configuration without extensions (ie, no compression
+on websocket connections), but with full v13 websocket features and http
+server, built on ARM Cortex-A9:
+
+Update at 8dac94d (2013-02-18)
+
+./configure --without-client --without-extensions --disable-debug --without-daemonize
+
+Context Creation, 1024 fd limit[2]:   16720 (includes 12 bytes per fd)
+Per-connection [3]:                      72 bytes, +1328 during headers
+
+.text	.rodata	.data	.bss
+11512	2784	288	4
+
+This shows the impact of the major configuration with/without options at
+13ba5bbc633ea962d46d using Ubuntu ARM on a PandaBoard ES.
+
+These are accounting for static allocations from the library elf, there are
+additional dynamic allocations via malloc.  These are a bit old now but give
+the right idea for relative "expense" of features.
+
+Static allocations, ARM9
+				.text	.rodata	.data	.bss
+ All (no without)		35024	9940	336	4104
+ without client			25684	7144	336	4104
+ without client, exts		21652	6288	288	4104
+ without client, exts, debug[1]	19756	3768	288	4104
+ without server			30304	8160	336	4104
+ without server, exts		25382	7204	288	4104
+ without server, exts, debug[1]	23712	4256	288	4104
+
+[1] --disable-debug only removes messages below lwsl_notice.  Since that is
+the default logging level the impact is not noticable, error, warn and notice
+logs are all still there.
+
+[2] 1024 fd per process is the default limit (set by ulimit) in at least Fedora
+and Ubuntu.  You can make significant savings tailoring this to actual expected
+peak fds, ie, at a limit of 20, context creation allocation reduces to 4432 +
+240 = 4672)
+
+[3] known header content is freed after connection establishment
+
+
+

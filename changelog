@@ -44,6 +44,9 @@ User api removal
 
  - CIPHERS_LIST_STRING is removed
 
+ - autotools build has been removed.  See README.build for info on how to
+ 	use CMake for your platform
+
 
 v1.21-chrome26-firefox18
 ========================
