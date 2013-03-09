@@ -207,7 +207,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	wsi->u.ws.close_reason = reason;
 
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING && wsi->u.http.fd) {
-		lwsl_notice("closing http fd %d\n", wsi->u.http.fd);
+		lwsl_debug("closing http fd %d\n", wsi->u.http.fd);
 		close(wsi->u.http.fd);
 		wsi->u.http.fd = 0;
 	}
