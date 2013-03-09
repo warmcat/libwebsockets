@@ -270,7 +270,7 @@ endif()
 if (WIN32)
 	set(WIN32_HELPERS_PATH win32port/win32helpers)
 
-	list(APPEND HDR_PRIVATE
+	list(APPEND HDR_PUBLIC
 		${WIN32_HELPERS_PATH}/websock-w32.h
 		${WIN32_HELPERS_PATH}/gettimeofday.h
 		)
