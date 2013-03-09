@@ -874,9 +874,12 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			if (libwebsocket_service_timeout_check(context, wsi,
 								     tv.tv_sec))
 				/* he did time out... */
-				if (m == our_fd)
+				if (m == our_fd) {
 					/* it was the guy we came to service! */
 					timed_out = 1;
+					/* mark as handled */
+					pollfd->revents = 0;
+				}
 		}
 	}
 
@@ -890,6 +893,16 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		return 0;
 
 	/* no, here to service a socket descriptor */
+
+	wsi = context->lws_lookup[pollfd->fd];
+	if (wsi == NULL)
+		/* not lws connection ... leave revents alone and return */
+		return 0;
+
+	/*
+	 * so that caller can tell we handled, past here we need to
+	 * zero down pollfd->revents after handling
+	 */
 
 	/*
 	 * deal with listen service piggybacking
@@ -935,21 +948,14 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 	/* okay, what we came here to do... */
 
-	wsi = context->lws_lookup[pollfd->fd];
-	if (wsi == NULL) {
-		if (pollfd->fd > 11)
-			lwsl_err("unexpected NULL wsi fd=%d fds_count=%d\n",
-						pollfd->fd, context->fds_count);
-		return 0;
-	}
-
 	switch (wsi->mode) {
 
 #ifndef LWS_NO_SERVER
 	case LWS_CONNMODE_HTTP_SERVING:
 	case LWS_CONNMODE_SERVER_LISTENER:
 	case LWS_CONNMODE_SSL_ACK_PENDING:
-		return lws_server_socket_service(context, wsi, pollfd);
+		n = lws_server_socket_service(context, wsi, pollfd);
+		goto handled;
 #endif
 
 	case LWS_CONNMODE_WS_SERVING:
@@ -963,9 +969,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			lwsl_debug("Session Socket %p (fd=%d) dead\n",
 				(void *)wsi, pollfd->fd);
 
-			libwebsocket_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
-			return 0;
+			goto close_and_handled;
 		}
 
 		/* the guy requested a callback when it was OK to write */
@@ -975,9 +979,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			if (lws_handle_POLLOUT_event(context, wsi,
 								  pollfd) < 0) {
 				lwsl_info("libwebsocket_service_fd: closing\n");
-				libwebsocket_close_and_free_session(
-				       context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
-				return 0;
+				goto close_and_handled;
 			}
 
 
@@ -1008,15 +1010,13 @@ read_pending:
 			lwsl_debug("Socket read returned %d\n",
 							    eff_buf.token_len);
 			if (errno != EINTR && errno != EAGAIN)
-				libwebsocket_close_and_free_session(context,
-					       wsi, LWS_CLOSE_STATUS_NOSTATUS);
-			return 0;
+				goto close_and_handled;
+			n = 0;
+			goto handled;
 		}
 		if (!eff_buf.token_len) {
 			lwsl_info("closing connection due to 0 length read\n");
-			libwebsocket_close_and_free_session(context, wsi,
-						    LWS_CLOSE_STATUS_NOSTATUS);
-			return 0;
+			goto close_and_handled;
 		}
 
 		/*
@@ -1047,10 +1047,7 @@ read_pending:
 				if (m < 0) {
 					lwsl_ext(
 					    "Extension reports fatal error\n");
-					libwebsocket_close_and_free_session(
-						context, wsi,
-						    LWS_CLOSE_STATUS_NOSTATUS);
-					return 0;
+					goto close_and_handled;
 				}
 				if (m)
 					more = 1;
@@ -1062,9 +1059,11 @@ read_pending:
 				n = libwebsocket_read(context, wsi,
 					(unsigned char *)eff_buf.token,
 							    eff_buf.token_len);
-				if (n < 0)
+				if (n < 0) {
 					/* we closed wsi */
-					return 0;
+					n = 0;
+					goto handled;
+				}
 			}
 #ifndef LWS_NO_EXTENSIONS
 			eff_buf.token = NULL;
@@ -1082,11 +1081,23 @@ read_pending:
 #ifdef LWS_NO_CLIENT
 		break;
 #else
-		return  lws_client_socket_service(context, wsi, pollfd);
+		n = lws_client_socket_service(context, wsi, pollfd);
+		goto handled;
 #endif
 	}
 
-	return 0;
+	n = 0;
+	goto handled;
+
+close_and_handled:
+	libwebsocket_close_and_free_session(
+		context, wsi,
+			    LWS_CLOSE_STATUS_NOSTATUS);
+	n = 0;
+
+handled:
+	pollfd->revents = 0;
+	return n;
 }
 
 
@@ -1750,6 +1761,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		free(context);
 		return NULL;
 	}
+	memset(context->lws_lookup, 0, sizeof(struct libwebsocket *) *
+							context->max_fds);
 
 	context->fds_count = 0;
 #ifndef LWS_NO_EXTENSIONS
