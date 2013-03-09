@@ -261,10 +261,8 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 			goto bail3;
 		}
 
-		if (!(pollfd->revents & POLLIN)) {
-			lwsl_warn("server reply no POLLIN\n");
-			goto bail3;
-		}
+		if (!(pollfd->revents & POLLIN))
+			break;
 
 		/* interpret the server response */
 
