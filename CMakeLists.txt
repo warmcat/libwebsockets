@@ -495,7 +495,7 @@ if (NOT WITHOUT_TESTAPPS)
 		# Set test app specific defines.
 		set_property(TARGET ${TEST_NAME}
 					PROPERTY COMPILE_DEFINITIONS 
-						INSTALL_DATADIR="${SSL_CERT_DIR}"
+						INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/share"
 					)
 
 		# Prefix the binary names with libwebsockets.
@@ -537,7 +537,7 @@ if (NOT WITHOUT_TESTAPPS)
 				TARGET test-server-extpoll
 				PROPERTY COMPILE_DEFINITIONS 
 					EXTERNAL_POLL 
-					INSTALL_DATADIR="${SSL_CERT_DIR}"
+					INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/share"
 				)
 
 			# We need to link against winsock code.
