@@ -214,7 +214,7 @@ configure_file(
 if (MSVC)
 	# Turn off stupid microsoft security warnings.
 	add_definitions(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_NONSTDC_NO_DEPRECATE)
-endif()
+endif(MSVC)
 
 include_directories(${PROJECT_SOURCE_DIR}/lib)
 
@@ -274,32 +274,32 @@ if (WIN32)
 		${WIN32_HELPERS_PATH}/websock-w32.h
 		${WIN32_HELPERS_PATH}/gettimeofday.h
 		)
-if (MINGW)
-	list(APPEND SOURCES
-		${WIN32_HELPERS_PATH}/gettimeofday.c
-		)
-else()
-	list(APPEND SOURCES 
-		${WIN32_HELPERS_PATH}/websock-w32.c
-		${WIN32_HELPERS_PATH}/gettimeofday.c
-		)
-endif()
+	if (MINGW)
+		list(APPEND SOURCES
+			${WIN32_HELPERS_PATH}/gettimeofday.c
+			)
+	else(MINGW)
+		list(APPEND SOURCES
+			${WIN32_HELPERS_PATH}/websock-w32.c
+			${WIN32_HELPERS_PATH}/gettimeofday.c
+			)
+	endif(MINGW)
 	include_directories(${WIN32_HELPERS_PATH})
-else()
+else(WIN32)
 	# Unix.
 	if (NOT WITHOUT_DAEMONIZE)
 		list(APPEND SOURCES
 			lib/daemonize.c
 			)
 	endif()
-endif()
+endif(WIN32)
 
 if (UNIX)
 	if (NOT HAVE_GETIFADDRS)
 		list(APPEND HDR_PRIVATE lib/getifaddrs.h)
 		list(APPEND SOURCES lib/getifaddrs.c)
 	endif()
-endif()
+endif(UNIX)
 
 source_group("Headers Private"  FILES ${HDR_PRIVATE})
 source_group("Headers Public"   FILES ${HDR_PUBLIC})
@@ -332,7 +332,7 @@ if (WIN32)
 		LWS_DLL
 		LWS_INTERNAL
 		)
-endif()
+endif(WIN32)
 
 # We want the shared lib to be named "libwebsockets"
 # not "libwebsocket_shared".
@@ -487,10 +487,10 @@ if (NOT WITHOUT_TESTAPPS)
 		if (LINK_TESTAPPS_DYNAMIC)
 			target_link_libraries(${TEST_NAME} websockets_shared)
 			add_dependencies(${TEST_NAME} websockets_shared)
-		else()
+		else(LINK_TESTAPPS_DYNAMIC)
 			target_link_libraries(${TEST_NAME} websockets)
 			add_dependencies(${TEST_NAME} websockets)
-		endif()
+		endif(LINK_TESTAPPS_DYNAMIC)
 
 		# Set test app specific defines.
 		set_property(TARGET ${TEST_NAME}
@@ -543,7 +543,7 @@ if (NOT WITHOUT_TESTAPPS)
 			# We need to link against winsock code.
 			if (WIN32)
 				target_link_libraries(test-server-extpoll ws2_32.lib)
-			endif()
+			endif(WIN32)
 		endif()
 
 		# Data files for running the test server.
@@ -696,7 +696,7 @@ Cflags: -I\${includedir}"
 
 	install(FILES ${PROJECT_BINARY_DIR}/libwebsockets.pc
 		DESTINATION include/pkgconfig)
-endif()
+endif(UNIX)
 
 # Install headers.
 install(FILES ${HDR_PUBLIC} 
