@@ -1,6 +1,6 @@
 Name: libwebsockets
-Version: 1.2
-Release: 46.gmaster_f59d56cbd8305ed%{?dist}
+Version: 1.3
+Release: 47.gmaster_b89f21c%{?dist}
 Summary: Websocket Server Library
 
 Group: System
@@ -28,12 +28,14 @@ Development files for libwebsockets
 %setup -q
 
 %build
-./configure --prefix=/usr --libdir=%{_libdir} --enable-openssl
+mkdir -p build
+cd build
+%cmake ..
 make
-
 
 %install
 rm -rf $RPM_BUILD_ROOT
+cd build
 make install DESTDIR=$RPM_BUILD_ROOT
 
 
@@ -49,10 +51,8 @@ rm -rf $RPM_BUILD_ROOT
 %attr(755,root,root) /usr/bin/libwebsockets-test-echo
 %attr(755,root,root) /usr/bin/libwebsockets-test-fraggle
 %attr(755,root,root) 
-/%{_libdir}/libwebsockets.so.3.0.0
-/%{_libdir}/libwebsockets.so.3
+/%{_libdir}/libwebsockets.so.4.0.0
 /%{_libdir}/libwebsockets.so
-/%{_libdir}/libwebsockets.la
 %attr(755,root,root) /usr/share/libwebsockets-test-server
 %doc
 %files devel
