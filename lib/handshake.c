@@ -96,13 +96,15 @@ libwebsocket_read(struct libwebsocket_context *context,
 		for (n = 0; n < len; n++)
 			if (libwebsocket_parse(wsi, *buf++)) {
 				lwsl_info("libwebsocket_parse failed\n");
-				goto bail;
+				goto bail_nuke_ah;
 			}
 
 		if (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE)
 			break;
 
 		lwsl_parser("libwebsocket_parse sees parsing complete\n");
+
+		wsi->mode = LWS_CONNMODE_PRE_WS_SERVING_ACCEPT;
 
 		/* is this websocket protocol or normal http 1.0? */
 
@@ -113,21 +115,14 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 			if (!lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) {
 				lwsl_warn("Missing URI in HTTP request\n");
-				/* drop the header info */
-				if (wsi->u.hdr.ah)
-					free(wsi->u.hdr.ah);
-				goto bail;
+				goto bail_nuke_ah;
 			}
 
 			lwsl_info("HTTP request for '%s'\n",
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
 
-			if (libwebsocket_ensure_user_space(wsi)) {
-				/* drop the header info */
-				if (wsi->u.hdr.ah)
-					free(wsi->u.hdr.ah);
-				goto bail;
-			}
+			if (libwebsocket_ensure_user_space(wsi))
+				goto bail_nuke_ah;
 
 			/*
 			 * Hm we still need the headers so the
@@ -143,6 +138,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 			/* union transition */
 			memset(&wsi->u, 0, sizeof(wsi->u));
 
+			wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 			wsi->state = WSI_STATE_HTTP;
 			n = 0;
 			if (wsi->protocol->callback)
@@ -196,7 +192,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 			} else {
 				lwsl_err("Req protocol %s not supported\n",
 				   lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL));
-				goto bail;
+				goto bail_nuke_ah;
 			}
 		}
 
@@ -298,6 +294,11 @@ libwebsocket_read(struct libwebsocket_context *context,
 	}
 
 	return 0;
+
+bail_nuke_ah:
+	/* drop the header info */
+	if (wsi->u.hdr.ah)
+		free(wsi->u.hdr.ah);
 
 bail:
 	lwsl_info("closing connection at libwebsocket_read bail:\n");
