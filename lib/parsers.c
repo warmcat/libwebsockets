@@ -473,7 +473,8 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 		if (wsi->u.hdr.lextable_pos < 0) {
 			/* this is not a header we know about */
-			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
+			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI] ||
+				    wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP]) {
 				/*
 				 * altready had the method, no idea what
 				 * this crap is, ignore
