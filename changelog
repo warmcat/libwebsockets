@@ -14,6 +14,12 @@ User api additions
  	added, replacing CIPHERS_LIST_STRING.  NULL means use the ssl library
 	default list of ciphers.
 
+ - Not really an api addition, but libwebsocket_service_fd() will now zero
+ 	the revents field of the pollfd it was called with if it handled the
+	descriptor.  So you can tell if it is a non-lws fd by checking revents
+	after the service call... if it's still nonzero, the descriptor
+	belongs to you and you need to take care of it.
+
 User api changes
 ----------------
 
