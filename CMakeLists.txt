@@ -695,7 +695,7 @@ Cflags: -I\${includedir}"
 )
 
 	install(FILES ${PROJECT_BINARY_DIR}/libwebsockets.pc
-		DESTINATION include/pkgconfig)
+		DESTINATION lib${LIB_SUFFIX}/pkgconfig)
 endif(UNIX)
 
 # Install headers.
