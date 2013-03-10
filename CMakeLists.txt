@@ -636,6 +636,16 @@ if (NOT WITHOUT_TESTAPPS)
 				""
 				"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
 		endif()
+		#
+		# test-echo
+		#
+		if (NOT WITHOUT_TEST_ECHO)
+			create_test_app(test-echo
+				"test-server/test-echo.c"
+				""
+				"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+		endif()
+
 	endif(NOT WITHOUT_CLIENT)
 
 	#
