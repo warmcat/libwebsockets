@@ -819,6 +819,15 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
  *
  *	The one call deals with all "service" that might happen on a socket
  *	including listen accepts, http files as well as websocket protocol.
+ *
+ *	If a pollfd says it has something, you can just pass it to
+ *	libwebsocket_serice_fd() whether it is a socket handled by lws or not.
+ *	If it sees it is a lws socket, the traffic will be handled and
+ *	pollfd->revents will be zeroed now.
+ *
+ *	If the socket is foreign to lws, it leaves revents alone.  So you can
+ *	see if you should service yourself by checking the pollfd revents
+ *	after letting lws try to service it.
  */
 
 int

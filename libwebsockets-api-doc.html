@@ -1,88 +1,40 @@
-<h2>libwebsocket_client_connect - Connect to another websocket server</h2>
-<i>struct libwebsocket *</i>
-<b>libwebsocket_client_connect</b>
-(<i>struct libwebsocket_context *</i> <b>context</b>,
-<i>const char *</i> <b>address</b>,
-<i>int</i> <b>port</b>,
-<i>int</i> <b>ssl_connection</b>,
-<i>const char *</i> <b>path</b>,
-<i>const char *</i> <b>host</b>,
-<i>const char *</i> <b>origin</b>,
-<i>const char *</i> <b>protocol</b>,
-<i>int</i> <b>ietf_version_or_minus_one</b>)
+<h2>lws_frame_is_binary - </h2>
+<i>int</i>
+<b>lws_frame_is_binary</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>context</b>
-<dd>Websocket context
-<dt><b>address</b>
-<dd>Remote server address, eg, "myserver.com"
-<dt><b>port</b>
-<dd>Port to connect to on the remote server, eg, 80
-<dt><b>ssl_connection</b>
-<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
-signed certs
-<dt><b>path</b>
-<dd>Websocket path on server
-<dt><b>host</b>
-<dd>Hostname on server
-<dt><b>origin</b>
-<dd>Socket origin name
-<dt><b>protocol</b>
-<dd>Comma-separated list of protocols being asked for from
-the server, or just one.  The server will pick the one it
-likes best.
-<dt><b>ietf_version_or_minus_one</b>
-<dd>-1 to ask to connect using the default, latest
-protocol supported, or the specific protocol ordinal
+<dt><b>wsi</b>
+<dd>the connection we are inquiring about
 </dl>
 <h3>Description</h3>
 <blockquote>
-This function creates a connection to a remote server
+This is intended to be called from the LWS_CALLBACK_RECEIVE callback if
+it's interested to see if the frame it's dealing with was sent in binary
+mode.
 </blockquote>
 <hr>
-<h2>libwebsocket_client_connect_extended - Connect to another websocket server</h2>
-<i>struct libwebsocket *</i>
-<b>libwebsocket_client_connect_extended</b>
-(<i>struct libwebsocket_context *</i> <b>context</b>,
-<i>const char *</i> <b>address</b>,
-<i>int</i> <b>port</b>,
-<i>int</i> <b>ssl_connection</b>,
-<i>const char *</i> <b>path</b>,
-<i>const char *</i> <b>host</b>,
-<i>const char *</i> <b>origin</b>,
-<i>const char *</i> <b>protocol</b>,
-<i>int</i> <b>ietf_version_or_minus_one</b>,
-<i>void *</i> <b>userdata</b>)
+<h2>libwebsockets_remaining_packet_payload - Bytes to come before "overall" rx packet is complete</h2>
+<i>size_t</i>
+<b>libwebsockets_remaining_packet_payload</b>
+(<i>struct libwebsocket *</i> <b>wsi</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>context</b>
-<dd>Websocket context
-<dt><b>address</b>
-<dd>Remote server address, eg, "myserver.com"
-<dt><b>port</b>
-<dd>Port to connect to on the remote server, eg, 80
-<dt><b>ssl_connection</b>
-<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
-signed certs
-<dt><b>path</b>
-<dd>Websocket path on server
-<dt><b>host</b>
-<dd>Hostname on server
-<dt><b>origin</b>
-<dd>Socket origin name
-<dt><b>protocol</b>
-<dd>Comma-separated list of protocols being asked for from
-the server, or just one.  The server will pick the one it
-likes best.
-<dt><b>ietf_version_or_minus_one</b>
-<dd>-1 to ask to connect using the default, latest
-protocol supported, or the specific protocol ordinal
-<dt><b>userdata</b>
-<dd>Pre-allocated user data
+<dt><b>wsi</b>
+<dd>Websocket instance (available from user callback)
 </dl>
 <h3>Description</h3>
 <blockquote>
-This function creates a connection to a remote server
+This function is intended to be called from the callback if the
+user code is interested in "complete packets" from the client.
+libwebsockets just passes through payload as it comes and issues a buffer
+additionally when it hits a built-in limit.  The LWS_CALLBACK_RECEIVE
+callback handler can use this API to find out if the buffer it has just
+been given is the last piece of a "complete packet" from the client --
+when that is the case <b>libwebsockets_remaining_packet_payload</b> will return
+0.
+<p>
+Many protocols won't care becuse their packets are always small.
 </blockquote>
 <hr>
 <h2>lws_get_library_version - </h2>
@@ -158,6 +110,15 @@ struct libwebsocket.
 <p>
 The one call deals with all "service" that might happen on a socket
 including listen accepts, http files as well as websocket protocol.
+<p>
+If a pollfd says it has something, you can just pass it to
+<b>libwebsocket_serice_fd</b> whether it is a socket handled by lws or not.
+If it sees it is a lws socket, the traffic will be handled and
+pollfd-&gt;revents will be zeroed now.
+<p>
+If the socket is foreign to lws, it leaves revents alone.  So you can
+see if you should service yourself by checking the pollfd revents
+after letting lws try to service it.
 </blockquote>
 <hr>
 <h2>libwebsocket_context_destroy - Destroy the websocket context</h2>
@@ -475,43 +436,91 @@ Returning &lt;0 indicates error and the wsi should be closed.  Returning
 the wsi should be left alone.
 </blockquote>
 <hr>
-<h2>lws_frame_is_binary - </h2>
-<i>int</i>
-<b>lws_frame_is_binary</b>
-(<i>struct libwebsocket *</i> <b>wsi</b>)
+<h2>libwebsocket_client_connect - Connect to another websocket server</h2>
+<i>struct libwebsocket *</i>
+<b>libwebsocket_client_connect</b>
+(<i>struct libwebsocket_context *</i> <b>context</b>,
+<i>const char *</i> <b>address</b>,
+<i>int</i> <b>port</b>,
+<i>int</i> <b>ssl_connection</b>,
+<i>const char *</i> <b>path</b>,
+<i>const char *</i> <b>host</b>,
+<i>const char *</i> <b>origin</b>,
+<i>const char *</i> <b>protocol</b>,
+<i>int</i> <b>ietf_version_or_minus_one</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>wsi</b>
-<dd>the connection we are inquiring about
+<dt><b>context</b>
+<dd>Websocket context
+<dt><b>address</b>
+<dd>Remote server address, eg, "myserver.com"
+<dt><b>port</b>
+<dd>Port to connect to on the remote server, eg, 80
+<dt><b>ssl_connection</b>
+<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
+signed certs
+<dt><b>path</b>
+<dd>Websocket path on server
+<dt><b>host</b>
+<dd>Hostname on server
+<dt><b>origin</b>
+<dd>Socket origin name
+<dt><b>protocol</b>
+<dd>Comma-separated list of protocols being asked for from
+the server, or just one.  The server will pick the one it
+likes best.
+<dt><b>ietf_version_or_minus_one</b>
+<dd>-1 to ask to connect using the default, latest
+protocol supported, or the specific protocol ordinal
 </dl>
 <h3>Description</h3>
 <blockquote>
-This is intended to be called from the LWS_CALLBACK_RECEIVE callback if
-it's interested to see if the frame it's dealing with was sent in binary
-mode.
+This function creates a connection to a remote server
 </blockquote>
 <hr>
-<h2>libwebsockets_remaining_packet_payload - Bytes to come before "overall" rx packet is complete</h2>
-<i>size_t</i>
-<b>libwebsockets_remaining_packet_payload</b>
-(<i>struct libwebsocket *</i> <b>wsi</b>)
+<h2>libwebsocket_client_connect_extended - Connect to another websocket server</h2>
+<i>struct libwebsocket *</i>
+<b>libwebsocket_client_connect_extended</b>
+(<i>struct libwebsocket_context *</i> <b>context</b>,
+<i>const char *</i> <b>address</b>,
+<i>int</i> <b>port</b>,
+<i>int</i> <b>ssl_connection</b>,
+<i>const char *</i> <b>path</b>,
+<i>const char *</i> <b>host</b>,
+<i>const char *</i> <b>origin</b>,
+<i>const char *</i> <b>protocol</b>,
+<i>int</i> <b>ietf_version_or_minus_one</b>,
+<i>void *</i> <b>userdata</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>wsi</b>
-<dd>Websocket instance (available from user callback)
+<dt><b>context</b>
+<dd>Websocket context
+<dt><b>address</b>
+<dd>Remote server address, eg, "myserver.com"
+<dt><b>port</b>
+<dd>Port to connect to on the remote server, eg, 80
+<dt><b>ssl_connection</b>
+<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
+signed certs
+<dt><b>path</b>
+<dd>Websocket path on server
+<dt><b>host</b>
+<dd>Hostname on server
+<dt><b>origin</b>
+<dd>Socket origin name
+<dt><b>protocol</b>
+<dd>Comma-separated list of protocols being asked for from
+the server, or just one.  The server will pick the one it
+likes best.
+<dt><b>ietf_version_or_minus_one</b>
+<dd>-1 to ask to connect using the default, latest
+protocol supported, or the specific protocol ordinal
+<dt><b>userdata</b>
+<dd>Pre-allocated user data
 </dl>
 <h3>Description</h3>
 <blockquote>
-This function is intended to be called from the callback if the
-user code is interested in "complete packets" from the client.
-libwebsockets just passes through payload as it comes and issues a buffer
-additionally when it hits a built-in limit.  The LWS_CALLBACK_RECEIVE
-callback handler can use this API to find out if the buffer it has just
-been given is the last piece of a "complete packet" from the client --
-when that is the case <b>libwebsockets_remaining_packet_payload</b> will return
-0.
-<p>
-Many protocols won't care becuse their packets are always small.
+This function creates a connection to a remote server
 </blockquote>
 <hr>
 <h2>callback - User server actions</h2>
