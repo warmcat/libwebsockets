@@ -142,7 +142,12 @@ static int callback_http(struct libwebsocket_context *context,
 
 			p = buffer;
 
+#ifdef WIN32
+			pss->fd = open(LOCAL_RESOURCE_PATH"/leaf.jpg", O_RDONLY | _O_BINARY);
+#else
 			pss->fd = open(LOCAL_RESOURCE_PATH"/leaf.jpg", O_RDONLY);
+#endif
+
 			if (pss->fd < 0)
 				return -1;
 
