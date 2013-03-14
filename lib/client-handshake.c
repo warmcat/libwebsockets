@@ -75,7 +75,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 
 	if (lws_set_socket_options(context, wsi->sock)) {
 		lwsl_err("Failed to set wsi socket options\n");
-		close(wsi->sock);
+		compatible_close(wsi->sock);
 		goto oom4;
 	}
 
