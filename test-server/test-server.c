@@ -431,7 +431,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 
 /* lws-mirror_protocol */
 
-#define MAX_MESSAGE_QUEUE 128
+#define MAX_MESSAGE_QUEUE 32
 
 struct per_session_data__lws_mirror {
 	struct libwebsocket *wsi;
@@ -461,8 +461,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
-		lwsl_info("callback_lws_mirror: "
-						 "LWS_CALLBACK_ESTABLISHED\n");
+		lwsl_info("callback_lws_mirror: LWS_CALLBACK_ESTABLISHED\n");
 		pss->ringbuffer_tail = ringbuffer_head;
 		pss->wsi = wsi;
 		break;
@@ -488,9 +487,9 @@ callback_lws_mirror(struct libwebsocket_context *context,
 				lwsl_err("ERROR %d writing to mirror socket\n", n);
 				return -1;
 			}
-			if (n < ringbuffer[pss->ringbuffer_tail].len) {
-				lwsl_err("mirror partial write %d vs %d\n", n, ringbuffer[pss->ringbuffer_tail].len);
-			}
+			if (n < ringbuffer[pss->ringbuffer_tail].len)
+				lwsl_err("mirror partial write %d vs %d\n",
+				       n, ringbuffer[pss->ringbuffer_tail].len);
 
 			if (pss->ringbuffer_tail == (MAX_MESSAGE_QUEUE - 1))
 				pss->ringbuffer_tail = 0;
@@ -507,8 +506,13 @@ callback_lws_mirror(struct libwebsocket_context *context,
 
 			if (lws_send_pipe_choked(wsi)) {
 				libwebsocket_callback_on_writable(context, wsi);
-				return 0;
+				break;
 			}
+			/*
+			 * for tests with chrome on same machine as client and
+			 * server, this is needed to stop chrome choking
+			 */
+			usleep(1);
 		}
 		break;
 
@@ -540,6 +544,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 
 choke:
 		if (num_wsi_choked < sizeof wsi_choked / sizeof wsi_choked[0]) {
+			lwsl_debug("LWS_CALLBACK_RECEIVE: throttling %p\n", wsi);
 			libwebsocket_rx_flow_control(wsi, 0);
 			wsi_choked[num_wsi_choked++] = wsi;
 		}

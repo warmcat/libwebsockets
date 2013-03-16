@@ -122,7 +122,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 	switch (reason) {
 
 	case LWS_CALLBACK_CLOSED:
-		fprintf(stderr, "mirror: LWS_CALLBACK_CLOSED\n");
+		fprintf(stderr, "mirror: LWS_CALLBACK_CLOSED mirror_lifetime=%d\n", mirror_lifetime);
 		wsi_mirror = NULL;
 		break;
 

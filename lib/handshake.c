@@ -239,6 +239,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 		/* union transition */
 		memset(&wsi->u, 0, sizeof(wsi->u));
+		wsi->u.ws.rxflow_change_to = LWS_RXFLOW_ALLOW;
 
 		/*
 		 * create the frame buffer for this connection according to the

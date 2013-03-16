@@ -626,6 +626,8 @@ check_accept:
 
 	memset(&wsi->u, 0, sizeof(wsi->u));
 
+	wsi->u.ws.rxflow_change_to = LWS_RXFLOW_ALLOW;
+
 	/*
 	 * create the frame buffer for this connection according to the
 	 * size mentioned in the protocol definition.  If 0 there, then

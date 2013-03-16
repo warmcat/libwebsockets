@@ -227,6 +227,11 @@ enum connection_mode {
 	LWS_CONNMODE_SERVER_LISTENER,
 };
 
+enum {
+	LWS_RXFLOW_ALLOW = (1 << 0),
+	LWS_RXFLOW_PENDING_CHANGE = (1 << 1),
+};
+
 struct libwebsocket_protocols;
 struct libwebsocket;
 

@@ -1047,36 +1047,22 @@ illegal_ctl_length:
 int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 						 unsigned char *buf, size_t len)
 {
-	size_t n;
+	size_t n = 0;
 	int m;
-	int clear_rxflow = !!wsi->u.ws.rxflow_buffer;
-	struct libwebsocket_context *context = wsi->protocol->owning_server;
 
 #if 0
 	lwsl_parser("received %d byte packet\n", (int)len);
 	lwsl_hexdump(buf, len);
 #endif
 
-	if (buf && wsi->u.ws.rxflow_buffer)
-		lwsl_err("!!!! pending rxflow data loss\n");
-
 	/* let the rx protocol state machine have as much as it needs */
 
-	n = 0;
-	if (!buf) {
-		lwsl_info("dumping stored rxflow buffer len %d pos=%d\n",
-				    wsi->u.ws.rxflow_len, wsi->u.ws.rxflow_pos);
-		buf = wsi->u.ws.rxflow_buffer;
-		n = wsi->u.ws.rxflow_pos;
-		len = wsi->u.ws.rxflow_len;
-		/* let's pretend he's already allowing input */
-		context->fds[wsi->position_in_fds_table].events |= POLLIN;
-	}
-
 	while (n < len) {
-		if (!(context->fds[wsi->position_in_fds_table].events &
-								      POLLIN)) {
-			/* his RX is flowcontrolled */
+		/*
+		 * we were accepting input but now we stopped doing so
+		 */
+		if (!(wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW)) {
+			/* his RX is flowcontrolled, don't send remaining now */
 			if (!wsi->u.ws.rxflow_buffer) {
 				/* a new rxflow, buffer it and warn caller */
 				lwsl_info("new rxflow input buffer len %d\n",
@@ -1087,24 +1073,21 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 				wsi->u.ws.rxflow_pos = 0;
 				memcpy(wsi->u.ws.rxflow_buffer,
 							buf + n, len - n);
-			} else {
-				lwsl_info("re-using rxflow input buffer\n");
+			} else
 				/* rxflow while we were spilling prev rxflow */
-				wsi->u.ws.rxflow_pos = n;
-			}
+				lwsl_info("stalling in existing rxflow buffer");
+
 			return 1;
 		}
-		m = libwebsocket_rx_sm(wsi, buf[n]);
+
+		/* account for what we're using in rxflow buffer */
+		if (wsi->u.ws.rxflow_buffer)
+			wsi->u.ws.rxflow_pos++;
+
+		/* process the byte */
+		m = libwebsocket_rx_sm(wsi, buf[n++]);
 		if (m < 0)
 			return -1;
-		n++;
-	}
-
-	if (clear_rxflow) {
-		lwsl_info("flow: clearing it\n");
-		free(wsi->u.ws.rxflow_buffer);
-		wsi->u.ws.rxflow_buffer = NULL;
-		context->fds[wsi->position_in_fds_table].events &= ~POLLIN;
 	}
 
 	return 0;
