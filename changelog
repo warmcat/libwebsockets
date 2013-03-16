@@ -20,6 +20,15 @@ User api additions
 	after the service call... if it's still nonzero, the descriptor
 	belongs to you and you need to take care of it.
 
+ - libwebsocket_rx_flow_allow_all_protocol(protocol) will unthrottle all
+ 	connections with the established protocol.  It's designed to be
+	called from user server code when it sees it can accept more input
+	and may have throttled connections using the server rx flow apis
+	while it was unable to accept any other input  The user server code
+	then does not have to try to track while connections it choked, this
+	will free up all of them in one call.
+
+
 User api changes
 ----------------
 

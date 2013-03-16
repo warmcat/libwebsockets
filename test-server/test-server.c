@@ -446,9 +446,6 @@ struct a_message {
 static struct a_message ringbuffer[MAX_MESSAGE_QUEUE];
 static int ringbuffer_head;
 
-static struct libwebsocket *wsi_choked[20];
-static int num_wsi_choked;
-
 static int
 callback_lws_mirror(struct libwebsocket_context *context,
 			struct libwebsocket *wsi,
@@ -497,11 +494,10 @@ callback_lws_mirror(struct libwebsocket_context *context,
 				pss->ringbuffer_tail++;
 
 			if (((ringbuffer_head - pss->ringbuffer_tail) &
-				  (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 15)) {
-				for (n = 0; n < num_wsi_choked; n++)
-					libwebsocket_rx_flow_control(wsi_choked[n], 1);
-				num_wsi_choked = 0;
-			}
+				  (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 15))
+				libwebsocket_rx_flow_allow_all_protocol(
+					       libwebsockets_get_protocol(wsi));
+
 			// lwsl_debug("tx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
 
 			if (lws_send_pipe_choked(wsi)) {
@@ -543,11 +539,8 @@ callback_lws_mirror(struct libwebsocket_context *context,
 			goto done;
 
 choke:
-		if (num_wsi_choked < sizeof wsi_choked / sizeof wsi_choked[0]) {
-			lwsl_debug("LWS_CALLBACK_RECEIVE: throttling %p\n", wsi);
-			libwebsocket_rx_flow_control(wsi, 0);
-			wsi_choked[num_wsi_choked++] = wsi;
-		}
+		lwsl_debug("LWS_CALLBACK_RECEIVE: throttling %p\n", wsi);
+		libwebsocket_rx_flow_control(wsi, 0);
 
 //		lwsl_debug("rx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
 done:

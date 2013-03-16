@@ -273,6 +273,23 @@ If the output side of a server process becomes choked, this allows flow
 control for the input side.
 </blockquote>
 <hr>
+<h2>libwebsocket_rx_flow_allow_all_protocol - Allow all connections with this protocol to receive</h2>
+<i>void</i>
+<b>libwebsocket_rx_flow_allow_all_protocol</b>
+(<i>const struct libwebsocket_protocols *</i> <b>protocol</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>protocol</b>
+<dd>all connections using this protocol will be allowed to receive
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+When the user server code realizes it can accept more input, it can
+call this to have the RX flow restriction removed from all connections using
+the given protocol.
+</blockquote>
+<hr>
 <h2>libwebsocket_canonical_hostname - returns this host's hostname</h2>
 <i>const char *</i>
 <b>libwebsocket_canonical_hostname</b>

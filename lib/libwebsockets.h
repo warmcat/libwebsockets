@@ -888,6 +888,10 @@ libwebsocket_get_reserved_bits(struct libwebsocket *wsi);
 LWS_EXTERN int
 libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable);
 
+LWS_EXTERN void
+libwebsocket_rx_flow_allow_all_protocol(
+				const struct libwebsocket_protocols *protocol);
+
 LWS_EXTERN size_t
 libwebsockets_remaining_packet_payload(struct libwebsocket *wsi);
 

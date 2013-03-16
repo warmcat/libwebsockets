@@ -1579,6 +1579,33 @@ libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable)
 	return 0;
 }
 
+/**
+ * libwebsocket_rx_flow_allow_all_protocol() - Allow all connections with this protocol to receive
+ *
+ * When the user server code realizes it can accept more input, it can
+ * call this to have the RX flow restriction removed from all connections using
+ * the given protocol.
+ *
+ * @protocol:	all connections using this protocol will be allowed to receive
+ */
+
+void
+libwebsocket_rx_flow_allow_all_protocol(
+				const struct libwebsocket_protocols *protocol)
+{
+	struct libwebsocket_context *context = protocol->owning_server;
+	int n;
+	struct libwebsocket *wsi;
+
+	for (n = 0; n < context->fds_count; n++) {
+		wsi = context->lws_lookup[context->fds[n].fd];
+		if (!wsi)
+			continue;
+		if (wsi->protocol == protocol)
+			libwebsocket_rx_flow_control(wsi, LWS_RXFLOW_ALLOW);
+	}
+}
+
 
 /**
  * libwebsocket_canonical_hostname() - returns this host's hostname
