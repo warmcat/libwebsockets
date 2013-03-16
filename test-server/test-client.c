@@ -90,6 +90,10 @@ callback_dumb_increment(struct libwebsocket_context *this,
 			fprintf(stderr, "denied deflate-stream extension\n");
 			return 1;
 		}
+		if ((strcmp(in, "deflate-frame") == 0) && deny_deflate) {
+			fprintf(stderr, "denied deflate-frame extension\n");
+			return 1;
+		}
 		if ((strcmp(in, "x-google-mux") == 0) && deny_mux) {
 			fprintf(stderr, "denied x-google-mux extension\n");
 			return 1;
