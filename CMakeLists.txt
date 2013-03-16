@@ -301,6 +301,11 @@ if (UNIX)
 	endif()
 endif(UNIX)
 
+
+if (UNIX)
+	set( CMAKE_C_FLAGS "-Wall -Werror -O4 " )
+endif (UNIX)
+
 source_group("Headers Private"  FILES ${HDR_PRIVATE})
 source_group("Headers Public"   FILES ${HDR_PUBLIC})
 source_group("Sources"          FILES ${SOURCES})
