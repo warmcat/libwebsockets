@@ -88,6 +88,7 @@ enum demo_protocols {
 
 
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
+char *resource_path = LOCAL_RESOURCE_PATH;
 
 /*
  * We take a strict whitelist approach to stop ../ attacks
@@ -137,15 +138,17 @@ static int callback_http(struct libwebsocket_context *context,
 		/* check for the "send a big file by hand" example case */
 
 		if (!strcmp((const char *)in, "/leaf.jpg")) {
+			char leaf_path[1024];
+			snprintf(leaf_path, sizeof(leaf_path), "%s/leaf.jpg", resource_path);
 
 			/* well, let's demonstrate how to send the hard way */
 
 			p = buffer;
 
 #ifdef WIN32
-			pss->fd = open(LOCAL_RESOURCE_PATH"/leaf.jpg", O_RDONLY | _O_BINARY);
+			pss->fd = open(leaf_path, O_RDONLY | _O_BINARY);
 #else
-			pss->fd = open(LOCAL_RESOURCE_PATH"/leaf.jpg", O_RDONLY);
+			pss->fd = open(leaf_path, O_RDONLY);
 #endif
 
 			if (pss->fd < 0)
@@ -193,7 +196,7 @@ static int callback_http(struct libwebsocket_context *context,
 			if (in && strcmp((const char *)in, whitelist[n].urlpath) == 0)
 				break;
 
-		sprintf(buf, LOCAL_RESOURCE_PATH"%s", whitelist[n].urlpath);
+		sprintf(buf, "%s%s", resource_path, whitelist[n].urlpath);
 
 		if (libwebsockets_serve_http_file(context, wsi, buf, whitelist[n].mimetype))
 			return -1; /* through completion or error, close the socket */
@@ -608,11 +611,14 @@ static struct option options[] = {
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize", 	no_argument,		NULL, 'D' },
 #endif
+	{ "resource_path", required_argument,		NULL, 'r' },
 	{ NULL, 0, 0, 0 }
 };
 
 int main(int argc, char **argv)
 {
+	char cert_path[1024];
+	char key_path[1024];
 	int n = 0;
 	int use_ssl = 0;
 	struct libwebsocket_context *context;
@@ -634,7 +640,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "ci:hsp:d:D", options, NULL);
+		n = getopt_long(argc, argv, "ci:hsp:d:Dr:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -666,10 +672,15 @@ int main(int argc, char **argv)
 					   "client after 50 dumb increments"
 					   "and suppresses lws_mirror spam\n");
 			break;
+		case 'r':
+			resource_path = optarg;
+			printf("Setting resource path to \"%s\"\n", resource_path);
+			break;
 		case 'h':
 			fprintf(stderr, "Usage: test-server "
 					"[--port=<p>] [--ssl] "
-					"[-d <log bitfield>]\n");
+					"[-d <log bitfield>] "
+					"[--resource_path <path>]\n");
 			exit(1);
 		}
 	}
@@ -719,8 +730,11 @@ int main(int argc, char **argv)
 		info.ssl_cert_filepath = NULL;
 		info.ssl_private_key_filepath = NULL;
 	} else {
-		info.ssl_cert_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
-		info.ssl_private_key_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
+		snprintf(cert_path, sizeof(cert_path), "%s/libwebsockets-test-server.pem", resource_path);
+		snprintf(key_path, sizeof(cert_path), "%s/libwebsockets-test-server.key.pem", resource_path);
+
+		info.ssl_cert_filepath = cert_path;
+		info.ssl_private_key_filepath = key_path;
 	}
 	info.gid = -1;
 	info.uid = -1;
