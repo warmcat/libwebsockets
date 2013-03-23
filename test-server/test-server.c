@@ -378,7 +378,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
-	int n;
+	int n, m;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	unsigned char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
@@ -394,9 +394,8 @@ callback_dumb_increment(struct libwebsocket_context *context,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		n = sprintf((char *)p, "%d", pss->number++);
-		/* too small for partial */
-		n = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
-		if (n < 0) {
+		m = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
+		if (m < n) {
 			lwsl_err("ERROR %d writing to di socket\n", n);
 			return -1;
 		}
@@ -483,7 +482,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 				   LWS_SEND_BUFFER_PRE_PADDING,
 				   ringbuffer[pss->ringbuffer_tail].len,
 								LWS_WRITE_TEXT);
-			if (n < 0) {
+			if (n < ringbuffer[pss->ringbuffer_tail].len) {
 				lwsl_err("ERROR %d writing to mirror socket\n", n);
 				return -1;
 			}
