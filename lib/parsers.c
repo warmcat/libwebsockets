@@ -1075,7 +1075,7 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 							buf + n, len - n);
 			} else
 				/* rxflow while we were spilling prev rxflow */
-				lwsl_info("stalling in existing rxflow buffer");
+				lwsl_info("stalling in existing rxflow buf\n");
 
 			return 1;
 		}

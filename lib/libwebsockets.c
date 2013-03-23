@@ -1028,15 +1028,15 @@ read_pending:
 					    sizeof(context->service_buffer), 0);
 
 		if (eff_buf.token_len < 0) {
-			lwsl_debug("Socket read returned %d\n",
-							    eff_buf.token_len);
+			lwsl_debug("service_fd read ret = %d, errno = %d\n",
+						      eff_buf.token_len, errno);
 			if (errno != EINTR && errno != EAGAIN)
 				goto close_and_handled;
 			n = 0;
 			goto handled;
 		}
 		if (!eff_buf.token_len) {
-			lwsl_info("closing connection due to 0 length read\n");
+			lwsl_info("service_fd: closing due to 0 length read\n");
 			goto close_and_handled;
 		}
 
