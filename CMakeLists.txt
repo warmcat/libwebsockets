@@ -430,7 +430,7 @@ if (WITH_SSL)
 			include_directories(${inc} ${inc}/cyassl)
 		endforeach()
 
-		list(APPEND ${LIB_LIST} ${CYASSL_LIB})
+		list(APPEND LIB_LIST ${CYASSL_LIB})
 	else()
 		# TODO: Add support for STATIC also.
 		find_package(OpenSSL REQUIRED)
