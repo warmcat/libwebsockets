@@ -302,9 +302,9 @@ if (UNIX)
 endif(UNIX)
 
 
-if (UNIX)
+if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
 	set( CMAKE_C_FLAGS "-Wall -Werror -O4 " )
-endif (UNIX)
+endif ()
 
 source_group("Headers Private"  FILES ${HDR_PRIVATE})
 source_group("Headers Public"   FILES ${HDR_PUBLIC})
