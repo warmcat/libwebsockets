@@ -379,6 +379,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	const char *c;
 #endif
 	int n;
+	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
 
 	/*
 	 * well, what the server sent looked reasonable for syntax.
@@ -641,9 +642,14 @@ check_accept:
 	wsi->u.ws.rx_user_buffer = malloc(n);
 	if (!wsi->u.ws.rx_user_buffer) {
 		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
-		goto bail3;
+		goto bail2;
 	}
 	lwsl_info("Allocating client RX buffer %d\n", n);
+
+	if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF,  &n, sizeof n)) {
+		lwsl_warn("Failed to set SNDBUF to %d", n);
+		goto bail3;
+	}
 
 	lwsl_debug("handshake OK for protocol %s\n", wsi->protocol->name);
 
@@ -675,6 +681,9 @@ check_accept:
 	return 0;
 
 bail3:
+	free(wsi->u.ws.rx_user_buffer);
+	wsi->u.ws.rx_user_buffer = NULL;
+	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
 bail2:
 	if (wsi->protocol)
@@ -689,8 +698,7 @@ bail2:
 	if (wsi->u.hdr.ah)
 		free(wsi->u.hdr.ah);
 
-	libwebsocket_close_and_free_session(context, wsi,
-						 LWS_CLOSE_STATUS_PROTOCOL_ERR);
+	libwebsocket_close_and_free_session(context, wsi, close_reason);
 
 	return 1;
 }
