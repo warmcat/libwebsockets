@@ -146,35 +146,20 @@ a "Toolchain file" that you supply to CMake when generating your build files.
 CMake will then use the cross compilers and build paths specified in this file
 to look for dependencies and such.
 
-Below is an example of how one of these files might look like:
+Libwebsockets includes an example toolchain file cross-arm-linux-gnueabihf.cmake
+you can use as a starting point.
 
-	#
-	# CMake Toolchain file for crosscompiling on ARM.
-	#
-	# This can be used when running cmake in the following way:
-	#  cd build/
-	#  cmake .. -DCMAKE_TOOLCHAIN_FILE=/path/to/this/file/TC_arm-linux-gcc.cmake
-	#
+The commandline to configure for cross with this would look like
 
-	set(CROSS_PATH /path/to/cross_environment/uClibc)
+cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr \
+	 -DCMAKE_TOOLCHAIN_FILE=../cross-arm-linux-gnueabihf.cmake \
+	 -DWITHOUT_EXTENSIONS=1 -DWITH_SSL=0
 
-	# Target operating system name.
-	set(CMAKE_SYSTEM_NAME Linux)
+The example shows how to build with no external cross lib dependencies, you
+need to proide the cross libraries otherwise.
 
-	# Name of C compiler.
-	set(CMAKE_C_COMPILER "${CROSS_PATH}/bin/arm-linux-uclibc-gcc")
-	set(CMAKE_CXX_COMPILER "${CROSS_PATH}/bin/arm-linux-uclibc-g++")
-
-	# Where to look for the target environment. (More paths can be added here)
-	set(CMAKE_FIND_ROOT_PATH "${CROSS_PATH}")
-
-	# Adjust the default behavior of the FIND_XXX() commands:
-	# search programs in the host environment only.
-	set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-
-	# Search headers and libraries in the target environment only.
-	set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-	set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+NOTE: start from an EMPTY build directory if you had a non-cross build in there
+	before the settings will be cached and your changes ignored.
 
 Additional information on cross compilation with CMake:
 	http://www.vtk.org/Wiki/CMake_Cross_Compiling
