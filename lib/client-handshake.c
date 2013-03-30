@@ -154,7 +154,7 @@ oom4:
  *	This function creates a connection to a remote server
  */
 
-struct libwebsocket *
+LWS_VISIBLE struct libwebsocket *
 libwebsocket_client_connect(struct libwebsocket_context *context,
 			      const char *address,
 			      int port,
@@ -304,7 +304,7 @@ bail:
  *	This function creates a connection to a remote server
  */
 
-struct libwebsocket *
+LWS_VISIBLE struct libwebsocket *
 libwebsocket_client_connect_extended(struct libwebsocket_context *context,
 			      const char *address,
 			      int port,

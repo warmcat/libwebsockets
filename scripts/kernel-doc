@@ -1722,6 +1722,7 @@ sub dump_function($$) {
     my $prototype = shift;
     my $file = shift;
 
+    $prototype =~ s/LWS_VISIBLE +//;
     $prototype =~ s/^static +//;
     $prototype =~ s/^extern +//;
     $prototype =~ s/^asmlinkage +//;

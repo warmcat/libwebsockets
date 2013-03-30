@@ -48,7 +48,7 @@ static const char encode[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 static const char decode[] = "|$$$}rstuvwxyz{$$$$$$$>?@ABCDEFGHIJKLMNOPQRSTUVW"
 			     "$$$$$$XYZ[\\]^_`abcdefghijklmnopq";
 
-int
+LWS_VISIBLE int
 lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
 {
 	unsigned char triple[3];
@@ -97,7 +97,7 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
  * according to out_size
  */
 
-int
+LWS_VISIBLE int
 lws_b64_decode_string(const char *in, char *out, int out_size)
 {
 	int len;

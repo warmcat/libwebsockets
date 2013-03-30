@@ -321,7 +321,7 @@ int lws_allocate_header_table(struct libwebsocket *wsi)
 	return 0;
 }
 
-int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h)
+LWS_VISIBLE int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h)
 {
 	int n;
 	int len = 0;
@@ -338,7 +338,7 @@ int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h)
 	return len;
 }
 
-int lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
+LWS_VISIBLE int lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
 						enum lws_token_indexes h)
 {
 	int toklen = lws_hdr_total_length(wsi, h);
@@ -610,7 +610,7 @@ set_parsing_complete:
  * mode.
  */
 
-int lws_frame_is_binary(struct libwebsocket *wsi)
+LWS_VISIBLE int lws_frame_is_binary(struct libwebsocket *wsi)
 {
 	return wsi->u.ws.frame_is_binary;
 }
@@ -1111,7 +1111,7 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
  *  Many protocols won't care becuse their packets are always small.
  */
 
-size_t
+LWS_VISIBLE size_t
 libwebsockets_remaining_packet_payload(struct libwebsocket *wsi)
 {
 	return wsi->u.ws.rx_packet_length;

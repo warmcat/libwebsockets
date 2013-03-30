@@ -21,6 +21,8 @@
 #include <unistd.h>
 #include <errno.h>
 
+#include "private-libwebsockets.h"
+
 int pid_daemon;
 static char *lock_path;
 
@@ -89,7 +91,7 @@ static void lws_daemon_closing(int sigact)
  * The process context you called from has been terminated then.
  */
 
-int
+LWS_VISIBLE int
 lws_daemonize(const char *_lock_path)
 {
 	pid_t sid, parent;

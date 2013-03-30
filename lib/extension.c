@@ -27,7 +27,7 @@ struct libwebsocket_extension libwebsocket_internal_extensions[] = {
 	}
 };
 
-struct libwebsocket_extension *libwebsocket_get_internal_extensions()
+LWS_VISIBLE struct libwebsocket_extension *libwebsocket_get_internal_extensions()
 {
 	return libwebsocket_internal_extensions;
 }

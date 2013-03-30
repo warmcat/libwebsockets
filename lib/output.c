@@ -48,7 +48,7 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 
 #ifdef _DEBUG
 
-void lwsl_hexdump(void *vbuf, size_t len)
+LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 {
 	int n;
 	int m;
@@ -296,7 +296,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
  *	pressure at any given time.
  */
 
-int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
+LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 			  size_t len, enum libwebsocket_write_protocol protocol)
 {
 	int n;
@@ -501,7 +501,7 @@ send_raw:
 	return orig_len - ((len - pre + post) -n );
 }
 
-int libwebsockets_serve_http_file_fragment(
+LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		struct libwebsocket_context *context, struct libwebsocket *wsi)
 {
 	int ret = 0;
@@ -561,7 +561,7 @@ int libwebsockets_serve_http_file_fragment(
  *	the wsi should be left alone.
  */
 
-int libwebsockets_serve_http_file(struct libwebsocket_context *context,
+LWS_VISIBLE int libwebsockets_serve_http_file(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, const char *file,
 						       const char *content_type)
 {

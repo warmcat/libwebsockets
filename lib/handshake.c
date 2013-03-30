@@ -53,7 +53,7 @@
  * machine that is completely independent of packet size.
  */
 
-int
+LWS_VISIBLE int
 libwebsocket_read(struct libwebsocket_context *context,
 		     struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {

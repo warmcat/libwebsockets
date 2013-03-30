@@ -303,7 +303,7 @@ endif(UNIX)
 
 
 if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
-	set( CMAKE_C_FLAGS "-Wall -Werror -O4 " )
+	set( CMAKE_C_FLAGS "-Wall -Werror -O4 -fvisibility=hidden " )
 endif ()
 
 source_group("Headers Private"  FILES ${HDR_PRIVATE})
