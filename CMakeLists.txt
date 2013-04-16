@@ -145,6 +145,10 @@ SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 SET(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
 SET(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
 
+# Put absolute path of dynamic libraries into the object code. Some
+# architectures, notably Mac OS X, need this.
+SET(CMAKE_INSTALL_NAME_DIR ${CMAKE_INSTALL_PREFIX}/lib${LIB_SUFFIX})
+
 # So we can include the CMake generated config file only when
 # building with CMAKE.
 add_definitions(-DCMAKE_BUILD)
