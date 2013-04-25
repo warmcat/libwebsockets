@@ -358,7 +358,7 @@ static void
 strtolower(char *s)
 {
 	while (*s) {
-		*s = tolower(*s);
+		*s = tolower((int)*s);
 		s++;
 	}
 }

@@ -452,7 +452,7 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 	struct libwebsocket *wsi, int fd, char *name, int name_len,
 					char *rip, int rip_len)
 {
-	unsigned int len;
+	socklen_t len;
 	struct sockaddr_in sin;
 	struct hostent *host;
 	struct hostent *host1;
@@ -554,7 +554,7 @@ int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 					     (const void *)&optval, optlen) < 0)
 			return 1;
 
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__CYGWIN__)
 
 		/*
 		 * didn't find a way to set these per-socket, need to
