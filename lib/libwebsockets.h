@@ -44,14 +44,16 @@ extern "C" {
 
 typedef int ssize_t;
 
+#define LWS_VISIBLE
+
 #ifdef LWS_DLL
 #ifdef LWS_INTERNAL
-#define LWS_VISIBLE
 #define LWS_EXTERN extern __declspec(dllexport)
 #else
-#define LWS_VISIBLE
 #define LWS_EXTERN extern __declspec(dllimport)
 #endif
+#else
+#define LWS_EXTERN
 #endif
 
 #else // NOT WIN32
