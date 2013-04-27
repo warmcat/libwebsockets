@@ -57,6 +57,9 @@
 
 #ifdef WIN32
 #define LWS_NO_DAEMONIZE
+#ifndef EWOULDBLOCK
+#define EWOULDBLOCK EAGAIN
+#endif
 
 #define compatible_close(fd) closesocket(fd);
 #ifdef __MINGW64__
