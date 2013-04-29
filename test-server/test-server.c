@@ -123,11 +123,13 @@ static int callback_http(struct libwebsocket_context *context,
 	char client_ip[128];
 #endif
 	char buf[256];
+	char leaf_path[1024];
 	int n, m;
 	unsigned char *p;
 	static unsigned char buffer[4096];
 	struct stat stat_buf;
-	struct per_session_data__http *pss = (struct per_session_data__http *)user;
+	struct per_session_data__http *pss =
+			(struct per_session_data__http *)user;
 #ifdef EXTERNAL_POLL
 	int fd = (int)(long)in;
 #endif
@@ -138,8 +140,9 @@ static int callback_http(struct libwebsocket_context *context,
 		/* check for the "send a big file by hand" example case */
 
 		if (!strcmp((const char *)in, "/leaf.jpg")) {
-			char leaf_path[1024];
-			snprintf(leaf_path, sizeof(leaf_path), "%s/leaf.jpg", resource_path);
+			if (strlen(resource_path) > sizeof(leaf_path) - 10)
+				return -1;
+			sprintf(leaf_path, "%s/leaf.jpg", resource_path);
 
 			/* well, let's demonstrate how to send the hard way */
 
