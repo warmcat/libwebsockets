@@ -29,7 +29,10 @@
 #include <string.h>
 #include <sys/time.h>
 #include <assert.h>
+#ifdef WIN32
+#else
 #include <syslog.h>
+#endif
 #include <signal.h>
 
 #ifdef CMAKE_BUILD
@@ -255,13 +258,15 @@ int main(int argc, char **argv)
 	}
 #endif
 
+#ifdef WIN32
+#else
 	/* we will only try to log things according to our debug_level */
 	setlogmask(LOG_UPTO (LOG_DEBUG));
 	openlog("lwsts", syslog_options, LOG_DAEMON);
 
 	/* tell the library what debug level to emit and to send it to syslog */
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
-
+#endif
 	lwsl_notice("libwebsockets echo test - "
 			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> - "
 						    "licensed under LGPL2.1\n");
@@ -340,8 +345,10 @@ bail:
 	libwebsocket_context_destroy(context);
 
 	lwsl_notice("libwebsockets-test-echo exited cleanly\n");
-
+#ifdef WIN32
+#else
 	closelog();
+#endif
 
 	return 0;
 }
