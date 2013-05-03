@@ -576,6 +576,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(struct libwebsocket_context *conte
 	);
 
 	if (wsi->u.http.fd < 1) {
+		lwsl_err("Unable to open '%s'\n", file);
 		p += sprintf((char *)p,
 		 "HTTP/1.0 400 Bad\x0d\x0aServer: libwebsockets\x0d\x0a\x0d\x0a"
 		);
