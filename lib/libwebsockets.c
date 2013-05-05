@@ -973,7 +973,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		/* handle session socket closed */
 
-		if ((!pollfd->revents & POLLIN) &&
+		if ((!(pollfd->revents & POLLIN)) &&
 				(pollfd->revents & (POLLERR | POLLHUP))) {
 
 			lwsl_debug("Session Socket %p (fd=%d) dead\n",
