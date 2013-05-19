@@ -211,6 +211,7 @@ enum lws_rx_parse_state {
 
 enum connection_mode {
 	LWS_CONNMODE_HTTP_SERVING,
+	LWS_CONNMODE_HTTP_SERVING_ACCEPTED, /* actual HTTP service going on */
 	LWS_CONNMODE_PRE_WS_SERVING_ACCEPT,
 
 	LWS_CONNMODE_WS_SERVING,

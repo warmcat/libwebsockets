@@ -138,7 +138,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 			/* union transition */
 			memset(&wsi->u, 0, sizeof(wsi->u));
 
-			wsi->mode = LWS_CONNMODE_HTTP_SERVING;
+			wsi->mode = LWS_CONNMODE_HTTP_SERVING_ACCEPTED;
 			wsi->state = WSI_STATE_HTTP;
 			n = 0;
 			if (wsi->protocol->callback)

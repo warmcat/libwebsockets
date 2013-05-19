@@ -140,6 +140,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 	switch (wsi->mode) {
 
 	case LWS_CONNMODE_HTTP_SERVING:
+	case LWS_CONNMODE_HTTP_SERVING_ACCEPTED:
 
 		/* handle http headers coming in */
 

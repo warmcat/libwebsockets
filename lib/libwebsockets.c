@@ -206,7 +206,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 	wsi->u.ws.close_reason = reason;
 
-	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING && wsi->u.http.fd) {
+	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED && wsi->u.http.fd) {
 		lwsl_debug("closing http fd %d\n", wsi->u.http.fd);
 		close(wsi->u.http.fd);
 		wsi->u.http.fd = 0;
@@ -962,6 +962,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 #ifndef LWS_NO_SERVER
 	case LWS_CONNMODE_HTTP_SERVING:
+	case LWS_CONNMODE_HTTP_SERVING_ACCEPTED:
 	case LWS_CONNMODE_SERVER_LISTENER:
 	case LWS_CONNMODE_SSL_ACK_PENDING:
 		n = lws_server_socket_service(context, wsi, pollfd);
