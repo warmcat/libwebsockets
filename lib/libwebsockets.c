@@ -210,6 +210,8 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		lwsl_debug("closing http fd %d\n", wsi->u.http.fd);
 		close(wsi->u.http.fd);
 		wsi->u.http.fd = 0;
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
 	}
 
 #ifndef LWS_NO_EXTENSIONS

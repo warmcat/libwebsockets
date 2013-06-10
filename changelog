@@ -28,6 +28,9 @@ User api additions
 	then does not have to try to track while connections it choked, this
 	will free up all of them in one call.
 
+ - there's a new, optional callback LWS_CALLBACK_CLOSED_HTTP which gets
+	called when an HTTP protocol socket closes
+
 
 User api changes
 ----------------
