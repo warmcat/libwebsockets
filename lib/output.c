@@ -498,7 +498,7 @@ send_raw:
 	if (n < 0)
 		return n;
 
-	return orig_len - ((len - pre + post) -n );
+	return orig_len - ((len + pre + post) -n );
 }
 
 LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
