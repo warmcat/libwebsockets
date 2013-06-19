@@ -311,7 +311,7 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	int m;
 #endif
 
-	if (len == 0 && protocol != LWS_WRITE_CLOSE) {
+	if (len == 0 && protocol != LWS_WRITE_CLOSE && protocol != LWS_WRITE_PING && protocol != LWS_WRITE_PONG) {
 		lwsl_warn("zero length libwebsocket_write attempt\n");
 		return 0;
 	}
