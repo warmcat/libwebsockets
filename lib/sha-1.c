@@ -215,7 +215,7 @@ sha1_step(struct sha1_ctxt *ctxt)
 
 /*------------------------------------------------------------*/
 
-void
+static void
 sha1_init(struct sha1_ctxt *ctxt)
 {
 	bzero(ctxt, sizeof(struct sha1_ctxt));
