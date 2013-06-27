@@ -85,7 +85,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 
 	if (context->http_proxy_port) {
 
-		n = send(wsi->sock, context->service_buffer, plen, 0);
+		n = send(wsi->sock, context->service_buffer, plen, MSG_NOSIGNAL);
 		if (n < 0) {
 			compatible_close(wsi->sock);
 			lwsl_debug("ERROR writing to proxy socket\n");
