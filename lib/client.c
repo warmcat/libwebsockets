@@ -229,7 +229,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		else
 #endif
 			n = send(wsi->sock, context->service_buffer,
-					p - (char *)context->service_buffer, 0);
+					p - (char *)context->service_buffer, MSG_NOSIGNAL);
 		lws_latency(context, wsi,
 			"send or SSL_write LWS_CONNMODE...HANDSHAKE",
 								     n, n >= 0);
