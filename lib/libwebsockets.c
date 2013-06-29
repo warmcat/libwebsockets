@@ -370,6 +370,10 @@ just_kill_connection:
 		lwsl_debug("calling back CLOSED\n");
 		wsi->protocol->callback(context, wsi, LWS_CALLBACK_CLOSED,
 						      wsi->user_space, NULL, 0);
+	} else if ( wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED ) {
+		lwsl_debug("calling back CLOSED_HTTP\n");
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0 );
 	} else
 		lwsl_debug("not calling back closed\n");
 
