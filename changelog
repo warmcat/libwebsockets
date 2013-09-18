@@ -31,6 +31,12 @@ User api additions
  - there's a new, optional callback LWS_CALLBACK_CLOSED_HTTP which gets
 	called when an HTTP protocol socket closes
 
+ - for LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION callback, the user_space alloc
+	has already been done before the callback happens.  That means we can
+	use the user parameter to the callback to contain the user pointer, and
+	move the protocol name to the "in" parameter.  The docs for this
+	callback are also updated to reflect how to check headers in there.
+
 
 User api changes
 ----------------

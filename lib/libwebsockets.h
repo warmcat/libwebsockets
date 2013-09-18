@@ -480,11 +480,14 @@ struct libwebsocket_extension;
  *	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION: called when the handshake has
  *		been received and parsed from the client, but the response is
  *		not sent yet.  Return non-zero to disallow the connection.
- *		@user is a pointer to an array of struct lws_tokens, you can
- *		use the header enums lws_token_indexes from libwebsockets.h
- *		to check for and read the supported header presence and
- *		content before deciding to allow the handshake to proceed or
- *		to kill the connection.
+ *		@user is a pointer to the connection user space allocation,
+ *		@in is the requested protocol name
+ *		In your handler you can use the public APIs
+ *		lws_hdr_total_length() / lws_hdr_copy() to access all of the
+ *		headers using the header enums lws_token_indexes from
+ *		libwebsockets.h to check for and read the supported header
+ *		presence and content before deciding to allow the handshake
+ *		to proceed or to kill the connection.
  *
  *	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS: if configured for
  *		including OpenSSL support, this callback allows your user code

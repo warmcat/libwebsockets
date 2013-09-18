@@ -152,7 +152,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 			if (n) {
 				lwsl_info("LWS_CALLBACK_HTTP closing\n");
-				goto bail;
+				goto bail; /* struct ah ptr already nuked */
 			}
 
 			return 0;
@@ -196,6 +196,10 @@ libwebsocket_read(struct libwebsocket_context *context,
 			}
 		}
 
+		/* allocate wsi->user storage */
+		if (libwebsocket_ensure_user_space(wsi))
+				goto bail_nuke_ah;
+
 		/*
 		 * Give the user code a chance to study the request and
 		 * have the opportunity to deny it
@@ -203,10 +207,10 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 		if ((wsi->protocol->callback)(wsi->protocol->owning_server, wsi,
 				LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
-				lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL),
-								     NULL, 0)) {
+				wsi->user_space,
+			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL), 0)) {
 			lwsl_warn("User code denied connection\n");
-			goto bail;
+			goto bail_nuke_ah;
 		}
 
 
@@ -220,17 +224,17 @@ libwebsocket_read(struct libwebsocket_context *context,
 			lwsl_parser("lws_parse calling handshake_04\n");
 			if (handshake_0405(context, wsi)) {
 				lwsl_info("hs0405 has failed the connection\n");
-				goto bail;
+				goto bail_nuke_ah;
 			}
 			break;
 
 		default:
 			lwsl_warn("Unknown client spec version %d\n",
 						       wsi->ietf_spec_revision);
-			goto bail;
+			goto bail_nuke_ah;
 		}
 
-		/* drop the header info */
+		/* drop the header info -- no bail_nuke_ah after this */
 
 		if (wsi->u.hdr.ah)
 			free(wsi->u.hdr.ah);
