@@ -113,7 +113,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	}
 
 	assert(wsi);
-	assert(wsi->sock);
+	assert(wsi->sock >= 0);
 
 	lwsl_info("insert_wsi_socket_into_fds: wsi=%p, sock=%d, fds pos=%d\n",
 					    wsi, wsi->sock, context->fds_count);
