@@ -333,7 +333,7 @@ bail3:
 			"closing connection at LWS_CONNMODE...SERVER_REPLY\n");
 		libwebsocket_close_and_free_session(context, wsi,
 						    LWS_CLOSE_STATUS_NOSTATUS);
-		return 0;
+		return -1;
 
 	case LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT:
 		lwsl_ext("LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT\n");
