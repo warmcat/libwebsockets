@@ -2098,11 +2098,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	}
 #endif
 
-	/* selftest */
-
-	if (lws_b64_selftest())
-		goto bail;
-
 #ifndef LWS_NO_SERVER
 	/* set up our external listening socket we serve on */
 
