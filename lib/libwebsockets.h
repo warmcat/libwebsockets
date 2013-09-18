@@ -835,6 +835,22 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 LWS_VISIBLE LWS_EXTERN void *
 libwebsocket_context_user(struct libwebsocket_context *context);
 
+enum pending_timeout {
+	NO_PENDING_TIMEOUT = 0,
+	PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
+	PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+	PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+	PENDING_TIMEOUT_AWAITING_PING,
+	PENDING_TIMEOUT_CLOSE_ACK,
+	PENDING_TIMEOUT_AWAITING_EXTENSION_CONNECT_RESPONSE,
+	PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
+	PENDING_TIMEOUT_SSL_ACCEPT,
+};
+
+LWS_EXTERN void
+libwebsocket_set_timeout(struct libwebsocket *wsi,
+					 enum pending_timeout reason, int secs);
+
 /*
  * IMPORTANT NOTICE!
  *
