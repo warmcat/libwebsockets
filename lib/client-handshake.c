@@ -52,11 +52,28 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 		goto oom4;
 	}
 
-	wsi->sock = socket(AF_INET, SOCK_STREAM, 0);
-
 	if (wsi->sock < 0) {
-		lwsl_warn("Unable to open socket\n");
-		goto oom4;
+
+		wsi->sock = socket(AF_INET, SOCK_STREAM, 0);
+
+		if (wsi->sock < 0) {
+			lwsl_warn("Unable to open socket\n");
+			goto oom4;
+		}
+
+		if (lws_set_socket_options(context, wsi->sock)) {
+			lwsl_err("Failed to set wsi socket options\n");
+			compatible_close(wsi->sock);
+			goto oom4;
+		}
+
+		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT;
+
+		insert_wsi_socket_into_fds(context, wsi);
+
+		libwebsocket_set_timeout(wsi,
+			PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
+							      AWAITING_TIMEOUT);
 	}
 
 	server_addr.sin_family = AF_INET;
@@ -66,20 +83,30 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
 					     sizeof(struct sockaddr)) == -1)  {
-		lwsl_debug("Connect failed\n");
-		compatible_close(wsi->sock);
-		goto oom4;
+
+		if (errno == EALREADY || errno == EINPROGRESS) {
+			lwsl_client("nonblocking connect retry\n");
+
+			/*
+			 * must do specifically a POLLOUT poll to hear
+			 * about the connect completion
+			 */
+
+			context->fds[wsi->position_in_fds_table].events |= POLLOUT;
+
+			/* external POLL support via protocol 0 */
+			context->protocols[0].callback(context, wsi,
+				LWS_CALLBACK_SET_MODE_POLL_FD,
+				wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
+
+			return wsi;
+		}
+
+		lwsl_debug("Connect failed errno=%d\n", errno);
+		goto failed;
 	}
 
 	lwsl_client("connected\n");
-
-	if (lws_set_socket_options(context, wsi->sock)) {
-		lwsl_err("Failed to set wsi socket options\n");
-		compatible_close(wsi->sock);
-		goto oom4;
-	}
-
-	insert_wsi_socket_into_fds(context, wsi);
 
 	/* we are connected to server, or proxy */
 
@@ -87,9 +114,8 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 
 		n = send(wsi->sock, context->service_buffer, plen, MSG_NOSIGNAL);
 		if (n < 0) {
-			compatible_close(wsi->sock);
 			lwsl_debug("ERROR writing to proxy socket\n");
-			goto oom4;
+			goto failed;
 		}
 
 		libwebsocket_set_timeout(wsi,
@@ -121,7 +147,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	n = libwebsocket_service_fd(context, &pfd);
 
 	if (n < 0)
-		goto oom4;
+		goto failed;
 
 	if (n) /* returns 1 on failure after closing wsi */
 		return NULL;
@@ -131,7 +157,11 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 oom4:
 	free(wsi->u.hdr.ah);
 	free(wsi);
+	return NULL;
 
+failed:
+	libwebsocket_close_and_free_session(context, wsi,
+						     LWS_CLOSE_STATUS_NOSTATUS);
 	return NULL;
 }
 
@@ -185,6 +215,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 		goto bail;
 
 	memset(wsi, 0, sizeof(*wsi));
+	wsi->sock = -1;
 
 	/* -1 means just use latest supported */
 

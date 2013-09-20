@@ -37,6 +37,10 @@ User api additions
 	move the protocol name to the "in" parameter.  The docs for this
 	callback are also updated to reflect how to check headers in there.
 
+ - libwebsocket_client_connect() is now properly nonblocking and async.  See
+	README.coding and test-client.c for information on the callbacks you
+	can rely on controlling the async connection period with.
+
 
 User api changes
 ----------------

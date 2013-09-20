@@ -206,6 +206,17 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 	wsi->u.ws.close_reason = reason;
 
+	if (wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT ||
+			wsi->mode == LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE) {
+
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_CLIENT_CONNECTION_ERROR, NULL, NULL, 0);
+
+		free(wsi->u.hdr.ah);
+		goto just_kill_connection;
+	}
+
+
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED && wsi->u.http.fd) {
 		lwsl_debug("closing http fd %d\n", wsi->u.http.fd);
 		close(wsi->u.http.fd);
@@ -904,12 +915,10 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		return 0;
 
 	/* just here for timeout management? */
-
 	if (pollfd == NULL)
 		return 0;
 
 	/* no, here to service a socket descriptor */
-
 	wsi = context->lws_lookup[pollfd->fd];
 	if (wsi == NULL)
 		/* not lws connection ... leave revents alone and return */
@@ -1286,8 +1295,10 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	/* wait for something to need service */
 
 	n = poll(context->fds, context->fds_count, timeout_ms);
-	if (n == 0) /* poll timeout */
+	if (n == 0) /* poll timeout */ {
+		libwebsocket_service_fd(context, NULL);
 		return 0;
+	}
 
 	if (n < 0)
 		return -1;
