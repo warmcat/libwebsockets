@@ -343,6 +343,12 @@ struct _lws_websocket_related {
 	int rxflow_pos;
 	unsigned int rxflow_change_to:2;
 	unsigned int this_frame_masked:1;
+	unsigned int inside_frame:1; /* next write will be more of frame */
+	unsigned int clean_buffer:1; /* buffer not rewritten by extension */
+	/* truncated send handling */
+	unsigned char *truncated_send_malloc; /* non-NULL means buffering in progress */
+	unsigned int truncated_send_offset; /* where we are in terms of spilling */
+	unsigned int truncated_send_len; /* how much is buffered */
 };
 
 struct libwebsocket {

@@ -370,6 +370,11 @@ just_kill_connection:
 			free(wsi->u.ws.rxflow_buffer);
 			wsi->u.ws.rxflow_buffer = NULL;
 		}
+		if (wsi->u.ws.truncated_send_malloc) {
+			/* not going to be completed... nuke it */
+			free(wsi->u.ws.truncated_send_malloc);
+			wsi->u.ws.truncated_send_malloc = NULL;
+		}
 	}
 
 	/* tell the user it's all over for this guy */
@@ -657,6 +662,16 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 	int ret;
 	int m;
 	int handled = 0;
+
+	/* pending truncated sends have uber priority */
+
+	if (wsi->u.ws.truncated_send_malloc) {
+		lws_issue_raw(wsi, wsi->u.ws.truncated_send_malloc +
+				wsi->u.ws.truncated_send_offset,
+						wsi->u.ws.truncated_send_len);
+		/* leave POLLOUT active either way */
+		return 0;
+	}
 
 	for (n = 0; n < wsi->count_active_extensions; n++) {
 		if (!wsi->active_extensions[n]->callback)

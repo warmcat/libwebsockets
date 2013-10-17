@@ -709,6 +709,14 @@ typedef int (extension_callback_function)(struct libwebsocket_context *context,
  *		libwebsockets_remaining_packet_payload().  Notice that you
  *		just talk about frame size here, the LWS_SEND_BUFFER_PRE_PADDING
  *		and post-padding are automatically also allocated on top.
+ * @no_buffer_all_partial_tx:  Leave at zero if you want the library to take
+ *		care of all partial tx for you.  It's useful if you only have
+ *		small tx packets and the chance of any truncated send is small
+ *		enough any additional malloc / buffering overhead is less
+ *		painful than writing the code to deal with partial sends.  For
+ *		protocols where you stream big blocks, set to nonzero and use
+ *		the return value from libwebsocket_write() to manage how much
+ *		got send yourself.
  * @owning_server:	the server init call fills in this opaque pointer when
  *		registering this protocol with the server.
  * @protocol_index: which protocol we are starting from zero
@@ -723,6 +731,7 @@ struct libwebsocket_protocols {
 	callback_function *callback;
 	size_t per_session_data_size;
 	size_t rx_buffer_size;
+	int no_buffer_all_partial_tx;
 
 	/*
 	 * below are filled in on server init and can be left uninitialized,
