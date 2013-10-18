@@ -182,7 +182,7 @@ handle_truncated_send:
 	}
 
 	if (n < len) {
-		if (wsi->u.ws.clean_buffer) {
+		if (wsi->u.ws.clean_buffer)
 			/*
 			 * This buffer unaffected by extension rewriting.
 			 * It means the user code is expected to deal with
@@ -190,7 +190,7 @@ handle_truncated_send:
 			 * sent, so on next send will just resume sending
 			 * payload)
 			 */
-		}
+			 return n;
 
 		/*
 		 * Newly truncated send.  Buffer the remainder (it will get
