@@ -2174,7 +2174,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		if (n < 0) {
 			lwsl_err("ERROR on binding to port %d (%d %d)\n",
 							info->port, n, errno);
-			close(sockfd);
+			compatible_close(sockfd);
 			goto bail;
 		}
 
@@ -2182,7 +2182,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 					sizeof(struct libwebsocket));
 		if (wsi == NULL) {
 			lwsl_err("Out of mem\n");
-			close(sockfd);
+			compatible_close(sockfd);
 			goto bail;
 		}
 		memset(wsi, 0, sizeof(struct libwebsocket));
