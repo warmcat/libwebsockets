@@ -183,7 +183,9 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 					     "SSL_connect WANT_... retrying\n");
 					libwebsocket_callback_on_writable(
 								  context, wsi);
-
+					
+					wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_SSL;
+					
 					return 0; /* no error */
 				}
 				n = -1;
@@ -201,7 +203,64 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 					      (char *)context->service_buffer));
 				return 0;
 			}
+		} else
+			wsi->ssl = NULL;
 
+	case LWS_CONNMODE_WS_CLIENT_WAITING_SSL:
+			
+		if (wsi->use_ssl) {
+				
+			if (wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SSL) {
+				lws_latency_pre(context, wsi);
+				n = SSL_connect(wsi->ssl);
+				lws_latency(context, wsi,
+							"SSL_connect LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE",
+							n, n > 0);
+				
+				if (n < 0) {
+					n = SSL_get_error(wsi->ssl, n);
+					
+					if (n == SSL_ERROR_WANT_READ ||
+						n == SSL_ERROR_WANT_WRITE) {
+						/*
+						 * wants us to retry connect due to
+						 * state of the underlying ssl layer...
+						 * but since it may be stalled on
+						 * blocked write, no incoming data may
+						 * arrive to trigger the retry.
+						 * Force (possibly many times if the SSL
+						 * state persists in returning the
+						 * condition code, but other sockets
+						 * are getting serviced inbetweentimes)
+						 * us to get called back when writable.
+						 */
+						
+						lwsl_info(
+								  "SSL_connect WANT_... retrying\n");
+						libwebsocket_callback_on_writable(
+														  context, wsi);
+						
+						wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_SSL;
+						
+						return 0; /* no error */
+					}
+					n = -1;
+				}
+				
+				if (n <= 0) {
+					/*
+					 * retry if new data comes until we
+					 * run into the connection timeout or win
+					 */
+					
+					lwsl_err("SSL connect error %lu: %s\n",
+							 ERR_get_error(),
+							 ERR_error_string(ERR_get_error(),
+											  (char *)context->service_buffer));
+					return 0;
+				}
+			}
+			
 			#ifndef USE_CYASSL
 			/*
 			 * See comment above about CyaSSL certificate
