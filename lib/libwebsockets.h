@@ -830,6 +830,9 @@ lwsl_emit_syslog(int level, const char *line);
 
 LWS_VISIBLE LWS_EXTERN struct libwebsocket_context *
 libwebsocket_create_context(struct lws_context_creation_info *info);
+	
+LWS_VISIBLE LWS_EXTERN int
+libwebsocket_set_proxy(struct libwebsocket_context *context, const char *proxy);
 
 LWS_VISIBLE LWS_EXTERN void
 libwebsocket_context_destroy(struct libwebsocket_context *context);
