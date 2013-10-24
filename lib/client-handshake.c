@@ -82,7 +82,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	bzero(&server_addr.sin_zero, 8);
 
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
-					     sizeof(struct sockaddr)) == -1)  {
+			  sizeof(struct sockaddr)) == -1 || errno == EISCONN)  {
 
 		if (errno == EALREADY || errno == EINPROGRESS) {
 			lwsl_client("nonblocking connect retry\n");
