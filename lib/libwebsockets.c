@@ -2269,6 +2269,52 @@ bail:
 }
 
 /**
+ * libwebsocket_set_proxy() - Setups proxy to libwebsocket_context.
+ * @context:	pointer to struct libwebsocket_context you want set proxy to
+ * @proxy: pointer to c string containing proxy in format address:port
+ *
+ * Returns 0 if proxy string was parsed and proxy was setup. 
+ * Returns -1 if @proxy is NULL or has incorrect format.
+ *
+ * This is only required if your OS does not provide the http_proxy
+ * enviroment variable (eg, OSX)
+ *
+ *   IMPORTANT! You should call this function right after creation of the
+ *   libwebsocket_context and before call to connect. If you call this
+ *   function after connect behavior is undefined.
+ *   This function will override proxy settings made on libwebsocket_context
+ *   creation with genenv() call.
+ */
+
+LWS_VISIBLE int
+libwebsocket_set_proxy(struct libwebsocket_context *context, const char *proxy)
+{
+	char *p;
+	
+	if (!proxy)
+		return -1;
+
+	strncpy(context->http_proxy_address, proxy,
+				sizeof(context->http_proxy_address) - 1);
+	context->http_proxy_address[
+				sizeof(context->http_proxy_address) - 1] = '\0';
+	
+	p = strchr(context->http_proxy_address, ':');
+	if (!p) {
+		lwsl_err("http_proxy needs to be ads:port\n");
+
+		return -1;
+	}
+	*p = '\0';
+	context->http_proxy_port = atoi(p + 1);
+	
+	lwsl_notice(" Proxy %s:%u\n", context->http_proxy_address,
+						context->http_proxy_port);
+
+	return 0;
+}
+
+/**
  * libwebsockets_get_protocol() - Returns a protocol pointer from a websocket
  *				  connection.
  * @wsi:	pointer to struct websocket you want to know the protocol of
