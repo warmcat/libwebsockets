@@ -93,8 +93,11 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 			return wsi;
 		}
 
-		lwsl_debug("Connect failed errno=%d\n", errno);
-		goto failed;
+		if (errno != EISCONN) {
+		
+			lwsl_debug("Connect failed errno=%d\n", errno);
+			goto failed;
+		}
 	}
 
 	lwsl_client("connected\n");
