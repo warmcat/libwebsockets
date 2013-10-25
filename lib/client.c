@@ -849,7 +849,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	p += strlen(key_b64);
 	p += sprintf(p, "\x0d\x0a");
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN))
-		p += sprintf(p, "Origin: %s\x0d\x0a",
+		p += sprintf(p, "Origin: http://%s\x0d\x0a",
 			     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN));
 
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS))
