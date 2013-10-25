@@ -78,6 +78,13 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		n = recv(wsi->sock, context->service_buffer,
 					sizeof(context->service_buffer), 0);
 		if (n < 0) {
+			
+			if (errno == EAGAIN) {
+				lwsl_debug(
+						   "Proxy read returned EAGAIN... retrying\n");
+				return 0;
+			}
+			
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR reading from proxy socket\n");
