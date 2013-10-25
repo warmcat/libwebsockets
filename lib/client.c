@@ -196,16 +196,21 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 				 * retry if new data comes until we
 				 * run into the connection timeout or win
 				 */
-
-				lwsl_err("SSL connect error %lu: %s\n", 
-					ERR_get_error(),
-					ERR_error_string(ERR_get_error(),
-					      (char *)context->service_buffer));
-				return 0;
+				
+				n = ERR_get_error();
+				if (n != SSL_ERROR_NONE) {
+					lwsl_err("SSL connect error %lu: %s\n",
+						ERR_get_error(),
+						ERR_error_string(ERR_get_error(),
+							  (char *)context->service_buffer));
+					return 0;
+				}
 			}
 		} else
 			wsi->ssl = NULL;
 
+		/* fallthru */
+			
 	case LWS_CONNMODE_WS_CLIENT_WAITING_SSL:
 			
 		if (wsi->use_ssl) {
@@ -214,7 +219,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 				lws_latency_pre(context, wsi);
 				n = SSL_connect(wsi->ssl);
 				lws_latency(context, wsi,
-							"SSL_connect LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE",
+							"SSL_connect LWS_CONNMODE_WS_CLIENT_WAITING_SSL",
 							n, n > 0);
 				
 				if (n < 0) {
@@ -252,12 +257,14 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 					 * retry if new data comes until we
 					 * run into the connection timeout or win
 					 */
-					
-					lwsl_err("SSL connect error %lu: %s\n",
-							 ERR_get_error(),
-							 ERR_error_string(ERR_get_error(),
-											  (char *)context->service_buffer));
-					return 0;
+					n = ERR_get_error();
+					if (n != SSL_ERROR_NONE) {
+						lwsl_err("SSL connect error %lu: %s\n",
+								 ERR_get_error(),
+								 ERR_error_string(ERR_get_error(),
+												  (char *)context->service_buffer));
+						return 0;
+					}
 				}
 			}
 			
