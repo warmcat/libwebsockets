@@ -23,7 +23,7 @@ message(STATUS "CMAKE_TOOLCHAIN_FILE='${CMAKE_TOOLCHAIN_FILE}'")
 find_package(Git)
 if(GIT_EXECUTABLE)
 	execute_process(
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     COMMAND "${GIT_EXECUTABLE}" log -n 1 --pretty=%h
     OUTPUT_VARIABLE GIT_HASH
     OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -117,7 +117,7 @@ if (MINGW)
 	set(LWS_MINGW_SUPPORT 1)
 endif()
 
-include_directories(${PROJECT_BINARY_DIR})
+include_directories("${PROJECT_BINARY_DIR}")
 
 include(CheckCSourceCompiles)
 
@@ -142,13 +142,13 @@ endif()
 
 # Put the libaries and binaries that get built into directories at the
 # top of the build tree rather than in hard-to-find leaf directories. 
-SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
-SET(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
-SET(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
+SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
+SET(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/lib")
+SET(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/lib")
 
 # Put absolute path of dynamic libraries into the object code. Some
 # architectures, notably Mac OS X, need this.
-SET(CMAKE_INSTALL_NAME_DIR ${CMAKE_INSTALL_PREFIX}/lib${LIB_SUFFIX})
+SET(CMAKE_INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/lib${LIB_SUFFIX}")
 
 # So we can include the CMake generated config file only when
 # building with CMAKE.
@@ -215,25 +215,25 @@ endif()
 
 # Generate the config.h that includes all the compilation settings.
 configure_file(
-		${PROJECT_SOURCE_DIR}/config.h.cmake 
-		${PROJECT_BINARY_DIR}/lws_config.h)
+       "${PROJECT_SOURCE_DIR}/config.h.cmake"
+       "${PROJECT_BINARY_DIR}/lws_config.h")
 
 if (MSVC)
 	# Turn off stupid microsoft security warnings.
 	add_definitions(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_NONSTDC_NO_DEPRECATE)
 endif(MSVC)
 
-include_directories(${PROJECT_SOURCE_DIR}/lib)
+include_directories("${PROJECT_SOURCE_DIR}/lib")
 
 # Group headers and sources.
 # Some IDEs use this for nicer file structure.
 set(HDR_PRIVATE
 	lib/private-libwebsockets.h
-	${PROJECT_BINARY_DIR}/lws_config.h
+	"${PROJECT_BINARY_DIR}/lws_config.h"
 	)
 
 set(HDR_PUBLIC	
-	${PROJECT_SOURCE_DIR}/lib/libwebsockets.h
+	"${PROJECT_SOURCE_DIR}/lib/libwebsockets.h"
 	)
 
 set(SOURCES
@@ -434,10 +434,10 @@ if (WITH_SSL)
 		# the cyassl/ subdirectory which contains the OpenSSL
 		# compatability layer headers.
 		foreach(inc ${CYASSL_INCLUDE_DIRS})
-			include_directories(${inc} ${inc}/cyassl)
+			include_directories("${inc}" "${inc}/cyassl")
 		endforeach()
 
-		list(APPEND LIB_LIST ${CYASSL_LIB})
+		list(APPEND LIB_LIST "${CYASSL_LIB}")
 	else()
 		# TODO: Add support for STATIC also.
 		find_package(OpenSSL REQUIRED)
@@ -445,7 +445,7 @@ if (WITH_SSL)
 		message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
 		message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
 
-		include_directories(${OPENSSL_INCLUDE_DIR})
+		include_directories("${OPENSSL_INCLUDE_DIR}")
 		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
 	endif()
 endif(WITH_SSL)
@@ -560,20 +560,20 @@ if (NOT WITHOUT_TESTAPPS)
 
 		# Data files for running the test server.
 		set(TEST_SERVER_DATA
-			${PROJECT_SOURCE_DIR}/test-server/favicon.ico 
-			${PROJECT_SOURCE_DIR}/test-server/leaf.jpg
-			${PROJECT_SOURCE_DIR}/test-server/libwebsockets.org-logo.png
-			${PROJECT_SOURCE_DIR}/test-server/test.html)
+			"${PROJECT_SOURCE_DIR}/test-server/favicon.ico"
+			"${PROJECT_SOURCE_DIR}/test-server/leaf.jpg"
+			"${PROJECT_SOURCE_DIR}/test-server/libwebsockets.org-logo.png"
+			"${PROJECT_SOURCE_DIR}/test-server/test.html")
 
 		# Generate self-signed SSL certs for the test-server.
 		if (WITH_SSL AND OPENSSL_EXECUTABLE)
 			message("Generating SSL Certificates for the test-server...")
 
-			set(TEST_SERVER_SSL_KEY ${PROJECT_BINARY_DIR}/libwebsockets-test-server.key.pem)
-			set(TEST_SERVER_SSL_CERT ${PROJECT_BINARY_DIR}/libwebsockets-test-server.pem)
+			set(TEST_SERVER_SSL_KEY "${PROJECT_BINARY_DIR}/libwebsockets-test-server.key.pem")
+			set(TEST_SERVER_SSL_CERT "${PROJECT_BINARY_DIR}/libwebsockets-test-server.pem")
 
 			if (WIN32)
-				file(WRITE ${PROJECT_BINARY_DIR}/openssl_input.txt
+				file(WRITE "${PROJECT_BINARY_DIR}/openssl_input.txt"
 					"GB\n"
 					"Erewhon\n"
 					"All around\n"
@@ -598,14 +598,14 @@ if (NOT WITHOUT_TESTAPPS)
 			else()
 				execute_process(
 					COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
-					COMMAND ${OPENSSL_EXECUTABLE} 
-						req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout ${TEST_SERVER_SSL_KEY} -out ${TEST_SERVER_SSL_CERT}
+					COMMAND "${OPENSSL_EXECUTABLE}"
+						req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
 					)
 			endif()
 
 			list(APPEND TEST_SERVER_DATA 
-				${TEST_SERVER_SSL_KEY} 
-				${TEST_SERVER_SSL_CERT})
+				"${TEST_SERVER_SSL_KEY}"
+				"${TEST_SERVER_SSL_CERT}")
 		endif()
 
 		# Copy the file needed to run the server so that the test apps can
@@ -613,8 +613,8 @@ if (NOT WITHOUT_TESTAPPS)
 		foreach (TEST_FILE ${TEST_SERVER_DATA})
 			add_custom_command(TARGET test-server
 						POST_BUILD 
-						COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server"
-						COMMAND ${CMAKE_COMMAND} -E copy ${TEST_FILE} "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server" VERBATIM)
+						COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server"
+						COMMAND "${CMAKE_COMMAND}" -E copy "${TEST_FILE}" "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server" VERBATIM)
 		endforeach()
 	endif(NOT WITHOUT_SERVER)
 
@@ -673,11 +673,11 @@ if (NOT WITHOUT_TESTAPPS)
 			foreach(TARGET_BIN ${TEST_APP_LIST})			
 				add_custom_command(TARGET ${TARGET_BIN}
 					POST_BUILD 
-					COMMAND ${CMAKE_COMMAND} -E copy ${LIBEAY_BIN} $<TARGET_FILE_DIR:${TARGET_BIN}> VERBATIM)
+					COMMAND "${CMAKE_COMMAND}" -E copy "${LIBEAY_BIN}" "$<TARGET_FILE_DIR:${TARGET_BIN}>" VERBATIM)
 					
 				add_custom_command(TARGET ${TARGET_BIN}
 					POST_BUILD 
-					COMMAND ${CMAKE_COMMAND} -E copy ${SSLEAY_BIN} $<TARGET_FILE_DIR:${TARGET_BIN}> VERBATIM)
+					COMMAND "${CMAKE_COMMAND}" -E copy "${SSLEAY_BIN}" "$<TARGET_FILE_DIR:${TARGET_BIN}>" VERBATIM)
 			endforeach()
 		endif()
 	endif()
@@ -687,22 +687,22 @@ if (UNIX)
 	# Generate documentation.
 	# TODO: Fix this on Windows.
 	message("Generating API documentation")
-	file(GLOB C_FILES ${PROJECT_SOURCE_DIR}/lib/*.c)
-	execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_BINARY_DIR}/doc/)
+	file(GLOB C_FILES "${PROJECT_SOURCE_DIR}/lib/*.c")
+	execute_process(COMMAND "${CMAKE_COMMAND}" -E make_directory "${PROJECT_BINARY_DIR}/doc/")
 
 	execute_process(
-		COMMAND ${PROJECT_SOURCE_DIR}/scripts/kernel-doc -html ${C_FILES} ${HDR_PUBLIC} 
-		OUTPUT_FILE ${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.html
+		COMMAND "${PROJECT_SOURCE_DIR}/scripts/kernel-doc" -html ${C_FILES} ${HDR_PUBLIC}
+		OUTPUT_FILE "${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.html"
 		ERROR_QUIET)
 
 	execute_process(
-		COMMAND ${PROJECT_SOURCE_DIR}/scripts/kernel-doc -text ${C_FILES} ${HDR_PUBLIC}
-		OUTPUT_FILE ${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.txt
+		COMMAND "${PROJECT_SOURCE_DIR}/scripts/kernel-doc" -text ${C_FILES} ${HDR_PUBLIC}
+		OUTPUT_FILE "${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.txt"
 		ERROR_QUIET)
 
 # Generate and install pkgconfig.
 # (This is not indented, because the tabs will be part of the output)
-file(WRITE ${PROJECT_BINARY_DIR}/libwebsockets.pc
+file(WRITE "${PROJECT_BINARY_DIR}/libwebsockets.pc"
 "prefix="${CMAKE_INSTALL_PREFIX}"
 exec_prefix=\${prefix}
 libdir=\${exec_prefix}/lib${LIB_SUFFIX}
@@ -716,7 +716,7 @@ Libs: -L\${libdir} -lwebsockets
 Cflags: -I\${includedir}"
 )
 
-	install(FILES ${PROJECT_BINARY_DIR}/libwebsockets.pc
+	install(FILES "${PROJECT_BINARY_DIR}/libwebsockets.pc"
 		DESTINATION lib${LIB_SUFFIX}/pkgconfig)
 endif(UNIX)
 
@@ -752,7 +752,7 @@ endif()
 set(CPACK_SOURCE_IGNORE_FILES $(CPACK_SOURCE_IGNORE_FILES) ".git" "build" "tgz" "tar.gz")
 
 # Most people are more used to "make dist" compared to "make package_source"
-add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
+add_custom_target(dist COMMAND "${CMAKE_MAKE_PROGRAM}" package_source)
 
 INCLUDE(UseRPMTools)
 IF(RPMTools_FOUND)
