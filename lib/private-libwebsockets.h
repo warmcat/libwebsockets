@@ -70,6 +70,7 @@
 #endif
 #endif
 #include <winsock2.h>
+#include <wsockcompat.h>
 #include <ws2ipdef.h>
 #include <windows.h>
 #else
