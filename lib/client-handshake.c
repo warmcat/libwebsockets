@@ -1,6 +1,6 @@
 #include "private-libwebsockets.h"
 
-struct libwebsocket *__libwebsocket_client_connect_2(
+struct libwebsocket *libwebsocket_client_connect_2(
 	struct libwebsocket_context *context,
 	struct libwebsocket *wsi
 ) {
@@ -11,7 +11,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	int plen = 0;
 	const char *ads;
 
-	lwsl_client("__libwebsocket_client_connect_2\n");
+       lwsl_client("libwebsocket_client_connect_2\n");
 
 	/*
 	 * proxy?
@@ -35,7 +35,7 @@ struct libwebsocket *__libwebsocket_client_connect_2(
 	/*
 	 * prepare the actual connection (to the proxy, if any)
 	 */
-	lwsl_client("__libwebsocket_client_connect_2: address %s\n", ads);
+       lwsl_client("libwebsocket_client_connect_2: address %s\n", ads);
 
 	server_hostent = gethostbyname(ads);
 	if (server_hostent == NULL) {
@@ -309,7 +309,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 #endif
 	lwsl_client("libwebsocket_client_connect: direct conn\n");
 
-	return __libwebsocket_client_connect_2(context, wsi);
+       return libwebsocket_client_connect_2(context, wsi);
 
 bail1:
 	free(wsi->u.hdr.ah);

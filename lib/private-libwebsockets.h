@@ -447,7 +447,7 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 				    struct libwebsocket *wsi, unsigned int sec);
 
 LWS_EXTERN struct libwebsocket *
-__libwebsocket_client_connect_2(struct libwebsocket_context *context,
+libwebsocket_client_connect_2(struct libwebsocket_context *context,
 	struct libwebsocket *wsi);
 
 LWS_EXTERN struct libwebsocket *

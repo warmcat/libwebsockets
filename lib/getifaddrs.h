@@ -40,8 +40,8 @@ extern "C" {
 
 /* $KTH: ifaddrs.hin,v 1.3 2000/12/11 00:01:13 assar Exp $ */
 
-#ifndef __ifaddrs_h__
-#define __ifaddrs_h__
+#ifndef ifaddrs_h_7467027A95AD4B5C8DDD40FE7D973791
+#define ifaddrs_h_7467027A95AD4B5C8DDD40FE7D973791
 
 /*
  * the interface is defined in terms of the fields below, and this is

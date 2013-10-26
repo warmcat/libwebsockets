@@ -52,7 +52,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		 * timeout protection set in client-handshake.c
 		 */
 
-		if (__libwebsocket_client_connect_2(context, wsi) == NULL) {
+               if (libwebsocket_client_connect_2(context, wsi) == NULL) {
 			/* closed */
 			lwsl_client("closed\n");
 			return -1;
