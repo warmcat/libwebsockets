@@ -1,7 +1,59 @@
 Changelog
 ---------
 
-(development since 1.22)
+v1.23-chrome32-firefox24
+========================
+
+ Android.mk                            |   29 +
+ CMakeLists.txt                        |  573 ++++++++----
+ COPYING                               |  503 -----------
+ INSTALL                               |  365 --------
+ Makefile.am                           |   13 -
+ README.build                          |  371 ++------
+ README.coding                         |   63 ++
+ autogen.sh                            | 1578 ---------------------------------
+ changelog                             |   69 ++
+ cmake/FindGit.cmake                   |  163 ++++
+ cmake/FindOpenSSLbins.cmake           |   15 +-
+ cmake/UseRPMTools.cmake               |  176 ++++
+ config.h.cmake                        |   25 +-
+ configure.ac                          |  226 -----
+ cross-arm-linux-gnueabihf.cmake       |   28 +
+ lib/Makefile.am                       |   89 --
+ lib/base64-decode.c                   |   98 +-
+ lib/client-handshake.c                |  123 ++-
+ lib/client-parser.c                   |   19 +-
+ lib/client.c                          |  145 ++-
+ lib/daemonize.c                       |    4 +-
+ lib/extension.c                       |    2 +-
+ lib/getifaddrs.h                      |    4 +-
+ lib/handshake.c                       |   76 +-
+ lib/libwebsockets.c                   |  491 ++++++----
+ lib/libwebsockets.h                   |  164 ++--
+ lib/output.c                          |  214 ++++-
+ lib/parsers.c                         |  102 +--
+ lib/private-libwebsockets.h           |   66 +-
+ lib/server-handshake.c                |    5 +-
+ lib/server.c                          |   29 +-
+ lib/sha-1.c                           |    2 +-
+ libwebsockets-api-doc.html            |  249 +++---
+ libwebsockets.pc.in                   |   11 -
+ libwebsockets.spec                    |   14 +-
+ m4/ignore-me                          |    2 -
+ scripts/FindLibWebSockets.cmake       |   33 +
+ scripts/kernel-doc                    |    1 +
+ test-server/Makefile.am               |  131 ---
+ test-server/leaf.jpg                  |  Bin 0 -> 2477518 bytes
+ test-server/test-client.c             |   78 +-
+ test-server/test-echo.c               |   33 +-
+ test-server/test-fraggle.c            |   26 +-
+ test-server/test-ping.c               |   15 +-
+ test-server/test-server.c             |  197 +++-
+ test-server/test.html                 |    5 +-
+ win32port/win32helpers/gettimeofday.c |   74 +-
+ win32port/win32helpers/websock-w32.h  |    6 +-
+ 48 files changed, 2493 insertions(+), 4212 deletions(-)
+
 
 User api additions
 ------------------
@@ -41,6 +93,10 @@ User api additions
 	README.coding and test-client.c for information on the callbacks you
 	can rely on controlling the async connection period with.
 
+ - if your OS does not support the http_proxy environment variable convention
+ 	(eg, reportedly OSX), you can use a new api libwebsocket_set_proxy()
+ 	to set the proxy details inbetween context creation and the connection
+ 	action.  For OSes that support http_proxy, that's used automatically.
 
 User api changes
 ----------------
