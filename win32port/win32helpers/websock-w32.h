@@ -26,6 +26,10 @@
 #define DEF_POLL_STUFF
 #endif
 
+#if _WIN32_WINNT < 0x0600
+#define DEF_POLL_STUFF
+#endif
+
 #ifdef DEF_POLL_STUFF
 
 #include <winsock2.h>
