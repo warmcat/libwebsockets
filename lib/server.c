@@ -22,7 +22,7 @@
 
 #include "private-libwebsockets.h"
 
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 #include <tchar.h>
 #include <io.h>
 #else
@@ -55,7 +55,7 @@ int
 interface_to_sa(const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
 	int rc = -1;
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 	/* TODO */
 #else
 	struct ifaddrs *ifr;

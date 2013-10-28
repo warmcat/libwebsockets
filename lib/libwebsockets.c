@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 #include <tchar.h>
 #include <io.h>
 #include <mstcpip.h>
@@ -548,7 +548,7 @@ LWS_VISIBLE int libwebsockets_get_random(struct libwebsocket_context *context,
 	int n;
 	char *p = (char *)buf;
 
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 	for (n = 0; n < len; n++)
 		p[n] = (unsigned char)rand();
 #else
@@ -562,7 +562,7 @@ int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 {
 	int optval = 1;
 	socklen_t optlen = sizeof(optval);
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 	unsigned long optl = 0;
 #endif
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
@@ -623,7 +623,7 @@ int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 #endif
 
 	/* We are nonblocking... */
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 	ioctlsocket(fd, FIONBIO, &optl);
 #else
 	fcntl(fd, F_SETFL, O_NONBLOCK);
@@ -1220,7 +1220,7 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 
 #endif
 
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 #else
 	close(context->fd_random);
 #endif
@@ -1244,7 +1244,7 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 
 	free(context);
 
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 	WSACleanup();
 #endif
 }
@@ -1870,7 +1870,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	context->last_timeout_check_s = 0;
 	context->user_space = info->user;
 
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 	context->fd_random = 0;
 #else
 	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
@@ -1956,7 +1956,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #endif
 
 	/* ignore SIGPIPE */
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 #else
 	signal(SIGPIPE, sigpipe_handler);
 #endif
@@ -2153,7 +2153,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY,
 					      (const void *)&opt, sizeof(opt));
 
-		#ifdef WIN32
+		#if defined(WIN32) || defined(_WIN32)
 		opt = 0;
 		ioctlsocket(sockfd, FIONBIO, (unsigned long *)&opt);
 		#else
@@ -2208,7 +2208,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	 * to listen on port < 1023 we would have needed root, but now we are
 	 * listening, we don't want the power for anything else
 	 */
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 #else
 	if (info->gid != -1)
 		if (setgid(info->gid))
@@ -2382,7 +2382,7 @@ static void lwsl_emit_stderr(int level, const char *line)
 	fprintf(stderr, "%s%s", buf, line);
 }
 
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 {
 	lwsl_emit_stderr(level, line);
