@@ -60,6 +60,15 @@
 #ifndef EWOULDBLOCK
 #define EWOULDBLOCK EAGAIN
 #endif
+#ifndef EALREADY
+#define EALREADY WSAEALREADY
+#endif
+#ifndef EINPROGRESS
+#define EINPROGRESS WSAEINPROGRESS
+#endif
+#ifndef EISCONN
+#define EISCONN WSAEISCONN
+#endif
 
 #define compatible_close(fd) closesocket(fd);
 #ifdef __MINGW64__
@@ -70,7 +79,6 @@
 #endif
 #endif
 #include <winsock2.h>
-#include <wsockcompat.h>
 #include <ws2ipdef.h>
 #include <windows.h>
 #else
