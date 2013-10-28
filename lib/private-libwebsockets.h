@@ -23,7 +23,7 @@
 #ifdef CMAKE_BUILD
 #include "lws_config.h"
 #else
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 #define inline __inline
 #else
 #include "config.h"
@@ -55,7 +55,7 @@
 
 #include <sys/stat.h>
 
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 #define LWS_NO_DAEMONIZE
 #ifndef EWOULDBLOCK
 #define EWOULDBLOCK EAGAIN

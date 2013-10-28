@@ -33,7 +33,7 @@
  */
 
 #include <sys/types.h>
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 
 #ifndef BIG_ENDIAN
 #define BIG_ENDIAN    4321  /* to show byte order (taken from gcc) */

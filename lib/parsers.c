@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 #include <io.h>
 #endif
 
