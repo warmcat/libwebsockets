@@ -66,6 +66,9 @@
 #ifndef EINPROGRESS
 #define EINPROGRESS WSAEINPROGRESS
 #endif
+#ifndef EISCONN
+#define EISCONN WSAEISCONN
+#endif
 
 #define compatible_close(fd) closesocket(fd);
 #ifdef __MINGW64__
