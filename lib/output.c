@@ -159,7 +159,9 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	}
 #endif
 
+#ifndef LWS_NO_EXTENSIONS
 handle_truncated_send:
+#endif
 
 	/*
 	 * already handling a truncated send?
