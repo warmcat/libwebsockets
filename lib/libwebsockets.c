@@ -986,6 +986,17 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 	}
 
+	/* handle session socket closed */
+
+	if ((!(pollfd->revents & POLLIN)) &&
+			(pollfd->revents & (POLLERR | POLLHUP))) {
+
+		lwsl_debug("Session Socket %p (fd=%d) dead\n",
+						       (void *)wsi, pollfd->fd);
+
+		goto close_and_handled;
+	}
+
 	/* okay, what we came here to do... */
 
 	switch (wsi->mode) {
@@ -1002,17 +1013,6 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	case LWS_CONNMODE_WS_SERVING:
 	case LWS_CONNMODE_WS_CLIENT:
 
-		/* handle session socket closed */
-
-		if ((!(pollfd->revents & POLLIN)) &&
-				(pollfd->revents & (POLLERR | POLLHUP))) {
-
-			lwsl_debug("Session Socket %p (fd=%d) dead\n",
-				(void *)wsi, pollfd->fd);
-
-			goto close_and_handled;
-		}
-
 		/* the guy requested a callback when it was OK to write */
 
 		if ((pollfd->revents & POLLOUT) &&
@@ -1020,8 +1020,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			   lws_handle_POLLOUT_event(context, wsi, pollfd) < 0) {
 				lwsl_info("libwebsocket_service_fd: closing\n");
 				goto close_and_handled;
-			}
-
+		}
 
 		if (wsi->u.ws.rxflow_buffer &&
 			      (wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW)) {
