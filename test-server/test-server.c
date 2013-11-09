@@ -124,8 +124,11 @@ static int callback_http(struct libwebsocket_context *context,
 #endif
 	char buf[256];
 	char leaf_path[1024];
+	char b64[64];
+	struct timeval tv;
 	int n, m;
 	unsigned char *p;
+	char *other_headers;
 	static unsigned char buffer[4096];
 	struct stat stat_buf;
 	struct per_session_data__http *pss =
@@ -201,7 +204,26 @@ static int callback_http(struct libwebsocket_context *context,
 
 		sprintf(buf, "%s%s", resource_path, whitelist[n].urlpath);
 
-		if (libwebsockets_serve_http_file(context, wsi, buf, whitelist[n].mimetype, NULL))
+		/* demostrates how to set a cookie on / */
+
+		other_headers = NULL;
+		if (!strcmp((const char *)in, "/") &&
+			   !lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE)) {
+			/* this isn't very unguessable but it'll do for us */
+			gettimeofday(&tv, NULL);
+			sprintf(b64, "LWS_%u_%u_COOKIE",
+				(unsigned int)tv.tv_sec,
+				(unsigned int)tv.tv_usec);
+
+			sprintf(leaf_path,
+				"Set-Cookie: test=LWS_%u_%u_COOKIE;Max-Age=360000\x0d\x0a",
+			    (unsigned int)tv.tv_sec, (unsigned int)tv.tv_usec);
+			other_headers = leaf_path;
+			lwsl_err(other_headers);
+		}
+
+		if (libwebsockets_serve_http_file(context, wsi, buf,
+					whitelist[n].mimetype, other_headers))
 			return -1; /* through completion or error, close the socket */
 
 		/*
@@ -323,7 +345,7 @@ static void
 dump_handshake_info(struct libwebsocket *wsi)
 {
 	int n;
-	static const char *token_names[WSI_TOKEN_COUNT] = {
+	static const char *token_names[] = {
 		/*[WSI_TOKEN_GET_URI]		=*/ "GET URI",
 		/*[WSI_TOKEN_HOST]		=*/ "Host",
 		/*[WSI_TOKEN_CONNECTION]	=*/ "Connection",
@@ -365,7 +387,7 @@ dump_handshake_info(struct libwebsocket *wsi)
 	};
 	char buf[256];
 
-	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
+	for (n = 0; n < sizeof(token_names) / sizeof(token_names[0]); n++) {
 		if (!lws_hdr_total_length(wsi, n))
 			continue;
 
