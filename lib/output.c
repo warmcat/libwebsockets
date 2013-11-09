@@ -648,6 +648,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
  * @wsi:		Websocket instance (available from user callback)
  * @file:		The file to issue over http
  * @content_type:	The http content type, eg, text/html
+ * @other_headers:	NULL or pointer to \0-terminated other header string
  *
  *	This function is intended to be called from the callback in response
  *	to http requests from the client.  It allows the callback to issue
@@ -659,13 +660,15 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
  *	the wsi should be left alone.
  */
 
-LWS_VISIBLE int libwebsockets_serve_http_file(struct libwebsocket_context *context,
+LWS_VISIBLE int libwebsockets_serve_http_file(
+		struct libwebsocket_context *context,
 			struct libwebsocket *wsi, const char *file,
-						       const char *content_type)
+			   const char *content_type, const char *other_headers)
 {
 	struct stat stat_buf;
 	unsigned char *p = context->service_buffer;
 	int ret = 0;
+	int n;
 
 	wsi->u.http.fd = open(file, O_RDONLY
 #ifdef WIN32
@@ -691,6 +694,11 @@ LWS_VISIBLE int libwebsockets_serve_http_file(struct libwebsocket_context *conte
 	p += sprintf((char *)p,
 "HTTP/1.0 200 OK\x0d\x0aServer: libwebsockets\x0d\x0a""Content-Type: %s\x0d\x0a",
 								  content_type);
+	if (other_headers) {
+		n = strlen(other_headers);
+		memcpy(p, other_headers, n);
+		p += n;
+	}
 	p += sprintf((char *)p,
 		"Content-Length: %u\x0d\x0a\x0d\x0a",
 					(unsigned int)stat_buf.st_size);

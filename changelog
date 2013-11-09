@@ -1,6 +1,17 @@
 Changelog
 ---------
 
+(since v1.23)
+
+User api changes
+----------------
+
+Extra optional argument to libwebsockets_serve_http_file() allows injecion
+of HTTP headers into the canned response.  Eg, cookies may be added like
+that without getting involved in having to send the header by hand.
+
+
+
 v1.23-chrome32-firefox24
 ========================
 

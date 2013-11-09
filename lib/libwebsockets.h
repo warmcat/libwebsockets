@@ -922,7 +922,7 @@ libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf, size_t len,
 LWS_VISIBLE LWS_EXTERN int
 libwebsockets_serve_http_file(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, const char *file,
-						     const char *content_type);
+			const char *content_type, const char *other_headers);
 LWS_VISIBLE LWS_EXTERN int
 libwebsockets_serve_http_file_fragment(struct libwebsocket_context *context,
 			struct libwebsocket *wsi);
