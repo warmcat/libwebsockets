@@ -148,6 +148,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_HTTP_FILE_COMPLETION,
 	LWS_CALLBACK_HTTP_WRITEABLE,
 	LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
+	LWS_CALLBACK_FILTER_HTTP_CONNECTION,
 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
@@ -492,6 +493,18 @@ struct libwebsocket_extension;
  *		Because this happens immediately after the network connection
  *		from the client, there's no websocket protocol selected yet so
  *		this callback is issued only to protocol 0.
+ * 
+ *	LWS_CALLBACK_FILTER_HTTP_CONNECTION: called when the request has
+ *		been received and parsed from the client, but the response is
+ *		not sent yet.  Return non-zero to disallow the connection.
+ *		@user is a pointer to the connection user space allocation,
+ *		@in is the URI, eg, "/"
+ *		In your handler you can use the public APIs
+ *		lws_hdr_total_length() / lws_hdr_copy() to access all of the
+ *		headers using the header enums lws_token_indexes from
+ *		libwebsockets.h to check for and read the supported header
+ *		presence and content before deciding to allow the http
+ *		connection to proceed or to kill the connection.
  *
  *	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION: called when the handshake has
  *		been received and parsed from the client, but the response is

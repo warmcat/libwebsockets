@@ -146,6 +146,11 @@ libwebsocket_read(struct libwebsocket_context *context,
 			n = 0;
 			if (wsi->protocol->callback)
 				n = wsi->protocol->callback(context, wsi,
+				    LWS_CALLBACK_FILTER_HTTP_CONNECTION,
+				    wsi->user_space, uri_ptr, uri_len);
+
+			if (!n && wsi->protocol->callback)
+				n = wsi->protocol->callback(context, wsi,
 				    LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
 
