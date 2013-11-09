@@ -63,10 +63,11 @@ interface_to_sa(const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 	struct sockaddr_in *sin;
 
 	getifaddrs(&ifr);
-	for (ifc = ifr; ifc != NULL; ifc = ifc->ifa_next) {
-		if (strcmp(ifc->ifa_name, ifname))
-			continue;
+	for (ifc = ifr; ifc != NULL && rc; ifc = ifc->ifa_next) {
 		if (ifc->ifa_addr == NULL)
+			continue;
+		lwsl_info(" interface %s vs %s\n", ifc->ifa_name, ifname);
+		if (strcmp(ifc->ifa_name, ifname))
 			continue;
 		sin = (struct sockaddr_in *)ifc->ifa_addr;
 		if (sin->sin_family != AF_INET)

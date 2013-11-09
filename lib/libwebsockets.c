@@ -2164,8 +2164,13 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		if (info->iface == NULL)
 			serv_addr.sin_addr.s_addr = INADDR_ANY;
 		else
-			interface_to_sa(info->iface, &serv_addr,
-						sizeof(serv_addr));
+			if (interface_to_sa(info->iface, &serv_addr,
+						sizeof(serv_addr)) < 0) {
+				lwsl_err("Unable to find interface %s\n",
+							info->iface);
+				compatible_close(sockfd);
+				goto bail;
+			}
 		serv_addr.sin_port = htons(info->port);
 
 		n = bind(sockfd, (struct sockaddr *) &serv_addr,
