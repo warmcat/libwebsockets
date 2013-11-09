@@ -347,6 +347,20 @@ dump_handshake_info(struct libwebsocket *wsi)
 		/*[WSI_TOKEN_ACCEPT]		=*/ "Accept",
 		/*[WSI_TOKEN_NONCE]		=*/ "Nonce",
 		/*[WSI_TOKEN_HTTP]		=*/ "Http",
+
+		"Accept:",
+		"If-Modified-Since:",
+		"Accept-Encoding:",
+		"Accept-Language:",
+		"Pragma:",
+		"Cache-Control:",
+		"Authorization:",
+		"Cookie:",
+		"Content-Type:",
+		"Date:",
+		"Range:",
+		"Referer:"
+
 		/*[WSI_TOKEN_MUXURL]	=*/ "MuxURL",
 	};
 	char buf[256];
