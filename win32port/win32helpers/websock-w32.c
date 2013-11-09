@@ -46,7 +46,7 @@ INT WSAAPI emulated_poll(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout)
 
 		poll_fd->revents = 0;
 
-		if (poll_fd->fd < 0 || !poll_fd->events)
+		if ((int)poll_fd->fd < 0 || !poll_fd->events)
 			goto skip1;
 
 		if (max_socket < poll_fd->fd)
