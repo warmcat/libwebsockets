@@ -306,12 +306,6 @@ struct libwebsocket_context {
  * other APIs to get information out of it.
  */
 
-struct _lws_http_mode_related {
-	int fd;
-	unsigned long filepos;
-	unsigned long filelen;
-};
-
 struct lws_fragments {
 	unsigned short offset;
 	unsigned short len;
@@ -328,6 +322,13 @@ struct allocated_headers {
 	char initial_handshake_hash_base64[30];
 	unsigned short c_port;
 #endif
+};
+
+struct _lws_http_mode_related {
+	struct allocated_headers *ah; /* mirroring  _lws_header_related */
+	int fd;
+	unsigned long filepos;
+	unsigned long filelen;
 };
 
 struct _lws_header_related {

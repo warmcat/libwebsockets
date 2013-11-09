@@ -137,9 +137,12 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 			/* union transition */
 			memset(&wsi->u, 0, sizeof(wsi->u));
-
 			wsi->mode = LWS_CONNMODE_HTTP_SERVING_ACCEPTED;
 			wsi->state = WSI_STATE_HTTP;
+
+			/* expose it at the same offset as u.hdr */
+			wsi->u.http.ah = ah;
+
 			n = 0;
 			if (wsi->protocol->callback)
 				n = wsi->protocol->callback(context, wsi,
@@ -149,6 +152,8 @@ libwebsocket_read(struct libwebsocket_context *context,
 			/* now drop the header info we kept a pointer to */
 			if (ah)
 				free(ah);
+			/* not possible to continue to use past here */
+			wsi->u.http.ah = NULL;
 
 			if (n) {
 				lwsl_info("LWS_CALLBACK_HTTP closing\n");
