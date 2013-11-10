@@ -125,6 +125,29 @@ echo -e "GET blah HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD.......................
  	"......................................................................................................................." \
 	 | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
+size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
+if [ $size -ne 0 ] ; then
+	echo "FAIL: got something back when should have hung up"
+	cat /tmp/lwscap
+	exit 1
+fi
+
+echo
+echo "---- directory attack 1 (/../../../../etc/passwd should be /etc/passswd)"
+rm -f /tmp/lwscap
+echo -e "GET /../../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check
+size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
+if [ $size -ne 0 ] ; then
+	echo "FAIL: got something back when should have hung up"
+	exit 1
+fi
+
+echo
+echo "---- directory attack 2 (/../ should be /)"
+rm -f /tmp/lwscap
+echo -e "GET /../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check
 diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
 if [ $? -ne 0 ] ; then
 	echo "FAIL: got something other than test.html back"
@@ -132,15 +155,71 @@ if [ $? -ne 0 ] ; then
 fi
 
 echo
-echo "---- directory attack"
+echo "---- directory attack 3 (/./ should be /)"
 rm -f /tmp/lwscap
-echo -e "GET ../../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e "GET /./ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
 diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
 if [ $? -ne 0 ] ; then
 	echo "FAIL: got something other than test.html back"
 	exit 1
 fi
+
+echo
+echo "---- directory attack 4 (/blah/.. should be /blah/)"
+rm -f /tmp/lwscap
+echo -e "GET /blah/.. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check
+size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
+if [ $size -ne 0 ] ; then
+	echo "FAIL: got something back when should have hung up"
+	exit 1
+fi
+
+echo
+echo "---- directory attack 5 (/blah/../ should be /blah/)"
+rm -f /tmp/lwscap
+echo -e "GET /blah/../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check
+size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
+if [ $size -ne 0 ] ; then
+	echo "FAIL: got something back when should have hung up"
+	exit 1
+fi
+
+echo
+echo "---- directory attack 6 (/blah/../. should be /blah/)"
+rm -f /tmp/lwscap
+echo -e "GET /blah/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check
+size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
+if [ $size -ne 0 ] ; then
+	echo "FAIL: got something back when should have hung up"
+	exit 1
+fi
+
+echo
+echo "---- directory attack 7 (/%2e%2e%2f../../../etc/passwd should be /etc/passswd)"
+rm -f /tmp/lwscap
+echo -e "GET /%2e%2e%2f../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check
+size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
+if [ $size -ne 0 ] ; then
+	echo "FAIL: got something back when should have hung up"
+	exit 1
+fi
+
+echo
+echo "---- directory attack 7 (%2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd should be /etc/passswd)"
+rm -f /tmp/lwscap
+echo -e "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check
+size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
+if [ $size -ne 0 ] ; then
+	echo "FAIL: got something back when should have hung up"
+	exit 1
+fi
+
 
 echo
 echo "--- survived"

@@ -250,7 +250,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			}
 			wsi->u.hdr.esc_stash = c;
 			wsi->u.hdr.ues = URIES_SEEN_PERCENT_H1;
-			break;
+			goto swallow;
 			
 		case URIES_SEEN_PERCENT_H1:
 			if (char_to_hex(c) < 0) {
@@ -265,12 +265,14 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			}
 			c = (char_to_hex(wsi->u.hdr.esc_stash) << 4) |
 					char_to_hex(c);
+			wsi->u.hdr.ues = URIES_IDLE;
 			break;
 		}
 
 		/*
 		 * special URI processing... 
-		 *  convert /.. or /... etc to /
+		 *  convert /.. or /... or /../ etc to /
+		 *  convert /./ to /
 		 *  convert // or /// etc to /
 		 *  leave /.dir or whatever alone
 		 */
@@ -298,6 +300,11 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT_DOT;
 				goto swallow;
 			}
+			/* change /./ to / */
+			if (c == '/') {
+				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
+				goto swallow;
+			}
 			/* it was like /.dir ... regurgitate the . */
 			wsi->u.hdr.ups = URIPS_IDLE;
 			issue_char(wsi, '.');
@@ -306,6 +313,9 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		case URIPS_SEEN_SLASH_DOT_DOT:
 			/* swallow prior .. chars and any subsequent . */
 			if (c == '.')
+				goto swallow;
+			/* last issued was /, so another / == // */
+			if (c == '/')
 				goto swallow;
 			else /* last we issued was / so SEEN_SLASH */
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH;

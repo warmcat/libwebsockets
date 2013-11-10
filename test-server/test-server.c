@@ -210,9 +210,11 @@ static int callback_http(struct libwebsocket_context *context,
 
 		/* if not, send a file the easy way */
 		strcpy(buf, resource_path);
-		if (strcmp(in, "/"))
+		if (strcmp(in, "/")) {
+			if (*((const char *)in) != '/')
+				strcat(buf, "/");
 			strncat(buf, in, sizeof(buf) - strlen(resource_path));
-		else /* default file to serve */
+		} else /* default file to serve */
 			strcat(buf, "/test.html");
 		buf[sizeof(buf) - 1] = '\0';
 		mimetype = get_mimetype(buf);
