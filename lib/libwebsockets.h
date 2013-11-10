@@ -127,6 +127,8 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 
 #endif
 
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+
 enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT = 2,
 	LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME = 4,
@@ -392,6 +394,34 @@ enum lws_close_status {
 	LWS_CLOSE_STATUS_EXTENSION_REQUIRED = 1010,
 	LWS_CLOSE_STATUS_UNEXPECTED_CONDITION = 1011,
 	LWS_CLOSE_STATUS_TLS_FAILURE = 1015,
+};
+
+enum http_status {
+	HTTP_STATUS_BAD_REQUEST = 400,
+	HTTP_STATUS_UNAUTHORIZED,
+	HTTP_STATUS_PAYMENT_REQUIRED,
+	HTTP_STATUS_FORBIDDEN,
+	HTTP_STATUS_NOT_FOUND,
+	HTTP_STATUS_METHOD_NOT_ALLOWED,
+	HTTP_STATUS_NOT_ACCEPTABLE,
+	HTTP_STATUS_PROXY_AUTH_REQUIRED,
+	HTTP_STATUS_REQUEST_TIMEOUT,
+	HTTP_STATUS_CONFLICT,
+	HTTP_STATUS_GONE,
+	HTTP_STATUS_LENGTH_REQUIRED,
+	HTTP_STATUS_PRECONDITION_FAILED,
+	HTTP_STATUS_REQ_ENTITY_TOO_LARGE,
+	HTTP_STATUS_REQ_URI_TOO_LONG,
+	HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
+	HTTP_STATUS_REQ_RANGE_NOT_SATISFIABLE,
+	HTTP_STATUS_EXPECTATION_FAILED,
+
+	HTTP_STATUS_INTERNAL_SERVER_ERROR = 500,
+	HTTP_STATUS_NOT_IMPLEMENTED,
+	HTTP_STATUS_BAD_GATEWAY,
+	HTTP_STATUS_SERVICE_UNAVAILABLE,
+	HTTP_STATUS_GATEWAY_TIMEOUT,
+	HTTP_STATUS_HTTP_VERSION_NOT_SUPPORTED,
 };
 
 struct libwebsocket;
@@ -939,6 +969,11 @@ libwebsockets_serve_http_file(struct libwebsocket_context *context,
 LWS_VISIBLE LWS_EXTERN int
 libwebsockets_serve_http_file_fragment(struct libwebsocket_context *context,
 			struct libwebsocket *wsi);
+
+LWS_VISIBLE int libwebsockets_return_http_status(
+		struct libwebsocket_context *context,
+			struct libwebsocket *wsi, unsigned int code,
+							const char *html_body);
 
 LWS_VISIBLE LWS_EXTERN const struct libwebsocket_protocols *
 libwebsockets_get_protocol(struct libwebsocket *wsi);

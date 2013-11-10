@@ -139,6 +139,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 			memset(&wsi->u, 0, sizeof(wsi->u));
 			wsi->mode = LWS_CONNMODE_HTTP_SERVING_ACCEPTED;
 			wsi->state = WSI_STATE_HTTP;
+			wsi->u.http.fd = -1;
 
 			/* expose it at the same offset as u.hdr */
 			wsi->u.http.ah = ah;

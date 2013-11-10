@@ -107,7 +107,7 @@ check
 
 echo
 echo "---- good request but http payload coming too (should be ignored and test.html served)"
-echo -e "GET blah HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD........................................" \
+echo -e "GET /test.html HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD........................................" \
 	"......................................................................................................................." \
  	"......................................................................................................................." \
  	"......................................................................................................................." \
@@ -125,10 +125,9 @@ echo -e "GET blah HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD.......................
  	"......................................................................................................................." \
 	 | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
-size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
-if [ $size -ne 0 ] ; then
-	echo "FAIL: got something back when should have hung up"
-	cat /tmp/lwscap
+diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
+if [ $? -ne 0 ] ; then
+	echo "FAIL: got something other than test.html back"
 	exit 1
 fi
 
@@ -137,9 +136,8 @@ echo "---- directory attack 1 (/../../../../etc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
 echo -e "GET /../../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
-size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
-if [ $size -ne 0 ] ; then
-	echo "FAIL: got something back when should have hung up"
+if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
+	echo "FAIL: should have told forbidden (test server has no dirs)"
 	exit 1
 fi
 
@@ -170,9 +168,8 @@ echo "---- directory attack 4 (/blah/.. should be /blah/)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/.. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
-size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
-if [ $size -ne 0 ] ; then
-	echo "FAIL: got something back when should have hung up"
+if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
+	echo "FAIL: should have told forbidden (test server has no dirs)"
 	exit 1
 fi
 
@@ -181,9 +178,8 @@ echo "---- directory attack 5 (/blah/../ should be /blah/)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
-size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
-if [ $size -ne 0 ] ; then
-	echo "FAIL: got something back when should have hung up"
+if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
+	echo "FAIL: should have told forbidden (test server has no dirs)"
 	exit 1
 fi
 
@@ -192,9 +188,8 @@ echo "---- directory attack 6 (/blah/../. should be /blah/)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
-size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
-if [ $size -ne 0 ] ; then
-	echo "FAIL: got something back when should have hung up"
+if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
+	echo "FAIL: should have told forbidden (test server has no dirs)"
 	exit 1
 fi
 
@@ -203,9 +198,8 @@ echo "---- directory attack 7 (/%2e%2e%2f../../../etc/passwd should be /etc/pass
 rm -f /tmp/lwscap
 echo -e "GET /%2e%2e%2f../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
-size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
-if [ $size -ne 0 ] ; then
-	echo "FAIL: got something back when should have hung up"
+if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
+	echo "FAIL: should have told forbidden (test server has no dirs)"
 	exit 1
 fi
 
@@ -214,12 +208,10 @@ echo "---- directory attack 7 (%2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd should be
 rm -f /tmp/lwscap
 echo -e "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
-size=`stat /tmp/lwscap | grep Size: | tr -s ' ' | cut -d' ' -f3`
-if [ $size -ne 0 ] ; then
-	echo "FAIL: got something back when should have hung up"
+if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
+	echo "FAIL: should have told forbidden (test server has no dirs)"
 	exit 1
 fi
-
 
 echo
 echo "--- survived"

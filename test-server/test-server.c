@@ -152,6 +152,19 @@ static int callback_http(struct libwebsocket_context *context,
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 
+		if (len < 1) {
+			libwebsockets_return_http_status(context, wsi,
+						HTTP_STATUS_BAD_REQUEST, NULL);
+			return -1;
+		}
+
+		/* this server has no concept of directories */
+		if (strchr((const char *)in + 1, '/')) {
+			libwebsockets_return_http_status(context, wsi,
+						HTTP_STATUS_FORBIDDEN, NULL);
+			return -1;
+		}
+
 		/* check for the "send a big file by hand" example case */
 
 		if (!strcmp((const char *)in, "/leaf.jpg")) {
@@ -217,9 +230,13 @@ static int callback_http(struct libwebsocket_context *context,
 		} else /* default file to serve */
 			strcat(buf, "/test.html");
 		buf[sizeof(buf) - 1] = '\0';
+
+		/* refuse to serve files we don't understand */
 		mimetype = get_mimetype(buf);
 		if (!mimetype) {
 			lwsl_err("Unknown mimetype for %s\n", buf);
+			libwebsockets_return_http_status(context, wsi,
+				      HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE, NULL);
 			return -1;
 		}
 

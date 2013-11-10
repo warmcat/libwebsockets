@@ -389,3 +389,142 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 	return 0;
 }
 
+
+static const char *err400[] = {
+	"Bad Request",
+	"Unauthorized",
+	"Payment Required",
+	"Forbidden",
+	"Not Found",
+	"Method Not Allowed",
+	"Not Acceptable",
+	"Proxy Auth Required",
+	"Request Timeout",
+	"Conflict",
+	"Gone",
+	"Length Required",
+	"Precondition Failed",
+	"Request Entity Too Large",
+	"Request URI too Long",
+	"Unsupported Media Type",
+	"Requested Range Not Satisfiable",
+	"Expectation Failed"
+};
+
+static const char *err500[] = {
+	"Internal Server Error",
+	"Not Implemented",
+	"Bad Gateway",
+	"Service Unavailable",
+	"Gateway Timeout",
+	"HTTP Version Not Supported"
+};
+
+/**
+ * libwebsockets_return_http_status() - Return simple http status
+ * @context:		libwebsockets context
+ * @wsi:		Websocket instance (available from user callback)
+ * @code:		Status index, eg, 404
+ * @html_body:		User-readable HTML description, or NULL
+ *
+ *	Helper to report HTTP errors back to the client cleanly and
+ *	consistently
+ */
+LWS_VISIBLE int libwebsockets_return_http_status(
+		struct libwebsocket_context *context, struct libwebsocket *wsi,
+				       unsigned int code, const char *html_body)
+{
+	int n, m;
+	const char *description = "";
+
+	if (!html_body)
+		html_body = "";
+
+	if (code >= 400 && code < (400 + ARRAY_SIZE(err400)))
+		description = err400[code - 400];
+	if (code >= 500 && code < (500 + ARRAY_SIZE(err500)))
+		description = err500[code - 500];
+
+	n = sprintf((char *)context->service_buffer,
+		"HTTP/1.0 %u %s\x0d\x0a"
+		"Server: libwebsockets\x0d\x0a"
+		"Mime-Type: text/html\x0d\x0a\x0d\x0a"
+		"<h1>%u %s</h1>%s",
+		code, description, code, description, html_body);
+
+	lwsl_info((const char *)context->service_buffer);
+
+	m = libwebsocket_write(wsi, context->service_buffer, n, LWS_WRITE_HTTP);
+
+	return m;
+}
+
+/**
+ * libwebsockets_serve_http_file() - Send a file back to the client using http
+ * @context:		libwebsockets context
+ * @wsi:		Websocket instance (available from user callback)
+ * @file:		The file to issue over http
+ * @content_type:	The http content type, eg, text/html
+ * @other_headers:	NULL or pointer to \0-terminated other header string
+ *
+ *	This function is intended to be called from the callback in response
+ *	to http requests from the client.  It allows the callback to issue
+ *	local files down the http link in a single step.
+ *
+ *	Returning <0 indicates error and the wsi should be closed.  Returning
+ *	>0 indicates the file was completely sent and the wsi should be closed.
+ *	==0 indicates the file transfer is started and needs more service later,
+ *	the wsi should be left alone.
+ */
+
+LWS_VISIBLE int libwebsockets_serve_http_file(
+		struct libwebsocket_context *context,
+			struct libwebsocket *wsi, const char *file,
+			   const char *content_type, const char *other_headers)
+{
+	struct stat stat_buf;
+	unsigned char *p = context->service_buffer;
+	int ret = 0;
+	int n;
+
+	wsi->u.http.fd = open(file, O_RDONLY
+#ifdef WIN32
+			 | _O_BINARY
+#endif
+	);
+
+	if (wsi->u.http.fd < 1) {
+		lwsl_err("Unable to open '%s'\n", file);
+		libwebsockets_return_http_status(context, wsi,
+						HTTP_STATUS_NOT_FOUND, NULL);
+		wsi->u.http.fd = -1;
+		return -1;
+	}
+
+	fstat(wsi->u.http.fd, &stat_buf);
+	wsi->u.http.filelen = stat_buf.st_size;
+	p += sprintf((char *)p,
+"HTTP/1.0 200 OK\x0d\x0aServer: libwebsockets\x0d\x0a""Content-Type: %s\x0d\x0a",
+								  content_type);
+	if (other_headers) {
+		n = strlen(other_headers);
+		memcpy(p, other_headers, n);
+		p += n;
+	}
+	p += sprintf((char *)p,
+		"Content-Length: %u\x0d\x0a\x0d\x0a",
+					(unsigned int)stat_buf.st_size);
+
+	ret = libwebsocket_write(wsi, context->service_buffer,
+				   p - context->service_buffer, LWS_WRITE_HTTP);
+	if (ret != (p - context->service_buffer)) {
+		lwsl_err("_write returned %d from %d\n", ret, (p - context->service_buffer));
+		return -1;
+	}
+
+	wsi->u.http.filepos = 0;
+	wsi->state = WSI_STATE_HTTP_ISSUING_FILE;
+
+	return libwebsockets_serve_http_file_fragment(context, wsi);
+}
+
