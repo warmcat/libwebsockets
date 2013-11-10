@@ -144,6 +144,33 @@ int lws_hdr_simple_create(struct libwebsocket *wsi,
 	return 0;
 }
 
+static char char_to_hex(const char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+
+	return -1;
+}
+
+static int issue_char(struct libwebsocket *wsi, unsigned char c)
+{
+	if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
+		lwsl_warn("excessive header content\n");
+		return -1;
+	}
+	wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = c;
+	if (c)
+		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
+
+	return 0;
+}
+
 int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 {
 	int n;
@@ -188,11 +215,104 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				      wsi->u.hdr.parser_state]].len && c == ' ')
 			break;
 
-		/* special case space terminator for get-uri */
-		if (wsi->u.hdr.parser_state == WSI_TOKEN_GET_URI && c == ' ') {
+		if (wsi->u.hdr.parser_state != WSI_TOKEN_GET_URI)
+			goto check_eol;
+
+		/* special URI processing... end at space */
+
+		if (c == ' ') {
+			/* enforce starting with / */
+			if (!wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len)
+				if (issue_char(wsi, '/') < 0)
+					return -1;
 			c = '\0';
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
+			goto spill;
 		}
+
+		/* special URI processing... convert %xx */
+
+		switch (wsi->u.hdr.ues) {
+		case URIES_IDLE:
+			if (c == '%') {
+				wsi->u.hdr.ues = URIES_SEEN_PERCENT;
+				goto swallow;
+			}
+			break;
+		case URIES_SEEN_PERCENT:
+			if (char_to_hex(c) < 0) {
+				/* regurgitate */
+				if (issue_char(wsi, '%') < 0)
+					return -1;
+				wsi->u.hdr.ues = URIES_IDLE;
+				/* continue on to assess c */
+				break;
+			}
+			wsi->u.hdr.esc_stash = c;
+			wsi->u.hdr.ues = URIES_SEEN_PERCENT_H1;
+			break;
+			
+		case URIES_SEEN_PERCENT_H1:
+			if (char_to_hex(c) < 0) {
+				/* regurgitate */
+				issue_char(wsi, '%');
+				wsi->u.hdr.ues = URIES_IDLE;
+				/* regurgitate + assess */
+				if (libwebsocket_parse(wsi, wsi->u.hdr.esc_stash) < 0)
+					return -1;
+				/* continue on to assess c */
+				break;
+			}
+			c = (char_to_hex(wsi->u.hdr.esc_stash) << 4) |
+					char_to_hex(c);
+			break;
+		}
+
+		/*
+		 * special URI processing... 
+		 *  convert /.. or /... etc to /
+		 *  convert // or /// etc to /
+		 *  leave /.dir or whatever alone
+		 */
+
+		switch (wsi->u.hdr.ups) {
+		case URIPS_IDLE:
+			/* issue the first / always */
+			if (c == '/')
+				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
+			break;
+		case URIPS_SEEN_SLASH:
+			/* swallow subsequent slashes */
+			if (c == '/')
+				goto swallow;
+			/* track and swallow the first . after / */
+			if (c == '.') {
+				wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT;
+				goto swallow;
+			} else
+				wsi->u.hdr.ups = URIPS_IDLE;
+			break;
+		case URIPS_SEEN_SLASH_DOT:
+			/* swallow second . */
+			if (c == '.') {
+				wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT_DOT;
+				goto swallow;
+			}
+			/* it was like /.dir ... regurgitate the . */
+			wsi->u.hdr.ups = URIPS_IDLE;
+			issue_char(wsi, '.');
+			break;
+			
+		case URIPS_SEEN_SLASH_DOT_DOT:
+			/* swallow prior .. chars and any subsequent . */
+			if (c == '.')
+				goto swallow;
+			else /* last we issued was / so SEEN_SLASH */
+				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
+			break;
+		}
+
+check_eol:
 
 		/* bail at EOL */
 		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE &&
@@ -202,15 +322,10 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			lwsl_parser("*\n");
 		}
 
-		if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
-			lwsl_warn("excessive header content\n");
+spill:
+		if (issue_char(wsi, c) < 0)
 			return -1;
-		}
-		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = c;
-		if (c)
-			wsi->u.hdr.ah->frags[
-					wsi->u.hdr.ah->next_frag_index].len++;
-
+swallow:
 		/* per-protocol end of headers management */
 
 		if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE)

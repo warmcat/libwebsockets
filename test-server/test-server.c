@@ -99,17 +99,28 @@ struct serveable {
 	const char *mimetype;
 }; 
 
-static const struct serveable whitelist[] = {
-	{ "/favicon.ico", "image/x-icon" },
-	{ "/libwebsockets.org-logo.png", "image/png" },
-
-	/* last one is the default served if no match */
-	{ "/test.html", "text/html" },
-};
-
 struct per_session_data__http {
 	int fd;
 };
+
+const char * get_mimetype(const char *file)
+{
+	int n = strlen(file);
+
+	if (n < 5)
+		return NULL;
+
+	if (!strcmp(&file[n - 4], ".ico"))
+		return "image/x-icon";
+
+	if (!strcmp(&file[n - 4], ".png"))
+		return "image/png";
+
+	if (!strcmp(&file[n - 5], ".html"))
+		return "text/html";
+
+	return NULL;
+}
 
 /* this protocol server (always the first one) just knows how to do HTTP */
 
@@ -133,6 +144,7 @@ static int callback_http(struct libwebsocket_context *context,
 	struct stat stat_buf;
 	struct per_session_data__http *pss =
 			(struct per_session_data__http *)user;
+	const char *mimetype;
 #ifdef EXTERNAL_POLL
 	int fd = (int)(long)in;
 #endif
@@ -197,12 +209,17 @@ static int callback_http(struct libwebsocket_context *context,
 		}
 
 		/* if not, send a file the easy way */
-
-		for (n = 0; n < (sizeof(whitelist) / sizeof(whitelist[0]) - 1); n++)
-			if (in && strcmp((const char *)in, whitelist[n].urlpath) == 0)
-				break;
-
-		sprintf(buf, "%s%s", resource_path, whitelist[n].urlpath);
+		strcpy(buf, resource_path);
+		if (strcmp(in, "/"))
+			strncat(buf, in, sizeof(buf) - strlen(resource_path));
+		else /* default file to serve */
+			strcat(buf, "/test.html");
+		buf[sizeof(buf) - 1] = '\0';
+		mimetype = get_mimetype(buf);
+		if (!mimetype) {
+			lwsl_err("Unknown mimetype for %s\n", buf);
+			return -1;
+		}
 
 		/* demostrates how to set a cookie on / */
 
@@ -223,7 +240,7 @@ static int callback_http(struct libwebsocket_context *context,
 		}
 
 		if (libwebsockets_serve_http_file(context, wsi, buf,
-					whitelist[n].mimetype, other_headers))
+						mimetype, other_headers))
 			return -1; /* through completion or error, close the socket */
 
 		/*

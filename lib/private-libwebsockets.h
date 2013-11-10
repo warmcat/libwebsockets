@@ -299,6 +299,18 @@ struct libwebsocket_context {
 	void *user_space;
 };
 
+enum uri_path_states {
+	URIPS_IDLE,
+	URIPS_SEEN_SLASH,
+	URIPS_SEEN_SLASH_DOT,
+	URIPS_SEEN_SLASH_DOT_DOT,
+};
+
+enum uri_esc_states {
+	URIES_IDLE,
+	URIES_SEEN_PERCENT,
+	URIES_SEEN_PERCENT_H1,
+};
 
 /*
  * This is totally opaque to code using the library.  It's exported as a
@@ -335,6 +347,9 @@ struct _lws_header_related {
 	struct allocated_headers *ah;
 	short lextable_pos;
 	unsigned char parser_state; /* enum lws_token_indexes */
+	enum uri_path_states ups;
+	enum uri_esc_states ues;
+	char esc_stash;
 };
 
 struct _lws_websocket_related {
