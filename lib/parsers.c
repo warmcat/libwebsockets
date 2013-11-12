@@ -297,6 +297,20 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		case URIPS_SEEN_SLASH_DOT:
 			/* swallow second . */
 			if (c == '.') {
+				/* 
+				 * back up one dir level if possible
+				 * safe against header fragmentation because
+				 * the method URI can only be in 1 fragment
+				 */
+				if (wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len > 2) {
+					wsi->u.hdr.ah->pos--;
+					wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len--;
+					do {
+						wsi->u.hdr.ah->pos--;
+						wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len--;
+					} while (wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len > 1 &&
+							wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos] != '/');
+				}
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT_DOT;
 				goto swallow;
 			}

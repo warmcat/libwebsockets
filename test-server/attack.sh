@@ -164,32 +164,35 @@ if [ $? -ne 0 ] ; then
 fi
 
 echo
-echo "---- directory attack 4 (/blah/.. should be /blah/)"
+echo "---- directory attack 4 (/blah/.. should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/.. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
-if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
-	echo "FAIL: should have told forbidden (test server has no dirs)"
+diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
+if [ $? -ne 0 ] ; then
+	echo "FAIL: got something other than test.html back"
 	exit 1
 fi
 
 echo
-echo "---- directory attack 5 (/blah/../ should be /blah/)"
+echo "---- directory attack 5 (/blah/../ should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
-if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
-	echo "FAIL: should have told forbidden (test server has no dirs)"
+diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
+if [ $? -ne 0 ] ; then
+	echo "FAIL: got something other than test.html back"
 	exit 1
 fi
 
 echo
-echo "---- directory attack 6 (/blah/../. should be /blah/)"
+echo "---- directory attack 6 (/blah/../. should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check
-if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
-	echo "FAIL: should have told forbidden (test server has no dirs)"
+diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
+if [ $? -ne 0 ] ; then
+	echo "FAIL: got something other than test.html back"
 	exit 1
 fi
 
