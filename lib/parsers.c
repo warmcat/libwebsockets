@@ -334,6 +334,9 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			else /* last we issued was / so SEEN_SLASH */
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
 			break;
+		case URIPS_ARGUMENTS:
+			/* leave them alone */
+			break;
 		}
 
 check_eol:
@@ -344,6 +347,28 @@ check_eol:
 			c = '\0';
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 			lwsl_parser("*\n");
+		}
+
+		if (c == '?') { /* start of URI arguments */
+			/* seal off uri header */
+			wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
+
+			/* move to using WSI_TOKEN_HTTP_URI_ARGS */
+			wsi->u.hdr.ah->next_frag_index++;
+			wsi->u.hdr.ah->frags[
+				wsi->u.hdr.ah->next_frag_index].offset =
+							     wsi->u.hdr.ah->pos;
+			wsi->u.hdr.ah->frags[
+					wsi->u.hdr.ah->next_frag_index].len = 0;
+			wsi->u.hdr.ah->frags[
+			    wsi->u.hdr.ah->next_frag_index].next_frag_index = 0;
+
+			wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] =
+						 wsi->u.hdr.ah->next_frag_index;
+
+			/* defeat normal uri path processing */
+			wsi->u.hdr.ups = URIPS_ARGUMENTS;
+			goto swallow;
 		}
 
 spill:

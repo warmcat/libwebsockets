@@ -304,6 +304,7 @@ enum uri_path_states {
 	URIPS_SEEN_SLASH,
 	URIPS_SEEN_SLASH_DOT,
 	URIPS_SEEN_SLASH_DOT_DOT,
+	URIPS_ARGUMENTS,
 };
 
 enum uri_esc_states {

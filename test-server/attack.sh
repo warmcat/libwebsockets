@@ -16,6 +16,29 @@ function check {
 		exit 1
 	fi
 	dd if=$LOG bs=1 skip=$LEN 2>/dev/null
+
+	if [ "$1" = "default" ] ; then
+		diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
+		if [ $? -ne 0 ] ; then
+			echo "FAIL: got something other than test.html back"
+			exit 1
+		fi
+	fi
+
+	if [ "$1" = "forbidden" ] ; then
+		if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
+			echo "FAIL: should have told forbidden (test server has no dirs)"
+			exit 1
+		fi
+	fi
+
+	if [ "$1" == "args" ] ; then
+		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep Uri.Args\: | tr -s ' ' | cut -d' ' -f4-`"
+		if [ "$a" != "$2" ] ; then
+			echo "Args '$a' not $2"
+			exit 1
+		fi
+	fi
 	LEN=`stat $LOG -c %s`
 }
 
@@ -29,6 +52,19 @@ while [ -z "`grep Listening $LOG`" ] ; do
 	sleep 0.5s
 done
 check
+
+echo
+echo "---- ? processing (%2f%2e%2e%2f%2e./test.html?arg=1)"
+rm -f /tmp/lwscap
+echo -e "GET %2f%2e%2e%2f%2e./test.html?arg=1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check args "arg=1"
+
+echo
+echo "---- ? processing (%2f%2e%2e%2f%2e./test.html?arg=/../.)"
+rm -f /tmp/lwscap
+echo -e "GET %2f%2e%2e%2f%2e./test.html?arg=/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check args "arg=/../."
+
 
 echo
 echo "---- spam enough crap to not be GET"
@@ -124,99 +160,58 @@ echo -e "GET /test.html HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD.................
  	"......................................................................................................................." \
  	"......................................................................................................................." \
 	 | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check
-diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
-if [ $? -ne 0 ] ; then
-	echo "FAIL: got something other than test.html back"
-	exit 1
-fi
+check default
 
 echo
 echo "---- directory attack 1 (/../../../../etc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
 echo -e "GET /../../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check
-if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
-	echo "FAIL: should have told forbidden (test server has no dirs)"
-	exit 1
-fi
+check forbidden
 
 echo
 echo "---- directory attack 2 (/../ should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check
-diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
-if [ $? -ne 0 ] ; then
-	echo "FAIL: got something other than test.html back"
-	exit 1
-fi
+check default
 
 echo
 echo "---- directory attack 3 (/./ should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /./ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check
-diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
-if [ $? -ne 0 ] ; then
-	echo "FAIL: got something other than test.html back"
-	exit 1
-fi
+check default
 
 echo
 echo "---- directory attack 4 (/blah/.. should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/.. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check
-diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
-if [ $? -ne 0 ] ; then
-	echo "FAIL: got something other than test.html back"
-	exit 1
-fi
+check default
 
 echo
 echo "---- directory attack 5 (/blah/../ should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check
-diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
-if [ $? -ne 0 ] ; then
-	echo "FAIL: got something other than test.html back"
-	exit 1
-fi
+check default
 
 echo
 echo "---- directory attack 6 (/blah/../. should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check
-diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
-if [ $? -ne 0 ] ; then
-	echo "FAIL: got something other than test.html back"
-	exit 1
-fi
+check default
 
 echo
 echo "---- directory attack 7 (/%2e%2e%2f../../../etc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
 echo -e "GET /%2e%2e%2f../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check
-if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
-	echo "FAIL: should have told forbidden (test server has no dirs)"
-	exit 1
-fi
+check forbidden
 
 echo
 echo "---- directory attack 7 (%2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
 echo -e "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check
-if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
-	echo "FAIL: should have told forbidden (test server has no dirs)"
-	exit 1
-fi
+check forbidden
+
 
 echo
-echo "--- survived"
+echo "--- survived OK ---"
 kill -2 $CPID
 
