@@ -16,42 +16,44 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* set of parsable strings */
+/* set of parsable strings -- ALL LOWER CASE */
 
 const char *set[] = {
-	"GET ",
-	"Host:",
-	"Connection:",
-	"Sec-WebSocket-Key1:",
-	"Sec-WebSocket-Key2:",
-	"Sec-WebSocket-Protocol:",
-	"Upgrade:",
-	"Origin:",
-	"Sec-WebSocket-Draft:",
+	"get ",
+	"host:",
+	"connection:",
+	"sec-websocket-key1:",
+	"sec-websocket-key2:",
+	"sec-websocket-protocol:",
+	"upgrade:",
+	"origin:",
+	"sec-websocket-draft:",
 	"\x0d\x0a",
 
-	"Sec-WebSocket-Key:",
-	"Sec-WebSocket-Version:",
-	"Sec-WebSocket-Origin:",
+	"sec-websocket-key:",
+	"sec-websocket-version:",
+	"sec-websocket-origin:",
 
-	"Sec-WebSocket-Extensions:",
+	"sec-websocket-extensions:",
 
-	"Sec-WebSocket-Accept:",
-	"Sec-WebSocket-Nonce:",
-	"HTTP/1.1 ",
+	"sec-websocket-accept:",
+	"sec-websocket-nonce:",
+	"http/1.1 ",
 
-	"Accept:",
-	"If-Modified-Since:",
-	"Accept-Encoding:",
-	"Accept-Language:",
-	"Pragma:",
-	"Cache-Control:",
-	"Authorization:",
-	"Cookie:",
-	"Content-Type:",
-	"Date:",
-	"Range:",
-	"Referer:"
+	"accept:",
+	"if-modified-since:",
+	"accept-encoding:",
+	"accept-language:",
+	"pragma:",
+	"cache-control:",
+	"authorization:",
+	"cookie:",
+	"content-type:",
+	"date:",
+	"range:",
+	"referer:",
+	"", /* not matchable */
+
 };
 
 unsigned char lextable[] = {
@@ -103,6 +105,11 @@ int main(void)
 		m = 0;
 		walk = 0;
 		prev = 0;
+
+		if (set[n][0] == '\0') {
+			n++;
+			continue;
+		}
 
 		while (set[n][m]) {
 
@@ -188,6 +195,9 @@ again:
 	for (n = 0; n < sizeof(set) / sizeof(set[0]); n++) {
 		walk = 0;
 		m = 0;
+
+		if (set[n][0] == '\0')
+			continue;
 
 		fprintf(stderr, "Trying '%s'\n", set[n]);
 

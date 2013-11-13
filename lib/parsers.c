@@ -36,7 +36,8 @@ int lextable_decode(int pos, char c)
 		if (lextable[pos + 1] == 0) /* terminal marker */
 			return pos;
 
-		if ((lextable[pos] & 0x7f) == c)
+		/* case insensitive - RFC2616 */
+		if ((lextable[pos] & 0x7f) == tolower(c))
 			return pos + (lextable[pos + 1] << 1);
 
 		if (lextable[pos] & 0x80)
