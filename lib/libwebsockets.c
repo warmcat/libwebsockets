@@ -2060,6 +2060,40 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		 * helping the client to verify server identity
 		 */
 
+#ifndef NO_CLIENT_CERT_SUPPORT	/* support for client-side certificate authentication */
+		if (info->ssl_cert_filepath) {
+			n = SSL_CTX_use_certificate_chain_file(context->ssl_client_ctx,
+				info->ssl_cert_filepath);
+			if (n != 1) {
+				lwsl_err("problem getting cert '%s' %lu: %s\n",
+					info->ssl_cert_filepath,
+					ERR_get_error(),
+					ERR_error_string(ERR_get_error(),
+					(char *)context->service_buffer));
+				goto bail;
+			}
+		} 
+		if (info->ssl_private_key_filepath) {
+			/* set the private key from KeyFile */
+			if (SSL_CTX_use_PrivateKey_file(context->ssl_client_ctx,
+				     info->ssl_private_key_filepath,
+							       SSL_FILETYPE_PEM) != 1) {
+				lwsl_err("ssl problem getting key '%s' %lu: %s\n",
+					info->ssl_private_key_filepath,
+						ERR_get_error(),
+						ERR_error_string(ERR_get_error(),
+						      (char *)context->service_buffer));
+				goto bail;
+			}
+
+			/* verify private key */
+			if (!SSL_CTX_check_private_key(context->ssl_client_ctx)) {
+				lwsl_err("Private SSL key doesn't match cert\n");
+				goto bail;
+			}
+
+		} 
+#endif
 		context->protocols[0].callback(context, NULL,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
 			context->ssl_client_ctx, NULL, 0);
