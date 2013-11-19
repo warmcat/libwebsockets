@@ -418,6 +418,13 @@ struct libwebsocket {
 		struct _lws_header_related hdr;
 		struct _lws_websocket_related ws;
 	} u;
+	
+	/* how much they said they would send */
+	int request_content_length;
+	/* malloced buffer to store the body of a HTTP request */
+	char *request_body;
+	/* where we are inside the buffer */
+	int request_body_index;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;

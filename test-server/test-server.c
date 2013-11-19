@@ -115,6 +115,7 @@ dump_handshake_info(struct libwebsocket *wsi)
 	int n;
 	static const char *token_names[] = {
 		/*[WSI_TOKEN_GET_URI]		=*/ "GET URI",
+		/*[WSI_TOKEN_POST_URI]		=*/ "POST URI",
 		/*[WSI_TOKEN_HOST]		=*/ "Host",
 		/*[WSI_TOKEN_CONNECTION]	=*/ "Connection",
 		/*[WSI_TOKEN_KEY1]		=*/ "key 1",
@@ -146,6 +147,7 @@ dump_handshake_info(struct libwebsocket *wsi)
 		"Cache-Control:",
 		"Authorization:",
 		"Cookie:",
+		"Content-Length:",
 		"Content-Type:",
 		"Date:",
 		"Range:",
@@ -285,7 +287,7 @@ static int callback_http(struct libwebsocket_context *context,
 			libwebsocket_callback_on_writable(context, wsi);
 			break;
 		}
-
+		
 		/* if not, send a file the easy way */
 		strcpy(buf, resource_path);
 		if (strcmp(in, "/")) {

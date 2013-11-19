@@ -232,6 +232,7 @@ struct lws_tokens {
 
 enum lws_token_indexes {
 	WSI_TOKEN_GET_URI,
+	WSI_TOKEN_POST_URI,
 	WSI_TOKEN_HOST,
 	WSI_TOKEN_CONNECTION,
 	WSI_TOKEN_KEY1,
@@ -264,6 +265,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP_CACHE_CONTROL,
 	WSI_TOKEN_HTTP_AUTHORIZATION,
 	WSI_TOKEN_HTTP_COOKIE,
+	WSI_TOKEN_HTTP_CONTENT_LENGTH,
 	WSI_TOKEN_HTTP_CONTENT_TYPE,
 	WSI_TOKEN_HTTP_DATE,
 	WSI_TOKEN_HTTP_RANGE,
@@ -1071,6 +1073,9 @@ lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h);
 LWS_VISIBLE LWS_EXTERN int
 lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
 						enum lws_token_indexes h);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_body_copy(struct libwebsocket *wsi, char *dest, int len);
 
 /*
  * Note: this is not normally needed as a user api.  It's provided in case it is
