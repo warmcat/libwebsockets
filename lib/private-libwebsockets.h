@@ -182,6 +182,7 @@ enum lws_connection_states {
 	WSI_STATE_HTTP,
 	WSI_STATE_HTTP_ISSUING_FILE,
 	WSI_STATE_HTTP_HEADERS,
+	WSI_STATE_HTTP_BODY,
 	WSI_STATE_DEAD_SOCKET,
 	WSI_STATE_ESTABLISHED,
 	WSI_STATE_CLIENT_UNCONNECTED,
@@ -342,6 +343,11 @@ struct _lws_http_mode_related {
 	int fd;
 	unsigned long filepos;
 	unsigned long filelen;
+
+	int content_length;
+	int content_length_seen;
+	int body_index;
+	unsigned char *post_buffer;
 };
 
 struct _lws_header_related {

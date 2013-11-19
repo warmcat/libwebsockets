@@ -115,6 +115,7 @@ dump_handshake_info(struct libwebsocket *wsi)
 	int n;
 	static const char *token_names[] = {
 		/*[WSI_TOKEN_GET_URI]		=*/ "GET URI",
+		/*[WSI_TOKEN_POST_URI]		=*/ "POST URI",
 		/*[WSI_TOKEN_HOST]		=*/ "Host",
 		/*[WSI_TOKEN_CONNECTION]	=*/ "Connection",
 		/*[WSI_TOKEN_KEY1]		=*/ "key 1",
@@ -146,6 +147,7 @@ dump_handshake_info(struct libwebsocket *wsi)
 		"Cache-Control:",
 		"Authorization:",
 		"Cookie:",
+		"Content-Length:",
 		"Content-Type:",
 		"Date:",
 		"Range:",
@@ -229,6 +231,10 @@ static int callback_http(struct libwebsocket_context *context,
 						HTTP_STATUS_FORBIDDEN, NULL);
 			return -1;
 		}
+
+		/* if a legal POST URL, let it continue and accept data */
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
+			return 0;
 
 		/* check for the "send a big file by hand" example case */
 
@@ -334,6 +340,25 @@ static int callback_http(struct libwebsocket_context *context,
 		 */
 
 		break;
+
+	case LWS_CALLBACK_HTTP_BODY:
+		strncpy(buf, in, 20);
+		buf[20] = '\0';
+		if (len < 20)
+			buf[len] = '\0';
+
+		lwsl_notice("LWS_CALLBACK_HTTP_BODY: %s... len %d\n",
+				(const char *)buf, (int)len);
+
+		break;
+
+	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		lwsl_notice("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
+		/* the whole of the sent body arried, close the connection */
+		libwebsockets_return_http_status(context, wsi,
+						HTTP_STATUS_OK, NULL);
+
+		return -1;
 
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
 //		lwsl_info("LWS_CALLBACK_HTTP_FILE_COMPLETION seen\n");

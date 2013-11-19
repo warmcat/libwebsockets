@@ -217,12 +217,18 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	}
 
 
-	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED && wsi->u.http.fd >= 0) {
-		lwsl_debug("closing http fd %d\n", wsi->u.http.fd);
-		close(wsi->u.http.fd);
-		wsi->u.http.fd = -1;
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
+	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
+		if (wsi->u.http.post_buffer) {
+			free(wsi->u.http.post_buffer);
+			wsi->u.http.post_buffer = NULL;
+		}
+		if (wsi->u.http.fd >= 0) {
+			lwsl_debug("closing http fd %d\n", wsi->u.http.fd);
+			close(wsi->u.http.fd);
+			wsi->u.http.fd = -1;
+			context->protocols[0].callback(context, wsi,
+				LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
+		}
 	}
 
 #ifndef LWS_NO_EXTENSIONS

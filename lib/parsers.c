@@ -178,6 +178,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 	switch (wsi->u.hdr.parser_state) {
 	case WSI_TOKEN_GET_URI:
+	case WSI_TOKEN_POST_URI:
 	case WSI_TOKEN_HOST:
 	case WSI_TOKEN_CONNECTION:
 	case WSI_TOKEN_KEY1:
@@ -202,6 +203,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_HTTP_CACHE_CONTROL:
 	case WSI_TOKEN_HTTP_AUTHORIZATION:
 	case WSI_TOKEN_HTTP_COOKIE:
+	case WSI_TOKEN_HTTP_CONTENT_LENGTH:
 	case WSI_TOKEN_HTTP_CONTENT_TYPE:
 	case WSI_TOKEN_HTTP_DATE:
 	case WSI_TOKEN_HTTP_RANGE:
@@ -216,7 +218,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				      wsi->u.hdr.parser_state]].len && c == ' ')
 			break;
 
-		if (wsi->u.hdr.parser_state != WSI_TOKEN_GET_URI)
+		if ((wsi->u.hdr.parser_state != WSI_TOKEN_GET_URI) && (wsi->u.hdr.parser_state != WSI_TOKEN_POST_URI))
 			goto check_eol;
 
 		/* special URI processing... end at space */
@@ -391,7 +393,7 @@ swallow:
 
 		if (wsi->u.hdr.lextable_pos < 0) {
 			/* this is not a header we know about */
-			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI] ||
+			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI] || wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI] ||
 				    wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP]) {
 				/*
 				 * altready had the method, no idea what
@@ -419,6 +421,10 @@ swallow:
 			if (n == WSI_TOKEN_GET_URI &&
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
 				lwsl_warn("Duplicated GET\n");
+				return -1;
+			} else if (n == WSI_TOKEN_POST_URI &&
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI]) {
+				lwsl_warn("Duplicated POST\n");
 				return -1;
 			}
 
@@ -477,6 +483,7 @@ start_fragment:
 		/* skipping arg part of a name we didn't recognize */
 	case WSI_TOKEN_SKIPPING:
 		lwsl_parser("WSI_TOKEN_SKIPPING '%c'\n", c);
+
 		if (c == '\x0d')
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 		break;
@@ -490,6 +497,7 @@ start_fragment:
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
 		break;
 		/* we're done, ignore anything else */
+
 	case WSI_PARSING_COMPLETE:
 		lwsl_parser("WSI_PARSING_COMPLETE '%c'\n", c);
 		break;

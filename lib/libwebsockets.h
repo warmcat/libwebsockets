@@ -147,6 +147,8 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLIENT_WRITEABLE,
 	LWS_CALLBACK_SERVER_WRITEABLE,
 	LWS_CALLBACK_HTTP,
+	LWS_CALLBACK_HTTP_BODY,
+	LWS_CALLBACK_HTTP_BODY_COMPLETION,
 	LWS_CALLBACK_HTTP_FILE_COMPLETION,
 	LWS_CALLBACK_HTTP_WRITEABLE,
 	LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
@@ -232,6 +234,7 @@ struct lws_tokens {
 
 enum lws_token_indexes {
 	WSI_TOKEN_GET_URI,
+	WSI_TOKEN_POST_URI,
 	WSI_TOKEN_HOST,
 	WSI_TOKEN_CONNECTION,
 	WSI_TOKEN_KEY1,
@@ -264,6 +267,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP_CACHE_CONTROL,
 	WSI_TOKEN_HTTP_AUTHORIZATION,
 	WSI_TOKEN_HTTP_COOKIE,
+	WSI_TOKEN_HTTP_CONTENT_LENGTH,
 	WSI_TOKEN_HTTP_CONTENT_TYPE,
 	WSI_TOKEN_HTTP_DATE,
 	WSI_TOKEN_HTTP_RANGE,
@@ -398,6 +402,8 @@ enum lws_close_status {
 };
 
 enum http_status {
+	HTTP_STATUS_OK = 200,
+
 	HTTP_STATUS_BAD_REQUEST = 400,
 	HTTP_STATUS_UNAUTHORIZED,
 	HTTP_STATUS_PAYMENT_REQUIRED,
@@ -498,6 +504,12 @@ struct libwebsocket_extension;
  *				That's important because it uses a slot in the
  *				total number of client connections allowed set
  *				by MAX_CLIENTS.
+ *
+ *	LWS_CALLBACK_HTTP_BODY: the next @len bytes data from the http
+ *		request body HTTP connection is now available in @in.
+ *
+ *	LWS_CALLBACK_HTTP_BODY_COMPLETION: the expected amount of http request
+ *		body has been delivered
  *
  *	LWS_CALLBACK_HTTP_WRITEABLE: you can write more down the http protocol
  *		link now.
@@ -918,6 +930,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_AWAITING_EXTENSION_CONNECT_RESPONSE,
 	PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 	PENDING_TIMEOUT_SSL_ACCEPT,
+	PENDING_TIMEOUT_HTTP_CONTENT,
 };
 
 LWS_EXTERN void

@@ -3,6 +3,23 @@ Changelog
 
 (since v1.23)
 
+User api additions
+------------------
+
+POST method is supported
+
+The protocol 0 / HTTP callback can now get two new kinds of callback,
+LWS_CALLBACK_HTTP_BODY (in and len are a chunk of the body of the HTTP request)
+and LWS_CALLBACK_HTTP_BODY_COMPLETION (the expected amount of body has arrived
+and been passed to the user code already).  These callbacks are used with the
+post method (see the test server for details).
+
+The period between the HTTP header completion and the completion of the body
+processing is protected by a 5s timeout.
+
+The chunks are stored in a malloc'd buffer of size protocols[0].rx_buffer_size.
+
+
 User api changes
 ----------------
 
