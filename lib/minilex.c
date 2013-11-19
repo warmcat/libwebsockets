@@ -20,6 +20,7 @@
 
 const char *set[] = {
 	"get ",
+	"post ",
 	"host:",
 	"connection:",
 	"sec-websocket-key1:",
@@ -48,6 +49,7 @@ const char *set[] = {
 	"cache-control:",
 	"authorization:",
 	"cookie:",
+	"content-length:",
 	"content-type:",
 	"date:",
 	"range:",

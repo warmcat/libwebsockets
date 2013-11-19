@@ -113,13 +113,18 @@ libwebsocket_read(struct libwebsocket_context *context,
 
 			/* it's not websocket.... shall we accept it as http? */
 
-			if (!lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) {
+			if (!lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) && !lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
 				lwsl_warn("Missing URI in HTTP request\n");
 				goto bail_nuke_ah;
 			}
 
-			lwsl_info("HTTP request for '%s'\n",
+			if (lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) {
+			    lwsl_info("HTTP GET request for '%s'\n",
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
+			} else if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+			    lwsl_info("HTTP POST request for '%s'\n",
+				lws_hdr_simple_ptr(wsi, WSI_TOKEN_POST_URI));
+			}
 
 			if (libwebsocket_ensure_user_space(wsi))
 				goto bail_nuke_ah;
@@ -132,8 +137,14 @@ libwebsocket_read(struct libwebsocket_context *context,
 			 */
 
 			ah = wsi->u.hdr.ah;
-			uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI);
-			uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI);
+			if (lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) {
+			    uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI);
+			    uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI);
+			} else  {
+			    /* WSI_TOKEN_POST_URI, no if clause to make compiler happy */
+			    uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_POST_URI);
+			    uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
+			}
 
 			/* union transition */
 			memset(&wsi->u, 0, sizeof(wsi->u));

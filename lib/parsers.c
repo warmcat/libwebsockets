@@ -102,6 +102,17 @@ LWS_VISIBLE int lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
 	return toklen;
 }
 
+LWS_VISIBLE int lws_body_copy(struct libwebsocket *wsi, char *dest, int len)
+{
+	if (!wsi->request_body || (wsi->request_body_index >= len))
+		return -1;
+
+	memcpy(dest, wsi->request_body, wsi->request_body_index);
+	dest[wsi->request_body_index] = '\0';
+
+	return wsi->request_body_index;
+}
+
 char *lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h)
 {
 	int n;
@@ -178,6 +189,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 
 	switch (wsi->u.hdr.parser_state) {
 	case WSI_TOKEN_GET_URI:
+	case WSI_TOKEN_POST_URI:
 	case WSI_TOKEN_HOST:
 	case WSI_TOKEN_CONNECTION:
 	case WSI_TOKEN_KEY1:
@@ -202,6 +214,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_HTTP_CACHE_CONTROL:
 	case WSI_TOKEN_HTTP_AUTHORIZATION:
 	case WSI_TOKEN_HTTP_COOKIE:
+	case WSI_TOKEN_HTTP_CONTENT_LENGTH:
 	case WSI_TOKEN_HTTP_CONTENT_TYPE:
 	case WSI_TOKEN_HTTP_DATE:
 	case WSI_TOKEN_HTTP_RANGE:
@@ -216,7 +229,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				      wsi->u.hdr.parser_state]].len && c == ' ')
 			break;
 
-		if (wsi->u.hdr.parser_state != WSI_TOKEN_GET_URI)
+		if ((wsi->u.hdr.parser_state != WSI_TOKEN_GET_URI) && (wsi->u.hdr.parser_state != WSI_TOKEN_POST_URI))
 			goto check_eol;
 
 		/* special URI processing... end at space */
@@ -391,7 +404,7 @@ swallow:
 
 		if (wsi->u.hdr.lextable_pos < 0) {
 			/* this is not a header we know about */
-			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI] ||
+			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI] || wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI] ||
 				    wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP]) {
 				/*
 				 * altready had the method, no idea what
@@ -419,6 +432,10 @@ swallow:
 			if (n == WSI_TOKEN_GET_URI &&
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
 				lwsl_warn("Duplicated GET\n");
+				return -1;
+			} else if (n == WSI_TOKEN_POST_URI &&
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI]) {
+				lwsl_warn("Duplicated POST\n");
 				return -1;
 			}
 
@@ -477,6 +494,7 @@ start_fragment:
 		/* skipping arg part of a name we didn't recognize */
 	case WSI_TOKEN_SKIPPING:
 		lwsl_parser("WSI_TOKEN_SKIPPING '%c'\n", c);
+
 		if (c == '\x0d')
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 		break;
@@ -492,6 +510,11 @@ start_fragment:
 		/* we're done, ignore anything else */
 	case WSI_PARSING_COMPLETE:
 		lwsl_parser("WSI_PARSING_COMPLETE '%c'\n", c);
+		if (wsi->request_content_length > 0) {
+		    if (wsi->request_body_index < wsi->request_content_length) {
+			wsi->request_body[wsi->request_body_index++] = c;
+		    }
+		}
 		break;
 
 	default:	/* keep gcc happy */
@@ -511,6 +534,28 @@ set_parsing_complete:
 	}
 	wsi->u.hdr.parser_state = WSI_PARSING_COMPLETE;
 	wsi->hdr_parsing_completed = 1;
+
+	char content_length_str[255];
+	int content_length = 0;
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+	    lws_hdr_copy(wsi, content_length_str, sizeof(content_length_str) - 1, WSI_TOKEN_HTTP_CONTENT_LENGTH);
+	    content_length = atoi(content_length_str);
+	} else if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+	    /* no Content-Length header, allocate some reasonably sized buffer */
+	    content_length = 32768;
+	}
+
+	if (content_length > 0) {
+	    wsi->request_body = malloc(content_length);
+	    if (wsi->request_body) {
+		memset(wsi->request_body, 0, content_length);
+		wsi->request_content_length = content_length;
+		wsi->request_body_index = 0;
+	    } else {
+		wsi->request_content_length = 0;
+	    }
+	}
 
 	return 0;
 }

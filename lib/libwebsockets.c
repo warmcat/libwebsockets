@@ -450,6 +450,9 @@ just_kill_connection:
 					wsi->user_space) /* user code may own */
 		free(wsi->user_space);
 
+	if (wsi->request_body) {
+	    free(wsi->request_body);
+	}
 	free(wsi);
 }
 
