@@ -541,15 +541,19 @@ set_parsing_complete:
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 	    lws_hdr_copy(wsi, content_length_str, sizeof(content_length_str) - 1, WSI_TOKEN_HTTP_CONTENT_LENGTH);
 	    content_length = atoi(content_length_str);
-	    if (content_length > 0) {
-		wsi->request_body = malloc(content_length);
-		if (wsi->request_body) {
-		    memset(wsi->request_body, 0, content_length);
-		    wsi->request_content_length = content_length;
-		    wsi->request_body_index = 0;
-		} else {
-		    wsi->request_content_length = 0;
-		}
+	} else if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+	    /* no Content-Length header, allocate some reasonably sized buffer */
+	    content_length = 32768;
+	}
+
+	if (content_length > 0) {
+	    wsi->request_body = malloc(content_length);
+	    if (wsi->request_body) {
+		memset(wsi->request_body, 0, content_length);
+		wsi->request_content_length = content_length;
+		wsi->request_body_index = 0;
+	    } else {
+		wsi->request_content_length = 0;
 	    }
 	}
 
