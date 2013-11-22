@@ -1986,18 +1986,20 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	method = (SSL_METHOD *)SSLv23_server_method();
 	if (!method) {
+        int error = ERR_get_error();
 		lwsl_err("problem creating ssl method %lu: %s\n", 
-			ERR_get_error(),
-			ERR_error_string(ERR_get_error(),
+			error,
+			ERR_error_string(error,
 					      (char *)context->service_buffer));
 		goto bail;
 	}
 	context->ssl_ctx = SSL_CTX_new(method);	/* create context */
 	if (!context->ssl_ctx) {
+        int error = ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
-			ERR_get_error(),
-			ERR_error_string(ERR_get_error(),
-					      (char *)context->service_buffer));
+                 error,
+                 ERR_error_string(error,
+                                  (char *)context->service_buffer));
 		goto bail;
 	}
 
@@ -2016,18 +2018,20 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	if (info->port == CONTEXT_PORT_NO_LISTEN) {
 		method = (SSL_METHOD *)SSLv23_client_method();
 		if (!method) {
+            int error = ERR_get_error();
 			lwsl_err("problem creating ssl method %lu: %s\n",
-				ERR_get_error(),
-				ERR_error_string(ERR_get_error(),
+                     error,
+                     ERR_error_string(error,
 					      (char *)context->service_buffer));
 			goto bail;
 		}
 		/* create context */
 		context->ssl_client_ctx = SSL_CTX_new(method);
 		if (!context->ssl_client_ctx) {
+            int error = ERR_get_error();
 			lwsl_err("problem creating ssl context %lu: %s\n",
-				ERR_get_error(),
-				ERR_error_string(ERR_get_error(),
+                     error,
+                     ERR_error_string(error,
 					      (char *)context->service_buffer));
 			goto bail;
 		}
@@ -2135,10 +2139,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		n = SSL_CTX_use_certificate_chain_file(context->ssl_ctx,
 					info->ssl_cert_filepath);
 		if (n != 1) {
+            int error = ERR_get_error();
 			lwsl_err("problem getting cert '%s' %lu: %s\n",
 				info->ssl_cert_filepath,
-				ERR_get_error(),
-				ERR_error_string(ERR_get_error(),
+				error,
+				ERR_error_string(error,
 					      (char *)context->service_buffer));
 			goto bail;
 		}
@@ -2146,10 +2151,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
 			     info->ssl_private_key_filepath,
 						       SSL_FILETYPE_PEM) != 1) {
+            int error = ERR_get_error();
 			lwsl_err("ssl problem getting key '%s' %lu: %s\n",
 				info->ssl_private_key_filepath,
-					ERR_get_error(),
-					ERR_error_string(ERR_get_error(),
+					error,
+					ERR_error_string(error,
 					      (char *)context->service_buffer));
 			goto bail;
 		}

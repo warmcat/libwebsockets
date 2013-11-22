@@ -207,8 +207,8 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 				n = ERR_get_error();
 				if (n != SSL_ERROR_NONE) {
 					lwsl_err("SSL connect error %lu: %s\n",
-						ERR_get_error(),
-						ERR_error_string(ERR_get_error(),
+						n,
+						ERR_error_string(n,
 							  (char *)context->service_buffer));
 					return 0;
 				}
@@ -267,8 +267,8 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 					n = ERR_get_error();
 					if (n != SSL_ERROR_NONE) {
 						lwsl_err("SSL connect error %lu: %s\n",
-								 ERR_get_error(),
-								 ERR_error_string(ERR_get_error(),
+								 n,
+								 ERR_error_string(n,
 												  (char *)context->service_buffer));
 						return 0;
 					}
