@@ -74,8 +74,11 @@ http_postbody:
 
 			wsi->u.http.post_buffer[wsi->u.http.body_index++] = *buf++;
 			wsi->u.http.content_length_seen++;
-			if (wsi->u.http.body_index !=
-					wsi->protocol->rx_buffer_size &&
+			n = wsi->protocol->rx_buffer_size;
+			if (!n)
+				n = LWS_MAX_SOCKET_IO_BUF;
+
+			if (wsi->u.http.body_index != n &&
 			    wsi->u.http.content_length_seen != wsi->u.http.content_length)
 				continue;
 
@@ -231,7 +234,10 @@ http_postbody:
 
 				if (wsi->u.http.content_length > 0) {
 					wsi->u.http.body_index = 0;
-					wsi->u.http.post_buffer = malloc(wsi->protocol->rx_buffer_size);
+					n = wsi->protocol->rx_buffer_size;
+					if (!n)
+						n = LWS_MAX_SOCKET_IO_BUF;
+					wsi->u.http.post_buffer = malloc(n);
 					if (!wsi->u.http.post_buffer) {
 						lwsl_err("Unable to allocate post buffer\n");
 						n = -1;
