@@ -376,10 +376,10 @@ just_kill_connection:
 			free(wsi->u.ws.rxflow_buffer);
 			wsi->u.ws.rxflow_buffer = NULL;
 		}
-		if (wsi->u.ws.truncated_send_malloc) {
+		if (wsi->truncated_send_malloc) {
 			/* not going to be completed... nuke it */
-			free(wsi->u.ws.truncated_send_malloc);
-			wsi->u.ws.truncated_send_malloc = NULL;
+			free(wsi->truncated_send_malloc);
+			wsi->truncated_send_malloc = NULL;
 		}
 	}
 
@@ -642,6 +642,10 @@ LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
 {
 	struct pollfd fds;
 
+	/* treat the fact we got a truncated send pending as if we're choked */
+	if (wsi->truncated_send_malloc)
+		return 1;
+
 	fds.fd = wsi->sock;
 	fds.events = POLLOUT;
 	fds.revents = 0;
@@ -671,10 +675,10 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 
 	/* pending truncated sends have uber priority */
 
-	if (wsi->u.ws.truncated_send_malloc) {
-		lws_issue_raw(wsi, wsi->u.ws.truncated_send_malloc +
-				wsi->u.ws.truncated_send_offset,
-						wsi->u.ws.truncated_send_len);
+	if (wsi->truncated_send_malloc) {
+		lws_issue_raw(wsi, wsi->truncated_send_malloc +
+				wsi->truncated_send_offset,
+						wsi->truncated_send_len);
 		/* leave POLLOUT active either way */
 		return 0;
 	}

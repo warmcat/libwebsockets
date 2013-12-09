@@ -377,7 +377,7 @@ static int callback_http(struct libwebsocket_context *context,
 				goto bail;
 			/* sent it all, close conn */
 			if (n == 0)
-				goto bail;
+				goto flush_bail;
 			/*
 			 * because it's HTTP and not websocket, don't need to take
 			 * care about pre and postamble
@@ -393,6 +393,12 @@ static int callback_http(struct libwebsocket_context *context,
 		} while (!lws_send_pipe_choked(wsi));
 		libwebsocket_callback_on_writable(context, wsi);
 		break;
+flush_bail:
+		/* true if still partial pending */
+		if (lws_send_pipe_choked(wsi)) {
+			libwebsocket_callback_on_writable(context, wsi);
+			break;
+		}
 
 bail:
 		close(pss->fd);

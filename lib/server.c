@@ -145,6 +145,21 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		/* handle http headers coming in */
 
+		/* pending truncated sends have uber priority */
+
+		if (wsi->truncated_send_malloc) {
+			if (pollfd->revents & POLLOUT)
+				lws_issue_raw(wsi, wsi->truncated_send_malloc +
+					wsi->truncated_send_offset,
+							wsi->truncated_send_len);
+			/*
+			 * we can't afford to allow input processing send
+			 * something new, so spin around he event loop until
+			 * he doesn't have any partials
+			 */
+			break;
+		}
+
 		/* any incoming data ready? */
 
 		if (pollfd->revents & POLLIN) {
@@ -178,11 +193,17 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				return 0;
 			}
 
+			/* hm this may want to send (via HTTP callback for example) */
+
 			n = libwebsocket_read(context, wsi,
 						context->service_buffer, len);
 			if (n < 0)
 				/* we closed wsi */
 				return 0;
+
+			/* hum he may have used up the writability above */
+
+			break;
 		}
 
 		/* this handles POLLOUT for http serving fragments */

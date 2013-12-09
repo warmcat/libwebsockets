@@ -378,10 +378,6 @@ struct _lws_websocket_related {
 	unsigned int this_frame_masked:1;
 	unsigned int inside_frame:1; /* next write will be more of frame */
 	unsigned int clean_buffer:1; /* buffer not rewritten by extension */
-	/* truncated send handling */
-	unsigned char *truncated_send_malloc; /* non-NULL means buffering in progress */
-	unsigned int truncated_send_offset; /* where we are in terms of spilling */
-	unsigned int truncated_send_len; /* how much is buffered */
 };
 
 struct libwebsocket {
@@ -414,6 +410,11 @@ struct libwebsocket {
 	unsigned long action_start;
 	unsigned long latency_start;
 #endif
+
+	/* truncated send handling */
+	unsigned char *truncated_send_malloc; /* non-NULL means buffering in progress */
+	unsigned int truncated_send_offset; /* where we are in terms of spilling */
+	unsigned int truncated_send_len; /* how much is buffered */
 
 	void *user_space;
 
