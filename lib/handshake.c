@@ -277,11 +277,13 @@ leave:
 							      AWAITING_TIMEOUT);
 
 				/*
+				 * (if callback didn't start sending a file)
 				 * deal with anything else as body, whether
 				 * there was a content-length or not
 				 */
 
-				wsi->state = WSI_STATE_HTTP_BODY;
+				if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE)
+					wsi->state = WSI_STATE_HTTP_BODY;
 				goto http_postbody;
 			}
 
