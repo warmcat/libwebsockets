@@ -98,9 +98,10 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
 	int n;
+	size_t real_len = len;
+
 #ifndef LWS_NO_EXTENSIONS
 	int m;
-	size_t real_len = len;
 
 	if (wsi->truncated_send_malloc &&
 		(buf < wsi->truncated_send_malloc ||
@@ -182,9 +183,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	}
 #endif
 
-#ifndef LWS_NO_EXTENSIONS
 handle_truncated_send:
-#endif
 
 	/*
 	 * already handling a truncated send?
