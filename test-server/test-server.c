@@ -592,7 +592,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 				   LWS_SEND_BUFFER_PRE_PADDING,
 				   ringbuffer[pss->ringbuffer_tail].len,
 								LWS_WRITE_TEXT);
-			if (n < ringbuffer[pss->ringbuffer_tail].len) {
+			if (n < 0) {
 				lwsl_err("ERROR %d writing to mirror socket\n", n);
 				return -1;
 			}
