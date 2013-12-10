@@ -233,7 +233,9 @@ function get_appropriate_ws_url()
 
 	u = u.split('/');
 
-	return pcol + u[0];
+	/* + "/xxx" bit is for IE10 workaround */
+
+	return pcol + u[0] + "/xxx";
 }
 
 
