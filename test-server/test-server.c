@@ -715,6 +715,7 @@ static struct option options[] = {
 	{ "debug",	required_argument,	NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
+	{ "allow-non-ssl",	no_argument,		NULL, 'a' },
 	{ "interface",  required_argument,	NULL, 'i' },
 	{ "closetest",  no_argument,		NULL, 'c' },
 #ifndef LWS_NO_DAEMONIZE
@@ -749,7 +750,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "ci:hsp:d:Dr:", options, NULL);
+		n = getopt_long(argc, argv, "ci:hsap:d:Dr:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -766,6 +767,9 @@ int main(int argc, char **argv)
 			break;
 		case 's':
 			use_ssl = 1;
+			break;
+		case 'a':
+			opts |= LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT;
 			break;
 		case 'p':
 			info.port = atoi(optarg);

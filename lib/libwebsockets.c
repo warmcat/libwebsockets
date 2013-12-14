@@ -1892,6 +1892,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 #ifdef LWS_OPENSSL_SUPPORT
 	context->use_ssl = 0;
+	context->allow_non_ssl_on_ssl_port = 0;
 	context->ssl_ctx = NULL;
 	context->ssl_client_ctx = NULL;
 	openssl_websocket_private_data_index = 0;
@@ -2133,6 +2134,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		context->protocols[0].callback(context, NULL,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 						     context->ssl_ctx, NULL, 0);
+	}
+
+	if(info->options & LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT) {
+		/* Normally SSL listener rejects non-ssl, optionally allow */
+		context->allow_non_ssl_on_ssl_port = 1;
 	}
 
 	if (context->use_ssl) {

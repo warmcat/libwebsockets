@@ -20,6 +20,12 @@ processing is protected by a 5s timeout.
 The chunks are stored in a malloc'd buffer of size protocols[0].rx_buffer_size.
 
 
+New server option you can enable from user code
+LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT allows non-SSL connections to
+also be accepted on an SSL listening port.  It's disabled unless you enable
+it explicitly.
+
+
 User api changes
 ----------------
 

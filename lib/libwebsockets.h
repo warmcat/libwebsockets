@@ -138,6 +138,7 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT = 2,
 	LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME = 4,
+	LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT = 8
 };
 
 enum libwebsocket_callback_reasons {
