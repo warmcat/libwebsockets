@@ -26,6 +26,21 @@ also be accepted on an SSL listening port.  It's disabled unless you enable
 it explicitly.
 
 
+Two new callbacks are added in protocols[0] that are optional for allowing
+limited thread access to libwebsockets, LWS_CALLBACK_LOCK_POLL and
+LWS_CALLBACK_UNLOCK_POLL.
+
+If you use them, they protect internal and external poll list changes, but if
+you want to use external thread access to libwebsocket_callback_on_writable()
+you have to implement your locking here even if you don't use external
+poll support.
+
+If you will use another thread for this, take a lot of care about managing
+your list of live wsi by doing it from ESTABLISHED and CLOSED callbacks
+(with your own locking).
+
+
+
 User api changes
 ----------------
 

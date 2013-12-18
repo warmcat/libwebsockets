@@ -119,12 +119,20 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		 * happening at a time when there's no real connection yet
 		 */
 
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_LOCK_POLL,
+			wsi->user_space, (void *)(long)wsi->sock, 0);
+
 		pollfd->events &= ~POLLOUT;
 
 		/* external POLL support via protocol 0 */
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
 			wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
+
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_UNLOCK_POLL,
+			wsi->user_space, (void *)(long)wsi->sock, 0);
 
 		/* we can retry this... just cook the SSL BIO the first time */
 

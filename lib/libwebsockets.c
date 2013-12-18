@@ -118,6 +118,10 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	lwsl_info("insert_wsi_socket_into_fds: wsi=%p, sock=%d, fds pos=%d\n",
 					    wsi, wsi->sock, context->fds_count);
 
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_LOCK_POLL,
+		wsi->user_space, (void *)(long)wsi->sock, 0);
+
 	context->lws_lookup[wsi->sock] = wsi;
 	wsi->position_in_fds_table = context->fds_count;
 	context->fds[context->fds_count].fd = wsi->sock;
@@ -129,6 +133,10 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 		LWS_CALLBACK_ADD_POLL_FD,
 		wsi->user_space, (void *)(long)wsi->sock, POLLIN);
 
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_UNLOCK_POLL,
+		wsi->user_space, (void *)(long)wsi->sock, 0);
+
 	return 0;
 }
 
@@ -138,8 +146,12 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 {
 	int m;
 
-	if (!--context->fds_count)
+	if (!--context->fds_count) {
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_LOCK_POLL,
+			wsi->user_space, (void *)(long)wsi->sock, 0);
 		goto do_ext;
+	}
 
 	if (wsi->sock > context->max_fds) {
 		lwsl_err("Socket fd %d too high (%d)\n",
@@ -149,6 +161,10 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 
 	lwsl_info("remove_wsi_socket_from_fds: wsi=%p, sock=%d, fds pos=%d\n",
 				    wsi, wsi->sock, wsi->position_in_fds_table);
+
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_LOCK_POLL,
+		wsi->user_space, (void *)(long)wsi->sock, 0);
 
 	m = wsi->position_in_fds_table; /* replace the contents for this */
 
@@ -172,6 +188,10 @@ do_ext:
 		context->protocols[0].callback(context, wsi,
 		    LWS_CALLBACK_DEL_POLL_FD, wsi->user_space,
 		    				    (void *)(long)wsi->sock, 0);
+
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_UNLOCK_POLL,
+		wsi->user_space, (void *)(long)wsi->sock, 0);
 
 	return 0;
 }
@@ -789,12 +809,21 @@ user_service:
 	/* one shot */
 
 	if (pollfd) {
+
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_LOCK_POLL,
+			wsi->user_space, (void *)(long)wsi->sock, 0);
+
 		pollfd->events &= ~POLLOUT;
 
 		/* external POLL support via protocol 0 */
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
 			wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
+
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_UNLOCK_POLL,
+			wsi->user_space, (void *)(long)wsi->sock, 0);
 	}
 #ifndef LWS_NO_EXTENSIONS
 notify_action:
@@ -1427,12 +1456,20 @@ libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 		return -1;
 	}
 
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_LOCK_POLL,
+		wsi->user_space, (void *)(long)wsi->sock, 0);
+
 	context->fds[wsi->position_in_fds_table].events |= POLLOUT;
 
 	/* external POLL support via protocol 0 */
 	context->protocols[0].callback(context, wsi,
 		LWS_CALLBACK_SET_MODE_POLL_FD,
 		wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
+
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_UNLOCK_POLL,
+		wsi->user_space, (void *)(long)wsi->sock, 0);
 
 	return 1;
 }
@@ -1578,6 +1615,10 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 
 	/* adjust the pollfd for this wsi */
 
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_LOCK_POLL,
+		wsi->user_space, (void *)(long)wsi->sock, 0);
+
 	if (wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW)
 		context->fds[wsi->position_in_fds_table].events |= POLLIN;
 	else
@@ -1593,6 +1634,10 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
 			wsi->user_space, (void *)(long)wsi->sock, POLLIN);
+
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_UNLOCK_POLL,
+		wsi->user_space, (void *)(long)wsi->sock, 0);
 
 	return 1;
 }

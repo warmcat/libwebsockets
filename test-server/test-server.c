@@ -429,6 +429,20 @@ bail:
 	 * protocol 0 callback
 	 */
 
+	case LWS_CALLBACK_LOCK_POLL:
+		/*
+		 * lock mutex to protect pollfd state
+		 * called before any other POLL related callback
+		 */
+		break;
+
+	case LWS_CALLBACK_UNLOCK_POLL:
+		/*
+		 * unlock mutex to protect pollfd state when
+		 * called after any other POLL related callback
+		 */
+		break;
+
 	case LWS_CALLBACK_ADD_POLL_FD:
 
 		if (count_pollfds >= max_poll_elements) {
