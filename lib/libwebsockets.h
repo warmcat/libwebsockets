@@ -35,7 +35,7 @@ extern "C" {
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <stddef.h>
-#include <BaseTsd.h>
+#include <basetsd.h>
 #include "websock-w32.h"
 
 #include "gettimeofday.h"
