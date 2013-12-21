@@ -555,14 +555,15 @@ do_more_inside_frame:
 		/*
 		 * in v7, just mask the payload
 		 */
-		for (n = 4; n < (int)len + 4; n++)
-			dropmask[n] = dropmask[n] ^
+		if (dropmask) { /* never set if already inside frame */
+			for (n = 4; n < (int)len + 4; n++)
+				dropmask[n] = dropmask[n] ^
 				wsi->u.ws.frame_masking_nonce_04[
 					(wsi->u.ws.frame_mask_index++) & 3];
 
-		if (dropmask) /* never set if already inside frame */
 			/* copy the frame nonce into place */
 			memcpy(dropmask, wsi->u.ws.frame_masking_nonce_04, 4);
+		}
 	}
 
 send_raw:
