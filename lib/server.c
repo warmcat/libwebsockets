@@ -202,7 +202,6 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				return 0;
 
 			/* hum he may have used up the writability above */
-
 			break;
 		}
 
@@ -212,21 +211,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			break;
 
 		/* one shot */
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_LOCK_POLL,
-			wsi->user_space, (void *)(long)wsi->sock, 0);
-
-		pollfd->events &= ~POLLOUT;
-
-		/* external POLL support via protocol 0 */
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
-			wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
-
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_UNLOCK_POLL,
-			wsi->user_space, (void *)(long)wsi->sock, 0);
-
+		lws_change_pollfd(wsi, POLLOUT, 0);
 
 		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE) {
 			n = user_callback_handle_rxflow(
@@ -360,20 +345,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 	case LWS_CONNMODE_SSL_ACK_PENDING:
 
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_LOCK_POLL,
-			wsi->user_space, (void *)(long)wsi->sock, 0);
-
-		pollfd->events &= ~POLLOUT;
-
-		/* external POLL support via protocol 0 */
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
-			wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
-
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_UNLOCK_POLL,
-			wsi->user_space, (void *)(long)wsi->sock, 0);
+		lws_change_pollfd(wsi, POLLOUT, 0);
 
 		lws_latency_pre(context, wsi);
 
@@ -417,37 +389,12 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 						  m, ERR_error_string(m, NULL));
 
 			if (m == SSL_ERROR_WANT_READ) {
-				context->protocols[0].callback(context, wsi,
-					LWS_CALLBACK_LOCK_POLL,
-					wsi->user_space, (void *)(long)wsi->sock, 0);
-				context->fds[
-				   wsi->position_in_fds_table].events |= POLLIN;
-
-				/* external POLL support via protocol 0 */
-				context->protocols[0].callback(context, wsi,
-					LWS_CALLBACK_SET_MODE_POLL_FD,
-					wsi->user_space,
-					(void *)(long)wsi->sock, POLLIN);
-				context->protocols[0].callback(context, wsi,
-					LWS_CALLBACK_UNLOCK_POLL,
-					wsi->user_space, (void *)(long)wsi->sock, 0);
+				lws_change_pollfd(wsi, 0, POLLIN);
 				lwsl_info("SSL_ERROR_WANT_READ\n");
 				break;
 			}
 			if (m == SSL_ERROR_WANT_WRITE) {
-				context->protocols[0].callback(context, wsi,
-					LWS_CALLBACK_LOCK_POLL,
-					wsi->user_space, (void *)(long)wsi->sock, 0);
-				context->fds[
-				  wsi->position_in_fds_table].events |= POLLOUT;
-				/* external POLL support via protocol 0 */
-				context->protocols[0].callback(context, wsi,
-					LWS_CALLBACK_SET_MODE_POLL_FD,
-					wsi->user_space,
-					(void *)(long)wsi->sock, POLLOUT);
-				context->protocols[0].callback(context, wsi,
-					LWS_CALLBACK_UNLOCK_POLL,
-					wsi->user_space, (void *)(long)wsi->sock, 0);
+				lws_change_pollfd(wsi, 0, POLLOUT);
 				break;
 			}
 			lwsl_debug("SSL_accept failed skt %u: %s\n",

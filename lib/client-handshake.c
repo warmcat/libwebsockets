@@ -82,13 +82,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			 * must do specifically a POLLOUT poll to hear
 			 * about the connect completion
 			 */
-
-			context->fds[wsi->position_in_fds_table].events |= POLLOUT;
-
-			/* external POLL support via protocol 0 */
-			context->protocols[0].callback(context, wsi,
-				LWS_CALLBACK_SET_MODE_POLL_FD,
-				wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
+			lws_change_pollfd(wsi, 0, POLLOUT);
 
 			return wsi;
 		}

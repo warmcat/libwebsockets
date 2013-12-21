@@ -808,23 +808,9 @@ user_service:
 #endif
 	/* one shot */
 
-	if (pollfd) {
+	if (pollfd)
+		lws_change_pollfd(wsi, POLLOUT, 0);
 
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_LOCK_POLL,
-			wsi->user_space, (void *)(long)wsi->sock, 0);
-
-		pollfd->events &= ~POLLOUT;
-
-		/* external POLL support via protocol 0 */
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
-			wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
-
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_UNLOCK_POLL,
-			wsi->user_space, (void *)(long)wsi->sock, 0);
-	}
 #ifndef LWS_NO_EXTENSIONS
 notify_action:
 #endif
@@ -1057,8 +1043,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		if ((pollfd->revents & POLLOUT) &&
 			wsi->state == WSI_STATE_ESTABLISHED &&
 			   lws_handle_POLLOUT_event(context, wsi, pollfd) < 0) {
-				lwsl_info("libwebsocket_service_fd: closing\n");
-				goto close_and_handled;
+			lwsl_info("libwebsocket_service_fd: closing\n");
+			goto close_and_handled;
 		}
 
 		if (wsi->u.ws.rxflow_buffer &&
@@ -1418,6 +1404,35 @@ lws_get_extension_user_matching_ext(struct libwebsocket *wsi,
 }
 #endif
 
+void
+lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
+{
+	struct libwebsocket_context *context = wsi->protocol->owning_server;
+
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_LOCK_POLL,
+		wsi->user_space, (void *)(long)wsi->sock, 0);
+
+	context->fds[wsi->position_in_fds_table].events &= ~_and;
+	context->fds[wsi->position_in_fds_table].events |= _or;
+
+	/* external POLL support via protocol 0 */
+	if (_and)
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
+			wsi->user_space, (void *)(long)wsi->sock, _and);
+
+	if (_or)
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_SET_MODE_POLL_FD,
+			wsi->user_space, (void *)(long)wsi->sock, _or);
+
+	context->protocols[0].callback(context, wsi,
+		LWS_CALLBACK_UNLOCK_POLL,
+		wsi->user_space, (void *)(long)wsi->sock, 0);
+}
+
+
 /**
  * libwebsocket_callback_on_writable() - Request a callback when this socket
  *					 becomes able to be written to without
@@ -1456,20 +1471,7 @@ libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 		return -1;
 	}
 
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_LOCK_POLL,
-		wsi->user_space, (void *)(long)wsi->sock, 0);
-
-	context->fds[wsi->position_in_fds_table].events |= POLLOUT;
-
-	/* external POLL support via protocol 0 */
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_SET_MODE_POLL_FD,
-		wsi->user_space, (void *)(long)wsi->sock, POLLOUT);
-
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_UNLOCK_POLL,
-		wsi->user_space, (void *)(long)wsi->sock, 0);
+	lws_change_pollfd(wsi, 0, POLLOUT);
 
 	return 1;
 }
@@ -1615,29 +1617,10 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 
 	/* adjust the pollfd for this wsi */
 
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_LOCK_POLL,
-		wsi->user_space, (void *)(long)wsi->sock, 0);
-
 	if (wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW)
-		context->fds[wsi->position_in_fds_table].events |= POLLIN;
+		lws_change_pollfd(wsi, 0, POLLIN);
 	else
-		context->fds[wsi->position_in_fds_table].events &= ~POLLIN;
-
-	if (wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW)
-		/* external POLL support via protocol 0 */
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_SET_MODE_POLL_FD,
-			wsi->user_space, (void *)(long)wsi->sock, POLLIN);
-	else
-		/* external POLL support via protocol 0 */
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_CLEAR_MODE_POLL_FD,
-			wsi->user_space, (void *)(long)wsi->sock, POLLIN);
-
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_UNLOCK_POLL,
-		wsi->user_space, (void *)(long)wsi->sock, 0);
+		lws_change_pollfd(wsi, POLLIN, 0);
 
 	return 1;
 }

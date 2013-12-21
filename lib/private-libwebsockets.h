@@ -543,6 +543,9 @@ lws_hdr_simple_create(struct libwebsocket *wsi,
 LWS_EXTERN int
 libwebsocket_ensure_user_space(struct libwebsocket *wsi);
 
+LWS_EXTERN void
+lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or);
+
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int handshake_0405(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi);
