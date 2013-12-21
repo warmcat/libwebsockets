@@ -1,0 +1,102 @@
+
+ include $(TOPDIR)/rules.mk
+
+ PKG_NAME:=libwebsockets
+ PKG_VERSION:=2013-12-18
+ PKG_RELEASE=$(PKG_SOURCE_VERSION)
+
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=git://git.warmcat.com/libwebsockets
+ PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
+ PKG_SOURCE_VERSION:=0a0a7ebc372af8f85c4aec21e2300b62f1b3ffa3
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION)-$(PKG_SOURCE_VERSION).tar.gz
+ CMAKE_INSTALL:=1
+
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/cmake.mk
+
+ define Package/libwebsockets/Default
+   SECTION:=libs
+   CATEGORY:=Libraries
+   TITLE:=libwebsockets
+   DEPENDS:= +zlib +libopenssl
+ endef
+
+ define Package/libwebsockets/Default/description
+   libwebsockets
+ endef
+
+
+ define Package/libwebsockets
+ $(call Package/libwebsockets/Default)
+   SECTION:=libs
+   CATEGORY:=Libraries
+   TITLE+= (libraries)
+ endef
+
+
+ define Package/libwebsockets/description
+ $(call Package/libwebsockets/Default/description)
+  This package contains libwebsocket libraries
+ endef
+
+
+ define Package/libwebsockets-examples
+ $(call Package/libwebsockets)
+   DEPENDS:=libwebsockets
+   TITLE+= (examples)
+ endef
+
+
+ define Package/libwebsockets-examples/description
+ $(call Package/libwebsockets/Default/description)
+  This package contains libwebsockets examples.
+ endef
+
+
+ TARGET_CFLAGS += -I$(STAGING_DIR)/usr/include
+
+ define Package/libwebsockets/install
+     $(INSTALL_DIR) $(1)/usr
+     $(INSTALL_DIR) $(1)/usr/lib
+     $(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/libwebsockets.so*
+ $(1)/usr/lib/
+ endef
+
+ define Package/libwebsockets-examples/install
+     $(INSTALL_DIR) $(1)/usr/bin
+     $(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/libwebsockets-test-client
+ $(1)/usr/bin/libwebsockets-test-client
+     $(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/libwebsockets-test-fraggle
+ $(1)/usr/bin/libwebsockets-test-fraggle
+     $(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/libwebsockets-test-server
+ $(1)/usr/bin/libwebsockets-test-server
+     $(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/libwebsockets-test-echo
+ $(1)/usr/bin/libwebsockets-test-echo
+     $(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/libwebsockets-test-ping
+ $(1)/usr/bin/libwebsockets-test-ping
+     $(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/libwebsockets-test-server-
+ extpoll $(1)/usr/bin/libwebsockets-test-server-extpoll
+
+     $(INSTALL_DIR) $(1)/usr
+     $(INSTALL_DIR) $(1)/usr/share
+     $(INSTALL_DIR) $(1)/usr/share/libwebsockets-test-server
+     $(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/libwebsockets-test-
+ server/favicon.ico $(1)/usr/share/libwebsockets-test-server/favicon.ico
+     $(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/libwebsockets-test-
+ server/leaf.jpg $(1)/usr/share/libwebsockets-test-server/leaf.jpg
+     $(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/libwebsockets-test-
+ server/libwebsockets.org-logo.png $(1)/usr/share/libwebsockets-test-
+ server/libwebsockets.org-logo.png
+     $(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/libwebsockets-test-server
+ /libwebsockets-test-server.key.pem $(1)/usr/share/libwebsockets-test-
+ server/libwebsockets-test-server.key.pem
+     $(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/libwebsockets-test-server
+ /libwebsockets-test-server.pem $(1)/usr/share/libwebsockets-test-server
+ /libwebsockets-test-server.pem
+     $(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/libwebsockets-test-
+ server/test.html $(1)/usr/share/libwebsockets-test-server/test.html
+ endef
+
+ $(eval $(call BuildPackage,libwebsockets))
+ $(eval $(call BuildPackage,libwebsockets-examples))
