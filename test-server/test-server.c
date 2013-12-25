@@ -474,6 +474,19 @@ bail:
 		break;
 #endif
 
+	case LWS_CALLBACK_GET_THREAD_ID:
+		/*
+		 * if you will call "libwebsocket_callback_on_writable"
+		 * from a different thread, return the caller thread ID
+		 * here so lws can use this information to work out if it
+		 * should signal the ppoll() loop to exit and restart early
+		 * (only applies if the library has LWS_HAS_PPOLL
+		 */
+
+		/* return pthread_getthreadid_np(); */
+
+		break;
+
 	default:
 		break;
 	}

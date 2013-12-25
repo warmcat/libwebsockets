@@ -37,6 +37,8 @@
 #include <netdb.h>
 #endif
 
+#include <sys/types.h>
+
 #ifdef LWS_OPENSSL_SUPPORT
 int openssl_websocket_private_data_index;
 #endif
@@ -81,6 +83,17 @@ static const char * const log_level_names[] = {
 	extern int lws_server_socket_service(
 		struct libwebsocket_context *context,
 		struct libwebsocket *wsi, struct pollfd *pollfd);
+#endif
+
+
+#ifdef LWS_HAS_PPOLL
+/*
+ * set to the Thread ID that's doing the service loop just before entry to ppoll
+ * indicates service thread likely idling in ppoll()
+ * volatile because other threads may check it as part of processing for pollfd
+ * event change.
+ */
+static volatile int lws_idling_ppoll_tid;
 #endif
 
 /**
@@ -1325,15 +1338,32 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 {
 	int n;
 	int m;
+#ifdef LWS_HAS_PPOLL
+	struct timespec timeout_ts;
+	sigset_t sigmask;
+#endif
 
 	/* stay dead once we are dead */
 
 	if (context == NULL)
 		return 1;
 
+#ifdef LWS_HAS_PPOLL
+	lws_idling_ppoll_tid = 	context->protocols[0].callback(context, NULL,
+				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+
+	timeout_ts.tv_sec = timeout_ms / 1000;
+	timeout_ts.tv_nsec = timeout_ms % 1000;
+	sigemptyset(&sigmask);
+	sigaddset(&sigmask, SIGUSR2);
+
 	/* wait for something to need service */
 
+	n = ppoll(context->fds, context->fds_count, &timeout_ts, &sigmask);
+	lws_idling_ppoll_tid = 0;
+#else
 	n = poll(context->fds, context->fds_count, timeout_ms);
+#endif
 	if (n == 0) /* poll timeout */ {
 		libwebsocket_service_fd(context, NULL);
 		return 0;
@@ -1408,13 +1438,19 @@ void
 lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 {
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
+	int events;
+#ifdef LWS_HAS_PPOLL
+	int tid;
+	int sampled_ppoll_tid;
+#endif
 
 	context->protocols[0].callback(context, wsi,
 		LWS_CALLBACK_LOCK_POLL,
 		wsi->user_space, (void *)(long)wsi->sock, 0);
 
-	context->fds[wsi->position_in_fds_table].events &= ~_and;
-	context->fds[wsi->position_in_fds_table].events |= _or;
+	events = context->fds[wsi->position_in_fds_table].events;
+
+	context->fds[wsi->position_in_fds_table].events = (events & ~_and) | _or;
 
 	/* external POLL support via protocol 0 */
 	if (_and)
@@ -1426,6 +1462,26 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_SET_MODE_POLL_FD,
 			wsi->user_space, (void *)(long)wsi->sock, _or);
+
+#ifdef LWS_HAS_PPOLL
+	/*
+	 * if we changed something in this pollfd...
+	 *   ... and we're running in a different thread context
+	 *     than the service thread...
+	 *       ... and the service thread is waiting in ppoll()...
+	 *          then fire a SIGUSR2 at the service thread to force it to
+	 *             restart the ppoll() with our changed events
+	 */
+	if (events != context->fds[wsi->position_in_fds_table].events) {
+		sampled_ppoll_tid = lws_idling_ppoll_tid;
+		if (sampled_ppoll_tid) {
+			tid = context->protocols[0].callback(context, NULL,
+				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+			if (tid != sampled_ppoll_tid)
+				kill(sampled_ppoll_tid, SIGUSR2);
+		}
+	}
+#endif
 
 	context->protocols[0].callback(context, wsi,
 		LWS_CALLBACK_UNLOCK_POLL,
@@ -1747,6 +1803,13 @@ int user_callback_handle_rxflow(callback_function callback_function,
 	return n;
 }
 
+/*
+ * This is just used to interrupt poll waiting
+ * we don't have to do anything with it.
+ */
+static void lws_sigusr2(int sig)
+{
+}
 
 /**
  * libwebsocket_create_context() - Create the websocket handler
@@ -2035,6 +2098,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
                                   (char *)context->service_buffer));
 		goto bail;
 	}
+
+	signal(SIGUSR2, lws_sigusr2);
 
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
@@ -2349,6 +2414,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		}
 	}
 #endif
+
 	return context;
 
 bail:

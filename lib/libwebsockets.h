@@ -63,6 +63,9 @@ typedef SSIZE_T ssize_t;
 #endif
 
 #else // NOT WIN32
+
+/* to get ppoll() */
+#define __USE_GNU
 #include <poll.h>
 #include <unistd.h>
 
@@ -169,6 +172,8 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 	LWS_CALLBACK_PROTOCOL_INIT,
 	LWS_CALLBACK_PROTOCOL_DESTROY,
+	LWS_CALLBACK_GET_THREAD_ID,
+
 	/* external poll() management support */
 	LWS_CALLBACK_ADD_POLL_FD,
 	LWS_CALLBACK_DEL_POLL_FD,

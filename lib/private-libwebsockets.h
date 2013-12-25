@@ -93,6 +93,8 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
+/* to get ppoll() */
+#define __USE_GNU
 #include <poll.h>
 #include <sys/mman.h>
 #include <sys/time.h>
