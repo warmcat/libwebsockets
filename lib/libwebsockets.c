@@ -1354,8 +1354,9 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 
 	timeout_ts.tv_sec = timeout_ms / 1000;
 	timeout_ts.tv_nsec = timeout_ms % 1000;
-	sigemptyset(&sigmask);
-	sigaddset(&sigmask, SIGUSR2);
+
+	sigprocmask(SIG_BLOCK, NULL, &sigmask);
+	sigdelset(&sigmask, SIGUSR2);
 
 	/* wait for something to need service */
 
@@ -1369,8 +1370,12 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 		return 0;
 	}
 
-	if (n < 0)
-		return -1;
+	if (n < 0) {
+		if (errno != EINTR)
+			return -1;
+		else
+			return 0;
+	}
 
 	/* any socket with events to service? */
 
@@ -2100,6 +2105,13 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	}
 
 	signal(SIGUSR2, lws_sigusr2);
+	{
+		sigset_t mask;
+		sigemptyset (&mask);
+		sigaddset (&mask, SIGUSR2);
+
+		sigprocmask(SIG_BLOCK, &mask, NULL);
+	}
 
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
