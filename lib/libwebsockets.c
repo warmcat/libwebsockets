@@ -119,7 +119,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 		return 1;
 	}
 
-	if (wsi->sock > context->max_fds) {
+	if (wsi->sock >= context->max_fds) {
 		lwsl_err("Socket fd %d is too high (%d)\n",
 						wsi->sock, context->max_fds);
 		return 1;
