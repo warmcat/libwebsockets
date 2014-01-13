@@ -29,7 +29,6 @@ install-sh
 configure
 compile
 config.guess
-*.in
 *~
 *.orig
 autom4te.cache/
