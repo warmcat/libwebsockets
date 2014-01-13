@@ -786,6 +786,7 @@ set_target_properties(websockets websockets_shared
 
 # Install libs and headers.
 install(TARGETS websockets websockets_shared
+		EXPORT LibwebsocketsTargets
 		LIBRARY DESTINATION "${LWS_INSTALL_LIB_DIR}${LIB_SUFFIX}" COMPONENT libraries
 		ARCHIVE DESTINATION "${LWS_INSTALL_LIB_DIR}${LIB_SUFFIX}" COMPONENT libraries
 		RUNTIME DESTINATION "${LWS_INSTALL_BIN_DIR}" COMPONENT libraries # Windows DLLs
