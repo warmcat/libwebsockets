@@ -752,6 +752,7 @@ export(PACKAGE libwebsockets)
 set(LWS__INCLUDE_DIRS 
     "${PROJECT_SOURCE_DIR}/lib"
     "${PROJECT_BINARY_DIR}")
+set(LIBWEBSOCKETS_INCLUDE_DIRS ${LWS__INCLUDE_DIRS} CACHE PATH "Libwebsockets include directories")
 configure_file(${PROJECT_SOURCE_DIR}/cmake/LibwebsocketsConfig.cmake.in
                 ${PROJECT_BINARY_DIR}/LibwebsocketsConfig.cmake 
                 @ONLY)
@@ -848,6 +849,11 @@ message(" LWS_WITHOUT_EXTENSIONS = ${LWS_WITHOUT_EXTENSIONS}")
 message(" LWS_WITH_LATENCY = ${LWS_WITH_LATENCY}")
 message(" LWS_WITHOUT_DAEMONIZE = ${LWS_WITHOUT_DAEMONIZE}")
 message("---------------------------------------------------------------------")
+
+# These will be available to parent projects including libwebsockets using add_subdirectory()
+set(LIBWEBSOCKETS_LIBRARIES websocket websockets_shared CACHE STRING "Libwebsocket libraries")
+set(LIBWEBSOCKETS_LIBRARIES_STATIC websocket CACHE STRING "Libwebsocket static library")
+set(LIBWEBSOCKETS_LIBRARIES_SHARED websockets_shared CACHE STRING "Libwebsocket shared library")
 
 # This must always be last!
 include(CPack)
