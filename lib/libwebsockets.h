@@ -43,12 +43,12 @@ extern "C" {
 #define strcasecmp stricmp
 #define getdtablesize() 30000
 
-#ifndef __SSIZE_T
-#define __SSIZE_T
+#ifndef _SSIZE_T_DEFINED
+#define _SSIZE_T_DEFINED
 
 typedef SSIZE_T ssize_t;
 
-#endif // __SSIZE_T
+#endif // _SSIZE_T_DEFINED
 
 #define LWS_VISIBLE
 
