@@ -2104,6 +2104,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		goto bail;
 	}
 
+#if defined(WIN32) || defined(_WIN32)
+#else
 	signal(SIGUSR2, lws_sigusr2);
 	{
 		sigset_t mask;
@@ -2112,6 +2114,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 		sigprocmask(SIG_BLOCK, &mask, NULL);
 	}
+#endif
 
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
