@@ -250,16 +250,19 @@ int main(int argc, char **argv)
 		}
 	}
 
-#ifndef LWS_NO_DAEMONIZE
+#ifndef LWS_NO_DAEMONIZE 
 	/*
 	 * normally lock path would be /var/lock/lwsts or similar, to
 	 * simplify getting started without having to take care about
 	 * permissions or running as root, set to /tmp/.lwsts-lock
 	 */
+#if defined(WIN32) || defined(_WIN32)
+#else
 	if (!client && daemonize && lws_daemonize("/tmp/.lwstecho-lock")) {
 		fprintf(stderr, "Failed to daemonize\n");
 		return 1;
 	}
+#endif
 #endif
 
 #ifdef WIN32
