@@ -19,9 +19,6 @@
 #define random rand
 #define usleep _sleep
 
-#ifdef  __MINGW64__                                                             
-#define DEF_POLL_STUFF
-#endif
 #ifdef  __MINGW32__                                                             
 #define DEF_POLL_STUFF
 #endif

@@ -43,13 +43,10 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <limits.h>
-#ifdef __MINGW64__
-#else
 #ifdef __MINGW32__
 #elif _MSC_VER > 1000 || defined(_WIN32)
 #else
 #include <netdb.h>
-#endif
 #endif
 #include <stdarg.h>
 
@@ -71,12 +68,9 @@
 #endif
 
 #define compatible_close(fd) closesocket(fd);
-#ifdef __MINGW64__
-#else
 #ifdef __MINGW32__
 #else
 #include <time.h >
-#endif
 #endif
 #include <winsock2.h>
 #include <ws2ipdef.h>

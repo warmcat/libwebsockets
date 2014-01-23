@@ -45,10 +45,6 @@ int openssl_websocket_private_data_index;
 
 #ifdef __MINGW32__
 #include "../win32port/win32helpers/websock-w32.c"
-#else
-#ifdef __MINGW64__
-#include "../win32port/win32helpers/websock-w32.c"
-#endif
 #endif
 
 #ifndef LWS_BUILD_HASH
