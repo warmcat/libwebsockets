@@ -65,8 +65,8 @@ typedef SSIZE_T ssize_t;
 #else // NOT WIN32
 
 /* to get ppoll() */
-#ifndef __USE_GNU
-#define __USE_GNU
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
 #endif
 #include <poll.h>
 #include <unistd.h>
