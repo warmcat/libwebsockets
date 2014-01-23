@@ -1,12 +1,8 @@
 #ifndef _GET_TIME_OF_DAY_H
 #define _GET_TIME_OF_DAY_H
 
-#ifdef  __MINGW64__
-#else
-#ifdef  __MINGW32__
-#else
+#ifndef  __MINGW32__
 #include < time.h >
-#endif
 #endif
 
 #include <windows.h> //I've ommited context line.
