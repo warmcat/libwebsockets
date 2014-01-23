@@ -6,7 +6,7 @@
 
 /* Define to 1 to use CyaSSL as a replacement for OpenSSL. 
  * LWS_OPENSSL_SUPPORT needs to be set also for this to work. */
-#cmakedefine USE_CYASSL
+#cmakedefine USE_CYASSL ${LWS_USE_CYASSL}
 
 /* The Libwebsocket version */
 #cmakedefine LWS_LIBRARY_VERSION "${LWS_LIBRARY_VERSION}"
