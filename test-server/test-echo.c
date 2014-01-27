@@ -41,7 +41,7 @@
 
 #include "../lib/libwebsockets.h"
 
-int force_exit = 0;
+static volatile int force_exit = 0;
 
 #define MAX_ECHO_PAYLOAD 1400
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"

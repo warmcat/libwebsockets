@@ -58,7 +58,7 @@ int max_poll_elements;
 struct pollfd *pollfds;
 int *fd_lookup;
 int count_pollfds;
-int force_exit = 0;
+static volatile int force_exit = 0;
 
 /*
  * This demo server shows how to use libwebsockets for one or more

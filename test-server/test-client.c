@@ -38,7 +38,7 @@ static int deny_deflate;
 static int deny_mux;
 static struct libwebsocket *wsi_mirror;
 static int mirror_lifetime = 0;
-static int force_exit = 0;
+static volatile int force_exit = 0;
 static int longlived = 0;
 
 /*
