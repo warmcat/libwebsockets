@@ -1209,10 +1209,11 @@ handled:
 LWS_VISIBLE void
 libwebsocket_context_destroy(struct libwebsocket_context *context)
 {
-#ifndef LWS_NO_EXTENSIONS
 	int n;
+#ifndef LWS_NO_EXTENSIONS
 	int m;
 	struct libwebsocket_extension *ext;
+#endif /* ndef LWS_NO_EXTENSIONS */
 	struct libwebsocket_protocols *protocol = context->protocols;
 
 #ifdef LWS_LATENCY
@@ -1228,6 +1229,7 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 		n--;
 	}
 
+#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * give all extensions a chance to clean up any per-context
 	 * allocations they might have made
@@ -1243,6 +1245,7 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 								 NULL, NULL, 0);
 		ext++;
 	}
+#endif /* ndef LWS_NO_EXTENSIONS */
 
 	/*
 	 * inform all the protocols that they are done and will have no more
@@ -1255,7 +1258,6 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 		protocol++;
 	}
 
-#endif
 
 #if defined(WIN32) || defined(_WIN32)
 #else
