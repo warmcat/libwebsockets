@@ -1814,9 +1814,11 @@ int user_callback_handle_rxflow(callback_function callback_function,
  * This is just used to interrupt poll waiting
  * we don't have to do anything with it.
  */
+#ifdef LWS_OPENSSL_SUPPORT
 static void lws_sigusr2(int sig)
 {
 }
+#endif
 
 /**
  * libwebsocket_create_context() - Create the websocket handler
