@@ -282,6 +282,16 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		new_wsi->sock = accept_fd;
 
+		/*
+		 * A new connection was accepted. Give the user a chance to
+		 * set properties of the newly created wsi. There's no protocol
+		 * selected yet so we issue this to protocols[0]
+		 */
+
+		(context->protocols[0].callback)(context, new_wsi,
+			LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, NULL, NULL, 0);
+
+
 #ifdef LWS_OPENSSL_SUPPORT
 		new_wsi->ssl = NULL;
 		if (!context->use_ssl) {
