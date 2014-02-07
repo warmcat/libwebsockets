@@ -547,11 +547,12 @@ struct libwebsocket_extension;
  *		the server at network level; the connection is accepted but then
  *		passed to this callback to decide whether to hang up immediately
  *		or not, based on the client IP.  @in contains the connection
- *		socket's descriptor.  Return non-zero to terminate
- *		the connection before sending or receiving anything.
- *		Because this happens immediately after the network connection
- *		from the client, there's no websocket protocol selected yet so
- *		this callback is issued only to protocol 0.
+ *		socket's descriptor. Since the client connection information is
+ *		not available yet, @wsi still pointing to the main server socket.
+ *		Return non-zero to terminate the connection before sending or
+ *		receiving anything. Because this happens immediately after the
+ *		network connection from the client, there's no websocket protocol
+ *		selected yet so this callback is issued only to protocol 0.
  * 
  *	LWS_CALLBACK_FILTER_HTTP_CONNECTION: called when the request has
  *		been received and parsed from the client, but the response is
