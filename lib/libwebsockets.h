@@ -165,6 +165,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_HTTP_WRITEABLE,
 	LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 	LWS_CALLBACK_FILTER_HTTP_CONNECTION,
+	LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
@@ -547,12 +548,21 @@ struct libwebsocket_extension;
  *		the server at network level; the connection is accepted but then
  *		passed to this callback to decide whether to hang up immediately
  *		or not, based on the client IP.  @in contains the connection
- *		socket's descriptor.  Return non-zero to terminate
- *		the connection before sending or receiving anything.
- *		Because this happens immediately after the network connection
- *		from the client, there's no websocket protocol selected yet so
- *		this callback is issued only to protocol 0.
+ *		socket's descriptor. Since the client connection information is
+ *		not available yet, @wsi still pointing to the main server socket.
+ *		Return non-zero to terminate the connection before sending or
+ *		receiving anything. Because this happens immediately after the
+ *		network connection from the client, there's no websocket protocol
+ *		selected yet so this callback is issued only to protocol 0.
  * 
+ *	LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED: A new client just had
+ *		been connected, accepted, and instantiated into the pool. This
+ *		callback allows setting any relevant property to it. Because this
+ *		happens immediately after the instantiation of a new client,
+ *		there's no websocket protocol selected yet so this callback is
+ *		issued only to protocol 0. Only @wsi is defined, pointing to the
+ *		new client, and the return value is ignored.
+ *
  *	LWS_CALLBACK_FILTER_HTTP_CONNECTION: called when the request has
  *		been received and parsed from the client, but the response is
  *		not sent yet.  Return non-zero to disallow the connection.
