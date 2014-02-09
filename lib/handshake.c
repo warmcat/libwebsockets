@@ -58,15 +58,19 @@ libwebsocket_read(struct libwebsocket_context *context,
 		     struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
 	size_t n;
+#ifndef LWS_NO_SERVER
 	struct allocated_headers *ah;
 	char *uri_ptr = NULL;
 	int uri_len = 0;
 	char content_length_str[32];
+#endif
 
 	switch (wsi->state) {
 
 	case WSI_STATE_HTTP_BODY:
+#ifndef LWS_NO_SERVER
 http_postbody:
+#endif
 		while (len--) {
 
 			if (wsi->u.http.content_length_seen >= wsi->u.http.content_length)
@@ -398,9 +402,9 @@ leave:
 
 			lwsl_parser("accepted v%02d connection\n",
 							       wsi->ietf_spec_revision);
-#endif
 		} /* while all chars are handled */
 		break;
+#endif
 
 	case WSI_STATE_AWAITING_CLOSE_ACK:
 	case WSI_STATE_ESTABLISHED:
@@ -435,10 +439,12 @@ leave:
 
 	return 0;
 
+#ifndef LWS_NO_SERVER
 bail_nuke_ah:
 	/* drop the header info */
 	if (wsi->u.hdr.ah)
 		free(wsi->u.hdr.ah);
+#endif
 
 bail:
 	lwsl_info("closing connection at libwebsocket_read bail:\n");
