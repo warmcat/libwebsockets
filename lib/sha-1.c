@@ -59,9 +59,22 @@ typedef unsigned __int64 u_int64_t;
 #define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
 
 #else
+
 #include <sys/stat.h>
 #include <sys/cdefs.h>
 #include <sys/time.h>
+#include <endian.h>
+
+#if !defined(BYTE_ORDER)
+# define BYTE_ORDER __BYTE_ORDER
+#endif
+#if !defined(LITTLE_ENDIAN)
+# define LITTLE_ENDIAN __LITTLE_ENDIAN
+#endif
+#if !defined(BIG_ENDIAN)
+# define BIG_ENDIAN __BIG_ENDIAN
+#endif
+
 #endif
 
 #include <string.h>
@@ -83,7 +96,9 @@ struct sha1_ctxt {
 };
 
 /* sanity check */
-#if BYTE_ORDER != BIG_ENDIAN
+#if !defined(BYTE_ORDER) || !defined(LITTLE_ENDIAN) || !defined(BIG_ENDIAN)
+# define unsupported 1
+#elif BYTE_ORDER != BIG_ENDIAN
 # if BYTE_ORDER != LITTLE_ENDIAN
 #  define unsupported 1
 # endif
