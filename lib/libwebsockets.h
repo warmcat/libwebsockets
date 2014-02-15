@@ -182,6 +182,8 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 	LWS_CALLBACK_PROTOCOL_INIT,
 	LWS_CALLBACK_PROTOCOL_DESTROY,
+	LWS_CALLBACK_WSI_CREATE, /* always protocol[0] */
+	LWS_CALLBACK_WSI_DESTROY, /* always protocol[0] */
 	LWS_CALLBACK_GET_THREAD_ID,
 
 	/* external poll() management support */
@@ -679,6 +681,10 @@ struct libwebsocket_extension;
  *		this protocol won't get used at all after this callback, the
  *		context is getting destroyed.  Take the opportunity to
  *		deallocate everything that was allocated by the protocol.
+ *
+ *	LWS_CALLBACK_WSI_CREATE: outermost (earliest) wsi create notification
+ *
+ *	LWS_CALLBACK_WSI_DESTROY: outermost (latest) wsi destroy notification
  *
  *	The next four reasons are optional and only need taking care of if you
  *	will be integrating libwebsockets sockets into an external polling

@@ -485,6 +485,11 @@ just_kill_connection:
 #ifdef LWS_OPENSSL_SUPPORT
 	}
 #endif
+
+	/* outermost destroy notification for wsi (user_space still intact) */
+	context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_WSI_DESTROY, wsi->user_space, NULL, 0);
+
 	if (wsi->protocol && wsi->protocol->per_session_data_size &&
 					wsi->user_space) /* user code may own */
 		free(wsi->user_space);
