@@ -1009,6 +1009,15 @@ LWS_VISIBLE LWS_EXTERN int
 libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf, size_t len,
 				     enum libwebsocket_write_protocol protocol);
 
+/* helper for case where buffer may be const */
+static inline int
+libwebsocket_write_http(struct libwebsocket *wsi,
+				const unsigned char *buf, size_t len)
+{
+	return libwebsocket_write(wsi, (unsigned char *)buf, len,
+							LWS_WRITE_HTTP);
+}
+
 LWS_VISIBLE LWS_EXTERN int
 libwebsockets_serve_http_file(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, const char *file,
