@@ -1568,6 +1568,34 @@ libwebsocket_callback_on_writable_all_protocol(
 }
 
 /**
+ * libwebsocket_callback_all_protocol() - Callback all connections using
+ *				the given protocol with the given reason
+ *
+ * @protocol:	Protocol whose connections will get callbacks
+ * @reason:	Callback reason index
+ */
+
+LWS_VISIBLE int
+libwebsocket_callback_all_protocol(
+		const struct libwebsocket_protocols *protocol, int reason)
+{
+	struct libwebsocket_context *context = protocol->owning_server;
+	int n;
+	struct libwebsocket *wsi;
+
+	for (n = 0; n < context->fds_count; n++) {
+		wsi = context->lws_lookup[context->fds[n].fd];
+		if (!wsi)
+			continue;
+		if (wsi->protocol == protocol)
+			protocol->callback(context, wsi,
+					reason, wsi->user_space, NULL, 0);
+	}
+
+	return 0;
+}
+
+/**
  * libwebsocket_set_timeout() - marks the wsi as subject to a timeout
  *
  * You will not need this unless you are doing something special

@@ -1043,6 +1043,10 @@ libwebsocket_callback_on_writable_all_protocol(
 				 const struct libwebsocket_protocols *protocol);
 
 LWS_VISIBLE LWS_EXTERN int
+libwebsocket_callback_all_protocol(
+		const struct libwebsocket_protocols *protocol, int reason);
+
+LWS_VISIBLE LWS_EXTERN int
 libwebsocket_get_socket_fd(struct libwebsocket *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
