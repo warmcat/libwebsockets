@@ -197,6 +197,15 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_USER = 1000, /* user code can use any including / above */
 };
 
+// argument structure for all external poll related calls
+// passed in via 'in'
+struct libwebsocket_pollargs {
+    int fd;            // applicable file descriptor
+    int events;        // the new event mask
+    int prev_events;   // the previous event mask
+};
+
+
 #ifndef LWS_NO_EXTENSIONS
 enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT,
