@@ -191,6 +191,8 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_CLEAR_MODE_POLL_FD,
 	LWS_CALLBACK_LOCK_POLL,
 	LWS_CALLBACK_UNLOCK_POLL,
+
+	LWS_CALLBACK_USER = 1000, /* user code can use any including / above */
 };
 
 #ifndef LWS_NO_EXTENSIONS
