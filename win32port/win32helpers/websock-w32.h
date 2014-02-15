@@ -51,8 +51,9 @@ typedef struct pollfd {
 typedef INT (WSAAPI *PFNWSAPOLL)(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout);
 extern PFNWSAPOLL poll;
 
+#ifndef  __MINGW32__
 extern INT WSAAPI emulated_poll(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout);
-
+#endif
 /* override configure because we are not using Makefiles */
 
 #define LWS_NO_FORK
