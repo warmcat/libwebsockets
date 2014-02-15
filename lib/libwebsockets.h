@@ -694,9 +694,12 @@ struct libwebsocket_extension;
  *
  *	LWS_CALLBACK_WSI_DESTROY: outermost (latest) wsi destroy notification
  *
- *	The next four reasons are optional and only need taking care of if you
+ *	The next five reasons are optional and only need taking care of if you
  *	will be integrating libwebsockets sockets into an external polling
  *	array.
+ *
+ *	For these calls, @in points to a struct libwebsocket_pollargs that
+ *	contains @fd, @events and @prev_events members
  *
  *	LWS_CALLBACK_ADD_POLL_FD: libwebsocket deals with its poll() loop
  *		internally, but in the case you are integrating with another
@@ -705,28 +708,33 @@ struct libwebsocket_extension;
  *		POLL_FD related callbacks let you put your specialized
  *		poll array interface code in the callback for protocol 0, the
  *		first protocol you support, usually the HTTP protocol in the
- *		serving case.  This callback happens when a socket needs to be
- *		added to the polling loop: @in contains the fd, and
- *		@len is the events bitmap (like, POLLIN).  If you are using the
- *		internal polling loop (the "service" callback), you can just
- *		ignore these callbacks.
+ *		serving case.
+ *		This callback happens when a socket needs to be
+ *		added to the polling loop: @in points to a struct
+ *		libwebsocket_pollargs; the @fd member of the struct is the file
+ *		descriptor, and @events contains the active events.
+ *
+ *		If you are using the internal polling loop (the "service"
+ *		callback), you can just ignore these callbacks.
  *
  *	LWS_CALLBACK_DEL_POLL_FD: This callback happens when a socket descriptor
  *		needs to be removed from an external polling array.  @in is
- *		the socket desricptor.  If you are using the internal polling
+ *		again the struct libwebsocket_pollargs containing the @fd member
+ *		to be removed.  If you are using the internal polling
  *		loop, you can just ignore it.
  *
- *	LWS_CALLBACK_SET_MODE_POLL_FD: This callback happens when libwebsockets
- *		wants to modify the events for the socket descriptor in @in.
- *		The handler should OR @len on to the events member of the pollfd
- *		struct for this socket descriptor.  If you are using the
- *		internal polling loop, you can just ignore it.
+ *	LWS_CALLBACK_CHANGE_MODE_POLL_FD: This callback happens when
+ *		libwebsockets wants to modify the events for a connectiion.
+ *		@in is the struct libwebsocket_pollargs with the @fd to change.
+ *		The new event mask is in @events member and the old mask is in
+ *		the @prev_events member.
+ *		If you are using the internal polling loop, you can just ignore
+ *		it.
  *
- *	LWS_CALLBACK_CLEAR_MODE_POLL_FD: This callback occurs when libwebsockets
- *		wants to modify the events for the socket descriptor in @in.
- *		The handler should AND ~@len on to the events member of the
- *		pollfd struct for this socket descriptor.  If you are using the
- *		internal polling loop, you can just ignore it.
+ *	LWS_CALLBACK_LOCK_POLL:
+ *	LWS_CALLBACK_UNLOCK_POLL: These allow the external poll changes driven
+ *		by libwebsockets to participate in an external thread locking
+ *		scheme around the changes, so the whole thing is threadsafe.
  */
 LWS_VISIBLE LWS_EXTERN int callback(struct libwebsocket_context *context,
 			struct libwebsocket *wsi,
