@@ -713,7 +713,7 @@ includedir=\${prefix}/include
 
 Name: libwebsockets
 Description: Websockets server and client library
-Version: ${PACKAGE_VERSION}
+Version: ${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}
 
 Libs: -L\${libdir} -lwebsockets
 Cflags: -I\${includedir}"
