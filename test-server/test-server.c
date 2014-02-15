@@ -211,7 +211,7 @@ static int callback_http(struct libwebsocket_context *context,
 			(struct per_session_data__http *)user;
 	const char *mimetype;
 #ifdef EXTERNAL_POLL
-	int fd = (int)(long)in;
+	struct libwebsocket_pollargs *pa = (struct libwebsocket_pollargs *)in;
 #endif
 
 	switch (reason) {
@@ -450,28 +450,25 @@ bail:
 			return 1;
 		}
 
-		fd_lookup[fd] = count_pollfds;
-		pollfds[count_pollfds].fd = fd;
-		pollfds[count_pollfds].events = (int)(long)len;
+		fd_lookup[pa->fd] = count_pollfds;
+		pollfds[count_pollfds].fd = pa->fd;
+		pollfds[count_pollfds].events = pa->events;
 		pollfds[count_pollfds++].revents = 0;
 		break;
 
 	case LWS_CALLBACK_DEL_POLL_FD:
 		if (!--count_pollfds)
 			break;
-		m = fd_lookup[fd];
+		m = fd_lookup[pa->fd];
 		/* have the last guy take up the vacant slot */
 		pollfds[m] = pollfds[count_pollfds];
 		fd_lookup[pollfds[count_pollfds].fd] = m;
 		break;
 
-	case LWS_CALLBACK_SET_MODE_POLL_FD:
-		pollfds[fd_lookup[fd]].events |= (int)(long)len;
+	case LWS_CALLBACK_CHANGE_MODE_POLL_FD:
+	        pollfds[fd_lookup[pa->fd]].events = pa->events;
 		break;
 
-	case LWS_CALLBACK_CLEAR_MODE_POLL_FD:
-		pollfds[fd_lookup[fd]].events &= ~(int)(long)len;
-		break;
 #endif
 
 	case LWS_CALLBACK_GET_THREAD_ID:
