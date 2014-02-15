@@ -169,6 +169,7 @@ http_postbody:
 			lwsl_parser("libwebsocket_parse sees parsing complete\n");
 
 			wsi->mode = LWS_CONNMODE_PRE_WS_SERVING_ACCEPT;
+			libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 			/* is this websocket protocol or normal http 1.0? */
 

@@ -282,6 +282,11 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		new_wsi->sock = accept_fd;
 
+		/* the transport is accepted... give him time to negotiate */
+		libwebsocket_set_timeout(new_wsi,
+			PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+							AWAITING_TIMEOUT);
+
 		/*
 		 * A new connection was accepted. Give the user a chance to
 		 * set properties of the newly created wsi. There's no protocol
@@ -416,9 +421,10 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		}
 
 accepted:
-		/* OK, we are accepted */
-
-		libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+		/* OK, we are accepted... give him some time to negotiate */
+		libwebsocket_set_timeout(wsi,
+			PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+							AWAITING_TIMEOUT);
 
 		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
