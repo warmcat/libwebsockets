@@ -382,7 +382,7 @@ spill:
 			}
 		}
 #endif
-		if (eff_buf.token_len <= 0)
+		if (eff_buf.token_len <= 0 && callback_action != LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			goto already_done;
 
 		eff_buf.token[eff_buf.token_len] = '\0';

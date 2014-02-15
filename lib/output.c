@@ -569,8 +569,8 @@ do_more_inside_frame:
 send_raw:
 
 #if 0
-	lwsl_debug("send %ld: ", len + post);
-	lwsl_hexdump(&buf[-pre], len + post);
+	lwsl_debug("send %ld: ", len + pre + post);
+	lwsl_hexdump(&buf[-pre], len + pre + post);
 #endif
 
 	switch (protocol) {

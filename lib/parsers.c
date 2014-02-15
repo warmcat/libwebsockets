@@ -670,8 +670,13 @@ handle_first:
 				wsi->lws_rx_parse_state =
 						LWS_RXPS_07_COLLECT_FRAME_KEY_1;
 			else
-				wsi->lws_rx_parse_state =
+				if (wsi->u.ws.rx_packet_length)
+					wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+				else {
+					wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+					goto spill;
+				}
 			break;
 		}
 		break;
@@ -779,8 +784,10 @@ handle_first:
 		wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
 		wsi->u.ws.frame_mask_index = 0;
-		if (wsi->u.ws.rx_packet_length == 0)
+		if (wsi->u.ws.rx_packet_length == 0) {
+			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 			goto spill;
+		}
 		break;
 
 
