@@ -7,6 +7,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	struct pollfd pfd;
 	struct hostent *server_hostent;
 	struct sockaddr_in server_addr;
+	struct sockaddr_in client_addr;
 	int n;
 	int plen = 0;
 	const char *ads;
@@ -65,6 +66,25 @@ struct libwebsocket *libwebsocket_client_connect_2(
 		libwebsocket_set_timeout(wsi,
 			PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
 							      AWAITING_TIMEOUT);
+
+		bzero((char *) &client_addr, sizeof(client_addr));
+		client_addr.sin_family = AF_INET;
+
+		if (context->iface != NULL) {
+			if (interface_to_sa(context->iface, &client_addr,
+						sizeof(client_addr)) < 0) {
+				lwsl_err("Unable to find interface %s\n", context->iface);
+				compatible_close(wsi->sock);
+				goto failed;
+			}
+
+			if (bind(wsi->sock, (struct sockaddr *) &client_addr,
+							sizeof(client_addr)) < 0) {
+				lwsl_err("Error binding to interface %s", context->iface);
+				compatible_close(wsi->sock);
+				goto failed;
+			}
+		}
 	}
 
 	server_addr.sin_family = AF_INET;

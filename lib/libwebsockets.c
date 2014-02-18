@@ -1972,6 +1972,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	context->http_proxy_port = 0;
 	context->http_proxy_address[0] = '\0';
 	context->options = info->options;
+	context->iface = info->iface;
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
 	lwsl_notice(" static allocation: %u + (%u x %u fds) = %u bytes\n",
