@@ -1608,7 +1608,7 @@ libwebsocket_callback_all_protocol(
  * @secs:	how many seconds
  */
 
-void
+LWS_VISIBLE void
 libwebsocket_set_timeout(struct libwebsocket *wsi,
 					  enum pending_timeout reason, int secs)
 {
