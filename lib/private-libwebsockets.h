@@ -259,6 +259,7 @@ struct libwebsocket_context {
 	int fds_count;
 	int max_fds;
 	int listen_port;
+	const char *iface;
 	char http_proxy_address[128];
 	char canonical_hostname[128];
 	unsigned int http_proxy_port;
