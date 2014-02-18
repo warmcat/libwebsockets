@@ -114,6 +114,8 @@ int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 						       struct libwebsocket *wsi)
 {
+	struct libwebsocket_pollargs pa = {wsi->sock, POLLIN, 0 };
+
 	if (context->fds_count >= context->max_fds) {
 		lwsl_err("Too many fds (%d)\n", context->max_fds);
 		return 1;
@@ -131,7 +133,6 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	lwsl_info("insert_wsi_socket_into_fds: wsi=%p, sock=%d, fds pos=%d\n",
 					    wsi, wsi->sock, context->fds_count);
 
-	struct libwebsocket_pollargs pa = {wsi->sock, POLLIN, 0 };
 	context->protocols[0].callback(context, wsi,
 		LWS_CALLBACK_LOCK_POLL,
 		wsi->user_space, (void *) &pa, 0);

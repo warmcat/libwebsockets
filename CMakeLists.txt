@@ -566,7 +566,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			"${PROJECT_SOURCE_DIR}/test-server/test.html")
 
 		# Generate self-signed SSL certs for the test-server.
-		if (LWS_WITH_SSL AND OPENSSL_EXECUTABLE)
+		if (LWS_WITH_SSL AND OPENSSL_EXECUTABLE AND NOT LWS_WITHOUT_TEST_SERVER)
 			message("Generating SSL Certificates for the test-server...")
 
 			set(TEST_SERVER_SSL_KEY "${PROJECT_BINARY_DIR}/libwebsockets-test-server.key.pem")
@@ -595,7 +595,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 				message("\n")
 
 				if (OPENSSL_RETURN_CODE)
-					message("!!! Failed to generate SSL certificate !!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
+					message(WARNING "!!! Failed to generate SSL certificate for Test Server using cmd.exe !!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
+				else()
+					message("SUCCSESFULLY generated SSL certificate")
 				endif()
 			else()
 				# Unix.
@@ -603,7 +605,13 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
 					COMMAND "${OPENSSL_EXECUTABLE}"
 						req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-					)
+					RESULT_VARIABLE OPENSSL_RETURN_CODE)
+
+				if (OPENSSL_RETURN_CODE)
+					message(WARNING "!!! Failed to generate SSL certificate for Test Server!!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
+				else()
+					message("SUCCSESFULLY generated SSL certificate")
+				endif()
 			endif()
 
 			list(APPEND TEST_SERVER_DATA 
@@ -611,13 +619,18 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 				"${TEST_SERVER_SSL_CERT}")
 		endif()
 
+		add_custom_command(TARGET test-server
+						POST_BUILD 
+						COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server")
+
 		# Copy the file needed to run the server so that the test apps can
 		# reach them from their default output location
 		foreach (TEST_FILE ${TEST_SERVER_DATA})
-			add_custom_command(TARGET test-server
-						POST_BUILD 
-						COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server"
-						COMMAND "${CMAKE_COMMAND}" -E copy "${TEST_FILE}" "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server" VERBATIM)
+			if (EXISTS ${TEST_FILE})
+				add_custom_command(TARGET test-server
+							POST_BUILD 
+							COMMAND "${CMAKE_COMMAND}" -E copy "${TEST_FILE}" "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server" VERBATIM)
+			endif()
 		endforeach()
 	endif(NOT LWS_WITHOUT_SERVER)
 
