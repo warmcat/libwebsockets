@@ -256,10 +256,20 @@ http_postbody:
 						LWS_CALLBACK_FILTER_HTTP_CONNECTION,
 						     wsi->user_space, uri_ptr, uri_len);
 
-				if (!n && wsi->protocol->callback)
-					n = wsi->protocol->callback(context, wsi,
-					    LWS_CALLBACK_HTTP,
-					    wsi->user_space, uri_ptr, uri_len);
+				if (!n) {
+					/*
+					 * if there is content supposed to be coming,
+					 * put a timeout on it having arrived
+					 */
+					libwebsocket_set_timeout(wsi,
+						PENDING_TIMEOUT_HTTP_CONTENT,
+								      AWAITING_TIMEOUT);
+
+					if (wsi->protocol->callback)
+						n = wsi->protocol->callback(context, wsi,
+						    LWS_CALLBACK_HTTP,
+						    wsi->user_space, uri_ptr, uri_len);
+				}
 
 leave:
 				/* now drop the header info we kept a pointer to */
@@ -269,17 +279,10 @@ leave:
 				wsi->u.http.ah = NULL;
 
 				if (n) {
+					libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 					lwsl_info("LWS_CALLBACK_HTTP closing\n");
 					goto bail; /* struct ah ptr already nuked */
 				}
-
-				/*
-				 * if there is content supposed to be coming,
-				 * put a timeout on it having arrived
-				 */
-				libwebsocket_set_timeout(wsi,
-					PENDING_TIMEOUT_HTTP_CONTENT,
-							      AWAITING_TIMEOUT);
 
 				/*
 				 * (if callback didn't start sending a file)
