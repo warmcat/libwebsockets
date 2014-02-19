@@ -279,7 +279,6 @@ leave:
 				wsi->u.http.ah = NULL;
 
 				if (n) {
-					libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 					lwsl_info("LWS_CALLBACK_HTTP closing\n");
 					goto bail; /* struct ah ptr already nuked */
 				}
