@@ -98,9 +98,9 @@ To list avaialable options (ommit the H if you don't want the help text):
 
 Then to set an option and build (for example turn off SSL support):
 
-	cmake -DWITH_SSL=0 ..
+	cmake -DLWS_WITH_SSL=0 ..
 or
-	cmake -DWITH_SSL:BOOL=OFF ..
+	cmake -DLWS_WITH_SSL:BOOL=OFF ..
 
 Unix GUI
 --------
