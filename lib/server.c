@@ -51,36 +51,6 @@ libwebsockets_decode_ssl_error(void)
 }
 #endif
 
-int
-interface_to_sa(const char *ifname, struct sockaddr_in *addr, size_t addrlen)
-{
-	int rc = -1;
-#if defined(WIN32) || defined(_WIN32)
-	/* TODO */
-#else
-	struct ifaddrs *ifr;
-	struct ifaddrs *ifc;
-	struct sockaddr_in *sin;
-
-	getifaddrs(&ifr);
-	for (ifc = ifr; ifc != NULL && rc; ifc = ifc->ifa_next) {
-		if (ifc->ifa_addr == NULL)
-			continue;
-		lwsl_info(" interface %s vs %s\n", ifc->ifa_name, ifname);
-		if (strcmp(ifc->ifa_name, ifname))
-			continue;
-		sin = (struct sockaddr_in *)ifc->ifa_addr;
-		if (sin->sin_family != AF_INET)
-			continue;
-		memcpy(addr, sin, addrlen);
-		rc = 0;
-	}
-
-	freeifaddrs(ifr);
-#endif
-	return rc;
-}
-
 struct libwebsocket *
 libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 {
