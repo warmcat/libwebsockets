@@ -2336,17 +2336,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 			goto bail;
 		}
 
-#ifndef WIN32
 		/*
 		 * allow us to restart even if old sockets in TIME_WAIT
-		 * (REUSEADDR on Unix means, "don't hang on to this
-		 * address after the listener is closed."  On Windows, though,
-		 * it means "don't keep other processes from binding to
-		 * this address while we're using it)
 		 */
 		setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
 					      (const void *)&opt, sizeof(opt));
-#endif
 
 		/* Disable Nagle */
 		opt = 1;
