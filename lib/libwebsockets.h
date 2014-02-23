@@ -280,7 +280,11 @@ struct lws_tokens {
 	int token_len;
 };
 
-/* don't forget to update test server header dump accordingly */
+/*
+ * don't forget to update test server header dump accordingly
+ *
+ * these have to be kept in sync with lextable.h / minilex.c
+ */
 
 enum lws_token_indexes {
 	WSI_TOKEN_GET_URI,
@@ -288,28 +292,18 @@ enum lws_token_indexes {
 	WSI_TOKEN_OPTIONS_URI,
 	WSI_TOKEN_HOST,
 	WSI_TOKEN_CONNECTION,
-	WSI_TOKEN_KEY1,
-	WSI_TOKEN_KEY2,
-	WSI_TOKEN_PROTOCOL,
 	WSI_TOKEN_UPGRADE,
 	WSI_TOKEN_ORIGIN,
 	WSI_TOKEN_DRAFT,
 	WSI_TOKEN_CHALLENGE,
-
-	/* new for 04 */
-	WSI_TOKEN_KEY,
-	WSI_TOKEN_VERSION,
-	WSI_TOKEN_SWORIGIN,
-
-	/* new for 05 */
 	WSI_TOKEN_EXTENSIONS,
-
-	/* client receives these */
+	WSI_TOKEN_KEY1,
+	WSI_TOKEN_KEY2,
+	WSI_TOKEN_PROTOCOL,
 	WSI_TOKEN_ACCEPT,
 	WSI_TOKEN_NONCE,
 	WSI_TOKEN_HTTP,
-
-	/* http-related */
+	WSI_TOKEN_HTTP2_SETTINGS,
 	WSI_TOKEN_HTTP_ACCEPT,
 	WSI_TOKEN_HTTP_AC_REQUEST_HEADERS,
 	WSI_TOKEN_HTTP_IF_MODIFIED_SINCE,
@@ -325,8 +319,11 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP_DATE,
 	WSI_TOKEN_HTTP_RANGE,
 	WSI_TOKEN_HTTP_REFERER,
-	WSI_TOKEN_HTTP_URI_ARGS,
+	WSI_TOKEN_KEY,
+	WSI_TOKEN_VERSION,
+	WSI_TOKEN_SWORIGIN,
 
+	WSI_TOKEN_HTTP_URI_ARGS,
 
 	WSI_TOKEN_MUXURL,
 

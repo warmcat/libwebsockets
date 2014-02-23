@@ -132,7 +132,7 @@ dump_handshake_info(struct libwebsocket *wsi)
 		/*[WSI_TOKEN_ACCEPT]		=*/ "Accept",
 		/*[WSI_TOKEN_NONCE]		=*/ "Nonce",
 		/*[WSI_TOKEN_HTTP]		=*/ "Http",
-
+		"http2-settings",
 		"Accept:",
 		"a-c-request-headers:",
 		"If-Modified-Since:",

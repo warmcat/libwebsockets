@@ -24,23 +24,20 @@ const char *set[] = {
 	"options ",
 	"host:",
 	"connection:",
-	"sec-websocket-key1:",
-	"sec-websocket-key2:",
-	"sec-websocket-protocol:",
 	"upgrade:",
 	"origin:",
 	"sec-websocket-draft:",
 	"\x0d\x0a",
 
-	"sec-websocket-key:",
-	"sec-websocket-version:",
-	"sec-websocket-origin:",
-
 	"sec-websocket-extensions:",
+	"sec-websocket-key1:",
+	"sec-websocket-key2:",
+	"sec-websocket-protocol:",
 
 	"sec-websocket-accept:",
 	"sec-websocket-nonce:",
 	"http/1.1 ",
+	"http2-settings:",
 
 	"accept:",
 	"access-control-request-headers:",
@@ -57,6 +54,10 @@ const char *set[] = {
 	"date:",
 	"range:",
 	"referer:",
+	"sec-websocket-key:",
+	"sec-websocket-version:",
+	"sec-websocket-origin:",
+
 	"", /* not matchable */
 
 };
