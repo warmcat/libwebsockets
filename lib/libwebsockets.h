@@ -1050,7 +1050,7 @@ LWS_VISIBLE LWS_EXTERN int
 libwebsockets_serve_http_file_fragment(struct libwebsocket_context *context,
 			struct libwebsocket *wsi);
 
-LWS_VISIBLE int libwebsockets_return_http_status(
+LWS_VISIBLE LWS_EXTERN int libwebsockets_return_http_status(
 		struct libwebsocket_context *context,
 			struct libwebsocket *wsi, unsigned int code,
 							const char *html_body);
