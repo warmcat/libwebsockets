@@ -719,7 +719,7 @@ if (UNIX)
 # Generate and install pkgconfig.
 # (This is not indented, because the tabs will be part of the output)
 file(WRITE "${PROJECT_BINARY_DIR}/libwebsockets.pc"
-"prefix="${CMAKE_INSTALL_PREFIX}"
+"prefix=\"${CMAKE_INSTALL_PREFIX}\"
 exec_prefix=\${prefix}
 libdir=\${exec_prefix}/lib${LIB_SUFFIX}
 includedir=\${prefix}/include
