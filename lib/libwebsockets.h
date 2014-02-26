@@ -990,7 +990,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_HTTP_CONTENT,
 };
 
-LWS_EXTERN void
+LWS_VISIBLE LWS_EXTERN void
 libwebsocket_set_timeout(struct libwebsocket *wsi,
 					 enum pending_timeout reason, int secs);
 
