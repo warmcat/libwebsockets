@@ -629,7 +629,8 @@ send_raw:
 LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		struct libwebsocket_context *context, struct libwebsocket *wsi)
 {
-	int n, m;
+	size_t n;
+	int m;
 
 	while (!lws_send_pipe_choked(wsi)) {
 
@@ -643,9 +644,13 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		if (wsi->u.http.filepos == wsi->u.http.filelen)
 			goto all_sent;
 
-		n = read(wsi->u.http.fd, context->service_buffer,
-					       sizeof(context->service_buffer));
-		if (n > 0) {
+		n = fread(context->service_buffer, 1,
+					sizeof(context->service_buffer), wsi->u.http.fp);
+
+		if (ferror(wsi->u.http.fp))
+			return -1;
+
+		if (n) {
 			m = libwebsocket_write(wsi, context->service_buffer, n,
 								LWS_WRITE_HTTP);
 			if (m < 0)
@@ -654,11 +659,9 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 			wsi->u.http.filepos += m;
 			if (m != n)
 				/* adjust for what was not sent */
-				lseek(wsi->u.http.fd, m - n, SEEK_CUR);
+				fseek(wsi->u.http.fp, m - n, SEEK_CUR);
 		}
 
-		if (n < 0)
-			return -1; /* caller will close */
 all_sent:
 		if (!wsi->truncated_send_malloc &&
 				wsi->u.http.filepos == wsi->u.http.filelen) {
