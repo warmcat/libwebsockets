@@ -38,8 +38,6 @@ extern "C" {
 #include <basetsd.h>
 #include "websock-w32.h"
 
-#include "gettimeofday.h"
-
 #define strcasecmp stricmp
 #define getdtablesize() 30000
 
