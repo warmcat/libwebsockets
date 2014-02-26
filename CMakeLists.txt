@@ -275,18 +275,12 @@ if (WIN32)
 
 	list(APPEND HDR_PUBLIC
 		${WIN32_HELPERS_PATH}/websock-w32.h
-		${WIN32_HELPERS_PATH}/gettimeofday.h
 		)
-	if (MINGW)
-		list(APPEND SOURCES
-			${WIN32_HELPERS_PATH}/gettimeofday.c
-			)
-	else(MINGW)
+	if (NOT MINGW)
 		list(APPEND SOURCES
 			${WIN32_HELPERS_PATH}/websock-w32.c
-			${WIN32_HELPERS_PATH}/gettimeofday.c
 			)
-	endif(MINGW)
+	endif()
 	include_directories(${WIN32_HELPERS_PATH})
 else(WIN32)
 	# Unix.

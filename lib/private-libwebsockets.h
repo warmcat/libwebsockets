@@ -264,7 +264,7 @@ struct libwebsocket_context {
 	char canonical_hostname[128];
 	unsigned int http_proxy_port;
 	unsigned int options;
-	unsigned long last_timeout_check_s;
+	time_t last_timeout_check_s;
 
 	/*
 	 * usable by anything in the service code, but only if the scope
@@ -406,7 +406,7 @@ struct libwebsocket {
 	unsigned int hdr_parsing_completed:1;
 
 	char pending_timeout; /* enum pending_timeout */
-	unsigned long pending_timeout_limit;
+	time_t pending_timeout_limit;
 
 	int sock;
 	int position_in_fds_table;

@@ -110,6 +110,35 @@ lws_get_library_version(void)
 	return library_version;
 }
 
+static unsigned long long time_in_microseconds()
+{
+#if defined(WIN32) || defined(_WIN32)
+#define DELTA_EPOCH_IN_MICROSECS 11644473600000000ULL
+	FILETIME filetime;
+	ULARGE_INTEGER datetime;
+
+#ifdef _WIN32_WCE
+	GetCurrentFT(&filetime);
+#else
+	GetSystemTimeAsFileTime(&filetime);
+#endif
+
+	/*
+	 * As per Windows documentation for FILETIME, copy the resulting FILETIME structure to a
+	 * ULARGE_INTEGER structure using memcpy (using memcpy instead of direct assignment can
+	 * prevent alignment faults on 64-bit Windows).
+	 */
+	memcpy(&datetime, &filetime, sizeof(datetime));
+
+	/* Windows file times are in 100s of nanoseconds. */
+	return (datetime.QuadPart - DELTA_EPOCH_IN_MICROSECS) / 10;
+#else
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return (tv.tv_sec * 1000000) + tv.tv_usec;
+#endif
+}
+
 int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 						       struct libwebsocket *wsi)
@@ -915,7 +944,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	int n;
 	int m;
 	int listen_socket_fds_index = 0;
-	struct timeval tv;
+	time_t now;
 	int timed_out = 0;
 	int our_fd = 0;
 	char draining_flow = 0;
@@ -935,10 +964,10 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	 * it returns immediately then.
 	 */
 
-	gettimeofday(&tv, NULL);
+	time(&now);
 
-	if (context->last_timeout_check_s != tv.tv_sec) {
-		context->last_timeout_check_s = tv.tv_sec;
+	if (context->last_timeout_check_s != now) {
+		context->last_timeout_check_s = now;
 
 		#ifndef WIN32
 		/* if our parent went down, don't linger around */
@@ -958,8 +987,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			if (!wsi)
 				continue;
 
-			if (libwebsocket_service_timeout_check(context, wsi,
-								     tv.tv_sec))
+			if (libwebsocket_service_timeout_check(context, wsi, now))
 				/* he did time out... */
 				if (m == our_fd) {
 					/* it was the guy we came to service! */
@@ -1613,11 +1641,11 @@ LWS_VISIBLE void
 libwebsocket_set_timeout(struct libwebsocket *wsi,
 					  enum pending_timeout reason, int secs)
 {
-	struct timeval tv;
+	time_t now;
 
-	gettimeofday(&tv, NULL);
+	time(&now);
 
-	wsi->pending_timeout_limit = tv.tv_sec + secs;
+	wsi->pending_timeout_limit = now + secs;
 	wsi->pending_timeout = reason;
 }
 
@@ -1641,13 +1669,10 @@ void
 lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi,
 				     const char *action, int ret, int completed)
 {
-	struct timeval tv;
-	unsigned long u;
+	unsigned long long u;
 	char buf[256];
 
-	gettimeofday(&tv, NULL);
-
-	u = (tv.tv_sec * 1000000) + tv.tv_usec;
+	u = time_in_microseconds();
 
 	if (action) {
 		if (completed) {
@@ -2566,16 +2591,15 @@ libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 static void lwsl_emit_stderr(int level, const char *line)
 {
 	char buf[300];
-	struct timeval tv;
+	unsigned long long now;
 	int n;
-
-	gettimeofday(&tv, NULL);
 
 	buf[0] = '\0';
 	for (n = 0; n < LLL_COUNT; n++)
 		if (level == (1 << n)) {
-			sprintf(buf, "[%ld:%04d] %s: ", tv.tv_sec,
-				(int)(tv.tv_usec / 100), log_level_names[n]);
+			now = time_in_microseconds() / 100;
+			sprintf(buf, "[%lu:%04d] %s: ", (unsigned long) now / 10000,
+				(int)(now % 10000), log_level_names[n]);
 			break;
 		}
 
