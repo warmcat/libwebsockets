@@ -246,7 +246,7 @@ http_postbody:
 					if (!wsi->u.http.post_buffer) {
 						lwsl_err("Unable to allocate post buffer\n");
 						n = -1;
-						goto leave;
+						goto cleanup;
 					}
 				}
 
@@ -271,7 +271,7 @@ http_postbody:
 						    wsi->user_space, uri_ptr, uri_len);
 				}
 
-leave:
+cleanup:
 				/* now drop the header info we kept a pointer to */
 				if (ah)
 					free(ah);
