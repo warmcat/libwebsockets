@@ -456,7 +456,7 @@ static const char *err500[] = {
  *	Helper to report HTTP errors back to the client cleanly and
  *	consistently
  */
-LWS_VISIBLE LWS_EXTERN int libwebsockets_return_http_status(
+LWS_VISIBLE int libwebsockets_return_http_status(
 		struct libwebsocket_context *context, struct libwebsocket *wsi,
 				       unsigned int code, const char *html_body)
 {
