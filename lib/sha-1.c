@@ -63,7 +63,14 @@ typedef unsigned __int64 u_int64_t;
 #include <sys/stat.h>
 #include <sys/cdefs.h>
 #include <sys/time.h>
+
+#if defined(__APPLE__)
+#include <machine/endian.h>
+#elif defined(__FreeBSD__)
+#include <sys/endian.h>
+#elif defined(__linux__)
 #include <endian.h>
+#endif
 
 #if !defined(BYTE_ORDER)
 # define BYTE_ORDER __BYTE_ORDER
