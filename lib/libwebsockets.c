@@ -539,14 +539,14 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 
 	len = sizeof(sin);
 	if (getpeername(fd, (struct sockaddr *) &sin, &len) < 0) {
-		perror("getpeername");
+		lwsl_warn("getpeername: %s\n", strerror(errno));
 		goto bail;
 	}
 
 	host = gethostbyaddr((char *) &sin.sin_addr, sizeof(sin.sin_addr),
 								       AF_INET);
 	if (host == NULL) {
-		perror("gethostbyaddr");
+		lwsl_warn("gethostbyaddr: %s\n", strerror(errno));
 		goto bail;
 	}
 
