@@ -730,7 +730,7 @@ check_accept:
 	}
 	lwsl_info("Allocating client RX buffer %d\n", n);
 
-	if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF,  &n, sizeof n)) {
+	if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF, (const char *)&n, sizeof n)) {
 		lwsl_warn("Failed to set SNDBUF to %d", n);
 		goto bail3;
 	}
