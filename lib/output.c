@@ -629,7 +629,12 @@ send_raw:
 LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		struct libwebsocket_context *context, struct libwebsocket *wsi)
 {
-	int n, m;
+#if defined(WIN32) || defined(_WIN32)
+	DWORD n;
+#else
+	int n;
+#endif
+	int m;
 
 	while (!lws_send_pipe_choked(wsi)) {
 
@@ -643,22 +648,33 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		if (wsi->u.http.filepos == wsi->u.http.filelen)
 			goto all_sent;
 
+#if defined(WIN32) || defined(_WIN32)
+		if (!ReadFile(wsi->u.http.fd, context->service_buffer,
+						sizeof(context->service_buffer), &n, NULL))
+			return -1; /* caller will close */
+#else
 		n = read(wsi->u.http.fd, context->service_buffer,
 					       sizeof(context->service_buffer));
-		if (n > 0) {
+
+		if (n < 0)
+			return -1; /* caller will close */
+#endif
+		if (n) {
 			m = libwebsocket_write(wsi, context->service_buffer, n,
 								LWS_WRITE_HTTP);
 			if (m < 0)
 				return -1;
 
 			wsi->u.http.filepos += m;
-			if (m != n)
+			if (m != n) {
 				/* adjust for what was not sent */
+#if defined(WIN32) || defined(_WIN32)
+				SetFilePointer(wsi->u.http.fd, m - n, NULL, FILE_CURRENT);
+#else
 				lseek(wsi->u.http.fd, m - n, SEEK_CUR);
+#endif
+			}
 		}
-
-		if (n < 0)
-			return -1; /* caller will close */
 all_sent:
 		if (!wsi->truncated_send_malloc &&
 				wsi->u.http.filepos == wsi->u.http.filelen) {
