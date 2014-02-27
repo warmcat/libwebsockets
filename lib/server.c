@@ -485,6 +485,31 @@ LWS_VISIBLE int libwebsockets_return_http_status(
 	return m;
 }
 
+#if defined(WIN32) || defined(_WIN32)
+static inline HANDLE lws_open_file(const char* filename, unsigned long* filelen)
+{
+	HANDLE ret = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	if (ret != LWS_INVALID_FILE)
+		*filelen = GetFileSize(ret, NULL);
+
+	return ret;
+}
+#else
+static inline int lws_open_file(const char* filename, unsigned long* filelen)
+{
+	struct stat stat_buf;
+	int ret = open(filename, O_RDONLY);
+
+	if (ret < 0)
+		return LWS_INVALID_FILE;
+
+	fstat(ret, &stat_buf);
+	*filelen = stat_buf.st_size;
+	return ret;
+}
+#endif
+
 /**
  * libwebsockets_serve_http_file() - Send a file back to the client using http
  * @context:		libwebsockets context
@@ -508,27 +533,19 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 			struct libwebsocket *wsi, const char *file,
 			   const char *content_type, const char *other_headers)
 {
-	struct stat stat_buf;
 	unsigned char *p = context->service_buffer;
 	int ret = 0;
 	int n;
 
-	wsi->u.http.fd = open(file, O_RDONLY
-#ifdef WIN32
-			 | _O_BINARY
-#endif
-	);
+	wsi->u.http.fd = lws_open_file(file, &wsi->u.http.filelen);
 
-	if (wsi->u.http.fd < 1) {
+	if (wsi->u.http.fd == LWS_INVALID_FILE) {
 		lwsl_err("Unable to open '%s'\n", file);
 		libwebsockets_return_http_status(context, wsi,
 						HTTP_STATUS_NOT_FOUND, NULL);
-		wsi->u.http.fd = -1;
 		return -1;
 	}
 
-	fstat(wsi->u.http.fd, &stat_buf);
-	wsi->u.http.filelen = stat_buf.st_size;
 	p += sprintf((char *)p,
 "HTTP/1.0 200 OK\x0d\x0aServer: libwebsockets\x0d\x0a""Content-Type: %s\x0d\x0a",
 								  content_type);
@@ -538,8 +555,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 		p += n;
 	}
 	p += sprintf((char *)p,
-		"Content-Length: %u\x0d\x0a\x0d\x0a",
-					(unsigned int)stat_buf.st_size);
+		"Content-Length: %lu\x0d\x0a\x0d\x0a", wsi->u.http.filelen);
 
 	ret = libwebsocket_write(wsi, context->service_buffer,
 				   p - context->service_buffer, LWS_WRITE_HTTP);

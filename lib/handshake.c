@@ -219,7 +219,7 @@ http_postbody:
 				memset(&wsi->u, 0, sizeof(wsi->u));
 				wsi->mode = LWS_CONNMODE_HTTP_SERVING_ACCEPTED;
 				wsi->state = WSI_STATE_HTTP;
-				wsi->u.http.fd = -1;
+				wsi->u.http.fd = LWS_INVALID_FILE;
 
 				/* expose it at the same offset as u.hdr */
 				wsi->u.http.ah = ah;

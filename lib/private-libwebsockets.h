@@ -81,6 +81,7 @@
 #include <winsock2.h>
 #include <ws2ipdef.h>
 #include <windows.h>
+#define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -99,6 +100,7 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 
+#define LWS_INVALID_FILE -1
 #define compatible_close(fd) close(fd);
 #endif
 
@@ -344,7 +346,11 @@ struct allocated_headers {
 
 struct _lws_http_mode_related {
 	struct allocated_headers *ah; /* mirroring  _lws_header_related */
+#if defined(WIN32) || defined(_WIN32)
+	HANDLE fd;
+#else
 	int fd;
+#endif
 	unsigned long filepos;
 	unsigned long filelen;
 

@@ -286,10 +286,14 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 			free(wsi->u.http.post_buffer);
 			wsi->u.http.post_buffer = NULL;
 		}
-		if (wsi->u.http.fd >= 0) {
-			lwsl_debug("closing http fd %d\n", wsi->u.http.fd);
+		if (wsi->u.http.fd != LWS_INVALID_FILE) {
+			lwsl_debug("closing http file\n");
+#if defined(WIN32) || defined(_WIN32)
+			CloseHandle(wsi->u.http.fd);
+#else
 			close(wsi->u.http.fd);
-			wsi->u.http.fd = -1;
+#endif
+			wsi->u.http.fd = LWS_INVALID_FILE;
 			context->protocols[0].callback(context, wsi,
 				LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
 		}
