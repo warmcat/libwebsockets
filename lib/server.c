@@ -508,27 +508,23 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 			struct libwebsocket *wsi, const char *file,
 			   const char *content_type, const char *other_headers)
 {
-	struct stat stat_buf;
 	unsigned char *p = context->service_buffer;
 	int ret = 0;
 	int n;
 
-	wsi->u.http.fd = open(file, O_RDONLY
-#ifdef WIN32
-			 | _O_BINARY
-#endif
-	);
+	wsi->u.http.fp = fopen(file, "rb");
 
-	if (wsi->u.http.fd < 1) {
+	if (!wsi->u.http.fp) {
 		lwsl_err("Unable to open '%s'\n", file);
 		libwebsockets_return_http_status(context, wsi,
 						HTTP_STATUS_NOT_FOUND, NULL);
-		wsi->u.http.fd = -1;
 		return -1;
 	}
 
-	fstat(wsi->u.http.fd, &stat_buf);
-	wsi->u.http.filelen = stat_buf.st_size;
+	fseek(wsi->u.http.fp, 0, SEEK_END);
+	wsi->u.http.filelen = ftell(wsi->u.http.fp);
+	fseek(wsi->u.http.fp, 0, SEEK_SET);
+
 	p += sprintf((char *)p,
 "HTTP/1.0 200 OK\x0d\x0aServer: libwebsockets\x0d\x0a""Content-Type: %s\x0d\x0a",
 								  content_type);
@@ -538,8 +534,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 		p += n;
 	}
 	p += sprintf((char *)p,
-		"Content-Length: %u\x0d\x0a\x0d\x0a",
-					(unsigned int)stat_buf.st_size);
+		"Content-Length: %ld\x0d\x0a\x0d\x0a", wsi->u.http.filelen);
 
 	ret = libwebsocket_write(wsi, context->service_buffer,
 				   p - context->service_buffer, LWS_WRITE_HTTP);

@@ -344,9 +344,9 @@ struct allocated_headers {
 
 struct _lws_http_mode_related {
 	struct allocated_headers *ah; /* mirroring  _lws_header_related */
-	int fd;
-	unsigned long filepos;
-	unsigned long filelen;
+	FILE* fp;
+	long filepos;
+	long filelen;
 
 	int content_length;
 	int content_length_seen;
