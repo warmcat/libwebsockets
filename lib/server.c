@@ -474,7 +474,7 @@ LWS_VISIBLE LWS_EXTERN int libwebsockets_return_http_status(
 	n = sprintf((char *)context->service_buffer,
 		"HTTP/1.0 %u %s\x0d\x0a"
 		"Server: libwebsockets\x0d\x0a"
-		"Mime-Type: text/html\x0d\x0a\x0d\x0a"
+		"Content-Type: text/html\x0d\x0a\x0d\x0a"
 		"<h1>%u %s</h1>%s",
 		code, description, code, description, html_body);
 
