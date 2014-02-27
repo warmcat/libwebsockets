@@ -105,6 +105,10 @@
 #define compatible_close(fd) close(fd);
 #endif
 
+#ifndef HAVE_STRERROR
+#define strerror(x) ""
+#endif
+
 #ifdef LWS_OPENSSL_SUPPORT
 #ifdef USE_CYASSL
 #include <cyassl/openssl/ssl.h>
