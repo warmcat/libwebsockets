@@ -21,11 +21,6 @@
 
 #include "private-libwebsockets.h"
 
-#if defined(WIN32) || defined(_WIN32)
-#include <io.h>
-#endif
-
-
 unsigned char lextable[] = {
 	#include "lextable.h"
 };

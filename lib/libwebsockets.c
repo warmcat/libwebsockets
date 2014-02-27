@@ -23,7 +23,6 @@
 
 #if defined(WIN32) || defined(_WIN32)
 #include <tchar.h>
-#include <io.h>
 #include <mstcpip.h>
 #else
 #ifdef LWS_BUILTIN_GETIFADDRS
@@ -37,7 +36,9 @@
 #include <netdb.h>
 #endif
 
+#ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
+#endif
 
 #ifdef LWS_OPENSSL_SUPPORT
 int openssl_websocket_private_data_index;

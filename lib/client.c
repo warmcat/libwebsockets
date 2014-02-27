@@ -23,7 +23,6 @@
 
 #ifdef WIN32
 #include <tchar.h>
-#include <io.h>
 #else
 #ifdef LWS_BUILTIN_GETIFADDRS
 #include <getifaddrs.h>
