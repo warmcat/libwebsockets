@@ -32,7 +32,12 @@
  * implemented by Jun-ichiro itojun Itoh <itojun@itojun.org>
  */
 
+#include "private-libwebsockets.h"
+
+#ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
+#endif
+
 #if defined(WIN32) || defined(_WIN32)
 
 #ifndef BIG_ENDIAN
