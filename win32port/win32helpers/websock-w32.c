@@ -11,7 +11,6 @@
 #endif
 
 #include <stdlib.h>
-#include <errno.h>
 #include "websock-w32.h"
 
 PFNWSAPOLL poll = NULL;
@@ -29,7 +28,7 @@ INT WSAAPI emulated_poll(LPWSAPOLLFD fdarray, ULONG nfds, INT timeout)
 	WSAPOLLFD * poll_fd = fdarray;
 
 	if (NULL == fdarray) {
-		errno = EFAULT;
+		WSASetLastError(WSAEFAULT);
 		return -1;
 	}
 

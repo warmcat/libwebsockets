@@ -156,7 +156,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		n = SSL_write(wsi->ssl, buf, len);
 		lws_latency(context, wsi, "SSL_write lws_issue_raw", n, n >= 0);
 		if (n < 0) {
-			if (errno == EAGAIN || errno == EINTR) {
+			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EINTR) {
 				n = 0;
 				goto handle_truncated_send;
 			}
@@ -168,7 +168,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
 		lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
 		if (n < 0) {
-			if (errno == EAGAIN || errno == EINTR) {
+			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EINTR) {
 				n = 0;
 				goto handle_truncated_send;
 			}

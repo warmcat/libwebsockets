@@ -153,7 +153,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 			if (len < 0) {
 				lwsl_debug("Socket read returned %d\n", len);
-				if (errno != EINTR && errno != EAGAIN)
+				if (LWS_ERRNO != LWS_EINTR && LWS_ERRNO != LWS_EAGAIN)
 					libwebsocket_close_and_free_session(
 						context, wsi,
 						LWS_CLOSE_STATUS_NOSTATUS);
@@ -226,11 +226,11 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			"unencrypted accept LWS_CONNMODE_SERVER_LISTENER",
 						     accept_fd, accept_fd >= 0);
 		if (accept_fd < 0) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
 				lwsl_debug("accept asks to try again\n");
 				break;
 			}
-			lwsl_warn("ERROR on accept: %s\n", strerror(errno));
+			lwsl_warn("ERROR on accept: %s\n", strerror(LWS_ERRNO));
 			break;
 		}
 

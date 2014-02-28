@@ -523,12 +523,12 @@ just_kill_connection:
 			n = shutdown(wsi->sock, SHUT_RDWR);
 			if (n)
 				lwsl_debug("closing: shutdown returned %d\n",
-									errno);
+									LWS_ERRNO);
 
 			n = compatible_close(wsi->sock);
 			if (n)
 				lwsl_debug("closing: close returned %d\n",
-									errno);
+									LWS_ERRNO);
 		}
 #ifdef LWS_OPENSSL_SUPPORT
 	}
@@ -585,14 +585,14 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 
 	len = sizeof(sin);
 	if (getpeername(fd, (struct sockaddr *) &sin, &len) < 0) {
-		lwsl_warn("getpeername: %s\n", strerror(errno));
+		lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
 		goto bail;
 	}
 
 	host = gethostbyaddr((char *) &sin.sin_addr, sizeof(sin.sin_addr),
 								       AF_INET);
 	if (host == NULL) {
-		lwsl_warn("gethostbyaddr: %s\n", strerror(errno));
+		lwsl_warn("gethostbyaddr: %s\n", strerror(LWS_ERRNO));
 		goto bail;
 	}
 
@@ -1149,8 +1149,8 @@ read_pending:
 
 		if (eff_buf.token_len < 0) {
 			lwsl_debug("service_fd read ret = %d, errno = %d\n",
-						      eff_buf.token_len, errno);
-			if (errno != EINTR && errno != EAGAIN)
+						      eff_buf.token_len, LWS_ERRNO);
+			if (LWS_ERRNO != LWS_EINTR && LWS_ERRNO != LWS_EAGAIN)
 				goto close_and_handled;
 			n = 0;
 			goto handled;
@@ -1425,7 +1425,7 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	}
 
 	if (n < 0) {
-		if (errno != EINTR)
+		if (LWS_ERRNO != LWS_EINTR)
 			return -1;
 		else
 			return 0;
@@ -2428,7 +2428,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 							     sizeof(serv_addr));
 		if (n < 0) {
 			lwsl_err("ERROR on binding to port %d (%d %d)\n",
-							info->port, n, errno);
+							info->port, n, LWS_ERRNO);
 			compatible_close(sockfd);
 			goto bail;
 		}
@@ -2467,10 +2467,10 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #else
 	if (info->gid != -1)
 		if (setgid(info->gid))
-			lwsl_warn("setgid: %s\n", strerror(errno));
+			lwsl_warn("setgid: %s\n", strerror(LWS_ERRNO));
 	if (info->uid != -1)
 		if (setuid(info->uid))
-			lwsl_warn("setuid: %s\n", strerror(errno));
+			lwsl_warn("setuid: %s\n", strerror(LWS_ERRNO));
 #endif
 
 	/* initialize supported protocols */

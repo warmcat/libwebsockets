@@ -93,9 +93,9 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	bzero(&server_addr.sin_zero, 8);
 
 	if (connect(wsi->sock, (struct sockaddr *)&server_addr,
-			  sizeof(struct sockaddr)) == -1 || errno == EISCONN)  {
+			  sizeof(struct sockaddr)) == -1 || LWS_ERRNO == LWS_EISCONN)  {
 
-		if (errno == EALREADY || errno == EINPROGRESS) {
+		if (LWS_ERRNO == LWS_EALREADY || LWS_ERRNO == LWS_EINPROGRESS) {
 			lwsl_client("nonblocking connect retry\n");
 
 			/*
@@ -107,9 +107,9 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			return wsi;
 		}
 
-		if (errno != EISCONN) {
+		if (LWS_ERRNO != LWS_EISCONN) {
 		
-			lwsl_debug("Connect failed errno=%d\n", errno);
+			lwsl_debug("Connect failed errno=%d\n", LWS_ERRNO);
 			goto failed;
 		}
 	}

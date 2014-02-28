@@ -61,18 +61,13 @@
 
 #if defined(WIN32) || defined(_WIN32)
 #define LWS_NO_DAEMONIZE
-#ifndef EWOULDBLOCK
-#define EWOULDBLOCK EAGAIN
-#endif
-#ifndef EALREADY
-#define EALREADY WSAEALREADY
-#endif
-#ifndef EINPROGRESS
-#define EINPROGRESS WSAEINPROGRESS
-#endif
-#ifndef EISCONN
-#define EISCONN WSAEISCONN
-#endif
+#define LWS_ERRNO WSAGetLastError()
+#define LWS_EAGAIN WSAEWOULDBLOCK
+#define LWS_EALREADY WSAEALREADY
+#define LWS_EINPROGRESS WSAEINPROGRESS
+#define LWS_EINTR WSAEINTR
+#define LWS_EISCONN WSAEISCONN
+#define LWS_EWOULDBLOCK WSAEWOULDBLOCK
 
 #define compatible_close(fd) closesocket(fd);
 #ifdef __MINGW64__
@@ -103,6 +98,13 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 
+#define LWS_ERRNO errno
+#define LWS_EAGAIN EAGAIN
+#define LWS_EALREADY EALREADY
+#define LWS_EINPROGRESS EINPROGRESS
+#define LWS_EINTR EINTR
+#define LWS_EISCONN EISCONN
+#define LWS_EWOULDBLOCK EWOULDBLOCK
 #define LWS_INVALID_FILE -1
 #define compatible_close(fd) close(fd);
 #endif
