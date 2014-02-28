@@ -109,6 +109,10 @@
 #define compatible_close(fd) close(fd);
 #endif
 
+#ifndef HAVE_BZERO
+#define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
+#endif
+
 #ifndef HAVE_STRERROR
 #define strerror(x) ""
 #endif
