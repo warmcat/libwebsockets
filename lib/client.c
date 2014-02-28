@@ -78,7 +78,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 					sizeof(context->service_buffer), 0);
 		if (n < 0) {
 			
-			if (errno == EAGAIN) {
+			if (LWS_ERRNO == LWS_EAGAIN) {
 				lwsl_debug(
 						   "Proxy read returned EAGAIN... retrying\n");
 				return 0;
