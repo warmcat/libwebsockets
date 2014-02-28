@@ -53,6 +53,9 @@
 /* Define to 1 if you have the `fork' function. */
 #cmakedefine HAVE_FORK
 
+/* Define to 1 if you have the `getenv’ function. */
+#cmakedefine HAVE_GETENV
+
 /* Define to 1 if you have the <inttypes.h> header file. */
 #cmakedefine HAVE_INTTYPES_H
 

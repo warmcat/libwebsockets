@@ -2097,6 +2097,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 				sizeof(context->http_proxy_address) - 1] = '\0';
 		context->http_proxy_port = info->http_proxy_port;
 	} else {
+#ifdef HAVE_GETENV
 		p = getenv("http_proxy");
 		if (p) {
 			strncpy(context->http_proxy_address, p,
@@ -2112,6 +2113,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 			*p = '\0';
 			context->http_proxy_port = atoi(p + 1);
 		}
+#endif
 	}
 
 	if (context->http_proxy_address[0]) {
