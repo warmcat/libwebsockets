@@ -752,14 +752,6 @@ endif()
 
 set(LWS_INSTALL_CMAKE_DIR ${DEF_INSTALL_CMAKE_DIR} CACHE PATH "Installation directory for CMake files")
 
-# Make sure the paths are absolute.
-foreach(p LIB BIN INCLUDE CMAKE)
-    set(var LWS_INSTALL_${p}_DIR)
-    if(NOT IS_ABSOLUTE "${${var}}")
-        set(${var} "${CMAKE_INSTALL_PREFIX}/${${var}}")
-    endif()
-endforeach()
-
 # Export targets (This is used for other CMake projects to easily find the libraries and include files).
 export(TARGETS websockets websockets_shared
         FILE "${PROJECT_BINARY_DIR}/LibwebsocketsTargets.cmake")
@@ -775,10 +767,12 @@ configure_file(${PROJECT_SOURCE_DIR}/cmake/LibwebsocketsConfig.cmake.in
                 @ONLY)
 
 # Generate the config file for the installation tree.
+get_filename_component(LWS_ABSOLUTE_INSTALL_CMAKE_DIR ${LWS_INSTALL_CMAKE_DIR} ABSOLUTE)
+get_filename_component(LWS_ABSOLUTE_INSTALL_INCLUDE_DIR ${LWS_INSTALL_INCLUDE_DIR} ABSOLUTE)
 file(RELATIVE_PATH 
     REL_INCLUDE_DIR 
-    "${LWS_INSTALL_CMAKE_DIR}"
-    "${LWS_INSTALL_INCLUDE_DIR}") # Calculate the relative directory from the Cmake dir.
+    "${LWS_ABSOLUTE_INSTALL_CMAKE_DIR}"
+    "${LWS_ABSOLUTE_INSTALL_INCLUDE_DIR}") # Calculate the relative directory from the cmake dir.
 
 # Note the EVENT_CMAKE_DIR is defined in JanssonConfig.cmake.in, 
 # we escape it here so it's evaluated when it is included instead
