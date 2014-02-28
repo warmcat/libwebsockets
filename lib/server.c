@@ -487,7 +487,13 @@ LWS_VISIBLE int libwebsockets_return_http_status(
 #if defined(WIN32) || defined(_WIN32)
 static inline HANDLE lws_open_file(const char* filename, unsigned long* filelen)
 {
-	HANDLE ret = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE ret;
+	WCHAR buffer[MAX_PATH];
+
+	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buffer,
+				sizeof(buffer) / sizeof(buffer[0]));
+	ret = CreateFileW(buffer, GENERIC_READ, FILE_SHARE_READ,
+				NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
 	if (ret != LWS_INVALID_FILE)
 		*filelen = GetFileSize(ret, NULL);
