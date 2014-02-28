@@ -2090,21 +2090,31 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	/* split the proxy ads:port if given */
 
-	p = getenv("http_proxy");
-	if (p) {
-		strncpy(context->http_proxy_address, p,
+	if (info->http_proxy_address) {
+		strncpy(context->http_proxy_address, info->http_proxy_address,
 				      sizeof(context->http_proxy_address) - 1);
 		context->http_proxy_address[
 				sizeof(context->http_proxy_address) - 1] = '\0';
+		context->http_proxy_port = info->http_proxy_port;
+	} else {
+		p = getenv("http_proxy");
+		if (p) {
+			strncpy(context->http_proxy_address, p,
+					      sizeof(context->http_proxy_address) - 1);
+			context->http_proxy_address[
+					sizeof(context->http_proxy_address) - 1] = '\0';
 
-		p = strchr(context->http_proxy_address, ':');
-		if (p == NULL) {
-			lwsl_err("http_proxy needs to be ads:port\n");
-			goto bail;
+			p = strchr(context->http_proxy_address, ':');
+			if (p == NULL) {
+				lwsl_err("http_proxy needs to be ads:port\n");
+				goto bail;
+			}
+			*p = '\0';
+			context->http_proxy_port = atoi(p + 1);
 		}
-		*p = '\0';
-		context->http_proxy_port = atoi(p + 1);
+	}
 
+	if (context->http_proxy_address[0]) {
 		lwsl_notice(" Proxy %s:%u\n",
 				context->http_proxy_address,
 						      context->http_proxy_port);
