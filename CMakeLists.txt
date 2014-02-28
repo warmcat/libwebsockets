@@ -454,7 +454,9 @@ endif(LWS_WITH_SSL)
 #
 # Platform specific libs.
 #
-if (WIN32)
+if (WINCE)
+	list(APPEND LIB_LIST ws2.lib)
+elseif (WIN32)
 	list(APPEND LIB_LIST ws2_32.lib)
 endif()
 
