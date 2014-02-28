@@ -115,27 +115,6 @@ endif()
 
 include_directories("${PROJECT_BINARY_DIR}")
 
-include(CheckCSourceCompiles)
-
-# Check for different inline keyword versions.
-foreach(KEYWORD "inline" "__inline__" "__inline")
-	set(CMAKE_REQUIRED_DEFINITIONS "-DKEYWORD=${KEYWORD}")
-	CHECK_C_SOURCE_COMPILES(
-		"
-		#include <stdio.h>
-		KEYWORD void a() {}
-		int main(int argc, char **argv) { a(); return 0; }
-		" HAVE_${KEYWORD})
-endforeach()
-
-if (NOT HAVE_inline)
-	if (HAVE___inline__)
-		set(inline __inline__)
-	elseif(HAVE___inline)
-		set(inline __inline)
-	endif()
-endif()
-
 # Put the libaries and binaries that get built into directories at the
 # top of the build tree rather than in hard-to-find leaf directories. 
 SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
