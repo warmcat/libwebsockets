@@ -154,6 +154,7 @@ include(CheckFunctionExists)
 include(CheckIncludeFile)
 include(CheckIncludeFiles)
 include(CheckLibraryExists)
+include(CheckTypeSize)
 
 CHECK_FUNCTION_EXISTS(bzero HAVE_BZERO)
 CHECK_FUNCTION_EXISTS(fork HAVE_FORK)
@@ -196,8 +197,14 @@ set(HAVE_WORKING_VFORK HAVE_VFORK)
 
 CHECK_INCLUDE_FILES("stdlib.h;stdarg.h;string.h;float.h" STDC_HEADERS)
 
-if (NOT HAVE_SYS_TYPES_H)
+CHECK_TYPE_SIZE(pid_t PID_T_SIZE)
+CHECK_TYPE_SIZE(size_t SIZE_T_SIZE)
+
+if (NOT PID_T_SIZE)
 	set(pid_t int)
+endif()
+
+if (NOT SIZE_T_SIZE)
 	set(size_t "unsigned int")
 endif()
 
@@ -447,7 +454,9 @@ endif(LWS_WITH_SSL)
 #
 # Platform specific libs.
 #
-if (WIN32)
+if (WINCE)
+	list(APPEND LIB_LIST ws2.lib)
+elseif (WIN32)
 	list(APPEND LIB_LIST ws2_32.lib)
 endif()
 

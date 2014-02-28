@@ -32,6 +32,9 @@
 
 #if _MSC_VER > 1000 || defined(_WIN32)
 #else
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <unistd.h>
 #include <strings.h>
 #endif
@@ -39,9 +42,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
 #include <limits.h>
 #ifdef __MINGW64__
 #else
@@ -53,7 +53,9 @@
 #endif
 #include <stdarg.h>
 
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 
 #if defined(WIN32) || defined(_WIN32)
 #define LWS_NO_DAEMONIZE
@@ -79,7 +81,6 @@
 #endif
 #endif
 #include <winsock2.h>
-#include <ws2ipdef.h>
 #include <windows.h>
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #else
@@ -102,6 +103,10 @@
 
 #define LWS_INVALID_FILE -1
 #define compatible_close(fd) close(fd);
+#endif
+
+#ifndef HAVE_STRERROR
+#define strerror(x) ""
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT

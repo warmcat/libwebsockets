@@ -23,8 +23,10 @@
 
 #if defined(WIN32) || defined(_WIN32)
 #include <tchar.h>
-#include <io.h>
 #include <mstcpip.h>
+#ifdef _WIN32_WCE
+#define vsnprintf _vsnprintf
+#endif
 #else
 #ifdef LWS_BUILTIN_GETIFADDRS
 #include <getifaddrs.h>
@@ -37,7 +39,9 @@
 #include <netdb.h>
 #endif
 
+#ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
+#endif
 
 #ifdef LWS_OPENSSL_SUPPORT
 int openssl_websocket_private_data_index;
@@ -138,6 +142,15 @@ static unsigned long long time_in_microseconds()
 	return (tv.tv_sec * 1000000) + tv.tv_usec;
 #endif
 }
+
+#ifdef _WIN32_WCE
+static inline time_t time(time_t *t)
+{
+	time_t ret = time_in_microseconds() / 1000000;
+	*t = ret;
+	return ret;
+}
+#endif
 
 int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context,
@@ -1915,7 +1928,6 @@ LWS_VISIBLE struct libwebsocket_context *
 libwebsocket_create_context(struct lws_context_creation_info *info)
 {
 	struct libwebsocket_context *context = NULL;
-	char *p;
 	int n;
 #ifndef LWS_NO_SERVER
 	int opt = 1;
@@ -1973,6 +1985,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		/* default to a poll() made out of select() */
 		poll = emulated_poll;
 
+#ifndef _WIN32_WCE
 		/* if windows socket lib available, use his WSAPoll */
 		wsdll = GetModuleHandle(_T("Ws2_32.dll"));
 		if (wsdll)
@@ -1981,6 +1994,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		/* Finally fall back to emulated poll if all else fails */
 		if (!poll)
 			poll = emulated_poll;
+#endif
 	}
 #endif
 
@@ -2075,20 +2089,12 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	/* split the proxy ads:port if given */
 
-	p = getenv("http_proxy");
-	if (p) {
-		strncpy(context->http_proxy_address, p,
+	if (info->http_proxy_address) {
+		strncpy(context->http_proxy_address, info->http_proxy_address,
 				      sizeof(context->http_proxy_address) - 1);
 		context->http_proxy_address[
 				sizeof(context->http_proxy_address) - 1] = '\0';
-
-		p = strchr(context->http_proxy_address, ':');
-		if (p == NULL) {
-			lwsl_err("http_proxy needs to be ads:port\n");
-			goto bail;
-		}
-		*p = '\0';
-		context->http_proxy_port = atoi(p + 1);
+		context->http_proxy_port = info->http_proxy_port;
 
 		lwsl_notice(" Proxy %s:%u\n",
 				context->http_proxy_address,

@@ -21,10 +21,6 @@
 
 #include "private-libwebsockets.h"
 
-#ifdef WIN32
-#include <io.h>
-#endif
-
 static int
 libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 {
