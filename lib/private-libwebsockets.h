@@ -37,6 +37,8 @@
 #include <signal.h>
 #include <unistd.h>
 #include <strings.h>
+#include <time.h>
+
 #endif
 #include <stdio.h>
 #include <stdlib.h>
