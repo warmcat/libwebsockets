@@ -938,6 +938,8 @@ struct lws_context_creation_info {
 	const char *ssl_private_key_filepath;
 	const char *ssl_ca_filepath;
 	const char *ssl_cipher_list;
+	const char *http_proxy_address;
+	unsigned int http_proxy_port;
 	int gid;
 	int uid;
 	unsigned int options;
