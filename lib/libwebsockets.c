@@ -24,6 +24,9 @@
 #if defined(WIN32) || defined(_WIN32)
 #include <tchar.h>
 #include <mstcpip.h>
+#ifdef _WIN32_WCE
+#define vsnprintf _vsnprintf
+#endif
 #else
 #ifdef LWS_BUILTIN_GETIFADDRS
 #include <getifaddrs.h>
@@ -139,6 +142,15 @@ static unsigned long long time_in_microseconds()
 	return (tv.tv_sec * 1000000) + tv.tv_usec;
 #endif
 }
+
+#ifdef _WIN32_WCE
+static inline time_t time(time_t *t)
+{
+	time_t ret = time_in_microseconds() / 1000000;
+	*t = ret;
+	return ret;
+}
+#endif
 
 int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context,
@@ -1973,6 +1985,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		/* default to a poll() made out of select() */
 		poll = emulated_poll;
 
+#ifndef _WIN32_WCE
 		/* if windows socket lib available, use his WSAPoll */
 		wsdll = GetModuleHandle(_T("Ws2_32.dll"));
 		if (wsdll)
@@ -1981,6 +1994,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		/* Finally fall back to emulated poll if all else fails */
 		if (!poll)
 			poll = emulated_poll;
+#endif
 	}
 #endif
 
