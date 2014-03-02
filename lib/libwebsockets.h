@@ -40,6 +40,7 @@ extern "C" {
 
 #define strcasecmp stricmp
 #define getdtablesize() 30000
+#define inline
 
 #ifdef __MINGW64__
 #else
