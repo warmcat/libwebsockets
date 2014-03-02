@@ -122,22 +122,17 @@ http://www.yassl.com/yaSSL/Products-cyassl.html
 It contains a OpenSSL compatability layer which makes it possible to pretty
 much link to it instead of OpenSSL, giving a much smaller footprint.
 
-NOTE: At the time of writing this the current release of CyaSSL contains a 
-crash bug due to some APIs libwebsocket uses. To be able to use this you will
-need to use the current HEAD in their official repository:
-	https://github.com/cyassl/cyassl
-
-NOTE: cyassl needs to be compiled using the --enable-opensslExtra flag for
+NOTE: cyassl needs to be compiled using the --enable-opensslextra flag for
 this to work.
 
 Compiling libwebsockets with CyaSSL
 -----------------------------------
 
-cmake -DUSE_CYASSL=1 
-	  -DCYASSL_INCLUDE_DIRS=/path/to/cyassl 
-	  -DCYASSL_LIB=/path/to/cyassl/cyassl.a ..
+cmake .. -DLWS_USE_CYASSL=1 \
+	 -DLWS_CYASSL_INCLUDE_DIRS=/path/to/cyassl \
+	 -DLWS_CYASSL_LIB=/path/to/cyassl/cyassl.a ..
 
-NOTE: On windows use the .lib file extension for CYASSL_LIB instead.
+NOTE: On windows use the .lib file extension for LWS_CYASSL_LIB instead.
 
 Cross compiling
 ---------------

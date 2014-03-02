@@ -77,6 +77,7 @@ if (LWS_USE_CYASSL)
 	if ("${LWS_CYASSL_LIB}" STREQUAL "" OR "${LWS_CYASSL_INCLUDE_DIRS}" STREQUAL "")
 		message(FATAL_ERROR "You must set LWS_CYASSL_LIB and LWS_CYASSL_INCLUDE_DIRS when LWS_USE_CYASSL is turned on")
 	endif()
+	set(USE_CYASSL 1)
 endif()
 
 if (LWS_WITHOUT_EXTENSIONS)
@@ -435,7 +436,7 @@ if (LWS_WITH_SSL)
 		# Additional to the root directory we need to include
 		# the cyassl/ subdirectory which contains the OpenSSL
 		# compatability layer headers.
-		foreach(inc ${CYASSL_INCLUDE_DIRS})
+		foreach(inc ${LWS_CYASSL_INCLUDE_DIRS})
 			include_directories("${inc}" "${inc}/cyassl")
 		endforeach()
 
