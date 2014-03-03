@@ -485,7 +485,7 @@ LWS_VISIBLE int libwebsockets_return_http_status(
 }
 
 #if defined(WIN32) || defined(_WIN32)
-static inline HANDLE lws_open_file(const char* filename, unsigned long* filelen)
+static LWS_INLINE HANDLE lws_open_file(const char* filename, unsigned long* filelen)
 {
 	HANDLE ret;
 	WCHAR buffer[MAX_PATH];
@@ -501,7 +501,7 @@ static inline HANDLE lws_open_file(const char* filename, unsigned long* filelen)
 	return ret;
 }
 #else
-static inline int lws_open_file(const char* filename, unsigned long* filelen)
+static LWS_INLINE int lws_open_file(const char* filename, unsigned long* filelen)
 {
 	struct stat stat_buf;
 	int ret = open(filename, O_RDONLY);

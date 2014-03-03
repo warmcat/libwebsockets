@@ -87,8 +87,16 @@ typedef SSIZE_T ssize_t;
 
 #include <assert.h>
 
+#if !defined(__cplusplus) && defined(_MSC_VER)
+#define LWS_INLINE __inline
+#endif
+
 #ifndef LWS_EXTERN
 #define LWS_EXTERN extern
+#endif
+
+#ifndef LWS_INLINE
+#define LWS_INLINE inline
 #endif
 
 #define CONTEXT_PORT_NO_LISTEN 0
@@ -1035,7 +1043,7 @@ libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf, size_t len,
 				     enum libwebsocket_write_protocol protocol);
 
 /* helper for case where buffer may be const */
-static inline int
+static LWS_INLINE int
 libwebsocket_write_http(struct libwebsocket *wsi,
 				const unsigned char *buf, size_t len)
 {

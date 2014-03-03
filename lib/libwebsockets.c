@@ -144,7 +144,7 @@ static unsigned long long time_in_microseconds()
 }
 
 #ifdef _WIN32_WCE
-static inline time_t time(time_t *t)
+static LWS_INLINE time_t time(time_t *t)
 {
 	time_t ret = time_in_microseconds() / 1000000;
 	*t = ret;
