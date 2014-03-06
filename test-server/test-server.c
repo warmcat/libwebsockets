@@ -59,6 +59,7 @@ struct pollfd *pollfds;
 int *fd_lookup;
 int count_pollfds;
 static volatile int force_exit = 0;
+static struct libwebsocket_context *context;
 
 /*
  * This demo server shows how to use libwebsockets for one or more
@@ -476,8 +477,7 @@ bail:
 		 * if you will call "libwebsocket_callback_on_writable"
 		 * from a different thread, return the caller thread ID
 		 * here so lws can use this information to work out if it
-		 * should signal the ppoll() loop to exit and restart early
-		 * (only applies if the library has LWS_HAS_PPOLL
+		 * should signal the poll() loop to exit and restart early
 		 */
 
 		/* return pthread_getthreadid_np(); */
@@ -732,6 +732,7 @@ static struct libwebsocket_protocols protocols[] = {
 void sighandler(int sig)
 {
 	force_exit = 1;
+	libwebsocket_cancel_service(context);
 }
 
 static struct option options[] = {
@@ -755,7 +756,6 @@ int main(int argc, char **argv)
 	char key_path[1024];
 	int n = 0;
 	int use_ssl = 0;
-	struct libwebsocket_context *context;
 	int opts = 0;
 	char interface_name[128] = "";
 	const char *iface = NULL;

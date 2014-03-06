@@ -91,9 +91,6 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
-
-/* to get ppoll() */
-#define __USE_GNU
 #include <poll.h>
 #include <sys/mman.h>
 #include <sys/time.h>
@@ -295,6 +292,17 @@ struct libwebsocket_context {
 	int listen_service_count;
 	int listen_service_fd;
 	int listen_service_extraseen;
+
+	/*
+	 * set to the Thread ID that's doing the service loop just before entry
+	 * to poll indicates service thread likely idling in poll()
+	 * volatile because other threads may check it as part of processing
+	 * for pollfd event change.
+	 */
+	volatile int service_tid;
+#ifndef _WIN32
+	int dummy_pipe_fds[2];
+#endif
 
 	int ka_time;
 	int ka_probes;

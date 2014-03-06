@@ -90,16 +90,6 @@ static const char * const log_level_names[] = {
 #endif
 
 
-#ifdef LWS_HAS_PPOLL
-/*
- * set to the Thread ID that's doing the service loop just before entry to ppoll
- * indicates service thread likely idling in ppoll()
- * volatile because other threads may check it as part of processing for pollfd
- * event change.
- */
-static volatile int lws_idling_ppoll_tid;
-#endif
-
 /**
  * lws_get_library_version: get version and git hash library built from
  *
@@ -1276,6 +1266,8 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	for (n = 0; n < context->fds_count; n++) {
 		struct libwebsocket *wsi =
 					context->lws_lookup[context->fds[n].fd];
+		if (!wsi)
+			continue;
 		libwebsocket_close_and_free_session(context,
 			wsi, LWS_CLOSE_STATUS_NOSTATUS /* no protocol close */);
 		n--;
@@ -1313,6 +1305,8 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 
 #if defined(WIN32) || defined(_WIN32)
 #else
+	close(context->dummy_pipe_fds[0]);
+	close(context->dummy_pipe_fds[1]);
 	close(context->fd_random);
 #endif
 
@@ -1392,33 +1386,18 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 {
 	int n;
 	int m;
-#ifdef LWS_HAS_PPOLL
-	struct timespec timeout_ts;
-	sigset_t sigmask;
-#endif
+	char buf;
 
 	/* stay dead once we are dead */
 
 	if (context == NULL)
 		return 1;
 
-#ifdef LWS_HAS_PPOLL
-	lws_idling_ppoll_tid = 	context->protocols[0].callback(context, NULL,
+	context->service_tid = context->protocols[0].callback(context, NULL,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
-
-	timeout_ts.tv_sec = timeout_ms / 1000;
-	timeout_ts.tv_nsec = timeout_ms % 1000;
-
-	sigprocmask(SIG_BLOCK, NULL, &sigmask);
-	sigdelset(&sigmask, SIGUSR2);
-
-	/* wait for something to need service */
-
-	n = ppoll(context->fds, context->fds_count, &timeout_ts, &sigmask);
-	lws_idling_ppoll_tid = 0;
-#else
 	n = poll(context->fds, context->fds_count, timeout_ms);
-#endif
+	context->service_tid = 0;
+
 	if (n == 0) /* poll timeout */ {
 		libwebsocket_service_fd(context, NULL);
 		return 0;
@@ -1436,6 +1415,13 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	for (n = 0; n < context->fds_count; n++) {
 		if (!context->fds[n].revents)
 			continue;
+#ifndef _WIN32
+		if (context->fds[n].fd == context->dummy_pipe_fds[0]) {
+			if (read(context->fds[n].fd, &buf, 1) != 1)
+				lwsl_err("Cannot read from dummy pipe.");
+			continue;
+		}
+#endif
 		m = libwebsocket_service_fd(context, &context->fds[n]);
 		if (m < 0)
 			return -1;
@@ -1445,6 +1431,25 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	}
 
 	return 0;
+}
+
+/**
+ * libwebsocket_cancel_service() - Cancel servicing of pending websocket activity
+ * @context:	Websocket context
+ *
+ *	This function let a call to libwebsocket_service() waiting for a timeout
+ *	immediately return.
+ *
+ *	At the moment this functionality cannot be used on Windows.
+ */
+LWS_VISIBLE void
+libwebsocket_cancel_service(struct libwebsocket_context *context)
+{
+#ifndef _WIN32
+	char buf = 0;
+	if (write(context->dummy_pipe_fds[1], &buf, sizeof(buf)) != 1)
+		lwsl_err("Cannot write to dummy pipe.");
+#endif
 }
 
 #ifndef LWS_NO_EXTENSIONS
@@ -1498,10 +1503,8 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 {
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
 	int events;
-#ifdef LWS_HAS_PPOLL
 	int tid;
-	int sampled_ppoll_tid;
-#endif
+	int sampled_tid;
 	struct libwebsocket_pollargs pa;
 
 	pa.fd = wsi->sock;
@@ -1518,26 +1521,22 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 			LWS_CALLBACK_CHANGE_MODE_POLL_FD,
 			wsi->user_space, (void *) &pa, 0);
 
-
-#ifdef LWS_HAS_PPOLL
 	/*
 	 * if we changed something in this pollfd...
 	 *   ... and we're running in a different thread context
 	 *     than the service thread...
-	 *       ... and the service thread is waiting in ppoll()...
-	 *          then fire a SIGUSR2 at the service thread to force it to
-	 *             restart the ppoll() with our changed events
+	 *       ... and the service thread is waiting ...
+	 *         then cancel it to force a restart with our changed events
 	 */
 	if (events != context->fds[wsi->position_in_fds_table].events) {
-		sampled_ppoll_tid = lws_idling_ppoll_tid;
-		if (sampled_ppoll_tid) {
+		sampled_tid = context->service_tid;
+		if (sampled_tid) {
 			tid = context->protocols[0].callback(context, NULL,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
-			if (tid != sampled_ppoll_tid)
-				kill(sampled_ppoll_tid, SIGUSR2);
+			if (tid != sampled_tid)
+				libwebsocket_cancel_service(context);
 		}
 	}
-#endif
 
 	context->protocols[0].callback(context, wsi,
 		LWS_CALLBACK_UNLOCK_POLL,
@@ -2049,7 +2048,24 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	memset(context->lws_lookup, 0, sizeof(struct libwebsocket *) *
 							context->max_fds);
 
+#ifdef _WIN32
 	context->fds_count = 0;
+#else
+	if (pipe(context->dummy_pipe_fds)) {
+		lwsl_err("Unable to create pipe\n");
+		free(context->lws_lookup);
+		free(context->fds);
+		free(context);
+		return NULL;
+	}
+
+	/* use the read end of pipe as first item */
+	context->fds[0].fd = context->dummy_pipe_fds[0];
+	context->fds[0].events = POLLIN;
+	context->fds[0].revents = 0;
+	context->fds_count = 1;
+#endif
+
 #ifndef LWS_NO_EXTENSIONS
 	context->extensions = info->extensions;
 #endif

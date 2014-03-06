@@ -69,10 +69,6 @@ typedef SSIZE_T ssize_t;
 
 #else // NOT WIN32
 
-/* to get ppoll() */
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
 #include <poll.h>
 #include <unistd.h>
 
@@ -968,6 +964,9 @@ libwebsocket_context_destroy(struct libwebsocket_context *context);
 
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_service(struct libwebsocket_context *context, int timeout_ms);
+
+LWS_VISIBLE LWS_EXTERN void
+libwebsocket_cancel_service(struct libwebsocket_context *context);
 
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_service_fd(struct libwebsocket_context *context,
