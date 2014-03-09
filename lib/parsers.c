@@ -25,22 +25,34 @@ unsigned char lextable[] = {
 	#include "lextable.h"
 };
 
+#define FAIL_CHAR 0x08
+
 int lextable_decode(int pos, char c)
 {
-	while (pos >= 0) {
-		if (lextable[pos + 1] == 0) /* terminal marker */
+
+	c = tolower(c);
+
+	while (1) {
+		if (lextable[pos] & (1 << 7)) { /* 1-byte, fail on mismatch */
+			if ((lextable[pos] & 0x7f) != c)
+				return -1;
+			/* fall thru */
+			pos++;
+			if (lextable[pos] == FAIL_CHAR)
+				return -1;
 			return pos;
+		} else { /* b7 = 0, end or 3-byte */
+			if (lextable[pos] < FAIL_CHAR) /* terminal marker */
+				return pos;
 
-		/* case insensitive - RFC2616 */
-		if ((lextable[pos] & 0x7f) == tolower(c))
-			return pos + (lextable[pos + 1] << 1);
-
-		if (lextable[pos] & 0x80)
-			return -1;
-
-		pos += 2;
+			if (lextable[pos] == c) /* goto */
+				return pos + (lextable[pos + 1]) +
+						(lextable[pos + 2] << 8);
+			/* fall thru goto */
+			pos += 3;
+			/* continue */
+		}
 	}
-	return pos;
 }
 
 int lws_allocate_header_table(struct libwebsocket *wsi)
@@ -405,11 +417,11 @@ swallow:
 			lwsl_info("Unknown method - dropping\n");
 			return -1;
 		}
-		if (lextable[wsi->u.hdr.lextable_pos + 1] == 0) {
+		if (lextable[wsi->u.hdr.lextable_pos] < FAIL_CHAR) {
 
 			/* terminal state */
 
-			n = lextable[wsi->u.hdr.lextable_pos] & 0x7f;
+			n = (lextable[wsi->u.hdr.lextable_pos] << 8) | lextable[wsi->u.hdr.lextable_pos + 1];
 
 			lwsl_parser("known hdr %d\n", n);
 
