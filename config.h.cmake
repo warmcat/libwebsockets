@@ -17,6 +17,9 @@
 /* Build with OpenSSL support */
 #cmakedefine LWS_OPENSSL_SUPPORT
 
+/* The client should load and trust CA root certs it finds in the OS */
+#cmakedefine LWS_SSL_CLIENT_USE_OS_CA_CERTS
+
 /* Sets the path where the client certs should be installed. */
 #cmakedefine LWS_OPENSSL_CLIENT_CERTS "${LWS_OPENSSL_CLIENT_CERTS}"
 

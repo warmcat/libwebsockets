@@ -2268,6 +2268,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 			SSL_CTX_set_cipher_list(context->ssl_client_ctx,
 							info->ssl_cipher_list);
 
+#ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
+		/* loads OS default CA certs */
+		SSL_CTX_set_default_verify_paths(context->ssl_client_ctx);
+#endif
+
 		/* openssl init for cert verification (for client sockets) */
 		if (!info->ssl_ca_filepath) {
 			if (!SSL_CTX_load_verify_locations(

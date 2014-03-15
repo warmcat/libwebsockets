@@ -51,6 +51,12 @@ that without getting involved in having to send the header by hand.
 A new info member http_proxy_address may be used at context creation time to
 set the http proxy.  If non-NULL, it overrides http_proxy environment var.
 
+Cmake supports LWS_SSL_CLIENT_USE_OS_CA_CERTS defaulting to on, which gets
+the client to use the OS CA Roots.  If you're worried somebody with the
+ability to forge for force creation of a client cert from the root CA in
+your OS, you should disable this since your selfsigned $0 cert is a lot safer
+then...
+
 
 v1.23-chrome32-firefox24
 ========================
