@@ -146,7 +146,7 @@ http_postbody:
 		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
 				if (libwebsocket_client_rx_sm(wsi, *buf++)) {
-					lwsl_info("client_rx_sm failed\n");
+					lwsl_debug("client_rx_sm failed\n");
 					goto bail;
 				}
 			return 0;
@@ -417,7 +417,7 @@ cleanup:
 			for (n = 0; n < len; n++)
 				if (libwebsocket_client_rx_sm(
 							     wsi, *buf++) < 0) {
-					lwsl_info("client rx has bailed\n");
+					lwsl_debug("client rx has bailed\n");
 					goto bail;
 				}
 
@@ -450,7 +450,7 @@ bail_nuke_ah:
 #endif
 
 bail:
-	lwsl_info("closing connection at libwebsocket_read bail:\n");
+	lwsl_debug("closing connection at libwebsocket_read bail:\n");
 
 	libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);

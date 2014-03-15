@@ -163,7 +163,7 @@ bail:
 				 * we will get a destroy callback to take care
 				 * of closing nicely
 				 */
-				lwsl_err("zlib error inflate %d: %s\n",
+				lwsl_info("zlib error inflate %d: %s\n",
 							   n, conn->zs_in.msg);
 				return -1;
 			}

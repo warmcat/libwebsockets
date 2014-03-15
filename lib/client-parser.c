@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -382,7 +382,8 @@ spill:
 			}
 		}
 #endif
-		if (eff_buf.token_len <= 0 && callback_action != LWS_CALLBACK_CLIENT_RECEIVE_PONG)
+		if (eff_buf.token_len <= 0 &&
+			    callback_action != LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			goto already_done;
 
 		eff_buf.token[eff_buf.token_len] = '\0';
@@ -393,13 +394,17 @@ spill:
 		if (callback_action == LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			lwsl_info("Client doing pong callback\n");
 
-		wsi->protocol->callback(
+		m = wsi->protocol->callback(
 			wsi->protocol->owning_server,
 			wsi,
 			(enum libwebsocket_callback_reasons)callback_action,
 			wsi->user_space,
 			eff_buf.token,
 			eff_buf.token_len);
+
+		/* if user code wants to close, let caller know */
+		if (m)
+			return 1;
 
 already_done:
 		wsi->u.ws.rx_user_buffer_head = 0;
