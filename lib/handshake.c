@@ -416,7 +416,7 @@ cleanup:
 		case LWS_CONNMODE_WS_CLIENT:
 			for (n = 0; n < len; n++)
 				if (libwebsocket_client_rx_sm(
-							     wsi, *buf++) < 0) {
+							     wsi, *buf++)) {
 					lwsl_debug("client rx has bailed\n");
 					goto bail;
 				}
