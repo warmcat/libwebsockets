@@ -125,6 +125,9 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		if (wsi->use_ssl && !wsi->ssl) {
 
 			wsi->ssl = SSL_new(context->ssl_client_ctx);
+			SSL_set_mode(wsi->ssl,
+					SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+
 
 #ifdef USE_CYASSL
 			/*
