@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -99,10 +99,11 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 #ifndef LWS_NO_EXTENSIONS
 	int m;
 
-	if (wsi->truncated_send_malloc &&
-		(buf < wsi->truncated_send_malloc ||
-			buf > (wsi->truncated_send_malloc + wsi->truncated_send_len +  wsi->truncated_send_offset))) {
-		lwsl_err("****** %x Sending something else while pending truncated ...\n", wsi);
+	if (wsi->truncated_send_malloc && (buf < wsi->truncated_send_malloc ||
+			buf > (wsi->truncated_send_malloc +
+				wsi->truncated_send_len +
+				wsi->truncated_send_offset))) {
+		lwsl_err("****** %x Sending new, pending truncated ...\n", wsi);
 		assert(0);
 	}
 
@@ -185,7 +186,8 @@ handle_truncated_send:
 	 * already handling a truncated send?
 	 */
 	if (wsi->truncated_send_malloc) {
-		lwsl_info("***** %x partial send moved on by %d (vs %d)\n", wsi, n, real_len);
+		lwsl_info("***** %x partial send moved on by %d (vs %d)\n",
+							     wsi, n, real_len);
 		wsi->truncated_send_offset += n;
 		wsi->truncated_send_len -= n;
 
@@ -217,7 +219,8 @@ handle_truncated_send:
 		 * Newly truncated send.  Buffer the remainder (it will get
 		 * first priority next time the socket is writable)
 		 */
-		lwsl_info("***** %x new partial sent %d from %d total\n", wsi, n, real_len);
+		lwsl_info("***** %x new partial sent %d from %d total\n",
+							      wsi, n, real_len);
 
 		wsi->truncated_send_malloc = malloc(real_len - n);
 		if (!wsi->truncated_send_malloc) {
@@ -292,7 +295,11 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 		}
 
 		if ((char *)buf != eff_buf.token)
-			wsi->u.ws.clean_buffer = 0; /* extension recreated it: we need to buffer this if not all sent */
+			/*
+			 * extension recreated it:
+			 * need to buffer this if not all sent
+			 */
+			wsi->u.ws.clean_buffer = 0;
 
 		/* assuming they left us something to send, send it */
 
@@ -442,7 +449,11 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	 * to this being issued
 	 */
 	if ((char *)buf != eff_buf.token)
-		wsi->u.ws.clean_buffer = 0; /* we need to buffer this if not all sent */
+		/*
+		 * extension recreated it:
+		 * need to buffer this if not all sent
+		 */
+		wsi->u.ws.clean_buffer = 0;
 
 	buf = (unsigned char *)eff_buf.token;
 	len = eff_buf.token_len;
@@ -544,7 +555,7 @@ do_more_inside_frame:
 
 		if (!wsi->u.ws.inside_frame)
 			if (libwebsocket_0405_frame_mask_generate(wsi)) {
-				lwsl_err("lws_write: frame mask generation failed\n");
+				lwsl_err("frame mask generation failed\n");
 				return -1;
 			}
 
@@ -637,7 +648,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		if (wsi->truncated_send_malloc) {
 			lws_issue_raw(wsi, wsi->truncated_send_malloc +
 					wsi->truncated_send_offset,
-							wsi->truncated_send_len);
+						       wsi->truncated_send_len);
 			continue;
 		}
 
@@ -646,7 +657,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 
 #if defined(WIN32) || defined(_WIN32)
 		if (!ReadFile(wsi->u.http.fd, context->service_buffer,
-						sizeof(context->service_buffer), &n, NULL))
+				     sizeof(context->service_buffer), &n, NULL))
 			return -1; /* caller will close */
 #else
 		n = read(wsi->u.http.fd, context->service_buffer,
@@ -665,7 +676,8 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 			if (m != n) {
 				/* adjust for what was not sent */
 #if defined(WIN32) || defined(_WIN32)
-				SetFilePointer(wsi->u.http.fd, m - n, NULL, FILE_CURRENT);
+				SetFilePointer(wsi->u.http.fd, m - n,
+							NULL, FILE_CURRENT);
 #else
 				lseek(wsi->u.http.fd, m - n, SEEK_CUR);
 #endif
