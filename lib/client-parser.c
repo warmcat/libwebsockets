@@ -26,9 +26,9 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	int handled;
 	struct lws_tokens eff_buf;
+	int m;
 #ifndef LWS_NO_EXTENSIONS
 	int n;
-	int m;
 #endif
 
 	switch (wsi->lws_rx_parse_state) {
