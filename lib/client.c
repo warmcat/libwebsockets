@@ -129,6 +129,22 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 					SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
 
+		/* use server name indication (SNI), if supported,
+		 * when establishing connection */
+#ifdef USE_CYASSL
+#ifdef CYASSL_SNI_HOST_NAME
+		const char *hostname = lws_hdr_simple_ptr(wsi,
+			_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+		CyaSSL_UseSNI(wsi->ssl, CYASSL_SNI_HOST_NAME,
+			hostname, strlen(hostname));
+#endif
+#else
+		const char *hostname = lws_hdr_simple_ptr(wsi,
+			_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+		SSL_set_tlsext_host_name(wsi->ssl, hostname);
+#endif
+
+
 #ifdef USE_CYASSL
 			/*
 			 * CyaSSL does certificate verification differently
