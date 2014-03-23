@@ -26,6 +26,9 @@
 /* Turn off websocket extensions */
 #cmakedefine LWS_NO_EXTENSIONS
 
+/* Enable libev io loop */
+#cmakedefine LWS_USE_LIBEV
+
 /* Turn on latency measuring code */
 #cmakedefine LWS_LATENCY
 

@@ -63,7 +63,13 @@ static int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
 static void lwsl_emit_stderr(int level, const char *line);
 static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
 
-static const char *library_version = LWS_LIBRARY_VERSION " " LWS_BUILD_HASH;
+#ifdef LWS_USE_LIBEV
+#define _LWS_EV_TAG " libev"
+#else
+#define _LWS_EV_TAG
+#endif /* LWS_USE_LIBEV */
+static const char *library_version =
+			LWS_LIBRARY_VERSION " " LWS_BUILD_HASH _LWS_EV_TAG;
 
 static const char * const log_level_names[] = {
 	"ERR",
@@ -173,6 +179,11 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	wsi->position_in_fds_table = context->fds_count;
 	context->fds[context->fds_count].fd = wsi->sock;
 	context->fds[context->fds_count].events = POLLIN;
+#ifdef LWS_USE_LIBEV
+	if (context && context->io_loop && LWS_LIBEV_ENABLED(context))
+		ev_io_start(context->io_loop, (struct ev_io *)&wsi->w_read);
+
+#endif /* LWS_USE_LIBEV */
 	context->fds[context->fds_count++].revents = 0;
 
 	/* external POLL support via protocol 0 */
@@ -430,6 +441,13 @@ just_kill_connection:
 	 * we won't be servicing or receiving anything further from this guy
 	 * delete socket from the internal poll list if still present
 	 */
+
+#ifdef LWS_USE_LIBEV
+	if (LWS_LIBEV_ENABLED(context)) {
+		ev_io_stop(context->io_loop,(struct ev_io *)&wsi->w_read);
+		ev_io_stop(context->io_loop,(struct ev_io *)&wsi->w_write);
+	}
+#endif /* LWS_USE_LIBEV */
 
 	remove_wsi_socket_from_fds(context, wsi);
 
@@ -865,9 +883,14 @@ user_service:
 #endif
 	/* one shot */
 
-	if (pollfd)
+	if (pollfd) {
 		lws_change_pollfd(wsi, POLLOUT, 0);
-
+#ifdef LWS_USE_LIBEV
+		if (LWS_LIBEV_ENABLED(context))
+			ev_io_stop(context->io_loop,
+				(struct ev_io *)&wsi->w_write);
+#endif /* LWS_USE_LIBEV */
+	}
 #ifndef LWS_NO_EXTENSIONS
 notify_action:
 #endif
@@ -974,6 +997,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 	time(&now);
 
+	/* TODO: if using libev, we should probably use timeout watchers... */
 	if (context->last_timeout_check_s != now) {
 		context->last_timeout_check_s = now;
 
@@ -1240,6 +1264,36 @@ handled:
 	return n;
 }
 
+#ifdef LWS_USE_LIBEV
+LWS_VISIBLE void 
+libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
+{
+	struct pollfd eventfd;
+	struct lws_io_watcher *lws_io = (struct lws_io_watcher*)watcher;
+	struct libwebsocket_context *context = lws_io->context;
+
+	if (revents & EV_ERROR)
+		return;
+
+	eventfd.fd = watcher->fd;
+	eventfd.revents = EV_NONE;
+	if (revents & EV_READ)
+		eventfd.revents |= POLLIN;
+
+	if (revents & EV_WRITE)
+		eventfd.revents |= POLLOUT;
+
+	libwebsocket_service_fd(context,&eventfd);
+}
+
+LWS_VISIBLE void
+libwebsocket_sigint_cb(
+    struct ev_loop *loop, struct ev_signal* watcher, int revents)
+{
+    ev_break(loop, EVBREAK_ALL);
+}
+#endif /* LWS_USE_LIBEV */
+
 
 /**
  * libwebsocket_context_destroy() - Destroy the websocket context
@@ -1394,6 +1448,10 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	if (context == NULL)
 		return 1;
 
+#ifdef LWS_USE_LIBEV
+	if (context->io_loop && LWS_LIBEV_ENABLED(context))
+		ev_run(context->io_loop, 0);
+#endif /* LWS_USE_LIBEV */
 	context->service_tid = context->protocols[0].callback(context, NULL,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 	n = poll(context->fds, context->fds_count, timeout_ms);
@@ -1452,6 +1510,64 @@ libwebsocket_cancel_service(struct libwebsocket_context *context)
 		lwsl_err("Cannot write to dummy pipe.");
 #endif
 }
+
+#ifdef LWS_USE_LIBEV
+LWS_VISIBLE int
+libwebsocket_initloop(
+	struct libwebsocket_context *context,
+	struct ev_loop *loop)
+{
+	int status = 0;
+	int backend;
+	const char * backend_name;
+	struct ev_io *w_accept = (ev_io *)&context->w_accept;
+	struct ev_signal *w_sigint = (ev_signal *)&context->w_sigint;
+
+	if (!loop)
+		loop = ev_default_loop(0);
+
+	context->io_loop = loop;
+   
+	/*
+	 * Initialize the accept w_accept with the listening socket
+	 * and register a callback for read operations:
+	 */
+	ev_io_init(w_accept, libwebsocket_accept_cb,
+					context->listen_service_fd, EV_READ);
+	ev_io_start(context->io_loop,w_accept);
+	ev_signal_init(w_sigint, libwebsocket_sigint_cb, SIGINT);
+	ev_signal_start(context->io_loop,w_sigint);
+	backend = ev_backend(loop);
+
+	switch (backend) {
+	case EVBACKEND_SELECT:
+		backend_name = "select";
+		break;
+	case EVBACKEND_POLL:
+		backend_name = "poll";
+		break;
+	case EVBACKEND_EPOLL:
+		backend_name = "epoll";
+		break;
+	case EVBACKEND_KQUEUE:
+		backend_name = "kqueue";
+		break;
+	case EVBACKEND_DEVPOLL:
+		backend_name = "/dev/poll";
+		break;
+	case EVBACKEND_PORT:
+		backend_name = "Solaris 10 \"port\"";
+		break;
+	default:
+		backend_name = "Unknown libev backend";
+		break;
+	};
+
+	lwsl_notice(" libev backend: %s\n", backend_name);
+
+	return status;
+}
+#endif /* LWS_USE_LIBEV */
 
 #ifndef LWS_NO_EXTENSIONS
 int
@@ -1584,6 +1700,10 @@ libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 	}
 
 	lws_change_pollfd(wsi, 0, POLLOUT);
+#ifdef LWS_USE_LIBEV
+	if (LWS_LIBEV_ENABLED(context))
+		ev_io_start(context->io_loop, (struct ev_io *)&wsi->w_write);
+#endif /* LWS_USE_LIBEV */
 
 	return 1;
 }
@@ -2036,6 +2156,14 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		free(context);
 		return NULL;
 	}
+
+#ifdef LWS_USE_LIBEV
+	if (LWS_LIBEV_ENABLED(context)) {
+		context->w_accept.context = context;
+		context->w_sigint.context = context;
+	}
+#endif /* LWS_USE_LIBEV */
+
 	context->lws_lookup = (struct libwebsocket **)
 		      malloc(sizeof(struct libwebsocket *) * context->max_fds);
 	if (context->lws_lookup == NULL) {
@@ -2049,23 +2177,25 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	memset(context->lws_lookup, 0, sizeof(struct libwebsocket *) *
 							context->max_fds);
 
-#ifdef _WIN32
-	context->fds_count = 0;
-#else
-	if (pipe(context->dummy_pipe_fds)) {
-		lwsl_err("Unable to create pipe\n");
-		free(context->lws_lookup);
-		free(context->fds);
-		free(context);
-		return NULL;
-	}
+	if (!LWS_LIBEV_ENABLED(context)) {
+	#ifdef _WIN32
+		context->fds_count = 0;
+	#else
+		if (pipe(context->dummy_pipe_fds)) {
+			lwsl_err("Unable to create pipe\n");
+			free(context->lws_lookup);
+			free(context->fds);
+			free(context);
+			return NULL;
+		}
 
-	/* use the read end of pipe as first item */
-	context->fds[0].fd = context->dummy_pipe_fds[0];
-	context->fds[0].events = POLLIN;
-	context->fds[0].revents = 0;
-	context->fds_count = 1;
-#endif
+		/* use the read end of pipe as first item */
+		context->fds[0].fd = context->dummy_pipe_fds[0];
+		context->fds[0].events = POLLIN;
+		context->fds[0].revents = 0;
+		context->fds_count = 1;
+	#endif
+	}
 
 #ifndef LWS_NO_EXTENSIONS
 	context->extensions = info->extensions;
@@ -2140,7 +2270,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	}
 
 #ifndef LWS_NO_SERVER
-	if (info->port) {
+	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 
 #ifdef LWS_OPENSSL_SUPPORT
 		context->use_ssl = info->ssl_cert_filepath != NULL &&
@@ -2405,7 +2535,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #ifndef LWS_NO_SERVER
 	/* set up our external listening socket we serve on */
 
-	if (info->port) {
+	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 		int sockfd;
 
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -2454,6 +2584,15 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 			compatible_close(sockfd);
 			goto bail;
 		}
+		
+	struct sockaddr_in sin;
+	socklen_t len = sizeof(sin);
+	if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
+		perror("getsockname");
+	else
+		info->port = ntohs(sin.sin_port);
+	
+	context->listen_port = info->port;
 
 		wsi = (struct libwebsocket *)malloc(
 					sizeof(struct libwebsocket));
@@ -2524,7 +2663,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	 */
 
 	m = LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT;
-	if (info->port)
+	if (info->port != CONTEXT_PORT_NO_LISTEN)
 		m = LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT;
 
 	if (info->extensions) {

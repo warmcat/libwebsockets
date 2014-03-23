@@ -80,13 +80,17 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
+#ifdef LWS_USE_LIBEV
+#include <ev.h>
+#endif /* LWS_USE_LIBEV */
+
 #include <assert.h>
 
 #ifndef LWS_EXTERN
 #define LWS_EXTERN extern
 #endif
 
-#define CONTEXT_PORT_NO_LISTEN 0
+#define CONTEXT_PORT_NO_LISTEN -1
 #define MAX_MUX_RECURSION 2
 
 enum lws_log_levels {
@@ -144,7 +148,8 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT = 2,
 	LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME = 4,
-	LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT = 8
+	LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT = 8,
+	LWS_SERVER_OPTION_LIBEV = 16
 };
 
 enum libwebsocket_callback_reasons {
@@ -967,6 +972,20 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms);
 
 LWS_VISIBLE LWS_EXTERN void
 libwebsocket_cancel_service(struct libwebsocket_context *context);
+
+#ifdef LWS_USE_LIBEV
+LWS_VISIBLE LWS_EXTERN int
+libwebsocket_initloop(
+	struct libwebsocket_context *context, struct ev_loop *loop);
+
+LWS_VISIBLE void
+libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher,
+                int revents);
+
+LWS_VISIBLE void
+libwebsocket_sigint_cb(
+	struct ev_loop *loop, struct ev_signal *watcher, int revents);
+#endif /* LWS_USE_LIBEV */
 
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_service_fd(struct libwebsocket_context *context,

@@ -92,6 +92,10 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <poll.h>
+#ifdef LWS_USE_LIBEV
+#include <ev.h>
+#endif /* LWS_USE_LIBEV */
+
 #include <sys/mman.h>
 #include <sys/time.h>
 
@@ -265,10 +269,27 @@ enum {
 struct libwebsocket_protocols;
 struct libwebsocket;
 
+#ifdef LWS_USE_LIBEV
+struct lws_io_watcher {
+	struct ev_io watcher;
+	struct libwebsocket_context* context;
+};
+
+struct lws_signal_watcher {
+	struct ev_signal watcher;
+	struct libwebsocket_context* context;
+};
+#endif /* LWS_USE_LIBEV */
+
 struct libwebsocket_context {
 	struct pollfd *fds;
 	struct libwebsocket **lws_lookup; /* fd to wsi */
 	int fds_count;
+#ifdef LWS_USE_LIBEV
+	struct ev_loop* io_loop;
+	struct lws_io_watcher w_accept;
+	struct lws_signal_watcher w_sigint;
+#endif /* LWS_USE_LIBEV */
 	int max_fds;
 	int listen_port;
 	const char *iface;
@@ -326,6 +347,13 @@ struct libwebsocket_context {
 #endif
 	void *user_space;
 };
+
+#ifdef LWS_USE_LIBEV
+#define LWS_LIBEV_ENABLED(context) (context->options & LWS_SERVER_OPTION_LIBEV)
+#else
+#define LWS_LIBEV_ENABLED(context) (0)
+#endif
+
 
 enum uri_path_states {
 	URIPS_IDLE,
@@ -415,6 +443,10 @@ struct libwebsocket {
 
 	/* lifetime members */
 
+#ifdef LWS_USE_LIBEV
+    struct lws_io_watcher w_read;
+    struct lws_io_watcher w_write;
+#endif /* LWS_USE_LIBEV */
 	const struct libwebsocket_protocols *protocol;
 #ifndef LWS_NO_EXTENSIONS
 	struct libwebsocket_extension *

@@ -52,6 +52,7 @@ option(LWS_WITHOUT_DEBUG "Don't compile debug related code" OFF)
 option(LWS_WITHOUT_EXTENSIONS "Don't compile with extensions" OFF)
 option(LWS_WITH_LATENCY "Build latency measuring code into the library" OFF)
 option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" OFF)
+option(LWS_WITH_LIBEV "Compile without support for libev" OFF)
 
 # Allow the user to override installation directories.
 set(LWS_INSTALL_LIB_DIR       lib CACHE PATH "Installation directory for libraries")
@@ -113,6 +114,11 @@ if (LWS_WITHOUT_DEBUG)
 	set(_DEBUG 0)
 else()
 	set(_DEBUG 1)
+endif()
+
+if (LWS_WITH_LIBEV)
+	set(LWS_USE_LIBEV 1)
+	set(LWS_NO_EXTERNAL_POLL 1)
 endif()
 
 if (MINGW)
@@ -457,6 +463,10 @@ if (LWS_WITH_SSL)
 		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
 	endif()
 endif(LWS_WITH_SSL)
+
+if (LWS_WITH_LIBEV)
+	list(APPEND LIB_LIST "ev")
+endif(LWS_WITH_LIBEV)
 
 #
 # Platform specific libs.
@@ -866,6 +876,7 @@ message(" LWS_WITHOUT_DEBUG = ${LWS_WITHOUT_DEBUG}")
 message(" LWS_WITHOUT_EXTENSIONS = ${LWS_WITHOUT_EXTENSIONS}")
 message(" LWS_WITH_LATENCY = ${LWS_WITH_LATENCY}")
 message(" LWS_WITHOUT_DAEMONIZE = ${LWS_WITHOUT_DAEMONIZE}")
+message(" LWS_USE_LIBEV = ${LWS_USE_LIBEV}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

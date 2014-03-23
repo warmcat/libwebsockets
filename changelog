@@ -39,6 +39,10 @@ If you will use another thread for this, take a lot of care about managing
 your list of live wsi by doing it from ESTABLISHED and CLOSED callbacks
 (with your own locking).
 
+If you configure cmake with -DLWS_WITH_LIBEV=1 then the code allowing the libev
+eventloop instead of the default poll() one will also be compiled in.  But to
+use it, you must also set the LWS_SERVER_OPTION_LIBEV flag on the context
+creation info struct options member.
 
 
 User api changes
