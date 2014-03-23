@@ -157,9 +157,12 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		n = SSL_write(wsi->ssl, buf, len);
 		lws_latency(context, wsi, "SSL_write lws_issue_raw", n, n >= 0);
 		if (n < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EINTR) {
+			n = SSL_get_error(wsi->ssl, n);
+			if (n == SSL_ERROR_WANT_READ ||
+						n == SSL_ERROR_WANT_WRITE) {
 				n = 0;
 				goto handle_truncated_send;
+
 			}
 			lwsl_debug("ERROR writing to socket\n");
 			return -1;
