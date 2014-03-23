@@ -99,7 +99,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 #ifndef LWS_NO_EXTENSIONS
 	int m;
 
-	if (wsi->truncated_send_malloc && (buf < wsi->truncated_send_malloc ||
+	if (wsi->truncated_send_len && (buf < wsi->truncated_send_malloc ||
 			buf > (wsi->truncated_send_malloc +
 				wsi->truncated_send_len +
 				wsi->truncated_send_offset))) {
@@ -185,7 +185,7 @@ handle_truncated_send:
 	/*
 	 * already handling a truncated send?
 	 */
-	if (wsi->truncated_send_malloc) {
+	if (wsi->truncated_send_len) {
 		lwsl_info("***** %x partial send moved on by %d (vs %d)\n",
 							     wsi, n, real_len);
 		wsi->truncated_send_offset += n;
@@ -193,9 +193,7 @@ handle_truncated_send:
 
 		if (!wsi->truncated_send_len) {
 			lwsl_info("***** %x partial send completed\n", wsi);
-			/* done with it */
-			free(wsi->truncated_send_malloc);
-			wsi->truncated_send_malloc = NULL;
+			/* done with it, but don't free it */
 			n = real_len;
 		} else
 			libwebsocket_callback_on_writable(
@@ -222,13 +220,25 @@ handle_truncated_send:
 		lwsl_info("***** %x new partial sent %d from %d total\n",
 							      wsi, n, real_len);
 
-		wsi->truncated_send_malloc = malloc(real_len - n);
-		if (!wsi->truncated_send_malloc) {
-			lwsl_err("truncated send: unable to malloc %d\n",
-								  real_len - n);
-			return -1;
-		}
+		/*
+		 *  - if we still have a suitable malloc lying around, use it
+		 *  - or, if too small, reallocate it
+		 *  - or, if no buffer, create it
+		 */
+		if (!wsi->truncated_send_malloc ||
+				real_len - n > wsi->truncated_send_allocation) {
+			if (wsi->truncated_send_malloc)
+				free(wsi->truncated_send_malloc);
 
+			wsi->truncated_send_allocation = real_len - n;
+			wsi->truncated_send_malloc = malloc(real_len - n);
+			if (!wsi->truncated_send_malloc) {
+				lwsl_err(
+				   "truncated send: unable to malloc %d\n",
+								  real_len - n);
+				return -1;
+			}
+		}
 		wsi->truncated_send_offset = 0;
 		wsi->truncated_send_len = real_len - n;
 		memcpy(wsi->truncated_send_malloc, buf + n, real_len - n);
@@ -330,7 +340,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 		 */
 
 		if (!lws_send_pipe_choked(wsi) &&
-					!wsi->truncated_send_malloc)
+					!wsi->truncated_send_len)
 			/* no we could add more, lets's do that */
 			continue;
 
@@ -645,7 +655,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 
 	while (!lws_send_pipe_choked(wsi)) {
 
-		if (wsi->truncated_send_malloc) {
+		if (wsi->truncated_send_len) {
 			lws_issue_raw(wsi, wsi->truncated_send_malloc +
 					wsi->truncated_send_offset,
 						       wsi->truncated_send_len);
@@ -684,7 +694,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 			}
 		}
 all_sent:
-		if (!wsi->truncated_send_malloc &&
+		if (!wsi->truncated_send_len &&
 				wsi->u.http.filepos == wsi->u.http.filelen) {
 			wsi->state = WSI_STATE_HTTP;
 

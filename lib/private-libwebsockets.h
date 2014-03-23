@@ -444,6 +444,7 @@ struct libwebsocket {
 
 	/* truncated send handling */
 	unsigned char *truncated_send_malloc; /* non-NULL means buffering in progress */
+	unsigned int truncated_send_allocation; /* size of malloc */
 	unsigned int truncated_send_offset; /* where we are in terms of spilling */
 	unsigned int truncated_send_len; /* how much is buffered */
 
