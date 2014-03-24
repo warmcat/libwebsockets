@@ -576,7 +576,7 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 					char *rip, int rip_len)
 {
 	socklen_t len;
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 	struct sockaddr_in6 sin6;
 #endif
 	struct sockaddr_in sin4;
@@ -595,7 +595,7 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 
 	lws_latency_pre(context, wsi);
 
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context)) {
 
 		len = sizeof(sin6);
@@ -2083,7 +2083,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #ifndef LWS_NO_SERVER
 	int opt = 1;
 	struct libwebsocket *wsi;
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 	struct sockaddr_in6 serv_addr6;
 #endif
 	struct sockaddr_in serv_addr4;
@@ -2104,7 +2104,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	lwsl_notice("Initial logging level %d\n", log_level);
 	lwsl_notice("Library version: %s\n", library_version);
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 	if (!(info->options & LWS_SERVER_OPTION_DISABLE_IPV6))
 		lwsl_notice("IPV6 compiled in and enabled\n");
 	else
@@ -2580,7 +2580,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 		int sockfd;
 
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context))
 			sockfd = socket(AF_INET6, SOCK_STREAM, 0);
 		else
@@ -2610,7 +2610,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		fcntl(sockfd, F_SETFL, O_NONBLOCK);
 		#endif
 
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context)) {
 			v = (struct sockaddr *)&serv_addr6;
 			n = sizeof(struct sockaddr_in6);
@@ -2935,7 +2935,7 @@ interface_to_sa(struct libwebsocket_context *context,
 #else
 	struct ifaddrs *ifr;
 	struct ifaddrs *ifc;
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
 #endif
 
@@ -2951,7 +2951,7 @@ interface_to_sa(struct libwebsocket_context *context,
 
 		switch (ifc->ifa_addr->sa_family) {
 		case AF_INET:
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 			if (LWS_IPV6_ENABLED(context)) {
 				/* map IPv4 to IPv6 */
 				bzero((char *)&addr6->sin6_addr,
@@ -2967,7 +2967,7 @@ interface_to_sa(struct libwebsocket_context *context,
 					(struct sockaddr_in *)ifc->ifa_addr,
 						    sizeof(struct sockaddr_in));
 			break;
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 		case AF_INET6:
 			if (rc >= 0)
 				break;

@@ -354,8 +354,8 @@ struct libwebsocket_context {
 #define LWS_LIBEV_ENABLED(context) (0)
 #endif
 
-#ifdef LWS_WITH_IPV6
-#define LWS_IPV6_ENABLED(context) (context->options & LWS_SERVER_OPTION_DISABLE_IPV6)
+#ifdef LWS_USE_IPV6
+#define LWS_IPV6_ENABLED(context) (!(context->options & LWS_SERVER_OPTION_DISABLE_IPV6))
 #else
 #define LWS_IPV6_ENABLED(context) (0)
 #endif

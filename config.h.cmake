@@ -30,7 +30,7 @@
 #cmakedefine LWS_USE_LIBEV
 
 /* Build with support for ipv6 */
-#cmakedefine LWS_WITH_IPV6
+#cmakedefine LWS_USE_IPV6
 
 /* Turn on latency measuring code */
 #cmakedefine LWS_LATENCY

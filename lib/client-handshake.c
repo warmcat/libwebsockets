@@ -5,7 +5,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	struct libwebsocket *wsi
 ) {
 	struct pollfd pfd;
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 	struct sockaddr_in6 server_addr6;
 	struct sockaddr_in6 client_addr6;
 	struct addrinfo hints, *result;
@@ -35,7 +35,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			wsi->u.hdr.ah->c_port);
 		ads = context->http_proxy_address;
 
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context))
 			server_addr6.sin6_port = htons(context->http_proxy_port);
 		else
@@ -57,7 +57,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	 */
        lwsl_client("libwebsocket_client_connect_2: address %s\n", ads);
 
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context)) {
 		memset(&hints, 0, sizeof(struct addrinfo));
 		n = getaddrinfo(ads, NULL, &hints, &result);
@@ -106,7 +106,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 
 	if (wsi->sock < 0) {
 
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context))
 			wsi->sock = socket(AF_INET6, SOCK_STREAM, 0);
 		else
@@ -131,7 +131,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 		libwebsocket_set_timeout(wsi,
 			PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
 							      AWAITING_TIMEOUT);
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context)) {
 			v = (struct sockaddr *)&client_addr6;
 			n = sizeof(client_addr6);
@@ -164,7 +164,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 		}
 	}
 
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context)) {
 		v = (struct sockaddr *)&server_addr6;
 		n = sizeof(struct sockaddr_in6);

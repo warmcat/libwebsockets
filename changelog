@@ -45,7 +45,7 @@ use it, you must also set the LWS_SERVER_OPTION_LIBEV flag on the context
 creation info struct options member.
 
 IPV6 is supported and enabled by default, you can disable the support at
-build-time by giving -DLWS_WITHOUT_IPV6, and disable use of it even if
+build-time by giving -DLWS_IPV6=, and disable use of it even if
 compiled in by making sure the flag LWS_SERVER_OPTION_DISABLE_IPV6 is set on
 the context creation info struct options member.
 
