@@ -576,66 +576,96 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 					char *rip, int rip_len)
 {
 	socklen_t len;
-	struct sockaddr_in sin;
+#ifdef LWS_WITH_IPV6
+	struct sockaddr_in6 sin6;
+#endif
+	struct sockaddr_in sin4;
 	struct hostent *host;
 	struct hostent *host1;
 	char ip[128];
 	unsigned char *p;
 	int n;
-	int ret = -1;
 #ifdef AF_LOCAL
 	struct sockaddr_un *un;
 #endif
+	int ret = -1;
 
 	rip[0] = '\0';
 	name[0] = '\0';
 
 	lws_latency_pre(context, wsi);
 
-	len = sizeof(sin);
-	if (getpeername(fd, (struct sockaddr *) &sin, &len) < 0) {
-		lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
-		goto bail;
-	}
+#ifdef LWS_WITH_IPV6
+	if (LWS_IPV6_ENABLED(context)) {
 
-	host = gethostbyaddr((char *) &sin.sin_addr, sizeof(sin.sin_addr),
-								       AF_INET);
-	if (host == NULL) {
-		lwsl_warn("gethostbyaddr: %s\n", strerror(LWS_ERRNO));
-		goto bail;
-	}
-
-	strncpy(name, host->h_name, name_len);
-	name[name_len - 1] = '\0';
-
-	host1 = gethostbyname(host->h_name);
-	if (host1 == NULL)
-		goto bail;
-	p = (unsigned char *)host1;
-	n = 0;
-	while (p != NULL) {
-		p = (unsigned char *)host1->h_addr_list[n++];
-		if (p == NULL)
-			continue;
-		if ((host1->h_addrtype != AF_INET)
-#ifdef AF_LOCAL
-			&& (host1->h_addrtype != AF_LOCAL)
-#endif
-			)
-			continue;
-
-		if (host1->h_addrtype == AF_INET)
-			sprintf(ip, "%u.%u.%u.%u", p[0], p[1], p[2], p[3]);
-#ifdef AF_LOCAL
-		else {
-			un = (struct sockaddr_un *)p;
-			strncpy(ip, un->sun_path, sizeof(ip) - 1);
-			ip[sizeof(ip) - 1] = '\0';
+		len = sizeof(sin6);
+		if (getpeername(fd, (struct sockaddr *) &sin6, &len) < 0) {
+			lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
+			goto bail;
 		}
+
+		if (inet_ntop(AF_INET6, &sin6.sin6_addr, rip, rip_len) == NULL) {
+			perror("inet_ntop");
+			goto bail;
+		}
+
+		// Strip off the IPv4 to IPv6 header if one exists
+		if (strncmp(rip, "::ffff:", 7) == 0) {
+			memmove(rip, rip + 7, strlen(rip) - 6);
+		}
+
+		getnameinfo((struct sockaddr *)&sin6,
+				sizeof(struct sockaddr_in6), name,
+							name_len, NULL, 0, 0);
+
+	} else
 #endif
-		p = NULL;
-		strncpy(rip, ip, rip_len);
-		rip[rip_len - 1] = '\0';
+	{
+		len = sizeof(sin4);
+		if (getpeername(fd, (struct sockaddr *) &sin4, &len) < 0) {
+			lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
+			goto bail;
+		}
+		host = gethostbyaddr((char *) &sin4.sin_addr,
+						sizeof(sin4.sin_addr), AF_INET);
+		if (host == NULL) {
+			lwsl_warn("gethostbyaddr: %s\n", strerror(LWS_ERRNO));
+			goto bail;
+		}
+
+		strncpy(name, host->h_name, name_len);
+		name[name_len - 1] = '\0';
+
+		host1 = gethostbyname(host->h_name);
+		if (host1 == NULL)
+			goto bail;
+		p = (unsigned char *)host1;
+		n = 0;
+		while (p != NULL) {
+			p = (unsigned char *)host1->h_addr_list[n++];
+			if (p == NULL)
+				continue;
+			if ((host1->h_addrtype != AF_INET)
+	#ifdef AF_LOCAL
+				&& (host1->h_addrtype != AF_LOCAL)
+	#endif
+				)
+				continue;
+
+			if (host1->h_addrtype == AF_INET)
+				sprintf(ip, "%u.%u.%u.%u",
+						p[0], p[1], p[2], p[3]);
+	#ifdef AF_LOCAL
+			else {
+				un = (struct sockaddr_un *)p;
+				strncpy(ip, un->sun_path, sizeof(ip) - 1);
+				ip[sizeof(ip) - 1] = '\0';
+			}
+	#endif
+			p = NULL;
+			strncpy(rip, ip, rip_len);
+			rip[rip_len - 1] = '\0';
+		}
 	}
 
 	ret = 0;
@@ -2053,7 +2083,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #ifndef LWS_NO_SERVER
 	int opt = 1;
 	struct libwebsocket *wsi;
-	struct sockaddr_in serv_addr;
+#ifdef LWS_WITH_IPV6
+	struct sockaddr_in6 serv_addr6;
+#endif
+	struct sockaddr_in serv_addr4;
+	struct sockaddr *v;
 #endif
 #ifndef LWS_NO_EXTENSIONS
 	int m;
@@ -2070,6 +2104,14 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	lwsl_notice("Initial logging level %d\n", log_level);
 	lwsl_notice("Library version: %s\n", library_version);
+#ifdef LWS_WITH_IPV6
+	if (!(info->options & LWS_SERVER_OPTION_DISABLE_IPV6))
+		lwsl_notice("IPV6 compiled in and enabled\n");
+	else
+		lwsl_notice("IPV6 compiled in but disabled\n");
+#else
+	lwsl_notice("IPV6 not compiled in\n");
+#endif
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
 #ifndef LWS_NO_EXTENSIONS
@@ -2489,7 +2531,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 						     context->ssl_ctx, NULL, 0);
 	}
 
-	if(info->options & LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT) {
+	if (info->options & LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT) {
 		/* Normally SSL listener rejects non-ssl, optionally allow */
 		context->allow_non_ssl_on_ssl_port = 1;
 	}
@@ -2538,7 +2580,13 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 		int sockfd;
 
-		sockfd = socket(AF_INET, SOCK_STREAM, 0);
+#ifdef LWS_WITH_IPV6
+		if (LWS_IPV6_ENABLED(context))
+			sockfd = socket(AF_INET6, SOCK_STREAM, 0);
+		else
+#endif
+			sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
 		if (sockfd < 0) {
 			lwsl_err("ERROR opening socket\n");
 			goto bail;
@@ -2562,37 +2610,51 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		fcntl(sockfd, F_SETFL, O_NONBLOCK);
 		#endif
 
-		bzero((char *) &serv_addr, sizeof(serv_addr));
-		serv_addr.sin_family = AF_INET;
-		if (info->iface == NULL)
-			serv_addr.sin_addr.s_addr = INADDR_ANY;
-		else
-			if (interface_to_sa(info->iface, &serv_addr,
-						sizeof(serv_addr)) < 0) {
-				lwsl_err("Unable to find interface %s\n",
-							info->iface);
-				compatible_close(sockfd);
-				goto bail;
-			}
-		serv_addr.sin_port = htons(info->port);
+#ifdef LWS_WITH_IPV6
+		if (LWS_IPV6_ENABLED(context)) {
+			v = (struct sockaddr *)&serv_addr6;
+			n = sizeof(struct sockaddr_in6);
+			bzero((char *) &serv_addr6, sizeof(serv_addr6));
+			serv_addr6.sin6_addr = in6addr_any;
+			serv_addr6.sin6_family = AF_INET6;
+			serv_addr6.sin6_port = htons(info->port);
+		} else
+#endif
+		{
+			v = (struct sockaddr *)&serv_addr4;
+			n = sizeof(serv_addr4);
+			bzero((char *) &serv_addr4, sizeof(serv_addr4));
+			serv_addr4.sin_addr.s_addr = INADDR_ANY;
+			serv_addr4.sin_family = AF_INET;
+			serv_addr4.sin_port = htons(info->port);
 
-		n = bind(sockfd, (struct sockaddr *) &serv_addr,
-							     sizeof(serv_addr));
+			if (info->iface) {
+				if (interface_to_sa(context, info->iface,
+					   (struct sockaddr_in *)v, n) < 0) {
+					lwsl_err("Unable to find interface %s\n",
+								info->iface);
+					compatible_close(sockfd);
+					goto bail;
+				}
+			}
+		} /* ipv4 */
+
+		n = bind(sockfd, v, n);
 		if (n < 0) {
 			lwsl_err("ERROR on binding to port %d (%d %d)\n",
-							info->port, n, LWS_ERRNO);
+						      info->port, n, LWS_ERRNO);
 			compatible_close(sockfd);
 			goto bail;
 		}
 		
-	struct sockaddr_in sin;
-	socklen_t len = sizeof(sin);
-	if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
-		perror("getsockname");
-	else
-		info->port = ntohs(sin.sin_port);
+		struct sockaddr_in sin;
+		socklen_t len = sizeof(sin);
+		if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
+			perror("getsockname");
+		else
+			info->port = ntohs(sin.sin_port);
 	
-	context->listen_port = info->port;
+		context->listen_port = info->port;
 
 		wsi = (struct libwebsocket *)malloc(
 					sizeof(struct libwebsocket));
@@ -2861,8 +2923,11 @@ LWS_VISIBLE void lws_set_log_level(int level, void (*log_emit_function)(int leve
 		lwsl_emit = log_emit_function;
 }
 
+/* cast a struct sockaddr_in6 * into addr for ipv6 */
+
 int
-interface_to_sa(const char *ifname, struct sockaddr_in *addr, size_t addrlen)
+interface_to_sa(struct libwebsocket_context *context,
+		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
 	int rc = -1;
 #if defined(WIN32) || defined(_WIN32)
@@ -2870,19 +2935,50 @@ interface_to_sa(const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 #else
 	struct ifaddrs *ifr;
 	struct ifaddrs *ifc;
-	struct sockaddr_in *sin;
+#ifdef LWS_WITH_IPV6
+	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
+#endif
 
 	getifaddrs(&ifr);
 	for (ifc = ifr; ifc != NULL && rc; ifc = ifc->ifa_next) {
-		if (ifc->ifa_addr == NULL)
+		if (!ifc->ifa_addr)
 			continue;
+
 		lwsl_info(" interface %s vs %s\n", ifc->ifa_name, ifname);
+
 		if (strcmp(ifc->ifa_name, ifname))
 			continue;
-		sin = (struct sockaddr_in *)ifc->ifa_addr;
-		if (sin->sin_family != AF_INET)
+
+		switch (ifc->ifa_addr->sa_family) {
+		case AF_INET:
+#ifdef LWS_WITH_IPV6
+			if (LWS_IPV6_ENABLED(context)) {
+				/* map IPv4 to IPv6 */
+				bzero((char *)&addr6->sin6_addr,
+						sizeof(struct in6_addr));
+				addr6->sin6_addr.s6_addr16[5] = 0xffff;
+				bcopy(&((struct sockaddr_in *)ifc->ifa_addr)->
+								sin_addr,
+					&addr6->sin6_addr.s6_addr16[6],
+							sizeof(struct in_addr));
+			} else
+#endif
+				memcpy(addr,
+					(struct sockaddr_in *)ifc->ifa_addr,
+						    sizeof(struct sockaddr_in));
+			break;
+#ifdef LWS_WITH_IPV6
+		case AF_INET6:
+			if (rc >= 0)
+				break;
+			memcpy(&addr6->sin6_addr,
+			  &((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr,
+						       sizeof(struct in6_addr));
+			break;
+#endif
+		default:
 			continue;
-		memcpy(addr, sin, addrlen);
+		}
 		rc = 0;
 	}
 

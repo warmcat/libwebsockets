@@ -354,6 +354,11 @@ struct libwebsocket_context {
 #define LWS_LIBEV_ENABLED(context) (0)
 #endif
 
+#ifdef LWS_WITH_IPV6
+#define LWS_IPV6_ENABLED(context) (context->options & LWS_SERVER_OPTION_DISABLE_IPV6)
+#else
+#define LWS_IPV6_ENABLED(context) (0)
+#endif
 
 enum uri_path_states {
 	URIPS_IDLE,
@@ -618,8 +623,8 @@ LWS_EXTERN int handshake_0405(struct libwebsocket_context *context,
 LWS_EXTERN int get_daemonize_pid();
 #endif
 
-extern int interface_to_sa(const char *ifname,
-		      struct sockaddr_in *addr, size_t addrlen);
+extern int interface_to_sa(struct libwebsocket_context *context,
+		const char *ifname, struct sockaddr_in *addr, size_t addrlen);
 
 #ifndef LWS_OPENSSL_SUPPORT
 
