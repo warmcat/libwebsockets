@@ -44,7 +44,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 
 	} else {
 		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
-#ifdef LWS_WITH_IPV6
+#ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context))
 			server_addr6.sin6_port = htons(wsi->u.hdr.ah->c_port);
 		else
