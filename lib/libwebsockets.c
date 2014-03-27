@@ -694,7 +694,7 @@ int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 	int optval = 1;
 	socklen_t optlen = sizeof(optval);
 #if defined(WIN32) || defined(_WIN32)
-	unsigned long optl = 0;
+	u_long optl = 1;
 #endif
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
 	struct protoent *tcp_proto;
