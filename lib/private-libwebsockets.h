@@ -282,6 +282,9 @@ struct lws_signal_watcher {
 #endif /* LWS_USE_LIBEV */
 
 struct libwebsocket_context {
+#ifdef _WIN32
+	WSAEVENT *events;
+#endif
 	struct pollfd *fds;
 	struct libwebsocket **lws_lookup; /* fd to wsi */
 	int fds_count;

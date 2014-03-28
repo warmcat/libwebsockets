@@ -185,6 +185,9 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 
 #endif /* LWS_USE_LIBEV */
 	context->fds[context->fds_count++].revents = 0;
+#ifdef _WIN32
+	context->events[context->fds_count] = WSACreateEvent();
+#endif
 
 	/* external POLL support via protocol 0 */
 	context->protocols[0].callback(context, wsi,
@@ -229,6 +232,10 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 
 	/* have the last guy take up the vacant slot */
 	context->fds[m] = context->fds[context->fds_count];
+#ifdef _WIN32
+	WSACloseEvent(context->events[m + 1]);
+	context->events[m + 1] = context->events[context->fds_count + 1];
+#endif
 	/*
 	 * end guy's fds_lookup entry remains unchanged
 	 * (still same fd pointing to same wsi)
@@ -1389,6 +1396,10 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 
 
 #if defined(WIN32) || defined(_WIN32)
+	if (context->events) {
+		WSACloseEvent(context->events[0]);
+		free(context->events);
+	}
 #else
 	close(context->dummy_pipe_fds[0]);
 	close(context->dummy_pipe_fds[1]);
@@ -2220,9 +2231,23 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	memset(context->lws_lookup, 0, sizeof(struct libwebsocket *) *
 							context->max_fds);
 
+#ifdef _WIN32
+	context->events = (WSAEVENT *)malloc(sizeof(WSAEVENT) *
+		(context->max_fds + 1));
+	if (context->events == NULL) {
+		lwsl_err("Unable to allocate events array for %d connections\n",
+			context->max_fds);
+		free(context->lws_lookup);
+		free(context->fds);
+		free(context);
+		return NULL;
+	}
+#endif
+
 	if (!LWS_LIBEV_ENABLED(context)) {
 	#ifdef _WIN32
 		context->fds_count = 0;
+		context->events[0] = WSACreateEvent();
 	#else
 		if (pipe(context->dummy_pipe_fds)) {
 			lwsl_err("Unable to create pipe\n");
