@@ -2579,6 +2579,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 		int sockfd;
+		struct sockaddr_in sin;
+		socklen_t len = sizeof(sin);
 
 #ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context))
@@ -2637,10 +2639,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 			goto bail;
 		}
 		
-		struct sockaddr_in sin;
-		socklen_t len = sizeof(sin);
 		if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
-			perror("getsockname");
+			lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
 		else
 			info->port = ntohs(sin.sin_port);
 	
