@@ -68,6 +68,8 @@
 #define LWS_EINTR WSAEINTR
 #define LWS_EISCONN WSAEISCONN
 #define LWS_EWOULDBLOCK WSAEWOULDBLOCK
+#define LWS_POLLIN (FD_READ | FD_ACCEPT)
+#define LWS_POLLOUT (FD_WRITE)
 
 #define compatible_close(fd) closesocket(fd);
 #ifdef __MINGW64__
@@ -502,6 +504,10 @@ struct libwebsocket {
 	SSL *ssl;
 	BIO *client_bio;
 	unsigned int use_ssl:2;
+#endif
+
+#ifdef _WIN32
+	BOOL sock_send_blocking;
 #endif
 };
 

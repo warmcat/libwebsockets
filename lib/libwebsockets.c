@@ -187,6 +187,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	context->fds[context->fds_count++].revents = 0;
 #ifdef _WIN32
 	context->events[context->fds_count] = WSACreateEvent();
+	WSAEventSelect(wsi->sock, context->events[context->fds_count], LWS_POLLIN);
 #endif
 
 	/* external POLL support via protocol 0 */
@@ -1481,8 +1482,15 @@ LWS_VISIBLE int
 libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 {
 	int n;
+#ifdef _WIN32
+	int i;
+	DWORD ev;
+	WSANETWORKEVENTS networkevents;
+	struct pollfd *pfd;
+#else
 	int m;
 	char buf;
+#endif
 
 	/* stay dead once we are dead */
 
@@ -1495,6 +1503,53 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 #endif /* LWS_USE_LIBEV */
 	context->service_tid = context->protocols[0].callback(context, NULL,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+
+#ifdef _WIN32
+	for (i = 0; i < context->fds_count; ++i) {
+		pfd = &context->fds[i];
+		if (pfd->fd == context->listen_service_fd)
+			continue;
+		if (pfd->events & POLLOUT) {
+			if (context->lws_lookup[pfd->fd]->sock_send_blocking)
+				continue;
+			pfd->revents = POLLOUT;
+			n = libwebsocket_service_fd(context, pfd);
+			if (n < 0)
+				return n;
+		}
+	}
+
+	ev = WSAWaitForMultipleEvents(context->fds_count + 1, context->events, FALSE, timeout_ms, FALSE);
+	if (ev == WSA_WAIT_TIMEOUT) {
+		libwebsocket_service_fd(context, NULL);
+		return 0;
+	}
+
+	if (ev == WSA_WAIT_EVENT_0) {
+		WSAResetEvent(context->events[0]);
+		return 0;
+	}
+
+	if (ev < WSA_WAIT_EVENT_0 || ev > WSA_WAIT_EVENT_0 + context->fds_count)
+		return -1;
+
+	pfd = &context->fds[ev - WSA_WAIT_EVENT_0 - 1];
+
+	if (WSAEnumNetworkEvents(pfd->fd, context->events[ev - WSA_WAIT_EVENT_0],
+			&networkevents) == SOCKET_ERROR) {
+		lwsl_err("WSAEnumNetworkEvents() failed with error %d\n", LWS_ERRNO);
+		return -1;
+	}
+
+	pfd->revents = (networkevents.lNetworkEvents & LWS_POLLIN) ? POLLIN : 0;
+
+	if (networkevents.lNetworkEvents & LWS_POLLOUT) {
+		context->lws_lookup[pfd->fd]->sock_send_blocking = FALSE;
+		pfd->revents |= POLLOUT;
+	}
+
+	return libwebsocket_service_fd(context, pfd);
+#else
 	n = poll(context->fds, context->fds_count, timeout_ms);
 	context->service_tid = 0;
 
@@ -1515,13 +1570,13 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	for (n = 0; n < context->fds_count; n++) {
 		if (!context->fds[n].revents)
 			continue;
-#ifndef _WIN32
+
 		if (context->fds[n].fd == context->dummy_pipe_fds[0]) {
 			if (read(context->fds[n].fd, &buf, 1) != 1)
 				lwsl_err("Cannot read from dummy pipe.");
 			continue;
 		}
-#endif
+
 		m = libwebsocket_service_fd(context, &context->fds[n]);
 		if (m < 0)
 			return -1;
@@ -1531,6 +1586,7 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	}
 
 	return 0;
+#endif
 }
 
 /**
@@ -1539,13 +1595,13 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
  *
  *	This function let a call to libwebsocket_service() waiting for a timeout
  *	immediately return.
- *
- *	At the moment this functionality cannot be used on Windows.
  */
 LWS_VISIBLE void
 libwebsocket_cancel_service(struct libwebsocket_context *context)
 {
-#ifndef _WIN32
+#ifdef _WIN32
+	WSASetEvent(context->events[0]);
+#else
 	char buf = 0;
 	if (write(context->dummy_pipe_fds[1], &buf, sizeof(buf)) != 1)
 		lwsl_err("Cannot write to dummy pipe.");
@@ -1664,6 +1720,9 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	int sampled_tid;
 	struct pollfd *pfd;
 	struct libwebsocket_pollargs pa;
+#ifdef _WIN32
+	long networkevents = FD_WRITE;
+#endif
 
 	pfd = &context->fds[wsi->position_in_fds_table];
 	pa.fd = wsi->sock;
@@ -1688,6 +1747,17 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	 *         then cancel it to force a restart with our changed events
 	 */
 	if (pa.prev_events != pa.events) {
+#ifdef _WIN32
+		if ((pfd->events & POLLIN))
+			networkevents |= LWS_POLLIN;
+
+		if (WSAEventSelect(wsi->sock,
+			context->events[wsi->position_in_fds_table + 1],
+			networkevents) == SOCKET_ERROR) {
+			lwsl_err("WSAEventSelect() failed with error %d\n", LWS_ERRNO);
+		}
+#endif
+
 		sampled_tid = context->service_tid;
 		if (sampled_tid) {
 			tid = context->protocols[0].callback(context, NULL,
