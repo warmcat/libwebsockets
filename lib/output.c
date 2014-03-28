@@ -86,6 +86,13 @@ LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 
 #endif
 
+static void lws_set_blocking_send(struct libwebsocket *wsi)
+{
+#ifdef _WIN32
+	wsi->sock_send_blocking = TRUE;
+#endif
+}
+
 /*
  * notice this returns number of bytes consumed, or -1
  */
@@ -160,6 +167,8 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 			n = SSL_get_error(wsi->ssl, n);
 			if (n == SSL_ERROR_WANT_READ ||
 						n == SSL_ERROR_WANT_WRITE) {
+				if (n == SSL_ERROR_WANT_WRITE)
+					lws_set_blocking_send(wsi);
 				n = 0;
 				goto handle_truncated_send;
 
@@ -172,7 +181,10 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
 		lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
 		if (n < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EINTR) {
+			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK
+				                        || LWS_ERRNO == LWS_EINTR) {
+				if (LWS_ERRNO == LWS_EWOULDBLOCK)
+					lws_set_blocking_send(wsi);
 				n = 0;
 				goto handle_truncated_send;
 			}
