@@ -72,9 +72,10 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			/* map IPv4 to IPv6 */
 			bzero((char *)&server_addr6.sin6_addr,
 						sizeof(struct in6_addr));
-			server_addr6.sin6_addr.s6_addr16[5] = 0xffff;
-			bcopy(&((struct sockaddr_in *)result->ai_addr)->sin_addr,
-				&server_addr6.sin6_addr.s6_addr16[6],
+			server_addr6.sin6_addr.s6_addr[10] = 0xff;
+			server_addr6.sin6_addr.s6_addr[11] = 0xff;
+			memcpy(&server_addr6.sin6_addr.s6_addr[12],
+				&((struct sockaddr_in *)result->ai_addr)->sin_addr,
 							sizeof(struct in_addr));
 			break;
 		case AF_INET6:
