@@ -125,9 +125,10 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		if (wsi->use_ssl && !wsi->ssl) {
 
 			wsi->ssl = SSL_new(context->ssl_client_ctx);
+#ifndef USE_CYASSL
 			SSL_set_mode(wsi->ssl,
 					SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
-
+#endif
 
 		/* use server name indication (SNI), if supported,
 		 * when establishing connection */

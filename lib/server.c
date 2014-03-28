@@ -316,8 +316,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			openssl_websocket_private_data_index, context);
 
 		SSL_set_fd(new_wsi->ssl, accept_fd);
+#ifndef USE_CYASSL
 		SSL_set_mode(new_wsi->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
-
+#endif
 		#ifdef USE_CYASSL
 		CyaSSL_set_using_nonblock(new_wsi->ssl, 1);
 		#else
