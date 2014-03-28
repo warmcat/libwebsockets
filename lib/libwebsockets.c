@@ -773,6 +773,9 @@ int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 
 LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
 {
+#ifdef _WIN32
+	return wsi->sock_send_blocking;
+#else
 	struct pollfd fds;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
@@ -792,6 +795,7 @@ LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
 	/* okay to send another packet without blocking */
 
 	return 0;
+#endif
 }
 
 int
@@ -982,6 +986,23 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 	return 0;
 }
 
+static int lws_poll_listen_fd(struct pollfd* fd)
+{
+#ifdef _WIN32
+	fd_set readfds;
+	struct timeval tv = { 0, 0 };
+
+	assert(fd->events == POLLIN);
+
+	FD_ZERO(&readfds);
+	FD_SET(fd->fd, &readfds);
+
+	return select(fd->fd + 1, &readfds, NULL, NULL, &tv);
+#else
+	return poll(fd, 1, 0);
+#endif
+}
+
 /**
  * libwebsocket_service_fd() - Service polled socket with something waiting
  * @context:	Websocket context
@@ -1111,8 +1132,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				 * even with extpoll, we prepared this
 				 * internal fds for listen
 				 */
-				n = poll(&context->fds[listen_socket_fds_index],
-									  1, 0);
+				n = lws_poll_listen_fd(&context->fds[listen_socket_fds_index]);
 				if (n > 0) { /* there's a conn waiting for us */
 					libwebsocket_service_fd(context,
 						&context->
@@ -2226,20 +2246,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 			lwsl_err("WSAStartup failed with error: %d\n", err);
 			return NULL;
 		}
-
-		/* default to a poll() made out of select() */
-		poll = emulated_poll;
-
-#ifndef _WIN32_WCE
-		/* if windows socket lib available, use his WSAPoll */
-		wsdll = GetModuleHandle(_T("Ws2_32.dll"));
-		if (wsdll)
-			poll = (PFNWSAPOLL)GetProcAddress(wsdll, "WSAPoll");
-
-		/* Finally fall back to emulated poll if all else fails */
-		if (!poll)
-			poll = emulated_poll;
-#endif
 	}
 #endif
 
