@@ -2598,17 +2598,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
 					      (const void *)&opt, sizeof(opt));
 
-		/* Disable Nagle */
-		opt = 1;
-		setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY,
-					      (const void *)&opt, sizeof(opt));
-
-		#if defined(WIN32) || defined(_WIN32)
-		opt = 0;
-		ioctlsocket(sockfd, FIONBIO, (unsigned long *)&opt);
-		#else
-		fcntl(sockfd, F_SETFL, O_NONBLOCK);
-		#endif
+		lws_set_socket_options(context, sockfd);
 
 #ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context)) {
