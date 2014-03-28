@@ -1649,20 +1649,21 @@ void
 lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 {
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
-	int events;
 	int tid;
 	int sampled_tid;
+	struct pollfd *pfd;
 	struct libwebsocket_pollargs pa;
 
+	pfd = &context->fds[wsi->position_in_fds_table];
 	pa.fd = wsi->sock;
 
 	context->protocols[0].callback(context, wsi,
 		LWS_CALLBACK_LOCK_POLL,
 		wsi->user_space,  (void *) &pa, 0);
 
-	pa.prev_events = events = context->fds[wsi->position_in_fds_table].events;
+	pa.prev_events = pfd->events;
 
-	pa.events = context->fds[wsi->position_in_fds_table].events = (events & ~_and) | _or;
+	pa.events = pfd->events = (pfd->events & ~_and) | _or;
 
 	context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CHANGE_MODE_POLL_FD,
@@ -1675,7 +1676,7 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	 *       ... and the service thread is waiting ...
 	 *         then cancel it to force a restart with our changed events
 	 */
-	if (events != context->fds[wsi->position_in_fds_table].events) {
+	if (pa.prev_events != pa.events) {
 		sampled_tid = context->service_tid;
 		if (sampled_tid) {
 			tid = context->protocols[0].callback(context, NULL,
