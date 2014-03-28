@@ -2956,10 +2956,10 @@ interface_to_sa(struct libwebsocket_context *context,
 				/* map IPv4 to IPv6 */
 				bzero((char *)&addr6->sin6_addr,
 						sizeof(struct in6_addr));
-				addr6->sin6_addr.s6_addr16[5] = 0xffff;
-				bcopy(&((struct sockaddr_in *)ifc->ifa_addr)->
-								sin_addr,
-					&addr6->sin6_addr.s6_addr16[6],
+				addr6->sin6_addr.s6_addr[10] = 0xff;
+				addr6->sin6_addr.s6_addr[11] = 0xff;
+				memcpy(&addr6->sin6_addr.s6_addr[12],
+					&((struct sockaddr_in *)ifc->ifa_addr)->sin_addr,
 							sizeof(struct in_addr));
 			} else
 #endif
