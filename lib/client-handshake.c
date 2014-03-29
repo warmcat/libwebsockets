@@ -4,7 +4,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	struct libwebsocket_context *context,
 	struct libwebsocket *wsi
 ) {
-	struct pollfd pfd;
+	struct libwebsocket_pollfd pfd;
 #ifdef LWS_USE_IPV6
 	struct sockaddr_in6 server_addr6;
 	struct sockaddr_in6 client_addr6;

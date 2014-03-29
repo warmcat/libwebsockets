@@ -24,16 +24,16 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <getopt.h>
 #include <string.h>
-#include <sys/time.h>
 #include <assert.h>
-#ifdef WIN32
-#else
-#include <syslog.h>
-#endif
 #include <signal.h>
+
+#ifndef _WIN32
+#include <syslog.h>
+#include <sys/time.h>
+#include <unistd.h>
+#endif
 
 #ifdef CMAKE_BUILD
 #include "lws_config.h"

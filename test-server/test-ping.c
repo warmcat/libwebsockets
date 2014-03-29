@@ -21,25 +21,23 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <getopt.h>
 #include <string.h>
 #include <signal.h>
-#include <unistd.h>
-
-#include <sys/time.h>
 #include <sys/types.h>
-#ifndef WIN32
+
+#ifndef _WIN32
+#include <netdb.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/ioctl.h>
 #include <poll.h>
+#include <unistd.h>
 #endif
 
 #ifdef CMAKE_BUILD
 #include "lws_config.h"
 #endif
-
-#include <netdb.h>
 
 #include "../lib/libwebsockets.h"
 

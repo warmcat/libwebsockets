@@ -24,31 +24,23 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <getopt.h>
+#include <signal.h>
 #include <string.h>
-#include <sys/time.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <assert.h>
-#ifdef WIN32
 
+#ifdef _WIN32
+#include <io.h>
 #ifdef EXTERNAL_POLL
-	#ifndef WIN32_LEAN_AND_MEAN
-	#define WIN32_LEAN_AND_MEAN
-	#endif
-	#include <winsock2.h>
-	#include <ws2tcpip.h>
-	#include <stddef.h>
-
-	#include "websock-w32.h"
+#define poll WSAPoll
 #endif
-
-#else // NOT WIN32
+#else
 #include <syslog.h>
+#include <sys/time.h>
+#include <unistd.h>
 #endif
-
-#include <signal.h>
 
 #include "../lib/libwebsockets.h"
 
@@ -644,7 +636,11 @@ callback_lws_mirror(struct libwebsocket_context *context,
 			 * for tests with chrome on same machine as client and
 			 * server, this is needed to stop chrome choking
 			 */
+#ifdef _WIN32
+			Sleep(1);
+#else
 			usleep(1);
+#endif
 		}
 		break;
 

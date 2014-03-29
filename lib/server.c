@@ -99,7 +99,7 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 }
 
 int lws_server_socket_service(struct libwebsocket_context *context,
-			struct libwebsocket *wsi, struct pollfd *pollfd)
+			struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
 	struct libwebsocket *new_wsi;
 	int accept_fd;

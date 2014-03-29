@@ -21,10 +21,15 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <getopt.h>
 #include <string.h>
 #include <signal.h>
+
+#ifdef _WIN32
+#define random rand
+#else
+#include <unistd.h>
+#endif
 
 #ifdef CMAKE_BUILD
 #include "lws_config.h"

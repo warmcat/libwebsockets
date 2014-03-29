@@ -296,15 +296,6 @@ endif()
 # Add helper files for Windows.
 if (WIN32)
 	set(WIN32_HELPERS_PATH win32port/win32helpers)
-
-	list(APPEND HDR_PUBLIC
-		${WIN32_HELPERS_PATH}/websock-w32.h
-		)
-	if (NOT MINGW)
-		list(APPEND SOURCES
-			${WIN32_HELPERS_PATH}/websock-w32.c
-			)
-	endif()
 	include_directories(${WIN32_HELPERS_PATH})
 else(WIN32)
 	# Unix.
@@ -498,7 +489,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 	#
 	# Helper function for adding a test app.
 	#
-	macro(create_test_app TEST_NAME MAIN_SRC WIN32_SRCS WIN32_HDRS)
+	macro(create_test_app TEST_NAME MAIN_SRC)
 		
 		set(TEST_SRCS ${MAIN_SRC})
 		set(TEST_HDR)
@@ -508,12 +499,12 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 				${WIN32_HELPERS_PATH}/getopt.c
 				${WIN32_HELPERS_PATH}/getopt_long.c
 				${WIN32_HELPERS_PATH}/gettimeofday.c
-				${WIN32_SRCS})
+			)
 
 			list(APPEND TEST_HDR 
 				${WIN32_HELPERS_PATH}/getopt.h
 				${WIN32_HELPERS_PATH}/gettimeofday.h
-				${WIN32_HDRS})
+			)
 		endif(WIN32)
 
 		source_group("Headers Private"   FILES ${TEST_HDR})
@@ -554,20 +545,14 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		# test-server
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER)
-			create_test_app(test-server
-				"test-server/test-server.c"
-				""
-				"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
+			create_test_app(test-server "test-server/test-server.c")
 		endif()
 
 		#
 		# test-server-extpoll
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER_EXTPOLL)
-			create_test_app(test-server-extpoll
-				"test-server/test-server.c"
-				"win32port/win32helpers/websock-w32.c"
-				"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
+			create_test_app(test-server-extpoll "test-server/test-server.c")
 			# Set defines for this executable only.
 			set_property(
 				TARGET test-server-extpoll
@@ -663,39 +648,27 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		# test-client
 		#
 		if (NOT LWS_WITHOUT_TEST_CLIENT)
-			create_test_app(test-client
-				"test-server/test-client.c"
-				""
-				"")
+			create_test_app(test-client "test-server/test-client.c")
 		endif()
 
 		#
 		# test-fraggle
 		#
 		if (NOT LWS_WITHOUT_TEST_FRAGGLE)
-			create_test_app(test-fraggle
-				"test-server/test-fraggle.c"
-				""
-				"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+			create_test_app(test-fraggle "test-server/test-fraggle.c")
 		endif()
 
 		#
 		# test-ping
 		#
 		if (NOT LWS_WITHOUT_TEST_PING)
-			create_test_app(test-ping
-				"test-server/test-ping.c"
-				""
-				"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+			create_test_app(test-ping "test-server/test-ping.c")
 		endif()
 		#
 		# test-echo
 		#
 		if (NOT WITHOUT_TEST_ECHO)
-			create_test_app(test-echo
-				"test-server/test-echo.c"
-				""
-				"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+			create_test_app(test-echo "test-server/test-echo.c")
 		endif()
 
 	endif(NOT LWS_WITHOUT_CLIENT)
