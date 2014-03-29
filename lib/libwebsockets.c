@@ -1540,6 +1540,8 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	}
 
 	ev = WSAWaitForMultipleEvents(context->fds_count + 1, context->events, FALSE, timeout_ms, FALSE);
+	context->service_tid = 0;
+
 	if (ev == WSA_WAIT_TIMEOUT) {
 		libwebsocket_service_fd(context, NULL);
 		return 0;
