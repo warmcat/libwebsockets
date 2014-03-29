@@ -300,11 +300,6 @@ if (WIN32)
 	list(APPEND HDR_PUBLIC
 		${WIN32_HELPERS_PATH}/websock-w32.h
 		)
-	if (NOT MINGW)
-		list(APPEND SOURCES
-			${WIN32_HELPERS_PATH}/websock-w32.c
-			)
-	endif()
 	include_directories(${WIN32_HELPERS_PATH})
 else(WIN32)
 	# Unix.
@@ -566,7 +561,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		if (NOT LWS_WITHOUT_TEST_SERVER_EXTPOLL)
 			create_test_app(test-server-extpoll
 				"test-server/test-server.c"
-				"win32port/win32helpers/websock-w32.c"
+				""
 				"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
 			# Set defines for this executable only.
 			set_property(

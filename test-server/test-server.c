@@ -34,14 +34,7 @@
 #ifdef WIN32
 
 #ifdef EXTERNAL_POLL
-	#ifndef WIN32_LEAN_AND_MEAN
-	#define WIN32_LEAN_AND_MEAN
-	#endif
-	#include <winsock2.h>
-	#include <ws2tcpip.h>
-	#include <stddef.h>
-
-	#include "websock-w32.h"
+#define poll WSAPoll
 #endif
 
 #else // NOT WIN32
