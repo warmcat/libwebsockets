@@ -2226,7 +2226,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		WORD wVersionRequested;
 		WSADATA wsaData;
 		int err;
-		HMODULE wsdll;
 
 		/* Use the MAKEWORD(lowbyte, highbyte) macro from Windef.h */
 		wVersionRequested = MAKEWORD(2, 2);
