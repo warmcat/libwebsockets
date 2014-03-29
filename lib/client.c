@@ -35,7 +35,7 @@
 #endif
 
 int lws_client_socket_service(struct libwebsocket_context *context,
-				struct libwebsocket *wsi, struct pollfd *pollfd)
+				struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
 	int n;
 	char *p = (char *)&context->service_buffer[0];

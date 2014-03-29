@@ -70,6 +70,9 @@
 #define LWS_EWOULDBLOCK WSAEWOULDBLOCK
 #define LWS_POLLIN (FD_READ | FD_ACCEPT)
 #define LWS_POLLOUT (FD_WRITE)
+#define MSG_NOSIGNAL 0
+#define SHUT_RDWR SD_BOTH
+#define SOL_TCP IPPROTO_TCP
 
 #define compatible_close(fd) closesocket(fd);
 #ifdef __MINGW64__
@@ -82,6 +85,13 @@
 #include <winsock2.h>
 #include <windows.h>
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
+
+#if defined(__MINGW32__) || defined(__MINGW64__) || _WIN32_WINNT < 0x0600
+#define POLLIN  0x01
+#define POLLOUT 0x04
+#define POLLERR 0x08
+#define POLLHUP 0x10
+#endif
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -287,7 +297,7 @@ struct libwebsocket_context {
 #ifdef _WIN32
 	WSAEVENT *events;
 #endif
-	struct pollfd *fds;
+	struct libwebsocket_pollfd *fds;
 	struct libwebsocket **lws_lookup; /* fd to wsi */
 	int fds_count;
 #ifdef LWS_USE_LIBEV
@@ -570,7 +580,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 
 LWS_EXTERN int
 lws_handle_POLLOUT_event(struct libwebsocket_context *context,
-			      struct libwebsocket *wsi, struct pollfd *pollfd);
+			      struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
 #ifndef LWS_NO_EXTENSIONS
 LWS_EXTERN int
 lws_any_extension_handled(struct libwebsocket_context *context,

@@ -79,12 +79,12 @@ static const char * const log_level_names[] = {
 #ifndef LWS_NO_CLIENT
 	extern int lws_client_socket_service(
 		struct libwebsocket_context *context,
-		struct libwebsocket *wsi, struct pollfd *pollfd);
+		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
 #endif
 #ifndef LWS_NO_SERVER
 	extern int lws_server_socket_service(
 		struct libwebsocket_context *context,
-		struct libwebsocket *wsi, struct pollfd *pollfd);
+		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
 #endif
 
 
@@ -768,7 +768,7 @@ LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
 #ifdef _WIN32
 	return wsi->sock_send_blocking;
 #else
-	struct pollfd fds;
+	struct libwebsocket_pollfd fds;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
 	if (wsi->truncated_send_len)
@@ -792,7 +792,7 @@ LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
 
 int
 lws_handle_POLLOUT_event(struct libwebsocket_context *context,
-				struct libwebsocket *wsi, struct pollfd *pollfd)
+				struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
 	int n;
 
@@ -978,7 +978,7 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 	return 0;
 }
 
-static int lws_poll_listen_fd(struct pollfd* fd)
+static int lws_poll_listen_fd(struct libwebsocket_pollfd* fd)
 {
 #ifdef _WIN32
 	fd_set readfds;
@@ -1020,7 +1020,7 @@ static int lws_poll_listen_fd(struct pollfd* fd)
 
 LWS_VISIBLE int
 libwebsocket_service_fd(struct libwebsocket_context *context,
-							  struct pollfd *pollfd)
+							  struct libwebsocket_pollfd *pollfd)
 {
 	struct libwebsocket *wsi;
 	int n;
@@ -1318,7 +1318,7 @@ handled:
 LWS_VISIBLE void 
 libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 {
-	struct pollfd eventfd;
+	struct libwebsocket_pollfd eventfd;
 	struct lws_io_watcher *lws_io = (struct lws_io_watcher*)watcher;
 	struct libwebsocket_context *context = lws_io->context;
 
@@ -1498,7 +1498,7 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	int i;
 	DWORD ev;
 	WSANETWORKEVENTS networkevents;
-	struct pollfd *pfd;
+	struct libwebsocket_pollfd *pfd;
 #else
 	int m;
 	char buf;
@@ -1730,7 +1730,7 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
 	int tid;
 	int sampled_tid;
-	struct pollfd *pfd;
+	struct libwebsocket_pollfd *pfd;
 	struct libwebsocket_pollargs pa;
 #ifdef _WIN32
 	long networkevents = FD_WRITE;
@@ -2263,13 +2263,13 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	context->max_fds = getdtablesize();
 	lwsl_notice(" static allocation: %u + (%u x %u fds) = %u bytes\n",
 		sizeof(struct libwebsocket_context),
-		sizeof(struct pollfd) + sizeof(struct libwebsocket *),
+		sizeof(struct libwebsocket_pollfd) + sizeof(struct libwebsocket *),
 		context->max_fds,
 		sizeof(struct libwebsocket_context) +
-		((sizeof(struct pollfd) + sizeof(struct libwebsocket *)) *
+		((sizeof(struct libwebsocket_pollfd) + sizeof(struct libwebsocket *)) *
 							     context->max_fds));
 
-	context->fds = (struct pollfd *)malloc(sizeof(struct pollfd) *
+	context->fds = (struct libwebsocket_pollfd *)malloc(sizeof(struct libwebsocket_pollfd) *
 							      context->max_fds);
 	if (context->fds == NULL) {
 		lwsl_err("Unable to allocate fds array for %d connections\n",

@@ -36,7 +36,6 @@ extern "C" {
 #include <ws2tcpip.h>
 #include <stddef.h>
 #include <basetsd.h>
-#include "websock-w32.h"
 
 #define strcasecmp stricmp
 #define getdtablesize() 30000
@@ -204,6 +203,15 @@ struct libwebsocket_pollargs {
     int prev_events;   // the previous event mask
 };
 
+#ifdef _WIN32
+struct libwebsocket_pollfd {
+	SOCKET fd;
+	SHORT events;
+	SHORT revents;
+};
+#else
+#define libwebsocket_pollfd pollfd
+#endif
 
 #ifndef LWS_NO_EXTENSIONS
 enum libwebsocket_extension_callback_reasons {
@@ -990,7 +998,7 @@ libwebsocket_sigint_cb(
 
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_service_fd(struct libwebsocket_context *context,
-							 struct pollfd *pollfd);
+							 struct libwebsocket_pollfd *pollfd);
 
 LWS_VISIBLE LWS_EXTERN void *
 libwebsocket_context_user(struct libwebsocket_context *context);
