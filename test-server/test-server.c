@@ -636,7 +636,11 @@ callback_lws_mirror(struct libwebsocket_context *context,
 			 * for tests with chrome on same machine as client and
 			 * server, this is needed to stop chrome choking
 			 */
+#ifdef _WIN32
+			Sleep(1);
+#else
 			usleep(1);
+#endif
 		}
 		break;
 
