@@ -24,7 +24,9 @@
 #include <getopt.h>
 #include <string.h>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#define random rand
+#else
 #include <sys/time.h>
 #include <unistd.h>
 #endif

@@ -25,7 +25,9 @@
 #include <string.h>
 #include <signal.h>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#define random rand
+#else
 #include <unistd.h>
 #endif
 

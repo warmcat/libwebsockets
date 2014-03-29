@@ -14,8 +14,6 @@
 
 #define SOL_TCP IPPROTO_TCP
 
-#define random rand
-
 #ifdef  __MINGW64__                                                             
 #define DEF_POLL_STUFF
 #endif
