@@ -552,7 +552,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			create_test_app(test-server
 				"test-server/test-server.c"
 				""
-				"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
+				"${WIN32_HELPERS_PATH}/websock-w32.h")
 		endif()
 
 		#
@@ -562,7 +562,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			create_test_app(test-server-extpoll
 				"test-server/test-server.c"
 				""
-				"${WIN32_HELPERS_PATH}/netdb.h;${WIN32_HELPERS_PATH}/strings.h;${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/websock-w32.h")
+				"${WIN32_HELPERS_PATH}/websock-w32.h")
 			# Set defines for this executable only.
 			set_property(
 				TARGET test-server-extpoll
@@ -671,7 +671,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			create_test_app(test-fraggle
 				"test-server/test-fraggle.c"
 				""
-				"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+				"")
 		endif()
 
 		#
@@ -681,7 +681,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			create_test_app(test-ping
 				"test-server/test-ping.c"
 				""
-				"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+				"")
 		endif()
 		#
 		# test-echo
@@ -690,7 +690,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			create_test_app(test-echo
 				"test-server/test-echo.c"
 				""
-				"${WIN32_HELPERS_PATH}/unistd.h;${WIN32_HELPERS_PATH}/sys/time.h")
+				"")
 		endif()
 
 	endif(NOT LWS_WITHOUT_CLIENT)

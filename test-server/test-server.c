@@ -24,24 +24,23 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <getopt.h>
+#include <signal.h>
 #include <string.h>
-#include <sys/time.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <assert.h>
-#ifdef WIN32
 
+#ifdef _WIN32
+#include <io.h>
 #ifdef EXTERNAL_POLL
 #define poll WSAPoll
 #endif
-
-#else // NOT WIN32
+#else
 #include <syslog.h>
+#include <sys/time.h>
+#include <unistd.h>
 #endif
-
-#include <signal.h>
 
 #include "../lib/libwebsockets.h"
 
