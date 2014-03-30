@@ -144,7 +144,7 @@ int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 						       struct libwebsocket *wsi)
 {
-	struct libwebsocket_pollargs pa = { wsi->sock, POLLIN, 0 };
+	struct libwebsocket_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
 
 	if (context->fds_count >= context->max_fds) {
 		lwsl_err("Too many fds (%d)\n", context->max_fds);
@@ -170,7 +170,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	context->lws_lookup[wsi->sock] = wsi;
 	wsi->position_in_fds_table = context->fds_count;
 	context->fds[context->fds_count].fd = wsi->sock;
-	context->fds[context->fds_count].events = POLLIN;
+	context->fds[context->fds_count].events = LWS_POLLIN;
 #ifdef LWS_USE_LIBEV
 	if (context && context->io_loop && LWS_LIBEV_ENABLED(context))
 		ev_io_start(context->io_loop, (struct ev_io *)&wsi->w_read);
@@ -918,7 +918,7 @@ user_service:
 	/* one shot */
 
 	if (pollfd) {
-		lws_change_pollfd(wsi, POLLOUT, 0);
+		lws_change_pollfd(wsi, LWS_POLLOUT, 0);
 #ifdef LWS_USE_LIBEV
 		if (LWS_LIBEV_ENABLED(context))
 			ev_io_stop(context->io_loop,
@@ -984,7 +984,7 @@ static int lws_poll_listen_fd(struct libwebsocket_pollfd* fd)
 	fd_set readfds;
 	struct timeval tv = { 0, 0 };
 
-	assert(fd->events == POLLIN);
+	assert(fd->events == LWS_POLLIN);
 
 	FD_ZERO(&readfds);
 	FD_SET(fd->fd, &readfds);
@@ -1143,8 +1143,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 	/* handle session socket closed */
 
-	if ((!(pollfd->revents & POLLIN)) &&
-			(pollfd->revents & (POLLERR | POLLHUP))) {
+	if ((!(pollfd->revents & LWS_POLLIN)) &&
+			(pollfd->revents & LWS_POLLHUP)) {
 
 		lwsl_debug("Session Socket %p (fd=%d) dead\n",
 						       (void *)wsi, pollfd->fd);
@@ -1170,7 +1170,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		/* the guy requested a callback when it was OK to write */
 
-		if ((pollfd->revents & POLLOUT) &&
+		if ((pollfd->revents & LWS_POLLOUT) &&
 			wsi->state == WSI_STATE_ESTABLISHED &&
 			   lws_handle_POLLOUT_event(context, wsi, pollfd) < 0) {
 			lwsl_info("libwebsocket_service_fd: closing\n");
@@ -1191,7 +1191,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		/* any incoming data ready? */
 
-		if (!(pollfd->revents & POLLIN))
+		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -1328,10 +1328,10 @@ libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 	eventfd.fd = watcher->fd;
 	eventfd.revents = EV_NONE;
 	if (revents & EV_READ)
-		eventfd.revents |= POLLIN;
+		eventfd.revents |= LWS_POLLIN;
 
 	if (revents & EV_WRITE)
-		eventfd.revents |= POLLOUT;
+		eventfd.revents |= LWS_POLLOUT;
 
 	libwebsocket_service_fd(context,&eventfd);
 }
@@ -1521,10 +1521,10 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 		pfd = &context->fds[i];
 		if (pfd->fd == context->listen_service_fd)
 			continue;
-		if (pfd->events & POLLOUT) {
+		if (pfd->events & LWS_POLLOUT) {
 			if (context->lws_lookup[pfd->fd]->sock_send_blocking)
 				continue;
-			pfd->revents = POLLOUT;
+			pfd->revents = LWS_POLLOUT;
 			n = libwebsocket_service_fd(context, pfd);
 			if (n < 0)
 				return n;
@@ -1555,11 +1555,11 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 		return -1;
 	}
 
-	pfd->revents = (networkevents.lNetworkEvents & LWS_POLLIN) ? POLLIN : 0;
+	pfd->revents = (networkevents.lNetworkEvents & LWS_POLLIN) ? LWS_POLLIN : 0;
 
 	if (networkevents.lNetworkEvents & LWS_POLLOUT) {
 		context->lws_lookup[pfd->fd]->sock_send_blocking = FALSE;
-		pfd->revents |= POLLOUT;
+		pfd->revents |= LWS_POLLOUT;
 	}
 
 	return libwebsocket_service_fd(context, pfd);
@@ -1762,7 +1762,7 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	 */
 	if (pa.prev_events != pa.events) {
 #ifdef _WIN32
-		if ((pfd->events & POLLIN))
+		if ((pfd->events & LWS_POLLIN))
 			networkevents |= LWS_POLLIN;
 
 		if (WSAEventSelect(wsi->sock,
@@ -1825,7 +1825,7 @@ libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 		return -1;
 	}
 
-	lws_change_pollfd(wsi, 0, POLLOUT);
+	lws_change_pollfd(wsi, 0, LWS_POLLOUT);
 #ifdef LWS_USE_LIBEV
 	if (LWS_LIBEV_ENABLED(context))
 		ev_io_start(context->io_loop, (struct ev_io *)&wsi->w_write);
@@ -2001,9 +2001,9 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 	/* adjust the pollfd for this wsi */
 
 	if (wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW)
-		lws_change_pollfd(wsi, 0, POLLIN);
+		lws_change_pollfd(wsi, 0, LWS_POLLIN);
 	else
-		lws_change_pollfd(wsi, POLLIN, 0);
+		lws_change_pollfd(wsi, LWS_POLLIN, 0);
 
 	return 1;
 }
@@ -2328,7 +2328,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 		/* use the read end of pipe as first item */
 		context->fds[0].fd = context->dummy_pipe_fds[0];
-		context->fds[0].events = POLLIN;
+		context->fds[0].events = LWS_POLLIN;
 		context->fds[0].revents = 0;
 		context->fds_count = 1;
 	#endif

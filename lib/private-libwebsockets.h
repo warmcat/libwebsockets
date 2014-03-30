@@ -68,6 +68,7 @@
 #define LWS_EINTR WSAEINTR
 #define LWS_EISCONN WSAEISCONN
 #define LWS_EWOULDBLOCK WSAEWOULDBLOCK
+#define LWS_POLLHUP (FD_CLOSE)
 #define LWS_POLLIN (FD_READ | FD_ACCEPT)
 #define LWS_POLLOUT (FD_WRITE)
 #define MSG_NOSIGNAL 0
@@ -85,13 +86,6 @@
 #include <winsock2.h>
 #include <windows.h>
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
-
-#if defined(__MINGW32__) || defined(__MINGW64__) || _WIN32_WINNT < 0x0600
-#define POLLIN  0x01
-#define POLLOUT 0x04
-#define POLLERR 0x08
-#define POLLHUP 0x10
-#endif
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -119,6 +113,9 @@
 #define LWS_EISCONN EISCONN
 #define LWS_EWOULDBLOCK EWOULDBLOCK
 #define LWS_INVALID_FILE -1
+#define LWS_POLLHUP (POLLHUP|POLLERR)
+#define LWS_POLLIN (POLLIN)
+#define LWS_POLLOUT (POLLOUT)
 #define compatible_close(fd) close(fd);
 #endif
 
