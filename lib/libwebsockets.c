@@ -1555,12 +1555,10 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 		return -1;
 	}
 
-	pfd->revents = (networkevents.lNetworkEvents & LWS_POLLIN) ? LWS_POLLIN : 0;
+	pfd->revents = networkevents.lNetworkEvents;
 
-	if (networkevents.lNetworkEvents & LWS_POLLOUT) {
+	if (pfd->revents & LWS_POLLOUT)
 		context->lws_lookup[pfd->fd]->sock_send_blocking = FALSE;
-		pfd->revents |= LWS_POLLOUT;
-	}
 
 	return libwebsocket_service_fd(context, pfd);
 #else
@@ -1735,7 +1733,7 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	struct libwebsocket_pollfd *pfd;
 	struct libwebsocket_pollargs pa;
 #ifdef _WIN32
-	long networkevents = FD_WRITE;
+	long networkevents = LWS_POLLOUT | LWS_POLLHUP;
 #endif
 
 	pfd = &context->fds[wsi->position_in_fds_table];
