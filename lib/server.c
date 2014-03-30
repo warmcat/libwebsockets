@@ -106,7 +106,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 	socklen_t clilen;
 	struct sockaddr_in cli_addr;
 	int n;
-	ssize_t len;
+	int len;
 #ifdef LWS_OPENSSL_SUPPORT
 	int m;
 #ifndef USE_CYASSL
