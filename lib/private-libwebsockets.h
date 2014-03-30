@@ -30,29 +30,12 @@
 #endif
 #endif
 
-#if _MSC_VER > 1000 || defined(_WIN32)
-#else
-#include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <unistd.h>
-#include <strings.h>
-#include <time.h>
-
-#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <ctype.h>
 #include <limits.h>
-#ifdef __MINGW64__
-#else
-#ifdef __MINGW32__
-#elif _MSC_VER > 1000 || defined(_WIN32)
-#else
-#include <netdb.h>
-#endif
-#endif
 #include <stdarg.h>
 
 #ifdef HAVE_SYS_STAT_H
@@ -68,6 +51,7 @@
 #define LWS_EINTR WSAEINTR
 #define LWS_EISCONN WSAEISCONN
 #define LWS_EWOULDBLOCK WSAEWOULDBLOCK
+#define LWS_POLLHUP (FD_CLOSE)
 #define LWS_POLLIN (FD_READ | FD_ACCEPT)
 #define LWS_POLLOUT (FD_WRITE)
 #define MSG_NOSIGNAL 0
@@ -75,24 +59,16 @@
 #define SOL_TCP IPPROTO_TCP
 
 #define compatible_close(fd) closesocket(fd);
-#ifdef __MINGW64__
-#else
-#ifdef __MINGW32__
-#else
-#include <time.h >
-#endif
-#endif
 #include <winsock2.h>
 #include <windows.h>
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
-
-#if defined(__MINGW32__) || defined(__MINGW64__) || _WIN32_WINNT < 0x0600
-#define POLLIN  0x01
-#define POLLOUT 0x04
-#define POLLERR 0x08
-#define POLLHUP 0x10
-#endif
 #else
+#include <errno.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <signal.h>
+#include <strings.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #ifndef LWS_NO_FORK
@@ -119,6 +95,9 @@
 #define LWS_EISCONN EISCONN
 #define LWS_EWOULDBLOCK EWOULDBLOCK
 #define LWS_INVALID_FILE -1
+#define LWS_POLLHUP (POLLHUP|POLLERR)
+#define LWS_POLLIN (POLLIN)
+#define LWS_POLLOUT (POLLOUT)
 #define compatible_close(fd) close(fd);
 #endif
 

@@ -106,7 +106,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 	socklen_t clilen;
 	struct sockaddr_in cli_addr;
 	int n;
-	ssize_t len;
+	int len;
 #ifdef LWS_OPENSSL_SUPPORT
 	int m;
 #ifndef USE_CYASSL
@@ -124,7 +124,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		/* pending truncated sends have uber priority */
 
 		if (wsi->truncated_send_malloc) {
-			if (pollfd->revents & POLLOUT)
+			if (pollfd->revents & LWS_POLLOUT)
 				lws_issue_raw(wsi, wsi->truncated_send_malloc +
 					wsi->truncated_send_offset,
 							wsi->truncated_send_len);
@@ -138,7 +138,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		/* any incoming data ready? */
 
-		if (pollfd->revents & POLLIN) {
+		if (pollfd->revents & LWS_POLLIN) {
 
 	#ifdef LWS_OPENSSL_SUPPORT
 			if (wsi->ssl)
@@ -183,11 +183,11 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		/* this handles POLLOUT for http serving fragments */
 
-		if (!(pollfd->revents & POLLOUT))
+		if (!(pollfd->revents & LWS_POLLOUT))
 			break;
 
 		/* one shot */
-		lws_change_pollfd(wsi, POLLOUT, 0);
+		lws_change_pollfd(wsi, LWS_POLLOUT, 0);
 #ifdef LWS_USE_LIBEV
         ev_io_stop(context->io_loop,(struct ev_io*)&(wsi->w_write));
 #endif /* LWS_USE_LIBEV */
@@ -216,7 +216,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		/* pollin means a client has connected to us then */
 
-		if (!(pollfd->revents & POLLIN))
+		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
 		/* listen socket got an unencrypted connection... */
@@ -353,7 +353,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 	case LWS_CONNMODE_SSL_ACK_PENDING:
 
-		lws_change_pollfd(wsi, POLLOUT, 0);
+		lws_change_pollfd(wsi, LWS_POLLOUT, 0);
 #ifdef LWS_USE_LIBEV
         ev_io_stop(context->io_loop,(struct ev_io*)&(wsi->w_write));
 #endif /* LWS_USE_LIBEV */
@@ -400,7 +400,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 						  m, ERR_error_string(m, NULL));
 
 			if (m == SSL_ERROR_WANT_READ) {
-				lws_change_pollfd(wsi, 0, POLLIN);
+				lws_change_pollfd(wsi, 0, LWS_POLLIN);
 #ifdef LWS_USE_LIBEV
                     ev_io_start(context->io_loop,(struct ev_io*)&(wsi->w_read));
 #endif /* LWS_USE_LIBEV */
@@ -408,7 +408,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				break;
 			}
 			if (m == SSL_ERROR_WANT_WRITE) {
-				lws_change_pollfd(wsi, 0, POLLOUT);
+				lws_change_pollfd(wsi, 0, LWS_POLLOUT);
 #ifdef LWS_USE_LIBEV
                     ev_io_start(context->io_loop,(struct ev_io*)&(wsi->w_write));
 #endif /* LWS_USE_LIBEV */

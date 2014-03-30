@@ -186,7 +186,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			 * must do specifically a POLLOUT poll to hear
 			 * about the connect completion
 			 */
-			lws_change_pollfd(wsi, 0, POLLOUT);
+			lws_change_pollfd(wsi, 0, LWS_POLLOUT);
 
 			return wsi;
 		}
@@ -244,7 +244,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 
 	wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE;
 	pfd.fd = wsi->sock;
-	pfd.revents = POLLIN;
+	pfd.revents = LWS_POLLIN;
 
 	n = libwebsocket_service_fd(context, &pfd);
 
