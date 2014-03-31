@@ -2010,7 +2010,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	lwsl_notice("IPV6 not compiled in\n");
 #endif
 #ifdef LWS_USE_LIBEV
-	if (LWS_LIBEV_ENABLED(context))
+	if (info->options & LWS_SERVER_OPTION_LIBEV)
 		lwsl_notice("libev support compiled in and enabled\n");
 	else
 		lwsl_notice("libev support compiled in but disabled\n");
