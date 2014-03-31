@@ -1,7 +1,6 @@
 static unsigned long long
 time_in_microseconds()
 {
-#if defined(WIN32) || defined(_WIN32)
 #define DELTA_EPOCH_IN_MICROSECS 11644473600000000ULL
 	FILETIME filetime;
 	ULARGE_INTEGER datetime;
