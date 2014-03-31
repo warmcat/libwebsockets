@@ -88,6 +88,13 @@ static const char * const log_level_names[] = {
 #endif
 
 
+
+#if defined(WIN32) || defined(_WIN32)
+#include "lws-plat-win.c"
+#else
+#include "lws-plat-unix.c"
+#endif
+
 /**
  * lws_get_library_version: get version and git hash library built from
  *
@@ -101,44 +108,6 @@ lws_get_library_version(void)
 {
 	return library_version;
 }
-
-static unsigned long long time_in_microseconds()
-{
-#if defined(WIN32) || defined(_WIN32)
-#define DELTA_EPOCH_IN_MICROSECS 11644473600000000ULL
-	FILETIME filetime;
-	ULARGE_INTEGER datetime;
-
-#ifdef _WIN32_WCE
-	GetCurrentFT(&filetime);
-#else
-	GetSystemTimeAsFileTime(&filetime);
-#endif
-
-	/*
-	 * As per Windows documentation for FILETIME, copy the resulting FILETIME structure to a
-	 * ULARGE_INTEGER structure using memcpy (using memcpy instead of direct assignment can
-	 * prevent alignment faults on 64-bit Windows).
-	 */
-	memcpy(&datetime, &filetime, sizeof(datetime));
-
-	/* Windows file times are in 100s of nanoseconds. */
-	return (datetime.QuadPart - DELTA_EPOCH_IN_MICROSECS) / 10;
-#else
-	struct timeval tv;
-	gettimeofday(&tv, NULL);
-	return (tv.tv_sec * 1000000) + tv.tv_usec;
-#endif
-}
-
-#ifdef _WIN32_WCE
-static inline time_t time(time_t *t)
-{
-	time_t ret = time_in_microseconds() / 1000000;
-	*t = ret;
-	return ret;
-}
-#endif
 
 int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context,
@@ -201,6 +170,13 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 	int m;
 	struct  libwebsocket_pollargs pa = { wsi->sock, 0, 0};
 
+#ifdef LWS_USE_LIBEV
+	if (LWS_LIBEV_ENABLED(context)) {
+		ev_io_stop(context->io_loop, (struct ev_io *)&wsi->w_read);
+		ev_io_stop(context->io_loop, (struct ev_io *)&wsi->w_write);
+	}
+#endif /* LWS_USE_LIBEV */
+
 	if (!--context->fds_count) {
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_LOCK_POLL,
@@ -214,7 +190,7 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 		return 1;
 	}
 
-	lwsl_info("remove_wsi_socket_from_fds: wsi=%p, sock=%d, fds pos=%d\n",
+	lwsl_info("%s: wsi=%p, sock=%d, fds pos=%d\n", __func__,
 				    wsi, wsi->sock, wsi->position_in_fds_table);
 
 	context->protocols[0].callback(context, wsi,
@@ -442,13 +418,6 @@ just_kill_connection:
 	 * delete socket from the internal poll list if still present
 	 */
 
-#ifdef LWS_USE_LIBEV
-	if (LWS_LIBEV_ENABLED(context)) {
-		ev_io_stop(context->io_loop,(struct ev_io *)&wsi->w_read);
-		ev_io_stop(context->io_loop,(struct ev_io *)&wsi->w_write);
-	}
-#endif /* LWS_USE_LIBEV */
-
 	remove_wsi_socket_from_fds(context, wsi);
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
@@ -673,22 +642,6 @@ bail:
 	lws_latency(context, wsi, "libwebsockets_get_peer_addresses", ret, 1);
 }
 
-LWS_VISIBLE int libwebsockets_get_random(struct libwebsocket_context *context,
-							     void *buf, int len)
-{
-	int n;
-	char *p = (char *)buf;
-
-#if defined(WIN32) || defined(_WIN32)
-	for (n = 0; n < len; n++)
-		p[n] = (unsigned char)rand();
-#else
-	n = read(context->fd_random, p, len);
-#endif
-
-	return n;
-}
-
 int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 {
 	int optval = 1;
@@ -763,36 +716,9 @@ int lws_set_socket_options(struct libwebsocket_context *context, int fd)
 	return 0;
 }
 
-LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
-{
-#ifdef _WIN32
-	return wsi->sock_send_blocking;
-#else
-	struct libwebsocket_pollfd fds;
-
-	/* treat the fact we got a truncated send pending as if we're choked */
-	if (wsi->truncated_send_len)
-		return 1;
-
-	fds.fd = wsi->sock;
-	fds.events = POLLOUT;
-	fds.revents = 0;
-
-	if (poll(&fds, 1, 0) != 1)
-		return 1;
-
-	if ((fds.revents & POLLOUT) == 0)
-		return 1;
-
-	/* okay to send another packet without blocking */
-
-	return 0;
-#endif
-}
-
 int
 lws_handle_POLLOUT_event(struct libwebsocket_context *context,
-				struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
+		   struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
 	int n;
 
@@ -978,23 +904,6 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 	return 0;
 }
 
-static int lws_poll_listen_fd(struct libwebsocket_pollfd* fd)
-{
-#ifdef _WIN32
-	fd_set readfds;
-	struct timeval tv = { 0, 0 };
-
-	assert(fd->events == LWS_POLLIN);
-
-	FD_ZERO(&readfds);
-	FD_SET(fd->fd, &readfds);
-
-	return select(fd->fd + 1, &readfds, NULL, NULL, &tv);
-#else
-	return poll(fd, 1, 0);
-#endif
-}
-
 /**
  * libwebsocket_service_fd() - Service polled socket with something waiting
  * @context:	Websocket context
@@ -1052,12 +961,12 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	if (context->last_timeout_check_s != now) {
 		context->last_timeout_check_s = now;
 
-		#ifndef WIN32
+#ifndef WIN32
 		/* if our parent went down, don't linger around */
 		if (context->started_with_parent &&
 				      kill(context->started_with_parent, 0) < 0)
 			kill(getpid(), SIGTERM);
-		#endif
+#endif
 
 		/* global timeout check once per second */
 
@@ -1214,7 +1123,7 @@ read_pending:
 
 		if (eff_buf.token_len < 0) {
 			lwsl_debug("service_fd read ret = %d, errno = %d\n",
-						      eff_buf.token_len, LWS_ERRNO);
+						  eff_buf.token_len, LWS_ERRNO);
 			if (LWS_ERRNO != LWS_EINTR && LWS_ERRNO != LWS_EAGAIN)
 				goto close_and_handled;
 			n = 0;
@@ -1313,37 +1222,6 @@ handled:
 	pollfd->revents = 0;
 	return n;
 }
-
-#ifdef LWS_USE_LIBEV
-LWS_VISIBLE void 
-libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
-{
-	struct libwebsocket_pollfd eventfd;
-	struct lws_io_watcher *lws_io = (struct lws_io_watcher*)watcher;
-	struct libwebsocket_context *context = lws_io->context;
-
-	if (revents & EV_ERROR)
-		return;
-
-	eventfd.fd = watcher->fd;
-	eventfd.revents = EV_NONE;
-	if (revents & EV_READ)
-		eventfd.revents |= LWS_POLLIN;
-
-	if (revents & EV_WRITE)
-		eventfd.revents |= LWS_POLLOUT;
-
-	libwebsocket_service_fd(context,&eventfd);
-}
-
-LWS_VISIBLE void
-libwebsocket_sigint_cb(
-    struct ev_loop *loop, struct ev_signal* watcher, int revents)
-{
-    ev_break(loop, EVBREAK_ALL);
-}
-#endif /* LWS_USE_LIBEV */
-
 
 /**
  * libwebsocket_context_destroy() - Destroy the websocket context
@@ -1531,7 +1409,8 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 		}
 	}
 
-	ev = WSAWaitForMultipleEvents(context->fds_count + 1, context->events, FALSE, timeout_ms, FALSE);
+	ev = WSAWaitForMultipleEvents(context->fds_count + 1,
+				     context->events, FALSE, timeout_ms, FALSE);
 	context->service_tid = 0;
 
 	if (ev == WSA_WAIT_TIMEOUT) {
@@ -1601,82 +1480,8 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 #endif
 }
 
-/**
- * libwebsocket_cancel_service() - Cancel servicing of pending websocket activity
- * @context:	Websocket context
- *
- *	This function let a call to libwebsocket_service() waiting for a timeout
- *	immediately return.
- */
-LWS_VISIBLE void
-libwebsocket_cancel_service(struct libwebsocket_context *context)
-{
-#ifdef _WIN32
-	WSASetEvent(context->events[0]);
-#else
-	char buf = 0;
-	if (write(context->dummy_pipe_fds[1], &buf, sizeof(buf)) != 1)
-		lwsl_err("Cannot write to dummy pipe.");
-#endif
-}
 
-#ifdef LWS_USE_LIBEV
-LWS_VISIBLE int
-libwebsocket_initloop(
-	struct libwebsocket_context *context,
-	struct ev_loop *loop)
-{
-	int status = 0;
-	int backend;
-	const char * backend_name;
-	struct ev_io *w_accept = (ev_io *)&context->w_accept;
-	struct ev_signal *w_sigint = (ev_signal *)&context->w_sigint;
 
-	if (!loop)
-		loop = ev_default_loop(0);
-
-	context->io_loop = loop;
-   
-	/*
-	 * Initialize the accept w_accept with the listening socket
-	 * and register a callback for read operations:
-	 */
-	ev_io_init(w_accept, libwebsocket_accept_cb,
-					context->listen_service_fd, EV_READ);
-	ev_io_start(context->io_loop,w_accept);
-	ev_signal_init(w_sigint, libwebsocket_sigint_cb, SIGINT);
-	ev_signal_start(context->io_loop,w_sigint);
-	backend = ev_backend(loop);
-
-	switch (backend) {
-	case EVBACKEND_SELECT:
-		backend_name = "select";
-		break;
-	case EVBACKEND_POLL:
-		backend_name = "poll";
-		break;
-	case EVBACKEND_EPOLL:
-		backend_name = "epoll";
-		break;
-	case EVBACKEND_KQUEUE:
-		backend_name = "kqueue";
-		break;
-	case EVBACKEND_DEVPOLL:
-		backend_name = "/dev/poll";
-		break;
-	case EVBACKEND_PORT:
-		backend_name = "Solaris 10 \"port\"";
-		break;
-	default:
-		backend_name = "Unknown libev backend";
-		break;
-	};
-
-	lwsl_notice(" libev backend: %s\n", backend_name);
-
-	return status;
-}
-#endif /* LWS_USE_LIBEV */
 
 #ifndef LWS_NO_EXTENSIONS
 int
@@ -1766,7 +1571,8 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 		if (WSAEventSelect(wsi->sock,
 			context->events[wsi->position_in_fds_table + 1],
 			networkevents) == SOCKET_ERROR) {
-			lwsl_err("WSAEventSelect() failed with error %d\n", LWS_ERRNO);
+			lwsl_err("WSAEventSelect() failed with error %d\n",
+								     LWS_ERRNO);
 		}
 #endif
 
@@ -1818,8 +1624,7 @@ libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 		return 1;
 #endif
 	if (wsi->position_in_fds_table < 0) {
-		lwsl_err("libwebsocket_callback_on_writable: failed to find socket %d\n",
-								     wsi->sock);
+		lwsl_err("%s: failed to find socket %d\n", __func__, wsi->sock);
 		return -1;
 	}
 
@@ -1935,34 +1740,34 @@ lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi,
 
 	u = time_in_microseconds();
 
-	if (action) {
-		if (completed) {
-			if (wsi->action_start == wsi->latency_start)
-				sprintf(buf,
-			"Completion first try lat %luus: %p: ret %d: %s\n",
-					u - wsi->latency_start,
-					(void *)wsi, ret, action);
-			else
-				sprintf(buf,
-			"Completion %luus: lat %luus: %p: ret %d: %s\n",
-					u - wsi->action_start,
-					u - wsi->latency_start,
-					(void *)wsi, ret, action);
-			wsi->action_start = 0;
-		} else
-			sprintf(buf, "lat %luus: %p: ret %d: %s\n",
-					u - wsi->latency_start,
-						      (void *)wsi, ret, action);
-		if (u - wsi->latency_start > context->worst_latency) {
-			context->worst_latency = u - wsi->latency_start;
-			strcpy(context->worst_latency_info, buf);
-		}
-		lwsl_latency("%s", buf);
-	} else {
+	if (!action) {
 		wsi->latency_start = u;
 		if (!wsi->action_start)
 			wsi->action_start = u;
+		return;
 	}
+	if (completed) {
+		if (wsi->action_start == wsi->latency_start)
+			sprintf(buf,
+			  "Completion first try lat %luus: %p: ret %d: %s\n",
+					u - wsi->latency_start,
+						      (void *)wsi, ret, action);
+		else
+			sprintf(buf,
+			  "Completion %luus: lat %luus: %p: ret %d: %s\n",
+				u - wsi->action_start,
+					u - wsi->latency_start,
+						      (void *)wsi, ret, action);
+		wsi->action_start = 0;
+	} else
+		sprintf(buf, "lat %luus: %p: ret %d: %s\n",
+			      u - wsi->latency_start, (void *)wsi, ret, action);
+
+	if (u - wsi->latency_start > context->worst_latency) {
+		context->worst_latency = u - wsi->latency_start;
+		strcpy(context->worst_latency_info, buf);
+	}
+	lwsl_latency("%s", buf);
 }
 #endif
 
@@ -2067,8 +1872,6 @@ libwebsocket_rx_flow_allow_all_protocol(
  *
  * @context:	Websocket context
  */
-
-
 LWS_VISIBLE extern const char *
 libwebsocket_canonical_hostname(struct libwebsocket_context *context)
 {
@@ -2206,6 +2009,14 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #else
 	lwsl_notice("IPV6 not compiled in\n");
 #endif
+#ifdef LWS_USE_LIBEV
+	if (LWS_LIBEV_ENABLED(context))
+		lwsl_notice("libev support compiled in and enabled\n");
+	else
+		lwsl_notice("libev support compiled in but disabled\n");
+#else
+	lwsl_notice("libev support not compiled in\n");
+#endif
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
 #ifndef LWS_NO_EXTENSIONS
@@ -2231,9 +2042,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		wVersionRequested = MAKEWORD(2, 2);
 
 		err = WSAStartup(wVersionRequested, &wsaData);
-		if (err != 0) {
-			/* Tell the user that we could not find a usable */
-			/* Winsock DLL.                                  */
+		if (err) {
+			/*
+			 * Tell the user that we could not find a usable
+			 * Winsock DLL
+			 */
 			lwsl_err("WSAStartup failed with error: %d\n", err);
 			return NULL;
 		}
@@ -2263,13 +2076,16 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	context->max_fds = getdtablesize();
 	lwsl_notice(" static allocation: %u + (%u x %u fds) = %u bytes\n",
 		sizeof(struct libwebsocket_context),
-		sizeof(struct libwebsocket_pollfd) + sizeof(struct libwebsocket *),
+		sizeof(struct libwebsocket_pollfd) +
+					sizeof(struct libwebsocket *),
 		context->max_fds,
 		sizeof(struct libwebsocket_context) +
-		((sizeof(struct libwebsocket_pollfd) + sizeof(struct libwebsocket *)) *
+		((sizeof(struct libwebsocket_pollfd) +
+					sizeof(struct libwebsocket *)) *
 							     context->max_fds));
 
-	context->fds = (struct libwebsocket_pollfd *)malloc(sizeof(struct libwebsocket_pollfd) *
+	context->fds = (struct libwebsocket_pollfd *)
+				malloc(sizeof(struct libwebsocket_pollfd) *
 							      context->max_fds);
 	if (context->fds == NULL) {
 		lwsl_err("Unable to allocate fds array for %d connections\n",
@@ -2383,9 +2199,9 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		p = getenv("http_proxy");
 		if (p) {
 			strncpy(context->http_proxy_address, p,
-					      sizeof(context->http_proxy_address) - 1);
+				       sizeof(context->http_proxy_address) - 1);
 			context->http_proxy_address[
-					sizeof(context->http_proxy_address) - 1] = '\0';
+				sizeof(context->http_proxy_address) - 1] = '\0';
 
 			p = strchr(context->http_proxy_address, ':');
 			if (p == NULL) {
@@ -2591,7 +2407,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 			}
 
 			/* verify private key */
-			if (!SSL_CTX_check_private_key(context->ssl_client_ctx)) {
+			if (!SSL_CTX_check_private_key(
+						context->ssl_client_ctx)) {
 				lwsl_err("Private SSL key doesn't match cert\n");
 				goto bail;
 			}
@@ -2943,33 +2760,6 @@ static void lwsl_emit_stderr(int level, const char *line)
 	fprintf(stderr, "%s%s", buf, line);
 }
 
-#if defined(WIN32) || defined(_WIN32)
-LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
-{
-	lwsl_emit_stderr(level, line);
-}
-#else
-LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
-{
-	int syslog_level = LOG_DEBUG;
-
-	switch (level) {
-	case LLL_ERR:
-		syslog_level = LOG_ERR;
-		break;
-	case LLL_WARN:
-		syslog_level = LOG_WARNING;
-		break;
-	case LLL_NOTICE:
-		syslog_level = LOG_NOTICE;
-		break;
-	case LLL_INFO:
-		syslog_level = LOG_INFO;
-		break;
-	}
-	syslog(syslog_level, "%s", line);
-}
-#endif
 
 LWS_VISIBLE void _lws_log(int filter, const char *format, ...)
 {
