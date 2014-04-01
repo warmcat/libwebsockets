@@ -218,7 +218,7 @@ handle_truncated_send:
 	}
 
 	if (n < real_len) {
-		if (wsi->u.ws.clean_buffer)
+		if (n && wsi->u.ws.clean_buffer)
 			/*
 			 * This buffer unaffected by extension rewriting.
 			 * It means the user code is expected to deal with
