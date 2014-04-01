@@ -727,6 +727,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 	int ret;
 	int m;
 	int handled = 0;
+#endif
 
 	/* pending truncated sends have uber priority */
 
@@ -738,6 +739,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		return 0;
 	}
 
+#ifndef LWS_NO_EXTENSIONS
 	for (n = 0; n < wsi->count_active_extensions; n++) {
 		if (!wsi->active_extensions[n]->callback)
 			continue;
