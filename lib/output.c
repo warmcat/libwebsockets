@@ -105,6 +105,10 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 
 #ifndef LWS_NO_EXTENSIONS
 	int m;
+#endif
+	
+	if (!len)
+		return 0;
 
 	if (wsi->truncated_send_len && (buf < wsi->truncated_send_malloc ||
 			buf > (wsi->truncated_send_malloc +
@@ -114,6 +118,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		assert(0);
 	}
 
+#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * one of the extensions is carrying our data itself?  Like mux?
 	 */
@@ -639,7 +644,7 @@ send_raw:
 	 */
 
 	n = lws_issue_raw_ext_access(wsi, buf - pre, len + pre + post);
-	if (n < 0)
+	if (n <= 0)
 		return n;
 
 	if (n == len + pre + post) {
