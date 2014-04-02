@@ -33,13 +33,7 @@ static int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
 static void lwsl_emit_stderr(int level, const char *line);
 static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
 
-#ifdef LWS_USE_LIBEV
-#define _LWS_EV_TAG " libev"
-#else
-#define _LWS_EV_TAG
-#endif /* LWS_USE_LIBEV */
-static const char *library_version =
-			LWS_LIBRARY_VERSION " " LWS_BUILD_HASH _LWS_EV_TAG;
+static const char *library_version = LWS_LIBRARY_VERSION " " LWS_BUILD_HASH;
 
 static const char * const log_level_names[] = {
 	"ERR",
