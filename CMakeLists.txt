@@ -262,6 +262,7 @@ set(SOURCES
 	lib/libwebsockets.c
 	lib/output.c
 	lib/parsers.c
+	lib/context.c
 	lib/sha-1.c
 	)
 
