@@ -225,14 +225,11 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	/* end of response packet */
 
 	LWS_CPYAPP(p, "\x0d\x0a\x0d\x0a");
-
-#ifndef LWS_NO_EXTENSIONS
+	
 	if (!lws_any_extension_handled(context, wsi,
 			LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
 						     response, p - response)) {
-#else
-	{
-#endif
+
 		/* okay send the handshake response accepting the connection */
 
 		lwsl_parser("issuing resp pkt %d len\n", (int)(p - response));

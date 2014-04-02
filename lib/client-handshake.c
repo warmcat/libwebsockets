@@ -299,12 +299,6 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 			      int ietf_version_or_minus_one)
 {
 	struct libwebsocket *wsi;
-#ifndef LWS_NO_EXTENSIONS
-	int n;
-	int m;
-	struct libwebsocket_extension *ext;
-	int handled;
-#endif
 
 #ifndef LWS_OPENSSL_SUPPORT
 	if (ssl_connection) {
@@ -330,9 +324,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	wsi->state = WSI_STATE_CLIENT_UNCONNECTED;
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
-#ifndef LWS_NO_EXTENSIONS
-	wsi->count_active_extensions = 0;
-#endif
+
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = ssl_connection;
 #endif
@@ -371,30 +363,16 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 
 	wsi->protocol = &context->protocols[0];
 
-#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * Check with each extension if it is able to route and proxy this
 	 * connection for us.  For example, an extension like x-google-mux
 	 * can handle this and then we don't need an actual socket for this
 	 * connection.
 	 */
-
-	handled = 0;
-	ext = context->extensions;
-	n = 0;
-
-	while (ext && ext->callback && !handled) {
-		m = ext->callback(context, ext, wsi,
+	
+	if (lws_ext_callback_for_each_extension_type(context, wsi,
 			LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION,
-				 (void *)(long)n, (void *)address, port);
-		if (m)
-			handled = 1;
-
-		ext++;
-		n++;
-	}
-
-	if (handled) {
+						(void *)address, port) > 0) {
 		lwsl_client("libwebsocket_client_connect: ext handling conn\n");
 
 		libwebsocket_set_timeout(wsi,
@@ -404,7 +382,6 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT;
 		return wsi;
 	}
-#endif
 	lwsl_client("libwebsocket_client_connect: direct conn\n");
 
        return libwebsocket_client_connect_2(context, wsi);

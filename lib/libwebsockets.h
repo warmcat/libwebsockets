@@ -210,7 +210,6 @@ struct libwebsocket_pollfd {
 #define libwebsocket_pollfd pollfd
 #endif
 
-#ifndef LWS_NO_EXTENSIONS
 enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT,
 	LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT,
@@ -236,7 +235,6 @@ enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_PAYLOAD_TX,
 	LWS_EXT_CALLBACK_PAYLOAD_RX,
 };
-#endif
 
 enum libwebsocket_write_protocol {
 	LWS_WRITE_TEXT,

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -21,21 +21,8 @@
 
 #include "private-libwebsockets.h"
 
-#ifdef WIN32
-#include <tchar.h>
-#else
-#ifdef LWS_BUILTIN_GETIFADDRS
-#include <getifaddrs.h>
-#else
-#include <ifaddrs.h>
-#endif
-#include <sys/un.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#endif
-
 int lws_client_socket_service(struct libwebsocket_context *context,
-				struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
+		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
 	int n;
 	char *p = (char *)&context->service_buffer[0];
@@ -111,13 +98,12 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		 * timeout protection set in client-handshake.c
 		 */
 
-	#ifdef LWS_OPENSSL_SUPPORT
+#ifdef LWS_OPENSSL_SUPPORT
 
 		/*
 		 * take care of our libwebsocket_callback_on_writable
 		 * happening at a time when there's no real connection yet
 		 */
-
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			return -1;
 
@@ -130,20 +116,21 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 			SSL_set_mode(wsi->ssl,
 					SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 #endif
-
-		/* use server name indication (SNI), if supported,
-		 * when establishing connection */
+			/*
+			 * use server name indication (SNI), if supported,
+			 * when establishing connection
+			 */
 #ifdef USE_CYASSL
 #ifdef CYASSL_SNI_HOST_NAME
-		const char *hostname = lws_hdr_simple_ptr(wsi,
-			_WSI_TOKEN_CLIENT_PEER_ADDRESS);
-		CyaSSL_UseSNI(wsi->ssl, CYASSL_SNI_HOST_NAME,
-			hostname, strlen(hostname));
+			const char *hostname = lws_hdr_simple_ptr(wsi,
+				_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			CyaSSL_UseSNI(wsi->ssl, CYASSL_SNI_HOST_NAME,
+				hostname, strlen(hostname));
 #endif
 #else
-		const char *hostname = lws_hdr_simple_ptr(wsi,
-			_WSI_TOKEN_CLIENT_PEER_ADDRESS);
-		SSL_set_tlsext_host_name(wsi->ssl, hostname);
+			const char *hostname = lws_hdr_simple_ptr(wsi,
+				_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			SSL_set_tlsext_host_name(wsi->ssl, hostname);
 #endif
 
 
@@ -387,7 +374,6 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		 * in one packet, since at that point the connection is
 		 * definitively ready from browser pov.
 		 */
-
 		len = 1;
 		while (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE &&
 								      len > 0) {
@@ -819,7 +805,6 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	int n;
 #ifndef LWS_NO_EXTENSIONS
 	struct libwebsocket_extension *ext;
-	struct libwebsocket_extension *ext1;
 	int ext_count = 0;
 #endif
 
@@ -892,17 +877,9 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	ext = context->extensions;
 	while (ext && ext->callback) {
 
-		n = 0;
-		ext1 = context->extensions;
-
-		while (ext1 && ext1->callback) {
-			n |= ext1->callback(context, ext1, wsi,
-				LWS_EXT_CALLBACK_CHECK_OK_TO_PROPOSE_EXTENSION,
-					NULL, (char *)ext->name, 0);
-
-			ext1++;
-		}
-
+		n = lws_ext_callback_for_each_extension_type(context, wsi,
+			   LWS_EXT_CALLBACK_CHECK_OK_TO_PROPOSE_EXTENSION,
+							  (char *)ext->name, 0);
 		if (n) { /* an extension vetos us */
 			lwsl_ext("ext %s vetoed\n", (char *)ext->name);
 			ext++;

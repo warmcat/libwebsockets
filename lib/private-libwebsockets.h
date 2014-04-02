@@ -639,9 +639,17 @@ lws_any_extension_handled(struct libwebsocket_context *context,
 			  enum libwebsocket_extension_callback_reasons r,
 			  void *v, size_t len);
 
-LWS_EXTERN void *
-lws_get_extension_user_matching_ext(struct libwebsocket *wsi,
-			  struct libwebsocket_extension *ext);
+LWS_EXTERN int
+lws_ext_callback_for_each_active(struct libwebsocket *wsi, int reason,
+						    void *buf, int len);
+LWS_EXTERN int
+lws_ext_callback_for_each_extension_type(
+		struct libwebsocket_context *context, struct libwebsocket *wsi,
+			int reason, void *arg, int len);
+#else
+#define lws_any_extension_handled(_a, _b, _c, _d, _e) (0)
+#define lws_ext_callback_for_each_active(_a, _b, _c, _d) (0)
+#define lws_ext_callback_for_each_extension_type(_a, _b, _c, _d, _e) (0)
 #endif
 
 LWS_EXTERN int

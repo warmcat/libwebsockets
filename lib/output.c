@@ -95,9 +95,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
 	int n;
 	size_t real_len = len;
-#ifndef LWS_NO_EXTENSIONS
 	int m;
-#endif
 	
 	if (!len)
 		return 0;
@@ -110,32 +108,14 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		assert(0);
 	}
 
-#ifndef LWS_NO_EXTENSIONS
-	/*
-	 * one of the extensions is carrying our data itself?  Like mux?
-	 */
-
-	for (n = 0; n < wsi->count_active_extensions; n++) {
-		/*
-		 * there can only be active extensions after handshake completed
-		 * so we can rely on protocol being set already in here
-		 */
-		m = wsi->active_extensions[n]->callback(
-				wsi->protocol->owning_server,
-				wsi->active_extensions[n], wsi,
-				LWS_EXT_CALLBACK_PACKET_TX_DO_SEND,
-				     wsi->active_extensions_user[n], &buf, len);
-		if (m < 0) {
-			lwsl_ext("Extension reports fatal error\n");
-			return -1;
-		}
-		if (m) /* handled */ {
-/*			lwsl_ext("ext sent it\n"); */
-			n = m;
-			goto handle_truncated_send;
-		}
+	m = lws_ext_callback_for_each_active(wsi,
+			LWS_EXT_CALLBACK_PACKET_TX_DO_SEND, &buf, len);
+	if (m < 0)
+		return -1;
+	if (m) /* handled */ {
+		n = m;
+		goto handle_truncated_send;
 	}
-#endif
 	if (wsi->sock < 0)
 		lwsl_warn("** error invalid sock but expected to send\n");
 
@@ -258,105 +238,6 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 {
 	return lws_issue_raw(wsi, buf, len);
 }
-#else
-int
-lws_issue_raw_ext_access(struct libwebsocket *wsi,
-						 unsigned char *buf, size_t len)
-{
-	int ret;
-	struct lws_tokens eff_buf;
-	int m;
-	int n;
-
-	eff_buf.token = (char *)buf;
-	eff_buf.token_len = len;
-
-	/*
-	 * while we have original buf to spill ourselves, or extensions report
-	 * more in their pipeline
-	 */
-
-	ret = 1;
-	while (ret == 1) {
-
-		/* default to nobody has more to spill */
-
-		ret = 0;
-
-		/* show every extension the new incoming data */
-
-		for (n = 0; n < wsi->count_active_extensions; n++) {
-			m = wsi->active_extensions[n]->callback(
-					wsi->protocol->owning_server,
-					wsi->active_extensions[n], wsi,
-					LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
-				   wsi->active_extensions_user[n], &eff_buf, 0);
-			if (m < 0) {
-				lwsl_ext("Extension: fatal error\n");
-				return -1;
-			}
-			if (m)
-				/*
-				 * at least one extension told us he has more
-				 * to spill, so we will go around again after
-				 */
-				ret = 1;
-		}
-
-		if ((char *)buf != eff_buf.token)
-			/*
-			 * extension recreated it:
-			 * need to buffer this if not all sent
-			 */
-			wsi->u.ws.clean_buffer = 0;
-
-		/* assuming they left us something to send, send it */
-
-		if (eff_buf.token_len) {
-			n = lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-							    eff_buf.token_len);
-			if (n < 0)
-				return -1;
-
-			/* always either sent it all or privately buffered */
-		}
-
-		lwsl_parser("written %d bytes to client\n", eff_buf.token_len);
-
-		/* no extension has more to spill?  Then we can go */
-
-		if (!ret)
-			break;
-
-		/* we used up what we had */
-
-		eff_buf.token = NULL;
-		eff_buf.token_len = 0;
-
-		/*
-		 * Did that leave the pipe choked?
-		 * Or we had to hold on to some of it?
-		 */
-
-		if (!lws_send_pipe_choked(wsi) &&
-					!wsi->truncated_send_len)
-			/* no we could add more, lets's do that */
-			continue;
-
-		lwsl_debug("choked\n");
-
-		/*
-		 * Yes, he's choked.  Don't spill the rest now get a callback
-		 * when he is ready to send and take care of it there
-		 */
-		libwebsocket_callback_on_writable(
-					     wsi->protocol->owning_server, wsi);
-		wsi->extension_data_pending = 1;
-		ret = 0;
-	}
-
-	return len;
-}
 #endif
 
 /**
@@ -399,10 +280,7 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	unsigned char *dropmask = NULL;
 	unsigned char is_masked_bit = 0;
 	size_t orig_len = len;
-#ifndef LWS_NO_EXTENSIONS
 	struct lws_tokens eff_buf;
-	int m;
-#endif
 
 	if (len == 0 && protocol != LWS_WRITE_CLOSE &&
 		     protocol != LWS_WRITE_PING && protocol != LWS_WRITE_PONG) {
@@ -426,7 +304,6 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	/* if he wants all partials buffered, never have a clean_buffer */
 	wsi->u.ws.clean_buffer = !wsi->protocol->no_buffer_all_partial_tx;
 
-#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * give a chance to the extensions to modify payload
 	 * pre-TX mangling is not allowed to truncate
@@ -440,16 +317,9 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	case LWS_WRITE_CLOSE:
 		break;
 	default:
-
-		for (n = 0; n < wsi->count_active_extensions; n++) {
-			m = wsi->active_extensions[n]->callback(
-				wsi->protocol->owning_server,
-				wsi->active_extensions[n], wsi,
-				LWS_EXT_CALLBACK_PAYLOAD_TX,
-				wsi->active_extensions_user[n], &eff_buf, 0);
-			if (m < 0)
-				return -1;
-		}
+		if (lws_ext_callback_for_each_active(wsi,
+			       LWS_EXT_CALLBACK_PAYLOAD_TX, &eff_buf, 0) < 0)
+			return -1;
 	}
 
 	/*
@@ -466,7 +336,6 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 	buf = (unsigned char *)eff_buf.token;
 	len = eff_buf.token_len;
-#endif
 
 	switch (wsi->ietf_spec_revision) {
 	case 13:

@@ -49,9 +49,6 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	}
 
 	memset(new_wsi, 0, sizeof(struct libwebsocket));
-#ifndef LWS_NO_EXTENSIONS
-	new_wsi->count_active_extensions = 0;
-#endif
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 
 	/* intialize the instance struct */

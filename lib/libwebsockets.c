@@ -1279,53 +1279,6 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
 	return lws_plat_service(context, timeout_ms);
 }
 
-
-#ifndef LWS_NO_EXTENSIONS
-int
-lws_any_extension_handled(struct libwebsocket_context *context,
-			  struct libwebsocket *wsi,
-			  enum libwebsocket_extension_callback_reasons r,
-						       void *v, size_t len)
-{
-	int n;
-	int handled = 0;
-
-	/* maybe an extension will take care of it for us */
-
-	for (n = 0; n < wsi->count_active_extensions && !handled; n++) {
-		if (!wsi->active_extensions[n]->callback)
-			continue;
-
-		handled |= wsi->active_extensions[n]->callback(context,
-			wsi->active_extensions[n], wsi,
-			r, wsi->active_extensions_user[n], v, len);
-	}
-
-	return handled;
-}
-
-
-void *
-lws_get_extension_user_matching_ext(struct libwebsocket *wsi,
-					   struct libwebsocket_extension *ext)
-{
-	int n = 0;
-
-	if (wsi == NULL)
-		return NULL;
-
-	while (n < wsi->count_active_extensions) {
-		if (wsi->active_extensions[n] != ext) {
-			n++;
-			continue;
-		}
-		return wsi->active_extensions_user[n];
-	}
-
-	return NULL;
-}
-#endif
-
 int
 lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 {

@@ -27,9 +27,6 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	int handled;
 	struct lws_tokens eff_buf;
 	int m;
-#ifndef LWS_NO_EXTENSIONS
-	int n;
-#endif
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
@@ -319,7 +316,7 @@ spill:
 		default:
 
 			lwsl_parser("Reserved opc 0x%2X\n", wsi->u.ws.opcode);
-#ifndef LWS_NO_EXTENSIONS
+
 			/*
 			 * It's something special we can't understand here.
 			 * Pass the payload up to the extension's parsing
@@ -329,29 +326,18 @@ spill:
 			eff_buf.token = &wsi->u.ws.rx_user_buffer[
 						   LWS_SEND_BUFFER_PRE_PADDING];
 			eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
+			
+			if (lws_ext_callback_for_each_active(wsi,
+				LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
+					&eff_buf, 0) <= 0) { /* not handle or fail */
 
-			for (n = 0; n < wsi->count_active_extensions; n++) {
-				m = wsi->active_extensions[n]->callback(
-					wsi->protocol->owning_server,
-					wsi->active_extensions[n], wsi,
-					LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
-					    wsi->active_extensions_user[n],
-								   &eff_buf, 0);
-				if (m)
-					handled = 1;
-			}
-
-			if (!handled) {
-#else
-			{
-#endif
 				lwsl_ext("Unhandled ext opc 0x%x\n",
 							      wsi->u.ws.opcode);
 				wsi->u.ws.rx_user_buffer_head = 0;
 
 				return 0;
 			}
-
+			handled = 1;
 			break;
 		}
 
@@ -366,22 +352,12 @@ spill:
 		eff_buf.token = &wsi->u.ws.rx_user_buffer[
 						LWS_SEND_BUFFER_PRE_PADDING];
 		eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
-#ifndef LWS_NO_EXTENSIONS
-		for (n = 0; n < wsi->count_active_extensions; n++) {
-			m = wsi->active_extensions[n]->callback(
-				wsi->protocol->owning_server,
-				wsi->active_extensions[n], wsi,
+		
+		if (lws_ext_callback_for_each_active(wsi,
 				LWS_EXT_CALLBACK_PAYLOAD_RX,
-				wsi->active_extensions_user[n],
-				&eff_buf, 0);
-			if (m < 0) {
-				lwsl_ext(
-					"Ext '%s' failed to handle payload!\n",
-					       wsi->active_extensions[n]->name);
-				return -1;
-			}
-		}
-#endif
+						&eff_buf, 0) < 0) /* fail */
+			return -1;
+
 		if (eff_buf.token_len <= 0 &&
 			    callback_action != LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			goto already_done;
@@ -421,7 +397,6 @@ illegal_ctl_length:
 	lwsl_warn("Control frame asking for extended length is illegal\n");
 	/* kill the connection */
 	return -1;
-
 }
 
 

@@ -41,17 +41,17 @@ int lextable_decode(int pos, char c)
 			if (lextable[pos] == FAIL_CHAR)
 				return -1;
 			return pos;
-		} else { /* b7 = 0, end or 3-byte */
-			if (lextable[pos] < FAIL_CHAR) /* terminal marker */
-				return pos;
-
-			if (lextable[pos] == c) /* goto */
-				return pos + (lextable[pos + 1]) +
-						(lextable[pos + 2] << 8);
-			/* fall thru goto */
-			pos += 3;
-			/* continue */
 		}
+		/* b7 = 0, end or 3-byte */
+		if (lextable[pos] < FAIL_CHAR) /* terminal marker */
+			return pos;
+
+		if (lextable[pos] == c) /* goto */
+			return pos + (lextable[pos + 1]) +
+						(lextable[pos + 2] << 8);
+		/* fall thru goto */
+		pos += 3;
+		/* continue */
 	}
 }
 
@@ -75,9 +75,8 @@ LWS_VISIBLE int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_in
 	int len = 0;
 
 	n = wsi->u.hdr.ah->frag_index[h];
-	if (n == 0)
+	if (!n)
 		return 0;
-
 	do {
 		len += wsi->u.hdr.ah->frags[n].len;
 		n = wsi->u.hdr.ah->frags[n].next_frag_index;
@@ -96,7 +95,7 @@ LWS_VISIBLE int lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
 		return -1;
 
 	n = wsi->u.hdr.ah->frag_index[h];
-	if (n == 0)
+	if (!n)
 		return 0;
 
 	do {
@@ -552,14 +551,6 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 	int n;
 	struct lws_tokens eff_buf;
 	int ret = 0;
-#ifndef LWS_NO_EXTENSIONS
-	int handled;
-	int m;
-#endif
-
-#if 0
-	lwsl_debug("RX: %02X ", c);
-#endif
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
@@ -893,10 +884,8 @@ spill:
 			break;
 
 		default:
-#ifndef LWS_NO_EXTENSIONS
 			lwsl_parser("passing opc %x up to exts\n",
 							wsi->u.ws.opcode);
-
 			/*
 			 * It's something special we can't understand here.
 			 * Pass the payload up to the extension's parsing
@@ -907,20 +896,9 @@ spill:
 						   LWS_SEND_BUFFER_PRE_PADDING];
 			eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
 
-			handled = 0;
-			for (n = 0; n < wsi->count_active_extensions; n++) {
-				m = wsi->active_extensions[n]->callback(
-					wsi->protocol->owning_server,
-					wsi->active_extensions[n], wsi,
-					LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
-					    wsi->active_extensions_user[n],
-								   &eff_buf, 0);
-				if (m)
-					handled = 1;
-			}
-
-			if (!handled)
-#endif
+			if (lws_ext_callback_for_each_active(wsi,
+				LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
+					&eff_buf, 0) <= 0) /* not handle or fail */
 				lwsl_ext("ext opc opcode 0x%x unknown\n",
 							      wsi->u.ws.opcode);
 
@@ -937,22 +915,11 @@ spill:
 		eff_buf.token = &wsi->u.ws.rx_user_buffer[
 						LWS_SEND_BUFFER_PRE_PADDING];
 		eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
-#ifndef LWS_NO_EXTENSIONS
-		for (n = 0; n < wsi->count_active_extensions; n++) {
-			m = wsi->active_extensions[n]->callback(
-				wsi->protocol->owning_server,
-				wsi->active_extensions[n], wsi,
-				LWS_EXT_CALLBACK_PAYLOAD_RX,
-				wsi->active_extensions_user[n],
-				&eff_buf, 0);
-			if (m < 0) {
-				lwsl_ext(
-				 "Extension '%s' failed to handle payload!\n",
-					      wsi->active_extensions[n]->name);
-				return -1;
-			}
-		}
-#endif
+		
+		if (lws_ext_callback_for_each_active(wsi,
+				LWS_EXT_CALLBACK_PAYLOAD_RX, &eff_buf, 0) < 0)
+			return -1;
+
 		if (eff_buf.token_len > 0) {
 			eff_buf.token[eff_buf.token_len] = '\0';
 
