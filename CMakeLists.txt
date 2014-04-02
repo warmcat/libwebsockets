@@ -273,6 +273,18 @@ if (NOT LWS_WITHOUT_CLIENT)
 		)
 endif()
 
+# select the active platform files
+
+if (WIN32)
+	list(APPEND SOURCES
+		lib/lws-plat-win.c
+		)
+else()
+	list(APPEND SOURCES
+		lib/lws-plat-unix.c
+		)
+endif()
+
 if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
 		lib/server.c

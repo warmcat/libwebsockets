@@ -1,8 +1,10 @@
+#include "private-libwebsockets.h"
+
 /*
  * included from libwebsockets.c for unix builds
  */
 
-static unsigned long long time_in_microseconds(void)
+unsigned long long time_in_microseconds(void)
 {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
@@ -38,11 +40,21 @@ LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
 	return 0;
 }
 
-static int lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
+LWS_VISIBLE int
+lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
 {
 	return poll(fd, 1, 0);
 }
 
+/*
+ * This is just used to interrupt poll waiting
+ * we don't have to do anything with it.
+ */
+#ifdef LWS_OPENSSL_SUPPORT
+static void lws_sigusr2(int sig)
+{
+}
+#endif
 
 #ifdef LWS_USE_LIBEV
 LWS_VISIBLE void 
@@ -224,7 +236,8 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	return 0;
 }
 
-int lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
+LWS_VISIBLE int
+lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 {
 	int optval = 1;
 	socklen_t optlen = sizeof(optval);
@@ -280,7 +293,8 @@ int lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 	return 0;
 }
 
-static void lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
+LWS_VISIBLE void
+lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 {
 	if (info->gid != -1)
 		if (setgid(info->gid))
@@ -290,7 +304,8 @@ static void lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 			lwsl_warn("setuid: %s\n", strerror(LWS_ERRNO));	
 }
 
-static int lws_plat_init_fd_tables(struct libwebsocket_context *context)
+LWS_VISIBLE int
+lws_plat_init_fd_tables(struct libwebsocket_context *context)
 {
 #ifdef LWS_USE_LIBEV
 	if (LWS_LIBEV_ENABLED(context)) {
@@ -325,7 +340,8 @@ static void sigpipe_handler(int x)
 }
 
 
-static int lws_plat_context_early_init(void)
+LWS_VISIBLE int
+lws_plat_context_early_init(void)
 {
 	sigset_t mask;
 
@@ -340,11 +356,13 @@ static int lws_plat_context_early_init(void)
 	return 0;
 }
 
-static void lws_plat_context_early_destroy(struct libwebsocket_context *context)
+LWS_VISIBLE void
+lws_plat_context_early_destroy(struct libwebsocket_context *context)
 {
 }
 
-static void lws_plat_context_late_destroy(struct libwebsocket_context *context)
+LWS_VISIBLE void
+lws_plat_context_late_destroy(struct libwebsocket_context *context)
 {
 	close(context->dummy_pipe_fds[0]);
 	close(context->dummy_pipe_fds[1]);
@@ -353,7 +371,7 @@ static void lws_plat_context_late_destroy(struct libwebsocket_context *context)
 
 /* cast a struct sockaddr_in6 * into addr for ipv6 */
 
-int
+LWS_VISIBLE int
 interface_to_sa(struct libwebsocket_context *context,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
@@ -413,7 +431,8 @@ interface_to_sa(struct libwebsocket_context *context,
 	return rc;
 }
 
-void lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
+LWS_VISIBLE void
+lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
 						       struct libwebsocket *wsi)
 {
 #ifdef LWS_USE_LIBEV
@@ -423,12 +442,14 @@ void lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
 	context->fds[context->fds_count++].revents = 0;
 }
 
-void lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
+LWS_VISIBLE void
+lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
 						struct libwebsocket *wsi, int m)
 {
 }
 
-static void lws_plat_service_periodic(struct libwebsocket_context *context)
+LWS_VISIBLE void
+lws_plat_service_periodic(struct libwebsocket_context *context)
 {
 	/* if our parent went down, don't linger around */
 	if (context->started_with_parent &&
@@ -436,13 +457,15 @@ static void lws_plat_service_periodic(struct libwebsocket_context *context)
 		kill(getpid(), SIGTERM);
 }
 
-static int lws_plat_change_pollfd(struct libwebsocket_context *context,
+LWS_VISIBLE int
+lws_plat_change_pollfd(struct libwebsocket_context *context,
 		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
 {
 	return 0;
 }
 
-int lws_plat_open_file(const char* filename, unsigned long* filelen)
+LWS_VISIBLE int
+lws_plat_open_file(const char* filename, unsigned long* filelen)
 {
 	struct stat stat_buf;
 	int ret = open(filename, O_RDONLY);

@@ -53,8 +53,8 @@ int lws_ext_callback_for_each_active(struct libwebsocket *wsi, int reason,
 				      wsi->active_extensions[n]->name, reason);
 			return -1;
 		}
-		if (m)
-			handled = 1;
+		if (m > handled)
+			handled = m;
 	}
 	
 	return handled;
@@ -193,25 +193,4 @@ lws_any_extension_handled(struct libwebsocket_context *context,
 	}
 
 	return handled;
-}
-
-
-void *
-lws_get_extension_user_matching_ext(struct libwebsocket *wsi,
-					   struct libwebsocket_extension *ext)
-{
-	int n = 0;
-
-	if (wsi == NULL)
-		return NULL;
-
-	while (n < wsi->count_active_extensions) {
-		if (wsi->active_extensions[n] != ext) {
-			n++;
-			continue;
-		}
-		return wsi->active_extensions_user[n];
-	}
-
-	return NULL;
 }

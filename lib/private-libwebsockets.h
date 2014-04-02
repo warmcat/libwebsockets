@@ -26,17 +26,19 @@
 #if defined(WIN32) || defined(_WIN32)
 #define inline __inline
 #include <tchar.h>
-#else
+#include <mstcpip.h>
+#ifdef _WIN32_WCE
+#define vsnprintf _vsnprintf
+#endif
+
+#else /* not WIN32 */
 #include "config.h"
-#ifdef LWS_BUILTIN_GETIFADDRS
-#include <getifaddrs.h>
-#else
-#include <ifaddrs.h>
-#endif
-#include <sys/un.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#endif
+
+#endif /* not WIN32 */
+#endif /* not CMAKE */
+
+#ifdef HAVE_SYS_TYPES_H
+#include <sys/types.h>
 #endif
 
 #include <stdio.h>
@@ -90,6 +92,15 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#ifdef LWS_BUILTIN_GETIFADDRS
+ #include <getifaddrs.h>
+#else
+ #include <ifaddrs.h>
+#endif
+#include <sys/syslog.h>
+#include <sys/un.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #ifndef LWS_NO_FORK
 #ifdef HAVE_SYS_PRCTL_H
 #include <sys/prctl.h>

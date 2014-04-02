@@ -1,4 +1,6 @@
-static unsigned long long
+#include "private-libwebsockets.h"
+
+unsigned long long
 time_in_microseconds()
 {
 #define DELTA_EPOCH_IN_MICROSECS 11644473600000000ULL
@@ -23,7 +25,7 @@ time_in_microseconds()
 }
 
 #ifdef _WIN32_WCE
-static inline time_t time(time_t *t)
+time_t time(time_t *t)
 {
 	time_t ret = time_in_microseconds() / 1000000;
 	*t = ret;
@@ -146,7 +148,8 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	return libwebsocket_service_fd(context, pfd);
 }
 
-int lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
+LWS_VISIBLE int
+lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 {
 	int optval = 1;
 	socklen_t optlen = sizeof(optval);
@@ -181,11 +184,13 @@ int lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 	return 0;
 }
 
-static void lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
+LWS_VISIBLE void
+lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 {
 }
 
-static int lws_plat_init_fd_tables(struct libwebsocket_context *context)
+LWS_VISIBLE int
+lws_plat_init_fd_tables(struct libwebsocket_context *context)
 {
 	context->events = (WSAEVENT *)malloc(sizeof(WSAEVENT) *
 							(context->max_fds + 1));
@@ -203,7 +208,8 @@ static int lws_plat_init_fd_tables(struct libwebsocket_context *context)
 	return 0;
 }
 
-static int lws_plat_context_early_init(void)
+LWS_VISIBLE int
+lws_plat_context_early_init(void)
 {
 	WORD wVersionRequested;
 	WSADATA wsaData;
@@ -224,7 +230,8 @@ static int lws_plat_context_early_init(void)
 	return 1;
 }
 
-static void lws_plat_context_early_destroy(struct libwebsocket_context *context)
+LWS_VISIBLE void
+lws_plat_context_early_destroy(struct libwebsocket_context *context)
 {
 	if (context->events) {
 		WSACloseEvent(context->events[0]);
@@ -232,19 +239,21 @@ static void lws_plat_context_early_destroy(struct libwebsocket_context *context)
 	}
 }
 
-static void lws_plat_context_late_destroy(struct libwebsocket_context *context)
+LWS_VISIBLE void
+lws_plat_context_late_destroy(struct libwebsocket_context *context)
 {
 	WSACleanup();
 }
 
-int
+LWS_VISIBLE int
 interface_to_sa(struct libwebsocket_context *context,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
 	return -1;
 }
 
-void lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
+LWS_VISIBLE void
+lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
 						       struct libwebsocket *wsi)
 {
 	context->fds[context->fds_count++].revents = 0;
@@ -252,18 +261,21 @@ void lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
 	WSAEventSelect(wsi->sock, context->events[context->fds_count], LWS_POLLIN);
 }
 
-static void lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
+LWS_VISIBLE void
+lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
 						struct libwebsocket *wsi, int m)
 {
 	WSACloseEvent(context->events[m + 1]);
 	context->events[m + 1] = context->events[context->fds_count + 1];
 }
 
-static void lws_plat_service_periodic(struct libwebsocket_context *context)
+LWS_VISIBLE void
+lws_plat_service_periodic(struct libwebsocket_context *context)
 {
 }
 
-static int lws_plat_change_pollfd(struct libwebsocket_context *context,
+LWS_VISIBLE int
+lws_plat_change_pollfd(struct libwebsocket_context *context,
 		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
 {
 	long networkevents = LWS_POLLOUT | LWS_POLLHUP;
@@ -281,7 +293,8 @@ static int lws_plat_change_pollfd(struct libwebsocket_context *context,
 	return 1;
 }
 
-HANDLE lws_plat_open_file(const char* filename, unsigned long* filelen)
+LWS_VISIBLE HANDLE
+lws_plat_open_file(const char* filename, unsigned long* filelen)
 {
 	HANDLE ret;
 	WCHAR buffer[MAX_PATH];

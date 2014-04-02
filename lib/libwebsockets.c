@@ -21,28 +21,6 @@
 
 #include "private-libwebsockets.h"
 
-#if defined(WIN32) || defined(_WIN32)
-#include <tchar.h>
-#include <mstcpip.h>
-#ifdef _WIN32_WCE
-#define vsnprintf _vsnprintf
-#endif
-#else
-#ifdef LWS_BUILTIN_GETIFADDRS
-#include <getifaddrs.h>
-#else
-#include <ifaddrs.h>
-#endif
-#include <syslog.h>
-#include <sys/un.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#endif
-
-#ifdef HAVE_SYS_TYPES_H
-#include <sys/types.h>
-#endif
-
 #ifdef LWS_OPENSSL_SUPPORT
 int openssl_websocket_private_data_index;
 #endif
@@ -54,6 +32,24 @@ int openssl_websocket_private_data_index;
 static int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
 static void lwsl_emit_stderr(int level, const char *line);
 static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
+
+void lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
+					       struct libwebsocket *wsi, int m);
+void lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
+						       struct libwebsocket *wsi);
+void lws_plat_service_periodic(struct libwebsocket_context *context);
+
+int lws_plat_change_pollfd(struct libwebsocket_context *context,
+		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd);
+int lws_plat_context_early_init(void);
+void lws_plat_context_early_destroy(struct libwebsocket_context *context);
+void lws_plat_context_late_destroy(struct libwebsocket_context *context);
+int lws_poll_listen_fd(struct libwebsocket_pollfd *fd);
+int
+lws_plat_service(struct libwebsocket_context *context, int timeout_ms);
+int lws_plat_init_fd_tables(struct libwebsocket_context *context);
+void lws_plat_drop_app_privileges(struct lws_context_creation_info *info);
+unsigned long long time_in_microseconds(void);
 
 #ifdef LWS_USE_LIBEV
 #define _LWS_EV_TAG " libev"
@@ -85,22 +81,6 @@ static const char * const log_level_names[] = {
 	extern int lws_server_socket_service(
 		struct libwebsocket_context *context,
 		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
-#endif
-
-/*
- * This is just used to interrupt poll waiting
- * we don't have to do anything with it.
- */
-#ifdef LWS_OPENSSL_SUPPORT
-static void lws_sigusr2(int sig)
-{
-}
-#endif
-
-#if defined(WIN32) || defined(_WIN32)
-#include "lws-plat-win.c"
-#else
-#include "lws-plat-unix.c"
 #endif
 
 /**
@@ -234,16 +214,11 @@ void
 libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 			 struct libwebsocket *wsi, enum lws_close_status reason)
 {
-	int n;
+	int n, m, ret;
 	int old_state;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
 						  LWS_SEND_BUFFER_POST_PADDING];
-#ifndef LWS_NO_EXTENSIONS
-	int ret;
-	int m;
 	struct lws_tokens eff_buf;
-	struct libwebsocket_extension *ext;
-#endif
 
 	if (!wsi)
 		return;
@@ -283,30 +258,15 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		}
 	}
 
-#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * are his extensions okay with him closing?  Eg he might be a mux
 	 * parent and just his ch1 aspect is closing?
 	 */
-
-	for (n = 0; n < wsi->count_active_extensions; n++) {
-		if (!wsi->active_extensions[n]->callback)
-			continue;
-
-		m = wsi->active_extensions[n]->callback(context,
-			wsi->active_extensions[n], wsi,
-			LWS_EXT_CALLBACK_CHECK_OK_TO_REALLY_CLOSE,
-				       wsi->active_extensions_user[n], NULL, 0);
-
-		/*
-		 * if somebody vetoed actually closing him at this time....
-		 * up to the extension to track the attempted close, let's
-		 * just bail
-		 */
-		if (m) {
-			lwsl_ext("extension vetoed close\n");
-			return;
-		}
+	
+	if (lws_ext_callback_for_each_active(wsi,
+		      LWS_EXT_CALLBACK_CHECK_OK_TO_REALLY_CLOSE, NULL, 0) > 0) {
+		lwsl_ext("extension vetoed close\n");
+		return;
 	}
 
 	/*
@@ -314,34 +274,25 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	 * if there are problems with send, just nuke the connection
 	 */
 
-	ret = 1;
-	while (ret == 1) {
-
-		/* default to nobody has more to spill */
-
+	do {
 		ret = 0;
 		eff_buf.token = NULL;
 		eff_buf.token_len = 0;
 
 		/* show every extension the new incoming data */
 
-		for (n = 0; n < wsi->count_active_extensions; n++) {
-			m = wsi->active_extensions[n]->callback(
-					wsi->protocol->owning_server,
-					wsi->active_extensions[n], wsi,
-					LWS_EXT_CALLBACK_FLUSH_PENDING_TX,
-				   wsi->active_extensions_user[n], &eff_buf, 0);
-			if (m < 0) {
-				lwsl_ext("Extension reports fatal error\n");
-				goto just_kill_connection;
-			}
-			if (m)
-				/*
-				 * at least one extension told us he has more
-				 * to spill, so we will go around again after
-				 */
-				ret = 1;
+		m = lws_ext_callback_for_each_active(wsi,
+			  LWS_EXT_CALLBACK_FLUSH_PENDING_TX, &eff_buf, 0);
+		if (m < 0) {
+			lwsl_ext("Extension reports fatal error\n");
+			goto just_kill_connection;
 		}
+		if (m)
+			/*
+			 * at least one extension told us he has more
+			 * to spill, so we will go around again after
+			 */
+			ret = 1;
 
 		/* assuming they left us something to send, send it */
 
@@ -351,8 +302,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 				lwsl_debug("close: ext spill failed\n");
 				goto just_kill_connection;
 			}
-	}
-#endif
+	} while (ret);
 
 	/*
 	 * signal we are closing, libsocket_write will
@@ -451,34 +401,21 @@ just_kill_connection:
 	} else
 		lwsl_debug("not calling back closed\n");
 
-#ifndef LWS_NO_EXTENSIONS
 	/* deallocate any active extension contexts */
-
-	for (n = 0; n < wsi->count_active_extensions; n++) {
-		if (!wsi->active_extensions[n]->callback)
-			continue;
-
-		wsi->active_extensions[n]->callback(context,
-			wsi->active_extensions[n], wsi,
-				LWS_EXT_CALLBACK_DESTROY,
-				       wsi->active_extensions_user[n], NULL, 0);
-
+	
+	if (lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_DESTROY, NULL, 0) < 0)
+		lwsl_warn("extension destruction failed\n");
+#ifndef LWS_NO_EXTENSIONS
+	for (n = 0; n < wsi->count_active_extensions; n++)
 		free(wsi->active_extensions_user[n]);
-	}
-
+#endif
 	/*
 	 * inform all extensions in case they tracked this guy out of band
 	 * even though not active on him specifically
 	 */
-
-	ext = context->extensions;
-	while (ext && ext->callback) {
-		ext->callback(context, ext, wsi,
-				LWS_EXT_CALLBACK_DESTROY_ANY_WSI_CLOSING,
-				       NULL, NULL, 0);
-		ext++;
-	}
-#endif
+	if (lws_ext_callback_for_each_extension_type(context, wsi,
+		       LWS_EXT_CALLBACK_DESTROY_ANY_WSI_CLOSING, NULL, 0) < 0)
+		lwsl_warn("ext destroy wsi failed\n");
 
 /*	lwsl_info("closing fd=%d\n", wsi->sock); */
 
@@ -640,13 +577,10 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		   struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
 	int n;
-
-#ifndef LWS_NO_EXTENSIONS
 	struct lws_tokens eff_buf;
 	int ret;
 	int m;
 	int handled = 0;
-#endif
 
 	/* pending truncated sends have uber priority */
 
@@ -658,25 +592,14 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		return 0;
 	}
 
-#ifndef LWS_NO_EXTENSIONS
-	for (n = 0; n < wsi->count_active_extensions; n++) {
-		if (!wsi->active_extensions[n]->callback)
-			continue;
-
-		m = wsi->active_extensions[n]->callback(context,
-			wsi->active_extensions[n], wsi,
-			LWS_EXT_CALLBACK_IS_WRITEABLE,
-				       wsi->active_extensions_user[n], NULL, 0);
-		if (m > handled)
-			handled = m;
-	}
-
+	m = lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_IS_WRITEABLE,
+								       NULL, 0);
 	if (handled == 1)
 		goto notify_action;
-
+#ifndef LWS_NO_EXTENSIONS
 	if (!wsi->extension_data_pending || handled == 2)
 		goto user_service;
-
+#endif
 	/*
 	 * check in on the active extensions, see if they
 	 * had pending stuff to spill... they need to get the
@@ -695,24 +618,20 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		eff_buf.token_len = 0;
 
 		/* give every extension a chance to spill */
-
-		for (n = 0; n < wsi->count_active_extensions; n++) {
-			m = wsi->active_extensions[n]->callback(
-				wsi->protocol->owning_server,
-				wsi->active_extensions[n], wsi,
+		
+		m = lws_ext_callback_for_each_active(wsi,
 					LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
-				   wsi->active_extensions_user[n], &eff_buf, 0);
-			if (m < 0) {
-				lwsl_err("ext reports fatal error\n");
-				return -1;
-			}
-			if (m)
-				/*
-				 * at least one extension told us he has more
-				 * to spill, so we will go around again after
-				 */
-				ret = 1;
+							           &eff_buf, 0);
+		if (m < 0) {
+			lwsl_err("ext reports fatal error\n");
+			return -1;
 		}
+		if (m)
+			/*
+			 * at least one extension told us he has more
+			 * to spill, so we will go around again after
+			 */
+			ret = 1;
 
 		/* assuming they gave us something to send, send it */
 
@@ -757,7 +676,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 
 		return 0;
 	}
-
+#ifndef LWS_NO_EXTENSIONS
 	wsi->extension_data_pending = 0;
 
 user_service:
@@ -773,10 +692,8 @@ user_service:
 				(struct ev_io *)&wsi->w_write);
 #endif /* LWS_USE_LIBEV */
 	}
-#ifndef LWS_NO_EXTENSIONS
-notify_action:
-#endif
 
+notify_action:
 	if (wsi->mode == LWS_CONNMODE_WS_CLIENT)
 		n = LWS_CALLBACK_CLIENT_WRITEABLE;
 	else
@@ -793,20 +710,12 @@ int
 libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 				     struct libwebsocket *wsi, unsigned int sec)
 {
-#ifndef LWS_NO_EXTENSIONS
-	int n;
-
 	/*
 	 * if extensions want in on it (eg, we are a mux parent)
 	 * give them a chance to service child timeouts
 	 */
-
-	for (n = 0; n < wsi->count_active_extensions; n++)
-		wsi->active_extensions[n]->callback(
-				    context, wsi->active_extensions[n],
-				    wsi, LWS_EXT_CALLBACK_1HZ,
-				    wsi->active_extensions_user[n], NULL, sec);
-#endif
+	if (lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_1HZ, NULL, sec) < 0)
+		return 0;
 
 	if (!wsi->pending_timeout)
 		return 0;
@@ -815,11 +724,10 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 	 * if we went beyond the allowed time, kill the
 	 * connection
 	 */
-
 	if (sec > wsi->pending_timeout_limit) {
 		lwsl_info("TIMEDOUT WAITING\n");
 		libwebsocket_close_and_free_session(context,
-				wsi, LWS_CLOSE_STATUS_NOSTATUS);
+						wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		return 1;
 	}
 
@@ -861,10 +769,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	int timed_out = 0;
 	int our_fd = 0;
 	char draining_flow = 0;
-
-#ifndef LWS_NO_EXTENSIONS
-	int more = 1;
-#endif
+	int more;
 	struct lws_tokens eff_buf;
 
 	if (context->listen_service_fd)
@@ -1065,27 +970,18 @@ read_pending:
 
 		eff_buf.token = (char *)context->service_buffer;
 drain:
-#ifndef LWS_NO_EXTENSIONS
-		more = 1;
-		while (more) {
+
+		do {
 
 			more = 0;
+			
+			m = lws_ext_callback_for_each_active(wsi,
+				LWS_EXT_CALLBACK_PACKET_RX_PREPARSE, &eff_buf, 0);
+			if (m < 0)
+				goto close_and_handled;
+			if (m)
+				more = 1;
 
-			for (n = 0; n < wsi->count_active_extensions; n++) {
-				m = wsi->active_extensions[n]->callback(context,
-					wsi->active_extensions[n], wsi,
-					LWS_EXT_CALLBACK_PACKET_RX_PREPARSE,
-					wsi->active_extensions_user[n],
-								   &eff_buf, 0);
-				if (m < 0) {
-					lwsl_ext(
-					    "Extension reports fatal error\n");
-					goto close_and_handled;
-				}
-				if (m)
-					more = 1;
-			}
-#endif
 			/* service incoming data */
 
 			if (eff_buf.token_len) {
@@ -1098,11 +994,11 @@ drain:
 					goto handled;
 				}
 			}
-#ifndef LWS_NO_EXTENSIONS
+
 			eff_buf.token = NULL;
 			eff_buf.token_len = 0;
-		}
-#endif
+		} while (more);
+
 		if (draining_flow && wsi->u.ws.rxflow_buffer &&
 				 wsi->u.ws.rxflow_pos == wsi->u.ws.rxflow_len) {
 			lwsl_info("flow buffer: drained\n");
@@ -1152,10 +1048,6 @@ LWS_VISIBLE void
 libwebsocket_context_destroy(struct libwebsocket_context *context)
 {
 	int n;
-#ifndef LWS_NO_EXTENSIONS
-	int m;
-	struct libwebsocket_extension *ext;
-#endif /* ndef LWS_NO_EXTENSIONS */
 	struct libwebsocket_protocols *protocol = context->protocols;
 
 #ifdef LWS_LATENCY
@@ -1173,23 +1065,16 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 		n--;
 	}
 
-#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * give all extensions a chance to clean up any per-context
 	 * allocations they might have made
 	 */
-
-	ext = context->extensions;
-	m = LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT;
-	if (context->listen_port)
-		m = LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT;
-	while (ext && ext->callback) {
-		ext->callback(context, ext, NULL,
-			(enum libwebsocket_extension_callback_reasons)m,
-								 NULL, NULL, 0);
-		ext++;
-	}
-#endif /* ndef LWS_NO_EXTENSIONS */
+	if (context->listen_port) {
+		if (lws_ext_callback_for_each_extension_type(context, NULL, LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0) < 0)
+			return;
+	} else
+		if (lws_ext_callback_for_each_extension_type(context, NULL, LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0) < 0)
+			return;
 
 	/*
 	 * inform all the protocols that they are done and will have no more
@@ -1344,25 +1229,10 @@ LWS_VISIBLE int
 libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi)
 {
-#ifndef LWS_NO_EXTENSIONS
-	int n;
-	int handled = 0;
-
-	/* maybe an extension will take care of it for us */
-
-	for (n = 0; n < wsi->count_active_extensions; n++) {
-		if (!wsi->active_extensions[n]->callback)
-			continue;
-
-		handled |= wsi->active_extensions[n]->callback(context,
-			wsi->active_extensions[n], wsi,
-			LWS_EXT_CALLBACK_REQUEST_ON_WRITEABLE,
-				       wsi->active_extensions_user[n], NULL, 0);
-	}
-
-	if (handled)
+	if (lws_ext_callback_for_each_active(wsi,
+				LWS_EXT_CALLBACK_REQUEST_ON_WRITEABLE, NULL, 0))
 		return 1;
-#endif
+
 	if (wsi->position_in_fds_table < 0) {
 		lwsl_err("%s: failed to find socket %d\n", __func__, wsi->sock);
 		return -1;
@@ -1714,10 +1584,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #endif
 	struct sockaddr_in serv_addr4;
 	struct sockaddr *v;
-#endif
-#ifndef LWS_NO_EXTENSIONS
-	int m;
-	struct libwebsocket_extension *ext;
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -2212,9 +2078,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		}
 		memset(wsi, 0, sizeof(struct libwebsocket));
 		wsi->sock = sockfd;
-#ifndef LWS_NO_EXTENSIONS
-		wsi->count_active_extensions = 0;
-#endif
 		wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
 
 		insert_wsi_socket_into_fds(context, wsi);
@@ -2257,27 +2120,21 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 			       NULL, LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
 	}
 
-#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * give all extensions a chance to create any per-context
 	 * allocations they need
 	 */
 
-	m = LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT;
-	if (info->port != CONTEXT_PORT_NO_LISTEN)
-		m = LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT;
-
-	if (info->extensions) {
-		ext = info->extensions;
-		while (ext->callback) {
-			lwsl_ext("  Extension: %s\n", ext->name);
-			ext->callback(context, ext, NULL,
-			(enum libwebsocket_extension_callback_reasons)m,
-								NULL, NULL, 0);
-			ext++;
-		}
-	}
-#endif
+	if (info->port != CONTEXT_PORT_NO_LISTEN) {
+		if (lws_ext_callback_for_each_extension_type(context, NULL,
+				LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT,
+								   NULL, 0) < 0)
+			goto bail;
+	} else
+		if (lws_ext_callback_for_each_extension_type(context, NULL,
+				LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT,
+								   NULL, 0) < 0)
+			goto bail;
 
 	return context;
 
