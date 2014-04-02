@@ -118,7 +118,8 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		 * happening at a time when there's no real connection yet
 		 */
 
-		lws_change_pollfd(wsi, LWS_POLLOUT, 0);
+		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+			return -1;
 
 		/* we can retry this... just cook the SSL BIO the first time */
 

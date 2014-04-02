@@ -26,6 +26,10 @@
 extern "C" {
 #include <cstddef>
 #endif
+	
+#ifdef CMAKE_BUILD
+#include "lws_config.h"
+#endif
 
 #if defined(WIN32) || defined(_WIN32)
 
@@ -73,6 +77,13 @@ extern "C" {
 
 #ifndef LWS_EXTERN
 #define LWS_EXTERN extern
+#endif
+	
+#ifdef _WIN32
+#define random rand
+#else
+#include <sys/time.h>
+#include <unistd.h>
 #endif
 
 #define CONTEXT_PORT_NO_LISTEN -1

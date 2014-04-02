@@ -25,8 +25,17 @@
 #else
 #if defined(WIN32) || defined(_WIN32)
 #define inline __inline
+#include <tchar.h>
 #else
 #include "config.h"
+#ifdef LWS_BUILTIN_GETIFADDRS
+#include <getifaddrs.h>
+#else
+#include <ifaddrs.h>
+#endif
+#include <sys/un.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #endif
 #endif
 
@@ -58,11 +67,21 @@
 #define SHUT_RDWR SD_BOTH
 #define SOL_TCP IPPROTO_TCP
 
-#define compatible_close(fd) closesocket(fd);
+#define compatible_close(fd) closesocket(fd)
+#define compatible_file_close(fd) CloseHandle(fd)
+#define compatible_file_seek_cur(fd, offset) SetFilePointer(fd, offset, FILE_CURRENT)
+#define compatible_file_read(amount, fd, buf, len) {\
+	DWORD _amount; \
+	if (!ReadFile(fd, buf, len, &amount, NULL)) \
+		amount = -1; \
+	else \
+		amount = _amount; \
+	}
+#define lws_set_blocking_send(wsi) wsi->sock_send_blocking = TRUE
 #include <winsock2.h>
 #include <windows.h>
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
-#else
+#else /* not windows --> */
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -98,7 +117,12 @@
 #define LWS_POLLHUP (POLLHUP|POLLERR)
 #define LWS_POLLIN (POLLIN)
 #define LWS_POLLOUT (POLLOUT)
-#define compatible_close(fd) close(fd);
+#define compatible_close(fd) close(fd)
+#define compatible_file_close(fd) close(fd)
+#define compatible_file_seek_cur(fd, offset) lseek(fd, offset, SEEK_CUR)
+#define compatible_file_read(amount, fd, buf, len) \
+		amount = read(fd, buf, len);
+#define lws_set_blocking_send(wsi)
 #endif
 
 #ifndef HAVE_BZERO
@@ -125,6 +149,54 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #endif
 
 #include "libwebsockets.h"
+
+#if defined(WIN32) || defined(_WIN32)
+
+#ifndef BIG_ENDIAN
+#define BIG_ENDIAN    4321  /* to show byte order (taken from gcc) */
+#endif
+#ifndef LITTLE_ENDIAN
+#define LITTLE_ENDIAN 1234
+#endif
+#ifndef BYTE_ORDER
+#define BYTE_ORDER LITTLE_ENDIAN
+#endif
+typedef unsigned __int64 u_int64_t;
+
+#undef __P
+#ifndef __P
+#if __STDC__
+#define __P(protos) protos
+#else
+#define __P(protos) ()
+#endif
+#endif
+
+#else
+
+#include <sys/stat.h>
+#include <sys/cdefs.h>
+#include <sys/time.h>
+
+#if defined(__APPLE__)
+#include <machine/endian.h>
+#elif defined(__FreeBSD__)
+#include <sys/endian.h>
+#elif defined(__linux__)
+#include <endian.h>
+#endif
+
+#if !defined(BYTE_ORDER)
+# define BYTE_ORDER __BYTE_ORDER
+#endif
+#if !defined(LITTLE_ENDIAN)
+# define LITTLE_ENDIAN __LITTLE_ENDIAN
+#endif
+#if !defined(BIG_ENDIAN)
+# define BIG_ENDIAN __BIG_ENDIAN
+#endif
+
+#endif
 
 /*
  * Mac OSX as well as iOS do not define the MSG_NOSIGNAL flag,
@@ -594,7 +666,7 @@ user_callback_handle_rxflow(callback_function,
 							  void *in, size_t len);
 
 LWS_EXTERN int
-lws_set_socket_options(struct libwebsocket_context *context, int fd);
+lws_plat_set_socket_options(struct libwebsocket_context *context, int fd);
 
 LWS_EXTERN int
 lws_allocate_header_table(struct libwebsocket *wsi);
@@ -609,7 +681,7 @@ lws_hdr_simple_create(struct libwebsocket *wsi,
 LWS_EXTERN int
 libwebsocket_ensure_user_space(struct libwebsocket *wsi);
 
-LWS_EXTERN void
+LWS_EXTERN int
 lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or);
 
 #ifndef LWS_NO_SERVER
@@ -623,6 +695,12 @@ LWS_EXTERN int get_daemonize_pid();
 
 extern int interface_to_sa(struct libwebsocket_context *context,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen);
+
+#ifdef _WIN32
+LWS_EXTERN HANDLE lws_plat_open_file(const char* filename, unsigned long* filelen);
+#else
+LWS_EXTERN int lws_plat_open_file(const char* filename, unsigned long* filelen);
+#endif
 
 #ifndef LWS_OPENSSL_SUPPORT
 

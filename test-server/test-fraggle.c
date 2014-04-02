@@ -23,18 +23,6 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <string.h>
-
-#ifdef _WIN32
-#define random rand
-#else
-#include <sys/time.h>
-#include <unistd.h>
-#endif
-
-#ifdef CMAKE_BUILD
-#include "lws_config.h"
-#endif
-
 #include "../lib/libwebsockets.h"
 
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"

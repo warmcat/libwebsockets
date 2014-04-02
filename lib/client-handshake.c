@@ -119,7 +119,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			goto oom4;
 		}
 
-		if (lws_set_socket_options(context, wsi->sock)) {
+		if (lws_plat_set_socket_options(context, wsi->sock)) {
 			lwsl_err("Failed to set wsi socket options\n");
 			compatible_close(wsi->sock);
 			goto oom4;
@@ -186,7 +186,8 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			 * must do specifically a POLLOUT poll to hear
 			 * about the connect completion
 			 */
-			lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+				goto oom4;
 
 			return wsi;
 		}

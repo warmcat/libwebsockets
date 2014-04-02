@@ -22,19 +22,6 @@
 
 #include "private-libwebsockets.h"
 
-#if defined(WIN32) || defined(_WIN32)
-#include <tchar.h>
-#else
-#ifdef LWS_BUILTIN_GETIFADDRS
-#include <getifaddrs.h>
-#else
-#include <ifaddrs.h>
-#endif
-#include <sys/un.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#endif
-
 #ifdef LWS_OPENSSL_SUPPORT
 
 static void
@@ -187,7 +174,8 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			break;
 
 		/* one shot */
-		lws_change_pollfd(wsi, LWS_POLLOUT, 0);
+		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+			goto fail;
 #ifdef LWS_USE_LIBEV
 		if (LWS_LIBEV_ENABLED(context))
 			ev_io_stop(context->io_loop,
@@ -239,7 +227,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			break;
 		}
 
-		lws_set_socket_options(context, accept_fd);
+		lws_plat_set_socket_options(context, accept_fd);
 
 		/*
 		 * look at who we connected to and give user code a chance
@@ -357,7 +345,8 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 	case LWS_CONNMODE_SSL_ACK_PENDING:
 
-		lws_change_pollfd(wsi, LWS_POLLOUT, 0);
+		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+			goto fail;
 #ifdef LWS_USE_LIBEV
 		if (LWS_LIBEV_ENABLED(context))
 			ev_io_stop(context->io_loop,
@@ -406,7 +395,8 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 						  m, ERR_error_string(m, NULL));
 
 			if (m == SSL_ERROR_WANT_READ) {
-				lws_change_pollfd(wsi, 0, LWS_POLLIN);
+				if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+					goto fail;
 #ifdef LWS_USE_LIBEV
 				if (LWS_LIBEV_ENABLED(context))
 		                    ev_io_start(context->io_loop,
@@ -416,7 +406,8 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				break;
 			}
 			if (m == SSL_ERROR_WANT_WRITE) {
-				lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+				if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+					goto fail;
 #ifdef LWS_USE_LIBEV
 				if (LWS_LIBEV_ENABLED(context))
 					ev_io_start(context->io_loop,
@@ -448,6 +439,11 @@ accepted:
 		break;
 	}
 	return 0;
+	
+fail:
+	libwebsocket_close_and_free_session(context, wsi,
+						 LWS_CLOSE_STATUS_NOSTATUS);
+	return 1;
 }
 
 
@@ -520,37 +516,6 @@ LWS_VISIBLE int libwebsockets_return_http_status(
 	return m;
 }
 
-#if defined(WIN32) || defined(_WIN32)
-static inline HANDLE lws_open_file(const char* filename, unsigned long* filelen)
-{
-	HANDLE ret;
-	WCHAR buffer[MAX_PATH];
-
-	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buffer,
-				sizeof(buffer) / sizeof(buffer[0]));
-	ret = CreateFileW(buffer, GENERIC_READ, FILE_SHARE_READ,
-				NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-
-	if (ret != LWS_INVALID_FILE)
-		*filelen = GetFileSize(ret, NULL);
-
-	return ret;
-}
-#else
-static inline int lws_open_file(const char* filename, unsigned long* filelen)
-{
-	struct stat stat_buf;
-	int ret = open(filename, O_RDONLY);
-
-	if (ret < 0)
-		return LWS_INVALID_FILE;
-
-	fstat(ret, &stat_buf);
-	*filelen = stat_buf.st_size;
-	return ret;
-}
-#endif
-
 /**
  * libwebsockets_serve_http_file() - Send a file back to the client using http
  * @context:		libwebsockets context
@@ -578,7 +543,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 	int ret = 0;
 	int n;
 
-	wsi->u.http.fd = lws_open_file(file, &wsi->u.http.filelen);
+	wsi->u.http.fd = lws_plat_open_file(file, &wsi->u.http.filelen);
 
 	if (wsi->u.http.fd == LWS_INVALID_FILE) {
 		lwsl_err("Unable to open '%s'\n", file);

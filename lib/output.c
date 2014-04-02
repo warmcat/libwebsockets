@@ -86,13 +86,6 @@ LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 
 #endif
 
-static void lws_set_blocking_send(struct libwebsocket *wsi)
-{
-#ifdef _WIN32
-	wsi->sock_send_blocking = TRUE;
-#endif
-}
-
 /*
  * notice this returns number of bytes consumed, or -1
  */
@@ -102,7 +95,6 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
 	int n;
 	size_t real_len = len;
-
 #ifndef LWS_NO_EXTENSIONS
 	int m;
 #endif
@@ -150,19 +142,6 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	/*
 	 * nope, send it on the socket directly
 	 */
-
-#if 0
-	lwsl_debug("  TX: ");
-	lws_hexdump(buf, len);
-#endif
-
-#if 0
-	/* test partial send support by forcing multiple sends on everything */
-	len = len / 2;
-	if (!len)
-		len = 1;
-#endif
-
 	lws_latency_pre(context, wsi);
 #ifdef LWS_OPENSSL_SUPPORT
 	if (wsi->ssl) {
@@ -186,8 +165,9 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
 		lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
 		if (n < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK
-				                        || LWS_ERRNO == LWS_EINTR) {
+			if (LWS_ERRNO == LWS_EAGAIN ||
+			    LWS_ERRNO == LWS_EWOULDBLOCK ||
+			    LWS_ERRNO == LWS_EINTR) {
 				if (LWS_ERRNO == LWS_EWOULDBLOCK)
 					lws_set_blocking_send(wsi);
 				n = 0;
@@ -201,7 +181,6 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 #endif
 
 handle_truncated_send:
-
 	/*
 	 * already handling a truncated send?
 	 */
@@ -604,12 +583,6 @@ do_more_inside_frame:
 	}
 
 send_raw:
-
-#if 0
-	lwsl_debug("send %ld: ", len + pre + post);
-	lwsl_hexdump(&buf[-pre], len + pre + post);
-#endif
-
 	switch (protocol) {
 	case LWS_WRITE_CLOSE:
 /*		lwsl_hexdump(&buf[-pre], len + post); */
@@ -666,11 +639,7 @@ send_raw:
 LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		struct libwebsocket_context *context, struct libwebsocket *wsi)
 {
-#if defined(WIN32) || defined(_WIN32)
-	DWORD n;
-#else
 	int n;
-#endif
 	int m;
 
 	while (!lws_send_pipe_choked(wsi)) {
@@ -685,17 +654,10 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		if (wsi->u.http.filepos == wsi->u.http.filelen)
 			goto all_sent;
 
-#if defined(WIN32) || defined(_WIN32)
-		if (!ReadFile(wsi->u.http.fd, context->service_buffer,
-				     sizeof(context->service_buffer), &n, NULL))
-			return -1; /* caller will close */
-#else
-		n = read(wsi->u.http.fd, context->service_buffer,
+		compatible_file_read(n, wsi->u.http.fd, context->service_buffer,
 					       sizeof(context->service_buffer));
-
 		if (n < 0)
 			return -1; /* caller will close */
-#endif
 		if (n) {
 			m = libwebsocket_write(wsi, context->service_buffer, n,
 								LWS_WRITE_HTTP);
@@ -703,15 +665,9 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 				return -1;
 
 			wsi->u.http.filepos += m;
-			if (m != n) {
+			if (m != n)
 				/* adjust for what was not sent */
-#if defined(WIN32) || defined(_WIN32)
-				SetFilePointer(wsi->u.http.fd, m - n,
-							NULL, FILE_CURRENT);
-#else
-				lseek(wsi->u.http.fd, m - n, SEEK_CUR);
-#endif
-			}
+				compatible_file_seek_cur(wsi->u.http.fd, m - n);
 		}
 all_sent:
 		if (!wsi->truncated_send_len &&

@@ -78,3 +78,221 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 {
 	lwsl_emit_stderr(level, line);
 }
+
+LWS_VISIBLE int
+lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
+{
+	int n;
+	int i;
+	DWORD ev;
+	WSANETWORKEVENTS networkevents;
+	struct libwebsocket_pollfd *pfd;
+
+	/* stay dead once we are dead */
+
+	if (context == NULL)
+		return 1;
+
+	context->service_tid = context->protocols[0].callback(context, NULL,
+				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+
+	for (i = 0; i < context->fds_count; ++i) {
+		pfd = &context->fds[i];
+		if (pfd->fd == context->listen_service_fd)
+			continue;
+
+		if (pfd->events & LWS_POLLOUT) {
+			if (context->lws_lookup[pfd->fd]->sock_send_blocking)
+				continue;
+			pfd->revents = LWS_POLLOUT;
+			n = libwebsocket_service_fd(context, pfd);
+			if (n < 0)
+				return n;
+		}
+	}
+
+	ev = WSAWaitForMultipleEvents(context->fds_count + 1,
+				     context->events, FALSE, timeout_ms, FALSE);
+	context->service_tid = 0;
+
+	if (ev == WSA_WAIT_TIMEOUT) {
+		libwebsocket_service_fd(context, NULL);
+		return 0;
+	}
+
+	if (ev == WSA_WAIT_EVENT_0) {
+		WSAResetEvent(context->events[0]);
+		return 0;
+	}
+
+	if (ev < WSA_WAIT_EVENT_0 || ev > WSA_WAIT_EVENT_0 + context->fds_count)
+		return -1;
+
+	pfd = &context->fds[ev - WSA_WAIT_EVENT_0 - 1];
+
+	if (WSAEnumNetworkEvents(pfd->fd,
+			context->events[ev - WSA_WAIT_EVENT_0],
+					      &networkevents) == SOCKET_ERROR) {
+		lwsl_err("WSAEnumNetworkEvents() failed with error %d\n",
+								     LWS_ERRNO);
+		return -1;
+	}
+
+	pfd->revents = networkevents.lNetworkEvents;
+
+	if (pfd->revents & LWS_POLLOUT)
+		context->lws_lookup[pfd->fd]->sock_send_blocking = FALSE;
+
+	return libwebsocket_service_fd(context, pfd);
+}
+
+int lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
+{
+	int optval = 1;
+	socklen_t optlen = sizeof(optval);
+	u_long optl = 1;
+	DWORD dwBytesRet;
+	struct tcp_keepalive alive;
+			
+	if (context->ka_time) {
+		/* enable keepalive on this socket */
+		optval = 1;
+		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
+					     (const void *)&optval, optlen) < 0)
+			return 1;
+
+		alive.onoff = TRUE;
+		alive.keepalivetime = context->ka_time;
+		alive.keepaliveinterval = context->ka_interval;
+
+		if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive), 
+					      NULL, 0, &dwBytesRet, NULL, NULL))
+			return 1;
+	}
+
+	/* Disable Nagle */
+	optval = 1;
+	tcp_proto = getprotobyname("TCP");
+	setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, &optval, optlen);
+
+	/* We are nonblocking... */
+	ioctlsocket(fd, FIONBIO, &optl);
+
+	return 0;
+}
+
+static void lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
+{
+}
+
+static int lws_plat_init_fd_tables(struct libwebsocket_context *context)
+{
+	context->events = (WSAEVENT *)malloc(sizeof(WSAEVENT) *
+							(context->max_fds + 1));
+	if (context->events == NULL) {
+		lwsl_err("Unable to allocate events array for %d connections\n",
+			context->max_fds);
+		return 1;
+	}
+	
+	context->fds_count = 0;
+	context->events[0] = WSACreateEvent();
+	
+	context->fd_random = 0;
+
+	return 0;
+}
+
+static int lws_plat_context_early_init(void)
+{
+	WORD wVersionRequested;
+	WSADATA wsaData;
+	int err;
+
+	/* Use the MAKEWORD(lowbyte, highbyte) macro from Windef.h */
+	wVersionRequested = MAKEWORD(2, 2);
+
+	err = WSAStartup(wVersionRequested, &wsaData);
+	if (!err)
+		return 0;
+	/*
+	 * Tell the user that we could not find a usable
+	 * Winsock DLL
+	 */
+	lwsl_err("WSAStartup failed with error: %d\n", err);
+
+	return 1;
+}
+
+static void lws_plat_context_early_destroy(struct libwebsocket_context *context)
+{
+	if (context->events) {
+		WSACloseEvent(context->events[0]);
+		free(context->events);
+	}
+}
+
+static void lws_plat_context_late_destroy(struct libwebsocket_context *context)
+{
+	WSACleanup();
+}
+
+int
+interface_to_sa(struct libwebsocket_context *context,
+		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
+{
+	return -1;
+}
+
+void lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
+						       struct libwebsocket *wsi)
+{
+	context->fds[context->fds_count++].revents = 0;
+	context->events[context->fds_count] = WSACreateEvent();
+	WSAEventSelect(wsi->sock, context->events[context->fds_count], LWS_POLLIN);
+}
+
+static void lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
+						struct libwebsocket *wsi, int m)
+{
+	WSACloseEvent(context->events[m + 1]);
+	context->events[m + 1] = context->events[context->fds_count + 1];
+}
+
+static void lws_plat_service_periodic(struct libwebsocket_context *context)
+{
+}
+
+static int lws_plat_change_pollfd(struct libwebsocket_context *context,
+		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
+{
+	long networkevents = LWS_POLLOUT | LWS_POLLHUP;
+		
+	if ((pfd->events & LWS_POLLIN))
+		networkevents |= LWS_POLLIN;
+
+	if (WSAEventSelect(wsi->sock,
+			context->events[wsi->position_in_fds_table + 1],
+					       networkevents) != SOCKET_ERROR)
+		return 0;
+
+	lwsl_err("WSAEventSelect() failed with error %d\n", LWS_ERRNO);
+
+	return 1;
+}
+
+HANDLE lws_plat_open_file(const char* filename, unsigned long* filelen)
+{
+	HANDLE ret;
+	WCHAR buffer[MAX_PATH];
+
+	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buffer,
+				sizeof(buffer) / sizeof(buffer[0]));
+	ret = CreateFileW(buffer, GENERIC_READ, FILE_SHARE_READ,
+				NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	if (ret != LWS_INVALID_FILE)
+		*filelen = GetFileSize(ret, NULL);
+
+	return ret;
+}
