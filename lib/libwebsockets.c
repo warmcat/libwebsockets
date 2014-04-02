@@ -33,25 +33,6 @@ static int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
 static void lwsl_emit_stderr(int level, const char *line);
 static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
 
-void lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
-					       struct libwebsocket *wsi, int m);
-void lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
-						       struct libwebsocket *wsi);
-void lws_plat_service_periodic(struct libwebsocket_context *context);
-
-int lws_plat_change_pollfd(struct libwebsocket_context *context,
-		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd);
-int lws_plat_context_early_init(void);
-void lws_plat_context_early_destroy(struct libwebsocket_context *context);
-void lws_plat_context_late_destroy(struct libwebsocket_context *context);
-int lws_poll_listen_fd(struct libwebsocket_pollfd *fd);
-int
-lws_plat_service(struct libwebsocket_context *context, int timeout_ms);
-int lws_plat_init_fd_tables(struct libwebsocket_context *context);
-void lws_plat_drop_app_privileges(struct lws_context_creation_info *info);
-unsigned long long time_in_microseconds(void);
-const char *lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
-
 #ifdef LWS_USE_LIBEV
 #define _LWS_EV_TAG " libev"
 #else
@@ -72,17 +53,6 @@ static const char * const log_level_names[] = {
 	"CLIENT",
 	"LATENCY",
 };
-
-#ifndef LWS_NO_CLIENT
-	extern int lws_client_socket_service(
-		struct libwebsocket_context *context,
-		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
-#endif
-#ifndef LWS_NO_SERVER
-	extern int lws_server_socket_service(
-		struct libwebsocket_context *context,
-		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
-#endif
 
 /**
  * lws_get_library_version: get version and git hash library built from

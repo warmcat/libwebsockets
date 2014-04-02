@@ -312,7 +312,7 @@ lws_plat_open_file(const char* filename, unsigned long* filelen)
 
 #ifdef LWS_USE_IPV6
 /* 
- * Windows doesn't have an "inet_top"
+ * Windows doesn't have an "inet_ntop"
  * This came from http://memset.wordpress.com/2010/10/09/inet_ntop-for-win32/
  * suggested by Joakim Soderberg
  */
@@ -327,12 +327,12 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 	memcpy(&(srcaddr.sin_addr), src, sizeof(srcaddr.sin_addr));
 
 	srcaddr.sin_family = af;
-	if (!WSAAddressToString((struct sockaddr*) &srcaddr,
-			    sizeof(struct sockaddr_in), 0, dst, (LPDWORD) &cnt))
+	if (!WSAAddressToString((struct sockaddr*)&srcaddr,
+			    sizeof(struct sockaddr_in), 0, dst, (LPDWORD)&cnt))
 		return dst;
 
 	rv = WSAGetLastError();
-	lwsl_err("WSAAddressToString() : %d\n",rv);
+	lwsl_err("WSAAddressToString() : %d\n", rv);
 
 	return NULL;
 }

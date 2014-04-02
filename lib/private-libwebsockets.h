@@ -713,7 +713,7 @@ LWS_EXTERN int handshake_0405(struct libwebsocket_context *context,
 LWS_EXTERN int get_daemonize_pid();
 #endif
 
-extern int interface_to_sa(struct libwebsocket_context *context,
+LWS_EXTERN int interface_to_sa(struct libwebsocket_context *context,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen);
 
 #ifdef _WIN32
@@ -732,3 +732,48 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md);
 LWS_EXTERN int openssl_websocket_private_data_index;
 
 #endif
+
+#ifndef LWS_NO_CLIENT
+	LWS_EXTERN int lws_client_socket_service(
+		struct libwebsocket_context *context,
+		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
+#endif
+#ifndef LWS_NO_SERVER
+	LWS_EXTERN int lws_server_socket_service(
+		struct libwebsocket_context *context,
+		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
+#endif
+
+/*
+ * lws_plat_
+ */
+LWS_EXTERN void
+lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
+					       struct libwebsocket *wsi, int m);
+LWS_EXTERN void
+lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
+						      struct libwebsocket *wsi);
+LWS_EXTERN void
+lws_plat_service_periodic(struct libwebsocket_context *context);
+
+LWS_EXTERN int
+lws_plat_change_pollfd(struct libwebsocket_context *context,
+		     struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd);
+LWS_EXTERN int
+lws_plat_context_early_init(void);
+LWS_EXTERN void
+lws_plat_context_early_destroy(struct libwebsocket_context *context);
+LWS_EXTERN void
+lws_plat_context_late_destroy(struct libwebsocket_context *context);
+LWS_EXTERN int
+lws_poll_listen_fd(struct libwebsocket_pollfd *fd);
+LWS_EXTERN int
+lws_plat_service(struct libwebsocket_context *context, int timeout_ms);
+LWS_EXTERN int
+lws_plat_init_fd_tables(struct libwebsocket_context *context);
+LWS_EXTERN void
+lws_plat_drop_app_privileges(struct lws_context_creation_info *info);
+LWS_EXTERN unsigned long long
+time_in_microseconds(void);
+LWS_EXTERN const char *
+lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
