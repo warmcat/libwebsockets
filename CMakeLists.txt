@@ -260,6 +260,7 @@ set(SOURCES
 	lib/base64-decode.c
 	lib/handshake.c
 	lib/libwebsockets.c
+	lib/service.c
 	lib/output.c
 	lib/parsers.c
 	lib/context.c
