@@ -261,6 +261,7 @@ set(SOURCES
 	lib/handshake.c
 	lib/libwebsockets.c
 	lib/service.c
+	lib/pollfd.c
 	lib/output.c
 	lib/parsers.c
 	lib/context.c

@@ -590,6 +590,10 @@ LWS_EXTERN void
 libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 			       struct libwebsocket *wsi, enum lws_close_status);
 
+LWS_EXTERN int
+remove_wsi_socket_from_fds(struct libwebsocket_context *context,
+						      struct libwebsocket *wsi);
+
 #ifndef LWS_LATENCY
 static inline void lws_latency(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, const char *action,
