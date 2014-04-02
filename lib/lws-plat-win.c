@@ -310,14 +310,15 @@ lws_plat_open_file(const char* filename, unsigned long* filelen)
 	return ret;
 }
 
+#ifdef LWS_USE_IPV6
 /* 
  * Windows doesn't have an "inet_top"
  * This came from http://memset.wordpress.com/2010/10/09/inet_ntop-for-win32/
  * suggested by Joakim Soderberg
  */
 
-LWS_VISIBLE
-const char *inet_ntop(int af, const void *src, char *dst, int cnt)
+LWS_VISIBLE const char *
+lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 { 
 	struct sockaddr_in srcaddr;
 	DWORD rv;
@@ -335,3 +336,4 @@ const char *inet_ntop(int af, const void *src, char *dst, int cnt)
 
 	return NULL;
 }
+#endif

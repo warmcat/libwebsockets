@@ -50,6 +50,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms);
 int lws_plat_init_fd_tables(struct libwebsocket_context *context);
 void lws_plat_drop_app_privileges(struct lws_context_creation_info *info);
 unsigned long long time_in_microseconds(void);
+const char *lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
 
 #ifdef LWS_USE_LIBEV
 #define _LWS_EV_TAG " libev"
@@ -503,15 +504,14 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 			goto bail;
 		}
 
-		if (inet_ntop(AF_INET6, &sin6.sin6_addr, rip, rip_len) == NULL) {
-			perror("inet_ntop");
+		if (!lws_plat_inet_ntop(AF_INET6, &sin6.sin6_addr, rip, rip_len)) {
+			lwsl_err("inet_ntop", strerror(LWS_ERRNO));
 			goto bail;
 		}
 
 		// Strip off the IPv4 to IPv6 header if one exists
-		if (strncmp(rip, "::ffff:", 7) == 0) {
+		if (strncmp(rip, "::ffff:", 7) == 0)
 			memmove(rip, rip + 7, strlen(rip) - 6);
-		}
 
 		getnameinfo((struct sockaddr *)&sin6,
 				sizeof(struct sockaddr_in6), name,
