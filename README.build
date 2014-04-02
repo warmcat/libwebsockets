@@ -65,6 +65,15 @@ Building on Unix:
 
 	make
 
+	
+Quirk of cmake
+--------------
+
+When changing cmake options, for some reason the only way to get it to see the
+changes sometimes is delete the contents of your build directory and do the
+cmake from scratch.
+
+
 Building on Windows (Visual Studio)
 -----------------------------------
 1. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
