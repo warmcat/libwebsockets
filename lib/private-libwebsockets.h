@@ -71,7 +71,7 @@
 
 #define compatible_close(fd) closesocket(fd)
 #define compatible_file_close(fd) CloseHandle(fd)
-#define compatible_file_seek_cur(fd, offset) SetFilePointer(fd, offset, FILE_CURRENT)
+#define compatible_file_seek_cur(fd, offset) SetFilePointer(fd, offset, NULL, FILE_CURRENT)
 #define compatible_file_read(amount, fd, buf, len) {\
 	DWORD _amount; \
 	if (!ReadFile(fd, buf, len, &amount, NULL)) \
