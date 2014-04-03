@@ -22,7 +22,6 @@
 #include "private-libwebsockets.h"
 
 int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
-static void lwsl_emit_stderr(int level, const char *line);
 static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
 
 static const char * const log_level_names[] = {
@@ -703,7 +702,7 @@ libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 	return 0;
 }
 
-static void lwsl_emit_stderr(int level, const char *line)
+LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 {
 	char buf[300];
 	unsigned long long now;

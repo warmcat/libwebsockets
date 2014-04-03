@@ -727,6 +727,8 @@ LWS_EXTERN int get_daemonize_pid();
 LWS_EXTERN int interface_to_sa(struct libwebsocket_context *context,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen);
 
+LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
+
 #ifdef _WIN32
 LWS_EXTERN HANDLE lws_plat_open_file(const char* filename, unsigned long* filelen);
 #else
