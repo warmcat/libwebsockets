@@ -68,13 +68,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 						   x509_ctx, ssl, preverify_ok);
 
 	/* convert return code from 0 = OK to 1 = OK */
-
-	if (!n)
-		n = 1;
-	else
-		n = 0;
-
-	return n;
+	return !n;
 }
 #endif
 
@@ -114,18 +108,9 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	struct libwebsocket_context *context = NULL;
 	char *p;
 	int n;
-#ifndef LWS_NO_SERVER
-	int opt = 1;
-	struct libwebsocket *wsi;
-#ifdef LWS_USE_IPV6
-	struct sockaddr_in6 serv_addr6;
-#endif
-	struct sockaddr_in serv_addr4;
-	struct sockaddr *v;
-#endif
-
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_METHOD *method;
+	int error;
 #endif
 
 #ifndef LWS_NO_DAEMONIZE
@@ -341,20 +326,18 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	method = (SSL_METHOD *)SSLv23_server_method();
 	if (!method) {
-        int error = ERR_get_error();
+		error = ERR_get_error();
 		lwsl_err("problem creating ssl method %lu: %s\n", 
-			error,
-			ERR_error_string(error,
+			error, ERR_error_string(error,
 					      (char *)context->service_buffer));
 		goto bail;
 	}
 	context->ssl_ctx = SSL_CTX_new(method);	/* create context */
 	if (!context->ssl_ctx) {
-        int error = ERR_get_error();
+		error = ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
-                 error,
-                 ERR_error_string(error,
-                                  (char *)context->service_buffer));
+			error, ERR_error_string(error,
+					      (char *)context->service_buffer));
 		goto bail;
 	}
 
@@ -366,110 +349,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		SSL_CTX_set_cipher_list(context->ssl_ctx,
 						info->ssl_cipher_list);
 
-#ifndef LWS_NO_CLIENT
-
-	/* client context */
-
-	if (info->port == CONTEXT_PORT_NO_LISTEN) {
-		method = (SSL_METHOD *)SSLv23_client_method();
-		if (!method) {
-            int error = ERR_get_error();
-			lwsl_err("problem creating ssl method %lu: %s\n",
-                     error,
-                     ERR_error_string(error,
-					      (char *)context->service_buffer));
-			goto bail;
-		}
-		/* create context */
-		context->ssl_client_ctx = SSL_CTX_new(method);
-		if (!context->ssl_client_ctx) {
-            int error = ERR_get_error();
-			lwsl_err("problem creating ssl context %lu: %s\n",
-                     error,
-                     ERR_error_string(error,
-					      (char *)context->service_buffer));
-			goto bail;
-		}
-
-#ifdef SSL_OP_NO_COMPRESSION
-		SSL_CTX_set_options(context->ssl_client_ctx,
-							 SSL_OP_NO_COMPRESSION);
-#endif
-		SSL_CTX_set_options(context->ssl_client_ctx,
-					       SSL_OP_CIPHER_SERVER_PREFERENCE);
-		if (info->ssl_cipher_list)
-			SSL_CTX_set_cipher_list(context->ssl_client_ctx,
-							info->ssl_cipher_list);
-
-#ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
-		/* loads OS default CA certs */
-		SSL_CTX_set_default_verify_paths(context->ssl_client_ctx);
-#endif
-
-		/* openssl init for cert verification (for client sockets) */
-		if (!info->ssl_ca_filepath) {
-			if (!SSL_CTX_load_verify_locations(
-				context->ssl_client_ctx, NULL,
-						     LWS_OPENSSL_CLIENT_CERTS))
-				lwsl_err(
-				    "Unable to load SSL Client certs from %s "
-				    "(set by --with-client-cert-dir= "
-				    "in configure) --  client ssl isn't "
-				    "going to work", LWS_OPENSSL_CLIENT_CERTS);
-		} else
-			if (!SSL_CTX_load_verify_locations(
-				context->ssl_client_ctx, info->ssl_ca_filepath,
-								  NULL))
-				lwsl_err(
-					"Unable to load SSL Client certs "
-					"file from %s -- client ssl isn't "
-					"going to work", info->ssl_ca_filepath);
-
-		/*
-		 * callback allowing user code to load extra verification certs
-		 * helping the client to verify server identity
-		 */
-
-		/* support for client-side certificate authentication */
-		if (info->ssl_cert_filepath) {
-			n = SSL_CTX_use_certificate_chain_file(
-				context->ssl_client_ctx,
-						info->ssl_cert_filepath);
-			if (n != 1) {
-				lwsl_err("problem getting cert '%s' %lu: %s\n",
-					info->ssl_cert_filepath,
-					ERR_get_error(),
-					ERR_error_string(ERR_get_error(),
-					(char *)context->service_buffer));
-				goto bail;
-			}
-		} 
-		if (info->ssl_private_key_filepath) {
-			/* set the private key from KeyFile */
-			if (SSL_CTX_use_PrivateKey_file(context->ssl_client_ctx,
-				     info->ssl_private_key_filepath,
-						       SSL_FILETYPE_PEM) != 1) {
-				lwsl_err("use_PrivateKey_file '%s' %lu: %s\n",
-					info->ssl_private_key_filepath,
-					ERR_get_error(),
-					ERR_error_string(ERR_get_error(),
-					      (char *)context->service_buffer));
-				goto bail;
-			}
-
-			/* verify private key */
-			if (!SSL_CTX_check_private_key(
-						context->ssl_client_ctx)) {
-				lwsl_err("Private SSL key doesn't match cert\n");
-				goto bail;
-			}
-		} 
-
-		context->protocols[0].callback(context, NULL,
-			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
-			context->ssl_client_ctx, NULL, 0);
-	}
-#endif
+	if (lws_context_init_client(info, context))
+		goto bail;
 
 	/* as a server, are we requiring clients to identify themselves? */
 
@@ -505,7 +386,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		n = SSL_CTX_use_certificate_chain_file(context->ssl_ctx,
 					info->ssl_cert_filepath);
 		if (n != 1) {
-            int error = ERR_get_error();
+			error = ERR_get_error();
 			lwsl_err("problem getting cert '%s' %lu: %s\n",
 				info->ssl_cert_filepath,
 				error,
@@ -517,7 +398,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
 			     info->ssl_private_key_filepath,
 						       SSL_FILETYPE_PEM) != 1) {
-            int error = ERR_get_error();
+			error = ERR_get_error();
 			lwsl_err("ssl problem getting key '%s' %lu: %s\n",
 				info->ssl_private_key_filepath,
 					error,
@@ -535,99 +416,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	}
 #endif
 
-#ifndef LWS_NO_SERVER
-	/* set up our external listening socket we serve on */
-
-	if (info->port != CONTEXT_PORT_NO_LISTEN) {
-		int sockfd;
-		struct sockaddr_in sin;
-		socklen_t len = sizeof(sin);
-
-#ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(context))
-			sockfd = socket(AF_INET6, SOCK_STREAM, 0);
-		else
-#endif
-			sockfd = socket(AF_INET, SOCK_STREAM, 0);
-
-		if (sockfd < 0) {
-			lwsl_err("ERROR opening socket\n");
-			goto bail;
-		}
-
-		/*
-		 * allow us to restart even if old sockets in TIME_WAIT
-		 */
-		setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
-					      (const void *)&opt, sizeof(opt));
-
-		lws_plat_set_socket_options(context, sockfd);
-
-#ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(context)) {
-			v = (struct sockaddr *)&serv_addr6;
-			n = sizeof(struct sockaddr_in6);
-			bzero((char *) &serv_addr6, sizeof(serv_addr6));
-			serv_addr6.sin6_addr = in6addr_any;
-			serv_addr6.sin6_family = AF_INET6;
-			serv_addr6.sin6_port = htons(info->port);
-		} else
-#endif
-		{
-			v = (struct sockaddr *)&serv_addr4;
-			n = sizeof(serv_addr4);
-			bzero((char *) &serv_addr4, sizeof(serv_addr4));
-			serv_addr4.sin_addr.s_addr = INADDR_ANY;
-			serv_addr4.sin_family = AF_INET;
-			serv_addr4.sin_port = htons(info->port);
-
-			if (info->iface) {
-				if (interface_to_sa(context, info->iface,
-					   (struct sockaddr_in *)v, n) < 0) {
-					lwsl_err("Unable to find interface %s\n",
-								info->iface);
-					compatible_close(sockfd);
-					goto bail;
-				}
-			}
-		} /* ipv4 */
-
-		n = bind(sockfd, v, n);
-		if (n < 0) {
-			lwsl_err("ERROR on binding to port %d (%d %d)\n",
-						      info->port, n, LWS_ERRNO);
-			compatible_close(sockfd);
-			goto bail;
-		}
-		
-		if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
-			lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
-		else
-			info->port = ntohs(sin.sin_port);
-	
-		context->listen_port = info->port;
-
-		wsi = (struct libwebsocket *)malloc(
-					sizeof(struct libwebsocket));
-		if (wsi == NULL) {
-			lwsl_err("Out of mem\n");
-			compatible_close(sockfd);
-			goto bail;
-		}
-		memset(wsi, 0, sizeof(struct libwebsocket));
-		wsi->sock = sockfd;
-		wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
-
-		insert_wsi_socket_into_fds(context, wsi);
-
-		context->listen_service_modulo = LWS_LISTEN_SERVICE_MODULO;
-		context->listen_service_count = 0;
-		context->listen_service_fd = sockfd;
-
-		listen(sockfd, LWS_SOMAXCONN);
-		lwsl_notice(" Listening on port %d\n", info->port);
-	}
-#endif
+	if (lws_context_init_server(info, context))
+		goto bail;
 
 	/*
 	 * drop any root privs for this process
@@ -715,10 +505,12 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	 * allocations they might have made
 	 */
 	if (context->listen_port) {
-		if (lws_ext_callback_for_each_extension_type(context, NULL, LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0) < 0)
+		if (lws_ext_callback_for_each_extension_type(context, NULL,
+			 LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0) < 0)
 			return;
 	} else
-		if (lws_ext_callback_for_each_extension_type(context, NULL, LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0) < 0)
+		if (lws_ext_callback_for_each_extension_type(context, NULL,
+			 LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0) < 0)
 			return;
 
 	/*

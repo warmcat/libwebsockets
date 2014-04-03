@@ -22,6 +22,112 @@
 
 #include "private-libwebsockets.h"
 
+int lws_context_init_server(struct lws_context_creation_info *info,
+			    struct libwebsocket_context *context)
+{
+	int n;
+	int sockfd;
+	struct sockaddr_in sin;
+	socklen_t len = sizeof(sin);
+	int opt = 1;
+	struct libwebsocket *wsi;
+#ifdef LWS_USE_IPV6
+	struct sockaddr_in6 serv_addr6;
+#endif
+	struct sockaddr_in serv_addr4;
+	struct sockaddr *v;
+
+	/* set up our external listening socket we serve on */
+
+	if (info->port == CONTEXT_PORT_NO_LISTEN)
+		return 0;
+
+#ifdef LWS_USE_IPV6
+	if (LWS_IPV6_ENABLED(context))
+		sockfd = socket(AF_INET6, SOCK_STREAM, 0);
+	else
+#endif
+		sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+	if (sockfd < 0) {
+		lwsl_err("ERROR opening socket\n");
+		return 1;
+	}
+
+	/*
+	 * allow us to restart even if old sockets in TIME_WAIT
+	 */
+	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
+				      (const void *)&opt, sizeof(opt));
+
+	lws_plat_set_socket_options(context, sockfd);
+
+#ifdef LWS_USE_IPV6
+	if (LWS_IPV6_ENABLED(context)) {
+		v = (struct sockaddr *)&serv_addr6;
+		n = sizeof(struct sockaddr_in6);
+		bzero((char *) &serv_addr6, sizeof(serv_addr6));
+		serv_addr6.sin6_addr = in6addr_any;
+		serv_addr6.sin6_family = AF_INET6;
+		serv_addr6.sin6_port = htons(info->port);
+	} else
+#endif
+	{
+		v = (struct sockaddr *)&serv_addr4;
+		n = sizeof(serv_addr4);
+		bzero((char *) &serv_addr4, sizeof(serv_addr4));
+		serv_addr4.sin_addr.s_addr = INADDR_ANY;
+		serv_addr4.sin_family = AF_INET;
+		serv_addr4.sin_port = htons(info->port);
+
+		if (info->iface) {
+			if (interface_to_sa(context, info->iface,
+				   (struct sockaddr_in *)v, n) < 0) {
+				lwsl_err("Unable to find interface %s\n",
+							info->iface);
+				compatible_close(sockfd);
+				return 1;
+			}
+		}
+	} /* ipv4 */
+
+	n = bind(sockfd, v, n);
+	if (n < 0) {
+		lwsl_err("ERROR on binding to port %d (%d %d)\n",
+					      info->port, n, LWS_ERRNO);
+		compatible_close(sockfd);
+		return 1;
+	}
+	
+	if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
+		lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
+	else
+		info->port = ntohs(sin.sin_port);
+
+	context->listen_port = info->port;
+
+	wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
+	if (wsi == NULL) {
+		lwsl_err("Out of mem\n");
+		compatible_close(sockfd);
+		return 1;
+	}
+	memset(wsi, 0, sizeof(struct libwebsocket));
+	wsi->sock = sockfd;
+	wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
+
+	insert_wsi_socket_into_fds(context, wsi);
+
+	context->listen_service_modulo = LWS_LISTEN_SERVICE_MODULO;
+	context->listen_service_count = 0;
+	context->listen_service_fd = sockfd;
+
+	listen(sockfd, LWS_SOMAXCONN);
+	lwsl_notice(" Listening on port %d\n", info->port);
+	
+	return 0;
+}
+
 #ifdef LWS_OPENSSL_SUPPORT
 
 static void

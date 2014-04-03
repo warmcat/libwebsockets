@@ -711,8 +711,12 @@ LWS_EXTERN int
 lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or);
 
 #ifndef LWS_NO_SERVER
+int lws_context_init_server(struct lws_context_creation_info *info,
+			    struct libwebsocket_context *context);
 LWS_EXTERN int handshake_0405(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi);
+#else
+#define lws_context_init_server(_a, _b) (0)
 #endif
 
 #ifndef LWS_NO_DAEMONIZE
@@ -743,6 +747,10 @@ LWS_EXTERN int openssl_websocket_private_data_index;
 	LWS_EXTERN int lws_client_socket_service(
 		struct libwebsocket_context *context,
 		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
+	LWS_EXTERN int lws_context_init_client(struct lws_context_creation_info *info,
+			    struct libwebsocket_context *context);
+#else
+#define lws_context_init_client(_a, _b) (0)
 #endif
 #ifndef LWS_NO_SERVER
 	LWS_EXTERN int lws_server_socket_service(
