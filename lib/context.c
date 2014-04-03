@@ -21,10 +21,6 @@
 
 #include "private-libwebsockets.h"
 
-#ifdef LWS_OPENSSL_SUPPORT
-int openssl_websocket_private_data_index;
-#endif
-
 #ifndef LWS_BUILD_HASH
 #define LWS_BUILD_HASH "unknown-build-hash"
 #endif
@@ -44,33 +40,6 @@ lws_get_library_version(void)
 {
 	return library_version;
 }
-
-#ifdef LWS_OPENSSL_SUPPORT
-static int
-OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
-{
-
-	SSL *ssl;
-	int n;
-	struct libwebsocket_context *context;
-
-	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
-		SSL_get_ex_data_X509_STORE_CTX_idx());
-
-	/*
-	 * !!! nasty openssl requires the index to come as a library-scope
-	 * static
-	 */
-	context = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
-
-	n = context->protocols[0].callback(NULL, NULL,
-		LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
-						   x509_ctx, ssl, preverify_ok);
-
-	/* convert return code from 0 = OK to 1 = OK */
-	return !n;
-}
-#endif
 
 /**
  * libwebsocket_create_context() - Create the websocket handler
@@ -107,11 +76,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 {
 	struct libwebsocket_context *context = NULL;
 	char *p;
-	int n;
-#ifdef LWS_OPENSSL_SUPPORT
-	SSL_METHOD *method;
-	int error;
-#endif
 
 #ifndef LWS_NO_DAEMONIZE
 	int pid_daemon = get_daemonize_pid();
@@ -297,114 +261,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	}
 #endif
 
-#ifdef LWS_OPENSSL_SUPPORT
-
-	/* basic openssl init */
-
-	SSL_library_init();
-
-	OpenSSL_add_all_algorithms();
-	SSL_load_error_strings();
-
-	openssl_websocket_private_data_index =
-		SSL_get_ex_new_index(0, "libwebsockets", NULL, NULL, NULL);
-
-	/*
-	 * Firefox insists on SSLv23 not SSLv3
-	 * Konq disables SSLv2 by default now, SSLv23 works
-	 */
-
-	method = (SSL_METHOD *)SSLv23_server_method();
-	if (!method) {
-		error = ERR_get_error();
-		lwsl_err("problem creating ssl method %lu: %s\n", 
-			error, ERR_error_string(error,
-					      (char *)context->service_buffer));
+	if (lws_context_init_server_ssl(info, context))
 		goto bail;
-	}
-	context->ssl_ctx = SSL_CTX_new(method);	/* create context */
-	if (!context->ssl_ctx) {
-		error = ERR_get_error();
-		lwsl_err("problem creating ssl context %lu: %s\n",
-			error, ERR_error_string(error,
-					      (char *)context->service_buffer));
+	
+	if (lws_context_init_client_ssl(info, context))
 		goto bail;
-	}
-
-#ifdef SSL_OP_NO_COMPRESSION
-	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
-#endif
-	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
-	if (info->ssl_cipher_list)
-		SSL_CTX_set_cipher_list(context->ssl_ctx,
-						info->ssl_cipher_list);
-
-	if (lws_context_init_client(info, context))
-		goto bail;
-
-	/* as a server, are we requiring clients to identify themselves? */
-
-	if (info->options &
-			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
-
-		/* absolutely require the client cert */
-
-		SSL_CTX_set_verify(context->ssl_ctx,
-		       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
-						       OpenSSL_verify_callback);
-
-		/*
-		 * give user code a chance to load certs into the server
-		 * allowing it to verify incoming client certs
-		 */
-
-		context->protocols[0].callback(context, NULL,
-			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
-						     context->ssl_ctx, NULL, 0);
-	}
-
-	if (info->options & LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT) {
-		/* Normally SSL listener rejects non-ssl, optionally allow */
-		context->allow_non_ssl_on_ssl_port = 1;
-	}
-
-	if (context->use_ssl) {
-
-		/* openssl init for server sockets */
-
-		/* set the local certificate from CertFile */
-		n = SSL_CTX_use_certificate_chain_file(context->ssl_ctx,
-					info->ssl_cert_filepath);
-		if (n != 1) {
-			error = ERR_get_error();
-			lwsl_err("problem getting cert '%s' %lu: %s\n",
-				info->ssl_cert_filepath,
-				error,
-				ERR_error_string(error,
-					      (char *)context->service_buffer));
-			goto bail;
-		}
-		/* set the private key from KeyFile */
-		if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
-			     info->ssl_private_key_filepath,
-						       SSL_FILETYPE_PEM) != 1) {
-			error = ERR_get_error();
-			lwsl_err("ssl problem getting key '%s' %lu: %s\n",
-				info->ssl_private_key_filepath,
-					error,
-					ERR_error_string(error,
-					      (char *)context->service_buffer));
-			goto bail;
-		}
-		/* verify private key */
-		if (!SSL_CTX_check_private_key(context->ssl_ctx)) {
-			lwsl_err("Private SSL key doesn't match cert\n");
-			goto bail;
-		}
-
-		/* SSL is happy and has a cert it's content with */
-	}
-#endif
 
 	if (lws_context_init_server(info, context))
 		goto bail;

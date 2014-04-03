@@ -300,13 +300,6 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 {
 	struct libwebsocket *wsi;
 
-#ifndef LWS_OPENSSL_SUPPORT
-	if (ssl_connection) {
-		lwsl_err("libwebsockets not configured for ssl\n");
-		return NULL;
-	}
-#endif
-
 	wsi = (struct libwebsocket *) malloc(sizeof(struct libwebsocket));
 	if (wsi == NULL)
 		goto bail;
@@ -327,6 +320,11 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = ssl_connection;
+#else
+	if (ssl_connection) {
+		lwsl_err("libwebsockets not configured for ssl\n");
+		goto bail;
+	}
 #endif
 
 	if (lws_allocate_header_table(wsi))

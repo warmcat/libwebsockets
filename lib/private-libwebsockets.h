@@ -737,22 +737,37 @@ LWS_EXTERN int lws_plat_open_file(const char* filename, unsigned long* filelen);
 
 unsigned char *
 SHA1(const unsigned char *d, size_t n, unsigned char *md);
-
+#define lws_context_init_server_ssl(_a, _b) (0)
+#define lws_ssl_destroy(_a)
 #else
 
 LWS_EXTERN int openssl_websocket_private_data_index;
-
+#ifndef LWS_NO_SERVER
+LWS_EXTERN int
+lws_context_init_server_ssl(struct lws_context_creation_info *info,
+		     struct libwebsocket_context *context);
+#else
+#define lws_context_init_server_ssl(_a, _b) (0)
+#endif
+LWS_EXTERN void
+lws_ssl_destroy(struct libwebsocket_context *context);
 #endif
 
 #ifndef LWS_NO_CLIENT
 	LWS_EXTERN int lws_client_socket_service(
 		struct libwebsocket_context *context,
 		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
-	LWS_EXTERN int lws_context_init_client(struct lws_context_creation_info *info,
+#ifdef LWS_OPENSSL_SUPPORT
+	LWS_EXTERN int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			    struct libwebsocket_context *context);
-	LWS_EXTERN int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t len);
 #else
-#define lws_context_init_client(_a, _b) (0)
+	#define lws_context_init_client_ssl(_a, _b) (0)
+#endif
+	LWS_EXTERN int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t len);
+	LWS_EXTERN void
+	libwebsockets_decode_ssl_error(void);
+#else
+#define lws_context_init_client_ssl(_a, _b) (0)
 #define lws_handshake_client(_a, _b, _c) (0)
 #endif
 #ifndef LWS_NO_SERVER

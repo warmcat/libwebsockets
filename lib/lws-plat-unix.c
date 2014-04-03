@@ -50,11 +50,9 @@ lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
  * This is just used to interrupt poll waiting
  * we don't have to do anything with it.
  */
-#ifdef LWS_OPENSSL_SUPPORT
 static void lws_sigusr2(int sig)
 {
 }
-#endif
 
 #ifdef LWS_USE_LIBEV
 LWS_VISIBLE void 

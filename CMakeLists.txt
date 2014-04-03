@@ -276,6 +276,12 @@ if (NOT LWS_WITHOUT_CLIENT)
 		)
 endif()
 
+if (LWS_WITH_SSL)
+	list(APPEND SOURCES
+		lib/ssl.c
+		)
+endif()
+
 # select the active platform files
 
 if (WIN32)

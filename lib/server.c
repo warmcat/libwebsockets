@@ -434,22 +434,6 @@ bail_nuke_ah:
 	return 1;
 }
 
-
-#ifdef LWS_OPENSSL_SUPPORT
-
-static void
-libwebsockets_decode_ssl_error(void)
-{
-	char buf[256];
-	u_long err;
-
-	while ((err = ERR_get_error()) != 0) {
-		ERR_error_string_n(err, buf, sizeof(buf));
-		lwsl_err("*** %lu %s\n", err, buf);
-	}
-}
-#endif
-
 struct libwebsocket *
 libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 {

@@ -22,117 +22,6 @@
 #include "private-libwebsockets.h"
 
 
-int lws_context_init_client(struct lws_context_creation_info *info,
-			    struct libwebsocket_context *context)
-{
-	int error;
-	int n;
-#ifdef LWS_OPENSSL_SUPPORT
-	SSL_METHOD *method;
-#endif
-	/* client context */
-
-	if (info->port != CONTEXT_PORT_NO_LISTEN)
-		return 0;
-
-	method = (SSL_METHOD *)SSLv23_client_method();
-	if (!method) {
-		error = ERR_get_error();
-		lwsl_err("problem creating ssl method %lu: %s\n",
-			error, ERR_error_string(error,
-				      (char *)context->service_buffer));
-		return 1;
-	}
-	/* create context */
-	context->ssl_client_ctx = SSL_CTX_new(method);
-	if (!context->ssl_client_ctx) {
-		error = ERR_get_error();
-		lwsl_err("problem creating ssl context %lu: %s\n",
-			error, ERR_error_string(error,
-				      (char *)context->service_buffer));
-		return 1;
-	}
-
-#ifdef SSL_OP_NO_COMPRESSION
-	SSL_CTX_set_options(context->ssl_client_ctx,
-						 SSL_OP_NO_COMPRESSION);
-#endif
-	SSL_CTX_set_options(context->ssl_client_ctx,
-				       SSL_OP_CIPHER_SERVER_PREFERENCE);
-	if (info->ssl_cipher_list)
-		SSL_CTX_set_cipher_list(context->ssl_client_ctx,
-						info->ssl_cipher_list);
-
-#ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
-	/* loads OS default CA certs */
-	SSL_CTX_set_default_verify_paths(context->ssl_client_ctx);
-#endif
-
-	/* openssl init for cert verification (for client sockets) */
-	if (!info->ssl_ca_filepath) {
-		if (!SSL_CTX_load_verify_locations(
-			context->ssl_client_ctx, NULL,
-					     LWS_OPENSSL_CLIENT_CERTS))
-			lwsl_err(
-			    "Unable to load SSL Client certs from %s "
-			    "(set by --with-client-cert-dir= "
-			    "in configure) --  client ssl isn't "
-			    "going to work", LWS_OPENSSL_CLIENT_CERTS);
-	} else
-		if (!SSL_CTX_load_verify_locations(
-			context->ssl_client_ctx, info->ssl_ca_filepath,
-							  NULL))
-			lwsl_err(
-				"Unable to load SSL Client certs "
-				"file from %s -- client ssl isn't "
-				"going to work", info->ssl_ca_filepath);
-
-	/*
-	 * callback allowing user code to load extra verification certs
-	 * helping the client to verify server identity
-	 */
-
-	/* support for client-side certificate authentication */
-	if (info->ssl_cert_filepath) {
-		n = SSL_CTX_use_certificate_chain_file(
-			context->ssl_client_ctx,
-					info->ssl_cert_filepath);
-		if (n != 1) {
-			lwsl_err("problem getting cert '%s' %lu: %s\n",
-				info->ssl_cert_filepath,
-				ERR_get_error(),
-				ERR_error_string(ERR_get_error(),
-				(char *)context->service_buffer));
-			return 1;
-		}
-	} 
-	if (info->ssl_private_key_filepath) {
-		/* set the private key from KeyFile */
-		if (SSL_CTX_use_PrivateKey_file(context->ssl_client_ctx,
-			     info->ssl_private_key_filepath,
-					       SSL_FILETYPE_PEM) != 1) {
-			lwsl_err("use_PrivateKey_file '%s' %lu: %s\n",
-				info->ssl_private_key_filepath,
-				ERR_get_error(),
-				ERR_error_string(ERR_get_error(),
-				      (char *)context->service_buffer));
-			return 1;
-		}
-
-		/* verify private key */
-		if (!SSL_CTX_check_private_key(
-					context->ssl_client_ctx)) {
-			lwsl_err("Private SSL key doesn't match cert\n");
-			return 1;
-		}
-	} 
-
-	context->protocols[0].callback(context, NULL,
-		LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
-		context->ssl_client_ctx, NULL, 0);
-	
-	return 0;
-}
 
 int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t len)
 {
@@ -233,8 +122,6 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		 * timeout protection set in client-handshake.c
 		 */
 
-#ifdef LWS_OPENSSL_SUPPORT
-
 		/*
 		 * take care of our libwebsocket_callback_on_writable
 		 * happening at a time when there's no real connection yet
@@ -242,6 +129,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			return -1;
 
+#ifdef LWS_OPENSSL_SUPPORT
 		/* we can retry this... just cook the SSL BIO the first time */
 
 		if (wsi->use_ssl && !wsi->ssl) {
