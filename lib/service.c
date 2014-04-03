@@ -335,15 +335,12 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	/* okay, what we came here to do... */
 
 	switch (wsi->mode) {
-
-#ifndef LWS_NO_SERVER
 	case LWS_CONNMODE_HTTP_SERVING:
 	case LWS_CONNMODE_HTTP_SERVING_ACCEPTED:
 	case LWS_CONNMODE_SERVER_LISTENER:
 	case LWS_CONNMODE_SSL_ACK_PENDING:
 		n = lws_server_socket_service(context, wsi, pollfd);
 		goto handled;
-#endif
 
 	case LWS_CONNMODE_WS_SERVING:
 	case LWS_CONNMODE_WS_CLIENT:

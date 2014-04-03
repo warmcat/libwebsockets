@@ -217,16 +217,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #ifndef LWS_NO_EXTENSIONS
 	context->extensions = info->extensions;
 #endif
-	context->last_timeout_check_s = 0;
 	context->user_space = info->user;
-
-#ifdef LWS_OPENSSL_SUPPORT
-	context->use_ssl = 0;
-	context->allow_non_ssl_on_ssl_port = 0;
-	context->ssl_ctx = NULL;
-	context->ssl_client_ctx = NULL;
-	openssl_websocket_private_data_index = 0;
-#endif
 
 	strcpy(context->canonical_hostname, "unknown");
 
@@ -269,11 +260,10 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #endif
 	}
 
-	if (context->http_proxy_address[0]) {
+	if (context->http_proxy_address[0])
 		lwsl_notice(" Proxy %s:%u\n",
 				context->http_proxy_address,
 						      context->http_proxy_port);
-	}
 
 #ifndef LWS_NO_SERVER
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {

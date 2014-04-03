@@ -231,15 +231,6 @@ handle_truncated_send:
 	return n;
 }
 
-#ifdef LWS_NO_EXTENSIONS
-int
-lws_issue_raw_ext_access(struct libwebsocket *wsi,
-						 unsigned char *buf, size_t len)
-{
-	return lws_issue_raw(wsi, buf, len);
-}
-#endif
-
 /**
  * libwebsocket_write() - Apply protocol then write data to client
  * @wsi:	Websocket instance (available from user callback)

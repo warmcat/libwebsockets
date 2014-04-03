@@ -668,6 +668,7 @@ lws_ext_callback_for_each_extension_type(
 #define lws_any_extension_handled(_a, _b, _c, _d, _e) (0)
 #define lws_ext_callback_for_each_active(_a, _b, _c, _d) (0)
 #define lws_ext_callback_for_each_extension_type(_a, _b, _c, _d, _e) (0)
+#define lws_issue_raw_ext_access lws_issue_raw
 #endif
 
 LWS_EXTERN int
@@ -762,6 +763,7 @@ LWS_EXTERN int openssl_websocket_private_data_index;
 	LWS_EXTERN int lws_handshake_server(struct libwebsocket_context *context,
 		     struct libwebsocket *wsi, unsigned char **buf, size_t len);
 #else
+#define lws_server_socket_service(_a, _b, _c) (0)
 #define _libwebsocket_rx_flow_control(_a) (0)
 #define lws_handshake_server(_a, _b, _c, _d) (0)
 #endif
