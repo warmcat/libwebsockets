@@ -109,8 +109,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #endif
 	lwsl_info(" SPEC_LATEST_SUPPORTED: %u\n", SPEC_LATEST_SUPPORTED);
 	lwsl_info(" AWAITING_TIMEOUT: %u\n", AWAITING_TIMEOUT);
-	if (info->ssl_cipher_list)
-		lwsl_info(" SSL ciphers: '%s'\n", info->ssl_cipher_list);
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
 	lwsl_info(" LWS_MAX_ZLIB_CONN_BUFFER: %u\n", LWS_MAX_ZLIB_CONN_BUFFER);
 
@@ -229,38 +227,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 				context->http_proxy_address,
 						      context->http_proxy_port);
 
-#ifndef LWS_NO_SERVER
-	if (info->port != CONTEXT_PORT_NO_LISTEN) {
-
-#ifdef LWS_OPENSSL_SUPPORT
-		context->use_ssl = info->ssl_cert_filepath != NULL &&
-					 info->ssl_private_key_filepath != NULL;
-#ifdef USE_CYASSL
-		lwsl_notice(" Compiled with CYASSL support\n");
-#else
-		lwsl_notice(" Compiled with OpenSSL support\n");
-#endif
-		if (context->use_ssl)
-			lwsl_notice(" Using SSL mode\n");
-		else
-			lwsl_notice(" Using non-SSL mode\n");
-
-#else
-		if (info->ssl_cert_filepath != NULL &&
-				       info->ssl_private_key_filepath != NULL) {
-			lwsl_notice(" Not compiled for OpenSSl support!\n");
-			goto bail;
-		}
-		lwsl_notice(" Compiled without SSL support\n");
-#endif
-
-		lwsl_notice(
-			" per-conn mem: %u + %u headers + protocol rx buf\n",
+	lwsl_notice(
+		" per-conn mem: %u + %u headers + protocol rx buf\n",
 				sizeof(struct libwebsocket),
 					      sizeof(struct allocated_headers));
-	}
-#endif
-
+		
 	if (lws_context_init_server_ssl(info, context))
 		goto bail;
 	

@@ -739,6 +739,7 @@ unsigned char *
 SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #define lws_context_init_server_ssl(_a, _b) (0)
 #define lws_ssl_destroy(_a)
+#define lws_context_init_http2_ssl(_a)
 #else
 
 LWS_EXTERN int openssl_websocket_private_data_index;
@@ -751,6 +752,16 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 LWS_EXTERN void
 lws_ssl_destroy(struct libwebsocket_context *context);
+
+/* HTTP2-related */
+
+#ifdef LWS_USE_HTTP2
+LWS_EXTERN void
+lws_context_init_http2_ssl(struct libwebsocket_context *context);
+#else
+#define lws_context_init_http2_ssl(_a)
+#endif
+
 #endif
 
 #ifndef LWS_NO_CLIENT

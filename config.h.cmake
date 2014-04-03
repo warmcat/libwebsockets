@@ -32,6 +32,9 @@
 /* Build with support for ipv6 */
 #cmakedefine LWS_USE_IPV6
 
+/* Build with support for HTTP2 */
+#cmakedefine LWS_USE_HTTP2
+
 /* Turn on latency measuring code */
 #cmakedefine LWS_LATENCY
 

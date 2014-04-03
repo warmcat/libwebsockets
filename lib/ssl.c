@@ -55,6 +55,36 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	int error;
 	int n;
 
+#ifndef LWS_NO_SERVER
+	if (info->port != CONTEXT_PORT_NO_LISTEN) {
+
+		context->use_ssl = info->ssl_cert_filepath != NULL &&
+					 info->ssl_private_key_filepath != NULL;
+#ifdef USE_CYASSL
+		lwsl_notice(" Compiled with CYASSL support\n");
+#else
+		lwsl_notice(" Compiled with OpenSSL support\n");
+#endif
+		
+		if (info->ssl_cipher_list)
+			lwsl_notice(" SSL ciphers: '%s'\n", info->ssl_cipher_list);
+
+		if (context->use_ssl)
+			lwsl_notice(" Using SSL mode\n");
+		else
+			lwsl_notice(" Using non-SSL mode\n");
+	}
+
+#else
+		if (info->ssl_cert_filepath != NULL &&
+				       info->ssl_private_key_filepath != NULL) {
+			lwsl_notice(" Not compiled for OpenSSl support!\n");
+			return 1;
+		}
+		lwsl_notice(" Compiled without SSL support\n");
+	}
+#endif /* no server */
+
 	/* basic openssl init */
 
 	SSL_library_init();
@@ -155,7 +185,12 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			return 1;
 		}
 
-		/* SSL is happy and has a cert it's content with */
+		/*
+		 * SSL is happy and has a cert it's content with
+		 * If we're supporting HTTP2, initialize that
+		 */
+		
+		lws_context_init_http2_ssl(context);
 	}
 	
 	return 0;
