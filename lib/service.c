@@ -454,7 +454,7 @@ drain:
 			free(wsi->u.ws.rxflow_buffer);
 			wsi->u.ws.rxflow_buffer = NULL;
 			/* having drained the rxflow buffer, can rearm POLLIN */
-			_libwebsocket_rx_flow_control(wsi);
+			n = _libwebsocket_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
 		}
 
 #ifdef LWS_OPENSSL_SUPPORT

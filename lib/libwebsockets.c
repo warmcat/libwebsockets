@@ -524,48 +524,7 @@ lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi,
 }
 #endif
 
-#ifdef LWS_NO_SERVER
-int
-_libwebsocket_rx_flow_control(struct libwebsocket *wsi)
-{
-	return 0;
-}
-#else
-int
-_libwebsocket_rx_flow_control(struct libwebsocket *wsi)
-{
-	struct libwebsocket_context *context = wsi->protocol->owning_server;
 
-	/* there is no pending change */
-	if (!(wsi->u.ws.rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE))
-		return 0;
-
-	/* stuff is still buffered, not ready to really accept new input */
-	if (wsi->u.ws.rxflow_buffer) {
-		/* get ourselves called back to deal with stashed buffer */
-		libwebsocket_callback_on_writable(context, wsi);
-		return 0;
-	}
-
-	/* pending is cleared, we can change rxflow state */
-
-	wsi->u.ws.rxflow_change_to &= ~LWS_RXFLOW_PENDING_CHANGE;
-
-	lwsl_info("rxflow: wsi %p change_to %d\n", wsi,
-			      wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW);
-
-	/* adjust the pollfd for this wsi */
-
-	if (wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW) {
-		if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
-			return -1;
-	} else
-		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
-			return -1;
-
-	return 1;
-}
-#endif
 
 /**
  * libwebsocket_rx_flow_control() - Enable and disable socket servicing for

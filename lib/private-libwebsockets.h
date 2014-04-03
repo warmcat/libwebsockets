@@ -756,6 +756,9 @@ LWS_EXTERN int openssl_websocket_private_data_index;
 	LWS_EXTERN int lws_server_socket_service(
 		struct libwebsocket_context *context,
 		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
+	LWS_EXTERN int _libwebsocket_rx_flow_control(struct libwebsocket *wsi);
+#else
+#define _libwebsocket_rx_flow_control(_a) (0)
 #endif
 
 /*
