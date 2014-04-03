@@ -50,7 +50,7 @@ LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
 	return wsi->sock_send_blocking;
 }
 
-static int lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
+LWS_VISIBLE int lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
 {
 	fd_set readfds;
 	struct timeval tv = { 0, 0 };
@@ -156,6 +156,7 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 	u_long optl = 1;
 	DWORD dwBytesRet;
 	struct tcp_keepalive alive;
+	struct protoent *tcp_proto;
 			
 	if (context->ka_time) {
 		/* enable keepalive on this socket */
