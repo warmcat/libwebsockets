@@ -134,6 +134,28 @@ int lws_context_init_client(struct lws_context_creation_info *info,
 	return 0;
 }
 
+int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t len)
+{
+	int n;
+
+	switch (wsi->mode) {
+	case LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY:
+	case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE:
+	case LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY:
+	case LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT:
+	case LWS_CONNMODE_WS_CLIENT:
+		for (n = 0; n < len; n++)
+			if (libwebsocket_client_rx_sm(wsi, *(*buf)++)) {
+				lwsl_debug("client_rx_sm failed\n");
+				return 1;
+			}
+		return 0;
+	default:
+		break;
+	}
+	return 0;
+}
+
 int lws_client_socket_service(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
