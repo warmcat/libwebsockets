@@ -371,34 +371,18 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
-#ifdef LWS_OPENSSL_SUPPORT
 read_pending:
-		if (wsi->ssl) {
-			eff_buf.token_len = SSL_read(wsi->ssl,
-					context->service_buffer,
-					       sizeof(context->service_buffer));
-			if (!eff_buf.token_len) {
-				n = SSL_get_error(wsi->ssl, eff_buf.token_len);
-				lwsl_err("SSL_read returned 0 with reason %s\n",
-				  ERR_error_string(n,
-					      (char *)context->service_buffer));
-			}
-		} else
-#endif
-			eff_buf.token_len = recv(pollfd->fd,
+		eff_buf.token_len = lws_ssl_capable_read(wsi,
 				context->service_buffer,
-					    sizeof(context->service_buffer), 0);
-
-		if (eff_buf.token_len < 0) {
-			lwsl_debug("service_fd read ret = %d, errno = %d\n",
-						  eff_buf.token_len, LWS_ERRNO);
-			if (LWS_ERRNO != LWS_EINTR && LWS_ERRNO != LWS_EAGAIN)
-				goto close_and_handled;
+					       sizeof(context->service_buffer));
+		switch (eff_buf.token_len) {
+		case 0:
+			lwsl_info("service_fd: closing due to 0 length read\n");
+			goto close_and_handled;
+		case LWS_SSL_CAPABLE_ERROR:
 			n = 0;
 			goto handled;
-		}
-		if (!eff_buf.token_len) {
-			lwsl_info("service_fd: closing due to 0 length read\n");
+		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			goto close_and_handled;
 		}
 
@@ -454,10 +438,8 @@ drain:
 			n = _libwebsocket_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
 		}
 
-#ifdef LWS_OPENSSL_SUPPORT
-		if (wsi->ssl && SSL_pending(wsi->ssl))
+		if (lws_ssl_pending(wsi))
 			goto read_pending;
-#endif
 		break;
 
 	default:

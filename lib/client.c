@@ -51,7 +51,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 	int n;
 	char *p = (char *)&context->service_buffer[0];
 	int len;
-	char c;
+	unsigned char c;
 
 	switch (wsi->mode) {
 
@@ -324,7 +324,15 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		} else
 			wsi->ssl = NULL;
 #endif
+		
+		wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE2;
+		libwebsocket_set_timeout(wsi,
+				PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+							      AWAITING_TIMEOUT);
 
+		/* fallthru */
+
+	case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE2:
 		p = libwebsockets_generate_client_handshake(context, wsi, p);
 		if (p == NULL) {
 			lwsl_err("Failed to generate handshake for client\n");
@@ -336,23 +344,18 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		/* send our request to the server */
 
 		lws_latency_pre(context, wsi);
-#ifdef LWS_OPENSSL_SUPPORT
-		if (wsi->use_ssl)
-			n = SSL_write(wsi->ssl, context->service_buffer,
-					   p - (char *)context->service_buffer);
-		else
-#endif
-			n = send(wsi->sock, context->service_buffer,
-					p - (char *)context->service_buffer, MSG_NOSIGNAL);
-		lws_latency(context, wsi,
-			"send or SSL_write LWS_CONNMODE...HANDSHAKE",
-								     n, n >= 0);
 
-		if (n < 0) {
+		n = lws_ssl_capable_write(wsi, context->service_buffer, p - (char *)context->service_buffer);
+		lws_latency(context, wsi, "send lws_issue_raw", n, n == p - (char *)context->service_buffer);
+		switch (n) {
+		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_debug("ERROR writing to client socket\n");
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
+		case LWS_SSL_CAPABLE_MORE_SERVICE:
+			libwebsocket_callback_on_writable(context, wsi);
+			break;
 		}
 
 		wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
@@ -400,22 +403,13 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		len = 1;
 		while (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE &&
 								      len > 0) {
-#ifdef LWS_OPENSSL_SUPPORT
-			if (wsi->use_ssl) {
-				len = SSL_read(wsi->ssl, &c, 1);
-				if (len < 0) {
-					n = SSL_get_error(wsi->ssl, len);
-					if (n ==  SSL_ERROR_WANT_READ ||
-						     n ==  SSL_ERROR_WANT_WRITE)
-						return 0;
-				}
-			} else
-#endif
-				len = recv(wsi->sock, &c, 1, 0);
-
-			if (len < 0) {
-				lwsl_warn("error on parsing recv\n");
+			n = lws_ssl_capable_read(wsi, &c, 1);
+			lws_latency(context, wsi, "send lws_issue_raw", n, n == 1);
+			switch (n) {
+			case LWS_SSL_CAPABLE_ERROR:
 				goto bail3;
+			case LWS_SSL_CAPABLE_MORE_SERVICE:
+				return 0;
 			}
 
 			if (libwebsocket_parse(wsi, c)) {

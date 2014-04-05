@@ -520,34 +520,23 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		/* any incoming data ready? */
 
 		if (pollfd->revents & LWS_POLLIN) {
-
-	#ifdef LWS_OPENSSL_SUPPORT
-			if (wsi->ssl)
-				len = SSL_read(wsi->ssl,
+			len = lws_ssl_capable_read(wsi,
 					context->service_buffer,
-					       sizeof(context->service_buffer));
-			else
-	#endif
-				len = recv(pollfd->fd,
-					context->service_buffer,
-					sizeof(context->service_buffer), 0);
-
-			if (len < 0) {
-				lwsl_debug("Socket read returned %d\n", len);
-				if (LWS_ERRNO != LWS_EINTR && LWS_ERRNO != LWS_EAGAIN)
-					libwebsocket_close_and_free_session(
-						context, wsi,
-						LWS_CLOSE_STATUS_NOSTATUS);
-				return 0;
-			}
-			if (!len) {
+						       sizeof(context->service_buffer));
+			switch (len) {
+			case 0:
 				lwsl_info("lws_server_skt_srv: read 0 len\n");
 				/* lwsl_info("   state=%d\n", wsi->state); */
 				if (!wsi->hdr_parsing_completed)
 					free(wsi->u.hdr.ah);
+				/* fallthru */
+			case LWS_SSL_CAPABLE_ERROR:
 				libwebsocket_close_and_free_session(
-				       context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+						context, wsi,
+						LWS_CLOSE_STATUS_NOSTATUS);
 				return 0;
+			case LWS_SSL_CAPABLE_MORE_SERVICE:
+				break;
 			}
 
 			/* hm this may want to send (via HTTP callback for example) */
