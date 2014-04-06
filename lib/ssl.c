@@ -332,3 +332,52 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	return 0;
 }
 #endif
+
+LWS_VISIBLE int
+lws_ssl_capable_read(struct libwebsocket *wsi, unsigned char *buf, int len)
+{
+	int n;
+
+	if (!wsi->ssl)
+		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
+
+	n = SSL_read(wsi->ssl, buf, len);
+	if (n >= 0)
+		return n;
+
+	n = SSL_get_error(wsi->ssl, len);
+	if (n ==  SSL_ERROR_WANT_READ || n ==  SSL_ERROR_WANT_WRITE)
+		return LWS_SSL_CAPABLE_MORE_SERVICE;
+
+	return LWS_SSL_CAPABLE_ERROR; 
+}
+
+LWS_VISIBLE int
+lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len)
+{
+	int n;
+
+	if (!wsi->ssl)
+		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
+	
+	n = SSL_write(wsi->ssl, buf, len);
+	if (n >= 0)
+		return n;
+
+	n = SSL_get_error(wsi->ssl, len);
+	if (n == SSL_ERROR_WANT_READ || n == SSL_ERROR_WANT_WRITE) {
+		if (n == SSL_ERROR_WANT_WRITE)
+			lws_set_blocking_send(wsi);
+		return LWS_SSL_CAPABLE_MORE_SERVICE;
+	}
+
+	return LWS_SSL_CAPABLE_ERROR;
+}
+
+LWS_VISIBLE int
+lws_ssl_pending(struct libwebsocket *wsi)
+{
+	if (wsi->ssl)
+		return SSL_pending(wsi->ssl);
+	return 0;
+}

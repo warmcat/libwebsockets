@@ -60,6 +60,13 @@ Building on Unix:
 	following to the cmake line
 
 		-DLIB_SUFFIX=64
+		
+	NOTE4
+	If you are building against a non-distro OpenSSL (eg, in order to get
+	access to ALPN support only in newer OpenSSL versions) the nice way to
+	express that in one cmake command is eg,
+	
+		-DOPENSSL_ROOT_DIR=/usr/local/ssl
 
 4. Finally you can build using the generated Makefile:
 

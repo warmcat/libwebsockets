@@ -123,42 +123,16 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	 * nope, send it on the socket directly
 	 */
 	lws_latency_pre(context, wsi);
-#ifdef LWS_OPENSSL_SUPPORT
-	if (wsi->ssl) {
-		n = SSL_write(wsi->ssl, buf, len);
-		lws_latency(context, wsi, "SSL_write lws_issue_raw", n, n >= 0);
-		if (n < 0) {
-			n = SSL_get_error(wsi->ssl, n);
-			if (n == SSL_ERROR_WANT_READ ||
-						n == SSL_ERROR_WANT_WRITE) {
-				if (n == SSL_ERROR_WANT_WRITE)
-					lws_set_blocking_send(wsi);
-				n = 0;
-				goto handle_truncated_send;
 
-			}
-			lwsl_debug("ERROR writing to socket\n");
-			return -1;
-		}
-	} else {
-#endif
-		n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
-		lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
-		if (n < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN ||
-			    LWS_ERRNO == LWS_EWOULDBLOCK ||
-			    LWS_ERRNO == LWS_EINTR) {
-				if (LWS_ERRNO == LWS_EWOULDBLOCK)
-					lws_set_blocking_send(wsi);
-				n = 0;
-				goto handle_truncated_send;
-			}
-			lwsl_debug("ERROR writing len %d to skt %d\n", len, n);
-			return -1;
-		}
-#ifdef LWS_OPENSSL_SUPPORT
+	n = lws_ssl_capable_write(wsi, buf, len);
+	lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
+	switch (n) {
+	case LWS_SSL_CAPABLE_ERROR:
+		return -1;
+	case LWS_SSL_CAPABLE_MORE_SERVICE:
+		n = 0;
+		goto handle_truncated_send;
 	}
-#endif
 
 handle_truncated_send:
 	/*
@@ -548,4 +522,39 @@ all_sent:
 	libwebsocket_callback_on_writable(context, wsi);
 
 	return 0; /* indicates further processing must be done */
+}
+
+LWS_VISIBLE int
+lws_ssl_capable_read_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len)
+{
+	int n;
+
+	n = recv(wsi->sock, buf, len, 0);
+	if (n < 0) {
+		lwsl_warn("error on reading from skt\n");
+		return LWS_SSL_CAPABLE_ERROR;
+	}
+	
+	return n;
+}
+
+LWS_VISIBLE int
+lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len)
+{
+	int n;
+	
+	n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
+	if (n < 0) {
+		if (LWS_ERRNO == LWS_EAGAIN ||
+		    LWS_ERRNO == LWS_EWOULDBLOCK ||
+		    LWS_ERRNO == LWS_EINTR) {
+			if (LWS_ERRNO == LWS_EWOULDBLOCK)
+				lws_set_blocking_send(wsi);
+			return LWS_SSL_CAPABLE_MORE_SERVICE;
+		}
+		lwsl_debug("ERROR writing len %d to skt %d\n", len, n);
+		return LWS_SSL_CAPABLE_ERROR;
+	}
+
+	return n;
 }

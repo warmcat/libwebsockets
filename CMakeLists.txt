@@ -486,7 +486,7 @@ if (LWS_WITH_SSL)
 		message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
 
 		include_directories("${OPENSSL_INCLUDE_DIR}")
-		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
+		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES} dl)
 	endif()
 endif(LWS_WITH_SSL)
 

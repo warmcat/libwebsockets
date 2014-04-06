@@ -327,6 +327,7 @@ enum connection_mode {
 	LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT,
 	LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY,
 	LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE,
+	LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE2,
 	LWS_CONNMODE_WS_CLIENT_WAITING_SSL,
 	LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY,
 	LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT,
@@ -742,9 +743,18 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #define lws_context_init_server_ssl(_a, _b) (0)
 #define lws_ssl_destroy(_a)
 #define lws_context_init_http2_ssl(_a)
+#define lws_ssl_pending(_a) (0)
+#define lws_ssl_capable_read lws_ssl_capable_read_no_ssl
+#define lws_ssl_capable_write lws_ssl_capable_write_no_ssl
 #else
-
+LWS_EXTERN int lws_ssl_pending(struct libwebsocket *wsi);
 LWS_EXTERN int openssl_websocket_private_data_index;
+LWS_EXTERN int
+lws_ssl_capable_read(struct libwebsocket *wsi, unsigned char *buf, int len);
+
+LWS_EXTERN int
+lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len);
+
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
@@ -755,6 +765,17 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 LWS_EXTERN void
 lws_ssl_destroy(struct libwebsocket_context *context);
 
+enum lws_ssl_capable_status {
+	LWS_SSL_CAPABLE_ERROR = -1,
+	LWS_SSL_CAPABLE_MORE_SERVICE = -2,
+};
+
+LWS_EXTERN int
+lws_ssl_capable_read_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
+
+LWS_EXTERN int
+lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
+
 /* HTTP2-related */
 
 #ifdef LWS_USE_HTTP2
@@ -763,7 +784,6 @@ lws_context_init_http2_ssl(struct libwebsocket_context *context);
 #else
 #define lws_context_init_http2_ssl(_a)
 #endif
-
 #endif
 
 #ifndef LWS_NO_CLIENT
