@@ -543,7 +543,7 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 {
 	int n;
 	
-	n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
+	n = send(wsi->sock, buf, len, 0);
 	if (n < 0) {
 		if (LWS_ERRNO == LWS_EAGAIN ||
 		    LWS_ERRNO == LWS_EWOULDBLOCK ||
