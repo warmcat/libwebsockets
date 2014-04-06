@@ -345,7 +345,7 @@ lws_ssl_capable_read(struct libwebsocket *wsi, unsigned char *buf, int len)
 	if (n >= 0)
 		return n;
 
-	n = SSL_get_error(wsi->ssl, len);
+	n = SSL_get_error(wsi->ssl, n);
 	if (n ==  SSL_ERROR_WANT_READ || n ==  SSL_ERROR_WANT_WRITE)
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 
@@ -364,7 +364,7 @@ lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len)
 	if (n >= 0)
 		return n;
 
-	n = SSL_get_error(wsi->ssl, len);
+	n = SSL_get_error(wsi->ssl, n);
 	if (n == SSL_ERROR_WANT_READ || n == SSL_ERROR_WANT_WRITE) {
 		if (n == SSL_ERROR_WANT_WRITE)
 			lws_set_blocking_send(wsi);
