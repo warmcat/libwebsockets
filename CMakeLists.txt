@@ -486,7 +486,11 @@ if (LWS_WITH_SSL)
 		message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
 
 		include_directories("${OPENSSL_INCLUDE_DIR}")
-		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES} dl)
+		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
+
+		# Link against dynamic linking functions.
+		# (Don't link directly to libdl since it is not needed on all platforms, it's now a part of libc).
+		list(APPEND LIB_LIST ${CMAKE_DL_LIBS})
 	endif()
 endif(LWS_WITH_SSL)
 

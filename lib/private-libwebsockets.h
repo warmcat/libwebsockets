@@ -82,6 +82,13 @@
 #define lws_set_blocking_send(wsi) wsi->sock_send_blocking = TRUE
 #include <winsock2.h>
 #include <windows.h>
+#include <tchar.h>
+#include <mstcpip.h>
+
+#ifndef __func__
+#define __func__ __FUNCTION__
+#endif
+
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #else /* not windows --> */
 #include <errno.h>
