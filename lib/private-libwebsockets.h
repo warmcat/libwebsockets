@@ -83,7 +83,6 @@
 #include <winsock2.h>
 #include <windows.h>
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
-const char *inet_ntop(int af, const void *src, char *dst, int cnt);
 #else /* not windows --> */
 #include <errno.h>
 #include <fcntl.h>
