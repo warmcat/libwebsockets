@@ -74,7 +74,7 @@
 #define compatible_file_seek_cur(fd, offset) SetFilePointer(fd, offset, NULL, FILE_CURRENT)
 #define compatible_file_read(amount, fd, buf, len) {\
 	DWORD _amount; \
-	if (!ReadFile(fd, buf, len, &amount, NULL)) \
+	if (!ReadFile(fd, buf, len, &_amount, NULL)) \
 		amount = -1; \
 	else \
 		amount = _amount; \
