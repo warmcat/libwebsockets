@@ -742,6 +742,11 @@ LWS_EXTERN HANDLE lws_plat_open_file(const char* filename, unsigned long* filele
 LWS_EXTERN int lws_plat_open_file(const char* filename, unsigned long* filelen);
 #endif
 
+enum lws_ssl_capable_status {
+	LWS_SSL_CAPABLE_ERROR = -1,
+	LWS_SSL_CAPABLE_MORE_SERVICE = -2,
+};
+
 #ifndef LWS_OPENSSL_SUPPORT
 
 unsigned char *
@@ -770,11 +775,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 LWS_EXTERN void
 lws_ssl_destroy(struct libwebsocket_context *context);
-
-enum lws_ssl_capable_status {
-	LWS_SSL_CAPABLE_ERROR = -1,
-	LWS_SSL_CAPABLE_MORE_SERVICE = -2,
-};
 
 LWS_EXTERN int
 lws_ssl_capable_read_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
