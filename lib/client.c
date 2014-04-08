@@ -133,6 +133,8 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		/* we can retry this... just cook the SSL BIO the first time */
 
 		if (wsi->use_ssl && !wsi->ssl) {
+			const char *hostname = lws_hdr_simple_ptr(wsi,
+						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
 
 			wsi->ssl = SSL_new(context->ssl_client_ctx);
 #ifndef USE_CYASSL
@@ -145,17 +147,12 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 			 */
 #ifdef USE_CYASSL
 #ifdef CYASSL_SNI_HOST_NAME
-			const char *hostname = lws_hdr_simple_ptr(wsi,
-				_WSI_TOKEN_CLIENT_PEER_ADDRESS);
 			CyaSSL_UseSNI(wsi->ssl, CYASSL_SNI_HOST_NAME,
 				hostname, strlen(hostname));
 #endif
 #else
-			const char *hostname = lws_hdr_simple_ptr(wsi,
-				_WSI_TOKEN_CLIENT_PEER_ADDRESS);
 			SSL_set_tlsext_host_name(wsi->ssl, hostname);
 #endif
-
 
 #ifdef USE_CYASSL
 			/*
