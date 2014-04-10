@@ -174,7 +174,7 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 	 * connection
 	 */
 	if (sec > wsi->pending_timeout_limit) {
-		lwsl_info("TIMEDOUT WAITING\n");
+		lwsl_info("TIMEDOUT WAITING on %d\n", wsi->pending_timeout);
 		libwebsocket_close_and_free_session(context,
 						wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		return 1;
