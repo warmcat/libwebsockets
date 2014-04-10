@@ -42,7 +42,12 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		}
 		/* leave POLLOUT active either way */
 		return 0;
-	}
+	} else
+		if (wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
+			lwsl_info("***** %x signalling to close in POLLOUT handler\n", wsi);
+			return -1; /* retry closing now */
+		}
+
 
 	m = lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_IS_WRITEABLE,
 								       NULL, 0);

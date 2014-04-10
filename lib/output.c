@@ -153,9 +153,10 @@ handle_truncated_send:
 			lwsl_info("***** %x partial send completed\n", wsi);
 			/* done with it, but don't free it */
 			n = real_len;
-			if (wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE)
+			if (wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
 				lwsl_info("***** %x signalling to close now\n", wsi);
 				return -1; /* retry closing now */
+			}
 		}
 		/* always callback on writeable */
 		libwebsocket_callback_on_writable(
