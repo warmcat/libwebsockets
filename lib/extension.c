@@ -130,8 +130,10 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 		if (eff_buf.token_len) {
 			n = lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
 							    eff_buf.token_len);
-			if (n < 0)
+			if (n < 0) {
+				lwsl_info("closing from ext access\n");
 				return -1;
+			}
 
 			/* always either sent it all or privately buffered */
 		}

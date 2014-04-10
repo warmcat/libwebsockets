@@ -34,9 +34,12 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 	/* pending truncated sends have uber priority */
 
 	if (wsi->truncated_send_len) {
-		lws_issue_raw(wsi, wsi->truncated_send_malloc +
+		if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
 				wsi->truncated_send_offset,
-						wsi->truncated_send_len);
+						wsi->truncated_send_len) < 0) {
+			lwsl_info("lws_handle_POLLOUT_event signalling to close\n");
+			return -1;
+		}
 		/* leave POLLOUT active either way */
 		return 0;
 	}
@@ -87,8 +90,10 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		if (eff_buf.token_len) {
 			n = lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
 							     eff_buf.token_len);
-			if (n < 0)
+			if (n < 0) {
+				lwsl_info("closing from POLLOUT spill\n");
 				return -1;
+			}
 			/*
 			 * Keep amount spilled small to minimize chance of this
 			 */
@@ -340,6 +345,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	case LWS_CONNMODE_SERVER_LISTENER:
 	case LWS_CONNMODE_SSL_ACK_PENDING:
 		n = lws_server_socket_service(context, wsi, pollfd);
+		if (n < 0)
+			goto close_and_handled;
 		goto handled;
 
 	case LWS_CONNMODE_WS_SERVING:
@@ -348,7 +355,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		/* the guy requested a callback when it was OK to write */
 
 		if ((pollfd->revents & LWS_POLLOUT) &&
-			wsi->state == WSI_STATE_ESTABLISHED &&
+			(wsi->state == WSI_STATE_ESTABLISHED ||
+				wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) &&
 			   lws_handle_POLLOUT_event(context, wsi, pollfd)) {
 			lwsl_info("libwebsocket_service_fd: closing\n");
 			goto close_and_handled;

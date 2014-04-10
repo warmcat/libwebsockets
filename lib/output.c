@@ -99,6 +99,10 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	
 	if (!len)
 		return 0;
+	/* just ignore sends after we cleared the truncation buffer */
+	if (wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE &&
+						!wsi->truncated_send_len)
+		return len;
 
 	if (wsi->truncated_send_len && (buf < wsi->truncated_send_malloc ||
 			buf > (wsi->truncated_send_malloc +
@@ -149,6 +153,9 @@ handle_truncated_send:
 			lwsl_info("***** %x partial send completed\n", wsi);
 			/* done with it, but don't free it */
 			n = real_len;
+			if (wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE)
+				lwsl_info("***** %x signalling to close now\n", wsi);
+				return -1; /* retry closing now */
 		}
 		/* always callback on writeable */
 		libwebsocket_callback_on_writable(
@@ -480,9 +487,12 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 	while (!lws_send_pipe_choked(wsi)) {
 
 		if (wsi->truncated_send_len) {
-			lws_issue_raw(wsi, wsi->truncated_send_malloc +
+			if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
 					wsi->truncated_send_offset,
-						       wsi->truncated_send_len);
+						       wsi->truncated_send_len) < 0) {
+				lwsl_info("closing from libwebsockets_serve_http_file_fragment\n");
+				return -1;
+			}
 			continue;
 		}
 

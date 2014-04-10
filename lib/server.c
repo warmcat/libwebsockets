@@ -506,9 +506,12 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		if (wsi->truncated_send_malloc) {
 			if (pollfd->revents & LWS_POLLOUT)
-				lws_issue_raw(wsi, wsi->truncated_send_malloc +
+				if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
 					wsi->truncated_send_offset,
-							wsi->truncated_send_len);
+							wsi->truncated_send_len) < 0) {
+					lwsl_info("closing from socket service\n");
+					return -1;
+				}
 			/*
 			 * we can't afford to allow input processing send
 			 * something new, so spin around he event loop until
@@ -539,16 +542,20 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				break;
 			}
 
-			/* hm this may want to send (via HTTP callback for example) */
+			/* just ignore incoming if waiting for close */
+			if (wsi->state != WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
+			
+				/* hm this may want to send (via HTTP callback for example) */
 
-			n = libwebsocket_read(context, wsi,
-						context->service_buffer, len);
-			if (n < 0)
-				/* we closed wsi */
-				return 0;
+				n = libwebsocket_read(context, wsi,
+							context->service_buffer, len);
+				if (n < 0)
+					/* we closed wsi */
+					return 0;
 
-			/* hum he may have used up the writability above */
-			break;
+				/* hum he may have used up the writability above */
+				break;
+			}
 		}
 
 		/* this handles POLLOUT for http serving fragments */

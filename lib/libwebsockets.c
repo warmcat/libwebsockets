@@ -53,12 +53,29 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 	old_state = wsi->state;
 
-	if (old_state == WSI_STATE_DEAD_SOCKET)
+	switch (old_state) {
+	case WSI_STATE_DEAD_SOCKET:
 		return;
 
 	/* we tried the polite way... */
-	if (old_state == WSI_STATE_AWAITING_CLOSE_ACK)
+	case WSI_STATE_AWAITING_CLOSE_ACK:
 		goto just_kill_connection;
+
+	case WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE:
+		if (wsi->truncated_send_len) {
+			libwebsocket_callback_on_writable(context, wsi);
+			return;
+		}
+		lwsl_info("wsi %p completed WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
+		goto just_kill_connection;
+	default:
+		if (wsi->truncated_send_len) {
+			lwsl_info("wsi %p entering WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
+			wsi->state = WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE;
+			return;
+		}
+		break;
+	}
 
 	wsi->u.ws.close_reason = reason;
 
