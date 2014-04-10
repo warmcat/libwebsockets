@@ -51,8 +51,8 @@ lws_get_library_version(void)
  *	After initialization, it returns a struct libwebsocket_context * that
  *	represents this server.  After calling, user code needs to take care
  *	of calling libwebsocket_service() with the context pointer to get the
- *	server's sockets serviced.  This can be done in the same process context
- *	or a forked process, or another thread,
+ *	server's sockets serviced.  This must be done in the same process
+ *	context as the initialization call.
  *
  *	The protocol callback functions are called for a handful of events
  *	including http requests coming in, websocket connections becoming
