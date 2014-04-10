@@ -383,6 +383,10 @@ static int callback_http(struct libwebsocket_context *context,
 				/* partial write, adjust */
 				lseek(pss->fd, m - n, SEEK_CUR);
 
+			if (m) /* while still active, extend timeout */
+				libwebsocket_set_timeout(wsi,
+					PENDING_TIMEOUT_HTTP_CONTENT, 5);
+
 		} while (!lws_send_pipe_choked(wsi));
 		libwebsocket_callback_on_writable(context, wsi);
 		break;
