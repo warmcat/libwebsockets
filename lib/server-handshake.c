@@ -22,7 +22,7 @@
 #include "private-libwebsockets.h"
 
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
-
+#ifndef LWS_NO_EXTENSIONS
 LWS_VISIBLE int
 lws_extension_server_handshake(struct libwebsocket_context *context,
 			  struct libwebsocket *wsi, char **p)
@@ -157,7 +157,7 @@ lws_extension_server_handshake(struct libwebsocket_context *context,
 	
 	return 0;
 }
-
+#endif
 int
 handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 {
@@ -223,13 +223,14 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		p += n;
 	}
 
+#ifndef LWS_NO_EXTENSIONS
 	/*
 	 * Figure out which extensions the client has that we want to
 	 * enable on this connection, and give him back the list
 	 */
 	if (lws_extension_server_handshake(context, wsi, &p))
 		goto bail;
-
+#endif
 	/* end of response packet */
 
 	LWS_CPYAPP(p, "\x0d\x0a\x0d\x0a");
