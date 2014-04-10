@@ -148,8 +148,9 @@ handle_truncated_send:
 			lwsl_info("***** %x partial send completed\n", wsi);
 			/* done with it, but don't free it */
 			n = real_len;
-		} else
-			libwebsocket_callback_on_writable(
+		}
+		/* always callback on writeable */
+		libwebsocket_callback_on_writable(
 					     wsi->protocol->owning_server, wsi);
 
 		return n;

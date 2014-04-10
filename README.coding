@@ -67,6 +67,20 @@ in the ...WRITEABLE callback.
 See the test server code for an example of how to do this.
 
 
+Do not rely on only your own WRITEABLE requests appearing
+---------------------------------------------------------
+
+Libwebsockets may generate additional LWS_CALLBACK_CLIENT_WRITEABLE events
+if it met network conditions where it had to buffer your send data internally.
+
+So your code for LWS_CALLBACK_CLIENT_WRITEABLE needs to own the decision
+about what to send, it can't assume that just because the writeable callback
+came it really is time to send something.
+
+It's quite possible you get an 'extra' writeable callback at any time and
+just need to return 0 and wait for the expected callback later.
+
+
 Closing connections from the user side
 --------------------------------------
 
