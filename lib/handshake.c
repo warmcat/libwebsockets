@@ -142,29 +142,17 @@ http_postbody:
 
 	case WSI_STATE_AWAITING_CLOSE_ACK:
 	case WSI_STATE_ESTABLISHED:
-#ifndef LWS_NO_CLIENT
+		if (lws_handshake_client(wsi, &buf, len))
+			goto bail;
 		switch (wsi->mode) {
-		case LWS_CONNMODE_WS_CLIENT:
-			for (n = 0; n < len; n++)
-				if (libwebsocket_client_rx_sm(
-							     wsi, *buf++)) {
-					lwsl_debug("client rx has bailed\n");
-					goto bail;
-				}
+		case LWS_CONNMODE_WS_SERVING:
 
-			return 0;
-		default:
+			if (libwebsocket_interpret_incoming_packet(wsi, buf, len) < 0) {
+				lwsl_info("interpret_incoming_packet has bailed\n");
+				goto bail;
+			}
 			break;
 		}
-#endif
-#ifndef LWS_NO_SERVER
-		/* LWS_CONNMODE_WS_SERVING */
-
-		if (libwebsocket_interpret_incoming_packet(wsi, buf, len) < 0) {
-			lwsl_info("interpret_incoming_packet has bailed\n");
-			goto bail;
-		}
-#endif
 		break;
 	default:
 		lwsl_err("libwebsocket_read: Unhandled state\n");

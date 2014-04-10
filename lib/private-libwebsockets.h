@@ -622,10 +622,6 @@ LWS_EXTERN int
 libwebsocket_parse(struct libwebsocket *wsi, unsigned char c);
 
 LWS_EXTERN int
-libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
-						unsigned char *buf, size_t len);
-
-LWS_EXTERN int
 lws_b64_selftest(void);
 
 LWS_EXTERN struct libwebsocket *
@@ -723,8 +719,12 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 			    struct libwebsocket_context *context);
 LWS_EXTERN int handshake_0405(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi);
+LWS_EXTERN int
+libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
+						unsigned char *buf, size_t len);
 #else
 #define lws_context_init_server(_a, _b) (0)
+#define libwebsocket_interpret_incoming_packet(_a, _b, _c) (0)
 #endif
 
 #ifndef LWS_NO_DAEMONIZE

@@ -146,15 +146,14 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	pa.fd = wsi->sock;
 
 	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_LOCK_POLL,
-		wsi->user_space,  (void *) &pa, 0);
+		LWS_CALLBACK_LOCK_POLL, wsi->user_space,  (void *) &pa, 0);
 
 	pa.prev_events = pfd->events;
 	pa.events = pfd->events = (pfd->events & ~_and) | _or;
 
 	context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CHANGE_MODE_POLL_FD,
-			wsi->user_space, (void *) &pa, 0);
+				wsi->user_space, (void *) &pa, 0);
 
 	/*
 	 * if we changed something in this pollfd...
@@ -178,8 +177,7 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	}
 
 	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_UNLOCK_POLL,
-		wsi->user_space, (void *) &pa, 0);
+		LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *) &pa, 0);
 	
 	return 0;
 }

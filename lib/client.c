@@ -21,8 +21,6 @@
 
 #include "private-libwebsockets.h"
 
-
-
 int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t len)
 {
 	int n;

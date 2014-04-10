@@ -959,3 +959,52 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 	return libwebsockets_serve_http_file_fragment(context, wsi);
 }
 
+
+int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
+						 unsigned char *buf, size_t len)
+{
+	size_t n = 0;
+	int m;
+
+#if 0
+	lwsl_parser("received %d byte packet\n", (int)len);
+	lwsl_hexdump(buf, len);
+#endif
+
+	/* let the rx protocol state machine have as much as it needs */
+
+	while (n < len) {
+		/*
+		 * we were accepting input but now we stopped doing so
+		 */
+		if (!(wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW)) {
+			/* his RX is flowcontrolled, don't send remaining now */
+			if (!wsi->u.ws.rxflow_buffer) {
+				/* a new rxflow, buffer it and warn caller */
+				lwsl_info("new rxflow input buffer len %d\n",
+								       len - n);
+				wsi->u.ws.rxflow_buffer =
+					       (unsigned char *)malloc(len - n);
+				wsi->u.ws.rxflow_len = len - n;
+				wsi->u.ws.rxflow_pos = 0;
+				memcpy(wsi->u.ws.rxflow_buffer,
+							buf + n, len - n);
+			} else
+				/* rxflow while we were spilling prev rxflow */
+				lwsl_info("stalling in existing rxflow buf\n");
+
+			return 1;
+		}
+
+		/* account for what we're using in rxflow buffer */
+		if (wsi->u.ws.rxflow_buffer)
+			wsi->u.ws.rxflow_pos++;
+
+		/* process the byte */
+		m = libwebsocket_rx_sm(wsi, buf[n++]);
+		if (m < 0)
+			return -1;
+	}
+
+	return 0;
+}

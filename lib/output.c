@@ -123,20 +123,21 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	 * nope, send it on the socket directly
 	 */
 	lws_latency_pre(context, wsi);
-
 	n = lws_ssl_capable_write(wsi, buf, len);
 	lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
+
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
 		return -1;
 	case LWS_SSL_CAPABLE_MORE_SERVICE:
+		/* nothing got sent, not fatal, retry the whole thing later */
 		n = 0;
-		goto handle_truncated_send;
+		break;
 	}
 
 handle_truncated_send:
 	/*
-	 * already handling a truncated send?
+	 * we were already handling a truncated send?
 	 */
 	if (wsi->truncated_send_len) {
 		lwsl_info("***** %x partial send moved on by %d (vs %d)\n",
@@ -156,54 +157,53 @@ handle_truncated_send:
 		return n;
 	}
 
-	if (n < real_len) {
-		if (n && wsi->u.ws.clean_buffer)
-			/*
-			 * This buffer unaffected by extension rewriting.
-			 * It means the user code is expected to deal with
-			 * partial sends.  (lws knows the header was already
-			 * sent, so on next send will just resume sending
-			 * payload)
-			 */
-			 return n;
+	if (n == real_len)
+		/* what we just sent went out cleanly */
+		return n;
 
+	if (n && wsi->u.ws.clean_buffer)
 		/*
-		 * Newly truncated send.  Buffer the remainder (it will get
-		 * first priority next time the socket is writable)
+		 * This buffer unaffected by extension rewriting.
+		 * It means the user code is expected to deal with
+		 * partial sends.  (lws knows the header was already
+		 * sent, so on next send will just resume sending
+		 * payload)
 		 */
-		lwsl_info("***** %x new partial sent %d from %d total\n",
-							      wsi, n, real_len);
+		 return n;
 
-		/*
-		 *  - if we still have a suitable malloc lying around, use it
-		 *  - or, if too small, reallocate it
-		 *  - or, if no buffer, create it
-		 */
-		if (!wsi->truncated_send_malloc ||
-				real_len - n > wsi->truncated_send_allocation) {
-			if (wsi->truncated_send_malloc)
-				free(wsi->truncated_send_malloc);
+	/*
+	 * Newly truncated send.  Buffer the remainder (it will get
+	 * first priority next time the socket is writable)
+	 */
+	lwsl_info("***** %x new partial sent %d from %d total\n",
+						      wsi, n, real_len);
 
-			wsi->truncated_send_allocation = real_len - n;
-			wsi->truncated_send_malloc = malloc(real_len - n);
-			if (!wsi->truncated_send_malloc) {
-				lwsl_err(
-				   "truncated send: unable to malloc %d\n",
-								  real_len - n);
-				return -1;
-			}
+	/*
+	 *  - if we still have a suitable malloc lying around, use it
+	 *  - or, if too small, reallocate it
+	 *  - or, if no buffer, create it
+	 */
+	if (!wsi->truncated_send_malloc ||
+			real_len - n > wsi->truncated_send_allocation) {
+		if (wsi->truncated_send_malloc)
+			free(wsi->truncated_send_malloc);
+
+		wsi->truncated_send_allocation = real_len - n;
+		wsi->truncated_send_malloc = malloc(real_len - n);
+		if (!wsi->truncated_send_malloc) {
+			lwsl_err("truncated send: unable to malloc %d\n",
+							  real_len - n);
+			return -1;
 		}
-		wsi->truncated_send_offset = 0;
-		wsi->truncated_send_len = real_len - n;
-		memcpy(wsi->truncated_send_malloc, buf + n, real_len - n);
-
-		libwebsocket_callback_on_writable(
-					     wsi->protocol->owning_server, wsi);
-
-		return real_len;
 	}
+	wsi->truncated_send_offset = 0;
+	wsi->truncated_send_len = real_len - n;
+	memcpy(wsi->truncated_send_malloc, buf + n, real_len - n);
 
-	return n;
+	/* since something buffered, force it to get another chance to send */
+	libwebsocket_callback_on_writable(wsi->protocol->owning_server, wsi);
+
+	return real_len;
 }
 
 /**
@@ -531,12 +531,11 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int le
 	int n;
 
 	n = recv(wsi->sock, buf, len, 0);
-	if (n < 0) {
-		lwsl_warn("error on reading from skt\n");
-		return LWS_SSL_CAPABLE_ERROR;
-	}
-	
-	return n;
+	if (n >= 0)
+		return n;
+
+	lwsl_warn("error on reading from skt\n");
+	return LWS_SSL_CAPABLE_ERROR;
 }
 
 LWS_VISIBLE int
@@ -545,17 +544,17 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 	int n;
 	
 	n = send(wsi->sock, buf, len, 0);
-	if (n < 0) {
-		if (LWS_ERRNO == LWS_EAGAIN ||
-		    LWS_ERRNO == LWS_EWOULDBLOCK ||
-		    LWS_ERRNO == LWS_EINTR) {
-			if (LWS_ERRNO == LWS_EWOULDBLOCK)
-				lws_set_blocking_send(wsi);
-			return LWS_SSL_CAPABLE_MORE_SERVICE;
-		}
-		lwsl_debug("ERROR writing len %d to skt %d\n", len, n);
-		return LWS_SSL_CAPABLE_ERROR;
-	}
+	if (n >= 0)
+		return n;
 
-	return n;
+	if (LWS_ERRNO == LWS_EAGAIN ||
+	    LWS_ERRNO == LWS_EWOULDBLOCK ||
+	    LWS_ERRNO == LWS_EINTR) {
+		if (LWS_ERRNO == LWS_EWOULDBLOCK)
+			lws_set_blocking_send(wsi);
+
+		return LWS_SSL_CAPABLE_MORE_SERVICE;
+	}
+	lwsl_debug("ERROR writing len %d to skt %d\n", len, n);
+	return LWS_SSL_CAPABLE_ERROR;
 }
