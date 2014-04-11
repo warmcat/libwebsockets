@@ -154,8 +154,10 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 	/* adjust the pollfd for this wsi */
 
 	if (wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW) {
-		if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+		if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+			lwsl_info("%s: fail\n", __func__);
 			return -1;
+		}
 	} else
 		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
 			return -1;
@@ -566,11 +568,8 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		/* one shot */
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			goto fail;
-#ifdef LWS_USE_LIBEV
-		if (LWS_LIBEV_ENABLED(context))
-			ev_io_stop(context->io_loop,
-				   (struct ev_io *)&wsi->w_write);
-#endif /* LWS_USE_LIBEV */
+		
+		lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
 		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE) {
 			n = user_callback_handle_rxflow(
@@ -655,20 +654,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		(context->protocols[0].callback)(context, new_wsi,
 			LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, NULL, NULL, 0);
 
-#ifdef LWS_USE_LIBEV
-		if (LWS_LIBEV_ENABLED(context)) {
-		        new_wsi->w_read.context = context;
-		        new_wsi->w_write.context = context;
-		        /*
-		        new_wsi->w_read.wsi = new_wsi;
-		        new_wsi->w_write.wsi = new_wsi;
-		        */
-		        struct ev_io* w_read = (struct ev_io*)&(new_wsi->w_read);
-		        struct ev_io* w_write = (struct ev_io*)&(new_wsi->w_write);
-		        ev_io_init(w_read,libwebsocket_accept_cb,accept_fd,EV_READ);
-		        ev_io_init(w_write,libwebsocket_accept_cb,accept_fd,EV_WRITE);
-		}
-#endif /* LWS_USE_LIBEV */
+		lws_libev_accept(context, new_wsi, accept_fd);
 
 #ifdef LWS_OPENSSL_SUPPORT
 		new_wsi->ssl = NULL;
@@ -737,11 +723,8 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			goto fail;
-#ifdef LWS_USE_LIBEV
-		if (LWS_LIBEV_ENABLED(context))
-			ev_io_stop(context->io_loop,
-					   (struct ev_io *)&wsi->w_write);
-#endif /* LWS_USE_LIBEV */
+		
+		lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
 		lws_latency_pre(context, wsi);
 
@@ -787,22 +770,18 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			if (m == SSL_ERROR_WANT_READ) {
 				if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
 					goto fail;
-#ifdef LWS_USE_LIBEV
-				if (LWS_LIBEV_ENABLED(context))
-		                    ev_io_start(context->io_loop,
-						(struct ev_io *)&wsi->w_read);
-#endif /* LWS_USE_LIBEV */
+
+				lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_READ);
+
 				lwsl_info("SSL_ERROR_WANT_READ\n");
 				break;
 			}
 			if (m == SSL_ERROR_WANT_WRITE) {
 				if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 					goto fail;
-#ifdef LWS_USE_LIBEV
-				if (LWS_LIBEV_ENABLED(context))
-					ev_io_start(context->io_loop,
-						(struct ev_io *)&wsi->w_write);
-#endif /* LWS_USE_LIBEV */
+				
+				lws_libev_io(context, wsi,
+						   LWS_EV_START | LWS_EV_WRITE);
 				break;
 			}
 			lwsl_debug("SSL_accept failed skt %u: %s\n",

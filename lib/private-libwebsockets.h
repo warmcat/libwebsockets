@@ -434,10 +434,34 @@ struct libwebsocket_context {
 	void *user_space;
 };
 
+enum {
+	LWS_EV_READ = (1 << 0),
+	LWS_EV_WRITE = (1 << 1),
+	LWS_EV_START = (1 << 2),
+	LWS_EV_STOP = (1 << 3),
+};
+
 #ifdef LWS_USE_LIBEV
 #define LWS_LIBEV_ENABLED(context) (context->options & LWS_SERVER_OPTION_LIBEV)
+LWS_EXTERN void lws_feature_status_libev(struct lws_context_creation_info *info);
+LWS_EXTERN void
+lws_libev_accept(struct libwebsocket_context *context,
+		 struct libwebsocket *new_wsi, int accept_fd);
+LWS_EXTERN void
+lws_libev_io(struct libwebsocket_context *context,
+				struct libwebsocket *wsi, int flags);
+LWS_EXTERN int
+lws_libev_init_fd_table(struct libwebsocket_context *context);
+LWS_EXTERN void
+lws_libev_run(struct libwebsocket_context *context);
 #else
 #define LWS_LIBEV_ENABLED(context) (0)
+#define lws_feature_status_libev(_a) \
+			lwsl_notice("libev support not compiled in\n")
+#define lws_libev_accept(_a, _b, _c) (0)
+#define lws_libev_io(_a, _b, _c) (0)
+#define lws_libev_init_fd_table(_a) (0)
+#define lws_libev_run(_a) (0)
 #endif
 
 #ifdef LWS_USE_IPV6

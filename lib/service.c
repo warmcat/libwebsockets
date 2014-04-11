@@ -145,11 +145,8 @@ user_service:
 	if (pollfd) {
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			return 1;
-#ifdef LWS_USE_LIBEV
-		if (LWS_LIBEV_ENABLED(context))
-			ev_io_stop(context->io_loop,
-				(struct ev_io *)&wsi->w_write);
-#endif /* LWS_USE_LIBEV */
+
+		lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_WRITE);
 	}
 
 notify_action:

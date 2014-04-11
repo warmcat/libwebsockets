@@ -91,14 +91,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #else
 	lwsl_notice("IPV6 not compiled in\n");
 #endif
-#ifdef LWS_USE_LIBEV
-	if (info->options & LWS_SERVER_OPTION_LIBEV)
-		lwsl_notice("libev support compiled in and enabled\n");
-	else
-		lwsl_notice("libev support compiled in but disabled\n");
-#else
-	lwsl_notice("libev support not compiled in\n");
-#endif
+	lws_feature_status_libev(info);
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
 #ifndef LWS_NO_EXTENSIONS

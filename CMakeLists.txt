@@ -324,6 +324,12 @@ if (NOT LWS_WITHOUT_EXTENSIONS)
 		)
 endif()
 
+if (LWS_WITH_LIBEV)
+	list(APPEND SOURCES
+		lib/libev.c
+		)
+endif(LWS_WITH_LIBEV)
+
 # Add helper files for Windows.
 if (WIN32)
 	set(WIN32_HELPERS_PATH win32port/win32helpers)

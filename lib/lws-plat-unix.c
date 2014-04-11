@@ -54,93 +54,6 @@ static void lws_sigusr2(int sig)
 {
 }
 
-#ifdef LWS_USE_LIBEV
-LWS_VISIBLE void 
-libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
-{
-	struct libwebsocket_pollfd eventfd;
-	struct lws_io_watcher *lws_io = (struct lws_io_watcher*)watcher;
-	struct libwebsocket_context *context = lws_io->context;
-
-	if (revents & EV_ERROR)
-		return;
-
-	eventfd.fd = watcher->fd;
-	eventfd.revents = EV_NONE;
-	if (revents & EV_READ)
-		eventfd.revents |= LWS_POLLIN;
-
-	if (revents & EV_WRITE)
-		eventfd.revents |= LWS_POLLOUT;
-
-	libwebsocket_service_fd(context,&eventfd);
-}
-
-LWS_VISIBLE void
-libwebsocket_sigint_cb(
-    struct ev_loop *loop, struct ev_signal* watcher, int revents)
-{
-    ev_break(loop, EVBREAK_ALL);
-}
-
-LWS_VISIBLE int
-libwebsocket_initloop(
-	struct libwebsocket_context *context,
-	struct ev_loop *loop)
-{
-	int status = 0;
-	int backend;
-	const char * backend_name;
-	struct ev_io *w_accept = (ev_io *)&context->w_accept;
-	struct ev_signal *w_sigint = (ev_signal *)&context->w_sigint;
-
-	if (!loop)
-		loop = ev_default_loop(0);
-
-	context->io_loop = loop;
-   
-	/*
-	 * Initialize the accept w_accept with the listening socket
-	 * and register a callback for read operations:
-	 */
-	ev_io_init(w_accept, libwebsocket_accept_cb,
-					context->listen_service_fd, EV_READ);
-	ev_io_start(context->io_loop,w_accept);
-	ev_signal_init(w_sigint, libwebsocket_sigint_cb, SIGINT);
-	ev_signal_start(context->io_loop,w_sigint);
-	backend = ev_backend(loop);
-
-	switch (backend) {
-	case EVBACKEND_SELECT:
-		backend_name = "select";
-		break;
-	case EVBACKEND_POLL:
-		backend_name = "poll";
-		break;
-	case EVBACKEND_EPOLL:
-		backend_name = "epoll";
-		break;
-	case EVBACKEND_KQUEUE:
-		backend_name = "kqueue";
-		break;
-	case EVBACKEND_DEVPOLL:
-		backend_name = "/dev/poll";
-		break;
-	case EVBACKEND_PORT:
-		backend_name = "Solaris 10 \"port\"";
-		break;
-	default:
-		backend_name = "Unknown libev backend";
-		break;
-	};
-
-	lwsl_notice(" libev backend: %s\n", backend_name);
-
-	return status;
-}
-
-#endif /* LWS_USE_LIBEV */
-
 /**
  * libwebsocket_cancel_service() - Cancel servicing of pending websocket activity
  * @context:	Websocket context
@@ -187,13 +100,11 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 
 	/* stay dead once we are dead */
 
-	if (context == NULL)
+	if (!context)
 		return 1;
 
-#ifdef LWS_USE_LIBEV
-	if (context->io_loop && LWS_LIBEV_ENABLED(context))
-		ev_run(context->io_loop, 0);
-#endif /* LWS_USE_LIBEV */
+	lws_libev_run(context);
+
 	context->service_tid = context->protocols[0].callback(context, NULL,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 
@@ -305,13 +216,10 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 LWS_VISIBLE int
 lws_plat_init_fd_tables(struct libwebsocket_context *context)
 {
-#ifdef LWS_USE_LIBEV
-	if (LWS_LIBEV_ENABLED(context)) {
-		context->w_accept.context = context;
-		context->w_sigint.context = context;
+	if (lws_libev_init_fd_table(context))
+		/* libev handled it instead */
 		return 0;
-	}
-#endif
+
 	if (pipe(context->dummy_pipe_fds)) {
 		lwsl_err("Unable to create pipe\n");
 		return 1;
@@ -433,10 +341,7 @@ LWS_VISIBLE void
 lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
 						       struct libwebsocket *wsi)
 {
-#ifdef LWS_USE_LIBEV
-	if (context && context->io_loop && LWS_LIBEV_ENABLED(context))
-		ev_io_start(context->io_loop, (struct ev_io *)&wsi->w_read);
-#endif /* LWS_USE_LIBEV */
+	lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_READ);
 	context->fds[context->fds_count++].revents = 0;
 }
 

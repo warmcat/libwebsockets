@@ -74,12 +74,7 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 	int m;
 	struct libwebsocket_pollargs pa = { wsi->sock, 0, 0 };
 
-#ifdef LWS_USE_LIBEV
-	if (LWS_LIBEV_ENABLED(context)) {
-		ev_io_stop(context->io_loop, (struct ev_io *)&wsi->w_read);
-		ev_io_stop(context->io_loop, (struct ev_io *)&wsi->w_write);
-	}
-#endif /* LWS_USE_LIBEV */
+	lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
 	if (!--context->fds_count) {
 		context->protocols[0].callback(context, wsi,
@@ -164,8 +159,10 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	 */
 	if (pa.prev_events != pa.events) {
 		
-		if (lws_plat_change_pollfd(context, wsi, pfd))
+		if (lws_plat_change_pollfd(context, wsi, pfd)) {
+			lwsl_info("%s failed\n", __func__);
 			return 1;
+		}
 
 		sampled_tid = context->service_tid;
 		if (sampled_tid) {
@@ -208,10 +205,7 @@ libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 	if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 		return -1;
 
-#ifdef LWS_USE_LIBEV
-	if (LWS_LIBEV_ENABLED(context))
-		ev_io_start(context->io_loop, (struct ev_io *)&wsi->w_write);
-#endif /* LWS_USE_LIBEV */
+	lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_WRITE);
 
 	return 1;
 }
