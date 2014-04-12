@@ -83,6 +83,9 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <tchar.h>
+#ifdef LWS_USE_IPV6
+#include <in6addr.h>
+#endif
 #include <mstcpip.h>
 
 #ifndef __func__
