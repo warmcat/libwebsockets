@@ -162,7 +162,7 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
 			return -1;
 
-	return 1;
+	return 0;
 }
 
 
