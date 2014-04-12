@@ -27,6 +27,14 @@ struct libwebsocket_extension libwebsocket_internal_extensions[] = {
 	}
 };
 
+LWS_VISIBLE void
+lws_context_init_extensions(struct lws_context_creation_info *info,
+				    struct libwebsocket_context *context)
+{
+	context->extensions = info->extensions;
+	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
+}
+
 LWS_VISIBLE struct libwebsocket_extension *libwebsocket_get_internal_extensions()
 {
 	return libwebsocket_internal_extensions;

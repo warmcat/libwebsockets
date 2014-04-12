@@ -77,9 +77,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	struct libwebsocket_context *context = NULL;
 	char *p;
 
-#ifndef LWS_NO_DAEMONIZE
 	int pid_daemon = get_daemonize_pid();
-#endif
 
 	lwsl_notice("Initial logging level %d\n", log_level);
 	lwsl_notice("Library version: %s\n", library_version);
@@ -94,12 +92,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	lws_feature_status_libev(info);
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
-#ifndef LWS_NO_EXTENSIONS
-	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n",
-						LWS_MAX_EXTENSIONS_ACTIVE);
-#else
-	lwsl_notice(" Configured without extension support\n");
-#endif
+
 	lwsl_info(" SPEC_LATEST_SUPPORTED: %u\n", SPEC_LATEST_SUPPORTED);
 	lwsl_info(" AWAITING_TIMEOUT: %u\n", AWAITING_TIMEOUT);
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
@@ -115,10 +108,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		return NULL;
 	}
 	memset(context, 0, sizeof(*context));
-#ifndef LWS_NO_DAEMONIZE
-	context->started_with_parent = pid_daemon;
-	lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
-#endif
+
+	if (pid_daemon) {
+		context->started_with_parent = pid_daemon;
+		lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
+	}
 
 	context->listen_service_extraseen = 0;
 	context->protocols = info->protocols;
@@ -169,23 +163,13 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		return NULL;
 	}
 
-#ifndef LWS_NO_EXTENSIONS
-	context->extensions = info->extensions;
-#endif
+	lws_context_init_extensions(info, context);
+
 	context->user_space = info->user;
 
 	strcpy(context->canonical_hostname, "unknown");
 
-#ifndef LWS_NO_SERVER
-	if (!(info->options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME)) {
-		/* find canonical hostname */
-		gethostname((char *)context->canonical_hostname,
-				       sizeof(context->canonical_hostname) - 1);
-
-		lwsl_notice(" canonical_hostname = %s\n",
-					context->canonical_hostname);
-	}
-#endif
+	lws_server_get_canonical_hostname(context, info);
 
 	/* split the proxy ads:port if given */
 
@@ -300,6 +284,8 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	int n;
 	struct libwebsocket_protocols *protocol = context->protocols;
 
+	lwsl_notice("%s\n", __func__);
+
 #ifdef LWS_LATENCY
 	if (context->worst_latency_info[0])
 		lwsl_notice("Worst latency: %s\n", context->worst_latency_info);
@@ -341,24 +327,14 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 
 	lws_plat_context_early_destroy(context);
 
-#ifdef LWS_OPENSSL_SUPPORT
-	if (context->ssl_ctx)
-		SSL_CTX_free(context->ssl_ctx);
-	if (context->ssl_client_ctx)
-		SSL_CTX_free(context->ssl_client_ctx);
-
-	ERR_remove_state(0);
-	ERR_free_strings();
-	EVP_cleanup();
-	CRYPTO_cleanup_all_ex_data();
-#endif
+	lws_ssl_context_destroy(context);
 
 	if (context->fds)
 		free(context->fds);
 	if (context->lws_lookup)
 		free(context->lws_lookup);
 
-	free(context);
-
 	lws_plat_context_late_destroy(context);
+
+	free(context);
 }

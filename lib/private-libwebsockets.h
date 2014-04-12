@@ -678,7 +678,14 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 LWS_EXTERN int
 lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 			      struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
+/*
+ * EXTENSIONS
+ */
+
 #ifndef LWS_NO_EXTENSIONS
+LWS_VISIBLE void
+lws_context_init_extensions(struct lws_context_creation_info *info,
+				    struct libwebsocket_context *context);
 LWS_EXTERN int
 lws_any_extension_handled(struct libwebsocket_context *context,
 			  struct libwebsocket *wsi,
@@ -697,6 +704,7 @@ lws_ext_callback_for_each_extension_type(
 #define lws_ext_callback_for_each_active(_a, _b, _c, _d) (0)
 #define lws_ext_callback_for_each_extension_type(_a, _b, _c, _d, _e) (0)
 #define lws_issue_raw_ext_access lws_issue_raw
+#define lws_context_init_extensions(_a, _b)
 #endif
 
 LWS_EXTERN int
@@ -747,13 +755,19 @@ LWS_EXTERN int handshake_0405(struct libwebsocket_context *context,
 LWS_EXTERN int
 libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 						unsigned char *buf, size_t len);
+LWS_EXTERN void
+lws_server_get_canonical_hostname(struct libwebsocket_context *context,
+				struct lws_context_creation_info *info);
 #else
 #define lws_context_init_server(_a, _b) (0)
 #define libwebsocket_interpret_incoming_packet(_a, _b, _c) (0)
+#define lws_server_get_canonical_hostname(_a, _b)
 #endif
 
 #ifndef LWS_NO_DAEMONIZE
 LWS_EXTERN int get_daemonize_pid();
+#else
+#define get_daemonize_pid() (0)
 #endif
 
 LWS_EXTERN int interface_to_sa(struct libwebsocket_context *context,
@@ -773,7 +787,7 @@ enum lws_ssl_capable_status {
 };
 
 #ifndef LWS_OPENSSL_SUPPORT
-
+#define LWS_SSL_ENABLED(context) (0)
 unsigned char *
 SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #define lws_context_init_server_ssl(_a, _b) (0)
@@ -782,7 +796,11 @@ SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #define lws_ssl_pending(_a) (0)
 #define lws_ssl_capable_read lws_ssl_capable_read_no_ssl
 #define lws_ssl_capable_write lws_ssl_capable_write_no_ssl
+#define lws_server_socket_service_ssl(_a, _b, _c, _d, _e) (0)
+#define lws_ssl_close(_a) (0)
+#define lws_ssl_context_destroy(_a)
 #else
+#define LWS_SSL_ENABLED(context) (context->use_ssl)
 LWS_EXTERN int lws_ssl_pending(struct libwebsocket *wsi);
 LWS_EXTERN int openssl_websocket_private_data_index;
 LWS_EXTERN int
@@ -790,7 +808,14 @@ lws_ssl_capable_read(struct libwebsocket *wsi, unsigned char *buf, int len);
 
 LWS_EXTERN int
 lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len);
-
+LWS_EXTERN int
+lws_server_socket_service_ssl(struct libwebsocket_context *context,
+		struct libwebsocket **wsi, struct libwebsocket *new_wsi,
+		int accept_fd, struct libwebsocket_pollfd *pollfd);
+LWS_EXTERN int
+lws_ssl_close(struct libwebsocket *wsi);
+LWS_EXTERN void
+lws_ssl_context_destroy(struct libwebsocket_context *context);
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,

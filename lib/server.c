@@ -484,18 +484,12 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 int lws_server_socket_service(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
-	struct libwebsocket *new_wsi;
-	int accept_fd;
+	struct libwebsocket *new_wsi = NULL;
+	int accept_fd = 0;
 	socklen_t clilen;
 	struct sockaddr_in cli_addr;
 	int n;
 	int len;
-#ifdef LWS_OPENSSL_SUPPORT
-	int m;
-#ifndef USE_CYASSL
-	BIO *bio;
-#endif
-#endif
 
 	switch (wsi->mode) {
 
@@ -656,157 +650,21 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		lws_libev_accept(context, new_wsi, accept_fd);
 
-#ifdef LWS_OPENSSL_SUPPORT
-		new_wsi->ssl = NULL;
-		if (!context->use_ssl) {
-#endif
-
+		if (!LWS_SSL_ENABLED(context)) {
 			lwsl_debug("accepted new conn  port %u on fd=%d\n",
 					  ntohs(cli_addr.sin_port), accept_fd);
 
 			insert_wsi_socket_into_fds(context, new_wsi);
-			break;
-#ifdef LWS_OPENSSL_SUPPORT
 		}
-
-		new_wsi->ssl = SSL_new(context->ssl_ctx);
-		if (new_wsi->ssl == NULL) {
-			lwsl_err("SSL_new failed: %s\n",
-			    ERR_error_string(SSL_get_error(
-			    new_wsi->ssl, 0), NULL));
-			    libwebsockets_decode_ssl_error();
-			free(new_wsi);
-			compatible_close(accept_fd);
-			break;
-		}
-
-		SSL_set_ex_data(new_wsi->ssl,
-			openssl_websocket_private_data_index, context);
-
-		SSL_set_fd(new_wsi->ssl, accept_fd);
-#ifndef USE_CYASSL
-		SSL_set_mode(new_wsi->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
-#endif
-		#ifdef USE_CYASSL
-		CyaSSL_set_using_nonblock(new_wsi->ssl, 1);
-		#else
-		bio = SSL_get_rbio(new_wsi->ssl);
-		if (bio)
-			BIO_set_nbio(bio, 1); /* nonblocking */
-		else
-			lwsl_notice("NULL rbio\n");
-		bio = SSL_get_wbio(new_wsi->ssl);
-		if (bio)
-			BIO_set_nbio(bio, 1); /* nonblocking */
-		else
-			lwsl_notice("NULL rbio\n");
-		#endif
-
-		/*
-		 * we are not accepted yet, but we need to enter ourselves
-		 * as a live connection.  That way we can retry when more
-		 * pieces come if we're not sorted yet
-		 */
-
-		wsi = new_wsi;
-		wsi->mode = LWS_CONNMODE_SSL_ACK_PENDING;
-		insert_wsi_socket_into_fds(context, wsi);
-
-		libwebsocket_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
-							AWAITING_TIMEOUT);
-
-		lwsl_info("inserted SSL accept into fds, trying SSL_accept\n");
-
-		/* fallthru */
-
-	case LWS_CONNMODE_SSL_ACK_PENDING:
-
-		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
-			goto fail;
-		
-		lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_WRITE);
-
-		lws_latency_pre(context, wsi);
-
-		n = recv(wsi->sock, context->service_buffer,
-			sizeof(context->service_buffer), MSG_PEEK);
-
-		/*
-		 * optionally allow non-SSL connect on SSL listening socket
-		 * This is disabled by default, if enabled it goes around any
-		 * SSL-level access control (eg, client-side certs) so leave
-		 * it disabled unless you know it's not a problem for you
-		 */
-
-		if (context->allow_non_ssl_on_ssl_port && n >= 1 &&
-					context->service_buffer[0] >= ' ') {
-			/*
-			 * TLS content-type for Handshake is 0x16
-			 * TLS content-type for ChangeCipherSpec Record is 0x14
-			 *
-			 * A non-ssl session will start with the HTTP method in
-			 * ASCII.  If we see it's not a legit SSL handshake
-			 * kill the SSL for this connection and try to handle
-			 * as a HTTP connection upgrade directly.
-			 */
-			wsi->use_ssl = 0;
-			SSL_shutdown(wsi->ssl);
-			SSL_free(wsi->ssl);
-			wsi->ssl = NULL;
-			goto accepted;
-		}
-
-		/* normal SSL connection processing path */
-
-		n = SSL_accept(wsi->ssl);
-		lws_latency(context, wsi,
-			"SSL_accept LWS_CONNMODE_SSL_ACK_PENDING\n", n, n == 1);
-
-		if (n != 1) {
-			m = SSL_get_error(wsi->ssl, n);
-			lwsl_debug("SSL_accept failed %d / %s\n",
-						  m, ERR_error_string(m, NULL));
-
-			if (m == SSL_ERROR_WANT_READ) {
-				if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
-					goto fail;
-
-				lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_READ);
-
-				lwsl_info("SSL_ERROR_WANT_READ\n");
-				break;
-			}
-			if (m == SSL_ERROR_WANT_WRITE) {
-				if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
-					goto fail;
-				
-				lws_libev_io(context, wsi,
-						   LWS_EV_START | LWS_EV_WRITE);
-				break;
-			}
-			lwsl_debug("SSL_accept failed skt %u: %s\n",
-				  pollfd->fd,
-				  ERR_error_string(m, NULL));
-			libwebsocket_close_and_free_session(context, wsi,
-						 LWS_CLOSE_STATUS_NOSTATUS);
-			break;
-		}
-
-accepted:
-		/* OK, we are accepted... give him some time to negotiate */
-		libwebsocket_set_timeout(wsi,
-			PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-							AWAITING_TIMEOUT);
-
-		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
-
-		lwsl_debug("accepted new SSL conn\n");
 		break;
-#endif
 
 	default:
 		break;
 	}
+
+	if (lws_server_socket_service_ssl(context, &wsi, new_wsi, accept_fd, pollfd))
+		goto fail;
+
 	return 0;
 	
 fail:
@@ -993,4 +851,18 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 	}
 
 	return 0;
+}
+
+LWS_VISIBLE void
+lws_server_get_canonical_hostname(struct libwebsocket_context *context,
+				struct lws_context_creation_info *info)
+{
+	if (info->options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME)
+		return;
+
+	/* find canonical hostname */
+	gethostname((char *)context->canonical_hostname,
+				       sizeof(context->canonical_hostname) - 1);
+
+	lwsl_notice(" canonical_hostname = %s\n", context->canonical_hostname);
 }

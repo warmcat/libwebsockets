@@ -135,10 +135,10 @@ lws_libev_io(struct libwebsocket_context *context,
 {
 	if (!LWS_LIBEV_ENABLED(context))
 		return;
-	
+
 	if (!context->io_loop)
 		return;
-	
+
 	assert((flags & (LWS_EV_START | LWS_EV_STOP)) &&
 		(flags & (LWS_EV_READ | LWS_EV_WRITE)));
 
