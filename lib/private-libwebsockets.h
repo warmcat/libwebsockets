@@ -827,12 +827,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 LWS_EXTERN void
 lws_ssl_destroy(struct libwebsocket_context *context);
 
-LWS_EXTERN int
-lws_ssl_capable_read_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
-
-LWS_EXTERN int
-lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
-
 /* HTTP2-related */
 
 #ifdef LWS_USE_HTTP2
@@ -842,6 +836,12 @@ lws_context_init_http2_ssl(struct libwebsocket_context *context);
 #define lws_context_init_http2_ssl(_a)
 #endif
 #endif
+
+LWS_EXTERN int
+lws_ssl_capable_read_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
+
+LWS_EXTERN int
+lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
 
 #ifndef LWS_NO_CLIENT
 	LWS_EXTERN int lws_client_socket_service(
