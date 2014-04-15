@@ -68,6 +68,9 @@
 /* Define to 1 if you have the `getenv’ function. */
 #cmakedefine HAVE_GETENV
 
+/* Define to 1 if you have the <in6addr.h> header file. */
+#cmakedefine HAVE_IN6ADDR_H
+
 /* Define to 1 if you have the <inttypes.h> header file. */
 #cmakedefine HAVE_INTTYPES_H
 
