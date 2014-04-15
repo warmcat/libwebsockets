@@ -152,7 +152,7 @@ LWS_VISIBLE int
 lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 {
 	int optval = 1;
-	socklen_t optlen = sizeof(optval);
+	int optlen = sizeof(optval);
 	u_long optl = 1;
 	DWORD dwBytesRet;
 	struct tcp_keepalive alive;
@@ -162,7 +162,7 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 		/* enable keepalive on this socket */
 		optval = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
-					     (const void *)&optval, optlen) < 0)
+					     (const char *)&optval, optlen) < 0)
 			return 1;
 
 		alive.onoff = TRUE;
@@ -177,7 +177,7 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 	/* Disable Nagle */
 	optval = 1;
 	tcp_proto = getprotobyname("TCP");
-	setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, &optval, optlen);
+	setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, (const char *)&optval, optlen);
 
 	/* We are nonblocking... */
 	ioctlsocket(fd, FIONBIO, &optl);
