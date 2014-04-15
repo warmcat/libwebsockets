@@ -62,7 +62,11 @@ struct libwebsocket *libwebsocket_client_connect_2(
 		memset(&hints, 0, sizeof(struct addrinfo));
 		n = getaddrinfo(ads, NULL, &hints, &result);
 		if (n) {
+#ifdef _WIN32
+			lwsl_err("getaddrinfo: %ls\n", gai_strerrorW(n));
+#else
 			lwsl_err("getaddrinfo: %s\n", gai_strerror(n));
+#endif
 			goto oom4;
 		}
 
