@@ -25,12 +25,6 @@
 #else
 #if defined(WIN32) || defined(_WIN32)
 #define inline __inline
-#include <tchar.h>
-#include <mstcpip.h>
-#ifdef _WIN32_WCE
-#define vsnprintf _vsnprintf
-#endif
-
 #else /* not WIN32 */
 #include "config.h"
 
@@ -90,6 +84,10 @@
 
 #ifndef __func__
 #define __func__ __FUNCTION__
+#endif
+
+#ifdef _WIN32_WCE
+#define vsnprintf _vsnprintf
 #endif
 
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
