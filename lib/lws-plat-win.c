@@ -152,7 +152,7 @@ LWS_VISIBLE int
 lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 {
 	int optval = 1;
-	socklen_t optlen = sizeof(optval);
+	int optlen = sizeof(optval);
 	u_long optl = 1;
 	DWORD dwBytesRet;
 	struct tcp_keepalive alive;
@@ -162,7 +162,7 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 		/* enable keepalive on this socket */
 		optval = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
-					     (const void *)&optval, optlen) < 0)
+					     (const char *)&optval, optlen) < 0)
 			return 1;
 
 		alive.onoff = TRUE;
@@ -177,7 +177,7 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 	/* Disable Nagle */
 	optval = 1;
 	tcp_proto = getprotobyname("TCP");
-	setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, &optval, optlen);
+	setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, (const char *)&optval, optlen);
 
 	/* We are nonblocking... */
 	ioctlsocket(fd, FIONBIO, &optl);
@@ -311,30 +311,48 @@ lws_plat_open_file(const char* filename, unsigned long* filelen)
 	return ret;
 }
 
-#ifdef LWS_USE_IPV6
-/* 
- * Windows doesn't have an "inet_ntop"
- * This came from http://memset.wordpress.com/2010/10/09/inet_ntop-for-win32/
- * suggested by Joakim Soderberg
- */
-
 LWS_VISIBLE const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 { 
-	struct sockaddr_in srcaddr;
-	DWORD rv;
+	WCHAR *buffer;
+	DWORD bufferlen = cnt;
+	BOOL ok = FALSE;
 
-	memset(&srcaddr, 0, sizeof(struct sockaddr_in));
-	memcpy(&(srcaddr.sin_addr), src, sizeof(srcaddr.sin_addr));
+	buffer = malloc(bufferlen);
+	if (!buffer) {
+		lwsl_err("Out of memory\n");
+		return NULL;
+	}
 
-	srcaddr.sin_family = af;
-	if (!WSAAddressToString((struct sockaddr*)&srcaddr,
-			    sizeof(struct sockaddr_in), 0, dst, (LPDWORD)&cnt))
-		return dst;
+	if (af == AF_INET) {
+		struct sockaddr_in srcaddr;
+		bzero(&srcaddr, sizeof(srcaddr));
+		srcaddr.sin_family = AF_INET;
+		memcpy(&(srcaddr.sin_addr), src, sizeof(srcaddr.sin_addr));
 
-	rv = WSAGetLastError();
-	lwsl_err("WSAAddressToString() : %d\n", rv);
+		if (!WSAAddressToStringW((struct sockaddr*)&srcaddr, sizeof(srcaddr), 0, buffer, &bufferlen))
+			ok = TRUE;
+#ifdef LWS_USE_IPV6
+	} else if (af == AF_INET6) {
+		struct sockaddr_in6 srcaddr;
+		bzero(&srcaddr, sizeof(srcaddr));
+		srcaddr.sin6_family = AF_INET6;
+		memcpy(&(srcaddr.sin6_addr), src, sizeof(srcaddr.sin6_addr));
 
-	return NULL;
-}
+		if (!WSAAddressToStringW((struct sockaddr*)&srcaddr, sizeof(srcaddr), 0, buffer, &bufferlen))
+			ok = TRUE;
 #endif
+	} else
+		lwsl_err("Unsupported type\n");
+
+	if (!ok) {
+		int rv = WSAGetLastError();
+		lwsl_err("WSAAddressToString() : %d\n", rv);
+	} else {
+		if (WideCharToMultiByte(CP_ACP, 0, buffer, bufferlen, dst, cnt, 0, NULL) <= 0)
+			ok = FALSE;
+	}
+
+	free(buffer);
+	return ok ? dst : NULL;
+}

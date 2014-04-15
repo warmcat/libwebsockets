@@ -25,12 +25,6 @@
 #else
 #if defined(WIN32) || defined(_WIN32)
 #define inline __inline
-#include <tchar.h>
-#include <mstcpip.h>
-#ifdef _WIN32_WCE
-#define vsnprintf _vsnprintf
-#endif
-
 #else /* not WIN32 */
 #include "config.h"
 
@@ -83,13 +77,17 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <tchar.h>
-#ifdef LWS_USE_IPV6
+#ifdef HAVE_IN6ADDR_H
 #include <in6addr.h>
 #endif
 #include <mstcpip.h>
 
 #ifndef __func__
 #define __func__ __FUNCTION__
+#endif
+
+#ifdef _WIN32_WCE
+#define vsnprintf _vsnprintf
 #endif
 
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
@@ -829,12 +827,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 LWS_EXTERN void
 lws_ssl_destroy(struct libwebsocket_context *context);
 
-LWS_EXTERN int
-lws_ssl_capable_read_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
-
-LWS_EXTERN int
-lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
-
 /* HTTP2-related */
 
 #ifdef LWS_USE_HTTP2
@@ -844,6 +836,12 @@ lws_context_init_http2_ssl(struct libwebsocket_context *context);
 #define lws_context_init_http2_ssl(_a)
 #endif
 #endif
+
+LWS_EXTERN int
+lws_ssl_capable_read_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
+
+LWS_EXTERN int
+lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
 
 #ifndef LWS_NO_CLIENT
 	LWS_EXTERN int lws_client_socket_service(
