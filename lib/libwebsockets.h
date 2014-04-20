@@ -141,6 +141,11 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
+/* api change list for user code to test against */
+
+#define LWS_FEATURE_SERVE_HTTP_FILE_HAS_OTHER_HEADERS_ARG
+
+
 enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT = 2,
 	LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME = 4,
