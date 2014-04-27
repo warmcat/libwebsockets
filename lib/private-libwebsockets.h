@@ -459,10 +459,10 @@ lws_libev_run(struct libwebsocket_context *context);
 #define LWS_LIBEV_ENABLED(context) (0)
 #define lws_feature_status_libev(_a) \
 			lwsl_notice("libev support not compiled in\n")
-#define lws_libev_accept(_a, _b, _c)
-#define lws_libev_io(_a, _b, _c)
+#define lws_libev_accept(_a, _b, _c) ((void) 0)
+#define lws_libev_io(_a, _b, _c) ((void) 0)
 #define lws_libev_init_fd_table(_a) (0)
-#define lws_libev_run(_a)
+#define lws_libev_run(_a) ((void) 0)
 #endif
 
 #ifdef LWS_USE_IPV6
