@@ -334,6 +334,17 @@ interface_to_sa(struct libwebsocket_context *context,
 
 	freeifaddrs(ifr);
 	
+	if (rc == -1) {
+		/* check if bind to IP adddress */
+#ifdef LWS_USE_IPV6
+		if (inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1)
+			rc = 0;
+		else
+#endif
+		if (inet_pton(AF_INET, ifname, &addr->sin_addr) == 1)
+			rc = 0;
+	}
+
 	return rc;
 }
 

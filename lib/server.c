@@ -78,7 +78,6 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 		bzero((char *) &serv_addr4, sizeof(serv_addr4));
 		serv_addr4.sin_addr.s_addr = INADDR_ANY;
 		serv_addr4.sin_family = AF_INET;
-		serv_addr4.sin_port = htons(info->port);
 
 		if (info->iface) {
 			if (interface_to_sa(context, info->iface,
@@ -89,6 +88,8 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 				return 1;
 			}
 		}
+
+		serv_addr4.sin_port = htons(info->port);
 	} /* ipv4 */
 
 	n = bind(sockfd, v, n);
