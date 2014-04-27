@@ -131,8 +131,10 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		/* we can retry this... just cook the SSL BIO the first time */
 
 		if (wsi->use_ssl && !wsi->ssl) {
+#if defined(CYASSL_SNI_HOST_NAME) || defined(SSL_CTRL_SET_TLSEXT_HOSTNAME)
 			const char *hostname = lws_hdr_simple_ptr(wsi,
 						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+#endif
 
 			wsi->ssl = SSL_new(context->ssl_client_ctx);
 #ifndef USE_CYASSL
