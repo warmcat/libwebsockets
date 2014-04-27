@@ -149,7 +149,9 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 				hostname, strlen(hostname));
 #endif
 #else
+#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
 			SSL_set_tlsext_host_name(wsi->ssl, hostname);
+#endif
 #endif
 
 #ifdef USE_CYASSL
