@@ -999,6 +999,9 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 LWS_VISIBLE LWS_EXTERN void *
 libwebsocket_context_user(struct libwebsocket_context *context);
 
+LWS_VISIBLE LWS_EXTERN void *
+libwebsocket_wsi_user(struct libwebsocket *wsi);
+
 enum pending_timeout {
 	NO_PENDING_TIMEOUT = 0,
 	PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,

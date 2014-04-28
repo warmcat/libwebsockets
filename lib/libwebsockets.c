@@ -420,6 +420,21 @@ libwebsocket_context_user(struct libwebsocket_context *context)
 	return context->user_space;
 }
 
+/**
+ * libwebsocket_wsi_user() - get the user data associated with the wsi
+ * @wsi: struct libwebsocket
+ *
+ *	This returns the optional user allocation that is attached to
+ *	the wsi.
+ */
+LWS_EXTERN void *
+libwebsocket_wsi_user(struct libwebsocket *wsi)
+{
+	if (wsi == NULL)
+		return NULL;
+	else
+		return wsi->user_space;
+}
 
 /**
  * libwebsocket_callback_all_protocol() - Callback all connections using
