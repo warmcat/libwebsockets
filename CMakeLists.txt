@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8)
 
-project(libwebsockets)
+project(libwebsockets C)
 
 set(PACKAGE "libwebsockets")
 set(CPACK_PACKAGE_NAME "${PACKAGE}")
