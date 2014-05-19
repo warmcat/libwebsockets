@@ -144,9 +144,12 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 			}
 
 			/* always either sent it all or privately buffered */
+			if (wsi->u.ws.clean_buffer)
+				len = n;
+
 		}
 
-		lwsl_parser("written %d bytes to client\n", eff_buf.token_len);
+		lwsl_parser("written %d bytes to client\n", n);
 
 		/* no extension has more to spill?  Then we can go */
 
