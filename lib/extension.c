@@ -101,7 +101,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 	int ret;
 	struct lws_tokens eff_buf;
 	int m;
-	int n;
+	int n = 0;
 
 	eff_buf.token = (char *)buf;
 	eff_buf.token_len = len;
