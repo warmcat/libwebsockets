@@ -185,6 +185,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	switch (wsi->u.hdr.parser_state) {
 	case WSI_TOKEN_GET_URI:
 	case WSI_TOKEN_POST_URI:
+	case WSI_TOKEN_OPTIONS_URI:
 	case WSI_TOKEN_HOST:
 	case WSI_TOKEN_CONNECTION:
 	case WSI_TOKEN_KEY1:
