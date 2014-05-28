@@ -151,7 +151,8 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 	int optval = 1;
 	socklen_t optlen = sizeof(optval);
 
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
+    defined(__OpenBSD__)
 	struct protoent *tcp_proto;
 #endif
 
@@ -162,7 +163,8 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 					     (const void *)&optval, optlen) < 0)
 			return 1;
 
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__CYGWIN__)
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
+        defined(__CYGWIN__) || defined(__OpenBSD__)
 
 		/*
 		 * didn't find a way to set these per-socket, need to
@@ -189,7 +191,8 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 
 	/* Disable Nagle */
 	optval = 1;
-#if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__NetBSD__)
+#if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__NetBSD__) && \
+    !defined(__OpenBSD__)
 	setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen);
 #else
 	tcp_proto = getprotobyname("TCP");
