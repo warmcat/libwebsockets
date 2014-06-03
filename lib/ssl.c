@@ -98,6 +98,10 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	/*
 	 * Firefox insists on SSLv23 not SSLv3
 	 * Konq disables SSLv2 by default now, SSLv23 works
+	 *
+	 * SSLv23_server_method() is the openssl method for "allow all TLS
+	 * versions", compared to e.g. TLSv1_2_server_method() which only allows
+	 * tlsv1.2. Unwanted versions must be disabled using SSL_CTX_set_options()
 	 */
 
 	method = (SSL_METHOD *)SSLv23_server_method();
@@ -117,6 +121,8 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		return 1;
 	}
 
+	/* Disable SSLv2 and SSLv3 */
+	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif
