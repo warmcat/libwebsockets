@@ -278,10 +278,6 @@ just_kill_connection:
 	context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_WSI_DESTROY, wsi->user_space, NULL, 0);
 
-	if (wsi->protocol && wsi->protocol->per_session_data_size &&
-					wsi->user_space) /* user code may own */
-		free(wsi->user_space);
-
 	free(wsi);
 }
 
