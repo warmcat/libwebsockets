@@ -529,6 +529,7 @@ struct _lws_http_mode_related {
 struct _lws_header_related {
 	struct allocated_headers *ah;
 	short lextable_pos;
+	unsigned short current_token_limit;
 	unsigned char parser_state; /* enum lws_token_indexes */
 	enum uri_path_states ups;
 	enum uri_esc_states ues;
