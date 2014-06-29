@@ -923,6 +923,8 @@ struct libwebsocket_extension {
  * @extensions: NULL or array of libwebsocket_extension structs listing the
  *		extensions this context supports.  If you configured with
  *		--without-extensions, you should give NULL here.
+ * @token_limits: NULL or struct lws_token_limits pointer which is initialized
+ *      with a token length limit for each possible WSI_TOKEN_*** 
  * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
  *			to listen using SSL, set to the filepath to fetch the
  *			server cert from, otherwise NULL for unencrypted
