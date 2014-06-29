@@ -179,7 +179,7 @@ int lws_handshake_server(struct libwebsocket_context *context,
 	/* LWS_CONNMODE_WS_SERVING */
 
 	while (len--) {
-		if (libwebsocket_parse(wsi, *(*buf)++)) {
+		if (libwebsocket_parse(context, wsi, *(*buf)++)) {
 			lwsl_info("libwebsocket_parse failed\n");
 			goto bail_nuke_ah;
 		}

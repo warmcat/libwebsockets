@@ -411,7 +411,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 				return 0;
 			}
 
-			if (libwebsocket_parse(wsi, c)) {
+			if (libwebsocket_parse(context, wsi, c)) {
 				lwsl_warn("problems parsing header\n");
 				goto bail3;
 			}

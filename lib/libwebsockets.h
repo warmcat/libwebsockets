@@ -341,6 +341,10 @@ enum lws_token_indexes {
 	WSI_INIT_TOKEN_MUXURL,
 };
 
+struct lws_token_limits {
+    unsigned short token_limit[WSI_TOKEN_COUNT];
+};
+
 /*
  * From RFC 6455
    1000
@@ -947,6 +951,7 @@ struct lws_context_creation_info {
 	const char *iface;
 	struct libwebsocket_protocols *protocols;
 	struct libwebsocket_extension *extensions;
+    struct lws_token_limits *token_limits;
 	const char *ssl_cert_filepath;
 	const char *ssl_private_key_filepath;
 	const char *ssl_ca_filepath;
