@@ -185,6 +185,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	switch (wsi->u.hdr.parser_state) {
 	case WSI_TOKEN_GET_URI:
 	case WSI_TOKEN_POST_URI:
+	case WSI_TOKEN_OPTIONS_URI:
 	case WSI_TOKEN_HOST:
 	case WSI_TOKEN_CONNECTION:
 	case WSI_TOKEN_KEY1:
@@ -202,7 +203,9 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 	case WSI_TOKEN_EXTENSIONS:
 	case WSI_TOKEN_HTTP:
 	case WSI_TOKEN_HTTP_ACCEPT:
+	case WSI_TOKEN_HTTP_AC_REQUEST_HEADERS:
 	case WSI_TOKEN_HTTP_IF_MODIFIED_SINCE:
+	case WSI_TOKEN_HTTP_IF_NONE_MATCH:
 	case WSI_TOKEN_HTTP_ACCEPT_ENCODING:
 	case WSI_TOKEN_HTTP_ACCEPT_LANGUAGE:
 	case WSI_TOKEN_HTTP_PRAGMA:
@@ -224,7 +227,9 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 				      wsi->u.hdr.parser_state]].len && c == ' ')
 			break;
 
-		if ((wsi->u.hdr.parser_state != WSI_TOKEN_GET_URI) && (wsi->u.hdr.parser_state != WSI_TOKEN_POST_URI))
+		if ((wsi->u.hdr.parser_state != WSI_TOKEN_GET_URI) &&
+			(wsi->u.hdr.parser_state != WSI_TOKEN_POST_URI) &&
+			(wsi->u.hdr.parser_state != WSI_TOKEN_OPTIONS_URI))
 			goto check_eol;
 
 		/* special URI processing... end at space */
@@ -399,8 +404,10 @@ swallow:
 
 		if (wsi->u.hdr.lextable_pos < 0) {
 			/* this is not a header we know about */
-			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI] || wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI] ||
-				    wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP]) {
+			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI] ||
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI] ||
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_OPTIONS_URI] ||
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP]) {
 				/*
 				 * altready had the method, no idea what
 				 * this crap is, ignore
@@ -431,6 +438,10 @@ swallow:
 			} else if (n == WSI_TOKEN_POST_URI &&
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI]) {
 				lwsl_warn("Duplicated POST\n");
+				return -1;
+			} else if (n == WSI_TOKEN_OPTIONS_URI &&
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_OPTIONS_URI]) {
+				lwsl_warn("Duplicated OPTIONS\n");
 				return -1;
 			}
 
