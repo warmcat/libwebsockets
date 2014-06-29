@@ -449,6 +449,7 @@ enum lws_close_status {
 
 enum http_status {
 	HTTP_STATUS_OK = 200,
+	HTTP_STATUS_NO_CONTENT = 204,
 
 	HTTP_STATUS_BAD_REQUEST = 400,
 	HTTP_STATUS_UNAUTHORIZED,
