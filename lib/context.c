@@ -116,6 +116,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	context->listen_service_extraseen = 0;
 	context->protocols = info->protocols;
+	context->token_limits = info->token_limits;
 	context->listen_port = info->port;
 	context->http_proxy_port = 0;
 	context->http_proxy_address[0] = '\0';

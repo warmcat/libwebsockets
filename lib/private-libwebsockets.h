@@ -432,6 +432,7 @@ struct libwebsocket_context {
 #ifndef LWS_NO_EXTENSIONS
 	struct libwebsocket_extension *extensions;
 #endif
+    struct lws_token_limits *token_limits;
 	void *user_space;
 };
 
@@ -645,7 +646,8 @@ LWS_EXTERN int
 libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c);
 
 LWS_EXTERN int
-libwebsocket_parse(struct libwebsocket *wsi, unsigned char c);
+libwebsocket_parse(struct libwebsocket_context *context,
+		struct libwebsocket *wsi, unsigned char c);
 
 LWS_EXTERN int
 lws_b64_selftest(void);

@@ -165,12 +165,22 @@ static char char_to_hex(const char c)
 	return -1;
 }
 
-static int issue_char(struct libwebsocket *wsi, unsigned char c)
+static int issue_char(
+		struct libwebsocket_context *context,
+		struct libwebsocket *wsi, unsigned char c)
 {
 	if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
 		lwsl_warn("excessive header content\n");
 		return -1;
 	}
+
+	if( context->token_limits &&
+		(wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len >= 
+		context->token_limits->token_limit[wsi->u.hdr.parser_state]) ) {
+		lwsl_warn("header %i exceeds limit\n", wsi->u.hdr.parser_state);
+		return 1;
+	};
+
 	wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = c;
 	if (c)
 		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
@@ -178,7 +188,9 @@ static int issue_char(struct libwebsocket *wsi, unsigned char c)
 	return 0;
 }
 
-int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
+int libwebsocket_parse(
+		struct libwebsocket_context *context,
+		struct libwebsocket *wsi, unsigned char c)
 {
 	int n;
 
@@ -232,7 +244,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		if (c == ' ') {
 			/* enforce starting with / */
 			if (!wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len)
-				if (issue_char(wsi, '/') < 0)
+				if (issue_char(context, wsi, '/') < 0)
 					return -1;
 			c = '\0';
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
@@ -251,7 +263,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		case URIES_SEEN_PERCENT:
 			if (char_to_hex(c) < 0) {
 				/* regurgitate */
-				if (issue_char(wsi, '%') < 0)
+				if (issue_char(context, wsi, '%') < 0)
 					return -1;
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* continue on to assess c */
@@ -264,10 +276,10 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 		case URIES_SEEN_PERCENT_H1:
 			if (char_to_hex(c) < 0) {
 				/* regurgitate */
-				issue_char(wsi, '%');
+				issue_char(context, wsi, '%');
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* regurgitate + assess */
-				if (libwebsocket_parse(wsi, wsi->u.hdr.esc_stash) < 0)
+				if (libwebsocket_parse(context, wsi, wsi->u.hdr.esc_stash) < 0)
 					return -1;
 				/* continue on to assess c */
 				break;
@@ -330,7 +342,7 @@ int libwebsocket_parse(struct libwebsocket *wsi, unsigned char c)
 			}
 			/* it was like /.dir ... regurgitate the . */
 			wsi->u.hdr.ups = URIPS_IDLE;
-			issue_char(wsi, '.');
+			issue_char(context, wsi, '.');
 			break;
 			
 		case URIPS_SEEN_SLASH_DOT_DOT:
@@ -381,8 +393,15 @@ check_eol:
 		}
 
 spill:
-		if (issue_char(wsi, c) < 0)
-			return -1;
+		{
+			int issue_result = issue_char(context, wsi, c);
+			if (issue_result < 0) {
+				return -1;
+			}
+			else if(issue_result > 0) {
+				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
+			};
+		};
 swallow:
 		/* per-protocol end of headers management */
 
