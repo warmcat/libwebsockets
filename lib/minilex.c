@@ -42,7 +42,9 @@ const char *set[] = {
 	"http/1.1 ",
 
 	"accept:",
+	"access-control-request-headers:",
 	"if-modified-since:",
+	"if-none-match:"
 	"accept-encoding:",
 	"accept-language:",
 	"pragma:",
