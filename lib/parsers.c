@@ -165,18 +165,15 @@ static char char_to_hex(const char c)
 	return -1;
 }
 
-static int issue_char(
-		struct libwebsocket_context *context,
-		struct libwebsocket *wsi, unsigned char c)
+static int issue_char(struct libwebsocket *wsi, unsigned char c)
 {
 	if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
 		lwsl_warn("excessive header content\n");
 		return -1;
 	}
 
-	if( context->token_limits &&
-		(wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len >= 
-		context->token_limits->token_limit[wsi->u.hdr.parser_state]) ) {
+	if( wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len >= 
+		wsi->u.hdr.current_token_limit) {
 		lwsl_warn("header %i exceeds limit\n", wsi->u.hdr.parser_state);
 		return 1;
 	};
@@ -246,7 +243,7 @@ int libwebsocket_parse(
 		if (c == ' ') {
 			/* enforce starting with / */
 			if (!wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len)
-				if (issue_char(context, wsi, '/') < 0)
+				if (issue_char(wsi, '/') < 0)
 					return -1;
 			c = '\0';
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
@@ -265,7 +262,7 @@ int libwebsocket_parse(
 		case URIES_SEEN_PERCENT:
 			if (char_to_hex(c) < 0) {
 				/* regurgitate */
-				if (issue_char(context, wsi, '%') < 0)
+				if (issue_char(wsi, '%') < 0)
 					return -1;
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* continue on to assess c */
@@ -278,7 +275,7 @@ int libwebsocket_parse(
 		case URIES_SEEN_PERCENT_H1:
 			if (char_to_hex(c) < 0) {
 				/* regurgitate */
-				issue_char(context, wsi, '%');
+				issue_char(wsi, '%');
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* regurgitate + assess */
 				if (libwebsocket_parse(context, wsi, wsi->u.hdr.esc_stash) < 0)
@@ -344,7 +341,7 @@ int libwebsocket_parse(
 			}
 			/* it was like /.dir ... regurgitate the . */
 			wsi->u.hdr.ups = URIPS_IDLE;
-			issue_char(context, wsi, '.');
+			issue_char(wsi, '.');
 			break;
 			
 		case URIPS_SEEN_SLASH_DOT_DOT:
@@ -396,7 +393,7 @@ check_eol:
 
 spill:
 		{
-			int issue_result = issue_char(context, wsi, c);
+			int issue_result = issue_char(wsi, c);
 			if (issue_result < 0) {
 				return -1;
 			}
@@ -444,7 +441,6 @@ swallow:
 			n = (lextable[wsi->u.hdr.lextable_pos] << 8) | lextable[wsi->u.hdr.lextable_pos + 1];
 
 			lwsl_parser("known hdr %d\n", n);
-
 			if (n == WSI_TOKEN_GET_URI &&
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
 				lwsl_warn("Duplicated GET\n");
@@ -464,6 +460,15 @@ swallow:
 
 			wsi->u.hdr.parser_state = (enum lws_token_indexes)
 							(WSI_TOKEN_GET_URI + n);
+
+			if( context->token_limits ) {
+				wsi->u.hdr.current_token_limit = \
+					context->token_limits->token_limit[wsi->u.hdr.parser_state];
+			}
+			else {
+				wsi->u.hdr.current_token_limit = sizeof(wsi->u.hdr.ah->data);
+			};
+
 			if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE)
 				goto set_parsing_complete;
 
