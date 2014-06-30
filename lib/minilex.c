@@ -44,7 +44,7 @@ const char *set[] = {
 	"accept:",
 	"access-control-request-headers:",
 	"if-modified-since:",
-	"if-none-match:"
+	"if-none-match:",
 	"accept-encoding:",
 	"accept-language:",
 	"pragma:",
