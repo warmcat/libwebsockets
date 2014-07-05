@@ -144,8 +144,10 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 			}
 
 			/* always either sent it all or privately buffered */
-			if (wsi->u.ws.clean_buffer)
+			if (wsi->u.ws.clean_buffer) {
+				eff_buf.token_len = n;
 				len = n;
+			}
 
 		}
 
