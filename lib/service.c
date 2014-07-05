@@ -389,10 +389,12 @@ read_pending:
 		case 0:
 			lwsl_info("service_fd: closing due to 0 length read\n");
 			goto close_and_handled;
-		case LWS_SSL_CAPABLE_ERROR:
+		case LWS_SSL_CAPABLE_MORE_SERVICE:
+			lwsl_info("SSL Capable more service\n");
 			n = 0;
 			goto handled;
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
+		case LWS_SSL_CAPABLE_ERROR:
+			lwsl_info("Closing when error\n");
 			goto close_and_handled;
 		}
 
@@ -465,6 +467,7 @@ drain:
 	goto handled;
 
 close_and_handled:
+	lwsl_debug("Close and handled\n");
 	libwebsocket_close_and_free_session(context, wsi,
 						LWS_CLOSE_STATUS_NOSTATUS);
 	n = 1;
