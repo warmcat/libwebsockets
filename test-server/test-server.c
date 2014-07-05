@@ -763,7 +763,7 @@ int main(int argc, char **argv)
 #ifndef WIN32
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
-	unsigned int oldus = 0;
+	unsigned int ms, oldms = 0;
 	struct lws_context_creation_info info;
 
 	int debug_level = 7;
@@ -909,9 +909,10 @@ int main(int argc, char **argv)
 		 * as soon as it can take more packets (usually immediately)
 		 */
 
-		if (((unsigned int)tv.tv_usec - oldus) > 50000) {
+		ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+		if ((ms - oldms) > 50) {
 			libwebsocket_callback_on_writable_all_protocol(&protocols[PROTOCOL_DUMB_INCREMENT]);
-			oldus = tv.tv_usec;
+			oldms = ms;
 		}
 
 #ifdef EXTERNAL_POLL
