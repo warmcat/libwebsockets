@@ -505,18 +505,18 @@ lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi,
 	if (completed) {
 		if (wsi->action_start == wsi->latency_start)
 			sprintf(buf,
-			  "Completion first try lat %luus: %p: ret %d: %s\n",
+			  "Completion first try lat %lluus: %p: ret %d: %s\n",
 					u - wsi->latency_start,
 						      (void *)wsi, ret, action);
 		else
 			sprintf(buf,
-			  "Completion %luus: lat %luus: %p: ret %d: %s\n",
+			  "Completion %lluus: lat %lluus: %p: ret %d: %s\n",
 				u - wsi->action_start,
 					u - wsi->latency_start,
 						      (void *)wsi, ret, action);
 		wsi->action_start = 0;
 	} else
-		sprintf(buf, "lat %luus: %p: ret %d: %s\n",
+		sprintf(buf, "lat %lluus: %p: ret %d: %s\n",
 			      u - wsi->latency_start, (void *)wsi, ret, action);
 
 	if (u - wsi->latency_start > context->worst_latency) {
