@@ -581,6 +581,7 @@ struct libwebsocket {
 	char rx_frame_type; /* enum libwebsocket_write_protocol */
 
 	unsigned int hdr_parsing_completed:1;
+	unsigned int user_space_externally_allocated:1;
 
 	char pending_timeout; /* enum pending_timeout */
 	time_t pending_timeout_limit;

@@ -434,8 +434,10 @@ libwebsocket_client_connect_extended(struct libwebsocket_context *context,
 			ssl_connection, path, host, origin, protocol,
 						     ietf_version_or_minus_one);
 
-	if (ws && !ws->user_space && userdata)
+	if (ws && !ws->user_space && userdata) {
+		ws->user_space_externally_allocated = 1;
 		ws->user_space = userdata ;
+	}
 
 	return ws ;
 }
