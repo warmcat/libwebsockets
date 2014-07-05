@@ -21,6 +21,7 @@
 const char *set[] = {
 	"get ",
 	"post ",
+	"options ",
 	"host:",
 	"connection:",
 	"sec-websocket-key1:",

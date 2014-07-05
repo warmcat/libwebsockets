@@ -200,13 +200,14 @@ int lws_handshake_server(struct libwebsocket_context *context,
 			/* it's not websocket.... shall we accept it as http? */
 
 			if (!lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) &&
-			    !lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+				!lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) &&
+				!lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI)) {
 				lwsl_warn("Missing URI in HTTP request\n");
 				goto bail_nuke_ah;
 			}
 
 			if (lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) &&
-			    lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+				lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
 				lwsl_warn("GET and POST methods?\n");
 				goto bail_nuke_ah;
 			}
@@ -226,6 +227,12 @@ int lws_handshake_server(struct libwebsocket_context *context,
 				   lws_hdr_simple_ptr(wsi, WSI_TOKEN_POST_URI));
 				uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_POST_URI);
 				uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
+			}
+			if (lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI)) {
+				lwsl_info("HTTP OPTIONS request for '%s'\n",
+				   lws_hdr_simple_ptr(wsi, WSI_TOKEN_OPTIONS_URI));
+				uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_OPTIONS_URI);
+				uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI);
 			}
 
 			/*
