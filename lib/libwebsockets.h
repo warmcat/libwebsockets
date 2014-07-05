@@ -152,6 +152,7 @@ enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT = 8,
 	LWS_SERVER_OPTION_LIBEV = 16,
 	LWS_SERVER_OPTION_DISABLE_IPV6 = 32,
+	LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS = 64,
 };
 
 enum libwebsocket_callback_reasons {

@@ -262,8 +262,9 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 						info->ssl_cipher_list);
 
 #ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
-	/* loads OS default CA certs */
-	SSL_CTX_set_default_verify_paths(context->ssl_client_ctx);
+	if (!(info->options & LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS))
+		/* loads OS default CA certs */
+		SSL_CTX_set_default_verify_paths(context->ssl_client_ctx);
 #endif
 
 	/* openssl init for cert verification (for client sockets) */
