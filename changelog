@@ -1,7 +1,66 @@
 Changelog
 ---------
 
-(since v1.23)
+v1.3-chrome37-firefox30
+=======================
+
+ .gitignore                                               |    1 -
+ CMakeLists.txt                                           |  447 +++--
+ README.build                                             |   35 +-
+ README.coding                                            |   14 +
+ changelog                                                |   66 +
+ cmake/LibwebsocketsConfig.cmake.in                       |   17 +
+ cmake/LibwebsocketsConfigVersion.cmake.in                |   11 +
+ config.h.cmake                                           |   18 +
+ cross-ming.cmake                                         |   31 +
+ cross-openwrt-makefile                                   |   91 +
+ lib/client-handshake.c                                   |  205 ++-
+ lib/client-parser.c                                      |   58 +-
+ lib/client.c                                             |  158 +-
+ lib/context.c                                            |  341 ++++
+ lib/extension-deflate-frame.c                            |    2 +-
+ lib/extension.c                                          |  178 ++
+ lib/handshake.c                                          |  287 +---
+ lib/lextable.h                                           |  338 ++++
+ lib/libev.c                                              |  175 ++
+ lib/libwebsockets.c                                      | 2089 +++--------------------
+ lib/libwebsockets.h                                      |  253 ++-
+ lib/lws-plat-unix.c                                      |  404 +++++
+ lib/lws-plat-win.c                                       |  358 ++++
+ lib/minilex.c                                            |  530 +++---
+ lib/output.c                                             |  445 ++---
+ lib/parsers.c                                            |  682 ++++----
+ lib/pollfd.c                                             |  239 +++
+ lib/private-libwebsockets.h                              |  501 +++++-
+ lib/server-handshake.c                                   |  274 +--
+ lib/server.c                                             |  858 ++++++++--
+ lib/service.c                                            |  517 ++++++
+ lib/sha-1.c                                              |   38 +-
+ lib/ssl-http2.c                                          |   78 +
+ lib/ssl.c                                                |  571 +++++++
+ test-server/attack.sh                                    |  101 +-
+ test-server/test-client.c                                |    9 +-
+ test-server/test-echo.c                                  |   17 +-
+ test-server/test-fraggle.c                               |    7 -
+ test-server/test-ping.c                                  |   12 +-
+ test-server/test-server.c                                |  330 ++--
+ test-server/test.html                                    |    4 +-
+ win32port/client/client.vcxproj                          |  259 ---
+ win32port/client/client.vcxproj.filters                  |   39 -
+ .../libwebsocketswin32.vcxproj.filters                   |   93 -
+ win32port/server/server.vcxproj                          |  276 ---
+ win32port/server/server.vcxproj.filters                  |   51 -
+ win32port/win32helpers/gettimeofday.h                    |   59 +-
+ win32port/win32helpers/netdb.h                           |    1 -
+ win32port/win32helpers/strings.h                         |    0
+ win32port/win32helpers/sys/time.h                        |    1 -
+ win32port/win32helpers/unistd.h                          |    0
+ win32port/win32helpers/websock-w32.c                     |  104 --
+ win32port/win32helpers/websock-w32.h                     |   62 -
+ win32port/win32port.sln                                  |  100 --
+ win32port/zlib/gzio.c                                    |    3 +-
+ 55 files changed, 6779 insertions(+), 5059 deletions(-)
+
 
 User api additions
 ------------------
@@ -44,10 +103,18 @@ eventloop instead of the default poll() one will also be compiled in.  But to
 use it, you must also set the LWS_SERVER_OPTION_LIBEV flag on the context
 creation info struct options member.
 
-IPV6 is supported and enabled by default, you can disable the support at
-build-time by giving -DLWS_IPV6=, and disable use of it even if
+IPV6 is supported and enabled by default except for Windows, you can disable
+the support at build-time by giving -DLWS_IPV6=, and disable use of it even if
 compiled in by making sure the flag LWS_SERVER_OPTION_DISABLE_IPV6 is set on
 the context creation info struct options member.
+
+You can give LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS option flag to
+guarantee the OS CAs will not be used, even if that support was selected at
+build-time.
+
+Optional "token limits" may be enforced by setting the member "token_limits"
+in struct lws_context_creation_info to point to a struct lws_token_limits.
+NULL means no token limits used for compatibility.
 
 
 User api changes
