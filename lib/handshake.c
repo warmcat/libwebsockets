@@ -132,11 +132,18 @@ http_postbody:
 		if (lws_handshake_client(wsi, &buf, len))
 			goto bail;
 
-		switch (lws_handshake_server(context, wsi, &buf, len)) {
-		case 1:
-			goto bail;
-		case 2:
-			goto http_postbody;
+		/* It's possible that we've exhausted our data already, but
+		 * lws_handshake_server doesn't update len for us. Figure out how
+		 * much was read, so that we can proceed appropriately: */
+		{
+			unsigned char *last_char = buf;
+			switch (lws_handshake_server(context, wsi, &buf, len)) {
+			case 1:
+				goto bail;
+			case 2:
+				len -= (buf - last_char);
+				goto http_postbody;
+			}
 		}
 		break;
 
