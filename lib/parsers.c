@@ -249,8 +249,8 @@ int libwebsocket_parse(
 				if (issue_char(wsi, '/') < 0)
 					return -1;
 			c = '\0';
-			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
-			goto spill;
+			wsi->u.hdr.parser_state = WSI_TOKEN_HTTP;
+			goto start_fragment;
 		}
 
 		/* special URI processing... convert %xx */
