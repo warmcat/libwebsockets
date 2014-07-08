@@ -248,7 +248,10 @@ int libwebsocket_parse(
 			if (!wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len)
 				if (issue_char(wsi, '/') < 0)
 					return -1;
-			c = '\0';
+
+			/* begin parsing HTTP version: */
+			if( issue_char(wsi, '\0') < 0 )
+				return -1;
 			wsi->u.hdr.parser_state = WSI_TOKEN_HTTP;
 			goto start_fragment;
 		}
