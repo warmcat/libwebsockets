@@ -397,7 +397,6 @@ check_eol:
 			goto swallow;
 		}
 
-spill:
 		{
 			int issue_result = issue_char(wsi, c);
 			if (issue_result < 0) {
