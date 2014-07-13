@@ -291,6 +291,16 @@ enum lws_connection_states {
 	WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE,
 };
 
+enum http_version {
+	HTTP_VERSION_1_0,
+	HTTP_VERSION_1_1,
+};
+
+enum http_connection_type {
+	HTTP_CONNECTION_CLOSE,
+	HTTP_CONNECTION_KEEP_ALIVE
+};
+
 enum lws_rx_parse_state {
 	LWS_RXPS_NEW,
 
@@ -520,10 +530,10 @@ struct _lws_http_mode_related {
 	unsigned long filepos;
 	unsigned long filelen;
 
+	enum http_version request_version;
+	enum http_connection_type connection_type;
 	int content_length;
-	int content_length_seen;
-	int body_index;
-	unsigned char *post_buffer;
+	int content_remain;
 };
 
 struct _lws_header_related {
