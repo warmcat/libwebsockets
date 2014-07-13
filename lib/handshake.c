@@ -63,7 +63,6 @@ libwebsocket_read(struct libwebsocket_context *context,
 {
 	size_t n;
     int body_chunk_len;
-    int content_remain = 0;
 
 	switch (wsi->state) {
 http_new:
