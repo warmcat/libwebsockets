@@ -90,10 +90,6 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	}
 
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
-		if (wsi->u.http.post_buffer) {
-			free(wsi->u.http.post_buffer);
-			wsi->u.http.post_buffer = NULL;
-		}
 		if (wsi->u.http.fd != LWS_INVALID_FILE) {
 			lwsl_debug("closing http file\n");
 			compatible_file_close(wsi->u.http.fd);

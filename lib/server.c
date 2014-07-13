@@ -173,6 +173,9 @@ int lws_handshake_server(struct libwebsocket_context *context,
 	struct allocated_headers *ah;
 	char *uri_ptr = NULL;
 	int uri_len = 0;
+	enum http_version request_version;
+	enum http_connection_type connection_type;
+	int http_version_len;
 	char content_length_str[32];
 	int n;
 
@@ -265,18 +268,44 @@ int lws_handshake_server(struct libwebsocket_context *context,
 				wsi->u.http.content_length = atoi(content_length_str);
 			}
 
-			if (wsi->u.http.content_length > 0) {
-				wsi->u.http.body_index = 0;
-				n = wsi->protocol->rx_buffer_size;
-				if (!n)
-					n = LWS_MAX_SOCKET_IO_BUF;
-				wsi->u.http.post_buffer = malloc(n);
-				if (!wsi->u.http.post_buffer) {
-					lwsl_err("Unable to allocate post buffer\n");
-					n = -1;
-					goto cleanup;
+			/* http_version? Default to 1.0, override with token: */
+			request_version = HTTP_VERSION_1_0;
+
+			/* Works for single digit HTTP versions. : */
+			http_version_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP);
+			if ( http_version_len > 7) {
+				char http_version_str[10];
+				lws_hdr_copy(wsi, http_version_str,
+						sizeof(http_version_str) - 1, WSI_TOKEN_HTTP);
+				if (http_version_str[5] == '1' &&
+					http_version_str[7] == '1' ) {
+					request_version = HTTP_VERSION_1_1;
 				}
 			}
+			wsi->u.http.request_version = request_version;
+
+			/* HTTP/1.1 defaults to "keep-alive", 1.0 to "close" */
+			if( request_version == HTTP_VERSION_1_1 ) {
+				connection_type = HTTP_CONNECTION_KEEP_ALIVE;
+			}
+			else {
+				connection_type = HTTP_CONNECTION_CLOSE;
+			};
+
+			/* Override default if http "Connection:" header: */
+			if( lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION ) ) {
+				char http_conn_str[20];
+				lws_hdr_copy(wsi, http_conn_str,
+						sizeof(http_conn_str)-1, WSI_TOKEN_CONNECTION);
+				http_conn_str[sizeof(http_conn_str)-1] = '\0';
+				if( strcasecmp(http_conn_str,"keep-alive") == 0 ) {
+					connection_type = HTTP_CONNECTION_KEEP_ALIVE;
+				}
+				else if( strcasecmp(http_conn_str,"close") == 0 ) {
+					connection_type = HTTP_CONNECTION_CLOSE;
+				};
+			};
+			wsi->u.http.connection_type = connection_type;
 
 			n = 0;
 			if (wsi->protocol->callback)
@@ -311,15 +340,19 @@ cleanup:
 				return 1; /* struct ah ptr already nuked */
 			}
 
-			/*
-			 * (if callback didn't start sending a file)
-			 * deal with anything else as body, whether
-			 * there was a content-length or not
-			 */
-
+			/* If we're not issuing a file, check for content_length or
+			 * HTTP keep-alive. No keep-alive header allocation for
+			 * ISSUING_FILE, as this uses HTTP/1.0. 
+			 * In any case, return 0 and let libwebsocket_read decide how to
+			 * proceed based on state. */
 			if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE)
-				wsi->state = WSI_STATE_HTTP_BODY;
-			return 2; /* goto http_postbody; */
+			{
+				/* Prepare to read body if we have a content length: */
+				if( wsi->u.http.content_length > 0 ) {
+					wsi->state = WSI_STATE_HTTP_BODY;
+				}
+			};
+			return 0; /* don't bail out of libwebsocket_read, just yet */
 		}
 
 		if (!wsi->protocol)
@@ -550,7 +583,6 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			if (wsi->state != WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
 			
 				/* hm this may want to send (via HTTP callback for example) */
-
 				n = libwebsocket_read(context, wsi,
 							context->service_buffer, len);
 				if (n < 0)
