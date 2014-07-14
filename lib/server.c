@@ -177,6 +177,7 @@ int lws_handshake_server(struct libwebsocket_context *context,
 	enum http_connection_type connection_type;
 	int http_version_len;
 	char content_length_str[32];
+	char http_version_str[10];
 	int n;
 
 	/* LWS_CONNMODE_WS_SERVING */
@@ -274,23 +275,19 @@ int lws_handshake_server(struct libwebsocket_context *context,
 			/* Works for single digit HTTP versions. : */
 			http_version_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP);
 			if (http_version_len > 7) {
-				char http_version_str[10];
 				lws_hdr_copy(wsi, http_version_str,
 						sizeof(http_version_str) - 1, WSI_TOKEN_HTTP);
 				if (http_version_str[5] == '1' &&
-					http_version_str[7] == '1') {
+					http_version_str[7] == '1')
 					request_version = HTTP_VERSION_1_1;
-				}
 			}
 			wsi->u.http.request_version = request_version;
 
 			/* HTTP/1.1 defaults to "keep-alive", 1.0 to "close" */
 			if (request_version == HTTP_VERSION_1_1)
 				connection_type = HTTP_CONNECTION_KEEP_ALIVE;
-
 			else
 				connection_type = HTTP_CONNECTION_CLOSE;
-
 
 			/* Override default if http "Connection:" header: */
 			if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
@@ -328,7 +325,6 @@ int lws_handshake_server(struct libwebsocket_context *context,
 					    wsi->user_space, uri_ptr, uri_len);
 			}
 
-cleanup:
 			/* now drop the header info we kept a pointer to */
 			if (ah)
 				free(ah);
