@@ -88,6 +88,11 @@ http_new:
 		 * lws_handshake_server doesn't update len for us. Figure out how
 		 * much was read, so that we can proceed appropriately: */
 		len -= (buf - last_char);
+
+		if (!wsi->hdr_parsing_completed)
+			/* More header content on the way */
+			goto read_ok;
+
 		switch (wsi->state) {
 			case WSI_STATE_HTTP:
 			case WSI_STATE_HTTP_HEADERS:
