@@ -365,16 +365,6 @@ int libwebsocket_parse(
 			break;
 		}
 
-check_eol:
-
-		/* bail at EOL */
-		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE &&
-								  c == '\x0d') {
-			c = '\0';
-			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
-			lwsl_parser("*\n");
-		}
-
 		if (c == '?') { /* start of URI arguments */
 			/* seal off uri header */
 			wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
@@ -395,6 +385,16 @@ check_eol:
 			/* defeat normal uri path processing */
 			wsi->u.hdr.ups = URIPS_ARGUMENTS;
 			goto swallow;
+		}
+
+check_eol:
+
+		/* bail at EOL */
+		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE &&
+								  c == '\x0d') {
+			c = '\0';
+			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
+			lwsl_parser("*\n");
 		}
 
 		{
