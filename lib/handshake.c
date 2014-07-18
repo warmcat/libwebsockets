@@ -173,9 +173,11 @@ http_complete:
 	lwsl_debug("libwebsocket_read: http_complete\n");
 	/* Handle keep-alives, by preparing for a new request: */
 	if (wsi->u.http.connection_type == HTTP_CONNECTION_KEEP_ALIVE) {
+		lwsl_debug("libwebsocket_read: keep-alive\n");
 		wsi->state = WSI_STATE_HTTP;
 		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
-		lwsl_debug("libwebsocket_read: keep-alive\n");
+		/* We might be streaming HTTP content, so leave the connection open.*/
+		libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		if (lws_allocate_header_table(wsi))
 			goto bail;
