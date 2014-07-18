@@ -175,10 +175,13 @@ int lws_handshake_server(struct libwebsocket_context *context,
 	int uri_len = 0;
 	enum http_version request_version;
 	enum http_connection_type connection_type;
-	int http_version_len;
+	int http_version_len, protocol_len;
 	char content_length_str[32];
+	char protocol_list[128];
+	char protocol_name[32];
 	char http_version_str[10];
-	int n;
+	char *p;
+	int n, hit;
 
 	/* LWS_CONNMODE_WS_SERVING */
 
@@ -357,34 +360,64 @@ int lws_handshake_server(struct libwebsocket_context *context,
 		/*
 		 * It's websocket
 		 *
-		 * Make sure user side is happy about protocol
+		 * Select the first protocol we support from the list
+		 * the client sent us.
+		 *
+		 * Copy it to remove header fragmentation
 		 */
 
-		while (wsi->protocol->callback) {
+		if (lws_hdr_copy(wsi, protocol_list, sizeof(protocol_list) - 1,
+				 WSI_TOKEN_PROTOCOL) < 0) {
+			lwsl_err("protocol list too long");
+			goto bail_nuke_ah;
+		}
 
-			if (!lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL)) {
-				if (wsi->protocol->name == NULL)
-					break;
-			} else
-				if (wsi->protocol->name && strcmp(
-					lws_hdr_simple_ptr(wsi,
-						WSI_TOKEN_PROTOCOL),
-						      wsi->protocol->name) == 0)
-					break;
+		protocol_len = lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL);
+		protocol_list[protocol_len] = '\0';
+		p = protocol_list;
+		hit = 0;
 
-			wsi->protocol++;
+		while (*p && !hit) {
+			n = 0;
+			while (n < sizeof(protocol_name) - 1 && *p && *p !=',')
+				protocol_name[n++] = *p++;
+			protocol_name[n] = '\0';
+			if (*p)
+				p++;
+
+			lwsl_info("checking %s\n", protocol_name);
+
+			n = 0;
+			while (context->protocols[n].callback) {
+				if (!wsi->protocol->name)
+					continue;
+				if (!strcmp(context->protocols[n].name,
+					    protocol_name)) {
+					lwsl_info("prot match %d\n", n);
+					wsi->protocol = &context->protocols[n];
+					hit = 1;
+					break;
+				}
+
+				n++;
+			}
 		}
 
 		/* we didn't find a protocol he wanted? */
 
-		if (wsi->protocol->callback == NULL) {
+		if (!hit) {
 			if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL) ==
 									 NULL) {
-				lwsl_info("no protocol -> prot 0 handler\n");
+				/*
+				 * some clients only have one protocol and
+				 * do not sent the protocol list header...
+				 * allow it and match to protocol 0
+				 */
+				lwsl_info("defaulting to prot 0 handler\n");
 				wsi->protocol = &context->protocols[0];
 			} else {
-				lwsl_err("Req protocol %s not supported\n",
-				   lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL));
+				lwsl_err("No protocol from list \"%s\" supported\n",
+					 protocol_list);
 				goto bail_nuke_ah;
 			}
 		}

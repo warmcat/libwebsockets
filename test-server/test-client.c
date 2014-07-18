@@ -217,13 +217,13 @@ callback_lws_mirror(struct libwebsocket_context *context,
 
 static struct libwebsocket_protocols protocols[] = {
 	{
-		"dumb-increment-protocol",
+		"dumb-increment-protocol,fake-nonexistant-protocol",
 		callback_dumb_increment,
 		0,
 		20,
 	},
 	{
-		"lws-mirror-protocol",
+		"fake-nonexistant-protocol,lws-mirror-protocol",
 		callback_lws_mirror,
 		0,
 		128,
