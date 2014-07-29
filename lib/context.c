@@ -122,6 +122,10 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	context->http_proxy_address[0] = '\0';
 	context->options = info->options;
 	context->iface = info->iface;
+	context->ka_time = info->ka_time;
+	context->ka_interval = info->ka_interval;
+	context->ka_probes = info->ka_probes;
+
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
 	lwsl_notice(" static allocation: %u + (%u x %u fds) = %u bytes\n",
@@ -209,10 +213,10 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		" per-conn mem: %u + %u headers + protocol rx buf\n",
 				sizeof(struct libwebsocket),
 					      sizeof(struct allocated_headers));
-		
+
 	if (lws_context_init_server_ssl(info, context))
 		goto bail;
-	
+
 	if (lws_context_init_client_ssl(info, context))
 		goto bail;
 

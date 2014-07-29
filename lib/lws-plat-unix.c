@@ -173,17 +173,17 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 #else
 		/* set the keepalive conditions we want on it too */
 		optval = context->ka_time;
-		if (setsockopt(fd, IPPROTO_IP, TCP_KEEPIDLE,
+		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
 					     (const void *)&optval, optlen) < 0)
 			return 1;
 
 		optval = context->ka_interval;
-		if (setsockopt(fd, IPPROTO_IP, TCP_KEEPINTVL,
+		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL,
 					     (const void *)&optval, optlen) < 0)
 			return 1;
 
 		optval = context->ka_probes;
-		if (setsockopt(fd, IPPROTO_IP, TCP_KEEPCNT,
+		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT,
 					     (const void *)&optval, optlen) < 0)
 			return 1;
 #endif
@@ -213,7 +213,7 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 			lwsl_warn("setgid: %s\n", strerror(LWS_ERRNO));
 	if (info->uid != -1)
 		if (setuid(info->uid))
-			lwsl_warn("setuid: %s\n", strerror(LWS_ERRNO));	
+			lwsl_warn("setuid: %s\n", strerror(LWS_ERRNO));
 }
 
 LWS_VISIBLE int
@@ -233,7 +233,7 @@ lws_plat_init_fd_tables(struct libwebsocket_context *context)
 	context->fds[0].events = LWS_POLLIN;
 	context->fds[0].revents = 0;
 	context->fds_count = 1;
-	
+
 	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 	if (context->fd_random < 0) {
 		lwsl_err("Unable to open random device %s %d\n",
@@ -259,7 +259,7 @@ lws_plat_context_early_init(void)
 	sigaddset(&mask, SIGUSR2);
 
 	sigprocmask(SIG_BLOCK, &mask, NULL);
-	
+
 	signal(SIGPIPE, sigpipe_handler);
 
 	return 0;
@@ -336,7 +336,7 @@ interface_to_sa(struct libwebsocket_context *context,
 	}
 
 	freeifaddrs(ifr);
-	
+
 	if (rc == -1) {
 		/* check if bind to IP adddress */
 #ifdef LWS_USE_IPV6
@@ -398,7 +398,7 @@ lws_plat_open_file(const char* filename, unsigned long* filelen)
 #ifdef LWS_USE_IPV6
 LWS_VISIBLE const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
-{ 
+{
 	return inet_ntop(af, src, dst, cnt);
 }
 #endif
