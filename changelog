@@ -1,6 +1,17 @@
 Changelog
 ---------
 
+(post-1.3)
+==========
+
+User api additions
+------------------
+
+There's a new member in the info struct used to control context creation,
+ssl_private_key_password, which allows passing into lws the passphrase on
+an SSL cetificate
+
+
 v1.3-chrome37-firefox30
 =======================
 

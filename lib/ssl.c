@@ -223,6 +223,23 @@ libwebsockets_decode_ssl_error(void)
 }
 
 #ifndef LWS_NO_CLIENT
+static int lws_context_init_client_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void * userdata)
+{
+	struct lws_context_creation_info * info = (struct lws_context_creation_info *)userdata;
+   
+	const int passLen = (int)strlen(info->ssl_private_key_password);
+	const int minimumLen = passLen < size ? passLen : size;
+	strncpy(buf, info->ssl_private_key_password, minimumLen);
+   
+	if (minimumLen < size)
+	{
+		buf[minimumLen] = '\0';
+       return minimumLen;
+   }
+   
+    return minimumLen;
+}
+
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			    struct libwebsocket_context *context)
 {
@@ -306,10 +323,22 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		}
 	} 
 	if (info->ssl_private_key_filepath) {
+		/* check for provided by user password to private key */
+		if (info->ssl_private_key_password) {
+		/* 
+		 * password provided, set ssl callback and user data
+		 * for checking password which will be trigered during
+		 * SSL_CTX_use_PrivateKey_file function
+		 */
+			SSL_CTX_set_default_passwd_cb_userdata(
+					context->ssl_client_ctx,
+						  (void *)info);
+			SSL_CTX_set_default_passwd_cb(context->ssl_client_ctx,
+				lws_context_init_client_ssl_pem_passwd_cb);
+		}
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_client_ctx,
-			     info->ssl_private_key_filepath,
-					       SSL_FILETYPE_PEM) != 1) {
+		    info->ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
 			lwsl_err("use_PrivateKey_file '%s' %lu: %s\n",
 				info->ssl_private_key_filepath,
 				ERR_get_error(),
