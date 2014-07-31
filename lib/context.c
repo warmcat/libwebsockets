@@ -310,7 +310,7 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	 * give all extensions a chance to clean up any per-context
 	 * allocations they might have made
 	 */
-	if (context->listen_port) {
+	if (context->listen_port != CONTEXT_PORT_NO_LISTEN) {
 		if (lws_ext_callback_for_each_extension_type(context, NULL,
 			 LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0) < 0)
 			return;
