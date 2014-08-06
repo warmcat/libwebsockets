@@ -68,6 +68,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 	switch (wsi->state) {
 http_new:
 	case WSI_STATE_HTTP:
+		wsi->hdr_parsing_completed = 0;
 	case WSI_STATE_HTTP_ISSUING_FILE:
 		wsi->state = WSI_STATE_HTTP_HEADERS;
 		wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
