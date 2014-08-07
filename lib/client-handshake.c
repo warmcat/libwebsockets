@@ -284,7 +284,8 @@ failed:
  * @origin:	Socket origin name
  * @protocol:	Comma-separated list of protocols being asked for from
  *		the server, or just one.  The server will pick the one it
- *		likes best.
+ *		likes best.  If you don't want to specify a protocol, which is
+ *		legal, use NULL here.
  * @ietf_version_or_minus_one: -1 to ask to connect using the default, latest
  *		protocol supported, or the specific protocol ordinal
  *

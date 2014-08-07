@@ -839,7 +839,7 @@ typedef int (extension_callback_function)(struct libwebsocket_context *context,
  * struct libwebsocket_protocols -	List of protocols and handlers server
  *					supports.
  * @name:	Protocol name that must match the one given in the client
- *		Javascript new WebSocket(url, 'protocol') name
+ *		Javascript new WebSocket(url, 'protocol') name.
  * @callback:	The service callback used for this protocol.  It allows the
  *		service action for an entire protocol to be encapsulated in
  *		the protocol-specific callback
@@ -870,6 +870,10 @@ typedef int (extension_callback_function)(struct libwebsocket_context *context,
  *	This structure represents one protocol supported by the server.  An
  *	array of these structures is passed to libwebsocket_create_server()
  *	allows as many protocols as you like to be handled by one server.
+ *
+ *	The first protocol given has its callback used for user callbacks when
+ *	there is no agreed protocol name, that's true during HTTP part of the
+ *	connection and true if the client did not send a Protocol: header.
  */
 
 struct libwebsocket_protocols {
