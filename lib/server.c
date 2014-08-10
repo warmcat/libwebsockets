@@ -94,8 +94,8 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 
 	n = bind(sockfd, v, n);
 	if (n < 0) {
-		lwsl_err("ERROR on binding to port %d (%d %d)\n",
-					      info->port, n, LWS_ERRNO);
+		lwsl_err("ERROR on binding to port %d (%d %d): %s\n",
+			 info->port, n, LWS_ERRNO, strerror(LWS_ERRNO));
 		compatible_close(sockfd);
 		return 1;
 	}
