@@ -123,7 +123,11 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	context->listen_service_count = 0;
 	context->listen_service_fd = sockfd;
 
-	listen(sockfd, LWS_SOMAXCONN);
+	if (listen(sockfd, LWS_SOMAXCONN)) {
+		lwsl_err("listen: %s\n", strerror(LWS_ERRNO));
+		compatible_close(sockfd);
+		return 1;
+	}
 	lwsl_notice(" Listening on port %d\n", info->port);
 	
 	return 0;
