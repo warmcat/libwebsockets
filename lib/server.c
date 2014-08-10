@@ -731,10 +731,9 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		break;
 	}
 
-	if (new_wsi)
-		if (lws_server_socket_service_ssl(context, &wsi, new_wsi,
-						  accept_fd, pollfd))
-			goto fail;
+	if (lws_server_socket_service_ssl(context, &wsi, new_wsi,
+							  accept_fd, pollfd))
+		goto fail;
 
 	return 0;
 	

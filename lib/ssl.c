@@ -445,6 +445,11 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 	switch (wsi->mode) {
 	case LWS_CONNMODE_SERVER_LISTENER:
 
+		if (!new_wsi) {
+			lwsl_err("no new_wsi\n");
+			return 0;
+		}
+
 		new_wsi->ssl = SSL_new(context->ssl_ctx);
 		if (new_wsi->ssl == NULL) {
 			lwsl_err("SSL_new failed: %s\n",
