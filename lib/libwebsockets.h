@@ -1036,6 +1036,11 @@ LWS_VISIBLE LWS_EXTERN void
 libwebsocket_set_timeout(struct libwebsocket *wsi,
 					 enum pending_timeout reason, int secs);
 
+LWS_VISIBLE LWS_EXTERN void
+libwebsocket_set_protocol(struct libwebsocket *wsi,
+			  char *protocol_name,
+			  struct libwebsocket_protocols *proto);
+
 /*
  * IMPORTANT NOTICE!
  *
@@ -1094,6 +1099,9 @@ LWS_VISIBLE LWS_EXTERN int libwebsockets_return_http_status(
 
 LWS_VISIBLE LWS_EXTERN const struct libwebsocket_protocols *
 libwebsockets_get_protocol(struct libwebsocket *wsi);
+
+LWS_VISIBLE LWS_EXTERN const char *
+libwebsockets_get_protocol_name(struct libwebsocket *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_callback_on_writable(struct libwebsocket_context *context,

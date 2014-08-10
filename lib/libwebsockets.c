@@ -669,6 +669,14 @@ libwebsockets_get_protocol(struct libwebsocket *wsi)
 	return wsi->protocol;
 }
 
+LWS_VISIBLE const char *
+libwebsockets_get_protocol_name(struct libwebsocket *wsi)
+{
+    if (wsi->selected_protocol)
+	return wsi->selected_protocol;
+    return wsi->protocol->name;
+}
+
 LWS_VISIBLE int
 libwebsocket_is_final_fragment(struct libwebsocket *wsi)
 {
