@@ -94,8 +94,8 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 
 	n = bind(sockfd, v, n);
 	if (n < 0) {
-		lwsl_err("ERROR on binding to port %d (%d %d)\n",
-					      info->port, n, LWS_ERRNO);
+		lwsl_err("ERROR on binding to port %d (%d %d): %s\n",
+			 info->port, n, LWS_ERRNO, strerror(LWS_ERRNO));
 		compatible_close(sockfd);
 		return 1;
 	}
@@ -123,7 +123,11 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	context->listen_service_count = 0;
 	context->listen_service_fd = sockfd;
 
-	listen(sockfd, LWS_SOMAXCONN);
+	if (listen(sockfd, LWS_SOMAXCONN)) {
+		lwsl_err("listen: %s\n", strerror(LWS_ERRNO));
+		compatible_close(sockfd);
+		return 1;
+	}
 	lwsl_notice(" Listening on port %d\n", info->port);
 	
 	return 0;
@@ -391,6 +395,16 @@ int lws_handshake_server(struct libwebsocket_context *context,
 			while (context->protocols[n].callback) {
 				if (!wsi->protocol->name)
 					continue;
+				/* a zero-length protocol name always matches
+				 * later, a FILTER_PROTOCOL_CONNECTION callback
+				 * can sort out what to with the offered names
+				 */
+				if (*(wsi->protocol->name) == 0) {
+				    lwsl_info("protocol wildcard match %d\n", n);
+				    wsi->protocol = &context->protocols[n];
+				    hit = 1;
+				    break;
+				}
 				if (!strcmp(context->protocols[n].name,
 					    protocol_name)) {
 					lwsl_info("prot match %d\n", n);
