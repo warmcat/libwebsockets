@@ -950,3 +950,14 @@ lws_server_get_canonical_hostname(struct libwebsocket_context *context,
 
 	lwsl_notice(" canonical_hostname = %s\n", context->canonical_hostname);
 }
+
+LWS_VISIBLE void
+libwebsocket_set_protocol(struct libwebsocket *wsi,
+			  char *protocol_name,
+			  struct libwebsocket_protocols *proto)
+{
+    wsi->selected_protocol = protocol_name;
+    if (proto)
+	wsi->protocol = proto;
+}
+

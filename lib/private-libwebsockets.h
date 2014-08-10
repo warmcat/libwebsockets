@@ -576,6 +576,7 @@ struct libwebsocket {
     struct lws_io_watcher w_write;
 #endif /* LWS_USE_LIBEV */
 	const struct libwebsocket_protocols *protocol;
+        char *selected_protocol;
 #ifndef LWS_NO_EXTENSIONS
 	struct libwebsocket_extension *
 				   active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
