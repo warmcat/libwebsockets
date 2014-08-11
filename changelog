@@ -11,6 +11,11 @@ There's a new member in the info struct used to control context creation,
 ssl_private_key_password, which allows passing into lws the passphrase on
 an SSL cetificate
 
+There's a new member in struct protocols, id, which is ignored by lws but can
+be used by the user code to mark the selected protocol by user-defined version
+or capabliity flag information, for the case multiple versions of a protocol are
+supported.
+
 
 v1.3-chrome37-firefox30
 =======================

@@ -863,6 +863,12 @@ typedef int (extension_callback_function)(struct libwebsocket_context *context,
  *		protocols where you stream big blocks, set to nonzero and use
  *		the return value from libwebsocket_write() to manage how much
  *		got send yourself.
+ * @id:		ignored by lws, but useful to contain user information bound
+ *		to the selected protocol.  For example if this protocol was
+ *		called "myprotocol-v2", you might set id to 2, and the user
+ *		code that acts differently according to the version can do so by
+ *		switch (wsi->protocol->id), user code might use some bits as
+ *		capability flags based on selected protocol version, etc.
  * @owning_server:	the server init call fills in this opaque pointer when
  *		registering this protocol with the server.
  * @protocol_index: which protocol we are starting from zero
@@ -882,6 +888,7 @@ struct libwebsocket_protocols {
 	size_t per_session_data_size;
 	size_t rx_buffer_size;
 	int no_buffer_all_partial_tx;
+	unsigned int id;
 
 	/*
 	 * below are filled in on server init and can be left uninitialized,
