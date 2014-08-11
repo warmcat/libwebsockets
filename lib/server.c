@@ -389,8 +389,10 @@ int lws_handshake_server(struct libwebsocket_context *context,
 
 			n = 0;
 			while (context->protocols[n].callback) {
-				if (!wsi->protocol->name)
+				if (!wsi->protocol->name) {
+					n++;
 					continue;
+				}
 				if (!strcmp(context->protocols[n].name,
 					    protocol_name)) {
 					lwsl_info("prot match %d\n", n);
