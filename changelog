@@ -16,6 +16,22 @@ be used by the user code to mark the selected protocol by user-defined version
 or capabliity flag information, for the case multiple versions of a protocol are
 supported.
 
+The LWS_LIBRARY_VERSION string contains a 'micro' field now (e.g "1.3.1"),
+set from macros in CMakelists.txt. At least the micro field should be
+incremented for each API change.
+
+There's a new integer macro symbol LWS_LIBRARY_VERSION_NUMBER (e.g. 1003001).
+This number represents major*10^6 + minor*10^3 + micro and increases for
+each version increment. This technique is used in Google protobuf and
+very useful to track API changes in using code.
+
+to use version-dependent features from now on, use like so:
+
+#if defined(LWS_LIBRARY_VERSION_NUMBER) && (LWS_LIBRARY_VERSION_NUMBER > 1003000)
+	// use feature introduced post 1.3.0
+#endif
+
+
 
 v1.3-chrome37-firefox30
 =======================
