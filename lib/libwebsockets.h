@@ -26,10 +26,12 @@
 extern "C" {
 #include <cstddef>
 #endif
-	
+
 #ifdef CMAKE_BUILD
 #include "lws_config.h"
 #endif
+
+#include "lws_version.h"
 
 #if defined(WIN32) || defined(_WIN32)
 

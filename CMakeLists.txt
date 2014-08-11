@@ -6,7 +6,15 @@ set(PACKAGE "libwebsockets")
 set(CPACK_PACKAGE_NAME "${PACKAGE}")
 set(CPACK_PACKAGE_VERSION_MAJOR "1")
 set(CPACK_PACKAGE_VERSION_MINOR "3")
-set(CPACK_PACKAGE_VERSION "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}")
+set(CPACK_PACKAGE_VERSION_MICRO "1")
+
+MATH( EXPR CPACK_PACKAGE_VERSION_INT "${CPACK_PACKAGE_VERSION_MAJOR} * 1000000" )
+MATH( EXPR CPACK_PACKAGE_VERSION_INT "${CPACK_PACKAGE_VERSION_INT} + ${CPACK_PACKAGE_VERSION_MINOR} * 1000" )
+MATH( EXPR CPACK_PACKAGE_VERSION_INT "${CPACK_PACKAGE_VERSION_INT} + ${CPACK_PACKAGE_VERSION_MICRO}" )
+MESSAGE( "CPACK_PACKAGE_VERSION_INT set to ${CPACK_PACKAGE_VERSION_INT}" )
+
+
+set(CPACK_PACKAGE_VERSION "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_MICRO}")
 set(CPACK_PACKAGE_VENDOR "andy@warmcat.com")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PACKAGE} ${PACKAGE_VERSION}")
 set(SOVERSION "4.0.0")
@@ -15,6 +23,8 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSIO
 set(VERSION "${CPACK_PACKAGE_VERSION}")
 
 set(LWS_LIBRARY_VERSION ${CPACK_PACKAGE_VERSION})
+set(LWS_LIBRARY_VERSION_NUMBER ${CPACK_PACKAGE_VERSION_INT})
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
 
 message(STATUS "CMAKE_TOOLCHAIN_FILE='${CMAKE_TOOLCHAIN_FILE}'")
@@ -244,10 +254,16 @@ if (NOT HAVE_REALLOC)
 	set(realloc rpl_realloc)
 endif()
 
-# Generate the config.h that includes all the compilation settings.
+# Generate the lws_config.h that includes all the compilation settings.
 configure_file(
        "${PROJECT_SOURCE_DIR}/config.h.cmake"
        "${PROJECT_BINARY_DIR}/lws_config.h")
+
+# Generate the lws_version.h for using code inclusion.
+# this avoids importing library build settings into using code.
+configure_file(
+       "${PROJECT_SOURCE_DIR}/version.h.cmake"
+       "${PROJECT_BINARY_DIR}/lws_version.h")
 
 if (MSVC)
 	# Turn off stupid microsoft security warnings.
