@@ -155,7 +155,7 @@
 #ifdef LWS_OPENSSL_SUPPORT
 #ifdef USE_CYASSL
 #include <cyassl/openssl/ssl.h>
-#include <cyassl/error.h>
+#include <cyassl/error-ssl.h>
 unsigned char *
 SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #else
