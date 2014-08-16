@@ -755,3 +755,17 @@ LWS_VISIBLE void lws_set_log_level(int level, void (*log_emit_function)(int leve
 	if (log_emit_function)
 		lwsl_emit = log_emit_function;
 }
+
+/**
+ * lws_use_ssl() - Find out if connection is using SSL
+ * @wsi:	websocket connection to check
+ *
+ *	Returns 0 if the connection is not using SSL, 1 if using SSL and
+ *	using verified cert, and 2 if using SSL but the cert was not
+ *	checked (appears for client wsi told to skip check on connection)
+ */
+LWS_VISIBLE int
+lws_is_ssl(struct libwebsocket *wsi)
+{
+	return wsi->use_ssl;
+}

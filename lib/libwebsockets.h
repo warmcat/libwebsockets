@@ -1181,6 +1181,9 @@ lws_send_pipe_choked(struct libwebsocket *wsi);
 LWS_VISIBLE LWS_EXTERN int
 lws_frame_is_binary(struct libwebsocket *wsi);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_is_ssl(struct libwebsocket *wsi);
+
 LWS_VISIBLE LWS_EXTERN unsigned char *
 libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md);
 

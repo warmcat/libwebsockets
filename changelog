@@ -16,6 +16,11 @@ be used by the user code to mark the selected protocol by user-defined version
 or capabliity flag information, for the case multiple versions of a protocol are
 supported.
 
+int lws_is_ssl(wsi) added to allow user code to know if the connection was made
+over ssl or not.  If LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT is used, both
+ssl and non-ssl connections are possible and may need to be treated differently
+in the user code.
+
 
 v1.3-chrome37-firefox30
 =======================
