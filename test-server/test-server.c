@@ -386,13 +386,17 @@ static int callback_http(struct libwebsocket_context *context,
 			if (m) /* while still active, extend timeout */
 				libwebsocket_set_timeout(wsi,
 					PENDING_TIMEOUT_HTTP_CONTENT, 5);
+			
+			/* if he has indigestion, let him clear it before eating more */
+			if (lws_partial_buffered(wsi))
+				break;
 
 		} while (!lws_send_pipe_choked(wsi));
 		libwebsocket_callback_on_writable(context, wsi);
 		break;
 flush_bail:
 		/* true if still partial pending */
-		if (lws_send_pipe_choked(wsi)) {
+		if (lws_partial_buffered(wsi)) {
 			libwebsocket_callback_on_writable(context, wsi);
 			break;
 		}
@@ -632,7 +636,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 
 			// lwsl_debug("tx fifo %d\n", (ringbuffer_head - pss->ringbuffer_tail) & (MAX_MESSAGE_QUEUE - 1));
 
-			if (lws_send_pipe_choked(wsi)) {
+			if (lws_partial_buffered(wsi) || lws_send_pipe_choked(wsi)) {
 				libwebsocket_callback_on_writable(context, wsi);
 				break;
 			}

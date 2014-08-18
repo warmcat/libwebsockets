@@ -769,3 +769,26 @@ lws_is_ssl(struct libwebsocket *wsi)
 {
 	return wsi->use_ssl;
 }
+
+/**
+ * lws_partial_buffered() - find out if lws buffered the last write
+ * @wsi:	websocket connection to check
+ *
+ * Returns 1 if you cannot use libwebsocket_write because the last
+ * write on this connection is still buffered, and can't be cleared without
+ * returning to the service loop and waiting for the connection to be
+ * writeable again.
+ * 
+ * If you will try to do >1 libwebsocket_write call inside a single
+ * WRITEABLE callback, you must check this after every write and bail if
+ * set, ask for a new writeable callback and continue writing from there.
+ * 
+ * This is never set at the start of a writeable callback, but any write
+ * may set it.
+ */
+
+LWS_VISIBLE int
+lws_partial_buffered(struct libwebsocket *wsi)
+{
+	return !!wsi->truncated_send_len;	
+}

@@ -21,6 +21,12 @@ over ssl or not.  If LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT is used, both
 ssl and non-ssl connections are possible and may need to be treated differently
 in the user code.
 
+int lws_partial_buffered(wsi) added... should be checked after any
+libwebsocket_write that will be followed by another libwebsocket_write inside
+the same writeable callback.  If set, you can't do any more writes until the
+writeable callback is called again.  If you only do one write per writeable callback,
+you can ignore this.
+
 
 User api removal
 ----------------

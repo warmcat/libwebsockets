@@ -1170,6 +1170,9 @@ LWS_VISIBLE LWS_EXTERN int
 lws_send_pipe_choked(struct libwebsocket *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
+lws_partial_buffered(struct libwebsocket *wsi);
+
+LWS_VISIBLE LWS_EXTERN int
 lws_frame_is_binary(struct libwebsocket *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
