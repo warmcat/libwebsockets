@@ -275,8 +275,7 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	if (wsi->u.ws.inside_frame)
 		goto do_more_inside_frame;
 
-	/* if he wants all partials buffered, never have a clean_buffer */
-	wsi->u.ws.clean_buffer = !wsi->protocol->no_buffer_all_partial_tx;
+	wsi->u.ws.clean_buffer = 1;
 
 	/*
 	 * give a chance to the extensions to modify payload

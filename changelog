@@ -22,6 +22,16 @@ ssl and non-ssl connections are possible and may need to be treated differently
 in the user code.
 
 
+User api removal
+----------------
+
+protocols struct member no_buffer_all_partial_tx is removed.  Under some
+conditions like rewriting extention such as compression in use, the built-in
+partial send buffering is the only way to deal with the problem, so turning
+it off is deprecated.
+
+
+
 v1.3-chrome37-firefox30
 =======================
 
