@@ -767,7 +767,11 @@ LWS_VISIBLE void lws_set_log_level(int level, void (*log_emit_function)(int leve
 LWS_VISIBLE int
 lws_is_ssl(struct libwebsocket *wsi)
 {
+#ifdef LWS_OPENSSL_SUPPORT
 	return wsi->use_ssl;
+#else
+	return 0;
+#endif
 }
 
 /**
