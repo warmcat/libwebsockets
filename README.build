@@ -53,7 +53,7 @@ Building on Unix:
 	as --prefix= with autotools.  It defaults to /usr/local.
 	You can do this by, eg
 
-	cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr
+	cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr ..
 
 	NOTE3
 	On machines that want libraries in lib64, you can also add the
