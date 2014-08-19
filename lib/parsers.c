@@ -317,8 +317,8 @@ int libwebsocket_parse(
 			if (c == '.') {
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT;
 				goto swallow;
-			} else
-				wsi->u.hdr.ups = URIPS_IDLE;
+			}
+			wsi->u.hdr.ups = URIPS_IDLE;
 			break;
 		case URIPS_SEEN_SLASH_DOT:
 			/* swallow second . */
@@ -357,8 +357,8 @@ int libwebsocket_parse(
 			/* last issued was /, so another / == // */
 			if (c == '/')
 				goto swallow;
-			else /* last we issued was / so SEEN_SLASH */
-				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
+			/* last we issued was / so SEEN_SLASH */
+			wsi->u.hdr.ups = URIPS_SEEN_SLASH;
 			break;
 		case URIPS_ARGUMENTS:
 			/* leave them alone */
@@ -397,15 +397,12 @@ check_eol:
 			lwsl_parser("*\n");
 		}
 
-		{
-			int issue_result = issue_char(wsi, c);
-			if (issue_result < 0) {
-				return -1;
-			}
-			else if(issue_result > 0) {
-				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
-			};
-		};
+		n = issue_char(wsi, c);
+		if (n < 0)
+			return -1;
+		if (n > 0)
+			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
+
 swallow:
 		/* per-protocol end of headers management */
 
