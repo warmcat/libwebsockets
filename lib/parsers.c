@@ -42,6 +42,10 @@ int lextable_decode(int pos, char c)
 				return -1;
 			return pos;
 		}
+
+		if (lextable[pos] == FAIL_CHAR)
+			return -1;
+
 		/* b7 = 0, end or 3-byte */
 		if (lextable[pos] < FAIL_CHAR) /* terminal marker */
 			return pos;
@@ -424,7 +428,7 @@ swallow:
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_OPTIONS_URI] ||
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP]) {
 				/*
-				 * altready had the method, no idea what
+				 * already had the method, no idea what
 				 * this crap is, ignore
 				 */
 				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
@@ -449,11 +453,13 @@ swallow:
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
 				lwsl_warn("Duplicated GET\n");
 				return -1;
-			} else if (n == WSI_TOKEN_POST_URI &&
+			}
+			if (n == WSI_TOKEN_POST_URI &&
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI]) {
 				lwsl_warn("Duplicated POST\n");
 				return -1;
-			} else if (n == WSI_TOKEN_OPTIONS_URI &&
+			}
+			if (n == WSI_TOKEN_OPTIONS_URI &&
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_OPTIONS_URI]) {
 				lwsl_warn("Duplicated OPTIONS\n");
 				return -1;
@@ -469,13 +475,11 @@ swallow:
 			wsi->u.hdr.parser_state = (enum lws_token_indexes)
 							(WSI_TOKEN_GET_URI + n);
 
-			if( context->token_limits ) {
-				wsi->u.hdr.current_token_limit = \
+			if (context->token_limits)
+				wsi->u.hdr.current_token_limit =
 					context->token_limits->token_limit[wsi->u.hdr.parser_state];
-			}
-			else {
+			else
 				wsi->u.hdr.current_token_limit = sizeof(wsi->u.hdr.ah->data);
-			};
 
 			if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE)
 				goto set_parsing_complete;
