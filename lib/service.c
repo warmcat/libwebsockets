@@ -48,7 +48,24 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 			return -1; /* retry closing now */
 		}
 
+	/* pending control packets have next priority */
+	
+	if (wsi->u.ws.ping_payload_len) {
+		n = libwebsocket_write(wsi, 
+				&wsi->u.ws.ping_payload_buf[
+					LWS_SEND_BUFFER_PRE_PADDING],
+					wsi->u.ws.ping_payload_len,
+							       LWS_WRITE_PONG);
+		if (n < 0)
+			return -1;
+		/* well he is sent, mark him done */
+		wsi->u.ws.ping_payload_len = 0;
+		/* leave POLLOUT active either way */
+		return 0;
+	}
 
+	/* if nothing critical, user can get the callback */
+	
 	m = lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_IS_WRITEABLE,
 								       NULL, 0);
 	if (handled == 1)

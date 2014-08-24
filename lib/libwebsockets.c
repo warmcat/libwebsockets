@@ -224,6 +224,12 @@ just_kill_connection:
 			wsi->truncated_send_malloc = NULL;
 			wsi->truncated_send_len = 0;
 		}
+		if (wsi->u.ws.ping_payload_buf) {
+			free(wsi->u.ws.ping_payload_buf);
+			wsi->u.ws.ping_payload_buf = NULL;
+			wsi->u.ws.ping_payload_alloc = 0;
+			wsi->u.ws.ping_payload_len = 0;
+		}
 	}
 
 	/* tell the user it's all over for this guy */
