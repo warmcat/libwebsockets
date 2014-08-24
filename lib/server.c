@@ -572,7 +572,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 
 		/* pending truncated sends have uber priority */
 
-		if (wsi->truncated_send_malloc) {
+		if (wsi->truncated_send_len) {
 			if (pollfd->revents & LWS_POLLOUT)
 				if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
 					wsi->truncated_send_offset,
