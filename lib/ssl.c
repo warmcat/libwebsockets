@@ -23,6 +23,7 @@
 
 int openssl_websocket_private_data_index;
 
+#ifndef LWS_NO_SERVER
 static int
 OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
@@ -55,7 +56,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	int error;
 	int n;
 
-#ifndef LWS_NO_SERVER
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 
 		context->use_ssl = info->ssl_cert_filepath != NULL &&
@@ -74,16 +74,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		else
 			lwsl_notice(" Using non-SSL mode\n");
 	}
-
-#else
-		if (info->ssl_cert_filepath != NULL &&
-				       info->ssl_private_key_filepath != NULL) {
-			lwsl_notice(" Not compiled for OpenSSl support!\n");
-			return 1;
-		}
-		lwsl_notice(" Compiled without SSL support\n");
-	}
-#endif /* no server */
 
 	/* basic openssl init */
 
@@ -195,6 +185,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	
 	return 0;
 }
+#endif
 
 LWS_VISIBLE void
 lws_ssl_destroy(struct libwebsocket_context *context)
