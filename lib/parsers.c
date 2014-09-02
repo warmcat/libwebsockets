@@ -133,7 +133,7 @@ int lws_hdr_simple_create(struct libwebsocket *wsi,
 		return -1;
 	}
 
-	wsi->u.hdr.ah->frag_index[h] = wsi->u.hdr.ah->next_frag_index;
+	wsi->u.hdr.ah->frag_index[h] = (unsigned char)wsi->u.hdr.ah->next_frag_index;
 
 	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].offset =
 							     wsi->u.hdr.ah->pos;
@@ -384,7 +384,7 @@ int libwebsocket_parse(
 			    wsi->u.hdr.ah->next_frag_index].next_frag_index = 0;
 
 			wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] =
-						 wsi->u.hdr.ah->next_frag_index;
+						 (unsigned char)wsi->u.hdr.ah->next_frag_index;
 
 			/* defeat normal uri path processing */
 			wsi->u.hdr.ups = URIPS_ARGUMENTS;
@@ -506,14 +506,14 @@ start_fragment:
 		n = wsi->u.hdr.ah->frag_index[wsi->u.hdr.parser_state];
 		if (!n) { /* first fragment */
 			wsi->u.hdr.ah->frag_index[wsi->u.hdr.parser_state] =
-						 wsi->u.hdr.ah->next_frag_index;
+						 (unsigned char)wsi->u.hdr.ah->next_frag_index;
 			break;
 		}
 		/* continuation */
 		while (wsi->u.hdr.ah->frags[n].next_frag_index)
 				n = wsi->u.hdr.ah->frags[n].next_frag_index;
 		wsi->u.hdr.ah->frags[n].next_frag_index =
-						 wsi->u.hdr.ah->next_frag_index;
+						 (unsigned char)wsi->u.hdr.ah->next_frag_index;
 
 		if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
 			lwsl_warn("excessive header content\n");
