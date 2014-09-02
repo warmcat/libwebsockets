@@ -274,7 +274,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			if (!wsi)
 				continue;
 
-			if (libwebsocket_service_timeout_check(context, wsi, now))
+			if (libwebsocket_service_timeout_check(context, wsi, (unsigned int)now))
 				/* he did time out... */
 				if (m == our_fd) {
 					/* it was the guy we came to service! */
