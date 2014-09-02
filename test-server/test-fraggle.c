@@ -185,9 +185,9 @@ callback_fraggle(struct libwebsocket_context *context,
 						  psf->total_message, psf->sum);
 
 			bp[0] = psf->sum >> 24;
-			bp[1] = psf->sum >> 16;
-			bp[2] = psf->sum >> 8;
-			bp[3] = psf->sum;
+			bp[1] = 0xff & (psf->sum >> 16);
+			bp[2] = 0xff & (psf->sum >> 8);
+			bp[3] = 0xff & (psf->sum);
 
 			n = libwebsocket_write(wsi, (unsigned char *)bp,
 							   4, LWS_WRITE_BINARY);

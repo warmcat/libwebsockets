@@ -342,7 +342,7 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 				/* reason codes count as data bytes */
 				buf -= 2;
 				buf[0] = wsi->u.ws.close_reason >> 8;
-				buf[1] = wsi->u.ws.close_reason;
+				buf[1] = (unsigned char)wsi->u.ws.close_reason;
 				len += 2;
 			}
 			break;

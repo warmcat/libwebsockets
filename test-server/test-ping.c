@@ -226,7 +226,7 @@ callback_lws_mirror(struct libwebsocket_context * this,
 		/* 64-bit ping index in network byte order */
 
 		while (shift >= 0) {
-			*p++ = psd->ping_index >> shift;
+			*p++ = (unsigned char)psd->ping_index >> shift;
 			shift -= 8;
 		}
 
@@ -375,7 +375,7 @@ int main(int argc, char **argv)
 			protocols[PROTOCOL_LWS_MIRROR].name = protocol_name;
 			break;
 		case 'i':
-			interval_us = 1000000.0 * atof(optarg);
+			interval_us = (unsigned int)(1000000.0 * atof(optarg));
 			break;
 		case 's':
 			size = atoi(optarg);
