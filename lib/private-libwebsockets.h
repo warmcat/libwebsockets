@@ -548,7 +548,7 @@ struct _lws_header_related {
 
 struct _lws_websocket_related {
 	char *rx_user_buffer;
-	int rx_user_buffer_head;
+	size_t rx_user_buffer_head;
 	unsigned char frame_masking_nonce_04[4];
 	unsigned char frame_mask_index;
 	size_t rx_packet_length;

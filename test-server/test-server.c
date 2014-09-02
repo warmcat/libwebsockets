@@ -620,7 +620,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 				lwsl_err("ERROR %d writing to mirror socket\n", n);
 				return -1;
 			}
-			if (n < ringbuffer[pss->ringbuffer_tail].len)
+			if (n < (int)ringbuffer[pss->ringbuffer_tail].len)
 				lwsl_err("mirror partial write %d vs %d\n",
 				       n, ringbuffer[pss->ringbuffer_tail].len);
 

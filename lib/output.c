@@ -46,9 +46,9 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 
 LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 {
-	int n;
-	int m;
-	int start;
+	size_t n;
+	size_t m;
+	size_t start;
 	unsigned char *buf = (unsigned char *)vbuf;
 	char line[80];
 	char *p;

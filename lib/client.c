@@ -23,7 +23,7 @@
 
 int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t len)
 {
-	int n;
+	size_t n;
 
 	switch (wsi->mode) {
 	case LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY:

@@ -58,7 +58,8 @@ callback_fraggle(struct libwebsocket_context *context,
 			enum libwebsocket_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
-	int n;
+	int jn;
+	size_t it;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 8000 +
 						  LWS_SEND_BUFFER_POST_PADDING];
 	struct per_session_data__fraggle *psf = user;
@@ -99,8 +100,8 @@ callback_fraggle(struct libwebsocket_context *context,
 
 		case FRAGSTATE_RANDOM_PAYLOAD:
 
-			for (n = 0; n < len; n++)
-				psf->sum += p[n];
+			for (it = 0; it < len; it++)
+				psf->sum += p[it];
 
 			psf->total_message += len;
 			psf->packets_left++;
@@ -158,8 +159,8 @@ callback_fraggle(struct libwebsocket_context *context,
 			psf->total_message += chunk;
 
 			libwebsockets_get_random(context, bp, chunk);
-			for (n = 0; n < chunk; n++)
-				psf->sum += bp[n];
+			for (jn = 0; jn < chunk; jn++)
+				psf->sum += bp[jn];
 
 			psf->packets_left--;
 			if (psf->packets_left)
@@ -167,10 +168,10 @@ callback_fraggle(struct libwebsocket_context *context,
 			else
 				psf->state = FRAGSTATE_POST_PAYLOAD_SUM;
 
-			n = libwebsocket_write(wsi, bp, chunk, write_mode);
-			if (n < 0)
+			jn = libwebsocket_write(wsi, bp, chunk, write_mode);
+			if (jn < 0)
 				return -1;
-			if (n < chunk) {
+			if (jn < chunk) {
 				lwsl_err("Partial write\n");
 				return -1;
 			}
@@ -189,11 +190,11 @@ callback_fraggle(struct libwebsocket_context *context,
 			bp[2] = 0xff & (psf->sum >> 8);
 			bp[3] = 0xff & (psf->sum);
 
-			n = libwebsocket_write(wsi, (unsigned char *)bp,
+			jn = libwebsocket_write(wsi, (unsigned char *)bp,
 							   4, LWS_WRITE_BINARY);
-			if (n < 0)
+			if (jn < 0)
 				return -1;
-			if (n < 4) {
+			if (jn < 4) {
 				lwsl_err("Partial write\n");
 				return -1;
 			}
