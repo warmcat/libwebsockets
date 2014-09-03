@@ -344,7 +344,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 
 		lws_latency_pre(context, wsi);
 
-		n = lws_ssl_capable_write(wsi, context->service_buffer, p - (char *)context->service_buffer);
+		n = lws_ssl_capable_write(wsi, context->service_buffer, (int)(p - (char *)context->service_buffer));
 		lws_latency(context, wsi, "send lws_issue_raw", n, n == p - (char *)context->service_buffer);
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
