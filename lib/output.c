@@ -59,7 +59,7 @@ LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 		start = n;
 		p = line;
 
-		p += sprintf(p, "%04zX: ", start);
+		p += sprintf(p, "%04X: ", (unsigned int)start);
 
 		for (m = 0; m < 16 && n < len; m++)
 			p += sprintf(p, "%02X ", buf[n++]);
