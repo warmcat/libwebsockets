@@ -204,7 +204,7 @@ enum libwebsocket_callback_reasons {
 // argument structure for all external poll related calls
 // passed in via 'in'
 struct libwebsocket_pollargs {
-    int fd;            // applicable file descriptor
+    SOCKET fd;            // applicable file descriptor
     int events;        // the new event mask
     int prev_events;   // the previous event mask
 };
@@ -1108,7 +1108,7 @@ LWS_VISIBLE LWS_EXTERN int
 libwebsocket_callback_all_protocol(
 		const struct libwebsocket_protocols *protocol, int reason);
 
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN SOCKET
 libwebsocket_get_socket_fd(struct libwebsocket *wsi);
 
 LWS_VISIBLE LWS_EXTERN int

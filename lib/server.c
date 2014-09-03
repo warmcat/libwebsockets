@@ -26,7 +26,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 			    struct libwebsocket_context *context)
 {
 	int n;
-	int sockfd;
+	SOCKET sockfd;
 	struct sockaddr_in sin;
 	socklen_t len = sizeof(sin);
 	int opt = 1;
@@ -557,7 +557,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
 	struct libwebsocket *new_wsi = NULL;
-	int accept_fd = 0;
+	SOCKET accept_fd = 0;
 	socklen_t clilen;
 	struct sockaddr_in cli_addr;
 	int n;
@@ -671,7 +671,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 								       &clilen);
 		lws_latency(context, wsi,
 			"unencrypted accept LWS_CONNMODE_SERVER_LISTENER",
-						     accept_fd, accept_fd >= 0);
+						     (int)accept_fd, accept_fd >= 0);
 		if (accept_fd < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
 				lwsl_debug("accept asks to try again\n");

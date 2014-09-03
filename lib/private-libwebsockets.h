@@ -408,7 +408,7 @@ struct libwebsocket_context {
 	int fd_random;
 	int listen_service_modulo;
 	int listen_service_count;
-	int listen_service_fd;
+	SOCKET listen_service_fd;
 	int listen_service_extraseen;
 
 	/*
@@ -600,7 +600,7 @@ struct libwebsocket {
 	char pending_timeout; /* enum pending_timeout */
 	time_t pending_timeout_limit;
 
-	int sock;
+	SOCKET sock;
 	int position_in_fds_table;
 #ifdef LWS_LATENCY
 	unsigned long action_start;
@@ -748,7 +748,7 @@ user_callback_handle_rxflow(callback_function,
 							  void *in, size_t len);
 
 LWS_EXTERN int
-lws_plat_set_socket_options(struct libwebsocket_context *context, int fd);
+lws_plat_set_socket_options(struct libwebsocket_context *context, SOCKET fd);
 
 LWS_EXTERN int
 lws_allocate_header_table(struct libwebsocket *wsi);
