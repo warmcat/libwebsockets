@@ -33,6 +33,7 @@
 #include <sys/ioctl.h>
 #include <poll.h>
 #include <unistd.h>
+#include <stddef.h>
 #endif
 
 #ifdef CMAKE_BUILD
