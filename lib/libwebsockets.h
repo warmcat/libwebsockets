@@ -201,13 +201,6 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_USER = 1000, /* user code can use any including / above */
 };
 
-// argument structure for all external poll related calls
-// passed in via 'in'
-struct libwebsocket_pollargs {
-    SOCKET fd;            // applicable file descriptor
-    int events;        // the new event mask
-    int prev_events;   // the previous event mask
-};
 
 #ifdef _WIN32
 struct libwebsocket_pollfd {
@@ -216,8 +209,17 @@ struct libwebsocket_pollfd {
 	SHORT revents;
 };
 #else
+typedef int SOCKET;
 #define libwebsocket_pollfd pollfd
 #endif
+
+// argument structure for all external poll related calls
+// passed in via 'in'
+struct libwebsocket_pollargs {
+    SOCKET fd;            // applicable file descriptor
+    int events;        // the new event mask
+    int prev_events;   // the previous event mask
+};
 
 enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT,
