@@ -479,7 +479,7 @@ int lws_handshake_server(struct libwebsocket_context *context,
 		 * a big default for compatibility
 		 */
 
-		n = wsi->protocol->rx_buffer_size;
+		n = (int)wsi->protocol->rx_buffer_size;
 		if (!n)
 			n = LWS_MAX_SOCKET_IO_BUF;
 		n += LWS_SEND_BUFFER_PRE_PADDING + LWS_SEND_BUFFER_POST_PADDING;
@@ -840,7 +840,6 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 {
 	unsigned char *p = context->service_buffer;
 	int ret = 0;
-	int n;
 
 	wsi->u.http.fd = lws_plat_open_file(file, &wsi->u.http.filelen);
 
@@ -855,7 +854,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 "HTTP/1.0 200 OK\x0d\x0aServer: libwebsockets\x0d\x0a""Content-Type: %s\x0d\x0a",
 								  content_type);
 	if (other_headers) {
-		n = strlen(other_headers);
+		size_t n = strlen(other_headers);
 		memcpy(p, other_headers, n);
 		p += n;
 	}
@@ -901,7 +900,7 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 								       len - n);
 				wsi->u.ws.rxflow_buffer =
 					       (unsigned char *)malloc(len - n);
-				wsi->u.ws.rxflow_len = len - n;
+				wsi->u.ws.rxflow_len = (int)(len - n);
 				wsi->u.ws.rxflow_pos = 0;
 				memcpy(wsi->u.ws.rxflow_buffer,
 							buf + n, len - n);

@@ -104,7 +104,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 	int n = 0;
 
 	eff_buf.token = (char *)buf;
-	eff_buf.token_len = len;
+	eff_buf.token_len = (int)len;
 
 	/*
 	 * while we have original buf to spill ourselves, or extensions report
@@ -184,7 +184,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 		ret = 0;
 	}
 
-	return len;
+	return (int)len;
 }
 
 int

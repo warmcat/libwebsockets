@@ -567,8 +567,8 @@ struct _lws_websocket_related {
 	unsigned int clean_buffer:1; /* buffer not rewritten by extension */
 
 	unsigned char *ping_payload_buf; /* non-NULL if malloc'd */
-	unsigned int ping_payload_alloc; /* length malloc'd */
-	unsigned int ping_payload_len; /* nonzero if PONG pending */
+	size_t ping_payload_alloc; /* length malloc'd */
+	size_t ping_payload_len; /* nonzero if PONG pending */
 };
 
 struct libwebsocket {

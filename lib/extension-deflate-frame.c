@@ -145,11 +145,11 @@ bail:
 		conn->zs_in.next_in[total_payload + 2] = 0xff;
 		conn->zs_in.next_in[total_payload + 3] = 0xff;
 
-		conn->zs_in.avail_in = total_payload + 4;
+		conn->zs_in.avail_in = (uInt)(total_payload + 4);
 
 		conn->zs_in.next_out =
 				conn->buf_in + LWS_SEND_BUFFER_PRE_PADDING;
-		conn->zs_in.avail_out = conn->buf_in_length;
+		conn->zs_in.avail_out = (uInt)conn->buf_in_length;
 
 		while (1) {
 			n = inflate(&conn->zs_in, Z_SYNC_FLUSH);
@@ -194,7 +194,7 @@ bail:
 			conn->zs_in.next_out = conn->buf_in +
 				LWS_SEND_BUFFER_PRE_PADDING + len_so_far;
 			conn->zs_in.avail_out =
-					conn->buf_in_length - len_so_far;
+					(uInt)(conn->buf_in_length - len_so_far);
 		}
 
 		/* rewrite the buffer pointers and length */
@@ -212,11 +212,11 @@ bail:
 		current_payload = eff_buf->token_len;
 
 		conn->zs_out.next_in = (unsigned char *)eff_buf->token;
-		conn->zs_out.avail_in = current_payload;
+		conn->zs_out.avail_in = (uInt)current_payload;
 
 		conn->zs_out.next_out =
 				conn->buf_out + LWS_SEND_BUFFER_PRE_PADDING;
-		conn->zs_out.avail_out = conn->buf_out_length;
+		conn->zs_out.avail_out = (uInt)conn->buf_out_length;
 
 		while (1) {
 			n = deflate(&conn->zs_out, Z_SYNC_FLUSH);
@@ -259,7 +259,7 @@ bail:
 			conn->zs_out.next_out = (conn->buf_out +
 				     LWS_SEND_BUFFER_PRE_PADDING + len_so_far);
 			conn->zs_out.avail_out =
-					   (conn->buf_out_length - len_so_far);
+					   (uInt)(conn->buf_out_length - len_so_far);
 		}
 
 		conn->compressed_out = 1;

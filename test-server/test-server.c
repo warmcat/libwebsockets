@@ -163,7 +163,7 @@ dump_handshake_info(struct libwebsocket *wsi)
 
 const char * get_mimetype(const char *file)
 {
-	int n = strlen(file);
+	size_t n = strlen(file);
 
 	if (n < 5)
 		return NULL;

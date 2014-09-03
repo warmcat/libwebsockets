@@ -555,7 +555,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	}
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL);
-	len = strlen(p);
+	len = (int)strlen(p);
 
 	while (*pc && !okay) {
 		if (!strncmp(pc, p, len) &&
@@ -741,7 +741,7 @@ check_accept:
 	 * use a big default for compatibility
 	 */
 
-	n = wsi->protocol->rx_buffer_size;
+	n = (int)wsi->protocol->rx_buffer_size;
 	if (!n)
 		n = LWS_MAX_SOCKET_IO_BUF;
 	n += LWS_SEND_BUFFER_PRE_PADDING + LWS_SEND_BUFFER_POST_PADDING;

@@ -103,7 +103,7 @@ callback_fraggle(struct libwebsocket_context *context,
 			for (it = 0; it < len; it++)
 				psf->sum += p[it];
 
-			psf->total_message += len;
+			psf->total_message += (int)len;
 			psf->packets_left++;
 
 			if (libwebsocket_is_final_fragment(wsi))
