@@ -237,7 +237,8 @@ just_kill_connection:
 	if (wsi->protocol && wsi->protocol->callback &&
 			((old_state == WSI_STATE_ESTABLISHED) ||
 			 (old_state == WSI_STATE_RETURNED_CLOSE_ALREADY) ||
-			 (old_state == WSI_STATE_AWAITING_CLOSE_ACK))) {
+			 (old_state == WSI_STATE_AWAITING_CLOSE_ACK) ||
+			 (old_state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE))) {
 		lwsl_debug("calling back CLOSED\n");
 		wsi->protocol->callback(context, wsi, LWS_CALLBACK_CLOSED,
 						      wsi->user_space, NULL, 0);
