@@ -31,7 +31,7 @@ see below on how to toggle compile options.
 Building on Unix:
 -----------------
 
-1. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
+1. Install CMake 2.8 or greater: http://cmake.org/cmake/resources/software.html
    (Most Unix distributions comes with a packaged version also)
 
 2. Install OpenSSL.
