@@ -132,7 +132,8 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
-		return -1;
+		n=(int)len;
+		break;
 	case LWS_SSL_CAPABLE_MORE_SERVICE:
 		/* nothing got sent, not fatal, retry the whole thing later */
 		n = 0;
