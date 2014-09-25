@@ -160,8 +160,6 @@
 #ifdef USE_CYASSL
 #include <cyassl/openssl/ssl.h>
 #include <cyassl/error-ssl.h>
-unsigned char *
-SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #else
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
@@ -825,8 +823,6 @@ enum lws_ssl_capable_status {
 
 #ifndef LWS_OPENSSL_SUPPORT
 #define LWS_SSL_ENABLED(context) (0)
-unsigned char *
-SHA1(const unsigned char *d, size_t n, unsigned char *md);
 #define lws_context_init_server_ssl(_a, _b) (0)
 #define lws_ssl_destroy(_a)
 #define lws_context_init_http2_ssl(_a)
