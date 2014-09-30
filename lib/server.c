@@ -353,13 +353,15 @@ int lws_handshake_server(struct libwebsocket_context *context,
 
 			return 0; /* don't bail out of libwebsocket_read, just yet */
 		}
+		
+		lwsl_err(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE));
 
 		if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
 								"websocket"))
 			goto upgrade_ws;
 
 		if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
-								"h2c"))
+								"h2c-14"))
 			goto upgrade_h2c;
 		
 		/* dunno what he wanted to upgrade to */

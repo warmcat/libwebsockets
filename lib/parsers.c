@@ -196,41 +196,7 @@ int libwebsocket_parse(
 	int n;
 
 	switch (wsi->u.hdr.parser_state) {
-	case WSI_TOKEN_GET_URI:
-	case WSI_TOKEN_POST_URI:
-	case WSI_TOKEN_OPTIONS_URI:
-	case WSI_TOKEN_HOST:
-	case WSI_TOKEN_CONNECTION:
-	case WSI_TOKEN_KEY1:
-	case WSI_TOKEN_KEY2:
-	case WSI_TOKEN_PROTOCOL:
-	case WSI_TOKEN_UPGRADE:
-	case WSI_TOKEN_ORIGIN:
-	case WSI_TOKEN_SWORIGIN:
-	case WSI_TOKEN_DRAFT:
-	case WSI_TOKEN_CHALLENGE:
-	case WSI_TOKEN_KEY:
-	case WSI_TOKEN_VERSION:
-	case WSI_TOKEN_ACCEPT:
-	case WSI_TOKEN_NONCE:
-	case WSI_TOKEN_EXTENSIONS:
-	case WSI_TOKEN_HTTP:
-	case WSI_TOKEN_HTTP_ACCEPT:
-	case WSI_TOKEN_HTTP_AC_REQUEST_HEADERS:
-	case WSI_TOKEN_HTTP_IF_MODIFIED_SINCE:
-	case WSI_TOKEN_HTTP_IF_NONE_MATCH:
-	case WSI_TOKEN_HTTP_ACCEPT_ENCODING:
-	case WSI_TOKEN_HTTP_ACCEPT_LANGUAGE:
-	case WSI_TOKEN_HTTP_PRAGMA:
-	case WSI_TOKEN_HTTP_CACHE_CONTROL:
-	case WSI_TOKEN_HTTP_AUTHORIZATION:
-	case WSI_TOKEN_HTTP_COOKIE:
-	case WSI_TOKEN_HTTP_CONTENT_LENGTH:
-	case WSI_TOKEN_HTTP_CONTENT_TYPE:
-	case WSI_TOKEN_HTTP_DATE:
-	case WSI_TOKEN_HTTP_RANGE:
-	case WSI_TOKEN_HTTP_REFERER:
-
+	default:
 
 		lwsl_parser("WSI_TOK_(%d) '%c'\n", wsi->u.hdr.parser_state, c);
 
@@ -544,9 +510,6 @@ start_fragment:
 
 	case WSI_PARSING_COMPLETE:
 		lwsl_parser("WSI_PARSING_COMPLETE '%c'\n", c);
-		break;
-
-	default:	/* keep gcc happy */
 		break;
 	}
 
