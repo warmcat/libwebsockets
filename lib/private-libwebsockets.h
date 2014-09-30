@@ -353,6 +353,8 @@ enum connection_mode {
 
 	LWS_CONNMODE_WS_SERVING,
 	LWS_CONNMODE_WS_CLIENT,
+	
+	LWS_CONNMODE_HTTP2_SERVING,
 
 	/* transient, ssl delay hiding */
 	LWS_CONNMODE_SSL_ACK_PENDING,
@@ -552,6 +554,9 @@ struct _lws_http_mode_related {
 	int content_remain;
 };
 
+struct _lws_http2_related {
+};
+
 struct _lws_header_related {
 	struct allocated_headers *ah;
 	short lextable_pos;
@@ -635,6 +640,7 @@ struct libwebsocket {
 
 	union u {
 		struct _lws_http_mode_related http;
+		struct _lws_http2_related http2;
 		struct _lws_header_related hdr;
 		struct _lws_websocket_related ws;
 	} u;

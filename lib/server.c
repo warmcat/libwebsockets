@@ -358,11 +358,37 @@ int lws_handshake_server(struct libwebsocket_context *context,
 								"websocket"))
 			goto upgrade_ws;
 
+		if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
+								"h2c"))
+			goto upgrade_h2c;
 		
 		/* dunno what he wanted to upgrade to */
 		goto bail_nuke_ah;
 		
+upgrade_h2c:
+
+		strcpy(protocol_list, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
+		      "Connection: Upgrade\x0d\x0a"
+		      "Upgrade: h2c\x0d\x0a\x0d\x0a");
+		n = libwebsocket_write(wsi, (unsigned char *)protocol_list,
+					strlen(protocol_list), LWS_WRITE_HTTP);
+		if (n != strlen(protocol_list)) {
+			lwsl_debug("http2 switch: ERROR writing to socket\n");
+			goto bail_nuke_ah;
+		}
+
+		/* drop the header info -- no bail_nuke_ah after this */
+
+		if (wsi->u.hdr.ah)
+			free(wsi->u.hdr.ah);
+
+		wsi->mode = LWS_CONNMODE_HTTP2_SERVING;
+
+		/* union transition */
+		memset(&wsi->u, 0, sizeof(wsi->u));
 		
+		return 0;
+
 upgrade_ws:
 		if (!wsi->protocol)
 			lwsl_err("NULL protocol at libwebsocket_read\n");

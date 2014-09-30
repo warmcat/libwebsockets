@@ -471,6 +471,9 @@ drain:
 			goto read_pending;
 		break;
 
+	case LWS_CONNMODE_HTTP2_SERVING:
+		break;
+
 	default:
 #ifdef LWS_NO_CLIENT
 		break;
