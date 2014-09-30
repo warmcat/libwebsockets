@@ -280,6 +280,8 @@ struct lws_tokens {
 	int token_len;
 };
 
+/* don't forget to update test server header dump accordingly */
+
 enum lws_token_indexes {
 	WSI_TOKEN_GET_URI,
 	WSI_TOKEN_POST_URI,

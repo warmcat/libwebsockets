@@ -109,6 +109,7 @@ dump_handshake_info(struct libwebsocket *wsi)
 	static const char *token_names[] = {
 		/*[WSI_TOKEN_GET_URI]		=*/ "GET URI",
 		/*[WSI_TOKEN_POST_URI]		=*/ "POST URI",
+		/*[WSI_TOKEN_OPTIONS_URI]	=*/ "options uri",
 		/*[WSI_TOKEN_HOST]		=*/ "Host",
 		/*[WSI_TOKEN_CONNECTION]	=*/ "Connection",
 		/*[WSI_TOKEN_KEY1]		=*/ "key 1",
@@ -133,7 +134,9 @@ dump_handshake_info(struct libwebsocket *wsi)
 		/*[WSI_TOKEN_HTTP]		=*/ "Http",
 
 		"Accept:",
+		"a-c-request-headers:",
 		"If-Modified-Since:",
+		"if-none-match:",
 		"Accept-Encoding:",
 		"Accept-Language:",
 		"Pragma:",
