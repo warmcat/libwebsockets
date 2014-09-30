@@ -354,6 +354,16 @@ int lws_handshake_server(struct libwebsocket_context *context,
 			return 0; /* don't bail out of libwebsocket_read, just yet */
 		}
 
+		if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
+								"websocket"))
+			goto upgrade_ws;
+
+		
+		/* dunno what he wanted to upgrade to */
+		goto bail_nuke_ah;
+		
+		
+upgrade_ws:
 		if (!wsi->protocol)
 			lwsl_err("NULL protocol at libwebsocket_read\n");
 
