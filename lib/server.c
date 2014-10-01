@@ -26,7 +26,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 			    struct libwebsocket_context *context)
 {
 	int n;
-	int sockfd;
+	SOCKET sockfd;
 	struct sockaddr_in sin;
 	socklen_t len = sizeof(sin);
 	int opt = 1;
@@ -515,7 +515,7 @@ upgrade_ws:
 		 * a big default for compatibility
 		 */
 
-		n = wsi->protocol->rx_buffer_size;
+		n = (int)wsi->protocol->rx_buffer_size;
 		if (!n)
 			n = LWS_MAX_SOCKET_IO_BUF;
 		n += LWS_SEND_BUFFER_PRE_PADDING + LWS_SEND_BUFFER_POST_PADDING;
@@ -593,7 +593,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
 	struct libwebsocket *new_wsi = NULL;
-	int accept_fd = 0;
+	SOCKET accept_fd = 0;
 	socklen_t clilen;
 	struct sockaddr_in cli_addr;
 	int n;
@@ -707,7 +707,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 								       &clilen);
 		lws_latency(context, wsi,
 			"unencrypted accept LWS_CONNMODE_SERVER_LISTENER",
-						     accept_fd, accept_fd >= 0);
+						     (int)accept_fd, accept_fd >= 0);
 		if (accept_fd < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
 				lwsl_debug("accept asks to try again\n");
@@ -876,7 +876,6 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 {
 	unsigned char *p = context->service_buffer;
 	int ret = 0;
-	int n;
 
 	wsi->u.http.fd = lws_plat_open_file(file, &wsi->u.http.filelen);
 
@@ -891,7 +890,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 "HTTP/1.0 200 OK\x0d\x0aServer: libwebsockets\x0d\x0a""Content-Type: %s\x0d\x0a",
 								  content_type);
 	if (other_headers) {
-		n = strlen(other_headers);
+		size_t n = strlen(other_headers);
 		memcpy(p, other_headers, n);
 		p += n;
 	}
@@ -937,7 +936,7 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 								       len - n);
 				wsi->u.ws.rxflow_buffer =
 					       (unsigned char *)malloc(len - n);
-				wsi->u.ws.rxflow_len = len - n;
+				wsi->u.ws.rxflow_len = (int)(len - n);
 				wsi->u.ws.rxflow_pos = 0;
 				memcpy(wsi->u.ws.rxflow_buffer,
 							buf + n, len - n);

@@ -483,7 +483,7 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
  * @wsi:	Websocket connection instance
  */
 
-LWS_VISIBLE int
+LWS_VISIBLE SOCKET
 libwebsocket_get_socket_fd(struct libwebsocket *wsi)
 {
 	return wsi->sock;

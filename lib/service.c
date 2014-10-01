@@ -240,7 +240,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	int listen_socket_fds_index = 0;
 	time_t now;
 	int timed_out = 0;
-	int our_fd = 0;
+	SOCKET our_fd = 0;
 	char draining_flow = 0;
 	int more;
 	struct lws_tokens eff_buf;
@@ -269,14 +269,14 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			our_fd = pollfd->fd;
 
 		for (n = 0; n < context->fds_count; n++) {
-			m = context->fds[n].fd;
-			wsi = context->lws_lookup[m];
+			SOCKET sc = context->fds[n].fd;
+			wsi = context->lws_lookup[sc];
 			if (!wsi)
 				continue;
 
-			if (libwebsocket_service_timeout_check(context, wsi, now))
+			if (libwebsocket_service_timeout_check(context, wsi, (unsigned int)now))
 				/* he did time out... */
-				if (m == our_fd) {
+				if (sc == our_fd) {
 					/* it was the guy we came to service! */
 					timed_out = 1;
 					/* mark as handled */

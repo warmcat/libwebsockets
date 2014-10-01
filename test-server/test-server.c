@@ -166,7 +166,7 @@ dump_handshake_info(struct libwebsocket *wsi)
 
 const char * get_mimetype(const char *file)
 {
-	int n = strlen(file);
+	size_t n = strlen(file);
 
 	if (n < 5)
 		return NULL;
@@ -623,7 +623,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 				lwsl_err("ERROR %d writing to mirror socket\n", n);
 				return -1;
 			}
-			if (n < ringbuffer[pss->ringbuffer_tail].len)
+			if (n < (int)ringbuffer[pss->ringbuffer_tail].len)
 				lwsl_err("mirror partial write %d vs %d\n",
 				       n, ringbuffer[pss->ringbuffer_tail].len);
 

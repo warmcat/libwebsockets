@@ -325,7 +325,7 @@ spill:
 
 			eff_buf.token = &wsi->u.ws.rx_user_buffer[
 						   LWS_SEND_BUFFER_PRE_PADDING];
-			eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
+			eff_buf.token_len = (int)wsi->u.ws.rx_user_buffer_head;
 			
 			if (lws_ext_callback_for_each_active(wsi,
 				LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
@@ -351,7 +351,7 @@ spill:
 
 		eff_buf.token = &wsi->u.ws.rx_user_buffer[
 						LWS_SEND_BUFFER_PRE_PADDING];
-		eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
+		eff_buf.token_len = (int)wsi->u.ws.rx_user_buffer_head;
 		
 		if (lws_ext_callback_for_each_active(wsi,
 				LWS_EXT_CALLBACK_PAYLOAD_RX,

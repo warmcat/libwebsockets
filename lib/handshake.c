@@ -116,7 +116,7 @@ http_postbody:
 			 * what we have in the read buffer (len)
 			 * remaining portion of the POST body (content_remain)
 			 */
-			body_chunk_len = min(wsi->u.http.content_remain,len);
+			body_chunk_len = min(wsi->u.http.content_remain,(int)len);
 			wsi->u.http.content_remain -= body_chunk_len;
 			len -= body_chunk_len;
 

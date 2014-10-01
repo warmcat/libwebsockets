@@ -33,6 +33,7 @@
 #include <sys/ioctl.h>
 #include <poll.h>
 #include <unistd.h>
+#include <stddef.h>
 #endif
 
 #ifdef CMAKE_BUILD
@@ -226,11 +227,11 @@ callback_lws_mirror(struct libwebsocket_context * this,
 		/* 64-bit ping index in network byte order */
 
 		while (shift >= 0) {
-			*p++ = psd->ping_index >> shift;
+			*p++ = (unsigned char)psd->ping_index >> shift;
 			shift -= 8;
 		}
 
-		while (p - &pingbuf[LWS_SEND_BUFFER_PRE_PADDING] < size)
+		while (p - &pingbuf[LWS_SEND_BUFFER_PRE_PADDING] < (ptrdiff_t)size)
 			*p++ = 0;
 
 		gettimeofday(&tv, NULL);
@@ -267,13 +268,13 @@ callback_lws_mirror(struct libwebsocket_context * this,
 
 		if (n < 0)
 			return -1;
-		if (n < size) {
+		if (n < (int)size) {
 			lwsl_err("Partial write\n");
 			return -1;
 		}
 
 		if (flood &&
-			 (psd->ping_index - psd->rx_count) < (screen_width - 1))
+			 (psd->ping_index - psd->rx_count) < (unsigned long)(screen_width - 1))
 			fprintf(stderr, ".");
 		break;
 
@@ -375,7 +376,7 @@ int main(int argc, char **argv)
 			protocols[PROTOCOL_LWS_MIRROR].name = protocol_name;
 			break;
 		case 'i':
-			interval_us = 1000000.0 * atof(optarg);
+			interval_us = (unsigned int)(1000000.0 * atof(optarg));
 			break;
 		case 's':
 			size = atoi(optarg);

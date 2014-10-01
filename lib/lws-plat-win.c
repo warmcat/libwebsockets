@@ -60,7 +60,7 @@ LWS_VISIBLE int lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
 	FD_ZERO(&readfds);
 	FD_SET(fd->fd, &readfds);
 
-	return select(fd->fd + 1, &readfds, NULL, NULL, &tv);
+	return select((int)(fd->fd + 1), &readfds, NULL, NULL, &tv);
 }
 
 /**
@@ -140,7 +140,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 		return -1;
 	}
 
-	pfd->revents = networkevents.lNetworkEvents;
+	pfd->revents = (SHORT)networkevents.lNetworkEvents;
 
 	if (pfd->revents & LWS_POLLOUT)
 		context->lws_lookup[pfd->fd]->sock_send_blocking = FALSE;
@@ -149,7 +149,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 }
 
 LWS_VISIBLE int
-lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
+lws_plat_set_socket_options(struct libwebsocket_context *context, SOCKET fd)
 {
 	int optval = 1;
 	int optlen = sizeof(optval);

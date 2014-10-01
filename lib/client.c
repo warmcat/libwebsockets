@@ -23,7 +23,7 @@
 
 int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t len)
 {
-	int n;
+	size_t n;
 
 	switch (wsi->mode) {
 	case LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY:
@@ -344,7 +344,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 
 		lws_latency_pre(context, wsi);
 
-		n = lws_ssl_capable_write(wsi, context->service_buffer, p - (char *)context->service_buffer);
+		n = lws_ssl_capable_write(wsi, context->service_buffer, (int)(p - (char *)context->service_buffer));
 		lws_latency(context, wsi, "send lws_issue_raw", n, n == p - (char *)context->service_buffer);
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
@@ -555,7 +555,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	}
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL);
-	len = strlen(p);
+	len = (int)strlen(p);
 
 	while (*pc && !okay) {
 		if (!strncmp(pc, p, len) &&
@@ -741,7 +741,7 @@ check_accept:
 	 * use a big default for compatibility
 	 */
 
-	n = wsi->protocol->rx_buffer_size;
+	n = (int)wsi->protocol->rx_buffer_size;
 	if (!n)
 		n = LWS_MAX_SOCKET_IO_BUF;
 	n += LWS_SEND_BUFFER_PRE_PADDING + LWS_SEND_BUFFER_POST_PADDING;
