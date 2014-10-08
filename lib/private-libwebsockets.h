@@ -747,6 +747,7 @@ struct libwebsocket {
 	SSL *ssl;
 	BIO *client_bio;
 	unsigned int use_ssl:2;
+	unsigned int buffered_reads_pending:1;
 #endif
 
 #ifdef _WIN32
@@ -950,7 +951,6 @@ enum lws_ssl_capable_status {
 #define lws_context_init_server_ssl(_a, _b) (0)
 #define lws_ssl_destroy(_a)
 #define lws_context_init_http2_ssl(_a)
-#define lws_ssl_pending(_a) (0)
 #define lws_ssl_capable_read lws_ssl_capable_read_no_ssl
 #define lws_ssl_capable_write lws_ssl_capable_write_no_ssl
 #define lws_server_socket_service_ssl(_a, _b, _c, _d, _e) (0)
@@ -958,7 +958,6 @@ enum lws_ssl_capable_status {
 #define lws_ssl_context_destroy(_a)
 #else
 #define LWS_SSL_ENABLED(context) (context->use_ssl)
-LWS_EXTERN int lws_ssl_pending(struct libwebsocket *wsi);
 LWS_EXTERN int openssl_websocket_private_data_index;
 LWS_EXTERN int
 lws_ssl_capable_read(struct libwebsocket *wsi, unsigned char *buf, int len);

@@ -436,7 +436,6 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
-read_pending:
 		eff_buf.token_len = lws_ssl_capable_read(wsi,
 				context->service_buffer,
 					       sizeof(context->service_buffer));
@@ -505,8 +504,6 @@ drain:
 			n = _libwebsocket_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
 		}
 
-		if (lws_ssl_pending(wsi))
-			goto read_pending;
 		break;
 
 	default:

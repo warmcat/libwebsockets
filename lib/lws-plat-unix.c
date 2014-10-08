@@ -125,6 +125,21 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	/* any socket with events to service? */
 
 	for (n = 0; n < context->fds_count; n++) {
+#ifdef LWS_OPENSSL_SUPPORT
+		struct libwebsocket *wsi;
+		
+		wsi = context->lws_lookup[context->fds[n].fd];
+		if (wsi == NULL)
+			continue;
+		/* 
+		 * if he's not flowcontrolled, make sure we service ssl
+		 * pending read data
+		 */
+		if (wsi->ssl && wsi->buffered_reads_pending) {
+			lwsl_debug("wsi %p: forcing POLLIN\n", wsi);
+			context->fds[n].revents |= context->fds[n].events & POLLIN;
+		}
+#endif
 		if (!context->fds[n].revents)
 			continue;
 
