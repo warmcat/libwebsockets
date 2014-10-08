@@ -47,10 +47,10 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 			lwsl_info("***** %x signalling to close in POLLOUT handler\n", wsi);
 			return -1; /* retry closing now */
 		}
-
+#ifdef LWS_USE_HTTP2
 	/* protocol packets are next */
 	if (wsi->pps) {
-		lwsl_err("servicing pps %d\n", wsi->pps);
+		lwsl_info("servicing pps %d\n", wsi->pps);
 		switch (wsi->pps) {
 		case LWS_PPS_HTTP2_MY_SETTINGS:
 		case LWS_PPS_HTTP2_ACK_SETTINGS:
@@ -64,7 +64,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		
 		return 0; /* leave POLLOUT active */
 	}
-		
+#endif
 	/* pending control packets have next priority */
 	
 	if (wsi->state == WSI_STATE_ESTABLISHED && wsi->u.ws.ping_payload_len) {

@@ -65,6 +65,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 	unsigned char *last_char;
 
 	switch (wsi->state) {
+#ifdef LWS_USE_HTTP2
 	case WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE:
 	case WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS:
 	case WSI_STATE_HTTP2_ESTABLISHED:
@@ -86,6 +87,7 @@ libwebsocket_read(struct libwebsocket_context *context,
 				goto bail;
 		}
 		break;
+#endif
 http_new:
 	case WSI_STATE_HTTP:
 		wsi->hdr_parsing_completed = 0;
