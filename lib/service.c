@@ -48,9 +48,26 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 			return -1; /* retry closing now */
 		}
 
+	/* protocol packets are next */
+	if (wsi->pps) {
+		lwsl_err("servicing pps %d\n", wsi->pps);
+		switch (wsi->pps) {
+		case LWS_PPS_HTTP2_MY_SETTINGS:
+		case LWS_PPS_HTTP2_ACK_SETTINGS:
+			lws_http2_do_pps_send(context, wsi);
+			break;
+		default:
+			break;
+		}
+		wsi->pps = LWS_PPS_NONE;
+		libwebsocket_rx_flow_control(wsi, 1);
+		
+		return 0; /* leave POLLOUT active */
+	}
+		
 	/* pending control packets have next priority */
 	
-	if (wsi->u.ws.ping_payload_len) {
+	if (wsi->state == WSI_STATE_ESTABLISHED && wsi->u.ws.ping_payload_len) {
 		n = libwebsocket_write(wsi, 
 				&wsi->u.ws.ping_payload_buf[
 					LWS_SEND_BUFFER_PRE_PADDING],
@@ -160,8 +177,10 @@ user_service:
 	/* one shot */
 
 	if (pollfd) {
-		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+			lwsl_info("failled at set pollfd\n");
 			return 1;
+		}
 
 		lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_WRITE);
 	}
@@ -203,6 +222,25 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 						wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		return 1;
 	}
+
+	return 0;
+}
+
+int lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int len)
+{
+	/* his RX is flowcontrolled, don't send remaining now */
+	if (wsi->rxflow_buffer) {
+		/* rxflow while we were spilling prev rxflow */
+		lwsl_info("stalling in existing rxflow buf\n");
+		return 1;
+	}
+
+	/* a new rxflow, buffer it and warn caller */
+	lwsl_info("new rxflow input buffer len %d\n", len - n);
+	wsi->rxflow_buffer = (unsigned char *)malloc(len - n);
+	wsi->rxflow_len = len - n;
+	wsi->rxflow_pos = 0;
+	memcpy(wsi->rxflow_buffer, buf + n, len - n);
 
 	return 0;
 }
@@ -370,25 +408,25 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 	case LWS_CONNMODE_WS_SERVING:
 	case LWS_CONNMODE_WS_CLIENT:
+	case LWS_CONNMODE_HTTP2_SERVING:
 
 		/* the guy requested a callback when it was OK to write */
 
 		if ((pollfd->revents & LWS_POLLOUT) &&
-			(wsi->state == WSI_STATE_ESTABLISHED ||
+			(wsi->state == WSI_STATE_ESTABLISHED || wsi->state == WSI_STATE_HTTP2_ESTABLISHED || wsi->state == WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS ||
 				wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) &&
 			   lws_handle_POLLOUT_event(context, wsi, pollfd)) {
 			lwsl_info("libwebsocket_service_fd: closing\n");
 			goto close_and_handled;
 		}
 
-		if (wsi->u.ws.rxflow_buffer &&
-			      (wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW)) {
+		if (wsi->rxflow_buffer &&
+			      (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
 			lwsl_info("draining rxflow\n");
 			/* well, drain it */
-			eff_buf.token = (char *)wsi->u.ws.rxflow_buffer +
-						wsi->u.ws.rxflow_pos;
-			eff_buf.token_len = wsi->u.ws.rxflow_len -
-						wsi->u.ws.rxflow_pos;
+			eff_buf.token = (char *)wsi->rxflow_buffer +
+						wsi->rxflow_pos;
+			eff_buf.token_len = wsi->rxflow_len - wsi->rxflow_pos;
 			draining_flow = 1;
 			goto drain;
 		}
@@ -458,20 +496,17 @@ drain:
 			eff_buf.token_len = 0;
 		} while (more);
 
-		if (draining_flow && wsi->u.ws.rxflow_buffer &&
-				 wsi->u.ws.rxflow_pos == wsi->u.ws.rxflow_len) {
+		if (draining_flow && wsi->rxflow_buffer &&
+				 wsi->rxflow_pos == wsi->rxflow_len) {
 			lwsl_info("flow buffer: drained\n");
-			free(wsi->u.ws.rxflow_buffer);
-			wsi->u.ws.rxflow_buffer = NULL;
+			free(wsi->rxflow_buffer);
+			wsi->rxflow_buffer = NULL;
 			/* having drained the rxflow buffer, can rearm POLLIN */
 			n = _libwebsocket_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
 		}
 
 		if (lws_ssl_pending(wsi))
 			goto read_pending;
-		break;
-
-	case LWS_CONNMODE_HTTP2_SERVING:
 		break;
 
 	default:

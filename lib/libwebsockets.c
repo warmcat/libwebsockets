@@ -88,6 +88,13 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		free(wsi->u.hdr.ah);
 		goto just_kill_connection;
 	}
+	
+	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING) {
+		if (wsi->u.hdr.ah) {
+			free(wsi->u.hdr.ah);
+			wsi->u.hdr.ah = NULL;
+		}
+	}
 
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
 		if (wsi->u.http.fd != LWS_INVALID_FILE) {
@@ -205,6 +212,11 @@ just_kill_connection:
 	remove_wsi_socket_from_fds(context, wsi);
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
+	
+	if (wsi->rxflow_buffer) {
+		free(wsi->rxflow_buffer);
+		wsi->rxflow_buffer = NULL;
+	}
 
 	if ((old_state == WSI_STATE_ESTABLISHED ||
 	     wsi->mode == LWS_CONNMODE_WS_SERVING ||
@@ -214,10 +226,7 @@ just_kill_connection:
 			free(wsi->u.ws.rx_user_buffer);
 			wsi->u.ws.rx_user_buffer = NULL;
 		}
-		if (wsi->u.ws.rxflow_buffer) {
-			free(wsi->u.ws.rxflow_buffer);
-			wsi->u.ws.rxflow_buffer = NULL;
-		}
+
 		if (wsi->truncated_send_malloc) {
 			/* not going to be completed... nuke it */
 			free(wsi->truncated_send_malloc);
@@ -546,11 +555,11 @@ lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi,
 LWS_VISIBLE int
 libwebsocket_rx_flow_control(struct libwebsocket *wsi, int enable)
 {
-	if (enable == (wsi->u.ws.rxflow_change_to & LWS_RXFLOW_ALLOW))
+	if (enable == (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW))
 		return 0;
 
 	lwsl_info("libwebsocket_rx_flow_control(0x%p, %d)\n", wsi, enable);
-	wsi->u.ws.rxflow_change_to = LWS_RXFLOW_PENDING_CHANGE | !!enable;
+	wsi->rxflow_change_to = LWS_RXFLOW_PENDING_CHANGE | !!enable;
 
 	return 0;
 }
@@ -802,4 +811,17 @@ LWS_VISIBLE int
 lws_partial_buffered(struct libwebsocket *wsi)
 {
 	return !!wsi->truncated_send_len;	
+}
+
+void lws_set_protocol_write_pending(struct libwebsocket_context *context,
+				    struct libwebsocket *wsi,
+				    enum lws_pending_protocol_send pend)
+{
+		lwsl_err("setting pps %d\n", pend);
+	
+	if (wsi->pps)
+		lwsl_err("pps overwrite\n");
+	wsi->pps = pend;
+	libwebsocket_rx_flow_control(wsi, 0);
+	libwebsocket_callback_on_writable(context, wsi);
 }

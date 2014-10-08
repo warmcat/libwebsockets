@@ -49,7 +49,6 @@
 #ifndef min
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #endif
-
 /*
  * We have to take care about parsing because the headers may be split
  * into multiple fragments.  They may contain unknown headers with arbitrary
@@ -66,6 +65,27 @@ libwebsocket_read(struct libwebsocket_context *context,
 	unsigned char *last_char;
 
 	switch (wsi->state) {
+	case WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE:
+	case WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS:
+	case WSI_STATE_HTTP2_ESTABLISHED:
+		n = 0;
+		while (n < len) {
+			/*
+			 * we were accepting input but now we stopped doing so
+			 */
+			if (!(wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
+				lws_rxflow_cache(wsi, buf, n, len);
+
+				return 1;
+			}
+
+			/* account for what we're using in rxflow buffer */
+			if (wsi->rxflow_buffer)
+				wsi->rxflow_pos++;
+			if (lws_http2_parser(context, wsi, buf[n++]))
+				goto bail;
+		}
+		break;
 http_new:
 	case WSI_STATE_HTTP:
 		wsi->hdr_parsing_completed = 0;

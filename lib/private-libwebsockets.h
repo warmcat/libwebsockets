@@ -305,6 +305,10 @@ enum lws_connection_states {
 	WSI_STATE_RETURNED_CLOSE_ALREADY,
 	WSI_STATE_AWAITING_CLOSE_ACK,
 	WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE,
+	
+	WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE,
+	WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS,
+	WSI_STATE_HTTP2_ESTABLISHED,
 };
 
 enum http_version {
@@ -315,6 +319,12 @@ enum http_version {
 enum http_connection_type {
 	HTTP_CONNECTION_CLOSE,
 	HTTP_CONNECTION_KEEP_ALIVE
+};
+
+enum lws_pending_protocol_send {
+	LWS_PPS_NONE,
+	LWS_PPS_HTTP2_MY_SETTINGS,
+	LWS_PPS_HTTP2_ACK_SETTINGS,
 };
 
 enum lws_rx_parse_state {
@@ -526,6 +536,18 @@ struct lws_fragments {
 	unsigned char next_frag_index;
 };
 
+/* notice that these union members:
+ * 
+ *  hdr
+ *  http
+ *  http2
+ * 
+ * all have a pointer to allocated_headers struct as their first member.
+ * 
+ * It means for allocated_headers access, the three union paths can all be
+ * used interchangably to access the same data
+ */
+
 struct allocated_headers {
 	unsigned short next_frag_index;
 	unsigned short pos;
@@ -539,6 +561,7 @@ struct allocated_headers {
 };
 
 struct _lws_http_mode_related {
+	/* MUST be first in struct */
 	struct allocated_headers *ah; /* mirroring  _lws_header_related */
 #if defined(WIN32) || defined(_WIN32)
 	HANDLE fd;
@@ -554,10 +577,80 @@ struct _lws_http_mode_related {
 	int content_remain;
 };
 
-struct _lws_http2_related {
+#ifdef LWS_USE_HTTP2
+
+enum lws_http2_settings {
+	LWS_HTTP2_SETTINGS__HEADER_TABLE_SIZE = 1,
+	LWS_HTTP2_SETTINGS__ENABLE_PUSH,
+	LWS_HTTP2_SETTINGS__MAX_CONCURRENT_STREAMS,
+	LWS_HTTP2_SETTINGS__INITIAL_WINDOW_SIZE,
+	LWS_HTTP2_SETTINGS__MAX_FRAME_SIZE,
+	LWS_HTTP2_SETTINGS__MAX_HEADER_LIST_SIZE,
+	
+	LWS_HTTP2_SETTINGS__COUNT /* always last */
 };
 
+enum lws_http2_wellknown_frame_types {
+	LWS_HTTP2_FRAME_TYPE_DATA,
+	LWS_HTTP2_FRAME_TYPE_HEADERS,
+	LWS_HTTP2_FRAME_TYPE_PRIORITY,
+	LWS_HTTP2_FRAME_TYPE_RST_STREAM,
+	LWS_HTTP2_FRAME_TYPE_SETTINGS,
+	LWS_HTTP2_FRAME_TYPE_PUSH_PROMISE,
+	LWS_HTTP2_FRAME_TYPE_PING,
+	LWS_HTTP2_FRAME_TYPE_GOAWAY,
+	LWS_HTTP2_FRAME_TYPE_WINDOW_UPDATE,
+	LWS_HTTP2_FRAME_TYPE_CONTINUATION,
+	
+	LWS_HTTP2_FRAME_TYPE_COUNT /* always last */
+};
+
+#define LWS_HTTP2_STREAM_ID_MASTER 0
+#define LWS_HTTP2_FRAME_HEADER_LENGTH 9
+#define LWS_HTTP2_SETTINGS_LENGTH 6
+
+struct http2_settings {
+	unsigned int setting[LWS_HTTP2_SETTINGS__COUNT];
+};
+
+struct _lws_http2_related {
+	/* 
+	 * having this first lets us also re-use all HTTP union code
+	 * and in turn, http_mode_related has allocated headers in right
+	 * place so we can use the header apis on the wsi directly still
+	 */
+	struct _lws_http_mode_related http; /* MUST BE FIRST IN STRUCT */
+
+	struct http2_settings my_settings;
+	struct http2_settings peer_settings;
+	
+	struct libwebsocket *parent_wsi;
+	struct libwebsocket *next_child_wsi;
+
+	unsigned int count;
+	
+	/* frame */
+	unsigned int length;
+	unsigned int stream_id;
+	struct libwebsocket *stream_wsi;
+	unsigned char type;
+	unsigned char flags;
+	unsigned char frame_state;
+
+	unsigned int tx_credit;
+	unsigned int my_stream_id;
+	unsigned int child_count;
+	int my_priority;
+	unsigned char initialized;
+	unsigned char one_setting[LWS_HTTP2_SETTINGS_LENGTH];
+};
+
+#define HTTP2_IS_TOPLEVEL_WSI(wsi) (!wsi->parent_wsi)
+
+#endif
+
 struct _lws_header_related {
+	/* MUST be first in struct */
 	struct allocated_headers *ah;
 	short lextable_pos;
 	unsigned short current_token_limit;
@@ -579,10 +672,7 @@ struct _lws_websocket_related {
 	unsigned int frame_is_binary:1;
 	unsigned int all_zero_nonce:1;
 	short close_reason; /* enum lws_close_status */
-	unsigned char *rxflow_buffer;
-	int rxflow_len;
-	int rxflow_pos;
-	unsigned int rxflow_change_to:2;
+
 	unsigned int this_frame_masked:1;
 	unsigned int inside_frame:1; /* next write will be more of frame */
 	unsigned int clean_buffer:1; /* buffer not rewritten by extension */
@@ -609,6 +699,7 @@ struct libwebsocket {
 	unsigned int extension_data_pending:1;
 #endif
 	unsigned char ietf_spec_revision;
+	enum lws_pending_protocol_send pps;
 
 	char mode; /* enum connection_mode */
 	char state; /* enum lws_connection_states */
@@ -627,6 +718,11 @@ struct libwebsocket {
 	unsigned long action_start;
 	unsigned long latency_start;
 #endif
+	/* rxflow handling */
+	unsigned char *rxflow_buffer;
+	int rxflow_len;
+	int rxflow_pos;
+	unsigned int rxflow_change_to:2;
 
 	/* truncated send handling */
 	unsigned char *truncated_send_malloc; /* non-NULL means buffering in progress */
@@ -640,7 +736,9 @@ struct libwebsocket {
 
 	union u {
 		struct _lws_http_mode_related http;
+#ifdef LWS_USE_HTTP2
 		struct _lws_http2_related http2;
+#endif
 		struct _lws_header_related hdr;
 		struct _lws_websocket_related ws;
 	} u;
@@ -665,6 +763,8 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 LWS_EXTERN int
 remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi);
+LWS_EXTERN int
+lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int len);
 
 #ifndef LWS_LATENCY
 static inline void lws_latency(struct libwebsocket_context *context,
@@ -680,12 +780,18 @@ lws_latency(struct libwebsocket_context *context,
 						       int ret, int completion);
 #endif
 
+LWS_EXTERN void lws_set_protocol_write_pending(struct libwebsocket_context *context,
+				    struct libwebsocket *wsi,
+				    enum lws_pending_protocol_send pend);
 LWS_EXTERN int
 libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c);
 
 LWS_EXTERN int
 libwebsocket_parse(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, unsigned char c);
+
+LWS_EXTERN int
+lws_http_action(struct libwebsocket_context *context, struct libwebsocket *wsi);
 
 LWS_EXTERN int
 lws_b64_selftest(void);
@@ -768,6 +874,18 @@ user_callback_handle_rxflow(callback_function,
 			struct libwebsocket *wsi,
 			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
+#ifdef LWS_USE_HTTP2
+LWS_EXTERN int
+lws_http2_interpret_settings_payload(struct http2_settings *settings, unsigned char *buf, int len);
+LWS_EXTERN void lws_http2_init(struct http2_settings *settings);
+LWS_EXTERN int
+lws_http2_parser(struct libwebsocket_context *context,
+		     struct libwebsocket *wsi, unsigned char c);
+LWS_EXTERN int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsocket *wsi);
+LWS_EXTERN int lws_http2_frame_write(struct libwebsocket *wsi, int type, int flags, unsigned int sid, unsigned int len, unsigned char *buf);
+LWS_EXTERN struct libwebsocket *
+lws_http2_wsi_from_id(struct libwebsocket *wsi, unsigned int sid);
+#endif
 
 LWS_EXTERN int
 lws_plat_set_socket_options(struct libwebsocket_context *context, int fd);

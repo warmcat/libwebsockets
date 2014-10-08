@@ -262,7 +262,7 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		return 0;
 	}
 
-	if (protocol == LWS_WRITE_HTTP)
+	if (protocol == LWS_WRITE_HTTP || protocol == LWS_WRITE_HTTP_HEADERS)
 		goto send_raw;
 
 	/* websocket protocol, either binary or text */
@@ -429,8 +429,15 @@ send_raw:
 	case LWS_WRITE_CLOSE:
 /*		lwsl_hexdump(&buf[-pre], len + post); */
 	case LWS_WRITE_HTTP:
+	case LWS_WRITE_HTTP_HEADERS:
 	case LWS_WRITE_PONG:
 	case LWS_WRITE_PING:
+		if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING) {
+			n = LWS_HTTP2_FRAME_TYPE_DATA;
+			if (protocol == LWS_WRITE_HTTP_HEADERS)
+				n = LWS_HTTP2_FRAME_TYPE_HEADERS;
+			return lws_http2_frame_write(wsi, n, 0, wsi->u.http2.my_stream_id, len, buf);
+		}
 		return lws_issue_raw(wsi, (unsigned char *)buf - pre,
 							      len + pre + post);
 	default:

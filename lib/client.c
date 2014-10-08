@@ -733,7 +733,7 @@ check_accept:
 
 	memset(&wsi->u, 0, sizeof(wsi->u));
 
-	wsi->u.ws.rxflow_change_to = LWS_RXFLOW_ALLOW;
+	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
 	/*
 	 * create the frame buffer for this connection according to the

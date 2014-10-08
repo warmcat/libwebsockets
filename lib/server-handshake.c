@@ -206,7 +206,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	/* make a buffer big enough for everything */
 
-	response = (char *)context->service_buffer + MAX_WEBSOCKET_04_KEY_LEN;
+	response = (char *)context->service_buffer + MAX_WEBSOCKET_04_KEY_LEN + LWS_SEND_BUFFER_PRE_PADDING;
 	p = response;
 	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 		      "Upgrade: WebSocket\x0d\x0a"
@@ -246,7 +246,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 		fwrite(response, 1,  p - response, stderr);
 #endif
 		n = libwebsocket_write(wsi, (unsigned char *)response,
-						  p - response, LWS_WRITE_HTTP);
+						  p - response, LWS_WRITE_HTTP_HEADERS);
 		if (n != (p - response)) {
 			lwsl_debug("handshake_0405: ERROR writing to socket\n");
 			goto bail;

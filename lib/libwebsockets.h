@@ -257,6 +257,10 @@ enum libwebsocket_write_protocol {
 	LWS_WRITE_PING,
 	LWS_WRITE_PONG,
 
+	/* HTTP2 */
+
+	LWS_WRITE_HTTP_HEADERS,
+	
 	/* flags */
 
 	LWS_WRITE_NO_FIN = 0x40,

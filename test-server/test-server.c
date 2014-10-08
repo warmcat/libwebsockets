@@ -221,7 +221,7 @@ static int callback_http(struct libwebsocket_context *context,
 			return -1;
 		}
 
-		/* this server has no concept of directories */
+		/* this example server has no concept of directories */
 		if (strchr((const char *)in + 1, '/')) {
 			libwebsockets_return_http_status(context, wsi,
 						HTTP_STATUS_FORBIDDEN, NULL);
@@ -241,7 +241,7 @@ static int callback_http(struct libwebsocket_context *context,
 
 			/* well, let's demonstrate how to send the hard way */
 
-			p = buffer;
+			p = buffer + LWS_SEND_BUFFER_PRE_PADDING;
 
 #ifdef WIN32
 			pss->fd = open(leaf_path, O_RDONLY | _O_BINARY);
@@ -264,7 +264,7 @@ static int callback_http(struct libwebsocket_context *context,
 				"HTTP/1.0 200 OK\x0d\x0a"
 				"Server: libwebsockets\x0d\x0a"
 				"Content-Type: image/jpeg\x0d\x0a"
-					"Content-Length: %u\x0d\x0a\x0d\x0a",
+				"Content-Length: %u\x0d\x0a\x0d\x0a",
 					(unsigned int)stat_buf.st_size);
 
 			/*
@@ -274,8 +274,10 @@ static int callback_http(struct libwebsocket_context *context,
 			 * (too small for partial)
 			 */
 
-			n = libwebsocket_write(wsi, buffer,
-				   p - buffer, LWS_WRITE_HTTP);
+			n = libwebsocket_write(wsi,
+					       buffer + LWS_SEND_BUFFER_PRE_PADDING,
+					       p - (buffer + LWS_SEND_BUFFER_PRE_PADDING),
+					       LWS_WRITE_HTTP_HEADERS);
 
 			if (n < 0) {
 				close(pss->fd);
@@ -367,7 +369,8 @@ static int callback_http(struct libwebsocket_context *context,
 		 */
 
 		do {
-			n = read(pss->fd, buffer, sizeof buffer);
+			n = read(pss->fd, buffer + LWS_SEND_BUFFER_PRE_PADDING,
+				 sizeof (buffer) - LWS_SEND_BUFFER_PRE_PADDING);
 			/* problem reading, close conn */
 			if (n < 0)
 				goto bail;
@@ -375,10 +378,11 @@ static int callback_http(struct libwebsocket_context *context,
 			if (n == 0)
 				goto flush_bail;
 			/*
-			 * because it's HTTP and not websocket, don't need to take
-			 * care about pre and postamble
+			 * To support HTTP2, must take care about preamble space
 			 */
-			m = libwebsocket_write(wsi, buffer, n, LWS_WRITE_HTTP);
+			m = libwebsocket_write(wsi,
+					       buffer + LWS_SEND_BUFFER_PRE_PADDING,
+					       n, LWS_WRITE_HTTP);
 			if (m < 0)
 				/* write failed, close conn */
 				goto bail;

@@ -295,6 +295,7 @@ endif()
 
 if (LWS_WITH_HTTP2)
 	list(APPEND SOURCES
+		lib/http2.c
 		lib/ssl-http2.c
 		)
 endif()
