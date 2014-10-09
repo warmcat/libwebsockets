@@ -32,6 +32,7 @@ const struct http2_settings lws_http2_default_settings = { {
 	/* LWS_HTTP2_SETTINGS__MAX_HEADER_LIST_SIZE */		  ~0,
 }};
 
+
 void lws_http2_init(struct http2_settings *settings)
 {
 	memcpy(settings, lws_http2_default_settings.setting, sizeof(*settings));
@@ -193,15 +194,19 @@ lws_http2_parser(struct libwebsocket_context *context,
 	case WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS:
 	case WSI_STATE_HTTP2_ESTABLISHED:
 		if (wsi->u.http2.frame_state == LWS_HTTP2_FRAME_HEADER_LENGTH) { // payload
+			/* applies to wsi->u.http2.stream_wsi which may be wsi*/
 			switch(wsi->u.http2.type) {
 			case LWS_HTTP2_FRAME_TYPE_SETTINGS:
-				wsi->u.http2.one_setting[wsi->u.http2.count % LWS_HTTP2_SETTINGS_LENGTH] = c;
+				wsi->u.http2.stream_wsi->u.http2.one_setting[wsi->u.http2.count % LWS_HTTP2_SETTINGS_LENGTH] = c;
 				if (wsi->u.http2.count % LWS_HTTP2_SETTINGS_LENGTH == LWS_HTTP2_SETTINGS_LENGTH - 1)
 					if (lws_http2_interpret_settings_payload(
-					     &wsi->u.http2.peer_settings,
+					     &wsi->u.http2.stream_wsi->u.http2.peer_settings,
 					     wsi->u.http2.one_setting,
 					     LWS_HTTP2_SETTINGS_LENGTH))
 						return 1;
+				break;
+			case LWS_HTTP2_FRAME_TYPE_HEADERS:
+				
 				break;
 			}
 			wsi->u.http2.count++;
@@ -238,6 +243,7 @@ lws_http2_parser(struct libwebsocket_context *context,
 		case 8:
 			wsi->u.http2.stream_id <<= 8;
 			wsi->u.http2.stream_id |= c;
+			wsi->u.http2.stream_wsi = wsi;
 			break;
 		}
 		if (wsi->u.http2.frame_state == LWS_HTTP2_FRAME_HEADER_LENGTH) { /* frame header complete */
@@ -258,10 +264,14 @@ lws_http2_parser(struct libwebsocket_context *context,
 				}
 				break;
 			case LWS_HTTP2_FRAME_TYPE_HEADERS:
-				wsi_new = lws_http2_wsi_from_id(wsi, wsi->u.http2.stream_id);
-				if (!wsi_new) {
-					wsi_new = lws_create_server_child_wsi(context, wsi, wsi->u.http2.stream_id);
-				}
+				if (!wsi->u.http2.stream_id)
+					return 1;
+				wsi->u.http2.stream_wsi = lws_http2_wsi_from_id(wsi, wsi->u.http2.stream_id);
+				if (!wsi->u.http2.stream_wsi)
+					wsi->u.http2.stream_wsi = lws_create_server_child_wsi(context, wsi, wsi->u.http2.stream_id);
+
+				if (!wsi->u.http2.stream_wsi)
+					return 1;
 			}
 			if (wsi->u.http2.length == 0)
 				wsi->u.http2.frame_state = 0;

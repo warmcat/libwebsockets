@@ -614,6 +614,15 @@ struct http2_settings {
 	unsigned int setting[LWS_HTTP2_SETTINGS__COUNT];
 };
 
+enum http2_hpack_state {
+	HPKS_TYPE,
+	
+	HPKS_HLEN,
+	HPKS_HLEN_EXT,
+
+	HPKS_DATA,
+};
+
 struct _lws_http2_related {
 	/* 
 	 * having this first lets us also re-use all HTTP union code
@@ -638,6 +647,14 @@ struct _lws_http2_related {
 	unsigned char flags;
 	unsigned char frame_state;
 
+	/* hpack */
+	enum http2_hpack_state hpack;
+	unsigned int header_index;
+	unsigned int hpack_len;
+	unsigned char hpack_m;
+	unsigned int huff:1;
+	unsigned int value:1;
+	
 	unsigned int tx_credit;
 	unsigned int my_stream_id;
 	unsigned int child_count;
