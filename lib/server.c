@@ -684,7 +684,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 						LWS_CLOSE_STATUS_NOSTATUS);
 				return 0;
 			case LWS_SSL_CAPABLE_MORE_SERVICE:
-				break;
+				goto try_pollout;
 			}
 
 			/* just ignore incoming if waiting for close */
@@ -702,6 +702,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			}
 		}
 
+try_pollout:
 		/* this handles POLLOUT for http serving fragments */
 
 		if (!(pollfd->revents & LWS_POLLOUT))
