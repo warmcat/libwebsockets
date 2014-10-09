@@ -668,7 +668,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		/* any incoming data ready? */
 
 		if (pollfd->revents & LWS_POLLIN) {
-			len = lws_ssl_capable_read(wsi,
+			len = lws_ssl_capable_read(context, wsi,
 					context->service_buffer,
 						       sizeof(context->service_buffer));
 			switch (len) {

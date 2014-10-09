@@ -960,7 +960,8 @@ enum lws_ssl_capable_status {
 #define LWS_SSL_ENABLED(context) (context->use_ssl)
 LWS_EXTERN int openssl_websocket_private_data_index;
 LWS_EXTERN int
-lws_ssl_capable_read(struct libwebsocket *wsi, unsigned char *buf, int len);
+lws_ssl_capable_read(struct libwebsocket_context *context,
+		     struct libwebsocket *wsi, unsigned char *buf, int len);
 
 LWS_EXTERN int
 lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len);
@@ -993,7 +994,8 @@ lws_context_init_http2_ssl(struct libwebsocket_context *context);
 #endif
 
 LWS_EXTERN int
-lws_ssl_capable_read_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
+lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi, unsigned char *buf, int len);
 
 LWS_EXTERN int
 lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);

@@ -402,7 +402,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		len = 1;
 		while (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE &&
 								      len > 0) {
-			n = lws_ssl_capable_read(wsi, &c, 1);
+			n = lws_ssl_capable_read(context, wsi, &c, 1);
 			lws_latency(context, wsi, "send lws_issue_raw", n, n == 1);
 			switch (n) {
 			case LWS_SSL_CAPABLE_ERROR:

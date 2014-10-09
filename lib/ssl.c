@@ -355,12 +355,13 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 #endif
 
 LWS_VISIBLE int
-lws_ssl_capable_read(struct libwebsocket *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read(struct libwebsocket_context *context,
+		     struct libwebsocket *wsi, unsigned char *buf, int len)
 {
 	int n;
 
 	if (!wsi->ssl)
-		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
+		return lws_ssl_capable_read_no_ssl(context, wsi, buf, len);
 	
 	wsi->buffered_reads_pending = 0;
 

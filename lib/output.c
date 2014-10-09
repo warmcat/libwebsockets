@@ -545,7 +545,8 @@ all_sent:
 }
 
 LWS_VISIBLE int
-lws_ssl_capable_read_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi, unsigned char *buf, int len)
 {
 	int n;
 
