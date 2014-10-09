@@ -436,7 +436,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
-		eff_buf.token_len = lws_ssl_capable_read(context->wsi,
+		eff_buf.token_len = lws_ssl_capable_read(context, wsi,
 				context->service_buffer,
 					       sizeof(context->service_buffer));
 		switch (eff_buf.token_len) {

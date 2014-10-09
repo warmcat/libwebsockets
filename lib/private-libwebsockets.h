@@ -464,6 +464,7 @@ struct libwebsocket_context {
 	int allow_non_ssl_on_ssl_port;
 	SSL_CTX *ssl_ctx;
 	SSL_CTX *ssl_client_ctx;
+	unsigned int ssl_flag_buffered_reads:1;
 #endif
 	struct libwebsocket_protocols *protocols;
 	int count_protocols;

@@ -374,8 +374,10 @@ lws_ssl_capable_read(struct libwebsocket_context *context,
 		 * Because these won't signal at the network layer with POLLIN
 		 * and if we don't realize, this data will sit there forever
 		 */
-		if (n == len && wsi->ssl && SSL_pending(wsi->ssl))
+		if (n == len && wsi->ssl && SSL_pending(wsi->ssl)) {
+			context->ssl_flag_buffered_reads = 1;
 			wsi->buffered_reads_pending = 1;
+		}
 		
 		return n;
 	}
