@@ -164,7 +164,10 @@ http_postbody:
 						goto bail;
 				}
 				goto http_complete;
-			}
+			} else
+				libwebsocket_set_timeout(wsi,
+					PENDING_TIMEOUT_HTTP_CONTENT,
+					AWAITING_TIMEOUT);
 		}
 		break;
 
