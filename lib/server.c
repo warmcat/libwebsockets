@@ -887,9 +887,11 @@ LWS_VISIBLE int libwebsockets_return_http_status(
 		"<h1>%u %s</h1>%s",
 		code, description, code, description, html_body);
 
-	lwsl_info((const char *)context->service_buffer);
+	lwsl_info((const char *)context->service_buffer +
+		  LWS_SEND_BUFFER_PRE_PADDING);
 
-	m = libwebsocket_write(wsi, context->service_buffer, n,
+	m = libwebsocket_write(wsi, context->service_buffer +
+				    LWS_SEND_BUFFER_PRE_PADDING, n,
 			       LWS_WRITE_HTTP_HEADERS);
 
 	return m;
