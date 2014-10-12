@@ -482,6 +482,7 @@ again:
 		fprintf(stderr, "  trying %d\n", n);
 
 		while (m < huf_literal[n].len) {
+			prev = walk;
 			walk = lextable_decode(walk, code_bit(n, m));
 
 			if (walk == 0xffff) {
@@ -491,8 +492,15 @@ again:
 
 			if (walk & 0x8000) {
 				y = walk & 0x7fff;
-				if (y == 0 && m == 29)
+				if (y == 0 && m == 29) {
 					y |= 0x100;
+					fprintf(stdout, 
+						"\n/* state that points to "
+						"0x100 for disambiguation with "
+						"0x0 */\n"
+						"#define HUFTABLE_0x100_PREV "
+						"%d\n", prev);
+				}
 				break;
 			}
 			m++;

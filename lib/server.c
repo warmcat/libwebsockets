@@ -183,6 +183,9 @@ int lws_http_action(struct libwebsocket_context *context,
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) &&
 		!lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) &&
+#ifdef LWS_USE_HTTP2
+		!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH) &&
+#endif
 		!lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI)) {
 		lwsl_warn("Missing URI in HTTP request\n");
 		goto bail_nuke_ah;
@@ -197,25 +200,33 @@ int lws_http_action(struct libwebsocket_context *context,
 	if (libwebsocket_ensure_user_space(wsi))
 		goto bail_nuke_ah;
 
+#ifdef LWS_USE_HTTP2
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH)) {
+		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+		lwsl_info("HTTP2 request for '%s'\n", uri_ptr);
+		goto got_uri;
+	}
+#endif
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI)) {
+		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_OPTIONS_URI);
+		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI);
+		lwsl_info("HTTP OPTIONS request for '%s'\n", uri_ptr);
+		goto got_uri;
+	}
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_POST_URI);
+		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
+		lwsl_info("HTTP POST request for '%s'\n", uri_ptr);
+		goto got_uri;
+	}
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) {
 		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI);
 		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI);
-		lwsl_info("HTTP GET request for '%s'\n",
-				lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
-	}
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
-		lwsl_info("HTTP POST request for '%s'\n",
-				lws_hdr_simple_ptr(wsi, WSI_TOKEN_POST_URI));
-		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_POST_URI);
-		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
-	}
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI)) {
-		lwsl_info("HTTP OPTIONS request for '%s'\n",
-				lws_hdr_simple_ptr(wsi, WSI_TOKEN_OPTIONS_URI));
-		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_OPTIONS_URI);
-		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI);
+		lwsl_info("HTTP GET request for '%s'\n", uri_ptr);
 	}
 
+got_uri:
 	/* HTTP header had a content length? */
 
 	wsi->u.http.content_length = 0;

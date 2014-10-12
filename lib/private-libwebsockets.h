@@ -578,6 +578,7 @@ struct _lws_http_mode_related {
 	int content_remain;
 };
 
+
 #ifdef LWS_USE_HTTP2
 
 enum lws_http2_settings {
@@ -610,6 +611,8 @@ enum lws_http2_wellknown_frame_types {
 #define LWS_HTTP2_FRAME_HEADER_LENGTH 9
 #define LWS_HTTP2_SETTINGS_LENGTH 6
 
+#define LWS_HTTP2_FLAGS__HEADER__END_HEADER 4
+
 struct http2_settings {
 	unsigned int setting[LWS_HTTP2_SETTINGS__COUNT];
 };
@@ -617,10 +620,21 @@ struct http2_settings {
 enum http2_hpack_state {
 	HPKS_TYPE,
 	
+	HPKS_IDX_EXT,
+	
 	HPKS_HLEN,
 	HPKS_HLEN_EXT,
 
 	HPKS_DATA,
+};
+
+enum http2_hpack_type {
+	HPKT_INDEXED_HDR_7,
+	HPKT_INDEXED_HDR_6_VALUE_INCR,
+	HPKT_LITERAL_HDR_VALUE_INCR,
+	HPKT_INDEXED_HDR_4_VALUE,
+	HPKT_LITERAL_HDR_VALUE,
+	HPKT_SIZE_5
 };
 
 struct _lws_http2_related {
@@ -649,8 +663,10 @@ struct _lws_http2_related {
 
 	/* hpack */
 	enum http2_hpack_state hpack;
+	enum http2_hpack_type hpack_type;
 	unsigned int header_index;
 	unsigned int hpack_len;
+	unsigned short hpack_pos;
 	unsigned char hpack_m;
 	unsigned int huff:1;
 	unsigned int value:1;
@@ -904,6 +920,9 @@ LWS_EXTERN int lws_http2_do_pps_send(struct libwebsocket_context *context, struc
 LWS_EXTERN int lws_http2_frame_write(struct libwebsocket *wsi, int type, int flags, unsigned int sid, unsigned int len, unsigned char *buf);
 LWS_EXTERN struct libwebsocket *
 lws_http2_wsi_from_id(struct libwebsocket *wsi, unsigned int sid);
+LWS_EXTERN int lws_hpack_interpret(struct libwebsocket_context *context,
+				   struct libwebsocket *wsi,
+				   unsigned char c);
 #endif
 
 LWS_EXTERN int

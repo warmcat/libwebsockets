@@ -434,10 +434,14 @@ send_raw:
 	case LWS_WRITE_PING:
 #ifdef LWS_USE_HTTP2
 		if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING) {
+			unsigned char flags = 0;
+
 			n = LWS_HTTP2_FRAME_TYPE_DATA;
-			if (protocol == LWS_WRITE_HTTP_HEADERS)
+			if (protocol == LWS_WRITE_HTTP_HEADERS) {
 				n = LWS_HTTP2_FRAME_TYPE_HEADERS;
-			return lws_http2_frame_write(wsi, n, 0, wsi->u.http2.my_stream_id, len, buf);
+				flags = LWS_HTTP2_FLAGS__HEADER__END_HEADER;
+			}
+			return lws_http2_frame_write(wsi, n, flags, wsi->u.http2.my_stream_id, len, buf);
 		}
 #endif
 		return lws_issue_raw(wsi, (unsigned char *)buf - pre,

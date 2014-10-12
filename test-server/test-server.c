@@ -112,21 +112,16 @@ dump_handshake_info(struct libwebsocket *wsi)
 		/*[WSI_TOKEN_OPTIONS_URI]	=*/ "options uri",
 		/*[WSI_TOKEN_HOST]		=*/ "Host",
 		/*[WSI_TOKEN_CONNECTION]	=*/ "Connection",
-		/*[WSI_TOKEN_KEY1]		=*/ "key 1",
-		/*[WSI_TOKEN_KEY2]		=*/ "key 2",
-		/*[WSI_TOKEN_PROTOCOL]		=*/ "Protocol",
 		/*[WSI_TOKEN_UPGRADE]		=*/ "Upgrade",
 		/*[WSI_TOKEN_ORIGIN]		=*/ "Origin",
 		/*[WSI_TOKEN_DRAFT]		=*/ "Draft",
 		/*[WSI_TOKEN_CHALLENGE]		=*/ "Challenge",
-
-		/* new for 04 */
-		/*[WSI_TOKEN_KEY]		=*/ "Key",
-		/*[WSI_TOKEN_VERSION]		=*/ "Version",
-		/*[WSI_TOKEN_SWORIGIN]		=*/ "Sworigin",
-
 		/* new for 05 */
 		/*[WSI_TOKEN_EXTENSIONS]	=*/ "Extensions",
+		/*[WSI_TOKEN_KEY1]		=*/ "key 1",
+		/*[WSI_TOKEN_KEY2]		=*/ "key 2",
+
+		/*[WSI_TOKEN_PROTOCOL]		=*/ "Protocol",
 
 		/* client receives these */
 		/*[WSI_TOKEN_ACCEPT]		=*/ "Accept",
@@ -148,9 +143,12 @@ dump_handshake_info(struct libwebsocket *wsi)
 		"Date:",
 		"Range:",
 		"Referer:",
+		/* new for 04 */
+		/*[WSI_TOKEN_KEY]		=*/ "Key",
+		/*[WSI_TOKEN_VERSION]		=*/ "Version",
+		/*[WSI_TOKEN_SWORIGIN]		=*/ "Sworigin",
 		"Uri-Args:",
 
-		/*[WSI_TOKEN_MUXURL]	=*/ "MuxURL",
 	};
 	char buf[256];
 

@@ -66,6 +66,7 @@ lws_create_server_child_wsi(struct libwebsocket_context *context, struct libwebs
 	lws_http2_init(&wsi->u.http2.peer_settings);
 	lws_http2_init(&wsi->u.http2.my_settings);
 	wsi->u.http2.stream_id = sid;
+	wsi->u.http2.my_stream_id = sid;
 
 	wsi->u.http2.parent_wsi = parent_wsi;
 	wsi->u.http2.next_child_wsi = parent_wsi->u.http2.next_child_wsi;
@@ -129,8 +130,12 @@ lws_http2_interpret_settings_payload(struct http2_settings *settings, unsigned c
 
 int lws_http2_frame_write(struct libwebsocket *wsi, int type, int flags, unsigned int sid, unsigned int len, unsigned char *buf)
 {
+	struct libwebsocket *wsi_eff = wsi;
 	unsigned char *p = &buf[-LWS_HTTP2_FRAME_HEADER_LENGTH];
 	int n;
+	
+	while (wsi_eff->u.http2.parent_wsi)
+		wsi_eff = wsi_eff->u.http2.parent_wsi;
 
 	*p++ = len >> 16;
 	*p++ = len >> 8;
@@ -142,10 +147,10 @@ int lws_http2_frame_write(struct libwebsocket *wsi, int type, int flags, unsigne
 	*p++ = sid >> 8;
 	*p++ = sid;
 	
-	lwsl_info("%s: %p. type %d, flags 0x%x, sid=%d, len=%d\n",
-		  __func__, wsi, type, flags, sid, len);
+	lwsl_info("%s: %p (eff %p). type %d, flags 0x%x, sid=%d, len=%d\n",
+		  __func__, wsi, wsi_eff, type, flags, sid, len);
 
-	n = lws_issue_raw(wsi, &buf[-LWS_HTTP2_FRAME_HEADER_LENGTH], len + LWS_HTTP2_FRAME_HEADER_LENGTH);
+	n = lws_issue_raw(wsi_eff, &buf[-LWS_HTTP2_FRAME_HEADER_LENGTH], len + LWS_HTTP2_FRAME_HEADER_LENGTH);
 	if (n >= LWS_HTTP2_FRAME_HEADER_LENGTH)
 		return n - LWS_HTTP2_FRAME_HEADER_LENGTH;
 	
@@ -169,7 +174,8 @@ int
 lws_http2_parser(struct libwebsocket_context *context,
 		     struct libwebsocket *wsi, unsigned char c)
 {
-	struct libwebsocket *wsi_new;
+	int n;
+	//dstruct libwebsocket *wsi_new;
 
 	switch (wsi->state) {
 	case WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE:
@@ -206,19 +212,31 @@ lws_http2_parser(struct libwebsocket_context *context,
 						return 1;
 				break;
 			case LWS_HTTP2_FRAME_TYPE_HEADERS:
-				
+				if (lws_hpack_interpret(context, wsi->u.http2.stream_wsi, c))
+					return 1;
 				break;
 			}
 			wsi->u.http2.count++;
-			if (wsi->u.http2.count == wsi->u.http2.length) {
-				wsi->u.http2.frame_state = 0;
-				wsi->u.http2.count = 0;
-				/* set our initial window size */
-				if (!wsi->u.http2.initialized) {
-					wsi->u.http2.tx_credit = wsi->u.http2.peer_settings.setting[LWS_HTTP2_SETTINGS__INITIAL_WINDOW_SIZE];
-					lwsl_info("initial tx credit on master conn %p: %d\n", wsi, wsi->u.http2.tx_credit);
-					wsi->u.http2.initialized = 1;
-				}
+			if (wsi->u.http2.count != wsi->u.http2.length)
+				break;
+			
+			/* end of frame */
+
+			wsi->u.http2.frame_state = 0;
+			wsi->u.http2.count = 0;
+			/* set our initial window size */
+			if (!wsi->u.http2.initialized) {
+				wsi->u.http2.tx_credit = wsi->u.http2.peer_settings.setting[LWS_HTTP2_SETTINGS__INITIAL_WINDOW_SIZE];
+				lwsl_info("initial tx credit on master conn %p: %d\n", wsi, wsi->u.http2.tx_credit);
+				wsi->u.http2.initialized = 1;
+			}
+			switch (wsi->u.http2.type) {
+			case LWS_HTTP2_FRAME_TYPE_HEADERS:
+				/* service the http request itself */
+				lwsl_info("servicing initial http request\n");
+				n = lws_http_action(context, wsi->u.http2.stream_wsi);
+				lwsl_info("  action result %d\n", n);
+				break;
 			}
 			break;
 		}
@@ -264,6 +282,7 @@ lws_http2_parser(struct libwebsocket_context *context,
 				}
 				break;
 			case LWS_HTTP2_FRAME_TYPE_HEADERS:
+				lwsl_info("LWS_HTTP2_FRAME_TYPE_HEADERS: stream_id = %d\n", wsi->u.http2.stream_id);
 				if (!wsi->u.http2.stream_id)
 					return 1;
 				wsi->u.http2.stream_wsi = lws_http2_wsi_from_id(wsi, wsi->u.http2.stream_id);
@@ -318,10 +337,6 @@ int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsoc
 			wsi->state = WSI_STATE_HTTP2_ESTABLISHED;
 			
 			wsi->u.http.fd = LWS_INVALID_FILE;
-			
-			/* service the http request itself */
-			//lwsl_info("servicing initial http request\n");
-			//n = lws_http_action(context, wsi);
 
 			return 0;
 		}
