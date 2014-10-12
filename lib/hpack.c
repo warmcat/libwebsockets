@@ -468,3 +468,98 @@ pre_data:
 	
 	return 0;
 }
+
+static int lws_http2_num(int starting_bits, unsigned long num, unsigned char **p, unsigned char *end)
+{
+	int mask = (1 << starting_bits) - 1;
+
+	if (num < mask) {
+		*((*p)++) |= num;
+		return *p >= end;
+	}
+	
+	*((*p)++) |= mask;
+	if (*p >= end)
+		return 1;
+	
+	num -= mask;
+	while (num >= 128) {
+		*((*p)++) = 0x80 | (num & 0x7f);
+		if (*p >= end)
+			return 1;
+		num >>= 7;
+	}
+	
+	return 0;
+}
+
+int lws_add_http2_header_by_name(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    const unsigned char *name,
+			    const unsigned char *value,
+			    int length,
+			    unsigned char **p,
+			    unsigned char *end)
+{
+	int len;
+	
+	lwsl_info("%s: %p  %s:%s\n", __func__, *p, name, value);
+	
+	len = strlen((char *)name);
+	if (len)
+		if (name[len - 1] == ':')
+			len--;
+
+	if (end - *p < len + length + 8)
+		return 1;
+
+	*((*p)++) = 0; /* not indexed, literal name */
+
+	**p = 0; /* non-HUF */
+	if (lws_http2_num(7, len, p, end))
+		return 1;
+	memcpy(*p, name, len);
+	*p += len;
+
+	*(*p) = 0; /* non-HUF */
+	if (lws_http2_num(7, length, p, end))
+		return 1;
+	
+	memcpy(*p, value, length);
+	*p += length;
+	
+	return 0;
+}
+
+int lws_add_http2_header_by_token(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    enum lws_token_indexes token,
+			    const unsigned char *value,
+			    int length,
+			    unsigned char **p,
+			    unsigned char *end)
+{
+	const unsigned char *name;
+
+	name = lws_token_to_string(token);
+	if (!name)
+		return 1;
+	
+	return lws_add_http2_header_by_name(context, wsi, name, value, length, p, end);
+}
+
+int lws_add_http2_header_status(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    unsigned int code,
+			    unsigned char **p,
+			    unsigned char *end)
+{
+	unsigned char status[10];
+	int n;
+	
+	n = sprintf((char *)status, "%u", code);
+	if (lws_add_http2_header_by_token(context, wsi, WSI_TOKEN_HTTP_COLON_STATUS, status, n, p, end))
+		return 1;
+
+	return 0;
+}

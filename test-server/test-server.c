@@ -105,61 +105,27 @@ struct per_session_data__http {
 static void
 dump_handshake_info(struct libwebsocket *wsi)
 {
-	int n;
-	static const char *token_names[] = {
-		/*[WSI_TOKEN_GET_URI]		=*/ "GET URI",
-		/*[WSI_TOKEN_POST_URI]		=*/ "POST URI",
-		/*[WSI_TOKEN_OPTIONS_URI]	=*/ "options uri",
-		/*[WSI_TOKEN_HOST]		=*/ "Host",
-		/*[WSI_TOKEN_CONNECTION]	=*/ "Connection",
-		/*[WSI_TOKEN_UPGRADE]		=*/ "Upgrade",
-		/*[WSI_TOKEN_ORIGIN]		=*/ "Origin",
-		/*[WSI_TOKEN_DRAFT]		=*/ "Draft",
-		/*[WSI_TOKEN_CHALLENGE]		=*/ "Challenge",
-		/* new for 05 */
-		/*[WSI_TOKEN_EXTENSIONS]	=*/ "Extensions",
-		/*[WSI_TOKEN_KEY1]		=*/ "key 1",
-		/*[WSI_TOKEN_KEY2]		=*/ "key 2",
-
-		/*[WSI_TOKEN_PROTOCOL]		=*/ "Protocol",
-
-		/* client receives these */
-		/*[WSI_TOKEN_ACCEPT]		=*/ "Accept",
-		/*[WSI_TOKEN_NONCE]		=*/ "Nonce",
-		/*[WSI_TOKEN_HTTP]		=*/ "Http",
-		"http2-settings",
-		"Accept:",
-		"a-c-request-headers:",
-		"If-Modified-Since:",
-		"if-none-match:",
-		"Accept-Encoding:",
-		"Accept-Language:",
-		"Pragma:",
-		"Cache-Control:",
-		"Authorization:",
-		"Cookie:",
-		"Content-Length:",
-		"Content-Type:",
-		"Date:",
-		"Range:",
-		"Referer:",
-		/* new for 04 */
-		/*[WSI_TOKEN_KEY]		=*/ "Key",
-		/*[WSI_TOKEN_VERSION]		=*/ "Version",
-		/*[WSI_TOKEN_SWORIGIN]		=*/ "Sworigin",
-		"Uri-Args:",
-
-	};
+	int n = 0;
 	char buf[256];
+	const unsigned char *c;
 
-	for (n = 0; n < sizeof(token_names) / sizeof(token_names[0]); n++) {
-		if (!lws_hdr_total_length(wsi, n))
+	do {
+		c = lws_token_to_string(n);
+		if (!c) {
+			n++;
 			continue;
+		}
+
+		if (!lws_hdr_total_length(wsi, n)) {
+			n++;
+			continue;
+		}
 
 		lws_hdr_copy(wsi, buf, sizeof buf, n);
 
-		fprintf(stderr, "    %s = %s\n", token_names[n], buf);
-	}
+		fprintf(stderr, "    %s = %s\n", (char *)c, buf);
+		n++;
+	} while (c);
 }
 
 const char * get_mimetype(const char *file)
@@ -207,7 +173,7 @@ static int callback_http(struct libwebsocket_context *context,
 #ifdef EXTERNAL_POLL
 	struct libwebsocket_pollargs *pa = (struct libwebsocket_pollargs *)in;
 #endif
-
+	unsigned char *end;
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 
@@ -240,7 +206,7 @@ static int callback_http(struct libwebsocket_context *context,
 			/* well, let's demonstrate how to send the hard way */
 
 			p = buffer + LWS_SEND_BUFFER_PRE_PADDING;
-
+			end = p + sizeof(buffer) - LWS_SEND_BUFFER_PRE_PADDING;
 #ifdef WIN32
 			pss->fd = open(leaf_path, O_RDONLY | _O_BINARY);
 #else
@@ -256,20 +222,33 @@ static int callback_http(struct libwebsocket_context *context,
 			 * we will send a big jpeg file, but it could be
 			 * anything.  Set the Content-Type: appropriately
 			 * so the browser knows what to do with it.
+			 * 
+			 * Notice we use the APIs to build the header, which
+			 * will do the right thing for HTTP 1/1.1 and HTTP2
+			 * depending on what connection it happens to be working
+			 * on
 			 */
-
-			p += sprintf((char *)p,
-				"HTTP/1.0 200 OK\x0d\x0a"
-				"Server: libwebsockets\x0d\x0a"
-				"Content-Type: image/jpeg\x0d\x0a"
-				"Content-Length: %u\x0d\x0a\x0d\x0a",
-					(unsigned int)stat_buf.st_size);
+			if (lws_add_http_header_status(context, wsi, 200, &p, end))
+				return 1;
+			if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_SERVER, (unsigned char *)"libwebsockets", 13, &p, end))
+				return 1;
+			if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_TYPE, (unsigned char *)"image/jpeg", 10, &p, end))
+				return 1;
+			n = sprintf(b64, "%u", (unsigned int)stat_buf.st_size);
+			if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH, (unsigned char *)b64, n, &p, end))
+				return 1;
+			if (lws_finalize_http_header(context, wsi, &p, end))
+				return 1;
 
 			/*
 			 * send the http headers...
 			 * this won't block since it's the first payload sent
 			 * on the connection since it was established
 			 * (too small for partial)
+			 * 
+			 * Notice they are sent using LWS_WRITE_HTTP_HEADERS
+			 * which also means you can't send body too in one step,
+			 * this is mandated by changes in HTTP2
 			 */
 
 			n = libwebsocket_write(wsi,
@@ -310,23 +289,25 @@ static int callback_http(struct libwebsocket_context *context,
 		/* demostrates how to set a cookie on / */
 
 		other_headers = NULL;
+		n = 0;
 		if (!strcmp((const char *)in, "/") &&
 			   !lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE)) {
 			/* this isn't very unguessable but it'll do for us */
 			gettimeofday(&tv, NULL);
-			sprintf(b64, "LWS_%u_%u_COOKIE",
+			n = sprintf(b64, "test=LWS_%u_%u_COOKIE;Max-Age=360000",
 				(unsigned int)tv.tv_sec,
 				(unsigned int)tv.tv_usec);
 
-			sprintf(leaf_path,
-				"Set-Cookie: test=LWS_%u_%u_COOKIE;Max-Age=360000\x0d\x0a",
-			    (unsigned int)tv.tv_sec, (unsigned int)tv.tv_usec);
+			p = (unsigned char *)leaf_path;
+
+			if (lws_add_http_header_by_name(context, wsi, (unsigned char *)"set-cookie:", (unsigned char *)b64, n, &p, (unsigned char *)leaf_path + sizeof(leaf_path)))
+				return 1;
+			n = (char *)p - leaf_path;
 			other_headers = leaf_path;
-			lwsl_err(other_headers);
 		}
 
 		if (libwebsockets_serve_http_file(context, wsi, buf,
-						mimetype, other_headers))
+						mimetype, other_headers, n))
 			return -1; /* through completion or error, close the socket */
 
 		/*

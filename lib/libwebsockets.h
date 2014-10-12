@@ -326,18 +326,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_KEY,
 	WSI_TOKEN_VERSION,
 	WSI_TOKEN_SWORIGIN,
-	
-	WSI_TOKEN_HTTP_URI_ARGS,
 
-	/* use token storage to stash these */
-
-	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
-	_WSI_TOKEN_CLIENT_PEER_ADDRESS,
-	_WSI_TOKEN_CLIENT_URI,
-	_WSI_TOKEN_CLIENT_HOST,
-	_WSI_TOKEN_CLIENT_ORIGIN,
-
-#ifdef LWS_USE_HTTP2
 	WSI_TOKEN_HTTP_COLON_AUTHORITY,
 	WSI_TOKEN_HTTP_COLON_METHOD,
 	WSI_TOKEN_HTTP_COLON_PATH,
@@ -377,7 +366,16 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP_VARY,
 	WSI_TOKEN_HTTP_VIA,
 	WSI_TOKEN_HTTP_WWW_AUTHENTICATE,
-#endif
+	
+	WSI_TOKEN_HTTP_URI_ARGS,
+
+	/* use token storage to stash these */
+
+	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	_WSI_TOKEN_CLIENT_PEER_ADDRESS,
+	_WSI_TOKEN_CLIENT_URI,
+	_WSI_TOKEN_CLIENT_HOST,
+	_WSI_TOKEN_CLIENT_ORIGIN,
 	
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,
@@ -1044,6 +1042,37 @@ libwebsocket_service(struct libwebsocket_context *context, int timeout_ms);
 LWS_VISIBLE LWS_EXTERN void
 libwebsocket_cancel_service(struct libwebsocket_context *context);
 
+LWS_VISIBLE LWS_EXTERN const unsigned char *
+lws_token_to_string(enum lws_token_indexes token);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_add_http_header_by_name(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    const unsigned char *name,
+			    const unsigned char *value,
+			    int length,
+			    unsigned char **p,
+			    unsigned char *end);
+LWS_VISIBLE LWS_EXTERN int 
+lws_finalize_http_header(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    unsigned char **p,
+			    unsigned char *end);
+LWS_VISIBLE LWS_EXTERN int
+lws_add_http_header_by_token(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    enum lws_token_indexes token,
+			    const unsigned char *value,
+			    int length,
+			    unsigned char **p,
+			    unsigned char *end);
+LWS_VISIBLE LWS_EXTERN int
+lws_add_http_header_status(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    unsigned int code,
+			    unsigned char **p,
+			    unsigned char *end);
+
 #ifdef LWS_USE_LIBEV
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_initloop(
@@ -1126,7 +1155,8 @@ libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf, size_t len,
 LWS_VISIBLE LWS_EXTERN int
 libwebsockets_serve_http_file(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, const char *file,
-			const char *content_type, const char *other_headers);
+			const char *content_type, const char *other_headers,
+			int other_headers_len);
 LWS_VISIBLE LWS_EXTERN int
 libwebsockets_serve_http_file_fragment(struct libwebsocket_context *context,
 			struct libwebsocket *wsi);

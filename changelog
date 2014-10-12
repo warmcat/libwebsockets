@@ -27,6 +27,55 @@ the same writeable callback.  If set, you can't do any more writes until the
 writeable callback is called again.  If you only do one write per writeable callback,
 you can ignore this.
 
+HTTP2-related: HTTP2 changes how headers are handled, lws now has new version-
+agnositic header creation APIs.  These do the right thing depending on each
+connection's HTTP version without the user code having to know or care, except
+to make sure to use the new APIs for headers (test-server is updated to use
+them already, so look there for examples)
+
+The APIs "render" the headers into a user-provided buffer and bump *p as it
+is used.  If *p reaches end, then the APIs return nonzero for error.
+
+LWS_VISIBLE LWS_EXTERN int
+lws_add_http_header_status(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    unsigned int code,
+			    unsigned char **p,
+			    unsigned char *end);
+
+Start a response header reporting status like 200, 500, etc
+
+LWS_VISIBLE LWS_EXTERN int
+lws_add_http_header_by_name(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    const unsigned char *name,
+			    const unsigned char *value,
+			    int length,
+			    unsigned char **p,
+			    unsigned char *end);
+
+Add a header like name: value in HTTP1.x
+
+LWS_VISIBLE LWS_EXTERN int 
+lws_finalize_http_header(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    unsigned char **p,
+			    unsigned char *end);
+
+Finish off the headers, like add the extra \r\n in HTTP1.x
+
+LWS_VISIBLE LWS_EXTERN int
+lws_add_http_header_by_token(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    enum lws_token_indexes token,
+			    const unsigned char *value,
+			    int length,
+			    unsigned char **p,
+			    unsigned char *end);
+
+Add a header by using a lws token as the name part.  In HTTP2, this can be
+compressed to one or two bytes.
+
 
 User api removal
 ----------------
@@ -36,6 +85,18 @@ conditions like rewriting extention such as compression in use, the built-in
 partial send buffering is the only way to deal with the problem, so turning
 it off is deprecated.
 
+
+User api changes
+----------------
+
+HTTP2-related: API libwebsockets_serve_http_file() takes an extra parameter at
+the end now
+
+int other_headers_len)
+
+If you are providing other headers, they must be generated using the new
+HTTP-version-agnostic APIs, and you must provide the length of them using this
+additional parameter.
 
 
 v1.3-chrome37-firefox30

@@ -923,6 +923,28 @@ lws_http2_wsi_from_id(struct libwebsocket *wsi, unsigned int sid);
 LWS_EXTERN int lws_hpack_interpret(struct libwebsocket_context *context,
 				   struct libwebsocket *wsi,
 				   unsigned char c);
+LWS_EXTERN int
+lws_add_http2_header_by_name(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    const unsigned char *name,
+			    const unsigned char *value,
+			    int length,
+			    unsigned char **p,
+			    unsigned char *end);
+LWS_EXTERN int
+lws_add_http2_header_by_token(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    enum lws_token_indexes token,
+			    const unsigned char *value,
+			    int length,
+			    unsigned char **p,
+			    unsigned char *end);
+LWS_EXTERN int
+lws_add_http2_header_status(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    unsigned int code,
+			    unsigned char **p,
+			    unsigned char *end);
 #endif
 
 LWS_EXTERN int

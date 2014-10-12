@@ -834,6 +834,87 @@ fail:
 	return 1;
 }
 
+#include "lextable-strings.h"
+
+const unsigned char *lws_token_to_string(enum lws_token_indexes token)
+{
+	if ((unsigned int)token >= ARRAY_SIZE(set))
+		return NULL;
+	
+	return (unsigned char *)set[token];
+}
+
+int lws_add_http_header_by_name(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    const unsigned char *name,
+			    const unsigned char *value,
+			    int length,
+			    unsigned char **p,
+			    unsigned char *end)
+{
+#ifdef LWS_USE_HTTP2
+	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
+		return lws_add_http2_header_by_name(context, wsi, name, value, length, p, end);
+#endif
+	if (name) {
+		while (*p < end && *name)
+			*((*p)++) = *name++;
+	
+		if (*p == end)
+			return 1;
+	
+		*((*p)++) = ' ';
+	}
+	if (*p + length + 3 >= end)
+		return 1;
+
+	memcpy(*p, value, length);
+	*p += length;
+	
+	*((*p)++) = '\x0d';
+	*((*p)++) = '\x0a';
+		
+	return 0;
+}
+
+int lws_finalize_http_header(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    unsigned char **p,
+			    unsigned char *end)
+{
+#ifdef LWS_USE_HTTP2
+	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
+		return 0;
+#endif
+	
+	if ((long)(end - *p) < 3)
+		return 1;
+	
+	*((*p)++) = '\x0d';
+	*((*p)++) = '\x0a';
+		
+	return 0;
+}
+
+int lws_add_http_header_by_token(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    enum lws_token_indexes token,
+			    const unsigned char *value,
+			    int length,
+			    unsigned char **p,
+			    unsigned char *end)
+{
+	const unsigned char *name;
+#ifdef LWS_USE_HTTP2
+	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
+		return lws_add_http2_header_by_token(context, wsi, token, value, length, p, end);
+#endif
+	name = lws_token_to_string(token);
+	if (!name)
+		return 1;
+	
+	return lws_add_http_header_by_name(context, wsi, name, value, length, p, end);
+}
 
 static const char *err400[] = {
 	"Bad Request",
@@ -865,12 +946,36 @@ static const char *err500[] = {
 	"HTTP Version Not Supported"
 };
 
+int lws_add_http_header_status(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    unsigned int code,
+			    unsigned char **p,
+			    unsigned char *end)
+{
+	unsigned char code_and_desc[60];
+	const char *description = "";
+	int n;
+
+#ifdef LWS_USE_HTTP2
+	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
+		return lws_add_http2_header_status(context, wsi, code, p, end);
+#endif
+	if (code >= 400 && code < (400 + ARRAY_SIZE(err400)))
+		description = err400[code - 400];
+	if (code >= 500 && code < (500 + ARRAY_SIZE(err500)))
+		description = err500[code - 500];
+
+	n = sprintf((char *)code_and_desc, "HTTP/1.0 %u %s", code, description);
+	
+	return lws_add_http_header_by_name(context, wsi, NULL, code_and_desc, n, p, end);
+}
+
 /**
  * libwebsockets_return_http_status() - Return simple http status
  * @context:		libwebsockets context
  * @wsi:		Websocket instance (available from user callback)
  * @code:		Status index, eg, 404
- * @html_body:		User-readable HTML description, or NULL
+ * @html_body:		User-readable HTML description < 1KB, or NULL
  *
  *	Helper to report HTTP errors back to the client cleanly and
  *	consistently
@@ -880,30 +985,30 @@ LWS_VISIBLE int libwebsockets_return_http_status(
 				       unsigned int code, const char *html_body)
 {
 	int n, m;
-	const char *description = "";
+
+	unsigned char *p = context->service_buffer + LWS_SEND_BUFFER_PRE_PADDING;
+	unsigned char *start = p;
+	unsigned char *end = p + sizeof(context->service_buffer) -
+					LWS_SEND_BUFFER_PRE_PADDING;
 
 	if (!html_body)
 		html_body = "";
 
-	if (code >= 400 && code < (400 + ARRAY_SIZE(err400)))
-		description = err400[code - 400];
-	if (code >= 500 && code < (500 + ARRAY_SIZE(err500)))
-		description = err500[code - 500];
+	if (lws_add_http_header_status(context, wsi, code, &p, end))
+		return 1;
+	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_SERVER, (unsigned char *)"libwebsockets", 13, &p, end))
+		return 1;
+	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_TYPE, (unsigned char *)"text/html", 9, &p, end))
+		return 1;
+	if (lws_finalize_http_header(context, wsi, &p, end))
+		return 1;
 
-	n = sprintf((char *)context->service_buffer +
-		    LWS_SEND_BUFFER_PRE_PADDING,
-		"HTTP/1.0 %u %s\x0d\x0a"
-		"Server: libwebsockets\x0d\x0a"
-		"Content-Type: text/html\x0d\x0a\x0d\x0a"
-		"<h1>%u %s</h1>%s",
-		code, description, code, description, html_body);
+	m = libwebsocket_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+	if (m)
+		return m;
 
-	lwsl_info((const char *)context->service_buffer +
-		  LWS_SEND_BUFFER_PRE_PADDING);
-
-	m = libwebsocket_write(wsi, context->service_buffer +
-				    LWS_SEND_BUFFER_PRE_PADDING, n,
-			       LWS_WRITE_HTTP_HEADERS);
+	n = sprintf((char *)start, "<html><body><h1>%u</h1>%s</body></html>", code, html_body);
+	m = libwebsocket_write(wsi, start, n, LWS_WRITE_HTTP);
 
 	return m;
 }
@@ -929,10 +1034,14 @@ LWS_VISIBLE int libwebsockets_return_http_status(
 LWS_VISIBLE int libwebsockets_serve_http_file(
 		struct libwebsocket_context *context,
 			struct libwebsocket *wsi, const char *file,
-			   const char *content_type, const char *other_headers)
+			   const char *content_type, const char *other_headers,
+			   int other_headers_len)
 {
 	unsigned char *response = context->service_buffer + LWS_SEND_BUFFER_PRE_PADDING;
 	unsigned char *p = response;
+	unsigned char *end = p + sizeof(context->service_buffer) -
+					LWS_SEND_BUFFER_PRE_PADDING;
+	unsigned char clen[10];
 	int ret = 0;
 	int n;
 
@@ -945,17 +1054,26 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 		return -1;
 	}
 
-	p += sprintf((char *)p, "HTTP/1.0 200 OK\x0d\x0a"
-				"Server: libwebsockets\x0d\x0a"
-				"Content-Type: %s\x0d\x0a", content_type);
-	if (other_headers) {
-		n = strlen(other_headers);
-		memcpy(p, other_headers, n);
-		p += n;
-	}
-	p += sprintf((char *)p,
-		"Content-Length: %lu\x0d\x0a\x0d\x0a", wsi->u.http.filelen);
+	if (lws_add_http_header_status(context, wsi, 200, &p, end))
+		return 1;
+	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_SERVER, (unsigned char *)"libwebsockets", 13, &p, end))
+		return 1;
+	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_TYPE, (unsigned char *)content_type, strlen(content_type), &p, end))
+		return 1;
+	n = sprintf((char *)clen, "%lu", (unsigned long)wsi->u.http.filelen);
+	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH, clen, n, &p, end))
+		return 1;
 
+	if (other_headers) {
+		if ((end - p) < other_headers_len)
+			return -1;
+		memcpy(p, other_headers, other_headers_len);
+		p += other_headers_len;
+	}
+
+	if (lws_finalize_http_header(context, wsi, &p, end))
+		return 1;
+	
 	ret = libwebsocket_write(wsi, response,
 				   p - response, LWS_WRITE_HTTP_HEADERS);
 	if (ret != (p - response)) {
