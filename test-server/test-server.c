@@ -876,6 +876,8 @@ int main(int argc, char **argv)
 	lwsl_notice("libwebsockets test server - "
 			"(C) Copyright 2010-2014 Andy Green <andy@warmcat.com> - "
 						    "licensed under LGPL2.1\n");
+
+	printf("Using resource path \"%s\"\n", resource_path);
 #ifdef EXTERNAL_POLL
 	max_poll_elements = getdtablesize();
 	pollfds = malloc(max_poll_elements * sizeof (struct pollfd));
