@@ -742,6 +742,7 @@ struct libwebsocket {
 
 	unsigned int hdr_parsing_completed:1;
 	unsigned int user_space_externally_allocated:1;
+	unsigned int socket_is_permanently_unusable:1;
 
 	char pending_timeout; /* enum pending_timeout */
 	time_t pending_timeout_limit;

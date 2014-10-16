@@ -53,6 +53,9 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 	old_state = wsi->state;
 
+	if (wsi->socket_is_permanently_unusable)
+		goto just_kill_connection;
+
 	switch (old_state) {
 	case WSI_STATE_DEAD_SOCKET:
 		return;
@@ -86,14 +89,8 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR, wsi->user_space, NULL, 0);
 
 		free(wsi->u.hdr.ah);
+		wsi->u.hdr.ah = NULL;
 		goto just_kill_connection;
-	}
-	
-	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING) {
-		if (wsi->u.hdr.ah) {
-			free(wsi->u.hdr.ah);
-			wsi->u.hdr.ah = NULL;
-		}
 	}
 
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
@@ -218,6 +215,11 @@ just_kill_connection:
 		wsi->rxflow_buffer = NULL;
 	}
 
+	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING && wsi->u.hdr.ah) {
+		free(wsi->u.hdr.ah);
+		wsi->u.hdr.ah = NULL;
+	}
+	
 	if ((old_state == WSI_STATE_ESTABLISHED ||
 	     wsi->mode == LWS_CONNMODE_WS_SERVING ||
 	     wsi->mode == LWS_CONNMODE_WS_CLIENT)) {

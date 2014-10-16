@@ -132,6 +132,8 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
+		/* we're going to close, let close know sends aren't possible */
+		wsi->socket_is_permanently_unusable = 1;
 		return -1;
 	case LWS_SSL_CAPABLE_MORE_SERVICE:
 		/* nothing got sent, not fatal, retry the whole thing later */
