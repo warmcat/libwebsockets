@@ -462,6 +462,7 @@ struct libwebsocket_context {
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;
 	int allow_non_ssl_on_ssl_port;
+	unsigned int user_supplied_ssl_ctx:1;
 	SSL_CTX *ssl_ctx;
 	SSL_CTX *ssl_client_ctx;
 	unsigned int ssl_flag_buffered_reads:1;

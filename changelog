@@ -98,6 +98,12 @@ If you are providing other headers, they must be generated using the new
 HTTP-version-agnostic APIs, and you must provide the length of them using this
 additional parameter.
 
+struct lws_context_creation_info now has an additional member
+SSL_CTX *provided_client_ssl_ctx you may set to an externally-initialized
+SSL_CTX managed outside lws.  Defaulting to zero keeps the existing behaviour of
+lws managing the context, if you memset the struct to 0 or have as a filescope
+initialized struct in bss, no need to change anything.
+
 
 v1.3-chrome37-firefox30
 =======================

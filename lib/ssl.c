@@ -192,7 +192,7 @@ lws_ssl_destroy(struct libwebsocket_context *context)
 {
 	if (context->ssl_ctx)
 		SSL_CTX_free(context->ssl_ctx);
-	if (context->ssl_client_ctx)
+	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
 
 	ERR_remove_state(0);
@@ -593,7 +593,7 @@ lws_ssl_context_destroy(struct libwebsocket_context *context)
 {
 	if (context->ssl_ctx)
 		SSL_CTX_free(context->ssl_ctx);
-	if (context->ssl_client_ctx)
+	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
 
 	ERR_remove_state(0);

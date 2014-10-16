@@ -86,6 +86,14 @@ extern "C" {
 #include <unistd.h>
 #endif
 
+#ifdef LWS_OPENSSL_SUPPORT
+#ifdef USE_CYASSL
+#include <cyassl/openssl/ssl.h>
+#else
+#include <openssl/ssl.h>
+#endif /* not USE_CYASSL */
+#endif
+
 #define CONTEXT_PORT_NO_LISTEN -1
 #define MAX_MUX_RECURSION 2
 
@@ -995,6 +1003,10 @@ struct libwebsocket_extension {
  *		and killing the connection
  * @ka_interval: if ka_time was nonzero, how long to wait before each ka_probes
  *		attempt
+ * @provided_client_ssl_ctx: If non-null, swap out libwebsockets ssl
+ *		implementation for the one provided by provided_ssl_ctx.
+ *		Libwebsockets no longer is responsible for freeing the context
+ *		if this option is selected.
  */
 
 struct lws_context_creation_info {
@@ -1017,7 +1029,11 @@ struct lws_context_creation_info {
 	int ka_time;
 	int ka_probes;
 	int ka_interval;
-
+#ifdef LWS_OPENSSL_SUPPORT
+	SSL_CTX *provided_client_ssl_ctx;
+#else /* maintain structure layout either way */
+    	void *provided_client_ssl_ctx;
+#endif
 };
 
 LWS_VISIBLE LWS_EXTERN
