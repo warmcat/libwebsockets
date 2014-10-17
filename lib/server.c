@@ -640,6 +640,32 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	return new_wsi;
 }
 
+/**
+ * lws_http_transaction_completed() - wait for new http transaction or close
+ * @wsi:	websocket connection
+ *
+ *	Returns 1 if the HTTP connection must close now
+ *	Returns 0 and resets connection to wait for new HTTP header /
+ *	  transaction if possible
+ */
+
+LWS_VISIBLE
+int lws_http_transaction_completed(struct libwebsocket *wsi)
+{
+	/* if we can't go back to accept new headers, drop the connection */
+	if (wsi->u.http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
+		lwsl_info("%s: close connection\n", __func__);
+		return 1;
+	}
+
+	/* otherwise set ourselves up ready to go again */
+	wsi->state = WSI_STATE_HTTP;
+	
+	lwsl_info("%s: await new transaction\n", __func__);
+	
+	return 0;
+}
+
 int lws_server_socket_service(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
@@ -739,8 +765,9 @@ try_pollout:
 			break;
 		}
 
-		/* nonzero for completion or error */
-		if (libwebsockets_serve_http_file_fragment(context, wsi))
+		/* >0 == completion, <0 == error */
+		n = libwebsockets_serve_http_file_fragment(context, wsi);
+		if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi)))
 			libwebsocket_close_and_free_session(context, wsi,
 					       LWS_CLOSE_STATUS_NOSTATUS);
 		break;
@@ -1026,7 +1053,8 @@ LWS_VISIBLE int libwebsockets_return_http_status(
  *	local files down the http link in a single step.
  *
  *	Returning <0 indicates error and the wsi should be closed.  Returning
- *	>0 indicates the file was completely sent and the wsi should be closed.
+ *	>0 indicates the file was completely sent and
+ *	lws_http_transaction_completed() called on the wsi (and close if != 0)
  *	==0 indicates the file transfer is started and needs more service later,
  *	the wsi should be left alone.
  */
@@ -1055,14 +1083,14 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 	}
 
 	if (lws_add_http_header_status(context, wsi, 200, &p, end))
-		return 1;
+		return -1;
 	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_SERVER, (unsigned char *)"libwebsockets", 13, &p, end))
-		return 1;
+		return -1;
 	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_TYPE, (unsigned char *)content_type, strlen(content_type), &p, end))
-		return 1;
+		return -1;
 	n = sprintf((char *)clen, "%lu", (unsigned long)wsi->u.http.filelen);
 	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH, clen, n, &p, end))
-		return 1;
+		return -1;
 
 	if (other_headers) {
 		if ((end - p) < other_headers_len)
@@ -1072,7 +1100,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 	}
 
 	if (lws_finalize_http_header(context, wsi, &p, end))
-		return 1;
+		return -1;
 	
 	ret = libwebsocket_write(wsi, response,
 				   p - response, LWS_WRITE_HTTP_HEADERS);

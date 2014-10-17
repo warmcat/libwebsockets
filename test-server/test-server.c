@@ -182,14 +182,14 @@ static int callback_http(struct libwebsocket_context *context,
 		if (len < 1) {
 			libwebsockets_return_http_status(context, wsi,
 						HTTP_STATUS_BAD_REQUEST, NULL);
-			return -1;
+			goto try_to_reuse;
 		}
 
 		/* this example server has no concept of directories */
 		if (strchr((const char *)in + 1, '/')) {
 			libwebsockets_return_http_status(context, wsi,
 						HTTP_STATUS_FORBIDDEN, NULL);
-			return -1;
+			goto try_to_reuse;
 		}
 
 		/* if a legal POST URL, let it continue and accept data */
@@ -306,9 +306,10 @@ static int callback_http(struct libwebsocket_context *context,
 			other_headers = leaf_path;
 		}
 
-		if (libwebsockets_serve_http_file(context, wsi, buf,
-						mimetype, other_headers, n))
-			return -1; /* through completion or error, close the socket */
+		n = libwebsockets_serve_http_file(context, wsi, buf,
+						mimetype, other_headers, n);
+		if (n < 0 || ((n > 0) && lws_http_transaction_completed(wsi)))
+			return -1; /* error or can't reuse connection: close the socket */
 
 		/*
 		 * notice that the sending of the file completes asynchronously,
@@ -331,16 +332,15 @@ static int callback_http(struct libwebsocket_context *context,
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		lwsl_notice("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
-		/* the whole of the sent body arried, close the connection */
+		/* the whole of the sent body arrived, close or reuse the connection */
 		libwebsockets_return_http_status(context, wsi,
 						HTTP_STATUS_OK, NULL);
-
-		return -1;
+		goto try_to_reuse;
 
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
 //		lwsl_info("LWS_CALLBACK_HTTP_FILE_COMPLETION seen\n");
 		/* kill the connection after we sent one file */
-		return -1;
+		goto try_to_reuse;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		/*
@@ -386,6 +386,8 @@ flush_bail:
 			libwebsocket_callback_on_writable(context, wsi);
 			break;
 		}
+		close(pss->fd);
+		goto try_to_reuse;
 
 bail:
 		close(pss->fd);
@@ -473,6 +475,12 @@ bail:
 	default:
 		break;
 	}
+
+	return 0;
+	
+try_to_reuse:
+	if (lws_http_transaction_completed(wsi))
+		return -1;
 
 	return 0;
 }

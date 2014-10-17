@@ -1089,6 +1089,8 @@ lws_add_http_header_status(struct libwebsocket_context *context,
 			    unsigned char **p,
 			    unsigned char *end);
 
+LWS_EXTERN int lws_http_transaction_completed(struct libwebsocket *wsi);
+
 #ifdef LWS_USE_LIBEV
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_initloop(

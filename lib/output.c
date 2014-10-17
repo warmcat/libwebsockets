@@ -441,7 +441,7 @@ send_raw:
 			n = LWS_HTTP2_FRAME_TYPE_DATA;
 			if (protocol == LWS_WRITE_HTTP_HEADERS) {
 				n = LWS_HTTP2_FRAME_TYPE_HEADERS;
-				flags = LWS_HTTP2_FLAGS__HEADER__END_HEADER;
+				flags = LWS_HTTP2_FLAG_END_HEADERS;
 			}
 			return lws_http2_frame_write(wsi, n, flags, wsi->u.http2.my_stream_id, len, buf);
 		}

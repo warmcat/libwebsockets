@@ -608,11 +608,18 @@ enum lws_http2_wellknown_frame_types {
 	LWS_HTTP2_FRAME_TYPE_COUNT /* always last */
 };
 
+enum lws_http2_flags {
+	LWS_HTTP2_FLAG_END_STREAM = 1,
+	LWS_HTTP2_FLAG_END_HEADERS = 4,
+	LWS_HTTP2_FLAG_PADDED = 8,
+	LWS_HTTP2_FLAG_PRIORITY = 0x20,
+
+	LWS_HTTP2_FLAG_SETTINGS_ACK = 1,
+};
+
 #define LWS_HTTP2_STREAM_ID_MASTER 0
 #define LWS_HTTP2_FRAME_HEADER_LENGTH 9
 #define LWS_HTTP2_SETTINGS_LENGTH 6
-
-#define LWS_HTTP2_FLAGS__HEADER__END_HEADER 4
 
 struct http2_settings {
 	unsigned int setting[LWS_HTTP2_SETTINGS__COUNT];
@@ -661,6 +668,9 @@ struct _lws_http2_related {
 	unsigned char type;
 	unsigned char flags;
 	unsigned char frame_state;
+	
+	unsigned int END_STREAM:1;
+	unsigned int END_HEADERS:1;
 
 	/* hpack */
 	enum http2_hpack_state hpack;
@@ -862,6 +872,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 LWS_EXTERN int
 lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 			      struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
+
 /*
  * EXTENSIONS
  */

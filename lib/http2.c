@@ -212,6 +212,7 @@ lws_http2_parser(struct libwebsocket_context *context,
 						return 1;
 				break;
 			case LWS_HTTP2_FRAME_TYPE_HEADERS:
+				lwsl_info(" %02X\n", c);
 				if (lws_hpack_interpret(context, wsi->u.http2.stream_wsi, c))
 					return 1;
 				break;
@@ -276,11 +277,16 @@ lws_http2_parser(struct libwebsocket_context *context,
 				if (wsi->u.http2.stream_id)
 					return 1;
 				
-				if (wsi->u.http2.flags & 1) { // ack
-				} else {
+				if (wsi->u.http2.flags & LWS_HTTP2_FLAG_SETTINGS_ACK) { // ack
+				} else
+					/* non-ACK coming in means we must ACK it */
 					lws_set_protocol_write_pending(context, wsi, LWS_PPS_HTTP2_ACK_SETTINGS);
-				}
 				break;
+			case LWS_HTTP2_FRAME_TYPE_CONTINUATION:
+				if (wsi->u.http2.END_HEADERS)
+					return 1;
+				goto update_end_headers;
+
 			case LWS_HTTP2_FRAME_TYPE_HEADERS:
 				lwsl_info("LWS_HTTP2_FRAME_TYPE_HEADERS: stream_id = %d\n", wsi->u.http2.stream_id);
 				if (!wsi->u.http2.stream_id)
@@ -291,6 +297,13 @@ lws_http2_parser(struct libwebsocket_context *context,
 
 				if (!wsi->u.http2.stream_wsi)
 					return 1;
+				
+				/* END_STREAM means after servicing this, close the stream */
+				wsi->u.http2.END_STREAM = !!(wsi->u.http2.flags & LWS_HTTP2_FLAG_END_STREAM);
+update_end_headers:
+				/* no END_HEADERS means CONTINUATION must come */
+				wsi->u.http2.END_HEADERS = !!(wsi->u.http2.flags & LWS_HTTP2_FLAG_END_HEADERS);
+				break;
 			}
 			if (wsi->u.http2.length == 0)
 				wsi->u.http2.frame_state = 0;
