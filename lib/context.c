@@ -214,24 +214,15 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 				sizeof(struct libwebsocket),
 					      sizeof(struct allocated_headers));
 
-
-#ifdef LWS_OPENSSL_SUPPORT
-    if (info->provided_client_ssl_ctx){
-        //use the provided OpenSSL context if given one
-        context->ssl_client_ctx = info->provided_client_ssl_ctx;
-        context->user_supplied_ssl_ctx = 1; //mark to not delet the context on cleanup
-    }
-#endif
-    if (lws_context_init_server_ssl(info, context))
+	if (lws_context_init_server_ssl(info, context))
 		goto bail;
-	if (!context->ssl_client_ctx && lws_context_init_client_ssl(info, context))
+
+	if (lws_context_init_client_ssl(info, context))
 		goto bail;
 
 	if (lws_context_init_server(info, context))
 		goto bail;
 
-	lwsl_debug(" client SSL ctx %p\n", context->ssl_client_ctx);
-	lwsl_debug(" server SSL ctx %p\n", context->ssl_ctx);
 	/*
 	 * drop any root privs for this process
 	 * to listen on port < 1023 we would have needed root, but now we are

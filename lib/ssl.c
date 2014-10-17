@@ -238,6 +238,14 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	int n;
 	SSL_METHOD *method;
 
+	if (info->provided_client_ssl_ctx) {
+		/* use the provided OpenSSL context if given one */
+		context->ssl_client_ctx = info->provided_client_ssl_ctx;
+		/* nothing for lib to delete */
+		context->user_supplied_ssl_ctx = 1;
+		return 0;
+	}
+
 	if (info->port != CONTEXT_PORT_NO_LISTEN)
 		return 0;
 

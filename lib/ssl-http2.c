@@ -50,6 +50,7 @@
 #include "private-libwebsockets.h"
 
 #ifndef LWS_NO_SERVER
+#ifdef LWS_OPENSSL_SUPPORT
 
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
 static int alpn_select_proto_cb(SSL* ssl,
@@ -75,4 +76,5 @@ lws_context_init_http2_ssl(struct libwebsocket_context *context)
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
 }
 
+#endif
 #endif
