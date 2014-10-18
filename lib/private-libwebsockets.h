@@ -699,6 +699,7 @@ struct _lws_http2_related {
 	
 	unsigned int END_STREAM:1;
 	unsigned int END_HEADERS:1;
+	unsigned int send_END_STREAM:1;
 
 	/* hpack */
 	enum http2_hpack_state hpack;
