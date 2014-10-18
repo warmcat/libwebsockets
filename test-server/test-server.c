@@ -234,8 +234,7 @@ static int callback_http(struct libwebsocket_context *context,
 				return 1;
 			if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_TYPE, (unsigned char *)"image/jpeg", 10, &p, end))
 				return 1;
-			n = sprintf(b64, "%u", (unsigned int)stat_buf.st_size);
-			if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH, (unsigned char *)b64, n, &p, end))
+			if (lws_add_http_header_content_length(context, wsi,stat_buf.st_size, &p, end))
 				return 1;
 			if (lws_finalize_http_header(context, wsi, &p, end))
 				return 1;
@@ -356,8 +355,10 @@ static int callback_http(struct libwebsocket_context *context,
 			/* sent it all, close conn */
 			if (n == 0)
 				goto flush_bail;
+
 			/*
 			 * To support HTTP2, must take care about preamble space
+			 * and identify when we send the last frame
 			 */
 			m = libwebsocket_write(wsi,
 					       buffer + LWS_SEND_BUFFER_PRE_PADDING,
@@ -365,6 +366,9 @@ static int callback_http(struct libwebsocket_context *context,
 			if (m < 0)
 				/* write failed, close conn */
 				goto bail;
+			/*
+			 * http2 won't do this
+			 */
 			if (m != n)
 				/* partial write, adjust */
 				lseek(pss->fd, m - n, SEEK_CUR);
@@ -378,6 +382,7 @@ static int callback_http(struct libwebsocket_context *context,
 				break;
 
 		} while (!lws_send_pipe_choked(wsi));
+		
 		libwebsocket_callback_on_writable(context, wsi);
 		break;
 flush_bail:

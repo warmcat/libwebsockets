@@ -265,6 +265,9 @@ enum libwebsocket_write_protocol {
 	LWS_WRITE_PING,
 	LWS_WRITE_PONG,
 
+	/* Same as write_http but we know this write ends the transaction */
+	LWS_WRITE_HTTP_FINAL,
+	
 	/* HTTP2 */
 
 	LWS_WRITE_HTTP_HEADERS,
@@ -1080,6 +1083,11 @@ lws_add_http_header_by_token(struct libwebsocket_context *context,
 			    enum lws_token_indexes token,
 			    const unsigned char *value,
 			    int length,
+			    unsigned char **p,
+			    unsigned char *end);
+LWS_VISIBLE LWS_EXTERN int lws_add_http_header_content_length(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    unsigned long content_length,
 			    unsigned char **p,
 			    unsigned char *end);
 LWS_VISIBLE LWS_EXTERN int

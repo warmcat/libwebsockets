@@ -238,25 +238,96 @@ static void lws_dump_header(struct libwebsocket *wsi, int hdr)
 	char s[200];
 	int len = lws_hdr_copy(wsi, s, sizeof(s) - 1, hdr);
 	s[len] = '\0';
-	lwsl_info("  hdr tok %d '%s'\n", hdr, s);
+	lwsl_info("  hdr tok %d (%s) = '%s'\n", hdr, lws_token_to_string(hdr), s);
 }
 
-static int lws_token_from_index(struct libwebsocket *wsi, int index)
+static int lws_token_from_index(struct libwebsocket *wsi, int index, char **arg, int *len)
 {
+	struct hpack_dynamic_table *dyn;
+	
+	/* dynamic table only belongs to network wsi */
+	
+	wsi = lws_http2_get_network_wsi(wsi);
+	
+	dyn = wsi->u.http2.hpack_dyn_table;
+
 	if (index < ARRAY_SIZE(static_token))
 		return static_token[index];
+
+	if (!dyn)
+		return 0;
 	
-	// dynamic indexes
+	index -= ARRAY_SIZE(static_token);
+	if (index >= dyn->num_entries)
+		return 0;
 	
-	return 0;
+	if (arg && len) {
+		*arg = dyn->args + dyn->entries[index].arg_offset;
+		*len = dyn->entries[index].arg_len;
+	}
+	
+	return dyn->entries[index].token;
 }
 
-static int lws_add_indexed_hdr(struct libwebsocket *wsi, int idx)
+static int lws_hpack_add_dynamic_header(struct libwebsocket *wsi, int token, char *arg, int len)
+{
+	struct hpack_dynamic_table *dyn;
+	int ret = 1;
+	
+	wsi = lws_http2_get_network_wsi(wsi);
+	dyn = wsi->u.http2.hpack_dyn_table;
+
+	if (!dyn) {
+		dyn = malloc(sizeof(*dyn));
+		if (!dyn)
+			return 1;
+		memset(dyn, 0, sizeof(*dyn));
+		wsi->u.http2.hpack_dyn_table = dyn;
+		
+		dyn->args = malloc(1024);
+		if (!dyn->args)
+			goto bail1;
+		dyn->args_length = 1024;
+		dyn->entries = malloc(sizeof(dyn->entries[0]) * 20);
+		if (!dyn->entries)
+			goto bail2;
+		dyn->num_entries = 20;
+	}
+	
+	if (dyn->next == dyn->num_entries)
+		return 1;
+	
+	if (dyn->args_length - dyn->pos < len)
+		return 1;
+	
+	dyn->entries[dyn->next].token = token;
+	dyn->entries[dyn->next].arg_offset = dyn->pos;
+	if (len)
+		memcpy(dyn->args + dyn->pos, arg, len);
+	dyn->entries[dyn->next].arg_len = len;
+	
+	lwsl_info("%s: added dynamic hdr %d, token %d (%s), len %d\n", __func__, dyn->next, token, lws_token_to_string(token), len);
+	
+	dyn->pos += len;
+	dyn->next++;
+	
+	return 0;
+	
+bail2:
+	free(dyn->args);
+bail1:
+	free(dyn);
+	wsi->u.http2.hpack_dyn_table = NULL;
+		
+	return ret;
+}
+
+static int lws_write_indexed_hdr(struct libwebsocket *wsi, int idx)
 {
 	const char *p;
-	int tok = lws_token_from_index(wsi, idx);
+	int tok = lws_token_from_index(wsi, idx, NULL, 0);
 
-	lwsl_info("adding indexed hdr %d (tok %d)\n", idx, tok);
+	lwsl_info("writing indexed hdr %d (tok %d '%s')\n", idx, tok, lws_token_to_string(tok));
 
 	if (lws_frag_start(wsi, tok))
 		return 1;
@@ -283,6 +354,28 @@ int lws_hpack_interpret(struct libwebsocket_context *context,
 	int n;
 
 	switch (wsi->u.http2.hpack) {
+	case HPKS_OPT_PADDING:
+		wsi->u.http2.padding = c;
+		lwsl_info("padding %d\n", c);
+		if (wsi->u.http2.flags & LWS_HTTP2_FLAG_PRIORITY) {
+			wsi->u.http2.hpack = HKPS_OPT_E_DEPENDENCY;
+			wsi->u.http2.hpack_m = 4;
+		} else
+			wsi->u.http2.hpack = HPKS_TYPE;
+		break;
+	case HKPS_OPT_E_DEPENDENCY:
+		wsi->u.http2.hpack_e_dep <<= 8;
+		wsi->u.http2.hpack_e_dep |= c;
+		if (! --wsi->u.http2.hpack_m) {
+			lwsl_info("hpack_e_dep = 0x%x\n", wsi->u.http2.hpack_e_dep);
+			wsi->u.http2.hpack = HKPS_OPT_WEIGHT;
+		}
+		break;
+	case HKPS_OPT_WEIGHT:
+		/* weight */
+		wsi->u.http2.hpack = HPKS_TYPE;
+		break;
+			
 	case HPKS_TYPE:
 		if (c & 0x80) { /* indexed header field only */
 			/* just a possibly-extended integer */
@@ -294,7 +387,7 @@ int lws_hpack_interpret(struct libwebsocket_context *context,
 				wsi->u.http2.hpack = HPKS_IDX_EXT;
 				break;
 			}
-			if (lws_add_indexed_hdr(wsi, c & 0x7f))
+			if (lws_write_indexed_hdr(wsi, c & 0x7f))
 				return 1;
 			/* stay at same state */
 			break;
@@ -374,7 +467,7 @@ int lws_hpack_interpret(struct libwebsocket_context *context,
 		if (!(c & 0x80)) {
 			switch (wsi->u.http2.hpack_type) {
 			case HPKT_INDEXED_HDR_7:
-				if (lws_add_indexed_hdr(wsi, wsi->u.http2.hpack_len))
+				if (lws_write_indexed_hdr(wsi, wsi->u.http2.hpack_len))
 					return 1;
 				wsi->u.http2.hpack = HPKS_TYPE;
 				break;
@@ -396,7 +489,7 @@ pre_data:
 			if (wsi->u.http2.value) {
 				if (lws_frag_start(wsi,
 					lws_token_from_index(wsi,
-				  		wsi->u.http2.header_index)))
+				  		wsi->u.http2.header_index, NULL, NULL)))
 					return 1;
 			} else
 				wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
@@ -448,14 +541,27 @@ pre_data:
 			}
 		}
 		if (--wsi->u.http2.hpack_len == 0) {
+			
+			switch (wsi->u.http2.hpack_type) {
+			case HPKT_LITERAL_HDR_VALUE_INCR:
+			case HPKT_INDEXED_HDR_6_VALUE_INCR: // !!!
+				if (lws_hpack_add_dynamic_header(wsi, lws_token_from_index(wsi, wsi->u.http2.header_index, NULL, NULL), NULL, 0))
+					return 1;
+				break;
+			default:
+				break;
+			}
+			
 			n = 8;
 			if (wsi->u.http2.value) {
 				if (lws_frag_end(wsi))
 					return 1;
 
-				lws_dump_header(wsi, lws_token_from_index(wsi, wsi->u.http2.header_index));
-
-				wsi->u.http2.hpack = HPKS_TYPE;
+				lws_dump_header(wsi, lws_token_from_index(wsi, wsi->u.http2.header_index, NULL, NULL));
+				if (wsi->u.http2.count + wsi->u.http2.padding == wsi->u.http2.length)
+					wsi->u.http2.hpack = HKPS_OPT_DISCARD_PADDING;
+				else
+					wsi->u.http2.hpack = HPKS_TYPE;
 			} else { /* name */
 				if (wsi->u.hdr.parser_state < WSI_TOKEN_COUNT)
 					
@@ -463,6 +569,11 @@ pre_data:
 				wsi->u.http2.hpack = HPKS_HLEN;
 			}
 		}
+		break;
+	case HKPS_OPT_DISCARD_PADDING:
+		lwsl_info("eating padding %x\n", c);
+		if (! --wsi->u.http2.padding)
+			wsi->u.http2.hpack = HPKS_TYPE;
 		break;
 	}
 	

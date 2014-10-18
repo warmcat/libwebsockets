@@ -264,7 +264,9 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		return 0;
 	}
 
-	if (protocol == LWS_WRITE_HTTP || protocol == LWS_WRITE_HTTP_HEADERS)
+	if (protocol == LWS_WRITE_HTTP ||
+	    protocol == LWS_WRITE_HTTP_FINAL ||
+	    protocol == LWS_WRITE_HTTP_HEADERS)
 		goto send_raw;
 
 	/* websocket protocol, either binary or text */
@@ -431,6 +433,7 @@ send_raw:
 	case LWS_WRITE_CLOSE:
 /*		lwsl_hexdump(&buf[-pre], len + post); */
 	case LWS_WRITE_HTTP:
+	case LWS_WRITE_HTTP_FINAL:
 	case LWS_WRITE_HTTP_HEADERS:
 	case LWS_WRITE_PONG:
 	case LWS_WRITE_PING:
@@ -443,6 +446,21 @@ send_raw:
 				n = LWS_HTTP2_FRAME_TYPE_HEADERS;
 				flags = LWS_HTTP2_FLAG_END_HEADERS;
 			}
+			
+			if ((protocol == LWS_WRITE_HTTP || protocol == LWS_WRITE_HTTP_FINAL) && wsi->u.http.content_length) {
+				wsi->u.http.content_remain -= len;
+				lwsl_info("%s: content_remain = %lu\n", __func__, wsi->u.http.content_remain);
+				if (!wsi->u.http.content_remain) {
+					lwsl_info("%s: selecting final write mode\n", __func__);
+					protocol = LWS_WRITE_HTTP_FINAL;
+				}
+			}
+			
+			if (protocol == LWS_WRITE_HTTP_FINAL && wsi->u.http2.END_STREAM) {
+				lwsl_info("%s: setting END_STREAM\n", __func__);
+				flags |= LWS_HTTP2_FLAG_END_STREAM;
+			}
+
 			return lws_http2_frame_write(wsi, n, flags, wsi->u.http2.my_stream_id, len, buf);
 		}
 #endif
@@ -519,12 +537,12 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		if (n < 0)
 			return -1; /* caller will close */
 		if (n) {
+			wsi->u.http.filepos += n;
 			m = libwebsocket_write(wsi, context->service_buffer, n,
-								LWS_WRITE_HTTP);
+					       wsi->u.http.filepos == wsi->u.http.filelen ? LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
 			if (m < 0)
 				return -1;
 
-			wsi->u.http.filepos += m;
 			if (m != n)
 				/* adjust for what was not sent */
 				compatible_file_seek_cur(wsi->u.http.fd, m - n);

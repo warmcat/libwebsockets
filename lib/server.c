@@ -943,6 +943,24 @@ int lws_add_http_header_by_token(struct libwebsocket_context *context,
 	return lws_add_http_header_by_name(context, wsi, name, value, length, p, end);
 }
 
+int lws_add_http_header_content_length(struct libwebsocket_context *context,
+			    struct libwebsocket *wsi,
+			    unsigned long content_length,
+			    unsigned char **p,
+			    unsigned char *end)
+{
+	char b[24];
+	int n;
+
+	n = sprintf(b, "%lu", content_length);
+	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH, (unsigned char *)b, n, p, end))
+		return 1;
+	wsi->u.http.content_length = content_length;
+	wsi->u.http.content_remain = content_length;
+
+	return 0;
+}
+
 static const char *err400[] = {
 	"Bad Request",
 	"Unauthorized",
@@ -1069,9 +1087,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 	unsigned char *p = response;
 	unsigned char *end = p + sizeof(context->service_buffer) -
 					LWS_SEND_BUFFER_PRE_PADDING;
-	unsigned char clen[10];
 	int ret = 0;
-	int n;
 
 	wsi->u.http.fd = lws_plat_open_file(file, &wsi->u.http.filelen);
 
@@ -1088,8 +1104,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 		return -1;
 	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_TYPE, (unsigned char *)content_type, strlen(content_type), &p, end))
 		return -1;
-	n = sprintf((char *)clen, "%lu", (unsigned long)wsi->u.http.filelen);
-	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH, clen, n, &p, end))
+	if (lws_add_http_header_content_length(context, wsi, wsi->u.http.filelen, &p, end))
 		return -1;
 
 	if (other_headers) {

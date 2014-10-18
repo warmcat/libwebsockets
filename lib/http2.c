@@ -128,14 +128,19 @@ lws_http2_interpret_settings_payload(struct http2_settings *settings, unsigned c
 	return 0;
 }
 
+struct libwebsocket *lws_http2_get_network_wsi(struct libwebsocket *wsi)
+{
+	while (wsi->u.http2.parent_wsi)
+		wsi = wsi->u.http2.parent_wsi;
+	
+	return wsi;
+}
+
 int lws_http2_frame_write(struct libwebsocket *wsi, int type, int flags, unsigned int sid, unsigned int len, unsigned char *buf)
 {
-	struct libwebsocket *wsi_eff = wsi;
+	struct libwebsocket *wsi_eff = lws_http2_get_network_wsi(wsi);
 	unsigned char *p = &buf[-LWS_HTTP2_FRAME_HEADER_LENGTH];
 	int n;
-	
-	while (wsi_eff->u.http2.parent_wsi)
-		wsi_eff = wsi_eff->u.http2.parent_wsi;
 
 	*p++ = len >> 16;
 	*p++ = len >> 8;
@@ -174,6 +179,7 @@ int
 lws_http2_parser(struct libwebsocket_context *context,
 		     struct libwebsocket *wsi, unsigned char c)
 {
+	struct libwebsocket *swsi;
 	int n;
 	//dstruct libwebsocket *wsi_new;
 
@@ -200,6 +206,8 @@ lws_http2_parser(struct libwebsocket_context *context,
 	case WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS:
 	case WSI_STATE_HTTP2_ESTABLISHED:
 		if (wsi->u.http2.frame_state == LWS_HTTP2_FRAME_HEADER_LENGTH) { // payload
+			wsi->u.http2.count++;
+			wsi->u.http2.stream_wsi->u.http2.count = wsi->u.http2.count;
 			/* applies to wsi->u.http2.stream_wsi which may be wsi*/
 			switch(wsi->u.http2.type) {
 			case LWS_HTTP2_FRAME_TYPE_SETTINGS:
@@ -217,7 +225,6 @@ lws_http2_parser(struct libwebsocket_context *context,
 					return 1;
 				break;
 			}
-			wsi->u.http2.count++;
 			if (wsi->u.http2.count != wsi->u.http2.length)
 				break;
 			
@@ -294,15 +301,34 @@ lws_http2_parser(struct libwebsocket_context *context,
 				wsi->u.http2.stream_wsi = lws_http2_wsi_from_id(wsi, wsi->u.http2.stream_id);
 				if (!wsi->u.http2.stream_wsi)
 					wsi->u.http2.stream_wsi = lws_create_server_child_wsi(context, wsi, wsi->u.http2.stream_id);
-
-				if (!wsi->u.http2.stream_wsi)
-					return 1;
-				
+								
 				/* END_STREAM means after servicing this, close the stream */
 				wsi->u.http2.END_STREAM = !!(wsi->u.http2.flags & LWS_HTTP2_FLAG_END_STREAM);
+				lwsl_info("%s: headers END_STREAM = %d\n",__func__, wsi->u.http2.END_STREAM);
 update_end_headers:
 				/* no END_HEADERS means CONTINUATION must come */
 				wsi->u.http2.END_HEADERS = !!(wsi->u.http2.flags & LWS_HTTP2_FLAG_END_HEADERS);
+				
+				swsi = wsi->u.http2.stream_wsi;
+				if (!swsi)
+					return 1;
+
+				
+				/* prepare the hpack parser at the right start */
+				
+				swsi->u.http2.flags = wsi->u.http2.flags;
+				swsi->u.http2.length = wsi->u.http2.length;
+				swsi->u.http2.END_STREAM = wsi->u.http2.END_STREAM;
+
+				if (swsi->u.http2.flags & LWS_HTTP2_FLAG_PADDED)
+					swsi->u.http2.hpack = HPKS_OPT_PADDING;
+				else
+					if (swsi->u.http2.flags & LWS_HTTP2_FLAG_PRIORITY) {
+						swsi->u.http2.hpack = HKPS_OPT_E_DEPENDENCY;
+						swsi->u.http2.hpack_m = 4;
+					} else
+						swsi->u.http2.hpack = HPKS_TYPE;
+				lwsl_info("initial hpack state %d\n", swsi->u.http2.hpack);
 				break;
 			}
 			if (wsi->u.http2.length == 0)

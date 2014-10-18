@@ -626,6 +626,13 @@ struct http2_settings {
 };
 
 enum http2_hpack_state {
+	
+	/* optional before first header block */
+	HPKS_OPT_PADDING,
+	HKPS_OPT_E_DEPENDENCY,
+	HKPS_OPT_WEIGHT,
+	
+	/* header block */
 	HPKS_TYPE,
 	
 	HPKS_IDX_EXT,
@@ -634,6 +641,9 @@ enum http2_hpack_state {
 	HPKS_HLEN_EXT,
 
 	HPKS_DATA,
+	
+	/* optional after last header block */
+	HKPS_OPT_DISCARD_PADDING,
 };
 
 enum http2_hpack_type {
@@ -643,6 +653,21 @@ enum http2_hpack_type {
 	HPKT_INDEXED_HDR_4_VALUE,
 	HPKT_LITERAL_HDR_VALUE,
 	HPKT_SIZE_5
+};
+
+struct hpack_dt_entry {
+	int token; /* additions that don't map to a token are ignored */
+	int arg_offset;
+	int arg_len;
+};
+
+struct hpack_dynamic_table {
+	struct hpack_dt_entry *entries;
+	char *args;
+	int pos;
+	int next;
+	int num_entries;
+	int args_length;
 };
 
 struct _lws_http2_related {
@@ -659,6 +684,8 @@ struct _lws_http2_related {
 	struct libwebsocket *parent_wsi;
 	struct libwebsocket *next_child_wsi;
 
+	struct hpack_dynamic_table *hpack_dyn_table;
+	
 	unsigned int count;
 	
 	/* frame */
@@ -668,6 +695,7 @@ struct _lws_http2_related {
 	unsigned char type;
 	unsigned char flags;
 	unsigned char frame_state;
+	unsigned char padding;
 	
 	unsigned int END_STREAM:1;
 	unsigned int END_HEADERS:1;
@@ -679,6 +707,7 @@ struct _lws_http2_related {
 	unsigned int hpack_len;
 	unsigned short hpack_pos;
 	unsigned char hpack_m;
+	unsigned int hpack_e_dep;
 	unsigned int huff:1;
 	unsigned int value:1;
 	
@@ -923,6 +952,7 @@ user_callback_handle_rxflow(callback_function,
 			 enum libwebsocket_callback_reasons reason, void *user,
 							  void *in, size_t len);
 #ifdef LWS_USE_HTTP2
+LWS_EXTERN struct libwebsocket *lws_http2_get_network_wsi(struct libwebsocket *wsi);
 LWS_EXTERN int
 lws_http2_interpret_settings_payload(struct http2_settings *settings, unsigned char *buf, int len);
 LWS_EXTERN void lws_http2_init(struct http2_settings *settings);
