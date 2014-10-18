@@ -668,6 +668,9 @@ int lws_add_http2_header_status(struct libwebsocket_context *context,
 	unsigned char status[10];
 	int n;
 	
+	if (code >= 400)
+		wsi->u.http2.END_STREAM = 1;
+	
 	n = sprintf((char *)status, "%u", code);
 	if (lws_add_http2_header_by_token(context, wsi, WSI_TOKEN_HTTP_COLON_STATUS, status, n, p, end))
 		return 1;

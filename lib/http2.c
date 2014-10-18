@@ -344,6 +344,7 @@ update_end_headers:
 int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsocket *wsi)
 {
 	unsigned char settings[LWS_SEND_BUFFER_PRE_PADDING + 6 * LWS_HTTP2_SETTINGS__COUNT];
+	struct libwebsocket *swsi;
 	int n, m = 0;
 
 	switch (wsi->pps) {
@@ -376,8 +377,27 @@ int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsoc
 			wsi->state = WSI_STATE_HTTP2_ESTABLISHED;
 			
 			wsi->u.http.fd = LWS_INVALID_FILE;
-
-			return 0;
+			
+			/* 
+			 * we need to treat the headers from this upgrade
+			 * as the first job.  These need to get
+			 * shifted to stream ID 1
+			 */
+			lwsl_info("%s: setting up sid 1\n", __func__);
+			
+			swsi = wsi->u.http2.stream_wsi = lws_create_server_child_wsi(context, wsi, 1);
+			/* pass on the initial headers to SID 1 */
+			swsi->u.http.ah = wsi->u.http.ah;
+			wsi->u.http.ah = NULL;
+			
+			lwsl_info("%s: inherited headers %p\n", __func__, swsi->u.http.ah);
+			swsi->u.http2.tx_credit = wsi->u.http2.peer_settings.setting[LWS_HTTP2_SETTINGS__INITIAL_WINDOW_SIZE];
+			lwsl_info("initial tx credit on conn %p: %d\n", swsi, swsi->u.http2.tx_credit);
+			swsi->u.http2.initialized = 1;
+			/* demanded by HTTP2 */
+			swsi->u.http2.END_STREAM = 1;
+			lwsl_info("servicing initial http request\n");
+			return lws_http_action(context, swsi);
 		}
 		break;
 	default:

@@ -456,7 +456,7 @@ send_raw:
 				}
 			}
 			
-			if (protocol == LWS_WRITE_HTTP_FINAL && wsi->u.http2.END_STREAM) {
+			if ((protocol == LWS_WRITE_HTTP_FINAL || protocol == LWS_WRITE_HTTP_HEADERS) && wsi->u.http2.END_STREAM) {
 				lwsl_info("%s: setting END_STREAM\n", __func__);
 				flags |= LWS_HTTP2_FLAG_END_STREAM;
 			}
