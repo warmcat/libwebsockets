@@ -249,6 +249,13 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	if (info->port != CONTEXT_PORT_NO_LISTEN)
 		return 0;
 
+	/* basic openssl init */
+
+	SSL_library_init();
+
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+
 	method = (SSL_METHOD *)SSLv23_client_method();
 	if (!method) {
 		error = ERR_get_error();
