@@ -193,6 +193,40 @@ LWS_VISIBLE int
 libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi)
 {
+#ifdef LWS_USE_HTTP2
+	struct libwebsocket *network_wsi, *wsi2;
+	int already;
+
+	lwsl_info("%s: %p\n", __func__, wsi);
+	
+	if (wsi->mode != LWS_CONNMODE_HTTP2_SERVING)
+		goto network_sock;
+	
+	if (wsi->u.http2.requested_POLLOUT) {
+		lwsl_info("already pending writable\n");
+		return 1;
+	}
+	
+	network_wsi = lws_http2_get_network_wsi(wsi);
+	already = network_wsi->u.http2.requested_POLLOUT;
+	
+	/* mark everybody above him as requesting pollout */
+	
+	wsi2 = wsi;
+	while (wsi2) {
+		wsi2->u.http2.requested_POLLOUT = 1;
+		lwsl_info("mark %p pending writable\n", wsi2);
+		wsi2 = wsi2->u.http2.parent_wsi;
+	}
+	
+	/* for network action, act only on the network wsi */
+	
+	wsi = network_wsi;
+	if (already)
+		return 1;
+network_sock:
+#endif
+
 	if (lws_ext_callback_for_each_active(wsi,
 				LWS_EXT_CALLBACK_REQUEST_ON_WRITEABLE, NULL, 0))
 		return 1;

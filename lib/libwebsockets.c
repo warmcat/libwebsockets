@@ -702,6 +702,7 @@ libwebsocket_get_reserved_bits(struct libwebsocket *wsi)
 int
 libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 {
+	lwsl_info("%s: %p protocol %p\n", __func__, wsi, wsi->protocol);
 	if (!wsi->protocol)
 		return 1;
 
@@ -716,7 +717,8 @@ libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 		}
 		memset(wsi->user_space, 0,
 					 wsi->protocol->per_session_data_size);
-	}
+	} else
+		lwsl_info("%s: %p protocol pss %u, user_space=%d\n", __func__, wsi, wsi->protocol->per_session_data_size, wsi->user_space);
 	return 0;
 }
 

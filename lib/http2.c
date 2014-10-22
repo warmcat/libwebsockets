@@ -77,8 +77,11 @@ lws_create_server_child_wsi(struct libwebsocket_context *context, struct libwebs
 	
 	wsi->state = WSI_STATE_HTTP2_ESTABLISHED;
 	wsi->mode = parent_wsi->mode;
+	
+	wsi->protocol = &context->protocols[0];
+	libwebsocket_ensure_user_space(wsi);
 
-	lwsl_info("%s: %p new child %p, sid %d\n", __func__, parent_wsi, wsi, sid);
+	lwsl_info("%s: %p new child %p, sid %d, user_space=%p\n", __func__, parent_wsi, wsi, sid, wsi->user_space);
 	
 	return wsi;
 }
@@ -189,7 +192,7 @@ lws_http2_parser(struct libwebsocket_context *context,
 			return 1;
 
 		if (!https_client_preface[wsi->u.http2.count]) {
-			lwsl_err("http2: %p: established\n", wsi);
+			lwsl_info("http2: %p: established\n", wsi);
 			wsi->state = WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS;
 			wsi->u.http2.count = 0;
 			
@@ -224,6 +227,16 @@ lws_http2_parser(struct libwebsocket_context *context,
 				if (lws_hpack_interpret(context, wsi->u.http2.stream_wsi, c))
 					return 1;
 				break;
+			case LWS_HTTP2_FRAME_TYPE_GOAWAY:
+				if (wsi->u.http2.count >= 5 && wsi->u.http2.count <= 8) {
+					wsi->u.http2.hpack_e_dep <<= 8;
+					wsi->u.http2.hpack_e_dep |= c;
+					if (wsi->u.http2.count == 8) {
+						lwsl_info("goaway err 0x%x\n", wsi->u.http2.hpack_e_dep);
+					}
+				}
+				wsi->u.http2.GOING_AWAY = 1;
+				break;
 			}
 			if (wsi->u.http2.count != wsi->u.http2.length)
 				break;
@@ -241,7 +254,7 @@ lws_http2_parser(struct libwebsocket_context *context,
 			switch (wsi->u.http2.type) {
 			case LWS_HTTP2_FRAME_TYPE_HEADERS:
 				/* service the http request itself */
-				lwsl_info("servicing initial http request\n");
+				lwsl_info("servicing initial http request, wsi=%p, stream wsi=%p\n", wsi, wsi->u.http2.stream_wsi);
 				n = lws_http_action(context, wsi->u.http2.stream_wsi);
 				lwsl_info("  action result %d\n", n);
 				break;
@@ -378,6 +391,11 @@ int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsoc
 			
 			wsi->u.http.fd = LWS_INVALID_FILE;
 			
+			if (lws_is_ssl(lws_http2_get_network_wsi(wsi))) {
+				lwsl_info("skipping nonexistant ssl upgrade headers\n");
+				break;
+			}
+			
 			/* 
 			 * we need to treat the headers from this upgrade
 			 * as the first job.  These need to get
@@ -406,3 +424,27 @@ int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsoc
 	
 	return 0;
 }
+
+struct libwebsocket * lws_http2_get_nth_child(struct libwebsocket *wsi, int n)
+{
+	do {
+		wsi = wsi->u.http2.next_child_wsi;
+		if (!wsi)
+			return NULL;
+	} while (n--);
+
+	return wsi;
+}
+#if 0
+struct libwebsocket * lws_http2_get_next_waiting_child(struct libwebsocket *wsi)
+{
+	struct libwebsocket *wsi_child = wsi, *wsi2;
+
+	do {
+		wsi2 = lws_http2_get_nth_child(wsi_child, wsi_child->round_robin_POLLOUT);
+		if (wsi2 == NULL) {
+			wsi_child->round_robin = 0;
+		}
+	}
+}
+#endif

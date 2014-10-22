@@ -345,8 +345,9 @@ static int callback_http(struct libwebsocket_context *context,
 		/*
 		 * we can send more of whatever it is we were sending
 		 */
-
+lwsl_info("LWS_CALLBACK_HTTP_WRITEABLE\n");
 		do {
+			lwsl_info("a\n");
 			n = read(pss->fd, buffer + LWS_SEND_BUFFER_PRE_PADDING,
 				 sizeof (buffer) - LWS_SEND_BUFFER_PRE_PADDING);
 			/* problem reading, close conn */
@@ -355,7 +356,7 @@ static int callback_http(struct libwebsocket_context *context,
 			/* sent it all, close conn */
 			if (n == 0)
 				goto flush_bail;
-
+			lwsl_info("b\n");
 			/*
 			 * To support HTTP2, must take care about preamble space
 			 * and identify when we send the last frame
@@ -366,13 +367,14 @@ static int callback_http(struct libwebsocket_context *context,
 			if (m < 0)
 				/* write failed, close conn */
 				goto bail;
+						lwsl_info("c\n");
 			/*
 			 * http2 won't do this
 			 */
 			if (m != n)
 				/* partial write, adjust */
 				lseek(pss->fd, m - n, SEEK_CUR);
-
+			lwsl_info("d\n");
 			if (m) /* while still active, extend timeout */
 				libwebsocket_set_timeout(wsi,
 					PENDING_TIMEOUT_HTTP_CONTENT, 5);
@@ -382,8 +384,9 @@ static int callback_http(struct libwebsocket_context *context,
 				break;
 
 		} while (!lws_send_pipe_choked(wsi));
-		
+					lwsl_info("e\n");
 		libwebsocket_callback_on_writable(context, wsi);
+					lwsl_info("f\n");
 		break;
 flush_bail:
 		/* true if still partial pending */

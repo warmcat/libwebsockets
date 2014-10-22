@@ -593,6 +593,8 @@ accepted:
 
 		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
+		lws_http2_configure_if_upgraded(wsi);
+
 		lwsl_debug("accepted new SSL conn\n");
 		break;
 	}

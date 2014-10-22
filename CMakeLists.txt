@@ -493,8 +493,14 @@ if (LWS_WITH_SSL)
 
 		list(APPEND LIB_LIST "${LWS_CYASSL_LIB}")
 	else()
+		if (OPENSSL_ROOT_DIR)
+			set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include")
+			set(OPENSSL_LIBRARIES "${OPENSSL_ROOT_DIR}/lib/libssl.so" "${OPENSSL_ROOT_DIR}/lib/libcrypto.so")
+		else(OPENSSL_ROOT_DIR)
+		
 		# TODO: Add support for STATIC also.
 		find_package(OpenSSL REQUIRED)
+		endif(OPENSSL_ROOT_DIR)
 
 		message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
 		message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")

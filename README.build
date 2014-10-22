@@ -66,7 +66,14 @@ Building on Unix:
 	access to ALPN support only in newer OpenSSL versions) the nice way to
 	express that in one cmake command is eg,
 	
-		-DOPENSSL_ROOT_DIR=/usr/local/ssl
+	cmake .. -DOPENSSL_ROOT_DIR=/usr/local/ssl \
+		 -DCMAKE_INCLUDE_DIRECTORIES_PROJECT_BEFORE=/usr/local/ssl \
+		 -DLWS_WITH_HTTP2=1
+	
+	When you run the test apps using non-distro SSL, you have to force them
+	to use your libs, not the distro ones
+	
+	LD_LIBRARY_PATH=/usr/local/ssl/lib libwebsockets-test-server --ssl
 
 4. Finally you can build using the generated Makefile:
 
@@ -149,6 +156,29 @@ cmake .. -DLWS_USE_CYASSL=1 \
 	 -DLWS_CYASSL_LIB=/path/to/cyassl/cyassl.a ..
 
 NOTE: On windows use the .lib file extension for LWS_CYASSL_LIB instead.
+
+
+Reproducing HTTP2.0 tests
+-------------------------
+
+You must have built and be running lws against a version of openssl that has
+ALPN / NPN.  Most distros still have older versions.  You'll know it's right by
+seeing
+
+lwsts[4752]:  Compiled with OpenSSL support
+lwsts[4752]:  Using SSL mode
+lwsts[4752]:  HTTP2 / ALPN enabled
+
+at lws startup.
+
+For non-SSL HTTP2.0 upgrade
+
+nghttp -nvasu http://localhost:7681/test.htm
+
+For SSL / ALPN HTTP2.0 upgrade
+
+nghttp -nvas https://localhost:7681/test.html
+
 
 Cross compiling
 ---------------

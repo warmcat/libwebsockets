@@ -697,9 +697,14 @@ struct _lws_http2_related {
 	unsigned char frame_state;
 	unsigned char padding;
 	
+	unsigned short round_robin_POLLOUT;
+	unsigned short count_POLLOUT_children;
+
 	unsigned int END_STREAM:1;
 	unsigned int END_HEADERS:1;
 	unsigned int send_END_STREAM:1;
+	unsigned int GOING_AWAY;
+	unsigned int requested_POLLOUT:1;
 
 	/* hpack */
 	enum http2_hpack_state hpack;
@@ -720,7 +725,7 @@ struct _lws_http2_related {
 	unsigned char one_setting[LWS_HTTP2_SETTINGS_LENGTH];
 };
 
-#define HTTP2_IS_TOPLEVEL_WSI(wsi) (!wsi->parent_wsi)
+#define HTTP2_IS_TOPLEVEL_WSI(wsi) (!wsi->u.http2.parent_wsi)
 
 #endif
 
@@ -824,6 +829,7 @@ struct libwebsocket {
 	BIO *client_bio;
 	unsigned int use_ssl:2;
 	unsigned int buffered_reads_pending:1;
+	unsigned int upgraded:1;
 #endif
 
 #ifdef _WIN32
@@ -954,6 +960,7 @@ user_callback_handle_rxflow(callback_function,
 							  void *in, size_t len);
 #ifdef LWS_USE_HTTP2
 LWS_EXTERN struct libwebsocket *lws_http2_get_network_wsi(struct libwebsocket *wsi);
+struct libwebsocket * lws_http2_get_nth_child(struct libwebsocket *wsi, int n);
 LWS_EXTERN int
 lws_http2_interpret_settings_payload(struct http2_settings *settings, unsigned char *buf, int len);
 LWS_EXTERN void lws_http2_init(struct http2_settings *settings);
@@ -989,6 +996,10 @@ lws_add_http2_header_status(struct libwebsocket_context *context,
 			    unsigned int code,
 			    unsigned char **p,
 			    unsigned char *end);
+LWS_EXTERN
+void lws_http2_configure_if_upgraded(struct libwebsocket *wsi);
+#else
+#define lws_http2_configure_if_upgraded(x)
 #endif
 
 LWS_EXTERN int
