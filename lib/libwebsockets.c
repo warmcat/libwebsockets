@@ -150,7 +150,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	} while (ret);
 
 	/*
-	 * signal we are closing, libsocket_write will
+	 * signal we are closing, libwebsocket_write will
 	 * add any necessary version-specific stuff.  If the write fails,
 	 * no worries we are closing anyway.  If we didn't initiate this
 	 * close, then our state has been changed to
@@ -306,7 +306,7 @@ just_kill_connection:
  * @fd:		Connection socket descriptor
  * @name:	Buffer to take client address name
  * @name_len:	Length of client address name buffer
- * @rip:	Buffer to take client address IP qotted quad
+ * @rip:	Buffer to take client address IP dotted quad
  * @rip_len:	Length of client address IP buffer
  *
  *	This function fills in @name and @rip with the name and IP of
@@ -545,7 +545,7 @@ lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi,
 
 /**
  * libwebsocket_rx_flow_control() - Enable and disable socket servicing for
- *				receieved packets.
+ *				received packets.
  *
  * If the output side of a server process becomes choked, this allows flow
  * control for the input side.
@@ -634,7 +634,7 @@ int user_callback_handle_rxflow(callback_function callback_function,
  * Returns -1 if @proxy is NULL or has incorrect format.
  *
  * This is only required if your OS does not provide the http_proxy
- * enviroment variable (eg, OSX)
+ * environment variable (eg, OSX)
  *
  *   IMPORTANT! You should call this function right after creation of the
  *   libwebsocket_context and before call to connect. If you call this
