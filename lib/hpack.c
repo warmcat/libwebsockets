@@ -377,6 +377,12 @@ int lws_hpack_interpret(struct libwebsocket_context *context,
 		break;
 			
 	case HPKS_TYPE:
+		
+		if (wsi->u.http2.count > (wsi->u.http2.length - wsi->u.http2.padding)) {
+			lwsl_info("padding eat\n");
+			break;
+		}
+		
 		if (c & 0x80) { /* indexed header field only */
 			/* just a possibly-extended integer */
 			wsi->u.http2.hpack_type = HPKT_INDEXED_HDR_7;

@@ -222,6 +222,7 @@ lws_http2_parser(struct libwebsocket_context *context,
 					     LWS_HTTP2_SETTINGS_LENGTH))
 						return 1;
 				break;
+			case LWS_HTTP2_FRAME_TYPE_CONTINUATION:
 			case LWS_HTTP2_FRAME_TYPE_HEADERS:
 				lwsl_info(" %02X\n", c);
 				if (lws_hpack_interpret(context, wsi->u.http2.stream_wsi, c))
@@ -236,6 +237,24 @@ lws_http2_parser(struct libwebsocket_context *context,
 					}
 				}
 				wsi->u.http2.GOING_AWAY = 1;
+				break;
+			case LWS_HTTP2_FRAME_TYPE_DATA:
+				break;
+			case LWS_HTTP2_FRAME_TYPE_PRIORITY:
+				break;
+			case LWS_HTTP2_FRAME_TYPE_RST_STREAM:
+				break;
+			case LWS_HTTP2_FRAME_TYPE_PUSH_PROMISE:
+				break;
+			case LWS_HTTP2_FRAME_TYPE_PING:
+				if (wsi->u.http2.flags & LWS_HTTP2_FLAG_SETTINGS_ACK) { // ack
+				} else { /* they're sending us a ping request */
+					if (wsi->u.http2.count > 8)
+						return 1;
+					wsi->u.http2.ping_payload[wsi->u.http2.count - 1] = c;
+				}
+				break;
+			case LWS_HTTP2_FRAME_TYPE_WINDOW_UPDATE:
 				break;
 			}
 			if (wsi->u.http2.count != wsi->u.http2.length)
@@ -257,6 +276,12 @@ lws_http2_parser(struct libwebsocket_context *context,
 				lwsl_info("servicing initial http request, wsi=%p, stream wsi=%p\n", wsi, wsi->u.http2.stream_wsi);
 				n = lws_http_action(context, wsi->u.http2.stream_wsi);
 				lwsl_info("  action result %d\n", n);
+				break;
+			case LWS_HTTP2_FRAME_TYPE_PING:
+				if (wsi->u.http2.flags & LWS_HTTP2_FLAG_SETTINGS_ACK) { // ack
+				} else { /* they're sending us a ping request */
+					lws_set_protocol_write_pending(context, wsi, LWS_PPS_HTTP2_PONG);
+				}
 				break;
 			}
 			break;
@@ -301,6 +326,12 @@ lws_http2_parser(struct libwebsocket_context *context,
 				} else
 					/* non-ACK coming in means we must ACK it */
 					lws_set_protocol_write_pending(context, wsi, LWS_PPS_HTTP2_ACK_SETTINGS);
+				break;
+			case LWS_HTTP2_FRAME_TYPE_PING:
+				if (wsi->u.http2.stream_id)
+					return 1;
+				if (wsi->u.http2.length != 8)
+					return 1;
 				break;
 			case LWS_HTTP2_FRAME_TYPE_CONTINUATION:
 				if (wsi->u.http2.END_HEADERS)
@@ -416,6 +447,17 @@ int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsoc
 			swsi->u.http2.END_STREAM = 1;
 			lwsl_info("servicing initial http request\n");
 			return lws_http_action(context, swsi);
+		}
+		break;
+	case LWS_PPS_HTTP2_PONG:
+		memcpy(&settings[LWS_SEND_BUFFER_PRE_PADDING], wsi->u.http2.ping_payload, 8);
+		n = lws_http2_frame_write(wsi, LWS_HTTP2_FRAME_TYPE_PING,
+		     			  LWS_HTTP2_FLAG_SETTINGS_ACK,
+			    		  LWS_HTTP2_STREAM_ID_MASTER, 8,
+		     			  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
+		if (n != 8) {
+			lwsl_info("send %d %d\n", n, m);
+			return 1;
 		}
 		break;
 	default:

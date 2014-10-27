@@ -100,7 +100,9 @@ lws_context_init_http2_ssl(struct libwebsocket_context *context)
 	SSL_CTX_set_alpn_select_cb(context->ssl_ctx, alpn_cb, &protos);
 	lwsl_notice(" HTTP2 / ALPN enabled\n");
 #else
-	lwsl_notice(" HTTP2 / ALPN configured but not supported by OpenSSL version 0x%x\n", OPENSSL_VERSION_NUMBER);
+	lwsl_notice(
+		" HTTP2 / ALPN configured but not supported by OpenSSL 0x%x\n",
+		    OPENSSL_VERSION_NUMBER);
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
 }
 
@@ -119,36 +121,37 @@ void lws_http2_configure_if_upgraded(struct libwebsocket *wsi)
 		method = "npn";
 	}
 	
-	if (len) {
-		lwsl_info("negotiated %s using %s\n", name, method);
-		wsi->use_ssl = 1;
-		if (strncmp((char *)name, "http/1.1", 8) == 0)
-			return;
-		
-		/* http2 */
-		
-		wsi->mode = LWS_CONNMODE_HTTP2_SERVING;
-		wsi->state = WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE;
-		
-		/* adopt the header info */
-
-		ah = wsi->u.hdr.ah;
-
-		wsi->mode = LWS_CONNMODE_HTTP2_SERVING;
-
-		/* union transition */
-		memset(&wsi->u, 0, sizeof(wsi->u));
-		
-		/* http2 union member has http union struct at start */
-		wsi->u.http.ah = ah;
-		
-		lws_http2_init(&wsi->u.http2.peer_settings);
-		lws_http2_init(&wsi->u.http2.my_settings);
-		
-		/* HTTP2 union */
-		
-	} else
+	if (!len) {
 		lwsl_info("no npn/alpn upgrade\n");
+		return;
+	}
+
+	lwsl_info("negotiated %s using %s\n", name, method);
+	wsi->use_ssl = 1;
+	if (strncmp((char *)name, "http/1.1", 8) == 0)
+		return;
+		
+	/* http2 */
+	
+	wsi->mode = LWS_CONNMODE_HTTP2_SERVING;
+	wsi->state = WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE;
+
+	/* adopt the header info */
+
+	ah = wsi->u.hdr.ah;
+
+	wsi->mode = LWS_CONNMODE_HTTP2_SERVING;
+
+	/* union transition */
+	memset(&wsi->u, 0, sizeof(wsi->u));
+		
+	/* http2 union member has http union struct at start */
+	wsi->u.http.ah = ah;
+		
+	lws_http2_init(&wsi->u.http2.peer_settings);
+	lws_http2_init(&wsi->u.http2.my_settings);
+
+	/* HTTP2 union */
 #endif
 }
 

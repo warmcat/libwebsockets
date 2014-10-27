@@ -325,6 +325,7 @@ enum lws_pending_protocol_send {
 	LWS_PPS_NONE,
 	LWS_PPS_HTTP2_MY_SETTINGS,
 	LWS_PPS_HTTP2_ACK_SETTINGS,
+	LWS_PPS_HTTP2_PONG,
 };
 
 enum lws_rx_parse_state {
@@ -696,6 +697,8 @@ struct _lws_http2_related {
 	unsigned char flags;
 	unsigned char frame_state;
 	unsigned char padding;
+
+	unsigned char ping_payload[8];
 	
 	unsigned short round_robin_POLLOUT;
 	unsigned short count_POLLOUT_children;
