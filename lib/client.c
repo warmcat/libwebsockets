@@ -565,12 +565,12 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		}
 		while (*pc && *pc != ',')
 			pc++;
-		while (*pc && *pc != ' ')
+		while (*pc && *pc == ' ')
 			pc++;
 	}
 
 	if (!okay) {
-		lwsl_err("lws_client_int_s_hs: got bad protocol %s\n", p);
+		lwsl_err("lws_client_int_s_hs: got bad protocol '%s'\n", p);
 		goto bail2;
 	}
 
@@ -588,7 +588,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	}
 
 	if (wsi->protocol == NULL) {
-		lwsl_err("lws_client_int_s_hs: fail protocol %s\n", p);
+		lwsl_err("lws_client_int_s_hs: fail protocol '%s'\n", p);
 		goto bail2;
 	}
 
