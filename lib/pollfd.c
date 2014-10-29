@@ -207,6 +207,19 @@ libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 		return 1;
 	}
 	
+	if (wsi->u.http2.tx_credit <= 0) {
+		/*
+		 * other side is not able to cope with us sending
+		 * anything so no matter if we have POLLOUT on our side.
+		 * 
+		 * Delay waiting for our POLLOUT until peer indicates he has
+		 * space for more using tx window command in http2 layer
+		 */
+		lwsl_info("%s: %p: waiting_tx_credit (%d)\n", __func__, wsi, wsi->u.http2.tx_credit);
+		wsi->u.http2.waiting_tx_credit = 1;
+		return 0;
+	}
+	
 	network_wsi = lws_http2_get_network_wsi(wsi);
 	already = network_wsi->u.http2.requested_POLLOUT;
 	

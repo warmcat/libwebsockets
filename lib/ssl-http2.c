@@ -140,8 +140,6 @@ void lws_http2_configure_if_upgraded(struct libwebsocket *wsi)
 
 	ah = wsi->u.hdr.ah;
 
-	wsi->mode = LWS_CONNMODE_HTTP2_SERVING;
-
 	/* union transition */
 	memset(&wsi->u, 0, sizeof(wsi->u));
 		

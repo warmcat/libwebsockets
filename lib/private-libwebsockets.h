@@ -708,6 +708,7 @@ struct _lws_http2_related {
 	unsigned int send_END_STREAM:1;
 	unsigned int GOING_AWAY;
 	unsigned int requested_POLLOUT:1;
+	unsigned int waiting_tx_credit:1;
 
 	/* hpack */
 	enum http2_hpack_state hpack;
@@ -720,7 +721,8 @@ struct _lws_http2_related {
 	unsigned int huff:1;
 	unsigned int value:1;
 	
-	unsigned int tx_credit;
+	/* negative credit is mandated by the spec */
+	int tx_credit;
 	unsigned int my_stream_id;
 	unsigned int child_count;
 	int my_priority;

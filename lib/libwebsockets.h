@@ -153,9 +153,11 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 
 #define LWS_FEATURE_SERVE_HTTP_FILE_HAS_OTHER_HEADERS_ARG
 
-    /* the struct libwebsocket_protocols has the id field present */
+/* the struct libwebsocket_protocols has the id field present */
 #define LWS_FEATURE_PROTOCOLS_HAS_ID_FIELD
 
+/* you can call lws_get_peer_write_allowance */
+#define LWS_FEATURE_PROTOCOLS_HAS_PEER_WRITE_ALLOWANCE
 
 enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT = 2,
@@ -1225,6 +1227,25 @@ libwebsocket_rx_flow_allow_all_protocol(
 
 LWS_VISIBLE LWS_EXTERN size_t
 libwebsockets_remaining_packet_payload(struct libwebsocket *wsi);
+
+/*
+ * if the protocol does not have any guidence, returns -1.  Currently only
+ * http2 connections get send window information from this API.  But your code
+ * should use it so it can work properly with any protocol.
+ * 
+ * If nonzero return is the amount of payload data the peer or intermediary has
+ * reported it has buffer space for.  That has NO relationship with the amount
+ * of buffer space your OS can accept on this connection for a write action.
+ * 
+ * This number represents the maximum you could send to the peer or intermediary
+ * on this connection right now without it complaining.
+ * 
+ * lws manages accounting for send window updates and payload writes
+ * automatically, so this number reflects the situation at the peer or
+ * intermediary dynamically.
+ */
+LWS_VISIBLE LWS_EXTERN size_t
+lws_get_peer_write_allowance(struct libwebsocket *wsi);
 
 LWS_VISIBLE LWS_EXTERN struct libwebsocket *
 libwebsocket_client_connect(struct libwebsocket_context *clients,
