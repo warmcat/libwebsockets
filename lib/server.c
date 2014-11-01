@@ -374,8 +374,6 @@ int lws_handshake_server(struct libwebsocket_context *context,
 
 			return n;
 		}
-		
-		lwsl_err(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE));
 
 		if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
 								"websocket"))
