@@ -299,7 +299,10 @@ static int callback_http(struct libwebsocket_context *context,
 
 			p = (unsigned char *)leaf_path;
 
-			if (lws_add_http_header_by_name(context, wsi, (unsigned char *)"set-cookie:", (unsigned char *)b64, n, &p, (unsigned char *)leaf_path + sizeof(leaf_path)))
+			if (lws_add_http_header_by_name(context, wsi, 
+				(unsigned char *)"set-cookie:", 
+				(unsigned char *)b64, n, &p,
+				(unsigned char *)leaf_path + sizeof(leaf_path)))
 				return 1;
 			n = (char *)p - leaf_path;
 			other_headers = leaf_path;
@@ -345,21 +348,36 @@ static int callback_http(struct libwebsocket_context *context,
 		/*
 		 * we can send more of whatever it is we were sending
 		 */
-lwsl_info("LWS_CALLBACK_HTTP_WRITEABLE\n");
 		do {
-			lwsl_info("a\n");
+			/* we'd like the send this much */
+			n = sizeof(buffer) - LWS_SEND_BUFFER_PRE_PADDING;
+			
+			/* but if the peer told us he wants less, we can adapt */
+			m = lws_get_peer_write_allowance(wsi);
+
+			/* -1 means not using a protocol that has this info */
+			if (m == 0)
+				/* right now, peer can't handle anything */
+				goto later;
+
+			if (m != -1 && m < n)
+				/* he couldn't handle that much */
+				n = m;
+			
 			n = read(pss->fd, buffer + LWS_SEND_BUFFER_PRE_PADDING,
-				 sizeof (buffer) - LWS_SEND_BUFFER_PRE_PADDING);
+									n);
 			/* problem reading, close conn */
 			if (n < 0)
 				goto bail;
 			/* sent it all, close conn */
 			if (n == 0)
 				goto flush_bail;
-			lwsl_info("b\n");
 			/*
 			 * To support HTTP2, must take care about preamble space
-			 * and identify when we send the last frame
+			 * 
+			 * identification of when we send the last payload frame
+			 * is handled by the library itself if you sent a
+			 * content-length header
 			 */
 			m = libwebsocket_write(wsi,
 					       buffer + LWS_SEND_BUFFER_PRE_PADDING,
@@ -367,26 +385,26 @@ lwsl_info("LWS_CALLBACK_HTTP_WRITEABLE\n");
 			if (m < 0)
 				/* write failed, close conn */
 				goto bail;
-						lwsl_info("c\n");
+
 			/*
 			 * http2 won't do this
 			 */
 			if (m != n)
 				/* partial write, adjust */
 				lseek(pss->fd, m - n, SEEK_CUR);
-			lwsl_info("d\n");
+
 			if (m) /* while still active, extend timeout */
 				libwebsocket_set_timeout(wsi,
 					PENDING_TIMEOUT_HTTP_CONTENT, 5);
 			
-			/* if he has indigestion, let him clear it before eating more */
+			/* if we have indigestion, let him clear it before eating more */
 			if (lws_partial_buffered(wsi))
 				break;
 
 		} while (!lws_send_pipe_choked(wsi));
-					lwsl_info("e\n");
+
+later:
 		libwebsocket_callback_on_writable(context, wsi);
-					lwsl_info("f\n");
 		break;
 flush_bail:
 		/* true if still partial pending */

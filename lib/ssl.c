@@ -214,21 +214,14 @@ libwebsockets_decode_ssl_error(void)
 }
 
 #ifndef LWS_NO_CLIENT
-static int lws_context_init_client_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void * userdata)
+static int lws_context_init_client_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
 {
 	struct lws_context_creation_info * info = (struct lws_context_creation_info *)userdata;
    
-	const int passLen = (int)strlen(info->ssl_private_key_password);
-	const int minimumLen = passLen < size ? passLen : size;
-	strncpy(buf, info->ssl_private_key_password, minimumLen);
-   
-	if (minimumLen < size)
-	{
-		buf[minimumLen] = '\0';
-       return minimumLen;
-   }
-   
-    return minimumLen;
+	strncpy(buf, info->ssl_private_key_password, size);
+	buf[size - 1] = '\0';
+
+	return strlen(buf);
 }
 
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
