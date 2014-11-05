@@ -85,7 +85,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR, NULL, NULL, 0);
 
-		free(wsi->u.hdr.ah);
+		lws_free_header_table(wsi);
 		goto just_kill_connection;
 	}
 

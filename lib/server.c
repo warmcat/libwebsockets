@@ -463,9 +463,7 @@ int lws_handshake_server(struct libwebsocket_context *context,
 		}
 
 		/* drop the header info -- no bail_nuke_ah after this */
-
-		if (wsi->u.hdr.ah)
-			free(wsi->u.hdr.ah);
+		lws_free_header_table(wsi);
 
 		wsi->mode = LWS_CONNMODE_WS_SERVING;
 
@@ -503,8 +501,7 @@ int lws_handshake_server(struct libwebsocket_context *context,
 
 bail_nuke_ah:
 	/* drop the header info */
-	if (wsi->u.hdr.ah)
-		free(wsi->u.hdr.ah);
+	lws_free_header_table(wsi);
 	return 1;
 }
 
@@ -599,7 +596,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				lwsl_info("lws_server_skt_srv: read 0 len\n");
 				/* lwsl_info("   state=%d\n", wsi->state); */
 				if (!wsi->hdr_parsing_completed)
-					free(wsi->u.hdr.ah);
+					lws_free_header_table(wsi);
 				/* fallthru */
 			case LWS_SSL_CAPABLE_ERROR:
 				libwebsocket_close_and_free_session(
