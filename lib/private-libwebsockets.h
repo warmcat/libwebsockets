@@ -753,6 +753,9 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd);
 LWS_EXTERN int
 lws_allocate_header_table(struct libwebsocket *wsi);
 
+LWS_EXTERN int
+lws_free_header_table(struct libwebsocket *wsi);
+
 LWS_EXTERN char *
 lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h);
 
