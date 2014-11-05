@@ -77,7 +77,7 @@ int lws_free_header_table(struct libwebsocket *wsi)
 {
     if( wsi->u.hdr.ah ) {
         free( wsi->u.hdr.ah );
-        wsi->u.hdr.ah = 0;
+        wsi->u.hdr.ah = NULL;
     };
     return 0;
 };
