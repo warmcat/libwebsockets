@@ -250,7 +250,20 @@ LWS_VISIBLE int
 interface_to_sa(struct libwebsocket_context *context,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
-	return -1;
+	long long address = inet_addr(ifname);
+
+	if (address == INADDR_NONE) {
+		struct hostent *entry = gethostbyname(ifname);
+		if (entry)
+			address = ((struct in_addr *)entry->h_addr_list[0])->s_addr;
+	}
+
+	if (address == INADDR_NONE)
+		return -1;
+
+	addr->sin_addr.s_addr = address;
+
+	return 0;
 }
 
 LWS_VISIBLE void
