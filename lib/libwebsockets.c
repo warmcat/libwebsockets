@@ -295,6 +295,8 @@ just_kill_connection:
 	    wsi->user_space && !wsi->user_space_externally_allocated)
 		free(wsi->user_space);
 
+	/* As a precaution, free the header table in case it lingered: */
+	lws_free_header_table(wsi);
 	free(wsi);
 }
 
