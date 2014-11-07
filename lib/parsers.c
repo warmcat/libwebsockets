@@ -61,6 +61,8 @@ int lextable_decode(int pos, char c)
 
 int lws_allocate_header_table(struct libwebsocket *wsi)
 {
+	/* Be sure to free any existing header data to avoid mem leak: */
+	lws_free_header_table(wsi);
 	wsi->u.hdr.ah = malloc(sizeof(*wsi->u.hdr.ah));
 	if (wsi->u.hdr.ah == NULL) {
 		lwsl_err("Out of memory\n");
