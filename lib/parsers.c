@@ -73,6 +73,15 @@ int lws_allocate_header_table(struct libwebsocket *wsi)
 	return 0;
 }
 
+int lws_free_header_table(struct libwebsocket *wsi)
+{
+    if (wsi->u.hdr.ah) {
+        free(wsi->u.hdr.ah);
+        wsi->u.hdr.ah = NULL;
+    }
+    return 0;
+};
+
 LWS_VISIBLE int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h)
 {
 	int n;
