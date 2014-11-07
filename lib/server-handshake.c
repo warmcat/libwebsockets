@@ -268,10 +268,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 bail:
 	/* free up his parsing allocations */
-
-	if (wsi->u.hdr.ah)
-		free(wsi->u.hdr.ah);
-
+	lws_free_header_table(wsi);
 	return -1;
 }
 
