@@ -723,17 +723,12 @@ check_accept:
 	libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 	/* free up his parsing allocations */
+
 	if (wsi->u.hdr.ah)
 		free(wsi->u.hdr.ah);
 
-	/* mark him as being alive */
-
+	lws_union_transition(wsi, LWS_CONNMODE_WS_CLIENT);
 	wsi->state = WSI_STATE_ESTABLISHED;
-	wsi->mode = LWS_CONNMODE_WS_CLIENT;
-
-	/* union transition */
-
-	memset(&wsi->u, 0, sizeof(wsi->u));
 
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 

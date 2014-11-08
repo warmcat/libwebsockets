@@ -361,9 +361,7 @@ int lws_handshake_server(struct libwebsocket_context *context,
 			
 			ah = wsi->u.hdr.ah;
 			
-			/* union transition */
-			memset(&wsi->u, 0, sizeof(wsi->u));
-			wsi->mode = LWS_CONNMODE_HTTP_SERVING_ACCEPTED;
+			lws_union_transition(wsi, LWS_CONNMODE_HTTP_SERVING_ACCEPTED);
 			wsi->state = WSI_STATE_HTTP;
 			wsi->u.http.fd = LWS_INVALID_FILE;
 
@@ -407,10 +405,7 @@ upgrade_h2c:
 
 		ah = wsi->u.hdr.ah;
 
-		wsi->mode = LWS_CONNMODE_HTTP2_SERVING;
-
-		/* union transition */
-		memset(&wsi->u, 0, sizeof(wsi->u));
+		lws_union_transition(wsi, LWS_CONNMODE_HTTP2_SERVING);
 		
 		/* http2 union member has http union struct at start */
 		wsi->u.http.ah = ah;
@@ -552,10 +547,7 @@ upgrade_ws:
 		/* drop the header info -- no bail_nuke_ah after this */
 		lws_free_header_table(wsi);
 
-		wsi->mode = LWS_CONNMODE_WS_SERVING;
-
-		/* union transition */
-		memset(&wsi->u, 0, sizeof(wsi->u));
+		lws_union_transition(wsi, LWS_CONNMODE_WS_SERVING);
 
 		/*
 		 * create the frame buffer for this connection according to the

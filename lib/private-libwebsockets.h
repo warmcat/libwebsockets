@@ -957,6 +957,9 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 LWS_EXTERN int
 _libwebsocket_rx_flow_control(struct libwebsocket *wsi);
 
+LWS_EXTERN void
+lws_union_transition(struct libwebsocket *wsi, enum connection_mode mode);
+
 LWS_EXTERN int
 user_callback_handle_rxflow(callback_function,
 		struct libwebsocket_context *context,

@@ -847,3 +847,10 @@ lws_get_peer_write_allowance(struct libwebsocket *wsi)
 	return -1;
 #endif
 }
+
+LWS_VISIBLE void
+lws_union_transition(struct libwebsocket *wsi, enum connection_mode mode)
+{
+	memset(&wsi->u, 0, sizeof(wsi->u));
+	wsi->mode = mode;
+}
