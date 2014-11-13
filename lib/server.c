@@ -1038,13 +1038,13 @@ LWS_VISIBLE int libwebsockets_return_http_status(
 		return 1;
 
 	m = libwebsocket_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
-	if (m)
-		return m;
+	if (m != (int)(p - start))
+		return 1;
 
 	n = sprintf((char *)start, "<html><body><h1>%u</h1>%s</body></html>", code, html_body);
 	m = libwebsocket_write(wsi, start, n, LWS_WRITE_HTTP);
 
-	return m;
+	return m != n;
 }
 
 /**
