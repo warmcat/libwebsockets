@@ -48,6 +48,32 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	return !n;
 }
 
+static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
+{
+	struct lws_context_creation_info * info = (struct lws_context_creation_info *)userdata;
+
+	strncpy(buf, info->ssl_private_key_password, size);
+	buf[size - 1] = '\0';
+
+	return strlen(buf);
+}
+
+static void lws_ssl_bind_passphrase(struct libwebsocket_context *context,
+				    struct lws_context_creation_info *info)
+{
+	if (!info->ssl_private_key_password)
+		return;
+	/*
+	 * password provided, set ssl callback and user data
+	 * for checking password which will be trigered during
+	 * SSL_CTX_use_PrivateKey_file function
+	 */
+	SSL_CTX_set_default_passwd_cb_userdata(context->ssl_client_ctx,
+					       (void *)info);
+	SSL_CTX_set_default_passwd_cb(context->ssl_client_ctx,
+				      lws_context_init_ssl_pem_passwd_cb);
+}
+
 LWS_VISIBLE int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		     struct libwebsocket_context *context)
@@ -157,6 +183,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 					      (char *)context->service_buffer));
 			return 1;
 		}
+		lws_ssl_bind_passphrase(context, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
 			     info->ssl_private_key_filepath,
@@ -218,15 +245,6 @@ libwebsockets_decode_ssl_error(void)
 }
 
 #ifndef LWS_NO_CLIENT
-static int lws_context_init_client_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
-{
-	struct lws_context_creation_info * info = (struct lws_context_creation_info *)userdata;
-   
-	strncpy(buf, info->ssl_private_key_password, size);
-	buf[size - 1] = '\0';
-
-	return strlen(buf);
-}
 
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			    struct libwebsocket_context *context)
@@ -326,19 +344,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		}
 	} 
 	if (info->ssl_private_key_filepath) {
-		/* check for provided by user password to private key */
-		if (info->ssl_private_key_password) {
-		/* 
-		 * password provided, set ssl callback and user data
-		 * for checking password which will be trigered during
-		 * SSL_CTX_use_PrivateKey_file function
-		 */
-			SSL_CTX_set_default_passwd_cb_userdata(
-					context->ssl_client_ctx,
-						  (void *)info);
-			SSL_CTX_set_default_passwd_cb(context->ssl_client_ctx,
-				lws_context_init_client_ssl_pem_passwd_cb);
-		}
+		lws_ssl_bind_passphrase(context, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_client_ctx,
 		    info->ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
