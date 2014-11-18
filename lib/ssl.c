@@ -323,6 +323,8 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 				"Unable to load SSL Client certs "
 				"file from %s -- client ssl isn't "
 				"going to work", info->ssl_ca_filepath);
+		else
+			lwsl_info("loaded ssl_ca_filepath\n");
 
 	/*
 	 * callback allowing user code to load extra verification certs

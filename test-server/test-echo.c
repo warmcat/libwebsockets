@@ -115,6 +115,9 @@ callback_echo(struct libwebsocket_context *context,
 			return -1;
 		}
 		break;
+	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
+		
+		break;
 #endif
 	default:
 		break;
@@ -147,11 +150,14 @@ static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
+	{ "ssl-cert",	required_argument, 	NULL, 'C' },
+	{ "ssl-key",	required_argument,	NULL, 'k' },
 #ifndef LWS_NO_CLIENT
 	{ "client",	required_argument,	NULL, 'c' },
 	{ "ratems",	required_argument,	NULL, 'r' },
 #endif
 	{ "ssl",	no_argument,		NULL, 's' },
+	{ "passphrase", required_argument,	NULL, 'P' },
 	{ "interface",  required_argument,	NULL, 'i' },
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize", 	no_argument,		NULL, 'D' },
@@ -168,17 +174,21 @@ int main(int argc, char **argv)
 	int opts = 0;
 	char interface_name[128] = "";
 	const char *interface = NULL;
+	char ssl_cert[256] = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
+	char ssl_key[256] = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 #ifndef WIN32
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
 	int client = 0;
 	int listen_port;
 	struct lws_context_creation_info info;
+	char passphrase[256];
 #ifndef LWS_NO_CLIENT
 	char address[256];
 	int rate_us = 250000;
 	unsigned int oldus = 0;
 	struct libwebsocket *wsi;
+	int disallow_selfsigned = 0;
 #endif
 
 	int debug_level = 7;
@@ -196,7 +206,7 @@ int main(int argc, char **argv)
 #endif
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "i:hsp:d:D"
+		n = getopt_long(argc, argv, "i:hsp:d:DC:k:P:"
 #ifndef LWS_NO_CLIENT
 			"c:r:"
 #endif
@@ -204,6 +214,21 @@ int main(int argc, char **argv)
 		if (n < 0)
 			continue;
 		switch (n) {
+		case 'P':
+			strncpy(passphrase, optarg, sizeof(passphrase));
+			passphrase[sizeof(passphrase) - 1] = '\0';
+			info.ssl_private_key_password = passphrase;
+			break;
+		case 'C':
+			strncpy(ssl_cert, optarg, sizeof(ssl_cert));
+			ssl_cert[sizeof(ssl_cert) - 1] = '\0';
+			disallow_selfsigned = 1;
+			break;
+		case 'k':
+			strncpy(ssl_key, optarg, sizeof(ssl_key));
+			ssl_key[sizeof(ssl_key) - 1] = '\0';
+			break;
+
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
@@ -238,14 +263,22 @@ int main(int argc, char **argv)
 			break;
 		case '?':
 		case 'h':
-			fprintf(stderr, "Usage: libwebsockets-test-echo "
-					"[--ssl] "
+			fprintf(stderr, "Usage: libwebsockets-test-echo\n"
+				"  --debug      / -d <debug bitfield>\n"
+				"  --port       / -p <port>\n"
+				"  --ssl-cert   / -C <cert path>\n"
+				"  --ssl-key    / -k <key path>\n"
 #ifndef LWS_NO_CLIENT
-					"[--client <remote ads>] "
-					"[--ratems <ms>] "
+				"  --client     / -c <server IP>\n"
+				"  --ratems     / -r <rate in ms>\n"
 #endif
-					"[--port=<p>] "
-					"[-d <log bitfield>]\n");
+				"  --ssl        / -s\n"
+				"  --passphrase / -P <passphrase>\n"
+				"  --interface  / -i <interface>\n"
+#ifndef LWS_NO_DAEMONIZE
+				"  --daemonize  / -D\n"
+#endif
+			);
 			exit(1);
 		}
 	}
@@ -275,14 +308,18 @@ int main(int argc, char **argv)
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
 #endif
 	lwsl_notice("libwebsockets echo test - "
-			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> - "
-						    "licensed under LGPL2.1\n");
+		    "(C) Copyright 2010-2014 Andy Green <andy@warmcat.com> - "
+		    "licensed under LGPL2.1\n");
 #ifndef LWS_NO_CLIENT
 	if (client) {
 		lwsl_notice("Running in client mode\n");
 		listen_port = CONTEXT_PORT_NO_LISTEN;
-		if (use_ssl)
+		if (use_ssl && !disallow_selfsigned) {
+			lwsl_info("allowing selfsigned\n");
 			use_ssl = 2;
+		} else
+			lwsl_info("requiring server cert validation againts %s\n", ssl_cert);
+			info.ssl_ca_filepath = ssl_cert;
 	} else {
 #endif
 #ifndef LWS_NO_SERVER
@@ -300,15 +337,18 @@ int main(int argc, char **argv)
 	info.extensions = libwebsocket_get_internal_extensions();
 #endif
 	if (use_ssl && !client) {
-		info.ssl_cert_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
-		info.ssl_private_key_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
-	}
+		info.ssl_cert_filepath = ssl_cert;
+		info.ssl_private_key_filepath = ssl_key;
+	} else
+		if (use_ssl && client) {
+			info.ssl_cert_filepath = NULL;
+			info.ssl_private_key_filepath = NULL;
+		}
 	info.gid = -1;
 	info.uid = -1;
 	info.options = opts;
 
 	context = libwebsocket_create_context(&info);
-
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
 		return -1;
