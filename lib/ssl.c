@@ -58,7 +58,7 @@ static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, 
 	return strlen(buf);
 }
 
-static void lws_ssl_bind_passphrase(struct libwebsocket_context *context,
+static void lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
 				    struct lws_context_creation_info *info)
 {
 	if (!info->ssl_private_key_password)
@@ -68,9 +68,8 @@ static void lws_ssl_bind_passphrase(struct libwebsocket_context *context,
 	 * for checking password which will be trigered during
 	 * SSL_CTX_use_PrivateKey_file function
 	 */
-	SSL_CTX_set_default_passwd_cb_userdata(context->ssl_client_ctx,
-					       (void *)info);
-	SSL_CTX_set_default_passwd_cb(context->ssl_client_ctx,
+	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *)info);
+	SSL_CTX_set_default_passwd_cb(ssl_ctx,
 				      lws_context_init_ssl_pem_passwd_cb);
 }
 
@@ -183,7 +182,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 					      (char *)context->service_buffer));
 			return 1;
 		}
-		lws_ssl_bind_passphrase(context, info);
+		lws_ssl_bind_passphrase(context->ssl_ctx, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
 			     info->ssl_private_key_filepath,
@@ -346,7 +345,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		}
 	} 
 	if (info->ssl_private_key_filepath) {
-		lws_ssl_bind_passphrase(context, info);
+		lws_ssl_bind_passphrase(context->ssl_client_ctx, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_client_ctx,
 		    info->ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
