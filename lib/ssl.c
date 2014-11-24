@@ -20,6 +20,7 @@
  */
 
 #include "private-libwebsockets.h"
+ #include <openssl/err.h>
 
 int openssl_websocket_private_data_index;
 
@@ -221,7 +222,7 @@ lws_ssl_destroy(struct libwebsocket_context *context)
 	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
 
-#ifdef USE_CYASSL
+#if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_CYASSL)
 	ERR_remove_state(0);
 #else
 	ERR_remove_thread_state(NULL);
@@ -617,7 +618,7 @@ lws_ssl_context_destroy(struct libwebsocket_context *context)
 	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
 
-#ifdef USE_CYASSL
+#if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_CYASSL)
 	ERR_remove_state(0);
 #else
 	ERR_remove_thread_state(NULL);
