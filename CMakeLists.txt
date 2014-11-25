@@ -361,9 +361,9 @@ endif(UNIX)
 
 if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
     if (UNIX)
-	set( CMAKE_C_FLAGS "-Wall -Werror -O4 -fvisibility=hidden ${CMAKE_C_FLAGS}" )
+		set( CMAKE_C_FLAGS "-Wall -Werror -O3 -fvisibility=hidden ${CMAKE_C_FLAGS}" )
     else(UNIX)
-	set( CMAKE_C_FLAGS "-Wall -O4 -fvisibility=hidden ${CMAKE_C_FLAGS}" )
+		set( CMAKE_C_FLAGS "-Wall -O3 -fvisibility=hidden ${CMAKE_C_FLAGS}" )
     endif(UNIX)
 endif ()
 
@@ -685,9 +685,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 
 		add_custom_command(TARGET test-server
 						POST_BUILD 
-						COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server"
-						COMMENT "Creating test-server $<TARGET_FILE_DIR:test-server> share directory"
-						VERBATIM)
+						COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server")
 
 		# Copy the file needed to run the server so that the test apps can
 		# reach them from their default output location
@@ -695,9 +693,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			if (EXISTS ${TEST_FILE})
 				add_custom_command(TARGET test-server
 							POST_BUILD 
-							COMMAND "${CMAKE_COMMAND}" -E copy "${TEST_FILE}" "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server"
-							COMMENT "Copying test-server files"
-							VERBATIM)
+							COMMAND "${CMAKE_COMMAND}" -E copy "${TEST_FILE}" "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server" VERBATIM)
 			endif()
 		endforeach()
 	endif(NOT LWS_WITHOUT_SERVER)
