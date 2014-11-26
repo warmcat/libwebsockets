@@ -260,11 +260,11 @@ include_directories("${PROJECT_SOURCE_DIR}/lib")
 # Some IDEs use this for nicer file structure.
 set(HDR_PRIVATE
 	lib/private-libwebsockets.h
-	"${PROJECT_BINARY_DIR}/lws_config.h"
 	)
 
 set(HDR_PUBLIC	
 	"${PROJECT_SOURCE_DIR}/lib/libwebsockets.h"
+	"${PROJECT_BINARY_DIR}/lws_config.h"
 	)
 
 set(SOURCES
