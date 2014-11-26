@@ -182,7 +182,7 @@ static void lws_http2_settings_write(struct libwebsocket *wsi, int n, unsigned c
 	*buf = wsi->u.http2.my_settings.setting[n];
 }
 
-static const char const * https_client_preface =
+static const char * https_client_preface =
 	"PRI * HTTP/2.0\x0d\x0a\x0d\x0aSM\x0d\x0a\x0d\x0a";
 
 int
