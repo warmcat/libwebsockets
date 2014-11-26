@@ -180,7 +180,7 @@ int main(int argc, char **argv)
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
 	int client = 0;
-	int listen_port;
+	int listen_port = 80;
 	struct lws_context_creation_info info;
 	char passphrase[256];
 #ifndef LWS_NO_CLIENT
