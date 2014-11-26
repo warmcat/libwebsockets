@@ -1,0 +1,28 @@
+environment:
+  matrix:
+    - LWS_METHOD: default
+
+    - LWS_METHOD: noserver
+      CMAKE_ARGS: -DLWS_WITHOUT_SERVER=ON
+
+    - LWS_METHOD: noclient
+      CMAKE_ARGS: -DLWS_WITHOUT_CLIENT=ON
+
+    - LWS_METHOD: noext
+      CMAKE_ARGS: -DLWS_WITHOUT_EXTENSIONS=ON
+
+    - LWS_METHOD: nossl
+      CMAKE_ARGS: -DLWS_WITH_SSL=OFF
+install:
+  - appveyor DownloadFile http://slproweb.com/download/Win32OpenSSL-1_0_1j.exe
+  - Win32OpenSSL-1_0_1j.exe /silent /verysilent /sp- /suppressmsgboxes
+build:
+
+build_script:
+  - md build
+  - cd build
+  - cmake %CMAKE_ARGS% ..
+  - cmake --build .
+cache:
+  - C:\OpenSSL-Win32
+
