@@ -24,31 +24,6 @@
 
 int openssl_websocket_private_data_index;
 
-#ifndef LWS_NO_SERVER
-static int
-OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
-{
-	SSL *ssl;
-	int n;
-	struct libwebsocket_context *context;
-
-	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
-		SSL_get_ex_data_X509_STORE_CTX_idx());
-
-	/*
-	 * !!! nasty openssl requires the index to come as a library-scope
-	 * static
-	 */
-	context = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
-
-	n = context->protocols[0].callback(NULL, NULL,
-		LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
-						   x509_ctx, ssl, preverify_ok);
-
-	/* convert return code from 0 = OK to 1 = OK */
-	return !n;
-}
-
 static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
 {
 	struct lws_context_creation_info * info = (struct lws_context_creation_info *)userdata;
@@ -72,6 +47,31 @@ static void lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
 	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *)info);
 	SSL_CTX_set_default_passwd_cb(ssl_ctx,
 				      lws_context_init_ssl_pem_passwd_cb);
+}
+
+#ifndef LWS_NO_SERVER
+static int
+OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
+{
+	SSL *ssl;
+	int n;
+	struct libwebsocket_context *context;
+
+	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
+		SSL_get_ex_data_X509_STORE_CTX_idx());
+
+	/*
+	 * !!! nasty openssl requires the index to come as a library-scope
+	 * static
+	 */
+	context = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+
+	n = context->protocols[0].callback(NULL, NULL,
+		LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
+						   x509_ctx, ssl, preverify_ok);
+
+	/* convert return code from 0 = OK to 1 = OK */
+	return !n;
 }
 
 LWS_VISIBLE int
