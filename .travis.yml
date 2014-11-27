@@ -1,4 +1,9 @@
 env:
+  # The next declaration is the encrypted COVERITY_SCAN_TOKEN, created
+  #   via the "travis encrypt" command using the project repo's public key
+  # TODO: Replace the secure key below!
+  global:
+   - secure: "<put the real key here>"
   - LWS_METHOD=default
   - LWS_METHOD=noserver CMAKE_ARGS="-DLWS_WITHOUT_SERVER=ON"
   - LWS_METHOD=noclient CMAKE_ARGS="-DLWS_WITHOUT_CLIENT=ON"
@@ -14,7 +19,15 @@ compiler:
 language: c
 install:
   - sudo apt-get update -qq && sudo apt-get install -y -qq valgrind
-  - if [ x$LWS_METHOD == xlibev ]; then sudo apt-get install -y -qq libev-dev; fi
+  - if [ x$LWS_METHOD == xlibev ] && [ "$COVERITY_SCAN_BRANCH" != 1 ]; then sudo apt-get install -y -qq libev-dev; fi
 script:
-  - mkdir build && cd build && cmake $CMAKE_ARGS .. && cmake --build .
-
+  - if [ "$COVERITY_SCAN_BRANCH" != 1 ]; then mkdir build && cd build && cmake $CMAKE_ARGS .. && cmake --build .; fi
+addons:
+  coverity_scan:
+    project:
+      name: "warmcat/libwebsockets"
+      description: "This is the libwebsockets C library for lightweight websocket clients and servers."
+    notification_email: andy.green@linaro.org
+    build_command_prepend: "mkdir build && cd build && cmake .."
+    build_command:   "cmake --build ."
+    branch_pattern: coverity_scan
