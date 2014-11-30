@@ -227,10 +227,12 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 	optval = 1;
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__NetBSD__) && \
     !defined(__OpenBSD__)
-	setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen);
+	if (setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
+		return 1;
 #else
 	tcp_proto = getprotobyname("TCP");
-	setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, &optval, optlen);
+	if (setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, &optval, optlen) < 0)
+		return 1;
 #endif
 
 	/* We are nonblocking... */
