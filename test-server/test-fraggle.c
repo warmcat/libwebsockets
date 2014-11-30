@@ -111,7 +111,7 @@ callback_fraggle(struct libwebsocket_context *context,
 
 		case FRAGSTATE_POST_PAYLOAD_SUM:
 
-			sum = p[0] << 24;
+			sum = ((unsigned int)p[0]) << 24;
 			sum |= p[1] << 16;
 			sum |= p[2] << 8;
 			sum |= p[3];
