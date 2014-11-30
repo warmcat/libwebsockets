@@ -240,7 +240,8 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_CLIENT
 		case 'c':
 			client = 1;
-			strcpy(address, optarg);
+			strncpy(address, optarg, sizeof(address) - 1);
+			address[sizeof(address) - 1] = '\0';
 			port = 80;
 			break;
 		case 'r':
