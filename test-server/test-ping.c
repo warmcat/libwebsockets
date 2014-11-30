@@ -78,7 +78,7 @@ struct ping {
 };
 
 struct per_session_data__ping {
-	unsigned long ping_index;
+	uint64_t ping_index;
 
 	struct ping ringbuffer[PING_RINGBUFFER_SIZE];
 	int ringbuffer_head;
