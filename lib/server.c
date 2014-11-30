@@ -58,8 +58,10 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	 * allow us to restart even if old sockets in TIME_WAIT
 	 */
 	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
-				      (const void *)&opt, sizeof(opt)) < 0)
+				      (const void *)&opt, sizeof(opt)) < 0) {
+		compatible_close(sockfd);
 		return 1;
+	}
 
 	lws_plat_set_socket_options(context, sockfd);
 
