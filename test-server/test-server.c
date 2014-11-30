@@ -212,7 +212,8 @@ static int callback_http(struct libwebsocket_context *context,
 			if (pss->fd < 0)
 				return -1;
 
-			fstat(pss->fd, &stat_buf);
+			if (fstat(pss->fd, &stat_buf) < 0)
+				return -1;
 
 			/*
 			 * we will send a big jpeg file, but it could be
