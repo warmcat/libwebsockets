@@ -569,7 +569,7 @@ drain:
 			free(wsi->rxflow_buffer);
 			wsi->rxflow_buffer = NULL;
 			/* having drained the rxflow buffer, can rearm POLLIN */
-			n = _libwebsocket_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
+			_libwebsocket_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
 		}
 
 		break;
