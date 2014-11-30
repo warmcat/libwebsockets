@@ -110,7 +110,7 @@ callback_lws_mirror(struct libwebsocket_context * this,
 	struct timeval tv;
 	unsigned char *p;
 	int shift;
-	unsigned long l;
+	uint64_t l;
 	unsigned long iv;
 	int n;
 	int match = 0;
@@ -161,7 +161,7 @@ callback_lws_mirror(struct libwebsocket_context * this,
 		l = 0;
 
 		while (shift >= 0) {
-			l |= (*p++) << shift;
+			l |= ((uint64_t)*p++) << shift;
 			shift -= 8;
 		}
 
