@@ -39,6 +39,7 @@ extern "C" {
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <basetsd.h>
 
 #define strcasecmp stricmp
