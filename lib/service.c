@@ -383,7 +383,8 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 					/* it was the guy we came to service! */
 					timed_out = 1;
 					/* mark as handled */
-					pollfd->revents = 0;
+					if (pollfd)
+						pollfd->revents = 0;
 				}
 		}
 	}
