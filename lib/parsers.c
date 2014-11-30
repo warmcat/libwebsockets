@@ -804,8 +804,10 @@ handle_first:
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
 
-		if (!wsi->u.ws.rx_user_buffer)
+		if (!wsi->u.ws.rx_user_buffer) {
 			lwsl_err("NULL user buffer...\n");
+			return 1;
+		}
 
 		if (wsi->u.ws.all_zero_nonce)
 			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
