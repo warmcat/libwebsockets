@@ -560,7 +560,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL);
 	len = strlen(p);
 
-	while (*pc && !okay) {
+	while (pc && *pc && !okay) {
 		if (!strncmp(pc, p, len) &&
 					  (pc[len] == ',' || pc[len] == '\0')) {
 			okay = 1;
