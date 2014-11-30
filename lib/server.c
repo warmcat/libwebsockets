@@ -470,7 +470,7 @@ upgrade_ws:
 			lwsl_info("checking %s\n", protocol_name);
 
 			n = 0;
-			while (context->protocols[n].callback) {
+			while (wsi->protocol && context->protocols[n].callback) {
 				if (!wsi->protocol->name) {
 					n++;
 					continue;
