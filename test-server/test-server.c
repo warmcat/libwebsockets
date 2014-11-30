@@ -394,7 +394,8 @@ static int callback_http(struct libwebsocket_context *context,
 			 */
 			if (m != n)
 				/* partial write, adjust */
-				lseek(pss->fd, m - n, SEEK_CUR);
+				if (lseek(pss->fd, m - n, SEEK_CUR) < 0)
+					goto bail;
 
 			if (m) /* while still active, extend timeout */
 				libwebsocket_set_timeout(wsi,
