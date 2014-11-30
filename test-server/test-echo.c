@@ -318,9 +318,10 @@ int main(int argc, char **argv)
 		if (use_ssl && !disallow_selfsigned) {
 			lwsl_info("allowing selfsigned\n");
 			use_ssl = 2;
-		} else
+		} else {
 			lwsl_info("requiring server cert validation againts %s\n", ssl_cert);
 			info.ssl_ca_filepath = ssl_cert;
+		}
 	} else {
 #endif
 #ifndef LWS_NO_SERVER
