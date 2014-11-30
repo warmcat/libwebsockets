@@ -234,7 +234,8 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 #endif
 
 	/* We are nonblocking... */
-	fcntl(fd, F_SETFL, O_NONBLOCK);
+	if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0)
+		return 1;
 
 	return 0;
 }
