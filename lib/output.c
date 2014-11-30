@@ -547,7 +547,8 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 
 			if (m != n)
 				/* adjust for what was not sent */
-				compatible_file_seek_cur(wsi->u.http.fd, m - n);
+				if (compatible_file_seek_cur(wsi->u.http.fd, m - n) < 0)
+					return -1;
 		}
 all_sent:
 		if (!wsi->truncated_send_len &&
