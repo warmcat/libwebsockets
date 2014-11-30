@@ -423,7 +423,10 @@ lws_plat_open_file(const char* filename, unsigned long* filelen)
 	if (ret < 0)
 		return LWS_INVALID_FILE;
 
-	fstat(ret, &stat_buf);
+	if (fstat(ret, &stat_buf) < 0) {
+		close(ret);
+		return LWS_INVALID_FILE;
+	}
 	*filelen = stat_buf.st_size;
 	return ret;
 }
