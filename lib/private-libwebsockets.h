@@ -859,9 +859,9 @@ lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int len);
 #ifndef LWS_LATENCY
 static inline void lws_latency(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, const char *action,
-					 int ret, int completion) { while (0); }
+					 int ret, int completion) { do { } while (0); }
 static inline void lws_latency_pre(struct libwebsocket_context *context,
-					struct libwebsocket *wsi) { while (0); }
+					struct libwebsocket *wsi) { do { } while (0); }
 #else
 #define lws_latency_pre(_context, _wsi) lws_latency(_context, _wsi, NULL, 0, 0)
 extern void
