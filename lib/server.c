@@ -752,16 +752,14 @@ try_pollout:
 					NULL,
 					0);
 			if (n < 0)
-				libwebsocket_close_and_free_session(
-				       context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+				goto fail;
 			break;
 		}
 
 		/* >0 == completion, <0 == error */
 		n = libwebsockets_serve_http_file_fragment(context, wsi);
 		if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi)))
-			libwebsocket_close_and_free_session(context, wsi,
-					       LWS_CLOSE_STATUS_NOSTATUS);
+			goto fail;
 		break;
 
 	case LWS_CONNMODE_SERVER_LISTENER:
