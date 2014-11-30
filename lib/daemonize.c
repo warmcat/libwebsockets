@@ -121,8 +121,8 @@ lws_daemonize(const char *_lock_path)
 								 _lock_path, n);
 			unlink(lock_path);
 		}
-	} else
 		close(fd);
+	}
 
 	n = strlen(_lock_path) + 1;
 	lock_path = malloc(n);
