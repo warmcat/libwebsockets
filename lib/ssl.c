@@ -592,9 +592,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		}
 		lwsl_debug("SSL_accept failed skt %u: %s\n",
 					 pollfd->fd, ERR_error_string(m, NULL));
-		libwebsocket_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
-		break;
+		goto fail;
 
 accepted:
 		/* OK, we are accepted... give him some time to negotiate */
