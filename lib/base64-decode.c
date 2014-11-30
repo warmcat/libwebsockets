@@ -67,8 +67,6 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
 			} else
 				triple[i] = 0;
 		}
-		if (!len)
-			continue;
 
 		if (done + 4 >= out_size)
 			return -1;
