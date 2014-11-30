@@ -423,7 +423,8 @@ swallow:
 
 			/* terminal state */
 
-			n = (lextable[wsi->u.hdr.lextable_pos] << 8) | lextable[wsi->u.hdr.lextable_pos + 1];
+			n = ((unsigned int)lextable[wsi->u.hdr.lextable_pos] << 8) |
+					lextable[wsi->u.hdr.lextable_pos + 1];
 
 			lwsl_parser("known hdr %d\n", n);
 			if (n == WSI_TOKEN_GET_URI &&
