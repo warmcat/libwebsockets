@@ -1,9 +1,8 @@
 env:
   # The next declaration is the encrypted COVERITY_SCAN_TOKEN, created
   #   via the "travis encrypt" command using the project repo's public key
-  # TODO: Replace the secure key below!
   global:
-   - secure: "<put the real key here>"
+   - secure: "amfzN1OzBBZYPJVx8TCYsV1nQ5SPm7QswgGpuHcNKaMAixn1s4tKliR0wyVs1aiMqKco1zrJ3vXll+D5gknKr5obWOeZ61T3PYyZmhjB0n/D+7Y41EikNa1Hn1pP6etcHh3ciJ0qe8FC+9YB5yEII3G/jHsltge8Nu+5o2YCSCw="
   - LWS_METHOD=default
   - LWS_METHOD=noserver CMAKE_ARGS="-DLWS_WITHOUT_SERVER=ON"
   - LWS_METHOD=noclient CMAKE_ARGS="-DLWS_WITHOUT_CLIENT=ON"
