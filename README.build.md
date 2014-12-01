@@ -4,9 +4,9 @@ Introduction to CMake
 CMake is a multi-platform build tool that can generate build files for many
 different target platforms. See more info at http://www.cmake.org
 
-CMake also allows/recommends you to do "out of source"-builds, that is, 
-the build files are separated from your sources, so there is no need to 
-create elaborate clean scripts to get a clean source tree, instead you 
+CMake also allows/recommends you to do "out of source"-builds, that is,
+the build files are separated from your sources, so there is no need to
+create elaborate clean scripts to get a clean source tree, instead you
 simply remove your build directory.
 
 Libwebsockets has been tested to build successfully on the following platforms
@@ -21,7 +21,7 @@ Building the library and test apps
 ----------------------------------
 
 The project settings used by CMake to generate the platform specific build
-files is called CMakeLists.txt. CMake then uses one of its "Generators" to
+files is called [CMakeLists.txt](CMakeLists.txt). CMake then uses one of its "Generators" to
 output a Visual Studio project or Make file for instance. To see a list of
 the available generators for your platform, simply run the "cmake" command.
 
@@ -38,48 +38,60 @@ Building on Unix:
 
 3. Generate the build files (default is Make files):
 
-	cd /path/to/src
-	mkdir build
-	cd build
-	cmake ..
+    ```bash
+	$ cd /path/to/src
+	$ mkdir build
+	$ cd build
+	$ cmake ..
+    ```
 
-	(NOTE: The build/ directory can have any name and be located anywhere
-	 on your filesystem, and that the argument ".." given to cmake is simply
-	 the source directory of libwebsockets containing the CMakeLists.txt
+	(**NOTE**: The `build/`` directory can have any name and be located anywhere
+	 on your filesystem, and that the argument `..` given to cmake is simply
+	 the source directory of **libwebsockets** containing the [CMakeLists.txt](CMakeLists.txt)
 	 project file. All examples in this file assumes you use "..")
 
-	NOTE2
+	**NOTE2**:
 	A common option you may want to give is to set the install path, same
 	as --prefix= with autotools.  It defaults to /usr/local.
 	You can do this by, eg
 
-	cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr ..
+    ```bash
+	$ cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr ..
+    ```
 
-	NOTE3
+	**NOTE3**:
 	On machines that want libraries in lib64, you can also add the
 	following to the cmake line
 
-		-DLIB_SUFFIX=64
-		
-	NOTE4
+    ```bash
+	-DLIB_SUFFIX=64
+    ```
+
+	**NOTE4**:
 	If you are building against a non-distro OpenSSL (eg, in order to get
 	access to ALPN support only in newer OpenSSL versions) the nice way to
 	express that in one cmake command is eg,
-	
-	cmake .. -DOPENSSL_ROOT_DIR=/usr/local/ssl \
+
+    ```bash
+	$ cmake .. -DOPENSSL_ROOT_DIR=/usr/local/ssl \
 		 -DCMAKE_INCLUDE_DIRECTORIES_PROJECT_BEFORE=/usr/local/ssl \
 		 -DLWS_WITH_HTTP2=1
-	
+    ```
+
 	When you run the test apps using non-distro SSL, you have to force them
 	to use your libs, not the distro ones
-	
-	LD_LIBRARY_PATH=/usr/local/ssl/lib libwebsockets-test-server --ssl
+
+    ```bash
+	$ LD_LIBRARY_PATH=/usr/local/ssl/lib libwebsockets-test-server --ssl
+    ```
 
 4. Finally you can build using the generated Makefile:
 
-	make
+    ```bash
+	$ make
+    ```
 
-	
+
 Quirk of cmake
 --------------
 
@@ -97,15 +109,17 @@ Building on Windows (Visual Studio)
 
 3. Generate the Visual studio project by opening the Visual Studio cmd prompt:
 
+   ```bash
    cd <path to src>
    md build
    cd build
    cmake -G "Visual Studio 10" ..
+   ```
 
-   (NOTE: There is also a cmake-gui available on Windows if you prefer that)
+   (**NOTE**: There is also a cmake-gui available on Windows if you prefer that)
 
 4. Now you should have a generated Visual Studio Solution in  your
-   <path to src>/build directory, which can be used to build.
+   `<path to src>/build` directory, which can be used to build.
 
 Setting compile options
 -----------------------
@@ -129,7 +143,7 @@ Unix GUI
 --------
 If you have a curses enabled build you simply type:
 (not all packages include this, my debian install does not for example).
-	
+
 	ccmake
 
 Windows GUI
@@ -145,17 +159,19 @@ http://www.yassl.com/yaSSL/Products-cyassl.html
 It contains a OpenSSL compatability layer which makes it possible to pretty
 much link to it instead of OpenSSL, giving a much smaller footprint.
 
-NOTE: cyassl needs to be compiled using the --enable-opensslextra flag for
+**NOTE**: cyassl needs to be compiled using the `--enable-opensslextra` flag for
 this to work.
 
 Compiling libwebsockets with CyaSSL
 -----------------------------------
 
+```bash
 cmake .. -DLWS_USE_CYASSL=1 \
 	 -DLWS_CYASSL_INCLUDE_DIRS=/path/to/cyassl \
 	 -DLWS_CYASSL_LIB=/path/to/cyassl/cyassl.a ..
+```
 
-NOTE: On windows use the .lib file extension for LWS_CYASSL_LIB instead.
+**NOTE**: On windows use the .lib file extension for `LWS_CYASSL_LIB` instead.
 
 
 Reproducing HTTP2.0 tests
@@ -165,41 +181,48 @@ You must have built and be running lws against a version of openssl that has
 ALPN / NPN.  Most distros still have older versions.  You'll know it's right by
 seeing
 
+```bash
 lwsts[4752]:  Compiled with OpenSSL support
 lwsts[4752]:  Using SSL mode
 lwsts[4752]:  HTTP2 / ALPN enabled
+```
 
 at lws startup.
 
 For non-SSL HTTP2.0 upgrade
 
-nghttp -nvasu http://localhost:7681/test.htm
+```bash
+$ nghttp -nvasu http://localhost:7681/test.htm
+```
 
 For SSL / ALPN HTTP2.0 upgrade
 
-nghttp -nvas https://localhost:7681/test.html
-
+```
+$ nghttp -nvas https://localhost:7681/test.html
+```
 
 Cross compiling
 ---------------
-To enable cross compiling libwebsockets using CMake you need to create
+To enable cross compiling **libwebsockets** using CMake you need to create
 a "Toolchain file" that you supply to CMake when generating your build files.
 CMake will then use the cross compilers and build paths specified in this file
 to look for dependencies and such.
 
-Libwebsockets includes an example toolchain file cross-arm-linux-gnueabihf.cmake
+**Libwebsockets** includes an example toolchain file [cross-arm-linux-gnueabihf.cmake](cross-arm-linux-gnueabihf.cmake)
 you can use as a starting point.
 
 The commandline to configure for cross with this would look like
 
-cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr \
+```bash
+$ cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr \
 	 -DCMAKE_TOOLCHAIN_FILE=../cross-arm-linux-gnueabihf.cmake \
 	 -DWITHOUT_EXTENSIONS=1 -DWITH_SSL=0
+```
 
 The example shows how to build with no external cross lib dependencies, you
-need to proide the cross libraries otherwise.
+need to provide the cross libraries otherwise.
 
-NOTE: start from an EMPTY build directory if you had a non-cross build in there
+**NOTE**: start from an EMPTY build directory if you had a non-cross build in there
 	before the settings will be cached and your changes ignored.
 
 Additional information on cross compilation with CMake:
@@ -215,13 +238,15 @@ server, built on ARM Cortex-A9:
 
 Update at 8dac94d (2013-02-18)
 
-./configure --without-client --without-extensions --disable-debug --without-daemonize
+```bash
+$ ./configure --without-client --without-extensions --disable-debug --without-daemonize
 
 Context Creation, 1024 fd limit[2]:   16720 (includes 12 bytes per fd)
 Per-connection [3]:                      72 bytes, +1328 during headers
 
 .text	.rodata	.data	.bss
 11512	2784	288	4
+```
 
 This shows the impact of the major configuration with/without options at
 13ba5bbc633ea962d46d using Ubuntu ARM on a PandaBoard ES.
@@ -231,25 +256,24 @@ additional dynamic allocations via malloc.  These are a bit old now but give
 the right idea for relative "expense" of features.
 
 Static allocations, ARM9
-				.text	.rodata	.data	.bss
- All (no without)		35024	9940	336	4104
- without client			25684	7144	336	4104
- without client, exts		21652	6288	288	4104
- without client, exts, debug[1]	19756	3768	288	4104
- without server			30304	8160	336	4104
- without server, exts		25382	7204	288	4104
- without server, exts, debug[1]	23712	4256	288	4104
 
-[1] --disable-debug only removes messages below lwsl_notice.  Since that is
-the default logging level the impact is not noticable, error, warn and notice
+|                                | .text   | .rodata | .data | .bss |
+|--------------------------------|---------|---------|-------|------|
+| All (no without)               | 35024   | 9940    | 336   | 4104 |
+| without client                 | 25684   | 7144    | 336   | 4104 |
+| without client, exts           | 21652   | 6288    | 288   | 4104 |
+| without client, exts, debug[1] | 19756   | 3768    | 288   | 4104 |
+| without server                 | 30304   | 8160    | 336   | 4104 |
+| without server, exts           | 25382   | 7204    | 288   | 4104 |
+| without server, exts, debug[1] | 23712   | 4256    | 288   | 4104 |
+
+[1] `--disable-debug` only removes messages below `lwsl_notice`.  Since that is
+the default logging level the impact is not noticeable, error, warn and notice
 logs are all still there.
 
-[2] 1024 fd per process is the default limit (set by ulimit) in at least Fedora
+[2] `1024` fd per process is the default limit (set by ulimit) in at least Fedora
 and Ubuntu.  You can make significant savings tailoring this to actual expected
-peak fds, ie, at a limit of 20, context creation allocation reduces to 4432 +
-240 = 4672)
+peak fds, ie, at a limit of `20`, context creation allocation reduces to `4432 +
+240 = 4672`)
 
 [3] known header content is freed after connection establishment
-
-
-
