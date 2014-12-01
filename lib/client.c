@@ -568,7 +568,9 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		}
 		while (*pc && *pc != ',')
 			pc++;
-		while (*pc && *pc != ' ')
+		if (*pc == ',')
+			pc++;
+		while (*pc && *pc == ' ')
 			pc++;
 	}
 
@@ -584,6 +586,10 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	wsi->protocol = NULL;
 	while (context->protocols[n].callback && !wsi->protocol) {
 		if (strcmp(p, context->protocols[n].name) == 0) {
+			wsi->protocol = &context->protocols[n];
+			break;
+		}
+		if (strstr(context->protocols[n].name, p)) {
 			wsi->protocol = &context->protocols[n];
 			break;
 		}
