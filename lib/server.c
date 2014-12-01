@@ -57,8 +57,11 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	/*
 	 * allow us to restart even if old sockets in TIME_WAIT
 	 */
-	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
-				      (const void *)&opt, sizeof(opt));
+	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
+				      (const void *)&opt, sizeof(opt)) < 0) {
+		compatible_close(sockfd);
+		return 1;
+	}
 
 	lws_plat_set_socket_options(context, sockfd);
 
@@ -361,9 +364,7 @@ int lws_handshake_server(struct libwebsocket_context *context,
 			
 			ah = wsi->u.hdr.ah;
 			
-			/* union transition */
-			memset(&wsi->u, 0, sizeof(wsi->u));
-			wsi->mode = LWS_CONNMODE_HTTP_SERVING_ACCEPTED;
+			lws_union_transition(wsi, LWS_CONNMODE_HTTP_SERVING_ACCEPTED);
 			wsi->state = WSI_STATE_HTTP;
 			wsi->u.http.fd = LWS_INVALID_FILE;
 
@@ -374,8 +375,6 @@ int lws_handshake_server(struct libwebsocket_context *context,
 
 			return n;
 		}
-		
-		lwsl_err(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE));
 
 		if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
 								"websocket"))
@@ -409,10 +408,7 @@ upgrade_h2c:
 
 		ah = wsi->u.hdr.ah;
 
-		wsi->mode = LWS_CONNMODE_HTTP2_SERVING;
-
-		/* union transition */
-		memset(&wsi->u, 0, sizeof(wsi->u));
+		lws_union_transition(wsi, LWS_CONNMODE_HTTP2_SERVING);
 		
 		/* http2 union member has http union struct at start */
 		wsi->u.http.ah = ah;
@@ -428,9 +424,9 @@ upgrade_h2c:
 		       "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 		      "Connection: Upgrade\x0d\x0a"
 		      "Upgrade: h2c\x0d\x0a\x0d\x0a");
-		n = lws_issue_raw(wsi, (unsigned char *)wsi->protocol->name,
-					strlen(wsi->protocol->name));
-		if (n != strlen(wsi->protocol->name)) {
+		n = lws_issue_raw(wsi, (unsigned char *)protocol_list,
+					strlen(protocol_list));
+		if (n != strlen(protocol_list)) {
 			lwsl_debug("http2 switch: ERROR writing to socket\n");
 			return 1;
 		}
@@ -471,13 +467,11 @@ upgrade_ws:
 			protocol_name[n] = '\0';
 			if (*p)
 				p++;
-			while (*p == ' ')
-				p++;
 
 			lwsl_info("checking %s\n", protocol_name);
 
 			n = 0;
-			while (context->protocols[n].callback) {
+			while (wsi->protocol && context->protocols[n].callback) {
 				if (!wsi->protocol->name) {
 					n++;
 					continue;
@@ -552,14 +546,9 @@ upgrade_ws:
 		}
 
 		/* drop the header info -- no bail_nuke_ah after this */
+		lws_free_header_table(wsi);
 
-		if (wsi->u.hdr.ah)
-			free(wsi->u.hdr.ah);
-
-		wsi->mode = LWS_CONNMODE_WS_SERVING;
-
-		/* union transition */
-		memset(&wsi->u, 0, sizeof(wsi->u));
+		lws_union_transition(wsi, LWS_CONNMODE_WS_SERVING);
 
 		/*
 		 * create the frame buffer for this connection according to the
@@ -591,8 +580,7 @@ upgrade_ws:
 
 bail_nuke_ah:
 	/* drop the header info */
-	if (wsi->u.hdr.ah)
-		free(wsi->u.hdr.ah);
+	lws_free_header_table(wsi);
 	return 1;
 }
 
@@ -715,7 +703,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 				lwsl_info("lws_server_skt_srv: read 0 len\n");
 				/* lwsl_info("   state=%d\n", wsi->state); */
 				if (!wsi->hdr_parsing_completed)
-					free(wsi->u.hdr.ah);
+					lws_free_header_table(wsi);
 				/* fallthru */
 			case LWS_SSL_CAPABLE_ERROR:
 				libwebsocket_close_and_free_session(
@@ -762,16 +750,14 @@ try_pollout:
 					NULL,
 					0);
 			if (n < 0)
-				libwebsocket_close_and_free_session(
-				       context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+				goto fail;
 			break;
 		}
 
 		/* >0 == completion, <0 == error */
 		n = libwebsockets_serve_http_file_fragment(context, wsi);
 		if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi)))
-			libwebsocket_close_and_free_session(context, wsi,
-					       LWS_CLOSE_STATUS_NOSTATUS);
+			goto fail;
 		break;
 
 	case LWS_CONNMODE_SERVER_LISTENER:
@@ -1051,13 +1037,13 @@ LWS_VISIBLE int libwebsockets_return_http_status(
 		return 1;
 
 	m = libwebsocket_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
-	if (m)
-		return m;
+	if (m != (int)(p - start))
+		return 1;
 
 	n = sprintf((char *)start, "<html><body><h1>%u</h1>%s</body></html>", code, html_body);
 	m = libwebsocket_write(wsi, start, n, LWS_WRITE_HTTP);
 
-	return m;
+	return m != n;
 }
 
 /**

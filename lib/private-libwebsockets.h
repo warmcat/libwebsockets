@@ -149,7 +149,9 @@
 #endif
 
 #ifndef HAVE_BZERO
+#ifndef bzero
 #define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
+#endif
 #endif
 
 #ifndef HAVE_STRERROR
@@ -708,6 +710,7 @@ struct _lws_http2_related {
 	unsigned int send_END_STREAM:1;
 	unsigned int GOING_AWAY;
 	unsigned int requested_POLLOUT:1;
+	unsigned int waiting_tx_credit:1;
 
 	/* hpack */
 	enum http2_hpack_state hpack;
@@ -720,7 +723,8 @@ struct _lws_http2_related {
 	unsigned int huff:1;
 	unsigned int value:1;
 	
-	unsigned int tx_credit;
+	/* negative credit is mandated by the spec */
+	int tx_credit;
 	unsigned int my_stream_id;
 	unsigned int child_count;
 	int my_priority;
@@ -855,9 +859,9 @@ lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int len);
 #ifndef LWS_LATENCY
 static inline void lws_latency(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, const char *action,
-					 int ret, int completion) { while (0); }
+					 int ret, int completion) { do { } while (0); }
 static inline void lws_latency_pre(struct libwebsocket_context *context,
-					struct libwebsocket *wsi) { while (0); }
+					struct libwebsocket *wsi) { do { } while (0); }
 #else
 #define lws_latency_pre(_context, _wsi) lws_latency(_context, _wsi, NULL, 0, 0)
 extern void
@@ -955,6 +959,9 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 LWS_EXTERN int
 _libwebsocket_rx_flow_control(struct libwebsocket *wsi);
 
+LWS_EXTERN void
+lws_union_transition(struct libwebsocket *wsi, enum connection_mode mode);
+
 LWS_EXTERN int
 user_callback_handle_rxflow(callback_function,
 		struct libwebsocket_context *context,
@@ -1010,6 +1017,9 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd);
 
 LWS_EXTERN int
 lws_allocate_header_table(struct libwebsocket *wsi);
+
+LWS_EXTERN int
+lws_free_header_table(struct libwebsocket *wsi);
 
 LWS_EXTERN char *
 lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h);

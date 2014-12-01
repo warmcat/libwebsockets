@@ -20,8 +20,34 @@
  */
 
 #include "private-libwebsockets.h"
+ #include <openssl/err.h>
 
 int openssl_websocket_private_data_index;
+
+static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
+{
+	struct lws_context_creation_info * info = (struct lws_context_creation_info *)userdata;
+
+	strncpy(buf, info->ssl_private_key_password, size);
+	buf[size - 1] = '\0';
+
+	return strlen(buf);
+}
+
+static void lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
+				    struct lws_context_creation_info *info)
+{
+	if (!info->ssl_private_key_password)
+		return;
+	/*
+	 * password provided, set ssl callback and user data
+	 * for checking password which will be trigered during
+	 * SSL_CTX_use_PrivateKey_file function
+	 */
+	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *)info);
+	SSL_CTX_set_default_passwd_cb(ssl_ctx,
+				      lws_context_init_ssl_pem_passwd_cb);
+}
 
 #ifndef LWS_NO_SERVER
 static int
@@ -88,6 +114,10 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	/*
 	 * Firefox insists on SSLv23 not SSLv3
 	 * Konq disables SSLv2 by default now, SSLv23 works
+	 *
+	 * SSLv23_server_method() is the openssl method for "allow all TLS
+	 * versions", compared to e.g. TLSv1_2_server_method() which only allows
+	 * tlsv1.2. Unwanted versions must be disabled using SSL_CTX_set_options()
 	 */
 
 	method = (SSL_METHOD *)SSLv23_server_method();
@@ -107,6 +137,8 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		return 1;
 	}
 
+	/* Disable SSLv2 and SSLv3 */
+	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif
@@ -157,6 +189,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 					      (char *)context->service_buffer));
 			return 1;
 		}
+		lws_ssl_bind_passphrase(context->ssl_ctx, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
 			     info->ssl_private_key_filepath,
@@ -195,7 +228,11 @@ lws_ssl_destroy(struct libwebsocket_context *context)
 	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
 
+#if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_CYASSL)
+	ERR_remove_state(0);
+#else
 	ERR_remove_thread_state(NULL);
+#endif
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
@@ -214,22 +251,6 @@ libwebsockets_decode_ssl_error(void)
 }
 
 #ifndef LWS_NO_CLIENT
-static int lws_context_init_client_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void * userdata)
-{
-	struct lws_context_creation_info * info = (struct lws_context_creation_info *)userdata;
-   
-	const int passLen = (int)strlen(info->ssl_private_key_password);
-	const int minimumLen = passLen < size ? passLen : size;
-	strncpy(buf, info->ssl_private_key_password, minimumLen);
-   
-	if (minimumLen < size)
-	{
-		buf[minimumLen] = '\0';
-       return minimumLen;
-   }
-   
-    return minimumLen;
-}
 
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			    struct libwebsocket_context *context)
@@ -308,6 +329,8 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 				"Unable to load SSL Client certs "
 				"file from %s -- client ssl isn't "
 				"going to work", info->ssl_ca_filepath);
+		else
+			lwsl_info("loaded ssl_ca_filepath\n");
 
 	/*
 	 * callback allowing user code to load extra verification certs
@@ -329,19 +352,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		}
 	} 
 	if (info->ssl_private_key_filepath) {
-		/* check for provided by user password to private key */
-		if (info->ssl_private_key_password) {
-		/* 
-		 * password provided, set ssl callback and user data
-		 * for checking password which will be trigered during
-		 * SSL_CTX_use_PrivateKey_file function
-		 */
-			SSL_CTX_set_default_passwd_cb_userdata(
-					context->ssl_client_ctx,
-						  (void *)info);
-			SSL_CTX_set_default_passwd_cb(context->ssl_client_ctx,
-				lws_context_init_client_ssl_pem_passwd_cb);
-		}
+		lws_ssl_bind_passphrase(context->ssl_client_ctx, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_client_ctx,
 		    info->ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
@@ -581,9 +592,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		}
 		lwsl_debug("SSL_accept failed skt %u: %s\n",
 					 pollfd->fd, ERR_error_string(m, NULL));
-		libwebsocket_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
-		break;
+		goto fail;
 
 accepted:
 		/* OK, we are accepted... give him some time to negotiate */
@@ -613,7 +622,11 @@ lws_ssl_context_destroy(struct libwebsocket_context *context)
 	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
 
+#if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_CYASSL)
+	ERR_remove_state(0);
+#else
 	ERR_remove_thread_state(NULL);
+#endif
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();

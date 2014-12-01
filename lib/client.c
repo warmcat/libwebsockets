@@ -309,15 +309,18 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 			lws_latency(context, wsi,
 				"SSL_get_verify_result LWS_CONNMODE..HANDSHAKE",
 								      n, n > 0);
-			if ((n != X509_V_OK) && (
-				n != X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
-							   wsi->use_ssl != 2)) {
 
-				lwsl_err(
-				      "server's cert didn't look good %d\n", n);
-				libwebsocket_close_and_free_session(context,
-						wsi, LWS_CLOSE_STATUS_NOSTATUS);
-				return 0;
+			if (n != X509_V_OK) {
+				if ((n == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
+				     n == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) && wsi->use_ssl == 2) {
+					lwsl_notice("accepting self-signed certificate\n");
+				} else {
+					lwsl_err("server's cert didn't look good, X509_V_ERR = %d: %s\n",
+						 n, ERR_error_string(n, (char *)context->service_buffer));
+					libwebsocket_close_and_free_session(context,
+							wsi, LWS_CLOSE_STATUS_NOSTATUS);
+					return 0;
+				}
 			}
 #endif /* USE_CYASSL */
 		} else
@@ -557,7 +560,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL);
 	len = strlen(p);
 
-	while (*pc && !okay) {
+	while (pc && *pc && !okay) {
 		if (!strncmp(pc, p, len) &&
 					  (pc[len] == ',' || pc[len] == '\0')) {
 			okay = 1;
@@ -565,12 +568,12 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		}
 		while (*pc && *pc != ',')
 			pc++;
-		while (*pc && *pc == ' ')
+		while (*pc && *pc != ' ')
 			pc++;
 	}
 
 	if (!okay) {
-		lwsl_err("lws_client_int_s_hs: got bad protocol '%s'\n", p);
+		lwsl_err("lws_client_int_s_hs: got bad protocol %s\n", p);
 		goto bail2;
 	}
 
@@ -588,7 +591,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	}
 
 	if (wsi->protocol == NULL) {
-		lwsl_err("lws_client_int_s_hs: fail protocol '%s'\n", p);
+		lwsl_err("lws_client_int_s_hs: fail protocol %s\n", p);
 		goto bail2;
 	}
 
@@ -721,17 +724,12 @@ check_accept:
 	libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 	/* free up his parsing allocations */
+
 	if (wsi->u.hdr.ah)
 		free(wsi->u.hdr.ah);
 
-	/* mark him as being alive */
-
+	lws_union_transition(wsi, LWS_CONNMODE_WS_CLIENT);
 	wsi->state = WSI_STATE_ESTABLISHED;
-	wsi->mode = LWS_CONNMODE_WS_CLIENT;
-
-	/* union transition */
-
-	memset(&wsi->u, 0, sizeof(wsi->u));
 
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 

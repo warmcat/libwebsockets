@@ -227,14 +227,17 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 	optval = 1;
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__NetBSD__) && \
     !defined(__OpenBSD__)
-	setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen);
+	if (setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
+		return 1;
 #else
 	tcp_proto = getprotobyname("TCP");
-	setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, &optval, optlen);
+	if (setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, &optval, optlen) < 0)
+		return 1;
 #endif
 
 	/* We are nonblocking... */
-	fcntl(fd, F_SETFL, O_NONBLOCK);
+	if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0)
+		return 1;
 
 	return 0;
 }
@@ -356,8 +359,6 @@ interface_to_sa(struct libwebsocket_context *context,
 			break;
 #ifdef LWS_USE_IPV6
 		case AF_INET6:
-			if (rc >= 0)
-				break;
 			memcpy(&addr6->sin6_addr,
 			  &((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr,
 						       sizeof(struct in6_addr));
@@ -424,7 +425,10 @@ lws_plat_open_file(const char* filename, unsigned long* filelen)
 	if (ret < 0)
 		return LWS_INVALID_FILE;
 
-	fstat(ret, &stat_buf);
+	if (fstat(ret, &stat_buf) < 0) {
+		close(ret);
+		return LWS_INVALID_FILE;
+	}
 	*filelen = stat_buf.st_size;
 	return ret;
 }

@@ -88,8 +88,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR, wsi->user_space, NULL, 0);
 
-		free(wsi->u.hdr.ah);
-		wsi->u.hdr.ah = NULL;
+		lws_free_header_table(wsi);
 		goto just_kill_connection;
 	}
 
@@ -296,6 +295,8 @@ just_kill_connection:
 	    wsi->user_space && !wsi->user_space_externally_allocated)
 		free(wsi->user_space);
 
+	/* As a precaution, free the header table in case it lingered: */
+	lws_free_header_table(wsi);
 	free(wsi);
 }
 
@@ -821,11 +822,35 @@ void lws_set_protocol_write_pending(struct libwebsocket_context *context,
 				    struct libwebsocket *wsi,
 				    enum lws_pending_protocol_send pend)
 {
-		lwsl_err("setting pps %d\n", pend);
+	lwsl_info("setting pps %d\n", pend);
 	
 	if (wsi->pps)
 		lwsl_err("pps overwrite\n");
 	wsi->pps = pend;
 	libwebsocket_rx_flow_control(wsi, 0);
 	libwebsocket_callback_on_writable(context, wsi);
+}
+
+LWS_VISIBLE size_t
+lws_get_peer_write_allowance(struct libwebsocket *wsi)
+{
+#ifdef LWS_USE_HTTP2
+	/* only if we are using HTTP2 on this connection */
+	if (wsi->mode != LWS_CONNMODE_HTTP2_SERVING)
+		return -1;
+	/* user is only interested in how much he can send, or that he can't  */
+	if (wsi->u.http2.tx_credit <= 0)
+		return 0;
+	
+	return wsi->u.http2.tx_credit;
+#else
+	return -1;
+#endif
+}
+
+LWS_VISIBLE void
+lws_union_transition(struct libwebsocket *wsi, enum connection_mode mode)
+{
+	memset(&wsi->u, 0, sizeof(wsi->u));
+	wsi->mode = mode;
 }

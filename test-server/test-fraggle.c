@@ -67,6 +67,7 @@ callback_fraggle(struct libwebsocket_context *context,
 	unsigned long sum;
 	unsigned char *p = (unsigned char *)in;
 	unsigned char *bp = &buf[LWS_SEND_BUFFER_PRE_PADDING];
+	int ran;
 
 	switch (reason) {
 
@@ -111,7 +112,7 @@ callback_fraggle(struct libwebsocket_context *context,
 
 		case FRAGSTATE_POST_PAYLOAD_SUM:
 
-			sum = p[0] << 24;
+			sum = ((unsigned int)p[0]) << 24;
 			sum |= p[1] << 16;
 			sum |= p[2] << 8;
 			sum |= p[3];
@@ -135,8 +136,8 @@ callback_fraggle(struct libwebsocket_context *context,
 		switch (psf->state) {
 
 		case FRAGSTATE_START_MESSAGE:
-
-			psf->packets_left = (random() % 1024) + 1;
+			libwebsockets_get_random(context, &ran, sizeof(ran));
+			psf->packets_left = (ran % 1024) + 1;
 			fprintf(stderr, "Spamming %d random fragments\n",
 							     psf->packets_left);
 			psf->sum = 0;
@@ -154,7 +155,8 @@ callback_fraggle(struct libwebsocket_context *context,
 			 * code for rx spill because the rx buffer is full
 			 */
 
-			chunk = (random() % 8000) + 1;
+			libwebsockets_get_random(context, &ran, sizeof(ran));
+			chunk = (ran % 8000) + 1;
 			psf->total_message += chunk;
 
 			libwebsockets_get_random(context, bp, chunk);

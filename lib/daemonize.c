@@ -105,7 +105,7 @@ lws_daemonize(const char *_lock_path)
 		return 1;
 
 	fd = open(_lock_path, O_RDONLY);
-	if (fd > 0) {
+	if (fd >= 0) {
 		n = read(fd, buf, sizeof(buf));
 		close(fd);
 		if (n) {

@@ -61,6 +61,8 @@ int lextable_decode(int pos, char c)
 
 int lws_allocate_header_table(struct libwebsocket *wsi)
 {
+	/* Be sure to free any existing header data to avoid mem leak: */
+	lws_free_header_table(wsi);
 	wsi->u.hdr.ah = malloc(sizeof(*wsi->u.hdr.ah));
 	if (wsi->u.hdr.ah == NULL) {
 		lwsl_err("Out of memory\n");
@@ -72,6 +74,15 @@ int lws_allocate_header_table(struct libwebsocket *wsi)
 
 	return 0;
 }
+
+int lws_free_header_table(struct libwebsocket *wsi)
+{
+    if (wsi->u.hdr.ah) {
+        free(wsi->u.hdr.ah);
+        wsi->u.hdr.ah = NULL;
+    }
+    return 0;
+};
 
 LWS_VISIBLE int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h)
 {
@@ -412,7 +423,8 @@ swallow:
 
 			/* terminal state */
 
-			n = (lextable[wsi->u.hdr.lextable_pos] << 8) | lextable[wsi->u.hdr.lextable_pos + 1];
+			n = ((unsigned int)lextable[wsi->u.hdr.lextable_pos] << 8) |
+					lextable[wsi->u.hdr.lextable_pos + 1];
 
 			lwsl_parser("known hdr %d\n", n);
 			if (n == WSI_TOKEN_GET_URI &&
@@ -792,8 +804,10 @@ handle_first:
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
 
-		if (!wsi->u.ws.rx_user_buffer)
+		if (!wsi->u.ws.rx_user_buffer) {
 			lwsl_err("NULL user buffer...\n");
+			return 1;
+		}
 
 		if (wsi->u.ws.all_zero_nonce)
 			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
