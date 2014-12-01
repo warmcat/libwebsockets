@@ -189,7 +189,7 @@ callback_lws_mirror(struct libwebsocket_context * this,
 		if (match < 1) {
 
 			if (!flood)
-				fprintf(stderr, "%d bytes from %s: req=%ld "
+				fprintf(stderr, "%d bytes from %s: req=%llu "
 				      "time=(unknown)\n", (int)len, address, l);
 			else
 				fprintf(stderr, "\b \b");
@@ -210,7 +210,7 @@ callback_lws_mirror(struct libwebsocket_context * this,
 		global_rx_count++;
 
 		if (!flood)
-			fprintf(stderr, "%d bytes from %s: req=%ld "
+			fprintf(stderr, "%d bytes from %s: req=%llu "
 				"time=%lu.%lums\n", (int)len, address, l,
 			       (iv - psd->ringbuffer[n].issue_timestamp) / 1000,
 			((iv - psd->ringbuffer[n].issue_timestamp) / 100) % 10);
