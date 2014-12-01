@@ -588,10 +588,12 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		if (strcmp(p, context->protocols[n].name) == 0) {
 			wsi->protocol = &context->protocols[n];
 			break;
-		}
-		if (strstr(context->protocols[n].name, p)) {
-			wsi->protocol = &context->protocols[n];
-			break;
+		} else {
+			char* sp = strstr(context->protocols[n].name, p);
+			if (sp && (sp[len] == ',' || sp[len] == '\0')) {
+				wsi->protocol = &context->protocols[n];
+				break;
+			}
 		}
 		n++;
 	}
