@@ -101,14 +101,18 @@ do_rx:
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
+#ifndef LWS_NO_SERVER
 		if (versa)
 			goto do_rx;
+#endif
 		lwsl_notice("Client RX: %s", (char *)in);
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+#ifndef LWS_NO_SERVER
 		if (versa)
 			goto do_tx;
+#endif
 		/* we will send our packet... */
 		pss->len = sprintf((char *)&pss->buf[LWS_SEND_BUFFER_PRE_PADDING], "hello from libwebsockets-test-echo client pid %d index %d\n", getpid(), pss->index++);
 		lwsl_notice("Client TX: %s", &pss->buf[LWS_SEND_BUFFER_PRE_PADDING]);
