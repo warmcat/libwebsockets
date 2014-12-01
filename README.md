@@ -1,3 +1,11 @@
+[![Travis Build Status](https://travis-ci.org/warmcat/libwebsockets.png)](https://travis-ci.org/warmcat/libwebsockets)
+[![Appveyor Build status](https://ci.appveyor.com/api/projects/status/6aq2tpajh1nmy6b3)](https://ci.appveyor.com/project/warmcat/libwebsockets)
+[![Coverity Scan Build Status](https://scan.coverity.com/projects/2506/badge.svg)](https://scan.coverity.com/projects/2506)
+
+
+libwebsockets
+-------------
+
 This is the libwebsockets C library for lightweight websocket clients and
 servers.  For support, visit
 
@@ -9,17 +17,18 @@ and consider joining the project mailing list at
 
 You can get the latest version of the library from git
 
-http://git.libwebsockets.org
-https://github.com/warmcat/libwebsockets
+- http://git.libwebsockets.org
+- https://github.com/warmcat/libwebsockets
 
 for more information:
 
-README.build      - information on building the library
-README.coding     - information for writing code using the library
-README.test-apps  - information about the test apps built with the library
+- [README.build.md](README.build.md) - information on building the library
+- [README.coding.md](README.coding.md) - information for writing code using the library
+- [README.test-apps.md](README.test-apps.md) - information about the test apps built with the library
 
-After 1.3, tags will be signed using a key corresponding to this public key
+After libwebsockets 1.3, tags will be signed using a key corresponding to this public key
 
+```
 -----BEGIN PGP PUBLIC KEY BLOCK-----
 Version: GnuPG v1
 
@@ -72,3 +81,4 @@ cX6tdPyGz3o0aywfJ9dcN6izleSV1gYmXmIoS0cQyezVqTUkT8C12zeRB7mtWsDa
 +AWJGq/WfB7N6pPh8S/XMW4e6ptuUodjiA==
 =HV8t
 -----END PGP PUBLIC KEY BLOCK-----
+```
