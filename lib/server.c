@@ -467,8 +467,6 @@ upgrade_ws:
 			protocol_name[n] = '\0';
 			if (*p)
 				p++;
-			while (*p == ' ')
-				p++;
 
 			lwsl_info("checking %s\n", protocol_name);
 
