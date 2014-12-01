@@ -160,6 +160,9 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 /* you can call lws_get_peer_write_allowance */
 #define LWS_FEATURE_PROTOCOLS_HAS_PEER_WRITE_ALLOWANCE
 
+/* extra parameter introduced in 917f43ab821 */
+#define LWS_FEATURE_SERVE_HTTP_FILE_HAS_OTHER_HEADERS_LEN
+
 enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT = 2,
 	LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME = 4,
