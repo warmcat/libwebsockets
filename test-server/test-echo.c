@@ -184,7 +184,7 @@ int main(int argc, char **argv)
 	struct lws_context_creation_info info;
 	char passphrase[256];
 #ifndef LWS_NO_CLIENT
-	char address[256];
+	char address[256], ads_port[256 + 30];
 	int rate_us = 250000;
 	unsigned int oldus = 0;
 	struct libwebsocket *wsi;
@@ -360,8 +360,12 @@ int main(int argc, char **argv)
 	if (client) {
 		lwsl_notice("Client connecting to %s:%u....\n", address, port);
 		/* we are in client mode */
+		
+		address[sizeof(address) - 1] = '\0';
+		sprintf(ads_port, "%s:%u\n", address, port & 65535);
+		
 		wsi = libwebsocket_client_connect(context, address,
-				port, use_ssl, "/", address,
+				port, use_ssl, "/", ads_port,
 				 "origin", NULL, -1);
 		if (!wsi) {
 			lwsl_err("Client failed to connect to %s:%u\n", address, port);
