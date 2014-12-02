@@ -42,7 +42,7 @@
 #include "../lib/libwebsockets.h"
 
 static volatile int force_exit = 0;
-static int versa;
+static int versa, state;
 
 #define MAX_ECHO_PAYLOAD 1400
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
@@ -95,9 +95,16 @@ do_rx:
 #ifndef LWS_NO_CLIENT
 	/* when the callback is used for client operations --> */
 
+	case LWS_CALLBACK_CLOSED:
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_info("closed\n");
+		state = 0;
+		break;
+
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		lwsl_notice("Client has connected\n");
 		pss->index = 0;
+		state = 2;
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
@@ -220,7 +227,7 @@ int main(int argc, char **argv)
 #endif
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "i:hsp:d:DC:k:P:v"
+		n = getopt_long(argc, argv, "i:hsp:d:DC:k:P:vu:"
 #ifndef LWS_NO_CLIENT
 			"c:r:"
 #endif
@@ -377,30 +384,30 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-#ifndef LWS_NO_CLIENT
-	if (client) {
-		lwsl_notice("Client connecting to %s:%u....\n", address, port);
-		/* we are in client mode */
-		
-		address[sizeof(address) - 1] = '\0';
-		sprintf(ads_port, "%s:%u\n", address, port & 65535);
-		
-		wsi = libwebsocket_client_connect(context, address,
-				port, use_ssl, uri, ads_port,
-				 "origin", NULL, -1);
-		if (!wsi) {
-			lwsl_err("Client failed to connect to %s:%u\n", address, port);
-			goto bail;
-		}
-		lwsl_notice("Client connected to %s:%u\n", address, port);
-	}
-#endif
+
 	signal(SIGINT, sighandler);
 
 	n = 0;
 	while (n >= 0 && !force_exit) {
 #ifndef LWS_NO_CLIENT
 		struct timeval tv;
+
+		if (client && !state) {
+			state = 1;
+			lwsl_notice("Client connecting to %s:%u....\n", address, port);
+			/* we are in client mode */
+		
+			address[sizeof(address) - 1] = '\0';
+			sprintf(ads_port, "%s:%u\n", address, port & 65535);
+		
+			wsi = libwebsocket_client_connect(context, address,
+				port, use_ssl, uri, ads_port,
+				 "origin", NULL, -1);
+			if (!wsi) {
+				lwsl_err("Client failed to connect to %s:%u\n", address, port);
+				goto bail;
+			}
+		}
 
 		if (client && !versa) {
 			gettimeofday(&tv, NULL);
