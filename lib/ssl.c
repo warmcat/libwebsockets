@@ -480,7 +480,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 			    ERR_error_string(SSL_get_error(
 			    new_wsi->ssl, 0), NULL));
 			    libwebsockets_decode_ssl_error();
-			free(new_wsi);
+			lws_free(new_wsi);
 			compatible_close(accept_fd);
 			break;
 		}

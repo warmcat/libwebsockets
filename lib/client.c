@@ -656,15 +656,12 @@ check_extensions:
 
 			wsi->active_extensions_user[
 				wsi->count_active_extensions] =
-					 malloc(ext->per_session_data_size);
+					 lws_zalloc(ext->per_session_data_size);
 			if (wsi->active_extensions_user[
 				wsi->count_active_extensions] == NULL) {
 				lwsl_err("Out of mem\n");
 				goto bail2;
 			}
-			memset(wsi->active_extensions_user[
-				wsi->count_active_extensions], 0,
-						    ext->per_session_data_size);
 			wsi->active_extensions[
 				  wsi->count_active_extensions] = ext;
 
@@ -725,8 +722,7 @@ check_accept:
 
 	/* free up his parsing allocations */
 
-	if (wsi->u.hdr.ah)
-		free(wsi->u.hdr.ah);
+	lws_free(wsi->u.hdr.ah);
 
 	lws_union_transition(wsi, LWS_CONNMODE_WS_CLIENT);
 	wsi->state = WSI_STATE_ESTABLISHED;
@@ -743,7 +739,7 @@ check_accept:
 	if (!n)
 		n = LWS_MAX_SOCKET_IO_BUF;
 	n += LWS_SEND_BUFFER_PRE_PADDING + LWS_SEND_BUFFER_POST_PADDING;
-	wsi->u.ws.rx_user_buffer = malloc(n);
+	wsi->u.ws.rx_user_buffer = lws_malloc(n);
 	if (!wsi->u.ws.rx_user_buffer) {
 		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
 		goto bail2;
@@ -785,7 +781,7 @@ check_accept:
 	return 0;
 
 bail3:
-	free(wsi->u.ws.rx_user_buffer);
+	lws_free(wsi->u.ws.rx_user_buffer);
 	wsi->u.ws.rx_user_buffer = NULL;
 	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
@@ -799,8 +795,7 @@ bail2:
 
 	/* free up his parsing allocations */
 
-	if (wsi->u.hdr.ah)
-		free(wsi->u.hdr.ah);
+	lws_free(wsi->u.hdr.ah);
 
 	libwebsocket_close_and_free_session(context, wsi, close_reason);
 

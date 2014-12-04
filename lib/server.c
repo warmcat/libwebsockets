@@ -102,7 +102,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 		compatible_close(sockfd);
 		return 1;
 	}
-	
+
 	if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
 		lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
 	else
@@ -110,13 +110,12 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 
 	context->listen_port = info->port;
 
-	wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
+	wsi = lws_zalloc(sizeof(struct libwebsocket));
 	if (wsi == NULL) {
 		lwsl_err("Out of mem\n");
 		compatible_close(sockfd);
 		return 1;
 	}
-	memset(wsi, 0, sizeof(struct libwebsocket));
 	wsi->sock = sockfd;
 	wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
 
@@ -128,7 +127,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 
 	listen(sockfd, LWS_SOMAXCONN);
 	lwsl_notice(" Listening on port %d\n", info->port);
-	
+
 	return 0;
 }
 
@@ -296,8 +295,7 @@ got_uri:
 	}
 
 	/* now drop the header info we kept a pointer to */
-	if (wsi->u.http.ah)
-		free(wsi->u.http.ah);
+	lws_free(wsi->u.http.ah);
 	/* not possible to continue to use past here */
 	wsi->u.http.ah = NULL;
 
@@ -323,7 +321,7 @@ got_uri:
 bail_nuke_ah:
 	/* drop the header info */
 	if (wsi->u.hdr.ah) {
-		free(wsi->u.hdr.ah);
+		lws_free(wsi->u.hdr.ah);
 		wsi->u.hdr.ah = NULL;
 	}
 	
@@ -560,7 +558,7 @@ upgrade_ws:
 		if (!n)
 			n = LWS_MAX_SOCKET_IO_BUF;
 		n += LWS_SEND_BUFFER_PRE_PADDING + LWS_SEND_BUFFER_POST_PADDING;
-		wsi->u.ws.rx_user_buffer = malloc(n);
+		wsi->u.ws.rx_user_buffer = lws_malloc(n);
 		if (!wsi->u.ws.rx_user_buffer) {
 			lwsl_err("Out of Mem allocating rx buffer %d\n", n);
 			return 1;
@@ -589,13 +587,12 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 {
 	struct libwebsocket *new_wsi;
 
-	new_wsi = (struct libwebsocket *)malloc(sizeof(struct libwebsocket));
+	new_wsi = lws_zalloc(sizeof(struct libwebsocket));
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
 	}
 
-	memset(new_wsi, 0, sizeof(struct libwebsocket));
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
@@ -606,7 +603,7 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	new_wsi->hdr_parsing_completed = 0;
 
 	if (lws_allocate_header_table(new_wsi)) {
-		free(new_wsi);
+		lws_free(new_wsi);
 		return NULL;
 	}
 

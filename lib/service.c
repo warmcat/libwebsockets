@@ -302,7 +302,7 @@ int lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int le
 
 	/* a new rxflow, buffer it and warn caller */
 	lwsl_info("new rxflow input buffer len %d\n", len - n);
-	wsi->rxflow_buffer = (unsigned char *)malloc(len - n);
+	wsi->rxflow_buffer = lws_malloc(len - n);
 	wsi->rxflow_len = len - n;
 	wsi->rxflow_pos = 0;
 	memcpy(wsi->rxflow_buffer, buf + n, len - n);
@@ -564,7 +564,7 @@ drain:
 		if (draining_flow && wsi->rxflow_buffer &&
 				 wsi->rxflow_pos == wsi->rxflow_len) {
 			lwsl_info("flow buffer: drained\n");
-			free(wsi->rxflow_buffer);
+			lws_free(wsi->rxflow_buffer);
 			wsi->rxflow_buffer = NULL;
 			/* having drained the rxflow buffer, can rearm POLLIN */
 			_libwebsocket_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
