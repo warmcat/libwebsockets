@@ -193,17 +193,16 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 LWS_VISIBLE int
 lws_plat_init_fd_tables(struct libwebsocket_context *context)
 {
-	context->events = (WSAEVENT *)malloc(sizeof(WSAEVENT) *
-							(context->max_fds + 1));
+	context->events = lws_malloc(sizeof(WSAEVENT) * (context->max_fds + 1));
 	if (context->events == NULL) {
 		lwsl_err("Unable to allocate events array for %d connections\n",
 			context->max_fds);
 		return 1;
 	}
-	
+
 	context->fds_count = 0;
 	context->events[0] = WSACreateEvent();
-	
+
 	context->fd_random = 0;
 
 	return 0;
@@ -236,7 +235,7 @@ lws_plat_context_early_destroy(struct libwebsocket_context *context)
 {
 	if (context->events) {
 		WSACloseEvent(context->events[0]);
-		free(context->events);
+		lws_free(context->events);
 	}
 }
 
@@ -331,7 +330,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 	DWORD bufferlen = cnt;
 	BOOL ok = FALSE;
 
-	buffer = malloc(bufferlen);
+	buffer = lws_malloc(bufferlen);
 	if (!buffer) {
 		lwsl_err("Out of memory\n");
 		return NULL;
@@ -366,6 +365,6 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 			ok = FALSE;
 	}
 
-	free(buffer);
+	lws_free(buffer);
 	return ok ? dst : NULL;
 }

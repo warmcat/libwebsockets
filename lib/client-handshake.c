@@ -262,8 +262,8 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	return wsi;
 
 oom4:
-	free(wsi->u.hdr.ah);
-	free(wsi);
+	lws_free(wsi->u.hdr.ah);
+	lws_free(wsi);
 	return NULL;
 
 failed:
@@ -305,11 +305,10 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 {
 	struct libwebsocket *wsi;
 
-	wsi = (struct libwebsocket *) malloc(sizeof(struct libwebsocket));
+	wsi = lws_zalloc(sizeof(struct libwebsocket));
 	if (wsi == NULL)
 		goto bail;
 
-	memset(wsi, 0, sizeof(*wsi));
 	wsi->sock = -1;
 
 	/* -1 means just use latest supported */
@@ -390,9 +389,9 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
        return libwebsocket_client_connect_2(context, wsi);
 
 bail1:
-	free(wsi->u.hdr.ah);
+	lws_free(wsi->u.hdr.ah);
 bail:
-	free(wsi);
+	lws_free(wsi);
 
 	return NULL;
 }

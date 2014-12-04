@@ -210,12 +210,12 @@ just_kill_connection:
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 	
 	if (wsi->rxflow_buffer) {
-		free(wsi->rxflow_buffer);
+		lws_free(wsi->rxflow_buffer);
 		wsi->rxflow_buffer = NULL;
 	}
 
 	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING && wsi->u.hdr.ah) {
-		free(wsi->u.hdr.ah);
+		lws_free(wsi->u.hdr.ah);
 		wsi->u.hdr.ah = NULL;
 	}
 	
@@ -224,18 +224,18 @@ just_kill_connection:
 	     wsi->mode == LWS_CONNMODE_WS_CLIENT)) {
 
 		if (wsi->u.ws.rx_user_buffer) {
-			free(wsi->u.ws.rx_user_buffer);
+			lws_free(wsi->u.ws.rx_user_buffer);
 			wsi->u.ws.rx_user_buffer = NULL;
 		}
 
 		if (wsi->truncated_send_malloc) {
 			/* not going to be completed... nuke it */
-			free(wsi->truncated_send_malloc);
+			lws_free(wsi->truncated_send_malloc);
 			wsi->truncated_send_malloc = NULL;
 			wsi->truncated_send_len = 0;
 		}
 		if (wsi->u.ws.ping_payload_buf) {
-			free(wsi->u.ws.ping_payload_buf);
+			lws_free(wsi->u.ws.ping_payload_buf);
 			wsi->u.ws.ping_payload_buf = NULL;
 			wsi->u.ws.ping_payload_alloc = 0;
 			wsi->u.ws.ping_payload_len = 0;
@@ -265,7 +265,7 @@ just_kill_connection:
 		lwsl_warn("extension destruction failed\n");
 #ifndef LWS_NO_EXTENSIONS
 	for (n = 0; n < wsi->count_active_extensions; n++)
-		free(wsi->active_extensions_user[n]);
+		lws_free(wsi->active_extensions_user[n]);
 #endif
 	/*
 	 * inform all extensions in case they tracked this guy out of band
@@ -293,11 +293,11 @@ just_kill_connection:
 
 	if (wsi->protocol && wsi->protocol->per_session_data_size &&
 	    wsi->user_space && !wsi->user_space_externally_allocated)
-		free(wsi->user_space);
+		lws_free(wsi->user_space);
 
 	/* As a precaution, free the header table in case it lingered: */
 	lws_free_header_table(wsi);
-	free(wsi);
+	lws_free(wsi);
 }
 
 /**
@@ -710,14 +710,11 @@ libwebsocket_ensure_user_space(struct libwebsocket *wsi)
 	/* allocate the per-connection user memory (if any) */
 
 	if (wsi->protocol->per_session_data_size && !wsi->user_space) {
-		wsi->user_space = malloc(
-				  wsi->protocol->per_session_data_size);
+		wsi->user_space = lws_zalloc(wsi->protocol->per_session_data_size);
 		if (wsi->user_space  == NULL) {
 			lwsl_err("Out of memory for conn user space\n");
 			return 1;
 		}
-		memset(wsi->user_space, 0,
-					 wsi->protocol->per_session_data_size);
 	} else
 		lwsl_info("%s: %p protocol pss %u, user_space=%d\n", __func__, wsi, wsi->protocol->per_session_data_size, wsi->user_space);
 	return 0;

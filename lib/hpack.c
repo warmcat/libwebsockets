@@ -278,17 +278,16 @@ static int lws_hpack_add_dynamic_header(struct libwebsocket *wsi, int token, cha
 	dyn = wsi->u.http2.hpack_dyn_table;
 
 	if (!dyn) {
-		dyn = malloc(sizeof(*dyn));
+		dyn = lws_zalloc(sizeof(*dyn));
 		if (!dyn)
 			return 1;
-		memset(dyn, 0, sizeof(*dyn));
 		wsi->u.http2.hpack_dyn_table = dyn;
 		
-		dyn->args = malloc(1024);
+		dyn->args = lws_malloc(1024);
 		if (!dyn->args)
 			goto bail1;
 		dyn->args_length = 1024;
-		dyn->entries = malloc(sizeof(dyn->entries[0]) * 20);
+		dyn->entries = lws_malloc(sizeof(dyn->entries[0]) * 20);
 		if (!dyn->entries)
 			goto bail2;
 		dyn->num_entries = 20;
@@ -312,13 +311,13 @@ static int lws_hpack_add_dynamic_header(struct libwebsocket *wsi, int token, cha
 	dyn->next++;
 	
 	return 0;
-	
+
 bail2:
-	free(dyn->args);
+	lws_free(dyn->args);
 bail1:
-	free(dyn);
+	lws_free(dyn);
 	wsi->u.http2.hpack_dyn_table = NULL;
-		
+
 	return ret;
 }
 
