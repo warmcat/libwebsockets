@@ -1337,6 +1337,12 @@ libwebsocket_read(struct libwebsocket_context *context,
 LWS_VISIBLE LWS_EXTERN struct libwebsocket_extension *libwebsocket_get_internal_extensions();
 #endif
 
+/*
+ * custom allocator support
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_set_allocator(void *(*realloc)(void *ptr, size_t size));
+
 #ifdef __cplusplus
 }
 #endif
