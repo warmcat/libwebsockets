@@ -76,8 +76,7 @@ static void lws_daemon_closing(int sigact)
 	if (getpid() == pid_daemon)
 		if (lock_path) {
 			unlink(lock_path);
-			lws_free(lock_path);
-			lock_path = NULL;
+			lws_free2(lock_path);
 		}
 
 	kill(getpid(), SIGKILL);

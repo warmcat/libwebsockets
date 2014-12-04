@@ -77,10 +77,8 @@ int lws_allocate_header_table(struct libwebsocket *wsi)
 
 int lws_free_header_table(struct libwebsocket *wsi)
 {
-	if (wsi->u.hdr.ah) {
-		lws_free(wsi->u.hdr.ah);
-		wsi->u.hdr.ah = NULL;
-	}
+	lws_free2(wsi->u.hdr.ah);
+	wsi->u.hdr.ah = NULL;
 	return 0;
 };
 
@@ -894,8 +892,7 @@ spill:
 			/* if existing buffer is too small, drop it */
 			if (wsi->u.ws.ping_payload_buf &&
 			    wsi->u.ws.ping_payload_alloc < wsi->u.ws.rx_user_buffer_head) {
-				lws_free(wsi->u.ws.ping_payload_buf);
-				wsi->u.ws.ping_payload_buf = NULL;
+				lws_free2(wsi->u.ws.ping_payload_buf);
 			}
 
 			/* if no buffer, allocate it */

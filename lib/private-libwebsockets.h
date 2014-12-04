@@ -1168,6 +1168,7 @@ lws_zalloc(size_t size);
 
 #define lws_malloc(S)	lws_realloc(NULL, S)
 #define lws_free(P)	lws_realloc(P, 0)
+#define lws_free2(P)	do { lws_realloc(P, 0); (P) = NULL; } while(0)
 
 /*
  * lws_plat_

@@ -781,8 +781,7 @@ check_accept:
 	return 0;
 
 bail3:
-	lws_free(wsi->u.ws.rx_user_buffer);
-	wsi->u.ws.rx_user_buffer = NULL;
+	lws_free2(wsi->u.ws.rx_user_buffer);
 	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
 bail2:

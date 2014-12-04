@@ -295,9 +295,7 @@ got_uri:
 	}
 
 	/* now drop the header info we kept a pointer to */
-	lws_free(wsi->u.http.ah);
-	/* not possible to continue to use past here */
-	wsi->u.http.ah = NULL;
+	lws_free2(wsi->u.http.ah);
 
 	if (n) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
@@ -320,11 +318,8 @@ got_uri:
 
 bail_nuke_ah:
 	/* drop the header info */
-	if (wsi->u.hdr.ah) {
-		lws_free(wsi->u.hdr.ah);
-		wsi->u.hdr.ah = NULL;
-	}
-	
+	lws_free2(wsi->u.hdr.ah);
+
 	return 1;
 }
 
