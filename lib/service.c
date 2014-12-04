@@ -564,8 +564,7 @@ drain:
 		if (draining_flow && wsi->rxflow_buffer &&
 				 wsi->rxflow_pos == wsi->rxflow_len) {
 			lwsl_info("flow buffer: drained\n");
-			lws_free(wsi->rxflow_buffer);
-			wsi->rxflow_buffer = NULL;
+			lws_free2(wsi->rxflow_buffer);
 			/* having drained the rxflow buffer, can rearm POLLIN */
 			_libwebsocket_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
 		}
