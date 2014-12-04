@@ -208,35 +208,26 @@ just_kill_connection:
 	remove_wsi_socket_from_fds(context, wsi);
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
-	
-	if (wsi->rxflow_buffer) {
-		lws_free(wsi->rxflow_buffer);
-		wsi->rxflow_buffer = NULL;
-	}
+
+	lws_free2(wsi->rxflow_buffer);
 
 	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING && wsi->u.hdr.ah) {
-		lws_free(wsi->u.hdr.ah);
-		wsi->u.hdr.ah = NULL;
+		lws_free2(wsi->u.hdr.ah);
 	}
-	
+
 	if ((old_state == WSI_STATE_ESTABLISHED ||
 	     wsi->mode == LWS_CONNMODE_WS_SERVING ||
 	     wsi->mode == LWS_CONNMODE_WS_CLIENT)) {
 
-		if (wsi->u.ws.rx_user_buffer) {
-			lws_free(wsi->u.ws.rx_user_buffer);
-			wsi->u.ws.rx_user_buffer = NULL;
-		}
+		lws_free2(wsi->u.ws.rx_user_buffer);
 
 		if (wsi->truncated_send_malloc) {
 			/* not going to be completed... nuke it */
-			lws_free(wsi->truncated_send_malloc);
-			wsi->truncated_send_malloc = NULL;
+			lws_free2(wsi->truncated_send_malloc);
 			wsi->truncated_send_len = 0;
 		}
 		if (wsi->u.ws.ping_payload_buf) {
-			lws_free(wsi->u.ws.ping_payload_buf);
-			wsi->u.ws.ping_payload_buf = NULL;
+			lws_free2(wsi->u.ws.ping_payload_buf);
 			wsi->u.ws.ping_payload_alloc = 0;
 			wsi->u.ws.ping_payload_len = 0;
 		}
