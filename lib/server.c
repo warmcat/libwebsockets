@@ -417,9 +417,9 @@ upgrade_h2c:
 		       "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 		      "Connection: Upgrade\x0d\x0a"
 		      "Upgrade: h2c\x0d\x0a\x0d\x0a");
-		n = lws_issue_raw(wsi, (unsigned char *)protocol_list,
-					strlen(protocol_list));
-		if (n != strlen(protocol_list)) {
+		n = lws_issue_raw(wsi, (unsigned char *)wsi->protocol->name,
+					strlen(wsi->protocol->name));
+		if (n != strlen(wsi->protocol->name)) {
 			lwsl_debug("http2 switch: ERROR writing to socket\n");
 			return 1;
 		}
