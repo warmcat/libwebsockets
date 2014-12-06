@@ -1158,6 +1158,19 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 #endif
 
 /*
+ * custom allocator
+ */
+LWS_EXTERN void*
+lws_realloc(void *ptr, size_t size);
+
+LWS_EXTERN void*
+lws_zalloc(size_t size);
+
+#define lws_malloc(S)	lws_realloc(NULL, S)
+#define lws_free(P)	lws_realloc(P, 0)
+#define lws_free2(P)	do { lws_realloc(P, 0); (P) = NULL; } while(0)
+
+/*
  * lws_plat_
  */
 LWS_EXTERN void

@@ -42,6 +42,7 @@
 #include "../lib/libwebsockets.h"
 
 static volatile int force_exit = 0;
+static int versa, state;
 
 #define MAX_ECHO_PAYLOAD 1400
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
@@ -67,6 +68,7 @@ callback_echo(struct libwebsocket_context *context,
 	/* when the callback is used for server operations --> */
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
+do_tx:
 		n = libwebsocket_write(wsi, &pss->buf[LWS_SEND_BUFFER_PRE_PADDING], pss->len, LWS_WRITE_TEXT);
 		if (n < 0) {
 			lwsl_err("ERROR %d writing to socket, hanging up\n", n);
@@ -79,6 +81,7 @@ callback_echo(struct libwebsocket_context *context,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
+do_rx:
 		if (len > MAX_ECHO_PAYLOAD) {
 			lwsl_err("Server received packet bigger than %u, hanging up\n", MAX_ECHO_PAYLOAD);
 			return 1;
@@ -92,16 +95,31 @@ callback_echo(struct libwebsocket_context *context,
 #ifndef LWS_NO_CLIENT
 	/* when the callback is used for client operations --> */
 
+	case LWS_CALLBACK_CLOSED:
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_info("closed\n");
+		state = 0;
+		break;
+
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		lwsl_notice("Client has connected\n");
 		pss->index = 0;
+		state = 2;
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
+#ifndef LWS_NO_SERVER
+		if (versa)
+			goto do_rx;
+#endif
 		lwsl_notice("Client RX: %s", (char *)in);
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+#ifndef LWS_NO_SERVER
+		if (versa)
+			goto do_tx;
+#endif
 		/* we will send our packet... */
 		pss->len = sprintf((char *)&pss->buf[LWS_SEND_BUFFER_PRE_PADDING], "hello from libwebsockets-test-echo client pid %d index %d\n", getpid(), pss->index++);
 		lwsl_notice("Client TX: %s", &pss->buf[LWS_SEND_BUFFER_PRE_PADDING]);
@@ -157,6 +175,8 @@ static struct option options[] = {
 	{ "ratems",	required_argument,	NULL, 'r' },
 #endif
 	{ "ssl",	no_argument,		NULL, 's' },
+	{ "versa",	no_argument,		NULL, 'v' },
+	{ "uri",	required_argument,	NULL, 'u' },
 	{ "passphrase", required_argument,	NULL, 'P' },
 	{ "interface",  required_argument,	NULL, 'i' },
 #ifndef LWS_NO_DAEMONIZE
@@ -183,6 +203,7 @@ int main(int argc, char **argv)
 	int listen_port = 80;
 	struct lws_context_creation_info info;
 	char passphrase[256];
+	char uri[256] = "/";
 #ifndef LWS_NO_CLIENT
 	char address[256], ads_port[256 + 30];
 	int rate_us = 250000;
@@ -206,7 +227,7 @@ int main(int argc, char **argv)
 #endif
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "i:hsp:d:DC:k:P:"
+		n = getopt_long(argc, argv, "i:hsp:d:DC:k:P:vu:"
 #ifndef LWS_NO_CLIENT
 			"c:r:"
 #endif
@@ -228,7 +249,11 @@ int main(int argc, char **argv)
 			strncpy(ssl_key, optarg, sizeof(ssl_key));
 			ssl_key[sizeof(ssl_key) - 1] = '\0';
 			break;
-
+		case 'u':
+			strncpy(uri, optarg, sizeof(uri));
+			uri[sizeof(uri) - 1] = '\0';
+			break;
+			
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
@@ -256,6 +281,9 @@ int main(int argc, char **argv)
 			break;
 		case 'p':
 			port = atoi(optarg);
+			break;
+		case 'v':
+			versa = 1;
 			break;
 		case 'i':
 			strncpy(interface_name, optarg, sizeof interface_name);
@@ -356,24 +384,7 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-#ifndef LWS_NO_CLIENT
-	if (client) {
-		lwsl_notice("Client connecting to %s:%u....\n", address, port);
-		/* we are in client mode */
-		
-		address[sizeof(address) - 1] = '\0';
-		sprintf(ads_port, "%s:%u\n", address, port & 65535);
-		
-		wsi = libwebsocket_client_connect(context, address,
-				port, use_ssl, "/", ads_port,
-				 "origin", NULL, -1);
-		if (!wsi) {
-			lwsl_err("Client failed to connect to %s:%u\n", address, port);
-			goto bail;
-		}
-		lwsl_notice("Client connected to %s:%u\n", address, port);
-	}
-#endif
+
 	signal(SIGINT, sighandler);
 
 	n = 0;
@@ -381,7 +392,24 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_CLIENT
 		struct timeval tv;
 
-		if (client) {
+		if (client && !state) {
+			state = 1;
+			lwsl_notice("Client connecting to %s:%u....\n", address, port);
+			/* we are in client mode */
+		
+			address[sizeof(address) - 1] = '\0';
+			sprintf(ads_port, "%s:%u\n", address, port & 65535);
+		
+			wsi = libwebsocket_client_connect(context, address,
+				port, use_ssl, uri, ads_port,
+				 "origin", NULL, -1);
+			if (!wsi) {
+				lwsl_err("Client failed to connect to %s:%u\n", address, port);
+				goto bail;
+			}
+		}
+
+		if (client && !versa) {
 			gettimeofday(&tv, NULL);
 
 			if (((unsigned int)tv.tv_usec - oldus) > (unsigned int)rate_us) {

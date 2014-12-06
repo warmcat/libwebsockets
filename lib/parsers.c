@@ -63,7 +63,7 @@ int lws_allocate_header_table(struct libwebsocket *wsi)
 {
 	/* Be sure to free any existing header data to avoid mem leak: */
 	lws_free_header_table(wsi);
-	wsi->u.hdr.ah = malloc(sizeof(*wsi->u.hdr.ah));
+	wsi->u.hdr.ah = lws_malloc(sizeof(*wsi->u.hdr.ah));
 	if (wsi->u.hdr.ah == NULL) {
 		lwsl_err("Out of memory\n");
 		return -1;
@@ -77,11 +77,9 @@ int lws_allocate_header_table(struct libwebsocket *wsi)
 
 int lws_free_header_table(struct libwebsocket *wsi)
 {
-    if (wsi->u.hdr.ah) {
-        free(wsi->u.hdr.ah);
-        wsi->u.hdr.ah = NULL;
-    }
-    return 0;
+	lws_free2(wsi->u.hdr.ah);
+	wsi->u.hdr.ah = NULL;
+	return 0;
 };
 
 LWS_VISIBLE int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h)
@@ -894,13 +892,13 @@ spill:
 			/* if existing buffer is too small, drop it */
 			if (wsi->u.ws.ping_payload_buf &&
 			    wsi->u.ws.ping_payload_alloc < wsi->u.ws.rx_user_buffer_head) {
-				free(wsi->u.ws.ping_payload_buf);
-				wsi->u.ws.ping_payload_buf = NULL;
+				lws_free2(wsi->u.ws.ping_payload_buf);
 			}
 
 			/* if no buffer, allocate it */
 			if (!wsi->u.ws.ping_payload_buf) {
-				wsi->u.ws.ping_payload_buf = malloc(wsi->u.ws.rx_user_buffer_head + LWS_SEND_BUFFER_PRE_PADDING);
+				wsi->u.ws.ping_payload_buf = lws_malloc(wsi->u.ws.rx_user_buffer_head
+									+ LWS_SEND_BUFFER_PRE_PADDING);
 				wsi->u.ws.ping_payload_alloc = wsi->u.ws.rx_user_buffer_head;
 			}
 			

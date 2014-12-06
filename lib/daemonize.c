@@ -76,8 +76,7 @@ static void lws_daemon_closing(int sigact)
 	if (getpid() == pid_daemon)
 		if (lock_path) {
 			unlink(lock_path);
-			free(lock_path);
-			lock_path = NULL;
+			lws_free2(lock_path);
 		}
 
 	kill(getpid(), SIGKILL);
@@ -124,7 +123,7 @@ lws_daemonize(const char *_lock_path)
 	}
 
 	n = strlen(_lock_path) + 1;
-	lock_path = malloc(n);
+	lock_path = lws_malloc(n);
 	if (!lock_path) {
 		fprintf(stderr, "Out of mem in lws_daemonize\n");
 		return 1;

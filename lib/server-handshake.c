@@ -124,15 +124,12 @@ lws_extension_server_handshake(struct libwebsocket_context *context,
 
 			wsi->active_extensions_user[
 				wsi->count_active_extensions] =
-				     malloc(ext->per_session_data_size);
+				     lws_zalloc(ext->per_session_data_size);
 			if (wsi->active_extensions_user[
 			     wsi->count_active_extensions] == NULL) {
 				lwsl_err("Out of mem\n");
 				return 1;
 			}
-			memset(wsi->active_extensions_user[
-				wsi->count_active_extensions], 0,
-					    ext->per_session_data_size);
 
 			wsi->active_extensions[
 				  wsi->count_active_extensions] = ext;
@@ -154,7 +151,7 @@ lws_extension_server_handshake(struct libwebsocket_context *context,
 
 		n = 0;
 	}
-	
+
 	return 0;
 }
 #endif

@@ -101,13 +101,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	if (lws_plat_context_early_init())
 		return NULL;
 
-	context = (struct libwebsocket_context *)
-				malloc(sizeof(struct libwebsocket_context));
+	context = lws_zalloc(sizeof(struct libwebsocket_context));
 	if (!context) {
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
-	memset(context, 0, sizeof(*context));
 
 	if (pid_daemon) {
 		context->started_with_parent = pid_daemon;
@@ -138,33 +136,29 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 					sizeof(struct libwebsocket *)) *
 							     context->max_fds));
 
-	context->fds = (struct libwebsocket_pollfd *)
-				malloc(sizeof(struct libwebsocket_pollfd) *
-							      context->max_fds);
+	context->fds = lws_zalloc(sizeof(struct libwebsocket_pollfd) *
+				  context->max_fds);
 	if (context->fds == NULL) {
 		lwsl_err("Unable to allocate fds array for %d connections\n",
 							      context->max_fds);
-		free(context);
+		lws_free(context);
 		return NULL;
 	}
 
-	context->lws_lookup = (struct libwebsocket **)
-		      malloc(sizeof(struct libwebsocket *) * context->max_fds);
+	context->lws_lookup = lws_zalloc(sizeof(struct libwebsocket *) * context->max_fds);
 	if (context->lws_lookup == NULL) {
 		lwsl_err(
 		  "Unable to allocate lws_lookup array for %d connections\n",
 							      context->max_fds);
-		free(context->fds);
-		free(context);
+		lws_free(context->fds);
+		lws_free(context);
 		return NULL;
 	}
-	memset(context->lws_lookup, 0, sizeof(struct libwebsocket *) *
-							context->max_fds);
 
 	if (lws_plat_init_fd_tables(context)) {
-		free(context->lws_lookup);
-		free(context->fds);
-		free(context);
+		lws_free(context->lws_lookup);
+		lws_free(context->fds);
+		lws_free(context);
 		return NULL;
 	}
 
@@ -334,12 +328,10 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 
 	lws_ssl_context_destroy(context);
 
-	if (context->fds)
-		free(context->fds);
-	if (context->lws_lookup)
-		free(context->lws_lookup);
+	lws_free(context->fds);
+	lws_free(context->lws_lookup);
 
 	lws_plat_context_late_destroy(context);
 
-	free(context);
+	lws_free(context);
 }
