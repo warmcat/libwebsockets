@@ -1,6 +1,6 @@
 [![Travis Build Status](https://travis-ci.org/warmcat/libwebsockets.png)](https://travis-ci.org/warmcat/libwebsockets)
 [![Appveyor Build status](https://ci.appveyor.com/api/projects/status/baadj9gkpxhi5rhy)](https://ci.appveyor.com/project/warmcat/libwebsockets)
-[![Coverity Scan Build Status](https://scan.coverity.com/projects/2506/badge.svg)](https://scan.coverity.com/projects/2506)
+[![Coverity Scan Build Status](https://scan.coverity.com/projects/3576/badge.svg)](https://scan.coverity.com/projects/3576)
 
 libwebsockets
 -------------
