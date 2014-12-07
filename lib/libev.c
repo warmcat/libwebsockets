@@ -33,7 +33,7 @@ static void
 libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 {
 	struct libwebsocket_pollfd eventfd;
-	struct lws_io_watcher *lws_io = (struct lws_io_watcher *)watcher;
+	struct lws_io_watcher *lws_io = container_of(watcher, struct lws_io_watcher, watcher);
 	struct libwebsocket_context *context = lws_io->context;
 
 	if (revents & EV_ERROR)
@@ -65,8 +65,8 @@ libwebsocket_initloop(
 	int status = 0;
 	int backend;
 	const char * backend_name;
-	struct ev_io *w_accept = (ev_io *)&context->w_accept;
-	struct ev_signal *w_sigint = (ev_signal *)&context->w_sigint;
+	struct ev_io *w_accept = &context->w_accept.watcher;
+	struct ev_signal *w_sigint = &context->w_sigint.watcher;
 
 	if (!loop)
 		loop = ev_default_loop(0);
