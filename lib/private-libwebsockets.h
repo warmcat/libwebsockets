@@ -209,6 +209,12 @@ typedef unsigned __int64 u_int64_t;
 #include <endian.h>
 #endif
 
+#include <stddef.h>
+
+#ifndef container_of
+#define container_of(P,T,M)	((T *)((char *)(P) - offsetof(T, M)))
+#endif
+
 #if defined(__QNX__)
 	#include <gulliver.h>
 	#if defined(__LITTLEENDIAN__)
