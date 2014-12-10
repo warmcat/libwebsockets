@@ -562,13 +562,13 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 
 	while (pc && *pc && !okay) {
 		if (!strncmp(pc, p, len) &&
-					  (pc[len] == ',' || pc[len] == '\0')) {
+		    (pc[len] == ',' || pc[len] == '\0')) {
 			okay = 1;
 			continue;
 		}
-		while (*pc && *pc != ',')
-			pc++;
-		while (*pc && *pc != ' ')
+		while (*pc && *pc++ != ',')
+			;
+		while (*pc && *pc == ' ')
 			pc++;
 	}
 
