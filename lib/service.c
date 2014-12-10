@@ -55,7 +55,6 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 #endif
 	int ret;
 	int m;
-	int handled = 0;
 
 	/* pending truncated sends have uber priority */
 
@@ -112,7 +111,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 	m = lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_IS_WRITEABLE,
 								       NULL, 0);
 #ifndef LWS_NO_EXTENSIONS
-	if (!wsi->extension_data_pending || handled == 2)
+	if (!wsi->extension_data_pending)
 		goto user_service;
 #endif
 	/*
