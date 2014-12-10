@@ -506,16 +506,3 @@ struct libwebsocket * lws_http2_get_nth_child(struct libwebsocket *wsi, int n)
 
 	return wsi;
 }
-#if 0
-struct libwebsocket * lws_http2_get_next_waiting_child(struct libwebsocket *wsi)
-{
-	struct libwebsocket *wsi_child = wsi, *wsi2;
-
-	do {
-		wsi2 = lws_http2_get_nth_child(wsi_child, wsi_child->round_robin_POLLOUT);
-		if (wsi2 == NULL) {
-			wsi_child->round_robin = 0;
-		}
-	}
-}
-#endif
