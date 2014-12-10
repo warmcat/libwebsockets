@@ -58,6 +58,7 @@
 #endif
 
 #include "getifaddrs.h"
+#include "private-libwebsockets.h"
 
 static int
 getifaddrs2(struct ifaddrs **ifap,

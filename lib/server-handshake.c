@@ -214,10 +214,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL)) {
 		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Protocol: ");
-		n = lws_hdr_copy(wsi, p, 128, WSI_TOKEN_PROTOCOL);
-		if (n < 0)
-			goto bail;
-		p += n;
+		LWS_CPYAPP(p, wsi->protocol->name);
 	}
 
 #ifndef LWS_NO_EXTENSIONS
