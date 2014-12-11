@@ -925,6 +925,9 @@ typedef int (extension_callback_function)(struct libwebsocket_context *context,
  *		code that acts differently according to the version can do so by
  *		switch (wsi->protocol->id), user code might use some bits as
  *		capability flags based on selected protocol version, etc.
+ * @user:	User provided context data at the protocol level.
+ *		Accessible via libwebsockets_get_protocol(wsi)->user
+ *		This should not be confused with wsi->user, it is not the same.
  * @owning_server:	the server init call fills in this opaque pointer when
  *		registering this protocol with the server.
  * @protocol_index: which protocol we are starting from zero
@@ -944,6 +947,7 @@ struct libwebsocket_protocols {
 	size_t per_session_data_size;
 	size_t rx_buffer_size;
 	unsigned int id;
+	void *user;
 
 	/*
 	 * below are filled in on server init and can be left uninitialized,
