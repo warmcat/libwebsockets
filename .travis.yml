@@ -18,8 +18,7 @@ os:
   - osx
 language: c
 install:
-  - sudo apt-get update -qq && sudo apt-get install -y -qq valgrind
-  - if [ x$LWS_METHOD == xlibev ] && [ "$COVERITY_SCAN_BRANCH" != 1 ]; then sudo apt-get install -y -qq libev-dev; fi
+  - ./travis_install.sh
 script:
   - if [ "$COVERITY_SCAN_BRANCH" != 1 ]; then mkdir build && cd build && cmake $CMAKE_ARGS .. && cmake --build .; fi
 addons:
