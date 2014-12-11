@@ -23,10 +23,8 @@
 #define LIBWEBSOCKET_H_3060898B846849FF9F88F5DB59B5950C
 
 #ifdef __cplusplus
-extern "C" {
-#if !defined(__clang__)
 #include <cstddef>
-#endif
+extern "C" {
 #endif
 	
 #ifdef CMAKE_BUILD
