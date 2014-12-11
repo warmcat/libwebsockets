@@ -730,20 +730,26 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 }
 
 
-LWS_VISIBLE void _lws_log(int filter, const char *format, ...)
+LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 {
 	char buf[256];
-	va_list ap;
 
 	if (!(log_level & filter))
 		return;
 
-	va_start(ap, format);
-	vsnprintf(buf, sizeof(buf), format, ap);
+	vsnprintf(buf, sizeof(buf), format, vl);
 	buf[sizeof(buf) - 1] = '\0';
-	va_end(ap);
 
 	lwsl_emit(filter, buf);
+}
+
+LWS_VISIBLE void _lws_log(int filter, const char *format, ...)
+{
+	va_list ap;
+
+	va_start(ap, format);
+	_lws_logv(filter, format, ap);
+	va_end(ap);
 }
 
 /**
