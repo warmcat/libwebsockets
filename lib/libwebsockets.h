@@ -24,7 +24,9 @@
 
 #ifdef __cplusplus
 extern "C" {
+#if !defined(__clang__)
 #include <cstddef>
+#endif
 #endif
 	
 #ifdef CMAKE_BUILD
