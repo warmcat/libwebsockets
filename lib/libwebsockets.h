@@ -23,8 +23,8 @@
 #define LIBWEBSOCKET_H_3060898B846849FF9F88F5DB59B5950C
 
 #ifdef __cplusplus
-extern "C" {
 #include <cstddef>
+extern "C" {
 #endif
 	
 #ifdef CMAKE_BUILD
@@ -114,6 +114,7 @@ enum lws_log_levels {
 };
 
 LWS_VISIBLE LWS_EXTERN void _lws_log(int filter, const char *format, ...);
+LWS_VISIBLE LWS_EXTERN void _lws_logv(int filter, const char *format, va_list vl);
 
 /* notice, warn and log are always compiled in */
 #define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
@@ -922,6 +923,9 @@ typedef int (extension_callback_function)(struct libwebsocket_context *context,
  *		code that acts differently according to the version can do so by
  *		switch (wsi->protocol->id), user code might use some bits as
  *		capability flags based on selected protocol version, etc.
+ * @user:	User provided context data at the protocol level.
+ *		Accessible via libwebsockets_get_protocol(wsi)->user
+ *		This should not be confused with wsi->user, it is not the same.
  * @owning_server:	the server init call fills in this opaque pointer when
  *		registering this protocol with the server.
  * @protocol_index: which protocol we are starting from zero
@@ -941,6 +945,7 @@ struct libwebsocket_protocols {
 	size_t per_session_data_size;
 	size_t rx_buffer_size;
 	unsigned int id;
+	void *user;
 
 	/*
 	 * below are filled in on server init and can be left uninitialized,
