@@ -449,7 +449,7 @@ swallow:
 				n = WSI_TOKEN_ORIGIN;
 
 			wsi->u.hdr.parser_state = (enum lws_token_indexes)
-							(WSI_TOKEN_GET_URI + n);
+							(WSI_TOKEN_PROXY + n);
 
 			if (context->token_limits)
 				wsi->u.hdr.current_token_limit =
