@@ -1,6 +1,7 @@
 /* set of parsable strings -- ALL LOWER CASE */
 
 static const char *set[] = {
+	"proxy ",
 	"get ",
 	"post ",
 	"options ",

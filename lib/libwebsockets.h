@@ -309,6 +309,7 @@ struct lws_tokens {
  */
 
 enum lws_token_indexes {
+	WSI_TOKEN_PROXY,
 	WSI_TOKEN_GET_URI,
 	WSI_TOKEN_POST_URI,
 	WSI_TOKEN_OPTIONS_URI,
