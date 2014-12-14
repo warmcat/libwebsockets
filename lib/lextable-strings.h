@@ -79,6 +79,7 @@ static const char *set[] = {
 	"vary:",
 	"via:",
 	"www-authenticate:",
+	"proxy ",
 
 	"", /* not matchable */
 
