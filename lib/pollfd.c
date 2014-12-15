@@ -131,15 +131,18 @@ do_ext:
 int
 lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 {
-	if (!wsi || !wsi->protocol || wsi->position_in_fds_table < 0)
-		return 1;
-	struct libwebsocket_context *context = wsi->protocol->owning_server;
-	if (!context)
-		return 1;
+	struct libwebsocket_context *context;
 	int tid;
 	int sampled_tid;
 	struct libwebsocket_pollfd *pfd;
 	struct libwebsocket_pollargs pa;
+
+	if (!wsi || !wsi->protocol || wsi->position_in_fds_table < 0)
+		return 1;
+	
+	context = wsi->protocol->owning_server;
+	if (!context)
+		return 1;
 
 	pfd = &context->fds[wsi->position_in_fds_table];
 	pa.fd = wsi->sock;
