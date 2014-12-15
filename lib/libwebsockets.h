@@ -196,6 +196,7 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
+	LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
 	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 	LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 	LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
@@ -699,6 +700,15 @@ struct libwebsocket_extension;
  *		verify the validity of certificates returned by clients.  @user
  *		is the server's OpenSSL SSL_CTX*
  *
+ *  LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY: if configured for
+ *		including OpenSSL support but no private key file has been specified
+ *		(ssl_private_key_filepath is NULL), this callback is called to
+ *		allow the user to set the private key directly via libopenssl
+ *		and perform further operations if required; this might be useful
+ *		in situations where the private key is not directly accessible by
+ *		the OS, for example if it is stored on a smartcard
+ *		@user is the server's OpenSSL SSL_CTX*
+ *
  *	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION: if the
  *		libwebsockets context was created with the option
  *		LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT, then this
@@ -1001,8 +1011,10 @@ struct libwebsocket_extension {
  * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
  *			to listen using SSL, set to the filepath to fetch the
  *			server cert from, otherwise NULL for unencrypted
- * @ssl_private_key_filepath: filepath to private key if wanting SSL mode,
- *			else ignored
+ * @ssl_private_key_filepath: filepath to private key if wanting SSL mode;
+ *			if this is set to NULL but sll_cert_filepath is set, the
+ *			OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called to allow
+ *			setting of the private key directly via openSSL library calls
  * @ssl_ca_filepath: CA certificate filepath or NULL
  * @ssl_cipher_list:	List of valid ciphers to use (eg,
  * 			"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
