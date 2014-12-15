@@ -84,8 +84,8 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 
-		context->use_ssl = info->ssl_cert_filepath != NULL &&
-					 info->ssl_private_key_filepath != NULL;
+		context->use_ssl = info->ssl_cert_filepath != NULL;
+
 #ifdef USE_CYASSL
 		lwsl_notice(" Compiled with CYASSL support\n");
 #else
@@ -190,18 +190,29 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			return 1;
 		}
 		lws_ssl_bind_passphrase(context->ssl_ctx, info);
-		/* set the private key from KeyFile */
-		if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
-			     info->ssl_private_key_filepath,
+
+		if (info->ssl_private_key_filepath!=NULL) {
+			/* set the private key from KeyFile */
+			if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
+				     info->ssl_private_key_filepath,
 						       SSL_FILETYPE_PEM) != 1) {
-			error = ERR_get_error();
-			lwsl_err("ssl problem getting key '%s' %lu: %s\n",
-				info->ssl_private_key_filepath,
-					error,
-					ERR_error_string(error,
-					      (char *)context->service_buffer));
-			return 1;
+				error = ERR_get_error();
+				lwsl_err("ssl problem getting key '%s' %lu: %s\n",
+					info->ssl_private_key_filepath,
+						error,
+						ERR_error_string(error,
+						      (char *)context->service_buffer));
+				return 1;
+			}
 		}
+		else {
+			if (context->protocols[0].callback(context, NULL,
+				LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
+						context->ssl_ctx, NULL, 0) != 0)
+				lwsl_err("ssl private key not set\n");
+				return 1;
+		}
+
 		/* verify private key */
 		if (!SSL_CTX_check_private_key(context->ssl_ctx)) {
 			lwsl_err("Private SSL key doesn't match cert\n");
