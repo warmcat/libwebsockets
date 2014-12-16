@@ -24,6 +24,7 @@
 
 #ifdef __cplusplus
 #include <cstddef>
+#include <cstdarg>
 extern "C" {
 #endif
 	
