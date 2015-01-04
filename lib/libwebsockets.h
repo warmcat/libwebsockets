@@ -26,6 +26,8 @@
 #include <cstddef>
 #include <cstdarg>
 extern "C" {
+#else
+#include <stdarg.h>
 #endif
 	
 #ifdef CMAKE_BUILD
