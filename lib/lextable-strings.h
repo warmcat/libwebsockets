@@ -84,6 +84,8 @@ static const char *set[] = {
 	"www-authenticate:",
 	"proxy ",
 
+    "uri-args:",
+
 	"", /* not matchable */
 
 };
