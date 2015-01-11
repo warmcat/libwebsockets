@@ -3,6 +3,9 @@
 static const char *set[] = {
 	"get ",
 	"post ",
+	"patch",
+	"put",
+	"delete",
 	"options ",
 	"host:",
 	"connection:",
