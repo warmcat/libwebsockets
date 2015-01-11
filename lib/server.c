@@ -197,6 +197,9 @@ int lws_http_action(struct libwebsocket_context *context,
 	}
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) &&
+		lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) &&
+		lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI) &&
+		lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI) &&
 		lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
 		lwsl_warn("GET and POST methods?\n");
 		goto bail_nuke_ah;
