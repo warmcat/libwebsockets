@@ -202,7 +202,15 @@ int libwebsocket_parse(
 		struct libwebsocket_context *context,
 		struct libwebsocket *wsi, unsigned char c)
 {
-	int n;
+	static const unsigned char methods[] = {
+		WSI_TOKEN_GET_URI,
+		WSI_TOKEN_POST_URI,
+		WSI_TOKEN_OPTIONS_URI,
+		WSI_TOKEN_PUT_URI,
+		WSI_TOKEN_PATCH_URI,
+		WSI_TOKEN_DELETE_URI,
+	};
+	int n, m;
 
 	switch (wsi->u.hdr.parser_state) {
 	default:
@@ -215,9 +223,11 @@ int libwebsocket_parse(
 				      wsi->u.hdr.parser_state]].len && c == ' ')
 			break;
 
-		if ((wsi->u.hdr.parser_state != WSI_TOKEN_GET_URI) &&
-			(wsi->u.hdr.parser_state != WSI_TOKEN_POST_URI) &&
-			(wsi->u.hdr.parser_state != WSI_TOKEN_OPTIONS_URI))
+		for (m = 0; m < ARRAY_SIZE(methods); m++)
+			if (wsi->u.hdr.parser_state == methods[m])
+				break;
+		if (m == ARRAY_SIZE(methods))
+			/* it was not any of the methods */
 			goto check_eol;
 
 		/* special URI processing... end at space */
@@ -398,17 +408,15 @@ swallow:
 
 		if (wsi->u.hdr.lextable_pos < 0) {
 			/* this is not a header we know about */
-			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI] ||
-				wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI] ||
-				wsi->u.hdr.ah->frag_index[WSI_TOKEN_OPTIONS_URI] ||
-				wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP]) {
-				/*
-				 * already had the method, no idea what
-				 * this crap is, ignore
-				 */
-				wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
-				break;
-			}
+			for (m = 0; m < ARRAY_SIZE(methods); m++)
+				if (wsi->u.hdr.ah->frag_index[methods[m]]) {
+					/*
+					 * already had the method, no idea what
+					 * this crap is, ignore
+					 */
+					wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
+					break;
+				}
 			/*
 			 * hm it's an unknown http method in fact,
 			 * treat as dangerous
@@ -418,28 +426,19 @@ swallow:
 			return -1;
 		}
 		if (lextable[wsi->u.hdr.lextable_pos] < FAIL_CHAR) {
-
 			/* terminal state */
 
 			n = ((unsigned int)lextable[wsi->u.hdr.lextable_pos] << 8) |
 					lextable[wsi->u.hdr.lextable_pos + 1];
 
 			lwsl_parser("known hdr %d\n", n);
-			if (n == WSI_TOKEN_GET_URI &&
-				wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI]) {
-				lwsl_warn("Duplicated GET\n");
-				return -1;
-			}
-			if (n == WSI_TOKEN_POST_URI &&
-				wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI]) {
-				lwsl_warn("Duplicated POST\n");
-				return -1;
-			}
-			if (n == WSI_TOKEN_OPTIONS_URI &&
-				wsi->u.hdr.ah->frag_index[WSI_TOKEN_OPTIONS_URI]) {
-				lwsl_warn("Duplicated OPTIONS\n");
-				return -1;
-			}
+			for (m = 0; m < ARRAY_SIZE(methods); m++)
+				if (n == methods[m] &&
+						wsi->u.hdr.ah->frag_index[
+							methods[m]]) {
+					lwsl_warn("Duplicated method\n");
+					return -1;
+				}
 
 			/*
 			 * WSORIGIN is protocol equiv to ORIGIN,

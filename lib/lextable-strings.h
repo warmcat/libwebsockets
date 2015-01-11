@@ -80,6 +80,10 @@ static const char *set[] = {
 	"via:",
 	"www-authenticate:",
 	"proxy ",
+	
+	"patch",
+	"put",
+	"delete",
 
 	"", /* not matchable */
 

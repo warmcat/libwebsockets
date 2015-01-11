@@ -389,8 +389,12 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP_WWW_AUTHENTICATE,
 	WSI_TOKEN_PROXY,
 	
+	WSI_TOKEN_PATCH_URI,
+	WSI_TOKEN_PUT_URI,
+	WSI_TOKEN_DELETE_URI,
+	
 	WSI_TOKEN_HTTP_URI_ARGS,
-
+	
 	/* use token storage to stash these */
 
 	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
