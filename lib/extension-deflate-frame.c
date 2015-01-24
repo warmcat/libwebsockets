@@ -248,7 +248,7 @@ bail:
 			}
 			lwsl_debug(
 				"deflate-frame ext TX did realloc to %ld\n",
-					conn->buf_in_length);
+					conn->buf_out_length);
 
 			conn->zs_out.next_out = (conn->buf_out +
 				     LWS_SEND_BUFFER_PRE_PADDING + len_so_far);
