@@ -14,8 +14,8 @@ environment:
     - LWS_METHOD: nossl
       CMAKE_ARGS: -DLWS_WITH_SSL=OFF
 install:
-  - appveyor DownloadFile http://slproweb.com/download/Win32OpenSSL-1_0_1j.exe
-  - Win32OpenSSL-1_0_1j.exe /silent /verysilent /sp- /suppressmsgboxes
+  - appveyor DownloadFile http://slproweb.com/download/Win32OpenSSL-1_0_1L.exe
+  - Win32OpenSSL-1_0_1L.exe /silent /verysilent /sp- /suppressmsgboxes
 build:
 
 build_script:
