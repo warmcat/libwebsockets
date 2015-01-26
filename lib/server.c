@@ -185,6 +185,9 @@ int lws_http_action(struct libwebsocket_context *context,
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) &&
 		!lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) &&
+		!lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI) &&
+		!lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) &&
+		!lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI) &&
 #ifdef LWS_USE_HTTP2
 		!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH) &&
 #endif
@@ -194,6 +197,9 @@ int lws_http_action(struct libwebsocket_context *context,
 	}
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) &&
+		lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) &&
+		lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI) &&
+		lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI) &&
 		lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
 		lwsl_warn("GET and POST methods?\n");
 		goto bail_nuke_ah;
@@ -226,13 +232,34 @@ int lws_http_action(struct libwebsocket_context *context,
 		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI);
 		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI);
 		lwsl_info("HTTP GET request for '%s'\n", uri_ptr);
+		goto got_uri;
+	}
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI)) {
+		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PATCH_URI);
+		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI);
+		lwsl_info("HTTP PATCH request for '%s'\n", uri_ptr);
+		goto got_uri;
+	}
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI)) {
+		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PUT_URI);
+		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI);
+		lwsl_info("HTTP PUT request for '%s'\n", uri_ptr);
+		goto got_uri;
+	}
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI)) {
+		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_DELETE_URI);
+		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI);
+		lwsl_info("HTTP DELETE request for '%s'\n", uri_ptr);
+		goto got_uri;
 	}
 
 got_uri:
 	/* HTTP header had a content length? */
 
 	wsi->u.http.content_length = 0;
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
+		lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
+		lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI))
 		wsi->u.http.content_length = 100 * 1024 * 1024;
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {

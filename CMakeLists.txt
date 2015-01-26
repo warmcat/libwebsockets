@@ -52,7 +52,7 @@ option(LWS_WITHOUT_EXTENSIONS "Don't compile with extensions" OFF)
 option(LWS_WITH_LATENCY "Build latency measuring code into the library" OFF)
 option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" OFF)
 option(LWS_WITH_LIBEV "Compile with support for libev" OFF)
-option(LWS_IPV6 "Compile with support for ipv6" ON)
+option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
 
 # Allow the user to override installation directories.

@@ -3,6 +3,9 @@
 static const char *set[] = {
 	"get ",
 	"post ",
+	"patch",
+	"put",
+	"delete",
 	"options ",
 	"host:",
 	"connection:",
@@ -80,6 +83,8 @@ static const char *set[] = {
 	"via:",
 	"www-authenticate:",
 	"proxy ",
+
+    "uri-args:",
 
 	"", /* not matchable */
 

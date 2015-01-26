@@ -217,6 +217,9 @@ int libwebsocket_parse(
 
 		if ((wsi->u.hdr.parser_state != WSI_TOKEN_GET_URI) &&
 			(wsi->u.hdr.parser_state != WSI_TOKEN_POST_URI) &&
+			(wsi->u.hdr.parser_state != WSI_TOKEN_PATCH_URI) &&
+			(wsi->u.hdr.parser_state != WSI_TOKEN_PUT_URI) &&
+			(wsi->u.hdr.parser_state != WSI_TOKEN_DELETE_URI) &&
 			(wsi->u.hdr.parser_state != WSI_TOKEN_OPTIONS_URI))
 			goto check_eol;
 
@@ -400,6 +403,9 @@ swallow:
 			/* this is not a header we know about */
 			if (wsi->u.hdr.ah->frag_index[WSI_TOKEN_GET_URI] ||
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI] ||
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_PUT_URI] ||
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_PATCH_URI] ||
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_DELETE_URI] ||
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_OPTIONS_URI] ||
 				wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP]) {
 				/*
@@ -440,6 +446,22 @@ swallow:
 				lwsl_warn("Duplicated OPTIONS\n");
 				return -1;
 			}
+			if (n == WSI_TOKEN_PUT_URI &&
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_PUT_URI]) {
+				lwsl_warn("Duplicated PUT\n");
+				return -1;
+			}
+			if (n == WSI_TOKEN_PATCH_URI &&
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_PATCH_URI]) {
+				lwsl_warn("Duplicated PATCH\n");
+				return -1;
+			}
+			if (n == WSI_TOKEN_DELETE_URI &&
+				wsi->u.hdr.ah->frag_index[WSI_TOKEN_DELETE_URI]) {
+				lwsl_warn("Duplicated DELETE\n");
+				return -1;
+			}
+
 
 			/*
 			 * WSORIGIN is protocol equiv to ORIGIN,
