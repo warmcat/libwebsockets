@@ -208,9 +208,10 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		else {
 			if (context->protocols[0].callback(context, NULL,
 				LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
-						context->ssl_ctx, NULL, 0))
+						context->ssl_ctx, NULL, 0)) {
 				lwsl_err("ssl private key not set\n");
 				return 1;
+			}
 		}
 
 		/* verify private key */
