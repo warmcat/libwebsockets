@@ -8,7 +8,7 @@ unsigned long long time_in_microseconds(void)
 {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
-	return (tv.tv_sec * 1000000) + tv.tv_usec;
+	return ((unsigned long long)tv.tv_sec * 1000000LL) + tv.tv_usec;
 }
 
 LWS_VISIBLE int libwebsockets_get_random(struct libwebsocket_context *context,

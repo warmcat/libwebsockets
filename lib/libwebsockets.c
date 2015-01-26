@@ -721,7 +721,7 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 	for (n = 0; n < LLL_COUNT; n++)
 		if (level == (1 << n)) {
 			now = time_in_microseconds() / 100;
-			sprintf(buf, "[%lu:%04d] %s: ", (unsigned long) now / 10000,
+			sprintf(buf, "[%llu:%04d] %s: ", (unsigned long long) now / 10000,
 				(int)(now % 10000), log_level_names[n]);
 			break;
 		}
