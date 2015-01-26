@@ -44,6 +44,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include "private-libwebsockets.h"
 
 #ifdef HAVE_SYS_SOCKIO_H
 #include <sys/sockio.h>
