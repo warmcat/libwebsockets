@@ -361,10 +361,15 @@ endif(UNIX)
 
 
 if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
+    include (CheckCCompilerFlag)
+    CHECK_C_COMPILER_FLAG(-fvisibility=hidden HAVE_VISIBILITY)
+    if (HAVE_VISIBILITY)
+                set(VISIBILITY_FLAG -fvisibility=hidden)
+    endif()
     if (UNIX)
-		set( CMAKE_C_FLAGS "-Wall -Werror -O3 -fvisibility=hidden ${CMAKE_C_FLAGS}" )
+		set( CMAKE_C_FLAGS "-Wall -Werror -O3 ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
     else(UNIX)
-		set( CMAKE_C_FLAGS "-Wall -O3 -fvisibility=hidden ${CMAKE_C_FLAGS}" )
+		set( CMAKE_C_FLAGS "-Wall -O3 ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
     endif(UNIX)
 endif ()
 
