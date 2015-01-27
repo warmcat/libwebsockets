@@ -92,6 +92,11 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		goto just_kill_connection;
 	}
 
+	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING) {
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
+	}
+
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
 		if (wsi->u.http.fd != LWS_INVALID_FILE) {
 			lwsl_debug("closing http file\n");
