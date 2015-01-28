@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -62,6 +62,7 @@ extern "C" {
 
 #include <poll.h>
 #include <unistd.h>
+#include <netdb.h>
 
 #if defined(__GNUC__)
 #define LWS_VISIBLE __attribute__((visibility("default")))

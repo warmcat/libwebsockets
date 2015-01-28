@@ -295,6 +295,71 @@ just_kill_connection:
 	lws_free(wsi);
 }
 
+LWS_VISIBLE int
+libwebsockets_get_addresses(struct libwebsocket_context *context,
+			    void *ads, char *name, int name_len,
+			    char *rip, int rip_len)
+{
+	struct addrinfo ai, *res;
+	void *p = NULL;
+
+	rip[0] = '\0';
+	name[0] = '\0';
+
+#ifdef LWS_USE_IPV6
+	if (LWS_IPV6_ENABLED(context)) {
+		if (!lws_plat_inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ads)->sin6_addr, rip, rip_len)) {
+			lwsl_err("inet_ntop", strerror(LWS_ERRNO));
+			return -1;
+		}
+
+		// Strip off the IPv4 to IPv6 header if one exists
+		if (strncmp(rip, "::ffff:", 7) == 0)
+			memmove(rip, rip + 7, strlen(rip) - 6);
+
+		getnameinfo((struct sockaddr *)ads,
+				sizeof(struct sockaddr_in6), name,
+							name_len, NULL, 0, 0);
+		
+		return 0;
+	} else
+#endif
+	{
+		memset(&ai, 0, sizeof ai);
+		ai.ai_family = PF_UNSPEC;
+		ai.ai_socktype = SOCK_STREAM;
+		ai.ai_flags = AI_CANONNAME;
+
+		if (getnameinfo((struct sockaddr *)ads,
+				sizeof(struct sockaddr_in),
+				name, name_len, NULL, 0, 0))
+			return -1;
+
+		if (!rip)
+			return 0;
+
+		if (getaddrinfo(name, NULL, &ai, &res))
+			return -1;
+
+		while (!p && res) {
+			switch (res->ai_family) {
+			case AF_INET:
+				p = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
+				break;
+			}
+
+			res = res->ai_next;
+		}
+	}
+
+	if (!p)
+		return -1;
+
+	inet_ntop(AF_INET, p, rip, rip_len);
+
+	return 0;
+}
+
 /**
  * libwebsockets_get_peer_addresses() - Get client address information
  * @context:	Libwebsockets context
@@ -321,15 +386,8 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 	struct sockaddr_in6 sin6;
 #endif
 	struct sockaddr_in sin4;
-	struct hostent *host;
-	struct hostent *host1;
-	char ip[128];
-	unsigned char *p;
-	int n;
-#ifdef AF_LOCAL
-	struct sockaddr_un *un;
-#endif
 	int ret = -1;
+	void *p;
 
 	rip[0] = '\0';
 	name[0] = '\0';
@@ -338,82 +396,25 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context)) {
-
 		len = sizeof(sin6);
-		if (getpeername(fd, (struct sockaddr *) &sin6, &len) < 0) {
-			lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
-			goto bail;
-		}
-
-		if (!lws_plat_inet_ntop(AF_INET6, &sin6.sin6_addr, rip, rip_len)) {
-			lwsl_err("inet_ntop", strerror(LWS_ERRNO));
-			goto bail;
-		}
-
-		// Strip off the IPv4 to IPv6 header if one exists
-		if (strncmp(rip, "::ffff:", 7) == 0)
-			memmove(rip, rip + 7, strlen(rip) - 6);
-
-		getnameinfo((struct sockaddr *)&sin6,
-				sizeof(struct sockaddr_in6), name,
-							name_len, NULL, 0, 0);
-
+		p = &sin6;
 	} else
 #endif
 	{
 		len = sizeof(sin4);
-		if (getpeername(fd, (struct sockaddr *) &sin4, &len) < 0) {
-			lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
-			goto bail;
-		}
-		host = gethostbyaddr((char *) &sin4.sin_addr,
-						sizeof(sin4.sin_addr), AF_INET);
-		if (host == NULL) {
-			lwsl_warn("gethostbyaddr: %s\n", strerror(LWS_ERRNO));
-			goto bail;
-		}
-
-		strncpy(name, host->h_name, name_len);
-		name[name_len - 1] = '\0';
-
-		host1 = gethostbyname(host->h_name);
-		if (host1 == NULL)
-			goto bail;
-		p = (unsigned char *)host1;
-		n = 0;
-		while (p != NULL) {
-			p = (unsigned char *)host1->h_addr_list[n++];
-			if (p == NULL)
-				continue;
-			if ((host1->h_addrtype != AF_INET)
-#ifdef AF_LOCAL
-				&& (host1->h_addrtype != AF_LOCAL)
-#endif
-				)
-				continue;
-
-			if (host1->h_addrtype == AF_INET)
-				sprintf(ip, "%u.%u.%u.%u",
-						p[0], p[1], p[2], p[3]);
-#ifdef AF_LOCAL
-			else {
-				un = (struct sockaddr_un *)p;
-				strncpy(ip, un->sun_path, sizeof(ip) - 1);
-				ip[sizeof(ip) - 1] = '\0';
-			}
-#endif
-			p = NULL;
-			strncpy(rip, ip, rip_len);
-			rip[rip_len - 1] = '\0';
-		}
+		p = &sin4;
 	}
 
-	ret = 0;
+	if (getpeername(fd, p, &len) < 0) {
+		lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
+		goto bail;
+	}
+	
+	ret = libwebsockets_get_addresses(context, p, name, name_len, rip, rip_len);
+
 bail:
 	lws_latency(context, wsi, "libwebsockets_get_peer_addresses", ret, 1);
 }
-
-
 
 /**
  * libwebsocket_context_user() - get the user data associated with the context

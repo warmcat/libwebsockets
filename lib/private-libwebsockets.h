@@ -1162,6 +1162,10 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 #define _libwebsocket_rx_flow_control(_a) (0)
 #define lws_handshake_server(_a, _b, _c, _d) (0)
 #endif
+	
+LWS_EXTERN int libwebsockets_get_addresses(struct libwebsocket_context *context,
+			    void *ads, char *name, int name_len,
+			    char *rip, int rip_len);
 
 /*
  * custom allocator

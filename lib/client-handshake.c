@@ -12,7 +12,6 @@ struct libwebsocket *libwebsocket_client_connect_2(
 #endif
 	struct sockaddr_in server_addr4;
 	struct sockaddr_in client_addr4;
-	struct hostent *server_hostent;
 
 	struct sockaddr *v;
 	int n;
@@ -97,15 +96,32 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	} else
 #endif
 	{
-		server_hostent = gethostbyname(ads);
-		if (!server_hostent) {
-			lwsl_err("Unable to get host name from %s\n", ads);
+		struct addrinfo ai, *res;
+		void *p = NULL;
+
+		memset (&ai, 0, sizeof ai);
+		ai.ai_family = PF_UNSPEC;
+		ai.ai_socktype = SOCK_STREAM;
+		ai.ai_flags = AI_CANONNAME;
+
+		if (getaddrinfo(ads, NULL, &ai, &res))
 			goto oom4;
+
+		while (!p && res) {
+			switch (res->ai_family) {
+			case AF_INET:
+				p = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
+				break;
+			}
+
+			res = res->ai_next;
 		}
+		
+		if (!p)
+			goto oom4;
 
 		server_addr4.sin_family = AF_INET;
-		server_addr4.sin_addr =
-				*((struct in_addr *)server_hostent->h_addr);
+		server_addr4.sin_addr = *((struct in_addr *)p);
 		bzero(&server_addr4.sin_zero, 8);
 	}
 
