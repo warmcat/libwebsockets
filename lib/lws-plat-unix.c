@@ -97,7 +97,9 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	int n;
 	int m;
 	char buf;
+#ifdef LWS_OPENSSL_SUPPORT
 	struct libwebsocket *wsi, *wsi_next;
+#endif
 
 	/* stay dead once we are dead */
 
