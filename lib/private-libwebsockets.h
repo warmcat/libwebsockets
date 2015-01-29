@@ -474,7 +474,10 @@ struct libwebsocket_context {
 	unsigned int user_supplied_ssl_ctx:1;
 	SSL_CTX *ssl_ctx;
 	SSL_CTX *ssl_client_ctx;
-	unsigned int ssl_flag_buffered_reads:1;
+	struct libwebsocket *pending_read_list; /* linked list */
+#define lws_ssl_anybody_has_buffered_read(ctx) (ctx->use_ssl && ctx->pending_read_list)
+#else
+#define lws_ssl_anybody_has_buffered_read(ctx) (0)
 #endif
 	struct libwebsocket_protocols *protocols;
 	int count_protocols;
@@ -840,8 +843,8 @@ struct libwebsocket {
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;
 	BIO *client_bio;
+	struct libwebsocket *pending_read_list_prev, *pending_read_list_next;
 	unsigned int use_ssl:2;
-	unsigned int buffered_reads_pending:1;
 	unsigned int upgraded:1;
 #endif
 
@@ -1089,6 +1092,7 @@ enum lws_ssl_capable_status {
 #define lws_server_socket_service_ssl(_a, _b, _c, _d, _e) (0)
 #define lws_ssl_close(_a) (0)
 #define lws_ssl_context_destroy(_a)
+#define lws_ssl_remove_wsi_from_buffered_list(_a, _b)
 #else
 #define LWS_SSL_ENABLED(context) (context->use_ssl)
 LWS_EXTERN int openssl_websocket_private_data_index;
@@ -1106,6 +1110,9 @@ LWS_EXTERN int
 lws_ssl_close(struct libwebsocket *wsi);
 LWS_EXTERN void
 lws_ssl_context_destroy(struct libwebsocket_context *context);
+LWS_VISIBLE void
+lws_ssl_remove_wsi_from_buffered_list(struct libwebsocket_context *context,
+		     struct libwebsocket *wsi);
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,

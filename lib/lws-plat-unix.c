@@ -97,6 +97,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	int n;
 	int m;
 	char buf;
+	struct libwebsocket *wsi, *wsi_next;
 
 	/* stay dead once we are dead */
 
@@ -110,25 +111,20 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 
 #ifdef LWS_OPENSSL_SUPPORT
 	/* if we know we have non-network pending data, do not wait in poll */
-	if (context->ssl_flag_buffered_reads)
+	if (lws_ssl_anybody_has_buffered_read(context))
 		timeout_ms = 0;
 #endif
 	n = poll(context->fds, context->fds_count, timeout_ms);
 	context->service_tid = 0;
 
 #ifdef LWS_OPENSSL_SUPPORT
-	if (!context->ssl_flag_buffered_reads && n == 0) {
+	if (!lws_ssl_anybody_has_buffered_read(context) && n == 0) {
 #else
 	if (n == 0) /* poll timeout */ {
 #endif
 		libwebsocket_service_fd(context, NULL);
 		return 0;
 	}
-	
-#ifdef LWS_OPENSSL_SUPPORT
-	/* any more will have to set it fresh this time around */
-	context->ssl_flag_buffered_reads = 0;
-#endif
 
 	if (n < 0) {
 		if (LWS_ERRNO != LWS_EINTR)
@@ -136,29 +132,36 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 		return 0;
 	}
 
+#ifdef LWS_OPENSSL_SUPPORT
+	/*
+	 * For all guys with buffered SSL read data already saved up, if they
+	 * are not flowcontrolled, fake their POLLIN status so they'll get
+	 * service to use up the buffered incoming data, even though their
+	 * network socket may have nothing
+	 */
+
+	wsi = context->pending_read_list;
+	while (wsi) {
+		wsi_next = wsi->pending_read_list_next;
+		context->fds[wsi->sock].revents |=
+				context->fds[wsi->sock].events & POLLIN;
+		if (context->fds[wsi->sock].revents & POLLIN) {
+			/*
+			 * he's going to get serviced now, take him off the
+			 * list of guys with buffered SSL.  If he still has some
+			 * at the end of the service, he'll get put back on the
+			 * list then.
+			 */
+			lws_ssl_remove_wsi_from_buffered_list(context, wsi);
+		}
+		wsi = wsi_next;
+	}
+#endif
+
 	/* any socket with events to service? */
 
 	for (n = 0; n < context->fds_count; n++) {
-#ifdef LWS_OPENSSL_SUPPORT
-		struct libwebsocket *wsi;
-		
-		wsi = context->lws_lookup[context->fds[n].fd];
-		if (wsi == NULL)
-			continue;
-		/* 
-		 * if he's not flowcontrolled, make sure we service ssl
-		 * pending read data
-		 */
-		if (wsi->ssl && wsi->buffered_reads_pending) {
-			lwsl_debug("wsi %p: forcing POLLIN\n", wsi);
-			context->fds[n].revents |= context->fds[n].events & POLLIN;
-			if (context->fds[n].revents & POLLIN)
-				wsi->buffered_reads_pending = 0;
-			else
-				/* somebody left with pending SSL read data */
-				context->ssl_flag_buffered_reads = 1;
-		}
-#endif
+
 		if (!context->fds[n].revents)
 			continue;
 

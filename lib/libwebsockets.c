@@ -209,6 +209,8 @@ just_kill_connection:
 	 * delete socket from the internal poll list if still present
 	 */
 
+	lws_ssl_remove_wsi_from_buffered_list(context, wsi);
+
 	remove_wsi_socket_from_fds(context, wsi);
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
