@@ -32,11 +32,13 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 		return 1;
 	}
 
+#ifndef _WIN32
 	if (wsi->sock >= context->max_fds) {
 		lwsl_err("Socket fd %d is too high (%d)\n",
 						wsi->sock, context->max_fds);
 		return 1;
 	}
+#endif
 
 	assert(wsi);
 	assert(wsi->sock >= 0);
@@ -48,7 +50,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 		LWS_CALLBACK_LOCK_POLL,
 		wsi->user_space, (void *) &pa, 0);
 
-	context->lws_lookup[wsi->sock] = wsi;
+	insert_wsi(context, wsi);
 	wsi->position_in_fds_table = context->fds_count;
 	context->fds[context->fds_count].fd = wsi->sock;
 	context->fds[context->fds_count].events = LWS_POLLIN;
@@ -108,10 +110,10 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 	 * (still same fd pointing to same wsi)
 	 */
 	/* end guy's "position in fds table" changed */
-	context->lws_lookup[context->fds[context->fds_count].fd]->
-						position_in_fds_table = m;
+	wsi_from_fd(context,context->fds[context->fds_count].fd)-> 
+					position_in_fds_table = m;
 	/* deletion guy's lws_lookup entry needs nuking */
-	context->lws_lookup[wsi->sock] = NULL;
+	delete_from_fd(context,wsi->sock);
 	/* removed wsi has no position any more */
 	wsi->position_in_fds_table = -1;
 
@@ -282,7 +284,7 @@ libwebsocket_callback_on_writable_all_protocol(
 	struct libwebsocket *wsi;
 
 	for (n = 0; n < context->fds_count; n++) {
-		wsi = context->lws_lookup[context->fds[n].fd];
+		wsi = wsi_from_fd(context,context->fds[n].fd);
 		if (!wsi)
 			continue;
 		if (wsi->protocol == protocol)

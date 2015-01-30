@@ -33,6 +33,59 @@ time_t time(time_t *t)
 }
 #endif
 
+/* file descriptor hash management */
+
+struct libwebsocket *
+wsi_from_fd(struct libwebsocket_context *context, int fd)
+{
+	int h = LWS_FD_HASH(fd);
+	int n = 0;
+
+	for (n = 0; n < context->fd_hashtable[h].length; n++)
+		if (context->fd_hashtable[h].wsi[n]->sock == fd)
+			return context->fd_hashtable[h].wsi[n];
+
+	return NULL;
+}
+
+int
+insert_wsi(struct libwebsocket_context *context, struct libwebsocket *wsi)
+{
+	int h = LWS_FD_HASH(wsi->sock);
+
+	if (context->fd_hashtable[h].length == (getdtablesize() - 1)) {
+		lwsl_err("hash table overflow\n");
+		return 1;
+	}
+
+	context->fd_hashtable[h].wsi[context->fd_hashtable[h].length++] = wsi;
+
+	return 0;
+}
+
+int
+delete_from_fd(struct libwebsocket_context *context, int fd)
+{
+	int h = LWS_FD_HASH(fd);
+	int n = 0;
+
+	for (n = 0; n < context->fd_hashtable[h].length; n++)
+		if (context->fd_hashtable[h].wsi[n]->sock == fd) {
+			while (n < context->fd_hashtable[h].length) {
+				context->fd_hashtable[h].wsi[n] =
+					    context->fd_hashtable[h].wsi[n + 1];
+				n++;
+			}
+			context->fd_hashtable[h].length--;
+
+			return 0;
+		}
+
+	lwsl_err("Failed to find fd %d requested for "
+		 "delete in hashtable\n", fd);
+	return 1;
+}
+
 LWS_VISIBLE int libwebsockets_get_random(struct libwebsocket_context *context,
 							     void *buf, int len)
 {
@@ -104,7 +157,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 			continue;
 
 		if (pfd->events & LWS_POLLOUT) {
-			if (context->lws_lookup[pfd->fd]->sock_send_blocking)
+			if (wsi_from_fd(context,pfd->fd)->sock_send_blocking)
 				continue;
 			pfd->revents = LWS_POLLOUT;
 			n = libwebsocket_service_fd(context, pfd);
@@ -143,7 +196,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	pfd->revents = networkevents.lNetworkEvents;
 
 	if (pfd->revents & LWS_POLLOUT)
-		context->lws_lookup[pfd->fd]->sock_send_blocking = FALSE;
+		wsi_from_fd(context,pfd->fd)->sock_send_blocking = FALSE;
 
 	return libwebsocket_service_fd(context, pfd);
 }

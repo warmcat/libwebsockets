@@ -348,10 +348,9 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	struct lws_tokens eff_buf;
 
 	if (context->listen_service_fd)
-		listen_socket_fds_index = context->lws_lookup[
-			     context->listen_service_fd]->position_in_fds_table;
+		listen_socket_fds_index = wsi_from_fd(context,context->listen_service_fd)->position_in_fds_table;
 
-	/*
+         /*
 	 * you can call us with pollfd = NULL to just allow the once-per-second
 	 * global timeout checks; if less than a second since the last check
 	 * it returns immediately then.
@@ -372,7 +371,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		for (n = 0; n < context->fds_count; n++) {
 			m = context->fds[n].fd;
-			wsi = context->lws_lookup[m];
+			wsi = wsi_from_fd(context,m);
 			if (!wsi)
 				continue;
 
@@ -397,7 +396,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		return 0;
 
 	/* no, here to service a socket descriptor */
-	wsi = context->lws_lookup[pollfd->fd];
+	wsi = wsi_from_fd(context,pollfd->fd);
 	if (wsi == NULL)
 		/* not lws connection ... leave revents alone and return */
 		return 0;

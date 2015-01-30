@@ -76,7 +76,9 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 {
 	struct libwebsocket_context *context = NULL;
 	char *p;
-
+#ifdef _WIN32
+	int i;
+#endif
 	int pid_daemon = get_daemonize_pid();
 
 	lwsl_notice("Initial logging level %d\n", log_level);
@@ -145,6 +147,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		return NULL;
 	}
 
+#ifdef _WIN32
+	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
+		context->fd_hashtable[i].wsi = lws_zalloc(sizeof(struct libwebsocket*) * context->max_fds);
+	}
+#else
 	context->lws_lookup = lws_zalloc(sizeof(struct libwebsocket *) * context->max_fds);
 	if (context->lws_lookup == NULL) {
 		lwsl_err(
@@ -154,9 +161,12 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		lws_free(context);
 		return NULL;
 	}
+#endif
 
 	if (lws_plat_init_fd_tables(context)) {
+#ifndef _WIN32
 		lws_free(context->lws_lookup);
+#endif
 		lws_free(context->fds);
 		lws_free(context);
 		return NULL;
@@ -292,7 +302,7 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 
 	for (n = 0; n < context->fds_count; n++) {
 		struct libwebsocket *wsi =
-					context->lws_lookup[context->fds[n].fd];
+					wsi_from_fd(context, context->fds[n].fd);
 		if (!wsi)
 			continue;
 		libwebsocket_close_and_free_session(context,
@@ -329,8 +339,9 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	lws_ssl_context_destroy(context);
 
 	lws_free(context->fds);
+#ifndef _WIN32
 	lws_free(context->lws_lookup);
-
+#endif
 	lws_plat_context_late_destroy(context);
 
 	lws_free(context);

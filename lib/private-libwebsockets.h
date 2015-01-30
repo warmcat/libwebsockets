@@ -249,6 +249,12 @@ typedef unsigned __int64 u_int64_t;
 #define MSG_NOSIGNAL SO_NOSIGPIPE
 #endif
 
+#ifdef _WIN32
+#ifndef FD_HASHTABLE_MODULUS
+#define FD_HASHTABLE_MODULUS 32
+#endif
+#endif
+
 #ifndef LWS_MAX_HEADER_LEN
 #define LWS_MAX_HEADER_LEN 1024
 #endif
@@ -412,12 +418,25 @@ struct lws_signal_watcher {
 };
 #endif /* LWS_USE_LIBEV */
 
+#ifdef _WIN32
+#define LWS_FD_HASH(fd) ((fd ^ (fd >> 8) ^ (fd >> 16)) % FD_HASHTABLE_MODULUS)
+struct libwebsocket_fd_hashtable {
+	struct libwebsocket **wsi;
+	int length;
+};
+#endif
+
 struct libwebsocket_context {
 #ifdef _WIN32
 	WSAEVENT *events;
 #endif
 	struct libwebsocket_pollfd *fds;
-	struct libwebsocket **lws_lookup; /* fd to wsi */
+#ifdef _WIN32
+/* different implementation between unix and windows */
+	struct libwebsocket_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
+#else
+	struct libwebsocket **lws_lookup;  /* fd to wsi */
+#endif
 	int fds_count;
 #ifdef LWS_USE_LIBEV
 	struct ev_loop* io_loop;
@@ -808,7 +827,6 @@ struct libwebsocket {
 
 	char pending_timeout; /* enum pending_timeout */
 	time_t pending_timeout_limit;
-
 	int sock;
 	int position_in_fds_table;
 #ifdef LWS_LATENCY
@@ -895,8 +913,20 @@ lws_http_action(struct libwebsocket_context *context, struct libwebsocket *wsi);
 LWS_EXTERN int
 lws_b64_selftest(void);
 
+#ifdef _WIN32
 LWS_EXTERN struct libwebsocket *
 wsi_from_fd(struct libwebsocket_context *context, int fd);
+
+LWS_EXTERN int 
+insert_wsi(struct libwebsocket_context *context, struct libwebsocket *wsi);
+
+LWS_EXTERN int
+delete_from_fd(struct libwebsocket_context *context, int fd);
+#else
+#define wsi_from_fd(A,B)  A->lws_lookup[B] 
+#define insert_wsi(A,B)   A->lws_lookup[B->sock]=B
+#define delete_from_fd(A,B) A->lws_lookup[B]=0
+#endif
 
 LWS_EXTERN int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context,
