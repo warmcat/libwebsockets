@@ -422,8 +422,11 @@ swallow:
 			 * treat as dangerous
 			 */
 
-			lwsl_info("Unknown method - dropping\n");
-			return -1;
+			if (m == ARRAY_SIZE(methods)) {
+				lwsl_info("Unknown method - dropping\n");
+				return -1;
+			}
+			break;
 		}
 		if (lextable[wsi->u.hdr.lextable_pos] < FAIL_CHAR) {
 			/* terminal state */
