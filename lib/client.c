@@ -794,7 +794,7 @@ bail2:
 
 	/* free up his parsing allocations */
 
-	lws_free(wsi->u.hdr.ah);
+	lws_free2(wsi->u.hdr.ah);
 
 	libwebsocket_close_and_free_session(context, wsi, close_reason);
 
