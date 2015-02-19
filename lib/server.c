@@ -191,12 +191,14 @@ int lws_http_action(struct libwebsocket_context *context,
 		WSI_TOKEN_HTTP_COLON_PATH,
 #endif
 	};
+#ifdef _DEBUG
 	static const char * const method_names[] = {
 		"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE",
 #ifdef LWS_USE_HTTP2
 		":path",
 #endif
 	};
+#endif
 	
 	/* it's not websocket.... shall we accept it as http? */
 
