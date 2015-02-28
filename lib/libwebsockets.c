@@ -356,7 +356,7 @@ libwebsockets_get_addresses(struct libwebsocket_context *context,
 	if (!p)
 		return -1;
 
-	inet_ntop(AF_INET, p, rip, rip_len);
+	lws_plat_inet_ntop(AF_INET, p, rip, rip_len);
 
 	return 0;
 }
