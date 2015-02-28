@@ -438,10 +438,8 @@ lws_plat_open_file(const char* filename, unsigned long* filelen)
 	return ret;
 }
 
-#ifdef LWS_USE_IPV6
 LWS_VISIBLE const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 {
 	return inet_ntop(af, src, dst, cnt);
 }
-#endif
