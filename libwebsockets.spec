@@ -51,7 +51,7 @@ rm -rf $RPM_BUILD_ROOT
 %attr(755,root,root) /usr/bin/libwebsockets-test-echo
 %attr(755,root,root) /usr/bin/libwebsockets-test-fraggle
 %attr(755,root,root) 
-/%{_libdir}/libwebsockets.so.4.0.0
+/%{_libdir}/libwebsockets.so.5
 /%{_libdir}/libwebsockets.so
 %attr(755,root,root) /usr/share/libwebsockets-test-server
 %doc
