@@ -47,9 +47,11 @@
 static int close_testing;
 int max_poll_elements;
 
+#ifdef EXTERNAL_POLL
 struct pollfd *pollfds;
 int *fd_lookup;
 int count_pollfds;
+#endif
 static volatile int force_exit = 0;
 static struct libwebsocket_context *context;
 
