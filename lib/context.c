@@ -164,7 +164,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #endif
 
 	if (lws_plat_init_fd_tables(context)) {
-#ifndef _WIN32
+#ifdef _WIN32
+		for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
+			lws_free(context->fd_hashtable[i].wsi);
+		}
+#else
 		lws_free(context->lws_lookup);
 #endif
 		lws_free(context->fds);
@@ -290,7 +294,7 @@ bail:
 LWS_VISIBLE void
 libwebsocket_context_destroy(struct libwebsocket_context *context)
 {
-	int n;
+	int n, i;
 	struct libwebsocket_protocols *protocol = context->protocols;
 
 	lwsl_notice("%s\n", __func__);
@@ -339,7 +343,11 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	lws_ssl_context_destroy(context);
 
 	lws_free(context->fds);
-#ifndef _WIN32
+#ifdef _WIN32
+	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
+		lws_free(context->fd_hashtable[i].wsi);
+	}
+#else
 	lws_free(context->lws_lookup);
 #endif
 	lws_plat_context_late_destroy(context);
