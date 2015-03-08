@@ -294,7 +294,7 @@ bail:
 LWS_VISIBLE void
 libwebsocket_context_destroy(struct libwebsocket_context *context)
 {
-	int n, i;
+	int n;
 	struct libwebsocket_protocols *protocol = context->protocols;
 
 	lwsl_notice("%s\n", __func__);
@@ -344,8 +344,8 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 
 	lws_free(context->fds);
 #ifdef _WIN32
-	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
-		lws_free(context->fd_hashtable[i].wsi);
+	for (n = 0; n < FD_HASHTABLE_MODULUS; n++) {
+		lws_free(context->fd_hashtable[n].wsi);
 	}
 #else
 	lws_free(context->lws_lookup);
