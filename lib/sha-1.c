@@ -99,7 +99,6 @@ static const unsigned int _K[] =
 		sha1_step(ctxt);		\
 	}
 
-static void sha1_step __P((struct sha1_ctxt *));
 
 static void
 sha1_step(struct sha1_ctxt *ctxt)

@@ -264,7 +264,6 @@ typedef unsigned __int64 u_int64_t;
 #else
 
 #include <sys/stat.h>
-#include <sys/cdefs.h>
 #include <sys/time.h>
 
 #if defined(__APPLE__)
