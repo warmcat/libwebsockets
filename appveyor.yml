@@ -14,15 +14,27 @@ environment:
     - LWS_METHOD: nossl
       CMAKE_ARGS: -DLWS_WITH_SSL=OFF
 install:
-  - appveyor DownloadFile http://slproweb.com/download/Win32OpenSSL-1_0_1L.exe
-  - Win32OpenSSL-1_0_1L.exe /silent /verysilent /sp- /suppressmsgboxes
+  - appveyor DownloadFile http://slproweb.com/download/Win32OpenSSL-1_0_2.exe
+  - Win32OpenSSL-1_0_2.exe /silent /verysilent /sp- /suppressmsgboxes
+  - cinst nsis
 build:
 
 build_script:
   - md build
   - cd build
-  - cmake %CMAKE_ARGS% ..
-  - cmake --build .
+  - cmake -DCMAKE_BUILD_TYPE=Release %CMAKE_ARGS% ..
+  - cmake --build . --config Release
+
+after_build:
+  - cd ..
+  - cd win32port
+  - C:\Program Files\NSIS\makensis.exe -DVERSION=%APPVEYOR_BUILD_VERSION% libwebsockets.nsi'
+
+
+artifacts:
+  - name: Installer
+    path: 'win32port/libwebsockets-*-install.exe'
+
 cache:
   - C:\OpenSSL-Win32
 
