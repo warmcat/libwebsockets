@@ -28,7 +28,7 @@ build_script:
 after_build:
   - cd ..
   - cd win32port
-  - C:\Program Files\NSIS\makensis.exe -DVERSION=%APPVEYOR_BUILD_VERSION% libwebsockets.nsi'
+  - 'C:\Program Files\NSIS\makensis.exe -DVERSION=%APPVEYOR_BUILD_VERSION% libwebsockets.nsi'
 
 
 artifacts:
