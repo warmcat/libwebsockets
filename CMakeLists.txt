@@ -885,12 +885,6 @@ set(CPACK_SOURCE_IGNORE_FILES $(CPACK_SOURCE_IGNORE_FILES) ".git" "build" "tgz" 
 # Most people are more used to "make dist" compared to "make package_source"
 add_custom_target(dist COMMAND "${CMAKE_MAKE_PROGRAM}" package_source)
 
-# ===========================================================================
-# Windows installer
-
-set(CPACK_NSIS_DISPLAY_NAME "bob")
-# ===========================================================================
-
 include(UseRPMTools)
 if (RPMTools_FOUND)
 	RPMTools_ADD_RPM_TARGETS(libwebsockets libwebsockets.spec)
