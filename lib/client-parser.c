@@ -286,17 +286,49 @@ spill:
 			return -1;
 
 		case LWS_WS_OPCODE_07__PING:
-			lwsl_info("client received ping, doing pong\n");
-			/*
-			 * parrot the ping packet payload back as a pong
-			 * !!! this may block or have partial write or fail
-			 * !!! very unlikely if the ping size is small
-			 */
-			libwebsocket_write(wsi, (unsigned char *)
-			    &wsi->u.ws.rx_user_buffer[
-				LWS_SEND_BUFFER_PRE_PADDING],
-					wsi->u.ws.rx_user_buffer_head,
-								LWS_WRITE_PONG);
+			lwsl_info("received %d byte ping, sending pong\n",
+						 wsi->u.ws.rx_user_buffer_head);
+
+			if (wsi->u.ws.ping_pending_flag) {
+				/*
+				 * there is already a pending ping payload
+				 * we should just log and drop
+				 */
+				lwsl_parser("DROP PING since one pending\n");
+				goto ping_drop;
+			}
+
+			/* control packets can only be < 128 bytes long */
+			if (wsi->u.ws.rx_user_buffer_head > 128 - 4) {
+				lwsl_parser("DROP PING payload too large\n");
+				goto ping_drop;
+			}
+
+			/* if existing buffer is too small, drop it */
+			if (wsi->u.ws.ping_payload_buf &&
+			    wsi->u.ws.ping_payload_alloc < wsi->u.ws.rx_user_buffer_head)
+				lws_free2(wsi->u.ws.ping_payload_buf);
+
+			/* if no buffer, allocate it */
+			if (!wsi->u.ws.ping_payload_buf) {
+				wsi->u.ws.ping_payload_buf = lws_malloc(wsi->u.ws.rx_user_buffer_head
+									+ LWS_SEND_BUFFER_PRE_PADDING);
+				wsi->u.ws.ping_payload_alloc =
+					wsi->u.ws.rx_user_buffer_head;
+			}
+
+			/* stash the pong payload */
+			memcpy(wsi->u.ws.ping_payload_buf + LWS_SEND_BUFFER_PRE_PADDING,
+			       &wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+				wsi->u.ws.rx_user_buffer_head);
+
+			wsi->u.ws.ping_payload_len = wsi->u.ws.rx_user_buffer_head;
+			wsi->u.ws.ping_pending_flag = 1;
+
+			/* get it sent as soon as possible */
+			libwebsocket_callback_on_writable(wsi->protocol->owning_server, wsi);
+ping_drop:
+			wsi->u.ws.rx_user_buffer_head = 0;
 			handled = 1;
 			break;
 

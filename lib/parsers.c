@@ -886,7 +886,7 @@ spill:
 			}
 			
 			/* control packets can only be < 128 bytes long */
-			if (wsi->u.ws.ping_payload_len > 128 - 4) {
+			if (wsi->u.ws.rx_user_buffer_head > 128 - 4) {
 				lwsl_parser("DROP PING payload too large\n");
 				goto ping_drop;
 			}
