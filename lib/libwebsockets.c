@@ -235,6 +235,7 @@ just_kill_connection:
 			lws_free2(wsi->u.ws.ping_payload_buf);
 			wsi->u.ws.ping_payload_alloc = 0;
 			wsi->u.ws.ping_payload_len = 0;
+			wsi->u.ws.ping_pending_flag = 0;
 		}
 	}
 

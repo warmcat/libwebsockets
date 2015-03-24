@@ -876,7 +876,7 @@ spill:
 			lwsl_info("received %d byte ping, sending pong\n",
 						 wsi->u.ws.rx_user_buffer_head);
 
-			if (wsi->u.ws.ping_payload_len) {
+			if (wsi->u.ws.ping_pending_flag) {
 				/* 
 				 * there is already a pending ping payload
 				 * we should just log and drop
@@ -910,6 +910,7 @@ spill:
 				wsi->u.ws.rx_user_buffer_head);
 			
 			wsi->u.ws.ping_payload_len = wsi->u.ws.rx_user_buffer_head;
+			wsi->u.ws.ping_pending_flag = 1;
 			
 			/* get it sent as soon as possible */
 			libwebsocket_callback_on_writable(wsi->protocol->owning_server, wsi);

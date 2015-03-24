@@ -92,7 +92,8 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 #endif
 	/* pending control packets have next priority */
 	
-	if (wsi->state == WSI_STATE_ESTABLISHED && wsi->u.ws.ping_payload_len) {
+	if (wsi->state == WSI_STATE_ESTABLISHED &&
+	    wsi->u.ws.ping_pending_flag) {
 		n = libwebsocket_write(wsi, 
 				&wsi->u.ws.ping_payload_buf[
 					LWS_SEND_BUFFER_PRE_PADDING],
@@ -101,7 +102,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		if (n < 0)
 			return -1;
 		/* well he is sent, mark him done */
-		wsi->u.ws.ping_payload_len = 0;
+		wsi->u.ws.ping_pending_flag = 0;
 		/* leave POLLOUT active either way */
 		return 0;
 	}
