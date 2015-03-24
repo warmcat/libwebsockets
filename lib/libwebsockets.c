@@ -52,7 +52,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 	old_state = wsi->state;
 
-	if (wsi->socket_is_permanently_unusable)
+	if (wsi->socket_is_permanently_unusable || reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)
 		goto just_kill_connection;
 
 	switch (old_state) {
@@ -164,7 +164,8 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	 */
 
 	if (old_state == WSI_STATE_ESTABLISHED &&
-					  reason != LWS_CLOSE_STATUS_NOSTATUS) {
+	    reason != LWS_CLOSE_STATUS_NOSTATUS &&
+	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY) {
 
 		lwsl_debug("sending close indication...\n");
 
