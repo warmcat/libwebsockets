@@ -597,6 +597,8 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	new_wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 	new_wsi->hdr_parsing_completed = 0;
 
+	new_wsi->use_ssl = LWS_SSL_ENABLED(context);
+
 	if (lws_allocate_header_table(new_wsi)) {
 		lws_free(new_wsi);
 		return NULL;
