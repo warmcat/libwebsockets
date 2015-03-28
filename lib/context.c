@@ -310,7 +310,7 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 		if (!wsi)
 			continue;
 		libwebsocket_close_and_free_session(context,
-			wsi, LWS_CLOSE_STATUS_NOSTATUS /* no protocol close */);
+			wsi, LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY /* no protocol close */);
 		n--;
 	}
 
