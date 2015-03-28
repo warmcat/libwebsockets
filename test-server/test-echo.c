@@ -337,7 +337,7 @@ int main(int argc, char **argv)
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
 #endif
 	lwsl_notice("libwebsockets echo test - "
-		    "(C) Copyright 2010-2014 Andy Green <andy@warmcat.com> - "
+		    "(C) Copyright 2010-2015 Andy Green <andy@warmcat.com> - "
 		    "licensed under LGPL2.1\n");
 #ifndef LWS_NO_CLIENT
 	if (client) {

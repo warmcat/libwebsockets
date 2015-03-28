@@ -270,7 +270,7 @@ int main(int argc, char **argv)
 	memset(&info, 0, sizeof info);
 
 	fprintf(stderr, "libwebsockets test fraggle\n"
-			"(C) Copyright 2010-2013 Andy Green <andy@warmcat.com> "
+			"(C) Copyright 2010-2015 Andy Green <andy@warmcat.com> "
 						    "licensed under LGPL2.1\n");
 
 	while (n >= 0) {
