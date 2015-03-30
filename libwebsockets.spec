@@ -1,6 +1,6 @@
 Name: libwebsockets
-Version: 1.3
-Release: 47.gmaster_b89f21c%{?dist}
+Version: 1.4
+Release: 48.gmaster_16fb0132%{?dist}
 Summary: Websocket Server Library
 
 Group: System
@@ -10,7 +10,7 @@ Source0: %{name}-%{version}.tar.gz
 BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 
 BuildRequires: openssl-devel
-Requires: openssl-devel
+Requires: openssl
 
 %description
 Webserver server library
