@@ -164,7 +164,7 @@ int lws_hdr_simple_create(struct libwebsocket *wsi,
 	return 0;
 }
 
-static char char_to_hex(const char c)
+static signed char char_to_hex(const char c)
 {
 	if (c >= '0' && c <= '9')
 		return c - '0';
