@@ -74,6 +74,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		if (wsi->truncated_send_len) {
 			lwsl_info("wsi %p entering WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
 			wsi->state = WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE;
+			libwebsocket_set_timeout(wsi, PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 			return;
 		}
 		break;
