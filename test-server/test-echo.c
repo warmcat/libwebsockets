@@ -398,11 +398,11 @@ int main(int argc, char **argv)
 			/* we are in client mode */
 		
 			address[sizeof(address) - 1] = '\0';
-			sprintf(ads_port, "%s:%u\n", address, port & 65535);
+			sprintf(ads_port, "%s:%u", address, port & 65535);
 		
 			wsi = libwebsocket_client_connect(context, address,
 				port, use_ssl, uri, ads_port,
-				 "origin", NULL, -1);
+				 ads_port, NULL, -1);
 			if (!wsi) {
 				lwsl_err("Client failed to connect to %s:%u\n", address, port);
 				goto bail;
