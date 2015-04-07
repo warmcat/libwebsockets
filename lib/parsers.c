@@ -401,33 +401,44 @@ swallow:
 
 		/* collecting and checking a name part */
 	case WSI_TOKEN_NAME_PART:
-		lwsl_parser("WSI_TOKEN_NAME_PART '%c'\n", c);
+		lwsl_parser("WSI_TOKEN_NAME_PART '%c' (mode=%d)\n", c, wsi->mode);
 
 		wsi->u.hdr.lextable_pos =
 				lextable_decode(wsi->u.hdr.lextable_pos, c);
-
-		if (wsi->u.hdr.lextable_pos < 0) {
+		/*
+		 * Server needs to look out for unknown methods...
+		 */
+		if (wsi->u.hdr.lextable_pos < 0 &&
+		    wsi->mode == LWS_CONNMODE_HTTP_SERVING) {
 			/* this is not a header we know about */
 			for (m = 0; m < ARRAY_SIZE(methods); m++)
 				if (wsi->u.hdr.ah->frag_index[methods[m]]) {
 					/*
 					 * already had the method, no idea what
-					 * this crap is, ignore
+					 * this crap from the client is, ignore
 					 */
 					wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
 					break;
 				}
 			/*
-			 * hm it's an unknown http method in fact,
+			 * hm it's an unknown http method from a client in fact,
 			 * treat as dangerous
 			 */
-
 			if (m == ARRAY_SIZE(methods)) {
 				lwsl_info("Unknown method - dropping\n");
 				return -1;
 			}
 			break;
 		}
+		/*
+		 * ...otherwise for a client, let him ignore unknown headers
+		 * coming from the server
+		 */
+		if (wsi->u.hdr.lextable_pos < 0) {
+			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;
+			break;
+		}
+
 		if (lextable[wsi->u.hdr.lextable_pos] < FAIL_CHAR) {
 			/* terminal state */
 

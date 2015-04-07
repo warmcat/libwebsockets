@@ -228,6 +228,9 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	if (lws_extension_server_handshake(context, wsi, &p))
 		goto bail;
 #endif
+
+	//LWS_CPYAPP(p, "\x0d\x0a""An-unknown-header: blah");
+
 	/* end of response packet */
 
 	LWS_CPYAPP(p, "\x0d\x0a\x0d\x0a");
