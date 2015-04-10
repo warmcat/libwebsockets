@@ -96,7 +96,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	} else
 #endif
 	{
-		struct addrinfo ai, *res;
+		struct addrinfo ai, *res, *result;
 		void *p = NULL;
 
 		memset (&ai, 0, sizeof ai);
@@ -104,9 +104,10 @@ struct libwebsocket *libwebsocket_client_connect_2(
 		ai.ai_socktype = SOCK_STREAM;
 		ai.ai_flags = AI_CANONNAME;
 
-		if (getaddrinfo(ads, NULL, &ai, &res))
+		if (getaddrinfo(ads, NULL, &ai, &result))
 			goto oom4;
 
+		res = result;
 		while (!p && res) {
 			switch (res->ai_family) {
 			case AF_INET:
@@ -117,12 +118,15 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			res = res->ai_next;
 		}
 		
-		if (!p)
+		if (!p) {
+			freeaddrinfo(result);
 			goto oom4;
+		}
 
 		server_addr4.sin_family = AF_INET;
 		server_addr4.sin_addr = *((struct in_addr *)p);
 		bzero(&server_addr4.sin_zero, 8);
+		freeaddrinfo(result);
 	}
 
 	if (wsi->sock < 0) {
