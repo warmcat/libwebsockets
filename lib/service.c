@@ -283,6 +283,14 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 	 */
 	if (sec > wsi->pending_timeout_limit) {
 		lwsl_info("TIMEDOUT WAITING on %d\n", wsi->pending_timeout);
+		/*
+		 * Since he failed a timeout, he already had a chance to do
+		 * something and was unable to... that includes situations like
+		 * half closed connections.  So process this "failed timeout"
+		 * close as a violent death and don't try to do protocol
+		 * cleanup like flush partials.
+		 */
+		wsi->socket_is_permanently_unusable = 1;
 		libwebsocket_close_and_free_session(context,
 						wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		return 1;
@@ -478,8 +486,10 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		/* the guy requested a callback when it was OK to write */
 
 		if ((pollfd->revents & LWS_POLLOUT) &&
-			(wsi->state == WSI_STATE_ESTABLISHED || wsi->state == WSI_STATE_HTTP2_ESTABLISHED || wsi->state == WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS ||
-				wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) &&
+		    (wsi->state == WSI_STATE_ESTABLISHED ||
+		     wsi->state == WSI_STATE_HTTP2_ESTABLISHED ||
+		     wsi->state == WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS ||
+		     wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) &&
 			   lws_handle_POLLOUT_event(context, wsi, pollfd)) {
 			lwsl_info("libwebsocket_service_fd: closing\n");
 			goto close_and_handled;
