@@ -230,6 +230,11 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 	/* Disable Nagle */
 	optval = 1;
 	tcp_proto = getprotobyname("TCP");
+	if (!tcp_proto) {
+		lwsl_err("getprotobyname() failed with error %d\n", LWS_ERRNO);
+		return 1;
+	}
+
 	setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, (const char *)&optval, optlen);
 
 	/* We are nonblocking... */
