@@ -101,9 +101,14 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 							       LWS_WRITE_PONG);
 		if (n < 0)
 			return -1;
+
 		/* well he is sent, mark him done */
 		wsi->u.ws.ping_pending_flag = 0;
-		/* leave POLLOUT active either way */
+		if (wsi->u.ws.payload_is_close)
+			/* oh... a close frame was it... then we are done */
+			return -1;
+
+		/* otherwise for PING, leave POLLOUT active either way */
 		return 0;
 	}
 

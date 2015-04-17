@@ -572,7 +572,6 @@ LWS_VISIBLE int lws_frame_is_binary(struct libwebsocket *wsi)
 int
 libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
-	int n;
 	struct lws_tokens eff_buf;
 	int ret = 0;
 
@@ -870,18 +869,15 @@ spill:
 				lwsl_parser("seen client close ack\n");
 				return -1;
 			}
+			if (wsi->state == WSI_STATE_RETURNED_CLOSE_ALREADY)
+				/* if he sends us 2 CLOSE, kill him */
+				return -1;
+
 			lwsl_parser("server sees client close packet\n");
-			/* parrot the close packet payload back */
-			n = libwebsocket_write(wsi, (unsigned char *)
-				&wsi->u.ws.rx_user_buffer[
-					LWS_SEND_BUFFER_PRE_PADDING],
-					wsi->u.ws.rx_user_buffer_head,
-							       LWS_WRITE_CLOSE);
-			if (n < 0)
-				lwsl_info("write of close ack failed %d\n", n);
 			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
-			/* close the connection */
-			return -1;
+			/* deal with the close packet contents as a PONG */
+			wsi->u.ws.payload_is_close = 1;
+			goto process_as_ping;
 
 		case LWS_WS_OPCODE_07__PING:
 			lwsl_info("received %d byte ping, sending pong\n",
@@ -895,7 +891,7 @@ spill:
 				lwsl_parser("DROP PING since one pending\n");
 				goto ping_drop;
 			}
-			
+process_as_ping:
 			/* control packets can only be < 128 bytes long */
 			if (wsi->u.ws.rx_user_buffer_head > 128 - 4) {
 				lwsl_parser("DROP PING payload too large\n");
