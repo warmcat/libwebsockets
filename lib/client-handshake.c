@@ -151,6 +151,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT;
 
+		lws_libev_accept(context, wsi, wsi->sock);
 		insert_wsi_socket_into_fds(context, wsi);
 
 		libwebsocket_set_timeout(wsi,
@@ -212,6 +213,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			 */
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 				goto oom4;
+			lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_WRITE);
 
 			return wsi;
 		}

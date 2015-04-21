@@ -274,6 +274,13 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 LWS_VISIBLE int
 lws_plat_init_fd_tables(struct libwebsocket_context *context)
 {
+	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
+	if (context->fd_random < 0) {
+		lwsl_err("Unable to open random device %s %d\n",
+				    SYSTEM_RANDOM_FILEPATH, context->fd_random);
+		return 1;
+	}
+
 	if (lws_libev_init_fd_table(context))
 		/* libev handled it instead */
 		return 0;
@@ -288,13 +295,6 @@ lws_plat_init_fd_tables(struct libwebsocket_context *context)
 	context->fds[0].events = LWS_POLLIN;
 	context->fds[0].revents = 0;
 	context->fds_count = 1;
-
-	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
-	if (context->fd_random < 0) {
-		lwsl_err("Unable to open random device %s %d\n",
-				    SYSTEM_RANDOM_FILEPATH, context->fd_random);
-		return 1;
-	}
 
 	return 0;
 }
