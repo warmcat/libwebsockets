@@ -29,7 +29,7 @@ build_script:
 after_build:
   - cd ..
   - cd win32port
-  - IF NOT %LWS_METHOD% == "noserver" makensis -DVERSION=%APPVEYOR_BUILD_VERSION% libwebsockets.nsi
+  - makensis -DVERSION=%APPVEYOR_BUILD_VERSION% libwebsockets.nsi
 
 
 artifacts:
