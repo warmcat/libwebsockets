@@ -16,7 +16,7 @@ environment:
 install:
   - appveyor DownloadFile http://slproweb.com/download/Win32OpenSSL-1_0_2a.exe
   - Win32OpenSSL-1_0_2a.exe /silent /verysilent /sp- /suppressmsgboxes
-  - cinst nsis
+  - cinst -y nsis
   - SET PATH=C:\Program Files\NSIS\;%PATH%
 build:
 
@@ -29,7 +29,7 @@ build_script:
 after_build:
   - cd ..
   - cd win32port
-  - makensis -DVERSION=%APPVEYOR_BUILD_VERSION% libwebsockets.nsi
+  - IF NOT %LWS_METHOD% == "noserver" makensis -DVERSION=%APPVEYOR_BUILD_VERSION% libwebsockets.nsi
 
 
 artifacts:
