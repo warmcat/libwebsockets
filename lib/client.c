@@ -126,6 +126,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		 */
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			return -1;
+		lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
 #ifdef LWS_OPENSSL_SUPPORT
 		/* we can retry this... just cook the SSL BIO the first time */
