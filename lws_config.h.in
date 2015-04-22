@@ -1,7 +1,9 @@
 /* config.h.in.  Generated from configure.ac by autoheader.  */
 
-#ifndef WIN32
-#cmakedefine _DEBUG
+#ifndef NDEBUG
+	#ifndef _DEBUG
+		#define _DEBUG
+	#endif
 #endif
 
 /* Define to 1 to use CyaSSL as a replacement for OpenSSL. 
@@ -146,9 +148,6 @@
    */
 #undef LT_OBJDIR // We're not using libtool
 
-/* Define to 1 if you have the ANSI C header files. */
-#cmakedefine STDC_HEADERS
-
 /* Version number of package */
 #cmakedefine VERSION
 
@@ -171,4 +170,4 @@
 //#cmakedefine vfork
 
 /* Define if the inline keyword doesn't exist. */
-#cmakedefine inline
+#cmakedefine inline ${inline}
