@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 2.8)
 
+if(NOT DEFINED CMAKE_BUILD_TYPE)
+	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
+endif()
+
 project(libwebsockets C)
 
 set(PACKAGE "libwebsockets")
@@ -33,10 +37,19 @@ if(GIT_EXECUTABLE)
     message("Git commit hash: ${LWS_BUILD_HASH}")
 endif()
 
+set(LWS_USE_BUNDLED_ZLIB_DEFAULT OFF)
+if(WIN32)
+	set(LWS_USE_BUNDLED_ZLIB_DEFAULT ON)
+endif()
+
+option(LWS_WITH_STATIC "Build the static version of the library" ON)
+option(LWS_WITH_SHARED "Build the shared version of the library" ON)
 option(LWS_WITH_SSL "Include SSL support (default OpenSSL, CyaSSL if LWS_USE_CYASSL is set)" ON)
+option(LWS_USE_CYASSL "Use CyaSSL replacement for OpenSSL. When settings this, you also need to specify LWS_CYASSL_LIBRARIES and LWS_CYASSL_INCLUDE_DIRS" OFF)
+option(LWS_WITH_ZLIB "Include zlib support (required for extensions)" ON)
+option(LWS_WITH_LIBEV "Compile with support for libev" OFF)
+option(LWS_USE_BUNDLED_ZLIB "Use bundled zlib version (Windows only)" ${LWS_USE_BUNDLED_ZLIB_DEFAULT})
 option(LWS_SSL_CLIENT_USE_OS_CA_CERTS "SSL support should make use of OS installed CA root certs" ON)
-option(LWS_USE_EXTERNAL_ZLIB "Search the system for ZLib instead of using the included one (on Windows)" OFF)
-option(LWS_USE_CYASSL "Use CyaSSL replacement for OpenSSL. When settings this, you also need to specify LWS_CYASSL_LIB and LWS_CYASSL_INCLUDE_DIRS" OFF)
 option(LWS_WITHOUT_BUILTIN_GETIFADDRS "Don't use BSD getifaddrs implementation from libwebsockets if it is missing (this will result in a compilation error) ... Default is your libc provides it. On some systems such as uclibc it doesn't exist." OFF)
 option(LWS_WITHOUT_CLIENT "Don't build the client part of the library" OFF)
 option(LWS_WITHOUT_SERVER "Don't build the server part of the library" OFF)
@@ -47,11 +60,9 @@ option(LWS_WITHOUT_TEST_SERVER_EXTPOLL "Don't build the test server version that
 option(LWS_WITHOUT_TEST_PING "Don't build the ping test application" OFF)
 option(LWS_WITHOUT_TEST_CLIENT "Don't build the client test application" OFF)
 option(LWS_WITHOUT_TEST_FRAGGLE "Don't build the ping test application" OFF)
-option(LWS_WITHOUT_DEBUG "Don't compile debug related code" OFF)
 option(LWS_WITHOUT_EXTENSIONS "Don't compile with extensions" OFF)
 option(LWS_WITH_LATENCY "Build latency measuring code into the library" OFF)
-option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" OFF)
-option(LWS_WITH_LIBEV "Compile with support for libev" OFF)
+option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" ON)
 option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
 
@@ -65,6 +76,66 @@ if (LWS_WITHOUT_CLIENT AND LWS_WITHOUT_SERVER)
 	message(FATAL_ERROR "Makes no sense to compile without both client or server.")
 endif()
 
+if (NOT (LWS_WITH_STATIC OR LWS_WITH_SHARED))
+	message(FATAL_ERROR "Makes no sense to compile without both static or shared libraries.")
+endif()
+
+if (NOT LWS_WITHOUT_EXTENSIONS)
+	if (NOT LWS_WITH_ZLIB)
+		message(FATAL_ERROR "zlib is required for extensions.")
+	endif()
+endif()
+
+set(LWS_ZLIB_LIBRARIES CACHE PATH "Path to the zlib library")
+set(LWS_ZLIB_INCLUDE_DIRS CACHE PATH "Path to the zlib include directory")
+set(LWS_OPENSSL_LIBRARIES CACHE PATH "Path to the OpenSSL library")
+set(LWS_OPENSSL_INCLUDE_DIRS CACHE PATH "Path to the OpenSSL include directory")
+set(LWS_CYASSL_LIBRARIES CACHE PATH "Path to the CyaSSL library")
+set(LWS_CYASSL_INCLUDE_DIRS CACHE PATH "Path to the CyaSSL include directory")
+set(LWS_LIBEV_LIBRARIES CACHE PATH "Path to the libev library")
+set(LWS_LIBEV_INCLUDE_DIRS CACHE PATH "Path to the libev include directory")
+
+if (LWS_WITH_SSL AND NOT LWS_USE_CYASSL)
+	if ("${LWS_OPENSSL_LIBRARIES}" STREQUAL "" OR "${LWS_OPENSSL_INCLUDE_DIRS}" STREQUAL "")
+	else()
+		set(OPENSSL_LIBRARIES ${LWS_OPENSSL_LIBRARIES})
+		set(OPENSSL_INCLUDE_DIRS ${LWS_OPENSSL_INCLUDE_DIRS})
+		set(OPENSSL_FOUND 1)
+	endif()
+endif()
+
+if (LWS_WITH_SSL AND LWS_USE_CYASSL)
+	if ("${LWS_CYASSL_LIBRARIES}" STREQUAL "" OR "${LWS_CYASSL_INCLUDE_DIRS}" STREQUAL "")
+		if (NOT CYASSL_FOUND)
+			message(FATAL_ERROR "You must set LWS_CYASSL_LIBRARIES and LWS_CYASSL_INCLUDE_DIRS when LWS_USE_CYASSL is turned on.")
+		endif()
+	else()
+		set(CYASSL_LIBRARIES ${LWS_CYASSL_LIBRARIES})
+		set(CYASSL_INCLUDE_DIRS ${LWS_CYASSL_INCLUDE_DIRS})
+		set(CYASSL_FOUND 1)
+	endif()
+	set(USE_CYASSL 1)
+endif()
+
+if (LWS_WITH_ZLIB AND NOT LWS_USE_BUNDLED_ZLIB)
+	if ("${LWS_ZLIB_LIBRARIES}" STREQUAL "" OR "${LWS_ZLIB_INCLUDE_DIRS}" STREQUAL "")
+	else()
+		set(ZLIB_LIBRARIES ${LWS_ZLIB_LIBRARIES})
+		set(ZLIB_INCLUDE_DIRS ${LWS_ZLIB_INCLUDE_DIRS})
+		set(ZLIB_FOUND 1)
+	endif()
+endif()
+
+if (LWS_WITH_LIBEV)
+	if ("${LWS_LIBEV_LIBRARIES}" STREQUAL "" OR "${LWS_LIBEV_INCLUDE_DIRS}" STREQUAL "")
+	else()
+		set(LIBEV_LIBRARIES ${LWS_LIBEV_LIBRARIES})
+		set(LIBEV_INCLUDE_DIRS ${LWS_LIBEV_INCLUDE_DIRS})
+		set(LIBEV_FOUND 1)
+	endif()
+endif()
+
+# FIXME: This must be runtime-only option.
 # The base dir where the test-apps look for the SSL certs.
 set(LWS_OPENSSL_CLIENT_CERTS ../share CACHE PATH "Server SSL certificate directory")
 if (WIN32)
@@ -76,16 +147,6 @@ if (WIN32)
 	endif()
 else()
 	set(LWS_OPENSSL_CLIENT_CERTS /etc/pki/tls/certs/ CACHE PATH "Client SSL certificate directory")
-endif()
-
-set(LWS_CYASSL_LIB CACHE PATH "Path to the CyaSSL library")
-set(LWS_CYASSL_INCLUDE_DIRS CACHE PATH "Path to the CyaSSL include directory")
-
-if (LWS_USE_CYASSL)
-	if ("${LWS_CYASSL_LIB}" STREQUAL "" OR "${LWS_CYASSL_INCLUDE_DIRS}" STREQUAL "")
-		message(FATAL_ERROR "You must set LWS_CYASSL_LIB and LWS_CYASSL_INCLUDE_DIRS when LWS_USE_CYASSL is turned on")
-	endif()
-	set(USE_CYASSL 1)
 endif()
 
 if (LWS_WITHOUT_EXTENSIONS)
@@ -116,15 +177,8 @@ if (LWS_WITHOUT_CLIENT)
 	set(LWS_NO_CLIENT 1)
 endif()
 
-if (LWS_WITHOUT_DEBUG)
-	set(_DEBUG 0)
-else()
-	set(_DEBUG 1)
-endif()
-
 if (LWS_WITH_LIBEV)
 	set(LWS_USE_LIBEV 1)
-	set(LWS_NO_EXTERNAL_POLL 1)
 endif()
 
 if (LWS_IPV6)
@@ -149,7 +203,7 @@ foreach(KEYWORD "inline" "__inline__" "__inline")
 	CHECK_C_SOURCE_COMPILES(
 		"
 		#include <stdio.h>
-		KEYWORD void a() {}
+		static KEYWORD void a() {}
 		int main(int argc, char **argv) { a(); return 0; }
 		" HAVE_${KEYWORD})
 endforeach()
@@ -172,10 +226,6 @@ SET(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/lib")
 # architectures, notably Mac OS X, need this.
 SET(CMAKE_INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/${LWS_INSTALL_LIB_DIR}${LIB_SUFFIX}")
 
-# So we can include the CMake generated config file only when
-# building with CMAKE.
-add_definitions(-DCMAKE_BUILD)
-
 include(CheckFunctionExists)
 include(CheckIncludeFile)
 include(CheckIncludeFiles)
@@ -197,7 +247,6 @@ if (NOT HAVE_GETIFADDRS)
 	if (LWS_WITHOUT_BUILTIN_GETIFADDRS)
 		message(FATAL_ERROR "No getifaddrs was found on the system. Turn off the LWS_WITHOUT_BUILTIN_GETIFADDRS compile option to use the supplied BSD version.")
 	endif()
-
 	set(LWS_BUILTIN_GETIFADDRS 1)
 endif()
 
@@ -244,9 +293,9 @@ if (NOT HAVE_REALLOC)
 	set(realloc rpl_realloc)
 endif()
 
-# Generate the config.h that includes all the compilation settings.
+# Generate the lws_config.h that includes all the compilation settings.
 configure_file(
-       "${PROJECT_SOURCE_DIR}/config.h.cmake"
+       "${PROJECT_SOURCE_DIR}/lws_config.h.in"
        "${PROJECT_BINARY_DIR}/lws_config.h")
 
 if (MSVC)
@@ -259,13 +308,11 @@ include_directories("${PROJECT_SOURCE_DIR}/lib")
 # Group headers and sources.
 # Some IDEs use this for nicer file structure.
 set(HDR_PRIVATE
-	lib/private-libwebsockets.h
-	)
+	lib/private-libwebsockets.h)
 
-set(HDR_PUBLIC	
+set(HDR_PUBLIC
 	"${PROJECT_SOURCE_DIR}/lib/libwebsockets.h"
-	"${PROJECT_BINARY_DIR}/lws_config.h"
-	)
+	"${PROJECT_BINARY_DIR}/lws_config.h")
 
 set(SOURCES
 	lib/base64-decode.c
@@ -284,81 +331,69 @@ if (NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
 		lib/client.c
 		lib/client-handshake.c
-		lib/client-parser.c
-		)
+		lib/client-parser.c)
 endif()
 
 if (LWS_WITH_SSL)
 	list(APPEND SOURCES
-		lib/ssl.c
-		)
+		lib/ssl.c)
 endif()
 
 if (LWS_WITH_HTTP2)
 	list(APPEND SOURCES
 		lib/http2.c
 		lib/hpack.c
-		lib/ssl-http2.c
-		)
+		lib/ssl-http2.c)
 endif()
 # select the active platform files
 
 if (WIN32)
 	list(APPEND SOURCES
-		lib/lws-plat-win.c
-		)
+		lib/lws-plat-win.c)
 else()
 	list(APPEND SOURCES
-		lib/lws-plat-unix.c
-		)
+		lib/lws-plat-unix.c)
 endif()
 
 if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
 		lib/server.c
-		lib/server-handshake.c
-		)
+		lib/server-handshake.c)
 endif()
 
 if (NOT LWS_WITHOUT_EXTENSIONS)
 	list(APPEND HDR_PRIVATE
 		lib/extension-deflate-frame.h
-		lib/extension-deflate-stream.h
-		)
-
+		lib/extension-deflate-stream.h)
 	list(APPEND SOURCES
 		lib/extension.c
 		lib/extension-deflate-frame.c
-		lib/extension-deflate-stream.c
-		)
+		lib/extension-deflate-stream.c)
 endif()
 
 if (LWS_WITH_LIBEV)
 	list(APPEND SOURCES
-		lib/libev.c
-		)
+		lib/libev.c)
 endif(LWS_WITH_LIBEV)
 
 # Add helper files for Windows.
 if (WIN32)
 	set(WIN32_HELPERS_PATH win32port/win32helpers)
 	include_directories(${WIN32_HELPERS_PATH})
-else(WIN32)
+else()
 	# Unix.
 	if (NOT LWS_WITHOUT_DAEMONIZE)
 		list(APPEND SOURCES
-			lib/daemonize.c
-			)
+			lib/daemonize.c)
 	endif()
-endif(WIN32)
+endif()
 
 if (UNIX)
 	if (NOT HAVE_GETIFADDRS)
 		list(APPEND HDR_PRIVATE lib/getifaddrs.h)
 		list(APPEND SOURCES lib/getifaddrs.c)
 	endif()
-endif(UNIX)
-
+endif()
 
 if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
     include (CheckCCompilerFlag)
@@ -367,9 +402,9 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
                 set(VISIBILITY_FLAG -fvisibility=hidden)
     endif()
     if (UNIX)
-		set( CMAKE_C_FLAGS "-Wall -Werror -O3 ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
+		set(CMAKE_C_FLAGS "-Wall -Werror -O3 ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
     else(UNIX)
-		set( CMAKE_C_FLAGS "-Wall -O3 ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
+		set(CMAKE_C_FLAGS "-Wall -O3 ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
     endif(UNIX)
 endif ()
 
@@ -380,43 +415,38 @@ source_group("Sources"          FILES ${SOURCES})
 #
 # Create the lib.
 #
-add_library(websockets STATIC
-			${HDR_PRIVATE}
-			${HDR_PUBLIC}
-			${SOURCES})
-add_library(websockets_shared SHARED
-			${HDR_PRIVATE}
-			${HDR_PUBLIC}
-			${SOURCES})
+set(LWS_LIBRARIES)
+if (LWS_WITH_STATIC)
+	add_library(websockets STATIC
+				${HDR_PRIVATE}
+				${HDR_PUBLIC}
+				${SOURCES})
+	list(APPEND LWS_LIBRARIES websockets)
+endif()
+if (LWS_WITH_SHARED)
+	add_library(websockets_shared SHARED
+				${HDR_PRIVATE}
+				${HDR_PUBLIC}
+				${SOURCES})
+	list(APPEND LWS_LIBRARIES websockets_shared)
+endif()
 
 if (WIN32)
-	# On Windows libs have the same file ending (.lib)
-	# for both static and shared libraries, so we
-	# need a unique name for the static one.
-	set_target_properties(websockets 
-		PROPERTIES
-		OUTPUT_NAME websockets_static)
-
-	# Compile as DLL (export function declarations)
-	set_property(
-		TARGET websockets_shared
-		PROPERTY COMPILE_DEFINITIONS 
-		LWS_DLL
-		LWS_INTERNAL
-		)
+	if (LWS_WITH_SHARED)
+		# Compile as DLL (export function declarations)
+		set_property(
+			TARGET websockets_shared
+			PROPERTY COMPILE_DEFINITIONS
+			LWS_DLL
+			LWS_INTERNAL)
+	endif()
 endif(WIN32)
-
-# We want the shared lib to be named "libwebsockets"
-# not "libwebsocket_shared".
-set_target_properties(websockets_shared
-		PROPERTIES 
-		OUTPUT_NAME websockets)
 
 # Set the so version of the lib.
 # Equivalent to LDFLAGS=-version-info x:x:x
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
-	foreach(lib websockets websockets_shared)
-		set_target_properties(${lib} 
+	foreach(lib ${LWS_LIBRARIES})
+		set_target_properties(${lib}
 			PROPERTIES
 			SOVERSION ${SOVERSION})
 	endforeach()
@@ -431,52 +461,46 @@ set(LIB_LIST)
 #
 # ZLIB (Only needed for deflate extensions).
 #
-if (NOT LWS_WITHOUT_EXTENSIONS)
-	if (WIN32 AND NOT LWS_USE_EXTERNAL_ZLIB)
-		message("Using included Zlib version")
-
-		# Compile ZLib if needed.
-		set(WIN32_ZLIB_PATH "win32port/zlib")
-		set(ZLIB_SRCS
-			${WIN32_ZLIB_PATH}/adler32.c
-			${WIN32_ZLIB_PATH}/compress.c
-			${WIN32_ZLIB_PATH}/crc32.c
-			${WIN32_ZLIB_PATH}/deflate.c
-			${WIN32_ZLIB_PATH}/gzclose.c
-			${WIN32_ZLIB_PATH}/gzio.c
-			${WIN32_ZLIB_PATH}/gzlib.c
-			${WIN32_ZLIB_PATH}/gzread.c
-			${WIN32_ZLIB_PATH}/gzwrite.c
-			${WIN32_ZLIB_PATH}/infback.c
-			${WIN32_ZLIB_PATH}/inffast.c
-			${WIN32_ZLIB_PATH}/inflate.c
-			${WIN32_ZLIB_PATH}/inftrees.c
-			${WIN32_ZLIB_PATH}/trees.c
-			${WIN32_ZLIB_PATH}/uncompr.c
-			${WIN32_ZLIB_PATH}/zutil.c
-		)
-
-		# Create the library.
-		add_library(ZLIB STATIC ${ZLIB_SRCS})
-
-		# Set the same variables as find_package would.
-		set(ZLIB_INCLUDE_DIRS ${WIN32_ZLIB_PATH})
-		get_property(ZLIB_LIBRARIES TARGET ZLIB PROPERTY LOCATION)
-		set(ZLIB_FOUND 1)
-	else()
+if (LWS_WITH_ZLIB)
+	if (LWS_USE_BUNDLED_ZLIB)
+		if (WIN32)
+			set(WIN32_ZLIB_PATH "win32port/zlib")
+			set(ZLIB_SRCS
+				${WIN32_ZLIB_PATH}/adler32.c
+				${WIN32_ZLIB_PATH}/compress.c
+				${WIN32_ZLIB_PATH}/crc32.c
+				${WIN32_ZLIB_PATH}/deflate.c
+				${WIN32_ZLIB_PATH}/gzclose.c
+				${WIN32_ZLIB_PATH}/gzio.c
+				${WIN32_ZLIB_PATH}/gzlib.c
+				${WIN32_ZLIB_PATH}/gzread.c
+				${WIN32_ZLIB_PATH}/gzwrite.c
+				${WIN32_ZLIB_PATH}/infback.c
+				${WIN32_ZLIB_PATH}/inffast.c
+				${WIN32_ZLIB_PATH}/inflate.c
+				${WIN32_ZLIB_PATH}/inftrees.c
+				${WIN32_ZLIB_PATH}/trees.c
+				${WIN32_ZLIB_PATH}/uncompr.c
+				${WIN32_ZLIB_PATH}/zutil.c)
+			add_library(zlib_internal STATIC ${ZLIB_SRCS})
+			set(ZLIB_INCLUDE_DIRS ${WIN32_ZLIB_PATH})
+			get_property(ZLIB_LIBRARIES TARGET zlib_internal PROPERTY LOCATION)
+			set(ZLIB_FOUND 1)
+			# Make sure zlib_internal is compiled before the libs.
+			foreach (lib ${LWS_LIBRARIES})
+				target_link_libraries(${lib} zlib_internal)
+			endforeach()
+		else()
+			message(FATAL_ERROR "Don't have bundled zlib for that platform")
+		endif()
+	elseif (NOT ZLIB_FOUND)
 		find_package(ZLIB REQUIRED)
 	endif()
-
-	# Make sure ZLib is compiled before the libs.
-	foreach (lib websockets websockets_shared)
-		add_dependencies(${lib} ZLIB)
-	endforeach()
-
-	message("ZLib include dirs: ${ZLIB_INCLUDE_DIRS}")
-	message("ZLib libraries: ${ZLIB_LIBRARIES}")
+	message("zlib include dirs: ${ZLIB_INCLUDE_DIRS}")
+	message("zlib libraries: ${ZLIB_LIBRARIES}")
 	include_directories(${ZLIB_INCLUDE_DIRS})
 	list(APPEND LIB_LIST ${ZLIB_LIBRARIES})
-endif(NOT LWS_WITHOUT_EXTENSIONS)
+endif()
 
 #
 # OpenSSL
@@ -487,41 +511,40 @@ if (LWS_WITH_SSL)
 	if (LWS_USE_CYASSL)
 		# Use CyaSSL as OpenSSL replacement.
 		# TODO: Add a find_package command for this also.
-		message("CyaSSL include dir: ${LWS_CYASSL_INCLUDE_DIRS}")
-		message("CyaSSL libraries: ${LWS_CYASSL_LIB}")
+		message("CyaSSL include dir: ${CYASSL_INCLUDE_DIRS}")
+		message("CyaSSL libraries: ${CYASSL_LIBRARIES}")
 
 		# Additional to the root directory we need to include
 		# the cyassl/ subdirectory which contains the OpenSSL
 		# compatability layer headers.
-		foreach(inc ${LWS_CYASSL_INCLUDE_DIRS})
+		foreach(inc ${CYASSL_LIBRARIES})
 			include_directories("${inc}" "${inc}/cyassl")
 		endforeach()
 
-		list(APPEND LIB_LIST "${LWS_CYASSL_LIB}")
+		list(APPEND LIB_LIST "${CYASSL_LIBRARIES}")
 	else()
-		if (OPENSSL_ROOT_DIR)
-			set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include")
-			set(OPENSSL_LIBRARIES "${OPENSSL_ROOT_DIR}/lib/libssl.so" "${OPENSSL_ROOT_DIR}/lib/libcrypto.so")
-		else(OPENSSL_ROOT_DIR)
-		
-		# TODO: Add support for STATIC also.
-		find_package(OpenSSL REQUIRED)
-		endif(OPENSSL_ROOT_DIR)
+		if (NOT OPENSSL_FOUND)
+			# TODO: Add support for STATIC also.
+			find_package(OpenSSL REQUIRED)
+			set(OPENSSL_INCLUDE_DIRS "${OPENSSL_INCLUDE_DIR}")
+		endif()
 
-		message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
+		message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIRS}")
 		message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
 
-		include_directories("${OPENSSL_INCLUDE_DIR}")
+		include_directories("${OPENSSL_INCLUDE_DIRS}")
 		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
-
-		# Link against dynamic linking functions.
-		# (Don't link directly to libdl since it is not needed on all platforms, it's now a part of libc).
-		list(APPEND LIB_LIST ${CMAKE_DL_LIBS})
 	endif()
 endif(LWS_WITH_SSL)
 
 if (LWS_WITH_LIBEV)
-	list(APPEND LIB_LIST "ev")
+	if (NOT LIBEV_FOUND)
+		find_package(libev REQUIRED)
+	endif()
+	message("libev include dir: ${LIBEV_INCLUDE_DIRS}")
+	message("libev libraries: ${LIBEV_LIBRARIES}")
+	include_directories("${LIBEV_INCLUDE_DIRS}")
+	list(APPEND LIB_LIST ${LIBEV_LIBRARIES})
 endif(LWS_WITH_LIBEV)
 
 #
@@ -538,7 +561,7 @@ if (UNIX)
 endif()
 
 # Setup the linking for all libs.
-foreach (lib websockets websockets_shared)
+foreach (lib ${LWS_LIBRARIES})
 	target_link_libraries(${lib} ${LIB_LIST})
 endforeach()
 
@@ -551,18 +574,18 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 	# Helper function for adding a test app.
 	#
 	macro(create_test_app TEST_NAME MAIN_SRC)
-		
+
 		set(TEST_SRCS ${MAIN_SRC})
 		set(TEST_HDR)
 
 		if (WIN32)
-			list(APPEND TEST_SRCS 
+			list(APPEND TEST_SRCS
 				${WIN32_HELPERS_PATH}/getopt.c
 				${WIN32_HELPERS_PATH}/getopt_long.c
 				${WIN32_HELPERS_PATH}/gettimeofday.c
 			)
 
-			list(APPEND TEST_HDR 
+			list(APPEND TEST_HDR
 				${WIN32_HELPERS_PATH}/getopt.h
 				${WIN32_HELPERS_PATH}/gettimeofday.h
 			)
@@ -571,23 +594,29 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		source_group("Headers Private"   FILES ${TEST_HDR})
 		source_group("Sources"   FILES ${TEST_SRCS})
 		add_executable(${TEST_NAME} ${TEST_SRCS} ${TEST_HDR})
-		
+
 		if (LWS_LINK_TESTAPPS_DYNAMIC)
+			if (NOT LWS_WITH_SHARED)
+				message(FATAL_ERROR "Build of shared library is disabled. LWS_LINK_TESTAPPS_DYNAMIC must be combined with LWS_WITH_SHARED.")
+			endif()
 			target_link_libraries(${TEST_NAME} websockets_shared)
 			add_dependencies(${TEST_NAME} websockets_shared)
-		else(LWS_LINK_TESTAPPS_DYNAMIC)
+		else()
+			if (NOT LWS_WITH_STATIC)
+				message(FATAL_ERROR "Build of static library is disabled. Disabled LWS_LINK_TESTAPPS_DYNAMIC must be combined with LWS_WITH_STATIC.")
+			endif()
 			target_link_libraries(${TEST_NAME} websockets)
 			add_dependencies(${TEST_NAME} websockets)
-		endif(LWS_LINK_TESTAPPS_DYNAMIC)
+		endif()
 
 		# Set test app specific defines.
 		set_property(TARGET ${TEST_NAME}
-					PROPERTY COMPILE_DEFINITIONS 
+					PROPERTY COMPILE_DEFINITIONS
 						INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/share"
 					)
 
 		# Prefix the binary names with libwebsockets.
-		set_target_properties(${TEST_NAME} 
+		set_target_properties(${TEST_NAME}
 			PROPERTIES
 			OUTPUT_NAME libwebsockets-${TEST_NAME})
 
@@ -746,13 +775,12 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			message("  Libeay: ${LIBEAY_BIN}")
 			message("  SSLeay: ${SSLEAY_BIN}")
 
-			foreach(TARGET_BIN ${TEST_APP_LIST})			
+			foreach(TARGET_BIN ${TEST_APP_LIST})
 				add_custom_command(TARGET ${TARGET_BIN}
-					POST_BUILD 
+					POST_BUILD
 					COMMAND "${CMAKE_COMMAND}" -E copy "${LIBEAY_BIN}" "$<TARGET_FILE_DIR:${TARGET_BIN}>" VERBATIM)
-					
 				add_custom_command(TARGET ${TARGET_BIN}
-					POST_BUILD 
+					POST_BUILD
 					COMMAND "${CMAKE_COMMAND}" -E copy "${SSLEAY_BIN}" "$<TARGET_FILE_DIR:${TARGET_BIN}>" VERBATIM)
 			endforeach()
 		endif()
@@ -809,7 +837,7 @@ endif()
 set(LWS_INSTALL_CMAKE_DIR ${DEF_INSTALL_CMAKE_DIR} CACHE PATH "Installation directory for CMake files")
 
 # Export targets (This is used for other CMake projects to easily find the libraries and include files).
-export(TARGETS websockets websockets_shared
+export(TARGETS ${LWS_LIBRARIES}
         FILE "${PROJECT_BINARY_DIR}/LibwebsocketsTargets.cmake")
 export(PACKAGE libwebsockets)
 
@@ -845,7 +873,7 @@ configure_file(${PROJECT_SOURCE_DIR}/cmake/LibwebsocketsConfigVersion.cmake.in
                 ${PROJECT_BINARY_DIR}/LibwebsocketsConfigVersion.cmake 
                 @ONLY)
 
-set_target_properties(websockets websockets_shared 
+			set_target_properties(${LWS_LIBRARIES}
 					PROPERTIES PUBLIC_HEADER "${HDR_PUBLIC}")
 
 #
@@ -853,7 +881,7 @@ set_target_properties(websockets websockets_shared
 #
 
 # Install libs and headers.
-install(TARGETS websockets websockets_shared
+install(TARGETS ${LWS_LIBRARIES}
 		EXPORT LibwebsocketsTargets
 		LIBRARY DESTINATION "${LWS_INSTALL_LIB_DIR}${LIB_SUFFIX}" COMPONENT libraries
 		ARCHIVE DESTINATION "${LWS_INSTALL_LIB_DIR}${LIB_SUFFIX}" COMPONENT libraries
@@ -893,13 +921,13 @@ if (RPMTools_FOUND)
 endif()
 
 message("---------------------------------------------------------------------")
-message("  Settings:  (For more help do cmake -LH <srcpath>")
+message("  Settings:  (For more help do cmake -LH <srcpath>)")
 message("---------------------------------------------------------------------")
 message(" LWS_WITH_SSL = ${LWS_WITH_SSL}  (SSL Support)")
 message(" LWS_SSL_CLIENT_USE_OS_CA_CERTS = ${LWS_SSL_CLIENT_USE_OS_CA_CERTS}")
 message(" LWS_USE_CYASSL = ${LWS_USE_CYASSL} (CyaSSL replacement for OpenSSL)")
 if (LWS_USE_CYASSL)
-	message("   LWS_CYASSL_LIB = ${LWS_CYASSL_LIB}")
+	message("   LWS_CYASSL_LIBRARIES = ${LWS_CYASSL_LIBRARIES}")
 	message("   LWS_CYASSL_INCLUDE_DIRS = ${LWS_CYASSL_INCLUDE_DIRS}")
 endif()
 message(" LWS_WITHOUT_BUILTIN_GETIFADDRS = ${LWS_WITHOUT_BUILTIN_GETIFADDRS}")
@@ -912,7 +940,6 @@ message(" LWS_WITHOUT_TEST_SERVER_EXTPOLL = ${LWS_WITHOUT_TEST_SERVER_EXTPOLL}")
 message(" LWS_WITHOUT_TEST_PING = ${LWS_WITHOUT_TEST_PING}")
 message(" LWS_WITHOUT_TEST_CLIENT = ${LWS_WITHOUT_TEST_CLIENT}")
 message(" LWS_WITHOUT_TEST_FRAGGLE = ${LWS_WITHOUT_TEST_FRAGGLE}")
-message(" LWS_WITHOUT_DEBUG = ${LWS_WITHOUT_DEBUG}")
 message(" LWS_WITHOUT_EXTENSIONS = ${LWS_WITHOUT_EXTENSIONS}")
 message(" LWS_WITH_LATENCY = ${LWS_WITH_LATENCY}")
 message(" LWS_WITHOUT_DAEMONIZE = ${LWS_WITHOUT_DAEMONIZE}")
@@ -922,9 +949,13 @@ message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()
-set(LIBWEBSOCKETS_LIBRARIES websocket websockets_shared CACHE STRING "Libwebsocket libraries")
-set(LIBWEBSOCKETS_LIBRARIES_STATIC websocket CACHE STRING "Libwebsocket static library")
-set(LIBWEBSOCKETS_LIBRARIES_SHARED websockets_shared CACHE STRING "Libwebsocket shared library")
+set(LIBWEBSOCKETS_LIBRARIES ${LWS_LIBRARIES} CACHE STRING "Libwebsocket libraries")
+if (LWS_WITH_STATIC)
+	set(LIBWEBSOCKETS_LIBRARIES_STATIC websocket CACHE STRING "Libwebsocket static library")
+endif()
+if (LWS_WITH_SHARED)
+	set(LIBWEBSOCKETS_LIBRARIES_SHARED websockets_shared CACHE STRING "Libwebsocket shared library")
+endif()
 
 # This must always be last!
 include(CPack)
