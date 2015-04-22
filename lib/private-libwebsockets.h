@@ -19,17 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-/* System introspection configs */
-#ifdef CMAKE_BUILD
 #include "lws_config.h"
-#else
-#if defined(WIN32) || defined(_WIN32)
-#define inline __inline
-#else /* not WIN32 */
-#include "config.h"
-
-#endif /* not WIN32 */
-#endif /* not CMAKE */
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>

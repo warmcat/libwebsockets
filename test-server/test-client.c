@@ -31,9 +31,7 @@
 #include <unistd.h>
 #endif
 
-#ifdef CMAKE_BUILD
 #include "lws_config.h"
-#endif
 
 #include "../lib/libwebsockets.h"
 

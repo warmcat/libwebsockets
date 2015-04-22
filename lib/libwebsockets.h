@@ -29,10 +29,9 @@ extern "C" {
 #else
 #include <stdarg.h>
 #endif
-	
-#ifdef CMAKE_BUILD
+
+/* That's a bad idea since it will leak all internal defines outside */
 #include "lws_config.h"
-#endif
 
 #if defined(WIN32) || defined(_WIN32)
 
