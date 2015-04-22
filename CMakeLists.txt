@@ -660,7 +660,8 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 				execute_process(
 					COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
 					COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-					RESULT_VARIABLE OPENSSL_RETURN_CODE)
+					RESULT_VARIABLE OPENSSL_RETURN_CODE
+					OUTPUT_QUIET ERROR_QUIET)
 
 				message("\n")
 
@@ -675,7 +676,8 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
 					COMMAND "${OPENSSL_EXECUTABLE}"
 						req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-					RESULT_VARIABLE OPENSSL_RETURN_CODE)
+					RESULT_VARIABLE OPENSSL_RETURN_CODE
+					OUTPUT_QUIET ERROR_QUIET)
 
 				if (OPENSSL_RETURN_CODE)
 					message(WARNING "!!! Failed to generate SSL certificate for Test Server!!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
