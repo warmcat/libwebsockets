@@ -440,7 +440,11 @@ if (WIN32)
 			LWS_DLL
 			LWS_INTERNAL)
 	endif()
-endif(WIN32)
+elseif(APPLE)
+	if (LWS_WITH_SHARED)
+		set_property(TARGET websockets_shared PROPERTY MACOSX_RPATH YES)
+	endif()
+endif()
 
 # Set the so version of the lib.
 # Equivalent to LDFLAGS=-version-info x:x:x
