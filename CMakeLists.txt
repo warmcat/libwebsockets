@@ -278,7 +278,7 @@ set(SOURCES
 	lib/context.c
 	lib/sha-1.c
 	lib/alloc.c
-	)
+	lib/header.c)
 
 if (NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
