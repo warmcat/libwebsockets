@@ -286,6 +286,7 @@ lws_http2_parser(struct libwebsocket_context *context,
 				/* service the http request itself */
 				lwsl_info("servicing initial http request, wsi=%p, stream wsi=%p\n", wsi, wsi->u.http2.stream_wsi);
 				n = lws_http_action(context, swsi);
+				(void)n;
 				lwsl_info("  action result %d\n", n);
 				break;
 			case LWS_HTTP2_FRAME_TYPE_PING:
