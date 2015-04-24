@@ -42,11 +42,14 @@ int lws_add_http_header_by_name(struct libwebsocket_context *context,
 		return lws_add_http2_header_by_name(context, wsi, name, value, length, p, end);
 #endif
 	if (name) {
+		char sep = '\0';
 		while (*p < end && *name)
-			*((*p)++) = *name++;
-		if (*p == end)
-			return 1;
-		*((*p)++) = ' ';
+			*((*p)++) = sep = *name++;
+		if (':' != sep) {
+			if (*p == end)
+				return 1;
+			*((*p)++) = ':';
+		}
 	}
 	if (*p + length + 3 >= end)
 		return 1;
