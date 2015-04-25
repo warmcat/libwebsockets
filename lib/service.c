@@ -55,6 +55,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 #endif
 	int ret;
 	int m;
+	int write_type = LWS_WRITE_PONG;
 
 	/* pending truncated sends have uber priority */
 
@@ -94,11 +95,15 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 	
 	if (wsi->state == WSI_STATE_ESTABLISHED &&
 	    wsi->u.ws.ping_pending_flag) {
+
+		if (wsi->u.ws.payload_is_close)
+			write_type = LWS_WRITE_CLOSE;
+
 		n = libwebsocket_write(wsi, 
 				&wsi->u.ws.ping_payload_buf[
 					LWS_SEND_BUFFER_PRE_PADDING],
 					wsi->u.ws.ping_payload_len,
-							       LWS_WRITE_PONG);
+							       write_type);
 		if (n < 0)
 			return -1;
 
