@@ -499,6 +499,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		    (wsi->state == WSI_STATE_ESTABLISHED ||
 		     wsi->state == WSI_STATE_HTTP2_ESTABLISHED ||
 		     wsi->state == WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS ||
+		     wsi->state == WSI_STATE_RETURNED_CLOSE_ALREADY ||
 		     wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) &&
 			   lws_handle_POLLOUT_event(context, wsi, pollfd)) {
 			lwsl_info("libwebsocket_service_fd: closing\n");
