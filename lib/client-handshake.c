@@ -18,7 +18,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	int plen = 0;
 	const char *ads;
 
-       lwsl_client("libwebsocket_client_connect_2\n");
+	   lwsl_client("libwebsocket_client_connect_2\n");
 
 	/*
 	 * proxy?
@@ -54,7 +54,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	/*
 	 * prepare the actual connection (to the proxy, if any)
 	 */
-       lwsl_client("libwebsocket_client_connect_2: address %s\n", ads);
+	   lwsl_client("libwebsocket_client_connect_2: address %s\n", ads);
 
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context)) {
@@ -156,7 +156,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 
 		libwebsocket_set_timeout(wsi,
 			PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
-							      AWAITING_TIMEOUT);
+								  AWAITING_TIMEOUT);
 #ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context)) {
 			v = (struct sockaddr *)&client_addr6;
@@ -204,7 +204,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	if (connect(wsi->sock, v, n) == -1 || LWS_ERRNO == LWS_EISCONN) {
 
 		if (LWS_ERRNO == LWS_EALREADY || LWS_ERRNO == LWS_EINPROGRESS
-		                              || LWS_ERRNO == LWS_EWOULDBLOCK) {
+									  || LWS_ERRNO == LWS_EWOULDBLOCK) {
 			lwsl_client("nonblocking connect retry\n");
 
 			/*
@@ -249,7 +249,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 
 		libwebsocket_set_timeout(wsi,
 			PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
-							      AWAITING_TIMEOUT);
+								  AWAITING_TIMEOUT);
 
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY;
 
@@ -290,7 +290,7 @@ oom4:
 
 failed:
 	libwebsocket_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
+							 LWS_CLOSE_STATUS_NOSTATUS);
 	return NULL;
 }
 
@@ -316,14 +316,14 @@ failed:
 
 LWS_VISIBLE struct libwebsocket *
 libwebsocket_client_connect(struct libwebsocket_context *context,
-			      const char *address,
-			      int port,
-			      int ssl_connection,
-			      const char *path,
-			      const char *host,
-			      const char *origin,
-			      const char *protocol,
-			      int ietf_version_or_minus_one)
+				  const char *address,
+				  int port,
+				  int ssl_connection,
+				  const char *path,
+				  const char *host,
+				  const char *origin,
+				  const char *protocol,
+				  int ietf_version_or_minus_one)
 {
 	struct libwebsocket *wsi;
 
@@ -401,14 +401,14 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 
 		libwebsocket_set_timeout(wsi,
 			PENDING_TIMEOUT_AWAITING_EXTENSION_CONNECT_RESPONSE,
-							      AWAITING_TIMEOUT);
+								  AWAITING_TIMEOUT);
 
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT;
 		return wsi;
 	}
 	lwsl_client("libwebsocket_client_connect: direct conn\n");
 
-       return libwebsocket_client_connect_2(context, wsi);
+	   return libwebsocket_client_connect_2(context, wsi);
 
 bail1:
 	lws_free(wsi->u.hdr.ah);
@@ -441,20 +441,20 @@ bail:
 
 LWS_VISIBLE struct libwebsocket *
 libwebsocket_client_connect_extended(struct libwebsocket_context *context,
-			      const char *address,
-			      int port,
-			      int ssl_connection,
-			      const char *path,
-			      const char *host,
-			      const char *origin,
-			      const char *protocol,
-			      int ietf_version_or_minus_one,
-			      void *userdata)
+				  const char *address,
+				  int port,
+				  int ssl_connection,
+				  const char *path,
+				  const char *host,
+				  const char *origin,
+				  const char *protocol,
+				  int ietf_version_or_minus_one,
+				  void *userdata)
 {
 	struct libwebsocket *ws =
 		libwebsocket_client_connect(context, address, port,
 			ssl_connection, path, host, origin, protocol,
-						     ietf_version_or_minus_one);
+							 ietf_version_or_minus_one);
 
 	if (ws && !ws->user_space && userdata) {
 		ws->user_space_externally_allocated = 1;

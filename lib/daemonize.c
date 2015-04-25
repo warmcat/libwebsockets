@@ -60,7 +60,7 @@ child_handler(int signum)
 		if (sent != len)
 			fprintf(stderr,
 			  "unable write pid to lock file %s, code=%d (%s)\n",
-					     lock_path, errno, strerror(errno));
+						 lock_path, errno, strerror(errno));
 
 		close(fd);
 		exit(!!(sent == len));
@@ -112,11 +112,11 @@ lws_daemonize(const char *_lock_path)
 			ret = kill(n, 0);
 			if (ret >= 0) {
 				fprintf(stderr,
-				     "Daemon already running from pid %d\n", n);
+					 "Daemon already running from pid %d\n", n);
 				exit(1);
 			}
 			fprintf(stderr,
-			    "Removing stale lock file %s from dead pid %d\n",
+				"Removing stale lock file %s from dead pid %d\n",
 								 _lock_path, n);
 			unlink(lock_path);
 		}
@@ -139,7 +139,7 @@ lws_daemonize(const char *_lock_path)
 	pid_daemon = fork();
 	if (pid_daemon < 0) {
 		fprintf(stderr, "unable to fork daemon, code=%d (%s)",
-		    errno, strerror(errno));
+			errno, strerror(errno));
 		exit(1);
 	}
 
@@ -195,15 +195,15 @@ lws_daemonize(const char *_lock_path)
 	/* Redirect standard files to /dev/null */
 	if (!freopen("/dev/null", "r", stdin))
 		fprintf(stderr, "unable to freopen() stdin, code %d (%s)",
-						       errno, strerror(errno));
+							   errno, strerror(errno));
 
 	if (!freopen("/dev/null", "w", stdout))
 		fprintf(stderr, "unable to freopen() stdout, code %d (%s)",
-						       errno, strerror(errno));
+							   errno, strerror(errno));
 
 	if (!freopen("/dev/null", "w", stderr))
 		fprintf(stderr, "unable to freopen() stderr, code %d (%s)",
-						       errno, strerror(errno));
+							   errno, strerror(errno));
 
 	/* Tell the parent process that we are A-okay */
 	kill(parent, SIGUSR1);

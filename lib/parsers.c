@@ -137,7 +137,7 @@ int lws_hdr_simple_create(struct libwebsocket *wsi,
 {
 	wsi->u.hdr.ah->next_frag_index++;
 	if (wsi->u.hdr.ah->next_frag_index ==
-	       sizeof(wsi->u.hdr.ah->frags) / sizeof(wsi->u.hdr.ah->frags[0])) {
+		   sizeof(wsi->u.hdr.ah->frags) / sizeof(wsi->u.hdr.ah->frags[0])) {
 		lwsl_warn("More hdr frags than we can deal with, dropping\n");
 		return -1;
 	}
@@ -145,10 +145,10 @@ int lws_hdr_simple_create(struct libwebsocket *wsi,
 	wsi->u.hdr.ah->frag_index[h] = wsi->u.hdr.ah->next_frag_index;
 
 	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].offset =
-							     wsi->u.hdr.ah->pos;
+								 wsi->u.hdr.ah->pos;
 	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len = 0;
 	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].next_frag_index =
-									      0;
+										  0;
 
 	do {
 		if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
@@ -220,7 +220,7 @@ int libwebsocket_parse(
 		/* collect into malloc'd buffers */
 		/* optional initial space swallow */
 		if (!wsi->u.hdr.ah->frags[wsi->u.hdr.ah->frag_index[
-				      wsi->u.hdr.parser_state]].len && c == ' ')
+					  wsi->u.hdr.parser_state]].len && c == ' ')
 			break;
 
 		for (m = 0; m < ARRAY_SIZE(methods); m++)
@@ -362,11 +362,11 @@ int libwebsocket_parse(
 			wsi->u.hdr.ah->next_frag_index++;
 			wsi->u.hdr.ah->frags[
 				wsi->u.hdr.ah->next_frag_index].offset =
-							     wsi->u.hdr.ah->pos;
+								 wsi->u.hdr.ah->pos;
 			wsi->u.hdr.ah->frags[
 					wsi->u.hdr.ah->next_frag_index].len = 0;
 			wsi->u.hdr.ah->frags[
-			    wsi->u.hdr.ah->next_frag_index].next_frag_index = 0;
+				wsi->u.hdr.ah->next_frag_index].next_frag_index = 0;
 
 			wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] =
 						 wsi->u.hdr.ah->next_frag_index;
@@ -409,7 +409,7 @@ swallow:
 		 * Server needs to look out for unknown methods...
 		 */
 		if (wsi->u.hdr.lextable_pos < 0 &&
-		    wsi->mode == LWS_CONNMODE_HTTP_SERVING) {
+			wsi->mode == LWS_CONNMODE_HTTP_SERVING) {
 			/* this is not a header we know about */
 			for (m = 0; m < ARRAY_SIZE(methods); m++)
 				if (wsi->u.hdr.ah->frag_index[methods[m]]) {
@@ -481,16 +481,16 @@ start_fragment:
 		wsi->u.hdr.ah->next_frag_index++;
 		if (wsi->u.hdr.ah->next_frag_index ==
 				sizeof(wsi->u.hdr.ah->frags) /
-					      sizeof(wsi->u.hdr.ah->frags[0])) {
+						  sizeof(wsi->u.hdr.ah->frags[0])) {
 			lwsl_warn("More hdr frags than we can deal with\n");
 			return -1;
 		}
 
 		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].offset =
-							     wsi->u.hdr.ah->pos;
+								 wsi->u.hdr.ah->pos;
 		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len = 0;
 		wsi->u.hdr.ah->frags[
-			    wsi->u.hdr.ah->next_frag_index].next_frag_index = 0;
+				wsi->u.hdr.ah->next_frag_index].next_frag_index = 0;
 
 		n = wsi->u.hdr.ah->frag_index[wsi->u.hdr.parser_state];
 		if (!n) { /* first fragment */
@@ -543,7 +543,7 @@ set_parsing_complete:
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_VERSION))
 			wsi->ietf_spec_revision =
-			       atoi(lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION));
+				   atoi(lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION));
 
 		lwsl_parser("v%02d hdrs completed\n", wsi->ietf_spec_revision);
 	}
@@ -588,7 +588,7 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 		default:
 			lwsl_warn("lws_rx_sm: unknown spec version %d\n",
-						       wsi->ietf_spec_revision);
+							   wsi->ietf_spec_revision);
 			break;
 		}
 		break;
@@ -660,7 +660,7 @@ handle_first:
 		case LWS_WS_OPCODE_07__TEXT_FRAME:
 		case LWS_WS_OPCODE_07__BINARY_FRAME:
 			wsi->u.ws.frame_is_binary =
-			     wsi->u.ws.opcode == LWS_WS_OPCODE_07__BINARY_FRAME;
+				 wsi->u.ws.opcode == LWS_WS_OPCODE_07__BINARY_FRAME;
 			break;
 		}
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
@@ -821,12 +821,12 @@ handle_first:
 
 		if (wsi->u.ws.all_zero_nonce)
 			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-			       (wsi->u.ws.rx_user_buffer_head++)] = c;
+				   (wsi->u.ws.rx_user_buffer_head++)] = c;
 		else
 			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-			       (wsi->u.ws.rx_user_buffer_head++)] =
+				   (wsi->u.ws.rx_user_buffer_head++)] =
 				   c ^ wsi->u.ws.frame_masking_nonce_04[
-					    (wsi->u.ws.frame_mask_index++) & 3];
+						(wsi->u.ws.frame_mask_index++) & 3];
 
 		if (--wsi->u.ws.rx_packet_length == 0) {
 			/* spill because we have the whole frame */
@@ -840,8 +840,8 @@ handle_first:
 		 */
 
 		if (!wsi->protocol->rx_buffer_size &&
-			 		wsi->u.ws.rx_user_buffer_head !=
-			 				  LWS_MAX_SOCKET_IO_BUF)
+					wsi->u.ws.rx_user_buffer_head !=
+							  LWS_MAX_SOCKET_IO_BUF)
 			break;
 		else
 			if (wsi->protocol->rx_buffer_size &&
@@ -900,7 +900,7 @@ process_as_ping:
 			
 			/* if existing buffer is too small, drop it */
 			if (wsi->u.ws.ping_payload_buf &&
-			    wsi->u.ws.ping_payload_alloc < wsi->u.ws.rx_user_buffer_head) {
+				wsi->u.ws.ping_payload_alloc < wsi->u.ws.rx_user_buffer_head) {
 				lws_free2(wsi->u.ws.ping_payload_buf);
 			}
 
@@ -913,7 +913,7 @@ process_as_ping:
 			
 			/* stash the pong payload */
 			memcpy(wsi->u.ws.ping_payload_buf + LWS_SEND_BUFFER_PRE_PADDING,
-			       &wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+				   &wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				wsi->u.ws.rx_user_buffer_head);
 			
 			wsi->u.ws.ping_payload_len = wsi->u.ws.rx_user_buffer_head;
@@ -952,7 +952,7 @@ ping_drop:
 				LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
 					&eff_buf, 0) <= 0) /* not handle or fail */
 				lwsl_ext("ext opc opcode 0x%x unknown\n",
-							      wsi->u.ws.opcode);
+								  wsi->u.ws.opcode);
 
 			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;
@@ -983,8 +983,8 @@ ping_drop:
 						wsi->user_space,
 						eff_buf.token,
 						eff_buf.token_len);
-		    else
-			    lwsl_err("No callback on payload spill!\n");
+			else
+				lwsl_err("No callback on payload spill!\n");
 		}
 
 		wsi->u.ws.rx_user_buffer_head = 0;
@@ -1003,7 +1003,7 @@ illegal_ctl_length:
 
 /**
  * libwebsockets_remaining_packet_payload() - Bytes to come before "overall"
- *					      rx packet is complete
+ *						  rx packet is complete
  * @wsi:		Websocket instance (available from user callback)
  *
  *	This function is intended to be called from the callback if the

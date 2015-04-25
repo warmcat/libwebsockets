@@ -102,7 +102,7 @@ lws_context_init_http2_ssl(struct libwebsocket_context *context)
 #else
 	lwsl_notice(
 		" HTTP2 / ALPN configured but not supported by OpenSSL 0x%x\n",
-		    OPENSSL_VERSION_NUMBER);
+			OPENSSL_VERSION_NUMBER);
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
 }
 

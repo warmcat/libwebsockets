@@ -3,20 +3,20 @@
  *
  * Copyright (C) 2010 - 2013 Andy Green <andy@warmcat.com>
  *
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation:
- *  version 2.1 of the License.
+ *	This library is free software; you can redistribute it and/or
+ *	modify it under the terms of the GNU Lesser General Public
+ *	License as published by the Free Software Foundation:
+ *	version 2.1 of the License.
  *
- *  This library is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  Lesser General Public License for more details.
+ *	This library is distributed in the hope that it will be useful,
+ *	but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *	Lesser General Public License for more details.
  *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- *  MA  02110-1301  USA
+ *	You should have received a copy of the GNU Lesser General Public
+ *	License along with this library; if not, write to the Free Software
+ *	Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ *	MA	02110-1301	USA
  */
 
 #include "lws_config.h"
@@ -166,7 +166,7 @@
 #if defined(WIN32) || defined(_WIN32)
 
 #ifndef BIG_ENDIAN
-#define BIG_ENDIAN    4321  /* to show byte order (taken from gcc) */
+#define BIG_ENDIAN	  4321	/* to show byte order (taken from gcc) */
 #endif
 #ifndef LITTLE_ENDIAN
 #define LITTLE_ENDIAN 1234
@@ -214,7 +214,7 @@ typedef unsigned __int64 u_int64_t;
 	#endif
 	#if defined(__BIGENDIAN__)
 		#define BYTE_ORDER __BIGENDIAN__
-		#define LITTLE_ENDIAN 1234  /* to show byte order (taken from gcc); for suppres warning that LITTLE_ENDIAN is not defined. */
+		#define LITTLE_ENDIAN 1234	/* to show byte order (taken from gcc); for suppres warning that LITTLE_ENDIAN is not defined. */
 		#define BIG_ENDIAN __BIGENDIAN__
 	#endif
 #endif
@@ -431,7 +431,6 @@ struct libwebsocket_context {
 #ifdef LWS_USE_LIBEV
 	struct ev_loop* io_loop;
 	struct lws_io_watcher w_accept;
-	struct lws_signal_watcher w_sigint;
 #endif /* LWS_USE_LIBEV */
 	int max_fds;
 	int listen_port;
@@ -493,7 +492,7 @@ struct libwebsocket_context {
 #ifndef LWS_NO_EXTENSIONS
 	struct libwebsocket_extension *extensions;
 #endif
-    struct lws_token_limits *token_limits;
+	struct lws_token_limits *token_limits;
 	void *user_space;
 };
 
@@ -561,9 +560,9 @@ struct lws_fragments {
 
 /* notice that these union members:
  * 
- *  hdr
- *  http
- *  http2
+ *	hdr
+ *	http
+ *	http2
  * 
  * all have a pointer to allocated_headers struct as their first member.
  * 
@@ -585,7 +584,7 @@ struct allocated_headers {
 
 struct _lws_http_mode_related {
 	/* MUST be first in struct */
-	struct allocated_headers *ah; /* mirroring  _lws_header_related */
+	struct allocated_headers *ah; /* mirroring	_lws_header_related */
 #if defined(WIN32) || defined(_WIN32)
 	HANDLE fd;
 #else
@@ -794,8 +793,8 @@ struct libwebsocket {
 	/* lifetime members */
 
 #ifdef LWS_USE_LIBEV
-    struct lws_io_watcher w_read;
-    struct lws_io_watcher w_write;
+	struct lws_io_watcher w_read;
+	struct lws_io_watcher w_write;
 #endif /* LWS_USE_LIBEV */
 	const struct libwebsocket_protocols *protocol;
 #ifndef LWS_NO_EXTENSIONS
@@ -867,11 +866,11 @@ LWS_EXTERN int log_level;
 
 LWS_EXTERN void
 libwebsocket_close_and_free_session(struct libwebsocket_context *context,
-			       struct libwebsocket *wsi, enum lws_close_status);
+				   struct libwebsocket *wsi, enum lws_close_status);
 
 LWS_EXTERN int
 remove_wsi_socket_from_fds(struct libwebsocket_context *context,
-						      struct libwebsocket *wsi);
+							  struct libwebsocket *wsi);
 LWS_EXTERN int
 lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int len);
 
@@ -886,12 +885,12 @@ static inline void lws_latency_pre(struct libwebsocket_context *context,
 extern void
 lws_latency(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, const char *action,
-						       int ret, int completion);
+							   int ret, int completion);
 #endif
 
 LWS_EXTERN void lws_set_protocol_write_pending(struct libwebsocket_context *context,
-				    struct libwebsocket *wsi,
-				    enum lws_pending_protocol_send pend);
+					struct libwebsocket *wsi,
+					enum lws_pending_protocol_send pend);
 LWS_EXTERN int
 libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c);
 
@@ -922,7 +921,7 @@ delete_from_fd(struct libwebsocket_context *context, int fd);
 
 LWS_EXTERN int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context,
-						      struct libwebsocket *wsi);
+							  struct libwebsocket *wsi);
 
 LWS_EXTERN int
 lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len);
@@ -930,7 +929,7 @@ lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len);
 
 LWS_EXTERN int
 libwebsocket_service_timeout_check(struct libwebsocket_context *context,
-				    struct libwebsocket *wsi, unsigned int sec);
+					struct libwebsocket *wsi, unsigned int sec);
 
 LWS_EXTERN struct libwebsocket *
 libwebsocket_client_connect_2(struct libwebsocket_context *context,
@@ -945,7 +944,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 
 LWS_EXTERN int
 lws_handle_POLLOUT_event(struct libwebsocket_context *context,
-			      struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
+				  struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
 
 /*
  * EXTENSIONS
@@ -954,7 +953,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 #ifndef LWS_NO_EXTENSIONS
 LWS_VISIBLE void
 lws_context_init_extensions(struct lws_context_creation_info *info,
-				    struct libwebsocket_context *context);
+					struct libwebsocket_context *context);
 LWS_EXTERN int
 lws_any_extension_handled(struct libwebsocket_context *context,
 			  struct libwebsocket *wsi,
@@ -963,7 +962,7 @@ lws_any_extension_handled(struct libwebsocket_context *context,
 
 LWS_EXTERN int
 lws_ext_callback_for_each_active(struct libwebsocket *wsi, int reason,
-						    void *buf, int len);
+							void *buf, int len);
 LWS_EXTERN int
 lws_ext_callback_for_each_extension_type(
 		struct libwebsocket_context *context, struct libwebsocket *wsi,
@@ -1007,7 +1006,7 @@ lws_http2_interpret_settings_payload(struct http2_settings *settings, unsigned c
 LWS_EXTERN void lws_http2_init(struct http2_settings *settings);
 LWS_EXTERN int
 lws_http2_parser(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char c);
+			 struct libwebsocket *wsi, unsigned char c);
 LWS_EXTERN int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsocket *wsi);
 LWS_EXTERN int lws_http2_frame_write(struct libwebsocket *wsi, int type, int flags, unsigned int sid, unsigned int len, unsigned char *buf);
 LWS_EXTERN struct libwebsocket *
@@ -1017,26 +1016,26 @@ LWS_EXTERN int lws_hpack_interpret(struct libwebsocket_context *context,
 				   unsigned char c);
 LWS_EXTERN int
 lws_add_http2_header_by_name(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    const unsigned char *name,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end);
+				struct libwebsocket *wsi,
+				const unsigned char *name,
+				const unsigned char *value,
+				int length,
+				unsigned char **p,
+				unsigned char *end);
 LWS_EXTERN int
 lws_add_http2_header_by_token(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    enum lws_token_indexes token,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end);
+				struct libwebsocket *wsi,
+				enum lws_token_indexes token,
+				const unsigned char *value,
+				int length,
+				unsigned char **p,
+				unsigned char *end);
 LWS_EXTERN int
 lws_add_http2_header_status(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned int code,
-			    unsigned char **p,
-			    unsigned char *end);
+				struct libwebsocket *wsi,
+				unsigned int code,
+				unsigned char **p,
+				unsigned char *end);
 LWS_EXTERN
 void lws_http2_configure_if_upgraded(struct libwebsocket *wsi);
 #else
@@ -1067,9 +1066,9 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or);
 
 #ifndef LWS_NO_SERVER
 int lws_context_init_server(struct lws_context_creation_info *info,
-			    struct libwebsocket_context *context);
+				struct libwebsocket_context *context);
 LWS_EXTERN int handshake_0405(struct libwebsocket_context *context,
-						      struct libwebsocket *wsi);
+							  struct libwebsocket *wsi);
 LWS_EXTERN int
 libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 						unsigned char *buf, size_t len);
@@ -1120,7 +1119,7 @@ enum lws_ssl_capable_status {
 LWS_EXTERN int openssl_websocket_private_data_index;
 LWS_EXTERN int
 lws_ssl_capable_read(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char *buf, int len);
+			 struct libwebsocket *wsi, unsigned char *buf, int len);
 
 LWS_EXTERN int
 lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len);
@@ -1134,11 +1133,11 @@ LWS_EXTERN void
 lws_ssl_context_destroy(struct libwebsocket_context *context);
 LWS_VISIBLE void
 lws_ssl_remove_wsi_from_buffered_list(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi);
+			 struct libwebsocket *wsi);
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
-		     struct libwebsocket_context *context);
+			 struct libwebsocket_context *context);
 #else
 #define lws_context_init_server_ssl(_a, _b) (0)
 #endif
@@ -1157,7 +1156,7 @@ lws_context_init_http2_ssl(struct libwebsocket_context *context);
 
 LWS_EXTERN int
 lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi, unsigned char *buf, int len);
+				struct libwebsocket *wsi, unsigned char *buf, int len);
 
 LWS_EXTERN int
 lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
@@ -1168,7 +1167,7 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
 #ifdef LWS_OPENSSL_SUPPORT
 	LWS_EXTERN int lws_context_init_client_ssl(struct lws_context_creation_info *info,
-			    struct libwebsocket_context *context);
+				struct libwebsocket_context *context);
 #else
 	#define lws_context_init_client_ssl(_a, _b) (0)
 #endif
@@ -1185,7 +1184,7 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
 	LWS_EXTERN int _libwebsocket_rx_flow_control(struct libwebsocket *wsi);
 	LWS_EXTERN int lws_handshake_server(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char **buf, size_t len);
+			 struct libwebsocket *wsi, unsigned char **buf, size_t len);
 #else
 #define lws_server_socket_service(_a, _b, _c) (0)
 #define _libwebsocket_rx_flow_control(_a) (0)
@@ -1193,8 +1192,8 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 #endif
 	
 LWS_EXTERN int libwebsockets_get_addresses(struct libwebsocket_context *context,
-			    void *ads, char *name, int name_len,
-			    char *rip, int rip_len);
+				void *ads, char *name, int name_len,
+				char *rip, int rip_len);
 
 /*
  * custom allocator
@@ -1214,16 +1213,16 @@ lws_zalloc(size_t size);
  */
 LWS_EXTERN void
 lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
-					       struct libwebsocket *wsi, int m);
+						   struct libwebsocket *wsi, int m);
 LWS_EXTERN void
 lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
-						      struct libwebsocket *wsi);
+							  struct libwebsocket *wsi);
 LWS_EXTERN void
 lws_plat_service_periodic(struct libwebsocket_context *context);
 
 LWS_EXTERN int
 lws_plat_change_pollfd(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd);
+			 struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd);
 LWS_EXTERN int
 lws_plat_context_early_init(void);
 LWS_EXTERN void

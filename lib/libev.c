@@ -50,13 +50,6 @@ libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 	libwebsocket_service_fd(context, &eventfd);
 }
 
-LWS_VISIBLE void
-libwebsocket_sigint_cb(struct ev_loop *loop,
-		       struct ev_signal *watcher, int revents)
-{
-	ev_break(loop, EVBREAK_ALL);
-}
-
 LWS_VISIBLE int
 libwebsocket_initloop(
 	struct libwebsocket_context *context,
@@ -66,7 +59,6 @@ libwebsocket_initloop(
 	int backend;
 	const char * backend_name;
 	struct ev_io *w_accept = &context->w_accept.watcher;
-	struct ev_signal *w_sigint = &context->w_sigint.watcher;
 
 	if (!loop)
 		loop = ev_default_loop(0);
@@ -80,8 +72,6 @@ libwebsocket_initloop(
 	ev_io_init(w_accept, libwebsocket_accept_cb,
 					context->listen_service_fd, EV_READ);
 	ev_io_start(context->io_loop,w_accept);
-	ev_signal_init(w_sigint, libwebsocket_sigint_cb, SIGINT);
-	ev_signal_start(context->io_loop,w_sigint);
 	backend = ev_backend(loop);
 
 	switch (backend) {
@@ -160,10 +150,7 @@ lws_libev_init_fd_table(struct libwebsocket_context *context)
 {
 	if (!LWS_LIBEV_ENABLED(context))
 		return 0;
-
 	context->w_accept.context = context;
-	context->w_sigint.context = context;
-
 	return 1;
 }
 

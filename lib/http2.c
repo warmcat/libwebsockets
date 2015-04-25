@@ -27,8 +27,8 @@ const struct http2_settings lws_http2_default_settings = { {
 	/* LWS_HTTP2_SETTINGS__HEADER_TABLE_SIZE */		4096,
 	/* LWS_HTTP2_SETTINGS__ENABLE_PUSH */			   1,
 	/* LWS_HTTP2_SETTINGS__MAX_CONCURRENT_STREAMS */	 100,
-	/* LWS_HTTP2_SETTINGS__INITIAL_WINDOW_SIZE */	       65535,
-	/* LWS_HTTP2_SETTINGS__MAX_FRAME_SIZE */	       16384,
+	/* LWS_HTTP2_SETTINGS__INITIAL_WINDOW_SIZE */		   65535,
+	/* LWS_HTTP2_SETTINGS__MAX_FRAME_SIZE */		   16384,
 	/* LWS_HTTP2_SETTINGS__MAX_HEADER_LIST_SIZE */		  ~0,
 }};
 
@@ -187,7 +187,7 @@ static const char * https_client_preface =
 
 int
 lws_http2_parser(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char c)
+			 struct libwebsocket *wsi, unsigned char c)
 {
 	struct libwebsocket *swsi;
 	int n;
@@ -225,9 +225,9 @@ lws_http2_parser(struct libwebsocket_context *context,
 				wsi->u.http2.stream_wsi->u.http2.one_setting[wsi->u.http2.count % LWS_HTTP2_SETTINGS_LENGTH] = c;
 				if (wsi->u.http2.count % LWS_HTTP2_SETTINGS_LENGTH == LWS_HTTP2_SETTINGS_LENGTH - 1)
 					if (lws_http2_interpret_settings_payload(
-					     &wsi->u.http2.stream_wsi->u.http2.peer_settings,
-					     wsi->u.http2.one_setting,
-					     LWS_HTTP2_SETTINGS_LENGTH))
+						 &wsi->u.http2.stream_wsi->u.http2.peer_settings,
+						 wsi->u.http2.one_setting,
+						 LWS_HTTP2_SETTINGS_LENGTH))
 						return 1;
 				break;
 			case LWS_HTTP2_FRAME_TYPE_CONTINUATION:
@@ -430,8 +430,8 @@ int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsoc
 				m += sizeof(wsi->u.http2.one_setting);
 			}
 		n = lws_http2_frame_write(wsi, LWS_HTTP2_FRAME_TYPE_SETTINGS,
-		     			  0, LWS_HTTP2_STREAM_ID_MASTER, m,
-		     			  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
+						  0, LWS_HTTP2_STREAM_ID_MASTER, m,
+						  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
 		if (n != m) {
 			lwsl_info("send %d %d\n", n, m);
 			return 1;
@@ -482,9 +482,9 @@ int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsoc
 	case LWS_PPS_HTTP2_PONG:
 		memcpy(&settings[LWS_SEND_BUFFER_PRE_PADDING], wsi->u.http2.ping_payload, 8);
 		n = lws_http2_frame_write(wsi, LWS_HTTP2_FRAME_TYPE_PING,
-		     			  LWS_HTTP2_FLAG_SETTINGS_ACK,
-			    		  LWS_HTTP2_STREAM_ID_MASTER, 8,
-		     			  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
+						  LWS_HTTP2_FLAG_SETTINGS_ACK,
+						  LWS_HTTP2_STREAM_ID_MASTER, 8,
+						  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
 		if (n != 8) {
 			lwsl_info("send %d %d\n", n, m);
 			return 1;

@@ -23,7 +23,7 @@
 #include "private-libwebsockets.h"
 
 int lws_context_init_server(struct lws_context_creation_info *info,
-			    struct libwebsocket_context *context)
+				struct libwebsocket_context *context)
 {
 	int n;
 	int sockfd;
@@ -58,7 +58,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	 * allow us to restart even if old sockets in TIME_WAIT
 	 */
 	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
-				      (const void *)&opt, sizeof(opt)) < 0) {
+					  (const void *)&opt, sizeof(opt)) < 0) {
 		compatible_close(sockfd);
 		return 1;
 	}
@@ -98,7 +98,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	n = bind(sockfd, v, n);
 	if (n < 0) {
 		lwsl_err("ERROR on binding to port %d (%d %d)\n",
-					      info->port, n, LWS_ERRNO);
+						  info->port, n, LWS_ERRNO);
 		compatible_close(sockfd);
 		return 1;
 	}
@@ -152,7 +152,7 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 	wsi->rxflow_change_to &= ~LWS_RXFLOW_PENDING_CHANGE;
 
 	lwsl_info("rxflow: wsi %p change_to %d\n", wsi,
-			      wsi->rxflow_change_to & LWS_RXFLOW_ALLOW);
+				  wsi->rxflow_change_to & LWS_RXFLOW_ALLOW);
 
 	/* adjust the pollfd for this wsi */
 
@@ -169,7 +169,7 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 }
 
 int lws_http_action(struct libwebsocket_context *context,
-		    struct libwebsocket *wsi)
+			struct libwebsocket *wsi)
 {
 	char *uri_ptr = NULL;
 	int uri_len = 0;
@@ -223,7 +223,7 @@ int lws_http_action(struct libwebsocket_context *context,
 			uri_ptr = lws_hdr_simple_ptr(wsi, methods[n]);
 			uri_len = lws_hdr_total_length(wsi, methods[n]);
 			lwsl_info("Method: %s request for '%s'\n",
-				  	method_names[n], uri_ptr);
+					method_names[n], uri_ptr);
 			break;
 		}
 
@@ -264,7 +264,7 @@ int lws_http_action(struct libwebsocket_context *context,
 	/* Override default if http "Connection:" header: */
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
 		lws_hdr_copy(wsi, http_conn_str, sizeof(http_conn_str) - 1,
-			     WSI_TOKEN_CONNECTION);
+				 WSI_TOKEN_CONNECTION);
 		http_conn_str[sizeof(http_conn_str) - 1] = '\0';
 		if (!strcasecmp(http_conn_str, "keep-alive"))
 			connection_type = HTTP_CONNECTION_KEEP_ALIVE;
@@ -278,7 +278,7 @@ int lws_http_action(struct libwebsocket_context *context,
 	if (wsi->protocol->callback)
 		n = wsi->protocol->callback(context, wsi,
 					LWS_CALLBACK_FILTER_HTTP_CONNECTION,
-					     wsi->user_space, uri_ptr, uri_len);
+						 wsi->user_space, uri_ptr, uri_len);
 
 	if (!n) {
 		/*
@@ -286,12 +286,12 @@ int lws_http_action(struct libwebsocket_context *context,
 		 * put a timeout on it having arrived
 		 */
 		libwebsocket_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-							      AWAITING_TIMEOUT);
+								  AWAITING_TIMEOUT);
 
 		if (wsi->protocol->callback)
 			n = wsi->protocol->callback(context, wsi,
-			    LWS_CALLBACK_HTTP,
-			    wsi->user_space, uri_ptr, uri_len);
+				LWS_CALLBACK_HTTP,
+				wsi->user_space, uri_ptr, uri_len);
 	}
 
 	/* now drop the header info we kept a pointer to */
@@ -353,7 +353,7 @@ int lws_handshake_server(struct libwebsocket_context *context,
 		/* is this websocket protocol or normal http 1.0? */
 
 		if (!lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE) ||
-			     !lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
+				 !lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
 			
 			ah = wsi->u.hdr.ah;
 			
@@ -414,9 +414,9 @@ upgrade_h2c:
 		lws_http2_interpret_settings_payload(&wsi->u.http2.peer_settings, (unsigned char *)protocol_list, n);
 
 		strcpy(protocol_list,
-		       "HTTP/1.1 101 Switching Protocols\x0d\x0a"
-		      "Connection: Upgrade\x0d\x0a"
-		      "Upgrade: h2c\x0d\x0a\x0d\x0a");
+			   "HTTP/1.1 101 Switching Protocols\x0d\x0a"
+			  "Connection: Upgrade\x0d\x0a"
+			  "Upgrade: h2c\x0d\x0a\x0d\x0a");
 		n = lws_issue_raw(wsi, (unsigned char *)protocol_list,
 					strlen(protocol_list));
 		if (n != strlen(protocol_list)) {
@@ -470,7 +470,7 @@ upgrade_ws:
 					continue;
 				}
 				if (!strcmp(context->protocols[n].name,
-					    protocol_name)) {
+						protocol_name)) {
 					lwsl_info("prot match %d\n", n);
 					wsi->protocol = &context->protocols[n];
 					hit = 1;
@@ -512,7 +512,7 @@ upgrade_ws:
 		if ((wsi->protocol->callback)(wsi->protocol->owning_server, wsi,
 				LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 				wsi->user_space,
-			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL), 0)) {
+				  lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL), 0)) {
 			lwsl_warn("User code denied connection\n");
 			goto bail_nuke_ah;
 		}
@@ -534,7 +534,7 @@ upgrade_ws:
 
 		default:
 			lwsl_warn("Unknown client spec version %d\n",
-						       wsi->ietf_spec_revision);
+							   wsi->ietf_spec_revision);
 			goto bail_nuke_ah;
 		}
 
@@ -566,7 +566,7 @@ upgrade_ws:
 		}
 
 		lwsl_parser("accepted v%02d connection\n",
-						       wsi->ietf_spec_revision);
+							   wsi->ietf_spec_revision);
 	} /* while all chars are handled */
 
 	return 0;
@@ -693,7 +693,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 		if (pollfd->revents & LWS_POLLIN) {
 			len = lws_ssl_capable_read(context, wsi,
 					context->service_buffer,
-						       sizeof(context->service_buffer));
+							   sizeof(context->service_buffer));
 			switch (len) {
 			case 0:
 				lwsl_info("lws_server_skt_srv: read 0 len\n");
@@ -768,10 +768,10 @@ try_pollout:
 		clilen = sizeof(cli_addr);
 		lws_latency_pre(context, wsi);
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
-								       &clilen);
+									   &clilen);
 		lws_latency(context, wsi,
 			"unencrypted accept LWS_CONNMODE_SERVER_LISTENER",
-						     accept_fd, accept_fd >= 0);
+							 accept_fd, accept_fd >= 0);
 		if (accept_fd < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
 				lwsl_debug("accept asks to try again\n");
@@ -963,7 +963,7 @@ lws_server_get_canonical_hostname(struct libwebsocket_context *context,
 
 	/* find canonical hostname */
 	gethostname((char *)context->canonical_hostname,
-				       sizeof(context->canonical_hostname) - 1);
+					   sizeof(context->canonical_hostname) - 1);
 
 	lwsl_notice(" canonical_hostname = %s\n", context->canonical_hostname);
 }

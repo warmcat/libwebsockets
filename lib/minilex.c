@@ -20,10 +20,10 @@
 
 /*
  * b7 = 0 = 1-byte seq
- *	    0x08 = fail
- *	    2-byte seq
+ *		0x08 = fail
+ *		2-byte seq
  *          0x00 - 0x07, then terminal as given in 2nd byte
-	    3-byte seq
+		3-byte seq
  *          no match: go fwd 3 byte, match: jump fwd by amt in +1/+2 bytes
  *    = 1 = 1-byte seq
  *          no match: die, match go fwd 1 byte
@@ -184,7 +184,7 @@ again:
 				fprintf(stdout, "   0x%02X, 0x%02X           "
 					"       "
 					"/* - terminal marker %2d - */,\n",
-						    y >> 8, y & 0xff, y & 0x7f);
+							y >> 8, y & 0xff, y & 0x7f);
 				pos += 2;
 				walk += 2;
 				continue;

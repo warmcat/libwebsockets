@@ -15,7 +15,7 @@ unsigned long long time_in_microseconds(void)
 }
 
 LWS_VISIBLE int libwebsockets_get_random(struct libwebsocket_context *context,
-							     void *buf, int len)
+								 void *buf, int len)
 {
 	return read(context->fd_random, (char *)buf, len);
 }
@@ -112,7 +112,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	lws_libev_run(context);
 
 	context->service_tid = context->protocols[0].callback(context, NULL,
-				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+					 LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 
 #ifdef LWS_OPENSSL_SUPPORT
 	/* if we know we have non-network pending data, do not wait in poll */
@@ -202,7 +202,7 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 		/* enable keepalive on this socket */
 		optval = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
-					     (const void *)&optval, optlen) < 0)
+						 (const void *)&optval, optlen) < 0)
 			return 1;
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
@@ -216,17 +216,17 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 		/* set the keepalive conditions we want on it too */
 		optval = context->ka_time;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
-					     (const void *)&optval, optlen) < 0)
+						 (const void *)&optval, optlen) < 0)
 			return 1;
 
 		optval = context->ka_interval;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL,
-					     (const void *)&optval, optlen) < 0)
+						 (const void *)&optval, optlen) < 0)
 			return 1;
 
 		optval = context->ka_probes;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT,
-					     (const void *)&optval, optlen) < 0)
+						 (const void *)&optval, optlen) < 0)
 			return 1;
 #endif
 	}
@@ -277,7 +277,7 @@ lws_plat_init_fd_tables(struct libwebsocket_context *context)
 	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 	if (context->fd_random < 0) {
 		lwsl_err("Unable to open random device %s %d\n",
-				    SYSTEM_RANDOM_FILEPATH, context->fd_random);
+					SYSTEM_RANDOM_FILEPATH, context->fd_random);
 		return 1;
 	}
 
@@ -373,13 +373,13 @@ interface_to_sa(struct libwebsocket_context *context,
 #endif
 				memcpy(addr,
 					(struct sockaddr_in *)ifc->ifa_addr,
-						    sizeof(struct sockaddr_in));
+							sizeof(struct sockaddr_in));
 			break;
 #ifdef LWS_USE_IPV6
 		case AF_INET6:
 			memcpy(&addr6->sin6_addr,
 			  &((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr,
-						       sizeof(struct in6_addr));
+							   sizeof(struct in6_addr));
 			break;
 #endif
 		default:
@@ -406,7 +406,7 @@ interface_to_sa(struct libwebsocket_context *context,
 
 LWS_VISIBLE void
 lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
-						       struct libwebsocket *wsi)
+							   struct libwebsocket *wsi)
 {
 	lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_READ);
 	context->fds[context->fds_count++].revents = 0;
@@ -423,13 +423,13 @@ lws_plat_service_periodic(struct libwebsocket_context *context)
 {
 	/* if our parent went down, don't linger around */
 	if (context->started_with_parent &&
-			      kill(context->started_with_parent, 0) < 0)
+				  kill(context->started_with_parent, 0) < 0)
 		kill(getpid(), SIGTERM);
 }
 
 LWS_VISIBLE int
 lws_plat_change_pollfd(struct libwebsocket_context *context,
-		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
+			  struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
 {
 	return 0;
 }

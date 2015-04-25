@@ -136,13 +136,13 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		sizeof(struct libwebsocket_context) +
 		((sizeof(struct libwebsocket_pollfd) +
 					sizeof(struct libwebsocket *)) *
-							     context->max_fds));
+								 context->max_fds));
 
 	context->fds = lws_zalloc(sizeof(struct libwebsocket_pollfd) *
 				  context->max_fds);
 	if (context->fds == NULL) {
 		lwsl_err("Unable to allocate fds array for %d connections\n",
-							      context->max_fds);
+								  context->max_fds);
 		lws_free(context);
 		return NULL;
 	}
@@ -156,7 +156,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	if (context->lws_lookup == NULL) {
 		lwsl_err(
 		  "Unable to allocate lws_lookup array for %d connections\n",
-							      context->max_fds);
+								  context->max_fds);
 		lws_free(context->fds);
 		lws_free(context);
 		return NULL;
@@ -188,7 +188,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	if (info->http_proxy_address) {
 		strncpy(context->http_proxy_address, info->http_proxy_address,
-				      sizeof(context->http_proxy_address) - 1);
+					  sizeof(context->http_proxy_address) - 1);
 		context->http_proxy_address[
 				sizeof(context->http_proxy_address) - 1] = '\0';
 		context->http_proxy_port = info->http_proxy_port;
@@ -197,7 +197,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		p = getenv("http_proxy");
 		if (p) {
 			strncpy(context->http_proxy_address, p,
-				       sizeof(context->http_proxy_address) - 1);
+					   sizeof(context->http_proxy_address) - 1);
 			context->http_proxy_address[
 				sizeof(context->http_proxy_address) - 1] = '\0';
 
@@ -215,12 +215,12 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	if (context->http_proxy_address[0])
 		lwsl_notice(" Proxy %s:%u\n",
 				context->http_proxy_address,
-						      context->http_proxy_port);
+							  context->http_proxy_port);
 
 	lwsl_notice(
 		" per-conn mem: %u + %u headers + protocol rx buf\n",
 				sizeof(struct libwebsocket),
-					      sizeof(struct allocated_headers));
+						  sizeof(struct allocated_headers));
 
 	if (lws_context_init_server_ssl(info, context))
 		goto bail;
@@ -250,14 +250,14 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		info->protocols[context->count_protocols].owning_server =
 									context;
 		info->protocols[context->count_protocols].protocol_index =
-						       context->count_protocols;
+							   context->count_protocols;
 
 		/*
 		 * inform all the protocols that they are doing their one-time
 		 * initialization if they want to
 		 */
 		info->protocols[context->count_protocols].callback(context,
-			       NULL, LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
+				   NULL, LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
 	}
 
 	/*

@@ -1027,8 +1027,8 @@ struct libwebsocket_extension {
  *			setting of the private key directly via openSSL library calls
  * @ssl_ca_filepath: CA certificate filepath or NULL
  * @ssl_cipher_list:	List of valid ciphers to use (eg,
- * 			"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
- * 			or you can leave it as NULL to get "DEFAULT"
+ *			"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
+ *			or you can leave it as NULL to get "DEFAULT"
  * @http_proxy_address: If non-NULL, attempts to proxy via the given address
  * @http_proxy_port:	If http_proxy_address was non-NULL, uses this port at the address 
  * @gid:	group id to change to after setting listen socket, or -1.
@@ -1072,7 +1072,7 @@ struct lws_context_creation_info {
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX *provided_client_ssl_ctx;
 #else /* maintain structure layout either way */
-    	void *provided_client_ssl_ctx;
+		void *provided_client_ssl_ctx;
 #endif
 };
 
@@ -1103,36 +1103,36 @@ lws_token_to_string(enum lws_token_indexes token);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_add_http_header_by_name(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    const unsigned char *name,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end);
+				struct libwebsocket *wsi,
+				const unsigned char *name,
+				const unsigned char *value,
+				int length,
+				unsigned char **p,
+				unsigned char *end);
 LWS_VISIBLE LWS_EXTERN int 
 lws_finalize_http_header(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned char **p,
-			    unsigned char *end);
+				struct libwebsocket *wsi,
+				unsigned char **p,
+				unsigned char *end);
 LWS_VISIBLE LWS_EXTERN int
 lws_add_http_header_by_token(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    enum lws_token_indexes token,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end);
+				struct libwebsocket *wsi,
+				enum lws_token_indexes token,
+				const unsigned char *value,
+				int length,
+				unsigned char **p,
+				unsigned char *end);
 LWS_VISIBLE LWS_EXTERN int lws_add_http_header_content_length(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned long content_length,
-			    unsigned char **p,
-			    unsigned char *end);
+				struct libwebsocket *wsi,
+				unsigned long content_length,
+				unsigned char **p,
+				unsigned char *end);
 LWS_VISIBLE LWS_EXTERN int
 lws_add_http_header_status(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned int code,
-			    unsigned char **p,
-			    unsigned char *end);
+				struct libwebsocket *wsi,
+				unsigned int code,
+				unsigned char **p,
+				unsigned char *end);
 
 LWS_EXTERN int lws_http_transaction_completed(struct libwebsocket *wsi);
 
@@ -1140,10 +1140,6 @@ LWS_EXTERN int lws_http_transaction_completed(struct libwebsocket *wsi);
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_initloop(
 	struct libwebsocket_context *context, struct ev_loop *loop);
-
-LWS_VISIBLE void
-libwebsocket_sigint_cb(
-	struct ev_loop *loop, struct ev_signal *watcher, int revents);
 #endif /* LWS_USE_LIBEV */
 
 LWS_VISIBLE LWS_EXTERN int
@@ -1192,7 +1188,7 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
  *   memset(&buf[LWS_SEND_BUFFER_PRE_PADDING], 0, 128);
  *
  *   libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128,
- *   								LWS_WRITE_TEXT);
+ *									LWS_WRITE_TEXT);
  *
  * When sending LWS_WRITE_HTTP, there is no protocol addition and you can just
  * use the whole buffer without taking care of the above.
@@ -1210,7 +1206,7 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
 
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf, size_t len,
-				     enum libwebsocket_write_protocol protocol);
+					 enum libwebsocket_write_protocol protocol);
 
 /* helper for case where buffer may be const */
 #define libwebsocket_write_http(wsi, buf, len) \
@@ -1235,7 +1231,7 @@ libwebsockets_get_protocol(struct libwebsocket *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_callback_on_writable(struct libwebsocket_context *context,
-						      struct libwebsocket *wsi);
+							  struct libwebsocket *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_callback_on_writable_all_protocol(
@@ -1285,26 +1281,26 @@ lws_get_peer_write_allowance(struct libwebsocket *wsi);
 
 LWS_VISIBLE LWS_EXTERN struct libwebsocket *
 libwebsocket_client_connect(struct libwebsocket_context *clients,
-			      const char *address,
-			      int port,
-			      int ssl_connection,
-			      const char *path,
-			      const char *host,
-			      const char *origin,
-			      const char *protocol,
-			      int ietf_version_or_minus_one);
+				  const char *address,
+				  int port,
+				  int ssl_connection,
+				  const char *path,
+				  const char *host,
+				  const char *origin,
+				  const char *protocol,
+				  int ietf_version_or_minus_one);
 
 LWS_VISIBLE LWS_EXTERN struct libwebsocket *
 libwebsocket_client_connect_extended(struct libwebsocket_context *clients,
-			      const char *address,
-			      int port,
-			      int ssl_connection,
-			      const char *path,
-			      const char *host,
-			      const char *origin,
-			      const char *protocol,
-			      int ietf_version_or_minus_one,
-			      void *userdata);
+				  const char *address,
+				  int port,
+				  int ssl_connection,
+				  const char *path,
+				  const char *host,
+				  const char *origin,
+				  const char *protocol,
+				  int ietf_version_or_minus_one,
+				  void *userdata);
 
 LWS_VISIBLE LWS_EXTERN const char *
 libwebsocket_canonical_hostname(struct libwebsocket_context *context);
@@ -1317,7 +1313,7 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 
 LWS_VISIBLE LWS_EXTERN int
 libwebsockets_get_random(struct libwebsocket_context *context,
-							    void *buf, int len);
+								void *buf, int len);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_daemonize(const char *_lock_path);
@@ -1363,7 +1359,7 @@ lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_read(struct libwebsocket_context *context,
 				struct libwebsocket *wsi,
-					       unsigned char *buf, size_t len);
+						   unsigned char *buf, size_t len);
 
 #ifndef LWS_NO_EXTENSIONS
 LWS_VISIBLE LWS_EXTERN struct libwebsocket_extension *libwebsocket_get_internal_extensions();

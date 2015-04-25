@@ -73,7 +73,7 @@ delete_from_fd(struct libwebsocket_context *context, int fd)
 		if (context->fd_hashtable[h].wsi[n]->sock == fd) {
 			while (n < context->fd_hashtable[h].length) {
 				context->fd_hashtable[h].wsi[n] =
-					    context->fd_hashtable[h].wsi[n + 1];
+						context->fd_hashtable[h].wsi[n + 1];
 				n++;
 			}
 			context->fd_hashtable[h].length--;
@@ -87,7 +87,7 @@ delete_from_fd(struct libwebsocket_context *context, int fd)
 }
 
 LWS_VISIBLE int libwebsockets_get_random(struct libwebsocket_context *context,
-							     void *buf, int len)
+								 void *buf, int len)
 {
 	int n;
 	char *p = (char *)buf;
@@ -149,7 +149,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 		return 1;
 
 	context->service_tid = context->protocols[0].callback(context, NULL,
-				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+					 LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 
 	for (i = 0; i < context->fds_count; ++i) {
 		pfd = &context->fds[i];
@@ -167,7 +167,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	}
 
 	ev = WSAWaitForMultipleEvents(context->fds_count + 1,
-				     context->events, FALSE, timeout_ms, FALSE);
+					 context->events, FALSE, timeout_ms, FALSE);
 	context->service_tid = 0;
 
 	if (ev == WSA_WAIT_TIMEOUT) {
@@ -187,9 +187,9 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 
 	if (WSAEnumNetworkEvents(pfd->fd,
 			context->events[ev - WSA_WAIT_EVENT_0],
-					      &networkevents) == SOCKET_ERROR) {
+						  &networkevents) == SOCKET_ERROR) {
 		lwsl_err("WSAEnumNetworkEvents() failed with error %d\n",
-								     LWS_ERRNO);
+									 LWS_ERRNO);
 		return -1;
 	}
 
@@ -215,7 +215,7 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 		/* enable keepalive on this socket */
 		optval = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
-					     (const char *)&optval, optlen) < 0)
+						 (const char *)&optval, optlen) < 0)
 			return 1;
 
 		alive.onoff = TRUE;
@@ -223,7 +223,7 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 		alive.keepaliveinterval = context->ka_interval;
 
 		if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive), 
-					      NULL, 0, &dwBytesRet, NULL, NULL))
+						  NULL, 0, &dwBytesRet, NULL, NULL))
 			return 1;
 	}
 
@@ -325,7 +325,7 @@ interface_to_sa(struct libwebsocket_context *context,
 
 LWS_VISIBLE void
 lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
-						       struct libwebsocket *wsi)
+							   struct libwebsocket *wsi)
 {
 	context->fds[context->fds_count++].revents = 0;
 	context->events[context->fds_count] = WSACreateEvent();
@@ -347,7 +347,7 @@ lws_plat_service_periodic(struct libwebsocket_context *context)
 
 LWS_VISIBLE int
 lws_plat_change_pollfd(struct libwebsocket_context *context,
-		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
+			  struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
 {
 	long networkevents = LWS_POLLOUT | LWS_POLLHUP;
 		
@@ -356,7 +356,7 @@ lws_plat_change_pollfd(struct libwebsocket_context *context,
 
 	if (WSAEventSelect(wsi->sock,
 			context->events[wsi->position_in_fds_table + 1],
-					       networkevents) != SOCKET_ERROR)
+						   networkevents) != SOCKET_ERROR)
 		return 0;
 
 	lwsl_err("WSAEventSelect() failed with error %d\n", LWS_ERRNO);

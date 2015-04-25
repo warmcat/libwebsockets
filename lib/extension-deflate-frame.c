@@ -15,7 +15,7 @@ int lws_extension_callback_deflate_frame(
 		void *user, void *in, size_t len)
 {
 	struct lws_ext_deflate_frame_conn *conn =
-				     (struct lws_ext_deflate_frame_conn *)user;
+					 (struct lws_ext_deflate_frame_conn *)user;
 	struct lws_tokens *eff_buf = (struct lws_tokens *)in;
 	size_t current_payload, remaining_payload, total_payload;
 	int n;
@@ -112,7 +112,7 @@ bail:
 			}
 
 			memcpy(conn->buf_pre + conn->buf_pre_used,
-					      eff_buf->token, current_payload);
+						  eff_buf->token, current_payload);
 			conn->buf_pre_used += current_payload;
 
 			eff_buf->token = NULL;
@@ -125,7 +125,7 @@ bail:
 					current_payload;
 
 			memcpy(conn->buf_pre + conn->buf_pre_used,
-					      eff_buf->token, current_payload);
+						  eff_buf->token, current_payload);
 			conn->buf_pre_used = 0;
 
 			conn->zs_in.next_in = conn->buf_pre;
@@ -239,9 +239,9 @@ bail:
 				return -1;
 			}
 			conn->buf_out = lws_realloc(conn->buf_out,
-						    LWS_SEND_BUFFER_PRE_PADDING +
-						    conn->buf_out_length +
-						    LWS_SEND_BUFFER_POST_PADDING);
+							LWS_SEND_BUFFER_PRE_PADDING +
+							conn->buf_out_length +
+							LWS_SEND_BUFFER_POST_PADDING);
 			if (!conn->buf_out) {
 				lwsl_err("Out of memory\n");
 				return -1;
@@ -251,7 +251,7 @@ bail:
 					conn->buf_out_length);
 
 			conn->zs_out.next_out = (conn->buf_out +
-				     LWS_SEND_BUFFER_PRE_PADDING + len_so_far);
+					 LWS_SEND_BUFFER_PRE_PADDING + len_so_far);
 			conn->zs_out.avail_out =
 					   (conn->buf_out_length - len_so_far);
 		}
@@ -262,7 +262,7 @@ bail:
 		eff_buf->token = (char *)(conn->buf_out +
 						LWS_SEND_BUFFER_PRE_PADDING);
 		eff_buf->token_len = (int)(conn->zs_out.next_out -
-			    (conn->buf_out + LWS_SEND_BUFFER_PRE_PADDING)) - 4;
+				(conn->buf_out + LWS_SEND_BUFFER_PRE_PADDING)) - 4;
 
 		return 0;
 

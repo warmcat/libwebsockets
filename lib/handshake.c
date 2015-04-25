@@ -58,7 +58,7 @@
 
 LWS_VISIBLE int
 libwebsocket_read(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char *buf, size_t len)
+			 struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
 	size_t n;
 	int body_chunk_len;
@@ -226,7 +226,7 @@ bail:
 	lwsl_debug("closing connection at libwebsocket_read bail:\n");
 
 	libwebsocket_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
+							 LWS_CLOSE_STATUS_NOSTATUS);
 
 	return -1;
 }
