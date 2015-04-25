@@ -223,7 +223,7 @@ int lws_http_action(struct libwebsocket_context *context,
 			uri_ptr = lws_hdr_simple_ptr(wsi, methods[n]);
 			uri_len = lws_hdr_total_length(wsi, methods[n]);
 			lwsl_info("Method: %s request for '%s'\n",
-				  	method_names[n], uri_ptr);
+					method_names[n], uri_ptr);
 			break;
 		}
 

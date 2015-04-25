@@ -240,8 +240,8 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		 */
 
 		if (!wsi->protocol->rx_buffer_size &&
-			 		wsi->u.ws.rx_user_buffer_head !=
-			 				  LWS_MAX_SOCKET_IO_BUF)
+					wsi->u.ws.rx_user_buffer_head !=
+							  LWS_MAX_SOCKET_IO_BUF)
 			break;
 		else
 			if (wsi->protocol->rx_buffer_size &&

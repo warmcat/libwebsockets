@@ -461,7 +461,7 @@ again:
 
 	fprintf(stdout, "/* total size %d bytes, biggest jump %d/256, fails=%d */\n};\n"
 			"\n static unsigned char lextable_terms[] = {\n",
-	 		pos, biggest, fails);
+			pos, biggest, fails);
 
 	for (n = 0; n < (walk + 7) / 8; n++) {
 		if (!(n & 7))
