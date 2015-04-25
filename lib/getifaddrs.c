@@ -62,8 +62,8 @@
 
 static int
 getifaddrs2(struct ifaddrs **ifap,
-	    int af, int siocgifconf, int siocgifflags,
-	    size_t ifreq_sz)
+		int af, int siocgifconf, int siocgifflags,
+		size_t ifreq_sz)
 {
 	int ret;
 	int fd;
@@ -153,12 +153,12 @@ getifaddrs2(struct ifaddrs **ifap,
 			(*end)->ifa_broadaddr =
 				lws_malloc(sizeof(ifr->ifr_broadaddr));
 			memcpy((*end)->ifa_broadaddr, &ifr->ifr_broadaddr,
-						    sizeof(ifr->ifr_broadaddr));
+							sizeof(ifr->ifr_broadaddr));
 		} else if (ifreq.ifr_flags & IFF_POINTOPOINT) {
 			(*end)->ifa_dstaddr =
 				lws_malloc(sizeof(ifr->ifr_dstaddr));
 			memcpy((*end)->ifa_dstaddr, &ifr->ifr_dstaddr,
-						      sizeof(ifr->ifr_dstaddr));
+							  sizeof(ifr->ifr_dstaddr));
 		} else
 			(*end)->ifa_dstaddr = NULL;
 #else
@@ -231,7 +231,7 @@ print_addr(const char *s, struct sockaddr *sa)
 	printf("  %s=%d/", s, sa->sa_family);
 #ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
 	for (i = 0;
-	       i < sa->sa_len - ((long)sa->sa_data - (long)&sa->sa_family); i++)
+		   i < sa->sa_len - ((long)sa->sa_data - (long)&sa->sa_family); i++)
 		printf("%02x", ((unsigned char *)sa->sa_data)[i]);
 #else
 	for (i = 0; i < sizeof(sa->sa_data); i++)

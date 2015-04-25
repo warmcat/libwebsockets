@@ -44,9 +44,9 @@
 #include "private-libwebsockets.h"
 
 static const char encode[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-			     "abcdefghijklmnopqrstuvwxyz0123456789+/";
+				 "abcdefghijklmnopqrstuvwxyz0123456789+/";
 static const char decode[] = "|$$$}rstuvwxyz{$$$$$$$>?@ABCDEFGHIJKLMNOPQRSTUVW"
-			     "$$$$$$XYZ[\\]^_`abcdefghijklmnopq";
+				 "$$$$$$XYZ[\\]^_`abcdefghijklmnopq";
 
 LWS_VISIBLE int
 lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
@@ -73,9 +73,9 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
 
 		*out++ = encode[triple[0] >> 2];
 		*out++ = encode[((triple[0] & 0x03) << 4) |
-					     ((triple[1] & 0xf0) >> 4)];
+						 ((triple[1] & 0xf0) >> 4)];
 		*out++ = (len > 1 ? encode[((triple[1] & 0x0f) << 2) |
-					     ((triple[2] & 0xc0) >> 6)] : '=');
+						 ((triple[2] & 0xc0) >> 6)] : '=');
 		*out++ = (len > 2 ? encode[triple[2] & 0x3f] : '=');
 
 		done += 4;
@@ -164,7 +164,7 @@ lws_b64_selftest(void)
 
 		buf[sizeof(buf) - 1] = '\0';
 		n = lws_b64_encode_string(plaintext[test],
-				      strlen(plaintext[test]), buf, sizeof buf);
+					  strlen(plaintext[test]), buf, sizeof buf);
 		if (n != strlen(coded[test]) || strcmp(buf, coded[test])) {
 			lwsl_err("Failed lws_b64 encode selftest "
 					   "%d result '%s' %d\n", test, buf, n);

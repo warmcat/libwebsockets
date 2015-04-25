@@ -53,7 +53,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	old_state = wsi->state;
 
 	if (wsi->socket_is_permanently_unusable ||
-	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)
+		reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)
 		goto just_kill_connection;
 
 	switch (old_state) {
@@ -113,7 +113,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	 */
 	
 	if (lws_ext_callback_for_each_active(wsi,
-		      LWS_EXT_CALLBACK_CHECK_OK_TO_REALLY_CLOSE, NULL, 0) > 0) {
+			  LWS_EXT_CALLBACK_CHECK_OK_TO_REALLY_CLOSE, NULL, 0) > 0) {
 		lwsl_ext("extension vetoed close\n");
 		return;
 	}
@@ -147,7 +147,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 		if (eff_buf.token_len)
 			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-				      eff_buf.token_len) != eff_buf.token_len) {
+					  eff_buf.token_len) != eff_buf.token_len) {
 				lwsl_debug("close: ext spill failed\n");
 				goto just_kill_connection;
 			}
@@ -166,8 +166,8 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	 */
 
 	if (old_state == WSI_STATE_ESTABLISHED &&
-	    reason != LWS_CLOSE_STATUS_NOSTATUS &&
-	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY) {
+		reason != LWS_CLOSE_STATUS_NOSTATUS &&
+		reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY) {
 
 		lwsl_debug("sending close indication...\n");
 
@@ -175,7 +175,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		memset(buf, 0, sizeof(buf));
 		n = libwebsocket_write(wsi,
 				&buf[LWS_SEND_BUFFER_PRE_PADDING + 2],
-							    0, LWS_WRITE_CLOSE);
+								0, LWS_WRITE_CLOSE);
 		if (n >= 0) {
 			/*
 			 * we have sent a nice protocol level indication we
@@ -224,8 +224,8 @@ just_kill_connection:
 	}
 
 	if ((old_state == WSI_STATE_ESTABLISHED ||
-	     wsi->mode == LWS_CONNMODE_WS_SERVING ||
-	     wsi->mode == LWS_CONNMODE_WS_CLIENT)) {
+		 wsi->mode == LWS_CONNMODE_WS_SERVING ||
+		 wsi->mode == LWS_CONNMODE_WS_CLIENT)) {
 
 		lws_free2(wsi->u.ws.rx_user_buffer);
 
@@ -251,7 +251,7 @@ just_kill_connection:
 			 (old_state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE))) {
 		lwsl_debug("calling back CLOSED\n");
 		wsi->protocol->callback(context, wsi, LWS_CALLBACK_CLOSED,
-						      wsi->user_space, NULL, 0);
+							  wsi->user_space, NULL, 0);
 	} else if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
 		lwsl_debug("calling back CLOSED_HTTP\n");
 		context->protocols[0].callback(context, wsi,
@@ -278,7 +278,7 @@ just_kill_connection:
 	 * even though not active on him specifically
 	 */
 	if (lws_ext_callback_for_each_extension_type(context, wsi,
-		       LWS_EXT_CALLBACK_DESTROY_ANY_WSI_CLOSING, NULL, 0) < 0)
+			   LWS_EXT_CALLBACK_DESTROY_ANY_WSI_CLOSING, NULL, 0) < 0)
 		lwsl_warn("ext destroy wsi failed\n");
 
 /*	lwsl_info("closing fd=%d\n", wsi->sock); */
@@ -298,7 +298,7 @@ just_kill_connection:
 			LWS_CALLBACK_WSI_DESTROY, wsi->user_space, NULL, 0);
 
 	if (wsi->protocol && wsi->protocol->per_session_data_size &&
-	    wsi->user_space && !wsi->user_space_externally_allocated)
+		wsi->user_space && !wsi->user_space_externally_allocated)
 		lws_free(wsi->user_space);
 
 	/* As a precaution, free the header table in case it lingered: */
@@ -308,8 +308,8 @@ just_kill_connection:
 
 LWS_VISIBLE int
 libwebsockets_get_addresses(struct libwebsocket_context *context,
-			    void *ads, char *name, int name_len,
-			    char *rip, int rip_len)
+				void *ads, char *name, int name_len,
+				char *rip, int rip_len)
 {
 	struct addrinfo ai, *res;
 	void *p = NULL;
@@ -511,7 +511,7 @@ libwebsocket_get_socket_fd(struct libwebsocket *wsi)
 #ifdef LWS_LATENCY
 void
 lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi,
-				     const char *action, int ret, int completed)
+					 const char *action, int ret, int completed)
 {
 	unsigned long long u;
 	char buf[256];
@@ -529,17 +529,17 @@ lws_latency(struct libwebsocket_context *context, struct libwebsocket *wsi,
 			sprintf(buf,
 			  "Completion first try lat %lluus: %p: ret %d: %s\n",
 					u - wsi->latency_start,
-						      (void *)wsi, ret, action);
+							  (void *)wsi, ret, action);
 		else
 			sprintf(buf,
 			  "Completion %lluus: lat %lluus: %p: ret %d: %s\n",
 				u - wsi->action_start,
 					u - wsi->latency_start,
-						      (void *)wsi, ret, action);
+							  (void *)wsi, ret, action);
 		wsi->action_start = 0;
 	} else
 		sprintf(buf, "lat %lluus: %p: ret %d: %s\n",
-			      u - wsi->latency_start, (void *)wsi, ret, action);
+				  u - wsi->latency_start, (void *)wsi, ret, action);
 
 	if (u - wsi->latency_start > context->worst_latency) {
 		context->worst_latency = u - wsi->latency_start;
@@ -780,7 +780,7 @@ LWS_VISIBLE void _lws_log(int filter, const char *format, ...)
  */
 
 LWS_VISIBLE void lws_set_log_level(int level, void (*log_emit_function)(int level,
-							      const char *line))
+								  const char *line))
 {
 	log_level = level;
 	if (log_emit_function)
@@ -829,8 +829,8 @@ lws_partial_buffered(struct libwebsocket *wsi)
 }
 
 void lws_set_protocol_write_pending(struct libwebsocket_context *context,
-				    struct libwebsocket *wsi,
-				    enum lws_pending_protocol_send pend)
+					struct libwebsocket *wsi,
+					enum lws_pending_protocol_send pend)
 {
 	lwsl_info("setting pps %d\n", pend);
 	

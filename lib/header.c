@@ -30,12 +30,12 @@ const unsigned char *lws_token_to_string(enum lws_token_indexes token)
 }
 
 int lws_add_http_header_by_name(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    const unsigned char *name,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end)
+				struct libwebsocket *wsi,
+				const unsigned char *name,
+				const unsigned char *value,
+				int length,
+				unsigned char **p,
+				unsigned char *end)
 {
 #ifdef LWS_USE_HTTP2
 	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
@@ -62,9 +62,9 @@ int lws_add_http_header_by_name(struct libwebsocket_context *context,
 }
 
 int lws_finalize_http_header(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned char **p,
-			    unsigned char *end)
+				struct libwebsocket *wsi,
+				unsigned char **p,
+				unsigned char *end)
 {
 #ifdef LWS_USE_HTTP2
 	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
@@ -78,12 +78,12 @@ int lws_finalize_http_header(struct libwebsocket_context *context,
 }
 
 int lws_add_http_header_by_token(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    enum lws_token_indexes token,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end)
+				struct libwebsocket *wsi,
+				enum lws_token_indexes token,
+				const unsigned char *value,
+				int length,
+				unsigned char **p,
+				unsigned char *end)
 {
 	const unsigned char *name;
 #ifdef LWS_USE_HTTP2
@@ -97,10 +97,10 @@ int lws_add_http_header_by_token(struct libwebsocket_context *context,
 }
 
 int lws_add_http_header_content_length(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned long content_length,
-			    unsigned char **p,
-			    unsigned char *end)
+				struct libwebsocket *wsi,
+				unsigned long content_length,
+				unsigned char **p,
+				unsigned char *end)
 {
 	char b[24];
 	int n;
@@ -145,10 +145,10 @@ static const char *err500[] = {
 };
 
 int lws_add_http_header_status(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned int code,
-			    unsigned char **p,
-			    unsigned char *end)
+				struct libwebsocket *wsi,
+				unsigned int code,
+				unsigned char **p,
+				unsigned char *end)
 {
 	unsigned char code_and_desc[60];
 	const char *description = "";
@@ -180,7 +180,7 @@ int lws_add_http_header_status(struct libwebsocket_context *context,
  */
 LWS_VISIBLE int libwebsockets_return_http_status(
 		struct libwebsocket_context *context, struct libwebsocket *wsi,
-				       unsigned int code, const char *html_body)
+					   unsigned int code, const char *html_body)
 {
 	int n, m;
 

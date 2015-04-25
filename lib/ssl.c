@@ -3,20 +3,20 @@
  *
  * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
  *
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation:
- *  version 2.1 of the License.
+ *	This library is free software; you can redistribute it and/or
+ *	modify it under the terms of the GNU Lesser General Public
+ *	License as published by the Free Software Foundation:
+ *	version 2.1 of the License.
  *
- *  This library is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  Lesser General Public License for more details.
+ *	This library is distributed in the hope that it will be useful,
+ *	but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *	Lesser General Public License for more details.
  *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- *  MA  02110-1301  USA
+ *	You should have received a copy of the GNU Lesser General Public
+ *	License along with this library; if not, write to the Free Software
+ *	Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ *	MA	02110-1301	USA
  */
 
 #include "private-libwebsockets.h"
@@ -35,7 +35,7 @@ static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, 
 }
 
 static void lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
-				    struct lws_context_creation_info *info)
+					struct lws_context_creation_info *info)
 {
 	if (!info->ssl_private_key_password)
 		return;
@@ -46,7 +46,7 @@ static void lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
 	 */
 	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *)info);
 	SSL_CTX_set_default_passwd_cb(ssl_ctx,
-				      lws_context_init_ssl_pem_passwd_cb);
+					  lws_context_init_ssl_pem_passwd_cb);
 }
 
 #ifndef LWS_NO_SERVER
@@ -76,7 +76,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 
 LWS_VISIBLE int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
-		     struct libwebsocket_context *context)
+			 struct libwebsocket_context *context)
 {
 	SSL_METHOD *method;
 	int error;
@@ -125,7 +125,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl method %lu: %s\n", 
 			error, ERR_error_string(error,
-					      (char *)context->service_buffer));
+						  (char *)context->service_buffer));
 		return 1;
 	}
 	context->ssl_ctx = SSL_CTX_new(method);	/* create context */
@@ -133,7 +133,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
 			error, ERR_error_string(error,
-					      (char *)context->service_buffer));
+						  (char *)context->service_buffer));
 		return 1;
 	}
 
@@ -155,8 +155,8 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		/* absolutely require the client cert */
 
 		SSL_CTX_set_verify(context->ssl_ctx,
-		       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
-						       OpenSSL_verify_callback);
+			   SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+							   OpenSSL_verify_callback);
 
 		/*
 		 * give user code a chance to load certs into the server
@@ -165,7 +165,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 		context->protocols[0].callback(context, NULL,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
-						     context->ssl_ctx, NULL, 0);
+							 context->ssl_ctx, NULL, 0);
 	}
 
 	if (info->options & LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT) {
@@ -186,7 +186,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 				info->ssl_cert_filepath,
 				error,
 				ERR_error_string(error,
-					      (char *)context->service_buffer));
+						  (char *)context->service_buffer));
 			return 1;
 		}
 		lws_ssl_bind_passphrase(context->ssl_ctx, info);
@@ -194,14 +194,14 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		if (info->ssl_private_key_filepath != NULL) {
 			/* set the private key from KeyFile */
 			if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
-				     info->ssl_private_key_filepath,
-						       SSL_FILETYPE_PEM) != 1) {
+					 info->ssl_private_key_filepath,
+							   SSL_FILETYPE_PEM) != 1) {
 				error = ERR_get_error();
 				lwsl_err("ssl problem getting key '%s' %lu: %s\n",
 					info->ssl_private_key_filepath,
 						error,
 						ERR_error_string(error,
-						      (char *)context->service_buffer));
+							  (char *)context->service_buffer));
 				return 1;
 			}
 		}
@@ -265,7 +265,7 @@ libwebsockets_decode_ssl_error(void)
 #ifndef LWS_NO_CLIENT
 
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
-			    struct libwebsocket_context *context)
+				struct libwebsocket_context *context)
 {
 	int error;
 	int n;
@@ -294,7 +294,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl method %lu: %s\n",
 			error, ERR_error_string(error,
-				      (char *)context->service_buffer));
+					  (char *)context->service_buffer));
 		return 1;
 	}
 	/* create context */
@@ -303,7 +303,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
 			error, ERR_error_string(error,
-				      (char *)context->service_buffer));
+					  (char *)context->service_buffer));
 		return 1;
 	}
 
@@ -312,7 +312,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 						 SSL_OP_NO_COMPRESSION);
 #endif
 	SSL_CTX_set_options(context->ssl_client_ctx,
-				       SSL_OP_CIPHER_SERVER_PREFERENCE);
+					   SSL_OP_CIPHER_SERVER_PREFERENCE);
 	if (info->ssl_cipher_list)
 		SSL_CTX_set_cipher_list(context->ssl_client_ctx,
 						info->ssl_cipher_list);
@@ -327,12 +327,12 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	if (!info->ssl_ca_filepath) {
 		if (!SSL_CTX_load_verify_locations(
 			context->ssl_client_ctx, NULL,
-					     LWS_OPENSSL_CLIENT_CERTS))
+						 LWS_OPENSSL_CLIENT_CERTS))
 			lwsl_err(
-			    "Unable to load SSL Client certs from %s "
-			    "(set by --with-client-cert-dir= "
-			    "in configure) --  client ssl isn't "
-			    "going to work", LWS_OPENSSL_CLIENT_CERTS);
+				"Unable to load SSL Client certs from %s "
+				"(set by --with-client-cert-dir= "
+				"in configure) --  client ssl isn't "
+				"going to work", LWS_OPENSSL_CLIENT_CERTS);
 	} else
 		if (!SSL_CTX_load_verify_locations(
 			context->ssl_client_ctx, info->ssl_ca_filepath,
@@ -367,12 +367,12 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		lws_ssl_bind_passphrase(context->ssl_client_ctx, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(context->ssl_client_ctx,
-		    info->ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
+			info->ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
 			lwsl_err("use_PrivateKey_file '%s' %lu: %s\n",
 				info->ssl_private_key_filepath,
 				ERR_get_error(),
 				ERR_error_string(ERR_get_error(),
-				      (char *)context->service_buffer));
+					  (char *)context->service_buffer));
 			return 1;
 		}
 
@@ -394,11 +394,11 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 
 LWS_VISIBLE void
 lws_ssl_remove_wsi_from_buffered_list(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi)
+			 struct libwebsocket *wsi)
 {
 	if (!wsi->pending_read_list_prev &&
-	    !wsi->pending_read_list_next &&
-	    context->pending_read_list != wsi)
+		!wsi->pending_read_list_next &&
+		context->pending_read_list != wsi)
 		/* we are not on the list */
 		return;
 
@@ -420,7 +420,7 @@ lws_ssl_remove_wsi_from_buffered_list(struct libwebsocket_context *context,
 
 LWS_VISIBLE int
 lws_ssl_capable_read(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char *buf, int len)
+			 struct libwebsocket *wsi, unsigned char *buf, int len)
 {
 	int n;
 
@@ -520,9 +520,9 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		new_wsi->ssl = SSL_new(context->ssl_ctx);
 		if (new_wsi->ssl == NULL) {
 			lwsl_err("SSL_new failed: %s\n",
-			    ERR_error_string(SSL_get_error(
-			    new_wsi->ssl, 0), NULL));
-			    libwebsockets_decode_ssl_error();
+				ERR_error_string(SSL_get_error(
+				new_wsi->ssl, 0), NULL));
+				libwebsockets_decode_ssl_error();
 			lws_free(new_wsi);
 			compatible_close(accept_fd);
 			break;

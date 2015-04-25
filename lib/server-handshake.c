@@ -49,7 +49,7 @@ lws_extension_server_handshake(struct libwebsocket_context *context,
 
 	if (lws_hdr_copy(wsi, (char *)context->service_buffer,
 			sizeof(context->service_buffer),
-					      WSI_TOKEN_EXTENSIONS) < 0)
+						  WSI_TOKEN_EXTENSIONS) < 0)
 		return 1;
 
 	c = (char *)context->service_buffer;
@@ -124,9 +124,9 @@ lws_extension_server_handshake(struct libwebsocket_context *context,
 
 			wsi->active_extensions_user[
 				wsi->count_active_extensions] =
-				     lws_zalloc(ext->per_session_data_size);
+					 lws_zalloc(ext->per_session_data_size);
 			if (wsi->active_extensions_user[
-			     wsi->count_active_extensions] == NULL) {
+				 wsi->count_active_extensions] == NULL) {
 				lwsl_err("Out of mem\n");
 				return 1;
 			}
@@ -172,7 +172,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	}
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_KEY) >=
-						     MAX_WEBSOCKET_04_KEY_LEN) {
+							 MAX_WEBSOCKET_04_KEY_LEN) {
 		lwsl_warn("Client key too long %d\n", MAX_WEBSOCKET_04_KEY_LEN);
 		goto bail;
 	}
@@ -206,9 +206,9 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	response = (char *)context->service_buffer + MAX_WEBSOCKET_04_KEY_LEN + LWS_SEND_BUFFER_PRE_PADDING;
 	p = response;
 	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
-		      "Upgrade: WebSocket\x0d\x0a"
-		      "Connection: Upgrade\x0d\x0a"
-		      "Sec-WebSocket-Accept: ");
+			  "Upgrade: WebSocket\x0d\x0a"
+			  "Connection: Upgrade\x0d\x0a"
+			  "Sec-WebSocket-Accept: ");
 	strcpy(p, (char *)context->service_buffer);
 	p += accept_len;
 
@@ -237,7 +237,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	
 	if (!lws_any_extension_handled(context, wsi,
 			LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
-						     response, p - response)) {
+							 response, p - response)) {
 
 		/* okay send the handshake response accepting the connection */
 

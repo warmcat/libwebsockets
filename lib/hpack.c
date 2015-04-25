@@ -494,7 +494,7 @@ pre_data:
 			if (wsi->u.http2.value) {
 				if (lws_frag_start(wsi,
 					lws_token_from_index(wsi,
-				  		wsi->u.http2.header_index, NULL, NULL)))
+						wsi->u.http2.header_index, NULL, NULL)))
 					return 1;
 			} else
 				wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
@@ -521,7 +521,7 @@ pre_data:
 				wsi->u.http2.hpack_pos = 
 					huftable_decode(
 						wsi->u.http2.hpack_pos,
-		     					(c >> 7) & 1);
+								(c >> 7) & 1);
 				c <<= 1;
 				if (wsi->u.http2.hpack_pos == 0xffff)
 					return 1;
@@ -610,12 +610,12 @@ static int lws_http2_num(int starting_bits, unsigned long num, unsigned char **p
 }
 
 int lws_add_http2_header_by_name(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    const unsigned char *name,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end)
+				struct libwebsocket *wsi,
+				const unsigned char *name,
+				const unsigned char *value,
+				int length,
+				unsigned char **p,
+				unsigned char *end)
 {
 	int len;
 	
@@ -648,12 +648,12 @@ int lws_add_http2_header_by_name(struct libwebsocket_context *context,
 }
 
 int lws_add_http2_header_by_token(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    enum lws_token_indexes token,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end)
+				struct libwebsocket *wsi,
+				enum lws_token_indexes token,
+				const unsigned char *value,
+				int length,
+				unsigned char **p,
+				unsigned char *end)
 {
 	const unsigned char *name;
 
@@ -665,10 +665,10 @@ int lws_add_http2_header_by_token(struct libwebsocket_context *context,
 }
 
 int lws_add_http2_header_status(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned int code,
-			    unsigned char **p,
-			    unsigned char *end)
+				struct libwebsocket *wsi,
+				unsigned int code,
+				unsigned char **p,
+				unsigned char *end)
 {
 	unsigned char status[10];
 	int n;

@@ -49,7 +49,7 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 		default:
 			lwsl_err("unknown spec version %02d\n",
-						       wsi->ietf_spec_revision);
+							   wsi->ietf_spec_revision);
 			break;
 		}
 		break;
@@ -221,12 +221,12 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 
 		if ((!wsi->u.ws.this_frame_masked) || wsi->u.ws.all_zero_nonce)
 			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-			       (wsi->u.ws.rx_user_buffer_head++)] = c;
+				   (wsi->u.ws.rx_user_buffer_head++)] = c;
 		else
 			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-			       (wsi->u.ws.rx_user_buffer_head++)] =
+				   (wsi->u.ws.rx_user_buffer_head++)] =
 			c ^ wsi->u.ws.frame_masking_nonce_04[
-					    (wsi->u.ws.frame_mask_index++) & 3];
+						(wsi->u.ws.frame_mask_index++) & 3];
 
 		if (--wsi->u.ws.rx_packet_length == 0) {
 			/* spill because we have the whole frame */
@@ -240,8 +240,8 @@ int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 		 */
 
 		if (!wsi->protocol->rx_buffer_size &&
-			 		wsi->u.ws.rx_user_buffer_head !=
-			 				  LWS_MAX_SOCKET_IO_BUF)
+					wsi->u.ws.rx_user_buffer_head !=
+							  LWS_MAX_SOCKET_IO_BUF)
 			break;
 		else
 			if (wsi->protocol->rx_buffer_size &&
@@ -306,7 +306,7 @@ spill:
 
 			/* if existing buffer is too small, drop it */
 			if (wsi->u.ws.ping_payload_buf &&
-			    wsi->u.ws.ping_payload_alloc < wsi->u.ws.rx_user_buffer_head)
+				wsi->u.ws.ping_payload_alloc < wsi->u.ws.rx_user_buffer_head)
 				lws_free2(wsi->u.ws.ping_payload_buf);
 
 			/* if no buffer, allocate it */
@@ -319,7 +319,7 @@ spill:
 
 			/* stash the pong payload */
 			memcpy(wsi->u.ws.ping_payload_buf + LWS_SEND_BUFFER_PRE_PADDING,
-			       &wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+				   &wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				wsi->u.ws.rx_user_buffer_head);
 
 			wsi->u.ws.ping_payload_len = wsi->u.ws.rx_user_buffer_head;
@@ -336,7 +336,7 @@ ping_drop:
 			lwsl_info("client receied pong\n");
 			lwsl_hexdump(&wsi->u.ws.rx_user_buffer[
 				LWS_SEND_BUFFER_PRE_PADDING],
-				    wsi->u.ws.rx_user_buffer_head);
+					wsi->u.ws.rx_user_buffer_head);
 
 			/* issue it */
 			callback_action = LWS_CALLBACK_CLIENT_RECEIVE_PONG;
@@ -366,7 +366,7 @@ ping_drop:
 					&eff_buf, 0) <= 0) { /* not handle or fail */
 
 				lwsl_ext("Unhandled ext opc 0x%x\n",
-							      wsi->u.ws.opcode);
+								  wsi->u.ws.opcode);
 				wsi->u.ws.rx_user_buffer_head = 0;
 
 				return 0;
@@ -393,7 +393,7 @@ ping_drop:
 			return -1;
 
 		if (eff_buf.token_len <= 0 &&
-			    callback_action != LWS_CALLBACK_CLIENT_RECEIVE_PONG)
+				callback_action != LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			goto already_done;
 
 		eff_buf.token[eff_buf.token_len] = '\0';

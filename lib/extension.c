@@ -29,7 +29,7 @@ struct libwebsocket_extension libwebsocket_internal_extensions[] = {
 
 LWS_VISIBLE void
 lws_context_init_extensions(struct lws_context_creation_info *info,
-				    struct libwebsocket_context *context)
+					struct libwebsocket_context *context)
 {
 	context->extensions = info->extensions;
 	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
@@ -58,7 +58,7 @@ int lws_ext_callback_for_each_active(struct libwebsocket *wsi, int reason,
 		if (m < 0) {
 			lwsl_ext(
 			 "Extension '%s' failed to handle callback %d!\n",
-				      wsi->active_extensions[n]->name, reason);
+					  wsi->active_extensions[n]->name, reason);
 			return -1;
 		}
 		if (m > handled)
@@ -81,7 +81,7 @@ int lws_ext_callback_for_each_extension_type(
 		if (m < 0) {
 			lwsl_ext(
 			 "Extension '%s' failed to handle callback %d!\n",
-				      wsi->active_extensions[n]->name, reason);
+					  wsi->active_extensions[n]->name, reason);
 			return -1;
 		}
 		if (m)
@@ -120,7 +120,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 
 		/* show every extension the new incoming data */
 		m = lws_ext_callback_for_each_active(wsi,
-			       LWS_EXT_CALLBACK_PACKET_TX_PRESEND, &eff_buf, 0);
+				   LWS_EXT_CALLBACK_PACKET_TX_PRESEND, &eff_buf, 0);
 		if (m < 0)
 			return -1;
 		if (m) /* handled */
@@ -137,7 +137,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 
 		if (eff_buf.token_len) {
 			n = lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-							    eff_buf.token_len);
+								eff_buf.token_len);
 			if (n < 0) {
 				lwsl_info("closing from ext access\n");
 				return -1;
@@ -176,7 +176,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 		 * when he is ready to send and take care of it there
 		 */
 		libwebsocket_callback_on_writable(
-					     wsi->protocol->owning_server, wsi);
+						 wsi->protocol->owning_server, wsi);
 		wsi->extension_data_pending = 1;
 		ret = 0;
 	}
@@ -188,7 +188,7 @@ int
 lws_any_extension_handled(struct libwebsocket_context *context,
 			  struct libwebsocket *wsi,
 			  enum libwebsocket_extension_callback_reasons r,
-						       void *v, size_t len)
+							   void *v, size_t len)
 {
 	int n;
 	int handled = 0;

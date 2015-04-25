@@ -3,20 +3,20 @@
  *
  * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
  *
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation:
- *  version 2.1 of the License.
+ *	This library is free software; you can redistribute it and/or
+ *	modify it under the terms of the GNU Lesser General Public
+ *	License as published by the Free Software Foundation:
+ *	version 2.1 of the License.
  *
- *  This library is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  Lesser General Public License for more details.
+ *	This library is distributed in the hope that it will be useful,
+ *	but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *	Lesser General Public License for more details.
  *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- *  MA  02110-1301  USA
+ *	You should have received a copy of the GNU Lesser General Public
+ *	License along with this library; if not, write to the Free Software
+ *	Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ *	MA	02110-1301	USA
  */
 
 #include "private-libwebsockets.h"
@@ -32,7 +32,7 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 					   wsi->u.ws.frame_masking_nonce_04, 4);
 	if (n != 4) {
 		lwsl_parser("Unable to read from random device %s %d\n",
-						     SYSTEM_RANDOM_FILEPATH, n);
+							 SYSTEM_RANDOM_FILEPATH, n);
 		return 1;
 	}
 
@@ -64,9 +64,9 @@ LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 		for (m = 0; m < 16 && n < len; m++)
 			p += sprintf(p, "%02X ", buf[n++]);
 		while (m++ < 16)
-			p += sprintf(p, "   ");
+			p += sprintf(p, "	");
 
-		p += sprintf(p, "   ");
+		p += sprintf(p, "	");
 
 		for (m = 0; m < 16 && (start + m) < len; m++) {
 			if (buf[start + m] >= ' ' && buf[start + m] < 127)
@@ -147,7 +147,7 @@ handle_truncated_send:
 	 */
 	if (wsi->truncated_send_len) {
 		lwsl_info("***** %x partial send moved on by %d (vs %d)\n",
-							     wsi, n, real_len);
+								 wsi, n, real_len);
 		wsi->truncated_send_offset += n;
 		wsi->truncated_send_len -= n;
 
@@ -162,7 +162,7 @@ handle_truncated_send:
 		}
 		/* always callback on writeable */
 		libwebsocket_callback_on_writable(
-					     wsi->protocol->owning_server, wsi);
+						 wsi->protocol->owning_server, wsi);
 
 		return n;
 	}
@@ -186,12 +186,12 @@ handle_truncated_send:
 	 * first priority next time the socket is writable)
 	 */
 	lwsl_info("***** %x new partial sent %d from %d total\n",
-						      wsi, n, real_len);
+							  wsi, n, real_len);
 
 	/*
-	 *  - if we still have a suitable malloc lying around, use it
-	 *  - or, if too small, reallocate it
-	 *  - or, if no buffer, create it
+	 *	- if we still have a suitable malloc lying around, use it
+	 *	- or, if too small, reallocate it
+	 *	- or, if no buffer, create it
 	 */
 	if (!wsi->truncated_send_malloc ||
 			real_len - n > wsi->truncated_send_allocation) {
@@ -235,7 +235,7 @@ handle_truncated_send:
  *	for both http and websocket protocols.
  *
  *	In the case of sending using websocket protocol, be sure to allocate
- *	valid storage before and after buf as explained above.  This scheme
+ *	valid storage before and after buf as explained above.	This scheme
  *	allows maximum efficiency of sending data and protocol in a single
  *	packet while not burdening the user code with any protocol knowledge.
  *
@@ -258,14 +258,14 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 	struct lws_tokens eff_buf;
 
 	if (len == 0 && protocol != LWS_WRITE_CLOSE &&
-		     protocol != LWS_WRITE_PING && protocol != LWS_WRITE_PONG) {
+			 protocol != LWS_WRITE_PING && protocol != LWS_WRITE_PONG) {
 		lwsl_warn("zero length libwebsocket_write attempt\n");
 		return 0;
 	}
 
 	if (protocol == LWS_WRITE_HTTP ||
-	    protocol == LWS_WRITE_HTTP_FINAL ||
-	    protocol == LWS_WRITE_HTTP_HEADERS)
+		protocol == LWS_WRITE_HTTP_FINAL ||
+		protocol == LWS_WRITE_HTTP_HEADERS)
 		goto send_raw;
 
 	/* websocket protocol, either binary or text */
@@ -294,7 +294,7 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 		break;
 	default:
 		if (lws_ext_callback_for_each_active(wsi,
-			       LWS_EXT_CALLBACK_PAYLOAD_TX, &eff_buf, 0) < 0)
+				   LWS_EXT_CALLBACK_PAYLOAD_TX, &eff_buf, 0) < 0)
 			return -1;
 	}
 
@@ -466,7 +466,7 @@ send_raw:
 		}
 #endif
 		return lws_issue_raw(wsi, (unsigned char *)buf - pre,
-							      len + pre + post);
+								  len + pre + post);
 	default:
 		break;
 	}
@@ -523,7 +523,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		if (wsi->truncated_send_len) {
 			if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
 					wsi->truncated_send_offset,
-						       wsi->truncated_send_len) < 0) {
+							   wsi->truncated_send_len) < 0) {
 				lwsl_info("closing from libwebsockets_serve_http_file_fragment\n");
 				return -1;
 			}
@@ -534,13 +534,13 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 			goto all_sent;
 
 		compatible_file_read(n, wsi->u.http.fd, context->service_buffer,
-					       sizeof(context->service_buffer));
+						   sizeof(context->service_buffer));
 		if (n < 0)
 			return -1; /* caller will close */
 		if (n) {
 			wsi->u.http.filepos += n;
 			m = libwebsocket_write(wsi, context->service_buffer, n,
-					       wsi->u.http.filepos == wsi->u.http.filelen ? LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
+						   wsi->u.http.filepos == wsi->u.http.filelen ? LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
 			if (m < 0)
 				return -1;
 
@@ -572,7 +572,7 @@ all_sent:
 
 LWS_VISIBLE int
 lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi, unsigned char *buf, int len)
+				struct libwebsocket *wsi, unsigned char *buf, int len)
 {
 	int n;
 
@@ -594,8 +594,8 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 		return n;
 
 	if (LWS_ERRNO == LWS_EAGAIN ||
-	    LWS_ERRNO == LWS_EWOULDBLOCK ||
-	    LWS_ERRNO == LWS_EINTR) {
+		LWS_ERRNO == LWS_EWOULDBLOCK ||
+		LWS_ERRNO == LWS_EINTR) {
 		if (LWS_ERRNO == LWS_EWOULDBLOCK)
 			lws_set_blocking_send(wsi);
 
