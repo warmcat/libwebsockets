@@ -256,7 +256,8 @@ just_kill_connection:
 		lwsl_debug("calling back CLOSED_HTTP\n");
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0 );
-	} else if (wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY) {
+	} else if (wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY ||
+		   wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT) {
 		lwsl_debug("Connection closed before server reply\n");
 		context->protocols[0].callback(context, wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
