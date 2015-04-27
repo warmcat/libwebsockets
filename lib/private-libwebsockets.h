@@ -438,6 +438,8 @@ struct libwebsocket_context {
 	struct ev_loop* io_loop;
 	struct lws_io_watcher w_accept;
 	struct lws_signal_watcher w_sigint;
+	lws_ev_signal_cb* lws_ev_sigint_cb;
+	int use_ev_sigint;
 #endif /* LWS_USE_LIBEV */
 	int max_fds;
 	int listen_port;

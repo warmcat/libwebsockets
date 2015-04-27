@@ -57,6 +57,21 @@ libwebsocket_sigint_cb(struct ev_loop *loop,
 	ev_break(loop, EVBREAK_ALL);
 }
 
+LWS_VISIBLE int libwebsocket_sigint_cfg(
+	struct libwebsocket_context *context,
+	int use_ev_sigint,
+	lws_ev_signal_cb* cb)
+{
+	context->use_ev_sigint = use_ev_sigint;
+	if( cb ) {
+		context->lws_ev_sigint_cb = cb;
+	}
+	else {
+		context->lws_ev_sigint_cb = &libwebsocket_sigint_cb;
+	};
+	return 0;
+};
+
 LWS_VISIBLE int
 libwebsocket_initloop(
 	struct libwebsocket_context *context,
@@ -80,8 +95,12 @@ libwebsocket_initloop(
 	ev_io_init(w_accept, libwebsocket_accept_cb,
 					context->listen_service_fd, EV_READ);
 	ev_io_start(context->io_loop,w_accept);
-	ev_signal_init(w_sigint, libwebsocket_sigint_cb, SIGINT);
-	ev_signal_start(context->io_loop,w_sigint);
+
+	/* Register the signal watcher unless the user has indicated otherwise: */
+	if( context->use_ev_sigint ) {
+		ev_signal_init(w_sigint, context->lws_ev_sigint_cb, SIGINT);
+		ev_signal_start(context->io_loop,w_sigint);
+	};
 	backend = ev_backend(loop);
 
 	switch (backend) {
