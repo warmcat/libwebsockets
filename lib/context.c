@@ -314,6 +314,17 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 		n--;
 	}
 
+#ifdef LWS_USE_LIBEV
+	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
+	 * enable libev mediated SIGINT handling with a default handler of
+	 * libwebsocket_sigint_cb. The handler can be overridden or disabled
+	 * by invoking libwebsocket_sigint_cfg after creating the context, but
+	 * before invoking libwebsocket_initloop:
+	 */
+	context->use_ev_sigint = 1;
+	context->lws_ev_sigint_cb = &libwebsocket_sigint_cb;
+#endif /* LWS_USE_LIBEV */
+
 	/*
 	 * give all extensions a chance to clean up any per-context
 	 * allocations they might have made
