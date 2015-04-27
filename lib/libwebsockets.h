@@ -1137,6 +1137,14 @@ lws_add_http_header_status(struct libwebsocket_context *context,
 LWS_EXTERN int lws_http_transaction_completed(struct libwebsocket *wsi);
 
 #ifdef LWS_USE_LIBEV
+typedef void (lws_ev_signal_cb)(EV_P_ struct ev_signal *w, int revents);
+
+LWS_VISIBLE LWS_EXTERN int
+libwebsocket_sigint_cfg(
+	struct libwebsocket_context *context,
+	int use_ev_sigint,
+	lws_ev_signal_cb* cb);
+
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_initloop(
 	struct libwebsocket_context *context, struct ev_loop *loop);
