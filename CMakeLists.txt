@@ -444,6 +444,10 @@ elseif(APPLE)
 	if (LWS_WITH_SHARED)
 		set_property(TARGET websockets_shared PROPERTY MACOSX_RPATH YES)
 	endif()
+else()
+	set_target_properties(websockets_shared
+	PROPERTIES
+	OUTPUT_NAME websockets)
 endif()
 
 # Set the so version of the lib.
