@@ -1027,8 +1027,8 @@ struct libwebsocket_extension {
  *			setting of the private key directly via openSSL library calls
  * @ssl_ca_filepath: CA certificate filepath or NULL
  * @ssl_cipher_list:	List of valid ciphers to use (eg,
- * 			"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
- * 			or you can leave it as NULL to get "DEFAULT"
+ *			"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
+ *			or you can leave it as NULL to get "DEFAULT"
  * @http_proxy_address: If non-NULL, attempts to proxy via the given address
  * @http_proxy_port:	If http_proxy_address was non-NULL, uses this port at the address 
  * @gid:	group id to change to after setting listen socket, or -1.
@@ -1072,7 +1072,7 @@ struct lws_context_creation_info {
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX *provided_client_ssl_ctx;
 #else /* maintain structure layout either way */
-    	void *provided_client_ssl_ctx;
+	void *provided_client_ssl_ctx;
 #endif
 };
 
@@ -1140,10 +1140,6 @@ LWS_EXTERN int lws_http_transaction_completed(struct libwebsocket *wsi);
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_initloop(
 	struct libwebsocket_context *context, struct ev_loop *loop);
-
-LWS_VISIBLE void
-libwebsocket_sigint_cb(
-	struct ev_loop *loop, struct ev_signal *watcher, int revents);
 #endif /* LWS_USE_LIBEV */
 
 LWS_VISIBLE LWS_EXTERN int
@@ -1192,7 +1188,7 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
  *   memset(&buf[LWS_SEND_BUFFER_PRE_PADDING], 0, 128);
  *
  *   libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128,
- *   								LWS_WRITE_TEXT);
+ *								LWS_WRITE_TEXT);
  *
  * When sending LWS_WRITE_HTTP, there is no protocol addition and you can just
  * use the whole buffer without taking care of the above.

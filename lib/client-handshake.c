@@ -204,7 +204,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	if (connect(wsi->sock, v, n) == -1 || LWS_ERRNO == LWS_EISCONN) {
 
 		if (LWS_ERRNO == LWS_EALREADY || LWS_ERRNO == LWS_EINPROGRESS
-		                              || LWS_ERRNO == LWS_EWOULDBLOCK) {
+					      || LWS_ERRNO == LWS_EWOULDBLOCK) {
 			lwsl_client("nonblocking connect retry\n");
 
 			/*

@@ -430,8 +430,8 @@ int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsoc
 				m += sizeof(wsi->u.http2.one_setting);
 			}
 		n = lws_http2_frame_write(wsi, LWS_HTTP2_FRAME_TYPE_SETTINGS,
-		     			  0, LWS_HTTP2_STREAM_ID_MASTER, m,
-		     			  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
+					  0, LWS_HTTP2_STREAM_ID_MASTER, m,
+					  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
 		if (n != m) {
 			lwsl_info("send %d %d\n", n, m);
 			return 1;
@@ -482,9 +482,9 @@ int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsoc
 	case LWS_PPS_HTTP2_PONG:
 		memcpy(&settings[LWS_SEND_BUFFER_PRE_PADDING], wsi->u.http2.ping_payload, 8);
 		n = lws_http2_frame_write(wsi, LWS_HTTP2_FRAME_TYPE_PING,
-		     			  LWS_HTTP2_FLAG_SETTINGS_ACK,
-			    		  LWS_HTTP2_STREAM_ID_MASTER, 8,
-		     			  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
+					  LWS_HTTP2_FLAG_SETTINGS_ACK,
+					  LWS_HTTP2_STREAM_ID_MASTER, 8,
+					  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
 		if (n != 8) {
 			lwsl_info("send %d %d\n", n, m);
 			return 1;
