@@ -1140,10 +1140,6 @@ LWS_EXTERN int lws_http_transaction_completed(struct libwebsocket *wsi);
 LWS_VISIBLE LWS_EXTERN int
 libwebsocket_initloop(
 	struct libwebsocket_context *context, struct ev_loop *loop);
-
-LWS_VISIBLE void
-libwebsocket_sigint_cb(
-	struct ev_loop *loop, struct ev_signal *watcher, int revents);
 #endif /* LWS_USE_LIBEV */
 
 LWS_VISIBLE LWS_EXTERN int
