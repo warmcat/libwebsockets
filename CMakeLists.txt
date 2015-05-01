@@ -525,7 +525,7 @@ if (LWS_WITH_SSL)
 		# Additional to the root directory we need to include
 		# the cyassl/ subdirectory which contains the OpenSSL
 		# compatability layer headers.
-		foreach(inc ${CYASSL_LIBRARIES})
+		foreach(inc ${CYASSL_INCLUDE_DIRS})
 			include_directories("${inc}" "${inc}/cyassl")
 		endforeach()
 
