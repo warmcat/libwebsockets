@@ -45,7 +45,7 @@ Section "Files" SecInstall
 	File "..\build\bin\Release\libwebsockets-test-ping.exe"
 	File /nonfatal "..\build\bin\Release\libwebsockets-test-server.exe"
 	File /nonfatal "..\build\bin\Release\libwebsockets-test-server-extpoll.exe"
-	File "..\build\bin\Release\websockets_shared.dll"
+	File "..\build\bin\Release\websockets.dll"
 
 	SetOutPath "$INSTDIR\libwebsockets-test-server"
 	File /nonfatal "..\build\bin\share\libwebsockets-test-server\favicon.ico"
@@ -56,8 +56,8 @@ Section "Files" SecInstall
 	File /nonfatal "..\build\bin\share\libwebsockets-test-server\test.html"
 
 	SetOutPath "$INSTDIR\lib"
-	File "..\build\lib\Release\websockets_shared.lib"
 	File "..\build\lib\Release\websockets.lib"
+	File "..\build\lib\Release\websockets_static.lib"
 
 	SetOutPath "$INSTDIR\include"
 	File "..\lib\libwebsockets.h"
@@ -86,7 +86,7 @@ Section "Uninstall"
 	Delete "$INSTDIR\libwebsockets-test-ping.exe"
 	Delete "$INSTDIR\libwebsockets-test-server.exe"
 	Delete "$INSTDIR\libwebsockets-test-server-extpoll.exe"
-	Delete "$INSTDIR\websockets_shared.dll"
+	Delete "$INSTDIR\websockets.dll"
 
 	Delete "$INSTDIR\libwebsockets-test-server\favicon.ico"
 	Delete "$INSTDIR\libwebsockets-test-server\leaf.jpg"
@@ -96,8 +96,8 @@ Section "Uninstall"
 	Delete "$INSTDIR\libwebsockets-test-server\test.html"
 	RMDir "$INSTDIR\libwebsockets-test-server"
 
-	Delete "$INSTDIR\lib\websockets_shared.lib"
 	Delete "$INSTDIR\lib\websockets.lib"
+	Delete "$INSTDIR\lib\websockets_static.lib"
 	RMDir "$INSTDIR\lib"
 
 	Delete "$INSTDIR\include\libwebsockets.h"

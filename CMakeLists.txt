@@ -416,23 +416,37 @@ source_group("Sources"          FILES ${SOURCES})
 # Create the lib.
 #
 set(LWS_LIBRARIES)
+
 if (LWS_WITH_STATIC)
 	add_library(websockets STATIC
 				${HDR_PRIVATE}
 				${HDR_PUBLIC}
 				${SOURCES})
 	list(APPEND LWS_LIBRARIES websockets)
+
+	if (WIN32)
+		# Windows uses the same .lib ending for static libraries and shared
+		# library linker files, so rename the static library.
+		set_target_properties(websockets
+			PROPERTIES
+			OUTPUT_NAME websockets_static)
+	endif()
 endif()
+
 if (LWS_WITH_SHARED)
 	add_library(websockets_shared SHARED
 				${HDR_PRIVATE}
 				${HDR_PUBLIC}
 				${SOURCES})
 	list(APPEND LWS_LIBRARIES websockets_shared)
-endif()
 
-if (WIN32)
-	if (LWS_WITH_SHARED)
+	# We want the shared lib to be named "libwebsockets"
+	# not "libwebsocket_shared".
+	set_target_properties(websockets_shared
+		PROPERTIES
+		OUTPUT_NAME websockets)
+
+	if (WIN32)
 		# Compile as DLL (export function declarations)
 		set_property(
 			TARGET websockets_shared
@@ -440,15 +454,12 @@ if (WIN32)
 			LWS_DLL
 			LWS_INTERNAL)
 	endif()
-elseif(APPLE)
-	if (LWS_WITH_SHARED)
+
+	if (APPLE)
 		set_property(TARGET websockets_shared PROPERTY MACOSX_RPATH YES)
 	endif()
-else()
-	set_target_properties(websockets_shared
-	PROPERTIES
-	OUTPUT_NAME websockets)
 endif()
+
 
 # Set the so version of the lib.
 # Equivalent to LDFLAGS=-version-info x:x:x
