@@ -35,8 +35,6 @@
 #include <unistd.h>
 #endif
 
-#include "lws_config.h"
-
 #include "../lib/libwebsockets.h"
 
 /*
