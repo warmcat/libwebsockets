@@ -1,4 +1,4 @@
-/* config.h.in.  Generated from configure.ac by autoheader.  */
+/* lws_config.h  Generated from lws_config.h.in  */
 
 #ifndef NDEBUG
 	#ifndef _DEBUG
@@ -152,26 +152,14 @@
    */
 #undef LT_OBJDIR // We're not using libtool
 
-/* Version number of package */
-#cmakedefine VERSION
-
 /* Define to rpl_malloc if the replacement function should be used. */
 #cmakedefine malloc
-
-/* Define to `int' if <sys/types.h> does not define. */
-#cmakedefine pid_t
 
 /* Define to rpl_realloc if the replacement function should be used. */
 #cmakedefine realloc
 
-/* Define to `unsigned int' if <sys/types.h> does not define. */
-#cmakedefine size_t
-
 /* Define to 1 if we have getifaddrs */
 #cmakedefine LWS_HAVE_GETIFADDRS
-
-/* Define as `fork' if `vfork' does not work. */
-//#cmakedefine vfork
 
 /* Define if the inline keyword doesn't exist. */
 #cmakedefine inline ${inline}
