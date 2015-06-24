@@ -1,4 +1,4 @@
-#if HAVE_GETIFADDRS
+#if LWS_HAVE_GETIFADDRS
 #include <sys/types.h>
 #include <ifaddrs.h>
 #else

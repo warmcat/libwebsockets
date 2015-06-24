@@ -34,7 +34,7 @@
 
 #include "private-libwebsockets.h"
 
-#ifdef HAVE_SYS_TYPES_H
+#ifdef LWS_HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
 
