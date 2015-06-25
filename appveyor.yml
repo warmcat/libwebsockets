@@ -26,10 +26,11 @@ build_script:
   - cmake -DCMAKE_BUILD_TYPE=Release %CMAKE_ARGS% ..
   - cmake --build . --config Release
 
-after_build:
-  - cd ..
-  - cd win32port
-  - makensis -DVERSION=%APPVEYOR_BUILD_VERSION% libwebsockets.nsi
+# TODO: Keeps braking Windows build, should be rewritten using CPack properly instead...
+#after_build:
+#  - cd ..
+#  - cd win32port
+#  - makensis -DVERSION=%APPVEYOR_BUILD_VERSION% libwebsockets.nsi
 
 
 artifacts:
