@@ -272,6 +272,20 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 }
 
 LWS_VISIBLE int
+lws_plat_init_lookup(struct libwebsocket_context *context)
+{
+	context->lws_lookup = lws_zalloc(sizeof(struct libwebsocket *) * context->max_fds);
+	if (context->lws_lookup == NULL) {
+		lwsl_err(
+		  "Unable to allocate lws_lookup array for %d connections\n",
+							      context->max_fds);
+		return 1;
+	}
+
+	return 0;
+}
+
+LWS_VISIBLE int
 lws_plat_init_fd_tables(struct libwebsocket_context *context)
 {
 	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
@@ -328,6 +342,9 @@ lws_plat_context_early_destroy(struct libwebsocket_context *context)
 LWS_VISIBLE void
 lws_plat_context_late_destroy(struct libwebsocket_context *context)
 {
+	if (context->lws_lookup)
+		lws_free(context->lws_lookup);
+
 	close(context->dummy_pipe_fds[0]);
 	close(context->dummy_pipe_fds[1]);
 	close(context->fd_random);
