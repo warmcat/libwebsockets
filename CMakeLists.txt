@@ -312,10 +312,15 @@ if (NOT LWS_HAVE_REALLOC)
 	set(realloc rpl_realloc)
 endif()
 
-# Generate the lws_config.h that includes all the compilation settings.
+# Generate the lws_config.h that includes all the public compilation settings.
 configure_file(
        "${PROJECT_SOURCE_DIR}/lws_config.h.in"
        "${PROJECT_BINARY_DIR}/lws_config.h")
+
+# Generate the lws_config.h that includes all the private compilation settings.
+configure_file(
+       "${PROJECT_SOURCE_DIR}/lws_config_private.h.in"
+       "${PROJECT_BINARY_DIR}/lws_config_private.h")
 
 if (MSVC)
 	# Turn off stupid microsoft security warnings.
