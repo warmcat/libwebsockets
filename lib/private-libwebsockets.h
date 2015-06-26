@@ -20,6 +20,7 @@
  */
 
 #include "lws_config.h"
+#include "lws_config_private.h"
 
 #ifdef LWS_HAVE_SYS_TYPES_H
 #include <sys/types.h>
