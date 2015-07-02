@@ -438,12 +438,14 @@ lws_ssl_capable_read(struct libwebsocket_context *context,
 		 */
 		if (n == len && wsi->ssl && SSL_pending(wsi->ssl)) {
 			if (!wsi->pending_read_list_next && !wsi->pending_read_list_prev) {
-				/* add us to the linked list of guys with pending ssl */
-				if (context->pending_read_list)
-					context->pending_read_list->pending_read_list_prev = wsi;
-				wsi->pending_read_list_next = context->pending_read_list;
-				wsi->pending_read_list_prev = NULL;
-				context->pending_read_list = wsi;
+				if (context->pending_read_list != wsi) {
+					/* add us to the linked list of guys with pending ssl */
+					if (context->pending_read_list)
+						context->pending_read_list->pending_read_list_prev = wsi;
+					wsi->pending_read_list_next = context->pending_read_list;
+					wsi->pending_read_list_prev = NULL;
+					context->pending_read_list = wsi;
+				}
 			}
 		} else
 			lws_ssl_remove_wsi_from_buffered_list(context, wsi);
