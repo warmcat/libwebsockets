@@ -132,13 +132,13 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		/* we can retry this... just cook the SSL BIO the first time */
 
 		if (wsi->use_ssl && !wsi->ssl) {
-#if defined(CYASSL_SNI_HOST_NAME) || defined(SSL_CTRL_SET_TLSEXT_HOSTNAME)
+#if defined(WOLFSSL_SNI_HOST_NAME) || defined(SSL_CTRL_SET_TLSEXT_HOSTNAME)
 			const char *hostname = lws_hdr_simple_ptr(wsi,
 						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
 #endif
 
 			wsi->ssl = SSL_new(context->ssl_client_ctx);
-#ifndef USE_CYASSL
+#ifndef USE_WOLFSSL
 			SSL_set_mode(wsi->ssl,
 					SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 #endif
@@ -146,9 +146,9 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 			 * use server name indication (SNI), if supported,
 			 * when establishing connection
 			 */
-#ifdef USE_CYASSL
-#ifdef CYASSL_SNI_HOST_NAME
-			CyaSSL_UseSNI(wsi->ssl, CYASSL_SNI_HOST_NAME,
+#ifdef USE_WOLFSSL
+#ifdef WOLFSSL_SNI_HOST_NAME
+			wolfSSL_UseSNI(wsi->ssl, WOLFSSL_SNI_HOST_NAME,
 				hostname, strlen(hostname));
 #endif
 #else
@@ -157,9 +157,9 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 #endif
 #endif
 
-#ifdef USE_CYASSL
+#ifdef USE_WOLFSSL
 			/*
-			 * CyaSSL does certificate verification differently
+			 * wolfSSL does certificate verification differently
 			 * from OpenSSL.
 			 * If we should ignore the certificate, we need to set
 			 * this before SSL_new and SSL_connect is called.
@@ -167,16 +167,16 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 			 * code -155
 			 */
 			if (wsi->use_ssl == 2)
-				CyaSSL_set_verify(wsi->ssl,
+				wolfSSL_set_verify(wsi->ssl,
 							SSL_VERIFY_NONE, NULL);
-#endif /* USE_CYASSL */
+#endif /* USE_WOLFSSL */
 
 			wsi->client_bio =
 				BIO_new_socket(wsi->sock, BIO_NOCLOSE);
 			SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
 
-#ifdef USE_CYASSL
-			CyaSSL_set_using_nonblock(wsi->ssl, 1);
+#ifdef USE_WOLFSSL
+			wolfSSL_set_using_nonblock(wsi->ssl, 1);
 #else
 			BIO_set_nbio(wsi->client_bio, 1); /* nonblocking */
 #endif
@@ -300,9 +300,9 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 				}
 			}
 			
-			#ifndef USE_CYASSL
+			#ifndef USE_WOLFSSL
 			/*
-			 * See comment above about CyaSSL certificate
+			 * See comment above about wolfSSL certificate
 			 * verification
 			 */
 			lws_latency_pre(context, wsi);
@@ -323,7 +323,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 					return 0;
 				}
 			}
-#endif /* USE_CYASSL */
+#endif /* USE_WOLFSSL */
 		} else
 			wsi->ssl = NULL;
 #endif

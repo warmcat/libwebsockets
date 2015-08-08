@@ -20,7 +20,9 @@
  */
 
 #include "private-libwebsockets.h"
+#ifndef USE_WOLFSSL
  #include <openssl/err.h>
+#endif
 
 int openssl_websocket_private_data_index;
 
@@ -86,8 +88,8 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 		context->use_ssl = info->ssl_cert_filepath != NULL;
 
-#ifdef USE_CYASSL
-		lwsl_notice(" Compiled with CYASSL support\n");
+#ifdef USE_WOLFSSL
+		lwsl_notice(" Compiled with WOLFSSL support\n");
 #else
 		lwsl_notice(" Compiled with OpenSSL support\n");
 #endif
@@ -240,7 +242,7 @@ lws_ssl_destroy(struct libwebsocket_context *context)
 	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
 
-#if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_CYASSL)
+#if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
 #else
 	ERR_remove_thread_state(NULL);
@@ -502,7 +504,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 {
 	int n, m;
 	struct libwebsocket *wsi = *pwsi;
-#ifndef USE_CYASSL
+#ifndef USE_WOLFSSL
 	BIO *bio;
 #endif
 
@@ -533,8 +535,8 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 
 		SSL_set_fd(new_wsi->ssl, accept_fd);
 
-#ifdef USE_CYASSL
-		CyaSSL_set_using_nonblock(new_wsi->ssl, 1);
+#ifdef USE_WOLFSSL
+		wolfSSL_set_using_nonblock(new_wsi->ssl, 1);
 #else
 		SSL_set_mode(new_wsi->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 		bio = SSL_get_rbio(new_wsi->ssl);
@@ -665,7 +667,7 @@ lws_ssl_context_destroy(struct libwebsocket_context *context)
 	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
 
-#if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_CYASSL)
+#if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
 #else
 	ERR_remove_thread_state(NULL);

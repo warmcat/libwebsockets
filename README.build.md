@@ -10,7 +10,7 @@ create elaborate clean scripts to get a clean source tree, instead you
 simply remove your build directory.
 
 Libwebsockets has been tested to build successfully on the following platforms
-with SSL support (both OpenSSL/CyaSSL):
+with SSL support (both OpenSSL/wolfSSL):
 
 - Windows
 - Linux (x86 and ARM)
@@ -151,27 +151,27 @@ Windows GUI
 On windows CMake comes with a gui application:
 	Start -> Programs -> CMake -> CMake (cmake-gui)
 
-CyaSSL replacement for OpenSSL
+wolfSSL replacement for OpenSSL
 ------------------------------
-CyaSSL is a lightweight SSL library targeted at embedded system:
-http://www.yassl.com/yaSSL/Products-cyassl.html
+wolfSSL is a lightweight SSL library targeted at embedded system:
+http://www.yassl.com/yaSSL/Products-wolfssl.html
 
 It contains a OpenSSL compatability layer which makes it possible to pretty
 much link to it instead of OpenSSL, giving a much smaller footprint.
 
-**NOTE**: cyassl needs to be compiled using the `--enable-opensslextra` flag for
+**NOTE**: wolfssl needs to be compiled using the `--enable-opensslextra` flag for
 this to work.
 
-Compiling libwebsockets with CyaSSL
+Compiling libwebsockets with wolfSSL
 -----------------------------------
 
 ```bash
-cmake .. -DLWS_USE_CYASSL=1 \
-	 -DLWS_CYASSL_INCLUDE_DIRS=/path/to/cyassl \
-	 -DLWS_CYASSL_LIB=/path/to/cyassl/cyassl.a ..
+cmake .. -DLWS_USE_WOLFSSL=1 \
+	 -DLWS_WOLFSSL_INCLUDE_DIRS=/path/to/wolfssl \
+	 -DLWS_WOLFSSL_LIB=/path/to/wolfssl/wolfssl.a ..
 ```
 
-**NOTE**: On windows use the .lib file extension for `LWS_CYASSL_LIB` instead.
+**NOTE**: On windows use the .lib file extension for `LWS_WOLFSSL_LIB` instead.
 
 
 Reproducing HTTP2.0 tests

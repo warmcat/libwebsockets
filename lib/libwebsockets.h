@@ -91,11 +91,11 @@ extern "C" {
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
-#ifdef USE_CYASSL
-#include <cyassl/openssl/ssl.h>
+#ifdef USE_WOLFSSL
+#include <wolfssl/openssl/ssl.h>
 #else
 #include <openssl/ssl.h>
-#endif /* not USE_CYASSL */
+#endif /* not USE_WOLFSSL */
 #endif
 
 #define CONTEXT_PORT_NO_LISTEN -1
