@@ -149,16 +149,16 @@
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
-#ifdef USE_CYASSL
-#include <cyassl/openssl/ssl.h>
-#include <cyassl/error-ssl.h>
+#ifdef USE_WOLFSSL
+#include <wolfssl/openssl/ssl.h>
+#include <wolfssl/error-ssl.h>
 #else
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/md5.h>
 #include <openssl/sha.h>
-#endif /* not USE_CYASSL */
+#endif /* not USE_WOLFSSL */
 #endif
 
 #include "libwebsockets.h"
