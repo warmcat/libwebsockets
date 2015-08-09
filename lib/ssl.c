@@ -89,7 +89,11 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		context->use_ssl = info->ssl_cert_filepath != NULL;
 
 #ifdef USE_WOLFSSL
-		lwsl_notice(" Compiled with WOLFSSL support\n");
+#ifdef USE_OLD_CYASSL
+		lwsl_notice(" Compiled with CyaSSL support\n");
+#else
+		lwsl_notice(" Compiled with wolfSSL support\n");
+#endif
 #else
 		lwsl_notice(" Compiled with OpenSSL support\n");
 #endif
@@ -545,7 +549,11 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		SSL_set_fd(new_wsi->ssl, accept_fd);
 
 #ifdef USE_WOLFSSL
+#ifdef USE_OLD_CYASSL
+		CyaSSL_set_using_nonblock(new_wsi->ssl, 1);
+#else
 		wolfSSL_set_using_nonblock(new_wsi->ssl, 1);
+#endif
 #else
 		SSL_set_mode(new_wsi->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 		bio = SSL_get_rbio(new_wsi->ssl);

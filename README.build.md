@@ -151,9 +151,9 @@ Windows GUI
 On windows CMake comes with a gui application:
 	Start -> Programs -> CMake -> CMake (cmake-gui)
 
-wolfSSL replacement for OpenSSL
-------------------------------
-wolfSSL is a lightweight SSL library targeted at embedded systems:
+wolfSSL/CyaSSL replacement for OpenSSL
+--------------------------------------
+wolfSSL/CyaSSL is a lightweight SSL library targeted at embedded systems:
 https://www.wolfssl.com/wolfSSL/Products-wolfssl.html
 
 It contains a OpenSSL compatability layer which makes it possible to pretty
@@ -163,15 +163,26 @@ much link to it instead of OpenSSL, giving a much smaller footprint.
 this to work.
 
 Compiling libwebsockets with wolfSSL
------------------------------------
+------------------------------------
 
 ```bash
 cmake .. -DLWS_USE_WOLFSSL=1 \
 	 -DLWS_WOLFSSL_INCLUDE_DIRS=/path/to/wolfssl \
-	 -DLWS_WOLFSSL_LIB=/path/to/wolfssl/wolfssl.a ..
+	 -DLWS_WOLFSSL_LIBRARIES=/path/to/wolfssl/wolfssl.a ..
 ```
 
-**NOTE**: On windows use the .lib file extension for `LWS_WOLFSSL_LIB` instead.
+**NOTE**: On windows use the .lib file extension for `LWS_WOLFSSL_LIBRARIES` instead.
+
+Compiling libwebsockets with CyaSSL
+-----------------------------------
+
+```bash
+cmake .. -DLWS_USE_CYASSL=1 \
+	 -DLWS_CYASSL_INCLUDE_DIRS=/path/to/cyassl \
+	 -DLWS_CYASSL_LIBRARIES=/path/to/wolfssl/cyassl.a ..
+```
+
+**NOTE**: On windows use the .lib file extension for `LWS_CYASSL_LIBRARIES` instead.
 
 
 Reproducing HTTP2.0 tests
