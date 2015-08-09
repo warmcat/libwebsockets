@@ -153,8 +153,8 @@ On windows CMake comes with a gui application:
 
 wolfSSL replacement for OpenSSL
 ------------------------------
-wolfSSL is a lightweight SSL library targeted at embedded system:
-http://www.yassl.com/yaSSL/Products-wolfssl.html
+wolfSSL is a lightweight SSL library targeted at embedded systems:
+https://www.wolfssl.com/wolfSSL/Products-wolfssl.html
 
 It contains a OpenSSL compatability layer which makes it possible to pretty
 much link to it instead of OpenSSL, giving a much smaller footprint.
