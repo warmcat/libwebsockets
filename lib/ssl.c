@@ -458,6 +458,15 @@ lws_ssl_capable_read(struct libwebsocket_context *context,
 }
 
 LWS_VISIBLE int
+lws_ssl_pending(struct libwebsocket *wsi)
+{
+	if (!wsi->ssl)
+		return 0;
+
+	return SSL_pending(wsi->ssl);
+}
+
+LWS_VISIBLE int
 lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len)
 {
 	int n;

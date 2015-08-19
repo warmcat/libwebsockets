@@ -605,3 +605,9 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 	lwsl_debug("ERROR writing len %d to skt %d\n", len, n);
 	return LWS_SSL_CAPABLE_ERROR;
 }
+
+LWS_VISIBLE int
+lws_ssl_pending_no_ssl(struct libwebsocket *wsi)
+{
+	return 0;
+}

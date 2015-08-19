@@ -365,6 +365,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	char draining_flow = 0;
 	int more;
 	struct lws_tokens eff_buf;
+	int pending = 0;
 
 	if (context->listen_service_fd)
 		listen_socket_fds_index = wsi_from_fd(context,context->listen_service_fd)->position_in_fds_table;
@@ -521,10 +522,11 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
+read:
 
 		eff_buf.token_len = lws_ssl_capable_read(context, wsi,
 				context->service_buffer,
-					       sizeof(context->service_buffer));
+					       pending?pending:sizeof(context->service_buffer));
 		switch (eff_buf.token_len) {
 		case 0:
 			lwsl_info("service_fd: closing due to 0 length read\n");
@@ -580,6 +582,13 @@ drain:
 			eff_buf.token = NULL;
 			eff_buf.token_len = 0;
 		} while (more);
+
+		pending = lws_ssl_pending(wsi);
+		if (pending) {
+			pending = pending > sizeof(context->service_buffer)?
+				sizeof(context->service_buffer):pending;
+			goto read;
+		}
 
 		if (draining_flow && wsi->rxflow_buffer &&
 				 wsi->rxflow_pos == wsi->rxflow_len) {

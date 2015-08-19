@@ -1111,6 +1111,7 @@ enum lws_ssl_capable_status {
 #define lws_context_init_http2_ssl(_a)
 #define lws_ssl_capable_read lws_ssl_capable_read_no_ssl
 #define lws_ssl_capable_write lws_ssl_capable_write_no_ssl
+#define lws_ssl_pending lws_ssl_pending_no_ssl
 #define lws_server_socket_service_ssl(_a, _b, _c, _d, _e) (0)
 #define lws_ssl_close(_a) (0)
 #define lws_ssl_context_destroy(_a)
@@ -1121,9 +1122,10 @@ LWS_EXTERN int openssl_websocket_private_data_index;
 LWS_EXTERN int
 lws_ssl_capable_read(struct libwebsocket_context *context,
 		     struct libwebsocket *wsi, unsigned char *buf, int len);
-
 LWS_EXTERN int
 lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len);
+LWS_EXTERN int
+lws_ssl_pending(struct libwebsocket *wsi);
 LWS_EXTERN int
 lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		struct libwebsocket **wsi, struct libwebsocket *new_wsi,
@@ -1161,6 +1163,9 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 
 LWS_EXTERN int
 lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len);
+
+LWS_EXTERN int
+lws_ssl_pending_no_ssl(struct libwebsocket *wsi);
 
 #ifndef LWS_NO_CLIENT
 	LWS_EXTERN int lws_client_socket_service(
