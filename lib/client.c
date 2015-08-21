@@ -481,6 +481,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	int okay = 0;
 	char *p;
 	int len;
+	int isErrorCodeReceived = 0;
 #ifndef LWS_NO_EXTENSIONS
 	char ext_name[128];
 	struct libwebsocket_extension *ext;
@@ -498,6 +499,8 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
 		lwsl_info("no ACCEPT\n");
+		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
+		isErrorCodeReceived = 1;
 		goto bail3;
 	}
 
@@ -786,10 +789,17 @@ bail3:
 	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
 bail2:
-	if (wsi->protocol)
-		wsi->protocol->callback(context, wsi,
-			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-						      wsi->user_space, NULL, 0);
+	if (wsi->protocol) {
+		if (isErrorCodeReceived && p) {
+			wsi->protocol->callback(context, wsi,
+				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+					wsi->user_space, p, (unsigned int)strlen(p));
+		} else {
+			wsi->protocol->callback(context, wsi,
+				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+							      wsi->user_space, NULL, 0);
+		}
+	}
 
 	lwsl_info("closing connection due to bail2 connection error\n");
 
