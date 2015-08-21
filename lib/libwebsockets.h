@@ -587,7 +587,9 @@ struct libwebsocket_extension;
  *				an incoming client
  *
  *  LWS_CALLBACK_CLIENT_CONNECTION_ERROR: the request client connection has
- *        been unable to complete a handshake with the remote server
+ *        been unable to complete a handshake with the remote server.  If
+ *	  in is non-NULL, you can find an error string of length len where
+ *	  it points to.
  *
  *  LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH: this is the last chance for the
  *				client user code to examine the http headers

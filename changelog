@@ -1,6 +1,14 @@
 Changelog
 ---------
 
+(since last tag)
+
+User api changes
+----------------
+
+LWS_CALLBACK_CLIENT_CONNECTION_ERROR may provide an error string if in is
+non-NULL.  If so, the string has length len.
+
 v1.4-chrome43-firefox36
 =======================
 
