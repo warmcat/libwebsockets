@@ -141,7 +141,7 @@ or
 
 Unix GUI
 --------
-If you have a curses enabled build you simply type:
+If you have a curses-enabled build you simply type:
 (not all packages include this, my debian install does not for example).
 
 	ccmake
@@ -156,7 +156,7 @@ wolfSSL/CyaSSL replacement for OpenSSL
 wolfSSL/CyaSSL is a lightweight SSL library targeted at embedded systems:
 https://www.wolfssl.com/wolfSSL/Products-wolfssl.html
 
-It contains a OpenSSL compatability layer which makes it possible to pretty
+It contains a OpenSSL compatibility layer which makes it possible to pretty
 much link to it instead of OpenSSL, giving a much smaller footprint.
 
 **NOTE**: wolfssl needs to be compiled using the `--enable-opensslextra` flag for
@@ -214,7 +214,7 @@ $ nghttp -nvas https://localhost:7681/test.html
 
 Cross compiling
 ---------------
-To enable cross compiling **libwebsockets** using CMake you need to create
+To enable cross-compiling **libwebsockets** using CMake you need to create
 a "Toolchain file" that you supply to CMake when generating your build files.
 CMake will then use the cross compilers and build paths specified in this file
 to look for dependencies and such.

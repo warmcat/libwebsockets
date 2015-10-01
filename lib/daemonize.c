@@ -41,7 +41,7 @@ child_handler(int signum)
 
 	switch (signum) {
 
-	case SIGALRM: /* timedout daemonizing */
+	case SIGALRM: /* timed out daemonizing */
 		exit(1);
 		break;
 
@@ -59,7 +59,7 @@ child_handler(int signum)
 		sent = write(fd, sz, len);
 		if (sent != len)
 			fprintf(stderr,
-			  "unable write pid to lock file %s, code=%d (%s)\n",
+			  "unable to write pid to lock file %s, code=%d (%s)\n",
 					     lock_path, errno, strerror(errno));
 
 		close(fd);
@@ -130,7 +130,7 @@ lws_daemonize(const char *_lock_path)
 	}
 	strcpy(lock_path, _lock_path);
 
-	/* Trap signals that we expect to recieve */
+	/* Trap signals that we expect to receive */
 	signal(SIGCHLD, child_handler);	/* died */
 	signal(SIGUSR1, child_handler); /* was happy */
 	signal(SIGALRM, child_handler); /* timeout daemonizing */

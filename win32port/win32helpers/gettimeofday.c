@@ -1,5 +1,5 @@
 #include <time.h>
-#include <windows.h> //I've ommited context line
+#include <windows.h> //I've omitted context line
 
 #if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
   #define DELTA_EPOCH_IN_MICROSECS  11644473600000000Ui64

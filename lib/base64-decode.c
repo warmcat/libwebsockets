@@ -34,7 +34,7 @@
  *
  * I cleaned it up quite a bit to match the (linux kernel) style of the rest
  * of libwebsockets; this version is under LGPL2 like the rest of libwebsockets
- * since he explictly allows sublicensing, but I give the URL above so you can
+ * since he explicitly allows sublicensing, but I give the URL above so you can
  * get the original with Bob's super-liberal terms directly if you prefer.
  */
 
