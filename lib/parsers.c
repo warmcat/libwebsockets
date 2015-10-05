@@ -574,6 +574,7 @@ libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
 	struct lws_tokens eff_buf;
 	int ret = 0;
+	int callback_action = LWS_CALLBACK_RECEIVE;
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
@@ -926,9 +927,13 @@ ping_drop:
 			return 0;
 
 		case LWS_WS_OPCODE_07__PONG:
-			/* ... then just drop it */
-			wsi->u.ws.rx_user_buffer_head = 0;
-			return 0;
+			lwsl_info("received pong\n");
+			lwsl_hexdump(&wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
+			             wsi->u.ws.rx_user_buffer_head);
+
+			/* issue it */
+			callback_action = LWS_CALLBACK_RECEIVE_PONG;
+			break;
 
 		case LWS_WS_OPCODE_07__TEXT_FRAME:
 		case LWS_WS_OPCODE_07__BINARY_FRAME:
@@ -975,16 +980,22 @@ ping_drop:
 		if (eff_buf.token_len > 0) {
 			eff_buf.token[eff_buf.token_len] = '\0';
 
-			if (wsi->protocol->callback)
+			if (wsi->protocol->callback) {
+
+				if (callback_action == LWS_CALLBACK_RECEIVE_PONG)
+				    lwsl_info("Doing pong callback\n");
+
 				ret = user_callback_handle_rxflow(
 						wsi->protocol->callback,
 						wsi->protocol->owning_server,
-						wsi, LWS_CALLBACK_RECEIVE,
+						wsi,
+						(enum libwebsocket_callback_reasons)callback_action,
 						wsi->user_space,
 						eff_buf.token,
 						eff_buf.token_len);
-		    else
-			    lwsl_err("No callback on payload spill!\n");
+			}
+			else
+				lwsl_err("No callback on payload spill!\n");
 		}
 
 		wsi->u.ws.rx_user_buffer_head = 0;
