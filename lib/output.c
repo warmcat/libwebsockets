@@ -538,6 +538,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		if (n < 0)
 			return -1; /* caller will close */
 		if (n) {
+			libwebsocket_set_timeout(wsi,PENDING_TIMEOUT_HTTP_CONTENT,AWAITING_TIMEOUT);
 			wsi->u.http.filepos += n;
 			m = libwebsocket_write(wsi, context->service_buffer, n,
 					       wsi->u.http.filepos == wsi->u.http.filelen ? LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
