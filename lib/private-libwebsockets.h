@@ -20,8 +20,9 @@
  */
 
 #include "lws_config.h"
+#include "lws_config_private.h"
 
-#ifdef HAVE_SYS_TYPES_H
+#ifdef LWS_HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
 
@@ -33,7 +34,7 @@
 #include <limits.h>
 #include <stdarg.h>
 
-#ifdef HAVE_SYS_STAT_H
+#ifdef LWS_HAVE_SYS_STAT_H
 #include <sys/stat.h>
 #endif
 
@@ -67,7 +68,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <tchar.h>
-#ifdef HAVE_IN6ADDR_H
+#ifdef LWS_HAVE_IN6ADDR_H
 #include <in6addr.h>
 #endif
 #include <mstcpip.h>
@@ -104,7 +105,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #ifndef LWS_NO_FORK
-#ifdef HAVE_SYS_PRCTL_H
+#ifdef LWS_HAVE_SYS_PRCTL_H
 #include <sys/prctl.h>
 #endif
 #endif
@@ -138,13 +139,13 @@
 #define lws_set_blocking_send(wsi)
 #endif
 
-#ifndef HAVE_BZERO
+#ifndef LWS_HAVE_BZERO
 #ifndef bzero
 #define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
 #endif
 #endif
 
-#ifndef HAVE_STRERROR
+#ifndef LWS_HAVE_STRERROR
 #define strerror(x) ""
 #endif
 
@@ -1234,6 +1235,8 @@ LWS_EXTERN int
 lws_poll_listen_fd(struct libwebsocket_pollfd *fd);
 LWS_EXTERN int
 lws_plat_service(struct libwebsocket_context *context, int timeout_ms);
+LWS_EXTERN int
+lws_plat_init_lookup(struct libwebsocket_context *context);
 LWS_EXTERN int
 lws_plat_init_fd_tables(struct libwebsocket_context *context);
 LWS_EXTERN void

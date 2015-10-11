@@ -249,6 +249,22 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 }
 
 LWS_VISIBLE int
+lws_plat_init_lookup(struct libwebsocket_context *context)
+{
+	int i;
+
+	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
+		context->fd_hashtable[i].wsi = lws_zalloc(sizeof(struct libwebsocket*) * context->max_fds);
+
+		if (!context->fd_hashtable[i].wsi) {
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+LWS_VISIBLE int
 lws_plat_init_fd_tables(struct libwebsocket_context *context)
 {
 	context->events = lws_malloc(sizeof(WSAEVENT) * (context->max_fds + 1));
@@ -300,6 +316,13 @@ lws_plat_context_early_destroy(struct libwebsocket_context *context)
 LWS_VISIBLE void
 lws_plat_context_late_destroy(struct libwebsocket_context *context)
 {
+	int n;
+
+	for (n = 0; n < FD_HASHTABLE_MODULUS; n++) {
+		if (context->fd_hashtable[n].wsi)
+			lws_free(context->fd_hashtable[n].wsi);
+	}
+
 	WSACleanup();
 }
 

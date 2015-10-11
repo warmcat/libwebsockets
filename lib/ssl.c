@@ -520,12 +520,12 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		new_wsi->ssl = SSL_new(context->ssl_ctx);
 		if (new_wsi->ssl == NULL) {
 			lwsl_err("SSL_new failed: %s\n",
-			    ERR_error_string(SSL_get_error(
-			    new_wsi->ssl, 0), NULL));
-			    libwebsockets_decode_ssl_error();
-			lws_free(new_wsi);
+					ERR_error_string(SSL_get_error(new_wsi->ssl, 0), NULL));
+			libwebsockets_decode_ssl_error();
+
+			// TODO: Shouldn't the caller handle this?
 			compatible_close(accept_fd);
-			break;
+			goto fail;
 		}
 
 		SSL_set_ex_data(new_wsi->ssl,

@@ -38,6 +38,29 @@ static const char * const log_level_names[] = {
 };
 
 void
+lws_free_wsi(struct libwebsocket *wsi)
+{
+	if (!wsi)
+		return;
+
+	/* Protocol user data may be allocated either internally by lws
+	 * or by specified the user. Important we don't free external user data */
+	if (wsi->protocol && wsi->protocol->per_session_data_size
+		&& wsi->user_space && !wsi->user_space_externally_allocated) {
+		lws_free(wsi->user_space);
+	}
+
+	lws_free2(wsi->rxflow_buffer);
+	lws_free2(wsi->truncated_send_malloc);
+
+	// TODO: Probably should handle the union structs in wsi->u here depending
+	//       on connection mode as well. Too spaghetti for me to follow however...
+
+	lws_free_header_table(wsi);
+	lws_free(wsi);
+}
+
+void
 libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 			 struct libwebsocket *wsi, enum lws_close_status reason)
 {
@@ -89,7 +112,6 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR, wsi->user_space, NULL, 0);
 
-		lws_free_header_table(wsi);
 		goto just_kill_connection;
 	}
 
@@ -99,6 +121,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
 		if (wsi->u.http.fd != LWS_INVALID_FILE) {
+			// TODO: If we're just closing with LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY this file descriptor might leak?
 			lwsl_debug("closing http file\n");
 			compatible_file_close(wsi->u.http.fd);
 			wsi->u.http.fd = LWS_INVALID_FILE;
@@ -218,10 +241,7 @@ just_kill_connection:
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 
 	lws_free2(wsi->rxflow_buffer);
-
-	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING && wsi->u.hdr.ah) {
-		lws_free2(wsi->u.hdr.ah);
-	}
+	lws_free_header_table(wsi);
 
 	if ((old_state == WSI_STATE_ESTABLISHED ||
 	     wsi->mode == LWS_CONNMODE_WS_SERVING ||
@@ -298,13 +318,7 @@ just_kill_connection:
 	context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_WSI_DESTROY, wsi->user_space, NULL, 0);
 
-	if (wsi->protocol && wsi->protocol->per_session_data_size &&
-	    wsi->user_space && !wsi->user_space_externally_allocated)
-		lws_free(wsi->user_space);
-
-	/* As a precaution, free the header table in case it lingered: */
-	lws_free_header_table(wsi);
-	lws_free(wsi);
+	lws_free_wsi(wsi);
 }
 
 LWS_VISIBLE int

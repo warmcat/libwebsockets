@@ -143,37 +143,15 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	if (context->fds == NULL) {
 		lwsl_err("Unable to allocate fds array for %d connections\n",
 							      context->max_fds);
-		lws_free(context);
-		return NULL;
+		goto bail;
 	}
 
-#ifdef _WIN32
-	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
-		context->fd_hashtable[i].wsi = lws_zalloc(sizeof(struct libwebsocket*) * context->max_fds);
+	if (lws_plat_init_lookup(context)) {
+		goto bail;
 	}
-#else
-	context->lws_lookup = lws_zalloc(sizeof(struct libwebsocket *) * context->max_fds);
-	if (context->lws_lookup == NULL) {
-		lwsl_err(
-		  "Unable to allocate lws_lookup array for %d connections\n",
-							      context->max_fds);
-		lws_free(context->fds);
-		lws_free(context);
-		return NULL;
-	}
-#endif
 
 	if (lws_plat_init_fd_tables(context)) {
-#ifdef _WIN32
-		for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
-			lws_free(context->fd_hashtable[i].wsi);
-		}
-#else
-		lws_free(context->lws_lookup);
-#endif
-		lws_free(context->fds);
-		lws_free(context);
-		return NULL;
+		goto bail;
 	}
 
 	lws_context_init_extensions(info, context);
@@ -193,7 +171,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 				sizeof(context->http_proxy_address) - 1] = '\0';
 		context->http_proxy_port = info->http_proxy_port;
 	} else {
-#ifdef HAVE_GETENV
+#ifdef LWS_HAVE_GETENV
 		p = getenv("http_proxy");
 		if (p) {
 			strncpy(context->http_proxy_address, p,
@@ -294,10 +272,15 @@ bail:
 LWS_VISIBLE void
 libwebsocket_context_destroy(struct libwebsocket_context *context)
 {
+	/* Note that this is used for freeing partially allocated structs as well
+	 * so make sure you don't try to free something uninitialized */
 	int n;
-	struct libwebsocket_protocols *protocol = context->protocols;
+	struct libwebsocket_protocols *protocol = NULL;
 
 	lwsl_notice("%s\n", __func__);
+
+	if (!context)
+		return;
 
 #ifdef LWS_LATENCY
 	if (context->worst_latency_info[0])
@@ -318,38 +301,41 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	 * give all extensions a chance to clean up any per-context
 	 * allocations they might have made
 	 */
+	// TODO: I am not sure, but are we never supposed to be able to run a server
+	//       and client at the same time for a given context?
+	//       Otherwise both of these callbacks should always be called!
 	if (context->listen_port != CONTEXT_PORT_NO_LISTEN) {
 		if (lws_ext_callback_for_each_extension_type(context, NULL,
-			 LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0) < 0)
-			return;
-	} else
+				LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0) < 0) {
+			lwsl_err("Got error from server extension callback on cleanup");
+		}
+	} else {
 		if (lws_ext_callback_for_each_extension_type(context, NULL,
-			 LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0) < 0)
-			return;
+				LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0) < 0) {
+			lwsl_err("Got error from client extension callback on cleanup");
+		}
+	}
 
 	/*
 	 * inform all the protocols that they are done and will have no more
 	 * callbacks
 	 */
-
-	while (protocol->callback) {
-		protocol->callback(context, NULL, LWS_CALLBACK_PROTOCOL_DESTROY,
-				NULL, NULL, 0);
-		protocol++;
+	protocol = context->protocols;
+	if (protocol) {
+		while (protocol->callback) {
+			protocol->callback(context, NULL, LWS_CALLBACK_PROTOCOL_DESTROY,
+					NULL, NULL, 0);
+			protocol++;
+		}
 	}
 
 	lws_plat_context_early_destroy(context);
 
 	lws_ssl_context_destroy(context);
 
-	lws_free(context->fds);
-#ifdef _WIN32
-	for (n = 0; n < FD_HASHTABLE_MODULUS; n++) {
-		lws_free(context->fd_hashtable[n].wsi);
-	}
-#else
-	lws_free(context->lws_lookup);
-#endif
+	if (context->fds)
+		lws_free(context->fds);
+
 	lws_plat_context_late_destroy(context);
 
 	lws_free(context);

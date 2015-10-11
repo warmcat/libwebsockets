@@ -2,7 +2,7 @@
  * downloaded from
  * http://ftp.uninett.no/pub/OpenBSD/src/kerberosV/src/lib/roken/getifaddrs.c
  */
-#if !HAVE_GETIFADDRS
+#if !LWS_HAVE_GETIFADDRS
 /*
  * Copyright (c) 2000 - 2001 Kungliga Tekniska H�gskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
@@ -46,11 +46,11 @@
 #include <unistd.h>
 #include "private-libwebsockets.h"
 
-#ifdef HAVE_SYS_SOCKIO_H
+#ifdef LWS_HAVE_SYS_SOCKIO_H
 #include <sys/sockio.h>
 #endif
 
-#ifdef HAVE_NETINET_IN6_VAR_H
+#ifdef LWS_HAVE_NETINET_IN6_VAR_H
 #include <netinet/in6_var.h>
 #endif
 
@@ -122,7 +122,7 @@ getifaddrs2(struct ifaddrs **ifap,
 
 		sz = ifreq_sz;
 		salen = sizeof(struct sockaddr);
-#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+#ifdef LWS_HAVE_STRUCT_SOCKADDR_SA_LEN
 		salen = sa->sa_len;
 		sz = max(sz, sizeof(ifr->ifr_name) + sa->sa_len);
 #endif
@@ -192,7 +192,7 @@ getifaddrs(struct ifaddrs **ifap)
 		ret = getifaddrs2(ifap, AF_INET6, SIOCGIF6CONF, SIOCGIF6FLAGS,
 			   sizeof(struct in6_ifreq));
 #endif
-#if defined(HAVE_IPV6) && defined(SIOCGIFCONF)
+#if defined(LWS_HAVE_IPV6) && defined(SIOCGIFCONF)
 	if (ret)
 		ret = getifaddrs2(ifap, AF_INET6, SIOCGIFCONF, SIOCGIFFLAGS,
 			   sizeof(struct ifreq));
@@ -229,7 +229,7 @@ print_addr(const char *s, struct sockaddr *sa)
 {
 	int i;
 	printf("  %s=%d/", s, sa->sa_family);
-#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+#ifdef LWS_HAVE_STRUCT_SOCKADDR_SA_LEN
 	for (i = 0;
 	       i < sa->sa_len - ((long)sa->sa_data - (long)&sa->sa_family); i++)
 		printf("%02x", ((unsigned char *)sa->sa_data)[i]);
