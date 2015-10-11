@@ -1,4 +1,6 @@
 environment:
+  SSL_VERSION: 1_0_2d
+
   matrix:
     - LWS_METHOD: default
 
@@ -14,8 +16,8 @@ environment:
     - LWS_METHOD: nossl
       CMAKE_ARGS: -DLWS_WITH_SSL=OFF
 install:
-  - appveyor DownloadFile http://strcpy.net/packages/Win32OpenSSL-1_0_2a.exe
-  - Win32OpenSSL-1_0_2a.exe /silent /verysilent /sp- /suppressmsgboxes
+  - appveyor DownloadFile http://slproweb.com/download/Win32OpenSSL-%SSL_VER%.exe
+  - Win32OpenSSL-%SSL_VER%.exe /silent /verysilent /sp- /suppressmsgboxes
   - cinst -y nsis
   - SET PATH=C:\Program Files\NSIS\;%PATH%
 build:
