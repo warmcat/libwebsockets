@@ -148,9 +148,9 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	wsi = context->pending_read_list;
 	while (wsi) {
 		wsi_next = wsi->pending_read_list_next;
-		context->fds[wsi->sock].revents |=
-				context->fds[wsi->sock].events & POLLIN;
-		if (context->fds[wsi->sock].revents & POLLIN) {
+       context->fds[wsi->position_in_fds_table].revents |=
+               context->fds[wsi->position_in_fds_table].events & POLLIN;
+       if (context->fds[wsi->position_in_fds_table].revents & POLLIN) {
 			/*
 			 * he's going to get serviced now, take him off the
 			 * list of guys with buffered SSL.  If he still has some
