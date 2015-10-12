@@ -436,7 +436,6 @@ struct libwebsocket_context {
 #ifdef LWS_USE_LIBEV
 	struct ev_loop* io_loop;
 	struct lws_io_watcher w_accept;
-	struct lws_signal_watcher w_sigint;
 #endif /* LWS_USE_LIBEV */
 	int max_fds;
 	int listen_port;
