@@ -235,7 +235,7 @@ lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
 	optval = 1;
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__NetBSD__) && \
     !defined(__OpenBSD__)
-	if (setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
+	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
 		return 1;
 #else
 	tcp_proto = getprotobyname("TCP");
