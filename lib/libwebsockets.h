@@ -1219,7 +1219,21 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
  * the big length style
  */
 
-#define LWS_SEND_BUFFER_PRE_PADDING (4 + 10 + (2 * MAX_MUX_RECURSION))
+// Pad LWS_SEND_BUFFER_PRE_PADDING to the CPU word size, so that word references
+// to the address immediately after the padding won't cause an unaligned access
+// error. Sometimes the recommended padding is even larger than the size of a void *.
+// For example, for the X86-64 architecture, in Intel's document
+// https://software.intel.com/en-us/articles/data-alignment-when-migrating-to-64-bit-intel-architecture
+// they recommend that structures larger than 16 bytes be aligned to 16-byte
+// boundaries.
+// 
+#if __x86_64__
+#define _LWS_PAD_SIZE 16       // Intel recommended for best performance.
+#else
+#define _LWS_PAD_SIZE sizeof(void *)   // The pointer size on any unknown arch.
+#endif
+#define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? (n + (_LWS_PAD_SIZE - (n % _LWS_PAD_SIZE))) : (n))
+#define LWS_SEND_BUFFER_PRE_PADDING _LWS_PAD(4 + 10 + (2 * MAX_MUX_RECURSION))
 #define LWS_SEND_BUFFER_POST_PADDING 4
 
 LWS_VISIBLE LWS_EXTERN int
