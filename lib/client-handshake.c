@@ -152,7 +152,8 @@ struct libwebsocket *libwebsocket_client_connect_2(
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT;
 
 		lws_libev_accept(context, wsi, wsi->sock);
-		insert_wsi_socket_into_fds(context, wsi);
+		if (insert_wsi_socket_into_fds(context, wsi))
+			goto oom4;
 
 		libwebsocket_set_timeout(wsi,
 			PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,

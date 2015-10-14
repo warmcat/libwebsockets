@@ -46,9 +46,9 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	lwsl_info("insert_wsi_socket_into_fds: wsi=%p, sock=%d, fds pos=%d\n",
 					    wsi, wsi->sock, context->fds_count);
 
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_LOCK_POLL,
-		wsi->user_space, (void *) &pa, 0);
+	if (context->protocols[0].callback(context, wsi,
+	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *) &pa, 0))
+		return -1;
 
 	insert_wsi(context, wsi);
 	wsi->position_in_fds_table = context->fds_count;
@@ -58,13 +58,13 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	lws_plat_insert_socket_into_fds(context, wsi);
 
 	/* external POLL support via protocol 0 */
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_ADD_POLL_FD,
-		wsi->user_space, (void *) &pa, 0);
+	if (context->protocols[0].callback(context, wsi,
+	    LWS_CALLBACK_ADD_POLL_FD, wsi->user_space, (void *) &pa, 0))
+		return -1;
 
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_UNLOCK_POLL,
-		wsi->user_space, (void *)&pa, 0);
+	if (context->protocols[0].callback(context, wsi,
+	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *)&pa, 0))
+		return -1;
 
 	return 0;
 }
@@ -91,9 +91,9 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 	lwsl_info("%s: wsi=%p, sock=%d, fds pos=%d\n", __func__,
 				    wsi, wsi->sock, wsi->position_in_fds_table);
 
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_LOCK_POLL,
-		wsi->user_space, (void *)&pa, 0);
+	if (context->protocols[0].callback(context, wsi,
+	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *)&pa, 0))
+		return -1;
 
 	m = wsi->position_in_fds_table; /* replace the contents for this */
 
@@ -116,13 +116,16 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 
 	/* remove also from external POLL support via protocol 0 */
 	if (wsi->sock) {
-		context->protocols[0].callback(context, wsi,
+		if (context->protocols[0].callback(context, wsi,
 		    LWS_CALLBACK_DEL_POLL_FD, wsi->user_space,
-		    (void *) &pa, 0);
+		    (void *) &pa, 0))
+			return -1;
 	}
-	context->protocols[0].callback(context, wsi,
+	if (context->protocols[0].callback(context, wsi,
 				       LWS_CALLBACK_UNLOCK_POLL,
-				       wsi->user_space, (void *) &pa, 0);
+				       wsi->user_space, (void *) &pa, 0))
+		return -1;
+
 	return 0;
 }
 
@@ -145,15 +148,17 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	pfd = &context->fds[wsi->position_in_fds_table];
 	pa.fd = wsi->sock;
 
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_LOCK_POLL, wsi->user_space,  (void *) &pa, 0);
+	if (context->protocols[0].callback(context, wsi,
+	    LWS_CALLBACK_LOCK_POLL, wsi->user_space,  (void *) &pa, 0))
+		return -1;
 
 	pa.prev_events = pfd->events;
 	pa.events = pfd->events = (pfd->events & ~_and) | _or;
 
-	context->protocols[0].callback(context, wsi,
+	if (context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CHANGE_MODE_POLL_FD,
-				wsi->user_space, (void *) &pa, 0);
+				wsi->user_space, (void *) &pa, 0))
+		return -1;
 
 	/*
 	 * if we changed something in this pollfd...
@@ -173,13 +178,16 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 		if (sampled_tid) {
 			tid = context->protocols[0].callback(context, NULL,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+			if (tid == -1)
+				return -1;
 			if (tid != sampled_tid)
 				libwebsocket_cancel_service(context);
 		}
 	}
 
-	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *) &pa, 0);
+	if (context->protocols[0].callback(context, wsi,
+	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *) &pa, 0))
+		return -1;
 	
 	return 0;
 }

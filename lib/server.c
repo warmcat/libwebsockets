@@ -119,7 +119,10 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	wsi->sock = sockfd;
 	wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
 
-	insert_wsi_socket_into_fds(context, wsi);
+	if (insert_wsi_socket_into_fds(context, wsi)) {
+		compatible_close(sockfd);
+		return 1;
+	}
 
 	context->listen_service_modulo = LWS_LISTEN_SERVICE_MODULO;
 	context->listen_service_count = 0;
@@ -825,7 +828,8 @@ try_pollout:
 			lwsl_debug("accepted new conn  port %u on fd=%d\n",
 					  ntohs(cli_addr.sin_port), accept_fd);
 
-			insert_wsi_socket_into_fds(context, new_wsi);
+			if (insert_wsi_socket_into_fds(context, new_wsi))
+				goto fail;
 		}
 		break;
 

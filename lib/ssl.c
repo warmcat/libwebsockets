@@ -579,7 +579,8 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		*pwsi = new_wsi;
 		wsi = *pwsi;
 		wsi->mode = LWS_CONNMODE_SSL_ACK_PENDING;
-		insert_wsi_socket_into_fds(context, wsi);
+		if (insert_wsi_socket_into_fds(context, wsi))
+			goto fail;
 
 		libwebsocket_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
 							AWAITING_TIMEOUT);

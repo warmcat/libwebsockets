@@ -236,6 +236,7 @@ just_kill_connection:
 
 	lws_ssl_remove_wsi_from_buffered_list(context, wsi);
 
+	// checking return redundant since we anyway close
 	remove_wsi_socket_from_fds(context, wsi);
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
