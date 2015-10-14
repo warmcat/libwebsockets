@@ -100,7 +100,9 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		}
 
 		context->service_buffer[13] = '\0';
-		if (strcmp((char *)context->service_buffer, "HTTP/1.0 200 ")) {
+		if (strcmp((char *)context->service_buffer, "HTTP/1.0 200 ") &&
+		    strcmp((char *)context->service_buffer, "HTTP/1.1 200 ")
+		) {
 			libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR proxy: %s\n", context->service_buffer);
