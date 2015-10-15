@@ -1233,7 +1233,7 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
 #else
 #define _LWS_PAD_SIZE sizeof(void *)   // The pointer size on any unknown arch.
 #endif
-#define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? (n + (_LWS_PAD_SIZE - (n % _LWS_PAD_SIZE))) : (n))
+#define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? ((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
 #define LWS_SEND_BUFFER_PRE_PADDING _LWS_PAD(4 + 10 + (2 * MAX_MUX_RECURSION))
 #define LWS_SEND_BUFFER_POST_PADDING 4
 
