@@ -12,6 +12,10 @@ non-NULL.  If so, the string has length len.
 LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED is available to relax the requirement
 for peer certs if you are using the option to require client certs.
 
+LWS_WITHOUT_BUILTIN_SHA1 cmake option forces lws to use SHA1() defined
+externally, eg, byOpenSSL, and disables build of libwebsockets_SHA1()
+
+
 v1.4-chrome43-firefox36
 =======================
 

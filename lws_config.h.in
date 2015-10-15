@@ -59,3 +59,5 @@
 /* Use the BSD getifaddrs that comes with libwebsocket, for uclibc support */
 #cmakedefine LWS_BUILTIN_GETIFADDRS
 
+/* use SHA1() not internal libwebsockets_SHA1 */
+#cmakedefine LWS_SHA1_USE_OPENSSL_NAME

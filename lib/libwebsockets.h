@@ -1362,9 +1362,12 @@ lws_frame_is_binary(struct libwebsocket *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_is_ssl(struct libwebsocket *wsi);
-
+#ifdef LWS_SHA1_USE_OPENSSL_NAME
+#define libwebsockets_SHA1 SHA1
+#else
 LWS_VISIBLE LWS_EXTERN unsigned char *
 libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md);
+#endif
 
 LWS_VISIBLE LWS_EXTERN int
 lws_b64_encode_string(const char *in, int in_len, char *out, int out_size);

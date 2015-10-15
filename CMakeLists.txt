@@ -52,6 +52,7 @@ option(LWS_WITH_LIBEV "Compile with support for libev" OFF)
 option(LWS_USE_BUNDLED_ZLIB "Use bundled zlib version (Windows only)" ${LWS_USE_BUNDLED_ZLIB_DEFAULT})
 option(LWS_SSL_CLIENT_USE_OS_CA_CERTS "SSL support should make use of OS installed CA root certs" ON)
 option(LWS_WITHOUT_BUILTIN_GETIFADDRS "Don't use BSD getifaddrs implementation from libwebsockets if it is missing (this will result in a compilation error) ... Default is your libc provides it. On some systems such as uclibc it doesn't exist." OFF)
+option(LWS_WITHOUT_BUILTIN_SHA1 "Don't build the lws sha-1 (eg, because openssl will provide it" OFF)
 option(LWS_WITHOUT_CLIENT "Don't build the client part of the library" OFF)
 option(LWS_WITHOUT_SERVER "Don't build the server part of the library" OFF)
 option(LWS_LINK_TESTAPPS_DYNAMIC "Link the test apps to the shared version of the library. Default is to link statically" OFF)
@@ -251,6 +252,10 @@ include(CheckIncludeFiles)
 include(CheckLibraryExists)
 include(CheckTypeSize)
 
+if (LWS_WITHOUT_BUILTIN_SHA1)
+	set(LWS_SHA1_USE_OPENSSL_NAME 1)
+endif()
+
 CHECK_FUNCTION_EXISTS(bzero LWS_HAVE_BZERO)
 CHECK_FUNCTION_EXISTS(fork LWS_HAVE_FORK)
 CHECK_FUNCTION_EXISTS(getenv LWS_HAVE_GETENV)
@@ -347,7 +352,6 @@ set(SOURCES
 	lib/output.c
 	lib/parsers.c
 	lib/context.c
-	lib/sha-1.c
 	lib/alloc.c
 	lib/header.c)
 
@@ -361,6 +365,11 @@ endif()
 if (LWS_WITH_SSL)
 	list(APPEND SOURCES
 		lib/ssl.c)
+endif()
+
+if (NOT LWS_WITHOUT_BUILTIN_SHA1)
+	list(APPEND SOURCES
+		lib/sha-1.c)
 endif()
 
 if (LWS_WITH_HTTP2)
@@ -979,6 +988,7 @@ if (LWS_USE_WOLFSSL)
 	message("   LWS_WOLFSSL_LIBRARIES = ${LWS_WOLFSSL_LIBRARIES}")
 	message("   LWS_WOLFSSL_INCLUDE_DIRS = ${LWS_WOLFSSL_INCLUDE_DIRS}")
 endif()
+message(" LWS_WITHOUT_BUILTIN_SHA1 = ${LWS_WITHOUT_BUILTIN_SHA1}")
 message(" LWS_WITHOUT_BUILTIN_GETIFADDRS = ${LWS_WITHOUT_BUILTIN_GETIFADDRS}")
 message(" LWS_WITHOUT_CLIENT = ${LWS_WITHOUT_CLIENT}")
 message(" LWS_WITHOUT_SERVER = ${LWS_WITHOUT_SERVER}")
