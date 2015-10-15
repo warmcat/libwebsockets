@@ -157,6 +157,9 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	if (info->options &
 			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
+		
+		SSL_CTX_set_session_id_context(context->ssl_ctx,
+				(unsigned char *)context, sizeof(void *));
 
 		/* absolutely require the client cert */
 
