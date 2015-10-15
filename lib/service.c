@@ -400,9 +400,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				if (m == our_fd) {
 					/* it was the guy we came to service! */
 					timed_out = 1;
-					/* mark as handled */
-					if (pollfd)
-						pollfd->revents = 0;
+					/* he's gone, no need to mark as handled */
 				}
 		}
 	}
@@ -619,7 +617,8 @@ close_and_handled:
 	lwsl_debug("Close and handled\n");
 	libwebsocket_close_and_free_session(context, wsi,
 						LWS_CLOSE_STATUS_NOSTATUS);
-	n = 1;
+	// pollfd points to something else after the close
+	return 1;
 
 handled:
 	pollfd->revents = 0;
