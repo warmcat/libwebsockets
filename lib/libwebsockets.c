@@ -328,10 +328,11 @@ libwebsockets_get_addresses(struct libwebsocket_context *context,
 			    char *rip, int rip_len)
 {
 	struct addrinfo ai, *res;
-	void *p = NULL;
+	struct sockaddr_in addr4;
 
 	rip[0] = '\0';
 	name[0] = '\0';
+	addr4.sin_family = AF_UNSPEC;
 
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context)) {
@@ -352,6 +353,8 @@ libwebsockets_get_addresses(struct libwebsocket_context *context,
 	} else
 #endif
 	{
+		struct addrinfo *result;
+
 		memset(&ai, 0, sizeof ai);
 		ai.ai_family = PF_UNSPEC;
 		ai.ai_socktype = SOCK_STREAM;
@@ -365,24 +368,27 @@ libwebsockets_get_addresses(struct libwebsocket_context *context,
 		if (!rip)
 			return 0;
 
-		if (getaddrinfo(name, NULL, &ai, &res))
+		if (getaddrinfo(name, NULL, &ai, &result))
 			return -1;
 
-		while (!p && res) {
+		res = result;
+		while (addr4.sin_family == AF_UNSPEC && res) {
 			switch (res->ai_family) {
 			case AF_INET:
-				p = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
+				addr4.sin_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr;
+				addr4.sin_family = AF_INET;
 				break;
 			}
 
 			res = res->ai_next;
 		}
+		freeaddrinfo(result);
 	}
 
-	if (!p)
+	if (addr4.sin_family == AF_UNSPEC)
 		return -1;
 
-	lws_plat_inet_ntop(AF_INET, p, rip, rip_len);
+	lws_plat_inet_ntop(AF_INET, &addr4.sin_addr, rip, rip_len);
 
 	return 0;
 }
