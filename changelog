@@ -9,6 +9,9 @@ User api changes
 LWS_CALLBACK_CLIENT_CONNECTION_ERROR may provide an error string if in is
 non-NULL.  If so, the string has length len.
 
+LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED is available to relax the requirement
+for peer certs if you are using the option to require client certs.
+
 v1.4-chrome43-firefox36
 =======================
 

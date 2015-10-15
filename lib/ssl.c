@@ -158,14 +158,18 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	if (info->options &
 			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
 		
+		int verify_options = SSL_VERIFY_PEER;
+	
+		if (!(info->options & LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
+			verify_options |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+		
 		SSL_CTX_set_session_id_context(context->ssl_ctx,
 				(unsigned char *)context, sizeof(void *));
 
 		/* absolutely require the client cert */
 
 		SSL_CTX_set_verify(context->ssl_ctx,
-		       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
-						       OpenSSL_verify_callback);
+		       verify_options, OpenSSL_verify_callback);
 
 		/*
 		 * give user code a chance to load certs into the server

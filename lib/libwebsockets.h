@@ -177,6 +177,7 @@ enum libwebsocket_context_options {
 	LWS_SERVER_OPTION_LIBEV = 16,
 	LWS_SERVER_OPTION_DISABLE_IPV6 = 32,
 	LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS = 64,
+	LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED = 128,
 };
 
 enum libwebsocket_callback_reasons {
