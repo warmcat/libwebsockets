@@ -581,6 +581,11 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 	if (n >= 0)
 		return n;
 
+	if (LWS_ERRNO == LWS_EAGAIN ||
+	    LWS_ERRNO == LWS_EWOULDBLOCK ||
+	    LWS_ERRNO == LWS_EINTR)
+		return LWS_SSL_CAPABLE_MORE_SERVICE;
+    
 	lwsl_warn("error on reading from skt\n");
 	return LWS_SSL_CAPABLE_ERROR;
 }
