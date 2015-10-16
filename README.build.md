@@ -45,7 +45,7 @@ Building on Unix:
 	$ cmake ..
     ```
 
-	(**NOTE**: The `build/`` directory can have any name and be located anywhere
+	(**NOTE**: The `build/` directory can have any name and be located anywhere
 	 on your filesystem, and that the argument `..` given to cmake is simply
 	 the source directory of **libwebsockets** containing the [CMakeLists.txt](CMakeLists.txt)
 	 project file. All examples in this file assumes you use "..")
