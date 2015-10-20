@@ -272,7 +272,7 @@ int lws_http_action(struct libwebsocket_context *context,
 		if (!strcasecmp(http_conn_str, "keep-alive"))
 			connection_type = HTTP_CONNECTION_KEEP_ALIVE;
 		else
-			if (strcasecmp(http_conn_str, "close"))
+			if (!strcasecmp(http_conn_str, "close"))
 				connection_type = HTTP_CONNECTION_CLOSE;
 	}
 	wsi->u.http.connection_type = connection_type;
