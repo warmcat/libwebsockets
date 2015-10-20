@@ -300,6 +300,7 @@ CHECK_INCLUDE_FILES("stdlib.h;stdarg.h;string.h;float.h" STDC_HEADERS)
 
 CHECK_TYPE_SIZE(pid_t PID_T_SIZE)
 CHECK_TYPE_SIZE(size_t SIZE_T_SIZE)
+CHECK_TYPE_SIZE("void *" LWS_SIZEOFPTR LANGUAGE C)
 
 if (NOT PID_T_SIZE)
 	set(pid_t int)
