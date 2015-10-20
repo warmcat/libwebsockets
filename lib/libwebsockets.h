@@ -1231,7 +1231,7 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
 #if __x86_64__
 #define _LWS_PAD_SIZE 16       // Intel recommended for best performance.
 #else
-#define _LWS_PAD_SIZE sizeof(void *)   // The pointer size on any unknown arch.
+#define _LWS_PAD_SIZE LWS_SIZEOFPTR   /* Size of a pointer on the target architecture */
 #endif
 #define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? ((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
 #define LWS_SEND_BUFFER_PRE_PADDING _LWS_PAD(4 + 10 + (2 * MAX_MUX_RECURSION))
