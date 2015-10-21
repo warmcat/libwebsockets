@@ -199,10 +199,11 @@ read_ok:
 http_complete:
 	lwsl_debug("libwebsocket_read: http_complete\n");
 
+#ifndef LWS_NO_SERVER
 	/* Did the client want to keep the HTTP connection going? */
 	if (lws_http_transaction_completed(wsi))
 		goto bail;
-
+#endif
 	/* If we have more data, loop back around: */
 	if (len)
 		goto http_new;
