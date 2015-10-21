@@ -200,27 +200,14 @@ http_complete:
 	lwsl_debug("libwebsocket_read: http_complete\n");
 
 	/* Did the client want to keep the HTTP connection going? */
+	if (lws_http_transaction_completed(wsi))
+		goto bail;
 
-	if (wsi->u.http.connection_type == HTTP_CONNECTION_KEEP_ALIVE) {
-		lwsl_debug("libwebsocket_read: keep-alive\n");
-		wsi->state = WSI_STATE_HTTP;
-		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
+	/* If we have more data, loop back around: */
+	if (len)
+		goto http_new;
 
-		/* He asked for it to stay alive indefinitely */
-		libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-
-		if (lws_allocate_header_table(wsi))
-			goto bail;
-
-		/* If we're (re)starting on headers, need other implied init */
-		wsi->u.hdr.ues = URIES_IDLE;
-
-		/* If we have more data, loop back around: */
-		if (len)
-			goto http_new;
-
-		return 0;
-	}
+	return 0;
 
 bail:
 	lwsl_debug("closing connection at libwebsocket_read bail:\n");

@@ -649,8 +649,19 @@ int lws_http_transaction_completed(struct libwebsocket *wsi)
 
 	/* otherwise set ourselves up ready to go again */
 	wsi->state = WSI_STATE_HTTP;
+	wsi->mode = LWS_CONNMODE_HTTP_SERVING;
+	wsi->u.http.content_length = 0;
+
+	/* He asked for it to stay alive indefinitely */
+	libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	if (lws_allocate_header_table(wsi))
+		return 1;
+
+	/* If we're (re)starting on headers, need other implied init */
+	wsi->u.hdr.ues = URIES_IDLE;
 	
-	lwsl_info("%s: await new transaction\n", __func__);
+	lwsl_info("%s: keep-alive await new transaction\n", __func__);
 	
 	return 0;
 }
