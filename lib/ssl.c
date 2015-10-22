@@ -617,22 +617,24 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 
 		if (context->allow_non_ssl_on_ssl_port) {
 			if (n >= 1 && context->service_buffer[0] >= ' ') {
-			/*
-			 * TLS content-type for Handshake is 0x16
-			 * TLS content-type for ChangeCipherSpec Record is 0x14
-			 *
-			 * A non-ssl session will start with the HTTP method in
-			 * ASCII.  If we see it's not a legit SSL handshake
-			 * kill the SSL for this connection and try to handle
-			 * as a HTTP connection upgrade directly.
-			 */
+				/*
+				* TLS content-type for Handshake is 0x16, and
+				* for ChangeCipherSpec Record, it's 0x14
+				*
+				* A non-ssl session will start with the HTTP
+				* method in ASCII.  If we see it's not a legit
+				* SSL handshake kill the SSL for this
+				* connection and try to handle as a HTTP
+				* connection upgrade directly.
+				*/
 				wsi->use_ssl = 0;
 				SSL_shutdown(wsi->ssl);
 				SSL_free(wsi->ssl);
 				wsi->ssl = NULL;
 				goto accepted;
 			}
-			if (n == 0 || n == LWS_EAGAIN || n == LWS_EWOULDBLOCK) {
+			if (n == 0 || LWS_ERRNO == LWS_EAGAIN ||
+			    LWS_ERRNO == LWS_EWOULDBLOCK) {
 				/*
 				 * well, we get no way to know ssl or not
 				 * so go around again waiting for something
