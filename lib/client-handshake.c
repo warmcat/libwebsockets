@@ -253,7 +253,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			goto failed;
 		wsi->u.hdr.ah->c_port = context->http_proxy_port;
 
-		n = send(wsi->sock, context->service_buffer, plen, MSG_NOSIGNAL);
+		n = send(wsi->sock, (char *)context->service_buffer, plen, MSG_NOSIGNAL);
 		if (n < 0) {
 			lwsl_debug("ERROR writing to proxy socket\n");
 			goto failed;

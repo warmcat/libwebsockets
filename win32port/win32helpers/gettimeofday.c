@@ -1,23 +1,7 @@
 #include <time.h>
 #include <windows.h> //I've omitted context line
 
-#if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
-  #define DELTA_EPOCH_IN_MICROSECS  11644473600000000Ui64
-#else
-  #define DELTA_EPOCH_IN_MICROSECS  11644473600000000ULL
-#endif
-
-#ifdef __MINGW32__
-#else
- #ifdef __MINGW64__
- #else
-struct timezone 
-{
-	int  tz_minuteswest;	/* minutes W of Greenwich */
-	int  tz_dsttime;	/* type of dst correction */
-};
- #endif
-#endif
+#include "gettimeofday.h"
 
 int gettimeofday(struct timeval *tv, struct timezone *tz)
 {

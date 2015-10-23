@@ -33,7 +33,12 @@ extern "C" {
 #include "lws_config.h"
 
 #if defined(WIN32) || defined(_WIN32)
-
+#if (WINVER < 0x0501)
+#undef WINVER
+#undef _WIN32_WINNT
+#define WINVER 0x0501
+#define _WIN32_WINNT WINVER
+#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -238,12 +243,14 @@ struct libwebsocket_pollargs {
     int prev_events;   // the previous event mask
 };
 
-#ifdef _WIN32
+
+#if defined(_WIN32) && (_WIN32_WINNT < 0x0600)	
 struct libwebsocket_pollfd {
 	SOCKET fd;
 	SHORT events;
 	SHORT revents;
 };
+WINSOCK_API_LINKAGE int WSAAPI WSAPoll(struct libwebsocket_pollfd fdArray[], ULONG fds, INT timeout);
 #else
 #define libwebsocket_pollfd pollfd
 #endif
