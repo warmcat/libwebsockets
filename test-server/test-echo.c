@@ -28,7 +28,6 @@
 #include <string.h>
 #include <assert.h>
 #include <signal.h>
-#include <process.h>
 
 #ifndef _WIN32
 #include <syslog.h>
@@ -36,6 +35,7 @@
 #include <unistd.h>
 #else
 #include "../win32port/win32helpers/gettimeofday.h"
+#include <process.h>
 #endif
 
 #include "../lib/libwebsockets.h"

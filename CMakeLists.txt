@@ -737,8 +737,8 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			set(TEST_SERVER_SSL_KEY "${PROJECT_BINARY_DIR}/libwebsockets-test-server.key.pem")
 			set(TEST_SERVER_SSL_CERT "${PROJECT_BINARY_DIR}/libwebsockets-test-server.pem")
 
-			message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -subj \"/C=US/ST=Denial/L=Springfield/O=Dis/CN=www.example.com\" -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
 			if (WIN32)
+				message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -subj \"/C=US/ST=Denial/L=Springfield/O=Dis/CN=www.example.com\" -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
 				execute_process(
 					COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -subj "/C=US/ST=Denial/L=Springfield/O=Dis/CN=www.example.com" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
 					RESULT_VARIABLE OPENSSL_RETURN_CODE)
@@ -751,9 +751,11 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			else()
 				# Unix.
 				execute_process(
+					COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
 					COMMAND "${OPENSSL_EXECUTABLE}"
-						req -new -newkey rsa:1024 -days 10000 -nodes -x509 -subj "/C=US/ST=Denial/L=Springfield/O=Dis/CN=www.example.com" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-					RESULT_VARIABLE OPENSSL_RETURN_CODE)
+						req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+					RESULT_VARIABLE OPENSSL_RETURN_CODE
+					OUTPUT_QUIET ERROR_QUIET)
 
 				if (OPENSSL_RETURN_CODE)
 					message(WARNING "!!! Failed to generate SSL certificate for Test Server!!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
