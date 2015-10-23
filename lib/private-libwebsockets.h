@@ -39,8 +39,8 @@
 #endif
 
 #if defined(WIN32) || defined(_WIN32)
-#define WINVER 0x0601
-#define _WIN32_WINNT 0x0601
+#define WINVER 0x0501
+#define _WIN32_WINNT 0x0501
 #define LWS_NO_DAEMONIZE
 #define LWS_ERRNO WSAGetLastError()
 #define LWS_EAGAIN WSAEWOULDBLOCK
