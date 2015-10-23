@@ -76,9 +76,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 {
 	struct libwebsocket_context *context = NULL;
 	char *p;
-#ifdef _WIN32
-	int i;
-#endif
 	int pid_daemon = get_daemonize_pid();
 
 	lwsl_notice("Initial logging level %d\n", log_level);

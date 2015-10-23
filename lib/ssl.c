@@ -605,7 +605,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 
 		lws_latency_pre(context, wsi);
 
-		n = recv(wsi->sock, context->service_buffer,
+		n = recv(wsi->sock, (char *)context->service_buffer,
 			sizeof(context->service_buffer), MSG_PEEK);
 
 		/*

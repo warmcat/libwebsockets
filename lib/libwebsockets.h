@@ -234,15 +234,7 @@ struct libwebsocket_pollargs {
     int prev_events;   // the previous event mask
 };
 
-#ifdef _WIN32
-struct libwebsocket_pollfd {
-	SOCKET fd;
-	SHORT events;
-	SHORT revents;
-};
-#else
 #define libwebsocket_pollfd pollfd
-#endif
 
 enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT,

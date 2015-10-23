@@ -34,6 +34,7 @@
 #ifdef EXTERNAL_POLL
 #define poll WSAPoll
 #endif
+#include "../win32port/win32helpers/gettimeofday.h"
 #else
 #include <syslog.h>
 #include <sys/time.h>

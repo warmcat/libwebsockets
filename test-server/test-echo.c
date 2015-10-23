@@ -28,11 +28,14 @@
 #include <string.h>
 #include <assert.h>
 #include <signal.h>
+#include <process.h>
 
 #ifndef _WIN32
 #include <syslog.h>
 #include <sys/time.h>
 #include <unistd.h>
+#else
+#include "../win32port/win32helpers/gettimeofday.h"
 #endif
 
 #include "../lib/libwebsockets.h"
@@ -189,7 +192,7 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 	int opts = 0;
 	char interface_name[128] = "";
-	const char *interface = NULL;
+	const char *_interface = NULL;
 	char ssl_cert[256] = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
 	char ssl_key[256] = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 #ifndef WIN32
@@ -208,7 +211,10 @@ int main(int argc, char **argv)
 	int disallow_selfsigned = 0;
 #endif
 
+#ifdef WIN32
+#else
 	int debug_level = 7;
+#endif
 #ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
 #endif
@@ -269,9 +275,12 @@ int main(int argc, char **argv)
 			rate_us = atoi(optarg) * 1000;
 			break;
 #endif
+#ifdef WIN32
+#else
 		case 'd':
 			debug_level = atoi(optarg);
 			break;
+#endif            
 		case 's':
 			use_ssl = 1; /* 1 = take care about cert verification, 2 = allow anything */
 			break;
@@ -284,7 +293,7 @@ int main(int argc, char **argv)
 		case 'i':
 			strncpy(interface_name, optarg, sizeof interface_name);
 			interface_name[(sizeof interface_name) - 1] = '\0';
-			interface = interface_name;
+			_interface = interface_name;
 			break;
 		case '?':
 		case 'h':
@@ -357,7 +366,7 @@ int main(int argc, char **argv)
 #endif
 
 	info.port = listen_port;
-	info.iface = interface;
+	info.iface = _interface;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
 	info.extensions = libwebsocket_get_internal_extensions();

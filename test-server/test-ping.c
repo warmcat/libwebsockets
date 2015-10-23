@@ -33,6 +33,8 @@
 #include <sys/ioctl.h>
 #include <poll.h>
 #include <unistd.h>
+#else
+#include "../win32port/win32helpers/gettimeofday.h"
 #endif
 
 #include "../lib/libwebsockets.h"

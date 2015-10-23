@@ -12,7 +12,7 @@
 #  endif
 #endif
 
-#if ((__GNUC__-0) * 10 + __GNUC_MINOR__-0 >= 33) && !defined(NO_VIZ)
+#if ((__GNUC__-0) * 10 + __GNUC_MINOR__-0 >= 33) && !defined(NO_VIZ) && !defined(_WIN32)
 #  define ZLIB_INTERNAL __attribute__((visibility ("hidden")))
 #else
 #  define ZLIB_INTERNAL
