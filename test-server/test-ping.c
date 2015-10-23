@@ -34,7 +34,7 @@
 #include <poll.h>
 #include <unistd.h>
 #else
-#include "../win32port/win32helpers/gettimeofday.h"
+#include "gettimeofday.h"
 #endif
 
 #include "../lib/libwebsockets.h"
