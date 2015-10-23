@@ -1,4 +1,5 @@
 #include <time.h>
+#include <windows.h> //I've omitted context line
 #include "gettimeofday.h"
 
 #if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
