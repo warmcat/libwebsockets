@@ -240,12 +240,13 @@ struct libwebsocket_pollargs {
 };
 
 
-#if defined(_WIN32) && (WINVER < 0x0600)	
+#if defined(_WIN32) && (_WIN32_WINNT < 0x0600)	
 struct libwebsocket_pollfd {
 	SOCKET fd;
 	SHORT events;
 	SHORT revents;
 };
+WINSOCK_API_LINKAGE int WSAAPI WSAPoll(struct libwebsocket_pollfd fdArray[], ULONG fds, INT timeout);
 #else
 #define libwebsocket_pollfd pollfd
 #endif
