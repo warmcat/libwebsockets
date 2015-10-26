@@ -555,6 +555,10 @@ all_sent:
 				wsi->u.http.filepos == wsi->u.http.filelen) {
 			wsi->state = WSI_STATE_HTTP;
 
+			/* we might be in keepalive, so close it off here */
+			compatible_file_close(wsi->u.http.fd);
+			wsi->u.http.fd = LWS_INVALID_FILE;
+
 			if (wsi->protocol->callback)
 				/* ignore callback returned value */
 				user_callback_handle_rxflow(
