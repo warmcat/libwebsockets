@@ -26,6 +26,8 @@
 #include <signal.h>
 #include <sys/types.h>
 
+#include "../lib/libwebsockets.h"
+
 #ifndef _WIN32
 #include <netdb.h>
 #include <sys/socket.h>
@@ -36,8 +38,6 @@
 #else
 #include "gettimeofday.h"
 #endif
-
-#include "../lib/libwebsockets.h"
 
 /*
  * this is specified in the 04 standard, control frames can only have small

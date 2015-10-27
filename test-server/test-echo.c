@@ -29,6 +29,8 @@
 #include <assert.h>
 #include <signal.h>
 
+#include "../lib/libwebsockets.h"
+
 #ifndef _WIN32
 #include <syslog.h>
 #include <sys/time.h>
@@ -37,8 +39,6 @@
 #include "gettimeofday.h"
 #include <process.h>
 #endif
-
-#include "../lib/libwebsockets.h"
 
 static volatile int force_exit = 0;
 static int versa, state;

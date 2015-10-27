@@ -29,6 +29,8 @@
 #include <fcntl.h>
 #include <assert.h>
 
+#include "../lib/libwebsockets.h"
+
 #ifdef _WIN32
 #include <io.h>
 #ifdef EXTERNAL_POLL
@@ -40,8 +42,6 @@
 #include <sys/time.h>
 #include <unistd.h>
 #endif
-
-#include "../lib/libwebsockets.h"
 
 static int close_testing;
 int max_poll_elements;
