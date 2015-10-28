@@ -70,6 +70,10 @@ extern "C" {
 #define LWS_VISIBLE
 #endif
 
+#if defined(__ANDROID__)
+#define getdtablesize() 1024
+#endif
+
 #endif
 
 #ifdef LWS_USE_LIBEV
