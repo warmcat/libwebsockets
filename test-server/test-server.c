@@ -204,7 +204,7 @@ static int callback_http(struct libwebsocket_context *context,
 
 			p = buffer + LWS_SEND_BUFFER_PRE_PADDING;
 			end = p + sizeof(buffer) - LWS_SEND_BUFFER_PRE_PADDING;
-#ifdef WIN32
+#ifdef _WIN32
 			pss->fd = open(leaf_path, O_RDONLY | _O_BINARY);
 #else
 			pss->fd = open(leaf_path, O_RDONLY);
@@ -784,7 +784,7 @@ int main(int argc, char **argv)
 	int opts = 0;
 	char interface_name[128] = "";
 	const char *iface = NULL;
-#ifndef WIN32
+#ifndef _WIN32
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
 	unsigned int ms, oldms = 0;
@@ -809,7 +809,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
-			#ifndef WIN32
+			#ifndef _WIN32
 			syslog_options &= ~LOG_PERROR;
 			#endif
 			break;
@@ -864,7 +864,7 @@ int main(int argc, char **argv)
 
 	signal(SIGINT, sighandler);
 
-#ifndef WIN32
+#ifndef _WIN32
 	/* we will only try to log things according to our debug_level */
 	setlogmask(LOG_UPTO (LOG_DEBUG));
 	openlog("lwsts", syslog_options, LOG_DAEMON);
@@ -986,7 +986,7 @@ done:
 
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
-#ifndef WIN32
+#ifndef _WIN32
 	closelog();
 #endif
 

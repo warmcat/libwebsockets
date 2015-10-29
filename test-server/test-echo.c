@@ -195,7 +195,7 @@ int main(int argc, char **argv)
 	const char *_interface = NULL;
 	char ssl_cert[256] = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
 	char ssl_key[256] = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
-#ifndef WIN32
+#ifndef _WIN32
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
 	int client = 0;
@@ -211,10 +211,7 @@ int main(int argc, char **argv)
 	int disallow_selfsigned = 0;
 #endif
 
-#ifdef WIN32
-#else
 	int debug_level = 7;
-#endif
 #ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
 #endif
@@ -259,7 +256,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
-#ifndef WIN32
+#ifndef _WIN32
 			syslog_options &= ~LOG_PERROR;
 #endif
 			break;
@@ -275,12 +272,9 @@ int main(int argc, char **argv)
 			rate_us = atoi(optarg) * 1000;
 			break;
 #endif
-#ifdef WIN32
-#else
 		case 'd':
 			debug_level = atoi(optarg);
 			break;
-#endif            
 		case 's':
 			use_ssl = 1; /* 1 = take care about cert verification, 2 = allow anything */
 			break;
@@ -332,15 +326,15 @@ int main(int argc, char **argv)
 #endif
 #endif
 
-#ifdef WIN32
-#else
+#ifndef _WIN32
 	/* we will only try to log things according to our debug_level */
 	setlogmask(LOG_UPTO (LOG_DEBUG));
 	openlog("lwsts", syslog_options, LOG_DAEMON);
+#endif
 
 	/* tell the library what debug level to emit and to send it to syslog */
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
-#endif
+
 	lwsl_notice("libwebsockets echo test - "
 		    "(C) Copyright 2010-2015 Andy Green <andy@warmcat.com> - "
 		    "licensed under LGPL2.1\n");
@@ -431,8 +425,7 @@ bail:
 	libwebsocket_context_destroy(context);
 
 	lwsl_notice("libwebsockets-test-echo exited cleanly\n");
-#ifdef WIN32
-#else
+#ifndef _WIN32
 	closelog();
 #endif
 

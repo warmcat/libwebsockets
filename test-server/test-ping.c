@@ -314,7 +314,7 @@ static struct option options[] = {
 	{ NULL, 0, 0, 0 }
 };
 
-#ifndef WIN32
+#ifndef _WIN32
 static void
 signal_handler(int sig, siginfo_t *si, void *v)
 {
@@ -333,7 +333,7 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 	char protocol_name[256];
 	char ip[30];
-#ifndef WIN32
+#ifndef _WIN32
 	struct sigaction sa;
 	struct winsize w;
 #endif
@@ -416,7 +416,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-#ifndef WIN32
+#ifndef _WIN32
 	if (isatty(STDOUT_FILENO))
 		if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1)
 			if (w.ws_col > 0)
@@ -458,7 +458,7 @@ int main(int argc, char **argv)
 	fprintf(stderr, "Websocket PING %s (%s) %d bytes of data.\n",
 							   peer_name, ip, size);
 
-#ifndef WIN32
+#ifndef _WIN32
 	/* set the ^C handler */
 	sa.sa_sigaction = signal_handler;
 	sa.sa_flags = SA_SIGINFO;
