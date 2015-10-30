@@ -633,8 +633,10 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 				wsi->ssl = NULL;
 				goto accepted;
 			}
-			if (n == 0 || LWS_ERRNO == LWS_EAGAIN ||
-			    LWS_ERRNO == LWS_EWOULDBLOCK) {
+			if (!n) /* connection is gone */
+				goto fail;
+			if (n < 0 && (LWS_ERRNO == LWS_EAGAIN ||
+				      LWS_ERRNO == LWS_EWOULDBLOCK)) {
 				/*
 				 * well, we get no way to know ssl or not
 				 * so go around again waiting for something
