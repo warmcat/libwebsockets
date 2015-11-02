@@ -149,8 +149,14 @@
 #define compatible_file_read(amount, fd, buf, len) \
 		amount = read(fd, buf, len);
 #define lws_set_blocking_send(wsi)
+
+#ifdef MBED_OPERATORS
+#define lws_socket_is_valid(x) ((x) != NULL)
+#define LWS_SOCK_INVALID (NULL)
+#else
 #define lws_socket_is_valid(x) (x >= 0)
 #define LWS_SOCK_INVALID (-1)
+#endif
 #endif
 
 #ifndef LWS_HAVE_BZERO
@@ -619,8 +625,8 @@ struct _lws_http_mode_related {
 
 	enum http_version request_version;
 	enum http_connection_type connection_type;
-	int content_length;
-	int content_remain;
+	unsigned int content_length;
+	unsigned int content_remain;
 };
 
 
@@ -790,7 +796,7 @@ struct _lws_header_related {
 
 struct _lws_websocket_related {
 	char *rx_user_buffer;
-	int rx_user_buffer_head;
+	unsigned int rx_user_buffer_head;
 	unsigned char frame_masking_nonce_04[4];
 	unsigned char frame_mask_index;
 	size_t rx_packet_length;
@@ -901,9 +907,9 @@ lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int len);
 #ifndef LWS_LATENCY
 static inline void lws_latency(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, const char *action,
-					 int ret, int completion) { do { } while (0); }
+		int ret, int completion) { do { (void)context; (void)wsi; (void)action; (void)ret; (void)completion; } while (0); }
 static inline void lws_latency_pre(struct libwebsocket_context *context,
-					struct libwebsocket *wsi) { do { } while (0); }
+					struct libwebsocket *wsi) { do { (void)context; (void)wsi; } while (0); }
 #else
 #define lws_latency_pre(_context, _wsi) lws_latency(_context, _wsi, NULL, 0, 0)
 extern void
@@ -928,7 +934,7 @@ lws_http_action(struct libwebsocket_context *context, struct libwebsocket *wsi);
 LWS_EXTERN int
 lws_b64_selftest(void);
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(MBED_OPERATORS)
 LWS_EXTERN struct libwebsocket *
 wsi_from_fd(struct libwebsocket_context *context, lws_sockfd_type fd);
 
@@ -1111,9 +1117,10 @@ LWS_EXTERN int get_daemonize_pid();
 #define get_daemonize_pid() (0)
 #endif
 
+#if !defined(MBED_OPERATORS)
 LWS_EXTERN int interface_to_sa(struct libwebsocket_context *context,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen);
-
+#endif
 LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 
 #ifdef _WIN32

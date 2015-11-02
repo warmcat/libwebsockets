@@ -32,7 +32,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 		return 1;
 	}
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(MBED_OPERATORS)
 	if (wsi->sock >= context->max_fds) {
 		lwsl_err("Socket fd %d is too high (%d)\n",
 						wsi->sock, context->max_fds);

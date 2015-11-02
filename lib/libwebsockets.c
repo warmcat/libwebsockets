@@ -845,6 +845,7 @@ lws_is_ssl(struct libwebsocket *wsi)
 #ifdef LWS_OPENSSL_SUPPORT
 	return wsi->use_ssl;
 #else
+	(void)wsi;
 	return 0;
 #endif
 }
@@ -898,6 +899,7 @@ lws_get_peer_write_allowance(struct libwebsocket *wsi)
 	
 	return wsi->u.http2.tx_credit;
 #else
+	(void)wsi;
 	return -1;
 #endif
 }

@@ -25,6 +25,16 @@
 #ifdef __cplusplus
 #include <cstddef>
 #include <cstdarg>
+#ifdef MBED_OPERATORS
+#include "mbed-drivers/mbed.h"
+#include "sal-iface-eth/EthernetInterface.h"
+#include "sockets/TCPListener.h"
+#include "sal-stack-lwip/lwipv4_init.h"
+#define LWS_POSIX 0
+#else
+#define LWS_POSIX 1
+#endif
+
 extern "C" {
 #else
 #include <stdarg.h>
@@ -155,13 +165,13 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 
 #else /* no debug */
 
-#define lwsl_info(...)
-#define lwsl_debug(...)
-#define lwsl_parser(...)
-#define lwsl_header(...)
-#define lwsl_ext(...)
-#define lwsl_client(...)
-#define lwsl_latency(...)
+#define lwsl_info(...) {}
+#define lwsl_debug(...) {}
+#define lwsl_parser(...) {}
+#define lwsl_header(...) {}
+#define lwsl_ext(...) {}
+#define lwsl_client(...) {}
+#define lwsl_latency(...) {}
 #define lwsl_hexdump(a, b)
 
 #endif
@@ -1262,6 +1272,14 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
 // they recommend that structures larger than 16 bytes be aligned to 16-byte
 // boundaries.
 // 
+
+#if !defined(LWS_SIZEOFPTR)
+#define LWS_SIZEOFPTR (sizeof (void *))
+#endif
+#if !defined(u_int64_t)
+#define u_int64_t unsigned long long
+#endif
+
 #if __x86_64__
 #define _LWS_PAD_SIZE 16       // Intel recommended for best performance.
 #else

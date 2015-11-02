@@ -210,7 +210,7 @@ int libwebsocket_parse(
 		WSI_TOKEN_PATCH_URI,
 		WSI_TOKEN_DELETE_URI,
 	};
-	int n, m;
+	unsigned int n, m;
 
 	switch (wsi->u.hdr.parser_state) {
 	default:
@@ -387,7 +387,7 @@ check_eol:
 		}
 
 		n = issue_char(wsi, c);
-		if (n < 0)
+		if ((int)n < 0)
 			return -1;
 		if (n > 0)
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING;

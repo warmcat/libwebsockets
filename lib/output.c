@@ -128,7 +128,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 	 */
 	lws_latency_pre(context, wsi);
 	n = lws_ssl_capable_write(wsi, buf, len);
-	lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
+	lws_latency(context, wsi, "send lws_issue_raw", n, (unsigned int)n == len);
 
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
@@ -167,7 +167,7 @@ handle_truncated_send:
 		return n;
 	}
 
-	if (n == real_len)
+	if ((unsigned int)n == real_len)
 		/* what we just sent went out cleanly */
 		return n;
 
@@ -498,7 +498,7 @@ send_raw:
 	if (n <= 0)
 		return n;
 
-	if (n == len + pre + post) {
+	if (n == (int)len + pre + post) {
 		/* everything in the buffer was handled (or rebuffered...) */
 		wsi->u.ws.inside_frame = 0;
 		return orig_len;
@@ -583,6 +583,8 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 {
 	int n;
 
+	(void)context;
+	
 	n = recv(wsi->sock, (char *)buf, len, 0);
 	if (n >= 0)
 		return n;
@@ -620,5 +622,6 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 LWS_VISIBLE int
 lws_ssl_pending_no_ssl(struct libwebsocket *wsi)
 {
+	(void)wsi;
 	return 0;
 }

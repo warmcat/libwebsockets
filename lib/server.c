@@ -27,15 +27,17 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 {
 	int n;
 	lws_sockfd_type sockfd;
+#if LWS_POSIX
 	struct sockaddr_in sin;
 	socklen_t len = sizeof(sin);
-	int opt = 1;
-	struct libwebsocket *wsi;
 #ifdef LWS_USE_IPV6
 	struct sockaddr_in6 serv_addr6;
 #endif
 	struct sockaddr_in serv_addr4;
 	struct sockaddr *v;
+#endif
+	int opt = 1;
+	struct libwebsocket *wsi;
 
 	/* set up our external listening socket we serve on */
 
@@ -182,7 +184,7 @@ int lws_http_action(struct libwebsocket_context *context,
 	char content_length_str[32];
 	char http_version_str[10];
 	char http_conn_str[20];
-	int n, count = 0;
+	unsigned int n, count = 0;
 	static const unsigned char methods[] = {
 		WSI_TOKEN_GET_URI,
 		WSI_TOKEN_POST_URI,
@@ -457,7 +459,7 @@ upgrade_ws:
 		hit = 0;
 
 		while (*p && !hit) {
-			n = 0;
+			unsigned int n = 0;
 			while (n < sizeof(protocol_name) - 1 && *p && *p !=',')
 				protocol_name[n++] = *p++;
 			protocol_name[n] = '\0';

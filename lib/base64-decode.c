@@ -151,8 +151,8 @@ int
 lws_b64_selftest(void)
 {
 	char buf[64];
-	int n;
-	int test;
+	unsigned int n;
+	unsigned int test;
 	static const char * const plaintext[] = {
 		"sanity check base 64"
 	};

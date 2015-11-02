@@ -297,7 +297,7 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 	 * if we went beyond the allowed time, kill the
 	 * connection
 	 */
-	if (sec > wsi->pending_timeout_limit) {
+	if ((time_t)sec > wsi->pending_timeout_limit) {
 		lwsl_info("TIMEDOUT WAITING on %d\n", wsi->pending_timeout);
 		/*
 		 * Since he failed a timeout, he already had a chance to do
@@ -371,7 +371,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	char draining_flow = 0;
 	int more;
 	struct lws_tokens eff_buf;
-	int pending = 0;
+	unsigned int pending = 0;
 
 	if (context->listen_service_fd)
 		listen_socket_fds_index = wsi_from_fd(context,context->listen_service_fd)->position_in_fds_table;

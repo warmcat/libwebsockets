@@ -40,6 +40,9 @@ int lws_add_http_header_by_name(struct libwebsocket_context *context,
 #ifdef LWS_USE_HTTP2
 	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
 		return lws_add_http2_header_by_name(context, wsi, name, value, length, p, end);
+#else
+	(void)wsi;
+	(void)context;
 #endif
 	if (name) {
 		while (*p < end && *name)
@@ -63,9 +66,12 @@ int lws_finalize_http_header(struct libwebsocket_context *context,
 			    unsigned char **p,
 			    unsigned char *end)
 {
+	(void)context;
 #ifdef LWS_USE_HTTP2
 	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
 		return 0;
+#else
+	(void)wsi;
 #endif
 	if ((long)(end - *p) < 3)
 		return 1;
