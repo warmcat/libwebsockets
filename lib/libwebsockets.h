@@ -64,10 +64,12 @@ extern "C" {
 #endif
 
 #else // NOT WIN32
-
-#include <poll.h>
 #include <unistd.h>
+
+#ifndef MBED_OPERATORS
+#include <poll.h>
 #include <netdb.h>
+#endif
 
 #if defined(__GNUC__)
 #define LWS_VISIBLE __attribute__((visibility("default")))

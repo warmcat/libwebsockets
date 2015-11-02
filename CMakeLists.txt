@@ -67,6 +67,32 @@ option(LWS_WITH_LATENCY "Build latency measuring code into the library" OFF)
 option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" ON)
 option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
+option(LWS_MBED3 "Platform is MBED3" OFF)
+
+if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
+
+set(LWS_WITH_SHARED OFF)
+set(LWS_WITH_SSL OFF)
+set(LWS_WITH_ZLIB OFF)
+set(LWS_WITHOUT_CLIENT ON)
+set(LWS_WITHOUT_TESTAPPS ON)
+set(LWS_WITHOUT_EXTENSIONS ON)
+set(LWS_MBED3 ON)
+
+endif()
+
+if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
+
+set(LWS_WITH_SHARED OFF)
+set(LWS_WITH_SSL OFF)
+set(LWS_WITH_ZLIB OFF)
+set(LWS_WITHOUT_CLIENT ON)
+set(LWS_WITHOUT_TESTAPPS ON)
+set(LWS_WITHOUT_EXTENSIONS ON)
+set(LWS_MBED3 ON)
+
+endif()
+
 
 # Allow the user to override installation directories.
 set(LWS_INSTALL_LIB_DIR       lib CACHE PATH "Installation directory for libraries")
@@ -213,6 +239,10 @@ if (LWS_WITH_HTTP2)
 	set(LWS_USE_HTTP2 1)
 endif()
 
+if (LWS_MBED3)
+	set(CMAKE_C_FLAGS "-D_DEBUG ${CMAKE_C_FLAGS}")
+endif()
+
 if (MINGW)
 	set(LWS_MINGW_SUPPORT 1)
 	set(CMAKE_C_FLAGS "-D__USE_MINGW_ANSI_STDIO ${CMAKE_C_FLAGS}")
@@ -295,7 +325,10 @@ CHECK_INCLUDE_FILE(sys/stat.h LWS_HAVE_SYS_STAT_H)
 CHECK_INCLUDE_FILE(sys/types.h LWS_HAVE_SYS_TYPES_H)
 CHECK_INCLUDE_FILE(unistd.h LWS_HAVE_UNISTD_H)
 CHECK_INCLUDE_FILE(vfork.h LWS_HAVE_VFORK_H)
-CHECK_INCLUDE_FILE(zlib.h LWS_HAVE_ZLIB_H)
+
+if (LWS_WITH_ZLIB AND NOT LWS_USE_BUNDLED_ZLIB)
+	CHECK_INCLUDE_FILE(zlib.h LWS_HAVE_ZLIB_H)
+endif()
 
 # TODO: These can also be tested to see whether they actually work...
 set(LWS_HAVE_WORKING_FORK LWS_HAVE_FORK)
@@ -303,9 +336,10 @@ set(LWS_HAVE_WORKING_VFORK LWS_HAVE_VFORK)
 
 CHECK_INCLUDE_FILES("stdlib.h;stdarg.h;string.h;float.h" STDC_HEADERS)
 
-CHECK_TYPE_SIZE(pid_t PID_T_SIZE)
-CHECK_TYPE_SIZE(size_t SIZE_T_SIZE)
-CHECK_TYPE_SIZE("void *" LWS_SIZEOFPTR LANGUAGE C)
+# These don't work Cross...
+#CHECK_TYPE_SIZE(pid_t PID_T_SIZE)
+#CHECK_TYPE_SIZE(size_t SIZE_T_SIZE)
+#CHECK_TYPE_SIZE("void *" LWS_SIZEOFPTR LANGUAGE C)
 
 if (NOT PID_T_SIZE)
 	set(pid_t int)
@@ -390,8 +424,14 @@ if (WIN32)
 	list(APPEND SOURCES
 		lib/lws-plat-win.c)
 else()
-	list(APPEND SOURCES
-		lib/lws-plat-unix.c)
+	if (LWS_MBED3)
+		list(APPEND SOURCES
+			lib/lws-plat-mbed3.cpp
+			lib/lws-plat-mbed3.c)
+	else()
+		list(APPEND SOURCES
+			lib/lws-plat-unix.c)
+	endif()
 endif()
 
 if (NOT LWS_WITHOUT_SERVER)
@@ -498,7 +538,6 @@ if (LWS_WITH_SHARED)
 		set_property(TARGET websockets_shared PROPERTY MACOSX_RPATH YES)
 	endif()
 endif()
-
 
 # Set the so version of the lib.
 # Equivalent to LDFLAGS=-version-info x:x:x
@@ -1021,6 +1060,7 @@ message(" LWS_WITHOUT_DAEMONIZE = ${LWS_WITHOUT_DAEMONIZE}")
 message(" LWS_USE_LIBEV = ${LWS_USE_LIBEV}")
 message(" LWS_IPV6 = ${LWS_IPV6}")
 message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")
+message(" LWS_MBED3 = ${LWS_MBED3}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

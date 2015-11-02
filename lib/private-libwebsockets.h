@@ -93,11 +93,12 @@
 #else /* not windows --> */
 #include <errno.h>
 #include <fcntl.h>
-#include <netdb.h>
-#include <signal.h>
 #include <strings.h>
 #include <unistd.h>
 #include <sys/types.h>
+#ifndef MBED_OPERATORS
+#include <netdb.h>
+#include <signal.h>
 #include <sys/socket.h>
 #ifdef LWS_BUILTIN_GETIFADDRS
  #include <getifaddrs.h>
@@ -112,11 +113,6 @@
 #include <sys/un.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#ifndef LWS_NO_FORK
-#ifdef LWS_HAVE_SYS_PRCTL_H
-#include <sys/prctl.h>
-#endif
-#endif
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -124,8 +120,16 @@
 #ifdef LWS_USE_LIBEV
 #include <ev.h>
 #endif /* LWS_USE_LIBEV */
-
 #include <sys/mman.h>
+
+#endif /* MBED */
+
+#ifndef LWS_NO_FORK
+#ifdef LWS_HAVE_SYS_PRCTL_H
+#include <sys/prctl.h>
+#endif
+#endif
+
 #include <sys/time.h>
 
 #define LWS_ERRNO errno
