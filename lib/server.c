@@ -26,7 +26,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 			    struct libwebsocket_context *context)
 {
 	int n;
-	int sockfd;
+	lws_sockfd_type sockfd;
 	struct sockaddr_in sin;
 	socklen_t len = sizeof(sin);
 	int opt = 1;

@@ -477,7 +477,7 @@ struct libwebsocket_context {
 	int fd_random;
 	int listen_service_modulo;
 	int listen_service_count;
-	int listen_service_fd;
+	lws_sockfd_type listen_service_fd;
 	int listen_service_extraseen;
 
 	/*
@@ -532,7 +532,7 @@ enum {
 LWS_EXTERN void lws_feature_status_libev(struct lws_context_creation_info *info);
 LWS_EXTERN void
 lws_libev_accept(struct libwebsocket_context *context,
-		 struct libwebsocket *new_wsi, int accept_fd);
+		 struct libwebsocket *new_wsi, lws_sockfd_type accept_fd);
 LWS_EXTERN void
 lws_libev_io(struct libwebsocket_context *context,
 				struct libwebsocket *wsi, int flags);
@@ -612,7 +612,7 @@ struct _lws_http_mode_related {
 #if defined(WIN32) || defined(_WIN32)
 	HANDLE fd;
 #else
-	int fd;
+	lws_sockfd_type fd;
 #endif
 	unsigned long filepos;
 	unsigned long filelen;
@@ -842,7 +842,7 @@ struct libwebsocket {
 
 	char pending_timeout; /* enum pending_timeout */
 	time_t pending_timeout_limit;
-	int sock;
+	lws_sockfd_type sock;
 	int position_in_fds_table;
 #ifdef LWS_LATENCY
 	unsigned long action_start;
@@ -930,13 +930,13 @@ lws_b64_selftest(void);
 
 #ifdef _WIN32
 LWS_EXTERN struct libwebsocket *
-wsi_from_fd(struct libwebsocket_context *context, int fd);
+wsi_from_fd(struct libwebsocket_context *context, lws_sockfd_type fd);
 
 LWS_EXTERN int 
 insert_wsi(struct libwebsocket_context *context, struct libwebsocket *wsi);
 
 LWS_EXTERN int
-delete_from_fd(struct libwebsocket_context *context, int fd);
+delete_from_fd(struct libwebsocket_context *context, lws_sockfd_type fd);
 #else
 #define wsi_from_fd(A,B)  A->lws_lookup[B] 
 #define insert_wsi(A,B)   A->lws_lookup[B->sock]=B
@@ -1067,7 +1067,7 @@ void lws_http2_configure_if_upgraded(struct libwebsocket *wsi);
 #endif
 
 LWS_EXTERN int
-lws_plat_set_socket_options(struct libwebsocket_context *context, int fd);
+lws_plat_set_socket_options(struct libwebsocket_context *context, lws_sockfd_type fd);
 
 LWS_EXTERN int
 lws_allocate_header_table(struct libwebsocket *wsi);
@@ -1152,7 +1152,7 @@ lws_ssl_pending(struct libwebsocket *wsi);
 LWS_EXTERN int
 lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		struct libwebsocket **wsi, struct libwebsocket *new_wsi,
-		int accept_fd, struct libwebsocket_pollfd *pollfd);
+		lws_sockfd_type accept_fd, struct libwebsocket_pollfd *pollfd);
 LWS_EXTERN int
 lws_ssl_close(struct libwebsocket *wsi);
 LWS_EXTERN void

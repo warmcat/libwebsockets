@@ -237,25 +237,44 @@ enum libwebsocket_callback_reasons {
 	LWS_CALLBACK_USER = 1000, /* user code can use any including / above */
 };
 
-// argument structure for all external poll related calls
-// passed in via 'in'
-struct libwebsocket_pollargs {
-    int fd;            // applicable file descriptor
-    int events;        // the new event mask
-    int prev_events;   // the previous event mask
-};
 
-
-#if defined(_WIN32) && (_WIN32_WINNT < 0x0600)	
+#if defined(_WIN32) && (_WIN32_WINNT < 0x0600)
+typedef SOCKET lws_sockfd_type;
 struct libwebsocket_pollfd {
-	SOCKET fd;
+	lws_sockfd_type fd;
 	SHORT events;
 	SHORT revents;
 };
 WINSOCK_API_LINKAGE int WSAAPI WSAPoll(struct libwebsocket_pollfd fdArray[], ULONG fds, INT timeout);
 #else
+
+#if defined(MBED_OPERATORS)
+typedef int lws_sockfd_type;
+struct pollfd {
+	lws_sockfd_type *fd;
+	short events;
+	short revents;
+};
+#define POLLIN          0x0001
+#define POLLPRI         0x0002
+#define POLLOUT         0x0004
+#define POLLERR         0x0008
+#define POLLHUP         0x0010
+#define POLLNVAL        0x0020
+#else
+typedef int lws_fd_type;
+#endif
+
 #define libwebsocket_pollfd pollfd
 #endif
+
+// argument structure for all external poll related calls
+// passed in via 'in'
+struct libwebsocket_pollargs {
+    lws_sockfd_type fd;            // applicable file descriptor
+    int events;        // the new event mask
+    int prev_events;   // the previous event mask
+};
 
 enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT,
@@ -1356,7 +1375,7 @@ libwebsocket_canonical_hostname(struct libwebsocket_context *context);
 
 LWS_VISIBLE LWS_EXTERN void
 libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
-		struct libwebsocket *wsi, int fd, char *name, int name_len,
+		struct libwebsocket *wsi, lws_sockfd_type fd, char *name, int name_len,
 					char *rip, int rip_len);
 
 LWS_VISIBLE LWS_EXTERN int
