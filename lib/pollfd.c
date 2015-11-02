@@ -25,6 +25,7 @@ int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 						       struct libwebsocket *wsi)
 {
+#if LWS_POSIX
 	struct libwebsocket_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
 
 	if (context->fds_count >= context->max_fds) {
@@ -65,6 +66,9 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	if (context->protocols[0].callback(context, wsi,
 	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *)&pa, 0))
 		return -1;
+#endif
+	(void)context;
+	(void)wsi;
 
 	return 0;
 }
@@ -73,6 +77,7 @@ int
 remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi)
 {
+#if LWS_POSIX
 	int m;
 	struct libwebsocket_pollargs pa = { wsi->sock, 0, 0 };
 
@@ -80,7 +85,7 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 
 	--context->fds_count;
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(MBED_OPERATORS)
 	if (wsi->sock > context->max_fds) {
 		lwsl_err("Socket fd %d too high (%d)\n",
 						   wsi->sock, context->max_fds);
@@ -125,6 +130,10 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 				       LWS_CALLBACK_UNLOCK_POLL,
 				       wsi->user_space, (void *) &pa, 0))
 		return -1;
+#endif
+	
+	(void)context;
+	(void)wsi;
 
 	return 0;
 }
@@ -253,6 +262,7 @@ libwebsocket_callback_on_writable(struct libwebsocket_context *context,
 network_sock:
 #endif
 
+	(void)context;
 	if (lws_ext_callback_for_each_active(wsi,
 				LWS_EXT_CALLBACK_REQUEST_ON_WRITEABLE, NULL, 0))
 		return 1;

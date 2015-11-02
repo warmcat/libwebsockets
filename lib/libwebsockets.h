@@ -30,6 +30,55 @@
 #include "sal-iface-eth/EthernetInterface.h"
 #include "sockets/TCPListener.h"
 #include "sal-stack-lwip/lwipv4_init.h"
+
+namespace {
+	const int SERVER_PORT = 80;
+	const int BUFFER_SIZE = 4096;
+}
+using namespace mbed::Sockets::v0;
+
+struct libwebsocket;
+
+class lws_conn {
+	public:
+	lws_conn():
+		ts(NULL),
+		wsi(NULL)
+	{
+	}
+
+public:
+	void set_wsi(struct libwebsocket *_wsi) { wsi = _wsi; }
+public:
+	TCPStream *ts;
+	
+public:
+	struct libwebsocket *wsi;
+	char buffer[BUFFER_SIZE];
+};
+
+class lws_conn_listener : lws_conn {
+public:
+	lws_conn_listener():
+		srv(SOCKET_STACK_LWIP_IPV4)
+	{
+		srv.setOnError(TCPStream::ErrorHandler_t(this, &lws_conn_listener::onError));
+	}
+
+	void start(const uint16_t port);
+
+protected:
+	void onRX(Socket *s);
+	void onError(Socket *s, socket_error_t err);
+	void onIncoming(TCPListener *s, void *impl);
+	void onDisconnect(TCPStream *s);
+	void onSent(Socket *s, uint16_t len);
+
+public:
+	TCPListener srv;
+};
+
+
 #define LWS_POSIX 0
 #else
 #define LWS_POSIX 1
@@ -79,6 +128,8 @@ extern "C" {
 #ifndef MBED_OPERATORS
 #include <poll.h>
 #include <netdb.h>
+#else
+#define getdtablesize() (10)
 #endif
 
 #if defined(__GNUC__)
@@ -250,6 +301,7 @@ enum libwebsocket_callback_reasons {
 
 #if defined(_WIN32) && (_WIN32_WINNT < 0x0600)
 typedef SOCKET lws_sockfd_type;
+#define lws_sockfd_valid(sfd) (!!sfd)
 struct libwebsocket_pollfd {
 	lws_sockfd_type fd;
 	SHORT events;
@@ -259,9 +311,10 @@ WINSOCK_API_LINKAGE int WSAAPI WSAPoll(struct libwebsocket_pollfd fdArray[], ULO
 #else
 
 #if defined(MBED_OPERATORS)
-typedef int lws_sockfd_type;
+typedef void * lws_sockfd_type;
+#define lws_sockfd_valid(sfd) (!!sfd)
 struct pollfd {
-	lws_sockfd_type *fd;
+	lws_sockfd_type fd;
 	short events;
 	short revents;
 };
@@ -271,8 +324,16 @@ struct pollfd {
 #define POLLERR         0x0008
 #define POLLHUP         0x0010
 #define POLLNVAL        0x0020
+
+struct libwebsocket;
+
+void * mbed3_create_tcp_stream_socket(void);
+void mbed3_delete_tcp_stream_socket(void *sockfd);
+void mbed3_tcp_stream_bind(void *sock, int port, struct libwebsocket *);
+void mbed3_tcp_stream_accept(void *sock, struct libwebsocket *);
 #else
 typedef int lws_fd_type;
+#define lws_sockfd_valid(sfd) (sfd >= 0)
 #endif
 
 #define libwebsocket_pollfd pollfd

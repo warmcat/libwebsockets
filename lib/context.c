@@ -76,10 +76,14 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 {
 	struct libwebsocket_context *context = NULL;
 	char *p;
+#if LWS_POSIX
 	int pid_daemon = get_daemonize_pid();
+#endif
 
 	lwsl_notice("Initial logging level %d\n", log_level);
-	lwsl_notice("Library version: %s\n", library_version);
+
+	lwsl_notice("Libwebsockets version: %s\n", library_version);
+#if LWS_POSIX
 #ifdef LWS_USE_IPV6
 	if (!(info->options & LWS_SERVER_OPTION_DISABLE_IPV6))
 		lwsl_notice("IPV6 compiled in and enabled\n");
@@ -87,6 +91,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		lwsl_notice("IPV6 compiled in but disabled\n");
 #else
 	lwsl_notice("IPV6 not compiled in\n");
+#endif
 #endif
 	lws_feature_status_libev(info);
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
@@ -96,7 +101,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	lwsl_info(" AWAITING_TIMEOUT: %u\n", AWAITING_TIMEOUT);
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
 	lwsl_info(" LWS_MAX_ZLIB_CONN_BUFFER: %u\n", LWS_MAX_ZLIB_CONN_BUFFER);
-
+	
 	if (lws_plat_context_early_init())
 		return NULL;
 
@@ -105,11 +110,13 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
-
+#if LWS_POSIX
 	if (pid_daemon) {
 		context->started_with_parent = pid_daemon;
 		lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
 	}
+#endif
+	lwsl_notice(" context: %p\r\n", context);
 
 	context->listen_service_extraseen = 0;
 	context->protocols = info->protocols;
@@ -139,7 +146,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	context->lws_ev_sigint_cb = &libwebsocket_sigint_cb;
 #endif /* LWS_USE_LIBEV */
 
-
+#if LWS_POSIX
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
 	lwsl_notice(" static allocation: %u + (%u x %u fds) = %u bytes\n",
@@ -167,7 +174,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	if (lws_plat_init_fd_tables(context)) {
 		goto bail;
 	}
-
+#endif
 	lws_context_init_extensions(info, context);
 
 	context->user_space = info->user;
@@ -218,7 +225,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		info->protocols[context->count_protocols].callback;
 						   context->count_protocols++) {
 
-		lwsl_parser("  Protocol: %s\n",
+		lwsl_notice("  Protocol: %s\n",
 				info->protocols[context->count_protocols].name);
 
 		info->protocols[context->count_protocols].owning_server =
@@ -249,7 +256,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 				LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT,
 								   NULL, 0) < 0)
 			goto bail;
-
+		
 	return context;
 
 bail:

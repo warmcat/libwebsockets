@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -25,9 +25,9 @@
 int lws_context_init_server(struct lws_context_creation_info *info,
 			    struct libwebsocket_context *context)
 {
-	int n;
 	lws_sockfd_type sockfd;
 #if LWS_POSIX
+	int n;
 	struct sockaddr_in sin;
 	socklen_t len = sizeof(sin);
 #ifdef LWS_USE_IPV6
@@ -35,8 +35,8 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 #endif
 	struct sockaddr_in serv_addr4;
 	struct sockaddr *v;
-#endif
 	int opt = 1;
+#endif
 	struct libwebsocket *wsi;
 
 	/* set up our external listening socket we serve on */
@@ -44,18 +44,25 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	if (info->port == CONTEXT_PORT_NO_LISTEN)
 		return 0;
 
+#if LWS_POSIX
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context))
 		sockfd = socket(AF_INET6, SOCK_STREAM, 0);
 	else
 #endif
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
-
+		
 	if (sockfd == -1) {
+#else
+	sockfd = mbed3_create_tcp_stream_socket();
+	if (!lws_sockfd_valid(sockfd)) {
+#endif
+
 		lwsl_err("ERROR opening socket\n");
 		return 1;
 	}
 
+#if LWS_POSIX
 	/*
 	 * allow us to restart even if old sockets in TIME_WAIT
 	 */
@@ -64,9 +71,10 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 		compatible_close(sockfd);
 		return 1;
 	}
-
+#endif
 	lws_plat_set_socket_options(context, sockfd);
 
+#if LWS_POSIX
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context)) {
 		v = (struct sockaddr *)&serv_addr6;
@@ -109,6 +117,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 		lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
 	else
 		info->port = ntohs(sin.sin_port);
+#endif
 
 	context->listen_port = info->port;
 
@@ -120,6 +129,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	}
 	wsi->sock = sockfd;
 	wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
+	wsi->protocol = context->protocols;
 
 	if (insert_wsi_socket_into_fds(context, wsi)) {
 		compatible_close(sockfd);
@@ -130,7 +140,11 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	context->listen_service_count = 0;
 	context->listen_service_fd = sockfd;
 
+#if LWS_POSIX
 	listen(sockfd, LWS_SOMAXCONN);
+#else
+	mbed3_tcp_stream_bind(sockfd, info->port, wsi);
+#endif
 	lwsl_notice(" Listening on port %d\n", info->port);
 
 	return 0;
@@ -564,12 +578,12 @@ upgrade_ws:
 			return 1;
 		}
 		lwsl_info("Allocating RX buffer %d\n", n);
-
+#if LWS_POSIX
 		if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF, (const char *)&n, sizeof n)) {
 			lwsl_warn("Failed to set SNDBUF to %d", n);
 			return 1;
 		}
-
+#endif
 		lwsl_parser("accepted v%02d connection\n",
 						       wsi->ietf_spec_revision);
 	} /* while all chars are handled */
@@ -669,13 +683,16 @@ int lws_http_transaction_completed(struct libwebsocket *wsi)
 	return 0;
 }
 
+LWS_VISIBLE
 int lws_server_socket_service(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
 	struct libwebsocket *new_wsi = NULL;
-	int accept_fd = LWS_SOCK_INVALID;
+	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
+#if LWS_POSIX
 	socklen_t clilen;
 	struct sockaddr_in cli_addr;
+#endif
 	int n;
 	int len;
 
@@ -775,13 +792,14 @@ try_pollout:
 
 	case LWS_CONNMODE_SERVER_LISTENER:
 
+#if LWS_POSIX
 		/* pollin means a client has connected to us then */
 
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
 		/* listen socket got an unencrypted connection... */
-
+		
 		clilen = sizeof(cli_addr);
 		lws_latency_pre(context, wsi);
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
@@ -799,7 +817,10 @@ try_pollout:
 		}
 
 		lws_plat_set_socket_options(context, accept_fd);
-
+#else
+		/* not very beautiful... */
+		accept_fd = (lws_sockfd_type)pollfd;
+#endif
 		/*
 		 * look at who we connected to and give user code a chance
 		 * to reject based on client IP.  There's no protocol selected
@@ -827,6 +848,10 @@ try_pollout:
 			PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
 							AWAITING_TIMEOUT);
 
+#if LWS_POSIX == 0
+		mbed3_tcp_stream_accept(accept_fd, new_wsi);
+#endif
+		
 		/*
 		 * A new connection was accepted. Give the user a chance to
 		 * set properties of the newly created wsi. There's no protocol
@@ -978,10 +1003,13 @@ lws_server_get_canonical_hostname(struct libwebsocket_context *context,
 {
 	if (info->options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME)
 		return;
-
+#if LWS_POSIX
 	/* find canonical hostname */
 	gethostname((char *)context->canonical_hostname,
 				       sizeof(context->canonical_hostname) - 1);
 
 	lwsl_notice(" canonical_hostname = %s\n", context->canonical_hostname);
+#else
+	(void)context;
+#endif
 }

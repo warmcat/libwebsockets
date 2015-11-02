@@ -301,6 +301,7 @@ just_kill_connection:
 /*	lwsl_info("closing fd=%d\n", wsi->sock); */
 
 	if (!lws_ssl_close(wsi) && lws_socket_is_valid(wsi->sock)) {
+#if LWS_POSIX
 		n = shutdown(wsi->sock, SHUT_RDWR);
 		if (n)
 			lwsl_debug("closing: shutdown ret %d\n", LWS_ERRNO);
@@ -308,7 +309,9 @@ just_kill_connection:
 		n = compatible_close(wsi->sock);
 		if (n)
 			lwsl_debug("closing: close ret %d\n", LWS_ERRNO);
+
 		wsi->sock = LWS_SOCK_INVALID;
+#endif
 	}
 
 	/* outermost destroy notification for wsi (user_space still intact) */
@@ -323,6 +326,7 @@ libwebsockets_get_addresses(struct libwebsocket_context *context,
 			    void *ads, char *name, int name_len,
 			    char *rip, int rip_len)
 {
+#if LWS_POSIX
 	struct addrinfo ai, *res;
 	struct sockaddr_in addr4;
 
@@ -387,6 +391,16 @@ libwebsockets_get_addresses(struct libwebsocket_context *context,
 	lws_plat_inet_ntop(AF_INET, &addr4.sin_addr, rip, rip_len);
 
 	return 0;
+#else
+	(void)context;
+	(void)ads;
+	(void)name;
+	(void)name_len;
+	(void)rip;
+	(void)rip_len;
+
+	return -1;
+#endif
 }
 
 /**
@@ -407,9 +421,10 @@ libwebsockets_get_addresses(struct libwebsocket_context *context,
 
 LWS_VISIBLE void
 libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
-	struct libwebsocket *wsi, int fd, char *name, int name_len,
+	struct libwebsocket *wsi, lws_sockfd_type fd, char *name, int name_len,
 					char *rip, int rip_len)
 {
+#if LWS_POSIX
 	socklen_t len;
 #ifdef LWS_USE_IPV6
 	struct sockaddr_in6 sin6;
@@ -443,6 +458,15 @@ libwebsockets_get_peer_addresses(struct libwebsocket_context *context,
 
 bail:
 	lws_latency(context, wsi, "libwebsockets_get_peer_addresses", ret, 1);
+#else
+	(void)context;
+	(void)wsi;
+	(void)fd;
+	(void)name;
+	(void)name_len;
+	(void)rip;
+	(void)rip_len;
+#endif
 }
 
 /**
@@ -512,6 +536,8 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
 }
 
 
+#if LWS_POSIX
+
 /**
  * libwebsocket_get_socket_fd() - returns the socket file descriptor
  *
@@ -525,6 +551,8 @@ libwebsocket_get_socket_fd(struct libwebsocket *wsi)
 {
 	return wsi->sock;
 }
+
+#endif
 
 #ifdef LWS_LATENCY
 void

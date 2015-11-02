@@ -120,6 +120,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		n = m;
 		goto handle_truncated_send;
 	}
+
 	if (!lws_socket_is_valid(wsi->sock))
 		lwsl_warn("** error invalid sock but expected to send\n");
 
@@ -584,7 +585,7 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 	int n;
 
 	(void)context;
-	
+#if LWS_POSIX
 	n = recv(wsi->sock, (char *)buf, len, 0);
 	if (n >= 0)
 		return n;
@@ -593,7 +594,13 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 	    LWS_ERRNO == LWS_EWOULDBLOCK ||
 	    LWS_ERRNO == LWS_EINTR)
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
-    
+#else
+	(void)n;
+	(void)wsi;
+	(void)buf;
+	(void)len;
+		// !!!
+#endif
 	lwsl_warn("error on reading from skt\n");
 	return LWS_SSL_CAPABLE_ERROR;
 }
@@ -602,7 +609,8 @@ LWS_VISIBLE int
 lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len)
 {
 	int n;
-	
+
+#if LWS_POSIX
 	n = send(wsi->sock, (char *)buf, len, MSG_NOSIGNAL);
 	if (n >= 0)
 		return n;
@@ -615,6 +623,14 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 	}
+#else
+	(void)n;
+	(void)wsi;
+	(void)buf;
+	(void)len;
+	// !!!
+#endif
+	
 	lwsl_debug("ERROR writing len %d to skt %d\n", len, n);
 	return LWS_SSL_CAPABLE_ERROR;
 }

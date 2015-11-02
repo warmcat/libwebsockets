@@ -91,12 +91,15 @@
 
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #else /* not windows --> */
-#include <errno.h>
+
 #include <fcntl.h>
 #include <strings.h>
 #include <unistd.h>
 #include <sys/types.h>
 #ifndef MBED_OPERATORS
+#ifndef __cplusplus
+#include <errno.h>
+#endif
 #include <netdb.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -189,6 +192,11 @@
 
 #include "libwebsockets.h"
 
+#if defined(MBED_OPERATORS)
+#undef compatible_close
+#define compatible_close(fd) mbed3_delete_tcp_stream_socket(fd)
+#endif
+
 #if defined(WIN32) || defined(_WIN32)
 
 #ifndef BIG_ENDIAN
@@ -225,6 +233,9 @@ typedef unsigned __int64 u_int64_t;
 #include <endian.h>
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stddef.h>
 
 #ifndef container_of
@@ -548,8 +559,12 @@ LWS_EXTERN void
 lws_libev_run(struct libwebsocket_context *context);
 #else
 #define LWS_LIBEV_ENABLED(context) (0)
+#ifdef LWS_POSIX
 #define lws_feature_status_libev(_a) \
 			lwsl_notice("libev support not compiled in\n")
+#else
+#define lws_feature_status_libev(_a)
+#endif
 #define lws_libev_accept(_a, _b, _c) ((void) 0)
 #define lws_libev_io(_a, _b, _c) ((void) 0)
 #define lws_libev_init_fd_table(_a) (0)
@@ -618,7 +633,7 @@ struct _lws_http_mode_related {
 #if defined(WIN32) || defined(_WIN32)
 	HANDLE fd;
 #else
-	lws_sockfd_type fd;
+	int fd;
 #endif
 	unsigned long filepos;
 	unsigned long filelen;
@@ -1279,3 +1294,7 @@ LWS_EXTERN unsigned long long
 time_in_microseconds(void);
 LWS_EXTERN const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
+
+#ifdef __cplusplus
+};
+#endif

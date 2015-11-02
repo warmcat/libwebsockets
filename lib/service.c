@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -359,15 +359,15 @@ int lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int le
 
 LWS_VISIBLE int
 libwebsocket_service_fd(struct libwebsocket_context *context,
-							  struct libwebsocket_pollfd *pollfd)
+					struct libwebsocket_pollfd *pollfd)
 {
 	struct libwebsocket *wsi;
-	int n;
-	int m;
+	int n, m;
+	lws_sockfd_type mfd;
 	int listen_socket_fds_index = 0;
 	time_t now;
 	int timed_out = 0;
-	int our_fd = 0;
+	lws_sockfd_type our_fd = 0;
 	char draining_flow = 0;
 	int more;
 	struct lws_tokens eff_buf;
@@ -396,14 +396,14 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			our_fd = pollfd->fd;
 
 		for (n = 0; n < context->fds_count; n++) {
-			m = context->fds[n].fd;
-			wsi = wsi_from_fd(context,m);
+			mfd = context->fds[n].fd;
+			wsi = wsi_from_fd(context, mfd);
 			if (!wsi)
 				continue;
 
 			if (libwebsocket_service_timeout_check(context, wsi, now))
 				/* he did time out... */
-				if (m == our_fd) {
+				if (mfd == our_fd) {
 					/* it was the guy we came to service! */
 					timed_out = 1;
 					/* he's gone, no need to mark as handled */
@@ -420,7 +420,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		return 0;
 
 	/* no, here to service a socket descriptor */
-	wsi = wsi_from_fd(context,pollfd->fd);
+	wsi = wsi_from_fd(context, pollfd->fd);
 	if (wsi == NULL)
 		/* not lws connection ... leave revents alone and return */
 		return 0;
