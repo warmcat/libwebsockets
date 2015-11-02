@@ -1,0 +1,16 @@
+{
+  "name": "lws",
+  "version": "0.0.0",
+  "description": "Libwebsockets",
+  "keywords": [
+    "websockets",
+    "ws"
+  ],
+  "author": "Andy Green <andy@warmcat.com>",
+  "homepage": "https://libwebsockets.org",
+  "license": "LGPL2.1-SLE",
+  "dependencies": {
+    "mbed-drivers": "^0.11.1",
+    "sockets": "^1.0.0"
+  }
+}
