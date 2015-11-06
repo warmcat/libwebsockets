@@ -93,8 +93,10 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 #endif
 	/* pending control packets have next priority */
 	
-	if (wsi->state == WSI_STATE_ESTABLISHED &&
-	    wsi->u.ws.ping_pending_flag) {
+	if ((wsi->state == WSI_STATE_ESTABLISHED &&
+		 wsi->u.ws.ping_pending_flag) ||
+		(wsi->state == WSI_STATE_RETURNED_CLOSE_ALREADY &&
+		 wsi->u.ws.payload_is_close)) {
 
 		if (wsi->u.ws.payload_is_close)
 			write_type = LWS_WRITE_CLOSE;
