@@ -117,6 +117,11 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		return 0;
 	}
 
+	/* if we are closing, don't confuse the user with writeable cb */
+
+	if (wsi->state == WSI_STATE_RETURNED_CLOSE_ALREADY)
+		goto user_service;
+	
 	/* if nothing critical, user can get the callback */
 	
 	m = lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_IS_WRITEABLE,
@@ -205,9 +210,8 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 	}
 #ifndef LWS_NO_EXTENSIONS
 	wsi->extension_data_pending = 0;
-
-user_service:
 #endif
+user_service:
 	/* one shot */
 
 	if (pollfd) {

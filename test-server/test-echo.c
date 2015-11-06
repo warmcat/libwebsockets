@@ -29,13 +29,16 @@
 #include <assert.h>
 #include <signal.h>
 
+#include "../lib/libwebsockets.h"
+
 #ifndef _WIN32
 #include <syslog.h>
 #include <sys/time.h>
 #include <unistd.h>
+#else
+#include "gettimeofday.h"
+#include <process.h>
 #endif
-
-#include "../lib/libwebsockets.h"
 
 static volatile int force_exit = 0;
 static int versa, state;
@@ -189,10 +192,10 @@ int main(int argc, char **argv)
 	struct libwebsocket_context *context;
 	int opts = 0;
 	char interface_name[128] = "";
-	const char *interface = NULL;
+	const char *_interface = NULL;
 	char ssl_cert[256] = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
 	char ssl_key[256] = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
-#ifndef WIN32
+#ifndef _WIN32
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
 	int client = 0;
@@ -253,7 +256,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
-#ifndef WIN32
+#ifndef _WIN32
 			syslog_options &= ~LOG_PERROR;
 #endif
 			break;
@@ -284,7 +287,7 @@ int main(int argc, char **argv)
 		case 'i':
 			strncpy(interface_name, optarg, sizeof interface_name);
 			interface_name[(sizeof interface_name) - 1] = '\0';
-			interface = interface_name;
+			_interface = interface_name;
 			break;
 		case '?':
 		case 'h':
@@ -323,15 +326,15 @@ int main(int argc, char **argv)
 #endif
 #endif
 
-#ifdef WIN32
-#else
+#ifndef _WIN32
 	/* we will only try to log things according to our debug_level */
 	setlogmask(LOG_UPTO (LOG_DEBUG));
 	openlog("lwsts", syslog_options, LOG_DAEMON);
+#endif
 
 	/* tell the library what debug level to emit and to send it to syslog */
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
-#endif
+
 	lwsl_notice("libwebsockets echo test - "
 		    "(C) Copyright 2010-2015 Andy Green <andy@warmcat.com> - "
 		    "licensed under LGPL2.1\n");
@@ -357,7 +360,7 @@ int main(int argc, char **argv)
 #endif
 
 	info.port = listen_port;
-	info.iface = interface;
+	info.iface = _interface;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
 	info.extensions = libwebsocket_get_internal_extensions();
@@ -422,8 +425,7 @@ bail:
 	libwebsocket_context_destroy(context);
 
 	lwsl_notice("libwebsockets-test-echo exited cleanly\n");
-#ifdef WIN32
-#else
+#ifndef _WIN32
 	closelog();
 #endif
 

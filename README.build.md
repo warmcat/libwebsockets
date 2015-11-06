@@ -12,7 +12,8 @@ simply remove your build directory.
 Libwebsockets has been tested to build successfully on the following platforms
 with SSL support (both OpenSSL/wolfSSL):
 
-- Windows
+- Windows (Visual Studio)
+- Windows (MinGW)
 - Linux (x86 and ARM)
 - OSX
 - NetBSD
@@ -91,7 +92,6 @@ Building on Unix:
 	$ make
     ```
 
-
 Quirk of cmake
 --------------
 
@@ -99,14 +99,18 @@ When changing cmake options, for some reason the only way to get it to see the
 changes sometimes is delete the contents of your build directory and do the
 cmake from scratch.
 
-
 Building on Windows (Visual Studio)
 -----------------------------------
 1. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
 
 2. Install OpenSSL binaries. http://www.openssl.org/related/binaries.html
-   (Preferably in the default location to make it easier for CMake to find them)
 
+   (**NOTE**: Preferably in the default location to make it easier for CMake to find them)
+
+   **NOTE2**: 
+   Be sure that OPENSSL_CONF environment variable is defined and points at 
+   <OpenSSL install location>\bin\openssl.cfg
+	 
 3. Generate the Visual studio project by opening the Visual Studio cmd prompt:
 
    ```bash
@@ -117,9 +121,82 @@ Building on Windows (Visual Studio)
    ```
 
    (**NOTE**: There is also a cmake-gui available on Windows if you prefer that)
+   
+   **NOTE2**:
+   See this link to find out the version number corresponding to your Visual Studio edition:
+   http://superuser.com/a/194065
 
 4. Now you should have a generated Visual Studio Solution in  your
    `<path to src>/build` directory, which can be used to build.
+
+Building on Windows (MinGW)
+---------------------------
+1. Install MinGW: http://sourceforge.net/projects/mingw/files
+
+   (**NOTE**: Preferably in the default location C:\MinGW)
+
+2. Fix up MinGW headers
+
+   a) Add the following lines to C:\MinGW\include\winsock2.h:
+   
+   ```c
+   #if(_WIN32_WINNT >= 0x0600)
+
+   typedef struct pollfd {
+
+       SOCKET  fd;
+       SHORT   events;
+       SHORT   revents;
+
+   } WSAPOLLFD, *PWSAPOLLFD, FAR *LPWSAPOLLFD;
+
+   WINSOCK_API_LINKAGE int WSAAPI WSAPoll(LPWSAPOLLFD fdArray, ULONG fds, INT timeout);
+
+   #endif // (_WIN32_WINNT >= 0x0600)
+   ```
+
+   b) Create C:\MinGW\include\mstcpip.h and copy and paste the content from following link into it:
+    
+   http://wine-unstable.sourcearchive.com/documentation/1.1.32/mstcpip_8h-source.html
+
+3. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
+
+4. Install OpenSSL binaries. http://www.openssl.org/related/binaries.html
+
+   (**NOTE**: Preferably in the default location to make it easier for CMake to find them)
+
+   **NOTE2**: 
+   Be sure that OPENSSL_CONF environment variable is defined and points at 
+   <OpenSSL install location>\bin\openssl.cfg
+
+5. Generate the build files (default is Make files) using MSYS shell:
+
+   ```bash
+   $ cd /drive/path/to/src
+   $ mkdir build
+   $ cd build
+   $ cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=C:/MinGW ..
+   ```
+
+   (**NOTE**: The `build/`` directory can have any name and be located anywhere
+    on your filesystem, and that the argument `..` given to cmake is simply
+    the source directory of **libwebsockets** containing the [CMakeLists.txt](CMakeLists.txt)
+    project file. All examples in this file assumes you use "..")
+
+   **NOTE2**:
+   To generate build files allowing to create libwebsockets binaries with debug information
+   set the CMAKE_BUILD_TYPE flag to DEBUG:
+
+   ```bash
+   $ cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=C:/MinGW -DCMAKE_BUILD_TYPE=DEBUG ..
+   ```
+
+6. Finally you can build using the generated Makefile and get the results deployed into your MinGW installation:
+
+   ```bash
+   $ make
+   $ make install
+   ```
 
 Setting compile options
 -----------------------
@@ -184,7 +261,6 @@ cmake .. -DLWS_USE_CYASSL=1 \
 
 **NOTE**: On windows use the .lib file extension for `LWS_CYASSL_LIBRARIES` instead.
 
-
 Reproducing HTTP2.0 tests
 -------------------------
 
@@ -238,7 +314,6 @@ need to provide the cross libraries otherwise.
 
 Additional information on cross compilation with CMake:
 	http://www.vtk.org/Wiki/CMake_Cross_Compiling
-
 
 Memory efficiency
 -----------------

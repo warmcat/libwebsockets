@@ -155,6 +155,11 @@ struct libwebsocket *libwebsocket_client_connect_2(
 		if (insert_wsi_socket_into_fds(context, wsi))
 			goto oom4;
 
+		/*
+		 * past here, we can't simply free the structs as error
+		 * handling as oom4 does.  We have to run the whole close flow.
+		 */
+
 		libwebsocket_set_timeout(wsi,
 			PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
 							      AWAITING_TIMEOUT);
@@ -219,7 +224,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			 * about the connect completion
 			 */
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
-				goto oom4;
+				goto failed;
 			lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_WRITE);
 
 			return wsi;
@@ -248,7 +253,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			goto failed;
 		wsi->u.hdr.ah->c_port = context->http_proxy_port;
 
-		n = send(wsi->sock, context->service_buffer, plen, MSG_NOSIGNAL);
+		n = send(wsi->sock, (char *)context->service_buffer, plen, MSG_NOSIGNAL);
 		if (n < 0) {
 			lwsl_debug("ERROR writing to proxy socket\n");
 			goto failed;

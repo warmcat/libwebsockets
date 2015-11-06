@@ -83,7 +83,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 			return 0;
 		}
 
-		n = recv(wsi->sock, context->service_buffer,
+		n = recv(wsi->sock, (char *)context->service_buffer,
 					sizeof(context->service_buffer), 0);
 		if (n < 0) {
 			

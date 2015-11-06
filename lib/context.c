@@ -76,9 +76,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 {
 	struct libwebsocket_context *context = NULL;
 	char *p;
-#ifdef _WIN32
-	int i;
-#endif
 	int pid_daemon = get_daemonize_pid();
 
 	lwsl_notice("Initial logging level %d\n", log_level);
@@ -126,6 +123,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	context->ka_interval = info->ka_interval;
 	context->ka_probes = info->ka_probes;
 
+	if (!info->ka_interval && info->ka_time > 0) {
+		lwsl_err("info->ka_interval can't be 0 if ka_time used\n");
+		return NULL;
+	}
+	
 #ifdef LWS_USE_LIBEV
 	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
 	 * enable libev mediated SIGINT handling with a default handler of

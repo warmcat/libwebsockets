@@ -605,7 +605,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 
 		lws_latency_pre(context, wsi);
 
-		n = recv(wsi->sock, context->service_buffer,
+		n = recv(wsi->sock, (char *)context->service_buffer,
 			sizeof(context->service_buffer), MSG_PEEK);
 
 		/*
@@ -615,22 +615,41 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		 * it disabled unless you know it's not a problem for you
 		 */
 
-		if (context->allow_non_ssl_on_ssl_port && n >= 1 &&
-					context->service_buffer[0] >= ' ') {
-			/*
-			 * TLS content-type for Handshake is 0x16
-			 * TLS content-type for ChangeCipherSpec Record is 0x14
-			 *
-			 * A non-ssl session will start with the HTTP method in
-			 * ASCII.  If we see it's not a legit SSL handshake
-			 * kill the SSL for this connection and try to handle
-			 * as a HTTP connection upgrade directly.
-			 */
-			wsi->use_ssl = 0;
-			SSL_shutdown(wsi->ssl);
-			SSL_free(wsi->ssl);
-			wsi->ssl = NULL;
-			goto accepted;
+		if (context->allow_non_ssl_on_ssl_port) {
+			if (n >= 1 && context->service_buffer[0] >= ' ') {
+				/*
+				* TLS content-type for Handshake is 0x16, and
+				* for ChangeCipherSpec Record, it's 0x14
+				*
+				* A non-ssl session will start with the HTTP
+				* method in ASCII.  If we see it's not a legit
+				* SSL handshake kill the SSL for this
+				* connection and try to handle as a HTTP
+				* connection upgrade directly.
+				*/
+				wsi->use_ssl = 0;
+				SSL_shutdown(wsi->ssl);
+				SSL_free(wsi->ssl);
+				wsi->ssl = NULL;
+				goto accepted;
+			}
+			if (!n) /* 
+				 * connection is gone, or nothing to read
+				 * if it's gone, we will timeout on
+				 * PENDING_TIMEOUT_SSL_ACCEPT
+				 */
+				break;
+			if (n < 0 && (LWS_ERRNO == LWS_EAGAIN ||
+				      LWS_ERRNO == LWS_EWOULDBLOCK)) {
+				/*
+				 * well, we get no way to know ssl or not
+				 * so go around again waiting for something
+				 * to come and give us a hint, or timeout the
+				 * connection.
+				 */
+				m = SSL_ERROR_WANT_READ;
+				goto go_again;
+			}
 		}
 
 		/* normal SSL connection processing path */
@@ -645,7 +664,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		m = SSL_get_error(wsi->ssl, n);
 		lwsl_debug("SSL_accept failed %d / %s\n",
 						  m, ERR_error_string(m, NULL));
-
+go_again:
 		if (m == SSL_ERROR_WANT_READ) {
 			if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
 				goto fail;

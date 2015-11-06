@@ -29,24 +29,25 @@
 #include <fcntl.h>
 #include <assert.h>
 
+#include "../lib/libwebsockets.h"
+
 #ifdef _WIN32
 #include <io.h>
 #ifdef EXTERNAL_POLL
 #define poll WSAPoll
 #endif
+#include "gettimeofday.h"
 #else
 #include <syslog.h>
 #include <sys/time.h>
 #include <unistd.h>
 #endif
 
-#include "../lib/libwebsockets.h"
-
 static int close_testing;
 int max_poll_elements;
 
 #ifdef EXTERNAL_POLL
-struct pollfd *pollfds;
+struct libwebsocket_pollfd *pollfds;
 int *fd_lookup;
 int count_pollfds;
 #endif
@@ -203,7 +204,7 @@ static int callback_http(struct libwebsocket_context *context,
 
 			p = buffer + LWS_SEND_BUFFER_PRE_PADDING;
 			end = p + sizeof(buffer) - LWS_SEND_BUFFER_PRE_PADDING;
-#ifdef WIN32
+#ifdef _WIN32
 			pss->fd = open(leaf_path, O_RDONLY | _O_BINARY);
 #else
 			pss->fd = open(leaf_path, O_RDONLY);
@@ -783,7 +784,7 @@ int main(int argc, char **argv)
 	int opts = 0;
 	char interface_name[128] = "";
 	const char *iface = NULL;
-#ifndef WIN32
+#ifndef _WIN32
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
 	unsigned int ms, oldms = 0;
@@ -808,7 +809,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
-			#ifndef WIN32
+			#ifndef _WIN32
 			syslog_options &= ~LOG_PERROR;
 			#endif
 			break;
@@ -863,7 +864,7 @@ int main(int argc, char **argv)
 
 	signal(SIGINT, sighandler);
 
-#ifndef WIN32
+#ifndef _WIN32
 	/* we will only try to log things according to our debug_level */
 	setlogmask(LOG_UPTO (LOG_DEBUG));
 	openlog("lwsts", syslog_options, LOG_DAEMON);
@@ -879,7 +880,7 @@ int main(int argc, char **argv)
 	printf("Using resource path \"%s\"\n", resource_path);
 #ifdef EXTERNAL_POLL
 	max_poll_elements = getdtablesize();
-	pollfds = malloc(max_poll_elements * sizeof (struct pollfd));
+	pollfds = malloc(max_poll_elements * sizeof (struct libwebsocket_pollfd));
 	fd_lookup = malloc(max_poll_elements * sizeof (int));
 	if (pollfds == NULL || fd_lookup == NULL) {
 		lwsl_err("Out of memory pollfds=%d\n", max_poll_elements);
@@ -985,7 +986,7 @@ done:
 
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
-#ifndef WIN32
+#ifndef _WIN32
 	closelog();
 #endif
 

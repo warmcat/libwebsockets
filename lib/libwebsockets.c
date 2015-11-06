@@ -107,13 +107,8 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 	wsi->u.ws.close_reason = reason;
 
 	if (wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT ||
-			wsi->mode == LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE) {
-
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_CLIENT_CONNECTION_ERROR, wsi->user_space, NULL, 0);
-
+			wsi->mode == LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
-	}
 
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING)
 		context->protocols[0].callback(context, wsi,

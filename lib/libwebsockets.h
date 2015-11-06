@@ -33,7 +33,12 @@ extern "C" {
 #include "lws_config.h"
 
 #if defined(WIN32) || defined(_WIN32)
-
+#if (WINVER < 0x0501)
+#undef WINVER
+#undef _WIN32_WINNT
+#define WINVER 0x0501
+#define _WIN32_WINNT WINVER
+#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -68,6 +73,10 @@ extern "C" {
 #define LWS_VISIBLE __attribute__((visibility("default")))
 #else
 #define LWS_VISIBLE
+#endif
+
+#if defined(__ANDROID__)
+#define getdtablesize() 1024
 #endif
 
 #endif
@@ -234,12 +243,14 @@ struct libwebsocket_pollargs {
     int prev_events;   // the previous event mask
 };
 
-#ifdef _WIN32
+
+#if defined(_WIN32) && (_WIN32_WINNT < 0x0600)	
 struct libwebsocket_pollfd {
 	SOCKET fd;
 	SHORT events;
 	SHORT revents;
 };
+WINSOCK_API_LINKAGE int WSAAPI WSAPoll(struct libwebsocket_pollfd fdArray[], ULONG fds, INT timeout);
 #else
 #define libwebsocket_pollfd pollfd
 #endif
@@ -1231,9 +1242,9 @@ libwebsocket_set_timeout(struct libwebsocket *wsi,
 #if __x86_64__
 #define _LWS_PAD_SIZE 16       // Intel recommended for best performance.
 #else
-#define _LWS_PAD_SIZE sizeof(void *)   // The pointer size on any unknown arch.
+#define _LWS_PAD_SIZE LWS_SIZEOFPTR   /* Size of a pointer on the target architecture */
 #endif
-#define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? (n + (_LWS_PAD_SIZE - (n % _LWS_PAD_SIZE))) : (n))
+#define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? ((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
 #define LWS_SEND_BUFFER_PRE_PADDING _LWS_PAD(4 + 10 + (2 * MAX_MUX_RECURSION))
 #define LWS_SEND_BUFFER_POST_PADDING 4
 

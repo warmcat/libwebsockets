@@ -44,6 +44,12 @@ websocket ones, you can combine them together with the websocket ones
 in one poll loop, see "External Polling Loop support" below, and
 still do it all in one thread / process context.
 
+If you insist on trying to use it from multiple threads, take special care if
+you might simultaneously create more than one context from different threads.
+
+SSL_library_init() is called from the context create api and it also is not
+reentrant.  So at least create the contexts sequentially.
+
 
 Only send data when socket writeable
 ------------------------------------

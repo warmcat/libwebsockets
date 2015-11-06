@@ -9,7 +9,7 @@ project(libwebsockets C)
 set(PACKAGE "libwebsockets")
 set(CPACK_PACKAGE_NAME "${PACKAGE}")
 set(CPACK_PACKAGE_VERSION_MAJOR "1")
-set(CPACK_PACKAGE_VERSION_MINOR "4")
+set(CPACK_PACKAGE_VERSION_MINOR "5")
 set(CPACK_PACKAGE_VERSION "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}")
 set(CPACK_PACKAGE_VENDOR "andy@warmcat.com")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PACKAGE} ${PACKAGE_VERSION}")
@@ -211,6 +211,7 @@ endif()
 
 if (MINGW)
 	set(LWS_MINGW_SUPPORT 1)
+	set(CMAKE_C_FLAGS "-D__USE_MINGW_ANSI_STDIO ${CMAKE_C_FLAGS}")
 endif()
 
 include_directories("${PROJECT_BINARY_DIR}")
@@ -300,6 +301,7 @@ CHECK_INCLUDE_FILES("stdlib.h;stdarg.h;string.h;float.h" STDC_HEADERS)
 
 CHECK_TYPE_SIZE(pid_t PID_T_SIZE)
 CHECK_TYPE_SIZE(size_t SIZE_T_SIZE)
+CHECK_TYPE_SIZE("void *" LWS_SIZEOFPTR LANGUAGE C)
 
 if (NOT PID_T_SIZE)
 	set(pid_t int)
@@ -735,27 +737,34 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			set(TEST_SERVER_SSL_CERT "${PROJECT_BINARY_DIR}/libwebsockets-test-server.pem")
 
 			if (WIN32)
-				file(WRITE "${PROJECT_BINARY_DIR}/openssl_input.txt"
-					"GB\n"
-					"Erewhon\n"
-					"All around\n"
-					"libwebsockets-test\n"
-					"localhost\n"
-					"none@invalid.org\n\n"
-					)
+				if (MINGW)
+					message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -subj \"/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost\" -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
+					execute_process(
+						COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -subj "/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+						RESULT_VARIABLE OPENSSL_RETURN_CODE)
+				else()
+					file(WRITE "${PROJECT_BINARY_DIR}/openssl_input.txt"
+						"GB\n"
+						"Erewhon\n"
+						"All around\n"
+						"libwebsockets-test\n"
+						"localhost\n"
+						"none@invalid.org\n\n"
+						)
 
-				# The "type" command is a bit picky with paths.
-				file(TO_NATIVE_PATH "${PROJECT_BINARY_DIR}/openssl_input.txt" OPENSSL_INPUT_WIN_PATH)
-				message("OPENSSL_INPUT_WIN_PATH = ${OPENSSL_INPUT_WIN_PATH}")
-				message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
+					# The "type" command is a bit picky with paths.
+					file(TO_NATIVE_PATH "${PROJECT_BINARY_DIR}/openssl_input.txt" OPENSSL_INPUT_WIN_PATH)
+					message("OPENSSL_INPUT_WIN_PATH = ${OPENSSL_INPUT_WIN_PATH}")
+					message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
 
-				execute_process(
-					COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
-					COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-					RESULT_VARIABLE OPENSSL_RETURN_CODE
-					OUTPUT_QUIET ERROR_QUIET)
+					execute_process(
+						COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
+						COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+						RESULT_VARIABLE OPENSSL_RETURN_CODE
+						OUTPUT_QUIET ERROR_QUIET)
 
-				message("\n")
+					message("\n")
+				endif()
 
 				if (OPENSSL_RETURN_CODE)
 					message(WARNING "!!! Failed to generate SSL certificate for Test Server using cmd.exe !!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
@@ -982,7 +991,9 @@ endif()
 message("---------------------------------------------------------------------")
 message("  Settings:  (For more help do cmake -LH <srcpath>)")
 message("---------------------------------------------------------------------")
-message(" LWS_WITH_SSL = ${LWS_WITH_SSL}  (SSL Support)")
+message(" LWS_WITH_STATIC = ${LWS_WITH_STATIC}")
+message(" LWS_WITH_SHARED = ${LWS_WITH_SHARED}")
+message(" LWS_WITH_SSL = ${LWS_WITH_SSL} (SSL Support)")
 message(" LWS_SSL_CLIENT_USE_OS_CA_CERTS = ${LWS_SSL_CLIENT_USE_OS_CA_CERTS}")
 message(" LWS_USE_WOLFSSL = ${LWS_USE_WOLFSSL} (wolfSSL/CyaSSL replacement for OpenSSL)")
 if (LWS_USE_WOLFSSL)

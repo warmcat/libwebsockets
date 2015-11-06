@@ -555,6 +555,10 @@ all_sent:
 				wsi->u.http.filepos == wsi->u.http.filelen) {
 			wsi->state = WSI_STATE_HTTP;
 
+			/* we might be in keepalive, so close it off here */
+			compatible_file_close(wsi->u.http.fd);
+			wsi->u.http.fd = LWS_INVALID_FILE;
+
 			if (wsi->protocol->callback)
 				/* ignore callback returned value */
 				user_callback_handle_rxflow(
@@ -577,10 +581,15 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 {
 	int n;
 
-	n = recv(wsi->sock, buf, len, 0);
+	n = recv(wsi->sock, (char *)buf, len, 0);
 	if (n >= 0)
 		return n;
 
+	if (LWS_ERRNO == LWS_EAGAIN ||
+	    LWS_ERRNO == LWS_EWOULDBLOCK ||
+	    LWS_ERRNO == LWS_EINTR)
+		return LWS_SSL_CAPABLE_MORE_SERVICE;
+    
 	lwsl_warn("error on reading from skt\n");
 	return LWS_SSL_CAPABLE_ERROR;
 }
@@ -590,7 +599,7 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 {
 	int n;
 	
-	n = send(wsi->sock, buf, len, MSG_NOSIGNAL);
+	n = send(wsi->sock, (char *)buf, len, MSG_NOSIGNAL);
 	if (n >= 0)
 		return n;
 
