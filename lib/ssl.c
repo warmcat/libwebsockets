@@ -633,8 +633,12 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 				wsi->ssl = NULL;
 				goto accepted;
 			}
-			if (!n) /* connection is gone */
-				goto fail;
+			if (!n) /* 
+				 * connection is gone, or nothing to read
+				 * if it's gone, we will timeout on
+				 * PENDING_TIMEOUT_SSL_ACCEPT
+				 */
+				break;
 			if (n < 0 && (LWS_ERRNO == LWS_EAGAIN ||
 				      LWS_ERRNO == LWS_EWOULDBLOCK)) {
 				/*
