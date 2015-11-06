@@ -270,7 +270,9 @@ LWS_VISIBLE int libwebsocket_write(struct libwebsocket *wsi, unsigned char *buf,
 
 	/* websocket protocol, either binary or text */
 
-	if (wsi->state != WSI_STATE_ESTABLISHED)
+	if (wsi->state != WSI_STATE_ESTABLISHED &&
+	    !(wsi->state == WSI_STATE_RETURNED_CLOSE_ALREADY &&
+	      protocol == LWS_WRITE_CLOSE))
 		return -1;
 
 	/* if we are continuing a frame that already had its header done */
