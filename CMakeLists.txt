@@ -108,6 +108,10 @@ set(LWS_WOLFSSL_INCLUDE_DIRS CACHE PATH "Path to the wolfSSL include directory")
 set(LWS_LIBEV_LIBRARIES CACHE PATH "Path to the libev library")
 set(LWS_LIBEV_INCLUDE_DIRS CACHE PATH "Path to the libev include directory")
 
+if (NOT LWS_WITH_SSL)
+	set(LWS_WITHOUT_BUILTIN_SHA1 OFF)
+endif()
+
 if (LWS_WITH_SSL AND NOT LWS_USE_WOLFSSL)
 	if ("${LWS_OPENSSL_LIBRARIES}" STREQUAL "" OR "${LWS_OPENSSL_INCLUDE_DIRS}" STREQUAL "")
 	else()
