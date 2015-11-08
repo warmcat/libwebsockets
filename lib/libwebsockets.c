@@ -310,8 +310,10 @@ just_kill_connection:
 		if (n)
 			lwsl_debug("closing: close ret %d\n", LWS_ERRNO);
 
-		wsi->sock = LWS_SOCK_INVALID;
+#else
+		compatible_close(wsi->sock);
 #endif
+		wsi->sock = LWS_SOCK_INVALID;
 	}
 
 	/* outermost destroy notification for wsi (user_space still intact) */
@@ -709,7 +711,7 @@ libwebsocket_set_proxy(struct libwebsocket_context *context, const char *proxy)
 	p = strchr(proxy, '@');
 	if (p) { /* auth is around */
 
-		if ((p - proxy) > sizeof(authstring) - 1)
+		if ((unsigned int)(p - proxy) > sizeof(authstring) - 1)
 			goto auth_too_long;
 
 		strncpy(authstring + 6, proxy, p - proxy);

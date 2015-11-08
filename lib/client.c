@@ -558,9 +558,9 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	}
 
 	pc = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
-	if (pc == NULL)
+	if (pc == NULL) {
 		lwsl_parser("lws_client_int_s_hs: no protocol list\n");
-	else
+	} else
 		lwsl_parser("lws_client_int_s_hs: protocol list '%s'\n", pc);
 
 	/*

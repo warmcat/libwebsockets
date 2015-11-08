@@ -298,7 +298,7 @@ libwebsocket_service_timeout_check(struct libwebsocket_context *context,
 	 * connection
 	 */
 	if ((time_t)sec > wsi->pending_timeout_limit) {
-		lwsl_info("TIMEDOUT WAITING on %d\n", wsi->pending_timeout);
+		lwsl_info("wsi %p: TIMEDOUT WAITING on %d\n", (void *)wsi, wsi->pending_timeout);
 		/*
 		 * Since he failed a timeout, he already had a chance to do
 		 * something and was unable to... that includes situations like
@@ -364,7 +364,9 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	struct libwebsocket *wsi;
 	int n, m;
 	lws_sockfd_type mfd;
+#if LWS_POSIX
 	int listen_socket_fds_index = 0;
+#endif
 	time_t now;
 	int timed_out = 0;
 	lws_sockfd_type our_fd = 0;
@@ -373,9 +375,10 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	struct lws_tokens eff_buf;
 	unsigned int pending = 0;
 
+#if LWS_POSIX
 	if (context->listen_service_fd)
 		listen_socket_fds_index = wsi_from_fd(context,context->listen_service_fd)->position_in_fds_table;
-
+#endif
          /*
 	 * you can call us with pollfd = NULL to just allow the once-per-second
 	 * global timeout checks; if less than a second since the last check
@@ -430,6 +433,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 	 * zero down pollfd->revents after handling
 	 */
 
+#if LWS_POSIX
 	/*
 	 * deal with listen service piggybacking
 	 * every listen_service_modulo services of other fds, we
@@ -481,6 +485,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 
 		goto close_and_handled;
 	}
+#endif
 
 	/* okay, what we came here to do... */
 

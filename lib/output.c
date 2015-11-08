@@ -46,9 +46,9 @@ libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
 
 LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 {
-	int n;
-	int m;
-	int start;
+	unsigned int n;
+	unsigned int m;
+	unsigned int start;
 	unsigned char *buf = (unsigned char *)vbuf;
 	char line[80];
 	char *p;
@@ -101,13 +101,12 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		return 0;
 	/* just ignore sends after we cleared the truncation buffer */
 	if (wsi->state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE &&
-						!wsi->truncated_send_len)
+	    !wsi->truncated_send_len)
 		return len;
 
 	if (wsi->truncated_send_len && (buf < wsi->truncated_send_malloc ||
-			buf > (wsi->truncated_send_malloc +
-				wsi->truncated_send_len +
-				wsi->truncated_send_offset))) {
+	    buf > (wsi->truncated_send_malloc + wsi->truncated_send_len +
+		   wsi->truncated_send_offset))) {
 		lwsl_err("****** %x Sending new, pending truncated ...\n", wsi);
 		assert(0);
 	}
@@ -133,6 +132,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
+		lwsl_err("%s: wsi %p: LWS_SSL_CAPABLE_ERROR\n", __func__, (void *)wsi);
 		/* we're going to close, let close know sends aren't possible */
 		wsi->socket_is_permanently_unusable = 1;
 		return -1;
@@ -578,6 +578,7 @@ all_sent:
 	return 0; /* indicates further processing must be done */
 }
 
+#if LWS_POSIX
 LWS_VISIBLE int
 lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 			    struct libwebsocket *wsi, unsigned char *buf, int len)
@@ -585,21 +586,15 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 	int n;
 
 	(void)context;
-#if LWS_POSIX
+
 	n = recv(wsi->sock, (char *)buf, len, 0);
 	if (n >= 0)
 		return n;
-
+#if LWS_POSIX
 	if (LWS_ERRNO == LWS_EAGAIN ||
 	    LWS_ERRNO == LWS_EWOULDBLOCK ||
 	    LWS_ERRNO == LWS_EINTR)
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
-#else
-	(void)n;
-	(void)wsi;
-	(void)buf;
-	(void)len;
-		// !!!
 #endif
 	lwsl_warn("error on reading from skt\n");
 	return LWS_SSL_CAPABLE_ERROR;
@@ -608,7 +603,7 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 LWS_VISIBLE int
 lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len)
 {
-	int n;
+	int n = 0;
 
 #if LWS_POSIX
 	n = send(wsi->sock, (char *)buf, len, MSG_NOSIGNAL);
@@ -634,7 +629,7 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 	lwsl_debug("ERROR writing len %d to skt %d\n", len, n);
 	return LWS_SSL_CAPABLE_ERROR;
 }
-
+#endif
 LWS_VISIBLE int
 lws_ssl_pending_no_ssl(struct libwebsocket *wsi)
 {

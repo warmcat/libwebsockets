@@ -99,9 +99,10 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	lwsl_info(" SPEC_LATEST_SUPPORTED: %u\n", SPEC_LATEST_SUPPORTED);
 	lwsl_info(" AWAITING_TIMEOUT: %u\n", AWAITING_TIMEOUT);
+#if LWS_POSIX
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
 	lwsl_info(" LWS_MAX_ZLIB_CONN_BUFFER: %u\n", LWS_MAX_ZLIB_CONN_BUFFER);
-	
+#endif
 	if (lws_plat_context_early_init())
 		return NULL;
 
@@ -116,7 +117,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
 	}
 #endif
-	lwsl_notice(" context: %p\r\n", context);
 
 	context->listen_service_extraseen = 0;
 	context->protocols = info->protocols;
@@ -146,7 +146,6 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	context->lws_ev_sigint_cb = &libwebsocket_sigint_cb;
 #endif /* LWS_USE_LIBEV */
 
-#if LWS_POSIX
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
 	lwsl_notice(" static allocation: %u + (%u x %u fds) = %u bytes\n",
@@ -174,7 +173,7 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	if (lws_plat_init_fd_tables(context)) {
 		goto bail;
 	}
-#endif
+
 	lws_context_init_extensions(info, context);
 
 	context->user_space = info->user;
@@ -225,8 +224,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		info->protocols[context->count_protocols].callback;
 						   context->count_protocols++) {
 
-		lwsl_notice("  Protocol: %s\n",
-				info->protocols[context->count_protocols].name);
+//		lwsl_notice("  Protocol: %s\n",
+//				info->protocols[context->count_protocols].name);
 
 		info->protocols[context->count_protocols].owning_server =
 									context;

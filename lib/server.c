@@ -728,6 +728,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			len = lws_ssl_capable_read(context, wsi,
 					context->service_buffer,
 						       sizeof(context->service_buffer));
+			lwsl_debug("%s: read %d\r\n", __func__, len);
 			switch (len) {
 			case 0:
 				lwsl_info("lws_server_skt_srv: read 0 len\n");
@@ -864,9 +865,10 @@ try_pollout:
 		lws_libev_accept(context, new_wsi, accept_fd);
 
 		if (!LWS_SSL_ENABLED(context)) {
+#if LWS_POSIX
 			lwsl_debug("accepted new conn  port %u on fd=%d\n",
 					  ntohs(cli_addr.sin_port), accept_fd);
-
+#endif
 			if (insert_wsi_socket_into_fds(context, new_wsi))
 				goto fail;
 		}

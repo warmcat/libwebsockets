@@ -195,6 +195,15 @@
 #if defined(MBED_OPERATORS)
 #undef compatible_close
 #define compatible_close(fd) mbed3_delete_tcp_stream_socket(fd)
+#ifndef BIG_ENDIAN
+#define BIG_ENDIAN    4321  /* to show byte order (taken from gcc) */
+#endif
+#ifndef LITTLE_ENDIAN
+#define LITTLE_ENDIAN 1234
+#endif
+#ifndef BYTE_ORDER
+#define BYTE_ORDER LITTLE_ENDIAN
+#endif
 #endif
 
 #if defined(WIN32) || defined(_WIN32)
@@ -208,7 +217,9 @@
 #ifndef BYTE_ORDER
 #define BYTE_ORDER LITTLE_ENDIAN
 #endif
+#ifndef u_int64_t
 typedef unsigned __int64 u_int64_t;
+#endif
 
 #undef __P
 #ifndef __P
@@ -295,7 +306,7 @@ extern "C" {
 #define SPEC_LATEST_SUPPORTED 13
 #endif
 #ifndef AWAITING_TIMEOUT
-#define AWAITING_TIMEOUT 5
+#define AWAITING_TIMEOUT 20
 #endif
 #ifndef CIPHERS_LIST_STRING
 #define CIPHERS_LIST_STRING "DEFAULT"

@@ -25,7 +25,6 @@ int
 insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 						       struct libwebsocket *wsi)
 {
-#if LWS_POSIX
 	struct libwebsocket_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
 
 	if (context->fds_count >= context->max_fds) {
@@ -44,8 +43,8 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	assert(wsi);
 	assert(lws_socket_is_valid(wsi->sock));
 
-	lwsl_info("insert_wsi_socket_into_fds: wsi=%p, sock=%d, fds pos=%d\n",
-					    wsi, wsi->sock, context->fds_count);
+//	lwsl_info("insert_wsi_socket_into_fds: wsi=%p, sock=%d, fds pos=%d\n",
+//					    wsi, wsi->sock, context->fds_count);
 
 	if (context->protocols[0].callback(context, wsi,
 	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *) &pa, 0))
@@ -66,9 +65,6 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 	if (context->protocols[0].callback(context, wsi,
 	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *)&pa, 0))
 		return -1;
-#endif
-	(void)context;
-	(void)wsi;
 
 	return 0;
 }
@@ -77,7 +73,6 @@ int
 remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi)
 {
-#if LWS_POSIX
 	int m;
 	struct libwebsocket_pollargs pa = { wsi->sock, 0, 0 };
 
@@ -130,10 +125,6 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 				       LWS_CALLBACK_UNLOCK_POLL,
 				       wsi->user_space, (void *) &pa, 0))
 		return -1;
-#endif
-	
-	(void)context;
-	(void)wsi;
 
 	return 0;
 }

@@ -49,8 +49,15 @@ class lws_conn {
 
 public:
 	void set_wsi(struct libwebsocket *_wsi) { wsi = _wsi; }
+	int actual_onRX(Socket *s);
+	void onRX(Socket *s);
+	void onError(Socket *s, socket_error_t err);
+	void onDisconnect(TCPStream *s);
+	void onSent(Socket *s, uint16_t len);
+
 public:
 	TCPStream *ts;
+	Socket *s_HACK;
 	
 public:
 	struct libwebsocket *wsi;
@@ -72,16 +79,11 @@ protected:
 	void onError(Socket *s, socket_error_t err);
 	void onIncoming(TCPListener *s, void *impl);
 	void onDisconnect(TCPStream *s);
-	void onSent(Socket *s, uint16_t len);
 
 public:
 	TCPListener srv;
 };
 
-
-#define LWS_POSIX 0
-#else
-#define LWS_POSIX 1
 #endif
 
 extern "C" {
@@ -89,6 +91,12 @@ extern "C" {
 #include <stdarg.h>
 #endif
 
+#ifdef MBED_OPERATORS
+#define LWS_POSIX 0
+#else
+#define LWS_POSIX 1
+#endif
+	
 #include "lws_config.h"
 
 #if defined(WIN32) || defined(_WIN32)
@@ -311,6 +319,7 @@ WINSOCK_API_LINKAGE int WSAAPI WSAPoll(struct libwebsocket_pollfd fdArray[], ULO
 #else
 
 #if defined(MBED_OPERATORS)
+/* it's a class lws_conn * */
 typedef void * lws_sockfd_type;
 #define lws_sockfd_valid(sfd) (!!sfd)
 struct pollfd {
@@ -332,7 +341,7 @@ void mbed3_delete_tcp_stream_socket(void *sockfd);
 void mbed3_tcp_stream_bind(void *sock, int port, struct libwebsocket *);
 void mbed3_tcp_stream_accept(void *sock, struct libwebsocket *);
 #else
-typedef int lws_fd_type;
+typedef int lws_sockfd_type;
 #define lws_sockfd_valid(sfd) (sfd >= 0)
 #endif
 
