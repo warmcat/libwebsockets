@@ -176,38 +176,20 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 
 	lws_server_get_canonical_hostname(context, info);
 
-	/* split the proxy ads:port if given */
+	/* either use proxy from info, or try get it from env var */
 
 	if (info->http_proxy_address) {
-		strncpy(context->http_proxy_address, info->http_proxy_address,
-				      sizeof(context->http_proxy_address) - 1);
-		context->http_proxy_address[
-				sizeof(context->http_proxy_address) - 1] = '\0';
-		context->http_proxy_port = info->http_proxy_port;
+		/* override for backwards compatibility */
+		if (info->http_proxy_port)
+			context->http_proxy_port = info->http_proxy_port;
+		libwebsocket_set_proxy(context, info->http_proxy_address);
 	} else {
 #ifdef LWS_HAVE_GETENV
 		p = getenv("http_proxy");
-		if (p) {
-			strncpy(context->http_proxy_address, p,
-				       sizeof(context->http_proxy_address) - 1);
-			context->http_proxy_address[
-				sizeof(context->http_proxy_address) - 1] = '\0';
-
-			p = strchr(context->http_proxy_address, ':');
-			if (p == NULL) {
-				lwsl_err("http_proxy needs to be ads:port\n");
-				goto bail;
-			}
-			*p = '\0';
-			context->http_proxy_port = atoi(p + 1);
-		}
+		if (p)
+			libwebsocket_set_proxy(context, p);
 #endif
 	}
-
-	if (context->http_proxy_address[0])
-		lwsl_notice(" Proxy %s:%u\n",
-				context->http_proxy_address,
-						      context->http_proxy_port);
 
 	lwsl_notice(
 		" per-conn mem: %u + %u headers + protocol rx buf\n",

@@ -452,6 +452,7 @@ struct libwebsocket_context {
 	const char *iface;
 	char http_proxy_address[128];
 	char canonical_hostname[128];
+	char proxy_basic_auth_token[128];
 	unsigned int http_proxy_port;
 	unsigned int options;
 	time_t last_timeout_check_s;

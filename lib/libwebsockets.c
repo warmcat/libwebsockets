@@ -672,28 +672,54 @@ LWS_VISIBLE int
 libwebsocket_set_proxy(struct libwebsocket_context *context, const char *proxy)
 {
 	char *p;
+	char authstring[96];
 	
 	if (!proxy)
 		return -1;
+
+	p = strchr(proxy, '@');
+	if (p) { /* auth is around */
+
+		if ((p - proxy) > sizeof(authstring) - 1)
+			goto auth_too_long;
+
+		strncpy(authstring + 6, proxy, p - proxy);
+		// null termination not needed on input
+		if (lws_b64_encode_string(authstring, (p - proxy),
+		    context->proxy_basic_auth_token,
+		    sizeof context->proxy_basic_auth_token) < 0)
+			goto auth_too_long;
+
+		lwsl_notice(" Proxy auth in use\n");
+			
+		proxy = p + 1;
+	} else
+		context->proxy_basic_auth_token[0] = '\0';
 
 	strncpy(context->http_proxy_address, proxy,
 				sizeof(context->http_proxy_address) - 1);
 	context->http_proxy_address[
 				sizeof(context->http_proxy_address) - 1] = '\0';
-	
+
 	p = strchr(context->http_proxy_address, ':');
-	if (!p) {
+	if (!p && !context->http_proxy_port) {
 		lwsl_err("http_proxy needs to be ads:port\n");
 
 		return -1;
+	} else {
+		*p = '\0';
+		context->http_proxy_port = atoi(p + 1);
 	}
-	*p = '\0';
-	context->http_proxy_port = atoi(p + 1);
-	
+
 	lwsl_notice(" Proxy %s:%u\n", context->http_proxy_address,
 						context->http_proxy_port);
 
 	return 0;
+
+auth_too_long:
+	lwsl_err("proxy auth too long\n");
+
+	return -1;
 }
 
 /**

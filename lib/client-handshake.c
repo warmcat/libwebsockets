@@ -27,11 +27,18 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	if (context->http_proxy_port) {
 		plen = sprintf((char *)context->service_buffer,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
-			"User-agent: libwebsockets\x0d\x0a"
-/*Proxy-authorization: basic aGVsbG86d29ybGQ= */
-			"\x0d\x0a",
+			"User-agent: libwebsockets\x0d\x0a",
 			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
 			wsi->u.hdr.ah->c_port);
+
+		if (context->proxy_basic_auth_token)
+			plen += sprintf((char *)context->service_buffer + plen,
+					"Proxy-authorization: basic %s\x0d\x0a",
+					context->proxy_basic_auth_token);
+
+		plen += sprintf((char *)context->service_buffer + plen,
+				"\x0d\x0a");
+
 		ads = context->http_proxy_address;
 
 #ifdef LWS_USE_IPV6
@@ -54,7 +61,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	/*
 	 * prepare the actual connection (to the proxy, if any)
 	 */
-       lwsl_client("libwebsocket_client_connect_2: address %s\n", ads);
+       lwsl_client("%s: address %s\n", __func__, ads);
 
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context)) {
