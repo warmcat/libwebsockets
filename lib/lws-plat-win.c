@@ -142,6 +142,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	DWORD ev;
 	WSANETWORKEVENTS networkevents;
 	struct libwebsocket_pollfd *pfd;
+	struct libwebsocket *wsi;
 
 	/* stay dead once we are dead */
 
@@ -157,7 +158,8 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 			continue;
 
 		if (pfd->events & LWS_POLLOUT) {
-			if (wsi_from_fd(context,pfd->fd)->sock_send_blocking)
+			wsi = wsi_from_fd(context, pfd->fd);
+			if (!wsi || wsi->sock_send_blocking)
 				continue;
 			pfd->revents = LWS_POLLOUT;
 			n = libwebsocket_service_fd(context, pfd);
