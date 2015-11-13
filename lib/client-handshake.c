@@ -136,7 +136,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 		freeaddrinfo(result);
 	}
 
-	if (wsi->sock < 0) {
+	if (!lws_socket_is_valid(wsi->sock)) {
 
 #ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context))
@@ -145,7 +145,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 #endif
 			wsi->sock = socket(AF_INET, SOCK_STREAM, 0);
 
-		if (wsi->sock < 0) {
+		if (!lws_socket_is_valid(wsi->sock)) {
 			lwsl_warn("Unable to open socket\n");
 			goto oom4;
 		}

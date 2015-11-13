@@ -618,7 +618,8 @@ libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
 	new_wsi->protocol = context->protocols;
 	new_wsi->user_space = NULL;
 	new_wsi->ietf_spec_revision = 0;
-
+	new_wsi->sock = LWS_SOCK_INVALID;
+	
 	/*
 	 * outermost create notification for wsi
 	 * no user_space because no protocol selection

@@ -71,6 +71,8 @@
 		amount = _amount; \
 	}
 #define lws_set_blocking_send(wsi) wsi->sock_send_blocking = TRUE
+#define lws_socket_is_valid(x) (!!x)
+#define LWS_SOCK_INVALID 0 
 #include <winsock2.h>
 #include <windows.h>
 #include <tchar.h>
@@ -143,6 +145,8 @@
 #define compatible_file_read(amount, fd, buf, len) \
 		amount = read(fd, buf, len);
 #define lws_set_blocking_send(wsi)
+#define lws_socket_is_valid(x) (x >= 0)
+#define LWS_SOCK_INVALID (-1)
 #endif
 
 #ifndef LWS_HAVE_BZERO
