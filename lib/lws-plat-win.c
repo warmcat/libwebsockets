@@ -199,7 +199,8 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 
 	if (pfd->revents & LWS_POLLOUT) {
 		wsi = wsi_from_fd(context, pfd->fd);
-		wsi->sock_send_blocking = FALSE;
+		if (wsi)
+			wsi->sock_send_blocking = FALSE;
 	}
 
 	return libwebsocket_service_fd(context, pfd);
