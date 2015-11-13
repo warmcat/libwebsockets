@@ -197,8 +197,10 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 
 	pfd->revents = networkevents.lNetworkEvents;
 
-	if (pfd->revents & LWS_POLLOUT)
-		wsi_from_fd(context,pfd->fd)->sock_send_blocking = FALSE;
+	if (pfd->revents & LWS_POLLOUT) {
+		wsi = wsi_from_fd(context, pfd->fd);
+		wsi->sock_send_blocking = FALSE;
+	}
 
 	return libwebsocket_service_fd(context, pfd);
 }
