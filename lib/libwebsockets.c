@@ -300,7 +300,7 @@ just_kill_connection:
 
 /*	lwsl_info("closing fd=%d\n", wsi->sock); */
 
-	if (!lws_ssl_close(wsi) && wsi->sock >= 0) {
+	if (!lws_ssl_close(wsi) && lws_socket_is_valid(wsi->sock)) {
 		n = shutdown(wsi->sock, SHUT_RDWR);
 		if (n)
 			lwsl_debug("closing: shutdown ret %d\n", LWS_ERRNO);
@@ -308,6 +308,7 @@ just_kill_connection:
 		n = compatible_close(wsi->sock);
 		if (n)
 			lwsl_debug("closing: close ret %d\n", LWS_ERRNO);
+		wsi->sock = LWS_SOCK_INVALID;
 	}
 
 	/* outermost destroy notification for wsi (user_space still intact) */

@@ -120,7 +120,7 @@ int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
 		n = m;
 		goto handle_truncated_send;
 	}
-	if (wsi->sock < 0)
+	if (!lws_socket_is_valid(wsi->sock))
 		lwsl_warn("** error invalid sock but expected to send\n");
 
 	/*

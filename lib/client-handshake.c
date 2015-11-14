@@ -159,8 +159,10 @@ struct libwebsocket *libwebsocket_client_connect_2(
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT;
 
 		lws_libev_accept(context, wsi, wsi->sock);
-		if (insert_wsi_socket_into_fds(context, wsi))
+		if (insert_wsi_socket_into_fds(context, wsi)) {
+			compatible_close(wsi->sock);
 			goto oom4;
+		}
 
 		/*
 		 * past here, we can't simply free the structs as error
@@ -190,14 +192,12 @@ struct libwebsocket *libwebsocket_client_connect_2(
 					(struct sockaddr_in *)v, n) < 0) {
 				lwsl_err("Unable to find interface %s\n",
 								context->iface);
-				compatible_close(wsi->sock);
 				goto failed;
 			}
 
 			if (bind(wsi->sock, v, n) < 0) {
 				lwsl_err("Error binding to interface %s",
 								context->iface);
-				compatible_close(wsi->sock);
 				goto failed;
 			}
 		}
@@ -350,7 +350,7 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	if (wsi == NULL)
 		goto bail;
 
-	wsi->sock = -1;
+	wsi->sock = LWS_SOCK_INVALID;
 
 	/* -1 means just use latest supported */
 

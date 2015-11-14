@@ -49,7 +49,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 #endif
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
-	if (sockfd < 0) {
+	if (sockfd == -1) {
 		lwsl_err("ERROR opening socket\n");
 		return 1;
 	}
@@ -671,7 +671,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
 {
 	struct libwebsocket *new_wsi = NULL;
-	int accept_fd = 0;
+	int accept_fd = LWS_SOCK_INVALID;
 	socklen_t clilen;
 	struct sockaddr_in cli_addr;
 	int n;

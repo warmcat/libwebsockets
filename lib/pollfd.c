@@ -41,7 +41,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 #endif
 
 	assert(wsi);
-	assert(wsi->sock >= 0);
+	assert(lws_socket_is_valid(wsi->sock));
 
 	lwsl_info("insert_wsi_socket_into_fds: wsi=%p, sock=%d, fds pos=%d\n",
 					    wsi, wsi->sock, context->fds_count);
@@ -115,7 +115,7 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 	wsi->position_in_fds_table = -1;
 
 	/* remove also from external POLL support via protocol 0 */
-	if (wsi->sock) {
+	if (lws_socket_is_valid(wsi->sock)) {
 		if (context->protocols[0].callback(context, wsi,
 		    LWS_CALLBACK_DEL_POLL_FD, wsi->user_space,
 		    (void *) &pa, 0))
