@@ -77,6 +77,24 @@ run.
 </table>
 </section>
 
+<section id="ot" class="group2">
+<div class="title">libwebsockets "open and close testing"</div>
+<table><tr><td>
+<table class="content" width="200px">
+		<tr>
+		<td align=center><input type=button id=ot_open_btn value="Open" onclick="ot_open();" ></td>
+		<td align=center><input type=button id=ot_close_btn disabled value="Close" onclick="ot_close();" ></td>
+		</tr>
+		<tr><td colspan="2" id=ot_statustd align=center class="explain"><div id=ot_status>Not initialized</div></td></tr>
+	</tr>
+</table>
+</td><td class="explain">
+To help with open and close testing, you can open and close a connection by hand using
+ the buttons.
+</td></tr></table>
+</section>
+<br>
+
 </td></tr><tr><td>
 Looking for support? <a href="http://libwebsockets.org">http://libwebsockets.org</a><br/>
 Join the mailing list: ​<a href="http://ml.libwebsockets.org/mailman/listinfo/libwebsockets">http://ml.libwebsockets.org/mailman/listinfo/libwebsockets</a>
@@ -276,6 +294,39 @@ function reset() {
 	socket_di.send("reset\n");
 }
 
+var socket_ot;
+
+function ot_open() {
+	if (typeof MozWebSocket != "undefined") {
+		socket_ot = new MozWebSocket(get_appropriate_ws_url(),
+				   "dumb-increment-protocol");
+	} else {
+		socket_ot = new WebSocket(get_appropriate_ws_url(),
+				   "dumb-increment-protocol");
+	}
+	try {
+		socket_ot.onopen = function() {
+			document.getElementById("ot_statustd").style.backgroundColor = "#40ff40";
+			document.getElementById("ot_status").textContent = " websocket connection opened ";
+			document.getElementById("ot_open_btn").disabled = true;
+			document.getElementById("ot_close_btn").disabled = false;
+		} 
+
+		socket_ot.onclose = function(){
+			document.getElementById("ot_statustd").style.backgroundColor = "#ff4040";
+			document.getElementById("ot_status").textContent = " websocket connection CLOSED ";
+			document.getElementById("ot_open_btn").disabled = false;
+			document.getElementById("ot_close_btn").disabled = true;
+
+		}
+	} catch(exception) {
+		alert('<p>Error' + exception);  
+	}
+}
+
+function ot_close() {
+	socket_ot.close();
+}
 
 /* lws-mirror protocol */
 
