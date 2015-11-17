@@ -206,9 +206,10 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_CLIENT
 	char address[256], ads_port[256 + 30];
 	int rate_us = 250000;
-	unsigned int oldus = 0;
+	unsigned long long oldus;
 	struct libwebsocket *wsi;
 	int disallow_selfsigned = 0;
+	struct timeval tv;
 #endif
 
 	int debug_level = 7;
@@ -386,11 +387,14 @@ int main(int argc, char **argv)
 
 	signal(SIGINT, sighandler);
 
+#ifndef LWS_NO_CLIENT
+	gettimeofday(&tv, NULL);
+	oldus = ((unsigned long long)tv.tv_sec * 1000000) + tv.tv_usec;
+#endif
+
 	n = 0;
 	while (n >= 0 && !force_exit) {
 #ifndef LWS_NO_CLIENT
-		struct timeval tv;
-
 		if (client && !state) {
 			state = 1;
 			lwsl_notice("Client connecting to %s:%u....\n", address, port);
@@ -411,9 +415,9 @@ int main(int argc, char **argv)
 		if (client && !versa) {
 			gettimeofday(&tv, NULL);
 
-			if (((unsigned int)tv.tv_usec - oldus) > (unsigned int)rate_us) {
+			if (((((unsigned long long)tv.tv_sec * 1000000) + tv.tv_usec) - oldus) > rate_us) {
 				libwebsocket_callback_on_writable_all_protocol(&protocols[0]);
-				oldus = tv.tv_usec;
+				oldus = ((unsigned long long)tv.tv_sec * 1000000) + tv.tv_usec;
 			}
 		}
 #endif
