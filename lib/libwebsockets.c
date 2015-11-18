@@ -714,7 +714,7 @@ libwebsocket_set_proxy(struct libwebsocket_context *context, const char *proxy)
 		if ((unsigned int)(p - proxy) > sizeof(authstring) - 1)
 			goto auth_too_long;
 
-		strncpy(authstring + 6, proxy, p - proxy);
+		strncpy(authstring, proxy, p - proxy);
 		// null termination not needed on input
 		if (lws_b64_encode_string(authstring, (p - proxy),
 		    context->proxy_basic_auth_token,

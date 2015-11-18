@@ -31,7 +31,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
 			wsi->u.hdr.ah->c_port);
 
-		if (context->proxy_basic_auth_token)
+		if (context->proxy_basic_auth_token[0])
 			plen += sprintf((char *)context->service_buffer + plen,
 					"Proxy-authorization: basic %s\x0d\x0a",
 					context->proxy_basic_auth_token);
