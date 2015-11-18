@@ -355,6 +355,7 @@ LWS_VISIBLE void
 lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
 						       struct libwebsocket *wsi)
 {
+	context->fds[context->fds_count].events = 0;
 	context->fds[context->fds_count++].revents = 0;
 	context->events[context->fds_count] = WSACreateEvent();
 	WSAEventSelect(wsi->sock, context->events[context->fds_count], LWS_POLLIN);
@@ -377,10 +378,13 @@ LWS_VISIBLE int
 lws_plat_change_pollfd(struct libwebsocket_context *context,
 		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
 {
-	long networkevents = LWS_POLLOUT | LWS_POLLHUP;
+	long networkevents = LWS_POLLHUP;
 		
 	if ((pfd->events & LWS_POLLIN))
 		networkevents |= LWS_POLLIN;
+	
+	if ((pfd->events & LWS_POLLOUT))
+		networkevents |= LWS_POLLOUT;
 
 	if (WSAEventSelect(wsi->sock,
 			context->events[wsi->position_in_fds_table + 1],
