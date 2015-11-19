@@ -681,11 +681,22 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 	#
 	# Helper function for adding a test app.
 	#
-	macro(create_test_app TEST_NAME MAIN_SRC)
+	macro(create_test_app TEST_NAME MAIN_SRC S2 S3 S4)
 
 		set(TEST_SRCS ${MAIN_SRC})
 		set(TEST_HDR)
-
+		if ("${S2}" STREQUAL "")
+		else()
+			list(APPEND TEST_SRCS ${S2})
+		endif()
+		if ("${S3}" STREQUAL "")
+		else()
+			list(APPEND TEST_SRCS ${S3})
+		endif()
+		if ("${S4}" STREQUAL "")
+		else()
+			list(APPEND TEST_SRCS ${S4})
+		endif()
 		if (WIN32)
 			list(APPEND TEST_SRCS
 				${WIN32_HELPERS_PATH}/getopt.c
@@ -743,14 +754,14 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		# test-server
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER)
-			create_test_app(test-server "test-server/test-server.c")
+			create_test_app(test-server "test-server/test-server.c" "test-server/test-server-http.c" "test-server/test-server-dumb-increment.c" "test-server/test-server-mirror.c")
 		endif()
 
 		#
 		# test-server-extpoll
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER_EXTPOLL)
-			create_test_app(test-server-extpoll "test-server/test-server.c")
+			create_test_app(test-server-extpoll "test-server/test-server.c" "test-server/test-server-http.c" "test-server/test-server-dumb-increment.c" "test-server/test-server-mirror.c")
 			# Set defines for this executable only.
 			set_property(
 				TARGET test-server-extpoll
@@ -855,27 +866,27 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		# test-client
 		#
 		if (NOT LWS_WITHOUT_TEST_CLIENT)
-			create_test_app(test-client "test-server/test-client.c")
+			create_test_app(test-client "test-server/test-client.c" "" "" "")
 		endif()
 
 		#
 		# test-fraggle
 		#
 		if (NOT LWS_WITHOUT_TEST_FRAGGLE)
-			create_test_app(test-fraggle "test-server/test-fraggle.c")
+			create_test_app(test-fraggle "test-server/test-fraggle.c" "" "" "")
 		endif()
 
 		#
 		# test-ping
 		#
 		if (NOT LWS_WITHOUT_TEST_PING)
-			create_test_app(test-ping "test-server/test-ping.c")
+			create_test_app(test-ping "test-server/test-ping.c" "" "" "")
 		endif()
 		#
 		# test-echo
 		#
 		if (NOT WITHOUT_TEST_ECHO)
-			create_test_app(test-echo "test-server/test-echo.c")
+			create_test_app(test-echo "test-server/test-echo.c" "" "" "")
 		endif()
 
 	endif(NOT LWS_WITHOUT_CLIENT)

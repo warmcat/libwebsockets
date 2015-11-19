@@ -1,0 +1,73 @@
+#include "lws_config.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <getopt.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <assert.h>
+
+#include "../lib/libwebsockets.h"
+
+#ifdef _WIN32
+#include <io.h>
+#ifdef EXTERNAL_POLL
+#define poll WSAPoll
+#endif
+#include "gettimeofday.h"
+#else
+#include <syslog.h>
+#include <sys/time.h>
+#include <unistd.h>
+#endif
+
+extern int close_testing;
+extern int max_poll_elements;
+
+#ifdef EXTERNAL_POLL
+extern struct libwebsocket_pollfd *pollfds;
+extern int *fd_lookup;
+extern int count_pollfds;
+#endif
+extern volatile int force_exit;
+extern struct libwebsocket_context *context;
+extern char *resource_path;
+
+struct per_session_data__http {
+	int fd;
+};
+
+/*
+ * one of these is auto-created for each connection and a pointer to the
+ * appropriate instance is passed to the callback in the user parameter
+ *
+ * for this example protocol we use it to individualize the count for each
+ * connection.
+ */
+
+struct per_session_data__dumb_increment {
+	int number;
+};
+
+struct per_session_data__lws_mirror {
+	struct libwebsocket *wsi;
+	int ringbuffer_tail;
+};
+
+extern int callback_http(struct libwebsocket_context *context,
+			 struct libwebsocket *wsi,
+			 enum libwebsocket_callback_reasons reason,
+			 void *user, void *in, size_t len);
+extern int callback_lws_mirror(struct libwebsocket_context *context,
+			       struct libwebsocket *wsi,
+			       enum libwebsocket_callback_reasons reason,
+			       void *user, void *in, size_t len);
+extern int callback_dumb_increment(struct libwebsocket_context *context,
+			       struct libwebsocket *wsi,
+			       enum libwebsocket_callback_reasons reason,
+			       void *user, void *in, size_t len);
+
+extern void
+dump_handshake_info(struct libwebsocket *wsi);
