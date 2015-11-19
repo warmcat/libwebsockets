@@ -35,6 +35,10 @@ extern volatile int force_exit;
 extern struct libwebsocket_context *context;
 extern char *resource_path;
 
+#ifndef __func__
+#define __func__ __FUNCTION__
+#endif
+
 struct per_session_data__http {
 	int fd;
 };
