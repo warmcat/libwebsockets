@@ -355,7 +355,6 @@ LWS_VISIBLE void
 lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
 						       struct libwebsocket *wsi)
 {
-	context->fds[context->fds_count].events = 0;
 	context->fds[context->fds_count++].revents = 0;
 	context->events[context->fds_count] = WSACreateEvent();
 	WSAEventSelect(wsi->sock, context->events[context->fds_count], LWS_POLLIN);
