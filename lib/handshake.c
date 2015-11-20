@@ -125,6 +125,19 @@ http_new:
 				goto read_ok;
 			case WSI_STATE_HTTP_BODY:
 				wsi->u.http.content_remain = wsi->u.http.content_length;
+				if (!wsi->u.http.content_remain) {
+					/* there is no POST content */
+					libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+					if (wsi->protocol->callback) {
+						n = wsi->protocol->callback(
+							wsi->protocol->owning_server, wsi,
+							LWS_CALLBACK_HTTP_BODY_COMPLETION,
+							wsi->user_space, NULL, 0);
+						if (n)
+							goto bail;
+					}
+					goto http_complete;
+				}
 				goto http_postbody;
 			default:
 				break;
