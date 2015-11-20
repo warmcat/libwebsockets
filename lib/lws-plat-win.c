@@ -395,23 +395,6 @@ lws_plat_change_pollfd(struct libwebsocket_context *context,
 	return 1;
 }
 
-LWS_VISIBLE HANDLE
-lws_plat_open_file(const char* filename, unsigned long* filelen)
-{
-	HANDLE ret;
-	WCHAR buffer[MAX_PATH];
-
-	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buffer,
-				sizeof(buffer) / sizeof(buffer[0]));
-	ret = CreateFileW(buffer, GENERIC_READ, FILE_SHARE_READ,
-				NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-
-	if (ret != LWS_INVALID_FILE)
-		*filelen = GetFileSize(ret, NULL);
-
-	return ret;
-}
-
 LWS_VISIBLE const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 { 

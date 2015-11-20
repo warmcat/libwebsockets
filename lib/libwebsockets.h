@@ -1120,6 +1120,24 @@ struct libwebsocket_extension {
 #endif
 
 /**
+ * struct libwebsocket_file_callbacks -	File operations callbacks
+ *
+ * @pfn_open:		Open file (always binary access)
+ * @pfn_close:		Close file
+ * @pfn_seek_cur:	Seeking function from current position
+ * @pfn_read:		File read function
+ *				'amount' is a count of bytes read,
+ *				'len' is count of bytes to read
+ */
+
+struct libwebsocket_file_callbacks {
+	void* (*pfn_open)(const char* filename, unsigned long* filelen);
+	void (*pfn_close)(void* handle);
+	unsigned long (*pfn_seek_cur)(void* handle, long offsetFromCurPos);
+	void (*pfn_read)(unsigned long* amount, void* handle, unsigned char* buf, unsigned long len);
+};
+
+/**
  * struct lws_context_creation_info: parameters to create context with
  *
  * @port:	Port to listen on... you can use CONTEXT_PORT_NO_LISTEN to
@@ -1135,6 +1153,8 @@ struct libwebsocket_extension {
  * @extensions: NULL or array of libwebsocket_extension structs listing the
  *		extensions this context supports.  If you configured with
  *		--without-extensions, you should give NULL here.
+ * @file_callbacks: custom file operation callbacks 
+		to support virtual file system defined by application
  * @token_limits: NULL or struct lws_token_limits pointer which is initialized
  *      with a token length limit for each possible WSI_TOKEN_*** 
  * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
@@ -1175,6 +1195,7 @@ struct lws_context_creation_info {
 	const char *iface;
 	struct libwebsocket_protocols *protocols;
 	struct libwebsocket_extension *extensions;
+	struct libwebsocket_file_callbacks *file_callbacks;
 	struct lws_token_limits *token_limits;
 	const char *ssl_private_key_password;
 	const char *ssl_cert_filepath;

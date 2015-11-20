@@ -174,6 +174,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		goto bail;
 	}
 
+	lws_context_init_file_callbacks(info, context);
+
 	lws_context_init_extensions(info, context);
 
 	context->user_space = info->user;

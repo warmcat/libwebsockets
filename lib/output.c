@@ -536,7 +536,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 		if (wsi->u.http.filepos == wsi->u.http.filelen)
 			goto all_sent;
 
-		compatible_file_read(n, wsi->u.http.fd, context->service_buffer,
+		context->file_callbacks.pfn_read(&n, wsi->u.http.fd, context->service_buffer,
 					       sizeof(context->service_buffer));
 		if (n < 0)
 			return -1; /* caller will close */
@@ -550,7 +550,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file_fragment(
 
 			if (m != n)
 				/* adjust for what was not sent */
-				if (compatible_file_seek_cur(wsi->u.http.fd, m - n) < 0)
+				if (context->file_callbacks.pfn_seek_cur(wsi->u.http.fd, m - n) < 0)
 					return -1;
 		}
 all_sent:
@@ -559,7 +559,7 @@ all_sent:
 			wsi->state = WSI_STATE_HTTP;
 
 			/* we might be in keepalive, so close it off here */
-			compatible_file_close(wsi->u.http.fd);
+			context->file_callbacks.pfn_close(wsi->u.http.fd);
 			wsi->u.http.fd = LWS_INVALID_FILE;
 
 			if (wsi->protocol->callback)

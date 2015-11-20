@@ -921,7 +921,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 					LWS_SEND_BUFFER_PRE_PADDING;
 	int ret = 0;
 
-	wsi->u.http.fd = lws_plat_open_file(file, &wsi->u.http.filelen);
+	wsi->u.http.fd = context->file_callbacks.pfn_open(file, &wsi->u.http.filelen);
 
 	if (wsi->u.http.fd == LWS_INVALID_FILE) {
 		lwsl_err("Unable to open '%s'\n", file);

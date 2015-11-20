@@ -118,7 +118,7 @@ libwebsocket_close_and_free_session(struct libwebsocket_context *context,
 		if (wsi->u.http.fd != LWS_INVALID_FILE) {
 			// TODO: If we're just closing with LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY this file descriptor might leak?
 			lwsl_debug("closing http file\n");
-			compatible_file_close(wsi->u.http.fd);
+			context->file_callbacks.pfn_close(wsi->u.http.fd);
 			wsi->u.http.fd = LWS_INVALID_FILE;
 			context->protocols[0].callback(context, wsi,
 				LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);

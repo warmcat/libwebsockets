@@ -59,17 +59,8 @@
 #define MSG_NOSIGNAL 0
 #define SHUT_RDWR SD_BOTH
 #define SOL_TCP IPPROTO_TCP
-
 #define compatible_close(fd) closesocket(fd)
-#define compatible_file_close(fd) CloseHandle(fd)
-#define compatible_file_seek_cur(fd, offset) SetFilePointer(fd, offset, NULL, FILE_CURRENT)
-#define compatible_file_read(amount, fd, buf, len) {\
-	DWORD _amount; \
-	if (!ReadFile(fd, buf, len, &_amount, NULL)) \
-		amount = -1; \
-	else \
-		amount = _amount; \
-	}
+
 #define lws_set_blocking_send(wsi) wsi->sock_send_blocking = TRUE
 #define lws_socket_is_valid(x) (!!x)
 #define LWS_SOCK_INVALID 0 
@@ -147,10 +138,7 @@
 #define LWS_POLLIN (POLLIN)
 #define LWS_POLLOUT (POLLOUT)
 #define compatible_close(fd) close(fd)
-#define compatible_file_close(fd) close(fd)
-#define compatible_file_seek_cur(fd, offset) lseek(fd, offset, SEEK_CUR)
-#define compatible_file_read(amount, fd, buf, len) \
-		amount = read(fd, buf, len);
+
 #define lws_set_blocking_send(wsi)
 
 #ifdef MBED_OPERATORS
@@ -544,6 +532,7 @@ struct libwebsocket_context {
 #ifndef LWS_NO_EXTENSIONS
 	struct libwebsocket_extension *extensions;
 #endif
+	struct libwebsocket_file_callbacks file_callbacks;
     struct lws_token_limits *token_limits;
 	void *user_space;
 };
@@ -1031,6 +1020,10 @@ lws_ext_callback_for_each_extension_type(
 #define lws_context_init_extensions(_a, _b)
 #endif
 
+LWS_EXTERN void
+lws_context_init_file_callbacks(struct lws_context_creation_info *info, 
+		struct libwebsocket_context *context);
+
 LWS_EXTERN int
 lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		struct libwebsocket *wsi);
@@ -1148,12 +1141,6 @@ LWS_EXTERN int interface_to_sa(struct libwebsocket_context *context,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen);
 #endif
 LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
-
-#ifdef _WIN32
-LWS_EXTERN HANDLE lws_plat_open_file(const char* filename, unsigned long* filelen);
-#else
-LWS_EXTERN int lws_plat_open_file(const char* filename, unsigned long* filelen);
-#endif
 
 enum lws_ssl_capable_status {
 	LWS_SSL_CAPABLE_ERROR = -1,
