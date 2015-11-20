@@ -954,6 +954,14 @@ struct libwebsocket_extension;
  *	LWS_CALLBACK_UNLOCK_POLL: These allow the external poll changes driven
  *		by libwebsockets to participate in an external thread locking
  *		scheme around the changes, so the whole thing is threadsafe.
+ *		These are called around three activities in the library,
+ *			- inserting a new wsi in the wsi / fd table (len=1)
+ *			- deleting a wsi from the wsi / fd table (len=1)
+ *			- changing a wsi's POLLIN/OUT state (len=0)
+ *		Locking and unlocking external synchronization objects when
+ *		len == 1 allows external threads to be synchronized against
+ *		wsi lifecycle changes if it acquires the same lock for the
+ *		duration of wsi dereference from the other thread context.
  */
 LWS_VISIBLE LWS_EXTERN int callback(struct libwebsocket_context *context,
 			struct libwebsocket *wsi,

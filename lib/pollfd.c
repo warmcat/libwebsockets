@@ -47,7 +47,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 //					    wsi, wsi->sock, context->fds_count);
 
 	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *) &pa, 0))
+	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *) &pa, 1))
 		return -1;
 
 	insert_wsi(context, wsi);
@@ -63,7 +63,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 		return -1;
 
 	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *)&pa, 0))
+	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *)&pa, 1))
 		return -1;
 
 	return 0;
@@ -92,7 +92,7 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 				    wsi, wsi->sock, wsi->position_in_fds_table);
 
 	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *)&pa, 0))
+	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *)&pa, 1))
 		return -1;
 
 	m = wsi->position_in_fds_table; /* replace the contents for this */
@@ -123,7 +123,7 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 	}
 	if (context->protocols[0].callback(context, wsi,
 				       LWS_CALLBACK_UNLOCK_POLL,
-				       wsi->user_space, (void *) &pa, 0))
+				       wsi->user_space, (void *) &pa, 1))
 		return -1;
 
 	return 0;
