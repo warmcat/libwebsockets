@@ -397,7 +397,6 @@ bail:
 		/* if we returned non-zero from here, we kill the connection */
 		break;
 
-#ifdef EXTERNAL_POLL
 	/*
 	 * callbacks for managing the external poll() array appear in
 	 * protocol 0 callback
@@ -407,16 +406,21 @@ bail:
 		/*
 		 * lock mutex to protect pollfd state
 		 * called before any other POLL related callback
+		 * if protecting wsi lifecycle change, len == 1
 		 */
+		test_server_lock(len);
 		break;
 
 	case LWS_CALLBACK_UNLOCK_POLL:
 		/*
 		 * unlock mutex to protect pollfd state when
 		 * called after any other POLL related callback
+		 * if protecting wsi lifecycle change, len == 1
 		 */
+		test_server_unlock(len);
 		break;
 
+#ifdef EXTERNAL_POLL
 	case LWS_CALLBACK_ADD_POLL_FD:
 
 		if (count_pollfds >= max_poll_elements) {

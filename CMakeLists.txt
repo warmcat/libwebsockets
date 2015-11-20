@@ -481,7 +481,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
                 set(VISIBILITY_FLAG -fvisibility=hidden)
     endif()
     if (UNIX)
-               set(CMAKE_C_FLAGS "-Wall -Werror ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
+               set(CMAKE_C_FLAGS "-Wall -Werror ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS} -pthread" )
     else(UNIX)
                set(CMAKE_C_FLAGS "-Wall ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
     endif(UNIX)
@@ -755,6 +755,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER)
 			create_test_app(test-server "test-server/test-server.c" "test-server/test-server-http.c" "test-server/test-server-dumb-increment.c" "test-server/test-server-mirror.c")
+			if (UNIX)
+				create_test_app(test-server-pthreads "test-server/test-server-pthreads.c" "test-server/test-server-http.c" "test-server/test-server-dumb-increment.c" "test-server/test-server-mirror.c")
+			endif()
 		endif()
 
 		#

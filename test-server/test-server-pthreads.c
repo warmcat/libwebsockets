@@ -20,6 +20,7 @@
  */
 
 #include "test-server.h"
+#include <pthread.h>
 
 int close_testing;
 int max_poll_elements;
@@ -32,17 +33,33 @@ int count_pollfds;
 volatile int force_exit = 0;
 struct libwebsocket_context *context;
 
+/*
+ * This mutex lock protects code that changes or relies on wsi list outside of
+ * the service thread.  The service thread will acquire it when changing the
+ * wsi list and other threads should acquire it while dereferencing wsis or
+ * calling apis like libwebsocket_callback_on_writable_all_protocol() which
+ * use the wsi list and wsis from a different thread context.
+ */
+pthread_mutex_t lock_established_conns;
+
 /* http server gets files from this path */
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
 char *resource_path = LOCAL_RESOURCE_PATH;
 
-/* singlethreaded version --> no locks */
+/*
+ * multithreaded version - protect wsi lifecycle changes in the library
+ * these are called from protocol 0 callbacks
+ */
 
 void test_server_lock(int care)
 {
+	if (care)
+		pthread_mutex_lock(&lock_established_conns);
 }
 void test_server_unlock(int care)
 {
+	if (care)
+		pthread_mutex_unlock(&lock_established_conns);
 }
 
 /*
@@ -97,6 +114,24 @@ static struct libwebsocket_protocols protocols[] = {
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 
+void *thread_dumb_increment(void *threadid)
+{
+	while (!force_exit) {
+		/*
+		 * this lock means wsi in the active list cannot
+		 * disappear underneath us, because the code to add and remove
+		 * them is protected by the same lock
+		 */
+		pthread_mutex_lock(&lock_established_conns);
+		libwebsocket_callback_on_writable_all_protocol(
+				&protocols[PROTOCOL_DUMB_INCREMENT]);
+		pthread_mutex_unlock(&lock_established_conns);
+		usleep(100000);
+	}
+	
+	pthread_exit(NULL);
+}
+
 void sighandler(int sig)
 {
 	force_exit = 1;
@@ -123,12 +158,13 @@ int main(int argc, char **argv)
 {
 	struct lws_context_creation_info info;
 	char interface_name[128] = "";
-	unsigned int ms, oldms = 0;
 	const char *iface = NULL;
+	pthread_t pthread_dumb;
 	char cert_path[1024];
 	char key_path[1024];
  	int debug_level = 7;
 	int use_ssl = 0;
+	void *retval;
 	int opts = 0;
 	int n = 0;
 #ifndef _WIN32
@@ -145,6 +181,8 @@ int main(int argc, char **argv)
 	memset(&info, 0, sizeof info);
 	info.port = 7681;
 
+	pthread_mutex_init(&lock_established_conns, NULL);
+	
 	while (n >= 0) {
 		n = getopt_long(argc, argv, "eci:hsap:d:Dr:", options, NULL);
 		if (n < 0)
@@ -271,65 +309,28 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+	/* start the dumb increment thread */
+	
+	n = pthread_create(&pthread_dumb, NULL, thread_dumb_increment, 0);
+	if (n) {
+		lwsl_err("Unable to create dumb thread\n");
+		goto done;
+	}
+	
+	/* this is our service thread */
+	
 	n = 0;
 	while (n >= 0 && !force_exit) {
-		struct timeval tv;
-
-		gettimeofday(&tv, NULL);
-
-		/*
-		 * This provokes the LWS_CALLBACK_SERVER_WRITEABLE for every
-		 * live websocket connection using the DUMB_INCREMENT protocol,
-		 * as soon as it can take more packets (usually immediately)
-		 */
-
-		ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
-		if ((ms - oldms) > 50) {
-			libwebsocket_callback_on_writable_all_protocol(
-				&protocols[PROTOCOL_DUMB_INCREMENT]);
-			oldms = ms;
-		}
-
-#ifdef EXTERNAL_POLL
-		/*
-		 * this represents an existing server's single poll action
-		 * which also includes libwebsocket sockets
-		 */
-
-		n = poll(pollfds, count_pollfds, 50);
-		if (n < 0)
-			continue;
-
-		if (n)
-			for (n = 0; n < count_pollfds; n++)
-				if (pollfds[n].revents)
-					/*
-					* returns immediately if the fd does not
-					* match anything under libwebsockets
-					* control
-					*/
-					if (libwebsocket_service_fd(context,
-								  &pollfds[n]) < 0)
-						goto done;
-#else
-		/*
-		 * If libwebsockets sockets are all we care about,
-		 * you can use this api which takes care of the poll()
-		 * and looping through finding who needed service.
-		 *
-		 * If no socket needs service, it'll return anyway after
-		 * the number of ms in the second argument.
-		 */
-
-		n = libwebsocket_service(context, 50);
-#endif
+ 		n = libwebsocket_service(context, 50);
 	}
 
-#ifdef EXTERNAL_POLL
+	/* wait for pthread_dumb to exit */
+	pthread_join(pthread_dumb, &retval);
+	
 done:
-#endif
-
-	libwebsocket_context_destroy(context);
+	libwebsocket_context_destroy(context);	
+	pthread_mutex_destroy(&lock_established_conns);
+	
 
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 

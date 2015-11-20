@@ -35,6 +35,9 @@ extern volatile int force_exit;
 extern struct libwebsocket_context *context;
 extern char *resource_path;
 
+extern void test_server_lock(int care);
+extern void test_server_unlock(int care);
+
 #ifndef __func__
 #define __func__ __FUNCTION__
 #endif
