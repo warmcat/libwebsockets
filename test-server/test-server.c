@@ -135,7 +135,7 @@ int main(int argc, char **argv)
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
 #ifndef LWS_NO_DAEMONIZE
-// 	int daemonize = 0;
+ 	int daemonize = 0;
 #endif
 
 	/* 
