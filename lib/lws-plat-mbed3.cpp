@@ -141,10 +141,9 @@ int lws_conn::actual_onRX(Socket *s)
 void lws_conn_listener::onIncoming(TCPListener *tl, void *impl)
 {
 	mbed::util::CriticalSectionLock lock;
-	TCPStream *ts = srv.accept(impl);
 	lws_conn *conn;
 
-	if (!impl || !ts) {
+	if (!impl) {
 		onError(tl, SOCKET_ERROR_NULL_PTR);
 		return;
 	}
@@ -154,7 +153,9 @@ void lws_conn_listener::onIncoming(TCPListener *tl, void *impl)
 		lwsl_err("OOM\n");
 		return;
 	}
-	conn->ts = ts;
+	conn->ts = srv.accept(impl);
+	if (!conn->ts)
+		return;
 
 	/* 
 	 * we use the listen socket wsi to get started, but a new wsi is
@@ -164,16 +165,12 @@ void lws_conn_listener::onIncoming(TCPListener *tl, void *impl)
 	lws_server_socket_service(wsi->protocol->owning_server,
 				  wsi, (struct pollfd *)conn);
 
-	ts->setOnSent(Socket::SentHandler_t(conn, &lws_conn::onSent));
-	ts->setOnReadable(TCPStream::ReadableHandler_t(conn, &lws_conn::onRX));
-	ts->setOnError(TCPStream::ErrorHandler_t(conn, &lws_conn::onError));
-	ts->setOnDisconnect(TCPStream::DisconnectHandler_t(conn,
+	conn->ts->setOnSent(Socket::SentHandler_t(conn, &lws_conn::onSent));
+	conn->ts->setOnReadable(TCPStream::ReadableHandler_t(conn, &lws_conn::onRX));
+	conn->ts->setOnError(TCPStream::ErrorHandler_t(conn, &lws_conn::onError));
+	conn->ts->setOnDisconnect(TCPStream::DisconnectHandler_t(conn,
 			    &lws_conn::onDisconnect));
-	/*
-	 * mbed3 is messed up as of 2015-11-08, data packets may
-	 * appear on the listening socket initially
-	 */
-	conn->actual_onRX((Socket *)tl);
+
 	conn->actual_onRX((Socket *)conn->ts);
 
 	lwsl_debug("%s: exit\n", __func__);
