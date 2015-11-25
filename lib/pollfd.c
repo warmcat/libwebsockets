@@ -167,7 +167,10 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	 *       ... and the service thread is waiting ...
 	 *         then cancel it to force a restart with our changed events
 	 */
-	if (pa.prev_events != pa.events) {
+#if LWS_POSIX
+	if (pa.prev_events != pa.events)
+#endif
+	{
 		
 		if (lws_plat_change_pollfd(context, wsi, pfd)) {
 			lwsl_info("%s failed\n", __func__);

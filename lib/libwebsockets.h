@@ -38,12 +38,15 @@ namespace {
 using namespace mbed::Sockets::v0;
 
 struct libwebsocket;
+struct libwebsocket_context;
 
 class lws_conn {
 	public:
 	lws_conn():
 		ts(NULL),
-		wsi(NULL)
+		wsi(NULL),
+		writeable(1),
+		awaiting_on_writeable(0)
 	{
 	}
 
@@ -54,14 +57,16 @@ public:
 	void onError(Socket *s, socket_error_t err);
 	void onDisconnect(TCPStream *s);
 	void onSent(Socket *s, uint16_t len);
+	void serialized_writeable(struct libwebsocket *wsi);
 
 public:
 	TCPStream *ts;
-	Socket *s_HACK;
 	
 public:
 	struct libwebsocket *wsi;
 	char buffer[BUFFER_SIZE];
+	char writeable;
+	char awaiting_on_writeable;
 };
 
 class lws_conn_listener : lws_conn {
@@ -137,7 +142,7 @@ extern "C" {
 #include <poll.h>
 #include <netdb.h>
 #else
-#define getdtablesize() (10)
+#define getdtablesize() (20)
 #endif
 
 #if defined(__GNUC__)

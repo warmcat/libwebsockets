@@ -21,11 +21,28 @@ extern "C" void mbed3_delete_tcp_stream_socket(void *sock)
 	delete conn;
 }
 
+void lws_conn::serialized_writeable(struct libwebsocket *_wsi)
+{
+	struct libwebsocket *wsi = (struct libwebsocket *)_wsi;
+	struct libwebsocket_pollfd pollfd;
+	lws_conn *conn = (lws_conn *)wsi->sock;
+	
+	conn->awaiting_on_writeable = 0;
+
+	pollfd.fd = wsi->sock;
+	pollfd.events = POLLOUT;
+	pollfd.revents = POLLOUT;
+
+	lwsl_debug("%s: wsi %p\r\n", __func__, (void *)wsi);
+
+	libwebsocket_service_fd(wsi->protocol->owning_server, &pollfd);
+}
+
 extern "C" void mbed3_tcp_stream_bind(void *sock, int port, struct libwebsocket *wsi)
 {
 	lws_conn_listener *srv = (lws_conn_listener *)sock;
 	
-	lwsl_info("%s\r\n", __func__);
+	lwsl_debug("%s\r\n", __func__);
 	/* associate us with the listening wsi */
 	((lws_conn *)srv)->set_wsi(wsi);
 
@@ -37,8 +54,31 @@ extern "C" void mbed3_tcp_stream_accept(void *sock, struct libwebsocket *wsi)
 {
 	lws_conn *conn = (lws_conn *)sock;
 
-	lwsl_info("%s\r\n", __func__);
+	lwsl_debug("%s\r\n", __func__);
 	conn->set_wsi(wsi);
+}
+
+extern "C" LWS_VISIBLE int
+lws_plat_change_pollfd(struct libwebsocket_context *context,
+		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
+{
+	lws_conn *conn = (lws_conn *)wsi->sock;
+	
+	(void)context;
+	if (pfd->events & POLLOUT) {
+		conn->awaiting_on_writeable = 1;
+		if (conn->writeable) {
+ 			mbed::util::FunctionPointer1<void, struct libwebsocket *> book(conn, &lws_conn::serialized_writeable);
+			minar::Scheduler::postCallback(book.bind(wsi));
+			lwsl_debug("%s: wsi %p (booked callback)\r\n", __func__, (void *)wsi);
+		} else {
+			
+			lwsl_debug("%s: wsi %p (set awaiting_on_writeable)\r\n", __func__, (void *)wsi);
+		}
+	} else
+		conn->awaiting_on_writeable = 0;
+	
+	return 0;
 }
 
 extern "C" LWS_VISIBLE int
@@ -47,12 +87,11 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 {
 	socket_error_t err;
 	size_t _len = len;
-
+ 
 	lwsl_debug("%s\r\n", __func__);
 	
 	(void)context;
-	/* s/s_HACK/ts/g when mbed3 listen payload bug fixed */
-	err = ((lws_conn *)wsi->sock)->s_HACK->recv((char *)buf, &_len);
+	err = ((lws_conn *)wsi->sock)->ts->recv((char *)buf, &_len);
 	if (err == SOCKET_ERROR_NONE) {
 		lwsl_info("%s: got %d bytes\n", __func__, _len);
 		return _len;
@@ -66,10 +105,6 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 #endif
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 
-	// !!! while listen payload mbed3 bug, don't error out if nothing */	
-//	if (((lws_conn *)wsi->sock)->s_HACK != ((Socket *)((lws_conn *)wsi->sock)->ts))
-//		return 0;
-
 	lwsl_warn("error on reading from skt: %d\n", err);
 	return LWS_SSL_CAPABLE_ERROR;
 }
@@ -78,10 +113,14 @@ extern "C" LWS_VISIBLE int
 lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len)
 {
 	socket_error_t err;
+	lws_conn *conn = (lws_conn *)wsi->sock;
 
 	lwsl_debug("%s: wsi %p: write %d (from %p)\n", __func__, (void *)wsi, len, (void *)buf);
 	
-	err = ((lws_conn *)wsi->sock)->ts->send((char *)buf, len);
+	lwsl_debug("%s: wsi %p: clear writeable\n", __func__, (void *)wsi);
+	conn->writeable = 0;
+	
+	err = conn->ts->send((char *)buf, len);
 	if (err == SOCKET_ERROR_NONE)
 		return len;
 
@@ -121,14 +160,14 @@ void lws_conn_listener::start(const uint16_t port)
 int lws_conn::actual_onRX(Socket *s)
 {
 	struct libwebsocket_pollfd pollfd;
+	
+	(void)s;
 
 	pollfd.fd = this;
 	pollfd.events = POLLIN;
 	pollfd.revents = POLLIN;
 	
 	lwsl_debug("%s: lws %p\n", __func__, wsi);
-	
-	s_HACK = s;
 	
 	return libwebsocket_service_fd(wsi->protocol->owning_server, &pollfd);
 }
@@ -215,20 +254,36 @@ void lws_conn_listener::onDisconnect(TCPStream *s)
 	//if (s)
 	//delete this;
 }
+
+extern "C" LWS_VISIBLE int
+lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
+{
+	(void)context;
+	(void)timeout_ms;
+
+	return 0;
+}
+
 void lws_conn::onSent(Socket *s, uint16_t len)
 {
 	struct libwebsocket_pollfd pollfd;
 
 	(void)s;
 	(void)len;
+	
+	if (!awaiting_on_writeable) {
+		lwsl_debug("%s: wsi %p (setting writable=1)\r\n", __func__, (void *)wsi);
+		writeable = 1;
+		return;
+	}
+	
+	writeable = 1;
 
-	pollfd.fd = this;
+	pollfd.fd = wsi->sock;
 	pollfd.events = POLLOUT;
 	pollfd.revents = POLLOUT;
-	
-	s_HACK = s;
 
-	lwsl_debug("%s: wsi %p\r\n", __func__, (void *)wsi);
+	lwsl_debug("%s: wsi %p (servicing now)\r\n", __func__, (void *)wsi);
 	
 	libwebsocket_service_fd(wsi->protocol->owning_server, &pollfd);
 }

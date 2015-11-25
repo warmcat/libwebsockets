@@ -92,76 +92,6 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 }
 
 LWS_VISIBLE int
-lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
-{
-	(void)context;
-	(void)timeout_ms;
-#if 0
-	int n;
-	int m;
-	char buf;
-#ifdef LWS_OPENSSL_SUPPORT
-	struct libwebsocket *wsi, *wsi_next;
-#endif
-
-	/* stay dead once we are dead */
-
-	if (!context)
-		return 1;
-
-	lws_libev_run(context);
-
-	context->service_tid = context->protocols[0].callback(context, NULL,
-				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
-
-#ifdef LWS_OPENSSL_SUPPORT
-	/* if we know we have non-network pending data, do not wait in poll */
-	if (lws_ssl_anybody_has_buffered_read(context))
-		timeout_ms = 0;
-#endif
-	n = poll(context->fds, context->fds_count, timeout_ms);
-	context->service_tid = 0;
-
-#ifdef LWS_OPENSSL_SUPPORT
-	if (!lws_ssl_anybody_has_buffered_read(context) && n == 0) {
-#else
-	if (n == 0) /* poll timeout */ {
-#endif
-		libwebsocket_service_fd(context, NULL);
-		return 0;
-	}
-
-	if (n < 0) {
-		if (LWS_ERRNO != LWS_EINTR)
-			return -1;
-		return 0;
-	}
-
-	/* any socket with events to service? */
-
-	for (n = 0; n < context->fds_count; n++) {
-
-		if (!context->fds[n].revents)
-			continue;
-
-		if (context->fds[n].fd == context->dummy_pipe_fds[0]) {
-			if (read(context->fds[n].fd, &buf, 1) != 1)
-				lwsl_err("Cannot read from dummy pipe.");
-			continue;
-		}
-
-		m = libwebsocket_service_fd(context, &context->fds[n]);
-		if (m < 0)
-			return -1;
-		/* if something closed, retry this slot */
-		if (m)
-			n--;
-	}
-#endif
-	return 0;
-}
-
-LWS_VISIBLE int
 lws_plat_set_socket_options(struct libwebsocket_context *context, lws_sockfd_type fd)
 {
 	(void)context;
@@ -213,17 +143,6 @@ LWS_VISIBLE void
 lws_plat_service_periodic(struct libwebsocket_context *context)
 {
 	(void)context;
-}
-
-LWS_VISIBLE int
-lws_plat_change_pollfd(struct libwebsocket_context *context,
-		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
-{
-	(void)context;
-	(void)wsi;
-	(void)pfd;
-	
-	return 0;
 }
 
 LWS_VISIBLE int
