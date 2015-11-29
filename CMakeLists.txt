@@ -487,6 +487,11 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
     endif(UNIX)
 endif ()
 
+if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+	# otherwise osx blows a bunch of openssl deprecated api errors
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations" )
+endif()
+
 source_group("Headers Private"  FILES ${HDR_PRIVATE})
 source_group("Headers Public"   FILES ${HDR_PUBLIC})
 source_group("Sources"          FILES ${SOURCES})
