@@ -487,6 +487,14 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
     endif(UNIX)
 endif ()
 
+if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
+    if (UNIX)
+	# jeez clang understands -pthread but dies if he sees it at link time!
+	# http://stackoverflow.com/questions/2391194/what-is-gs-pthread-equiv-in-clang
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread" )
+    endif()
+endif()
+
 if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 	# otherwise osx blows a bunch of openssl deprecated api errors
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations" )
@@ -760,7 +768,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER)
 			create_test_app(test-server "test-server/test-server.c" "test-server/test-server-http.c" "test-server/test-server-dumb-increment.c" "test-server/test-server-mirror.c")
-			if (UNIX)
+			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang")))
 				create_test_app(test-server-pthreads "test-server/test-server-pthreads.c" "test-server/test-server-http.c" "test-server/test-server-dumb-increment.c" "test-server/test-server-mirror.c")
 			endif()
 		endif()
