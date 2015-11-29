@@ -185,17 +185,24 @@ static int issue_char(struct libwebsocket *wsi, unsigned char c)
 		return -1;
 	}
 
-	if( wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len >= 
-		wsi->u.hdr.current_token_limit) {
-		lwsl_warn("header %i exceeds limit\n", wsi->u.hdr.parser_state);
-		return 1;
+	unsigned short frag_len = \
+		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len;
+	/* If we haven't hit the token limit, just copy the character into
+	 * the header: */
+	if( frag_len < wsi->u.hdr.current_token_limit ) {
+		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = c;
+		if (c)
+			wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
+		return 0;
+	}
+	else {
+		/* Insert a null character when we *hit* the limit: */
+		if( frag_len == wsi->u.hdr.current_token_limit ) {
+			wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
+			lwsl_warn("header %i exceeds limit\n", wsi->u.hdr.parser_state);
+		};
 	};
-
-	wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = c;
-	if (c)
-		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
-
-	return 0;
+	return 1;
 }
 
 int libwebsocket_parse(
