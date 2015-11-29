@@ -180,12 +180,13 @@ static signed char char_to_hex(const char c)
 
 static int issue_char(struct libwebsocket *wsi, unsigned char c)
 {
+	unsigned short frag_len;
 	if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
 		lwsl_warn("excessive header content\n");
 		return -1;
 	}
 
-	unsigned short frag_len = \
+	frag_len = \
 		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len;
 	/* If we haven't hit the token limit, just copy the character into
 	 * the header: */
