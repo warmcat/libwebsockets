@@ -985,7 +985,8 @@ ping_drop:
 				LWS_EXT_CALLBACK_PAYLOAD_RX, &eff_buf, 0) < 0)
 			return -1;
 
-		if (eff_buf.token_len > 0) {
+		if (eff_buf.token_len > 0 ||
+		    callback_action == LWS_CALLBACK_RECEIVE_PONG) {
 			eff_buf.token[eff_buf.token_len] = '\0';
 
 			if (wsi->protocol->callback) {
