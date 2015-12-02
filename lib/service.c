@@ -497,7 +497,13 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 		n = lws_server_socket_service(context, wsi, pollfd);
 		if (n < 0)
 			goto close_and_handled;
-		goto handled;
+		pending = lws_ssl_pending(wsi);
+		if( pending ) {
+			goto handle_pending;
+		}
+		else {
+			goto handled;
+		};
 
 	case LWS_CONNMODE_WS_SERVING:
 	case LWS_CONNMODE_WS_CLIENT:
@@ -596,6 +602,7 @@ drain:
 
 		pending = lws_ssl_pending(wsi);
 		if (pending) {
+handle_pending:
 			pending = pending > sizeof(context->service_buffer)?
 				sizeof(context->service_buffer):pending;
 			goto read;
