@@ -592,8 +592,8 @@ drain:
 		} while (more);
 
 		pending = lws_ssl_pending(wsi);
-handle_pending:
 		if (pending) {
+handle_pending:
 			pending = pending > sizeof(context->service_buffer)?
 				sizeof(context->service_buffer):pending;
 			goto read;
