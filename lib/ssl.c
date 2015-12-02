@@ -515,6 +515,7 @@ lws_ssl_close(struct libwebsocket *wsi)
 	SSL_shutdown(wsi->ssl);
 	compatible_close(n);
 	SSL_free(wsi->ssl);
+	wsi->ssl = NULL;
 
 	return 1; /* handled */
 }
