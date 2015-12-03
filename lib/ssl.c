@@ -441,7 +441,11 @@ lws_ssl_capable_read(struct libwebsocket_context *context,
 		return lws_ssl_capable_read_no_ssl(context, wsi, buf, len);
 
 	n = SSL_read(wsi->ssl, buf, len);
-	if (n >= 0) {
+	/* manpage: returning 0 means connection shut down */
+	if (!n)
+		return LWS_SSL_CAPABLE_ERROR;
+
+	if (n > 0) {
 		/* 
 		 * if it was our buffer that limited what we read,
 		 * check if SSL has additional data pending inside SSL buffers.
@@ -490,7 +494,7 @@ lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
 	n = SSL_write(wsi->ssl, buf, len);
-	if (n >= 0)
+	if (n > 0)
 		return n;
 
 	n = SSL_get_error(wsi->ssl, n);
