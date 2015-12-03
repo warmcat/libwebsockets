@@ -623,7 +623,7 @@ struct lws_fragments {
  * all have a pointer to allocated_headers struct as their first member.
  * 
  * It means for allocated_headers access, the three union paths can all be
- * used interchangably to access the same data
+ * used interchangeably to access the same data
  */
 
 struct allocated_headers {

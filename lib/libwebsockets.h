@@ -1429,7 +1429,7 @@ LWS_VISIBLE LWS_EXTERN size_t
 libwebsockets_remaining_packet_payload(struct libwebsocket *wsi);
 
 /*
- * if the protocol does not have any guidence, returns -1.  Currently only
+ * if the protocol does not have any guidance, returns -1.  Currently only
  * http2 connections get send window information from this API.  But your code
  * should use it so it can work properly with any protocol.
  * 

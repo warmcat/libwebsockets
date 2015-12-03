@@ -626,7 +626,7 @@ if (LWS_WITH_SSL)
 
 		# Additional to the root directory we need to include
 		# the wolfssl/ subdirectory which contains the OpenSSL
-		# compatability layer headers.
+		# compatibility layer headers.
 
 		if (LWS_USE_CYASSL)
 			foreach(inc ${WOLFSSL_INCLUDE_DIRS})
