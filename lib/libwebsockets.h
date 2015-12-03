@@ -161,8 +161,6 @@ extern "C" {
 #include <ev.h>
 #endif /* LWS_USE_LIBEV */
 
-#include <assert.h>
-
 #ifndef LWS_EXTERN
 #define LWS_EXTERN extern
 #endif

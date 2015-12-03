@@ -33,6 +33,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <assert.h>
 
 #ifdef LWS_HAVE_SYS_STAT_H
 #include <sys/stat.h>
