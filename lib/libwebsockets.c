@@ -973,7 +973,7 @@ libwebsocket_set_proxy(struct lws_context *context, const char *proxy)
 	return lws_set_proxy(context, proxy);
 }
 
-#undef lws_context_destroy
+#undef libwebsocket_context_destroy
 LWS_VISIBLE LWS_EXTERN void
 libwebsocket_context_destroy(struct lws_context *context)
 {
@@ -1029,7 +1029,7 @@ libwebsocket_service_fd(struct lws_context *context,
 	return lws_service_fd(context, pollfd);
 }
 
-#undef lws_context_user
+#undef libwebsocket_context_user
 LWS_VISIBLE LWS_EXTERN void *
 libwebsocket_context_user(struct lws_context *context)
 {
