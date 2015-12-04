@@ -59,7 +59,7 @@ int lextable_decode(int pos, char c)
 	}
 }
 
-int lws_allocate_header_table(struct libwebsocket *wsi)
+int lws_allocate_header_table(struct lws *wsi)
 {
 	/* Be sure to free any existing header data to avoid mem leak: */
 	lws_free_header_table(wsi);
@@ -75,14 +75,14 @@ int lws_allocate_header_table(struct libwebsocket *wsi)
 	return 0;
 }
 
-int lws_free_header_table(struct libwebsocket *wsi)
+int lws_free_header_table(struct lws *wsi)
 {
 	lws_free2(wsi->u.hdr.ah);
 	wsi->u.hdr.ah = NULL;
 	return 0;
 };
 
-LWS_VISIBLE int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h)
+LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;
 	int len = 0;
@@ -98,7 +98,7 @@ LWS_VISIBLE int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_in
 	return len;
 }
 
-LWS_VISIBLE int lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
+LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dest, int len,
 						enum lws_token_indexes h)
 {
 	int toklen = lws_hdr_total_length(wsi, h);
@@ -121,7 +121,7 @@ LWS_VISIBLE int lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
 	return toklen;
 }
 
-char *lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h)
+char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;
 
@@ -132,7 +132,7 @@ char *lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h)
 	return &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset];
 }
 
-int lws_hdr_simple_create(struct libwebsocket *wsi,
+int lws_hdr_simple_create(struct lws *wsi,
 				enum lws_token_indexes h, const char *s)
 {
 	wsi->u.hdr.ah->next_frag_index++;
@@ -178,7 +178,7 @@ static signed char char_to_hex(const char c)
 	return -1;
 }
 
-static int issue_char(struct libwebsocket *wsi, unsigned char c)
+static int issue_char(struct lws *wsi, unsigned char c)
 {
 	unsigned short frag_len;
 	if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
@@ -207,8 +207,8 @@ static int issue_char(struct libwebsocket *wsi, unsigned char c)
 }
 
 int lws_parse(
-		struct libwebsocket_context *context,
-		struct libwebsocket *wsi, unsigned char c)
+		struct lws_context *context,
+		struct lws *wsi, unsigned char c)
 {
 	static const unsigned char methods[] = {
 		WSI_TOKEN_GET_URI,
@@ -572,13 +572,13 @@ set_parsing_complete:
  * mode.
  */
 
-LWS_VISIBLE int lws_frame_is_binary(struct libwebsocket *wsi)
+LWS_VISIBLE int lws_frame_is_binary(struct lws *wsi)
 {
 	return wsi->u.ws.frame_is_binary;
 }
 
 int
-lws_rx_sm(struct libwebsocket *wsi, unsigned char c)
+lws_rx_sm(struct lws *wsi, unsigned char c)
 {
 	struct lws_tokens eff_buf;
 	int ret = 0;
@@ -998,7 +998,7 @@ ping_drop:
 						wsi->protocol->callback,
 						wsi->protocol->owning_server,
 						wsi,
-						(enum libwebsocket_callback_reasons)callback_action,
+						(enum lws_callback_reasons)callback_action,
 						wsi->user_space,
 						eff_buf.token,
 						eff_buf.token_len);
@@ -1039,7 +1039,7 @@ illegal_ctl_length:
  */
 
 LWS_VISIBLE size_t
-lws_remaining_packet_payload(struct libwebsocket *wsi)
+lws_remaining_packet_payload(struct lws *wsi)
 {
 	return wsi->u.ws.rx_packet_length;
 }

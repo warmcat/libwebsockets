@@ -22,8 +22,8 @@
 #include "private-libwebsockets.h"
 
 static int
-lws_calllback_as_writeable(struct libwebsocket_context *context,
-		   struct libwebsocket *wsi)
+lws_calllback_as_writeable(struct lws_context *context,
+		   struct lws *wsi)
 {
 	int n;
 
@@ -40,18 +40,18 @@ lws_calllback_as_writeable(struct libwebsocket_context *context,
 	}
 	lwsl_info("%s: %p (user=%p)\n", __func__, wsi, wsi->user_space);
 	return user_callback_handle_rxflow(wsi->protocol->callback, context,
-			wsi, (enum libwebsocket_callback_reasons) n,
+			wsi, (enum lws_callback_reasons) n,
 						      wsi->user_space, NULL, 0);
 }
 
 int
-lws_handle_POLLOUT_event(struct libwebsocket_context *context,
-		   struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
+lws_handle_POLLOUT_event(struct lws_context *context,
+		   struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	int n;
 	struct lws_tokens eff_buf;
 #ifdef LWS_USE_HTTP2
-	struct libwebsocket *wsi2;
+	struct lws *wsi2;
 #endif
 	int ret;
 	int m;
@@ -280,8 +280,8 @@ notify:
 
 
 int
-lws_service_timeout_check(struct libwebsocket_context *context,
-				     struct libwebsocket *wsi, unsigned int sec)
+lws_service_timeout_check(struct lws_context *context,
+				     struct lws *wsi, unsigned int sec)
 {
 	/*
 	 * if extensions want in on it (eg, we are a mux parent)
@@ -315,7 +315,7 @@ lws_service_timeout_check(struct libwebsocket_context *context,
 	return 0;
 }
 
-int lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int len)
+int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 {
 	/* his RX is flowcontrolled, don't send remaining now */
 	if (wsi->rxflow_buffer) {
@@ -342,13 +342,13 @@ int lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int le
  *
  *	This function takes a pollfd that has POLLIN or POLLOUT activity and
  *	services it according to the state of the associated
- *	struct libwebsocket.
+ *	struct lws.
  *
  *	The one call deals with all "service" that might happen on a socket
  *	including listen accepts, http files as well as websocket protocol.
  *
  *	If a pollfd says it has something, you can just pass it to
- *	libwebsocket_serice_fd() whether it is a socket handled by lws or not.
+ *	lws_service_fd() whether it is a socket handled by lws or not.
  *	If it sees it is a lws socket, the traffic will be handled and
  *	pollfd->revents will be zeroed now.
  *
@@ -358,10 +358,10 @@ int lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int le
  */
 
 LWS_VISIBLE int
-lws_service_fd(struct libwebsocket_context *context,
-					struct libwebsocket_pollfd *pollfd)
+lws_service_fd(struct lws_context *context,
+					struct lws_pollfd *pollfd)
 {
-	struct libwebsocket *wsi;
+	struct lws *wsi;
 	int n, m;
 	lws_sockfd_type mfd;
 #if LWS_POSIX
@@ -675,7 +675,7 @@ handled:
  */
 
 LWS_VISIBLE int
-lws_service(struct libwebsocket_context *context, int timeout_ms)
+lws_service(struct lws_context *context, int timeout_ms)
 {
 	return lws_plat_service(context, timeout_ms);
 }

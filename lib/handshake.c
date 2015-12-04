@@ -57,8 +57,8 @@
  */
 
 LWS_VISIBLE int
-lws_read(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char *buf, size_t len)
+lws_read(struct lws_context *context,
+		     struct lws *wsi, unsigned char *buf, size_t len)
 {
 	size_t n;
 	int body_chunk_len;

@@ -29,8 +29,8 @@ const unsigned char *lws_token_to_string(enum lws_token_indexes token)
 	return (unsigned char *)set[token];
 }
 
-int lws_add_http_header_by_name(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
+int lws_add_http_header_by_name(struct lws_context *context,
+			    struct lws *wsi,
 			    const unsigned char *name,
 			    const unsigned char *value,
 			    int length,
@@ -61,8 +61,8 @@ int lws_add_http_header_by_name(struct libwebsocket_context *context,
 	return 0;
 }
 
-int lws_finalize_http_header(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
+int lws_finalize_http_header(struct lws_context *context,
+			    struct lws *wsi,
 			    unsigned char **p,
 			    unsigned char *end)
 {
@@ -80,8 +80,8 @@ int lws_finalize_http_header(struct libwebsocket_context *context,
 	return 0;
 }
 
-int lws_add_http_header_by_token(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
+int lws_add_http_header_by_token(struct lws_context *context,
+			    struct lws *wsi,
 			    enum lws_token_indexes token,
 			    const unsigned char *value,
 			    int length,
@@ -99,8 +99,8 @@ int lws_add_http_header_by_token(struct libwebsocket_context *context,
 	return lws_add_http_header_by_name(context, wsi, name, value, length, p, end);
 }
 
-int lws_add_http_header_content_length(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
+int lws_add_http_header_content_length(struct lws_context *context,
+			    struct lws *wsi,
 			    unsigned long content_length,
 			    unsigned char **p,
 			    unsigned char *end)
@@ -147,8 +147,8 @@ static const char *err500[] = {
 	"HTTP Version Not Supported"
 };
 
-int lws_add_http_header_status(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
+int lws_add_http_header_status(struct lws_context *context,
+			    struct lws *wsi,
 			    unsigned int code,
 			    unsigned char **p,
 			    unsigned char *end)
@@ -182,7 +182,7 @@ int lws_add_http_header_status(struct libwebsocket_context *context,
  *	consistently
  */
 LWS_VISIBLE int lws_return_http_status(
-		struct libwebsocket_context *context, struct libwebsocket *wsi,
+		struct lws_context *context, struct lws *wsi,
 				       unsigned int code, const char *html_body)
 {
 	int n, m;

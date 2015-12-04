@@ -189,13 +189,13 @@ static int huftable_decode(int pos, char c)
 	return pos + (lextable[q] << 1);
 }
 
-static int lws_hpack_update_table_size(struct libwebsocket *wsi, int idx)
+static int lws_hpack_update_table_size(struct lws *wsi, int idx)
 {
 	lwsl_info("hpack set table size %d\n", idx);
 	return 0;
 }
 
-static int lws_frag_start(struct libwebsocket *wsi, int hdr_token_idx)
+static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 {
 	struct allocated_headers * ah = wsi->u.http2.http.ah;
 
@@ -214,7 +214,7 @@ static int lws_frag_start(struct libwebsocket *wsi, int hdr_token_idx)
 	return 0;
 }
 
-static int lws_frag_append(struct libwebsocket *wsi, unsigned char c)
+static int lws_frag_append(struct lws *wsi, unsigned char c)
 {
 	struct allocated_headers * ah = wsi->u.http2.http.ah;
 
@@ -224,7 +224,7 @@ static int lws_frag_append(struct libwebsocket *wsi, unsigned char c)
 	return ah->pos >= sizeof(ah->data);
 }
 
-static int lws_frag_end(struct libwebsocket *wsi)
+static int lws_frag_end(struct lws *wsi)
 {
 	if (lws_frag_append(wsi, 0))
 		return 1;
@@ -233,7 +233,7 @@ static int lws_frag_end(struct libwebsocket *wsi)
 	return 0;
 }
 
-static void lws_dump_header(struct libwebsocket *wsi, int hdr)
+static void lws_dump_header(struct lws *wsi, int hdr)
 {
 	char s[200];
 	int len = lws_hdr_copy(wsi, s, sizeof(s) - 1, hdr);
@@ -241,7 +241,7 @@ static void lws_dump_header(struct libwebsocket *wsi, int hdr)
 	lwsl_info("  hdr tok %d (%s) = '%s'\n", hdr, lws_token_to_string(hdr), s);
 }
 
-static int lws_token_from_index(struct libwebsocket *wsi, int index, char **arg, int *len)
+static int lws_token_from_index(struct lws *wsi, int index, char **arg, int *len)
 {
 	struct hpack_dynamic_table *dyn;
 	
@@ -269,7 +269,7 @@ static int lws_token_from_index(struct libwebsocket *wsi, int index, char **arg,
 	return dyn->entries[index].token;
 }
 
-static int lws_hpack_add_dynamic_header(struct libwebsocket *wsi, int token, char *arg, int len)
+static int lws_hpack_add_dynamic_header(struct lws *wsi, int token, char *arg, int len)
 {
 	struct hpack_dynamic_table *dyn;
 	int ret = 1;
@@ -321,7 +321,7 @@ bail1:
 	return ret;
 }
 
-static int lws_write_indexed_hdr(struct libwebsocket *wsi, int idx)
+static int lws_write_indexed_hdr(struct lws *wsi, int idx)
 {
 	const char *p;
 	int tok = lws_token_from_index(wsi, idx, NULL, 0);
@@ -345,8 +345,8 @@ static int lws_write_indexed_hdr(struct libwebsocket *wsi, int idx)
 	return 0;
 }
 
-int lws_hpack_interpret(struct libwebsocket_context *context,
-			struct libwebsocket *wsi, unsigned char c)
+int lws_hpack_interpret(struct lws_context *context,
+			struct lws *wsi, unsigned char c)
 {
 	unsigned int prev;
 	unsigned char c1;
@@ -609,8 +609,8 @@ static int lws_http2_num(int starting_bits, unsigned long num, unsigned char **p
 	return 0;
 }
 
-int lws_add_http2_header_by_name(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
+int lws_add_http2_header_by_name(struct lws_context *context,
+			    struct lws *wsi,
 			    const unsigned char *name,
 			    const unsigned char *value,
 			    int length,
@@ -647,8 +647,8 @@ int lws_add_http2_header_by_name(struct libwebsocket_context *context,
 	return 0;
 }
 
-int lws_add_http2_header_by_token(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
+int lws_add_http2_header_by_token(struct lws_context *context,
+			    struct lws *wsi,
 			    enum lws_token_indexes token,
 			    const unsigned char *value,
 			    int length,
@@ -664,8 +664,8 @@ int lws_add_http2_header_by_token(struct libwebsocket_context *context,
 	return lws_add_http2_header_by_name(context, wsi, name, value, length, p, end);
 }
 
-int lws_add_http2_header_status(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
+int lws_add_http2_header_status(struct lws_context *context,
+			    struct lws *wsi,
 			    unsigned int code,
 			    unsigned char **p,
 			    unsigned char *end)

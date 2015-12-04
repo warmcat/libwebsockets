@@ -37,7 +37,7 @@ static unsigned int opts;
 static int was_closed;
 static int deny_deflate;
 static int deny_mux;
-static struct libwebsocket *wsi_mirror;
+static struct lws *wsi_mirror;
 static int mirror_lifetime = 0;
 static volatile int force_exit = 0;
 static int longlived = 0;
@@ -68,9 +68,9 @@ enum demo_protocols {
 /* dumb_increment protocol */
 
 static int
-callback_dumb_increment(struct libwebsocket_context *this,
-			struct libwebsocket *wsi,
-			enum libwebsocket_callback_reasons reason,
+callback_dumb_increment(struct lws_context *this,
+			struct lws *wsi,
+			enum lws_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
 	switch (reason) {
@@ -124,9 +124,9 @@ callback_dumb_increment(struct libwebsocket_context *this,
 
 
 static int
-callback_lws_mirror(struct libwebsocket_context *context,
-			struct libwebsocket *wsi,
-			enum libwebsocket_callback_reasons reason,
+callback_lws_mirror(struct lws_context *context,
+			struct lws *wsi,
+			enum lws_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 4096 +
@@ -215,7 +215,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 
 /* list of supported protocols and callbacks */
 
-static struct libwebsocket_protocols protocols[] = {
+static struct lws_protocols protocols[] = {
 	{
 		"dumb-increment-protocol,fake-nonexistant-protocol",
 		callback_dumb_increment,
@@ -255,9 +255,9 @@ int main(int argc, char **argv)
 	int ret = 0;
 	int port = 7681;
 	int use_ssl = 0;
-	struct libwebsocket_context *context;
+	struct lws_context *context;
 	const char *address;
-	struct libwebsocket *wsi_dumb;
+	struct lws *wsi_dumb;
 	int ietf_version = -1; /* latest */
 	struct lws_context_creation_info info;
 

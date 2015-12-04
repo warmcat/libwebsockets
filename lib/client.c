@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t len)
+int lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	int n;
 
@@ -43,8 +43,8 @@ int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t l
 	return 0;
 }
 
-int lws_client_socket_service(struct libwebsocket_context *context,
-		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
+int lws_client_socket_service(struct lws_context *context,
+		struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	int n;
 	char *p = (char *)&context->service_buffer[0];
@@ -492,8 +492,8 @@ strtolower(char *s)
 }
 
 int
-lws_client_interpret_server_handshake(struct libwebsocket_context *context,
-		struct libwebsocket *wsi)
+lws_client_interpret_server_handshake(struct lws_context *context,
+		struct lws *wsi)
 {
 	const char *pc;
 	int okay = 0;
@@ -502,7 +502,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 	int isErrorCodeReceived = 0;
 #ifndef LWS_NO_EXTENSIONS
 	char ext_name[128];
-	struct libwebsocket_extension *ext;
+	struct lws_extension *ext;
 	void *v;
 	int more = 1;
 	const char *c;
@@ -832,8 +832,8 @@ bail2:
 
 
 char *
-lws_generate_client_handshake(struct libwebsocket_context *context,
-		struct libwebsocket *wsi, char *pkt)
+lws_generate_client_handshake(struct lws_context *context,
+		struct lws *wsi, char *pkt)
 {
 	char buf[128];
 	char hash[20];
@@ -841,7 +841,7 @@ lws_generate_client_handshake(struct libwebsocket_context *context,
 	char *p = pkt;
 	int n;
 #ifndef LWS_NO_EXTENSIONS
-	struct libwebsocket_extension *ext;
+	struct lws_extension *ext;
 	int ext_count = 0;
 #endif
 

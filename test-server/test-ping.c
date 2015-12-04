@@ -48,7 +48,7 @@
 #define MAX_PING_CLIENTS 256
 #define PING_RINGBUFFER_SIZE 256
 
-static struct libwebsocket *ping_wsi[MAX_PING_CLIENTS];
+static struct lws *ping_wsi[MAX_PING_CLIENTS];
 static unsigned int interval_us = 1000000;
 static unsigned int size = 64;
 static int flood;
@@ -100,9 +100,9 @@ enum demo_protocols {
 
 
 static int
-callback_lws_mirror(struct libwebsocket_context * this,
-			struct libwebsocket *wsi,
-			enum libwebsocket_callback_reasons reason,
+callback_lws_mirror(struct lws_context * this,
+			struct lws *wsi,
+			enum lws_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
 	struct timeval tv;
@@ -286,7 +286,7 @@ callback_lws_mirror(struct libwebsocket_context * this,
 
 /* list of supported protocols and callbacks */
 
-static struct libwebsocket_protocols protocols[] = {
+static struct lws_protocols protocols[] = {
 
 	{
 		"lws-mirror-protocol",
@@ -330,7 +330,7 @@ int main(int argc, char **argv)
 	int n = 0;
 	int port = 7681;
 	int use_ssl = 0;
-	struct libwebsocket_context *context;
+	struct lws_context *context;
 	char protocol_name[256];
 	char ip[30];
 #ifndef _WIN32

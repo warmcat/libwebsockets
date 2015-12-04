@@ -86,7 +86,7 @@ static int alpn_cb(SSL *s, const unsigned char **out,
 #endif
 
 LWS_VISIBLE void
-lws_context_init_http2_ssl(struct libwebsocket_context *context)
+lws_context_init_http2_ssl(struct lws_context *context)
 {
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
 	static struct alpn_ctx protos = { (unsigned char *)
@@ -106,7 +106,7 @@ lws_context_init_http2_ssl(struct libwebsocket_context *context)
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
 }
 
-void lws_http2_configure_if_upgraded(struct libwebsocket *wsi)
+void lws_http2_configure_if_upgraded(struct lws *wsi)
 {
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
 	struct allocated_headers *ah;

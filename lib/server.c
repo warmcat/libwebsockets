@@ -23,7 +23,7 @@
 #include "private-libwebsockets.h"
 
 int lws_context_init_server(struct lws_context_creation_info *info,
-			    struct libwebsocket_context *context)
+			    struct lws_context *context)
 {
 	lws_sockfd_type sockfd;
 #if LWS_POSIX
@@ -37,7 +37,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	struct sockaddr *v;
 	int opt = 1;
 #endif
-	struct libwebsocket *wsi;
+	struct lws *wsi;
 
 	/* set up our external listening socket we serve on */
 
@@ -121,7 +121,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 
 	context->listen_port = info->port;
 
-	wsi = lws_zalloc(sizeof(struct libwebsocket));
+	wsi = lws_zalloc(sizeof(struct lws));
 	if (wsi == NULL) {
 		lwsl_err("Out of mem\n");
 		compatible_close(sockfd);
@@ -151,9 +151,9 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 }
 
 int
-_lws_rx_flow_control(struct libwebsocket *wsi)
+_lws_rx_flow_control(struct lws *wsi)
 {
-	struct libwebsocket_context *context = wsi->protocol->owning_server;
+	struct lws_context *context = wsi->protocol->owning_server;
 
 	/* there is no pending change */
 	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE))
@@ -187,8 +187,8 @@ _lws_rx_flow_control(struct libwebsocket *wsi)
 	return 0;
 }
 
-int lws_http_action(struct libwebsocket_context *context,
-		    struct libwebsocket *wsi)
+int lws_http_action(struct lws_context *context,
+		    struct lws *wsi)
 {
 	char *uri_ptr = NULL;
 	int uri_len = 0;
@@ -343,8 +343,8 @@ bail_nuke_ah:
 }
 
 
-int lws_handshake_server(struct libwebsocket_context *context,
-		struct libwebsocket *wsi, unsigned char **buf, size_t len)
+int lws_handshake_server(struct lws_context *context,
+		struct lws *wsi, unsigned char **buf, size_t len)
 {
 	struct allocated_headers *ah;
 	int protocol_len;
@@ -596,12 +596,12 @@ bail_nuke_ah:
 	return 1;
 }
 
-struct libwebsocket *
-lws_create_new_server_wsi(struct libwebsocket_context *context)
+struct lws *
+lws_create_new_server_wsi(struct lws_context *context)
 {
-	struct libwebsocket *new_wsi;
+	struct lws *new_wsi;
 
-	new_wsi = lws_zalloc(sizeof(struct libwebsocket));
+	new_wsi = lws_zalloc(sizeof(struct lws));
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
@@ -656,7 +656,7 @@ lws_create_new_server_wsi(struct libwebsocket_context *context)
  */
 
 LWS_VISIBLE
-int lws_http_transaction_completed(struct libwebsocket *wsi)
+int lws_http_transaction_completed(struct lws *wsi)
 {
 	/* if we can't go back to accept new headers, drop the connection */
 	if (wsi->u.http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
@@ -684,10 +684,10 @@ int lws_http_transaction_completed(struct libwebsocket *wsi)
 }
 
 LWS_VISIBLE
-int lws_server_socket_service(struct libwebsocket_context *context,
-			struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd)
+int lws_server_socket_service(struct lws_context *context,
+			struct lws *wsi, struct lws_pollfd *pollfd)
 {
-	struct libwebsocket *new_wsi = NULL;
+	struct lws *new_wsi = NULL;
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
 #if LWS_POSIX
 	socklen_t clilen;
@@ -910,8 +910,8 @@ fail:
  */
 
 LWS_VISIBLE int lws_serve_http_file(
-		struct libwebsocket_context *context,
-			struct libwebsocket *wsi, const char *file,
+		struct lws_context *context,
+			struct lws *wsi, const char *file,
 			   const char *content_type, const char *other_headers,
 			   int other_headers_len)
 {
@@ -963,7 +963,7 @@ LWS_VISIBLE int lws_serve_http_file(
 }
 
 
-int lws_interpret_incoming_packet(struct libwebsocket *wsi,
+int lws_interpret_incoming_packet(struct lws *wsi,
 						 unsigned char *buf, size_t len)
 {
 	size_t n = 0;
@@ -1000,7 +1000,7 @@ int lws_interpret_incoming_packet(struct libwebsocket *wsi,
 }
 
 LWS_VISIBLE void
-lws_server_get_canonical_hostname(struct libwebsocket_context *context,
+lws_server_get_canonical_hostname(struct lws_context *context,
 				struct lws_context_creation_info *info)
 {
 	if (info->options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME)

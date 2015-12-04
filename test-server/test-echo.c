@@ -53,9 +53,9 @@ struct per_session_data__echo {
 };
 
 static int
-callback_echo(struct libwebsocket_context *context,
-		struct libwebsocket *wsi,
-		enum libwebsocket_callback_reasons reason, void *user,
+callback_echo(struct lws_context *context,
+		struct lws *wsi,
+		enum lws_callback_reasons reason, void *user,
 							   void *in, size_t len)
 {
 	struct per_session_data__echo *pss = (struct per_session_data__echo *)user;
@@ -145,7 +145,7 @@ do_rx:
 
 
 
-static struct libwebsocket_protocols protocols[] = {
+static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
 	{
@@ -189,7 +189,7 @@ int main(int argc, char **argv)
 	int n = 0;
 	int port = 7681;
 	int use_ssl = 0;
-	struct libwebsocket_context *context;
+	struct lws_context *context;
 	int opts = 0;
 	char interface_name[128] = "";
 	const char *_interface = NULL;
@@ -207,7 +207,7 @@ int main(int argc, char **argv)
 	char address[256], ads_port[256 + 30];
 	int rate_us = 250000;
 	unsigned long long oldus;
-	struct libwebsocket *wsi;
+	struct lws *wsi;
 	int disallow_selfsigned = 0;
 	struct timeval tv;
 #endif

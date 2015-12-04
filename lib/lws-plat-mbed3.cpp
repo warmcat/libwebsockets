@@ -21,10 +21,10 @@ extern "C" void mbed3_delete_tcp_stream_socket(void *sock)
 	delete conn;
 }
 
-void lws_conn::serialized_writeable(struct libwebsocket *_wsi)
+void lws_conn::serialized_writeable(struct lws *_wsi)
 {
-	struct libwebsocket *wsi = (struct libwebsocket *)_wsi;
-	struct libwebsocket_pollfd pollfd;
+	struct lws *wsi = (struct lws *)_wsi;
+	struct lws_pollfd pollfd;
 	lws_conn *conn = (lws_conn *)wsi->sock;
 	
 	conn->awaiting_on_writeable = 0;
@@ -38,7 +38,7 @@ void lws_conn::serialized_writeable(struct libwebsocket *_wsi)
 	lws_service_fd(wsi->protocol->owning_server, &pollfd);
 }
 
-extern "C" void mbed3_tcp_stream_bind(void *sock, int port, struct libwebsocket *wsi)
+extern "C" void mbed3_tcp_stream_bind(void *sock, int port, struct lws *wsi)
 {
 	lws_conn_listener *srv = (lws_conn_listener *)sock;
 	
@@ -50,7 +50,7 @@ extern "C" void mbed3_tcp_stream_bind(void *sock, int port, struct libwebsocket 
 	minar::Scheduler::postCallback(fp.bind(port));
 }
 
-extern "C" void mbed3_tcp_stream_accept(void *sock, struct libwebsocket *wsi)
+extern "C" void mbed3_tcp_stream_accept(void *sock, struct lws *wsi)
 {
 	lws_conn *conn = (lws_conn *)sock;
 
@@ -59,8 +59,8 @@ extern "C" void mbed3_tcp_stream_accept(void *sock, struct libwebsocket *wsi)
 }
 
 extern "C" LWS_VISIBLE int
-lws_plat_change_pollfd(struct libwebsocket_context *context,
-		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
+lws_plat_change_pollfd(struct lws_context *context,
+		      struct lws *wsi, struct lws_pollfd *pfd)
 {
 	lws_conn *conn = (lws_conn *)wsi->sock;
 	
@@ -68,7 +68,7 @@ lws_plat_change_pollfd(struct libwebsocket_context *context,
 	if (pfd->events & POLLOUT) {
 		conn->awaiting_on_writeable = 1;
 		if (conn->writeable) {
- 			mbed::util::FunctionPointer1<void, struct libwebsocket *> book(conn, &lws_conn::serialized_writeable);
+ 			mbed::util::FunctionPointer1<void, struct lws *> book(conn, &lws_conn::serialized_writeable);
 			minar::Scheduler::postCallback(book.bind(wsi));
 			lwsl_debug("%s: wsi %p (booked callback)\r\n", __func__, (void *)wsi);
 		} else {
@@ -82,8 +82,8 @@ lws_plat_change_pollfd(struct libwebsocket_context *context,
 }
 
 extern "C" LWS_VISIBLE int
-lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read_no_ssl(struct lws_context *context,
+			    struct lws *wsi, unsigned char *buf, int len)
 {
 	socket_error_t err;
 	size_t _len = len;
@@ -110,7 +110,7 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 }
 
 extern "C" LWS_VISIBLE int
-lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len)
+lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	socket_error_t err;
 	lws_conn *conn = (lws_conn *)wsi->sock;
@@ -159,7 +159,7 @@ void lws_conn_listener::start(const uint16_t port)
 
 int lws_conn::actual_onRX(Socket *s)
 {
-	struct libwebsocket_pollfd pollfd;
+	struct lws_pollfd pollfd;
 	
 	(void)s;
 
@@ -215,8 +215,8 @@ void lws_conn_listener::onIncoming(TCPListener *tl, void *impl)
 	lwsl_debug("%s: exit\n", __func__);
 }
 
-extern "C" LWS_VISIBLE struct libwebsocket *
-wsi_from_fd(struct libwebsocket_context *context, lws_sockfd_type fd)
+extern "C" LWS_VISIBLE struct lws *
+wsi_from_fd(struct lws_context *context, lws_sockfd_type fd)
 {
 	lws_conn *conn = (lws_conn *)fd;
 	(void)context;
@@ -225,8 +225,8 @@ wsi_from_fd(struct libwebsocket_context *context, lws_sockfd_type fd)
 }
 
 extern "C" LWS_VISIBLE void
-lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
-						       struct libwebsocket *wsi)
+lws_plat_insert_socket_into_fds(struct lws_context *context,
+						       struct lws *wsi)
 {
 	(void)wsi;
 	lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_READ);
@@ -234,8 +234,8 @@ lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
 }
 
 extern "C" LWS_VISIBLE void
-lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
-						struct libwebsocket *wsi, int m)
+lws_plat_delete_socket_from_fds(struct lws_context *context,
+						struct lws *wsi, int m)
 {
 	(void)context;
 	(void)wsi;
@@ -256,7 +256,7 @@ void lws_conn_listener::onDisconnect(TCPStream *s)
 }
 
 extern "C" LWS_VISIBLE int
-lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
+lws_plat_service(struct lws_context *context, int timeout_ms)
 {
 	(void)context;
 	(void)timeout_ms;
@@ -266,7 +266,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 
 void lws_conn::onSent(Socket *s, uint16_t len)
 {
-	struct libwebsocket_pollfd pollfd;
+	struct lws_pollfd pollfd;
 
 	(void)s;
 	(void)len;

@@ -27,12 +27,12 @@ extern int close_testing;
 extern int max_poll_elements;
 
 #ifdef EXTERNAL_POLL
-extern struct libwebsocket_pollfd *pollfds;
+extern struct lws_pollfd *pollfds;
 extern int *fd_lookup;
 extern int count_pollfds;
 #endif
 extern volatile int force_exit;
-extern struct libwebsocket_context *context;
+extern struct lws_context *context;
 extern char *resource_path;
 
 extern void test_server_lock(int care);
@@ -59,22 +59,22 @@ struct per_session_data__dumb_increment {
 };
 
 struct per_session_data__lws_mirror {
-	struct libwebsocket *wsi;
+	struct lws *wsi;
 	int ringbuffer_tail;
 };
 
-extern int callback_http(struct libwebsocket_context *context,
-			 struct libwebsocket *wsi,
-			 enum libwebsocket_callback_reasons reason,
+extern int callback_http(struct lws_context *context,
+			 struct lws *wsi,
+			 enum lws_callback_reasons reason,
 			 void *user, void *in, size_t len);
-extern int callback_lws_mirror(struct libwebsocket_context *context,
-			       struct libwebsocket *wsi,
-			       enum libwebsocket_callback_reasons reason,
+extern int callback_lws_mirror(struct lws_context *context,
+			       struct lws *wsi,
+			       enum lws_callback_reasons reason,
 			       void *user, void *in, size_t len);
-extern int callback_dumb_increment(struct libwebsocket_context *context,
-			       struct libwebsocket *wsi,
-			       enum libwebsocket_callback_reasons reason,
+extern int callback_dumb_increment(struct lws_context *context,
+			       struct lws *wsi,
+			       enum lws_callback_reasons reason,
 			       void *user, void *in, size_t len);
 
 extern void
-dump_handshake_info(struct libwebsocket *wsi);
+dump_handshake_info(struct lws *wsi);

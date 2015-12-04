@@ -53,9 +53,9 @@ struct per_session_data__fraggle {
 };
 
 static int
-callback_fraggle(struct libwebsocket_context *context,
-			struct libwebsocket *wsi,
-			enum libwebsocket_callback_reasons reason,
+callback_fraggle(struct lws_context *context,
+			struct lws *wsi,
+			enum lws_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
 	int n;
@@ -232,7 +232,7 @@ callback_fraggle(struct libwebsocket_context *context,
 
 /* list of supported protocols and callbacks */
 
-static struct libwebsocket_protocols protocols[] = {
+static struct lws_protocols protocols[] = {
 	{
 		"fraggle-protocol",
 		callback_fraggle,
@@ -258,11 +258,11 @@ int main(int argc, char **argv)
 	int n = 0;
 	int port = 7681;
 	int use_ssl = 0;
-	struct libwebsocket_context *context;
+	struct lws_context *context;
 	int opts = 0;
 	char interface_name[128] = "";
 	const char *iface = NULL;
-	struct libwebsocket *wsi;
+	struct lws *wsi;
 	const char *address;
 	int server_port = port;
 	struct lws_context_creation_info info;

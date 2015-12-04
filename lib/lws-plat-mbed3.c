@@ -12,7 +12,7 @@ unsigned long long time_in_microseconds(void)
 	return 0;
 }
 
-LWS_VISIBLE int lws_get_random(struct libwebsocket_context *context,
+LWS_VISIBLE int lws_get_random(struct lws_context *context,
 							     void *buf, int len)
 {
 	(void)context;
@@ -38,10 +38,10 @@ LWS_VISIBLE int lws_get_random(struct libwebsocket_context *context,
  * get their turn at the network device.
  */
 
-LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
+LWS_VISIBLE int lws_send_pipe_choked(struct lws *wsi)
 {
 #if 0
-	struct libwebsocket_pollfd fds;
+	struct lws_pollfd fds;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
 	if (wsi->truncated_send_len)
@@ -64,7 +64,7 @@ LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
 }
 
 LWS_VISIBLE int
-lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
+lws_poll_listen_fd(struct lws_pollfd *fd)
 {
 	(void)fd;
 	return -1;
@@ -81,7 +81,7 @@ lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
  *	it.
  */
 LWS_VISIBLE void
-lws_cancel_service(struct libwebsocket_context *context)
+lws_cancel_service(struct lws_context *context)
 {
 	(void)context;
 }
@@ -92,7 +92,7 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 }
 
 LWS_VISIBLE int
-lws_plat_set_socket_options(struct libwebsocket_context *context, lws_sockfd_type fd)
+lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd)
 {
 	(void)context;
 	(void)fd;
@@ -106,14 +106,14 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 }
 
 LWS_VISIBLE int
-lws_plat_init_lookup(struct libwebsocket_context *context)
+lws_plat_init_lookup(struct lws_context *context)
 {
 	(void)context;
 	return 0;
 }
 
 LWS_VISIBLE int
-lws_plat_init_fd_tables(struct libwebsocket_context *context)
+lws_plat_init_fd_tables(struct lws_context *context)
 {
 	(void)context;
 	return 0;
@@ -127,20 +127,20 @@ lws_plat_context_early_init(void)
 }
 
 LWS_VISIBLE void
-lws_plat_context_early_destroy(struct libwebsocket_context *context)
+lws_plat_context_early_destroy(struct lws_context *context)
 {
 	(void)context;
 }
 
 LWS_VISIBLE void
-lws_plat_context_late_destroy(struct libwebsocket_context *context)
+lws_plat_context_late_destroy(struct lws_context *context)
 {
 	(void)context;
 }
 
 
 LWS_VISIBLE void
-lws_plat_service_periodic(struct libwebsocket_context *context)
+lws_plat_service_periodic(struct lws_context *context)
 {
 	(void)context;
 }
@@ -164,7 +164,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 }
 
 LWS_VISIBLE int
-insert_wsi(struct libwebsocket_context *context, struct libwebsocket *wsi)
+insert_wsi(struct lws_context *context, struct lws *wsi)
 {
 	(void)context;
 	(void)wsi;
@@ -173,7 +173,7 @@ insert_wsi(struct libwebsocket_context *context, struct libwebsocket *wsi)
 }
 
 LWS_VISIBLE int
-delete_from_fd(struct libwebsocket_context *context, lws_sockfd_type fd)
+delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 {
 	(void)context;
 	(void)fd;

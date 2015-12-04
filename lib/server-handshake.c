@@ -24,13 +24,13 @@
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 #ifndef LWS_NO_EXTENSIONS
 LWS_VISIBLE int
-lws_extension_server_handshake(struct libwebsocket_context *context,
-			  struct libwebsocket *wsi, char **p)
+lws_extension_server_handshake(struct lws_context *context,
+			  struct lws *wsi, char **p)
 {
 	int n;
 	char *c;
 	char ext_name[128];
-	struct libwebsocket_extension *ext;
+	struct lws_extension *ext;
 	int ext_count = 0;
 	int more = 1;
 
@@ -156,7 +156,7 @@ lws_extension_server_handshake(struct libwebsocket_context *context,
 }
 #endif
 int
-handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
+handshake_0405(struct lws_context *context, struct lws *wsi)
 {
 	unsigned char hash[20];
 	int n;

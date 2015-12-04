@@ -57,7 +57,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
 	SSL *ssl;
 	int n;
-	struct libwebsocket_context *context;
+	struct lws_context *context;
 
 	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
 		SSL_get_ex_data_X509_STORE_CTX_idx());
@@ -78,7 +78,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 
 LWS_VISIBLE int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
-		     struct libwebsocket_context *context)
+		     struct lws_context *context)
 {
 	SSL_METHOD *method;
 	int error;
@@ -246,7 +246,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 
 LWS_VISIBLE void
-lws_ssl_destroy(struct libwebsocket_context *context)
+lws_ssl_destroy(struct lws_context *context)
 {
 	if (context->ssl_ctx)
 		SSL_CTX_free(context->ssl_ctx);
@@ -278,7 +278,7 @@ lws_decode_ssl_error(void)
 #ifndef LWS_NO_CLIENT
 
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
-			    struct libwebsocket_context *context)
+			    struct lws_context *context)
 {
 	int error;
 	int n;
@@ -406,8 +406,8 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 #endif
 
 LWS_VISIBLE void
-lws_ssl_remove_wsi_from_buffered_list(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi)
+lws_ssl_remove_wsi_from_buffered_list(struct lws_context *context,
+		     struct lws *wsi)
 {
 	if (!wsi->pending_read_list_prev &&
 	    !wsi->pending_read_list_next &&
@@ -432,8 +432,8 @@ lws_ssl_remove_wsi_from_buffered_list(struct libwebsocket_context *context,
 }
 
 LWS_VISIBLE int
-lws_ssl_capable_read(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read(struct lws_context *context,
+		     struct lws *wsi, unsigned char *buf, int len)
 {
 	int n;
 
@@ -477,7 +477,7 @@ lwsl_err("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
 }
 
 LWS_VISIBLE int
-lws_ssl_pending(struct libwebsocket *wsi)
+lws_ssl_pending(struct lws *wsi)
 {
 	if (!wsi->ssl)
 		return 0;
@@ -486,7 +486,7 @@ lws_ssl_pending(struct libwebsocket *wsi)
 }
 
 LWS_VISIBLE int
-lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len)
+lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n;
 
@@ -508,7 +508,7 @@ lwsl_err("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
 }
 
 LWS_VISIBLE int
-lws_ssl_close(struct libwebsocket *wsi)
+lws_ssl_close(struct lws *wsi)
 {
 	int n;
 
@@ -525,12 +525,12 @@ lws_ssl_close(struct libwebsocket *wsi)
 }
 
 LWS_VISIBLE int
-lws_server_socket_service_ssl(struct libwebsocket_context *context,
-		struct libwebsocket **pwsi, struct libwebsocket *new_wsi,
-			int accept_fd, struct libwebsocket_pollfd *pollfd)
+lws_server_socket_service_ssl(struct lws_context *context,
+		struct lws **pwsi, struct lws *new_wsi,
+			int accept_fd, struct lws_pollfd *pollfd)
 {
 	int n, m;
-	struct libwebsocket *wsi = *pwsi;
+	struct lws *wsi = *pwsi;
 #ifndef USE_WOLFSSL
 	BIO *bio;
 #endif
@@ -711,7 +711,7 @@ fail:
 }
 
 LWS_VISIBLE void
-lws_ssl_context_destroy(struct libwebsocket_context *context)
+lws_ssl_context_destroy(struct lws_context *context)
 {
 	if (context->ssl_ctx)
 		SSL_CTX_free(context->ssl_ctx);

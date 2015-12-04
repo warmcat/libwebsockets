@@ -38,8 +38,8 @@ void lws_http2_init(struct http2_settings *settings)
 	memcpy(settings, lws_http2_default_settings.setting, sizeof(*settings));
 }
 
-struct libwebsocket *
-lws_http2_wsi_from_id(struct libwebsocket *wsi, unsigned int sid)
+struct lws *
+lws_http2_wsi_from_id(struct lws *wsi, unsigned int sid)
 {
 	do {
 		if (wsi->u.http2.my_stream_id == sid)
@@ -51,10 +51,10 @@ lws_http2_wsi_from_id(struct libwebsocket *wsi, unsigned int sid)
 	return NULL;
 }
 
-struct libwebsocket *
-lws_create_server_child_wsi(struct libwebsocket_context *context, struct libwebsocket *parent_wsi, unsigned int sid)
+struct lws *
+lws_create_server_child_wsi(struct lws_context *context, struct lws *parent_wsi, unsigned int sid)
 {
-	struct libwebsocket *wsi = lws_create_new_server_wsi(context);
+	struct lws *wsi = lws_create_new_server_wsi(context);
 	
 	if (!wsi)
 		return NULL;
@@ -87,9 +87,9 @@ lws_create_server_child_wsi(struct libwebsocket_context *context, struct libwebs
 	return wsi;
 }
 
-int lws_remove_server_child_wsi(struct libwebsocket_context *context, struct libwebsocket *wsi)
+int lws_remove_server_child_wsi(struct lws_context *context, struct lws *wsi)
 {
-	struct libwebsocket **w = &wsi->u.http2.parent_wsi;
+	struct lws **w = &wsi->u.http2.parent_wsi;
 	do {
 		if (*w == wsi) {
 			*w = wsi->u.http2.next_child_wsi;
@@ -132,7 +132,7 @@ lws_http2_interpret_settings_payload(struct http2_settings *settings, unsigned c
 	return 0;
 }
 
-struct libwebsocket *lws_http2_get_network_wsi(struct libwebsocket *wsi)
+struct lws *lws_http2_get_network_wsi(struct lws *wsi)
 {
 	while (wsi->u.http2.parent_wsi)
 		wsi = wsi->u.http2.parent_wsi;
@@ -140,9 +140,9 @@ struct libwebsocket *lws_http2_get_network_wsi(struct libwebsocket *wsi)
 	return wsi;
 }
 
-int lws_http2_frame_write(struct libwebsocket *wsi, int type, int flags, unsigned int sid, unsigned int len, unsigned char *buf)
+int lws_http2_frame_write(struct lws *wsi, int type, int flags, unsigned int sid, unsigned int len, unsigned char *buf)
 {
-	struct libwebsocket *wsi_eff = lws_http2_get_network_wsi(wsi);
+	struct lws *wsi_eff = lws_http2_get_network_wsi(wsi);
 	unsigned char *p = &buf[-LWS_HTTP2_FRAME_HEADER_LENGTH];
 	int n;
 
@@ -172,7 +172,7 @@ int lws_http2_frame_write(struct libwebsocket *wsi, int type, int flags, unsigne
 	return n;
 }
 
-static void lws_http2_settings_write(struct libwebsocket *wsi, int n, unsigned char *buf)
+static void lws_http2_settings_write(struct lws *wsi, int n, unsigned char *buf)
 {
 	*buf++ = n >> 8;
 	*buf++ = n;
@@ -186,12 +186,12 @@ static const char * https_client_preface =
 	"PRI * HTTP/2.0\x0d\x0a\x0d\x0aSM\x0d\x0a\x0d\x0a";
 
 int
-lws_http2_parser(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char c)
+lws_http2_parser(struct lws_context *context,
+		     struct lws *wsi, unsigned char c)
 {
-	struct libwebsocket *swsi;
+	struct lws *swsi;
 	int n;
-	//dstruct libwebsocket *wsi_new;
+	//dstruct lws *wsi_new;
 
 	switch (wsi->state) {
 	case WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE:
@@ -413,10 +413,10 @@ update_end_headers:
 	return 0;
 }
 
-int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsocket *wsi)
+int lws_http2_do_pps_send(struct lws_context *context, struct lws *wsi)
 {
 	unsigned char settings[LWS_SEND_BUFFER_PRE_PADDING + 6 * LWS_HTTP2_SETTINGS__COUNT];
-	struct libwebsocket *swsi;
+	struct lws *swsi;
 	int n, m = 0;
 
 	lwsl_debug("%s: %p: %d\n", __func__, wsi, wsi->pps);
@@ -497,7 +497,7 @@ int lws_http2_do_pps_send(struct libwebsocket_context *context, struct libwebsoc
 	return 0;
 }
 
-struct libwebsocket * lws_http2_get_nth_child(struct libwebsocket *wsi, int n)
+struct lws * lws_http2_get_nth_child(struct lws *wsi, int n)
 {
 	do {
 		wsi = wsi->u.http2.next_child_wsi;

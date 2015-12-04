@@ -1,10 +1,10 @@
 #include "private-libwebsockets.h"
 
-struct libwebsocket *lws_client_connect_2(
-	struct libwebsocket_context *context,
-	struct libwebsocket *wsi
+struct lws *lws_client_connect_2(
+	struct lws_context *context,
+	struct lws *wsi
 ) {
-	struct libwebsocket_pollfd pfd;
+	struct lws_pollfd pfd;
 #ifdef LWS_USE_IPV6
 	struct sockaddr_in6 server_addr6;
 	struct sockaddr_in6 client_addr6;
@@ -333,8 +333,8 @@ failed:
  *	This function creates a connection to a remote server
  */
 
-LWS_VISIBLE struct libwebsocket *
-lws_client_connect(struct libwebsocket_context *context,
+LWS_VISIBLE struct lws *
+lws_client_connect(struct lws_context *context,
 			      const char *address,
 			      int port,
 			      int ssl_connection,
@@ -344,9 +344,9 @@ lws_client_connect(struct libwebsocket_context *context,
 			      const char *protocol,
 			      int ietf_version_or_minus_one)
 {
-	struct libwebsocket *wsi;
+	struct lws *wsi;
 
-	wsi = lws_zalloc(sizeof(struct libwebsocket));
+	wsi = lws_zalloc(sizeof(struct lws));
 	if (wsi == NULL)
 		goto bail;
 
@@ -458,8 +458,8 @@ bail:
  *	This function creates a connection to a remote server
  */
 
-LWS_VISIBLE struct libwebsocket *
-lws_client_connect_extended(struct libwebsocket_context *context,
+LWS_VISIBLE struct lws *
+lws_client_connect_extended(struct lws_context *context,
 			      const char *address,
 			      int port,
 			      int ssl_connection,
@@ -470,7 +470,7 @@ lws_client_connect_extended(struct libwebsocket_context *context,
 			      int ietf_version_or_minus_one,
 			      void *userdata)
 {
-	struct libwebsocket *ws =
+	struct lws *ws =
 		lws_client_connect(context, address, port,
 			ssl_connection, path, host, origin, protocol,
 						     ietf_version_or_minus_one);

@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-int lws_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
+int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 {
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	int handled;
@@ -407,7 +407,7 @@ ping_drop:
 		m = wsi->protocol->callback(
 			wsi->protocol->owning_server,
 			wsi,
-			(enum libwebsocket_callback_reasons)callback_action,
+			(enum lws_callback_reasons)callback_action,
 			wsi->user_space,
 			eff_buf.token,
 			eff_buf.token_len);

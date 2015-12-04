@@ -33,9 +33,9 @@ static struct a_message ringbuffer[MAX_MESSAGE_QUEUE];
 static int ringbuffer_head;
 
 int
-callback_lws_mirror(struct libwebsocket_context *context,
-		    struct libwebsocket *wsi,
-		    enum libwebsocket_callback_reasons reason,
+callback_lws_mirror(struct lws_context *context,
+		    struct lws *wsi,
+		    enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
 	struct per_session_data__lws_mirror *pss =

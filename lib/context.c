@@ -48,7 +48,7 @@ lws_get_library_version(void)
  *	This function creates the listening socket (if serving) and takes care
  *	of all initialization in one step.
  *
- *	After initialization, it returns a struct libwebsocket_context * that
+ *	After initialization, it returns a struct lws_context * that
  *	represents this server.  After calling, user code needs to take care
  *	of calling lws_service() with the context pointer to get the
  *	server's sockets serviced.  This must be done in the same process
@@ -71,10 +71,10 @@ lws_get_library_version(void)
  *	one place; they're all handled in the user callback.
  */
 
-LWS_VISIBLE struct libwebsocket_context *
+LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
 {
-	struct libwebsocket_context *context = NULL;
+	struct lws_context *context = NULL;
 	char *p;
 #if LWS_POSIX
 	int pid_daemon = get_daemonize_pid();
@@ -106,7 +106,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	if (lws_plat_context_early_init())
 		return NULL;
 
-	context = lws_zalloc(sizeof(struct libwebsocket_context));
+	context = lws_zalloc(sizeof(struct lws_context));
 	if (!context) {
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
@@ -149,16 +149,16 @@ lws_create_context(struct lws_context_creation_info *info)
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
 	lwsl_notice(" static allocation: %u + (%u x %u fds) = %u bytes\n",
-		sizeof(struct libwebsocket_context),
-		sizeof(struct libwebsocket_pollfd) +
-					sizeof(struct libwebsocket *),
+		sizeof(struct lws_context),
+		sizeof(struct lws_pollfd) +
+					sizeof(struct lws *),
 		context->max_fds,
-		sizeof(struct libwebsocket_context) +
-		((sizeof(struct libwebsocket_pollfd) +
-					sizeof(struct libwebsocket *)) *
+		sizeof(struct lws_context) +
+		((sizeof(struct lws_pollfd) +
+					sizeof(struct lws *)) *
 							     context->max_fds));
 
-	context->fds = lws_zalloc(sizeof(struct libwebsocket_pollfd) *
+	context->fds = lws_zalloc(sizeof(struct lws_pollfd) *
 				  context->max_fds);
 	if (context->fds == NULL) {
 		lwsl_err("Unable to allocate fds array for %d connections\n",
@@ -197,7 +197,7 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	lwsl_notice(
 		" per-conn mem: %u + %u headers + protocol rx buf\n",
-				sizeof(struct libwebsocket),
+				sizeof(struct lws),
 					      sizeof(struct allocated_headers));
 
 	if (lws_context_init_server_ssl(info, context))
@@ -270,12 +270,12 @@ bail:
  *	undefined.
  */
 LWS_VISIBLE void
-lws_context_destroy(struct libwebsocket_context *context)
+lws_context_destroy(struct lws_context *context)
 {
 	/* Note that this is used for freeing partially allocated structs as well
 	 * so make sure you don't try to free something uninitialized */
 	int n;
-	struct libwebsocket_protocols *protocol = NULL;
+	struct lws_protocols *protocol = NULL;
 
 	lwsl_notice("%s\n", __func__);
 
@@ -288,7 +288,7 @@ lws_context_destroy(struct libwebsocket_context *context)
 #endif
 
 	for (n = 0; n < context->fds_count; n++) {
-		struct libwebsocket *wsi =
+		struct lws *wsi =
 					wsi_from_fd(context, context->fds[n].fd);
 		if (!wsi)
 			continue;

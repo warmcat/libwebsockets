@@ -22,10 +22,10 @@
 #include "private-libwebsockets.h"
 
 int
-insert_wsi_socket_into_fds(struct libwebsocket_context *context,
-						       struct libwebsocket *wsi)
+insert_wsi_socket_into_fds(struct lws_context *context,
+						       struct lws *wsi)
 {
-	struct libwebsocket_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
+	struct lws_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
 
 	if (context->fds_count >= context->max_fds) {
 		lwsl_err("Too many fds (%d)\n", context->max_fds);
@@ -70,11 +70,11 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 }
 
 int
-remove_wsi_socket_from_fds(struct libwebsocket_context *context,
-						      struct libwebsocket *wsi)
+remove_wsi_socket_from_fds(struct lws_context *context,
+						      struct lws *wsi)
 {
 	int m;
-	struct libwebsocket_pollargs pa = { wsi->sock, 0, 0 };
+	struct lws_pollargs pa = { wsi->sock, 0, 0 };
 
 	lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
@@ -130,13 +130,13 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 }
 
 int
-lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
+lws_change_pollfd(struct lws *wsi, int _and, int _or)
 {
-	struct libwebsocket_context *context;
+	struct lws_context *context;
 	int tid;
 	int sampled_tid;
-	struct libwebsocket_pollfd *pfd;
-	struct libwebsocket_pollargs pa;
+	struct lws_pollfd *pfd;
+	struct lws_pollargs pa;
 
 	if (!wsi || !wsi->protocol || wsi->position_in_fds_table < 0)
 		return 1;
@@ -206,11 +206,11 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
  */
 
 LWS_VISIBLE int
-lws_callback_on_writable(struct libwebsocket_context *context,
-						      struct libwebsocket *wsi)
+lws_callback_on_writable(struct lws_context *context,
+						      struct lws *wsi)
 {
 #ifdef LWS_USE_HTTP2
-	struct libwebsocket *network_wsi, *wsi2;
+	struct lws *network_wsi, *wsi2;
 	int already;
 
 	lwsl_info("%s: %p\n", __func__, wsi);
@@ -285,11 +285,11 @@ network_sock:
 
 LWS_VISIBLE int
 lws_callback_on_writable_all_protocol(
-				  const struct libwebsocket_protocols *protocol)
+				  const struct lws_protocols *protocol)
 {
-	struct libwebsocket_context *context = protocol->owning_server;
+	struct lws_context *context = protocol->owning_server;
 	int n;
-	struct libwebsocket *wsi;
+	struct lws *wsi;
 
 	for (n = 0; n < context->fds_count; n++) {
 		wsi = wsi_from_fd(context,context->fds[n].fd);

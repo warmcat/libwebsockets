@@ -22,7 +22,7 @@
 #include "private-libwebsockets.h"
 
 static int
-lws_0405_frame_mask_generate(struct libwebsocket *wsi)
+lws_0405_frame_mask_generate(struct lws *wsi)
 {
 	int n;
 
@@ -90,9 +90,9 @@ LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
  * notice this returns number of bytes consumed, or -1
  */
 
-int lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len)
+int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	struct libwebsocket_context *context = wsi->protocol->owning_server;
+	struct lws_context *context = wsi->protocol->owning_server;
 	int n;
 	size_t real_len = len;
 	int m;
@@ -246,7 +246,7 @@ handle_truncated_send:
  *	pressure at any given time.
  */
 
-LWS_VISIBLE int lws_write(struct libwebsocket *wsi, unsigned char *buf,
+LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 			  size_t len, enum lws_write_protocol protocol)
 {
 	int n;
@@ -516,7 +516,7 @@ send_raw:
 }
 
 LWS_VISIBLE int lws_serve_http_file_fragment(
-		struct libwebsocket_context *context, struct libwebsocket *wsi)
+		struct lws_context *context, struct lws *wsi)
 {
 	int n;
 	int m;
@@ -580,8 +580,8 @@ all_sent:
 
 #if LWS_POSIX
 LWS_VISIBLE int
-lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read_no_ssl(struct lws_context *context,
+			    struct lws *wsi, unsigned char *buf, int len)
 {
 	int n;
 
@@ -601,7 +601,7 @@ lws_ssl_capable_read_no_ssl(struct libwebsocket_context *context,
 }
 
 LWS_VISIBLE int
-lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int len)
+lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n = 0;
 
@@ -631,7 +631,7 @@ lws_ssl_capable_write_no_ssl(struct libwebsocket *wsi, unsigned char *buf, int l
 }
 #endif
 LWS_VISIBLE int
-lws_ssl_pending_no_ssl(struct libwebsocket *wsi)
+lws_ssl_pending_no_ssl(struct lws *wsi)
 {
 	(void)wsi;
 	return 0;

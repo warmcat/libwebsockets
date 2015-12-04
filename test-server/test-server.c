@@ -25,12 +25,12 @@ int close_testing;
 int max_poll_elements;
 
 #ifdef EXTERNAL_POLL
-struct libwebsocket_pollfd *pollfds;
+struct lws_pollfd *pollfds;
 int *fd_lookup;
 int count_pollfds;
 #endif
 volatile int force_exit = 0;
-struct libwebsocket_context *context;
+struct lws_context *context;
 
 /* http server gets files from this path */
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
@@ -73,7 +73,7 @@ enum demo_protocols {
 
 /* list of supported protocols and callbacks */
 
-static struct libwebsocket_protocols protocols[] = {
+static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
 	{
@@ -227,7 +227,7 @@ int main(int argc, char **argv)
 	printf("Using resource path \"%s\"\n", resource_path);
 #ifdef EXTERNAL_POLL
 	max_poll_elements = getdtablesize();
-	pollfds = malloc(max_poll_elements * sizeof (struct libwebsocket_pollfd));
+	pollfds = malloc(max_poll_elements * sizeof (struct lws_pollfd));
 	fd_lookup = malloc(max_poll_elements * sizeof (int));
 	if (pollfds == NULL || fd_lookup == NULL) {
 		lwsl_err("Out of memory pollfds=%d\n", max_poll_elements);
