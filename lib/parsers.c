@@ -99,7 +99,7 @@ LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 }
 
 LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dest, int len,
-						enum lws_token_indexes h)
+			     enum lws_token_indexes h)
 {
 	int toklen = lws_hdr_total_length(wsi, h);
 	int n;
@@ -133,7 +133,7 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 }
 
 int lws_hdr_simple_create(struct lws *wsi,
-				enum lws_token_indexes h, const char *s)
+			  enum lws_token_indexes h, const char *s)
 {
 	wsi->u.hdr.ah->next_frag_index++;
 	if (wsi->u.hdr.ah->next_frag_index ==
@@ -206,9 +206,7 @@ static int issue_char(struct lws *wsi, unsigned char c)
 	return 1;
 }
 
-int lws_parse(
-		struct lws_context *context,
-		struct lws *wsi, unsigned char c)
+int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 {
 	static const unsigned char methods[] = {
 		WSI_TOKEN_GET_URI,

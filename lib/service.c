@@ -22,8 +22,7 @@
 #include "private-libwebsockets.h"
 
 static int
-lws_calllback_as_writeable(struct lws_context *context,
-		   struct lws *wsi)
+lws_calllback_as_writeable(struct lws_context *context, struct lws *wsi)
 {
 	int n;
 
@@ -45,8 +44,8 @@ lws_calllback_as_writeable(struct lws_context *context,
 }
 
 int
-lws_handle_POLLOUT_event(struct lws_context *context,
-		   struct lws *wsi, struct lws_pollfd *pollfd)
+lws_handle_POLLOUT_event(struct lws_context *context, struct lws *wsi,
+			 struct lws_pollfd *pollfd)
 {
 	int n;
 	struct lws_tokens eff_buf;
@@ -281,13 +280,14 @@ notify:
 
 int
 lws_service_timeout_check(struct lws_context *context,
-				     struct lws *wsi, unsigned int sec)
+			  struct lws *wsi, unsigned int sec)
 {
 	/*
 	 * if extensions want in on it (eg, we are a mux parent)
 	 * give them a chance to service child timeouts
 	 */
-	if (lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_1HZ, NULL, sec) < 0)
+	if (lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_1HZ,
+					     NULL, sec) < 0)
 		return 0;
 
 	if (!wsi->pending_timeout)
@@ -298,7 +298,8 @@ lws_service_timeout_check(struct lws_context *context,
 	 * connection
 	 */
 	if ((time_t)sec > wsi->pending_timeout_limit) {
-		lwsl_info("wsi %p: TIMEDOUT WAITING on %d\n", (void *)wsi, wsi->pending_timeout);
+		lwsl_info("wsi %p: TIMEDOUT WAITING on %d\n",
+			  (void *)wsi, wsi->pending_timeout);
 		/*
 		 * Since he failed a timeout, he already had a chance to do
 		 * something and was unable to... that includes situations like
@@ -307,8 +308,8 @@ lws_service_timeout_check(struct lws_context *context,
 		 * cleanup like flush partials.
 		 */
 		wsi->socket_is_permanently_unusable = 1;
-		lws_close_and_free_session(context,
-						wsi, LWS_CLOSE_STATUS_NOSTATUS);
+		lws_close_and_free_session(context, wsi,
+					   LWS_CLOSE_STATUS_NOSTATUS);
 		return 1;
 	}
 
@@ -358,8 +359,7 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
  */
 
 LWS_VISIBLE int
-lws_service_fd(struct lws_context *context,
-					struct lws_pollfd *pollfd)
+lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 {
 	struct lws *wsi;
 	int n, m;
@@ -377,7 +377,8 @@ lws_service_fd(struct lws_context *context,
 
 #if LWS_POSIX
 	if (context->listen_service_fd)
-		listen_socket_fds_index = wsi_from_fd(context,context->listen_service_fd)->position_in_fds_table;
+		listen_socket_fds_index = wsi_from_fd(context,
+			context->listen_service_fd)->position_in_fds_table;
 #endif
          /*
 	 * you can call us with pollfd = NULL to just allow the once-per-second

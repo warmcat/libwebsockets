@@ -25,7 +25,7 @@
 #ifndef LWS_NO_EXTENSIONS
 LWS_VISIBLE int
 lws_extension_server_handshake(struct lws_context *context,
-			  struct lws *wsi, char **p)
+			       struct lws *wsi, char **p)
 {
 	int n;
 	char *c;

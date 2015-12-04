@@ -685,7 +685,7 @@ int lws_http_transaction_completed(struct lws *wsi)
 
 LWS_VISIBLE
 int lws_server_socket_service(struct lws_context *context,
-			struct lws *wsi, struct lws_pollfd *pollfd)
+			      struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	struct lws *new_wsi = NULL;
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
@@ -909,11 +909,11 @@ fail:
  *	the wsi should be left alone.
  */
 
-LWS_VISIBLE int lws_serve_http_file(
-		struct lws_context *context,
-			struct lws *wsi, const char *file,
-			   const char *content_type, const char *other_headers,
-			   int other_headers_len)
+LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
+				    struct lws *wsi, const char *file,
+				    const char *content_type,
+				    const char *other_headers,
+				    int other_headers_len)
 {
 	unsigned char *response = context->service_buffer + LWS_SEND_BUFFER_PRE_PADDING;
 	unsigned char *p = response;
@@ -963,8 +963,7 @@ LWS_VISIBLE int lws_serve_http_file(
 }
 
 
-int lws_interpret_incoming_packet(struct lws *wsi,
-						 unsigned char *buf, size_t len)
+int lws_interpret_incoming_packet(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	size_t n = 0;
 	int m;
@@ -1001,7 +1000,7 @@ int lws_interpret_incoming_packet(struct lws *wsi,
 
 LWS_VISIBLE void
 lws_server_get_canonical_hostname(struct lws_context *context,
-				struct lws_context_creation_info *info)
+				  struct lws_context_creation_info *info)
 {
 	if (info->options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME)
 		return;

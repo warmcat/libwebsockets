@@ -62,7 +62,7 @@ lws_free_wsi(struct lws *wsi)
 
 void
 lws_close_and_free_session(struct lws_context *context,
-			 struct lws *wsi, enum lws_close_status reason)
+			   struct lws *wsi, enum lws_close_status reason)
 {
 	int n, m, ret;
 	int old_state;
@@ -324,9 +324,8 @@ just_kill_connection:
 }
 
 LWS_VISIBLE int
-lws_get_addresses(struct lws_context *context,
-			    void *ads, char *name, int name_len,
-			    char *rip, int rip_len)
+lws_get_addresses(struct lws_context *context, void *ads, char *name,
+		  int name_len, char *rip, int rip_len)
 {
 #if LWS_POSIX
 	struct addrinfo ai, *res;
@@ -422,9 +421,9 @@ lws_get_addresses(struct lws_context *context,
  */
 
 LWS_VISIBLE void
-lws_get_peer_addresses(struct lws_context *context,
-	struct lws *wsi, lws_sockfd_type fd, char *name, int name_len,
-					char *rip, int rip_len)
+lws_get_peer_addresses(struct lws_context *context, struct lws *wsi,
+		       lws_sockfd_type fd, char *name, int name_len,
+		       char *rip, int rip_len)
 {
 #if LWS_POSIX
 	socklen_t len;
@@ -558,8 +557,8 @@ lws_get_socket_fd(struct lws *wsi)
 
 #ifdef LWS_LATENCY
 void
-lws_latency(struct lws_context *context, struct lws *wsi,
-				     const char *action, int ret, int completed)
+lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
+	    int ret, int completed)
 {
 	unsigned long long u;
 	char buf[256];
@@ -633,8 +632,7 @@ lws_rx_flow_control(struct lws *wsi, int enable)
  */
 
 LWS_VISIBLE void
-lws_rx_flow_allow_all_protocol(
-				const struct lws_protocols *protocol)
+lws_rx_flow_allow_all_protocol(const struct lws_protocols *protocol)
 {
 	struct lws_context *context = protocol->owning_server;
 	int n;
@@ -666,10 +664,9 @@ lws_canonical_hostname(struct lws_context *context)
 }
 
 int user_callback_handle_rxflow(callback_function callback_function,
-		struct lws_context *context,
-			struct lws *wsi,
-			 enum lws_callback_reasons reason, void *user,
-							  void *in, size_t len)
+				struct lws_context *context, struct lws *wsi,
+				enum lws_callback_reasons reason, void *user,
+				void *in, size_t len)
 {
 	int n;
 
@@ -853,8 +850,9 @@ LWS_VISIBLE void _lws_log(int filter, const char *format, ...)
  *	emission on stderr.
  */
 
-LWS_VISIBLE void lws_set_log_level(int level, void (*log_emit_function)(int level,
-							      const char *line))
+LWS_VISIBLE void lws_set_log_level(int level,
+				   void (*log_emit_function)(int level,
+							     const char *line))
 {
 	log_level = level;
 	if (log_emit_function)

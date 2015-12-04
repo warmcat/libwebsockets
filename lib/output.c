@@ -515,8 +515,8 @@ send_raw:
 	return n - (pre + post);
 }
 
-LWS_VISIBLE int lws_serve_http_file_fragment(
-		struct lws_context *context, struct lws *wsi)
+LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
+					     struct lws *wsi)
 {
 	int n;
 	int m;
@@ -526,7 +526,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(
 		if (wsi->truncated_send_len) {
 			if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
 					wsi->truncated_send_offset,
-						       wsi->truncated_send_len) < 0) {
+						 wsi->truncated_send_len) < 0) {
 				lwsl_info("closing from lws_serve_http_file_fragment\n");
 				return -1;
 			}

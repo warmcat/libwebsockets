@@ -26,9 +26,11 @@
 
 int openssl_websocket_private_data_index;
 
-static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
+static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size,
+					      int rwflag, void *userdata)
 {
-	struct lws_context_creation_info * info = (struct lws_context_creation_info *)userdata;
+	struct lws_context_creation_info * info =
+			(struct lws_context_creation_info *)userdata;
 
 	strncpy(buf, info->ssl_private_key_password, size);
 	buf[size - 1] = '\0';
@@ -278,7 +280,7 @@ lws_decode_ssl_error(void)
 #ifndef LWS_NO_CLIENT
 
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
-			    struct lws_context *context)
+			        struct lws_context *context)
 {
 	int error;
 	int n;
@@ -525,9 +527,9 @@ lws_ssl_close(struct lws *wsi)
 }
 
 LWS_VISIBLE int
-lws_server_socket_service_ssl(struct lws_context *context,
-		struct lws **pwsi, struct lws *new_wsi,
-			int accept_fd, struct lws_pollfd *pollfd)
+lws_server_socket_service_ssl(struct lws_context *context, struct lws **pwsi,
+			      struct lws *new_wsi, int accept_fd,
+			      struct lws_pollfd *pollfd)
 {
 	int n, m;
 	struct lws *wsi = *pwsi;
