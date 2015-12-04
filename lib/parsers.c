@@ -206,7 +206,7 @@ static int issue_char(struct libwebsocket *wsi, unsigned char c)
 	return 1;
 }
 
-int libwebsocket_parse(
+int lws_parse(
 		struct libwebsocket_context *context,
 		struct libwebsocket *wsi, unsigned char c)
 {
@@ -281,7 +281,7 @@ int libwebsocket_parse(
 				issue_char(wsi, '%');
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* regurgitate + assess */
-				if (libwebsocket_parse(context, wsi, wsi->u.hdr.esc_stash) < 0)
+				if (lws_parse(context, wsi, wsi->u.hdr.esc_stash) < 0)
 					return -1;
 				/* continue on to assess c */
 				break;
@@ -578,7 +578,7 @@ LWS_VISIBLE int lws_frame_is_binary(struct libwebsocket *wsi)
 }
 
 int
-libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
+lws_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
 	struct lws_tokens eff_buf;
 	int ret = 0;

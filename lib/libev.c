@@ -30,7 +30,7 @@ void lws_feature_status_libev(struct lws_context_creation_info *info)
 }
 
 static void 
-libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
+lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 {
 	struct libwebsocket_pollfd eventfd;
 	struct lws_io_watcher *lws_io = container_of(watcher, struct lws_io_watcher, watcher);
@@ -92,7 +92,7 @@ lws_initloop(
 	 * Initialize the accept w_accept with the listening socket
 	 * and register a callback for read operations:
 	 */
-	ev_io_init(w_accept, libwebsocket_accept_cb,
+	ev_io_init(w_accept, lws_accept_cb,
 					context->listen_service_fd, EV_READ);
 	ev_io_start(context->io_loop,w_accept);
 
@@ -144,8 +144,8 @@ lws_libev_accept(struct libwebsocket_context *context,
 
         new_wsi->w_read.context = context;
         new_wsi->w_write.context = context;
-        ev_io_init(r, libwebsocket_accept_cb, accept_fd, EV_READ);
-        ev_io_init(w, libwebsocket_accept_cb, accept_fd, EV_WRITE);
+        ev_io_init(r, lws_accept_cb, accept_fd, EV_READ);
+        ev_io_init(w, lws_accept_cb, accept_fd, EV_WRITE);
 }
 
 LWS_VISIBLE void

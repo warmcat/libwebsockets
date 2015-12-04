@@ -234,7 +234,7 @@ int lws_http_action(struct libwebsocket_context *context,
 		goto bail_nuke_ah;
 	}
 
-	if (libwebsocket_ensure_user_space(wsi))
+	if (lws_ensure_user_space(wsi))
 		goto bail_nuke_ah;
 
 	for (n = 0; n < ARRAY_SIZE(methods); n++)
@@ -356,15 +356,15 @@ int lws_handshake_server(struct libwebsocket_context *context,
 	/* LWS_CONNMODE_WS_SERVING */
 
 	while (len--) {
-		if (libwebsocket_parse(context, wsi, *(*buf)++)) {
-			lwsl_info("libwebsocket_parse failed\n");
+		if (lws_parse(context, wsi, *(*buf)++)) {
+			lwsl_info("lws_parse failed\n");
 			goto bail_nuke_ah;
 		}
 
 		if (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE)
 			continue;
 
-		lwsl_parser("libwebsocket_parse sees parsing complete\n");
+		lwsl_parser("lws_parse sees parsing complete\n");
 
 		wsi->mode = LWS_CONNMODE_PRE_WS_SERVING_ACCEPT;
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
@@ -520,7 +520,7 @@ upgrade_ws:
 		}
 
 		/* allocate wsi->user storage */
-		if (libwebsocket_ensure_user_space(wsi))
+		if (lws_ensure_user_space(wsi))
 			goto bail_nuke_ah;
 
 		/*
@@ -597,7 +597,7 @@ bail_nuke_ah:
 }
 
 struct libwebsocket *
-libwebsocket_create_new_server_wsi(struct libwebsocket_context *context)
+lws_create_new_server_wsi(struct libwebsocket_context *context)
 {
 	struct libwebsocket *new_wsi;
 
@@ -737,7 +737,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 					lws_free_header_table(wsi);
 				/* fallthru */
 			case LWS_SSL_CAPABLE_ERROR:
-				libwebsocket_close_and_free_session(
+				lws_close_and_free_session(
 						context, wsi,
 						LWS_CLOSE_STATUS_NOSTATUS);
 				return 0;
@@ -836,7 +836,7 @@ try_pollout:
 			break;
 		}
 
-		new_wsi = libwebsocket_create_new_server_wsi(context);
+		new_wsi = lws_create_new_server_wsi(context);
 		if (new_wsi == NULL) {
 			compatible_close(accept_fd);
 			break;
@@ -885,7 +885,7 @@ try_pollout:
 	return 0;
 
 fail:
-	libwebsocket_close_and_free_session(context, wsi,
+	lws_close_and_free_session(context, wsi,
 						 LWS_CLOSE_STATUS_NOSTATUS);
 	return 1;
 }
@@ -963,7 +963,7 @@ LWS_VISIBLE int lws_serve_http_file(
 }
 
 
-int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
+int lws_interpret_incoming_packet(struct libwebsocket *wsi,
 						 unsigned char *buf, size_t len)
 {
 	size_t n = 0;
@@ -991,7 +991,7 @@ int libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
 			wsi->rxflow_pos++;
 
 		/* process the byte */
-		m = libwebsocket_rx_sm(wsi, buf[n++]);
+		m = lws_rx_sm(wsi, buf[n++]);
 		if (m < 0)
 			return -1;
 	}

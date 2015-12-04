@@ -54,7 +54,7 @@ lws_http2_wsi_from_id(struct libwebsocket *wsi, unsigned int sid)
 struct libwebsocket *
 lws_create_server_child_wsi(struct libwebsocket_context *context, struct libwebsocket *parent_wsi, unsigned int sid)
 {
-	struct libwebsocket *wsi = libwebsocket_create_new_server_wsi(context);
+	struct libwebsocket *wsi = lws_create_new_server_wsi(context);
 	
 	if (!wsi)
 		return NULL;
@@ -80,7 +80,7 @@ lws_create_server_child_wsi(struct libwebsocket_context *context, struct libwebs
 	wsi->mode = parent_wsi->mode;
 	
 	wsi->protocol = &context->protocols[0];
-	libwebsocket_ensure_user_space(wsi);
+	lws_ensure_user_space(wsi);
 
 	lwsl_info("%s: %p new child %p, sid %d, user_space=%p\n", __func__, parent_wsi, wsi, sid, wsi->user_space);
 	

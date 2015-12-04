@@ -540,7 +540,7 @@ pre_data:
 				if (lws_frag_append(wsi, c1))
 					return 1;
 			} else { /* name */
-				if (libwebsocket_parse(context, wsi, c1))
+				if (lws_parse(context, wsi, c1))
 					return 1;
 				
 			}

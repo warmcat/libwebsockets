@@ -32,7 +32,7 @@ int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t l
 	case LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT:
 	case LWS_CONNMODE_WS_CLIENT:
 		for (n = 0; n < len; n++)
-			if (libwebsocket_client_rx_sm(wsi, *(*buf)++)) {
+			if (lws_client_rx_sm(wsi, *(*buf)++)) {
 				lwsl_debug("client_rx_sm failed\n");
 				return 1;
 			}
@@ -78,7 +78,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 			lwsl_warn("Proxy connection %p (fd=%d) dead\n",
 				(void *)wsi, pollfd->fd);
 
-			libwebsocket_close_and_free_session(context, wsi,
+			lws_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
 		}
@@ -93,7 +93,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 				return 0;
 			}
 			
-			libwebsocket_close_and_free_session(context, wsi,
+			lws_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR reading from proxy socket\n");
 			return 0;
@@ -103,7 +103,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		if (strcmp((char *)context->service_buffer, "HTTP/1.0 200 ") &&
 		    strcmp((char *)context->service_buffer, "HTTP/1.1 200 ")
 		) {
-			libwebsocket_close_and_free_session(context, wsi,
+			lws_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR proxy: %s\n", context->service_buffer);
 			return 0;
@@ -336,7 +336,7 @@ some_wait:
 				} else {
 					lwsl_err("server's cert didn't look good, X509_V_ERR = %d: %s\n",
 						 n, ERR_error_string(n, (char *)context->service_buffer));
-					libwebsocket_close_and_free_session(context,
+					lws_close_and_free_session(context,
 							wsi, LWS_CLOSE_STATUS_NOSTATUS);
 					return 0;
 				}
@@ -354,10 +354,10 @@ some_wait:
 		/* fallthru */
 
 	case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE2:
-		p = libwebsockets_generate_client_handshake(context, wsi, p);
+		p = lws_generate_client_handshake(context, wsi, p);
 		if (p == NULL) {
 			lwsl_err("Failed to generate handshake for client\n");
-			libwebsocket_close_and_free_session(context, wsi,
+			lws_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
 		}
@@ -371,7 +371,7 @@ some_wait:
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_debug("ERROR writing to client socket\n");
-			libwebsocket_close_and_free_session(context, wsi,
+			lws_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
@@ -433,7 +433,7 @@ some_wait:
 				return 0;
 			}
 
-			if (libwebsocket_parse(context, wsi, c)) {
+			if (lws_parse(context, wsi, c)) {
 				lwsl_warn("problems parsing header\n");
 				goto bail3;
 			}
@@ -459,7 +459,7 @@ some_wait:
 bail3:
 		lwsl_info(
 			"closing connection at LWS_CONNMODE...SERVER_REPLY\n");
-		libwebsocket_close_and_free_session(context, wsi,
+		lws_close_and_free_session(context, wsi,
 						    LWS_CLOSE_STATUS_NOSTATUS);
 		return -1;
 
@@ -724,7 +724,7 @@ check_accept:
 	}
 
 	/* allocate the per-connection user memory (if any) */
-	if (libwebsocket_ensure_user_space(wsi)) {
+	if (lws_ensure_user_space(wsi)) {
 		lwsl_err("Problem allocating wsi user mem\n");
 		goto bail2;
 	}
@@ -825,14 +825,14 @@ bail2:
 
 	lws_free2(wsi->u.hdr.ah);
 
-	libwebsocket_close_and_free_session(context, wsi, close_reason);
+	lws_close_and_free_session(context, wsi, close_reason);
 
 	return 1;
 }
 
 
 char *
-libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
+lws_generate_client_handshake(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, char *pkt)
 {
 	char buf[128];
@@ -853,7 +853,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	if (n != 16) {
 		lwsl_err("Unable to read from random dev %s\n",
 						SYSTEM_RANDOM_FILEPATH);
-		libwebsocket_close_and_free_session(context, wsi,
+		lws_close_and_free_session(context, wsi,
 					     LWS_CLOSE_STATUS_NOSTATUS);
 		return NULL;
 	}

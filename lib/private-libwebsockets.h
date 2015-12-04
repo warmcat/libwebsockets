@@ -459,7 +459,7 @@ struct lws_signal_watcher {
 
 #ifdef _WIN32
 #define LWS_FD_HASH(fd) ((fd ^ (fd >> 8) ^ (fd >> 16)) % FD_HASHTABLE_MODULUS)
-struct libwebsocket_fd_hashtable {
+struct lws_fd_hashtable {
 	struct libwebsocket **wsi;
 	int length;
 };
@@ -472,7 +472,7 @@ struct libwebsocket_context {
 	struct libwebsocket_pollfd *fds;
 #ifdef _WIN32
 /* different implementation between unix and windows */
-	struct libwebsocket_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
+	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
 #else
 	struct libwebsocket **lws_lookup;  /* fd to wsi */
 #endif
@@ -922,7 +922,7 @@ struct libwebsocket {
 LWS_EXTERN int log_level;
 
 LWS_EXTERN void
-libwebsocket_close_and_free_session(struct libwebsocket_context *context,
+lws_close_and_free_session(struct libwebsocket_context *context,
 			       struct libwebsocket *wsi, enum lws_close_status);
 
 LWS_EXTERN int
@@ -949,10 +949,10 @@ LWS_EXTERN void lws_set_protocol_write_pending(struct libwebsocket_context *cont
 				    struct libwebsocket *wsi,
 				    enum lws_pending_protocol_send pend);
 LWS_EXTERN int
-libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c);
+lws_client_rx_sm(struct libwebsocket *wsi, unsigned char c);
 
 LWS_EXTERN int
-libwebsocket_parse(struct libwebsocket_context *context,
+lws_parse(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, unsigned char c);
 
 LWS_EXTERN int
@@ -993,10 +993,10 @@ lws_client_connect_2(struct libwebsocket_context *context,
 	struct libwebsocket *wsi);
 
 LWS_EXTERN struct libwebsocket *
-libwebsocket_create_new_server_wsi(struct libwebsocket_context *context);
+lws_create_new_server_wsi(struct libwebsocket_context *context);
 
 LWS_EXTERN char *
-libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
+lws_generate_client_handshake(struct libwebsocket_context *context,
 		struct libwebsocket *wsi, char *pkt);
 
 LWS_EXTERN int
@@ -1037,7 +1037,7 @@ lws_client_interpret_server_handshake(struct libwebsocket_context *context,
 		struct libwebsocket *wsi);
 
 LWS_EXTERN int
-libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c);
+lws_rx_sm(struct libwebsocket *wsi, unsigned char c);
 
 LWS_EXTERN int
 lws_issue_raw_ext_access(struct libwebsocket *wsi,
@@ -1116,7 +1116,7 @@ lws_hdr_simple_create(struct libwebsocket *wsi,
 				enum lws_token_indexes h, const char *s);
 
 LWS_EXTERN int
-libwebsocket_ensure_user_space(struct libwebsocket *wsi);
+lws_ensure_user_space(struct libwebsocket *wsi);
 
 LWS_EXTERN int
 lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or);
@@ -1127,14 +1127,14 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 LWS_EXTERN int handshake_0405(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi);
 LWS_EXTERN int
-libwebsocket_interpret_incoming_packet(struct libwebsocket *wsi,
+lws_interpret_incoming_packet(struct libwebsocket *wsi,
 						unsigned char *buf, size_t len);
 LWS_EXTERN void
 lws_server_get_canonical_hostname(struct libwebsocket_context *context,
 				struct lws_context_creation_info *info);
 #else
 #define lws_context_init_server(_a, _b) (0)
-#define libwebsocket_interpret_incoming_packet(_a, _b, _c) (0)
+#define lws_interpret_incoming_packet(_a, _b, _c) (0)
 #define lws_server_get_canonical_hostname(_a, _b)
 #endif
 
@@ -1236,7 +1236,7 @@ lws_ssl_pending_no_ssl(struct libwebsocket *wsi);
 #endif
 	LWS_EXTERN int lws_handshake_client(struct libwebsocket *wsi, unsigned char **buf, size_t len);
 	LWS_EXTERN void
-	libwebsockets_decode_ssl_error(void);
+	lws_decode_ssl_error(void);
 #else
 #define lws_context_init_client_ssl(_a, _b) (0)
 #define lws_handshake_client(_a, _b, _c) (0)
@@ -1254,7 +1254,7 @@ lws_ssl_pending_no_ssl(struct libwebsocket *wsi);
 #define lws_handshake_server(_a, _b, _c, _d) (0)
 #endif
 	
-LWS_EXTERN int libwebsockets_get_addresses(struct libwebsocket_context *context,
+LWS_EXTERN int lws_get_addresses(struct libwebsocket_context *context,
 			    void *ads, char *name, int name_len,
 			    char *rip, int rip_len);
 

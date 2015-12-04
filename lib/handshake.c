@@ -191,7 +191,7 @@ http_postbody:
 		switch (wsi->mode) {
 		case LWS_CONNMODE_WS_SERVING:
 
-			if (libwebsocket_interpret_incoming_packet(wsi, buf, len) < 0) {
+			if (lws_interpret_incoming_packet(wsi, buf, len) < 0) {
 				lwsl_info("interpret_incoming_packet has bailed\n");
 				goto bail;
 			}
@@ -226,8 +226,7 @@ http_complete:
 bail:
 	lwsl_debug("closing connection at lws_read bail:\n");
 
-	libwebsocket_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
+	lws_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return -1;
 }

@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-int libwebsocket_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
+int lws_client_rx_sm(struct libwebsocket *wsi, unsigned char c)
 {
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	int handled;

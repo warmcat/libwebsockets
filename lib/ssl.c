@@ -264,7 +264,7 @@ lws_ssl_destroy(struct libwebsocket_context *context)
 }
 
 LWS_VISIBLE void
-libwebsockets_decode_ssl_error(void)
+lws_decode_ssl_error(void)
 {
 	char buf[256];
 	u_long err;
@@ -550,7 +550,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		if (new_wsi->ssl == NULL) {
 			lwsl_err("SSL_new failed: %s\n",
 					ERR_error_string(SSL_get_error(new_wsi->ssl, 0), NULL));
-			libwebsockets_decode_ssl_error();
+			lws_decode_ssl_error();
 
 			// TODO: Shouldn't the caller handle this?
 			compatible_close(accept_fd);

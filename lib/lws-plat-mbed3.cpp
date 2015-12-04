@@ -299,7 +299,7 @@ void lws_conn_listener::onError(Socket *s, socket_error_t err)
 void lws_conn::onDisconnect(TCPStream *s)
 {
 	(void)s;
-	libwebsocket_close_and_free_session(wsi->protocol->owning_server, wsi,
+	lws_close_and_free_session(wsi->protocol->owning_server, wsi,
 						LWS_CLOSE_STATUS_NOSTATUS);
 }
 

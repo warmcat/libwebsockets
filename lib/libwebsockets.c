@@ -61,7 +61,7 @@ lws_free_wsi(struct libwebsocket *wsi)
 }
 
 void
-libwebsocket_close_and_free_session(struct libwebsocket_context *context,
+lws_close_and_free_session(struct libwebsocket_context *context,
 			 struct libwebsocket *wsi, enum lws_close_status reason)
 {
 	int n, m, ret;
@@ -324,7 +324,7 @@ just_kill_connection:
 }
 
 LWS_VISIBLE int
-libwebsockets_get_addresses(struct libwebsocket_context *context,
+lws_get_addresses(struct libwebsocket_context *context,
 			    void *ads, char *name, int name_len,
 			    char *rip, int rip_len)
 {
@@ -456,7 +456,7 @@ lws_get_peer_addresses(struct libwebsocket_context *context,
 		goto bail;
 	}
 	
-	ret = libwebsockets_get_addresses(context, p, name, name_len, rip, rip_len);
+	ret = lws_get_addresses(context, p, name, name_len, rip, rip_len);
 
 bail:
 	lws_latency(context, wsi, "lws_get_peer_addresses", ret, 1);
@@ -782,7 +782,7 @@ lws_get_reserved_bits(struct libwebsocket *wsi)
 }
 
 int
-libwebsocket_ensure_user_space(struct libwebsocket *wsi)
+lws_ensure_user_space(struct libwebsocket *wsi)
 {
 	lwsl_info("%s: %p protocol %p\n", __func__, wsi, wsi->protocol);
 	if (!wsi->protocol)

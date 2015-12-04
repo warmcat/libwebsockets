@@ -22,7 +22,7 @@
 #include "private-libwebsockets.h"
 
 static int
-libwebsocket_0405_frame_mask_generate(struct libwebsocket *wsi)
+lws_0405_frame_mask_generate(struct libwebsocket *wsi)
 {
 	int n;
 
@@ -411,7 +411,7 @@ do_more_inside_frame:
 	if (wsi->mode == LWS_CONNMODE_WS_CLIENT) {
 
 		if (!wsi->u.ws.inside_frame)
-			if (libwebsocket_0405_frame_mask_generate(wsi)) {
+			if (lws_0405_frame_mask_generate(wsi)) {
 				lwsl_err("frame mask generation failed\n");
 				return -1;
 			}

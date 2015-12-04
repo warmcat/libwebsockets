@@ -308,7 +308,7 @@ oom4:
 	return NULL;
 
 failed:
-	libwebsocket_close_and_free_session(context, wsi,
+	lws_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);
 	return NULL;
 }

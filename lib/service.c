@@ -263,7 +263,7 @@ user_service:
 		wsi2->u.http2.requested_POLLOUT = 0;
 		if (lws_calllback_as_writeable(context, wsi2)) {
 			lwsl_debug("Closing POLLOUT child\n");
-			libwebsocket_close_and_free_session(context, wsi2,
+			lws_close_and_free_session(context, wsi2,
 						LWS_CLOSE_STATUS_NOSTATUS);
 		}
 		wsi2 = wsi;
@@ -307,7 +307,7 @@ lws_service_timeout_check(struct libwebsocket_context *context,
 		 * cleanup like flush partials.
 		 */
 		wsi->socket_is_permanently_unusable = 1;
-		libwebsocket_close_and_free_session(context,
+		lws_close_and_free_session(context,
 						wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		return 1;
 	}
@@ -632,7 +632,7 @@ handle_pending:
 
 close_and_handled:
 	lwsl_debug("Close and handled\n");
-	libwebsocket_close_and_free_session(context, wsi,
+	lws_close_and_free_session(context, wsi,
 						LWS_CLOSE_STATUS_NOSTATUS);
 	// pollfd points to something else after the close
 	return 1;
