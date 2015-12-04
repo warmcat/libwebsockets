@@ -60,7 +60,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		 * timeout protection set in client-handshake.c
 		 */
 
-               if (libwebsocket_client_connect_2(context, wsi) == NULL) {
+               if (lws_client_connect_2(context, wsi) == NULL) {
 			/* closed */
 			lwsl_client("closed\n");
 			return -1;
@@ -111,7 +111,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 
 		/* clear his proxy connection timeout */
 
-		libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		/* fallthru */
 
@@ -123,7 +123,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 		 */
 
 		/*
-		 * take care of our libwebsocket_callback_on_writable
+		 * take care of our lws_callback_on_writable
 		 * happening at a time when there's no real connection yet
 		 */
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
@@ -234,7 +234,7 @@ int lws_client_socket_service(struct libwebsocket_context *context,
 
 					lwsl_info(
 					     "SSL_connect WANT_WRITE... retrying\n");
-					libwebsocket_callback_on_writable(
+					lws_callback_on_writable(
 								  context, wsi);
 some_wait:
 					wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_SSL;
@@ -296,7 +296,7 @@ some_wait:
 						 */
 						
 						lwsl_info("SSL_connect WANT_WRITE... retrying\n");
-						libwebsocket_callback_on_writable(context, wsi);
+						lws_callback_on_writable(context, wsi);
 						
 						goto some_wait;
 					}
@@ -347,7 +347,7 @@ some_wait:
 #endif
 		
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE2;
-		libwebsocket_set_timeout(wsi,
+		lws_set_timeout(wsi,
 				PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 							      AWAITING_TIMEOUT);
 
@@ -375,14 +375,14 @@ some_wait:
 						     LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
-			libwebsocket_callback_on_writable(context, wsi);
+			lws_callback_on_writable(context, wsi);
 			break;
 		}
 
 		wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
 		wsi->u.hdr.lextable_pos = 0;
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY;
-		libwebsocket_set_timeout(wsi,
+		lws_set_timeout(wsi,
 				PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 							      AWAITING_TIMEOUT);
 		break;
@@ -740,7 +740,7 @@ check_accept:
 
 	/* clear his proxy connection timeout */
 
-	libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 	/* free up his parsing allocations */
 
@@ -849,7 +849,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	 * create the random key
 	 */
 
-	n = libwebsockets_get_random(context, hash, 16);
+	n = lws_get_random(context, hash, 16);
 	if (n != 16) {
 		lwsl_err("Unable to read from random dev %s\n",
 						SYSTEM_RANDOM_FILEPATH);
@@ -968,7 +968,7 @@ libwebsockets_generate_client_handshake(struct libwebsocket_context *context,
 	key_b64[39] = '\0'; /* enforce composed length below buf sizeof */
 	n = sprintf(buf, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key_b64);
 
-	libwebsockets_SHA1((unsigned char *)buf, n, (unsigned char *)hash);
+	lws_SHA1((unsigned char *)buf, n, (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
 			wsi->u.hdr.ah->initial_handshake_hash_base64,

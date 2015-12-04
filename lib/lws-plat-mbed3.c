@@ -12,7 +12,7 @@ unsigned long long time_in_microseconds(void)
 	return 0;
 }
 
-LWS_VISIBLE int libwebsockets_get_random(struct libwebsocket_context *context,
+LWS_VISIBLE int lws_get_random(struct libwebsocket_context *context,
 							     void *buf, int len)
 {
 	(void)context;
@@ -71,17 +71,17 @@ lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
 }
 
 /**
- * libwebsocket_cancel_service() - Cancel servicing of pending websocket activity
+ * lws_cancel_service() - Cancel servicing of pending websocket activity
  * @context:	Websocket context
  *
- *	This function let a call to libwebsocket_service() waiting for a timeout
+ *	This function let a call to lws_service() waiting for a timeout
  *	immediately return.
  * 
  *	There is no poll() in MBED3, he will fire callbacks when he feels like
  *	it.
  */
 LWS_VISIBLE void
-libwebsocket_cancel_service(struct libwebsocket_context *context)
+lws_cancel_service(struct libwebsocket_context *context)
 {
 	(void)context;
 }

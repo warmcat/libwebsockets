@@ -144,7 +144,7 @@ callback_lws_mirror(struct libwebsocket_context * this,
 		 * LWS_CALLBACK_CLIENT_WRITEABLE will come next service
 		 */
 
-		libwebsocket_callback_on_writable(this, wsi);
+		lws_callback_on_writable(this, wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
@@ -256,11 +256,11 @@ callback_lws_mirror(struct libwebsocket_context * this,
 		global_tx_count++;
 
 		if (use_mirror)
-			n = libwebsocket_write(wsi,
+			n = lws_write(wsi,
 				&pingbuf[LWS_SEND_BUFFER_PRE_PADDING],
 					size, write_options | LWS_WRITE_BINARY);
 		else
-			n = libwebsocket_write(wsi,
+			n = lws_write(wsi,
 				&pingbuf[LWS_SEND_BUFFER_PRE_PADDING],
 					size, write_options | LWS_WRITE_PING);
 
@@ -426,12 +426,12 @@ int main(int argc, char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-	info.extensions = libwebsocket_get_internal_extensions();
+	info.extensions = lws_get_internal_extensions();
 #endif
 	info.gid = -1;
 	info.uid = -1;
 
-	context = libwebsocket_create_context(&info);
+	context = lws_create_context(&info);
 	if (context == NULL) {
 		fprintf(stderr, "Creating libwebsocket context failed\n");
 		return 1;
@@ -440,7 +440,7 @@ int main(int argc, char **argv)
 	/* create client websockets using dumb increment protocol */
 
 	for (n = 0; n < clients; n++) {
-		ping_wsi[n] = libwebsocket_client_connect(context, address,
+		ping_wsi[n] = lws_client_connect(context, address,
 						   port, use_ssl, "/", address,
 				 "origin", protocols[PROTOCOL_LWS_MIRROR].name,
 								  ietf_version);
@@ -451,8 +451,8 @@ int main(int argc, char **argv)
 		}
 	}
 
-	libwebsockets_get_peer_addresses(context, ping_wsi[0],
-			libwebsocket_get_socket_fd(ping_wsi[0]),
+	lws_get_peer_addresses(context, ping_wsi[0],
+			lws_get_socket_fd(ping_wsi[0]),
 				    peer_name, sizeof peer_name, ip, sizeof ip);
 
 	fprintf(stderr, "Websocket PING %s (%s) %d bytes of data.\n",
@@ -487,7 +487,7 @@ int main(int argc, char **argv)
 		if (!interrupted_time) {
 			if ((l - oldus) > interval_us) {
 				for (n = 0; n < clients; n++)
-					libwebsocket_callback_on_writable(
+					lws_callback_on_writable(
 							  context, ping_wsi[n]);
 				oldus = l;
 			}
@@ -501,9 +501,9 @@ int main(int argc, char **argv)
 			}
 
 		if (!interval_us)
-			n = libwebsocket_service(context, 0);
+			n = lws_service(context, 0);
 		else
-			n = libwebsocket_service(context, 1);
+			n = lws_service(context, 1);
 	}
 
 	/* stats */
@@ -523,7 +523,7 @@ int main(int argc, char **argv)
 		((double)global_rx_count * (double)size) /
 				  ((double)(l - started) / 1000000.0) / 1024.0);
 
-	libwebsocket_context_destroy(context);
+	lws_context_destroy(context);
 
 	return 0;
 

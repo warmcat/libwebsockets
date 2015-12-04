@@ -185,7 +185,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 				"%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
 
-	libwebsockets_SHA1(context->service_buffer, n, hash);
+	lws_SHA1(context->service_buffer, n, hash);
 
 	accept_len = lws_b64_encode_string((char *)hash, 20,
 			(char *)context->service_buffer,
@@ -245,7 +245,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 #ifdef DEBUG
 		fwrite(response, 1,  p - response, stderr);
 #endif
-		n = libwebsocket_write(wsi, (unsigned char *)response,
+		n = lws_write(wsi, (unsigned char *)response,
 						  p - response, LWS_WRITE_HTTP_HEADERS);
 		if (n != (p - response)) {
 			lwsl_debug("handshake_0405: ERROR writing to socket\n");

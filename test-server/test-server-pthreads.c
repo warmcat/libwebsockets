@@ -37,7 +37,7 @@ struct libwebsocket_context *context;
  * This mutex lock protects code that changes or relies on wsi list outside of
  * the service thread.  The service thread will acquire it when changing the
  * wsi list and other threads should acquire it while dereferencing wsis or
- * calling apis like libwebsocket_callback_on_writable_all_protocol() which
+ * calling apis like lws_callback_on_writable_all_protocol() which
  * use the wsi list and wsis from a different thread context.
  */
 pthread_mutex_t lock_established_conns;
@@ -123,7 +123,7 @@ void *thread_dumb_increment(void *threadid)
 		 * them is protected by the same lock
 		 */
 		pthread_mutex_lock(&lock_established_conns);
-		libwebsocket_callback_on_writable_all_protocol(
+		lws_callback_on_writable_all_protocol(
 				&protocols[PROTOCOL_DUMB_INCREMENT]);
 		pthread_mutex_unlock(&lock_established_conns);
 		usleep(100000);
@@ -135,7 +135,7 @@ void *thread_dumb_increment(void *threadid)
 void sighandler(int sig)
 {
 	force_exit = 1;
-	libwebsocket_cancel_service(context);
+	lws_cancel_service(context);
 }
 
 static struct option options[] = {
@@ -276,7 +276,7 @@ int main(int argc, char **argv)
 	info.iface = iface;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-	info.extensions = libwebsocket_get_internal_extensions();
+	info.extensions = lws_get_internal_extensions();
 #endif
 	
 	info.ssl_cert_filepath = NULL;
@@ -303,7 +303,7 @@ int main(int argc, char **argv)
 	info.uid = -1;
 	info.options = opts;
 
-	context = libwebsocket_create_context(&info);
+	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
 		return -1;
@@ -321,14 +321,14 @@ int main(int argc, char **argv)
 	
 	n = 0;
 	while (n >= 0 && !force_exit) {
- 		n = libwebsocket_service(context, 50);
+ 		n = lws_service(context, 50);
 	}
 
 	/* wait for pthread_dumb to exit */
 	pthread_join(pthread_dumb, &retval);
 	
 done:
-	libwebsocket_context_destroy(context);	
+	lws_context_destroy(context);	
 	pthread_mutex_destroy(&lock_established_conns);
 	
 

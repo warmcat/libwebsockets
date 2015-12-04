@@ -929,7 +929,7 @@ process_as_ping:
 			wsi->u.ws.ping_pending_flag = 1;
 			
 			/* get it sent as soon as possible */
-			libwebsocket_callback_on_writable(wsi->protocol->owning_server, wsi);
+			lws_callback_on_writable(wsi->protocol->owning_server, wsi);
 ping_drop:
 			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;
@@ -974,7 +974,7 @@ ping_drop:
 		/*
 		 * No it's real payload, pass it up to the user callback.
 		 * It's nicely buffered with the pre-padding taken care of
-		 * so it can be sent straight out again using libwebsocket_write
+		 * so it can be sent straight out again using lws_write
 		 */
 
 		eff_buf.token = &wsi->u.ws.rx_user_buffer[
@@ -1022,7 +1022,7 @@ illegal_ctl_length:
 
 
 /**
- * libwebsockets_remaining_packet_payload() - Bytes to come before "overall"
+ * lws_remaining_packet_payload() - Bytes to come before "overall"
  *					      rx packet is complete
  * @wsi:		Websocket instance (available from user callback)
  *
@@ -1032,14 +1032,14 @@ illegal_ctl_length:
  *  additionally when it hits a built-in limit.  The LWS_CALLBACK_RECEIVE
  *  callback handler can use this API to find out if the buffer it has just
  *  been given is the last piece of a "complete packet" from the client --
- *  when that is the case libwebsockets_remaining_packet_payload() will return
+ *  when that is the case lws_remaining_packet_payload() will return
  *  0.
  *
  *  Many protocols won't care becuse their packets are always small.
  */
 
 LWS_VISIBLE size_t
-libwebsockets_remaining_packet_payload(struct libwebsocket *wsi)
+lws_remaining_packet_payload(struct libwebsocket *wsi)
 {
 	return wsi->u.ws.rx_packet_length;
 }

@@ -172,7 +172,7 @@ int lws_add_http_header_status(struct libwebsocket_context *context,
 }
 
 /**
- * libwebsockets_return_http_status() - Return simple http status
+ * lws_return_http_status() - Return simple http status
  * @context:		libwebsockets context
  * @wsi:		Websocket instance (available from user callback)
  * @code:		Status index, eg, 404
@@ -181,7 +181,7 @@ int lws_add_http_header_status(struct libwebsocket_context *context,
  *	Helper to report HTTP errors back to the client cleanly and
  *	consistently
  */
-LWS_VISIBLE int libwebsockets_return_http_status(
+LWS_VISIBLE int lws_return_http_status(
 		struct libwebsocket_context *context, struct libwebsocket *wsi,
 				       unsigned int code, const char *html_body)
 {
@@ -204,12 +204,12 @@ LWS_VISIBLE int libwebsockets_return_http_status(
 	if (lws_finalize_http_header(context, wsi, &p, end))
 		return 1;
 
-	m = libwebsocket_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+	m = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
 	if (m != (int)(p - start))
 		return 1;
 
 	n = sprintf((char *)start, "<html><body><h1>%u</h1>%s</body></html>", code, html_body);
-	m = libwebsocket_write(wsi, start, n, LWS_WRITE_HTTP);
+	m = lws_write(wsi, start, n, LWS_WRITE_HTTP);
 
 	return m != n;
 }

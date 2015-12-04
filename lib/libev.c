@@ -47,17 +47,17 @@ libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 	if (revents & EV_WRITE)
 		eventfd.revents |= LWS_POLLOUT;
 
-	libwebsocket_service_fd(context, &eventfd);
+	lws_service_fd(context, &eventfd);
 }
 
 LWS_VISIBLE void
-libwebsocket_sigint_cb(struct ev_loop *loop,
+lws_sigint_cb(struct ev_loop *loop,
 		       struct ev_signal *watcher, int revents)
 {
 	ev_break(loop, EVBREAK_ALL);
 }
 
-LWS_VISIBLE int libwebsocket_sigint_cfg(
+LWS_VISIBLE int lws_sigint_cfg(
 	struct libwebsocket_context *context,
 	int use_ev_sigint,
 	lws_ev_signal_cb* cb)
@@ -67,13 +67,13 @@ LWS_VISIBLE int libwebsocket_sigint_cfg(
 		context->lws_ev_sigint_cb = cb;
 	}
 	else {
-		context->lws_ev_sigint_cb = &libwebsocket_sigint_cb;
+		context->lws_ev_sigint_cb = &lws_sigint_cb;
 	};
 	return 0;
 };
 
 LWS_VISIBLE int
-libwebsocket_initloop(
+lws_initloop(
 	struct libwebsocket_context *context,
 	struct ev_loop *loop)
 {

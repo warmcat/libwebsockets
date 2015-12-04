@@ -277,7 +277,7 @@ spill:
 			 * we do not care about how it went, we are closing
 			 * immediately afterwards
 			 */
-			libwebsocket_write(wsi, (unsigned char *)
+			lws_write(wsi, (unsigned char *)
 			   &wsi->u.ws.rx_user_buffer[
 				LWS_SEND_BUFFER_PRE_PADDING],
 				wsi->u.ws.rx_user_buffer_head, LWS_WRITE_CLOSE);
@@ -326,7 +326,7 @@ spill:
 			wsi->u.ws.ping_pending_flag = 1;
 
 			/* get it sent as soon as possible */
-			libwebsocket_callback_on_writable(wsi->protocol->owning_server, wsi);
+			lws_callback_on_writable(wsi->protocol->owning_server, wsi);
 ping_drop:
 			wsi->u.ws.rx_user_buffer_head = 0;
 			handled = 1;
@@ -378,7 +378,7 @@ ping_drop:
 		/*
 		 * No it's real payload, pass it up to the user callback.
 		 * It's nicely buffered with the pre-padding taken care of
-		 * so it can be sent straight out again using libwebsocket_write
+		 * so it can be sent straight out again using lws_write
 		 */
 		if (handled)
 			goto already_done;

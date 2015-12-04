@@ -594,7 +594,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		if (insert_wsi_socket_into_fds(context, wsi))
 			goto fail;
 
-		libwebsocket_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
+		lws_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
 							AWAITING_TIMEOUT);
 
 		lwsl_info("inserted SSL accept into fds, trying SSL_accept\n");
@@ -692,7 +692,7 @@ go_again:
 
 accepted:
 		/* OK, we are accepted... give him some time to negotiate */
-		libwebsocket_set_timeout(wsi,
+		lws_set_timeout(wsi,
 			PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
 							AWAITING_TIMEOUT);
 

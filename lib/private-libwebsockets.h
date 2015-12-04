@@ -867,7 +867,7 @@ struct libwebsocket {
 	char mode; /* enum connection_mode */
 	char state; /* enum lws_connection_states */
 	char lws_rx_parse_state; /* enum lws_rx_parse_state */
-	char rx_frame_type; /* enum libwebsocket_write_protocol */
+	char rx_frame_type; /* enum lws_write_protocol */
 
 	unsigned int hdr_parsing_completed:1;
 	unsigned int user_space_externally_allocated:1;
@@ -985,11 +985,11 @@ lws_issue_raw(struct libwebsocket *wsi, unsigned char *buf, size_t len);
 
 
 LWS_EXTERN int
-libwebsocket_service_timeout_check(struct libwebsocket_context *context,
+lws_service_timeout_check(struct libwebsocket_context *context,
 				    struct libwebsocket *wsi, unsigned int sec);
 
 LWS_EXTERN struct libwebsocket *
-libwebsocket_client_connect_2(struct libwebsocket_context *context,
+lws_client_connect_2(struct libwebsocket_context *context,
 	struct libwebsocket *wsi);
 
 LWS_EXTERN struct libwebsocket *
@@ -1044,7 +1044,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 						unsigned char *buf, size_t len);
 
 LWS_EXTERN int
-_libwebsocket_rx_flow_control(struct libwebsocket *wsi);
+_lws_rx_flow_control(struct libwebsocket *wsi);
 
 LWS_EXTERN void
 lws_union_transition(struct libwebsocket *wsi, enum connection_mode mode);
@@ -1245,12 +1245,12 @@ lws_ssl_pending_no_ssl(struct libwebsocket *wsi);
 	LWS_EXTERN int lws_server_socket_service(
 		struct libwebsocket_context *context,
 		struct libwebsocket *wsi, struct libwebsocket_pollfd *pollfd);
-	LWS_EXTERN int _libwebsocket_rx_flow_control(struct libwebsocket *wsi);
+	LWS_EXTERN int _lws_rx_flow_control(struct libwebsocket *wsi);
 	LWS_EXTERN int lws_handshake_server(struct libwebsocket_context *context,
 		     struct libwebsocket *wsi, unsigned char **buf, size_t len);
 #else
 #define lws_server_socket_service(_a, _b, _c) (0)
-#define _libwebsocket_rx_flow_control(_a) (0)
+#define _lws_rx_flow_control(_a) (0)
 #define lws_handshake_server(_a, _b, _c, _d) (0)
 #endif
 	

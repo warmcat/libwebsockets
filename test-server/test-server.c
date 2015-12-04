@@ -100,7 +100,7 @@ static struct libwebsocket_protocols protocols[] = {
 void sighandler(int sig)
 {
 	force_exit = 1;
-	libwebsocket_cancel_service(context);
+	lws_cancel_service(context);
 }
 
 static struct option options[] = {
@@ -238,7 +238,7 @@ int main(int argc, char **argv)
 	info.iface = iface;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-	info.extensions = libwebsocket_get_internal_extensions();
+	info.extensions = lws_get_internal_extensions();
 #endif
 	
 	info.ssl_cert_filepath = NULL;
@@ -265,7 +265,7 @@ int main(int argc, char **argv)
 	info.uid = -1;
 	info.options = opts;
 
-	context = libwebsocket_create_context(&info);
+	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
 		return -1;
@@ -285,7 +285,7 @@ int main(int argc, char **argv)
 
 		ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
 		if ((ms - oldms) > 50) {
-			libwebsocket_callback_on_writable_all_protocol(
+			lws_callback_on_writable_all_protocol(
 				&protocols[PROTOCOL_DUMB_INCREMENT]);
 			oldms = ms;
 		}
@@ -308,7 +308,7 @@ int main(int argc, char **argv)
 					* match anything under libwebsockets
 					* control
 					*/
-					if (libwebsocket_service_fd(context,
+					if (lws_service_fd(context,
 								  &pollfds[n]) < 0)
 						goto done;
 #else
@@ -321,7 +321,7 @@ int main(int argc, char **argv)
 		 * the number of ms in the second argument.
 		 */
 
-		n = libwebsocket_service(context, 50);
+		n = lws_service(context, 50);
 #endif
 	}
 
@@ -329,7 +329,7 @@ int main(int argc, char **argv)
 done:
 #endif
 
-	libwebsocket_context_destroy(context);
+	lws_context_destroy(context);
 
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 

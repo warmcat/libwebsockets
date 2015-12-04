@@ -86,7 +86,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 			break;
 		}
 		wsi->pps = LWS_PPS_NONE;
-		libwebsocket_rx_flow_control(wsi, 1);
+		lws_rx_flow_control(wsi, 1);
 		
 		return 0; /* leave POLLOUT active */
 	}
@@ -101,7 +101,7 @@ lws_handle_POLLOUT_event(struct libwebsocket_context *context,
 		if (wsi->u.ws.payload_is_close)
 			write_type = LWS_WRITE_CLOSE;
 
-		n = libwebsocket_write(wsi, 
+		n = lws_write(wsi, 
 				&wsi->u.ws.ping_payload_buf[
 					LWS_SEND_BUFFER_PRE_PADDING],
 					wsi->u.ws.ping_payload_len,
@@ -280,7 +280,7 @@ notify:
 
 
 int
-libwebsocket_service_timeout_check(struct libwebsocket_context *context,
+lws_service_timeout_check(struct libwebsocket_context *context,
 				     struct libwebsocket *wsi, unsigned int sec)
 {
 	/*
@@ -335,7 +335,7 @@ int lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int le
 }
 
 /**
- * libwebsocket_service_fd() - Service polled socket with something waiting
+ * lws_service_fd() - Service polled socket with something waiting
  * @context:	Websocket context
  * @pollfd:	The pollfd entry describing the socket fd and which events
  *		happened.
@@ -358,7 +358,7 @@ int lws_rxflow_cache(struct libwebsocket *wsi, unsigned char *buf, int n, int le
  */
 
 LWS_VISIBLE int
-libwebsocket_service_fd(struct libwebsocket_context *context,
+lws_service_fd(struct libwebsocket_context *context,
 					struct libwebsocket_pollfd *pollfd)
 {
 	struct libwebsocket *wsi;
@@ -404,7 +404,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			if (!wsi)
 				continue;
 
-			if (libwebsocket_service_timeout_check(context, wsi, now))
+			if (lws_service_timeout_check(context, wsi, now))
 				/* he did time out... */
 				if (mfd == our_fd) {
 					/* it was the guy we came to service! */
@@ -460,7 +460,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 				 */
 				n = lws_poll_listen_fd(&context->fds[listen_socket_fds_index]);
 				if (n > 0) { /* there's a conn waiting for us */
-					libwebsocket_service_fd(context,
+					lws_service_fd(context,
 						&context->
 						  fds[listen_socket_fds_index]);
 					context->listen_service_extraseen++;
@@ -517,7 +517,7 @@ libwebsocket_service_fd(struct libwebsocket_context *context,
 			   lws_handle_POLLOUT_event(context, wsi, pollfd)) {
 			if (wsi->state == WSI_STATE_RETURNED_CLOSE_ALREADY)
 				wsi->state = WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE;
-			lwsl_info("libwebsocket_service_fd: closing\n");
+			lwsl_info("lws_service_fd: closing\n");
 			goto close_and_handled;
 		}
 
@@ -583,7 +583,7 @@ drain:
 			/* service incoming data */
 
 			if (eff_buf.token_len) {
-				n = libwebsocket_read(context, wsi,
+				n = lws_read(context, wsi,
 					(unsigned char *)eff_buf.token,
 							    eff_buf.token_len);
 				if (n < 0) {
@@ -613,7 +613,7 @@ handle_pending:
 #ifdef LWS_NO_SERVER
 			n =
 #endif
-			_libwebsocket_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
+			_lws_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
 		}
 
 		break;
@@ -643,7 +643,7 @@ handled:
 }
 
 /**
- * libwebsocket_service() - Service any pending websocket activity
+ * lws_service() - Service any pending websocket activity
  * @context:	Websocket context
  * @timeout_ms:	Timeout for poll; 0 means return immediately if nothing needed
  *		service otherwise block and service immediately, returning
@@ -675,7 +675,7 @@ handled:
  */
 
 LWS_VISIBLE int
-libwebsocket_service(struct libwebsocket_context *context, int timeout_ms)
+lws_service(struct libwebsocket_context *context, int timeout_ms)
 {
 	return lws_plat_service(context, timeout_ms);
 }

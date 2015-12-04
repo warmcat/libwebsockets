@@ -184,7 +184,7 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 			if (tid == -1)
 				return -1;
 			if (tid != sampled_tid)
-				libwebsocket_cancel_service(context);
+				lws_cancel_service(context);
 		}
 	}
 
@@ -197,7 +197,7 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 
 
 /**
- * libwebsocket_callback_on_writable() - Request a callback when this socket
+ * lws_callback_on_writable() - Request a callback when this socket
  *					 becomes able to be written to without
  *					 blocking
  *
@@ -206,7 +206,7 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
  */
 
 LWS_VISIBLE int
-libwebsocket_callback_on_writable(struct libwebsocket_context *context,
+lws_callback_on_writable(struct libwebsocket_context *context,
 						      struct libwebsocket *wsi)
 {
 #ifdef LWS_USE_HTTP2
@@ -275,7 +275,7 @@ network_sock:
 }
 
 /**
- * libwebsocket_callback_on_writable_all_protocol() - Request a callback for
+ * lws_callback_on_writable_all_protocol() - Request a callback for
  *			all connections using the given protocol when it
  *			becomes possible to write to each socket without
  *			blocking in turn.
@@ -284,7 +284,7 @@ network_sock:
  */
 
 LWS_VISIBLE int
-libwebsocket_callback_on_writable_all_protocol(
+lws_callback_on_writable_all_protocol(
 				  const struct libwebsocket_protocols *protocol)
 {
 	struct libwebsocket_context *context = protocol->owning_server;
@@ -296,7 +296,7 @@ libwebsocket_callback_on_writable_all_protocol(
 		if (!wsi)
 			continue;
 		if (wsi->protocol == protocol)
-			libwebsocket_callback_on_writable(context, wsi);
+			lws_callback_on_writable(context, wsi);
 	}
 
 	return 0;

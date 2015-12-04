@@ -57,7 +57,7 @@
  */
 
 LWS_VISIBLE int
-libwebsocket_read(struct libwebsocket_context *context,
+lws_read(struct libwebsocket_context *context,
 		     struct libwebsocket *wsi, unsigned char *buf, size_t len)
 {
 	size_t n;
@@ -127,7 +127,7 @@ http_new:
 				wsi->u.http.content_remain = wsi->u.http.content_length;
 				if (!wsi->u.http.content_remain) {
 					/* there is no POST content */
-					libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+					lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 					if (wsi->protocol->callback) {
 						n = wsi->protocol->callback(
 							wsi->protocol->owning_server, wsi,
@@ -167,7 +167,7 @@ http_postbody:
 
 			if (!wsi->u.http.content_remain)  {
 				/* he sent the content in time */
-				libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 				if (wsi->protocol->callback) {
 					n = wsi->protocol->callback(
 						wsi->protocol->owning_server, wsi,
@@ -178,7 +178,7 @@ http_postbody:
 				}
 				goto http_complete;
 			} else
-				libwebsocket_set_timeout(wsi,
+				lws_set_timeout(wsi,
 					PENDING_TIMEOUT_HTTP_CONTENT,
 					AWAITING_TIMEOUT);
 		}
@@ -199,18 +199,18 @@ http_postbody:
 		}
 		break;
 	default:
-		lwsl_err("libwebsocket_read: Unhandled state\n");
+		lwsl_err("lws_read: Unhandled state\n");
 		break;
 	}
 
 read_ok:
 	/* Nothing more to do for now. */
-	lwsl_debug("libwebsocket_read: read_ok\n");
+	lwsl_debug("lws_read: read_ok\n");
 
 	return 0;
 
 http_complete:
-	lwsl_debug("libwebsocket_read: http_complete\n");
+	lwsl_debug("lws_read: http_complete\n");
 
 #ifndef LWS_NO_SERVER
 	/* Did the client want to keep the HTTP connection going? */
@@ -224,7 +224,7 @@ http_complete:
 	return 0;
 
 bail:
-	lwsl_debug("closing connection at libwebsocket_read bail:\n");
+	lwsl_debug("closing connection at lws_read bail:\n");
 
 	libwebsocket_close_and_free_session(context, wsi,
 						     LWS_CLOSE_STATUS_NOSTATUS);

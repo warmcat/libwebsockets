@@ -35,7 +35,7 @@ void lws_conn::serialized_writeable(struct libwebsocket *_wsi)
 
 	lwsl_debug("%s: wsi %p\r\n", __func__, (void *)wsi);
 
-	libwebsocket_service_fd(wsi->protocol->owning_server, &pollfd);
+	lws_service_fd(wsi->protocol->owning_server, &pollfd);
 }
 
 extern "C" void mbed3_tcp_stream_bind(void *sock, int port, struct libwebsocket *wsi)
@@ -169,7 +169,7 @@ int lws_conn::actual_onRX(Socket *s)
 	
 	lwsl_debug("%s: lws %p\n", __func__, wsi);
 	
-	return libwebsocket_service_fd(wsi->protocol->owning_server, &pollfd);
+	return lws_service_fd(wsi->protocol->owning_server, &pollfd);
 }
 
 /* 
@@ -285,7 +285,7 @@ void lws_conn::onSent(Socket *s, uint16_t len)
 
 	lwsl_debug("%s: wsi %p (servicing now)\r\n", __func__, (void *)wsi);
 	
-	libwebsocket_service_fd(wsi->protocol->owning_server, &pollfd);
+	lws_service_fd(wsi->protocol->owning_server, &pollfd);
 }
 
 void lws_conn_listener::onError(Socket *s, socket_error_t err)

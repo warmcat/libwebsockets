@@ -287,7 +287,7 @@ sha1_result(struct sha1_ctxt *ctxt, void *digest0)
  */
 
 LWS_VISIBLE unsigned char *
-libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md)
+lws_SHA1(const unsigned char *d, size_t n, unsigned char *md)
 {
 	struct sha1_ctxt ctx;
 

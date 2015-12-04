@@ -86,7 +86,7 @@ delete_from_fd(struct libwebsocket_context *context, int fd)
 	return 1;
 }
 
-LWS_VISIBLE int libwebsockets_get_random(struct libwebsocket_context *context,
+LWS_VISIBLE int lws_get_random(struct libwebsocket_context *context,
 							     void *buf, int len)
 {
 	int n;
@@ -117,14 +117,14 @@ LWS_VISIBLE int lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
 }
 
 /**
- * libwebsocket_cancel_service() - Cancel servicing of pending websocket activity
+ * lws_cancel_service() - Cancel servicing of pending websocket activity
  * @context:	Websocket context
  *
- *	This function let a call to libwebsocket_service() waiting for a timeout
+ *	This function let a call to lws_service() waiting for a timeout
  *	immediately return.
  */
 LWS_VISIBLE void
-libwebsocket_cancel_service(struct libwebsocket_context *context)
+lws_cancel_service(struct libwebsocket_context *context)
 {
 	WSASetEvent(context->events[0]);
 }
@@ -162,7 +162,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 			if (!wsi || wsi->sock_send_blocking)
 				continue;
 			pfd->revents = LWS_POLLOUT;
-			n = libwebsocket_service_fd(context, pfd);
+			n = lws_service_fd(context, pfd);
 			if (n < 0)
 				return n;
 		}
@@ -173,7 +173,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 	context->service_tid = 0;
 
 	if (ev == WSA_WAIT_TIMEOUT) {
-		libwebsocket_service_fd(context, NULL);
+		lws_service_fd(context, NULL);
 		return 0;
 	}
 
@@ -203,7 +203,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 			wsi->sock_send_blocking = FALSE;
 	}
 
-	return libwebsocket_service_fd(context, pfd);
+	return lws_service_fd(context, pfd);
 }
 
 LWS_VISIBLE int

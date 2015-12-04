@@ -35,7 +35,7 @@ lws_context_init_extensions(struct lws_context_creation_info *info,
 	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
 }
 
-LWS_VISIBLE struct libwebsocket_extension *libwebsocket_get_internal_extensions()
+LWS_VISIBLE struct libwebsocket_extension *lws_get_internal_extensions()
 {
 	return libwebsocket_internal_extensions;
 }
@@ -175,7 +175,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 		 * Yes, he's choked.  Don't spill the rest now get a callback
 		 * when he is ready to send and take care of it there
 		 */
-		libwebsocket_callback_on_writable(
+		lws_callback_on_writable(
 					     wsi->protocol->owning_server, wsi);
 		wsi->extension_data_pending = 1;
 		ret = 0;

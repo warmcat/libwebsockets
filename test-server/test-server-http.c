@@ -139,14 +139,14 @@ int callback_http(struct libwebsocket_context *context,
 		dump_handshake_info(wsi);
 
 		if (len < 1) {
-			libwebsockets_return_http_status(context, wsi,
+			lws_return_http_status(context, wsi,
 						HTTP_STATUS_BAD_REQUEST, NULL);
 			goto try_to_reuse;
 		}
 
 		/* this example server has no concept of directories */
 		if (strchr((const char *)in + 1, '/')) {
-			libwebsockets_return_http_status(context, wsi,
+			lws_return_http_status(context, wsi,
 						HTTP_STATUS_FORBIDDEN, NULL);
 			goto try_to_reuse;
 		}
@@ -217,7 +217,7 @@ int callback_http(struct libwebsocket_context *context,
 			 * this is mandated by changes in HTTP2
 			 */
 
-			n = libwebsocket_write(wsi,
+			n = lws_write(wsi,
 					buffer + LWS_SEND_BUFFER_PRE_PADDING,
 					p - (buffer + LWS_SEND_BUFFER_PRE_PADDING),
 					LWS_WRITE_HTTP_HEADERS);
@@ -229,7 +229,7 @@ int callback_http(struct libwebsocket_context *context,
 			/*
 			 * book us a LWS_CALLBACK_HTTP_WRITEABLE callback
 			 */
-			libwebsocket_callback_on_writable(context, wsi);
+			lws_callback_on_writable(context, wsi);
 			break;
 		}
 
@@ -247,7 +247,7 @@ int callback_http(struct libwebsocket_context *context,
 		mimetype = get_mimetype(buf);
 		if (!mimetype) {
 			lwsl_err("Unknown mimetype for %s\n", buf);
-			libwebsockets_return_http_status(context, wsi,
+			lws_return_http_status(context, wsi,
 				      HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE, NULL);
 			return -1;
 		}
@@ -275,7 +275,7 @@ int callback_http(struct libwebsocket_context *context,
 			other_headers = leaf_path;
 		}
 
-		n = libwebsockets_serve_http_file(context, wsi, buf,
+		n = lws_serve_http_file(context, wsi, buf,
 						mimetype, other_headers, n);
 		if (n < 0 || ((n > 0) && lws_http_transaction_completed(wsi)))
 			return -1; /* error or can't reuse connection: close the socket */
@@ -302,7 +302,7 @@ int callback_http(struct libwebsocket_context *context,
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		lwsl_notice("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
 		/* the whole of the sent body arrived, close or reuse the connection */
-		libwebsockets_return_http_status(context, wsi,
+		lws_return_http_status(context, wsi,
 						HTTP_STATUS_OK, NULL);
 		goto try_to_reuse;
 
@@ -344,7 +344,7 @@ int callback_http(struct libwebsocket_context *context,
 			 * is handled by the library itself if you sent a
 			 * content-length header
 			 */
-			m = libwebsocket_write(wsi,
+			m = lws_write(wsi,
 					       buffer + LWS_SEND_BUFFER_PRE_PADDING,
 					       n, LWS_WRITE_HTTP);
 			if (m < 0)
@@ -360,7 +360,7 @@ int callback_http(struct libwebsocket_context *context,
 					goto bail;
 
 			if (m) /* while still active, extend timeout */
-				libwebsocket_set_timeout(wsi,
+				lws_set_timeout(wsi,
 					PENDING_TIMEOUT_HTTP_CONTENT, 5);
 			
 			/* if we have indigestion, let him clear it before eating more */
@@ -370,12 +370,12 @@ int callback_http(struct libwebsocket_context *context,
 		} while (!lws_send_pipe_choked(wsi));
 
 later:
-		libwebsocket_callback_on_writable(context, wsi);
+		lws_callback_on_writable(context, wsi);
 		break;
 flush_bail:
 		/* true if still partial pending */
 		if (lws_partial_buffered(wsi)) {
-			libwebsocket_callback_on_writable(context, wsi);
+			lws_callback_on_writable(context, wsi);
 			break;
 		}
 		close(pss->fd);
@@ -450,7 +450,7 @@ bail:
 
 	case LWS_CALLBACK_GET_THREAD_ID:
 		/*
-		 * if you will call "libwebsocket_callback_on_writable"
+		 * if you will call "lws_callback_on_writable"
 		 * from a different thread, return the caller thread ID
 		 * here so lws can use this information to work out if it
 		 * should signal the poll() loop to exit and restart early

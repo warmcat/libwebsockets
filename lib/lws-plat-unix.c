@@ -14,7 +14,7 @@ unsigned long long time_in_microseconds(void)
 	return ((unsigned long long)tv.tv_sec * 1000000LL) + tv.tv_usec;
 }
 
-LWS_VISIBLE int libwebsockets_get_random(struct libwebsocket_context *context,
+LWS_VISIBLE int lws_get_random(struct libwebsocket_context *context,
 							     void *buf, int len)
 {
 	return read(context->fd_random, (char *)buf, len);
@@ -58,14 +58,14 @@ static void lws_sigusr2(int sig)
 }
 
 /**
- * libwebsocket_cancel_service() - Cancel servicing of pending websocket activity
+ * lws_cancel_service() - Cancel servicing of pending websocket activity
  * @context:	Websocket context
  *
- *	This function let a call to libwebsocket_service() waiting for a timeout
+ *	This function let a call to lws_service() waiting for a timeout
  *	immediately return.
  */
 LWS_VISIBLE void
-libwebsocket_cancel_service(struct libwebsocket_context *context)
+lws_cancel_service(struct libwebsocket_context *context)
 {
 	char buf = 0;
 
@@ -127,7 +127,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 #else
 	if (n == 0) /* poll timeout */ {
 #endif
-		libwebsocket_service_fd(context, NULL);
+		lws_service_fd(context, NULL);
 		return 0;
 	}
 
@@ -176,7 +176,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 			continue;
 		}
 
-		m = libwebsocket_service_fd(context, &context->fds[n]);
+		m = lws_service_fd(context, &context->fds[n]);
 		if (m < 0)
 			return -1;
 		/* if something closed, retry this slot */

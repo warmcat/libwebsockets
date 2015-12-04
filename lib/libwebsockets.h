@@ -56,7 +56,7 @@
 #define libwebsockets_SHA1 lws_SHA1
 #define libwebsocket_read lws_read
 #define libwebsocket_get_internal_extensions lws_get_internal_extensions
-
+#define libwebsocket_write_protocol lws_write_protocol
 
 #ifdef __cplusplus
 #include <cstddef>
@@ -421,7 +421,7 @@ enum libwebsocket_extension_callback_reasons {
 	LWS_EXT_CALLBACK_PAYLOAD_RX,
 };
 
-enum libwebsocket_write_protocol {
+enum lws_write_protocol {
 	LWS_WRITE_TEXT,
 	LWS_WRITE_BINARY,
 	LWS_WRITE_CONTINUATION,
@@ -779,7 +779,7 @@ struct libwebsocket_extension;
  *				for example, to send a script to the client
  *				which will then open the websockets connection.
  *				@in points to the URI path requested and
- *				libwebsockets_serve_http_file() makes it very
+ *				lws_serve_http_file() makes it very
  *				simple to send back a file to the client.
  *				Normally after sending the file you are done
  *				with the http connection, since the rest of the
@@ -804,7 +804,7 @@ struct libwebsocket_extension;
  *
  *	LWS_CALLBACK_CLIENT_WRITEABLE:
  *      LWS_CALLBACK_SERVER_WRITEABLE:   If you call
- *		libwebsocket_callback_on_writable() on a connection, you will
+ *		lws_callback_on_writable() on a connection, you will
  *		get one of these callbacks coming when the connection socket
  *		is able to accept another write packet without blocking.
  *		If it already was able to take another packet without blocking,
@@ -1101,7 +1101,7 @@ typedef int (extension_callback_function)(struct libwebsocket_context *context,
  *		you support.  If the frame size is exceeded, there is no
  *		error, but the buffer will spill to the user callback when
  *		full, which you can detect by using
- *		libwebsockets_remaining_packet_payload().  Notice that you
+ *		lws_remaining_packet_payload().  Notice that you
  *		just talk about frame size here, the LWS_SEND_BUFFER_PRE_PADDING
  *		and post-padding are automatically also allocated on top.
  * @id:		ignored by lws, but useful to contain user information bound
@@ -1111,7 +1111,7 @@ typedef int (extension_callback_function)(struct libwebsocket_context *context,
  *		switch (wsi->protocol->id), user code might use some bits as
  *		capability flags based on selected protocol version, etc.
  * @user:	User provided context data at the protocol level.
- *		Accessible via libwebsockets_get_protocol(wsi)->user
+ *		Accessible via lws_get_protocol(wsi)->user
  *		This should not be confused with wsi->user, it is not the same.
  *		The library completely ignores any value in here.
  * @owning_server:	the server init call fills in this opaque pointer when
@@ -1203,7 +1203,7 @@ struct libwebsocket_extension {
  * @uid:	user id to change to after setting listen socket, or -1.
  * @options:	0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
  * @user:	optional user pointer that can be recovered via the context
- *		pointer using libwebsocket_context_user
+ *		pointer using lws_context_user
  * @ka_time:	0 for no keepalive, otherwise apply this keepalive timeout to
  *		all libwebsocket sockets, client or server
  * @ka_probes:	if ka_time was nonzero, after the timeout expires how many
@@ -1360,7 +1360,7 @@ lws_set_timeout(struct libwebsocket *wsi,
  * This allows us to add protocol info before and after the data, and send as
  * one packet on the network without payload copying, for maximum efficiency.
  *
- * So for example you need this kind of code to use libwebsocket_write with a
+ * So for example you need this kind of code to use lws_write with a
  * 128-byte payload
  *
  *   char buf[LWS_SEND_BUFFER_PRE_PADDING + 128 + LWS_SEND_BUFFER_POST_PADDING];
@@ -1368,7 +1368,7 @@ lws_set_timeout(struct libwebsocket *wsi,
  *   // fill your part of the buffer... for example here it's all zeros
  *   memset(&buf[LWS_SEND_BUFFER_PRE_PADDING], 0, 128);
  *
- *   libwebsocket_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128,
+ *   lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128,
  *   								LWS_WRITE_TEXT);
  *
  * When sending LWS_WRITE_HTTP, there is no protocol addition and you can just
@@ -1409,7 +1409,7 @@ lws_set_timeout(struct libwebsocket *wsi,
 
 LWS_VISIBLE LWS_EXTERN int
 lws_write(struct libwebsocket *wsi, unsigned char *buf, size_t len,
-				     enum libwebsocket_write_protocol protocol);
+				     enum lws_write_protocol protocol);
 
 /* helper for case where buffer may be const */
 #define lws_write_http(wsi, buf, len) \

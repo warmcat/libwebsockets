@@ -141,7 +141,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 
 		fprintf(stderr, "callback_lws_mirror: LWS_CALLBACK_CLIENT_ESTABLISHED\n");
 
-		libwebsockets_get_random(context, rands, sizeof(rands[0]));
+		lws_get_random(context, rands, sizeof(rands[0]));
 		mirror_lifetime = 10 + (rands[0] & 1023);
 		/* useful to test single connection stability */
 		if (longlived)
@@ -162,7 +162,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 		 * LWS_CALLBACK_CLIENT_WRITEABLE will come next service
 		 */
 
-		libwebsocket_callback_on_writable(context, wsi);
+		lws_callback_on_writable(context, wsi);
 		break;
 
 	case LWS_CALLBACK_CLOSED:
@@ -177,7 +177,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
 
 		for (n = 0; n < 1; n++) {
-			libwebsockets_get_random(context, rands, sizeof(rands));
+			lws_get_random(context, rands, sizeof(rands));
 			l += sprintf((char *)&buf[LWS_SEND_BUFFER_PRE_PADDING + l],
 					"c #%06X %d %d %d;",
 					(int)rands[0] & 0xffffff,
@@ -186,7 +186,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 					(int)rands[3] % 24);
 		}
 
-		n = libwebsocket_write(wsi,
+		n = lws_write(wsi,
 		   &buf[LWS_SEND_BUFFER_PRE_PADDING], l, opts | LWS_WRITE_TEXT);
 
 		if (n < 0)
@@ -202,7 +202,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 			return -1;
 		} else
 			/* get notified as soon as we can write again */
-			libwebsocket_callback_on_writable(context, wsi);
+			lws_callback_on_writable(context, wsi);
 		break;
 
 	default:
@@ -319,12 +319,12 @@ int main(int argc, char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-	info.extensions = libwebsocket_get_internal_extensions();
+	info.extensions = lws_get_internal_extensions();
 #endif
 	info.gid = -1;
 	info.uid = -1;
 
-	context = libwebsocket_create_context(&info);
+	context = lws_create_context(&info);
 	if (context == NULL) {
 		fprintf(stderr, "Creating libwebsocket context failed\n");
 		return 1;
@@ -332,7 +332,7 @@ int main(int argc, char **argv)
 
 	/* create a client websocket using dumb increment protocol */
 
-	wsi_dumb = libwebsocket_client_connect(context, address, port, use_ssl,
+	wsi_dumb = lws_client_connect(context, address, port, use_ssl,
 			"/", argv[optind], argv[optind],
 			 protocols[PROTOCOL_DUMB_INCREMENT].name, ietf_version);
 
@@ -353,7 +353,7 @@ int main(int argc, char **argv)
 
 	n = 0;
 	while (n >= 0 && !was_closed && !force_exit) {
-		n = libwebsocket_service(context, 10);
+		n = lws_service(context, 10);
 
 		if (n < 0)
 			continue;
@@ -363,7 +363,7 @@ int main(int argc, char **argv)
 
 		/* create a client websocket using mirror protocol */
 
-		wsi_mirror = libwebsocket_client_connect(context,
+		wsi_mirror = lws_client_connect(context,
 			address, port, use_ssl,  "/",
 			argv[optind], argv[optind],
 			protocols[PROTOCOL_LWS_MIRROR].name, ietf_version);
@@ -379,7 +379,7 @@ int main(int argc, char **argv)
 bail:
 	fprintf(stderr, "Exiting\n");
 
-	libwebsocket_context_destroy(context);
+	lws_context_destroy(context);
 
 	return ret;
 

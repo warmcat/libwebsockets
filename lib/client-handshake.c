@@ -1,6 +1,6 @@
 #include "private-libwebsockets.h"
 
-struct libwebsocket *libwebsocket_client_connect_2(
+struct libwebsocket *lws_client_connect_2(
 	struct libwebsocket_context *context,
 	struct libwebsocket *wsi
 ) {
@@ -18,7 +18,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	int plen = 0;
 	const char *ads;
 
-       lwsl_client("libwebsocket_client_connect_2\n");
+       lwsl_client("lws_client_connect_2\n");
 
 	/*
 	 * proxy?
@@ -169,7 +169,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 		 * handling as oom4 does.  We have to run the whole close flow.
 		 */
 
-		libwebsocket_set_timeout(wsi,
+		lws_set_timeout(wsi,
 			PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
 							      AWAITING_TIMEOUT);
 #ifdef LWS_USE_IPV6
@@ -266,7 +266,7 @@ struct libwebsocket *libwebsocket_client_connect_2(
 			goto failed;
 		}
 
-		libwebsocket_set_timeout(wsi,
+		lws_set_timeout(wsi,
 			PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
 							      AWAITING_TIMEOUT);
 
@@ -285,14 +285,14 @@ struct libwebsocket *libwebsocket_client_connect_2(
 	 * cover with a timeout.
 	 */
 
-	libwebsocket_set_timeout(wsi,
+	lws_set_timeout(wsi,
 		PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE, AWAITING_TIMEOUT);
 
 	wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE;
 	pfd.fd = wsi->sock;
 	pfd.revents = LWS_POLLIN;
 
-	n = libwebsocket_service_fd(context, &pfd);
+	n = lws_service_fd(context, &pfd);
 
 	if (n < 0)
 		goto failed;
@@ -314,7 +314,7 @@ failed:
 }
 
 /**
- * libwebsocket_client_connect() - Connect to another websocket server
+ * lws_client_connect() - Connect to another websocket server
  * @context:	Websocket context
  * @address:	Remote server address, eg, "myserver.com"
  * @port:	Port to connect to on the remote server, eg, 80
@@ -334,7 +334,7 @@ failed:
  */
 
 LWS_VISIBLE struct libwebsocket *
-libwebsocket_client_connect(struct libwebsocket_context *context,
+lws_client_connect(struct libwebsocket_context *context,
 			      const char *address,
 			      int port,
 			      int ssl_connection,
@@ -416,18 +416,18 @@ libwebsocket_client_connect(struct libwebsocket_context *context,
 	if (lws_ext_callback_for_each_extension_type(context, wsi,
 			LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION,
 						(void *)address, port) > 0) {
-		lwsl_client("libwebsocket_client_connect: ext handling conn\n");
+		lwsl_client("lws_client_connect: ext handling conn\n");
 
-		libwebsocket_set_timeout(wsi,
+		lws_set_timeout(wsi,
 			PENDING_TIMEOUT_AWAITING_EXTENSION_CONNECT_RESPONSE,
 							      AWAITING_TIMEOUT);
 
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT;
 		return wsi;
 	}
-	lwsl_client("libwebsocket_client_connect: direct conn\n");
+	lwsl_client("lws_client_connect: direct conn\n");
 
-       return libwebsocket_client_connect_2(context, wsi);
+       return lws_client_connect_2(context, wsi);
 
 bail1:
 	lws_free(wsi->u.hdr.ah);
@@ -439,7 +439,7 @@ bail:
 
 
 /**
- * libwebsocket_client_connect_extended() - Connect to another websocket server
+ * lws_client_connect_extended() - Connect to another websocket server
  * @context:	Websocket context
  * @address:	Remote server address, eg, "myserver.com"
  * @port:	Port to connect to on the remote server, eg, 80
@@ -459,7 +459,7 @@ bail:
  */
 
 LWS_VISIBLE struct libwebsocket *
-libwebsocket_client_connect_extended(struct libwebsocket_context *context,
+lws_client_connect_extended(struct libwebsocket_context *context,
 			      const char *address,
 			      int port,
 			      int ssl_connection,
@@ -471,7 +471,7 @@ libwebsocket_client_connect_extended(struct libwebsocket_context *context,
 			      void *userdata)
 {
 	struct libwebsocket *ws =
-		libwebsocket_client_connect(context, address, port,
+		lws_client_connect(context, address, port,
 			ssl_connection, path, host, origin, protocol,
 						     ietf_version_or_minus_one);
 

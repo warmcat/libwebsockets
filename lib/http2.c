@@ -303,7 +303,7 @@ lws_http2_parser(struct libwebsocket_context *context,
 				if (swsi->u.http2.waiting_tx_credit && swsi->u.http2.tx_credit > 0) {
 					lwsl_info("%s: %p: waiting_tx_credit -> wait on writeable\n", __func__, wsi);
 					swsi->u.http2.waiting_tx_credit = 0;
-					libwebsocket_callback_on_writable(context, swsi);
+					lws_callback_on_writable(context, swsi);
 				}	
 				break;
 			}

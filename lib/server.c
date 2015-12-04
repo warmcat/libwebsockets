@@ -151,7 +151,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 }
 
 int
-_libwebsocket_rx_flow_control(struct libwebsocket *wsi)
+_lws_rx_flow_control(struct libwebsocket *wsi)
 {
 	struct libwebsocket_context *context = wsi->protocol->owning_server;
 
@@ -162,7 +162,7 @@ _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 	/* stuff is still buffered, not ready to really accept new input */
 	if (wsi->rxflow_buffer) {
 		/* get ourselves called back to deal with stashed buffer */
-		libwebsocket_callback_on_writable(context, wsi);
+		lws_callback_on_writable(context, wsi);
 		return 0;
 	}
 
@@ -304,7 +304,7 @@ int lws_http_action(struct libwebsocket_context *context,
 		 * if there is content supposed to be coming,
 		 * put a timeout on it having arrived
 		 */
-		libwebsocket_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 							      AWAITING_TIMEOUT);
 
 		if (wsi->protocol->callback)
@@ -325,7 +325,7 @@ int lws_http_action(struct libwebsocket_context *context,
 	 * HTTP keep-alive. No keep-alive header allocation for
 	 * ISSUING_FILE, as this uses HTTP/1.0. 
 	 * 
-	 * In any case, return 0 and let libwebsocket_read decide how to
+	 * In any case, return 0 and let lws_read decide how to
 	 * proceed based on state
 	 */
 	if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE)
@@ -367,7 +367,7 @@ int lws_handshake_server(struct libwebsocket_context *context,
 		lwsl_parser("libwebsocket_parse sees parsing complete\n");
 
 		wsi->mode = LWS_CONNMODE_PRE_WS_SERVING_ACCEPT;
-		libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		/* is this websocket protocol or normal http 1.0? */
 
@@ -450,7 +450,7 @@ upgrade_h2c:
 
 upgrade_ws:
 		if (!wsi->protocol)
-			lwsl_err("NULL protocol at libwebsocket_read\n");
+			lwsl_err("NULL protocol at lws_read\n");
 
 		/*
 		 * It's websocket
@@ -670,7 +670,7 @@ int lws_http_transaction_completed(struct libwebsocket *wsi)
 	wsi->u.http.content_length = 0;
 
 	/* He asked for it to stay alive indefinitely */
-	libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 	if (lws_allocate_header_table(wsi))
 		return 1;
@@ -749,7 +749,7 @@ int lws_server_socket_service(struct libwebsocket_context *context,
 			if (wsi->state != WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
 			
 				/* hm this may want to send (via HTTP callback for example) */
-				n = libwebsocket_read(context, wsi,
+				n = lws_read(context, wsi,
 							context->service_buffer, len);
 				if (n < 0)
 					/* we closed wsi */
@@ -786,7 +786,7 @@ try_pollout:
 		}
 
 		/* >0 == completion, <0 == error */
-		n = libwebsockets_serve_http_file_fragment(context, wsi);
+		n = lws_serve_http_file_fragment(context, wsi);
 		if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi)))
 			goto fail;
 		break;
@@ -845,7 +845,7 @@ try_pollout:
 		new_wsi->sock = accept_fd;
 
 		/* the transport is accepted... give him time to negotiate */
-		libwebsocket_set_timeout(new_wsi,
+		lws_set_timeout(new_wsi,
 			PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
 							AWAITING_TIMEOUT);
 
@@ -891,7 +891,7 @@ fail:
 }
 
 /**
- * libwebsockets_serve_http_file() - Send a file back to the client using http
+ * lws_serve_http_file() - Send a file back to the client using http
  * @context:		libwebsockets context
  * @wsi:		Websocket instance (available from user callback)
  * @file:		The file to issue over http
@@ -909,7 +909,7 @@ fail:
  *	the wsi should be left alone.
  */
 
-LWS_VISIBLE int libwebsockets_serve_http_file(
+LWS_VISIBLE int lws_serve_http_file(
 		struct libwebsocket_context *context,
 			struct libwebsocket *wsi, const char *file,
 			   const char *content_type, const char *other_headers,
@@ -925,7 +925,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 
 	if (wsi->u.http.fd == LWS_INVALID_FILE) {
 		lwsl_err("Unable to open '%s'\n", file);
-		libwebsockets_return_http_status(context, wsi,
+		lws_return_http_status(context, wsi,
 						HTTP_STATUS_NOT_FOUND, NULL);
 		return -1;
 	}
@@ -949,7 +949,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 	if (lws_finalize_http_header(context, wsi, &p, end))
 		return -1;
 	
-	ret = libwebsocket_write(wsi, response,
+	ret = lws_write(wsi, response,
 				   p - response, LWS_WRITE_HTTP_HEADERS);
 	if (ret != (p - response)) {
 		lwsl_err("_write returned %d from %d\n", ret, (p - response));
@@ -959,7 +959,7 @@ LWS_VISIBLE int libwebsockets_serve_http_file(
 	wsi->u.http.filepos = 0;
 	wsi->state = WSI_STATE_HTTP_ISSUING_FILE;
 
-	return libwebsockets_serve_http_file_fragment(context, wsi);
+	return lws_serve_http_file_fragment(context, wsi);
 }
 
 

@@ -42,7 +42,7 @@ lws_get_library_version(void)
 }
 
 /**
- * libwebsocket_create_context() - Create the websocket handler
+ * lws_create_context() - Create the websocket handler
  * @info:	pointer to struct with parameters
  *
  *	This function creates the listening socket (if serving) and takes care
@@ -50,7 +50,7 @@ lws_get_library_version(void)
  *
  *	After initialization, it returns a struct libwebsocket_context * that
  *	represents this server.  After calling, user code needs to take care
- *	of calling libwebsocket_service() with the context pointer to get the
+ *	of calling lws_service() with the context pointer to get the
  *	server's sockets serviced.  This must be done in the same process
  *	context as the initialization call.
  *
@@ -72,7 +72,7 @@ lws_get_library_version(void)
  */
 
 LWS_VISIBLE struct libwebsocket_context *
-libwebsocket_create_context(struct lws_context_creation_info *info)
+lws_create_context(struct lws_context_creation_info *info)
 {
 	struct libwebsocket_context *context = NULL;
 	char *p;
@@ -138,12 +138,12 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #ifdef LWS_USE_LIBEV
 	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
 	 * enable libev mediated SIGINT handling with a default handler of
-	 * libwebsocket_sigint_cb. The handler can be overridden or disabled
-	 * by invoking libwebsocket_sigint_cfg after creating the context, but
-	 * before invoking libwebsocket_initloop:
+	 * lws_sigint_cb. The handler can be overridden or disabled
+	 * by invoking lws_sigint_cfg after creating the context, but
+	 * before invoking lws_initloop:
 	 */
 	context->use_ev_sigint = 1;
-	context->lws_ev_sigint_cb = &libwebsocket_sigint_cb;
+	context->lws_ev_sigint_cb = &lws_sigint_cb;
 #endif /* LWS_USE_LIBEV */
 
 	/* to reduce this allocation, */
@@ -166,13 +166,11 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		goto bail;
 	}
 
-	if (lws_plat_init_lookup(context)) {
+	if (lws_plat_init_lookup(context))
 		goto bail;
-	}
 
-	if (lws_plat_init_fd_tables(context)) {
+	if (lws_plat_init_fd_tables(context))
 		goto bail;
-	}
 
 	lws_context_init_extensions(info, context);
 
@@ -188,12 +186,12 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		/* override for backwards compatibility */
 		if (info->http_proxy_port)
 			context->http_proxy_port = info->http_proxy_port;
-		libwebsocket_set_proxy(context, info->http_proxy_address);
+		lws_set_proxy(context, info->http_proxy_address);
 	} else {
 #ifdef LWS_HAVE_GETENV
 		p = getenv("http_proxy");
 		if (p)
-			libwebsocket_set_proxy(context, p);
+			lws_set_proxy(context, p);
 #endif
 	}
 
@@ -259,12 +257,12 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	return context;
 
 bail:
-	libwebsocket_context_destroy(context);
+	lws_context_destroy(context);
 	return NULL;
 }
 
 /**
- * libwebsocket_context_destroy() - Destroy the websocket context
+ * lws_context_destroy() - Destroy the websocket context
  * @context:	Websocket context
  *
  *	This function closes any active connections and then frees the
@@ -272,7 +270,7 @@ bail:
  *	undefined.
  */
 LWS_VISIBLE void
-libwebsocket_context_destroy(struct libwebsocket_context *context)
+lws_context_destroy(struct libwebsocket_context *context)
 {
 	/* Note that this is used for freeing partially allocated structs as well
 	 * so make sure you don't try to free something uninitialized */
