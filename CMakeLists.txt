@@ -68,6 +68,7 @@ option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" ON)
 option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
 option(LWS_MBED3 "Platform is MBED3" OFF)
+option(LWS_WITH_OLD_API_WRAPPERS "Compile with binary compatibility with pre-v1.6 apis" OFF)
 
 if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
 
@@ -1088,6 +1089,7 @@ message(" LWS_USE_LIBEV = ${LWS_USE_LIBEV}")
 message(" LWS_IPV6 = ${LWS_IPV6}")
 message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")
 message(" LWS_MBED3 = ${LWS_MBED3}")
+message(" LWS_WITH_OLD_API_WRAPPERS = ${LWS_WITH_OLD_API_WRAPPERS}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

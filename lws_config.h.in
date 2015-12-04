@@ -62,4 +62,7 @@
 /* use SHA1() not internal libwebsockets_SHA1 */
 #cmakedefine LWS_SHA1_USE_OPENSSL_NAME
 
+/* whether to provide pre v1.6 compatibility wrappers */
+#cmakedefine LWS_WITH_OLD_API_WRAPPERS
+
 ${LWS_SIZEOFPTR_CODE}

@@ -1,6 +1,27 @@
 Changelog
 ---------
 
+User api changes
+----------------
+
+Several older apis start with libwebsocket_ or libwebsockets_ while newer ones
+all begin lws_.  These apis have been changed to all begin with lws_.
+
+However compatibility defines have been added in libwebsockets.h, so it is
+perfectly build-compatible with older sources using the old api names.
+
+If you are using lws with a distro, or otherwise can't rebuild the user code,
+you should add 
+
+ -DLWS_WITH_OLD_API_WRAPPERS=1
+
+to your cmake args.  This builds lws with all the old apis as wrappers around
+the new apis, so the library still exports the old apis.
+
+In this way you can have lws export both the new and old apis simultaneously
+for compatibility.
+
+
 v1.5-chrome47-firefox41
 =======================
 

@@ -1325,7 +1325,7 @@ lws_sigint_cb(
 
 LWS_VISIBLE LWS_EXTERN int
 lws_service_fd(struct libwebsocket_context *context,
-							 struct libwebsocket_pollfd *pollfd);
+		struct libwebsocket_pollfd *pollfd);
 
 LWS_VISIBLE LWS_EXTERN void *
 lws_context_user(struct libwebsocket_context *context);
@@ -1510,12 +1510,12 @@ lws_canonical_hostname(struct libwebsocket_context *context);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_get_peer_addresses(struct libwebsocket_context *context,
-		struct libwebsocket *wsi, lws_sockfd_type fd, char *name, int name_len,
-					char *rip, int rip_len);
+		struct libwebsocket *wsi, lws_sockfd_type fd,
+		char *name, int name_len,
+		char *rip, int rip_len);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_get_random(struct libwebsocket_context *context,
-							    void *buf, int len);
+lws_get_random(struct libwebsocket_context *context, void *buf, int len);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_daemonize(const char *_lock_path);
