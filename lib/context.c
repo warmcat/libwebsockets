@@ -92,8 +92,8 @@ lws_create_context(struct lws_context_creation_info *info)
 #else
 	lwsl_notice("IPV6 not compiled in\n");
 #endif
-#endif
 	lws_feature_status_libev(info);
+#endif
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
 
@@ -148,21 +148,13 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
-	lwsl_notice(" static allocation: %u + (%u x %u fds) = %u bytes\n",
-		sizeof(struct lws_context),
-		sizeof(struct lws_pollfd) +
-					sizeof(struct lws *),
-		context->max_fds,
-		sizeof(struct lws_context) +
-		((sizeof(struct lws_pollfd) +
-					sizeof(struct lws *)) *
-							     context->max_fds));
+	lwsl_notice(" ctx mem: %u bytes\n", sizeof(struct lws_context) +
+		    ((sizeof(struct lws_pollfd) + sizeof(struct lws *)) *
+		    context->max_fds));
 
-	context->fds = lws_zalloc(sizeof(struct lws_pollfd) *
-				  context->max_fds);
+	context->fds = lws_zalloc(sizeof(struct lws_pollfd) * context->max_fds);
 	if (context->fds == NULL) {
-		lwsl_err("Unable to allocate fds array for %d connections\n",
-							      context->max_fds);
+		lwsl_err("OOM allocating %d fds\n", context->max_fds);
 		goto bail;
 	}
 
@@ -195,10 +187,8 @@ lws_create_context(struct lws_context_creation_info *info)
 #endif
 	}
 
-	lwsl_notice(
-		" per-conn mem: %u + %u headers + protocol rx buf\n",
-				sizeof(struct lws),
-					      sizeof(struct allocated_headers));
+	lwsl_notice(" per-conn mem: %u + %u headers + protocol rx buf\n",
+		    sizeof(struct lws), sizeof(struct allocated_headers));
 
 	if (lws_context_init_server_ssl(info, context))
 		goto bail;
@@ -219,12 +209,8 @@ lws_create_context(struct lws_context_creation_info *info)
 	/* initialize supported protocols */
 
 	for (context->count_protocols = 0;
-		info->protocols[context->count_protocols].callback;
-						   context->count_protocols++) {
-
-//		lwsl_notice("  Protocol: %s\n",
-//				info->protocols[context->count_protocols].name);
-
+	     info->protocols[context->count_protocols].callback;
+	     context->count_protocols++) {
 		info->protocols[context->count_protocols].owning_server =
 									context;
 		info->protocols[context->count_protocols].protocol_index =
@@ -242,16 +228,13 @@ lws_create_context(struct lws_context_creation_info *info)
 	 * give all extensions a chance to create any per-context
 	 * allocations they need
 	 */
-
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 		if (lws_ext_callback_for_each_extension_type(context, NULL,
-				LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT,
-								   NULL, 0) < 0)
+			LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
 	} else
 		if (lws_ext_callback_for_each_extension_type(context, NULL,
-				LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT,
-								   NULL, 0) < 0)
+			LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
 		
 	return context;
@@ -272,10 +255,8 @@ bail:
 LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
 {
-	/* Note that this is used for freeing partially allocated structs as well
-	 * so make sure you don't try to free something uninitialized */
-	int n;
 	struct lws_protocols *protocol = NULL;
+	int n;
 
 	lwsl_notice("%s\n", __func__);
 
@@ -288,12 +269,12 @@ lws_context_destroy(struct lws_context *context)
 #endif
 
 	for (n = 0; n < context->fds_count; n++) {
-		struct lws *wsi =
-					wsi_from_fd(context, context->fds[n].fd);
+		struct lws *wsi = wsi_from_fd(context, context->fds[n].fd);
 		if (!wsi)
 			continue;
-		lws_close_and_free_session(context,
-			wsi, LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY /* no protocol close */);
+		lws_close_and_free_session(context, wsi,
+				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
+				/* no protocol close */);
 		n--;
 	}
 
@@ -301,20 +282,12 @@ lws_context_destroy(struct lws_context *context)
 	 * give all extensions a chance to clean up any per-context
 	 * allocations they might have made
 	 */
-	// TODO: I am not sure, but are we never supposed to be able to run a server
-	//       and client at the same time for a given context?
-	//       Otherwise both of these callbacks should always be called!
-	if (context->listen_port != CONTEXT_PORT_NO_LISTEN) {
-		if (lws_ext_callback_for_each_extension_type(context, NULL,
-				LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0) < 0) {
-			lwsl_err("Got error from server extension callback on cleanup");
-		}
-	} else {
-		if (lws_ext_callback_for_each_extension_type(context, NULL,
-				LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0) < 0) {
-			lwsl_err("Got error from client extension callback on cleanup");
-		}
-	}
+
+	n = lws_ext_callback_for_each_extension_type(context, NULL,
+			LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0);
+
+	n = lws_ext_callback_for_each_extension_type(context, NULL,
+			LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0);
 
 	/*
 	 * inform all the protocols that they are done and will have no more
@@ -323,8 +296,9 @@ lws_context_destroy(struct lws_context *context)
 	protocol = context->protocols;
 	if (protocol) {
 		while (protocol->callback) {
-			protocol->callback(context, NULL, LWS_CALLBACK_PROTOCOL_DESTROY,
-					NULL, NULL, 0);
+			protocol->callback(context, NULL,
+					   LWS_CALLBACK_PROTOCOL_DESTROY,
+					   NULL, NULL, 0);
 			protocol++;
 		}
 	}

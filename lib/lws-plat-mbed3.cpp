@@ -157,7 +157,7 @@ void lws_conn_listener::start(const uint16_t port)
 	srv.error_check(err);
 }
 
-int lws_conn::actual_onRX(Socket *s)
+void lws_conn::onRX(Socket *s)
 {
 	struct lws_pollfd pollfd;
 	
@@ -169,7 +169,7 @@ int lws_conn::actual_onRX(Socket *s)
 	
 	lwsl_debug("%s: lws %p\n", __func__, wsi);
 	
-	return lws_service_fd(wsi->protocol->owning_server, &pollfd);
+	lws_service_fd(wsi->protocol->owning_server, &pollfd);
 }
 
 /* 
@@ -204,13 +204,13 @@ void lws_conn_listener::onIncoming(TCPListener *tl, void *impl)
 	lws_server_socket_service(wsi->protocol->owning_server,
 				  wsi, (struct pollfd *)conn);
 
-	conn->ts->setOnSent(Socket::SentHandler_t(conn, &lws_conn::onSent));
-	conn->ts->setOnReadable(TCPStream::ReadableHandler_t(conn, &lws_conn::onRX));
 	conn->ts->setOnError(TCPStream::ErrorHandler_t(conn, &lws_conn::onError));
 	conn->ts->setOnDisconnect(TCPStream::DisconnectHandler_t(conn,
 			    &lws_conn::onDisconnect));
+	conn->ts->setOnSent(Socket::SentHandler_t(conn, &lws_conn::onSent));
+	conn->ts->setOnReadable(TCPStream::ReadableHandler_t(conn, &lws_conn::onRX));
 
-	conn->actual_onRX((Socket *)conn->ts);
+	conn->onRX((Socket *)conn->ts);
 
 	lwsl_debug("%s: exit\n", __func__);
 }
@@ -242,11 +242,6 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 	(void)m;
 }
 
-void lws_conn::onRX(Socket *s)
-{
-	actual_onRX(s);
-}
-
 void lws_conn_listener::onDisconnect(TCPStream *s)
 {
 	lwsl_info("%s\r\n", __func__);
@@ -272,7 +267,8 @@ void lws_conn::onSent(Socket *s, uint16_t len)
 	(void)len;
 	
 	if (!awaiting_on_writeable) {
-		lwsl_debug("%s: wsi %p (setting writable=1)\r\n", __func__, (void *)wsi);
+		lwsl_debug("%s: wsi %p (setting writable=1)\r\n",
+			   __func__, (void *)wsi);
 		writeable = 1;
 		return;
 	}
@@ -298,6 +294,7 @@ void lws_conn_listener::onError(Socket *s, socket_error_t err)
 
 void lws_conn::onDisconnect(TCPStream *s)
 {
+	lwsl_notice("%s:\r\n", __func__);
 	(void)s;
 	lws_close_and_free_session(wsi->protocol->owning_server, wsi,
 						LWS_CLOSE_STATUS_NOSTATUS);
@@ -308,6 +305,5 @@ void lws_conn::onError(Socket *s, socket_error_t err)
 {
 	(void) s;
 	lwsl_notice("Socket Error: %s (%d)\r\n", socket_strerror(err), err);
-	if (ts)
-		ts->close();
+	s->close();
 }

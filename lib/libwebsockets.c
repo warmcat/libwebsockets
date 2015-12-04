@@ -44,18 +44,14 @@ lws_free_wsi(struct lws *wsi)
 		return;
 
 	/* Protocol user data may be allocated either internally by lws
-	 * or by specified the user. Important we don't free external user data */
-	if (wsi->protocol && wsi->protocol->per_session_data_size
-		&& wsi->user_space && !wsi->user_space_externally_allocated) {
+	 * or by specified the user.
+	 * We should only free what we allocated. */
+	if (wsi->protocol && wsi->protocol->per_session_data_size &&
+	    wsi->user_space && !wsi->user_space_externally_allocated)
 		lws_free(wsi->user_space);
-	}
 
 	lws_free2(wsi->rxflow_buffer);
 	lws_free2(wsi->truncated_send_malloc);
-
-	// TODO: Probably should handle the union structs in wsi->u here depending
-	//       on connection mode as well. Too spaghetti for me to follow however...
-
 	lws_free_header_table(wsi);
 	lws_free(wsi);
 }
@@ -64,17 +60,24 @@ void
 lws_close_and_free_session(struct lws_context *context,
 			   struct lws *wsi, enum lws_close_status reason)
 {
-	int n, m, ret;
-	int old_state;
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
-						  LWS_SEND_BUFFER_POST_PADDING];
+	int n, m, ret, old_state;
 	struct lws_tokens eff_buf;
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
+			  LWS_SEND_BUFFER_POST_PADDING];
 
 	if (!wsi)
 		return;
 
 	old_state = wsi->state;
 
+	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED &&
+	    wsi->u.http.fd != LWS_INVALID_FILE) {
+		lwsl_debug("closing http file\n");
+		compatible_file_close(wsi->u.http.fd);
+		wsi->u.http.fd = LWS_INVALID_FILE;
+		context->protocols[0].callback(context, wsi,
+			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
+	}
 	if (wsi->socket_is_permanently_unusable ||
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)
 		goto just_kill_connection;
@@ -107,23 +110,12 @@ lws_close_and_free_session(struct lws_context *context,
 	wsi->u.ws.close_reason = reason;
 
 	if (wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT ||
-			wsi->mode == LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE)
+	    wsi->mode == LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
 
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING)
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
-
-	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
-		if (wsi->u.http.fd != LWS_INVALID_FILE) {
-			// TODO: If we're just closing with LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY this file descriptor might leak?
-			lwsl_debug("closing http file\n");
-			compatible_file_close(wsi->u.http.fd);
-			wsi->u.http.fd = LWS_INVALID_FILE;
-			context->protocols[0].callback(context, wsi,
-				LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
-		}
-	}
 
 	/*
 	 * are his extensions okay with him closing?  Eg he might be a mux
@@ -165,7 +157,8 @@ lws_close_and_free_session(struct lws_context *context,
 
 		if (eff_buf.token_len)
 			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-				      eff_buf.token_len) != eff_buf.token_len) {
+					  eff_buf.token_len) !=
+			    eff_buf.token_len) {
 				lwsl_debug("close: ext spill failed\n");
 				goto just_kill_connection;
 			}
@@ -191,25 +184,20 @@ lws_close_and_free_session(struct lws_context *context,
 
 		/* make valgrind happy */
 		memset(buf, 0, sizeof(buf));
-		n = lws_write(wsi,
-				&buf[LWS_SEND_BUFFER_PRE_PADDING + 2],
-							    0, LWS_WRITE_CLOSE);
+		n = lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING + 2],
+			      0, LWS_WRITE_CLOSE);
 		if (n >= 0) {
 			/*
 			 * we have sent a nice protocol level indication we
 			 * now wish to close, we should not send anything more
 			 */
-
 			wsi->state = WSI_STATE_AWAITING_CLOSE_ACK;
 
 			/*
 			 * ...and we should wait for a reply for a bit
 			 * out of politeness
 			 */
-
-			lws_set_timeout(wsi,
-						  PENDING_TIMEOUT_CLOSE_ACK, 1);
-
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 1);
 			lwsl_debug("sent close indication, awaiting ack\n");
 
 			return;
@@ -228,10 +216,9 @@ just_kill_connection:
 	 * we won't be servicing or receiving anything further from this guy
 	 * delete socket from the internal poll list if still present
 	 */
-
 	lws_ssl_remove_wsi_from_buffered_list(context, wsi);
 
-	// checking return redundant since we anyway close
+	/* checking return redundant since we anyway close */
 	remove_wsi_socket_from_fds(context, wsi);
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
@@ -245,11 +232,10 @@ just_kill_connection:
 
 		lws_free2(wsi->u.ws.rx_user_buffer);
 
-		if (wsi->truncated_send_malloc) {
+		if (wsi->truncated_send_malloc)
 			/* not going to be completed... nuke it */
 			lws_free2(wsi->truncated_send_malloc);
-			wsi->truncated_send_len = 0;
-		}
+
 		if (wsi->u.ws.ping_payload_buf) {
 			lws_free2(wsi->u.ws.ping_payload_buf);
 			wsi->u.ws.ping_payload_alloc = 0;
@@ -261,13 +247,13 @@ just_kill_connection:
 	/* tell the user it's all over for this guy */
 
 	if (wsi->protocol && wsi->protocol->callback &&
-			((old_state == WSI_STATE_ESTABLISHED) ||
-			 (old_state == WSI_STATE_RETURNED_CLOSE_ALREADY) ||
-			 (old_state == WSI_STATE_AWAITING_CLOSE_ACK) ||
-			 (old_state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE))) {
+	    ((old_state == WSI_STATE_ESTABLISHED) ||
+	    (old_state == WSI_STATE_RETURNED_CLOSE_ALREADY) ||
+	    (old_state == WSI_STATE_AWAITING_CLOSE_ACK) ||
+	    (old_state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE))) {
 		lwsl_debug("calling back CLOSED\n");
 		wsi->protocol->callback(context, wsi, LWS_CALLBACK_CLOSED,
-						      wsi->user_space, NULL, 0);
+					wsi->user_space, NULL, 0);
 	} else if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
 		lwsl_debug("calling back CLOSED_HTTP\n");
 		context->protocols[0].callback(context, wsi,
@@ -276,15 +262,16 @@ just_kill_connection:
 		   wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT) {
 		lwsl_debug("Connection closed before server reply\n");
 		context->protocols[0].callback(context, wsi,
-				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-				wsi->user_space, NULL, 0 );
+					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+					wsi->user_space, NULL, 0);
 	} else
 		lwsl_debug("not calling back closed mode=%d state=%d\n",
 			   wsi->mode, old_state);
 
 	/* deallocate any active extension contexts */
 	
-	if (lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_DESTROY, NULL, 0) < 0)
+	if (lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_DESTROY,
+					     NULL, 0) < 0)
 		lwsl_warn("extension destruction failed\n");
 #ifndef LWS_NO_EXTENSIONS
 	for (n = 0; n < wsi->count_active_extensions; n++)
@@ -297,8 +284,6 @@ just_kill_connection:
 	if (lws_ext_callback_for_each_extension_type(context, wsi,
 		       LWS_EXT_CALLBACK_DESTROY_ANY_WSI_CLOSING, NULL, 0) < 0)
 		lwsl_warn("ext destroy wsi failed\n");
-
-/*	lwsl_info("closing fd=%d\n", wsi->sock); */
 
 	if (!lws_ssl_close(wsi) && lws_socket_is_valid(wsi->sock)) {
 #if LWS_POSIX
@@ -317,8 +302,8 @@ just_kill_connection:
 	}
 
 	/* outermost destroy notification for wsi (user_space still intact) */
-	context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_WSI_DESTROY, wsi->user_space, NULL, 0);
+	context->protocols[0].callback(context, wsi, LWS_CALLBACK_WSI_DESTROY,
+				       wsi->user_space, NULL, 0);
 
 	lws_free_wsi(wsi);
 }
@@ -495,12 +480,11 @@ lws_context_user(struct lws_context *context)
  */
 
 LWS_VISIBLE int
-lws_callback_all_protocol(
-		const struct lws_protocols *protocol, int reason)
+lws_callback_all_protocol(const struct lws_protocols *protocol, int reason)
 {
 	struct lws_context *context = protocol->owning_server;
-	int n;
 	struct lws *wsi;
+	int n;
 
 	for (n = 0; n < context->fds_count; n++) {
 		wsi = wsi_from_fd(context, context->fds[n].fd);
@@ -508,7 +492,7 @@ lws_callback_all_protocol(
 			continue;
 		if (wsi->protocol == protocol)
 			protocol->callback(context, wsi,
-					reason, wsi->user_space, NULL, 0);
+					   reason, wsi->user_space, NULL, 0);
 	}
 
 	return 0;
@@ -525,8 +509,7 @@ lws_callback_all_protocol(
  */
 
 LWS_VISIBLE void
-lws_set_timeout(struct lws *wsi,
-					  enum pending_timeout reason, int secs)
+lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 {
 	time_t now;
 
@@ -615,7 +598,7 @@ lws_rx_flow_control(struct lws *wsi, int enable)
 	if (enable == (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW))
 		return 0;
 
-	lwsl_info("lws_rx_flow_control(0x%p, %d)\n", wsi, enable);
+	lwsl_info("%s: (0x%p, %d)\n", __func__, wsi, enable);
 	wsi->rxflow_change_to = LWS_RXFLOW_PENDING_CHANGE | !!enable;
 
 	return 0;
@@ -794,28 +777,33 @@ lws_ensure_user_space(struct lws *wsi)
 			return 1;
 		}
 	} else
-		lwsl_info("%s: %p protocol pss %u, user_space=%d\n", __func__, wsi, wsi->protocol->per_session_data_size, wsi->user_space);
+		lwsl_info("%s: %p protocol pss %u, user_space=%d\n",
+			  __func__, wsi, wsi->protocol->per_session_data_size,
+			  wsi->user_space);
 	return 0;
 }
 
+#if LWS_POSIX
 LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 {
-	char buf[300];
 	unsigned long long now;
+	char buf[300];
 	int n;
 
 	buf[0] = '\0';
-	for (n = 0; n < LLL_COUNT; n++)
-		if (level == (1 << n)) {
-			now = time_in_microseconds() / 100;
-			sprintf(buf, "[%llu:%04d] %s: ", (unsigned long long) now / 10000,
-				(int)(now % 10000), log_level_names[n]);
-			break;
-		}
+	for (n = 0; n < LLL_COUNT; n++) {
+		if (level != (1 << n))
+			continue;
+		now = time_in_microseconds() / 100;
+		sprintf(buf, "[%llu:%04d] %s: ",
+			(unsigned long long) now / 10000,
+			(int)(now % 10000), log_level_names[n]);
+		break;
+	}
 
 	fprintf(stderr, "%s%s", buf, line);
 }
-
+#endif
 
 LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 {
@@ -851,12 +839,11 @@ LWS_VISIBLE void _lws_log(int filter, const char *format, ...)
  */
 
 LWS_VISIBLE void lws_set_log_level(int level,
-				   void (*log_emit_function)(int level,
-							     const char *line))
+				   void (*func)(int level, const char *line))
 {
 	log_level = level;
-	if (log_emit_function)
-		lwsl_emit = log_emit_function;
+	if (func)
+		lwsl_emit = func;
 }
 
 /**
@@ -997,10 +984,8 @@ libwebsocket_cancel_service(struct lws_context *context)
 #ifdef LWS_USE_LIBEV
 #undef libwebsocket_sigint_cfg
 LWS_VISIBLE LWS_EXTERN int
-libwebsocket_sigint_cfg(
-	struct lws_context *context,
-	int use_ev_sigint,
-	lws_ev_signal_cb* cb)
+libwebsocket_sigint_cfg(struct lws_context *context, int use_ev_sigint,
+			lws_ev_signal_cb* cb)
 {
 	return lws_sigint_cfg(context, use_ev_sigint, cb);
 }
