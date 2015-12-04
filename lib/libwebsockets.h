@@ -26,14 +26,14 @@
 
 #define libwebsocket_create_context lws_create_context
 #define libwebsocket_set_proxy lws_set_proxy
-#define lws_context_destroy lws_context_destroy
+#define libwebsocket_context_destroy lws_context_destroy
 #define libwebsocket_service lws_service
 #define libwebsocket_cancel_service lws_cancel_service
 #define libwebsocket_sigint_cfg lws_sigint_cfg
 #define libwebsocket_initloop lws_initloop
 #define libwebsocket_sigint_cb lws_sigint_cb
 #define libwebsocket_service_fd lws_service_fd
-#define lws_context_user lws_context_user
+#define libwebsocket_context_user lws_context_user
 #define libwebsocket_set_timeout lws_set_timeout
 #define libwebsocket_write lws_write
 #define libwebsockets_serve_http_file_fragment lws_serve_http_file_fragment
@@ -62,7 +62,7 @@
 #define libwebsocket_extension lws_extension
 #define libwebsocket_context lws_context
 #define libwebsocket_pollfd lws_pollfd
-#define lws_callback_reasons lws_callback_reasons
+#define libwebsocket_callback_reasons lws_callback_reasons
 #define libwebsocket lws
 
 #ifdef __cplusplus
