@@ -46,10 +46,8 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 
 LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 {
-	unsigned int n;
-	unsigned int m;
-	unsigned int start;
 	unsigned char *buf = (unsigned char *)vbuf;
+	unsigned int n, m, start;
 	char line[80];
 	char *p;
 
@@ -93,9 +91,8 @@ LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	struct lws_context *context = wsi->protocol->owning_server;
-	int n;
 	size_t real_len = len;
-	int m;
+	int n, m;
 	
 	if (!len)
 		return 0;
@@ -123,9 +120,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!lws_socket_is_valid(wsi->sock))
 		lwsl_warn("** error invalid sock but expected to send\n");
 
-	/*
-	 * nope, send it on the socket directly
-	 */
+	/* nope, send it on the socket directly */
 	lws_latency_pre(context, wsi);
 	n = lws_ssl_capable_write(wsi, buf, len);
 	lws_latency(context, wsi, "send lws_issue_raw", n, (unsigned int)n == len);
@@ -162,8 +157,7 @@ handle_truncated_send:
 			}
 		}
 		/* always callback on writeable */
-		lws_callback_on_writable(
-					     wsi->protocol->owning_server, wsi);
+		lws_callback_on_writable(wsi->protocol->owning_server, wsi);
 
 		return n;
 	}
@@ -187,7 +181,7 @@ handle_truncated_send:
 	 * first priority next time the socket is writable)
 	 */
 	lwsl_info("***** %x new partial sent %d from %d total\n",
-						      wsi, n, real_len);
+		  wsi, n, real_len);
 
 	/*
 	 *  - if we still have a suitable malloc lying around, use it
@@ -195,14 +189,14 @@ handle_truncated_send:
 	 *  - or, if no buffer, create it
 	 */
 	if (!wsi->truncated_send_malloc ||
-			real_len - n > wsi->truncated_send_allocation) {
+	    real_len - n > wsi->truncated_send_allocation) {
 		lws_free(wsi->truncated_send_malloc);
 
 		wsi->truncated_send_allocation = real_len - n;
 		wsi->truncated_send_malloc = lws_malloc(real_len - n);
 		if (!wsi->truncated_send_malloc) {
 			lwsl_err("truncated send: unable to malloc %d\n",
-							  real_len - n);
+				 real_len - n);
 			return -1;
 		}
 	}
@@ -249,17 +243,15 @@ handle_truncated_send:
 LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 			  size_t len, enum lws_write_protocol protocol)
 {
-	int n;
-	int pre = 0;
-	int post = 0;
 	int masked7 = wsi->mode == LWS_CONNMODE_WS_CLIENT;
-	unsigned char *dropmask = NULL;
 	unsigned char is_masked_bit = 0;
-	size_t orig_len = len;
+	unsigned char *dropmask = NULL;
 	struct lws_tokens eff_buf;
+	int post = 0, pre = 0, n;
+	size_t orig_len = len;
 
 	if (len == 0 && protocol != LWS_WRITE_CLOSE &&
-		     protocol != LWS_WRITE_PING && protocol != LWS_WRITE_PONG) {
+	    protocol != LWS_WRITE_PING && protocol != LWS_WRITE_PONG) {
 		lwsl_warn("zero length lws_write attempt\n");
 		return 0;
 	}
@@ -318,7 +310,6 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 
 	switch (wsi->ietf_spec_revision) {
 	case 13:
-
 		if (masked7) {
 			pre += 4;
 			dropmask = &buf[0 - pre];
@@ -525,8 +516,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 
 		if (wsi->truncated_send_len) {
 			if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
-					wsi->truncated_send_offset,
-						 wsi->truncated_send_len) < 0) {
+					  wsi->truncated_send_offset,
+					  wsi->truncated_send_len) < 0) {
 				lwsl_info("closing from lws_serve_http_file_fragment\n");
 				return -1;
 			}
@@ -537,14 +528,16 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 			goto all_sent;
 
 		compatible_file_read(n, wsi->u.http.fd, context->service_buffer,
-					       sizeof(context->service_buffer));
+				     sizeof(context->service_buffer));
 		if (n < 0)
 			return -1; /* caller will close */
 		if (n) {
-			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, AWAITING_TIMEOUT);
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+					AWAITING_TIMEOUT);
 			wsi->u.http.filepos += n;
 			m = lws_write(wsi, context->service_buffer, n,
-					       wsi->u.http.filepos == wsi->u.http.filelen ? LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
+				      wsi->u.http.filepos == wsi->u.http.filelen ?
+					LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
 			if (m < 0)
 				return -1;
 
@@ -555,7 +548,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 		}
 all_sent:
 		if (!wsi->truncated_send_len &&
-				wsi->u.http.filepos == wsi->u.http.filelen) {
+		     wsi->u.http.filepos == wsi->u.http.filelen) {
 			wsi->state = WSI_STATE_HTTP;
 
 			/* we might be in keepalive, so close it off here */

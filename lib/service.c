@@ -39,22 +39,20 @@ lws_calllback_as_writeable(struct lws_context *context, struct lws *wsi)
 	}
 	lwsl_info("%s: %p (user=%p)\n", __func__, wsi, wsi->user_space);
 	return user_callback_handle_rxflow(wsi->protocol->callback, context,
-			wsi, (enum lws_callback_reasons) n,
-						      wsi->user_space, NULL, 0);
+					   wsi, (enum lws_callback_reasons) n,
+					   wsi->user_space, NULL, 0);
 }
 
 int
 lws_handle_POLLOUT_event(struct lws_context *context, struct lws *wsi,
 			 struct lws_pollfd *pollfd)
 {
-	int n;
+	int write_type = LWS_WRITE_PONG;
 	struct lws_tokens eff_buf;
 #ifdef LWS_USE_HTTP2
 	struct lws *wsi2;
 #endif
-	int ret;
-	int m;
-	int write_type = LWS_WRITE_PONG;
+	int ret, m, n;
 
 	/* pending truncated sends have uber priority */
 
@@ -100,11 +98,9 @@ lws_handle_POLLOUT_event(struct lws_context *context, struct lws *wsi,
 		if (wsi->u.ws.payload_is_close)
 			write_type = LWS_WRITE_CLOSE;
 
-		n = lws_write(wsi, 
-				&wsi->u.ws.ping_payload_buf[
+		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[
 					LWS_SEND_BUFFER_PRE_PADDING],
-					wsi->u.ws.ping_payload_len,
-							       write_type);
+			      wsi->u.ws.ping_payload_len, write_type);
 		if (n < 0)
 			return -1;
 
@@ -361,19 +357,19 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 LWS_VISIBLE int
 lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 {
-	struct lws *wsi;
-	int n, m;
-	lws_sockfd_type mfd;
 #if LWS_POSIX
 	int listen_socket_fds_index = 0;
 #endif
-	time_t now;
-	int timed_out = 0;
 	lws_sockfd_type our_fd = 0;
-	char draining_flow = 0;
-	int more;
 	struct lws_tokens eff_buf;
 	unsigned int pending = 0;
+	char draining_flow = 0;
+	lws_sockfd_type mfd;
+	int timed_out = 0;
+	struct lws *wsi;
+	time_t now;
+	int n, m;
+	int more;
 
 #if LWS_POSIX
 	if (context->listen_service_fd)
@@ -407,11 +403,10 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 
 			if (lws_service_timeout_check(context, wsi, now))
 				/* he did time out... */
-				if (mfd == our_fd) {
+				if (mfd == our_fd)
 					/* it was the guy we came to service! */
 					timed_out = 1;
 					/* he's gone, no need to mark as handled */
-				}
 		}
 	}
 
@@ -420,12 +415,12 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 		return 0;
 
 	/* just here for timeout management? */
-	if (pollfd == NULL)
+	if (!pollfd)
 		return 0;
 
 	/* no, here to service a socket descriptor */
 	wsi = wsi_from_fd(context, pollfd->fd);
-	if (wsi == NULL)
+	if (!wsi)
 		/* not lws connection ... leave revents alone and return */
 		return 0;
 
@@ -459,7 +454,8 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 				 * even with extpoll, we prepared this
 				 * internal fds for listen
 				 */
-				n = lws_poll_listen_fd(&context->fds[listen_socket_fds_index]);
+				n = lws_poll_listen_fd(
+					&context->fds[listen_socket_fds_index]);
 				if (n > 0) { /* there's a conn waiting for us */
 					lws_service_fd(context,
 						&context->
@@ -572,7 +568,6 @@ read:
 drain:
 
 		do {
-
 			more = 0;
 			
 			m = lws_ext_callback_for_each_active(wsi,
@@ -602,8 +597,8 @@ drain:
 		pending = lws_ssl_pending(wsi);
 		if (pending) {
 handle_pending:
-			pending = pending > sizeof(context->service_buffer)?
-				sizeof(context->service_buffer):pending;
+			pending = pending > sizeof(context->service_buffer) ?
+				sizeof(context->service_buffer) : pending;
 			goto read;
 		}
 
@@ -615,7 +610,8 @@ handle_pending:
 #ifdef LWS_NO_SERVER
 			n =
 #endif
-			_lws_rx_flow_control(wsi); /* n ignored, needed for NO_SERVER case */
+			_lws_rx_flow_control(wsi);
+			/* n ignored, needed for NO_SERVER case */
 		}
 
 		break;
