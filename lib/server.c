@@ -687,14 +687,13 @@ LWS_VISIBLE
 int lws_server_socket_service(struct lws_context *context,
 			      struct lws *wsi, struct lws_pollfd *pollfd)
 {
-	struct lws *new_wsi = NULL;
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
 #if LWS_POSIX
-	socklen_t clilen;
 	struct sockaddr_in cli_addr;
+	socklen_t clilen;
 #endif
-	int n;
-	int len;
+	struct lws *new_wsi = NULL;
+	int n, len;
 
 	switch (wsi->mode) {
 
@@ -711,8 +710,7 @@ int lws_server_socket_service(struct lws_context *context,
 				if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
 					wsi->truncated_send_offset,
 							wsi->truncated_send_len) < 0) {
-					lwsl_info("closing from socket service\n");
-					return -1;
+					goto fail;
 				}
 			/*
 			 * we can't afford to allow input processing send
@@ -737,10 +735,7 @@ int lws_server_socket_service(struct lws_context *context,
 					lws_free_header_table(wsi);
 				/* fallthru */
 			case LWS_SSL_CAPABLE_ERROR:
-				lws_close_and_free_session(
-						context, wsi,
-						LWS_CLOSE_STATUS_NOSTATUS);
-				return 0;
+				goto fail;
 			case LWS_SSL_CAPABLE_MORE_SERVICE:
 				goto try_pollout;
 			}
@@ -751,9 +746,8 @@ int lws_server_socket_service(struct lws_context *context,
 				/* hm this may want to send (via HTTP callback for example) */
 				n = lws_read(context, wsi,
 					     context->service_buffer, len);
-				if (n < 0)
-					/* we closed wsi */
-					return 0;
+				if (n < 0) /* we closed wsi */
+					return 1;
 
 				/* hum he may have used up the writability above */
 				break;
@@ -845,9 +839,8 @@ try_pollout:
 		new_wsi->sock = accept_fd;
 
 		/* the transport is accepted... give him time to negotiate */
-		lws_set_timeout(new_wsi,
-			PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-							AWAITING_TIMEOUT);
+		lws_set_timeout(new_wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+				AWAITING_TIMEOUT);
 
 #if LWS_POSIX == 0
 		mbed3_tcp_stream_accept(accept_fd, new_wsi);
@@ -878,11 +871,9 @@ try_pollout:
 		break;
 	}
 
-	if (lws_server_socket_service_ssl(context, &wsi, new_wsi, accept_fd,
-					  pollfd))
-		goto fail;
-
-	return 0;
+	if (!lws_server_socket_service_ssl(context, &wsi, new_wsi, accept_fd,
+					   pollfd))
+		return 0;
 
 fail:
 	lws_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);

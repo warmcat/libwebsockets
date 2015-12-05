@@ -58,7 +58,7 @@
 
 LWS_VISIBLE int
 lws_read(struct lws_context *context,
-		     struct lws *wsi, unsigned char *buf, size_t len)
+	 struct lws *wsi, unsigned char *buf, size_t len)
 {
 	size_t n;
 	int body_chunk_len;
@@ -124,21 +124,13 @@ http_new:
 			case WSI_STATE_HTTP_ISSUING_FILE:
 				goto read_ok;
 			case WSI_STATE_HTTP_BODY:
-				wsi->u.http.content_remain = wsi->u.http.content_length;
-				if (!wsi->u.http.content_remain) {
-					/* there is no POST content */
-					lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-					if (wsi->protocol->callback) {
-						n = wsi->protocol->callback(
-							wsi->protocol->owning_server, wsi,
-							LWS_CALLBACK_HTTP_BODY_COMPLETION,
-							wsi->user_space, NULL, 0);
-						if (n)
-							goto bail;
-					}
-					goto http_complete;
-				}
-				goto http_postbody;
+				wsi->u.http.content_remain =
+						wsi->u.http.content_length;
+				if (wsi->u.http.content_remain)
+					goto http_postbody;
+
+				/* there is no POST content */
+				goto postbody_completion;
 			default:
 				break;
 		}
@@ -155,32 +147,31 @@ http_postbody:
 			wsi->u.http.content_remain -= body_chunk_len;
 			len -= body_chunk_len;
 
-			if (wsi->protocol->callback) {
-				n = wsi->protocol->callback(
-					wsi->protocol->owning_server, wsi,
-					LWS_CALLBACK_HTTP_BODY, wsi->user_space,
-					buf, body_chunk_len);
-				if (n)
-					goto bail;
-			}
+			n = wsi->protocol->callback(
+				wsi->protocol->owning_server, wsi,
+				LWS_CALLBACK_HTTP_BODY, wsi->user_space,
+				buf, body_chunk_len);
+			if (n)
+				goto bail;
+
 			buf += body_chunk_len;
 
-			if (!wsi->u.http.content_remain)  {
-				/* he sent the content in time */
-				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-				if (wsi->protocol->callback) {
-					n = wsi->protocol->callback(
-						wsi->protocol->owning_server, wsi,
-						LWS_CALLBACK_HTTP_BODY_COMPLETION,
-						wsi->user_space, NULL, 0);
-					if (n)
-						goto bail;
-				}
-				goto http_complete;
-			} else
-				lws_set_timeout(wsi,
-					PENDING_TIMEOUT_HTTP_CONTENT,
-					AWAITING_TIMEOUT);
+			if (wsi->u.http.content_remain)  {
+				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+						AWAITING_TIMEOUT);
+				break;
+			}
+			/* he sent all the content in time */
+postbody_completion:
+			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+			n = wsi->protocol->callback(
+				wsi->protocol->owning_server, wsi,
+				LWS_CALLBACK_HTTP_BODY_COMPLETION,
+				wsi->user_space, NULL, 0);
+			if (n)
+				goto bail;
+
+			goto http_complete;
 		}
 		break;
 
@@ -204,7 +195,7 @@ http_postbody:
 	}
 
 read_ok:
-	/* Nothing more to do for now. */
+	/* Nothing more to do for now */
 	lwsl_debug("lws_read: read_ok\n");
 
 	return 0;
@@ -225,7 +216,6 @@ http_complete:
 
 bail:
 	lwsl_debug("closing connection at lws_read bail:\n");
-
 	lws_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return -1;

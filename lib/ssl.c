@@ -526,13 +526,15 @@ lws_ssl_close(struct lws *wsi)
 	return 1; /* handled */
 }
 
+/* leave all wsi close processing to the caller */
+
 LWS_VISIBLE int
 lws_server_socket_service_ssl(struct lws_context *context, struct lws **pwsi,
 			      struct lws *new_wsi, int accept_fd,
 			      struct lws_pollfd *pollfd)
 {
-	int n, m;
 	struct lws *wsi = *pwsi;
+	int n, m;
 #ifndef USE_WOLFSSL
 	BIO *bio;
 #endif
@@ -551,10 +553,8 @@ lws_server_socket_service_ssl(struct lws_context *context, struct lws **pwsi,
 		new_wsi->ssl = SSL_new(context->ssl_ctx);
 		if (new_wsi->ssl == NULL) {
 			lwsl_err("SSL_new failed: %s\n",
-					ERR_error_string(SSL_get_error(new_wsi->ssl, 0), NULL));
+				 ERR_error_string(SSL_get_error(new_wsi->ssl, 0), NULL));
 			lws_decode_ssl_error();
-
-			// TODO: Shouldn't the caller handle this?
 			compatible_close(accept_fd);
 			goto fail;
 		}
@@ -670,7 +670,7 @@ lws_server_socket_service_ssl(struct lws_context *context, struct lws **pwsi,
 
 		m = SSL_get_error(wsi->ssl, n);
 		lwsl_debug("SSL_accept failed %d / %s\n",
-						  m, ERR_error_string(m, NULL));
+			   m, ERR_error_string(m, NULL));
 go_again:
 		if (m == SSL_ERROR_WANT_READ) {
 			if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
@@ -689,14 +689,13 @@ go_again:
 			break;
 		}
 		lwsl_debug("SSL_accept failed skt %u: %s\n",
-					 pollfd->fd, ERR_error_string(m, NULL));
+			   pollfd->fd, ERR_error_string(m, NULL));
 		goto fail;
 
 accepted:
 		/* OK, we are accepted... give him some time to negotiate */
-		lws_set_timeout(wsi,
-			PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-							AWAITING_TIMEOUT);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+				AWAITING_TIMEOUT);
 
 		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
