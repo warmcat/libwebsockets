@@ -726,8 +726,8 @@ int lws_server_socket_service(struct lws_context *context,
 
 		if (pollfd->revents & LWS_POLLIN) {
 			len = lws_ssl_capable_read(context, wsi,
-					context->service_buffer,
-						       sizeof(context->service_buffer));
+						   context->service_buffer,
+						   sizeof(context->service_buffer));
 			lwsl_debug("%s: read %d\r\n", __func__, len);
 			switch (len) {
 			case 0:
@@ -750,7 +750,7 @@ int lws_server_socket_service(struct lws_context *context,
 			
 				/* hm this may want to send (via HTTP callback for example) */
 				n = lws_read(context, wsi,
-							context->service_buffer, len);
+					     context->service_buffer, len);
 				if (n < 0)
 					/* we closed wsi */
 					return 0;
@@ -858,9 +858,9 @@ try_pollout:
 		 * set properties of the newly created wsi. There's no protocol
 		 * selected yet so we issue this to protocols[0]
 		 */
-
 		(context->protocols[0].callback)(context, new_wsi,
-			LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, NULL, NULL, 0);
+			LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
+			NULL, NULL, 0);
 
 		lws_libev_accept(context, new_wsi, accept_fd);
 
@@ -878,15 +878,15 @@ try_pollout:
 		break;
 	}
 
-	if (lws_server_socket_service_ssl(context, &wsi, new_wsi,
-							  accept_fd, pollfd))
+	if (lws_server_socket_service_ssl(context, &wsi, new_wsi, accept_fd,
+					  pollfd))
 		goto fail;
 
 	return 0;
 
 fail:
-	lws_close_and_free_session(context, wsi,
-						 LWS_CLOSE_STATUS_NOSTATUS);
+	lws_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+
 	return 1;
 }
 

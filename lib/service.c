@@ -540,8 +540,9 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 read:
 
 		eff_buf.token_len = lws_ssl_capable_read(context, wsi,
-				context->service_buffer,
-					       pending?pending:sizeof(context->service_buffer));
+					context->service_buffer,
+					pending ? pending :
+					sizeof(context->service_buffer));
 		switch (eff_buf.token_len) {
 		case 0:
 			lwsl_info("service_fd: closing due to 0 length read\n");
@@ -633,9 +634,12 @@ handle_pending:
 
 close_and_handled:
 	lwsl_debug("Close and handled\n");
-	lws_close_and_free_session(context, wsi,
-						LWS_CLOSE_STATUS_NOSTATUS);
-	// pollfd points to something else after the close
+	lws_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	/* 
+	 * pollfd may point to something else after the close
+	 * due to pollfd swapping scheme on delete on some platforms
+	 * we can't clear revents now because it'd be the wrong guy's revents
+	 */
 	return 1;
 
 handled:
