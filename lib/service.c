@@ -492,8 +492,8 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 	case LWS_CONNMODE_SERVER_LISTENER:
 	case LWS_CONNMODE_SSL_ACK_PENDING:
 		n = lws_server_socket_service(context, wsi, pollfd);
-		if (n)
-			goto close_and_handled;
+		if (n) /* closed by above */
+			return 1;
 		pending = lws_ssl_pending(wsi);
 		if (pending)
 			goto handle_pending;
