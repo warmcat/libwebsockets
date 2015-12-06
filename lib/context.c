@@ -75,7 +75,7 @@ LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
 {
 	struct lws_context *context = NULL;
-#if LWS_POSIX
+#ifndef LWS_NO_DAEMONIZE
 	int pid_daemon = get_daemonize_pid();
 #endif
 	char *p;
@@ -111,13 +111,12 @@ lws_create_context(struct lws_context_creation_info *info)
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
-#if LWS_POSIX
+#ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {
 		context->started_with_parent = pid_daemon;
 		lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
 	}
 #endif
-
 	context->listen_service_extraseen = 0;
 	context->protocols = info->protocols;
 	context->token_limits = info->token_limits;
