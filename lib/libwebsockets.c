@@ -718,8 +718,10 @@ lws_set_proxy(struct lws_context *context, const char *proxy)
 
 		return -1;
 	} else {
-		*p = '\0';
-		context->http_proxy_port = atoi(p + 1);
+		if (p) {
+			*p = '\0';
+			context->http_proxy_port = atoi(p + 1);
+		}
 	}
 
 	lwsl_notice(" Proxy %s:%u\n", context->http_proxy_address,
