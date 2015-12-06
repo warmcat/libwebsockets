@@ -628,7 +628,7 @@ struct lws_fragments {
  */
 
 struct allocated_headers {
-	unsigned short next_frag_index;
+	unsigned char next_frag_index;
 	unsigned short pos;
 	unsigned char frag_index[WSI_TOKEN_COUNT];
 	struct lws_fragments frags[WSI_TOKEN_COUNT * 2];

@@ -401,7 +401,8 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 			if (!wsi)
 				continue;
 
-			if (lws_service_timeout_check(context, wsi, now))
+			if (lws_service_timeout_check(context, wsi,
+						      (unsigned int)now))
 				/* he did time out... */
 				if (mfd == our_fd)
 					/* it was the guy we came to service! */

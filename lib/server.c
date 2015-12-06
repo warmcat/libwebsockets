@@ -25,18 +25,17 @@
 int lws_context_init_server(struct lws_context_creation_info *info,
 			    struct lws_context *context)
 {
-	lws_sockfd_type sockfd;
-#if LWS_POSIX
-	int n;
-	struct sockaddr_in sin;
-	socklen_t len = sizeof(sin);
 #ifdef LWS_USE_IPV6
 	struct sockaddr_in6 serv_addr6;
 #endif
+#if LWS_POSIX
 	struct sockaddr_in serv_addr4;
+	socklen_t len = sizeof(struct sockaddr);
+	struct sockaddr_in sin;
 	struct sockaddr *v;
-	int opt = 1;
+	int n, opt = 1;
 #endif
+	lws_sockfd_type sockfd;
 	struct lws *wsi;
 
 	/* set up our external listening socket we serve on */
@@ -57,7 +56,6 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	sockfd = mbed3_create_tcp_stream_socket();
 	if (!lws_sockfd_valid(sockfd)) {
 #endif
-
 		lwsl_err("ERROR opening socket\n");
 		return 1;
 	}
@@ -67,7 +65,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	 * allow us to restart even if old sockets in TIME_WAIT
 	 */
 	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
-				      (const void *)&opt, sizeof(opt)) < 0) {
+		       (const void *)&opt, sizeof(opt)) < 0) {
 		compatible_close(sockfd);
 		return 1;
 	}
@@ -187,18 +185,18 @@ _lws_rx_flow_control(struct lws *wsi)
 	return 0;
 }
 
-int lws_http_action(struct lws_context *context,
-		    struct lws *wsi)
+int lws_http_action(struct lws_context *context, struct lws *wsi)
 {
-	char *uri_ptr = NULL;
-	int uri_len = 0;
-	enum http_version request_version;
 	enum http_connection_type connection_type;
-	int http_version_len;
+	enum http_version request_version;
 	char content_length_str[32];
+	unsigned int n, count = 0;
 	char http_version_str[10];
 	char http_conn_str[20];
-	unsigned int n, count = 0;
+	int http_version_len;
+	char *uri_ptr = NULL;
+	int uri_len = 0;
+
 	static const unsigned char methods[] = {
 		WSI_TOKEN_GET_URI,
 		WSI_TOKEN_POST_URI,
@@ -293,11 +291,9 @@ int lws_http_action(struct lws_context *context,
 	}
 	wsi->u.http.connection_type = connection_type;
 
-	n = 0;
-	if (wsi->protocol->callback)
-		n = wsi->protocol->callback(context, wsi,
-					LWS_CALLBACK_FILTER_HTTP_CONNECTION,
-					     wsi->user_space, uri_ptr, uri_len);
+	n = wsi->protocol->callback(context, wsi,
+				    LWS_CALLBACK_FILTER_HTTP_CONNECTION,
+				    wsi->user_space, uri_ptr, uri_len);
 
 	if (!n) {
 		/*
@@ -305,11 +301,9 @@ int lws_http_action(struct lws_context *context,
 		 * put a timeout on it having arrived
 		 */
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-							      AWAITING_TIMEOUT);
+				AWAITING_TIMEOUT);
 
-		if (wsi->protocol->callback)
-			n = wsi->protocol->callback(context, wsi,
-			    LWS_CALLBACK_HTTP,
+		n = wsi->protocol->callback(context, wsi, LWS_CALLBACK_HTTP,
 			    wsi->user_space, uri_ptr, uri_len);
 	}
 
@@ -343,15 +337,14 @@ bail_nuke_ah:
 }
 
 
-int lws_handshake_server(struct lws_context *context,
-		struct lws *wsi, unsigned char **buf, size_t len)
+int lws_handshake_server(struct lws_context *context, struct lws *wsi,
+			 unsigned char **buf, size_t len)
 {
 	struct allocated_headers *ah;
-	int protocol_len;
+	int protocol_len, n, hit;
 	char protocol_list[128];
 	char protocol_name[32];
 	char *p;
-	int n, hit;
 
 	/* LWS_CONNMODE_WS_SERVING */
 
@@ -389,7 +382,7 @@ int lws_handshake_server(struct lws_context *context,
 		}
 
 		if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
-								"websocket"))
+				"websocket"))
 			goto upgrade_ws;
 #ifdef LWS_USE_HTTP2
 		if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
@@ -410,7 +403,8 @@ upgrade_h2c:
 
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP2_SETTINGS);
 		/* convert the peer's HTTP-Settings */
-		n = lws_b64_decode_string(p, protocol_list, sizeof(protocol_list));
+		n = lws_b64_decode_string(p, protocol_list,
+					  sizeof(protocol_list));
 		if (n < 0) {
 			lwsl_parser("HTTP2_SETTINGS too long\n");
 			return 1;
@@ -430,7 +424,8 @@ upgrade_h2c:
 		
 		/* HTTP2 union */
 		
-		lws_http2_interpret_settings_payload(&wsi->u.http2.peer_settings, (unsigned char *)protocol_list, n);
+		lws_http2_interpret_settings_payload(&wsi->u.http2.peer_settings,
+				(unsigned char *)protocol_list, n);
 
 		strcpy(protocol_list,
 		       "HTTP/1.1 101 Switching Protocols\x0d\x0a"
@@ -579,7 +574,8 @@ upgrade_ws:
 		}
 		lwsl_info("Allocating RX buffer %d\n", n);
 #if LWS_POSIX
-		if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF, (const char *)&n, sizeof n)) {
+		if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF,
+			       (const char *)&n, sizeof n)) {
 			lwsl_warn("Failed to set SNDBUF to %d", n);
 			return 1;
 		}
@@ -708,8 +704,8 @@ int lws_server_socket_service(struct lws_context *context,
 		if (wsi->truncated_send_len) {
 			if (pollfd->revents & LWS_POLLOUT)
 				if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
-					wsi->truncated_send_offset,
-							wsi->truncated_send_len) < 0) {
+						       wsi->truncated_send_offset,
+						  wsi->truncated_send_len) < 0) {
 					goto fail;
 				}
 			/*
@@ -743,13 +739,17 @@ int lws_server_socket_service(struct lws_context *context,
 			/* just ignore incoming if waiting for close */
 			if (wsi->state != WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
 			
-				/* hm this may want to send (via HTTP callback for example) */
+				/*
+				 * hm this may want to send
+				 * (via HTTP callback for example)
+				 */
 				n = lws_read(context, wsi,
 					     context->service_buffer, len);
 				if (n < 0) /* we closed wsi */
 					return 1;
 
-				/* hum he may have used up the writability above */
+				/* hum he may have used up the
+				 * writability above */
 				break;
 			}
 		}
@@ -798,12 +798,13 @@ try_pollout:
 		clilen = sizeof(cli_addr);
 		lws_latency_pre(context, wsi);
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
-								       &clilen);
+				    &clilen);
 		lws_latency(context, wsi,
 			"unencrypted accept LWS_CONNMODE_SERVER_LISTENER",
 						     accept_fd, accept_fd >= 0);
 		if (accept_fd < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
+			if (LWS_ERRNO == LWS_EAGAIN ||
+			    LWS_ERRNO == LWS_EWOULDBLOCK) {
 				lwsl_debug("accept asks to try again\n");
 				break;
 			}
@@ -906,28 +907,35 @@ LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
 				    const char *other_headers,
 				    int other_headers_len)
 {
-	unsigned char *response = context->service_buffer + LWS_SEND_BUFFER_PRE_PADDING;
+	unsigned char *response = context->service_buffer +
+				  LWS_SEND_BUFFER_PRE_PADDING;
 	unsigned char *p = response;
 	unsigned char *end = p + sizeof(context->service_buffer) -
-					LWS_SEND_BUFFER_PRE_PADDING;
+			     LWS_SEND_BUFFER_PRE_PADDING;
 	int ret = 0;
 
 	wsi->u.http.fd = lws_plat_open_file(file, &wsi->u.http.filelen);
 
 	if (wsi->u.http.fd == LWS_INVALID_FILE) {
 		lwsl_err("Unable to open '%s'\n", file);
-		lws_return_http_status(context, wsi,
-						HTTP_STATUS_NOT_FOUND, NULL);
+		lws_return_http_status(context, wsi, HTTP_STATUS_NOT_FOUND,
+				       NULL);
 		return -1;
 	}
 
 	if (lws_add_http_header_status(context, wsi, 200, &p, end))
 		return -1;
-	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_SERVER, (unsigned char *)"libwebsockets", 13, &p, end))
+	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_SERVER,
+					 (unsigned char *)"libwebsockets", 13,
+					 &p, end))
 		return -1;
-	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_TYPE, (unsigned char *)content_type, strlen(content_type), &p, end))
+	if (lws_add_http_header_by_token(context, wsi,
+					 WSI_TOKEN_HTTP_CONTENT_TYPE,
+					 (unsigned char *)content_type,
+					 strlen(content_type), &p, end))
 		return -1;
-	if (lws_add_http_header_content_length(context, wsi, wsi->u.http.filelen, &p, end))
+	if (lws_add_http_header_content_length(context, wsi,
+					       wsi->u.http.filelen, &p, end))
 		return -1;
 
 	if (other_headers) {
@@ -954,7 +962,8 @@ LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
 }
 
 
-int lws_interpret_incoming_packet(struct lws *wsi, unsigned char *buf, size_t len)
+int lws_interpret_incoming_packet(struct lws *wsi, unsigned char *buf,
+				  size_t len)
 {
 	size_t n = 0;
 	int m;

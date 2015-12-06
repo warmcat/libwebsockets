@@ -36,7 +36,7 @@ time_t time(time_t *t)
 /* file descriptor hash management */
 
 struct lws *
-wsi_from_fd(struct lws_context *context, int fd)
+wsi_from_fd(struct lws_context *context, lws_sockfd_type fd)
 {
 	int h = LWS_FD_HASH(fd);
 	int n = 0;
@@ -64,7 +64,7 @@ insert_wsi(struct lws_context *context, struct lws *wsi)
 }
 
 int
-delete_from_fd(struct lws_context *context, int fd)
+delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 {
 	int h = LWS_FD_HASH(fd);
 	int n = 0;
@@ -198,7 +198,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 		return -1;
 	}
 
-	pfd->revents = networkevents.lNetworkEvents;
+	pfd->revents = (short)networkevents.lNetworkEvents;
 
 	if (pfd->revents & LWS_POLLOUT) {
 		wsi = wsi_from_fd(context, pfd->fd);
@@ -210,7 +210,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 }
 
 LWS_VISIBLE int
-lws_plat_set_socket_options(struct lws_context *context, int fd)
+lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd)
 {
 	int optval = 1;
 	int optlen = sizeof(optval);
@@ -349,7 +349,7 @@ interface_to_sa(struct lws_context *context,
 	if (address == INADDR_NONE)
 		return -1;
 
-	addr->sin_addr.s_addr = address;
+	addr->sin_addr.s_addr = (unsigned long)address;
 
 	return 0;
 }

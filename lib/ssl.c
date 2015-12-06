@@ -530,7 +530,7 @@ lws_ssl_close(struct lws *wsi)
 
 LWS_VISIBLE int
 lws_server_socket_service_ssl(struct lws_context *context, struct lws **pwsi,
-			      struct lws *new_wsi, int accept_fd,
+			      struct lws *new_wsi, lws_sockfd_type accept_fd,
 			      struct lws_pollfd *pollfd)
 {
 	struct lws *wsi = *pwsi;

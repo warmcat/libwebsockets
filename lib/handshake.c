@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -49,6 +49,7 @@
 #ifndef min
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #endif
+
 /*
  * We have to take care about parsing because the headers may be split
  * into multiple fragments.  They may contain unknown headers with arbitrary
@@ -57,12 +58,12 @@
  */
 
 LWS_VISIBLE int
-lws_read(struct lws_context *context,
-	 struct lws *wsi, unsigned char *buf, size_t len)
+lws_read(struct lws_context *context, struct lws *wsi, unsigned char *buf,
+	 size_t len)
 {
-	size_t n;
-	int body_chunk_len;
 	unsigned char *last_char;
+	int body_chunk_len;
+	size_t n;
 
 	switch (wsi->state) {
 #ifdef LWS_USE_HTTP2

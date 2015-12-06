@@ -338,8 +338,8 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 			if (wsi->u.ws.close_reason) {
 				/* reason codes count as data bytes */
 				buf -= 2;
-				buf[0] = wsi->u.ws.close_reason >> 8;
-				buf[1] = wsi->u.ws.close_reason;
+				buf[0] = (unsigned char)(wsi->u.ws.close_reason >> 8);
+				buf[1] = (unsigned char)wsi->u.ws.close_reason;
 				len += 2;
 			}
 			break;
@@ -360,14 +360,14 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 		if (len < 126) {
 			pre += 2;
 			buf[-pre] = n;
-			buf[-pre + 1] = len | is_masked_bit;
+			buf[-pre + 1] = (unsigned char)(len | is_masked_bit);
 		} else {
 			if (len < 65536) {
 				pre += 4;
 				buf[-pre] = n;
 				buf[-pre + 1] = 126 | is_masked_bit;
-				buf[-pre + 2] = len >> 8;
-				buf[-pre + 3] = len;
+				buf[-pre + 2] = (unsigned char)(len >> 8);
+				buf[-pre + 3] = (unsigned char)len;
 			} else {
 				pre += 10;
 				buf[-pre] = n;
@@ -383,10 +383,10 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 					buf[-pre + 4] = 0;
 					buf[-pre + 5] = 0;
 #endif
-				buf[-pre + 6] = len >> 24;
-				buf[-pre + 7] = len >> 16;
-				buf[-pre + 8] = len >> 8;
-				buf[-pre + 9] = len;
+				buf[-pre + 6] = (unsigned char)(len >> 24);
+				buf[-pre + 7] = (unsigned char)(len >> 16);
+				buf[-pre + 8] = (unsigned char)(len >> 8);
+				buf[-pre + 9] = (unsigned char)len;
 			}
 		}
 		break;
