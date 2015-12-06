@@ -585,7 +585,8 @@ pre_data:
 	return 0;
 }
 
-static int lws_http2_num(int starting_bits, unsigned long num, unsigned char **p, unsigned char *end)
+static int lws_http2_num(int starting_bits, unsigned long num,
+			 unsigned char **p, unsigned char *end)
 {
 	int mask = (1 << starting_bits) - 1;
 
@@ -610,12 +611,12 @@ static int lws_http2_num(int starting_bits, unsigned long num, unsigned char **p
 }
 
 int lws_add_http2_header_by_name(struct lws_context *context,
-			    struct lws *wsi,
-			    const unsigned char *name,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end)
+				 struct lws *wsi,
+				 const unsigned char *name,
+				 const unsigned char *value,
+				 int length,
+				 unsigned char **p,
+				 unsigned char *end)
 {
 	int len;
 	
@@ -647,13 +648,10 @@ int lws_add_http2_header_by_name(struct lws_context *context,
 	return 0;
 }
 
-int lws_add_http2_header_by_token(struct lws_context *context,
-			    struct lws *wsi,
+int lws_add_http2_header_by_token(struct lws_context *context, struct lws *wsi,
 			    enum lws_token_indexes token,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end)
+			    const unsigned char *value, int length,
+			    unsigned char **p, unsigned char *end)
 {
 	const unsigned char *name;
 
@@ -661,14 +659,13 @@ int lws_add_http2_header_by_token(struct lws_context *context,
 	if (!name)
 		return 1;
 	
-	return lws_add_http2_header_by_name(context, wsi, name, value, length, p, end);
+	return lws_add_http2_header_by_name(context, wsi, name, value,
+					    length, p, end);
 }
 
-int lws_add_http2_header_status(struct lws_context *context,
-			    struct lws *wsi,
-			    unsigned int code,
-			    unsigned char **p,
-			    unsigned char *end)
+int lws_add_http2_header_status(struct lws_context *context, struct lws *wsi,
+			        unsigned int code, unsigned char **p,
+				unsigned char *end)
 {
 	unsigned char status[10];
 	int n;
@@ -676,7 +673,9 @@ int lws_add_http2_header_status(struct lws_context *context,
 	wsi->u.http2.send_END_STREAM = !!(code >= 400);
 	
 	n = sprintf((char *)status, "%u", code);
-	if (lws_add_http2_header_by_token(context, wsi, WSI_TOKEN_HTTP_COLON_STATUS, status, n, p, end))
+	if (lws_add_http2_header_by_token(context, wsi,
+					  WSI_TOKEN_HTTP_COLON_STATUS, status,
+					  n, p, end))
 		return 1;
 
 	return 0;

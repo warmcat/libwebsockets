@@ -329,7 +329,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 				n = m;
 			
 			n = read(pss->fd, buffer + LWS_SEND_BUFFER_PRE_PADDING,
-									n);
+				 n);
 			/* problem reading, close conn */
 			if (n < 0)
 				goto bail;
@@ -343,9 +343,8 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			 * is handled by the library itself if you sent a
 			 * content-length header
 			 */
-			m = lws_write(wsi,
-					       buffer + LWS_SEND_BUFFER_PRE_PADDING,
-					       n, LWS_WRITE_HTTP);
+			m = lws_write(wsi, buffer + LWS_SEND_BUFFER_PRE_PADDING,
+				      n, LWS_WRITE_HTTP);
 			if (m < 0)
 				/* write failed, close conn */
 				goto bail;
@@ -360,9 +359,10 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 
 			if (m) /* while still active, extend timeout */
 				lws_set_timeout(wsi,
-					PENDING_TIMEOUT_HTTP_CONTENT, 5);
+						PENDING_TIMEOUT_HTTP_CONTENT, 5);
 			
-			/* if we have indigestion, let him clear it before eating more */
+			/* if we have indigestion, let him clear it
+			 * before eating more */
 			if (lws_partial_buffered(wsi))
 				break;
 

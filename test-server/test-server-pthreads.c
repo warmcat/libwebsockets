@@ -259,8 +259,8 @@ int main(int argc, char **argv)
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
 
 	lwsl_notice("libwebsockets test server - "
-			"(C) Copyright 2010-2015 Andy Green <andy@warmcat.com> - "
-						    "licensed under LGPL2.1\n");
+		    "(C) Copyright 2010-2015 Andy Green <andy@warmcat.com> - "
+		    "licensed under LGPL2.1\n");
 
 	printf("Using resource path \"%s\"\n", resource_path);
 #ifdef EXTERNAL_POLL
@@ -288,13 +288,13 @@ int main(int argc, char **argv)
 			return -1;
 		}
 		sprintf(cert_path, "%s/libwebsockets-test-server.pem",
-								resource_path);
+			resource_path);
 		if (strlen(resource_path) > sizeof(key_path) - 32) {
 			lwsl_err("resource path too long\n");
 			return -1;
 		}
 		sprintf(key_path, "%s/libwebsockets-test-server.key.pem",
-								resource_path);
+			resource_path);
 
 		info.ssl_cert_filepath = cert_path;
 		info.ssl_private_key_filepath = key_path;

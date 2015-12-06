@@ -1009,15 +1009,13 @@ struct lws_extension;
  *		wsi lifecycle changes if it acquires the same lock for the
  *		duration of wsi dereference from the other thread context.
  */
-LWS_VISIBLE LWS_EXTERN int callback(struct lws_context *context,
-			struct lws *wsi,
-			 enum lws_callback_reasons reason, void *user,
-							  void *in, size_t len);
+LWS_VISIBLE LWS_EXTERN int
+callback(struct lws_context *context, struct lws *wsi,
+	 enum lws_callback_reasons reason, void *user, void *in, size_t len);
 
-typedef int (callback_function)(struct lws_context *context,
-			struct lws *wsi,
-			 enum lws_callback_reasons reason, void *user,
-							  void *in, size_t len);
+typedef int (callback_function)(struct lws_context *context, struct lws *wsi,
+				enum lws_callback_reasons reason, void *user,
+				void *in, size_t len);
 
 #ifndef LWS_NO_EXTENSIONS
 /**
@@ -1078,15 +1076,13 @@ typedef int (callback_function)(struct lws_context *context,
  *		buffer safely, it should copy the data into its own buffer and
  *		set the lws_tokens token pointer to it.
  */
-LWS_VISIBLE LWS_EXTERN int extension_callback(struct lws_context *context,
-			struct lws_extension *ext,
-			struct lws *wsi,
-			enum lws_extension_callback_reasons reason,
-			void *user, void *in, size_t len);
+LWS_VISIBLE LWS_EXTERN int
+extension_callback(struct lws_context *context, struct lws_extension *ext,
+		   struct lws *wsi, enum lws_extension_callback_reasons reason,
+		   void *user, void *in, size_t len);
 
 typedef int (extension_callback_function)(struct lws_context *context,
-			struct lws_extension *ext,
-			struct lws *wsi,
+			struct lws_extension *ext, struct lws *wsi,
 			enum lws_extension_callback_reasons reason,
 			void *user, void *in, size_t len);
 #endif
@@ -1251,9 +1247,9 @@ struct lws_context_creation_info {
 #endif
 };
 
-LWS_VISIBLE LWS_EXTERN
-void lws_set_log_level(int level,
-			void (*log_emit_function)(int level, const char *line));
+LWS_VISIBLE LWS_EXTERN void
+lws_set_log_level(int level,
+		  void (*log_emit_function)(int level, const char *line));
 
 LWS_VISIBLE LWS_EXTERN void
 lwsl_emit_syslog(int level, const char *line);
@@ -1310,7 +1306,8 @@ lws_add_http_header_status(struct lws_context *context,
 			    unsigned char **p,
 			    unsigned char *end);
 
-LWS_EXTERN int lws_http_transaction_completed(struct lws *wsi);
+LWS_EXTERN int
+lws_http_transaction_completed(struct lws *wsi);
 
 #ifdef LWS_USE_LIBEV
 typedef void (lws_ev_signal_cb)(EV_P_ struct ev_signal *w, int revents);
@@ -1354,8 +1351,7 @@ enum pending_timeout {
 };
 
 LWS_VISIBLE LWS_EXTERN void
-lws_set_timeout(struct lws *wsi,
-					 enum pending_timeout reason, int secs);
+lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 
 /*
  * IMPORTANT NOTICE!
@@ -1389,14 +1385,12 @@ lws_set_timeout(struct lws *wsi,
  * the big length style
  */
 
-// Pad LWS_SEND_BUFFER_PRE_PADDING to the CPU word size, so that word references
-// to the address immediately after the padding won't cause an unaligned access
-// error. Sometimes the recommended padding is even larger than the size of a void *.
-// For example, for the X86-64 architecture, in Intel's document
-// https://software.intel.com/en-us/articles/data-alignment-when-migrating-to-64-bit-intel-architecture
-// they recommend that structures larger than 16 bytes be aligned to 16-byte
-// boundaries.
-// 
+/*
+ * Pad LWS_SEND_BUFFER_PRE_PADDING to the CPU word size, so that word references
+ * to the address immediately after the padding won't cause an unaligned access
+ * error. Sometimes for performance reasons the recommended padding is even
+ * larger than sizeof(void *).
+ */
 
 #if !defined(LWS_SIZEOFPTR)
 #define LWS_SIZEOFPTR (sizeof (void *))
@@ -1410,31 +1404,29 @@ lws_set_timeout(struct lws *wsi,
 #else
 #define _LWS_PAD_SIZE LWS_SIZEOFPTR   /* Size of a pointer on the target architecture */
 #endif
-#define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? ((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
+#define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? \
+		((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
 #define LWS_SEND_BUFFER_PRE_PADDING _LWS_PAD(4 + 10 + (2 * MAX_MUX_RECURSION))
 #define LWS_SEND_BUFFER_POST_PADDING 4
 
 LWS_VISIBLE LWS_EXTERN int
 lws_write(struct lws *wsi, unsigned char *buf, size_t len,
-				     enum lws_write_protocol protocol);
+	  enum lws_write_protocol protocol);
 
 /* helper for case where buffer may be const */
 #define lws_write_http(wsi, buf, len) \
 	lws_write(wsi, (unsigned char *)(buf), len, LWS_WRITE_HTTP)
 
 LWS_VISIBLE LWS_EXTERN int
-lws_serve_http_file(struct lws_context *context,
-			struct lws *wsi, const char *file,
-			const char *content_type, const char *other_headers,
-			int other_headers_len);
+lws_serve_http_file(struct lws_context *context, struct lws *wsi,
+		    const char *file, const char *content_type,
+		    const char *other_headers, int other_headers_len);
 LWS_VISIBLE LWS_EXTERN int
-lws_serve_http_file_fragment(struct lws_context *context,
-			struct lws *wsi);
+lws_serve_http_file_fragment(struct lws_context *context, struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_return_http_status(struct lws_context *context,
-		       struct lws *wsi, unsigned int code,
-		       const char *html_body);
+lws_return_http_status(struct lws_context *context, struct lws *wsi,
+		       unsigned int code, const char *html_body);
 
 LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
 lws_get_protocol(struct lws *wsi);
@@ -1486,37 +1478,26 @@ LWS_VISIBLE LWS_EXTERN size_t
 lws_get_peer_write_allowance(struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN struct lws *
-lws_client_connect(struct lws_context *clients,
-			      const char *address,
-			      int port,
-			      int ssl_connection,
-			      const char *path,
-			      const char *host,
-			      const char *origin,
-			      const char *protocol,
-			      int ietf_version_or_minus_one);
+lws_client_connect(struct lws_context *clients, const char *address,
+		   int port, int ssl_connection, const char *path,
+		   const char *host, const char *origin, const char *protocol,
+		   int ietf_version_or_minus_one);
 
 LWS_VISIBLE LWS_EXTERN struct lws *
-lws_client_connect_extended(struct lws_context *clients,
-			      const char *address,
-			      int port,
-			      int ssl_connection,
-			      const char *path,
-			      const char *host,
-			      const char *origin,
-			      const char *protocol,
-			      int ietf_version_or_minus_one,
-			      void *userdata);
+lws_client_connect_extended(struct lws_context *clients, const char *address,
+			    int port, int ssl_connection, const char *path,
+			    const char *host, const char *origin,
+			    const char *protocol, int ietf_version_or_minus_one,
+			    void *userdata);
 
 LWS_VISIBLE LWS_EXTERN const char *
 lws_canonical_hostname(struct lws_context *context);
 
 
 LWS_VISIBLE LWS_EXTERN void
-lws_get_peer_addresses(struct lws_context *context,
-		struct lws *wsi, lws_sockfd_type fd,
-		char *name, int name_len,
-		char *rip, int rip_len);
+lws_get_peer_addresses(struct lws_context *context, struct lws *wsi,
+		       lws_sockfd_type fd, char *name, int name_len,
+		       char *rip, int rip_len);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_get_random(struct lws_context *context, void *buf, int len);
@@ -1558,7 +1539,7 @@ lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_hdr_copy(struct lws *wsi, char *dest, int len,
-						enum lws_token_indexes h);
+	     enum lws_token_indexes h);
 
 /*
  * Note: this is not normally needed as a user api.  It's provided in case it is

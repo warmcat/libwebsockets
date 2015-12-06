@@ -59,7 +59,8 @@ struct alpn_ctx {
 	unsigned short len;
 };
 
-static int npn_cb(SSL *s, const unsigned char **data, unsigned int *len, void *arg)
+static int
+npn_cb(SSL *s, const unsigned char **data, unsigned int *len, void *arg)
 {
 	struct alpn_ctx *alpn_ctx = arg;
 
@@ -70,15 +71,15 @@ static int npn_cb(SSL *s, const unsigned char **data, unsigned int *len, void *a
 	return SSL_TLSEXT_ERR_OK;
 }
 
-static int alpn_cb(SSL *s, const unsigned char **out,
-		unsigned char *outlen, const unsigned char *in,
-		unsigned int inlen, void *arg)
+static int
+alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
+	const unsigned char *in, unsigned int inlen, void *arg)
 {
 	struct alpn_ctx *alpn_ctx = arg;
 
-	if (SSL_select_next_proto((unsigned char **)out, outlen,
-				  alpn_ctx->data, alpn_ctx->len, in, inlen) !=
-							OPENSSL_NPN_NEGOTIATED)
+	if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_ctx->data,
+				  alpn_ctx->len, in, inlen) !=
+	    OPENSSL_NPN_NEGOTIATED)
 		return SSL_TLSEXT_ERR_NOACK;
 
 	return SSL_TLSEXT_ERR_OK;
@@ -89,10 +90,8 @@ LWS_VISIBLE void
 lws_context_init_http2_ssl(struct lws_context *context)
 {
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
-	static struct alpn_ctx protos = { (unsigned char *)
-						"\x05h2-14"
-						"\x08http/1.1",
-						6 + 9 };
+	static struct alpn_ctx protos = { (unsigned char *)"\x05h2-14"
+					  "\x08http/1.1", 6 + 9 };
 
 	SSL_CTX_set_next_protos_advertised_cb(context->ssl_ctx, npn_cb, &protos);
 	
@@ -110,9 +109,9 @@ void lws_http2_configure_if_upgraded(struct lws *wsi)
 {
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
 	struct allocated_headers *ah;
+	const char *method = "alpn";
 	const unsigned char *name;
 	unsigned len;
-	const char *method = "alpn";
 
 	SSL_get0_alpn_selected(wsi->ssl, &name, &len);
 	
