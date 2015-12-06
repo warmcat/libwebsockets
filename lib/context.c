@@ -75,10 +75,10 @@ LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
 {
 	struct lws_context *context = NULL;
-	char *p;
 #if LWS_POSIX
 	int pid_daemon = get_daemonize_pid();
 #endif
+	char *p;
 
 	lwsl_notice("Initial logging level %d\n", log_level);
 
@@ -304,7 +304,6 @@ lws_context_destroy(struct lws_context *context)
 	}
 
 	lws_plat_context_early_destroy(context);
-
 	lws_ssl_context_destroy(context);
 
 	if (context->fds)

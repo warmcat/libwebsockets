@@ -23,7 +23,7 @@
 
 int lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
-	int n;
+	unsigned int n;
 
 	switch (wsi->mode) {
 	case LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY:
@@ -44,12 +44,11 @@ int lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 }
 
 int lws_client_socket_service(struct lws_context *context,
-		struct lws *wsi, struct lws_pollfd *pollfd)
+			      struct lws *wsi, struct lws_pollfd *pollfd)
 {
-	int n;
 	char *p = (char *)&context->service_buffer[0];
-	int len;
 	unsigned char c;
+	int n, len;
 
 	switch (wsi->mode) {
 
@@ -88,13 +87,12 @@ int lws_client_socket_service(struct lws_context *context,
 		if (n < 0) {
 			
 			if (LWS_ERRNO == LWS_EAGAIN) {
-				lwsl_debug(
-						   "Proxy read returned EAGAIN... retrying\n");
+				lwsl_debug("Proxy read returned EAGAIN... retrying\n");
 				return 0;
 			}
 			
 			lws_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
+						   LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR reading from proxy socket\n");
 			return 0;
 		}
@@ -104,7 +102,7 @@ int lws_client_socket_service(struct lws_context *context,
 		    strcmp((char *)context->service_buffer, "HTTP/1.1 200 ")
 		) {
 			lws_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
+						   LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR proxy: %s\n", context->service_buffer);
 			return 0;
 		}
@@ -493,22 +491,18 @@ strtolower(char *s)
 
 int
 lws_client_interpret_server_handshake(struct lws_context *context,
-		struct lws *wsi)
+				      struct lws *wsi)
 {
-	const char *pc;
-	int okay = 0;
-	char *p;
-	int len;
-	int isErrorCodeReceived = 0;
-#ifndef LWS_NO_EXTENSIONS
-	char ext_name[128];
-	struct lws_extension *ext;
-	void *v;
-	int more = 1;
-	const char *c;
-#endif
-	int n;
+	int n, len, okay = 0, more = 1, isErrorCodeReceived = 0;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
+	const char *pc;
+	char *p;
+#ifndef LWS_NO_EXTENSIONS
+	struct lws_extension *ext;
+	char ext_name[128];
+	const char *c;
+	void *v;
+#endif
 
 	/*
 	 * well, what the server sent looked reasonable for syntax.
@@ -736,7 +730,7 @@ check_accept:
 
 	wsi->protocol->callback(context, wsi,
 				LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
-						     wsi->user_space, NULL, 0);
+				wsi->user_space, NULL, 0);
 
 	/* clear his proxy connection timeout */
 
@@ -777,9 +771,8 @@ check_accept:
 
 	/* call him back to inform him he is up */
 
-	wsi->protocol->callback(context, wsi,
-				LWS_CALLBACK_CLIENT_ESTABLISHED,
-						     wsi->user_space, NULL, 0);
+	wsi->protocol->callback(context, wsi, LWS_CALLBACK_CLIENT_ESTABLISHED,
+				wsi->user_space, NULL, 0);
 #ifndef LWS_NO_EXTENSIONS
 	/*
 	 * inform all extensions, not just active ones since they
@@ -811,20 +804,19 @@ bail2:
 		if (isErrorCodeReceived && p) {
 			wsi->protocol->callback(context, wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-					wsi->user_space, p, (unsigned int)strlen(p));
+						wsi->user_space, p,
+						(unsigned int)strlen(p));
 		} else {
 			wsi->protocol->callback(context, wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-							      wsi->user_space, NULL, 0);
+						wsi->user_space, NULL, 0);
 		}
 	}
 
 	lwsl_info("closing connection due to bail2 connection error\n");
 
 	/* free up his parsing allocations */
-
 	lws_free2(wsi->u.hdr.ah);
-
 	lws_close_and_free_session(context, wsi, close_reason);
 
 	return 1;
@@ -833,12 +825,9 @@ bail2:
 
 char *
 lws_generate_client_handshake(struct lws_context *context,
-		struct lws *wsi, char *pkt)
+			      struct lws *wsi, char *pkt)
 {
-	char buf[128];
-	char hash[20];
-	char key_b64[40];
-	char *p = pkt;
+	char buf[128], hash[20], key_b64[40], *p = pkt;
 	int n;
 #ifndef LWS_NO_EXTENSIONS
 	struct lws_extension *ext;
@@ -848,7 +837,6 @@ lws_generate_client_handshake(struct lws_context *context,
 	/*
 	 * create the random key
 	 */
-
 	n = lws_get_random(context, hash, 16);
 	if (n != 16) {
 		lwsl_err("Unable to read from random dev %s\n",
@@ -887,15 +875,16 @@ lws_generate_client_handshake(struct lws_context *context,
 	 */
 
 	p += sprintf(p, "GET %s HTTP/1.1\x0d\x0a",
-				lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI));
+		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI));
 
-	p += sprintf(p,
-		"Pragma: no-cache\x0d\x0a""Cache-Control: no-cache\x0d\x0a");
+	p += sprintf(p, "Pragma: no-cache\x0d\x0a"
+			"Cache-Control: no-cache\x0d\x0a");
 
 	p += sprintf(p, "Host: %s\x0d\x0a",
-			       lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
-	p += sprintf(p,
-"Upgrade: websocket\x0d\x0a""Connection: Upgrade\x0d\x0a""Sec-WebSocket-Key: ");
+		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
+	p += sprintf(p, "Upgrade: websocket\x0d\x0a"
+			"Connection: Upgrade\x0d\x0a"
+			"Sec-WebSocket-Key: ");
 	strcpy(p, key_b64);
 	p += strlen(key_b64);
 	p += sprintf(p, "\x0d\x0a");
@@ -916,7 +905,7 @@ lws_generate_client_handshake(struct lws_context *context,
 
 		n = lws_ext_callback_for_each_extension_type(context, wsi,
 			   LWS_EXT_CALLBACK_CHECK_OK_TO_PROPOSE_EXTENSION,
-							  (char *)ext->name, 0);
+			   (char *)ext->name, 0);
 		if (n) { /* an extension vetos us */
 			lwsl_ext("ext %s vetoed\n", (char *)ext->name);
 			ext++;
@@ -953,13 +942,14 @@ lws_generate_client_handshake(struct lws_context *context,
 
 	if (wsi->ietf_spec_revision)
 		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
-					       wsi->ietf_spec_revision);
+			     wsi->ietf_spec_revision);
 
 	/* give userland a chance to append, eg, cookies */
 
 	context->protocols[0].callback(context, wsi,
-		LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
-		NULL, &p, (pkt + sizeof(context->service_buffer)) - p - 12);
+				       LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
+				       NULL, &p,
+				       (pkt + sizeof(context->service_buffer)) - p - 12);
 
 	p += sprintf(p, "\x0d\x0a");
 
@@ -971,8 +961,8 @@ lws_generate_client_handshake(struct lws_context *context,
 	lws_SHA1((unsigned char *)buf, n, (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
-			wsi->u.hdr.ah->initial_handshake_hash_base64,
-			  sizeof(wsi->u.hdr.ah->initial_handshake_hash_base64));
+			      wsi->u.hdr.ah->initial_handshake_hash_base64,
+			      sizeof(wsi->u.hdr.ah->initial_handshake_hash_base64));
 
 	return p;
 }
