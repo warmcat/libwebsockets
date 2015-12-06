@@ -52,7 +52,8 @@ lws_http2_wsi_from_id(struct lws *wsi, unsigned int sid)
 }
 
 struct lws *
-lws_create_server_child_wsi(struct lws_context *context, struct lws *parent_wsi, unsigned int sid)
+lws_create_server_child_wsi(struct lws_context *context, struct lws *parent_wsi,
+			    unsigned int sid)
 {
 	struct lws *wsi = lws_create_new_server_wsi(context);
 	
@@ -60,7 +61,9 @@ lws_create_server_child_wsi(struct lws_context *context, struct lws *parent_wsi,
 		return NULL;
 	
 	/* no more children allowed by parent */
-	if (parent_wsi->u.http2.child_count + 1 == parent_wsi->u.http2.peer_settings.setting[LWS_HTTP2_SETTINGS__MAX_CONCURRENT_STREAMS])
+	if (parent_wsi->u.http2.child_count + 1 ==
+	    parent_wsi->u.http2.peer_settings.setting[
+			LWS_HTTP2_SETTINGS__MAX_CONCURRENT_STREAMS])
 		return NULL;
 	
 	lws_http2_init(&wsi->u.http2.peer_settings);
@@ -82,7 +85,8 @@ lws_create_server_child_wsi(struct lws_context *context, struct lws *parent_wsi,
 	wsi->protocol = &context->protocols[0];
 	lws_ensure_user_space(wsi);
 
-	lwsl_info("%s: %p new child %p, sid %d, user_space=%p\n", __func__, parent_wsi, wsi, sid, wsi->user_space);
+	lwsl_info("%s: %p new child %p, sid %d, user_space=%p\n", __func__,
+		  parent_wsi, wsi, sid, wsi->user_space);
 	
 	return wsi;
 }
@@ -105,7 +109,8 @@ int lws_remove_server_child_wsi(struct lws_context *context, struct lws *wsi)
 }
 
 int
-lws_http2_interpret_settings_payload(struct http2_settings *settings, unsigned char *buf, int len)
+lws_http2_interpret_settings_payload(struct http2_settings *settings,
+				     unsigned char *buf, int len)
 {
 	unsigned int a, b;
 	
@@ -140,7 +145,8 @@ struct lws *lws_http2_get_network_wsi(struct lws *wsi)
 	return wsi;
 }
 
-int lws_http2_frame_write(struct lws *wsi, int type, int flags, unsigned int sid, unsigned int len, unsigned char *buf)
+int lws_http2_frame_write(struct lws *wsi, int type, int flags,
+			  unsigned int sid, unsigned int len, unsigned char *buf)
 {
 	struct lws *wsi_eff = lws_http2_get_network_wsi(wsi);
 	unsigned char *p = &buf[-LWS_HTTP2_FRAME_HEADER_LENGTH];
@@ -157,15 +163,19 @@ int lws_http2_frame_write(struct lws *wsi, int type, int flags, unsigned int sid
 	*p++ = sid;
 	
 	lwsl_info("%s: %p (eff %p). type %d, flags 0x%x, sid=%d, len=%d\n",
-		  __func__, wsi, wsi_eff, type, flags, sid, len, wsi->u.http2.tx_credit);
+		  __func__, wsi, wsi_eff, type, flags, sid, len,
+		  wsi->u.http2.tx_credit);
 	
 	if (type == LWS_HTTP2_FRAME_TYPE_DATA) {
 		if (wsi->u.http2.tx_credit < len)
-			lwsl_err("%s: %p: sending payload len %d but tx_credit only %d!\n", len, wsi->u.http2.tx_credit);
+			lwsl_err("%s: %p: sending payload len %d"
+				 " but tx_credit only %d!\n", len,
+				 wsi->u.http2.tx_credit);
 		wsi->u.http2.tx_credit -= len;
 	}
 
-	n = lws_issue_raw(wsi_eff, &buf[-LWS_HTTP2_FRAME_HEADER_LENGTH], len + LWS_HTTP2_FRAME_HEADER_LENGTH);
+	n = lws_issue_raw(wsi_eff, &buf[-LWS_HTTP2_FRAME_HEADER_LENGTH],
+			  len + LWS_HTTP2_FRAME_HEADER_LENGTH);
 	if (n >= LWS_HTTP2_FRAME_HEADER_LENGTH)
 		return n - LWS_HTTP2_FRAME_HEADER_LENGTH;
 	
@@ -186,8 +196,7 @@ static const char * https_client_preface =
 	"PRI * HTTP/2.0\x0d\x0a\x0d\x0aSM\x0d\x0a\x0d\x0a";
 
 int
-lws_http2_parser(struct lws_context *context,
-		     struct lws *wsi, unsigned char c)
+lws_http2_parser(struct lws_context *context, struct lws *wsi, unsigned char c)
 {
 	struct lws *swsi;
 	int n;
@@ -210,7 +219,8 @@ lws_http2_parser(struct lws_context *context,
 			 * and the peer must send a SETTINGS with ACK flag...
 			 */
 			
-			lws_set_protocol_write_pending(context, wsi, LWS_PPS_HTTP2_MY_SETTINGS);
+			lws_set_protocol_write_pending(context, wsi,
+						       LWS_PPS_HTTP2_MY_SETTINGS);
 		}
 		break;
 

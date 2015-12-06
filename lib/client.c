@@ -345,9 +345,8 @@ some_wait:
 #endif
 		
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE2;
-		lws_set_timeout(wsi,
-				PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-							      AWAITING_TIMEOUT);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+				AWAITING_TIMEOUT);
 
 		/* fallthru */
 
@@ -356,7 +355,7 @@ some_wait:
 		if (p == NULL) {
 			lwsl_err("Failed to generate handshake for client\n");
 			lws_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
+						   LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
 		}
 
@@ -364,13 +363,15 @@ some_wait:
 
 		lws_latency_pre(context, wsi);
 
-		n = lws_ssl_capable_write(wsi, context->service_buffer, p - (char *)context->service_buffer);
-		lws_latency(context, wsi, "send lws_issue_raw", n, n == p - (char *)context->service_buffer);
+		n = lws_ssl_capable_write(wsi, context->service_buffer,
+					  p - (char *)context->service_buffer);
+		lws_latency(context, wsi, "send lws_issue_raw", n,
+			    n == p - (char *)context->service_buffer);
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_debug("ERROR writing to client socket\n");
 			lws_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
+						   LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			lws_callback_on_writable(context, wsi);
@@ -380,9 +381,8 @@ some_wait:
 		wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
 		wsi->u.hdr.lextable_pos = 0;
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY;
-		lws_set_timeout(wsi,
-				PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
-							      AWAITING_TIMEOUT);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+				AWAITING_TIMEOUT);
 		break;
 
 	case LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY:
@@ -421,9 +421,10 @@ some_wait:
 		 */
 		len = 1;
 		while (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE &&
-								      len > 0) {
+		       len > 0) {
 			n = lws_ssl_capable_read(context, wsi, &c, 1);
-			lws_latency(context, wsi, "send lws_issue_raw", n, n == 1);
+			lws_latency(context, wsi, "send lws_issue_raw", n,
+				    n == 1);
 			switch (n) {
 			case LWS_SSL_CAPABLE_ERROR:
 				goto bail3;
@@ -455,10 +456,9 @@ some_wait:
 		return lws_client_interpret_server_handshake(context, wsi);
 
 bail3:
-		lwsl_info(
-			"closing connection at LWS_CONNMODE...SERVER_REPLY\n");
+		lwsl_info("closing conn at LWS_CONNMODE...SERVER_REPLY\n");
 		lws_close_and_free_session(context, wsi,
-						    LWS_CLOSE_STATUS_NOSTATUS);
+					   LWS_CLOSE_STATUS_NOSTATUS);
 		return -1;
 
 	case LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT:
@@ -493,14 +493,15 @@ int
 lws_client_interpret_server_handshake(struct lws_context *context,
 				      struct lws *wsi)
 {
-	int n, len, okay = 0, more = 1, isErrorCodeReceived = 0;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
+	int n, len, okay = 0, isErrorCodeReceived = 0;
 	const char *pc;
 	char *p;
 #ifndef LWS_NO_EXTENSIONS
 	struct lws_extension *ext;
 	char ext_name[128];
 	const char *c;
+	int more = 1;
 	void *v;
 #endif
 
@@ -551,7 +552,7 @@ lws_client_interpret_server_handshake(struct lws_context *context,
 	}
 
 	pc = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
-	if (pc == NULL) {
+	if (!pc) {
 		lwsl_parser("lws_client_int_s_hs: no protocol list\n");
 	} else
 		lwsl_parser("lws_client_int_s_hs: protocol list '%s'\n", pc);
@@ -658,14 +659,12 @@ check_extensions:
 		n = 0;
 		ext = wsi->protocol->owning_server->extensions;
 		while (ext && ext->callback) {
-
 			if (strcmp(ext_name, ext->name)) {
 				ext++;
 				continue;
 			}
 
 			n = 1;
-
 			lwsl_ext("instantiating client ext %s\n", ext_name);
 
 			/* instantiate the extension on this conn */
@@ -683,12 +682,11 @@ check_extensions:
 
 			/* allow him to construct his context */
 
-			ext->callback(wsi->protocol->owning_server,
-				ext, wsi,
-				   LWS_EXT_CALLBACK_CLIENT_CONSTRUCT,
-					wsi->active_extensions_user[
+			ext->callback(wsi->protocol->owning_server, ext, wsi,
+				      LWS_EXT_CALLBACK_CLIENT_CONSTRUCT,
+				      wsi->active_extensions_user[
 					 wsi->count_active_extensions],
-								   NULL, 0);
+				      NULL, 0);
 
 			wsi->count_active_extensions++;
 
@@ -727,7 +725,6 @@ check_accept:
 	 * we seem to be good to go, give client last chance to check
 	 * headers and OK it
 	 */
-
 	wsi->protocol->callback(context, wsi,
 				LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
 				wsi->user_space, NULL, 0);
@@ -762,7 +759,8 @@ check_accept:
 	}
 	lwsl_info("Allocating client RX buffer %d\n", n);
 
-	if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF, (const char *)&n, sizeof n)) {
+	if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF, (const char *)&n,
+		       sizeof n)) {
 		lwsl_warn("Failed to set SNDBUF to %d", n);
 		goto bail3;
 	}
@@ -840,9 +838,9 @@ lws_generate_client_handshake(struct lws_context *context,
 	n = lws_get_random(context, hash, 16);
 	if (n != 16) {
 		lwsl_err("Unable to read from random dev %s\n",
-						SYSTEM_RANDOM_FILEPATH);
+			 SYSTEM_RANDOM_FILEPATH);
 		lws_close_and_free_session(context, wsi,
-					     LWS_CLOSE_STATUS_NOSTATUS);
+					   LWS_CLOSE_STATUS_NOSTATUS);
 		return NULL;
 	}
 

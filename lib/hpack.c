@@ -241,7 +241,8 @@ static void lws_dump_header(struct lws *wsi, int hdr)
 	lwsl_info("  hdr tok %d (%s) = '%s'\n", hdr, lws_token_to_string(hdr), s);
 }
 
-static int lws_token_from_index(struct lws *wsi, int index, char **arg, int *len)
+static int
+lws_token_from_index(struct lws *wsi, int index, char **arg, int *len)
 {
 	struct hpack_dynamic_table *dyn;
 	
@@ -269,7 +270,8 @@ static int lws_token_from_index(struct lws *wsi, int index, char **arg, int *len
 	return dyn->entries[index].token;
 }
 
-static int lws_hpack_add_dynamic_header(struct lws *wsi, int token, char *arg, int len)
+static int
+lws_hpack_add_dynamic_header(struct lws *wsi, int token, char *arg, int len)
 {
 	struct hpack_dynamic_table *dyn;
 	int ret = 1;
@@ -305,7 +307,8 @@ static int lws_hpack_add_dynamic_header(struct lws *wsi, int token, char *arg, i
 		memcpy(dyn->args + dyn->pos, arg, len);
 	dyn->entries[dyn->next].arg_len = len;
 	
-	lwsl_info("%s: added dynamic hdr %d, token %d (%s), len %d\n", __func__, dyn->next, token, lws_token_to_string(token), len);
+	lwsl_info("%s: added dynamic hdr %d, token %d (%s), len %d\n",
+		  __func__, dyn->next, token, lws_token_to_string(token), len);
 	
 	dyn->pos += len;
 	dyn->next++;
@@ -326,7 +329,8 @@ static int lws_write_indexed_hdr(struct lws *wsi, int idx)
 	const char *p;
 	int tok = lws_token_from_index(wsi, idx, NULL, 0);
 
-	lwsl_info("writing indexed hdr %d (tok %d '%s')\n", idx, tok, lws_token_to_string(tok));
+	lwsl_info("writing indexed hdr %d (tok %d '%s')\n", idx, tok,
+		  lws_token_to_string(tok));
 
 	if (lws_frag_start(wsi, tok))
 		return 1;
@@ -492,9 +496,9 @@ int lws_hpack_interpret(struct lws_context *context,
 		if (wsi->u.http2.hpack_len < 0x7f) {
 pre_data:
 			if (wsi->u.http2.value) {
-				if (lws_frag_start(wsi,
-					lws_token_from_index(wsi,
-				  		wsi->u.http2.header_index, NULL, NULL)))
+				if (lws_frag_start(wsi, lws_token_from_index(wsi,
+						   wsi->u.http2.header_index,
+						   NULL, NULL)))
 					return 1;
 			} else
 				wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
@@ -518,10 +522,9 @@ pre_data:
 		for (n = 0; n < 8; n++) {
 			if (wsi->u.http2.huff) {
 				prev = wsi->u.http2.hpack_pos;
-				wsi->u.http2.hpack_pos = 
-					huftable_decode(
+				wsi->u.http2.hpack_pos = huftable_decode(
 						wsi->u.http2.hpack_pos,
-		     					(c >> 7) & 1);
+		     				(c >> 7) & 1);
 				c <<= 1;
 				if (wsi->u.http2.hpack_pos == 0xffff)
 					return 1;
@@ -550,7 +553,10 @@ pre_data:
 			switch (wsi->u.http2.hpack_type) {
 			case HPKT_LITERAL_HDR_VALUE_INCR:
 			case HPKT_INDEXED_HDR_6_VALUE_INCR: // !!!
-				if (lws_hpack_add_dynamic_header(wsi, lws_token_from_index(wsi, wsi->u.http2.header_index, NULL, NULL), NULL, 0))
+				if (lws_hpack_add_dynamic_header(wsi,
+				     lws_token_from_index(wsi,
+						 wsi->u.http2.header_index,
+						 	 NULL, NULL), NULL, 0))
 					return 1;
 				break;
 			default:
@@ -562,8 +568,11 @@ pre_data:
 				if (lws_frag_end(wsi))
 					return 1;
 
-				lws_dump_header(wsi, lws_token_from_index(wsi, wsi->u.http2.header_index, NULL, NULL));
-				if (wsi->u.http2.count + wsi->u.http2.padding == wsi->u.http2.length)
+				lws_dump_header(wsi, lws_token_from_index(
+						wsi, wsi->u.http2.header_index,
+						NULL, NULL));
+				if (wsi->u.http2.count + wsi->u.http2.padding ==
+				    wsi->u.http2.length)
 					wsi->u.http2.hpack = HKPS_OPT_DISCARD_PADDING;
 				else
 					wsi->u.http2.hpack = HPKS_TYPE;
@@ -610,13 +619,10 @@ static int lws_http2_num(int starting_bits, unsigned long num,
 	return 0;
 }
 
-int lws_add_http2_header_by_name(struct lws_context *context,
-				 struct lws *wsi,
+int lws_add_http2_header_by_name(struct lws_context *context, struct lws *wsi,
 				 const unsigned char *name,
-				 const unsigned char *value,
-				 int length,
-				 unsigned char **p,
-				 unsigned char *end)
+				 const unsigned char *value, int length,
+				 unsigned char **p, unsigned char *end)
 {
 	int len;
 	
@@ -649,9 +655,9 @@ int lws_add_http2_header_by_name(struct lws_context *context,
 }
 
 int lws_add_http2_header_by_token(struct lws_context *context, struct lws *wsi,
-			    enum lws_token_indexes token,
-			    const unsigned char *value, int length,
-			    unsigned char **p, unsigned char *end)
+				  enum lws_token_indexes token,
+				  const unsigned char *value, int length,
+				  unsigned char **p, unsigned char *end)
 {
 	const unsigned char *name;
 
