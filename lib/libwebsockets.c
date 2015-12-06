@@ -316,7 +316,8 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
 	struct addrinfo ai, *res;
 	struct sockaddr_in addr4;
 
-	rip[0] = '\0';
+	if (rip)
+		rip[0] = '\0';
 	name[0] = '\0';
 	addr4.sin_family = AF_UNSPEC;
 
