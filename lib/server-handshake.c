@@ -264,7 +264,13 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	if (wsi->protocol->callback)
 		wsi->protocol->callback(wsi->protocol->owning_server,
 				wsi, LWS_CALLBACK_ESTABLISHED,
-					  wsi->user_space, NULL, 0);
+					  wsi->user_space,
+#ifdef LWS_OPENSSL_SUPPORT
+					  wsi->ssl,
+#else
+					  NULL,
+#endif
+					  0);
 
 	return 0;
 
