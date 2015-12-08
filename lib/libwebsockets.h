@@ -781,7 +781,10 @@ struct lws_extension;
  *	LWS_CALLBACK_ESTABLISHED reason.
  *
  *  LWS_CALLBACK_ESTABLISHED:  after the server completes a handshake with
- *				an incoming client
+ *				an incoming client.  If you built the library
+ *				with ssl support, @in is a pointer to the
+ *				ssl struct associated with the connection or
+ *				NULL.
  *
  *  LWS_CALLBACK_CLIENT_CONNECTION_ERROR: the request client connection has
  *        been unable to complete a handshake with the remote server.  If
