@@ -37,18 +37,20 @@ lws_client_connect_2(struct lws_context *context, struct lws *wsi)
 		ads = context->http_proxy_address;
 
 #ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(context))
+		if (LWS_IPV6_ENABLED(context)) {
+			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
 			server_addr6.sin6_port = htons(context->http_proxy_port);
-		else
+		} else
 #endif
 			server_addr4.sin_port = htons(context->http_proxy_port);
 
 	} else {
 		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 #ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(context))
+		if (LWS_IPV6_ENABLED(context)) {
+			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
 			server_addr6.sin6_port = htons(wsi->u.hdr.ah->c_port);
-		else
+		} else
 #endif
 			server_addr4.sin_port = htons(wsi->u.hdr.ah->c_port);
 	}
