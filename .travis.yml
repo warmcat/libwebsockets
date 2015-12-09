@@ -2,7 +2,7 @@ env:
   # The next declaration is the encrypted COVERITY_SCAN_TOKEN, created
   #   via the "travis encrypt" command using the project repo's public key
   global:
-    - secure: "amfzN1OzBBZYPJVx8TCYsV1nQ5SPm7QswgGpuHcNKaMAixn1s4tKliR0wyVs1aiMqKco1zrJ3vXll+D5gknKr5obWOeZ61T3PYyZmhjB0n/D+7Y41EikNa1Hn1pP6etcHh3ciJ0qe8FC+9YB5yEII3G/jHsltge8Nu+5o2YCSCw="
+    - secure: "KhAdQ9ja+LBObWNQTYO7Df5J4DyOih6S+eerDMu8UPSO+CoWV2pWoQzbOfocjyOscGOwC+2PrrHDNZyGfqkCLDXg1BxynXPCFerHC1yc2IajvKpGXmAAygNIvp4KACDfGv/dkXrViqIzr/CdcNaU4vIMHSVb5xkeLi0W1dPnQOI="
   matrix:
     - LWS_METHOD=default
     - LWS_METHOD=noserver CMAKE_ARGS="-DLWS_WITHOUT_SERVER=ON"
@@ -29,3 +29,4 @@ addons:
     build_command_prepend: "mkdir build && cd build && cmake .."
     build_command:   "cmake --build ."
     branch_pattern: coverity_scan
+

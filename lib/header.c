@@ -24,22 +24,25 @@
 
 const unsigned char *lws_token_to_string(enum lws_token_indexes token)
 {
+	if (token == WSI_TOKEN_HTTP_URI_ARGS)
+		return (unsigned char *)"Uri-Args:";
+
 	if ((unsigned int)token >= ARRAY_SIZE(set))
 		return NULL;
+
 	return (unsigned char *)set[token];
 }
 
-int lws_add_http_header_by_name(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
+int
+lws_add_http_header_by_name(struct lws_context *context, struct lws *wsi,
 			    const unsigned char *name,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end)
+			    const unsigned char *value, int length,
+			    unsigned char **p, unsigned char *end)
 {
 #ifdef LWS_USE_HTTP2
 	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
-		return lws_add_http2_header_by_name(context, wsi, name, value, length, p, end);
+		return lws_add_http2_header_by_name(context, wsi, name,
+						    value, length, p, end);
 #else
 	(void)wsi;
 	(void)context;
@@ -58,13 +61,12 @@ int lws_add_http_header_by_name(struct libwebsocket_context *context,
 	*p += length;
 	*((*p)++) = '\x0d';
 	*((*p)++) = '\x0a';
+
 	return 0;
 }
 
-int lws_finalize_http_header(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned char **p,
-			    unsigned char *end)
+int lws_finalize_http_header(struct lws_context *context, struct lws *wsi,
+			     unsigned char **p, unsigned char *end)
 {
 	(void)context;
 #ifdef LWS_USE_HTTP2
@@ -77,16 +79,15 @@ int lws_finalize_http_header(struct libwebsocket_context *context,
 		return 1;
 	*((*p)++) = '\x0d';
 	*((*p)++) = '\x0a';
+
 	return 0;
 }
 
-int lws_add_http_header_by_token(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    enum lws_token_indexes token,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end)
+int
+lws_add_http_header_by_token(struct lws_context *context, struct lws *wsi,
+			     enum lws_token_indexes token,
+			     const unsigned char *value, int length,
+			     unsigned char **p, unsigned char *end)
 {
 	const unsigned char *name;
 #ifdef LWS_USE_HTTP2
@@ -99,11 +100,10 @@ int lws_add_http_header_by_token(struct libwebsocket_context *context,
 	return lws_add_http_header_by_name(context, wsi, name, value, length, p, end);
 }
 
-int lws_add_http_header_content_length(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned long content_length,
-			    unsigned char **p,
-			    unsigned char *end)
+int lws_add_http_header_content_length(struct lws_context *context,
+				       struct lws *wsi,
+				       unsigned long content_length,
+				       unsigned char **p, unsigned char *end)
 {
 	char b[24];
 	int n;
@@ -147,11 +147,10 @@ static const char *err500[] = {
 	"HTTP Version Not Supported"
 };
 
-int lws_add_http_header_status(struct libwebsocket_context *context,
-			    struct libwebsocket *wsi,
-			    unsigned int code,
-			    unsigned char **p,
-			    unsigned char *end)
+int
+lws_add_http_header_status(struct lws_context *context, struct lws *wsi,
+			   unsigned int code, unsigned char **p,
+			   unsigned char *end)
 {
 	unsigned char code_and_desc[60];
 	const char *description = "";
@@ -168,11 +167,12 @@ int lws_add_http_header_status(struct libwebsocket_context *context,
 
 	n = sprintf((char *)code_and_desc, "HTTP/1.0 %u %s", code, description);
 
-	return lws_add_http_header_by_name(context, wsi, NULL, code_and_desc, n, p, end);
+	return lws_add_http_header_by_name(context, wsi, NULL, code_and_desc,
+					   n, p, end);
 }
 
 /**
- * libwebsockets_return_http_status() - Return simple http status
+ * lws_return_http_status() - Return simple http status
  * @context:		libwebsockets context
  * @wsi:		Websocket instance (available from user callback)
  * @code:		Status index, eg, 404
@@ -181,35 +181,42 @@ int lws_add_http_header_status(struct libwebsocket_context *context,
  *	Helper to report HTTP errors back to the client cleanly and
  *	consistently
  */
-LWS_VISIBLE int libwebsockets_return_http_status(
-		struct libwebsocket_context *context, struct libwebsocket *wsi,
-				       unsigned int code, const char *html_body)
+LWS_VISIBLE int
+lws_return_http_status(struct lws_context *context, struct lws *wsi,
+		       unsigned int code, const char *html_body)
 {
 	int n, m;
 
-	unsigned char *p = context->service_buffer + LWS_SEND_BUFFER_PRE_PADDING;
+	unsigned char *p = context->service_buffer +
+			   LWS_SEND_BUFFER_PRE_PADDING;
 	unsigned char *start = p;
 	unsigned char *end = p + sizeof(context->service_buffer) -
-					LWS_SEND_BUFFER_PRE_PADDING;
+			     LWS_SEND_BUFFER_PRE_PADDING;
 
 	if (!html_body)
 		html_body = "";
 
 	if (lws_add_http_header_status(context, wsi, code, &p, end))
 		return 1;
-	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_SERVER, (unsigned char *)"libwebsockets", 13, &p, end))
+	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_SERVER,
+					 (unsigned char *)"libwebsockets", 13,
+					 &p, end))
 		return 1;
-	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_CONTENT_TYPE, (unsigned char *)"text/html", 9, &p, end))
+	if (lws_add_http_header_by_token(context, wsi,
+					 WSI_TOKEN_HTTP_CONTENT_TYPE,
+					 (unsigned char *)"text/html", 9,
+					 &p, end))
 		return 1;
 	if (lws_finalize_http_header(context, wsi, &p, end))
 		return 1;
 
-	m = libwebsocket_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+	m = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
 	if (m != (int)(p - start))
 		return 1;
 
-	n = sprintf((char *)start, "<html><body><h1>%u</h1>%s</body></html>", code, html_body);
-	m = libwebsocket_write(wsi, start, n, LWS_WRITE_HTTP);
+	n = sprintf((char *)start, "<html><body><h1>%u</h1>%s</body></html>",
+		    code, html_body);
+	m = lws_write(wsi, start, n, LWS_WRITE_HTTP);
 
 	return m != n;
 }

@@ -1,6 +1,27 @@
 Changelog
 ---------
 
+User api changes
+----------------
+
+Several older apis start with libwebsocket_ or libwebsockets_ while newer ones
+all begin lws_.  These apis have been changed to all begin with lws_.
+
+However compatibility defines have been added in libwebsockets.h, so it is
+perfectly build-compatible with older sources using the old api names.
+
+If you are using lws with a distro, or otherwise can't rebuild the user code,
+you should add 
+
+ -DLWS_WITH_OLD_API_WRAPPERS=1
+
+to your cmake args.  This builds lws with all the old apis as wrappers around
+the new apis, so the library still exports the old apis.
+
+In this way you can have lws export both the new and old apis simultaneously
+for compatibility.
+
+
 v1.5-chrome47-firefox41
 =======================
 
@@ -97,7 +118,7 @@ User api removal
 ----------------
 
 protocols struct member no_buffer_all_partial_tx is removed.  Under some
-conditions like rewriting extention such as compression in use, the built-in
+conditions like rewriting extension such as compression in use, the built-in
 partial send buffering is the only way to deal with the problem, so turning
 it off is deprecated.
 
@@ -348,7 +369,7 @@ User api additions
 
  - if your OS does not support the http_proxy environment variable convention
  	(eg, reportedly OSX), you can use a new api libwebsocket_set_proxy()
- 	to set the proxy details inbetween context creation and the connection
+ 	to set the proxy details in between context creation and the connection
  	action.  For OSes that support http_proxy, that's used automatically.
 
 User api changes

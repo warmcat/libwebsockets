@@ -42,15 +42,15 @@ lws_get_library_version(void)
 }
 
 /**
- * libwebsocket_create_context() - Create the websocket handler
+ * lws_create_context() - Create the websocket handler
  * @info:	pointer to struct with parameters
  *
  *	This function creates the listening socket (if serving) and takes care
  *	of all initialization in one step.
  *
- *	After initialization, it returns a struct libwebsocket_context * that
+ *	After initialization, it returns a struct lws_context * that
  *	represents this server.  After calling, user code needs to take care
- *	of calling libwebsocket_service() with the context pointer to get the
+ *	of calling lws_service() with the context pointer to get the
  *	server's sockets serviced.  This must be done in the same process
  *	context as the initialization call.
  *
@@ -71,14 +71,14 @@ lws_get_library_version(void)
  *	one place; they're all handled in the user callback.
  */
 
-LWS_VISIBLE struct libwebsocket_context *
-libwebsocket_create_context(struct lws_context_creation_info *info)
+LWS_VISIBLE struct lws_context *
+lws_create_context(struct lws_context_creation_info *info)
 {
-	struct libwebsocket_context *context = NULL;
-	char *p;
-#if LWS_POSIX
+	struct lws_context *context = NULL;
+#ifndef LWS_NO_DAEMONIZE
 	int pid_daemon = get_daemonize_pid();
 #endif
+	char *p;
 
 	lwsl_notice("Initial logging level %d\n", log_level);
 
@@ -92,8 +92,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #else
 	lwsl_notice("IPV6 not compiled in\n");
 #endif
-#endif
 	lws_feature_status_libev(info);
+#endif
 	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
 
@@ -106,18 +106,17 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	if (lws_plat_context_early_init())
 		return NULL;
 
-	context = lws_zalloc(sizeof(struct libwebsocket_context));
+	context = lws_zalloc(sizeof(struct lws_context));
 	if (!context) {
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
-#if LWS_POSIX
+#ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {
 		context->started_with_parent = pid_daemon;
 		lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
 	}
 #endif
-
 	context->listen_service_extraseen = 0;
 	context->protocols = info->protocols;
 	context->token_limits = info->token_limits;
@@ -138,41 +137,31 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 #ifdef LWS_USE_LIBEV
 	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
 	 * enable libev mediated SIGINT handling with a default handler of
-	 * libwebsocket_sigint_cb. The handler can be overridden or disabled
-	 * by invoking libwebsocket_sigint_cfg after creating the context, but
-	 * before invoking libwebsocket_initloop:
+	 * lws_sigint_cb. The handler can be overridden or disabled
+	 * by invoking lws_sigint_cfg after creating the context, but
+	 * before invoking lws_initloop:
 	 */
 	context->use_ev_sigint = 1;
-	context->lws_ev_sigint_cb = &libwebsocket_sigint_cb;
+	context->lws_ev_sigint_cb = &lws_sigint_cb;
 #endif /* LWS_USE_LIBEV */
 
 	/* to reduce this allocation, */
 	context->max_fds = getdtablesize();
-	lwsl_notice(" static allocation: %u + (%u x %u fds) = %u bytes\n",
-		sizeof(struct libwebsocket_context),
-		sizeof(struct libwebsocket_pollfd) +
-					sizeof(struct libwebsocket *),
-		context->max_fds,
-		sizeof(struct libwebsocket_context) +
-		((sizeof(struct libwebsocket_pollfd) +
-					sizeof(struct libwebsocket *)) *
-							     context->max_fds));
+	lwsl_notice(" ctx mem: %u bytes\n", sizeof(struct lws_context) +
+		    ((sizeof(struct lws_pollfd) + sizeof(struct lws *)) *
+		    context->max_fds));
 
-	context->fds = lws_zalloc(sizeof(struct libwebsocket_pollfd) *
-				  context->max_fds);
+	context->fds = lws_zalloc(sizeof(struct lws_pollfd) * context->max_fds);
 	if (context->fds == NULL) {
-		lwsl_err("Unable to allocate fds array for %d connections\n",
-							      context->max_fds);
+		lwsl_err("OOM allocating %d fds\n", context->max_fds);
 		goto bail;
 	}
 
-	if (lws_plat_init_lookup(context)) {
+	if (lws_plat_init_lookup(context))
 		goto bail;
-	}
 
-	if (lws_plat_init_fd_tables(context)) {
+	if (lws_plat_init_fd_tables(context))
 		goto bail;
-	}
 
 	lws_context_init_file_callbacks(info, context);
 
@@ -190,19 +179,17 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 		/* override for backwards compatibility */
 		if (info->http_proxy_port)
 			context->http_proxy_port = info->http_proxy_port;
-		libwebsocket_set_proxy(context, info->http_proxy_address);
+		lws_set_proxy(context, info->http_proxy_address);
 	} else {
 #ifdef LWS_HAVE_GETENV
 		p = getenv("http_proxy");
 		if (p)
-			libwebsocket_set_proxy(context, p);
+			lws_set_proxy(context, p);
 #endif
 	}
 
-	lwsl_notice(
-		" per-conn mem: %u + %u headers + protocol rx buf\n",
-				sizeof(struct libwebsocket),
-					      sizeof(struct allocated_headers));
+	lwsl_notice(" per-conn mem: %u + %u headers + protocol rx buf\n",
+		    sizeof(struct lws), sizeof(struct allocated_headers));
 
 	if (lws_context_init_server_ssl(info, context))
 		goto bail;
@@ -223,12 +210,8 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	/* initialize supported protocols */
 
 	for (context->count_protocols = 0;
-		info->protocols[context->count_protocols].callback;
-						   context->count_protocols++) {
-
-//		lwsl_notice("  Protocol: %s\n",
-//				info->protocols[context->count_protocols].name);
-
+	     info->protocols[context->count_protocols].callback;
+	     context->count_protocols++) {
 		info->protocols[context->count_protocols].owning_server =
 									context;
 		info->protocols[context->count_protocols].protocol_index =
@@ -246,27 +229,24 @@ libwebsocket_create_context(struct lws_context_creation_info *info)
 	 * give all extensions a chance to create any per-context
 	 * allocations they need
 	 */
-
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 		if (lws_ext_callback_for_each_extension_type(context, NULL,
-				LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT,
-								   NULL, 0) < 0)
+			LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
 	} else
 		if (lws_ext_callback_for_each_extension_type(context, NULL,
-				LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT,
-								   NULL, 0) < 0)
+			LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
 		
 	return context;
 
 bail:
-	libwebsocket_context_destroy(context);
+	lws_context_destroy(context);
 	return NULL;
 }
 
 /**
- * libwebsocket_context_destroy() - Destroy the websocket context
+ * lws_context_destroy() - Destroy the websocket context
  * @context:	Websocket context
  *
  *	This function closes any active connections and then frees the
@@ -274,12 +254,10 @@ bail:
  *	undefined.
  */
 LWS_VISIBLE void
-libwebsocket_context_destroy(struct libwebsocket_context *context)
+lws_context_destroy(struct lws_context *context)
 {
-	/* Note that this is used for freeing partially allocated structs as well
-	 * so make sure you don't try to free something uninitialized */
+	struct lws_protocols *protocol = NULL;
 	int n;
-	struct libwebsocket_protocols *protocol = NULL;
 
 	lwsl_notice("%s\n", __func__);
 
@@ -292,12 +270,12 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 #endif
 
 	for (n = 0; n < context->fds_count; n++) {
-		struct libwebsocket *wsi =
-					wsi_from_fd(context, context->fds[n].fd);
+		struct lws *wsi = wsi_from_fd(context, context->fds[n].fd);
 		if (!wsi)
 			continue;
-		libwebsocket_close_and_free_session(context,
-			wsi, LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY /* no protocol close */);
+		lws_close_and_free_session(context, wsi,
+				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
+				/* no protocol close */);
 		n--;
 	}
 
@@ -305,20 +283,12 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	 * give all extensions a chance to clean up any per-context
 	 * allocations they might have made
 	 */
-	// TODO: I am not sure, but are we never supposed to be able to run a server
-	//       and client at the same time for a given context?
-	//       Otherwise both of these callbacks should always be called!
-	if (context->listen_port != CONTEXT_PORT_NO_LISTEN) {
-		if (lws_ext_callback_for_each_extension_type(context, NULL,
-				LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0) < 0) {
-			lwsl_err("Got error from server extension callback on cleanup");
-		}
-	} else {
-		if (lws_ext_callback_for_each_extension_type(context, NULL,
-				LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0) < 0) {
-			lwsl_err("Got error from client extension callback on cleanup");
-		}
-	}
+
+	n = lws_ext_callback_for_each_extension_type(context, NULL,
+			LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0);
+
+	n = lws_ext_callback_for_each_extension_type(context, NULL,
+			LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0);
 
 	/*
 	 * inform all the protocols that they are done and will have no more
@@ -327,14 +297,14 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	protocol = context->protocols;
 	if (protocol) {
 		while (protocol->callback) {
-			protocol->callback(context, NULL, LWS_CALLBACK_PROTOCOL_DESTROY,
-					NULL, NULL, 0);
+			protocol->callback(context, NULL,
+					   LWS_CALLBACK_PROTOCOL_DESTROY,
+					   NULL, NULL, 0);
 			protocol++;
 		}
 	}
 
 	lws_plat_context_early_destroy(context);
-
 	lws_ssl_context_destroy(context);
 
 	if (context->fds)

@@ -14,15 +14,15 @@ unsigned long long time_in_microseconds(void)
 	return ((unsigned long long)tv.tv_sec * 1000000LL) + tv.tv_usec;
 }
 
-LWS_VISIBLE int libwebsockets_get_random(struct libwebsocket_context *context,
+LWS_VISIBLE int lws_get_random(struct lws_context *context,
 							     void *buf, int len)
 {
 	return read(context->fd_random, (char *)buf, len);
 }
 
-LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
+LWS_VISIBLE int lws_send_pipe_choked(struct lws *wsi)
 {
-	struct libwebsocket_pollfd fds;
+	struct lws_pollfd fds;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
 	if (wsi->truncated_send_len)
@@ -44,7 +44,7 @@ LWS_VISIBLE int lws_send_pipe_choked(struct libwebsocket *wsi)
 }
 
 LWS_VISIBLE int
-lws_poll_listen_fd(struct libwebsocket_pollfd *fd)
+lws_poll_listen_fd(struct lws_pollfd *fd)
 {
 	return poll(fd, 1, 0);
 }
@@ -58,14 +58,14 @@ static void lws_sigusr2(int sig)
 }
 
 /**
- * libwebsocket_cancel_service() - Cancel servicing of pending websocket activity
+ * lws_cancel_service() - Cancel servicing of pending websocket activity
  * @context:	Websocket context
  *
- *	This function let a call to libwebsocket_service() waiting for a timeout
+ *	This function let a call to lws_service() waiting for a timeout
  *	immediately return.
  */
 LWS_VISIBLE void
-libwebsocket_cancel_service(struct libwebsocket_context *context)
+lws_cancel_service(struct lws_context *context)
 {
 	char buf = 0;
 
@@ -95,13 +95,13 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 }
 
 LWS_VISIBLE int
-lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
+lws_plat_service(struct lws_context *context, int timeout_ms)
 {
 	int n;
 	int m;
 	char buf;
 #ifdef LWS_OPENSSL_SUPPORT
-	struct libwebsocket *wsi, *wsi_next;
+	struct lws *wsi, *wsi_next;
 #endif
 
 	/* stay dead once we are dead */
@@ -127,7 +127,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 #else
 	if (n == 0) /* poll timeout */ {
 #endif
-		libwebsocket_service_fd(context, NULL);
+		lws_service_fd(context, NULL);
 		return 0;
 	}
 
@@ -176,7 +176,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 			continue;
 		}
 
-		m = libwebsocket_service_fd(context, &context->fds[n]);
+		m = lws_service_fd(context, &context->fds[n]);
 		if (m < 0)
 			return -1;
 		/* if something closed, retry this slot */
@@ -188,7 +188,7 @@ lws_plat_service(struct libwebsocket_context *context, int timeout_ms)
 }
 
 LWS_VISIBLE int
-lws_plat_set_socket_options(struct libwebsocket_context *context, int fd)
+lws_plat_set_socket_options(struct lws_context *context, int fd)
 {
 	int optval = 1;
 	socklen_t optlen = sizeof(optval);
@@ -272,9 +272,9 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 }
 
 LWS_VISIBLE int
-lws_plat_init_lookup(struct libwebsocket_context *context)
+lws_plat_init_lookup(struct lws_context *context)
 {
-	context->lws_lookup = lws_zalloc(sizeof(struct libwebsocket *) * context->max_fds);
+	context->lws_lookup = lws_zalloc(sizeof(struct lws *) * context->max_fds);
 	if (context->lws_lookup == NULL) {
 		lwsl_err(
 		  "Unable to allocate lws_lookup array for %d connections\n",
@@ -286,7 +286,7 @@ lws_plat_init_lookup(struct libwebsocket_context *context)
 }
 
 LWS_VISIBLE int
-lws_plat_init_fd_tables(struct libwebsocket_context *context)
+lws_plat_init_fd_tables(struct lws_context *context)
 {
 	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 	if (context->fd_random < 0) {
@@ -335,12 +335,12 @@ lws_plat_context_early_init(void)
 }
 
 LWS_VISIBLE void
-lws_plat_context_early_destroy(struct libwebsocket_context *context)
+lws_plat_context_early_destroy(struct lws_context *context)
 {
 }
 
 LWS_VISIBLE void
-lws_plat_context_late_destroy(struct libwebsocket_context *context)
+lws_plat_context_late_destroy(struct lws_context *context)
 {
 	if (context->lws_lookup)
 		lws_free(context->lws_lookup);
@@ -353,7 +353,7 @@ lws_plat_context_late_destroy(struct libwebsocket_context *context)
 /* cast a struct sockaddr_in6 * into addr for ipv6 */
 
 LWS_VISIBLE int
-interface_to_sa(struct libwebsocket_context *context,
+interface_to_sa(struct lws_context *context,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
 	int rc = -1;
@@ -422,21 +422,21 @@ interface_to_sa(struct libwebsocket_context *context,
 }
 
 LWS_VISIBLE void
-lws_plat_insert_socket_into_fds(struct libwebsocket_context *context,
-						       struct libwebsocket *wsi)
+lws_plat_insert_socket_into_fds(struct lws_context *context,
+						       struct lws *wsi)
 {
 	lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_READ);
 	context->fds[context->fds_count++].revents = 0;
 }
 
 LWS_VISIBLE void
-lws_plat_delete_socket_from_fds(struct libwebsocket_context *context,
-						struct libwebsocket *wsi, int m)
+lws_plat_delete_socket_from_fds(struct lws_context *context,
+						struct lws *wsi, int m)
 {
 }
 
 LWS_VISIBLE void
-lws_plat_service_periodic(struct libwebsocket_context *context)
+lws_plat_service_periodic(struct lws_context *context)
 {
 	/* if our parent went down, don't linger around */
 	if (context->started_with_parent &&
@@ -445,8 +445,8 @@ lws_plat_service_periodic(struct libwebsocket_context *context)
 }
 
 LWS_VISIBLE int
-lws_plat_change_pollfd(struct libwebsocket_context *context,
-		      struct libwebsocket *wsi, struct libwebsocket_pollfd *pfd)
+lws_plat_change_pollfd(struct lws_context *context,
+		      struct lws *wsi, struct lws_pollfd *pfd)
 {
 	return 0;
 }

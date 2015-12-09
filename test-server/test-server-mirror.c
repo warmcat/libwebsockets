@@ -33,9 +33,9 @@ static struct a_message ringbuffer[MAX_MESSAGE_QUEUE];
 static int ringbuffer_head;
 
 int
-callback_lws_mirror(struct libwebsocket_context *context,
-		    struct libwebsocket *wsi,
-		    enum libwebsocket_callback_reasons reason,
+callback_lws_mirror(struct lws_context *context,
+		    struct lws *wsi,
+		    enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
 	struct per_session_data__lws_mirror *pss =
@@ -62,7 +62,7 @@ callback_lws_mirror(struct libwebsocket_context *context,
 			break;
 		while (pss->ringbuffer_tail != ringbuffer_head) {
 
-			n = libwebsocket_write(wsi, (unsigned char *)
+			n = lws_write(wsi, (unsigned char *)
 				   ringbuffer[pss->ringbuffer_tail].payload +
 				   LWS_SEND_BUFFER_PRE_PADDING,
 				   ringbuffer[pss->ringbuffer_tail].len,
@@ -82,11 +82,11 @@ callback_lws_mirror(struct libwebsocket_context *context,
 
 			if (((ringbuffer_head - pss->ringbuffer_tail) &
 				  (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 15))
-				libwebsocket_rx_flow_allow_all_protocol(
-					       libwebsockets_get_protocol(wsi));
+				lws_rx_flow_allow_all_protocol(
+					       lws_get_protocol(wsi));
 
 			if (lws_partial_buffered(wsi) || lws_send_pipe_choked(wsi)) {
-				libwebsocket_callback_on_writable(context, wsi);
+				lws_callback_on_writable(context, wsi);
 				break;
 			}
 			/*
@@ -128,11 +128,11 @@ callback_lws_mirror(struct libwebsocket_context *context,
 
 choke:
 		lwsl_debug("LWS_CALLBACK_RECEIVE: throttling %p\n", wsi);
-		libwebsocket_rx_flow_control(wsi, 0);
+		lws_rx_flow_control(wsi, 0);
 
 done:
-		libwebsocket_callback_on_writable_all_protocol(
-					       libwebsockets_get_protocol(wsi));
+		lws_callback_on_writable_all_protocol(
+					       lws_get_protocol(wsi));
 		break;
 
 	/*

@@ -13,7 +13,7 @@ set(CPACK_PACKAGE_VERSION_MINOR "5")
 set(CPACK_PACKAGE_VERSION "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}")
 set(CPACK_PACKAGE_VENDOR "andy@warmcat.com")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PACKAGE} ${PACKAGE_VERSION}")
-set(SOVERSION "5")
+set(SOVERSION "6")
 set(CPACK_SOURCE_GENERATOR "TGZ")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}")
 set(VERSION "${CPACK_PACKAGE_VERSION}")
@@ -68,6 +68,7 @@ option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" ON)
 option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
 option(LWS_MBED3 "Platform is MBED3" OFF)
+option(LWS_WITH_OLD_API_WRAPPERS "Compile with binary compatibility with pre-v1.6 apis" OFF)
 
 if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
 
@@ -475,7 +476,7 @@ if (UNIX)
 	endif()
 endif()
 
-if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
+if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
     include (CheckCCompilerFlag)
     CHECK_C_COMPILER_FLAG(-fvisibility=hidden LWS_HAVE_VISIBILITY)
     if (LWS_HAVE_VISIBILITY)
@@ -487,6 +488,19 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
                set(CMAKE_C_FLAGS "-Wall ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
     endif(UNIX)
 endif ()
+
+if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
+    if (UNIX)
+	# jeez clang understands -pthread but dies if he sees it at link time!
+	# http://stackoverflow.com/questions/2391194/what-is-gs-pthread-equiv-in-clang
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread" )
+    endif()
+endif()
+
+if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+	# otherwise osx blows a bunch of openssl deprecated api errors
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations" )
+endif()
 
 source_group("Headers Private"  FILES ${HDR_PRIVATE})
 source_group("Headers Public"   FILES ${HDR_PUBLIC})
@@ -542,7 +556,7 @@ endif()
 
 # Set the so version of the lib.
 # Equivalent to LDFLAGS=-version-info x:x:x
-if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
+if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 	foreach(lib ${LWS_LIBRARIES})
 		set_target_properties(${lib}
 			PROPERTIES
@@ -614,7 +628,7 @@ if (LWS_WITH_SSL)
 
 		# Additional to the root directory we need to include
 		# the wolfssl/ subdirectory which contains the OpenSSL
-		# compatability layer headers.
+		# compatibility layer headers.
 
 		if (LWS_USE_CYASSL)
 			foreach(inc ${WOLFSSL_INCLUDE_DIRS})
@@ -756,6 +770,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER)
 			create_test_app(test-server "test-server/test-server.c" "test-server/test-server-http.c" "test-server/test-server-dumb-increment.c" "test-server/test-server-mirror.c")
+			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang")))
+				create_test_app(test-server-pthreads "test-server/test-server-pthreads.c" "test-server/test-server-http.c" "test-server/test-server-dumb-increment.c" "test-server/test-server-mirror.c")
+			endif()
 		endif()
 
 		#
@@ -1032,6 +1049,12 @@ if (NOT LWS_WITHOUT_TESTAPPS AND NOT LWS_WITHOUT_SERVER)
 			COMPONENT examples)
 endif()
 
+# Install the LibwebsocketsConfig.cmake and LibwebsocketsConfigVersion.cmake
+install(FILES
+               "${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/LibwebsocketsConfig.cmake"
+               "${PROJECT_BINARY_DIR}/LibwebsocketsConfigVersion.cmake"
+               DESTINATION "${LWS_INSTALL_CMAKE_DIR}" COMPONENT dev)
+
 # build subdir is not part of sources
 set(CPACK_SOURCE_IGNORE_FILES $(CPACK_SOURCE_IGNORE_FILES) ".git" "build" "tgz" "tar.gz")
 
@@ -1073,6 +1096,7 @@ message(" LWS_USE_LIBEV = ${LWS_USE_LIBEV}")
 message(" LWS_IPV6 = ${LWS_IPV6}")
 message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")
 message(" LWS_MBED3 = ${LWS_MBED3}")
+message(" LWS_WITH_OLD_API_WRAPPERS = ${LWS_WITH_OLD_API_WRAPPERS}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

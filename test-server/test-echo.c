@@ -53,9 +53,9 @@ struct per_session_data__echo {
 };
 
 static int
-callback_echo(struct libwebsocket_context *context,
-		struct libwebsocket *wsi,
-		enum libwebsocket_callback_reasons reason, void *user,
+callback_echo(struct lws_context *context,
+		struct lws *wsi,
+		enum lws_callback_reasons reason, void *user,
 							   void *in, size_t len)
 {
 	struct per_session_data__echo *pss = (struct per_session_data__echo *)user;
@@ -68,7 +68,7 @@ callback_echo(struct libwebsocket_context *context,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 do_tx:
-		n = libwebsocket_write(wsi, &pss->buf[LWS_SEND_BUFFER_PRE_PADDING], pss->len, LWS_WRITE_TEXT);
+		n = lws_write(wsi, &pss->buf[LWS_SEND_BUFFER_PRE_PADDING], pss->len, LWS_WRITE_TEXT);
 		if (n < 0) {
 			lwsl_err("ERROR %d writing to socket, hanging up\n", n);
 			return 1;
@@ -87,7 +87,7 @@ do_rx:
 		}
 		memcpy(&pss->buf[LWS_SEND_BUFFER_PRE_PADDING], in, len);
 		pss->len = (unsigned int)len;
-		libwebsocket_callback_on_writable(context, wsi);
+		lws_callback_on_writable(context, wsi);
 		break;
 #endif
 
@@ -122,7 +122,7 @@ do_rx:
 		/* we will send our packet... */
 		pss->len = sprintf((char *)&pss->buf[LWS_SEND_BUFFER_PRE_PADDING], "hello from libwebsockets-test-echo client pid %d index %d\n", getpid(), pss->index++);
 		lwsl_notice("Client TX: %s", &pss->buf[LWS_SEND_BUFFER_PRE_PADDING]);
-		n = libwebsocket_write(wsi, &pss->buf[LWS_SEND_BUFFER_PRE_PADDING], pss->len, LWS_WRITE_TEXT);
+		n = lws_write(wsi, &pss->buf[LWS_SEND_BUFFER_PRE_PADDING], pss->len, LWS_WRITE_TEXT);
 		if (n < 0) {
 			lwsl_err("ERROR %d writing to socket, hanging up\n", n);
 			return -1;
@@ -145,7 +145,7 @@ do_rx:
 
 
 
-static struct libwebsocket_protocols protocols[] = {
+static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
 	{
@@ -189,7 +189,7 @@ int main(int argc, char **argv)
 	int n = 0;
 	int port = 7681;
 	int use_ssl = 0;
-	struct libwebsocket_context *context;
+	struct lws_context *context;
 	int opts = 0;
 	char interface_name[128] = "";
 	const char *_interface = NULL;
@@ -207,7 +207,7 @@ int main(int argc, char **argv)
 	char address[256], ads_port[256 + 30];
 	int rate_us = 250000;
 	unsigned long long oldus;
-	struct libwebsocket *wsi;
+	struct lws *wsi;
 	int disallow_selfsigned = 0;
 	struct timeval tv;
 #endif
@@ -364,7 +364,7 @@ int main(int argc, char **argv)
 	info.iface = _interface;
 	info.protocols = protocols;
 #ifndef LWS_NO_EXTENSIONS
-	info.extensions = libwebsocket_get_internal_extensions();
+	info.extensions = lws_get_internal_extensions();
 #endif
 	if (use_ssl && !client) {
 		info.ssl_cert_filepath = ssl_cert;
@@ -378,7 +378,7 @@ int main(int argc, char **argv)
 	info.uid = -1;
 	info.options = opts;
 
-	context = libwebsocket_create_context(&info);
+	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
 		return -1;
@@ -403,7 +403,7 @@ int main(int argc, char **argv)
 			address[sizeof(address) - 1] = '\0';
 			sprintf(ads_port, "%s:%u", address, port & 65535);
 		
-			wsi = libwebsocket_client_connect(context, address,
+			wsi = lws_client_connect(context, address,
 				port, use_ssl, uri, ads_port,
 				 ads_port, NULL, -1);
 			if (!wsi) {
@@ -416,17 +416,17 @@ int main(int argc, char **argv)
 			gettimeofday(&tv, NULL);
 
 			if (((((unsigned long long)tv.tv_sec * 1000000) + tv.tv_usec) - oldus) > rate_us) {
-				libwebsocket_callback_on_writable_all_protocol(&protocols[0]);
+				lws_callback_on_writable_all_protocol(&protocols[0]);
 				oldus = ((unsigned long long)tv.tv_sec * 1000000) + tv.tv_usec;
 			}
 		}
 #endif
-		n = libwebsocket_service(context, 10);
+		n = lws_service(context, 10);
 	}
 #ifndef LWS_NO_CLIENT
 bail:
 #endif
-	libwebsocket_context_destroy(context);
+	lws_context_destroy(context);
 
 	lwsl_notice("libwebsockets-test-echo exited cleanly\n");
 #ifndef _WIN32

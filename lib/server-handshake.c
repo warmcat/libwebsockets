@@ -24,13 +24,13 @@
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 #ifndef LWS_NO_EXTENSIONS
 LWS_VISIBLE int
-lws_extension_server_handshake(struct libwebsocket_context *context,
-			  struct libwebsocket *wsi, char **p)
+lws_extension_server_handshake(struct lws_context *context,
+			       struct lws *wsi, char **p)
 {
 	int n;
 	char *c;
 	char ext_name[128];
-	struct libwebsocket_extension *ext;
+	struct lws_extension *ext;
 	int ext_count = 0;
 	int more = 1;
 
@@ -156,7 +156,7 @@ lws_extension_server_handshake(struct libwebsocket_context *context,
 }
 #endif
 int
-handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
+handshake_0405(struct lws_context *context, struct lws *wsi)
 {
 	unsigned char hash[20];
 	int n;
@@ -185,7 +185,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 				"%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
 
-	libwebsockets_SHA1(context->service_buffer, n, hash);
+	lws_SHA1(context->service_buffer, n, hash);
 
 	accept_len = lws_b64_encode_string((char *)hash, 20,
 			(char *)context->service_buffer,
@@ -196,7 +196,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	}
 
 	/* allocate the per-connection user memory (if any) */
-	if (libwebsocket_ensure_user_space(wsi))
+	if (lws_ensure_user_space(wsi))
 		goto bail;
 
 	/* create the response packet */
@@ -245,7 +245,7 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 #ifdef DEBUG
 		fwrite(response, 1,  p - response, stderr);
 #endif
-		n = libwebsocket_write(wsi, (unsigned char *)response,
+		n = lws_write(wsi, (unsigned char *)response,
 						  p - response, LWS_WRITE_HTTP_HEADERS);
 		if (n != (p - response)) {
 			lwsl_debug("handshake_0405: ERROR writing to socket\n");
@@ -264,7 +264,13 @@ handshake_0405(struct libwebsocket_context *context, struct libwebsocket *wsi)
 	if (wsi->protocol->callback)
 		wsi->protocol->callback(wsi->protocol->owning_server,
 				wsi, LWS_CALLBACK_ESTABLISHED,
-					  wsi->user_space, NULL, 0);
+					  wsi->user_space,
+#ifdef LWS_OPENSSL_SUPPORT
+					  wsi->ssl,
+#else
+					  NULL,
+#endif
+					  0);
 
 	return 0;
 

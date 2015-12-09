@@ -15,6 +15,7 @@
   "extraIncludes": [ "build/frdm-k64f-gcc/generated/include" ],
   "dependencies": {
     "mbed-drivers": "^0.11.1",
+    "sal-stack-lwip": "^1.0.4",
     "sockets": "^1.0.0"
   }
 }

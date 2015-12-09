@@ -3,7 +3,7 @@
 #include "extension-deflate-frame.h"
 #include "extension-deflate-stream.h"
 
-struct libwebsocket_extension libwebsocket_internal_extensions[] = {
+struct lws_extension lws_internal_extensions[] = {
 #ifdef LWS_EXT_DEFLATE_STREAM
 	{
 		"deflate-stream",
@@ -29,21 +29,21 @@ struct libwebsocket_extension libwebsocket_internal_extensions[] = {
 
 LWS_VISIBLE void
 lws_context_init_extensions(struct lws_context_creation_info *info,
-				    struct libwebsocket_context *context)
+				    struct lws_context *context)
 {
 	context->extensions = info->extensions;
 	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
 }
 
-LWS_VISIBLE struct libwebsocket_extension *libwebsocket_get_internal_extensions()
+LWS_VISIBLE struct lws_extension *lws_get_internal_extensions()
 {
-	return libwebsocket_internal_extensions;
+	return lws_internal_extensions;
 }
 
 
 /* 0 = nobody had nonzero return, 1 = somebody had positive return, -1 = fail */
 
-int lws_ext_callback_for_each_active(struct libwebsocket *wsi, int reason,
+int lws_ext_callback_for_each_active(struct lws *wsi, int reason,
 				void *arg, int len)
 {
 	int n, m, handled = 0;
@@ -69,11 +69,11 @@ int lws_ext_callback_for_each_active(struct libwebsocket *wsi, int reason,
 }
 
 int lws_ext_callback_for_each_extension_type(
-		struct libwebsocket_context *context, struct libwebsocket *wsi,
+		struct lws_context *context, struct lws *wsi,
 				int reason, void *arg, int len)
 {
 	int n = 0, m, handled = 0;
-	struct libwebsocket_extension *ext = context->extensions;
+	struct lws_extension *ext = context->extensions;
 
 	while (ext && ext->callback && !handled) {
 		m = ext->callback(context, ext, wsi, reason,
@@ -95,7 +95,7 @@ int lws_ext_callback_for_each_extension_type(
 }
 
 int
-lws_issue_raw_ext_access(struct libwebsocket *wsi,
+lws_issue_raw_ext_access(struct lws *wsi,
 						 unsigned char *buf, size_t len)
 {
 	int ret;
@@ -175,7 +175,7 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 		 * Yes, he's choked.  Don't spill the rest now get a callback
 		 * when he is ready to send and take care of it there
 		 */
-		libwebsocket_callback_on_writable(
+		lws_callback_on_writable(
 					     wsi->protocol->owning_server, wsi);
 		wsi->extension_data_pending = 1;
 		ret = 0;
@@ -185,9 +185,9 @@ lws_issue_raw_ext_access(struct libwebsocket *wsi,
 }
 
 int
-lws_any_extension_handled(struct libwebsocket_context *context,
-			  struct libwebsocket *wsi,
-			  enum libwebsocket_extension_callback_reasons r,
+lws_any_extension_handled(struct lws_context *context,
+			  struct lws *wsi,
+			  enum lws_extension_callback_reasons r,
 						       void *v, size_t len)
 {
 	int n;

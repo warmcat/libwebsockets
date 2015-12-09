@@ -61,8 +61,8 @@ clients).
 If you want to send something, do not just send it but request a callback
 when the socket is writeable using
 
- - `libwebsocket_callback_on_writable(context, wsi)`` for a specific `wsi`, or
- - `libwebsocket_callback_on_writable_all_protocol(protocol)` for all connections
+ - `lws_callback_on_writable(context, wsi)`` for a specific `wsi`, or
+ - `lws_callback_on_writable_all_protocol(protocol)` for all connections
 using that protocol to get a callback when next writeable.
 
 Usually you will get called back immediately next time around the service
@@ -93,7 +93,7 @@ Closing connections from the user side
 When you want to close a connection, you do it by returning `-1` from a
 callback for that connection.
 
-You can provoke a callback by calling `libwebsocket_callback_on_writable` on
+You can provoke a callback by calling `lws_callback_on_writable` on
 the wsi, then notice in the callback you want to close it and just return -1.
 But usually, the decision to close is made in a callback already and returning
 -1 is simple.
@@ -112,7 +112,7 @@ Fragmented messages
 -------------------
 
 To support fragmented messages you need to check for the final
-frame of a message with `libwebsocket_is_final_fragment`. This
+frame of a message with `lws_is_final_fragment`. This
 check can be combined with `libwebsockets_remaining_packet_payload`
 to gather the whole contents of a message, eg:
 
@@ -120,9 +120,9 @@ to gather the whole contents of a message, eg:
     case LWS_CALLBACK_RECEIVE:
     {
         Client * const client = (Client *)user;
-        const size_t remaining = libwebsockets_remaining_packet_payload(wsi);
+        const size_t remaining = lws_remaining_packet_payload(wsi);
 
-        if (!remaining && libwebsocket_is_final_fragment(wsi)) {
+        if (!remaining && lws_is_final_fragment(wsi)) {
             if (client->HasFragments()) {
                 client->AppendMessageFragment(in, len, 0);
                 in = (void *)client->GetMessage();
@@ -178,7 +178,7 @@ Four callbacks `LWS_CALLBACK_ADD_POLL_FD`, `LWS_CALLBACK_DEL_POLL_FD`,
 appear in the callback for protocol 0 and allow interface code to
 manage socket descriptors in other poll loops.
 
-You can pass all pollfds that need service to `libwebsocket_service_fd()`, even
+You can pass all pollfds that need service to `lws_service_fd()`, even
 if the socket or file does not belong to **libwebsockets** it is safe.
 
 If **libwebsocket** handled it, it zeros the pollfd `revents` field before returning.
@@ -261,7 +261,7 @@ if left `NULL`, then the "DEFAULT" set of ciphers are all possible to select.
 Async nature of client connections
 ----------------------------------
 
-When you call `libwebsocket_client_connect(..)` and get a `wsi` back, it does not
+When you call `lws_client_connect(..)` and get a `wsi` back, it does not
 mean your connection is active.  It just mean it started trying to connect.
 
 Your client connection is actually active only when you receive
@@ -273,6 +273,6 @@ other reasons, if any of that happens you'll get a
 `wsi`.
 
 After attempting the connection and getting back a non-`NULL` `wsi` you should
-loop calling `libwebsocket_service()` until one of the above callbacks occurs.
+loop calling `lws_service()` until one of the above callbacks occurs.
 
 As usual, see [test-client.c](test-server/test-client.c) for example code.

@@ -212,14 +212,14 @@ sha1_pad(struct sha1_ctxt *ctxt)
 	padlen = 64 - padstart;
 	if (padlen < 8) {
 		bzero(&ctxt->m.b8[padstart], padlen);
-		COUNT += padlen;
+		COUNT += (unsigned char)padlen;
 		COUNT %= 64;
 		sha1_step(ctxt);
 		padstart = COUNT % 64;	/* should be 0 */
 		padlen = 64 - padstart;	/* should be 64 */
 	}
 	bzero(&ctxt->m.b8[padstart], padlen - 8);
-	COUNT += (padlen - 8);
+	COUNT += ((unsigned char)padlen - 8);
 	COUNT %= 64;
 #if BYTE_ORDER == BIG_ENDIAN
 	PUTPAD(ctxt->c.b8[0]); PUTPAD(ctxt->c.b8[1]);
@@ -250,7 +250,7 @@ sha1_loop(struct sha1_ctxt *ctxt, const unsigned char *input, size_t len)
 
 		copysiz = (gaplen < len - off) ? gaplen : len - off;
 		memcpy(&ctxt->m.b8[gapstart], &input[off], copysiz);
-		COUNT += copysiz;
+		COUNT += (unsigned char)copysiz;
 		COUNT %= 64;
 		ctxt->c.b64[0] += copysiz * 8;
 		if (COUNT % 64 == 0)
@@ -287,7 +287,7 @@ sha1_result(struct sha1_ctxt *ctxt, void *digest0)
  */
 
 LWS_VISIBLE unsigned char *
-libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md)
+lws_SHA1(const unsigned char *d, size_t n, unsigned char *md)
 {
 	struct sha1_ctxt ctx;
 

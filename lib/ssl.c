@@ -26,9 +26,11 @@
 
 int openssl_websocket_private_data_index;
 
-static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
+static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size,
+					      int rwflag, void *userdata)
 {
-	struct lws_context_creation_info * info = (struct lws_context_creation_info *)userdata;
+	struct lws_context_creation_info * info =
+			(struct lws_context_creation_info *)userdata;
 
 	strncpy(buf, info->ssl_private_key_password, size);
 	buf[size - 1] = '\0';
@@ -57,7 +59,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
 	SSL *ssl;
 	int n;
-	struct libwebsocket_context *context;
+	struct lws_context *context;
 
 	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
 		SSL_get_ex_data_X509_STORE_CTX_idx());
@@ -78,7 +80,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 
 LWS_VISIBLE int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
-		     struct libwebsocket_context *context)
+		     struct lws_context *context)
 {
 	SSL_METHOD *method;
 	int error;
@@ -246,7 +248,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 
 LWS_VISIBLE void
-lws_ssl_destroy(struct libwebsocket_context *context)
+lws_ssl_destroy(struct lws_context *context)
 {
 	if (context->ssl_ctx)
 		SSL_CTX_free(context->ssl_ctx);
@@ -264,7 +266,7 @@ lws_ssl_destroy(struct libwebsocket_context *context)
 }
 
 LWS_VISIBLE void
-libwebsockets_decode_ssl_error(void)
+lws_decode_ssl_error(void)
 {
 	char buf[256];
 	u_long err;
@@ -278,7 +280,7 @@ libwebsockets_decode_ssl_error(void)
 #ifndef LWS_NO_CLIENT
 
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
-			    struct libwebsocket_context *context)
+			        struct lws_context *context)
 {
 	int error;
 	int n;
@@ -406,8 +408,8 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 #endif
 
 LWS_VISIBLE void
-lws_ssl_remove_wsi_from_buffered_list(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi)
+lws_ssl_remove_wsi_from_buffered_list(struct lws_context *context,
+		     struct lws *wsi)
 {
 	if (!wsi->pending_read_list_prev &&
 	    !wsi->pending_read_list_next &&
@@ -432,8 +434,8 @@ lws_ssl_remove_wsi_from_buffered_list(struct libwebsocket_context *context,
 }
 
 LWS_VISIBLE int
-lws_ssl_capable_read(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read(struct lws_context *context,
+		     struct lws *wsi, unsigned char *buf, int len)
 {
 	int n;
 
@@ -441,7 +443,11 @@ lws_ssl_capable_read(struct libwebsocket_context *context,
 		return lws_ssl_capable_read_no_ssl(context, wsi, buf, len);
 
 	n = SSL_read(wsi->ssl, buf, len);
-	if (n >= 0) {
+	/* manpage: returning 0 means connection shut down */
+	if (!n)
+		return LWS_SSL_CAPABLE_ERROR;
+
+	if (n > 0) {
 		/* 
 		 * if it was our buffer that limited what we read,
 		 * check if SSL has additional data pending inside SSL buffers.
@@ -473,7 +479,7 @@ lwsl_err("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
 }
 
 LWS_VISIBLE int
-lws_ssl_pending(struct libwebsocket *wsi)
+lws_ssl_pending(struct lws *wsi)
 {
 	if (!wsi->ssl)
 		return 0;
@@ -482,7 +488,7 @@ lws_ssl_pending(struct libwebsocket *wsi)
 }
 
 LWS_VISIBLE int
-lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len)
+lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n;
 
@@ -490,7 +496,7 @@ lws_ssl_capable_write(struct libwebsocket *wsi, unsigned char *buf, int len)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
 	n = SSL_write(wsi->ssl, buf, len);
-	if (n >= 0)
+	if (n > 0)
 		return n;
 
 	n = SSL_get_error(wsi->ssl, n);
@@ -504,7 +510,7 @@ lwsl_err("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
 }
 
 LWS_VISIBLE int
-lws_ssl_close(struct libwebsocket *wsi)
+lws_ssl_close(struct lws *wsi)
 {
 	int n;
 
@@ -515,17 +521,20 @@ lws_ssl_close(struct libwebsocket *wsi)
 	SSL_shutdown(wsi->ssl);
 	compatible_close(n);
 	SSL_free(wsi->ssl);
+	wsi->ssl = NULL;
 
 	return 1; /* handled */
 }
 
+/* leave all wsi close processing to the caller */
+
 LWS_VISIBLE int
-lws_server_socket_service_ssl(struct libwebsocket_context *context,
-		struct libwebsocket **pwsi, struct libwebsocket *new_wsi,
-			int accept_fd, struct libwebsocket_pollfd *pollfd)
+lws_server_socket_service_ssl(struct lws_context *context, struct lws **pwsi,
+			      struct lws *new_wsi, lws_sockfd_type accept_fd,
+			      struct lws_pollfd *pollfd)
 {
+	struct lws *wsi = *pwsi;
 	int n, m;
-	struct libwebsocket *wsi = *pwsi;
 #ifndef USE_WOLFSSL
 	BIO *bio;
 #endif
@@ -544,10 +553,8 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		new_wsi->ssl = SSL_new(context->ssl_ctx);
 		if (new_wsi->ssl == NULL) {
 			lwsl_err("SSL_new failed: %s\n",
-					ERR_error_string(SSL_get_error(new_wsi->ssl, 0), NULL));
-			libwebsockets_decode_ssl_error();
-
-			// TODO: Shouldn't the caller handle this?
+				 ERR_error_string(SSL_get_error(new_wsi->ssl, 0), NULL));
+			lws_decode_ssl_error();
 			compatible_close(accept_fd);
 			goto fail;
 		}
@@ -589,7 +596,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 		if (insert_wsi_socket_into_fds(context, wsi))
 			goto fail;
 
-		libwebsocket_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
+		lws_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
 							AWAITING_TIMEOUT);
 
 		lwsl_info("inserted SSL accept into fds, trying SSL_accept\n");
@@ -663,7 +670,7 @@ lws_server_socket_service_ssl(struct libwebsocket_context *context,
 
 		m = SSL_get_error(wsi->ssl, n);
 		lwsl_debug("SSL_accept failed %d / %s\n",
-						  m, ERR_error_string(m, NULL));
+			   m, ERR_error_string(m, NULL));
 go_again:
 		if (m == SSL_ERROR_WANT_READ) {
 			if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
@@ -682,14 +689,13 @@ go_again:
 			break;
 		}
 		lwsl_debug("SSL_accept failed skt %u: %s\n",
-					 pollfd->fd, ERR_error_string(m, NULL));
+			   pollfd->fd, ERR_error_string(m, NULL));
 		goto fail;
 
 accepted:
 		/* OK, we are accepted... give him some time to negotiate */
-		libwebsocket_set_timeout(wsi,
-			PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-							AWAITING_TIMEOUT);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+				AWAITING_TIMEOUT);
 
 		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
 
@@ -706,7 +712,7 @@ fail:
 }
 
 LWS_VISIBLE void
-lws_ssl_context_destroy(struct libwebsocket_context *context)
+lws_ssl_context_destroy(struct lws_context *context)
 {
 	if (context->ssl_ctx)
 		SSL_CTX_free(context->ssl_ctx);

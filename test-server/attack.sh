@@ -6,6 +6,9 @@ SERVER=127.0.0.1
 PORT=7681
 LOG=/tmp/lwslog
 
+A=`which libwebsockets-test-server`
+INSTALLED=`dirname $A`
+
 CPID=
 LEN=0
 
@@ -18,7 +21,7 @@ function check {
 	dd if=$LOG bs=1 skip=$LEN 2>/dev/null
 
 	if [ "$1" = "default" ] ; then
-		diff /tmp/lwscap /usr/share/libwebsockets-test-server/test.html > /dev/null
+		diff /tmp/lwscap $INSTALLED/../share/libwebsockets-test-server/test.html > /dev/null
 		if [ $? -ne 0 ] ; then
 			echo "FAIL: got something other than test.html back"
 			exit 1
@@ -26,7 +29,7 @@ function check {
 	fi
 
 	if [ "$1" = "forbidden" ] ; then
-		if [ -z "`grep '<h1>403 Forbidden</h1>' /tmp/lwscap`" ] ; then
+		if [ -z "`grep '<h1>403</h1>' /tmp/lwscap`" ] ; then
 			echo "FAIL: should have told forbidden (test server has no dirs)"
 			exit 1
 		fi

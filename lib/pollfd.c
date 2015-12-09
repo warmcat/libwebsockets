@@ -22,10 +22,10 @@
 #include "private-libwebsockets.h"
 
 int
-insert_wsi_socket_into_fds(struct libwebsocket_context *context,
-						       struct libwebsocket *wsi)
+insert_wsi_socket_into_fds(struct lws_context *context,
+						       struct lws *wsi)
 {
-	struct libwebsocket_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
+	struct lws_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
 
 	if (context->fds_count >= context->max_fds) {
 		lwsl_err("Too many fds (%d)\n", context->max_fds);
@@ -47,7 +47,7 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 //					    wsi, wsi->sock, context->fds_count);
 
 	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *) &pa, 0))
+	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *) &pa, 1))
 		return -1;
 
 	insert_wsi(context, wsi);
@@ -63,18 +63,18 @@ insert_wsi_socket_into_fds(struct libwebsocket_context *context,
 		return -1;
 
 	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *)&pa, 0))
+	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *)&pa, 1))
 		return -1;
 
 	return 0;
 }
 
 int
-remove_wsi_socket_from_fds(struct libwebsocket_context *context,
-						      struct libwebsocket *wsi)
+remove_wsi_socket_from_fds(struct lws_context *context,
+						      struct lws *wsi)
 {
 	int m;
-	struct libwebsocket_pollargs pa = { wsi->sock, 0, 0 };
+	struct lws_pollargs pa = { wsi->sock, 0, 0 };
 
 	lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
@@ -92,7 +92,7 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 				    wsi, wsi->sock, wsi->position_in_fds_table);
 
 	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *)&pa, 0))
+	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *)&pa, 1))
 		return -1;
 
 	m = wsi->position_in_fds_table; /* replace the contents for this */
@@ -123,20 +123,20 @@ remove_wsi_socket_from_fds(struct libwebsocket_context *context,
 	}
 	if (context->protocols[0].callback(context, wsi,
 				       LWS_CALLBACK_UNLOCK_POLL,
-				       wsi->user_space, (void *) &pa, 0))
+				       wsi->user_space, (void *) &pa, 1))
 		return -1;
 
 	return 0;
 }
 
 int
-lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
+lws_change_pollfd(struct lws *wsi, int _and, int _or)
 {
-	struct libwebsocket_context *context;
+	struct lws_context *context;
 	int tid;
 	int sampled_tid;
-	struct libwebsocket_pollfd *pfd;
-	struct libwebsocket_pollargs pa;
+	struct lws_pollfd *pfd;
+	struct lws_pollargs pa;
 
 	if (!wsi || !wsi->protocol || wsi->position_in_fds_table < 0)
 		return 1;
@@ -167,7 +167,10 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 	 *       ... and the service thread is waiting ...
 	 *         then cancel it to force a restart with our changed events
 	 */
-	if (pa.prev_events != pa.events) {
+#if LWS_POSIX
+	if (pa.prev_events != pa.events)
+#endif
+	{
 		
 		if (lws_plat_change_pollfd(context, wsi, pfd)) {
 			lwsl_info("%s failed\n", __func__);
@@ -181,7 +184,7 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 			if (tid == -1)
 				return -1;
 			if (tid != sampled_tid)
-				libwebsocket_cancel_service(context);
+				lws_cancel_service(context);
 		}
 	}
 
@@ -194,7 +197,7 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
 
 
 /**
- * libwebsocket_callback_on_writable() - Request a callback when this socket
+ * lws_callback_on_writable() - Request a callback when this socket
  *					 becomes able to be written to without
  *					 blocking
  *
@@ -203,11 +206,11 @@ lws_change_pollfd(struct libwebsocket *wsi, int _and, int _or)
  */
 
 LWS_VISIBLE int
-libwebsocket_callback_on_writable(struct libwebsocket_context *context,
-						      struct libwebsocket *wsi)
+lws_callback_on_writable(struct lws_context *context,
+						      struct lws *wsi)
 {
 #ifdef LWS_USE_HTTP2
-	struct libwebsocket *network_wsi, *wsi2;
+	struct lws *network_wsi, *wsi2;
 	int already;
 
 	lwsl_info("%s: %p\n", __func__, wsi);
@@ -272,7 +275,7 @@ network_sock:
 }
 
 /**
- * libwebsocket_callback_on_writable_all_protocol() - Request a callback for
+ * lws_callback_on_writable_all_protocol() - Request a callback for
  *			all connections using the given protocol when it
  *			becomes possible to write to each socket without
  *			blocking in turn.
@@ -281,19 +284,19 @@ network_sock:
  */
 
 LWS_VISIBLE int
-libwebsocket_callback_on_writable_all_protocol(
-				  const struct libwebsocket_protocols *protocol)
+lws_callback_on_writable_all_protocol(
+				  const struct lws_protocols *protocol)
 {
-	struct libwebsocket_context *context = protocol->owning_server;
+	struct lws_context *context = protocol->owning_server;
 	int n;
-	struct libwebsocket *wsi;
+	struct lws *wsi;
 
 	for (n = 0; n < context->fds_count; n++) {
 		wsi = wsi_from_fd(context,context->fds[n].fd);
 		if (!wsi)
 			continue;
 		if (wsi->protocol == protocol)
-			libwebsocket_callback_on_writable(context, wsi);
+			lws_callback_on_writable(context, wsi);
 	}
 
 	return 0;

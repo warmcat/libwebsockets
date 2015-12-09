@@ -34,9 +34,7 @@ int get_daemonize_pid()
 static void
 child_handler(int signum)
 {
-	int fd;
-	int len;
-	int sent;
+	int fd, len, sent;
 	char sz[20];
 
 	switch (signum) {
@@ -93,11 +91,10 @@ static void lws_daemon_closing(int sigact)
 LWS_VISIBLE int
 lws_daemonize(const char *_lock_path)
 {
-	pid_t sid, parent;
-	int fd;
-	char buf[10];
-	int n, ret;
 	struct sigaction act;
+	pid_t sid, parent;
+	int n, fd, ret;
+	char buf[10];
 
 	/* already a daemon */
 	if (getppid() == 1)

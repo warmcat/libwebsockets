@@ -59,7 +59,7 @@ int lextable_decode(int pos, char c)
 	}
 }
 
-int lws_allocate_header_table(struct libwebsocket *wsi)
+int lws_allocate_header_table(struct lws *wsi)
 {
 	/* Be sure to free any existing header data to avoid mem leak: */
 	lws_free_header_table(wsi);
@@ -75,14 +75,14 @@ int lws_allocate_header_table(struct libwebsocket *wsi)
 	return 0;
 }
 
-int lws_free_header_table(struct libwebsocket *wsi)
+int lws_free_header_table(struct lws *wsi)
 {
 	lws_free2(wsi->u.hdr.ah);
 	wsi->u.hdr.ah = NULL;
 	return 0;
 };
 
-LWS_VISIBLE int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_indexes h)
+LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;
 	int len = 0;
@@ -98,8 +98,8 @@ LWS_VISIBLE int lws_hdr_total_length(struct libwebsocket *wsi, enum lws_token_in
 	return len;
 }
 
-LWS_VISIBLE int lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
-						enum lws_token_indexes h)
+LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dest, int len,
+			     enum lws_token_indexes h)
 {
 	int toklen = lws_hdr_total_length(wsi, h);
 	int n;
@@ -121,7 +121,7 @@ LWS_VISIBLE int lws_hdr_copy(struct libwebsocket *wsi, char *dest, int len,
 	return toklen;
 }
 
-char *lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h)
+char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;
 
@@ -132,8 +132,8 @@ char *lws_hdr_simple_ptr(struct libwebsocket *wsi, enum lws_token_indexes h)
 	return &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset];
 }
 
-int lws_hdr_simple_create(struct libwebsocket *wsi,
-				enum lws_token_indexes h, const char *s)
+int lws_hdr_simple_create(struct lws *wsi,
+			  enum lws_token_indexes h, const char *s)
 {
 	wsi->u.hdr.ah->next_frag_index++;
 	if (wsi->u.hdr.ah->next_frag_index ==
@@ -178,29 +178,35 @@ static signed char char_to_hex(const char c)
 	return -1;
 }
 
-static int issue_char(struct libwebsocket *wsi, unsigned char c)
+static int issue_char(struct lws *wsi, unsigned char c)
 {
+	unsigned short frag_len;
 	if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
 		lwsl_warn("excessive header content\n");
 		return -1;
 	}
 
-	if( wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len >= 
-		wsi->u.hdr.current_token_limit) {
-		lwsl_warn("header %i exceeds limit\n", wsi->u.hdr.parser_state);
-		return 1;
+	frag_len = \
+		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len;
+	/* If we haven't hit the token limit, just copy the character into
+	 * the header: */
+	if( frag_len < wsi->u.hdr.current_token_limit ) {
+		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = c;
+		if (c)
+			wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
+		return 0;
+	}
+	else {
+		/* Insert a null character when we *hit* the limit: */
+		if( frag_len == wsi->u.hdr.current_token_limit ) {
+			wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
+			lwsl_warn("header %i exceeds limit\n", wsi->u.hdr.parser_state);
+		};
 	};
-
-	wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = c;
-	if (c)
-		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
-
-	return 0;
+	return 1;
 }
 
-int libwebsocket_parse(
-		struct libwebsocket_context *context,
-		struct libwebsocket *wsi, unsigned char c)
+int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 {
 	static const unsigned char methods[] = {
 		WSI_TOKEN_GET_URI,
@@ -273,7 +279,7 @@ int libwebsocket_parse(
 				issue_char(wsi, '%');
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* regurgitate + assess */
-				if (libwebsocket_parse(context, wsi, wsi->u.hdr.esc_stash) < 0)
+				if (lws_parse(context, wsi, wsi->u.hdr.esc_stash) < 0)
 					return -1;
 				/* continue on to assess c */
 				break;
@@ -564,13 +570,13 @@ set_parsing_complete:
  * mode.
  */
 
-LWS_VISIBLE int lws_frame_is_binary(struct libwebsocket *wsi)
+LWS_VISIBLE int lws_frame_is_binary(struct lws *wsi)
 {
 	return wsi->u.ws.frame_is_binary;
 }
 
 int
-libwebsocket_rx_sm(struct libwebsocket *wsi, unsigned char c)
+lws_rx_sm(struct lws *wsi, unsigned char c)
 {
 	struct lws_tokens eff_buf;
 	int ret = 0;
@@ -921,7 +927,7 @@ process_as_ping:
 			wsi->u.ws.ping_pending_flag = 1;
 			
 			/* get it sent as soon as possible */
-			libwebsocket_callback_on_writable(wsi->protocol->owning_server, wsi);
+			lws_callback_on_writable(wsi->protocol->owning_server, wsi);
 ping_drop:
 			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;
@@ -966,7 +972,7 @@ ping_drop:
 		/*
 		 * No it's real payload, pass it up to the user callback.
 		 * It's nicely buffered with the pre-padding taken care of
-		 * so it can be sent straight out again using libwebsocket_write
+		 * so it can be sent straight out again using lws_write
 		 */
 
 		eff_buf.token = &wsi->u.ws.rx_user_buffer[
@@ -977,7 +983,8 @@ ping_drop:
 				LWS_EXT_CALLBACK_PAYLOAD_RX, &eff_buf, 0) < 0)
 			return -1;
 
-		if (eff_buf.token_len > 0) {
+		if (eff_buf.token_len > 0 ||
+		    callback_action == LWS_CALLBACK_RECEIVE_PONG) {
 			eff_buf.token[eff_buf.token_len] = '\0';
 
 			if (wsi->protocol->callback) {
@@ -989,7 +996,7 @@ ping_drop:
 						wsi->protocol->callback,
 						wsi->protocol->owning_server,
 						wsi,
-						(enum libwebsocket_callback_reasons)callback_action,
+						(enum lws_callback_reasons)callback_action,
 						wsi->user_space,
 						eff_buf.token,
 						eff_buf.token_len);
@@ -1013,7 +1020,7 @@ illegal_ctl_length:
 
 
 /**
- * libwebsockets_remaining_packet_payload() - Bytes to come before "overall"
+ * lws_remaining_packet_payload() - Bytes to come before "overall"
  *					      rx packet is complete
  * @wsi:		Websocket instance (available from user callback)
  *
@@ -1023,14 +1030,14 @@ illegal_ctl_length:
  *  additionally when it hits a built-in limit.  The LWS_CALLBACK_RECEIVE
  *  callback handler can use this API to find out if the buffer it has just
  *  been given is the last piece of a "complete packet" from the client --
- *  when that is the case libwebsockets_remaining_packet_payload() will return
+ *  when that is the case lws_remaining_packet_payload() will return
  *  0.
  *
  *  Many protocols won't care becuse their packets are always small.
  */
 
 LWS_VISIBLE size_t
-libwebsockets_remaining_packet_payload(struct libwebsocket *wsi)
+lws_remaining_packet_payload(struct lws *wsi)
 {
 	return wsi->u.ws.rx_packet_length;
 }

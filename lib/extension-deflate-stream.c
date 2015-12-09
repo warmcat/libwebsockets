@@ -8,10 +8,10 @@
 #define LWS_ZLIB_MEMLEVEL 8
 
 int lws_extension_callback_deflate_stream(
-		struct libwebsocket_context *context,
-		struct libwebsocket_extension *ext,
-		struct libwebsocket *wsi,
-			enum libwebsocket_extension_callback_reasons reason,
+		struct lws_context *context,
+		struct lws_extension *ext,
+		struct lws *wsi,
+			enum lws_extension_callback_reasons reason,
 					       void *user, void *in, size_t len)
 {
 	struct lws_ext_deflate_stream_conn *conn =

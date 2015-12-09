@@ -23,9 +23,9 @@
 /* dumb_increment protocol */
 
 int
-callback_dumb_increment(struct libwebsocket_context *context,
-			struct libwebsocket *wsi,
-			enum libwebsocket_callback_reasons reason,
+callback_dumb_increment(struct lws_context *context,
+			struct lws *wsi,
+			enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
@@ -43,7 +43,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		n = sprintf((char *)p, "%d", pss->number++);
-		m = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
+		m = lws_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (m < n) {
 			lwsl_err("ERROR %d writing to di socket\n", n);
 			return -1;

@@ -30,11 +30,11 @@ void lws_feature_status_libev(struct lws_context_creation_info *info)
 }
 
 static void 
-libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
+lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 {
-	struct libwebsocket_pollfd eventfd;
+	struct lws_pollfd eventfd;
 	struct lws_io_watcher *lws_io = container_of(watcher, struct lws_io_watcher, watcher);
-	struct libwebsocket_context *context = lws_io->context;
+	struct lws_context *context = lws_io->context;
 
 	if (revents & EV_ERROR)
 		return;
@@ -47,18 +47,18 @@ libwebsocket_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 	if (revents & EV_WRITE)
 		eventfd.revents |= LWS_POLLOUT;
 
-	libwebsocket_service_fd(context, &eventfd);
+	lws_service_fd(context, &eventfd);
 }
 
 LWS_VISIBLE void
-libwebsocket_sigint_cb(struct ev_loop *loop,
+lws_sigint_cb(struct ev_loop *loop,
 		       struct ev_signal *watcher, int revents)
 {
 	ev_break(loop, EVBREAK_ALL);
 }
 
-LWS_VISIBLE int libwebsocket_sigint_cfg(
-	struct libwebsocket_context *context,
+LWS_VISIBLE int lws_sigint_cfg(
+	struct lws_context *context,
 	int use_ev_sigint,
 	lws_ev_signal_cb* cb)
 {
@@ -67,14 +67,14 @@ LWS_VISIBLE int libwebsocket_sigint_cfg(
 		context->lws_ev_sigint_cb = cb;
 	}
 	else {
-		context->lws_ev_sigint_cb = &libwebsocket_sigint_cb;
+		context->lws_ev_sigint_cb = &lws_sigint_cb;
 	};
 	return 0;
 };
 
 LWS_VISIBLE int
-libwebsocket_initloop(
-	struct libwebsocket_context *context,
+lws_initloop(
+	struct lws_context *context,
 	struct ev_loop *loop)
 {
 	int status = 0;
@@ -92,7 +92,7 @@ libwebsocket_initloop(
 	 * Initialize the accept w_accept with the listening socket
 	 * and register a callback for read operations:
 	 */
-	ev_io_init(w_accept, libwebsocket_accept_cb,
+	ev_io_init(w_accept, lws_accept_cb,
 					context->listen_service_fd, EV_READ);
 	ev_io_start(context->io_loop,w_accept);
 
@@ -133,8 +133,8 @@ libwebsocket_initloop(
 }
 
 LWS_VISIBLE void
-lws_libev_accept(struct libwebsocket_context *context,
-				 struct libwebsocket *new_wsi, int accept_fd)
+lws_libev_accept(struct lws_context *context,
+				 struct lws *new_wsi, int accept_fd)
 {
 	struct ev_io *r = &new_wsi->w_read.watcher;
 	struct ev_io *w = &new_wsi->w_write.watcher;
@@ -144,13 +144,13 @@ lws_libev_accept(struct libwebsocket_context *context,
 
         new_wsi->w_read.context = context;
         new_wsi->w_write.context = context;
-        ev_io_init(r, libwebsocket_accept_cb, accept_fd, EV_READ);
-        ev_io_init(w, libwebsocket_accept_cb, accept_fd, EV_WRITE);
+        ev_io_init(r, lws_accept_cb, accept_fd, EV_READ);
+        ev_io_init(w, lws_accept_cb, accept_fd, EV_WRITE);
 }
 
 LWS_VISIBLE void
-lws_libev_io(struct libwebsocket_context *context,
-					 struct libwebsocket *wsi, int flags)
+lws_libev_io(struct lws_context *context,
+					 struct lws *wsi, int flags)
 {
 	if (!LWS_LIBEV_ENABLED(context))
 		return;
@@ -175,7 +175,7 @@ lws_libev_io(struct libwebsocket_context *context,
 }
 
 LWS_VISIBLE int
-lws_libev_init_fd_table(struct libwebsocket_context *context)
+lws_libev_init_fd_table(struct lws_context *context)
 {
 	if (!LWS_LIBEV_ENABLED(context))
 		return 0;
@@ -187,7 +187,7 @@ lws_libev_init_fd_table(struct libwebsocket_context *context)
 }
 
 LWS_VISIBLE void
-lws_libev_run(struct libwebsocket_context *context)
+lws_libev_run(struct lws_context *context)
 {
 	if (context->io_loop && LWS_LIBEV_ENABLED(context))
 		ev_run(context->io_loop, 0);

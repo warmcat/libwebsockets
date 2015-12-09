@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -49,6 +49,7 @@
 #ifndef min
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #endif
+
 /*
  * We have to take care about parsing because the headers may be split
  * into multiple fragments.  They may contain unknown headers with arbitrary
@@ -57,12 +58,12 @@
  */
 
 LWS_VISIBLE int
-libwebsocket_read(struct libwebsocket_context *context,
-		     struct libwebsocket *wsi, unsigned char *buf, size_t len)
+lws_read(struct lws_context *context, struct lws *wsi, unsigned char *buf,
+	 size_t len)
 {
-	size_t n;
-	int body_chunk_len;
 	unsigned char *last_char;
+	int body_chunk_len;
+	size_t n;
 
 	switch (wsi->state) {
 #ifdef LWS_USE_HTTP2
@@ -124,8 +125,13 @@ http_new:
 			case WSI_STATE_HTTP_ISSUING_FILE:
 				goto read_ok;
 			case WSI_STATE_HTTP_BODY:
-				wsi->u.http.content_remain = wsi->u.http.content_length;
-				goto http_postbody;
+				wsi->u.http.content_remain =
+						wsi->u.http.content_length;
+				if (wsi->u.http.content_remain)
+					goto http_postbody;
+
+				/* there is no POST content */
+				goto postbody_completion;
 			default:
 				break;
 		}
@@ -142,32 +148,31 @@ http_postbody:
 			wsi->u.http.content_remain -= body_chunk_len;
 			len -= body_chunk_len;
 
-			if (wsi->protocol->callback) {
-				n = wsi->protocol->callback(
-					wsi->protocol->owning_server, wsi,
-					LWS_CALLBACK_HTTP_BODY, wsi->user_space,
-					buf, body_chunk_len);
-				if (n)
-					goto bail;
-			}
+			n = wsi->protocol->callback(
+				wsi->protocol->owning_server, wsi,
+				LWS_CALLBACK_HTTP_BODY, wsi->user_space,
+				buf, body_chunk_len);
+			if (n)
+				goto bail;
+
 			buf += body_chunk_len;
 
-			if (!wsi->u.http.content_remain)  {
-				/* he sent the content in time */
-				libwebsocket_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-				if (wsi->protocol->callback) {
-					n = wsi->protocol->callback(
-						wsi->protocol->owning_server, wsi,
-						LWS_CALLBACK_HTTP_BODY_COMPLETION,
-						wsi->user_space, NULL, 0);
-					if (n)
-						goto bail;
-				}
-				goto http_complete;
-			} else
-				libwebsocket_set_timeout(wsi,
-					PENDING_TIMEOUT_HTTP_CONTENT,
-					AWAITING_TIMEOUT);
+			if (wsi->u.http.content_remain)  {
+				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+						AWAITING_TIMEOUT);
+				break;
+			}
+			/* he sent all the content in time */
+postbody_completion:
+			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+			n = wsi->protocol->callback(
+				wsi->protocol->owning_server, wsi,
+				LWS_CALLBACK_HTTP_BODY_COMPLETION,
+				wsi->user_space, NULL, 0);
+			if (n)
+				goto bail;
+
+			goto http_complete;
 		}
 		break;
 
@@ -178,7 +183,7 @@ http_postbody:
 		switch (wsi->mode) {
 		case LWS_CONNMODE_WS_SERVING:
 
-			if (libwebsocket_interpret_incoming_packet(wsi, buf, len) < 0) {
+			if (lws_interpret_incoming_packet(wsi, buf, len) < 0) {
 				lwsl_info("interpret_incoming_packet has bailed\n");
 				goto bail;
 			}
@@ -186,18 +191,18 @@ http_postbody:
 		}
 		break;
 	default:
-		lwsl_err("libwebsocket_read: Unhandled state\n");
+		lwsl_err("lws_read: Unhandled state\n");
 		break;
 	}
 
 read_ok:
-	/* Nothing more to do for now. */
-	lwsl_debug("libwebsocket_read: read_ok\n");
+	/* Nothing more to do for now */
+	lwsl_debug("lws_read: read_ok\n");
 
 	return 0;
 
 http_complete:
-	lwsl_debug("libwebsocket_read: http_complete\n");
+	lwsl_debug("lws_read: http_complete\n");
 
 #ifndef LWS_NO_SERVER
 	/* Did the client want to keep the HTTP connection going? */
@@ -211,10 +216,8 @@ http_complete:
 	return 0;
 
 bail:
-	lwsl_debug("closing connection at libwebsocket_read bail:\n");
-
-	libwebsocket_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
+	lwsl_debug("closing connection at lws_read bail:\n");
+	lws_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return -1;
 }
