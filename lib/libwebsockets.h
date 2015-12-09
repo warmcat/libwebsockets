@@ -1183,6 +1183,9 @@ struct lws_protocols {
 
 	struct lws_context *owning_server;
 	int protocol_index;
+
+	/* Add new things just above here ---^
+	 * This is part of the ABI, don't needlessly break compatibilty */
 };
 
 #ifndef LWS_NO_EXTENSIONS
@@ -1204,6 +1207,9 @@ struct lws_extension {
 	extension_callback_function *callback;
 	size_t per_session_data_size;
 	void *per_context_private_data;
+
+	/* Add new things just above here ---^
+	 * This is part of the ABI, don't needlessly break compatibilty */
 };
 #endif
 
@@ -1283,6 +1289,9 @@ struct lws_context_creation_info {
 #else /* maintain structure layout either way */
     	void *provided_client_ssl_ctx;
 #endif
+
+	/* Add new things just above here ---^
+	 * This is part of the ABI, don't needlessly break compatibilty */
 };
 
 LWS_VISIBLE LWS_EXTERN void
