@@ -358,9 +358,6 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_UNLOCK_POLL				= 36,
 
 	LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY	= 37,
-	
-	LWS_CALLBACK_FILE_OPEN					= 38,
-	LWS_CALLBACK_FILE_SEEK					= 
 
 	/****** add new things just above ---^ ******/
 
@@ -370,6 +367,7 @@ enum lws_callback_reasons {
 
 #if defined(_WIN32) && (_WIN32_WINNT < 0x0600)
 typedef SOCKET lws_sockfd_type;
+typedef HANDLE lws_filefd_type;
 #define lws_sockfd_valid(sfd) (!!sfd)
 struct lws_pollfd {
 	lws_sockfd_type fd;
@@ -382,6 +380,7 @@ WINSOCK_API_LINKAGE int WSAAPI WSAPoll(struct lws_pollfd fdArray[], ULONG fds, I
 #if defined(MBED_OPERATORS)
 /* it's a class lws_conn * */
 typedef void * lws_sockfd_type;
+typedef void * lws_filefd_type;
 #define lws_sockfd_valid(sfd) (!!sfd)
 struct pollfd {
 	lws_sockfd_type fd;
@@ -403,6 +402,7 @@ void mbed3_tcp_stream_bind(void *sock, int port, struct lws *);
 void mbed3_tcp_stream_accept(void *sock, struct lws *);
 #else
 typedef int lws_sockfd_type;
+typedef int lws_filefd_type;
 #define lws_sockfd_valid(sfd) (sfd >= 0)
 #endif
 
@@ -416,6 +416,34 @@ struct lws_pollargs {
     lws_sockfd_type fd;		/* applicable socket descriptor */
     int events;			/* the new event mask */
     int prev_events;		/* the previous event mask */
+};
+
+/**
+ * struct lws_plat_file_ops - Platform-specific file operations
+ *
+ * These provide platform-agnostic ways to deal with filesystem access in the
+ * library and in the user code.
+ *
+ * @open:		Open file (always binary access if plat supports it)
+ *			 filelen is filled on exit to be the length of the file
+ *			 flags should be set to O_RDONLY or O_RDWR
+ * @close:		Close file
+ * @seek_cur:		Seek from current position
+ * @read:		Read fron file *amount is set on exit to amount read
+ * @write:		Write to file *amount is set on exit as amount written
+ */
+struct lws_plat_file_ops {
+	lws_filefd_type (*open)(const char *filename, unsigned long *filelen,
+				int flags);
+	int (*close)(lws_filefd_type fd);
+	unsigned long (*seek_cur)(lws_filefd_type fd, long offset_from_cur_pos);
+	int (*read)(lws_filefd_type fd, unsigned long *amount,
+		    unsigned char *buf, unsigned long len);
+	int (*write)(lws_filefd_type fd, unsigned long *amount,
+		     unsigned char *buf, unsigned long len);
+
+	/* Add new things just above here ---^
+	 * This is part of the ABI, don't needlessly break compatibilty */
 };
 
 /*
