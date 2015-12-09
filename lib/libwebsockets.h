@@ -178,7 +178,7 @@ extern "C" {
 #define LWS_EXTERN
 #endif
 
-#else // NOT WIN32
+#else /* NOT WIN32 */
 #include <unistd.h>
 
 #ifndef MBED_OPERATORS
@@ -358,6 +358,9 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_UNLOCK_POLL				= 36,
 
 	LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY	= 37,
+	
+	LWS_CALLBACK_FILE_OPEN					= 38,
+	LWS_CALLBACK_FILE_SEEK					= 
 
 	/****** add new things just above ---^ ******/
 
@@ -406,12 +409,13 @@ typedef int lws_sockfd_type;
 #define lws_pollfd pollfd
 #endif
 
-// argument structure for all external poll related calls
-// passed in via 'in'
+/* argument structure for all external poll related calls
+ * passed in via 'in'
+ */
 struct lws_pollargs {
-    lws_sockfd_type fd;            // applicable file descriptor
-    int events;        // the new event mask
-    int prev_events;   // the previous event mask
+    lws_sockfd_type fd;		/* applicable socket descriptor */
+    int events;			/* the new event mask */
+    int prev_events;		/* the previous event mask */
 };
 
 /*
@@ -607,7 +611,7 @@ enum lws_token_indexes {
 	WSI_INIT_TOKEN_MUXURL,
 };
 
-struct lws_token_limits {//
+struct lws_token_limits {
     unsigned short token_limit[WSI_TOKEN_COUNT];
 };
 
@@ -1453,7 +1457,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 #endif
 
 #if __x86_64__
-#define _LWS_PAD_SIZE 16       // Intel recommended for best performance.
+#define _LWS_PAD_SIZE 16	/* Intel recommended for best performance */
 #else
 #define _LWS_PAD_SIZE LWS_SIZEOFPTR   /* Size of a pointer on the target architecture */
 #endif
