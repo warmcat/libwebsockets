@@ -36,13 +36,10 @@
 
 #include "../lib/libwebsockets.h"
 
-static unsigned int opts;
-static int deny_deflate;
-static int deny_mux;
+static int deny_deflate, deny_mux, longlived, mirror_lifetime;
 static struct lws *wsi_dumb, *wsi_mirror;
-static int mirror_lifetime = 0;
-static volatile int force_exit = 0;
-static int longlived = 0;
+static volatile int force_exit;
+static unsigned int opts;
 
 /*
  * This demo shows how to connect multiple websockets simultaneously to a
@@ -67,7 +64,12 @@ enum demo_protocols {
 };
 
 
-/* dumb_increment protocol */
+/* 
+ * dumb_increment protocol
+ * 
+ * since this also happens to be protocols[0], some callbacks that are not
+ * bound to a specific protocol also turn up here.
+ */
 
 static int
 callback_dumb_increment(struct lws_context *this,
@@ -78,12 +80,21 @@ callback_dumb_increment(struct lws_context *this,
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
-		fprintf(stderr, "dumb: LWS_CALLBACK_CLIENT_ESTABLISHED\n");
+		lwsl_info("dumb: LWS_CALLBACK_CLIENT_ESTABLISHED\n");
 		break;
 
-	/* this callback comes only at protocols[0] handler
-	 * since at this time, no protocol had been negotiated
-	 */
+	case LWS_CALLBACK_CLOSED:
+		lwsl_notice("dumb: LWS_CALLBACK_CLOSED\n");
+		wsi_dumb = NULL;
+		break;
+
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		((char *)in)[len] = '\0';
+		lwsl_info("rx %d '%s'\n", (int)len, (char *)in);
+		break;
+
+	/* because we are protocols[0] ... */
+
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		if (wsi == wsi_dumb) {
 			lwsl_err("dumb: LWS_CALLBACK_CLIENT_CONNECTION_ERROR\n");
@@ -95,32 +106,19 @@ callback_dumb_increment(struct lws_context *this,
 		}
 		break;
 
-	case LWS_CALLBACK_CLOSED:
-		lwsl_notice("dumb: LWS_CALLBACK_CLOSED\n");
-		wsi_dumb = NULL;
-		break;
-
-	case LWS_CALLBACK_CLIENT_RECEIVE:
-		((char *)in)[len] = '\0';
-		fprintf(stderr, "rx %d '%s'\n", (int)len, (char *)in);
-		break;
-
-	/* because we are protocols[0] ... */
-
 	case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:
 		if ((strcmp(in, "deflate-stream") == 0) && deny_deflate) {
-			fprintf(stderr, "denied deflate-stream extension\n");
+			lwsl_notice("denied deflate-stream extension\n");
 			return 1;
 		}
 		if ((strcmp(in, "deflate-frame") == 0) && deny_deflate) {
-			fprintf(stderr, "denied deflate-frame extension\n");
+			lwsl_notice("denied deflate-frame extension\n");
 			return 1;
 		}
 		if ((strcmp(in, "x-google-mux") == 0) && deny_mux) {
-			fprintf(stderr, "denied x-google-mux extension\n");
+			lwsl_notice("denied x-google-mux extension\n");
 			return 1;
 		}
-
 		break;
 
 	default:
@@ -136,24 +134,23 @@ callback_dumb_increment(struct lws_context *this,
 
 static int
 callback_lws_mirror(struct lws_context *context,
-			struct lws *wsi,
-			enum lws_callback_reasons reason,
-					       void *user, void *in, size_t len)
+		    struct lws *wsi,
+		    enum lws_callback_reasons reason,
+		    void *user, void *in, size_t len)
 {
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 4096 +
-						  LWS_SEND_BUFFER_POST_PADDING];
+			  LWS_SEND_BUFFER_POST_PADDING];
+	unsigned int rands[4];
 	int l = 0;
 	int n;
-	unsigned int rands[4];
 
 	switch (reason) {
-
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 
 		lwsl_notice("mirror: LWS_CALLBACK_CLIENT_ESTABLISHED\n");
 
 		lws_get_random(context, rands, sizeof(rands[0]));
-		mirror_lifetime = 65535 + (rands[0] & 65535);
+		mirror_lifetime = 16384 + (rands[0] & 65535);
 		/* useful to test single connection stability */
 		if (longlived)
 			mirror_lifetime += 500000;
@@ -166,13 +163,10 @@ callback_lws_mirror(struct lws_context *context,
 		 * zero the connection is closed in the send callback.
 		 * When the close callback comes, wsi_mirror is set to NULL
 		 * so a new connection will be opened
-		 */
-
-		/*
+		 *
 		 * start the ball rolling,
 		 * LWS_CALLBACK_CLIENT_WRITEABLE will come next service
 		 */
-
 		lws_callback_on_writable(context, wsi);
 		break;
 
@@ -181,12 +175,7 @@ callback_lws_mirror(struct lws_context *context,
 		wsi_mirror = NULL;
 		break;
 
-	case LWS_CALLBACK_CLIENT_RECEIVE:
-/*		fprintf(stderr, "rx %d '%s'\n", (int)len, (char *)in); */
-		break;
-
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
-
 		for (n = 0; n < 1; n++) {
 			lws_get_random(context, rands, sizeof(rands));
 			l += sprintf((char *)&buf[LWS_SEND_BUFFER_PRE_PADDING + l],
@@ -197,9 +186,8 @@ callback_lws_mirror(struct lws_context *context,
 					(int)rands[3] % 24);
 		}
 
-		n = lws_write(wsi,
-		   &buf[LWS_SEND_BUFFER_PRE_PADDING], l, opts | LWS_WRITE_TEXT);
-
+		n = lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], l,
+			      opts | LWS_WRITE_TEXT);
 		if (n < 0)
 			return -1;
 		if (n < l) {
@@ -209,11 +197,11 @@ callback_lws_mirror(struct lws_context *context,
 
 		mirror_lifetime--;
 		if (!mirror_lifetime) {
-			fprintf(stderr, "closing mirror session\n");
+			lwsl_info("closing mirror session\n");
 			return -1;
-		} else
-			/* get notified as soon as we can write again */
-			lws_callback_on_writable(context, wsi);
+		}
+		/* get notified as soon as we can write again */
+		lws_callback_on_writable(context, wsi);
 		break;
 
 	default:
@@ -353,8 +341,11 @@ int main(int argc, char **argv)
 	/*
 	 * sit there servicing the websocket context to handle incoming
 	 * packets, and drawing random circles on the mirror protocol websocket
+	 *
 	 * nothing happens until the client websocket connection is
-	 * asynchronously established
+	 * asynchronously established... calling lws_client_connect() only
+	 * instantiates the connection logically, lws_service() progresses it
+	 * asynchronously.
 	 */
 
 	while (!force_exit) {
