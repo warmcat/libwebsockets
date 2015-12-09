@@ -31,6 +31,7 @@ int count_pollfds;
 #endif
 volatile int force_exit = 0;
 struct lws_context *context;
+struct lws_plat_file_ops fops_plat;
 
 /* http server gets files from this path */
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
@@ -96,6 +97,25 @@ static struct lws_protocols protocols[] = {
 	},
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
+
+
+/* this shows how to override the lws file operations.  You don't need
+ * to do any of this unless you have a reason (eg, want to serve
+ * compressed files without decompressing the whole archive)
+ */
+static lws_filefd_type
+test_server_fops_open(const char *filename, unsigned long *filelen, int flags)
+{
+	int n;
+
+	/* call through to original platform implementation */
+	n = fops_plat.open(filename, filelen, flags);
+
+	lwsl_notice("%s: opening %s, ret %d, len %lu\n", __func__, filename,
+		    n, *filelen);
+
+	return n;
+}
 
 void sighandler(int sig)
 {
@@ -270,6 +290,15 @@ int main(int argc, char **argv)
 		lwsl_err("libwebsocket init failed\n");
 		return -1;
 	}
+
+	/* this shows how to override the lws file operations.  You don't need
+	 * to do any of this unless you have a reason (eg, want to serve
+	 * compressed files without decompressing the whole archive)
+	 */
+	/* stash original platform fops */
+	fops_plat = *(lws_get_fops(context));
+	/* override the active fops */
+	lws_get_fops(context)->open = test_server_fops_open;
 
 	n = 0;
 	while (n >= 0 && !force_exit) {

@@ -271,43 +271,6 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 
 }
 
-LWS_VISIBLE int
-lws_plat_init(struct lws_context *context,
-	      struct lws_context_creation_info *info)
-{
-	context->lws_lookup = lws_zalloc(sizeof(struct lws *) * context->max_fds);
-	if (context->lws_lookup == NULL) {
-		lwsl_err(
-		  "Unable to allocate lws_lookup array for %d connections\n",
-							      context->max_fds);
-		return 1;
-	}
-
-	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
-	if (context->fd_random < 0) {
-		lwsl_err("Unable to open random device %s %d\n",
-				    SYSTEM_RANDOM_FILEPATH, context->fd_random);
-		return 1;
-	}
-
-	if (lws_libev_init_fd_table(context))
-		/* libev handled it instead */
-		return 0;
-
-	if (pipe(context->dummy_pipe_fds)) {
-		lwsl_err("Unable to create pipe\n");
-		return 1;
-	}
-
-	/* use the read end of pipe as first item */
-	context->fds[0].fd = context->dummy_pipe_fds[0];
-	context->fds[0].events = LWS_POLLIN;
-	context->fds[0].revents = 0;
-	context->fds_count = 1;
-
-	return 0;
-}
-
 static void sigpipe_handler(int x)
 {
 }
@@ -446,11 +409,17 @@ lws_plat_change_pollfd(struct lws_context *context,
 	return 0;
 }
 
-LWS_VISIBLE int
-lws_plat_open_file(const char* filename, unsigned long* filelen)
+LWS_VISIBLE const char *
+lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
+{
+	return inet_ntop(af, src, dst, cnt);
+}
+
+static lws_filefd_type
+_lws_plat_file_open(const char *filename, unsigned long *filelen, int flags)
 {
 	struct stat stat_buf;
-	int ret = open(filename, O_RDONLY);
+	int ret = open(filename, flags, 0664);
 
 	if (ret < 0)
 		return LWS_INVALID_FILE;
@@ -463,8 +432,91 @@ lws_plat_open_file(const char* filename, unsigned long* filelen)
 	return ret;
 }
 
-LWS_VISIBLE const char *
-lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
+static int
+_lws_plat_file_close(lws_filefd_type fd)
 {
-	return inet_ntop(af, src, dst, cnt);
+	return close(fd);
+}
+
+unsigned long
+_lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
+{
+	return lseek(fd, offset, SEEK_CUR);
+}
+
+static int
+_lws_plat_file_read(lws_filefd_type fd, unsigned long *amount,
+		    unsigned char *buf, unsigned long len)
+{
+	long n;
+
+	n = read((int)fd, buf, len);
+	if (n == -1) {
+		*amount = 0;
+		return -1;
+	}
+
+	*amount = n;
+
+	return 0;
+}
+
+static int
+_lws_plat_file_write(lws_filefd_type fd, unsigned long *amount,
+		     unsigned char *buf, unsigned long len)
+{
+	long n;
+
+	n = write((int)fd, buf, len);
+	if (n == -1) {
+		*amount = 0;
+		return -1;
+	}
+
+	*amount = n;
+
+	return 0;
+}
+
+LWS_VISIBLE int
+lws_plat_init(struct lws_context *context,
+	      struct lws_context_creation_info *info)
+{
+	context->lws_lookup = lws_zalloc(sizeof(struct lws *) * context->max_fds);
+	if (context->lws_lookup == NULL) {
+		lwsl_err(
+		  "Unable to allocate lws_lookup array for %d connections\n",
+							      context->max_fds);
+		return 1;
+	}
+
+	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
+	if (context->fd_random < 0) {
+		lwsl_err("Unable to open random device %s %d\n",
+				    SYSTEM_RANDOM_FILEPATH, context->fd_random);
+		return 1;
+	}
+
+	if (lws_libev_init_fd_table(context))
+		/* libev handled it instead */
+		return 0;
+
+	if (pipe(context->dummy_pipe_fds)) {
+		lwsl_err("Unable to create pipe\n");
+		return 1;
+	}
+
+	/* use the read end of pipe as first item */
+	context->fds[0].fd = context->dummy_pipe_fds[0];
+	context->fds[0].events = LWS_POLLIN;
+	context->fds[0].revents = 0;
+	context->fds_count = 1;
+
+	context->fops.open	= _lws_plat_file_open;
+	context->fops.close	= _lws_plat_file_close;
+	context->fops.seek_cur	= _lws_plat_file_seek_cur;
+	context->fops.read	= _lws_plat_file_read;
+	context->fops.write	= _lws_plat_file_write;
+
+	return 0;
 }

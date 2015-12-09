@@ -106,14 +106,6 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 }
 
 LWS_VISIBLE int
-lws_plat_init(struct lws_context *context,
-	struct lws_context_creation_info *info)
-{
-	return 0;
-}
-
-
-LWS_VISIBLE int
 lws_plat_context_early_init(void)
 {
 	return 0;
@@ -136,14 +128,6 @@ LWS_VISIBLE void
 lws_plat_service_periodic(struct lws_context *context)
 {
 	(void)context;
-}
-
-LWS_VISIBLE int
-lws_plat_open_file(const char* filename, unsigned long* filelen)
-{
-	(void)filename;
-	(void)filelen;
-	return LWS_INVALID_FILE;
 }
 
 LWS_VISIBLE const char *
@@ -172,4 +156,66 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 	(void)fd;
 
 	return 1;
+}
+
+static lws_filefd_type
+_lws_plat_file_open(const char *filename, unsigned long *filelen, int flags)
+{
+	(void)filename;
+	(void)filelen;
+	(void)flags;
+	return -1;
+}
+
+static int
+_lws_plat_file_close(lws_filefd_type fd)
+{
+	(void)fd;
+	return -1;
+}
+
+unsigned long
+_lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
+{
+	(void)fd;
+	(void)offset;
+
+	return -1;
+}
+
+static int
+_lws_plat_file_read(lws_filefd_type fd, unsigned long *amount,
+		    unsigned char* buf, unsigned long* len)
+{
+	(void)amount;
+	(void)fd;
+	(void)buf;
+	(void)len;
+
+	return -1;
+}
+
+static int
+_lws_plat_file_write(lws_filefd_type fd, unsigned long *amount,
+		     unsigned char* buf, unsigned long len)
+{
+	(void)amount;
+	(void)fd;
+	(void)buf;
+	(void)len;
+
+	return -1;
+}
+
+LWS_VISIBLE int
+lws_plat_init(struct lws_context *context,
+	      struct lws_context_creation_info *info)
+{
+	context->fops.open	= _lws_plat_file_open;
+	context->fops.close	= _lws_plat_file_close;
+	context->fops.seek_cur	= _lws_plat_file_seek_cur;
+	context->fops.read	= _lws_plat_file_read;
+	context->fops.write	= _lws_plat_file_write;
+
+	return 0;
 }

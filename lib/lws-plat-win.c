@@ -257,35 +257,6 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 }
 
 LWS_VISIBLE int
-lws_plat_init(struct lws_context *context,
-	      struct lws_context_creation_info *info)
-{
-	int i;
-
-	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
-		context->fd_hashtable[i].wsi = lws_zalloc(sizeof(struct lws*) * context->max_fds);
-
-		if (!context->fd_hashtable[i].wsi) {
-			return -1;
-		}
-	}
-
-	context->events = lws_malloc(sizeof(WSAEVENT) * (context->max_fds + 1));
-	if (context->events == NULL) {
-		lwsl_err("Unable to allocate events array for %d connections\n",
-			context->max_fds);
-		return 1;
-	}
-
-	context->fds_count = 0;
-	context->events[0] = WSACreateEvent();
-
-	context->fd_random = 0;
-
-	return 0;
-}
-
-LWS_VISIBLE int
 lws_plat_context_early_init(void)
 {
 	WORD wVersionRequested;
@@ -393,23 +364,6 @@ lws_plat_change_pollfd(struct lws_context *context,
 	return 1;
 }
 
-LWS_VISIBLE HANDLE
-lws_plat_open_file(const char* filename, unsigned long* filelen)
-{
-	HANDLE ret;
-	WCHAR buffer[MAX_PATH];
-
-	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buffer,
-				sizeof(buffer) / sizeof(buffer[0]));
-	ret = CreateFileW(buffer, GENERIC_READ, FILE_SHARE_READ,
-				NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-
-	if (ret != LWS_INVALID_FILE)
-		*filelen = GetFileSize(ret, NULL);
-
-	return ret;
-}
-
 LWS_VISIBLE const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 { 
@@ -454,4 +408,101 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 	lws_free(buffer);
 	return ok ? dst : NULL;
+}
+
+static lws_filefd_type
+_lws_plat_file_open(const char *filename, unsigned long *filelen, int flags)
+{
+	HANDLE ret;
+	WCHAR buf[MAX_PATH];
+
+	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buf, ARRAY_SIZE(buf));
+	if (flags & O_RDONLY) {
+		ret = CreateFileW(buf, GENERIC_READ, FILE_SHARE_READ,
+			  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	} else {
+		lwsl_err("%s: open for write not implemented\n", __func__);
+		*filelen = 0;
+		return LWS_INVALID_FILE;
+	}
+
+	if (ret != LWS_INVALID_FILE)
+		*filelen = GetFileSize(ret, NULL);
+
+	return ret;
+}
+
+static int
+_lws_plat_file_close(lws_filefd_type fd)
+{
+	CloseHandle((HANDLE)fd);
+
+	return 0;
+}
+
+static unsigned long
+_lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
+{
+	return SetFilePointer((HANDLE)fd, offset, NULL, FILE_CURRENT);
+}
+
+static int
+_lws_plat_file_read(lws_filefd_type fd, unsigned long *amount,
+		   unsigned char* buf, unsigned long len)
+{
+	DWORD _amount;
+
+	if (!ReadFile((HANDLE)fd, buf, (DWORD)len, &_amount, NULL)) {
+		*amount = 0;
+
+		return 1;
+	}
+
+	*amount = (unsigned long)_amount;
+
+	return 0;
+}
+
+static int
+_lws_plat_file_write(lws_filefd_type fd, unsigned long *amount,
+		     unsigned char* buf, unsigned long len)
+{
+	lwsl_err("%s: not implemented on this platform\n", __func__);
+	
+	return -1;
+}
+
+LWS_VISIBLE int
+lws_plat_init(struct lws_context *context,
+	      struct lws_context_creation_info *info)
+{
+	int i;
+
+	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
+		context->fd_hashtable[i].wsi =
+			lws_zalloc(sizeof(struct lws*) * context->max_fds);
+
+		if (!context->fd_hashtable[i].wsi)
+			return -1;
+	}
+
+	context->events = lws_malloc(sizeof(WSAEVENT) * (context->max_fds + 1));
+	if (context->events == NULL) {
+		lwsl_err("Unable to allocate events array for %d connections\n",
+			context->max_fds);
+		return 1;
+	}
+
+	context->fds_count = 0;
+	context->events[0] = WSACreateEvent();
+
+	context->fd_random = 0;
+
+	context->fops.open	= _lws_plat_file_open;
+	context->fops.close	= _lws_plat_file_close;
+	context->fops.seek_cur	= _lws_plat_file_seek_cur;
+	context->fops.read	= _lws_plat_file_read;
+	context->fops.write	= _lws_plat_file_write;
+
+	return 0;
 }

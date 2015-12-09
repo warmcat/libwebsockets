@@ -177,9 +177,13 @@ extern "C" {
 #else
 #define LWS_EXTERN
 #endif
+	
+#define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 
 #else /* NOT WIN32 */
 #include <unistd.h>
+	
+#define LWS_INVALID_FILE -1
 
 #ifndef MBED_OPERATORS
 #include <poll.h>
@@ -295,6 +299,9 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 
 /* extra parameter introduced in 917f43ab821 */
 #define LWS_FEATURE_SERVE_HTTP_FILE_HAS_OTHER_HEADERS_LEN
+
+/* File operations stuff exists */
+#define LWS_FEATURE_FOPS
 
 /*
  * NOTE: These public enums are part of the abi.  If you want to add one,
@@ -1625,6 +1632,55 @@ lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h);
 LWS_VISIBLE LWS_EXTERN int
 lws_hdr_copy(struct lws *wsi, char *dest, int len,
 	     enum lws_token_indexes h);
+
+/* get the active file operations struct */
+LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops *
+lws_get_fops(struct lws_context *context);
+
+/*
+ * File Operations access helpers
+ *
+ * usually the first argument will be lws_get_fops(context)
+ * If so, then it calls the platform handler or user overrides where present
+ * (as defined in info->fops)
+ *
+ * The advantage from all this is user code can be portable for file operations
+ * without having to deal with differences between platforms.
+ */
+
+static inline lws_filefd_type
+lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
+		   unsigned long *filelen, int flags)
+{
+	return fops->open(filename, filelen, flags);
+}
+
+static inline int
+lws_plat_file_close(struct lws_plat_file_ops *fops, lws_filefd_type fd)
+{
+	return fops->close(fd);
+}
+
+static inline unsigned long
+lws_plat_file_seek_cur(struct lws_plat_file_ops *fops, lws_filefd_type fd,
+		       long offset_from_cur_pos)
+{
+	return fops->seek_cur(fd, offset_from_cur_pos);
+}
+
+static inline int
+lws_plat_file_read(struct lws_plat_file_ops *fops, lws_filefd_type fd,
+		   unsigned long *amount, unsigned char *buf, unsigned long len)
+{
+	return fops->read(fd, amount, buf, len);
+}
+
+static inline int
+lws_plat_file_write(struct lws_plat_file_ops *fops, lws_filefd_type fd,
+		    unsigned long *amount, unsigned char *buf, unsigned long len)
+{
+	return fops->write(fd, amount, buf, len);
+}
 
 /*
  * Note: this is not normally needed as a user api.  It's provided in case it is

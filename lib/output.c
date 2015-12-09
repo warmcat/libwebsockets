@@ -509,8 +509,8 @@ send_raw:
 LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 					     struct lws *wsi)
 {
-	int n;
-	int m;
+	unsigned long amount;
+	int n, m;
 
 	while (!lws_send_pipe_choked(wsi)) {
 
@@ -518,7 +518,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 			if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
 					  wsi->truncated_send_offset,
 					  wsi->truncated_send_len) < 0) {
-				lwsl_info("closing from lws_serve_http_file_fragment\n");
+				lwsl_info("%s: closing\n", __func__);
 				return -1;
 			}
 			continue;
@@ -527,10 +527,12 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 		if (wsi->u.http.filepos == wsi->u.http.filelen)
 			goto all_sent;
 
-		compatible_file_read(n, wsi->u.http.fd, context->service_buffer,
-				     sizeof(context->service_buffer));
-		if (n < 0)
+		if (lws_plat_file_read(&context->fops, wsi->u.http.fd, &amount,
+				       context->service_buffer,
+				       sizeof(context->service_buffer)) < 0)
 			return -1; /* caller will close */
+
+		n = (int)amount;
 		if (n) {
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 					AWAITING_TIMEOUT);
@@ -543,7 +545,9 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 
 			if (m != n)
 				/* adjust for what was not sent */
-				if (compatible_file_seek_cur(wsi->u.http.fd, m - n) < 0)
+				if (lws_plat_file_seek_cur(&context->fops,
+							   wsi->u.http.fd,
+							   m - n) < 0)
 					return -1;
 		}
 all_sent:
@@ -552,7 +556,7 @@ all_sent:
 			wsi->state = WSI_STATE_HTTP;
 
 			/* we might be in keepalive, so close it off here */
-			compatible_file_close(wsi->u.http.fd);
+			lws_plat_file_close(&context->fops, wsi->u.http.fd);
 			wsi->u.http.fd = LWS_INVALID_FILE;
 
 			if (wsi->protocol->callback)

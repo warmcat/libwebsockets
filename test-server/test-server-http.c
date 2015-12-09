@@ -117,7 +117,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 	struct per_session_data__http *pss =
 			(struct per_session_data__http *)user;
 	static unsigned char buffer[4096];
-	struct stat stat_buf;
+	unsigned long amount, file_len;
 	char leaf_path[1024];
 	const char *mimetype;
 	char *other_headers;
@@ -165,16 +165,12 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 
 			p = buffer + LWS_SEND_BUFFER_PRE_PADDING;
 			end = p + sizeof(buffer) - LWS_SEND_BUFFER_PRE_PADDING;
-#ifdef _WIN32
-			pss->fd = open(leaf_path, O_RDONLY | _O_BINARY);
-#else
-			pss->fd = open(leaf_path, O_RDONLY);
-#endif
 
-			if (pss->fd < 0)
-				return -1;
+			pss->fd = lws_plat_file_open(lws_get_fops(context),
+						     leaf_path, &file_len,
+						     O_RDONLY);
 
-			if (fstat(pss->fd, &stat_buf) < 0)
+			if (pss->fd == LWS_INVALID_FILE)
 				return -1;
 
 			/*
@@ -200,7 +196,8 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 					10, &p, end))
 				return 1;
 			if (lws_add_http_header_content_length(context, wsi,
-						stat_buf.st_size, &p, end))
+							       file_len, &p,
+							       end))
 				return 1;
 			if (lws_finalize_http_header(context, wsi, &p, end))
 				return 1;
@@ -216,13 +213,13 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			 * this is mandated by changes in HTTP2
 			 */
 
-			n = lws_write(wsi,
-					buffer + LWS_SEND_BUFFER_PRE_PADDING,
-					p - (buffer + LWS_SEND_BUFFER_PRE_PADDING),
-					LWS_WRITE_HTTP_HEADERS);
+			n = lws_write(wsi, buffer + LWS_SEND_BUFFER_PRE_PADDING,
+				      p - (buffer + LWS_SEND_BUFFER_PRE_PADDING),
+				      LWS_WRITE_HTTP_HEADERS);
 
 			if (n < 0) {
-				close(pss->fd);
+				lws_plat_file_close(lws_get_fops(context),
+						    pss->fd);
 				return -1;
 			}
 			/*
@@ -328,11 +325,13 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 				/* he couldn't handle that much */
 				n = m;
 			
-			n = read(pss->fd, buffer + LWS_SEND_BUFFER_PRE_PADDING,
-				 n);
+			n = lws_plat_file_read(lws_get_fops(context), pss->fd,
+					       &amount, buffer +
+					        LWS_SEND_BUFFER_PRE_PADDING, n);
 			/* problem reading, close conn */
 			if (n < 0)
 				goto bail;
+			n = (int)amount;
 			/* sent it all, close conn */
 			if (n == 0)
 				goto flush_bail;
@@ -354,7 +353,8 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			 */
 			if (m != n)
 				/* partial write, adjust */
-				if (lseek(pss->fd, m - n, SEEK_CUR) < 0)
+				if (lws_plat_file_seek_cur(lws_get_fops(context),
+							   pss->fd, m - n) < 0)
 					goto bail;
 
 			if (m) /* while still active, extend timeout */
@@ -377,11 +377,11 @@ flush_bail:
 			lws_callback_on_writable(context, wsi);
 			break;
 		}
-		close(pss->fd);
+		lws_plat_file_close(lws_get_fops(context), pss->fd);
 		goto try_to_reuse;
 
 bail:
-		close(pss->fd);
+		lws_plat_file_close(lws_get_fops(context), pss->fd);
 		return -1;
 
 	/*

@@ -43,7 +43,7 @@ extern void test_server_unlock(int care);
 #endif
 
 struct per_session_data__http {
-	int fd;
+	lws_filefd_type fd;
 };
 
 /*
@@ -63,18 +63,18 @@ struct per_session_data__lws_mirror {
 	int ringbuffer_tail;
 };
 
-extern int callback_http(struct lws_context *context,
-			 struct lws *wsi,
-			 enum lws_callback_reasons reason,
-			 void *user, void *in, size_t len);
-extern int callback_lws_mirror(struct lws_context *context,
-			       struct lws *wsi,
-			       enum lws_callback_reasons reason,
-			       void *user, void *in, size_t len);
-extern int callback_dumb_increment(struct lws_context *context,
-			       struct lws *wsi,
-			       enum lws_callback_reasons reason,
-			       void *user, void *in, size_t len);
+extern int
+callback_http(struct lws_context *context, struct lws *wsi,
+	      enum lws_callback_reasons reason, void *user, void *in,
+	      size_t len);
+extern int
+callback_lws_mirror(struct lws_context *context, struct lws *wsi,
+		    enum lws_callback_reasons reason, void *user, void *in,
+		    size_t len);
+extern int
+callback_dumb_increment(struct lws_context *context, struct lws *wsi,
+			enum lws_callback_reasons reason, void *user, void *in,
+			size_t len);
 
 extern void
 dump_handshake_info(struct lws *wsi);

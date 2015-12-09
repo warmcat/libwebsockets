@@ -276,3 +276,43 @@ After attempting the connection and getting back a non-`NULL` `wsi` you should
 loop calling `lws_service()` until one of the above callbacks occurs.
 
 As usual, see [test-client.c](test-server/test-client.c) for example code.
+
+Lws platform-independent file access apis
+-----------------------------------------
+
+lws now exposes his internal platform file abstraction in a way that can be
+both used by user code to make it platform-agnostic, and be overridden or
+subclassed by user code.  This allows things like handling the URI "directory
+space" as a virtual filesystem that may or may not be backed by a regular
+filesystem.  One example use is serving files from inside large compressed
+archive storage without having to unpack anything except the file being
+requested.
+
+The test server shows how to use it, basically the platform-specific part of
+lws prepares a file operations structure that lives in the lws context.
+
+The user code can get a pointer to the file operations struct
+
+LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops *
+`lws_get_fops`(struct lws_context *context);
+
+and then can use it with helpers to also leverage these platform-independent
+file handling apis
+
+static inline lws_filefd_type
+`lws_plat_file_open`(struct lws_plat_file_ops *fops, const char *filename, unsigned long *filelen, int flags)
+
+static inline int
+`lws_plat_file_close`(struct lws_plat_file_ops *fops, lws_filefd_type fd)
+
+static inline unsigned long
+`lws_plat_file_seek_cur`(struct lws_plat_file_ops *fops, lws_filefd_type fd, long offset_from_cur_pos)
+
+static inline int
+`lws_plat_file_read`(struct lws_plat_file_ops *fops, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)
+
+static inline int
+`lws_plat_file_write`(struct lws_plat_file_ops *fops, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)
+		    
+The user code can also override or subclass the file operations, to either
+wrap or replace them.  An example is shown in test server.
