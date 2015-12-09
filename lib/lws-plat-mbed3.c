@@ -106,16 +106,9 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 }
 
 LWS_VISIBLE int
-lws_plat_init_lookup(struct lws_context *context)
+lws_plat_init(struct lws_context *context,
+	struct lws_context_creation_info *info)
 {
-	(void)context;
-	return 0;
-}
-
-LWS_VISIBLE int
-lws_plat_init_fd_tables(struct lws_context *context)
-{
-	(void)context;
 	return 0;
 }
 

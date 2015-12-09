@@ -272,7 +272,8 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 }
 
 LWS_VISIBLE int
-lws_plat_init_lookup(struct lws_context *context)
+lws_plat_init(struct lws_context *context,
+	      struct lws_context_creation_info *info)
 {
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) * context->max_fds);
 	if (context->lws_lookup == NULL) {
@@ -282,12 +283,6 @@ lws_plat_init_lookup(struct lws_context *context)
 		return 1;
 	}
 
-	return 0;
-}
-
-LWS_VISIBLE int
-lws_plat_init_fd_tables(struct lws_context *context)
-{
 	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 	if (context->fd_random < 0) {
 		lwsl_err("Unable to open random device %s %d\n",

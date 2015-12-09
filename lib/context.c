@@ -157,10 +157,7 @@ lws_create_context(struct lws_context_creation_info *info)
 		goto bail;
 	}
 
-	if (lws_plat_init_lookup(context))
-		goto bail;
-
-	if (lws_plat_init_fd_tables(context))
+	if (lws_plat_init(context, info))
 		goto bail;
 
 	lws_context_init_extensions(info, context);

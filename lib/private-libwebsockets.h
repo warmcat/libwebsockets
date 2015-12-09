@@ -1291,9 +1291,8 @@ lws_poll_listen_fd(struct lws_pollfd *fd);
 LWS_EXTERN int
 lws_plat_service(struct lws_context *context, int timeout_ms);
 LWS_EXTERN int
-lws_plat_init_lookup(struct lws_context *context);
-LWS_EXTERN int
-lws_plat_init_fd_tables(struct lws_context *context);
+lws_plat_init(struct lws_context *context,
+	      struct lws_context_creation_info *info);
 LWS_EXTERN void
 lws_plat_drop_app_privileges(struct lws_context_creation_info *info);
 LWS_EXTERN unsigned long long
