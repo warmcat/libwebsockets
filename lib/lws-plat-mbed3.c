@@ -178,7 +178,7 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
  * Default file callbacks
  */
 
-LWS_VISIBLE int
+LWS_VISIBLE void* 
 lws_plat_file_open(const char* filename, unsigned long* filelen)
 {
 	(void)filename;

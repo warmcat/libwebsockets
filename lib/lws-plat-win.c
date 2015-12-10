@@ -448,7 +448,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
  * Default file callbacks
  */
 
-LWS_VISIBLE HANDLE 
+LWS_VISIBLE void* 
 lws_plat_file_open(const char* filename, unsigned long* filelen)
 {
 	HANDLE ret;

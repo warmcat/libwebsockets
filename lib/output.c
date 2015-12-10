@@ -554,7 +554,7 @@ all_sent:
 
 			/* we might be in keepalive, so close it off here */
 			context->file_callbacks.pfn_close(wsi->u.http.fd);
-			wsi->u.http.fd = LWS_INVALID_FILE;
+			wsi->u.http.fd = (void*)LWS_INVALID_FILE;
 
 			if (wsi->protocol->callback)
 				/* ignore callback returned value */
