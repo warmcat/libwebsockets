@@ -394,8 +394,7 @@ set(SOURCES
 	lib/parsers.c
 	lib/context.c
 	lib/alloc.c
-	lib/header.c
-	lib/file-callbacks.c)
+	lib/header.c)
 
 if (NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
