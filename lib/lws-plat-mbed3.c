@@ -145,13 +145,6 @@ lws_plat_service_periodic(struct lws_context *context)
 	(void)context;
 }
 
-LWS_VISIBLE int
-lws_plat_open_file(const char* filename, unsigned long* filelen)
-{
-	(void)filename;
-	(void)filelen;
-	return LWS_INVALID_FILE;
-}
 
 LWS_VISIBLE const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
@@ -179,4 +172,39 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 	(void)fd;
 
 	return 1;
+}
+
+/*
+ * Default file callbacks
+ */
+
+LWS_VISIBLE void* 
+lws_plat_file_open(const char* filename, unsigned long* filelen)
+{
+	(void)filename;
+	(void)filelen;
+	return LWS_INVALID_FILE;
+}
+
+LWS_VISIBLE void
+lws_plat_file_close(void*fd)
+{
+	(void)fd;
+}
+
+LWS_VISIBLE unsigned long
+lws_plat_file_seek_cur(void* fd, long offset)
+{
+	(void)fd;
+	(void)offset;
+	return 0;
+}
+
+LWS_VISIBLE void
+lws_plat_file_read(unsigned long* amount, void* fd, unsigned char* buf, unsigned long len)
+{
+	(void)amount;
+	(void)fd;
+	(void)buf;
+	(void)len;
 }

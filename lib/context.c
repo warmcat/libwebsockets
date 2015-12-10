@@ -21,6 +21,39 @@
 
 #include "private-libwebsockets.h"
 
+/**
+ * initializes file callbacks for context
+ */
+LWS_VISIBLE void
+lws_context_init_file_callbacks(struct lws_context_creation_info *info, 
+	struct libwebsocket_context *context)
+{
+	struct libwebsocket_file_callbacks* cb;
+
+	cb = info->file_callbacks;
+
+	if(cb && cb->pfn_open)
+		context->file_callbacks.pfn_open = cb->pfn_open;
+	else
+		context->file_callbacks.pfn_open = lws_plat_file_open;
+
+	if(cb && cb->pfn_close)
+		context->file_callbacks.pfn_close = cb->pfn_close;
+	else
+		context->file_callbacks.pfn_close = lws_plat_file_close;
+
+	if(cb && cb->pfn_seek_cur)
+		context->file_callbacks.pfn_seek_cur = cb->pfn_seek_cur;
+	else
+		context->file_callbacks.pfn_seek_cur = lws_plat_file_seek_cur;
+
+	if(cb && cb->pfn_read)
+		context->file_callbacks.pfn_read = cb->pfn_read;
+	else
+		context->file_callbacks.pfn_read = lws_plat_file_read;
+
+}
+
 #ifndef LWS_BUILD_HASH
 #define LWS_BUILD_HASH "unknown-build-hash"
 #endif
@@ -162,6 +195,8 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	if (lws_plat_init_fd_tables(context))
 		goto bail;
+
+	lws_context_init_file_callbacks(info, context);
 
 	lws_context_init_extensions(info, context);
 

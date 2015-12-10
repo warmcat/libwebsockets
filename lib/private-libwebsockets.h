@@ -60,18 +60,8 @@
 #define MSG_NOSIGNAL 0
 #define SHUT_RDWR SD_BOTH
 #define SOL_TCP IPPROTO_TCP
-
 #define compatible_close(fd) closesocket(fd)
-#define compatible_file_close(fd) CloseHandle(fd)
-#define compatible_file_seek_cur(fd, offset) \
-	SetFilePointer(fd, offset, NULL, FILE_CURRENT)
-#define compatible_file_read(amount, fd, buf, len) {\
-	DWORD _amount; \
-	if (!ReadFile(fd, buf, len, &_amount, NULL)) \
-		amount = -1; \
-	else \
-		amount = _amount; \
-	}
+
 #define lws_set_blocking_send(wsi) wsi->sock_send_blocking = TRUE
 #define lws_socket_is_valid(x) (!!x)
 #define LWS_SOCK_INVALID 0 
@@ -149,10 +139,7 @@
 #define LWS_POLLIN (POLLIN)
 #define LWS_POLLOUT (POLLOUT)
 #define compatible_close(fd) close(fd)
-#define compatible_file_close(fd) close(fd)
-#define compatible_file_seek_cur(fd, offset) lseek(fd, offset, SEEK_CUR)
-#define compatible_file_read(amount, fd, buf, len) \
-		amount = read(fd, buf, len);
+
 #define lws_set_blocking_send(wsi)
 
 #ifdef MBED_OPERATORS
@@ -546,6 +533,7 @@ struct lws_context {
 #ifndef LWS_NO_EXTENSIONS
 	struct lws_extension *extensions;
 #endif
+	struct libwebsocket_file_callbacks file_callbacks;
     struct lws_token_limits *token_limits;
 	void *user_space;
 };
@@ -644,11 +632,7 @@ struct allocated_headers {
 struct _lws_http_mode_related {
 	/* MUST be first in struct */
 	struct allocated_headers *ah; /* mirroring  _lws_header_related */
-#if defined(WIN32) || defined(_WIN32)
-	HANDLE fd;
-#else
-	int fd;
-#endif
+	void* fd;
 	unsigned long filepos;
 	unsigned long filelen;
 
@@ -1031,6 +1015,10 @@ lws_ext_callback_for_each_extension_type(struct lws_context *context,
 #define lws_context_init_extensions(_a, _b)
 #endif
 
+LWS_EXTERN void
+lws_context_init_file_callbacks(struct lws_context_creation_info *info, 
+		struct libwebsocket_context *context);
+
 LWS_EXTERN int
 lws_client_interpret_server_handshake(struct lws_context *context,
 				      struct lws *wsi);
@@ -1141,12 +1129,6 @@ interface_to_sa(struct lws_context *context, const char *ifname,
 		struct sockaddr_in *addr, size_t addrlen);
 #endif
 LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
-
-#ifdef _WIN32
-LWS_EXTERN HANDLE lws_plat_open_file(const char* filename, unsigned long* filelen);
-#else
-LWS_EXTERN int lws_plat_open_file(const char* filename, unsigned long* filelen);
-#endif
 
 enum lws_ssl_capable_status {
 	LWS_SSL_CAPABLE_ERROR = -1,
@@ -1300,6 +1282,15 @@ LWS_EXTERN unsigned long long
 time_in_microseconds(void);
 LWS_EXTERN const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
+
+LWS_EXTERN void* 
+lws_plat_file_open(const char* filename, unsigned long* filelen);
+LWS_EXTERN void
+lws_plat_file_close(void*fd);
+LWS_EXTERN unsigned long
+lws_plat_file_seek_cur(void* fd, long offset);
+LWS_EXTERN void
+lws_plat_file_read(unsigned long* amount, void* fd, unsigned char* buf, unsigned long len);
 
 #ifdef __cplusplus
 };
