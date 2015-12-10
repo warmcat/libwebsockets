@@ -547,7 +547,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 				/* adjust for what was not sent */
 				if (lws_plat_file_seek_cur(&context->fops,
 							   wsi->u.http.fd,
-							   m - n) < 0)
+							   m - n) ==
+							     (unsigned long)-1)
 					return -1;
 		}
 all_sent:
