@@ -354,7 +354,8 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			if (m != n)
 				/* partial write, adjust */
 				if (lws_plat_file_seek_cur(lws_get_fops(context),
-							   pss->fd, m - n) < 0)
+							   pss->fd, m - n) ==
+							     (unsigned long)-1)
 					goto bail;
 
 			if (m) /* while still active, extend timeout */
