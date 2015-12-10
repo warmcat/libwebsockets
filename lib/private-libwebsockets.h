@@ -632,11 +632,7 @@ struct allocated_headers {
 struct _lws_http_mode_related {
 	/* MUST be first in struct */
 	struct allocated_headers *ah; /* mirroring  _lws_header_related */
-#if defined(WIN32) || defined(_WIN32)
-	HANDLE fd;
-#else
-	int fd;
-#endif
+	void* fd;
 	unsigned long filepos;
 	unsigned long filelen;
 
@@ -1287,7 +1283,7 @@ time_in_microseconds(void);
 LWS_EXTERN const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
 
-LWS_EXTERN HANDLE 
+LWS_EXTERN void* 
 lws_plat_file_open(const char* filename, unsigned long* filelen);
 LWS_EXTERN void
 lws_plat_file_close(void*fd);

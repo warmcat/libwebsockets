@@ -461,7 +461,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
  * Default file callbacks
  */
 
-LWS_VISIBLE int
+LWS_VISIBLE void*
 lws_plat_file_open(const char* filename, unsigned long* filelen)
 {
 	struct stat stat_buf;
