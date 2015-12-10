@@ -296,8 +296,6 @@ int main(int argc, char **argv)
 		 * which also includes libwebsocket sockets
 		 */
 
-		pollfds->events = (0x0100 | 0x0200);
-
 		n = poll(pollfds, count_pollfds, 50);
 		if (n < 0)
 			continue;

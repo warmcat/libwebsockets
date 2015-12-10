@@ -451,8 +451,18 @@ lws_plat_change_pollfd(struct lws_context *context,
 	return 0;
 }
 
+LWS_VISIBLE const char *
+lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
+{
+	return inet_ntop(af, src, dst, cnt);
+}
+
+/*
+ * Default file callbacks
+ */
+
 LWS_VISIBLE int
-lws_plat_open_file(const char* filename, unsigned long* filelen)
+lws_plat_file_open(const char* filename, unsigned long* filelen)
 {
 	struct stat stat_buf;
 	int ret = open(filename, O_RDONLY);
@@ -468,8 +478,20 @@ lws_plat_open_file(const char* filename, unsigned long* filelen)
 	return ret;
 }
 
-LWS_VISIBLE const char *
-lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
+LWS_VISIBLE void
+lws_plat_file_close(void*fd)
 {
-	return inet_ntop(af, src, dst, cnt);
+	close((int)fd)
+}
+
+LWS_VISIBLE unsigned long
+lws_plat_file_seek_cur(void* fd, long offset)
+{
+	return lseek((int)fd, offset, SEEK_CUR);
+}
+
+LWS_VISIBLE void
+lws_plat_file_read(unsigned long* amount, void* fd, unsigned char* buf, unsigned long len)
+{
+	*amount = read((int)fd, buf, len);
 }

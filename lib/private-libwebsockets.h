@@ -1287,6 +1287,15 @@ time_in_microseconds(void);
 LWS_EXTERN const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
 
+LWS_EXTERN HANDLE 
+lws_plat_file_open(const char* filename, unsigned long* filelen);
+LWS_EXTERN void
+lws_plat_file_close(void*fd);
+LWS_EXTERN unsigned long
+lws_plat_file_seek_cur(void* fd, long offset);
+LWS_EXTERN void
+lws_plat_file_read(unsigned long* amount, void* fd, unsigned char* buf, unsigned long len);
+
 #ifdef __cplusplus
 };
 #endif

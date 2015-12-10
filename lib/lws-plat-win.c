@@ -443,3 +443,46 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 	lws_free(buffer);
 	return ok ? dst : NULL;
 }
+
+/*
+ * Default file callbacks
+ */
+
+LWS_VISIBLE HANDLE 
+lws_plat_file_open(const char* filename, unsigned long* filelen)
+{
+	HANDLE ret;
+	WCHAR buffer[MAX_PATH];
+
+	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buffer,
+				sizeof(buffer) / sizeof(buffer[0]));
+	ret = CreateFileW(buffer, GENERIC_READ, FILE_SHARE_READ,
+				NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	if (ret != LWS_INVALID_FILE)
+		*filelen = GetFileSize(ret, NULL);
+
+	return ret;
+}
+
+LWS_VISIBLE void
+lws_plat_file_close(void*fd)
+{
+	CloseHandle((HANDLE)fd);
+}
+
+LWS_VISIBLE unsigned long
+lws_plat_file_seek_cur(void* fd, long offset)
+{
+	return SetFilePointer((HANDLE)fd, offset, NULL, FILE_CURRENT);
+}
+
+LWS_VISIBLE void
+lws_plat_file_read(unsigned long* amount, void* fd, unsigned char* buf, unsigned long len)
+{
+	DWORD _amount;
+	if (!ReadFile((HANDLE)fd, buf, (DWORD)len, &_amount, NULL))
+		*amount = -1;
+	else
+		*amount = (unsigned long)_amount;
+}
