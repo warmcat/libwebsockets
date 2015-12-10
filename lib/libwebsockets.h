@@ -1221,7 +1221,7 @@ struct lws_extension {
 struct libwebsocket_file_callbacks {
 	void* (*pfn_open)(const char* filename, unsigned long* filelen);
 	void (*pfn_close)(void* handle);
-	unsigned long (*pfn_seek_cur)(void* handle, long offsetFromCurPos);
+	long (*pfn_seek_cur)(void* handle, long offsetFromCurPos);
 	void (*pfn_read)(unsigned long* amount, void* handle, unsigned char* buf, unsigned long len);
 };
 

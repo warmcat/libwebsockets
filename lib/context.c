@@ -320,9 +320,6 @@ lws_context_destroy(struct lws_context *context)
 	n = lws_ext_callback_for_each_extension_type(context, NULL,
 			LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0);
 
-	n = lws_ext_callback_for_each_extension_type(context, NULL,
-			LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0);
-
 	/*
 	 * inform all the protocols that they are done and will have no more
 	 * callbacks

@@ -802,7 +802,12 @@ try_pollout:
 		lws_latency(context, wsi,
 			"unencrypted accept LWS_CONNMODE_SERVER_LISTENER",
 						     accept_fd, accept_fd >= 0);
+
+#if defined(_WIN32) || defined(WIN32)
+		if (accept_fd == INVALID_SOCKET) {
+#else
 		if (accept_fd < 0) {
+#endif
 			if (LWS_ERRNO == LWS_EAGAIN ||
 			    LWS_ERRNO == LWS_EWOULDBLOCK) {
 				lwsl_debug("accept asks to try again\n");
