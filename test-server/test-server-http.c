@@ -168,7 +168,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 
 			pss->fd = lws_plat_file_open(lws_get_fops(context),
 						     leaf_path, &file_len,
-						     O_RDONLY);
+						     LWS_O_RDONLY);
 
 			if (pss->fd == LWS_INVALID_FILE)
 				return -1;

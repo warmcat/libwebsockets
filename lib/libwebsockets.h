@@ -179,11 +179,13 @@ extern "C" {
 #endif
 	
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
+#define LWS_O_RDONLY _O_RDONLY
 
 #else /* NOT WIN32 */
 #include <unistd.h>
 	
 #define LWS_INVALID_FILE -1
+#define LWS_O_RDONLY O_RDONLY
 
 #ifndef MBED_OPERATORS
 #include <poll.h>
