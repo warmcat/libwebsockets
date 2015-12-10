@@ -461,7 +461,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
  * Default file callbacks
  */
 
-LWS_VISIBLE void*
+LWS_VISIBLE lws_filefd_type
 lws_plat_file_open(const char* filename, unsigned long* filelen)
 {
 	struct stat stat_buf;
@@ -475,23 +475,23 @@ lws_plat_file_open(const char* filename, unsigned long* filelen)
 		return LWS_INVALID_FILE;
 	}
 	*filelen = stat_buf.st_size;
-	return ret;
+	return (lws_filefd_type)ret;
 }
 
 LWS_VISIBLE void
-lws_plat_file_close(void*fd)
+lws_plat_file_close(lws_filefd_type fd)
 {
 	close((int)fd)
 }
 
-LWS_VISIBLE unsigned long
-lws_plat_file_seek_cur(void* fd, long offset)
+LWS_VISIBLE long
+lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
 {
 	return lseek((int)fd, offset, SEEK_CUR);
 }
 
 LWS_VISIBLE void
-lws_plat_file_read(unsigned long* amount, void* fd, unsigned char* buf, unsigned long len)
+lws_plat_file_read(unsigned long* amount, lws_filefd_type fd, unsigned char* buf, unsigned long len)
 {
 	*amount = read((int)fd, buf, len);
 }

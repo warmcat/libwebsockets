@@ -81,7 +81,6 @@
 #define vsnprintf _vsnprintf
 #endif
 
-#define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #else /* not windows --> */
 
 #include <fcntl.h>
@@ -134,7 +133,6 @@
 #define LWS_EINTR EINTR
 #define LWS_EISCONN EISCONN
 #define LWS_EWOULDBLOCK EWOULDBLOCK
-#define LWS_INVALID_FILE -1
 #define LWS_POLLHUP (POLLHUP|POLLERR)
 #define LWS_POLLIN (POLLIN)
 #define LWS_POLLOUT (POLLOUT)
@@ -533,7 +531,7 @@ struct lws_context {
 #ifndef LWS_NO_EXTENSIONS
 	struct lws_extension *extensions;
 #endif
-	struct libwebsocket_file_callbacks file_callbacks;
+	struct lws_file_ops fileops;
     struct lws_token_limits *token_limits;
 	void *user_space;
 };
@@ -1287,7 +1285,7 @@ LWS_EXTERN void*
 lws_plat_file_open(const char* filename, unsigned long* filelen);
 LWS_EXTERN void
 lws_plat_file_close(void*fd);
-LWS_EXTERN unsigned long
+LWS_EXTERN long
 lws_plat_file_seek_cur(void* fd, long offset);
 LWS_EXTERN void
 lws_plat_file_read(unsigned long* amount, void* fd, unsigned char* buf, unsigned long len);

@@ -28,30 +28,25 @@ LWS_VISIBLE void
 lws_context_init_file_callbacks(struct lws_context_creation_info *info, 
 	struct libwebsocket_context *context)
 {
-	struct libwebsocket_file_callbacks* cb;
+	struct lws_file_ops* cb;
 
-	cb = info->file_callbacks;
+	cb = info->fileops;
 
-	if(cb && cb->pfn_open)
-		context->file_callbacks.pfn_open = cb->pfn_open;
+	if(cb)
+	{
+		context->fileops.open = cb->open;
+		context->fileops.close = cb->close;
+		context->fileops.seek_cur = cb->seek_cur;
+		context->fileops.read = cb->read;
+	}
 	else
-		context->file_callbacks.pfn_open = lws_plat_file_open;
-
-	if(cb && cb->pfn_close)
-		context->file_callbacks.pfn_close = cb->pfn_close;
-	else
-		context->file_callbacks.pfn_close = lws_plat_file_close;
-
-	if(cb && cb->pfn_seek_cur)
-		context->file_callbacks.pfn_seek_cur = cb->pfn_seek_cur;
-	else
-		context->file_callbacks.pfn_seek_cur = lws_plat_file_seek_cur;
-
-	if(cb && cb->pfn_read)
-		context->file_callbacks.pfn_read = cb->pfn_read;
-	else
-		context->file_callbacks.pfn_read = lws_plat_file_read;
-
+	{
+		/* default callbacks */
+		context->fileops.open = lws_plat_file_open;
+		context->fileops.close = lws_plat_file_close;
+		context->fileops.seek_cur = lws_plat_file_seek_cur;
+		context->fileops.read = lws_plat_file_read;
+	}
 }
 
 #ifndef LWS_BUILD_HASH

@@ -178,22 +178,22 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
  * Default file callbacks
  */
 
-LWS_VISIBLE void* 
+LWS_VISIBLE lws_filefd_type
 lws_plat_file_open(const char* filename, unsigned long* filelen)
 {
 	(void)filename;
 	(void)filelen;
-	return LWS_INVALID_FILE;
+	return (lws_filefd_type)LWS_INVALID_FILE;
 }
 
 LWS_VISIBLE void
-lws_plat_file_close(void*fd)
+lws_plat_file_close(lws_filefd_type fd)
 {
 	(void)fd;
 }
 
-LWS_VISIBLE unsigned long
-lws_plat_file_seek_cur(void* fd, long offset)
+LWS_VISIBLE long
+lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
 {
 	(void)fd;
 	(void)offset;
@@ -201,7 +201,7 @@ lws_plat_file_seek_cur(void* fd, long offset)
 }
 
 LWS_VISIBLE void
-lws_plat_file_read(unsigned long* amount, void* fd, unsigned char* buf, unsigned long len)
+lws_plat_file_read(unsigned long* amount, lws_filefd_type fd, unsigned char* buf, unsigned long len)
 {
 	(void)amount;
 	(void)fd;

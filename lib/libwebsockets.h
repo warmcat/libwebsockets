@@ -1207,22 +1207,29 @@ struct lws_extension {
 };
 #endif
 
+/*
+ * file descriptor pointer type
+ */
+typedef void* lws_filefd_type;
+
+#define LWS_INVALID_FILE ((lws_filefd_type)-1)
+
 /**
- * struct libwebsocket_file_callbacks -	File operations callbacks
+ * struct lws_file_ops -	File operations callbacks
  *
- * @pfn_open:		Open file (always binary access)
- * @pfn_close:		Close file
- * @pfn_seek_cur:	Seeking function from current position
- * @pfn_read:		File read function
+ * @open:		Open file (always binary access)
+ * @close:		Close file
+ * @seek_cur:	Seeking function from current position
+ * @read:		File read function
  *				'amount' is a count of bytes read,
  *				'len' is count of bytes to read
  */
 
-struct libwebsocket_file_callbacks {
-	void* (*pfn_open)(const char* filename, unsigned long* filelen);
-	void (*pfn_close)(void* handle);
-	long (*pfn_seek_cur)(void* handle, long offsetFromCurPos);
-	void (*pfn_read)(unsigned long* amount, void* handle, unsigned char* buf, unsigned long len);
+struct lws_file_ops {
+	lws_filefd_type(*open)(const char* filename, unsigned long* filelen);
+	void (*close)(lws_filefd_type handle);
+	long (*seek_cur)(lws_filefd_type handle, long offsetFromCurPos);
+	void (*read)(unsigned long* amount, lws_filefd_type handle, unsigned char* buf, unsigned long len);
 };
 
 /**
@@ -1283,7 +1290,7 @@ struct lws_context_creation_info {
 	const char *iface;
 	struct libwebsocket_protocols *protocols;
 	struct libwebsocket_extension *extensions;
-	struct libwebsocket_file_callbacks *file_callbacks;
+	struct lws_file_ops *fileops;
 	struct lws_token_limits *token_limits;
 	const char *ssl_private_key_password;
 	const char *ssl_cert_filepath;

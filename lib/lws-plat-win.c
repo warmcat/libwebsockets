@@ -448,7 +448,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
  * Default file callbacks
  */
 
-LWS_VISIBLE void* 
+LWS_VISIBLE lws_filefd_type
 lws_plat_file_open(const char* filename, unsigned long* filelen)
 {
 	HANDLE ret;
@@ -466,19 +466,19 @@ lws_plat_file_open(const char* filename, unsigned long* filelen)
 }
 
 LWS_VISIBLE void
-lws_plat_file_close(void*fd)
+lws_plat_file_close(lws_filefd_type fd)
 {
 	CloseHandle((HANDLE)fd);
 }
 
-LWS_VISIBLE unsigned long
-lws_plat_file_seek_cur(void* fd, long offset)
+LWS_VISIBLE long
+lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
 {
 	return SetFilePointer((HANDLE)fd, offset, NULL, FILE_CURRENT);
 }
 
 LWS_VISIBLE void
-lws_plat_file_read(unsigned long* amount, void* fd, unsigned char* buf, unsigned long len)
+lws_plat_file_read(unsigned long* amount, lws_filefd_type fd, unsigned char* buf, unsigned long len)
 {
 	DWORD _amount;
 	if (!ReadFile((HANDLE)fd, buf, (DWORD)len, &_amount, NULL))

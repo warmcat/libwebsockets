@@ -371,7 +371,7 @@ int lws_handshake_server(struct lws_context *context, struct lws *wsi,
 			
 			lws_union_transition(wsi, LWS_CONNMODE_HTTP_SERVING_ACCEPTED);
 			wsi->state = WSI_STATE_HTTP;
-			wsi->u.http.fd = (void*)LWS_INVALID_FILE;
+			wsi->u.http.fd = LWS_INVALID_FILE;
 
 			/* expose it at the same offset as u.hdr */
 			wsi->u.http.ah = ah;
@@ -919,9 +919,9 @@ LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
 			     LWS_SEND_BUFFER_PRE_PADDING;
 	int ret = 0;
 
-	wsi->u.http.fd = context->file_callbacks.pfn_open(file, &wsi->u.http.filelen);
+	wsi->u.http.fd = context->fileops.open(file, &wsi->u.http.filelen);
 
-	if (wsi->u.http.fd == (void*)LWS_INVALID_FILE) {
+	if (wsi->u.http.fd == LWS_INVALID_FILE) {
 		lwsl_err("Unable to open '%s'\n", file);
 		lws_return_http_status(context, wsi, HTTP_STATUS_NOT_FOUND,
 				       NULL);
