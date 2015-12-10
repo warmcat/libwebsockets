@@ -162,6 +162,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include <basetsd.h>
+#include <fcntl.h>
 
 #define strcasecmp stricmp
 #define getdtablesize() 30000
