@@ -481,7 +481,7 @@ lws_plat_file_open(const char* filename, unsigned long* filelen)
 LWS_VISIBLE void
 lws_plat_file_close(lws_filefd_type fd)
 {
-	close((int)fd)
+	close((int)fd);
 }
 
 LWS_VISIBLE long
@@ -491,7 +491,7 @@ lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
 }
 
 LWS_VISIBLE void
-lws_plat_file_read(unsigned long* amount, lws_filefd_type fd, unsigned char* buf, unsigned long len)
+lws_plat_file_read(long* amount, lws_filefd_type fd, unsigned char* buf, long len)
 {
 	*amount = read((int)fd, buf, len);
 }

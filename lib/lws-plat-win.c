@@ -459,10 +459,10 @@ lws_plat_file_open(const char* filename, unsigned long* filelen)
 	ret = CreateFileW(buffer, GENERIC_READ, FILE_SHARE_READ,
 				NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
-	if (ret != LWS_INVALID_FILE)
+	if (ret != INVALID_HANDLE_VALUE)
 		*filelen = GetFileSize(ret, NULL);
 
-	return ret;
+	return (lws_filefd_type)ret;
 }
 
 LWS_VISIBLE void
@@ -478,7 +478,7 @@ lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
 }
 
 LWS_VISIBLE void
-lws_plat_file_read(unsigned long* amount, lws_filefd_type fd, unsigned char* buf, unsigned long len)
+lws_plat_file_read(long* amount, lws_filefd_type fd, unsigned char* buf, long len)
 {
 	DWORD _amount;
 	if (!ReadFile((HANDLE)fd, buf, (DWORD)len, &_amount, NULL))

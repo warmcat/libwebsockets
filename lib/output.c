@@ -509,7 +509,7 @@ send_raw:
 LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 					     struct lws *wsi)
 {
-	int n;
+	long n;
 	int m;
 
 	while (!lws_send_pipe_choked(wsi)) {

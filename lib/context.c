@@ -39,9 +39,8 @@ lws_context_init_file_callbacks(struct lws_context_creation_info *info,
 		context->fileops.seek_cur = cb->seek_cur;
 		context->fileops.read = cb->read;
 	}
-	else
+	else /* default callbacks */
 	{
-		/* default callbacks */
 		context->fileops.open = lws_plat_file_open;
 		context->fileops.close = lws_plat_file_close;
 		context->fileops.seek_cur = lws_plat_file_seek_cur;

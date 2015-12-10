@@ -1210,7 +1210,7 @@ struct lws_extension {
 /*
  * file descriptor pointer type
  */
-typedef void* lws_filefd_type;
+typedef intptr_t lws_filefd_type;
 
 #define LWS_INVALID_FILE ((lws_filefd_type)-1)
 
@@ -1226,10 +1226,10 @@ typedef void* lws_filefd_type;
  */
 
 struct lws_file_ops {
-	lws_filefd_type(*open)(const char* filename, unsigned long* filelen);
+	lws_filefd_type (*open)(const char* filename, unsigned long* filelen);
 	void (*close)(lws_filefd_type handle);
 	long (*seek_cur)(lws_filefd_type handle, long offsetFromCurPos);
-	void (*read)(unsigned long* amount, lws_filefd_type handle, unsigned char* buf, unsigned long len);
+	void (*read)(long* amount, lws_filefd_type handle, unsigned char* buf, long len);
 };
 
 /**

@@ -630,7 +630,7 @@ struct allocated_headers {
 struct _lws_http_mode_related {
 	/* MUST be first in struct */
 	struct allocated_headers *ah; /* mirroring  _lws_header_related */
-	void* fd;
+	lws_filefd_type fd;
 	unsigned long filepos;
 	unsigned long filelen;
 
@@ -1281,14 +1281,14 @@ time_in_microseconds(void);
 LWS_EXTERN const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
 
-LWS_EXTERN void* 
+LWS_EXTERN lws_filefd_type 
 lws_plat_file_open(const char* filename, unsigned long* filelen);
 LWS_EXTERN void
-lws_plat_file_close(void*fd);
+lws_plat_file_close(lws_filefd_type fd);
 LWS_EXTERN long
-lws_plat_file_seek_cur(void* fd, long offset);
+lws_plat_file_seek_cur(lws_filefd_type fd, long offset);
 LWS_EXTERN void
-lws_plat_file_read(unsigned long* amount, void* fd, unsigned char* buf, unsigned long len);
+lws_plat_file_read(long* amount, intptr_t fd, unsigned char* buf, long len);
 
 #ifdef __cplusplus
 };

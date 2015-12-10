@@ -201,7 +201,7 @@ lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
 }
 
 LWS_VISIBLE void
-lws_plat_file_read(unsigned long* amount, lws_filefd_type fd, unsigned char* buf, unsigned long len)
+lws_plat_file_read(long* amount, lws_filefd_type fd, unsigned char* buf, long len)
 {
 	(void)amount;
 	(void)fd;
