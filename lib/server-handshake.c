@@ -30,7 +30,7 @@ lws_extension_server_handshake(struct lws_context *context,
 	int n;
 	char *c;
 	char ext_name[128];
-	struct lws_extension *ext;
+	const struct lws_extension *ext;
 	int ext_count = 0;
 	int more = 1;
 

@@ -73,7 +73,7 @@ int lws_ext_callback_for_each_extension_type(
 				int reason, void *arg, int len)
 {
 	int n = 0, m, handled = 0;
-	struct lws_extension *ext = context->extensions;
+	const struct lws_extension *ext = context->extensions;
 
 	while (ext && ext->callback && !handled) {
 		m = ext->callback(context, ext, wsi, reason,

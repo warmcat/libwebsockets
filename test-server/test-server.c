@@ -314,7 +314,7 @@ int main(int argc, char **argv)
 
 		ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
 		if ((ms - oldms) > 50) {
-			lws_callback_on_writable_all_protocol(
+			lws_callback_on_writable_all_protocol(context,
 				&protocols[PROTOCOL_DUMB_INCREMENT]);
 			oldms = ms;
 		}

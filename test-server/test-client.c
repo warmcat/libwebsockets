@@ -72,7 +72,7 @@ enum demo_protocols {
  */
 
 static int
-callback_dumb_increment(struct lws_context *this,
+callback_dumb_increment(struct lws_context *context,
 			struct lws *wsi,
 			enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)

@@ -14,7 +14,7 @@ struct lws_ext_deflate_stream_conn {
 
 extern int lws_extension_callback_deflate_stream(
 		struct lws_context *context,
-		struct lws_extension *ext,
+		const struct lws_extension *ext,
 		struct lws *wsi,
 		enum lws_extension_callback_reasons reason,
 					      void *user, void *in, size_t len);

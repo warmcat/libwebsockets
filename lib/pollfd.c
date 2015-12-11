@@ -206,8 +206,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
  */
 
 LWS_VISIBLE int
-lws_callback_on_writable(struct lws_context *context,
-						      struct lws *wsi)
+lws_callback_on_writable(const struct lws_context *context, struct lws *wsi)
 {
 #ifdef LWS_USE_HTTP2
 	struct lws *network_wsi, *wsi2;
@@ -284,10 +283,9 @@ network_sock:
  */
 
 LWS_VISIBLE int
-lws_callback_on_writable_all_protocol(
+lws_callback_on_writable_all_protocol(const struct lws_context *context,
 				  const struct lws_protocols *protocol)
 {
-	struct lws_context *context = protocol->owning_server;
 	int n;
 	struct lws *wsi;
 

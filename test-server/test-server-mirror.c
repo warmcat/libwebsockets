@@ -82,7 +82,7 @@ callback_lws_mirror(struct lws_context *context,
 
 			if (((ringbuffer_head - pss->ringbuffer_tail) &
 				  (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 15))
-				lws_rx_flow_allow_all_protocol(
+				lws_rx_flow_allow_all_protocol(context,
 					       lws_get_protocol(wsi));
 
 			if (lws_partial_buffered(wsi) || lws_send_pipe_choked(wsi)) {
@@ -122,7 +122,7 @@ choke:
 		lws_rx_flow_control(wsi, 0);
 
 done:
-		lws_callback_on_writable_all_protocol(
+		lws_callback_on_writable_all_protocol(context,
 					       lws_get_protocol(wsi));
 		break;
 

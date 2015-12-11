@@ -245,7 +245,7 @@ bail:
 LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
 {
-	struct lws_protocols *protocol = NULL;
+	const struct lws_protocols *protocol = NULL;
 	int n;
 
 	lwsl_notice("%s\n", __func__);

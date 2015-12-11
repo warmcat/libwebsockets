@@ -498,7 +498,7 @@ lws_client_interpret_server_handshake(struct lws_context *context,
 	const char *pc;
 	char *p;
 #ifndef LWS_NO_EXTENSIONS
-	struct lws_extension *ext;
+	const struct lws_extension *ext;
 	char ext_name[128];
 	const char *c;
 	int more = 1;
@@ -828,7 +828,7 @@ lws_generate_client_handshake(struct lws_context *context,
 	char buf[128], hash[20], key_b64[40], *p = pkt;
 	int n;
 #ifndef LWS_NO_EXTENSIONS
-	struct lws_extension *ext;
+	const struct lws_extension *ext;
 	int ext_count = 0;
 #endif
 

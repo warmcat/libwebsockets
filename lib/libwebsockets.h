@@ -1090,10 +1090,11 @@ struct lws_extension;
  *		duration of wsi dereference from the other thread context.
  */
 LWS_VISIBLE LWS_EXTERN int
-callback(struct lws_context *context, struct lws *wsi,
+callback(const struct lws_context *context, const struct lws *wsi,
 	 enum lws_callback_reasons reason, void *user, void *in, size_t len);
 
-typedef int (callback_function)(struct lws_context *context, struct lws *wsi,
+typedef int (callback_function)(struct lws_context *context,
+				struct lws *wsi,
 				enum lws_callback_reasons reason, void *user,
 				void *in, size_t len);
 
@@ -1157,12 +1158,12 @@ typedef int (callback_function)(struct lws_context *context, struct lws *wsi,
  *		set the lws_tokens token pointer to it.
  */
 LWS_VISIBLE LWS_EXTERN int
-extension_callback(struct lws_context *context, struct lws_extension *ext,
+extension_callback(struct lws_context *context, const struct lws_extension *ext,
 		   struct lws *wsi, enum lws_extension_callback_reasons reason,
 		   void *user, void *in, size_t len);
 
 typedef int (extension_callback_function)(struct lws_context *context,
-			struct lws_extension *ext, struct lws *wsi,
+			const struct lws_extension *ext, struct lws *wsi,
 			enum lws_extension_callback_reasons reason,
 			void *user, void *in, size_t len);
 #endif
@@ -1298,9 +1299,9 @@ struct lws_extension {
 struct lws_context_creation_info {
 	int port;
 	const char *iface;
-	struct lws_protocols *protocols;
-	struct lws_extension *extensions;
-	struct lws_token_limits *token_limits;
+	const struct lws_protocols *protocols;
+	const struct lws_extension *extensions;
+	const struct lws_token_limits *token_limits;
 	const char *ssl_private_key_password;
 	const char *ssl_cert_filepath;
 	const char *ssl_private_key_filepath;
@@ -1516,13 +1517,15 @@ LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
 lws_get_protocol(struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_callback_on_writable(struct lws_context *context, struct lws *wsi);
+lws_callback_on_writable(const struct lws_context *context, struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_callback_on_writable_all_protocol(const struct lws_protocols *protocol);
+lws_callback_on_writable_all_protocol(const struct lws_context *context,
+				      const struct lws_protocols *protocol);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_callback_all_protocol(const struct lws_protocols *protocol, int reason);
+lws_callback_all_protocol(struct lws_context *context,
+			  const struct lws_protocols *protocol, int reason);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_get_socket_fd(struct lws *wsi);
@@ -1537,7 +1540,8 @@ LWS_VISIBLE LWS_EXTERN int
 lws_rx_flow_control(struct lws *wsi, int enable);
 
 LWS_VISIBLE LWS_EXTERN void
-lws_rx_flow_allow_all_protocol(const struct lws_protocols *protocol);
+lws_rx_flow_allow_all_protocol(const struct lws_context *context,
+			       const struct lws_protocols *protocol);
 
 LWS_VISIBLE LWS_EXTERN size_t
 lws_remaining_packet_payload(struct lws *wsi);
@@ -1630,7 +1634,7 @@ LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops *
 lws_get_fops(struct lws_context *context);
 
 LWS_VISIBLE LWS_EXTERN struct lws_context *
-lws_get_ctx(struct lws *wsi);
+lws_get_ctx(const struct lws *wsi);
 
 /*
  * File Operations access helpers

@@ -123,7 +123,7 @@ void *thread_dumb_increment(void *threadid)
 		 * them is protected by the same lock
 		 */
 		pthread_mutex_lock(&lock_established_conns);
-		lws_callback_on_writable_all_protocol(
+		lws_callback_on_writable_all_protocol(context,
 				&protocols[PROTOCOL_DUMB_INCREMENT]);
 		pthread_mutex_unlock(&lock_established_conns);
 		usleep(100000);

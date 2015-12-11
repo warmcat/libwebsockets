@@ -481,9 +481,9 @@ lws_context_user(struct lws_context *context)
  */
 
 LWS_VISIBLE int
-lws_callback_all_protocol(const struct lws_protocols *protocol, int reason)
+lws_callback_all_protocol(struct lws_context *context,
+			  const struct lws_protocols *protocol, int reason)
 {
-	struct lws_context *context = protocol->owning_server;
 	struct lws *wsi;
 	int n;
 
@@ -616,9 +616,9 @@ lws_rx_flow_control(struct lws *wsi, int enable)
  */
 
 LWS_VISIBLE void
-lws_rx_flow_allow_all_protocol(const struct lws_protocols *protocol)
+lws_rx_flow_allow_all_protocol(const struct lws_context *context,
+			       const struct lws_protocols *protocol)
 {
-	struct lws_context *context = protocol->owning_server;
 	int n;
 	struct lws *wsi;
 
@@ -936,7 +936,7 @@ lws_get_fops(struct lws_context *context)
 }
 
 LWS_VISIBLE LWS_EXTERN struct lws_context *
-lws_get_ctx(struct lws *wsi)
+lws_get_ctx(const struct lws *wsi)
 {
 	return wsi->context;
 }
@@ -1087,13 +1087,6 @@ libwebsockets_get_protocol(struct lws *wsi)
 	return lws_get_protocol(wsi);
 }
 
-#undef libwebsocket_callback_on_writable_all_protocol
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_callback_on_writable_all_protocol(
-				 const struct lws_protocols *protocol)
-{
-	return lws_callback_on_writable_all_protocol(protocol);
-}
 
 #undef libwebsocket_callback_on_writable
 LWS_VISIBLE LWS_EXTERN int
@@ -1101,14 +1094,6 @@ libwebsocket_callback_on_writable(struct lws_context *context,
 						      struct lws *wsi)
 {
 	return lws_callback_on_writable(context, wsi);
-}
-
-#undef libwebsocket_callback_all_protocol
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_callback_all_protocol(
-		const struct lws_protocols *protocol, int reason)
-{
-	return lws_callback_all_protocol(protocol, reason);
 }
 
 #undef libwebsocket_get_socket_fd
@@ -1137,13 +1122,6 @@ LWS_VISIBLE LWS_EXTERN int
 libwebsocket_rx_flow_control(struct lws *wsi, int enable)
 {
 	return lws_rx_flow_control(wsi, enable);
-}
-
-#undef libwebsocket_rx_flow_allow_all_protocol
-LWS_VISIBLE LWS_EXTERN void
-libwebsocket_rx_flow_allow_all_protocol(const struct lws_protocols *protocol)
-{
-	lws_rx_flow_allow_all_protocol(protocol);
 }
 
 #undef libwebsockets_remaining_packet_payload

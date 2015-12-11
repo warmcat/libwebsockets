@@ -525,12 +525,12 @@ struct lws_context {
 #else
 #define lws_ssl_anybody_has_buffered_read(ctx) (0)
 #endif
-	struct lws_protocols *protocols;
+	const struct lws_protocols *protocols;
 	int count_protocols;
 #ifndef LWS_NO_EXTENSIONS
-	struct lws_extension *extensions;
+	const struct lws_extension *extensions;
 #endif
-	struct lws_token_limits *token_limits;
+	const struct lws_token_limits *token_limits;
 	void *user_space;
 	
 	struct lws_plat_file_ops fops;
@@ -836,10 +836,10 @@ struct lws {
     struct lws_io_watcher w_read;
     struct lws_io_watcher w_write;
 #endif /* LWS_USE_LIBEV */
-    	const struct lws_context *context;
+    	struct lws_context *context;
 	const struct lws_protocols *protocol;
 #ifndef LWS_NO_EXTENSIONS
-	struct lws_extension *active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
+	const struct lws_extension *active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
 	void *active_extensions_user[LWS_MAX_EXTENSIONS_ACTIVE];
 	unsigned char count_active_extensions;
 	unsigned int extension_data_pending:1;
