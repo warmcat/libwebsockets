@@ -416,7 +416,8 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 }
 
 static lws_filefd_type
-_lws_plat_file_open(const char *filename, unsigned long *filelen, int flags)
+_lws_plat_file_open(struct lws *wsi, const char *filename,
+		    unsigned long *filelen, int flags)
 {
 	struct stat stat_buf;
 	int ret = open(filename, flags, 0664);
@@ -433,19 +434,19 @@ _lws_plat_file_open(const char *filename, unsigned long *filelen, int flags)
 }
 
 static int
-_lws_plat_file_close(lws_filefd_type fd)
+_lws_plat_file_close(struct lws *wsi, lws_filefd_type fd)
 {
 	return close(fd);
 }
 
 unsigned long
-_lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
+_lws_plat_file_seek_cur(struct lws *wsi, lws_filefd_type fd, long offset)
 {
 	return lseek(fd, offset, SEEK_CUR);
 }
 
 static int
-_lws_plat_file_read(lws_filefd_type fd, unsigned long *amount,
+_lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		    unsigned char *buf, unsigned long len)
 {
 	long n;
@@ -462,7 +463,7 @@ _lws_plat_file_read(lws_filefd_type fd, unsigned long *amount,
 }
 
 static int
-_lws_plat_file_write(lws_filefd_type fd, unsigned long *amount,
+_lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		     unsigned char *buf, unsigned long len)
 {
 	long n;

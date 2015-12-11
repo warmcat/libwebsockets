@@ -73,7 +73,7 @@ lws_close_and_free_session(struct lws_context *context,
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED &&
 	    wsi->u.http.fd != LWS_INVALID_FILE) {
 		lwsl_debug("closing http file\n");
-		lws_plat_file_close(&context->fops, wsi->u.http.fd);
+		lws_plat_file_close(wsi, wsi->u.http.fd);
 		wsi->u.http.fd = LWS_INVALID_FILE;
 		context->protocols[0].callback(context, wsi,
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);

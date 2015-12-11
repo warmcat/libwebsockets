@@ -527,7 +527,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 		if (wsi->u.http.filepos == wsi->u.http.filelen)
 			goto all_sent;
 
-		if (lws_plat_file_read(&context->fops, wsi->u.http.fd, &amount,
+		if (lws_plat_file_read(wsi, wsi->u.http.fd, &amount,
 				       context->service_buffer,
 				       sizeof(context->service_buffer)) < 0)
 			return -1; /* caller will close */
@@ -545,7 +545,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
 
 			if (m != n)
 				/* adjust for what was not sent */
-				if (lws_plat_file_seek_cur(&context->fops,
+				if (lws_plat_file_seek_cur(wsi,
 							   wsi->u.http.fd,
 							   m - n) ==
 							     (unsigned long)-1)
@@ -557,7 +557,7 @@ all_sent:
 			wsi->state = WSI_STATE_HTTP;
 
 			/* we might be in keepalive, so close it off here */
-			lws_plat_file_close(&context->fops, wsi->u.http.fd);
+			lws_plat_file_close(wsi, wsi->u.http.fd);
 			wsi->u.http.fd = LWS_INVALID_FILE;
 
 			if (wsi->protocol->callback)

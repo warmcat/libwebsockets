@@ -287,7 +287,7 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 #define lwsl_hexdump(a, b)
 
 #endif
-
+struct lws;
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
 /* api change list for user code to test against */
@@ -443,13 +443,14 @@ struct lws_pollargs {
  * @write:		Write to file *amount is set on exit as amount written
  */
 struct lws_plat_file_ops {
-	lws_filefd_type (*open)(const char *filename, unsigned long *filelen,
-				int flags);
-	int (*close)(lws_filefd_type fd);
-	unsigned long (*seek_cur)(lws_filefd_type fd, long offset_from_cur_pos);
-	int (*read)(lws_filefd_type fd, unsigned long *amount,
+	lws_filefd_type (*open)(struct lws *wsi, const char *filename,
+				unsigned long *filelen, int flags);
+	int (*close)(struct lws *wsi, lws_filefd_type fd);
+	unsigned long (*seek_cur)(struct lws *wsi, lws_filefd_type fd,
+				  long offset_from_cur_pos);
+	int (*read)(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		    unsigned char *buf, unsigned long len);
-	int (*write)(lws_filefd_type fd, unsigned long *amount,
+	int (*write)(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		     unsigned char *buf, unsigned long len);
 
 	/* Add new things just above here ---^
@@ -1637,9 +1638,13 @@ LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_get_ctx(const struct lws *wsi);
 
 /*
- * File Operations access helpers
+ * Wsi-associated File Operations access helpers
  *
- * usually the first argument will be lws_get_fops(context)
+ * Use these helper functions if you want to access a file from the perspective
+ * of a specific wsi, which is usually the case.  If you just want contextless
+ * file access, use the fops callbacks directly with NULL wsi instead of these
+ * helpers.
+ *
  * If so, then it calls the platform handler or user overrides where present
  * (as defined in info->fops)
  *
@@ -1648,37 +1653,37 @@ lws_get_ctx(const struct lws *wsi);
  */
 
 static inline lws_filefd_type
-lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
+lws_plat_file_open(struct lws *wsi, const char *filename,
 		   unsigned long *filelen, int flags)
 {
-	return fops->open(filename, filelen, flags);
+	return lws_get_fops(lws_get_ctx(wsi))->open(wsi, filename,
+						    filelen, flags);
 }
 
 static inline int
-lws_plat_file_close(struct lws_plat_file_ops *fops, lws_filefd_type fd)
+lws_plat_file_close(struct lws *wsi, lws_filefd_type fd)
 {
-	return fops->close(fd);
+	return lws_get_fops(lws_get_ctx(wsi))->close(wsi, fd);
 }
 
 static inline unsigned long
-lws_plat_file_seek_cur(struct lws_plat_file_ops *fops, lws_filefd_type fd,
-		       long offset_from_cur_pos)
+lws_plat_file_seek_cur(struct lws *wsi, lws_filefd_type fd, long offset)
 {
-	return fops->seek_cur(fd, offset_from_cur_pos);
+	return lws_get_fops(lws_get_ctx(wsi))->seek_cur(wsi, fd, offset);
 }
 
 static inline int
-lws_plat_file_read(struct lws_plat_file_ops *fops, lws_filefd_type fd,
-		   unsigned long *amount, unsigned char *buf, unsigned long len)
+lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
+		   unsigned char *buf, unsigned long len)
 {
-	return fops->read(fd, amount, buf, len);
+	return lws_get_fops(lws_get_ctx(wsi))->read(wsi, fd, amount, buf, len);
 }
 
 static inline int
-lws_plat_file_write(struct lws_plat_file_ops *fops, lws_filefd_type fd,
-		    unsigned long *amount, unsigned char *buf, unsigned long len)
+lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
+		    unsigned char *buf, unsigned long len)
 {
-	return fops->write(fd, amount, buf, len);
+	return lws_get_fops(lws_get_ctx(wsi))->write(wsi, fd, amount, buf, len);
 }
 
 /*

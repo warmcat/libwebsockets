@@ -916,7 +916,7 @@ LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
 			     LWS_SEND_BUFFER_PRE_PADDING;
 	int ret = 0;
 
-	wsi->u.http.fd = lws_plat_file_open(&context->fops, file,
+	wsi->u.http.fd = lws_plat_file_open(wsi, file,
 					    &wsi->u.http.filelen, O_RDONLY);
 
 	if (wsi->u.http.fd == LWS_INVALID_FILE) {

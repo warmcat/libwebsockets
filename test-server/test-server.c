@@ -104,12 +104,13 @@ static struct lws_protocols protocols[] = {
  * compressed files without decompressing the whole archive)
  */
 static lws_filefd_type
-test_server_fops_open(const char *filename, unsigned long *filelen, int flags)
+test_server_fops_open(struct lws *wsi, const char *filename,
+		      unsigned long *filelen, int flags)
 {
 	int n;
 
 	/* call through to original platform implementation */
-	n = fops_plat.open(filename, filelen, flags);
+	n = fops_plat.open(wsi, filename, filelen, flags);
 
 	lwsl_notice("%s: opening %s, ret %d, len %lu\n", __func__, filename,
 		    n, *filelen);

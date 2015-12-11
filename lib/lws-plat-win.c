@@ -411,11 +411,13 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 }
 
 static lws_filefd_type
-_lws_plat_file_open(const char *filename, unsigned long *filelen, int flags)
+_lws_plat_file_open(struct lws *wsi, const char *filename,
+		    unsigned long *filelen, int flags)
 {
 	HANDLE ret;
 	WCHAR buf[MAX_PATH];
 
+	(void)wsi;
 	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buf, ARRAY_SIZE(buf));
 	if ((flags & 7) == _O_RDONLY) {
 		ret = CreateFileW(buf, GENERIC_READ, FILE_SHARE_READ,
@@ -433,25 +435,30 @@ _lws_plat_file_open(const char *filename, unsigned long *filelen, int flags)
 }
 
 static int
-_lws_plat_file_close(lws_filefd_type fd)
+_lws_plat_file_close(struct lws *wsi, lws_filefd_type fd)
 {
+	(void)wsi;
+
 	CloseHandle((HANDLE)fd);
 
 	return 0;
 }
 
 static unsigned long
-_lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
+_lws_plat_file_seek_cur(struct lws *wsi, lws_filefd_type fd, long offset)
 {
+	(void)wsi;
+
 	return SetFilePointer((HANDLE)fd, offset, NULL, FILE_CURRENT);
 }
 
 static int
-_lws_plat_file_read(lws_filefd_type fd, unsigned long *amount,
-		   unsigned char* buf, unsigned long len)
+_lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
+		    unsigned char* buf, unsigned long len)
 {
 	DWORD _amount;
 
+	(void *)wsi;
 	if (!ReadFile((HANDLE)fd, buf, (DWORD)len, &_amount, NULL)) {
 		*amount = 0;
 
@@ -464,10 +471,16 @@ _lws_plat_file_read(lws_filefd_type fd, unsigned long *amount,
 }
 
 static int
-_lws_plat_file_write(lws_filefd_type fd, unsigned long *amount,
+_lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		     unsigned char* buf, unsigned long len)
 {
-	lwsl_err("%s: not implemented on this platform\n", __func__);
+	(void)wsi;
+	(void)fd;
+	(void)amount;
+	(void)buf;
+	(void)len;
+
+	lwsl_err("%s: not implemented yet on this platform\n", __func__);
 	
 	return -1;
 }

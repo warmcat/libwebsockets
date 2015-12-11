@@ -159,8 +159,10 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 }
 
 static lws_filefd_type
-_lws_plat_file_open(const char *filename, unsigned long *filelen, int flags)
+_lws_plat_file_open(struct lws *wsi, const char *filename,
+		    unsigned long *filelen, int flags)
 {
+	(void)wsi;
 	(void)filename;
 	(void)filelen;
 	(void)flags;
@@ -168,15 +170,17 @@ _lws_plat_file_open(const char *filename, unsigned long *filelen, int flags)
 }
 
 static int
-_lws_plat_file_close(lws_filefd_type fd)
+_lws_plat_file_close(struct lws *wsi, lws_filefd_type fd)
 {
+	(void)wsi;
 	(void)fd;
 	return -1;
 }
 
 unsigned long
-_lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
+_lws_plat_file_seek_cur(struct lws *wsi, lws_filefd_type fd, long offset)
 {
+	(void)wsi
 	(void)fd;
 	(void)offset;
 
@@ -184,9 +188,10 @@ _lws_plat_file_seek_cur(lws_filefd_type fd, long offset)
 }
 
 static int
-_lws_plat_file_read(lws_filefd_type fd, unsigned long *amount,
+_lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		    unsigned char* buf, unsigned long* len)
 {
+	(void)wsi;
 	(void)amount;
 	(void)fd;
 	(void)buf;
@@ -196,9 +201,10 @@ _lws_plat_file_read(lws_filefd_type fd, unsigned long *amount,
 }
 
 static int
-_lws_plat_file_write(lws_filefd_type fd, unsigned long *amount,
+_lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		     unsigned char* buf, unsigned long len)
 {
+	(void)wsi;
 	(void)amount;
 	(void)fd;
 	(void)buf;
