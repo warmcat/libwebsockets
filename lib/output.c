@@ -28,7 +28,7 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 
 	/* fetch the per-frame nonce */
 
-	n = lws_get_random(wsi->protocol->owning_server,
+	n = lws_get_random(lws_get_ctx(wsi),
 					   wsi->u.ws.frame_masking_nonce_04, 4);
 	if (n != 4) {
 		lwsl_parser("Unable to read from random device %s %d\n",
@@ -90,7 +90,7 @@ LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 
 int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	struct lws_context *context = wsi->protocol->owning_server;
+	struct lws_context *context = lws_get_ctx(wsi);
 	size_t real_len = len;
 	int n, m;
 	
@@ -157,7 +157,7 @@ handle_truncated_send:
 			}
 		}
 		/* always callback on writeable */
-		lws_callback_on_writable(wsi->protocol->owning_server, wsi);
+		lws_callback_on_writable(lws_get_ctx(wsi), wsi);
 
 		return n;
 	}
@@ -205,7 +205,7 @@ handle_truncated_send:
 	memcpy(wsi->truncated_send_malloc, buf + n, real_len - n);
 
 	/* since something buffered, force it to get another chance to send */
-	lws_callback_on_writable(wsi->protocol->owning_server, wsi);
+	lws_callback_on_writable(lws_get_ctx(wsi), wsi);
 
 	return real_len;
 }

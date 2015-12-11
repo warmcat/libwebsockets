@@ -347,6 +347,7 @@ lws_client_connect(struct lws_context *context, const char *address,
 	if (wsi == NULL)
 		goto bail;
 
+	wsi->context = context;
 	wsi->sock = LWS_SOCK_INVALID;
 
 	/* -1 means just use latest supported */

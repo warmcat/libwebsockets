@@ -141,7 +141,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	if (!wsi || !wsi->protocol || wsi->position_in_fds_table < 0)
 		return 1;
 	
-	context = wsi->protocol->owning_server;
+	context = lws_get_ctx(wsi);
 	if (!context)
 		return 1;
 

@@ -50,7 +50,7 @@ int lws_ext_callback_for_each_active(struct lws *wsi, int reason,
 
 	for (n = 0; n < wsi->count_active_extensions; n++) {
 		m = wsi->active_extensions[n]->callback(
-			wsi->protocol->owning_server,
+			lws_get_ctx(wsi),
 			wsi->active_extensions[n], wsi,
 			reason,
 			wsi->active_extensions_user[n],
@@ -176,7 +176,7 @@ lws_issue_raw_ext_access(struct lws *wsi,
 		 * when he is ready to send and take care of it there
 		 */
 		lws_callback_on_writable(
-					     wsi->protocol->owning_server, wsi);
+					     lws_get_ctx(wsi), wsi);
 		wsi->extension_data_pending = 1;
 		ret = 0;
 	}

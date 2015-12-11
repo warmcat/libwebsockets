@@ -35,7 +35,7 @@ void lws_conn::serialized_writeable(struct lws *_wsi)
 
 	lwsl_debug("%s: wsi %p\r\n", __func__, (void *)wsi);
 
-	lws_service_fd(wsi->protocol->owning_server, &pollfd);
+	lws_service_fd(lws_get_ctx(wsi), &pollfd);
 }
 
 extern "C" void mbed3_tcp_stream_bind(void *sock, int port, struct lws *wsi)
@@ -169,7 +169,7 @@ void lws_conn::onRX(Socket *s)
 	
 	lwsl_debug("%s: lws %p\n", __func__, wsi);
 	
-	lws_service_fd(wsi->protocol->owning_server, &pollfd);
+	lws_service_fd(lws_get_ctx(wsi), &pollfd);
 }
 
 /* 
@@ -201,7 +201,7 @@ void lws_conn_listener::onIncoming(TCPListener *tl, void *impl)
 	 * created.  mbed3_tcp_stream_accept() is also called from
 	 * here to bind the conn and new wsi together
 	 */
-	lws_server_socket_service(wsi->protocol->owning_server,
+	lws_server_socket_service(lws_get_ctx(wsi),
 				  wsi, (struct pollfd *)conn);
 
 	conn->ts->setOnError(TCPStream::ErrorHandler_t(conn, &lws_conn::onError));
@@ -281,7 +281,7 @@ void lws_conn::onSent(Socket *s, uint16_t len)
 
 	lwsl_debug("%s: wsi %p (servicing now)\r\n", __func__, (void *)wsi);
 	
-	lws_service_fd(wsi->protocol->owning_server, &pollfd);
+	lws_service_fd(lws_get_ctx(wsi), &pollfd);
 }
 
 void lws_conn_listener::onError(Socket *s, socket_error_t err)
@@ -296,7 +296,7 @@ void lws_conn::onDisconnect(TCPStream *s)
 {
 	lwsl_notice("%s:\r\n", __func__);
 	(void)s;
-	lws_close_and_free_session(wsi->protocol->owning_server, wsi,
+	lws_close_and_free_session(lws_get_ctx(wsi), wsi,
 						LWS_CLOSE_STATUS_NOSTATUS);
 }
 

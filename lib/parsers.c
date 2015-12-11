@@ -927,7 +927,7 @@ process_as_ping:
 			wsi->u.ws.ping_pending_flag = 1;
 			
 			/* get it sent as soon as possible */
-			lws_callback_on_writable(wsi->protocol->owning_server, wsi);
+			lws_callback_on_writable(lws_get_ctx(wsi), wsi);
 ping_drop:
 			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;
@@ -994,7 +994,7 @@ ping_drop:
 
 				ret = user_callback_handle_rxflow(
 						wsi->protocol->callback,
-						wsi->protocol->owning_server,
+						lws_get_ctx(wsi),
 						wsi,
 						(enum lws_callback_reasons)callback_action,
 						wsi->user_space,

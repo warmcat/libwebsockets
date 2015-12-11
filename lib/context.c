@@ -206,19 +206,13 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	for (context->count_protocols = 0;
 	     info->protocols[context->count_protocols].callback;
-	     context->count_protocols++) {
-		info->protocols[context->count_protocols].owning_server =
-									context;
-		info->protocols[context->count_protocols].protocol_index =
-						       context->count_protocols;
-
+	     context->count_protocols++)
 		/*
 		 * inform all the protocols that they are doing their one-time
 		 * initialization if they want to
 		 */
 		info->protocols[context->count_protocols].callback(context,
 			       NULL, LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
-	}
 
 	/*
 	 * give all extensions a chance to create any per-context

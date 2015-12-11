@@ -1197,9 +1197,6 @@ typedef int (extension_callback_function)(struct lws_context *context,
  *		Accessible via lws_get_protocol(wsi)->user
  *		This should not be confused with wsi->user, it is not the same.
  *		The library completely ignores any value in here.
- * @owning_server:	the server init call fills in this opaque pointer when
- *		registering this protocol with the server.
- * @protocol_index: which protocol we are starting from zero
  *
  *	This structure represents one protocol supported by the server.  An
  *	array of these structures is passed to lws_create_server()
@@ -1217,14 +1214,6 @@ struct lws_protocols {
 	size_t rx_buffer_size;
 	unsigned int id;
 	void *user;
-
-	/*
-	 * below are filled in on server init and can be left uninitialized,
-	 * no need for user to use them directly either
-	 */
-
-	struct lws_context *owning_server;
-	int protocol_index;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibilty */
@@ -1639,6 +1628,9 @@ lws_hdr_copy(struct lws *wsi, char *dest, int len,
 /* get the active file operations struct */
 LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops *
 lws_get_fops(struct lws_context *context);
+
+LWS_VISIBLE LWS_EXTERN struct lws_context *
+lws_get_ctx(struct lws *wsi);
 
 /*
  * File Operations access helpers

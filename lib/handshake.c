@@ -149,7 +149,7 @@ http_postbody:
 			len -= body_chunk_len;
 
 			n = wsi->protocol->callback(
-				wsi->protocol->owning_server, wsi,
+				lws_get_ctx(wsi), wsi,
 				LWS_CALLBACK_HTTP_BODY, wsi->user_space,
 				buf, body_chunk_len);
 			if (n)
@@ -166,7 +166,7 @@ http_postbody:
 postbody_completion:
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 			n = wsi->protocol->callback(
-				wsi->protocol->owning_server, wsi,
+				lws_get_ctx(wsi), wsi,
 				LWS_CALLBACK_HTTP_BODY_COMPLETION,
 				wsi->user_space, NULL, 0);
 			if (n)

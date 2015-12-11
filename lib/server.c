@@ -125,6 +125,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 		compatible_close(sockfd);
 		return 1;
 	}
+	wsi->context = context;
 	wsi->sock = sockfd;
 	wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
 	wsi->protocol = context->protocols;
@@ -151,7 +152,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 int
 _lws_rx_flow_control(struct lws *wsi)
 {
-	struct lws_context *context = wsi->protocol->owning_server;
+	struct lws_context *context = lws_get_ctx(wsi);
 
 	/* there is no pending change */
 	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE))
@@ -523,7 +524,7 @@ upgrade_ws:
 		 * have the opportunity to deny it
 		 */
 
-		if ((wsi->protocol->callback)(wsi->protocol->owning_server, wsi,
+		if ((wsi->protocol->callback)(lws_get_ctx(wsi), wsi,
 				LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 				wsi->user_space,
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL), 0)) {
@@ -603,6 +604,7 @@ lws_create_new_server_wsi(struct lws_context *context)
 		return NULL;
 	}
 
+	new_wsi->context = context;
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
@@ -769,7 +771,7 @@ try_pollout:
 		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE) {
 			n = user_callback_handle_rxflow(
 					wsi->protocol->callback,
-					wsi->protocol->owning_server,
+					lws_get_ctx(wsi),
 					wsi, LWS_CALLBACK_HTTP_WRITEABLE,
 					wsi->user_space,
 					NULL,

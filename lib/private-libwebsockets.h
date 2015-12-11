@@ -836,6 +836,7 @@ struct lws {
     struct lws_io_watcher w_read;
     struct lws_io_watcher w_write;
 #endif /* LWS_USE_LIBEV */
+    	const struct lws_context *context;
 	const struct lws_protocols *protocol;
 #ifndef LWS_NO_EXTENSIONS
 	struct lws_extension *active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];

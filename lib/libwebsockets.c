@@ -935,6 +935,12 @@ lws_get_fops(struct lws_context *context)
 	return &context->fops;
 }
 
+LWS_VISIBLE LWS_EXTERN struct lws_context *
+lws_get_ctx(struct lws *wsi)
+{
+	return wsi->context;
+}
+
 #ifdef LWS_WITH_OLD_API_WRAPPERS
 
 /*

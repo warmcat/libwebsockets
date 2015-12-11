@@ -326,7 +326,7 @@ spill:
 			wsi->u.ws.ping_pending_flag = 1;
 
 			/* get it sent as soon as possible */
-			lws_callback_on_writable(wsi->protocol->owning_server, wsi);
+			lws_callback_on_writable(lws_get_ctx(wsi), wsi);
 ping_drop:
 			wsi->u.ws.rx_user_buffer_head = 0;
 			handled = 1;
@@ -403,7 +403,7 @@ ping_drop:
 		if (callback_action == LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			lwsl_info("Client doing pong callback\n");
 
-		m = wsi->protocol->callback(wsi->protocol->owning_server,
+		m = wsi->protocol->callback(lws_get_ctx(wsi),
 			wsi, (enum lws_callback_reasons)callback_action,
 			wsi->user_space, eff_buf.token, eff_buf.token_len);
 

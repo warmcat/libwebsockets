@@ -75,7 +75,7 @@ lws_extension_server_handshake(struct lws_context *context,
 
 		/* check a client's extension against our support */
 
-		ext = wsi->protocol->owning_server->extensions;
+		ext = lws_get_ctx(wsi)->extensions;
 
 		while (ext && ext->callback) {
 
@@ -91,9 +91,9 @@ lws_extension_server_handshake(struct lws_context *context,
 			 * particular connection + protocol
 			 */
 
-			n = wsi->protocol->owning_server->
+			n = lws_get_ctx(wsi)->
 				protocols[0].callback(
-					wsi->protocol->owning_server,
+					lws_get_ctx(wsi),
 					wsi,
 				  LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
 					  wsi->user_space, ext_name, 0);
@@ -136,7 +136,7 @@ lws_extension_server_handshake(struct lws_context *context,
 
 			/* allow him to construct his context */
 
-			ext->callback(wsi->protocol->owning_server,
+			ext->callback(lws_get_ctx(wsi),
 					ext, wsi,
 					LWS_EXT_CALLBACK_CONSTRUCT,
 					wsi->active_extensions_user[
@@ -262,7 +262,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	/* notify user code that we're ready to roll */
 
 	if (wsi->protocol->callback)
-		wsi->protocol->callback(wsi->protocol->owning_server,
+		wsi->protocol->callback(lws_get_ctx(wsi),
 				wsi, LWS_CALLBACK_ESTABLISHED,
 					  wsi->user_space,
 #ifdef LWS_OPENSSL_SUPPORT
