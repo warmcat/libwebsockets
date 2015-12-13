@@ -941,6 +941,12 @@ lws_get_ctx(const struct lws *wsi)
 	return wsi->context;
 }
 
+LWS_VISIBLE LWS_EXTERN void *
+lws_wsi_user(struct lws *wsi)
+{
+	return wsi->user_space;
+}
+
 #ifdef LWS_WITH_OLD_API_WRAPPERS
 
 /*
