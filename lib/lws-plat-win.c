@@ -417,7 +417,7 @@ _lws_plat_file_open(const char *filename, unsigned long *filelen, int flags)
 	WCHAR buf[MAX_PATH];
 
 	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buf, ARRAY_SIZE(buf));
-	if (flags & _O_RDONLY) {
+	if ((flags & 7) == _O_RDONLY) {
 		ret = CreateFileW(buf, GENERIC_READ, FILE_SHARE_READ,
 			  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	} else {
