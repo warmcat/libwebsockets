@@ -550,12 +550,12 @@ LWS_EXTERN void
 lws_libev_accept(struct lws_context *context,
 		 struct lws *new_wsi, lws_sockfd_type accept_fd);
 LWS_EXTERN void
-lws_libev_io(struct lws_context *context,
+lws_libev_io(const struct lws_context *context,
 				struct lws *wsi, int flags);
 LWS_EXTERN int
 lws_libev_init_fd_table(struct lws_context *context);
 LWS_EXTERN void
-lws_libev_run(struct lws_context *context);
+lws_libev_run(const struct lws_context *context);
 #else
 #define LWS_LIBEV_ENABLED(context) (0)
 #ifdef LWS_POSIX

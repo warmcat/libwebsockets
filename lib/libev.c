@@ -149,8 +149,7 @@ lws_libev_accept(struct lws_context *context,
 }
 
 LWS_VISIBLE void
-lws_libev_io(struct lws_context *context,
-					 struct lws *wsi, int flags)
+lws_libev_io(const struct lws_context *context, struct lws *wsi, int flags)
 {
 	if (!LWS_LIBEV_ENABLED(context))
 		return;
@@ -187,7 +186,7 @@ lws_libev_init_fd_table(struct lws_context *context)
 }
 
 LWS_VISIBLE void
-lws_libev_run(struct lws_context *context)
+lws_libev_run(const struct lws_context *context)
 {
 	if (context->io_loop && LWS_LIBEV_ENABLED(context))
 		ev_run(context->io_loop, 0);
