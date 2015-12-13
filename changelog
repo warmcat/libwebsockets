@@ -49,11 +49,24 @@ wrap or replace them.  An example is shown in test server.
 User api changes
 ----------------
 
-Several older apis start with libwebsocket_ or libwebsockets_ while newer ones
+1) Three APIS
+
+ - lws_callback_on_writable_all_protocol(const struct lws_protocols *protocol)
+ - lws_callback_all_protocol(const struct lws_protocols *protocol)
+ - lws_rx_flow_allow_all_protocol(lws_rx_flow_allow_all_protocol)
+
+Now take an additional pointer to the lws_context in their first argument.
+
+The reason for this change is struct lws_protocols has been changed to remove
+members that lws used for private storage: so the protocols struct in now
+truly const and may be reused serially or simultaneously by different contexts.
+
+2) Several older apis start with libwebsocket_ or libwebsockets_ while newer ones
 all begin lws_.  These apis have been changed to all begin with lws_.
 
-However compatibility defines have been added in libwebsockets.h, so it is
-perfectly build-compatible with older sources using the old api names.
+However except for the three APIs mentioned above in 1), compatibility defines
+have been added in libwebsockets.h, so it is largely build-compatible with
+older sources using the old api names.
 
 If you are using lws with a distro, or otherwise can't rebuild the user code,
 you should add 
