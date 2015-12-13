@@ -137,6 +137,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	int sampled_tid;
 	struct lws_pollfd *pfd;
 	struct lws_pollargs pa;
+	int pa_events = 1;
 
 	if (!wsi || !wsi->protocol || wsi->position_in_fds_table < 0)
 		return 1;
@@ -168,8 +169,9 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	 *         then cancel it to force a restart with our changed events
 	 */
 #if LWS_POSIX
-	if (pa.prev_events != pa.events)
+	pa_events = (pa.prev_events != pa.events);
 #endif
+	if (pa_events)
 	{
 
 		if (lws_plat_change_pollfd(context, wsi, pfd)) {
