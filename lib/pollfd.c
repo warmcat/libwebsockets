@@ -54,7 +54,7 @@ insert_wsi_socket_into_fds(struct lws_context *context,
 	wsi->position_in_fds_table = context->fds_count;
 	context->fds[context->fds_count].fd = wsi->sock;
 	context->fds[context->fds_count].events = LWS_POLLIN;
-	
+
 	lws_plat_insert_socket_into_fds(context, wsi);
 
 	/* external POLL support via protocol 0 */
@@ -107,7 +107,7 @@ remove_wsi_socket_from_fds(struct lws_context *context,
 	 * (still same fd pointing to same wsi)
 	 */
 	/* end guy's "position in fds table" changed */
-	wsi_from_fd(context,context->fds[context->fds_count].fd)-> 
+	wsi_from_fd(context,context->fds[context->fds_count].fd)->
 					position_in_fds_table = m;
 	/* deletion guy's lws_lookup entry needs nuking */
 	delete_from_fd(context,wsi->sock);
@@ -137,10 +137,11 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	int sampled_tid;
 	struct lws_pollfd *pfd;
 	struct lws_pollargs pa;
+	int pa_events = 1;
 
 	if (!wsi || !wsi->protocol || wsi->position_in_fds_table < 0)
 		return 1;
-	
+
 	context = lws_get_ctx(wsi);
 	if (!context)
 		return 1;
@@ -168,10 +169,11 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	 *         then cancel it to force a restart with our changed events
 	 */
 #if LWS_POSIX
-	if (pa.prev_events != pa.events)
+	pa_events = (pa.prev_events != pa.events);
 #endif
+  if (pa_events)
 	{
-		
+
 		if (lws_plat_change_pollfd(context, wsi, pfd)) {
 			lwsl_info("%s failed\n", __func__);
 			return 1;
@@ -191,7 +193,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	if (context->protocols[0].callback(context, wsi,
 	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *) &pa, 0))
 		return -1;
-	
+
 	return 0;
 }
 
@@ -213,20 +215,20 @@ lws_callback_on_writable(const struct lws_context *context, struct lws *wsi)
 	int already;
 
 	lwsl_info("%s: %p\n", __func__, wsi);
-	
+
 	if (wsi->mode != LWS_CONNMODE_HTTP2_SERVING)
 		goto network_sock;
-	
+
 	if (wsi->u.http2.requested_POLLOUT) {
 		lwsl_info("already pending writable\n");
 		return 1;
 	}
-	
+
 	if (wsi->u.http2.tx_credit <= 0) {
 		/*
 		 * other side is not able to cope with us sending
 		 * anything so no matter if we have POLLOUT on our side.
-		 * 
+		 *
 		 * Delay waiting for our POLLOUT until peer indicates he has
 		 * space for more using tx window command in http2 layer
 		 */
@@ -234,21 +236,21 @@ lws_callback_on_writable(const struct lws_context *context, struct lws *wsi)
 		wsi->u.http2.waiting_tx_credit = 1;
 		return 0;
 	}
-	
+
 	network_wsi = lws_http2_get_network_wsi(wsi);
 	already = network_wsi->u.http2.requested_POLLOUT;
-	
+
 	/* mark everybody above him as requesting pollout */
-	
+
 	wsi2 = wsi;
 	while (wsi2) {
 		wsi2->u.http2.requested_POLLOUT = 1;
 		lwsl_info("mark %p pending writable\n", wsi2);
 		wsi2 = wsi2->u.http2.parent_wsi;
 	}
-	
+
 	/* for network action, act only on the network wsi */
-	
+
 	wsi = network_wsi;
 	if (already)
 		return 1;
