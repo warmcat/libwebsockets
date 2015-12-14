@@ -216,7 +216,7 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 		WSI_TOKEN_PATCH_URI,
 		WSI_TOKEN_DELETE_URI,
 	};
-	unsigned int n, m;
+	unsigned int n, m, enc = 0;
 
 	switch (wsi->u.hdr.parser_state) {
 	default:
@@ -286,6 +286,7 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 			}
 			c = (char_to_hex(wsi->u.hdr.esc_stash) << 4) |
 					char_to_hex(c);
+			enc = 1;
 			wsi->u.hdr.ues = URIES_IDLE;
 			break;
 		}
@@ -360,7 +361,7 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 			break;
 		}
 
-		if (c == '?') { /* start of URI arguments */
+		if (c == '?' && !enc) { /* start of URI arguments */
 			/* seal off uri header */
 			wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
 

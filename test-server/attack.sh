@@ -57,6 +57,14 @@ done
 check
 
 echo
+echo "---- /cgi-bin/settingsjs?UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=%3F&Root_Channels_1_Channel_location_http_post=%3F"
+rm -f /tmp/lwscap
+echo -e "GET /cgi-bin/settingsjs?UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=%3F&Root_Channels_1_Channel_location_http_post=%3F HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check args "UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=?&Root_Channels_1_Channel_location_http_post=?"
+
+
+
+echo
 echo "---- ? processing (%2f%2e%2e%2f%2e./test.html?arg=1)"
 rm -f /tmp/lwscap
 echo -e "GET %2f%2e%2e%2f%2e./test.html?arg=1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
