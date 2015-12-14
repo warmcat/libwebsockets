@@ -22,11 +22,11 @@
  * b7 = 0 = 1-byte seq
  *	    0x08 = fail
  *	    2-byte seq
- *          0x00 - 0x07, then terminal as given in 2nd byte
+ *	    0x00 - 0x07, then terminal as given in 2nd byte
 	    3-byte seq
- *          no match: go fwd 3 byte, match: jump fwd by amt in +1/+2 bytes
+ *	    no match: go fwd 3 byte, match: jump fwd by amt in +1/+2 bytes
  *    = 1 = 1-byte seq
- *          no match: die, match go fwd 1 byte
+ *	    no match: die, match go fwd 1 byte
  */
 
 unsigned char lextable[] = {
@@ -51,7 +51,6 @@ int next = 1;
 
 int lextable_decode(int pos, char c)
 {
-
 	while (1) {
 		if (lextable[pos] & (1 << 7)) { /* 1-byte, fail on mismatch */
 			if ((lextable[pos] & 0x7f) != c)

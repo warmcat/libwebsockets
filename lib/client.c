@@ -85,12 +85,12 @@ int lws_client_socket_service(struct lws_context *context,
 		n = recv(wsi->sock, (char *)context->service_buffer,
 					sizeof(context->service_buffer), 0);
 		if (n < 0) {
-			
+
 			if (LWS_ERRNO == LWS_EAGAIN) {
 				lwsl_debug("Proxy read returned EAGAIN... retrying\n");
 				return 0;
 			}
-			
+
 			lws_close_and_free_session(context, wsi,
 						   LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR reading from proxy socket\n");
@@ -236,7 +236,7 @@ int lws_client_socket_service(struct lws_context *context,
 								  context, wsi);
 some_wait:
 					wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_SSL;
-					
+
 					return 0; /* no error */
 				}
 				n = -1;
@@ -247,7 +247,7 @@ some_wait:
 				 * retry if new data comes until we
 				 * run into the connection timeout or win
 				 */
-				
+
 				n = ERR_get_error();
 				if (n != SSL_ERROR_NONE) {
 					lwsl_err("SSL connect error %lu: %s\n",
@@ -261,21 +261,21 @@ some_wait:
 			wsi->ssl = NULL;
 
 		/* fallthru */
-			
+
 	case LWS_CONNMODE_WS_CLIENT_WAITING_SSL:
-			
+
 		if (wsi->use_ssl) {
-				
+
 			if (wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SSL) {
 				lws_latency_pre(context, wsi);
 				n = SSL_connect(wsi->ssl);
 				lws_latency(context, wsi,
 					    "SSL_connect LWS_CONNMODE_WS_CLIENT_WAITING_SSL",
 					    n, n > 0);
-				
+
 				if (n < 0) {
 					n = SSL_get_error(wsi->ssl, n);
-					
+
 					if (n == SSL_ERROR_WANT_READ)
 						goto some_wait;
 
@@ -292,15 +292,15 @@ some_wait:
 						 * are getting serviced inbetweentimes)
 						 * us to get called back when writable.
 						 */
-						
+
 						lwsl_info("SSL_connect WANT_WRITE... retrying\n");
 						lws_callback_on_writable(context, wsi);
-						
+
 						goto some_wait;
 					}
 					n = -1;
 				}
-				
+
 				if (n <= 0) {
 					/*
 					 * retry if new data comes until we
@@ -315,7 +315,7 @@ some_wait:
 					}
 				}
 			}
-			
+
 			#ifndef USE_WOLFSSL
 			/*
 			 * See comment above about wolfSSL certificate
@@ -343,7 +343,7 @@ some_wait:
 		} else
 			wsi->ssl = NULL;
 #endif
-		
+
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE2;
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 				AWAITING_TIMEOUT);

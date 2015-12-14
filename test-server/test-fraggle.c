@@ -229,7 +229,6 @@ callback_fraggle(struct lws_context *context,
 }
 
 
-
 /* list of supported protocols and callbacks */
 
 static struct lws_protocols protocols[] = {

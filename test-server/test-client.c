@@ -64,9 +64,9 @@ enum demo_protocols {
 };
 
 
-/* 
+/*
  * dumb_increment protocol
- * 
+ *
  * since this also happens to be protocols[0], some callbacks that are not
  * bound to a specific protocol also turn up here.
  */

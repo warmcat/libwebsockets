@@ -99,7 +99,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #else
 		lwsl_notice(" Compiled with OpenSSL support\n");
 #endif
-		
+
 		if (info->ssl_cipher_list)
 			lwsl_notice(" SSL ciphers: '%s'\n", info->ssl_cipher_list);
 
@@ -131,7 +131,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	method = (SSL_METHOD *)SSLv23_server_method();
 	if (!method) {
 		error = ERR_get_error();
-		lwsl_err("problem creating ssl method %lu: %s\n", 
+		lwsl_err("problem creating ssl method %lu: %s\n",
 			error, ERR_error_string(error,
 					      (char *)context->service_buffer));
 		return 1;
@@ -159,12 +159,12 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	if (info->options &
 			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
-		
+
 		int verify_options = SSL_VERIFY_PEER;
-	
+
 		if (!(info->options & LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
 			verify_options |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
-		
+
 		SSL_CTX_set_session_id_context(context->ssl_ctx,
 				(unsigned char *)context, sizeof(void *));
 
@@ -239,10 +239,10 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		 * SSL is happy and has a cert it's content with
 		 * If we're supporting HTTP2, initialize that
 		 */
-		
+
 		lws_context_init_http2_ssl(context);
 	}
-	
+
 	return 0;
 }
 #endif
@@ -377,7 +377,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 				(char *)context->service_buffer));
 			return 1;
 		}
-	} 
+	}
 	if (info->ssl_private_key_filepath) {
 		lws_ssl_bind_passphrase(context->ssl_client_ctx, info);
 		/* set the private key from KeyFile */
@@ -397,12 +397,12 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			lwsl_err("Private SSL key doesn't match cert\n");
 			return 1;
 		}
-	} 
+	}
 
 	context->protocols[0].callback(context, NULL,
 		LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
 		context->ssl_client_ctx, NULL, 0);
-	
+
 	return 0;
 }
 #endif
@@ -448,10 +448,10 @@ lws_ssl_capable_read(struct lws_context *context,
 		return LWS_SSL_CAPABLE_ERROR;
 
 	if (n > 0) {
-		/* 
+		/*
 		 * if it was our buffer that limited what we read,
 		 * check if SSL has additional data pending inside SSL buffers.
-		 * 
+		 *
 		 * Because these won't signal at the network layer with POLLIN
 		 * and if we don't realize, this data will sit there forever
 		 */
@@ -475,7 +475,7 @@ lws_ssl_capable_read(struct lws_context *context,
 	if (n ==  SSL_ERROR_WANT_READ || n ==  SSL_ERROR_WANT_WRITE)
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 lwsl_err("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
-	return LWS_SSL_CAPABLE_ERROR; 
+	return LWS_SSL_CAPABLE_ERROR;
 }
 
 LWS_VISIBLE int
@@ -640,7 +640,7 @@ lws_server_socket_service_ssl(struct lws_context *context, struct lws **pwsi,
 				wsi->ssl = NULL;
 				goto accepted;
 			}
-			if (!n) /* 
+			if (!n) /*
 				 * connection is gone, or nothing to read
 				 * if it's gone, we will timeout on
 				 * PENDING_TIMEOUT_SSL_ACCEPT
@@ -706,7 +706,7 @@ accepted:
 	}
 
 	return 0;
-	
+
 fail:
 	return 1;
 }

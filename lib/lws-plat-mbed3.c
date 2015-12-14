@@ -27,13 +27,13 @@ LWS_VISIBLE int lws_get_random(struct lws_context *context,
  * MBED3 does not have a 'kernel' which takes copies of what userland wants
  * to send.  The user application must hold the tx buffer until it is informed
  * that send of the user buffer was complete.
- * 
+ *
  * So as soon as you send something the pipe is globally choked.
- * 
+ *
  * There is no concept of additional sent things being maybe acceptable.
  * You can send one thing up to 64KB at a time and may not try to send
  * anything else until that is completed.
- * 
+ *
  * You can send things on other sockets, but they cannot complete until they
  * get their turn at the network device.
  */
@@ -76,7 +76,7 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
  *
  *	This function let a call to lws_service() waiting for a timeout
  *	immediately return.
- * 
+ *
  *	There is no poll() in MBED3, he will fire callbacks when he feels like
  *	it.
  */

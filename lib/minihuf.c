@@ -36,7 +36,7 @@ static struct huf huf_literal[] = {
 	/* 0x09 */ { 0xffffea, 24 },
 	/* 0x0a */ { 0x3ffffffc, 30 },
 	/* 0x0b */ { 0xfffffe9, 28 },
-	
+
 	/* 0x0c */ { 0xfffffea, 28 },
 	/* 0x0d */ { 0x3ffffffd, 30 },
 	/* 0x0e */ { 0xfffffeb, 28 },
@@ -85,7 +85,7 @@ static struct huf huf_literal[] = {
 	/* 0x39 */ { 0x1f, 6 },
 	/* 0x3a */ { 0x5c, 7 },
 	/* 0x3b */ { 0xfb, 8 },
-	
+
 	/* 0x3c */ { 0x7ffc, 15 },
 	/* 0x3d */ { 0x20, 6 },
 	/* 0x3e */ { 0xffb, 12 },
@@ -134,7 +134,7 @@ static struct huf huf_literal[] = {
 	/* 0x69 */ { 0x6, 5 },
 	/* 0x6a */ { 0x74, 7 },
 	/* 0x6b */ { 0x75, 7 },
-	
+
 
 	/* 0x6c */ { 0x28, 6 },
 	/* 0x6d */ { 0x29, 6 },
@@ -184,7 +184,7 @@ static struct huf huf_literal[] = {
 	/* 0x99 */ { 0x1fffdc, 21 },
 	/* 0x9a */ { 0x3fffd8, 22 },
 	/* 0x9b */ { 0x7fffe5, 23 },
-	
+
 	/* 0x9c */ { 0x3fffd9, 22 },
 	/* 0x9d */ { 0x7fffe6, 23 },
 	/* 0x9e */ { 0x7fffe7, 23 },
@@ -233,7 +233,7 @@ static struct huf huf_literal[] = {
 	/* 0xc9 */ { 0x3ffffe3, 26 },
 	/* 0xca */ { 0x3ffffe4, 26 },
 	/* 0xcb */ { 0x7ffffde, 27 },
-	
+
 	/* 0xcc */ { 0x7ffffdf, 27 },
 	/* 0xcd */ { 0x3ffffe5, 26 },
 	/* 0xce */ { 0xfffff1, 24 },
@@ -282,7 +282,7 @@ static struct huf huf_literal[] = {
 	/* 0xf9 */ { 0xffffffe, 28 },
 	/* 0xfa */ { 0x7ffffec, 27 },
 	/* 0xfb */ { 0x7ffffed, 27 },
-	
+
 	/* 0xfc */ { 0x7ffffee, 27 },
 	/* 0xfd */ { 0x7ffffef, 27 },
 	/* 0xfe */ { 0x7fffff0, 27 },
@@ -338,7 +338,7 @@ int main(void)
 	int pos = 0;
 	int biggest = 0;
 	int fails = 0;
-	
+
 	m = 0;
 	while (m < ARRAY_SIZE(state)) {
 		for (j = 0; j < PARALLEL; j++) {
@@ -391,14 +391,14 @@ again:
 
 		if (state[n].state[0]) /* nonterminal */
 			pos += 2;
-				
+
 		walk ++;
 	}
-	
+
 	fprintf(stdout, "static unsigned char lextable[] = {\n");
 
 #define TERMINAL_MASK 0x8000
-	
+
 	walk = 0;
 	pos = 0;
 	q = 0;
@@ -435,9 +435,9 @@ again:
 				walk++;
 				continue;
 			}
-			
+
 			j = (state[saw].real_pos - q) >> 1;
-			
+
 			if (j > biggest)
 				biggest = j;
 
@@ -447,7 +447,7 @@ again:
 					state[n].real_pos, state[saw].real_pos);
 				return 1;
 			}
-			
+
 			fprintf(stdout, "   /* %d */ 0x%02X  "
 				"/* (to 0x%04X state %3d) */,\n",
 				m,
@@ -469,7 +469,7 @@ again:
 		fprintf(stdout, "0x%02x, ", terms[n]);
 	}
 	fprintf(stdout, "\n};\n");
-	
+
 	/*
 	 * Try to parse every legal input string
 	 */
@@ -494,7 +494,7 @@ again:
 				y = walk & 0x7fff;
 				if (y == 0 && m == 29) {
 					y |= 0x100;
-					fprintf(stdout, 
+					fprintf(stdout,
 						"\n/* state that points to "
 						"0x100 for disambiguation with "
 						"0x0 */\n"

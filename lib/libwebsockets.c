@@ -121,7 +121,7 @@ lws_close_and_free_session(struct lws_context *context,
 	 * are his extensions okay with him closing?  Eg he might be a mux
 	 * parent and just his ch1 aspect is closing?
 	 */
-	
+
 	if (lws_ext_callback_for_each_active(wsi,
 		      LWS_EXT_CALLBACK_CHECK_OK_TO_REALLY_CLOSE, NULL, 0) > 0) {
 		lwsl_ext("extension vetoed close\n");
@@ -269,7 +269,7 @@ just_kill_connection:
 			   wsi->mode, old_state);
 
 	/* deallocate any active extension contexts */
-	
+
 	if (lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_DESTROY,
 					     NULL, 0) < 0)
 		lwsl_warn("extension destruction failed\n");
@@ -335,7 +335,7 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
 		getnameinfo((struct sockaddr *)ads,
 				sizeof(struct sockaddr_in6), name,
 							name_len, NULL, 0, 0);
-		
+
 		return 0;
 	} else
 #endif
@@ -440,7 +440,7 @@ lws_get_peer_addresses(struct lws_context *context, struct lws *wsi,
 		lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
 		goto bail;
 	}
-	
+
 	ret = lws_get_addresses(context, p, name, name_len, rip, rip_len);
 
 bail:
@@ -667,7 +667,7 @@ int user_callback_handle_rxflow(callback_function callback_function,
  * @context:	pointer to struct lws_context you want set proxy to
  * @proxy: pointer to c string containing proxy in format address:port
  *
- * Returns 0 if proxy string was parsed and proxy was setup. 
+ * Returns 0 if proxy string was parsed and proxy was setup.
  * Returns -1 if @proxy is NULL or has incorrect format.
  *
  * This is only required if your OS does not provide the http_proxy
@@ -685,7 +685,7 @@ lws_set_proxy(struct lws_context *context, const char *proxy)
 {
 	char *p;
 	char authstring[96];
-	
+
 	if (!proxy)
 		return -1;
 
@@ -703,7 +703,7 @@ lws_set_proxy(struct lws_context *context, const char *proxy)
 			goto auth_too_long;
 
 		lwsl_notice(" Proxy auth in use\n");
-			
+
 		proxy = p + 1;
 	} else
 		context->proxy_basic_auth_token[0] = '\0';
@@ -876,11 +876,11 @@ lws_is_ssl(struct lws *wsi)
  * write on this connection is still buffered, and can't be cleared without
  * returning to the service loop and waiting for the connection to be
  * writeable again.
- * 
+ *
  * If you will try to do >1 lws_write call inside a single
  * WRITEABLE callback, you must check this after every write and bail if
  * set, ask for a new writeable callback and continue writing from there.
- * 
+ *
  * This is never set at the start of a writeable callback, but any write
  * may set it.
  */
@@ -888,7 +888,7 @@ lws_is_ssl(struct lws *wsi)
 LWS_VISIBLE int
 lws_partial_buffered(struct lws *wsi)
 {
-	return !!wsi->truncated_send_len;	
+	return !!wsi->truncated_send_len;
 }
 
 void lws_set_protocol_write_pending(struct lws_context *context,
@@ -896,7 +896,7 @@ void lws_set_protocol_write_pending(struct lws_context *context,
 				    enum lws_pending_protocol_send pend)
 {
 	lwsl_info("setting pps %d\n", pend);
-	
+
 	if (wsi->pps)
 		lwsl_err("pps overwrite\n");
 	wsi->pps = pend;
@@ -914,7 +914,7 @@ lws_get_peer_write_allowance(struct lws *wsi)
 	/* user is only interested in how much he can send, or that he can't  */
 	if (wsi->u.http2.tx_credit <= 0)
 		return 0;
-	
+
 	return wsi->u.http2.tx_credit;
 #else
 	(void)wsi;

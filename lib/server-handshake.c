@@ -85,9 +85,8 @@ lws_extension_server_handshake(struct lws_context *context,
 			}
 
 			/*
-			 * oh, we do support this one he
-			 * asked for... but let's ask user
-			 * code if it's OK to apply it on this
+			 * oh, we do support this one he asked for... but let's
+			 * ask user code if it's OK to apply it on this
 			 * particular connection + protocol
 			 */
 
@@ -99,9 +98,8 @@ lws_extension_server_handshake(struct lws_context *context,
 					  wsi->user_space, ext_name, 0);
 
 			/*
-			 * zero return from callback means
-			 * go ahead and allow the extension,
-			 * it's what we get if the callback is
+			 * zero return from callback means go ahead and allow
+			 * the extension, it's what we get if the callback is
 			 * unhandled
 			 */
 
@@ -234,7 +232,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	/* end of response packet */
 
 	LWS_CPYAPP(p, "\x0d\x0a\x0d\x0a");
-	
+
 	if (!lws_any_extension_handled(context, wsi,
 			LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
 						     response, p - response)) {

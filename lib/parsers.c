@@ -272,7 +272,7 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 			wsi->u.hdr.esc_stash = c;
 			wsi->u.hdr.ues = URIES_SEEN_PERCENT_H1;
 			goto swallow;
-			
+
 		case URIES_SEEN_PERCENT_H1:
 			if (char_to_hex(c) < 0) {
 				/* regurgitate */
@@ -291,7 +291,7 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 		}
 
 		/*
-		 * special URI processing... 
+		 * special URI processing...
 		 *  convert /.. or /... or /../ etc to /
 		 *  convert /./ to /
 		 *  convert // or /// etc to /
@@ -318,7 +318,7 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 		case URIPS_SEEN_SLASH_DOT:
 			/* swallow second . */
 			if (c == '.') {
-				/* 
+				/*
 				 * back up one dir level if possible
 				 * safe against header fragmentation because
 				 * the method URI can only be in 1 fragment
@@ -344,7 +344,7 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 			wsi->u.hdr.ups = URIPS_IDLE;
 			issue_char(wsi, '.');
 			break;
-			
+
 		case URIPS_SEEN_SLASH_DOT_DOT:
 			/* swallow prior .. chars and any subsequent . */
 			if (c == '.')
@@ -891,7 +891,7 @@ spill:
 						 wsi->u.ws.rx_user_buffer_head);
 
 			if (wsi->u.ws.ping_pending_flag) {
-				/* 
+				/*
 				 * there is already a pending ping payload
 				 * we should just log and drop
 				 */
@@ -904,7 +904,7 @@ process_as_ping:
 				lwsl_parser("DROP PING payload too large\n");
 				goto ping_drop;
 			}
-			
+
 			/* if existing buffer is too small, drop it */
 			if (wsi->u.ws.ping_payload_buf &&
 			    wsi->u.ws.ping_payload_alloc < wsi->u.ws.rx_user_buffer_head) {
@@ -917,15 +917,15 @@ process_as_ping:
 									+ LWS_SEND_BUFFER_PRE_PADDING);
 				wsi->u.ws.ping_payload_alloc = wsi->u.ws.rx_user_buffer_head;
 			}
-			
+
 			/* stash the pong payload */
 			memcpy(wsi->u.ws.ping_payload_buf + LWS_SEND_BUFFER_PRE_PADDING,
 			       &wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 				wsi->u.ws.rx_user_buffer_head);
-			
+
 			wsi->u.ws.ping_payload_len = wsi->u.ws.rx_user_buffer_head;
 			wsi->u.ws.ping_pending_flag = 1;
-			
+
 			/* get it sent as soon as possible */
 			lws_callback_on_writable(lws_get_ctx(wsi), wsi);
 ping_drop:
@@ -978,7 +978,7 @@ ping_drop:
 		eff_buf.token = &wsi->u.ws.rx_user_buffer[
 						LWS_SEND_BUFFER_PRE_PADDING];
 		eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
-		
+
 		if (lws_ext_callback_for_each_active(wsi,
 				LWS_EXT_CALLBACK_PAYLOAD_RX, &eff_buf, 0) < 0)
 			return -1;

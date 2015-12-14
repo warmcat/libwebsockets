@@ -93,7 +93,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_context *context = lws_get_ctx(wsi);
 	size_t real_len = len;
 	int n, m;
-	
+
 	if (!len)
 		return 0;
 	/* just ignore sends after we cleared the truncation buffer */
@@ -441,7 +441,7 @@ send_raw:
 				if (wsi->u.http2.send_END_STREAM)
 					flags |= LWS_HTTP2_FLAG_END_STREAM;
 			}
-			
+
 			if ((protocol == LWS_WRITE_HTTP || protocol == LWS_WRITE_HTTP_FINAL) && wsi->u.http.content_length) {
 				wsi->u.http.content_remain -= len;
 				lwsl_info("%s: content_remain = %lu\n", __func__, wsi->u.http.content_remain);
@@ -450,7 +450,7 @@ send_raw:
 					protocol = LWS_WRITE_HTTP_FINAL;
 				}
 			}
-			
+
 			if (protocol == LWS_WRITE_HTTP_FINAL && wsi->u.http2.END_STREAM) {
 				lwsl_info("%s: setting END_STREAM\n", __func__);
 				flags |= LWS_HTTP2_FLAG_END_STREAM;
@@ -623,7 +623,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	(void)len;
 	// !!!
 #endif
-	
+
 	lwsl_debug("ERROR writing len %d to skt %d\n", len, n);
 	return LWS_SSL_CAPABLE_ERROR;
 }

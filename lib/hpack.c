@@ -201,16 +201,16 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 
 	if (!hdr_token_idx)
 		return 1;
-	
+
 	if (ah->next_frag_index >= ARRAY_SIZE(ah->frag_index))
 		return 1;
-	
+
 	ah->frags[ah->next_frag_index].offset = ah->pos;
 	ah->frags[ah->next_frag_index].len = 0;
 	ah->frags[ah->next_frag_index].next_frag_index = 0;
 
 	ah->frag_index[hdr_token_idx] = ah->next_frag_index;
-	
+
 	return 0;
 }
 
@@ -220,7 +220,7 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 
 	ah->data[ah->pos++] = c;
 	ah->frags[ah->next_frag_index].len++;
-	
+
 	return ah->pos >= sizeof(ah->data);
 }
 
@@ -245,11 +245,11 @@ static int
 lws_token_from_index(struct lws *wsi, int index, char **arg, int *len)
 {
 	struct hpack_dynamic_table *dyn;
-	
+
 	/* dynamic table only belongs to network wsi */
-	
+
 	wsi = lws_http2_get_network_wsi(wsi);
-	
+
 	dyn = wsi->u.http2.hpack_dyn_table;
 
 	if (index < ARRAY_SIZE(static_token))
@@ -257,16 +257,16 @@ lws_token_from_index(struct lws *wsi, int index, char **arg, int *len)
 
 	if (!dyn)
 		return 0;
-	
+
 	index -= ARRAY_SIZE(static_token);
 	if (index >= dyn->num_entries)
 		return 0;
-	
+
 	if (arg && len) {
 		*arg = dyn->args + dyn->entries[index].arg_offset;
 		*len = dyn->entries[index].arg_len;
 	}
-	
+
 	return dyn->entries[index].token;
 }
 
@@ -275,7 +275,7 @@ lws_hpack_add_dynamic_header(struct lws *wsi, int token, char *arg, int len)
 {
 	struct hpack_dynamic_table *dyn;
 	int ret = 1;
-	
+
 	wsi = lws_http2_get_network_wsi(wsi);
 	dyn = wsi->u.http2.hpack_dyn_table;
 
@@ -284,7 +284,7 @@ lws_hpack_add_dynamic_header(struct lws *wsi, int token, char *arg, int len)
 		if (!dyn)
 			return 1;
 		wsi->u.http2.hpack_dyn_table = dyn;
-		
+
 		dyn->args = lws_malloc(1024);
 		if (!dyn->args)
 			goto bail1;
@@ -294,25 +294,25 @@ lws_hpack_add_dynamic_header(struct lws *wsi, int token, char *arg, int len)
 			goto bail2;
 		dyn->num_entries = 20;
 	}
-	
+
 	if (dyn->next == dyn->num_entries)
 		return 1;
-	
+
 	if (dyn->args_length - dyn->pos < len)
 		return 1;
-	
+
 	dyn->entries[dyn->next].token = token;
 	dyn->entries[dyn->next].arg_offset = dyn->pos;
 	if (len)
 		memcpy(dyn->args + dyn->pos, arg, len);
 	dyn->entries[dyn->next].arg_len = len;
-	
+
 	lwsl_info("%s: added dynamic hdr %d, token %d (%s), len %d\n",
 		  __func__, dyn->next, token, lws_token_to_string(token), len);
-	
+
 	dyn->pos += len;
 	dyn->next++;
-	
+
 	return 0;
 
 bail2:
@@ -343,7 +343,7 @@ static int lws_write_indexed_hdr(struct lws *wsi, int idx)
 	}
 	if (lws_frag_end(wsi))
 		return 1;
-	
+
 	lws_dump_header(wsi, tok);
 
 	return 0;
@@ -378,14 +378,14 @@ int lws_hpack_interpret(struct lws_context *context,
 		/* weight */
 		wsi->u.http2.hpack = HPKS_TYPE;
 		break;
-			
+
 	case HPKS_TYPE:
-		
+
 		if (wsi->u.http2.count > (wsi->u.http2.length - wsi->u.http2.padding)) {
 			lwsl_info("padding eat\n");
 			break;
 		}
-		
+
 		if (c & 0x80) { /* indexed header field only */
 			/* just a possibly-extended integer */
 			wsi->u.http2.hpack_type = HPKT_INDEXED_HDR_7;
@@ -430,7 +430,7 @@ int lws_hpack_interpret(struct lws_context *context,
 		switch(c & 0xf0) {
 		case 0x10: /* literal header never index */
 		case 0: /* literal header without indexing */
-			/* 
+			/*
 			 * follows 0x40 except 4-bit hdr idx
 			 * and don't add to index
 			 */
@@ -469,7 +469,7 @@ int lws_hpack_interpret(struct lws_context *context,
 			break;
 		}
 		break;
-		
+
 	case HPKS_IDX_EXT:
 		wsi->u.http2.hpack_len += (c & 0x7f) << wsi->u.http2.hpack_m;
 		wsi->u.http2.hpack_m += 7;
@@ -508,7 +508,7 @@ pre_data:
 		wsi->u.http2.hpack_m = 0;
 		wsi->u.http2.hpack = HPKS_HLEN_EXT;
 		break;
-		
+
 	case HPKS_HLEN_EXT:
 		wsi->u.http2.hpack_len += (c & 0x7f) <<
 					wsi->u.http2.hpack_m;
@@ -532,7 +532,7 @@ pre_data:
 					continue;
 				c1 = wsi->u.http2.hpack_pos & 0x7fff;
 				wsi->u.http2.hpack_pos = 0;
-	
+
 				if (!c1 && prev == HUFTABLE_0x100_PREV)
 					; /* EOT */
 			} else {
@@ -545,11 +545,11 @@ pre_data:
 			} else { /* name */
 				if (lws_parse(context, wsi, c1))
 					return 1;
-				
+
 			}
 		}
 		if (--wsi->u.http2.hpack_len == 0) {
-			
+
 			switch (wsi->u.http2.hpack_type) {
 			case HPKT_LITERAL_HDR_VALUE_INCR:
 			case HPKT_INDEXED_HDR_6_VALUE_INCR: // !!!
@@ -562,7 +562,7 @@ pre_data:
 			default:
 				break;
 			}
-			
+
 			n = 8;
 			if (wsi->u.http2.value) {
 				if (lws_frag_end(wsi))
@@ -578,7 +578,7 @@ pre_data:
 					wsi->u.http2.hpack = HPKS_TYPE;
 			} else { /* name */
 				if (wsi->u.hdr.parser_state < WSI_TOKEN_COUNT)
-					
+
 				wsi->u.http2.value = 1;
 				wsi->u.http2.hpack = HPKS_HLEN;
 			}
@@ -590,7 +590,7 @@ pre_data:
 			wsi->u.http2.hpack = HPKS_TYPE;
 		break;
 	}
-	
+
 	return 0;
 }
 
@@ -603,11 +603,11 @@ static int lws_http2_num(int starting_bits, unsigned long num,
 		*((*p)++) |= num;
 		return *p >= end;
 	}
-	
+
 	*((*p)++) |= mask;
 	if (*p >= end)
 		return 1;
-	
+
 	num -= mask;
 	while (num >= 128) {
 		*((*p)++) = 0x80 | (num & 0x7f);
@@ -615,7 +615,7 @@ static int lws_http2_num(int starting_bits, unsigned long num,
 			return 1;
 		num >>= 7;
 	}
-	
+
 	return 0;
 }
 
@@ -625,9 +625,9 @@ int lws_add_http2_header_by_name(struct lws_context *context, struct lws *wsi,
 				 unsigned char **p, unsigned char *end)
 {
 	int len;
-	
+
 	lwsl_info("%s: %p  %s:%s\n", __func__, *p, name, value);
-	
+
 	len = strlen((char *)name);
 	if (len)
 		if (name[len - 1] == ':')
@@ -647,10 +647,10 @@ int lws_add_http2_header_by_name(struct lws_context *context, struct lws *wsi,
 	*(*p) = 0; /* non-HUF */
 	if (lws_http2_num(7, length, p, end))
 		return 1;
-	
+
 	memcpy(*p, value, length);
 	*p += length;
-	
+
 	return 0;
 }
 
@@ -664,7 +664,7 @@ int lws_add_http2_header_by_token(struct lws_context *context, struct lws *wsi,
 	name = lws_token_to_string(token);
 	if (!name)
 		return 1;
-	
+
 	return lws_add_http2_header_by_name(context, wsi, name, value,
 					    length, p, end);
 }
@@ -675,9 +675,9 @@ int lws_add_http2_header_status(struct lws_context *context, struct lws *wsi,
 {
 	unsigned char status[10];
 	int n;
-	
+
 	wsi->u.http2.send_END_STREAM = !!(code >= 400);
-	
+
 	n = sprintf((char *)status, "%u", code);
 	if (lws_add_http2_header_by_token(context, wsi,
 					  WSI_TOKEN_HTTP_COLON_STATUS, status,

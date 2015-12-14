@@ -218,7 +218,7 @@ lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd)
 	DWORD dwBytesRet;
 	struct tcp_keepalive alive;
 	struct protoent *tcp_proto;
-			
+
 	if (context->ka_time) {
 		/* enable keepalive on this socket */
 		optval = 1;
@@ -230,7 +230,7 @@ lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd)
 		alive.keepalivetime = context->ka_time;
 		alive.keepaliveinterval = context->ka_interval;
 
-		if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive), 
+		if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive),
 					      NULL, 0, &dwBytesRet, NULL, NULL))
 			return 1;
 	}
@@ -347,10 +347,10 @@ lws_plat_change_pollfd(struct lws_context *context,
 		      struct lws *wsi, struct lws_pollfd *pfd)
 {
 	long networkevents = LWS_POLLHUP;
-		
+
 	if ((pfd->events & LWS_POLLIN))
 		networkevents |= LWS_POLLIN;
-	
+
 	if ((pfd->events & LWS_POLLOUT))
 		networkevents |= LWS_POLLOUT;
 
@@ -366,7 +366,7 @@ lws_plat_change_pollfd(struct lws_context *context,
 
 LWS_VISIBLE const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
-{ 
+{
 	WCHAR *buffer;
 	DWORD bufferlen = cnt;
 	BOOL ok = FALSE;
@@ -481,7 +481,7 @@ _lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 	(void)len;
 
 	lwsl_err("%s: not implemented yet on this platform\n", __func__);
-	
+
 	return -1;
 }
 

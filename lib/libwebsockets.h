@@ -104,7 +104,7 @@ public:
 
 public:
 	TCPStream *ts;
-	
+
 public:
 	struct lws *wsi;
 	char buffer[BUFFER_SIZE];
@@ -144,7 +144,7 @@ extern "C" {
 #else
 #define LWS_POSIX 1
 #endif
-	
+
 #include "lws_config.h"
 
 #if defined(WIN32) || defined(_WIN32)
@@ -178,13 +178,13 @@ extern "C" {
 #else
 #define LWS_EXTERN
 #endif
-	
+
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #define LWS_O_RDONLY _O_RDONLY
 
 #else /* NOT WIN32 */
 #include <unistd.h>
-	
+
 #define LWS_INVALID_FILE -1
 #define LWS_O_RDONLY O_RDONLY
 
@@ -214,7 +214,7 @@ extern "C" {
 #ifndef LWS_EXTERN
 #define LWS_EXTERN extern
 #endif
-	
+
 #ifdef _WIN32
 #define random rand
 #else
@@ -318,7 +318,7 @@ enum lws_context_options {
 	LWS_SERVER_OPTION_DISABLE_IPV6 = 32,
 	LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS = 64,
 	LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED = 128,
-	
+
 	/****** add new things just above ---^ ******/
 };
 
@@ -423,9 +423,9 @@ typedef int lws_filefd_type;
  * passed in via 'in'
  */
 struct lws_pollargs {
-    lws_sockfd_type fd;		/* applicable socket descriptor */
-    int events;			/* the new event mask */
-    int prev_events;		/* the previous event mask */
+	lws_sockfd_type fd;		/* applicable socket descriptor */
+	int events;			/* the new event mask */
+	int prev_events;		/* the previous event mask */
 };
 
 /**
@@ -507,13 +507,13 @@ enum lws_write_protocol {
 
 	/* Same as write_http but we know this write ends the transaction */
 	LWS_WRITE_HTTP_FINAL					= 7,
-	
+
 	/* HTTP2 */
 
 	LWS_WRITE_HTTP_HEADERS					= 8,
-	
+
 	/****** add new things just above ---^ ******/
-	
+
 	/* flags */
 
 	LWS_WRITE_NO_FIN = 0x40,
@@ -587,7 +587,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP_COLON_PATH				= 37,
 	WSI_TOKEN_HTTP_COLON_SCHEME				= 38,
 	WSI_TOKEN_HTTP_COLON_STATUS				= 39,
-	
+
 	WSI_TOKEN_HTTP_ACCEPT_CHARSET				= 40,
 	WSI_TOKEN_HTTP_ACCEPT_RANGES				= 41,
 	WSI_TOKEN_HTTP_ACCESS_CONTROL_ALLOW_ORIGIN		= 42,
@@ -622,13 +622,13 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP_VIA					= 71,
 	WSI_TOKEN_HTTP_WWW_AUTHENTICATE				= 72,
 	WSI_TOKEN_PROXY,
-	
+
 	WSI_TOKEN_PATCH_URI					= 73,
 	WSI_TOKEN_PUT_URI					= 74,
 	WSI_TOKEN_DELETE_URI					= 75,
-	
+
 	WSI_TOKEN_HTTP_URI_ARGS					= 76,
-	
+
 	/* use token storage to stash these */
 
 	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS			= 77,
@@ -636,9 +636,9 @@ enum lws_token_indexes {
 	_WSI_TOKEN_CLIENT_URI					= 79,
 	_WSI_TOKEN_CLIENT_HOST					= 80,
 	_WSI_TOKEN_CLIENT_ORIGIN				= 81,
-	
+
 	/****** add new things just above ---^ ******/
-	
+
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,
 
@@ -762,7 +762,7 @@ enum lws_close_status {
 	LWS_CLOSE_STATUS_EXTENSION_REQUIRED = 1010,
 	LWS_CLOSE_STATUS_UNEXPECTED_CONDITION = 1011,
 	LWS_CLOSE_STATUS_TLS_FAILURE = 1015,
-	
+
 	/****** add new things just above ---^ ******/
 
 	LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY = 9999,
@@ -910,7 +910,7 @@ struct lws_extension;
  *		receiving anything. Because this happens immediately after the
  *		network connection from the client, there's no websocket protocol
  *		selected yet so this callback is issued only to protocol 0.
- * 
+ *
  *	LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED: A new client just had
  *		been connected, accepted, and instantiated into the pool. This
  *		callback allows setting any relevant property to it. Because this
@@ -1263,7 +1263,7 @@ struct lws_extension {
  *		extensions this context supports.  If you configured with
  *		--without-extensions, you should give NULL here.
  * @token_limits: NULL or struct lws_token_limits pointer which is initialized
- *      with a token length limit for each possible WSI_TOKEN_*** 
+ *      with a token length limit for each possible WSI_TOKEN_***
  * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
  *			to listen using SSL, set to the filepath to fetch the
  *			server cert from, otherwise NULL for unencrypted
@@ -1278,7 +1278,7 @@ struct lws_extension {
  * @http_proxy_address: If non-NULL, attempts to proxy via the given address.
  *			If proxy auth is required, use format
  *			"username:password@server:port"
- * @http_proxy_port:	If http_proxy_address was non-NULL, uses this port at the address 
+ * @http_proxy_port:	If http_proxy_address was non-NULL, uses this port at the address
  * @gid:	group id to change to after setting listen socket, or -1.
  * @uid:	user id to change to after setting listen socket, or -1.
  * @options:	0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
@@ -1336,7 +1336,7 @@ lwsl_emit_syslog(int level, const char *line);
 
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_create_context(struct lws_context_creation_info *info);
-	
+
 LWS_VISIBLE LWS_EXTERN int
 lws_set_proxy(struct lws_context *context, const char *proxy);
 
@@ -1360,7 +1360,7 @@ lws_add_http_header_by_name(struct lws_context *context,
 			    int length,
 			    unsigned char **p,
 			    unsigned char *end);
-LWS_VISIBLE LWS_EXTERN int 
+LWS_VISIBLE LWS_EXTERN int
 lws_finalize_http_header(struct lws_context *context,
 			    struct lws *wsi,
 			    unsigned char **p,
@@ -1380,11 +1380,9 @@ lws_add_http_header_content_length(struct lws_context *context,
 			    unsigned char **p,
 			    unsigned char *end);
 LWS_VISIBLE LWS_EXTERN int
-lws_add_http_header_status(struct lws_context *context,
-			    struct lws *wsi,
-			    unsigned int code,
-			    unsigned char **p,
-			    unsigned char *end);
+lws_add_http_header_status(struct lws_context *context, struct lws *wsi,
+			   unsigned int code, unsigned char **p,
+			   unsigned char *end);
 
 LWS_EXTERN int
 lws_http_transaction_completed(struct lws *wsi);
@@ -1393,23 +1391,18 @@ lws_http_transaction_completed(struct lws *wsi);
 typedef void (lws_ev_signal_cb)(EV_P_ struct ev_signal *w, int revents);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_sigint_cfg(
-	struct lws_context *context,
-	int use_ev_sigint,
-	lws_ev_signal_cb* cb);
+lws_sigint_cfg(struct lws_context *context, int use_ev_sigint,
+	       lws_ev_signal_cb *cb);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_initloop(
-	struct lws_context *context, struct ev_loop *loop);
+lws_initloop(struct lws_context *context, struct ev_loop *loop);
 
 LWS_VISIBLE void
-lws_sigint_cb(
-	struct ev_loop *loop, struct ev_signal *watcher, int revents);
+lws_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents);
 #endif /* LWS_USE_LIBEV */
 
 LWS_VISIBLE LWS_EXTERN int
-lws_service_fd(struct lws_context *context,
-		struct lws_pollfd *pollfd);
+lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd);
 
 LWS_VISIBLE LWS_EXTERN void *
 lws_context_user(struct lws_context *context);
@@ -1435,7 +1428,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_HTTP_CONTENT				= 10,
 	PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND			= 11,
 	PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE			= 12,
-	
+
 	/****** add new things just above ---^ ******/
 };
 
@@ -1460,8 +1453,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
  *   // fill your part of the buffer... for example here it's all zeros
  *   memset(&buf[LWS_SEND_BUFFER_PRE_PADDING], 0, 128);
  *
- *   lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128,
- *   								LWS_WRITE_TEXT);
+ *   lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128, LWS_WRITE_TEXT);
  *
  * When sending LWS_WRITE_HTTP, there is no protocol addition and you can just
  * use the whole buffer without taking care of the above.
@@ -1491,7 +1483,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 #if __x86_64__
 #define _LWS_PAD_SIZE 16	/* Intel recommended for best performance */
 #else
-#define _LWS_PAD_SIZE LWS_SIZEOFPTR   /* Size of a pointer on the target architecture */
+#define _LWS_PAD_SIZE LWS_SIZEOFPTR   /* Size of a pointer on the target arch */
 #endif
 #define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? \
 		((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
@@ -1554,14 +1546,14 @@ lws_remaining_packet_payload(struct lws *wsi);
  * if the protocol does not have any guidance, returns -1.  Currently only
  * http2 connections get send window information from this API.  But your code
  * should use it so it can work properly with any protocol.
- * 
+ *
  * If nonzero return is the amount of payload data the peer or intermediary has
  * reported it has buffer space for.  That has NO relationship with the amount
  * of buffer space your OS can accept on this connection for a write action.
- * 
+ *
  * This number represents the maximum you could send to the peer or intermediary
  * on this connection right now without it complaining.
- * 
+ *
  * lws manages accounting for send window updates and payload writes
  * automatically, so this number reflects the situation at the peer or
  * intermediary dynamically.
@@ -1630,8 +1622,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_hdr_copy(struct lws *wsi, char *dest, int len,
-	     enum lws_token_indexes h);
+lws_hdr_copy(struct lws *wsi, char *dest, int len, enum lws_token_indexes h);
 
 /* get the active file operations struct */
 LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops *

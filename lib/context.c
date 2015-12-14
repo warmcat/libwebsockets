@@ -133,7 +133,7 @@ lws_create_context(struct lws_context_creation_info *info)
 		lwsl_err("info->ka_interval can't be 0 if ka_time used\n");
 		return NULL;
 	}
-	
+
 #ifdef LWS_USE_LIBEV
 	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
 	 * enable libev mediated SIGINT handling with a default handler of
@@ -226,7 +226,7 @@ lws_create_context(struct lws_context_creation_info *info)
 		if (lws_ext_callback_for_each_extension_type(context, NULL,
 			LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
-		
+
 	return context;
 
 bail:

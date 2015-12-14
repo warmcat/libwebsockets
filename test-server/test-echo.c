@@ -133,7 +133,7 @@ do_rx:
 		}
 		break;
 	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
-		
+
 		break;
 #endif
 	default:
@@ -253,7 +253,7 @@ int main(int argc, char **argv)
 			strncpy(uri, optarg, sizeof(uri));
 			uri[sizeof(uri) - 1] = '\0';
 			break;
-			
+
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
@@ -312,7 +312,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-#ifndef LWS_NO_DAEMONIZE 
+#ifndef LWS_NO_DAEMONIZE
 	/*
 	 * normally lock path would be /var/lock/lwsts or similar, to
 	 * simplify getting started without having to take care about
@@ -399,10 +399,10 @@ int main(int argc, char **argv)
 			state = 1;
 			lwsl_notice("Client connecting to %s:%u....\n", address, port);
 			/* we are in client mode */
-		
+
 			address[sizeof(address) - 1] = '\0';
 			sprintf(ads_port, "%s:%u", address, port & 65535);
-		
+
 			wsi = lws_client_connect(context, address,
 				port, use_ssl, uri, ads_port,
 				 ads_port, NULL, -1);

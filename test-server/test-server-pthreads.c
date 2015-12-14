@@ -128,7 +128,7 @@ void *thread_dumb_increment(void *threadid)
 		pthread_mutex_unlock(&lock_established_conns);
 		usleep(100000);
 	}
-	
+
 	pthread_exit(NULL);
 }
 
@@ -174,7 +174,7 @@ int main(int argc, char **argv)
  	int daemonize = 0;
 #endif
 
-	/* 
+	/*
 	 * take care to zero down the info struct, he contains random garbaage
 	 * from the stack otherwise
 	 */
@@ -182,7 +182,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	pthread_mutex_init(&lock_established_conns, NULL);
-	
+
 	while (n >= 0) {
 		n = getopt_long(argc, argv, "eci:hsap:d:Dr:", options, NULL);
 		if (n < 0)
@@ -236,7 +236,7 @@ int main(int argc, char **argv)
 	}
 
 #if !defined(LWS_NO_DAEMONIZE) && !defined(WIN32)
-	/* 
+	/*
 	 * normally lock path would be /var/lock/lwsts or similar, to
 	 * simplify getting started without having to take care about
 	 * permissions or running as root, set to /tmp/.lwsts-lock
@@ -278,7 +278,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_EXTENSIONS
 	info.extensions = lws_get_internal_extensions();
 #endif
-	
+
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
 
@@ -310,15 +310,15 @@ int main(int argc, char **argv)
 	}
 
 	/* start the dumb increment thread */
-	
+
 	n = pthread_create(&pthread_dumb, NULL, thread_dumb_increment, 0);
 	if (n) {
 		lwsl_err("Unable to create dumb thread\n");
 		goto done;
 	}
-	
+
 	/* this is our service thread */
-	
+
 	n = 0;
 	while (n >= 0 && !force_exit) {
  		n = lws_service(context, 50);
@@ -326,11 +326,11 @@ int main(int argc, char **argv)
 
 	/* wait for pthread_dumb to exit */
 	pthread_join(pthread_dumb, &retval);
-	
+
 done:
-	lws_context_destroy(context);	
+	lws_context_destroy(context);
 	pthread_mutex_destroy(&lock_established_conns);
-	
+
 
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 

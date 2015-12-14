@@ -50,7 +50,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	else
 #endif
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
-		
+
 	if (sockfd == -1) {
 #else
 	sockfd = mbed3_create_tcp_stream_socket();
@@ -217,7 +217,7 @@ int lws_http_action(struct lws_context *context, struct lws *wsi)
 #endif
 	};
 #endif
-	
+
 	/* it's not websocket.... shall we accept it as http? */
 
 	for (n = 0; n < ARRAY_SIZE(methods); n++)
@@ -315,11 +315,11 @@ int lws_http_action(struct lws_context *context, struct lws *wsi)
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
 		return 1; /* struct ah ptr already nuked */		}
 
-	/* 
+	/*
 	 * If we're not issuing a file, check for content_length or
 	 * HTTP keep-alive. No keep-alive header allocation for
-	 * ISSUING_FILE, as this uses HTTP/1.0. 
-	 * 
+	 * ISSUING_FILE, as this uses HTTP/1.0.
+	 *
 	 * In any case, return 0 and let lws_read decide how to
 	 * proceed based on state
 	 */
@@ -367,16 +367,16 @@ int lws_handshake_server(struct lws_context *context, struct lws *wsi,
 
 		if (!lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE) ||
 			     !lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
-			
+
 			ah = wsi->u.hdr.ah;
-			
+
 			lws_union_transition(wsi, LWS_CONNMODE_HTTP_SERVING_ACCEPTED);
 			wsi->state = WSI_STATE_HTTP;
 			wsi->u.http.fd = LWS_INVALID_FILE;
 
 			/* expose it at the same offset as u.hdr */
 			wsi->u.http.ah = ah;
-			
+
 			n = lws_http_action(context, wsi);
 
 			return n;
@@ -416,15 +416,15 @@ upgrade_h2c:
 		ah = wsi->u.hdr.ah;
 
 		lws_union_transition(wsi, LWS_CONNMODE_HTTP2_SERVING);
-		
+
 		/* http2 union member has http union struct at start */
 		wsi->u.http.ah = ah;
-		
+
 		lws_http2_init(&wsi->u.http2.peer_settings);
 		lws_http2_init(&wsi->u.http2.my_settings);
-		
+
 		/* HTTP2 union */
-		
+
 		lws_http2_interpret_settings_payload(&wsi->u.http2.peer_settings,
 				(unsigned char *)protocol_list, n);
 
@@ -438,9 +438,9 @@ upgrade_h2c:
 			lwsl_debug("http2 switch: ERROR writing to socket\n");
 			return 1;
 		}
-		
+
 		wsi->state = WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE;
-		
+
 		return 0;
 #endif
 
@@ -633,7 +633,7 @@ lws_create_new_server_wsi(struct lws_context *context)
 	new_wsi->user_space = NULL;
 	new_wsi->ietf_spec_revision = 0;
 	new_wsi->sock = LWS_SOCK_INVALID;
-	
+
 	/*
 	 * outermost create notification for wsi
 	 * no user_space because no protocol selection
@@ -675,9 +675,9 @@ int lws_http_transaction_completed(struct lws *wsi)
 
 	/* If we're (re)starting on headers, need other implied init */
 	wsi->u.hdr.ues = URIES_IDLE;
-	
+
 	lwsl_info("%s: keep-alive await new transaction\n", __func__);
-	
+
 	return 0;
 }
 
@@ -740,7 +740,7 @@ int lws_server_socket_service(struct lws_context *context,
 
 			/* just ignore incoming if waiting for close */
 			if (wsi->state != WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
-			
+
 				/*
 				 * hm this may want to send
 				 * (via HTTP callback for example)
@@ -765,7 +765,7 @@ try_pollout:
 		/* one shot */
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			goto fail;
-		
+
 		lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
 		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE) {
@@ -796,7 +796,7 @@ try_pollout:
 			break;
 
 		/* listen socket got an unencrypted connection... */
-		
+
 		clilen = sizeof(cli_addr);
 		lws_latency_pre(context, wsi);
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
@@ -848,7 +848,7 @@ try_pollout:
 #if LWS_POSIX == 0
 		mbed3_tcp_stream_accept(accept_fd, new_wsi);
 #endif
-		
+
 		/*
 		 * A new connection was accepted. Give the user a chance to
 		 * set properties of the newly created wsi. There's no protocol
@@ -950,7 +950,7 @@ LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
 
 	if (lws_finalize_http_header(context, wsi, &p, end))
 		return -1;
-	
+
 	ret = lws_write(wsi, response, p - response, LWS_WRITE_HTTP_HEADERS);
 	if (ret != (p - response)) {
 		lwsl_err("_write returned %d from %d\n", ret, (p - response));
@@ -962,7 +962,6 @@ LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
 
 	return lws_serve_http_file_fragment(context, wsi);
 }
-
 
 int lws_interpret_incoming_packet(struct lws *wsi, unsigned char *buf,
 				  size_t len)

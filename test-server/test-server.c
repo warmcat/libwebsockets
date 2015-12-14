@@ -159,7 +159,7 @@ int main(int argc, char **argv)
  	int daemonize = 0;
 #endif
 
-	/* 
+	/*
 	 * take care to zero down the info struct, he contains random garbaage
 	 * from the stack otherwise
 	 */
@@ -219,7 +219,7 @@ int main(int argc, char **argv)
 	}
 
 #if !defined(LWS_NO_DAEMONIZE) && !defined(WIN32)
-	/* 
+	/*
 	 * normally lock path would be /var/lock/lwsts or similar, to
 	 * simplify getting started without having to take care about
 	 * permissions or running as root, set to /tmp/.lwsts-lock
@@ -261,7 +261,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_EXTENSIONS
 	info.extensions = lws_get_internal_extensions();
 #endif
-	
+
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
 

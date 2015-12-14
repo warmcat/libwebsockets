@@ -61,8 +61,7 @@
 #include "getifaddrs.h"
 
 static int
-getifaddrs2(struct ifaddrs **ifap,
-	    int af, int siocgifconf, int siocgifflags,
+getifaddrs2(struct ifaddrs **ifap, int af, int siocgifconf, int siocgifflags,
 	    size_t ifreq_sz)
 {
 	int ret;
@@ -74,7 +73,6 @@ getifaddrs2(struct ifaddrs **ifap,
 	size_t sz;
 	struct sockaddr sa_zero;
 	struct ifreq *ifr;
-
 	struct ifaddrs *start,  **end = &start;
 
 	buf = NULL;
@@ -262,8 +260,8 @@ int
 main()
 {
 	struct ifaddrs *a = NULL, *b;
-	getifaddrs2(&a, AF_INET, SIOCGIFCONF,
-				SIOCGIFFLAGS, sizeof(struct ifreq));
+	getifaddrs2(&a, AF_INET, SIOCGIFCONF, SIOCGIFFLAGS,
+		    sizeof(struct ifreq));
 	print_ifaddrs(a);
 	printf("---\n");
 	getifaddrs(&b);

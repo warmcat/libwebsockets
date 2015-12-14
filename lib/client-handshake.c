@@ -127,7 +127,7 @@ lws_client_connect_2(struct lws_context *context, struct lws *wsi)
 
 			res = res->ai_next;
 		}
-		
+
 		if (!p) {
 			freeaddrinfo(result);
 			goto oom4;
@@ -409,7 +409,7 @@ lws_client_connect(struct lws_context *context, const char *address,
 	 * can handle this and then we don't need an actual socket for this
 	 * connection.
 	 */
-	
+
 	if (lws_ext_callback_for_each_extension_type(context, wsi,
 			LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION,
 						     (void *)address, port) > 0) {

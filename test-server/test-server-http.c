@@ -52,7 +52,7 @@ enum demo_protocols {
 struct serveable {
 	const char *urlpath;
 	const char *mimetype;
-}; 
+};
 
 /*
  * this is just an example of parsing handshake headers, you don't need this
@@ -105,7 +105,7 @@ const char * get_mimetype(const char *file)
 }
 
 /* this protocol server (always the first one) handles HTTP,
- * 
+ *
  * Some misc callbacks that aren't associated with a protocol also turn up only
  * here on the first protocol server.
  */
@@ -176,7 +176,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			 * we will send a big jpeg file, but it could be
 			 * anything.  Set the Content-Type: appropriately
 			 * so the browser knows what to do with it.
-			 * 
+			 *
 			 * Notice we use the APIs to build the header, which
 			 * will do the right thing for HTTP 1/1.1 and HTTP2
 			 * depending on what connection it happens to be working
@@ -206,7 +206,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			 * this won't block since it's the first payload sent
 			 * on the connection since it was established
 			 * (too small for partial)
-			 * 
+			 *
 			 * Notice they are sent using LWS_WRITE_HTTP_HEADERS
 			 * which also means you can't send body too in one step,
 			 * this is mandated by changes in HTTP2
@@ -260,8 +260,8 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 
 			p = (unsigned char *)leaf_path;
 
-			if (lws_add_http_header_by_name(context, wsi, 
-				(unsigned char *)"set-cookie:", 
+			if (lws_add_http_header_by_name(context, wsi,
+				(unsigned char *)"set-cookie:",
 				(unsigned char *)b64, n, &p,
 				(unsigned char *)leaf_path + sizeof(leaf_path)))
 				return 1;
@@ -310,7 +310,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 		do {
 			/* we'd like the send this much */
 			n = sizeof(buffer) - LWS_SEND_BUFFER_PRE_PADDING;
-			
+
 			/* but if the peer told us he wants less, we can adapt */
 			m = lws_get_peer_write_allowance(wsi);
 
@@ -322,7 +322,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			if (m != -1 && m < n)
 				/* he couldn't handle that much */
 				n = m;
-			
+
 			n = lws_plat_file_read(wsi, pss->fd,
 					       &amount, buffer +
 					        LWS_SEND_BUFFER_PRE_PADDING, n);
@@ -335,7 +335,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 				goto flush_bail;
 			/*
 			 * To support HTTP2, must take care about preamble space
-			 * 
+			 *
 			 * identification of when we send the last payload frame
 			 * is handled by the library itself if you sent a
 			 * content-length header
@@ -358,7 +358,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			if (m) /* while still active, extend timeout */
 				lws_set_timeout(wsi,
 						PENDING_TIMEOUT_HTTP_CONTENT, 5);
-			
+
 			/* if we have indigestion, let him clear it
 			 * before eating more */
 			if (lws_partial_buffered(wsi))

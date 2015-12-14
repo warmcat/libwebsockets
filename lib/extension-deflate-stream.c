@@ -7,12 +7,12 @@
 #define LWS_ZLIB_WINDOW_BITS 15
 #define LWS_ZLIB_MEMLEVEL 8
 
-int lws_extension_callback_deflate_stream(
-		struct lws_context *context,
-		const struct lws_extension *ext,
-		struct lws *wsi,
-			enum lws_extension_callback_reasons reason,
-					       void *user, void *in, size_t len)
+int
+lws_extension_callback_deflate_stream(struct lws_context *context,
+				      const struct lws_extension *ext,
+				      struct lws *wsi,
+				      enum lws_extension_callback_reasons reason,
+				      void *user, void *in, size_t len)
 {
 	struct lws_ext_deflate_stream_conn *conn =
 				     (struct lws_ext_deflate_stream_conn *)user;
@@ -38,7 +38,7 @@ int lws_extension_callback_deflate_stream(
 		n = deflateInit2(&conn->zs_out,
 				 DEFLATE_STREAM_COMPRESSION_LEVEL, Z_DEFLATED,
 				 -LWS_ZLIB_WINDOW_BITS, LWS_ZLIB_MEMLEVEL,
-							    Z_DEFAULT_STRATEGY);
+				 Z_DEFAULT_STRATEGY);
 		if (n != Z_OK) {
 			lwsl_err("deflateInit returned %d\n", n);
 			return 1;

@@ -120,9 +120,9 @@ callback_lws_mirror(struct lws_context * this,
 		fprintf(stderr, "LWS_CALLBACK_CLOSED on %p\n", (void *)wsi);
 
 		/* remove closed guy */
-	
+
 		for (n = 0; n < clients; n++)
-			if (ping_wsi[n] == wsi) {				
+			if (ping_wsi[n] == wsi) {
 				clients--;
 				while (n < clients) {
 					ping_wsi[n] = ping_wsi[n + 1];
@@ -293,8 +293,8 @@ static struct lws_protocols protocols[] = {
 		callback_lws_mirror,
 		sizeof (struct per_session_data__ping),
 	},
-	{ 
-		NULL, NULL, 0/* end of list */		
+	{
+		NULL, NULL, 0/* end of list */
 	}
 };
 
@@ -494,7 +494,7 @@ int main(int argc, char **argv)
 		} else
 
 			/* allow time for in-flight pongs to come */
-		
+
 			if ((l - interrupted_time) > 250000) {
 				n = -1;
 				continue;

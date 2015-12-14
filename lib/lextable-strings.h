@@ -39,13 +39,13 @@ static const char *set[] = {
 	"sec-websocket-key:",
 	"sec-websocket-version:",
 	"sec-websocket-origin:",
-	
+
 	":authority:",
 	":method:",
 	":path:",
 	":scheme:",
 	":status:",
-	
+
 	"accept-charset:",
 	"accept-ranges:",
 	"access-control-allow-origin:",
@@ -80,7 +80,7 @@ static const char *set[] = {
 	"via:",
 	"www-authenticate:",
 	"proxy ",
-	
+
 	"patch",
 	"put",
 	"delete",

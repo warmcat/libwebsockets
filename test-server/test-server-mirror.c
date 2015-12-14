@@ -99,7 +99,7 @@ callback_lws_mirror(struct lws_context *context,
 			goto choke;
 		}
 
- 		if (ringbuffer[ringbuffer_head].payload)
+		if (ringbuffer[ringbuffer_head].payload)
 			free(ringbuffer[ringbuffer_head].payload);
 
 		ringbuffer[ringbuffer_head].payload =

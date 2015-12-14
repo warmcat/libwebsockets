@@ -64,7 +64,7 @@ int lws_ext_callback_for_each_active(struct lws *wsi, int reason,
 		if (m > handled)
 			handled = m;
 	}
-	
+
 	return handled;
 }
 
@@ -90,7 +90,7 @@ int lws_ext_callback_for_each_extension_type(
 		ext++;
 		n++;
 	}
-	
+
 	return 0;
 }
 
