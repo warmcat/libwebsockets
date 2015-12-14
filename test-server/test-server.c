@@ -107,13 +107,13 @@ static lws_filefd_type
 test_server_fops_open(struct lws *wsi, const char *filename,
 		      unsigned long *filelen, int flags)
 {
-	int n;
+	lws_filefd_type n;
 
 	/* call through to original platform implementation */
 	n = fops_plat.open(wsi, filename, filelen, flags);
 
-	lwsl_notice("%s: opening %s, ret %d, len %lu\n", __func__, filename,
-		    n, *filelen);
+	lwsl_notice("%s: opening %s, ret %ld, len %lu\n", __func__, filename,
+			(long)n, *filelen);
 
 	return n;
 }

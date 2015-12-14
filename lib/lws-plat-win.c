@@ -36,7 +36,7 @@ time_t time(time_t *t)
 /* file descriptor hash management */
 
 struct lws *
-wsi_from_fd(struct lws_context *context, lws_sockfd_type fd)
+wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd)
 {
 	int h = LWS_FD_HASH(fd);
 	int n = 0;
