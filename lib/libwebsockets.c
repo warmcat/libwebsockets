@@ -786,7 +786,6 @@ lws_ensure_user_space(struct lws *wsi)
 	return 0;
 }
 
-#if LWS_POSIX
 LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 {
 	unsigned long long now;
@@ -806,7 +805,6 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 
 	fprintf(stderr, "%s%s", buf, line);
 }
-#endif
 
 LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 {

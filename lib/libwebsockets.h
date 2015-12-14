@@ -185,14 +185,15 @@ extern "C" {
 #else /* NOT WIN32 */
 #include <unistd.h>
 
-#define LWS_INVALID_FILE -1
 #define LWS_O_RDONLY O_RDONLY
 
 #ifndef MBED_OPERATORS
 #include <poll.h>
 #include <netdb.h>
+#define LWS_INVALID_FILE -1
 #else
 #define getdtablesize() (20)
+#define LWS_INVALID_FILE NULL
 #endif
 
 #if defined(__GNUC__)
@@ -1362,23 +1363,23 @@ lws_add_http_header_by_name(struct lws_context *context,
 			    unsigned char *end);
 LWS_VISIBLE LWS_EXTERN int
 lws_finalize_http_header(struct lws_context *context,
-			    struct lws *wsi,
-			    unsigned char **p,
-			    unsigned char *end);
+			 struct lws *wsi,
+			 unsigned char **p,
+			 unsigned char *end);
 LWS_VISIBLE LWS_EXTERN int
 lws_add_http_header_by_token(struct lws_context *context,
-			    struct lws *wsi,
-			    enum lws_token_indexes token,
-			    const unsigned char *value,
-			    int length,
-			    unsigned char **p,
-			    unsigned char *end);
+			     struct lws *wsi,
+			     enum lws_token_indexes token,
+			     const unsigned char *value,
+			     int length,
+			     unsigned char **p,
+			     unsigned char *end);
 LWS_VISIBLE LWS_EXTERN int
 lws_add_http_header_content_length(struct lws_context *context,
-			    struct lws *wsi,
-			    unsigned long content_length,
-			    unsigned char **p,
-			    unsigned char *end);
+				   struct lws *wsi,
+				   unsigned long content_length,
+				   unsigned char **p,
+				   unsigned char *end);
 LWS_VISIBLE LWS_EXTERN int
 lws_add_http_header_status(struct lws_context *context, struct lws *wsi,
 			   unsigned int code, unsigned char **p,

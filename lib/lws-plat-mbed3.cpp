@@ -216,7 +216,7 @@ void lws_conn_listener::onIncoming(TCPListener *tl, void *impl)
 }
 
 extern "C" LWS_VISIBLE struct lws *
-wsi_from_fd(struct lws_context *context, lws_sockfd_type fd)
+wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd)
 {
 	lws_conn *conn = (lws_conn *)fd;
 	(void)context;

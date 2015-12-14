@@ -950,7 +950,7 @@ lws_b64_selftest(void);
 
 #if defined(_WIN32) || defined(MBED_OPERATORS)
 LWS_EXTERN struct lws *
-wsi_from_fd(struct lws_context *context, lws_sockfd_type fd);
+wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd);
 
 LWS_EXTERN int
 insert_wsi(struct lws_context *context, struct lws *wsi);

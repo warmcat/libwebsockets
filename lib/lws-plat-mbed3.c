@@ -12,12 +12,13 @@ unsigned long long time_in_microseconds(void)
 	return 0;
 }
 
-LWS_VISIBLE int lws_get_random(struct lws_context *context,
-							     void *buf, int len)
+LWS_VISIBLE int lws_get_random(struct lws_context *context, void *buf, int len)
 {
-	(void)context;
 	int n = len;
 	unsigned char *b = (unsigned char *)buf;
+
+	(void)context;
+
 	while (n--)
 		b[n]= rand();
 	return len;
@@ -166,7 +167,7 @@ _lws_plat_file_open(struct lws *wsi, const char *filename,
 	(void)filename;
 	(void)filelen;
 	(void)flags;
-	return -1;
+	return NULL;
 }
 
 static int
@@ -180,7 +181,7 @@ _lws_plat_file_close(struct lws *wsi, lws_filefd_type fd)
 unsigned long
 _lws_plat_file_seek_cur(struct lws *wsi, lws_filefd_type fd, long offset)
 {
-	(void)wsi
+	(void)wsi;
 	(void)fd;
 	(void)offset;
 
@@ -189,7 +190,7 @@ _lws_plat_file_seek_cur(struct lws *wsi, lws_filefd_type fd, long offset)
 
 static int
 _lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
-		    unsigned char* buf, unsigned long* len)
+		    unsigned char *buf, unsigned long len)
 {
 	(void)wsi;
 	(void)amount;
@@ -202,7 +203,7 @@ _lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 
 static int
 _lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
-		     unsigned char* buf, unsigned long len)
+		     unsigned char *buf, unsigned long len)
 {
 	(void)wsi;
 	(void)amount;
@@ -217,6 +218,8 @@ LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
 	      struct lws_context_creation_info *info)
 {
+	(void)info;
+
 	context->fops.open	= _lws_plat_file_open;
 	context->fops.close	= _lws_plat_file_close;
 	context->fops.seek_cur	= _lws_plat_file_seek_cur;
