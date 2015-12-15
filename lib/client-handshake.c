@@ -1,13 +1,14 @@
 #include "private-libwebsockets.h"
 
 struct lws *
-lws_client_connect_2(struct lws_context *context, struct lws *wsi)
+lws_client_connect_2(struct lws *wsi)
 {
 #ifdef LWS_USE_IPV6
 	struct sockaddr_in6 server_addr6;
 	struct sockaddr_in6 client_addr6;
 	struct addrinfo hints, *result;
 #endif
+	struct lws_context *context = wsi->context;
 	struct sockaddr_in server_addr4;
 	struct sockaddr_in client_addr4;
 	struct lws_pollfd pfd;
@@ -15,7 +16,7 @@ lws_client_connect_2(struct lws_context *context, struct lws *wsi)
 	int n, plen = 0;
 	const char *ads;
 
-       lwsl_client("lws_client_connect_2\n");
+	lwsl_client("%s\n", __func__);
 
 	/* proxy? */
 
@@ -310,7 +311,7 @@ oom4:
 	return NULL;
 
 failed:
-	lws_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return NULL;
 }
@@ -424,7 +425,7 @@ lws_client_connect(struct lws_context *context, const char *address,
 	}
 	lwsl_client("lws_client_connect: direct conn\n");
 
-       return lws_client_connect_2(context, wsi);
+       return lws_client_connect_2(wsi);
 
 bail1:
 	lws_free(wsi->u.hdr.ah);

@@ -219,7 +219,7 @@ lws_http2_parser(struct lws_context *context, struct lws *wsi, unsigned char c)
 			 * and the peer must send a SETTINGS with ACK flag...
 			 */
 
-			lws_set_protocol_write_pending(context, wsi,
+			lws_set_protocol_write_pending(wsi,
 						       LWS_PPS_HTTP2_MY_SETTINGS);
 		}
 		break;
@@ -295,14 +295,14 @@ lws_http2_parser(struct lws_context *context, struct lws *wsi, unsigned char c)
 			case LWS_HTTP2_FRAME_TYPE_HEADERS:
 				/* service the http request itself */
 				lwsl_info("servicing initial http request, wsi=%p, stream wsi=%p\n", wsi, wsi->u.http2.stream_wsi);
-				n = lws_http_action(context, swsi);
+				n = lws_http_action(swsi);
 				(void)n;
 				lwsl_info("  action result %d\n", n);
 				break;
 			case LWS_HTTP2_FRAME_TYPE_PING:
 				if (wsi->u.http2.flags & LWS_HTTP2_FLAG_SETTINGS_ACK) { // ack
 				} else { /* they're sending us a ping request */
-					lws_set_protocol_write_pending(context, wsi, LWS_PPS_HTTP2_PONG);
+					lws_set_protocol_write_pending(wsi, LWS_PPS_HTTP2_PONG);
 				}
 				break;
 			case LWS_HTTP2_FRAME_TYPE_WINDOW_UPDATE:
@@ -360,7 +360,7 @@ lws_http2_parser(struct lws_context *context, struct lws *wsi, unsigned char c)
 				if (wsi->u.http2.flags & LWS_HTTP2_FLAG_SETTINGS_ACK) { // ack
 				} else
 					/* non-ACK coming in means we must ACK it */
-					lws_set_protocol_write_pending(context, wsi, LWS_PPS_HTTP2_ACK_SETTINGS);
+					lws_set_protocol_write_pending(wsi, LWS_PPS_HTTP2_ACK_SETTINGS);
 				break;
 			case LWS_HTTP2_FRAME_TYPE_PING:
 				if (wsi->u.http2.stream_id)
@@ -486,7 +486,7 @@ int lws_http2_do_pps_send(struct lws_context *context, struct lws *wsi)
 			/* demanded by HTTP2 */
 			swsi->u.http2.END_STREAM = 1;
 			lwsl_info("servicing initial http request\n");
-			return lws_http_action(context, swsi);
+			return lws_http_action(swsi);
 		}
 		break;
 	case LWS_PPS_HTTP2_PONG:

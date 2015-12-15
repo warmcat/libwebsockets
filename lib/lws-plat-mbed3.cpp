@@ -82,15 +82,13 @@ lws_plat_change_pollfd(struct lws_context *context,
 }
 
 extern "C" LWS_VISIBLE int
-lws_ssl_capable_read_no_ssl(struct lws_context *context,
-			    struct lws *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	socket_error_t err;
 	size_t _len = len;
 
 	lwsl_debug("%s\r\n", __func__);
 
-	(void)context;
 	err = ((lws_conn *)wsi->sock)->ts->recv((char *)buf, &_len);
 	if (err == SOCKET_ERROR_NONE) {
 		lwsl_info("%s: got %d bytes\n", __func__, _len);
@@ -298,8 +296,7 @@ void lws_conn::onDisconnect(TCPStream *s)
 {
 	lwsl_notice("%s:\r\n", __func__);
 	(void)s;
-	lws_close_and_free_session(lws_get_ctx(wsi), wsi,
-						LWS_CLOSE_STATUS_NOSTATUS);
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 }
 
 

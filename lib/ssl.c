@@ -408,9 +408,10 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 #endif
 
 LWS_VISIBLE void
-lws_ssl_remove_wsi_from_buffered_list(struct lws_context *context,
-		     struct lws *wsi)
+lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 {
+	struct lws_context *context = wsi->context;
+
 	if (!wsi->pending_read_list_prev &&
 	    !wsi->pending_read_list_next &&
 	    context->pending_read_list != wsi)
@@ -434,13 +435,13 @@ lws_ssl_remove_wsi_from_buffered_list(struct lws_context *context,
 }
 
 LWS_VISIBLE int
-lws_ssl_capable_read(struct lws_context *context,
-		     struct lws *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 {
+	struct lws_context *context = wsi->context;
 	int n;
 
 	if (!wsi->ssl)
-		return lws_ssl_capable_read_no_ssl(context, wsi, buf, len);
+		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
 	n = SSL_read(wsi->ssl, buf, len);
 	/* manpage: returning 0 means connection shut down */
@@ -467,7 +468,7 @@ lws_ssl_capable_read(struct lws_context *context,
 				}
 			}
 		} else
-			lws_ssl_remove_wsi_from_buffered_list(context, wsi);
+			lws_ssl_remove_wsi_from_buffered_list(wsi);
 
 		return n;
 	}
@@ -529,11 +530,12 @@ lws_ssl_close(struct lws *wsi)
 /* leave all wsi close processing to the caller */
 
 LWS_VISIBLE int
-lws_server_socket_service_ssl(struct lws_context *context, struct lws **pwsi,
-			      struct lws *new_wsi, lws_sockfd_type accept_fd,
+lws_server_socket_service_ssl(struct lws **pwsi, struct lws *new_wsi,
+			      lws_sockfd_type accept_fd,
 			      struct lws_pollfd *pollfd)
 {
 	struct lws *wsi = *pwsi;
+	struct lws_context *context = wsi->context;
 	int n, m;
 #ifndef USE_WOLFSSL
 	BIO *bio;

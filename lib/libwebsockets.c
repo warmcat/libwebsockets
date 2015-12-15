@@ -57,9 +57,9 @@ lws_free_wsi(struct lws *wsi)
 }
 
 void
-lws_close_and_free_session(struct lws_context *context,
-			   struct lws *wsi, enum lws_close_status reason)
+lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 {
+	struct lws_context *context = wsi->context;
 	int n, m, ret, old_state;
 	struct lws_tokens eff_buf;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
@@ -216,10 +216,10 @@ just_kill_connection:
 	 * we won't be servicing or receiving anything further from this guy
 	 * delete socket from the internal poll list if still present
 	 */
-	lws_ssl_remove_wsi_from_buffered_list(context, wsi);
+	lws_ssl_remove_wsi_from_buffered_list(wsi);
 
 	/* checking return redundant since we anyway close */
-	remove_wsi_socket_from_fds(context, wsi);
+	remove_wsi_socket_from_fds(wsi);
 
 	wsi->state = WSI_STATE_DEAD_SOCKET;
 
@@ -889,8 +889,7 @@ lws_partial_buffered(struct lws *wsi)
 	return !!wsi->truncated_send_len;
 }
 
-void lws_set_protocol_write_pending(struct lws_context *context,
-				    struct lws *wsi,
+void lws_set_protocol_write_pending(struct lws *wsi,
 				    enum lws_pending_protocol_send pend)
 {
 	lwsl_info("setting pps %d\n", pend);
@@ -899,7 +898,7 @@ void lws_set_protocol_write_pending(struct lws_context *context,
 		lwsl_err("pps overwrite\n");
 	wsi->pps = pend;
 	lws_rx_flow_control(wsi, 0);
-	lws_callback_on_writable(context, wsi);
+	lws_callback_on_writable(wsi->context, wsi);
 }
 
 LWS_VISIBLE size_t

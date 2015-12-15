@@ -217,7 +217,7 @@ http_complete:
 
 bail:
 	lwsl_debug("closing connection at lws_read bail:\n");
-	lws_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return -1;
 }

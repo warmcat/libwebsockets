@@ -185,13 +185,13 @@ lws_issue_raw_ext_access(struct lws *wsi,
 }
 
 int
-lws_any_extension_handled(struct lws_context *context,
-			  struct lws *wsi,
+lws_any_extension_handled(struct lws *wsi,
 			  enum lws_extension_callback_reasons r,
 						       void *v, size_t len)
 {
 	int n;
 	int handled = 0;
+	struct lws_context *context = wsi->context;
 
 	/* maybe an extension will take care of it for us */
 

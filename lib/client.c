@@ -59,7 +59,7 @@ int lws_client_socket_service(struct lws_context *context,
 		 * timeout protection set in client-handshake.c
 		 */
 
-               if (lws_client_connect_2(context, wsi) == NULL) {
+               if (lws_client_connect_2(wsi) == NULL) {
 			/* closed */
 			lwsl_client("closed\n");
 			return -1;
@@ -75,10 +75,9 @@ int lws_client_socket_service(struct lws_context *context,
 		if (pollfd->revents & LWS_POLLHUP) {
 
 			lwsl_warn("Proxy connection %p (fd=%d) dead\n",
-				(void *)wsi, pollfd->fd);
+				  (void *)wsi, pollfd->fd);
 
-			lws_close_and_free_session(context, wsi,
-						     LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
 		}
 
@@ -91,8 +90,7 @@ int lws_client_socket_service(struct lws_context *context,
 				return 0;
 			}
 
-			lws_close_and_free_session(context, wsi,
-						   LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR reading from proxy socket\n");
 			return 0;
 		}
@@ -101,8 +99,7 @@ int lws_client_socket_service(struct lws_context *context,
 		if (strcmp((char *)context->service_buffer, "HTTP/1.0 200 ") &&
 		    strcmp((char *)context->service_buffer, "HTTP/1.1 200 ")
 		) {
-			lws_close_and_free_session(context, wsi,
-						   LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR proxy: %s\n", context->service_buffer);
 			return 0;
 		}
@@ -334,8 +331,8 @@ some_wait:
 				} else {
 					lwsl_err("server's cert didn't look good, X509_V_ERR = %d: %s\n",
 						 n, ERR_error_string(n, (char *)context->service_buffer));
-					lws_close_and_free_session(context,
-							wsi, LWS_CLOSE_STATUS_NOSTATUS);
+					lws_close_free_wsi(wsi,
+						LWS_CLOSE_STATUS_NOSTATUS);
 					return 0;
 				}
 			}
@@ -351,11 +348,10 @@ some_wait:
 		/* fallthru */
 
 	case LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE2:
-		p = lws_generate_client_handshake(context, wsi, p);
+		p = lws_generate_client_handshake(wsi, p);
 		if (p == NULL) {
 			lwsl_err("Failed to generate handshake for client\n");
-			lws_close_and_free_session(context, wsi,
-						   LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
 		}
 
@@ -370,8 +366,7 @@ some_wait:
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_debug("ERROR writing to client socket\n");
-			lws_close_and_free_session(context, wsi,
-						   LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			lws_callback_on_writable(context, wsi);
@@ -422,7 +417,7 @@ some_wait:
 		len = 1;
 		while (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE &&
 		       len > 0) {
-			n = lws_ssl_capable_read(context, wsi, &c, 1);
+			n = lws_ssl_capable_read(wsi, &c, 1);
 			lws_latency(context, wsi, "send lws_issue_raw", n,
 				    n == 1);
 			switch (n) {
@@ -432,7 +427,7 @@ some_wait:
 				return 0;
 			}
 
-			if (lws_parse(context, wsi, c)) {
+			if (lws_parse(wsi, c)) {
 				lwsl_warn("problems parsing header\n");
 				goto bail3;
 			}
@@ -453,12 +448,11 @@ some_wait:
 		 * right away and deal with it that way
 		 */
 
-		return lws_client_interpret_server_handshake(context, wsi);
+		return lws_client_interpret_server_handshake(wsi);
 
 bail3:
 		lwsl_info("closing conn at LWS_CONNMODE...SERVER_REPLY\n");
-		lws_close_and_free_session(context, wsi,
-					   LWS_CLOSE_STATUS_NOSTATUS);
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		return -1;
 
 	case LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT:
@@ -490,9 +484,9 @@ strtolower(char *s)
 }
 
 int
-lws_client_interpret_server_handshake(struct lws_context *context,
-				      struct lws *wsi)
+lws_client_interpret_server_handshake(struct lws *wsi)
 {
+	struct lws_context *context = wsi->context;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
 	int n, len, okay = 0, isErrorCodeReceived = 0;
 	const char *pc;
@@ -815,17 +809,17 @@ bail2:
 
 	/* free up his parsing allocations */
 	lws_free2(wsi->u.hdr.ah);
-	lws_close_and_free_session(context, wsi, close_reason);
+	lws_close_free_wsi(wsi, close_reason);
 
 	return 1;
 }
 
 
 char *
-lws_generate_client_handshake(struct lws_context *context,
-			      struct lws *wsi, char *pkt)
+lws_generate_client_handshake(struct lws *wsi, char *pkt)
 {
 	char buf[128], hash[20], key_b64[40], *p = pkt;
+	struct lws_context *context = wsi->context;
 	int n;
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *ext;
@@ -839,8 +833,7 @@ lws_generate_client_handshake(struct lws_context *context,
 	if (n != 16) {
 		lwsl_err("Unable to read from random dev %s\n",
 			 SYSTEM_RANDOM_FILEPATH);
-		lws_close_and_free_session(context, wsi,
-					   LWS_CLOSE_STATUS_NOSTATUS);
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		return NULL;
 	}
 

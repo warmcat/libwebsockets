@@ -202,14 +202,14 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 	if (!hdr_token_idx)
 		return 1;
 
-	if (ah->next_frag_index >= ARRAY_SIZE(ah->frag_index))
+	if (ah->nfrag >= ARRAY_SIZE(ah->frag_index))
 		return 1;
 
-	ah->frags[ah->next_frag_index].offset = ah->pos;
-	ah->frags[ah->next_frag_index].len = 0;
-	ah->frags[ah->next_frag_index].next_frag_index = 0;
+	ah->frags[ah->nfrag].offset = ah->pos;
+	ah->frags[ah->nfrag].len = 0;
+	ah->frags[ah->nfrag].nfrag = 0;
 
-	ah->frag_index[hdr_token_idx] = ah->next_frag_index;
+	ah->frag_index[hdr_token_idx] = ah->nfrag;
 
 	return 0;
 }
@@ -219,7 +219,7 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 	struct allocated_headers * ah = wsi->u.http2.http.ah;
 
 	ah->data[ah->pos++] = c;
-	ah->frags[ah->next_frag_index].len++;
+	ah->frags[ah->nfrag].len++;
 
 	return ah->pos >= sizeof(ah->data);
 }
@@ -229,7 +229,7 @@ static int lws_frag_end(struct lws *wsi)
 	if (lws_frag_append(wsi, 0))
 		return 1;
 
-	wsi->u.http2.http.ah->next_frag_index++;
+	wsi->u.http2.http.ah->nfrag++;
 	return 0;
 }
 
@@ -543,7 +543,7 @@ pre_data:
 				if (lws_frag_append(wsi, c1))
 					return 1;
 			} else { /* name */
-				if (lws_parse(context, wsi, c1))
+				if (lws_parse(wsi, c1))
 					return 1;
 
 			}

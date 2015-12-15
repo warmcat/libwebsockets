@@ -157,7 +157,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 			 * at the end of the service, he'll get put back on the
 			 * list then.
 			 */
-			lws_ssl_remove_wsi_from_buffered_list(context, wsi);
+			lws_ssl_remove_wsi_from_buffered_list(wsi);
 		}
 		wsi = wsi_next;
 	}

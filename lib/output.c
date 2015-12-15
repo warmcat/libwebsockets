@@ -577,12 +577,9 @@ all_sent:
 
 #if LWS_POSIX
 LWS_VISIBLE int
-lws_ssl_capable_read_no_ssl(struct lws_context *context,
-			    struct lws *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n;
-
-	(void)context;
 
 	n = recv(wsi->sock, (char *)buf, len, 0);
 	if (n >= 0)

@@ -70,11 +70,11 @@ insert_wsi_socket_into_fds(struct lws_context *context,
 }
 
 int
-remove_wsi_socket_from_fds(struct lws_context *context,
-						      struct lws *wsi)
+remove_wsi_socket_from_fds(struct lws *wsi)
 {
 	int m;
 	struct lws_pollargs pa = { wsi->sock, 0, 0 };
+	struct lws_context *context = wsi->context;
 
 	lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 

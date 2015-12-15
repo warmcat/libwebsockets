@@ -24,13 +24,13 @@
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 #ifndef LWS_NO_EXTENSIONS
 LWS_VISIBLE int
-lws_extension_server_handshake(struct lws_context *context,
-			       struct lws *wsi, char **p)
+lws_extension_server_handshake(struct lws *wsi, char **p)
 {
 	int n;
 	char *c;
 	char ext_name[128];
 	const struct lws_extension *ext;
+	struct lws_context *context = wsi->context;
 	int ext_count = 0;
 	int more = 1;
 
@@ -223,7 +223,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	 * Figure out which extensions the client has that we want to
 	 * enable on this connection, and give him back the list
 	 */
-	if (lws_extension_server_handshake(context, wsi, &p))
+	if (lws_extension_server_handshake(wsi, &p))
 		goto bail;
 #endif
 
@@ -233,9 +233,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	LWS_CPYAPP(p, "\x0d\x0a\x0d\x0a");
 
-	if (!lws_any_extension_handled(context, wsi,
-			LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
-						     response, p - response)) {
+	if (!lws_any_extension_handled(wsi, LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
+				       response, p - response)) {
 
 		/* okay send the handshake response accepting the connection */
 
@@ -244,7 +243,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 		fwrite(response, 1,  p - response, stderr);
 #endif
 		n = lws_write(wsi, (unsigned char *)response,
-						  p - response, LWS_WRITE_HTTP_HEADERS);
+			      p - response, LWS_WRITE_HTTP_HEADERS);
 		if (n != (p - response)) {
 			lwsl_debug("handshake_0405: ERROR writing to socket\n");
 			goto bail;

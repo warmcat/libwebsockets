@@ -186,8 +186,9 @@ _lws_rx_flow_control(struct lws *wsi)
 	return 0;
 }
 
-int lws_http_action(struct lws_context *context, struct lws *wsi)
+int lws_http_action(struct lws *wsi)
 {
+	struct lws_context *context = wsi->context;
 	enum http_connection_type connection_type;
 	enum http_version request_version;
 	char content_length_str[32];
@@ -350,7 +351,7 @@ int lws_handshake_server(struct lws_context *context, struct lws *wsi,
 	/* LWS_CONNMODE_WS_SERVING */
 
 	while (len--) {
-		if (lws_parse(context, wsi, *(*buf)++)) {
+		if (lws_parse(wsi, *(*buf)++)) {
 			lwsl_info("lws_parse failed\n");
 			goto bail_nuke_ah;
 		}
@@ -377,7 +378,7 @@ int lws_handshake_server(struct lws_context *context, struct lws *wsi,
 			/* expose it at the same offset as u.hdr */
 			wsi->u.http.ah = ah;
 
-			n = lws_http_action(context, wsi);
+			n = lws_http_action(wsi);
 
 			return n;
 		}
@@ -721,8 +722,7 @@ int lws_server_socket_service(struct lws_context *context,
 		/* any incoming data ready? */
 
 		if (pollfd->revents & LWS_POLLIN) {
-			len = lws_ssl_capable_read(context, wsi,
-						   context->service_buffer,
+			len = lws_ssl_capable_read(wsi, context->service_buffer,
 						   sizeof(context->service_buffer));
 			lwsl_debug("%s: read %d\r\n", __func__, len);
 			switch (len) {
@@ -874,12 +874,11 @@ try_pollout:
 		break;
 	}
 
-	if (!lws_server_socket_service_ssl(context, &wsi, new_wsi, accept_fd,
-					   pollfd))
+	if (!lws_server_socket_service_ssl(&wsi, new_wsi, accept_fd, pollfd))
 		return 0;
 
 fail:
-	lws_close_and_free_session(context, wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return 1;
 }

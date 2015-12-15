@@ -29,7 +29,6 @@ unsigned char lextable[] = {
 
 int lextable_decode(int pos, char c)
 {
-
 	c = tolower(c);
 
 	while (1) {
@@ -69,7 +68,7 @@ int lws_allocate_header_table(struct lws *wsi)
 		return -1;
 	}
 	memset(wsi->u.hdr.ah->frag_index, 0, sizeof(wsi->u.hdr.ah->frag_index));
-	wsi->u.hdr.ah->next_frag_index = 0;
+	wsi->u.hdr.ah->nfrag = 0;
 	wsi->u.hdr.ah->pos = 0;
 
 	return 0;
@@ -92,13 +91,13 @@ LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 		return 0;
 	do {
 		len += wsi->u.hdr.ah->frags[n].len;
-		n = wsi->u.hdr.ah->frags[n].next_frag_index;
+		n = wsi->u.hdr.ah->frags[n].nfrag;
 	} while (n);
 
 	return len;
 }
 
-LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dest, int len,
+LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 			     enum lws_token_indexes h)
 {
 	int toklen = lws_hdr_total_length(wsi, h);
@@ -112,10 +111,9 @@ LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dest, int len,
 		return 0;
 
 	do {
-		strcpy(dest,
-			&wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset]);
-		dest += wsi->u.hdr.ah->frags[n].len;
-		n = wsi->u.hdr.ah->frags[n].next_frag_index;
+		strcpy(dst, &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset]);
+		dst += wsi->u.hdr.ah->frags[n].len;
+		n = wsi->u.hdr.ah->frags[n].nfrag;
 	} while (n);
 
 	return toklen;
@@ -132,23 +130,20 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 	return &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset];
 }
 
-int lws_hdr_simple_create(struct lws *wsi,
-			  enum lws_token_indexes h, const char *s)
+int lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h,
+			  const char *s)
 {
-	wsi->u.hdr.ah->next_frag_index++;
-	if (wsi->u.hdr.ah->next_frag_index ==
-	       sizeof(wsi->u.hdr.ah->frags) / sizeof(wsi->u.hdr.ah->frags[0])) {
+	wsi->u.hdr.ah->nfrag++;
+	if (wsi->u.hdr.ah->nfrag == ARRAY_SIZE(wsi->u.hdr.ah->frags)) {
 		lwsl_warn("More hdr frags than we can deal with, dropping\n");
 		return -1;
 	}
 
-	wsi->u.hdr.ah->frag_index[h] = wsi->u.hdr.ah->next_frag_index;
+	wsi->u.hdr.ah->frag_index[h] = wsi->u.hdr.ah->nfrag;
 
-	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].offset =
-							     wsi->u.hdr.ah->pos;
-	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len = 0;
-	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].next_frag_index =
-									      0;
+	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->nfrag].offset = wsi->u.hdr.ah->pos;
+	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->nfrag].len = 0;
+	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->nfrag].nfrag = 0;
 
 	do {
 		if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
@@ -157,8 +152,7 @@ int lws_hdr_simple_create(struct lws *wsi,
 		}
 		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = *s;
 		if (*s)
-			wsi->u.hdr.ah->frags[
-					wsi->u.hdr.ah->next_frag_index].len++;
+			wsi->u.hdr.ah->frags[wsi->u.hdr.ah->nfrag].len++;
 	} while (*s++);
 
 	return 0;
@@ -181,32 +175,35 @@ static signed char char_to_hex(const char c)
 static int issue_char(struct lws *wsi, unsigned char c)
 {
 	unsigned short frag_len;
+
 	if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
 		lwsl_warn("excessive header content\n");
 		return -1;
 	}
 
-	frag_len = \
-		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len;
-	/* If we haven't hit the token limit, just copy the character into
-	 * the header: */
-	if( frag_len < wsi->u.hdr.current_token_limit ) {
+	frag_len = wsi->u.hdr.ah->frags[wsi->u.hdr.ah->nfrag].len;
+	/*
+	 * If we haven't hit the token limit, just copy the character into
+	 * the header
+	 */
+	if (frag_len < wsi->u.hdr.current_token_limit) {
 		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = c;
 		if (c)
-			wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
+			wsi->u.hdr.ah->frags[wsi->u.hdr.ah->nfrag].len++;
 		return 0;
 	}
-	else {
-		/* Insert a null character when we *hit* the limit: */
-		if( frag_len == wsi->u.hdr.current_token_limit ) {
-			wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
-			lwsl_warn("header %i exceeds limit\n", wsi->u.hdr.parser_state);
-		};
-	};
+
+	/* Insert a null character when we *hit* the limit: */
+	if (frag_len == wsi->u.hdr.current_token_limit) {
+		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
+		lwsl_warn("header %i exceeds limit\n",
+			  wsi->u.hdr.parser_state);
+	}
+
 	return 1;
 }
 
-int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
+int lws_parse(struct lws *wsi, unsigned char c)
 {
 	static const unsigned char methods[] = {
 		WSI_TOKEN_GET_URI,
@@ -216,6 +213,8 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 		WSI_TOKEN_PATCH_URI,
 		WSI_TOKEN_DELETE_URI,
 	};
+	struct allocated_headers *ah = wsi->u.hdr.ah;
+	struct lws_context *context = wsi->context;
 	unsigned int n, m, enc = 0;
 
 	switch (wsi->u.hdr.parser_state) {
@@ -225,7 +224,7 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 
 		/* collect into malloc'd buffers */
 		/* optional initial space swallow */
-		if (!wsi->u.hdr.ah->frags[wsi->u.hdr.ah->frag_index[
+		if (!ah->frags[ah->frag_index[
 				      wsi->u.hdr.parser_state]].len && c == ' ')
 			break;
 
@@ -240,7 +239,7 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 
 		if (c == ' ') {
 			/* enforce starting with / */
-			if (!wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len)
+			if (!ah->frags[ah->nfrag].len)
 				if (issue_char(wsi, '/') < 0)
 					return -1;
 
@@ -279,7 +278,7 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 				issue_char(wsi, '%');
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* regurgitate + assess */
-				if (lws_parse(context, wsi, wsi->u.hdr.esc_stash) < 0)
+				if (lws_parse(wsi, wsi->u.hdr.esc_stash) < 0)
 					return -1;
 				/* continue on to assess c */
 				break;
@@ -324,14 +323,14 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 				 * safe against header fragmentation because
 				 * the method URI can only be in 1 fragment
 				 */
-				if (wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len > 2) {
-					wsi->u.hdr.ah->pos--;
-					wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len--;
+				if (ah->frags[ah->nfrag].len > 2) {
+					ah->pos--;
+					ah->frags[ah->nfrag].len--;
 					do {
-						wsi->u.hdr.ah->pos--;
-						wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len--;
-					} while (wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len > 1 &&
-							wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos] != '/');
+						ah->pos--;
+						ah->frags[ah->nfrag].len--;
+					} while (ah->frags[ah->nfrag].len > 1 &&
+						 ah->data[ah->pos] != '/');
 				}
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT_DOT;
 				goto swallow;
@@ -363,20 +362,15 @@ int lws_parse(struct lws_context *context, struct lws *wsi, unsigned char c)
 
 		if (c == '?' && !enc) { /* start of URI arguments */
 			/* seal off uri header */
-			wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
+			ah->data[ah->pos++] = '\0';
 
 			/* move to using WSI_TOKEN_HTTP_URI_ARGS */
-			wsi->u.hdr.ah->next_frag_index++;
-			wsi->u.hdr.ah->frags[
-				wsi->u.hdr.ah->next_frag_index].offset =
-							     wsi->u.hdr.ah->pos;
-			wsi->u.hdr.ah->frags[
-					wsi->u.hdr.ah->next_frag_index].len = 0;
-			wsi->u.hdr.ah->frags[
-			    wsi->u.hdr.ah->next_frag_index].next_frag_index = 0;
+			ah->nfrag++;
+			ah->frags[ah->nfrag].offset = ah->pos;
+			ah->frags[ah->nfrag].len = 0;
+			ah->frags[ah->nfrag].nfrag = 0;
 
-			wsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] =
-						 wsi->u.hdr.ah->next_frag_index;
+			ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] = ah->nfrag;
 
 			/* defeat normal uri path processing */
 			wsi->u.hdr.ups = URIPS_ARGUMENTS;
@@ -419,7 +413,7 @@ swallow:
 		    wsi->mode == LWS_CONNMODE_HTTP_SERVING) {
 			/* this is not a header we know about */
 			for (m = 0; m < ARRAY_SIZE(methods); m++)
-				if (wsi->u.hdr.ah->frag_index[methods[m]]) {
+				if (ah->frag_index[methods[m]]) {
 					/*
 					 * already had the method, no idea what
 					 * this crap from the client is, ignore
@@ -455,7 +449,7 @@ swallow:
 			lwsl_parser("known hdr %d\n", n);
 			for (m = 0; m < ARRAY_SIZE(methods); m++)
 				if (n == methods[m] &&
-						wsi->u.hdr.ah->frag_index[
+						ah->frag_index[
 							methods[m]]) {
 					lwsl_warn("Duplicated method\n");
 					return -1;
@@ -473,9 +467,10 @@ swallow:
 
 			if (context->token_limits)
 				wsi->u.hdr.current_token_limit =
-					context->token_limits->token_limit[wsi->u.hdr.parser_state];
+					context->token_limits->token_limit[
+						       wsi->u.hdr.parser_state];
 			else
-				wsi->u.hdr.current_token_limit = sizeof(wsi->u.hdr.ah->data);
+				wsi->u.hdr.current_token_limit = sizeof(ah->data);
 
 			if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE)
 				goto set_parsing_complete;
@@ -485,39 +480,33 @@ swallow:
 		break;
 
 start_fragment:
-		wsi->u.hdr.ah->next_frag_index++;
-		if (wsi->u.hdr.ah->next_frag_index ==
-				sizeof(wsi->u.hdr.ah->frags) /
-					      sizeof(wsi->u.hdr.ah->frags[0])) {
+		ah->nfrag++;
+		if (ah->nfrag == ARRAY_SIZE(ah->frags)) {
 			lwsl_warn("More hdr frags than we can deal with\n");
 			return -1;
 		}
 
-		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].offset =
-							     wsi->u.hdr.ah->pos;
-		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len = 0;
-		wsi->u.hdr.ah->frags[
-			    wsi->u.hdr.ah->next_frag_index].next_frag_index = 0;
+		ah->frags[ah->nfrag].offset = ah->pos;
+		ah->frags[ah->nfrag].len = 0;
+		ah->frags[ ah->nfrag].nfrag = 0;
 
-		n = wsi->u.hdr.ah->frag_index[wsi->u.hdr.parser_state];
+		n = ah->frag_index[wsi->u.hdr.parser_state];
 		if (!n) { /* first fragment */
-			wsi->u.hdr.ah->frag_index[wsi->u.hdr.parser_state] =
-						 wsi->u.hdr.ah->next_frag_index;
+			ah->frag_index[wsi->u.hdr.parser_state] = ah->nfrag;
 			break;
 		}
 		/* continuation */
-		while (wsi->u.hdr.ah->frags[n].next_frag_index)
-				n = wsi->u.hdr.ah->frags[n].next_frag_index;
-		wsi->u.hdr.ah->frags[n].next_frag_index =
-						 wsi->u.hdr.ah->next_frag_index;
+		while (ah->frags[n].nfrag)
+				n = ah->frags[n].nfrag;
+		ah->frags[n].nfrag = ah->nfrag;
 
-		if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
+		if (ah->pos == sizeof(ah->data)) {
 			lwsl_warn("excessive header content\n");
 			return -1;
 		}
 
-		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = ' ';
-		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
+		ah->data[ah->pos++] = ' ';
+		ah->frags[ah->nfrag].len++;
 		break;
 
 		/* skipping arg part of a name we didn't recognize */

@@ -262,8 +262,7 @@ lws_context_destroy(struct lws_context *context)
 		struct lws *wsi = wsi_from_fd(context, context->fds[n].fd);
 		if (!wsi)
 			continue;
-		lws_close_and_free_session(context, wsi,
-				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
 				/* no protocol close */);
 		n--;
 	}
