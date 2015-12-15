@@ -196,6 +196,8 @@ void lws_conn_listener::onIncoming(TCPListener *tl, void *impl)
 	if (!conn->ts)
 		return;
 
+	conn->ts->setNagle(0);
+
 	/*
 	 * we use the listen socket wsi to get started, but a new wsi is
 	 * created.  mbed3_tcp_stream_accept() is also called from
