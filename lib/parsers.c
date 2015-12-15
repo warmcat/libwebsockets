@@ -323,8 +323,24 @@ int lws_parse(struct lws *wsi, unsigned char c)
 
 		switch (wsi->u.hdr.ups) {
 		case URIPS_IDLE:
+			/* genuine delimiter */
+			if (c == '&' && !enc) {
+				issue_char(wsi, c);
+				/* swallow the terminator */
+				ah->frags[ah->nfrag].len--;
+				/* link to next fragment */
+				ah->frags[ah->nfrag].nfrag = ah->nfrag + 1;
+				ah->nfrag++;
+				if (ah->nfrag >= ARRAY_SIZE(ah->frags))
+					goto excessive;
+				/* start next fragment after the & */
+				ah->frags[ah->nfrag].offset = ah->pos;
+				ah->frags[ah->nfrag].len = 0;
+				ah->frags[ah->nfrag].nfrag = 0;
+				goto swallow;
+			}
 			/* issue the first / always */
-			if (c == '/')
+			if (c == '/' && !ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS])
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
 			break;
 		case URIPS_SEEN_SLASH:
@@ -365,7 +381,8 @@ int lws_parse(struct lws *wsi, unsigned char c)
 			}
 			/* it was like /.dir ... regurgitate the . */
 			wsi->u.hdr.ups = URIPS_IDLE;
-			issue_char(wsi, '.');
+			if (issue_char(wsi, '.') < 0)
+				return -1;
 			break;
 
 		case URIPS_SEEN_SLASH_DOT_DOT:
@@ -380,19 +397,20 @@ int lws_parse(struct lws *wsi, unsigned char c)
 			break;
 		}
 
-		if (c == '?' && !enc) { /* start of URI arguments */
+		if (c == '?' && !enc &&
+		    !ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS]) { /* start of URI arguments */
 			/* seal off uri header */
 			ah->data[ah->pos++] = '\0';
 
 			/* move to using WSI_TOKEN_HTTP_URI_ARGS */
 			ah->nfrag++;
+			if (ah->nfrag >= ARRAY_SIZE(ah->frags))
+				goto excessive;
 			ah->frags[ah->nfrag].offset = ah->pos;
 			ah->frags[ah->nfrag].len = 0;
 			ah->frags[ah->nfrag].nfrag = 0;
 
 			ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] = ah->nfrag;
-
-			/* defeat normal uri path processing */
 			wsi->u.hdr.ups = URIPS_IDLE;
 			goto swallow;
 		}
@@ -501,6 +519,7 @@ swallow:
 
 start_fragment:
 		ah->nfrag++;
+excessive:
 		if (ah->nfrag == ARRAY_SIZE(ah->frags)) {
 			lwsl_warn("More hdr frags than we can deal with\n");
 			return -1;

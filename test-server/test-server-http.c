@@ -137,6 +137,18 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 
 		dump_handshake_info(wsi);
 
+		/* dump the individual URI Arg parameters */
+		m = 1;
+		n = 0;
+		while (m > 0) {
+			m = lws_hdr_copy_fragment(wsi, buf, sizeof(buf),
+						  WSI_TOKEN_HTTP_URI_ARGS, n);
+			if (m < 0)
+				continue;
+			n++;
+			lwsl_info("URI Arg %d: %s\n", n, buf);
+		}
+
 		if (len < 1) {
 			lws_return_http_status(context, wsi,
 						HTTP_STATUS_BAD_REQUEST, NULL);

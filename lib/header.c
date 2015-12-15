@@ -24,9 +24,6 @@
 
 const unsigned char *lws_token_to_string(enum lws_token_indexes token)
 {
-	if (token == WSI_TOKEN_HTTP_URI_ARGS)
-		return (unsigned char *)"Uri-Args:";
-
 	if ((unsigned int)token >= ARRAY_SIZE(set))
 		return NULL;
 

@@ -35,14 +35,32 @@ function check {
 		fi
 	fi
 
-	if [ "$1" == "args" ] ; then
-		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep Uri.Args\: | tr -s ' ' | cut -d' ' -f4-`"
+	if [ "$1" == "1" ] ; then
+		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 1\: | tr -s ' ' | cut -d' ' -f5-`"
 		if [ "$a" != "$2" ] ; then
-			echo "Args '$a' not $2"
+			echo "Arg 1 '$a' not $2"
 			exit 1
 		fi
 	fi
-	LEN=`stat $LOG -c %s`
+
+	if [ "$1" == "2" ] ; then
+		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 2\: | tr -s ' ' | cut -d' ' -f5-`"
+		if [ "$a" != "$2" ] ; then
+			echo "Arg 2 '$a' not $2"
+			exit 1
+		fi
+	fi
+	if [ "$1" == "3" ] ; then
+		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 3\: | tr -s ' ' | cut -d' ' -f5-`"
+		if [ "$a" != "$2" ] ; then
+			echo "Arg 3 '$a' not $2"
+			exit 1
+		fi
+	fi
+
+	if [ -z "$1" ] ; then
+		LEN=`stat $LOG -c %s`
+	fi
 }
 
 
@@ -60,22 +78,24 @@ echo
 echo "---- /cgi-bin/settingsjs?UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=%3F&Root_Channels_1_Channel_location_http_post=%3F"
 rm -f /tmp/lwscap
 echo -e "GET /cgi-bin/settingsjs?UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=%3F&Root_Channels_1_Channel_location_http_post=%3F HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check args "UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=?&Root_Channels_1_Channel_location_http_post=?"
-
-
+check 1 "UPDATE_SETTINGS=1"
+check 2 "Root_Channels_1_Channel_name_http_post=?"
+check 3 "Root_Channels_1_Channel_location_http_post=?"
+check
 
 echo
 echo "---- ? processing (%2f%2e%2e%2f%2e./test.html?arg=1)"
 rm -f /tmp/lwscap
 echo -e "GET %2f%2e%2e%2f%2e./test.html?arg=1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check args "arg=1"
+check 1 "arg=1"
+check
 
 echo
 echo "---- ? processing (%2f%2e%2e%2f%2e./test.html?arg=/../.)"
 rm -f /tmp/lwscap
 echo -e "GET %2f%2e%2e%2f%2e./test.html?arg=/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check args "arg=/../."
-
+check 1 "arg=/../."
+check
 
 echo
 echo "---- spam enough crap to not be GET"
@@ -172,55 +192,63 @@ echo -e "GET /test.html HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD.................
  	"......................................................................................................................." \
 	 | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
+check
 
 echo
 echo "---- directory attack 1 (/../../../../etc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
 echo -e "GET /../../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check forbidden
+check
 
 echo
 echo "---- directory attack 2 (/../ should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
+check
 
 echo
 echo "---- directory attack 3 (/./ should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /./ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
+check
 
 echo
 echo "---- directory attack 4 (/blah/.. should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/.. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
+check
 
 echo
 echo "---- directory attack 5 (/blah/../ should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
+check
 
 echo
 echo "---- directory attack 6 (/blah/../. should be /)"
 rm -f /tmp/lwscap
 echo -e "GET /blah/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
+check
 
 echo
 echo "---- directory attack 7 (/%2e%2e%2f../../../etc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
 echo -e "GET /%2e%2e%2f../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check forbidden
+check
 
 echo
 echo "---- directory attack 7 (%2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
 echo -e "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check forbidden
-
+check
 
 echo
 echo "--- survived OK ---"
