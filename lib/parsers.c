@@ -378,9 +378,6 @@ int lws_parse(struct lws *wsi, unsigned char c)
 			/* last we issued was / so SEEN_SLASH */
 			wsi->u.hdr.ups = URIPS_SEEN_SLASH;
 			break;
-		case URIPS_ARGUMENTS:
-			/* leave them alone */
-			break;
 		}
 
 		if (c == '?' && !enc) { /* start of URI arguments */
@@ -396,7 +393,7 @@ int lws_parse(struct lws *wsi, unsigned char c)
 			ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] = ah->nfrag;
 
 			/* defeat normal uri path processing */
-			wsi->u.hdr.ups = URIPS_ARGUMENTS;
+			wsi->u.hdr.ups = URIPS_IDLE;
 			goto swallow;
 		}
 
