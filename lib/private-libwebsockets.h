@@ -600,7 +600,7 @@ enum uri_esc_states {
 struct lws_fragments {
 	unsigned short offset;
 	unsigned short len;
-	unsigned char nfrag;
+	unsigned char nfrag; /* which ah->frag[] continues this content, or 0 */
 };
 
 /* notice that these union members:
@@ -618,9 +618,19 @@ struct lws_fragments {
 struct allocated_headers {
 	unsigned char nfrag;
 	unsigned short pos;
+	/*
+	 * for each recognized token, frag_index says which frag[] his data
+	 * starts in (0 means the token did not appear)
+	 * the actual header data gets dumped as it comes in, into data[]
+	 */
 	unsigned char frag_index[WSI_TOKEN_COUNT];
+	/*
+	 * the randomly ordered fragments, indexed by frag_index and
+	 * lws_fragments->nfrag for continuation.
+	 */
 	struct lws_fragments frags[WSI_TOKEN_COUNT * 2];
 	char data[LWS_MAX_HEADER_LEN];
+
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
 	unsigned short c_port;
