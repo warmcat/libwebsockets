@@ -337,7 +337,6 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 
 			if (wsi->u.ws.close_reason) {
 				/* reason codes count as data bytes */
-				buf -= 2;
 				buf[0] = (unsigned char)(wsi->u.ws.close_reason >> 8);
 				buf[1] = (unsigned char)wsi->u.ws.close_reason;
 				len += 2;
