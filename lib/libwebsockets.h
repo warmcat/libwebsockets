@@ -652,7 +652,7 @@ enum lws_token_indexes {
 };
 
 struct lws_token_limits {
-    unsigned short token_limit[WSI_TOKEN_COUNT];
+	unsigned short token_limit[WSI_TOKEN_COUNT];
 };
 
 /*
@@ -1622,8 +1622,21 @@ lws_get_library_version(void);
 LWS_VISIBLE LWS_EXTERN int
 lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h);
 
+/*
+ * copies the whole, aggregated header, even if it was delivered in
+ * several actual headers piece by piece
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_hdr_copy(struct lws *wsi, char *dest, int len, enum lws_token_indexes h);
+
+/*
+ * copies only fragment frag_idx of a header.  Normally this is only useful
+ * to parse URI arguments like ?x=1&y=2, oken index WSI_TOKEN_HTTP_URI_ARGS
+ * fragment 0 will contain "x=1" and fragment 1 "y=2"
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_hdr_copy_fragment(struct lws *wsi, char *dest, int len,
+		      enum lws_token_indexes h, int frag_idx);
 
 /* get the active file operations struct */
 LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops *

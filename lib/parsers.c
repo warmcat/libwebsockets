@@ -97,6 +97,29 @@ LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 	return len;
 }
 
+LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
+				      enum lws_token_indexes h, int frag_idx)
+{
+	int n = 0;
+	int f = wsi->u.hdr.ah->frag_index[h];
+
+	while (n < frag_idx) {
+		f = wsi->u.hdr.ah->frags[f].nfrag;
+		if (!f)
+			return -1;
+		n++;
+	}
+
+	if (wsi->u.hdr.ah->frags[f].len >= (len - 1))
+		return -1;
+
+	memcpy(dst, &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[f].offset],
+	       wsi->u.hdr.ah->frags[f].len);
+	dst[wsi->u.hdr.ah->frags[f].len] = '\0';
+
+	return wsi->u.hdr.ah->frags[f].len;
+}
+
 LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 			     enum lws_token_indexes h)
 {
