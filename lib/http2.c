@@ -196,11 +196,11 @@ static const char * https_client_preface =
 	"PRI * HTTP/2.0\x0d\x0a\x0d\x0aSM\x0d\x0a\x0d\x0a";
 
 int
-lws_http2_parser(struct lws_context *context, struct lws *wsi, unsigned char c)
+lws_http2_parser(struct lws *wsi, unsigned char c)
 {
+	struct lws_context *context = wsi->context;
 	struct lws *swsi;
 	int n;
-	//dstruct lws *wsi_new;
 
 	switch (wsi->state) {
 	case WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE:
@@ -243,7 +243,7 @@ lws_http2_parser(struct lws_context *context, struct lws *wsi, unsigned char c)
 			case LWS_HTTP2_FRAME_TYPE_CONTINUATION:
 			case LWS_HTTP2_FRAME_TYPE_HEADERS:
 				lwsl_info(" %02X\n", c);
-				if (lws_hpack_interpret(context, wsi->u.http2.stream_wsi, c))
+				if (lws_hpack_interpret(wsi->u.http2.stream_wsi, c))
 					return 1;
 				break;
 			case LWS_HTTP2_FRAME_TYPE_GOAWAY:
@@ -313,7 +313,7 @@ lws_http2_parser(struct lws_context *context, struct lws *wsi, unsigned char c)
 				if (swsi->u.http2.waiting_tx_credit && swsi->u.http2.tx_credit > 0) {
 					lwsl_info("%s: %p: waiting_tx_credit -> wait on writeable\n", __func__, wsi);
 					swsi->u.http2.waiting_tx_credit = 0;
-					lws_callback_on_writable(context, swsi);
+					lws_callback_on_writable(swsi);
 				}
 				break;
 			}

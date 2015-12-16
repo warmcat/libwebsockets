@@ -60,23 +60,73 @@ The reason for this change is struct lws_protocols has been changed to remove
 members that lws used for private storage: so the protocols struct in now
 truly const and may be reused serially or simultaneously by different contexts.
 
-2) Several older apis start with libwebsocket_ or libwebsockets_ while newer ones
+2) Eleven APIs
+
+LWS_VISIBLE LWS_EXTERN int
+lws_add_http_header_by_name(struct lws_context *context,
+                struct lws *wsi,
+                const unsigned char *name,
+                const unsigned char *value,
+                int length,
+                unsigned char **p,
+                unsigned char *end);
+LWS_VISIBLE LWS_EXTERN int
+lws_finalize_http_header(struct lws_context *context,
+             struct lws *wsi,
+             unsigned char **p,
+             unsigned char *end);
+LWS_VISIBLE LWS_EXTERN int
+lws_add_http_header_by_token(struct lws_context *context,
+                 struct lws *wsi,
+                 enum lws_token_indexes token,
+                 const unsigned char *value,
+                 int length,
+                 unsigned char **p,
+                 unsigned char *end);
+LWS_VISIBLE LWS_EXTERN int
+lws_add_http_header_content_length(struct lws_context *context,
+                   struct lws *wsi,
+                   unsigned long content_length,
+                   unsigned char **p,
+                   unsigned char *end);
+LWS_VISIBLE LWS_EXTERN int
+lws_add_http_header_status(struct lws_context *context, struct lws *wsi,
+               unsigned int code, unsigned char **p,
+               unsigned char *end);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_serve_http_file(struct lws_context *context, struct lws *wsi,
+            const char *file, const char *content_type,
+            const char *other_headers, int other_headers_len);
+LWS_VISIBLE LWS_EXTERN int
+lws_serve_http_file_fragment(struct lws_context *context, struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_return_http_status(struct lws_context *context, struct lws *wsi,
+               unsigned int code, const char *html_body);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_callback_on_writable(const struct lws_context *context, struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_get_peer_addresses(struct lws_context *context, struct lws *wsi,
+               lws_sockfd_type fd, char *name, int name_len,
+               char *rip, int rip_len);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_read(struct lws_context *context, struct lws *wsi,
+     unsigned char *buf, size_t len); 
+
+no longer require their initial struct lws_context * parameter.
+
+3) Several older apis start with libwebsocket_ or libwebsockets_ while newer ones
 all begin lws_.  These apis have been changed to all begin with lws_.
 
-However except for the three APIs mentioned above in 1), compatibility defines
-have been added in libwebsockets.h, so it is largely build-compatible with
-older sources using the old api names.
+To convert, search-replace
 
-If you are using lws with a distro, or otherwise can't rebuild the user code,
-you should add 
-
- -DLWS_WITH_OLD_API_WRAPPERS=1
-
-to your cmake args.  This builds lws with all the old apis as wrappers around
-the new apis, so the library still exports the old apis.
-
-In this way you can have lws export both the new and old apis simultaneously
-for compatibility.
+ - libwebsockets_/lws_
+ - libwebsocket_/lws_
+ - struct\ libwebsocket/struct\ lws
 
 
 v1.5-chrome47-firefox41

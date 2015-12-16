@@ -167,7 +167,7 @@ callback_lws_mirror(struct lws_context *context,
 		 * start the ball rolling,
 		 * LWS_CALLBACK_CLIENT_WRITEABLE will come next service
 		 */
-		lws_callback_on_writable(context, wsi);
+		lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_CLOSED:
@@ -201,7 +201,7 @@ callback_lws_mirror(struct lws_context *context,
 			return -1;
 		}
 		/* get notified as soon as we can write again */
-		lws_callback_on_writable(context, wsi);
+		lws_callback_on_writable(wsi);
 		break;
 
 	default:

@@ -152,8 +152,6 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 int
 _lws_rx_flow_control(struct lws *wsi)
 {
-	struct lws_context *context = lws_get_ctx(wsi);
-
 	/* there is no pending change */
 	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE))
 		return 0;
@@ -161,7 +159,7 @@ _lws_rx_flow_control(struct lws *wsi)
 	/* stuff is still buffered, not ready to really accept new input */
 	if (wsi->rxflow_buffer) {
 		/* get ourselves called back to deal with stashed buffer */
-		lws_callback_on_writable(context, wsi);
+		lws_callback_on_writable(wsi);
 		return 0;
 	}
 
@@ -256,8 +254,8 @@ int lws_http_action(struct lws *wsi)
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 		lws_hdr_copy(wsi, content_length_str,
-				sizeof(content_length_str) - 1,
-						WSI_TOKEN_HTTP_CONTENT_LENGTH);
+			     sizeof(content_length_str) - 1,
+			     WSI_TOKEN_HTTP_CONTENT_LENGTH);
 		wsi->u.http.content_length = atoi(content_length_str);
 	}
 
@@ -339,9 +337,9 @@ bail_nuke_ah:
 }
 
 
-int lws_handshake_server(struct lws_context *context, struct lws *wsi,
-			 unsigned char **buf, size_t len)
+int lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
+	struct lws_context *context = lws_get_ctx(wsi);
 	struct allocated_headers *ah;
 	int protocol_len, n, hit;
 	char protocol_list[128];
@@ -745,8 +743,7 @@ int lws_server_socket_service(struct lws_context *context,
 				 * hm this may want to send
 				 * (via HTTP callback for example)
 				 */
-				n = lws_read(context, wsi,
-					     context->service_buffer, len);
+				n = lws_read(wsi, context->service_buffer, len);
 				if (n < 0) /* we closed wsi */
 					return 1;
 
@@ -766,7 +763,7 @@ try_pollout:
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			goto fail;
 
-		lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_WRITE);
+		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
 		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE) {
 			n = user_callback_handle_rxflow(
@@ -782,7 +779,7 @@ try_pollout:
 		}
 
 		/* >0 == completion, <0 == error */
-		n = lws_serve_http_file_fragment(context, wsi);
+		n = lws_serve_http_file_fragment(wsi);
 		if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi)))
 			goto fail;
 		break;
@@ -858,7 +855,7 @@ try_pollout:
 			LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 			NULL, NULL, 0);
 
-		lws_libev_accept(context, new_wsi, accept_fd);
+		lws_libev_accept(new_wsi, accept_fd);
 
 		if (!LWS_SSL_ENABLED(context)) {
 #if LWS_POSIX
@@ -902,12 +899,12 @@ fail:
  *	the wsi should be left alone.
  */
 
-LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
-				    struct lws *wsi, const char *file,
+LWS_VISIBLE int lws_serve_http_file(struct lws *wsi, const char *file,
 				    const char *content_type,
 				    const char *other_headers,
 				    int other_headers_len)
 {
+	struct lws_context *context = lws_get_ctx(wsi);
 	unsigned char *response = context->service_buffer +
 				  LWS_SEND_BUFFER_PRE_PADDING;
 	unsigned char *p = response;
@@ -915,29 +912,26 @@ LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
 			     LWS_SEND_BUFFER_PRE_PADDING;
 	int ret = 0;
 
-	wsi->u.http.fd = lws_plat_file_open(wsi, file,
-					    &wsi->u.http.filelen, O_RDONLY);
+	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen, O_RDONLY);
 
 	if (wsi->u.http.fd == LWS_INVALID_FILE) {
 		lwsl_err("Unable to open '%s'\n", file);
-		lws_return_http_status(context, wsi, HTTP_STATUS_NOT_FOUND,
-				       NULL);
+		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
+
 		return -1;
 	}
 
-	if (lws_add_http_header_status(context, wsi, 200, &p, end))
+	if (lws_add_http_header_status(wsi, 200, &p, end))
 		return -1;
-	if (lws_add_http_header_by_token(context, wsi, WSI_TOKEN_HTTP_SERVER,
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
 					 (unsigned char *)"libwebsockets", 13,
 					 &p, end))
 		return -1;
-	if (lws_add_http_header_by_token(context, wsi,
-					 WSI_TOKEN_HTTP_CONTENT_TYPE,
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 					 (unsigned char *)content_type,
 					 strlen(content_type), &p, end))
 		return -1;
-	if (lws_add_http_header_content_length(context, wsi,
-					       wsi->u.http.filelen, &p, end))
+	if (lws_add_http_header_content_length(wsi, wsi->u.http.filelen, &p, end))
 		return -1;
 
 	if (other_headers) {
@@ -947,7 +941,7 @@ LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
 		p += other_headers_len;
 	}
 
-	if (lws_finalize_http_header(context, wsi, &p, end))
+	if (lws_finalize_http_header(wsi, &p, end))
 		return -1;
 
 	ret = lws_write(wsi, response, p - response, LWS_WRITE_HTTP_HEADERS);
@@ -959,7 +953,7 @@ LWS_VISIBLE int lws_serve_http_file(struct lws_context *context,
 	wsi->u.http.filepos = 0;
 	wsi->state = WSI_STATE_HTTP_ISSUING_FILE;
 
-	return lws_serve_http_file_fragment(context, wsi);
+	return lws_serve_http_file_fragment(wsi);
 }
 
 int lws_interpret_incoming_packet(struct lws *wsi, unsigned char *buf,

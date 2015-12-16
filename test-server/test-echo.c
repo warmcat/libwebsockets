@@ -87,7 +87,7 @@ do_rx:
 		}
 		memcpy(&pss->buf[LWS_SEND_BUFFER_PRE_PADDING], in, len);
 		pss->len = (unsigned int)len;
-		lws_callback_on_writable(context, wsi);
+		lws_callback_on_writable(wsi);
 		break;
 #endif
 

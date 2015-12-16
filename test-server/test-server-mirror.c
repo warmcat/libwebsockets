@@ -86,7 +86,7 @@ callback_lws_mirror(struct lws_context *context,
 					       lws_get_protocol(wsi));
 
 			if (lws_partial_buffered(wsi) || lws_send_pipe_choked(wsi)) {
-				lws_callback_on_writable(context, wsi);
+				lws_callback_on_writable(wsi);
 				break;
 			}
 		}

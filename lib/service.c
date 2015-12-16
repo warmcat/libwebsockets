@@ -212,11 +212,11 @@ user_service:
 
 	if (pollfd) {
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-			lwsl_info("failled at set pollfd\n");
+			lwsl_info("failed at set pollfd\n");
 			return 1;
 		}
 
-		lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_WRITE);
+		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 	}
 
 #ifdef LWS_USE_HTTP2
@@ -577,9 +577,8 @@ drain:
 			/* service incoming data */
 
 			if (eff_buf.token_len) {
-				n = lws_read(context, wsi,
-					(unsigned char *)eff_buf.token,
-							    eff_buf.token_len);
+				n = lws_read(wsi, (unsigned char *)eff_buf.token,
+					     eff_buf.token_len);
 				if (n < 0) {
 					/* we closed wsi */
 					n = 0;

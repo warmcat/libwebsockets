@@ -144,7 +144,7 @@ callback_lws_mirror(struct lws_context * this,
 		 * LWS_CALLBACK_CLIENT_WRITEABLE will come next service
 		 */
 
-		lws_callback_on_writable(this, wsi);
+		lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
@@ -451,8 +451,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	lws_get_peer_addresses(context, ping_wsi[0],
-			lws_get_socket_fd(ping_wsi[0]),
+	lws_get_peer_addresses(ping_wsi[0], lws_get_socket_fd(ping_wsi[0]),
 				    peer_name, sizeof peer_name, ip, sizeof ip);
 
 	fprintf(stderr, "Websocket PING %s (%s) %d bytes of data.\n",
@@ -487,8 +486,7 @@ int main(int argc, char **argv)
 		if (!interrupted_time) {
 			if ((l - oldus) > interval_us) {
 				for (n = 0; n < clients; n++)
-					lws_callback_on_writable(
-							  context, ping_wsi[n]);
+					lws_callback_on_writable(ping_wsi[n]);
 				oldus = l;
 			}
 		} else

@@ -58,8 +58,7 @@
  */
 
 LWS_VISIBLE int
-lws_read(struct lws_context *context, struct lws *wsi, unsigned char *buf,
-	 size_t len)
+lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	unsigned char *last_char;
 	int body_chunk_len;
@@ -84,7 +83,7 @@ lws_read(struct lws_context *context, struct lws *wsi, unsigned char *buf,
 			/* account for what we're using in rxflow buffer */
 			if (wsi->rxflow_buffer)
 				wsi->rxflow_pos++;
-			if (lws_http2_parser(context, wsi, buf[n++]))
+			if (lws_http2_parser(wsi, buf[n++]))
 				goto bail;
 		}
 		break;
@@ -105,7 +104,7 @@ http_new:
 			goto bail;
 
 		last_char = buf;
-		if (lws_handshake_server(context, wsi, &buf, len))
+		if (lws_handshake_server(wsi, &buf, len))
 			/* Handshake indicates this session is done. */
 			goto bail;
 
@@ -191,18 +190,18 @@ postbody_completion:
 		}
 		break;
 	default:
-		lwsl_err("lws_read: Unhandled state\n");
+		lwsl_err("%s: Unhandled state\n", __func__);
 		break;
 	}
 
 read_ok:
 	/* Nothing more to do for now */
-	lwsl_debug("lws_read: read_ok\n");
+	lwsl_debug("%s: read_ok\n", __func__);
 
 	return 0;
 
 http_complete:
-	lwsl_debug("lws_read: http_complete\n");
+	lwsl_debug("%s: http_complete\n", __func__);
 
 #ifndef LWS_NO_SERVER
 	/* Did the client want to keep the HTTP connection going? */

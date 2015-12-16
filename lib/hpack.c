@@ -349,8 +349,7 @@ static int lws_write_indexed_hdr(struct lws *wsi, int idx)
 	return 0;
 }
 
-int lws_hpack_interpret(struct lws_context *context,
-			struct lws *wsi, unsigned char c)
+int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 {
 	unsigned int prev;
 	unsigned char c1;
@@ -619,7 +618,7 @@ static int lws_http2_num(int starting_bits, unsigned long num,
 	return 0;
 }
 
-int lws_add_http2_header_by_name(struct lws_context *context, struct lws *wsi,
+int lws_add_http2_header_by_name(struct lws *wsi,
 				 const unsigned char *name,
 				 const unsigned char *value, int length,
 				 unsigned char **p, unsigned char *end)
@@ -654,8 +653,7 @@ int lws_add_http2_header_by_name(struct lws_context *context, struct lws *wsi,
 	return 0;
 }
 
-int lws_add_http2_header_by_token(struct lws_context *context, struct lws *wsi,
-				  enum lws_token_indexes token,
+int lws_add_http2_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 				  const unsigned char *value, int length,
 				  unsigned char **p, unsigned char *end)
 {
@@ -665,11 +663,10 @@ int lws_add_http2_header_by_token(struct lws_context *context, struct lws *wsi,
 	if (!name)
 		return 1;
 
-	return lws_add_http2_header_by_name(context, wsi, name, value,
-					    length, p, end);
+	return lws_add_http2_header_by_name(wsi, name, value, length, p, end);
 }
 
-int lws_add_http2_header_status(struct lws_context *context, struct lws *wsi,
+int lws_add_http2_header_status(struct lws *wsi,
 			        unsigned int code, unsigned char **p,
 				unsigned char *end)
 {
@@ -679,9 +676,9 @@ int lws_add_http2_header_status(struct lws_context *context, struct lws *wsi,
 	wsi->u.http2.send_END_STREAM = !!(code >= 400);
 
 	n = sprintf((char *)status, "%u", code);
-	if (lws_add_http2_header_by_token(context, wsi,
-					  WSI_TOKEN_HTTP_COLON_STATUS, status,
-					  n, p, end))
+	if (lws_add_http2_header_by_token(wsi, WSI_TOKEN_HTTP_COLON_STATUS,
+					  status, n, p, end))
+
 		return 1;
 
 	return 0;

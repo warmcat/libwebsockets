@@ -157,7 +157,7 @@ handle_truncated_send:
 			}
 		}
 		/* always callback on writeable */
-		lws_callback_on_writable(lws_get_ctx(wsi), wsi);
+		lws_callback_on_writable(wsi);
 
 		return n;
 	}
@@ -205,7 +205,7 @@ handle_truncated_send:
 	memcpy(wsi->truncated_send_malloc, buf + n, real_len - n);
 
 	/* since something buffered, force it to get another chance to send */
-	lws_callback_on_writable(lws_get_ctx(wsi), wsi);
+	lws_callback_on_writable(wsi);
 
 	return real_len;
 }
@@ -505,9 +505,9 @@ send_raw:
 	return n - (pre + post);
 }
 
-LWS_VISIBLE int lws_serve_http_file_fragment(struct lws_context *context,
-					     struct lws *wsi)
+LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 {
+	struct lws_context *context = wsi->context;
 	unsigned long amount;
 	int n, m;
 
@@ -570,7 +570,7 @@ all_sent:
 	}
 
 	lwsl_info("choked before able to send whole file (post)\n");
-	lws_callback_on_writable(context, wsi);
+	lws_callback_on_writable(wsi);
 
 	return 0; /* indicates further processing must be done */
 }

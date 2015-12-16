@@ -76,7 +76,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	struct lws_pollargs pa = { wsi->sock, 0, 0 };
 	struct lws_context *context = wsi->context;
 
-	lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
+	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
 	--context->fds_count;
 
@@ -208,7 +208,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
  */
 
 LWS_VISIBLE int
-lws_callback_on_writable(const struct lws_context *context, struct lws *wsi)
+lws_callback_on_writable(struct lws *wsi)
 {
 #ifdef LWS_USE_HTTP2
 	struct lws *network_wsi, *wsi2;
@@ -257,7 +257,6 @@ lws_callback_on_writable(const struct lws_context *context, struct lws *wsi)
 network_sock:
 #endif
 
-	(void)context;
 	if (lws_ext_callback_for_each_active(wsi,
 				LWS_EXT_CALLBACK_REQUEST_ON_WRITEABLE, NULL, 0))
 		return 1;
@@ -270,7 +269,7 @@ network_sock:
 	if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 		return -1;
 
-	lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_WRITE);
+	lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
 
 	return 1;
 }
@@ -296,7 +295,7 @@ lws_callback_on_writable_all_protocol(const struct lws_context *context,
 		if (!wsi)
 			continue;
 		if (wsi->protocol == protocol)
-			lws_callback_on_writable(context, wsi);
+			lws_callback_on_writable(wsi);
 	}
 
 	return 0;

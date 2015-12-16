@@ -547,11 +547,9 @@ enum {
 #define LWS_LIBEV_ENABLED(context) (context->options & LWS_SERVER_OPTION_LIBEV)
 LWS_EXTERN void lws_feature_status_libev(struct lws_context_creation_info *info);
 LWS_EXTERN void
-lws_libev_accept(struct lws_context *context,
-		 struct lws *new_wsi, lws_sockfd_type accept_fd);
+lws_libev_accept(struct lws *new_wsi, lws_sockfd_type accept_fd);
 LWS_EXTERN void
-lws_libev_io(const struct lws_context *context,
-				struct lws *wsi, int flags);
+lws_libev_io(struct lws *wsi, int flags);
 LWS_EXTERN int
 lws_libev_init_fd_table(struct lws_context *context);
 LWS_EXTERN void
@@ -564,8 +562,8 @@ lws_libev_run(const struct lws_context *context);
 #else
 #define lws_feature_status_libev(_a)
 #endif
-#define lws_libev_accept(_a, _b, _c) ((void) 0)
-#define lws_libev_io(_a, _b, _c) ((void) 0)
+#define lws_libev_accept(_a, _b) ((void) 0)
+#define lws_libev_io(_a, _b) ((void) 0)
 #define lws_libev_init_fd_table(_a) (0)
 #define lws_libev_run(_a) ((void) 0)
 #endif
@@ -1048,8 +1046,7 @@ lws_http2_interpret_settings_payload(struct http2_settings *settings,
 				     unsigned char *buf, int len);
 LWS_EXTERN void lws_http2_init(struct http2_settings *settings);
 LWS_EXTERN int
-lws_http2_parser(struct lws_context *context,
-		     struct lws *wsi, unsigned char c);
+lws_http2_parser(struct lws *wsi, unsigned char c);
 LWS_EXTERN int lws_http2_do_pps_send(struct lws_context *context,
 				     struct lws *wsi);
 LWS_EXTERN int lws_http2_frame_write(struct lws *wsi, int type, int flags,
@@ -1057,21 +1054,20 @@ LWS_EXTERN int lws_http2_frame_write(struct lws *wsi, int type, int flags,
 				     unsigned char *buf);
 LWS_EXTERN struct lws *
 lws_http2_wsi_from_id(struct lws *wsi, unsigned int sid);
-LWS_EXTERN int lws_hpack_interpret(struct lws_context *context,
-				   struct lws *wsi,
+LWS_EXTERN int lws_hpack_interpret(struct lws *wsi,
 				   unsigned char c);
 LWS_EXTERN int
-lws_add_http2_header_by_name(struct lws_context *context, struct lws *wsi,
+lws_add_http2_header_by_name(struct lws *wsi,
 			     const unsigned char *name,
 			     const unsigned char *value, int length,
 			     unsigned char **p, unsigned char *end);
 LWS_EXTERN int
-lws_add_http2_header_by_token(struct lws_context *context, struct lws *wsi,
+lws_add_http2_header_by_token(struct lws *wsi,
 			    enum lws_token_indexes token,
 			    const unsigned char *value, int length,
 			    unsigned char **p, unsigned char *end);
 LWS_EXTERN int
-lws_add_http2_header_status(struct lws_context *context, struct lws *wsi,
+lws_add_http2_header_status(struct lws *wsi,
 			    unsigned int code, unsigned char **p,
 			    unsigned char *end);
 LWS_EXTERN
@@ -1093,8 +1089,7 @@ LWS_EXTERN char *
 lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h);
 
 LWS_EXTERN int
-lws_hdr_simple_create(struct lws *wsi,
-				enum lws_token_indexes h, const char *s);
+lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s);
 
 LWS_EXTERN int
 lws_ensure_user_space(struct lws *wsi);
@@ -1222,12 +1217,11 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 LWS_EXTERN int
 _lws_rx_flow_control(struct lws *wsi);
 LWS_EXTERN int
-lws_handshake_server(struct lws_context *context,
-		     struct lws *wsi, unsigned char **buf, size_t len);
+lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
 #else
 #define lws_server_socket_service(_a, _b, _c) (0)
 #define _lws_rx_flow_control(_a) (0)
-#define lws_handshake_server(_a, _b, _c, _d) (0)
+#define lws_handshake_server(_a, _b, _c) (0)
 #endif
 
 LWS_EXTERN int

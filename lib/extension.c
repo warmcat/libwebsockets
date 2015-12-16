@@ -175,8 +175,7 @@ lws_issue_raw_ext_access(struct lws *wsi,
 		 * Yes, he's choked.  Don't spill the rest now get a callback
 		 * when he is ready to send and take care of it there
 		 */
-		lws_callback_on_writable(
-					     lws_get_ctx(wsi), wsi);
+		lws_callback_on_writable(wsi);
 		wsi->extension_data_pending = 1;
 		ret = 0;
 	}

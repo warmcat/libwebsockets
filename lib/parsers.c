@@ -956,7 +956,7 @@ process_as_ping:
 			wsi->u.ws.ping_pending_flag = 1;
 
 			/* get it sent as soon as possible */
-			lws_callback_on_writable(lws_get_ctx(wsi), wsi);
+			lws_callback_on_writable(wsi);
 ping_drop:
 			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;

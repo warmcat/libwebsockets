@@ -76,7 +76,7 @@ callback_fraggle(struct lws_context *context,
 		fprintf(stderr, "server sees client connect\n");
 		psf->state = FRAGSTATE_START_MESSAGE;
 		/* start the ball rolling */
-		lws_callback_on_writable(context, wsi);
+		lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -177,7 +177,7 @@ callback_fraggle(struct lws_context *context,
 				return -1;
 			}
 
-			lws_callback_on_writable(context, wsi);
+			lws_callback_on_writable(wsi);
 			break;
 
 		case FRAGSTATE_POST_PAYLOAD_SUM:
@@ -202,7 +202,7 @@ callback_fraggle(struct lws_context *context,
 
 			psf->state = FRAGSTATE_START_MESSAGE;
 
-			lws_callback_on_writable(context, wsi);
+			lws_callback_on_writable(wsi);
 			break;
 		}
 		break;

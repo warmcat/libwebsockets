@@ -92,7 +92,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 	case WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE:
 		if (wsi->truncated_send_len) {
-			lws_callback_on_writable(context, wsi);
+			lws_callback_on_writable(wsi);
 			return;
 		}
 		lwsl_info("wsi %p completed WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
@@ -407,9 +407,8 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
  */
 
 LWS_VISIBLE void
-lws_get_peer_addresses(struct lws_context *context, struct lws *wsi,
-		       lws_sockfd_type fd, char *name, int name_len,
-		       char *rip, int rip_len)
+lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
+		       int name_len, char *rip, int rip_len)
 {
 #if LWS_POSIX
 	socklen_t len;
@@ -417,6 +416,7 @@ lws_get_peer_addresses(struct lws_context *context, struct lws *wsi,
 	struct sockaddr_in6 sin6;
 #endif
 	struct sockaddr_in sin4;
+	struct lws_context *context = wsi->context;
 	int ret = -1;
 	void *p;
 
@@ -446,7 +446,6 @@ lws_get_peer_addresses(struct lws_context *context, struct lws *wsi,
 bail:
 	lws_latency(context, wsi, "lws_get_peer_addresses", ret, 1);
 #else
-	(void)context;
 	(void)wsi;
 	(void)fd;
 	(void)name;
@@ -898,7 +897,7 @@ void lws_set_protocol_write_pending(struct lws *wsi,
 		lwsl_err("pps overwrite\n");
 	wsi->pps = pend;
 	lws_rx_flow_control(wsi, 0);
-	lws_callback_on_writable(wsi->context, wsi);
+	lws_callback_on_writable(wsi);
 }
 
 LWS_VISIBLE size_t
@@ -943,276 +942,3 @@ lws_wsi_user(struct lws *wsi)
 {
 	return wsi->user_space;
 }
-
-#ifdef LWS_WITH_OLD_API_WRAPPERS
-
-/*
- * To maintain .so abi, also produce wrappers using old api naming.
- *
- * This is disabled by default, use "LWS_WITH_OLD_API_WRAPPERS" on cmake to
- * enable.
- *
- * You only need these if you have existing binary applications using the old
- * api names and you don't want to / can't recompile them against new lws.
- * With these new lws .so is compatible with old and new api names.
- *
- * If you can recompile your application (using old api names still) against
- * current lws, you don't need these compatibility helpers since
- * libwebsockets.h will map them at compile time.
- */
-
-#undef libwebsocket
-
-#undef libwebsocket_create_context
-LWS_VISIBLE LWS_EXTERN struct lws_context *
-libwebsocket_create_context(struct lws_context_creation_info *info)
-{
-	return lws_create_context(info);
-}
-
-#undef libwebsocket_set_proxy
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_set_proxy(struct lws_context *context, const char *proxy)
-{
-	return lws_set_proxy(context, proxy);
-}
-
-#undef libwebsocket_context_destroy
-LWS_VISIBLE LWS_EXTERN void
-libwebsocket_context_destroy(struct lws_context *context)
-{
-	lws_context_destroy(context);
-}
-
-#undef libwebsocket_service
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_service(struct lws_context *context, int timeout_ms)
-{
-	return lws_service(context, timeout_ms);
-}
-
-#undef libwebsocket_cancel_service
-LWS_VISIBLE LWS_EXTERN void
-libwebsocket_cancel_service(struct lws_context *context)
-{
-	lws_cancel_service(context);
-}
-
-#ifdef LWS_USE_LIBEV
-#undef libwebsocket_sigint_cfg
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_sigint_cfg(struct lws_context *context, int use_ev_sigint,
-			lws_ev_signal_cb* cb)
-{
-	return lws_sigint_cfg(context, use_ev_sigint, cb);
-}
-
-#undef libwebsocket_initloop
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_initloop(struct lws_context *context, struct ev_loop *loop)
-{
-	return lws_initloop(context, loop);
-}
-
-#undef libwebsocket_sigint_cb
-LWS_VISIBLE void
-libwebsocket_sigint_cb(
-	struct ev_loop *loop, struct ev_signal *watcher, int revents)
-{
-	lws_sigint_cb(loop, watcher, revents);
-}
-#endif /* LWS_USE_LIBEV */
-
-#undef libwebsocket_service_fd
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_service_fd(struct lws_context *context,
-		struct lws_pollfd *pollfd)
-{
-	return lws_service_fd(context, pollfd);
-}
-
-#undef libwebsocket_context_user
-LWS_VISIBLE LWS_EXTERN void *
-libwebsocket_context_user(struct lws_context *context)
-{
-	return lws_context_user(context);
-}
-
-#undef libwebsocket_set_timeout
-LWS_VISIBLE LWS_EXTERN void
-libwebsocket_set_timeout(struct lws *wsi,
-					 enum pending_timeout reason, int secs)
-{
-	lws_set_timeout(wsi, reason, secs);
-}
-
-#undef libwebsocket_write
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_write(struct lws *wsi, unsigned char *buf, size_t len,
-				     enum lws_write_protocol protocol)
-{
-	return lws_write(wsi, buf, len, protocol);
-}
-
-#undef libwebsockets_serve_http_file_fragment
-LWS_VISIBLE LWS_EXTERN int
-libwebsockets_serve_http_file_fragment(struct lws_context *context,
-			struct lws *wsi)
-{
-	return lws_serve_http_file_fragment(context, wsi);
-}
-
-#undef libwebsockets_serve_http_file
-LWS_VISIBLE LWS_EXTERN int
-libwebsockets_serve_http_file(struct lws_context *context,
-			struct lws *wsi, const char *file,
-			const char *content_type, const char *other_headers,
-			int other_headers_len)
-{
-	return lws_serve_http_file(context, wsi, file, content_type,
-			other_headers, other_headers_len);
-}
-
-#undef libwebsockets_return_http_status
-LWS_VISIBLE LWS_EXTERN int
-libwebsockets_return_http_status(
-		struct lws_context *context,
-			struct lws *wsi, unsigned int code,
-							const char *html_body)
-{
-	return lws_return_http_status(context, wsi, code, html_body);
-}
-
-#undef libwebsockets_get_protocol
-LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
-libwebsockets_get_protocol(struct lws *wsi)
-{
-	return lws_get_protocol(wsi);
-}
-
-
-#undef libwebsocket_callback_on_writable
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_callback_on_writable(struct lws_context *context,
-						      struct lws *wsi)
-{
-	return lws_callback_on_writable(context, wsi);
-}
-
-#undef libwebsocket_get_socket_fd
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_get_socket_fd(struct lws *wsi)
-{
-	return lws_get_socket_fd(wsi);
-}
-
-#undef libwebsocket_is_final_fragment
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_is_final_fragment(struct lws *wsi)
-{
-	return lws_is_final_fragment(wsi);
-}
-
-#undef libwebsocket_get_reserved_bits
-LWS_VISIBLE LWS_EXTERN unsigned char
-libwebsocket_get_reserved_bits(struct lws *wsi)
-{
-	return lws_get_reserved_bits(wsi);
-}
-
-#undef libwebsocket_rx_flow_control
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_rx_flow_control(struct lws *wsi, int enable)
-{
-	return lws_rx_flow_control(wsi, enable);
-}
-
-#undef libwebsockets_remaining_packet_payload
-LWS_VISIBLE LWS_EXTERN size_t
-libwebsockets_remaining_packet_payload(struct lws *wsi)
-{
-	return lws_remaining_packet_payload(wsi);
-}
-
-#undef libwebsocket_client_connect
-LWS_VISIBLE LWS_EXTERN struct lws *
-libwebsocket_client_connect(struct lws_context *clients,
-			      const char *address,
-			      int port,
-			      int ssl_connection,
-			      const char *path,
-			      const char *host,
-			      const char *origin,
-			      const char *protocol,
-			      int ietf_version_or_minus_one)
-{
-	return lws_client_connect(clients, address, port, ssl_connection,
-			path, host, origin, protocol, ietf_version_or_minus_one);
-}
-LWS_VISIBLE LWS_EXTERN struct lws *
-libwebsocket_client_connect_extended(struct lws_context *clients,
-			      const char *address,
-			      int port,
-			      int ssl_connection,
-			      const char *path,
-			      const char *host,
-			      const char *origin,
-			      const char *protocol,
-			      int ietf_version_or_minus_one, void *userdata)
-{
-	return lws_client_connect_extended(clients, address, port, ssl_connection,
-			path, host, origin, protocol, ietf_version_or_minus_one,
-			userdata);
-}
-
-#undef libwebsocket_canonical_hostname
-LWS_VISIBLE LWS_EXTERN const char *
-libwebsocket_canonical_hostname(struct lws_context *context)
-{
-	return lws_canonical_hostname(context);
-}
-
-#undef libwebsockets_get_peer_addresses
-LWS_VISIBLE LWS_EXTERN void
-libwebsockets_get_peer_addresses(struct lws_context *context,
-		struct lws *wsi, lws_sockfd_type fd, char *name,
-		int name_len, char *rip, int rip_len)
-{
-	lws_get_peer_addresses(context, wsi, fd, name, name_len, rip, rip_len);
-}
-
-#undef libwebsockets_get_random
-LWS_VISIBLE LWS_EXTERN int
-libwebsockets_get_random(struct lws_context *context, void *buf, int len)
-{
-	return lws_get_random(context, buf, len);
-}
-
-#ifndef LWS_SHA1_USE_OPENSSL_NAME
-#undef libwebsockets_SHA1
-LWS_VISIBLE LWS_EXTERN unsigned char *
-libwebsockets_SHA1(const unsigned char *d, size_t n, unsigned char *md)
-{
-	return lws_SHA1(d, n, md);
-}
-#endif
-
-#undef libwebsocket_read
-LWS_VISIBLE LWS_EXTERN int
-libwebsocket_read(struct lws_context *context, struct lws *wsi,
-	 unsigned char *buf, size_t len)
-{
-	return lws_read(context, wsi, buf, len);
-}
-
-#ifndef LWS_NO_EXTENSIONS
-#undef libwebsocket_get_internal_extensions
-LWS_VISIBLE LWS_EXTERN struct lws_extension *
-libwebsocket_get_internal_extensions()
-{
-	return lws_get_internal_extensions();
-}
-#endif
-
-#endif
-

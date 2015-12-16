@@ -383,7 +383,7 @@ LWS_VISIBLE void
 lws_plat_insert_socket_into_fds(struct lws_context *context,
 						       struct lws *wsi)
 {
-	lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_READ);
+	lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
 	context->fds[context->fds_count++].revents = 0;
 }
 

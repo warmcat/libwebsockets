@@ -162,7 +162,7 @@ lws_client_connect_2(struct lws *wsi)
 
 		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT;
 
-		lws_libev_accept(context, wsi, wsi->sock);
+		lws_libev_accept(wsi, wsi->sock);
 		if (insert_wsi_socket_into_fds(context, wsi)) {
 			compatible_close(wsi->sock);
 			goto oom4;
@@ -235,7 +235,7 @@ lws_client_connect_2(struct lws *wsi)
 			 */
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 				goto failed;
-			lws_libev_io(context, wsi, LWS_EV_START | LWS_EV_WRITE);
+			lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
 
 			return wsi;
 		}

@@ -150,15 +150,15 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 		}
 
 		if (len < 1) {
-			lws_return_http_status(context, wsi,
+			lws_return_http_status(wsi,
 						HTTP_STATUS_BAD_REQUEST, NULL);
 			goto try_to_reuse;
 		}
 
 		/* this example server has no concept of directories */
 		if (strchr((const char *)in + 1, '/')) {
-			lws_return_http_status(context, wsi,
-						HTTP_STATUS_FORBIDDEN, NULL);
+			lws_return_http_status(wsi,
+					       HTTP_STATUS_FORBIDDEN, NULL);
 			goto try_to_reuse;
 		}
 
@@ -194,23 +194,22 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			 * depending on what connection it happens to be working
 			 * on
 			 */
-			if (lws_add_http_header_status(context, wsi, 200, &p, end))
+			if (lws_add_http_header_status(wsi, 200, &p, end))
 				return 1;
-			if (lws_add_http_header_by_token(context, wsi,
-					WSI_TOKEN_HTTP_SERVER,
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
 				    	(unsigned char *)"libwebsockets",
 					13, &p, end))
 				return 1;
-			if (lws_add_http_header_by_token(context, wsi,
+			if (lws_add_http_header_by_token(wsi,
 					WSI_TOKEN_HTTP_CONTENT_TYPE,
 				    	(unsigned char *)"image/jpeg",
 					10, &p, end))
 				return 1;
-			if (lws_add_http_header_content_length(context, wsi,
+			if (lws_add_http_header_content_length(wsi,
 							       file_len, &p,
 							       end))
 				return 1;
-			if (lws_finalize_http_header(context, wsi, &p, end))
+			if (lws_finalize_http_header(wsi, &p, end))
 				return 1;
 
 			/*
@@ -235,7 +234,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			/*
 			 * book us a LWS_CALLBACK_HTTP_WRITEABLE callback
 			 */
-			lws_callback_on_writable(context, wsi);
+			lws_callback_on_writable(wsi);
 			break;
 		}
 
@@ -253,12 +252,12 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 		mimetype = get_mimetype(buf);
 		if (!mimetype) {
 			lwsl_err("Unknown mimetype for %s\n", buf);
-			lws_return_http_status(context, wsi,
+			lws_return_http_status(wsi,
 				      HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE, NULL);
 			return -1;
 		}
 
-		/* demostrates how to set a cookie on / */
+		/* demonstrates how to set a cookie on / */
 
 		other_headers = NULL;
 		n = 0;
@@ -272,7 +271,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 
 			p = (unsigned char *)leaf_path;
 
-			if (lws_add_http_header_by_name(context, wsi,
+			if (lws_add_http_header_by_name(wsi,
 				(unsigned char *)"set-cookie:",
 				(unsigned char *)b64, n, &p,
 				(unsigned char *)leaf_path + sizeof(leaf_path)))
@@ -281,8 +280,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 			other_headers = leaf_path;
 		}
 
-		n = lws_serve_http_file(context, wsi, buf,
-						mimetype, other_headers, n);
+		n = lws_serve_http_file(wsi, buf, mimetype, other_headers, n);
 		if (n < 0 || ((n > 0) && lws_http_transaction_completed(wsi)))
 			return -1; /* error or can't reuse connection: close the socket */
 
@@ -308,8 +306,7 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		lwsl_notice("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
 		/* the whole of the sent body arrived, close or reuse the connection */
-		lws_return_http_status(context, wsi,
-						HTTP_STATUS_OK, NULL);
+		lws_return_http_status(wsi, HTTP_STATUS_OK, NULL);
 		goto try_to_reuse;
 
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
@@ -379,12 +376,12 @@ int callback_http(struct lws_context *context, struct lws *wsi,
 		} while (!lws_send_pipe_choked(wsi));
 
 later:
-		lws_callback_on_writable(context, wsi);
+		lws_callback_on_writable(wsi);
 		break;
 flush_bail:
 		/* true if still partial pending */
 		if (lws_partial_buffered(wsi)) {
-			lws_callback_on_writable(context, wsi);
+			lws_callback_on_writable(wsi);
 			break;
 		}
 		lws_plat_file_close(wsi, pss->fd);

@@ -123,7 +123,7 @@ int lws_client_socket_service(struct lws_context *context,
 		 */
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			return -1;
-		lws_libev_io(context, wsi, LWS_EV_STOP | LWS_EV_WRITE);
+		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
 #ifdef LWS_OPENSSL_SUPPORT
 		/* we can retry this... just cook the SSL BIO the first time */
@@ -229,8 +229,7 @@ int lws_client_socket_service(struct lws_context *context,
 
 					lwsl_info(
 					     "SSL_connect WANT_WRITE... retrying\n");
-					lws_callback_on_writable(
-								  context, wsi);
+					lws_callback_on_writable(wsi);
 some_wait:
 					wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_SSL;
 
@@ -291,7 +290,7 @@ some_wait:
 						 */
 
 						lwsl_info("SSL_connect WANT_WRITE... retrying\n");
-						lws_callback_on_writable(context, wsi);
+						lws_callback_on_writable(wsi);
 
 						goto some_wait;
 					}
@@ -369,7 +368,7 @@ some_wait:
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
-			lws_callback_on_writable(context, wsi);
+			lws_callback_on_writable(wsi);
 			break;
 		}
 
