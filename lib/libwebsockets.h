@@ -167,6 +167,7 @@ extern "C" {
 #define strcasecmp stricmp
 #define getdtablesize() 30000
 
+#define LWS_INLINE __inline
 #define LWS_VISIBLE
 
 #ifdef LWS_DLL
@@ -185,6 +186,7 @@ extern "C" {
 #else /* NOT WIN32 */
 #include <unistd.h>
 
+#define LWS_INLINE inline
 #define LWS_O_RDONLY O_RDONLY
 
 #ifndef MBED_OPERATORS
@@ -1660,7 +1662,7 @@ lws_get_ctx(const struct lws *wsi);
  * without having to deal with differences between platforms.
  */
 
-static inline lws_filefd_type
+static LWS_INLINE lws_filefd_type
 lws_plat_file_open(struct lws *wsi, const char *filename,
 		   unsigned long *filelen, int flags)
 {
@@ -1668,26 +1670,26 @@ lws_plat_file_open(struct lws *wsi, const char *filename,
 						    filelen, flags);
 }
 
-static inline int
+static LWS_INLINE int
 lws_plat_file_close(struct lws *wsi, lws_filefd_type fd)
 {
 	return lws_get_fops(lws_get_ctx(wsi))->close(wsi, fd);
 }
 
-static inline unsigned long
+static LWS_INLINE unsigned long
 lws_plat_file_seek_cur(struct lws *wsi, lws_filefd_type fd, long offset)
 {
 	return lws_get_fops(lws_get_ctx(wsi))->seek_cur(wsi, fd, offset);
 }
 
-static inline int
+static LWS_INLINE int
 lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		   unsigned char *buf, unsigned long len)
 {
 	return lws_get_fops(lws_get_ctx(wsi))->read(wsi, fd, amount, buf, len);
 }
 
-static inline int
+static LWS_INLINE int
 lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		    unsigned char *buf, unsigned long len)
 {
