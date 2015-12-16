@@ -75,6 +75,7 @@ LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
 {
 	struct lws_context *context = NULL;
+	struct lws wsi;
 #ifndef LWS_NO_DAEMONIZE
 	int pid_daemon = get_daemonize_pid();
 #endif
@@ -128,6 +129,9 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->ka_time = info->ka_time;
 	context->ka_interval = info->ka_interval;
 	context->ka_probes = info->ka_probes;
+
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.context = context;
 
 	if (!info->ka_interval && info->ka_time > 0) {
 		lwsl_err("info->ka_interval can't be 0 if ka_time used\n");
@@ -209,10 +213,13 @@ lws_create_context(struct lws_context_creation_info *info)
 	     context->count_protocols++)
 		/*
 		 * inform all the protocols that they are doing their one-time
-		 * initialization if they want to
+		 * initialization if they want to.
+		 *
+		 * NOTE the wsi is all zeros except for the context pointer
+		 * so lws_get_ctx(wsi) can work in the callback.
 		 */
-		info->protocols[context->count_protocols].callback(context,
-			       NULL, LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
+		info->protocols[context->count_protocols].callback(&wsi,
+				LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
 
 	/*
 	 * give all extensions a chance to create any per-context
@@ -285,7 +292,7 @@ lws_context_destroy(struct lws_context *context)
 	protocol = context->protocols;
 	if (protocol) {
 		while (protocol->callback) {
-			protocol->callback(context, NULL,
+			protocol->callback(NULL,
 					   LWS_CALLBACK_PROTOCOL_DESTROY,
 					   NULL, NULL, 0);
 			protocol++;

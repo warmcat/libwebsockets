@@ -127,6 +127,14 @@ To convert, search-replace
  - libwebsockets_/lws_
  - libwebsocket_/lws_
  - struct\ libwebsocket/struct\ lws
+ 
+4) context parameter removed from user callback.
+
+Since almost all apis no longer need the context as a parameter, it's no longer
+provided at the user callback directly.
+
+However if you need it, for ALL callbacks wsi is valid and has a valid context
+pointer you can recover using lws_get_ctx(wsi).
 
 
 v1.5-chrome47-firefox41

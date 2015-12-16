@@ -90,12 +90,9 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 			 * particular connection + protocol
 			 */
 
-			n = lws_get_ctx(wsi)->
-				protocols[0].callback(
-					lws_get_ctx(wsi),
-					wsi,
-				  LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
-					  wsi->user_space, ext_name, 0);
+			n = lws_get_ctx(wsi)->protocols[0].callback(wsi,
+				LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
+				wsi->user_space, ext_name, 0);
 
 			/*
 			 * zero return from callback means go ahead and allow
@@ -259,8 +256,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	/* notify user code that we're ready to roll */
 
 	if (wsi->protocol->callback)
-		wsi->protocol->callback(lws_get_ctx(wsi),
-				wsi, LWS_CALLBACK_ESTABLISHED,
+		wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
 					  wsi->user_space,
 #ifdef LWS_OPENSSL_SUPPORT
 					  wsi->ssl,

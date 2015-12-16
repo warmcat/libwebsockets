@@ -53,10 +53,8 @@ struct per_session_data__echo {
 };
 
 static int
-callback_echo(struct lws_context *context,
-		struct lws *wsi,
-		enum lws_callback_reasons reason, void *user,
-							   void *in, size_t len)
+callback_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	      void *in, size_t len)
 {
 	struct per_session_data__echo *pss = (struct per_session_data__echo *)user;
 	int n;

@@ -111,7 +111,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 
 	lws_libev_run(context);
 
-	context->service_tid = context->protocols[0].callback(context, NULL,
+	context->service_tid = context->protocols[0].callback(NULL,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 
 #ifdef LWS_OPENSSL_SUPPORT

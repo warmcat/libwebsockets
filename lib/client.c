@@ -718,7 +718,7 @@ check_accept:
 	 * we seem to be good to go, give client last chance to check
 	 * headers and OK it
 	 */
-	wsi->protocol->callback(context, wsi,
+	wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
 				wsi->user_space, NULL, 0);
 
@@ -762,7 +762,7 @@ check_accept:
 
 	/* call him back to inform him he is up */
 
-	wsi->protocol->callback(context, wsi, LWS_CALLBACK_CLIENT_ESTABLISHED,
+	wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_ESTABLISHED,
 				wsi->user_space, NULL, 0);
 #ifndef LWS_NO_EXTENSIONS
 	/*
@@ -793,12 +793,12 @@ bail3:
 bail2:
 	if (wsi->protocol) {
 		if (isErrorCodeReceived && p) {
-			wsi->protocol->callback(context, wsi,
+			wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 						wsi->user_space, p,
 						(unsigned int)strlen(p));
 		} else {
-			wsi->protocol->callback(context, wsi,
+			wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 						wsi->user_space, NULL, 0);
 		}
@@ -902,7 +902,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			continue;
 		}
 
-		n = context->protocols[0].callback(context, wsi,
+		n = context->protocols[0].callback(wsi,
 			LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 				wsi->user_space, (char *)ext->name, 0);
 
@@ -936,7 +936,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	/* give userland a chance to append, eg, cookies */
 
-	context->protocols[0].callback(context, wsi,
+	context->protocols[0].callback(wsi,
 				       LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 				       NULL, &p,
 				       (pkt + sizeof(context->service_buffer)) - p - 12);

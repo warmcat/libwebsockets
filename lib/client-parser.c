@@ -403,8 +403,8 @@ ping_drop:
 		if (callback_action == LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			lwsl_info("Client doing pong callback\n");
 
-		m = wsi->protocol->callback(lws_get_ctx(wsi),
-			wsi, (enum lws_callback_reasons)callback_action,
+		m = wsi->protocol->callback(wsi,
+			(enum lws_callback_reasons)callback_action,
 			wsi->user_space, eff_buf.token, eff_buf.token_len);
 
 		/* if user code wants to close, let caller know */

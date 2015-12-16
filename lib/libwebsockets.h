@@ -105,15 +105,16 @@ extern "C" {
 #include "lws_config.h"
 
 #if defined(WIN32) || defined(_WIN32)
-#if (WINVER < 0x0501)
+#if (WINVER < 0x0600)
 #undef WINVER
 #undef _WIN32_WINNT
-#define WINVER 0x0501
+#define WINVER 0x0600
 #define _WIN32_WINNT WINVER
 #endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <stddef.h>
@@ -344,9 +345,6 @@ struct lws_pollfd {
     SHORT events;
     SHORT revents;
 };
-#if (_WIN32_WINNT < 0x0600)
-WINSOCK_API_LINKAGE int WSAAPI WSAPoll(struct lws_pollfd fdArray[], ULONG fds, INT timeout);
-#endif
 #else
 
 #if defined(MBED_OPERATORS)
@@ -1053,11 +1051,10 @@ struct lws_extension;
  *		duration of wsi dereference from the other thread context.
  */
 LWS_VISIBLE LWS_EXTERN int
-callback(const struct lws_context *context, const struct lws *wsi,
-	 enum lws_callback_reasons reason, void *user, void *in, size_t len);
+callback(const struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	 void *in, size_t len);
 
-typedef int (callback_function)(struct lws_context *context,
-				struct lws *wsi,
+typedef int (callback_function)(struct lws *wsi,
 				enum lws_callback_reasons reason, void *user,
 				void *in, size_t len);
 

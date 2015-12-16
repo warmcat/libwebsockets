@@ -64,17 +64,14 @@ struct per_session_data__lws_mirror {
 };
 
 extern int
-callback_http(struct lws_context *context, struct lws *wsi,
-	      enum lws_callback_reasons reason, void *user, void *in,
-	      size_t len);
+callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	      void *in, size_t len);
 extern int
-callback_lws_mirror(struct lws_context *context, struct lws *wsi,
-		    enum lws_callback_reasons reason, void *user, void *in,
-		    size_t len);
+callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
+		    void *user, void *in, size_t len);
 extern int
-callback_dumb_increment(struct lws_context *context, struct lws *wsi,
-			enum lws_callback_reasons reason, void *user, void *in,
-			size_t len);
+callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
+			void *user, void *in, size_t len);
 
 extern void
 dump_handshake_info(struct lws *wsi);

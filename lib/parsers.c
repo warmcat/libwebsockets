@@ -1023,7 +1023,6 @@ ping_drop:
 
 				ret = user_callback_handle_rxflow(
 						wsi->protocol->callback,
-						lws_get_ctx(wsi),
 						wsi,
 						(enum lws_callback_reasons)callback_action,
 						wsi->user_space,

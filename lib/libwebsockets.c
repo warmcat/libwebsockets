@@ -75,8 +75,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		lwsl_debug("closing http file\n");
 		lws_plat_file_close(wsi, wsi->u.http.fd);
 		wsi->u.http.fd = LWS_INVALID_FILE;
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
+		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
+					       wsi->user_space, NULL, 0);
 	}
 	if (wsi->socket_is_permanently_unusable ||
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)
@@ -114,8 +114,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		goto just_kill_connection;
 
 	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING)
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
+		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
+					       wsi->user_space, NULL, 0);
 
 	/*
 	 * are his extensions okay with him closing?  Eg he might be a mux
@@ -252,16 +252,16 @@ just_kill_connection:
 	    (old_state == WSI_STATE_AWAITING_CLOSE_ACK) ||
 	    (old_state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE))) {
 		lwsl_debug("calling back CLOSED\n");
-		wsi->protocol->callback(context, wsi, LWS_CALLBACK_CLOSED,
+		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 					wsi->user_space, NULL, 0);
 	} else if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
 		lwsl_debug("calling back CLOSED_HTTP\n");
-		context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0 );
+		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
+					       wsi->user_space, NULL, 0 );
 	} else if (wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY ||
 		   wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT) {
 		lwsl_debug("Connection closed before server reply\n");
-		context->protocols[0].callback(context, wsi,
+		context->protocols[0].callback(wsi,
 					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 					wsi->user_space, NULL, 0);
 	} else
@@ -302,7 +302,7 @@ just_kill_connection:
 	}
 
 	/* outermost destroy notification for wsi (user_space still intact) */
-	context->protocols[0].callback(context, wsi, LWS_CALLBACK_WSI_DESTROY,
+	context->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
 				       wsi->user_space, NULL, 0);
 
 	lws_free_wsi(wsi);
@@ -491,8 +491,7 @@ lws_callback_all_protocol(struct lws_context *context,
 		if (!wsi)
 			continue;
 		if (wsi->protocol == protocol)
-			protocol->callback(context, wsi,
-					   reason, wsi->user_space, NULL, 0);
+			protocol->callback(wsi, reason, wsi->user_space, NULL, 0);
 	}
 
 	return 0;
@@ -647,13 +646,13 @@ lws_canonical_hostname(struct lws_context *context)
 }
 
 int user_callback_handle_rxflow(callback_function callback_function,
-				struct lws_context *context, struct lws *wsi,
+				struct lws *wsi,
 				enum lws_callback_reasons reason, void *user,
 				void *in, size_t len)
 {
 	int n;
 
-	n = callback_function(context, wsi, reason, user, in, len);
+	n = callback_function(wsi, reason, user, in, len);
 	if (!n)
 		n = _lws_rx_flow_control(wsi);
 

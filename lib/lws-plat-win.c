@@ -149,7 +149,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	if (context == NULL)
 		return 1;
 
-	context->service_tid = context->protocols[0].callback(context, NULL,
+	context->service_tid = context->protocols[0].callback(NULL,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 
 	for (i = 0; i < context->fds_count; ++i) {

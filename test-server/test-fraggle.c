@@ -53,14 +53,12 @@ struct per_session_data__fraggle {
 };
 
 static int
-callback_fraggle(struct lws_context *context,
-			struct lws *wsi,
-			enum lws_callback_reasons reason,
-					       void *user, void *in, size_t len)
+callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
+		 void *user, void *in, size_t len)
 {
 	int n;
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 8000 +
-						  LWS_SEND_BUFFER_POST_PADDING];
+			  LWS_SEND_BUFFER_POST_PADDING];
 	struct per_session_data__fraggle *psf = user;
 	int chunk;
 	int write_mode = LWS_WRITE_CONTINUATION;
@@ -136,7 +134,7 @@ callback_fraggle(struct lws_context *context,
 		switch (psf->state) {
 
 		case FRAGSTATE_START_MESSAGE:
-			lws_get_random(context, &ran, sizeof(ran));
+			lws_get_random(lws_get_ctx(wsi), &ran, sizeof(ran));
 			psf->packets_left = (ran % 1024) + 1;
 			fprintf(stderr, "Spamming %d random fragments\n",
 							     psf->packets_left);
@@ -155,11 +153,11 @@ callback_fraggle(struct lws_context *context,
 			 * code for rx spill because the rx buffer is full
 			 */
 
-			lws_get_random(context, &ran, sizeof(ran));
+			lws_get_random(lws_get_ctx(wsi), &ran, sizeof(ran));
 			chunk = (ran % 8000) + 1;
 			psf->total_message += chunk;
 
-			lws_get_random(context, bp, chunk);
+			lws_get_random(lws_get_ctx(wsi), bp, chunk);
 			for (n = 0; n < chunk; n++)
 				psf->sum += bp[n];
 

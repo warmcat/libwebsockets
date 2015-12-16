@@ -60,6 +60,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	SSL *ssl;
 	int n;
 	struct lws_context *context;
+	struct lws wsi;
 
 	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
 		SSL_get_ex_data_X509_STORE_CTX_idx());
@@ -70,9 +71,16 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	 */
 	context = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
 
-	n = context->protocols[0].callback(NULL, NULL,
-		LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
-						   x509_ctx, ssl, preverify_ok);
+	/*
+	 * give him a fake wsi with context set, so he can use lws_get_ctx()
+	 * in the callback
+	 */
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.context = context;
+
+	n = context->protocols[0].callback(&wsi,
+			LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
+					   x509_ctx, ssl, preverify_ok);
 
 	/* convert return code from 0 = OK to 1 = OK */
 	return !n;
@@ -83,6 +91,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		     struct lws_context *context)
 {
 	SSL_METHOD *method;
+	struct lws wsi;
 	int error;
 	int n;
 
@@ -108,6 +117,13 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		else
 			lwsl_notice(" Using non-SSL mode\n");
 	}
+
+	/*
+	 * give him a fake wsi with context set, so he can use
+	 * lws_get_ctx() in the callback
+	 */
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.context = context;
 
 	/* basic openssl init */
 
@@ -159,7 +175,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	if (info->options &
 			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
-
 		int verify_options = SSL_VERIFY_PEER;
 
 		if (!(info->options & LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
@@ -178,9 +193,9 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		 * allowing it to verify incoming client certs
 		 */
 
-		context->protocols[0].callback(context, NULL,
+		context->protocols[0].callback(&wsi,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
-						     context->ssl_ctx, NULL, 0);
+					       context->ssl_ctx, NULL, 0);
 	}
 
 	if (info->options & LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT) {
@@ -213,18 +228,18 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 						       SSL_FILETYPE_PEM) != 1) {
 				error = ERR_get_error();
 				lwsl_err("ssl problem getting key '%s' %lu: %s\n",
-					info->ssl_private_key_filepath,
-						error,
-						ERR_error_string(error,
-						      (char *)context->service_buffer));
+					 info->ssl_private_key_filepath, error,
+					 ERR_error_string(error,
+					      (char *)context->service_buffer));
 				return 1;
 			}
 		}
 		else {
-			if (context->protocols[0].callback(context, NULL,
+			if (context->protocols[0].callback(&wsi,
 				LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
 						context->ssl_ctx, NULL, 0)) {
 				lwsl_err("ssl private key not set\n");
+
 				return 1;
 			}
 		}
@@ -285,6 +300,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	int error;
 	int n;
 	SSL_METHOD *method;
+	struct lws wsi;
 
 	if (info->provided_client_ssl_ctx) {
 		/* use the provided OpenSSL context if given one */
@@ -366,9 +382,8 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 
 	/* support for client-side certificate authentication */
 	if (info->ssl_cert_filepath) {
-		n = SSL_CTX_use_certificate_chain_file(
-			context->ssl_client_ctx,
-					info->ssl_cert_filepath);
+		n = SSL_CTX_use_certificate_chain_file(context->ssl_client_ctx,
+						       info->ssl_cert_filepath);
 		if (n != 1) {
 			lwsl_err("problem getting cert '%s' %lu: %s\n",
 				info->ssl_cert_filepath,
@@ -392,16 +407,22 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		}
 
 		/* verify private key */
-		if (!SSL_CTX_check_private_key(
-					context->ssl_client_ctx)) {
+		if (!SSL_CTX_check_private_key(context->ssl_client_ctx)) {
 			lwsl_err("Private SSL key doesn't match cert\n");
 			return 1;
 		}
 	}
 
-	context->protocols[0].callback(context, NULL,
-		LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
-		context->ssl_client_ctx, NULL, 0);
+	/*
+	 * give him a fake wsi with context set, so he can use
+	 * lws_get_ctx() in the callback
+	 */
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.context = context;
+
+	context->protocols[0].callback(&wsi,
+			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
+				       context->ssl_client_ctx, NULL, 0);
 
 	return 0;
 }

@@ -562,7 +562,7 @@ all_sent:
 			if (wsi->protocol->callback)
 				/* ignore callback returned value */
 				user_callback_handle_rxflow(
-					wsi->protocol->callback, context, wsi,
+					wsi->protocol->callback, wsi,
 					LWS_CALLBACK_HTTP_FILE_COMPLETION,
 					wsi->user_space, NULL, 0);
 			return 1;  /* >0 indicates completed */

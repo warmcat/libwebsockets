@@ -186,7 +186,6 @@ _lws_rx_flow_control(struct lws *wsi)
 
 int lws_http_action(struct lws *wsi)
 {
-	struct lws_context *context = wsi->context;
 	enum http_connection_type connection_type;
 	enum http_version request_version;
 	char content_length_str[32];
@@ -291,8 +290,7 @@ int lws_http_action(struct lws *wsi)
 	}
 	wsi->u.http.connection_type = connection_type;
 
-	n = wsi->protocol->callback(context, wsi,
-				    LWS_CALLBACK_FILTER_HTTP_CONNECTION,
+	n = wsi->protocol->callback(wsi, LWS_CALLBACK_FILTER_HTTP_CONNECTION,
 				    wsi->user_space, uri_ptr, uri_len);
 
 	if (!n) {
@@ -303,8 +301,8 @@ int lws_http_action(struct lws *wsi)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 				AWAITING_TIMEOUT);
 
-		n = wsi->protocol->callback(context, wsi, LWS_CALLBACK_HTTP,
-			    wsi->user_space, uri_ptr, uri_len);
+		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+					    wsi->user_space, uri_ptr, uri_len);
 	}
 
 	/* now drop the header info we kept a pointer to */
@@ -523,7 +521,7 @@ upgrade_ws:
 		 * have the opportunity to deny it
 		 */
 
-		if ((wsi->protocol->callback)(lws_get_ctx(wsi), wsi,
+		if ((wsi->protocol->callback)(wsi,
 				LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 				wsi->user_space,
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL), 0)) {
@@ -637,8 +635,8 @@ lws_create_new_server_wsi(struct lws_context *context)
 	 * outermost create notification for wsi
 	 * no user_space because no protocol selection
 	 */
-	context->protocols[0].callback(context, new_wsi,
-			LWS_CALLBACK_WSI_CREATE, NULL, NULL, 0);
+	context->protocols[0].callback(new_wsi, LWS_CALLBACK_WSI_CREATE, NULL,
+				       NULL, 0);
 
 	return new_wsi;
 }
@@ -768,11 +766,8 @@ try_pollout:
 		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE) {
 			n = user_callback_handle_rxflow(
 					wsi->protocol->callback,
-					lws_get_ctx(wsi),
 					wsi, LWS_CALLBACK_HTTP_WRITEABLE,
-					wsi->user_space,
-					NULL,
-					0);
+					wsi->user_space, NULL, 0);
 			if (n < 0)
 				goto fail;
 			break;
@@ -822,7 +817,7 @@ try_pollout:
 		 * yet so we issue this to protocols[0]
 		 */
 
-		if ((context->protocols[0].callback)(context, wsi,
+		if ((context->protocols[0].callback)(wsi,
 				LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 					   NULL, (void *)(long)accept_fd, 0)) {
 			lwsl_debug("Callback denied network connection\n");
@@ -851,7 +846,7 @@ try_pollout:
 		 * set properties of the newly created wsi. There's no protocol
 		 * selected yet so we issue this to protocols[0]
 		 */
-		(context->protocols[0].callback)(context, new_wsi,
+		(context->protocols[0].callback)(new_wsi,
 			LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 			NULL, NULL, 0);
 

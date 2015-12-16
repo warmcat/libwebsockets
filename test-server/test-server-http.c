@@ -110,8 +110,7 @@ const char * get_mimetype(const char *file)
  * here on the first protocol server.
  */
 
-int callback_http(struct lws_context *context, struct lws *wsi,
-		  enum lws_callback_reasons reason, void *user,
+int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		  void *in, size_t len)
 {
 	struct per_session_data__http *pss =

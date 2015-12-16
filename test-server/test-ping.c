@@ -100,10 +100,8 @@ enum demo_protocols {
 
 
 static int
-callback_lws_mirror(struct lws_context * this,
-			struct lws *wsi,
-			enum lws_callback_reasons reason,
-					       void *user, void *in, size_t len)
+callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
+		    void *user, void *in, size_t len)
 {
 	struct timeval tv;
 	unsigned char *p;

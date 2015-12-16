@@ -1035,9 +1035,9 @@ LWS_EXTERN void
 lws_union_transition(struct lws *wsi, enum connection_mode mode);
 
 LWS_EXTERN int
-user_callback_handle_rxflow(callback_function, struct lws_context *context,
-			struct lws *wsi, enum lws_callback_reasons reason,
-			void *user, void *in, size_t len);
+user_callback_handle_rxflow(callback_function, struct lws *wsi,
+			    enum lws_callback_reasons reason, void *user,
+			    void *in, size_t len);
 #ifdef LWS_USE_HTTP2
 LWS_EXTERN struct lws *lws_http2_get_network_wsi(struct lws *wsi);
 struct lws * lws_http2_get_nth_child(struct lws *wsi, int n);

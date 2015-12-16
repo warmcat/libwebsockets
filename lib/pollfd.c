@@ -46,8 +46,8 @@ insert_wsi_socket_into_fds(struct lws_context *context,
 //	lwsl_info("insert_wsi_socket_into_fds: wsi=%p, sock=%d, fds pos=%d\n",
 //					    wsi, wsi->sock, context->fds_count);
 
-	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *) &pa, 1))
+	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
+					   wsi->user_space, (void *) &pa, 1))
 		return -1;
 
 	insert_wsi(context, wsi);
@@ -58,12 +58,12 @@ insert_wsi_socket_into_fds(struct lws_context *context,
 	lws_plat_insert_socket_into_fds(context, wsi);
 
 	/* external POLL support via protocol 0 */
-	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_ADD_POLL_FD, wsi->user_space, (void *) &pa, 0))
+	if (context->protocols[0].callback(wsi, LWS_CALLBACK_ADD_POLL_FD,
+					   wsi->user_space, (void *) &pa, 0))
 		return -1;
 
-	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *)&pa, 1))
+	if (context->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
+					   wsi->user_space, (void *)&pa, 1))
 		return -1;
 
 	return 0;
@@ -91,8 +91,8 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	lwsl_info("%s: wsi=%p, sock=%d, fds pos=%d\n", __func__,
 				    wsi, wsi->sock, wsi->position_in_fds_table);
 
-	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_LOCK_POLL, wsi->user_space, (void *)&pa, 1))
+	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
+					   wsi->user_space, (void *)&pa, 1))
 		return -1;
 
 	m = wsi->position_in_fds_table; /* replace the contents for this */
@@ -116,14 +116,13 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 
 	/* remove also from external POLL support via protocol 0 */
 	if (lws_socket_is_valid(wsi->sock)) {
-		if (context->protocols[0].callback(context, wsi,
+		if (context->protocols[0].callback(wsi,
 		    LWS_CALLBACK_DEL_POLL_FD, wsi->user_space,
 		    (void *) &pa, 0))
 			return -1;
 	}
-	if (context->protocols[0].callback(context, wsi,
-				       LWS_CALLBACK_UNLOCK_POLL,
-				       wsi->user_space, (void *) &pa, 1))
+	if (context->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
+					   wsi->user_space, (void *) &pa, 1))
 		return -1;
 
 	return 0;
@@ -149,16 +148,15 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	pfd = &context->fds[wsi->position_in_fds_table];
 	pa.fd = wsi->sock;
 
-	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_LOCK_POLL, wsi->user_space,  (void *) &pa, 0))
+	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
+					   wsi->user_space,  (void *) &pa, 0))
 		return -1;
 
 	pa.prev_events = pfd->events;
 	pa.events = pfd->events = (pfd->events & ~_and) | _or;
 
-	if (context->protocols[0].callback(context, wsi,
-			LWS_CALLBACK_CHANGE_MODE_POLL_FD,
-				wsi->user_space, (void *) &pa, 0))
+	if (context->protocols[0].callback(wsi, LWS_CALLBACK_CHANGE_MODE_POLL_FD,
+					   wsi->user_space, (void *) &pa, 0))
 		return -1;
 
 	/*
@@ -169,10 +167,9 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	 *         then cancel it to force a restart with our changed events
 	 */
 #if LWS_POSIX
-	pa_events = (pa.prev_events != pa.events);
+	pa_events = pa.prev_events != pa.events;
 #endif
-	if (pa_events)
-	{
+	if (pa_events) {
 
 		if (lws_plat_change_pollfd(context, wsi, pfd)) {
 			lwsl_info("%s failed\n", __func__);
@@ -181,7 +178,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 
 		sampled_tid = context->service_tid;
 		if (sampled_tid) {
-			tid = context->protocols[0].callback(context, NULL,
+			tid = context->protocols[0].callback(NULL,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 			if (tid == -1)
 				return -1;
@@ -190,8 +187,8 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 		}
 	}
 
-	if (context->protocols[0].callback(context, wsi,
-	    LWS_CALLBACK_UNLOCK_POLL, wsi->user_space, (void *) &pa, 0))
+	if (context->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
+					   wsi->user_space, (void *) &pa, 0))
 		return -1;
 
 	return 0;
@@ -232,7 +229,8 @@ lws_callback_on_writable(struct lws *wsi)
 		 * Delay waiting for our POLLOUT until peer indicates he has
 		 * space for more using tx window command in http2 layer
 		 */
-		lwsl_info("%s: %p: waiting_tx_credit (%d)\n", __func__, wsi, wsi->u.http2.tx_credit);
+		lwsl_info("%s: %p: waiting_tx_credit (%d)\n", __func__, wsi,
+			  wsi->u.http2.tx_credit);
 		wsi->u.http2.waiting_tx_credit = 1;
 		return 0;
 	}

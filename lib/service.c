@@ -22,7 +22,7 @@
 #include "private-libwebsockets.h"
 
 static int
-lws_calllback_as_writeable(struct lws_context *context, struct lws *wsi)
+lws_calllback_as_writeable(struct lws *wsi)
 {
 	int n;
 
@@ -38,7 +38,7 @@ lws_calllback_as_writeable(struct lws_context *context, struct lws *wsi)
 		break;
 	}
 	lwsl_info("%s: %p (user=%p)\n", __func__, wsi, wsi->user_space);
-	return user_callback_handle_rxflow(wsi->protocol->callback, context,
+	return user_callback_handle_rxflow(wsi->protocol->callback,
 					   wsi, (enum lws_callback_reasons) n,
 					   wsi->user_space, NULL, 0);
 }
@@ -46,7 +46,6 @@ lws_calllback_as_writeable(struct lws_context *context, struct lws *wsi)
 int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 {
-	struct lws_context *context = wsi->context;
 	int write_type = LWS_WRITE_PONG;
 	struct lws_tokens eff_buf;
 #ifdef LWS_USE_HTTP2
@@ -76,7 +75,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		switch (wsi->pps) {
 		case LWS_PPS_HTTP2_MY_SETTINGS:
 		case LWS_PPS_HTTP2_ACK_SETTINGS:
-			lws_http2_do_pps_send(context, wsi);
+			lws_http2_do_pps_send(lws_get_ctx(wsi), wsi);
 			break;
 		default:
 			break;
@@ -255,7 +254,7 @@ user_service:
 		if (!wsi2->u.http2.requested_POLLOUT)
 			continue;
 		wsi2->u.http2.requested_POLLOUT = 0;
-		if (lws_calllback_as_writeable(context, wsi2)) {
+		if (lws_calllback_as_writeable(wsi2)) {
 			lwsl_debug("Closing POLLOUT child\n");
 			lws_close_free_wsi(wsi2, LWS_CLOSE_STATUS_NOSTATUS);
 		}
@@ -267,10 +266,8 @@ user_service:
 	return 0;
 notify:
 #endif
-	return lws_calllback_as_writeable(context, wsi);
+	return lws_calllback_as_writeable(wsi);
 }
-
-
 
 int
 lws_service_timeout_check(struct lws *wsi, unsigned int sec)

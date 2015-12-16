@@ -23,9 +23,7 @@
 /* dumb_increment protocol */
 
 int
-callback_dumb_increment(struct lws_context *context,
-			struct lws *wsi,
-			enum lws_callback_reasons reason,
+callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
