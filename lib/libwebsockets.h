@@ -335,16 +335,18 @@ enum lws_callback_reasons {
 };
 
 
-#if defined(_WIN32) && (_WIN32_WINNT < 0x0600)
+#if defined(_WIN32)
 typedef SOCKET lws_sockfd_type;
 typedef HANDLE lws_filefd_type;
 #define lws_sockfd_valid(sfd) (!!sfd)
 struct lws_pollfd {
-	lws_sockfd_type fd;
-	SHORT events;
-	SHORT revents;
+    lws_sockfd_type fd;
+    SHORT events;
+    SHORT revents;
 };
+#if (_WIN32_WINNT < 0x0600)
 WINSOCK_API_LINKAGE int WSAAPI WSAPoll(struct lws_pollfd fdArray[], ULONG fds, INT timeout);
+#endif
 #else
 
 #if defined(MBED_OPERATORS)
