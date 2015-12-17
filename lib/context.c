@@ -253,12 +253,16 @@ LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
 {
 	const struct lws_protocols *protocol = NULL;
+	struct lws wsi;
 	int n;
 
 	lwsl_notice("%s\n", __func__);
 
 	if (!context)
 		return;
+
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.context = context;
 
 #ifdef LWS_LATENCY
 	if (context->worst_latency_info[0])
@@ -292,7 +296,7 @@ lws_context_destroy(struct lws_context *context)
 	protocol = context->protocols;
 	if (protocol) {
 		while (protocol->callback) {
-			protocol->callback(NULL,
+			protocol->callback(&wsi,
 					   LWS_CALLBACK_PROTOCOL_DESTROY,
 					   NULL, NULL, 0);
 			protocol++;
