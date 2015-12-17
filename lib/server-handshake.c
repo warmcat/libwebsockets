@@ -256,14 +256,15 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	/* notify user code that we're ready to roll */
 
 	if (wsi->protocol->callback)
-		wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
-					  wsi->user_space,
+		if (wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
+					    wsi->user_space,
 #ifdef LWS_OPENSSL_SUPPORT
-					  wsi->ssl,
+					    wsi->ssl,
 #else
-					  NULL,
+					    NULL,
 #endif
-					  0);
+					    0))
+			goto bail;
 
 	return 0;
 
