@@ -76,7 +76,7 @@ int lws_allocate_header_table(struct lws *wsi)
 
 int lws_free_header_table(struct lws *wsi)
 {
-	lws_free2(wsi->u.hdr.ah);
+	lws_free_set_NULL(wsi->u.hdr.ah);
 	wsi->u.hdr.ah = NULL;
 	return 0;
 };
@@ -448,7 +448,7 @@ swallow:
 		 * Server needs to look out for unknown methods...
 		 */
 		if (wsi->u.hdr.lextable_pos < 0 &&
-		    wsi->mode == LWS_CONNMODE_HTTP_SERVING) {
+		    wsi->mode == LWSCM_HTTP_SERVING) {
 			/* this is not a header we know about */
 			for (m = 0; m < ARRAY_SIZE(methods); m++)
 				if (ah->frag_index[methods[m]]) {
@@ -629,19 +629,19 @@ lws_rx_sm(struct lws *wsi, unsigned char c)
 		}
 		break;
 	case LWS_RXPS_04_MASK_NONCE_1:
-		wsi->u.ws.frame_masking_nonce_04[1] = c;
+		wsi->u.ws.mask_nonce[1] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_2;
 		break;
 	case LWS_RXPS_04_MASK_NONCE_2:
-		wsi->u.ws.frame_masking_nonce_04[2] = c;
+		wsi->u.ws.mask_nonce[2] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_3;
 		break;
 	case LWS_RXPS_04_MASK_NONCE_3:
-		wsi->u.ws.frame_masking_nonce_04[3] = c;
+		wsi->u.ws.mask_nonce[3] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 
@@ -693,10 +693,10 @@ handle_first:
 		wsi->u.ws.final = !!((c >> 7) & 1);
 
 		switch (wsi->u.ws.opcode) {
-		case LWS_WS_OPCODE_07__TEXT_FRAME:
-		case LWS_WS_OPCODE_07__BINARY_FRAME:
+		case LWSWSOPC_TEXT_FRAME:
+		case LWSWSOPC_BINARY_FRAME:
 			wsi->u.ws.frame_is_binary =
-			     wsi->u.ws.opcode == LWS_WS_OPCODE_07__BINARY_FRAME;
+			     wsi->u.ws.opcode == LWSWSOPC_BINARY_FRAME;
 			break;
 		}
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
@@ -814,28 +814,28 @@ handle_first:
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_1:
-		wsi->u.ws.frame_masking_nonce_04[0] = c;
+		wsi->u.ws.mask_nonce[0] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_2;
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_2:
-		wsi->u.ws.frame_masking_nonce_04[1] = c;
+		wsi->u.ws.mask_nonce[1] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_3;
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_3:
-		wsi->u.ws.frame_masking_nonce_04[2] = c;
+		wsi->u.ws.mask_nonce[2] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_4;
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_4:
-		wsi->u.ws.frame_masking_nonce_04[3] = c;
+		wsi->u.ws.mask_nonce[3] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state =
@@ -861,7 +861,7 @@ handle_first:
 		else
 			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
 			       (wsi->u.ws.rx_user_buffer_head++)] =
-				   c ^ wsi->u.ws.frame_masking_nonce_04[
+				   c ^ wsi->u.ws.mask_nonce[
 					    (wsi->u.ws.frame_mask_index++) & 3];
 
 		if (--wsi->u.ws.rx_packet_length == 0) {
@@ -895,9 +895,9 @@ spill:
 		lwsl_parser("spill on %s\n", wsi->protocol->name);
 
 		switch (wsi->u.ws.opcode) {
-		case LWS_WS_OPCODE_07__CLOSE:
+		case LWSWSOPC_CLOSE:
 			/* is this an acknowledgement of our close? */
-			if (wsi->state == WSI_STATE_AWAITING_CLOSE_ACK) {
+			if (wsi->state == LWSS_AWAITING_CLOSE_ACK) {
 				/*
 				 * fine he has told us he is closing too, let's
 				 * finish our close
@@ -905,17 +905,17 @@ spill:
 				lwsl_parser("seen client close ack\n");
 				return -1;
 			}
-			if (wsi->state == WSI_STATE_RETURNED_CLOSE_ALREADY)
+			if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY)
 				/* if he sends us 2 CLOSE, kill him */
 				return -1;
 
 			lwsl_parser("server sees client close packet\n");
-			wsi->state = WSI_STATE_RETURNED_CLOSE_ALREADY;
+			wsi->state = LWSS_RETURNED_CLOSE_ALREADY;
 			/* deal with the close packet contents as a PONG */
 			wsi->u.ws.payload_is_close = 1;
 			goto process_as_ping;
 
-		case LWS_WS_OPCODE_07__PING:
+		case LWSWSOPC_PING:
 			lwsl_info("received %d byte ping, sending pong\n",
 						 wsi->u.ws.rx_user_buffer_head);
 
@@ -937,7 +937,7 @@ process_as_ping:
 			/* if existing buffer is too small, drop it */
 			if (wsi->u.ws.ping_payload_buf &&
 			    wsi->u.ws.ping_payload_alloc < wsi->u.ws.rx_user_buffer_head) {
-				lws_free2(wsi->u.ws.ping_payload_buf);
+				lws_free_set_NULL(wsi->u.ws.ping_payload_buf);
 			}
 
 			/* if no buffer, allocate it */
@@ -961,7 +961,7 @@ ping_drop:
 			wsi->u.ws.rx_user_buffer_head = 0;
 			return 0;
 
-		case LWS_WS_OPCODE_07__PONG:
+		case LWSWSOPC_PONG:
 			lwsl_info("received pong\n");
 			lwsl_hexdump(&wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
 			             wsi->u.ws.rx_user_buffer_head);
@@ -970,9 +970,9 @@ ping_drop:
 			callback_action = LWS_CALLBACK_RECEIVE_PONG;
 			break;
 
-		case LWS_WS_OPCODE_07__TEXT_FRAME:
-		case LWS_WS_OPCODE_07__BINARY_FRAME:
-		case LWS_WS_OPCODE_07__CONTINUATION:
+		case LWSWSOPC_TEXT_FRAME:
+		case LWSWSOPC_BINARY_FRAME:
+		case LWSWSOPC_CONTINUATION:
 			break;
 
 		default:
@@ -988,7 +988,7 @@ ping_drop:
 						   LWS_SEND_BUFFER_PRE_PADDING];
 			eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
 
-			if (lws_ext_callback_for_each_active(wsi,
+			if (lws_ext_cb_wsi_active_exts(wsi,
 				LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
 					&eff_buf, 0) <= 0) /* not handle or fail */
 				lwsl_ext("ext opc opcode 0x%x unknown\n",
@@ -1008,7 +1008,7 @@ ping_drop:
 						LWS_SEND_BUFFER_PRE_PADDING];
 		eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
 
-		if (lws_ext_callback_for_each_active(wsi,
+		if (lws_ext_cb_wsi_active_exts(wsi,
 				LWS_EXT_CALLBACK_PAYLOAD_RX, &eff_buf, 0) < 0)
 			return -1;
 

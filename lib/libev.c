@@ -93,7 +93,7 @@ lws_initloop(
 	 * and register a callback for read operations:
 	 */
 	ev_io_init(w_accept, lws_accept_cb,
-					context->listen_service_fd, EV_READ);
+					context->lserv_fd, EV_READ);
 	ev_io_start(context->io_loop,w_accept);
 
 	/* Register the signal watcher unless the user has indicated otherwise: */

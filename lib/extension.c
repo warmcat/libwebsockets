@@ -43,8 +43,7 @@ LWS_VISIBLE struct lws_extension *lws_get_internal_extensions()
 
 /* 0 = nobody had nonzero return, 1 = somebody had positive return, -1 = fail */
 
-int lws_ext_callback_for_each_active(struct lws *wsi, int reason, void *arg,
-				     int len)
+int lws_ext_cb_wsi_active_exts(struct lws *wsi, int reason, void *arg, int len)
 {
 	int n, m, handled = 0;
 
@@ -68,9 +67,8 @@ int lws_ext_callback_for_each_active(struct lws *wsi, int reason, void *arg,
 	return handled;
 }
 
-int lws_ext_callback_for_each_extension_type(
-		struct lws_context *context, struct lws *wsi,
-				int reason, void *arg, int len)
+int lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi,
+			int reason, void *arg, int len)
 {
 	int n = 0, m, handled = 0;
 	const struct lws_extension *ext = context->extensions;
@@ -118,7 +116,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		ret = 0;
 
 		/* show every extension the new incoming data */
-		m = lws_ext_callback_for_each_active(wsi,
+		m = lws_ext_cb_wsi_active_exts(wsi,
 			       LWS_EXT_CALLBACK_PACKET_TX_PRESEND, &eff_buf, 0);
 		if (m < 0)
 			return -1;
@@ -164,7 +162,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		 * Or we had to hold on to some of it?
 		 */
 
-		if (!lws_send_pipe_choked(wsi) && !wsi->truncated_send_len)
+		if (!lws_send_pipe_choked(wsi) && !wsi->trunc_len)
 			/* no we could add more, lets's do that */
 			continue;
 

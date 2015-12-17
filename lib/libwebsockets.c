@@ -50,8 +50,8 @@ lws_free_wsi(struct lws *wsi)
 	    wsi->user_space && !wsi->user_space_externally_allocated)
 		lws_free(wsi->user_space);
 
-	lws_free2(wsi->rxflow_buffer);
-	lws_free2(wsi->truncated_send_malloc);
+	lws_free_set_NULL(wsi->rxflow_buffer);
+	lws_free_set_NULL(wsi->trunc_alloc);
 	lws_free_header_table(wsi);
 	lws_free(wsi);
 }
@@ -70,7 +70,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 	old_state = wsi->state;
 
-	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED &&
+	if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED &&
 	    wsi->u.http.fd != LWS_INVALID_FILE) {
 		lwsl_debug("closing http file\n");
 		lws_plat_file_close(wsi, wsi->u.http.fd);
@@ -83,24 +83,24 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		goto just_kill_connection;
 
 	switch (old_state) {
-	case WSI_STATE_DEAD_SOCKET:
+	case LWSS_DEAD_SOCKET:
 		return;
 
 	/* we tried the polite way... */
-	case WSI_STATE_AWAITING_CLOSE_ACK:
+	case LWSS_AWAITING_CLOSE_ACK:
 		goto just_kill_connection;
 
-	case WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE:
-		if (wsi->truncated_send_len) {
+	case LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE:
+		if (wsi->trunc_len) {
 			lws_callback_on_writable(wsi);
 			return;
 		}
-		lwsl_info("wsi %p completed WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
+		lwsl_info("wsi %p completed LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
 		goto just_kill_connection;
 	default:
-		if (wsi->truncated_send_len) {
-			lwsl_info("wsi %p entering WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
-			wsi->state = WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE;
+		if (wsi->trunc_len) {
+			lwsl_info("wsi %p entering LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
+			wsi->state = LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE;
 			lws_set_timeout(wsi, PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 			return;
 		}
@@ -109,11 +109,11 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 	wsi->u.ws.close_reason = reason;
 
-	if (wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT ||
-	    wsi->mode == LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE)
+	if (wsi->mode == LWSCM_WSCL_WAITING_CONNECT ||
+	    wsi->mode == LWSCM_WSCL_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
 
-	if (wsi->mode == LWS_CONNMODE_HTTP_SERVING)
+	if (wsi->mode == LWSCM_HTTP_SERVING)
 		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0);
 
@@ -122,7 +122,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	 * parent and just his ch1 aspect is closing?
 	 */
 
-	if (lws_ext_callback_for_each_active(wsi,
+	if (lws_ext_cb_wsi_active_exts(wsi,
 		      LWS_EXT_CALLBACK_CHECK_OK_TO_REALLY_CLOSE, NULL, 0) > 0) {
 		lwsl_ext("extension vetoed close\n");
 		return;
@@ -140,7 +140,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 		/* show every extension the new incoming data */
 
-		m = lws_ext_callback_for_each_active(wsi,
+		m = lws_ext_cb_wsi_active_exts(wsi,
 			  LWS_EXT_CALLBACK_FLUSH_PENDING_TX, &eff_buf, 0);
 		if (m < 0) {
 			lwsl_ext("Extension reports fatal error\n");
@@ -169,19 +169,17 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	 * add any necessary version-specific stuff.  If the write fails,
 	 * no worries we are closing anyway.  If we didn't initiate this
 	 * close, then our state has been changed to
-	 * WSI_STATE_RETURNED_CLOSE_ALREADY and we will skip this.
+	 * LWSS_RETURNED_CLOSE_ALREADY and we will skip this.
 	 *
 	 * Likewise if it's a second call to close this connection after we
 	 * sent the close indication to the peer already, we are in state
-	 * WSI_STATE_AWAITING_CLOSE_ACK and will skip doing this a second time.
+	 * LWSS_AWAITING_CLOSE_ACK and will skip doing this a second time.
 	 */
 
-	if (old_state == WSI_STATE_ESTABLISHED &&
+	if (old_state == LWSS_ESTABLISHED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY) {
-
 		lwsl_debug("sending close indication...\n");
-
 		/* make valgrind happy */
 		memset(buf, 0, sizeof(buf));
 		n = lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING + 2],
@@ -191,7 +189,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 			 * we have sent a nice protocol level indication we
 			 * now wish to close, we should not send anything more
 			 */
-			wsi->state = WSI_STATE_AWAITING_CLOSE_ACK;
+			wsi->state = LWSS_AWAITING_CLOSE_ACK;
 
 			/*
 			 * ...and we should wait for a reply for a bit
@@ -221,23 +219,23 @@ just_kill_connection:
 	/* checking return redundant since we anyway close */
 	remove_wsi_socket_from_fds(wsi);
 
-	wsi->state = WSI_STATE_DEAD_SOCKET;
+	wsi->state = LWSS_DEAD_SOCKET;
 
-	lws_free2(wsi->rxflow_buffer);
+	lws_free_set_NULL(wsi->rxflow_buffer);
 	lws_free_header_table(wsi);
 
-	if ((old_state == WSI_STATE_ESTABLISHED ||
-	     wsi->mode == LWS_CONNMODE_WS_SERVING ||
-	     wsi->mode == LWS_CONNMODE_WS_CLIENT)) {
+	if (old_state == LWSS_ESTABLISHED ||
+	    wsi->mode == LWSCM_WS_SERVING ||
+	    wsi->mode == LWSCM_WS_CLIENT) {
 
-		lws_free2(wsi->u.ws.rx_user_buffer);
+		lws_free_set_NULL(wsi->u.ws.rx_user_buffer);
 
-		if (wsi->truncated_send_malloc)
+		if (wsi->trunc_alloc)
 			/* not going to be completed... nuke it */
-			lws_free2(wsi->truncated_send_malloc);
+			lws_free_set_NULL(wsi->trunc_alloc);
 
 		if (wsi->u.ws.ping_payload_buf) {
-			lws_free2(wsi->u.ws.ping_payload_buf);
+			lws_free_set_NULL(wsi->u.ws.ping_payload_buf);
 			wsi->u.ws.ping_payload_alloc = 0;
 			wsi->u.ws.ping_payload_len = 0;
 			wsi->u.ws.ping_pending_flag = 0;
@@ -247,19 +245,19 @@ just_kill_connection:
 	/* tell the user it's all over for this guy */
 
 	if (wsi->protocol && wsi->protocol->callback &&
-	    ((old_state == WSI_STATE_ESTABLISHED) ||
-	    (old_state == WSI_STATE_RETURNED_CLOSE_ALREADY) ||
-	    (old_state == WSI_STATE_AWAITING_CLOSE_ACK) ||
-	    (old_state == WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE))) {
+	    ((old_state == LWSS_ESTABLISHED) ||
+	    (old_state == LWSS_RETURNED_CLOSE_ALREADY) ||
+	    (old_state == LWSS_AWAITING_CLOSE_ACK) ||
+	    (old_state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE))) {
 		lwsl_debug("calling back CLOSED\n");
 		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 					wsi->user_space, NULL, 0);
-	} else if (wsi->mode == LWS_CONNMODE_HTTP_SERVING_ACCEPTED) {
+	} else if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED) {
 		lwsl_debug("calling back CLOSED_HTTP\n");
 		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0 );
-	} else if (wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY ||
-		   wsi->mode == LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT) {
+	} else if (wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
+		   wsi->mode == LWSCM_WSCL_WAITING_CONNECT) {
 		lwsl_debug("Connection closed before server reply\n");
 		context->protocols[0].callback(wsi,
 					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
@@ -270,8 +268,7 @@ just_kill_connection:
 
 	/* deallocate any active extension contexts */
 
-	if (lws_ext_callback_for_each_active(wsi, LWS_EXT_CALLBACK_DESTROY,
-					     NULL, 0) < 0)
+	if (lws_ext_cb_wsi_active_exts(wsi, LWS_EXT_CALLBACK_DESTROY, NULL, 0) < 0)
 		lwsl_warn("extension destruction failed\n");
 #ifndef LWS_NO_EXTENSIONS
 	for (n = 0; n < wsi->count_active_extensions; n++)
@@ -281,7 +278,7 @@ just_kill_connection:
 	 * inform all extensions in case they tracked this guy out of band
 	 * even though not active on him specifically
 	 */
-	if (lws_ext_callback_for_each_extension_type(context, wsi,
+	if (lws_ext_cb_all_exts(context, wsi,
 		       LWS_EXT_CALLBACK_DESTROY_ANY_WSI_CLOSING, NULL, 0) < 0)
 		lwsl_warn("ext destroy wsi failed\n");
 
@@ -392,7 +389,6 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
 
 /**
  * lws_get_peer_addresses() - Get client address information
- * @context:	Libwebsockets context
  * @wsi:	Local struct lws associated with
  * @fd:		Connection socket descriptor
  * @name:	Buffer to take client address name
@@ -884,7 +880,7 @@ lws_is_ssl(struct lws *wsi)
 LWS_VISIBLE int
 lws_partial_buffered(struct lws *wsi)
 {
-	return !!wsi->truncated_send_len;
+	return !!wsi->trunc_len;
 }
 
 void lws_set_protocol_write_pending(struct lws *wsi,
@@ -904,7 +900,7 @@ lws_get_peer_write_allowance(struct lws *wsi)
 {
 #ifdef LWS_USE_HTTP2
 	/* only if we are using HTTP2 on this connection */
-	if (wsi->mode != LWS_CONNMODE_HTTP2_SERVING)
+	if (wsi->mode != LWSCM_HTTP2_SERVING)
 		return -1;
 	/* user is only interested in how much he can send, or that he can't  */
 	if (wsi->u.http2.tx_credit <= 0)

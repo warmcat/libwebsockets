@@ -79,7 +79,7 @@ lws_create_server_child_wsi(struct lws_context *context, struct lws *parent_wsi,
 	wsi->u.http2.my_priority = 16;
 	wsi->u.http2.tx_credit = 65535;
 
-	wsi->state = WSI_STATE_HTTP2_ESTABLISHED;
+	wsi->state = LWSS_HTTP2_ESTABLISHED;
 	wsi->mode = parent_wsi->mode;
 
 	wsi->protocol = &context->protocols[0];
@@ -203,13 +203,13 @@ lws_http2_parser(struct lws *wsi, unsigned char c)
 	int n;
 
 	switch (wsi->state) {
-	case WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE:
+	case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
 		if (https_client_preface[wsi->u.http2.count++] != c)
 			return 1;
 
 		if (!https_client_preface[wsi->u.http2.count]) {
 			lwsl_info("http2: %p: established\n", wsi);
-			wsi->state = WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS;
+			wsi->state = LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS;
 			wsi->u.http2.count = 0;
 			wsi->u.http2.tx_credit = 65535;
 
@@ -224,8 +224,8 @@ lws_http2_parser(struct lws *wsi, unsigned char c)
 		}
 		break;
 
-	case WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS:
-	case WSI_STATE_HTTP2_ESTABLISHED:
+	case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
+	case LWSS_HTTP2_ESTABLISHED:
 		if (wsi->u.http2.frame_state == LWS_HTTP2_FRAME_HEADER_LENGTH) { // payload
 			wsi->u.http2.count++;
 			wsi->u.http2.stream_wsi->u.http2.count = wsi->u.http2.count;
@@ -457,8 +457,8 @@ int lws_http2_do_pps_send(struct lws_context *context, struct lws *wsi)
 			return 1;
 		}
 		/* this is the end of the preface dance then? */
-		if (wsi->state == WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS) {
-			wsi->state = WSI_STATE_HTTP2_ESTABLISHED;
+		if (wsi->state == LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS) {
+			wsi->state = LWSS_HTTP2_ESTABLISHED;
 
 			wsi->u.http.fd = LWS_INVALID_FILE;
 

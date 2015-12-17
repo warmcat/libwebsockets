@@ -45,7 +45,7 @@ LWS_VISIBLE int lws_send_pipe_choked(struct lws *wsi)
 	struct lws_pollfd fds;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
-	if (wsi->truncated_send_len)
+	if (wsi->trunc_len)
 		return 1;
 
 	fds.fd = wsi->sock;

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -22,8 +22,7 @@
 #include "private-libwebsockets.h"
 
 int
-insert_wsi_socket_into_fds(struct lws_context *context,
-						       struct lws *wsi)
+insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
 
@@ -35,16 +34,13 @@ insert_wsi_socket_into_fds(struct lws_context *context,
 #if !defined(_WIN32) && !defined(MBED_OPERATORS)
 	if (wsi->sock >= context->max_fds) {
 		lwsl_err("Socket fd %d is too high (%d)\n",
-						wsi->sock, context->max_fds);
+			 wsi->sock, context->max_fds);
 		return 1;
 	}
 #endif
 
 	assert(wsi);
 	assert(lws_socket_is_valid(wsi->sock));
-
-//	lwsl_info("insert_wsi_socket_into_fds: wsi=%p, sock=%d, fds pos=%d\n",
-//					    wsi, wsi->sock, context->fds_count);
 
 	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
 					   wsi->user_space, (void *) &pa, 1))
@@ -73,6 +69,7 @@ int
 remove_wsi_socket_from_fds(struct lws *wsi)
 {
 	int m;
+	struct lws *end_wsi;
 	struct lws_pollargs pa = { wsi->sock, 0, 0 };
 	struct lws_context *context = wsi->context;
 
@@ -83,13 +80,13 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 #if !defined(_WIN32) && !defined(MBED_OPERATORS)
 	if (wsi->sock > context->max_fds) {
 		lwsl_err("Socket fd %d too high (%d)\n",
-						   wsi->sock, context->max_fds);
+			 wsi->sock, context->max_fds);
 		return 1;
 	}
 #endif
 
 	lwsl_info("%s: wsi=%p, sock=%d, fds pos=%d\n", __func__,
-				    wsi, wsi->sock, wsi->position_in_fds_table);
+		  wsi, wsi->sock, wsi->position_in_fds_table);
 
 	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
 					   wsi->user_space, (void *)&pa, 1))
@@ -107,18 +104,17 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	 * (still same fd pointing to same wsi)
 	 */
 	/* end guy's "position in fds table" changed */
-	wsi_from_fd(context,context->fds[context->fds_count].fd)->
-					position_in_fds_table = m;
+	end_wsi = wsi_from_fd(context, context->fds[context->fds_count].fd);
+	end_wsi->position_in_fds_table = m;
 	/* deletion guy's lws_lookup entry needs nuking */
-	delete_from_fd(context,wsi->sock);
+	delete_from_fd(context, wsi->sock);
 	/* removed wsi has no position any more */
 	wsi->position_in_fds_table = -1;
 
 	/* remove also from external POLL support via protocol 0 */
 	if (lws_socket_is_valid(wsi->sock)) {
-		if (context->protocols[0].callback(wsi,
-		    LWS_CALLBACK_DEL_POLL_FD, wsi->user_space,
-		    (void *) &pa, 0))
+		if (context->protocols[0].callback(wsi, LWS_CALLBACK_DEL_POLL_FD,
+		    wsi->user_space, (void *) &pa, 0))
 			return -1;
 	}
 	if (context->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
@@ -200,7 +196,6 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
  *					 becomes able to be written to without
  *					 blocking
  *
- * @context:	libwebsockets context
  * @wsi:	Websocket connection instance to get callback for
  */
 
@@ -213,7 +208,7 @@ lws_callback_on_writable(struct lws *wsi)
 
 	lwsl_info("%s: %p\n", __func__, wsi);
 
-	if (wsi->mode != LWS_CONNMODE_HTTP2_SERVING)
+	if (wsi->mode != LWSCM_HTTP2_SERVING)
 		goto network_sock;
 
 	if (wsi->u.http2.requested_POLLOUT) {
@@ -255,7 +250,7 @@ lws_callback_on_writable(struct lws *wsi)
 network_sock:
 #endif
 
-	if (lws_ext_callback_for_each_active(wsi,
+	if (lws_ext_cb_wsi_active_exts(wsi,
 				LWS_EXT_CALLBACK_REQUEST_ON_WRITEABLE, NULL, 0))
 		return 1;
 
@@ -278,15 +273,16 @@ network_sock:
  *			becomes possible to write to each socket without
  *			blocking in turn.
  *
+ * @context:	lws_context
  * @protocol:	Protocol whose connections will get callbacks
  */
 
 LWS_VISIBLE int
 lws_callback_on_writable_all_protocol(const struct lws_context *context,
-				  const struct lws_protocols *protocol)
+				      const struct lws_protocols *protocol)
 {
-	int n;
 	struct lws *wsi;
+	int n;
 
 	for (n = 0; n < context->fds_count; n++) {
 		wsi = wsi_from_fd(context,context->fds[n].fd);

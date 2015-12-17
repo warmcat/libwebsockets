@@ -154,7 +154,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 
 	for (i = 0; i < context->fds_count; ++i) {
 		pfd = &context->fds[i];
-		if (pfd->fd == context->listen_service_fd)
+		if (pfd->fd == context->lserv_fd)
 			continue;
 
 		if (pfd->events & LWS_POLLOUT) {

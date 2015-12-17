@@ -136,8 +136,8 @@ void lws_http2_configure_if_upgraded(struct lws *wsi)
 
 	ah = wsi->u.hdr.ah;
 
-	lws_union_transition(wsi, LWS_CONNMODE_HTTP2_SERVING);
-	wsi->state = WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE;
+	lws_union_transition(wsi, LWSCM_HTTP2_SERVING);
+	wsi->state = LWSS_HTTP2_AWAIT_CLIENT_PREFACE;
 
 	/* http2 union member has http union struct at start */
 	wsi->u.http.ah = ah;

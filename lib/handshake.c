@@ -66,9 +66,9 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 
 	switch (wsi->state) {
 #ifdef LWS_USE_HTTP2
-	case WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE:
-	case WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS:
-	case WSI_STATE_HTTP2_ESTABLISHED:
+	case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
+	case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
+	case LWSS_HTTP2_ESTABLISHED:
 		n = 0;
 		while (n < len) {
 			/*
@@ -89,15 +89,15 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 		break;
 #endif
 http_new:
-	case WSI_STATE_HTTP:
+	case LWSS_HTTP:
 		wsi->hdr_parsing_completed = 0;
 		/* fallthru */
-	case WSI_STATE_HTTP_ISSUING_FILE:
-		wsi->state = WSI_STATE_HTTP_HEADERS;
+	case LWSS_HTTP_ISSUING_FILE:
+		wsi->state = LWSS_HTTP_HEADERS;
 		wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
 		wsi->u.hdr.lextable_pos = 0;
 		/* fallthru */
-	case WSI_STATE_HTTP_HEADERS:
+	case LWSS_HTTP_HEADERS:
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
 
 		if (lws_handshake_client(wsi, &buf, len))
@@ -109,8 +109,10 @@ http_new:
 			goto bail;
 
 		/* It's possible that we've exhausted our data already, but
-		 * lws_handshake_server doesn't update len for us. Figure out how
-		 * much was read, so that we can proceed appropriately: */
+		 * lws_handshake_server doesn't update len for us.
+		 * Figure out how much was read, so that we can proceed
+		 * appropriately:
+		 */
 		len -= (buf - last_char);
 
 		if (!wsi->hdr_parsing_completed)
@@ -118,12 +120,12 @@ http_new:
 			goto read_ok;
 
 		switch (wsi->state) {
-			case WSI_STATE_HTTP:
-			case WSI_STATE_HTTP_HEADERS:
+			case LWSS_HTTP:
+			case LWSS_HTTP_HEADERS:
 				goto http_complete;
-			case WSI_STATE_HTTP_ISSUING_FILE:
+			case LWSS_HTTP_ISSUING_FILE:
 				goto read_ok;
-			case WSI_STATE_HTTP_BODY:
+			case LWSS_HTTP_BODY:
 				wsi->u.http.content_remain =
 						wsi->u.http.content_length;
 				if (wsi->u.http.content_remain)
@@ -136,7 +138,7 @@ http_new:
 		}
 		break;
 
-	case WSI_STATE_HTTP_BODY:
+	case LWSS_HTTP_BODY:
 http_postbody:
 		while (len && wsi->u.http.content_remain) {
 			/* Copy as much as possible, up to the limit of:
@@ -173,12 +175,12 @@ postbody_completion:
 		}
 		break;
 
-	case WSI_STATE_ESTABLISHED:
-	case WSI_STATE_AWAITING_CLOSE_ACK:
+	case LWSS_ESTABLISHED:
+	case LWSS_AWAITING_CLOSE_ACK:
 		if (lws_handshake_client(wsi, &buf, len))
 			goto bail;
 		switch (wsi->mode) {
-		case LWS_CONNMODE_WS_SERVING:
+		case LWSCM_WS_SERVING:
 
 			if (lws_interpret_incoming_packet(wsi, buf, len) < 0) {
 				lwsl_info("interpret_incoming_packet has bailed\n");

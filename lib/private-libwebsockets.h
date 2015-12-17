@@ -316,38 +316,38 @@ extern "C" {
  * if not in a connection storm, check for incoming
  * connections this many normal connection services
  */
-#define LWS_LISTEN_SERVICE_MODULO 10
+#define LWS_lserv_mod 10
 
 enum lws_websocket_opcodes_07 {
-	LWS_WS_OPCODE_07__CONTINUATION = 0,
-	LWS_WS_OPCODE_07__TEXT_FRAME = 1,
-	LWS_WS_OPCODE_07__BINARY_FRAME = 2,
+	LWSWSOPC_CONTINUATION = 0,
+	LWSWSOPC_TEXT_FRAME = 1,
+	LWSWSOPC_BINARY_FRAME = 2,
 
-	LWS_WS_OPCODE_07__NOSPEC__MUX = 7,
+	LWSWSOPC_NOSPEC__MUX = 7,
 
 	/* control extensions 8+ */
 
-	LWS_WS_OPCODE_07__CLOSE = 8,
-	LWS_WS_OPCODE_07__PING = 9,
-	LWS_WS_OPCODE_07__PONG = 0xa,
+	LWSWSOPC_CLOSE = 8,
+	LWSWSOPC_PING = 9,
+	LWSWSOPC_PONG = 0xa,
 };
 
 
 enum lws_connection_states {
-	WSI_STATE_HTTP,
-	WSI_STATE_HTTP_ISSUING_FILE,
-	WSI_STATE_HTTP_HEADERS,
-	WSI_STATE_HTTP_BODY,
-	WSI_STATE_DEAD_SOCKET,
-	WSI_STATE_ESTABLISHED,
-	WSI_STATE_CLIENT_UNCONNECTED,
-	WSI_STATE_RETURNED_CLOSE_ALREADY,
-	WSI_STATE_AWAITING_CLOSE_ACK,
-	WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE,
+	LWSS_HTTP,
+	LWSS_HTTP_ISSUING_FILE,
+	LWSS_HTTP_HEADERS,
+	LWSS_HTTP_BODY,
+	LWSS_DEAD_SOCKET,
+	LWSS_ESTABLISHED,
+	LWSS_CLIENT_UNCONNECTED,
+	LWSS_RETURNED_CLOSE_ALREADY,
+	LWSS_AWAITING_CLOSE_ACK,
+	LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE,
 
-	WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE,
-	WSI_STATE_HTTP2_ESTABLISHED_PRE_SETTINGS,
-	WSI_STATE_HTTP2_ESTABLISHED,
+	LWSS_HTTP2_AWAIT_CLIENT_PREFACE,
+	LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS,
+	LWSS_HTTP2_ESTABLISHED,
 };
 
 enum http_version {
@@ -397,30 +397,30 @@ enum lws_rx_parse_state {
 
 
 enum connection_mode {
-	LWS_CONNMODE_HTTP_SERVING,
-	LWS_CONNMODE_HTTP_SERVING_ACCEPTED, /* actual HTTP service going on */
-	LWS_CONNMODE_PRE_WS_SERVING_ACCEPT,
+	LWSCM_HTTP_SERVING,
+	LWSCM_HTTP_SERVING_ACCEPTED, /* actual HTTP service going on */
+	LWSCM_PRE_WS_SERVING_ACCEPT,
 
-	LWS_CONNMODE_WS_SERVING,
-	LWS_CONNMODE_WS_CLIENT,
+	LWSCM_WS_SERVING,
+	LWSCM_WS_CLIENT,
 
-	LWS_CONNMODE_HTTP2_SERVING,
+	LWSCM_HTTP2_SERVING,
 
 	/* transient, ssl delay hiding */
-	LWS_CONNMODE_SSL_ACK_PENDING,
+	LWSCM_SSL_ACK_PENDING,
 
 	/* transient modes */
-	LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT,
-	LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY,
-	LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE,
-	LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE2,
-	LWS_CONNMODE_WS_CLIENT_WAITING_SSL,
-	LWS_CONNMODE_WS_CLIENT_WAITING_SERVER_REPLY,
-	LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT,
-	LWS_CONNMODE_WS_CLIENT_PENDING_CANDIDATE_CHILD,
+	LWSCM_WSCL_WAITING_CONNECT,
+	LWSCM_WSCL_WAITING_PROXY_REPLY,
+	LWSCM_WSCL_ISSUE_HANDSHAKE,
+	LWSCM_WSCL_ISSUE_HANDSHAKE2,
+	LWSCM_WSCL_WAITING_SSL,
+	LWSCM_WSCL_WAITING_SERVER_REPLY,
+	LWSCM_WSCL_WAITING_EXTENSION_CONNECT,
+	LWSCM_WSCL_PENDING_CANDIDATE_CHILD,
 
 	/* special internal types */
-	LWS_CONNMODE_SERVER_LISTENER,
+	LWSCM_SERVER_LISTENER,
 };
 
 enum {
@@ -485,15 +485,15 @@ struct lws_context {
 	 * does not last longer than the service action (since next service
 	 * of any socket can likewise use it and overwrite)
 	 */
-	unsigned char service_buffer[LWS_MAX_SOCKET_IO_BUF];
+	unsigned char serv_buf[LWS_MAX_SOCKET_IO_BUF];
 
 	int started_with_parent;
 
 	int fd_random;
-	int listen_service_modulo;
-	int listen_service_count;
-	lws_sockfd_type listen_service_fd;
-	int listen_service_extraseen;
+	int lserv_mod;
+	int lserv_count;
+	lws_sockfd_type lserv_fd;
+	int lserv_seen;
 
 	/*
 	 * set to the Thread ID that's doing the service loop just before entry
@@ -815,7 +815,7 @@ struct _lws_header_related {
 struct _lws_websocket_related {
 	char *rx_user_buffer;
 	unsigned int rx_user_buffer_head;
-	unsigned char frame_masking_nonce_04[4];
+	unsigned char mask_nonce[4];
 	unsigned char frame_mask_index;
 	size_t rx_packet_length;
 	unsigned char opcode;
@@ -879,10 +879,10 @@ struct lws {
 	unsigned int rxflow_change_to:2;
 
 	/* truncated send handling */
-	unsigned char *truncated_send_malloc; /* non-NULL means buffering in progress */
-	unsigned int truncated_send_allocation; /* size of malloc */
-	unsigned int truncated_send_offset; /* where we are in terms of spilling */
-	unsigned int truncated_send_len; /* how much is buffered */
+	unsigned char *trunc_alloc; /* non-NULL means buffering in progress */
+	unsigned int trunc_alloc_len; /* size of malloc */
+	unsigned int trunc_offset; /* where we are in terms of spilling */
+	unsigned int trunc_len; /* how much is buffered */
 
 	void *user_space;
 
@@ -1006,16 +1006,16 @@ lws_any_extension_handled(struct lws *wsi,
 			  void *v, size_t len);
 
 LWS_EXTERN int
-lws_ext_callback_for_each_active(struct lws *wsi, int reason,
+lws_ext_cb_wsi_active_exts(struct lws *wsi, int reason,
 				 void *buf, int len);
 LWS_EXTERN int
-lws_ext_callback_for_each_extension_type(struct lws_context *context,
+lws_ext_cb_all_exts(struct lws_context *context,
 					 struct lws *wsi, int reason,
 					 void *arg, int len);
 #else
 #define lws_any_extension_handled(_a, _b, _c, _d) (0)
-#define lws_ext_callback_for_each_active(_a, _b, _c, _d) (0)
-#define lws_ext_callback_for_each_extension_type(_a, _b, _c, _d, _e) (0)
+#define lws_ext_cb_wsi_active_exts(_a, _b, _c, _d) (0)
+#define lws_ext_cb_all_exts(_a, _b, _c, _d, _e) (0)
 #define lws_issue_raw_ext_access lws_issue_raw
 #define lws_context_init_extensions(_a, _b)
 #endif
@@ -1240,7 +1240,7 @@ lws_zalloc(size_t size);
 
 #define lws_malloc(S)	lws_realloc(NULL, S)
 #define lws_free(P)	lws_realloc(P, 0)
-#define lws_free2(P)	do { lws_realloc(P, 0); (P) = NULL; } while(0)
+#define lws_free_set_NULL(P)	do { lws_realloc(P, 0); (P) = NULL; } while(0)
 
 /* lws_plat_ */
 LWS_EXTERN void

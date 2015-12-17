@@ -36,7 +36,7 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			    unsigned char **p, unsigned char *end)
 {
 #ifdef LWS_USE_HTTP2
-	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
+	if (wsi->mode == LWSCM_HTTP2_SERVING)
 		return lws_add_http2_header_by_name(wsi, name,
 						    value, length, p, end);
 #else
@@ -64,7 +64,7 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 			     unsigned char *end)
 {
 #ifdef LWS_USE_HTTP2
-	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
+	if (wsi->mode == LWSCM_HTTP2_SERVING)
 		return 0;
 #else
 	(void)wsi;
@@ -84,7 +84,7 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 {
 	const unsigned char *name;
 #ifdef LWS_USE_HTTP2
-	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
+	if (wsi->mode == LWSCM_HTTP2_SERVING)
 		return lws_add_http2_header_by_token(wsi, token, value, length, p, end);
 #endif
 	name = lws_token_to_string(token);
@@ -101,7 +101,8 @@ int lws_add_http_header_content_length(struct lws *wsi,
 	int n;
 
 	n = sprintf(b, "%lu", content_length);
-	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH, (unsigned char *)b, n, p, end))
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					 (unsigned char *)b, n, p, end))
 		return 1;
 	wsi->u.http.content_length = content_length;
 	wsi->u.http.content_remain = content_length;
@@ -140,16 +141,15 @@ static const char *err500[] = {
 };
 
 int
-lws_add_http_header_status(struct lws *wsi,
-			   unsigned int code, unsigned char **p,
-			   unsigned char *end)
+lws_add_http_header_status(struct lws *wsi, unsigned int code,
+			   unsigned char **p, unsigned char *end)
 {
 	unsigned char code_and_desc[60];
 	const char *description = "";
 	int n;
 
 #ifdef LWS_USE_HTTP2
-	if (wsi->mode == LWS_CONNMODE_HTTP2_SERVING)
+	if (wsi->mode == LWSCM_HTTP2_SERVING)
 		return lws_add_http2_header_status(wsi, code, p, end);
 #endif
 	if (code >= 400 && code < (400 + ARRAY_SIZE(err400)))
@@ -165,7 +165,6 @@ lws_add_http_header_status(struct lws *wsi,
 
 /**
  * lws_return_http_status() - Return simple http status
- * @context:		libwebsockets context
  * @wsi:		Websocket instance (available from user callback)
  * @code:		Status index, eg, 404
  * @html_body:		User-readable HTML description < 1KB, or NULL
@@ -178,10 +177,10 @@ lws_return_http_status(struct lws *wsi, unsigned int code, const char *html_body
 {
 	int n, m;
 	struct lws_context *context = lws_get_ctx(wsi);
-	unsigned char *p = context->service_buffer +
+	unsigned char *p = context->serv_buf +
 			   LWS_SEND_BUFFER_PRE_PADDING;
 	unsigned char *start = p;
-	unsigned char *end = p + sizeof(context->service_buffer) -
+	unsigned char *end = p + sizeof(context->serv_buf) -
 			     LWS_SEND_BUFFER_PRE_PADDING;
 
 	if (!html_body)

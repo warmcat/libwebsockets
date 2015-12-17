@@ -90,14 +90,10 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 		serv_addr4.sin_addr.s_addr = INADDR_ANY;
 		serv_addr4.sin_family = AF_INET;
 
-		if (info->iface) {
-			if (interface_to_sa(context, info->iface,
+		if (info->iface && interface_to_sa(context, info->iface,
 				   (struct sockaddr_in *)v, n) < 0) {
-				lwsl_err("Unable to find interface %s\n",
-							info->iface);
-				compatible_close(sockfd);
-				return 1;
-			}
+			lwsl_err("Unable to find interface %s\n", info->iface);
+			goto bail;
 		}
 
 		serv_addr4.sin_port = htons(info->port);
@@ -107,8 +103,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	if (n < 0) {
 		lwsl_err("ERROR on binding to port %d (%d %d)\n",
 					      info->port, n, LWS_ERRNO);
-		compatible_close(sockfd);
-		return 1;
+		goto bail;
 	}
 
 	if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
@@ -122,22 +117,19 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	wsi = lws_zalloc(sizeof(struct lws));
 	if (wsi == NULL) {
 		lwsl_err("Out of mem\n");
-		compatible_close(sockfd);
-		return 1;
+		goto bail;
 	}
 	wsi->context = context;
 	wsi->sock = sockfd;
-	wsi->mode = LWS_CONNMODE_SERVER_LISTENER;
+	wsi->mode = LWSCM_SERVER_LISTENER;
 	wsi->protocol = context->protocols;
 
-	if (insert_wsi_socket_into_fds(context, wsi)) {
-		compatible_close(sockfd);
-		return 1;
-	}
+	if (insert_wsi_socket_into_fds(context, wsi))
+		goto bail;
 
-	context->listen_service_modulo = LWS_LISTEN_SERVICE_MODULO;
-	context->listen_service_count = 0;
-	context->listen_service_fd = sockfd;
+	context->lserv_mod = LWS_lserv_mod;
+	context->lserv_count = 0;
+	context->lserv_fd = sockfd;
 
 #if LWS_POSIX
 	listen(sockfd, LWS_SOMAXCONN);
@@ -147,6 +139,11 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	lwsl_notice(" Listening on port %d\n", info->port);
 
 	return 0;
+
+bail:
+	compatible_close(sockfd);
+
+	return 1;
 }
 
 int
@@ -306,7 +303,7 @@ int lws_http_action(struct lws *wsi)
 	}
 
 	/* now drop the header info we kept a pointer to */
-	lws_free2(wsi->u.http.ah);
+	lws_free_set_NULL(wsi->u.http.ah);
 
 	if (n) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
@@ -320,16 +317,16 @@ int lws_http_action(struct lws *wsi)
 	 * In any case, return 0 and let lws_read decide how to
 	 * proceed based on state
 	 */
-	if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE)
+	if (wsi->state != LWSS_HTTP_ISSUING_FILE)
 		/* Prepare to read body if we have a content length: */
 		if (wsi->u.http.content_length > 0)
-			wsi->state = WSI_STATE_HTTP_BODY;
+			wsi->state = LWSS_HTTP_BODY;
 
 	return 0;
 
 bail_nuke_ah:
 	/* drop the header info */
-	lws_free2(wsi->u.hdr.ah);
+	lws_free_set_NULL(wsi->u.hdr.ah);
 
 	return 1;
 }
@@ -344,7 +341,7 @@ int lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	char protocol_name[32];
 	char *p;
 
-	/* LWS_CONNMODE_WS_SERVING */
+	/* LWSCM_WS_SERVING */
 
 	while (len--) {
 		if (lws_parse(wsi, *(*buf)++)) {
@@ -357,18 +354,18 @@ int lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 
 		lwsl_parser("lws_parse sees parsing complete\n");
 
-		wsi->mode = LWS_CONNMODE_PRE_WS_SERVING_ACCEPT;
+		wsi->mode = LWSCM_PRE_WS_SERVING_ACCEPT;
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		/* is this websocket protocol or normal http 1.0? */
 
 		if (!lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE) ||
-			     !lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
 
 			ah = wsi->u.hdr.ah;
 
-			lws_union_transition(wsi, LWS_CONNMODE_HTTP_SERVING_ACCEPTED);
-			wsi->state = WSI_STATE_HTTP;
+			lws_union_transition(wsi, LWSCM_HTTP_SERVING_ACCEPTED);
+			wsi->state = LWSS_HTTP;
 			wsi->u.http.fd = LWS_INVALID_FILE;
 
 			/* expose it at the same offset as u.hdr */
@@ -412,7 +409,7 @@ upgrade_h2c:
 
 		ah = wsi->u.hdr.ah;
 
-		lws_union_transition(wsi, LWS_CONNMODE_HTTP2_SERVING);
+		lws_union_transition(wsi, LWSCM_HTTP2_SERVING);
 
 		/* http2 union member has http union struct at start */
 		wsi->u.http.ah = ah;
@@ -436,7 +433,7 @@ upgrade_h2c:
 			return 1;
 		}
 
-		wsi->state = WSI_STATE_HTTP2_AWAIT_CLIENT_PREFACE;
+		wsi->state = LWSS_HTTP2_AWAIT_CLIENT_PREFACE;
 
 		return 0;
 #endif
@@ -496,8 +493,7 @@ upgrade_ws:
 		/* we didn't find a protocol he wanted? */
 
 		if (!hit) {
-			if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL) ==
-									 NULL) {
+			if (!lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
 				/*
 				 * some clients only have one protocol and
 				 * do not sent the protocol list header...
@@ -553,7 +549,7 @@ upgrade_ws:
 		/* drop the header info -- no bail_nuke_ah after this */
 		lws_free_header_table(wsi);
 
-		lws_union_transition(wsi, LWS_CONNMODE_WS_SERVING);
+		lws_union_transition(wsi, LWSCM_WS_SERVING);
 
 		/*
 		 * create the frame buffer for this connection according to the
@@ -607,8 +603,8 @@ lws_create_new_server_wsi(struct lws_context *context)
 
 	/* intialize the instance struct */
 
-	new_wsi->state = WSI_STATE_HTTP;
-	new_wsi->mode = LWS_CONNMODE_HTTP_SERVING;
+	new_wsi->state = LWSS_HTTP;
+	new_wsi->mode = LWSCM_HTTP_SERVING;
 	new_wsi->hdr_parsing_completed = 0;
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -660,8 +656,8 @@ int lws_http_transaction_completed(struct lws *wsi)
 	}
 
 	/* otherwise set ourselves up ready to go again */
-	wsi->state = WSI_STATE_HTTP;
-	wsi->mode = LWS_CONNMODE_HTTP_SERVING;
+	wsi->state = LWSS_HTTP;
+	wsi->mode = LWSCM_HTTP_SERVING;
 	wsi->u.http.content_length = 0;
 
 	/* He asked for it to stay alive indefinitely */
@@ -692,21 +688,21 @@ int lws_server_socket_service(struct lws_context *context,
 
 	switch (wsi->mode) {
 
-	case LWS_CONNMODE_HTTP_SERVING:
-	case LWS_CONNMODE_HTTP_SERVING_ACCEPTED:
-	case LWS_CONNMODE_HTTP2_SERVING:
+	case LWSCM_HTTP_SERVING:
+	case LWSCM_HTTP_SERVING_ACCEPTED:
+	case LWSCM_HTTP2_SERVING:
 
 		/* handle http headers coming in */
 
 		/* pending truncated sends have uber priority */
 
-		if (wsi->truncated_send_len) {
-			if (pollfd->revents & LWS_POLLOUT)
-				if (lws_issue_raw(wsi, wsi->truncated_send_malloc +
-						       wsi->truncated_send_offset,
-						  wsi->truncated_send_len) < 0) {
-					goto fail;
-				}
+		if (wsi->trunc_len) {
+			if (!(pollfd->revents & LWS_POLLOUT))
+				break;
+
+			if (lws_issue_raw(wsi, wsi->trunc_alloc + wsi->trunc_offset,
+					  wsi->trunc_len) < 0)
+				goto fail;
 			/*
 			 * we can't afford to allow input processing send
 			 * something new, so spin around he event loop until
@@ -717,38 +713,38 @@ int lws_server_socket_service(struct lws_context *context,
 
 		/* any incoming data ready? */
 
-		if (pollfd->revents & LWS_POLLIN) {
-			len = lws_ssl_capable_read(wsi, context->service_buffer,
-						   sizeof(context->service_buffer));
-			lwsl_debug("%s: read %d\r\n", __func__, len);
-			switch (len) {
-			case 0:
-				lwsl_info("lws_server_skt_srv: read 0 len\n");
-				/* lwsl_info("   state=%d\n", wsi->state); */
-				if (!wsi->hdr_parsing_completed)
-					lws_free_header_table(wsi);
-				/* fallthru */
-			case LWS_SSL_CAPABLE_ERROR:
-				goto fail;
-			case LWS_SSL_CAPABLE_MORE_SERVICE:
-				goto try_pollout;
-			}
+		if (!(pollfd->revents & LWS_POLLIN))
+			goto try_pollout;
 
-			/* just ignore incoming if waiting for close */
-			if (wsi->state != WSI_STATE_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
+		len = lws_ssl_capable_read(wsi, context->serv_buf,
+					   sizeof(context->serv_buf));
+		lwsl_debug("%s: read %d\r\n", __func__, len);
+		switch (len) {
+		case 0:
+			lwsl_info("lws_server_skt_srv: read 0 len\n");
+			/* lwsl_info("   state=%d\n", wsi->state); */
+			if (!wsi->hdr_parsing_completed)
+				lws_free_header_table(wsi);
+			/* fallthru */
+		case LWS_SSL_CAPABLE_ERROR:
+			goto fail;
+		case LWS_SSL_CAPABLE_MORE_SERVICE:
+			goto try_pollout;
+		}
 
-				/*
-				 * hm this may want to send
-				 * (via HTTP callback for example)
-				 */
-				n = lws_read(wsi, context->service_buffer, len);
-				if (n < 0) /* we closed wsi */
-					return 1;
+		/* just ignore incoming if waiting for close */
+		if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
+			/*
+			 * hm this may want to send
+			 * (via HTTP callback for example)
+			 */
+			n = lws_read(wsi, context->serv_buf, len);
+			if (n < 0) /* we closed wsi */
+				return 1;
 
-				/* hum he may have used up the
-				 * writability above */
-				break;
-			}
+			/* hum he may have used up the
+			 * writability above */
+			break;
 		}
 
 try_pollout:
@@ -763,7 +759,7 @@ try_pollout:
 
 		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
-		if (wsi->state != WSI_STATE_HTTP_ISSUING_FILE) {
+		if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
 			n = user_callback_handle_rxflow(
 					wsi->protocol->callback,
 					wsi, LWS_CALLBACK_HTTP_WRITEABLE,
@@ -779,7 +775,7 @@ try_pollout:
 			goto fail;
 		break;
 
-	case LWS_CONNMODE_SERVER_LISTENER:
+	case LWSCM_SERVER_LISTENER:
 
 #if LWS_POSIX
 		/* pollin means a client has connected to us then */
@@ -794,7 +790,7 @@ try_pollout:
 		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
 				    &clilen);
 		lws_latency(context, wsi,
-			"unencrypted accept LWS_CONNMODE_SERVER_LISTENER",
+			"unencrypted accept LWSCM_SERVER_LISTENER",
 						     accept_fd, accept_fd >= 0);
 		if (accept_fd < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN ||
@@ -877,11 +873,11 @@ fail:
 
 /**
  * lws_serve_http_file() - Send a file back to the client using http
- * @context:		libwebsockets context
  * @wsi:		Websocket instance (available from user callback)
  * @file:		The file to issue over http
  * @content_type:	The http content type, eg, text/html
- * @other_headers:	NULL or pointer to \0-terminated other header string
+ * @other_headers:	NULL or pointer to header string
+ * @other_headers_len:	length of the other headers if non-NULL
  *
  *	This function is intended to be called from the callback in response
  *	to http requests from the client.  It allows the callback to issue
@@ -900,14 +896,15 @@ LWS_VISIBLE int lws_serve_http_file(struct lws *wsi, const char *file,
 				    int other_headers_len)
 {
 	struct lws_context *context = lws_get_ctx(wsi);
-	unsigned char *response = context->service_buffer +
+	unsigned char *response = context->serv_buf +
 				  LWS_SEND_BUFFER_PRE_PADDING;
 	unsigned char *p = response;
-	unsigned char *end = p + sizeof(context->service_buffer) -
+	unsigned char *end = p + sizeof(context->serv_buf) -
 			     LWS_SEND_BUFFER_PRE_PADDING;
 	int ret = 0;
 
-	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen, O_RDONLY);
+	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,
+					    O_RDONLY);
 
 	if (wsi->u.http.fd == LWS_INVALID_FILE) {
 		lwsl_err("Unable to open '%s'\n", file);
@@ -946,13 +943,13 @@ LWS_VISIBLE int lws_serve_http_file(struct lws *wsi, const char *file,
 	}
 
 	wsi->u.http.filepos = 0;
-	wsi->state = WSI_STATE_HTTP_ISSUING_FILE;
+	wsi->state = LWSS_HTTP_ISSUING_FILE;
 
 	return lws_serve_http_file_fragment(wsi);
 }
 
-int lws_interpret_incoming_packet(struct lws *wsi, unsigned char *buf,
-				  size_t len)
+int
+lws_interpret_incoming_packet(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	size_t n = 0;
 	int m;

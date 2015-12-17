@@ -760,7 +760,6 @@ struct lws_extension;
 
 /**
  * callback_function() - User server actions
- * @context:	Websockets context
  * @wsi:	Opaque websocket instance pointer
  * @reason:	The reason for the call
  * @user:	Pointer to per-session user data allocated by library

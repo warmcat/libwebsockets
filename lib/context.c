@@ -118,7 +118,7 @@ lws_create_context(struct lws_context_creation_info *info)
 		lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
 	}
 #endif
-	context->listen_service_extraseen = 0;
+	context->lserv_seen = 0;
 	context->protocols = info->protocols;
 	context->token_limits = info->token_limits;
 	context->listen_port = info->port;
@@ -226,11 +226,11 @@ lws_create_context(struct lws_context_creation_info *info)
 	 * allocations they need
 	 */
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
-		if (lws_ext_callback_for_each_extension_type(context, NULL,
+		if (lws_ext_cb_all_exts(context, NULL,
 			LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
 	} else
-		if (lws_ext_callback_for_each_extension_type(context, NULL,
+		if (lws_ext_cb_all_exts(context, NULL,
 			LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
 
@@ -279,10 +279,10 @@ lws_context_destroy(struct lws_context *context)
 	 * allocations they might have made
 	 */
 
-	n = lws_ext_callback_for_each_extension_type(context, NULL,
+	n = lws_ext_cb_all_exts(context, NULL,
 			LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0);
 
-	n = lws_ext_callback_for_each_extension_type(context, NULL,
+	n = lws_ext_cb_all_exts(context, NULL,
 			LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0);
 
 	/*

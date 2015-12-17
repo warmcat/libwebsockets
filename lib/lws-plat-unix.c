@@ -14,18 +14,19 @@ unsigned long long time_in_microseconds(void)
 	return ((unsigned long long)tv.tv_sec * 1000000LL) + tv.tv_usec;
 }
 
-LWS_VISIBLE int lws_get_random(struct lws_context *context,
-							     void *buf, int len)
+LWS_VISIBLE int
+lws_get_random(struct lws_context *context, void *buf, int len)
 {
 	return read(context->fd_random, (char *)buf, len);
 }
 
-LWS_VISIBLE int lws_send_pipe_choked(struct lws *wsi)
+LWS_VISIBLE int
+lws_send_pipe_choked(struct lws *wsi)
 {
 	struct lws_pollfd fds;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
-	if (wsi->truncated_send_len)
+	if (wsi->trunc_len)
 		return 1;
 
 	fds.fd = wsi->sock;
@@ -148,9 +149,9 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	wsi = context->pending_read_list;
 	while (wsi) {
 		wsi_next = wsi->pending_read_list_next;
-       context->fds[wsi->position_in_fds_table].revents |=
-               context->fds[wsi->position_in_fds_table].events & POLLIN;
-       if (context->fds[wsi->position_in_fds_table].revents & POLLIN) {
+		context->fds[wsi->position_in_fds_table].revents |=
+			context->fds[wsi->position_in_fds_table].events & POLLIN;
+		if (context->fds[wsi->position_in_fds_table].revents & POLLIN)
 			/*
 			 * he's going to get serviced now, take him off the
 			 * list of guys with buffered SSL.  If he still has some
@@ -158,7 +159,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 			 * list then.
 			 */
 			lws_ssl_remove_wsi_from_buffered_list(wsi);
-		}
+
 		wsi = wsi_next;
 	}
 #endif
@@ -166,7 +167,6 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	/* any socket with events to service? */
 
 	for (n = 0; n < context->fds_count; n++) {
-
 		if (!context->fds[n].revents)
 			continue;
 
@@ -202,7 +202,7 @@ lws_plat_set_socket_options(struct lws_context *context, int fd)
 		/* enable keepalive on this socket */
 		optval = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
-					     (const void *)&optval, optlen) < 0)
+			       (const void *)&optval, optlen) < 0)
 			return 1;
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
@@ -216,17 +216,17 @@ lws_plat_set_socket_options(struct lws_context *context, int fd)
 		/* set the keepalive conditions we want on it too */
 		optval = context->ka_time;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
-					     (const void *)&optval, optlen) < 0)
+			       (const void *)&optval, optlen) < 0)
 			return 1;
 
 		optval = context->ka_interval;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL,
-					     (const void *)&optval, optlen) < 0)
+			       (const void *)&optval, optlen) < 0)
 			return 1;
 
 		optval = context->ka_probes;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT,
-					     (const void *)&optval, optlen) < 0)
+			       (const void *)&optval, optlen) < 0)
 			return 1;
 #endif
 	}
@@ -274,7 +274,6 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 static void sigpipe_handler(int x)
 {
 }
-
 
 LWS_VISIBLE int
 lws_plat_context_early_init(void)
@@ -398,7 +397,7 @@ lws_plat_service_periodic(struct lws_context *context)
 {
 	/* if our parent went down, don't linger around */
 	if (context->started_with_parent &&
-			      kill(context->started_with_parent, 0) < 0)
+	    kill(context->started_with_parent, 0) < 0)
 		kill(getpid(), SIGTERM);
 }
 

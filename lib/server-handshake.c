@@ -47,12 +47,12 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 	 * and go through them
 	 */
 
-	if (lws_hdr_copy(wsi, (char *)context->service_buffer,
-			sizeof(context->service_buffer),
+	if (lws_hdr_copy(wsi, (char *)context->serv_buf,
+			sizeof(context->serv_buf),
 					      WSI_TOKEN_EXTENSIONS) < 0)
 		return 1;
 
-	c = (char *)context->service_buffer;
+	c = (char *)context->serv_buf;
 	lwsl_parser("WSI_TOKEN_EXTENSIONS = '%s'\n", c);
 	wsi->count_active_extensions = 0;
 	n = 0;
@@ -176,15 +176,15 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	 * since key length is restricted above (currently 128), cannot
 	 * overflow
 	 */
-	n = sprintf((char *)context->service_buffer,
+	n = sprintf((char *)context->serv_buf,
 				"%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
 
-	lws_SHA1(context->service_buffer, n, hash);
+	lws_SHA1(context->serv_buf, n, hash);
 
 	accept_len = lws_b64_encode_string((char *)hash, 20,
-			(char *)context->service_buffer,
-			sizeof(context->service_buffer));
+			(char *)context->serv_buf,
+			sizeof(context->serv_buf));
 	if (accept_len < 0) {
 		lwsl_warn("Base64 encoded hash too long\n");
 		goto bail;
@@ -198,13 +198,13 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	/* make a buffer big enough for everything */
 
-	response = (char *)context->service_buffer + MAX_WEBSOCKET_04_KEY_LEN + LWS_SEND_BUFFER_PRE_PADDING;
+	response = (char *)context->serv_buf + MAX_WEBSOCKET_04_KEY_LEN + LWS_SEND_BUFFER_PRE_PADDING;
 	p = response;
 	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 		      "Upgrade: WebSocket\x0d\x0a"
 		      "Connection: Upgrade\x0d\x0a"
 		      "Sec-WebSocket-Accept: ");
-	strcpy(p, (char *)context->service_buffer);
+	strcpy(p, (char *)context->serv_buf);
 	p += accept_len;
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL)) {
@@ -250,7 +250,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	/* alright clean up and set ourselves into established state */
 
-	wsi->state = WSI_STATE_ESTABLISHED;
+	wsi->state = LWSS_ESTABLISHED;
 	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 
 	/* notify user code that we're ready to roll */

@@ -21,18 +21,18 @@ lws_client_connect_2(struct lws *wsi)
 	/* proxy? */
 
 	if (context->http_proxy_port) {
-		plen = sprintf((char *)context->service_buffer,
+		plen = sprintf((char *)context->serv_buf,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a",
 			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
 			wsi->u.hdr.ah->c_port);
 
 		if (context->proxy_basic_auth_token[0])
-			plen += sprintf((char *)context->service_buffer + plen,
+			plen += sprintf((char *)context->serv_buf + plen,
 					"Proxy-authorization: basic %s\x0d\x0a",
 					context->proxy_basic_auth_token);
 
-		plen += sprintf((char *)context->service_buffer + plen,
+		plen += sprintf((char *)context->serv_buf + plen,
 				"\x0d\x0a");
 
 		ads = context->http_proxy_address;
@@ -160,7 +160,7 @@ lws_client_connect_2(struct lws *wsi)
 			goto oom4;
 		}
 
-		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_CONNECT;
+		wsi->mode = LWSCM_WSCL_WAITING_CONNECT;
 
 		lws_libev_accept(wsi, wsi->sock);
 		if (insert_wsi_socket_into_fds(context, wsi)) {
@@ -219,7 +219,6 @@ lws_client_connect_2(struct lws *wsi)
 	}
 
 	if (connect(wsi->sock, v, n) == -1 || LWS_ERRNO == LWS_EISCONN) {
-
 		if (LWS_ERRNO == LWS_EALREADY ||
 		    LWS_ERRNO == LWS_EINPROGRESS ||
 		    LWS_ERRNO == LWS_EWOULDBLOCK
@@ -263,7 +262,7 @@ lws_client_connect_2(struct lws *wsi)
 			goto failed;
 		wsi->u.hdr.ah->c_port = context->http_proxy_port;
 
-		n = send(wsi->sock, (char *)context->service_buffer, plen,
+		n = send(wsi->sock, (char *)context->serv_buf, plen,
 			 MSG_NOSIGNAL);
 		if (n < 0) {
 			lwsl_debug("ERROR writing to proxy socket\n");
@@ -273,7 +272,7 @@ lws_client_connect_2(struct lws *wsi)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
 				AWAITING_TIMEOUT);
 
-		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_PROXY_REPLY;
+		wsi->mode = LWSCM_WSCL_WAITING_PROXY_REPLY;
 
 		return wsi;
 	}
@@ -291,15 +290,13 @@ lws_client_connect_2(struct lws *wsi)
 	lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 			AWAITING_TIMEOUT);
 
-	wsi->mode = LWS_CONNMODE_WS_CLIENT_ISSUE_HANDSHAKE;
+	wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE;
 	pfd.fd = wsi->sock;
 	pfd.revents = LWS_POLLIN;
 
 	n = lws_service_fd(context, &pfd);
-
 	if (n < 0)
 		goto failed;
-
 	if (n) /* returns 1 on failure after closing wsi */
 		return NULL;
 
@@ -308,6 +305,7 @@ lws_client_connect_2(struct lws *wsi)
 oom4:
 	lws_free(wsi->u.hdr.ah);
 	lws_free(wsi);
+
 	return NULL;
 
 failed:
@@ -358,7 +356,7 @@ lws_client_connect(struct lws_context *context, const char *address,
 
 	wsi->ietf_spec_revision = ietf_version_or_minus_one;
 	wsi->user_space = NULL;
-	wsi->state = WSI_STATE_CLIENT_UNCONNECTED;
+	wsi->state = LWSS_CLIENT_UNCONNECTED;
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 
@@ -411,7 +409,7 @@ lws_client_connect(struct lws_context *context, const char *address,
 	 * connection.
 	 */
 
-	if (lws_ext_callback_for_each_extension_type(context, wsi,
+	if (lws_ext_cb_all_exts(context, wsi,
 			LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION,
 						     (void *)address, port) > 0) {
 		lwsl_client("lws_client_connect: ext handling conn\n");
@@ -420,7 +418,7 @@ lws_client_connect(struct lws_context *context, const char *address,
 			PENDING_TIMEOUT_AWAITING_EXTENSION_CONNECT_RESPONSE,
 			        AWAITING_TIMEOUT);
 
-		wsi->mode = LWS_CONNMODE_WS_CLIENT_WAITING_EXTENSION_CONNECT;
+		wsi->mode = LWSCM_WSCL_WAITING_EXTENSION_CONNECT;
 		return wsi;
 	}
 	lwsl_client("lws_client_connect: direct conn\n");

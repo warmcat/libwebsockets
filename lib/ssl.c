@@ -26,8 +26,8 @@
 
 int openssl_websocket_private_data_index;
 
-static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size,
-					      int rwflag, void *userdata)
+static int
+lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
 {
 	struct lws_context_creation_info * info =
 			(struct lws_context_creation_info *)userdata;
@@ -38,8 +38,7 @@ static int lws_context_init_ssl_pem_passwd_cb(char * buf, int size,
 	return strlen(buf);
 }
 
-static void lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
-				    struct lws_context_creation_info *info)
+static void lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info)
 {
 	if (!info->ssl_private_key_password)
 		return;
@@ -49,8 +48,7 @@ static void lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
 	 * SSL_CTX_use_PrivateKey_file function
 	 */
 	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *)info);
-	SSL_CTX_set_default_passwd_cb(ssl_ctx,
-				      lws_context_init_ssl_pem_passwd_cb);
+	SSL_CTX_set_default_passwd_cb(ssl_ctx, lws_context_init_ssl_pem_passwd_cb);
 }
 
 #ifndef LWS_NO_SERVER
@@ -88,7 +86,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 
 LWS_VISIBLE int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
-		     struct lws_context *context)
+			    struct lws_context *context)
 {
 	SSL_METHOD *method;
 	struct lws wsi;
@@ -149,7 +147,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl method %lu: %s\n",
 			error, ERR_error_string(error,
-					      (char *)context->service_buffer));
+					      (char *)context->serv_buf));
 		return 1;
 	}
 	context->ssl_ctx = SSL_CTX_new(method);	/* create context */
@@ -157,7 +155,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
 			error, ERR_error_string(error,
-					      (char *)context->service_buffer));
+					      (char *)context->serv_buf));
 		return 1;
 	}
 
@@ -173,8 +171,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	/* as a server, are we requiring clients to identify themselves? */
 
-	if (info->options &
-			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
+	if (info->options & LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
 		int verify_options = SSL_VERIFY_PEER;
 
 		if (!(info->options & LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
@@ -198,13 +195,11 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 					       context->ssl_ctx, NULL, 0);
 	}
 
-	if (info->options & LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT) {
+	if (info->options & LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT)
 		/* Normally SSL listener rejects non-ssl, optionally allow */
 		context->allow_non_ssl_on_ssl_port = 1;
-	}
 
 	if (context->use_ssl) {
-
 		/* openssl init for server sockets */
 
 		/* set the local certificate from CertFile */
@@ -216,7 +211,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 				info->ssl_cert_filepath,
 				error,
 				ERR_error_string(error,
-					      (char *)context->service_buffer));
+					      (char *)context->serv_buf));
 			return 1;
 		}
 		lws_ssl_bind_passphrase(context->ssl_ctx, info);
@@ -230,11 +225,10 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 				lwsl_err("ssl problem getting key '%s' %lu: %s\n",
 					 info->ssl_private_key_filepath, error,
 					 ERR_error_string(error,
-					      (char *)context->service_buffer));
+					      (char *)context->serv_buf));
 				return 1;
 			}
-		}
-		else {
+		} else
 			if (context->protocols[0].callback(&wsi,
 				LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
 						context->ssl_ctx, NULL, 0)) {
@@ -242,7 +236,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 				return 1;
 			}
-		}
 
 		/* verify private key */
 		if (!SSL_CTX_check_private_key(context->ssl_ctx)) {
@@ -325,7 +318,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl method %lu: %s\n",
 			error, ERR_error_string(error,
-				      (char *)context->service_buffer));
+				      (char *)context->serv_buf));
 		return 1;
 	}
 	/* create context */
@@ -334,7 +327,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
 			error, ERR_error_string(error,
-				      (char *)context->service_buffer));
+				      (char *)context->serv_buf));
 		return 1;
 	}
 
@@ -389,7 +382,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 				info->ssl_cert_filepath,
 				ERR_get_error(),
 				ERR_error_string(ERR_get_error(),
-				(char *)context->service_buffer));
+				(char *)context->serv_buf));
 			return 1;
 		}
 	}
@@ -402,7 +395,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 				info->ssl_private_key_filepath,
 				ERR_get_error(),
 				ERR_error_string(ERR_get_error(),
-				      (char *)context->service_buffer));
+				      (char *)context->serv_buf));
 			return 1;
 		}
 
@@ -469,35 +462,47 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	if (!n)
 		return LWS_SSL_CAPABLE_ERROR;
 
-	if (n > 0) {
-		/*
-		 * if it was our buffer that limited what we read,
-		 * check if SSL has additional data pending inside SSL buffers.
-		 *
-		 * Because these won't signal at the network layer with POLLIN
-		 * and if we don't realize, this data will sit there forever
-		 */
-		if (n == len && wsi->ssl && SSL_pending(wsi->ssl)) {
-			if (!wsi->pending_read_list_next && !wsi->pending_read_list_prev) {
-				if (context->pending_read_list != wsi) {
-					/* add us to the linked list of guys with pending ssl */
-					if (context->pending_read_list)
-						context->pending_read_list->pending_read_list_prev = wsi;
-					wsi->pending_read_list_next = context->pending_read_list;
-					wsi->pending_read_list_prev = NULL;
-					context->pending_read_list = wsi;
-				}
-			}
-		} else
-			lws_ssl_remove_wsi_from_buffered_list(wsi);
+	if (n < 0) {
+		n = SSL_get_error(wsi->ssl, n);
+		if (n ==  SSL_ERROR_WANT_READ || n ==  SSL_ERROR_WANT_WRITE)
+			return LWS_SSL_CAPABLE_MORE_SERVICE;
 
-		return n;
+		return LWS_SSL_CAPABLE_ERROR;
 	}
-	n = SSL_get_error(wsi->ssl, n);
-	if (n ==  SSL_ERROR_WANT_READ || n ==  SSL_ERROR_WANT_WRITE)
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
-lwsl_err("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
-	return LWS_SSL_CAPABLE_ERROR;
+
+	/*
+	 * if it was our buffer that limited what we read,
+	 * check if SSL has additional data pending inside SSL buffers.
+	 *
+	 * Because these won't signal at the network layer with POLLIN
+	 * and if we don't realize, this data will sit there forever
+	 */
+	if (n != len)
+		goto bail;
+	if (!wsi->ssl)
+		goto bail;
+	if (!SSL_pending(wsi->ssl))
+		goto bail;
+	if (wsi->pending_read_list_next)
+		return n;
+	if (wsi->pending_read_list_prev)
+		return n;
+	if (context->pending_read_list == wsi)
+		return n;
+
+	/* add us to the linked list of guys with pending ssl */
+	if (context->pending_read_list)
+		context->pending_read_list->pending_read_list_prev = wsi;
+
+	wsi->pending_read_list_next = context->pending_read_list;
+	wsi->pending_read_list_prev = NULL;
+	context->pending_read_list = wsi;
+
+	return n;
+bail:
+	lws_ssl_remove_wsi_from_buffered_list(wsi);
+
+	return n;
 }
 
 LWS_VISIBLE int
@@ -527,7 +532,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 			lws_set_blocking_send(wsi);
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 	}
-lwsl_err("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
+
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
@@ -566,7 +571,7 @@ lws_server_socket_service_ssl(struct lws **pwsi, struct lws *new_wsi,
 		return 0;
 
 	switch (wsi->mode) {
-	case LWS_CONNMODE_SERVER_LISTENER:
+	case LWSCM_SERVER_LISTENER:
 
 		if (!new_wsi) {
 			lwsl_err("no new_wsi\n");
@@ -615,7 +620,7 @@ lws_server_socket_service_ssl(struct lws **pwsi, struct lws *new_wsi,
 
 		*pwsi = new_wsi;
 		wsi = *pwsi;
-		wsi->mode = LWS_CONNMODE_SSL_ACK_PENDING;
+		wsi->mode = LWSCM_SSL_ACK_PENDING;
 		if (insert_wsi_socket_into_fds(context, wsi))
 			goto fail;
 
@@ -626,7 +631,7 @@ lws_server_socket_service_ssl(struct lws **pwsi, struct lws *new_wsi,
 
 		/* fallthru */
 
-	case LWS_CONNMODE_SSL_ACK_PENDING:
+	case LWSCM_SSL_ACK_PENDING:
 
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			goto fail;
@@ -635,8 +640,8 @@ lws_server_socket_service_ssl(struct lws **pwsi, struct lws *new_wsi,
 
 		lws_latency_pre(context, wsi);
 
-		n = recv(wsi->sock, (char *)context->service_buffer,
-			sizeof(context->service_buffer), MSG_PEEK);
+		n = recv(wsi->sock, (char *)context->serv_buf,
+			sizeof(context->serv_buf), MSG_PEEK);
 
 		/*
 		 * optionally allow non-SSL connect on SSL listening socket
@@ -646,7 +651,7 @@ lws_server_socket_service_ssl(struct lws **pwsi, struct lws *new_wsi,
 		 */
 
 		if (context->allow_non_ssl_on_ssl_port) {
-			if (n >= 1 && context->service_buffer[0] >= ' ') {
+			if (n >= 1 && context->serv_buf[0] >= ' ') {
 				/*
 				* TLS content-type for Handshake is 0x16, and
 				* for ChangeCipherSpec Record, it's 0x14
@@ -686,7 +691,7 @@ lws_server_socket_service_ssl(struct lws **pwsi, struct lws *new_wsi,
 
 		n = SSL_accept(wsi->ssl);
 		lws_latency(context, wsi,
-			"SSL_accept LWS_CONNMODE_SSL_ACK_PENDING\n", n, n == 1);
+			"SSL_accept LWSCM_SSL_ACK_PENDING\n", n, n == 1);
 
 		if (n == 1)
 			goto accepted;
@@ -720,7 +725,7 @@ accepted:
 		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
 				AWAITING_TIMEOUT);
 
-		wsi->mode = LWS_CONNMODE_HTTP_SERVING;
+		wsi->mode = LWSCM_HTTP_SERVING;
 
 		lws_http2_configure_if_upgraded(wsi);
 
