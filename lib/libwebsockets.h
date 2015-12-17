@@ -105,12 +105,6 @@ extern "C" {
 #include "lws_config.h"
 
 #if defined(WIN32) || defined(_WIN32)
-#if (WINVER < 0x0600)
-#undef WINVER
-#undef _WIN32_WINNT
-#define WINVER 0x0600
-#define _WIN32_WINNT WINVER
-#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif

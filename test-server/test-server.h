@@ -1,3 +1,9 @@
+#if defined(_WIN32) && defined(EXTERNAL_POLL)
+#define WINVER 0x0600
+#define _WIN32_WINNT 0x0600
+#define poll(fdArray, fds, timeout)  WSAPoll((LPWSAPOLLFD)(fdArray), (ULONG)(fds), (INT)(timeout))
+#endif
+
 #include "lws_config.h"
 
 #include <stdio.h>
@@ -13,9 +19,6 @@
 
 #ifdef _WIN32
 #include <io.h>
-#ifdef EXTERNAL_POLL
-#define poll WSAPoll
-#endif
 #include "gettimeofday.h"
 #else
 #include <syslog.h>

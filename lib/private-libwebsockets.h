@@ -66,6 +66,7 @@
 #define lws_socket_is_valid(x) (!!x)
 #define LWS_SOCK_INVALID 0
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <tchar.h>
 #ifdef LWS_HAVE_IN6ADDR_H
