@@ -49,7 +49,7 @@ int lws_ext_cb_wsi_active_exts(struct lws *wsi, int reason, void *arg, int len)
 
 	for (n = 0; n < wsi->count_active_extensions; n++) {
 		m = wsi->active_extensions[n]->callback(
-			lws_get_ctx(wsi),
+			lws_get_context(wsi),
 			wsi->active_extensions[n], wsi,
 			reason,
 			wsi->active_extensions_user[n],

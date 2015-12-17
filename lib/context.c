@@ -216,7 +216,7 @@ lws_create_context(struct lws_context_creation_info *info)
 		 * initialization if they want to.
 		 *
 		 * NOTE the wsi is all zeros except for the context pointer
-		 * so lws_get_ctx(wsi) can work in the callback.
+		 * so lws_get_context(wsi) can work in the callback.
 		 */
 		info->protocols[context->count_protocols].callback(&wsi,
 				LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);

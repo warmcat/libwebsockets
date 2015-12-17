@@ -334,7 +334,7 @@ bail_nuke_ah:
 
 int lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
-	struct lws_context *context = lws_get_ctx(wsi);
+	struct lws_context *context = lws_get_context(wsi);
 	struct allocated_headers *ah;
 	int protocol_len, n, hit;
 	char protocol_list[128];
@@ -895,7 +895,7 @@ LWS_VISIBLE int lws_serve_http_file(struct lws *wsi, const char *file,
 				    const char *other_headers,
 				    int other_headers_len)
 {
-	struct lws_context *context = lws_get_ctx(wsi);
+	struct lws_context *context = lws_get_context(wsi);
 	unsigned char *response = context->serv_buf +
 				  LWS_SEND_BUFFER_PRE_PADDING;
 	unsigned char *p = response;

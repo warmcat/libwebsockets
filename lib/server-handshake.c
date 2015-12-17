@@ -75,7 +75,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 
 		/* check a client's extension against our support */
 
-		ext = lws_get_ctx(wsi)->extensions;
+		ext = lws_get_context(wsi)->extensions;
 
 		while (ext && ext->callback) {
 
@@ -90,7 +90,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 			 * particular connection + protocol
 			 */
 
-			n = lws_get_ctx(wsi)->protocols[0].callback(wsi,
+			n = lws_get_context(wsi)->protocols[0].callback(wsi,
 				LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
 				wsi->user_space, ext_name, 0);
 
@@ -131,7 +131,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 
 			/* allow him to construct his context */
 
-			ext->callback(lws_get_ctx(wsi),
+			ext->callback(lws_get_context(wsi),
 					ext, wsi,
 					LWS_EXT_CALLBACK_CONSTRUCT,
 					wsi->active_extensions_user[

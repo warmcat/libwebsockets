@@ -75,7 +75,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		switch (wsi->pps) {
 		case LWS_PPS_HTTP2_MY_SETTINGS:
 		case LWS_PPS_HTTP2_ACK_SETTINGS:
-			lws_http2_do_pps_send(lws_get_ctx(wsi), wsi);
+			lws_http2_do_pps_send(lws_get_context(wsi), wsi);
 			break;
 		default:
 			break;

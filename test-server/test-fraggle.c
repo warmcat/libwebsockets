@@ -134,7 +134,7 @@ callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 		switch (psf->state) {
 
 		case FRAGSTATE_START_MESSAGE:
-			lws_get_random(lws_get_ctx(wsi), &ran, sizeof(ran));
+			lws_get_random(lws_get_context(wsi), &ran, sizeof(ran));
 			psf->packets_left = (ran % 1024) + 1;
 			fprintf(stderr, "Spamming %d random fragments\n",
 							     psf->packets_left);
@@ -153,11 +153,11 @@ callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 			 * code for rx spill because the rx buffer is full
 			 */
 
-			lws_get_random(lws_get_ctx(wsi), &ran, sizeof(ran));
+			lws_get_random(lws_get_context(wsi), &ran, sizeof(ran));
 			chunk = (ran % 8000) + 1;
 			psf->total_message += chunk;
 
-			lws_get_random(lws_get_ctx(wsi), bp, chunk);
+			lws_get_random(lws_get_context(wsi), bp, chunk);
 			for (n = 0; n < chunk; n++)
 				psf->sum += bp[n];
 

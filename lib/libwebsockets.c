@@ -927,7 +927,7 @@ lws_get_fops(struct lws_context *context)
 }
 
 LWS_VISIBLE LWS_EXTERN struct lws_context *
-lws_get_ctx(const struct lws *wsi)
+lws_get_context(const struct lws *wsi)
 {
 	return wsi->context;
 }

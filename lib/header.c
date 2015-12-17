@@ -176,7 +176,7 @@ LWS_VISIBLE int
 lws_return_http_status(struct lws *wsi, unsigned int code, const char *html_body)
 {
 	int n, m;
-	struct lws_context *context = lws_get_ctx(wsi);
+	struct lws_context *context = lws_get_context(wsi);
 	unsigned char *p = context->serv_buf +
 			   LWS_SEND_BUFFER_PRE_PADDING;
 	unsigned char *start = p;

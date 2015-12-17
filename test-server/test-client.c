@@ -145,7 +145,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lwsl_notice("mirror: LWS_CALLBACK_CLIENT_ESTABLISHED\n");
 
-		lws_get_random(lws_get_ctx(wsi), rands, sizeof(rands[0]));
+		lws_get_random(lws_get_context(wsi), rands, sizeof(rands[0]));
 		mirror_lifetime = 16384 + (rands[0] & 65535);
 		/* useful to test single connection stability */
 		if (longlived)
@@ -173,7 +173,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
 		for (n = 0; n < 1; n++) {
-			lws_get_random(lws_get_ctx(wsi), rands, sizeof(rands));
+			lws_get_random(lws_get_context(wsi), rands, sizeof(rands));
 			l += sprintf((char *)&buf[LWS_SEND_BUFFER_PRE_PADDING + l],
 					"c #%06X %d %d %d;",
 					(int)rands[0] & 0xffffff,

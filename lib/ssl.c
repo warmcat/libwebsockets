@@ -70,7 +70,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	context = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
 
 	/*
-	 * give him a fake wsi with context set, so he can use lws_get_ctx()
+	 * give him a fake wsi with context set, so he can use lws_get_context()
 	 * in the callback
 	 */
 	memset(&wsi, 0, sizeof(wsi));
@@ -118,7 +118,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	/*
 	 * give him a fake wsi with context set, so he can use
-	 * lws_get_ctx() in the callback
+	 * lws_get_context() in the callback
 	 */
 	memset(&wsi, 0, sizeof(wsi));
 	wsi.context = context;
@@ -408,7 +408,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 
 	/*
 	 * give him a fake wsi with context set, so he can use
-	 * lws_get_ctx() in the callback
+	 * lws_get_context() in the callback
 	 */
 	memset(&wsi, 0, sizeof(wsi));
 	wsi.context = context;

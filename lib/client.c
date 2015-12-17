@@ -650,7 +650,7 @@ check_extensions:
 		lwsl_ext("checking client ext %s\n", ext_name);
 
 		n = 0;
-		ext = lws_get_ctx(wsi)->extensions;
+		ext = lws_get_context(wsi)->extensions;
 		while (ext && ext->callback) {
 			if (strcmp(ext_name, ext->name)) {
 				ext++;
@@ -675,7 +675,7 @@ check_extensions:
 
 			/* allow him to construct his context */
 
-			ext->callback(lws_get_ctx(wsi), ext, wsi,
+			ext->callback(lws_get_context(wsi), ext, wsi,
 				      LWS_EXT_CALLBACK_CLIENT_CONSTRUCT,
 				      wsi->active_extensions_user[
 					 wsi->count_active_extensions],

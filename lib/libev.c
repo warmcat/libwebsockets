@@ -135,7 +135,7 @@ lws_initloop(
 LWS_VISIBLE void
 lws_libev_accept(struct lws *new_wsi, int accept_fd)
 {
-	struct lws_context *context = lws_get_ctx(new_wsi);
+	struct lws_context *context = lws_get_context(new_wsi);
 	struct ev_io *r = &new_wsi->w_read.watcher;
 	struct ev_io *w = &new_wsi->w_write.watcher;
 
@@ -151,7 +151,7 @@ lws_libev_accept(struct lws *new_wsi, int accept_fd)
 LWS_VISIBLE void
 lws_libev_io(struct lws *wsi, int flags)
 {
-	struct lws_context *context = lws_get_ctx(wsi);
+	struct lws_context *context = lws_get_context(wsi);
 
 	if (!LWS_LIBEV_ENABLED(context))
 		return;
