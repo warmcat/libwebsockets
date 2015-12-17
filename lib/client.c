@@ -718,9 +718,10 @@ check_accept:
 	 * we seem to be good to go, give client last chance to check
 	 * headers and OK it
 	 */
-	wsi->protocol->callback(wsi,
-				LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
-				wsi->user_space, NULL, 0);
+	if (wsi->protocol->callback(wsi,
+				    LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
+				    wsi->user_space, NULL, 0))
+		goto bail2;
 
 	/* clear his proxy connection timeout */
 
@@ -762,8 +763,9 @@ check_accept:
 
 	/* call him back to inform him he is up */
 
-	wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_ESTABLISHED,
-				wsi->user_space, NULL, 0);
+	if (wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_ESTABLISHED,
+				    wsi->user_space, NULL, 0))
+		goto bail3;
 #ifndef LWS_NO_EXTENSIONS
 	/*
 	 * inform all extensions, not just active ones since they
