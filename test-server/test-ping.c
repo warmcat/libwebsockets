@@ -54,7 +54,7 @@ static unsigned int size = 64;
 static int flood;
 static const char *address;
 static unsigned char pingbuf[LWS_SEND_BUFFER_PRE_PADDING + MAX_MIRROR_PAYLOAD +
-						  LWS_SEND_BUFFER_POST_PADDING];
+			     LWS_SEND_BUFFER_POST_PADDING];
 static char peer_name[128];
 static unsigned long started;
 static int screen_width = 80;
@@ -103,18 +103,17 @@ static int
 callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
+	struct per_session_data__ping *psd = user;
 	struct timeval tv;
 	unsigned char *p;
-	int shift;
-	uint64_t l;
 	unsigned long iv;
-	int n;
 	int match = 0;
-	struct per_session_data__ping *psd = user;
+	uint64_t l;
+	int shift;
+	int n;
 
 	switch (reason) {
 	case LWS_CALLBACK_CLOSED:
-
 		fprintf(stderr, "LWS_CALLBACK_CLOSED on %p\n", (void *)wsi);
 
 		/* remove closed guy */

@@ -43,8 +43,8 @@ LWS_VISIBLE struct lws_extension *lws_get_internal_extensions()
 
 /* 0 = nobody had nonzero return, 1 = somebody had positive return, -1 = fail */
 
-int lws_ext_callback_for_each_active(struct lws *wsi, int reason,
-				void *arg, int len)
+int lws_ext_callback_for_each_active(struct lws *wsi, int reason, void *arg,
+				     int len)
 {
 	int n, m, handled = 0;
 
@@ -77,7 +77,7 @@ int lws_ext_callback_for_each_extension_type(
 
 	while (ext && ext->callback && !handled) {
 		m = ext->callback(context, ext, wsi, reason,
-						(void *)(long)n, arg, len);
+				  (void *)(long)n, arg, len);
 		if (m < 0) {
 			lwsl_ext(
 			 "Extension '%s' failed to handle callback %d!\n",
@@ -95,8 +95,7 @@ int lws_ext_callback_for_each_extension_type(
 }
 
 int
-lws_issue_raw_ext_access(struct lws *wsi,
-						 unsigned char *buf, size_t len)
+lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int ret;
 	struct lws_tokens eff_buf;
@@ -186,7 +185,7 @@ lws_issue_raw_ext_access(struct lws *wsi,
 int
 lws_any_extension_handled(struct lws *wsi,
 			  enum lws_extension_callback_reasons r,
-						       void *v, size_t len)
+			  void *v, size_t len)
 {
 	int n;
 	int handled = 0;
