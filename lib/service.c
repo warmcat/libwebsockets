@@ -476,6 +476,12 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 
 		goto close_and_handled;
 	}
+
+#ifdef _WIN32
+	if (pollfd->revents & LWS_POLLOUT)
+		wsi->sock_send_blocking = FALSE;
+#endif
+
 #endif
 
 	/* okay, what we came here to do... */
