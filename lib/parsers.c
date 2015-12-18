@@ -334,11 +334,20 @@ int lws_parse(struct lws *wsi, unsigned char c)
 				if (ah->nfrag >= ARRAY_SIZE(ah->frags))
 					goto excessive;
 				/* start next fragment after the & */
+				wsi->u.hdr.post_literal_equal = 0;
 				ah->frags[ah->nfrag].offset = ah->pos;
 				ah->frags[ah->nfrag].len = 0;
 				ah->frags[ah->nfrag].nfrag = 0;
 				goto swallow;
 			}
+			/* uriencoded = in the name part, disallow */
+			if (c == '=' && enc && !wsi->u.hdr.post_literal_equal)
+				c = '_';
+
+			/* after the real =, we don't care how many = */
+			if (c == '=' && !enc)
+				wsi->u.hdr.post_literal_equal = 1;
+
 			/* + to space */
 			if (c == '+' && !enc)
 				c = ' ';
@@ -413,6 +422,7 @@ int lws_parse(struct lws *wsi, unsigned char c)
 			ah->frags[ah->nfrag].len = 0;
 			ah->frags[ah->nfrag].nfrag = 0;
 
+			wsi->u.hdr.post_literal_equal = 0;
 			ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] = ah->nfrag;
 			wsi->u.hdr.ups = URIPS_IDLE;
 			goto swallow;

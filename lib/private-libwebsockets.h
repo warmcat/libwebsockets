@@ -810,6 +810,7 @@ struct _lws_header_related {
 	enum uri_path_states ups;
 	enum uri_esc_states ues;
 	char esc_stash;
+	char post_literal_equal;
 };
 
 struct _lws_websocket_related {

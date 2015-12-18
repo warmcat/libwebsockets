@@ -90,6 +90,12 @@ echo -e "GET /cgi-bin/settings.js?key1=value1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SE
 check 1 "key1=value1"
 check
 
+echo
+echo "---- ? processing (/test?key1%3d2=value1)"
+rm -f /tmp/lwscap
+echo -e "GET /test?key1%3d2=value1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check 1 "key1_2=value1"
+check
 
 echo
 echo "---- ? processing (%2f%2e%2e%2f%2e./test.html?arg=1)"
