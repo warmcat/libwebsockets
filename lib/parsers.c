@@ -324,7 +324,7 @@ int lws_parse(struct lws *wsi, unsigned char c)
 		switch (wsi->u.hdr.ups) {
 		case URIPS_IDLE:
 			/* genuine delimiter */
-			if (c == '&' && !enc) {
+			if ((c == '&' || c == ';') && !enc) {
 				issue_char(wsi, c);
 				/* swallow the terminator */
 				ah->frags[ah->nfrag].len--;

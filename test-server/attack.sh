@@ -84,6 +84,14 @@ check 3 "Root_Channels_1_Channel_location_http_post=?"
 check
 
 echo
+echo "---- ? processing (/cgi-bin/settings.js?key1=value1)"
+rm -f /tmp/lwscap
+echo -e "GET /cgi-bin/settings.js?key1=value1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check 1 "key1=value1"
+check
+
+
+echo
 echo "---- ? processing (%2f%2e%2e%2f%2e./test.html?arg=1)"
 rm -f /tmp/lwscap
 echo -e "GET %2f%2e%2e%2f%2e./test.html?arg=1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
