@@ -81,6 +81,23 @@ int lws_free_header_table(struct lws *wsi)
 	return 0;
 };
 
+LWS_VISIBLE int
+lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
+{
+	int n;
+
+	n = wsi->u.hdr.ah->frag_index[h];
+	if (!n)
+		return 0;
+	do {
+		if (!frag_idx)
+			return wsi->u.hdr.ah->frags[n].len;
+		n = wsi->u.hdr.ah->frags[n].nfrag;
+	} while (frag_idx-- && n);
+
+	return 0;
+}
+
 LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;
