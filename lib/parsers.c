@@ -110,7 +110,7 @@ LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 		n++;
 	}
 
-	if (wsi->u.hdr.ah->frags[f].len >= (len - 1))
+	if (wsi->u.hdr.ah->frags[f].len >= len)
 		return -1;
 
 	memcpy(dst, &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[f].offset],
