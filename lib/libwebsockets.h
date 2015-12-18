@@ -74,7 +74,8 @@ public:
 	lws_conn_listener():
 		srv(SOCKET_STACK_LWIP_IPV4)
 	{
-		srv.setOnError(TCPStream::ErrorHandler_t(this, &lws_conn_listener::onError));
+		srv.setOnError(TCPStream::ErrorHandler_t(this,
+				&lws_conn_listener::onError));
 	}
 
 	void start(const uint16_t port);
@@ -266,13 +267,13 @@ struct lws;
  * add it at where specified so existing users are unaffected.
  */
 enum lws_context_options {
-	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT = 2,
-	LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME = 4,
-	LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT = 8,
-	LWS_SERVER_OPTION_LIBEV = 16,
-	LWS_SERVER_OPTION_DISABLE_IPV6 = 32,
-	LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS = 64,
-	LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED = 128,
+	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT	= (1 << 1),
+	LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME		= (1 << 2),
+	LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT		= (1 << 3),
+	LWS_SERVER_OPTION_LIBEV					= (1 << 4),
+	LWS_SERVER_OPTION_DISABLE_IPV6				= (1 << 5),
+	LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS			= (1 << 6),
+	LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED		= (1 << 7),
 
 	/****** add new things just above ---^ ******/
 };
@@ -335,9 +336,9 @@ typedef SOCKET lws_sockfd_type;
 typedef HANDLE lws_filefd_type;
 #define lws_sockfd_valid(sfd) (!!sfd)
 struct lws_pollfd {
-    lws_sockfd_type fd;
-    SHORT events;
-    SHORT revents;
+	lws_sockfd_type fd;
+	SHORT events;
+	SHORT revents;
 };
 #else
 
@@ -351,12 +352,12 @@ struct pollfd {
 	short events;
 	short revents;
 };
-#define POLLIN          0x0001
-#define POLLPRI         0x0002
-#define POLLOUT         0x0004
-#define POLLERR         0x0008
-#define POLLHUP         0x0010
-#define POLLNVAL        0x0020
+#define POLLIN		0x0001
+#define POLLPRI		0x0002
+#define POLLOUT		0x0004
+#define POLLERR		0x0008
+#define POLLHUP		0x0010
+#define POLLNVAL	0x0020
 
 struct lws;
 
@@ -702,31 +703,31 @@ struct lws_token_limits {
  * add it at where specified so existing users are unaffected.
  */
 enum lws_close_status {
-	LWS_CLOSE_STATUS_NOSTATUS = 0,
-	LWS_CLOSE_STATUS_NORMAL = 1000,
-	LWS_CLOSE_STATUS_GOINGAWAY = 1001,
-	LWS_CLOSE_STATUS_PROTOCOL_ERR = 1002,
-	LWS_CLOSE_STATUS_UNACCEPTABLE_OPCODE = 1003,
-	LWS_CLOSE_STATUS_RESERVED = 1004,
-	LWS_CLOSE_STATUS_NO_STATUS = 1005,
-	LWS_CLOSE_STATUS_ABNORMAL_CLOSE = 1006,
-	LWS_CLOSE_STATUS_INVALID_PAYLOAD = 1007,
-	LWS_CLOSE_STATUS_POLICY_VIOLATION = 1008,
-	LWS_CLOSE_STATUS_MESSAGE_TOO_LARGE = 1009,
-	LWS_CLOSE_STATUS_EXTENSION_REQUIRED = 1010,
-	LWS_CLOSE_STATUS_UNEXPECTED_CONDITION = 1011,
-	LWS_CLOSE_STATUS_TLS_FAILURE = 1015,
+	LWS_CLOSE_STATUS_NOSTATUS				=    0,
+	LWS_CLOSE_STATUS_NORMAL					= 1000,
+	LWS_CLOSE_STATUS_GOINGAWAY				= 1001,
+	LWS_CLOSE_STATUS_PROTOCOL_ERR				= 1002,
+	LWS_CLOSE_STATUS_UNACCEPTABLE_OPCODE			= 1003,
+	LWS_CLOSE_STATUS_RESERVED				= 1004,
+	LWS_CLOSE_STATUS_NO_STATUS				= 1005,
+	LWS_CLOSE_STATUS_ABNORMAL_CLOSE				= 1006,
+	LWS_CLOSE_STATUS_INVALID_PAYLOAD			= 1007,
+	LWS_CLOSE_STATUS_POLICY_VIOLATION			= 1008,
+	LWS_CLOSE_STATUS_MESSAGE_TOO_LARGE			= 1009,
+	LWS_CLOSE_STATUS_EXTENSION_REQUIRED			= 1010,
+	LWS_CLOSE_STATUS_UNEXPECTED_CONDITION			= 1011,
+	LWS_CLOSE_STATUS_TLS_FAILURE				= 1015,
 
 	/****** add new things just above ---^ ******/
 
-	LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY = 9999,
+	LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY		= 9999,
 };
 
 enum http_status {
-	HTTP_STATUS_OK = 200,
-	HTTP_STATUS_NO_CONTENT = 204,
+	HTTP_STATUS_OK						= 200,
+	HTTP_STATUS_NO_CONTENT					= 204,
 
-	HTTP_STATUS_BAD_REQUEST = 400,
+	HTTP_STATUS_BAD_REQUEST					= 400,
 	HTTP_STATUS_UNAUTHORIZED,
 	HTTP_STATUS_PAYMENT_REQUIRED,
 	HTTP_STATUS_FORBIDDEN,
@@ -745,7 +746,7 @@ enum http_status {
 	HTTP_STATUS_REQ_RANGE_NOT_SATISFIABLE,
 	HTTP_STATUS_EXPECTATION_FAILED,
 
-	HTTP_STATUS_INTERNAL_SERVER_ERROR = 500,
+	HTTP_STATUS_INTERNAL_SERVER_ERROR			= 500,
 	HTTP_STATUS_NOT_IMPLEMENTED,
 	HTTP_STATUS_BAD_GATEWAY,
 	HTTP_STATUS_SERVICE_UNAVAILABLE,
@@ -910,12 +911,12 @@ struct lws_extension;
  *		is the server's OpenSSL SSL_CTX*
  *
  *	LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY: if configured for
- *		including OpenSSL support but no private key file has been specified
- *		(ssl_private_key_filepath is NULL), this callback is called to
+ *		including OpenSSL support but no private key file has been
+ *		specified (ssl_private_key_filepath is NULL), this is called to
  *		allow the user to set the private key directly via libopenssl
  *		and perform further operations if required; this might be useful
- *		in situations where the private key is not directly accessible by
- *		the OS, for example if it is stored on a smartcard
+ *		in situations where the private key is not directly accessible
+ *		by the OS, for example if it is stored on a smartcard
  *		@user is the server's OpenSSL SSL_CTX*
  *
  *	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION: if the
@@ -1047,9 +1048,9 @@ LWS_VISIBLE LWS_EXTERN int
 callback(const struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	 void *in, size_t len);
 
-typedef int (callback_function)(struct lws *wsi,
-				enum lws_callback_reasons reason, void *user,
-				void *in, size_t len);
+typedef int
+(callback_function)(struct lws *wsi, enum lws_callback_reasons reason,
+		    void *user, void *in, size_t len);
 
 #ifndef LWS_NO_EXTENSIONS
 /**
@@ -1115,10 +1116,11 @@ extension_callback(struct lws_context *context, const struct lws_extension *ext,
 		   struct lws *wsi, enum lws_extension_callback_reasons reason,
 		   void *user, void *in, size_t len);
 
-typedef int (extension_callback_function)(struct lws_context *context,
-			const struct lws_extension *ext, struct lws *wsi,
-			enum lws_extension_callback_reasons reason,
-			void *user, void *in, size_t len);
+typedef int
+(extension_callback_function)(struct lws_context *context,
+			      const struct lws_extension *ext, struct lws *wsi,
+			      enum lws_extension_callback_reasons reason,
+			      void *user, void *in, size_t len);
 #endif
 
 /**
@@ -1518,9 +1520,8 @@ lws_canonical_hostname(struct lws_context *context);
 
 
 LWS_VISIBLE LWS_EXTERN void
-lws_get_peer_addresses(struct lws *wsi,
-		       lws_sockfd_type fd, char *name, int name_len,
-		       char *rip, int rip_len);
+lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
+		       int name_len, char *rip, int rip_len);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_get_random(struct lws_context *context, void *buf, int len);
@@ -1622,21 +1623,22 @@ static LWS_INLINE int
 lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		   unsigned char *buf, unsigned long len)
 {
-	return lws_get_fops(lws_get_context(wsi))->read(wsi, fd, amount, buf, len);
+	return lws_get_fops(lws_get_context(wsi))->read(wsi, fd, amount, buf,
+							len);
 }
 
 static LWS_INLINE int
 lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		    unsigned char *buf, unsigned long len)
 {
-	return lws_get_fops(lws_get_context(wsi))->write(wsi, fd, amount, buf, len);
+	return lws_get_fops(lws_get_context(wsi))->write(wsi, fd, amount, buf,
+							 len);
 }
 
 /*
  * Note: this is not normally needed as a user api.  It's provided in case it is
  * useful when integrating with other app poll loop service code.
  */
-
 LWS_VISIBLE LWS_EXTERN int
 lws_read(struct lws *wsi, unsigned char *buf, size_t len);
 
