@@ -60,16 +60,13 @@ transaction if possible
 <h2>lws_serve_http_file - Send a file back to the client using http</h2>
 <i>int</i>
 <b>lws_serve_http_file</b>
-(<i>struct lws_context *</i> <b>context</b>,
-<i>struct lws *</i> <b>wsi</b>,
+(<i>struct lws *</i> <b>wsi</b>,
 <i>const char *</i> <b>file</b>,
 <i>const char *</i> <b>content_type</b>,
 <i>const char *</i> <b>other_headers</b>,
 <i>int</i> <b>other_headers_len</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>context</b>
-<dd>libwebsockets context
 <dt><b>wsi</b>
 <dd>Websocket instance (available from user callback)
 <dt><b>file</b>
@@ -77,7 +74,9 @@ transaction if possible
 <dt><b>content_type</b>
 <dd>The http content type, eg, text/html
 <dt><b>other_headers</b>
-<dd>NULL or pointer to \0-terminated other header string
+<dd>NULL or pointer to header string
+<dt><b>other_headers_len</b>
+<dd>length of the other headers if non-NULL
 </dl>
 <h3>Description</h3>
 <blockquote>
@@ -95,14 +94,11 @@ the wsi should be left alone.
 <h2>lws_return_http_status - Return simple http status</h2>
 <i>int</i>
 <b>lws_return_http_status</b>
-(<i>struct lws_context *</i> <b>context</b>,
-<i>struct lws *</i> <b>wsi</b>,
+(<i>struct lws *</i> <b>wsi</b>,
 <i>unsigned int</i> <b>code</b>,
 <i>const char *</i> <b>html_body</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>context</b>
-<dd>libwebsockets context
 <dt><b>wsi</b>
 <dd>Websocket instance (available from user callback)
 <dt><b>code</b>
@@ -319,8 +315,7 @@ Many protocols won't care becuse their packets are always small.
 <h2>lws_get_peer_addresses - Get client address information</h2>
 <i>void</i>
 <b>lws_get_peer_addresses</b>
-(<i>struct lws_context *</i> <b>context</b>,
-<i>struct lws *</i> <b>wsi</b>,
+(<i>struct lws *</i> <b>wsi</b>,
 <i>lws_sockfd_type</i> <b>fd</b>,
 <i>char *</i> <b>name</b>,
 <i>int</i> <b>name_len</b>,
@@ -328,8 +323,6 @@ Many protocols won't care becuse their packets are always small.
 <i>int</i> <b>rip_len</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>context</b>
-<dd>Libwebsockets context
 <dt><b>wsi</b>
 <dd>Local struct lws associated with
 <dt><b>fd</b>
@@ -371,7 +364,8 @@ using globals statics in the user code.
 <h2>lws_callback_all_protocol - Callback all connections using the given protocol with the given reason</h2>
 <i>int</i>
 <b>lws_callback_all_protocol</b>
-(<i>const struct lws_protocols *</i> <b>protocol</b>,
+(<i>struct lws_context *</i> <b>context</b>,
+<i>const struct lws_protocols *</i> <b>protocol</b>,
 <i>int</i> <b>reason</b>)
 <h3>Arguments</h3>
 <dl>
@@ -439,7 +433,8 @@ control for the input side.
 <h2>lws_rx_flow_allow_all_protocol - Allow all connections with this protocol to receive</h2>
 <i>void</i>
 <b>lws_rx_flow_allow_all_protocol</b>
-(<i>const struct lws_protocols *</i> <b>protocol</b>)
+(<i>const struct lws_context *</i> <b>context</b>,
+<i>const struct lws_protocols *</i> <b>protocol</b>)
 <h3>Arguments</h3>
 <dl>
 <dt><b>protocol</b>
@@ -484,7 +479,7 @@ has been created.
 </dl>
 <h3>Description</h3>
 <blockquote>
-Returns 0 if proxy string was parsed and proxy was setup. 
+Returns 0 if proxy string was parsed and proxy was setup.
 Returns -1 if <tt><b>proxy</b></tt> is NULL or has incorrect format.
 <p>
 This is only required if your OS does not provide the http_proxy
@@ -517,15 +512,11 @@ this is how you can get a pointer to the active protocol if needed.
 <i>void</i>
 <b>lws_set_log_level</b>
 (<i>int</i> <b>level</b>,
-<i>void (*</i><b>log_emit_function</b>) <i>(int level, 							      const char *line)</i>)
+<i>void (*</i><b>func</b>) <i>(int level, const char *line)</i>)
 <h3>Arguments</h3>
 <dl>
 <dt><b>level</b>
 <dd>OR together the LLL_ debug contexts you want output from
-<dt><b>log_emit_function</b>
-<dd>NULL to leave it as it is, or a user-supplied
-function to perform log string emission instead of
-the default stderr one.
 </dl>
 <h3>Description</h3>
 <blockquote>
@@ -646,12 +637,9 @@ undefined.
 <h2>lws_callback_on_writable - Request a callback when this socket becomes able to be written to without blocking</h2>
 <i>int</i>
 <b>lws_callback_on_writable</b>
-(<i>struct lws_context *</i> <b>context</b>,
-<i>struct lws *</i> <b>wsi</b>)
+(<i>struct lws *</i> <b>wsi</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>context</b>
-<dd>libwebsockets context
 <dt><b>wsi</b>
 <dd>Websocket connection instance to get callback for
 </dl>
@@ -659,9 +647,12 @@ undefined.
 <h2>lws_callback_on_writable_all_protocol - Request a callback for all connections using the given protocol when it becomes possible to write to each socket without blocking in turn.</h2>
 <i>int</i>
 <b>lws_callback_on_writable_all_protocol</b>
-(<i>const struct lws_protocols *</i> <b>protocol</b>)
+(<i>const struct lws_context *</i> <b>context</b>,
+<i>const struct lws_protocols *</i> <b>protocol</b>)
 <h3>Arguments</h3>
 <dl>
+<dt><b>context</b>
+<dd>lws_context
 <dt><b>protocol</b>
 <dd>Protocol whose connections will get callbacks
 </dl>
@@ -714,19 +705,46 @@ There is no <b>poll</b> in MBED3, he will fire callbacks when he feels like
 it.
 </blockquote>
 <hr>
+<h2>struct lws_plat_file_ops - Platform-specific file operations</h2>
+<b>struct lws_plat_file_ops</b> {<br>
+&nbsp; &nbsp; <i>lws_filefd_type (*</i><b>open</b>) <i>(struct lws *wsi, const char *filename,unsigned long *filelen, int flags)</i>;<br>
+&nbsp; &nbsp; <i>int (*</i><b>close</b>) <i>(struct lws *wsi, lws_filefd_type fd)</i>;<br>
+&nbsp; &nbsp; <i>unsigned long (*</i><b>seek_cur</b>) <i>(struct lws *wsi, lws_filefd_type fd,long offset_from_cur_pos)</i>;<br>
+&nbsp; &nbsp; <i>int (*</i><b>read</b>) <i>(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,unsigned char *buf, unsigned long len)</i>;<br>
+&nbsp; &nbsp; <i>int (*</i><b>write</b>) <i>(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,unsigned char *buf, unsigned long len)</i>;<br>
+};<br>
+<h3>Members</h3>
+<dl>
+<dt><b>open</b>
+<dd>Open file (always binary access if plat supports it)
+filelen is filled on exit to be the length of the file
+flags should be set to O_RDONLY or O_RDWR
+<dt><b>close</b>
+<dd>Close file
+<dt><b>seek_cur</b>
+<dd>Seek from current position
+<dt><b>read</b>
+<dd>Read fron file *amount is set on exit to amount read
+<dt><b>write</b>
+<dd>Write to file *amount is set on exit as amount written
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+These provide platform-agnostic ways to deal with filesystem access in the
+library and in the user code.
+</blockquote>
+<hr>
 <h2>callback - User server actions</h2>
 <i>LWS_EXTERN int</i>
 <b>callback</b>
-(<i>struct lws_context *</i> <b>context</b>,
-<i>struct lws *</i> <b>wsi</b>,
+(<i>const struct lws *</i> <b>wsi</b>,
 <i>enum lws_callback_reasons</i> <b>reason</b>,
 <i>void *</i> <b>user</b>,
 <i>void *</i> <b>in</b>,
 <i>size_t</i> <b>len</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>context</b>
-<dd>Websockets context
 <dt><b>wsi</b>
 <dd>Opaque websocket instance pointer
 <dt><b>reason</b>
@@ -753,7 +771,10 @@ LWS_CALLBACK_ESTABLISHED reason.
 <h3>LWS_CALLBACK_ESTABLISHED</h3>
 <blockquote>
 after the server completes a handshake with
-an incoming client
+an incoming client.  If you built the library
+with ssl support, <tt><b>in</b></tt> is a pointer to the
+ssl struct associated with the connection or
+NULL.
 </blockquote>
 <h3>LWS_CALLBACK_CLIENT_CONNECTION_ERROR</h3>
 <blockquote>
@@ -1091,7 +1112,7 @@ duration of wsi dereference from the other thread context.
 <i>LWS_EXTERN int</i>
 <b>extension_callback</b>
 (<i>struct lws_context *</i> <b>context</b>,
-<i>struct lws_extension *</i> <b>ext</b>,
+<i>const struct lws_extension *</i> <b>ext</b>,
 <i>struct lws *</i> <b>wsi</b>,
 <i>enum lws_extension_callback_reasons</i> <b>reason</b>,
 <i>void *</i> <b>user</b>,
@@ -1183,8 +1204,6 @@ set the lws_tokens token pointer to it.
 &nbsp; &nbsp; <i>size_t</i> <b>rx_buffer_size</b>;<br>
 &nbsp; &nbsp; <i>unsigned int</i> <b>id</b>;<br>
 &nbsp; &nbsp; <i>void *</i> <b>user</b>;<br>
-&nbsp; &nbsp; <i>struct lws_context *</i> <b>owning_server</b>;<br>
-&nbsp; &nbsp; <i>int</i> <b>protocol_index</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
@@ -1221,11 +1240,6 @@ capability flags based on selected protocol version, etc.
 Accessible via lws_get_protocol(wsi)-&gt;user
 This should not be confused with wsi-&gt;user, it is not the same.
 The library completely ignores any value in here.
-<dt><b>owning_server</b>
-<dd>the server init call fills in this opaque pointer when
-registering this protocol with the server.
-<dt><b>protocol_index</b>
-<dd>which protocol we are starting from zero
 </dl>
 <h3>Description</h3>
 <blockquote>
@@ -1268,9 +1282,9 @@ all sessions, etc, if it wants
 <b>struct lws_context_creation_info</b> {<br>
 &nbsp; &nbsp; <i>int</i> <b>port</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>iface</b>;<br>
-&nbsp; &nbsp; <i>struct lws_protocols *</i> <b>protocols</b>;<br>
-&nbsp; &nbsp; <i>struct lws_extension *</i> <b>extensions</b>;<br>
-&nbsp; &nbsp; <i>struct lws_token_limits *</i> <b>token_limits</b>;<br>
+&nbsp; &nbsp; <i>const struct lws_protocols *</i> <b>protocols</b>;<br>
+&nbsp; &nbsp; <i>const struct lws_extension *</i> <b>extensions</b>;<br>
+&nbsp; &nbsp; <i>const struct lws_token_limits *</i> <b>token_limits</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>ssl_cert_filepath</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>ssl_private_key_filepath</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>ssl_ca_filepath</b>;<br>
@@ -1311,7 +1325,7 @@ extensions this context supports.  If you configured with
 --without-extensions, you should give NULL here.
 <dt><b>token_limits</b>
 <dd>NULL or struct lws_token_limits pointer which is initialized
-with a token length limit for each possible WSI_TOKEN_*** 
+with a token length limit for each possible WSI_TOKEN_***
 <dt><b>ssl_cert_filepath</b>
 <dd>If libwebsockets was compiled to use ssl, and you want
 to listen using SSL, set to the filepath to fetch the
@@ -1332,7 +1346,7 @@ or you can leave it as NULL to get "DEFAULT"
 If proxy auth is required, use format
 "username:password<tt><b>server</b></tt>:port"
 <dt><b>http_proxy_port</b>
-<dd>If http_proxy_address was non-NULL, uses this port at the address 
+<dd>If http_proxy_address was non-NULL, uses this port at the address
 <dt><b>gid</b>
 <dd>group id to change to after setting listen socket, or -1.
 <dt><b>uid</b>
