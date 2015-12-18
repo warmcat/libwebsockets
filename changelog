@@ -1,6 +1,32 @@
 Changelog
 ---------
 
+v1.6.0-chrome48-firefox42
+=======================
+
+Major API improvements
+----------------------
+
+v1.6.0 has many cleanups and improvements in the API.  Although at first it
+looks pretty drastic, user code will only need four actions to update it.
+
+ - Do the three search/replaces in your user code, /libwebsocket_/lws_/,
+   /libwebsockets_/lws_/, and /struct\ libwebsocket/struct\ lws/
+
+ - Remove the context parameter from your user callbacks
+
+ - Remove context as the first parameter from the "Eleven APIS" listed in the
+   User Api Changes section
+
+ - Add lws_get_context(wsi) as the first parameter on the "Three APIS" listed
+   in the User Api Changes section, and anywhere else you still need context
+
+That's it... generally only a handful of the 14 affected APIs are actually in
+use in your user code and you can find them quickest by compiling and visiting
+the errors each in turn.  And the end results are much cleaner, more
+predictable and maintainable.
+
+
 User api additions
 ------------------
 
@@ -43,6 +69,27 @@ authentication and state to be used when interpreting the file request.
 
 2) A new API void * lws_wsi_user(struct lws *wsi) lets you get the pointer to
 the user data associated with the wsi, just from the wsi.
+
+3) URI argument handling.  Libwebsockets parses and protects URI arguments
+like test.html?arg1=1&arg2=2, it decodes %xx uriencoding format and reduces
+path attacks like ../.../../etc/passwd so they cannot go behind the web
+server's /.  There is a list of confirmed attacks we're proof against in
+./test-server/attack.sh.
+
+There is a new API lws_hdr_copy_fragment that should be used now to access
+the URI arguments (it returns the fragments length)
+
+               while (lws_hdr_copy_fragment(wsi, buf, sizeof(buf),
+                                            WSI_TOKEN_HTTP_URI_ARGS, n) > 0) {
+                       lwsl_info("URI Arg %d: %s\n", ++n, buf);
+               }
+
+For the example above, calling with n=0 will return "arg1=1" and n=1 "arg2=2".
+All legal uriencodings will have been reduced in those strings.
+
+lws_hdr_copy_fragment() returns the length of the x=y fragment, so it's also
+possible to deal with arguments containing %00.  If you don't care about that,
+the returned string has '\0' appended to simplify processing.
 
 
 User api changes
