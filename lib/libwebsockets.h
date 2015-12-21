@@ -758,7 +758,7 @@ struct lws_context;
 struct lws_extension;
 
 /**
- * callback_function() - User server actions
+ * typedef lws_callback_function() - User server actions
  * @wsi:	Opaque websocket instance pointer
  * @reason:	The reason for the call
  * @user:	Pointer to per-session user data allocated by library
@@ -1052,17 +1052,13 @@ struct lws_extension;
  *		connection.  If you return nonzero lws will just close the
  *		connection.
  */
-LWS_VISIBLE LWS_EXTERN int
-callback(const struct lws *wsi, enum lws_callback_reasons reason, void *user,
-	 void *in, size_t len);
-
 typedef int
-(callback_function)(struct lws *wsi, enum lws_callback_reasons reason,
+lws_callback_function(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len);
 
 #ifndef LWS_NO_EXTENSIONS
 /**
- * extension_callback_function() - Hooks to allow extensions to operate
+ * typedef lws_extension_callback_function() - Hooks to allow extensions to operate
  * @context:	Websockets context
  * @ext:	This extension
  * @wsi:	Opaque websocket instance pointer
@@ -1119,13 +1115,8 @@ typedef int
  *		buffer safely, it should copy the data into its own buffer and
  *		set the lws_tokens token pointer to it.
  */
-LWS_VISIBLE LWS_EXTERN int
-extension_callback(struct lws_context *context, const struct lws_extension *ext,
-		   struct lws *wsi, enum lws_extension_callback_reasons reason,
-		   void *user, void *in, size_t len);
-
 typedef int
-(extension_callback_function)(struct lws_context *context,
+lws_extension_callback_function(struct lws_context *context,
 			      const struct lws_extension *ext, struct lws *wsi,
 			      enum lws_extension_callback_reasons reason,
 			      void *user, void *in, size_t len);
@@ -1173,7 +1164,7 @@ typedef int
 
 struct lws_protocols {
 	const char *name;
-	callback_function *callback;
+	lws_callback_function *callback;
 	size_t per_session_data_size;
 	size_t rx_buffer_size;
 	unsigned int id;
@@ -1199,7 +1190,7 @@ struct lws_protocols {
 
 struct lws_extension {
 	const char *name;
-	extension_callback_function *callback;
+	lws_extension_callback_function *callback;
 	size_t per_session_data_size;
 	void *per_context_private_data;
 
@@ -1209,7 +1200,7 @@ struct lws_extension {
 #endif
 
 /**
- * struct lws_context_creation_info: parameters to create context with
+ * struct lws_context_creation_info - parameters to create context with
  *
  * @port:	Port to listen on... you can use CONTEXT_PORT_NO_LISTEN to
  *		suppress listening on any port, that's what you want if you are

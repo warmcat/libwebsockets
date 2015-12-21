@@ -655,7 +655,7 @@ lws_canonical_hostname(struct lws_context *context)
 	return (const char *)context->canonical_hostname;
 }
 
-int user_callback_handle_rxflow(callback_function callback_function,
+int user_callback_handle_rxflow(lws_callback_function callback_function,
 				struct lws *wsi,
 				enum lws_callback_reasons reason, void *user,
 				void *in, size_t len)

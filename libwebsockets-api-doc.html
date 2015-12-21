@@ -823,10 +823,10 @@ These provide platform-agnostic ways to deal with filesystem access in the
 library and in the user code.
 </blockquote>
 <hr>
-<h2>callback - User server actions</h2>
-<i>LWS_EXTERN int</i>
-<b>callback</b>
-(<i>const struct lws *</i> <b>wsi</b>,
+<h2>lws_callback_function - User server actions</h2>
+<i>typedef int</i>
+<b>lws_callback_function</b>
+(<i>struct lws *</i> <b>wsi</b>,
 <i>enum lws_callback_reasons</i> <b>reason</b>,
 <i>void *</i> <b>user</b>,
 <i>void *</i> <b>in</b>,
@@ -1207,9 +1207,9 @@ connection.  If you return nonzero lws will just close the
 connection.
 </blockquote>
 <hr>
-<h2>extension_callback - Hooks to allow extensions to operate</h2>
-<i>LWS_EXTERN int</i>
-<b>extension_callback</b>
+<h2>lws_extension_callback_function - Hooks to allow extensions to operate</h2>
+<i>typedef int</i>
+<b>lws_extension_callback_function</b>
 (<i>struct lws_context *</i> <b>context</b>,
 <i>const struct lws_extension *</i> <b>ext</b>,
 <i>struct lws *</i> <b>wsi</b>,
@@ -1298,7 +1298,7 @@ set the lws_tokens token pointer to it.
 <h2>struct lws_protocols - List of protocols and handlers server supports.</h2>
 <b>struct lws_protocols</b> {<br>
 &nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
-&nbsp; &nbsp; <i>callback_function *</i> <b>callback</b>;<br>
+&nbsp; &nbsp; <i>lws_callback_function *</i> <b>callback</b>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>rx_buffer_size</b>;<br>
 &nbsp; &nbsp; <i>unsigned int</i> <b>id</b>;<br>
@@ -1357,7 +1357,7 @@ header.
 <h2>struct lws_extension - An extension we know how to cope with</h2>
 <b>struct lws_extension</b> {<br>
 &nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
-&nbsp; &nbsp; <i>extension_callback_function *</i> <b>callback</b>;<br>
+&nbsp; &nbsp; <i>lws_extension_callback_function *</i> <b>callback</b>;<br>
 &nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
 &nbsp; &nbsp; <i>void *</i> <b>per_context_private_data</b>;<br>
 };<br>
@@ -1377,7 +1377,7 @@ is per-context, so it can track stuff across
 all sessions, etc, if it wants
 </dl>
 <hr>
-<h2>struct lws_context_creation_info - </h2>
+<h2>struct lws_context_creation_info - parameters to create context with</h2>
 <b>struct lws_context_creation_info</b> {<br>
 &nbsp; &nbsp; <i>int</i> <b>port</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>iface</b>;<br>
