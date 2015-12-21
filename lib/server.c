@@ -457,12 +457,9 @@ upgrade_ws:
 			lwsl_info("checking %s\n", protocol_name);
 
 			n = 0;
-			while (wsi->protocol && context->protocols[n].callback) {
-				if (!wsi->protocol->name) {
-					n++;
-					continue;
-				}
-				if (!strcmp(context->protocols[n].name,
+			while (context->protocols[n].callback) {
+				if (context->protocols[n].name &&
+				    !strcmp(context->protocols[n].name,
 					    protocol_name)) {
 					lwsl_info("prot match %d\n", n);
 					wsi->protocol = &context->protocols[n];
@@ -477,19 +474,18 @@ upgrade_ws:
 		/* we didn't find a protocol he wanted? */
 
 		if (!hit) {
-			if (!lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
-				/*
-				 * some clients only have one protocol and
-				 * do not sent the protocol list header...
-				 * allow it and match to protocol 0
-				 */
-				lwsl_info("defaulting to prot 0 handler\n");
-				wsi->protocol = &context->protocols[0];
-			} else {
-				lwsl_err("No protocol from list \"%s\" supported\n",
+			if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
+				lwsl_err("No protocol from \"%s\" supported\n",
 					 protocol_list);
 				goto bail_nuke_ah;
 			}
+			/*
+			 * some clients only have one protocol and
+			 * do not sent the protocol list header...
+			 * allow it and match to protocol 0
+			 */
+			lwsl_info("defaulting to prot 0 handler\n");
+			wsi->protocol = &context->protocols[0];
 		}
 
 		/* allocate wsi->user storage */
@@ -508,7 +504,6 @@ upgrade_ws:
 			lwsl_warn("User code denied connection\n");
 			goto bail_nuke_ah;
 		}
-
 
 		/*
 		 * Perform the handshake according to the protocol version the
