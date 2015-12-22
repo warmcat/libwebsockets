@@ -39,6 +39,10 @@
 #include "gettimeofday.h"
 #endif
 
+#ifdef __ANDROID__
+#include <termiosh>
+#endif
+
 /*
  * this is specified in the 04 standard, control frames can only have small
  * payload length styles
