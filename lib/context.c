@@ -302,6 +302,11 @@ lws_context_destroy(struct lws_context *context)
 			protocol++;
 		}
 	}
+#ifdef LWS_USE_LIBEV
+	ev_io_stop(context->io_loop, &context->w_accept.watcher);
+	if(context->use_ev_sigint)
+		ev_signal_stop(context->io_loop, &context->w_sigint.watcher);
+#endif /* LWS_USE_LIBEV */
 
 	lws_plat_context_early_destroy(context);
 	lws_ssl_context_destroy(context);
