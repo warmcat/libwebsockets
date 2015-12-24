@@ -502,6 +502,7 @@ struct lws_context {
 	 * for pollfd event change.
 	 */
 	volatile int service_tid;
+	int service_tid_detected;
 #ifndef _WIN32
 	int dummy_pipe_fds[2];
 #endif

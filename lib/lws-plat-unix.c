@@ -112,8 +112,16 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 
 	lws_libev_run(context);
 
-	context->service_tid = context->protocols[0].callback(NULL,
-				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+	if (!context->service_tid_detected) {
+		struct lws _lws;
+
+		memset(&_lws, 0, sizeof(_lws));
+		_lws.context = context;
+
+		context->service_tid_detected = context->protocols[0].callback(
+			&_lws, LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+	}
+	context->service_tid = context->service_tid_detected;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	/* if we know we have non-network pending data, do not wait in poll */

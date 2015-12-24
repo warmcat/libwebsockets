@@ -174,7 +174,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 
 		sampled_tid = context->service_tid;
 		if (sampled_tid) {
-			tid = context->protocols[0].callback(NULL,
+			tid = context->protocols[0].callback(wsi,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 			if (tid == -1)
 				return -1;
