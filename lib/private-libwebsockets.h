@@ -536,6 +536,9 @@ struct lws_context {
 	void *user_space;
 
 	struct lws_plat_file_ops fops;
+#ifndef LWS_NO_SERVER
+	struct lws *wsi_listening;
+#endif
 };
 
 enum {
@@ -1220,10 +1223,13 @@ LWS_EXTERN int
 _lws_rx_flow_control(struct lws *wsi);
 LWS_EXTERN int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
+LWS_EXTERN int
+_lws_server_listen_accept_flow_control(struct lws_context *context, int on);
 #else
 #define lws_server_socket_service(_a, _b, _c) (0)
 #define _lws_rx_flow_control(_a) (0)
 #define lws_handshake_server(_a, _b, _c) (0)
+#define _lws_server_listen_accept_flow_control(a, b) (0)
 #endif
 
 LWS_EXTERN int

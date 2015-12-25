@@ -124,6 +124,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	wsi->mode = LWSCM_SERVER_LISTENER;
 	wsi->protocol = context->protocols;
 
+	context->wsi_listening = wsi;
 	if (insert_wsi_socket_into_fds(context, wsi))
 		goto bail;
 
@@ -179,6 +180,23 @@ _lws_rx_flow_control(struct lws *wsi)
 			return -1;
 
 	return 0;
+}
+
+int
+_lws_server_listen_accept_flow_control(struct lws_context *context, int on)
+{
+	struct lws *wsi = context->wsi_listening;
+	int n;
+
+	if (!wsi)
+		return 0;
+
+	if (on)
+		n = lws_change_pollfd(wsi, 0, LWS_POLLIN);
+	else
+		n = lws_change_pollfd(wsi, LWS_POLLIN, 0);
+
+	return n;
 }
 
 int lws_http_action(struct lws *wsi)
