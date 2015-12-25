@@ -234,12 +234,8 @@ just_kill_connection:
 			/* not going to be completed... nuke it */
 			lws_free_set_NULL(wsi->trunc_alloc);
 
-		if (wsi->u.ws.ping_payload_buf) {
-			lws_free_set_NULL(wsi->u.ws.ping_payload_buf);
-			wsi->u.ws.ping_payload_alloc = 0;
-			wsi->u.ws.ping_payload_len = 0;
-			wsi->u.ws.ping_pending_flag = 0;
-		}
+		wsi->u.ws.ping_payload_len = 0;
+		wsi->u.ws.ping_pending_flag = 0;
 	}
 
 	/* tell the user it's all over for this guy */

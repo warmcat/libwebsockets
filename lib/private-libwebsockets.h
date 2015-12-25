@@ -831,11 +831,10 @@ struct _lws_websocket_related {
 	unsigned int inside_frame:1; /* next write will be more of frame */
 	unsigned int clean_buffer:1; /* buffer not rewritten by extension */
 	unsigned int payload_is_close:1; /* process as PONG, but it is close */
+	unsigned int ping_pending_flag:1;
 
-	unsigned char *ping_payload_buf; /* non-NULL if malloc'd */
-	unsigned int ping_payload_alloc; /* length malloc'd */
-	unsigned int ping_payload_len;
-	unsigned char ping_pending_flag;
+	unsigned char ping_payload_buf[128 - 4]; /* control opc == < 124 */
+	unsigned char ping_payload_len;
 };
 
 struct lws {

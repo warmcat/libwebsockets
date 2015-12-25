@@ -302,21 +302,6 @@ spill:
 				goto ping_drop;
 			}
 
-			/* if existing buffer is too small, drop it */
-			if (wsi->u.ws.ping_payload_buf &&
-			    wsi->u.ws.ping_payload_alloc <
-			    wsi->u.ws.rx_user_buffer_head)
-				lws_free_set_NULL(wsi->u.ws.ping_payload_buf);
-
-			/* if no buffer, allocate it */
-			if (!wsi->u.ws.ping_payload_buf) {
-				wsi->u.ws.ping_payload_buf =
-					lws_malloc(wsi->u.ws.rx_user_buffer_head +
-						   LWS_SEND_BUFFER_PRE_PADDING);
-				wsi->u.ws.ping_payload_alloc =
-					wsi->u.ws.rx_user_buffer_head;
-			}
-
 			/* stash the pong payload */
 			memcpy(wsi->u.ws.ping_payload_buf + LWS_SEND_BUFFER_PRE_PADDING,
 			       &wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
