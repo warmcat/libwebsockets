@@ -100,6 +100,7 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	lwsl_info(" SPEC_LATEST_SUPPORTED: %u\n", SPEC_LATEST_SUPPORTED);
 	lwsl_info(" AWAITING_TIMEOUT: %u\n", AWAITING_TIMEOUT);
+	lwsl_info(" sizeof (*info): %u\n", sizeof(*info));
 #if LWS_POSIX
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
 	lwsl_info(" LWS_MAX_ZLIB_CONN_BUFFER: %u\n", LWS_MAX_ZLIB_CONN_BUFFER);

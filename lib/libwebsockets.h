@@ -1278,7 +1278,14 @@ struct lws_context_creation_info {
 #endif
 
 	/* Add new things just above here ---^
-	 * This is part of the ABI, don't needlessly break compatibilty */
+	 * This is part of the ABI, don't needlessly break compatibility
+	 *
+	 * The below is to ensure later library versions with new
+	 * members added above will see 0 (default) even if the app
+	 * was not built against the newer headers.
+	 */
+
+	void *_unused[9];
 };
 
 LWS_VISIBLE LWS_EXTERN void
