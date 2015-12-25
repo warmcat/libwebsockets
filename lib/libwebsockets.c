@@ -52,7 +52,19 @@ lws_free_wsi(struct lws *wsi)
 
 	lws_free_set_NULL(wsi->rxflow_buffer);
 	lws_free_set_NULL(wsi->trunc_alloc);
-	lws_free_header_table(wsi);
+	/*
+	 * These union members have an ah at the start
+	 *
+	 * 	struct _lws_http_mode_related http;
+	 *	struct _lws_http2_related http2;
+	 *	struct _lws_header_related hdr;
+	 *
+	 * basically ws-related union member does not
+	 */
+	if (wsi->mode != LWSCM_WS_CLIENT &&
+	    wsi->mode != LWSCM_WS_SERVING)
+		if (wsi->u.hdr.ah)
+			lws_free_header_table(wsi);
 	lws_free(wsi);
 }
 
@@ -222,7 +234,6 @@ just_kill_connection:
 	wsi->state = LWSS_DEAD_SOCKET;
 
 	lws_free_set_NULL(wsi->rxflow_buffer);
-	lws_free_header_table(wsi);
 
 	if (old_state == LWSS_ESTABLISHED ||
 	    wsi->mode == LWSCM_WS_SERVING ||
@@ -912,6 +923,7 @@ lws_get_peer_write_allowance(struct lws *wsi)
 LWS_VISIBLE void
 lws_union_transition(struct lws *wsi, enum connection_mode mode)
 {
+	lwsl_debug("%s: %p: mode %d\n", __func__, wsi, mode);
 	memset(&wsi->u, 0, sizeof(wsi->u));
 	wsi->mode = mode;
 }

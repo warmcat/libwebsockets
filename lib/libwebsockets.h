@@ -1249,6 +1249,13 @@ struct lws_extension {
  *		implementation for the one provided by provided_ssl_ctx.
  *		Libwebsockets no longer is responsible for freeing the context
  *		if this option is selected.
+ * @max_http_header_data: The max amount of header payload that can be handled
+ *		in an http request (unrecognized header payload is dropped)
+ * @max_http_header_pool: The max number of connections with http headers that
+ *		can be processed simultaneously (the corresponding memory is
+ *		allocated for the lifetime of the context).  If the pool is
+ *		busy new incoming connections must wait for accept until one
+ *		becomes free.
  */
 
 struct lws_context_creation_info {
@@ -1274,8 +1281,11 @@ struct lws_context_creation_info {
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX *provided_client_ssl_ctx;
 #else /* maintain structure layout either way */
-    	void *provided_client_ssl_ctx;
+	void *provided_client_ssl_ctx;
 #endif
+
+	short max_http_header_data;
+	short max_http_header_pool;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -1285,7 +1295,7 @@ struct lws_context_creation_info {
 	 * was not built against the newer headers.
 	 */
 
-	void *_unused[9];
+	void *_unused[8];
 };
 
 LWS_VISIBLE LWS_EXTERN void

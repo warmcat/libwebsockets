@@ -283,6 +283,9 @@ extern "C" {
 #ifndef LWS_MAX_HEADER_LEN
 #define LWS_MAX_HEADER_LEN 1024
 #endif
+#ifndef LWS_MAX_HEADER_POOL
+#define LWS_MAX_HEADER_POOL 16
+#endif
 #ifndef LWS_MAX_PROTOCOLS
 #define LWS_MAX_PROTOCOLS 5
 #endif
@@ -451,6 +454,46 @@ struct lws_fd_hashtable {
 };
 #endif
 
+/*
+ * This is totally opaque to code using the library.  It's exported as a
+ * forward-reference pointer-only declaration; the user can use the pointer with
+ * other APIs to get information out of it.
+ */
+
+struct lws_fragments {
+	unsigned short offset;
+	unsigned short len;
+	unsigned char nfrag; /* which ah->frag[] continues this content, or 0 */
+};
+
+/*
+ * these are assigned from a pool held in the context.
+ * Both client and server mode uses them for http header analysis
+ */
+
+struct allocated_headers {
+	unsigned char in_use;
+	unsigned char nfrag;
+	unsigned short pos;
+	/*
+	 * for each recognized token, frag_index says which frag[] his data
+	 * starts in (0 means the token did not appear)
+	 * the actual header data gets dumped as it comes in, into data[]
+	 */
+	unsigned char frag_index[WSI_TOKEN_COUNT];
+	/*
+	 * the randomly ordered fragments, indexed by frag_index and
+	 * lws_fragments->nfrag for continuation.
+	 */
+	struct lws_fragments frags[WSI_TOKEN_COUNT * 2];
+	char *data; /* prepared by context init to point to dedicated storage */
+
+#ifndef LWS_NO_CLIENT
+	char initial_handshake_hash_base64[30];
+	unsigned short c_port;
+#endif
+};
+
 struct lws_context {
 #ifdef _WIN32
 	WSAEVENT *events;
@@ -539,6 +582,11 @@ struct lws_context {
 #ifndef LWS_NO_SERVER
 	struct lws *wsi_listening;
 #endif
+	short max_http_header_data;
+	short max_http_header_pool;
+	short ah_count_in_use;
+	void *http_header_data;
+	struct allocated_headers *ah_pool;
 };
 
 enum {
@@ -593,18 +641,6 @@ enum uri_esc_states {
 	URIES_SEEN_PERCENT_H1,
 };
 
-/*
- * This is totally opaque to code using the library.  It's exported as a
- * forward-reference pointer-only declaration; the user can use the pointer with
- * other APIs to get information out of it.
- */
-
-struct lws_fragments {
-	unsigned short offset;
-	unsigned short len;
-	unsigned char nfrag; /* which ah->frag[] continues this content, or 0 */
-};
-
 /* notice that these union members:
  *
  *  hdr
@@ -616,28 +652,6 @@ struct lws_fragments {
  * It means for allocated_headers access, the three union paths can all be
  * used interchangeably to access the same data
  */
-
-struct allocated_headers {
-	unsigned char nfrag;
-	unsigned short pos;
-	/*
-	 * for each recognized token, frag_index says which frag[] his data
-	 * starts in (0 means the token did not appear)
-	 * the actual header data gets dumped as it comes in, into data[]
-	 */
-	unsigned char frag_index[WSI_TOKEN_COUNT];
-	/*
-	 * the randomly ordered fragments, indexed by frag_index and
-	 * lws_fragments->nfrag for continuation.
-	 */
-	struct lws_fragments frags[WSI_TOKEN_COUNT * 2];
-	char data[LWS_MAX_HEADER_LEN];
-
-#ifndef LWS_NO_CLIENT
-	char initial_handshake_hash_base64[30];
-	unsigned short c_port;
-#endif
-};
 
 struct _lws_http_mode_related {
 	/* MUST be first in struct */
@@ -1104,7 +1118,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
 #ifndef LWS_NO_SERVER
 int lws_context_init_server(struct lws_context_creation_info *info,
-			    struct lws_context *context);
+			    struct lws_context *context);;
 LWS_EXTERN int
 handshake_0405(struct lws_context *context, struct lws *wsi);
 LWS_EXTERN int

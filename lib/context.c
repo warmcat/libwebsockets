@@ -80,6 +80,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	int pid_daemon = get_daemonize_pid();
 #endif
 	char *p;
+	int n;
 
 	lwsl_notice("Initial logging level %d\n", log_level);
 
@@ -150,17 +151,51 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->lws_ev_sigint_cb = &lws_sigint_cb;
 #endif /* LWS_USE_LIBEV */
 
-	/* to reduce this allocation, */
+	lwsl_info(" mem: context:         %5u bytes\n", sizeof(struct lws_context));
+
+	/*
+	 * allocate and initialize the pool of
+	 * allocated_header structs + data
+	 */
+	if (info->max_http_header_data)
+		context->max_http_header_data = info->max_http_header_data;
+	else
+		context->max_http_header_data = LWS_MAX_HEADER_LEN;
+	if (info->max_http_header_pool)
+		context->max_http_header_pool = info->max_http_header_pool;
+	else
+		context->max_http_header_pool = LWS_MAX_HEADER_POOL;
+
+	context->http_header_data = lws_malloc(context->max_http_header_data *
+					       context->max_http_header_pool);
+	if (!context->http_header_data)
+		goto bail;
+	context->ah_pool = lws_zalloc(sizeof(struct allocated_headers) *
+				      context->max_http_header_pool);
+	if (!context->ah_pool)
+		goto bail;
+
+	for (n = 0; n < context->max_http_header_pool; n++)
+		context->ah_pool[n].data = (char *)context->http_header_data +
+			(n * context->max_http_header_data);
+
+	/* this is per context */
+	lwsl_info(" mem: http hdr rsvd:   %5u bytes ((%u + %u) x %u)\n",
+		    (context->max_http_header_data + sizeof(struct allocated_headers)) *
+		    context->max_http_header_pool,
+		    context->max_http_header_data, sizeof(struct allocated_headers),
+		    context->max_http_header_pool);
+
 	context->max_fds = getdtablesize();
-	lwsl_notice(" ctx mem: %u bytes\n", sizeof(struct lws_context) +
-		    ((sizeof(struct lws_pollfd) + sizeof(struct lws *)) *
-		    context->max_fds));
 
 	context->fds = lws_zalloc(sizeof(struct lws_pollfd) * context->max_fds);
 	if (context->fds == NULL) {
 		lwsl_err("OOM allocating %d fds\n", context->max_fds);
 		goto bail;
 	}
+
+	lwsl_info(" mem: pollfd map:      %5u\n",
+		    sizeof(struct lws_pollfd) * context->max_fds);
 
 	if (lws_plat_init(context, info))
 		goto bail;
@@ -169,8 +204,10 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	context->user_space = info->user;
 
-	strcpy(context->canonical_hostname, "unknown");
+	lwsl_notice(" mem: per-conn:        %5u bytes + protocol rx buf\n",
+		    sizeof(struct lws));
 
+	strcpy(context->canonical_hostname, "unknown");
 	lws_server_get_canonical_hostname(context, info);
 
 	/* either use proxy from info, or try get it from env var */
@@ -187,9 +224,6 @@ lws_create_context(struct lws_context_creation_info *info)
 			lws_set_proxy(context, p);
 #endif
 	}
-
-	lwsl_notice(" per-conn mem: %u + %u headers + protocol rx buf\n",
-		    sizeof(struct lws), sizeof(struct allocated_headers));
 
 	if (lws_context_init_server_ssl(info, context))
 		goto bail;
@@ -311,9 +345,12 @@ lws_context_destroy(struct lws_context *context)
 
 	lws_plat_context_early_destroy(context);
 	lws_ssl_context_destroy(context);
-
 	if (context->fds)
 		lws_free(context->fds);
+	if (context->ah_pool)
+		lws_free(context->ah_pool);
+	if (context->http_header_data)
+		lws_free(context->http_header_data);
 
 	lws_plat_context_late_destroy(context);
 

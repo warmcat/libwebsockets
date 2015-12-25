@@ -60,13 +60,47 @@ int lextable_decode(int pos, char c)
 
 int lws_allocate_header_table(struct lws *wsi)
 {
-	/* Be sure to free any existing header data to avoid mem leak: */
-	lws_free_header_table(wsi);
-	wsi->u.hdr.ah = lws_malloc(sizeof(*wsi->u.hdr.ah));
-	if (wsi->u.hdr.ah == NULL) {
-		lwsl_err("Out of memory\n");
+	struct lws_context *context = wsi->context;
+	int n;
+
+	lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi,
+		 (void *)wsi->u.hdr.ah);
+
+	/* if we are already bound to one, just clear it down */
+	if (wsi->u.hdr.ah)
+		goto reset;
+	/*
+	 * server should have suppressed the accept of a new wsi before this
+	 * became the case.  If initiating multiple client connects, make sure
+	 * the ah pool is big enough to cope, or be prepared to retry
+	 */
+	if (context->ah_count_in_use == context->max_http_header_pool) {
+		lwsl_err("No free ah\n");
 		return -1;
 	}
+
+	for (n = 0; n < context->max_http_header_pool; n++)
+		if (!context->ah_pool[n].in_use)
+			break;
+
+	/* if the count of in use said something free... */
+	assert(n != context->max_http_header_pool);
+
+	wsi->u.hdr.ah = &context->ah_pool[n];
+	wsi->u.hdr.ah->in_use = 1;
+
+	context->ah_count_in_use++;
+	/* if we used up all the ah, defeat accepting new server connections */
+	if (context->ah_count_in_use == context->max_http_header_pool)
+		if (_lws_server_listen_accept_flow_control(context, 0))
+			return 1;
+
+	lwsl_debug("%s: wsi %p: ah %p: count %d (on exit)\n",
+		 __func__, (void *)wsi, (void *)wsi->u.hdr.ah,
+		 context->ah_count_in_use);
+
+reset:
+	/* init the ah to reflect no headers or data have appeared yet */
 	memset(wsi->u.hdr.ah->frag_index, 0, sizeof(wsi->u.hdr.ah->frag_index));
 	wsi->u.hdr.ah->nfrag = 0;
 	wsi->u.hdr.ah->pos = 0;
@@ -76,10 +110,31 @@ int lws_allocate_header_table(struct lws *wsi)
 
 int lws_free_header_table(struct lws *wsi)
 {
-	lws_free_set_NULL(wsi->u.hdr.ah);
+	struct lws_context *context = wsi->context;
+
+	lwsl_debug("%s: wsi %p: ah %p (count = %d)\n", __func__, (void *)wsi,
+		 (void *)wsi->u.hdr.ah, context->ah_count_in_use);
+
+	assert(wsi->u.hdr.ah);
+	if (!wsi->u.hdr.ah)
+		return 0;
+
+	/* if we think we're freeing one, there should be one to free */
+	assert(context->ah_count_in_use > 0);
+
+	assert(wsi->u.hdr.ah->in_use);
+	wsi->u.hdr.ah->in_use = 0;
+
+	/* if we just freed up one ah, allow new server connection */
+	if (context->ah_count_in_use == context->max_http_header_pool)
+		if (_lws_server_listen_accept_flow_control(context, 1))
+			return 1;
+
+	context->ah_count_in_use--;
 	wsi->u.hdr.ah = NULL;
+
 	return 0;
-};
+}
 
 LWS_VISIBLE int
 lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
@@ -130,7 +185,7 @@ LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 	if (wsi->u.hdr.ah->frags[f].len >= len)
 		return -1;
 
-	memcpy(dst, &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[f].offset],
+	memcpy(dst, wsi->u.hdr.ah->data + wsi->u.hdr.ah->frags[f].offset,
 	       wsi->u.hdr.ah->frags[f].len);
 	dst[wsi->u.hdr.ah->frags[f].len] = '\0';
 
@@ -167,7 +222,7 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 	if (!n)
 		return NULL;
 
-	return &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset];
+	return wsi->u.hdr.ah->data + wsi->u.hdr.ah->frags[n].offset;
 }
 
 int lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h,
@@ -186,7 +241,7 @@ int lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h,
 	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->nfrag].nfrag = 0;
 
 	do {
-		if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
+		if (wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {
 			lwsl_err("Ran out of header data space\n");
 			return -1;
 		}
@@ -216,7 +271,7 @@ static int issue_char(struct lws *wsi, unsigned char c)
 {
 	unsigned short frag_len;
 
-	if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
+	if (wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {
 		lwsl_warn("excessive header content\n");
 		return -1;
 	}
@@ -236,8 +291,8 @@ static int issue_char(struct lws *wsi, unsigned char c)
 	/* Insert a null character when we *hit* the limit: */
 	if (frag_len == wsi->u.hdr.current_token_limit) {
 		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
-		lwsl_warn("header %i exceeds limit\n",
-			  wsi->u.hdr.parser_state);
+		lwsl_warn("header %i exceeds limit %d\n",
+			  wsi->u.hdr.parser_state, wsi->u.hdr.current_token_limit);
 	}
 
 	return 1;
@@ -538,7 +593,8 @@ swallow:
 					context->token_limits->token_limit[
 						       wsi->u.hdr.parser_state];
 			else
-				wsi->u.hdr.current_token_limit = sizeof(ah->data);
+				wsi->u.hdr.current_token_limit =
+					wsi->context->max_http_header_data;
 
 			if (wsi->u.hdr.parser_state == WSI_TOKEN_CHALLENGE)
 				goto set_parsing_complete;
@@ -569,7 +625,7 @@ excessive:
 				n = ah->frags[n].nfrag;
 		ah->frags[n].nfrag = ah->nfrag;
 
-		if (ah->pos == sizeof(ah->data)) {
+		if (ah->pos == wsi->context->max_http_header_data) {
 			lwsl_warn("excessive header content\n");
 			return -1;
 		}

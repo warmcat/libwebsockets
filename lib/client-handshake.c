@@ -303,7 +303,7 @@ lws_client_connect_2(struct lws *wsi)
 	return wsi;
 
 oom4:
-	lws_free(wsi->u.hdr.ah);
+	lws_free_header_table(wsi);
 	lws_free(wsi);
 
 	return NULL;
@@ -423,10 +423,10 @@ lws_client_connect(struct lws_context *context, const char *address,
 	}
 	lwsl_client("lws_client_connect: direct conn\n");
 
-       return lws_client_connect_2(wsi);
+	return lws_client_connect_2(wsi);
 
 bail1:
-	lws_free(wsi->u.hdr.ah);
+	lws_free_header_table(wsi);
 bail:
 	lws_free(wsi);
 

@@ -284,6 +284,7 @@ int main(int argc, char **argv)
 	}
 	info.gid = -1;
 	info.uid = -1;
+	info.max_http_header_pool = 1;
 	info.options = opts;
 
 	context = lws_create_context(&info);

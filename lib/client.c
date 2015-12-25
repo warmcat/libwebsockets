@@ -724,12 +724,10 @@ check_accept:
 		goto bail2;
 
 	/* clear his proxy connection timeout */
-
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 	/* free up his parsing allocations */
-
-	lws_free(wsi->u.hdr.ah);
+	lws_free_header_table(wsi);
 
 	lws_union_transition(wsi, LWSCM_WS_CLIENT);
 	wsi->state = LWSS_ESTABLISHED;
@@ -809,7 +807,7 @@ bail2:
 	lwsl_info("closing connection due to bail2 connection error\n");
 
 	/* free up his parsing allocations */
-	lws_free_set_NULL(wsi->u.hdr.ah);
+	lws_free_header_table(wsi);
 	lws_close_free_wsi(wsi, close_reason);
 
 	return 1;

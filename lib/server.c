@@ -111,7 +111,6 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	else
 		info->port = ntohs(sin.sin_port);
 #endif
-
 	context->listen_port = info->port;
 
 	wsi = lws_zalloc(sizeof(struct lws));
@@ -190,6 +189,8 @@ _lws_server_listen_accept_flow_control(struct lws_context *context, int on)
 
 	if (!wsi)
 		return 0;
+
+	lwsl_debug("%s: wsi %p: state %d\n", __func__, (void *)wsi, on);
 
 	if (on)
 		n = lws_change_pollfd(wsi, 0, LWS_POLLIN);
@@ -321,7 +322,7 @@ int lws_http_action(struct lws *wsi)
 	}
 
 	/* now drop the header info we kept a pointer to */
-	lws_free_set_NULL(wsi->u.http.ah);
+	lws_free_header_table(wsi);
 
 	if (n) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
@@ -343,8 +344,7 @@ int lws_http_action(struct lws *wsi)
 	return 0;
 
 bail_nuke_ah:
-	/* drop the header info */
-	lws_free_set_NULL(wsi->u.hdr.ah);
+	lws_free_header_table(wsi);
 
 	return 1;
 }
@@ -388,6 +388,7 @@ int lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 
 			/* expose it at the same offset as u.hdr */
 			wsi->u.http.ah = ah;
+			lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi, (void *)wsi->u.hdr.ah);
 
 			n = lws_http_action(wsi);
 
@@ -667,6 +668,7 @@ lws_create_new_server_wsi(struct lws_context *context)
 LWS_VISIBLE
 int lws_http_transaction_completed(struct lws *wsi)
 {
+	lwsl_debug("%s: wsi %p\n", __func__, wsi);
 	/* if we can't go back to accept new headers, drop the connection */
 	if (wsi->u.http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
 		lwsl_info("%s: close connection\n", __func__);

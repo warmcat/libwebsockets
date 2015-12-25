@@ -498,6 +498,9 @@ lws_plat_init(struct lws_context *context,
 		return 1;
 	}
 
+	lwsl_notice(" mem: platform fd map: %5u bytes\n",
+		    sizeof(struct lws *) * context->max_fds);
+
 	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 	if (context->fd_random < 0) {
 		lwsl_err("Unable to open random device %s %d\n",

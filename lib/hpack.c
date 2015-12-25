@@ -221,7 +221,7 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 	ah->data[ah->pos++] = c;
 	ah->frags[ah->nfrag].len++;
 
-	return ah->pos >= sizeof(ah->data);
+	return ah->pos >= wsi->context->max_http_header_data;
 }
 
 static int lws_frag_end(struct lws *wsi)

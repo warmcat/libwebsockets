@@ -1,6 +1,41 @@
 Changelog
 ---------
 
+User api additions
+------------------
+
+The info struct gained two new members
+
+ - max_http_header_data: 0 for default (1024) or set the maximum amount of known
+    http header payload that lws can deal with.  Payload in unknown http
+    headers is dropped silently.  If for some reason you need to send huge
+    cookies or other HTTP-level headers, you can now increase this at context-
+    creation time.
+
+ - max_http_header_pool: 0 for default (16) or set the maximum amount of http
+     headers that can be tracked by lws in this context.  For the server, if
+     the header pool is completely in use then accepts on the listen socket
+     are disabled until one becomes free.  For the client, if you simultaneously
+     have pending connects for more than this number of client connections,
+     additional connects will fail until some of the pending connections timeout
+     or complete.
+
+HTTP header processing in lws only exists until just after the first main
+callback after the HTTP handshake... for ws connections that is ESTABLISHED and
+for HTTP connections the HTTP callback.
+
+So these settings are not related to the maximum number of simultaneous
+connections but the number of HTTP handshakes that may be expected or ongoing,
+or have just completed, at one time.  The reason it's useful is it changes the
+memory allocation for header processing to be one-time at context creation
+instead of every time there is a new connection, and gives you control over
+the peak allocation.
+
+Setting max_http_header_pool to 1 is fine it will just queue incoming
+connections before the accept as necessary, you can still have as many
+simultaneous post-header connections as you like.
+
+
 v1.6.0-chrome48-firefox42
 =======================
 
