@@ -100,7 +100,7 @@ LWS_VISIBLE int lws_get_random(struct lws_context *context,
 
 LWS_VISIBLE int lws_send_pipe_choked(struct lws *wsi)
 {
-	return wsi->sock_send_blocking;
+	return (int)wsi->sock_send_blocking;
 }
 
 LWS_VISIBLE int lws_poll_listen_fd(struct lws_pollfd *fd)
@@ -179,8 +179,8 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 		}
 	}
 
-	ev = WSAWaitForMultipleEvents(context->fds_count + 1,
-				     context->events, FALSE, timeout_ms, FALSE);
+	ev = WSAWaitForMultipleEvents(context->fds_count + 1, context->events,
+				      FALSE, timeout_ms, FALSE);
 	context->service_tid = 0;
 
 	if (ev == WSA_WAIT_TIMEOUT) {
@@ -199,8 +199,8 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	pfd = &context->fds[ev - WSA_WAIT_EVENT_0 - 1];
 
 	if (WSAEnumNetworkEvents(pfd->fd,
-			context->events[ev - WSA_WAIT_EVENT_0],
-					      &networkevents) == SOCKET_ERROR) {
+				 context->events[ev - WSA_WAIT_EVENT_0],
+				 &networkevents) == SOCKET_ERROR) {
 		lwsl_err("WSAEnumNetworkEvents() failed with error %d\n",
 								     LWS_ERRNO);
 		return -1;
@@ -211,7 +211,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	if (pfd->revents & LWS_POLLOUT) {
 		wsi = wsi_from_fd(context, pfd->fd);
 		if (wsi)
-			wsi->sock_send_blocking = FALSE;
+			wsi->sock_send_blocking = 0;
 	}
 
 	return lws_service_fd(context, pfd);
