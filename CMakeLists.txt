@@ -244,9 +244,9 @@ if (LWS_WITH_HTTP2)
 	set(LWS_USE_HTTP2 1)
 endif()
 
-if (LWS_MBED3)
-	set(CMAKE_C_FLAGS "-D_DEBUG ${CMAKE_C_FLAGS}")
-endif()
+#if (LWS_MBED3)
+#	set(CMAKE_C_FLAGS "-D_DEBUG ${CMAKE_C_FLAGS}")
+#endif()
 
 if (MINGW)
 	set(LWS_MINGW_SUPPORT 1)
