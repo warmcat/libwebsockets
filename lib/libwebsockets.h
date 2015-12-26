@@ -191,7 +191,6 @@ extern "C" {
 #endif
 
 #define CONTEXT_PORT_NO_LISTEN -1
-#define MAX_MUX_RECURSION 2
 
 enum lws_log_levels {
 	LLL_ERR = 1 << 0,
@@ -1446,7 +1445,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 #endif
 #define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? \
 		((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
-#define LWS_SEND_BUFFER_PRE_PADDING _LWS_PAD(4 + 10 + (2 * MAX_MUX_RECURSION))
+#define LWS_SEND_BUFFER_PRE_PADDING _LWS_PAD(4 + 10)
 #define LWS_SEND_BUFFER_POST_PADDING 4
 
 LWS_VISIBLE LWS_EXTERN int
