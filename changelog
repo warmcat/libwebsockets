@@ -110,12 +110,7 @@ allocated a buffer bigger than the library is going to use.
 
 The example apps no longer use LWS_SEND_BUFFER_POST_PADDING.
 
-The only path who made use of it was sending with LWS_WRITE_CLOSE.
-
-If you use LWS_WRITE_CLOSE by hand in your user code, you need to allow an
-extra 2 bytes space at the end of your buffer.  This ONLY applies to
-LWS_WRITE_CLOSE, which you normally don't send directly, but cause by returning
-nonzero from a callback letting the library actually send it.
+The only path who made use of it was sending with LWS_WRITE_CLOSE --->
 
 2) Because of lws_close_reason() formalizing handling close frames,
 LWS_WRITE_CLOSE is removed from libwebsockets.h.  It was only of use to send
