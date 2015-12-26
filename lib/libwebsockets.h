@@ -32,8 +32,6 @@
 #include "sal-stack-lwip/lwipv4_init.h"
 
 namespace {
-	const int SERVER_PORT = 80;
-	const int BUFFER_SIZE = 4096;
 }
 using namespace mbed::Sockets::v0;
 
@@ -64,7 +62,6 @@ public:
 
 public:
 	struct lws *wsi;
-	char buffer[BUFFER_SIZE];
 	char writeable;
 	char awaiting_on_writeable;
 };

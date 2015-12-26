@@ -33,7 +33,10 @@ the peak allocation.
 
 Setting max_http_header_pool to 1 is fine it will just queue incoming
 connections before the accept as necessary, you can still have as many
-simultaneous post-header connections as you like.
+simultaneous post-header connections as you like.  Since the http header
+processing is completed and the allocation released after ESTABLISHED or the
+HTTP callback, even with a pool of 1 many connections can be handled rapidly.
+
 
 User api changes
 ----------------
@@ -41,9 +44,9 @@ User api changes
 1) LWS_SEND_BUFFER_POST_PADDING is now 0 and deprecated.  You can remove it; if
 you still use it, obviously it does nothing.  Old binary code with nonzero
 LWS_SEND_BUFFER_POST_PADDING is perfectly compatible, the old code just
-allocated a buffer bigger than needed.
+allocated a buffer bigger than the library is going to use.
 
-The example apps no longer user it.
+The example apps no longer use LWS_SEND_BUFFER_POST_PADDING.
 
 The only path who made use of it was sending with LWS_WRITE_CLOSE.
 
