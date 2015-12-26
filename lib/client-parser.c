@@ -270,6 +270,14 @@ spill:
 			}
 			lwsl_parser("client sees server close len = %d\n",
 						 wsi->u.ws.rx_user_buffer_head);
+			if (user_callback_handle_rxflow(
+					wsi->protocol->callback, wsi,
+					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
+					wsi->user_space,
+					&wsi->u.ws.rx_user_buffer[
+						LWS_SEND_BUFFER_PRE_PADDING],
+					wsi->u.ws.rx_user_buffer_head))
+				return -1;
 			/*
 			 * parrot the close packet payload back
 			 * we do not care about how it went, we are closing
@@ -286,6 +294,10 @@ spill:
 		case LWSWSOPC_PING:
 			lwsl_info("received %d byte ping, sending pong\n",
 				  wsi->u.ws.rx_user_buffer_head);
+
+			/* he set a close reason on this guy, ignore PING */
+			if (wsi->u.ws.close_in_ping_buffer_len)
+				goto ping_drop;
 
 			if (wsi->u.ws.ping_pending_flag) {
 				/*

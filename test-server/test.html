@@ -84,13 +84,15 @@ run.
 		<tr>
 		<td align=center><input type=button id=ot_open_btn value="Open" onclick="ot_open();" ></td>
 		<td align=center><input type=button id=ot_close_btn disabled value="Close" onclick="ot_close();" ></td>
+		<td align=center><input type=button id=ot_req_close_btn disabled value="Request Server Close" onclick="ot_req_close();" ></td>
 		</tr>
-		<tr><td colspan="2" id=ot_statustd align=center class="explain"><div id=ot_status>Not initialized</div></td></tr>
+		<tr><td colspan="3" id=ot_statustd align=center class="explain"><div id=ot_status>Not initialized</div></td></tr>
 	</tr>
 </table>
 </td><td class="explain">
 To help with open and close testing, you can open and close a connection by hand using
- the buttons.
+ the buttons.  "Request Server Close" sends a message asking the server to
+initiate the close.
 </td></tr></table>
 </section>
 <br>
@@ -310,22 +312,30 @@ function ot_open() {
 			document.getElementById("ot_status").textContent = " websocket connection opened ";
 			document.getElementById("ot_open_btn").disabled = true;
 			document.getElementById("ot_close_btn").disabled = false;
+			document.getElementById("ot_req_close_btn").disabled = false;
 		} 
 
-		socket_ot.onclose = function(){
+		socket_ot.onclose = function(e){
 			document.getElementById("ot_statustd").style.backgroundColor = "#ff4040";
-			document.getElementById("ot_status").textContent = " websocket connection CLOSED ";
+			document.getElementById("ot_status").textContent = " websocket connection CLOSED, code: " + e.code +
+			", reason: " + e.reason;
 			document.getElementById("ot_open_btn").disabled = false;
 			document.getElementById("ot_close_btn").disabled = true;
-
+			document.getElementById("ot_req_close_btn").disabled = true;
 		}
 	} catch(exception) {
 		alert('<p>Error' + exception);  
 	}
 }
 
+/* browser will close the ws in a controlled way */
 function ot_close() {
 	socket_ot.close(3000, "Bye!");
+}
+
+/* we ask the server to close the ws in a controlled way */
+function ot_req_close() {
+	socket_ot.send("closeme\n");
 }
 
 /* lws-mirror protocol */

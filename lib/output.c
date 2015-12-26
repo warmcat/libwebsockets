@@ -278,7 +278,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 	eff_buf.token = (char *)buf;
 	eff_buf.token_len = len;
 
-	switch (protocol) {
+	switch ((int)protocol) {
 	case LWS_WRITE_PING:
 	case LWS_WRITE_PONG:
 	case LWS_WRITE_CLOSE:
@@ -325,18 +325,6 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 
 		case LWS_WRITE_CLOSE:
 			n = LWSWSOPC_CLOSE;
-
-			/*
-			 * 06+ has a 2-byte status code in network order
-			 * we can do this because we demand post-buf
-			 */
-
-			if (wsi->u.ws.close_reason) {
-				/* reason codes count as data bytes */
-				buf[0] = (unsigned char)(wsi->u.ws.close_reason >> 8);
-				buf[1] = (unsigned char)wsi->u.ws.close_reason;
-				len += 2;
-			}
 			break;
 		case LWS_WRITE_PING:
 			n = LWSWSOPC_PING;
@@ -416,7 +404,7 @@ do_more_inside_frame:
 	}
 
 send_raw:
-	switch (protocol) {
+	switch ((int)protocol) {
 	case LWS_WRITE_CLOSE:
 /*		lwsl_hexdump(&buf[-pre], len); */
 	case LWS_WRITE_HTTP:

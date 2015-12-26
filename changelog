@@ -66,6 +66,39 @@ lwsts[15714]:  3: 0x79
 lwsts[15714]:  4: 0x65
 lwsts[15714]:  5: 0x21
 
+3) There is a new API to allow the user code to control the content of the
+close frame sent when about to return nonzero from the user callback to
+indicate the connection should close.
+
+/**
+ * lws_close_reason - Set reason and aux data to send with Close packet
+ *		If you are going to return nonzero from the callback
+ *		requesting the connection to close, you can optionally
+ *		call this to set the reason the peer will be told if
+ *		possible.
+ *
+ * @wsi:	The websocket connection to set the close reason on
+ * @status:	A valid close status from websocket standard
+ * @buf:	NULL or buffer containing up to 124 bytes of auxiliary data
+ * @len:	Length of data in @buf to send
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_close_reason(struct lws *wsi, enum lws_close_status status,
+		 unsigned char *buf, size_t len);
+
+An extra button is added to the "open and close" test server page that requests
+that the test server close the connection from his end.
+
+The test server code will do so by
+
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_GOINGAWAY,
+					 (unsigned char *)"seeya", 5);
+			return -1;
+
+The browser shows the close code and reason he received
+
+websocket connection CLOSED, code: 1001, reason: seeya
+
 
 User api changes
 ----------------
@@ -83,6 +116,11 @@ If you use LWS_WRITE_CLOSE by hand in your user code, you need to allow an
 extra 2 bytes space at the end of your buffer.  This ONLY applies to
 LWS_WRITE_CLOSE, which you normally don't send directly, but cause by returning
 nonzero from a callback letting the library actually send it.
+
+2) Because of lws_close_reason() formalizing handling close frames,
+LWS_WRITE_CLOSE is removed from libwebsockets.h.  It was only of use to send
+close frames...close frame content should be managed using lws_close_reason()
+now.
 
 
 

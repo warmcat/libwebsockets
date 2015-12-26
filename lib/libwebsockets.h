@@ -453,7 +453,7 @@ enum lws_write_protocol {
 
 	/* special 04+ opcodes */
 
-	LWS_WRITE_CLOSE						= 4,
+	/* LWS_WRITE_CLOSE is handled by lws_close_reason() */
 	LWS_WRITE_PING						= 5,
 	LWS_WRITE_PONG						= 6,
 
@@ -1409,7 +1409,6 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
  * LWS_WRITE_TEXT,
  * LWS_WRITE_BINARY,
  * LWS_WRITE_CONTINUATION,
- * LWS_WRITE_CLOSE,
  * LWS_WRITE_PING,
  * LWS_WRITE_PONG
  * 
@@ -1428,13 +1427,6 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
  *   memset(&buf[LWS_SEND_BUFFER_PRE_PADDING], 0, 128);
  *
  *   lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128, LWS_WRITE_TEXT);
- *
- * When sending
- * 
- * LWS_WRITE_CLOSE
- * 
- * only, you must allow your buffer to be 2 bytes longer than otherwise
- * needed.
  * 
  * When sending HTTP, with
  * 
@@ -1475,6 +1467,22 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 LWS_VISIBLE LWS_EXTERN int
 lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	  enum lws_write_protocol protocol);
+
+/**
+ * lws_close_reason - Set reason and aux data to send with Close packet
+ *		If you are going to return nonzero from the callback
+ *		requesting the connection to close, you can optionally
+ *		call this to set the reason the peer will be told if
+ *		possible.
+ *
+ * @wsi:	The websocket connection to set the close reason on
+ * @status:	A valid close status from websocket standard
+ * @buf:	NULL or buffer containing up to 124 bytes of auxiliary data
+ * @len:	Length of data in @buf to send
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_close_reason(struct lws *wsi, enum lws_close_status status,
+		 unsigned char *buf, size_t len);
 
 /* helper for case where buffer may be const */
 #define lws_write_http(wsi, buf, len) \

@@ -74,7 +74,6 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	struct lws_context *context = wsi->context;
 	int n, m, ret, old_state;
 	struct lws_tokens eff_buf;
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 4];
 
 	if (!wsi)
 		return;
@@ -117,8 +116,6 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		}
 		break;
 	}
-
-	wsi->u.ws.close_reason = reason;
 
 	if (wsi->mode == LWSCM_WSCL_WAITING_CONNECT ||
 	    wsi->mode == LWSCM_WSCL_ISSUE_HANDSHAKE)
@@ -188,13 +185,24 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	 */
 
 	if (old_state == LWSS_ESTABLISHED &&
-	    reason != LWS_CLOSE_STATUS_NOSTATUS &&
-	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY) {
+	    (wsi->u.ws.close_in_ping_buffer_len || /* already a reason */
+	     (reason != LWS_CLOSE_STATUS_NOSTATUS &&
+	     (reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)))) {
 		lwsl_debug("sending close indication...\n");
-		/* make valgrind happy */
-		memset(buf, 0, sizeof(buf));
-		n = lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING + 2],
-			      0, LWS_WRITE_CLOSE);
+
+		/* if no prepared close reason, use 1000 and no aux data */
+		if (!wsi->u.ws.close_in_ping_buffer_len) {
+			wsi->u.ws.close_in_ping_buffer_len = 2;
+			wsi->u.ws.ping_payload_buf[LWS_SEND_BUFFER_PRE_PADDING] =
+				(reason >> 16) & 0xff;
+			wsi->u.ws.ping_payload_buf[LWS_SEND_BUFFER_PRE_PADDING + 1] =
+				reason & 0xff;
+		}
+
+		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[
+						LWS_SEND_BUFFER_PRE_PADDING],
+			      wsi->u.ws.close_in_ping_buffer_len,
+			      LWS_WRITE_CLOSE);
 		if (n >= 0) {
 			/*
 			 * we have sent a nice protocol level indication we
@@ -943,4 +951,26 @@ LWS_VISIBLE LWS_EXTERN void *
 lws_wsi_user(struct lws *wsi)
 {
 	return wsi->user_space;
+}
+
+LWS_VISIBLE LWS_EXTERN void
+lws_close_reason(struct lws *wsi, enum lws_close_status status,
+		 unsigned char *buf, size_t len)
+{
+	unsigned char *p, *start;
+	int budget = sizeof(wsi->u.ws.ping_payload_buf) -
+		     LWS_SEND_BUFFER_PRE_PADDING;
+
+	assert(wsi->mode == LWSCM_WS_SERVING || wsi->mode == LWSCM_WS_CLIENT);
+
+	start = p = &wsi->u.ws.ping_payload_buf[LWS_SEND_BUFFER_PRE_PADDING];
+
+	*p++ = (((int)status) >> 8) & 0xff;
+	*p++ = ((int)status) & 0xff;
+
+	if (buf)
+		while (len-- && p < start + budget)
+			*p++ = *buf++;
+
+	wsi->u.ws.close_in_ping_buffer_len = p - start;
 }

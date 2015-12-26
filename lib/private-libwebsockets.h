@@ -431,6 +431,9 @@ enum {
 	LWS_RXFLOW_PENDING_CHANGE = (1 << 1),
 };
 
+/* this is not usable directly by user code any more, lws_close_reason() */
+#define LWS_WRITE_CLOSE 4
+
 struct lws_protocols;
 struct lws;
 
@@ -835,12 +838,15 @@ struct _lws_websocket_related {
 	size_t rx_packet_length;
 	unsigned int rx_user_buffer_head;
 	unsigned char mask_nonce[4];
-	unsigned char ping_payload_buf[128 - 4 + LWS_SEND_BUFFER_PRE_PADDING]; /* control opc == < 124 */
-	short close_reason; /* enum lws_close_status */
+	/* Also used for close content... control opcode == < 128 */
+	unsigned char ping_payload_buf[128 - 4 + LWS_SEND_BUFFER_PRE_PADDING];
+
 	unsigned char ping_payload_len;
 	unsigned char frame_mask_index;
 	unsigned char opcode;
 	unsigned char rsv;
+	/* zero if no info, or length including 2-byte close code */
+	unsigned char close_in_ping_buffer_len;
 
 	unsigned int final:1;
 	unsigned int frame_is_binary:1;
