@@ -74,8 +74,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	struct lws_context *context = wsi->context;
 	int n, m, ret, old_state;
 	struct lws_tokens eff_buf;
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 2 +
-			  LWS_SEND_BUFFER_POST_PADDING];
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 4];
 
 	if (!wsi)
 		return;

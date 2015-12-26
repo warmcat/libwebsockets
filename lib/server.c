@@ -579,7 +579,7 @@ upgrade_ws:
 		n = wsi->protocol->rx_buffer_size;
 		if (!n)
 			n = LWS_MAX_SOCKET_IO_BUF;
-		n += LWS_SEND_BUFFER_PRE_PADDING + LWS_SEND_BUFFER_POST_PADDING;
+		n += LWS_SEND_BUFFER_PRE_PADDING;
 		wsi->u.ws.rx_user_buffer = lws_malloc(n);
 		if (!wsi->u.ws.rx_user_buffer) {
 			lwsl_err("Out of Mem allocating rx buffer %d\n", n);

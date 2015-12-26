@@ -57,8 +57,7 @@ callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len)
 {
 	int n;
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 8000 +
-			  LWS_SEND_BUFFER_POST_PADDING];
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 8000];
 	struct per_session_data__fraggle *psf = user;
 	int chunk;
 	int write_mode = LWS_WRITE_CONTINUATION;

@@ -79,11 +79,12 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 				pss->ringbuffer_tail++;
 
 			if (((ringbuffer_head - pss->ringbuffer_tail) &
-				  (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 15))
+			    (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 15))
 				lws_rx_flow_allow_all_protocol(lws_get_context(wsi),
 					       lws_get_protocol(wsi));
 
-			if (lws_partial_buffered(wsi) || lws_send_pipe_choked(wsi)) {
+			if (lws_partial_buffered(wsi) ||
+			    lws_send_pipe_choked(wsi)) {
 				lws_callback_on_writable(wsi);
 				break;
 			}
@@ -101,8 +102,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			free(ringbuffer[ringbuffer_head].payload);
 
 		ringbuffer[ringbuffer_head].payload =
-				malloc(LWS_SEND_BUFFER_PRE_PADDING + len +
-						  LWS_SEND_BUFFER_POST_PADDING);
+				malloc(LWS_SEND_BUFFER_PRE_PADDING + len);
 		ringbuffer[ringbuffer_head].len = len;
 		memcpy((char *)ringbuffer[ringbuffer_head].payload +
 					  LWS_SEND_BUFFER_PRE_PADDING, in, len);
@@ -121,7 +121,7 @@ choke:
 
 done:
 		lws_callback_on_writable_all_protocol(lws_get_context(wsi),
-					       lws_get_protocol(wsi));
+						      lws_get_protocol(wsi));
 		break;
 
 	/*

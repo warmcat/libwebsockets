@@ -4,7 +4,7 @@ Changelog
 User api additions
 ------------------
 
-The info struct gained two new members
+1) The info struct gained two new members
 
  - max_http_header_data: 0 for default (1024) or set the maximum amount of known
     http header payload that lws can deal with.  Payload in unknown http
@@ -25,7 +25,7 @@ callback after the HTTP handshake... for ws connections that is ESTABLISHED and
 for HTTP connections the HTTP callback.
 
 So these settings are not related to the maximum number of simultaneous
-connections but the number of HTTP handshakes that may be expected or ongoing,
+connections, but the number of HTTP handshakes that may be expected or ongoing,
 or have just completed, at one time.  The reason it's useful is it changes the
 memory allocation for header processing to be one-time at context creation
 instead of every time there is a new connection, and gives you control over
@@ -34,6 +34,24 @@ the peak allocation.
 Setting max_http_header_pool to 1 is fine it will just queue incoming
 connections before the accept as necessary, you can still have as many
 simultaneous post-header connections as you like.
+
+User api changes
+----------------
+
+1) LWS_SEND_BUFFER_POST_PADDING is now 0 and deprecated.  You can remove it; if
+you still use it, obviously it does nothing.  Old binary code with nonzero
+LWS_SEND_BUFFER_POST_PADDING is perfectly compatible, the old code just
+allocated a buffer bigger than needed.
+
+The example apps no longer user it.
+
+The only path who made use of it was sending with LWS_WRITE_CLOSE.
+
+If you use LWS_WRITE_CLOSE by hand in your user code, you need to allow an
+extra 2 bytes space at the end of your buffer.  This ONLY applies to
+LWS_WRITE_CLOSE, which you normally don't send directly, but cause by returning
+nonzero from a callback letting the library actually send it.
+
 
 
 v1.6.0-chrome48-firefox42

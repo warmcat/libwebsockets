@@ -1396,9 +1396,17 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 /*
  * IMPORTANT NOTICE!
  *
- * When sending with websocket protocol (LWS_WRITE_TEXT or LWS_WRITE_BINARY)
+ * When sending with websocket protocol
+ * 
+ * LWS_WRITE_TEXT,
+ * LWS_WRITE_BINARY,
+ * LWS_WRITE_CONTINUATION,
+ * LWS_WRITE_CLOSE,
+ * LWS_WRITE_PING,
+ * LWS_WRITE_PONG
+ * 
  * the send buffer has to have LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE
- * buf, and LWS_SEND_BUFFER_POST_PADDING bytes valid AFTER (buf + len).
+ * the buffer pointer you pass to lws_write().
  *
  * This allows us to add protocol info before and after the data, and send as
  * one packet on the network without payload copying, for maximum efficiency.
@@ -1406,25 +1414,33 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
  * So for example you need this kind of code to use lws_write with a
  * 128-byte payload
  *
- *   char buf[LWS_SEND_BUFFER_PRE_PADDING + 128 + LWS_SEND_BUFFER_POST_PADDING];
+ *   char buf[LWS_SEND_BUFFER_PRE_PADDING + 128];
  *
  *   // fill your part of the buffer... for example here it's all zeros
  *   memset(&buf[LWS_SEND_BUFFER_PRE_PADDING], 0, 128);
  *
  *   lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128, LWS_WRITE_TEXT);
  *
- * When sending LWS_WRITE_HTTP, there is no protocol addition and you can just
- * use the whole buffer without taking care of the above.
- */
-
-/*
- * this is the frame nonce plus two header plus 8 length
- *   there's an additional two for mux extension per mux nesting level
- * 2 byte prepend on close will already fit because control frames cannot use
- * the big length style
- */
-
-/*
+ * When sending
+ * 
+ * LWS_WRITE_CLOSE
+ * 
+ * only, you must allow your buffer to be 2 bytes longer than otherwise
+ * needed.
+ * 
+ * When sending HTTP, with
+ * 
+ * LWS_WRITE_HTTP,
+ * LWS_WRITE_HTTP_HEADERS
+ * LWS_WRITE_HTTP_FINAL
+ * 
+ * there is no protocol data prepended, and don't need to take care about the
+ * LWS_SEND_BUFFER_PRE_PADDING bytes valid before the buffer pointer.
+ *
+ * LWS_SEND_BUFFER_PRE_PADDING is at least the frame nonce + 2 header + 8 length
+ * LWS_SEND_BUFFER_POST_PADDING is deprecated, it's now 0 and can be left off.
+ * The example apps no longer use it.
+ *
  * Pad LWS_SEND_BUFFER_PRE_PADDING to the CPU word size, so that word references
  * to the address immediately after the padding won't cause an unaligned access
  * error. Sometimes for performance reasons the recommended padding is even
@@ -1446,7 +1462,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 #define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? \
 		((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
 #define LWS_SEND_BUFFER_PRE_PADDING _LWS_PAD(4 + 10)
-#define LWS_SEND_BUFFER_POST_PADDING 4
+#define LWS_SEND_BUFFER_POST_PADDING 0
 
 LWS_VISIBLE LWS_EXTERN int
 lws_write(struct lws *wsi, unsigned char *buf, size_t len,

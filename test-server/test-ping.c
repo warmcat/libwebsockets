@@ -57,8 +57,7 @@ static unsigned int interval_us = 1000000;
 static unsigned int size = 64;
 static int flood;
 static const char *address;
-static unsigned char pingbuf[LWS_SEND_BUFFER_PRE_PADDING + MAX_MIRROR_PAYLOAD +
-			     LWS_SEND_BUFFER_POST_PADDING];
+static unsigned char pingbuf[LWS_SEND_BUFFER_PRE_PADDING + MAX_MIRROR_PAYLOAD];
 static char peer_name[128];
 static unsigned long started;
 static int screen_width = 80;

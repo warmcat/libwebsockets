@@ -55,13 +55,11 @@ int lws_extension_callback_deflate_frame(
 		conn->compressed_out = 0;
 		conn->buf_pre = NULL;
 		conn->buf_in = lws_malloc(LWS_SEND_BUFFER_PRE_PADDING +
-					  conn->buf_in_length +
-					  LWS_SEND_BUFFER_POST_PADDING);
+					  conn->buf_in_length);
 		if (!conn->buf_in)
 			goto bail;
 		conn->buf_out = lws_malloc(LWS_SEND_BUFFER_PRE_PADDING +
-					   conn->buf_out_length +
-					   LWS_SEND_BUFFER_POST_PADDING);
+					   conn->buf_out_length);
 		if (!conn->buf_out)
 			goto bail;
 		lwsl_ext("zlibs constructed\n");
@@ -177,8 +175,7 @@ bail:
 			}
 			conn->buf_in = lws_realloc(conn->buf_in,
 						   LWS_SEND_BUFFER_PRE_PADDING +
-						   conn->buf_in_length +
-						   LWS_SEND_BUFFER_POST_PADDING);
+						   conn->buf_in_length);
 			if (!conn->buf_in) {
 				lwsl_err("Out of memory\n");
 				return -1;
@@ -240,8 +237,7 @@ bail:
 			}
 			conn->buf_out = lws_realloc(conn->buf_out,
 						    LWS_SEND_BUFFER_PRE_PADDING +
-						    conn->buf_out_length +
-						    LWS_SEND_BUFFER_POST_PADDING);
+						    conn->buf_out_length);
 			if (!conn->buf_out) {
 				lwsl_err("Out of memory\n");
 				return -1;

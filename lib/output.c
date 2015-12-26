@@ -213,10 +213,8 @@ handle_truncated_send:
  * @wsi:	Websocket instance (available from user callback)
  * @buf:	The data to send.  For data being sent on a websocket
  *		connection (ie, not default http), this buffer MUST have
- *		LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE the pointer
- *		and an additional LWS_SEND_BUFFER_POST_PADDING bytes valid
- *		in the buffer after (buf + len).  This is so the protocol
- *		header and trailer data can be added in-situ.
+ *		LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE the pointer.
+ *		This is so the protocol header data can be added in-situ.
  * @len:	Count of the data bytes in the payload starting from buf
  * @protocol:	Use LWS_WRITE_HTTP to reply to an http connection, and one
  *		of LWS_WRITE_BINARY or LWS_WRITE_TEXT to send appropriate

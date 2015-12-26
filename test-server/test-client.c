@@ -134,8 +134,7 @@ static int
 callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 4096 +
-			  LWS_SEND_BUFFER_POST_PADDING];
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 4096];
 	unsigned int rands[4];
 	int l = 0;
 	int n;
