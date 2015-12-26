@@ -12,10 +12,8 @@
 <dt><b>buf</b>
 <dd>The data to send.  For data being sent on a websocket
 connection (ie, not default http), this buffer MUST have
-LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE the pointer
-and an additional LWS_SEND_BUFFER_POST_PADDING bytes valid
-in the buffer after (buf + len).  This is so the protocol
-header and trailer data can be added in-situ.
+LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE the pointer.
+This is so the protocol header data can be added in-situ.
 <dt><b>len</b>
 <dd>Count of the data bytes in the payload starting from buf
 <dt><b>protocol</b>
@@ -945,12 +943,12 @@ is the server's OpenSSL SSL_CTX*
 <h3>LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY</h3>
 <blockquote>
 if configured for
-including OpenSSL support but no private key file has been specified
-(ssl_private_key_filepath is NULL), this callback is called to
+including OpenSSL support but no private key file has been
+specified (ssl_private_key_filepath is NULL), this is called to
 allow the user to set the private key directly via libopenssl
 and perform further operations if required; this might be useful
-in situations where the private key is not directly accessible by
-the OS, for example if it is stored on a smartcard
+in situations where the private key is not directly accessible
+by the OS, for example if it is stored on a smartcard
 <tt><b>user</b></tt> is the server's OpenSSL SSL_CTX*
 </blockquote>
 <h3>LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION</h3>
@@ -1106,6 +1104,17 @@ Locking and unlocking external synchronization objects when
 len == 1 allows external threads to be synchronized against
 wsi lifecycle changes if it acquires the same lock for the
 duration of wsi dereference from the other thread context.
+</blockquote>
+<h3>LWS_CALLBACK_WS_PEER_INITIATED_CLOSE</h3>
+<blockquote>
+The peer has sent an unsolicited Close WS packet.  <tt><b>in</b></tt> and
+<tt><b>len</b></tt> are the optional close code (first 2 bytes, network
+order) and the optional additional information which is not
+defined in the standard, and may be a string or non-human-
+readble data.
+If you return 0 lws will echo the close and then close the
+connection.  If you return nonzero lws will just close the
+connection.
 </blockquote>
 <hr>
 <h2>extension_callback - Hooks to allow extensions to operate</h2>
@@ -1303,6 +1312,8 @@ all sessions, etc, if it wants
 #else<br>
 &nbsp; &nbsp; <i>void *</i> <b>provided_client_ssl_ctx</b>;<br>
 #endif<br>
+&nbsp; &nbsp; <i>short</i> <b>max_http_header_data</b>;<br>
+&nbsp; &nbsp; <i>short</i> <b>max_http_header_pool</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
@@ -1376,5 +1387,14 @@ if this option is selected.
 implementation for the one provided by provided_ssl_ctx.
 Libwebsockets no longer is responsible for freeing the context
 if this option is selected.
+<dt><b>max_http_header_data</b>
+<dd>The max amount of header payload that can be handled
+in an http request (unrecognized header payload is dropped)
+<dt><b>max_http_header_pool</b>
+<dd>The max number of connections with http headers that
+can be processed simultaneously (the corresponding memory is
+allocated for the lifetime of the context).  If the pool is
+busy new incoming connections must wait for accept until one
+becomes free.
 </dl>
 <hr>
