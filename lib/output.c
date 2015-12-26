@@ -245,7 +245,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 	unsigned char is_masked_bit = 0;
 	unsigned char *dropmask = NULL;
 	struct lws_tokens eff_buf;
-	int post = 0, pre = 0, n;
+	int pre = 0, n;
 	size_t orig_len = len;
 
 	if (len == 0 && protocol != LWS_WRITE_CLOSE &&
@@ -420,7 +420,7 @@ do_more_inside_frame:
 send_raw:
 	switch (protocol) {
 	case LWS_WRITE_CLOSE:
-/*		lwsl_hexdump(&buf[-pre], len + post); */
+/*		lwsl_hexdump(&buf[-pre], len); */
 	case LWS_WRITE_HTTP:
 	case LWS_WRITE_HTTP_FINAL:
 	case LWS_WRITE_HTTP_HEADERS:
@@ -438,9 +438,12 @@ send_raw:
 					flags |= LWS_HTTP2_FLAG_END_STREAM;
 			}
 
-			if ((protocol == LWS_WRITE_HTTP || protocol == LWS_WRITE_HTTP_FINAL) && wsi->u.http.content_length) {
+			if ((protocol == LWS_WRITE_HTTP ||
+			     protocol == LWS_WRITE_HTTP_FINAL) &&
+			    wsi->u.http.content_length) {
 				wsi->u.http.content_remain -= len;
-				lwsl_info("%s: content_remain = %lu\n", __func__, wsi->u.http.content_remain);
+				lwsl_info("%s: content_remain = %lu\n", __func__,
+					  wsi->u.http.content_remain);
 				if (!wsi->u.http.content_remain) {
 					lwsl_info("%s: selecting final write mode\n", __func__);
 					protocol = LWS_WRITE_HTTP_FINAL;
@@ -452,11 +455,11 @@ send_raw:
 				flags |= LWS_HTTP2_FLAG_END_STREAM;
 			}
 
-			return lws_http2_frame_write(wsi, n, flags, wsi->u.http2.my_stream_id, len, buf);
+			return lws_http2_frame_write(wsi, n, flags,
+					wsi->u.http2.my_stream_id, len, buf);
 		}
 #endif
-		return lws_issue_raw(wsi, (unsigned char *)buf - pre,
-							      len + pre + post);
+		return lws_issue_raw(wsi, (unsigned char *)buf - pre, len + pre);
 	default:
 		break;
 	}
@@ -482,11 +485,11 @@ send_raw:
 	 * return to the user code how much OF THE USER BUFFER was consumed.
 	 */
 
-	n = lws_issue_raw_ext_access(wsi, buf - pre, len + pre + post);
+	n = lws_issue_raw_ext_access(wsi, buf - pre, len + pre);
 	if (n <= 0)
 		return n;
 
-	if (n == (int)len + pre + post) {
+	if (n == (int)len + pre) {
 		/* everything in the buffer was handled (or rebuffered...) */
 		wsi->u.ws.inside_frame = 0;
 		return orig_len;
@@ -499,7 +502,7 @@ send_raw:
 	 * later.
 	 */
 
-	return n - (pre + post);
+	return n - pre;
 }
 
 LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
