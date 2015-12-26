@@ -325,7 +325,7 @@ function ot_open() {
 }
 
 function ot_close() {
-	socket_ot.close();
+	socket_ot.close(3000, "Bye!");
 }
 
 /* lws-mirror protocol */

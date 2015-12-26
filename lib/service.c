@@ -37,7 +37,7 @@ lws_calllback_as_writeable(struct lws *wsi)
 		n = LWS_CALLBACK_HTTP_WRITEABLE;
 		break;
 	}
-	lwsl_info("%s: %p (user=%p)\n", __func__, wsi, wsi->user_space);
+	lwsl_debug("%s: %p (user=%p)\n", __func__, wsi, wsi->user_space);
 	return user_callback_handle_rxflow(wsi->protocol->callback,
 					   wsi, (enum lws_callback_reasons) n,
 					   wsi->user_space, NULL, 0);

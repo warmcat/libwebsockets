@@ -982,6 +982,7 @@ spill:
 
 		switch (wsi->u.ws.opcode) {
 		case LWSWSOPC_CLOSE:
+
 			/* is this an acknowledgement of our close? */
 			if (wsi->state == LWSS_AWAITING_CLOSE_ACK) {
 				/*
@@ -993,6 +994,15 @@ spill:
 			}
 			if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY)
 				/* if he sends us 2 CLOSE, kill him */
+				return -1;
+
+			if (user_callback_handle_rxflow(
+					wsi->protocol->callback, wsi,
+					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
+					wsi->user_space,
+					&wsi->u.ws.rx_user_buffer[
+						LWS_SEND_BUFFER_PRE_PADDING],
+					wsi->u.ws.rx_user_buffer_head))
 				return -1;
 
 			lwsl_parser("server sees client close packet\n");

@@ -37,6 +37,35 @@ simultaneous post-header connections as you like.  Since the http header
 processing is completed and the allocation released after ESTABLISHED or the
 HTTP callback, even with a pool of 1 many connections can be handled rapidly.
 
+2) There is a new callback that allows the user code to get acccess to the
+optional close code + aux data that may have been sent by the peer.
+
+LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
+             The peer has sent an unsolicited Close WS packet.  @in and
+             @len are the optional close code (first 2 bytes, network
+             order) and the optional additional information which is not
+             defined in the standard, and may be a string or non-human-
+             readble data.
+             If you return 0 lws will echo the close and then close the
+             connection.  If you return nonzero lws will just close the             connection.
+
+As usual not handling it does the right thing, if you're not interested in it
+just ignore it.
+
+The test server has "open and close" testing buttons at the bottom, if you
+open and close that connection, on close it will send a close code 3000 decimal
+and the string "Bye!" as the aux data.
+
+The test server dumb-increment callback handles this callback reason and prints
+
+lwsts[15714]: LWS_CALLBACK_WS_PEER_INITIATED_CLOSE: len 6
+lwsts[15714]:  0: 0x0B
+lwsts[15714]:  1: 0xB8
+lwsts[15714]:  2: 0x42
+lwsts[15714]:  3: 0x79
+lwsts[15714]:  4: 0x65
+lwsts[15714]:  5: 0x21
+
 
 User api changes
 ----------------

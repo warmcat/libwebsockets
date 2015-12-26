@@ -320,6 +320,7 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_UNLOCK_POLL				= 36,
 
 	LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY	= 37,
+	LWS_CALLBACK_WS_PEER_INITIATED_CLOSE			= 38,
 
 	/****** add new things just above ---^ ******/
 
@@ -1039,6 +1040,16 @@ struct lws_extension;
  *		len == 1 allows external threads to be synchronized against
  *		wsi lifecycle changes if it acquires the same lock for the
  *		duration of wsi dereference from the other thread context.
+ *
+ *	LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
+ *		The peer has sent an unsolicited Close WS packet.  @in and
+ *		@len are the optional close code (first 2 bytes, network
+ *		order) and the optional additional information which is not
+ *		defined in the standard, and may be a string or non-human-
+ *		readble data.
+ *		If you return 0 lws will echo the close and then close the
+ *		connection.  If you return nonzero lws will just close the
+ *		connection.
  */
 LWS_VISIBLE LWS_EXTERN int
 callback(const struct lws *wsi, enum lws_callback_reasons reason, void *user,

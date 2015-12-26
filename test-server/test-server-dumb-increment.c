@@ -67,6 +67,20 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		/* you could return non-zero here and kill the connection */
 		break;
 
+	/*
+	 * this just demonstrates how to handle
+	 * LWS_CALLBACK_WS_PEER_INITIATED_CLOSE and extract the peer's close
+	 * code and auxiliary data.  You can just not handle it if you don't
+	 * have a use for this.
+	 */
+	case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
+		lwsl_notice("LWS_CALLBACK_WS_PEER_INITIATED_CLOSE: len %d\n",
+			    len);
+		for (n = 0; n < (int)len; n++)
+			lwsl_notice(" %d: 0x%02X\n", n,
+				    ((unsigned char *)in)[n]);
+		break;
+
 	default:
 		break;
 	}
