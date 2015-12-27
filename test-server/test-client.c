@@ -242,7 +242,7 @@ static struct option options[] = {
 	{ NULL, 0, 0, 0 }
 };
 
-static int ratelimit_connects(unsigned int *last, int secs)
+static int ratelimit_connects(unsigned int *last, unsigned int secs)
 {
 	struct timeval tv;
 
@@ -345,7 +345,7 @@ int main(int argc, char **argv)
 
 	while (!force_exit) {
 
-		if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2)) {
+		if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
 			lwsl_notice("dumb: connecting\n");
 			wsi_dumb = lws_client_connect(context, address, port,
 				use_ssl, "/", argv[optind], argv[optind],
@@ -353,7 +353,7 @@ int main(int argc, char **argv)
 				ietf_version);
 		}
 
-		if (!wsi_mirror && ratelimit_connects(&rl_mirror, 2)) {
+		if (!wsi_mirror && ratelimit_connects(&rl_mirror, 2u)) {
 			lwsl_notice("mirror: connecting\n");
 			wsi_mirror = lws_client_connect(context,
 				address, port, use_ssl,  "/",

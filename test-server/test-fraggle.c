@@ -97,7 +97,7 @@ callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 
 		case FRAGSTATE_RANDOM_PAYLOAD:
 
-			for (n = 0; n < len; n++)
+			for (n = 0; (unsigned int)n < len; n++)
 				psf->sum += p[n];
 
 			psf->total_message += len;
@@ -184,9 +184,9 @@ callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 						  psf->total_message, psf->sum);
 
 			bp[0] = psf->sum >> 24;
-			bp[1] = psf->sum >> 16;
-			bp[2] = psf->sum >> 8;
-			bp[3] = psf->sum;
+			bp[1] = (unsigned char)(psf->sum >> 16);
+			bp[2] = (unsigned char)(psf->sum >> 8);
+			bp[3] = (unsigned char)psf->sum;
 
 			n = lws_write(wsi, (unsigned char *)bp,
 							   4, LWS_WRITE_BINARY);
