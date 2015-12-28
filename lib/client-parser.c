@@ -34,8 +34,38 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 		case 13:
 			wsi->u.ws.opcode = c & 0xf;
+			/* revisit if an extension wants them... */
+			switch (wsi->u.ws.opcode) {
+			case 3:
+			case 4:
+			case 5:
+			case 6:
+			case 7:
+			case 0xb:
+			case 0xc:
+			case 0xd:
+			case 0xe:
+			case 0xf:
+				lwsl_info("illegal opcode\n");
+				return -1;
+			default:
+				break;
+			}
 			wsi->u.ws.rsv = (c & 0x70);
+			/* revisit if an extension wants them... */
+			if (
+#ifndef LWS_NO_EXTENSIONS
+				!wsi->count_active_extensions &&
+#endif
+				wsi->u.ws.rsv) {
+				lwsl_info("illegal rsv bits set\n");
+				return -1;
+			}
 			wsi->u.ws.final = !!((c >> 7) & 1);
+			if ((wsi->u.ws.opcode & 8) && !wsi->u.ws.final) {
+				lwsl_info("control message cannot be fragmented\n");
+				return -1;
+			}
 			switch (wsi->u.ws.opcode) {
 			case LWSWSOPC_TEXT_FRAME:
 			case LWSWSOPC_BINARY_FRAME:
