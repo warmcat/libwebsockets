@@ -856,6 +856,7 @@ struct _lws_websocket_related {
 	unsigned int clean_buffer:1; /* buffer not rewritten by extension */
 	unsigned int payload_is_close:1; /* process as PONG, but it is close */
 	unsigned int ping_pending_flag:1;
+	unsigned int continuation_possible:1;
 };
 
 struct lws {

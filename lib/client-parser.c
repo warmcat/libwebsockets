@@ -36,6 +36,16 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 			wsi->u.ws.opcode = c & 0xf;
 			/* revisit if an extension wants them... */
 			switch (wsi->u.ws.opcode) {
+			case LWSWSOPC_TEXT_FRAME:
+			case LWSWSOPC_BINARY_FRAME:
+				wsi->u.ws.continuation_possible = 1;
+				break;
+			case LWSWSOPC_CONTINUATION:
+				if (!wsi->u.ws.continuation_possible) {
+					lwsl_info("disordered continuation\n");
+					return -1;
+				}
+				break;
 			case 3:
 			case 4:
 			case 5:
@@ -62,6 +72,9 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 				return -1;
 			}
 			wsi->u.ws.final = !!((c >> 7) & 1);
+			if (wsi->u.ws.final)
+				wsi->u.ws.continuation_possible = 0;
+
 			if ((wsi->u.ws.opcode & 8) && !wsi->u.ws.final) {
 				lwsl_info("control message cannot be fragmented\n");
 				return -1;
