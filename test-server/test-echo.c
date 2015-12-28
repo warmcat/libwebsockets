@@ -44,13 +44,16 @@ static volatile int force_exit = 0;
 static int versa, state;
 static int times = -1;
 
-#define MAX_ECHO_PAYLOAD 1400
+#define MAX_ECHO_PAYLOAD (128 * 1024)
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
 
 struct per_session_data__echo {
 	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + MAX_ECHO_PAYLOAD];
 	unsigned int len;
 	unsigned int index;
+	int final;
+	int continuation;
+	int binary;
 };
 
 static int
@@ -67,7 +70,18 @@ callback_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 do_tx:
-		n = lws_write(wsi, &pss->buf[LWS_SEND_BUFFER_PRE_PADDING], pss->len, LWS_WRITE_TEXT);
+		n = LWS_WRITE_CONTINUATION;
+		if (!pss->continuation) {
+			if (pss->binary)
+				n = LWS_WRITE_BINARY;
+			else
+				n = LWS_WRITE_TEXT;
+			pss->continuation = 1;
+		}
+		if (!pss->final)
+			n |= LWS_WRITE_NO_FIN;
+
+		n = lws_write(wsi, &pss->buf[LWS_SEND_BUFFER_PRE_PADDING], pss->len, n);
 		if (n < 0) {
 			lwsl_err("ERROR %d writing to socket, hanging up\n", n);
 			return 1;
@@ -76,6 +90,10 @@ do_tx:
 			lwsl_err("Partial write\n");
 			return -1;
 		}
+		pss->len = -1;
+		if (pss->final)
+			pss->continuation = 0;
+		lws_rx_flow_control(wsi, 1);
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
@@ -86,6 +104,10 @@ do_rx:
 		}
 		memcpy(&pss->buf[LWS_SEND_BUFFER_PRE_PADDING], in, len);
 		pss->len = (unsigned int)len;
+		pss->final = lws_is_final_fragment(wsi);
+		pss->binary = lws_frame_is_binary(wsi);
+		lwsl_info("len %d final %d\n", len, pss->final);
+		lws_rx_flow_control(wsi, 0);
 		lws_callback_on_writable(wsi);
 		break;
 #endif
@@ -95,12 +117,12 @@ do_rx:
 
 	case LWS_CALLBACK_CLOSED:
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_notice("closed\n");
+		lwsl_debug("closed\n");
 		state = 0;
 		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
-		lwsl_notice("Client has connected\n");
+		lwsl_debug("Client has connected\n");
 		pss->index = 0;
 		state = 2;
 		break;
@@ -115,8 +137,14 @@ do_rx:
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
 #ifndef LWS_NO_SERVER
-		if (versa)
-			goto do_tx;
+		if (versa) {
+			if (pss->len != (unsigned int)-1)
+				goto do_tx;
+			else {
+				lwsl_debug("****** writable with nothing new\n");
+				break;
+			}
+		}
 #endif
 		/* we will send our packet... */
 		pss->len = sprintf((char *)&pss->buf[LWS_SEND_BUFFER_PRE_PADDING], "hello from libwebsockets-test-echo client pid %d index %d\n", getpid(), pss->index++);
