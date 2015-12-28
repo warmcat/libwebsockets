@@ -291,3 +291,51 @@ in the logging is the time taken by this particular attempt.  High figures
 here may indicate a problem, or if you system is loaded with another app at
 that time, such as the browser, it may simply indicate the OS gave preferential
 treatment to the other app during that call.
+
+
+Autobahn Test Suite
+-------------------
+
+Lws can be tested against the autobahn websocket fuzzer.
+
+1) pip install autobahntestsuite
+
+2) wstest -m fuzzingserver
+
+3) Run tests like this
+
+libwebsockets-test-echo --client localhost --port 9001 -u "/runCase?case=20&agent=libwebsockets" -v -d 65535 -n 1
+
+(this runs test 20)
+
+4) In a browser, go here
+
+http://localhost:8080/test_browser.html
+
+fill in "libwebsockets" in "User Agent Identifier" and press "Update Reports (Manual)"
+
+5) In a browser go to the directory you ran wstest in (eg, /projects/libwebsockets)
+
+file:///projects/libwebsockets/reports/clients/index.html
+
+to see the results
+
+
+Autobahn Test Notes
+-------------------
+
+1) Autobahn tests the user code + lws implementation.  So to get the same
+results, you need to follow test-echo.c in terms of user implmentation.
+
+2) Some of the tests make no sense for Libwebsockets to support and we fail them.
+
+ - Tests 2.10 + 2.11: sends multiple pings on one connection.  Lws policy is to
+only allow one active ping in flight on each connection, the rest are dropped.
+The autobahn test itself admits this is not part of the standard, just someone's
+random opinion about how they think a ws server should act.  So we will fail
+this by design and it is no problem about RFC6455 compliance.
+
+ - Test 6.x: detect we were sent invalid UTF-8.  Validity of encoding is left
+ to the user code in libwebsockets until now.
+ 
+ 
