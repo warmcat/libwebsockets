@@ -24,6 +24,8 @@
 int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 {
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
+	unsigned short close_code;
+	unsigned char *pp;
 	struct lws_tokens eff_buf;
 	int handled, m;
 
@@ -323,14 +325,26 @@ spill:
 				lwsl_parser("seen server's close ack\n");
 				return -1;
 			}
+			pp = (unsigned char *)&wsi->u.ws.rx_user_buffer[
+						LWS_SEND_BUFFER_PRE_PADDING];
 			lwsl_parser("client sees server close len = %d\n",
 						 wsi->u.ws.rx_user_buffer_head);
+			if (wsi->u.ws.rx_user_buffer_head >= 2) {
+				close_code = (pp[0] << 8) | pp[1];
+				if (close_code < 1000 || close_code == 1004 ||
+				    close_code == 1005 || close_code == 1006 ||
+				    close_code == 1012 || close_code == 1013 ||
+				    close_code == 1014 || close_code == 1015 ||
+				    (close_code >= 1016 && close_code < 3000)
+				) {
+					pp[0] = (LWS_CLOSE_STATUS_PROTOCOL_ERR >> 8) & 0xff;
+					pp[1] = LWS_CLOSE_STATUS_PROTOCOL_ERR & 0xff;
+				}
+			}
 			if (user_callback_handle_rxflow(
 					wsi->protocol->callback, wsi,
 					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
-					wsi->user_space,
-					&wsi->u.ws.rx_user_buffer[
-						LWS_SEND_BUFFER_PRE_PADDING],
+					wsi->user_space, pp,
 					wsi->u.ws.rx_user_buffer_head))
 				return -1;
 			/*
