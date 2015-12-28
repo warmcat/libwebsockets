@@ -383,12 +383,11 @@ ping_drop:
 						LWS_SEND_BUFFER_PRE_PADDING];
 		eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
 
-		if (lws_ext_cb_wsi_active_exts(wsi,
-						     LWS_EXT_CALLBACK_PAYLOAD_RX,
-						     &eff_buf, 0) < 0) /* fail */
+		if (lws_ext_cb_wsi_active_exts(wsi, LWS_EXT_CALLBACK_PAYLOAD_RX,
+					       &eff_buf, 0) < 0) /* fail */
 			return -1;
 
-		if (eff_buf.token_len <= 0 &&
+		if (eff_buf.token_len < 0 &&
 		    callback_action != LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			goto already_done;
 
