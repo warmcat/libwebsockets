@@ -839,7 +839,7 @@ struct _lws_websocket_related {
 	unsigned int rx_user_buffer_head;
 	unsigned char mask_nonce[4];
 	/* Also used for close content... control opcode == < 128 */
-	unsigned char ping_payload_buf[128 - 4 + LWS_SEND_BUFFER_PRE_PADDING];
+	unsigned char ping_payload_buf[128 - 3 + LWS_SEND_BUFFER_PRE_PADDING];
 
 	unsigned char ping_payload_len;
 	unsigned char frame_mask_index;
