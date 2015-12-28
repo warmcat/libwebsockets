@@ -72,12 +72,24 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 				return -1;
 			}
 			wsi->u.ws.final = !!((c >> 7) & 1);
-			if (wsi->u.ws.final)
+
+			if (wsi->u.ws.owed_a_fin &&
+			    (wsi->u.ws.opcode == LWSWSOPC_TEXT_FRAME ||
+			     wsi->u.ws.opcode == LWSWSOPC_BINARY_FRAME)) {
+				lwsl_info("hey you owed us a FIN\n");
+				return -1;
+			}
+			if ((!(wsi->u.ws.opcode & 8)) && wsi->u.ws.final) {
 				wsi->u.ws.continuation_possible = 0;
+				wsi->u.ws.owed_a_fin = 0;
+			}
 
 			if ((wsi->u.ws.opcode & 8) && !wsi->u.ws.final) {
 				lwsl_info("control message cannot be fragmented\n");
 				return -1;
+			}
+			if (!wsi->u.ws.final) {
+				wsi->u.ws.owed_a_fin = 1;
 			}
 			switch (wsi->u.ws.opcode) {
 			case LWSWSOPC_TEXT_FRAME:
