@@ -763,7 +763,7 @@ lws_get_protocol(struct lws *wsi)
 LWS_VISIBLE int
 lws_is_final_fragment(struct lws *wsi)
 {
-	return wsi->u.ws.final;
+	return wsi->u.ws.final && !wsi->u.ws.rx_packet_length;
 }
 
 LWS_VISIBLE unsigned char
