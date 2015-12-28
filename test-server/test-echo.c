@@ -42,6 +42,7 @@
 
 static volatile int force_exit = 0;
 static int versa, state;
+static int times = -1;
 
 #define MAX_ECHO_PAYLOAD 1400
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
@@ -94,7 +95,7 @@ do_rx:
 
 	case LWS_CALLBACK_CLOSED:
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_info("closed\n");
+		lwsl_notice("closed\n");
 		state = 0;
 		break;
 
@@ -147,7 +148,7 @@ static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
 	{
-		"default",		/* name */
+		"",		/* name */
 		callback_echo,		/* callback */
 		sizeof(struct per_session_data__echo)	/* per_session_data_size */
 	},
@@ -176,6 +177,7 @@ static struct option options[] = {
 	{ "uri",	required_argument,	NULL, 'u' },
 	{ "passphrase", required_argument,	NULL, 'P' },
 	{ "interface",  required_argument,	NULL, 'i' },
+	{ "times",	required_argument,	NULL, 'n' },
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize", 	no_argument,		NULL, 'D' },
 #endif
@@ -225,7 +227,7 @@ int main(int argc, char **argv)
 #endif
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "i:hsp:d:DC:k:P:vu:"
+		n = getopt_long(argc, argv, "i:hsp:d:DC:k:P:vu:n:"
 #ifndef LWS_NO_CLIENT
 			"c:r:"
 #endif
@@ -288,6 +290,9 @@ int main(int argc, char **argv)
 			interface_name[(sizeof interface_name) - 1] = '\0';
 			_interface = interface_name;
 			break;
+		case 'n':
+			times = atoi(optarg);
+			break;
 		case '?':
 		case 'h':
 			fprintf(stderr, "Usage: libwebsockets-test-echo\n"
@@ -302,6 +307,8 @@ int main(int argc, char **argv)
 				"  --ssl        / -s\n"
 				"  --passphrase / -P <passphrase>\n"
 				"  --interface  / -i <interface>\n"
+				"  --uri        / -u <uri path>\n"
+				"  --times      / -n <-1 unlimited or times to echo>\n"
 #ifndef LWS_NO_DAEMONIZE
 				"  --daemonize  / -D\n"
 #endif
@@ -393,14 +400,16 @@ int main(int argc, char **argv)
 	n = 0;
 	while (n >= 0 && !force_exit) {
 #ifndef LWS_NO_CLIENT
-		if (client && !state) {
+		if (client && !state && times) {
 			state = 1;
 			lwsl_notice("Client connecting to %s:%u....\n", address, port);
 			/* we are in client mode */
 
 			address[sizeof(address) - 1] = '\0';
 			sprintf(ads_port, "%s:%u", address, port & 65535);
-
+			if (times > 0)
+				times--;
+				
 			wsi = lws_client_connect(context, address,
 				port, use_ssl, uri, ads_port,
 				 ads_port, NULL, -1);
@@ -410,15 +419,20 @@ int main(int argc, char **argv)
 			}
 		}
 
-		if (client && !versa) {
+		if (client && !versa && times) {
 			gettimeofday(&tv, NULL);
 
 			if (((((unsigned long long)tv.tv_sec * 1000000) + tv.tv_usec) - oldus) > rate_us) {
 				lws_callback_on_writable_all_protocol(context,
 						&protocols[0]);
 				oldus = ((unsigned long long)tv.tv_sec * 1000000) + tv.tv_usec;
+				if (times > 0)
+					times--;
 			}
 		}
+		
+		if (client && !state && !times)
+			break;
 #endif
 		n = lws_service(context, 10);
 	}
