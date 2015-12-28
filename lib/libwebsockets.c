@@ -974,3 +974,38 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
 
 	wsi->u.ws.close_in_ping_buffer_len = p - start;
 }
+
+LWS_EXTERN int
+_lws_rx_flow_control(struct lws *wsi)
+{
+	/* there is no pending change */
+	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE))
+		return 0;
+
+	/* stuff is still buffered, not ready to really accept new input */
+	if (wsi->rxflow_buffer) {
+		/* get ourselves called back to deal with stashed buffer */
+		lws_callback_on_writable(wsi);
+		return 0;
+	}
+
+	/* pending is cleared, we can change rxflow state */
+
+	wsi->rxflow_change_to &= ~LWS_RXFLOW_PENDING_CHANGE;
+
+	lwsl_info("rxflow: wsi %p change_to %d\n", wsi,
+			      wsi->rxflow_change_to & LWS_RXFLOW_ALLOW);
+
+	/* adjust the pollfd for this wsi */
+
+	if (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW) {
+		if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+			lwsl_info("%s: fail\n", __func__);
+			return -1;
+		}
+	} else
+		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+			return -1;
+
+	return 0;
+}

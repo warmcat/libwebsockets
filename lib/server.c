@@ -147,41 +147,6 @@ bail:
 }
 
 int
-_lws_rx_flow_control(struct lws *wsi)
-{
-	/* there is no pending change */
-	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE))
-		return 0;
-
-	/* stuff is still buffered, not ready to really accept new input */
-	if (wsi->rxflow_buffer) {
-		/* get ourselves called back to deal with stashed buffer */
-		lws_callback_on_writable(wsi);
-		return 0;
-	}
-
-	/* pending is cleared, we can change rxflow state */
-
-	wsi->rxflow_change_to &= ~LWS_RXFLOW_PENDING_CHANGE;
-
-	lwsl_info("rxflow: wsi %p change_to %d\n", wsi,
-			      wsi->rxflow_change_to & LWS_RXFLOW_ALLOW);
-
-	/* adjust the pollfd for this wsi */
-
-	if (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW) {
-		if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
-			lwsl_info("%s: fail\n", __func__);
-			return -1;
-		}
-	} else
-		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
-			return -1;
-
-	return 0;
-}
-
-int
 _lws_server_listen_accept_flow_control(struct lws_context *context, int on)
 {
 	struct lws *wsi = context->wsi_listening;
@@ -733,7 +698,7 @@ int lws_server_socket_service(struct lws_context *context,
 
 		/* any incoming data ready? */
 
-		if (!(pollfd->revents & LWS_POLLIN))
+		if (!(pollfd->revents & pollfd->events && LWS_POLLIN))
 			goto try_pollout;
 
 		len = lws_ssl_capable_read(wsi, context->serv_buf,

@@ -108,12 +108,15 @@ http_new:
 			/* Handshake indicates this session is done. */
 			goto bail;
 
-		/* It's possible that we've exhausted our data already, but
-		 * lws_handshake_server doesn't update len for us.
+		/*
+		 * It's possible that we've exhausted our data already, or
+		 * rx flow control has stopped us dealing with this early,
+		 * but lws_handshake_server doesn't update len for us.
 		 * Figure out how much was read, so that we can proceed
 		 * appropriately:
 		 */
 		len -= (buf - last_char);
+		lwsl_debug("%s: thinks we have used %d\n", __func__, len);
 
 		if (!wsi->hdr_parsing_completed)
 			/* More header content on the way */

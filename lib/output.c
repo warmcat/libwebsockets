@@ -24,8 +24,13 @@
 static int
 lws_0405_frame_mask_generate(struct lws *wsi)
 {
-	int n;
-
+#if 0
+	wsi->u.ws.mask_nonce[0] = 0;
+	wsi->u.ws.mask_nonce[1] = 0;
+	wsi->u.ws.mask_nonce[2] = 0;
+	wsi->u.ws.mask_nonce[3] = 0;
+#else
+		int n;
 	/* fetch the per-frame nonce */
 
 	n = lws_get_random(lws_get_context(wsi), wsi->u.ws.mask_nonce, 4);
@@ -34,7 +39,7 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 			    SYSTEM_RANDOM_FILEPATH, n);
 		return 1;
 	}
-
+#endif
 	/* start masking from first byte of masking key buffer */
 	wsi->u.ws.frame_mask_index = 0;
 
@@ -260,8 +265,10 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 
 	/* if we are continuing a frame that already had its header done */
 
-	if (wsi->u.ws.inside_frame)
+	if (wsi->u.ws.inside_frame) {
+		lwsl_debug("INSIDE FRAME\n");
 		goto do_more_inside_frame;
+	}
 
 	wsi->u.ws.clean_buffer = 1;
 

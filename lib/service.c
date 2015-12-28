@@ -461,7 +461,7 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 	/* handle session socket closed */
 
 	if ((!(pollfd->revents & LWS_POLLIN)) &&
-			(pollfd->revents & LWS_POLLHUP)) {
+	    (pollfd->revents & LWS_POLLHUP)) {
 
 		lwsl_debug("Session Socket %p (fd=%d) dead\n",
 						       (void *)wsi, pollfd->fd);
@@ -511,7 +511,7 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 		}
 
 		if (wsi->rxflow_buffer &&
-			      (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
+		    (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
 			lwsl_info("draining rxflow\n");
 			/* well, drain it */
 			eff_buf.token = (char *)wsi->rxflow_buffer +
@@ -522,11 +522,11 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 		}
 
 		/* any incoming data ready? */
-
-		if (!(pollfd->revents & LWS_POLLIN))
+		/* notice if rx flow going off raced poll(), rx flow wins */
+		if (wsi->rxflow_buffer ||
+		    !(pollfd->revents & pollfd->events & LWS_POLLIN))
 			break;
 read:
-
 		eff_buf.token_len = lws_ssl_capable_read(wsi,
 					context->serv_buf,
 					pending ? pending :
@@ -572,6 +572,13 @@ drain:
 			/* service incoming data */
 
 			if (eff_buf.token_len) {
+				/*
+				 * if draining from rxflow buffer, not
+				 * critical to track what was used since at the
+				 * use it bumps wsi->rxflow_pos.  If we come
+				 * around again it will pick up from where it
+				 * left off.
+				 */
 				n = lws_read(wsi, (unsigned char *)eff_buf.token,
 					     eff_buf.token_len);
 				if (n < 0) {

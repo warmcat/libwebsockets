@@ -1060,9 +1060,6 @@ lws_rx_sm(struct lws *wsi, unsigned char c);
 LWS_EXTERN int
 lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
 
-LWS_EXTERN int
-_lws_rx_flow_control(struct lws *wsi);
-
 LWS_EXTERN void
 lws_union_transition(struct lws *wsi, enum connection_mode mode);
 
@@ -1242,19 +1239,20 @@ lws_decode_ssl_error(void);
 #define lws_context_init_client_ssl(_a, _b) (0)
 #define lws_handshake_client(_a, _b, _c) (0)
 #endif
+
+LWS_EXTERN int
+_lws_rx_flow_control(struct lws *wsi);
+
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			  struct lws_pollfd *pollfd);
-LWS_EXTERN int
-_lws_rx_flow_control(struct lws *wsi);
 LWS_EXTERN int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
 LWS_EXTERN int
 _lws_server_listen_accept_flow_control(struct lws_context *context, int on);
 #else
 #define lws_server_socket_service(_a, _b, _c) (0)
-#define _lws_rx_flow_control(_a) (0)
 #define lws_handshake_server(_a, _b, _c) (0)
 #define _lws_server_listen_accept_flow_control(a, b) (0)
 #endif

@@ -25,21 +25,41 @@ int lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	unsigned int n;
 
+	lwsl_debug("%s: len %u\n", __func__, len);
+
 	switch (wsi->mode) {
 	case LWSCM_WSCL_WAITING_PROXY_REPLY:
 	case LWSCM_WSCL_ISSUE_HANDSHAKE:
 	case LWSCM_WSCL_WAITING_SERVER_REPLY:
 	case LWSCM_WSCL_WAITING_EXTENSION_CONNECT:
 	case LWSCM_WS_CLIENT:
-		for (n = 0; n < len; n++)
+		for (n = 0; n < len; n++) {
+			/*
+			 * we were accepting input but now we stopped doing so
+			 */
+			if (!(wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
+				lwsl_debug("%s: caching %d\n", __func__, len - n);
+				lws_rxflow_cache(wsi, *buf, 0, len - n);
+				return 0;
+			}
+
+			/* account for what we're using in rxflow buffer */
+			if (wsi->rxflow_buffer)
+				wsi->rxflow_pos++;
+
 			if (lws_client_rx_sm(wsi, *(*buf)++)) {
 				lwsl_debug("client_rx_sm failed\n");
 				return 1;
 			}
+		}
+		lwsl_debug("%s: finished with %d\n", __func__, len);
 		return 0;
 	default:
 		break;
 	}
+
+	lwsl_debug("%s: did nothing\n", __func__);
+
 	return 0;
 }
 
