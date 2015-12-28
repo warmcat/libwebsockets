@@ -246,12 +246,6 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 	int pre = 0, n;
 	size_t orig_len = len;
 
-	if (len == 0 && protocol != LWS_WRITE_CLOSE &&
-	    protocol != LWS_WRITE_PING && protocol != LWS_WRITE_PONG) {
-		lwsl_warn("zero length lws_write attempt\n");
-		return 0;
-	}
-
 	if (protocol == LWS_WRITE_HTTP ||
 	    protocol == LWS_WRITE_HTTP_FINAL ||
 	    protocol == LWS_WRITE_HTTP_HEADERS)
