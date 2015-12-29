@@ -847,6 +847,7 @@ struct _lws_websocket_related {
 	unsigned char rsv;
 	/* zero if no info, or length including 2-byte close code */
 	unsigned char close_in_ping_buffer_len;
+	unsigned char utf8;
 
 	unsigned int final:1;
 	unsigned int frame_is_binary:1;
