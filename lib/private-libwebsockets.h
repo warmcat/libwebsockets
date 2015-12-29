@@ -859,6 +859,8 @@ struct _lws_websocket_related {
 	unsigned int ping_pending_flag:1;
 	unsigned int continuation_possible:1;
 	unsigned int owed_a_fin:1;
+	unsigned int check_utf8:1;
+	unsigned int defeat_check_utf8:1;
 };
 
 struct lws {

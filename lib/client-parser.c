@@ -31,17 +31,24 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
+		/* control frames (PING) may interrupt checkable sequences */
+		wsi->u.ws.defeat_check_utf8 = 0;
 
 		switch (wsi->ietf_spec_revision) {
-
 		case 13:
 			wsi->u.ws.opcode = c & 0xf;
 			/* revisit if an extension wants them... */
 			switch (wsi->u.ws.opcode) {
 			case LWSWSOPC_TEXT_FRAME:
-			case LWSWSOPC_BINARY_FRAME:
 				wsi->u.ws.continuation_possible = 1;
+				wsi->u.ws.check_utf8 =
+					!!(wsi->context->options &
+					   LWS_SERVER_OPTION_VALIDATE_UTF8);
 				wsi->u.ws.utf8 = 0;
+				break;
+			case LWSWSOPC_BINARY_FRAME:
+				wsi->u.ws.check_utf8 = 0;
+				wsi->u.ws.continuation_possible = 1;
 				break;
 			case LWSWSOPC_CONTINUATION:
 				if (!wsi->u.ws.continuation_possible) {
@@ -50,6 +57,7 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 				}
 				break;
 			case LWSWSOPC_CLOSE:
+				wsi->u.ws.check_utf8 = 0;
 				wsi->u.ws.utf8 = 0;
 				break;
 			case 3:
@@ -65,6 +73,7 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 				lwsl_info("illegal opcode\n");
 				return -1;
 			default:
+				wsi->u.ws.defeat_check_utf8 = 1;
 				break;
 			}
 			wsi->u.ws.rsv = (c & 0x70);
@@ -94,9 +103,9 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 				lwsl_info("control message cannot be fragmented\n");
 				return -1;
 			}
-			if (!wsi->u.ws.final) {
+			if (!wsi->u.ws.final)
 				wsi->u.ws.owed_a_fin = 1;
-			}
+
 			switch (wsi->u.ws.opcode) {
 			case LWSWSOPC_TEXT_FRAME:
 			case LWSWSOPC_BINARY_FRAME:
@@ -282,12 +291,13 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 			c ^= wsi->u.ws.mask_nonce[
 					    (wsi->u.ws.frame_mask_index++) & 3];
 
-		if ((wsi->context->options & LWS_SERVER_OPTION_VALIDATE_UTF8) &&
-		    ((!wsi->u.ws.frame_is_binary &&
-		      (wsi->u.ws.opcode == LWSWSOPC_CONTINUATION ||
-		       wsi->u.ws.opcode == LWSWSOPC_TEXT_FRAME)) ||
-		     (wsi->u.ws.opcode == LWSWSOPC_CLOSE &&
-		      wsi->u.ws.rx_user_buffer_head > 2))) {
+		/* if we skipped the 2-byte code at the start, UTF-8 after */
+		if (wsi->u.ws.opcode == LWSWSOPC_CLOSE &&
+		    wsi->u.ws.rx_user_buffer_head == 2)
+			wsi->u.ws.check_utf8 = !!(wsi->context->options &
+					       LWS_SERVER_OPTION_VALIDATE_UTF8);
+
+		if (wsi->u.ws.check_utf8 && !wsi->u.ws.defeat_check_utf8) {
 			static const unsigned char e0f4[] = {
 				0xa0 | ((2 - 1) << 2) | 1, /* e0 */
 				0x80 | ((4 - 1) << 2) | 1, /* e1 */
@@ -335,8 +345,7 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 			}
 
 			/* we are ending partway through utf-8 character? */
-			if (wsi->u.ws.final &&
-			    wsi->u.ws.rx_packet_length == 1 &&
+			if (wsi->u.ws.final && wsi->u.ws.rx_packet_length == 1 &&
 			    wsi->u.ws.utf8) {
 utf8_fail:			lwsl_info("utf8 error\n");
 				return -1;
@@ -344,7 +353,7 @@ utf8_fail:			lwsl_info("utf8 error\n");
 		}
 
 		wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-			       (wsi->u.ws.rx_user_buffer_head++)] = c;
+					 (wsi->u.ws.rx_user_buffer_head++)] = c;
 
 		if (--wsi->u.ws.rx_packet_length == 0) {
 			/* spill because we have the whole frame */
@@ -358,13 +367,11 @@ utf8_fail:			lwsl_info("utf8 error\n");
 		 */
 
 		if (!wsi->protocol->rx_buffer_size &&
-			 		wsi->u.ws.rx_user_buffer_head !=
-			 				  LWS_MAX_SOCKET_IO_BUF)
+		    wsi->u.ws.rx_user_buffer_head != LWS_MAX_SOCKET_IO_BUF)
 			break;
-		else
-			if (wsi->protocol->rx_buffer_size &&
-					wsi->u.ws.rx_user_buffer_head !=
-						  wsi->protocol->rx_buffer_size)
+
+		if (wsi->protocol->rx_buffer_size &&
+		    wsi->u.ws.rx_user_buffer_head != wsi->protocol->rx_buffer_size)
 			break;
 
 		/* spill because we filled our rx buffer */
