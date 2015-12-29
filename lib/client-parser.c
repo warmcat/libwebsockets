@@ -282,11 +282,12 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 			c ^= wsi->u.ws.mask_nonce[
 					    (wsi->u.ws.frame_mask_index++) & 3];
 
-		if ((!wsi->u.ws.frame_is_binary &&
-		     wsi->u.ws.opcode == LWSWSOPC_CONTINUATION) ||
-		     wsi->u.ws.opcode == LWSWSOPC_TEXT_FRAME ||
-		    (wsi->u.ws.opcode == LWSWSOPC_CLOSE &&
-		     wsi->u.ws.rx_user_buffer_head > 2)) {
+		if ((wsi->context->options & LWS_SERVER_OPTION_VALIDATE_UTF8) &&
+		    ((!wsi->u.ws.frame_is_binary &&
+		      (wsi->u.ws.opcode == LWSWSOPC_CONTINUATION ||
+		       wsi->u.ws.opcode == LWSWSOPC_TEXT_FRAME)) ||
+		     (wsi->u.ws.opcode == LWSWSOPC_CLOSE &&
+		      wsi->u.ws.rx_user_buffer_head > 2))) {
 			static const unsigned char e0f4[] = {
 				0xa0 | ((2 - 1) << 2) | 1, /* e0 */
 				0x80 | ((4 - 1) << 2) | 1, /* e1 */

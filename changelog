@@ -99,6 +99,14 @@ The browser shows the close code and reason he received
 
 websocket connection CLOSED, code: 1001, reason: seeya
 
+3) There's a new context creation time option flag
+
+LWS_SERVER_OPTION_VALIDATE_UTF8
+
+if you set it in info->options, then TEXT and CLOSE frames will get checked to
+confirm that they contain valid UTF-8.  If they don't, the connection will get
+closed by lws.
+
 
 User api changes
 ----------------
@@ -117,6 +125,14 @@ LWS_WRITE_CLOSE is removed from libwebsockets.h.  It was only of use to send
 close frames...close frame content should be managed using lws_close_reason()
 now.
 
+3) We check for invalid CLOSE codes and complain about protocol violation in
+our close code.  But it changes little since we were in the middle of closing
+anyway.
+
+4) zero-length RX frames and zero length TX frames are now allowed.
+
+5) Pings and close used to be limited to 124 bytes, the correct limit is 125
+so that is now also allowed.
 
 
 v1.6.0-chrome48-firefox42

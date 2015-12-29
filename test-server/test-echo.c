@@ -409,7 +409,7 @@ int main(int argc, char **argv)
 		}
 	info.gid = -1;
 	info.uid = -1;
-	info.options = opts;
+	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8;
 
 	context = lws_create_context(&info);
 	if (context == NULL) {

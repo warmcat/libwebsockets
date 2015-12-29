@@ -270,6 +270,7 @@ enum lws_context_options {
 	LWS_SERVER_OPTION_DISABLE_IPV6				= (1 << 5),
 	LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS			= (1 << 6),
 	LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED		= (1 << 7),
+	LWS_SERVER_OPTION_VALIDATE_UTF8				= (1 << 8),
 
 	/****** add new things just above ---^ ******/
 };
@@ -1242,7 +1243,7 @@ struct lws_extension {
  * @http_proxy_port:	If http_proxy_address was non-NULL, uses this port at the address
  * @gid:	group id to change to after setting listen socket, or -1.
  * @uid:	user id to change to after setting listen socket, or -1.
- * @options:	0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
+ * @options:	0, or LWS_SERVER_OPTION_... bitfields
  * @user:	optional user pointer that can be recovered via the context
  *		pointer using lws_context_user
  * @ka_time:	0 for no keepalive, otherwise apply this keepalive timeout to
