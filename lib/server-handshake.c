@@ -33,6 +33,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 	struct lws_context *context = wsi->context;
 	int ext_count = 0;
 	int more = 1;
+	char ignore;
 
 	/*
 	 * Figure out which extensions the client has that we want to
@@ -56,15 +57,24 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 	lwsl_parser("WSI_TOKEN_EXTENSIONS = '%s'\n", c);
 	wsi->count_active_extensions = 0;
 	n = 0;
+	ignore = 0;
 	while (more) {
 
 		if (*c && (*c != ',' && *c != ' ' && *c != '\t')) {
+			if (ext_name[n] == ';')
+				ignore = 1;
+			if (ignore) {
+				c++;
+				continue;
+			}
 			ext_name[n] = *c++;
 			if (n < sizeof(ext_name) - 1)
 				n++;
 			continue;
 		}
 		ext_name[n] = '\0';
+
+		ignore = 0;
 		if (!*c)
 			more = 0;
 		else {

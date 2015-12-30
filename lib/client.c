@@ -514,6 +514,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	const struct lws_extension *ext;
 	char ext_name[128];
 	const char *c;
+	char ignore;
 	int more = 1;
 	void *v;
 #endif
@@ -648,15 +649,23 @@ check_extensions:
 
 	c = (char *)context->serv_buf;
 	n = 0;
+	ignore = 0;
 	while (more) {
 
 		if (*c && (*c != ',' && *c != ' ' && *c != '\t')) {
+			if (*c == ';')
+				ignore = 1;
+			if (ignore) {
+				c++;
+				continue;
+			}
 			ext_name[n] = *c++;
 			if (n < sizeof(ext_name) - 1)
 				n++;
 			continue;
 		}
 		ext_name[n] = '\0';
+		ignore = 0;
 		if (!*c)
 			more = 0;
 		else {
