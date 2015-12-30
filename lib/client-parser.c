@@ -291,67 +291,6 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 			c ^= wsi->u.ws.mask_nonce[
 					    (wsi->u.ws.frame_mask_index++) & 3];
 
-		/* if we skipped the 2-byte code at the start, UTF-8 after */
-		if (wsi->u.ws.opcode == LWSWSOPC_CLOSE &&
-		    wsi->u.ws.rx_user_buffer_head == 2)
-			wsi->u.ws.check_utf8 = !!(wsi->context->options &
-					       LWS_SERVER_OPTION_VALIDATE_UTF8);
-
-		if (wsi->u.ws.check_utf8 && !wsi->u.ws.defeat_check_utf8) {
-			static const unsigned char e0f4[] = {
-				0xa0 | ((2 - 1) << 2) | 1, /* e0 */
-				0x80 | ((4 - 1) << 2) | 1, /* e1 */
-				0x80 | ((4 - 1) << 2) | 1, /* e2 */
-				0x80 | ((4 - 1) << 2) | 1, /* e3 */
-				0x80 | ((4 - 1) << 2) | 1, /* e4 */
-				0x80 | ((4 - 1) << 2) | 1, /* e5 */
-				0x80 | ((4 - 1) << 2) | 1, /* e6 */
-				0x80 | ((4 - 1) << 2) | 1, /* e7 */
-				0x80 | ((4 - 1) << 2) | 1, /* e8 */
-				0x80 | ((4 - 1) << 2) | 1, /* e9 */
-				0x80 | ((4 - 1) << 2) | 1, /* ea */
-				0x80 | ((4 - 1) << 2) | 1, /* eb */
-				0x80 | ((4 - 1) << 2) | 1, /* ec */
-				0x80 | ((2 - 1) << 2) | 1, /* ed */
-				0x80 | ((4 - 1) << 2) | 1, /* ee */
-				0x80 | ((4 - 1) << 2) | 1, /* ef */
-				0x90 | ((3 - 1) << 2) | 2, /* f0 */
-				0x80 | ((4 - 1) << 2) | 2, /* f1 */
-				0x80 | ((4 - 1) << 2) | 2, /* f2 */
-				0x80 | ((4 - 1) << 2) | 2, /* f3 */
-				0x80 | ((1 - 1) << 2) | 2, /* f4 */
-
-				0,			   /* s0 */
-				0x80 | ((4 - 1) << 2) | 0, /* s2 */
-				0x80 | ((4 - 1) << 2) | 1, /* s3 */
-			};
-
-			if (!wsi->u.ws.utf8) {
-				if (c >= 0x80) {
-					if (c < 0xc2 || c > 0xf4)
-						goto utf8_fail;
-					if (c < 0xe0)
-						wsi->u.ws.utf8 = 0x80 |
-								 ((4 - 1) << 2);
-					else
-						wsi->u.ws.utf8 = e0f4[c - 0xe0];
-				}
-			} else {
-				if (c < (wsi->u.ws.utf8 & 0xf0) ||
-				    c >= (wsi->u.ws.utf8 & 0xf0) + 0x10 +
-					 ((wsi->u.ws.utf8 << 2) & 0x30))
-					goto utf8_fail;
-				wsi->u.ws.utf8 = e0f4[21 + (wsi->u.ws.utf8 & 3)];
-			}
-
-			/* we are ending partway through utf-8 character? */
-			if (wsi->u.ws.final && wsi->u.ws.rx_packet_length == 1 &&
-			    wsi->u.ws.utf8) {
-utf8_fail:			lwsl_info("utf8 error\n");
-				return -1;
-			}
-		}
-
 		wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
 					 (wsi->u.ws.rx_user_buffer_head++)] = c;
 
@@ -386,6 +325,14 @@ spill:
 
 		switch (wsi->u.ws.opcode) {
 		case LWSWSOPC_CLOSE:
+			pp = (unsigned char *)&wsi->u.ws.rx_user_buffer[
+						LWS_SEND_BUFFER_PRE_PADDING];
+			if (wsi->context->options & LWS_SERVER_OPTION_VALIDATE_UTF8 &&
+			    wsi->u.ws.rx_user_buffer_head > 2 &&
+			    lws_check_utf8(&wsi->u.ws.utf8, pp + 2,
+					   wsi->u.ws.rx_user_buffer_head - 2))
+				goto utf8_fail;
+
 			/* is this an acknowledgement of our close? */
 			if (wsi->state == LWSS_AWAITING_CLOSE_ACK) {
 				/*
@@ -395,8 +342,7 @@ spill:
 				lwsl_parser("seen server's close ack\n");
 				return -1;
 			}
-			pp = (unsigned char *)&wsi->u.ws.rx_user_buffer[
-						LWS_SEND_BUFFER_PRE_PADDING];
+
 			lwsl_parser("client sees server close len = %d\n",
 						 wsi->u.ws.rx_user_buffer_head);
 			if (wsi->u.ws.rx_user_buffer_head >= 2) {
@@ -526,11 +472,25 @@ ping_drop:
 					       &eff_buf, 0) < 0) /* fail */
 			return -1;
 
+		if (wsi->u.ws.check_utf8 && !wsi->u.ws.defeat_check_utf8) {
+			if (lws_check_utf8(&wsi->u.ws.utf8,
+					   (unsigned char *)eff_buf.token,
+					   eff_buf.token_len))
+				goto utf8_fail;
+
+			/* we are ending partway through utf-8 character? */
+			if (wsi->u.ws.final && wsi->u.ws.utf8) {
+utf8_fail:			lwsl_info("utf8 error\n");
+				return -1;
+			}
+		}
+
 		if (eff_buf.token_len < 0 &&
 		    callback_action != LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			goto already_done;
 
-		eff_buf.token[eff_buf.token_len] = '\0';
+		if (eff_buf.token)
+			eff_buf.token[eff_buf.token_len] = '\0';
 
 		if (!wsi->protocol->callback)
 			goto already_done;

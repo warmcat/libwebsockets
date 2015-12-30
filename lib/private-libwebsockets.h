@@ -1312,6 +1312,9 @@ time_in_microseconds(void);
 LWS_EXTERN const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
 
+LWS_EXTERN int
+lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
+
 #ifdef __cplusplus
 };
 #endif
