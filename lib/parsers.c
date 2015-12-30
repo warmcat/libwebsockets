@@ -136,6 +136,16 @@ int lws_free_header_table(struct lws *wsi)
 	return 0;
 }
 
+/**
+ * lws_hdr_fragment_length: report length of a single fragment of a header
+ *		The returned length does not include the space for a
+ *		terminating '\0'
+ *
+ * @wsi: websocket connection
+ * @h: which header index we are interested in
+ * @frag_idx: which fragment of @h we want to get the length of
+ */
+
 LWS_VISIBLE int
 lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 {
@@ -153,6 +163,15 @@ lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 	return 0;
 }
 
+/**
+ * lws_hdr_total_length: report length of all fragments of a header totalled up
+ *		The returned length does not include the space for a
+ *		terminating '\0'
+ *
+ * @wsi: websocket connection
+ * @h: which header index we are interested in
+ */
+
 LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;
@@ -168,6 +187,20 @@ LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 
 	return len;
 }
+
+/**
+ * lws_hdr_copy_fragment: copy a single fragment of the given header to a buffer
+ *		The buffer length @len must include space for an additional
+ *		terminating '\0', or it will fail returning -1.
+ *		If the requested fragment index is not present, it fails
+ *		returning -1.
+ *
+ * @wsi: websocket connection
+ * @dst: destination buffer
+ * @len: length of destination buffer
+ * @h: which header index we are interested in
+ * @frag_index: which fragment of @h we want to copy
+ */
 
 LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 				      enum lws_token_indexes h, int frag_idx)
@@ -191,6 +224,17 @@ LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 
 	return wsi->u.hdr.ah->frags[f].len;
 }
+
+/**
+ * lws_hdr_copy: copy a single fragment of the given header to a buffer
+ *		The buffer length @len must include space for an additional
+ *		terminating '\0', or it will fail returning -1.
+ *
+ * @wsi: websocket connection
+ * @dst: destination buffer
+ * @len: length of destination buffer
+ * @h: which header index we are interested in
+ */
 
 LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 			     enum lws_token_indexes h)

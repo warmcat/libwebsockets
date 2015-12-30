@@ -1616,6 +1616,12 @@ lws_get_library_version(void);
  *  During LWS_CALLBACK_HTTP when the URI path is delivered is the last time
  *  the http headers are still allocated, you can use these apis then to
  *  look at and copy out interesting header content (cookies, etc)
+ *
+ *  Notice that the header total length reported does not include a terminating
+ *  '\0', however you must allocate for it when using the _copy apis.  So the
+ *  length reported for a header containing "123" is 3, but you must provide
+ *  a buffer of length 4 so that "123\0" may be copied into it, or the copy
+ *  will fail with a nonzero return code.
  */
 
 LWS_VISIBLE LWS_EXTERN int

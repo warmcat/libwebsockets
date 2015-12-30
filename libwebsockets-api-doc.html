@@ -271,6 +271,96 @@ would call it with a timeout_ms of 0, so it returns immediately if
 nothing is pending, or as soon as it services whatever was pending.
 </blockquote>
 <hr>
+<h2>lws_hdr_fragment_length - </h2>
+<i>int</i>
+<b>lws_hdr_fragment_length</b>
+(<i>struct lws *</i> <b>wsi</b>,
+<i>enum lws_token_indexes</i> <b>h</b>,
+<i>int</i> <b>frag_idx</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>websocket connection
+<dt><b>h</b>
+<dd>which header index we are interested in
+<dt><b>frag_idx</b>
+<dd>which fragment of <tt><b>h</b></tt> we want to get the length of
+</dl>
+<h3>Description</h3>
+<blockquote>
+The returned length does not include the space for a
+terminating '\0'
+</blockquote>
+<hr>
+<h2>lws_hdr_total_length - </h2>
+<i>int</i>
+<b>lws_hdr_total_length</b>
+(<i>struct lws *</i> <b>wsi</b>,
+<i>enum lws_token_indexes</i> <b>h</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>websocket connection
+<dt><b>h</b>
+<dd>which header index we are interested in
+</dl>
+<h3>Description</h3>
+<blockquote>
+The returned length does not include the space for a
+terminating '\0'
+</blockquote>
+<hr>
+<h2>lws_hdr_copy_fragment - </h2>
+<i>int</i>
+<b>lws_hdr_copy_fragment</b>
+(<i>struct lws *</i> <b>wsi</b>,
+<i>char *</i> <b>dst</b>,
+<i>int</i> <b>len</b>,
+<i>enum lws_token_indexes</i> <b>h</b>,
+<i>int</i> <b>frag_idx</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>websocket connection
+<dt><b>dst</b>
+<dd>destination buffer
+<dt><b>len</b>
+<dd>length of destination buffer
+<dt><b>h</b>
+<dd>which header index we are interested in
+</dl>
+<h3>Description</h3>
+<blockquote>
+The buffer length <tt><b>len</b></tt> must include space for an additional
+terminating '\0', or it will fail returning -1.
+If the requested fragment index is not present, it fails
+returning -1.
+</blockquote>
+<hr>
+<h2>lws_hdr_copy - </h2>
+<i>int</i>
+<b>lws_hdr_copy</b>
+(<i>struct lws *</i> <b>wsi</b>,
+<i>char *</i> <b>dst</b>,
+<i>int</i> <b>len</b>,
+<i>enum lws_token_indexes</i> <b>h</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>websocket connection
+<dt><b>dst</b>
+<dd>destination buffer
+<dt><b>len</b>
+<dd>length of destination buffer
+<dt><b>h</b>
+<dd>which header index we are interested in
+</dl>
+<h3>Description</h3>
+<blockquote>
+The buffer length <tt><b>len</b></tt> must include space for an additional
+terminating '\0', or it will fail returning -1.
+</blockquote>
+<hr>
 <h2>lws_frame_is_binary - </h2>
 <i>int</i>
 <b>lws_frame_is_binary</b>
@@ -1363,7 +1453,7 @@ If proxy auth is required, use format
 <dt><b>uid</b>
 <dd>user id to change to after setting listen socket, or -1.
 <dt><b>options</b>
-<dd>0, or LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK
+<dd>0, or LWS_SERVER_OPTION_... bitfields
 <dt><b>user</b>
 <dd>optional user pointer that can be recovered via the context
 pointer using lws_context_user
@@ -1396,5 +1486,24 @@ can be processed simultaneously (the corresponding memory is
 allocated for the lifetime of the context).  If the pool is
 busy new incoming connections must wait for accept until one
 becomes free.
+</dl>
+<hr>
+<h2>lws_close_reason - Set reason and aux data to send with Close packet If you are going to return nonzero from the callback requesting the connection to close, you can optionally call this to set the reason the peer will be told if possible.</h2>
+<i>LWS_EXTERN void</i>
+<b>lws_close_reason</b>
+(<i>struct lws *</i> <b>wsi</b>,
+<i>enum lws_close_status</i> <b>status</b>,
+<i>unsigned char *</i> <b>buf</b>,
+<i>size_t</i> <b>len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>The websocket connection to set the close reason on
+<dt><b>status</b>
+<dd>A valid close status from websocket standard
+<dt><b>buf</b>
+<dd>NULL or buffer containing up to 124 bytes of auxiliary data
+<dt><b>len</b>
+<dd>Length of data in <tt><b>buf</b></tt> to send
 </dl>
 <hr>
