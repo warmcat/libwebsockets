@@ -171,16 +171,6 @@ handle_truncated_send:
 		/* what we just sent went out cleanly */
 		return n;
 
-	if (n && wsi->u.ws.clean_buffer)
-		/*
-		 * This buffer unaffected by extension rewriting.
-		 * It means the user code is expected to deal with
-		 * partial sends.  (lws knows the header was already
-		 * sent, so on next send will just resume sending
-		 * payload)
-		 */
-		 return n;
-
 	/*
 	 * Newly truncated send.  Buffer the remainder (it will get
 	 * first priority next time the socket is writable)
