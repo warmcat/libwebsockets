@@ -41,13 +41,16 @@ lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 		return;
 
 	eventfd.fd = watcher->fd;
+	eventfd.events = 0;
 	eventfd.revents = EV_NONE;
-	if (revents & EV_READ)
+	if (revents & EV_READ) {
+		eventfd.events |= LWS_POLLIN;
 		eventfd.revents |= LWS_POLLIN;
-
-	if (revents & EV_WRITE)
+	}
+	if (revents & EV_WRITE) {
+		eventfd.events |= LWS_POLLOUT;
 		eventfd.revents |= LWS_POLLOUT;
-
+	}
 	lws_service_fd(context, &eventfd);
 }
 
