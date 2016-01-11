@@ -64,6 +64,8 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 	int body_chunk_len;
 	size_t n;
 
+	lwsl_debug("%s: incoming len %d\n", __func__, (int)len);
+
 	switch (wsi->state) {
 #ifdef LWS_USE_HTTP2
 	case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
@@ -185,7 +187,7 @@ postbody_completion:
 		switch (wsi->mode) {
 		case LWSCM_WS_SERVING:
 
-			if (lws_interpret_incoming_packet(wsi, buf, len) < 0) {
+			if (lws_interpret_incoming_packet(wsi, &buf, len) < 0) {
 				lwsl_info("interpret_incoming_packet has bailed\n");
 				goto bail;
 			}

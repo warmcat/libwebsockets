@@ -1,31 +1,6 @@
 #include "private-libwebsockets.h"
 
-#include "extension-deflate-frame.h"
-#include "extension-deflate-stream.h"
-
-struct lws_extension lws_internal_extensions[] = {
-#ifdef LWS_EXT_DEFLATE_STREAM
-	{
-		"deflate-stream",
-		lws_extension_callback_deflate_stream,
-		sizeof(struct lws_ext_deflate_stream_conn)
-	},
-#else
-	{
-		"x-webkit-deflate-frame",
-		lws_extension_callback_deflate_frame,
-		sizeof(struct lws_ext_deflate_frame_conn)
-	},
-	{
-		"deflate-frame",
-		lws_extension_callback_deflate_frame,
-		sizeof(struct lws_ext_deflate_frame_conn)
-	},
-#endif
-	{ /* terminator */
-		NULL, NULL, 0
-	}
-};
+#include "extension-permessage-deflate.h"
 
 LWS_VISIBLE void
 lws_context_init_extensions(struct lws_context_creation_info *info,
@@ -35,28 +10,164 @@ lws_context_init_extensions(struct lws_context_creation_info *info,
 	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
 }
 
-LWS_VISIBLE struct lws_extension *lws_get_internal_extensions()
+
+enum lws_ext_option_parser_states {
+	LEAPS_SEEK_NAME,
+	LEAPS_EAT_NAME,
+	LEAPS_SEEK_VAL,
+	LEAPS_EAT_DEC,
+	LEAPS_SEEK_ARG_TERM
+};
+
+LWS_VISIBLE int
+lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
+		       void *ext_user, const struct lws_ext_options *opts, const char *in, int len)
 {
-	return lws_internal_extensions;
+	enum lws_ext_option_parser_states leap = LEAPS_SEEK_NAME;
+	unsigned int match_map = 0, n, m, w = 0, count_options = 0,
+		     pending_close_quote = 0;
+	struct lws_ext_option_arg oa;
+
+	while (opts[count_options].name)
+		count_options++;
+	while (len) {
+		lwsl_ext("'%c'", *in);
+		switch (leap) {
+		case LEAPS_SEEK_NAME:
+			if (*in == ' ')
+				break;
+			if (*in == ',') {
+				len = 1;
+				break;
+			}
+			match_map = (1 << count_options) - 1;
+			leap = LEAPS_EAT_NAME;
+			w = 0;
+
+		/* fallthru */
+
+		case LEAPS_EAT_NAME:
+			oa.start = NULL;
+			oa.len = 0;
+			m = match_map;
+			n = 0;
+			w = 0;
+			pending_close_quote = 0;
+			while (m) {
+				if (m & 1) {
+					// lwsl_ext("    m=%d, n=%d\n", m, n);
+
+					if (*in == opts[n].name[w]) {
+						if (!opts[n].name[w + 1]) {
+							oa.option_index = n;
+							lwsl_ext("hit %d\n", oa.option_index);
+							leap = LEAPS_SEEK_VAL;
+							if (len ==1)
+								goto set_arg;
+							break;
+						}
+					} else {
+						match_map &= ~(1 << n);
+						if (!match_map)
+							return -1;
+					}
+				}
+				m >>= 1;
+				n++;
+			}
+			w++;
+			break;
+		case LEAPS_SEEK_VAL:
+			if (*in == ' ')
+				break;
+			if (*in == ',') {
+				len = 1;
+				break;
+			}
+			if (*in == ';' || len == 1) { /* ie,nonoptional */
+				if (opts[oa.option_index].type == EXTARG_DEC)
+					return -1;
+				leap = LEAPS_SEEK_NAME;
+				goto set_arg;
+			}
+			if (*in == '=') {
+				w = 0;
+				pending_close_quote = 0;
+				if (opts[oa.option_index].type == EXTARG_NONE)
+					return -1;
+
+				leap = LEAPS_EAT_DEC;
+				break;
+			}
+			return -1;
+
+		case LEAPS_EAT_DEC:
+			if (*in >= '0' && *in <= '9') {
+				if (!w)
+					oa.start = in;
+				w++;
+				if (len != 1)
+					break;
+			}
+			if (!w && *in =='"') {
+				pending_close_quote = 1;
+				break;
+			}
+			if (!w)
+				return -1;
+			if (pending_close_quote && *in != '"' && len != 1)
+				return -1;
+			leap = LEAPS_SEEK_ARG_TERM;
+			if (oa.start)
+				oa.len = in - oa.start;
+			if (len == 1)
+				oa.len++;
+
+set_arg:
+			m = ext->callback(lws_get_context(wsi),
+				ext, wsi, LWS_EXT_CB_OPTION_SET,
+				ext_user, (char *)&oa, 0);
+			if (len == 1)
+				break;
+			if (pending_close_quote && *in == '"')
+				break;
+
+			/* fallthru */
+
+		case LEAPS_SEEK_ARG_TERM:
+			if (*in == ' ')
+				break;
+			if (*in == ';') {
+				leap = LEAPS_SEEK_NAME;
+				break;
+			}
+			if (*in == ',') {
+				len = 1;
+				break;
+			}
+			return -1;
+		}
+
+		len--;
+		in++;
+	}
+
+	return 0;
 }
 
 
 /* 0 = nobody had nonzero return, 1 = somebody had positive return, -1 = fail */
 
-int lws_ext_cb_wsi_active_exts(struct lws *wsi, int reason, void *arg, int len)
+int lws_ext_cb_active(struct lws *wsi, int reason, void *arg, int len)
 {
 	int n, m, handled = 0;
 
-	for (n = 0; n < wsi->count_active_extensions; n++) {
-		m = wsi->active_extensions[n]->callback(
-			lws_get_context(wsi),
-			wsi->active_extensions[n], wsi,
-			reason,
-			wsi->active_extensions_user[n],
-			arg, len);
+	for (n = 0; n < wsi->count_act_ext; n++) {
+		m = wsi->active_extensions[n]->callback(lws_get_context(wsi),
+			wsi->active_extensions[n], wsi, reason,
+			wsi->act_ext_user[n], arg, len);
 		if (m < 0) {
-			lwsl_ext(
-			 "Extension '%s' failed to handle callback %d!\n",
+			lwsl_ext("Ext '%s' failed to handle callback %d!\n",
 				      wsi->active_extensions[n]->name, reason);
 			return -1;
 		}
@@ -77,9 +188,8 @@ int lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi,
 		m = ext->callback(context, ext, wsi, reason,
 				  (void *)(long)n, arg, len);
 		if (m < 0) {
-			lwsl_ext(
-			 "Extension '%s' failed to handle callback %d!\n",
-				      wsi->active_extensions[n]->name, reason);
+			lwsl_ext("Ext '%s' failed to handle callback %d!\n",
+				 wsi->active_extensions[n]->name, reason);
 			return -1;
 		}
 		if (m)
@@ -116,8 +226,8 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		ret = 0;
 
 		/* show every extension the new incoming data */
-		m = lws_ext_cb_wsi_active_exts(wsi,
-			       LWS_EXT_CALLBACK_PACKET_TX_PRESEND, &eff_buf, 0);
+		m = lws_ext_cb_active(wsi,
+			       LWS_EXT_CB_PACKET_TX_PRESEND, &eff_buf, 0);
 		if (m < 0)
 			return -1;
 		if (m) /* handled */
@@ -191,13 +301,13 @@ lws_any_extension_handled(struct lws *wsi,
 
 	/* maybe an extension will take care of it for us */
 
-	for (n = 0; n < wsi->count_active_extensions && !handled; n++) {
+	for (n = 0; n < wsi->count_act_ext && !handled; n++) {
 		if (!wsi->active_extensions[n]->callback)
 			continue;
 
 		handled |= wsi->active_extensions[n]->callback(context,
 			wsi->active_extensions[n], wsi,
-			r, wsi->active_extensions_user[n], v, len);
+			r, wsi->act_ext_user[n], v, len);
 	}
 
 	return handled;

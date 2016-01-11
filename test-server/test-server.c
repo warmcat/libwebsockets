@@ -67,6 +67,7 @@ enum demo_protocols {
 
 	PROTOCOL_DUMB_INCREMENT,
 	PROTOCOL_LWS_MIRROR,
+	PROTOCOL_LWS_ECHOGEN,
 
 	/* always last */
 	DEMO_PROTOCOL_COUNT
@@ -93,6 +94,12 @@ static struct lws_protocols protocols[] = {
 		"lws-mirror-protocol",
 		callback_lws_mirror,
 		sizeof(struct per_session_data__lws_mirror),
+		128,
+	},
+	{
+		"lws-echogen",
+		callback_lws_echogen,
+		sizeof(struct per_session_data__echogen),
 		128,
 	},
 	{ NULL, NULL, 0, 0 } /* terminator */
@@ -123,6 +130,22 @@ void sighandler(int sig)
 	force_exit = 1;
 	lws_cancel_service(context);
 }
+
+static const struct lws_extension exts[] = {
+	{
+		"permessage-deflate",
+		lws_extension_callback_pm_deflate,
+		"permessage-deflate"
+	},
+	{
+		"deflate-frame",
+		lws_extension_callback_pm_deflate,
+		"deflate_frame"
+	},
+	{ NULL, NULL, NULL /* terminator */ }
+};
+
+
 
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
@@ -258,10 +281,6 @@ int main(int argc, char **argv)
 
 	info.iface = iface;
 	info.protocols = protocols;
-#ifndef LWS_NO_EXTENSIONS
-	info.extensions = lws_get_internal_extensions();
-#endif
-
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
 
@@ -285,8 +304,8 @@ int main(int argc, char **argv)
 	info.gid = -1;
 	info.uid = -1;
 	info.max_http_header_pool = 1;
-	info.options = opts;
-
+	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8;
+	info.extensions = exts;
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");

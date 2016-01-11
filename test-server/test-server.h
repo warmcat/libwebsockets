@@ -66,6 +66,14 @@ struct per_session_data__lws_mirror {
 	int ringbuffer_tail;
 };
 
+struct per_session_data__echogen {
+	size_t total;
+	size_t total_rx;
+	int fd;
+	int fragsize;
+	int wr;
+};
+
 extern int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	      void *in, size_t len);
@@ -74,6 +82,9 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len);
 extern int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
+			void *user, void *in, size_t len);
+extern int
+callback_lws_echogen(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len);
 
 extern void

@@ -178,10 +178,10 @@ lws_return_http_status(struct lws *wsi, unsigned int code, const char *html_body
 	int n, m;
 	struct lws_context *context = lws_get_context(wsi);
 	unsigned char *p = context->serv_buf +
-			   LWS_SEND_BUFFER_PRE_PADDING;
+			   LWS_PRE;
 	unsigned char *start = p;
 	unsigned char *end = p + sizeof(context->serv_buf) -
-			     LWS_SEND_BUFFER_PRE_PADDING;
+			     LWS_PRE;
 
 	if (!html_body)
 		html_body = "";

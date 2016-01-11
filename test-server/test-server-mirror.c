@@ -62,7 +62,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 			n = lws_write(wsi, (unsigned char *)
 				   ringbuffer[pss->ringbuffer_tail].payload +
-				   LWS_SEND_BUFFER_PRE_PADDING,
+				   LWS_PRE,
 				   ringbuffer[pss->ringbuffer_tail].len,
 								LWS_WRITE_TEXT);
 			if (n < 0) {
@@ -102,10 +102,10 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			free(ringbuffer[ringbuffer_head].payload);
 
 		ringbuffer[ringbuffer_head].payload =
-				malloc(LWS_SEND_BUFFER_PRE_PADDING + len);
+				malloc(LWS_PRE + len);
 		ringbuffer[ringbuffer_head].len = len;
 		memcpy((char *)ringbuffer[ringbuffer_head].payload +
-					  LWS_SEND_BUFFER_PRE_PADDING, in, len);
+					  LWS_PRE, in, len);
 		if (ringbuffer_head == (MAX_MESSAGE_QUEUE - 1))
 			ringbuffer_head = 0;
 		else

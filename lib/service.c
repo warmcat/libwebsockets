@@ -53,12 +53,18 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 #endif
 	int ret, m, n;
 
-	/* pending truncated sends have uber priority */
+	/*
+	 * user callback is lowest priority to get these notifications
+	 * actually, since other pending things cannot be disordered
+	 */
 
+	/* Priority 1: pending truncated sends are incomplete ws fragments
+	 *	       If anything else sent first the protocol would be
+	 *	       corrupted.
+	 */
 	if (wsi->trunc_len) {
-		if (lws_issue_raw(wsi, wsi->trunc_alloc +
-				wsi->trunc_offset,
-						wsi->trunc_len) < 0) {
+		if (lws_issue_raw(wsi, wsi->trunc_alloc + wsi->trunc_offset,
+				  wsi->trunc_len) < 0) {
 			lwsl_info("%s signalling to close\n", __func__);
 			return -1;
 		}
@@ -68,8 +74,10 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE)
 			return -1; /* retry closing now */
 
+
 #ifdef LWS_USE_HTTP2
-	/* protocol packets are next */
+	/* Priority 2: protocol packets
+	 */
 	if (wsi->pps) {
 		lwsl_info("servicing pps %d\n", wsi->pps);
 		switch (wsi->pps) {
@@ -86,8 +94,8 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		return 0; /* leave POLLOUT active */
 	}
 #endif
-	/* pending control packets have next priority */
-
+	/* Priority 3: pending control packets (pong or close)
+	 */
 	if ((wsi->state == LWSS_ESTABLISHED &&
 	     wsi->u.ws.ping_pending_flag) ||
 	    (wsi->state == LWSS_RETURNED_CLOSE_ALREADY &&
@@ -96,8 +104,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		if (wsi->u.ws.payload_is_close)
 			write_type = LWS_WRITE_CLOSE;
 
-		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[
-					LWS_SEND_BUFFER_PRE_PADDING],
+		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[LWS_PRE],
 			      wsi->u.ws.ping_payload_len, write_type);
 		if (n < 0)
 			return -1;
@@ -112,15 +119,30 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		return 0;
 	}
 
-	/* if we are closing, don't confuse the user with writeable cb */
-
+	/* Priority 4: if we are closing, not allowed to send more data frags
+	 *	       which means user callback or tx ext flush banned now
+	 */
 	if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY)
 		goto user_service;
 
-	/* if nothing critical, user can get the callback */
+	/* Priority 5: Tx path extension with more to send
+	 *
+	 *	       These are handled as new fragments each time around
+	 *	       So while we must block new writeable callback to enforce
+	 *	       payload ordering, but since they are always complete
+	 *	       fragments control packets can interleave OK.
+	 */
+	if (wsi->state == LWSS_ESTABLISHED && wsi->u.ws.tx_draining_ext) {
+		lwsl_ext("SERVICING TX EXT DRAINING\n");
+		if (lws_write(wsi, NULL, 0, LWS_WRITE_CONTINUATION) < 0)
+			return -1;
+		/* leave POLLOUT active */
+		return 0;
+	}
 
-	m = lws_ext_cb_wsi_active_exts(wsi, LWS_EXT_CALLBACK_IS_WRITEABLE,
-								       NULL, 0);
+	/* Priority 6: user can get the callback
+	 */
+	m = lws_ext_cb_active(wsi, LWS_EXT_CB_IS_WRITEABLE, NULL, 0);
 #ifndef LWS_NO_EXTENSIONS
 	if (!wsi->extension_data_pending)
 		goto user_service;
@@ -144,9 +166,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		/* give every extension a chance to spill */
 
-		m = lws_ext_cb_wsi_active_exts(wsi,
-					LWS_EXT_CALLBACK_PACKET_TX_PRESEND,
-							           &eff_buf, 0);
+		m = lws_ext_cb_active(wsi,
+					LWS_EXT_CB_PACKET_TX_PRESEND,
+					       &eff_buf, 0);
 		if (m < 0) {
 			lwsl_err("ext reports fatal error\n");
 			return -1;
@@ -162,7 +184,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		if (eff_buf.token_len) {
 			n = lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-							     eff_buf.token_len);
+					  eff_buf.token_len);
 			if (n < 0) {
 				lwsl_info("closing from POLLOUT spill\n");
 				return -1;
@@ -276,7 +298,7 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 	 * if extensions want in on it (eg, we are a mux parent)
 	 * give them a chance to service child timeouts
 	 */
-	if (lws_ext_cb_wsi_active_exts(wsi, LWS_EXT_CALLBACK_1HZ,
+	if (lws_ext_cb_active(wsi, LWS_EXT_CB_1HZ,
 					     NULL, sec) < 0)
 		return 0;
 
@@ -495,7 +517,7 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 	case LWSCM_WS_CLIENT:
 	case LWSCM_HTTP2_SERVING:
 
-		/* the guy requested a callback when it was OK to write */
+		/* 1: something requested a callback when it was OK to write */
 
 		if ((pollfd->revents & LWS_POLLOUT) &&
 		    (wsi->state == LWSS_ESTABLISHED ||
@@ -503,16 +525,77 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 		     wsi->state == LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS ||
 		     wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
 		     wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) &&
-			   lws_handle_POLLOUT_event(wsi, pollfd)) {
+		    lws_handle_POLLOUT_event(wsi, pollfd)) {
 			if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY)
 				wsi->state = LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE;
 			lwsl_info("lws_service_fd: closing\n");
 			goto close_and_handled;
 		}
+#if 1
+		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
+		    wsi->state == LWSS_AWAITING_CLOSE_ACK) {
+			/*
+			 * we stopped caring about anything except control
+			 * packets.  Force flow control off, defeat tx
+			 * draining.
+			 */
+			lws_rx_flow_control(wsi, 1);
+			wsi->u.ws.tx_draining_ext = 0;
+		}
+#endif
+		if (wsi->u.ws.tx_draining_ext) {
+			/* we cannot deal with new RX until the TX ext
+			 * path has been drained.  It's because new
+			 * rx will, eg, crap on the wsi rx buf that
+			 * may be needed to retain state.
+			 *
+			 * TX ext drain path MUST go through event loop
+			 * to avoid blocking.
+			 */
+			break;
+		}
 
-		if (wsi->rxflow_buffer &&
-		    (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
-			lwsl_info("draining rxflow\n");
+		if (!(wsi->rxflow_change_to & LWS_RXFLOW_ALLOW))
+			/* We cannot deal with any kind of new RX
+			 * because we are RX-flowcontrolled.
+			 */
+			break;
+
+		/* 2: RX Extension needs to be drained
+		 */
+
+		if (wsi->state == LWSS_ESTABLISHED &&
+		    wsi->u.ws.rx_draining_ext) {
+
+			lwsl_ext("%s: RX EXT DRAINING: Service\n", __func__);
+#ifndef LWS_NO_CLIENT
+			if (wsi->mode == LWSCM_WS_CLIENT) {
+				n = lws_client_rx_sm(wsi, 0);
+				if (n < 0)
+					/* we closed wsi */
+					n = 0;
+			} else
+#endif
+				n = lws_rx_sm(wsi, 0);
+
+			goto handled;
+		}
+
+		if (wsi->u.ws.rx_draining_ext)
+			/*
+			 * We have RX EXT content to drain, but can't do it
+			 * right now.  That means we cannot do anything lower
+			 * priority either.
+			 */
+			break;
+
+		/* 3: RX Flowcontrol buffer needs to be drained
+		 */
+
+		if (wsi->rxflow_buffer) {
+			lwsl_info("draining rxflow (len %d)\n",
+				wsi->rxflow_len - wsi->rxflow_pos
+			);
 			/* well, drain it */
 			eff_buf.token = (char *)wsi->rxflow_buffer +
 						wsi->rxflow_pos;
@@ -521,14 +604,13 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 			goto drain;
 		}
 
-		/* any incoming data ready? */
-		/* notice if rx flow going off raced poll(), rx flow wins */
-		if (wsi->rxflow_buffer ||
-		    !(pollfd->revents & pollfd->events & LWS_POLLIN))
+		/* 4: any incoming data ready?
+		 * notice if rx flow going off raced poll(), rx flow wins
+		 */
+		if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
 			break;
 read:
-		eff_buf.token_len = lws_ssl_capable_read(wsi,
-					context->serv_buf,
+		eff_buf.token_len = lws_ssl_capable_read(wsi, context->serv_buf,
 					pending ? pending :
 					sizeof(context->serv_buf));
 		switch (eff_buf.token_len) {
@@ -562,8 +644,8 @@ drain:
 		do {
 			more = 0;
 
-			m = lws_ext_cb_wsi_active_exts(wsi,
-				LWS_EXT_CALLBACK_PACKET_RX_PREPARSE, &eff_buf, 0);
+			m = lws_ext_cb_active(wsi,
+				LWS_EXT_CB_PACKET_RX_PREPARSE, &eff_buf, 0);
 			if (m < 0)
 				goto close_and_handled;
 			if (m)

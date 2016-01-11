@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -323,6 +323,8 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY	= 37,
 	LWS_CALLBACK_WS_PEER_INITIATED_CLOSE			= 38,
 
+	LWS_CALLBACK_WS_EXT_DEFAULTS				= 39,
+
 	/****** add new things just above ---^ ******/
 
 	LWS_CALLBACK_USER = 1000, /* user code can use any including / above */
@@ -415,29 +417,32 @@ struct lws_plat_file_ops {
  * add it at where specified so existing users are unaffected.
  */
 enum lws_extension_callback_reasons {
-	LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT		=  0,
-	LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT		=  1,
-	LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT		=  2,
-	LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT		=  3,
-	LWS_EXT_CALLBACK_CONSTRUCT				=  4,
-	LWS_EXT_CALLBACK_CLIENT_CONSTRUCT			=  5,
-	LWS_EXT_CALLBACK_CHECK_OK_TO_REALLY_CLOSE		=  6,
-	LWS_EXT_CALLBACK_CHECK_OK_TO_PROPOSE_EXTENSION		=  7,
-	LWS_EXT_CALLBACK_DESTROY				=  8,
-	LWS_EXT_CALLBACK_DESTROY_ANY_WSI_CLOSING		=  9,
-	LWS_EXT_CALLBACK_ANY_WSI_ESTABLISHED			= 10,
-	LWS_EXT_CALLBACK_PACKET_RX_PREPARSE			= 11,
-	LWS_EXT_CALLBACK_PACKET_TX_PRESEND			= 12,
-	LWS_EXT_CALLBACK_PACKET_TX_DO_SEND			= 13,
-	LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX			= 14,
-	LWS_EXT_CALLBACK_FLUSH_PENDING_TX			= 15,
-	LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX			= 16,
-	LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION		= 17,
-	LWS_EXT_CALLBACK_1HZ					= 18,
-	LWS_EXT_CALLBACK_REQUEST_ON_WRITEABLE			= 19,
-	LWS_EXT_CALLBACK_IS_WRITEABLE				= 20,
-	LWS_EXT_CALLBACK_PAYLOAD_TX				= 21,
-	LWS_EXT_CALLBACK_PAYLOAD_RX				= 22,
+	LWS_EXT_CB_SERVER_CONTEXT_CONSTRUCT		=  0,
+	LWS_EXT_CB_CLIENT_CONTEXT_CONSTRUCT		=  1,
+	LWS_EXT_CB_SERVER_CONTEXT_DESTRUCT		=  2,
+	LWS_EXT_CB_CLIENT_CONTEXT_DESTRUCT		=  3,
+	LWS_EXT_CB_CONSTRUCT				=  4,
+	LWS_EXT_CB_CLIENT_CONSTRUCT			=  5,
+	LWS_EXT_CB_CHECK_OK_TO_REALLY_CLOSE		=  6,
+	LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION		=  7,
+	LWS_EXT_CB_DESTROY				=  8,
+	LWS_EXT_CB_DESTROY_ANY_WSI_CLOSING		=  9,
+	LWS_EXT_CB_ANY_WSI_ESTABLISHED			= 10,
+	LWS_EXT_CB_PACKET_RX_PREPARSE			= 11,
+	LWS_EXT_CB_PACKET_TX_PRESEND			= 12,
+	LWS_EXT_CB_PACKET_TX_DO_SEND			= 13,
+	LWS_EXT_CB_HANDSHAKE_REPLY_TX			= 14,
+	LWS_EXT_CB_FLUSH_PENDING_TX			= 15,
+	LWS_EXT_CB_EXTENDED_PAYLOAD_RX			= 16,
+	LWS_EXT_CB_CAN_PROXY_CLIENT_CONNECTION		= 17,
+	LWS_EXT_CB_1HZ					= 18,
+	LWS_EXT_CB_REQUEST_ON_WRITEABLE			= 19,
+	LWS_EXT_CB_IS_WRITEABLE				= 20,
+	LWS_EXT_CB_PAYLOAD_TX				= 21,
+	LWS_EXT_CB_PAYLOAD_RX				= 22,
+	LWS_EXT_CB_OPTION_DEFAULT			= 23,
+	LWS_EXT_CB_OPTION_SET				= 24,
+	LWS_EXT_CB_OPTION_CONFIRM			= 25,
 
 	/****** add new things just above ---^ ******/
 };
@@ -1056,14 +1061,13 @@ typedef int
 lws_callback_function(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len);
 
-#ifndef LWS_NO_EXTENSIONS
 /**
  * typedef lws_extension_callback_function() - Hooks to allow extensions to operate
  * @context:	Websockets context
  * @ext:	This extension
  * @wsi:	Opaque websocket instance pointer
  * @reason:	The reason for the call
- * @user:	Pointer to per-session user data allocated by library
+ * @user:	Pointer to ptr to per-session user data allocated by library
  * @in:		Pointer used for some callback reasons
  * @len:	Length set for some callback reasons
  *
@@ -1075,26 +1079,26 @@ lws_callback_function(struct lws *wsi, enum lws_callback_reasons reason,
  *	each active extension on each connection.  That is what is pointed to
  *	by the @user parameter.
  *
- *	LWS_EXT_CALLBACK_CONSTRUCT:  called when the server has decided to
+ *	LWS_EXT_CB_CONSTRUCT:  called when the server has decided to
  *		select this extension from the list provided by the client,
  *		just before the server will send back the handshake accepting
  *		the connection with this extension active.  This gives the
  *		extension a chance to initialize its connection context found
  *		in @user.
  *
- *	LWS_EXT_CALLBACK_CLIENT_CONSTRUCT: same as LWS_EXT_CALLBACK_CONSTRUCT
+ *	LWS_EXT_CB_CLIENT_CONSTRUCT: same as LWS_EXT_CB_CONSTRUCT
  *		but called when client is instantiating this extension.  Some
  *		extensions will work the same on client and server side and then
  *		you can just merge handlers for both CONSTRUCTS.
  *
- *	LWS_EXT_CALLBACK_DESTROY:  called when the connection the extension was
+ *	LWS_EXT_CB_DESTROY:  called when the connection the extension was
  *		being used on is about to be closed and deallocated.  It's the
  *		last chance for the extension to deallocate anything it has
  *		allocated in the user data (pointed to by @user) before the
  *		user data is deleted.  This same callback is used whether you
  *		are in client or server instantiation context.
  *
- *	LWS_EXT_CALLBACK_PACKET_RX_PREPARSE: when this extension was active on
+ *	LWS_EXT_CB_PACKET_RX_PREPARSE: when this extension was active on
  *		a connection, and a packet of data arrived at the connection,
  *		it is passed to this callback to give the extension a chance to
  *		change the data, eg, decompress it.  @user is pointing to the
@@ -1106,21 +1110,22 @@ lws_callback_function(struct lws *wsi, enum lws_callback_reasons reason,
  *		a new buffer allocated in its private user context data and
  *		set the pointed-to lws_tokens members to point to its buffer.
  *
- *	LWS_EXT_CALLBACK_PACKET_TX_PRESEND: this works the same way as
- *		LWS_EXT_CALLBACK_PACKET_RX_PREPARSE above, except it gives the
+ *	LWS_EXT_CB_PACKET_TX_PRESEND: this works the same way as
+ *		LWS_EXT_CB_PACKET_RX_PREPARSE above, except it gives the
  *		extension a chance to change websocket data just before it will
  *		be sent out.  Using the same lws_token pointer scheme in @in,
  *		the extension can change the buffer and the length to be
  *		transmitted how it likes.  Again if it wants to grow the
  *		buffer safely, it should copy the data into its own buffer and
  *		set the lws_tokens token pointer to it.
+ *
+ *	LWS_EXT_CB_ARGS_VALIDATE:
  */
 typedef int
 lws_extension_callback_function(struct lws_context *context,
 			      const struct lws_extension *ext, struct lws *wsi,
 			      enum lws_extension_callback_reasons reason,
 			      void *user, void *in, size_t len);
-#endif
 
 /**
  * struct lws_protocols -	List of protocols and handlers server
@@ -1140,7 +1145,7 @@ lws_extension_callback_function(struct lws_context *context,
  *		error, but the buffer will spill to the user callback when
  *		full, which you can detect by using
  *		lws_remaining_packet_payload().  Notice that you
- *		just talk about frame size here, the LWS_SEND_BUFFER_PRE_PADDING
+ *		just talk about frame size here, the LWS_PRE
  *		and post-padding are automatically also allocated on top.
  * @id:		ignored by lws, but useful to contain user information bound
  *		to the selected protocol.  For example if this protocol was
@@ -1174,30 +1179,65 @@ struct lws_protocols {
 	 * This is part of the ABI, don't needlessly break compatibilty */
 };
 
-#ifndef LWS_NO_EXTENSIONS
+enum lws_ext_options_types {
+	EXTARG_NONE,
+	EXTARG_DEC,
+	EXTARG_OPT_DEC
+
+	/* Add new things just above here ---^
+	 * This is part of the ABI, don't needlessly break compatibilty */
+};
+
+/**
+ * struct lws_ext_options -	Option arguments to the extension.  These are
+ *				used in the negotiation at ws upgrade time.
+ *				The helper function lws_ext_parse_options()
+ *				uses these to generate callbacks
+ *
+ * @name:			Option name, eg, "server_no_context_takeover"
+ * @type:			What kind of args the option can take
+ */
+struct lws_ext_options {
+	const char *name;
+	enum lws_ext_options_types type;
+
+	/* Add new things just above here ---^
+	 * This is part of the ABI, don't needlessly break compatibilty */
+};
+
+struct lws_ext_option_arg {
+	int option_index;
+	const char *start;
+	int len;
+};
+
 /**
  * struct lws_extension -	An extension we know how to cope with
  *
- * @name:			Formal extension name, eg, "deflate-stream"
+ * @name:			Formal extension name, eg, "permessage-deflate"
  * @callback:			Service callback
- * @per_session_data_size:	Libwebsockets will auto-malloc this much
- *				memory for the use of the extension, a pointer
- *				to it comes in the @user callback parameter
- * @per_context_private_data:   Optional storage for this extension that
- *				is per-context, so it can track stuff across
- *				all sessions, etc, if it wants
+ * @client_offer:		String containing exts and options client offers
  */
 
 struct lws_extension {
 	const char *name;
 	lws_extension_callback_function *callback;
-	size_t per_session_data_size;
-	void *per_context_private_data;
+	const char *client_offer;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibilty */
 };
-#endif
+
+/* 
+ * The internal exts are part of the public abi
+ * If we add more extensions, publish the callback here
+ */
+
+extern int lws_extension_callback_pm_deflate(
+	struct lws_context *context, const struct lws_extension *ext,
+	struct lws *wsi, enum lws_extension_callback_reasons reason,
+	void *user, void *in, size_t len);
+
 
 /**
  * struct lws_context_creation_info - parameters to create context with
@@ -1216,14 +1256,15 @@ struct lws_extension {
  *		extensions this context supports.  If you configured with
  *		--without-extensions, you should give NULL here.
  * @token_limits: NULL or struct lws_token_limits pointer which is initialized
- *      with a token length limit for each possible WSI_TOKEN_***
+ *		with a token length limit for each possible WSI_TOKEN_***
  * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
  *			to listen using SSL, set to the filepath to fetch the
  *			server cert from, otherwise NULL for unencrypted
  * @ssl_private_key_filepath: filepath to private key if wanting SSL mode;
  *			if this is set to NULL but sll_cert_filepath is set, the
- *			OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called to allow
- *			setting of the private key directly via openSSL library calls
+ *			OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called
+ *			to allow setting of the private key directly via openSSL
+ *			library calls
  * @ssl_ca_filepath: CA certificate filepath or NULL
  * @ssl_cipher_list:	List of valid ciphers to use (eg,
  * 			"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
@@ -1231,7 +1272,8 @@ struct lws_extension {
  * @http_proxy_address: If non-NULL, attempts to proxy via the given address.
  *			If proxy auth is required, use format
  *			"username:password@server:port"
- * @http_proxy_port:	If http_proxy_address was non-NULL, uses this port at the address
+ * @http_proxy_port:	If http_proxy_address was non-NULL, uses this port at
+ * 			the address
  * @gid:	group id to change to after setting listen socket, or -1.
  * @uid:	user id to change to after setting listen socket, or -1.
  * @options:	0, or LWS_SERVER_OPTION_... bitfields
@@ -1296,6 +1338,22 @@ struct lws_context_creation_info {
 
 	void *_unused[8];
 };
+
+struct lws_client_connect_info {
+	struct lws_context *context;
+	const char *address;
+	int port;
+	int ssl_connection;
+	const char *path;
+	const char *host;
+	const char *origin;
+	const char *protocol;
+	int ietf_version_or_minus_one;
+	void *userdata;
+	const struct lws_extension *client_exts;
+	void *_unused[4];
+};
+
 
 LWS_VISIBLE LWS_EXTERN void
 lws_set_log_level(int level,
@@ -1397,14 +1455,14 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
  * IMPORTANT NOTICE!
  *
  * When sending with websocket protocol
- * 
+ *
  * LWS_WRITE_TEXT,
  * LWS_WRITE_BINARY,
  * LWS_WRITE_CONTINUATION,
  * LWS_WRITE_PING,
  * LWS_WRITE_PONG
- * 
- * the send buffer has to have LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE
+ *
+ * the send buffer has to have LWS_PRE bytes valid BEFORE
  * the buffer pointer you pass to lws_write().
  *
  * This allows us to add protocol info before and after the data, and send as
@@ -1413,27 +1471,27 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
  * So for example you need this kind of code to use lws_write with a
  * 128-byte payload
  *
- *   char buf[LWS_SEND_BUFFER_PRE_PADDING + 128];
+ *   char buf[LWS_PRE + 128];
  *
  *   // fill your part of the buffer... for example here it's all zeros
- *   memset(&buf[LWS_SEND_BUFFER_PRE_PADDING], 0, 128);
+ *   memset(&buf[LWS_PRE], 0, 128);
  *
- *   lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], 128, LWS_WRITE_TEXT);
- * 
+ *   lws_write(wsi, &buf[LWS_PRE], 128, LWS_WRITE_TEXT);
+ *
  * When sending HTTP, with
- * 
+ *
  * LWS_WRITE_HTTP,
  * LWS_WRITE_HTTP_HEADERS
  * LWS_WRITE_HTTP_FINAL
- * 
- * there is no protocol data prepended, and don't need to take care about the
- * LWS_SEND_BUFFER_PRE_PADDING bytes valid before the buffer pointer.
  *
- * LWS_SEND_BUFFER_PRE_PADDING is at least the frame nonce + 2 header + 8 length
+ * there is no protocol data prepended, and don't need to take care about the
+ * LWS_PRE bytes valid before the buffer pointer.
+ *
+ * LWS_PRE is at least the frame nonce + 2 header + 8 length
  * LWS_SEND_BUFFER_POST_PADDING is deprecated, it's now 0 and can be left off.
  * The example apps no longer use it.
  *
- * Pad LWS_SEND_BUFFER_PRE_PADDING to the CPU word size, so that word references
+ * Pad LWS_PRE to the CPU word size, so that word references
  * to the address immediately after the padding won't cause an unaligned access
  * error. Sometimes for performance reasons the recommended padding is even
  * larger than sizeof(void *).
@@ -1453,7 +1511,9 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 #endif
 #define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? \
 		((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
-#define LWS_SEND_BUFFER_PRE_PADDING _LWS_PAD(4 + 10)
+#define LWS_PRE _LWS_PAD(4 + 10)
+/* used prior to 1.7 and retained for backward compatibility */
+#define LWS_SEND_BUFFER_PRE_PADDING LWS_PRE
 #define LWS_SEND_BUFFER_POST_PADDING 0
 
 LWS_VISIBLE LWS_EXTERN int
@@ -1542,18 +1602,22 @@ lws_remaining_packet_payload(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN size_t
 lws_get_peer_write_allowance(struct lws *wsi);
 
+/* deprecated, use lws_client_connect_info() */
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_client_connect(struct lws_context *clients, const char *address,
 		   int port, int ssl_connection, const char *path,
 		   const char *host, const char *origin, const char *protocol,
 		   int ietf_version_or_minus_one);
-
+/* deprecated, use lws_client_connect_info() */
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_client_connect_extended(struct lws_context *clients, const char *address,
 			    int port, int ssl_connection, const char *path,
 			    const char *host, const char *origin,
 			    const char *protocol, int ietf_version_or_minus_one,
 			    void *userdata);
+
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_client_connect_info(struct lws_client_connect_info * ccinfo);
 
 LWS_VISIBLE LWS_EXTERN const char *
 lws_canonical_hostname(struct lws_context *context);
@@ -1704,7 +1768,11 @@ LWS_VISIBLE LWS_EXTERN int
 lws_read(struct lws *wsi, unsigned char *buf, size_t len);
 
 #ifndef LWS_NO_EXTENSIONS
-LWS_VISIBLE LWS_EXTERN struct lws_extension *lws_get_internal_extensions();
+/* deprecated */
+#define lws_get_internal_extensions() NULL
+LWS_VISIBLE LWS_EXTERN int
+lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
+		       void *ext_user, const struct lws_ext_options *opts, const char *o, int len);
 #endif
 
 /*

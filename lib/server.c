@@ -539,9 +539,9 @@ upgrade_ws:
 		n = wsi->protocol->rx_buffer_size;
 		if (!n)
 			n = LWS_MAX_SOCKET_IO_BUF;
-		n += LWS_SEND_BUFFER_PRE_PADDING;
-		wsi->u.ws.rx_user_buffer = lws_malloc(n);
-		if (!wsi->u.ws.rx_user_buffer) {
+		n += LWS_PRE;
+		wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */);
+		if (!wsi->u.ws.rx_ubuf) {
 			lwsl_err("Out of Mem allocating rx buffer %d\n", n);
 			return 1;
 		}
@@ -876,11 +876,9 @@ LWS_VISIBLE int lws_serve_http_file(struct lws *wsi, const char *file,
 				    int other_headers_len)
 {
 	struct lws_context *context = lws_get_context(wsi);
-	unsigned char *response = context->serv_buf +
-				  LWS_SEND_BUFFER_PRE_PADDING;
+	unsigned char *response = context->serv_buf + LWS_PRE;
 	unsigned char *p = response;
-	unsigned char *end = p + sizeof(context->serv_buf) -
-			     LWS_SEND_BUFFER_PRE_PADDING;
+	unsigned char *end = p + sizeof(context->serv_buf) - LWS_PRE;
 	int ret = 0;
 
 	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,
@@ -929,26 +927,32 @@ LWS_VISIBLE int lws_serve_http_file(struct lws *wsi, const char *file,
 }
 
 int
-lws_interpret_incoming_packet(struct lws *wsi, unsigned char *buf, size_t len)
+lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 {
-	size_t n = 0;
 	int m;
 
+	lwsl_parser("%s: received %d byte packet\n", __func__, (int)len);
 #if 0
-	lwsl_parser("received %d byte packet\n", (int)len);
-	lwsl_hexdump(buf, len);
+	lwsl_hexdump(*buf, len);
 #endif
 
 	/* let the rx protocol state machine have as much as it needs */
 
-	while (n < len) {
+	while (len) {
 		/*
 		 * we were accepting input but now we stopped doing so
 		 */
 		if (!(wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
-			lws_rxflow_cache(wsi, buf, n, len);
-
+			lws_rxflow_cache(wsi, *buf, 0, len);
+			lwsl_parser("%s: cached %d\n", __func__, len);
 			return 1;
+		}
+
+		if (wsi->u.ws.rx_draining_ext) {
+			m = lws_rx_sm(wsi, 0);
+			if (m < 0)
+				return -1;
+			continue;
 		}
 
 		/* account for what we're using in rxflow buffer */
@@ -956,10 +960,13 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char *buf, size_t len)
 			wsi->rxflow_pos++;
 
 		/* process the byte */
-		m = lws_rx_sm(wsi, buf[n++]);
+		m = lws_rx_sm(wsi, *(*buf)++);
 		if (m < 0)
 			return -1;
+		len--;
 	}
+
+	lwsl_parser("%s: exit with %d unused\n", __func__, (int)len);
 
 	return 0;
 }

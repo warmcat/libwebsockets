@@ -738,12 +738,33 @@ int
 lws_rx_sm(struct lws *wsi, unsigned char c)
 {
 	struct lws_tokens eff_buf;
-	int ret = 0;
+	int ret = 0, n, rx_draining_ext = 0;
 	int callback_action = LWS_CALLBACK_RECEIVE;
+	if (wsi->socket_is_permanently_unusable)
+		return -1;
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
+		if (wsi->u.ws.rx_draining_ext) {
+			struct lws **w = &wsi->context->rx_draining_ext_list;
 
+			eff_buf.token = NULL;
+			eff_buf.token_len = 0;
+			wsi->u.ws.rx_draining_ext = 0;
+			/* remove us from context draining ext list */
+			while (*w) {
+				if (*w == wsi) {
+					*w = wsi->u.ws.rx_draining_ext_list;
+					break;
+				}
+				w = &((*w)->u.ws.rx_draining_ext_list);
+			}
+			wsi->u.ws.rx_draining_ext_list = NULL;
+			rx_draining_ext = 1;
+			lwsl_err("%s: doing draining flow\n", __func__);
+
+			goto drain_extension;
+		}
 		switch (wsi->ietf_spec_revision) {
 		case 13:
 			/*
@@ -758,20 +779,20 @@ lws_rx_sm(struct lws *wsi, unsigned char c)
 			break;
 		}
 		break;
-	case LWS_RXPS_04_MASK_NONCE_1:
-		wsi->u.ws.mask_nonce[1] = c;
+	case LWS_RXPS_04_mask_1:
+		wsi->u.ws.mask[1] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
-		wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_2;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_mask_2;
 		break;
-	case LWS_RXPS_04_MASK_NONCE_2:
-		wsi->u.ws.mask_nonce[2] = c;
+	case LWS_RXPS_04_mask_2:
+		wsi->u.ws.mask[2] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
-		wsi->lws_rx_parse_state = LWS_RXPS_04_MASK_NONCE_3;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_mask_3;
 		break;
-	case LWS_RXPS_04_MASK_NONCE_3:
-		wsi->u.ws.mask_nonce[3] = c;
+	case LWS_RXPS_04_mask_3:
+		wsi->u.ws.mask[3] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 
@@ -780,7 +801,7 @@ lws_rx_sm(struct lws *wsi, unsigned char c)
 		 * this is the start of a frame with a new key
 		 */
 
-		wsi->u.ws.frame_mask_index = 0;
+		wsi->u.ws.mask_idx = 0;
 
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_1;
 		break;
@@ -825,9 +846,22 @@ handle_first:
 		switch (wsi->u.ws.opcode) {
 		case LWSWSOPC_TEXT_FRAME:
 		case LWSWSOPC_BINARY_FRAME:
+			wsi->u.ws.rsv_first_msg = (c & 0x70);
 			wsi->u.ws.frame_is_binary =
 			     wsi->u.ws.opcode == LWSWSOPC_BINARY_FRAME;
 			break;
+		case 3:
+		case 4:
+		case 5:
+		case 6:
+		case 7:
+		case 0xb:
+		case 0xc:
+		case 0xd:
+		case 0xe:
+		case 0xf:
+			lwsl_info("illegal opcode\n");
+			return -1;
 		}
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
 		break;
@@ -944,33 +978,33 @@ handle_first:
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_1:
-		wsi->u.ws.mask_nonce[0] = c;
+		wsi->u.ws.mask[0] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_2;
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_2:
-		wsi->u.ws.mask_nonce[1] = c;
+		wsi->u.ws.mask[1] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_3;
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_3:
-		wsi->u.ws.mask_nonce[2] = c;
+		wsi->u.ws.mask[2] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_4;
 		break;
 
 	case LWS_RXPS_07_COLLECT_FRAME_KEY_4:
-		wsi->u.ws.mask_nonce[3] = c;
+		wsi->u.ws.mask[3] = c;
 		if (c)
 			wsi->u.ws.all_zero_nonce = 0;
 		wsi->lws_rx_parse_state =
 					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
-		wsi->u.ws.frame_mask_index = 0;
+		wsi->u.ws.mask_idx = 0;
 		if (wsi->u.ws.rx_packet_length == 0) {
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 			goto spill;
@@ -980,19 +1014,16 @@ handle_first:
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
 
-		if (!wsi->u.ws.rx_user_buffer) {
-			lwsl_err("NULL user buffer...\n");
-			return 1;
-		}
+		assert(wsi->u.ws.rx_ubuf);
 
 		if (wsi->u.ws.all_zero_nonce)
-			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-			       (wsi->u.ws.rx_user_buffer_head++)] = c;
+			wsi->u.ws.rx_ubuf[LWS_PRE +
+			       (wsi->u.ws.rx_ubuf_head++)] = c;
 		else
-			wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING +
-			       (wsi->u.ws.rx_user_buffer_head++)] =
-				   c ^ wsi->u.ws.mask_nonce[
-					    (wsi->u.ws.frame_mask_index++) & 3];
+			wsi->u.ws.rx_ubuf[LWS_PRE +
+			       (wsi->u.ws.rx_ubuf_head++)] =
+				   c ^ wsi->u.ws.mask[
+					    (wsi->u.ws.mask_idx++) & 3];
 
 		if (--wsi->u.ws.rx_packet_length == 0) {
 			/* spill because we have the whole frame */
@@ -1006,12 +1037,12 @@ handle_first:
 		 */
 
 		if (!wsi->protocol->rx_buffer_size &&
-			 		wsi->u.ws.rx_user_buffer_head !=
+			 		wsi->u.ws.rx_ubuf_head !=
 			 				  LWS_MAX_SOCKET_IO_BUF)
 			break;
 		else
 			if (wsi->protocol->rx_buffer_size &&
-					wsi->u.ws.rx_user_buffer_head !=
+					wsi->u.ws.rx_ubuf_head !=
 						  wsi->protocol->rx_buffer_size)
 			break;
 
@@ -1044,9 +1075,9 @@ spill:
 					wsi->protocol->callback, wsi,
 					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
 					wsi->user_space,
-					&wsi->u.ws.rx_user_buffer[
-						LWS_SEND_BUFFER_PRE_PADDING],
-					wsi->u.ws.rx_user_buffer_head))
+					&wsi->u.ws.rx_ubuf[
+						LWS_PRE],
+					wsi->u.ws.rx_ubuf_head))
 				return -1;
 
 			lwsl_parser("server sees client close packet\n");
@@ -1057,7 +1088,7 @@ spill:
 
 		case LWSWSOPC_PING:
 			lwsl_info("received %d byte ping, sending pong\n",
-						 wsi->u.ws.rx_user_buffer_head);
+						 wsi->u.ws.rx_ubuf_head);
 
 			if (wsi->u.ws.ping_pending_flag) {
 				/*
@@ -1069,29 +1100,29 @@ spill:
 			}
 process_as_ping:
 			/* control packets can only be < 128 bytes long */
-			if (wsi->u.ws.rx_user_buffer_head > 128 - 3) {
+			if (wsi->u.ws.rx_ubuf_head > 128 - 3) {
 				lwsl_parser("DROP PING payload too large\n");
 				goto ping_drop;
 			}
 
 			/* stash the pong payload */
-			memcpy(wsi->u.ws.ping_payload_buf + LWS_SEND_BUFFER_PRE_PADDING,
-			       &wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
-				wsi->u.ws.rx_user_buffer_head);
+			memcpy(wsi->u.ws.ping_payload_buf + LWS_PRE,
+			       &wsi->u.ws.rx_ubuf[LWS_PRE],
+				wsi->u.ws.rx_ubuf_head);
 
-			wsi->u.ws.ping_payload_len = wsi->u.ws.rx_user_buffer_head;
+			wsi->u.ws.ping_payload_len = wsi->u.ws.rx_ubuf_head;
 			wsi->u.ws.ping_pending_flag = 1;
 
 			/* get it sent as soon as possible */
 			lws_callback_on_writable(wsi);
 ping_drop:
-			wsi->u.ws.rx_user_buffer_head = 0;
+			wsi->u.ws.rx_ubuf_head = 0;
 			return 0;
 
 		case LWSWSOPC_PONG:
 			lwsl_info("received pong\n");
-			lwsl_hexdump(&wsi->u.ws.rx_user_buffer[LWS_SEND_BUFFER_PRE_PADDING],
-			             wsi->u.ws.rx_user_buffer_head);
+			lwsl_hexdump(&wsi->u.ws.rx_ubuf[LWS_PRE],
+			             wsi->u.ws.rx_ubuf_head);
 
 			/* issue it */
 			callback_action = LWS_CALLBACK_RECEIVE_PONG;
@@ -1111,17 +1142,15 @@ ping_drop:
 			 * state machine.
 			 */
 
-			eff_buf.token = &wsi->u.ws.rx_user_buffer[
-						   LWS_SEND_BUFFER_PRE_PADDING];
-			eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
+			eff_buf.token = &wsi->u.ws.rx_ubuf[LWS_PRE];
+			eff_buf.token_len = wsi->u.ws.rx_ubuf_head;
 
-			if (lws_ext_cb_wsi_active_exts(wsi,
-				LWS_EXT_CALLBACK_EXTENDED_PAYLOAD_RX,
+			if (lws_ext_cb_active(wsi, LWS_EXT_CB_EXTENDED_PAYLOAD_RX,
 					&eff_buf, 0) <= 0) /* not handle or fail */
 				lwsl_ext("ext opc opcode 0x%x unknown\n",
 							      wsi->u.ws.opcode);
 
-			wsi->u.ws.rx_user_buffer_head = 0;
+			wsi->u.ws.rx_ubuf_head = 0;
 			return 0;
 		}
 
@@ -1131,13 +1160,34 @@ ping_drop:
 		 * so it can be sent straight out again using lws_write
 		 */
 
-		eff_buf.token = &wsi->u.ws.rx_user_buffer[
-						LWS_SEND_BUFFER_PRE_PADDING];
-		eff_buf.token_len = wsi->u.ws.rx_user_buffer_head;
+		eff_buf.token = &wsi->u.ws.rx_ubuf[LWS_PRE];
+		eff_buf.token_len = wsi->u.ws.rx_ubuf_head;
 
-		if (lws_ext_cb_wsi_active_exts(wsi,
-				LWS_EXT_CALLBACK_PAYLOAD_RX, &eff_buf, 0) < 0)
+drain_extension:
+		lwsl_ext("%s: passing %d to ext\n", __func__, eff_buf.token_len);
+
+		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
+		    wsi->state == LWSS_AWAITING_CLOSE_ACK)
+			goto already_done;
+
+		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &eff_buf, 0);
+		if (n < 0) {
+			/*
+			 * we may rely on this to get RX, just drop connection
+			 */
+			wsi->socket_is_permanently_unusable = 1;
 			return -1;
+		}
+
+		if (rx_draining_ext && eff_buf.token_len == 0)
+			goto already_done;
+
+		if (n && eff_buf.token_len) {
+			/* extension had more... main loop will come back */
+			wsi->u.ws.rx_draining_ext = 1;
+			wsi->u.ws.rx_draining_ext_list = wsi->context->rx_draining_ext_list;
+			wsi->context->rx_draining_ext_list = wsi;
+		}
 
 		if (eff_buf.token_len > 0 ||
 		    callback_action == LWS_CALLBACK_RECEIVE_PONG) {
@@ -1146,7 +1196,7 @@ ping_drop:
 			if (wsi->protocol->callback) {
 
 				if (callback_action == LWS_CALLBACK_RECEIVE_PONG)
-				    lwsl_info("Doing pong callback\n");
+					lwsl_info("Doing pong callback\n");
 
 				ret = user_callback_handle_rxflow(
 						wsi->protocol->callback,
@@ -1160,7 +1210,8 @@ ping_drop:
 				lwsl_err("No callback on payload spill!\n");
 		}
 
-		wsi->u.ws.rx_user_buffer_head = 0;
+already_done:
+		wsi->u.ws.rx_ubuf_head = 0;
 		break;
 	}
 

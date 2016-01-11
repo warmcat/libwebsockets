@@ -335,7 +335,5 @@ The autobahn test itself admits this is not part of the standard, just someone's
 random opinion about how they think a ws server should act.  So we will fail
 this by design and it is no problem about RFC6455 compliance.
 
- - Test 6.x: detect we were sent invalid UTF-8.  Validity of encoding is left
- to the user code in libwebsockets until now.
  
  

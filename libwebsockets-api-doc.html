@@ -4,7 +4,7 @@
 (<i>struct lws *</i> <b>wsi</b>,
 <i>unsigned char *</i> <b>buf</b>,
 <i>size_t</i> <b>len</b>,
-<i>enum lws_write_protocol</i> <b>protocol</b>)
+<i>enum lws_write_protocol</i> <b>wp</b>)
 <h3>Arguments</h3>
 <dl>
 <dt><b>wsi</b>
@@ -12,16 +12,10 @@
 <dt><b>buf</b>
 <dd>The data to send.  For data being sent on a websocket
 connection (ie, not default http), this buffer MUST have
-LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE the pointer.
+LWS_PRE bytes valid BEFORE the pointer.
 This is so the protocol header data can be added in-situ.
 <dt><b>len</b>
 <dd>Count of the data bytes in the payload starting from buf
-<dt><b>protocol</b>
-<dd>Use LWS_WRITE_HTTP to reply to an http connection, and one
-of LWS_WRITE_BINARY or LWS_WRITE_TEXT to send appropriate
-data on a websockets connection.  Remember to allow the extra
-bytes before and after buf if LWS_WRITE_BINARY or LWS_WRITE_TEXT
-are used.
 </dl>
 <h3>Description</h3>
 <blockquote>
@@ -110,50 +104,19 @@ Helper to report HTTP errors back to the client cleanly and
 consistently
 </blockquote>
 <hr>
-<h2>lws_client_connect - Connect to another websocket server</h2>
+<h2>lws_client_connect_info - Connect to another websocket server</h2>
 <i>struct lws *</i>
-<b>lws_client_connect</b>
-(<i>struct lws_context *</i> <b>context</b>,
-<i>const char *</i> <b>address</b>,
-<i>int</i> <b>port</b>,
-<i>int</i> <b>ssl_connection</b>,
-<i>const char *</i> <b>path</b>,
-<i>const char *</i> <b>host</b>,
-<i>const char *</i> <b>origin</b>,
-<i>const char *</i> <b>protocol</b>,
-<i>int</i> <b>ietf_version_or_minus_one</b>)
+<b>lws_client_connect_info</b>
+(<i>struct lws_client_connect_info *</i> <b>i</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>context</b>
-<dd>Websocket context
-<dt><b>address</b>
-<dd>Remote server address, eg, "myserver.com"
-<dt><b>port</b>
-<dd>Port to connect to on the remote server, eg, 80
-<dt><b>ssl_connection</b>
-<dd>0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
-signed certs
-<dt><b>path</b>
-<dd>Websocket path on server
-<dt><b>host</b>
-<dd>Hostname on server
-<dt><b>origin</b>
-<dd>Socket origin name
-<dt><b>protocol</b>
-<dd>Comma-separated list of protocols being asked for from
-the server, or just one.  The server will pick the one it
-likes best.  If you don't want to specify a protocol, which is
-legal, use NULL here.
-<dt><b>ietf_version_or_minus_one</b>
-<dd>-1 to ask to connect using the default, latest
-protocol supported, or the specific protocol ordinal
 </dl>
 <h3>Description</h3>
 <blockquote>
 This function creates a connection to a remote server
 </blockquote>
 <hr>
-<h2>lws_client_connect_extended - Connect to another websocket server</h2>
+<h2>lws_client_connect_extended - Connect to another websocket server DEPRECAATED use lws_client_connect_info</h2>
 <i>struct lws *</i>
 <b>lws_client_connect_extended</b>
 (<i>struct lws_context *</i> <b>context</b>,
@@ -1228,7 +1191,7 @@ connection.
 <dt><b>reason</b>
 <dd>The reason for the call
 <dt><b>user</b>
-<dd>Pointer to per-session user data allocated by library
+<dd>Pointer to ptr to per-session user data allocated by library
 <dt><b>in</b>
 <dd>Pointer used for some callback reasons
 <dt><b>len</b>
@@ -1244,7 +1207,7 @@ Libwebsockets takes care of allocating and freeing "user" memory for
 each active extension on each connection.  That is what is pointed to
 by the <tt><b>user</b></tt> parameter.
 </blockquote>
-<h3>LWS_EXT_CALLBACK_CONSTRUCT</h3>
+<h3>LWS_EXT_CB_CONSTRUCT</h3>
 <blockquote>
 called when the server has decided to
 select this extension from the list provided by the client,
@@ -1253,14 +1216,14 @@ the connection with this extension active.  This gives the
 extension a chance to initialize its connection context found
 in <tt><b>user</b></tt>.
 </blockquote>
-<h3>LWS_EXT_CALLBACK_CLIENT_CONSTRUCT</h3>
+<h3>LWS_EXT_CB_CLIENT_CONSTRUCT</h3>
 <blockquote>
-same as LWS_EXT_CALLBACK_CONSTRUCT
+same as LWS_EXT_CB_CONSTRUCT
 but called when client is instantiating this extension.  Some
 extensions will work the same on client and server side and then
 you can just merge handlers for both CONSTRUCTS.
 </blockquote>
-<h3>LWS_EXT_CALLBACK_DESTROY</h3>
+<h3>LWS_EXT_CB_DESTROY</h3>
 <blockquote>
 called when the connection the extension was
 being used on is about to be closed and deallocated.  It's the
@@ -1269,7 +1232,7 @@ allocated in the user data (pointed to by <tt><b>user</b></tt>) before the
 user data is deleted.  This same callback is used whether you
 are in client or server instantiation context.
 </blockquote>
-<h3>LWS_EXT_CALLBACK_PACKET_RX_PREPARSE</h3>
+<h3>LWS_EXT_CB_PACKET_RX_PREPARSE</h3>
 <blockquote>
 when this extension was active on
 a connection, and a packet of data arrived at the connection,
@@ -1283,10 +1246,10 @@ length.  If the extension will grow the content, it should use
 a new buffer allocated in its private user context data and
 set the pointed-to lws_tokens members to point to its buffer.
 </blockquote>
-<h3>LWS_EXT_CALLBACK_PACKET_TX_PRESEND</h3>
+<h3>LWS_EXT_CB_PACKET_TX_PRESEND</h3>
 <blockquote>
 this works the same way as
-LWS_EXT_CALLBACK_PACKET_RX_PREPARSE above, except it gives the
+LWS_EXT_CB_PACKET_RX_PREPARSE above, except it gives the
 extension a chance to change websocket data just before it will
 be sent out.  Using the same lws_token pointer scheme in <tt><b>in</b></tt>,
 the extension can change the buffer and the length to be
@@ -1325,7 +1288,7 @@ you support.  If the frame size is exceeded, there is no
 error, but the buffer will spill to the user callback when
 full, which you can detect by using
 <b>lws_remaining_packet_payload</b>.  Notice that you
-just talk about frame size here, the LWS_SEND_BUFFER_PRE_PADDING
+just talk about frame size here, the LWS_PRE
 and post-padding are automatically also allocated on top.
 <dt><b>id</b>
 <dd>ignored by lws, but useful to contain user information bound
@@ -1354,27 +1317,33 @@ there is no agreed protocol name, that's true during HTTP part of the
 header.
 </blockquote>
 <hr>
-<h2>struct lws_extension - An extension we know how to cope with</h2>
-<b>struct lws_extension</b> {<br>
+<h2>struct lws_ext_options - Option arguments to the extension.  These are used in the negotiation at ws upgrade time. The helper function lws_ext_parse_options() uses these to generate callbacks</h2>
+<b>struct lws_ext_options</b> {<br>
 &nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
-&nbsp; &nbsp; <i>lws_extension_callback_function *</i> <b>callback</b>;<br>
-&nbsp; &nbsp; <i>size_t</i> <b>per_session_data_size</b>;<br>
-&nbsp; &nbsp; <i>void *</i> <b>per_context_private_data</b>;<br>
+&nbsp; &nbsp; <i>enum lws_ext_options_types</i> <b>type</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
 <dt><b>name</b>
-<dd>Formal extension name, eg, "deflate-stream"
+<dd>Option name, eg, "server_no_context_takeover"
+<dt><b>type</b>
+<dd>What kind of args the option can take
+</dl>
+<hr>
+<h2>struct lws_extension - An extension we know how to cope with</h2>
+<b>struct lws_extension</b> {<br>
+&nbsp; &nbsp; <i>const char *</i> <b>name</b>;<br>
+&nbsp; &nbsp; <i>lws_extension_callback_function *</i> <b>callback</b>;<br>
+&nbsp; &nbsp; <i>const char *</i> <b>client_offer</b>;<br>
+};<br>
+<h3>Members</h3>
+<dl>
+<dt><b>name</b>
+<dd>Formal extension name, eg, "permessage-deflate"
 <dt><b>callback</b>
 <dd>Service callback
-<dt><b>per_session_data_size</b>
-<dd>Libwebsockets will auto-malloc this much
-memory for the use of the extension, a pointer
-to it comes in the <tt><b>user</b></tt> callback parameter
-<dt><b>per_context_private_data</b>
-<dd>Optional storage for this extension that
-is per-context, so it can track stuff across
-all sessions, etc, if it wants
+<dt><b>client_offer</b>
+<dd>String containing exts and options client offers
 </dl>
 <hr>
 <h2>struct lws_context_creation_info - parameters to create context with</h2>
@@ -1434,8 +1403,9 @@ server cert from, otherwise NULL for unencrypted
 <dt><b>ssl_private_key_filepath</b>
 <dd>filepath to private key if wanting SSL mode;
 if this is set to NULL but sll_cert_filepath is set, the
-OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called to allow
-setting of the private key directly via openSSL library calls
+OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called
+to allow setting of the private key directly via openSSL
+library calls
 <dt><b>ssl_ca_filepath</b>
 <dd>CA certificate filepath or NULL
 <dt><b>ssl_cipher_list</b>
@@ -1447,7 +1417,8 @@ or you can leave it as NULL to get "DEFAULT"
 If proxy auth is required, use format
 "username:password<tt><b>server</b></tt>:port"
 <dt><b>http_proxy_port</b>
-<dd>If http_proxy_address was non-NULL, uses this port at the address
+<dd>If http_proxy_address was non-NULL, uses this port at
+the address
 <dt><b>gid</b>
 <dd>group id to change to after setting listen socket, or -1.
 <dt><b>uid</b>

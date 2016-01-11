@@ -250,8 +250,8 @@ lws_callback_on_writable(struct lws *wsi)
 network_sock:
 #endif
 
-	if (lws_ext_cb_wsi_active_exts(wsi,
-				LWS_EXT_CALLBACK_REQUEST_ON_WRITEABLE, NULL, 0))
+	if (lws_ext_cb_active(wsi,
+				LWS_EXT_CB_REQUEST_ON_WRITEABLE, NULL, 0))
 		return 1;
 
 	if (wsi->position_in_fds_table < 0) {

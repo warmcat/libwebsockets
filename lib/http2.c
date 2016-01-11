@@ -425,7 +425,7 @@ update_end_headers:
 
 int lws_http2_do_pps_send(struct lws_context *context, struct lws *wsi)
 {
-	unsigned char settings[LWS_SEND_BUFFER_PRE_PADDING + 6 * LWS_HTTP2_SETTINGS__COUNT];
+	unsigned char settings[LWS_PRE + 6 * LWS_HTTP2_SETTINGS__COUNT];
 	struct lws *swsi;
 	int n, m = 0;
 
@@ -436,12 +436,12 @@ int lws_http2_do_pps_send(struct lws_context *context, struct lws *wsi)
 		for (n = 1; n < LWS_HTTP2_SETTINGS__COUNT; n++)
 			if (wsi->u.http2.my_settings.setting[n] != lws_http2_default_settings.setting[n]) {
 				lws_http2_settings_write(wsi, n,
-							 &settings[LWS_SEND_BUFFER_PRE_PADDING + m]);
+							 &settings[LWS_PRE + m]);
 				m += sizeof(wsi->u.http2.one_setting);
 			}
 		n = lws_http2_frame_write(wsi, LWS_HTTP2_FRAME_TYPE_SETTINGS,
 		     			  0, LWS_HTTP2_STREAM_ID_MASTER, m,
-		     			  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
+		     			  &settings[LWS_PRE]);
 		if (n != m) {
 			lwsl_info("send %d %d\n", n, m);
 			return 1;
@@ -451,7 +451,7 @@ int lws_http2_do_pps_send(struct lws_context *context, struct lws *wsi)
 		/* send ack ... always empty */
 		n = lws_http2_frame_write(wsi, LWS_HTTP2_FRAME_TYPE_SETTINGS,
 			1, LWS_HTTP2_STREAM_ID_MASTER, 0,
-			&settings[LWS_SEND_BUFFER_PRE_PADDING]);
+			&settings[LWS_PRE]);
 		if (n) {
 			lwsl_err("ack tells %d\n", n);
 			return 1;
@@ -490,11 +490,11 @@ int lws_http2_do_pps_send(struct lws_context *context, struct lws *wsi)
 		}
 		break;
 	case LWS_PPS_HTTP2_PONG:
-		memcpy(&settings[LWS_SEND_BUFFER_PRE_PADDING], wsi->u.http2.ping_payload, 8);
+		memcpy(&settings[LWS_PRE], wsi->u.http2.ping_payload, 8);
 		n = lws_http2_frame_write(wsi, LWS_HTTP2_FRAME_TYPE_PING,
 		     			  LWS_HTTP2_FLAG_SETTINGS_ACK,
 			    		  LWS_HTTP2_STREAM_ID_MASTER, 8,
-		     			  &settings[LWS_SEND_BUFFER_PRE_PADDING]);
+		     			  &settings[LWS_PRE]);
 		if (n != 8) {
 			lwsl_info("send %d %d\n", n, m);
 			return 1;

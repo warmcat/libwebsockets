@@ -261,8 +261,8 @@ if left `NULL`, then the "DEFAULT" set of ciphers are all possible to select.
 Async nature of client connections
 ----------------------------------
 
-When you call `lws_client_connect(..)` and get a `wsi` back, it does not
-mean your connection is active.  It just mean it started trying to connect.
+When you call `lws_client_connect_info(..)` and get a `wsi` back, it does not
+mean your connection is active.  It just means it started trying to connect.
 
 Your client connection is actually active only when you receive
 `LWS_CALLBACK_CLIENT_ESTABLISHED` for it.

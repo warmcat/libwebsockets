@@ -26,20 +26,19 @@
 LWS_VISIBLE int
 lws_extension_server_handshake(struct lws *wsi, char **p)
 {
-	int n;
-	char *c;
-	char ext_name[128];
-	const struct lws_extension *ext;
 	struct lws_context *context = wsi->context;
+	const struct lws_extension *ext;
+	char ext_name[128];
 	int ext_count = 0;
+	char *c;//, *start;
 	int more = 1;
 	char ignore;
+	int n, m;
 
 	/*
 	 * Figure out which extensions the client has that we want to
 	 * enable on this connection, and give him back the list
 	 */
-
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_EXTENSIONS))
 		return 0;
 
@@ -49,21 +48,21 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 	 */
 
 	if (lws_hdr_copy(wsi, (char *)context->serv_buf,
-			sizeof(context->serv_buf),
-					      WSI_TOKEN_EXTENSIONS) < 0)
+			 sizeof(context->serv_buf), WSI_TOKEN_EXTENSIONS) < 0)
 		return 1;
 
 	c = (char *)context->serv_buf;
 	lwsl_parser("WSI_TOKEN_EXTENSIONS = '%s'\n", c);
-	wsi->count_active_extensions = 0;
+	wsi->count_act_ext = 0;
 	n = 0;
 	ignore = 0;
+//	start = c;
 	while (more) {
 
-		if (*c && (*c != ',' && *c != ' ' && *c != '\t')) {
-			if (ext_name[n] == ';')
+		if (*c && (*c != ',' && *c != '\t')) {
+			if (*c == ';')
 				ignore = 1;
-			if (ignore) {
+			if (ignore || *c == ' ') {
 				c++;
 				continue;
 			}
@@ -93,14 +92,21 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 				ext++;
 				continue;
 			}
-
+#if 0
+			m = ext->callback(lws_get_context(wsi), ext, wsi,
+					  LWS_EXT_CB_ARGS_VALIDATE,
+					  NULL, start + n, 0);
+			if (m) {
+				ext++;
+				continue;
+			}
+#endif
 			/*
 			 * oh, we do support this one he asked for... but let's
 			 * ask user code if it's OK to apply it on this
 			 * particular connection + protocol
 			 */
-
-			n = lws_get_context(wsi)->protocols[0].callback(wsi,
+			m = lws_get_context(wsi)->protocols[0].callback(wsi,
 				LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
 				wsi->user_space, ext_name, 0);
 
@@ -110,7 +116,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 			 * unhandled
 			 */
 
-			if (n) {
+			if (m) {
 				ext++;
 				continue;
 			}
@@ -120,40 +126,28 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 			if (ext_count)
 				*(*p)++ = ',';
 			else
-				LWS_CPYAPP(*p,
-				 "\x0d\x0aSec-WebSocket-Extensions: ");
+				LWS_CPYAPP(*p, "\x0d\x0aSec-WebSocket-Extensions: ");
 			*p += sprintf(*p, "%s", ext_name);
 			ext_count++;
 
 			/* instantiate the extension on this conn */
 
-			wsi->active_extensions_user[
-				wsi->count_active_extensions] =
-				     lws_zalloc(ext->per_session_data_size);
-			if (wsi->active_extensions_user[
-			     wsi->count_active_extensions] == NULL) {
-				lwsl_err("Out of mem\n");
-				return 1;
-			}
-
-			wsi->active_extensions[
-				  wsi->count_active_extensions] = ext;
+			wsi->active_extensions[wsi->count_act_ext] = ext;
 
 			/* allow him to construct his context */
 
-			ext->callback(lws_get_context(wsi),
-					ext, wsi,
-					LWS_EXT_CALLBACK_CONSTRUCT,
-					wsi->active_extensions_user[
-				wsi->count_active_extensions], NULL, 0);
+			ext->callback(lws_get_context(wsi), ext, wsi,
+				      LWS_EXT_CB_CONSTRUCT,
+				      (void *)&wsi->act_ext_user[wsi->count_act_ext],
+				      NULL, 0);
 
-			wsi->count_active_extensions++;
-			lwsl_parser("count_active_extensions <- %d\n",
-					  wsi->count_active_extensions);
+			wsi->count_act_ext++;
+			lwsl_parser("count_act_ext <- %d\n", wsi->count_act_ext);
 
 			ext++;
 		}
 
+		//start = c;
 		n = 0;
 	}
 
@@ -208,7 +202,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	/* make a buffer big enough for everything */
 
-	response = (char *)context->serv_buf + MAX_WEBSOCKET_04_KEY_LEN + LWS_SEND_BUFFER_PRE_PADDING;
+	response = (char *)context->serv_buf + MAX_WEBSOCKET_04_KEY_LEN + LWS_PRE;
 	p = response;
 	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 		      "Upgrade: WebSocket\x0d\x0a"
@@ -240,7 +234,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	LWS_CPYAPP(p, "\x0d\x0a\x0d\x0a");
 
-	if (!lws_any_extension_handled(wsi, LWS_EXT_CALLBACK_HANDSHAKE_REPLY_TX,
+	if (!lws_any_extension_handled(wsi, LWS_EXT_CB_HANDSHAKE_REPLY_TX,
 				       response, p - response)) {
 
 		/* okay send the handshake response accepting the connection */

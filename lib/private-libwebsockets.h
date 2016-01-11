@@ -292,6 +292,9 @@ extern "C" {
 #ifndef LWS_MAX_EXTENSIONS_ACTIVE
 #define LWS_MAX_EXTENSIONS_ACTIVE 3
 #endif
+#ifndef LWS_MAX_EXT_OFFERS
+#define LWS_MAX_EXT_OFFERS 8
+#endif
 #ifndef SPEC_LATEST_SUPPORTED
 #define SPEC_LATEST_SUPPORTED 13
 #endif
@@ -373,9 +376,9 @@ enum lws_pending_protocol_send {
 enum lws_rx_parse_state {
 	LWS_RXPS_NEW,
 
-	LWS_RXPS_04_MASK_NONCE_1,
-	LWS_RXPS_04_MASK_NONCE_2,
-	LWS_RXPS_04_MASK_NONCE_3,
+	LWS_RXPS_04_mask_1,
+	LWS_RXPS_04_mask_2,
+	LWS_RXPS_04_mask_3,
 
 	LWS_RXPS_04_FRAME_HDR_1,
 	LWS_RXPS_04_FRAME_HDR_LEN,
@@ -525,6 +528,8 @@ struct lws_context {
 	const struct lws_protocols *protocols;
 	void *http_header_data;
 	struct allocated_headers *ah_pool;
+	struct lws *rx_draining_ext_list;
+	struct lws *tx_draining_ext_list;
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX *ssl_ctx;
 	SSL_CTX *ssl_client_ctx;
@@ -795,7 +800,7 @@ struct _lws_http2_related {
 	unsigned int my_stream_id;
 	unsigned int child_count;
 	int my_priority;
-	
+
 	unsigned int END_STREAM:1;
 	unsigned int END_HEADERS:1;
 	unsigned int send_END_STREAM:1;
@@ -834,20 +839,25 @@ struct _lws_header_related {
 };
 
 struct _lws_websocket_related {
-	char *rx_user_buffer;
+	char *rx_ubuf;
+	struct lws *rx_draining_ext_list;
+	struct lws *tx_draining_ext_list;
 	size_t rx_packet_length;
-	unsigned int rx_user_buffer_head;
-	unsigned char mask_nonce[4];
+	unsigned int rx_ubuf_head;
+	unsigned char mask[4];
 	/* Also used for close content... control opcode == < 128 */
-	unsigned char ping_payload_buf[128 - 3 + LWS_SEND_BUFFER_PRE_PADDING];
+	unsigned char ping_payload_buf[128 - 3 + LWS_PRE];
 
 	unsigned char ping_payload_len;
-	unsigned char frame_mask_index;
+	unsigned char mask_idx;
 	unsigned char opcode;
 	unsigned char rsv;
+	unsigned char rsv_first_msg;
 	/* zero if no info, or length including 2-byte close code */
 	unsigned char close_in_ping_buffer_len;
 	unsigned char utf8;
+	unsigned char stashed_write_type;
+	unsigned char tx_draining_stashed_wp;
 
 	unsigned int final:1;
 	unsigned int frame_is_binary:1;
@@ -861,6 +871,10 @@ struct _lws_websocket_related {
 	unsigned int owed_a_fin:1;
 	unsigned int check_utf8:1;
 	unsigned int defeat_check_utf8:1;
+	unsigned int pmce_compressed_message:1;
+	unsigned int stashed_write_pending:1;
+	unsigned int rx_draining_ext:1;
+	unsigned int tx_draining_ext:1;
 };
 
 struct lws {
@@ -896,7 +910,7 @@ struct lws {
 	unsigned char *trunc_alloc; /* non-NULL means buffering in progress */
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
-	void *active_extensions_user[LWS_MAX_EXTENSIONS_ACTIVE];
+	void *act_ext_user[LWS_MAX_EXTENSIONS_ACTIVE];
 #endif
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;
@@ -936,7 +950,7 @@ struct lws {
 
 	/* chars */
 #ifndef LWS_NO_EXTENSIONS
-	unsigned char count_active_extensions;
+	unsigned char count_act_ext;
 #endif
 	unsigned char ietf_spec_revision;
 	char mode; /* enum connection_mode */
@@ -1042,15 +1056,16 @@ lws_any_extension_handled(struct lws *wsi,
 			  void *v, size_t len);
 
 LWS_EXTERN int
-lws_ext_cb_wsi_active_exts(struct lws *wsi, int reason,
+lws_ext_cb_active(struct lws *wsi, int reason,
 				 void *buf, int len);
 LWS_EXTERN int
 lws_ext_cb_all_exts(struct lws_context *context,
 					 struct lws *wsi, int reason,
 					 void *arg, int len);
+
 #else
 #define lws_any_extension_handled(_a, _b, _c, _d) (0)
-#define lws_ext_cb_wsi_active_exts(_a, _b, _c, _d) (0)
+#define lws_ext_cb_active(_a, _b, _c, _d) (0)
 #define lws_ext_cb_all_exts(_a, _b, _c, _d, _e) (0)
 #define lws_issue_raw_ext_access lws_issue_raw
 #define lws_context_init_extensions(_a, _b)
@@ -1137,7 +1152,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 LWS_EXTERN int
 handshake_0405(struct lws_context *context, struct lws *wsi);
 LWS_EXTERN int
-lws_interpret_incoming_packet(struct lws *wsi, unsigned char *buf, size_t len);
+lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len);
 LWS_EXTERN void
 lws_server_get_canonical_hostname(struct lws_context *context,
 				  struct lws_context_creation_info *info);

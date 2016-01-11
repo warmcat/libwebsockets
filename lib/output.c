@@ -25,15 +25,15 @@ static int
 lws_0405_frame_mask_generate(struct lws *wsi)
 {
 #if 0
-	wsi->u.ws.mask_nonce[0] = 0;
-	wsi->u.ws.mask_nonce[1] = 0;
-	wsi->u.ws.mask_nonce[2] = 0;
-	wsi->u.ws.mask_nonce[3] = 0;
+	wsi->u.ws.mask[0] = 0;
+	wsi->u.ws.mask[1] = 0;
+	wsi->u.ws.mask[2] = 0;
+	wsi->u.ws.mask[3] = 0;
 #else
 		int n;
 	/* fetch the per-frame nonce */
 
-	n = lws_get_random(lws_get_context(wsi), wsi->u.ws.mask_nonce, 4);
+	n = lws_get_random(lws_get_context(wsi), wsi->u.ws.mask, 4);
 	if (n != 4) {
 		lwsl_parser("Unable to read from random device %s %d\n",
 			    SYSTEM_RANDOM_FILEPATH, n);
@@ -41,7 +41,7 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 	}
 #endif
 	/* start masking from first byte of masking key buffer */
-	wsi->u.ws.frame_mask_index = 0;
+	wsi->u.ws.mask_idx = 0;
 
 	return 0;
 }
@@ -112,8 +112,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		assert(0);
 	}
 
-	m = lws_ext_cb_wsi_active_exts(wsi,
-			LWS_EXT_CALLBACK_PACKET_TX_DO_SEND, &buf, len);
+	m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_TX_DO_SEND, &buf, len);
 	if (m < 0)
 		return -1;
 	if (m) /* handled */ {
@@ -208,7 +207,7 @@ handle_truncated_send:
  * @wsi:	Websocket instance (available from user callback)
  * @buf:	The data to send.  For data being sent on a websocket
  *		connection (ie, not default http), this buffer MUST have
- *		LWS_SEND_BUFFER_PRE_PADDING bytes valid BEFORE the pointer.
+ *		LWS_PRE bytes valid BEFORE the pointer.
  *		This is so the protocol header data can be added in-situ.
  * @len:	Count of the data bytes in the payload starting from buf
  * @protocol:	Use LWS_WRITE_HTTP to reply to an http connection, and one
@@ -231,27 +230,48 @@ handle_truncated_send:
  *	pressure at any given time.
  */
 
-LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
-			  size_t len, enum lws_write_protocol protocol)
+LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
+			  enum lws_write_protocol wp)
 {
-	int masked7 = wsi->mode == LWSCM_WS_CLIENT;
+	int masked7 = (wsi->mode == LWSCM_WS_CLIENT);
 	unsigned char is_masked_bit = 0;
 	unsigned char *dropmask = NULL;
 	struct lws_tokens eff_buf;
 	int pre = 0, n;
 	size_t orig_len = len;
 
-	if (protocol == LWS_WRITE_HTTP ||
-	    protocol == LWS_WRITE_HTTP_FINAL ||
-	    protocol == LWS_WRITE_HTTP_HEADERS)
+	if (wsi->state == LWSS_ESTABLISHED && wsi->u.ws.tx_draining_ext) {
+		/* remove us from the list */
+		struct lws **w = &wsi->context->tx_draining_ext_list;
+		lwsl_debug("%s: TX EXT DRAINING: Remove from list\n", __func__);
+		wsi->u.ws.tx_draining_ext = 0;
+		/* remove us from context draining ext list */
+		while (*w) {
+			if (*w == wsi) {
+				*w = wsi->u.ws.tx_draining_ext_list;
+				break;
+			}
+			w = &((*w)->u.ws.tx_draining_ext_list);
+		}
+		wsi->u.ws.tx_draining_ext_list = NULL;
+		wp = (wsi->u.ws.tx_draining_stashed_wp & 0xc0) |
+				LWS_WRITE_CONTINUATION;
+
+		lwsl_ext("FORCED draining wp to 0x%02X\n", wp);
+	}
+
+	if (wp == LWS_WRITE_HTTP ||
+	    wp == LWS_WRITE_HTTP_FINAL ||
+	    wp == LWS_WRITE_HTTP_HEADERS)
 		goto send_raw;
 
-	/* websocket protocol, either binary or text */
+	/* if not in a state to send stuff, then just send nothing */
 
 	if (wsi->state != LWSS_ESTABLISHED &&
-	    !(wsi->state == LWSS_RETURNED_CLOSE_ALREADY &&
-	      protocol == LWS_WRITE_CLOSE))
-		return -1;
+	    ((wsi->state != LWSS_RETURNED_CLOSE_ALREADY &&
+	      wsi->state != LWSS_AWAITING_CLOSE_ACK) ||
+			    wp != LWS_WRITE_CLOSE))
+		return 0;
 
 	/* if we are continuing a frame that already had its header done */
 
@@ -264,20 +284,56 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 
 	/*
 	 * give a chance to the extensions to modify payload
-	 * pre-TX mangling is not allowed to truncate
+	 * the extension may decide to produce unlimited payload erratically
+	 * (eg, compression extension), so we require only that if he produces
+	 * something, it will be a complete fragment of the length known at
+	 * the time (just the fragment length known), and if he has
+	 * more we will come back next time he is writeable and allow him to
+	 * produce more fragments until he's drained.
+	 *
+	 * This allows what is sent each time it is writeable to be limited to
+	 * a size that can be sent without partial sends or blocking, allows
+	 * interleaving of control frames and other connection service.
 	 */
 	eff_buf.token = (char *)buf;
 	eff_buf.token_len = len;
 
-	switch ((int)protocol) {
+	switch ((int)wp) {
 	case LWS_WRITE_PING:
 	case LWS_WRITE_PONG:
 	case LWS_WRITE_CLOSE:
 		break;
 	default:
-		if (lws_ext_cb_wsi_active_exts(wsi, LWS_EXT_CALLBACK_PAYLOAD_TX,
-					       &eff_buf, 0) < 0)
+		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_TX, &eff_buf, wp);
+		if (n < 0)
 			return -1;
+
+		if (n && eff_buf.token_len) {
+			/* extension requires further draining */
+			wsi->u.ws.tx_draining_ext = 1;
+			wsi->u.ws.tx_draining_ext_list =
+					wsi->context->tx_draining_ext_list;
+			wsi->context->tx_draining_ext_list = wsi;
+			/* we must come back to do more */
+			lws_callback_on_writable(wsi);
+			/*
+			 * keep a copy of the write type for the overall
+			 * action that has provoked generation of these
+			 * fragments, so the last guy can use its FIN state.
+			 */
+			wsi->u.ws.tx_draining_stashed_wp = wp;
+			/* this is definitely not actually the last fragment
+			 * because the extension asserted he has more coming
+			 * So make sure this intermediate one doesn't go out
+			 * with a FIN.
+			 */
+			wp |= LWS_WRITE_NO_FIN;
+		}
+
+		if (eff_buf.token_len && wsi->u.ws.stashed_write_pending) {
+			wsi->u.ws.stashed_write_pending = 0;
+			wp = (wp &0xc0) | (int)wsi->u.ws.stashed_write_type;
+		}
 	}
 
 	/*
@@ -285,12 +341,24 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 	 * compression extension, it has already updated its state according
 	 * to this being issued
 	 */
-	if ((char *)buf != eff_buf.token)
+	if ((char *)buf != eff_buf.token) {
+		/*
+		 * ext might eat it, but no have anything to issue yet
+		 * in that case we have to follow his lead, but stash and
+		 * replace the write type that was lost here the first time.
+		 */
+		if (len && !eff_buf.token_len) {
+			if (!wsi->u.ws.stashed_write_pending)
+				wsi->u.ws.stashed_write_type = (char)wp & 0x3f;
+			wsi->u.ws.stashed_write_pending = 1;
+			return len;
+		}
 		/*
 		 * extension recreated it:
 		 * need to buffer this if not all sent
 		 */
 		wsi->u.ws.clean_buffer = 0;
+	}
 
 	buf = (unsigned char *)eff_buf.token;
 	len = eff_buf.token_len;
@@ -303,7 +371,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 			is_masked_bit = 0x80;
 		}
 
-		switch (protocol & 0xf) {
+		switch (wp & 0xf) {
 		case LWS_WRITE_TEXT:
 			n = LWSWSOPC_TEXT_FRAME;
 			break;
@@ -324,11 +392,11 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf,
 			n = LWSWSOPC_PONG;
 			break;
 		default:
-			lwsl_warn("lws_write: unknown write opc / protocol\n");
+			lwsl_warn("lws_write: unknown write opc / wp\n");
 			return -1;
 		}
 
-		if (!(protocol & LWS_WRITE_NO_FIN))
+		if (!(wp & LWS_WRITE_NO_FIN))
 			n |= 1 << 7;
 
 		if (len < 126) {
@@ -370,10 +438,10 @@ do_more_inside_frame:
 
 	/*
 	 * Deal with masking if we are in client -> server direction and
-	 * the protocol demands it
+	 * the wp demands it
 	 */
 
-	if (wsi->mode == LWSCM_WS_CLIENT) {
+	if (masked7) {
 		if (!wsi->u.ws.inside_frame)
 			if (lws_0405_frame_mask_generate(wsi)) {
 				lwsl_err("frame mask generation failed\n");
@@ -385,17 +453,16 @@ do_more_inside_frame:
 		 */
 		if (dropmask) { /* never set if already inside frame */
 			for (n = 4; n < (int)len + 4; n++)
-				dropmask[n] = dropmask[n] ^
-				wsi->u.ws.mask_nonce[
-					(wsi->u.ws.frame_mask_index++) & 3];
+				dropmask[n] = dropmask[n] ^ wsi->u.ws.mask[
+					(wsi->u.ws.mask_idx++) & 3];
 
 			/* copy the frame nonce into place */
-			memcpy(dropmask, wsi->u.ws.mask_nonce, 4);
+			memcpy(dropmask, wsi->u.ws.mask, 4);
 		}
 	}
 
 send_raw:
-	switch ((int)protocol) {
+	switch ((int)wp) {
 	case LWS_WRITE_CLOSE:
 /*		lwsl_hexdump(&buf[-pre], len); */
 	case LWS_WRITE_HTTP:
@@ -408,26 +475,26 @@ send_raw:
 			unsigned char flags = 0;
 
 			n = LWS_HTTP2_FRAME_TYPE_DATA;
-			if (protocol == LWS_WRITE_HTTP_HEADERS) {
+			if (wp == LWS_WRITE_HTTP_HEADERS) {
 				n = LWS_HTTP2_FRAME_TYPE_HEADERS;
 				flags = LWS_HTTP2_FLAG_END_HEADERS;
 				if (wsi->u.http2.send_END_STREAM)
 					flags |= LWS_HTTP2_FLAG_END_STREAM;
 			}
 
-			if ((protocol == LWS_WRITE_HTTP ||
-			     protocol == LWS_WRITE_HTTP_FINAL) &&
+			if ((wp == LWS_WRITE_HTTP ||
+			     wp == LWS_WRITE_HTTP_FINAL) &&
 			    wsi->u.http.content_length) {
 				wsi->u.http.content_remain -= len;
 				lwsl_info("%s: content_remain = %lu\n", __func__,
 					  wsi->u.http.content_remain);
 				if (!wsi->u.http.content_remain) {
 					lwsl_info("%s: selecting final write mode\n", __func__);
-					protocol = LWS_WRITE_HTTP_FINAL;
+					wp = LWS_WRITE_HTTP_FINAL;
 				}
 			}
 
-			if (protocol == LWS_WRITE_HTTP_FINAL && wsi->u.http2.END_STREAM) {
+			if (wp == LWS_WRITE_HTTP_FINAL && wsi->u.http2.END_STREAM) {
 				lwsl_info("%s: setting END_STREAM\n", __func__);
 				flags |= LWS_HTTP2_FLAG_END_STREAM;
 			}
@@ -440,8 +507,6 @@ send_raw:
 	default:
 		break;
 	}
-
-	wsi->u.ws.inside_frame = 1;
 
 	/*
 	 * give any active extensions a chance to munge the buffer
@@ -463,6 +528,7 @@ send_raw:
 	 */
 
 	n = lws_issue_raw_ext_access(wsi, buf - pre, len + pre);
+	wsi->u.ws.inside_frame = 1;
 	if (n <= 0)
 		return n;
 

@@ -57,7 +57,7 @@ static unsigned int interval_us = 1000000;
 static unsigned int size = 64;
 static int flood;
 static const char *address;
-static unsigned char pingbuf[LWS_SEND_BUFFER_PRE_PADDING + MAX_MIRROR_PAYLOAD];
+static unsigned char pingbuf[LWS_PRE + MAX_MIRROR_PAYLOAD];
 static char peer_name[128];
 static unsigned long started;
 static int screen_width = 80;
@@ -220,7 +220,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
 
 		shift = 56;
-		p = &pingbuf[LWS_SEND_BUFFER_PRE_PADDING];
+		p = &pingbuf[LWS_PRE];
 
 		/* 64-bit ping index in network byte order */
 
@@ -229,7 +229,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			shift -= 8;
 		}
 
-		while ((unsigned int)(p - &pingbuf[LWS_SEND_BUFFER_PRE_PADDING]) < size)
+		while ((unsigned int)(p - &pingbuf[LWS_PRE]) < size)
 			*p++ = 0;
 
 		gettimeofday(&tv, NULL);
@@ -257,11 +257,11 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (use_mirror)
 			n = lws_write(wsi,
-				&pingbuf[LWS_SEND_BUFFER_PRE_PADDING],
+				&pingbuf[LWS_PRE],
 					size, write_options | LWS_WRITE_BINARY);
 		else
 			n = lws_write(wsi,
-				&pingbuf[LWS_SEND_BUFFER_PRE_PADDING],
+				&pingbuf[LWS_PRE],
 					size, write_options | LWS_WRITE_PING);
 
 		if (n < 0)

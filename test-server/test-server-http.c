@@ -169,8 +169,8 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			/* well, let's demonstrate how to send the hard way */
 
-			p = buffer + LWS_SEND_BUFFER_PRE_PADDING;
-			end = p + sizeof(buffer) - LWS_SEND_BUFFER_PRE_PADDING;
+			p = buffer + LWS_PRE;
+			end = p + sizeof(buffer) - LWS_PRE;
 
 			pss->fd = lws_plat_file_open(wsi, leaf_path, &file_len,
 						     LWS_O_RDONLY);
@@ -217,8 +217,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 * this is mandated by changes in HTTP2
 			 */
 
-			n = lws_write(wsi, buffer + LWS_SEND_BUFFER_PRE_PADDING,
-				      p - (buffer + LWS_SEND_BUFFER_PRE_PADDING),
+			n = lws_write(wsi, buffer + LWS_PRE, p - (buffer + LWS_PRE),
 				      LWS_WRITE_HTTP_HEADERS);
 
 			if (n < 0) {
@@ -312,7 +311,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		 */
 		do {
 			/* we'd like the send this much */
-			n = sizeof(buffer) - LWS_SEND_BUFFER_PRE_PADDING;
+			n = sizeof(buffer) - LWS_PRE;
 
 			/* but if the peer told us he wants less, we can adapt */
 			m = lws_get_peer_write_allowance(wsi);
@@ -328,7 +327,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			n = lws_plat_file_read(wsi, pss->fd,
 					       &amount, buffer +
-					        LWS_SEND_BUFFER_PRE_PADDING, n);
+					        LWS_PRE, n);
 			/* problem reading, close conn */
 			if (n < 0)
 				goto bail;
@@ -343,7 +342,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 * is handled by the library itself if you sent a
 			 * content-length header
 			 */
-			m = lws_write(wsi, buffer + LWS_SEND_BUFFER_PRE_PADDING,
+			m = lws_write(wsi, buffer + LWS_PRE,
 				      n, LWS_WRITE_HTTP);
 			if (m < 0)
 				/* write failed, close conn */

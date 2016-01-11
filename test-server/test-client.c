@@ -109,14 +109,10 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice("denied deflate-stream extension\n");
 			return 1;
 		}
-		if ((strcmp(in, "deflate-frame") == 0) && deny_deflate) {
-			lwsl_notice("denied deflate-frame extension\n");
+		if ((strcmp(in, "x-webkit-deflate-frame") == 0))
 			return 1;
-		}
-		if ((strcmp(in, "x-google-mux") == 0) && deny_mux) {
-			lwsl_notice("denied x-google-mux extension\n");
+		if ((strcmp(in, "deflate-frame") == 0))
 			return 1;
-		}
 		break;
 
 	default:
@@ -134,7 +130,7 @@ static int
 callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 4096];
+	unsigned char buf[LWS_PRE + 4096];
 	unsigned int rands[4];
 	int l = 0;
 	int n;
@@ -173,15 +169,15 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
 		for (n = 0; n < 1; n++) {
 			lws_get_random(lws_get_context(wsi), rands, sizeof(rands));
-			l += sprintf((char *)&buf[LWS_SEND_BUFFER_PRE_PADDING + l],
+			l += sprintf((char *)&buf[LWS_PRE + l],
 					"c #%06X %d %d %d;",
 					(int)rands[0] & 0xffffff,
-					(int)rands[1] % 500,
-					(int)rands[2] % 250,
-					(int)rands[3] % 24);
+					(int)abs(rands[1] % 500),
+					(int)abs(rands[2] % 250),
+					(int)abs(rands[3] % 24));
 		}
 
-		n = lws_write(wsi, &buf[LWS_SEND_BUFFER_PRE_PADDING], l,
+		n = lws_write(wsi, &buf[LWS_PRE], l,
 			      opts | LWS_WRITE_TEXT);
 		if (n < 0)
 			return -1;
@@ -225,6 +221,22 @@ static struct lws_protocols protocols[] = {
 	{ NULL, NULL, 0, 0 } /* end */
 };
 
+static const struct lws_extension exts[] = {
+	{
+		"permessage-deflate",
+		lws_extension_callback_pm_deflate,
+		"permessage-deflate; client_max_window_bits"
+	},
+	{
+		"deflate-frame",
+		lws_extension_callback_pm_deflate,
+		"deflate_frame"
+	},
+	{ NULL, NULL, NULL /* terminator */ }
+};
+
+
+
 void sighandler(int sig)
 {
 	force_exit = 1;
@@ -257,11 +269,11 @@ static int ratelimit_connects(unsigned int *last, unsigned int secs)
 
 int main(int argc, char **argv)
 {
-	int n = 0, ret = 0, port = 7681, use_ssl = 0;
+	int n = 0, ret = 0, port = 7681, use_ssl = 0, ietf_version = -1;
 	unsigned int rl_dumb = 0, rl_mirror = 0;
 	struct lws_context_creation_info info;
+	struct lws_client_connect_info i;
 	struct lws_context *context;
-	int ietf_version = -1; /* latest */
 	const char *address;
 
 	memset(&info, 0, sizeof info);
@@ -321,9 +333,6 @@ int main(int argc, char **argv)
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
-#ifndef LWS_NO_EXTENSIONS
-	info.extensions = lws_get_internal_extensions();
-#endif
 	info.gid = -1;
 	info.uid = -1;
 
@@ -333,6 +342,17 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+	memset(&i, 0, sizeof(i));
+
+	i.context = context;
+	i.address = address;
+	i.port = port;
+	i.ssl_connection = use_ssl;
+	i.path = "/";
+	i.host = argv[optind];
+	i.origin = argv[optind];
+	i.ietf_version_or_minus_one = ietf_version;
+	i.client_exts = exts;
 	/*
 	 * sit there servicing the websocket context to handle incoming
 	 * packets, and drawing random circles on the mirror protocol websocket
@@ -347,19 +367,14 @@ int main(int argc, char **argv)
 
 		if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
 			lwsl_notice("dumb: connecting\n");
-			wsi_dumb = lws_client_connect(context, address, port,
-				use_ssl, "/", argv[optind], argv[optind],
-				protocols[PROTOCOL_DUMB_INCREMENT].name,
-				ietf_version);
+			i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;
+			wsi_dumb = lws_client_connect_info(&i);
 		}
 
 		if (!wsi_mirror && ratelimit_connects(&rl_mirror, 2u)) {
 			lwsl_notice("mirror: connecting\n");
-			wsi_mirror = lws_client_connect(context,
-				address, port, use_ssl,  "/",
-				argv[optind], argv[optind],
-				protocols[PROTOCOL_LWS_MIRROR].name,
-				ietf_version);
+			i.protocol = protocols[PROTOCOL_LWS_MIRROR].name;
+			wsi_mirror = lws_client_connect_info(&i);
 		}
 
 		lws_service(context, 500);

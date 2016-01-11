@@ -23,9 +23,7 @@
 
 int lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
-	unsigned int n;
-
-	lwsl_debug("%s: len %u\n", __func__, len);
+	int m;
 
 	switch (wsi->mode) {
 	case LWSCM_WSCL_WAITING_PROXY_REPLY:
@@ -33,32 +31,36 @@ int lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 	case LWSCM_WSCL_WAITING_SERVER_REPLY:
 	case LWSCM_WSCL_WAITING_EXTENSION_CONNECT:
 	case LWSCM_WS_CLIENT:
-		for (n = 0; n < len; n++) {
+		while (len) {
 			/*
 			 * we were accepting input but now we stopped doing so
 			 */
 			if (!(wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
-				lwsl_debug("%s: caching %d\n", __func__, len - n);
-				lws_rxflow_cache(wsi, *buf, 0, len - n);
+				lwsl_debug("%s: caching %d\n", __func__, len);
+				lws_rxflow_cache(wsi, *buf, 0, len);
 				return 0;
 			}
-
+			if (wsi->u.ws.rx_draining_ext) {
+				m = lws_rx_sm(wsi, 0);
+				if (m < 0)
+					return -1;
+				continue;
+			}
 			/* account for what we're using in rxflow buffer */
 			if (wsi->rxflow_buffer)
 				wsi->rxflow_pos++;
 
 			if (lws_client_rx_sm(wsi, *(*buf)++)) {
-				lwsl_debug("client_rx_sm failed\n");
-				return 1;
+				lwsl_debug("client_rx_sm exited\n");
+				return -1;
 			}
+			len--;
 		}
 		lwsl_debug("%s: finished with %d\n", __func__, len);
 		return 0;
 	default:
 		break;
 	}
-
-	lwsl_debug("%s: did nothing\n", __func__);
 
 	return 0;
 }
@@ -79,7 +81,7 @@ int lws_client_socket_service(struct lws_context *context,
 		 * timeout protection set in client-handshake.c
 		 */
 
-               if (lws_client_connect_2(wsi) == NULL) {
+		if (!lws_client_connect_2(wsi)) {
 			/* closed */
 			lwsl_client("closed\n");
 			return -1;
@@ -512,8 +514,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	char *p;
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *ext;
+	const struct lws_ext_options *opts;
 	char ext_name[128];
-	const char *c;
+	const char *c, *a;
 	char ignore;
 	int more = 1;
 	void *v;
@@ -650,15 +653,20 @@ check_extensions:
 	c = (char *)context->serv_buf;
 	n = 0;
 	ignore = 0;
+	a = NULL;
 	while (more) {
 
-		if (*c && (*c != ',' && *c != ' ' && *c != '\t')) {
-			if (*c == ';')
+		if (*c && (*c != ',' && *c != '\t')) {
+			if (*c == ';') {
 				ignore = 1;
-			if (ignore) {
+				if (!a)
+					a = c + 1;
+			}
+			if (ignore || *c == ' ') {
 				c++;
 				continue;
 			}
+
 			ext_name[n] = *c++;
 			if (n < sizeof(ext_name) - 1)
 				n++;
@@ -676,7 +684,7 @@ check_extensions:
 
 		/* check we actually support it */
 
-		lwsl_ext("checking client ext %s\n", ext_name);
+		lwsl_notice("checking client ext %s\n", ext_name);
 
 		n = 0;
 		ext = lws_get_context(wsi)->extensions;
@@ -687,30 +695,56 @@ check_extensions:
 			}
 
 			n = 1;
-			lwsl_ext("instantiating client ext %s\n", ext_name);
+			lwsl_notice("instantiating client ext %s\n", ext_name);
 
 			/* instantiate the extension on this conn */
 
-			wsi->active_extensions_user[
-				wsi->count_active_extensions] =
-					 lws_zalloc(ext->per_session_data_size);
-			if (wsi->active_extensions_user[
-				wsi->count_active_extensions] == NULL) {
-				lwsl_err("Out of mem\n");
-				goto bail2;
-			}
-			wsi->active_extensions[
-				  wsi->count_active_extensions] = ext;
+			wsi->active_extensions[wsi->count_act_ext] = ext;
 
-			/* allow him to construct his context */
+			/* allow him to construct his ext instance */
 
 			ext->callback(lws_get_context(wsi), ext, wsi,
-				      LWS_EXT_CALLBACK_CLIENT_CONSTRUCT,
-				      wsi->active_extensions_user[
-					 wsi->count_active_extensions],
-				      NULL, 0);
+				      LWS_EXT_CB_CLIENT_CONSTRUCT,
+				      (void *)&wsi->act_ext_user[wsi->count_act_ext],
+				      (void *)&opts, 0);
 
-			wsi->count_active_extensions++;
+			/*
+			 * allow the user code to override ext defaults if it
+			 * wants to
+			 */
+			ext_name[0] = '\0';
+			if (user_callback_handle_rxflow(wsi->protocol->callback,
+					wsi, LWS_CALLBACK_WS_EXT_DEFAULTS,
+					(char *)ext->name, ext_name,
+					sizeof(ext_name)))
+				goto bail2;
+
+			if (ext_name[0] &&
+			    lws_ext_parse_options(ext, wsi, wsi->act_ext_user[
+						  wsi->count_act_ext], opts, ext_name,
+						  strlen(ext_name))) {
+				lwsl_err("%s: unable to parse user defaults '%s'",
+					 __func__, ext_name);
+				goto bail2;
+			}
+
+			/*
+			 * give the extension the server options
+			 */
+			if (a && lws_ext_parse_options(ext, wsi, wsi->act_ext_user[wsi->count_act_ext], opts, a, c - a)) {
+				lwsl_err("%s: unable to parse remote defaults '%s'", __func__, a);
+				goto bail2;
+			}
+
+			if (ext->callback(lws_get_context(wsi), ext, wsi,
+					LWS_EXT_CB_OPTION_CONFIRM,
+				      wsi->act_ext_user[wsi->count_act_ext],
+				      NULL, 0)) {
+				lwsl_err("%s: ext %s rejects server options %s", ext->name, a);
+				goto bail2;
+			}
+
+			wsi->count_act_ext++;
 
 			ext++;
 		}
@@ -720,6 +754,7 @@ check_extensions:
 			goto bail2;
 		}
 
+		a = NULL;
 		n = 0;
 	}
 
@@ -772,9 +807,9 @@ check_accept:
 	n = wsi->protocol->rx_buffer_size;
 	if (!n)
 		n = LWS_MAX_SOCKET_IO_BUF;
-	n += LWS_SEND_BUFFER_PRE_PADDING;
-	wsi->u.ws.rx_user_buffer = lws_malloc(n);
-	if (!wsi->u.ws.rx_user_buffer) {
+	n += LWS_PRE;
+	wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */);
+	if (!wsi->u.ws.rx_ubuf) {
 		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
 		goto bail2;
 	}
@@ -803,12 +838,12 @@ check_accept:
 
 	while (ext && ext->callback) {
 		v = NULL;
-		for (n = 0; n < wsi->count_active_extensions; n++)
+		for (n = 0; n < wsi->count_act_ext; n++)
 			if (wsi->active_extensions[n] == ext)
-				v = wsi->active_extensions_user[n];
+				v = wsi->act_ext_user[n];
 
 		ext->callback(context, ext, wsi,
-			  LWS_EXT_CALLBACK_ANY_WSI_ESTABLISHED, v, NULL, 0);
+			  LWS_EXT_CB_ANY_WSI_ESTABLISHED, v, NULL, 0);
 		ext++;
 	}
 #endif
@@ -816,7 +851,7 @@ check_accept:
 	return 0;
 
 bail3:
-	lws_free_set_NULL(wsi->u.ws.rx_user_buffer);
+	lws_free_set_NULL(wsi->u.ws.rx_ubuf);
 	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
 bail2:
@@ -923,7 +958,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	while (ext && ext->callback) {
 
 		n = lws_ext_cb_all_exts(context, wsi,
-			   LWS_EXT_CALLBACK_CHECK_OK_TO_PROPOSE_EXTENSION,
+			   LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION,
 			   (char *)ext->name, 0);
 		if (n) { /* an extension vetos us */
 			lwsl_ext("ext %s vetoed\n", (char *)ext->name);
@@ -951,7 +986,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 		if (ext_count)
 			*p++ = ',';
-		p += sprintf(p, "%s", ext->name);
+		p += sprintf(p, "%s", ext->client_offer);
 		ext_count++;
 
 		ext++;

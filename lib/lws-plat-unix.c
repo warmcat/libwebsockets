@@ -101,8 +101,9 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	int n;
 	int m;
 	char buf;
+	struct lws *wsi;
 #ifdef LWS_OPENSSL_SUPPORT
-	struct lws *wsi, *wsi_next;
+	struct lws *wsi_next;
 #endif
 
 	/* stay dead once we are dead */
@@ -123,18 +124,25 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	}
 	context->service_tid = context->service_tid_detected;
 
-#ifdef LWS_OPENSSL_SUPPORT
-	/* if we know we have non-network pending data, do not wait in poll */
-	if (lws_ssl_anybody_has_buffered_read(context))
+	/* if we know we are draining rx ext, do not wait in poll */
+	if (context->rx_draining_ext_list)
 		timeout_ms = 0;
-#endif
-	n = poll(context->fds, context->fds_count, timeout_ms);
-	context->service_tid = 0;
 
 #ifdef LWS_OPENSSL_SUPPORT
-	if (!lws_ssl_anybody_has_buffered_read(context) && n == 0) {
+	/* if we know we have non-network pending data, do not wait in poll */
+	if (lws_ssl_anybody_has_buffered_read(context)) {
+		timeout_ms = 0;
+		lwsl_err("ssl buffered read\n");
+	}
+#endif
+
+	n = poll(context->fds, context->fds_count, timeout_ms);
+
+#ifdef LWS_OPENSSL_SUPPORT
+	if (!context->rx_draining_ext_list &&
+	    !lws_ssl_anybody_has_buffered_read(context) && n == 0) {
 #else
-	if (n == 0) /* poll timeout */ {
+	if (!context->rx_draining_ext_list && n == 0) /* poll timeout */ {
 #endif
 		lws_service_fd(context, NULL);
 		return 0;
@@ -144,6 +152,17 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 		if (LWS_ERRNO != LWS_EINTR)
 			return -1;
 		return 0;
+	}
+
+	/*
+	 * For all guys with already-available ext data to drain, if they are
+	 * not flowcontrolled, fake their POLLIN status
+	 */
+	wsi = context->rx_draining_ext_list;
+	while (wsi) {
+		context->fds[wsi->position_in_fds_table].revents |=
+			context->fds[wsi->position_in_fds_table].events & POLLIN;
+		wsi = wsi->u.ws.rx_draining_ext_list;
 	}
 
 #ifdef LWS_OPENSSL_SUPPORT

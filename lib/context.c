@@ -262,11 +262,11 @@ lws_create_context(struct lws_context_creation_info *info)
 	 */
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 		if (lws_ext_cb_all_exts(context, NULL,
-			LWS_EXT_CALLBACK_SERVER_CONTEXT_CONSTRUCT, NULL, 0) < 0)
+			LWS_EXT_CB_SERVER_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
 	} else
 		if (lws_ext_cb_all_exts(context, NULL,
-			LWS_EXT_CALLBACK_CLIENT_CONTEXT_CONSTRUCT, NULL, 0) < 0)
+			LWS_EXT_CB_CLIENT_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
 
 	return context;
@@ -319,10 +319,10 @@ lws_context_destroy(struct lws_context *context)
 	 */
 
 	n = lws_ext_cb_all_exts(context, NULL,
-			LWS_EXT_CALLBACK_SERVER_CONTEXT_DESTRUCT, NULL, 0);
+			LWS_EXT_CB_SERVER_CONTEXT_DESTRUCT, NULL, 0);
 
 	n = lws_ext_cb_all_exts(context, NULL,
-			LWS_EXT_CALLBACK_CLIENT_CONTEXT_DESTRUCT, NULL, 0);
+			LWS_EXT_CB_CLIENT_CONTEXT_DESTRUCT, NULL, 0);
 
 	/*
 	 * inform all the protocols that they are done and will have no more

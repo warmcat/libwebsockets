@@ -335,35 +335,33 @@ failed:
  */
 
 LWS_VISIBLE struct lws *
-lws_client_connect(struct lws_context *context, const char *address,
-		   int port, int ssl_connection, const char *path,
-		   const char *host, const char *origin,
-		   const char *protocol, int ietf_version_or_minus_one)
+lws_client_connect_info(struct lws_client_connect_info *i)
 {
 	struct lws *wsi;
+	int v = SPEC_LATEST_SUPPORTED;
 
 	wsi = lws_zalloc(sizeof(struct lws));
 	if (wsi == NULL)
 		goto bail;
 
-	wsi->context = context;
+	wsi->context = i->context;
 	wsi->sock = LWS_SOCK_INVALID;
 
 	/* -1 means just use latest supported */
 
-	if (ietf_version_or_minus_one == -1)
-		ietf_version_or_minus_one = SPEC_LATEST_SUPPORTED;
+	if (i->ietf_version_or_minus_one != -1 && i->ietf_version_or_minus_one)
+		v = i->ietf_version_or_minus_one;
 
-	wsi->ietf_spec_revision = ietf_version_or_minus_one;
+	wsi->ietf_spec_revision = v;
 	wsi->user_space = NULL;
 	wsi->state = LWSS_CLIENT_UNCONNECTED;
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 
 #ifdef LWS_OPENSSL_SUPPORT
-	wsi->use_ssl = ssl_connection;
+	wsi->use_ssl = i->ssl_connection;
 #else
-	if (ssl_connection) {
+	if (i->ssl_connection) {
 		lwsl_err("libwebsockets not configured for ssl\n");
 		goto bail;
 	}
@@ -376,31 +374,35 @@ lws_client_connect(struct lws_context *context, const char *address,
 	 * we're not necessarily in a position to action these right away,
 	 * stash them... we only need during connect phase so u.hdr is fine
 	 */
-	wsi->u.hdr.ah->c_port = port;
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
+	wsi->u.hdr.ah->c_port = i->port;
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, i->address))
 		goto bail1;
 
 	/* these only need u.hdr lifetime as well */
 
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, path))
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, i->path))
 		goto bail1;
 
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, host))
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, i->host))
 		goto bail1;
 
-	if (origin)
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ORIGIN, origin))
+	if (i->origin)
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ORIGIN, i->origin))
 			goto bail1;
 	/*
 	 * this is a list of protocols we tell the server we're okay with
 	 * stash it for later when we compare server response with it
 	 */
-	if (protocol)
+	if (i->protocol)
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
-					  protocol))
+					  i->protocol))
 			goto bail1;
 
-	wsi->protocol = &context->protocols[0];
+	wsi->protocol = &i->context->protocols[0];
+	if (wsi && !wsi->user_space && i->userdata) {
+		wsi->user_space_externally_allocated = 1;
+		wsi->user_space = i->userdata;
+	}
 
 	/*
 	 * Check with each extension if it is able to route and proxy this
@@ -409,9 +411,9 @@ lws_client_connect(struct lws_context *context, const char *address,
 	 * connection.
 	 */
 
-	if (lws_ext_cb_all_exts(context, wsi,
-			LWS_EXT_CALLBACK_CAN_PROXY_CLIENT_CONNECTION,
-						     (void *)address, port) > 0) {
+	if (lws_ext_cb_all_exts(i->context, wsi,
+			LWS_EXT_CB_CAN_PROXY_CLIENT_CONNECTION,
+						     (void *)i->address, i->port) > 0) {
 		lwsl_client("lws_client_connect: ext handling conn\n");
 
 		lws_set_timeout(wsi,
@@ -436,6 +438,7 @@ bail:
 
 /**
  * lws_client_connect_extended() - Connect to another websocket server
+ * 				DEPRECAATED use lws_client_connect_info
  * @context:	Websocket context
  * @address:	Remote server address, eg, "myserver.com"
  * @port:	Port to connect to on the remote server, eg, 80
@@ -461,16 +464,33 @@ lws_client_connect_extended(struct lws_context *context, const char *address,
 			    const char *protocol, int ietf_version_or_minus_one,
 			    void *userdata)
 {
-	struct lws *wsi;
+	struct lws_client_connect_info i;
 
-	wsi = lws_client_connect(context, address, port, ssl_connection, path,
-				 host, origin, protocol,
-				 ietf_version_or_minus_one);
+	memset(&i, 0, sizeof(i));
 
-	if (wsi && !wsi->user_space && userdata) {
-		wsi->user_space_externally_allocated = 1;
-		wsi->user_space = userdata ;
-	}
+	i.context = context;
+	i.address = address;
+	i.port = port;
+	i.ssl_connection = ssl_connection;
+	i.path = path;
+	i.host = host;
+	i.origin = origin;
+	i.protocol = protocol;
+	i.ietf_version_or_minus_one = ietf_version_or_minus_one;
+	i.userdata = userdata;
 
-	return wsi;
+	return lws_client_connect_info(&i);
 }
+
+/* deprecated use lws_client_connect_info */
+LWS_VISIBLE struct lws *
+lws_client_connect(struct lws_context *context, const char *address,
+			    int port, int ssl_connection, const char *path,
+			    const char *host, const char *origin,
+			    const char *protocol, int ietf_version_or_minus_one)
+{
+	return lws_client_connect_extended(context, address, port, ssl_connection, path,
+				 host, origin, protocol,
+				 ietf_version_or_minus_one, NULL);
+}
+

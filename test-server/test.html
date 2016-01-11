@@ -277,7 +277,7 @@ document.getElementById("number").textContent = get_appropriate_ws_url();
 	try {
 		socket_di.onopen = function() {
 			document.getElementById("wsdi_statustd").style.backgroundColor = "#40ff40";
-			document.getElementById("wsdi_status").textContent = " websocket connection opened ";
+			document.getElementById("wsdi_status").innerHTML = " <b>websocket connection opened</b><br>" + socket_di.extensions;
 		} 
 
 		socket_di.onmessage =function got_packet(msg) {
@@ -309,7 +309,7 @@ function ot_open() {
 	try {
 		socket_ot.onopen = function() {
 			document.getElementById("ot_statustd").style.backgroundColor = "#40ff40";
-			document.getElementById("ot_status").textContent = " websocket connection opened ";
+			document.getElementById("ot_status").innerHTML = " <b>websocket connection opened</b><br>" + socket_di.extensions;
 			document.getElementById("ot_open_btn").disabled = true;
 			document.getElementById("ot_close_btn").disabled = false;
 			document.getElementById("ot_req_close_btn").disabled = false;
@@ -359,7 +359,7 @@ function ot_req_close() {
 	try {
 		socket_lm.onopen = function() {
 			document.getElementById("wslm_statustd").style.backgroundColor = "#40ff40";
-			document.getElementById("wslm_status").textContent = " websocket connection opened ";
+			document.getElementById("wslm_status").innerHTML = " <b>websocket connection opened</b><br>" + socket_di.extensions;
 		} 
 
 		socket_lm.onmessage =function got_packet(msg) {

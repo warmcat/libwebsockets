@@ -26,10 +26,10 @@ int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
-	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 512];
+	unsigned char buf[LWS_PRE + 512];
 	struct per_session_data__dumb_increment *pss =
 			(struct per_session_data__dumb_increment *)user;
-	unsigned char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
+	unsigned char *p = &buf[LWS_PRE];
 	int n, m;
 
 	switch (reason) {

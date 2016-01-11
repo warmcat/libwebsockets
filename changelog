@@ -1,6 +1,50 @@
 Changelog
 ---------
 
+Extension Changes
+-----------------
+
+1) There is now a "permessage-deflate" / RFC7692 implementation.  It's very
+similar to "deflate-frame" we have offered for a long while; deflate-frame is
+now provided as an alias of permessage-deflate.
+
+The main differences are that the new permessage-deflate implementation:
+
+ - properly performs streaming respecting input and output buffer limits.  The
+   old deflate-frame implementation could only work on complete deflate input
+   and produce complete inflate output for each frame.  The new implementation
+   only mallocs buffers at initialization.
+
+ - goes around the event loop after each input package is processed allowing
+   interleaved output processing.  The RX flow control api can be used to
+   force compressed input processing to match the rate of compressed output
+   processing (test--echo shows an example of how to do this).
+
+ - when being "deflate-frame" for compatibility he uses the same default zlib
+   settings as the old "deflate-frame", but instead of exponentially increasing
+   malloc allocations until the whole output will fit, he observes the default
+   input and output chunking buffer sizes of "permessage-deflate", that's
+   1024 in and 1024 out at a time.
+
+2) deflate-stream has been disabled for many versions (for over a year) and is
+now removed.  Browsers are now standardizing on "permessage-deflate" / RFC7692
+
+3) struct lws_extension is simplified, and lws extensions now have a public
+api (their callback) for use in user code to compose extensions and options
+the user code wants.  lws_get_internal_exts() is deprecated but kept around
+as a NOP.  The changes allow one extension implementation to go by different
+names and allows the user client code to control option offers per-ext.
+
+The test client and server are updated to use the new way.  If you use
+the old way it should still work, but extensions will be disabled until you
+update your code.
+
+Extensions are now responsible for allocating and per-instance private struct
+at instance construction time and freeing it when the instance is destroyed.
+Not needing to know the size means the extension's struct can be opaque
+to user code.
+
+
 User api additions
 ------------------
 
@@ -47,7 +91,8 @@ LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
              defined in the standard, and may be a string or non-human-
              readble data.
              If you return 0 lws will echo the close and then close the
-             connection.  If you return nonzero lws will just close the             connection.
+             connection.  If you return nonzero lws will just close the
+             connection.
 
 As usual not handling it does the right thing, if you're not interested in it
 just ignore it.
@@ -133,6 +178,15 @@ anyway.
 
 5) Pings and close used to be limited to 124 bytes, the correct limit is 125
 so that is now also allowed.
+
+6) LWS_PRE is provided as a synonym for LWS_SEND_BUFFER_POST_PADDING, either is
+valid to use now.
+
+7) There's generic support for RFC7462 style extension options built into the
+library now.  As a consequence, a field "options" is added to lws_extension.
+It can be NULL if there are no options on the extension.  Extension internal
+info is part of the public abi because extensions may be implemented outside
+the library.
 
 
 v1.6.0-chrome48-firefox42
