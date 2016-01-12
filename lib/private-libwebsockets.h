@@ -840,6 +840,7 @@ struct _lws_header_related {
 
 struct _lws_websocket_related {
 	char *rx_ubuf;
+       unsigned int rx_ubuf_alloc;
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
 	size_t rx_packet_length;

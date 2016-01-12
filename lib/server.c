@@ -545,6 +545,7 @@ upgrade_ws:
 			lwsl_err("Out of Mem allocating rx buffer %d\n", n);
 			return 1;
 		}
+		wsi->u.ws.rx_ubuf_alloc = n;
 		lwsl_info("Allocating RX buffer %d\n", n);
 #if LWS_POSIX
 		if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF,

@@ -1016,6 +1016,10 @@ handle_first:
 
 		assert(wsi->u.ws.rx_ubuf);
 
+               if (wsi->u.ws.rx_ubuf_head + LWS_PRE + 4 >= wsi->u.ws.rx_ubuf_alloc) {
+                       lwsl_err("Attempted overflow\n");
+                       return -1;
+               }
 		if (wsi->u.ws.all_zero_nonce)
 			wsi->u.ws.rx_ubuf[LWS_PRE +
 			       (wsi->u.ws.rx_ubuf_head++)] = c;
