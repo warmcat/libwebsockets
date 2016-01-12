@@ -170,11 +170,11 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		for (n = 0; n < 1; n++) {
 			lws_get_random(lws_get_context(wsi), rands, sizeof(rands));
 			l += sprintf((char *)&buf[LWS_PRE + l],
-					"c #%06X %d %d %d;",
-					(int)rands[0] & 0xffffff,
-					(int)abs(rands[1] % 500),
-					(int)abs(rands[2] % 250),
-					(int)abs(rands[3] % 24));
+					"c #%06X %u %u %u;",
+					rands[0] & 0xffffff,	/* colour */
+					rands[1] & 511,		/* x */
+					rands[2] & 255,		/* y */
+					(rands[3] & 31) + 1);	/* radius */
 		}
 
 		n = lws_write(wsi, &buf[LWS_PRE], l,
