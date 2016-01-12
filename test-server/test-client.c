@@ -368,13 +368,13 @@ int main(int argc, char **argv)
 		if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
 			lwsl_notice("dumb: connecting\n");
 			i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;
-			wsi_dumb = lws_client_connect_info(&i);
+			wsi_dumb = lws_client_connect_via_info(&i);
 		}
 
 		if (!wsi_mirror && ratelimit_connects(&rl_mirror, 2u)) {
 			lwsl_notice("mirror: connecting\n");
 			i.protocol = protocols[PROTOCOL_LWS_MIRROR].name;
-			wsi_mirror = lws_client_connect_info(&i);
+			wsi_mirror = lws_client_connect_via_info(&i);
 		}
 
 		lws_service(context, 500);

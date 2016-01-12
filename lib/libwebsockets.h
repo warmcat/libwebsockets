@@ -1617,7 +1617,7 @@ lws_client_connect_extended(struct lws_context *clients, const char *address,
 			    void *userdata);
 
 LWS_VISIBLE LWS_EXTERN struct lws *
-lws_client_connect_info(struct lws_client_connect_info * ccinfo);
+lws_client_connect_via_info(struct lws_client_connect_info * ccinfo);
 
 LWS_VISIBLE LWS_EXTERN const char *
 lws_canonical_hostname(struct lws_context *context);

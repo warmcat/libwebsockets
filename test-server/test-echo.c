@@ -486,7 +486,7 @@ int main(int argc, char **argv)
 			i.protocol = connect_protocol;
 			i.client_exts = exts;
 
-			wsi = lws_client_connect_info(&i);
+			wsi = lws_client_connect_via_info(&i);
 			if (!wsi) {
 				lwsl_err("Client failed to connect to %s:%u\n",
 					 address, port);
