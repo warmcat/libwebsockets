@@ -527,18 +527,18 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	 * Now let's confirm it sent all the necessary headers
 	 */
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
-		lwsl_info("no ACCEPT\n");
-		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
-		isErrorCodeReceived = 1;
-		goto bail3;
-	}
-
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
 	if (!p) {
 		lwsl_info("no URI\n");
 		goto bail3;
 	}
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
+		lwsl_info("no ACCEPT\n");
+		isErrorCodeReceived = 1;
+		goto bail3;
+	}
+
 	if (p && strncmp(p, "101", 3)) {
 		lwsl_warn(
 		       "lws_client_handshake: got bad HTTP response '%s'\n", p);
@@ -852,7 +852,6 @@ check_accept:
 	return 0;
 
 bail3:
-	lws_free_set_NULL(wsi->u.ws.rx_ubuf);
 	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
 bail2:
@@ -871,8 +870,7 @@ bail2:
 
 	lwsl_info("closing connection due to bail2 connection error\n");
 
-	/* free up his parsing allocations */
-	lws_free_header_table(wsi);
+	/* closing will free up his parsing allocations */
 	lws_close_free_wsi(wsi, close_reason);
 
 	return 1;
