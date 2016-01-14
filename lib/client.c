@@ -509,8 +509,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
-	int n, len, okay = 0, isErrorCodeReceived = 0;
-	const char *pc;
+	int n, len, okay = 0, isErrorCodeReceived = 0, port = 0, ssl = 0;
+	const char *pc, *prot, *ads = NULL, *path;
 	char *p;
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *ext;
@@ -532,7 +532,24 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		lwsl_info("no URI\n");
 		goto bail3;
 	}
+	n = atoi(p);
+	if (n == 301 || n == 302 || n == 303 || n == 307 || n == 308) {
+		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_LOCATION);
+		if (!p)
+			goto bail3;
 
+		if (lws_parse_uri(p, &prot, &ads, &port, &path))
+			goto bail3;
+
+		if (!strcmp(prot, "wss://") || !strcmp(prot, "https://"))
+			ssl = 1;
+
+		if (lws_client_reset(wsi, ssl, ads, port, path, ads)) {
+			lwsl_err("Redirect failed\n");
+			goto bail3;
+		}
+		return 0;
+	}
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
 		lwsl_info("no ACCEPT\n");
 		isErrorCodeReceived = 1;

@@ -274,7 +274,7 @@ int main(int argc, char **argv)
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
-	const char *address;
+	const char *prot;
 
 	memset(&info, 0, sizeof info);
 
@@ -321,7 +321,16 @@ int main(int argc, char **argv)
 
 	signal(SIGINT, sighandler);
 
-	address = argv[optind];
+	memset(&i, 0, sizeof(i));
+
+	i.port = port;
+	if (lws_parse_uri(argv[optind], &prot, &i.address, &i.port, &i.path))
+		goto usage;
+
+	if (!strcmp(prot, "http://") || !strcmp(prot, "ws://"))
+		use_ssl = 0;
+	if (!strcmp(prot, "https://") || !strcmp(prot, "wss://"))
+		use_ssl = 1;
 
 	/*
 	 * create the websockets context.  This tracks open connections and
@@ -342,15 +351,10 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	memset(&i, 0, sizeof(i));
-
 	i.context = context;
-	i.address = address;
-	i.port = port;
 	i.ssl_connection = use_ssl;
-	i.path = "/";
-	i.host = argv[optind];
-	i.origin = argv[optind];
+	i.host = i.address;
+	i.origin = i.address;
 	i.ietf_version_or_minus_one = ietf_version;
 	i.client_exts = exts;
 	/*

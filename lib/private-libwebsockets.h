@@ -836,6 +836,7 @@ struct _lws_header_related {
 	char esc_stash;
 	char post_literal_equal;
 	unsigned char parser_state; /* enum lws_token_indexes */
+	char redirects;
 };
 
 struct _lws_websocket_related {
@@ -1033,6 +1034,10 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec);
 
 LWS_EXTERN struct lws *
 lws_client_connect_2(struct lws *wsi);
+
+LWS_VISIBLE struct lws *
+lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const char *path, const char *host);
+
 
 LWS_EXTERN struct lws *
 lws_create_new_server_wsi(struct lws_context *context);

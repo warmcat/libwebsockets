@@ -162,6 +162,10 @@ LWS_SERVER_OPTION_SSL_ECD
 
 to build in support and select it at runtime.
 
+6) There's a new api lws_parse_uri() that simplies chopping up
+https://xxx:yyy/zzz uris into parts nicely.  The test client now uses this
+to allow proper uris.
+
 
 User api changes
 ----------------

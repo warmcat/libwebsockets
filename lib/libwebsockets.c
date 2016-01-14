@@ -1096,6 +1096,17 @@ lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
 	return 0;
 }
 
+/**
+ * lws_parse_uri:	cut up https:/xxx:yyy/zzz into pieces
+ *			Notice it does so by dropping '\0' into input string
+ *
+ * @p:			incoming uri string.. will get written to
+ * @prot:		result pointer for protocol part (https://)
+ * @ads:		result pointer for address part
+ * @port:		result pointer for port part
+ * @path:		result pointer for path part
+ */
+
 LWS_VISIBLE LWS_EXTERN int
 lws_parse_uri(char *p, const char **prot, const char **ads, int *port, const char **path)
 {

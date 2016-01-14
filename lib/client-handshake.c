@@ -313,6 +313,56 @@ failed:
 
 	return NULL;
 }
+
+/**
+ * lws_client_reset() - retarget a connected wsi to start over with a new connection (ie, redirect)
+ *			this only works if still in HTTP, ie, not upgraded yet
+ * wsi:		connection to reset
+ * address:	network address of the new server
+ * port:	port to connect to
+ * path:	uri path to connect to on the new server
+ * host:	host header to send to the new server
+ */
+LWS_VISIBLE struct lws *
+lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const char *path, const char *host)
+{
+	if (wsi->u.hdr.redirects == 3) {
+		lwsl_err("%s: Too many redirects\n", __func__);
+		return NULL;
+	}
+	wsi->u.hdr.redirects++;
+
+#ifdef LWS_OPENSSL_SUPPORT
+	wsi->use_ssl = ssl;
+#else
+	if (ssl) {
+		lwsl_err("%s: not configured for ssl\n", __func__);
+		return NULL;
+	}
+#endif
+
+	lwsl_notice("redirect ads='%s', port=%d, path='%s'\n", address, port, path);
+
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
+		return NULL;
+
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, path))
+		return NULL;
+
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, host))
+		return NULL;
+
+	close(wsi->sock);
+	remove_wsi_socket_from_fds(wsi);
+	wsi->sock = LWS_SOCK_INVALID;
+	wsi->state = LWSS_CLIENT_UNCONNECTED;
+	wsi->protocol = NULL;
+	wsi->pending_timeout = NO_PENDING_TIMEOUT;
+	wsi->u.hdr.ah->c_port = port;
+
+	return lws_client_connect_2(wsi);
+}
+
 /**
  * lws_client_connect_via_info() - Connect to another websocket server
  * @i:pointer to lws_client_connect_info struct
