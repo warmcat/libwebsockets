@@ -1096,6 +1096,48 @@ lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
 	return 0;
 }
 
+LWS_VISIBLE LWS_EXTERN int
+lws_parse_uri(char *p, const char **prot, const char **ads, int *port, const char **path)
+{
+	const char *end;
+	static const char *slash = "/";
+
+	/* cut up the location into address, port and path */
+	*prot = p;
+	while (*p && (*p != ':' || p[1] != '/' || p[2] != '/'))
+		p++;
+	if (!*p) {
+		end = p;
+		p = (char *)*prot;
+		*prot = end;
+	} else {
+		*p = '\0';
+		p += 3;
+	}
+	*ads = p;
+	if (!strcmp(*prot, "http") || !strcmp(*prot, "ws"))
+		*port = 80;
+	else if (!strcmp(*prot, "https") || !strcmp(*prot, "wss"))
+		*port = 443;
+	
+	while (*p && *p != ':' && *p != '/')
+		p++;
+	if (*p == ':') {
+		*p++ = '\0';
+		*port = atoi(p);
+		while (*p && *p != '/')
+			p++;
+	}
+	*path = slash;
+	if (*p) {
+		*p++ = '\0';
+		if (*p)
+			*path = p;
+	}
+
+	return 0;
+}
+
 #ifdef LWS_NO_EXTENSIONS
 
 /* we need to provide dummy callbacks for internal exts

@@ -1661,6 +1661,9 @@ lws_b64_decode_string(const char *in, char *out, int out_size);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_library_version(void);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_parse_uri(char *p, const char **prot, const char **ads, int *port, const char **path);
+
 /*
  *  Access to http headers
  *
