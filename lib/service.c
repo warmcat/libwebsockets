@@ -701,6 +701,8 @@ handle_pending:
 		break;
 #else
 		n = lws_client_socket_service(context, wsi, pollfd);
+		if (n)
+			return 1;
 		goto handled;
 #endif
 	}

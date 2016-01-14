@@ -442,6 +442,7 @@ some_wait:
 			lws_latency(context, wsi, "send lws_issue_raw", n,
 				    n == 1);
 			switch (n) {
+			case 0:
 			case LWS_SSL_CAPABLE_ERROR:
 				goto bail3;
 			case LWS_SSL_CAPABLE_MORE_SERVICE:
