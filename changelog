@@ -144,13 +144,23 @@ The browser shows the close code and reason he received
 
 websocket connection CLOSED, code: 1001, reason: seeya
 
-3) There's a new context creation time option flag
+4) There's a new context creation time option flag
 
 LWS_SERVER_OPTION_VALIDATE_UTF8
 
 if you set it in info->options, then TEXT and CLOSE frames will get checked to
 confirm that they contain valid UTF-8.  If they don't, the connection will get
 closed by lws.
+
+5) ECDH Certs are now supported.  Enable the CMake option
+
+cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1 
+
+**and** the info->options flag
+
+LWS_SERVER_OPTION_SSL_ECD
+
+to build in support and select it at runtime.
 
 
 User api changes

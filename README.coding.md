@@ -316,3 +316,19 @@ static inline int
 		    
 The user code can also override or subclass the file operations, to either
 wrap or replace them.  An example is shown in test server.
+
+ECDH Support
+------------
+
+ECDH Certs are now supported.  Enable the CMake option
+
+cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1 
+
+**and** the info->options flag
+
+LWS_SERVER_OPTION_SSL_ECD
+
+to build in support and select it at runtime.
+
+
+

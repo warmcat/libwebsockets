@@ -68,4 +68,7 @@
 /* use SHA1() not internal libwebsockets_SHA1 */
 #cmakedefine LWS_SHA1_USE_OPENSSL_NAME
 
+/* SSL server using ECDH certificate */
+#cmakedefine LWS_SSL_SERVER_WITH_ECDH_CERT
+
 ${LWS_SIZEOFPTR_CODE}

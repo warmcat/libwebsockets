@@ -73,6 +73,8 @@ option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" ON)
 option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
 option(LWS_MBED3 "Platform is MBED3" OFF)
+option(LWS_SSL_SERVER_WITH_ECDH_CERT "Include SSL server use ECDH certificate" OFF)
+
 
 if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
 
@@ -251,6 +253,10 @@ endif()
 if (MINGW)
 	set(LWS_MINGW_SUPPORT 1)
 	set(CMAKE_C_FLAGS "-D__USE_MINGW_ANSI_STDIO ${CMAKE_C_FLAGS}")
+endif()
+
+if (LWS_SSL_SERVER_WITH_ECDH_CERT)
+	set(LWS_SSL_SERVER_WITH_ECDH_CERT 1)
 endif()
 
 include_directories("${PROJECT_BINARY_DIR}")
@@ -1123,6 +1129,7 @@ message(" LWS_USE_LIBEV = ${LWS_USE_LIBEV}")
 message(" LWS_IPV6 = ${LWS_IPV6}")
 message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")
 message(" LWS_MBED3 = ${LWS_MBED3}")
+message(" LWS_SSL_SERVER_WITH_ECDH_CERT = ${LWS_SSL_SERVER_WITH_ECDH_CERT}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()
