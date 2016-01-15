@@ -41,7 +41,7 @@ const struct lws_ext_options lws_ext_pm_deflate_options[] = {
 	{ NULL, 0 }, /* sentinel */
 };
 
-int
+LWS_VISIBLE int
 lws_extension_callback_pm_deflate(struct lws_context *context,
 				  const struct lws_extension *ext,
 				  struct lws *wsi,
