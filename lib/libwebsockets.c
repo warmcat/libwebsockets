@@ -344,6 +344,20 @@ just_kill_connection:
 	lws_free_wsi(wsi);
 }
 
+#if LWS_POSIX
+LWS_VISIBLE int
+interface_to_sa(struct lws_context *context, const char *ifname, struct sockaddr_in *addr, size_t addrlen)
+{
+	int ipv6 = 0;
+#ifdef LWS_USE_IPV6
+	ipv6 = LWS_IPV6_ENABLED(context);
+#endif
+	(void)context;
+
+	return lws_interface_to_sa(ipv6, ifname, addr, addrlen);
+}
+#endif
+
 LWS_VISIBLE int
 lws_get_addresses(struct lws_context *context, void *ads, char *name,
 		  int name_len, char *rip, int rip_len)

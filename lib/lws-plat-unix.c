@@ -343,8 +343,7 @@ lws_plat_context_late_destroy(struct lws_context *context)
 /* cast a struct sockaddr_in6 * into addr for ipv6 */
 
 LWS_VISIBLE int
-interface_to_sa(struct lws_context *context,
-		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
+lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
 	int rc = -1;
 
@@ -367,7 +366,7 @@ interface_to_sa(struct lws_context *context,
 		switch (ifc->ifa_addr->sa_family) {
 		case AF_INET:
 #ifdef LWS_USE_IPV6
-			if (LWS_IPV6_ENABLED(context)) {
+			if (ipv6) {
 				/* map IPv4 to IPv6 */
 				bzero((char *)&addr6->sin6_addr,
 						sizeof(struct in6_addr));

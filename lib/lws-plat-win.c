@@ -308,8 +308,8 @@ lws_plat_context_late_destroy(struct lws_context *context)
 	WSACleanup();
 }
 
-LWS_VISIBLE int
-interface_to_sa(struct lws_context *context,
+LWS_VISIBLE LWS_EXTERN int
+lws_interface_to_sa(int ipv6,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
 	long long address = inet_addr(ifname);

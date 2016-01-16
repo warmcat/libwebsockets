@@ -1378,6 +1378,9 @@ lws_service(struct lws_context *context, int timeout_ms);
 LWS_VISIBLE LWS_EXTERN void
 lws_cancel_service(struct lws_context *context);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr, size_t addrlen);
+
 LWS_VISIBLE LWS_EXTERN const unsigned char *
 lws_token_to_string(enum lws_token_indexes token);
 
