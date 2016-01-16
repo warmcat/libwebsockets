@@ -352,7 +352,7 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const 
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, host))
 		return NULL;
 
-	close(wsi->sock);
+	compatible_close(wsi->sock);
 	remove_wsi_socket_from_fds(wsi);
 	wsi->sock = LWS_SOCK_INVALID;
 	wsi->state = LWSS_CLIENT_UNCONNECTED;
