@@ -970,6 +970,7 @@ if (UNIX)
 	# TODO: Fix this on Windows.
 	message("Generating API documentation")
 	file(GLOB C_FILES "${PROJECT_SOURCE_DIR}/lib/*.c")
+	list(SORT C_FILES)
 	execute_process(COMMAND "${CMAKE_COMMAND}" -E make_directory "${PROJECT_BINARY_DIR}/doc/")
 
 	execute_process(
