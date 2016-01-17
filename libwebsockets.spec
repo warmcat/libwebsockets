@@ -1,6 +1,6 @@
 Name: libwebsockets
-Version: 1.4
-Release: 48.gmaster_16fb0132%{?dist}
+Version: 1.6.0
+Release: 1%{?dist}
 Summary: Websocket Server Library
 
 Group: System Environment/Libraries
@@ -68,4 +68,5 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/pkgconfig/libwebsockets.pc
 
 %changelog
-
+* Sun Jan 17 2016 Andrew Cooks <acooks@linux.com> 1.6.0-1
+- Bump version to 1.6.0
