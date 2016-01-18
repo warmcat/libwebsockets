@@ -1229,7 +1229,7 @@ struct lws_extension {
 	 * This is part of the ABI, don't needlessly break compatibilty */
 };
 
-/* 
+/*
  * The internal exts are part of the public abi
  * If we add more extensions, publish the callback here
  */
@@ -1340,6 +1340,23 @@ struct lws_context_creation_info {
 	void *_unused[8];
 };
 
+/**
+ * struct lws_client_connect_info - parameters to connect with when using
+ *				    lws_client_connect_via_info()
+ *
+ * @context:	lws context to create connection in
+ * @address:	remote address to connect to
+ * @port:	remote port to connect to
+ * @ssl_connection: nonzero for ssl
+ * @path:	uri path
+ * @host:	content of host header
+ * @origin:	content of origin header
+ * @protocol:	list of ws protocols
+ * @ietf_version_or_minus_one: currently leave at 0 or -1
+ * @userdata:	if non-NULL, use this as wsi user_data instead of malloc it
+ * @client_exts: array of extensions that may be used on connection
+ */
+
 struct lws_client_connect_info {
 	struct lws_context *context;
 	const char *address;
@@ -1352,9 +1369,17 @@ struct lws_client_connect_info {
 	int ietf_version_or_minus_one;
 	void *userdata;
 	const struct lws_extension *client_exts;
+
+	/* Add new things just above here ---^
+	 * This is part of the ABI, don't needlessly break compatibility
+	 *
+	 * The below is to ensure later library versions with new
+	 * members added above will see 0 (default) even if the app
+	 * was not built against the newer headers.
+	 */
+
 	void *_unused[4];
 };
-
 
 LWS_VISIBLE LWS_EXTERN void
 lws_set_log_level(int level,
@@ -1606,13 +1631,13 @@ lws_remaining_packet_payload(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN size_t
 lws_get_peer_write_allowance(struct lws *wsi);
 
-/* deprecated, use lws_client_connect_info() */
+/* deprecated, use lws_client_connect_via_info() */
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_client_connect(struct lws_context *clients, const char *address,
 		   int port, int ssl_connection, const char *path,
 		   const char *host, const char *origin, const char *protocol,
 		   int ietf_version_or_minus_one);
-/* deprecated, use lws_client_connect_info() */
+/* deprecated, use lws_client_connect_via_info() */
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_client_connect_extended(struct lws_context *clients, const char *address,
 			    int port, int ssl_connection, const char *path,
@@ -1665,7 +1690,8 @@ LWS_VISIBLE LWS_EXTERN const char *
 lws_get_library_version(void);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_parse_uri(char *p, const char **prot, const char **ads, int *port, const char **path);
+lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
+	      const char **path);
 
 /*
  *  Access to http headers
