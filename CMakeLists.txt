@@ -786,6 +786,13 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 				"test-server/test-server-dumb-increment.c"
 				"test-server/test-server-mirror.c"
 				"test-server/test-server-echogen.c")
+			if (UNIX)
+				create_test_app(test-fuzxy "test-server/fuzxy.c"
+					""
+					""
+					""
+					"")
+			endif()
 			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang")))
 				create_test_app(test-server-pthreads
 					"test-server/test-server-pthreads.c"
