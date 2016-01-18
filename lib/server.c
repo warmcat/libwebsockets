@@ -152,7 +152,7 @@ _lws_server_listen_accept_flow_control(struct lws_context *context, int on)
 	struct lws *wsi = context->wsi_listening;
 	int n;
 
-	if (!wsi)
+	if (!wsi || context->being_destroyed)
 		return 0;
 
 	lwsl_debug("%s: wsi %p: state %d\n", __func__, (void *)wsi, on);

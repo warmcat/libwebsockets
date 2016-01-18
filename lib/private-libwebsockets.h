@@ -600,6 +600,8 @@ struct lws_context {
 	short max_http_header_data;
 	short max_http_header_pool;
 	short ah_count_in_use;
+
+	unsigned int being_destroyed:1;
 };
 
 enum {
