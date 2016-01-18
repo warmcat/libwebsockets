@@ -76,7 +76,6 @@ option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
 option(LWS_MBED3 "Platform is MBED3" OFF)
 option(LWS_SSL_SERVER_WITH_ECDH_CERT "Include SSL server use ECDH certificate" OFF)
 
-
 if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
 
 set(LWS_WITH_SHARED OFF)
@@ -86,18 +85,7 @@ set(LWS_WITHOUT_CLIENT ON)
 set(LWS_WITHOUT_TESTAPPS ON)
 set(LWS_WITHOUT_EXTENSIONS ON)
 set(LWS_MBED3 ON)
-
-endif()
-
-if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
-
-set(LWS_WITH_SHARED OFF)
-set(LWS_WITH_SSL OFF)
-set(LWS_WITH_ZLIB OFF)
-set(LWS_WITHOUT_CLIENT ON)
-set(LWS_WITHOUT_TESTAPPS ON)
-set(LWS_WITHOUT_EXTENSIONS ON)
-set(LWS_MBED3 ON)
+set(LWS_MAX_SMP 1)
 
 endif()
 
@@ -245,6 +233,10 @@ endif()
 
 if (LWS_WITH_HTTP2)
 	set(LWS_USE_HTTP2 1)
+endif()
+
+if ("${LWS_MAX_SMP}" STREQUAL "")
+	set(LWS_MAX_SMP 32)
 endif()
 
 #if (LWS_MBED3)
@@ -1140,6 +1132,7 @@ message(" LWS_IPV6 = ${LWS_IPV6}")
 message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")
 message(" LWS_MBED3 = ${LWS_MBED3}")
 message(" LWS_SSL_SERVER_WITH_ECDH_CERT = ${LWS_SSL_SERVER_WITH_ECDH_CERT}")
+message(" LWS_MAX_SMP = ${LWS_MAX_SMP}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

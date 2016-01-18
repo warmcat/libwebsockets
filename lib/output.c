@@ -233,6 +233,7 @@ handle_truncated_send:
 LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 			  enum lws_write_protocol wp)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int masked7 = (wsi->mode == LWSCM_WS_CLIENT);
 	unsigned char is_masked_bit = 0;
 	unsigned char *dropmask = NULL;
@@ -242,7 +243,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 
 	if (wsi->state == LWSS_ESTABLISHED && wsi->u.ws.tx_draining_ext) {
 		/* remove us from the list */
-		struct lws **w = &wsi->context->tx_draining_ext_list;
+		struct lws **w = &pt->tx_draining_ext_list;
 		lwsl_debug("%s: TX EXT DRAINING: Remove from list\n", __func__);
 		wsi->u.ws.tx_draining_ext = 0;
 		/* remove us from context draining ext list */
@@ -311,9 +312,8 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		if (n && eff_buf.token_len) {
 			/* extension requires further draining */
 			wsi->u.ws.tx_draining_ext = 1;
-			wsi->u.ws.tx_draining_ext_list =
-					wsi->context->tx_draining_ext_list;
-			wsi->context->tx_draining_ext_list = wsi;
+			wsi->u.ws.tx_draining_ext_list = pt->tx_draining_ext_list;
+			pt->tx_draining_ext_list = wsi;
 			/* we must come back to do more */
 			lws_callback_on_writable(wsi);
 			/*
@@ -551,6 +551,7 @@ send_raw:
 LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	unsigned long amount;
 	int n, m;
 
@@ -569,8 +570,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			goto all_sent;
 
 		if (lws_plat_file_read(wsi, wsi->u.http.fd, &amount,
-				       context->serv_buf,
-				       sizeof(context->serv_buf)) < 0)
+				       pt->serv_buf,
+				       LWS_MAX_SOCKET_IO_BUF) < 0)
 			return -1; /* caller will close */
 
 		n = (int)amount;
@@ -578,7 +579,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 					AWAITING_TIMEOUT);
 			wsi->u.http.filepos += n;
-			m = lws_write(wsi, context->serv_buf, n,
+			m = lws_write(wsi, pt->serv_buf, n,
 				      wsi->u.http.filepos == wsi->u.http.filelen ?
 					LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
 			if (m < 0)

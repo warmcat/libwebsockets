@@ -85,6 +85,7 @@ void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 {
 	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n, m, ret, old_state;
 	struct lws_tokens eff_buf;
 
@@ -261,7 +262,7 @@ just_kill_connection:
 	    wsi->mode == LWSCM_WS_CLIENT) {
 
 		if (wsi->u.ws.rx_draining_ext) {
-			struct lws **w = &wsi->context->rx_draining_ext_list;
+			struct lws **w = &pt->rx_draining_ext_list;
 
 			wsi->u.ws.rx_draining_ext = 0;
 			/* remove us from context draining ext list */
@@ -276,7 +277,7 @@ just_kill_connection:
 		}
 
 		if (wsi->u.ws.tx_draining_ext) {
-			struct lws **w = &wsi->context->tx_draining_ext_list;
+			struct lws **w = &pt->tx_draining_ext_list;
 
 			wsi->u.ws.tx_draining_ext = 0;
 			/* remove us from context draining ext list */
@@ -546,15 +547,19 @@ LWS_VISIBLE int
 lws_callback_all_protocol(struct lws_context *context,
 			  const struct lws_protocols *protocol, int reason)
 {
+	struct lws_context_per_thread *pt = &context->pt[0];
 	struct lws *wsi;
-	int n;
+	int n, m = context->count_threads;
 
-	for (n = 0; n < context->fds_count; n++) {
-		wsi = wsi_from_fd(context, context->fds[n].fd);
-		if (!wsi)
-			continue;
-		if (wsi->protocol == protocol)
-			protocol->callback(wsi, reason, wsi->user_space, NULL, 0);
+	while (m--) {
+		for (n = 0; n < pt->fds_count; n++) {
+			wsi = wsi_from_fd(context, pt->fds[n].fd);
+			if (!wsi)
+				continue;
+			if (wsi->protocol == protocol)
+				protocol->callback(wsi, reason, wsi->user_space, NULL, 0);
+		}
+		pt++;
 	}
 
 	return 0;
@@ -691,15 +696,19 @@ LWS_VISIBLE void
 lws_rx_flow_allow_all_protocol(const struct lws_context *context,
 			       const struct lws_protocols *protocol)
 {
-	int n;
+	const struct lws_context_per_thread *pt = &context->pt[0];
 	struct lws *wsi;
+	int n, m = context->count_threads;
 
-	for (n = 0; n < context->fds_count; n++) {
-		wsi = wsi_from_fd(context, context->fds[n].fd);
-		if (!wsi)
-			continue;
-		if (wsi->protocol == protocol)
-			lws_rx_flow_control(wsi, LWS_RXFLOW_ALLOW);
+	while (m--) {
+		for (n = 0; n < pt->fds_count; n++) {
+			wsi = wsi_from_fd(context, pt->fds[n].fd);
+			if (!wsi)
+				continue;
+			if (wsi->protocol == protocol)
+				lws_rx_flow_control(wsi, LWS_RXFLOW_ALLOW);
+		}
+		pt++;
 	}
 }
 
@@ -1013,6 +1022,12 @@ lws_get_context(const struct lws *wsi)
 	return wsi->context;
 }
 
+LWS_VISIBLE LWS_EXTERN int
+lws_get_count_threads(struct lws_context *context)
+{
+	return context->count_threads;
+}
+
 LWS_VISIBLE LWS_EXTERN void *
 lws_wsi_user(struct lws *wsi)
 {
@@ -1024,8 +1039,7 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
 		 unsigned char *buf, size_t len)
 {
 	unsigned char *p, *start;
-	int budget = sizeof(wsi->u.ws.ping_payload_buf) -
-		     LWS_PRE;
+	int budget = sizeof(wsi->u.ws.ping_payload_buf) - LWS_PRE;
 
 	assert(wsi->mode == LWSCM_WS_SERVING || wsi->mode == LWSCM_WS_CLIENT);
 
@@ -1046,7 +1060,7 @@ _lws_rx_flow_control(struct lws *wsi)
 {
 	/* there is no pending change */
 	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE)) {
-		lwsl_info("%s: no pending change\n", __func__);
+		lwsl_debug("%s: no pending change\n", __func__);
 		return 0;
 	}
 
@@ -1147,7 +1161,8 @@ lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
  */
 
 LWS_VISIBLE LWS_EXTERN int
-lws_parse_uri(char *p, const char **prot, const char **ads, int *port, const char **path)
+lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
+	      const char **path)
 {
 	const char *end;
 	static const char *slash = "/";

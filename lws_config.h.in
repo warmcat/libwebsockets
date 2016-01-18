@@ -71,4 +71,7 @@
 /* SSL server using ECDH certificate */
 #cmakedefine LWS_SSL_SERVER_WITH_ECDH_CERT
 
+/* Maximum supported service threads */
+#define LWS_MAX_SMP ${LWS_MAX_SMP}
+
 ${LWS_SIZEOFPTR_CODE}

@@ -370,11 +370,12 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
  */
 
 LWS_VISIBLE int
-lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
+lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int tsi)
 {
 #if LWS_POSIX
 	int idx = 0;
 #endif
+	struct lws_context_per_thread *pt = &context->pt[tsi];
 	lws_sockfd_type our_fd = 0;
 	struct lws_tokens eff_buf;
 	unsigned int pending = 0;
@@ -449,7 +450,7 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 	 * pending connection here, it causes us to check again next time.
 	 */
 
-	if (context->lserv_fd && pollfd != &context->fds[idx]) {
+	if (context->lserv_fd && pollfd != &pt->fds[idx]) {
 		context->lserv_count++;
 		if (context->lserv_seen ||
 		    context->lserv_count == context->lserv_mod) {
@@ -462,14 +463,14 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 				 * even with extpoll, we prepared this
 				 * internal fds for listen
 				 */
-				n = lws_poll_listen_fd(&context->fds[idx]);
+				n = lws_poll_listen_fd(&pt->fds[idx]);
 				if (n <= 0) {
 					if (context->lserv_seen)
 						context->lserv_seen--;
 					break;
 				}
 				/* there's a conn waiting for us */
-				lws_service_fd(context, &context->fds[idx]);
+				lws_service_fd(context, &pt->fds[idx]);
 				context->lserv_seen++;
 			}
 		}
@@ -605,9 +606,8 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 		if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
 			break;
 read:
-		eff_buf.token_len = lws_ssl_capable_read(wsi, context->serv_buf,
-					pending ? pending :
-					sizeof(context->serv_buf));
+		eff_buf.token_len = lws_ssl_capable_read(wsi, pt->serv_buf,
+					pending ? pending : LWS_MAX_SOCKET_IO_BUF);
 		switch (eff_buf.token_len) {
 		case 0:
 			lwsl_info("service_fd: closing due to 0 length read\n");
@@ -633,7 +633,7 @@ read:
 		 * used then so it is efficient.
 		 */
 
-		eff_buf.token = (char *)context->serv_buf;
+		eff_buf.token = (char *)pt->serv_buf;
 drain:
 
 		do {
@@ -672,8 +672,8 @@ drain:
 		pending = lws_ssl_pending(wsi);
 		if (pending) {
 handle_pending:
-			pending = pending > sizeof(context->serv_buf) ?
-				sizeof(context->serv_buf) : pending;
+			pending = pending > LWS_MAX_SOCKET_IO_BUF ?
+					LWS_MAX_SOCKET_IO_BUF : pending;
 			goto read;
 		}
 
@@ -720,6 +720,12 @@ handled:
 	return n;
 }
 
+LWS_VISIBLE int
+lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
+{
+	return lws_service_fd_tsi(context, pollfd, 0);
+}
+
 /**
  * lws_service() - Service any pending websocket activity
  * @context:	Websocket context
@@ -756,5 +762,11 @@ LWS_VISIBLE int
 lws_service(struct lws_context *context, int timeout_ms)
 {
 	return lws_plat_service(context, timeout_ms);
+}
+
+LWS_VISIBLE int
+lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
+{
+	return lws_plat_service_tsi(context, timeout_ms, tsi);
 }
 

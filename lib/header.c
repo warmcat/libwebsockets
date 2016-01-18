@@ -177,11 +177,10 @@ lws_return_http_status(struct lws *wsi, unsigned int code, const char *html_body
 {
 	int n, m;
 	struct lws_context *context = lws_get_context(wsi);
-	unsigned char *p = context->serv_buf +
-			   LWS_PRE;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	unsigned char *p = pt->serv_buf + LWS_PRE;
 	unsigned char *start = p;
-	unsigned char *end = p + sizeof(context->serv_buf) -
-			     LWS_PRE;
+	unsigned char *end = p + LWS_MAX_SOCKET_IO_BUF - LWS_PRE;
 
 	if (!html_body)
 		html_body = "";

@@ -737,6 +737,7 @@ LWS_VISIBLE int lws_frame_is_binary(struct lws *wsi)
 int
 lws_rx_sm(struct lws *wsi, unsigned char c)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	struct lws_tokens eff_buf;
 	int ret = 0, n, rx_draining_ext = 0;
 	int callback_action = LWS_CALLBACK_RECEIVE;
@@ -746,7 +747,7 @@ lws_rx_sm(struct lws *wsi, unsigned char c)
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
 		if (wsi->u.ws.rx_draining_ext) {
-			struct lws **w = &wsi->context->rx_draining_ext_list;
+			struct lws **w = &pt->rx_draining_ext_list;
 
 			eff_buf.token = NULL;
 			eff_buf.token_len = 0;
@@ -1016,13 +1017,14 @@ handle_first:
 
 		assert(wsi->u.ws.rx_ubuf);
 
-               if (wsi->u.ws.rx_ubuf_head + LWS_PRE + 4 >= wsi->u.ws.rx_ubuf_alloc) {
-                       lwsl_err("Attempted overflow\n");
-                       return -1;
-               }
+		if (wsi->u.ws.rx_ubuf_head + LWS_PRE >=
+		    wsi->u.ws.rx_ubuf_alloc) {
+			lwsl_err("Attempted overflow \n");
+			return -1;
+		}
 		if (wsi->u.ws.all_zero_nonce)
 			wsi->u.ws.rx_ubuf[LWS_PRE +
-			       (wsi->u.ws.rx_ubuf_head++)] = c;
+					 (wsi->u.ws.rx_ubuf_head++)] = c;
 		else
 			wsi->u.ws.rx_ubuf[LWS_PRE +
 			       (wsi->u.ws.rx_ubuf_head++)] =
@@ -1079,8 +1081,7 @@ spill:
 					wsi->protocol->callback, wsi,
 					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
 					wsi->user_space,
-					&wsi->u.ws.rx_ubuf[
-						LWS_PRE],
+					&wsi->u.ws.rx_ubuf[LWS_PRE],
 					wsi->u.ws.rx_ubuf_head))
 				return -1;
 
@@ -1139,7 +1140,7 @@ ping_drop:
 
 		default:
 			lwsl_parser("passing opc %x up to exts\n",
-							wsi->u.ws.opcode);
+				    wsi->u.ws.opcode);
 			/*
 			 * It's something special we can't understand here.
 			 * Pass the payload up to the extension's parsing
@@ -1189,8 +1190,8 @@ drain_extension:
 		if (n && eff_buf.token_len) {
 			/* extension had more... main loop will come back */
 			wsi->u.ws.rx_draining_ext = 1;
-			wsi->u.ws.rx_draining_ext_list = wsi->context->rx_draining_ext_list;
-			wsi->context->rx_draining_ext_list = wsi;
+			wsi->u.ws.rx_draining_ext_list = pt->rx_draining_ext_list;
+			pt->rx_draining_ext_list = wsi;
 		}
 
 		if (eff_buf.token_len > 0 ||

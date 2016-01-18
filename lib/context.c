@@ -96,15 +96,14 @@ lws_create_context(struct lws_context_creation_info *info)
 #endif
 	lws_feature_status_libev(info);
 #endif
-	lwsl_info(" LWS_MAX_HEADER_LEN: %u\n", LWS_MAX_HEADER_LEN);
-	lwsl_info(" LWS_MAX_PROTOCOLS: %u\n", LWS_MAX_PROTOCOLS);
-
-	lwsl_info(" SPEC_LATEST_SUPPORTED: %u\n", SPEC_LATEST_SUPPORTED);
-	lwsl_info(" AWAITING_TIMEOUT: %u\n", AWAITING_TIMEOUT);
-	lwsl_info(" sizeof (*info): %u\n", sizeof(*info));
+	lwsl_info(" LWS_MAX_HEADER_LEN    : %u\n", LWS_MAX_HEADER_LEN);
+	lwsl_info(" LWS_MAX_PROTOCOLS     : %u\n", LWS_MAX_PROTOCOLS);
+	lwsl_info(" LWS_MAX_SMP           : %u\n", LWS_MAX_SMP);
+	lwsl_info(" SPEC_LATEST_SUPPORTED : %u\n", SPEC_LATEST_SUPPORTED);
+	lwsl_info(" AWAITING_TIMEOUT      : %u\n", AWAITING_TIMEOUT);
+	lwsl_info(" sizeof (*info)        : %u\n", sizeof(*info));
 #if LWS_POSIX
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
-	lwsl_info(" LWS_MAX_ZLIB_CONN_BUFFER: %u\n", LWS_MAX_ZLIB_CONN_BUFFER);
 #endif
 	if (lws_plat_context_early_init())
 		return NULL;
@@ -120,6 +119,16 @@ lws_create_context(struct lws_context_creation_info *info)
 		lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
 	}
 #endif
+	context->max_fds = getdtablesize();
+
+	if (info->count_threads)
+		context->count_threads = info->count_threads;
+	else
+		context->count_threads = 1;
+
+	if (context->count_threads > LWS_MAX_SMP)
+		context->count_threads = LWS_MAX_SMP;
+
 	context->lserv_seen = 0;
 	context->protocols = info->protocols;
 	context->token_limits = info->token_limits;
@@ -131,6 +140,26 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->ka_time = info->ka_time;
 	context->ka_interval = info->ka_interval;
 	context->ka_probes = info->ka_probes;
+
+	/* we zalloc only the used ones, so the memory is not wasted
+	 * allocating for unused threads
+	 */
+	for (n = 0; n < context->count_threads; n++) {
+		context->pt[n].serv_buf = lws_zalloc(LWS_MAX_SOCKET_IO_BUF);
+		if (!context->pt[n].serv_buf) {
+			lwsl_err("OOM\n");
+			return NULL;
+		}
+	}
+
+	if (info->fd_limit_per_thread)
+		context->fd_limit_per_thread = info->fd_limit_per_thread;
+	else
+		context->fd_limit_per_thread = context->max_fds /
+					       context->count_threads;
+
+	lwsl_notice(" Threads: %d each %d fds\n", context->count_threads,
+		    context->fd_limit_per_thread);
 
 	memset(&wsi, 0, sizeof(wsi));
 	wsi.context = context;
@@ -151,7 +180,12 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->lws_ev_sigint_cb = &lws_sigint_cb;
 #endif /* LWS_USE_LIBEV */
 
-	lwsl_info(" mem: context:         %5u bytes\n", sizeof(struct lws_context));
+	lwsl_info(" mem: context:         %5u bytes (%d + (%d x %d))\n",
+		  sizeof(struct lws_context) +
+		  (context->count_threads * LWS_MAX_SOCKET_IO_BUF),
+		  sizeof(struct lws_context),
+		  context->count_threads,
+		  LWS_MAX_SOCKET_IO_BUF);
 
 	/*
 	 * allocate and initialize the pool of
@@ -181,21 +215,24 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	/* this is per context */
 	lwsl_info(" mem: http hdr rsvd:   %5u bytes ((%u + %u) x %u)\n",
-		    (context->max_http_header_data + sizeof(struct allocated_headers)) *
+		    (context->max_http_header_data +
+		     sizeof(struct allocated_headers)) *
 		    context->max_http_header_pool,
-		    context->max_http_header_data, sizeof(struct allocated_headers),
+		    context->max_http_header_data,
+		    sizeof(struct allocated_headers),
 		    context->max_http_header_pool);
-
-	context->max_fds = getdtablesize();
-
-	context->fds = lws_zalloc(sizeof(struct lws_pollfd) * context->max_fds);
-	if (context->fds == NULL) {
+	n = sizeof(struct lws_pollfd) * context->count_threads *
+	    context->fd_limit_per_thread;
+	context->pt[0].fds = lws_zalloc(n);
+	if (context->pt[0].fds == NULL) {
 		lwsl_err("OOM allocating %d fds\n", context->max_fds);
 		goto bail;
 	}
-
-	lwsl_info(" mem: pollfd map:      %5u\n",
-		    sizeof(struct lws_pollfd) * context->max_fds);
+	lwsl_info(" mem: pollfd map:      %5u\n", n);
+	/* each thread serves his own chunk of fds */
+	for (n = 1; n < (int)info->count_threads; n++)
+		context->pt[n].fds = context->pt[0].fds +
+				  (n * context->fd_limit_per_thread);
 
 	if (lws_plat_init(context, info))
 		goto bail;
@@ -289,7 +326,7 @@ lws_context_destroy(struct lws_context *context)
 {
 	const struct lws_protocols *protocol = NULL;
 	struct lws wsi;
-	int n;
+	int n, m = context->count_threads;
 
 	lwsl_notice("%s\n", __func__);
 
@@ -306,14 +343,15 @@ lws_context_destroy(struct lws_context *context)
 		lwsl_notice("Worst latency: %s\n", context->worst_latency_info);
 #endif
 
-	for (n = 0; n < context->fds_count; n++) {
-		struct lws *wsi = wsi_from_fd(context, context->fds[n].fd);
-		if (!wsi)
-			continue;
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
+	while (m--)
+		for (n = 0; n < context->pt[m].fds_count; n++) {
+			struct lws *wsi = wsi_from_fd(context, context->pt[m].fds[n].fd);
+			if (!wsi)
+				continue;
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
 				/* no protocol close */);
-		n--;
-	}
+			n--;
+		}
 
 	/*
 	 * give all extensions a chance to clean up any per-context
@@ -345,10 +383,13 @@ lws_context_destroy(struct lws_context *context)
 		ev_signal_stop(context->io_loop, &context->w_sigint.watcher);
 #endif /* LWS_USE_LIBEV */
 
+	for (n = 0; n < context->count_threads; n++)
+		lws_free_set_NULL(context->pt[n].serv_buf);
+
 	lws_plat_context_early_destroy(context);
 	lws_ssl_context_destroy(context);
-	if (context->fds)
-		lws_free(context->fds);
+	if (context->pt[0].fds)
+		lws_free(context->pt[0].fds);
 	if (context->ah_pool)
 		lws_free(context->ah_pool);
 	if (context->http_header_data)

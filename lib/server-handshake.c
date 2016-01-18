@@ -27,6 +27,7 @@ LWS_VISIBLE int
 lws_extension_server_handshake(struct lws *wsi, char **p)
 {
 	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	const struct lws_extension *ext;
 	char ext_name[128];
 	int ext_count = 0;
@@ -47,11 +48,11 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 	 * and go through them
 	 */
 
-	if (lws_hdr_copy(wsi, (char *)context->serv_buf,
-			 sizeof(context->serv_buf), WSI_TOKEN_EXTENSIONS) < 0)
+	if (lws_hdr_copy(wsi, (char *)pt->serv_buf, LWS_MAX_SOCKET_IO_BUF,
+			 WSI_TOKEN_EXTENSIONS) < 0)
 		return 1;
 
-	c = (char *)context->serv_buf;
+	c = (char *)pt->serv_buf;
 	lwsl_parser("WSI_TOKEN_EXTENSIONS = '%s'\n", c);
 	wsi->count_act_ext = 0;
 	n = 0;
@@ -157,6 +158,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 int
 handshake_0405(struct lws_context *context, struct lws *wsi)
 {
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	unsigned char hash[20];
 	int n;
 	char *response;
@@ -180,15 +182,14 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	 * since key length is restricted above (currently 128), cannot
 	 * overflow
 	 */
-	n = sprintf((char *)context->serv_buf,
+	n = sprintf((char *)pt->serv_buf,
 				"%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
 
-	lws_SHA1(context->serv_buf, n, hash);
+	lws_SHA1(pt->serv_buf, n, hash);
 
 	accept_len = lws_b64_encode_string((char *)hash, 20,
-			(char *)context->serv_buf,
-			sizeof(context->serv_buf));
+			(char *)pt->serv_buf, LWS_MAX_SOCKET_IO_BUF);
 	if (accept_len < 0) {
 		lwsl_warn("Base64 encoded hash too long\n");
 		goto bail;
@@ -202,13 +203,13 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	/* make a buffer big enough for everything */
 
-	response = (char *)context->serv_buf + MAX_WEBSOCKET_04_KEY_LEN + LWS_PRE;
+	response = (char *)pt->serv_buf + MAX_WEBSOCKET_04_KEY_LEN + LWS_PRE;
 	p = response;
 	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 		      "Upgrade: WebSocket\x0d\x0a"
 		      "Connection: Upgrade\x0d\x0a"
 		      "Sec-WebSocket-Accept: ");
-	strcpy(p, (char *)context->serv_buf);
+	strcpy(p, (char *)pt->serv_buf);
 	p += accept_len;
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL)) {

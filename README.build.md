@@ -86,6 +86,14 @@ Building on Unix:
 	$ LD_LIBRARY_PATH=/usr/local/ssl/lib libwebsockets-test-server --ssl
     ```
 
+	**NOTE5**:
+	To build with debug info and _DEBUG for lower priority debug messages
+	compiled in, use
+
+    ```bash
+	$ cmake .. -DCMAKE_BUILD_TYPE=DEBUG
+    ````
+
 4. Finally you can build using the generated Makefile:
 
     ```bash

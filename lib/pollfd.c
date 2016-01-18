@@ -25,8 +25,9 @@ int
 insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
-	if (context->fds_count >= context->max_fds) {
+	if ((unsigned int)pt->fds_count >= context->fd_limit_per_thread) {
 		lwsl_err("Too many fds (%d)\n", context->max_fds);
 		return 1;
 	}
@@ -47,9 +48,9 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 		return -1;
 
 	insert_wsi(context, wsi);
-	wsi->position_in_fds_table = context->fds_count;
-	context->fds[context->fds_count].fd = wsi->sock;
-	context->fds[context->fds_count].events = LWS_POLLIN;
+	wsi->position_in_fds_table = pt->fds_count;
+	pt->fds[pt->fds_count].fd = wsi->sock;
+	pt->fds[pt->fds_count].events = LWS_POLLIN;
 
 	lws_plat_insert_socket_into_fds(context, wsi);
 
@@ -72,10 +73,11 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	struct lws *end_wsi;
 	struct lws_pollargs pa = { wsi->sock, 0, 0 };
 	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
 	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
-	--context->fds_count;
+	--pt->fds_count;
 
 #if !defined(_WIN32) && !defined(MBED_OPERATORS)
 	if (wsi->sock > context->max_fds) {
@@ -95,7 +97,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	m = wsi->position_in_fds_table; /* replace the contents for this */
 
 	/* have the last guy take up the vacant slot */
-	context->fds[m] = context->fds[context->fds_count];
+	pt->fds[m] = pt->fds[pt->fds_count];
 
 	lws_plat_delete_socket_from_fds(context, wsi, m);
 
@@ -104,7 +106,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	 * (still same fd pointing to same wsi)
 	 */
 	/* end guy's "position in fds table" changed */
-	end_wsi = wsi_from_fd(context, context->fds[context->fds_count].fd);
+	end_wsi = wsi_from_fd(context, pt->fds[pt->fds_count].fd);
 	end_wsi->position_in_fds_table = m;
 	/* deletion guy's lws_lookup entry needs nuking */
 	delete_from_fd(context, wsi->sock);
@@ -128,6 +130,7 @@ int
 lws_change_pollfd(struct lws *wsi, int _and, int _or)
 {
 	struct lws_context *context;
+	struct lws_context_per_thread *pt;
 	int tid;
 	int sampled_tid;
 	struct lws_pollfd *pfd;
@@ -141,7 +144,9 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	if (!context)
 		return 1;
 
-	pfd = &context->fds[wsi->position_in_fds_table];
+	pt = &context->pt[(int)wsi->tsi];
+
+	pfd = &pt->fds[wsi->position_in_fds_table];
 	pa.fd = wsi->sock;
 
 	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
@@ -179,7 +184,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 			if (tid == -1)
 				return -1;
 			if (tid != sampled_tid)
-				lws_cancel_service(context);
+				lws_cancel_service_pt(wsi);
 		}
 	}
 
@@ -250,8 +255,7 @@ lws_callback_on_writable(struct lws *wsi)
 network_sock:
 #endif
 
-	if (lws_ext_cb_active(wsi,
-				LWS_EXT_CB_REQUEST_ON_WRITEABLE, NULL, 0))
+	if (lws_ext_cb_active(wsi, LWS_EXT_CB_REQUEST_ON_WRITEABLE, NULL, 0))
 		return 1;
 
 	if (wsi->position_in_fds_table < 0) {
@@ -281,15 +285,19 @@ LWS_VISIBLE int
 lws_callback_on_writable_all_protocol(const struct lws_context *context,
 				      const struct lws_protocols *protocol)
 {
+	const struct lws_context_per_thread *pt = &context->pt[0];
 	struct lws *wsi;
-	int n;
+	int n, m = context->count_threads;
 
-	for (n = 0; n < context->fds_count; n++) {
-		wsi = wsi_from_fd(context,context->fds[n].fd);
-		if (!wsi)
-			continue;
-		if (wsi->protocol == protocol)
-			lws_callback_on_writable(wsi);
+	while (m--) {
+		for (n = 0; n < pt->fds_count; n++) {
+			wsi = wsi_from_fd(context, pt->fds[n].fd);
+			if (!wsi)
+				continue;
+			if (wsi->protocol == protocol)
+				lws_callback_on_writable(wsi);
+		}
+		pt++;
 	}
 
 	return 0;

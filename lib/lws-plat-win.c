@@ -1,3 +1,4 @@
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include "private-libwebsockets.h"
 
 unsigned long long
@@ -126,7 +127,20 @@ LWS_VISIBLE int lws_poll_listen_fd(struct lws_pollfd *fd)
 LWS_VISIBLE void
 lws_cancel_service(struct lws_context *context)
 {
-	WSASetEvent(context->events[0]);
+	struct lws_context_per_thread *pt = &context->pt[0];
+	int n = context->count_threads;
+
+	while (n--) {
+		WSASetEvent(pt->events[0]);
+		pt++;
+	}
+}
+
+LWS_VISIBLE void
+lws_cancel_service_pt(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	WSASetEvent(pt->events[0]);
 }
 
 LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
@@ -135,7 +149,7 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 }
 
 LWS_VISIBLE int
-lws_plat_service(struct lws_context *context, int timeout_ms)
+lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	int n;
 	int i;
@@ -143,6 +157,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	WSANETWORKEVENTS networkevents;
 	struct lws_pollfd *pfd;
 	struct lws *wsi;
+	struct lws_context_per_thread *pt = &context->pt[tsi];
 
 	/* stay dead once we are dead */
 
@@ -160,8 +175,8 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	}
 	context->service_tid = context->service_tid_detected;
 
-	for (i = 0; i < context->fds_count; ++i) {
-		pfd = &context->fds[i];
+	for (i = 0; i < pt->fds_count; ++i) {
+		pfd = &pt->fds[i];
 		if (pfd->fd == context->lserv_fd)
 			continue;
 
@@ -179,7 +194,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 		}
 	}
 
-	ev = WSAWaitForMultipleEvents(context->fds_count + 1, context->events,
+	ev = WSAWaitForMultipleEvents(pt->fds_count + 1, pt->events,
 				      FALSE, timeout_ms, FALSE);
 	context->service_tid = 0;
 
@@ -189,17 +204,17 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	}
 
 	if (ev == WSA_WAIT_EVENT_0) {
-		WSAResetEvent(context->events[0]);
+		WSAResetEvent(pt->events[0]);
 		return 0;
 	}
 
-	if (ev < WSA_WAIT_EVENT_0 || ev > WSA_WAIT_EVENT_0 + context->fds_count)
+	if (ev < WSA_WAIT_EVENT_0 || ev > WSA_WAIT_EVENT_0 + pt->fds_count)
 		return -1;
 
-	pfd = &context->fds[ev - WSA_WAIT_EVENT_0 - 1];
+	pfd = &pt->fds[ev - WSA_WAIT_EVENT_0 - 1];
 
 	if (WSAEnumNetworkEvents(pfd->fd,
-				 context->events[ev - WSA_WAIT_EVENT_0],
+				 pt->events[ev - WSA_WAIT_EVENT_0],
 				 &networkevents) == SOCKET_ERROR) {
 		lwsl_err("WSAEnumNetworkEvents() failed with error %d\n",
 								     LWS_ERRNO);
@@ -215,6 +230,12 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	}
 
 	return lws_service_fd(context, pfd);
+}
+
+LWS_VISIBLE int
+lws_plat_service(struct lws_context *context, int timeout_ms)
+{
+	return lws_plat_service_tsi(context, timeout_ms, 0);
 }
 
 LWS_VISIBLE int
@@ -289,9 +310,15 @@ lws_plat_context_early_init(void)
 LWS_VISIBLE void
 lws_plat_context_early_destroy(struct lws_context *context)
 {
-	if (context->events) {
-		WSACloseEvent(context->events[0]);
-		lws_free(context->events);
+	struct lws_context_per_thread *pt = &context->pt[0];
+	int n = context->count_threads;
+
+	while (n--) {
+		if (pt->events) {
+			WSACloseEvent(pt->events[0]);
+			lws_free(pt->events);
+		}
+		pt++;
 	}
 }
 
@@ -329,20 +356,23 @@ lws_interface_to_sa(int ipv6,
 }
 
 LWS_VISIBLE void
-lws_plat_insert_socket_into_fds(struct lws_context *context,
-						       struct lws *wsi)
+lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
-	context->fds[context->fds_count++].revents = 0;
-	context->events[context->fds_count] = WSACreateEvent();
-	WSAEventSelect(wsi->sock, context->events[context->fds_count], LWS_POLLIN);
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+
+	pt->fds[pt->fds_count++].revents = 0;
+	pt->events[pt->fds_count] = WSACreateEvent();
+	WSAEventSelect(wsi->sock, pt->events[pt->fds_count], LWS_POLLIN);
 }
 
 LWS_VISIBLE void
 lws_plat_delete_socket_from_fds(struct lws_context *context,
 						struct lws *wsi, int m)
 {
-	WSACloseEvent(context->events[m + 1]);
-	context->events[m + 1] = context->events[context->fds_count + 1];
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+
+	WSACloseEvent(pt->events[m + 1]);
+	pt->events[m + 1] = pt->events[pt->fds_count + 1];
 }
 
 LWS_VISIBLE void
@@ -354,6 +384,7 @@ LWS_VISIBLE int
 lws_plat_change_pollfd(struct lws_context *context,
 		      struct lws *wsi, struct lws_pollfd *pfd)
 {
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	long networkevents = LWS_POLLHUP;
 
 	if ((pfd->events & LWS_POLLIN))
@@ -363,7 +394,7 @@ lws_plat_change_pollfd(struct lws_context *context,
 		networkevents |= LWS_POLLOUT;
 
 	if (WSAEventSelect(wsi->sock,
-			context->events[wsi->position_in_fds_table + 1],
+			pt->events[wsi->position_in_fds_table + 1],
 					       networkevents) != SOCKET_ERROR)
 		return 0;
 
@@ -497,7 +528,8 @@ LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
 	      struct lws_context_creation_info *info)
 {
-	int i;
+	struct lws_context_per_thread *pt = &context->pt[0];
+	int i, n = context->count_threads;
 
 	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
 		context->fd_hashtable[i].wsi =
@@ -507,15 +539,20 @@ lws_plat_init(struct lws_context *context,
 			return -1;
 	}
 
-	context->events = lws_malloc(sizeof(WSAEVENT) * (context->max_fds + 1));
-	if (context->events == NULL) {
-		lwsl_err("Unable to allocate events array for %d connections\n",
-			context->max_fds);
-		return 1;
-	}
+	while (n--) {
+		pt->events = lws_malloc(sizeof(WSAEVENT) *
+					(context->fd_limit_per_thread + 1));
+		if (pt->events == NULL) {
+			lwsl_err("Unable to allocate events array for %d connections\n",
+					context->fd_limit_per_thread + 1);
+			return 1;
+		}
 
-	context->fds_count = 0;
-	context->events[0] = WSACreateEvent();
+		pt->fds_count = 0;
+		pt->events[0] = WSACreateEvent();
+
+		pt++;
+	}
 
 	context->fd_random = 0;
 

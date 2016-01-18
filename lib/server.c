@@ -655,11 +655,27 @@ int lws_http_transaction_completed(struct lws *wsi)
 	return 0;
 }
 
+static int
+lws_get_idlest_tsi(struct lws_context *context)
+{
+	unsigned int lowest = ~0;
+	int n, hit = 0;
+
+	for (n = 0; n < context->count_threads; n++)
+		if ((unsigned int)context->pt[n].fds_count < lowest) {
+			lowest = context->pt[n].fds_count;
+			hit = n;
+		}
+
+	return hit;
+}
+
 LWS_VISIBLE
 int lws_server_socket_service(struct lws_context *context,
 			      struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 #if LWS_POSIX
 	struct sockaddr_in cli_addr;
 	socklen_t clilen;
@@ -697,8 +713,8 @@ int lws_server_socket_service(struct lws_context *context,
 		if (!(pollfd->revents & pollfd->events && LWS_POLLIN))
 			goto try_pollout;
 
-		len = lws_ssl_capable_read(wsi, context->serv_buf,
-					   sizeof(context->serv_buf));
+		len = lws_ssl_capable_read(wsi, pt->serv_buf,
+					   LWS_MAX_SOCKET_IO_BUF);
 		lwsl_debug("%s: read %d\r\n", __func__, len);
 		switch (len) {
 		case 0:
@@ -719,7 +735,7 @@ int lws_server_socket_service(struct lws_context *context,
 			 * hm this may want to send
 			 * (via HTTP callback for example)
 			 */
-			n = lws_read(wsi, context->serv_buf, len);
+			n = lws_read(wsi, pt->serv_buf, len);
 			if (n < 0) /* we closed wsi */
 				return 1;
 
@@ -809,6 +825,8 @@ try_pollout:
 		}
 
 		new_wsi->sock = accept_fd;
+		new_wsi->tsi = lws_get_idlest_tsi(context);
+		lwsl_info("Accepted to tsi %d\n", new_wsi->tsi);
 
 		/* the transport is accepted... give him time to negotiate */
 		lws_set_timeout(new_wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
@@ -877,9 +895,10 @@ LWS_VISIBLE int lws_serve_http_file(struct lws *wsi, const char *file,
 				    int other_headers_len)
 {
 	struct lws_context *context = lws_get_context(wsi);
-	unsigned char *response = context->serv_buf + LWS_PRE;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	unsigned char *response = pt->serv_buf + LWS_PRE;
 	unsigned char *p = response;
-	unsigned char *end = p + sizeof(context->serv_buf) - LWS_PRE;
+	unsigned char *end = p + LWS_MAX_SOCKET_IO_BUF - LWS_PRE;
 	int ret = 0;
 
 	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,

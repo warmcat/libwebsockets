@@ -59,7 +59,25 @@ static void lws_sigusr2(int sig)
 }
 
 /**
- * lws_cancel_service() - Cancel servicing of pending websocket activity
+ * lws_cancel_service_pt() - Cancel servicing of pending socket activity
+ *				on one thread
+ * @wsi:	Cancel service on the thread this wsi is serviced by
+ *
+ *	This function let a call to lws_service() waiting for a timeout
+ *	immediately return.
+ */
+LWS_VISIBLE void
+lws_cancel_service_pt(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	char buf = 0;
+
+	if (write(pt->dummy_pipe_fds[1], &buf, sizeof(buf)) != 1)
+		lwsl_err("Cannot write to dummy pipe");
+}
+
+/**
+ * lws_cancel_service() - Cancel ALL servicing of pending socket activity
  * @context:	Websocket context
  *
  *	This function let a call to lws_service() waiting for a timeout
@@ -68,10 +86,14 @@ static void lws_sigusr2(int sig)
 LWS_VISIBLE void
 lws_cancel_service(struct lws_context *context)
 {
-	char buf = 0;
+	struct lws_context_per_thread *pt = &context->pt[0];
+	char buf = 0, m = context->count_threads;
 
-	if (write(context->dummy_pipe_fds[1], &buf, sizeof(buf)) != 1)
-		lwsl_err("Cannot write to dummy pipe");
+	while (m--) {
+		if (write(pt->dummy_pipe_fds[1], &buf, sizeof(buf)) != 1)
+			lwsl_err("Cannot write to dummy pipe");
+		pt++;
+	}
 }
 
 LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
@@ -96,12 +118,12 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 }
 
 LWS_VISIBLE int
-lws_plat_service(struct lws_context *context, int timeout_ms)
+lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
-	int n;
-	int m;
-	char buf;
+	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws *wsi;
+	int n, m;
+	char buf;
 #ifdef LWS_OPENSSL_SUPPORT
 	struct lws *wsi_next;
 #endif
@@ -125,26 +147,26 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	context->service_tid = context->service_tid_detected;
 
 	/* if we know we are draining rx ext, do not wait in poll */
-	if (context->rx_draining_ext_list)
+	if (pt->rx_draining_ext_list)
 		timeout_ms = 0;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	/* if we know we have non-network pending data, do not wait in poll */
-	if (lws_ssl_anybody_has_buffered_read(context)) {
+	if (lws_ssl_anybody_has_buffered_read_tsi(context, tsi)) {
 		timeout_ms = 0;
 		lwsl_err("ssl buffered read\n");
 	}
 #endif
 
-	n = poll(context->fds, context->fds_count, timeout_ms);
+	n = poll(pt->fds, pt->fds_count, timeout_ms);
 
 #ifdef LWS_OPENSSL_SUPPORT
-	if (!context->rx_draining_ext_list &&
-	    !lws_ssl_anybody_has_buffered_read(context) && n == 0) {
+	if (!pt->rx_draining_ext_list &&
+	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi) && !n) {
 #else
-	if (!context->rx_draining_ext_list && n == 0) /* poll timeout */ {
+	if (!pt->rx_draining_ext_list && !n) /* poll timeout */ {
 #endif
-		lws_service_fd(context, NULL);
+		lws_service_fd_tsi(context, NULL, tsi);
 		return 0;
 	}
 
@@ -158,10 +180,10 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	 * For all guys with already-available ext data to drain, if they are
 	 * not flowcontrolled, fake their POLLIN status
 	 */
-	wsi = context->rx_draining_ext_list;
+	wsi = pt->rx_draining_ext_list;
 	while (wsi) {
-		context->fds[wsi->position_in_fds_table].revents |=
-			context->fds[wsi->position_in_fds_table].events & POLLIN;
+		pt->fds[wsi->position_in_fds_table].revents |=
+			pt->fds[wsi->position_in_fds_table].events & POLLIN;
 		wsi = wsi->u.ws.rx_draining_ext_list;
 	}
 
@@ -173,12 +195,12 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	 * network socket may have nothing
 	 */
 
-	wsi = context->pending_read_list;
+	wsi = pt->pending_read_list;
 	while (wsi) {
 		wsi_next = wsi->pending_read_list_next;
-		context->fds[wsi->position_in_fds_table].revents |=
-			context->fds[wsi->position_in_fds_table].events & POLLIN;
-		if (context->fds[wsi->position_in_fds_table].revents & POLLIN)
+		pt->fds[wsi->position_in_fds_table].revents |=
+			pt->fds[wsi->position_in_fds_table].events & POLLIN;
+		if (pt->fds[wsi->position_in_fds_table].revents & POLLIN)
 			/*
 			 * he's going to get serviced now, take him off the
 			 * list of guys with buffered SSL.  If he still has some
@@ -193,17 +215,17 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 
 	/* any socket with events to service? */
 
-	for (n = 0; n < context->fds_count; n++) {
-		if (!context->fds[n].revents)
+	for (n = 0; n < pt->fds_count; n++) {
+		if (!pt->fds[n].revents)
 			continue;
 
-		if (context->fds[n].fd == context->dummy_pipe_fds[0]) {
-			if (read(context->fds[n].fd, &buf, 1) != 1)
+		if (pt->fds[n].fd == pt->dummy_pipe_fds[0]) {
+			if (read(pt->fds[n].fd, &buf, 1) != 1)
 				lwsl_err("Cannot read from dummy pipe.");
 			continue;
 		}
 
-		m = lws_service_fd(context, &context->fds[n]);
+		m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
 		if (m < 0)
 			return -1;
 		/* if something closed, retry this slot */
@@ -212,6 +234,12 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	}
 
 	return 0;
+}
+
+LWS_VISIBLE int
+lws_plat_service(struct lws_context *context, int timeout_ms)
+{
+	return lws_plat_service_tsi(context, timeout_ms, 0);
 }
 
 LWS_VISIBLE int
@@ -332,11 +360,17 @@ lws_plat_context_early_destroy(struct lws_context *context)
 LWS_VISIBLE void
 lws_plat_context_late_destroy(struct lws_context *context)
 {
+	struct lws_context_per_thread *pt = &context->pt[0];
+	int m = context->count_threads;
+
 	if (context->lws_lookup)
 		lws_free(context->lws_lookup);
 
-	close(context->dummy_pipe_fds[0]);
-	close(context->dummy_pipe_fds[1]);
+	while (m--) {
+		close(pt->dummy_pipe_fds[0]);
+		close(pt->dummy_pipe_fds[1]);
+		pt++;
+	}
 	close(context->fd_random);
 }
 
@@ -411,11 +445,12 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr, size
 }
 
 LWS_VISIBLE void
-lws_plat_insert_socket_into_fds(struct lws_context *context,
-						       struct lws *wsi)
+lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+
 	lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
-	context->fds[context->fds_count++].revents = 0;
+	pt->fds[pt->fds_count++].revents = 0;
 }
 
 LWS_VISIBLE void
@@ -514,38 +549,46 @@ LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
 	      struct lws_context_creation_info *info)
 {
-	context->lws_lookup = lws_zalloc(sizeof(struct lws *) * context->max_fds);
+	struct lws_context_per_thread *pt = &context->pt[0];
+	int n = context->count_threads, fd;
+
+	/* master context has the global fd lookup array */
+	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
+					 context->max_fds);
 	if (context->lws_lookup == NULL) {
-		lwsl_err(
-		  "Unable to allocate lws_lookup array for %d connections\n",
-							      context->max_fds);
+		lwsl_err("OOM on lws_lookup array for %d connections\n",
+			 context->max_fds);
 		return 1;
 	}
 
 	lwsl_notice(" mem: platform fd map: %5u bytes\n",
 		    sizeof(struct lws *) * context->max_fds);
+	fd = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 
-	context->fd_random = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
+	context->fd_random = fd;
 	if (context->fd_random < 0) {
 		lwsl_err("Unable to open random device %s %d\n",
-				    SYSTEM_RANDOM_FILEPATH, context->fd_random);
+			 SYSTEM_RANDOM_FILEPATH, context->fd_random);
 		return 1;
 	}
 
 	if (!lws_libev_init_fd_table(context)) {
 		/* otherwise libev handled it instead */
 
-		if (pipe(context->dummy_pipe_fds)) {
-			lwsl_err("Unable to create pipe\n");
-			return 1;
+		while (n--) {
+			if (pipe(pt->dummy_pipe_fds)) {
+				lwsl_err("Unable to create pipe\n");
+				return 1;
+			}
+
+			/* use the read end of pipe as first item */
+			pt->fds[0].fd = pt->dummy_pipe_fds[0];
+			pt->fds[0].events = LWS_POLLIN;
+			pt->fds[0].revents = 0;
+			pt->fds_count = 1;
+			pt++;
 		}
 	}
-
-	/* use the read end of pipe as first item */
-	context->fds[0].fd = context->dummy_pipe_fds[0];
-	context->fds[0].events = LWS_POLLIN;
-	context->fds[0].revents = 0;
-	context->fds_count = 1;
 
 	context->fops.open	= _lws_plat_file_open;
 	context->fops.close	= _lws_plat_file_close;

@@ -314,9 +314,6 @@ extern "C" {
 #ifndef SYSTEM_RANDOM_FILEPATH
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
 #endif
-#ifndef LWS_MAX_ZLIB_CONN_BUFFER
-#define LWS_MAX_ZLIB_CONN_BUFFER (64 * 1024)
-#endif
 
 /*
  * if not in a connection storm, check for incoming
@@ -500,13 +497,45 @@ struct allocated_headers {
 	unsigned char nfrag;
 };
 
+/*
+ * so we can have n connections being serviced simultaneously,
+ * these things need to be isolated per-thread.
+ */
+
+struct lws_context_per_thread {
+	struct lws_pollfd *fds;
+	struct lws *rx_draining_ext_list;
+	struct lws *tx_draining_ext_list;
+#ifdef LWS_OPENSSL_SUPPORT
+	struct lws *pending_read_list; /* linked list */
+#endif
+	/*
+	 * usable by anything in the service code, but only if the scope
+	 * does not last longer than the service action (since next service
+	 * of any socket can likewise use it and overwrite)
+	 */
+	unsigned char *serv_buf;
+#ifdef _WIN32
+	WSAEVENT *events;
+#else
+	int dummy_pipe_fds[2];
+#endif
+	int fds_count;
+};
+
+/*
+ * the rest is managed per-context, that includes
+ *
+ *  - processwide single fd -> wsi lookup
+ *  - contextwide headers pool
+ *  - contextwide ssl context
+ *  - contextwide proxy
+ */
+
 struct lws_context {
 	time_t last_timeout_check_s;
 	struct lws_plat_file_ops fops;
-#ifdef _WIN32
-	WSAEVENT *events;
-#endif
-	struct lws_pollfd *fds;
+	struct lws_context_per_thread pt[LWS_MAX_SMP];
 #ifdef _WIN32
 /* different implementation between unix and windows */
 	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
@@ -530,23 +559,15 @@ struct lws_context {
 	const struct lws_protocols *protocols;
 	void *http_header_data;
 	struct allocated_headers *ah_pool;
-	struct lws *rx_draining_ext_list;
-	struct lws *tx_draining_ext_list;
+
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX *ssl_ctx;
 	SSL_CTX *ssl_client_ctx;
-	struct lws *pending_read_list; /* linked list */
 #endif
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *extensions;
 #endif
 
-	/*
-	 * usable by anything in the service code, but only if the scope
-	 * does not last longer than the service action (since next service
-	 * of any socket can likewise use it and overwrite)
-	 */
-	unsigned char serv_buf[LWS_MAX_SOCKET_IO_BUF];
 	char http_proxy_address[128];
 	char proxy_basic_auth_token[128];
 	char canonical_hostname[128];
@@ -557,7 +578,6 @@ struct lws_context {
 
 	lws_sockfd_type lserv_fd;
 
-	int fds_count;
 	int max_fds;
 	int listen_port;
 #ifdef LWS_USE_LIBEV
@@ -571,6 +591,7 @@ struct lws_context {
 	int lserv_seen;
 	unsigned int http_proxy_port;
 	unsigned int options;
+	unsigned int fd_limit_per_thread;
 
 	/*
 	 * set to the Thread ID that's doing the service loop just before entry
@@ -580,9 +601,6 @@ struct lws_context {
 	 */
 	volatile int service_tid;
 	int service_tid_detected;
-#ifndef _WIN32
-	int dummy_pipe_fds[2];
-#endif
 
 	int count_protocols;
 	int ka_time;
@@ -593,15 +611,21 @@ struct lws_context {
 	int use_ssl;
 	int allow_non_ssl_on_ssl_port;
 	unsigned int user_supplied_ssl_ctx:1;
-#define lws_ssl_anybody_has_buffered_read(ctx) \
-		(ctx->use_ssl && ctx->pending_read_list)
+#define lws_ssl_anybody_has_buffered_read(w) \
+		(w->context->use_ssl && \
+		 w->context->pt[(int)w->tsi].pending_read_list)
+#define lws_ssl_anybody_has_buffered_read_tsi(c, t) \
+		(c->use_ssl && \
+		 c->pt[(int)t].pending_read_list)
 #else
 #define lws_ssl_anybody_has_buffered_read(ctx) (0)
+#define lws_ssl_anybody_has_buffered_read_tsi(ctx, t) (0)
 #endif
 
 	short max_http_header_data;
 	short max_http_header_pool;
 	short ah_count_in_use;
+	short count_threads;
 
 	unsigned int being_destroyed:1;
 };
@@ -966,6 +990,7 @@ struct lws {
 	char rx_frame_type; /* enum lws_write_protocol */
 	char pending_timeout; /* enum pending_timeout */
 	char pps; /* enum lws_pending_protocol_send */
+	char tsi; /* thread service index we belong to */
 };
 
 LWS_EXTERN int log_level;
@@ -1329,6 +1354,8 @@ LWS_EXTERN int
 lws_poll_listen_fd(struct lws_pollfd *fd);
 LWS_EXTERN int
 lws_plat_service(struct lws_context *context, int timeout_ms);
+LWS_EXTERN LWS_VISIBLE int
+lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi);
 LWS_EXTERN int
 lws_plat_init(struct lws_context *context,
 	      struct lws_context_creation_info *info);

@@ -68,7 +68,9 @@ int lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 int lws_client_socket_service(struct lws_context *context,
 			      struct lws *wsi, struct lws_pollfd *pollfd)
 {
-	char *p = (char *)&context->serv_buf[0];
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	char *p = (char *)&pt->serv_buf[0];
+	char *sb = p;
 	unsigned char c;
 	int n, len;
 
@@ -103,8 +105,7 @@ int lws_client_socket_service(struct lws_context *context,
 			return 0;
 		}
 
-		n = recv(wsi->sock, (char *)context->serv_buf,
-					sizeof(context->serv_buf), 0);
+		n = recv(wsi->sock, sb, LWS_MAX_SOCKET_IO_BUF, 0);
 		if (n < 0) {
 
 			if (LWS_ERRNO == LWS_EAGAIN) {
@@ -117,12 +118,12 @@ int lws_client_socket_service(struct lws_context *context,
 			return 0;
 		}
 
-		context->serv_buf[13] = '\0';
-		if (strcmp((char *)context->serv_buf, "HTTP/1.0 200 ") &&
-		    strcmp((char *)context->serv_buf, "HTTP/1.1 200 ")
+		pt->serv_buf[13] = '\0';
+		if (strcmp(sb, "HTTP/1.0 200 ") &&
+		    strcmp(sb, "HTTP/1.1 200 ")
 		) {
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
-			lwsl_err("ERROR proxy: %s\n", context->serv_buf);
+			lwsl_err("ERROR proxy: %s\n", sb);
 			return 0;
 		}
 
@@ -269,9 +270,7 @@ some_wait:
 				n = ERR_get_error();
 				if (n != SSL_ERROR_NONE) {
 					lwsl_err("SSL connect error %lu: %s\n",
-						n,
-						ERR_error_string(n,
-							  (char *)context->serv_buf));
+						n, ERR_error_string(n, sb));
 					return 0;
 				}
 			}
@@ -327,8 +326,7 @@ some_wait:
 					n = ERR_get_error();
 					if (n != SSL_ERROR_NONE) {
 						lwsl_err("SSL connect error %lu: %s\n",
-							 n, ERR_error_string(n,
-							 (char *)context->serv_buf));
+							 n, ERR_error_string(n, sb));
 						return 0;
 					}
 				}
@@ -351,7 +349,7 @@ some_wait:
 					lwsl_notice("accepting self-signed certificate\n");
 				} else {
 					lwsl_err("server's cert didn't look good, X509_V_ERR = %d: %s\n",
-						 n, ERR_error_string(n, (char *)context->serv_buf));
+						 n, ERR_error_string(n, sb));
 					lws_close_free_wsi(wsi,
 						LWS_CLOSE_STATUS_NOSTATUS);
 					return 0;
@@ -380,10 +378,9 @@ some_wait:
 
 		lws_latency_pre(context, wsi);
 
-		n = lws_ssl_capable_write(wsi, context->serv_buf,
-					  p - (char *)context->serv_buf);
+		n = lws_ssl_capable_write(wsi, (unsigned char *)sb, p - sb);
 		lws_latency(context, wsi, "send lws_issue_raw", n,
-			    n == p - (char *)context->serv_buf);
+			    n == p - sb);
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_debug("ERROR writing to client socket\n");
@@ -508,14 +505,16 @@ strtolower(char *s)
 int
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
+	int n, len, okay = 0, isErrorCodeReceived = 0, port = 0, ssl = 0;
 	struct lws_context *context = wsi->context;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
-	int n, len, okay = 0, isErrorCodeReceived = 0, port = 0, ssl = 0;
 	const char *pc, *prot, *ads = NULL, *path;
 	char *p;
 #ifndef LWS_NO_EXTENSIONS
-	const struct lws_extension *ext;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	char *sb = (char *)&pt->serv_buf[0];
 	const struct lws_ext_options *opts;
+	const struct lws_extension *ext;
 	char ext_name[128];
 	const char *c, *a;
 	char ignore;
@@ -662,13 +661,12 @@ check_extensions:
 	 * and go through matching them or identifying bogons
 	 */
 
-	if (lws_hdr_copy(wsi, (char *)context->serv_buf,
-		   sizeof(context->serv_buf), WSI_TOKEN_EXTENSIONS) < 0) {
+	if (lws_hdr_copy(wsi, sb, LWS_MAX_SOCKET_IO_BUF, WSI_TOKEN_EXTENSIONS) < 0) {
 		lwsl_warn("ext list from server failed to copy\n");
 		goto bail2;
 	}
 
-	c = (char *)context->serv_buf;
+	c = sb;
 	n = 0;
 	ignore = 0;
 	a = NULL;
@@ -1024,7 +1022,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	context->protocols[0].callback(wsi,
 				       LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 				       NULL, &p,
-				       (pkt + sizeof(context->serv_buf)) - p - 12);
+				       (pkt + LWS_MAX_SOCKET_IO_BUF) - p - 12);
 
 	p += sprintf(p, "\x0d\x0a");
 

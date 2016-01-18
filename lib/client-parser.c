@@ -23,6 +23,7 @@
 
 int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	unsigned short close_code;
 	unsigned char *pp;
@@ -31,7 +32,7 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 
 	if (wsi->u.ws.rx_draining_ext) {
-		struct lws **w = &wsi->context->rx_draining_ext_list;
+		struct lws **w = &pt->rx_draining_ext_list;
 		lwsl_ext("%s: RX EXT DRAINING: Removing from list\n", __func__, c);
 		assert(!c);
 		eff_buf.token = NULL;
@@ -536,8 +537,8 @@ utf8_fail:			lwsl_info("utf8 error\n");
 			 * last chunk
 			 */
 			wsi->u.ws.rx_draining_ext = 1;
-			wsi->u.ws.rx_draining_ext_list = wsi->context->rx_draining_ext_list;
-			wsi->context->rx_draining_ext_list = wsi;
+			wsi->u.ws.rx_draining_ext_list = pt->rx_draining_ext_list;
+			pt->rx_draining_ext_list = wsi;
 			lwsl_ext("%s: RX EXT DRAINING: Adding to list\n", __func__);
 		}
 		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||

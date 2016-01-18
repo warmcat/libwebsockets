@@ -1298,6 +1298,11 @@ extern int lws_extension_callback_pm_deflate(
  *		allocated for the lifetime of the context).  If the pool is
  *		busy new incoming connections must wait for accept until one
  *		becomes free.
+ * @count_threads: how many contexts to create in an array, 0 = 1
+ * @fd_limit_per_thread: nonzero means restrict each service thread to this
+ *		many fds, 0 means the default which is divide the process fd
+ *		limit by the number of threads.
+ *
  */
 
 struct lws_context_creation_info {
@@ -1328,6 +1333,9 @@ struct lws_context_creation_info {
 
 	short max_http_header_data;
 	short max_http_header_pool;
+
+	unsigned int count_threads;
+	unsigned int fd_limit_per_thread;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -1400,6 +1408,12 @@ lws_context_destroy(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN int
 lws_service(struct lws_context *context, int timeout_ms);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_cancel_service_pt(struct lws *wsi);
+
 LWS_VISIBLE LWS_EXTERN void
 lws_cancel_service(struct lws_context *context);
 
@@ -1429,7 +1443,7 @@ lws_add_http_header_status(struct lws *wsi,
 			   unsigned int code, unsigned char **p,
 			   unsigned char *end);
 
-LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int
 lws_http_transaction_completed(struct lws *wsi);
 
 #ifdef LWS_USE_LIBEV
@@ -1448,6 +1462,10 @@ lws_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
+		   int tsi);
 
 LWS_VISIBLE LWS_EXTERN void *
 lws_context_user(struct lws_context *context);
@@ -1741,6 +1759,9 @@ lws_get_fops(struct lws_context *context);
 
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_get_context(const struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_get_count_threads(struct lws_context *context);
 
 /*
  * Wsi-associated File Operations access helpers

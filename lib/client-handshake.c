@@ -9,6 +9,7 @@ lws_client_connect_2(struct lws *wsi)
 	struct addrinfo hints, *result;
 #endif
 	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct sockaddr_in server_addr4;
 	struct sockaddr_in client_addr4;
 	struct lws_pollfd pfd;
@@ -21,18 +22,18 @@ lws_client_connect_2(struct lws *wsi)
 	/* proxy? */
 
 	if (context->http_proxy_port) {
-		plen = sprintf((char *)context->serv_buf,
+		plen = sprintf((char *)pt->serv_buf,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a",
 			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
 			wsi->u.hdr.ah->c_port);
 
 		if (context->proxy_basic_auth_token[0])
-			plen += sprintf((char *)context->serv_buf + plen,
+			plen += sprintf((char *)pt->serv_buf + plen,
 					"Proxy-authorization: basic %s\x0d\x0a",
 					context->proxy_basic_auth_token);
 
-		plen += sprintf((char *)context->serv_buf + plen,
+		plen += sprintf((char *)pt->serv_buf + plen,
 				"\x0d\x0a");
 
 		ads = context->http_proxy_address;
@@ -262,7 +263,7 @@ lws_client_connect_2(struct lws *wsi)
 			goto failed;
 		wsi->u.hdr.ah->c_port = context->http_proxy_port;
 
-		n = send(wsi->sock, (char *)context->serv_buf, plen,
+		n = send(wsi->sock, (char *)pt->serv_buf, plen,
 			 MSG_NOSIGNAL);
 		if (n < 0) {
 			lwsl_debug("ERROR writing to proxy socket\n");

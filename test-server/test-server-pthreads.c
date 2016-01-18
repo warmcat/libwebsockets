@@ -1,7 +1,7 @@
 /*
  * libwebsockets-test-server - libwebsockets test implementation
  *
- * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -132,11 +132,33 @@ void *thread_dumb_increment(void *threadid)
 	pthread_exit(NULL);
 }
 
+void *thread_service(void *threadid)
+{
+	while (lws_service_tsi(context, 50, (int)(long)threadid) >= 0 && !force_exit)
+		;
+
+	pthread_exit(NULL);
+}
+
 void sighandler(int sig)
 {
 	force_exit = 1;
 	lws_cancel_service(context);
 }
+
+static const struct lws_extension exts[] = {
+	{
+		"permessage-deflate",
+		lws_extension_callback_pm_deflate,
+		"permessage-deflate"
+	},
+	{
+		"deflate-frame",
+		lws_extension_callback_pm_deflate,
+		"deflate_frame"
+	},
+	{ NULL, NULL, NULL /* terminator */ }
+};
 
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
@@ -147,6 +169,7 @@ static struct option options[] = {
 	{ "interface",  required_argument,	NULL, 'i' },
 	{ "closetest",  no_argument,		NULL, 'c' },
 	{ "libev",  no_argument,		NULL, 'e' },
+	{ "threads",  required_argument,	NULL, 'j' },
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize", 	no_argument,		NULL, 'D' },
 #endif
@@ -159,10 +182,11 @@ int main(int argc, char **argv)
 	struct lws_context_creation_info info;
 	char interface_name[128] = "";
 	const char *iface = NULL;
-	pthread_t pthread_dumb;
+	pthread_t pthread_dumb, pthread_service[32];
 	char cert_path[1024];
 	char key_path[1024];
  	int debug_level = 7;
+ 	int threads = 1;
 	int use_ssl = 0;
 	void *retval;
 	int opts = 0;
@@ -184,10 +208,17 @@ int main(int argc, char **argv)
 	pthread_mutex_init(&lock_established_conns, NULL);
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:Dr:j:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
+		case 'j':
+			threads = atoi(optarg);
+			if (threads > ARRAY_SIZE(pthread_service)) {
+				lwsl_err("Max threads %d\n", ARRAY_SIZE(pthread_service));
+				return 1;
+			}
+			break;
 		case 'e':
 			opts |= LWS_SERVER_OPTION_LIBEV;
 			break;
@@ -259,7 +290,7 @@ int main(int argc, char **argv)
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
 
 	lwsl_notice("libwebsockets test server - "
-		    "(C) Copyright 2010-2015 Andy Green <andy@warmcat.com> - "
+		    "(C) Copyright 2010-2016 Andy Green <andy@warmcat.com> - "
 		    "licensed under LGPL2.1\n");
 
 	printf("Using resource path \"%s\"\n", resource_path);
@@ -302,6 +333,8 @@ int main(int argc, char **argv)
 	info.gid = -1;
 	info.uid = -1;
 	info.options = opts;
+	info.count_threads = threads;
+	info.extensions = exts;
 
 	context = lws_create_context(&info);
 	if (context == NULL) {
@@ -317,12 +350,21 @@ int main(int argc, char **argv)
 		goto done;
 	}
 
-	/* this is our service thread */
+	/*
+	 * notice the actual number of threads may be capped by the library,
+	 * so use lws_get_count_threads() to get the actual amount of threads
+	 * initialized.
+	 */
 
-	n = 0;
-	while (n >= 0 && !force_exit) {
- 		n = lws_service(context, 50);
-	}
+	for (n = 0; n < lws_get_count_threads(context); n++)
+		if (pthread_create(&pthread_service[n], NULL, thread_service,
+				   (void *)(long)n))
+			lwsl_err("Failed to start service thread\n");
+
+	/* wait for all the service threads to exit */
+
+	for (n = 0; n < lws_get_count_threads(context); n++)
+		pthread_join(pthread_service[n], &retval);
 
 	/* wait for pthread_dumb to exit */
 	pthread_join(pthread_dumb, &retval);
