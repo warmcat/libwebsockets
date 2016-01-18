@@ -296,6 +296,8 @@ lws_context_destroy(struct lws_context *context)
 	if (!context)
 		return;
 
+	context->being_destroyed = 1;
+
 	memset(&wsi, 0, sizeof(wsi));
 	wsi.context = context;
 
