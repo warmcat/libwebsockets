@@ -298,8 +298,7 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 	 * if extensions want in on it (eg, we are a mux parent)
 	 * give them a chance to service child timeouts
 	 */
-	if (lws_ext_cb_active(wsi, LWS_EXT_CB_1HZ,
-					     NULL, sec) < 0)
+	if (lws_ext_cb_active(wsi, LWS_EXT_CB_1HZ, NULL, sec) < 0)
 		return 0;
 
 	if (!wsi->pending_timeout)
@@ -380,7 +379,6 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 	struct lws_tokens eff_buf;
 	unsigned int pending = 0;
 	char draining_flow = 0;
-	lws_sockfd_type mfd;
 	int timed_out = 0;
 	struct lws *wsi;
 	time_t now;
@@ -410,18 +408,15 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 		if (pollfd)
 			our_fd = pollfd->fd;
 
-		for (n = 0; n < context->fds_count; n++) {
-			mfd = context->fds[n].fd;
-			wsi = wsi_from_fd(context, mfd);
-			if (!wsi)
-				continue;
-
+		wsi = context->timeout_list;
+		while (wsi) {
 			if (lws_service_timeout_check(wsi, (unsigned int)now))
 				/* he did time out... */
-				if (mfd == our_fd)
+				if (wsi->sock == our_fd)
 					/* it was the guy we came to service! */
 					timed_out = 1;
 					/* he's gone, no need to mark as handled */
+			wsi = wsi->timeout_list;
 		}
 	}
 

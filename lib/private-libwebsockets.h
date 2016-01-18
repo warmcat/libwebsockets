@@ -290,7 +290,7 @@ extern "C" {
 #define LWS_MAX_PROTOCOLS 5
 #endif
 #ifndef LWS_MAX_EXTENSIONS_ACTIVE
-#define LWS_MAX_EXTENSIONS_ACTIVE 3
+#define LWS_MAX_EXTENSIONS_ACTIVE 2
 #endif
 #ifndef LWS_MAX_EXT_OFFERS
 #define LWS_MAX_EXT_OFFERS 8
@@ -522,6 +522,8 @@ struct lws_context {
 	const char *iface;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
+	struct lws *timeout_list;
+
 #ifndef LWS_NO_SERVER
 	struct lws *wsi_listening;
 #endif
@@ -907,6 +909,8 @@ struct lws {
 
 	struct lws_context *context;
 	const struct lws_protocols *protocol;
+	struct lws *timeout_list;
+	struct lws **timeout_list_prev;
 	void *user_space;
 	/* rxflow handling */
 	unsigned char *rxflow_buffer;
@@ -929,7 +933,6 @@ struct lws {
 	lws_sockfd_type sock;
 
 	/* ints */
-	enum lws_pending_protocol_send pps;
 	int position_in_fds_table;
 	int rxflow_len;
 	int rxflow_pos;
@@ -962,6 +965,7 @@ struct lws {
 	char lws_rx_parse_state; /* enum lws_rx_parse_state */
 	char rx_frame_type; /* enum lws_write_protocol */
 	char pending_timeout; /* enum pending_timeout */
+	char pps; /* enum lws_pending_protocol_send */
 };
 
 LWS_EXTERN int log_level;

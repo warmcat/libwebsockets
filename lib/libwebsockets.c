@@ -68,6 +68,19 @@ lws_free_wsi(struct lws *wsi)
 	lws_free(wsi);
 }
 
+
+static void
+lws_remove_from_timeout_list(struct lws *wsi)
+{
+	if (!wsi->timeout_list_prev)
+		return;
+
+	*wsi->timeout_list_prev = wsi->timeout_list;
+	wsi->timeout_list_prev = NULL;
+	wsi->timeout_list = NULL;
+}
+
+
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 {
@@ -234,6 +247,7 @@ just_kill_connection:
 	 * delete socket from the internal poll list if still present
 	 */
 	lws_ssl_remove_wsi_from_buffered_list(wsi);
+	lws_remove_from_timeout_list(wsi);
 
 	/* checking return redundant since we anyway close */
 	remove_wsi_socket_from_fds(wsi);
@@ -563,8 +577,19 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 
 	time(&now);
 
+	if (!wsi->pending_timeout) {
+		wsi->timeout_list = wsi->context->timeout_list;
+		if (wsi->timeout_list)
+			wsi->timeout_list->timeout_list_prev = &wsi->timeout_list;
+		wsi->timeout_list_prev = &wsi->context->timeout_list;
+		*wsi->timeout_list_prev = wsi;
+	}
+
 	wsi->pending_timeout_limit = now + secs;
 	wsi->pending_timeout = reason;
+
+	if (!reason)
+		lws_remove_from_timeout_list(wsi);
 }
 
 
@@ -1144,7 +1169,7 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port, const cha
 		*port = 80;
 	else if (!strcmp(*prot, "https") || !strcmp(*prot, "wss"))
 		*port = 443;
-	
+
 	while (*p && *p != ':' && *p != '/')
 		p++;
 	if (*p == ':') {
