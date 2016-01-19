@@ -126,7 +126,7 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 				oa.len++;
 
 set_arg:
-			m = ext->callback(lws_get_context(wsi),
+			ext->callback(lws_get_context(wsi),
 				ext, wsi, LWS_EXT_CB_OPTION_SET,
 				ext_user, (char *)&oa, 0);
 			if (len == 1)
