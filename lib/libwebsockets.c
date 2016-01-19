@@ -84,14 +84,16 @@ lws_remove_from_timeout_list(struct lws *wsi)
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 {
-	struct lws_context *context = wsi->context;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_context *context;
+	struct lws_context_per_thread *pt;
 	int n, m, ret, old_state;
 	struct lws_tokens eff_buf;
 
 	if (!wsi)
 		return;
 
+	context = wsi->context;
+	pt = &context->pt[(int)wsi->tsi];
 	old_state = wsi->state;
 
 	if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED &&
