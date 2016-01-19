@@ -334,6 +334,10 @@ static int issue_char(struct lws *wsi, unsigned char c)
 
 	/* Insert a null character when we *hit* the limit: */
 	if (frag_len == wsi->u.hdr.current_token_limit) {
+		if (wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {
+			lwsl_warn("excessive header content 2\n");
+			return -1;
+		}
 		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
 		lwsl_warn("header %i exceeds limit %d\n",
 			  wsi->u.hdr.parser_state, wsi->u.hdr.current_token_limit);
@@ -439,9 +443,12 @@ int lws_parse(struct lws *wsi, unsigned char c)
 
 		switch (wsi->u.hdr.ups) {
 		case URIPS_IDLE:
+			if (!c)
+				return -1;
 			/* genuine delimiter */
 			if ((c == '&' || c == ';') && !enc) {
-				issue_char(wsi, c);
+				if (issue_char(wsi, c) < 0)
+					return -1;
 				/* swallow the terminator */
 				ah->frags[ah->nfrag].len--;
 				/* link to next fragment */
@@ -528,7 +535,8 @@ int lws_parse(struct lws *wsi, unsigned char c)
 		if (c == '?' && !enc &&
 		    !ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS]) { /* start of URI arguments */
 			/* seal off uri header */
-			ah->data[ah->pos++] = '\0';
+			if (issue_char(wsi, '\0') < 0)
+				return -1;
 
 			/* move to using WSI_TOKEN_HTTP_URI_ARGS */
 			ah->nfrag++;
@@ -669,13 +677,8 @@ excessive:
 				n = ah->frags[n].nfrag;
 		ah->frags[n].nfrag = ah->nfrag;
 
-		if (ah->pos == wsi->context->max_http_header_data) {
-			lwsl_warn("excessive header content\n");
+		if (issue_char(wsi, ' ') < 0)
 			return -1;
-		}
-
-		ah->data[ah->pos++] = ' ';
-		ah->frags[ah->nfrag].len++;
 		break;
 
 		/* skipping arg part of a name we didn't recognize */
