@@ -444,6 +444,10 @@ handle_accept(int n)
 				 s->address, s->port);
 			/* we need to open the associated onward connection */
 			sockfd = socket(AF_INET, SOCK_STREAM, 0);
+			if (sockfd < 0) {
+				lwsl_err("Could not get socket\n");
+				return -1;
+			}
 
 			if (connect(sockfd, (struct sockaddr *)&serv_addr4,
 				    sizeof(struct sockaddr)) == -1 ||
