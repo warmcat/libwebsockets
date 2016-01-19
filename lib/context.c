@@ -326,13 +326,14 @@ lws_context_destroy(struct lws_context *context)
 {
 	const struct lws_protocols *protocol = NULL;
 	struct lws wsi;
-	int n, m = context->count_threads;
+	int n, m;
 
 	lwsl_notice("%s\n", __func__);
 
 	if (!context)
 		return;
 
+	m = context->count_threads;
 	context->being_destroyed = 1;
 
 	memset(&wsi, 0, sizeof(wsi));
