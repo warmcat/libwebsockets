@@ -452,6 +452,7 @@ handle_accept(int n)
 			if (connect(sockfd, (struct sockaddr *)&serv_addr4,
 				    sizeof(struct sockaddr)) == -1 ||
 			    errno == EISCONN) {
+				close(sockfd);
 				lwsl_err("proxied onward connection failed\n");
 				return 1;
 			}
