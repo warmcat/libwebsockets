@@ -75,7 +75,10 @@ lws_remove_from_timeout_list(struct lws *wsi)
 	if (!wsi->timeout_list_prev)
 		return;
 
+	if (wsi->timeout_list)
+		wsi->timeout_list->timeout_list_prev = wsi->timeout_list_prev;
 	*wsi->timeout_list_prev = wsi->timeout_list;
+
 	wsi->timeout_list_prev = NULL;
 	wsi->timeout_list = NULL;
 }

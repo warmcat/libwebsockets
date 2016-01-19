@@ -277,8 +277,8 @@ struct fuzxy_rule {
 };
 
 struct fuzxy_rule r = {
-		{ "Host:", "\x0d", "\xe0\x00\x0d" },
-		{ 5, 1, 3 },
+		{ "G", "E", "\xe0\x41\x42" },
+		{ 1, 1, 3 },
 		65536
 };
 
