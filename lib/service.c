@@ -379,9 +379,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	lws_sockfd_type our_fd = 0;
 	struct lws_tokens eff_buf;
 	unsigned int pending = 0;
+	struct lws *wsi, *wsi1;
 	char draining_flow = 0;
 	int timed_out = 0;
-	struct lws *wsi;
 	time_t now;
 	int n, m;
 	int more;
@@ -411,13 +411,17 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 		wsi = context->timeout_list;
 		while (wsi) {
-			if (lws_service_timeout_check(wsi, (unsigned int)now))
+			/* we have to take copies, because he may be deleted */
+			wsi1 = wsi->timeout_list;
+			m = wsi->sock;
+			if (lws_service_timeout_check(wsi, (unsigned int)now)) {
 				/* he did time out... */
-				if (wsi->sock == our_fd)
+				if (m == our_fd)
 					/* it was the guy we came to service! */
 					timed_out = 1;
 					/* he's gone, no need to mark as handled */
-			wsi = wsi->timeout_list;
+			}
+			wsi = wsi1;
 		}
 	}
 
