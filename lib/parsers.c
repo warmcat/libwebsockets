@@ -29,7 +29,8 @@ unsigned char lextable[] = {
 
 int lextable_decode(int pos, char c)
 {
-	c = tolower(c);
+	if (c >= 'A' && c <= 'Z')
+		c += 'a' - 'A';
 
 	while (1) {
 		if (lextable[pos] & (1 << 7)) { /* 1-byte, fail on mismatch */
