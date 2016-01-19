@@ -749,8 +749,11 @@ check_extensions:
 			/*
 			 * give the extension the server options
 			 */
-			if (a && lws_ext_parse_options(ext, wsi, wsi->act_ext_user[wsi->count_act_ext], opts, a, c - a)) {
-				lwsl_err("%s: unable to parse remote defaults '%s'", __func__, a);
+			if (a && lws_ext_parse_options(ext, wsi,
+					wsi->act_ext_user[wsi->count_act_ext],
+					opts, a, c - a)) {
+				lwsl_err("%s: unable to parse remote def '%s'",
+					 __func__, a);
 				goto bail2;
 			}
 
@@ -758,7 +761,8 @@ check_extensions:
 					LWS_EXT_CB_OPTION_CONFIRM,
 				      wsi->act_ext_user[wsi->count_act_ext],
 				      NULL, 0)) {
-				lwsl_err("%s: ext %s rejects server options %s", ext->name, a);
+				lwsl_err("%s: ext %s rejects server options %s",
+					 ext->name, a);
 				goto bail2;
 			}
 

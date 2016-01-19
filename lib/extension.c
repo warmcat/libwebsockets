@@ -21,7 +21,8 @@ enum lws_ext_option_parser_states {
 
 LWS_VISIBLE int
 lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
-		       void *ext_user, const struct lws_ext_options *opts, const char *in, int len)
+		      void *ext_user, const struct lws_ext_options *opts,
+		      const char *in, int len)
 {
 	enum lws_ext_option_parser_states leap = LEAPS_SEEK_NAME;
 	unsigned int match_map = 0, n, m, w = 0, count_options = 0,
@@ -31,7 +32,7 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 	while (opts[count_options].name)
 		count_options++;
 	while (len) {
-		lwsl_ext("'%c'", *in);
+		lwsl_ext("'%c' %d", *in, leap);
 		switch (leap) {
 		case LEAPS_SEEK_NAME:
 			if (*in == ' ')
@@ -51,11 +52,10 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 			oa.len = 0;
 			m = match_map;
 			n = 0;
-			w = 0;
 			pending_close_quote = 0;
 			while (m) {
 				if (m & 1) {
-					// lwsl_ext("    m=%d, n=%d\n", m, n);
+					lwsl_ext("    m=%d, n=%d, w=%d\n", m, n, w);
 
 					if (*in == opts[n].name[w]) {
 						if (!opts[n].name[w + 1]) {
@@ -68,8 +68,10 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 						}
 					} else {
 						match_map &= ~(1 << n);
-						if (!match_map)
+						if (!match_map) {
+							lwsl_ext("empty match map\n");
 							return -1;
+						}
 					}
 				}
 				m >>= 1;
