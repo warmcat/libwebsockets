@@ -818,6 +818,7 @@ struct _lws_websocket_related {
 	unsigned int rx_user_buffer_head;
 	unsigned char mask_nonce[4];
 	unsigned char frame_mask_index;
+	unsigned int rx_ubuf_alloc;
 	size_t rx_packet_length;
 	unsigned char opcode;
 	unsigned int final:1;
