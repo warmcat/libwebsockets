@@ -767,6 +767,7 @@ check_accept:
 		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
 		goto bail2;
 	}
+       wsi->u.ws.rx_ubuf_alloc = n;
 	lwsl_info("Allocating client RX buffer %d\n", n);
 
 	if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF, (const char *)&n, sizeof n)) {
