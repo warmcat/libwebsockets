@@ -372,7 +372,8 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
 	if (addr4.sin_family == AF_UNSPEC)
 		return -1;
 
-	lws_plat_inet_ntop(AF_INET, &addr4.sin_addr, rip, rip_len);
+	if (lws_plat_inet_ntop(AF_INET, &addr4.sin_addr, rip, rip_len) == NULL)
+		return -1;
 
 	return 0;
 #else
