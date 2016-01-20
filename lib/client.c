@@ -719,7 +719,7 @@ check_accept:
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_ACCEPT);
 	if (strcmp(p, wsi->u.hdr.ah->initial_handshake_hash_base64)) {
-		lwsl_warn("lws_client_int_s_hs: accept %s wrong vs %s\n", p,
+		lwsl_warn("lws_client_int_s_hs: accept '%s' wrong vs '%s'\n", p,
 				  wsi->u.hdr.ah->initial_handshake_hash_base64);
 		goto bail2;
 	}

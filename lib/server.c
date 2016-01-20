@@ -137,7 +137,14 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 int
 _libwebsocket_rx_flow_control(struct libwebsocket *wsi)
 {
-	struct libwebsocket_context *context = wsi->protocol->owning_server;
+	struct libwebsocket_context *context;
+
+	if (!wsi)
+		return 0;
+
+	context = wsi->protocol->owning_server;
+	if (context->being_destroyed)
+		return 0;
 
 	/* there is no pending change */
 	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE))

@@ -503,6 +503,8 @@ struct libwebsocket_context {
 #endif
     struct lws_token_limits *token_limits;
 	void *user_space;
+
+	unsigned int being_destroyed:1;
 };
 
 enum {

@@ -299,6 +299,8 @@ libwebsocket_context_destroy(struct libwebsocket_context *context)
 	if (!context)
 		return;
 
+	context->being_destroyed = 1;
+
 #ifdef LWS_LATENCY
 	if (context->worst_latency_info[0])
 		lwsl_notice("Worst latency: %s\n", context->worst_latency_info);
