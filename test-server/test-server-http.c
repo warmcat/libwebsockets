@@ -62,7 +62,7 @@ struct serveable {
 void
 dump_handshake_info(struct lws *wsi)
 {
-	int n = 0;
+	int n = 0, len;
 	char buf[256];
 	const unsigned char *c;
 
@@ -73,12 +73,14 @@ dump_handshake_info(struct lws *wsi)
 			continue;
 		}
 
-		if (!lws_hdr_total_length(wsi, n)) {
+		len = lws_hdr_total_length(wsi, n);
+		if (!len || len > sizeof(buf) - 1) {
 			n++;
 			continue;
 		}
 
 		lws_hdr_copy(wsi, buf, sizeof buf, n);
+		buf[sizeof(buf) - 1] = '\0';
 
 		fprintf(stderr, "    %s = %s\n", (char *)c, buf);
 		n++;
