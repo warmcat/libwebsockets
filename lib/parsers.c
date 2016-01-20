@@ -281,7 +281,8 @@ int libwebsocket_parse(
 		case URIES_SEEN_PERCENT_H1:
 			if (char_to_hex(c) < 0) {
 				/* regurgitate */
-				issue_char(wsi, '%');
+				if (issue_char(wsi, '%') < 0)
+					return -1;
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* regurgitate + assess */
 				if (libwebsocket_parse(context, wsi, wsi->u.hdr.esc_stash) < 0)
