@@ -1555,10 +1555,24 @@ lws_b64_decode_string(const char *in, char *out, int out_size);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_library_version(void);
 
-/* access to headers... only valid while headers valid */
+/*
+ *  Access to http headers
+ *
+ *  In lws the client http headers are temporarily malloc'd only for the
+ *  duration of the http part of the handshake.  It's because in most cases,
+ *  the header content is ignored for the whole rest of the connection lifetime
+ *  and would then just be taking up space needlessly.
+ *
+ *  During LWS_CALLBACK_HTTP when the URI path is delivered is the last time
+ *  the http headers are still allocated, you can use these apis then to
+ *  look at and copy out interesting header content (cookies, etc)
+ */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx);
 
 /*
  * copies the whole, aggregated header, even if it was delivered in
@@ -1575,6 +1589,7 @@ lws_hdr_copy(struct lws *wsi, char *dest, int len, enum lws_token_indexes h);
 LWS_VISIBLE LWS_EXTERN int
 lws_hdr_copy_fragment(struct lws *wsi, char *dest, int len,
 		      enum lws_token_indexes h, int frag_idx);
+
 
 /* get the active file operations struct */
 LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops *
