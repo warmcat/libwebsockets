@@ -230,7 +230,7 @@ lws_plat_insert_socket_into_fds(struct lws_context *context,
 {
 	(void)wsi;
 	lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
-	context->fds[context->fds_count++].revents = 0;
+	context->pt[0].fds[context->pt[0].fds_count++].revents = 0;
 }
 
 extern "C" LWS_VISIBLE void

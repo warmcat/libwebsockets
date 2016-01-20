@@ -35,8 +35,9 @@ namespace {
 }
 using namespace mbed::Sockets::v0;
 
+
+struct sockaddr_in;
 struct lws;
-struct lws_context;
 
 class lws_conn {
 	public:
@@ -95,6 +96,7 @@ extern "C" {
 #endif
 
 #ifdef MBED_OPERATORS
+struct sockaddr_in;
 #define LWS_POSIX 0
 #else
 #define LWS_POSIX 1

@@ -1223,6 +1223,14 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
                                   enum lws_extension_callback_reasons reason,
                                   void *user, void *in, size_t len)
 {
+	(void)context;
+	(void)ext;
+	(void)wsi;
+	(void)reason;
+	(void)user;
+	(void)in;
+	(void)len;
+
 	return 0;
 }
 #endif

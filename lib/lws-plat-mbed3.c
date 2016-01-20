@@ -87,6 +87,12 @@ lws_cancel_service(struct lws_context *context)
 	(void)context;
 }
 
+LWS_VISIBLE void
+lws_cancel_service_pt(struct lws *wsi)
+{
+	(void)wsi;
+}
+
 LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 {
 	printf("%d: %s", level, line);
