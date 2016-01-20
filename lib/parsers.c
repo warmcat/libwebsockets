@@ -120,6 +120,9 @@ LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 	int n = 0;
 	int f = wsi->u.hdr.ah->frag_index[h];
 
+	if (!f)
+		return -1;
+
 	while (n < frag_idx) {
 		f = wsi->u.hdr.ah->frags[f].nfrag;
 		if (!f)
