@@ -270,8 +270,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 
 bail:
-	/* free up his parsing allocations */
-	lws_free_header_table(wsi);
+	/* caller will free up his parsing allocations */
 	return -1;
 }
 
