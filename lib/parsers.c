@@ -27,7 +27,8 @@ unsigned char lextable[] = {
 
 #define FAIL_CHAR 0x08
 
-int lextable_decode(int pos, char c)
+int
+LWS_WARN_UNUSED_RESULT lextable_decode(int pos, char c)
 {
 	if (c >= 'A' && c <= 'Z')
 		c += 'a' - 'A';
@@ -59,7 +60,8 @@ int lextable_decode(int pos, char c)
 	}
 }
 
-int lws_allocate_header_table(struct lws *wsi)
+int
+LWS_WARN_UNUSED_RESULT lws_allocate_header_table(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
 	int n;
@@ -315,7 +317,8 @@ static signed char char_to_hex(const char c)
 	return -1;
 }
 
-static int issue_char(struct lws *wsi, unsigned char c)
+static int LWS_WARN_UNUSED_RESULT
+issue_char(struct lws *wsi, unsigned char c)
 {
 	unsigned short frag_len;
 
@@ -350,7 +353,8 @@ static int issue_char(struct lws *wsi, unsigned char c)
 	return 1;
 }
 
-int lws_parse(struct lws *wsi, unsigned char c)
+int LWS_WARN_UNUSED_RESULT
+lws_parse(struct lws *wsi, unsigned char c)
 {
 	static const unsigned char methods[] = {
 		WSI_TOKEN_GET_URI,
@@ -422,7 +426,8 @@ int lws_parse(struct lws *wsi, unsigned char c)
 		case URIES_SEEN_PERCENT_H1:
 			if (char_to_hex(c) < 0) {
 				/* regurgitate */
-				issue_char(wsi, '%');
+				if (issue_char(wsi, '%') < 0)
+					return -1;
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* regurgitate + assess */
 				if (lws_parse(wsi, wsi->u.hdr.esc_stash) < 0)

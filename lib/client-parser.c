@@ -389,10 +389,9 @@ spill:
 			 * we do not care about how it went, we are closing
 			 * immediately afterwards
 			 */
-			lws_write(wsi, (unsigned char *)
-			   &wsi->u.ws.rx_ubuf[
-				LWS_PRE],
-				wsi->u.ws.rx_ubuf_head, LWS_WRITE_CLOSE);
+			lws_write(wsi,
+				  (unsigned char *)&wsi->u.ws.rx_ubuf[LWS_PRE],
+				  wsi->u.ws.rx_ubuf_head, LWS_WRITE_CLOSE);
 			wsi->state = LWSS_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
 			return -1;

@@ -1026,13 +1026,13 @@ lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
 LWS_EXTERN void
 lws_set_protocol_write_pending(struct lws *wsi,
 			       enum lws_pending_protocol_send pend);
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_client_rx_sm(struct lws *wsi, unsigned char c);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_parse(struct lws *wsi, unsigned char c);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_action(struct lws *wsi);
 
 LWS_EXTERN int
@@ -1053,27 +1053,27 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd);
 #define delete_from_fd(A,B) A->lws_lookup[B]=0
 #endif
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_service_timeout_check(struct lws *wsi, unsigned int sec);
 
-LWS_EXTERN struct lws *
+LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_2(struct lws *wsi);
 
-LWS_VISIBLE struct lws *
-lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const char *path, const char *host);
+LWS_VISIBLE struct lws * LWS_WARN_UNUSED_RESULT
+lws_client_reset(struct lws *wsi, int ssl, const char *address, int port,
+		 const char *path, const char *host);
 
-
-LWS_EXTERN struct lws *
+LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_create_new_server_wsi(struct lws_context *context);
 
-LWS_EXTERN char *
+LWS_EXTERN char * LWS_WARN_UNUSED_RESULT
 lws_generate_client_handshake(struct lws *wsi, char *pkt);
 
 LWS_EXTERN int
@@ -1088,17 +1088,14 @@ LWS_VISIBLE void
 lws_context_init_extensions(struct lws_context_creation_info *info,
 			    struct lws_context *context);
 LWS_EXTERN int
-lws_any_extension_handled(struct lws *wsi,
-			  enum lws_extension_callback_reasons r,
+lws_any_extension_handled(struct lws *wsi, enum lws_extension_callback_reasons r,
 			  void *v, size_t len);
 
 LWS_EXTERN int
-lws_ext_cb_active(struct lws *wsi, int reason,
-				 void *buf, int len);
+lws_ext_cb_active(struct lws *wsi, int reason, void *buf, int len);
 LWS_EXTERN int
-lws_ext_cb_all_exts(struct lws_context *context,
-					 struct lws *wsi, int reason,
-					 void *arg, int len);
+lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi, int reason,
+		    void *arg, int len);
 
 #else
 #define lws_any_extension_handled(_a, _b, _c, _d) (0)
@@ -1108,19 +1105,19 @@ lws_ext_cb_all_exts(struct lws_context *context,
 #define lws_context_init_extensions(_a, _b)
 #endif
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_client_interpret_server_handshake(struct lws *wsi);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_rx_sm(struct lws *wsi, unsigned char c);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
 
 LWS_EXTERN void
 lws_union_transition(struct lws *wsi, enum connection_mode mode);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
 			    enum lws_callback_reasons reason, void *user,
 			    void *in, size_t len);
@@ -1165,16 +1162,16 @@ void lws_http2_configure_if_upgraded(struct lws *wsi);
 LWS_EXTERN int
 lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_allocate_header_table(struct lws *wsi);
 
 LWS_EXTERN int
 lws_free_header_table(struct lws *wsi);
 
-LWS_EXTERN char *
+LWS_EXTERN char * LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s);
 
 LWS_EXTERN int
@@ -1188,7 +1185,7 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 			    struct lws_context *context);
 LWS_EXTERN int
 handshake_0405(struct lws_context *context, struct lws *wsi);
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len);
 LWS_EXTERN void
 lws_server_get_canonical_hostname(struct lws_context *context,
@@ -1206,7 +1203,7 @@ LWS_EXTERN int get_daemonize_pid();
 #endif
 
 #if !defined(MBED_OPERATORS)
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 interface_to_sa(struct lws_context *context, const char *ifname,
 		struct sockaddr_in *addr, size_t addrlen);
 #endif
@@ -1232,13 +1229,13 @@ enum lws_ssl_capable_status {
 #else
 #define LWS_SSL_ENABLED(context) (context->use_ssl)
 LWS_EXTERN int openssl_websocket_private_data_index;
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len);
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len);
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending(struct lws *wsi);
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_server_socket_service_ssl(struct lws **wsi, struct lws *new_wsi,
 			      lws_sockfd_type accept_fd,
 			      struct lws_pollfd *pollfd);
@@ -1268,13 +1265,13 @@ lws_context_init_http2_ssl(struct lws_context *context);
 #endif
 #endif
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending_no_ssl(struct lws *wsi);
 
 #ifndef LWS_NO_CLIENT
@@ -1288,7 +1285,7 @@ lws_context_init_client_ssl(struct lws_context_creation_info *info,
 #else
 	#define lws_context_init_client_ssl(_a, _b) (0)
 #endif
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len);
 LWS_EXTERN void
 lws_decode_ssl_error(void);
@@ -1321,10 +1318,10 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
 /*
  * custom allocator
  */
-LWS_EXTERN void*
+LWS_EXTERN void *
 lws_realloc(void *ptr, size_t size);
 
-LWS_EXTERN void*
+LWS_EXTERN void * LWS_WARN_UNUSED_RESULT
 lws_zalloc(size_t size);
 
 #define lws_malloc(S)	lws_realloc(NULL, S)
@@ -1363,10 +1360,10 @@ LWS_EXTERN void
 lws_plat_drop_app_privileges(struct lws_context_creation_info *info);
 LWS_EXTERN unsigned long long
 time_in_microseconds(void);
-LWS_EXTERN const char *
+LWS_EXTERN const char * LWS_WARN_UNUSED_RESULT
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
 
 #ifdef __cplusplus

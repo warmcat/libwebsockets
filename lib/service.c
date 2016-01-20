@@ -390,7 +390,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	if (context->lserv_fd)
 		idx = wsi_from_fd(context, context->lserv_fd)->position_in_fds_table;
 #endif
-         /*
+	/*
 	 * you can call us with pollfd = NULL to just allow the once-per-second
 	 * global timeout checks; if less than a second since the last check
 	 * it returns immediately then.
