@@ -1,28 +1,31 @@
-Name: libwebsockets
-Version: 1.6.0
-Release: 1%{?dist}
-Summary: Websocket Server Library
+Name:		libwebsockets
+Version:	1.6.0
+Release:	2%{?dist}
+Summary:	A lightweight C library for Websockets
 
-Group: System Environment/Libraries
-License: LGPLv2 with exceptions
-URL: http://warmcat.com
-Source0: %{name}-%{version}.tar.gz
-BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
+Group:		System Environment/Libraries
+License:	LGPLv2 with exceptions and MIT
+URL:		http://libwebsockets.org
+Source0:	https://github.com/warmcat/libwebsockets/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 
-BuildRequires: openssl-devel cmake
-Requires: openssl
+BuildRequires:	cmake
+BuildRequires:	openssl-devel
+Requires:	openssl
+Provides:	bundled(base64-decode)
 
 %description
-Webserver server library
+This is the libwebsockets C library for lightweight websocket clients and
+servers.
 
 %package devel
-Summary: Development files for libwebsockets
-Group: Development/Libraries
-Requires: %{name} = %{version}-%{release}
-Requires: openssl-devel
+Summary:	Headers for developing programs that will use %{name}
+Group:		Development/Libraries
+Requires:	%{name}%{?_isa} = %{version}-%{release}
+Requires:	openssl-devel
 
 %description devel
-Development files for libwebsockets
+This package contains the header files needed for developing
+%{name} applications.
 
 %prep
 %setup -q
@@ -30,8 +33,15 @@ Development files for libwebsockets
 %build
 mkdir -p build
 cd build
-%cmake ..
-make
+%cmake \
+    -D LWS_LINK_TESTAPPS_DYNAMIC=ON \
+    -D LWS_USE_LIBEV=OFF \
+    -D LWS_USE_BUNDLED_ZLIB=OFF \
+    -D LWS_WITHOUT_BUILTIN_GETIFADDRS=ON \
+    -D LWS_WITHOUT_BUILTIN_SHA1=ON \
+    -D LWS_WITH_STATIC=OFF \
+    ..
+make %{?_smp_mflags}
 
 %install
 rm -rf $RPM_BUILD_ROOT
@@ -39,35 +49,29 @@ cd build
 make install DESTDIR=$RPM_BUILD_ROOT
 
 %post -p /sbin/ldconfig
+
 %postun -p /sbin/ldconfig
 
-%clean
-rm -rf $RPM_BUILD_ROOT
-
 %files
-%defattr(-,root,root,-)
-%attr(755,root,root)
-/usr/bin/libwebsockets-test-server
-/usr/bin/libwebsockets-test-server-extpoll
-/usr/bin/libwebsockets-test-server-pthreads
-/usr/bin/libwebsockets-test-client
-/usr/bin/libwebsockets-test-ping
-/usr/bin/libwebsockets-test-echo
-/usr/bin/libwebsockets-test-fraggle
-/usr/bin/libwebsockets-test-fuzxy
-/%{_libdir}/libwebsockets.so.6
-/%{_libdir}/libwebsockets.so
-/%{_libdir}/cmake/libwebsockets/LibwebsocketsConfig.cmake
-/%{_libdir}/cmake/libwebsockets/LibwebsocketsConfigVersion.cmake
-/usr/share/libwebsockets-test-server
-%doc
+%license LICENSE
+%doc README.md changelog
+%{_libdir}/%{name}.so.*
+%{_libdir}/cmake/%{name}/*
+
 %files devel
-%defattr(-,root,root,-)
-/usr/include/*
-%attr(755,root,root)
-/%{_libdir}/libwebsockets.a
-/%{_libdir}/pkgconfig/libwebsockets.pc
+%license LICENSE
+%doc README.coding.md README.test-apps.md libwebsockets-api-doc.html
+%{_bindir}/%{name}*
+%{_includedir}/%{name}.h
+%{_includedir}/lws_config.h
+%{_libdir}/%{name}.so
+%{_libdir}/pkgconfig/%{name}.pc
+%{_datadir}/libwebsockets-test-server
 
 %changelog
+* Tue Jan 19 2016 Andrew Cooks <acooks@linux.com> 1.6.0-2
+- Merge improvements from previously reviewed spec on RH bug #1198498
+- Fetch tagged release from GH
+
 * Sun Jan 17 2016 Andrew Cooks <acooks@linux.com> 1.6.0-1
-- Bump version to 1.6.0
+- First attempt at a repeatable packaging process
