@@ -149,6 +149,9 @@ bail:
 int
 _lws_rx_flow_control(struct lws *wsi)
 {
+	if (!wsi || wsi->context->being_destroyed)
+		return 0;
+
 	/* there is no pending change */
 	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE))
 		return 0;

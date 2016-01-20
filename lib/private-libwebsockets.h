@@ -535,6 +535,7 @@ struct lws_context {
 	void *user_space;
 
 	struct lws_plat_file_ops fops;
+	unsigned int being_destroyed:1;
 };
 
 enum {
