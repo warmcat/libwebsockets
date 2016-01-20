@@ -339,6 +339,9 @@ int lws_parse(struct lws *wsi, unsigned char c)
 				ah->frags[ah->nfrag].nfrag = 0;
 				goto swallow;
 			}
+			/* + to space */
+			if (c == '+' && !enc)
+				c = ' ';
 			/* issue the first / always */
 			if (c == '/' && !ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS])
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
