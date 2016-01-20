@@ -185,15 +185,26 @@ static int issue_char(struct libwebsocket *wsi, unsigned char c)
 		return -1;
 	}
 
-	if( wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len >= 
+	if (wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len >= 
 		wsi->u.hdr.current_token_limit) {
 		lwsl_warn("header %i exceeds limit\n", wsi->u.hdr.parser_state);
 		return 1;
-	};
+	}
 
 	wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = c;
 	if (c)
 		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
+
+	/* Insert a null character when we *hit* the limit: */
+	if (wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len  == wsi->u.hdr.current_token_limit) {
+		if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
+			lwsl_warn("excessive header content 2\n");
+			return -1;
+		}
+		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
+		lwsl_warn("header %i exceeds limit %d\n",
+			  wsi->u.hdr.parser_state, wsi->u.hdr.current_token_limit);
+	}
 
 	return 0;
 }
@@ -294,6 +305,8 @@ int libwebsocket_parse(
 
 		switch (wsi->u.hdr.ups) {
 		case URIPS_IDLE:
+			if (!c)
+				return -1;
 			/* issue the first / always */
 			if (c == '/')
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
@@ -356,7 +369,8 @@ int libwebsocket_parse(
 
 		if (c == '?') { /* start of URI arguments */
 			/* seal off uri header */
-			wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
+			if (issue_char(wsi, '\0') < 0)
+				return -1;
 
 			/* move to using WSI_TOKEN_HTTP_URI_ARGS */
 			wsi->u.hdr.ah->next_frag_index++;
@@ -504,13 +518,8 @@ start_fragment:
 		wsi->u.hdr.ah->frags[n].next_frag_index =
 						 wsi->u.hdr.ah->next_frag_index;
 
-		if (wsi->u.hdr.ah->pos == sizeof(wsi->u.hdr.ah->data)) {
-			lwsl_warn("excessive header content\n");
+		if (issue_char(wsi, ' ') < 0)
 			return -1;
-		}
-
-		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = ' ';
-		wsi->u.hdr.ah->frags[wsi->u.hdr.ah->next_frag_index].len++;
 		break;
 
 		/* skipping arg part of a name we didn't recognize */
@@ -820,7 +829,7 @@ handle_first:
 			return 1;
 		}
 
-               if (wsi->u.ws.rx_ubuf_head + LWS_PRE >= wsi->u.ws.rx_ubuf_alloc) {
+               if (wsi->u.ws.rx_user_buffer_head + LWS_SEND_BUFFER_PRE_PADDING >= wsi->u.ws.rx_ubuf_alloc) {
                        lwsl_err("Attempted overflow\n");
                        return -1;
                }
