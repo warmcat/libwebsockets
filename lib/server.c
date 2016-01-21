@@ -327,6 +327,9 @@ int lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	/* LWSCM_WS_SERVING */
 
 	while (len--) {
+
+		assert(wsi->mode == LWSCM_HTTP_SERVING);
+
 		if (lws_parse(wsi, *(*buf)++)) {
 			lwsl_info("lws_parse failed\n");
 			goto bail_nuke_ah;
@@ -342,34 +345,40 @@ int lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 
 		/* is this websocket protocol or normal http 1.0? */
 
-		if (!lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE) ||
-		    !lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
-
-			ah = wsi->u.hdr.ah;
-
-			lws_union_transition(wsi, LWSCM_HTTP_SERVING_ACCEPTED);
-			wsi->state = LWSS_HTTP;
-			wsi->u.http.fd = LWS_INVALID_FILE;
-
-			/* expose it at the same offset as u.hdr */
-			wsi->u.http.ah = ah;
-			lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi, (void *)wsi->u.hdr.ah);
-
-			n = lws_http_action(wsi);
-
-			return n;
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
+			if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
+					"websocket")) {
+				lwsl_info("Upgrade to ws\n");
+				goto upgrade_ws;
+			}
+#ifdef LWS_USE_HTTP2
+			if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
+					"h2c-14")) {
+				lwsl_info("Upgrade to h2c-14\n");
+				goto upgrade_h2c;
+			}
+#endif
+			lwsl_err("Unknown upgrade\n");
+			/* dunno what he wanted to upgrade to */
+			goto bail_nuke_ah;
 		}
 
-		if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
-				"websocket"))
-			goto upgrade_ws;
-#ifdef LWS_USE_HTTP2
-		if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
-								"h2c-14"))
-			goto upgrade_h2c;
-#endif
-		/* dunno what he wanted to upgrade to */
-		goto bail_nuke_ah;
+		/* no upgrade ack... he remained as HTTP */
+
+		lwsl_info("No upgrade\n");
+		ah = wsi->u.hdr.ah;
+
+		lws_union_transition(wsi, LWSCM_HTTP_SERVING_ACCEPTED);
+		wsi->state = LWSS_HTTP;
+		wsi->u.http.fd = LWS_INVALID_FILE;
+
+		/* expose it at the same offset as u.hdr */
+		wsi->u.http.ah = ah;
+		lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi, (void *)wsi->u.hdr.ah);
+
+		n = lws_http_action(wsi);
+
+		return n;
 
 #ifdef LWS_USE_HTTP2
 upgrade_h2c:
@@ -554,8 +563,9 @@ upgrade_ws:
 			return 1;
 		}
 #endif
-		lwsl_parser("accepted v%02d connection\n",
-						       wsi->ietf_spec_revision);
+		lwsl_parser("accepted v%02d connection\n", wsi->ietf_spec_revision);
+
+		return 0;
 	} /* while all chars are handled */
 
 	return 0;
