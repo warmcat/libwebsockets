@@ -121,6 +121,7 @@ struct sockaddr_in;
 
 #define LWS_INLINE __inline
 #define LWS_VISIBLE
+#define LWS_WARN_UNUSED_RESULT
 
 #ifdef LWS_DLL
 #ifdef LWS_INTERNAL
