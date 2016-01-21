@@ -1,10 +1,6 @@
-%global commit0 1587c5537d4c9a70b2d7f8238464037d2b5bfe22
-%global gitbranch0 v1.6-stable
-%global shortcommit0 %(c=%{commit0}; echo ${c:0:7})
-
 Name:		libwebsockets
-Version:	1.6.0
-Release:	3%{?dist}
+Version:	1.6.3
+Release:	1%{?dist}
 Summary:	A lightweight C library for Websockets
 
 Group:		System Environment/Libraries
@@ -15,7 +11,7 @@ Group:		System Environment/Libraries
 # source tarball contains BSD and zlib licensed code in win32port.
 License:	LGPLv2 with exceptions and MIT and BSD and zlib
 URL:		http://libwebsockets.org
-Source0:	https://github.com/warmcat/%{name}/archive/%{commit0}.tar.gz#/%{name}-%{shortcommit0}.tar.gz
+Source0:	https://github.com/warmcat/libwebsockets/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 
 BuildRequires:	cmake
 BuildRequires:	openssl-devel
@@ -38,7 +34,7 @@ This package contains the header files needed for developing
 %{name} applications.
 
 %prep
-%setup -qn %{name}-%{commit0}
+%setup -qn %{name}-%{version}
 
 %build
 mkdir -p build
@@ -79,13 +75,9 @@ make install DESTDIR=$RPM_BUILD_ROOT
 %{_datadir}/libwebsockets-test-server
 
 %changelog
-* Wed Jan 20 2016 Andrew Cooks <acooks@linux.com> 1.6.0-3
-- Get source from the 1.6-stable branch
-- Bump release to pick up bug fixes.
+* Tue Feb 9 2016 Andrew Cooks <acooks@linux.com> 1.6.3-1
+- Update to version 1.6.3
 
-* Tue Jan 19 2016 Andrew Cooks <acooks@linux.com> 1.6.0-2
-- Merge improvements from previously reviewed spec on RH bug #1198498
-- Fetch tagged release from GH
 
 * Sun Jan 17 2016 Andrew Cooks <acooks@linux.com> 1.6.0-1
 - First attempt at a repeatable packaging process
