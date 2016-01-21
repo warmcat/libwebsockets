@@ -60,8 +60,8 @@ LWS_WARN_UNUSED_RESULT lextable_decode(int pos, char c)
 	}
 }
 
-int
-LWS_WARN_UNUSED_RESULT lws_allocate_header_table(struct lws *wsi)
+int LWS_WARN_UNUSED_RESULT
+lws_allocate_header_table(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
 	int n;
@@ -275,8 +275,31 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 	return wsi->u.hdr.ah->data + wsi->u.hdr.ah->frags[n].offset;
 }
 
-int lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h,
-			  const char *s)
+int LWS_WARN_UNUSED_RESULT
+lws_pos_in_bounds(struct lws *wsi)
+{
+	if (wsi->u.hdr.ah->pos < wsi->context->max_http_header_data)
+		return 0;
+
+	if (wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {
+		lwsl_err("Ran out of header data space\n");
+		return 1;
+	}
+
+	/*
+	 * with these tests everywhere, it should never be able to exceed
+	 * the limit, only meet the limit
+	 */
+
+	lwsl_err("%s: pos %d, limit %d\n", __func__, wsi->u.hdr.ah->pos,
+		 wsi->context->max_http_header_data);
+	assert(0);
+
+	return 1;
+}
+
+int LWS_WARN_UNUSED_RESULT
+lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 {
 	wsi->u.hdr.ah->nfrag++;
 	if (wsi->u.hdr.ah->nfrag == ARRAY_SIZE(wsi->u.hdr.ah->frags)) {
@@ -291,10 +314,9 @@ int lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h,
 	wsi->u.hdr.ah->frags[wsi->u.hdr.ah->nfrag].nfrag = 0;
 
 	do {
-		if (wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {
-			lwsl_err("Ran out of header data space\n");
+		if (lws_pos_in_bounds(wsi))
 			return -1;
-		}
+
 		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = *s;
 		if (*s)
 			wsi->u.hdr.ah->frags[wsi->u.hdr.ah->nfrag].len++;
@@ -322,10 +344,8 @@ issue_char(struct lws *wsi, unsigned char c)
 {
 	unsigned short frag_len;
 
-	if (wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {
-		lwsl_warn("excessive header content\n");
+	if (lws_pos_in_bounds(wsi))
 		return -1;
-	}
 
 	frag_len = wsi->u.hdr.ah->frags[wsi->u.hdr.ah->nfrag].len;
 	/*
@@ -341,10 +361,8 @@ issue_char(struct lws *wsi, unsigned char c)
 
 	/* Insert a null character when we *hit* the limit: */
 	if (frag_len == wsi->u.hdr.current_token_limit) {
-		if (wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {
-			lwsl_warn("excessive header content 2\n");
+		if (lws_pos_in_bounds(wsi))
 			return -1;
-		}
 		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
 		lwsl_warn("header %i exceeds limit %d\n",
 			  wsi->u.hdr.parser_state, wsi->u.hdr.current_token_limit);
@@ -375,8 +393,8 @@ lws_parse(struct lws *wsi, unsigned char c)
 
 		/* collect into malloc'd buffers */
 		/* optional initial space swallow */
-		if (!ah->frags[ah->frag_index[
-				      wsi->u.hdr.parser_state]].len && c == ' ')
+		if (!ah->frags[ah->frag_index[wsi->u.hdr.parser_state]].len &&
+		    c == ' ')
 			break;
 
 		for (m = 0; m < ARRAY_SIZE(methods); m++)
@@ -674,7 +692,7 @@ excessive:
 
 		ah->frags[ah->nfrag].offset = ah->pos;
 		ah->frags[ah->nfrag].len = 0;
-		ah->frags[ ah->nfrag].nfrag = 0;
+		ah->frags[ah->nfrag].nfrag = 0;
 
 		n = ah->frag_index[wsi->u.hdr.parser_state];
 		if (!n) { /* first fragment */
@@ -683,7 +701,7 @@ excessive:
 		}
 		/* continuation */
 		while (ah->frags[n].nfrag)
-				n = ah->frags[n].nfrag;
+			n = ah->frags[n].nfrag;
 		ah->frags[n].nfrag = ah->nfrag;
 
 		if (issue_char(wsi, ' ') < 0)

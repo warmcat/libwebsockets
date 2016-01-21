@@ -1449,7 +1449,7 @@ lws_add_http_header_status(struct lws *wsi,
 			   unsigned int code, unsigned char **p,
 			   unsigned char *end);
 
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi);
 
 #ifdef LWS_USE_LIBEV

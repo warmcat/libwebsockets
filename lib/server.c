@@ -626,8 +626,8 @@ lws_create_new_server_wsi(struct lws_context *context)
  *	  transaction if possible
  */
 
-LWS_VISIBLE
-int lws_http_transaction_completed(struct lws *wsi)
+LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
+lws_http_transaction_completed(struct lws *wsi)
 {
 	lwsl_debug("%s: wsi %p\n", __func__, wsi);
 	/* if we can't go back to accept new headers, drop the connection */
