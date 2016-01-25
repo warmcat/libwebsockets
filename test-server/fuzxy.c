@@ -59,6 +59,7 @@
 #include <syslog.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <sys/socket.h>
 #endif
 
 #define MAX_FUZZ_BUF (1024 * 1024)
