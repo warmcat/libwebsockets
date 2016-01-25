@@ -489,7 +489,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
     endif(UNIX)
 endif ()
 
-if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
+if ((CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX) AND NOT LWS_WITHOUT_TESTAPPS)
     if (UNIX)
 	# jeez clang understands -pthread but dies if he sees it at link time!
 	# http://stackoverflow.com/questions/2391194/what-is-gs-pthread-equiv-in-clang
