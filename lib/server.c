@@ -702,9 +702,16 @@ lws_http_transaction_completed(struct lws *wsi)
 	return 0;
 }
 
-/*
- * either returns new wsi bound to accept_fd, or closes accept_fd and
- * returns NULL, having cleaned up any new wsi pieces
+/**
+ * lws_adopt_socket() - adopt foreign socket as if listen socket accepted it
+ * @context: lws context
+ * @accept_fd: fd of already-accepted socket to adopt
+ *
+ * Either returns new wsi bound to accept_fd, or closes accept_fd and
+ * returns NULL, having cleaned up any new wsi pieces.
+ *
+ * LWS adopts the socket in http serving mode, it's ready to accept an upgrade
+ * to ws or just serve http.
  */
 
 LWS_VISIBLE struct lws *

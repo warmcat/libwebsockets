@@ -1673,6 +1673,9 @@ lws_client_connect_extended(struct lws_context *clients, const char *address,
 LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_via_info(struct lws_client_connect_info * ccinfo);
 
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd);
+
 LWS_VISIBLE LWS_EXTERN const char * LWS_WARN_UNUSED_RESULT
 lws_canonical_hostname(struct lws_context *context);
 

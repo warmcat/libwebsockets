@@ -208,9 +208,17 @@ discover how many threads were actually allowed when the context was created.
 It's required to implement locking in the user code in the same way that
 libwebsockets-test-server-pthread does it, for the FD locking callbacks.
 
-There is no knowledge or dependency in lws itself about pthreads.  How the
-locking is implemented is entirely up to the user code.
+If LWS_MAX_SMP=1, then there is no code related to pthreads compiled in the
+library.  If more than 1, a small amount of pthread mutex code is built into
+the library.
 
+8) New API
+
+LWS_VISIBLE struct lws *
+lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
+
+allows foreign sockets accepted by non-lws code to be adopted by lws as if they
+had just been accepted by lws' own listen socket.
 
 User api changes
 ----------------
