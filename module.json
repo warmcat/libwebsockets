@@ -1,6 +1,6 @@
 {
   "name": "websockets",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Libwebsockets",
   "keywords": [
     "lws",
@@ -14,8 +14,8 @@
   
   "extraIncludes": [ "build/frdm-k64f-gcc/generated/include" ],
   "dependencies": {
-    "mbed-drivers": "^0.11.1",
-    "sal-stack-lwip": "^1.0.4",
-    "sockets": "^1.0.0"
+    "mbed-drivers": "",
+    "sal-stack-lwip": "",
+    "sockets": ""
   }
 }
