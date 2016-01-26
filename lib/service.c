@@ -294,6 +294,9 @@ notify:
 int
 lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws **pwsi;
+
 	/*
 	 * if extensions want in on it (eg, we are a mux parent)
 	 * give them a chance to service child timeouts
@@ -309,8 +312,25 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 	 * connection
 	 */
 	if ((time_t)sec > wsi->pending_timeout_limit) {
-		lwsl_info("wsi %p: TIMEDOUT WAITING on %d\n",
-			  (void *)wsi, wsi->pending_timeout);
+#if LWS_POSIX
+		lwsl_notice("wsi %p: TIMEDOUT WAITING on %d (did hdr %d, ah %p, wl %d, pfd events %d)\n",
+			    (void *)wsi, wsi->pending_timeout,
+			    wsi->hdr_parsing_completed, wsi->u.hdr.ah,
+			    pt->ah_wait_list_length,
+			    pt->fds[wsi->sock].events);
+#endif
+		lws_pt_lock(pt);
+
+		pwsi = &pt->ah_wait_list;
+		while (*pwsi) {
+			if (*pwsi == wsi)
+				break;
+			pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+		}
+		lws_pt_unlock(pt);
+
+		if (!*pwsi)
+			lwsl_err("*** not on ah wait list ***\n");
 		/*
 		 * Since he failed a timeout, he already had a chance to do
 		 * something and was unable to... that includes situations like
@@ -372,9 +392,6 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 LWS_VISIBLE int
 lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int tsi)
 {
-#if LWS_POSIX
-	int idx = 0;
-#endif
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	lws_sockfd_type our_fd = 0, tmp_fd;
 	struct lws_tokens eff_buf;
@@ -386,10 +403,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	int n, m;
 	int more;
 
-#if LWS_POSIX
-	if (context->lserv_fd)
-		idx = wsi_from_fd(context, context->lserv_fd)->position_in_fds_table;
-#endif
 	/*
 	 * you can call us with pollfd = NULL to just allow the once-per-second
 	 * global timeout checks; if less than a second since the last check
@@ -409,7 +422,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 		if (pollfd)
 			our_fd = pollfd->fd;
 
-		wsi = context->timeout_list;
+		wsi = context->pt[tsi].timeout_list;
 		while (wsi) {
 			/* we have to take copies, because he may be deleted */
 			wsi1 = wsi->timeout_list;
@@ -423,6 +436,18 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			}
 			wsi = wsi1;
 		}
+#if 1
+		{
+			char s[300], *p = s;
+
+			for (n = 0; n < context->count_threads; n++)
+				p += sprintf(p, " %7lu (%5d), ",
+					     context->pt[n].count_conns,
+					     context->pt[n].fds_count);
+
+			lwsl_notice("load: %s\n", s);
+		}
+#endif
 	}
 
 	/* the socket we came to service timed out, nothing to do */
@@ -445,44 +470,10 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	 */
 
 #if LWS_POSIX
-	/*
-	 * deal with listen service piggybacking
-	 * every lserv_mod services of other fds, we
-	 * sneak one in to service the listen socket if there's anything waiting
-	 *
-	 * To handle connection storms, as found in ab, if we previously saw a
-	 * pending connection here, it causes us to check again next time.
-	 */
-
-	if (context->lserv_fd && pollfd != &pt->fds[idx]) {
-		context->lserv_count++;
-		if (context->lserv_seen ||
-		    context->lserv_count == context->lserv_mod) {
-			context->lserv_count = 0;
-			m = 1;
-			if (context->lserv_seen > 5)
-				m = 2;
-			while (m--) {
-				/*
-				 * even with extpoll, we prepared this
-				 * internal fds for listen
-				 */
-				n = lws_poll_listen_fd(&pt->fds[idx]);
-				if (n <= 0) {
-					if (context->lserv_seen)
-						context->lserv_seen--;
-					break;
-				}
-				/* there's a conn waiting for us */
-				lws_service_fd(context, &pt->fds[idx]);
-				context->lserv_seen++;
-			}
-		}
-	}
 
 	/* handle session socket closed */
 
-	if ((!(pollfd->revents & LWS_POLLIN)) &&
+	if ((!(pollfd->revents & pollfd->events & LWS_POLLIN)) &&
 	    (pollfd->revents & LWS_POLLHUP)) {
 
 		lwsl_debug("Session Socket %p (fd=%d) dead\n",

@@ -27,8 +27,8 @@ unsigned char lextable[] = {
 
 #define FAIL_CHAR 0x08
 
-int
-LWS_WARN_UNUSED_RESULT lextable_decode(int pos, char c)
+int LWS_WARN_UNUSED_RESULT
+lextable_decode(int pos, char c)
 {
 	if (c >= 'A' && c <= 'Z')
 		c += 'a' - 'A';
@@ -60,81 +60,172 @@ LWS_WARN_UNUSED_RESULT lextable_decode(int pos, char c)
 	}
 }
 
+static void
+lws_reset_header_table(struct lws *wsi)
+{
+	/* init the ah to reflect no headers or data have appeared yet */
+	memset(wsi->u.hdr.ah->frag_index, 0, sizeof(wsi->u.hdr.ah->frag_index));
+	wsi->u.hdr.ah->nfrag = 0;
+	wsi->u.hdr.ah->pos = 0;
+}
+
 int LWS_WARN_UNUSED_RESULT
 lws_allocate_header_table(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_pollargs pa;
+	struct lws **pwsi;
 	int n;
 
-	lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi,
-		 (void *)wsi->u.hdr.ah);
+	lwsl_info("%s: wsi %p: ah %p (tsi %d)\n", __func__, (void *)wsi,
+		 (void *)wsi->u.hdr.ah, wsi->tsi);
 
 	/* if we are already bound to one, just clear it down */
-	if (wsi->u.hdr.ah)
+	if (wsi->u.hdr.ah) {
+		lwsl_err("cleardown\n");
 		goto reset;
+	}
+
+	lws_pt_lock(pt);
+	pwsi = &pt->ah_wait_list;
+	while (*pwsi) {
+		if (*pwsi == wsi) {
+			/* if already waiting on list, if no new ah just ret */
+			if (pt->ah_count_in_use ==
+			    context->max_http_header_pool) {
+				lwsl_err("ah wl denied\n");
+				goto bail;
+			}
+			/* new ah.... remove ourselves from waiting list */
+			*pwsi = wsi->u.hdr.ah_wait_list;
+			wsi->u.hdr.ah_wait_list = NULL;
+			pt->ah_wait_list_length--;
+			break;
+		}
+		pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+	}
 	/*
-	 * server should have suppressed the accept of a new wsi before this
-	 * became the case.  If initiating multiple client connects, make sure
-	 * the ah pool is big enough to cope, or be prepared to retry
+	 * pool is all busy... add us to waiting list and return that we
+	 * weren't able to deliver it right now
 	 */
-	if (context->ah_count_in_use == context->max_http_header_pool) {
-		lwsl_err("No free ah\n");
-		return -1;
+	if (pt->ah_count_in_use == context->max_http_header_pool) {
+		lwsl_err("%s: adding %p to ah waiting list\n", __func__, wsi);
+		wsi->u.hdr.ah_wait_list = pt->ah_wait_list;
+		pt->ah_wait_list = wsi;
+		pt->ah_wait_list_length++;
+
+		/* we cannot accept input then */
+
+		_lws_change_pollfd(wsi, LWS_POLLIN, 0, &pa);
+		goto bail;
 	}
 
 	for (n = 0; n < context->max_http_header_pool; n++)
-		if (!context->ah_pool[n].in_use)
+		if (!pt->ah_pool[n].in_use)
 			break;
 
 	/* if the count of in use said something free... */
 	assert(n != context->max_http_header_pool);
 
-	wsi->u.hdr.ah = &context->ah_pool[n];
+	wsi->u.hdr.ah = &pt->ah_pool[n];
 	wsi->u.hdr.ah->in_use = 1;
+	pt->ah_count_in_use++;
 
-	context->ah_count_in_use++;
-	/* if we used up all the ah, defeat accepting new server connections */
-	if (context->ah_count_in_use == context->max_http_header_pool)
-		if (_lws_server_listen_accept_flow_control(context, 0))
-			return 1;
+	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 
-	lwsl_debug("%s: wsi %p: ah %p: count %d (on exit)\n",
-		 __func__, (void *)wsi, (void *)wsi->u.hdr.ah,
-		 context->ah_count_in_use);
+	lwsl_info("%s: wsi %p: ah %p: count %d (on exit)\n", __func__,
+		  (void *)wsi, (void *)wsi->u.hdr.ah, pt->ah_count_in_use);
+
+	lws_pt_unlock(pt);
 
 reset:
-	/* init the ah to reflect no headers or data have appeared yet */
-	memset(wsi->u.hdr.ah->frag_index, 0, sizeof(wsi->u.hdr.ah->frag_index));
-	wsi->u.hdr.ah->nfrag = 0;
-	wsi->u.hdr.ah->pos = 0;
+	lws_reset_header_table(wsi);
+	time(&wsi->u.hdr.ah->assigned);
 
 	return 0;
+
+bail:
+	lws_pt_unlock(pt);
+
+	return 1;
 }
 
 int lws_free_header_table(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
+	struct allocated_headers *ah = wsi->u.hdr.ah;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_pollargs pa;
+	struct lws **pwsi;
+	time_t now;
 
-	lwsl_debug("%s: wsi %p: ah %p (count = %d)\n", __func__, (void *)wsi,
-		 (void *)wsi->u.hdr.ah, context->ah_count_in_use);
+	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__, (void *)wsi,
+		 (void *)wsi->u.hdr.ah, wsi->tsi, pt->ah_count_in_use);
 
-	assert(wsi->u.hdr.ah);
-	if (!wsi->u.hdr.ah)
-		return 0;
+	lws_pt_lock(pt);
 
+	pwsi = &pt->ah_wait_list;
+	if (!wsi->u.hdr.ah) { /* remove from wait list if that's all */
+		if (wsi->socket_is_permanently_unusable)
+			while (*pwsi) {
+				if (*pwsi == wsi) {
+					lwsl_info("%s: wsi %p, removing from wait list\n",
+							__func__, wsi);
+					*pwsi = wsi->u.hdr.ah_wait_list;
+					wsi->u.hdr.ah_wait_list = NULL;
+					pt->ah_wait_list_length--;
+					goto bail;
+				}
+				pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+			}
+
+		goto bail;
+	}
+	time(&now);
+	if (now - wsi->u.hdr.ah->assigned > 3)
+		lwsl_err("header assign - free time %d\n",
+			 (int)(now - wsi->u.hdr.ah->assigned));
 	/* if we think we're freeing one, there should be one to free */
-	assert(context->ah_count_in_use > 0);
-
+	assert(pt->ah_count_in_use > 0);
+	/* and he should have been in use */
 	assert(wsi->u.hdr.ah->in_use);
-	wsi->u.hdr.ah->in_use = 0;
-
-	/* if we just freed up one ah, allow new server connection */
-	if (context->ah_count_in_use == context->max_http_header_pool)
-		if (_lws_server_listen_accept_flow_control(context, 1))
-			return 1;
-
-	context->ah_count_in_use--;
 	wsi->u.hdr.ah = NULL;
+
+	if (!*pwsi) {
+		ah->in_use = 0;
+		pt->ah_count_in_use--;
+
+		goto bail;
+	}
+
+	/* somebody else on same tsi is waiting, give it to him */
+
+	lwsl_info("pt wait list %p\n", *pwsi);
+	while ((*pwsi)->u.hdr.ah_wait_list)
+		pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+
+	wsi = *pwsi;
+	lwsl_info("last wsi in wait list %p\n", wsi);
+
+	wsi->u.hdr.ah = ah;
+	lws_reset_header_table(wsi);
+	time(&wsi->u.hdr.ah->assigned);
+
+	assert(wsi->position_in_fds_table != -1);
+
+	lwsl_info("%s: Enabling %p POLLIN\n", __func__, wsi);
+	/* his wait is over, let him progress */
+	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
+
+	/* point prev guy to next guy in list instead */
+	*pwsi = wsi->u.hdr.ah_wait_list;
+	wsi->u.hdr.ah_wait_list = NULL;
+	pt->ah_wait_list_length--;
+
+	assert(!!pt->ah_wait_list_length == !!(int)(long)pt->ah_wait_list);
+bail:
+	lws_pt_unlock(pt);
 
 	return 0;
 }
@@ -385,6 +476,8 @@ lws_parse(struct lws *wsi, unsigned char c)
 	struct allocated_headers *ah = wsi->u.hdr.ah;
 	struct lws_context *context = wsi->context;
 	unsigned int n, m, enc = 0;
+
+	assert(wsi->u.hdr.ah);
 
 	switch (wsi->u.hdr.parser_state) {
 	default:
@@ -651,8 +744,7 @@ swallow:
 			lwsl_parser("known hdr %d\n", n);
 			for (m = 0; m < ARRAY_SIZE(methods); m++)
 				if (n == methods[m] &&
-						ah->frag_index[
-							methods[m]]) {
+				    ah->frag_index[methods[m]]) {
 					lwsl_warn("Duplicated method\n");
 					return -1;
 				}

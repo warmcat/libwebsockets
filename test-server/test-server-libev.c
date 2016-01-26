@@ -23,6 +23,7 @@
 
 int close_testing;
 int max_poll_elements;
+int debug_level = 7;
 volatile int force_exit = 0;
 struct lws_context *context;
 struct lws_plat_file_ops fops_plat;
@@ -192,7 +193,6 @@ int main(int argc, char **argv)
 	ev_timer timeout_watcher;
 	char cert_path[1024];
 	char key_path[1024];
-	int debug_level = 7;
 	int use_ssl = 0;
 	int opts = 0;
 	int n = 0;

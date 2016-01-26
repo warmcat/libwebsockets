@@ -22,10 +22,79 @@
 #include "private-libwebsockets.h"
 
 int
+_lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
+{
+	struct lws_context *context;
+	struct lws_context_per_thread *pt;
+	int ret = 0, pa_events = 1;
+	struct lws_pollfd *pfd;
+	int sampled_tid, tid;
+
+	if (!wsi || wsi->position_in_fds_table < 0)
+		return 0;
+
+	context = wsi->context;
+	pt = &context->pt[(int)wsi->tsi];
+	assert(wsi->position_in_fds_table >= 0 &&
+	       wsi->position_in_fds_table < pt->fds_count);
+
+	pfd = &pt->fds[wsi->position_in_fds_table];
+	pa->fd = wsi->sock;
+	pa->prev_events = pfd->events;
+	pa->events = pfd->events = (pfd->events & ~_and) | _or;
+
+	if (context->protocols[0].callback(wsi, LWS_CALLBACK_CHANGE_MODE_POLL_FD,
+					   wsi->user_space, (void *)pa, 0)) {
+		ret = -1;
+		goto bail;
+	}
+
+	/*
+	 * if we changed something in this pollfd...
+	 *   ... and we're running in a different thread context
+	 *     than the service thread...
+	 *       ... and the service thread is waiting ...
+	 *         then cancel it to force a restart with our changed events
+	 */
+#if LWS_POSIX
+	pa_events = pa->prev_events != pa->events;
+#endif
+	if (pa_events) {
+
+		if (lws_plat_change_pollfd(context, wsi, pfd)) {
+			lwsl_info("%s failed\n", __func__);
+			ret = -1;
+			goto bail;
+		}
+
+		sampled_tid = context->service_tid;
+		if (sampled_tid) {
+			tid = context->protocols[0].callback(wsi,
+				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+			if (tid == -1) {
+				ret = -1;
+				goto bail;
+			}
+			if (tid != sampled_tid)
+				lws_cancel_service_pt(wsi);
+		}
+	}
+bail:
+	return ret;
+}
+
+int
 insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	int ret = 0;
+#ifndef LWS_NO_SERVER
+	struct lws_pollargs pa1;
+#endif
+
+	lwsl_info("%s: %p: tsi=%d, sock=%d, pos-in-fds=%d\n",
+		  __func__, wsi, wsi->tsi, wsi->sock, pt->fds_count);
 
 	if ((unsigned int)pt->fds_count >= context->fd_limit_per_thread) {
 		lwsl_err("Too many fds (%d)\n", context->max_fds);
@@ -47,83 +116,105 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 					   wsi->user_space, (void *) &pa, 1))
 		return -1;
 
+	lws_pt_lock(pt);
+	pt->count_conns++;
 	insert_wsi(context, wsi);
 	wsi->position_in_fds_table = pt->fds_count;
 	pt->fds[pt->fds_count].fd = wsi->sock;
 	pt->fds[pt->fds_count].events = LWS_POLLIN;
+
+	/* don't apply this logic to the listening socket... */
+//	if (wsi->mode != LWSCM_SERVER_LISTENER && !wsi->u.hdr.ah)
+//		pt->fds[pt->fds_count].events = 0;
+
+	pa.events = pt->fds[pt->fds_count].events;
 
 	lws_plat_insert_socket_into_fds(context, wsi);
 
 	/* external POLL support via protocol 0 */
 	if (context->protocols[0].callback(wsi, LWS_CALLBACK_ADD_POLL_FD,
 					   wsi->user_space, (void *) &pa, 0))
-		return -1;
+		ret =  -1;
+#ifndef LWS_NO_SERVER
+	/* if no more room, defeat accepts on this thread */
+	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1)
+		_lws_change_pollfd(pt->wsi_listening, LWS_POLLIN, 0, &pa1);
+#endif
+	lws_pt_unlock(pt);
 
 	if (context->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
 					   wsi->user_space, (void *)&pa, 1))
-		return -1;
+		ret = -1;
 
-	return 0;
+	return ret;
 }
 
 int
 remove_wsi_socket_from_fds(struct lws *wsi)
 {
-	int m;
+	int m, ret = 0;
 	struct lws *end_wsi;
 	struct lws_pollargs pa = { wsi->sock, 0, 0 };
+#ifndef LWS_NO_SERVER
+	struct lws_pollargs pa1;
+#endif
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
-	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
-
-	--pt->fds_count;
-
 #if !defined(_WIN32) && !defined(MBED_OPERATORS)
 	if (wsi->sock > context->max_fds) {
-		lwsl_err("Socket fd %d too high (%d)\n",
-			 wsi->sock, context->max_fds);
+		lwsl_err("fd %d too high (%d)\n", wsi->sock, context->max_fds);
 		return 1;
 	}
 #endif
-
-	lwsl_info("%s: wsi=%p, sock=%d, fds pos=%d\n", __func__,
-		  wsi, wsi->sock, wsi->position_in_fds_table);
 
 	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
 					   wsi->user_space, (void *)&pa, 1))
 		return -1;
 
-	m = wsi->position_in_fds_table; /* replace the contents for this */
+	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
-	/* have the last guy take up the vacant slot */
-	pt->fds[m] = pt->fds[pt->fds_count];
+	lws_pt_lock(pt);
+
+	lwsl_info("%s: wsi=%p, sock=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
+		  __func__, wsi, wsi->sock, wsi->position_in_fds_table,
+		  pt->fds_count, pt->fds[pt->fds_count].fd);
+
+	/* the guy who is to be deleted's slot index in pt->fds */
+	m = wsi->position_in_fds_table;
+
+	/* have the last guy take up the now vacant slot */
+	pt->fds[m] = pt->fds[pt->fds_count - 1];
 
 	lws_plat_delete_socket_from_fds(context, wsi, m);
 
-	/*
-	 * end guy's fds_lookup entry remains unchanged
-	 * (still same fd pointing to same wsi)
-	 */
-	/* end guy's "position in fds table" changed */
+	/* end guy's "position in fds table" is now the deletion guy's old one */
 	end_wsi = wsi_from_fd(context, pt->fds[pt->fds_count].fd);
+	assert(end_wsi);
 	end_wsi->position_in_fds_table = m;
+
 	/* deletion guy's lws_lookup entry needs nuking */
 	delete_from_fd(context, wsi->sock);
 	/* removed wsi has no position any more */
 	wsi->position_in_fds_table = -1;
 
 	/* remove also from external POLL support via protocol 0 */
-	if (lws_socket_is_valid(wsi->sock)) {
+	if (lws_socket_is_valid(wsi->sock))
 		if (context->protocols[0].callback(wsi, LWS_CALLBACK_DEL_POLL_FD,
-		    wsi->user_space, (void *) &pa, 0))
-			return -1;
-	}
+						   wsi->user_space, (void *) &pa, 0))
+			ret = -1;
+#ifndef LWS_NO_SERVER
+	/* if this made some room, accept connects on this thread */
+	if ((unsigned int)pt->fds_count < context->fd_limit_per_thread - 1)
+		_lws_change_pollfd(pt->wsi_listening, 0, LWS_POLLIN, &pa1);
+#endif
+	lws_pt_unlock(pt);
+
 	if (context->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
 					   wsi->user_space, (void *) &pa, 1))
-		return -1;
+		ret = -1;
 
-	return 0;
+	return ret;
 }
 
 int
@@ -131,11 +222,8 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 {
 	struct lws_context *context;
 	struct lws_context_per_thread *pt;
-	int tid;
-	int sampled_tid;
-	struct lws_pollfd *pfd;
+	int ret = 0;
 	struct lws_pollargs pa;
-	int pa_events = 1;
 
 	if (!wsi || !wsi->protocol || wsi->position_in_fds_table < 0)
 		return 1;
@@ -144,55 +232,20 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	if (!context)
 		return 1;
 
-	pt = &context->pt[(int)wsi->tsi];
-
-	pfd = &pt->fds[wsi->position_in_fds_table];
-	pa.fd = wsi->sock;
-
 	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
 					   wsi->user_space,  (void *) &pa, 0))
 		return -1;
 
-	pa.prev_events = pfd->events;
-	pa.events = pfd->events = (pfd->events & ~_and) | _or;
+	pt = &context->pt[(int)wsi->tsi];
 
-	if (context->protocols[0].callback(wsi, LWS_CALLBACK_CHANGE_MODE_POLL_FD,
-					   wsi->user_space, (void *) &pa, 0))
-		return -1;
-
-	/*
-	 * if we changed something in this pollfd...
-	 *   ... and we're running in a different thread context
-	 *     than the service thread...
-	 *       ... and the service thread is waiting ...
-	 *         then cancel it to force a restart with our changed events
-	 */
-#if LWS_POSIX
-	pa_events = pa.prev_events != pa.events;
-#endif
-	if (pa_events) {
-
-		if (lws_plat_change_pollfd(context, wsi, pfd)) {
-			lwsl_info("%s failed\n", __func__);
-			return 1;
-		}
-
-		sampled_tid = context->service_tid;
-		if (sampled_tid) {
-			tid = context->protocols[0].callback(wsi,
-				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
-			if (tid == -1)
-				return -1;
-			if (tid != sampled_tid)
-				lws_cancel_service_pt(wsi);
-		}
-	}
-
+	lws_pt_lock(pt);
+	ret = _lws_change_pollfd(wsi, _and, _or, &pa);
+	lws_pt_unlock(pt);
 	if (context->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
 					   wsi->user_space, (void *) &pa, 0))
-		return -1;
+		ret = -1;
 
-	return 0;
+	return ret;
 }
 
 
@@ -287,7 +340,7 @@ lws_callback_on_writable_all_protocol(const struct lws_context *context,
 {
 	const struct lws_context_per_thread *pt = &context->pt[0];
 	struct lws *wsi;
-	int n, m = context->count_threads;
+	unsigned int n, m = context->count_threads;
 
 	while (m--) {
 		for (n = 0; n < pt->fds_count; n++) {

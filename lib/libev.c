@@ -81,6 +81,7 @@ lws_initloop(struct lws_context *context, struct ev_loop *loop)
 	const char * backend_name;
 	int status = 0;
 	int backend;
+	int m = 0; /* !!! TODO add pt support */
 
 	if (!loop)
 		loop = ev_default_loop(0);
@@ -91,7 +92,7 @@ lws_initloop(struct lws_context *context, struct ev_loop *loop)
 	 * Initialize the accept w_accept with the listening socket
 	 * and register a callback for read operations
 	 */
-	ev_io_init(w_accept, lws_accept_cb, context->lserv_fd, EV_READ);
+	ev_io_init(w_accept, lws_accept_cb, context->pt[m].lserv_fd, EV_READ);
 	ev_io_start(context->io_loop,w_accept);
 
 	/* Register the signal watcher unless the user says not to */

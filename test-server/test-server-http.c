@@ -35,6 +35,8 @@
  *				using this protocol, including the sender
  */
 
+extern int debug_level;
+
 enum demo_protocols {
 	/* always first */
 	PROTOCOL_HTTP = 0,
@@ -117,8 +119,8 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 {
 	struct per_session_data__http *pss =
 			(struct per_session_data__http *)user;
-	static unsigned char buffer[4096];
-	unsigned long amount, file_len;
+	unsigned char buffer[4096 + LWS_PRE];
+	unsigned long amount, file_len, sent;
 	char leaf_path[1024];
 	const char *mimetype;
 	char *other_headers;
@@ -136,15 +138,16 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 
-		dump_handshake_info(wsi);
+		if (debug_level & LLL_INFO) {
+			dump_handshake_info(wsi);
 
-		/* dump the individual URI Arg parameters */
-		n = 0;
-		while (lws_hdr_copy_fragment(wsi, buf, sizeof(buf),
-					     WSI_TOKEN_HTTP_URI_ARGS, n) > 0) {
-			lwsl_info("URI Arg %d: %s\n", ++n, buf);
+			/* dump the individual URI Arg parameters */
+			n = 0;
+			while (lws_hdr_copy_fragment(wsi, buf, sizeof(buf),
+						     WSI_TOKEN_HTTP_URI_ARGS, n) > 0) {
+				lwsl_info("URI Arg %d: %s\n", ++n, buf);
+			}
 		}
-
 		if (len < 1) {
 			lws_return_http_status(wsi,
 						HTTP_STATUS_BAD_REQUEST, NULL);
@@ -153,8 +156,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		/* this example server has no concept of directories */
 		if (strchr((const char *)in + 1, '/')) {
-			lws_return_http_status(wsi,
-					       HTTP_STATUS_FORBIDDEN, NULL);
+			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 			goto try_to_reuse;
 		}
 
@@ -177,8 +179,10 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			pss->fd = lws_plat_file_open(wsi, leaf_path, &file_len,
 						     LWS_O_RDONLY);
 
-			if (pss->fd == LWS_INVALID_FILE)
+			if (pss->fd == LWS_INVALID_FILE) {
+				lwsl_err("faild to open file %s\n", leaf_path);
 				return -1;
+			}
 
 			/*
 			 * we will send a big jpeg file, but it could be
@@ -219,9 +223,11 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 * this is mandated by changes in HTTP2
 			 */
 
+			*p = '\0';
+			lwsl_info("%s\n", buffer + LWS_PRE);
+
 			n = lws_write(wsi, buffer + LWS_PRE, p - (buffer + LWS_PRE),
 				      LWS_WRITE_HTTP_HEADERS);
-
 			if (n < 0) {
 				lws_plat_file_close(wsi, pss->fd);
 				return -1;
@@ -284,7 +290,6 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		 * we'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION callback when
 		 * it's done
 		 */
-
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY:
@@ -308,9 +313,15 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		goto try_to_reuse;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+		lwsl_info("LWS_CALLBACK_HTTP_WRITEABLE\n");
+
+		if (pss->fd == LWS_INVALID_FILE)
+			goto try_to_reuse;
+
 		/*
 		 * we can send more of whatever it is we were sending
 		 */
+		sent = 0;
 		do {
 			/* we'd like the send this much */
 			n = sizeof(buffer) - LWS_PRE;
@@ -328,15 +339,16 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				n = m;
 
 			n = lws_plat_file_read(wsi, pss->fd,
-					       &amount, buffer +
-					        LWS_PRE, n);
+					       &amount, buffer + LWS_PRE, n);
 			/* problem reading, close conn */
-			if (n < 0)
+			if (n < 0) {
+				lwsl_err("problem reading file\n");
 				goto bail;
+			}
 			n = (int)amount;
 			/* sent it all, close conn */
 			if (n == 0)
-				goto flush_bail;
+				goto penultimate;
 			/*
 			 * To support HTTP2, must take care about preamble space
 			 *
@@ -344,46 +356,28 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 * is handled by the library itself if you sent a
 			 * content-length header
 			 */
-			m = lws_write(wsi, buffer + LWS_PRE,
-				      n, LWS_WRITE_HTTP);
-			if (m < 0)
+			m = lws_write(wsi, buffer + LWS_PRE, n, LWS_WRITE_HTTP);
+			if (m < 0) {
+				lwsl_err("write failed\n");
 				/* write failed, close conn */
 				goto bail;
-
-			/*
-			 * http2 won't do this
-			 */
-			if (m != n)
-				/* partial write, adjust */
-				if (lws_plat_file_seek_cur(wsi, pss->fd, m - n) ==
-							     (unsigned long)-1)
-					goto bail;
-
+			}
 			if (m) /* while still active, extend timeout */
-				lws_set_timeout(wsi,
-						PENDING_TIMEOUT_HTTP_CONTENT, 5);
+				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 5);
+			sent += m;
 
-			/* if we have indigestion, let him clear it
-			 * before eating more */
-			if (lws_partial_buffered(wsi))
-				break;
-
-		} while (!lws_send_pipe_choked(wsi));
-
+		} while (!lws_send_pipe_choked(wsi) && (sent < 1024 * 1024));
 later:
 		lws_callback_on_writable(wsi);
 		break;
-flush_bail:
-		/* true if still partial pending */
-		if (lws_partial_buffered(wsi)) {
-			lws_callback_on_writable(wsi);
-			break;
-		}
+penultimate:
 		lws_plat_file_close(wsi, pss->fd);
+		pss->fd = LWS_INVALID_FILE;
 		goto try_to_reuse;
 
 bail:
 		lws_plat_file_close(wsi, pss->fd);
+
 		return -1;
 
 	/*

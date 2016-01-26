@@ -166,14 +166,13 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	int accept_len;
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST) ||
-				!lws_hdr_total_length(wsi, WSI_TOKEN_KEY)) {
+	    !lws_hdr_total_length(wsi, WSI_TOKEN_KEY)) {
 		lwsl_parser("handshake_04 missing pieces\n");
 		/* completed header processing, but missing some bits */
 		goto bail;
 	}
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_KEY) >=
-						     MAX_WEBSOCKET_04_KEY_LEN) {
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_KEY) >= MAX_WEBSOCKET_04_KEY_LEN) {
 		lwsl_warn("Client key too long %d\n", MAX_WEBSOCKET_04_KEY_LEN);
 		goto bail;
 	}
@@ -183,8 +182,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	 * overflow
 	 */
 	n = sprintf((char *)pt->serv_buf,
-				"%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
-				lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
+		    "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
+		    lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
 
 	lws_SHA1(pt->serv_buf, n, hash);
 

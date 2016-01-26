@@ -592,11 +592,8 @@ lws_ssl_close(struct lws *wsi)
 /* leave all wsi close processing to the caller */
 
 LWS_VISIBLE int
-lws_server_socket_service_ssl(struct lws **pwsi, struct lws *new_wsi,
-			      lws_sockfd_type accept_fd,
-			      struct lws_pollfd *pollfd)
+lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 {
-	struct lws *wsi = *pwsi;
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n, m;
@@ -606,43 +603,41 @@ lws_server_socket_service_ssl(struct lws **pwsi, struct lws *new_wsi,
 
 	if (!LWS_SSL_ENABLED(context))
 		return 0;
-
+lwsl_err("%s: mode %d, state %d\n", __func__, wsi->mode, wsi->state);
 	switch (wsi->mode) {
-	case LWSCM_SERVER_LISTENER:
+	case LWSCM_SSL_INIT:
 
-		if (!new_wsi) {
-			lwsl_err("no new_wsi\n");
+		if (!wsi)
 			return 0;
-		}
 
-		new_wsi->ssl = SSL_new(context->ssl_ctx);
-		if (new_wsi->ssl == NULL) {
+		wsi->ssl = SSL_new(context->ssl_ctx);
+		if (wsi->ssl == NULL) {
 			lwsl_err("SSL_new failed: %s\n",
-				 ERR_error_string(SSL_get_error(new_wsi->ssl, 0), NULL));
+				 ERR_error_string(SSL_get_error(wsi->ssl, 0), NULL));
 			lws_decode_ssl_error();
 			compatible_close(accept_fd);
 			goto fail;
 		}
 
-		SSL_set_ex_data(new_wsi->ssl,
+		SSL_set_ex_data(wsi->ssl,
 			openssl_websocket_private_data_index, context);
 
-		SSL_set_fd(new_wsi->ssl, accept_fd);
+		SSL_set_fd(wsi->ssl, accept_fd);
 
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
-		CyaSSL_set_using_nonblock(new_wsi->ssl, 1);
+		CyaSSL_set_using_nonblock(wsi->ssl, 1);
 #else
-		wolfSSL_set_using_nonblock(new_wsi->ssl, 1);
+		wolfSSL_set_using_nonblock(wsi->ssl, 1);
 #endif
 #else
-		SSL_set_mode(new_wsi->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
-		bio = SSL_get_rbio(new_wsi->ssl);
+		SSL_set_mode(wsi->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+		bio = SSL_get_rbio(wsi->ssl);
 		if (bio)
 			BIO_set_nbio(bio, 1); /* nonblocking */
 		else
 			lwsl_notice("NULL rbio\n");
-		bio = SSL_get_wbio(new_wsi->ssl);
+		bio = SSL_get_wbio(wsi->ssl);
 		if (bio)
 			BIO_set_nbio(bio, 1); /* nonblocking */
 		else
@@ -655,8 +650,6 @@ lws_server_socket_service_ssl(struct lws **pwsi, struct lws *new_wsi,
 		 * pieces come if we're not sorted yet
 		 */
 
-		*pwsi = new_wsi;
-		wsi = *pwsi;
 		wsi->mode = LWSCM_SSL_ACK_PENDING;
 		if (insert_wsi_socket_into_fds(context, wsi))
 			goto fail;
@@ -754,7 +747,7 @@ go_again:
 			break;
 		}
 		lwsl_debug("SSL_accept failed skt %u: %s\n",
-			   pollfd->fd, ERR_error_string(m, NULL));
+			   wsi->sock, ERR_error_string(m, NULL));
 		goto fail;
 
 accepted:

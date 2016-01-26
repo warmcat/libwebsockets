@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2015 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2016 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -34,6 +34,9 @@
 #include <limits.h>
 #include <stdarg.h>
 #include <assert.h>
+#if LWS_MAX_SMP > 1
+#include <pthread.h>
+#endif
 
 #ifdef LWS_HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -60,6 +63,7 @@
 #define MSG_NOSIGNAL 0
 #define SHUT_RDWR SD_BOTH
 #define SOL_TCP IPPROTO_TCP
+#define SHUT_WR SD_SEND
 
 #define compatible_close(fd) closesocket(fd)
 #define lws_set_blocking_send(wsi) wsi->sock_send_blocking = 1
@@ -280,11 +284,11 @@ extern "C" {
 #endif
 #endif
 
-#ifndef LWS_MAX_HEADER_LEN
-#define LWS_MAX_HEADER_LEN 1024
+#ifndef LWS_DEF_HEADER_LEN
+#define LWS_DEF_HEADER_LEN 1024
 #endif
-#ifndef LWS_MAX_HEADER_POOL
-#define LWS_MAX_HEADER_POOL 16
+#ifndef LWS_DEF_HEADER_POOL
+#define LWS_DEF_HEADER_POOL 16
 #endif
 #ifndef LWS_MAX_PROTOCOLS
 #define LWS_MAX_PROTOCOLS 5
@@ -299,7 +303,7 @@ extern "C" {
 #define SPEC_LATEST_SUPPORTED 13
 #endif
 #ifndef AWAITING_TIMEOUT
-#define AWAITING_TIMEOUT 5
+#define AWAITING_TIMEOUT 20
 #endif
 #ifndef CIPHERS_LIST_STRING
 #define CIPHERS_LIST_STRING "DEFAULT"
@@ -314,12 +318,6 @@ extern "C" {
 #ifndef SYSTEM_RANDOM_FILEPATH
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
 #endif
-
-/*
- * if not in a connection storm, check for incoming
- * connections this many normal connection services
- */
-#define LWS_lserv_mod 10
 
 enum lws_websocket_opcodes_07 {
 	LWSWSOPC_CONTINUATION = 0,
@@ -347,6 +345,7 @@ enum lws_connection_states {
 	LWSS_RETURNED_CLOSE_ALREADY,
 	LWSS_AWAITING_CLOSE_ACK,
 	LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE,
+	LWSS_SHUTDOWN,
 
 	LWSS_HTTP2_AWAIT_CLIENT_PREFACE,
 	LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS,
@@ -411,6 +410,7 @@ enum connection_mode {
 
 	/* transient, ssl delay hiding */
 	LWSCM_SSL_ACK_PENDING,
+	LWSCM_SSL_INIT,
 
 	/* transient modes */
 	LWSCM_WSCL_WAITING_CONNECT,
@@ -481,6 +481,7 @@ struct allocated_headers {
 	 * lws_fragments->nfrag for continuation.
 	 */
 	struct lws_fragments frags[WSI_TOKEN_COUNT * 2];
+	time_t assigned;
 	/*
 	 * for each recognized token, frag_index says which frag[] his data
 	 * starts in (0 means the token did not appear)
@@ -503,12 +504,26 @@ struct allocated_headers {
  */
 
 struct lws_context_per_thread {
+#if LWS_MAX_SMP > 1
+	pthread_mutex_t lock;
+#endif
 	struct lws_pollfd *fds;
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
+	struct lws *timeout_list;
+	void *http_header_data;
+	struct allocated_headers *ah_pool;
+	struct lws *ah_wait_list;
+	int ah_wait_list_length;
 #ifdef LWS_OPENSSL_SUPPORT
 	struct lws *pending_read_list; /* linked list */
 #endif
+#ifndef LWS_NO_SERVER
+	struct lws *wsi_listening;
+#endif
+	lws_sockfd_type lserv_fd;
+
+	unsigned long count_conns;
 	/*
 	 * usable by anything in the service code, but only if the scope
 	 * does not last longer than the service action (since next service
@@ -520,7 +535,9 @@ struct lws_context_per_thread {
 #else
 	int dummy_pipe_fds[2];
 #endif
-	int fds_count;
+	unsigned int fds_count;
+
+	short ah_count_in_use;
 };
 
 /*
@@ -551,14 +568,8 @@ struct lws_context {
 	const char *iface;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
-	struct lws *timeout_list;
 
-#ifndef LWS_NO_SERVER
-	struct lws *wsi_listening;
-#endif
 	const struct lws_protocols *protocols;
-	void *http_header_data;
-	struct allocated_headers *ah_pool;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX *ssl_ctx;
@@ -576,8 +587,6 @@ struct lws_context {
 	char worst_latency_info[256];
 #endif
 
-	lws_sockfd_type lserv_fd;
-
 	int max_fds;
 	int listen_port;
 #ifdef LWS_USE_LIBEV
@@ -587,8 +596,6 @@ struct lws_context {
 
 	int fd_random;
 	int lserv_mod;
-	int lserv_count;
-	int lserv_seen;
 	unsigned int http_proxy_port;
 	unsigned int options;
 	unsigned int fd_limit_per_thread;
@@ -624,7 +631,6 @@ struct lws_context {
 
 	short max_http_header_data;
 	short max_http_header_pool;
-	short ah_count_in_use;
 	short count_threads;
 
 	unsigned int being_destroyed:1;
@@ -697,6 +703,8 @@ enum uri_esc_states {
 struct _lws_http_mode_related {
 	/* MUST be first in struct */
 	struct allocated_headers *ah; /* mirroring  _lws_header_related */
+	struct lws *ah_wait_list;
+	struct lws *new_wsi_list;
 	unsigned long filepos;
 	unsigned long filelen;
 	lws_filefd_type fd;
@@ -857,6 +865,7 @@ struct _lws_http2_related {
 struct _lws_header_related {
 	/* MUST be first in struct */
 	struct allocated_headers *ah;
+	struct lws *ah_wait_list;
 	enum uri_path_states ups;
 	enum uri_esc_states ues;
 	short lextable_pos;
@@ -986,6 +995,7 @@ struct lws {
 	unsigned char ietf_spec_revision;
 	char mode; /* enum connection_mode */
 	char state; /* enum lws_connection_states */
+	char state_pre_close;
 	char lws_rx_parse_state; /* enum lws_rx_parse_state */
 	char rx_frame_type; /* enum lws_write_protocol */
 	char pending_timeout; /* enum pending_timeout */
@@ -1049,7 +1059,7 @@ LWS_EXTERN int
 delete_from_fd(struct lws_context *context, lws_sockfd_type fd);
 #else
 #define wsi_from_fd(A,B)  A->lws_lookup[B]
-#define insert_wsi(A,B)   A->lws_lookup[B->sock]=B
+#define insert_wsi(A,B)   assert(A->lws_lookup[B->sock] == 0); A->lws_lookup[B->sock]=B
 #define delete_from_fd(A,B) A->lws_lookup[B]=0
 #endif
 
@@ -1222,7 +1232,7 @@ enum lws_ssl_capable_status {
 #define lws_ssl_capable_read lws_ssl_capable_read_no_ssl
 #define lws_ssl_capable_write lws_ssl_capable_write_no_ssl
 #define lws_ssl_pending lws_ssl_pending_no_ssl
-#define lws_server_socket_service_ssl(_a, _b, _c, _d) (0)
+#define lws_server_socket_service_ssl(_b, _c) (0)
 #define lws_ssl_close(_a) (0)
 #define lws_ssl_context_destroy(_a)
 #define lws_ssl_remove_wsi_from_buffered_list(_a)
@@ -1236,9 +1246,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending(struct lws *wsi);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_server_socket_service_ssl(struct lws **wsi, struct lws *new_wsi,
-			      lws_sockfd_type accept_fd,
-			      struct lws_pollfd *pollfd);
+lws_server_socket_service_ssl(struct lws *new_wsi, lws_sockfd_type accept_fd);
 LWS_EXTERN int
 lws_ssl_close(struct lws *wsi);
 LWS_EXTERN void
@@ -1263,6 +1271,29 @@ lws_context_init_http2_ssl(struct lws_context *context);
 #else
 #define lws_context_init_http2_ssl(_a)
 #endif
+#endif
+
+#if LWS_MAX_SMP > 1
+static LWS_INLINE void
+lws_pt_mutex_init(struct lws_context_per_thread *pt)
+{
+	pthread_mutex_init(&pt->lock, NULL);
+}
+static LWS_INLINE void
+lws_pt_lock(struct lws_context_per_thread *pt)
+{
+	pthread_mutex_lock(&pt->lock);
+}
+
+static LWS_INLINE void
+lws_pt_unlock(struct lws_context_per_thread *pt)
+{
+	pthread_mutex_unlock(&pt->lock);
+}
+#else
+#define lws_pt_mutex_init(_a) (void)(_a)
+#define lws_pt_lock(_a) (void)(_a)
+#define lws_pt_unlock(_a) (void)(_a)
 #endif
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
@@ -1297,6 +1328,9 @@ lws_decode_ssl_error(void);
 LWS_EXTERN int
 _lws_rx_flow_control(struct lws *wsi);
 
+LWS_EXTERN int
+_lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa);
+
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_server_socket_service(struct lws_context *context, struct lws *wsi,
@@ -1304,7 +1338,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 LWS_EXTERN int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
 LWS_EXTERN int
-_lws_server_listen_accept_flow_control(struct lws_context *context, int on);
+_lws_server_listen_accept_flow_control(struct lws *twsi, int on);
 #else
 #define lws_server_socket_service(_a, _b, _c) (0)
 #define lws_handshake_server(_a, _b, _c) (0)

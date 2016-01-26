@@ -152,7 +152,7 @@ LWS_VISIBLE int
 lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	int n;
-	int i;
+	unsigned int i;
 	DWORD ev;
 	WSANETWORKEVENTS networkevents;
 	struct lws_pollfd *pfd;
@@ -177,7 +177,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	for (i = 0; i < pt->fds_count; ++i) {
 		pfd = &pt->fds[i];
-		if (pfd->fd == context->lserv_fd)
+		if (pfd->fd == pt->lserv_fd)
 			continue;
 
 		if (pfd->events & LWS_POLLOUT) {
@@ -372,7 +372,7 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
 	WSACloseEvent(pt->events[m + 1]);
-	pt->events[m + 1] = pt->events[pt->fds_count + 1];
+	pt->events[m + 1] = pt->events[pt->fds_count--];
 }
 
 LWS_VISIBLE void

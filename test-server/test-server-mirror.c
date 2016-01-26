@@ -22,7 +22,7 @@
 
 /* lws-mirror_protocol */
 
-#define MAX_MESSAGE_QUEUE 32
+#define MAX_MESSAGE_QUEUE 512
 
 struct a_message {
 	void *payload;
@@ -38,7 +38,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct per_session_data__lws_mirror *pss =
 			(struct per_session_data__lws_mirror *)user;
-	int n;
+	int n, m;
 
 	switch (reason) {
 
@@ -59,19 +59,16 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		if (close_testing)
 			break;
 		while (pss->ringbuffer_tail != ringbuffer_head) {
-
+			m = ringbuffer[pss->ringbuffer_tail].len;
 			n = lws_write(wsi, (unsigned char *)
 				   ringbuffer[pss->ringbuffer_tail].payload +
-				   LWS_PRE,
-				   ringbuffer[pss->ringbuffer_tail].len,
-								LWS_WRITE_TEXT);
+				   LWS_PRE, m, LWS_WRITE_TEXT);
 			if (n < 0) {
 				lwsl_err("ERROR %d writing to mirror socket\n", n);
 				return -1;
 			}
-			if (n < (int)ringbuffer[pss->ringbuffer_tail].len)
-				lwsl_err("mirror partial write %d vs %d\n",
-				       n, ringbuffer[pss->ringbuffer_tail].len);
+			if (n < m)
+				lwsl_err("mirror partial write %d vs %d\n", n, m);
 
 			if (pss->ringbuffer_tail == (MAX_MESSAGE_QUEUE - 1))
 				pss->ringbuffer_tail = 0;
@@ -83,8 +80,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_rx_flow_allow_all_protocol(lws_get_context(wsi),
 					       lws_get_protocol(wsi));
 
-			if (lws_partial_buffered(wsi) ||
-			    lws_send_pipe_choked(wsi)) {
+			if (lws_send_pipe_choked(wsi)) {
 				lws_callback_on_writable(wsi);
 				break;
 			}
@@ -101,11 +97,10 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		if (ringbuffer[ringbuffer_head].payload)
 			free(ringbuffer[ringbuffer_head].payload);
 
-		ringbuffer[ringbuffer_head].payload =
-				malloc(LWS_PRE + len);
+		ringbuffer[ringbuffer_head].payload = malloc(LWS_PRE + len);
 		ringbuffer[ringbuffer_head].len = len;
 		memcpy((char *)ringbuffer[ringbuffer_head].payload +
-					  LWS_PRE, in, len);
+		       LWS_PRE, in, len);
 		if (ringbuffer_head == (MAX_MESSAGE_QUEUE - 1))
 			ringbuffer_head = 0;
 		else

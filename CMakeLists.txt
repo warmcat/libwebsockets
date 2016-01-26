@@ -85,8 +85,14 @@ set(LWS_WITHOUT_CLIENT ON)
 set(LWS_WITHOUT_TESTAPPS ON)
 set(LWS_WITHOUT_EXTENSIONS ON)
 set(LWS_MBED3 ON)
+# this implies no pthreads in the lib
 set(LWS_MAX_SMP 1)
 
+endif()
+
+if (WIN32)
+# this implies no pthreads in the lib
+set(LWS_MAX_SMP 1)
 endif()
 
 

@@ -1497,6 +1497,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_HTTP_CONTENT				= 10,
 	PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND			= 11,
 	PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE			= 12,
+	PENDING_TIMEOUT_SHUTDOWN_FLUSH				= 13,
 
 	/****** add new things just above ---^ ******/
 };

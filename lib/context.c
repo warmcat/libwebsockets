@@ -80,7 +80,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	int pid_daemon = get_daemonize_pid();
 #endif
 	char *p;
-	int n;
+	int n, m;
 
 	lwsl_notice("Initial logging level %d\n", log_level);
 
@@ -96,7 +96,7 @@ lws_create_context(struct lws_context_creation_info *info)
 #endif
 	lws_feature_status_libev(info);
 #endif
-	lwsl_info(" LWS_MAX_HEADER_LEN    : %u\n", LWS_MAX_HEADER_LEN);
+	lwsl_info(" LWS_DEF_HEADER_LEN    : %u\n", LWS_DEF_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS     : %u\n", LWS_MAX_PROTOCOLS);
 	lwsl_info(" LWS_MAX_SMP           : %u\n", LWS_MAX_SMP);
 	lwsl_info(" SPEC_LATEST_SUPPORTED : %u\n", SPEC_LATEST_SUPPORTED);
@@ -129,7 +129,6 @@ lws_create_context(struct lws_context_creation_info *info)
 	if (context->count_threads > LWS_MAX_SMP)
 		context->count_threads = LWS_MAX_SMP;
 
-	context->lserv_seen = 0;
 	context->protocols = info->protocols;
 	context->token_limits = info->token_limits;
 	context->listen_port = info->port;
@@ -141,8 +140,18 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->ka_interval = info->ka_interval;
 	context->ka_probes = info->ka_probes;
 
-	/* we zalloc only the used ones, so the memory is not wasted
-	 * allocating for unused threads
+	if (info->max_http_header_data)
+		context->max_http_header_data = info->max_http_header_data;
+	else
+		context->max_http_header_data = LWS_DEF_HEADER_LEN;
+	if (info->max_http_header_pool)
+		context->max_http_header_pool = info->max_http_header_pool;
+	else
+		context->max_http_header_pool = LWS_DEF_HEADER_POOL;
+
+	/*
+	 * Allocate the per-thread storage for scratchpad buffers,
+	 * and header data pool
 	 */
 	for (n = 0; n < context->count_threads; n++) {
 		context->pt[n].serv_buf = lws_zalloc(LWS_MAX_SOCKET_IO_BUF);
@@ -150,6 +159,22 @@ lws_create_context(struct lws_context_creation_info *info)
 			lwsl_err("OOM\n");
 			return NULL;
 		}
+
+		context->pt[n].http_header_data = lws_malloc(context->max_http_header_data *
+						       context->max_http_header_pool);
+		if (!context->pt[n].http_header_data)
+			goto bail;
+
+		context->pt[n].ah_pool = lws_zalloc(sizeof(struct allocated_headers) *
+					      context->max_http_header_pool);
+		for (m = 0; m < context->max_http_header_pool; m++)
+			context->pt[n].ah_pool[m].data =
+				(char *)context->pt[n].http_header_data +
+				(m * context->max_http_header_data);
+		if (!context->pt[n].ah_pool)
+			goto bail;
+
+		lws_pt_mutex_init(&context->pt[n]);
 	}
 
 	if (info->fd_limit_per_thread)
@@ -180,44 +205,18 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->lws_ev_sigint_cb = &lws_sigint_cb;
 #endif /* LWS_USE_LIBEV */
 
-	lwsl_info(" mem: context:         %5u bytes (%d + (%d x %d))\n",
+	lwsl_info(" mem: context:         %5u bytes (%d ctx + (%d thr x %d))\n",
 		  sizeof(struct lws_context) +
 		  (context->count_threads * LWS_MAX_SOCKET_IO_BUF),
 		  sizeof(struct lws_context),
 		  context->count_threads,
 		  LWS_MAX_SOCKET_IO_BUF);
 
-	/*
-	 * allocate and initialize the pool of
-	 * allocated_header structs + data
-	 */
-	if (info->max_http_header_data)
-		context->max_http_header_data = info->max_http_header_data;
-	else
-		context->max_http_header_data = LWS_MAX_HEADER_LEN;
-	if (info->max_http_header_pool)
-		context->max_http_header_pool = info->max_http_header_pool;
-	else
-		context->max_http_header_pool = LWS_MAX_HEADER_POOL;
-
-	context->http_header_data = lws_malloc(context->max_http_header_data *
-					       context->max_http_header_pool);
-	if (!context->http_header_data)
-		goto bail;
-	context->ah_pool = lws_zalloc(sizeof(struct allocated_headers) *
-				      context->max_http_header_pool);
-	if (!context->ah_pool)
-		goto bail;
-
-	for (n = 0; n < context->max_http_header_pool; n++)
-		context->ah_pool[n].data = (char *)context->http_header_data +
-			(n * context->max_http_header_data);
-
-	/* this is per context */
-	lwsl_info(" mem: http hdr rsvd:   %5u bytes ((%u + %u) x %u)\n",
+	lwsl_info(" mem: http hdr rsvd:   %5u bytes (%u thr x (%u + %u) x %u))\n",
 		    (context->max_http_header_data +
 		     sizeof(struct allocated_headers)) *
-		    context->max_http_header_pool,
+		    context->max_http_header_pool * context->count_threads,
+		    context->count_threads,
 		    context->max_http_header_data,
 		    sizeof(struct allocated_headers),
 		    context->max_http_header_pool);
@@ -229,10 +228,13 @@ lws_create_context(struct lws_context_creation_info *info)
 		goto bail;
 	}
 	lwsl_info(" mem: pollfd map:      %5u\n", n);
+
+#if LWS_MAX_SMP > 1
 	/* each thread serves his own chunk of fds */
 	for (n = 1; n < (int)info->count_threads; n++)
-		context->pt[n].fds = context->pt[0].fds +
-				  (n * context->fd_limit_per_thread);
+		context->pt[n].fds = context->pt[n - 1].fds +
+				     context->fd_limit_per_thread;
+#endif
 
 	if (lws_plat_init(context, info))
 		goto bail;
@@ -345,7 +347,7 @@ lws_context_destroy(struct lws_context *context)
 #endif
 
 	while (m--)
-		for (n = 0; n < context->pt[m].fds_count; n++) {
+		for (n = 0; (unsigned int)n < context->pt[m].fds_count; n++) {
 			struct lws *wsi = wsi_from_fd(context, context->pt[m].fds[n].fd);
 			if (!wsi)
 				continue;
@@ -384,17 +386,18 @@ lws_context_destroy(struct lws_context *context)
 		ev_signal_stop(context->io_loop, &context->w_sigint.watcher);
 #endif /* LWS_USE_LIBEV */
 
-	for (n = 0; n < context->count_threads; n++)
+	for (n = 0; n < context->count_threads; n++) {
 		lws_free_set_NULL(context->pt[n].serv_buf);
+		if (context->pt[n].ah_pool)
+			lws_free(context->pt[n].ah_pool);
+		if (context->pt[n].http_header_data)
+			lws_free(context->pt[n].http_header_data);
+	}
 
 	lws_plat_context_early_destroy(context);
 	lws_ssl_context_destroy(context);
 	if (context->pt[0].fds)
 		lws_free(context->pt[0].fds);
-	if (context->ah_pool)
-		lws_free(context->ah_pool);
-	if (context->http_header_data)
-		lws_free(context->http_header_data);
 
 	lws_plat_context_late_destroy(context);
 

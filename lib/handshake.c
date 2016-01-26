@@ -100,6 +100,7 @@ http_new:
 		wsi->u.hdr.lextable_pos = 0;
 		/* fallthru */
 	case LWSS_HTTP_HEADERS:
+		assert(wsi->u.hdr.ah);
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
 
 		if (lws_handshake_client(wsi, &buf, len))
@@ -182,6 +183,7 @@ postbody_completion:
 
 	case LWSS_ESTABLISHED:
 	case LWSS_AWAITING_CLOSE_ACK:
+	case LWSS_SHUTDOWN:
 		if (lws_handshake_client(wsi, &buf, len))
 			goto bail;
 		switch (wsi->mode) {

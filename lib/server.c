@@ -33,8 +33,9 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	socklen_t len = sizeof(struct sockaddr);
 	struct sockaddr_in sin;
 	struct sockaddr *v;
-	int n, opt = 1;
+	int n, opt = 1, limit = 1;
 #endif
+	int m = 0;
 	lws_sockfd_type sockfd;
 	struct lws *wsi;
 
@@ -44,6 +45,11 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 		return 0;
 
 #if LWS_POSIX
+#if defined(__linux__)
+	limit = context->count_threads;
+#endif
+
+	for (m = 0; m < limit; m++) {
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context))
 		sockfd = socket(AF_INET6, SOCK_STREAM, 0);
@@ -69,6 +75,13 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 		compatible_close(sockfd);
 		return 1;
 	}
+#if defined(__linux__) && defined(SO_REUSEPORT)
+	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
+		       (const void *)&opt, sizeof(opt)) < 0) {
+		compatible_close(sockfd);
+		return 1;
+	}
+#endif
 #endif
 	lws_plat_set_socket_options(context, sockfd);
 
@@ -122,19 +135,19 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 	wsi->sock = sockfd;
 	wsi->mode = LWSCM_SERVER_LISTENER;
 	wsi->protocol = context->protocols;
+	wsi->tsi = m;
 
-	context->wsi_listening = wsi;
+	context->pt[m].wsi_listening = wsi;
 	if (insert_wsi_socket_into_fds(context, wsi))
 		goto bail;
 
-	context->lserv_mod = LWS_lserv_mod;
-	context->lserv_count = 0;
-	context->lserv_fd = sockfd;
+	context->pt[m].lserv_fd = sockfd;
 
 #if LWS_POSIX
-	listen(sockfd, LWS_SOMAXCONN);
+	listen(wsi->sock, LWS_SOMAXCONN);
+	} /* for each thread able to independently lister */
 #else
-	mbed3_tcp_stream_bind(sockfd, info->port, wsi);
+	mbed3_tcp_stream_bind(wsi->sock, info->port, wsi);
 #endif
 	lwsl_notice(" Listening on port %d\n", info->port);
 
@@ -147,15 +160,17 @@ bail:
 }
 
 int
-_lws_server_listen_accept_flow_control(struct lws_context *context, int on)
+_lws_server_listen_accept_flow_control(struct lws *twsi, int on)
 {
-	struct lws *wsi = context->wsi_listening;
+	struct lws_context_per_thread *pt = &twsi->context->pt[(int)twsi->tsi];
+	struct lws *wsi = pt->wsi_listening;
 	int n;
 
-	if (!wsi || context->being_destroyed)
+	if (!wsi || twsi->context->being_destroyed)
 		return 0;
 
-	lwsl_debug("%s: wsi %p: state %d\n", __func__, (void *)wsi, on);
+	lwsl_debug("%s: Thr %d: LISTEN wsi %p: state %d\n",
+		   __func__, twsi->tsi, (void *)wsi, on);
 
 	if (on)
 		n = lws_change_pollfd(wsi, 0, LWS_POLLIN);
@@ -324,7 +339,7 @@ int lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	char protocol_name[32];
 	char *p;
 
-	/* LWSCM_WS_SERVING */
+	assert(wsi->u.hdr.ah);
 
 	while (len--) {
 
@@ -576,16 +591,42 @@ bail_nuke_ah:
 	return 1;
 }
 
+static int
+lws_get_idlest_tsi(struct lws_context *context)
+{
+	unsigned int lowest = ~0;
+	int n = 0, hit = -1;
+
+	for (; n < context->count_threads; n++) {
+		if ((unsigned int)context->pt[n].fds_count != context->fd_limit_per_thread - 1 &&
+		    (unsigned int)context->pt[n].fds_count < lowest) {
+			lowest = context->pt[n].fds_count;
+			hit = n;
+		}
+	}
+
+	return hit;
+}
+
 struct lws *
 lws_create_new_server_wsi(struct lws_context *context)
 {
 	struct lws *new_wsi;
+	int n = lws_get_idlest_tsi(context);
+
+	if (n < 0) {
+		lwsl_err("no space for new conn\n");
+		return NULL;
+	}
 
 	new_wsi = lws_zalloc(sizeof(struct lws));
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
 	}
+
+	new_wsi->tsi = n;
+	lwsl_info("Accepted %p to tsi %d\n", new_wsi, new_wsi->tsi);
 
 	new_wsi->context = context;
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
@@ -601,11 +642,6 @@ lws_create_new_server_wsi(struct lws_context *context)
 	new_wsi->use_ssl = LWS_SSL_ENABLED(context);
 #endif
 
-	if (lws_allocate_header_table(new_wsi)) {
-		lws_free(new_wsi);
-		return NULL;
-	}
-
 	/*
 	 * these can only be set once the protocol is known
 	 * we set an unestablished connection's protocol pointer
@@ -617,12 +653,13 @@ lws_create_new_server_wsi(struct lws_context *context)
 	new_wsi->ietf_spec_revision = 0;
 	new_wsi->sock = LWS_SOCK_INVALID;
 
+
 	/*
 	 * outermost create notification for wsi
 	 * no user_space because no protocol selection
 	 */
-	context->protocols[0].callback(new_wsi, LWS_CALLBACK_WSI_CREATE, NULL,
-				       NULL, 0);
+	context->protocols[0].callback(new_wsi, LWS_CALLBACK_WSI_CREATE,
+				       NULL, NULL, 0);
 
 	return new_wsi;
 }
@@ -642,7 +679,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	lwsl_debug("%s: wsi %p\n", __func__, wsi);
 	/* if we can't go back to accept new headers, drop the connection */
 	if (wsi->u.http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
-		lwsl_info("%s: close connection\n", __func__);
+		lwsl_info("%s: %p: close connection\n", __func__, wsi);
 		return 1;
 	}
 
@@ -655,34 +692,75 @@ lws_http_transaction_completed(struct lws *wsi)
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 	if (lws_allocate_header_table(wsi))
-		return 1;
+		lwsl_info("On waiting list for header table");
 
 	/* If we're (re)starting on headers, need other implied init */
 	wsi->u.hdr.ues = URIES_IDLE;
 
-	lwsl_info("%s: keep-alive await new transaction\n", __func__);
+	lwsl_info("%s: %p: keep-alive await new transaction\n", __func__, wsi);
 
 	return 0;
 }
 
-static int
-lws_get_idlest_tsi(struct lws_context *context)
+/*
+ * either returns new wsi bound to accept_fd, or closes accept_fd and
+ * returns NULL, having cleaned up any new wsi pieces
+ */
+
+LWS_VISIBLE struct lws *
+lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 {
-	unsigned int lowest = ~0;
-	int n, hit = 0;
+	struct lws *new_wsi = lws_create_new_server_wsi(context);
+	if (!new_wsi) {
+		compatible_close(accept_fd);
+		return NULL;
+	}
 
-	for (n = 0; n < context->count_threads; n++)
-		if ((unsigned int)context->pt[n].fds_count < lowest) {
-			lowest = context->pt[n].fds_count;
-			hit = n;
-		}
+	new_wsi->sock = accept_fd;
 
-	return hit;
+	/* the transport is accepted... give him time to negotiate */
+	lws_set_timeout(new_wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+			AWAITING_TIMEOUT);
+
+#if LWS_POSIX == 0
+	mbed3_tcp_stream_accept(accept_fd, new_wsi);
+#endif
+
+	/*
+	 * A new connection was accepted. Give the user a chance to
+	 * set properties of the newly created wsi. There's no protocol
+	 * selected yet so we issue this to protocols[0]
+	 */
+	if ((context->protocols[0].callback)(new_wsi,
+	     LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, NULL, NULL, 0)) {
+		compatible_close(new_wsi->sock);
+		lws_free(new_wsi);
+		return NULL;
+	}
+
+	lws_libev_accept(new_wsi, new_wsi->sock);
+
+	if (!LWS_SSL_ENABLED(context)) {
+		if (insert_wsi_socket_into_fds(context, new_wsi))
+			goto fail;
+	} else {
+		new_wsi->mode = LWSCM_SSL_INIT;
+		if (lws_server_socket_service_ssl(new_wsi, accept_fd))
+			goto fail;
+	}
+
+	return new_wsi;
+
+fail:
+	lwsl_err("%s: fail\n", __func__);
+	lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS);
+
+	return NULL;
 }
 
-LWS_VISIBLE
-int lws_server_socket_service(struct lws_context *context,
-			      struct lws *wsi, struct lws_pollfd *pollfd)
+LWS_VISIBLE int
+lws_server_socket_service(struct lws_context *context, struct lws *wsi,
+			  struct lws_pollfd *pollfd)
 {
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -690,7 +768,7 @@ int lws_server_socket_service(struct lws_context *context,
 	struct sockaddr_in cli_addr;
 	socklen_t clilen;
 #endif
-	struct lws *new_wsi = NULL;
+
 	int n, len;
 
 	switch (wsi->mode) {
@@ -698,6 +776,7 @@ int lws_server_socket_service(struct lws_context *context,
 	case LWSCM_HTTP_SERVING:
 	case LWSCM_HTTP_SERVING_ACCEPTED:
 	case LWSCM_HTTP2_SERVING:
+	case LWSS_SHUTDOWN:
 
 		/* handle http headers coming in */
 
@@ -720,15 +799,19 @@ int lws_server_socket_service(struct lws_context *context,
 
 		/* any incoming data ready? */
 
-		if (!(pollfd->revents & pollfd->events && LWS_POLLIN))
+		if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
 			goto try_pollout;
+
+		if (wsi->state == LWSS_HTTP && !wsi->u.hdr.ah)
+			if (lws_allocate_header_table(wsi))
+				goto try_pollout;
 
 		len = lws_ssl_capable_read(wsi, pt->serv_buf,
 					   LWS_MAX_SOCKET_IO_BUF);
-		lwsl_debug("%s: read %d\r\n", __func__, len);
+		lwsl_debug("%s: wsi %p read %d\r\n", __func__, wsi, len);
 		switch (len) {
 		case 0:
-			lwsl_info("lws_server_skt_srv: read 0 len\n");
+			lwsl_info("%s: read 0 len\n", __func__);
 			/* lwsl_info("   state=%d\n", wsi->state); */
 			if (!wsi->hdr_parsing_completed)
 				lws_free_header_table(wsi);
@@ -748,7 +831,6 @@ int lws_server_socket_service(struct lws_context *context,
 			n = lws_read(wsi, pt->serv_buf, len);
 			if (n < 0) /* we closed wsi */
 				return 1;
-
 			/* hum he may have used up the
 			 * writability above */
 			break;
@@ -761,8 +843,10 @@ try_pollout:
 			break;
 
 		/* one shot */
-		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+			lwsl_notice("%s a\n", __func__);
 			goto fail;
+		}
 
 		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
@@ -771,15 +855,19 @@ try_pollout:
 					wsi->protocol->callback,
 					wsi, LWS_CALLBACK_HTTP_WRITEABLE,
 					wsi->user_space, NULL, 0);
-			if (n < 0)
+			if (n < 0) {
+				lwsl_info("writeable_fail\n");
 				goto fail;
+			}
 			break;
 		}
 
 		/* >0 == completion, <0 == error */
 		n = lws_serve_http_file_fragment(wsi);
-		if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi)))
+		if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi))) {
+			lwsl_info("completed\n");
 			goto fail;
+		}
 		break;
 
 	case LWSCM_SERVER_LISTENER:
@@ -787,91 +875,65 @@ try_pollout:
 #if LWS_POSIX
 		/* pollin means a client has connected to us then */
 
-		if (!(pollfd->revents & LWS_POLLIN))
-			break;
+		do {
+			if (!(pollfd->revents & LWS_POLLIN) || !(pollfd->events & LWS_POLLIN))
+				break;
 
-		/* listen socket got an unencrypted connection... */
+			/* listen socket got an unencrypted connection... */
 
-		clilen = sizeof(cli_addr);
-		lws_latency_pre(context, wsi);
-		accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
-				    &clilen);
-		lws_latency(context, wsi,
-			"unencrypted accept LWSCM_SERVER_LISTENER",
-						     accept_fd, accept_fd >= 0);
-		if (accept_fd < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN ||
-			    LWS_ERRNO == LWS_EWOULDBLOCK) {
-				lwsl_debug("accept asks to try again\n");
+			clilen = sizeof(cli_addr);
+			lws_latency_pre(context, wsi);
+			accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
+					    &clilen);
+			lws_latency(context, wsi, "listener accept", accept_fd,
+				    accept_fd >= 0);
+			if (accept_fd < 0) {
+				if (LWS_ERRNO == LWS_EAGAIN ||
+				    LWS_ERRNO == LWS_EWOULDBLOCK) {
+					lwsl_err("accept asks to try again\n");
+					break;
+				}
+				lwsl_err("ERROR on accept: %s\n", strerror(LWS_ERRNO));
 				break;
 			}
-			lwsl_warn("ERROR on accept: %s\n", strerror(LWS_ERRNO));
-			break;
-		}
 
-		lws_plat_set_socket_options(context, accept_fd);
-#else
-		/* not very beautiful... */
-		accept_fd = (lws_sockfd_type)pollfd;
-#endif
-		/*
-		 * look at who we connected to and give user code a chance
-		 * to reject based on client IP.  There's no protocol selected
-		 * yet so we issue this to protocols[0]
-		 */
+			lws_plat_set_socket_options(context, accept_fd);
 
-		if ((context->protocols[0].callback)(wsi,
-				LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
-					   NULL, (void *)(long)accept_fd, 0)) {
-			lwsl_debug("Callback denied network connection\n");
-			compatible_close(accept_fd);
-			break;
-		}
-
-		new_wsi = lws_create_new_server_wsi(context);
-		if (new_wsi == NULL) {
-			compatible_close(accept_fd);
-			break;
-		}
-
-		new_wsi->sock = accept_fd;
-		new_wsi->tsi = lws_get_idlest_tsi(context);
-		lwsl_info("Accepted to tsi %d\n", new_wsi->tsi);
-
-		/* the transport is accepted... give him time to negotiate */
-		lws_set_timeout(new_wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-				AWAITING_TIMEOUT);
-
-#if LWS_POSIX == 0
-		mbed3_tcp_stream_accept(accept_fd, new_wsi);
-#endif
-
-		/*
-		 * A new connection was accepted. Give the user a chance to
-		 * set properties of the newly created wsi. There's no protocol
-		 * selected yet so we issue this to protocols[0]
-		 */
-		(context->protocols[0].callback)(new_wsi,
-			LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
-			NULL, NULL, 0);
-
-		lws_libev_accept(new_wsi, accept_fd);
-
-		if (!LWS_SSL_ENABLED(context)) {
-#if LWS_POSIX
 			lwsl_debug("accepted new conn  port %u on fd=%d\n",
 					  ntohs(cli_addr.sin_port), accept_fd);
+
+#else
+			/* not very beautiful... */
+			accept_fd = (lws_sockfd_type)pollfd;
 #endif
-			if (insert_wsi_socket_into_fds(context, new_wsi))
-				goto fail;
-		}
-		break;
+			/*
+			 * look at who we connected to and give user code a chance
+			 * to reject based on client IP.  There's no protocol selected
+			 * yet so we issue this to protocols[0]
+			 */
+			if ((context->protocols[0].callback)(wsi,
+					LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
+					NULL, (void *)(long)accept_fd, 0)) {
+				lwsl_debug("Callback denied network connection\n");
+				compatible_close(accept_fd);
+				break;
+			}
+
+			if (!lws_adopt_socket(context, accept_fd))
+				/* already closed cleanly as necessary */
+				return 1;
+
+#if LWS_POSIX
+		} while (pt->fds_count < context->fd_limit_per_thread - 1 &&
+			 lws_poll_listen_fd(&pt->fds[wsi->position_in_fds_table]) > 0);
+#endif
+		return 0;
 
 	default:
 		break;
 	}
 
-	if (!lws_server_socket_service_ssl(&wsi, new_wsi, accept_fd, pollfd))
+	if (!lws_server_socket_service_ssl(wsi, accept_fd))
 		return 0;
 
 fail:

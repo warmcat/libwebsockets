@@ -24,6 +24,7 @@
 
 int close_testing;
 int max_poll_elements;
+int debug_level = 7;
 
 #ifdef EXTERNAL_POLL
 struct lws_pollfd *pollfds;
@@ -185,7 +186,6 @@ int main(int argc, char **argv)
 	pthread_t pthread_dumb, pthread_service[32];
 	char cert_path[1024];
 	char key_path[1024];
- 	int debug_level = 7;
  	int threads = 1;
 	int use_ssl = 0;
 	void *retval;
@@ -335,6 +335,7 @@ int main(int argc, char **argv)
 	info.options = opts;
 	info.count_threads = threads;
 	info.extensions = exts;
+	info.max_http_header_pool = 4;
 
 	context = lws_create_context(&info);
 	if (context == NULL) {

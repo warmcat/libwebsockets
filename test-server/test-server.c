@@ -23,6 +23,7 @@
 
 int close_testing;
 int max_poll_elements;
+int debug_level = 7;
 
 #ifdef EXTERNAL_POLL
 struct lws_pollfd *pollfds;
@@ -171,7 +172,6 @@ int main(int argc, char **argv)
 	const char *iface = NULL;
 	char cert_path[1024];
 	char key_path[1024];
- 	int debug_level = 7;
 	int use_ssl = 0;
 	int opts = 0;
 	int n = 0;

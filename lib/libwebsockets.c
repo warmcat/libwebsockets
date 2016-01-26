@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -63,33 +63,72 @@ lws_free_wsi(struct lws *wsi)
 	 */
 	if (wsi->mode != LWSCM_WS_CLIENT &&
 	    wsi->mode != LWSCM_WS_SERVING)
-		if (wsi->u.hdr.ah)
-			lws_free_header_table(wsi);
+		lws_free_header_table(wsi);
+
 	lws_free(wsi);
 }
-
 
 static void
 lws_remove_from_timeout_list(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
 	if (!wsi->timeout_list_prev)
 		return;
 
+	lws_pt_lock(pt);
 	if (wsi->timeout_list)
 		wsi->timeout_list->timeout_list_prev = wsi->timeout_list_prev;
 	*wsi->timeout_list_prev = wsi->timeout_list;
 
 	wsi->timeout_list_prev = NULL;
 	wsi->timeout_list = NULL;
+	lws_pt_unlock(pt);
 }
 
+/**
+ * lws_set_timeout() - marks the wsi as subject to a timeout
+ *
+ * You will not need this unless you are doing something special
+ *
+ * @wsi:	Websocket connection instance
+ * @reason:	timeout reason
+ * @secs:	how many seconds
+ */
+
+LWS_VISIBLE void
+lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	time_t now;
+
+	lws_pt_lock(pt);
+
+	time(&now);
+
+	if (!wsi->pending_timeout && reason) {
+		wsi->timeout_list = pt->timeout_list;
+		if (wsi->timeout_list)
+			wsi->timeout_list->timeout_list_prev = &wsi->timeout_list;
+		wsi->timeout_list_prev = &pt->timeout_list;
+		*wsi->timeout_list_prev = wsi;
+	}
+
+	wsi->pending_timeout_limit = now + secs;
+	wsi->pending_timeout = reason;
+
+	lws_pt_unlock(pt);
+
+	if (!reason)
+		lws_remove_from_timeout_list(wsi);
+}
 
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 {
 	struct lws_context *context;
 	struct lws_context_per_thread *pt;
-	int n, m, ret, old_state;
+	int n, m, ret;
 	struct lws_tokens eff_buf;
 
 	if (!wsi)
@@ -97,7 +136,6 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
-	old_state = wsi->state;
 
 	if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED &&
 	    wsi->u.http.fd != LWS_INVALID_FILE) {
@@ -108,10 +146,13 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 					       wsi->user_space, NULL, 0);
 	}
 	if (wsi->socket_is_permanently_unusable ||
-	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)
+	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY ||
+	    wsi->state == LWSS_SHUTDOWN)
 		goto just_kill_connection;
 
-	switch (old_state) {
+	wsi->state_pre_close = wsi->state;
+
+	switch (wsi->state_pre_close) {
 	case LWSS_DEAD_SOCKET:
 		return;
 
@@ -203,7 +244,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	 * LWSS_AWAITING_CLOSE_ACK and will skip doing this a second time.
 	 */
 
-	if (old_state == LWSS_ESTABLISHED &&
+	if (wsi->state_pre_close == LWSS_ESTABLISHED &&
 	    (wsi->u.ws.close_in_ping_buffer_len || /* already a reason */
 	     (reason != LWS_CLOSE_STATUS_NOSTATUS &&
 	     (reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)))) {
@@ -218,8 +259,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 				reason & 0xff;
 		}
 
-		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[
-						LWS_PRE],
+		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[LWS_PRE],
 			      wsi->u.ws.close_in_ping_buffer_len,
 			      LWS_WRITE_CLOSE);
 		if (n >= 0) {
@@ -246,7 +286,28 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 just_kill_connection:
 
-	lwsl_debug("close: just_kill_connection: %p\n", wsi);
+#if LWS_POSIX
+	/*
+	 * Testing with ab shows that we have to stage the socket close when
+	 * the system is under stress... shutdown any further TX, change the
+	 * state to one that won't emit anything more, and wait with a timeout
+	 * for the POLLIN to show a zero-size rx before coming back and doing
+	 * the actual close.
+	 */
+	if (wsi->state != LWSS_SHUTDOWN) {
+		lwsl_info("%s: shutting down connection: %p\n", __func__, wsi);
+		n = shutdown(wsi->sock, SHUT_WR);
+		if (n)
+			lwsl_debug("closing: shutdown ret %d\n", LWS_ERRNO);
+		wsi->state = LWSS_SHUTDOWN;
+		lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
+				AWAITING_TIMEOUT);
+		return;
+	}
+#endif
+
+	lwsl_info("%s: real just_kill_connection: %p\n", __func__, wsi);
 
 	/*
 	 * we won't be servicing or receiving anything further from this guy
@@ -262,7 +323,7 @@ just_kill_connection:
 
 	lws_free_set_NULL(wsi->rxflow_buffer);
 
-	if (old_state == LWSS_ESTABLISHED ||
+	if (wsi->state_pre_close == LWSS_ESTABLISHED ||
 	    wsi->mode == LWSCM_WS_SERVING ||
 	    wsi->mode == LWSCM_WS_CLIENT) {
 
@@ -308,10 +369,10 @@ just_kill_connection:
 	/* tell the user it's all over for this guy */
 
 	if (wsi->protocol && wsi->protocol->callback &&
-	    ((old_state == LWSS_ESTABLISHED) ||
-	    (old_state == LWSS_RETURNED_CLOSE_ALREADY) ||
-	    (old_state == LWSS_AWAITING_CLOSE_ACK) ||
-	    (old_state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE))) {
+	    ((wsi->state_pre_close == LWSS_ESTABLISHED) ||
+	    (wsi->state_pre_close == LWSS_RETURNED_CLOSE_ALREADY) ||
+	    (wsi->state_pre_close == LWSS_AWAITING_CLOSE_ACK) ||
+	    (wsi->state_pre_close == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE))) {
 		lwsl_debug("calling back CLOSED\n");
 		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 					wsi->user_space, NULL, 0);
@@ -327,7 +388,7 @@ just_kill_connection:
 					wsi->user_space, NULL, 0);
 	} else
 		lwsl_debug("not calling back closed mode=%d state=%d\n",
-			   wsi->mode, old_state);
+			   wsi->mode, wsi->state_pre_close);
 
 	/* deallocate any active extension contexts */
 
@@ -341,12 +402,10 @@ just_kill_connection:
 		       LWS_EXT_CB_DESTROY_ANY_WSI_CLOSING, NULL, 0) < 0)
 		lwsl_warn("ext destroy wsi failed\n");
 
+	wsi->socket_is_permanently_unusable = 1;
+
 	if (!lws_ssl_close(wsi) && lws_socket_is_valid(wsi->sock)) {
 #if LWS_POSIX
-		n = shutdown(wsi->sock, SHUT_RDWR);
-		if (n)
-			lwsl_debug("closing: shutdown ret %d\n", LWS_ERRNO);
-
 		n = compatible_close(wsi->sock);
 		if (n)
 			lwsl_debug("closing: close ret %d\n", LWS_ERRNO);
@@ -555,7 +614,7 @@ lws_callback_all_protocol(struct lws_context *context,
 {
 	struct lws_context_per_thread *pt = &context->pt[0];
 	struct lws *wsi;
-	int n, m = context->count_threads;
+	unsigned int n, m = context->count_threads;
 
 	while (m--) {
 		for (n = 0; n < pt->fds_count; n++) {
@@ -570,39 +629,6 @@ lws_callback_all_protocol(struct lws_context *context,
 
 	return 0;
 }
-
-/**
- * lws_set_timeout() - marks the wsi as subject to a timeout
- *
- * You will not need this unless you are doing something special
- *
- * @wsi:	Websocket connection instance
- * @reason:	timeout reason
- * @secs:	how many seconds
- */
-
-LWS_VISIBLE void
-lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
-{
-	time_t now;
-
-	time(&now);
-
-	if (!wsi->pending_timeout) {
-		wsi->timeout_list = wsi->context->timeout_list;
-		if (wsi->timeout_list)
-			wsi->timeout_list->timeout_list_prev = &wsi->timeout_list;
-		wsi->timeout_list_prev = &wsi->context->timeout_list;
-		*wsi->timeout_list_prev = wsi;
-	}
-
-	wsi->pending_timeout_limit = now + secs;
-	wsi->pending_timeout = reason;
-
-	if (!reason)
-		lws_remove_from_timeout_list(wsi);
-}
-
 
 #if LWS_POSIX
 
@@ -704,7 +730,7 @@ lws_rx_flow_allow_all_protocol(const struct lws_context *context,
 {
 	const struct lws_context_per_thread *pt = &context->pt[0];
 	struct lws *wsi;
-	int n, m = context->count_threads;
+	unsigned int n, m = context->count_threads;
 
 	while (m--) {
 		for (n = 0; n < pt->fds_count; n++) {

@@ -30,7 +30,7 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 	wsi->u.ws.mask[2] = 0;
 	wsi->u.ws.mask[3] = 0;
 #else
-		int n;
+	int n;
 	/* fetch the per-frame nonce */
 
 	n = lws_get_random(lws_get_context(wsi), wsi->u.ws.mask, 4);
@@ -643,6 +643,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 
 #if LWS_POSIX
 	n = send(wsi->sock, (char *)buf, len, MSG_NOSIGNAL);
+	lwsl_info("%s: sent len %d result %d", __func__, len, n);
 	if (n >= 0)
 		return n;
 
@@ -662,7 +663,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	// !!!
 #endif
 
-	lwsl_debug("ERROR writing len %d to skt %d\n", len, n);
+	lwsl_debug("ERROR writing len %d to skt fd %d err %d / errno %d\n", len, wsi->sock, n, LWS_ERRNO);
 	return LWS_SSL_CAPABLE_ERROR;
 }
 #endif

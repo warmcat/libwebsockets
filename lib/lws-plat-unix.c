@@ -122,7 +122,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws *wsi;
-	int n, m;
+	int n, m, c;
 	char buf;
 #ifdef LWS_OPENSSL_SUPPORT
 	struct lws *wsi_next;
@@ -215,9 +215,12 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	/* any socket with events to service? */
 
-	for (n = 0; n < pt->fds_count; n++) {
+	c = n;
+	for (n = 0; n < pt->fds_count && c; n++) {
 		if (!pt->fds[n].revents)
 			continue;
+
+		c--;
 
 		if (pt->fds[n].fd == pt->dummy_pipe_fds[0]) {
 			if (read(pt->fds[n].fd, &buf, 1) != 1)
@@ -457,6 +460,8 @@ LWS_VISIBLE void
 lws_plat_delete_socket_from_fds(struct lws_context *context,
 						struct lws *wsi, int m)
 {
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	pt->fds_count--;
 }
 
 LWS_VISIBLE void
