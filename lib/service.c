@@ -436,7 +436,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			}
 			wsi = wsi1;
 		}
-#if 1
+#if 0
 		{
 			char s[300], *p = s;
 
@@ -475,7 +475,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 	if ((!(pollfd->revents & pollfd->events & LWS_POLLIN)) &&
 	    (pollfd->revents & LWS_POLLHUP)) {
-
+		wsi->socket_is_permanently_unusable = 1;
 		lwsl_debug("Session Socket %p (fd=%d) dead\n",
 						       (void *)wsi, pollfd->fd);
 
