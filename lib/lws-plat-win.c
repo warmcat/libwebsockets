@@ -1,4 +1,6 @@
+#ifndef _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
+#endif
 #include "private-libwebsockets.h"
 
 unsigned long long
