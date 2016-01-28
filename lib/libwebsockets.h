@@ -502,8 +502,6 @@ struct lws_tokens {
 };
 
 /*
- * don't forget to update test server header dump accordingly
- *
  * these have to be kept in sync with lextable.h / minilex.c
  *
  * NOTE: These public enums are part of the abi.  If you want to add one,
@@ -585,23 +583,25 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP_VARY					= 70,
 	WSI_TOKEN_HTTP_VIA					= 71,
 	WSI_TOKEN_HTTP_WWW_AUTHENTICATE				= 72,
-	WSI_TOKEN_PROXY,
 
 	WSI_TOKEN_PATCH_URI					= 73,
 	WSI_TOKEN_PUT_URI					= 74,
 	WSI_TOKEN_DELETE_URI					= 75,
 
 	WSI_TOKEN_HTTP_URI_ARGS					= 76,
-
-	/* use token storage to stash these */
-
-	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS			= 77,
-	_WSI_TOKEN_CLIENT_PEER_ADDRESS				= 78,
-	_WSI_TOKEN_CLIENT_URI					= 79,
-	_WSI_TOKEN_CLIENT_HOST					= 80,
-	_WSI_TOKEN_CLIENT_ORIGIN				= 81,
+	WSI_TOKEN_PROXY						= 77,
+	WSI_TOKEN_HTTP_X_REAL_IP				= 78,
 
 	/****** add new things just above ---^ ******/
+
+	/* use token storage to stash these internally, not for
+	 * user use */
+
+	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	_WSI_TOKEN_CLIENT_PEER_ADDRESS,
+	_WSI_TOKEN_CLIENT_URI,
+	_WSI_TOKEN_CLIENT_HOST,
+	_WSI_TOKEN_CLIENT_ORIGIN,
 
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,

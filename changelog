@@ -220,6 +220,9 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 allows foreign sockets accepted by non-lws code to be adopted by lws as if they
 had just been accepted by lws' own listen socket.
 
+9) X-Real-IP: header has been added as WSI_TOKEN_HTTP_X_REAL_IP
+
+
 User api changes
 ----------------
 
@@ -254,6 +257,10 @@ library now.  As a consequence, a field "options" is added to lws_extension.
 It can be NULL if there are no options on the extension.  Extension internal
 info is part of the public abi because extensions may be implemented outside
 the library.
+
+8) WSI_TOKEN_PROXY enum was accidentally defined to collide with another token
+of value 73.  That's now corrected and WSI_TOKEN_PROXY moved to his own place at
+77.
 
 
 v1.6.0-chrome48-firefox42

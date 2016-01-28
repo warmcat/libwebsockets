@@ -79,11 +79,15 @@ static const char *set[] = {
 	"vary:",
 	"via:",
 	"www-authenticate:",
-	"proxy ",
 
 	"patch",
 	"put",
 	"delete",
+
+	"uri-args", /* fake header used for uri-only storage */
+
+	"proxy ",
+	"x-real-ip:",
 
 	"", /* not matchable */
 
