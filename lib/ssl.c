@@ -603,12 +603,9 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	if (!LWS_SSL_ENABLED(context))
 		return 0;
-lwsl_err("%s: mode %d, state %d\n", __func__, wsi->mode, wsi->state);
+
 	switch (wsi->mode) {
 	case LWSCM_SSL_INIT:
-
-		if (!wsi)
-			return 0;
 
 		wsi->ssl = SSL_new(context->ssl_ctx);
 		if (wsi->ssl == NULL) {
