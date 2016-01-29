@@ -612,7 +612,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			lwsl_err("SSL_new failed: %s\n",
 				 ERR_error_string(SSL_get_error(wsi->ssl, 0), NULL));
 			lws_decode_ssl_error();
-			compatible_close(accept_fd);
+			if (accept_fd != LWS_SOCK_INVALID)
+				compatible_close(accept_fd);
 			goto fail;
 		}
 
