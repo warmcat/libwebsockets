@@ -912,6 +912,10 @@ main(int argc, char **argv)
  					 * or fill an output buffer
  					 */
 					m = fuzz(n, out, sizeof(out));
+					if (m < 0) {
+						lwsl_err("Error on fuzz\n");
+						goto drop;
+					}
 					lwsl_notice("got block %d\n", m);
 					if (m) {
 						m = write(pfd[n].fd, out, m);
