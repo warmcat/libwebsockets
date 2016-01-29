@@ -691,8 +691,11 @@ lws_http_transaction_completed(struct lws *wsi)
 	/* He asked for it to stay alive indefinitely */
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
-	if (lws_allocate_header_table(wsi))
-		lwsl_info("On waiting list for header table");
+	/* if we still have the headers, drop them and reacquire a new ah when
+	 * the new headers arrive.  Otherwise we hog an ah indefinitely,
+	 * needlessly.
+	 */
+	lws_free_header_table(wsi);
 
 	/* If we're (re)starting on headers, need other implied init */
 	wsi->u.hdr.ues = URIES_IDLE;
