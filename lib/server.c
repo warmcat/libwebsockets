@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -75,12 +75,13 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 		compatible_close(sockfd);
 		return 1;
 	}
-#if defined(__linux__) && defined(SO_REUSEPORT)
-	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
-		       (const void *)&opt, sizeof(opt)) < 0) {
-		compatible_close(sockfd);
-		return 1;
-	}
+#if defined(__linux__) && defined(SO_REUSEPORT) && LWS_MAX_SMP > 1
+	if (context->count_threads > 1)
+		if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
+				(const void *)&opt, sizeof(opt)) < 0) {
+			compatible_close(sockfd);
+			return 1;
+		}
 #endif
 #endif
 	lws_plat_set_socket_options(context, sockfd);
