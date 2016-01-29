@@ -787,7 +787,6 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 	case LWSCM_HTTP_SERVING:
 	case LWSCM_HTTP_SERVING_ACCEPTED:
 	case LWSCM_HTTP2_SERVING:
-	case LWSS_SHUTDOWN:
 
 		/* handle http headers coming in */
 
