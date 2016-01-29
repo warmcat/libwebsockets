@@ -497,13 +497,13 @@ lws_plat_init(struct lws_context *context,
 		return 1;
 	}
 
-	if (lws_libev_init_fd_table(context))
-		/* libev handled it instead */
-		return 0;
+	if (!lws_libev_init_fd_table(context)) {
+		/* otherwise libev handled it instead */
 
-	if (pipe(context->dummy_pipe_fds)) {
-		lwsl_err("Unable to create pipe\n");
-		return 1;
+		if (pipe(context->dummy_pipe_fds)) {
+			lwsl_err("Unable to create pipe\n");
+			return 1;
+		}
 	}
 
 	/* use the read end of pipe as first item */
