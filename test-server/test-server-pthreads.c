@@ -215,7 +215,8 @@ int main(int argc, char **argv)
 		case 'j':
 			threads = atoi(optarg);
 			if (threads > ARRAY_SIZE(pthread_service)) {
-				lwsl_err("Max threads %d\n", ARRAY_SIZE(pthread_service));
+				lwsl_err("Max threads %d\n",
+					 ARRAY_SIZE(pthread_service));
 				return 1;
 			}
 			break;
@@ -288,10 +289,8 @@ int main(int argc, char **argv)
 
 	/* tell the library what debug level to emit and to send it to syslog */
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
-
-	lwsl_notice("libwebsockets test server - "
-		    "(C) Copyright 2010-2016 Andy Green <andy@warmcat.com> - "
-		    "licensed under LGPL2.1\n");
+	lwsl_notice("libwebsockets test server pthreads - license LGPL2.1+SLE\n");
+	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
 
 	printf("Using resource path \"%s\"\n", resource_path);
 #ifdef EXTERNAL_POLL

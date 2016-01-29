@@ -1,7 +1,7 @@
 /*
  * libwebsockets-test-fraggle - random fragmentation test
  *
- * Copyright (C) 2010-2011 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -264,10 +264,8 @@ int main(int argc, char **argv)
 	struct lws_context_creation_info info;
 
 	memset(&info, 0, sizeof info);
-
-	fprintf(stderr, "libwebsockets test fraggle\n"
-			"(C) Copyright 2010-2015 Andy Green <andy@warmcat.com> "
-						    "licensed under LGPL2.1\n");
+	lwsl_notice("libwebsockets test server fraggle - license LGPL2.1+SLE\n");
+	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
 
 	while (n >= 0) {
 		n = getopt_long(argc, argv, "ci:hsp:d:", options, NULL);

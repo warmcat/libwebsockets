@@ -1,7 +1,7 @@
 /*
  * libwebsockets-test-client - libwebsockets test implementation
  *
- * Copyright (C) 2011 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2011-2016 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -278,9 +278,8 @@ int main(int argc, char **argv)
 
 	memset(&info, 0, sizeof info);
 
-	fprintf(stderr, "libwebsockets test client\n"
-			"(C) Copyright 2010-2015 Andy Green <andy@warmcat.com> "
-			"licensed under LGPL2.1\n");
+	lwsl_notice("libwebsockets test client - license LGPL2.1+SLE\n");
+	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
 
 	if (argc < 2)
 		goto usage;
