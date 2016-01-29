@@ -31,10 +31,10 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 	const struct lws_extension *ext;
 	char ext_name[128];
 	int ext_count = 0;
-	char *c;//, *start;
 	int more = 1;
 	char ignore;
 	int n, m;
+	char *c;
 
 	/*
 	 * Figure out which extensions the client has that we want to
@@ -57,7 +57,6 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 	wsi->count_act_ext = 0;
 	n = 0;
 	ignore = 0;
-//	start = c;
 	while (more) {
 
 		if (*c && (*c != ',' && *c != '\t')) {
@@ -148,7 +147,6 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 			ext++;
 		}
 
-		//start = c;
 		n = 0;
 	}
 
@@ -160,10 +158,9 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	unsigned char hash[20];
-	int n;
+	int n, accept_len;
 	char *response;
 	char *p;
-	int accept_len;
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST) ||
 	    !lws_hdr_total_length(wsi, WSI_TOKEN_KEY)) {
@@ -187,8 +184,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	lws_SHA1(pt->serv_buf, n, hash);
 
-	accept_len = lws_b64_encode_string((char *)hash, 20,
-			(char *)pt->serv_buf, LWS_MAX_SOCKET_IO_BUF);
+	accept_len = lws_b64_encode_string((char *)hash, 20, (char *)pt->serv_buf,
+					   LWS_MAX_SOCKET_IO_BUF);
 	if (accept_len < 0) {
 		lwsl_warn("Base64 encoded hash too long\n");
 		goto bail;

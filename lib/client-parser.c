@@ -25,11 +25,10 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
-	unsigned short close_code;
-	unsigned char *pp;
-	struct lws_tokens eff_buf;
 	int handled, n, m, rx_draining_ext = 0;
-
+	unsigned short close_code;
+	struct lws_tokens eff_buf;
+	unsigned char *pp;
 
 	if (wsi->u.ws.rx_draining_ext) {
 		struct lws **w = &pt->rx_draining_ext_list;
@@ -191,10 +190,8 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_1:
 		wsi->u.ws.rx_packet_length |= c;
-		//lwsl_err("&&&&& packet length %d\n", wsi->u.ws.rx_packet_length);
 		if (wsi->u.ws.this_frame_masked)
-			wsi->lws_rx_parse_state =
-					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
+			wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_1;
 		else {
 			if (wsi->u.ws.rx_packet_length)
 				wsi->lws_rx_parse_state =
@@ -346,8 +343,7 @@ spill:
 
 		switch (wsi->u.ws.opcode) {
 		case LWSWSOPC_CLOSE:
-			pp = (unsigned char *)&wsi->u.ws.rx_ubuf[
-						LWS_PRE];
+			pp = (unsigned char *)&wsi->u.ws.rx_ubuf[LWS_PRE];
 			if (wsi->context->options & LWS_SERVER_OPTION_VALIDATE_UTF8 &&
 			    wsi->u.ws.rx_ubuf_head > 2 &&
 			    lws_check_utf8(&wsi->u.ws.utf8, pp + 2,
@@ -389,8 +385,7 @@ spill:
 			 * we do not care about how it went, we are closing
 			 * immediately afterwards
 			 */
-			lws_write(wsi,
-				  (unsigned char *)&wsi->u.ws.rx_ubuf[LWS_PRE],
+			lws_write(wsi, (unsigned char *)&wsi->u.ws.rx_ubuf[LWS_PRE],
 				  wsi->u.ws.rx_ubuf_head, LWS_WRITE_CLOSE);
 			wsi->state = LWSS_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
@@ -458,16 +453,14 @@ ping_drop:
 			 * state machine.
 			 */
 
-			eff_buf.token = &wsi->u.ws.rx_ubuf[
-						   LWS_PRE];
+			eff_buf.token = &wsi->u.ws.rx_ubuf[LWS_PRE];
 			eff_buf.token_len = wsi->u.ws.rx_ubuf_head;
 
 			if (lws_ext_cb_active(wsi,
 				LWS_EXT_CB_EXTENDED_PAYLOAD_RX,
 					&eff_buf, 0) <= 0) { /* not handle or fail */
 
-				lwsl_ext("Unhandled ext opc 0x%x\n",
-					 wsi->u.ws.opcode);
+				lwsl_ext("Unhandled ext opc 0x%x\n", wsi->u.ws.opcode);
 				wsi->u.ws.rx_ubuf_head = 0;
 
 				return 0;
@@ -563,7 +556,6 @@ already_done:
 	return 0;
 
 illegal_ctl_length:
-
 	lwsl_warn("Control frame asking for extended length is illegal\n");
 	/* kill the connection */
 	return -1;

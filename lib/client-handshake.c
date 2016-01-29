@@ -33,9 +33,7 @@ lws_client_connect_2(struct lws *wsi)
 					"Proxy-authorization: basic %s\x0d\x0a",
 					context->proxy_basic_auth_token);
 
-		plen += sprintf((char *)pt->serv_buf + plen,
-				"\x0d\x0a");
-
+		plen += sprintf((char *)pt->serv_buf + plen, "\x0d\x0a");
 		ads = context->http_proxy_address;
 
 #ifdef LWS_USE_IPV6
@@ -547,8 +545,8 @@ lws_client_connect(struct lws_context *context, const char *address,
 			    const char *host, const char *origin,
 			    const char *protocol, int ietf_version_or_minus_one)
 {
-	return lws_client_connect_extended(context, address, port, ssl_connection, path,
-				 host, origin, protocol,
-				 ietf_version_or_minus_one, NULL);
+	return lws_client_connect_extended(context, address, port, ssl_connection,
+					   path, host, origin, protocol,
+					   ietf_version_or_minus_one, NULL);
 }
 

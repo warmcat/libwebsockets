@@ -34,7 +34,6 @@ static const char *library_version = LWS_LIBRARY_VERSION " " LWS_BUILD_HASH;
  *	representing the library version followed by the git head hash it
  *	was built from
  */
-
 LWS_VISIBLE const char *
 lws_get_library_version(void)
 {
@@ -70,7 +69,6 @@ lws_get_library_version(void)
  *	images or whatever over http and dynamic data over websockets all in
  *	one place; they're all handled in the user callback.
  */
-
 LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
 {
@@ -83,7 +81,6 @@ lws_create_context(struct lws_context_creation_info *info)
 	int n, m;
 
 	lwsl_notice("Initial logging level %d\n", log_level);
-
 	lwsl_notice("Libwebsockets version: %s\n", library_version);
 #if LWS_POSIX
 #ifdef LWS_USE_IPV6
@@ -382,7 +379,7 @@ lws_context_destroy(struct lws_context *context)
 	}
 #ifdef LWS_USE_LIBEV
 	ev_io_stop(context->io_loop, &context->w_accept.watcher);
-	if(context->use_ev_sigint)
+	if (context->use_ev_sigint)
 		ev_signal_stop(context->io_loop, &context->w_sigint.watcher);
 #endif /* LWS_USE_LIBEV */
 

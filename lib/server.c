@@ -31,13 +31,13 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 #if LWS_POSIX
 	struct sockaddr_in serv_addr4;
 	socklen_t len = sizeof(struct sockaddr);
+	int n, opt = 1, limit = 1;
 	struct sockaddr_in sin;
 	struct sockaddr *v;
-	int n, opt = 1, limit = 1;
 #endif
-	int m = 0;
 	lws_sockfd_type sockfd;
 	struct lws *wsi;
+	int m = 0;
 
 	/* set up our external listening socket we serve on */
 
@@ -722,6 +722,7 @@ LWS_VISIBLE struct lws *
 lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 {
 	struct lws *new_wsi = lws_create_new_server_wsi(context);
+
 	if (!new_wsi) {
 		compatible_close(accept_fd);
 		return NULL;
@@ -773,8 +774,8 @@ LWS_VISIBLE int
 lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			  struct lws_pollfd *pollfd)
 {
-	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
 #if LWS_POSIX
 	struct sockaddr_in cli_addr;
 	socklen_t clilen;
@@ -861,8 +862,7 @@ try_pollout:
 		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
 		if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
-			n = user_callback_handle_rxflow(
-					wsi->protocol->callback,
+			n = user_callback_handle_rxflow(wsi->protocol->callback,
 					wsi, LWS_CALLBACK_HTTP_WRITEABLE,
 					wsi->user_space, NULL, 0);
 			if (n < 0) {
@@ -1082,7 +1082,7 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 #if LWS_POSIX
 	/* find canonical hostname */
 	gethostname((char *)context->canonical_hostname,
-				       sizeof(context->canonical_hostname) - 1);
+		    sizeof(context->canonical_hostname) - 1);
 
 	lwsl_notice(" canonical_hostname = %s\n", context->canonical_hostname);
 #else

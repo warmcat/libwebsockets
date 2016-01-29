@@ -58,7 +58,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 	switch (reason) {
 	case LWS_EXT_CB_OPTION_SET:
 		oa = in;
-		lwsl_info("%s: option set: idx %d, %s, len %d\n", __func__, oa->option_index, oa->start, oa->len);
+		lwsl_info("%s: option set: idx %d, %s, len %d\n", __func__,
+			  oa->option_index, oa->start, oa->len);
 		if (oa->start)
 			priv->args[oa->option_index] = atoi(oa->start);
 		else
@@ -297,12 +298,12 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		}
 
 #if 0
-	for (n = 0; n < eff_buf->token_len; n++) {
-		printf("%02X ", (unsigned char)eff_buf->token[n]);
-		if ((n & 15) == 15)
-			printf("\n");
-	}
-	printf("\n");
+		for (n = 0; n < eff_buf->token_len; n++) {
+			printf("%02X ", (unsigned char)eff_buf->token[n]);
+			if ((n & 15) == 15)
+				printf("\n");
+		}
+		printf("\n");
 #endif
 
 		priv->tx.next_out = priv->buf_tx_deflated + LWS_PRE + 5;

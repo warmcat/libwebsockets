@@ -860,9 +860,10 @@ int
 lws_rx_sm(struct lws *wsi, unsigned char c)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	struct lws_tokens eff_buf;
-	int ret = 0, n, rx_draining_ext = 0;
 	int callback_action = LWS_CALLBACK_RECEIVE;
+	int ret = 0, n, rx_draining_ext = 0;
+	struct lws_tokens eff_buf;
+
 	if (wsi->socket_is_permanently_unusable)
 		return -1;
 
@@ -1136,7 +1137,6 @@ handle_first:
 
 
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
-
 		assert(wsi->u.ws.rx_ubuf);
 
 		if (wsi->u.ws.rx_ubuf_head + LWS_PRE >=

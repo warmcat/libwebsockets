@@ -4,12 +4,11 @@
 
 LWS_VISIBLE void
 lws_context_init_extensions(struct lws_context_creation_info *info,
-				    struct lws_context *context)
+			    struct lws_context *context)
 {
 	context->extensions = info->extensions;
 	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
 }
-
 
 enum lws_ext_option_parser_states {
 	LEAPS_SEEK_NAME,
@@ -149,7 +148,6 @@ set_arg:
 			}
 			return -1;
 		}
-
 		len--;
 		in++;
 	}
@@ -170,7 +168,7 @@ int lws_ext_cb_active(struct lws *wsi, int reason, void *arg, int len)
 			wsi->act_ext_user[n], arg, len);
 		if (m < 0) {
 			lwsl_ext("Ext '%s' failed to handle callback %d!\n",
-				      wsi->active_extensions[n]->name, reason);
+				 wsi->active_extensions[n]->name, reason);
 			return -1;
 		}
 		if (m > handled)
@@ -207,10 +205,8 @@ int lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi,
 int
 lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	int ret;
 	struct lws_tokens eff_buf;
-	int m;
-	int n = 0;
+	int ret, m, n = 0;
 
 	eff_buf.token = (char *)buf;
 	eff_buf.token_len = len;
@@ -293,13 +289,11 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 }
 
 int
-lws_any_extension_handled(struct lws *wsi,
-			  enum lws_extension_callback_reasons r,
+lws_any_extension_handled(struct lws *wsi, enum lws_extension_callback_reasons r,
 			  void *v, size_t len)
 {
-	int n;
-	int handled = 0;
 	struct lws_context *context = wsi->context;
+	int n, handled = 0;
 
 	/* maybe an extension will take care of it for us */
 

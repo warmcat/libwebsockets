@@ -107,7 +107,6 @@ int lws_client_socket_service(struct lws_context *context,
 
 		n = recv(wsi->sock, sb, LWS_MAX_SOCKET_IO_BUF, 0);
 		if (n < 0) {
-
 			if (LWS_ERRNO == LWS_EAGAIN) {
 				lwsl_debug("Proxy read returned EAGAIN... retrying\n");
 				return 0;
@@ -120,8 +119,7 @@ int lws_client_socket_service(struct lws_context *context,
 
 		pt->serv_buf[13] = '\0';
 		if (strcmp(sb, "HTTP/1.0 200 ") &&
-		    strcmp(sb, "HTTP/1.1 200 ")
-		) {
+		    strcmp(sb, "HTTP/1.1 200 ")) {
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			lwsl_err("ERROR proxy: %s\n", sb);
 			return 0;
@@ -138,9 +136,7 @@ int lws_client_socket_service(struct lws_context *context,
 		/*
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
 		 * timeout protection set in client-handshake.c
-		 */
-
-		/*
+		 *
 		 * take care of our lws_callback_on_writable
 		 * happening at a time when there's no real connection yet
 		 */
@@ -227,8 +223,7 @@ int lws_client_socket_service(struct lws_context *context,
 			lws_latency_pre(context, wsi);
 			n = SSL_connect(wsi->ssl);
 			lws_latency(context, wsi,
-			  "SSL_connect LWSCM_WSCL_ISSUE_HANDSHAKE",
-								      n, n > 0);
+			  "SSL_connect LWSCM_WSCL_ISSUE_HANDSHAKE", n, n > 0);
 
 			if (n < 0) {
 				n = SSL_get_error(wsi->ssl, n);
@@ -249,9 +244,7 @@ int lws_client_socket_service(struct lws_context *context,
 					 * are getting serviced inbetweentimes)
 					 * us to get called back when writable.
 					 */
-
-					lwsl_info(
-					     "SSL_connect WANT_WRITE... retrying\n");
+					lwsl_info("%s: WANT_WRITE... retrying\n", __func__);
 					lws_callback_on_writable(wsi);
 some_wait:
 					wsi->mode = LWSCM_WSCL_WAITING_SSL;
@@ -266,7 +259,6 @@ some_wait:
 				 * retry if new data comes until we
 				 * run into the connection timeout or win
 				 */
-
 				n = ERR_get_error();
 				if (n != SSL_ERROR_NONE) {
 					lwsl_err("SSL connect error %lu: %s\n",
@@ -282,7 +274,6 @@ some_wait:
 	case LWSCM_WSCL_WAITING_SSL:
 
 		if (wsi->use_ssl) {
-
 			if (wsi->mode == LWSCM_WSCL_WAITING_SSL) {
 				lws_latency_pre(context, wsi);
 				n = SSL_connect(wsi->ssl);
@@ -309,7 +300,6 @@ some_wait:
 						 * are getting serviced inbetweentimes)
 						 * us to get called back when writable.
 						 */
-
 						lwsl_info("SSL_connect WANT_WRITE... retrying\n");
 						lws_callback_on_writable(wsi);
 
@@ -488,7 +478,6 @@ bail3:
 	return 0;
 }
 
-
 /*
  * In-place str to lower case
  */
@@ -526,7 +515,6 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	 * well, what the server sent looked reasonable for syntax.
 	 * Now let's confirm it sent all the necessary headers
 	 */
-
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
 	if (!p) {
 		lwsl_info("no URI\n");
@@ -598,7 +586,6 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	len = lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL);
 	if (!len) {
-
 		lwsl_info("lws_client_int_s_hs: WSI_TOKEN_PROTOCOL is null\n");
 		/*
 		 * no protocol name to work from,
@@ -802,8 +789,7 @@ check_accept:
 	 * we seem to be good to go, give client last chance to check
 	 * headers and OK it
 	 */
-	if (wsi->protocol->callback(wsi,
-				    LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
+	if (wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
 				    wsi->user_space, NULL, 0))
 		goto bail2;
 
@@ -823,7 +809,6 @@ check_accept:
 	 * size mentioned in the protocol definition.  If 0 there, then
 	 * use a big default for compatibility
 	 */
-
 	n = wsi->protocol->rx_buffer_size;
 	if (!n)
 		n = LWS_MAX_SOCKET_IO_BUF;
@@ -854,7 +839,6 @@ check_accept:
 	 * inform all extensions, not just active ones since they
 	 * already know
 	 */
-
 	ext = context->extensions;
 
 	while (ext && ext->callback) {
@@ -975,7 +959,6 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 #ifndef LWS_NO_EXTENSIONS
 	ext = context->extensions;
 	while (ext && ext->callback) {
-
 		n = lws_ext_cb_all_exts(context, wsi,
 			   LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION,
 			   (char *)ext->name, 0);
@@ -984,7 +967,6 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			ext++;
 			continue;
 		}
-
 		n = context->protocols[0].callback(wsi,
 			LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 				wsi->user_space, (char *)ext->name, 0);
@@ -1019,10 +1001,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	/* give userland a chance to append, eg, cookies */
 
-	context->protocols[0].callback(wsi,
-				       LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
-				       NULL, &p,
-				       (pkt + LWS_MAX_SOCKET_IO_BUF) - p - 12);
+	context->protocols[0].callback(wsi, LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
+				       NULL, &p, (pkt + LWS_MAX_SOCKET_IO_BUF) - p - 12);
 
 	p += sprintf(p, "\x0d\x0a");
 

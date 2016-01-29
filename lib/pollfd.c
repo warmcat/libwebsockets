@@ -24,8 +24,8 @@
 int
 _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 {
-	struct lws_context *context;
 	struct lws_context_per_thread *pt;
+	struct lws_context *context;
 	int ret = 0, pa_events = 1;
 	struct lws_pollfd *pfd;
 	int sampled_tid, tid;
@@ -93,7 +93,7 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	struct lws_pollargs pa1;
 #endif
 
-	lwsl_info("%s: %p: tsi=%d, sock=%d, pos-in-fds=%d\n",
+	lwsl_debug("%s: %p: tsi=%d, sock=%d, pos-in-fds=%d\n",
 		  __func__, wsi, wsi->tsi, wsi->sock, pt->fds_count);
 
 	if ((unsigned int)pt->fds_count >= context->fd_limit_per_thread) {
@@ -122,11 +122,6 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	wsi->position_in_fds_table = pt->fds_count;
 	pt->fds[pt->fds_count].fd = wsi->sock;
 	pt->fds[pt->fds_count].events = LWS_POLLIN;
-
-	/* don't apply this logic to the listening socket... */
-//	if (wsi->mode != LWSCM_SERVER_LISTENER && !wsi->u.hdr.ah)
-//		pt->fds[pt->fds_count].events = 0;
-
 	pa.events = pt->fds[pt->fds_count].events;
 
 	lws_plat_insert_socket_into_fds(context, wsi);
@@ -152,14 +147,14 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 int
 remove_wsi_socket_from_fds(struct lws *wsi)
 {
-	int m, ret = 0;
-	struct lws *end_wsi;
 	struct lws_pollargs pa = { wsi->sock, 0, 0 };
 #ifndef LWS_NO_SERVER
 	struct lws_pollargs pa1;
 #endif
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws *end_wsi;
+	int m, ret = 0;
 
 #if !defined(_WIN32) && !defined(MBED_OPERATORS)
 	if (wsi->sock > context->max_fds) {
@@ -220,10 +215,10 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 int
 lws_change_pollfd(struct lws *wsi, int _and, int _or)
 {
-	struct lws_context *context;
 	struct lws_context_per_thread *pt;
-	int ret = 0;
+	struct lws_context *context;
 	struct lws_pollargs pa;
+	int ret = 0;
 
 	if (!wsi || !wsi->protocol || wsi->position_in_fds_table < 0)
 		return 1;
@@ -339,8 +334,8 @@ lws_callback_on_writable_all_protocol(const struct lws_context *context,
 				      const struct lws_protocols *protocol)
 {
 	const struct lws_context_per_thread *pt = &context->pt[0];
-	struct lws *wsi;
 	unsigned int n, m = context->count_threads;
+	struct lws *wsi;
 
 	while (m--) {
 		for (n = 0; n < pt->fds_count; n++) {

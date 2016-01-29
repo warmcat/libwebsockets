@@ -54,7 +54,8 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
  * This is just used to interrupt poll waiting
  * we don't have to do anything with it.
  */
-static void lws_sigusr2(int sig)
+static void
+lws_sigusr2(int sig)
 {
 }
 
@@ -335,7 +336,8 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 
 }
 
-static void sigpipe_handler(int x)
+static void
+sigpipe_handler(int x)
 {
 }
 

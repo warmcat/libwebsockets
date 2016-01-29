@@ -131,8 +131,6 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
-//		lwsl_err("%s: wsi %p: LWS_SSL_CAPABLE_ERROR\n", __func__,
-//			 (void *)wsi);
 		/* we're going to close, let close know sends aren't possible */
 		wsi->socket_is_permanently_unusable = 1;
 		return -1;

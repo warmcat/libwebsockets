@@ -613,8 +613,8 @@ lws_callback_all_protocol(struct lws_context *context,
 			  const struct lws_protocols *protocol, int reason)
 {
 	struct lws_context_per_thread *pt = &context->pt[0];
-	struct lws *wsi;
 	unsigned int n, m = context->count_threads;
+	struct lws *wsi;
 
 	while (m--) {
 		for (n = 0; n < pt->fds_count; n++) {
@@ -622,7 +622,8 @@ lws_callback_all_protocol(struct lws_context *context,
 			if (!wsi)
 				continue;
 			if (wsi->protocol == protocol)
-				protocol->callback(wsi, reason, wsi->user_space, NULL, 0);
+				protocol->callback(wsi, reason, wsi->user_space,
+						   NULL, 0);
 		}
 		pt++;
 	}
@@ -869,7 +870,8 @@ LWS_VISIBLE int
 lws_is_final_fragment(struct lws *wsi)
 {
 	lwsl_info("%s: final %d, rx pk length %d, draining %d", __func__,
-			wsi->u.ws.final, wsi->u.ws.rx_packet_length, wsi->u.ws.rx_draining_ext);
+			wsi->u.ws.final, wsi->u.ws.rx_packet_length,
+			wsi->u.ws.rx_draining_ext);
 	return wsi->u.ws.final && !wsi->u.ws.rx_packet_length && !wsi->u.ws.rx_draining_ext;
 }
 

@@ -629,8 +629,8 @@ read:
 		 */
 
 		eff_buf.token = (char *)pt->serv_buf;
-drain:
 
+drain:
 		do {
 			more = 0;
 

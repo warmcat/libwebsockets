@@ -373,7 +373,6 @@ done:
 	lws_context_destroy(context);
 	pthread_mutex_destroy(&lock_established_conns);
 
-
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
 #ifndef _WIN32

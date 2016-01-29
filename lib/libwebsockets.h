@@ -430,7 +430,7 @@ enum lws_extension_callback_reasons {
 	LWS_EXT_CB_CONSTRUCT				=  4,
 	LWS_EXT_CB_CLIENT_CONSTRUCT			=  5,
 	LWS_EXT_CB_CHECK_OK_TO_REALLY_CLOSE		=  6,
-	LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION		=  7,
+	LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION	=  7,
 	LWS_EXT_CB_DESTROY				=  8,
 	LWS_EXT_CB_DESTROY_ANY_WSI_CLOSING		=  9,
 	LWS_EXT_CB_ANY_WSI_ESTABLISHED			= 10,
@@ -606,7 +606,7 @@ enum lws_token_indexes {
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,
 
-	/* parser state additions */
+	/* parser state additions, no storage associated */
 	WSI_TOKEN_NAME_PART,
 	WSI_TOKEN_SKIPPING,
 	WSI_TOKEN_SKIPPING_SAW_CR,
@@ -1236,7 +1236,7 @@ struct lws_extension {
 
 /*
  * The internal exts are part of the public abi
- * If we add more extensions, publish the callback here
+ * If we add more extensions, publish the callback here  ------v
  */
 
 extern int lws_extension_callback_pm_deflate(
@@ -1836,7 +1836,8 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len);
 #define lws_get_internal_extensions() NULL
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
-		       void *ext_user, const struct lws_ext_options *opts, const char *o, int len);
+		       void *ext_user, const struct lws_ext_options *opts,
+		       const char *o, int len);
 #endif
 
 /*
