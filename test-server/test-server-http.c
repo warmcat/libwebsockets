@@ -145,7 +145,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			n = 0;
 			while (lws_hdr_copy_fragment(wsi, buf, sizeof(buf),
 						     WSI_TOKEN_HTTP_URI_ARGS, n) > 0) {
-				lwsl_info("URI Arg %d: %s\n", ++n, buf);
+				lwsl_notice("URI Arg %d: %s\n", ++n, buf);
 			}
 		}
 		if (len < 1) {

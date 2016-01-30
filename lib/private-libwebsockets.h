@@ -874,11 +874,12 @@ struct _lws_header_related {
 	char post_literal_equal;
 	unsigned char parser_state; /* enum lws_token_indexes */
 	char redirects;
+	char more_rx_waiting;
 };
 
 struct _lws_websocket_related {
 	char *rx_ubuf;
-       unsigned int rx_ubuf_alloc;
+	unsigned int rx_ubuf_alloc;
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
 	size_t rx_packet_length;
@@ -1177,6 +1178,9 @@ lws_allocate_header_table(struct lws *wsi);
 
 LWS_EXTERN int
 lws_free_header_table(struct lws *wsi);
+
+LWS_EXTERN void
+lws_reset_header_table(struct lws *wsi);
 
 LWS_EXTERN char * LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h);

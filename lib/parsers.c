@@ -60,9 +60,10 @@ lextable_decode(int pos, char c)
 	}
 }
 
-static void
+void
 lws_reset_header_table(struct lws *wsi)
 {
+	lwsl_err("%s: wsi %p\n", __func__, wsi);
 	/* init the ah to reflect no headers or data have appeared yet */
 	memset(wsi->u.hdr.ah->frag_index, 0, sizeof(wsi->u.hdr.ah->frag_index));
 	wsi->u.hdr.ah->nfrag = 0;
@@ -110,7 +111,7 @@ lws_allocate_header_table(struct lws *wsi)
 	 * weren't able to deliver it right now
 	 */
 	if (pt->ah_count_in_use == context->max_http_header_pool) {
-		lwsl_err("%s: adding %p to ah waiting list\n", __func__, wsi);
+		lwsl_info("%s: adding %p to ah waiting list\n", __func__, wsi);
 		wsi->u.hdr.ah_wait_list = pt->ah_wait_list;
 		pt->ah_wait_list = wsi;
 		pt->ah_wait_list_length++;

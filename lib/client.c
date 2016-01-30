@@ -21,7 +21,8 @@
 
 #include "private-libwebsockets.h"
 
-int lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
+int
+lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	int m;
 
@@ -65,8 +66,9 @@ int lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 	return 0;
 }
 
-int lws_client_socket_service(struct lws_context *context,
-			      struct lws *wsi, struct lws_pollfd *pollfd)
+int
+lws_client_socket_service(struct lws_context *context, struct lws *wsi,
+			  struct lws_pollfd *pollfd)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];

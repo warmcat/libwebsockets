@@ -22,8 +22,9 @@
 
 #include "private-libwebsockets.h"
 
-int lws_context_init_server(struct lws_context_creation_info *info,
-			    struct lws_context *context)
+int
+lws_context_init_server(struct lws_context_creation_info *info,
+			struct lws_context *context)
 {
 #ifdef LWS_USE_IPV6
 	struct sockaddr_in6 serv_addr6;
@@ -181,7 +182,8 @@ _lws_server_listen_accept_flow_control(struct lws *twsi, int on)
 	return n;
 }
 
-int lws_http_action(struct lws *wsi)
+int
+lws_http_action(struct lws *wsi)
 {
 	enum http_connection_type connection_type;
 	enum http_version request_version;
@@ -331,7 +333,8 @@ bail_nuke_ah:
 }
 
 
-int lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
+int
+lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct allocated_headers *ah;
@@ -343,6 +346,7 @@ int lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	assert(wsi->u.hdr.ah);
 
 	while (len--) {
+		wsi->u.hdr.more_rx_waiting = !!len;
 
 		assert(wsi->mode == LWSCM_HTTP_SERVING);
 
@@ -688,15 +692,27 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->state = LWSS_HTTP;
 	wsi->mode = LWSCM_HTTP_SERVING;
 	wsi->u.http.content_length = 0;
+	wsi->hdr_parsing_completed = 0;
 
 	/* He asked for it to stay alive indefinitely */
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
-	/* if we still have the headers, drop them and reacquire a new ah when
-	 * the new headers arrive.  Otherwise we hog an ah indefinitely,
-	 * needlessly.
+	/*
+	 * We already know we are on http1.1 / keepalive and the next thing
+	 * coming will be another header set.
+	 *
+	 * If there is no pending rx and we still have the ah, drop it and
+	 * reacquire a new ah when the new headers start to arrive.  (Otherwise
+	 * we needlessly hog an ah indefinitely.)
+	 *
+	 * However if there is pending rx and we know from the keepalive state
+	 * that is already at least the start of another header set, simply
+	 * reset the existing header table and keep it.
 	 */
-	lws_free_header_table(wsi);
+	if (!wsi->u.hdr.more_rx_waiting)
+		lws_free_header_table(wsi);
+	else
+		lws_reset_header_table(wsi);
 
 	/* If we're (re)starting on headers, need other implied init */
 	wsi->u.hdr.ues = URIES_IDLE;
@@ -813,9 +829,34 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
 			goto try_pollout;
 
-		if (wsi->state == LWSS_HTTP && !wsi->u.hdr.ah)
+		if ((wsi->state == LWSS_HTTP ||
+		     wsi->state == LWSS_HTTP_ISSUING_FILE ||
+		     wsi->state == LWSS_HTTP_HEADERS) && !wsi->u.hdr.ah)
 			if (lws_allocate_header_table(wsi))
 				goto try_pollout;
+
+		/*
+		 * This is a good situation, the ah allocated and we know there
+		 * is header data pending.  However, in http1.1 / keepalive
+		 * case, back-to-back header sets pipelined into one packet
+		 * is common.
+		 *
+		 * Ah is defined to be required to stay attached to the wsi
+		 * until the current set of header data completes, which may
+		 * involve network roundtrips if fragmented.  Typically the
+		 * header set is not fragmented and gets done atomically.
+		 *
+		 * When we complete processing for the first header set, we
+		 * normally drop the ah in lws_http_transaction_completed()
+		 * since we do not know how long it would be held waiting for
+		 * the start of the next header set to arrive.
+		 *
+		 * However if there is pending data, http1.1 / keepalive mode
+		 * is active, we need to retain (just reset) the ah after
+		 * dealing with each header set instead of dropping it.
+		 *
+		 * Otherwise the remaining header data has nowhere to be stored.
+		 */
 
 		len = lws_ssl_capable_read(wsi, pt->serv_buf,
 					   LWS_MAX_SOCKET_IO_BUF);
@@ -971,10 +1012,9 @@ fail:
  *	the wsi should be left alone.
  */
 
-LWS_VISIBLE int lws_serve_http_file(struct lws *wsi, const char *file,
-				    const char *content_type,
-				    const char *other_headers,
-				    int other_headers_len)
+LWS_VISIBLE int
+lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
+		    const char *other_headers, int other_headers_len)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
