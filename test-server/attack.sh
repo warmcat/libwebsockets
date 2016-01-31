@@ -268,3 +268,6 @@ echo
 echo "--- survived OK ---"
 kill -2 $CPID
 
+exit 0
+
+
