@@ -117,7 +117,7 @@
 #include <arpa/inet.h>
 #include <poll.h>
 #ifdef LWS_USE_LIBEV
-#include <ev.h>
+#include <uv.h>
 #endif /* LWS_USE_LIBEV */
 #include <sys/mman.h>
 
@@ -439,12 +439,12 @@ struct lws;
 
 #ifdef LWS_USE_LIBEV
 struct lws_io_watcher {
-	struct ev_io watcher;
+    uv_poll_t watcher;
 	struct lws_context* context;
 };
 
 struct lws_signal_watcher {
-	struct ev_signal watcher;
+    uv_signal_t watcher;
 	struct lws_context* context;
 };
 #endif /* LWS_USE_LIBEV */
@@ -560,7 +560,7 @@ struct lws_context {
 	struct lws **lws_lookup;  /* fd to wsi */
 #endif
 #ifdef LWS_USE_LIBEV
-	struct ev_loop* io_loop;
+    uv_loop_t *io_loop;
 	struct lws_io_watcher w_accept;
 	struct lws_signal_watcher w_sigint;
 	lws_ev_signal_cb* lws_ev_sigint_cb;

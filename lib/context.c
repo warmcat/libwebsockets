@@ -378,9 +378,10 @@ lws_context_destroy(struct lws_context *context)
 		}
 	}
 #ifdef LWS_USE_LIBEV
-	ev_io_stop(context->io_loop, &context->w_accept.watcher);
-	if (context->use_ev_sigint)
-		ev_signal_stop(context->io_loop, &context->w_sigint.watcher);
+    uv_poll_stop(&context->w_accept.watcher);
+    //ev_io_stop(context->io_loop, &context->w_accept.watcher);
+    //if (context->use_ev_sigint)
+        //ev_signal_stop(context->io_loop, &context->w_sigint.watcher);
 #endif /* LWS_USE_LIBEV */
 
 	for (n = 0; n < context->count_threads; n++) {
