@@ -170,7 +170,7 @@ struct sockaddr_in;
 #endif
 
 #ifdef LWS_USE_LIBEV
-#include <ev.h>
+#include <uv.h>
 #endif /* LWS_USE_LIBEV */
 
 #ifndef LWS_EXTERN
@@ -1457,17 +1457,17 @@ LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi);
 
 #ifdef LWS_USE_LIBEV
-typedef void (lws_ev_signal_cb)(EV_P_ struct ev_signal *w, int revents);
+typedef void (lws_ev_signal_cb)(uv_loop_t *l, uv_signal_t *w, int revents);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_sigint_cfg(struct lws_context *context, int use_ev_sigint,
 	       lws_ev_signal_cb *cb);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_initloop(struct lws_context *context, struct ev_loop *loop);
+lws_initloop(struct lws_context *context, uv_loop_t *loop);
 
 LWS_VISIBLE void
-lws_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents);
+lws_sigint_cb(uv_loop_t *loop, uv_signal_t *watcher, int revents);
 #endif /* LWS_USE_LIBEV */
 
 LWS_VISIBLE LWS_EXTERN int
