@@ -238,6 +238,7 @@ user_service:
 		}
 
 		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
+		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 	}
 
 #ifdef LWS_USE_HTTP2

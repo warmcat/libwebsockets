@@ -767,6 +767,7 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 	}
 
 	lws_libev_accept(new_wsi, new_wsi->sock);
+	lws_libuv_accept(new_wsi, new_wsi->sock);
 
 	if (!LWS_SSL_ENABLED(context)) {
 		if (insert_wsi_socket_into_fds(context, new_wsi))
@@ -901,6 +902,7 @@ try_pollout:
 		}
 
 		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
+		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
 		if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
 			n = user_callback_handle_rxflow(wsi->protocol->callback,

@@ -54,6 +54,7 @@ option(LWS_USE_CYASSL "Use CyaSSL replacement for OpenSSL. When setting this, yo
 option(LWS_USE_WOLFSSL "Use wolfSSL replacement for OpenSSL. When setting this, you also need to specify LWS_WOLFSSL_LIBRARIES and LWS_WOLFSSL_INCLUDE_DIRS" OFF)
 option(LWS_WITH_ZLIB "Include zlib support (required for extensions)" ON)
 option(LWS_WITH_LIBEV "Compile with support for libev" OFF)
+option(LWS_WITH_LIBUV "Compile with support for libuv" OFF)
 option(LWS_USE_BUNDLED_ZLIB "Use bundled zlib version (Windows only)" ${LWS_USE_BUNDLED_ZLIB_DEFAULT})
 option(LWS_SSL_CLIENT_USE_OS_CA_CERTS "SSL support should make use of the OS-installed CA root certs" ON)
 option(LWS_WITHOUT_BUILTIN_GETIFADDRS "Don't use the BSD getifaddrs implementation from libwebsockets if it is missing (this will result in a compilation error) ... The default is to assume that your libc provides it. On some systems such as uclibc it doesn't exist." OFF)
@@ -135,6 +136,8 @@ set(LWS_WOLFSSL_LIBRARIES CACHE PATH "Path to the wolfSSL library")
 set(LWS_WOLFSSL_INCLUDE_DIRS CACHE PATH "Path to the wolfSSL include directory")
 set(LWS_LIBEV_LIBRARIES CACHE PATH "Path to the libev library")
 set(LWS_LIBEV_INCLUDE_DIRS CACHE PATH "Path to the libev include directory")
+set(LWS_LIBUV_LIBRARIES CACHE PATH "Path to the libuv library")
+set(LWS_LIBUV_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
 
 if (NOT LWS_WITH_SSL)
 	set(LWS_WITHOUT_BUILTIN_SHA1 OFF)
@@ -187,6 +190,15 @@ if (LWS_WITH_LIBEV)
 	endif()
 endif()
 
+if (LWS_WITH_LIBUV)
+	if ("${LWS_LIBUV_LIBRARIES}" STREQUAL "" OR "${LWS_LIBUV_INCLUDE_DIRS}" STREQUAL "")
+	else()
+		set(LIBUV_LIBRARIES ${LWS_LIBUV_LIBRARIES})
+		set(LIBUV_INCLUDE_DIRS ${LWS_LIBUV_INCLUDE_DIRS})
+		set(LIBUV_FOUND 1)
+	endif()
+endif()
+
 # FIXME: This must be runtime-only option.
 # The base dir where the test-apps look for the SSL certs.
 set(LWS_OPENSSL_CLIENT_CERTS ../share CACHE PATH "Server SSL certificate directory")
@@ -231,6 +243,10 @@ endif()
 
 if (LWS_WITH_LIBEV)
 	set(LWS_USE_LIBEV 1)
+endif()
+
+if (LWS_WITH_LIBUV)
+	set(LWS_USE_LIBUV 1)
 endif()
 
 if (LWS_IPV6)
@@ -461,7 +477,12 @@ endif()
 if (LWS_WITH_LIBEV)
 	list(APPEND SOURCES
 		lib/libev.c)
-endif(LWS_WITH_LIBEV)
+endif()
+
+if (LWS_WITH_LIBUV)
+	list(APPEND SOURCES
+		lib/libuv.c)
+endif()
 
 # Add helper files for Windows.
 if (WIN32)
@@ -676,6 +697,20 @@ if (LWS_WITH_LIBEV)
 	list(APPEND LIB_LIST ${LIBEV_LIBRARIES})
 endif(LWS_WITH_LIBEV)
 
+if (LWS_WITH_LIBUV)
+	if (NOT LIBUV_FOUND)
+		find_path(LIBUV_INCLUDE_DIRS NAMES uv.h)
+		find_library(LIBUV_LIBRARIES NAMES uv)
+		if(LIBUV_INCLUDE_DIRS AND LIBUV_LIBRARIES)
+			set(LIBUV_FOUND 1)
+		endif()
+	endif()
+	message("libuv include dir: ${LIBUV_INCLUDE_DIRS}")
+	message("libuv libraries: ${LIBUV_LIBRARIES}")
+	include_directories("${LIBUV_INCLUDE_DIRS}")
+	list(APPEND LIB_LIST ${LIBUV_LIBRARIES})
+endif()
+
 #
 # Platform specific libs.
 #
@@ -803,6 +838,15 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 				AND LWS_WITH_LIBEV)
 				create_test_app(test-server-libev
 					"test-server/test-server-libev.c"
+					"test-server/test-server-http.c"
+					"test-server/test-server-dumb-increment.c"
+					"test-server/test-server-mirror.c"
+					"test-server/test-server-echogen.c")
+			endif()
+			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+				AND LWS_WITH_LIBUV)
+				create_test_app(test-server-libuv
+					"test-server/test-server-libuv.c"
 					"test-server/test-server-http.c"
 					"test-server/test-server-dumb-increment.c"
 					"test-server/test-server-mirror.c"
@@ -1134,6 +1178,7 @@ message(" LWS_WITHOUT_EXTENSIONS = ${LWS_WITHOUT_EXTENSIONS}")
 message(" LWS_WITH_LATENCY = ${LWS_WITH_LATENCY}")
 message(" LWS_WITHOUT_DAEMONIZE = ${LWS_WITHOUT_DAEMONIZE}")
 message(" LWS_USE_LIBEV = ${LWS_USE_LIBEV}")
+message(" LWS_USE_LIBUV = ${LWS_USE_LIBUV}")
 message(" LWS_IPV6 = ${LWS_IPV6}")
 message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")
 message(" LWS_MBED3 = ${LWS_MBED3}")

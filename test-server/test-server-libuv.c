@@ -123,19 +123,6 @@ static struct lws_protocols protocols[] = {
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 
-static const struct lws_extension exts[] = {
-	{
-		"permessage-deflate",
-		lws_extension_callback_pm_deflate,
-		"permessage-deflate; client_no_context_takeover; client_max_window_bits"
-	},
-	{
-		"deflate-frame",
-		lws_extension_callback_pm_deflate,
-		"deflate_frame"
-	},
-	{ NULL, NULL, NULL /* terminator */ }
-};
 
 /* this shows how to override the lws file operations.  You don't need
  * to do any of this unless you have a reason (eg, want to serve
@@ -302,14 +289,16 @@ int main(int argc, char **argv)
 	/* tell the library what debug level to emit and to send it to syslog */
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
 
-	lwsl_notice("libwebsockets test server libev - license LGPL2.1+SLE\n");
+	lwsl_notice("libwebsockets test server libuv - license LGPL2.1+SLE\n");
 	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
 
 	printf("Using resource path \"%s\"\n", resource_path);
 
 	info.iface = iface;
 	info.protocols = protocols;
-	info.extensions = exts;
+#ifndef LWS_NO_EXTENSIONS
+	info.extensions = lws_get_internal_extensions();
+#endif
 
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
@@ -334,7 +323,7 @@ int main(int argc, char **argv)
 	info.gid = -1;
 	info.uid = -1;
 	info.max_http_header_pool = 1;
-	info.options = opts | LWS_SERVER_OPTION_LIBEV;
+	info.options = opts | LWS_SERVER_OPTION_LIBUV;
 
 	context = lws_create_context(&info);
 	if (context == NULL) {

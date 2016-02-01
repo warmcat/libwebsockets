@@ -168,6 +168,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 		return -1;
 
 	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
+	lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
 	lws_pt_lock(pt);
 
@@ -315,6 +316,7 @@ network_sock:
 		return -1;
 
 	lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
+	lws_libuv_io(wsi, LWS_EV_START | LWS_EV_WRITE);
 
 	return 1;
 }

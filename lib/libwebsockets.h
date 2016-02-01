@@ -169,8 +169,11 @@ struct sockaddr_in;
 #endif
 
 #ifdef LWS_USE_LIBEV
-#include <uv.h>
+#include <ev.h>
 #endif /* LWS_USE_LIBEV */
+#ifdef LWS_USE_LIBUV
+#include <uv.h>
+#endif /* LWS_USE_LIBUV */
 
 #ifndef LWS_EXTERN
 #define LWS_EXTERN extern
@@ -280,6 +283,7 @@ enum lws_context_options {
 	LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED		= (1 << 7),
 	LWS_SERVER_OPTION_VALIDATE_UTF8				= (1 << 8),
 	LWS_SERVER_OPTION_SSL_ECDH				= (1 << 9),
+	LWS_SERVER_OPTION_LIBUV					= (1 << 10),
 
 	/****** add new things just above ---^ ******/
 };
@@ -1456,18 +1460,32 @@ LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi);
 
 #ifdef LWS_USE_LIBEV
-typedef void (lws_ev_signal_cb)(uv_loop_t *l, uv_signal_t *w, int revents);
+typedef void (lws_ev_signal_cb_t)(EV_P_ struct ev_signal *w, int revents);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_sigint_cfg(struct lws_context *context, int use_ev_sigint,
-	       lws_ev_signal_cb *cb);
+lws_ev_sigint_cfg(struct lws_context *context, int use_ev_sigint,
+		  lws_ev_signal_cb_t *cb);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_initloop(struct lws_context *context, uv_loop_t *loop);
+lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi);
 
 LWS_VISIBLE void
-lws_sigint_cb(uv_loop_t *loop, uv_signal_t *watcher, int revents);
+lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents);
 #endif /* LWS_USE_LIBEV */
+
+#ifdef LWS_USE_LIBUV
+typedef void (lws_uv_signal_cb_t)(uv_loop_t *l, uv_signal_t *w, int revents);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_uv_sigint_cfg(struct lws_context *context, int use_uv_sigint,
+		  lws_uv_signal_cb_t *cb);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi);
+
+LWS_VISIBLE void
+lws_uv_sigint_cb(uv_loop_t *loop, uv_signal_t *watcher, int revents);
+#endif /* LWS_USE_LIBUV */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd);

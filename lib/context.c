@@ -199,8 +199,18 @@ lws_create_context(struct lws_context_creation_info *info)
 	 * before invoking lws_initloop:
 	 */
 	context->use_ev_sigint = 1;
-	context->lws_ev_sigint_cb = &lws_sigint_cb;
+	context->lws_ev_sigint_cb = &lws_ev_sigint_cb;
 #endif /* LWS_USE_LIBEV */
+#ifdef LWS_USE_LIBUV
+	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
+	 * enable libev mediated SIGINT handling with a default handler of
+	 * lws_sigint_cb. The handler can be overridden or disabled
+	 * by invoking lws_sigint_cfg after creating the context, but
+	 * before invoking lws_initloop:
+	 */
+	context->use_ev_sigint = 1;
+	context->lws_uv_sigint_cb = &lws_uv_sigint_cb;
+#endif
 
 	lwsl_info(" mem: context:         %5u bytes (%d ctx + (%d thr x %d))\n",
 		  sizeof(struct lws_context) +
@@ -377,14 +387,18 @@ lws_context_destroy(struct lws_context *context)
 			protocol++;
 		}
 	}
-#ifdef LWS_USE_LIBEV
-    uv_poll_stop(&context->w_accept.watcher);
-    //ev_io_stop(context->io_loop, &context->w_accept.watcher);
-    //if (context->use_ev_sigint)
-        //ev_signal_stop(context->io_loop, &context->w_sigint.watcher);
-#endif /* LWS_USE_LIBEV */
 
 	for (n = 0; n < context->count_threads; n++) {
+#ifdef LWS_USE_LIBEV
+		ev_io_stop(context->pt[n].io_loop_ev,
+			   &context->pt[n].w_accept.ev_watcher);
+		if (context->use_ev_sigint)
+			ev_signal_stop(context->pt[n].io_loop_ev,
+				       &context->pt[n].w_sigint.ev_watcher);
+#endif /* LWS_USE_LIBEV */
+#ifdef LWS_USE_LIBUV
+		uv_poll_stop(&context->pt[n].w_accept.uv_watcher);
+#endif
 		lws_free_set_NULL(context->pt[n].serv_buf);
 		if (context->pt[n].ah_pool)
 			lws_free(context->pt[n].ah_pool);

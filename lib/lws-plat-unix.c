@@ -134,7 +134,8 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (!context)
 		return 1;
 
-	lws_libev_run(context);
+	lws_libev_run(context, tsi);
+	lws_libuv_run(context, tsi);
 
 	if (!context->service_tid_detected) {
 		struct lws _lws;
@@ -455,6 +456,8 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
 	lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
+	lws_libuv_io(wsi, LWS_EV_START | LWS_EV_READ);
+
 	pt->fds[pt->fds_count++].revents = 0;
 }
 
@@ -579,7 +582,8 @@ lws_plat_init(struct lws_context *context,
 		return 1;
 	}
 
-	if (!lws_libev_init_fd_table(context)) {
+	if (!lws_libev_init_fd_table(context) &&
+	    !lws_libuv_init_fd_table(context)) {
 		/* otherwise libev handled it instead */
 
 		while (n--) {
