@@ -390,14 +390,17 @@ lws_context_destroy(struct lws_context *context)
 
 	for (n = 0; n < context->count_threads; n++) {
 #ifdef LWS_USE_LIBEV
-		ev_io_stop(context->pt[n].io_loop_ev,
-			   &context->pt[n].w_accept.ev_watcher);
-		if (context->use_ev_sigint)
-			ev_signal_stop(context->pt[n].io_loop_ev,
-				       &context->pt[n].w_sigint.ev_watcher);
+		if (context->options & LWS_SERVER_OPTION_LIBEV) {
+			ev_io_stop(context->pt[n].io_loop_ev,
+				   &context->pt[n].w_accept.ev_watcher);
+			if (context->use_ev_sigint)
+				ev_signal_stop(context->pt[n].io_loop_ev,
+					       &context->pt[n].w_sigint.ev_watcher);
+		}
 #endif /* LWS_USE_LIBEV */
 #ifdef LWS_USE_LIBUV
-		uv_poll_stop(&context->pt[n].w_accept.uv_watcher);
+		if (context->options & LWS_SERVER_OPTION_LIBUV)
+			uv_poll_stop(&context->pt[n].w_accept.uv_watcher);
 #endif
 		lws_free_set_NULL(context->pt[n].serv_buf);
 		if (context->pt[n].ah_pool)
