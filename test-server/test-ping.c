@@ -298,6 +298,20 @@ static struct lws_protocols protocols[] = {
 	}
 };
 
+static const struct lws_extension exts[] = {
+	{
+		"permessage-deflate",
+		lws_extension_callback_pm_deflate,
+		"permessage-deflate; client_no_context_takeover; client_max_window_bits"
+	},
+	{
+		"deflate-frame",
+		lws_extension_callback_pm_deflate,
+		"deflate_frame"
+	},
+	{ NULL, NULL, NULL /* terminator */ }
+};
+
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
@@ -331,7 +345,7 @@ int main(int argc, char **argv)
 	int port = 7681;
 	int use_ssl = 0;
 	struct lws_context *context;
-	char protocol_name[256];
+	char protocol_name[256], ads_port[300];
 	char ip[30];
 #ifndef _WIN32
 	struct sigaction sa;
@@ -342,14 +356,12 @@ int main(int argc, char **argv)
 	unsigned long l;
 	int ietf_version = -1;
 	struct lws_context_creation_info info;
+	struct lws_client_connect_info i;
 
 	memset(&info, 0, sizeof info);
 
 	if (argc < 2)
 		goto usage;
-
-	address = argv[1];
-	optind++;
 
 	while (n >= 0) {
 		n = getopt_long(argc, argv, "v:kr:hmfts:n:i:p:d:", options, NULL);
@@ -425,9 +437,8 @@ int main(int argc, char **argv)
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
-#ifndef LWS_NO_EXTENSIONS
-	info.extensions = lws_get_internal_extensions();
-#endif
+	info.extensions = exts;
+
 	info.gid = -1;
 	info.uid = -1;
 
@@ -439,14 +450,25 @@ int main(int argc, char **argv)
 
 	/* create client websockets using dumb increment protocol */
 
+	address = argv[optind];
+	sprintf(ads_port, "%s:%u", address, port & 65535);
+	lwsl_notice("Connecting to %s...\n", ads_port);
+	memset(&i, 0, sizeof(i));
+	i.context = context;
+	i.address = address;
+	i.port = port;
+	i.ssl_connection = use_ssl;
+	i.path = "/";
+	i.host = ads_port;
+	i.origin = ads_port;
+	i.protocol = protocols[PROTOCOL_LWS_MIRROR].name;
+	i.client_exts = exts;
+	i.ietf_version_or_minus_one = ietf_version;
+
 	for (n = 0; n < clients; n++) {
-		ping_wsi[n] = lws_client_connect(context, address,
-						   port, use_ssl, "/", address,
-				 "origin", protocols[PROTOCOL_LWS_MIRROR].name,
-								  ietf_version);
+		ping_wsi[n] = lws_client_connect_via_info(&i);
 		if (ping_wsi[n] == NULL) {
-			fprintf(stderr, "client connection %d failed to "
-								"connect\n", n);
+			lwsl_err("client %d failed to connect\n", n);
 			return 1;
 		}
 	}

@@ -123,6 +123,19 @@ static struct lws_protocols protocols[] = {
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 
+static const struct lws_extension exts[] = {
+	{
+		"permessage-deflate",
+		lws_extension_callback_pm_deflate,
+		"permessage-deflate; client_no_context_takeover; client_max_window_bits"
+	},
+	{
+		"deflate-frame",
+		lws_extension_callback_pm_deflate,
+		"deflate_frame"
+	},
+	{ NULL, NULL, NULL /* terminator */ }
+};
 
 /* this shows how to override the lws file operations.  You don't need
  * to do any of this unless you have a reason (eg, want to serve
@@ -296,9 +309,7 @@ int main(int argc, char **argv)
 
 	info.iface = iface;
 	info.protocols = protocols;
-#ifndef LWS_NO_EXTENSIONS
-	info.extensions = lws_get_internal_extensions();
-#endif
+	info.extensions = exts;
 
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;

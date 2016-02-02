@@ -545,8 +545,21 @@ lws_client_connect(struct lws_context *context, const char *address,
 			    const char *host, const char *origin,
 			    const char *protocol, int ietf_version_or_minus_one)
 {
-	return lws_client_connect_extended(context, address, port, ssl_connection,
-					   path, host, origin, protocol,
-					   ietf_version_or_minus_one, NULL);
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof(i));
+
+	i.context = context;
+	i.address = address;
+	i.port = port;
+	i.ssl_connection = ssl_connection;
+	i.path = path;
+	i.host = host;
+	i.origin = origin;
+	i.protocol = protocol;
+	i.ietf_version_or_minus_one = ietf_version_or_minus_one;
+	i.userdata = NULL;
+
+	return lws_client_connect_via_info(&i);
 }
 

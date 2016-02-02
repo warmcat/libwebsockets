@@ -122,6 +122,7 @@ struct sockaddr_in;
 #define LWS_INLINE __inline
 #define LWS_VISIBLE
 #define LWS_WARN_UNUSED_RESULT
+#define LWS_WARN_DEPRECATED
 
 #ifdef LWS_DLL
 #ifdef LWS_INTERNAL
@@ -154,9 +155,11 @@ struct sockaddr_in;
 #if defined(__GNUC__)
 #define LWS_VISIBLE __attribute__((visibility("default")))
 #define LWS_WARN_UNUSED_RESULT __attribute__ ((warn_unused_result))
+#define LWS_WARN_DEPRECATED __attribute__ ((deprecated))
 #else
 #define LWS_VISIBLE
 #define LWS_WARN_UNUSED_RESULT
+#define LWS_WARN_DEPRECATED
 #endif
 
 #if defined(__ANDROID__)
@@ -1661,14 +1664,14 @@ LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect(struct lws_context *clients, const char *address,
 		   int port, int ssl_connection, const char *path,
 		   const char *host, const char *origin, const char *protocol,
-		   int ietf_version_or_minus_one);
+		   int ietf_version_or_minus_one) LWS_WARN_DEPRECATED;
 /* deprecated, use lws_client_connect_via_info() */
 LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_extended(struct lws_context *clients, const char *address,
 			    int port, int ssl_connection, const char *path,
 			    const char *host, const char *origin,
 			    const char *protocol, int ietf_version_or_minus_one,
-			    void *userdata);
+			    void *userdata) LWS_WARN_DEPRECATED;
 
 LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_via_info(struct lws_client_connect_info * ccinfo);
@@ -1832,8 +1835,14 @@ LWS_VISIBLE LWS_EXTERN int
 lws_read(struct lws *wsi, unsigned char *buf, size_t len);
 
 #ifndef LWS_NO_EXTENSIONS
-/* deprecated */
-#define lws_get_internal_extensions() NULL
+/* Deprecated
+ *
+ * There is no longer a set internal extensions table.  The table is provided
+ * by user code along with application-specific settings.  See the test
+ * client and server for how to do.
+ */
+static LWS_INLINE LWS_WARN_DEPRECATED const struct lws_extension *
+lws_get_internal_extensions() { return NULL; }
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 		       void *ext_user, const struct lws_ext_options *opts,

@@ -134,7 +134,7 @@ callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 
 		case FRAGSTATE_START_MESSAGE:
 			lws_get_random(lws_get_context(wsi), &ran, sizeof(ran));
-			psf->packets_left = (ran % 1024) + 1;
+			psf->packets_left = (ran & 1023) + 1;
 			fprintf(stderr, "Spamming %d random fragments\n",
 							     psf->packets_left);
 			psf->sum = 0;
@@ -153,7 +153,7 @@ callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 
 			lws_get_random(lws_get_context(wsi), &ran, sizeof(ran));
-			chunk = (ran % 8000) + 1;
+			chunk = (ran & 511) + 1;
 			psf->total_message += chunk;
 
 			lws_get_random(lws_get_context(wsi), bp, chunk);
@@ -239,6 +239,20 @@ static struct lws_protocols protocols[] = {
 	}
 };
 
+static const struct lws_extension exts[] = {
+	{
+		"permessage-deflate",
+		lws_extension_callback_pm_deflate,
+		"permessage-deflate; client_no_context_takeover; client_max_window_bits"
+	},
+	{
+		"deflate-frame",
+		lws_extension_callback_pm_deflate,
+		"deflate_frame"
+	},
+	{ NULL, NULL, NULL /* terminator */ }
+};
+
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
@@ -256,10 +270,10 @@ int main(int argc, char **argv)
 	int use_ssl = 0;
 	struct lws_context *context;
 	int opts = 0;
-	char interface_name[128] = "";
+	char interface_name[128] = "", ads_port[300];
 	const char *iface = NULL;
 	struct lws *wsi;
-	const char *address;
+	const char *address = NULL;
 	int server_port = port;
 	struct lws_context_creation_info info;
 
@@ -311,12 +325,13 @@ int main(int argc, char **argv)
 	info.port = server_port;
 	info.iface = iface;
 	info.protocols = protocols;
-#ifndef LWS_NO_EXTENSIONS
-	info.extensions = lws_get_internal_extensions();
-#endif
+	info.extensions = exts;
+
 	if (use_ssl) {
-		info.ssl_cert_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
-		info.ssl_private_key_filepath = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
+		info.ssl_cert_filepath = LOCAL_RESOURCE_PATH
+				"/libwebsockets-test-server.pem";
+		info.ssl_private_key_filepath = LOCAL_RESOURCE_PATH
+				"/libwebsockets-test-server.key.pem";
 	}
 	info.gid = -1;
 	info.uid = -1;
@@ -329,12 +344,23 @@ int main(int argc, char **argv)
 	}
 
 	if (client) {
+		struct lws_client_connect_info i;
+
 		address = argv[optind];
-		fprintf(stderr, "Connecting to %s:%u\n", address, port);
-		wsi = lws_client_connect(context, address,
-						   port, use_ssl, "/", address,
-				 "origin", protocols[PROTOCOL_FRAGGLE].name,
-								  -1);
+		sprintf(ads_port, "%s:%u", address, port & 65535);
+		memset(&i, 0, sizeof(i));
+		i.context = context;
+		i.address = address;
+		i.port = port;
+		i.ssl_connection = use_ssl;
+		i.path = "/";
+		i.host = ads_port;
+		i.origin = ads_port;
+		i.protocol = protocols[PROTOCOL_FRAGGLE].name;
+		i.client_exts = exts;
+
+		lwsl_notice("Connecting to %s:%u\n", address, port);
+		wsi = lws_client_connect_via_info(&i);
 		if (wsi == NULL) {
 			fprintf(stderr, "Client connect to server failed\n");
 			goto bail;

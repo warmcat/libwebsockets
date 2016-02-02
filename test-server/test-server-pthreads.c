@@ -151,7 +151,7 @@ static const struct lws_extension exts[] = {
 	{
 		"permessage-deflate",
 		lws_extension_callback_pm_deflate,
-		"permessage-deflate"
+		"permessage-deflate; client_no_context_takeover; client_max_window_bits"
 	},
 	{
 		"deflate-frame",
@@ -305,9 +305,7 @@ int main(int argc, char **argv)
 
 	info.iface = iface;
 	info.protocols = protocols;
-#ifndef LWS_NO_EXTENSIONS
-	info.extensions = lws_get_internal_extensions();
-#endif
+	info.extensions = exts;
 
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
