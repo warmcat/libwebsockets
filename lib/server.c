@@ -901,9 +901,6 @@ try_pollout:
 			goto fail;
 		}
 
-		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
-		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
-
 		if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
 			n = user_callback_handle_rxflow(wsi->protocol->callback,
 					wsi, LWS_CALLBACK_HTTP_WRITEABLE,

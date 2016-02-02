@@ -49,6 +49,23 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 		goto bail;
 	}
 
+	if (_and & LWS_POLLIN) {
+		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ);
+		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ);
+	}
+	if (_or & LWS_POLLIN) {
+		lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
+		lws_libuv_io(wsi, LWS_EV_START | LWS_EV_READ);
+	}
+	if (_and & LWS_POLLOUT) {
+		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
+		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
+	}
+	if (_or & LWS_POLLOUT) {
+		lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
+		lws_libuv_io(wsi, LWS_EV_START | LWS_EV_WRITE);
+	}
+
 	/*
 	 * if we changed something in this pollfd...
 	 *   ... and we're running in a different thread context
@@ -314,9 +331,6 @@ network_sock:
 
 	if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 		return -1;
-
-	lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
-	lws_libuv_io(wsi, LWS_EV_START | LWS_EV_WRITE);
 
 	return 1;
 }

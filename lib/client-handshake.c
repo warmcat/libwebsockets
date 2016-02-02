@@ -234,9 +234,6 @@ lws_client_connect_2(struct lws *wsi)
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 				goto failed;
 
-			lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
-			lws_libuv_io(wsi, LWS_EV_START | LWS_EV_WRITE);
-
 			return wsi;
 		}
 
