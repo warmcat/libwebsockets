@@ -32,36 +32,6 @@ struct lws_plat_file_ops fops_plat;
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
 char *resource_path = LOCAL_RESOURCE_PATH;
 
-/*
- * libev dumps their hygeine problems on their users blaming compiler
- * http://lists.schmorp.de/pipermail/libev/2008q4/000442.html
- */
-
-#if EV_MINPRI == EV_MAXPRI
-# define _ev_set_priority(ev, pri) ((ev), (pri))
-#else
-# define _ev_set_priority(ev, pri) { \
-	ev_watcher *evw = (ev_watcher *)(void *)ev; \
-	evw->priority = pri; \
-}
-#endif
-
-#define _ev_init(ev,cb_) {  \
-	ev_watcher *evw = (ev_watcher *)(void *)ev; \
-\
-	evw->active = evw->pending = 0; \
-	_ev_set_priority((ev), 0); \
-	ev_set_cb((ev), cb_); \
-}
-
-#define _ev_timer_init(ev, cb, after, _repeat) { \
-	ev_watcher_time *evwt = (ev_watcher_time *)(void *)ev; \
-\
-	_ev_init(ev, cb); \
-	evwt->at = after; \
-	(ev)->repeat = _repeat; \
-}
-
 /* singlethreaded version --> no locks */
 
 void test_server_lock(int care)
@@ -156,14 +126,14 @@ test_server_fops_open(struct lws *wsi, const char *filename,
 	return n;
 }
 
-void signal_cb(struct ev_loop *loop, struct ev_signal* watcher, int revents)
+void signal_cb(uv_signal_t *watcher, int revents)
 {
 	lwsl_notice("Signal caught, exiting...\n");
 	force_exit = 1;
 	switch (watcher->signum) {
 	case SIGTERM:
 	case SIGINT:
-		ev_break(loop, EVBREAK_ALL);
+		uv_stop(uv_default_loop()); /* Note: we assume default loop! */
 		break;
 	default:
 		signal(SIGABRT, SIG_DFL);
@@ -173,7 +143,7 @@ void signal_cb(struct ev_loop *loop, struct ev_signal* watcher, int revents)
 }
 
 static void
-ev_timeout_cb (EV_P_ ev_timer *w, int revents)
+uv_timeout_cb (uv_timer_t *w)
 {
 	lws_callback_on_writable_all_protocol(context,
 					&protocols[PROTOCOL_DUMB_INCREMENT]);
@@ -198,12 +168,12 @@ static struct option options[] = {
 int main(int argc, char **argv)
 {
 	int sigs[] = { SIGINT, SIGKILL, SIGTERM, SIGSEGV, SIGFPE };
-	struct ev_signal signals[ARRAY_SIZE(sigs)];
-	struct ev_loop *loop = ev_default_loop(0);
+	uv_signal_t signals[ARRAY_SIZE(sigs)];
+	uv_loop_t *loop = uv_default_loop();
 	struct lws_context_creation_info info;
 	char interface_name[128] = "";
 	const char *iface = NULL;
-	ev_timer timeout_watcher;
+	uv_timer_t timeout_watcher;
 	char cert_path[1024];
 	char key_path[1024];
 	int use_ssl = 0;
@@ -288,9 +258,8 @@ int main(int argc, char **argv)
 #endif
 
 	for (n = 0; n < ARRAY_SIZE(sigs); n++) {
-		_ev_init(&signals[n], signal_cb);
-		ev_signal_set(&signals[n], sigs[n]);
-		ev_signal_start(loop, &signals[n]);
+		uv_signal_init(loop, &signals[n]);
+		uv_signal_start(&signals[n], signal_cb, sigs[n]);
 	}
 
 #ifndef _WIN32
@@ -352,16 +321,16 @@ int main(int argc, char **argv)
 	/* override the active fops */
 	lws_get_fops(context)->open = test_server_fops_open;
 
-	lws_ev_initloop(context, loop, 0);
+	lws_uv_initloop(context, loop, 0);
 
-	_ev_timer_init(&timeout_watcher, ev_timeout_cb, 0.05, 0.05);
-	ev_timer_start(loop, &timeout_watcher);
+	uv_timer_init(loop, &timeout_watcher);
+	uv_timer_start(&timeout_watcher, uv_timeout_cb, 0.05, 0.05);
 
 	while (!force_exit)
-		ev_run(loop, 0);
+		uv_run(loop, 0);
 
 	lws_context_destroy(context);
-	ev_loop_destroy(loop);
+	uv_stop(loop);
 
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 

@@ -399,8 +399,11 @@ lws_context_destroy(struct lws_context *context)
 		}
 #endif /* LWS_USE_LIBEV */
 #ifdef LWS_USE_LIBUV
-		if (context->options & LWS_SERVER_OPTION_LIBUV)
+		if (context->options & LWS_SERVER_OPTION_LIBUV) {
 			uv_poll_stop(&context->pt[n].w_accept.uv_watcher);
+			if (context->use_ev_sigint)
+				uv_signal_stop(&context->pt[n].w_sigint.uv_watcher);
+		}
 #endif
 		lws_free_set_NULL(context->pt[n].serv_buf);
 		if (context->pt[n].ah_pool)
