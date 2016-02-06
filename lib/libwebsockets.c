@@ -1184,8 +1184,9 @@ lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
 }
 
 /**
- * lws_parse_uri:	cut up https:/xxx:yyy/zzz into pieces
+ * lws_parse_uri:	cut up prot:/ads:port/path into pieces
  *			Notice it does so by dropping '\0' into input string
+ *			and the leading / on the path is consequently lost
  *
  * @p:			incoming uri string.. will get written to
  * @prot:		result pointer for protocol part (https://)

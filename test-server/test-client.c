@@ -274,7 +274,8 @@ int main(int argc, char **argv)
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
-	const char *prot;
+	const char *prot, *p;
+	char path[300];
 
 	memset(&info, 0, sizeof info);
 
@@ -323,12 +324,18 @@ int main(int argc, char **argv)
 	memset(&i, 0, sizeof(i));
 
 	i.port = port;
-	if (lws_parse_uri(argv[optind], &prot, &i.address, &i.port, &i.path))
+	if (lws_parse_uri(argv[optind], &prot, &i.address, &i.port, &p))
 		goto usage;
 
-	if (!strcmp(prot, "http://") || !strcmp(prot, "ws://"))
+	/* add back the leading / on path */
+	path[0] = '/';
+	strncpy(path + 1, p, sizeof(path) - 2);
+	path[sizeof(path) - 1] = '\0';
+	i.path = path;
+
+	if (!strcmp(prot, "http") || !strcmp(prot, "ws"))
 		use_ssl = 0;
-	if (!strcmp(prot, "https://") || !strcmp(prot, "wss://"))
+	if (!strcmp(prot, "https") || !strcmp(prot, "wss"))
 		use_ssl = 1;
 
 	/*
