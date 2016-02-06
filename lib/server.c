@@ -304,8 +304,16 @@ lws_http_action(struct lws *wsi)
 					    wsi->user_space, uri_ptr, uri_len);
 	}
 
-	/* now drop the header info we kept a pointer to */
-	lws_free_header_table(wsi);
+	/*
+	 * If we are in keepalive, we may already have the next header set
+	 * pipelined in the lws_read buffer above us... if so, we must hold
+	 * the ah so it's still bound when we want to process the next headers.
+	 *
+	 */
+	if (connection_type == HTTP_CONNECTION_CLOSE ||
+	    !wsi->u.hdr.more_rx_waiting)
+		/* now drop the header info we kept a pointer to */
+		lws_free_header_table(wsi);
 
 	if (n) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
