@@ -22,6 +22,26 @@ satisfy this requirement:
 "[program] is based in part on the work of the libwebsockets  project
 (http://libwebsockets.org)"
 
+3) Some sources included have their own, more liberal licenses, or options
+to get original sources with the liberal terms.
+
+Original liberal license retained
+
+  - lib/sha-1.c         - 3-clause BSD license retained, link to original
+  - win32port/zlib      - ZLIB license (see zlib.h)
+
+Relicensed to libwebsocket license
+
+  - lib/base64-decode.c - relicensed to LGPL2.1+SLE, link to original
+  - lib/daemonize.c     - relicensed from Public Domain to LGPL2.1+SLE,
+                          link to original Public Domain version
+
+Public Domain (CC-zero) to simplify reuse
+
+  - test-server/*.c
+  - test-server/*.h
+
+
                   GNU LESSER GENERAL PUBLIC LICENSE
                        Version 2.1, February 1999
 
