@@ -7,7 +7,8 @@
  * he replied it is Public Domain.  Use the URL above to get the original
  * Public Domain version if you want it.
  *
- * This version is LGPL2 and is (c)2006 - 2013 Andy Green <andy@warmcat.com>
+ * This version is LGPL2.1+SLE like the rest of libwebsockets and is
+ * Copyright (c)2006 - 2013 Andy Green <andy@warmcat.com>
  */
 
 #include <stdlib.h>
