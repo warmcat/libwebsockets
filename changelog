@@ -249,7 +249,7 @@ anyway.
 5) Pings and close used to be limited to 124 bytes, the correct limit is 125
 so that is now also allowed.
 
-6) LWS_PRE is provided as a synonym for LWS_SEND_BUFFER_POST_PADDING, either is
+6) LWS_PRE is provided as a synonym for LWS_SEND_BUFFER_PRE_PADDING, either is
 valid to use now.
 
 7) There's generic support for RFC7462 style extension options built into the
