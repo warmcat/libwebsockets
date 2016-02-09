@@ -54,6 +54,7 @@ rm -rf $RPM_BUILD_ROOT
 /usr/bin/libwebsockets-test-ping
 /usr/bin/libwebsockets-test-echo
 /usr/bin/libwebsockets-test-fraggle
+/usr/bin/libwebsockets-test-fuzxy
 /%{_libdir}/libwebsockets.so.6
 /%{_libdir}/libwebsockets.so
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsConfig.cmake
