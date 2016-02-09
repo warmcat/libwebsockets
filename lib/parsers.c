@@ -63,6 +63,9 @@ lextable_decode(int pos, char c)
 void
 lws_reset_header_table(struct lws *wsi)
 {
+	if (!wsi->u.hdr.ah)
+		return;
+
 	/* init the ah to reflect no headers or data have appeared yet */
 	memset(wsi->u.hdr.ah->frag_index, 0, sizeof(wsi->u.hdr.ah->frag_index));
 	wsi->u.hdr.ah->nfrag = 0;
