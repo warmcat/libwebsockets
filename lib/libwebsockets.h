@@ -163,7 +163,8 @@ struct sockaddr_in;
 #endif
 
 #if defined(__ANDROID__)
-#define getdtablesize() 1024
+#include <unistd.h>
+#define getdtablesize() sysconf(_SC_OPEN_MAX)
 #endif
 
 #endif
