@@ -1,0 +1,50 @@
+Release Checklist
+-----------------
+
+1) soname bump?
+
+ a) We need one if we added or removed apis
+
+  CMakeLists.txt
+
+   set(SOVERSION "6")
+
+2) changelog
+
+ a) Add next version tag header.
+
+ b) Classify as
+
+    - MINOR bug fixes
+    - MAJOR bug fixes
+    - SECURITY fixes
+
+2) main version bump
+
+  CMakeLists.txt
+
+   set(CPACK_PACKAGE_VERSION_MAJOR "1")
+   set(CPACK_PACKAGE_VERSION_MINOR "6")
+   set(CPACK_PACKAGE_VERSION_PATCH "0")
+
+3) specfile
+
+ a) rpm version bump to match CMake one
+
+  libwebsockets.spec
+
+   Version: 1.6.0
+
+ b) Summarize changelog
+
+  libwebsockets.spec
+
+%changelog
+* Sun Jan 17 2016 Andrew Cooks <acooks@linux.com> 1.6.4-1
+- Bump version to 1.6.4
+- MINOR fix xyz
+
+4) website
+
+ a) update latest tag for release branch
+
