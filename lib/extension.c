@@ -171,6 +171,9 @@ int lws_ext_cb_active(struct lws *wsi, int reason, void *arg, int len)
 				 wsi->active_extensions[n]->name, reason);
 			return -1;
 		}
+		/* valgrind... */
+		if (reason == LWS_EXT_CB_DESTROY)
+			wsi->act_ext_user[n] = NULL;
 		if (m > handled)
 			handled = m;
 	}

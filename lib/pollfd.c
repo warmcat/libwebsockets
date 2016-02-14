@@ -49,6 +49,23 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 		goto bail;
 	}
 
+	if (_and & LWS_POLLIN) {
+		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ);
+		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ);
+	}
+	if (_or & LWS_POLLIN) {
+		lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
+		lws_libuv_io(wsi, LWS_EV_START | LWS_EV_READ);
+	}
+	if (_and & LWS_POLLOUT) {
+		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
+		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
+	}
+	if (_or & LWS_POLLOUT) {
+		lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
+		lws_libuv_io(wsi, LWS_EV_START | LWS_EV_WRITE);
+	}
+
 	/*
 	 * if we changed something in this pollfd...
 	 *   ... and we're running in a different thread context
@@ -167,7 +184,8 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 					   wsi->user_space, (void *)&pa, 1))
 		return -1;
 
-	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
+	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE | LWS_EV_PREPARE_DELETION);
+	lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE | LWS_EV_PREPARE_DELETION);
 
 	lws_pt_lock(pt);
 
@@ -199,9 +217,10 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 						   wsi->user_space, (void *) &pa, 0))
 			ret = -1;
 #ifndef LWS_NO_SERVER
-	/* if this made some room, accept connects on this thread */
-	if ((unsigned int)pt->fds_count < context->fd_limit_per_thread - 1)
-		_lws_change_pollfd(pt->wsi_listening, 0, LWS_POLLIN, &pa1);
+	if (!context->being_destroyed)
+		/* if this made some room, accept connects on this thread */
+		if ((unsigned int)pt->fds_count < context->fd_limit_per_thread - 1)
+			_lws_change_pollfd(pt->wsi_listening, 0, LWS_POLLIN, &pa1);
 #endif
 	lws_pt_unlock(pt);
 
@@ -313,8 +332,6 @@ network_sock:
 
 	if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 		return -1;
-
-	lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
 
 	return 1;
 }

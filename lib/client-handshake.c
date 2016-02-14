@@ -233,7 +233,6 @@ lws_client_connect_2(struct lws *wsi)
 			 */
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 				goto failed;
-			lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
 
 			return wsi;
 		}
@@ -460,6 +459,8 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		return wsi;
 	}
 	lwsl_client("lws_client_connect: direct conn\n");
+
+	wsi->context->count_wsi_allocated++;
 
 	return lws_client_connect_2(wsi);
 

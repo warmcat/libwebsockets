@@ -222,6 +222,24 @@ had just been accepted by lws' own listen socket.
 
 9) X-Real-IP: header has been added as WSI_TOKEN_HTTP_X_REAL_IP
 
+10) Libuv support is added, there are new related user apis
+
+typedef void (lws_uv_signal_cb_t)(uv_loop_t *l, uv_signal_t *w, int revents);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_uv_sigint_cfg(struct lws_context *context, int use_uv_sigint,
+		  lws_uv_signal_cb_t *cb);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi);
+
+LWS_VISIBLE void
+lws_uv_sigint_cb(uv_loop_t *loop, uv_signal_t *watcher, int revents);
+
+and CMAKE option
+
+LWS_WITH_LIBUV
+
 
 User api changes
 ----------------
@@ -261,6 +279,21 @@ the library.
 8) WSI_TOKEN_PROXY enum was accidentally defined to collide with another token
 of value 73.  That's now corrected and WSI_TOKEN_PROXY moved to his own place at
 77.
+
+9) With the addition of libuv support, libev is not the only event loop
+library in town and his api names must be elaborated with _ev_
+
+  Callback typedef: lws_signal_cb ---> lws_ev_signal_cb_t
+  lws_sigint_cfg --> lws_ev_sigint_cfg
+  lws_initloop --> lws_ev_initloop
+  lws_sigint_cb --> lws_ev_sigint_cb
+
+10) Libev support is made compatible with multithreaded service,
+lws_ev_initloop (was lws_initloop) gets an extra argument for the
+thread service index (use 0 if you will just have 1 service thread).
+
+LWS_VISIBLE LWS_EXTERN int
+lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi);
 
 
 v1.6.0-chrome48-firefox42

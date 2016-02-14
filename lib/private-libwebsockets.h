@@ -117,8 +117,11 @@
 #include <arpa/inet.h>
 #include <poll.h>
 #ifdef LWS_USE_LIBEV
+#include <ev.h>
+#endif
+#ifdef LWS_USE_LIBUV
 #include <uv.h>
-#endif /* LWS_USE_LIBEV */
+#endif
 #include <sys/mman.h>
 
 #endif /* MBED */
@@ -437,17 +440,28 @@ enum {
 struct lws_protocols;
 struct lws;
 
-#ifdef LWS_USE_LIBEV
+#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV)
+
 struct lws_io_watcher {
-    uv_poll_t watcher;
-	struct lws_context* context;
+#ifdef LWS_USE_LIBEV
+	ev_io ev_watcher;
+#endif
+#ifdef LWS_USE_LIBUV
+	uv_poll_t uv_watcher;
+#endif
+	struct lws_context *context;
 };
 
 struct lws_signal_watcher {
-    uv_signal_t watcher;
-	struct lws_context* context;
+#ifdef LWS_USE_LIBEV
+	ev_signal ev_watcher;
+#endif
+#ifdef LWS_USE_LIBUV
+	uv_signal_t uv_watcher;
+#endif
+	struct lws_context *context;
 };
-#endif /* LWS_USE_LIBEV */
+#endif
 
 #ifdef _WIN32
 #define LWS_FD_HASH(fd) ((fd ^ (fd >> 8) ^ (fd >> 16)) % FD_HASHTABLE_MODULUS)
@@ -521,6 +535,20 @@ struct lws_context_per_thread {
 #ifndef LWS_NO_SERVER
 	struct lws *wsi_listening;
 #endif
+#if defined(LWS_USE_LIBEV)
+	struct ev_loop *io_loop_ev;
+#endif
+#if defined(LWS_USE_LIBUV)
+	uv_loop_t *io_loop_uv;
+	uv_signal_t signals[8];
+#endif
+#if defined(LWS_USE_LIBEV)
+	struct lws_io_watcher w_accept;
+#endif
+#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV)
+	struct lws_signal_watcher w_sigint;
+	unsigned char ev_loop_foreign:1;
+#endif
 	lws_sockfd_type lserv_fd;
 
 	unsigned long count_conns;
@@ -559,12 +587,6 @@ struct lws_context {
 #else
 	struct lws **lws_lookup;  /* fd to wsi */
 #endif
-#ifdef LWS_USE_LIBEV
-    uv_loop_t *io_loop;
-	struct lws_io_watcher w_accept;
-	struct lws_signal_watcher w_sigint;
-	lws_ev_signal_cb* lws_ev_sigint_cb;
-#endif /* LWS_USE_LIBEV */
 	const char *iface;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
@@ -578,7 +600,12 @@ struct lws_context {
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *extensions;
 #endif
-
+#if defined(LWS_USE_LIBEV)
+	lws_ev_signal_cb_t * lws_ev_sigint_cb;
+#endif
+#if defined(LWS_USE_LIBUV)
+	lws_uv_signal_cb_t * lws_uv_sigint_cb;
+#endif
 	char http_proxy_address[128];
 	char proxy_basic_auth_token[128];
 	char canonical_hostname[128];
@@ -589,13 +616,14 @@ struct lws_context {
 
 	int max_fds;
 	int listen_port;
-#ifdef LWS_USE_LIBEV
+#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV)
 	int use_ev_sigint;
 #endif
 	int started_with_parent;
 
 	int fd_random;
 	int lserv_mod;
+	int count_wsi_allocated;
 	unsigned int http_proxy_port;
 	unsigned int options;
 	unsigned int fd_limit_per_thread;
@@ -634,18 +662,24 @@ struct lws_context {
 	short count_threads;
 
 	unsigned int being_destroyed:1;
+	unsigned int requested_kill:1;
 };
+
+LWS_EXTERN void
+lws_close_free_wsi_final(struct lws *wsi);
+LWS_EXTERN void
+lws_libuv_closehandle(struct lws *wsi);
 
 enum {
 	LWS_EV_READ = (1 << 0),
 	LWS_EV_WRITE = (1 << 1),
 	LWS_EV_START = (1 << 2),
 	LWS_EV_STOP = (1 << 3),
+
+	LWS_EV_PREPARE_DELETION = (1 << 31),
 };
 
-#ifdef LWS_USE_LIBEV
-#define LWS_LIBEV_ENABLED(context) (context->options & LWS_SERVER_OPTION_LIBEV)
-LWS_EXTERN void lws_feature_status_libev(struct lws_context_creation_info *info);
+#if defined(LWS_USE_LIBEV)
 LWS_EXTERN void
 lws_libev_accept(struct lws *new_wsi, lws_sockfd_type accept_fd);
 LWS_EXTERN void
@@ -653,20 +687,54 @@ lws_libev_io(struct lws *wsi, int flags);
 LWS_EXTERN int
 lws_libev_init_fd_table(struct lws_context *context);
 LWS_EXTERN void
-lws_libev_run(const struct lws_context *context);
+lws_libev_destroyloop(struct lws_context *context, int tsi);
+LWS_EXTERN void
+lws_libev_run(const struct lws_context *context, int tsi);
+#define LWS_LIBEV_ENABLED(context) (context->options & LWS_SERVER_OPTION_LIBEV)
+LWS_EXTERN void lws_feature_status_libev(struct lws_context_creation_info *info);
 #else
+#define lws_libev_accept(_a, _b) ((void) 0)
+#define lws_libev_io(_a, _b) ((void) 0)
+#define lws_libev_init_fd_table(_a) (0)
+#define lws_libev_run(_a, _b) ((void) 0)
+#define lws_libev_destroyloop(_a, _b) ((void) 0)
 #define LWS_LIBEV_ENABLED(context) (0)
-#ifdef LWS_POSIX
+#if LWS_POSIX
 #define lws_feature_status_libev(_a) \
 			lwsl_notice("libev support not compiled in\n")
 #else
 #define lws_feature_status_libev(_a)
 #endif
-#define lws_libev_accept(_a, _b) ((void) 0)
-#define lws_libev_io(_a, _b) ((void) 0)
-#define lws_libev_init_fd_table(_a) (0)
-#define lws_libev_run(_a) ((void) 0)
 #endif
+
+#if defined(LWS_USE_LIBUV)
+LWS_EXTERN void
+lws_libuv_accept(struct lws *new_wsi, lws_sockfd_type accept_fd);
+LWS_EXTERN void
+lws_libuv_io(struct lws *wsi, int flags);
+LWS_EXTERN int
+lws_libuv_init_fd_table(struct lws_context *context);
+LWS_EXTERN void
+lws_libuv_run(const struct lws_context *context, int tsi);
+LWS_EXTERN void
+lws_libuv_destroyloop(struct lws_context *context, int tsi);
+#define LWS_LIBUV_ENABLED(context) (context->options & LWS_SERVER_OPTION_LIBUV)
+LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info);
+#else
+#define lws_libuv_accept(_a, _b) ((void) 0)
+#define lws_libuv_io(_a, _b) ((void) 0)
+#define lws_libuv_init_fd_table(_a) (0)
+#define lws_libuv_run(_a, _b) ((void) 0)
+#define lws_libuv_destroyloop(_a, _b) ((void) 0)
+#define LWS_LIBUV_ENABLED(context) (0)
+#if LWS_POSIX
+#define lws_feature_status_libuv(_a) \
+			lwsl_notice("libuv support not compiled in\n")
+#else
+#define lws_feature_status_libuv(_a)
+#endif
+#endif
+
 
 #ifdef LWS_USE_IPV6
 #define LWS_IPV6_ENABLED(context) \
@@ -933,10 +1001,12 @@ struct lws {
 
 	/* lifetime members */
 
-#ifdef LWS_USE_LIBEV
+#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV)
 	struct lws_io_watcher w_read;
+#endif
+#if defined(LWS_USE_LIBEV)
 	struct lws_io_watcher w_write;
-#endif /* LWS_USE_LIBEV */
+#endif
 	time_t pending_timeout_limit;
 
 	/* pointers */

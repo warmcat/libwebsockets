@@ -41,6 +41,9 @@
 /* Enable libev io loop */
 #cmakedefine LWS_USE_LIBEV
 
+/* Enable libuv io loop */
+#cmakedefine LWS_USE_LIBUV
+
 /* Build with support for ipv6 */
 #cmakedefine LWS_USE_IPV6
 

@@ -143,6 +143,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	if (insert_wsi_socket_into_fds(context, wsi))
 		goto bail;
 
+	context->count_wsi_allocated++;
 	context->pt[m].lserv_fd = sockfd;
 
 #if LWS_POSIX
@@ -665,7 +666,7 @@ lws_create_new_server_wsi(struct lws_context *context)
 	new_wsi->user_space = NULL;
 	new_wsi->ietf_spec_revision = 0;
 	new_wsi->sock = LWS_SOCK_INVALID;
-
+	context->count_wsi_allocated++;
 
 	/*
 	 * outermost create notification for wsi
@@ -752,6 +753,8 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 		return NULL;
 	}
 
+	lwsl_debug("%s: new wsi %p\n", __func__, new_wsi);
+
 	new_wsi->sock = accept_fd;
 
 	/* the transport is accepted... give him time to negotiate */
@@ -775,6 +778,7 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 	}
 
 	lws_libev_accept(new_wsi, new_wsi->sock);
+	lws_libuv_accept(new_wsi, new_wsi->sock);
 
 	if (!LWS_SSL_ENABLED(context)) {
 		if (insert_wsi_socket_into_fds(context, new_wsi))
@@ -907,8 +911,6 @@ try_pollout:
 			lwsl_notice("%s a\n", __func__);
 			goto fail;
 		}
-
-		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
 		if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
 			n = user_callback_handle_rxflow(wsi->protocol->callback,

@@ -199,8 +199,18 @@ lws_create_context(struct lws_context_creation_info *info)
 	 * before invoking lws_initloop:
 	 */
 	context->use_ev_sigint = 1;
-	context->lws_ev_sigint_cb = &lws_sigint_cb;
+	context->lws_ev_sigint_cb = &lws_ev_sigint_cb;
 #endif /* LWS_USE_LIBEV */
+#ifdef LWS_USE_LIBUV
+	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
+	 * enable libev mediated SIGINT handling with a default handler of
+	 * lws_sigint_cb. The handler can be overridden or disabled
+	 * by invoking lws_sigint_cfg after creating the context, but
+	 * before invoking lws_initloop:
+	 */
+	context->use_ev_sigint = 1;
+	context->lws_uv_sigint_cb = &lws_uv_sigint_cb;
+#endif
 
 	lwsl_info(" mem: context:         %5u bytes (%d ctx + (%d thr x %d))\n",
 		  sizeof(struct lws_context) +
@@ -324,6 +334,7 @@ LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
 {
 	const struct lws_protocols *protocol = NULL;
+	struct lws_context_per_thread *pt;
 	struct lws wsi;
 	int n, m;
 
@@ -343,59 +354,59 @@ lws_context_destroy(struct lws_context *context)
 		lwsl_notice("Worst latency: %s\n", context->worst_latency_info);
 #endif
 
-	while (m--)
+	while (m--) {
+		pt = &context->pt[m];
+
 		for (n = 0; (unsigned int)n < context->pt[m].fds_count; n++) {
-			struct lws *wsi = wsi_from_fd(context, context->pt[m].fds[n].fd);
+			struct lws *wsi = wsi_from_fd(context, pt->fds[n].fd);
 			if (!wsi)
 				continue;
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
+
+			lws_close_free_wsi(wsi,
+				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
 				/* no protocol close */);
 			n--;
 		}
-
+	}
 	/*
 	 * give all extensions a chance to clean up any per-context
 	 * allocations they might have made
 	 */
 
 	n = lws_ext_cb_all_exts(context, NULL,
-			LWS_EXT_CB_SERVER_CONTEXT_DESTRUCT, NULL, 0);
+				LWS_EXT_CB_SERVER_CONTEXT_DESTRUCT, NULL, 0);
 
 	n = lws_ext_cb_all_exts(context, NULL,
-			LWS_EXT_CB_CLIENT_CONTEXT_DESTRUCT, NULL, 0);
+				LWS_EXT_CB_CLIENT_CONTEXT_DESTRUCT, NULL, 0);
 
 	/*
 	 * inform all the protocols that they are done and will have no more
 	 * callbacks
 	 */
 	protocol = context->protocols;
-	if (protocol) {
+	if (protocol)
 		while (protocol->callback) {
-			protocol->callback(&wsi,
-					   LWS_CALLBACK_PROTOCOL_DESTROY,
+			protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
 					   NULL, NULL, 0);
 			protocol++;
 		}
-	}
-#ifdef LWS_USE_LIBEV
-    uv_poll_stop(&context->w_accept.watcher);
-    //ev_io_stop(context->io_loop, &context->w_accept.watcher);
-    //if (context->use_ev_sigint)
-        //ev_signal_stop(context->io_loop, &context->w_sigint.watcher);
-#endif /* LWS_USE_LIBEV */
 
 	for (n = 0; n < context->count_threads; n++) {
-		lws_free_set_NULL(context->pt[n].serv_buf);
-		if (context->pt[n].ah_pool)
-			lws_free(context->pt[n].ah_pool);
-		if (context->pt[n].http_header_data)
-			lws_free(context->pt[n].http_header_data);
-	}
+		pt = &context->pt[n];
 
+		lws_libev_destroyloop(context, n);
+		lws_libuv_destroyloop(context, n);
+
+		lws_free_set_NULL(context->pt[n].serv_buf);
+		if (pt->ah_pool)
+			lws_free(pt->ah_pool);
+		if (pt->http_header_data)
+			lws_free(pt->http_header_data);
+	}
 	lws_plat_context_early_destroy(context);
 	lws_ssl_context_destroy(context);
 	if (context->pt[0].fds)
-		lws_free(context->pt[0].fds);
+		lws_free_set_NULL(context->pt[0].fds);
 
 	lws_plat_context_late_destroy(context);
 

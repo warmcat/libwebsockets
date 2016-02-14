@@ -664,8 +664,6 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			goto fail;
 
-		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
-
 		lws_latency_pre(context, wsi);
 
 		n = recv(wsi->sock, (char *)pt->serv_buf, LWS_MAX_SOCKET_IO_BUF,
@@ -732,8 +730,6 @@ go_again:
 			if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
 				goto fail;
 
-			lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
-
 			lwsl_info("SSL_ERROR_WANT_READ\n");
 			break;
 		}
@@ -741,7 +737,6 @@ go_again:
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 				goto fail;
 
-			lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
 			break;
 		}
 		lwsl_debug("SSL_accept failed skt %u: %s\n",

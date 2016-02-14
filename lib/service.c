@@ -231,14 +231,11 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 user_service:
 	/* one shot */
 
-	if (pollfd) {
+	if (pollfd)
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_info("failed at set pollfd\n");
 			return 1;
 		}
-
-		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
-	}
 
 #ifdef LWS_USE_HTTP2
 	/*

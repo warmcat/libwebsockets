@@ -65,6 +65,10 @@ lws_free_wsi(struct lws *wsi)
 	    wsi->mode != LWSCM_WS_SERVING)
 		lws_free_header_table(wsi);
 
+	wsi->context->count_wsi_allocated--;
+	lwsl_debug("%s: %p, remaining wsi %d\n", __func__, wsi,
+			wsi->context->count_wsi_allocated);
+
 	lws_free(wsi);
 }
 
@@ -294,7 +298,9 @@ just_kill_connection:
 	 * for the POLLIN to show a zero-size rx before coming back and doing
 	 * the actual close.
 	 */
-	if (wsi->state != LWSS_SHUTDOWN) {
+	if (wsi->state != LWSS_SHUTDOWN &&
+	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
+	    !wsi->socket_is_permanently_unusable) {
 		lwsl_info("%s: shutting down connection: %p\n", __func__, wsi);
 		n = shutdown(wsi->sock, SHUT_WR);
 		if (n)
@@ -404,6 +410,21 @@ just_kill_connection:
 
 	wsi->socket_is_permanently_unusable = 1;
 
+#ifdef LWS_USE_LIBUV
+	/* libuv has to do his own close handle processing asynchronously */
+	lws_libuv_closehandle(wsi);
+
+	return;
+#endif
+
+	lws_close_free_wsi_final(wsi);
+}
+
+void
+lws_close_free_wsi_final(struct lws *wsi)
+{
+	int n;
+
 	if (!lws_ssl_close(wsi) && lws_socket_is_valid(wsi->sock)) {
 #if LWS_POSIX
 		n = compatible_close(wsi->sock);
@@ -417,7 +438,7 @@ just_kill_connection:
 	}
 
 	/* outermost destroy notification for wsi (user_space still intact) */
-	context->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
+	wsi->context->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
 				       wsi->user_space, NULL, 0);
 
 	lws_free_wsi(wsi);

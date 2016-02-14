@@ -350,17 +350,13 @@ int main(int argc, char **argv)
 	/* override the active fops */
 	lws_get_fops(context)->open = test_server_fops_open;
 
-	lws_initloop(context, loop);
+	lws_ev_initloop(context, loop, 0);
 
 	_ev_timer_init(&timeout_watcher, ev_timeout_cb, 0.05, 0.05);
 	ev_timer_start(loop, &timeout_watcher);
-
-	while (!force_exit)
-		ev_run(loop, 0);
+	ev_run(loop, 0);
 
 	lws_context_destroy(context);
-	ev_loop_destroy(loop);
-
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
 #ifndef _WIN32

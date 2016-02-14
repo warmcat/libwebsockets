@@ -378,3 +378,19 @@ libwebsockets-test-server-pthread does it, for the FD locking callbacks.
 There is no knowledge or dependency in lws itself about pthreads.  How the
 locking is implemented is entirely up to the user code.
 
+
+Libev / Libuv support
+---------------------
+
+You can select either or both
+
+-DLWS_WITH_LIBEV=1
+-DLWS_WITH_LIBUV=1
+
+at cmake configure-time.  The user application may use one of the
+context init options flags
+
+LWS_SERVER_OPTION_LIBEV
+LWS_SERVER_OPTION_LIBUV
+
+to indicate it will use either of the event libraries.

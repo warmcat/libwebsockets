@@ -24,7 +24,6 @@
 int close_testing;
 int max_poll_elements;
 int debug_level = 7;
-volatile int force_exit = 0;
 struct lws_context *context;
 struct lws_plat_file_ops fops_plat;
 
@@ -107,44 +106,25 @@ static const struct lws_extension exts[] = {
 	{ NULL, NULL, NULL /* terminator */ }
 };
 
-/* this shows how to override the lws file operations.  You don't need
- * to do any of this unless you have a reason (eg, want to serve
- * compressed files without decompressing the whole archive)
- */
-static lws_filefd_type
-test_server_fops_open(struct lws *wsi, const char *filename,
-		      unsigned long *filelen, int flags)
-{
-	lws_filefd_type n;
-
-	/* call through to original platform implementation */
-	n = fops_plat.open(wsi, filename, filelen, flags);
-
-	lwsl_notice("%s: opening %s, ret %ld, len %lu\n", __func__, filename,
-			(long)n, *filelen);
-
-	return n;
-}
-
 void signal_cb(uv_signal_t *watcher, int revents)
 {
-	lwsl_notice("Signal caught, exiting...\n");
-	force_exit = 1;
+	lwsl_err("Signal %d caught, exiting...\n", watcher->signum);
 	switch (watcher->signum) {
 	case SIGTERM:
 	case SIGINT:
-		uv_stop(uv_default_loop()); /* Note: we assume default loop! */
 		break;
 	default:
 		signal(SIGABRT, SIG_DFL);
 		abort();
 		break;
 	}
+	lws_libuv_stop(context);
 }
 
 static void
-uv_timeout_cb (uv_timer_t *w)
+uv_timeout_cb(uv_timer_t *w)
 {
+	lwsl_info("%s\n", __func__);
 	lws_callback_on_writable_all_protocol(context,
 					&protocols[PROTOCOL_DUMB_INCREMENT]);
 }
@@ -167,13 +147,10 @@ static struct option options[] = {
 
 int main(int argc, char **argv)
 {
-	int sigs[] = { SIGINT, SIGKILL, SIGTERM, SIGSEGV, SIGFPE };
-	uv_signal_t signals[ARRAY_SIZE(sigs)];
-	uv_loop_t *loop = uv_default_loop();
 	struct lws_context_creation_info info;
 	char interface_name[128] = "";
-	const char *iface = NULL;
 	uv_timer_t timeout_watcher;
+	const char *iface = NULL;
 	char cert_path[1024];
 	char key_path[1024];
 	int use_ssl = 0;
@@ -257,16 +234,9 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	for (n = 0; n < ARRAY_SIZE(sigs); n++) {
-		uv_signal_init(loop, &signals[n]);
-		uv_signal_start(&signals[n], signal_cb, sigs[n]);
-	}
-
-#ifndef _WIN32
 	/* we will only try to log things according to our debug_level */
 	setlogmask(LOG_UPTO (LOG_DEBUG));
 	openlog("lwsts", syslog_options, LOG_DAEMON);
-#endif
 
 	/* tell the library what debug level to emit and to send it to syslog */
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
@@ -274,7 +244,7 @@ int main(int argc, char **argv)
 	lwsl_notice("libwebsockets test server libuv - license LGPL2.1+SLE\n");
 	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
 
-	printf("Using resource path \"%s\"\n", resource_path);
+	lwsl_info("Using resource path \"%s\"\n", resource_path);
 
 	info.iface = iface;
 	info.protocols = protocols;
@@ -289,13 +259,13 @@ int main(int argc, char **argv)
 			return -1;
 		}
 		sprintf(cert_path, "%s/libwebsockets-test-server.pem",
-								resource_path);
+			resource_path);
 		if (strlen(resource_path) > sizeof(key_path) - 32) {
 			lwsl_err("resource path too long\n");
 			return -1;
 		}
 		sprintf(key_path, "%s/libwebsockets-test-server.key.pem",
-								resource_path);
+			resource_path);
 
 		info.ssl_cert_filepath = cert_path;
 		info.ssl_private_key_filepath = key_path;
@@ -311,32 +281,15 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	/*
-	 * this shows how to override the lws file operations.  You don't need
-	 * to do any of this unless you have a reason (eg, want to serve
-	 * compressed files without decompressing the whole archive)
-	 */
-	/* stash original platform fops */
-	fops_plat = *(lws_get_fops(context));
-	/* override the active fops */
-	lws_get_fops(context)->open = test_server_fops_open;
+	lws_uv_initloop(context, NULL, signal_cb, 0);
 
-	lws_uv_initloop(context, loop, 0);
+	uv_timer_init(lws_uv_getloop(context, 0), &timeout_watcher);
+	uv_timer_start(&timeout_watcher, uv_timeout_cb, 50, 50);
 
-	uv_timer_init(loop, &timeout_watcher);
-	uv_timer_start(&timeout_watcher, uv_timeout_cb, 0.05, 0.05);
-
-	while (!force_exit)
-		uv_run(loop, 0);
+	lws_libuv_run(context, 0);
 
 	lws_context_destroy(context);
-	uv_stop(loop);
-
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
-
-#ifndef _WIN32
-	closelog();
-#endif
 
 	return 0;
 }
