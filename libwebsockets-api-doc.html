@@ -500,6 +500,7 @@ may set it.
 <h3>Description</h3>
 <blockquote>
 Notice it does so by dropping '\0' into input string
+and the leading / on the path is consequently lost
 </blockquote>
 <hr>
 <h2>lws_cancel_service - Cancel servicing of pending websocket activity</h2>
@@ -1516,6 +1517,7 @@ header.
 &nbsp; &nbsp; <i>short</i> <b>max_http_header_pool</b>;<br>
 &nbsp; &nbsp; <i>unsigned int</i> <b>count_threads</b>;<br>
 &nbsp; &nbsp; <i>unsigned int</i> <b>fd_limit_per_thread</b>;<br>
+&nbsp; &nbsp; <i>unsigned int</i> <b>timeout_secs</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
@@ -1606,6 +1608,11 @@ becomes free.
 <dd>nonzero means restrict each service thread to this
 many fds, 0 means the default which is divide the process fd
 limit by the number of threads.
+<dt><b>timeout_secs</b>
+<dd>various processes involving network roundtrips in the
+library are protected from hanging forever by timeouts.  If
+nonzero, this member lets you set the timeout used in seconds.
+Otherwise a default timeout is used.
 </dl>
 <hr>
 <h2>struct lws_client_connect_info - parameters to connect with when using lws_client_connect_via_info()</h2>
