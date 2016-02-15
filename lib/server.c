@@ -737,11 +737,12 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * that is already at least the start of another header set, simply
 	 * reset the existing header table and keep it.
 	 */
-	if (wsi->u.hdr.ah &&
-	    wsi->u.hdr.ah->rxpos == wsi->u.hdr.ah->rxlen)
-		lws_header_table_detach(wsi);
-	else
-		lws_header_table_reset(wsi);
+	if (wsi->u.hdr.ah) {
+		if (wsi->u.hdr.ah->rxpos == wsi->u.hdr.ah->rxlen)
+			lws_header_table_detach(wsi);
+		else
+			lws_header_table_reset(wsi);
+	}
 
 	/* If we're (re)starting on headers, need other implied init */
 	wsi->u.hdr.ues = URIES_IDLE;
