@@ -52,18 +52,12 @@ lws_free_wsi(struct lws *wsi)
 
 	lws_free_set_NULL(wsi->rxflow_buffer);
 	lws_free_set_NULL(wsi->trunc_alloc);
-	/*
-	 * These union members have an ah at the start
-	 *
-	 * 	struct _lws_http_mode_related http;
-	 *	struct _lws_http2_related http2;
-	 *	struct _lws_header_related hdr;
-	 *
-	 * basically ws-related union member does not
-	 */
-	if (wsi->mode != LWSCM_WS_CLIENT &&
-	    wsi->mode != LWSCM_WS_SERVING)
-		lws_free_header_table(wsi);
+
+	if (wsi->u.hdr.ah) {
+		/* we're closing, losing some rx is OK */
+		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+		lws_header_table_detach(wsi);
+	}
 
 	wsi->context->count_wsi_allocated--;
 	lwsl_debug("%s: %p, remaining wsi %d\n", __func__, wsi,
@@ -411,10 +405,12 @@ just_kill_connection:
 	wsi->socket_is_permanently_unusable = 1;
 
 #ifdef LWS_USE_LIBUV
-	/* libuv has to do his own close handle processing asynchronously */
-	lws_libuv_closehandle(wsi);
+	if (LWS_LIBUV_ENABLED(context)) {
+		/* libuv has to do his own close handle processing asynchronously */
+		lws_libuv_closehandle(wsi);
 
-	return;
+		return;
+	}
 #endif
 
 	lws_close_free_wsi_final(wsi);

@@ -61,19 +61,30 @@ lextable_decode(int pos, char c)
 }
 
 void
-lws_reset_header_table(struct lws *wsi)
+lws_header_table_reset(struct lws *wsi)
 {
-	if (!wsi->u.hdr.ah)
-		return;
+	struct allocated_headers *ah = wsi->u.hdr.ah;
+
+	/* if we have the idea we're resetting 'our' ah, must be bound to one */
+	assert(ah);
+	/* ah also concurs with ownership */
+	assert(ah->wsi == wsi);
 
 	/* init the ah to reflect no headers or data have appeared yet */
-	memset(wsi->u.hdr.ah->frag_index, 0, sizeof(wsi->u.hdr.ah->frag_index));
-	wsi->u.hdr.ah->nfrag = 0;
-	wsi->u.hdr.ah->pos = 0;
+	memset(ah->frag_index, 0, sizeof(ah->frag_index));
+	ah->nfrag = 0;
+	ah->pos = 0;
+
+	/* and reset the rx state */
+	ah->rxpos = 0;
+	ah->rxlen = 0;
+
+	/* since we will restart the ah, our new headers are not completed */
+	wsi->hdr_parsing_completed = 0;
 }
 
 int LWS_WARN_UNUSED_RESULT
-lws_allocate_header_table(struct lws *wsi)
+lws_header_table_attach(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -133,6 +144,7 @@ lws_allocate_header_table(struct lws *wsi)
 
 	wsi->u.hdr.ah = &pt->ah_pool[n];
 	wsi->u.hdr.ah->in_use = 1;
+	pt->ah_pool[n].wsi = wsi; /* mark our owner */
 	pt->ah_count_in_use++;
 
 	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
@@ -143,7 +155,7 @@ lws_allocate_header_table(struct lws *wsi)
 	lws_pt_unlock(pt);
 
 reset:
-	lws_reset_header_table(wsi);
+	lws_header_table_reset(wsi);
 	time(&wsi->u.hdr.ah->assigned);
 
 	return 0;
@@ -154,7 +166,7 @@ bail:
 	return 1;
 }
 
-int lws_free_header_table(struct lws *wsi)
+int lws_header_table_detach(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
 	struct allocated_headers *ah = wsi->u.hdr.ah;
@@ -163,8 +175,18 @@ int lws_free_header_table(struct lws *wsi)
 	struct lws **pwsi;
 	time_t now;
 
-	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__, (void *)wsi,
-		 (void *)wsi->u.hdr.ah, wsi->tsi, pt->ah_count_in_use);
+	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
+		  (void *)wsi, (void *)wsi->u.hdr.ah, wsi->tsi,
+		  pt->ah_count_in_use);
+
+	assert(ah);
+
+	/* may not be detached while he still has unprocessed rx */
+	if (ah->rxpos != ah->rxlen) {
+		lwsl_err("%s: %p: rxpos:%d, rxlen:%d\n", __func__, wsi,
+				ah->rxpos, ah->rxlen);
+		assert(ah->rxpos == ah->rxlen);
+	}
 
 	lws_pt_lock(pt);
 
@@ -173,8 +195,8 @@ int lws_free_header_table(struct lws *wsi)
 		if (wsi->socket_is_permanently_unusable)
 			while (*pwsi) {
 				if (*pwsi == wsi) {
-					lwsl_info("%s: wsi %p, removing from wait list\n",
-							__func__, wsi);
+					lwsl_info("%s: wsi %p, remv wait\n",
+						  __func__, wsi);
 					*pwsi = wsi->u.hdr.ah_wait_list;
 					wsi->u.hdr.ah_wait_list = NULL;
 					pt->ah_wait_list_length--;
@@ -189,11 +211,13 @@ int lws_free_header_table(struct lws *wsi)
 	if (now - wsi->u.hdr.ah->assigned > 3)
 		lwsl_err("header assign - free time %d\n",
 			 (int)(now - wsi->u.hdr.ah->assigned));
-	/* if we think we're freeing one, there should be one to free */
+
+	/* if we think we're detaching one, there should be one in use */
 	assert(pt->ah_count_in_use > 0);
-	/* and he should have been in use */
+	/* and this specific one should have been in use */
 	assert(wsi->u.hdr.ah->in_use);
 	wsi->u.hdr.ah = NULL;
+	ah->wsi = NULL; /* no owner */
 
 	if (!*pwsi) {
 		ah->in_use = 0;
@@ -212,13 +236,17 @@ int lws_free_header_table(struct lws *wsi)
 	lwsl_info("last wsi in wait list %p\n", wsi);
 
 	wsi->u.hdr.ah = ah;
-	lws_reset_header_table(wsi);
+	ah->wsi = wsi; /* new owner */
+	lws_header_table_reset(wsi);
 	time(&wsi->u.hdr.ah->assigned);
 
 	assert(wsi->position_in_fds_table != -1);
 
 	lwsl_info("%s: Enabling %p POLLIN\n", __func__, wsi);
-	/* his wait is over, let him progress */
+
+	/* he has been stuck waiting for an ah, but now his wait is over,
+	 * let him progress
+	 */
 	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 
 	/* point prev guy to next guy in list instead */
@@ -459,7 +487,8 @@ issue_char(struct lws *wsi, unsigned char c)
 			return -1;
 		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
 		lwsl_warn("header %i exceeds limit %d\n",
-			  wsi->u.hdr.parser_state, wsi->u.hdr.current_token_limit);
+			  wsi->u.hdr.parser_state,
+			  wsi->u.hdr.current_token_limit);
 	}
 
 	return 1;
@@ -679,7 +708,7 @@ check_eol:
 
 		/* bail at EOL */
 		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE &&
-								  c == '\x0d') {
+		    c == '\x0d') {
 			c = '\0';
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 			lwsl_parser("*\n");

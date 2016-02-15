@@ -153,16 +153,15 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 LWS_VISIBLE int
 lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
-	int n;
-	unsigned int i;
-	DWORD ev;
+	struct lws_context_per_thread *pt = &context->pt[tsi];
 	WSANETWORKEVENTS networkevents;
 	struct lws_pollfd *pfd;
 	struct lws *wsi;
-	struct lws_context_per_thread *pt = &context->pt[tsi];
+	unsigned int i;
+	DWORD ev;
+	int n, m;
 
 	/* stay dead once we are dead */
-
 	if (context == NULL)
 		return 1;
 
@@ -196,6 +195,9 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		}
 	}
 
+	/* if we know something needs service already, don't wait in poll */
+	timeout_ms = lws_service_adjust_timeout(context, timeout_ms, tsi);
+
 	ev = WSAWaitForMultipleEvents(pt->fds_count + 1, pt->events,
 				      FALSE, timeout_ms, FALSE);
 	context->service_tid = 0;
@@ -215,8 +217,9 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	pfd = &pt->fds[ev - WSA_WAIT_EVENT_0 - 1];
 
-	if (WSAEnumNetworkEvents(pfd->fd,
-				 pt->events[ev - WSA_WAIT_EVENT_0],
+	/* eh... is one event at a time the best windows can do? */
+
+	if (WSAEnumNetworkEvents(pfd->fd, pt->events[ev - WSA_WAIT_EVENT_0],
 				 &networkevents) == SOCKET_ERROR) {
 		lwsl_err("WSAEnumNetworkEvents() failed with error %d\n",
 								     LWS_ERRNO);
@@ -231,7 +234,27 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			wsi->sock_send_blocking = 0;
 	}
 
-	return lws_service_fd(context, pfd);
+	/* if someone faked their LWS_POLLIN, then go through all active fds */
+
+	if (lws_service_flag_pending(context, tsi)) {
+		/* any socket with events to service? */
+		for (n = 0; n < (int)pt->fds_count; n++) {
+			if (!pt->fds[n].revents)
+				continue;
+
+			m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
+			if (m < 0)
+				return -1;
+			/* if something closed, retry this slot */
+			if (m)
+				n--;
+		}
+		return 0;
+	}
+
+	/* otherwise just do the one... must be a way to improve that... */
+
+	return lws_service_fd_tsi(context, pfd, tsi);
 }
 
 LWS_VISIBLE int

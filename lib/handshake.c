@@ -55,12 +55,14 @@
  * into multiple fragments.  They may contain unknown headers with arbitrary
  * argument lengths.  So, we parse using a single-character at a time state
  * machine that is completely independent of packet size.
+ *
+ * Returns <0 for error or length of chars consumed from buf (up to len)
  */
 
 LWS_VISIBLE int
 lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	unsigned char *last_char;
+	unsigned char *last_char, *oldbuf = buf;
 	int body_chunk_len;
 	size_t n;
 
@@ -90,7 +92,7 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 		}
 		break;
 #endif
-http_new:
+
 	case LWSS_HTTP:
 		wsi->hdr_parsing_completed = 0;
 		/* fallthru */
@@ -203,9 +205,9 @@ postbody_completion:
 
 read_ok:
 	/* Nothing more to do for now */
-	lwsl_debug("%s: read_ok\n", __func__);
+	lwsl_info("%s: read_ok, used %d\n", __func__, buf - oldbuf);
 
-	return 0;
+	return buf - oldbuf;
 
 http_complete:
 	lwsl_debug("%s: http_complete\n", __func__);
@@ -215,11 +217,11 @@ http_complete:
 	if (lws_http_transaction_completed(wsi))
 		goto bail;
 #endif
-	/* If we have more data, loop back around: */
-	if (len)
-		goto http_new;
-
-	return 0;
+	/* we may have next header set already, but return to event loop first
+	 * so a heaily-pipelined http/1.1 connection cannot monopolize the
+	 * service thread with GET hugefile.bin GET hugefile.bin etc
+	 */
+	goto read_ok;
 
 bail:
 	lwsl_debug("closing connection at lws_read bail:\n");

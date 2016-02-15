@@ -319,10 +319,13 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 		lws_pt_lock(pt);
 
 		pwsi = &pt->ah_wait_list;
+		if (!pwsi)
+			return 0;
 		while (*pwsi) {
 			if (*pwsi == wsi)
 				break;
 			pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+			lwsl_err("%s: pwsi=%p\n", __func__, pwsi);
 		}
 		lws_pt_unlock(pt);
 
@@ -361,6 +364,124 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 	memcpy(wsi->rxflow_buffer, buf + n, len - n);
 
 	return 0;
+}
+
+/* this is used by the platform service code to stop us waiting for network
+ * activity in poll() when we have something that already needs service
+ */
+
+int
+lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	int n;
+
+	/* Figure out if we really want to wait in poll()
+	 * We only need to wait if really nothing already to do and we have
+	 * to wait for something from network
+	 */
+
+	/* 1) if we know we are draining rx ext, do not wait in poll */
+	if (pt->rx_draining_ext_list)
+		timeout_ms = 0;
+
+#ifdef LWS_OPENSSL_SUPPORT
+	/* 2) if we know we have non-network pending data, do not wait in poll */
+	if (lws_ssl_anybody_has_buffered_read_tsi(context, tsi)) {
+		timeout_ms = 0;
+		lwsl_err("ssl buffered read\n");
+	}
+#endif
+
+	/* 3) if any ah has pending rx, do not wait in poll */
+	for (n = 0; n < context->max_http_header_pool; n++)
+		if (pt->ah_pool[n].rxpos != pt->ah_pool[n].rxlen) {
+			/* any ah with pending rx must be attached to someone */
+			assert(pt->ah_pool[n].wsi);
+			timeout_ms = 0;
+			break;
+		}
+
+	return timeout_ms;
+}
+
+/*
+ * guys that need POLLIN service again without waiting for network action
+ * can force POLLIN here if not flowcontrolled, so they will get service.
+ *
+ * Return nonzero if anybody got their POLLIN faked
+ */
+int
+lws_service_flag_pending(struct lws_context *context, int tsi)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+#ifdef LWS_OPENSSL_SUPPORT
+	struct lws *wsi_next;
+#endif
+	struct lws *wsi;
+	int forced = 0;
+	int n;
+
+	/* POLLIN faking */
+
+	/*
+	 * 1) For all guys with already-available ext data to drain, if they are
+	 * not flowcontrolled, fake their POLLIN status
+	 */
+	wsi = pt->rx_draining_ext_list;
+	while (wsi) {
+		pt->fds[wsi->position_in_fds_table].revents |=
+			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
+		if (pt->fds[wsi->position_in_fds_table].revents &
+		    LWS_POLLIN)
+			forced = 1;
+		wsi = wsi->u.ws.rx_draining_ext_list;
+	}
+
+#ifdef LWS_OPENSSL_SUPPORT
+	/*
+	 * 2) For all guys with buffered SSL read data already saved up, if they
+	 * are not flowcontrolled, fake their POLLIN status so they'll get
+	 * service to use up the buffered incoming data, even though their
+	 * network socket may have nothing
+	 */
+	wsi = pt->pending_read_list;
+	while (wsi) {
+		wsi_next = wsi->pending_read_list_next;
+		pt->fds[wsi->position_in_fds_table].revents |=
+			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
+		if (pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN) {
+			forced = 1;
+			/*
+			 * he's going to get serviced now, take him off the
+			 * list of guys with buffered SSL.  If he still has some
+			 * at the end of the service, he'll get put back on the
+			 * list then.
+			 */
+			lws_ssl_remove_wsi_from_buffered_list(wsi);
+		}
+
+		wsi = wsi_next;
+	}
+#endif
+	/*
+	 * 3) For any wsi who have an ah with pending RX who did not
+	 * complete their current headers, and are not flowcontrolled,
+	 * fake their POLLIN status so they will be able to drain the
+	 * rx buffered in the ah
+	 */
+	for (n = 0; n < context->max_http_header_pool; n++)
+		if (pt->ah_pool[n].rxpos != pt->ah_pool[n].rxlen &&
+		    !pt->ah_pool[n].wsi->hdr_parsing_completed) {
+			pt->fds[pt->ah_pool[n].wsi->position_in_fds_table].revents |=
+				pt->fds[pt->ah_pool[n].wsi->position_in_fds_table].events &
+					LWS_POLLIN;
+			if (pt->fds[pt->ah_pool[n].wsi->position_in_fds_table].revents &
+			    LWS_POLLIN)
+				forced = 1;
+		}
+
+	return forced;
 }
 
 /**
@@ -519,7 +640,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			lwsl_info("lws_service_fd: closing\n");
 			goto close_and_handled;
 		}
-#if 1
+
 		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
 		    wsi->state == LWSS_AWAITING_CLOSE_ACK) {
 			/*
@@ -530,7 +651,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			lws_rx_flow_control(wsi, 1);
 			wsi->u.ws.tx_draining_ext = 0;
 		}
-#endif
+
 		if (wsi->u.ws.tx_draining_ext) {
 			/* we cannot deal with new RX until the TX ext
 			 * path has been drained.  It's because new
@@ -592,27 +713,42 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			goto drain;
 		}
 
-		/* 4: any incoming data ready?
+		/* 4: any incoming (or ah-stashed incoming rx) data ready?
 		 * notice if rx flow going off raced poll(), rx flow wins
 		 */
+
 		if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
 			break;
 read:
-		eff_buf.token_len = lws_ssl_capable_read(wsi, pt->serv_buf,
-					pending ? pending : LWS_MAX_SOCKET_IO_BUF);
-		switch (eff_buf.token_len) {
-		case 0:
-			lwsl_info("service_fd: closing due to 0 length read\n");
-			goto close_and_handled;
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
-			lwsl_info("SSL Capable more service\n");
-			n = 0;
-			goto handled;
-		case LWS_SSL_CAPABLE_ERROR:
-			lwsl_info("Closing when error\n");
-			goto close_and_handled;
-		}
 
+		/* all the union members start with hdr, so even in ws mode
+		 * we can deal with the ah via u.hdr
+		 */
+		if (wsi->u.hdr.ah) {
+			lwsl_err("%s: %p: using inherited ah rx\n", __func__, wsi);
+			eff_buf.token_len = wsi->u.hdr.ah->rxlen -
+					    wsi->u.hdr.ah->rxpos;
+			eff_buf.token = (char *)wsi->u.hdr.ah->rx +
+					wsi->u.hdr.ah->rxpos;
+		} else {
+
+			eff_buf.token_len = lws_ssl_capable_read(wsi, pt->serv_buf,
+					     pending ? pending : LWS_MAX_SOCKET_IO_BUF);
+			switch (eff_buf.token_len) {
+			case 0:
+				lwsl_info("service_fd: closing due to 0 length read\n");
+				goto close_and_handled;
+			case LWS_SSL_CAPABLE_MORE_SERVICE:
+				lwsl_info("SSL Capable more service\n");
+				n = 0;
+				goto handled;
+			case LWS_SSL_CAPABLE_ERROR:
+				lwsl_info("Closing when error\n");
+				goto close_and_handled;
+			}
+
+			eff_buf.token = (char *)pt->serv_buf;
+		}
 		/*
 		 * give any active extensions a chance to munge the buffer
 		 * before parse.  We pass in a pointer to an lws_tokens struct
@@ -624,15 +760,12 @@ read:
 		 * extension callback handling, just the normal input buffer is
 		 * used then so it is efficient.
 		 */
-
-		eff_buf.token = (char *)pt->serv_buf;
-
 drain:
 		do {
 			more = 0;
 
-			m = lws_ext_cb_active(wsi,
-				LWS_EXT_CB_PACKET_RX_PREPARSE, &eff_buf, 0);
+			m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_RX_PREPARSE,
+					      &eff_buf, 0);
 			if (m < 0)
 				goto close_and_handled;
 			if (m)
@@ -661,6 +794,16 @@ drain:
 			eff_buf.token_len = 0;
 		} while (more);
 
+		if (wsi->u.hdr.ah) {
+			lwsl_err("%s: %p: detaching inherited used ah\n", __func__, wsi);
+			/* show we used all the pending rx up */
+			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+			/* we can run the normal ah detach flow despite
+			 * being in ws union mode, since all union members
+			 * start with hdr */
+			lws_header_table_detach(wsi);
+		}
+
 		pending = lws_ssl_pending(wsi);
 		if (pending) {
 handle_pending:
@@ -670,7 +813,7 @@ handle_pending:
 		}
 
 		if (draining_flow && wsi->rxflow_buffer &&
-				 wsi->rxflow_pos == wsi->rxflow_len) {
+		    wsi->rxflow_pos == wsi->rxflow_len) {
 			lwsl_info("flow buffer: drained\n");
 			lws_free_set_NULL(wsi->rxflow_buffer);
 			/* having drained the rxflow buffer, can rearm POLLIN */

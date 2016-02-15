@@ -292,33 +292,20 @@ lws_http_action(struct lws *wsi)
 
 	n = wsi->protocol->callback(wsi, LWS_CALLBACK_FILTER_HTTP_CONNECTION,
 				    wsi->user_space, uri_ptr, uri_len);
-
-	if (!n) {
-		/*
-		 * if there is content supposed to be coming,
-		 * put a timeout on it having arrived
-		 */
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-				AWAITING_TIMEOUT);
-
-		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
-					    wsi->user_space, uri_ptr, uri_len);
-	}
-
-	/*
-	 * If we are in keepalive, we may already have the next header set
-	 * pipelined in the lws_read buffer above us... if so, we must hold
-	 * the ah so it's still bound when we want to process the next headers.
-	 *
-	 */
-	if (connection_type == HTTP_CONNECTION_CLOSE ||
-	    !wsi->u.hdr.more_rx_waiting)
-		/* now drop the header info we kept a pointer to */
-		lws_free_header_table(wsi);
-
 	if (n) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
-		return 1; /* struct ah ptr already nuked */		}
+
+		return 1;
+	}
+	/*
+	 * if there is content supposed to be coming,
+	 * put a timeout on it having arrived
+	 */
+	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+			AWAITING_TIMEOUT);
+
+	n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+				    wsi->user_space, uri_ptr, uri_len);
 
 	/*
 	 * If we're not issuing a file, check for content_length or
@@ -336,7 +323,9 @@ lws_http_action(struct lws *wsi)
 	return 0;
 
 bail_nuke_ah:
-	lws_free_header_table(wsi);
+	/* we're closing, losing some rx is OK */
+	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	lws_header_table_detach(wsi);
 
 	return 1;
 }
@@ -346,12 +335,15 @@ int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct _lws_header_related hdr;
 	struct allocated_headers *ah;
 	int protocol_len, n, hit;
 	char protocol_list[128];
 	char protocol_name[32];
 	char *p;
 
+	assert(len < 10000000);
 	assert(wsi->u.hdr.ah);
 
 	while (len--) {
@@ -563,10 +555,34 @@ upgrade_ws:
 			goto bail_nuke_ah;
 		}
 
-		/* drop the header info -- no bail_nuke_ah after this */
-		lws_free_header_table(wsi);
+		/* we are upgrading to ws, so http/1.1 and keepalive +
+		 * pipelined header considerations about keeping the ah around
+		 * no longer apply.  However it's common for the first ws
+		 * protocol data to have been coalesced with the browser
+		 * upgrade request and to already be in the ah rx buffer.
+		 */
+
+		lwsl_err("%s: %p: inheriting ah in ws mode (rxpos: %d, rxlen: %d)\n",
+				__func__, wsi, wsi->u.hdr.ah->rxpos, wsi->u.hdr.ah->rxlen);
+		lws_pt_lock(pt);
+		hdr = wsi->u.hdr;
 
 		lws_union_transition(wsi, LWSCM_WS_SERVING);
+		/*
+		 * first service is WS mode will notice this, use the RX and
+		 * then detach the ah (caution: we are not in u.hdr union
+		 * mode any more then... ah_temp member is at start the same
+		 * though)
+		 *
+		 * Beacuse rxpos/rxlen shows something in the ah, we will get
+		 * service guaranteed next time around the event loop
+		 *
+		 * All union members begin with hdr, so we can use it even
+		 * though we transitioned to ws union mode (the ah detach
+		 * code uses it anyway).
+		 */
+		wsi->u.hdr = hdr;
+		lws_pt_unlock(pt);
 
 		/*
 		 * create the frame buffer for this connection according to the
@@ -601,7 +617,10 @@ upgrade_ws:
 
 bail_nuke_ah:
 	/* drop the header info */
-	lws_free_header_table(wsi);
+	/* we're closing, losing some rx is OK */
+	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	lws_header_table_detach(wsi);
+
 	return 1;
 }
 
@@ -718,10 +737,11 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * that is already at least the start of another header set, simply
 	 * reset the existing header table and keep it.
 	 */
-	if (!wsi->u.hdr.more_rx_waiting)
-		lws_free_header_table(wsi);
+	if (wsi->u.hdr.ah &&
+	    wsi->u.hdr.ah->rxpos == wsi->u.hdr.ah->rxlen)
+		lws_header_table_detach(wsi);
 	else
-		lws_reset_header_table(wsi);
+		lws_header_table_reset(wsi);
 
 	/* If we're (re)starting on headers, need other implied init */
 	wsi->u.hdr.ues = URIES_IDLE;
@@ -804,11 +824,11 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
+	struct allocated_headers *ah;
 #if LWS_POSIX
 	struct sockaddr_in cli_addr;
 	socklen_t clilen;
 #endif
-
 	int n, len;
 
 	switch (wsi->mode) {
@@ -825,11 +845,12 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			if (!(pollfd->revents & LWS_POLLOUT))
 				break;
 
-			if (lws_issue_raw(wsi, wsi->trunc_alloc + wsi->trunc_offset,
+			if (lws_issue_raw(wsi, wsi->trunc_alloc +
+					       wsi->trunc_offset,
 					  wsi->trunc_len) < 0)
 				goto fail;
 			/*
-			 * we can't afford to allow input processing send
+			 * we can't afford to allow input processing to send
 			 * something new, so spin around he event loop until
 			 * he doesn't have any partials
 			 */
@@ -841,34 +862,63 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
 			goto try_pollout;
 
-		if ((wsi->state == LWSS_HTTP ||
-		     wsi->state == LWSS_HTTP_ISSUING_FILE ||
-		     wsi->state == LWSS_HTTP_HEADERS) && !wsi->u.hdr.ah)
-			if (lws_allocate_header_table(wsi))
-				goto try_pollout;
+		/* these states imply we MUST have an ah attached */
 
-		/*
-		 * This is a good situation, the ah allocated and we know there
-		 * is header data pending.  However, in http1.1 / keepalive
-		 * case, back-to-back header sets pipelined into one packet
-		 * is common.
-		 *
-		 * Ah is defined to be required to stay attached to the wsi
-		 * until the current set of header data completes, which may
-		 * involve network roundtrips if fragmented.  Typically the
-		 * header set is not fragmented and gets done atomically.
-		 *
-		 * When we complete processing for the first header set, we
-		 * normally drop the ah in lws_http_transaction_completed()
-		 * since we do not know how long it would be held waiting for
-		 * the start of the next header set to arrive.
-		 *
-		 * However if there is pending data, http1.1 / keepalive mode
-		 * is active, we need to retain (just reset) the ah after
-		 * dealing with each header set instead of dropping it.
-		 *
-		 * Otherwise the remaining header data has nowhere to be stored.
-		 */
+		if (wsi->state == LWSS_HTTP ||
+		    wsi->state == LWSS_HTTP_ISSUING_FILE ||
+		    wsi->state == LWSS_HTTP_HEADERS) {
+			if (!wsi->u.hdr.ah)
+				if (lws_header_table_attach(wsi))
+					goto try_pollout;
+
+			ah = wsi->u.hdr.ah;
+
+			lwsl_debug("%s: %p: rxpos:%d rxlen:%d\n", __func__, wsi,
+				   ah->rxpos, ah->rxlen);
+
+			/* if nothing in ah rx buffer, get some fresh rx */
+			if (ah->rxpos == ah->rxlen) {
+				ah->rxlen = lws_ssl_capable_read(wsi, ah->rx,
+						   sizeof(ah->rx));
+				ah->rxpos = 0;
+				lwsl_debug("%s: wsi %p, ah->rxlen = %d\r\n",
+					   __func__, wsi, ah->rxlen);
+				switch (ah->rxlen) {
+				case 0:
+					lwsl_info("%s: read 0 len\n", __func__);
+					/* lwsl_info("   state=%d\n", wsi->state); */
+//					if (!wsi->hdr_parsing_completed)
+//						lws_header_table_detach(wsi);
+					/* fallthru */
+				case LWS_SSL_CAPABLE_ERROR:
+					goto fail;
+				case LWS_SSL_CAPABLE_MORE_SERVICE:
+					ah->rxlen = ah->rxpos = 0;
+					goto try_pollout;
+				}
+			}
+			assert(ah->rxpos != ah->rxlen && ah->rxlen);
+			/* just ignore incoming if waiting for close */
+			if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
+				n = lws_read(wsi, ah->rx + ah->rxpos,
+					     ah->rxlen - ah->rxpos);
+				if (n < 0) /* we closed wsi */
+					return 1;
+				if (wsi->u.hdr.ah) {
+					if ( wsi->u.hdr.ah->rxlen)
+						 wsi->u.hdr.ah->rxpos += n;
+
+					if (wsi->u.hdr.ah->rxpos == wsi->u.hdr.ah->rxlen &&
+					    (wsi->mode != LWSCM_HTTP_SERVING &&
+					     wsi->mode != LWSCM_HTTP_SERVING_ACCEPTED &&
+					     wsi->mode != LWSCM_HTTP2_SERVING))
+						lws_header_table_detach(wsi);
+				}
+				break;
+			}
+
+			goto try_pollout;
+		}
 
 		len = lws_ssl_capable_read(wsi, pt->serv_buf,
 					   LWS_MAX_SOCKET_IO_BUF);
@@ -877,8 +927,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		case 0:
 			lwsl_info("%s: read 0 len\n", __func__);
 			/* lwsl_info("   state=%d\n", wsi->state); */
-			if (!wsi->hdr_parsing_completed)
-				lws_free_header_table(wsi);
+//			if (!wsi->hdr_parsing_completed)
+//				lws_header_table_detach(wsi);
 			/* fallthru */
 		case LWS_SSL_CAPABLE_ERROR:
 			goto fail;

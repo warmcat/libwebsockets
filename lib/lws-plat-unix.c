@@ -122,12 +122,8 @@ LWS_VISIBLE int
 lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	struct lws *wsi;
 	int n, m, c;
 	char buf;
-#ifdef LWS_OPENSSL_SUPPORT
-	struct lws *wsi_next;
-#endif
 
 	/* stay dead once we are dead */
 
@@ -148,17 +144,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	}
 	context->service_tid = context->service_tid_detected;
 
-	/* if we know we are draining rx ext, do not wait in poll */
-	if (pt->rx_draining_ext_list)
-		timeout_ms = 0;
-
-#ifdef LWS_OPENSSL_SUPPORT
-	/* if we know we have non-network pending data, do not wait in poll */
-	if (lws_ssl_anybody_has_buffered_read_tsi(context, tsi)) {
-		timeout_ms = 0;
-		lwsl_err("ssl buffered read\n");
-	}
-#endif
+	timeout_ms = lws_service_adjust_timeout(context, timeout_ms, tsi);
 
 	n = poll(pt->fds, pt->fds_count, timeout_ms);
 
@@ -178,46 +164,11 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 	}
 
-	/*
-	 * For all guys with already-available ext data to drain, if they are
-	 * not flowcontrolled, fake their POLLIN status
-	 */
-	wsi = pt->rx_draining_ext_list;
-	while (wsi) {
-		pt->fds[wsi->position_in_fds_table].revents |=
-			pt->fds[wsi->position_in_fds_table].events & POLLIN;
-		wsi = wsi->u.ws.rx_draining_ext_list;
-	}
+	c = n;
 
-#ifdef LWS_OPENSSL_SUPPORT
-	/*
-	 * For all guys with buffered SSL read data already saved up, if they
-	 * are not flowcontrolled, fake their POLLIN status so they'll get
-	 * service to use up the buffered incoming data, even though their
-	 * network socket may have nothing
-	 */
-
-	wsi = pt->pending_read_list;
-	while (wsi) {
-		wsi_next = wsi->pending_read_list_next;
-		pt->fds[wsi->position_in_fds_table].revents |=
-			pt->fds[wsi->position_in_fds_table].events & POLLIN;
-		if (pt->fds[wsi->position_in_fds_table].revents & POLLIN)
-			/*
-			 * he's going to get serviced now, take him off the
-			 * list of guys with buffered SSL.  If he still has some
-			 * at the end of the service, he'll get put back on the
-			 * list then.
-			 */
-			lws_ssl_remove_wsi_from_buffered_list(wsi);
-
-		wsi = wsi_next;
-	}
-#endif
+	lws_service_flag_pending(context, tsi);
 
 	/* any socket with events to service? */
-
-	c = n;
 	for (n = 0; n < pt->fds_count && c; n++) {
 		if (!pt->fds[n].revents)
 			continue;
@@ -383,7 +334,8 @@ lws_plat_context_late_destroy(struct lws_context *context)
 /* cast a struct sockaddr_in6 * into addr for ipv6 */
 
 LWS_VISIBLE int
-lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr, size_t addrlen)
+lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
+		    size_t addrlen)
 {
 	int rc = -1;
 

@@ -489,6 +489,7 @@ struct lws_fragments {
  */
 
 struct allocated_headers {
+	struct lws *wsi; /* owner */
 	char *data; /* prepared by context init to point to dedicated storage */
 	/*
 	 * the randomly ordered fragments, indexed by frag_index and
@@ -502,6 +503,10 @@ struct allocated_headers {
 	 * the actual header data gets dumped as it comes in, into data[]
 	 */
 	unsigned char frag_index[WSI_TOKEN_COUNT];
+	unsigned char rx[2048];
+	unsigned int rxpos;
+	unsigned int rxlen;
+
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
 	unsigned short c_port;
@@ -946,6 +951,8 @@ struct _lws_header_related {
 };
 
 struct _lws_websocket_related {
+	/* cheapest way to deal with ah overlap with ws union transition */
+	struct _lws_header_related *hdr;
 	char *rx_ubuf;
 	unsigned int rx_ubuf_alloc;
 	struct lws *rx_draining_ext_list;
@@ -1119,6 +1126,12 @@ lws_http_action(struct lws *wsi);
 LWS_EXTERN int
 lws_b64_selftest(void);
 
+LWS_EXTERN int
+lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi);
+
+LWS_EXTERN int
+lws_service_flag_pending(struct lws_context *context, int tsi);
+
 #if defined(_WIN32) || defined(MBED_OPERATORS)
 LWS_EXTERN struct lws *
 wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd);
@@ -1244,13 +1257,13 @@ LWS_EXTERN int
 lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_allocate_header_table(struct lws *wsi);
+lws_header_table_attach(struct lws *wsi);
 
 LWS_EXTERN int
-lws_free_header_table(struct lws *wsi);
+lws_header_table_detach(struct lws *wsi);
 
 LWS_EXTERN void
-lws_reset_header_table(struct lws *wsi);
+lws_header_table_reset(struct lws *wsi);
 
 LWS_EXTERN char * LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h);

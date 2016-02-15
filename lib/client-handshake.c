@@ -301,7 +301,9 @@ lws_client_connect_2(struct lws *wsi)
 	return wsi;
 
 oom4:
-	lws_free_header_table(wsi);
+	/* we're closing, losing some rx is OK */
+	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	lws_header_table_detach(wsi);
 	lws_free(wsi);
 
 	return NULL;
@@ -402,7 +404,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	}
 #endif
 
-	if (lws_allocate_header_table(wsi))
+	if (lws_header_table_attach(wsi))
 		goto bail;
 
 	/*
@@ -465,7 +467,9 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	return lws_client_connect_2(wsi);
 
 bail1:
-	lws_free_header_table(wsi);
+	/* we're closing, losing some rx is OK */
+	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	lws_header_table_detach(wsi);
 bail:
 	lws_free(wsi);
 

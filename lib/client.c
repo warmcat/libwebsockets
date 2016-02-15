@@ -798,7 +798,7 @@ check_accept:
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 	/* free up his parsing allocations */
-	lws_free_header_table(wsi);
+	lws_header_table_detach(wsi);
 
 	lws_union_transition(wsi, LWSCM_WS_CLIENT);
 	wsi->state = LWSS_ESTABLISHED;
