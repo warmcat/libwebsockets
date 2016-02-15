@@ -258,11 +258,21 @@ check forbidden
 check
 
 echo
-echo "---- directory attack 7 (%2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd should be /etc/passswd)"
+echo "---- directory attack 8 (%2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
 echo -e "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check forbidden
 check
+
+echo
+echo "---- http/1.1 pipelining"
+rm -f /tmp/lwscap
+wget -O/tmp/lwsdump http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html 2>&1 | grep "Downloaded: 8 files" > /tmp/lwscap
+good=`cat $INSTALLED/../share/libwebsockets-test-server/test.html $INSTALLED/../share/libwebsockets-test-server/test.html $INSTALLED/../share/libwebsockets-test-server/test.html $INSTALLED/../share/libwebsockets-test-server/test.html $INSTALLED/../share/libwebsockets-test-server/test.html $INSTALLED/../share/libwebsockets-test-server/test.html $INSTALLED/../share/libwebsockets-test-server/test.html $INSTALLED/../share/libwebsockets-test-server/test.html | md5sum | cut -d' ' -f1`
+if [ "$good" != "`md5sum /tmp/lwsdump | cut -d' ' -f 1`" ] ; then
+	echo "FAIL: mismatched content good=$good received=`md5sum /tmp/lwsdump`"
+	exit 1
+fi
 
 echo
 echo "--- survived OK ---"
