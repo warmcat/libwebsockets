@@ -346,7 +346,8 @@ int main(int argc, char **argv)
 		struct lws_client_connect_info i;
 
 		address = argv[optind];
-		sprintf(ads_port, "%s:%u", address, port & 65535);
+		snprintf(ads_port, sizeof(ads_port), "%s:%u",
+			 address, port & 65535);
 		memset(&i, 0, sizeof(i));
 		i.context = context;
 		i.address = address;
