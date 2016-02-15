@@ -632,6 +632,7 @@ struct lws_context {
 	unsigned int http_proxy_port;
 	unsigned int options;
 	unsigned int fd_limit_per_thread;
+	unsigned int timeout_secs;
 
 	/*
 	 * set to the Thread ID that's doing the service loop just before entry

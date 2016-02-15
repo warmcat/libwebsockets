@@ -653,7 +653,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			goto fail;
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
-							AWAITING_TIMEOUT);
+				context->timeout_secs);
 
 		lwsl_info("inserted SSL accept into fds, trying SSL_accept\n");
 
@@ -746,7 +746,7 @@ go_again:
 accepted:
 		/* OK, we are accepted... give him some time to negotiate */
 		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-				AWAITING_TIMEOUT);
+				context->timeout_secs);
 
 		wsi->mode = LWSCM_HTTP_SERVING;
 

@@ -97,7 +97,6 @@ lws_create_context(struct lws_context_creation_info *info)
 	lwsl_info(" LWS_MAX_PROTOCOLS     : %u\n", LWS_MAX_PROTOCOLS);
 	lwsl_info(" LWS_MAX_SMP           : %u\n", LWS_MAX_SMP);
 	lwsl_info(" SPEC_LATEST_SUPPORTED : %u\n", SPEC_LATEST_SUPPORTED);
-	lwsl_info(" AWAITING_TIMEOUT      : %u\n", AWAITING_TIMEOUT);
 	lwsl_info(" sizeof (*info)        : %u\n", sizeof(*info));
 #if LWS_POSIX
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
@@ -136,6 +135,12 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->ka_time = info->ka_time;
 	context->ka_interval = info->ka_interval;
 	context->ka_probes = info->ka_probes;
+	if (info->timeout_secs)
+		context->timeout_secs = info->timeout_secs;
+	else
+		context->timeout_secs = AWAITING_TIMEOUT;
+
+	lwsl_info(" default timeout (secs): %u\n", context->timeout_secs);
 
 	if (info->max_http_header_data)
 		context->max_http_header_data = info->max_http_header_data;

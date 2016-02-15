@@ -575,7 +575,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		n = (int)amount;
 		if (n) {
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-					AWAITING_TIMEOUT);
+					context->timeout_secs);
 			wsi->u.http.filepos += n;
 			m = lws_write(wsi, pt->serv_buf, n,
 				      wsi->u.http.filepos == wsi->u.http.filelen ?

@@ -302,7 +302,7 @@ lws_http_action(struct lws *wsi)
 	 * put a timeout on it having arrived
 	 */
 	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-			AWAITING_TIMEOUT);
+			wsi->context->timeout_secs);
 
 	n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
@@ -780,7 +780,7 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 
 	/* the transport is accepted... give him time to negotiate */
 	lws_set_timeout(new_wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-			AWAITING_TIMEOUT);
+			context->timeout_secs);
 
 #if LWS_POSIX == 0
 	mbed3_tcp_stream_accept(accept_fd, new_wsi);

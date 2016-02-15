@@ -48,7 +48,7 @@ to user code.
 User api additions
 ------------------
 
-1) The info struct gained two new members
+1) The info struct gained three new members
 
  - max_http_header_data: 0 for default (1024) or set the maximum amount of known
     http header payload that lws can deal with.  Payload in unknown http
@@ -63,6 +63,9 @@ User api additions
      have pending connects for more than this number of client connections,
      additional connects will fail until some of the pending connections timeout
      or complete.
+
+ - timeout_secs: 0 for default (currently 20s), or set the library's
+     network activity timeout to the given number of seconds
 
 HTTP header processing in lws only exists until just after the first main
 callback after the HTTP handshake... for ws connections that is ESTABLISHED and

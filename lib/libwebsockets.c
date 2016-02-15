@@ -302,7 +302,7 @@ just_kill_connection:
 		wsi->state = LWSS_SHUTDOWN;
 		lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
-				AWAITING_TIMEOUT);
+				context->timeout_secs);
 		return;
 	}
 #endif

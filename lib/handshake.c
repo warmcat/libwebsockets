@@ -167,7 +167,7 @@ http_postbody:
 
 			if (wsi->u.http.content_remain)  {
 				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-						AWAITING_TIMEOUT);
+						wsi->context->timeout_secs);
 				break;
 			}
 			/* he sent all the content in time */

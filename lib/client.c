@@ -353,7 +353,7 @@ some_wait:
 
 		wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE2;
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-				AWAITING_TIMEOUT);
+				context->timeout_secs);
 
 		/* fallthru */
 
@@ -386,7 +386,7 @@ some_wait:
 		wsi->u.hdr.lextable_pos = 0;
 		wsi->mode = LWSCM_WSCL_WAITING_SERVER_REPLY;
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
-				AWAITING_TIMEOUT);
+				context->timeout_secs);
 		break;
 
 	case LWSCM_WSCL_WAITING_SERVER_REPLY:
