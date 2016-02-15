@@ -16,4 +16,15 @@ for i in '1.1.1' '1.1.2' '1.1.3' '1.1.4' '1.1.5' '1.1.6' '1.1.7' '1.1.8' '1.2.1'
 	N=$(( $N + 1 ))
 done
 
+echo "waiting for forks to complete..."
+
+while [ 1 ] ; do
+	n=`ps fax | grep libwebsocket | grep -v grep | wc -l`
+	echo "$n forks running..."
+	if [ $n -eq 0 ] ; then
+		echo "Completed"
+		exit 0
+	fi
+	sleep 1s
+done
 
