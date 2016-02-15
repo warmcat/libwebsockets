@@ -1,9 +1,29 @@
 Release Checklist
 -----------------
 
+0) QA
+
+ a) test servers + client + browser
+ 
+ b) valgrind test servers + client + browser
+
+ c) attack.sh
+ 
+     $ ./test-server/attack.sh
+
+ d) Autobahn
+
+     $ wstest -m fuzzingserver &
+     $ ./autobahn-test.sh
+
+     Force update by browser using agent "libwebsockets"
+     http://localhost:8080/test_browser.html
+     
+     scp -rp ./reports to libwebsockets.org
+
 1) soname bump?
 
- a) We need one if we added or removed apis
+ a) We need one if we added / changed / removed apis
 
   CMakeLists.txt
 
@@ -44,7 +64,16 @@ Release Checklist
 - Bump version to 1.6.4
 - MINOR fix xyz
 
-4) website
+4) signed tag
+
+  git tag -s vX.Y[.Z]
+
+5) git
+
+ a) push
+ 
+ b) final CI check, if fail delete tag, kill pushed tags, restart flow
+
+6) website
 
  a) update latest tag for release branch
-
