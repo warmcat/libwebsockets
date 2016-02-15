@@ -179,10 +179,8 @@ int lws_header_table_detach(struct lws *wsi)
 		  (void *)wsi, (void *)wsi->u.hdr.ah, wsi->tsi,
 		  pt->ah_count_in_use);
 
-	assert(ah);
-
 	/* may not be detached while he still has unprocessed rx */
-	if (ah->rxpos != ah->rxlen) {
+	if (ah && ah->rxpos != ah->rxlen) {
 		lwsl_err("%s: %p: rxpos:%d, rxlen:%d\n", __func__, wsi,
 				ah->rxpos, ah->rxlen);
 		assert(ah->rxpos == ah->rxlen);
@@ -191,7 +189,7 @@ int lws_header_table_detach(struct lws *wsi)
 	lws_pt_lock(pt);
 
 	pwsi = &pt->ah_wait_list;
-	if (!wsi->u.hdr.ah) { /* remove from wait list if that's all */
+	if (!ah) { /* remove from wait list if that's all */
 		if (wsi->socket_is_permanently_unusable)
 			while (*pwsi) {
 				if (*pwsi == wsi) {
