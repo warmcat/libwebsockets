@@ -21,7 +21,11 @@ Release Checklist
      
      scp -rp ./reports to libwebsockets.org
 
-1) soname bump?
+1) api
+
+     $ cp build/doc/* .
+
+2) soname bump?
 
  a) We need one if we added / changed / removed apis
 
@@ -29,7 +33,7 @@ Release Checklist
 
    set(SOVERSION "6")
 
-2) changelog
+3) changelog
 
  a) Add next version tag header.
 
@@ -39,7 +43,7 @@ Release Checklist
     - MAJOR bug fixes
     - SECURITY fixes
 
-2) main version bump
+4) main version bump
 
   CMakeLists.txt
 
@@ -47,7 +51,7 @@ Release Checklist
    set(CPACK_PACKAGE_VERSION_MINOR "6")
    set(CPACK_PACKAGE_VERSION_PATCH "0")
 
-3) specfile
+5) specfile
 
  a) rpm version bump to match CMake one
 
@@ -64,16 +68,16 @@ Release Checklist
 - Bump version to 1.6.4
 - MINOR fix xyz
 
-4) signed tag
+6) signed tag
 
   git tag -s vX.Y[.Z]
 
-5) git
+7) git
 
  a) push
  
  b) final CI check, if fail delete tag, kill pushed tags, restart flow
 
-6) website
+8) website
 
  a) update latest tag for release branch
