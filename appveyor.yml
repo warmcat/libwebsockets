@@ -14,8 +14,8 @@ environment:
     - LWS_METHOD: nossl
       CMAKE_ARGS: -DLWS_WITH_SSL=OFF
 install:
-  - appveyor DownloadFile https://libwebsockets.org/Win32OpenSSL-1_0_2d.exe
-  - Win32OpenSSL-1_0_2d.exe /silent /verysilent /sp- /suppressmsgboxes
+  - appveyor DownloadFile https://slproweb.com/download/Win32OpenSSL-1_0_2f.exe
+  - Win32OpenSSL-1_0_2f.exe /silent /verysilent /sp- /suppressmsgboxes
   - cinst -y nsis
   - SET PATH=C:\Program Files\NSIS\;C:\Program Files (x86)\NSIS\;%PATH%
 build:
@@ -26,7 +26,7 @@ build_script:
   - cmake -DCMAKE_BUILD_TYPE=Release %CMAKE_ARGS% ..
   - cmake --build . --config Release
 
-# TODO: Keeps braking Windows build, should be rewritten using CPack properly instead...
+# TODO: Keeps breaking Windows build, should be rewritten using CPack properly instead...
 #after_build:
 #  - cd ..
 #  - cd win32port
