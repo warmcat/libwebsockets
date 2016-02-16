@@ -164,11 +164,11 @@ cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1
 
 **and** the info->options flag
 
-LWS_SERVER_OPTION_SSL_ECD
+LWS_SERVER_OPTION_SSL_ECDH
 
 to build in support and select it at runtime.
 
-6) There's a new api lws_parse_uri() that simplies chopping up
+6) There's a new api lws_parse_uri() that simplifies chopping up
 https://xxx:yyy/zzz uris into parts nicely.  The test client now uses this
 to allow proper uris as well as the old address style.
 
@@ -299,7 +299,7 @@ lws_ev_initloop (was lws_initloop) gets an extra argument for the
 thread service index (use 0 if you will just have 1 service thread).
 
 LWS_VISIBLE LWS_EXTERN int
-lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi);
+lws_ev_initloop(struct lws_context *context, ev_loop_t *loop, int tsi);
 
 
 v1.6.0-chrome48-firefox42

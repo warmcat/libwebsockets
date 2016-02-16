@@ -326,7 +326,7 @@ cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1
 
 **and** the info->options flag
 
-LWS_SERVER_OPTION_SSL_ECD
+LWS_SERVER_OPTION_SSL_ECDH
 
 to build in support and select it at runtime.
 
