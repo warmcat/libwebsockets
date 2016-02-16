@@ -423,7 +423,7 @@ struct lws_plat_file_ops {
 		     unsigned char *buf, unsigned long len);
 
 	/* Add new things just above here ---^
-	 * This is part of the ABI, don't needlessly break compatibilty */
+	 * This is part of the ABI, don't needlessly break compatibility */
 };
 
 /*
@@ -1190,7 +1190,7 @@ struct lws_protocols {
 	void *user;
 
 	/* Add new things just above here ---^
-	 * This is part of the ABI, don't needlessly break compatibilty */
+	 * This is part of the ABI, don't needlessly break compatibility */
 };
 
 enum lws_ext_options_types {
@@ -1199,7 +1199,7 @@ enum lws_ext_options_types {
 	EXTARG_OPT_DEC
 
 	/* Add new things just above here ---^
-	 * This is part of the ABI, don't needlessly break compatibilty */
+	 * This is part of the ABI, don't needlessly break compatibility */
 };
 
 /**
@@ -1216,7 +1216,7 @@ struct lws_ext_options {
 	enum lws_ext_options_types type;
 
 	/* Add new things just above here ---^
-	 * This is part of the ABI, don't needlessly break compatibilty */
+	 * This is part of the ABI, don't needlessly break compatibility */
 };
 
 struct lws_ext_option_arg {
@@ -1239,7 +1239,7 @@ struct lws_extension {
 	const char *client_offer;
 
 	/* Add new things just above here ---^
-	 * This is part of the ABI, don't needlessly break compatibilty */
+	 * This is part of the ABI, don't needlessly break compatibility */
 };
 
 /*

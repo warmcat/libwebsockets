@@ -640,7 +640,7 @@ check_extensions:
 	/* instantiate the accepted extensions */
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_EXTENSIONS)) {
-		lwsl_ext("no client extenstions allowed by server\n");
+		lwsl_ext("no client extensions allowed by server\n");
 		goto check_accept;
 	}
 
