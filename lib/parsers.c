@@ -207,7 +207,7 @@ int lws_header_table_detach(struct lws *wsi)
 	}
 	time(&now);
 	if (now - wsi->u.hdr.ah->assigned > 3)
-		lwsl_err("header assign - free time %d\n",
+		lwsl_notice("header assign - free time %d\n",
 			 (int)(now - wsi->u.hdr.ah->assigned));
 
 	/* if we think we're detaching one, there should be one in use */

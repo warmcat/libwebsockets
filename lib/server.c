@@ -551,7 +551,7 @@ upgrade_ws:
 
 		default:
 			lwsl_warn("Unknown client spec version %d\n",
-						       wsi->ietf_spec_revision);
+				  wsi->ietf_spec_revision);
 			goto bail_nuke_ah;
 		}
 
@@ -562,8 +562,9 @@ upgrade_ws:
 		 * upgrade request and to already be in the ah rx buffer.
 		 */
 
-		lwsl_err("%s: %p: inheriting ah in ws mode (rxpos: %d, rxlen: %d)\n",
-				__func__, wsi, wsi->u.hdr.ah->rxpos, wsi->u.hdr.ah->rxlen);
+		lwsl_info("%s: %p: inheriting ah in ws mode (rxpos:%d, rxlen:%d)\n",
+			  __func__, wsi, wsi->u.hdr.ah->rxpos,
+			  wsi->u.hdr.ah->rxlen);
 		lws_pt_lock(pt);
 		hdr = wsi->u.hdr;
 
