@@ -1,7 +1,7 @@
 Name: libwebsockets
-Version: 1.6.0
+Version: 1.7.0
 Release: 1%{?dist}
-Summary: Websocket Server Library
+Summary: Websocket Server and Client Library
 
 Group: System Environment/Libraries
 License: LGPLv2 with exceptions
@@ -13,7 +13,7 @@ BuildRequires: openssl-devel cmake
 Requires: openssl
 
 %description
-Webserver server library
+Webserver server and client library
 
 %package devel
 Summary: Development files for libwebsockets
@@ -69,5 +69,8 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/pkgconfig/libwebsockets.pc
 
 %changelog
+* Tue Feb 16 2016 Andy Green <andy@warmcat.com> 1.7.0-1
+- MAJOR SONAMEBUMP APICHANGES Upstream 1.7.0 release
+
 * Sun Jan 17 2016 Andrew Cooks <acooks@linux.com> 1.6.0-1
 - Bump version to 1.6.0
