@@ -31,7 +31,7 @@ struct lws_plat_file_ops fops_plat;
 char *resource_path = LOCAL_RESOURCE_PATH;
 
 /*
- * libev dumps their hygeine problems on their users blaming compiler
+ * libev dumps their hygiene problems on their users blaming compiler
  * http://lists.schmorp.de/pipermail/libev/2008q4/000442.html
  */
 

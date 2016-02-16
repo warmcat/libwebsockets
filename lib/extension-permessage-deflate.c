@@ -197,7 +197,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * If we did not already send in the 00 00 FF FF, and he's
 		 * out of input, he did not EXACTLY fill the output buffer
 		 * (which is ambiguous and we will force it to go around
-		 * again by witholding a byte), and he's otherwise working on
+		 * again by withholding a byte), and he's otherwise working on
 		 * being a FIN fragment, then do the FIN message processing
 		 * of faking up the 00 00 FF FF that the sender stripped.
 		 */
@@ -232,7 +232,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * more in the pipeline.
 		 *
 		 * So to work around that safely, if it used all output space
-		 * exactly, we ALWAYS say there is more coming and we withold
+		 * exactly, we ALWAYS say there is more coming and we withhold
 		 * the last byte of the buffer to guarantee that is true.
 		 *
 		 * That still leaves us at least one byte to finish with a FIN

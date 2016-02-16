@@ -575,7 +575,7 @@ upgrade_ws:
 		 * mode any more then... ah_temp member is at start the same
 		 * though)
 		 *
-		 * Beacuse rxpos/rxlen shows something in the ah, we will get
+		 * Because rxpos/rxlen shows something in the ah, we will get
 		 * service guaranteed next time around the event loop
 		 *
 		 * All union members begin with hdr, so we can use it even
