@@ -84,6 +84,53 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	return !n;
 }
 
+static int
+lws_context_ssl_init_ecdh(struct lws_context *context)
+{
+#ifdef LWS_SSL_SERVER_WITH_ECDH_CERT
+	int KeyType;
+	EC_KEY *EC_key = NULL;
+	X509 *x;
+	EVP_PKEY *pkey;
+
+	if (!(context->options & LWS_SERVER_OPTION_SSL_ECDH))
+		return 0;
+
+	lwsl_notice(" Using ECDH certificate support\n");
+
+	/* Get X509 certificate from ssl context */
+	x = sk_X509_value(context->ssl_ctx->extra_certs, 0);
+	if (!x) {
+		lwsl_err("%s: x is NULL\n", __func__);
+		return 1;
+	}
+	/* Get the public key from certificate */
+	pkey = X509_get_pubkey(x);
+	if (!pkey) {
+		lwsl_err("%s: pkey is NULL\n", __func__);
+
+		return 1;
+	}
+	/* Get the key type */
+	KeyType = EVP_PKEY_type(pkey->type);
+
+	if (EVP_PKEY_EC != KeyType) {
+		lwsl_err("Key type is not EC\n");
+		return 1;
+	}
+	/* Get the key */
+	EC_key = EVP_PKEY_get1_EC_KEY(pkey);
+	/* Set ECDH parameter */
+	if (!EC_key) {
+		lwsl_err("%s: ECDH key is NULL \n", __func__);
+		return 1;
+	}
+	SSL_CTX_set_tmp_ecdh(context->ssl_ctx, EC_key);
+	EC_KEY_free(EC_key);
+#endif
+	return 0;
+}
+
 LWS_VISIBLE int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			    struct lws_context *context)
@@ -92,12 +139,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	struct lws wsi;
 	int error;
 	int n;
-#ifdef LWS_SSL_SERVER_WITH_ECDH_CERT
-	int KeyType;
-	EC_KEY *EC_key = NULL;
-	X509 *x;
-	EVP_PKEY *pkey;
-#endif
 
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 
@@ -249,33 +290,8 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			return 1;
 		}
 
-#ifdef LWS_SSL_SERVER_WITH_ECDH_CERT
-		if (context->options & LWS_SERVER_OPTION_SSL_ECDH) {
-			lwsl_notice(" Using ECDH certificate support\n");
-
-			/* Get X509 certificate from ssl context */
-			x = sk_X509_value(context->ssl_ctx->extra_certs, 0);
-			/* Get the public key from certificate */
-			pkey = X509_get_pubkey(x);
-			/* Get the key type */
-			KeyType = EVP_PKEY_type(pkey->type);
-
-			if (EVP_PKEY_EC != KeyType) {
-				lwsl_err("Key type is not EC\n");
-				return 1;
-			}
-			/* Get the key */
-			EC_key = EVP_PKEY_get1_EC_KEY(pkey);
-			/* Set ECDH parameter */
-			if (!EC_key) {
-				error = ERR_get_error();
-				lwsl_err("ECDH key is NULL \n");
-				return 1;
-			}
-			SSL_CTX_set_tmp_ecdh(context->ssl_ctx, EC_key);
-			EC_KEY_free(EC_key);
-		}
-#endif
+		if (lws_context_ssl_init_ecdh(context))
+			return 1;
 
 		/*
 		 * SSL is happy and has a cert it's content with
