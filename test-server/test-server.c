@@ -155,6 +155,9 @@ static struct option options[] = {
 	{ "allow-non-ssl",	no_argument,	NULL, 'a' },
 	{ "interface",  required_argument,	NULL, 'i' },
 	{ "closetest",  no_argument,		NULL, 'c' },
+	{ "ssl-cert",  required_argument,	NULL, 'C' },
+	{ "ssl-key",  required_argument,	NULL, 'K' },
+	{ "ssl-ca",  required_argument,		NULL, 'A' },
 	{ "libev",  no_argument,		NULL, 'e' },
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize", 	no_argument,		NULL, 'D' },
@@ -169,8 +172,9 @@ int main(int argc, char **argv)
 	char interface_name[128] = "";
 	unsigned int ms, oldms = 0;
 	const char *iface = NULL;
-	char cert_path[1024];
-	char key_path[1024];
+	char cert_path[1024] = "";
+	char key_path[1024] = "";
+	char ca_path[1024] = "";
 	int use_ssl = 0;
 	int opts = 0;
 	int n = 0;
@@ -189,7 +193,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -230,6 +234,15 @@ int main(int argc, char **argv)
 		case 'r':
 			resource_path = optarg;
 			printf("Setting resource path to \"%s\"\n", resource_path);
+			break;
+		case 'C':
+			strncpy(cert_path, optarg, sizeof cert_path);
+			break;
+		case 'K':
+			strncpy(key_path, optarg, sizeof key_path);
+			break;
+		case 'A':
+			strncpy(ca_path, optarg, sizeof ca_path);
 			break;
 		case 'h':
 			fprintf(stderr, "Usage: test-server "
@@ -287,17 +300,21 @@ int main(int argc, char **argv)
 			lwsl_err("resource path too long\n");
 			return -1;
 		}
-		sprintf(cert_path, "%s/libwebsockets-test-server.pem",
+		if (!cert_path[0])
+			sprintf(cert_path, "%s/libwebsockets-test-server.pem",
 								resource_path);
 		if (strlen(resource_path) > sizeof(key_path) - 32) {
 			lwsl_err("resource path too long\n");
 			return -1;
 		}
-		sprintf(key_path, "%s/libwebsockets-test-server.key.pem",
+		if (!key_path[0])
+			sprintf(key_path, "%s/libwebsockets-test-server.key.pem",
 								resource_path);
 
 		info.ssl_cert_filepath = cert_path;
 		info.ssl_private_key_filepath = key_path;
+		if (ca_path[0])
+			info.ssl_ca_filepath = ca_path;
 	}
 	info.gid = -1;
 	info.uid = -1;
