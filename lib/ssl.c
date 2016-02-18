@@ -24,6 +24,10 @@
  #include <openssl/err.h>
 #endif
 
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#include <openssl/ecdh.h>
+#endif
+
 int openssl_websocket_private_data_index;
 
 static int
@@ -115,8 +119,8 @@ lws_context_ssl_init_ecdh(struct lws_context *context)
 	KeyType = EVP_PKEY_type(pkey->type);
 
 	if (EVP_PKEY_EC != KeyType) {
-		lwsl_err("Key type is not EC\n");
-		return 1;
+		lwsl_notice("Key type is not EC\n");
+		return 0;
 	}
 	/* Get the key */
 	EC_key = EVP_PKEY_get1_EC_KEY(pkey);
@@ -127,6 +131,38 @@ lws_context_ssl_init_ecdh(struct lws_context *context)
 	}
 	SSL_CTX_set_tmp_ecdh(context->ssl_ctx, EC_key);
 	EC_KEY_free(EC_key);
+#endif
+	return 0;
+}
+
+static int
+lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
+				struct lws_context *context)
+{
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+	EC_KEY *ecdh;
+	int ecdh_nid;
+	const char *ecdh_curve = "prime256v1";
+
+	ecdh_nid = OBJ_sn2nid(ecdh_curve);
+	if (NID_undef == ecdh_nid) {
+		lwsl_err("SSL: Unknown curve name '%s'", ecdh_curve);
+		return 1;
+	}
+
+	ecdh = EC_KEY_new_by_curve_name(ecdh_nid);
+	if (NULL == ecdh) {
+		lwsl_err("SSL: Unable to create curve '%s'", ecdh_curve);
+		return 1;
+	}
+	SSL_CTX_set_tmp_ecdh(context->ssl_ctx, ecdh);
+	EC_KEY_free(ecdh);
+
+	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
+
+	lwsl_notice(" SSL ECDH curve '%s'\n", ecdh_curve);
+#else
+	lwsl_notice(" OpenSSL doesn't support ECDH\n");
 #endif
 	return 0;
 }
@@ -211,6 +247,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif
+	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_SINGLE_DH_USE);
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 	if (info->ssl_cipher_list)
 		SSL_CTX_set_cipher_list(context->ssl_ctx,
@@ -231,16 +268,25 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 		SSL_CTX_set_verify(context->ssl_ctx,
 		       verify_options, OpenSSL_verify_callback);
+	}
 
-		/*
-		 * give user code a chance to load certs into the server
-		 * allowing it to verify incoming client certs
-		 */
+	/*
+	 * give user code a chance to load certs into the server
+	 * allowing it to verify incoming client certs
+	 */
 
-		context->protocols[0].callback(&wsi,
+	if (info->ssl_ca_filepath &&
+	    !SSL_CTX_load_verify_locations(context->ssl_ctx,
+					   info->ssl_ca_filepath, NULL)) {
+		lwsl_err("%s: SSL_CTX_load_verify_locations unhappy\n");
+	}
+
+	if (lws_context_ssl_init_ecdh_curve(info, context))
+		return -1;
+
+	context->protocols[0].callback(&wsi,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 					       context->ssl_ctx, NULL, 0);
-	}
 
 	if (info->options & LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT)
 		/* Normally SSL listener rejects non-ssl, optionally allow */
@@ -292,6 +338,13 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 		if (lws_context_ssl_init_ecdh(context))
 			return 1;
+
+#if OPENSSL_VERSION_NUMBER >= 0x10200000L
+		n = SSL_CTX_build_cert_chain((SSL_CTX *)user,
+					     SSL_BUILD_CHAIN_FLAG_CHECK |
+					     SSL_BUILD_CHAIN_FLAG_IGNORE_ERROR);
+		lwsl_notice("%s: build cert chain %d", __func__, n);
+#endif
 
 		/*
 		 * SSL is happy and has a cert it's content with
