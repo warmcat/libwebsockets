@@ -1,6 +1,14 @@
 Changelog
 ---------
 
+User API additions
+------------------
+
+1) There's a new member in struct lws_context_creation_info, ecdh_curve,
+which lets you set the name of the ECDH curve OpenSSL should use.  By
+default (if you leave ecdh_curve NULL) it will use "prime256v1"
+
+
 v1.7.0
 ======
 

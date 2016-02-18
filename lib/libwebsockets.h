@@ -1319,6 +1319,7 @@ extern int lws_extension_callback_pm_deflate(
  *		library are protected from hanging forever by timeouts.  If
  *		nonzero, this member lets you set the timeout used in seconds.
  *		Otherwise a default timeout is used.
+ * @ecdh_curve: if NULL, defaults to initializing server with "prime256v1"
  */
 
 struct lws_context_creation_info {
@@ -1353,6 +1354,7 @@ struct lws_context_creation_info {
 	unsigned int count_threads;
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;
+	const char *ecdh_curve;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

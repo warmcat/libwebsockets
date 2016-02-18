@@ -144,6 +144,9 @@ lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 	int ecdh_nid;
 	const char *ecdh_curve = "prime256v1";
 
+	if (info->ecdh_curve)
+		ecdh_curve = info->ecdh_curve;
+
 	ecdh_nid = OBJ_sn2nid(ecdh_curve);
 	if (NID_undef == ecdh_nid) {
 		lwsl_err("SSL: Unknown curve name '%s'", ecdh_curve);
