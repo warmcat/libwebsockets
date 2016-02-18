@@ -111,7 +111,7 @@ LWS_VISIBLE int lws_poll_listen_fd(struct lws_pollfd *fd)
 	fd_set readfds;
 	struct timeval tv = { 0, 0 };
 
-	assert(fd->events == LWS_POLLIN);
+	assert((fd->events & LWS_POLLIN) == LWS_POLLIN);
 
 	FD_ZERO(&readfds);
 	FD_SET(fd->fd, &readfds);
