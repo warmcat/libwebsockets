@@ -259,8 +259,8 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		/* demonstrates how to set a cookie on / */
 
-		other_headers = NULL;
-		n = 0;
+		other_headers = leaf_path;
+		p = (unsigned char *)leaf_path;
 		if (!strcmp((const char *)in, "/") &&
 			   !lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE)) {
 			/* this isn't very unguessable but it'll do for us */
@@ -269,16 +269,22 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				(unsigned int)tv.tv_sec,
 				(unsigned int)tv.tv_usec);
 
-			p = (unsigned char *)leaf_path;
-
 			if (lws_add_http_header_by_name(wsi,
 				(unsigned char *)"set-cookie:",
 				(unsigned char *)b64, n, &p,
 				(unsigned char *)leaf_path + sizeof(leaf_path)))
 				return 1;
-			n = (char *)p - leaf_path;
-			other_headers = leaf_path;
 		}
+		if (lws_is_ssl(wsi) && lws_add_http_header_by_name(wsi,
+						(unsigned char *)
+						"Strict-Transport-Security:",
+						(unsigned char *)
+						"max-age=15768000 ; "
+						"includeSubDomains", 36, &p,
+						(unsigned char *)leaf_path +
+							sizeof(leaf_path)))
+			return 1;
+		n = (char *)p - leaf_path;
 
 		n = lws_serve_http_file(wsi, buf, mimetype, other_headers, n);
 		if (n < 0 || ((n > 0) && lws_http_transaction_completed(wsi)))
