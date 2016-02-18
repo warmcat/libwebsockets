@@ -321,6 +321,19 @@ int main(int argc, char **argv)
 	info.max_http_header_pool = 1;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8;
 	info.extensions = exts;
+	info.ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
+			       "ECDHE-RSA-AES256-GCM-SHA384:"
+			       "DHE-RSA-AES256-GCM-SHA384:"
+			       "ECDHE-RSA-AES256-SHA384:"
+			       "HIGH:!aNULL:!eNULL:!EXPORT:"
+			       "!DES:!MD5:!PSK:!RC4:!HMAC_SHA1:"
+			       "!SHA1:!DHE-RSA-AES128-GCM-SHA256:"
+			       "!DHE-RSA-AES128-SHA256:"
+			       "!AES128-GCM-SHA256:"
+			       "!AES128-SHA256:"
+			       "!DHE-RSA-AES256-SHA256:"
+			       "!AES256-GCM-SHA384:"
+			       "!AES256-SHA256";
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
