@@ -190,7 +190,7 @@ int lws_header_table_detach(struct lws *wsi)
 
 	pwsi = &pt->ah_wait_list;
 	if (!ah) { /* remove from wait list if that's all */
-		if (wsi->socket_is_permanently_unusable)
+//		if (wsi->socket_is_permanently_unusable)
 			while (*pwsi) {
 				if (*pwsi == wsi) {
 					lwsl_info("%s: wsi %p, remv wait\n",
@@ -206,9 +206,18 @@ int lws_header_table_detach(struct lws *wsi)
 		goto bail;
 	}
 	time(&now);
-	if (now - wsi->u.hdr.ah->assigned > 3)
-		lwsl_notice("header assign - free time %d\n",
-			 (int)(now - wsi->u.hdr.ah->assigned));
+	if (now - wsi->u.hdr.ah->assigned > 3) {
+		/*
+		 * we're detaching the ah, but it was held an
+		 * unreasonably long time
+		 */
+		lwsl_notice("%s: wsi %p: ah held %ds, "
+			    "ah.rxpos %d, ah.rxlen %d, mode/state %d %d,"
+			    "wsi->more_rx_waiting %d\n", __func__, wsi,
+			    (int)(now - wsi->u.hdr.ah->assigned),
+			    ah->rxpos, ah->rxlen, wsi->mode, wsi->state,
+			    wsi->u.hdr.more_rx_waiting);
+	}
 
 	/* if we think we're detaching one, there should be one in use */
 	assert(pt->ah_count_in_use > 0);
