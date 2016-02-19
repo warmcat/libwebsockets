@@ -6,10 +6,60 @@
 <style type="text/css">
 	div.title { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#000000; }
 	.browser { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px;}
-	.group2 { width:600px; vertical-align:middle; text-align:center; background:#f0f0e0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
-	.explain { vertical-align:middle; text-align:center; background:#f0f0c0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; color:#404000; }
+	.group2 { vertical-align:middle;
+		text-align:center;
+		background:#f0f0e0; 
+		padding:12px; 
+		-webkit-border-radius:10px; 
+		-moz-border-radius:10px;
+		border-radius:10px; }
+	.explain { vertical-align:middle;
+		text-align:center;
+		background:#f0f0c0; padding:12px;
+		-webkit-border-radius:10px;
+		-moz-border-radius:10px;
+		border-radius:10px;
+		color:#404000; }
 	.content { vertical-align:top; text-align:center; background:#fffff0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
 	.canvas { vertical-align:top; text-align:center; background:#efefd0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
+.tabs {
+  position: relative;   
+  min-height: 750px; /* This part sucks */
+  clear: both;
+  margin: 25px 0;
+}
+.tab {
+  float: left;
+}
+.tab label {
+  background: #eee; 
+  padding: 10px; 
+  border: 1px solid #ccc; 
+  margin-left: -1px; 
+  position: relative;
+  left: 1px; 
+}
+.tab [type=radio] {
+  display: none;   
+}
+.content {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  background: white;
+  right: 0;
+  bottom: 0;
+  padding: 20px;
+  border: 1px solid #ccc; 
+}
+[type=radio]:checked ~ label {
+  background: white;
+  border-bottom: 1px solid white;
+  z-index: 2;
+}
+[type=radio]:checked ~ label ~ .content {
+  z-index: 1;
+}
 </style>
 </head>
 
@@ -19,33 +69,67 @@
 
 <table><tr><td>
 
-<table width="100%"><tr><td valign=middle align=center><a href="https://libwebsockets.org"><img src="/libwebsockets.org-logo.png"></a></td><td>
-<section class="browser">Detected Browser: <div id=brow>...</div></section></td></tr></table>
+<table width=600px>
+ <tr>
+  <td valign=middle align=center>
+   <a href="https://libwebsockets.org">
+    <img src="/libwebsockets.org-logo.png"></a></td><td>
+	<section class="browser">Detected Browser: 
+	<div id=brow>...</div></section>
+  </td>
+ </tr>
 
-</td></tr><tr><td>
-
-<section id="increment" class="group2">
-<div class="title">libwebsockets "dumb-increment-protocol"</div>
-<table><tr><td>
-<table class="content" width="200px">
-		<tr><td align=center><input type=button id=offset value="Reset counter" onclick="reset();" ></td></tr>
-		<tr><td width=200px align=center><div id=number> </div></td></tr>
-		<tr><td id=wsdi_statustd align=center class="explain"><div id=wsdi_status>Not initialized</div></td></tr>
-	</tr>
 </table>
-</td><td class="explain">
-The incrementing number is coming from the server and is individual for
+</td></tr>
+<tr><td colspan=2 align=center>
+Click <a href="/leaf.jpg" target="_blank">Here</a> to
+have the test server send a big picture by http.
+</td></tr>
+<tr><td colspan=2>
+<div class="tabs">
+
+   <div class="tab">
+       <input type="radio" id="tab-1" name="tab-group-1" checked>
+       <label for="tab-1">Dumb Increment Demo</label>
+       
+       <div class="content">
+        <div id="dumb" class="group2">
+	  <table>
+	   <tr>
+	   	    <td width=200px id=wsdi_statustd align=center class="explain">
+	     <div id=wsdi_status>Not initialized</div>
+	    </td>
+
+	    <td align=center><div id=number> </div></td>
+	    <td align=center>
+	     <input type=button id=offset value="Reset counter" onclick="reset();" >
+	    </td>
+	    </tr>
+	   <tr>
+	   <td class="explain" colspan=3>
+The incrementing number is coming from the server at 20Hz and is individual for
 each connection to the server... try opening a second browser window.
 <br/><br/>
-The button zeros just this connection's number.
-<br/><br/>
-Click <a href="/leaf.jpg" target="_blank">Here</a> to have the test server send a big picture by http.
-</td></tr></table>
-</section>
-<br>
-<section id="mirror" class="group2">
-<div class="title">libwebsockets "lws-mirror-protocol"</div>
-<div class="explain">
+The button sends a message over the websocket link to ask the server
+to zero just this connection's number.
+	   </td>
+	  </tr>
+	 </table>
+	</div>
+       </div> 
+   </div>
+
+   <div class="tab">
+    <input type="radio" id="tab-2" name="tab-group-1">
+    <label for="tab-2">Mirror Demo</label>
+       
+    <div class="content">
+     <div id="mirror" class="group2">
+      <table>
+       <tr>
+        <td colspan="3">
+         <div class="title">libwebsockets "lws-mirror-protocol"</div>
+         <div class="explain">
 Use the mouse to draw on the canvas below -- all other browser windows open
 on this page see your drawing in realtime and you can see any of theirs as
 well.
@@ -56,52 +140,69 @@ protocol, including the guy who sent the packet.
 <br/><br/>
 <b>libwebsockets-test-client</b> joins in by spamming circles on to this shared canvas when
 run.
-</div>
-<table class="content">
-	<tr>
-		<td>Drawing color:
-		<select id="color" onchange="update_color();">
-			<option value=#000000>Black</option>
-			<option value=#0000ff>Blue</option>
-			<option value=#20ff20>Green</option>
-			<option value=#802020>Dark Red</option>
-		</select>
-		</td>
-		<td id=wslm_statustd align=center class="explain"><div id=wslm_status>Not initialized</div></td>
-	</tr>
-	<tr>
-		<td colspan=2 width=500 class="content">
-		<div id="wslm_drawing">
-		</div></td>
-	</tr>
-</table>
-</section>
-
-<section id="ot" class="group2">
+         </div>
+        </td>
+       </tr>
+       <tr>
+	<td>Drawing color:
+	  <select id="color" onchange="update_color();">
+		<option value=#000000>Black</option>
+		<option value=#0000ff>Blue</option>
+		<option value=#20ff20>Green</option>
+		<option value=#802020>Dark Red</option>
+	  </select>
+	</td>
+	 <td colspan=2 id=wslm_statustd align=center class="explain">
+	 <div id=wslm_status>Not initialized</div>
+	</td>
+       </tr>
+       <tr>
+	 <td colspan=3 width=500 height=320>
+		<div id="wslm_drawing" style="background:white"></div>
+	</td>
+       </tr>
+      </table>
+     </div>
+    </div> 
+   </div>
+    
+    <div class="tab">
+       <input type="radio" id="tab-3" name="tab-group-1">
+       <label for="tab-3">Close Testing</label>
+     
+       <div class="content">
+<div id="ot" class="group2">
+      <table>
+       <tr>
+        <td colspan=3>
 <div class="title">libwebsockets "open and close testing"</div>
-<table><tr><td>
-<table class="content" width="200px">
+		</td></tr>
 		<tr>
 		<td align=center><input type=button id=ot_open_btn value="Open" onclick="ot_open();" ></td>
 		<td align=center><input type=button id=ot_close_btn disabled value="Close" onclick="ot_close();" ></td>
 		<td align=center><input type=button id=ot_req_close_btn disabled value="Request Server Close" onclick="ot_req_close();" ></td>
 		</tr>
-		<tr><td colspan="3" id=ot_statustd align=center class="explain"><div id=ot_status>Not initialized</div></td></tr>
-	</tr>
-</table>
-</td><td class="explain">
+		<tr><td id=ot_statustd align=center class="explain">
+		 <div id=ot_status>Not initialized</div>
+		</td>	
+<td class="explain" colspan=2>
 To help with open and close testing, you can open and close a connection by hand using
- the buttons.  "Request Server Close" sends a message asking the server to
-initiate the close.
+ the buttons.<br>
+ "<b>Close</b>" closes the connection from the browser with code 3000
+  and reason 'Bye!".<br>
+ "<b>Request Server Close</b>" sends a message asking the server to
+initiate the close, which it does with code 1001 and reason "Seeya".
 </td></tr></table>
-</section>
-<br>
 
-</td></tr><tr><td>
+</div>
+       </div> 
+   </div>
+
+</div>
+</td></tr></table>
+
 Looking for support? <a href="https://libwebsockets.org">https://libwebsockets.org</a>, <a href="https://github.com/warmcat/libwebsockets">https://github.com/warmcat/libwebsockets</a></a><br/>
 Join the mailing list: <a href="https://libwebsockets.org/mailman/listinfo/libwebsockets">https://libwebsockets.org/mailman/listinfo/libwebsockets</a>
-
-</td></tr></table>
 
 </article>
 
