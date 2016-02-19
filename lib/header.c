@@ -173,17 +173,22 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
  *	consistently
  */
 LWS_VISIBLE int
-lws_return_http_status(struct lws *wsi, unsigned int code, const char *html_body)
+lws_return_http_status(struct lws *wsi, unsigned int code,
+		       const char *html_body)
 {
-	int n, m;
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	unsigned char *p = pt->serv_buf + LWS_PRE;
-	unsigned char *start = p;
+	unsigned char *start = p, *body = p + 512;
 	unsigned char *end = p + LWS_MAX_SOCKET_IO_BUF - LWS_PRE;
+	int n, m, len;
+	char slen[20];
 
 	if (!html_body)
 		html_body = "";
+
+	len = sprintf((char *)body, "<html><body><h1>%u</h1>%s</body></html>",
+		      code, html_body);
 
 	if (lws_add_http_header_status(wsi, code, &p, end))
 		return 1;
@@ -195,6 +200,12 @@ lws_return_http_status(struct lws *wsi, unsigned int code, const char *html_body
 					 (unsigned char *)"text/html", 9,
 					 &p, end))
 		return 1;
+	n = sprintf(slen, "%d", len);
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					 (unsigned char *)slen, n,
+					 &p, end))
+		return 1;
+
 	if (lws_finalize_http_header(wsi, &p, end))
 		return 1;
 
@@ -202,9 +213,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code, const char *html_body
 	if (m != (int)(p - start))
 		return 1;
 
-	n = sprintf((char *)start, "<html><body><h1>%u</h1>%s</body></html>",
-		    code, html_body);
-	m = lws_write(wsi, start, n, LWS_WRITE_HTTP);
+	m = lws_write(wsi, body, len, LWS_WRITE_HTTP);
 
 	return m != n;
 }
