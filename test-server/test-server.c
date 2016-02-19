@@ -268,7 +268,7 @@ int main(int argc, char **argv)
 	 */
 	if (daemonize && lws_daemonize("/tmp/.lwsts-lock")) {
 		fprintf(stderr, "Failed to daemonize\n");
-		return 1;
+		return 10;
 	}
 #endif
 
