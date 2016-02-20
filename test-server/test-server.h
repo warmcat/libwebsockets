@@ -94,6 +94,16 @@ struct per_session_data__echogen {
 	int wr;
 };
 
+struct per_session_data__lws_status {
+	struct per_session_data__lws_status *list;
+	struct timeval tv_established;
+	int last;
+	char ip[270];
+	char user_agent[512];
+	const char *pos;
+	int len;
+};
+
 extern int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	      void *in, size_t len);
@@ -106,6 +116,10 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 extern int
 callback_lws_echogen(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len);
+extern int
+callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
+		    void *user, void *in, size_t len);
+
 
 extern void
 dump_handshake_info(struct lws *wsi);

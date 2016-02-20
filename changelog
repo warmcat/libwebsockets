@@ -40,6 +40,9 @@ with systemd
 5) MINOR example systemd .service file now provided for test server
 (not installed by default)
 
+6) test server html is updated with tabs and a new live server monitoring
+feature.  Input sanitization added to the js.
+
 User API additions
 ------------------
 

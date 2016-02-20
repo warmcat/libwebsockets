@@ -4,7 +4,7 @@
  <meta charset=utf-8 http-equiv="Content-Language" content="en"/>
  <title>Minimal Websocket test app</title>
 <style type="text/css">
-	div.title { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#000000; }
+	span.title { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#000000; }
 	.browser { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px;}
 	.group2 { vertical-align:middle;
 		text-align:center;
@@ -20,6 +20,20 @@
 		-moz-border-radius:10px;
 		border-radius:10px;
 		color:#404000; }
+	td.wsstatus { vertical-align:middle; width:200px; height:50px;
+		text-align:center;
+		background:#f0f0c0; padding:6px;
+		-webkit-border-radius:8px;
+		-moz-border-radius:8px;
+		border-radius:8px;
+		color:#404000; }
+	td.l { vertical-align:middle;
+		text-align:center;
+		background:#d0d0b0; 
+		padding:3px; 
+		-webkit-border-radius:3px; 
+		-moz-border-radius:3px;
+		border-radius:3px; }
 	.content { vertical-align:top; text-align:center; background:#fffff0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
 	.canvas { vertical-align:top; text-align:center; background:#efefd0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
 .tabs {
@@ -94,19 +108,14 @@ have the test server send a big picture by http.
        
        <div class="content">
         <div id="dumb" class="group2">
-	  <table>
+         <table>
+          <tr>
+	   <td id=wsdi_statustd align=center class="wsstatus">
+	     <span id=wsdi_status>Websocket connection not initialized</span></td>
+           <td><span class="title">dumb increment-protocol</span></td>
+	   </tr>
 	   <tr>
-	   	    <td width=200px id=wsdi_statustd align=center class="explain">
-	     <div id=wsdi_status>Not initialized</div>
-	    </td>
-
-	    <td align=center><div id=number> </div></td>
-	    <td align=center>
-	     <input type=button id=offset value="Reset counter" onclick="reset();" >
-	    </td>
-	    </tr>
-	   <tr>
-	   <td class="explain" colspan=3>
+	   <td class="explain" colspan=2>
 The incrementing number is coming from the server at 20Hz and is individual for
 each connection to the server... try opening a second browser window.
 <br/><br/>
@@ -114,6 +123,12 @@ The button sends a message over the websocket link to ask the server
 to zero just this connection's number.
 	   </td>
 	  </tr>
+	   <tr>
+	    <td align=center><div id=number style="font-size:120%;"> </div></td>
+	    <td align=center>
+	     <input type=button id=offset value="Reset counter" onclick="reset();" >
+	    </td>
+	    </tr>
 	 </table>
 	</div>
        </div> 
@@ -127,8 +142,15 @@ to zero just this connection's number.
      <div id="mirror" class="group2">
       <table>
        <tr>
-        <td colspan="3">
-         <div class="title">libwebsockets "lws-mirror-protocol"</div>
+	 <td colspan=1 id=wslm_statustd align=center class="wsstatus">
+	 <span id=wslm_status>Websocket connection not initialized</span>
+	</td>
+        <td>
+         <span class="title">lws-mirror-protocol</span>
+        </td>
+       </tr>
+       <tr>
+       <td colspan=2>
          <div class="explain">
 Use the mouse to draw on the canvas below -- all other browser windows open
 on this page see your drawing in realtime and you can see any of theirs as
@@ -144,20 +166,16 @@ run.
         </td>
        </tr>
        <tr>
-	<td>Drawing color:
+	<td colspan=2>Drawing color:
 	  <select id="color" onchange="update_color();">
 		<option value=#000000>Black</option>
 		<option value=#0000ff>Blue</option>
 		<option value=#20ff20>Green</option>
 		<option value=#802020>Dark Red</option>
 	  </select>
-	</td>
-	 <td colspan=2 id=wslm_statustd align=center class="explain">
-	 <div id=wslm_status>Not initialized</div>
-	</td>
        </tr>
        <tr>
-	 <td colspan=3 width=500 height=320>
+	 <td colspan=2 width=500 height=320>
 		<div id="wslm_drawing" style="background:white"></div>
 	</td>
        </tr>
@@ -174,26 +192,61 @@ run.
 <div id="ot" class="group2">
       <table>
        <tr>
-        <td colspan=3>
-<div class="title">libwebsockets "open and close testing"</div>
+        <td>
+
 		</td></tr>
-		<tr>
-		<td align=center><input type=button id=ot_open_btn value="Open" onclick="ot_open();" ></td>
-		<td align=center><input type=button id=ot_close_btn disabled value="Close" onclick="ot_close();" ></td>
-		<td align=center><input type=button id=ot_req_close_btn disabled value="Request Server Close" onclick="ot_req_close();" ></td>
+		<tr><td id=ot_statustd align=center class="wsstatus">
+		 <span id=ot_status>Websocket connection not initialized</span>
+		</td>
+		<td colspan=2><span class="title">Open and close testing</span></td>
 		</tr>
-		<tr><td id=ot_statustd align=center class="explain">
-		 <div id=ot_status>Not initialized</div>
-		</td>	
-<td class="explain" colspan=2>
+		<tr>	
+<td class="explain" colspan=3 style="padding:3">
 To help with open and close testing, you can open and close a connection by hand using
  the buttons.<br>
  "<b>Close</b>" closes the connection from the browser with code 3000
   and reason 'Bye!".<br>
  "<b>Request Server Close</b>" sends a message asking the server to
 initiate the close, which it does with code 1001 and reason "Seeya".
-</td></tr></table>
+</td></tr>
+		<tr>
+		<td align=center><input type=button id=ot_open_btn value="Open" onclick="ot_open();" ></td>
+		<td align=center><input type=button id=ot_close_btn disabled value="Close" onclick="ot_close();" ></td>
+		<td align=center><input type=button id=ot_req_close_btn disabled value="Request Server Close" onclick="ot_req_close();" ></td>
+		</tr>
 
+</table>
+
+</div>
+       </div> 
+   </div>
+   
+    <div class="tab">
+       <input type="radio" id="tab-4" name="tab-group-1">
+       <label for="tab-4">Server info</label>
+
+       <div class="content">
+<div id="ot" class="group2">
+      <table>
+       <tr>
+	<td id=s_statustd align=center class="wsstatus">
+	 <div id=s_status>Websocket connection not initialized</div>
+	</td>
+	        <td colspan=1>
+<span class="title">Server Info</span>
+	</td>
+	</tr><tr>
+<td class="explain" colspan=2>
+This information is sent by the server over a ws[s] link and updated live
+whenever the information changes server-side.
+</td></tr>
+	<tr>
+	<td align=center colspan=2><div id=servinfo></</div></td>
+	</tr>
+	<tr>
+	<td align=center colspan=2><div id=conninfo style="border : solid 2px #e0d040; padding : 4px; width : 500px; height : 350px; overflow : auto; "></</div></td>
+	</tr>
+</table>
 </div>
        </div> 
    </div>
@@ -207,6 +260,19 @@ Join the mailing list: <a href="https://libwebsockets.org/mailman/listinfo/libwe
 </article>
 
 <script>
+
+/*
+ * We display untrusted stuff in html context... reject anything
+ * that has HTML stuff in it
+ */
+
+function san(s)
+{
+	if (s.search("<") != -1)
+		return "invalid string";
+	
+	return s;
+}
 
 /* BrowserDetect came from http://www.quirksmode.org/js/detect.html */
 
@@ -378,7 +444,9 @@ document.getElementById("number").textContent = get_appropriate_ws_url();
 	try {
 		socket_di.onopen = function() {
 			document.getElementById("wsdi_statustd").style.backgroundColor = "#40ff40";
-			document.getElementById("wsdi_status").innerHTML = " <b>websocket connection opened</b><br>" + socket_di.extensions;
+			document.getElementById("wsdi_status").innerHTML =
+				" <b>websocket connection opened</b><br>" +
+				san(socket_di.extensions);
 		} 
 
 		socket_di.onmessage =function got_packet(msg) {
@@ -388,6 +456,55 @@ document.getElementById("number").textContent = get_appropriate_ws_url();
 		socket_di.onclose = function(){
 			document.getElementById("wsdi_statustd").style.backgroundColor = "#ff4040";
 			document.getElementById("wsdi_status").textContent = " websocket connection CLOSED ";
+		}
+	} catch(exception) {
+		alert('<p>Error' + exception);  
+	}
+	
+	var socket_status, jso, s;
+
+	if (typeof MozWebSocket != "undefined") {
+		socket_status = new MozWebSocket(get_appropriate_ws_url(),
+				   "lws-status");
+	} else {
+		socket_status = new WebSocket(get_appropriate_ws_url(),
+				   "lws-status");
+	}
+
+
+	try {
+		socket_status.onopen = function() {
+			document.getElementById("s_statustd").style.backgroundColor = "#40ff40";
+			document.getElementById("s_status").innerHTML =
+				" <b>websocket connection opened</b><br>" +
+				san(socket_di.extensions);
+		} 
+
+		socket_status.onmessage =function got_packet(msg) {
+			jso = JSON.parse(msg.data);
+			
+			document.getElementById("servinfo").innerHTML = 
+				"<table><tr><td class=l>Build info</td><td>"+
+					san(jso.version) + "</td></tr>" +
+					"<tr><td class=l>Server info</td><td>" +
+					san(jso.hostname) + "</td></tr>" +
+					"</table>";
+			s="<table>";
+			var n;
+			for (n = 0; n < jso.conns.length; n++)
+				s = s + "<tr><td class=l>client " + (n + 1) +
+				"</td><td><b>" + san(jso.conns[n].peer) +
+				"</b><br>" + san(jso.conns[n].time) +
+				"<br>" + san(jso.conns[n].ua) +
+				"</td></tr>";
+			s = s + "</table>";
+			
+			document.getElementById("conninfo").innerHTML = s;
+		} 
+
+		socket_status.onclose = function(){
+			document.getElementById("s_statustd").style.backgroundColor = "#ff4040";
+			document.getElementById("s_status").textContent = " websocket connection CLOSED ";
 		}
 	} catch(exception) {
 		alert('<p>Error' + exception);  
@@ -410,7 +527,7 @@ function ot_open() {
 	try {
 		socket_ot.onopen = function() {
 			document.getElementById("ot_statustd").style.backgroundColor = "#40ff40";
-			document.getElementById("ot_status").innerHTML = " <b>websocket connection opened</b><br>" + socket_di.extensions;
+			document.getElementById("ot_status").innerHTML = " <b>websocket connection opened</b><br>" + san(socket_di.extensions);
 			document.getElementById("ot_open_btn").disabled = true;
 			document.getElementById("ot_close_btn").disabled = false;
 			document.getElementById("ot_req_close_btn").disabled = false;
@@ -460,7 +577,9 @@ function ot_req_close() {
 	try {
 		socket_lm.onopen = function() {
 			document.getElementById("wslm_statustd").style.backgroundColor = "#40ff40";
-			document.getElementById("wslm_status").innerHTML = " <b>websocket connection opened</b><br>" + socket_di.extensions;
+			document.getElementById("wslm_status").innerHTML =
+				" <b>websocket connection opened</b><br>" +
+				san(socket_di.extensions);
 		} 
 
 		socket_lm.onmessage =function got_packet(msg) {
