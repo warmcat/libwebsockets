@@ -1,5 +1,5 @@
 Name: libwebsockets
-Version: 1.7.0
+Version: 1.7.1
 Release: 1%{?dist}
 Summary: Websocket Server and Client Library
 
@@ -69,6 +69,9 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/pkgconfig/libwebsockets.pc
 
 %changelog
+* Sat Feb 20 2016 Andy Green <andy@warmcat.com> 1.7.1-1
+- MINOR Upstream 1.7.1 release (see changelog)
+
 * Tue Feb 16 2016 Andy Green <andy@warmcat.com> 1.7.0-1
 - MAJOR SONAMEBUMP APICHANGES Upstream 1.7.0 release
 
