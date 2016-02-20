@@ -35,6 +35,13 @@ function check {
 		fi
 	fi
 
+	if [ "$1" = "media" ] ; then
+		if [ -z "`grep '<h1>415</h1>' /tmp/lwscap`" ] ; then
+			echo "FAIL: should have told unknown media type"
+			exit 1
+		fi
+	fi
+
 	if [ "$1" == "1" ] ; then
 		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 1\: | tr -s ' ' | cut -d' ' -f5-`"
 		if [ "$a" != "$2" ] ; then
@@ -206,6 +213,13 @@ echo -e "GET /test.html HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD.................
  	"......................................................................................................................." \
 	 | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
+check
+
+echo
+echo "---- nonexistant file"
+rm -f /tmp/lwscap
+echo -e "GET nope HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check media
 check
 
 echo
