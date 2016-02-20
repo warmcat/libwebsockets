@@ -124,6 +124,9 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 	if (!(context->options & LWS_SERVER_OPTION_LIBUV))
 		return;
 
+	if (!pt->io_loop_uv)
+		return;
+
 	if (context->use_ev_sigint)
 		uv_signal_stop(&pt->w_sigint.uv_watcher);
 	for (m = 0; m < ARRAY_SIZE(sigs); m++)
