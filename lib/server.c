@@ -739,9 +739,10 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * reset the existing header table and keep it.
 	 */
 	if (wsi->u.hdr.ah) {
-		if (wsi->u.hdr.ah->rxpos == wsi->u.hdr.ah->rxlen)
+		if (!wsi->u.hdr.more_rx_waiting) {
+			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
 			lws_header_table_detach(wsi);
-		else
+		} else
 			lws_header_table_reset(wsi);
 	}
 
