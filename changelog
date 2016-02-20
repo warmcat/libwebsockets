@@ -1,6 +1,51 @@
 Changelog
 ---------
 
+v1.7.1
+======
+
+NB: No API change since v1.7.0
+
+Fixes
+-----
+
+1) MAJOR (Windows-only) fix assert firing
+
+2) MAJOR http:/1.1 connections handled by  lws_return_http_status() did not
+get sent a content-length resulting in the link hanging until the peer closed
+it.  attack.sh updated to add a test for this.
+
+Changes
+-------
+
+1) MINOR test-server gained some new switches
+
+   -C <file>  use external SSL cert file
+   -K <file>  use external SSL key file
+   -A <file>  use external SSL CA cert file
+   
+   -u <uid>  set effective uid
+   -g <gid>  set effective gid
+
+together you can use them like this to have the test-server work with the
+usual purchased SSL certs from an official CA.
+
+   --ssl -C your.crt -K your.key -A your.cer -u 99 -g 99
+
+2) MINOR the OpenSSL magic to setup ECDH cipher usage is implemented in the
+library, and the ciphers restricted to use ECDH only.
+Using this, the lws test server can score an A at SSLLABS test
+
+3) MINOR STS (SSL always) header is added to the test server if you use --ssl.  With
+that, we score A+ at SSLLABS test
+
+4) MINOR daemonize function (disabled at cmake by default) is updated to work
+with systemd
+
+5) MINOR example systemd .service file now provided for test server
+(not installed by default)
+
+
 v1.7.0
 ======
 
