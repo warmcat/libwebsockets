@@ -1,6 +1,11 @@
 Changelog
 ---------
 
+Fixes
+-----
+
+1) libuv one-per-session valgrind leak fixed
+
 v1.7.1
 ======
 
