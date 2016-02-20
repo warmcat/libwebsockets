@@ -115,6 +115,16 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, uv_signal_cb cb,
 	return status;
 }
 
+void lws_uv_close_cb(uv_handle_t *handle)
+{
+
+}
+
+void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
+{
+	uv_close(handle, lws_uv_close_cb);
+}
+
 void
 lws_libuv_destroyloop(struct lws_context *context, int tsi)
 {
@@ -132,8 +142,12 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 	for (m = 0; m < ARRAY_SIZE(sigs); m++)
 		uv_signal_stop(&pt->signals[m]);
 	if (!pt->ev_loop_foreign) {
+		uv_stop(pt->io_loop_uv);
+		uv_walk(pt->io_loop_uv, lws_uv_walk_cb, NULL);
+		while (uv_run(pt->io_loop_uv, UV_RUN_NOWAIT));
 		m = uv_loop_close(pt->io_loop_uv);
-		lwsl_debug("%s: uv_loop_close: %d\n", __func__, m);
+		if (m == UV_EBUSY)
+			lwsl_debug("%s: uv_loop_close: UV_EBUSY\n", __func__);
 		lws_free(pt->io_loop_uv);
 	}
 }
