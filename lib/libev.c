@@ -138,6 +138,9 @@ lws_libev_destroyloop(struct lws_context *context, int tsi)
 	if (!(context->options & LWS_SERVER_OPTION_LIBEV))
 		return;
 
+	if (!pt->io_loop_ev)
+		return;
+
 	ev_io_stop(pt->io_loop_ev, &pt->w_accept.ev_watcher);
 	if (context->use_ev_sigint)
 		ev_signal_stop(pt->io_loop_ev,
