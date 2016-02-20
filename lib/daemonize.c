@@ -41,7 +41,7 @@ child_handler(int signum)
 	switch (signum) {
 
 	case SIGALRM: /* timed out daemonizing */
-		exit(1);
+		exit(0);
 		break;
 
 	case SIGUSR1: /* positive confirmation we daemonized well */
@@ -52,7 +52,7 @@ child_handler(int signum)
 			fprintf(stderr,
 			   "unable to create lock file %s, code=%d (%s)\n",
 				lock_path, errno, strerror(errno));
-			exit(1);
+			exit(5);
 		}
 		len = sprintf(sz, "%u", pid_daemon);
 		sent = write(fd, sz, len);
@@ -62,10 +62,11 @@ child_handler(int signum)
 					     lock_path, errno, strerror(errno));
 
 		close(fd);
-		exit(!!(sent == len));
+		exit(0);
+		//!!(sent == len));
 
 	case SIGCHLD: /* daemonization failed */
-		exit(1);
+		exit(6);
 		break;
 	}
 }
@@ -98,8 +99,8 @@ lws_daemonize(const char *_lock_path)
 	char buf[10];
 
 	/* already a daemon */
-	if (getppid() == 1)
-		return 1;
+//	if (getppid() == 1)
+//		return 1;
 
 	fd = open(_lock_path, O_RDONLY);
 	if (fd >= 0) {
@@ -138,7 +139,7 @@ lws_daemonize(const char *_lock_path)
 	if (pid_daemon < 0) {
 		fprintf(stderr, "unable to fork daemon, code=%d (%s)",
 		    errno, strerror(errno));
-		exit(1);
+		exit(9);
 	}
 
 	/* If we got a good PID, then we can exit the parent process. */
@@ -153,7 +154,7 @@ lws_daemonize(const char *_lock_path)
 
 		pause();
 		/* should not be reachable */
-		exit(1);
+		exit(0);
 	}
 
 	/* At this point we are executing as the child process */
@@ -176,7 +177,7 @@ lws_daemonize(const char *_lock_path)
 		fprintf(stderr,
 			"unable to create a new session, code %d (%s)",
 			errno, strerror(errno));
-		exit(1);
+		exit(2);
 	}
 
 	/*
@@ -187,7 +188,7 @@ lws_daemonize(const char *_lock_path)
 		fprintf(stderr,
 			"unable to change directory to %s, code %d (%s)",
 			"/", errno, strerror(errno));
-		exit(1);
+		exit(3);
 	}
 
 	/* Redirect standard files to /dev/null */
