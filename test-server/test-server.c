@@ -175,6 +175,7 @@ int main(int argc, char **argv)
 	char cert_path[1024] = "";
 	char key_path[1024] = "";
 	char ca_path[1024] = "";
+	int uid = -1, gid = -1;
 	int use_ssl = 0;
 	int opts = 0;
 	int n = 0;
@@ -193,7 +194,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:u:g:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -208,6 +209,12 @@ int main(int argc, char **argv)
 			#endif
 			break;
 #endif
+		case 'u':
+			uid = atoi(optarg);
+			break;
+		case 'g':
+			gid = atoi(optarg);
+			break;
 		case 'd':
 			debug_level = atoi(optarg);
 			break;
@@ -316,11 +323,12 @@ int main(int argc, char **argv)
 		if (ca_path[0])
 			info.ssl_ca_filepath = ca_path;
 	}
-	info.gid = -1;
-	info.uid = -1;
-	info.max_http_header_pool = 1;
+	info.gid = gid;
+	info.uid = uid;
+	info.max_http_header_pool = 16;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8;
 	info.extensions = exts;
+	info.timeout_secs = 5;
 	info.ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 			       "ECDHE-RSA-AES256-GCM-SHA384:"
 			       "DHE-RSA-AES256-GCM-SHA384:"
