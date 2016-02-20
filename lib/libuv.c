@@ -43,7 +43,7 @@ lws_accept_cb(uv_poll_t *watcher, int status, int revents)
 
 	eventfd.fd = watcher->io_watcher.fd;
 	eventfd.events = 0;
-	eventfd.revents = 0;//EV_NONE;
+	eventfd.revents = 0;
 	if (revents & UV_READABLE) {
 		eventfd.events |= LWS_POLLIN;
 		eventfd.revents |= LWS_POLLIN;
@@ -58,7 +58,7 @@ lws_accept_cb(uv_poll_t *watcher, int status, int revents)
 LWS_VISIBLE void
 lws_uv_sigint_cb(uv_loop_t *loop, uv_signal_t *watcher, int revents)
 {
-    //ev_break(loop, EVBREAK_ALL);
+	uv_stop(loop);
 }
 
 LWS_VISIBLE int
