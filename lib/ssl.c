@@ -339,13 +339,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		if (lws_context_ssl_init_ecdh(context))
 			return 1;
 
-#if OPENSSL_VERSION_NUMBER >= 0x10200000L
-		n = SSL_CTX_build_cert_chain((SSL_CTX *)user,
-					     SSL_BUILD_CHAIN_FLAG_CHECK |
-					     SSL_BUILD_CHAIN_FLAG_IGNORE_ERROR);
-		lwsl_notice("%s: build cert chain %d", __func__, n);
-#endif
-
 		/*
 		 * SSL is happy and has a cert it's content with
 		 * If we're supporting HTTP2, initialize that
