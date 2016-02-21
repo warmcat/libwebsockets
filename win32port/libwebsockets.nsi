@@ -69,7 +69,7 @@ Section "Files" SecInstall
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\libwebsockets" "DisplayName" "libwebsockets library and clients"
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\libwebsockets" "UninstallString" "$\"$INSTDIR\Uninstall.exe$\""
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\libwebsockets" "QuietUninstallString" "$\"$INSTDIR\Uninstall.exe$\" /S"
-	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\libwebsockets" "HelpLink" "http://libwebsockets.org/"
+	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\libwebsockets" "HelpLink" "https://libwebsockets.org/"
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\libwebsockets" "URLInfoAbout" "http://libwebsockets.org/"
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\libwebsockets" "DisplayVersion" "${VERSION}"
 	WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\libwebsockets" "NoModify" "1"

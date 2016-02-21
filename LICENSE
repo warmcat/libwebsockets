@@ -20,7 +20,7 @@ following example statement can be included in user documentation to
 satisfy this requirement:
 
 "[program] is based in part on the work of the libwebsockets  project
-(http://libwebsockets.org)"
+(https://libwebsockets.org)"
 
 3) Some sources included have their own, more liberal licenses, or options
 to get original sources with the liberal terms.

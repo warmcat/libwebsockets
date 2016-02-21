@@ -5,7 +5,7 @@ Summary: Websocket Server and Client Library
 
 Group: System Environment/Libraries
 License: LGPLv2 with exceptions
-URL: http://warmcat.com
+URL: https://libwebsockets.org
 Source0: %{name}-%{version}.tar.gz
 BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 
