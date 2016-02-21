@@ -923,24 +923,33 @@ lws_ensure_user_space(struct lws *wsi)
 LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 {
 	time_t o_now = time(NULL);
-	struct tm o_now_time;
 	unsigned long long now;
+	struct tm *ptm = NULL;
 	char buf[300];
-	int n, ok = localtime_r(&o_now, &o_now_time) != NULL;
+#ifndef WIN32
+	struct tm tm;
+#endif
+	int n;
 
+#ifdef WIN32
+	ptm = localtime(&o_now);
+#else
+	if (localtime_r(&o_now, &tm))
+		ptm = &tm;
+#endif
 	buf[0] = '\0';
 	for (n = 0; n < LLL_COUNT; n++) {
 		if (level != (1 << n))
 			continue;
 		now = time_in_microseconds() / 100;
-		if (ok)
+		if (ptm)
 			sprintf(buf, "[%04d/%02d/%02d %02d:%02d:%02d:%04d] %s: ",
-				o_now_time.tm_year + 1900,
-				o_now_time.tm_mon,
-				o_now_time.tm_mday,
-				o_now_time.tm_hour,
-				o_now_time.tm_min,
-				o_now_time.tm_sec,
+				ptm->tm_year + 1900,
+				ptm->tm_mon,
+				ptm->tm_mday,
+				ptm->tm_hour,
+				ptm->tm_min,
+				ptm->tm_sec,
 				(int)(now % 10000), log_level_names[n]);
 		else
 			sprintf(buf, "[%llu:%04d] %s: ",
