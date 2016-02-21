@@ -6,6 +6,13 @@ Fixes
 
 1) libuv one-per-session valgrind leak fixed
 
+Changes
+-------
+
+1) test server html is updated with tabs and a new live server monitoring
+feature.  Input sanitization added to the js.
+
+
 v1.7.1
 ======
 

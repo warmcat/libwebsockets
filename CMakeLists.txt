@@ -748,7 +748,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 	#
 	# Helper function for adding a test app.
 	#
-	macro(create_test_app TEST_NAME MAIN_SRC S2 S3 S4 S5)
+	macro(create_test_app TEST_NAME MAIN_SRC S2 S3 S4 S5 S6)
 
 		set(TEST_SRCS ${MAIN_SRC})
 		set(TEST_HDR)
@@ -767,6 +767,10 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		if ("${S5}" STREQUAL "")
 		else()
 			list(APPEND TEST_SRCS ${S5})
+		endif()
+		if ("${S6}" STREQUAL "")
+		else()
+			list(APPEND TEST_SRCS ${S6})
 		endif()
 		if (WIN32)
 			list(APPEND TEST_SRCS
@@ -829,9 +833,11 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 				"test-server/test-server-http.c"
 				"test-server/test-server-dumb-increment.c"
 				"test-server/test-server-mirror.c"
+				"test-server/test-server-status.c"
 				"test-server/test-server-echogen.c")
 			if (UNIX)
 				create_test_app(test-fuzxy "test-server/fuzxy.c"
+					""
 					""
 					""
 					""
@@ -843,6 +849,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					"test-server/test-server-http.c"
 					"test-server/test-server-dumb-increment.c"
 					"test-server/test-server-mirror.c"
+					"test-server/test-server-status.c"
 					"test-server/test-server-echogen.c")
 			endif()
 			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
@@ -852,6 +859,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					"test-server/test-server-http.c"
 					"test-server/test-server-dumb-increment.c"
 					"test-server/test-server-mirror.c"
+					"test-server/test-server-status.c"
 					"test-server/test-server-echogen.c")
 			endif()
 			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
@@ -861,6 +869,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					"test-server/test-server-http.c"
 					"test-server/test-server-dumb-increment.c"
 					"test-server/test-server-mirror.c"
+					"test-server/test-server-status.c"
 					"test-server/test-server-echogen.c")
 			endif()
 		endif()
@@ -873,6 +882,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 				"test-server/test-server-http.c"
 				"test-server/test-server-dumb-increment.c"
 				"test-server/test-server-mirror.c"
+				"test-server/test-server-status.c"
 				"test-server/test-server-echogen.c")
 			# Set defines for this executable only.
 			set_property(
@@ -978,27 +988,27 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		# test-client
 		#
 		if (NOT LWS_WITHOUT_TEST_CLIENT)
-			create_test_app(test-client "test-server/test-client.c" "" "" "" "")
+			create_test_app(test-client "test-server/test-client.c" "" "" "" "" "")
 		endif()
 
 		#
 		# test-fraggle
 		#
 		if (NOT LWS_WITHOUT_TEST_FRAGGLE)
-			create_test_app(test-fraggle "test-server/test-fraggle.c" "" "" "" "")
+			create_test_app(test-fraggle "test-server/test-fraggle.c" "" "" "" "" "")
 		endif()
 
 		#
 		# test-ping
 		#
 		if (NOT LWS_WITHOUT_TEST_PING)
-			create_test_app(test-ping "test-server/test-ping.c" "" "" "" "")
+			create_test_app(test-ping "test-server/test-ping.c" "" "" "" "" "")
 		endif()
 		#
 		# test-echo
 		#
 		if (NOT LWS_WITHOUT_TEST_ECHO)
-			create_test_app(test-echo "test-server/test-echo.c" "" "" "" "")
+			create_test_app(test-echo "test-server/test-echo.c" "" "" "" "" "")
 		endif()
 
 	endif(NOT LWS_WITHOUT_CLIENT)

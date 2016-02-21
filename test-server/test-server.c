@@ -68,6 +68,7 @@ enum demo_protocols {
 	PROTOCOL_DUMB_INCREMENT,
 	PROTOCOL_LWS_MIRROR,
 	PROTOCOL_LWS_ECHOGEN,
+	PROTOCOL_LWS_STATUS,
 
 	/* always last */
 	DEMO_PROTOCOL_COUNT
@@ -100,6 +101,12 @@ static struct lws_protocols protocols[] = {
 		"lws-echogen",
 		callback_lws_echogen,
 		sizeof(struct per_session_data__echogen),
+		128,
+	},
+	{
+		"lws-status",
+		callback_lws_status,
+		sizeof(struct per_session_data__lws_status),
 		128,
 	},
 	{ NULL, NULL, 0, 0 } /* terminator */
