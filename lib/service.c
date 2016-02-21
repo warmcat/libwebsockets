@@ -554,6 +554,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			}
 			wsi = wsi1;
 		}
+#ifdef LWS_WITH_CGI
+		lws_cgi_kill_terminated(pt);
+#endif
 #if 0
 		{
 			char s[300], *p = s;
@@ -588,7 +591,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	 */
 
 #if LWS_POSIX
-
 	/* handle session socket closed */
 
 	if ((!(pollfd->revents & pollfd->events & LWS_POLLIN)) &&
@@ -606,6 +608,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 #endif
 
 #endif
+
+	lwsl_debug("fd=%d, revents=%d\n", pollfd->fd, pollfd->revents);
 
 	/* okay, what we came here to do... */
 
@@ -652,7 +656,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			wsi->u.ws.tx_draining_ext = 0;
 		}
 
-		if (wsi->u.ws.tx_draining_ext) {
+		if (wsi->u.ws.tx_draining_ext)
 			/* we cannot deal with new RX until the TX ext
 			 * path has been drained.  It's because new
 			 * rx will, eg, crap on the wsi rx buf that
@@ -662,7 +666,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			 * to avoid blocking.
 			 */
 			break;
-		}
 
 		if (!(wsi->rxflow_change_to & LWS_RXFLOW_ALLOW))
 			/* We cannot deal with any kind of new RX
@@ -795,7 +798,8 @@ drain:
 		} while (more);
 
 		if (wsi->u.hdr.ah) {
-			lwsl_err("%s: %p: detaching inherited used ah\n", __func__, wsi);
+			lwsl_err("%s: %p: detaching inherited used ah\n",
+				 __func__, wsi);
 			/* show we used all the pending rx up */
 			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
 			/* we can run the normal ah detach flow despite
@@ -825,7 +829,39 @@ handle_pending:
 		}
 
 		break;
+#ifdef LWS_WITH_CGI
+	case LWSCM_CGI: /* we exist to handle a cgi's stdin/out/err data...
+			 * do the callback on our master wsi
+			 */
+		{
+			struct lws_cgi_args args;
 
+			if (wsi->cgi_channel >= LWS_STDOUT &&
+			    !(pollfd->revents & pollfd->events & LWS_POLLIN))
+				break;
+			if (wsi->cgi_channel == LWS_STDIN &&
+			    !(pollfd->revents & pollfd->events & LWS_POLLOUT))
+				break;
+
+			if (wsi->cgi_channel == LWS_STDIN)
+				if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+					lwsl_info("failed at set pollfd\n");
+					return 1;
+				}
+
+			args.ch = wsi->cgi_channel;
+			args.stdwsi = &wsi->master->cgi->stdwsi[0];
+
+			if (user_callback_handle_rxflow(
+					wsi->master->protocol->callback,
+					wsi->master, LWS_CALLBACK_CGI,
+					wsi->master->user_space,
+					(void *)&args, 0))
+				return 1;
+
+			break;
+		}
+#endif
 	default:
 #ifdef LWS_NO_CLIENT
 		break;

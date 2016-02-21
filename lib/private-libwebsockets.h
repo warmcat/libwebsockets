@@ -22,6 +22,11 @@
 #include "lws_config.h"
 #include "lws_config_private.h"
 
+
+#if defined(LWS_WITH_CGI) && defined(LWS_HAVE_VFORK)
+#define  _GNU_SOURCE
+#endif
+
 #ifdef LWS_HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
@@ -353,6 +358,8 @@ enum lws_connection_states {
 	LWSS_HTTP2_AWAIT_CLIENT_PREFACE,
 	LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS,
 	LWSS_HTTP2_ESTABLISHED,
+
+	LWSS_CGI
 };
 
 enum http_version {
@@ -427,6 +434,7 @@ enum connection_mode {
 
 	/* special internal types */
 	LWSCM_SERVER_LISTENER,
+	LWSCM_CGI, /* stdin, stdout, stderr for another cgi master wsi */
 };
 
 enum {
@@ -530,6 +538,9 @@ struct lws_context_per_thread {
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
 	struct lws *timeout_list;
+#ifdef LWS_WITH_CGI
+	struct lws_cgi *cgi_list;
+#endif
 	void *http_header_data;
 	struct allocated_headers *ah_pool;
 	struct lws *ah_wait_list;
@@ -995,6 +1006,21 @@ struct _lws_websocket_related {
 	unsigned int tx_draining_ext:1;
 };
 
+#ifdef LWS_WITH_CGI
+
+/* wsi who is master of the cgi points to an lws_cgi */
+
+struct lws_cgi {
+	struct lws_cgi *cgi_list;
+	struct lws *stdwsi[3]; /* points to the associated stdin/out/err wsis */
+	struct lws *wsi; /* owner */
+	int pipe_fds[3][2];
+	int pid;
+
+	unsigned int being_closed:1;
+};
+#endif
+
 struct lws {
 
 	/* structs */
@@ -1022,6 +1048,10 @@ struct lws {
 	/* pointers */
 
 	struct lws_context *context;
+#ifdef LWS_WITH_CGI
+	struct lws_cgi *cgi; /* wsi being cgi master have one of these */
+	struct lws *master; /* for stdin/out/err wsi to point to cgi master */
+#endif
 	const struct lws_protocols *protocol;
 	struct lws *timeout_list;
 	struct lws **timeout_list_prev;
@@ -1082,6 +1112,9 @@ struct lws {
 	char pending_timeout; /* enum pending_timeout */
 	char pps; /* enum lws_pending_protocol_send */
 	char tsi; /* thread service index we belong to */
+#ifdef LWS_WITH_CGI
+	char cgi_channel; /* which of stdin/out/err */
+#endif
 };
 
 LWS_EXTERN int log_level;
@@ -1438,6 +1471,9 @@ _lws_server_listen_accept_flow_control(struct lws *twsi, int on);
 LWS_EXTERN int
 lws_get_addresses(struct lws_context *context, void *ads, char *name,
 		  int name_len, char *rip, int rip_len);
+
+LWS_EXTERN int
+lws_cgi_kill_terminated(struct lws_context_per_thread *pt);
 
 /*
  * custom allocator

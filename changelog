@@ -77,6 +77,31 @@ LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 		const char *readbuf, size_t len);
 
+3) MINOR NEWAPI CGI type "network io" subprocess execution is now possible from
+a simple api.
+
+LWS_VISIBLE LWS_EXTERN int
+lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_cgi_kill(struct lws *wsi);
+
+To use it, you must first set the cmake option
+
+$ cmake .. -DLWS_WITH_CGI=1
+
+See test-server-http.c and  test server path
+
+http://localhost:7681/cgitest
+
+stdin gets http body, you can test it with wget
+
+$ echo hello > hello.txt
+$ wget http://localhost:7681/cgitest --post-file=hello.txt -O- --quiet
+lwstest script
+read="hello"
+
+
 
 v1.7.0
 ======

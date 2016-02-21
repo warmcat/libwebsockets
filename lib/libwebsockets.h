@@ -339,6 +339,11 @@ enum lws_callback_reasons {
 
 	LWS_CALLBACK_WS_EXT_DEFAULTS				= 39,
 
+	LWS_CALLBACK_CGI					= 40,
+	LWS_CALLBACK_CGI_TERMINATED				= 41,
+	LWS_CALLBACK_CGI_STDIN_DATA				= 42,
+	LWS_CALLBACK_CGI_STDIN_COMPLETED			= 43,
+
 	/****** add new things just above ---^ ******/
 
 	LWS_CALLBACK_USER = 1000, /* user code can use any including / above */
@@ -1535,6 +1540,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND			= 11,
 	PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE			= 12,
 	PENDING_TIMEOUT_SHUTDOWN_FLUSH				= 13,
+	PENDING_TIMEOUT_CGI					= 14,
 
 	/****** add new things just above ---^ ******/
 };
@@ -1741,6 +1747,10 @@ lws_frame_is_binary(struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_is_ssl(struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_is_cgi(struct lws *wsi);
+
 #ifdef LWS_SHA1_USE_OPENSSL_NAME
 #define lws_SHA1 SHA1
 #else
@@ -1812,6 +1822,27 @@ lws_get_context(const struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_get_count_threads(struct lws_context *context);
+
+#ifdef LWS_WITH_CGI
+enum lws_enum_stdinouterr {
+	LWS_STDIN = 0,
+	LWS_STDOUT = 1,
+	LWS_STDERR = 2,
+};
+
+struct lws_cgi_args {
+	struct lws **stdwsi; /* get fd with lws_get_socket_fd() */
+	enum lws_enum_stdinouterr ch;
+	unsigned char *data; /* for messages with payload */
+	int len;
+};
+
+LWS_VISIBLE LWS_EXTERN int
+lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_cgi_kill(struct lws *wsi);
+#endif
 
 /*
  * Wsi-associated File Operations access helpers

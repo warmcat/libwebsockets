@@ -156,14 +156,35 @@ http_postbody:
 			body_chunk_len = min(wsi->u.http.content_remain,len);
 			wsi->u.http.content_remain -= body_chunk_len;
 			len -= body_chunk_len;
+#ifdef LWS_WITH_CGI
+			if (wsi->cgi) {
+				struct lws_cgi_args args;
 
-			n = wsi->protocol->callback(wsi,
-				LWS_CALLBACK_HTTP_BODY, wsi->user_space,
-				buf, body_chunk_len);
-			if (n)
-				goto bail;
+				args.ch = LWS_STDIN;
+				args.stdwsi = &wsi->cgi->stdwsi[0];
+				args.data = buf;
+				args.len = body_chunk_len;
 
-			buf += body_chunk_len;
+				/* returns how much used */
+				n = user_callback_handle_rxflow(
+					wsi->protocol->callback,
+					wsi, LWS_CALLBACK_CGI_STDIN_DATA,
+					wsi->user_space,
+					(void *)&args, 0);
+				if (n < 0)
+					goto bail;
+			} else {
+#endif
+				n = wsi->protocol->callback(wsi,
+					LWS_CALLBACK_HTTP_BODY, wsi->user_space,
+					buf, body_chunk_len);
+				if (n)
+					goto bail;
+				n = body_chunk_len;
+#ifdef LWS_WITH_CGI
+			}
+#endif
+			buf += n;
 
 			if (wsi->u.http.content_remain)  {
 				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
@@ -173,11 +194,16 @@ http_postbody:
 			/* he sent all the content in time */
 postbody_completion:
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-			n = wsi->protocol->callback(wsi,
-				LWS_CALLBACK_HTTP_BODY_COMPLETION,
-				wsi->user_space, NULL, 0);
-			if (n)
-				goto bail;
+#ifdef LWS_WITH_CGI
+			if (!wsi->cgi)
+#endif
+			{
+				n = wsi->protocol->callback(wsi,
+					LWS_CALLBACK_HTTP_BODY_COMPLETION,
+					wsi->user_space, NULL, 0);
+				if (n)
+					goto bail;
+			}
 
 			goto http_complete;
 		}

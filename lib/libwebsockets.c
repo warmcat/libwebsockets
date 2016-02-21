@@ -20,6 +20,11 @@
  */
 
 #include "private-libwebsockets.h"
+#include <sys/types.h>
+#if defined(WIN32) || defined(_WIN32)
+#else
+#include <sys/wait.h>
+#endif
 
 int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
 static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
@@ -112,6 +117,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 		*wsi->timeout_list_prev = wsi;
 	}
 
+	lwsl_debug("%s: %p: %d secs\n", __func__, wsi, secs);
 	wsi->pending_timeout_limit = now + secs;
 	wsi->pending_timeout = reason;
 
@@ -134,6 +140,29 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
+
+#ifdef LWS_WITH_CGI
+	if (wsi->mode == LWSCM_CGI) {
+		/* we are not a network connection, but a handler for CGI io */
+		assert(wsi->master);
+		assert(wsi->master->cgi);
+		assert(wsi->master->cgi->stdwsi[(int)wsi->cgi_channel] == wsi);
+		/* end the binding between us and master */
+		wsi->master->cgi->stdwsi[(int)wsi->cgi_channel] = NULL;
+		wsi->master = NULL;
+		wsi->socket_is_permanently_unusable = 1;
+
+		goto just_kill_connection;
+	}
+
+	if (wsi->cgi) {
+		/* we have a cgi going, we must kill it and close the
+		 * related stdin/out/err wsis first
+		 */
+		wsi->cgi->being_closed = 1;
+		lws_cgi_kill(wsi);
+	}
+#endif
 
 	if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED &&
 	    wsi->u.http.fd != LWS_INVALID_FILE) {
@@ -1305,3 +1334,294 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 }
 #endif
 
+LWS_VISIBLE LWS_EXTERN int
+lws_is_cgi(struct lws *wsi) {
+#ifdef LWS_WITH_CGI
+	return !!wsi->cgi;
+#else
+	return 0;
+#endif
+}
+
+#ifdef LWS_WITH_CGI
+
+static struct lws *
+lws_create_basic_wsi(struct lws_context *context, int tsi)
+{
+	struct lws *new_wsi;
+
+	if ((unsigned int)context->pt[tsi].fds_count ==
+	    context->fd_limit_per_thread - 1) {
+		lwsl_err("no space for new conn\n");
+		return NULL;
+	}
+
+	new_wsi = lws_zalloc(sizeof(struct lws));
+	if (new_wsi == NULL) {
+		lwsl_err("Out of memory for new connection\n");
+		return NULL;
+	}
+
+	new_wsi->tsi = tsi;
+	new_wsi->context = context;
+	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
+	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
+
+	/* intialize the instance struct */
+
+	new_wsi->state = LWSS_CGI;
+	new_wsi->mode = LWSCM_CGI;
+	new_wsi->hdr_parsing_completed = 0;
+	new_wsi->position_in_fds_table = -1;
+
+	/*
+	 * these can only be set once the protocol is known
+	 * we set an unestablished connection's protocol pointer
+	 * to the start of the supported list, so it can look
+	 * for matching ones during the handshake
+	 */
+	new_wsi->protocol = context->protocols;
+	new_wsi->user_space = NULL;
+	new_wsi->ietf_spec_revision = 0;
+	new_wsi->sock = LWS_SOCK_INVALID;
+	context->count_wsi_allocated++;
+
+	return new_wsi;
+}
+
+/**
+ * lws_cgi: spawn network-connected cgi process
+ *
+ * @wsi: connection to own the process
+ * @exec_array: array of "exec-name" "arg1" ... "argn" NULL
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	char *env_array[30], cgi_path[400];
+	struct lws_cgi *cgi;
+	int n;
+
+	/*
+	 * give the master wsi a cgi struct
+	 */
+
+	wsi->cgi = lws_zalloc(sizeof(*wsi->cgi));
+	if (!wsi->cgi) {
+		lwsl_err("%s: OOM\n", __func__);
+		return -1;
+	}
+
+	cgi = wsi->cgi;
+	cgi->wsi = wsi; /* set cgi's owning wsi */
+
+	/* create pipes for [stdin|stdout] and [stderr] */
+
+	for (n = 0; n < 3; n++)
+		if (pipe(cgi->pipe_fds[n]) == -1)
+			goto bail1;
+
+	/* create cgi wsis for each stdin/out/err fd */
+
+	for (n = 0; n < 3; n++) {
+		cgi->stdwsi[n] = lws_create_basic_wsi(wsi->context, wsi->tsi);
+		if (!cgi->stdwsi[n])
+			goto bail2;
+		cgi->stdwsi[n]->cgi_channel = n;
+		/* read side is 0, stdin we want the write side, others read */
+		cgi->stdwsi[n]->sock = cgi->pipe_fds[n][!!(n == 0)];
+		fcntl(cgi->pipe_fds[n][!!(n == 0)], F_SETFL, O_NONBLOCK);
+	}
+
+	for (n = 0; n < 3; n++) {
+		cgi->stdwsi[n]->master = wsi;
+		if (insert_wsi_socket_into_fds(wsi->context, cgi->stdwsi[n]))
+			goto bail3;
+	}
+
+	lws_change_pollfd(cgi->stdwsi[LWS_STDIN], LWS_POLLIN, LWS_POLLOUT);
+	lws_change_pollfd(cgi->stdwsi[LWS_STDOUT], LWS_POLLOUT, LWS_POLLIN);
+	lws_change_pollfd(cgi->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN);
+
+	lwsl_debug("%s: fds in %d, out %d, err %d\n", __func__,
+			cgi->stdwsi[LWS_STDIN]->sock,
+			cgi->stdwsi[LWS_STDOUT]->sock,
+			cgi->stdwsi[LWS_STDERR]->sock);
+
+	lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, timeout_secs);
+
+	/* add us to the pt list of active cgis */
+	cgi->cgi_list = pt->cgi_list;
+	pt->cgi_list = cgi;
+
+	/* prepare his CGI env */
+
+	n = 0;
+	if (wsi->u.hdr.ah) {
+		snprintf(cgi_path, sizeof(cgi_path) - 1, "PATH_INFO=%s",
+			 lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
+		cgi_path[sizeof(cgi_path) - 1] = '\0';
+		env_array[n++] = cgi_path;
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
+			env_array[n++] = "REQUEST_METHOD=POST";
+		else
+			env_array[n++] = "REQUEST_METHOD=GET";
+	}
+	if (lws_is_ssl(wsi))
+		env_array[n++] = "HTTPS=ON";
+	env_array[n++] = "SERVER_SOFTWARE=libwebsockets";
+	env_array[n++] = "PATH=/bin:/usr/bin:/usrlocal/bin";
+	env_array[n] = NULL;
+
+	/* we are ready with the redirection pipes... run the thing */
+#ifdef LWS_HAVE_VFORK
+	cgi->pid = vfork();
+#else
+	cgi->pid = fork();
+#endif
+	if (cgi->pid < 0) {
+		lwsl_err("fork failed, errno %d", errno);
+		goto bail3;
+	}
+
+	if (cgi->pid)
+		/* we are the parent process */
+		return 0;
+
+	/* We are the forked process, redirect and kill inherited things.
+	 *
+	 * Because of vfork(), we cannot do anything that changes pages in
+	 * the parent environment.  Stuff that changes kernel state for the
+	 * process is OK.  Stuff that happens after the execvpe() is OK.
+	 */
+
+	for (n = 0; n < 3; n++) {
+		if (dup2(cgi->pipe_fds[n][!(n == 0)], n) < 0) {
+			lwsl_err("%s: stdin dup2 failed\n", __func__);
+			goto bail3;
+		}
+		close(cgi->pipe_fds[n][!(n == 0)]);
+	}
+
+	execvpe(exec_array[0], &exec_array[0], &env_array[0]);
+	exit(1);
+
+bail3:
+	/* drop us from the pt cgi list */
+	pt->cgi_list = cgi->cgi_list;
+
+	while (--n >= 0)
+		remove_wsi_socket_from_fds(wsi->cgi->stdwsi[n]);
+bail2:
+	for (n = 0; n < 3; n++)
+		if (wsi->cgi->stdwsi[n])
+			lws_free_wsi(cgi->stdwsi[n]);
+
+bail1:
+	for (n = 0; n < 3; n++) {
+		if (cgi->pipe_fds[n][0])
+			close(cgi->pipe_fds[n][0]);
+		if (cgi->pipe_fds[n][1])
+			close(cgi->pipe_fds[n][1]);
+	}
+
+	lws_free_set_NULL(wsi->cgi);
+
+	lwsl_err("%s: failed\n", __func__);
+
+	return -1;
+}
+
+/**
+ * lws_cgi_kill: terminate cgi process associated with wsi
+ *
+ * @wsi: connection to own the process
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_cgi_kill(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_cgi **pcgi = &pt->cgi_list;
+	struct lws_cgi_args args;
+	int n, status, do_close = 0;
+
+	if (!wsi->cgi)
+		return 0;
+
+	lwsl_notice("%s: wsi %p\n", __func__, wsi);
+
+	assert(wsi->cgi);
+
+	if (wsi->cgi->pid > 0) {
+		/* kill the process */
+		n = kill(wsi->cgi->pid, SIGTERM);
+		if (n < 0) {
+			lwsl_err("%s: failed\n", __func__);
+			return 1;
+		}
+		waitpid(wsi->cgi->pid, &status, 0); /* !!! may hang !!! */
+	}
+
+	args.stdwsi = &wsi->cgi->stdwsi[0];
+
+	if (wsi->cgi->pid != -1 && user_callback_handle_rxflow(
+			wsi->protocol->callback,
+			wsi, LWS_CALLBACK_CGI_TERMINATED,
+			wsi->user_space,
+			(void *)&args, 0)) {
+		wsi->cgi->pid = -1;
+		do_close = !wsi->cgi->being_closed;
+	}
+
+	/* remove us from the cgi list */
+	while (*pcgi) {
+		if (*pcgi == wsi->cgi) {
+			/* drop us from the pt cgi list */
+			*pcgi = (*pcgi)->cgi_list;
+			break;
+		}
+		pcgi = &(*pcgi)->cgi_list;
+	}
+
+	for (n = 0 ; n < 3; n++) {
+		if (wsi->cgi->pipe_fds[n][!!(n == 0)] >= 0) {
+			close(wsi->cgi->pipe_fds[n][!!(n == 0)]);
+			wsi->cgi->pipe_fds[n][!!(n == 0)] = -1;
+
+			lws_close_free_wsi(wsi->cgi->stdwsi[n], 0);
+		}
+	}
+
+	lws_free_set_NULL(wsi->cgi);
+
+	if (do_close)
+		lws_close_free_wsi(wsi, 0);
+
+	return 0;
+}
+
+LWS_EXTERN int
+lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
+{
+	struct lws_cgi **pcgi = &pt->cgi_list, *cgi;
+	int status;
+
+	/* check all the subprocesses on the cgi list for termination */
+	while (*pcgi) {
+		/* get the next one because we may close current one next */
+		cgi = *pcgi;
+		pcgi = &(*pcgi)->cgi_list;
+
+		if (cgi->pid > 0 &&
+		    waitpid(cgi->pid, &status, WNOHANG) > 0) {
+			cgi->pid = 0;
+			lws_cgi_kill(cgi->wsi);
+			pcgi = &pt->cgi_list;
+		}
+	}
+
+	return 0;
+}
+#endif

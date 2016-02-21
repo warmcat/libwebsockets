@@ -609,7 +609,8 @@ upgrade_ws:
 			return 1;
 		}
 #endif
-		lwsl_parser("accepted v%02d connection\n", wsi->ietf_spec_revision);
+		lwsl_parser("accepted v%02d connection\n",
+			    wsi->ietf_spec_revision);
 
 		return 0;
 	} /* while all chars are handled */
@@ -632,7 +633,8 @@ lws_get_idlest_tsi(struct lws_context *context)
 	int n = 0, hit = -1;
 
 	for (; n < context->count_threads; n++) {
-		if ((unsigned int)context->pt[n].fds_count != context->fd_limit_per_thread - 1 &&
+		if ((unsigned int)context->pt[n].fds_count !=
+		    context->fd_limit_per_thread - 1 &&
 		    (unsigned int)context->pt[n].fds_count < lowest) {
 			lowest = context->pt[n].fds_count;
 			hit = n;

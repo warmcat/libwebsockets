@@ -87,6 +87,7 @@ option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
 option(LWS_MBED3 "Platform is MBED3" OFF)
 option(LWS_SSL_SERVER_WITH_ECDH_CERT "Include SSL server use ECDH certificate" OFF)
+option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
 
 if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
 
@@ -1152,6 +1153,13 @@ if (NOT LWS_WITHOUT_TESTAPPS AND NOT LWS_WITHOUT_SERVER)
 	install(FILES ${TEST_SERVER_DATA}
 			DESTINATION share/libwebsockets-test-server
 			COMPONENT examples)
+if (LWS_WITH_CGI)
+	set(CGI_TEST_SCRIPT "${PROJECT_SOURCE_DIR}/test-server/lws-cgi-test.sh")
+	install(FILES ${CGI_TEST_SCRIPT}
+			PERMISSIONS  OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE OWNER_READ GROUP_READ WORLD_READ
+			DESTINATION share/libwebsockets-test-server
+			COMPONENT examples)
+	endif()
 endif()
 
 # Install the LibwebsocketsConfig.cmake and LibwebsocketsConfigVersion.cmake
@@ -1205,6 +1213,7 @@ message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")
 message(" LWS_MBED3 = ${LWS_MBED3}")
 message(" LWS_SSL_SERVER_WITH_ECDH_CERT = ${LWS_SSL_SERVER_WITH_ECDH_CERT}")
 message(" LWS_MAX_SMP = ${LWS_MAX_SMP}")
+message(" LWS_WITH_CGI = ${LWS_WITH_CGI}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()
