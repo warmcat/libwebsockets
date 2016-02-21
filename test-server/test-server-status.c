@@ -18,6 +18,7 @@
  * Public Domain.
  */
 #include "test-server.h"
+#include <time.h>
 
 static unsigned char server_info[1024];
 static int server_info_len;
