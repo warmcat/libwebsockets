@@ -37,7 +37,10 @@ update_status(struct lws *wsi, struct per_session_data__lws_status *pss)
 	char *p = cache;
 	char date[128];
 	time_t t;
+	struct tm *ptm;
+#ifndef WIN32
 	struct tm tm;
+#endif
 
 	p += snprintf(p, 512, " { %s, \"wsi\":\"%d\", \"conns\":[",
 		     server_info, live_wsi);
@@ -45,10 +48,16 @@ update_status(struct lws *wsi, struct per_session_data__lws_status *pss)
 	/* render the list */
 	while (*pp) {
 		t = (*pp)->tv_established.tv_sec;
+#ifdef WIN32
+		ptm = localtime(&t);
+		if (!ptm)
+#else
+		ptm = &tm;
 		if (!localtime_r(&t, &tm))
+#endif
 			strcpy(date, "unknown");
 		else
-			strftime(date, sizeof(date), "%F %H:%M %Z", &tm);
+			strftime(date, sizeof(date), "%F %H:%M %Z", ptm);
 		if ((p - cache) > (sizeof(cache) - 512))
 			break;
 		if (subsequent)
