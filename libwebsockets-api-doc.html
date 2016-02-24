@@ -790,6 +790,42 @@ LWS adopts the socket in http serving mode, it's ready to accept an upgrade
 to ws or just serve http.
 </blockquote>
 <hr>
+<h2>lws_adopt_socket_readbuf - adopt foreign socket and first rx as if listen socket accepted it</h2>
+<i>LWS_EXTERN struct lws *</i>
+<b>lws_adopt_socket_readbuf</b>
+(<i>struct lws_context *</i> <b>context</b>,
+<i>lws_sockfd_type</i> <b>accept_fd</b>,
+<i>const char *</i> <b>readbuf</b>,
+<i>size_t</i> <b>len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>context</b>
+<dd>lws context
+<dt><b>accept_fd</b>
+<dd>fd of already-accepted socket to adopt
+<dt><b>readbuf</b>
+<dd>NULL or pointer to data that must be drained before reading from
+accept_fd
+<dt><b>len</b>
+<dd>The length of the data held at <tt><b>readbuf</b></tt>
+</dl>
+<h3>Description</h3>
+<blockquote>
+Either returns new wsi bound to accept_fd, or closes accept_fd and
+returns NULL, having cleaned up any new wsi pieces.
+<p>
+LWS adopts the socket in http serving mode, it's ready to accept an upgrade
+to ws or just serve http.
+<p>
+If your external code did not already read from the socket, you can use
+<b>lws_adopt_socket</b> instead.
+<p>
+This api is guaranteed to use the data at <tt><b>readbuf</b></tt> first, before reading from
+the socket.
+<p>
+<tt><b>readbuf</b></tt> is limited to the size of the ah rx buf, currently 2048 bytes.
+</blockquote>
+<hr>
 <h2>lws_serve_http_file - Send a file back to the client using http</h2>
 <i>int</i>
 <b>lws_serve_http_file</b>
@@ -1518,6 +1554,7 @@ header.
 &nbsp; &nbsp; <i>unsigned int</i> <b>count_threads</b>;<br>
 &nbsp; &nbsp; <i>unsigned int</i> <b>fd_limit_per_thread</b>;<br>
 &nbsp; &nbsp; <i>unsigned int</i> <b>timeout_secs</b>;<br>
+&nbsp; &nbsp; <i>const char *</i> <b>ecdh_curve</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
@@ -1613,6 +1650,8 @@ limit by the number of threads.
 library are protected from hanging forever by timeouts.  If
 nonzero, this member lets you set the timeout used in seconds.
 Otherwise a default timeout is used.
+<dt><b>ecdh_curve</b>
+<dd>if NULL, defaults to initializing server with "prime256v1"
 </dl>
 <hr>
 <h2>struct lws_client_connect_info - parameters to connect with when using lws_client_connect_via_info()</h2>
