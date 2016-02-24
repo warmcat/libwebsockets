@@ -373,7 +373,8 @@ just_kill_connection:
 	    (wsi->state_pre_close == LWSS_RETURNED_CLOSE_ALREADY) ||
 	    (wsi->state_pre_close == LWSS_AWAITING_CLOSE_ACK) ||
 	    (wsi->state_pre_close == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) ||
-	    (wsi->mode == LWSCM_WS_CLIENT && wsi->state == LWSS_HTTP))) {
+	    (wsi->mode == LWSCM_WS_CLIENT && wsi->state_pre_close == LWSS_HTTP) ||
+	    (wsi->mode == LWSCM_WS_SERVING && wsi->state_pre_close == LWSS_HTTP))) {
 		lwsl_debug("calling back CLOSED\n");
 		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 					wsi->user_space, NULL, 0);
