@@ -17,6 +17,17 @@ known to affect anything until after it was fixed
 requests callback on writeable for the socket it will busywait until the
 socket closes
 
+5) MAJOR Although the test server has done it for a few versions already, it
+is now required for the user code to explicitly call
+
+	if (lws_http_transaction_completed(wsi))
+		return -1;
+
+when it finishes replying to a transaction in http.  Previously the library
+did it for you, but that disallowed large, long transfers with multiple
+trips around the event loop (and cgi...).
+
+
 Changes
 -------
 

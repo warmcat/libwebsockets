@@ -130,7 +130,7 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 		switch (wsi->state) {
 			case LWSS_HTTP:
 			case LWSS_HTTP_HEADERS:
-				goto http_complete;
+				goto read_ok;
 			case LWSS_HTTP_ISSUING_FILE:
 				goto read_ok;
 			case LWSS_HTTP_BODY:
