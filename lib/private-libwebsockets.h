@@ -940,6 +940,8 @@ struct _lws_header_related {
 	/* MUST be first in struct */
 	struct allocated_headers *ah;
 	struct lws *ah_wait_list;
+	unsigned char *preamble_rx;
+	unsigned int preamble_rx_len;
 	enum uri_path_states ups;
 	enum uri_esc_states ues;
 	short lextable_pos;

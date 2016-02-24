@@ -821,6 +821,80 @@ fail:
 	return NULL;
 }
 
+/**
+ * lws_adopt_socket_readbuf() - adopt foreign socket and first rx as if listen socket accepted it
+ * @context:	lws context
+ * @accept_fd:	fd of already-accepted socket to adopt
+ * @readbuf:	NULL or pointer to data that must be drained before reading from
+ *		accept_fd
+ * @len:	The length of the data held at @readbuf
+ *
+ * Either returns new wsi bound to accept_fd, or closes accept_fd and
+ * returns NULL, having cleaned up any new wsi pieces.
+ *
+ * LWS adopts the socket in http serving mode, it's ready to accept an upgrade
+ * to ws or just serve http.
+ *
+ * If your external code did not already read from the socket, you can use
+ * lws_adopt_socket() instead.
+ *
+ * This api is guaranteed to use the data at @readbuf first, before reading from
+ * the socket.
+ *
+ * @readbuf is limited to the size of the ah rx buf, currently 2048 bytes.
+ */
+
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
+			 const char *readbuf, size_t len)
+{
+	struct lws *wsi = lws_adopt_socket(context, accept_fd);
+	struct allocated_headers *ah;
+
+	if (!wsi)
+		return NULL;
+
+	if (!readbuf)
+		return wsi;
+
+	if (len > sizeof(ah->rx)) {
+		lwsl_err("%s: rx in too big\n", __func__);
+		goto bail;
+	}
+	/*
+	 * we can't process the initial read data until we can attach an ah.
+	 *
+	 * if one is available, get it and place the data in his ah rxbuf...
+	 * wsi with ah that have pending rxbuf get auto-POLLIN service.
+	 */
+	if (!lws_header_table_attach(wsi)) {
+		ah = wsi->u.hdr.ah;
+		memcpy(ah->rx, readbuf, len);
+		ah->rxpos = 0;
+		ah->rxlen = len;
+
+		return wsi;
+	}
+
+	/*
+	 * hum if no ah came, we are on the wait list and must defer
+	 * dealing with this until the ah arrives.
+	 *
+	 * later successful lws_header_table_attach() will apply the
+	 * below to the rx buffer.
+	 */
+
+	wsi->u.hdr.preamble_rx = lws_malloc(len);
+	wsi->u.hdr.preamble_rx_len = len;
+
+	return wsi;
+
+bail:
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+
+	return NULL;
+}
+
 LWS_VISIBLE int
 lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			  struct lws_pollfd *pollfd)
