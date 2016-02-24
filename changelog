@@ -10,6 +10,9 @@ Fixes
 get sent a content-length resulting in the link hanging until the peer closed
 it.  attack.sh updated to add a test for this.
 
+3) MINOR An error about hdr struct in _lws_ws_related is corrected, it's not
+known to affect anything until after it was fixed
+
 Changes
 -------
 
