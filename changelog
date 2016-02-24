@@ -13,6 +13,10 @@ it.  attack.sh updated to add a test for this.
 3) MINOR An error about hdr struct in _lws_ws_related is corrected, it's not
 known to affect anything until after it was fixed
 
+4) MINOR During the close shutdown wait state introduced at v1.7, if something
+requests callback on writeable for the socket it will busywait until the
+socket closes
+
 Changes
 -------
 
