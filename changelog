@@ -6,6 +6,14 @@ Fixes
 
 1) libuv one-per-session valgrind leak fixed
 
+2) MINOR An error about hdr struct in _lws_ws_related is corrected, it's not
+known to affect anything added until after it was fixed
+
+3) MINOR During the close shutdown wait state introduced at v1.7, if something
+requests callback on writeable for the socket it will busywait until the
+socket closes
+
+
 Changes
 -------
 
