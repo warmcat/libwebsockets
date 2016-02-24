@@ -953,7 +953,7 @@ struct _lws_header_related {
 
 struct _lws_websocket_related {
 	/* cheapest way to deal with ah overlap with ws union transition */
-	struct _lws_header_related *hdr;
+	struct _lws_header_related hdr;
 	char *rx_ubuf;
 	unsigned int rx_ubuf_alloc;
 	struct lws *rx_draining_ext_list;
