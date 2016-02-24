@@ -81,6 +81,16 @@ lws_header_table_reset(struct lws *wsi)
 
 	/* since we will restart the ah, our new headers are not completed */
 	wsi->hdr_parsing_completed = 0;
+
+	/*
+	 * if we inherited pending rx (from socket adoption deferred
+	 * processing), apply and free it.
+	 */
+	if (wsi->u.hdr.preamble_rx) {
+		memcpy(ah->rx, wsi->u.hdr.preamble_rx, wsi->u.hdr.preamble_rx_len);
+		ah->rxlen = wsi->u.hdr.preamble_rx_len;
+		lws_free_set_NULL(wsi->u.hdr.preamble_rx);
+	}
 }
 
 int LWS_WARN_UNUSED_RESULT
@@ -178,6 +188,9 @@ int lws_header_table_detach(struct lws *wsi)
 	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
 		  (void *)wsi, (void *)wsi->u.hdr.ah, wsi->tsi,
 		  pt->ah_count_in_use);
+
+	if (wsi->u.hdr.preamble_rx)
+		lws_free_set_NULL(wsi->u.hdr.preamble_rx);
 
 	/* may not be detached while he still has unprocessed rx */
 	if (ah && ah->rxpos != ah->rxlen) {

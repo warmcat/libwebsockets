@@ -53,6 +53,14 @@ User API additions
 which lets you set the name of the ECDH curve OpenSSL should use.  By
 default (if you leave ecdh_curve NULL) it will use "prime256v1"
 
+2) MINOR NEWAPI It was already possible to adopt a foreign socket that had not
+been read from using lws_adopt_socket() since v1.7.  Now you can adopt a
+partially-used socket if you don't need SSL, by passing it what you read
+so it can drain that before reading from the socket.
+
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
+		const char *readbuf, size_t len);
 
 
 v1.7.0
