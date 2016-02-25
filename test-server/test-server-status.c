@@ -34,7 +34,7 @@ update_status(struct lws *wsi, struct per_session_data__lws_status *pss)
 {
 	struct per_session_data__lws_status **pp = &list;
 	int subsequent = 0;
-	char *p = cache;
+	char *p = cache + LWS_PRE, *start = p;
 	char date[128];
 	time_t t;
 	struct tm *ptm;
@@ -58,12 +58,12 @@ update_status(struct lws *wsi, struct per_session_data__lws_status *pss)
 			strcpy(date, "unknown");
 		else
 			strftime(date, sizeof(date), "%F %H:%M %Z", ptm);
-		if ((p - cache) > (sizeof(cache) - 512))
+		if ((p - start) > (sizeof(cache) - 512))
 			break;
 		if (subsequent)
 			*p++ = ',';
 		subsequent = 1;
-		p += snprintf(p, sizeof(cache) - (p - cache) - 1,
+		p += snprintf(p, sizeof(cache) - (p - start) - 1,
 				"{\"peer\":\"%s\",\"time\":\"%s\","
 				"\"ua\":\"%s\"}",
 			     (*pp)->ip, date, (*pp)->user_agent);
@@ -71,9 +71,9 @@ update_status(struct lws *wsi, struct per_session_data__lws_status *pss)
 	}
 
 	p += sprintf(p, "]}");
-	cache_len = p - cache;
+	cache_len = p - start;
 	lwsl_err("cache_len %d\n", cache_len);
-	cache[cache_len] = '\0';
+	*p = '\0';
 
 	/* since we changed the list, increment the 'version' */
 	current++;
@@ -128,7 +128,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		m = lws_write(wsi, (unsigned char *)cache, cache_len,
+		m = lws_write(wsi, (unsigned char *)cache + LWS_PRE, cache_len,
 			      LWS_WRITE_TEXT);
 		if (m < server_info_len) {
 			lwsl_err("ERROR %d writing to di socket\n", m);
