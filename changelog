@@ -27,6 +27,9 @@ when it finishes replying to a transaction in http.  Previously the library
 did it for you, but that disallowed large, long transfers with multiple
 trips around the event loop (and cgi...).
 
+6) MAJOR connections on ah waiting list that closed did not get removed from
+the waiting list...
+
 
 Changes
 -------
