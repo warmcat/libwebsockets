@@ -1,6 +1,11 @@
 Changelog
 ---------
 
+v1.7.2
+======
+
+NB: No API change since v1.7.0
+
 Fixes
 -----
 
@@ -13,6 +18,7 @@ known to affect anything added until after it was fixed
 requests callback on writeable for the socket it will busywait until the
 socket closes
 
+4) MINOR update URLs in test html for libwebsockets.org https STS changes
 
 Changes
 -------
