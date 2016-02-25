@@ -107,7 +107,7 @@ lws_header_table_attach(struct lws *wsi)
 
 	/* if we are already bound to one, just clear it down */
 	if (wsi->u.hdr.ah) {
-		lwsl_err("cleardown\n");
+		lwsl_info("cleardown\n");
 		goto reset;
 	}
 
@@ -122,8 +122,8 @@ lws_header_table_attach(struct lws *wsi)
 				goto bail;
 			}
 			/* new ah.... remove ourselves from waiting list */
-			*pwsi = wsi->u.hdr.ah_wait_list;
-			wsi->u.hdr.ah_wait_list = NULL;
+			*pwsi = wsi->u.hdr.ah_wait_list; /* set our prev to our next */
+			wsi->u.hdr.ah_wait_list = NULL; /* no next any more */
 			pt->ah_wait_list_length--;
 			break;
 		}
@@ -202,7 +202,7 @@ int lws_header_table_detach(struct lws *wsi)
 	lws_pt_lock(pt);
 
 	pwsi = &pt->ah_wait_list;
-	if (!ah) { /* remove from wait list if that's all */
+	if (!ah) { /* remove from wait list if none attached */
 //		if (wsi->socket_is_permanently_unusable)
 			while (*pwsi) {
 				if (*pwsi == wsi) {
@@ -218,6 +218,7 @@ int lws_header_table_detach(struct lws *wsi)
 
 		goto bail;
 	}
+	/* we did have an ah attached */
 	time(&now);
 	if (now - wsi->u.hdr.ah->assigned > 3) {
 		/*
@@ -239,6 +240,7 @@ int lws_header_table_detach(struct lws *wsi)
 	wsi->u.hdr.ah = NULL;
 	ah->wsi = NULL; /* no owner */
 
+	/* oh there is nobody on the waiting list... leave it at that then */
 	if (!*pwsi) {
 		ah->in_use = 0;
 		pt->ah_count_in_use--;
@@ -246,7 +248,7 @@ int lws_header_table_detach(struct lws *wsi)
 		goto bail;
 	}
 
-	/* somebody else on same tsi is waiting, give it to him */
+	/* somebody else on same tsi is waiting, give it to oldest guy */
 
 	lwsl_info("pt wait list %p\n", *pwsi);
 	while ((*pwsi)->u.hdr.ah_wait_list)
@@ -271,6 +273,7 @@ int lws_header_table_detach(struct lws *wsi)
 
 	/* point prev guy to next guy in list instead */
 	*pwsi = wsi->u.hdr.ah_wait_list;
+	/* the guy who got one is out of the list */
 	wsi->u.hdr.ah_wait_list = NULL;
 	pt->ah_wait_list_length--;
 

@@ -76,14 +76,17 @@ lws_remove_from_timeout_list(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-	if (!wsi->timeout_list_prev)
+	if (!wsi->timeout_list_prev) /* ie, not part of the list */
 		return;
 
 	lws_pt_lock(pt);
+	/* if we have a next guy, set his prev to our prev */
 	if (wsi->timeout_list)
 		wsi->timeout_list->timeout_list_prev = wsi->timeout_list_prev;
+	/* set our prev guy to our next guy instead of us */
 	*wsi->timeout_list_prev = wsi->timeout_list;
 
+	/* we're out of the list, we should not point anywhere any more */
 	wsi->timeout_list_prev = NULL;
 	wsi->timeout_list = NULL;
 	lws_pt_unlock(pt);
@@ -109,11 +112,15 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 
 	time(&now);
 
-	if (!wsi->pending_timeout && reason) {
+	if (reason && !wsi->timeout_list_prev) {
+		/* our next guy is current first guy */
 		wsi->timeout_list = pt->timeout_list;
+		/* if there is a next guy, set his prev ptr to our next ptr */
 		if (wsi->timeout_list)
 			wsi->timeout_list->timeout_list_prev = &wsi->timeout_list;
+		/* our prev ptr is first ptr */
 		wsi->timeout_list_prev = &pt->timeout_list;
+		/* set the first guy to be us */
 		*wsi->timeout_list_prev = wsi;
 	}
 
