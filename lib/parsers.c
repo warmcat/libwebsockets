@@ -190,19 +190,18 @@ int lws_header_table_detach(struct lws *wsi)
 
 	pwsi = &pt->ah_wait_list;
 	if (!ah) { /* remove from wait list if none attached */
-//		if (wsi->socket_is_permanently_unusable)
-			while (*pwsi) {
-				if (*pwsi == wsi) {
-					lwsl_info("%s: wsi %p, remv wait\n",
-						  __func__, wsi);
-					*pwsi = wsi->u.hdr.ah_wait_list;
-					wsi->u.hdr.ah_wait_list = NULL;
-					pt->ah_wait_list_length--;
-					goto bail;
-				}
-				pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+		while (*pwsi) {
+			if (*pwsi == wsi) {
+				lwsl_info("%s: wsi %p, remv wait\n",
+					  __func__, wsi);
+				*pwsi = wsi->u.hdr.ah_wait_list;
+				wsi->u.hdr.ah_wait_list = NULL;
+				pt->ah_wait_list_length--;
+				goto bail;
 			}
-
+			pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+		}
+		/* no ah, not on list... no more business here */
 		goto bail;
 	}
 	/* we did have an ah attached */

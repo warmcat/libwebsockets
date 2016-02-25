@@ -1,6 +1,13 @@
 Changelog
 ---------
 
+Fixes
+-----
+
+1) MAJOR connections on ah waiting list that closed did not get removed from
+the waiting list...
+
+
 v1.7.2
 ======
 
@@ -40,6 +47,7 @@ Fixes
 2) MAJOR http:/1.1 connections handled by  lws_return_http_status() did not
 get sent a content-length resulting in the link hanging until the peer closed
 it.  attack.sh updated to add a test for this.
+
 
 Changes
 -------
