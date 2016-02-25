@@ -147,6 +147,15 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				lwsl_notice("URI Arg %d: %s\n", ++n, buf);
 			}
 		}
+
+		{
+			char name[100], rip[50];
+			lws_get_peer_addresses(wsi, lws_get_socket_fd(wsi), name,
+					       sizeof(name), rip, sizeof(rip));
+			sprintf(buf, "%s (%s)", name, rip);
+			lwsl_notice("HTTP connect from %s\n", buf);
+		}
+
 		if (len < 1) {
 			lws_return_http_status(wsi,
 						HTTP_STATUS_BAD_REQUEST, NULL);
