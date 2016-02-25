@@ -270,6 +270,10 @@ lws_plat_set_socket_options(struct lws_context *context, int fd)
 LWS_VISIBLE void
 lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 {
+	if (info->gid != -1)
+		if (setgid(info->gid))
+			lwsl_warn("setgid: %s\n", strerror(LWS_ERRNO));
+
 	if (info->uid != -1) {
 		struct passwd *p = getpwuid(info->uid);
 
@@ -282,10 +286,6 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 		} else
 			lwsl_warn("getpwuid: unable to find uid %d", info->uid);
 	}
-	if (info->gid != -1)
-		if (setgid(info->gid))
-			lwsl_warn("setgid: %s\n", strerror(LWS_ERRNO));
-
 }
 
 static void
