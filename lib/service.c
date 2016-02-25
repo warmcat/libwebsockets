@@ -292,7 +292,6 @@ int
 lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	struct lws **pwsi;
 
 	/*
 	 * if extensions want in on it (eg, we are a mux parent)
@@ -316,21 +315,6 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 			    pt->ah_wait_list_length,
 			    pt->fds[wsi->sock].events);
 #endif
-		lws_pt_lock(pt);
-
-		pwsi = &pt->ah_wait_list;
-		if (!pwsi)
-			return 0;
-		while (*pwsi) {
-			if (*pwsi == wsi)
-				break;
-			pwsi = &(*pwsi)->u.hdr.ah_wait_list;
-			lwsl_err("%s: pwsi=%p\n", __func__, pwsi);
-		}
-		lws_pt_unlock(pt);
-
-		if (!*pwsi)
-			lwsl_err("*** not on ah wait list ***\n");
 		/*
 		 * Since he failed a timeout, he already had a chance to do
 		 * something and was unable to... that includes situations like
