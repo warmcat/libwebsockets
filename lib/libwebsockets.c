@@ -952,12 +952,21 @@ lws_ensure_user_space(struct lws *wsi)
 	return 0;
 }
 
-LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
+/**
+ * lwsl_timestamp: generate logging timestamp string
+ *
+ * @level:	logging level
+ * @p:		char * buffer to take timestamp
+ * @len:	length of p
+ *
+ * returns length written in p
+ */
+LWS_VISIBLE int
+lwsl_timestamp(int level, char *p, int len)
 {
 	time_t o_now = time(NULL);
 	unsigned long long now;
 	struct tm *ptm = NULL;
-	char buf[300];
 #ifndef WIN32
 	struct tm tm;
 #endif
@@ -969,13 +978,14 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 	if (localtime_r(&o_now, &tm))
 		ptm = &tm;
 #endif
-	buf[0] = '\0';
+	p[0] = '\0';
 	for (n = 0; n < LLL_COUNT; n++) {
 		if (level != (1 << n))
 			continue;
 		now = time_in_microseconds() / 100;
 		if (ptm)
-			sprintf(buf, "[%04d/%02d/%02d %02d:%02d:%02d:%04d] %s: ",
+			n = snprintf(p, len,
+				"[%04d/%02d/%02d %02d:%02d:%02d:%04d] %s: ",
 				ptm->tm_year + 1900,
 				ptm->tm_mon,
 				ptm->tm_mday,
@@ -984,11 +994,20 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 				ptm->tm_sec,
 				(int)(now % 10000), log_level_names[n]);
 		else
-			sprintf(buf, "[%llu:%04d] %s: ",
+			n = snprintf(p, len, "[%llu:%04d] %s: ",
 					(unsigned long long) now / 10000,
 					(int)(now % 10000), log_level_names[n]);
-		break;
+		return n;
 	}
+
+	return 0;
+}
+
+LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
+{
+	char buf[50];
+
+	lwsl_timestamp(level, buf, sizeof(buf));
 
 	fprintf(stderr, "%s%s", buf, line);
 }

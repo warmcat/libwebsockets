@@ -101,6 +101,15 @@ $ wget http://localhost:7681/cgitest --post-file=hello.txt -O- --quiet
 lwstest script
 read="hello"
 
+4) There is a helper api for forming logging timestamps
+
+LWS_VISIBLE int
+lwsl_timestamp(int level, char *p, int len)
+
+this generates this kind of timestamp for use as logging preamble
+
+lwsts[13116]: [2016/01/25 14:52:52:8386] NOTICE: Initial logging level 7
+
 
 
 v1.7.0
