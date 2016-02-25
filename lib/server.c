@@ -306,6 +306,11 @@ lws_http_action(struct lws *wsi)
 
 	n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
+	if (n) {
+		lwsl_info("LWS_CALLBACK_HTTP closing\n");
+
+		return 1;
+	}
 
 	/*
 	 * If we're not issuing a file, check for content_length or
