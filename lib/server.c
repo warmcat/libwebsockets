@@ -892,6 +892,7 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 	 */
 
 	wsi->u.hdr.preamble_rx = lws_malloc(len);
+	memcpy(wsi->u.hdr.preamble_rx, readbuf, len);
 	wsi->u.hdr.preamble_rx_len = len;
 
 	return wsi;
