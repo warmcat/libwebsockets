@@ -158,15 +158,16 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 	}
 
-	if (n < 0) {
-		if (LWS_ERRNO != LWS_EINTR)
-			return -1;
-		return 0;
-	}
-
-	c = n;
-
-	lws_service_flag_pending(context, tsi);
+	m = lws_service_flag_pending(context, tsi);
+	if (m)
+		c = -1; /* unknown limit */
+	else
+		if (n < 0) {
+			if (LWS_ERRNO != LWS_EINTR)
+				return -1;
+			return 0;
+		} else
+			c = n;
 
 	/* any socket with events to service? */
 	for (n = 0; n < pt->fds_count && c; n++) {
