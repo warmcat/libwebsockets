@@ -122,9 +122,8 @@ void signal_cb(uv_signal_t *watcher, int revents)
 }
 
 static void
-uv_timeout_cb(uv_timer_t *w)
+uv_timeout_cb_dumb_increment(uv_timer_t *w)
 {
-	lwsl_info("%s\n", __func__);
 	lws_callback_on_writable_all_protocol(context,
 					&protocols[PROTOCOL_DUMB_INCREMENT]);
 }
@@ -273,6 +272,7 @@ int main(int argc, char **argv)
 	info.gid = -1;
 	info.uid = -1;
 	info.max_http_header_pool = 1;
+	info.timeout_secs = 5;
 	info.options = opts | LWS_SERVER_OPTION_LIBUV;
 
 	context = lws_create_context(&info);
@@ -284,7 +284,7 @@ int main(int argc, char **argv)
 	lws_uv_initloop(context, NULL, signal_cb, 0);
 
 	uv_timer_init(lws_uv_getloop(context, 0), &timeout_watcher);
-	uv_timer_start(&timeout_watcher, uv_timeout_cb, 50, 50);
+	uv_timer_start(&timeout_watcher, uv_timeout_cb_dumb_increment, 50, 50);
 
 	lws_libuv_run(context, 0);
 
