@@ -237,6 +237,9 @@ user_service:
 			return 1;
 		}
 
+	if (!wsi->hdr_parsing_completed)
+		return 0;
+
 #ifdef LWS_USE_HTTP2
 	/*
 	 * we are the 'network wsi' for potentially many muxed child wsi with
@@ -789,7 +792,7 @@ drain:
 			/* we can run the normal ah detach flow despite
 			 * being in ws union mode, since all union members
 			 * start with hdr */
-			lws_header_table_detach(wsi);
+			lws_header_table_detach(wsi, 0);
 		}
 
 		pending = lws_ssl_pending(wsi);

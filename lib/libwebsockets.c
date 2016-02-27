@@ -63,7 +63,7 @@ lws_free_wsi(struct lws *wsi)
 		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
 
 	/* we may not have an ah, but may be on the waiting list... */
-	lws_header_table_detach(wsi);
+	lws_header_table_detach(wsi, 0);
 
 	wsi->context->count_wsi_allocated--;
 	lwsl_debug("%s: %p, remaining wsi %d\n", __func__, wsi,

@@ -61,9 +61,11 @@ lextable_decode(int pos, char c)
 }
 
 void
-lws_header_table_reset(struct lws *wsi)
+lws_header_table_reset(struct lws *wsi, int autoservice)
 {
 	struct allocated_headers *ah = wsi->u.hdr.ah;
+	struct lws_context_per_thread *pt;
+	struct lws_pollfd *pfd;
 
 	/* if we have the idea we're resetting 'our' ah, must be bound to one */
 	assert(ah);
@@ -87,14 +89,29 @@ lws_header_table_reset(struct lws *wsi)
 	 * processing), apply and free it.
 	 */
 	if (wsi->u.hdr.preamble_rx) {
-		memcpy(ah->rx, wsi->u.hdr.preamble_rx, wsi->u.hdr.preamble_rx_len);
+		memcpy(ah->rx, wsi->u.hdr.preamble_rx,
+		       wsi->u.hdr.preamble_rx_len);
 		ah->rxlen = wsi->u.hdr.preamble_rx_len;
 		lws_free_set_NULL(wsi->u.hdr.preamble_rx);
+
+		if (autoservice) {
+			lwsl_notice("%s: calling service on readbuf ah\n", __func__);
+
+			pt = &wsi->context->pt[(int)wsi->tsi];
+
+			/* unlike a normal connect, we have the headers already
+			 * (or the first part of them anyway)
+			 */
+			pfd = &pt->fds[wsi->position_in_fds_table];
+			pfd->revents |= LWS_POLLIN;
+			lwsl_err("%s: calling service\n", __func__);
+			lws_service_fd_tsi(wsi->context, pfd, wsi->tsi);
+		}
 	}
 }
 
 int LWS_WARN_UNUSED_RESULT
-lws_header_table_attach(struct lws *wsi)
+lws_header_table_attach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -165,7 +182,7 @@ lws_header_table_attach(struct lws *wsi)
 	lws_pt_unlock(pt);
 
 reset:
-	lws_header_table_reset(wsi);
+	lws_header_table_reset(wsi, autoservice);
 	time(&wsi->u.hdr.ah->assigned);
 
 	return 0;
@@ -176,7 +193,7 @@ bail:
 	return 1;
 }
 
-int lws_header_table_detach(struct lws *wsi)
+int lws_header_table_detach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->context;
 	struct allocated_headers *ah = wsi->u.hdr.ah;
@@ -258,7 +275,7 @@ int lws_header_table_detach(struct lws *wsi)
 
 	wsi->u.hdr.ah = ah;
 	ah->wsi = wsi; /* new owner */
-	lws_header_table_reset(wsi);
+	lws_header_table_reset(wsi, autoservice);
 	time(&wsi->u.hdr.ah->assigned);
 
 	assert(wsi->position_in_fds_table != -1);

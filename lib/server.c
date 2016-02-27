@@ -330,7 +330,7 @@ lws_http_action(struct lws *wsi)
 bail_nuke_ah:
 	/* we're closing, losing some rx is OK */
 	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
-	lws_header_table_detach(wsi);
+	lws_header_table_detach(wsi, 1);
 
 	return 1;
 }
@@ -628,7 +628,7 @@ bail_nuke_ah:
 	/* drop the header info */
 	/* we're closing, losing some rx is OK */
 	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
-	lws_header_table_detach(wsi);
+	lws_header_table_detach(wsi, 1);
 
 	return 1;
 }
@@ -753,9 +753,9 @@ lws_http_transaction_completed(struct lws *wsi)
 
 		if (!wsi->more_rx_waiting) {
 			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
-			lws_header_table_detach(wsi);
+			lws_header_table_detach(wsi, 1);
 		} else
-			lws_header_table_reset(wsi);
+			lws_header_table_reset(wsi, 1);
 	}
 
 	/* If we're (re)starting on headers, need other implied init */
@@ -861,7 +861,9 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 			 const char *readbuf, size_t len)
 {
 	struct lws *wsi = lws_adopt_socket(context, accept_fd);
+	struct lws_context_per_thread *pt;
 	struct allocated_headers *ah;
+	struct lws_pollfd *pfd;
 
 	if (!wsi)
 		return NULL;
@@ -878,24 +880,42 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 	 *
 	 * if one is available, get it and place the data in his ah rxbuf...
 	 * wsi with ah that have pending rxbuf get auto-POLLIN service.
+	 *
+	 * no autoservice because we didn't get a chance to attach the
+	 * readbuf data to wsi or ah yet, and we will do it next if we get
+	 * the ah.
 	 */
-	if (!lws_header_table_attach(wsi)) {
+	if (!lws_header_table_attach(wsi, 0)) {
 		ah = wsi->u.hdr.ah;
 		memcpy(ah->rx, readbuf, len);
 		ah->rxpos = 0;
 		ah->rxlen = len;
 
+		lwsl_notice("%s: calling service on readbuf ah\n", __func__);
+		pt = &context->pt[(int)wsi->tsi];
+
+		/* unlike a normal connect, we have the headers already
+		 * (or the first part of them anyway).
+		 * libuv won't come back and service us without a network
+		 * event, so we need to do the header service right here.
+		 */
+		pfd = &pt->fds[wsi->position_in_fds_table];
+		pfd->revents |= LWS_POLLIN;
+		lwsl_err("%s: calling service\n", __func__);
+		if (lws_service_fd_tsi(context, pfd, wsi->tsi))
+			/* service closed us */
+			return NULL;
+
 		return wsi;
 	}
-
+	lwsl_err("%s: deferring handling ah\n", __func__);
 	/*
 	 * hum if no ah came, we are on the wait list and must defer
 	 * dealing with this until the ah arrives.
 	 *
 	 * later successful lws_header_table_attach() will apply the
-	 * below to the rx buffer.
+	 * below to the rx buffer (via lws_header_table_reset()).
 	 */
-
 	wsi->u.hdr.preamble_rx = lws_malloc(len);
 	memcpy(wsi->u.hdr.preamble_rx, readbuf, len);
 	wsi->u.hdr.preamble_rx_len = len;
@@ -958,7 +978,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		    wsi->state == LWSS_HTTP_ISSUING_FILE ||
 		    wsi->state == LWSS_HTTP_HEADERS) {
 			if (!wsi->u.hdr.ah)
-				if (lws_header_table_attach(wsi))
+				/* no autoservice beacuse we will do it next */
+				if (lws_header_table_attach(wsi, 0))
 					goto try_pollout;
 
 			ah = wsi->u.hdr.ah;
@@ -1002,7 +1023,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					    (wsi->mode != LWSCM_HTTP_SERVING &&
 					     wsi->mode != LWSCM_HTTP_SERVING_ACCEPTED &&
 					     wsi->mode != LWSCM_HTTP2_SERVING))
-						lws_header_table_detach(wsi);
+						lws_header_table_detach(wsi, 1);
 				}
 				break;
 			}
@@ -1051,6 +1072,9 @@ try_pollout:
 			lwsl_notice("%s a\n", __func__);
 			goto fail;
 		}
+
+		if (!wsi->hdr_parsing_completed)
+			break;
 
 		if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
 			n = user_callback_handle_rxflow(wsi->protocol->callback,

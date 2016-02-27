@@ -80,7 +80,7 @@ lws_uv_timeout_cb(uv_timer_t *timer)
 	struct lws_context_per_thread *pt = container_of(timer,
 			struct lws_context_per_thread, uv_timeout_watcher);
 
-	lwsl_info("%s\n", __func__);
+	lwsl_debug("%s\n", __func__);
 	/* do timeout check only */
 	lws_service_fd_tsi(pt->context, NULL, pt->tid);
 }
@@ -119,8 +119,10 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, uv_signal_cb cb,
 	 */
 	if (wsi) {
 		wsi->w_read.context = context;
-		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher, pt->lserv_fd);
-		uv_poll_start(&wsi->w_read.uv_watcher, UV_READABLE, lws_accept_cb);
+		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher,
+			     pt->lserv_fd);
+		uv_poll_start(&wsi->w_read.uv_watcher, UV_READABLE,
+			      lws_accept_cb);
 	}
 
 	uv_timer_init(pt->io_loop_uv, &pt->uv_timeout_watcher);

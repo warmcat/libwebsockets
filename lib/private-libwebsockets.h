@@ -1296,13 +1296,13 @@ LWS_EXTERN int
 lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_header_table_attach(struct lws *wsi);
+lws_header_table_attach(struct lws *wsi, int autoservice);
 
 LWS_EXTERN int
-lws_header_table_detach(struct lws *wsi);
+lws_header_table_detach(struct lws *wsi, int autoservice);
 
 LWS_EXTERN void
-lws_header_table_reset(struct lws *wsi);
+lws_header_table_reset(struct lws *wsi, int autoservice);
 
 LWS_EXTERN char * LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h);
