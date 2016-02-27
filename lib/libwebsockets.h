@@ -140,6 +140,10 @@ struct sockaddr_in;
 #else /* NOT WIN32 */
 #include <unistd.h>
 
+#ifdef BSD
+#include <netinet/in.h>
+#endif
+
 #define LWS_INLINE inline
 #define LWS_O_RDONLY O_RDONLY
 

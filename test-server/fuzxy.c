@@ -61,6 +61,9 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #endif
+#ifdef BSD
+#include <netinet/in.h>
+#endif
 
 #define MAX_FUZZ_BUF (1024 * 1024)
 
