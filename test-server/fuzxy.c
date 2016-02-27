@@ -62,6 +62,11 @@
 #include <sys/socket.h>
 #endif
 
+#if defined(__NetBSD__)
+#include <sys/cdefs.h>
+#include <netinet/in.h>
+#endif
+
 #define MAX_FUZZ_BUF (1024 * 1024)
 
 enum types {
