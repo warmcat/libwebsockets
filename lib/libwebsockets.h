@@ -141,7 +141,6 @@ struct sockaddr_in;
 #include <unistd.h>
 
 #if defined(__NetBSD__)
-#include <sys/cdefs.h>
 #include <netinet/in.h>
 #endif
 

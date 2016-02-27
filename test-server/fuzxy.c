@@ -63,7 +63,6 @@
 #endif
 
 #if defined(__NetBSD__)
-#include <sys/cdefs.h>
 #include <netinet/in.h>
 #endif
 
@@ -958,4 +957,3 @@ bail1:
 
 	return 0;
 }
-
