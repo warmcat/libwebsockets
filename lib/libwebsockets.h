@@ -140,7 +140,7 @@ struct sockaddr_in;
 #else /* NOT WIN32 */
 #include <unistd.h>
 
-#ifdef BSD
+#if defined(__NetBSD__)
 #include <netinet/in.h>
 #endif
 

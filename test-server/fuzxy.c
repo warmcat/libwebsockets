@@ -61,7 +61,8 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #endif
-#ifdef BSD
+
+#if defined(__NetBSD__)
 #include <netinet/in.h>
 #endif
 
@@ -956,4 +957,3 @@ bail1:
 
 	return 0;
 }
-
