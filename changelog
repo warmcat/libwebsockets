@@ -7,6 +7,12 @@ Fixes
 1) MAJOR connections on ah waiting list that closed did not get removed from
 the waiting list...
 
+2) MAJOR since we added the ability to hold an ah across http keepalive
+transactions where more headers had already arrived, we broke the ability
+to tell if more headers had arrived.  Result was if the browser didn't
+close the keepalive, we retained ah for the lifetime of the keepalive,
+using up the pool.
+
 
 v1.7.2
 ======

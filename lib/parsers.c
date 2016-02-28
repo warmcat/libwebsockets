@@ -216,7 +216,7 @@ int lws_header_table_detach(struct lws *wsi)
 			    "wsi->more_rx_waiting %d\n", __func__, wsi,
 			    (int)(now - wsi->u.hdr.ah->assigned),
 			    ah->rxpos, ah->rxlen, wsi->mode, wsi->state,
-			    wsi->u.hdr.more_rx_waiting);
+			    wsi->more_rx_waiting);
 	}
 
 	/* if we think we're detaching one, there should be one in use */

@@ -352,7 +352,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	assert(wsi->u.hdr.ah);
 
 	while (len--) {
-		wsi->u.hdr.more_rx_waiting = !!len;
+		wsi->more_rx_waiting = !!len;
 
 		assert(wsi->mode == LWSCM_HTTP_SERVING);
 
@@ -364,7 +364,9 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		if (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE)
 			continue;
 
-		lwsl_parser("lws_parse sees parsing complete\n");
+		lwsl_parser("%s: lws_parse sees parsing complete\n", __func__);
+		lwsl_debug("%s: wsi->more_rx_waiting=%d\n", __func__,
+				wsi->more_rx_waiting);
 
 		wsi->mode = LWSCM_PRE_WS_SERVING_ACCEPT;
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
@@ -744,7 +746,10 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * reset the existing header table and keep it.
 	 */
 	if (wsi->u.hdr.ah) {
-		if (!wsi->u.hdr.more_rx_waiting) {
+		lwsl_info("%s: wsi->more_rx_waiting=%d\n", __func__,
+				wsi->more_rx_waiting);
+
+		if (!wsi->more_rx_waiting) {
 			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
 			lws_header_table_detach(wsi);
 		} else
