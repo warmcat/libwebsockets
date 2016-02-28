@@ -964,7 +964,6 @@ struct _lws_header_related {
 	char post_literal_equal;
 	unsigned char parser_state; /* enum lws_token_indexes */
 	char redirects;
-	char more_rx_waiting;
 };
 
 struct _lws_websocket_related {
@@ -1091,6 +1090,7 @@ struct lws {
 	unsigned int user_space_externally_allocated:1;
 	unsigned int socket_is_permanently_unusable:1;
 	unsigned int rxflow_change_to:2;
+	unsigned int more_rx_waiting:1; /* has to live here since ah may stick to end */
 #ifndef LWS_NO_EXTENSIONS
 	unsigned int extension_data_pending:1;
 #endif
