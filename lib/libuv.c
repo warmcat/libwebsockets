@@ -74,6 +74,17 @@ lws_uv_sigint_cfg(struct lws_context *context, int use_uv_sigint,
 	return 0;
 }
 
+static void
+lws_uv_timeout_cb(uv_timer_t *timer)
+{
+	struct lws_context_per_thread *pt = container_of(timer,
+			struct lws_context_per_thread, uv_timeout_watcher);
+
+	lwsl_info("%s\n", __func__);
+	/* do timeout check only */
+	lws_service_fd_tsi(pt->context, NULL, pt->tid);
+}
+
 static const int sigs[] = { SIGINT, SIGTERM, SIGSEGV, SIGFPE };
 
 LWS_VISIBLE int
@@ -111,6 +122,9 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, uv_signal_cb cb,
 		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher, pt->lserv_fd);
 		uv_poll_start(&wsi->w_read.uv_watcher, UV_READABLE, lws_accept_cb);
 	}
+
+	uv_timer_init(pt->io_loop_uv, &pt->uv_timeout_watcher);
+	uv_timer_start(&pt->uv_timeout_watcher, lws_uv_timeout_cb, 1000, 1000);
 
 	return status;
 }
