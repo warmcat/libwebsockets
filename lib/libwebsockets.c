@@ -308,11 +308,15 @@ just_kill_connection:
 		if (n)
 			lwsl_debug("closing: shutdown ret %d\n", LWS_ERRNO);
 
-		lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
-		wsi->state = LWSS_SHUTDOWN;
-		lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
-				context->timeout_secs);
-		return;
+		/* libuv: no event available to guarantee completion */
+		if (!LWS_LIBUV_ENABLED(context)) {
+
+			lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+			wsi->state = LWSS_SHUTDOWN;
+			lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
+					context->timeout_secs);
+			return;
+		}
 	}
 #endif
 
