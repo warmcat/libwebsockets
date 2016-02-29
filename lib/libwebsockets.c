@@ -21,6 +21,10 @@
 
 #include "private-libwebsockets.h"
 
+#ifdef LWS_HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+
 int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
 static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
 
@@ -308,6 +312,9 @@ just_kill_connection:
 		if (n)
 			lwsl_debug("closing: shutdown ret %d\n", LWS_ERRNO);
 
+// This causes problems with disconnection when the events are half closing connection
+// FD_READ | FD_CLOSE (33)
+#ifndef _WIN32_WCE
 		/* libuv: no event available to guarantee completion */
 		if (!LWS_LIBUV_ENABLED(context)) {
 
@@ -317,6 +324,7 @@ just_kill_connection:
 					context->timeout_secs);
 			return;
 		}
+#endif
 	}
 #endif
 
@@ -946,11 +954,13 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 #endif
 	int n;
 
+#ifndef _WIN32_WCE
 #ifdef WIN32
 	ptm = localtime(&o_now);
 #else
 	if (localtime_r(&o_now, &tm))
 		ptm = &tm;
+#endif
 #endif
 	buf[0] = '\0';
 	for (n = 0; n < LLL_COUNT; n++) {
