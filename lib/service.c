@@ -505,7 +505,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	char draining_flow = 0;
 	int timed_out = 0;
 	time_t now;
-	int n, m;
+	int n = 0, m;
 	int more;
 
 	/*
