@@ -26,7 +26,7 @@ lws_client_connect_2(struct lws *wsi)
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a",
 			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
-			wsi->u.hdr.ah->c_port);
+			wsi->u.hdr.c_port);
 
 		if (context->proxy_basic_auth_token[0])
 			plen += sprintf((char *)pt->serv_buf + plen,
@@ -49,10 +49,10 @@ lws_client_connect_2(struct lws *wsi)
 #ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context)) {
 			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
-			server_addr6.sin6_port = htons(wsi->u.hdr.ah->c_port);
+			server_addr6.sin6_port = htons(wsi->u.hdr.c_port);
 		} else
 #endif
-			server_addr4.sin_port = htons(wsi->u.hdr.ah->c_port);
+			server_addr4.sin_port = htons(wsi->u.hdr.c_port);
 	}
 
 	/*
@@ -258,7 +258,7 @@ lws_client_connect_2(struct lws *wsi)
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
 					  context->http_proxy_address))
 			goto failed;
-		wsi->u.hdr.ah->c_port = context->http_proxy_port;
+		wsi->u.hdr.c_port = context->http_proxy_port;
 
 		n = send(wsi->sock, (char *)pt->serv_buf, plen,
 			 MSG_NOSIGNAL);
@@ -358,7 +358,7 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const 
 	wsi->state = LWSS_CLIENT_UNCONNECTED;
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
-	wsi->u.hdr.ah->c_port = port;
+	wsi->u.hdr.c_port = port;
 
 	return lws_client_connect_2(wsi);
 }
@@ -382,10 +382,16 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		goto bail;
 
 	wsi->context = i->context;
+	/* assert the mode and union status (hdr) clearly */
+	lws_union_transition(wsi, LWSCM_HTTP_SERVING);
 	wsi->sock = LWS_SOCK_INVALID;
 
-	/* -1 means just use latest supported */
+	/* 1) fill up the wsi with stuff from the connect_info as far as it
+	 * can go.  It's because not only is our connection async, we might
+	 * not even be able to get ahold of an ah at this point.
+	 */
 
+	/* -1 means just use latest supported */
 	if (i->ietf_version_or_minus_one != -1 && i->ietf_version_or_minus_one)
 		v = i->ietf_version_or_minus_one;
 
@@ -395,6 +401,13 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->position_in_fds_table = -1;
+	wsi->u.hdr.c_port = i->port;
+
+	wsi->protocol = &i->context->protocols[0];
+	if (wsi && !wsi->user_space && i->userdata) {
+		wsi->user_space_externally_allocated = 1;
+		wsi->user_space = i->userdata;
+	}
 
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = i->ssl_connection;
@@ -405,42 +418,93 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	}
 #endif
 
-	if (lws_header_table_attach(wsi, 0))
+	/* 2) stash the things from connect_info that we can't process without
+	 * an ah.  Because if no ah, we will go on the ah waiting list and
+	 * process those things later (after the connect_info and maybe the
+	 * things pointed to have gone out of scope.
+	 */
+
+	wsi->u.hdr.stash = lws_malloc(sizeof(*wsi->u.hdr.stash));
+	if (!wsi->u.hdr.stash) {
+		lwsl_err("%s: OOM\n", __func__);
 		goto bail;
+	}
+
+	wsi->u.hdr.stash->origin[0] = '\0';
+	wsi->u.hdr.stash->protocol[0] = '\0';
+
+	strncpy(wsi->u.hdr.stash->address, i->address,
+		sizeof(wsi->u.hdr.stash->address) - 1);
+	strncpy(wsi->u.hdr.stash->path, i->path,
+		sizeof(wsi->u.hdr.stash->path) - 1);
+	strncpy(wsi->u.hdr.stash->host, i->host,
+		sizeof(wsi->u.hdr.stash->host) - 1);
+	if (i->origin)
+		strncpy(wsi->u.hdr.stash->origin, i->origin,
+			sizeof(wsi->u.hdr.stash->origin) - 1);
+	if (i->protocol)
+		strncpy(wsi->u.hdr.stash->protocol, i->protocol,
+			sizeof(wsi->u.hdr.stash->protocol) - 1);
+
+	wsi->u.hdr.stash->address[sizeof(wsi->u.hdr.stash->address) - 1] = '\0';
+	wsi->u.hdr.stash->path[sizeof(wsi->u.hdr.stash->path) - 1] = '\0';
+	wsi->u.hdr.stash->host[sizeof(wsi->u.hdr.stash->host) - 1] = '\0';
+	wsi->u.hdr.stash->origin[sizeof(wsi->u.hdr.stash->origin) - 1] = '\0';
+	wsi->u.hdr.stash->protocol[sizeof(wsi->u.hdr.stash->protocol) - 1] = '\0';
+
+	/* if we went on the waiting list, no probs just return the wsi
+	 * when we get the ah, now or later, he will call
+	 * lws_client_connect_via_info2() below
+	 */
+	if (lws_header_table_attach(wsi, 0))
+		lwsl_debug("%s: went on ah wait list\n", __func__);
+
+	return wsi;
+
+bail:
+	lws_free(wsi);
+
+	return NULL;
+}
+
+struct lws *
+lws_client_connect_via_info2(struct lws *wsi)
+{
+	struct client_info_stash *stash = wsi->u.hdr.stash;
+
+	if (!stash)
+		return wsi;
 
 	/*
 	 * we're not necessarily in a position to action these right away,
 	 * stash them... we only need during connect phase so u.hdr is fine
 	 */
-	wsi->u.hdr.ah->c_port = i->port;
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, i->address))
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
+				  stash->address))
 		goto bail1;
 
 	/* these only need u.hdr lifetime as well */
 
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, i->path))
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, stash->path))
 		goto bail1;
 
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, i->host))
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, stash->host))
 		goto bail1;
 
-	if (i->origin)
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ORIGIN, i->origin))
+	if (stash->origin[0])
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ORIGIN,
+					  stash->origin))
 			goto bail1;
 	/*
 	 * this is a list of protocols we tell the server we're okay with
 	 * stash it for later when we compare server response with it
 	 */
-	if (i->protocol)
+	if (stash->protocol[0])
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
-					  i->protocol))
+					  stash->protocol))
 			goto bail1;
 
-	wsi->protocol = &i->context->protocols[0];
-	if (wsi && !wsi->user_space && i->userdata) {
-		wsi->user_space_externally_allocated = 1;
-		wsi->user_space = i->userdata;
-	}
+	lws_free_set_NULL(wsi->u.hdr.stash);
 
 	/*
 	 * Check with each extension if it is able to route and proxy this
@@ -449,9 +513,10 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	 * connection.
 	 */
 
-	if (lws_ext_cb_all_exts(i->context, wsi,
-			LWS_EXT_CB_CAN_PROXY_CLIENT_CONNECTION,
-						     (void *)i->address, i->port) > 0) {
+	if (lws_ext_cb_all_exts(wsi->context, wsi,
+				LWS_EXT_CB_CAN_PROXY_CLIENT_CONNECTION,
+				(void *)stash->address,
+				wsi->u.hdr.c_port) > 0) {
 		lwsl_client("lws_client_connect: ext handling conn\n");
 
 		lws_set_timeout(wsi,
@@ -462,17 +527,12 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		return wsi;
 	}
 	lwsl_client("lws_client_connect: direct conn\n");
-
 	wsi->context->count_wsi_allocated++;
 
 	return lws_client_connect_2(wsi);
 
 bail1:
-	/* we're closing, losing some rx is OK */
-	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
-	lws_header_table_detach(wsi, 0);
-bail:
-	lws_free(wsi);
+	lws_free_set_NULL(wsi->u.hdr.stash);
 
 	return NULL;
 }

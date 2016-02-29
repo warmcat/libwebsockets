@@ -185,6 +185,11 @@ reset:
 	lws_header_table_reset(wsi, autoservice);
 	time(&wsi->u.hdr.ah->assigned);
 
+#ifndef LWS_NO_CLIENT
+	if (wsi->state == LWSS_CLIENT_UNCONNECTED)
+		lws_client_connect_via_info2(wsi);
+#endif
+
 	return 0;
 
 bail:
@@ -292,6 +297,11 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	/* the guy who got one is out of the list */
 	wsi->u.hdr.ah_wait_list = NULL;
 	pt->ah_wait_list_length--;
+
+#ifndef LWS_NO_CLIENT
+	if (wsi->state == LWSS_CLIENT_UNCONNECTED)
+		lws_client_connect_via_info2(wsi);
+#endif
 
 	assert(!!pt->ah_wait_list_length == !!(int)(long)pt->ah_wait_list);
 bail:

@@ -72,6 +72,10 @@ with systemd
 6) test server html is updated with tabs and a new live server monitoring
 feature.  Input sanitization added to the js.
 
+7) client connections attempted when no ah is free no longer fail, they are
+just deferred until an ah becomes available.
+
+
 User API additions
 ------------------
 

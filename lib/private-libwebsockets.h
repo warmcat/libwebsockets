@@ -359,7 +359,7 @@ enum lws_connection_states {
 	LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS,
 	LWSS_HTTP2_ESTABLISHED,
 
-	LWSS_CGI
+	LWSS_CGI,
 };
 
 enum http_version {
@@ -517,7 +517,6 @@ struct allocated_headers {
 
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
-	unsigned short c_port;
 #endif
 
 	unsigned short pos;
@@ -788,10 +787,37 @@ enum uri_esc_states {
  * used interchangeably to access the same data
  */
 
+struct _lws_header_related {
+	/* MUST be first in struct */
+	struct allocated_headers *ah;
+	struct lws *ah_wait_list;
+	unsigned char *preamble_rx;
+#ifndef LWS_NO_CLIENT
+	struct client_info_stash *stash;
+#endif
+	unsigned int preamble_rx_len;
+	enum uri_path_states ups;
+	enum uri_esc_states ues;
+	short lextable_pos;
+	unsigned short current_token_limit;
+#ifndef LWS_NO_CLIENT
+	unsigned short c_port;
+#endif
+	char esc_stash;
+	char post_literal_equal;
+	unsigned char parser_state; /* enum lws_token_indexes */
+	char redirects;
+};
+
 struct _lws_http_mode_related {
 	/* MUST be first in struct */
 	struct allocated_headers *ah; /* mirroring  _lws_header_related */
 	struct lws *ah_wait_list;
+	unsigned char *preamble_rx;
+#ifndef LWS_NO_CLIENT
+	struct client_info_stash *stash;
+#endif
+	unsigned int preamble_rx_len;
 	struct lws *new_wsi_list;
 	unsigned long filepos;
 	unsigned long filelen;
@@ -950,21 +976,16 @@ struct _lws_http2_related {
 
 #endif
 
-struct _lws_header_related {
-	/* MUST be first in struct */
-	struct allocated_headers *ah;
-	struct lws *ah_wait_list;
-	unsigned char *preamble_rx;
-	unsigned int preamble_rx_len;
-	enum uri_path_states ups;
-	enum uri_esc_states ues;
-	short lextable_pos;
-	unsigned short current_token_limit;
-	char esc_stash;
-	char post_literal_equal;
-	unsigned char parser_state; /* enum lws_token_indexes */
-	char redirects;
+#ifndef LWS_NO_CLIENT
+struct client_info_stash {
+	char address[256];
+	char path[1024];
+	char host[256];
+	char origin[256];
+	char protocol[256];
 };
+#endif
+
 
 struct _lws_websocket_related {
 	/* cheapest way to deal with ah overlap with ws union transition */
@@ -1211,6 +1232,9 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt);
 
 LWS_EXTERN int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
+
+LWS_EXTERN struct lws *
+lws_client_connect_via_info2(struct lws *wsi);
 
 /*
  * EXTENSIONS
