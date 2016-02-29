@@ -1,6 +1,11 @@
 Changelog
 ---------
 
+v1.7.3
+======
+
+NB: No API change since v1.7.0
+
 Fixes
 -----
 
@@ -14,6 +19,8 @@ close the keepalive, we retained ah for the lifetime of the keepalive,
 using up the pool.
 
 3) MAJOR windows-only-POLLHUP was not coming
+
+4) Fix build on NetBSD
 
 
 v1.7.2
