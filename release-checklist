@@ -3,20 +3,24 @@ Release Checklist
 
 0) QA
 
- a) coverity
+ a) ab
+
+   $ ab -n 100000 -c 200 http://localhost:7681/
+
+ b) coverity
  
    $ ../make-coverity-tarball.sh
    https://scan.coverity.com/projects/warmcat-libwebsockets
 
- b) test servers + client + browser
+ c) test servers + client + browser
  
- c) valgrind test servers + client + browser
+ d) valgrind test servers + client + browser
 
- d) attack.sh
+ e) attack.sh
  
      $ ./test-server/attack.sh
 
- e) Autobahn
+ f) Autobahn
 
      $ wstest -m fuzzingserver &
      $ ./autobahn-test.sh
