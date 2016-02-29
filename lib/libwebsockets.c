@@ -20,7 +20,11 @@
  */
 
 #include "private-libwebsockets.h"
+
+#ifndef _WIN32_WCE
 #include <sys/types.h>
+#endif
+
 #if defined(WIN32) || defined(_WIN32)
 #else
 #include <sys/wait.h>
