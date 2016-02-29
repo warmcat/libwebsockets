@@ -387,7 +387,8 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 
 	pt->fds[pt->fds_count++].revents = 0;
 	pt->events[pt->fds_count] = WSACreateEvent();
-	WSAEventSelect(wsi->sock, pt->events[pt->fds_count], LWS_POLLIN);
+	WSAEventSelect(wsi->sock, pt->events[pt->fds_count],
+		       LWS_POLLIN | LWS_POLLHUP);
 }
 
 LWS_VISIBLE void
