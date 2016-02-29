@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-#ifndef _WIN32_WCE
+#ifdef LWS_HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
 
