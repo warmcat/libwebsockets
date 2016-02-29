@@ -987,11 +987,13 @@ lwsl_timestamp(int level, char *p, int len)
 #endif
 	int n;
 
+#ifndef _WIN32_WCE
 #ifdef WIN32
 	ptm = localtime(&o_now);
 #else
 	if (localtime_r(&o_now, &tm))
 		ptm = &tm;
+#endif
 #endif
 	p[0] = '\0';
 	for (n = 0; n < LLL_COUNT; n++) {

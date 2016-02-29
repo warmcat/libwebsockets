@@ -291,7 +291,11 @@ lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd)
 
 	/* Disable Nagle */
 	optval = 1;
+#ifndef _WIN32_WCE
 	tcp_proto = getprotobyname("TCP");
+#else
+	tcp_proto = 6;
+#endif
 	if (!tcp_proto) {
 		lwsl_err("getprotobyname() failed with error %d\n", LWS_ERRNO);
 		return 1;
