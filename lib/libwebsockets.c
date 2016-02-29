@@ -946,13 +946,16 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 #endif
 	int n;
 
+#ifndef _WIN32_WCE
 #ifdef WIN32
 	ptm = localtime(&o_now);
 #else
 	if (localtime_r(&o_now, &tm))
 		ptm = &tm;
 #endif
+#endif
 	buf[0] = '\0';
+
 	for (n = 0; n < LLL_COUNT; n++) {
 		if (level != (1 << n))
 			continue;
