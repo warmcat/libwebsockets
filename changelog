@@ -13,6 +13,8 @@ to tell if more headers had arrived.  Result was if the browser didn't
 close the keepalive, we retained ah for the lifetime of the keepalive,
 using up the pool.
 
+3) MAJOR windows-only-POLLHUP was not coming
+
 
 v1.7.2
 ======
