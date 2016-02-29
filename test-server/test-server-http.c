@@ -117,7 +117,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		  void *in, size_t len)
 {
 	struct per_session_data__http *pss =
-			(struct per_session_data__http *)user;
+			(struct per_session_data__http *)user, *pss1;
 	unsigned char buffer[4096 + LWS_PRE];
 	unsigned long amount, file_len, sent;
 	char leaf_path[1024];
@@ -166,6 +166,32 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 			goto try_to_reuse;
 		}
+
+#ifndef LWS_NO_CLIENT
+		if (!strcmp(in, "/proxytest")) {
+			struct lws_client_connect_info i;
+
+			if (lws_get_child(wsi))
+				break;
+
+			pss->client_finished = 0;
+			memset(&i,0, sizeof(i));
+			i.context = lws_get_context(wsi);
+			i.address = "example.com";
+			i.port = 80;
+			i.ssl_connection = 0;
+			i.path = "/";
+			i.host = "example.com";
+			i.origin = NULL;
+			i.method = "GET";
+			i.parent_wsi = wsi;
+			if (!lws_client_connect_via_info(&i)) {
+				lwsl_err("proxy connect fail\n");
+				break;
+			}
+			break;
+		}
+#endif
 
 #ifdef LWS_WITH_CGI
 		if (!strcmp(in, "/cgitest")) {
@@ -366,6 +392,9 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		lwsl_info("LWS_CALLBACK_HTTP_WRITEABLE\n");
 
+		if (pss->client_finished)
+			return -1;
+
 		if (pss->fd == LWS_INVALID_FILE)
 			goto try_to_reuse;
 #ifdef LWS_WITH_CGI
@@ -459,6 +488,56 @@ bail:
 	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
 		/* if we returned non-zero from here, we kill the connection */
 		break;
+
+#ifndef LWS_WITH_CLIENT
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		p = buffer + LWS_PRE;
+		end = p + sizeof(buffer) - LWS_PRE;
+		if (lws_add_http_header_status(lws_get_parent(wsi), 200, &p, end))
+			return 1;
+		if (lws_add_http_header_by_token(lws_get_parent(wsi),
+				WSI_TOKEN_HTTP_SERVER,
+			    	(unsigned char *)"libwebsockets",
+				13, &p, end))
+			return 1;
+		if (lws_add_http_header_by_token(lws_get_parent(wsi),
+				WSI_TOKEN_HTTP_CONTENT_TYPE,
+			    	(unsigned char *)"text/html", 9, &p, end))
+			return 1;
+#if 0
+		if (lws_add_http_header_content_length(lws_get_parent(wsi),
+						       file_len, &p,
+						       end))
+			return 1;
+#endif
+		if (lws_finalize_http_header(lws_get_parent(wsi), &p, end))
+			return 1;
+
+		*p = '\0';
+		lwsl_info("%s\n", buffer + LWS_PRE);
+
+		n = lws_write(lws_get_parent(wsi), buffer + LWS_PRE,
+			      p - (buffer + LWS_PRE),
+			      LWS_WRITE_HTTP_HEADERS);
+		if (n < 0)
+			return -1;
+
+		break;
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		return -1;
+		break;
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+		m = lws_write(lws_get_parent(wsi), in, len, LWS_WRITE_HTTP);
+		if (m < 0)
+			return 1;
+		break;
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		pss1 = lws_wsi_user(lws_get_parent(wsi));
+		pss1->client_finished = 1;
+		lws_callback_on_writable(lws_get_parent(wsi));
+		return -1;
+		break;
+#endif
 
 #ifdef LWS_WITH_CGI
 	/* CGI IO events (POLLIN/OUT) appear here our demo user code policy is

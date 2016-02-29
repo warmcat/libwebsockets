@@ -71,6 +71,7 @@ struct per_session_data__http {
 	struct lws_cgi_args args;
 	int reason_bf;
 #endif
+	unsigned int client_finished:1;
 };
 
 /*
