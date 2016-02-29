@@ -344,6 +344,9 @@ just_kill_connection:
 		if (n)
 			lwsl_debug("closing: shutdown ret %d\n", LWS_ERRNO);
 
+// This causes problems with disconnection when the events are half closing connection
+// FD_READ | FD_CLOSE (33)
+#ifndef _WIN32_WCE
 		/* libuv: no event available to guarantee completion */
 		if (!LWS_LIBUV_ENABLED(context)) {
 
@@ -353,6 +356,7 @@ just_kill_connection:
 					context->timeout_secs);
 			return;
 		}
+#endif
 	}
 #endif
 
