@@ -602,9 +602,13 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 	switch (wsi->mode) {
 	case LWSCM_HTTP_SERVING:
+	case LWSCM_HTTP_CLIENT:
 	case LWSCM_HTTP_SERVING_ACCEPTED:
 	case LWSCM_SERVER_LISTENER:
 	case LWSCM_SSL_ACK_PENDING:
+		if (wsi->state == LWSS_CLIENT_HTTP_ESTABLISHED) {
+			goto handled;
+		}
 		n = lws_server_socket_service(context, wsi, pollfd);
 		if (n) /* closed by above */
 			return 1;
@@ -616,6 +620,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	case LWSCM_WS_SERVING:
 	case LWSCM_WS_CLIENT:
 	case LWSCM_HTTP2_SERVING:
+	case LWSCM_HTTP_CLIENT_ACCEPTED:
 
 		/* 1: something requested a callback when it was OK to write */
 
@@ -739,6 +744,7 @@ read:
 
 			eff_buf.token = (char *)pt->serv_buf;
 		}
+
 		/*
 		 * give any active extensions a chance to munge the buffer
 		 * before parse.  We pass in a pointer to an lws_tokens struct
@@ -751,6 +757,34 @@ read:
 		 * used then so it is efficient.
 		 */
 drain:
+		if (wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED) {
+			lwsl_notice("%s: calling LWS_CALLBACK_RECEIVE_CLIENT_HTTP, "
+				    "rem %d len %d\n", __func__,
+				    wsi->u.http.content_remain, eff_buf.token_len);
+			if (wsi->u.http.content_remain < eff_buf.token_len)
+				n = wsi->u.http.content_remain;
+			else
+				n = eff_buf.token_len;
+			if (user_callback_handle_rxflow(wsi->protocol->callback,
+					wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
+					wsi->user_space, (void *)eff_buf.token,
+					eff_buf.token_len))
+				goto close_and_handled;
+			wsi->u.http.content_remain -= n;
+			if (wsi->u.http.content_remain)
+				goto handled;
+
+			lwsl_notice("%s: client http receved all content\n",
+				    __func__);
+			if (user_callback_handle_rxflow(wsi->protocol->callback,
+					wsi, LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
+					wsi->user_space, NULL, 0))
+				goto close_and_handled;
+
+			if (wsi->u.http.connection_type == HTTP_CONNECTION_CLOSE)
+				goto close_and_handled;
+			goto handled;
+		}
 		do {
 			more = 0;
 

@@ -74,6 +74,8 @@ static int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
+	char *buf = (char *)in;
+
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -112,6 +114,16 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 		if ((strcmp(in, "deflate-frame") == 0))
 			return 1;
+		break;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+		while (len--)
+			putchar(*buf++);
+		break;
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		wsi_dumb = NULL;
+		force_exit = 1;
 		break;
 
 	default:
@@ -269,7 +281,7 @@ static int ratelimit_connects(unsigned int *last, unsigned int secs)
 int main(int argc, char **argv)
 {
 	int n = 0, ret = 0, port = 7681, use_ssl = 0, ietf_version = -1;
-	unsigned int rl_dumb = 0, rl_mirror = 0;
+	unsigned int rl_dumb = 0, rl_mirror = 0, do_ws = 1;
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
@@ -362,6 +374,14 @@ int main(int argc, char **argv)
 	i.origin = i.address;
 	i.ietf_version_or_minus_one = ietf_version;
 	i.client_exts = exts;
+
+	if (!strcmp(prot, "http") || !strcmp(prot, "https")) {
+		lwsl_notice("using %s mode (non-ws)\n", prot);
+		i.method = "GET";
+		do_ws = 0;
+	} else
+		lwsl_notice("using %s mode (ws)\n", prot);
+
 	/*
 	 * sit there servicing the websocket context to handle incoming
 	 * packets, and drawing random circles on the mirror protocol websocket
@@ -374,17 +394,23 @@ int main(int argc, char **argv)
 
 	while (!force_exit) {
 
-		if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
-			lwsl_notice("dumb: connecting\n");
-			i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;
-			wsi_dumb = lws_client_connect_via_info(&i);
-		}
+		if (do_ws) {
+			if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
+				lwsl_notice("dumb: connecting\n");
+				i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;
+				wsi_dumb = lws_client_connect_via_info(&i);
+			}
 
-		if (!wsi_mirror && ratelimit_connects(&rl_mirror, 2u)) {
-			lwsl_notice("mirror: connecting\n");
-			i.protocol = protocols[PROTOCOL_LWS_MIRROR].name;
-			wsi_mirror = lws_client_connect_via_info(&i);
-		}
+			if (!wsi_mirror && ratelimit_connects(&rl_mirror, 2u)) {
+				lwsl_notice("mirror: connecting\n");
+				i.protocol = protocols[PROTOCOL_LWS_MIRROR].name;
+				wsi_mirror = lws_client_connect_via_info(&i);
+			}
+		} else
+			if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
+				lwsl_notice("http: connecting\n");
+				wsi_dumb = lws_client_connect_via_info(&i);
+			}
 
 		lws_service(context, 500);
 	}
