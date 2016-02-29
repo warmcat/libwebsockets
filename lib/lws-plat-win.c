@@ -271,7 +271,10 @@ lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd)
 	u_long optl = 1;
 	DWORD dwBytesRet;
 	struct tcp_keepalive alive;
+	int protonbr;
+#ifndef _WIN32_WCE
 	struct protoent *tcp_proto;
+#endif
 
 	if (context->ka_time) {
 		/* enable keepalive on this socket */
@@ -291,13 +294,18 @@ lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd)
 
 	/* Disable Nagle */
 	optval = 1;
+#ifndef _WIN32_WCE
 	tcp_proto = getprotobyname("TCP");
 	if (!tcp_proto) {
 		lwsl_err("getprotobyname() failed with error %d\n", LWS_ERRNO);
 		return 1;
 	}
+	protonbr = tcp_proto->p_proto;
+#else
+	protonbr = 6;
+#endif
 
-	setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, (const char *)&optval, optlen);
+	setsockopt(fd, protonbr, TCP_NODELAY, (const char *)&optval, optlen);
 
 	/* We are nonblocking... */
 	ioctlsocket(fd, FIONBIO, &optl);

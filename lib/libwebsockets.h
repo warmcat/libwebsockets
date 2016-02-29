@@ -114,9 +114,18 @@ struct sockaddr_in;
 #include <stddef.h>
 #include <stdint.h>
 #include <basetsd.h>
+#ifndef _WIN32_WCE
 #include <fcntl.h>
+#else
+#define _O_RDONLY	0x0000
+#define O_RDONLY	_O_RDONLY
+#endif
 
+#ifdef _WIN32_WCE
+#define strcasecmp _stricmp
+#else
 #define strcasecmp stricmp
+#endif
 #define getdtablesize() 30000
 
 #define LWS_INLINE __inline
