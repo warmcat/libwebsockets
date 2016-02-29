@@ -349,6 +349,7 @@ enum lws_connection_states {
 	LWSS_HTTP_BODY,
 	LWSS_DEAD_SOCKET,
 	LWSS_ESTABLISHED,
+	LWSS_CLIENT_HTTP_ESTABLISHED,
 	LWSS_CLIENT_UNCONNECTED,
 	LWSS_RETURNED_CLOSE_ALREADY,
 	LWSS_AWAITING_CLOSE_ACK,
@@ -410,7 +411,9 @@ enum lws_rx_parse_state {
 
 enum connection_mode {
 	LWSCM_HTTP_SERVING,
+	LWSCM_HTTP_CLIENT, /* we are client to someone else's server */
 	LWSCM_HTTP_SERVING_ACCEPTED, /* actual HTTP service going on */
+	LWSCM_HTTP_CLIENT_ACCEPTED, /* actual HTTP service going on */
 	LWSCM_PRE_WS_SERVING_ACCEPT,
 
 	LWSCM_WS_SERVING,
@@ -787,6 +790,18 @@ enum uri_esc_states {
  * used interchangeably to access the same data
  */
 
+
+#ifndef LWS_NO_CLIENT
+struct client_info_stash {
+	char address[256];
+	char path[1024];
+	char host[256];
+	char origin[256];
+	char protocol[256];
+	char method[16];
+};
+#endif
+
 struct _lws_header_related {
 	/* MUST be first in struct */
 	struct allocated_headers *ah;
@@ -976,17 +991,6 @@ struct _lws_http2_related {
 
 #endif
 
-#ifndef LWS_NO_CLIENT
-struct client_info_stash {
-	char address[256];
-	char path[1024];
-	char host[256];
-	char origin[256];
-	char protocol[256];
-};
-#endif
-
-
 struct _lws_websocket_related {
 	/* cheapest way to deal with ah overlap with ws union transition */
 	struct _lws_header_related hdr;
@@ -1112,6 +1116,9 @@ struct lws {
 	unsigned int socket_is_permanently_unusable:1;
 	unsigned int rxflow_change_to:2;
 	unsigned int more_rx_waiting:1; /* has to live here since ah may stick to end */
+#ifndef LWS_NO_CLIENT
+	unsigned int do_ws:1; /* whether we are doing http or ws flow */
+#endif
 #ifndef LWS_NO_EXTENSIONS
 	unsigned int extension_data_pending:1;
 #endif

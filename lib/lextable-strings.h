@@ -88,6 +88,7 @@ static const char *set[] = {
 
 	"proxy ",
 	"x-real-ip:",
+	"http/1.0 ",
 
 	"", /* not matchable */
 

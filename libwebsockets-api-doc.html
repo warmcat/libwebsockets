@@ -133,6 +133,22 @@ protocol supported, or the specific protocol ordinal
 This function creates a connection to a remote server
 </blockquote>
 <hr>
+<h2>lws_http_transaction_completed_client - wait for new http transaction or close</h2>
+<i>int LWS_WARN_UNUSED_RESULT</i>
+<b>lws_http_transaction_completed_client</b>
+(<i>struct lws *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>websocket connection
+</dl>
+<h3>Description</h3>
+<blockquote>
+Returns 1 if the HTTP connection must close now
+Returns 0 and resets connection to wait for new HTTP header /
+transaction if possible
+</blockquote>
+<hr>
 <h2>lws_get_library_version - </h2>
 <i>const char *</i>
 <b>lws_get_library_version</b>
@@ -1711,6 +1727,7 @@ Otherwise a default timeout is used.
 &nbsp; &nbsp; <i>int</i> <b>ietf_version_or_minus_one</b>;<br>
 &nbsp; &nbsp; <i>void *</i> <b>userdata</b>;<br>
 &nbsp; &nbsp; <i>const struct lws_extension *</i> <b>client_exts</b>;<br>
+&nbsp; &nbsp; <i>const char *</i> <b>method</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
@@ -1736,6 +1753,9 @@ Otherwise a default timeout is used.
 <dd>if non-NULL, use this as wsi user_data instead of malloc it
 <dt><b>client_exts</b>
 <dd>array of extensions that may be used on connection
+<dt><b>method</b>
+<dd>if non-NULL, do this http method instead of ws[s] upgrade.
+use "GET" to be a simple http client connection
 </dl>
 <hr>
 <h2>lws_close_reason - Set reason and aux data to send with Close packet If you are going to return nonzero from the callback requesting the connection to close, you can optionally call this to set the reason the peer will be told if possible.</h2>

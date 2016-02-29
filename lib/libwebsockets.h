@@ -349,6 +349,10 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_CGI_TERMINATED				= 41,
 	LWS_CALLBACK_CGI_STDIN_DATA				= 42,
 	LWS_CALLBACK_CGI_STDIN_COMPLETED			= 43,
+	LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP			= 44,
+	LWS_CALLBACK_CLOSED_CLIENT_HTTP				= 45,
+	LWS_CALLBACK_RECEIVE_CLIENT_HTTP			= 46,
+	LWS_CALLBACK_COMPLETED_CLIENT_HTTP			= 47,
 
 	/****** add new things just above ---^ ******/
 
@@ -610,6 +614,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP_URI_ARGS					= 76,
 	WSI_TOKEN_PROXY						= 77,
 	WSI_TOKEN_HTTP_X_REAL_IP				= 78,
+	WSI_TOKEN_HTTP1_0					= 79,
 
 	/****** add new things just above ---^ ******/
 
@@ -621,6 +626,7 @@ enum lws_token_indexes {
 	_WSI_TOKEN_CLIENT_URI,
 	_WSI_TOKEN_CLIENT_HOST,
 	_WSI_TOKEN_CLIENT_ORIGIN,
+	_WSI_TOKEN_CLIENT_METHOD,
 
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,
@@ -1393,6 +1399,8 @@ struct lws_context_creation_info {
  * @ietf_version_or_minus_one: currently leave at 0 or -1
  * @userdata:	if non-NULL, use this as wsi user_data instead of malloc it
  * @client_exts: array of extensions that may be used on connection
+ * @method:	if non-NULL, do this http method instead of ws[s] upgrade.
+ *		use "GET" to be a simple http client connection
  */
 
 struct lws_client_connect_info {
@@ -1407,6 +1415,7 @@ struct lws_client_connect_info {
 	int ietf_version_or_minus_one;
 	void *userdata;
 	const struct lws_extension *client_exts;
+	const char *method;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

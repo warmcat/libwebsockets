@@ -383,7 +383,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	wsi->context = i->context;
 	/* assert the mode and union status (hdr) clearly */
-	lws_union_transition(wsi, LWSCM_HTTP_SERVING);
+	lws_union_transition(wsi, LWSCM_HTTP_CLIENT);
 	wsi->sock = LWS_SOCK_INVALID;
 
 	/* 1) fill up the wsi with stuff from the connect_info as far as it
@@ -417,6 +417,11 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		goto bail;
 	}
 #endif
+	wsi->protocol = &i->context->protocols[0];
+	if (wsi && !wsi->user_space && i->userdata) {
+		wsi->user_space_externally_allocated = 1;
+		wsi->user_space = i->userdata;
+	}
 
 	/* 2) stash the things from connect_info that we can't process without
 	 * an ah.  Because if no ah, we will go on the ah waiting list and
@@ -432,6 +437,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	wsi->u.hdr.stash->origin[0] = '\0';
 	wsi->u.hdr.stash->protocol[0] = '\0';
+	wsi->u.hdr.stash->method[0] = '\0';
 
 	strncpy(wsi->u.hdr.stash->address, i->address,
 		sizeof(wsi->u.hdr.stash->address) - 1);
@@ -445,12 +451,16 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	if (i->protocol)
 		strncpy(wsi->u.hdr.stash->protocol, i->protocol,
 			sizeof(wsi->u.hdr.stash->protocol) - 1);
+	if (i->method)
+		strncpy(wsi->u.hdr.stash->method, i->method,
+			sizeof(wsi->u.hdr.stash->method) - 1);
 
 	wsi->u.hdr.stash->address[sizeof(wsi->u.hdr.stash->address) - 1] = '\0';
 	wsi->u.hdr.stash->path[sizeof(wsi->u.hdr.stash->path) - 1] = '\0';
 	wsi->u.hdr.stash->host[sizeof(wsi->u.hdr.stash->host) - 1] = '\0';
 	wsi->u.hdr.stash->origin[sizeof(wsi->u.hdr.stash->origin) - 1] = '\0';
 	wsi->u.hdr.stash->protocol[sizeof(wsi->u.hdr.stash->protocol) - 1] = '\0';
+	wsi->u.hdr.stash->method[sizeof(wsi->u.hdr.stash->method) - 1] = '\0';
 
 	/* if we went on the waiting list, no probs just return the wsi
 	 * when we get the ah, now or later, he will call
@@ -502,6 +512,10 @@ lws_client_connect_via_info2(struct lws *wsi)
 	if (stash->protocol[0])
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
 					  stash->protocol))
+			goto bail1;
+	if (stash->method[0])
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_METHOD,
+					  stash->method))
 			goto bail1;
 
 	lws_free_set_NULL(wsi->u.hdr.stash);

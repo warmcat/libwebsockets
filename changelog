@@ -75,6 +75,11 @@ feature.  Input sanitization added to the js.
 7) client connections attempted when no ah is free no longer fail, they are
 just deferred until an ah becomes available.
 
+8) The test client pays attention to if you give it an http:/ or https://
+protocol string to its argument in URL format.  If so, it stays in http[s]
+client mode and doesn't upgrade to ws[s], allowing you to do generic http client
+operations.
+
 
 User API additions
 ------------------
@@ -125,6 +130,24 @@ this generates this kind of timestamp for use as logging preamble
 
 lwsts[13116]: [2016/01/25 14:52:52:8386] NOTICE: Initial logging level 7
 
+5) struct lws_client_connect_info has a new member
+
+ const char *method
+ 
+If it's NULL, then everything happens as before, lws_client_connect_via_info()
+makes a ws or wss connection to the address given.
+
+If you set method to a valid http method like "GET", though, then this method
+is used and the connection remains in http[s], it's not upgraded to ws[s].
+
+So with this, you can perform http[s] client operations as well as ws[s] ones.
+
+There are 4 new related callbacks
+
+	LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP			= 44,
+	LWS_CALLBACK_CLOSED_CLIENT_HTTP				= 45,
+	LWS_CALLBACK_RECEIVE_CLIENT_HTTP			= 46,
+	LWS_CALLBACK_COMPLETED_CLIENT_HTTP			= 47,
 
 
 v1.7.0

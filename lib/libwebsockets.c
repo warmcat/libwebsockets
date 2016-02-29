@@ -219,6 +219,9 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	if (wsi->mode == LWSCM_HTTP_SERVING)
 		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0);
+	if (wsi->mode == LWSCM_HTTP_CLIENT)
+		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_CLIENT_HTTP,
+					       wsi->user_space, NULL, 0);
 
 	/*
 	 * are his extensions okay with him closing?  Eg he might be a mux

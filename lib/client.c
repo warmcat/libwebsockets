@@ -492,6 +492,51 @@ strtolower(char *s)
 	}
 }
 
+/**
+ * lws_http_transaction_completed() - wait for new http transaction or close
+ * @wsi:	websocket connection
+ *
+ *	Returns 1 if the HTTP connection must close now
+ *	Returns 0 and resets connection to wait for new HTTP header /
+ *	  transaction if possible
+ */
+
+LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
+lws_http_transaction_completed_client(struct lws *wsi)
+{
+	lwsl_debug("%s: wsi %p\n", __func__, wsi);
+	/* if we can't go back to accept new headers, drop the connection */
+	if (wsi->u.http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
+		lwsl_info("%s: %p: close connection\n", __func__, wsi);
+		return 1;
+	}
+
+	/* otherwise set ourselves up ready to go again */
+	wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
+	wsi->mode = LWSCM_HTTP_CLIENT_ACCEPTED;
+	wsi->u.http.content_length = 0;
+	wsi->hdr_parsing_completed = 0;
+
+	/* He asked for it to stay alive indefinitely */
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	/*
+	 * As client, nothing new is going to come until we ask for it
+	 * we can drop the ah, if any
+	 */
+	if (wsi->u.hdr.ah) {
+		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+		lws_header_table_detach(wsi, 0);
+	}
+
+	/* If we're (re)starting on headers, need other implied init */
+	wsi->u.hdr.ues = URIES_IDLE;
+
+	lwsl_info("%s: %p: keep-alive await new transaction\n", __func__, wsi);
+
+	return 0;
+}
+
 int
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
@@ -499,6 +544,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	struct lws_context *context = wsi->context;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
 	const char *pc, *prot, *ads = NULL, *path;
+	struct allocated_headers *ah;
 	char *p;
 #ifndef LWS_NO_EXTENSIONS
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -512,11 +558,41 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	void *v;
 #endif
 
+	if (!wsi->do_ws) {
+		/* we are being an http client...
+		 */
+		ah = wsi->u.hdr.ah;
+		lws_union_transition(wsi, LWSCM_HTTP_CLIENT_ACCEPTED);
+		wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
+		wsi->u.http.ah = ah;
+	}
+
 	/*
 	 * well, what the server sent looked reasonable for syntax.
 	 * Now let's confirm it sent all the necessary headers
+	 *
+	 * http (non-ws) client will expect something like this
+	 *
+	 * HTTP/1.0.200
+	 * server:.libwebsockets
+	 * content-type:.text/html
+	 * content-length:.17703
+	 * set-cookie:.test=LWS_1456736240_336776_COOKIE;Max-Age=360000
+	 *
+	 *
+	 *
 	 */
+
+	wsi->u.http.connection_type = HTTP_CONNECTION_KEEP_ALIVE;
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
+	if (wsi->do_ws && !p) {
+		lwsl_info("no URI\n");
+		goto bail3;
+	}
+	if (!p) {
+		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP1_0);
+		wsi->u.http.connection_type = HTTP_CONNECTION_CLOSE;
+	}
 	if (!p) {
 		lwsl_info("no URI\n");
 		goto bail3;
@@ -539,6 +615,56 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 		return 0;
 	}
+
+	if (!wsi->do_ws) {
+		if (n != 200) {
+			lwsl_notice("Connection failed with code %d", n);
+			goto bail2;
+		}
+
+		/* allocate the per-connection user memory (if any) */
+		if (lws_ensure_user_space(wsi)) {
+			lwsl_err("Problem allocating wsi user mem\n");
+			goto bail2;
+		}
+
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+			wsi->u.http.content_length =
+					atoi(lws_hdr_simple_ptr(wsi,
+						WSI_TOKEN_HTTP_CONTENT_LENGTH));
+			lwsl_notice("%s: incoming content length %d\n", __func__,
+					wsi->u.http.content_length);
+			wsi->u.http.content_remain = wsi->u.http.content_length;
+		} else /* can't do 1.1 without a content length */
+			wsi->u.http.connection_type = HTTP_CONNECTION_CLOSE;
+
+		/*
+		 * we seem to be good to go, give client last chance to check
+		 * headers and OK it
+		 */
+		if (wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
+					    wsi->user_space, NULL, 0))
+			goto bail2;
+
+		/* clear his proxy connection timeout */
+		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+		wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
+
+		/* call him back to inform him he is up */
+		if (wsi->protocol->callback(wsi,
+				LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
+					    wsi->user_space, NULL, 0))
+			goto bail3;
+
+		/* free up his parsing allocations */
+		lws_header_table_detach(wsi, 0);
+
+		lwsl_notice("%s: client connection up\n", __func__);
+
+		return 0;
+	}
+
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
 		lwsl_info("no ACCEPT\n");
 		isErrorCodeReceived = 1;
@@ -887,39 +1013,36 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 {
 	char buf[128], hash[20], key_b64[40], *p = pkt;
 	struct lws_context *context = wsi->context;
+	const char *meth;
 	int n;
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *ext;
 	int ext_count = 0;
 #endif
 
-	/*
-	 * create the random key
-	 */
-	n = lws_get_random(context, hash, 16);
-	if (n != 16) {
-		lwsl_err("Unable to read from random dev %s\n",
-			 SYSTEM_RANDOM_FILEPATH);
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
-		return NULL;
+	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+	if (!meth) {
+		meth = "GET";
+		wsi->do_ws = 1;
+	} else
+		wsi->do_ws = 0;
+
+	if (wsi->do_ws) {
+		/*
+		 * create the random key
+		 */
+		n = lws_get_random(context, hash, 16);
+		if (n != 16) {
+			lwsl_err("Unable to read from random dev %s\n",
+				 SYSTEM_RANDOM_FILEPATH);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			return NULL;
+		}
+
+		lws_b64_encode_string(hash, 16, key_b64, sizeof(key_b64));
 	}
 
-	lws_b64_encode_string(hash, 16, key_b64, sizeof(key_b64));
-
 	/*
-	 * 00 example client handshake
-	 *
-	 * GET /socket.io/websocket HTTP/1.1
-	 * Upgrade: WebSocket
-	 * Connection: Upgrade
-	 * Host: 127.0.0.1:9999
-	 * Origin: http://127.0.0.1
-	 * Sec-WebSocket-Key1: 1 0 2#0W 9 89 7  92 ^
-	 * Sec-WebSocket-Key2: 7 7Y 4328 B2v[8(z1
-	 * Cookie: socketio=websocket
-	 *
-	 * (Á®Ä0¶†≥
-	 *
 	 * 04 example client handshake
 	 *
 	 * GET /chat HTTP/1.1
@@ -932,7 +1055,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	 * Sec-WebSocket-Version: 4
 	 */
 
-	p += sprintf(p, "GET %s HTTP/1.1\x0d\x0a",
+	p += sprintf(p, "%s %s HTTP/1.1\x0d\x0a", meth,
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI));
 
 	p += sprintf(p, "Pragma: no-cache\x0d\x0a"
@@ -940,65 +1063,79 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	p += sprintf(p, "Host: %s\x0d\x0a",
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
-	p += sprintf(p, "Upgrade: websocket\x0d\x0a"
-			"Connection: Upgrade\x0d\x0a"
-			"Sec-WebSocket-Key: ");
-	strcpy(p, key_b64);
-	p += strlen(key_b64);
-	p += sprintf(p, "\x0d\x0a");
+
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN))
 		p += sprintf(p, "Origin: http://%s\x0d\x0a",
 			     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN));
 
-	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS))
-		p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
-		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS));
+	if (wsi->do_ws) {
+		p += sprintf(p, "Upgrade: websocket\x0d\x0a"
+				"Connection: Upgrade\x0d\x0a"
+				"Sec-WebSocket-Key: ");
+		strcpy(p, key_b64);
+		p += strlen(key_b64);
+		p += sprintf(p, "\x0d\x0a");
+		if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS))
+			p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
+			     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS));
 
-	/* tell the server what extensions we could support */
+		/* tell the server what extensions we could support */
 
-	p += sprintf(p, "Sec-WebSocket-Extensions: ");
+		p += sprintf(p, "Sec-WebSocket-Extensions: ");
 #ifndef LWS_NO_EXTENSIONS
-	ext = context->extensions;
-	while (ext && ext->callback) {
-		n = lws_ext_cb_all_exts(context, wsi,
-			   LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION,
-			   (char *)ext->name, 0);
-		if (n) { /* an extension vetos us */
-			lwsl_ext("ext %s vetoed\n", (char *)ext->name);
+		ext = context->extensions;
+		while (ext && ext->callback) {
+			n = lws_ext_cb_all_exts(context, wsi,
+				   LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION,
+				   (char *)ext->name, 0);
+			if (n) { /* an extension vetos us */
+				lwsl_ext("ext %s vetoed\n", (char *)ext->name);
+				ext++;
+				continue;
+			}
+			n = context->protocols[0].callback(wsi,
+				LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
+					wsi->user_space, (char *)ext->name, 0);
+
+			/*
+			 * zero return from callback means
+			 * go ahead and allow the extension,
+			 * it's what we get if the callback is
+			 * unhandled
+			 */
+
+			if (n) {
+				ext++;
+				continue;
+			}
+
+			/* apply it */
+
+			if (ext_count)
+				*p++ = ',';
+			p += sprintf(p, "%s", ext->client_offer);
+			ext_count++;
+
 			ext++;
-			continue;
 		}
-		n = context->protocols[0].callback(wsi,
-			LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
-				wsi->user_space, (char *)ext->name, 0);
-
-		/*
-		 * zero return from callback means
-		 * go ahead and allow the extension,
-		 * it's what we get if the callback is
-		 * unhandled
-		 */
-
-		if (n) {
-			ext++;
-			continue;
-		}
-
-		/* apply it */
-
-		if (ext_count)
-			*p++ = ',';
-		p += sprintf(p, "%s", ext->client_offer);
-		ext_count++;
-
-		ext++;
-	}
 #endif
-	p += sprintf(p, "\x0d\x0a");
+		p += sprintf(p, "\x0d\x0a");
 
-	if (wsi->ietf_spec_revision)
-		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
-			     wsi->ietf_spec_revision);
+		if (wsi->ietf_spec_revision)
+			p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
+				     wsi->ietf_spec_revision);
+
+		/* prepare the expected server accept response */
+
+		key_b64[39] = '\0'; /* enforce composed length below buf sizeof */
+		n = sprintf(buf, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key_b64);
+
+		lws_SHA1((unsigned char *)buf, n, (unsigned char *)hash);
+
+		lws_b64_encode_string(hash, 20,
+				      wsi->u.hdr.ah->initial_handshake_hash_base64,
+				      sizeof(wsi->u.hdr.ah->initial_handshake_hash_base64));
+	}
 
 	/* give userland a chance to append, eg, cookies */
 
@@ -1006,17 +1143,6 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 				       NULL, &p, (pkt + LWS_MAX_SOCKET_IO_BUF) - p - 12);
 
 	p += sprintf(p, "\x0d\x0a");
-
-	/* prepare the expected server accept response */
-
-	key_b64[39] = '\0'; /* enforce composed length below buf sizeof */
-	n = sprintf(buf, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key_b64);
-
-	lws_SHA1((unsigned char *)buf, n, (unsigned char *)hash);
-
-	lws_b64_encode_string(hash, 20,
-			      wsi->u.hdr.ah->initial_handshake_hash_base64,
-			      sizeof(wsi->u.hdr.ah->initial_handshake_hash_base64));
 
 	return p;
 }
