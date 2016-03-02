@@ -31,26 +31,36 @@ lws_feature_status_libuv(struct lws_context_creation_info *info)
 }
 
 static void
-lws_accept_cb(uv_poll_t *watcher, int status, int revents)
+lws_io_cb(uv_poll_t *watcher, int status, int revents)
 {
 	struct lws_io_watcher *lws_io = container_of(watcher,
 					struct lws_io_watcher, uv_watcher);
 	struct lws_context *context = lws_io->context;
 	struct lws_pollfd eventfd;
 
-	if (status < 0)
-		return;
-
 	eventfd.fd = watcher->io_watcher.fd;
 	eventfd.events = 0;
 	eventfd.revents = 0;
-	if (revents & UV_READABLE) {
-		eventfd.events |= LWS_POLLIN;
-		eventfd.revents |= LWS_POLLIN;
-	}
-	if (revents & UV_WRITABLE) {
-		eventfd.events |= LWS_POLLOUT;
-		eventfd.revents |= LWS_POLLOUT;
+
+	if (status < 0) {
+		/* at this point status will be an UV error, like UV_EBADF,
+		we treat all errors as LWS_POLLHUP */
+
+		/* you might want to return; instead of servicing the fd in some cases */
+		if (status == UV_EAGAIN)
+			return;
+
+		eventfd.events |= LWS_POLLHUP;
+		eventfd.revents |= LWS_POLLHUP;
+	} else {
+		if (revents & UV_READABLE) {
+			eventfd.events |= LWS_POLLIN;
+			eventfd.revents |= LWS_POLLIN;
+		}
+		if (revents & UV_WRITABLE) {
+			eventfd.events |= LWS_POLLOUT;
+			eventfd.revents |= LWS_POLLOUT;
+		}
 	}
 	lws_service_fd(context, &eventfd);
 }
@@ -122,7 +132,7 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, uv_signal_cb cb,
 		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher,
 			     pt->lserv_fd);
 		uv_poll_start(&wsi->w_read.uv_watcher, UV_READABLE,
-			      lws_accept_cb);
+			      lws_io_cb);
 	}
 
 	uv_timer_init(pt->io_loop_uv, &pt->uv_timeout_watcher);
@@ -213,7 +223,7 @@ lws_libuv_io(struct lws *wsi, int flags)
 		if (flags & LWS_EV_READ)
 			current_events |= UV_READABLE;
 
-		uv_poll_start(&w->uv_watcher, current_events, lws_accept_cb);
+		uv_poll_start(&w->uv_watcher, current_events, lws_io_cb);
 	} else {
 		if (flags & LWS_EV_WRITE)
 			current_events &= ~UV_WRITABLE;
@@ -225,7 +235,7 @@ lws_libuv_io(struct lws *wsi, int flags)
 			uv_poll_stop(&w->uv_watcher);
 		else
 			uv_poll_start(&w->uv_watcher, current_events,
-				      lws_accept_cb);
+				      lws_io_cb);
 	}
 }
 
