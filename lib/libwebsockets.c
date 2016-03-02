@@ -142,10 +142,11 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 {
-	struct lws_context *context;
 	struct lws_context_per_thread *pt;
-	int n, m, ret;
+	struct lws **pwsi, *wsi1, *wsi2;
+	struct lws_context *context;
 	struct lws_tokens eff_buf;
+	int n, m, ret;
 
 	if (!wsi)
 		return;
@@ -153,24 +154,31 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
 
+	/* if we have children, close them first */
+	if (wsi->child_list) {
+		wsi2 = wsi->child_list;
+		while (wsi2) {
+			lwsl_notice("%s: closing %p: close child %p\n",
+					__func__, wsi, wsi2);
+			wsi1 = wsi2->sibling_list;
+			lws_close_free_wsi(wsi2, reason);
+			wsi2 = wsi1;
+		}
+	}
+
 #ifdef LWS_WITH_CGI
 	if (wsi->mode == LWSCM_CGI) {
 		/* we are not a network connection, but a handler for CGI io */
-		assert(wsi->master);
-		assert(wsi->master->cgi);
-		assert(wsi->master->cgi->stdwsi[(int)wsi->cgi_channel] == wsi);
+		if (wsi->parent && wsi->parent->cgi)
 		/* end the binding between us and master */
-		wsi->master->cgi->stdwsi[(int)wsi->cgi_channel] = NULL;
-		wsi->master = NULL;
+		wsi->parent->cgi->stdwsi[(int)wsi->cgi_channel] = NULL;
 		wsi->socket_is_permanently_unusable = 1;
 
 		goto just_kill_connection;
 	}
 
 	if (wsi->cgi) {
-		/* we have a cgi going, we must kill it and close the
-		 * related stdin/out/err wsis first
-		 */
+		/* we have a cgi going, we must kill it */
 		wsi->cgi->being_closed = 1;
 		lws_cgi_kill(wsi);
 	}
@@ -327,6 +335,22 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	}
 
 just_kill_connection:
+	if (wsi->parent) {
+		/* detach ourselves from parent's child list */
+		pwsi = &wsi->parent->child_list;
+		while (*pwsi) {
+			if (*pwsi == wsi) {
+				lwsl_notice("%s: detach %p from parent %p\n",
+						__func__, wsi, wsi->parent);
+				*pwsi = wsi->sibling_list;
+				break;
+			}
+			pwsi = &(*pwsi)->sibling_list;
+		}
+		if (*pwsi)
+			lwsl_err("%s: failed to detach from parent\n",
+					__func__);
+	}
 
 #if LWS_POSIX
 	/*
@@ -1182,6 +1206,18 @@ lws_wsi_user(struct lws *wsi)
 	return wsi->user_space;
 }
 
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_get_parent(const struct lws *wsi)
+{
+	return wsi->parent;
+}
+
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_get_child(const struct lws *wsi)
+{
+	return wsi->child_list;
+}
+
 LWS_VISIBLE LWS_EXTERN void
 lws_close_reason(struct lws *wsi, enum lws_close_status status,
 		 unsigned char *buf, size_t len)
@@ -1480,9 +1516,11 @@ lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs)
 	}
 
 	for (n = 0; n < 3; n++) {
-		cgi->stdwsi[n]->master = wsi;
 		if (insert_wsi_socket_into_fds(wsi->context, cgi->stdwsi[n]))
 			goto bail3;
+		cgi->stdwsi[n]->parent = wsi;
+		cgi->stdwsi[n]->sibling_list = wsi->child_list;
+		wsi->child_list = cgi->stdwsi[n];
 	}
 
 	lws_change_pollfd(cgi->stdwsi[LWS_STDIN], LWS_POLLIN, LWS_POLLOUT);
@@ -1495,6 +1533,8 @@ lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs)
 			cgi->stdwsi[LWS_STDERR]->sock);
 
 	lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, timeout_secs);
+
+
 
 	/* add us to the pt list of active cgis */
 	cgi->cgi_list = pt->cgi_list;
@@ -1633,8 +1673,6 @@ lws_cgi_kill(struct lws *wsi)
 		if (wsi->cgi->pipe_fds[n][!!(n == 0)] >= 0) {
 			close(wsi->cgi->pipe_fds[n][!!(n == 0)]);
 			wsi->cgi->pipe_fds[n][!!(n == 0)] = -1;
-
-			lws_close_free_wsi(wsi->cgi->stdwsi[n], 0);
 		}
 	}
 

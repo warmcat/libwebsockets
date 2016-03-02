@@ -149,6 +149,13 @@ There are 4 new related callbacks
 	LWS_CALLBACK_RECEIVE_CLIENT_HTTP			= 46,
 	LWS_CALLBACK_COMPLETED_CLIENT_HTTP			= 47,
 
+6) struct lws_client_connect_info has a new member
+
+ const char *parent_wsi
+ 
+if non-NULL, the client wsi is set to be a child of parent_wsi.  This ensures
+if parent_wsi closes, then the client child is closed just before.
+
 
 v1.7.0
 ======

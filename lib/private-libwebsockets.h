@@ -1075,9 +1075,11 @@ struct lws {
 	/* pointers */
 
 	struct lws_context *context;
+	struct lws *parent; /* points to parent, if any */
+	struct lws *child_list; /* points to first child */
+	struct lws *sibling_list; /* subsequent children at same level */
 #ifdef LWS_WITH_CGI
 	struct lws_cgi *cgi; /* wsi being cgi master have one of these */
-	struct lws *master; /* for stdin/out/err wsi to point to cgi master */
 #endif
 	const struct lws_protocols *protocol;
 	struct lws *timeout_list;

@@ -871,12 +871,12 @@ handle_pending:
 				}
 
 			args.ch = wsi->cgi_channel;
-			args.stdwsi = &wsi->master->cgi->stdwsi[0];
+			args.stdwsi = &wsi->parent->cgi->stdwsi[0];
 
 			if (user_callback_handle_rxflow(
-					wsi->master->protocol->callback,
-					wsi->master, LWS_CALLBACK_CGI,
-					wsi->master->user_space,
+					wsi->parent->protocol->callback,
+					wsi->parent, LWS_CALLBACK_CGI,
+					wsi->parent->user_space,
 					(void *)&args, 0))
 				return 1;
 

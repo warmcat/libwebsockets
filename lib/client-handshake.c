@@ -407,7 +407,12 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	if (wsi && !wsi->user_space && i->userdata) {
 		wsi->user_space_externally_allocated = 1;
 		wsi->user_space = i->userdata;
-	}
+	} else
+		/* if we stay in http, we can assign the user space now,
+		 * otherwise do it after the protocol negotiated
+		 */
+		if (i->method)
+			lws_ensure_user_space(wsi);
 
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = i->ssl_connection;
@@ -417,11 +422,6 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		goto bail;
 	}
 #endif
-	wsi->protocol = &i->context->protocols[0];
-	if (wsi && !wsi->user_space && i->userdata) {
-		wsi->user_space_externally_allocated = 1;
-		wsi->user_space = i->userdata;
-	}
 
 	/* 2) stash the things from connect_info that we can't process without
 	 * an ah.  Because if no ah, we will go on the ah waiting list and
@@ -468,6 +468,14 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	 */
 	if (lws_header_table_attach(wsi, 0))
 		lwsl_debug("%s: went on ah wait list\n", __func__);
+
+	if (i->parent_wsi) {
+		lwsl_info("%s: created child %p of parent %p\n", __func__,
+				wsi, i->parent_wsi);
+		wsi->parent = i->parent_wsi;
+		wsi->sibling_list = i->parent_wsi->child_list;
+		i->parent_wsi->child_list = wsi;
+	}
 
 	return wsi;
 

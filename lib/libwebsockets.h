@@ -1410,6 +1410,9 @@ struct lws_context_creation_info {
  * @client_exts: array of extensions that may be used on connection
  * @method:	if non-NULL, do this http method instead of ws[s] upgrade.
  *		use "GET" to be a simple http client connection
+ * @parent_wsi:	if another wsi is responsible for this connection, give it here.
+ *		this is used to make sure if the parent closes so do any
+ *		child connections first.
  */
 
 struct lws_client_connect_info {
@@ -1425,6 +1428,7 @@ struct lws_client_connect_info {
 	void *userdata;
 	const struct lws_extension *client_exts;
 	const char *method;
+	struct lws *parent_wsi;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -1846,6 +1850,12 @@ lws_get_context(const struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_get_count_threads(struct lws_context *context);
+
+LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
+lws_get_parent(const struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
+lws_get_child(const struct lws *wsi);
 
 #ifdef LWS_WITH_CGI
 enum lws_enum_stdinouterr {
