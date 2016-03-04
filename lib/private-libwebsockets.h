@@ -84,6 +84,14 @@
 
 #ifdef _WIN32_WCE
 #define vsnprintf _vsnprintf
+#else
+#ifdef LWS_HAVE__VSNPRINTF
+#define vsnprintf _vsnprintf
+#endif
+#endif
+
+#ifdef LWS_HAVE__SNPRINTF
+#define snprintf _snprintf
 #endif
 
 #else /* not windows --> */
