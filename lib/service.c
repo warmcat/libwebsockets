@@ -874,6 +874,7 @@ handle_pending:
 
 			args.ch = wsi->cgi_channel;
 			args.stdwsi = &wsi->parent->cgi->stdwsi[0];
+			args.hdr_state = wsi->hdr_state;
 
 			if (user_callback_handle_rxflow(
 					wsi->parent->protocol->callback,

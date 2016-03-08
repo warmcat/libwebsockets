@@ -1585,13 +1585,13 @@ lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs)
 	lws_change_pollfd(cgi->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN);
 
 	lwsl_debug("%s: fds in %d, out %d, err %d\n", __func__,
-			cgi->stdwsi[LWS_STDIN]->sock,
-			cgi->stdwsi[LWS_STDOUT]->sock,
-			cgi->stdwsi[LWS_STDERR]->sock);
+		   cgi->stdwsi[LWS_STDIN]->sock, cgi->stdwsi[LWS_STDOUT]->sock,
+		   cgi->stdwsi[LWS_STDERR]->sock);
 
 	lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, timeout_secs);
 
-
+	/* the cgi stdout is always sending us http1.x header data first */
+	wsi->hdr_state = LCHS_HEADER;
 
 	/* add us to the pt list of active cgis */
 	cgi->cgi_list = pt->cgi_list;
@@ -1673,6 +1673,103 @@ bail1:
 	lwsl_err("%s: failed\n", __func__);
 
 	return -1;
+}
+/**
+ * lws_cgi_write_split_headers: write cgi output accounting for header part
+ *
+ * @wsi: connection to own the process
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_cgi_write_split_stdout_headers(struct lws *wsi)
+{
+	int n, m;
+	char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
+	     *end = &buf[sizeof(buf) - 1 - LWS_PRE], c;
+
+	while (wsi->hdr_state != LHCS_PAYLOAD) {
+		/* we have to separate header / finalize and
+		 * payload chunks, since they need to be
+		 * handled separately
+		 */
+		n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]), &c, 1);
+		if (n < 0) {
+			if (errno != EAGAIN)
+				return -1;
+			else
+				n = 0;
+		}
+		if (n) {
+			lwsl_err("-- %c\n", c);
+			switch (wsi->hdr_state) {
+			case LCHS_HEADER:
+				*p++ = c;
+				if (c == '\x0d') {
+					wsi->hdr_state = LCHS_LF1;
+					break;
+				}
+				break;
+			case LCHS_LF1:
+				*p++ = c;
+				if (c == '\x0a') {
+					wsi->hdr_state = LCHS_CR2;
+					break;
+				}
+				/* we got \r[^\n]... it's unreasonable */
+				return -1;
+			case LCHS_CR2:
+				if (c == '\x0d') {
+					/* drop the \x0d */
+					wsi->hdr_state = LCHS_LF2;
+					break;
+				}
+				*p++ = c;
+				break;
+			case LCHS_LF2:
+				if (c == '\x0a') {
+					wsi->hdr_state = LHCS_PAYLOAD;
+					/* drop the \0xa ... finalize will add it if needed */
+					lws_finalize_http_header(wsi,
+							(unsigned char **)&p,
+							(unsigned char *)end);
+					break;
+				}
+				/* we got \r\n\r[^\n]... it's unreasonable */
+				return -1;
+			case LHCS_PAYLOAD:
+				break;
+			}
+		}
+
+		/* ran out of input, ended the headers, or filled up the headers buf */
+		if (!n || wsi->hdr_state == LHCS_PAYLOAD || (p + 4) == end) {
+lwsl_err("a\n");
+			m = lws_write(wsi, (unsigned char *)start,
+				      p - start, LWS_WRITE_HTTP_HEADERS);
+			if (m < 0)
+				return -1;
+lwsl_err("b\n");
+			/* writeability becomes uncertain now we wrote
+			 * something, we must return to the event loop
+			 */
+
+			return 0;
+		}
+	}
+	lwsl_err("%s: stdout\n", __func__);
+	n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]),
+		 start, sizeof(buf) - LWS_PRE);
+
+	if (n < 0 && errno != EAGAIN)
+		return -1;
+	if (n > 0) {
+		m = lws_write(wsi, (unsigned char *)start, n,
+			      LWS_WRITE_HTTP);
+		//lwsl_notice("write %d\n", m);
+		if (m < 0)
+			return -1;
+	}
+
+	return 0;
 }
 
 /**

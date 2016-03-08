@@ -1054,6 +1054,7 @@ struct lws_cgi {
 
 	unsigned int being_closed:1;
 };
+
 #endif
 
 struct lws {
@@ -1158,6 +1159,7 @@ struct lws {
 	char tsi; /* thread service index we belong to */
 #ifdef LWS_WITH_CGI
 	char cgi_channel; /* which of stdin/out/err */
+	char hdr_state;
 #endif
 };
 

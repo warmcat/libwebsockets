@@ -1866,15 +1866,28 @@ enum lws_enum_stdinouterr {
 	LWS_STDERR = 2,
 };
 
+enum lws_cgi_hdr_state {
+	LCHS_HEADER,
+	LCHS_CR1,
+	LCHS_LF1,
+	LCHS_CR2,
+	LCHS_LF2,
+	LHCS_PAYLOAD,
+};
+
 struct lws_cgi_args {
 	struct lws **stdwsi; /* get fd with lws_get_socket_fd() */
 	enum lws_enum_stdinouterr ch;
 	unsigned char *data; /* for messages with payload */
+	enum lws_cgi_hdr_state hdr_state;
 	int len;
 };
 
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_cgi_write_split_stdout_headers(struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_kill(struct lws *wsi);

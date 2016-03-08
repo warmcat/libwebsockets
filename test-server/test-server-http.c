@@ -213,19 +213,17 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			if (lws_add_http_header_status(wsi, 200, &p, end))
 				return 1;
-			if (lws_add_http_header_by_token(wsi,
-					WSI_TOKEN_HTTP_CONTENT_TYPE,
-					(unsigned char *)"text/plain",
-					10, &p, end))
-				return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
 					(unsigned char *)"close", 5, &p, end))
-				return 1;
-			if (lws_finalize_http_header(wsi, &p, end))
 				return 1;
 			n = lws_write(wsi, buffer + LWS_PRE,
 				      p - (buffer + LWS_PRE),
 				      LWS_WRITE_HTTP_HEADERS);
+
+			/* the cgi starts by outputting headers, we can't
+			 *  finalize the headers until we see the end of that
+			 */
+
 			break;
 		}
 #endif
@@ -399,20 +397,10 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			goto try_to_reuse;
 #ifdef LWS_WITH_CGI
 		if (pss->reason_bf) {
-			lwsl_debug("%s: stdout\n", __func__);
-			n = read(lws_get_socket_fd(pss->args.stdwsi[LWS_STDOUT]),
-					buf + LWS_PRE, sizeof(buf) - LWS_PRE);
-			//lwsl_notice("read %d (errno %d)\n", n, errno);
-			if (n < 0 && errno != EAGAIN)
-				return -1;
-			if (n > 0) {
-				m = lws_write(wsi, (unsigned char *)buf + LWS_PRE, n,
-					      LWS_WRITE_HTTP);
-				//lwsl_notice("write %d\n", m);
-				if (m < 0)
-					goto bail;
-				pss->reason_bf = 0;
-			}
+			if (lws_cgi_write_split_stdout_headers(wsi) < 0)
+				goto bail;
+
+			pss->reason_bf = 0;
 			break;
 		}
 #endif
