@@ -84,6 +84,8 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 
 	if (!loop)
 		loop = ev_loop_new(0);
+	else
+		context->pt[tsi].ev_loop_foreign = 1;
 
 	context->pt[tsi].io_loop_ev = loop;
 
