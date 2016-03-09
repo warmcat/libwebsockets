@@ -1,6 +1,11 @@
 Changelog
 ---------
 
+Fixes
+-----
+
+1) MINOR: d9n't send ext hdr if no exts to discuss
+
 v1.7.3
 ======
 

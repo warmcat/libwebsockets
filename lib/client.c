@@ -956,7 +956,6 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	/* tell the server what extensions we could support */
 
-	p += sprintf(p, "Sec-WebSocket-Extensions: ");
 #ifndef LWS_NO_EXTENSIONS
 	ext = context->extensions;
 	while (ext && ext->callback) {
@@ -988,13 +987,17 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 		if (ext_count)
 			*p++ = ',';
+                else
+                        p += sprintf(p, "Sec-WebSocket-Extensions: ");
+
 		p += sprintf(p, "%s", ext->client_offer);
 		ext_count++;
 
 		ext++;
 	}
+	if (ext_count)
+		p += sprintf(p, "\x0d\x0a");
 #endif
-	p += sprintf(p, "\x0d\x0a");
 
 	if (wsi->ietf_spec_revision)
 		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
