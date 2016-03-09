@@ -38,6 +38,7 @@ using up the pool.
 
 8) MAJOR windows-only-POLLHUP was not coming
 
+9) Client should not send ext hdr if no exts
 
 Changes
 -------
