@@ -696,6 +696,15 @@ if (LWS_WITH_SSL)
 		include_directories("${OPENSSL_INCLUDE_DIRS}")
 		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
 	endif()
+
+	# older (0.98) Openssl lacks this
+	set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIRS})
+	check_include_file(openssl/ecdh.h LWS_HAVE_OPENSSL_ECDH_H)
+
+	if (LWS_SSL_SERVER_WITH_ECDH_CERT AND NOT LWS_HAVE_OPENSSL_ECDH_H)
+		message(FATAL_ERROR "Missing openssl/ecdh.h, so cannot use LWS_SSL_SERVER_WITH_ECDH_CERT")
+	endif()
+
 endif(LWS_WITH_SSL)
 
 if (LWS_WITH_LIBEV)
@@ -1217,6 +1226,7 @@ message(" LWS_MBED3 = ${LWS_MBED3}")
 message(" LWS_SSL_SERVER_WITH_ECDH_CERT = ${LWS_SSL_SERVER_WITH_ECDH_CERT}")
 message(" LWS_MAX_SMP = ${LWS_MAX_SMP}")
 message(" LWS_WITH_CGI = ${LWS_WITH_CGI}")
+message(" LWS_HAVE_OPENSSL_ECDH_H = ${LWS_HAVE_OPENSSL_ECDH_H}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()
