@@ -26,15 +26,8 @@ int
 lws_context_init_server(struct lws_context_creation_info *info,
 			struct lws_context *context)
 {
-#ifdef LWS_USE_IPV6
-	struct sockaddr_in6 serv_addr6;
-#endif
-#if LWS_POSIX
-	struct sockaddr_in serv_addr4;
-	socklen_t len = sizeof(struct sockaddr);
+#ifdef LWS_POSIX
 	int n, opt = 1, limit = 1;
-	struct sockaddr_in sin;
-	struct sockaddr *v;
 #endif
 	lws_sockfd_type sockfd;
 	struct lws *wsi;
@@ -88,43 +81,10 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	lws_plat_set_socket_options(context, sockfd);
 
 #if LWS_POSIX
-#ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(context)) {
-		v = (struct sockaddr *)&serv_addr6;
-		n = sizeof(struct sockaddr_in6);
-		bzero((char *) &serv_addr6, sizeof(serv_addr6));
-		serv_addr6.sin6_addr = in6addr_any;
-		serv_addr6.sin6_family = AF_INET6;
-		serv_addr6.sin6_port = htons(info->port);
-	} else
-#endif
-	{
-		v = (struct sockaddr *)&serv_addr4;
-		n = sizeof(serv_addr4);
-		bzero((char *) &serv_addr4, sizeof(serv_addr4));
-		serv_addr4.sin_addr.s_addr = INADDR_ANY;
-		serv_addr4.sin_family = AF_INET;
-
-		if (info->iface && interface_to_sa(context, info->iface,
-				   (struct sockaddr_in *)v, n) < 0) {
-			lwsl_err("Unable to find interface %s\n", info->iface);
-			goto bail;
-		}
-
-		serv_addr4.sin_port = htons(info->port);
-	} /* ipv4 */
-
-	n = bind(sockfd, v, n);
-	if (n < 0) {
-		lwsl_err("ERROR on binding to port %d (%d %d)\n",
-					      info->port, n, LWS_ERRNO);
+	n = lws_socket_bind(context, sockfd, info->port, info->iface);
+	if (n < 0)
 		goto bail;
-	}
-
-	if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
-		lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
-	else
-		info->port = ntohs(sin.sin_port);
+	info->port = n;
 #endif
 	context->listen_port = info->port;
 

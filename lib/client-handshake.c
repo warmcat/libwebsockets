@@ -5,13 +5,11 @@ lws_client_connect_2(struct lws *wsi)
 {
 #ifdef LWS_USE_IPV6
 	struct sockaddr_in6 server_addr6;
-	struct sockaddr_in6 client_addr6;
 	struct addrinfo hints, *result;
 #endif
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct sockaddr_in server_addr4;
-	struct sockaddr_in client_addr4;
 	struct lws_pollfd pfd;
 	struct sockaddr *v;
 	int n, plen = 0;
@@ -172,38 +170,12 @@ lws_client_connect_2(struct lws *wsi)
 		 * handling as oom4 does.  We have to run the whole close flow.
 		 */
 
-		lws_set_timeout(wsi,
-			PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
-							      AWAITING_TIMEOUT);
-#ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(context)) {
-			v = (struct sockaddr *)&client_addr6;
-			n = sizeof(client_addr6);
-			bzero((char *)v, n);
-			client_addr6.sin6_family = AF_INET6;
-		} else
-#endif
-		{
-			v = (struct sockaddr *)&client_addr4;
-			n = sizeof(client_addr4);
-			bzero((char *)v, n);
-			client_addr4.sin_family = AF_INET;
-		}
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
+				AWAITING_TIMEOUT);
 
-		if (context->iface) {
-			if (interface_to_sa(context, context->iface,
-					(struct sockaddr_in *)v, n) < 0) {
-				lwsl_err("Unable to find interface %s\n",
-								context->iface);
-				goto failed;
-			}
-
-			if (bind(wsi->sock, v, n) < 0) {
-				lwsl_err("Error binding to interface %s",
-								context->iface);
-				goto failed;
-			}
-		}
+		n = lws_socket_bind(context, wsi->sock, 0, context->iface);
+		if (n < 0)
+			goto failed;
 	}
 
 #ifdef LWS_USE_IPV6

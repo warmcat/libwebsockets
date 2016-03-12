@@ -1160,6 +1160,10 @@ struct lws {
 
 LWS_EXTERN int log_level;
 
+LWS_EXTERN int
+lws_socket_bind(struct lws_context *context, int sockfd, int port,
+		const char *iface);
+
 LWS_EXTERN void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status);
 
