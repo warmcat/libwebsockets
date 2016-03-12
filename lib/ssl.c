@@ -24,7 +24,7 @@
  #include <openssl/err.h>
 #endif
 
-#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifdef LWS_HAVE_OPENSSL_ECDH_H
 #include <openssl/ecdh.h>
 #endif
 
@@ -139,7 +139,7 @@ static int
 lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 				struct lws_context *context)
 {
-#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifdef LWS_HAVE_OPENSSL_ECDH_H
 	EC_KEY *ecdh;
 	int ecdh_nid;
 	const char *ecdh_curve = "prime256v1";
