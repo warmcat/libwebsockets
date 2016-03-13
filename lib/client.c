@@ -628,6 +628,17 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail2;
 		}
 
+		/* he may choose to send us stuff in chunked transfer-coding */
+		wsi->chunked = 0;
+		wsi->chunk_remaining = 0; /* ie, next thing is chunk size */
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
+			wsi->chunked = !strcmp(lws_hdr_simple_ptr(wsi,
+					       WSI_TOKEN_HTTP_TRANSFER_ENCODING),
+					"chunked");
+			/* first thing is hex, after payload there is crlf */
+			wsi->chunk_parser = ELCP_HEX;
+		}
+
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 			wsi->u.http.content_length =
 					atoi(lws_hdr_simple_ptr(wsi,
@@ -635,8 +646,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			lwsl_notice("%s: incoming content length %d\n", __func__,
 					wsi->u.http.content_length);
 			wsi->u.http.content_remain = wsi->u.http.content_length;
-		} else /* can't do 1.1 without a content length */
-			wsi->u.http.connection_type = HTTP_CONNECTION_CLOSE;
+		} else /* can't do 1.1 without a content length or chunked */
+			if (!wsi->chunked)
+				wsi->u.http.connection_type = HTTP_CONNECTION_CLOSE;
 
 		/*
 		 * we seem to be good to go, give client last chance to check

@@ -79,7 +79,7 @@ just deferred until an ah becomes available.
 8) The test client pays attention to if you give it an http:/ or https://
 protocol string to its argument in URL format.  If so, it stays in http[s]
 client mode and doesn't upgrade to ws[s], allowing you to do generic http client
-operations.
+operations.  Receiving transfer-encoding: chunked is supported.
 
 9) The test server has a new URI path http://localhost:7681/proxytest
 If you visit here, a client connection to http://example.com:80 is spawned,

@@ -1054,7 +1054,18 @@ struct lws_cgi {
 
 	unsigned int being_closed:1;
 };
+#endif
 
+signed char char_to_hex(const char c);
+
+#ifndef LWS_NO_CLIENT
+enum lws_chunk_parser {
+	ELCP_HEX,
+	ELCP_CR,
+	ELCP_CONTENT,
+	ELCP_POST_CR,
+	ELCP_POST_LF,
+};
 #endif
 
 struct lws {
@@ -1121,6 +1132,9 @@ struct lws {
 	unsigned int trunc_alloc_len; /* size of malloc */
 	unsigned int trunc_offset; /* where we are in terms of spilling */
 	unsigned int trunc_len; /* how much is buffered */
+#ifndef LWS_NO_CLIENT
+	int chunk_remaining;
+#endif
 
 	unsigned int hdr_parsing_completed:1;
 	unsigned int user_space_externally_allocated:1;
@@ -1129,6 +1143,7 @@ struct lws {
 	unsigned int more_rx_waiting:1; /* has to live here since ah may stick to end */
 #ifndef LWS_NO_CLIENT
 	unsigned int do_ws:1; /* whether we are doing http or ws flow */
+	unsigned int chunked:1; /* if the clientside connection is chunked */
 #endif
 #ifndef LWS_NO_EXTENSIONS
 	unsigned int extension_data_pending:1;
@@ -1160,6 +1175,9 @@ struct lws {
 #ifdef LWS_WITH_CGI
 	char cgi_channel; /* which of stdin/out/err */
 	char hdr_state;
+#endif
+#ifndef LWS_NO_CLIENT
+	char chunk_parser; /* enum lws_chunk_parser */
 #endif
 };
 
