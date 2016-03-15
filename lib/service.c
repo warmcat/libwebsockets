@@ -143,6 +143,8 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	/* Priority 6: user can get the callback
 	 */
 	m = lws_ext_cb_active(wsi, LWS_EXT_CB_IS_WRITEABLE, NULL, 0);
+	if (m)
+		return -1;
 #ifndef LWS_NO_EXTENSIONS
 	if (!wsi->extension_data_pending)
 		goto user_service;
