@@ -360,7 +360,7 @@ int main(int argc, char **argv)
 
 	/* wait for all the service threads to exit */
 
-	for (n = 0; n < lws_get_count_threads(context); n++)
+	while ((--n) >= 0)
 		pthread_join(pthread_service[n], &retval);
 
 	/* wait for pthread_dumb to exit */
