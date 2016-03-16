@@ -1235,6 +1235,9 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		if (wsi->rxflow_buffer)
 			wsi->rxflow_pos++;
 
+		/* consume payload bytes efficiently */
+		lws_payload_until_length_exhausted(wsi, buf, &len);
+
 		/* process the byte */
 		m = lws_rx_sm(wsi, *(*buf)++);
 		if (m < 0)
