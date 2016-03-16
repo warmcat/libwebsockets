@@ -1415,3 +1415,63 @@ lws_remaining_packet_payload(struct lws *wsi)
 {
 	return wsi->u.ws.rx_packet_length;
 }
+
+/* Once we reach LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED, we know how much
+ * to expect in that state and can deal with it in bulk more efficiently.
+ */
+
+void
+lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf,
+				   size_t *len)
+{
+	unsigned char *buffer = *buf, mask[4];
+	int buffer_size, avail, n;
+	char *rx_ubuf;
+
+	if (wsi->protocol->rx_buffer_size)
+		buffer_size = wsi->protocol->rx_buffer_size;
+	else
+		buffer_size = LWS_MAX_SOCKET_IO_BUF;
+	avail = buffer_size - wsi->u.ws.rx_ubuf_head;
+
+	/* do not consume more than we should */
+	if (avail > wsi->u.ws.rx_packet_length)
+		avail = wsi->u.ws.rx_packet_length;
+
+	/* do not consume more than what is in the buffer */
+	if (avail > *len)
+		avail = *len;
+
+	/* we want to leave 1 byte for the parser to handle properly */
+	if (avail <= 1)
+		return;
+
+	avail--;
+	rx_ubuf = wsi->u.ws.rx_ubuf + LWS_PRE + wsi->u.ws.rx_ubuf_head;
+	if (wsi->u.ws.all_zero_nonce)
+		memcpy(rx_ubuf, buffer, avail);
+	else {
+
+		for (n = 0; n < 4; n++)
+			mask[n] = wsi->u.ws.mask[(wsi->u.ws.mask_idx + n) & 3];
+
+		/* deal with 4-byte chunks using unwrapped loop */
+		n = avail >> 2;
+		while (n--) {
+			*(rx_ubuf++) = *(buffer++) ^ mask[0];
+			*(rx_ubuf++) = *(buffer++) ^ mask[1];
+			*(rx_ubuf++) = *(buffer++) ^ mask[2];
+			*(rx_ubuf++) = *(buffer++) ^ mask[3];
+		}
+		/* and the remaining bytes bytewise */
+		for (n = 0; n < (avail & 3); n++)
+			*(rx_ubuf++) = *(buffer++) ^ mask[n];
+
+		wsi->u.ws.mask_idx = (wsi->u.ws.mask_idx + avail) & 3;
+	}
+
+	(*buf) += avail;
+	wsi->u.ws.rx_ubuf_head += avail;
+	wsi->u.ws.rx_packet_length -= avail;
+	*len -= avail;
+}
