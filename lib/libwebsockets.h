@@ -300,6 +300,8 @@ enum lws_context_options {
 	LWS_SERVER_OPTION_VALIDATE_UTF8				= (1 << 8),
 	LWS_SERVER_OPTION_SSL_ECDH				= (1 << 9),
 	LWS_SERVER_OPTION_LIBUV					= (1 << 10),
+	LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS		= (1 << 11) |
+								  (1 << 3),
 
 	/****** add new things just above ---^ ******/
 };

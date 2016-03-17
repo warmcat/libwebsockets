@@ -161,6 +161,11 @@ There are 4 new related callbacks
 if non-NULL, the client wsi is set to be a child of parent_wsi.  This ensures
 if parent_wsi closes, then the client child is closed just before.
 
+7) If you're using SSL, there's a new context creation-time option flag
+LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS.  If you give this, non-ssl
+connections to the server listen port are accepted and receive a 301
+redirect to / on the same host and port using https://
+
 
 v1.7.0
 ======

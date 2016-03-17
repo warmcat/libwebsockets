@@ -146,6 +146,7 @@ _lws_server_listen_accept_flow_control(struct lws *twsi, int on)
 int
 lws_http_action(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	enum http_connection_type connection_type;
 	enum http_version request_version;
 	char content_length_str[32];
@@ -263,6 +264,33 @@ lws_http_action(struct lws *wsi)
 	 */
 	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 			wsi->context->timeout_secs);
+
+	if (wsi->redirect_to_https) {
+		/*
+		 *  we accepted http:// only so we could redirect to
+		 * https://, so issue the redirect.  Create the redirection
+		 * URI from the host: header and ignore the path part
+		 */
+		unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
+			      *end = p + 512;
+
+		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
+			goto bail_nuke_ah;
+		if (lws_add_http_header_status(wsi, 301, &p, end))
+			goto bail_nuke_ah;
+		n = sprintf((char *)end, "https://%s/",
+			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
+				end, n, &p, end))
+			goto bail_nuke_ah;
+		if (lws_finalize_http_header(wsi, &p, end))
+			goto bail_nuke_ah;
+		n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+		if (n < 0)
+			goto bail_nuke_ah;
+
+		return lws_http_transaction_completed(wsi);
+	}
 
 	n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);

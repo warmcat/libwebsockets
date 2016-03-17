@@ -1139,6 +1139,9 @@ struct lws {
 #ifdef _WIN32
 	unsigned int sock_send_blocking:1;
 #endif
+#ifdef LWS_OPENSSL_SUPPORT
+	unsigned int redirect_to_https:1;
+#endif
 
 	/* chars */
 #ifndef LWS_NO_EXTENSIONS

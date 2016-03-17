@@ -757,6 +757,9 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				SSL_shutdown(wsi->ssl);
 				SSL_free(wsi->ssl);
 				wsi->ssl = NULL;
+				if (context->options &
+				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS)
+					wsi->redirect_to_https = 1;
 				goto accepted;
 			}
 			if (!n) /*

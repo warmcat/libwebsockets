@@ -1354,9 +1354,10 @@ ping_drop:
 			eff_buf.token_len = wsi->u.ws.rx_ubuf_head;
 
 			if (lws_ext_cb_active(wsi, LWS_EXT_CB_EXTENDED_PAYLOAD_RX,
-					&eff_buf, 0) <= 0) /* not handle or fail */
+					      &eff_buf, 0) <= 0)
+				/* not handle or fail */
 				lwsl_ext("ext opc opcode 0x%x unknown\n",
-							      wsi->u.ws.opcode);
+					 wsi->u.ws.opcode);
 
 			wsi->u.ws.rx_ubuf_head = 0;
 			return 0;

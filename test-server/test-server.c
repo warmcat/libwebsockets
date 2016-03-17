@@ -349,6 +349,11 @@ int main(int argc, char **argv)
 			       "!DHE-RSA-AES256-SHA256:"
 			       "!AES256-GCM-SHA384:"
 			       "!AES256-SHA256";
+
+	if (use_ssl)
+		/* redirect guys coming on http */
+		info.options |= LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS;
+
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
