@@ -1289,6 +1289,9 @@ lws_client_interpret_server_handshake(struct lws *wsi);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_rx_sm(struct lws *wsi, unsigned char c);
 
+LWS_EXTERN void
+lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf, size_t *len);
+
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
 
