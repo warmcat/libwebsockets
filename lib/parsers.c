@@ -1455,3 +1455,53 @@ lws_remaining_packet_payload(struct lws *wsi)
 {
 	return wsi->u.ws.rx_packet_length;
 }
+
+/* bypass slow per-byte parsing of payload data when in
+ * parser state LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED */
+
+void
+lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf, size_t *len)
+{
+	int buffer_size, consumable, i;
+	unsigned char *buffer, *mask;
+	char *rx_ubuf;
+	unsigned char mask_idx;
+
+	if (wsi->lws_rx_parse_state == LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED) {
+		buffer_size = (wsi->protocol->rx_buffer_size ? wsi->protocol->rx_buffer_size
+			: LWS_MAX_SOCKET_IO_BUF);
+		consumable = buffer_size - wsi->u.ws.rx_ubuf_head;
+
+		/* do not consume more than what we should */
+		if (consumable > wsi->u.ws.rx_packet_length)
+			consumable = wsi->u.ws.rx_packet_length;
+
+		/* do not consume more than what is in the buffer */
+		if (consumable > *len)
+			consumable = *len;
+
+		/* we want to leave 1 byte for the parser to handle properly */
+		if (consumable > 1) {
+			consumable--;
+			rx_ubuf = wsi->u.ws.rx_ubuf + LWS_PRE + wsi->u.ws.rx_ubuf_head;
+			if (wsi->u.ws.all_zero_nonce)
+				memcpy(rx_ubuf, (*buf), consumable);
+			else {
+				buffer = *buf;
+				mask = wsi->u.ws.mask;
+				mask_idx = wsi->u.ws.mask_idx;
+
+				/* this is the main computation, can be further optimized */
+				for (i = 0; i < consumable; i++)
+					rx_ubuf[i] = buffer[i] ^ mask[(mask_idx++) & 3];
+
+				wsi->u.ws.mask_idx = mask_idx;
+			}
+
+			(*buf) += consumable;
+			wsi->u.ws.rx_ubuf_head += consumable;
+			wsi->u.ws.rx_packet_length -= consumable;
+			*len -= consumable;
+		}
+	}
+}
