@@ -123,9 +123,14 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!lws_socket_is_valid(wsi->sock))
 		lwsl_warn("** error invalid sock but expected to send\n");
 
+	/* limit sending */
+	n = wsi->protocol->rx_buffer_size;
+	if (!n) n = LWS_MAX_SOCKET_IO_BUF;
+	if (n > len) n = len;
+
 	/* nope, send it on the socket directly */
 	lws_latency_pre(context, wsi);
-	n = lws_ssl_capable_write(wsi, buf, len);
+	n = lws_ssl_capable_write(wsi, buf, n);
 	lws_latency(context, wsi, "send lws_issue_raw", n,
 		    (unsigned int)n == len);
 
