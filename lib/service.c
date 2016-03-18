@@ -763,7 +763,7 @@ drain:
 			lwsl_notice("%s: calling LWS_CALLBACK_RECEIVE_CLIENT_HTTP, "
 				    "rem %d len %d\n", __func__,
 				    wsi->u.http.content_remain, eff_buf.token_len);
-			if (wsi->u.http.content_remain < eff_buf.token_len)
+			if ((int)wsi->u.http.content_remain < eff_buf.token_len)
 				n = wsi->u.http.content_remain;
 			else
 				n = eff_buf.token_len;

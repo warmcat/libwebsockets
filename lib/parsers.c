@@ -1466,7 +1466,8 @@ lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf,
 				   size_t *len)
 {
 	unsigned char *buffer = *buf, mask[4];
-	int buffer_size, avail, n;
+	int buffer_size, n;
+	unsigned int avail;
 	char *rx_ubuf;
 
 	if (wsi->protocol->rx_buffer_size)
@@ -1505,7 +1506,7 @@ lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf,
 			*(rx_ubuf++) = *(buffer++) ^ mask[3];
 		}
 		/* and the remaining bytes bytewise */
-		for (n = 0; n < (avail & 3); n++)
+		for (n = 0; n < (int)(avail & 3); n++)
 			*(rx_ubuf++) = *(buffer++) ^ mask[n];
 
 		wsi->u.ws.mask_idx = (wsi->u.ws.mask_idx + avail) & 3;
