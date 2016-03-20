@@ -104,6 +104,9 @@ const char * get_mimetype(const char *file)
 	if (!strcmp(&file[n - 5], ".html"))
 		return "text/html";
 
+	if (!strcmp(&file[n - 4], ".css"))
+		return "text/css";
+
 	return NULL;
 }
 
@@ -117,7 +120,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		  void *in, size_t len)
 {
 	struct per_session_data__http *pss =
-			(struct per_session_data__http *)user, *pss1;
+			(struct per_session_data__http *)user;
 	unsigned char buffer[4096 + LWS_PRE];
 	unsigned long amount, file_len, sent;
 	char leaf_path[1024];
@@ -126,7 +129,10 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	unsigned char *end;
 	struct timeval tv;
 	unsigned char *p;
+#ifndef LWS_NO_CLIENT
+	struct per_session_data__http *pss1;
 	struct lws *wsi1;
+#endif
 	char buf[256];
 	char b64[64];
 	int n, m;
@@ -178,7 +184,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			i.port = 80;
 			i.ssl_connection = 0;
 			if (p[10])
-				i.path = in + 10;
+				i.path = (char *)in + 10;
 			else
 				i.path = rootpath;
 			i.host = "git.libwebsockets.org";
@@ -198,23 +204,26 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 #endif
 
+#if 1
 		/* this example server has no concept of directories */
 		if (strchr((const char *)in + 1, '/')) {
 			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 			goto try_to_reuse;
 		}
+#endif
 
 #ifdef LWS_WITH_CGI
-		if (!strcmp(in, "/cgitest")) {
+		if (!strncmp(in, "/cgitest", 8)) {
 			static char *cmd[] = {
 				"/bin/sh",
 				"-c",
 				INSTALL_DATADIR"/libwebsockets-test-server/lws-cgi-test.sh",
+//				"/var/www/cgi-bin/cgit",
 				NULL
 			};
 
 			lwsl_notice("%s: cgitest\n", __func__);
-			n = lws_cgi(wsi, cmd, 5);
+			n = lws_cgi(wsi, cmd, 8, 5);
 			if (n) {
 				lwsl_err("%s: cgi failed\n");
 				return -1;
@@ -320,11 +329,16 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		/* if not, send a file the easy way */
-		strcpy(buf, resource_path);
+		if (!strncmp(in, "/cgit-data/", 11)) {
+			in = (char *)in + 11;
+			strcpy(buf, "/usr/share/cgit");
+		} else
+			strcpy(buf, resource_path);
+
 		if (strcmp(in, "/")) {
 			if (*((const char *)in) != '/')
 				strcat(buf, "/");
-			strncat(buf, in, sizeof(buf) - strlen(resource_path));
+			strncat(buf, in, sizeof(buf) - strlen(buf) - 1);
 		} else /* default file to serve */
 			strcat(buf, "/test.html");
 		buf[sizeof(buf) - 1] = '\0';
@@ -510,7 +524,7 @@ bail:
 		/* if we returned non-zero from here, we kill the connection */
 		break;
 
-#ifndef LWS_WITH_CLIENT
+#ifndef LWS_NO_CLIENT
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
 		char ctype[64], ctlen = 0;
 		lwsl_err("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP\n");
@@ -618,16 +632,16 @@ bail:
 		break;
 
 	case LWS_CALLBACK_CGI_TERMINATED:
-		lwsl_notice("LWS_CALLBACK_CGI_TERMINATED\n");
+		//lwsl_notice("LWS_CALLBACK_CGI_TERMINATED\n");
 		/* because we sent on openended http, close the connection */
 		return -1;
 
 	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */
-		lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA\n");
+		//lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA\n");
 		pss->args = *((struct lws_cgi_args *)in);
 		n = write(lws_get_socket_fd(pss->args.stdwsi[LWS_STDIN]),
 			  pss->args.data, pss->args.len);
-		lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: write says %d", n);
+		//lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: write says %d", n);
 		if (n < pss->args.len)
 			lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: sent %d only %d went",
 					n, pss->args.len);

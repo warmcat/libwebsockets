@@ -501,7 +501,7 @@ strtolower(char *s)
  *	  transaction if possible
  */
 
-LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
+int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi)
 {
 	lwsl_debug("%s: wsi %p\n", __func__, wsi);
@@ -622,7 +622,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail2;
 		}
 
-#ifndef LWS_NO_CLIENT
+#ifdef LWS_WITH_HTTP_PROXY
 	wsi->perform_rewrite = 0;
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
 		if (!strncmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE),

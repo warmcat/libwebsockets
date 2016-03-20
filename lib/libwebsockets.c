@@ -391,12 +391,12 @@ just_kill_connection:
 
 	lwsl_info("%s: real just_kill_connection: %p (sockfd %d)\n", __func__,
 		  wsi, wsi->sock);
-
+#ifdef LWS_WITH_HTTP_PROXY
 	if (wsi->rw) {
 		lws_rewrite_destroy(wsi->rw);
 		wsi->rw = NULL;
 	}
-
+#endif
 	/*
 	 * we won't be servicing or receiving anything further from this guy
 	 * delete socket from the internal poll list if still present
@@ -1484,6 +1484,35 @@ lws_socket_bind(struct lws_context *context, int sockfd, int port,
 }
 
 LWS_VISIBLE LWS_EXTERN int
+lws_urlencode(const char *in, int inlen, char *out, int outlen)
+{
+	const char *hex = "0123456789ABCDEF";
+	char *start = out, *end = out + outlen;
+
+	while (inlen-- && out > end - 4) {
+		if ((*in >= 'A' && *in <= 'Z') ||
+		    (*in >= 'a' && *in <= 'z') ||
+		    (*in >= '0' && *in <= '9') ||
+		    *in == '-' ||
+		    *in == '_' ||
+		    *in == '.' ||
+		    *in == '~')
+			*out++ = *in++;
+		else {
+			*out++ = '%';
+			*out++ = hex[(*in) >> 4];
+			*out++ = hex[(*in++) & 15];
+		}
+	}
+	*out = '\0';
+
+	if (out >= end - 4)
+		return -1;
+
+	return out - start;
+}
+
+LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi) {
 #ifdef LWS_WITH_CGI
 	return !!wsi->cgi;
@@ -1546,12 +1575,14 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
  */
 
 LWS_VISIBLE LWS_EXTERN int
-lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs)
+lws_cgi(struct lws *wsi, char * const *exec_array, int script_uri_path_len,
+	int timeout_secs)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	char *env_array[30], cgi_path[400];
+	char *env_array[30], cgi_path[400], e[1024], *p = e,
+	     *end = p + sizeof(e) - 1, tok[256];
 	struct lws_cgi *cgi;
-	int n;
+	int n, m, i;
 
 	/*
 	 * give the master wsi a cgi struct
@@ -1612,8 +1643,11 @@ lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs)
 	/* prepare his CGI env */
 
 	n = 0;
+
+	if (lws_is_ssl(wsi))
+		env_array[n++] = "HTTPS=ON";
 	if (wsi->u.hdr.ah) {
-		snprintf(cgi_path, sizeof(cgi_path) - 1, "PATH_INFO=%s",
+		snprintf(cgi_path, sizeof(cgi_path) - 1, "REQUEST_URI=%s",
 			 lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
 		cgi_path[sizeof(cgi_path) - 1] = '\0';
 		env_array[n++] = cgi_path;
@@ -1621,18 +1655,66 @@ lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs)
 			env_array[n++] = "REQUEST_METHOD=POST";
 		else
 			env_array[n++] = "REQUEST_METHOD=GET";
+
+		env_array[n++] = p;
+		p += snprintf(p, end - p, "QUERY_STRING=");
+		/* dump the individual URI Arg parameters */
+		m = 0;
+		while (1) {
+			i = lws_hdr_copy_fragment(wsi, tok, sizeof(tok),
+					     WSI_TOKEN_HTTP_URI_ARGS, m);
+			if (i < 0)
+				break;
+			i = lws_urlencode(tok, i, p, end - p);
+			p += i;
+			*p++ = '&';
+			m++;
+		}
+		if (m)
+			p--;
+		*p++ = '\0';
+
+		env_array[n++] = p;
+		p += snprintf(p, end - p, "PATH_INFO=%s",
+			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI) +
+			      script_uri_path_len);
+		p++;
 	}
-	if (lws_is_ssl(wsi))
-		env_array[n++] = "HTTPS=ON";
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER)) {
+		env_array[n++] = p;
+		p += snprintf(p, end - p, "HTTP_REFERER=%s",
+			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_REFERER));
+		p++;
+	}
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
+		env_array[n++] = p;
+		p += snprintf(p, end - p, "HTTP_HOST=%s",
+			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
+		p++;
+	}
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
+		env_array[n++] = p;
+		p += snprintf(p, end - p, "USER_AGENT=%s",
+			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_USER_AGENT));
+		p++;
+	}
+	env_array[n++] = p;
+	p += snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[2]) + 1;
+
 	env_array[n++] = "SERVER_SOFTWARE=libwebsockets";
-	env_array[n++] = "PATH=/bin:/usr/bin:/usrlocal/bin";
+	env_array[n++] = "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin";
 	env_array[n] = NULL;
 
+#if 0
+	for (m = 0; m < n; m++)
+		lwsl_err("    %s\n", env_array[m]);
+#endif
+
 	/* we are ready with the redirection pipes... run the thing */
-#ifdef LWS_HAVE_VFORK
-	cgi->pid = vfork();
-#else
+#if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
 	cgi->pid = fork();
+#else
+	cgi->pid = vfork();
 #endif
 	if (cgi->pid < 0) {
 		lwsl_err("fork failed, errno %d", errno);
@@ -1658,7 +1740,17 @@ lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs)
 		close(cgi->pipe_fds[n][!(n == 0)]);
 	}
 
+#if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
+	for (m = 0; m < n; m++) {
+		p = strchr(env_array[m], '=');
+		*p++ = '\0';
+		setenv(env_array[m], p, 1);
+	}
+	execvp(exec_array[0], &exec_array[0]);
+#else
 	execvpe(exec_array[0], &exec_array[0], &env_array[0]);
+#endif
+
 	exit(1);
 
 bail3:
@@ -1711,7 +1803,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 				n = 0;
 		}
 		if (n) {
-			lwsl_err("-- %c\n", c);
+			//lwsl_err("-- %c\n", c);
 			switch (wsi->hdr_state) {
 			case LCHS_HEADER:
 				*p++ = c;
@@ -1799,7 +1891,7 @@ lws_cgi_kill(struct lws *wsi)
 	if (!wsi->cgi)
 		return 0;
 
-	lwsl_notice("%s: wsi %p\n", __func__, wsi);
+//	lwsl_notice("%s: wsi %p\n", __func__, wsi);
 
 	assert(wsi->cgi);
 

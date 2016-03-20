@@ -338,7 +338,7 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const 
 	return lws_client_connect_2(wsi);
 }
 
-
+#ifdef LWS_WITH_HTTP_PROXY
 static hubbub_error
 html_parser_cb(const hubbub_token *token, void *pw)
 {
@@ -446,7 +446,7 @@ html_parser_cb(const hubbub_token *token, void *pw)
 
 	return HUBBUB_OK;
 }
-
+#endif
 /**
  * lws_client_connect_via_info() - Connect to another websocket server
  * @i:pointer to lws_client_connect_info struct
@@ -560,11 +560,12 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		wsi->sibling_list = i->parent_wsi->child_list;
 		i->parent_wsi->child_list = wsi;
 	}
-
+#ifdef LWS_WITH_HTTP_PROXY
 	if (i->uri_replace_to)
 		wsi->rw = lws_rewrite_create(wsi, html_parser_cb,
 					     i->uri_replace_from,
 					     i->uri_replace_to);
+#endif
 
 	return wsi;
 

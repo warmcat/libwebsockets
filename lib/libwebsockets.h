@@ -1890,7 +1890,8 @@ struct lws_cgi_args {
 };
 
 LWS_VISIBLE LWS_EXTERN int
-lws_cgi(struct lws *wsi, char * const *exec_array, int timeout_secs);
+lws_cgi(struct lws *wsi, char * const *exec_array,  int script_uri_path_len,
+	int timeout_secs);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_write_split_stdout_headers(struct lws *wsi);

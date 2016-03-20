@@ -96,6 +96,9 @@
 /* Define to 1 if `vfork' works. */
 #cmakedefine LWS_HAVE_WORKING_VFORK
 
+/* Define to 1 if execvpe() exists */
+#cmakedefine LWS_HAVE_EXECVPE
+
 /* Define to 1 if you have the <zlib.h> header file. */
 #cmakedefine LWS_HAVE_ZLIB_H
 

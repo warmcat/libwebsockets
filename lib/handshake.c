@@ -171,7 +171,7 @@ http_postbody:
 					wsi, LWS_CALLBACK_CGI_STDIN_DATA,
 					wsi->user_space,
 					(void *)&args, 0);
-				if (n < 0)
+				if ((int)n < 0)
 					goto bail;
 			} else {
 #endif

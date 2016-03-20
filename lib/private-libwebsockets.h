@@ -1124,7 +1124,7 @@ struct lws {
 	BIO *client_bio;
 	struct lws *pending_read_list_prev, *pending_read_list_next;
 #endif
-#ifndef LWS_NO_CLIENT
+#ifdef LWS_WITH_HTTP_PROXY
 	struct lws_rewrite *rw;
 #endif
 #ifdef LWS_LATENCY
@@ -1154,6 +1154,8 @@ struct lws {
 	unsigned int do_ws:1; /* whether we are doing http or ws flow */
 	unsigned int chunked:1; /* if the clientside connection is chunked */
 	unsigned int client_rx_avail:1;
+#endif
+#ifdef LWS_WITH_HTTP_PROXY
 	unsigned int perform_rewrite:1;
 #endif
 #ifndef LWS_NO_EXTENSIONS
@@ -1530,9 +1532,6 @@ static LWS_INLINE int hstrcmp(hubbub_string *s, const char *p, int len)
 	return strncmp((const char *)s->ptr, p, len);
 }
 typedef hubbub_error (*hubbub_callback_t)(const hubbub_token *token, void *pw);
-LWS_EXTERN int lws_client_socket_service(struct lws_context *context,
-					 struct lws *wsi,
-					 struct lws_pollfd *pollfd);
 LWS_EXTERN struct lws_rewrite *
 lws_rewrite_create(struct lws *wsi, hubbub_callback_t cb, const char *from, const char *to);
 LWS_EXTERN void
@@ -1542,6 +1541,11 @@ lws_rewrite_parse(struct lws_rewrite *r, const unsigned char *in, int in_len);
 #endif
 
 #ifndef LWS_NO_CLIENT
+LWS_EXTERN int lws_client_socket_service(struct lws_context *context,
+					 struct lws *wsi,
+					 struct lws_pollfd *pollfd);
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_http_transaction_completed_client(struct lws *wsi);
 #ifdef LWS_OPENSSL_SUPPORT
 LWS_EXTERN int
 lws_context_init_client_ssl(struct lws_context_creation_info *info,

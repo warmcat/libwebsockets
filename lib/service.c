@@ -473,10 +473,8 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	return forced;
 }
 
+#ifndef LWS_NO_CLIENT
 
-/*
- *
- */
 LWS_VISIBLE int
 lws_http_client_read(struct lws *wsi, char **buf, int *len)
 {
@@ -550,7 +548,7 @@ spin_chunks:
 		return 0;
 
 	if (wsi->u.http.content_remain &&
-	    wsi->u.http.content_remain < *len)
+	    (int)wsi->u.http.content_remain < *len)
 		n = wsi->u.http.content_remain;
 	else
 		n = *len;
@@ -559,11 +557,12 @@ spin_chunks:
 	    wsi->chunk_remaining < n)
 		n = wsi->chunk_remaining;
 
+#ifdef LWS_WITH_HTTP_PROXY
 	/* hubbub */
 	if (wsi->perform_rewrite)
 		lws_rewrite_parse(wsi->rw, (unsigned char *)*buf, n);
 	else
-
+#endif
 		if (user_callback_handle_rxflow(wsi->protocol->callback,
 				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 				wsi->user_space, *buf, n))
@@ -595,11 +594,12 @@ completed:
 			wsi->user_space, NULL, 0))
 		return -1;
 
-	if (lws_http_transaction_completed(wsi))
+	if (lws_http_transaction_completed_client(wsi))
 		return -1;
 
 	return 0;
 }
+#endif
 
 /**
  * lws_service_fd() - Service polled socket with something waiting
@@ -878,6 +878,7 @@ read:
 		}
 
 drain:
+#ifndef LWS_NO_CLIENT
 		if (wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED) {
 
 			/*
@@ -894,9 +895,8 @@ drain:
 					wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
 					wsi->user_space, NULL, 0))
 				goto close_and_handled;
-
-
 		}
+#endif
 		/*
 		 * give any active extensions a chance to munge the buffer
 		 * before parse.  We pass in a pointer to an lws_tokens struct
