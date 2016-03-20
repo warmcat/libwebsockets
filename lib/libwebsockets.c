@@ -158,12 +158,18 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	if (wsi->child_list) {
 		wsi2 = wsi->child_list;
 		while (wsi2) {
-			lwsl_notice("%s: closing %p: close child %p\n",
-					__func__, wsi, wsi2);
+			//lwsl_notice("%s: closing %p: close child %p\n",
+			//		__func__, wsi, wsi2);
 			wsi1 = wsi2->sibling_list;
+			//lwsl_notice("%s: closing %p: next sibling %p\n",
+			//		__func__, wsi2, wsi1);
+			wsi2->parent = NULL;
+			/* stop it doing shutdown processing */
+			wsi2->socket_is_permanently_unusable = 1;
 			lws_close_free_wsi(wsi2, reason);
 			wsi2 = wsi1;
 		}
+		wsi->child_list = NULL;
 	}
 
 #ifdef LWS_WITH_CGI
@@ -186,7 +192,6 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 	if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED &&
 	    wsi->u.http.fd != LWS_INVALID_FILE) {
-		lwsl_debug("closing http file\n");
 		lws_plat_file_close(wsi, wsi->u.http.fd);
 		wsi->u.http.fd = LWS_INVALID_FILE;
 		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
@@ -363,7 +368,7 @@ just_kill_connection:
 	if (wsi->state != LWSS_SHUTDOWN &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !wsi->socket_is_permanently_unusable) {
-		lwsl_info("%s: shutting down connection: %p\n", __func__, wsi);
+		lwsl_info("%s: shutting down connection: %p (sock %d)\n", __func__, wsi, wsi->sock);
 		n = shutdown(wsi->sock, SHUT_WR);
 		if (n)
 			lwsl_debug("closing: shutdown ret %d\n", LWS_ERRNO);
@@ -384,7 +389,13 @@ just_kill_connection:
 	}
 #endif
 
-	lwsl_info("%s: real just_kill_connection: %p\n", __func__, wsi);
+	lwsl_info("%s: real just_kill_connection: %p (sockfd %d)\n", __func__,
+		  wsi, wsi->sock);
+
+	if (wsi->rw) {
+		lws_rewrite_destroy(wsi->rw);
+		wsi->rw = NULL;
+	}
 
 	/*
 	 * we won't be servicing or receiving anything further from this guy
@@ -502,6 +513,7 @@ lws_close_free_wsi_final(struct lws *wsi)
 
 	if (!lws_ssl_close(wsi) && lws_socket_is_valid(wsi->sock)) {
 #if LWS_POSIX
+		//lwsl_err("*** closing sockfd %d\n", wsi->sock);
 		n = compatible_close(wsi->sock);
 		if (n)
 			lwsl_debug("closing: close ret %d\n", LWS_ERRNO);
@@ -1742,12 +1754,11 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 
 		/* ran out of input, ended the headers, or filled up the headers buf */
 		if (!n || wsi->hdr_state == LHCS_PAYLOAD || (p + 4) == end) {
-lwsl_err("a\n");
+
 			m = lws_write(wsi, (unsigned char *)start,
 				      p - start, LWS_WRITE_HTTP_HEADERS);
 			if (m < 0)
 				return -1;
-lwsl_err("b\n");
 			/* writeability becomes uncertain now we wrote
 			 * something, we must return to the event loop
 			 */
@@ -1755,7 +1766,7 @@ lwsl_err("b\n");
 			return 0;
 		}
 	}
-	lwsl_err("%s: stdout\n", __func__);
+	//lwsl_err("%s: stdout\n", __func__);
 	n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]),
 		 start, sizeof(buf) - LWS_PRE);
 

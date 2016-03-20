@@ -600,7 +600,6 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 all_sent:
 		if (!wsi->trunc_len && wsi->u.http.filepos == wsi->u.http.filelen) {
 			wsi->state = LWSS_HTTP;
-
 			/* we might be in keepalive, so close it off here */
 			lws_plat_file_close(wsi, wsi->u.http.fd);
 			wsi->u.http.fd = LWS_INVALID_FILE;

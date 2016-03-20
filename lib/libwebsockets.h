@@ -364,6 +364,7 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_CLOSED_CLIENT_HTTP				= 45,
 	LWS_CALLBACK_RECEIVE_CLIENT_HTTP			= 46,
 	LWS_CALLBACK_COMPLETED_CLIENT_HTTP			= 47,
+	LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ			= 48,
 
 	/****** add new things just above ---^ ******/
 
@@ -1415,6 +1416,9 @@ struct lws_context_creation_info {
  * @parent_wsi:	if another wsi is responsible for this connection, give it here.
  *		this is used to make sure if the parent closes so do any
  *		child connections first.
+ * @uri_replace_from: if non-NULL, when this string is found in URIs in
+ *		text/html content-encoding, it's replaced with @uri_replace_to
+ * @uri_replace_to: see above
  */
 
 struct lws_client_connect_info {
@@ -1431,6 +1435,8 @@ struct lws_client_connect_info {
 	const struct lws_extension *client_exts;
 	const char *method;
 	struct lws *parent_wsi;
+	const char *uri_replace_from;
+	const char *uri_replace_to;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -1892,6 +1898,9 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_kill(struct lws *wsi);
 #endif
+
+LWS_VISIBLE LWS_EXTERN int
+lws_http_client_read(struct lws *wsi, char **buf, int *len);
 
 /*
  * Wsi-associated File Operations access helpers

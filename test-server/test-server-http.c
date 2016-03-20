@@ -126,6 +126,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	unsigned char *end;
 	struct timeval tv;
 	unsigned char *p;
+	struct lws *wsi1;
 	char buf[256];
 	char b64[64];
 	int n, m;
@@ -161,15 +162,11 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			goto try_to_reuse;
 		}
 
-		/* this example server has no concept of directories */
-		if (strchr((const char *)in + 1, '/')) {
-			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
-			goto try_to_reuse;
-		}
-
 #ifndef LWS_NO_CLIENT
-		if (!strcmp(in, "/proxytest")) {
+		if (!strncmp(in, "/proxytest", 10)) {
 			struct lws_client_connect_info i;
+			char *rootpath = "/";
+			const char *p = (const char *)in;
 
 			if (lws_get_child(wsi))
 				break;
@@ -177,21 +174,35 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			pss->client_finished = 0;
 			memset(&i,0, sizeof(i));
 			i.context = lws_get_context(wsi);
-			i.address = "example.com";
+			i.address = "git.libwebsockets.org";
 			i.port = 80;
 			i.ssl_connection = 0;
-			i.path = "/";
-			i.host = "example.com";
+			if (p[10])
+				i.path = in + 10;
+			else
+				i.path = rootpath;
+			i.host = "git.libwebsockets.org";
 			i.origin = NULL;
 			i.method = "GET";
 			i.parent_wsi = wsi;
+			i.uri_replace_from = "git.libwebsockets.org/";
+			i.uri_replace_to = "/proxytest/";
 			if (!lws_client_connect_via_info(&i)) {
 				lwsl_err("proxy connect fail\n");
 				break;
 			}
+
+
+
 			break;
 		}
 #endif
+
+		/* this example server has no concept of directories */
+		if (strchr((const char *)in + 1, '/')) {
+			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+			goto try_to_reuse;
+		}
 
 #ifdef LWS_WITH_CGI
 		if (!strcmp(in, "/cgitest")) {
@@ -396,11 +407,33 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (pss->fd == LWS_INVALID_FILE)
 			goto try_to_reuse;
 #ifdef LWS_WITH_CGI
-		if (pss->reason_bf) {
+		if (pss->reason_bf & 1) {
 			if (lws_cgi_write_split_stdout_headers(wsi) < 0)
 				goto bail;
 
-			pss->reason_bf = 0;
+			pss->reason_bf &= ~1;
+			break;
+		}
+#endif
+#ifndef LWS_NO_CLIENT
+		if (pss->reason_bf & 2) {
+			char *px = buf + LWS_PRE;
+			int lenx = sizeof(buf) - LWS_PRE;
+			/*
+			 * our sink is writeable and our source has something
+			 * to read.  So read a lump of source material of
+			 * suitable size to send or what's available, whichever
+			 * is the smaller.
+			 */
+			pss->reason_bf &= ~2;
+			wsi1 = lws_get_child(wsi);
+			if (!wsi1)
+				break;
+			if (lws_http_client_read(wsi1, &px, &lenx) < 0)
+				goto bail;
+
+			if (pss->client_finished)
+				return -1;
 			break;
 		}
 #endif
@@ -470,7 +503,7 @@ bail:
 	 * callback for confirming to continue with client IP appear in
 	 * protocol 0 callback since no websocket protocol has been agreed
 	 * yet.  You can just ignore this if you won't filter on client IP
-	 * since the default uhandled callback return is 0 meaning let the
+	 * since the default unhandled callback return is 0 meaning let the
 	 * connection continue.
 	 */
 	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
@@ -478,7 +511,9 @@ bail:
 		break;
 
 #ifndef LWS_WITH_CLIENT
-	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
+		char ctype[64], ctlen = 0;
+		lwsl_err("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP\n");
 		p = buffer + LWS_PRE;
 		end = p + sizeof(buffer) - LWS_PRE;
 		if (lws_add_http_header_status(lws_get_parent(wsi), 200, &p, end))
@@ -488,14 +523,17 @@ bail:
 			    	(unsigned char *)"libwebsockets",
 				13, &p, end))
 			return 1;
-		if (lws_add_http_header_by_token(lws_get_parent(wsi),
+
+		ctlen = lws_hdr_copy(wsi, ctype, sizeof(ctype), WSI_TOKEN_HTTP_CONTENT_TYPE);
+		if (ctlen > 0) {
+			if (lws_add_http_header_by_token(lws_get_parent(wsi),
 				WSI_TOKEN_HTTP_CONTENT_TYPE,
-			    	(unsigned char *)"text/html", 9, &p, end))
-			return 1;
+				(unsigned char *)ctype, ctlen, &p, end))
+				return 1;
+		}
 #if 0
 		if (lws_add_http_header_content_length(lws_get_parent(wsi),
-						       file_len, &p,
-						       end))
+						       file_len, &p, end))
 			return 1;
 #endif
 		if (lws_finalize_http_header(lws_get_parent(wsi), &p, end))
@@ -510,20 +548,39 @@ bail:
 		if (n < 0)
 			return -1;
 
-		break;
+		break; }
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		//lwsl_err("LWS_CALLBACK_CLOSED_CLIENT_HTTP\n");
 		return -1;
 		break;
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
-		m = lws_write(lws_get_parent(wsi), in, len, LWS_WRITE_HTTP);
+		//lwsl_err("LWS_CALLBACK_RECEIVE_CLIENT_HTTP: wsi %p\n", wsi);
+		assert(lws_get_parent(wsi));
+		if (!lws_get_parent(wsi))
+			break;
+		// lwsl_err("LWS_CALLBACK_RECEIVE_CLIENT_HTTP: wsi %p: sock: %d, parent_wsi: %p, parent_sock:%d,  len %d\n",
+		//		wsi, lws_get_socket_fd(wsi),
+		//		lws_get_parent(wsi),
+		//		lws_get_socket_fd(lws_get_parent(wsi)), len);
+		pss1 = lws_wsi_user(lws_get_parent(wsi));
+		pss1->reason_bf |= 2;
+		lws_callback_on_writable(lws_get_parent(wsi));
+		break;
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		//lwsl_err("LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ len %d\n", len);
+		assert(lws_get_parent(wsi));
+		m = lws_write(lws_get_parent(wsi), (unsigned char *)in,
+				len, LWS_WRITE_HTTP);
 		if (m < 0)
-			return 1;
+			return -1;
 		break;
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		//lwsl_err("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
+		assert(lws_get_parent(wsi));
+		if (!lws_get_parent(wsi))
+			break;
 		pss1 = lws_wsi_user(lws_get_parent(wsi));
 		pss1->client_finished = 1;
-		lws_callback_on_writable(lws_get_parent(wsi));
-		return -1;
 		break;
 #endif
 
@@ -542,7 +599,7 @@ bail:
 			/* TBD stdin rx flow control */
 			break;
 		case LWS_STDOUT:
-			pss->reason_bf |= 1 << pss->args.ch;
+			pss->reason_bf |= 1;
 			/* when writing to MASTER would not block */
 			lws_callback_on_writable(wsi);
 			break;

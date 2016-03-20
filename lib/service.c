@@ -473,6 +473,134 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	return forced;
 }
 
+
+/*
+ *
+ */
+LWS_VISIBLE int
+lws_http_client_read(struct lws *wsi, char **buf, int *len)
+{
+	int rlen, n;
+
+	rlen = lws_ssl_capable_read(wsi, (unsigned char *)*buf, *len);
+	if (rlen < 0)
+		return -1;
+
+	*len = rlen;
+	if (rlen == 0)
+		return 0;
+
+//	lwsl_err("%s: read %d\n", __func__, rlen);
+
+	/* allow the source to signal he has data again next time */
+	wsi->client_rx_avail = 0;
+	lws_change_pollfd(wsi, 0, LWS_POLLIN);
+
+	/*
+	 * server may insist on transfer-encoding: chunked,
+	 * so http client must deal with it
+	 */
+spin_chunks:
+	while (wsi->chunked && (wsi->chunk_parser != ELCP_CONTENT) && *len) {
+		switch (wsi->chunk_parser) {
+		case ELCP_HEX:
+			if ((*buf)[0] == '\x0d') {
+				wsi->chunk_parser = ELCP_CR;
+				break;
+			}
+			n = char_to_hex((*buf)[0]);
+			if (n < 0)
+				return -1;
+			wsi->chunk_remaining <<= 4;
+			wsi->chunk_remaining |= n;
+			break;
+		case ELCP_CR:
+			if ((*buf)[0] != '\x0a')
+				return -1;
+			wsi->chunk_parser = ELCP_CONTENT;
+			lwsl_info("chunk %d\n", wsi->chunk_remaining);
+			if (wsi->chunk_remaining)
+				break;
+			lwsl_info("final chunk\n");
+			goto completed;
+
+		case ELCP_CONTENT:
+			break;
+
+		case ELCP_POST_CR:
+			if ((*buf)[0] != '\x0d')
+				return -1;
+
+			wsi->chunk_parser = ELCP_POST_LF;
+			break;
+
+		case ELCP_POST_LF:
+			if ((*buf)[0] != '\x0a')
+				return -1;
+
+			wsi->chunk_parser = ELCP_HEX;
+			wsi->chunk_remaining = 0;
+			break;
+		}
+		(*buf)++;
+		(*len)--;
+	}
+
+	if (wsi->chunked && !wsi->chunk_remaining)
+		return 0;
+
+	if (wsi->u.http.content_remain &&
+	    wsi->u.http.content_remain < *len)
+		n = wsi->u.http.content_remain;
+	else
+		n = *len;
+
+	if (wsi->chunked && wsi->chunk_remaining &&
+	    wsi->chunk_remaining < n)
+		n = wsi->chunk_remaining;
+
+	/* hubbub */
+	if (wsi->perform_rewrite)
+		lws_rewrite_parse(wsi->rw, (unsigned char *)*buf, n);
+	else
+
+		if (user_callback_handle_rxflow(wsi->protocol->callback,
+				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
+				wsi->user_space, *buf, n))
+			return -1;
+
+	if (wsi->chunked && wsi->chunk_remaining) {
+		(*buf) += n;
+		wsi->chunk_remaining -= n;
+		*len -= n;
+	}
+
+	if (wsi->chunked && !wsi->chunk_remaining)
+		wsi->chunk_parser = ELCP_POST_CR;
+
+	if (wsi->chunked && *len) {
+		goto spin_chunks;
+	}
+
+	if (wsi->chunked)
+		return 0;
+
+	wsi->u.http.content_remain -= n;
+	if (wsi->u.http.content_remain || !wsi->u.http.content_length)
+		return 0;
+
+completed:
+	if (user_callback_handle_rxflow(wsi->protocol->callback,
+			wsi, LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
+			wsi->user_space, NULL, 0))
+		return -1;
+
+	if (lws_http_transaction_completed(wsi))
+		return -1;
+
+	return 0;
+}
+
 /**
  * lws_service_fd() - Service polled socket with something waiting
  * @context:	Websocket context
@@ -716,37 +844,59 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 		if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
 			break;
-read:
 
+read:
 		/* all the union members start with hdr, so even in ws mode
 		 * we can deal with the ah via u.hdr
 		 */
 		if (wsi->u.hdr.ah) {
-			lwsl_err("%s: %p: using inherited ah rx\n", __func__, wsi);
+			lwsl_info("%s: %p: inherited ah rx\n", __func__, wsi);
 			eff_buf.token_len = wsi->u.hdr.ah->rxlen -
 					    wsi->u.hdr.ah->rxpos;
 			eff_buf.token = (char *)wsi->u.hdr.ah->rx +
 					wsi->u.hdr.ah->rxpos;
 		} else {
+			if (wsi->mode != LWSCM_HTTP_CLIENT_ACCEPTED) {
+				eff_buf.token_len = lws_ssl_capable_read(wsi,
+					pt->serv_buf, pending ? pending :
+							LWS_MAX_SOCKET_IO_BUF);
+				switch (eff_buf.token_len) {
+				case 0:
+					lwsl_info("%s: zero length read\n", __func__);
+					goto close_and_handled;
+				case LWS_SSL_CAPABLE_MORE_SERVICE:
+					lwsl_info("SSL Capable more service\n");
+					n = 0;
+					goto handled;
+				case LWS_SSL_CAPABLE_ERROR:
+					lwsl_info("Closing when error\n");
+					goto close_and_handled;
+				}
 
-			eff_buf.token_len = lws_ssl_capable_read(wsi, pt->serv_buf,
-					     pending ? pending : LWS_MAX_SOCKET_IO_BUF);
-			switch (eff_buf.token_len) {
-			case 0:
-				lwsl_info("service_fd: closing due to 0 length read\n");
-				goto close_and_handled;
-			case LWS_SSL_CAPABLE_MORE_SERVICE:
-				lwsl_info("SSL Capable more service\n");
-				n = 0;
-				goto handled;
-			case LWS_SSL_CAPABLE_ERROR:
-				lwsl_info("Closing when error\n");
-				goto close_and_handled;
+				eff_buf.token = (char *)pt->serv_buf;
 			}
-
-			eff_buf.token = (char *)pt->serv_buf;
 		}
 
+drain:
+		if (wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED) {
+
+			/*
+			 * simply mark ourselves as having readable data
+			 * and turn off our POLLIN
+			 */
+			wsi->client_rx_avail = 1;
+			lws_change_pollfd(wsi, LWS_POLLIN, 0);
+
+			/* let user code know, he'll usually ask for writeable
+			 * callback and drain / reenable it there
+			 */
+			if (user_callback_handle_rxflow(wsi->protocol->callback,
+					wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
+					wsi->user_space, NULL, 0))
+				goto close_and_handled;
+
+
+		}
 		/*
 		 * give any active extensions a chance to munge the buffer
 		 * before parse.  We pass in a pointer to an lws_tokens struct
@@ -758,121 +908,6 @@ read:
 		 * extension callback handling, just the normal input buffer is
 		 * used then so it is efficient.
 		 */
-drain:
-		if (wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED) {
-			/*
-			 * server may insist on transfer-encoding: chunked,
-			 * so http client must deal with it
-			 */
-spin_chunks:
-			while (wsi->chunked &&
-			       (wsi->chunk_parser != ELCP_CONTENT) &&
-			       eff_buf.token_len) {
-				switch (wsi->chunk_parser) {
-				case ELCP_HEX:
-					if (eff_buf.token[0] == '\x0d') {
-						wsi->chunk_parser = ELCP_CR;
-						break;
-					}
-					n = char_to_hex(eff_buf.token[0]);
-					if (n < 0)
-						goto close_and_handled;
-					wsi->chunk_remaining <<= 4;
-					wsi->chunk_remaining |= n;
-					break;
-				case ELCP_CR:
-					if (eff_buf.token[0] != '\x0a')
-						goto close_and_handled;
-					wsi->chunk_parser = ELCP_CONTENT;
-					lwsl_info("chunk %d\n",
-						  wsi->chunk_remaining);
-					if (wsi->chunk_remaining)
-						break;
-					lwsl_info("final chunk\n");
-					if (user_callback_handle_rxflow(
-						  wsi->protocol->callback,
-						  wsi, LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
-						  wsi->user_space, NULL, 0))
-						goto close_and_handled;
-					if (lws_http_transaction_completed(wsi))
-						goto close_and_handled;
-					n = 0;
-					goto handled;
-
-				case ELCP_CONTENT:
-					break;
-
-				case ELCP_POST_CR:
-					if (eff_buf.token[0] == '\x0d') {
-						wsi->chunk_parser = ELCP_POST_LF;
-						break;
-					}
-					goto close_and_handled;
-
-				case ELCP_POST_LF:
-					if (eff_buf.token[0] == '\x0a') {
-						wsi->chunk_parser = ELCP_HEX;
-						wsi->chunk_remaining = 0;
-						break;
-					}
-					goto close_and_handled;
-				}
-				eff_buf.token++;
-				eff_buf.token_len--;
-			}
-
-			if (wsi->chunked && !wsi->chunk_remaining) {
-				n = 0;
-				goto handled;
-			}
-
-			if (wsi->u.http.content_remain &&
-			    wsi->u.http.content_remain < eff_buf.token_len)
-				n = wsi->u.http.content_remain;
-			else
-				n = eff_buf.token_len;
-
-			if (wsi->chunked && wsi->chunk_remaining &&
-			    wsi->chunk_remaining < n)
-				n = wsi->chunk_remaining;
-
-			if (user_callback_handle_rxflow(wsi->protocol->callback,
-					wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
-					wsi->user_space, (void *)eff_buf.token,
-					n))
-				goto close_and_handled;
-
-			if (wsi->chunked && wsi->chunk_remaining) {
-				eff_buf.token += n;
-				wsi->chunk_remaining -= n;
-				eff_buf.token_len -= n;
-			}
-
-			if (wsi->chunked && !wsi->chunk_remaining)
-				wsi->chunk_parser = ELCP_POST_CR;
-
-			if (wsi->chunked && eff_buf.token_len) {
-				goto spin_chunks;
-			}
-
-			if (wsi->chunked) {
-				n = 0;
-				goto handled;
-			}
-
-			wsi->u.http.content_remain -= n;
-			if (wsi->u.http.content_remain)
-				goto handled;
-
-			if (user_callback_handle_rxflow(wsi->protocol->callback,
-					wsi, LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
-					wsi->user_space, NULL, 0))
-				goto close_and_handled;
-
-			if (wsi->u.http.connection_type == HTTP_CONNECTION_CLOSE)
-				goto close_and_handled;
-			goto handled;
-		}
 		do {
 			more = 0;
 

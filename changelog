@@ -81,9 +81,14 @@ protocol string to its argument in URL format.  If so, it stays in http[s]
 client mode and doesn't upgrade to ws[s], allowing you to do generic http client
 operations.  Receiving transfer-encoding: chunked is supported.
 
-9) The test server has a new URI path http://localhost:7681/proxytest
-If you visit here, a client connection to http://example.com:80 is spawned,
-and the results piped on to your original connection.
+9) If you enable -DLWS_WITH_HTTP_PROXY=1 at cmake, the test server has a
+new URI path http://localhost:7681/proxytest If you visit here, a client
+connection to http://example.com:80 is spawned, and the results piped on
+to your original connection.
+
+10) Also with LWS_WITH_HTTP_PROXY enabled at cmake, lws wants to link to an
+additional library, "libhubbub".  This allows lws to do html rewriting on the
+fly, adjusting proxied urls in a lightweight and fast way.
 
 
 User API additions

@@ -779,7 +779,7 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 		return NULL;
 	}
 
-	lwsl_debug("%s: new wsi %p\n", __func__, new_wsi);
+	lwsl_info("%s: new wsi %p, sockfd %d\n", __func__, new_wsi, accept_fd);
 
 	new_wsi->sock = accept_fd;
 

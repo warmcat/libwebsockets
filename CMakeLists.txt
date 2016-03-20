@@ -88,6 +88,8 @@ option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
 option(LWS_MBED3 "Platform is MBED3" OFF)
 option(LWS_SSL_SERVER_WITH_ECDH_CERT "Include SSL server use ECDH certificate" OFF)
 option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
+option(LWS_WITH_HTTP_PROXY "Support for rewriting HTTP proxying" OFF)
+
 
 if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
 
@@ -108,6 +110,9 @@ if (WIN32)
 set(LWS_MAX_SMP 1)
 endif()
 
+if (LWS_WITH_HTTP_PROXY AND (LWS_WITHOUT_CLIENT OR LWS_WITHOUT_SERVER))
+	message(FATAL_ERROR "You have to enable both client and server for http proxy")
+endif()
 
 # Allow the user to override installation directories.
 set(LWS_INSTALL_LIB_DIR       lib CACHE PATH "Installation directory for libraries")
@@ -210,6 +215,7 @@ if (LWS_WITH_LIBUV)
 		set(LIBUV_FOUND 1)
 	endif()
 endif()
+
 
 # FIXME: This must be runtime-only option.
 # The base dir where the test-apps look for the SSL certs.
@@ -489,6 +495,11 @@ if (NOT LWS_WITHOUT_EXTENSIONS)
 		lib/extension-permessage-deflate.c)
 endif()
 
+if (LWS_WITH_HTTP_PROXY)
+	list(APPEND SOURCES
+		lib/rewrite.c)
+endif()
+
 if (LWS_WITH_LIBEV)
 	list(APPEND SOURCES
 		lib/libev.c)
@@ -734,6 +745,11 @@ if (LWS_WITH_LIBUV)
 	include_directories("${LIBUV_INCLUDE_DIRS}")
 	list(APPEND LIB_LIST ${LIBUV_LIBRARIES})
 endif()
+if (LWS_WITH_HTTP_PROXY)
+	find_library(LIBHUBBUB_LIBRARIES NAMES libhubbub)
+	list(APPEND LIB_LIST ${LIBHUBBUB_LIBRARIES} )
+endif()
+
 
 #
 # Platform specific libs.
@@ -1227,6 +1243,8 @@ message(" LWS_SSL_SERVER_WITH_ECDH_CERT = ${LWS_SSL_SERVER_WITH_ECDH_CERT}")
 message(" LWS_MAX_SMP = ${LWS_MAX_SMP}")
 message(" LWS_WITH_CGI = ${LWS_WITH_CGI}")
 message(" LWS_HAVE_OPENSSL_ECDH_H = ${LWS_HAVE_OPENSSL_ECDH_H}")
+message(" LWS_WITH_HTTP_PROXY = ${LWS_WITH_HTTP_PROXY}")
+message(" LIBHUBBUB_LIBRARIES = ${LIBHUBBUB_LIBRARIES}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

@@ -622,6 +622,15 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail2;
 		}
 
+#ifndef LWS_NO_CLIENT
+	wsi->perform_rewrite = 0;
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
+		if (!strncmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE),
+				"text/html", 9))
+			wsi->perform_rewrite = 1;
+	}
+#endif
+
 		/* allocate the per-connection user memory (if any) */
 		if (lws_ensure_user_space(wsi)) {
 			lwsl_err("Problem allocating wsi user mem\n");

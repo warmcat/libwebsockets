@@ -338,6 +338,115 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const 
 	return lws_client_connect_2(wsi);
 }
 
+
+static hubbub_error
+html_parser_cb(const hubbub_token *token, void *pw)
+{
+	struct lws_rewrite *r = (struct lws_rewrite *)pw;
+	char buf[1024], *start = buf + LWS_PRE, *p = start,
+	     *end = &buf[sizeof(buf) - 1];
+	size_t i;
+
+	switch (token->type) {
+	case HUBBUB_TOKEN_DOCTYPE:
+
+		p += snprintf(p, end - p, "<!DOCTYPE %.*s %s ",
+				(int) token->data.doctype.name.len,
+				token->data.doctype.name.ptr,
+				token->data.doctype.force_quirks ?
+						"(force-quirks) " : "");
+
+		if (token->data.doctype.public_missing)
+			printf("\tpublic: missing\n");
+		else
+			p += snprintf(p, end - p, "PUBLIC \"%.*s\"\n",
+				(int) token->data.doctype.public_id.len,
+				token->data.doctype.public_id.ptr);
+
+		if (token->data.doctype.system_missing)
+			printf("\tsystem: missing\n");
+		else
+			p += snprintf(p, end - p, " \"%.*s\">\n",
+				(int) token->data.doctype.system_id.len,
+				token->data.doctype.system_id.ptr);
+
+		break;
+	case HUBBUB_TOKEN_START_TAG:
+		p += snprintf(p, end - p, "<%.*s", (int)token->data.tag.name.len,
+				token->data.tag.name.ptr);
+
+/*				(token->data.tag.self_closing) ?
+						"(self-closing) " : "",
+				(token->data.tag.n_attributes > 0) ?
+						"attributes:" : "");
+*/
+		for (i = 0; i < token->data.tag.n_attributes; i++) {
+			if (!hstrcmp(&token->data.tag.attributes[i].name, "href", 4) ||
+			    !hstrcmp(&token->data.tag.attributes[i].name, "action", 6) ||
+			    !hstrcmp(&token->data.tag.attributes[i].name, "src", 3)) {
+				const char *pp = (const char *)token->data.tag.attributes[i].value.ptr;
+				int plen = (int) token->data.tag.attributes[i].value.len;
+
+				if (!hstrcmp(&token->data.tag.attributes[i].value,
+					     r->from, r->from_len)) {
+					pp += r->from_len;
+					plen -= r->from_len;
+				}
+				p += snprintf(p, end - p, " %.*s=\"%s/%.*s\"",
+				       (int) token->data.tag.attributes[i].name.len,
+				       token->data.tag.attributes[i].name.ptr,
+				       r->to, plen, pp);
+
+			} else
+
+				p += snprintf(p, end - p, " %.*s=\"%.*s\"",
+					(int) token->data.tag.attributes[i].name.len,
+					token->data.tag.attributes[i].name.ptr,
+					(int) token->data.tag.attributes[i].value.len,
+					token->data.tag.attributes[i].value.ptr);
+		}
+		p += snprintf(p, end - p, ">\n");
+		break;
+	case HUBBUB_TOKEN_END_TAG:
+		p += snprintf(p, end - p, "</%.*s", (int) token->data.tag.name.len,
+				token->data.tag.name.ptr);
+/*
+				(token->data.tag.self_closing) ?
+						"(self-closing) " : "",
+				(token->data.tag.n_attributes > 0) ?
+						"attributes:" : "");
+*/
+		for (i = 0; i < token->data.tag.n_attributes; i++) {
+			p += snprintf(p, end - p, " %.*s='%.*s'\n",
+				(int) token->data.tag.attributes[i].name.len,
+				token->data.tag.attributes[i].name.ptr,
+				(int) token->data.tag.attributes[i].value.len,
+				token->data.tag.attributes[i].value.ptr);
+		}
+		p += snprintf(p, end - p, ">\n");
+		break;
+	case HUBBUB_TOKEN_COMMENT:
+		p += snprintf(p, end - p, "<!-- %.*s -->\n",
+				(int) token->data.comment.len,
+				token->data.comment.ptr);
+		break;
+	case HUBBUB_TOKEN_CHARACTER:
+		p += snprintf(p, end - p, "%.*s", (int) token->data.character.len,
+				token->data.character.ptr);
+		break;
+	case HUBBUB_TOKEN_EOF:
+		p += snprintf(p, end - p, "\n");
+		break;
+	}
+
+	if (user_callback_handle_rxflow(r->wsi->protocol->callback,
+			r->wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
+			r->wsi->user_space, start, p - start))
+		return -1;
+
+	return HUBBUB_OK;
+}
+
 /**
  * lws_client_connect_via_info() - Connect to another websocket server
  * @i:pointer to lws_client_connect_info struct
@@ -451,6 +560,11 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		wsi->sibling_list = i->parent_wsi->child_list;
 		i->parent_wsi->child_list = wsi;
 	}
+
+	if (i->uri_replace_to)
+		wsi->rw = lws_rewrite_create(wsi, html_parser_cb,
+					     i->uri_replace_from,
+					     i->uri_replace_to);
 
 	return wsi;
 

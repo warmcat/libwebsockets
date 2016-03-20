@@ -112,6 +112,10 @@
 #include <netdb.h>
 #include <signal.h>
 #include <sys/socket.h>
+#ifdef LWS_WITH_HTTP_PROXY
+#include <hubbub/hubbub.h>
+#include <hubbub/parser.h>
+#endif
 #ifdef LWS_BUILTIN_GETIFADDRS
  #include <getifaddrs.h>
 #else
@@ -157,7 +161,7 @@
 #define LWS_POLLHUP (POLLHUP|POLLERR)
 #define LWS_POLLIN (POLLIN)
 #define LWS_POLLOUT (POLLOUT)
-#define compatible_close(fd) close(fd)
+static inline int compatible_close(int fd) { return close(fd); }
 #define lws_set_blocking_send(wsi)
 
 #ifdef MBED_OPERATORS
@@ -1068,6 +1072,8 @@ enum lws_chunk_parser {
 };
 #endif
 
+struct lws_rewrite;
+
 struct lws {
 
 	/* structs */
@@ -1118,6 +1124,9 @@ struct lws {
 	BIO *client_bio;
 	struct lws *pending_read_list_prev, *pending_read_list_next;
 #endif
+#ifndef LWS_NO_CLIENT
+	struct lws_rewrite *rw;
+#endif
 #ifdef LWS_LATENCY
 	unsigned long action_start;
 	unsigned long latency_start;
@@ -1144,6 +1153,8 @@ struct lws {
 #ifndef LWS_NO_CLIENT
 	unsigned int do_ws:1; /* whether we are doing http or ws flow */
 	unsigned int chunked:1; /* if the clientside connection is chunked */
+	unsigned int client_rx_avail:1;
+	unsigned int perform_rewrite:1;
 #endif
 #ifndef LWS_NO_EXTENSIONS
 	unsigned int extension_data_pending:1;
@@ -1502,10 +1513,35 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending_no_ssl(struct lws *wsi);
 
-#ifndef LWS_NO_CLIENT
+#ifdef LWS_WITH_HTTP_PROXY
+struct lws_rewrite {
+	hubbub_parser *parser;
+	hubbub_parser_optparams params;
+	const char *from, *to;
+	int from_len, to_len;
+	unsigned char *p, *end;
+	struct lws *wsi;
+};
+static LWS_INLINE int hstrcmp(hubbub_string *s, const char *p, int len)
+{
+	if (s->len != len)
+		return 1;
+
+	return strncmp((const char *)s->ptr, p, len);
+}
+typedef hubbub_error (*hubbub_callback_t)(const hubbub_token *token, void *pw);
 LWS_EXTERN int lws_client_socket_service(struct lws_context *context,
 					 struct lws *wsi,
 					 struct lws_pollfd *pollfd);
+LWS_EXTERN struct lws_rewrite *
+lws_rewrite_create(struct lws *wsi, hubbub_callback_t cb, const char *from, const char *to);
+LWS_EXTERN void
+lws_rewrite_destroy(struct lws_rewrite *r);
+LWS_EXTERN int
+lws_rewrite_parse(struct lws_rewrite *r, const unsigned char *in, int in_len);
+#endif
+
+#ifndef LWS_NO_CLIENT
 #ifdef LWS_OPENSSL_SUPPORT
 LWS_EXTERN int
 lws_context_init_client_ssl(struct lws_context_creation_info *info,
