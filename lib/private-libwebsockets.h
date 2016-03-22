@@ -637,7 +637,7 @@ struct lws_context {
 	lws_ev_signal_cb_t * lws_ev_sigint_cb;
 #endif
 #if defined(LWS_USE_LIBUV)
-	lws_uv_signal_cb_t * lws_uv_sigint_cb;
+	uv_signal_cb lws_uv_sigint_cb;
 #endif
 	char http_proxy_address[128];
 	char proxy_basic_auth_token[128];

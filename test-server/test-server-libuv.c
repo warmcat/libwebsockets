@@ -112,7 +112,7 @@ static const struct lws_extension exts[] = {
 	{ NULL, NULL, NULL /* terminator */ }
 };
 
-void signal_cb(uv_loop_t *loop, uv_signal_t *watcher, int signum)
+void signal_cb(uv_signal_t *watcher, int signum)
 {
 	lwsl_err("Signal %d caught, exiting...\n", watcher->signum);
 	switch (watcher->signum) {
@@ -289,7 +289,7 @@ int main(int argc, char **argv)
 
 	lws_uv_sigint_cfg(context, 1, signal_cb);
 
-	lws_uv_initloop(context, NULL, NULL, 0);
+	lws_uv_initloop(context, NULL, 0);
 
 	uv_timer_init(lws_uv_getloop(context, 0), &timeout_watcher);
 	uv_timer_start(&timeout_watcher, uv_timeout_cb_dumb_increment, 50, 50);
