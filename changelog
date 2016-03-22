@@ -1,10 +1,29 @@
 Changelog
 ---------
 
+v1.7.4
+======
+
+NB: No API change since v1.7.0
+
 Fixes
 -----
 
-1) MINOR: d9n't send ext hdr if no exts to discuss
+1) MINOR: don't send ext hdr if no exts to discuss
+
+2) MINOR: libuv + libev small fixes
+
+3) MINOR: some windows build environments have no snprintf
+
+4) MINOR: cmake adapts better to ecdh.h cmake situation
+
+5) MINOR: client missed WSI_CREATE callback
+
+6) MINOR: base64 decode api worked fine for all ws key handling, however
+it was broken for some general decode if user code wanted to use it.
+
+7) MINOR: add optimized parsing path for bulk incoming ws data
+
 
 v1.7.3
 ======
