@@ -1522,7 +1522,7 @@ lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents);
 #endif /* LWS_USE_LIBEV */
 
 #ifdef LWS_USE_LIBUV
-typedef void (lws_uv_signal_cb_t)(uv_loop_t *l, uv_signal_t *w, int revents);
+typedef void (lws_uv_signal_cb_t)(uv_loop_t *l, uv_signal_t *w, int signum);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_uv_sigint_cfg(struct lws_context *context, int use_uv_sigint,
@@ -1541,7 +1541,7 @@ LWS_VISIBLE LWS_EXTERN uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi);
 
 LWS_VISIBLE void
-lws_uv_sigint_cb(uv_loop_t *loop, uv_signal_t *watcher, int revents);
+lws_uv_sigint_cb(uv_loop_t *loop, uv_signal_t *watcher, int signum);
 #endif /* LWS_USE_LIBUV */
 
 LWS_VISIBLE LWS_EXTERN int
