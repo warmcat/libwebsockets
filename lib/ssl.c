@@ -170,6 +170,28 @@ lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 	return 0;
 }
 
+#ifndef OPENSSL_NO_TLSEXT
+static int
+lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
+{
+	struct lws_context *context;
+	const char *servername;
+
+	if (!ssl)
+		return SSL_TLSEXT_ERR_NOACK;
+
+	context = (struct lws_context *)SSL_CTX_get_ex_data(
+					SSL_get_SSL_CTX(ssl), 0);
+
+	servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+	lwsl_err("ServerName: %s, context = %p\n", servername, context);
+
+	//SSL_set_SSL_CTX(ssl, sslctx);
+
+	return SSL_TLSEXT_ERR_OK;
+}
+#endif
+
 LWS_VISIBLE int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			    struct lws_context *context)
@@ -250,6 +272,14 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		return 1;
 	}
 
+	/* associate the lws context with the SSL_CTX */
+	n = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+	if (n) {
+		lwsl_err("cannot register arg0 on SSL_CTX %d\n", n);
+		return 1;
+	}
+	SSL_CTX_set_ex_data(context->ssl_ctx, 0, context);
+
 	/* Disable SSLv2 and SSLv3 */
 	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
 #ifdef SSL_OP_NO_COMPRESSION
@@ -277,6 +307,11 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		SSL_CTX_set_verify(context->ssl_ctx,
 		       verify_options, OpenSSL_verify_callback);
 	}
+
+#ifndef OPENSSL_NO_TLSEXT
+	SSL_CTX_set_tlsext_servername_callback(context->ssl_ctx,
+					       lws_ssl_server_name_cb);
+#endif
 
 	/*
 	 * give user code a chance to load certs into the server
