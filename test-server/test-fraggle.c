@@ -336,6 +336,9 @@ int main(int argc, char **argv)
 	info.uid = -1;
 	info.options = opts;
 
+	if (use_ssl)
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		fprintf(stderr, "libwebsocket init failed\n");

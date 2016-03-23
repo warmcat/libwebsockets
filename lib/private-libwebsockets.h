@@ -724,7 +724,7 @@ LWS_EXTERN void
 lws_libev_destroyloop(struct lws_context *context, int tsi);
 LWS_EXTERN void
 lws_libev_run(const struct lws_context *context, int tsi);
-#define LWS_LIBEV_ENABLED(context) (context->options & LWS_SERVER_OPTION_LIBEV)
+#define LWS_LIBEV_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEV)
 LWS_EXTERN void lws_feature_status_libev(struct lws_context_creation_info *info);
 #else
 #define lws_libev_accept(_a, _b) ((void) 0)
@@ -752,7 +752,7 @@ LWS_EXTERN void
 lws_libuv_run(const struct lws_context *context, int tsi);
 LWS_EXTERN void
 lws_libuv_destroyloop(struct lws_context *context, int tsi);
-#define LWS_LIBUV_ENABLED(context) (context->options & LWS_SERVER_OPTION_LIBUV)
+#define LWS_LIBUV_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV)
 LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info);
 #else
 #define lws_libuv_accept(_a, _b) ((void) 0)
@@ -772,7 +772,7 @@ LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info)
 
 #ifdef LWS_USE_IPV6
 #define LWS_IPV6_ENABLED(context) \
-	(!(context->options & LWS_SERVER_OPTION_DISABLE_IPV6))
+	(!lws_check_opt(context->options, LWS_SERVER_OPTION_DISABLE_IPV6))
 #else
 #define LWS_IPV6_ENABLED(context) (0)
 #endif

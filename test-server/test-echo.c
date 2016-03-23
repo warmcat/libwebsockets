@@ -438,6 +438,9 @@ int main(int argc, char **argv)
 	info.gid = -1;
 	info.uid = -1;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8;
+
+	if (use_ssl)
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #ifndef LWS_NO_EXTENSIONS
 	info.extensions = exts;
 #endif

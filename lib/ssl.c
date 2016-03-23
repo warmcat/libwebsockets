@@ -92,12 +92,12 @@ static int
 lws_context_ssl_init_ecdh(struct lws_context *context)
 {
 #ifdef LWS_SSL_SERVER_WITH_ECDH_CERT
-	int KeyType;
 	EC_KEY *EC_key = NULL;
-	X509 *x;
 	EVP_PKEY *pkey;
+	int KeyType;
+	X509 *x;
 
-	if (!(context->options & LWS_SERVER_OPTION_SSL_ECDH))
+	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_SSL_ECDH))
 		return 0;
 
 	lwsl_notice(" Using ECDH certificate support\n");
@@ -179,19 +179,24 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	int error;
 	int n;
 
+#ifdef USE_WOLFSSL
+#ifdef USE_OLD_CYASSL
+	lwsl_notice(" Compiled with CyaSSL support\n");
+#else
+	lwsl_notice(" Compiled with wolfSSL support\n");
+#endif
+#else
+	lwsl_notice(" Compiled with OpenSSL support\n");
+#endif
+
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
+		lwsl_notice(" SSL disabled: no LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
+		return 0;
+	}
+
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 
 		context->use_ssl = info->ssl_cert_filepath != NULL;
-
-#ifdef USE_WOLFSSL
-#ifdef USE_OLD_CYASSL
-		lwsl_notice(" Compiled with CyaSSL support\n");
-#else
-		lwsl_notice(" Compiled with wolfSSL support\n");
-#endif
-#else
-		lwsl_notice(" Compiled with OpenSSL support\n");
-#endif
 
 		if (info->ssl_cipher_list)
 			lwsl_notice(" SSL ciphers: '%s'\n", info->ssl_cipher_list);
@@ -258,10 +263,10 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	/* as a server, are we requiring clients to identify themselves? */
 
-	if (info->options & LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) {
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
 		int verify_options = SSL_VERIFY_PEER;
 
-		if (!(info->options & LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
+		if (!lws_check_opt(info->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
 			verify_options |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
 
 		SSL_CTX_set_session_id_context(context->ssl_ctx,
@@ -291,7 +296,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 					       context->ssl_ctx, NULL, 0);
 
-	if (info->options & LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT)
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT))
 		/* Normally SSL listener rejects non-ssl, optionally allow */
 		context->allow_non_ssl_on_ssl_port = 1;
 
@@ -357,6 +362,9 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 LWS_VISIBLE void
 lws_ssl_destroy(struct lws_context *context)
 {
+	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
+		return;
+
 	if (context->ssl_ctx)
 		SSL_CTX_free(context->ssl_ctx);
 	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
@@ -393,6 +401,9 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	int n;
 	SSL_METHOD *method;
 	struct lws wsi;
+
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
+		return 0;
 
 	if (info->provided_client_ssl_ctx) {
 		/* use the provided OpenSSL context if given one */
@@ -441,7 +452,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 						info->ssl_cipher_list);
 
 #ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
-	if (!(info->options & LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS))
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS))
 		/* loads OS default CA certs */
 		SSL_CTX_set_default_verify_paths(context->ssl_client_ctx);
 #endif
@@ -757,8 +768,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				SSL_shutdown(wsi->ssl);
 				SSL_free(wsi->ssl);
 				wsi->ssl = NULL;
-				if (context->options &
-				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS)
+				if (lws_check_opt(context->options,
+				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS))
 					wsi->redirect_to_https = 1;
 				goto accepted;
 			}

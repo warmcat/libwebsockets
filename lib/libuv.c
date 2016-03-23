@@ -24,7 +24,7 @@
 void
 lws_feature_status_libuv(struct lws_context_creation_info *info)
 {
-	if (info->options & LWS_SERVER_OPTION_LIBUV)
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBUV))
 		lwsl_notice("libuv support compiled in and enabled\n");
 	else
 		lwsl_notice("libuv support compiled in but disabled\n");
@@ -160,7 +160,7 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	int m;
 
-	if (!(context->options & LWS_SERVER_OPTION_LIBUV))
+	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
 		return;
 
 	if (!pt->io_loop_uv)

@@ -1287,7 +1287,7 @@ LWS_VISIBLE void
 lws_server_get_canonical_hostname(struct lws_context *context,
 				  struct lws_context_creation_info *info)
 {
-	if (info->options & LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME)
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME))
 		return;
 #if LWS_POSIX
 	/* find canonical hostname */

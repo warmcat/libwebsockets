@@ -90,6 +90,16 @@ to your original connection.
 additional library, "libhubbub".  This allows lws to do html rewriting on the
 fly, adjusting proxied urls in a lightweight and fast way.
 
+11) There's a new context creation flag LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
+this is included automatically if you give any other SSL-related option flag.
+If you give no SSL-related option flag, nor this one directly, then even
+though SSL support may be compiled in, it is never initialized nor used for the
+whole lifetime of the lws context.
+
+Conversely in order to prepare the context to use SSL, even though, eg, you
+are not listening on SSL but will use SSL client connections later, you must
+give this flag explicitly to make sure SSL is initialized.
+
 
 User API additions
 ------------------

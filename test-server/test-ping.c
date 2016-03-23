@@ -441,6 +441,9 @@ int main(int argc, char **argv)
 	info.gid = -1;
 	info.uid = -1;
 
+	if (use_ssl)
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		fprintf(stderr, "Creating libwebsocket context failed\n");

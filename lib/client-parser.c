@@ -64,9 +64,9 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 			case LWSWSOPC_TEXT_FRAME:
 				wsi->u.ws.rsv_first_msg = (c & 0x70);
 				wsi->u.ws.continuation_possible = 1;
-				wsi->u.ws.check_utf8 =
-					!!(wsi->context->options &
-					   LWS_SERVER_OPTION_VALIDATE_UTF8);
+				wsi->u.ws.check_utf8 = lws_check_opt(
+					wsi->context->options,
+					LWS_SERVER_OPTION_VALIDATE_UTF8);
 				wsi->u.ws.utf8 = 0;
 				break;
 			case LWSWSOPC_BINARY_FRAME:
@@ -344,7 +344,8 @@ spill:
 		switch (wsi->u.ws.opcode) {
 		case LWSWSOPC_CLOSE:
 			pp = (unsigned char *)&wsi->u.ws.rx_ubuf[LWS_PRE];
-			if (wsi->context->options & LWS_SERVER_OPTION_VALIDATE_UTF8 &&
+			if (lws_check_opt(wsi->context->options,
+					  LWS_SERVER_OPTION_VALIDATE_UTF8) &&
 			    wsi->u.ws.rx_ubuf_head > 2 &&
 			    lws_check_utf8(&wsi->u.ws.utf8, pp + 2,
 					   wsi->u.ws.rx_ubuf_head - 2))

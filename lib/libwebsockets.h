@@ -290,21 +290,28 @@ struct lws;
  * add it at where specified so existing users are unaffected.
  */
 enum lws_context_options {
-	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT	= (1 << 1),
+	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT	= (1 << 1) |
+								  (1 << 12),
 	LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME		= (1 << 2),
-	LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT		= (1 << 3),
+	LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT		= (1 << 3) |
+								  (1 << 12),
 	LWS_SERVER_OPTION_LIBEV					= (1 << 4),
 	LWS_SERVER_OPTION_DISABLE_IPV6				= (1 << 5),
 	LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS			= (1 << 6),
 	LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED		= (1 << 7),
 	LWS_SERVER_OPTION_VALIDATE_UTF8				= (1 << 8),
-	LWS_SERVER_OPTION_SSL_ECDH				= (1 << 9),
+	LWS_SERVER_OPTION_SSL_ECDH				= (1 << 9) |
+								  (1 << 12),
 	LWS_SERVER_OPTION_LIBUV					= (1 << 10),
 	LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS		= (1 << 11) |
-								  (1 << 3),
+								  (1 << 3) |
+								  (1 << 12),
+	LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT			= (1 << 12),
 
 	/****** add new things just above ---^ ******/
 };
+
+#define lws_check_opt(c, f) (((c) & (f)) == (f))
 
 /*
  * NOTE: These public enums are part of the abi.  If you want to add one,

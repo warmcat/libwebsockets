@@ -84,7 +84,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	lwsl_notice("Libwebsockets version: %s\n", library_version);
 #if LWS_POSIX
 #ifdef LWS_USE_IPV6
-	if (!(info->options & LWS_SERVER_OPTION_DISABLE_IPV6))
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_IPV6))
 		lwsl_notice("IPV6 compiled in and enabled\n");
 	else
 		lwsl_notice("IPV6 compiled in but disabled\n");

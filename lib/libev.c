@@ -23,7 +23,7 @@
 
 void lws_feature_status_libev(struct lws_context_creation_info *info)
 {
-	if (info->options & LWS_SERVER_OPTION_LIBEV)
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEV))
 		lwsl_notice("libev support compiled in and enabled\n");
 	else
 		lwsl_notice("libev support compiled in but disabled\n");
@@ -137,7 +137,7 @@ lws_libev_destroyloop(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 
-	if (!(context->options & LWS_SERVER_OPTION_LIBEV))
+	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEV))
 		return;
 
 	if (!pt->io_loop_ev)
