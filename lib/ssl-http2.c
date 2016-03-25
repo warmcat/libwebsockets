@@ -125,6 +125,7 @@ void lws_http2_configure_if_upgraded(struct lws *wsi)
 		return;
 	}
 
+	(void)method;
 	lwsl_info("negotiated %s using %s\n", name, method);
 	wsi->use_ssl = 1;
 	if (strncmp((char *)name, "http/1.1", 8) == 0)
