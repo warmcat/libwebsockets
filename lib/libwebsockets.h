@@ -201,16 +201,30 @@ struct sockaddr_in;
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
+
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
 #include <cyassl/openssl/ssl.h>
+#include <cyassl/error-ssl.h>
 #else
 #include <wolfssl/openssl/ssl.h>
+#include <wolfssl/error-ssl.h>
 #endif /* not USE_OLD_CYASSL */
 #else
+#if defined(LWS_USE_POLARSSL)
+#include <polarssl/ssl.h>
+#define SSL_CTX ssl_context
+#define SSL ssl_session
+#else
+#if defined(LWS_USE_MBEDTLS)
+#include <mbedtls/ssl.h>
+#else
 #include <openssl/ssl.h>
+#endif /* not USE_MBEDTLS */
+#endif /* not USE_POLARSSL */
 #endif /* not USE_WOLFSSL */
 #endif
+
 
 #define CONTEXT_PORT_NO_LISTEN -1
 

@@ -20,13 +20,6 @@
  */
 
 #include "private-libwebsockets.h"
-#ifndef USE_WOLFSSL
- #include <openssl/err.h>
-#endif
-
-#ifdef LWS_HAVE_OPENSSL_ECDH_H
-#include <openssl/ecdh.h>
-#endif
 
 extern int openssl_websocket_private_data_index,
     openssl_SSL_CTX_private_data_index;

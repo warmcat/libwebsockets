@@ -184,6 +184,7 @@ static inline int compatible_close(int fd) { return close(fd); }
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT
+
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
 #include <cyassl/openssl/ssl.h>
@@ -193,11 +194,30 @@ static inline int compatible_close(int fd) { return close(fd); }
 #include <wolfssl/error-ssl.h>
 #endif /* not USE_OLD_CYASSL */
 #else
+#if defined(LWS_USE_POLARSSL)
+#include <polarssl/ssl.h>
+#include <polarssl/error.h>
+#include <polarssl/md5.h>
+#include <polarssl/sha1.h>
+#include <polarssl/ecdh.h>
+#else
+#if defined(LWS_USE_MBEDTLS)
+#include <mbedtls/ssl.h>
+#include <mbedtls/error.h>
+#include <mbedtls/md5.h>
+#include <mbedtls/sha1.h>
+#include <mbedtls/ecdh.h>
+#else
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/md5.h>
 #include <openssl/sha.h>
+#ifdef LWS_HAVE_OPENSSL_ECDH_H
+#include <openssl/ecdh.h>
+#endif
+#endif /* not USE_MBEDTLS */
+#endif /* not USE_POLARSSL */
 #endif /* not USE_WOLFSSL */
 #endif
 
@@ -1160,7 +1180,9 @@ struct lws {
 #endif
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;
+#if !defined(LWS_USE_POLARSSL) && !defined(LWS_USE_MBEDTLS)
 	BIO *client_bio;
+#endif
 	struct lws *pending_read_list_prev, *pending_read_list_next;
 #endif
 #ifdef LWS_WITH_HTTP_PROXY

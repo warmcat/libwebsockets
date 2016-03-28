@@ -14,6 +14,9 @@
   (older) CyaSSL library */
 #cmakedefine USE_OLD_CYASSL
 
+#cmakedefine LWS_USE_MBEDTLS
+#cmakedefine LWS_USE_POLARSSL
+
 /* The Libwebsocket version */
 #cmakedefine LWS_LIBRARY_VERSION "${LWS_LIBRARY_VERSION}"
 
