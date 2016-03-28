@@ -471,6 +471,223 @@ lws_decode_ssl_error(void)
 
 #ifndef LWS_NO_CLIENT
 
+int
+lws_ssl_client_bio_create(struct lws *wsi)
+{
+	struct lws_context *context = wsi->context;
+#if defined(CYASSL_SNI_HOST_NAME) || defined(WOLFSSL_SNI_HOST_NAME) || defined(SSL_CTRL_SET_TLSEXT_HOSTNAME)
+	const char *hostname = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+#endif
+
+	wsi->ssl = SSL_new(wsi->vhost->ssl_client_ctx);
+#ifndef USE_WOLFSSL
+	SSL_set_mode(wsi->ssl,  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+#endif
+	/*
+	 * use server name indication (SNI), if supported,
+	 * when establishing connection
+	 */
+#ifdef USE_WOLFSSL
+#ifdef USE_OLD_CYASSL
+#ifdef CYASSL_SNI_HOST_NAME
+	CyaSSL_UseSNI(wsi->ssl, CYASSL_SNI_HOST_NAME, hostname, strlen(hostname));
+#endif
+#else
+#ifdef WOLFSSL_SNI_HOST_NAME
+	wolfSSL_UseSNI(wsi->ssl, WOLFSSL_SNI_HOST_NAME, hostname, strlen(hostname));
+#endif
+#endif
+#else
+#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+	SSL_set_tlsext_host_name(wsi->ssl, hostname);
+#endif
+#endif
+
+#ifdef USE_WOLFSSL
+	/*
+	 * wolfSSL/CyaSSL does certificate verification differently
+	 * from OpenSSL.
+	 * If we should ignore the certificate, we need to set
+	 * this before SSL_new and SSL_connect is called.
+	 * Otherwise the connect will simply fail with error code -155
+	 */
+#ifdef USE_OLD_CYASSL
+	if (wsi->use_ssl == 2)
+		CyaSSL_set_verify(wsi->ssl, SSL_VERIFY_NONE, NULL);
+#else
+	if (wsi->use_ssl == 2)
+		wolfSSL_set_verify(wsi->ssl, SSL_VERIFY_NONE, NULL);
+#endif
+#endif /* USE_WOLFSSL */
+
+	wsi->client_bio = BIO_new_socket(wsi->sock, BIO_NOCLOSE);
+	SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
+
+#ifdef USE_WOLFSSL
+#ifdef USE_OLD_CYASSL
+	CyaSSL_set_using_nonblock(wsi->ssl, 1);
+#else
+	wolfSSL_set_using_nonblock(wsi->ssl, 1);
+#endif
+#else
+	BIO_set_nbio(wsi->client_bio, 1); /* nonblocking */
+#endif
+
+	SSL_set_ex_data(wsi->ssl, openssl_websocket_private_data_index,
+			context);
+
+	return 0;
+}
+
+int
+lws_ssl_client_connect1(struct lws *wsi)
+{
+	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	char *p = (char *)&pt->serv_buf[0];
+	char *sb = p;
+	int n;
+
+	lws_latency_pre(context, wsi);
+	n = SSL_connect(wsi->ssl);
+	lws_latency(context, wsi,
+	  "SSL_connect LWSCM_WSCL_ISSUE_HANDSHAKE", n, n > 0);
+
+	if (n < 0) {
+		n = SSL_get_error(wsi->ssl, n);
+
+		if (n == SSL_ERROR_WANT_READ)
+			goto some_wait;
+
+		if (n == SSL_ERROR_WANT_WRITE) {
+			/*
+			 * wants us to retry connect due to
+			 * state of the underlying ssl layer...
+			 * but since it may be stalled on
+			 * blocked write, no incoming data may
+			 * arrive to trigger the retry.
+			 * Force (possibly many times if the SSL
+			 * state persists in returning the
+			 * condition code, but other sockets
+			 * are getting serviced inbetweentimes)
+			 * us to get called back when writable.
+			 */
+			lwsl_info("%s: WANT_WRITE... retrying\n", __func__);
+			lws_callback_on_writable(wsi);
+some_wait:
+			wsi->mode = LWSCM_WSCL_WAITING_SSL;
+
+			return 0; /* no error */
+		}
+		n = -1;
+	}
+
+	if (n <= 0) {
+		/*
+		 * retry if new data comes until we
+		 * run into the connection timeout or win
+		 */
+		n = ERR_get_error();
+		if (n != SSL_ERROR_NONE) {
+			lwsl_err("SSL connect error %lu: %s\n",
+				n, ERR_error_string(n, sb));
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+int
+lws_ssl_client_connect2(struct lws *wsi)
+{
+	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	char *p = (char *)&pt->serv_buf[0];
+	char *sb = p;
+	int n;
+
+	if (wsi->mode == LWSCM_WSCL_WAITING_SSL) {
+		lws_latency_pre(context, wsi);
+		n = SSL_connect(wsi->ssl);
+		lws_latency(context, wsi,
+			    "SSL_connect LWSCM_WSCL_WAITING_SSL", n, n > 0);
+
+		if (n < 0) {
+			n = SSL_get_error(wsi->ssl, n);
+
+			if (n == SSL_ERROR_WANT_READ) {
+				wsi->mode = LWSCM_WSCL_WAITING_SSL;
+
+				return 0; /* no error */
+			}
+
+			if (n == SSL_ERROR_WANT_WRITE) {
+				/*
+				 * wants us to retry connect due to
+				 * state of the underlying ssl layer...
+				 * but since it may be stalled on
+				 * blocked write, no incoming data may
+				 * arrive to trigger the retry.
+				 * Force (possibly many times if the SSL
+				 * state persists in returning the
+				 * condition code, but other sockets
+				 * are getting serviced inbetweentimes)
+				 * us to get called back when writable.
+				 */
+				lwsl_info("SSL_connect WANT_WRITE... retrying\n");
+				lws_callback_on_writable(wsi);
+
+				wsi->mode = LWSCM_WSCL_WAITING_SSL;
+
+				return 0; /* no error */
+			}
+			n = -1;
+		}
+
+		if (n <= 0) {
+			/*
+			 * retry if new data comes until we
+			 * run into the connection timeout or win
+			 */
+			n = ERR_get_error();
+			if (n != SSL_ERROR_NONE) {
+				lwsl_err("SSL connect error %lu: %s\n",
+					 n, ERR_error_string(n, sb));
+				return 0;
+			}
+		}
+	}
+
+#ifndef USE_WOLFSSL
+	/*
+	 * See comment above about wolfSSL certificate
+	 * verification
+	 */
+	lws_latency_pre(context, wsi);
+	n = SSL_get_verify_result(wsi->ssl);
+	lws_latency(context, wsi,
+		"SSL_get_verify_result LWS_CONNMODE..HANDSHAKE",
+						      n, n > 0);
+
+	if (n != X509_V_OK) {
+		if ((n == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
+		     n == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) && wsi->use_ssl == 2) {
+			lwsl_notice("accepting self-signed certificate\n");
+		} else {
+			lwsl_err("server's cert didn't look good, X509_V_ERR = %d: %s\n",
+				 n, ERR_error_string(n, sb));
+			lws_close_free_wsi(wsi,
+				LWS_CLOSE_STATUS_NOSTATUS);
+			return 0;
+		}
+	}
+#endif /* USE_WOLFSSL */
+
+	return 1;
+}
+
+
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			        struct lws_vhost *vhost)
 {

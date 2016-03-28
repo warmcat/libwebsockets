@@ -1511,6 +1511,12 @@ LWS_EXTERN void
 lws_ssl_context_destroy(struct lws_context *context);
 LWS_VISIBLE void
 lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi);
+LWS_EXTERN int
+lws_ssl_client_bio_create(struct lws *wsi);
+LWS_EXTERN int
+lws_ssl_client_connect1(struct lws *wsi);
+LWS_EXTERN int
+lws_ssl_client_connect2(struct lws *wsi);
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
