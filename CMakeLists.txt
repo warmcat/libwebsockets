@@ -89,7 +89,7 @@ option(LWS_MBED3 "Platform is MBED3" OFF)
 option(LWS_SSL_SERVER_WITH_ECDH_CERT "Include SSL server use ECDH certificate" OFF)
 option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
 option(LWS_WITH_HTTP_PROXY "Support for rewriting HTTP proxying" OFF)
-
+option(LWS_WITH_LWSWS "Libwebsockets Webserver" ON)
 
 if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
 
@@ -108,6 +108,11 @@ endif()
 if (WIN32)
 # this implies no pthreads in the lib
 set(LWS_MAX_SMP 1)
+endif()
+
+
+if (LWS_WITHOUT_SERVER)
+set(LWS_WITH_LWSWS OFF)
 endif()
 
 if (LWS_WITH_HTTP_PROXY AND (LWS_WITHOUT_CLIENT OR LWS_WITHOUT_SERVER))
@@ -1065,6 +1070,54 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 	endif()
 endif(NOT LWS_WITHOUT_TESTAPPS)
 
+if (LWS_WITH_LWSWS)
+		list(APPEND LWSWS_SRCS
+			"lwsws/main.c"
+			"lwsws/lejp.c"
+			"lwsws/conf.c"
+			"lwsws/http.c"
+		)
+
+		if (WIN32)
+			list(APPEND LWSWS_SRCS
+				${WIN32_HELPERS_PATH}/getopt.c
+				${WIN32_HELPERS_PATH}/getopt_long.c
+				${WIN32_HELPERS_PATH}/gettimeofday.c
+			)
+
+			list(APPEND LWSWS_HDR
+				${WIN32_HELPERS_PATH}/getopt.h
+				${WIN32_HELPERS_PATH}/gettimeofday.h
+			)
+		endif(WIN32)
+
+		source_group("Headers Private"   FILES ${LWSWS_HDR})
+		source_group("Sources"   FILES ${LWSWS_SRCS})
+		add_executable("lwsws" ${LWSWS_SRCS} ${LWSWS_HDR})
+
+		if (LWS_LINK_TESTAPPS_DYNAMIC)
+			if (NOT LWS_WITH_SHARED)
+				message(FATAL_ERROR "Build of the shared library is disabled. LWS_LINK_TESTAPPS_DYNAMIC must be combined with LWS_WITH_SHARED.")
+			endif()
+			target_link_libraries("lwsws" websockets_shared)
+			add_dependencies("lwsws" websockets_shared)
+		else()
+			if (NOT LWS_WITH_STATIC)
+				message(FATAL_ERROR "Build of the static library is disabled. Disabled LWS_LINK_TESTAPPS_DYNAMIC must be combined with LWS_WITH_STATIC.")
+			endif()
+			target_link_libraries("lwsws" websockets)
+			add_dependencies("lwsws" websockets)
+		endif()
+
+		# Set test app specific defines.
+		set_property(TARGET "lwsws"
+			     PROPERTY COMPILE_DEFINITIONS
+			     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/share"
+		)
+	
+		
+endif (LWS_WITH_LWSWS)
+
 if (UNIX)
 	# Generate documentation.
 	# TODO: Fix this on Windows.
@@ -1175,6 +1228,12 @@ if (NOT LWS_WITHOUT_TESTAPPS AND NOT LWS_WITHOUT_CLIENT)
 			RUNTIME DESTINATION ${LWS_INSTALL_EXAMPLES_DIR}
 			COMPONENT examples)
 	set(CPACK_COMPONENT_EXAMPLES_DISPLAY_NAME "Example files")
+endif()
+
+# lwsws
+if (LWS_WITH_LWSWS)
+	install(TARGETS lwsws
+		RUNTIME DESTINATION "${LWS_INSTALL_BIN_DIR}" COMPONENT lwsws )
 endif()
 
 # Programs shared files used by the test-server.

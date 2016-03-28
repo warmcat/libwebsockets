@@ -185,6 +185,49 @@ LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS.  If you give this, non-ssl
 connections to the server listen port are accepted and receive a 301
 redirect to / on the same host and port using https://
 
+New application lwsws
+---------------------
+
+A libwebsockets-based general webserver is built by default now, lwsws.
+
+It's configured by JSON, by default in
+
+  /etc/lwsws/conf
+
+which contains global lws context settings like this
+
+{
+  "global": {
+   "uid": "99",
+   "gid": "99",
+   "interface": "eth0",
+   "count-threads": "1"
+ }
+}
+
+  /etc/lwsws/conf.d/*
+
+which contains zero or more files describing vhosts, like this
+
+{
+ "vhosts": [
+  { "name": "warmcat.com",
+    "port": "443",
+    "host-ssl-key": "/etc/pki/tls/private/warmcat.com.key",
+    "host-ssl-cert": "/etc/pki/tls/certs/warmcat.com.crt",
+    "host-ssl-ca": "/etc/pki/tls/certs/warmcat.com.cer",
+    "mounts": [
+      { "/": [
+       { "home": "file:///var/www/warmcat.com" },
+       { "default": "index.html" }
+      ]
+     }
+    ]
+   }
+ ]
+}
+
+
 
 v1.7.0
 ======
