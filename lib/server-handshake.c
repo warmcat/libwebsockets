@@ -84,7 +84,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 
 		/* check a client's extension against our support */
 
-		ext = lws_get_context(wsi)->extensions;
+		ext = wsi->vhost->extensions;
 
 		while (ext && ext->callback) {
 
@@ -106,7 +106,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 			 * ask user code if it's OK to apply it on this
 			 * particular connection + protocol
 			 */
-			m = lws_get_context(wsi)->protocols[0].callback(wsi,
+			m = wsi->vhost->protocols[0].callback(wsi,
 				LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
 				wsi->user_space, ext_name, 0);
 

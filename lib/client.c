@@ -154,7 +154,7 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 						_WSI_TOKEN_CLIENT_HOST);
 #endif
 
-			wsi->ssl = SSL_new(context->ssl_client_ctx);
+			wsi->ssl = SSL_new(wsi->vhost->ssl_client_ctx);
 #ifndef USE_WOLFSSL
 			SSL_set_mode(wsi->ssl,
 					SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
@@ -541,12 +541,12 @@ int
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
 	int n, len, okay = 0, isErrorCodeReceived = 0, port = 0, ssl = 0;
-	struct lws_context *context = wsi->context;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
 	const char *pc, *prot, *ads = NULL, *path;
 	struct allocated_headers *ah;
 	char *p;
 #ifndef LWS_NO_EXTENSIONS
+	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *sb = (char *)&pt->serv_buf[0];
 	const struct lws_ext_options *opts;
@@ -739,7 +739,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * no protocol name to work from,
 		 * default to first protocol
 		 */
-		wsi->protocol = &context->protocols[0];
+		wsi->protocol = &wsi->vhost->protocols[0];
 		goto check_extensions;
 	}
 
@@ -768,9 +768,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	 */
 	n = 0;
 	wsi->protocol = NULL;
-	while (context->protocols[n].callback && !wsi->protocol) {
-		if (strcmp(p, context->protocols[n].name) == 0) {
-			wsi->protocol = &context->protocols[n];
+	while (wsi->vhost->protocols[n].callback && !wsi->protocol) {
+		if (strcmp(p, wsi->vhost->protocols[n].name) == 0) {
+			wsi->protocol = &wsi->vhost->protocols[n];
 			break;
 		}
 		n++;
@@ -838,7 +838,7 @@ check_extensions:
 		lwsl_notice("checking client ext %s\n", ext_name);
 
 		n = 0;
-		ext = lws_get_context(wsi)->extensions;
+		ext = wsi->vhost->extensions;
 		while (ext && ext->callback) {
 			if (strcmp(ext_name, ext->name)) {
 				ext++;
@@ -987,7 +987,7 @@ check_accept:
 	 * inform all extensions, not just active ones since they
 	 * already know
 	 */
-	ext = context->extensions;
+	ext = wsi->vhost->extensions;
 
 	while (ext && ext->callback) {
 		v = NULL;
@@ -1103,7 +1103,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		/* tell the server what extensions we could support */
 
 #ifndef LWS_NO_EXTENSIONS
-		ext = context->extensions;
+		ext = wsi->vhost->extensions;
 		while (ext && ext->callback) {
 			n = lws_ext_cb_all_exts(context, wsi,
 				   LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION,
@@ -1113,7 +1113,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 				ext++;
 				continue;
 			}
-			n = context->protocols[0].callback(wsi,
+			n = wsi->vhost->protocols[0].callback(wsi,
 				LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 					wsi->user_space, (char *)ext->name, 0);
 
@@ -1162,7 +1162,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	/* give userland a chance to append, eg, cookies */
 
-	context->protocols[0].callback(wsi, LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
+	wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 				       NULL, &p, (pkt + LWS_MAX_SOCKET_IO_BUF) - p - 12);
 
 	p += sprintf(p, "\x0d\x0a");

@@ -581,7 +581,6 @@ struct lws_context_per_thread {
 	struct lws_signal_watcher w_sigint;
 	unsigned char ev_loop_foreign:1;
 #endif
-	lws_sockfd_type lserv_fd;
 
 	unsigned long count_conns;
 	/*
@@ -601,13 +600,71 @@ struct lws_context_per_thread {
 	unsigned char tid;
 };
 
+struct lws_http_mount {
+	struct lws_http_mount *mount_next;
+	const char *mountpoint; /* mountpoint in http pathspace, eg, "/" */
+	const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
+	const char *def; /* default target, eg, "index.html" */
+
+	unsigned char origin_protocol;
+	unsigned char mountpoint_len;
+};
+
+/*
+ * virtual host -related context information
+ *   vhostwide SSL context
+ *   vhostwide proxy
+ *
+ * heirarchy:
+ *
+ * context -> vhost -> wsi
+ *
+ * incoming connection non-SSL vhost binding:
+ *
+ *    listen socket -> wsi -> select vhost after first headers
+ *
+ * incoming connection SSL vhost binding:
+ *
+ *    SSL SNI -> wsi -> bind after SSL negotiation
+ */
+
+struct lws_vhost {
+	char http_proxy_address[128];
+	char proxy_basic_auth_token[128];
+	struct lws_context *context;
+	struct lws_vhost *vhost_next;
+	struct lws_http_mount *mount_list;
+	struct lws *lserv_wsi;
+	const char *name;
+	const char *iface;
+	const struct lws_protocols *protocols;
+#ifdef LWS_OPENSSL_SUPPORT
+	SSL_CTX *ssl_ctx;
+	SSL_CTX *ssl_client_ctx;
+#endif
+#ifndef LWS_NO_EXTENSIONS
+	const struct lws_extension *extensions;
+#endif
+
+	int listen_port;
+	unsigned int http_proxy_port;
+	int count_protocols;
+	int ka_time;
+	int ka_probes;
+	int ka_interval;
+
+#ifdef LWS_OPENSSL_SUPPORT
+	int use_ssl;
+	int allow_non_ssl_on_ssl_port;
+	unsigned int user_supplied_ssl_ctx:1;
+#endif
+};
+
 /*
  * the rest is managed per-context, that includes
  *
  *  - processwide single fd -> wsi lookup
  *  - contextwide headers pool
- *  - contextwide ssl context
- *  - contextwide proxy
  */
 
 struct lws_context {
@@ -620,27 +677,16 @@ struct lws_context {
 #else
 	struct lws **lws_lookup;  /* fd to wsi */
 #endif
-	const char *iface;
+	struct lws_vhost *vhost_list;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
 
-	const struct lws_protocols *protocols;
-
-#ifdef LWS_OPENSSL_SUPPORT
-	SSL_CTX *ssl_ctx;
-	SSL_CTX *ssl_client_ctx;
-#endif
-#ifndef LWS_NO_EXTENSIONS
-	const struct lws_extension *extensions;
-#endif
 #if defined(LWS_USE_LIBEV)
 	lws_ev_signal_cb_t * lws_ev_sigint_cb;
 #endif
 #if defined(LWS_USE_LIBUV)
 	uv_signal_cb lws_uv_sigint_cb;
 #endif
-	char http_proxy_address[128];
-	char proxy_basic_auth_token[128];
 	char canonical_hostname[128];
 #ifdef LWS_LATENCY
 	unsigned long worst_latency;
@@ -648,16 +694,25 @@ struct lws_context {
 #endif
 
 	int max_fds;
-	int listen_port;
 #if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV)
 	int use_ev_sigint;
 #endif
 	int started_with_parent;
+	int uid, gid;
 
 	int fd_random;
-	int lserv_mod;
+#ifdef LWS_OPENSSL_SUPPORT
+#define lws_ssl_anybody_has_buffered_read(w) \
+		(w->vhost->use_ssl && \
+		 w->context->pt[(int)w->tsi].pending_read_list)
+#define lws_ssl_anybody_has_buffered_read_tsi(c, t) \
+		(/*c->use_ssl && */ \
+		 c->pt[(int)t].pending_read_list)
+#else
+#define lws_ssl_anybody_has_buffered_read(ctx) (0)
+#define lws_ssl_anybody_has_buffered_read_tsi(ctx, t) (0)
+#endif
 	int count_wsi_allocated;
-	unsigned int http_proxy_port;
 	unsigned int options;
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;
@@ -671,26 +726,6 @@ struct lws_context {
 	volatile int service_tid;
 	int service_tid_detected;
 
-	int count_protocols;
-	int ka_time;
-	int ka_probes;
-	int ka_interval;
-
-#ifdef LWS_OPENSSL_SUPPORT
-	int use_ssl;
-	int allow_non_ssl_on_ssl_port;
-	unsigned int user_supplied_ssl_ctx:1;
-#define lws_ssl_anybody_has_buffered_read(w) \
-		(w->context->use_ssl && \
-		 w->context->pt[(int)w->tsi].pending_read_list)
-#define lws_ssl_anybody_has_buffered_read_tsi(c, t) \
-		(c->use_ssl && \
-		 c->pt[(int)t].pending_read_list)
-#else
-#define lws_ssl_anybody_has_buffered_read(ctx) (0)
-#define lws_ssl_anybody_has_buffered_read_tsi(ctx, t) (0)
-#endif
-
 	short max_http_header_data;
 	short max_http_header_pool;
 	short count_threads;
@@ -698,6 +733,9 @@ struct lws_context {
 	unsigned int being_destroyed:1;
 	unsigned int requested_kill:1;
 };
+
+#define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
+#define lws_get_vh_protocol(vh, x) vh->protocols[x]
 
 LWS_EXTERN void
 lws_close_free_wsi_final(struct lws *wsi);
@@ -1101,6 +1139,7 @@ struct lws {
 	/* pointers */
 
 	struct lws_context *context;
+	struct lws_vhost *vhost;
 	struct lws *parent; /* points to parent, if any */
 	struct lws *child_list; /* points to first child */
 	struct lws *sibling_list; /* subsequent children at same level */
@@ -1146,6 +1185,7 @@ struct lws {
 #endif
 
 	unsigned int hdr_parsing_completed:1;
+	unsigned int listener:1;
 	unsigned int user_space_externally_allocated:1;
 	unsigned int socket_is_permanently_unusable:1;
 	unsigned int rxflow_change_to:2;
@@ -1282,7 +1322,7 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port,
 		 const char *path, const char *host);
 
 LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
-lws_create_new_server_wsi(struct lws_context *context);
+lws_create_new_server_wsi(struct lws_vhost *vhost);
 
 LWS_EXTERN char * LWS_WARN_UNUSED_RESULT
 lws_generate_client_handshake(struct lws *wsi, char *pkt);
@@ -1377,7 +1417,7 @@ void lws_http2_configure_if_upgraded(struct lws *wsi);
 #endif
 
 LWS_EXTERN int
-lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd);
+lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_header_table_attach(struct lws *wsi, int autoservice);
@@ -1402,7 +1442,9 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
 #ifndef LWS_NO_SERVER
 int lws_context_init_server(struct lws_context_creation_info *info,
-			    struct lws_context *context);
+			    struct lws_vhost *vhost);
+LWS_EXTERN struct lws_vhost *
+lws_select_vhost(struct lws_context *context, int port, const char *servername);
 LWS_EXTERN int
 handshake_0405(struct lws_context *context, struct lws *wsi);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
@@ -1445,7 +1487,9 @@ enum lws_ssl_capable_status {
 #define lws_server_socket_service_ssl(_b, _c) (0)
 #define lws_ssl_close(_a) (0)
 #define lws_ssl_context_destroy(_a)
+#define lws_ssl_SSL_CTX_destroy(_a)
 #define lws_ssl_remove_wsi_from_buffered_list(_a)
+#define lws_context_init_ssl_library(_a)
 #else
 #define LWS_SSL_ENABLED(context) (context->use_ssl)
 LWS_EXTERN int openssl_websocket_private_data_index;
@@ -1455,10 +1499,14 @@ LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending(struct lws *wsi);
+LWS_EXTERN int
+lws_context_init_ssl_library(struct lws_context_creation_info *info);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_server_socket_service_ssl(struct lws *new_wsi, lws_sockfd_type accept_fd);
 LWS_EXTERN int
 lws_ssl_close(struct lws *wsi);
+LWS_EXTERN void
+lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost);
 LWS_EXTERN void
 lws_ssl_context_destroy(struct lws_context *context);
 LWS_VISIBLE void
@@ -1466,12 +1514,12 @@ lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi);
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
-		 	    struct lws_context *context);
+			    struct lws_vhost *vhost);
 #else
 #define lws_context_init_server_ssl(_a, _b) (0)
 #endif
 LWS_EXTERN void
-lws_ssl_destroy(struct lws_context *context);
+lws_ssl_destroy(struct lws_vhost *vhost);
 
 /* HTTP2-related */
 
@@ -1549,7 +1597,7 @@ lws_http_transaction_completed_client(struct lws *wsi);
 #ifdef LWS_OPENSSL_SUPPORT
 LWS_EXTERN int
 lws_context_init_client_ssl(struct lws_context_creation_info *info,
-			    struct lws_context *context);
+			    struct lws_vhost *vhost);
 #else
 	#define lws_context_init_client_ssl(_a, _b) (0)
 #endif

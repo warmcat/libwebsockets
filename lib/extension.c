@@ -6,7 +6,6 @@ LWS_VISIBLE void
 lws_context_init_extensions(struct lws_context_creation_info *info,
 			    struct lws_context *context)
 {
-	context->extensions = info->extensions;
 	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);
 }
 
@@ -185,7 +184,12 @@ int lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi,
 			int reason, void *arg, int len)
 {
 	int n = 0, m, handled = 0;
-	const struct lws_extension *ext = context->extensions;
+	const struct lws_extension *ext;
+
+	if (!wsi || !wsi->vhost)
+		return 0;
+
+	ext = wsi->vhost->extensions;
 
 	while (ext && ext->callback && !handled) {
 		m = ext->callback(context, ext, wsi, reason,

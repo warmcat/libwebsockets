@@ -275,7 +275,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			if (deflateInit2(&priv->tx, priv->args[PMD_COMP_LEVEL],
 					 Z_DEFLATED,
 					 -priv->args[PMD_CLIENT_MAX_WINDOW_BITS +
-						     !wsi->context->listen_port],
+						     !wsi->vhost->listen_port],
 					 priv->args[PMD_MEM_LEVEL],
 					 Z_DEFAULT_STRATEGY) != Z_OK) {
 				lwsl_ext("inflateInit2 failed\n");

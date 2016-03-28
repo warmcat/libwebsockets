@@ -24,12 +24,13 @@
 
 int
 lws_context_init_server(struct lws_context_creation_info *info,
-			struct lws_context *context)
+			struct lws_vhost *vhost)
 {
 #ifdef LWS_POSIX
 	int n, opt = 1, limit = 1;
 #endif
 	lws_sockfd_type sockfd;
+	struct lws_vhost *vh;
 	struct lws *wsi;
 	int m = 0;
 
@@ -38,9 +39,25 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	if (info->port == CONTEXT_PORT_NO_LISTEN)
 		return 0;
 
+	vh = vhost->context->vhost_list;
+	while (vh) {
+		if (vh->listen_port == info->port) {
+			if ((!info->iface && !vh->iface) ||
+			    (info->iface && vh->iface &&
+			    !strcmp(info->iface, vh->iface))) {
+				vhost->listen_port = info->port;
+				vhost->iface = info->iface;
+				lwsl_notice(" using listen skt from vhost %s\n",
+					    vh->name);
+				return 0;
+			}
+		}
+		vh = vh->vhost_next;
+	}
+
 #if LWS_POSIX
 #if defined(__linux__)
-	limit = context->count_threads;
+	limit = vhost->context->count_threads;
 #endif
 
 	for (m = 0; m < limit; m++) {
@@ -70,7 +87,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		return 1;
 	}
 #if defined(__linux__) && defined(SO_REUSEPORT) && LWS_MAX_SMP > 1
-	if (context->count_threads > 1)
+	if (vhost->context->count_threads > 1)
 		if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
 				(const void *)&opt, sizeof(opt)) < 0) {
 			compatible_close(sockfd);
@@ -78,33 +95,36 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		}
 #endif
 #endif
-	lws_plat_set_socket_options(context, sockfd);
+	lws_plat_set_socket_options(vhost, sockfd);
 
 #if LWS_POSIX
-	n = lws_socket_bind(context, sockfd, info->port, info->iface);
+	n = lws_socket_bind(vhost->context, sockfd, info->port, info->iface);
 	if (n < 0)
 		goto bail;
 	info->port = n;
 #endif
-	context->listen_port = info->port;
+	vhost->listen_port = info->port;
+	vhost->iface = info->iface;
 
 	wsi = lws_zalloc(sizeof(struct lws));
 	if (wsi == NULL) {
 		lwsl_err("Out of mem\n");
 		goto bail;
 	}
-	wsi->context = context;
+	wsi->context = vhost->context;
 	wsi->sock = sockfd;
 	wsi->mode = LWSCM_SERVER_LISTENER;
-	wsi->protocol = context->protocols;
+	wsi->protocol = vhost->protocols;
 	wsi->tsi = m;
+	wsi->vhost = vhost;
+	wsi->listener = 1;
 
-	context->pt[m].wsi_listening = wsi;
-	if (insert_wsi_socket_into_fds(context, wsi))
+	vhost->context->pt[m].wsi_listening = wsi;
+	if (insert_wsi_socket_into_fds(vhost->context, wsi))
 		goto bail;
 
-	context->count_wsi_allocated++;
-	context->pt[m].lserv_fd = sockfd;
+	vhost->context->count_wsi_allocated++;
+	vhost->lserv_wsi = wsi;
 
 #if LWS_POSIX
 	listen(wsi->sock, LWS_SOMAXCONN);
@@ -112,7 +132,8 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #else
 	mbed3_tcp_stream_bind(wsi->sock, info->port, wsi);
 #endif
-	lwsl_notice(" Listening on port %d\n", info->port);
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+		lwsl_notice(" Listening on port %d\n", info->port);
 
 	return 0;
 
@@ -143,6 +164,69 @@ _lws_server_listen_accept_flow_control(struct lws *twsi, int on)
 	return n;
 }
 
+struct lws_vhost *
+lws_select_vhost(struct lws_context *context, int port, const char *servername)
+{
+	struct lws_vhost *vhost = context->vhost_list;
+
+	while (vhost) {
+		if (port == vhost->listen_port &&
+		    !strcmp(vhost->name, servername)) {
+			lwsl_info("SNI: Found: %s\n", servername);
+			return vhost;
+		}
+		vhost = vhost->vhost_next;
+	}
+
+	return NULL;
+}
+
+static const char * get_mimetype(const char *file)
+{
+	int n = strlen(file);
+
+	if (n < 5)
+		return NULL;
+
+	if (!strcmp(&file[n - 4], ".ico"))
+		return "image/x-icon";
+
+	if (!strcmp(&file[n - 4], ".png"))
+		return "image/png";
+
+	if (!strcmp(&file[n - 5], ".html"))
+		return "text/html";
+
+	if (!strcmp(&file[n - 4], ".css"))
+		return "text/css";
+
+	return NULL;
+}
+
+int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
+{
+	const char *mimetype;
+	char path[256];
+	int n;
+
+	lwsl_notice("%s: %s %s\n", __func__, uri, origin);
+	snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
+
+	mimetype = get_mimetype(path);
+	if (!mimetype) {
+		lwsl_err("unknown mimetype for %s", path);
+		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
+		return -1;
+	}
+
+	n = lws_serve_http_file(wsi, path, mimetype, NULL, 0);
+	if (n < 0)
+	if (n < 0 || ((n > 0) && lws_http_transaction_completed(wsi)))
+		return -1; /* error or can't reuse connection: close the socket */
+
+	return 0;
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -152,6 +236,7 @@ lws_http_action(struct lws *wsi)
 	enum http_connection_type connection_type;
 	enum http_version request_version;
 	char content_length_str[32];
+	struct lws_http_mount *hm;
 	unsigned int n, count = 0;
 	char http_version_str[10];
 	char http_conn_str[20];
@@ -280,7 +365,7 @@ lws_http_action(struct lws *wsi)
 			goto bail_nuke_ah;
 		if (lws_add_http_header_status(wsi, 301, &p, end))
 			goto bail_nuke_ah;
-		n = sprintf((char *)end, "https://%s/",
+		n = sprintf((char *)end, "htt	struct lws_http_mount *hm;ps://%s/",
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
 				end, n, &p, end))
@@ -295,7 +380,28 @@ lws_http_action(struct lws *wsi)
 	}
 #endif
 
-	n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+	/* can we serve it from the mount list? */
+
+	hm = wsi->vhost->mount_list;
+	while (hm) {
+		char *s = uri_ptr + hm->mountpoint_len;
+
+		if (s[0] == '\0')
+			s = (char *)hm->def;
+
+		if (!s)
+			s = "index.html";
+
+		if (uri_len >= hm->mountpoint_len &&
+		    !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len)) {
+			n = lws_http_serve(wsi, s, hm->origin);
+			break;
+		}
+		hm = hm->mount_next;
+	}
+
+	if (!hm)
+		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
 	if (n) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
@@ -387,13 +493,25 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		lwsl_info("No upgrade\n");
 		ah = wsi->u.hdr.ah;
 
+		/* select vhost */
+
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
+			struct lws_vhost *vhost = lws_select_vhost(
+				context, wsi->vhost->listen_port,
+				lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
+
+			if (vhost)
+				wsi->vhost = vhost;
+		}
+
 		lws_union_transition(wsi, LWSCM_HTTP_SERVING_ACCEPTED);
 		wsi->state = LWSS_HTTP;
 		wsi->u.http.fd = LWS_INVALID_FILE;
 
 		/* expose it at the same offset as u.hdr */
 		wsi->u.http.ah = ah;
-		lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi, (void *)wsi->u.hdr.ah);
+		lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi,
+			   (void *)wsi->u.hdr.ah);
 
 		n = lws_http_action(wsi);
 
@@ -485,12 +603,12 @@ upgrade_ws:
 			lwsl_info("checking %s\n", protocol_name);
 
 			n = 0;
-			while (context->protocols[n].callback) {
-				if (context->protocols[n].name &&
-				    !strcmp(context->protocols[n].name,
+			while (wsi->vhost->protocols[n].callback) {
+				if (wsi->vhost->protocols[n].name &&
+				    !strcmp(wsi->vhost->protocols[n].name,
 					    protocol_name)) {
 					lwsl_info("prot match %d\n", n);
-					wsi->protocol = &context->protocols[n];
+					wsi->protocol = &wsi->vhost->protocols[n];
 					hit = 1;
 					break;
 				}
@@ -513,7 +631,7 @@ upgrade_ws:
 			 * allow it and match to protocol 0
 			 */
 			lwsl_info("defaulting to prot 0 handler\n");
-			wsi->protocol = &context->protocols[0];
+			wsi->protocol = &wsi->vhost->protocols[0];
 		}
 
 		/* allocate wsi->user storage */
@@ -643,10 +761,10 @@ lws_get_idlest_tsi(struct lws_context *context)
 }
 
 struct lws *
-lws_create_new_server_wsi(struct lws_context *context)
+lws_create_new_server_wsi(struct lws_vhost *vhost)
 {
 	struct lws *new_wsi;
-	int n = lws_get_idlest_tsi(context);
+	int n = lws_get_idlest_tsi(vhost->context);
 
 	if (n < 0) {
 		lwsl_err("no space for new conn\n");
@@ -662,7 +780,8 @@ lws_create_new_server_wsi(struct lws_context *context)
 	new_wsi->tsi = n;
 	lwsl_info("Accepted %p to tsi %d\n", new_wsi, new_wsi->tsi);
 
-	new_wsi->context = context;
+	new_wsi->vhost = vhost;
+	new_wsi->context = vhost->context;
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
@@ -673,7 +792,7 @@ lws_create_new_server_wsi(struct lws_context *context)
 	new_wsi->hdr_parsing_completed = 0;
 
 #ifdef LWS_OPENSSL_SUPPORT
-	new_wsi->use_ssl = LWS_SSL_ENABLED(context);
+	new_wsi->use_ssl = LWS_SSL_ENABLED(vhost);
 #endif
 
 	/*
@@ -682,17 +801,17 @@ lws_create_new_server_wsi(struct lws_context *context)
 	 * to the start of the supported list, so it can look
 	 * for matching ones during the handshake
 	 */
-	new_wsi->protocol = context->protocols;
+	new_wsi->protocol = vhost->protocols;
 	new_wsi->user_space = NULL;
 	new_wsi->ietf_spec_revision = 0;
 	new_wsi->sock = LWS_SOCK_INVALID;
-	context->count_wsi_allocated++;
+	vhost->context->count_wsi_allocated++;
 
 	/*
 	 * outermost create notification for wsi
 	 * no user_space because no protocol selection
 	 */
-	context->protocols[0].callback(new_wsi, LWS_CALLBACK_WSI_CREATE,
+	vhost->protocols[0].callback(new_wsi, LWS_CALLBACK_WSI_CREATE,
 				       NULL, NULL, 0);
 
 	return new_wsi;
@@ -772,7 +891,7 @@ lws_http_transaction_completed(struct lws *wsi)
 LWS_VISIBLE struct lws *
 lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 {
-	struct lws *new_wsi = lws_create_new_server_wsi(context);
+	struct lws *new_wsi = lws_create_new_server_wsi(context->vhost_list);
 
 	if (!new_wsi) {
 		compatible_close(accept_fd);
@@ -796,7 +915,7 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 	 * set properties of the newly created wsi. There's no protocol
 	 * selected yet so we issue this to protocols[0]
 	 */
-	if ((context->protocols[0].callback)(new_wsi,
+	if ((context->vhost_list->protocols[0].callback)(new_wsi,
 	     LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, NULL, NULL, 0)) {
 		compatible_close(new_wsi->sock);
 		lws_free(new_wsi);
@@ -806,7 +925,7 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 	lws_libev_accept(new_wsi, new_wsi->sock);
 	lws_libuv_accept(new_wsi, new_wsi->sock);
 
-	if (!LWS_SSL_ENABLED(context)) {
+	if (!LWS_SSL_ENABLED(new_wsi->vhost)) {
 		if (insert_wsi_socket_into_fds(context, new_wsi))
 			goto fail;
 	} else {
@@ -1113,7 +1232,7 @@ try_pollout:
 				break;
 			}
 
-			lws_plat_set_socket_options(context, accept_fd);
+			lws_plat_set_socket_options(wsi->vhost, accept_fd);
 
 			lwsl_debug("accepted new conn  port %u on fd=%d\n",
 					  ntohs(cli_addr.sin_port), accept_fd);
@@ -1127,7 +1246,7 @@ try_pollout:
 			 * to reject based on client IP.  There's no protocol selected
 			 * yet so we issue this to protocols[0]
 			 */
-			if ((context->protocols[0].callback)(wsi,
+			if ((wsi->vhost->protocols[0].callback)(wsi,
 					LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 					NULL, (void *)(long)accept_fd, 0)) {
 				lwsl_debug("Callback denied network connection\n");

@@ -307,6 +307,7 @@ enum lws_context_options {
 								  (1 << 3) |
 								  (1 << 12),
 	LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT			= (1 << 12),
+	LWS_SERVER_OPTION_EXPLICIT_VHOSTS			= (1 << 13),
 
 	/****** add new things just above ---^ ******/
 };
@@ -1292,6 +1293,13 @@ extern int lws_extension_callback_pm_deflate(
 /**
  * struct lws_context_creation_info - parameters to create context with
  *
+ * This is also used to create vhosts.... if LWS_SERVER_OPTION_EXPLICIT_VHOSTS
+ * is not given, then for backwards compatibility one vhost is created at
+ * context-creation time using the info from this struct.
+ *
+ * If LWS_SERVER_OPTION_EXPLICIT_VHOSTS is given, then no vhosts are created
+ * at the same time as the context, they are expected to be created afterwards.
+ *
  * @port:	Port to listen on... you can use CONTEXT_PORT_NO_LISTEN to
  *		suppress listening on any port, that's what you want if you are
  *		not running a websocket server at all but just using it as a
@@ -1359,22 +1367,22 @@ extern int lws_extension_callback_pm_deflate(
  */
 
 struct lws_context_creation_info {
-	int port;
-	const char *iface;
-	const struct lws_protocols *protocols;
-	const struct lws_extension *extensions;
+	int port;					/* VH */
+	const char *iface;				/* VH */
+	const struct lws_protocols *protocols;		/* VH */
+	const struct lws_extension *extensions;		/* VH */
 	const struct lws_token_limits *token_limits;
-	const char *ssl_private_key_password;
-	const char *ssl_cert_filepath;
-	const char *ssl_private_key_filepath;
-	const char *ssl_ca_filepath;
-	const char *ssl_cipher_list;
-	const char *http_proxy_address;
-	unsigned int http_proxy_port;
-	int gid;
-	int uid;
-	unsigned int options;
-	void *user;
+	const char *ssl_private_key_password;		/* VH */
+	const char *ssl_cert_filepath;			/* VH */
+	const char *ssl_private_key_filepath;		/* VH */
+	const char *ssl_ca_filepath;			/* VH */
+	const char *ssl_cipher_list;			/* VH */
+	const char *http_proxy_address;			/* VH */
+	unsigned int http_proxy_port;			/* VH */
+	int gid;					/* context */
+	int uid;					/* context */
+	unsigned int options;				/* context */
+	void *user;					/* context */
 	int ka_time;
 	int ka_probes;
 	int ka_interval;
@@ -1387,10 +1395,11 @@ struct lws_context_creation_info {
 	short max_http_header_data;
 	short max_http_header_pool;
 
-	unsigned int count_threads;
-	unsigned int fd_limit_per_thread;
-	unsigned int timeout_secs;
-	const char *ecdh_curve;
+	unsigned int count_threads;			/* context */
+	unsigned int fd_limit_per_thread;		/* context */
+	unsigned int timeout_secs;			/* VH */
+	const char *ecdh_curve;				/* VH */
+	const char *vhost_name;				/* VH */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -1426,6 +1435,7 @@ struct lws_context_creation_info {
  * @uri_replace_from: if non-NULL, when this string is found in URIs in
  *		text/html content-encoding, it's replaced with @uri_replace_to
  * @uri_replace_to: see above
+ * @vhost:	vhost to bind to (used to determine related SSL_CTX)
  */
 
 struct lws_client_connect_info {
@@ -1444,6 +1454,7 @@ struct lws_client_connect_info {
 	struct lws *parent_wsi;
 	const char *uri_replace_from;
 	const char *uri_replace_to;
+	struct lws_vhost *vhost;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -1456,6 +1467,13 @@ struct lws_client_connect_info {
 	void *_unused[4];
 };
 
+struct lws_http_mount;
+
+LWS_VISIBLE LWS_EXTERN int
+lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
+		     void *store, const char *mountpoint, const char *origin,
+		     const char *def);
+
 LWS_VISIBLE LWS_EXTERN void
 lws_set_log_level(int level,
 		  void (*log_emit_function)(int level, const char *line));
@@ -1466,8 +1484,18 @@ lwsl_emit_syslog(int level, const char *line);
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_create_context(struct lws_context_creation_info *info);
 
+struct lws_vhost;
+
+LWS_VISIBLE struct lws_vhost *
+lws_create_vhost(struct lws_context *context,
+		 struct lws_context_creation_info *info,
+		 struct lws_http_mount *mounts);
+
 LWS_VISIBLE LWS_EXTERN int
-lws_set_proxy(struct lws_context *context, const char *proxy);
+lws_finalize_startup(struct lws_context *context);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_set_proxy(struct lws_vhost *vhost, const char *proxy);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_context_destroy(struct lws_context *context);

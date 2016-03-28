@@ -19,28 +19,28 @@ lws_client_connect_2(struct lws *wsi)
 
 	/* proxy? */
 
-	if (context->http_proxy_port) {
+	if (wsi->vhost->http_proxy_port) {
 		plen = sprintf((char *)pt->serv_buf,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a",
 			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
 			wsi->u.hdr.c_port);
 
-		if (context->proxy_basic_auth_token[0])
+		if (wsi->vhost->proxy_basic_auth_token[0])
 			plen += sprintf((char *)pt->serv_buf + plen,
 					"Proxy-authorization: basic %s\x0d\x0a",
-					context->proxy_basic_auth_token);
+					wsi->vhost->proxy_basic_auth_token);
 
 		plen += sprintf((char *)pt->serv_buf + plen, "\x0d\x0a");
-		ads = context->http_proxy_address;
+		ads = wsi->vhost->http_proxy_address;
 
 #ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(context)) {
 			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
-			server_addr6.sin6_port = htons(context->http_proxy_port);
+			server_addr6.sin6_port = htons(wsi->vhost->http_proxy_port);
 		} else
 #endif
-			server_addr4.sin_port = htons(context->http_proxy_port);
+			server_addr4.sin_port = htons(wsi->vhost->http_proxy_port);
 
 	} else {
 		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
@@ -151,7 +151,7 @@ lws_client_connect_2(struct lws *wsi)
 			goto oom4;
 		}
 
-		if (lws_plat_set_socket_options(context, wsi->sock)) {
+		if (lws_plat_set_socket_options(wsi->vhost, wsi->sock)) {
 			lwsl_err("Failed to set wsi socket options\n");
 			compatible_close(wsi->sock);
 			goto oom4;
@@ -176,7 +176,7 @@ lws_client_connect_2(struct lws *wsi)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
 				AWAITING_TIMEOUT);
 
-		n = lws_socket_bind(context, wsi->sock, 0, context->iface);
+		n = lws_socket_bind(context, wsi->sock, 0, wsi->vhost->iface);
 		if (n < 0)
 			goto failed;
 	}
@@ -222,7 +222,7 @@ lws_client_connect_2(struct lws *wsi)
 
 	/* we are connected to server, or proxy */
 
-	if (context->http_proxy_port) {
+	if (wsi->vhost->http_proxy_port) {
 
 		/*
 		 * OK from now on we talk via the proxy, so connect to that
@@ -231,9 +231,9 @@ lws_client_connect_2(struct lws *wsi)
 		 * leaving old string/frag there but unreferenced)
 		 */
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
-					  context->http_proxy_address))
+					  wsi->vhost->http_proxy_address))
 			goto failed;
-		wsi->u.hdr.c_port = context->http_proxy_port;
+		wsi->u.hdr.c_port = wsi->vhost->http_proxy_port;
 
 		n = send(wsi->sock, (char *)pt->serv_buf, plen,
 			 MSG_NOSIGNAL);
@@ -486,8 +486,11 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->position_in_fds_table = -1;
 	wsi->u.hdr.c_port = i->port;
+	wsi->vhost = i->vhost;
+	if (!wsi->vhost)
+		wsi->vhost = i->context->vhost_list;
 
-	wsi->protocol = &i->context->protocols[0];
+	wsi->protocol = &wsi->vhost->protocols[0];
 	if (wsi && !wsi->user_space && i->userdata) {
 		wsi->user_space_externally_allocated = 1;
 		wsi->user_space = i->userdata;

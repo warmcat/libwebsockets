@@ -194,8 +194,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	    wsi->u.http.fd != LWS_INVALID_FILE) {
 		lws_plat_file_close(wsi, wsi->u.http.fd);
 		wsi->u.http.fd = LWS_INVALID_FILE;
-		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
-					       wsi->user_space, NULL, 0);
+		wsi->vhost->protocols[0].callback(wsi,
+			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
 	}
 	if (wsi->socket_is_permanently_unusable ||
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY ||
@@ -234,10 +234,10 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		goto just_kill_connection;
 
 	if (wsi->mode == LWSCM_HTTP_SERVING)
-		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
+		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0);
 	if (wsi->mode == LWSCM_HTTP_CLIENT)
-		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_CLIENT_HTTP,
+		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_CLIENT_HTTP,
 					       wsi->user_space, NULL, 0);
 
 	/*
@@ -468,12 +468,12 @@ just_kill_connection:
 					wsi->user_space, NULL, 0);
 	} else if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED) {
 		lwsl_debug("calling back CLOSED_HTTP\n");
-		context->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
+		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0 );
 	} else if (wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
 		   wsi->mode == LWSCM_WSCL_WAITING_CONNECT) {
 		lwsl_debug("Connection closed before server reply\n");
-		context->protocols[0].callback(wsi,
+		wsi->vhost->protocols[0].callback(wsi,
 					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 					wsi->user_space, NULL, 0);
 	} else
@@ -525,7 +525,7 @@ lws_close_free_wsi_final(struct lws *wsi)
 	}
 
 	/* outermost destroy notification for wsi (user_space still intact) */
-	wsi->context->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
+	wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
 				       wsi->user_space, NULL, 0);
 
 	lws_free_wsi(wsi);
@@ -903,7 +903,7 @@ int user_callback_handle_rxflow(lws_callback_function callback_function,
  */
 
 LWS_VISIBLE int
-lws_set_proxy(struct lws_context *context, const char *proxy)
+lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 {
 	char *p;
 	char authstring[96];
@@ -920,35 +920,35 @@ lws_set_proxy(struct lws_context *context, const char *proxy)
 		strncpy(authstring, proxy, p - proxy);
 		// null termination not needed on input
 		if (lws_b64_encode_string(authstring, (p - proxy),
-		    context->proxy_basic_auth_token,
-		    sizeof context->proxy_basic_auth_token) < 0)
+				vhost->proxy_basic_auth_token,
+		    sizeof vhost->proxy_basic_auth_token) < 0)
 			goto auth_too_long;
 
 		lwsl_notice(" Proxy auth in use\n");
 
 		proxy = p + 1;
 	} else
-		context->proxy_basic_auth_token[0] = '\0';
+		vhost->proxy_basic_auth_token[0] = '\0';
 
-	strncpy(context->http_proxy_address, proxy,
-				sizeof(context->http_proxy_address) - 1);
-	context->http_proxy_address[
-				sizeof(context->http_proxy_address) - 1] = '\0';
+	strncpy(vhost->http_proxy_address, proxy,
+				sizeof(vhost->http_proxy_address) - 1);
+	vhost->http_proxy_address[
+				sizeof(vhost->http_proxy_address) - 1] = '\0';
 
-	p = strchr(context->http_proxy_address, ':');
-	if (!p && !context->http_proxy_port) {
+	p = strchr(vhost->http_proxy_address, ':');
+	if (!p && !vhost->http_proxy_port) {
 		lwsl_err("http_proxy needs to be ads:port\n");
 
 		return -1;
 	} else {
 		if (p) {
 			*p = '\0';
-			context->http_proxy_port = atoi(p + 1);
+			vhost->http_proxy_port = atoi(p + 1);
 		}
 	}
 
-	lwsl_notice(" Proxy %s:%u\n", context->http_proxy_address,
-						context->http_proxy_port);
+	lwsl_notice(" Proxy %s:%u\n", vhost->http_proxy_address,
+			vhost->http_proxy_port);
 
 	return 0;
 
@@ -1469,8 +1469,8 @@ lws_socket_bind(struct lws_context *context, int sockfd, int port,
 
 	n = bind(sockfd, v, n);
 	if (n < 0) {
-		lwsl_err("ERROR on binding to port %d (%d %d)\n",
-					      port, n, LWS_ERRNO);
+		lwsl_err("ERROR on binding fd %d to port %d (%d %d)\n",
+				sockfd, port, n, LWS_ERRNO);
 		return -1;
 	}
 
@@ -1511,6 +1511,21 @@ lws_urlencode(const char *in, int inlen, char *out, int outlen)
 
 	return out - start;
 }
+
+LWS_VISIBLE LWS_EXTERN int
+lws_finalize_startup(struct lws_context *context)
+{
+	struct lws_context_creation_info info;
+
+	info.uid = context->uid;
+	info.gid = context->gid;
+
+	if (lws_check_opt(context->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+		lws_plat_drop_app_privileges(&info);
+
+	return 0;
+}
+
 
 LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi) {
@@ -1555,10 +1570,10 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 	/*
 	 * these can only be set once the protocol is known
 	 * we set an unestablished connection's protocol pointer
-	 * to the start of the supported list, so it can look
+	 * to the start of the defauly vhost supported list, so it can look
 	 * for matching ones during the handshake
 	 */
-	new_wsi->protocol = context->protocols;
+	new_wsi->protocol = context->vhost_list->protocols;
 	new_wsi->user_space = NULL;
 	new_wsi->ietf_spec_revision = 0;
 	new_wsi->sock = LWS_SOCK_INVALID;

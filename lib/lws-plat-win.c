@@ -171,28 +171,30 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		memset(&_lws, 0, sizeof(_lws));
 		_lws.context = context;
 
-		context->service_tid_detected = context->protocols[0].callback(
-			&_lws, LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+		context->service_tid_detected = context->vhost_list->
+			protocols[0].callback(&_lws, LWS_CALLBACK_GET_THREAD_ID,
+					      NULL, NULL, 0);
 	}
 	context->service_tid = context->service_tid_detected;
 
 	for (i = 0; i < pt->fds_count; ++i) {
 		pfd = &pt->fds[i];
-		if (pfd->fd == pt->lserv_fd)
+
+		if (!(pfd->events & LWS_POLLOUT))
 			continue;
 
-		if (pfd->events & LWS_POLLOUT) {
-			wsi = wsi_from_fd(context, pfd->fd);
-			if (!wsi || wsi->sock_send_blocking)
-				continue;
-			pfd->revents = LWS_POLLOUT;
-			n = lws_service_fd(context, pfd);
-			if (n < 0)
-				return -1;
-			/* if something closed, retry this slot */
-			if (n)
-				i--;
-		}
+		wsi = wsi_from_fd(context, pfd->fd);
+		if (wsi->listener)
+			continue;
+		if (!wsi || wsi->sock_send_blocking)
+			continue;
+		pfd->revents = LWS_POLLOUT;
+		n = lws_service_fd(context, pfd);
+		if (n < 0)
+			return -1;
+		/* if something closed, retry this slot */
+		if (n)
+			i--;
 	}
 
 	/* if we know something needs service already, don't wait in poll */
@@ -264,7 +266,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 }
 
 LWS_VISIBLE int
-lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd)
+lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd)
 {
 	int optval = 1;
 	int optlen = sizeof(optval);
@@ -276,7 +278,7 @@ lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd)
 	struct protoent *tcp_proto;
 #endif
 
-	if (context->ka_time) {
+	if (vhost->ka_time) {
 		/* enable keepalive on this socket */
 		optval = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
@@ -284,8 +286,8 @@ lws_plat_set_socket_options(struct lws_context *context, lws_sockfd_type fd)
 			return 1;
 
 		alive.onoff = TRUE;
-		alive.keepalivetime = context->ka_time;
-		alive.keepaliveinterval = context->ka_interval;
+		alive.keepalivetime = vhost->ka_time;
+		alive.keepaliveinterval = vhost->ka_interval;
 
 		if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive),
 					      NULL, 0, &dwBytesRet, NULL, NULL))

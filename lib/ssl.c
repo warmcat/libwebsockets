@@ -28,7 +28,8 @@
 #include <openssl/ecdh.h>
 #endif
 
-int openssl_websocket_private_data_index;
+int openssl_websocket_private_data_index,
+    openssl_SSL_CTX_private_data_index;
 
 static int
 lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
@@ -55,13 +56,47 @@ static void lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creatio
 	SSL_CTX_set_default_passwd_cb(ssl_ctx, lws_context_init_ssl_pem_passwd_cb);
 }
 
+int
+lws_context_init_ssl_library(struct lws_context_creation_info *info)
+{
+#ifdef USE_WOLFSSL
+#ifdef USE_OLD_CYASSL
+	lwsl_notice(" Compiled with CyaSSL support\n");
+#else
+	lwsl_notice(" Compiled with wolfSSL support\n");
+#endif
+#else
+	lwsl_notice(" Compiled with OpenSSL support\n");
+#endif
+
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
+		lwsl_notice(" SSL disabled: no LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
+		return 0;
+	}
+
+	/* basic openssl init */
+
+	SSL_library_init();
+
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+
+	openssl_websocket_private_data_index =
+		SSL_get_ex_new_index(0, "lws", NULL, NULL, NULL);
+
+	openssl_SSL_CTX_private_data_index = SSL_CTX_get_ex_new_index(0,
+			NULL, NULL, NULL, NULL);
+
+	return 0;
+}
+
 #ifndef LWS_NO_SERVER
 static int
 OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
 	SSL *ssl;
 	int n;
-	struct lws_context *context;
+	struct lws_vhost *vh;
 	struct lws wsi;
 
 	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
@@ -71,16 +106,17 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	 * !!! nasty openssl requires the index to come as a library-scope
 	 * static
 	 */
-	context = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+	vh = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
 
 	/*
 	 * give him a fake wsi with context set, so he can use lws_get_context()
 	 * in the callback
 	 */
 	memset(&wsi, 0, sizeof(wsi));
-	wsi.context = context;
+	wsi.vhost = vh;
+	wsi.context = vh->context;
 
-	n = context->protocols[0].callback(&wsi,
+	n = vh->protocols[0].callback(&wsi,
 			LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 					   x509_ctx, ssl, preverify_ok);
 
@@ -89,7 +125,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 }
 
 static int
-lws_context_ssl_init_ecdh(struct lws_context *context)
+lws_context_ssl_init_ecdh(struct lws_vhost *vhost)
 {
 #ifdef LWS_SSL_SERVER_WITH_ECDH_CERT
 	EC_KEY *EC_key = NULL;
@@ -97,13 +133,13 @@ lws_context_ssl_init_ecdh(struct lws_context *context)
 	int KeyType;
 	X509 *x;
 
-	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_SSL_ECDH))
+	if (!lws_check_opt(vhost->context->options, LWS_SERVER_OPTION_SSL_ECDH))
 		return 0;
 
 	lwsl_notice(" Using ECDH certificate support\n");
 
 	/* Get X509 certificate from ssl context */
-	x = sk_X509_value(context->ssl_ctx->extra_certs, 0);
+	x = sk_X509_value(vhost->ssl_ctx->extra_certs, 0);
 	if (!x) {
 		lwsl_err("%s: x is NULL\n", __func__);
 		return 1;
@@ -129,7 +165,7 @@ lws_context_ssl_init_ecdh(struct lws_context *context)
 		lwsl_err("%s: ECDH key is NULL \n", __func__);
 		return 1;
 	}
-	SSL_CTX_set_tmp_ecdh(context->ssl_ctx, EC_key);
+	SSL_CTX_set_tmp_ecdh(vhost->ssl_ctx, EC_key);
 	EC_KEY_free(EC_key);
 #endif
 	return 0;
@@ -137,7 +173,7 @@ lws_context_ssl_init_ecdh(struct lws_context *context)
 
 static int
 lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
-				struct lws_context *context)
+				struct lws_vhost *vhost)
 {
 #ifdef LWS_HAVE_OPENSSL_ECDH_H
 	EC_KEY *ecdh;
@@ -158,10 +194,10 @@ lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 		lwsl_err("SSL: Unable to create curve '%s'", ecdh_curve);
 		return 1;
 	}
-	SSL_CTX_set_tmp_ecdh(context->ssl_ctx, ecdh);
+	SSL_CTX_set_tmp_ecdh(vhost->ssl_ctx, ecdh);
 	EC_KEY_free(ecdh);
 
-	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
 
 	lwsl_notice(" SSL ECDH curve '%s'\n", ecdh_curve);
 #else
@@ -175,18 +211,43 @@ static int
 lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 {
 	struct lws_context *context;
+	struct lws_vhost *vhost, *vh;
 	const char *servername;
+	int port;
 
 	if (!ssl)
 		return SSL_TLSEXT_ERR_NOACK;
 
 	context = (struct lws_context *)SSL_CTX_get_ex_data(
-					SSL_get_SSL_CTX(ssl), 0);
+					SSL_get_SSL_CTX(ssl),
+					openssl_SSL_CTX_private_data_index);
+
+	/*
+	 * We can only get ssl accepted connections by using a vhost's ssl_ctx
+	 * find out which listening one took us and only match vhosts on the
+	 * same port.
+	 */
+	vh = context->vhost_list;
+	while (vh) {
+		if (vh->ssl_ctx == SSL_get_SSL_CTX(ssl))
+			break;
+		vh = vh->vhost_next;
+	}
+
+	assert(vh); /* we cannot get an ssl without using a vhost ssl_ctx */
+	port = vh->listen_port;
 
 	servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
-	lwsl_err("ServerName: %s, context = %p\n", servername, context);
 
-	//SSL_set_SSL_CTX(ssl, sslctx);
+	if (servername) {
+		vhost = lws_select_vhost(context, port, servername);
+		if (vhost) {
+			lwsl_info("SNI: Found: %s\n", servername);
+			SSL_set_SSL_CTX(ssl, vhost->ssl_ctx);
+			return SSL_TLSEXT_ERR_OK;
+		}
+		lwsl_err("SNI: Unknown ServerName: %s\n", servername);
+	}
 
 	return SSL_TLSEXT_ERR_OK;
 }
@@ -194,57 +255,39 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 
 LWS_VISIBLE int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
-			    struct lws_context *context)
+			    struct lws_vhost *vhost)
 {
 	SSL_METHOD *method;
+	struct lws_context *context = vhost->context;
 	struct lws wsi;
 	int error;
 	int n;
 
-#ifdef USE_WOLFSSL
-#ifdef USE_OLD_CYASSL
-	lwsl_notice(" Compiled with CyaSSL support\n");
-#else
-	lwsl_notice(" Compiled with wolfSSL support\n");
-#endif
-#else
-	lwsl_notice(" Compiled with OpenSSL support\n");
-#endif
-
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
-		lwsl_notice(" SSL disabled: no LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
+		vhost->use_ssl = 0;
 		return 0;
 	}
 
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 
-		context->use_ssl = info->ssl_cert_filepath != NULL;
+		vhost->use_ssl = info->ssl_cert_filepath != NULL;
 
-		if (info->ssl_cipher_list)
+		if (vhost->use_ssl && info->ssl_cipher_list)
 			lwsl_notice(" SSL ciphers: '%s'\n", info->ssl_cipher_list);
 
-		if (context->use_ssl)
+		if (vhost->use_ssl)
 			lwsl_notice(" Using SSL mode\n");
 		else
 			lwsl_notice(" Using non-SSL mode\n");
 	}
 
 	/*
-	 * give him a fake wsi with context set, so he can use
+	 * give him a fake wsi with context + vhost set, so he can use
 	 * lws_get_context() in the callback
 	 */
 	memset(&wsi, 0, sizeof(wsi));
-	wsi.context = context;
-
-	/* basic openssl init */
-
-	SSL_library_init();
-
-	OpenSSL_add_all_algorithms();
-	SSL_load_error_strings();
-
-	openssl_websocket_private_data_index =
-		SSL_get_ex_new_index(0, "libwebsockets", NULL, NULL, NULL);
+	wsi.vhost = vhost;
+	wsi.context = vhost->context;
 
 	/*
 	 * Firefox insists on SSLv23 not SSLv3
@@ -263,8 +306,8 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 					      (char *)context->pt[0].serv_buf));
 		return 1;
 	}
-	context->ssl_ctx = SSL_CTX_new(method);	/* create context */
-	if (!context->ssl_ctx) {
+	vhost->ssl_ctx = SSL_CTX_new(method);	/* create context */
+	if (!vhost->ssl_ctx) {
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
 			error, ERR_error_string(error,
@@ -273,22 +316,19 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	}
 
 	/* associate the lws context with the SSL_CTX */
-	n = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
-	if (n) {
-		lwsl_err("cannot register arg0 on SSL_CTX %d\n", n);
-		return 1;
-	}
-	SSL_CTX_set_ex_data(context->ssl_ctx, 0, context);
+
+	SSL_CTX_set_ex_data(vhost->ssl_ctx,
+			openssl_SSL_CTX_private_data_index, vhost->context);
 
 	/* Disable SSLv2 and SSLv3 */
-	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
 #ifdef SSL_OP_NO_COMPRESSION
-	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_NO_COMPRESSION);
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif
-	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_SINGLE_DH_USE);
-	SSL_CTX_set_options(context->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_SINGLE_DH_USE);
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 	if (info->ssl_cipher_list)
-		SSL_CTX_set_cipher_list(context->ssl_ctx,
+		SSL_CTX_set_cipher_list(vhost->ssl_ctx,
 						info->ssl_cipher_list);
 
 	/* as a server, are we requiring clients to identify themselves? */
@@ -299,17 +339,17 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		if (!lws_check_opt(info->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
 			verify_options |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
 
-		SSL_CTX_set_session_id_context(context->ssl_ctx,
+		SSL_CTX_set_session_id_context(vhost->ssl_ctx,
 				(unsigned char *)context, sizeof(void *));
 
 		/* absolutely require the client cert */
 
-		SSL_CTX_set_verify(context->ssl_ctx,
+		SSL_CTX_set_verify(vhost->ssl_ctx,
 		       verify_options, OpenSSL_verify_callback);
 	}
 
 #ifndef OPENSSL_NO_TLSEXT
-	SSL_CTX_set_tlsext_servername_callback(context->ssl_ctx,
+	SSL_CTX_set_tlsext_servername_callback(vhost->ssl_ctx,
 					       lws_ssl_server_name_cb);
 #endif
 
@@ -319,27 +359,29 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	 */
 
 	if (info->ssl_ca_filepath &&
-	    !SSL_CTX_load_verify_locations(context->ssl_ctx,
+	    !SSL_CTX_load_verify_locations(vhost->ssl_ctx,
 					   info->ssl_ca_filepath, NULL)) {
-		lwsl_err("%s: SSL_CTX_load_verify_locations unhappy\n");
+		lwsl_err("%s: SSL_CTX_load_verify_locations unhappy\n", __func__);
 	}
 
-	if (lws_context_ssl_init_ecdh_curve(info, context))
-		return -1;
+	if (vhost->use_ssl) {
+		if (lws_context_ssl_init_ecdh_curve(info, vhost))
+			return -1;
 
-	context->protocols[0].callback(&wsi,
+		vhost->protocols[0].callback(&wsi,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
-					       context->ssl_ctx, NULL, 0);
+			vhost->ssl_ctx, NULL, 0);
+	}
 
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT))
 		/* Normally SSL listener rejects non-ssl, optionally allow */
-		context->allow_non_ssl_on_ssl_port = 1;
+		vhost->allow_non_ssl_on_ssl_port = 1;
 
-	if (context->use_ssl) {
+	if (vhost->use_ssl) {
 		/* openssl init for server sockets */
 
 		/* set the local certificate from CertFile */
-		n = SSL_CTX_use_certificate_chain_file(context->ssl_ctx,
+		n = SSL_CTX_use_certificate_chain_file(vhost->ssl_ctx,
 					info->ssl_cert_filepath);
 		if (n != 1) {
 			error = ERR_get_error();
@@ -350,11 +392,11 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 					      (char *)context->pt[0].serv_buf));
 			return 1;
 		}
-		lws_ssl_bind_passphrase(context->ssl_ctx, info);
+		lws_ssl_bind_passphrase(vhost->ssl_ctx, info);
 
 		if (info->ssl_private_key_filepath != NULL) {
 			/* set the private key from KeyFile */
-			if (SSL_CTX_use_PrivateKey_file(context->ssl_ctx,
+			if (SSL_CTX_use_PrivateKey_file(vhost->ssl_ctx,
 				     info->ssl_private_key_filepath,
 						       SSL_FILETYPE_PEM) != 1) {
 				error = ERR_get_error();
@@ -365,21 +407,21 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 				return 1;
 			}
 		} else
-			if (context->protocols[0].callback(&wsi,
+			if (vhost->protocols[0].callback(&wsi,
 				LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
-						context->ssl_ctx, NULL, 0)) {
+				vhost->ssl_ctx, NULL, 0)) {
 				lwsl_err("ssl private key not set\n");
 
 				return 1;
 			}
 
 		/* verify private key */
-		if (!SSL_CTX_check_private_key(context->ssl_ctx)) {
+		if (!SSL_CTX_check_private_key(vhost->ssl_ctx)) {
 			lwsl_err("Private SSL key doesn't match cert\n");
 			return 1;
 		}
 
-		if (lws_context_ssl_init_ecdh(context))
+		if (lws_context_ssl_init_ecdh(vhost))
 			return 1;
 
 		/*
@@ -395,15 +437,15 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 
 LWS_VISIBLE void
-lws_ssl_destroy(struct lws_context *context)
+lws_ssl_destroy(struct lws_vhost *vhost)
 {
-	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
+	if (!lws_check_opt(vhost->context->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		return;
 
-	if (context->ssl_ctx)
-		SSL_CTX_free(context->ssl_ctx);
-	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
-		SSL_CTX_free(context->ssl_client_ctx);
+	if (vhost->ssl_ctx)
+		SSL_CTX_free(vhost->ssl_ctx);
+	if (!vhost->user_supplied_ssl_ctx && vhost->ssl_client_ctx)
+		SSL_CTX_free(vhost->ssl_client_ctx);
 
 #if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
@@ -430,7 +472,7 @@ lws_decode_ssl_error(void)
 #ifndef LWS_NO_CLIENT
 
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
-			        struct lws_context *context)
+			        struct lws_vhost *vhost)
 {
 	int error;
 	int n;
@@ -442,9 +484,9 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 
 	if (info->provided_client_ssl_ctx) {
 		/* use the provided OpenSSL context if given one */
-		context->ssl_client_ctx = info->provided_client_ssl_ctx;
+		vhost->ssl_client_ctx = info->provided_client_ssl_ctx;
 		/* nothing for lib to delete */
-		context->user_supplied_ssl_ctx = 1;
+		vhost->user_supplied_ssl_ctx = 1;
 		return 0;
 	}
 
@@ -463,39 +505,39 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl method %lu: %s\n",
 			error, ERR_error_string(error,
-				      (char *)context->pt[0].serv_buf));
+				      (char *)vhost->context->pt[0].serv_buf));
 		return 1;
 	}
 	/* create context */
-	context->ssl_client_ctx = SSL_CTX_new(method);
-	if (!context->ssl_client_ctx) {
+	vhost->ssl_client_ctx = SSL_CTX_new(method);
+	if (!vhost->ssl_client_ctx) {
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
 			error, ERR_error_string(error,
-				      (char *)context->pt[0].serv_buf));
+				      (char *)vhost->context->pt[0].serv_buf));
 		return 1;
 	}
 
 #ifdef SSL_OP_NO_COMPRESSION
-	SSL_CTX_set_options(context->ssl_client_ctx,
+	SSL_CTX_set_options(vhost->ssl_client_ctx,
 						 SSL_OP_NO_COMPRESSION);
 #endif
-	SSL_CTX_set_options(context->ssl_client_ctx,
+	SSL_CTX_set_options(vhost->ssl_client_ctx,
 				       SSL_OP_CIPHER_SERVER_PREFERENCE);
 	if (info->ssl_cipher_list)
-		SSL_CTX_set_cipher_list(context->ssl_client_ctx,
+		SSL_CTX_set_cipher_list(vhost->ssl_client_ctx,
 						info->ssl_cipher_list);
 
 #ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS))
 		/* loads OS default CA certs */
-		SSL_CTX_set_default_verify_paths(context->ssl_client_ctx);
+		SSL_CTX_set_default_verify_paths(vhost->ssl_client_ctx);
 #endif
 
 	/* openssl init for cert verification (for client sockets) */
 	if (!info->ssl_ca_filepath) {
 		if (!SSL_CTX_load_verify_locations(
-			context->ssl_client_ctx, NULL,
+			vhost->ssl_client_ctx, NULL,
 					     LWS_OPENSSL_CLIENT_CERTS))
 			lwsl_err(
 			    "Unable to load SSL Client certs from %s "
@@ -504,7 +546,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			    "going to work", LWS_OPENSSL_CLIENT_CERTS);
 	} else
 		if (!SSL_CTX_load_verify_locations(
-			context->ssl_client_ctx, info->ssl_ca_filepath,
+			vhost->ssl_client_ctx, info->ssl_ca_filepath,
 							  NULL))
 			lwsl_err(
 				"Unable to load SSL Client certs "
@@ -520,32 +562,32 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 
 	/* support for client-side certificate authentication */
 	if (info->ssl_cert_filepath) {
-		n = SSL_CTX_use_certificate_chain_file(context->ssl_client_ctx,
+		n = SSL_CTX_use_certificate_chain_file(vhost->ssl_client_ctx,
 						       info->ssl_cert_filepath);
 		if (n != 1) {
 			lwsl_err("problem getting cert '%s' %lu: %s\n",
 				info->ssl_cert_filepath,
 				ERR_get_error(),
 				ERR_error_string(ERR_get_error(),
-				(char *)context->pt[0].serv_buf));
+				(char *)vhost->context->pt[0].serv_buf));
 			return 1;
 		}
 	}
 	if (info->ssl_private_key_filepath) {
-		lws_ssl_bind_passphrase(context->ssl_client_ctx, info);
+		lws_ssl_bind_passphrase(vhost->ssl_client_ctx, info);
 		/* set the private key from KeyFile */
-		if (SSL_CTX_use_PrivateKey_file(context->ssl_client_ctx,
+		if (SSL_CTX_use_PrivateKey_file(vhost->ssl_client_ctx,
 		    info->ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
 			lwsl_err("use_PrivateKey_file '%s' %lu: %s\n",
 				info->ssl_private_key_filepath,
 				ERR_get_error(),
 				ERR_error_string(ERR_get_error(),
-				      (char *)context->pt[0].serv_buf));
+				      (char *)vhost->context->pt[0].serv_buf));
 			return 1;
 		}
 
 		/* verify private key */
-		if (!SSL_CTX_check_private_key(context->ssl_client_ctx)) {
+		if (!SSL_CTX_check_private_key(vhost->ssl_client_ctx)) {
 			lwsl_err("Private SSL key doesn't match cert\n");
 			return 1;
 		}
@@ -556,11 +598,12 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	 * lws_get_context() in the callback
 	 */
 	memset(&wsi, 0, sizeof(wsi));
-	wsi.context = context;
+	wsi.vhost = vhost;
+	wsi.context = vhost->context;
 
-	context->protocols[0].callback(&wsi,
+	vhost->protocols[0].callback(&wsi,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
-				       context->ssl_client_ctx, NULL, 0);
+				       vhost->ssl_client_ctx, NULL, 0);
 
 	return 0;
 }
@@ -712,13 +755,13 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 	BIO *bio;
 #endif
 
-	if (!LWS_SSL_ENABLED(context))
+	if (!LWS_SSL_ENABLED(wsi->vhost))
 		return 0;
 
 	switch (wsi->mode) {
 	case LWSCM_SSL_INIT:
 
-		wsi->ssl = SSL_new(context->ssl_ctx);
+		wsi->ssl = SSL_new(wsi->vhost->ssl_ctx);
 		if (wsi->ssl == NULL) {
 			lwsl_err("SSL_new failed: %s\n",
 				 ERR_error_string(SSL_get_error(wsi->ssl, 0), NULL));
@@ -787,7 +830,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		 * it disabled unless you know it's not a problem for you
 		 */
 
-		if (context->allow_non_ssl_on_ssl_port) {
+		if (wsi->vhost->allow_non_ssl_on_ssl_port) {
 			if (n >= 1 && pt->serv_buf[0] >= ' ') {
 				/*
 				* TLS content-type for Handshake is 0x16, and
@@ -876,14 +919,18 @@ fail:
 	return 1;
 }
 
-LWS_VISIBLE void
+void
+lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
+{
+	if (vhost->ssl_ctx)
+		SSL_CTX_free(vhost->ssl_ctx);
+	if (!vhost->user_supplied_ssl_ctx && vhost->ssl_client_ctx)
+		SSL_CTX_free(vhost->ssl_client_ctx);
+}
+
+void
 lws_ssl_context_destroy(struct lws_context *context)
 {
-	if (context->ssl_ctx)
-		SSL_CTX_free(context->ssl_ctx);
-	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
-		SSL_CTX_free(context->ssl_client_ctx);
-
 #if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
 #else

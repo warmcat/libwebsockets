@@ -40,6 +40,160 @@ lws_get_library_version(void)
 	return library_version;
 }
 
+static const char * const mount_protocols[] = {
+	"http://",
+	"https://",
+	"file://",
+	"cgi://"
+};
+
+LWS_VISIBLE LWS_EXTERN int
+lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
+		     void *store, const char *mountpoint, const char *origin,
+		     const char *def)
+{
+	struct lws_http_mount *m;
+	void *orig = store;
+	unsigned long l = (unsigned long)store;
+	int n;
+
+	if (l & 15)
+		l += 16 - (l & 15);
+
+	store = (void *)l;
+	m = (struct lws_http_mount *)store;
+	*res = m;
+
+	m->def = def;
+	m->mountpoint = mountpoint;
+	m->mountpoint_len = (unsigned char)strlen(mountpoint);
+	m->mount_next = NULL;
+	if (next)
+		next->mount_next = m;
+	for (n = 0; n < ARRAY_SIZE(mount_protocols); n++)
+		if (!strncmp(origin, mount_protocols[n],
+		     strlen(mount_protocols[n]))) {
+			m->origin_protocol = n;
+			m->origin = origin + strlen(mount_protocols[n]);
+			break;
+		}
+
+	if (n == ARRAY_SIZE(mount_protocols)) {
+		lwsl_err("unsupported protocol://\n");
+		return 0; /* ie, fail */
+	}
+
+	return ((char *)store + sizeof(*m)) - (char *)orig;
+}
+
+LWS_VISIBLE struct lws_vhost *
+lws_create_vhost(struct lws_context *context,
+		 struct lws_context_creation_info *info,
+		 struct lws_http_mount *mounts)
+{
+	struct lws_vhost *vh = lws_zalloc(sizeof(*vh)),
+			 **vh1 = &context->vhost_list;
+	struct lws wsi;
+	char *p;
+	int n;
+
+	if (!vh)
+		return NULL;
+
+	vh->context = context;
+	if (!info->vhost_name)
+		vh->name = "default";
+	else
+		vh->name = info->vhost_name;
+
+	vh->iface = info->iface;
+	vh->protocols = info->protocols;
+	for (vh->count_protocols = 0;
+	     info->protocols[vh->count_protocols].callback;
+	     vh->count_protocols++)
+		;
+
+	vh->mount_list = mounts;
+
+	lwsl_notice("Creating Vhost '%s' port %d, %d protocols\n",
+			vh->name, info->port, vh->count_protocols);
+
+	while (mounts) {
+		lwsl_notice("   mounting %s%s to %s\n",
+				mount_protocols[mounts->origin_protocol],
+				mounts->origin, mounts->mountpoint);
+		mounts = mounts->mount_next;
+	}
+
+#ifndef LWS_NO_EXTENSIONS
+	vh->extensions = info->extensions;
+#endif
+
+	vh->listen_port = info->port;
+	vh->http_proxy_port = 0;
+	vh->http_proxy_address[0] = '\0';
+
+	/* either use proxy from info, or try get it from env var */
+
+	if (info->http_proxy_address) {
+		/* override for backwards compatibility */
+		if (info->http_proxy_port)
+			vh->http_proxy_port = info->http_proxy_port;
+		lws_set_proxy(vh, info->http_proxy_address);
+	} else {
+#ifdef LWS_HAVE_GETENV
+		p = getenv("http_proxy");
+		if (p)
+			lws_set_proxy(vh, p);
+#endif
+	}
+
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.context = context;
+	wsi.vhost = vh;
+
+	/* initialize supported protocols */
+
+	for (n = 0; n < vh->count_protocols; n++)
+		/*
+		 * inform all the protocols that they are doing their one-time
+		 * initialization if they want to.
+		 *
+		 * NOTE the wsi is all zeros except for the context & vh ptrs
+		 * so lws_get_context(wsi) can work in the callback.
+		 */
+		info->protocols[n].callback(&wsi,
+				LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
+
+	vh->ka_time = info->ka_time;
+	vh->ka_interval = info->ka_interval;
+	vh->ka_probes = info->ka_probes;
+
+	if (lws_context_init_server_ssl(info, vh))
+		goto bail;
+
+	if (lws_context_init_client_ssl(info, vh))
+		goto bail;
+
+	if (lws_context_init_server(info, vh))
+		goto bail;
+
+	while (1) {
+		if (!(*vh1)) {
+			*vh1 = vh;
+			break;
+		}
+		vh1 = &(*vh1)->vhost_next;
+	};
+
+	return vh;
+
+bail:
+	lws_free(vh);
+
+	return NULL;
+}
+
 /**
  * lws_create_context() - Create the websocket handler
  * @info:	pointer to struct with parameters
@@ -77,7 +231,6 @@ lws_create_context(struct lws_context_creation_info *info)
 #ifndef LWS_NO_DAEMONIZE
 	int pid_daemon = get_daemonize_pid();
 #endif
-	char *p;
 	int n, m;
 
 	lwsl_notice("Initial logging level %d\n", log_level);
@@ -92,6 +245,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	lwsl_notice("IPV6 not compiled in\n");
 #endif
 	lws_feature_status_libev(info);
+	lws_feature_status_libuv(info);
 #endif
 	lwsl_info(" LWS_DEF_HEADER_LEN    : %u\n", LWS_DEF_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS     : %u\n", LWS_MAX_PROTOCOLS);
@@ -125,16 +279,10 @@ lws_create_context(struct lws_context_creation_info *info)
 	if (context->count_threads > LWS_MAX_SMP)
 		context->count_threads = LWS_MAX_SMP;
 
-	context->protocols = info->protocols;
 	context->token_limits = info->token_limits;
-	context->listen_port = info->port;
-	context->http_proxy_port = 0;
-	context->http_proxy_address[0] = '\0';
+
 	context->options = info->options;
-	context->iface = info->iface;
-	context->ka_time = info->ka_time;
-	context->ka_interval = info->ka_interval;
-	context->ka_probes = info->ka_probes;
+
 	if (info->timeout_secs)
 		context->timeout_secs = info->timeout_secs;
 	else
@@ -253,6 +401,18 @@ lws_create_context(struct lws_context_creation_info *info)
 	if (lws_plat_init(context, info))
 		goto bail;
 
+	lws_context_init_ssl_library(info);
+
+	/*
+	 * if he's not saying he'll make his own vhosts later then act
+	 * compatibly and make a default vhost using the data in the info
+	 */
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+		if (!lws_create_vhost(context, info, NULL)) {
+			lwsl_err("Failed to create default vhost\n");
+			return NULL;
+		}
+
 	lws_context_init_extensions(info, context);
 
 	context->user_space = info->user;
@@ -263,51 +423,16 @@ lws_create_context(struct lws_context_creation_info *info)
 	strcpy(context->canonical_hostname, "unknown");
 	lws_server_get_canonical_hostname(context, info);
 
-	/* either use proxy from info, or try get it from env var */
-
-	if (info->http_proxy_address) {
-		/* override for backwards compatibility */
-		if (info->http_proxy_port)
-			context->http_proxy_port = info->http_proxy_port;
-		lws_set_proxy(context, info->http_proxy_address);
-	} else {
-#ifdef LWS_HAVE_GETENV
-		p = getenv("http_proxy");
-		if (p)
-			lws_set_proxy(context, p);
-#endif
-	}
-
-	if (lws_context_init_server_ssl(info, context))
-		goto bail;
-
-	if (lws_context_init_client_ssl(info, context))
-		goto bail;
-
-	if (lws_context_init_server(info, context))
-		goto bail;
+	context->uid = info->uid;
+	context->gid = info->gid;
 
 	/*
 	 * drop any root privs for this process
 	 * to listen on port < 1023 we would have needed root, but now we are
 	 * listening, we don't want the power for anything else
 	 */
-	lws_plat_drop_app_privileges(info);
-
-	/* initialize supported protocols */
-
-	for (context->count_protocols = 0;
-	     info->protocols[context->count_protocols].callback;
-	     context->count_protocols++)
-		/*
-		 * inform all the protocols that they are doing their one-time
-		 * initialization if they want to.
-		 *
-		 * NOTE the wsi is all zeros except for the context pointer
-		 * so lws_get_context(wsi) can work in the callback.
-		 */
-		info->protocols[context->count_protocols].callback(&wsi,
-				LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+		lws_plat_drop_app_privileges(info);
 
 	/*
 	 * give all extensions a chance to create any per-context
@@ -342,6 +467,7 @@ lws_context_destroy(struct lws_context *context)
 {
 	const struct lws_protocols *protocol = NULL;
 	struct lws_context_per_thread *pt;
+	struct lws_vhost *vh;
 	struct lws wsi;
 	int n, m;
 
@@ -390,13 +516,18 @@ lws_context_destroy(struct lws_context *context)
 	 * inform all the protocols that they are done and will have no more
 	 * callbacks
 	 */
-	protocol = context->protocols;
-	if (protocol)
-		while (protocol->callback) {
-			protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
-					   NULL, NULL, 0);
-			protocol++;
-		}
+	vh = context->vhost_list;
+	while (vh) {
+		protocol = vh->protocols;
+		if (protocol)
+			while (protocol->callback) {
+				protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
+						   NULL, NULL, 0);
+				protocol++;
+			}
+		lws_ssl_SSL_CTX_destroy(vh);
+		vh = vh->vhost_next;
+	}
 
 	for (n = 0; n < context->count_threads; n++) {
 		pt = &context->pt[n];
@@ -412,6 +543,7 @@ lws_context_destroy(struct lws_context *context)
 	}
 	lws_plat_context_early_destroy(context);
 	lws_ssl_context_destroy(context);
+
 	if (context->pt[0].fds)
 		lws_free_set_NULL(context->pt[0].fds);
 

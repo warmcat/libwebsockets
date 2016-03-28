@@ -102,7 +102,7 @@ LWS_VISIBLE int
 lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	struct lws *wsi = wsi_from_fd(context, pt->lserv_fd);
+	struct lws_vhost *vh = context->vhost_list;
 	int status = 0, n;
 
 	if (!loop) {
@@ -119,23 +119,28 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 		for (n = 0; n < ARRAY_SIZE(sigs); n++) {
 			uv_signal_init(loop, &pt->signals[n]);
 			pt->signals[n].data = pt->context;
-			uv_signal_start(&pt->signals[n], context->lws_uv_sigint_cb, sigs[n]);
+			uv_signal_start(&pt->signals[n],
+					context->lws_uv_sigint_cb, sigs[n]);
 		}
 	}
 
 	/*
-	 * Initialize the accept wsi read watcher with the listening socket
+	 * Initialize the accept wsi read watcher with all the listening sockets
 	 * and register a callback for read operations
 	 *
 	 * We have to do it here because the uv loop(s) are not
 	 * initialized until after context creation.
 	 */
-	if (wsi) {
-		wsi->w_read.context = context;
-		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher,
-			     pt->lserv_fd);
-		uv_poll_start(&wsi->w_read.uv_watcher, UV_READABLE,
-			      lws_io_cb);
+	while (vh) {
+		if (vh->lserv_wsi) {
+			vh->lserv_wsi->w_read.context = context;
+			uv_poll_init(pt->io_loop_uv,
+				     &vh->lserv_wsi->w_read.uv_watcher,
+				     vh->lserv_wsi->sock);
+			uv_poll_start(&vh->lserv_wsi->w_read.uv_watcher,
+				      UV_READABLE, lws_io_cb);
+		}
+		vh = vh->vhost_next;
 	}
 
 	uv_timer_init(pt->io_loop_uv, &pt->uv_timeout_watcher);

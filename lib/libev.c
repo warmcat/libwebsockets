@@ -78,6 +78,7 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 {
 	struct ev_signal *w_sigint = &context->pt[tsi].w_sigint.ev_watcher;
 	struct ev_io *w_accept = &context->pt[tsi].w_accept.ev_watcher;
+	struct lws_vhost *vh = context->vhost_list;
 	const char * backend_name;
 	int status = 0;
 	int backend;
@@ -90,10 +91,17 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 	context->pt[tsi].io_loop_ev = loop;
 
 	/*
-	 * Initialize the accept w_accept with the listening socket
+	 * Initialize the accept w_accept with all the listening sockets
 	 * and register a callback for read operations
 	 */
-	ev_io_init(w_accept, lws_accept_cb, context->pt[tsi].lserv_fd, EV_READ);
+	while (vh) {
+		if (vh->lserv_wsi) {
+			vh->lserv_wsi->w_read.context = context;
+			ev_io_init(w_accept, lws_accept_cb, vh->lserv_wsi->sock,
+				  EV_READ);
+		}
+		vh = vh->vhost_next;
+	}
 	ev_io_start(context->pt[tsi].io_loop_ev, w_accept);
 
 	/* Register the signal watcher unless the user says not to */

@@ -43,7 +43,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	pa->prev_events = pfd->events;
 	pa->events = pfd->events = (pfd->events & ~_and) | _or;
 
-	if (context->protocols[0].callback(wsi, LWS_CALLBACK_CHANGE_MODE_POLL_FD,
+	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CHANGE_MODE_POLL_FD,
 					   wsi->user_space, (void *)pa, 0)) {
 		ret = -1;
 		goto bail;
@@ -86,7 +86,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 		sampled_tid = context->service_tid;
 		if (sampled_tid) {
-			tid = context->protocols[0].callback(wsi,
+			tid = wsi->vhost->protocols[0].callback(wsi,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 			if (tid == -1) {
 				ret = -1;
@@ -114,7 +114,8 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 		  __func__, wsi, wsi->tsi, wsi->sock, pt->fds_count);
 
 	if ((unsigned int)pt->fds_count >= context->fd_limit_per_thread) {
-		lwsl_err("Too many fds (%d)\n", context->max_fds);
+		lwsl_err("Too many fds (%d vs %d)\n", context->max_fds,
+				context->fd_limit_per_thread	);
 		return 1;
 	}
 
@@ -127,9 +128,10 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 #endif
 
 	assert(wsi);
+	assert(wsi->vhost);
 	assert(lws_socket_is_valid(wsi->sock));
 
-	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
+	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
 					   wsi->user_space, (void *) &pa, 1))
 		return -1;
 
@@ -144,7 +146,7 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	lws_plat_insert_socket_into_fds(context, wsi);
 
 	/* external POLL support via protocol 0 */
-	if (context->protocols[0].callback(wsi, LWS_CALLBACK_ADD_POLL_FD,
+	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_ADD_POLL_FD,
 					   wsi->user_space, (void *) &pa, 0))
 		ret =  -1;
 #ifndef LWS_NO_SERVER
@@ -154,7 +156,7 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 #endif
 	lws_pt_unlock(pt);
 
-	if (context->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
+	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
 					   wsi->user_space, (void *)&pa, 1))
 		ret = -1;
 
@@ -180,7 +182,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	}
 #endif
 
-	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
+	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
 					   wsi->user_space, (void *)&pa, 1))
 		return -1;
 
@@ -213,7 +215,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 
 	/* remove also from external POLL support via protocol 0 */
 	if (lws_socket_is_valid(wsi->sock))
-		if (context->protocols[0].callback(wsi, LWS_CALLBACK_DEL_POLL_FD,
+		if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_DEL_POLL_FD,
 						   wsi->user_space, (void *) &pa, 0))
 			ret = -1;
 #ifndef LWS_NO_SERVER
@@ -224,7 +226,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 #endif
 	lws_pt_unlock(pt);
 
-	if (context->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
+	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
 					   wsi->user_space, (void *) &pa, 1))
 		ret = -1;
 
@@ -246,7 +248,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	if (!context)
 		return 1;
 
-	if (context->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
+	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
 					   wsi->user_space,  (void *) &pa, 0))
 		return -1;
 
@@ -255,7 +257,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	lws_pt_lock(pt);
 	ret = _lws_change_pollfd(wsi, _and, _or, &pa);
 	lws_pt_unlock(pt);
-	if (context->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
+	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
 					   wsi->user_space, (void *) &pa, 0))
 		ret = -1;
 

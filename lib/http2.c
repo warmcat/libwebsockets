@@ -52,10 +52,10 @@ lws_http2_wsi_from_id(struct lws *wsi, unsigned int sid)
 }
 
 struct lws *
-lws_create_server_child_wsi(struct lws_context *context, struct lws *parent_wsi,
+lws_create_server_child_wsi(struct lws_vhost *vhost, struct lws *parent_wsi,
 			    unsigned int sid)
 {
-	struct lws *wsi = lws_create_new_server_wsi(context);
+	struct lws *wsi = lws_create_new_server_wsi(vhost);
 
 	if (!wsi)
 		return NULL;
@@ -82,7 +82,7 @@ lws_create_server_child_wsi(struct lws_context *context, struct lws *parent_wsi,
 	wsi->state = LWSS_HTTP2_ESTABLISHED;
 	wsi->mode = parent_wsi->mode;
 
-	wsi->protocol = &context->protocols[0];
+	wsi->protocol = &vhost->protocols[0];
 	lws_ensure_user_space(wsi);
 
 	lwsl_info("%s: %p new child %p, sid %d, user_space=%p\n", __func__,
@@ -198,7 +198,6 @@ static const char * https_client_preface =
 int
 lws_http2_parser(struct lws *wsi, unsigned char c)
 {
-	struct lws_context *context = wsi->context;
 	struct lws *swsi;
 	int n;
 
@@ -378,7 +377,8 @@ lws_http2_parser(struct lws *wsi, unsigned char c)
 				if (!wsi->u.http2.stream_id)
 					return 1;
 				if (!wsi->u.http2.stream_wsi)
-					wsi->u.http2.stream_wsi = lws_create_server_child_wsi(context, wsi, wsi->u.http2.stream_id);
+					wsi->u.http2.stream_wsi =
+						lws_create_server_child_wsi(wsi->vhost, wsi, wsi->u.http2.stream_id);
 
 				/* END_STREAM means after servicing this, close the stream */
 				wsi->u.http2.END_STREAM = !!(wsi->u.http2.flags & LWS_HTTP2_FLAG_END_STREAM);
@@ -474,7 +474,8 @@ int lws_http2_do_pps_send(struct lws_context *context, struct lws *wsi)
 			 */
 			lwsl_info("%s: setting up sid 1\n", __func__);
 
-			swsi = wsi->u.http2.stream_wsi = lws_create_server_child_wsi(context, wsi, 1);
+			swsi = wsi->u.http2.stream_wsi =
+					lws_create_server_child_wsi(wsi->vhost, wsi, 1);
 			/* pass on the initial headers to SID 1 */
 			swsi->u.http.ah = wsi->u.http.ah;
 			wsi->u.http.ah = NULL;

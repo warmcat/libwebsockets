@@ -127,7 +127,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	/* stay dead once we are dead */
 
-	if (!context)
+	if (!context || !context->vhost_list)
 		return 1;
 
 	lws_libev_run(context, tsi);
@@ -139,7 +139,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		memset(&_lws, 0, sizeof(_lws));
 		_lws.context = context;
 
-		context->service_tid_detected = context->protocols[0].callback(
+		context->service_tid_detected = context->vhost_list->protocols[0].callback(
 			&_lws, LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 	}
 	context->service_tid = context->service_tid_detected;
@@ -200,7 +200,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 }
 
 LWS_VISIBLE int
-lws_plat_set_socket_options(struct lws_context *context, int fd)
+lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 {
 	int optval = 1;
 	socklen_t optlen = sizeof(optval);
@@ -212,7 +212,7 @@ lws_plat_set_socket_options(struct lws_context *context, int fd)
 	struct protoent *tcp_proto;
 #endif
 
-	if (context->ka_time) {
+	if (vhost->ka_time) {
 		/* enable keepalive on this socket */
 		optval = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
@@ -230,17 +230,17 @@ lws_plat_set_socket_options(struct lws_context *context, int fd)
 		 */
 #else
 		/* set the keepalive conditions we want on it too */
-		optval = context->ka_time;
+		optval = vhost->ka_time;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
 			       (const void *)&optval, optlen) < 0)
 			return 1;
 
-		optval = context->ka_interval;
+		optval = vhost->ka_interval;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL,
 			       (const void *)&optval, optlen) < 0)
 			return 1;
 
-		optval = context->ka_probes;
+		optval = vhost->ka_probes;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT,
 			       (const void *)&optval, optlen) < 0)
 			return 1;
@@ -283,7 +283,7 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 			if (setuid(info->uid))
 				lwsl_warn("setuid: %s\n", strerror(LWS_ERRNO));
 			else
-				lwsl_notice(" Set privs to user '%s'\n", p->pw_name);
+				lwsl_notice("Set privs to user '%s'\n", p->pw_name);
 		} else
 			lwsl_warn("getpwuid: unable to find uid %d", info->uid);
 	}

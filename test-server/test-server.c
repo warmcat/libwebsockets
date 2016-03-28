@@ -1,5 +1,5 @@
 /*
- * libwebsockets-test-servet - libwebsockets test implementation
+ * libwebsockets-test-server - libwebsockets test implementation
  *
  * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
