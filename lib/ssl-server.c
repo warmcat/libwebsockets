@@ -1,0 +1,380 @@
+/*
+ * libwebsockets - small server side websockets and web server implementation
+ *
+ * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
+ *
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Lesser General Public
+ *  License as published by the Free Software Foundation:
+ *  version 2.1 of the License.
+ *
+ *  This library is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Lesser General Public License for more details.
+ *
+ *  You should have received a copy of the GNU Lesser General Public
+ *  License along with this library; if not, write to the Free Software
+ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ *  MA  02110-1301  USA
+ */
+
+#include "private-libwebsockets.h"
+#ifndef USE_WOLFSSL
+ #include <openssl/err.h>
+#endif
+
+#ifdef LWS_HAVE_OPENSSL_ECDH_H
+#include <openssl/ecdh.h>
+#endif
+
+extern int openssl_websocket_private_data_index,
+    openssl_SSL_CTX_private_data_index;
+
+extern void
+lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info);
+
+static int
+OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
+{
+	SSL *ssl;
+	int n;
+	struct lws_vhost *vh;
+	struct lws wsi;
+
+	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
+		SSL_get_ex_data_X509_STORE_CTX_idx());
+
+	/*
+	 * !!! nasty openssl requires the index to come as a library-scope
+	 * static
+	 */
+	vh = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+
+	/*
+	 * give him a fake wsi with context set, so he can use lws_get_context()
+	 * in the callback
+	 */
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.vhost = vh;
+	wsi.context = vh->context;
+
+	n = vh->protocols[0].callback(&wsi,
+			LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
+					   x509_ctx, ssl, preverify_ok);
+
+	/* convert return code from 0 = OK to 1 = OK */
+	return !n;
+}
+
+static int
+lws_context_ssl_init_ecdh(struct lws_vhost *vhost)
+{
+#ifdef LWS_SSL_SERVER_WITH_ECDH_CERT
+	EC_KEY *EC_key = NULL;
+	EVP_PKEY *pkey;
+	int KeyType;
+	X509 *x;
+
+	if (!lws_check_opt(vhost->context->options, LWS_SERVER_OPTION_SSL_ECDH))
+		return 0;
+
+	lwsl_notice(" Using ECDH certificate support\n");
+
+	/* Get X509 certificate from ssl context */
+	x = sk_X509_value(vhost->ssl_ctx->extra_certs, 0);
+	if (!x) {
+		lwsl_err("%s: x is NULL\n", __func__);
+		return 1;
+	}
+	/* Get the public key from certificate */
+	pkey = X509_get_pubkey(x);
+	if (!pkey) {
+		lwsl_err("%s: pkey is NULL\n", __func__);
+
+		return 1;
+	}
+	/* Get the key type */
+	KeyType = EVP_PKEY_type(pkey->type);
+
+	if (EVP_PKEY_EC != KeyType) {
+		lwsl_notice("Key type is not EC\n");
+		return 0;
+	}
+	/* Get the key */
+	EC_key = EVP_PKEY_get1_EC_KEY(pkey);
+	/* Set ECDH parameter */
+	if (!EC_key) {
+		lwsl_err("%s: ECDH key is NULL \n", __func__);
+		return 1;
+	}
+	SSL_CTX_set_tmp_ecdh(vhost->ssl_ctx, EC_key);
+	EC_KEY_free(EC_key);
+#endif
+	return 0;
+}
+
+static int
+lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
+				struct lws_vhost *vhost)
+{
+#ifdef LWS_HAVE_OPENSSL_ECDH_H
+	EC_KEY *ecdh;
+	int ecdh_nid;
+	const char *ecdh_curve = "prime256v1";
+
+	if (info->ecdh_curve)
+		ecdh_curve = info->ecdh_curve;
+
+	ecdh_nid = OBJ_sn2nid(ecdh_curve);
+	if (NID_undef == ecdh_nid) {
+		lwsl_err("SSL: Unknown curve name '%s'", ecdh_curve);
+		return 1;
+	}
+
+	ecdh = EC_KEY_new_by_curve_name(ecdh_nid);
+	if (NULL == ecdh) {
+		lwsl_err("SSL: Unable to create curve '%s'", ecdh_curve);
+		return 1;
+	}
+	SSL_CTX_set_tmp_ecdh(vhost->ssl_ctx, ecdh);
+	EC_KEY_free(ecdh);
+
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
+
+	lwsl_notice(" SSL ECDH curve '%s'\n", ecdh_curve);
+#else
+	lwsl_notice(" OpenSSL doesn't support ECDH\n");
+#endif
+	return 0;
+}
+
+#ifndef OPENSSL_NO_TLSEXT
+static int
+lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
+{
+	struct lws_context *context;
+	struct lws_vhost *vhost, *vh;
+	const char *servername;
+	int port;
+
+	if (!ssl)
+		return SSL_TLSEXT_ERR_NOACK;
+
+	context = (struct lws_context *)SSL_CTX_get_ex_data(
+					SSL_get_SSL_CTX(ssl),
+					openssl_SSL_CTX_private_data_index);
+
+	/*
+	 * We can only get ssl accepted connections by using a vhost's ssl_ctx
+	 * find out which listening one took us and only match vhosts on the
+	 * same port.
+	 */
+	vh = context->vhost_list;
+	while (vh) {
+		if (vh->ssl_ctx == SSL_get_SSL_CTX(ssl))
+			break;
+		vh = vh->vhost_next;
+	}
+
+	assert(vh); /* we cannot get an ssl without using a vhost ssl_ctx */
+	port = vh->listen_port;
+
+	servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+
+	if (servername) {
+		vhost = lws_select_vhost(context, port, servername);
+		if (vhost) {
+			lwsl_info("SNI: Found: %s\n", servername);
+			SSL_set_SSL_CTX(ssl, vhost->ssl_ctx);
+			return SSL_TLSEXT_ERR_OK;
+		}
+		lwsl_err("SNI: Unknown ServerName: %s\n", servername);
+	}
+
+	return SSL_TLSEXT_ERR_OK;
+}
+#endif
+
+LWS_VISIBLE int
+lws_context_init_server_ssl(struct lws_context_creation_info *info,
+			    struct lws_vhost *vhost)
+{
+	SSL_METHOD *method;
+	struct lws_context *context = vhost->context;
+	struct lws wsi;
+	int error;
+	int n;
+
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
+		vhost->use_ssl = 0;
+		return 0;
+	}
+
+	if (info->port != CONTEXT_PORT_NO_LISTEN) {
+
+		vhost->use_ssl = info->ssl_cert_filepath != NULL;
+
+		if (vhost->use_ssl && info->ssl_cipher_list)
+			lwsl_notice(" SSL ciphers: '%s'\n", info->ssl_cipher_list);
+
+		if (vhost->use_ssl)
+			lwsl_notice(" Using SSL mode\n");
+		else
+			lwsl_notice(" Using non-SSL mode\n");
+	}
+
+	/*
+	 * give him a fake wsi with context + vhost set, so he can use
+	 * lws_get_context() in the callback
+	 */
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.vhost = vhost;
+	wsi.context = vhost->context;
+
+	/*
+	 * Firefox insists on SSLv23 not SSLv3
+	 * Konq disables SSLv2 by default now, SSLv23 works
+	 *
+	 * SSLv23_server_method() is the openssl method for "allow all TLS
+	 * versions", compared to e.g. TLSv1_2_server_method() which only allows
+	 * tlsv1.2. Unwanted versions must be disabled using SSL_CTX_set_options()
+	 */
+
+	method = (SSL_METHOD *)SSLv23_server_method();
+	if (!method) {
+		error = ERR_get_error();
+		lwsl_err("problem creating ssl method %lu: %s\n",
+			error, ERR_error_string(error,
+					      (char *)context->pt[0].serv_buf));
+		return 1;
+	}
+	vhost->ssl_ctx = SSL_CTX_new(method);	/* create context */
+	if (!vhost->ssl_ctx) {
+		error = ERR_get_error();
+		lwsl_err("problem creating ssl context %lu: %s\n",
+			error, ERR_error_string(error,
+					      (char *)context->pt[0].serv_buf));
+		return 1;
+	}
+
+	/* associate the lws context with the SSL_CTX */
+
+	SSL_CTX_set_ex_data(vhost->ssl_ctx,
+			openssl_SSL_CTX_private_data_index, vhost->context);
+
+	/* Disable SSLv2 and SSLv3 */
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+#ifdef SSL_OP_NO_COMPRESSION
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_NO_COMPRESSION);
+#endif
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_SINGLE_DH_USE);
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+	if (info->ssl_cipher_list)
+		SSL_CTX_set_cipher_list(vhost->ssl_ctx,
+						info->ssl_cipher_list);
+
+	/* as a server, are we requiring clients to identify themselves? */
+
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
+		int verify_options = SSL_VERIFY_PEER;
+
+		if (!lws_check_opt(info->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
+			verify_options |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+
+		SSL_CTX_set_session_id_context(vhost->ssl_ctx,
+				(unsigned char *)context, sizeof(void *));
+
+		/* absolutely require the client cert */
+
+		SSL_CTX_set_verify(vhost->ssl_ctx,
+		       verify_options, OpenSSL_verify_callback);
+	}
+
+#ifndef OPENSSL_NO_TLSEXT
+	SSL_CTX_set_tlsext_servername_callback(vhost->ssl_ctx,
+					       lws_ssl_server_name_cb);
+#endif
+
+	/*
+	 * give user code a chance to load certs into the server
+	 * allowing it to verify incoming client certs
+	 */
+
+	if (info->ssl_ca_filepath &&
+	    !SSL_CTX_load_verify_locations(vhost->ssl_ctx,
+					   info->ssl_ca_filepath, NULL)) {
+		lwsl_err("%s: SSL_CTX_load_verify_locations unhappy\n", __func__);
+	}
+
+	if (vhost->use_ssl) {
+		if (lws_context_ssl_init_ecdh_curve(info, vhost))
+			return -1;
+
+		vhost->protocols[0].callback(&wsi,
+			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
+			vhost->ssl_ctx, NULL, 0);
+	}
+
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT))
+		/* Normally SSL listener rejects non-ssl, optionally allow */
+		vhost->allow_non_ssl_on_ssl_port = 1;
+
+	if (vhost->use_ssl) {
+		/* openssl init for server sockets */
+
+		/* set the local certificate from CertFile */
+		n = SSL_CTX_use_certificate_chain_file(vhost->ssl_ctx,
+					info->ssl_cert_filepath);
+		if (n != 1) {
+			error = ERR_get_error();
+			lwsl_err("problem getting cert '%s' %lu: %s\n",
+				info->ssl_cert_filepath,
+				error,
+				ERR_error_string(error,
+					      (char *)context->pt[0].serv_buf));
+			return 1;
+		}
+		lws_ssl_bind_passphrase(vhost->ssl_ctx, info);
+
+		if (info->ssl_private_key_filepath != NULL) {
+			/* set the private key from KeyFile */
+			if (SSL_CTX_use_PrivateKey_file(vhost->ssl_ctx,
+				     info->ssl_private_key_filepath,
+						       SSL_FILETYPE_PEM) != 1) {
+				error = ERR_get_error();
+				lwsl_err("ssl problem getting key '%s' %lu: %s\n",
+					 info->ssl_private_key_filepath, error,
+					 ERR_error_string(error,
+					      (char *)context->pt[0].serv_buf));
+				return 1;
+			}
+		} else
+			if (vhost->protocols[0].callback(&wsi,
+				LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
+				vhost->ssl_ctx, NULL, 0)) {
+				lwsl_err("ssl private key not set\n");
+
+				return 1;
+			}
+
+		/* verify private key */
+		if (!SSL_CTX_check_private_key(vhost->ssl_ctx)) {
+			lwsl_err("Private SSL key doesn't match cert\n");
+			return 1;
+		}
+
+		if (lws_context_ssl_init_ecdh(vhost))
+			return 1;
+
+		/*
+		 * SSL is happy and has a cert it's content with
+		 * If we're supporting HTTP2, initialize that
+		 */
+
+		lws_context_init_http2_ssl(context);
+	}
+
+	return 0;
+}
+

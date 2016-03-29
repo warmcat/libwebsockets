@@ -284,6 +284,7 @@ if ("${LWS_MAX_SMP}" STREQUAL "")
 	set(LWS_MAX_SMP 32)
 endif()
 
+
 #if (LWS_MBED3)
 #	set(CMAKE_C_FLAGS "-D_DEBUG ${CMAKE_C_FLAGS}")
 #endif()
@@ -458,6 +459,15 @@ endif()
 if (LWS_WITH_SSL)
 	list(APPEND SOURCES
 		lib/ssl.c)
+		
+	if (NOT LWS_WITHOUT_SERVER)
+		list(APPEND SOURCES
+		lib/ssl-server.c)
+	endif()
+	if (NOT LWS_WITHOUT_CLIENT)
+		list(APPEND SOURCES
+		lib/ssl-client.c)
+	endif()
 endif()
 
 if (NOT LWS_WITHOUT_BUILTIN_SHA1)
