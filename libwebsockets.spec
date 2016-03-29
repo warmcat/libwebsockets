@@ -59,6 +59,7 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/libwebsockets.so
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsConfig.cmake
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsConfigVersion.cmake
+/%{_libdir}/cmake/libwebsockets/LibwebsocketsTargets.cmake
 /usr/share/libwebsockets-test-server
 %doc
 %files devel
