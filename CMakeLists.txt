@@ -1172,6 +1172,10 @@ install(FILES
                "${PROJECT_BINARY_DIR}/LibwebsocketsConfigVersion.cmake"
                DESTINATION "${LWS_INSTALL_CMAKE_DIR}" COMPONENT dev)
 
+# Install exports for the install-tree.
+install(EXPORT LibwebsocketsTargets
+		DESTINATION "${LWS_INSTALL_CMAKE_DIR}" COMPONENT dev)
+
 # build subdir is not part of sources
 set(CPACK_SOURCE_IGNORE_FILES $(CPACK_SOURCE_IGNORE_FILES) ".git" "build" "tgz" "tar.gz")
 
