@@ -848,6 +848,12 @@ LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info)
 #define LWS_IPV6_ENABLED(context) (0)
 #endif
 
+#ifdef LWS_USE_UNIX_SOCK
+#define LWS_UNIX_SOCK_ENABLED(context) \
+	(context->options & LWS_SERVER_OPTION_UNIX_SOCK)
+#else
+#define LWS_UNIX_SOCK_ENABLED(context) (0)
+#endif
 enum uri_path_states {
 	URIPS_IDLE,
 	URIPS_SEEN_SLASH,

@@ -61,6 +61,11 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #endif
 
 	for (m = 0; m < limit; m++) {
+#ifdef LWS_USE_UNIX_SOCK
+	if (LWS_UNIX_SOCK_ENABLED(vhost->context))
+		sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+	else
+#endif
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context))
 		sockfd = socket(AF_INET6, SOCK_STREAM, 0);
@@ -132,8 +137,14 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #else
 	mbed3_tcp_stream_bind(wsi->sock, info->port, wsi);
 #endif
-	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
-		lwsl_notice(" Listening on port %d\n", info->port);
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+#ifdef LWS_USE_UNIX_SOCK
+		if (LWS_UNIX_SOCK_ENABLED(vhost->context))
+			lwsl_notice(" Listening on \"%s\"\n", info->iface);
+		else
+#endif
+			lwsl_notice(" Listening on port %d\n", info->port);
+        }
 
 	return 0;
 

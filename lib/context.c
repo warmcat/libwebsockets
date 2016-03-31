@@ -278,6 +278,12 @@ lws_create_vhost(struct lws_context *context,
 
 	vh->mount_list = mounts;
 
+#ifdef LWS_USE_UNIX_SOCK
+	if (LWS_UNIX_SOCK_ENABLED(context)) {
+		lwsl_notice("Creating Vhost '%s' path \"%s\", %d protocols\n",
+				vh->name, info->iface, vh->count_protocols);
+	} else
+#endif
 	lwsl_notice("Creating Vhost '%s' port %d, %d protocols\n",
 			vh->name, info->port, vh->count_protocols);
 
