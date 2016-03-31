@@ -163,7 +163,7 @@ set(LWS_POLARSSL_INCLUDE_DIRS CACHE PATH "Path to the PolarSSL include directory
 set( CACHE PATH "Path to the libev library")
 set(LWS_LIBEV_INCLUDE_DIRS CACHE PATH "Path to the libev include directory")
 set(LWS_LIBUV_LIBRARIES CACHE PATH "Path to the libuv library")
-set(LWS_LIBUVLWS_LIBEV_LIBRARIES_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
+set(LWS_LIBUV_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
 
 if (NOT LWS_WITH_SSL)
 	set(LWS_WITHOUT_BUILTIN_SHA1 OFF)
