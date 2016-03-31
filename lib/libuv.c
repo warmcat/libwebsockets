@@ -38,7 +38,11 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	struct lws_context *context = lws_io->context;
 	struct lws_pollfd eventfd;
 
+#if defined(WIN32) || defined(_WIN32)
+	eventfd.fd = watcher->sock;
+#else
 	eventfd.fd = watcher->io_watcher.fd;
+#endif
 	eventfd.events = 0;
 	eventfd.revents = 0;
 
@@ -207,8 +211,13 @@ lws_libuv_io(struct lws *wsi, int flags)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+#if defined(WIN32) || defined(_WIN32)
+	int current_events = wsi->w_read.uv_watcher.io.events &
+			     (UV_READABLE | UV_WRITABLE);
+#else
 	int current_events = wsi->w_read.uv_watcher.io_watcher.pevents &
 			     (UV_READABLE | UV_WRITABLE);
+#endif
 	struct lws_io_watcher *w = &wsi->w_read;
 
 	if (!LWS_LIBUV_ENABLED(context))
@@ -329,8 +338,8 @@ lws_uv_getloop(struct lws_context *context, int tsi)
 static void
 lws_libuv_closewsi(uv_handle_t* handle)
 {
-	struct lws *n = NULL, *wsi = (struct lws *)(((void *)handle) -
-			  (void *)(&n->w_read.uv_watcher));
+	struct lws *n = NULL, *wsi = (struct lws *)(((char *)handle) -
+			  (char *)(&n->w_read.uv_watcher));
 	struct lws_context *context = lws_get_context(wsi);
 
 	lws_close_free_wsi_final(wsi);
