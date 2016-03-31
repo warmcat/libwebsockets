@@ -52,6 +52,9 @@
 /* Build with support for ipv6 */
 #cmakedefine LWS_USE_IPV6
 
+/* Build with support for UNIX domain socket */
+#cmakedefine LWS_USE_UNIX_SOCK
+
 /* Build with support for HTTP2 */
 #cmakedefine LWS_USE_HTTP2
 
