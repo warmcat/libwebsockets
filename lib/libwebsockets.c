@@ -1478,6 +1478,9 @@ lws_socket_bind(struct lws_context *context, int sockfd, int port,
 		const char *iface)
 {
 #if LWS_POSIX
+#ifdef LWS_USE_UNIX_SOCK
+	struct sockaddr_un serv_unix;
+#endif
 #ifdef LWS_USE_IPV6
 	struct sockaddr_in6 serv_addr6;
 #endif
@@ -1487,6 +1490,20 @@ lws_socket_bind(struct lws_context *context, int sockfd, int port,
 	struct sockaddr_in sin;
 	struct sockaddr *v;
 
+#ifdef LWS_USE_UNIX_SOCK
+	if (LWS_UNIX_SOCK_ENABLED(context)) {
+		v = (struct sockaddr *)&serv_unix;
+		n = sizeof(struct sockaddr_un);
+		bzero((char *) &serv_unix, sizeof(serv_unix));
+		serv_unix.sun_family = AF_UNIX;
+		if (sizeof(serv_unix.sun_path) <= strlen(iface)) {
+			lwsl_err("\"%s\" too long for UNIX domain socket\n",
+			         iface);
+			return -1;
+		}
+		strcpy(serv_unix.sun_path, iface);
+	} else
+#endif
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(context)) {
 		v = (struct sockaddr *)&serv_addr6;
@@ -1515,6 +1532,13 @@ lws_socket_bind(struct lws_context *context, int sockfd, int port,
 	} /* ipv4 */
 
 	n = bind(sockfd, v, n);
+#ifdef LWS_USE_UNIX_SOCK
+	if (n < 0 && LWS_UNIX_SOCK_ENABLED(context)) {
+		lwsl_err("ERROR on binding fd %d to \"%s\" (%d %d)\n",
+				sockfd, iface, n, LWS_ERRNO);
+		return -1;
+	} else
+#endif
 	if (n < 0) {
 		lwsl_err("ERROR on binding fd %d to port %d (%d %d)\n",
 				sockfd, port, n, LWS_ERRNO);

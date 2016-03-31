@@ -332,6 +332,7 @@ enum lws_context_options {
 								  (1 << 12),
 	LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT			= (1 << 12),
 	LWS_SERVER_OPTION_EXPLICIT_VHOSTS			= (1 << 13),
+	LWS_SERVER_OPTION_UNIX_SOCK				= (1 << 14),
 
 	/****** add new things just above ---^ ******/
 };
@@ -1373,6 +1374,8 @@ struct lws_protocol_vhost_options {
  *		client
  * @iface:	NULL to bind the listen socket to all interfaces, or the
  *		interface name, eg, "eth2"
+ *		If options specifies LWS_SERVER_OPTION_UNIX_SOCK, this member is
+ *		the pathname of a UNIX domain socket.
  * @protocols:	Array of structures listing supported protocols and a protocol-
  *		specific callback for each one.  The list is ended with an
  *		entry that has a NULL callback pointer.
