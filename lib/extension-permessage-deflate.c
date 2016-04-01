@@ -75,6 +75,17 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 	case LWS_EXT_CB_CLIENT_CONSTRUCT:
 	case LWS_EXT_CB_CONSTRUCT:
+
+		n = LWS_MAX_SOCKET_IO_BUF;
+		if (wsi->protocol->rx_buffer_size)
+			n =  wsi->protocol->rx_buffer_size;
+
+		if (n < 128) {
+			lwsl_err(" permessage-deflate requires the protocol (%s) to have an RX buffer >= 128\n",
+					wsi->protocol->name);
+			return -1;
+		}
+
 		/* fill in **user */
 		priv = lws_zalloc(sizeof(*priv));
 		*((void **)user) = priv;
@@ -102,6 +113,23 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		priv->args[PMD_TX_BUF_PWR2] = 10; /* ie, 1024 */
 		priv->args[PMD_COMP_LEVEL] = 1;
 		priv->args[PMD_MEM_LEVEL] = 8;
+
+		/* cap the RX buf at the nearest power of 2 to protocol rx buf */
+
+		n = LWS_MAX_SOCKET_IO_BUF;
+		if (wsi->protocol->rx_buffer_size)
+			n =  wsi->protocol->rx_buffer_size;
+
+		extra = 7;
+		while (n >= 1 << (extra + 1))
+			extra++;
+
+		if (extra < priv->args[PMD_RX_BUF_PWR2]) {
+			priv->args[PMD_RX_BUF_PWR2] = extra;
+			lwsl_err(" Capping pmd rx to %d\n", 1 << extra);
+		}
+		lwsl_err("   ok\n");
+
 		break;
 
 	case LWS_EXT_CB_DESTROY:

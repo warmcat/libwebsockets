@@ -89,25 +89,25 @@ static struct lws_protocols protocols[] = {
 		"dumb-increment-protocol",
 		callback_dumb_increment,
 		sizeof(struct per_session_data__dumb_increment),
-		10,
+		10, /* rx buf size must be >= permessage-deflate rx size */
 	},
 	{
 		"lws-mirror-protocol",
 		callback_lws_mirror,
 		sizeof(struct per_session_data__lws_mirror),
-		128,
+		128, /* rx buf size must be >= permessage-deflate rx size */
 	},
 	{
 		"lws-echogen",
 		callback_lws_echogen,
 		sizeof(struct per_session_data__echogen),
-		128,
+		128, /* rx buf size must be >= permessage-deflate rx size */
 	},
 	{
 		"lws-status",
 		callback_lws_status,
 		sizeof(struct per_session_data__lws_status),
-		128,
+		128, /* rx buf size must be >= permessage-deflate rx size */
 	},
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
