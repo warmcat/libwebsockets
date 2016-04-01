@@ -292,13 +292,18 @@ int main(int argc, char **argv)
 
 	lws_uv_sigint_cfg(context, 1, signal_cb);
 
-	lws_uv_initloop(context, NULL, 0);
+	if (lws_uv_initloop(context, NULL, 0)) {
+		lwsl_err("lws_uv_initloop failed\n");
+
+		goto bail;
+	}
 
 	uv_timer_init(lws_uv_getloop(context, 0), &timeout_watcher);
 	uv_timer_start(&timeout_watcher, uv_timeout_cb_dumb_increment, 50, 50);
 
 	lws_libuv_run(context, 0);
 
+bail:
 	lws_context_destroy(context);
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 

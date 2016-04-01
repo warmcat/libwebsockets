@@ -138,9 +138,15 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 	while (vh) {
 		if (vh->lserv_wsi) {
 			vh->lserv_wsi->w_read.context = context;
-			uv_poll_init_socket(pt->io_loop_uv,
+			n = uv_poll_init_socket(pt->io_loop_uv,
 				     &vh->lserv_wsi->w_read.uv_watcher,
 				     vh->lserv_wsi->sock);
+			if (n) {
+				lwsl_err("uv_poll_init failed %d, sockfd=%p\n",
+					n, (void *)(long)vh->lserv_wsi->sock);
+
+				return -1;
+			}
 			uv_poll_start(&vh->lserv_wsi->w_read.uv_watcher,
 				      UV_READABLE, lws_io_cb);
 		}
