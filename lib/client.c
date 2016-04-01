@@ -671,10 +671,14 @@ check_extensions:
 
 			/* allow him to construct his ext instance */
 
-			ext->callback(lws_get_context(wsi), ext, wsi,
+			if (ext->callback(lws_get_context(wsi), ext, wsi,
 				      LWS_EXT_CB_CLIENT_CONSTRUCT,
 				      (void *)&wsi->act_ext_user[wsi->count_act_ext],
-				      (void *)&opts, 0);
+				      (void *)&opts, 0)) {
+				lwsl_notice(" ext %s failed construction\n", ext_name);
+				ext++;
+				continue;
+			}
 
 			/*
 			 * allow the user code to override ext defaults if it

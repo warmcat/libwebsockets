@@ -127,6 +127,7 @@ to zero just this connection's number.
 	    <td align=center><div id=number style="font-size:120%;"> </div></td>
 	    <td align=center>
 	     <input type=button id=offset value="Reset counter" onclick="reset();" >
+	     <input type=button id=junk value="Send junk" onclick="junk();" >
 	    </td>
 	    </tr>
 	 </table>
@@ -477,7 +478,7 @@ document.getElementById("number").textContent = get_appropriate_ws_url();
 			document.getElementById("s_statustd").style.backgroundColor = "#40ff40";
 			document.getElementById("s_status").innerHTML =
 				" <b>websocket connection opened</b><br>" +
-				san(socket_di.extensions);
+				san(socket_status.extensions);
 		} 
 
 		socket_status.onmessage =function got_packet(msg) {
@@ -512,6 +513,12 @@ document.getElementById("number").textContent = get_appropriate_ws_url();
 
 function reset() {
 	socket_di.send("reset\n");
+}
+
+
+function junk() {
+	for(var word = ''; word.length < 9000; word += 'a'){}
+	socket_di.send(word);
 }
 
 var socket_ot;
@@ -579,7 +586,7 @@ function ot_req_close() {
 			document.getElementById("wslm_statustd").style.backgroundColor = "#40ff40";
 			document.getElementById("wslm_status").innerHTML =
 				" <b>websocket connection opened</b><br>" +
-				san(socket_di.extensions);
+				san(socket_lm.extensions);
 		} 
 
 		socket_lm.onmessage =function got_packet(msg) {

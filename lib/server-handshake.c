@@ -123,11 +123,6 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 
 			/* apply it */
 
-			if (ext_count)
-				*(*p)++ = ',';
-			else
-				LWS_CPYAPP(*p, "\x0d\x0aSec-WebSocket-Extensions: ");
-			*p += sprintf(*p, "%s", ext_name);
 			ext_count++;
 
 			/* instantiate the extension on this conn */
@@ -136,10 +131,21 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 
 			/* allow him to construct his context */
 
-			ext->callback(lws_get_context(wsi), ext, wsi,
+			if (ext->callback(lws_get_context(wsi), ext, wsi,
 				      LWS_EXT_CB_CONSTRUCT,
 				      (void *)&wsi->act_ext_user[wsi->count_act_ext],
-				      NULL, 0);
+				      NULL, 0)) {
+				lwsl_notice("ext %s failed construction\n", ext_name);
+				ext_count--;
+				ext++;
+				continue;
+			}
+
+			if (ext_count > 1)
+				*(*p)++ = ',';
+			else
+				LWS_CPYAPP(*p, "\x0d\x0aSec-WebSocket-Extensions: ");
+			*p += sprintf(*p, "%s", ext_name);
 
 			wsi->count_act_ext++;
 			lwsl_parser("count_act_ext <- %d\n", wsi->count_act_ext);
