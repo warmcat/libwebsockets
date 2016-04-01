@@ -328,6 +328,8 @@ int main(int argc, char **argv)
 
 		info.ssl_cert_filepath = cert_path;
 		info.ssl_private_key_filepath = key_path;
+
+		opts |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	}
 	info.gid = -1;
 	info.uid = -1;
