@@ -1,6 +1,26 @@
 Changelog
 ---------
 
+v1.7.5
+======
+
+NB: No API change since v1.7.0
+
+Fixes
+-----
+
+1) MINOR: fix build with musl C library
+
+2) MINOR: libuv handle signals only if requested
+
+3) MINOR: Fix compile warning if HTTP2 + RELEASE + ALPN-capable SSL
+
+4) MINOR: produce and package
+          %{_libdir}/cmake/libwebsockets/LibwebsocketsTargets.cmake
+
+5) MAJOR: make permessage-deflate enforce protocol rx buffer size requirement
+
+
 v1.7.4
 ======
 

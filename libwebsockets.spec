@@ -1,6 +1,6 @@
 Name: libwebsockets
-Version: 1.7.4
-Release: 2%{?dist}
+Version: 1.7.5
+Release: 1%{?dist}
 Summary: Websocket Server and Client Library
 
 Group: System Environment/Libraries
@@ -70,6 +70,10 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/pkgconfig/libwebsockets.pc
 
 %changelog
+
+* Fri Apr 1 2016 Andy Green <andy@warmcat.com> 1.7.5-1
+- MAJOR fixes Upstream 1.7.5 release (see changelog)
+
 * Tue Mar 29 2016 Andy Green <andy@warmcat.com> 1.7.4-2
 - MINOR added LibwebsocketsTargets.cmake
 
