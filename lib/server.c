@@ -291,6 +291,14 @@ lws_http_action(struct lws *wsi)
 			break;
 		}
 
+	/* we insist on absolute paths */
+
+	if (uri_ptr[0] != '/') {
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+
+		goto bail_nuke_ah;
+	}
+
 	/* HTTP header had a content length? */
 
 	wsi->u.http.content_length = 0;
