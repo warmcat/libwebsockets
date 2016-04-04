@@ -653,20 +653,22 @@ lws_parse(struct lws *wsi, unsigned char c)
 		case URIPS_SEEN_SLASH_DOT:
 			/* swallow second . */
 			if (c == '.') {
+				/* stash pos in case /..dir */
+				wsi->u.hdr.slashdotdot_pos_stash = ah->pos;
 				/*
 				 * back up one dir level if possible
 				 * safe against header fragmentation because
 				 * the method URI can only be in 1 fragment
 				 */
 				if (ah->frags[ah->nfrag].len > 2) {
-					ah->pos--;
-					ah->frags[ah->nfrag].len--;
 					do {
 						ah->pos--;
 						ah->frags[ah->nfrag].len--;
 					} while (ah->frags[ah->nfrag].len > 1 &&
-						 ah->data[ah->pos] != '/');
+						 ah->data[ah->pos-1] != '/');
 				}
+				lwsl_parser("URIPS: ../ : backed up '%.*s'\n",
+						wsi->u.hdr.slashdotdot_pos_stash - ah->pos, ah->data + ah->pos);
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT_DOT;
 				goto swallow;
 			}
@@ -682,14 +684,22 @@ lws_parse(struct lws *wsi, unsigned char c)
 			break;
 
 		case URIPS_SEEN_SLASH_DOT_DOT:
-			/* swallow prior .. chars and any subsequent . */
-			if (c == '.')
+			/* back up one dir level */
+			if (c == '/') {
+				/* we kept last slash, mark it SEEN */
+				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
 				goto swallow;
-			/* last issued was /, so another / == // */
-			if (c == '/')
-				goto swallow;
-			/* last we issued was / so SEEN_SLASH */
-			wsi->u.hdr.ups = URIPS_SEEN_SLASH;
+			}
+			/* it was like /..dir ... restore prev dir and regurgitate the .. */
+			lwsl_parser("URIPS: ../ : restore '%.*s'\n",
+					wsi->u.hdr.slashdotdot_pos_stash - ah->pos, ah->data + ah->pos);
+			ah->frags[ah->nfrag].len += wsi->u.hdr.slashdotdot_pos_stash - ah->pos;
+			ah->pos = wsi->u.hdr.slashdotdot_pos_stash;
+			if (issue_char(wsi, '.') < 0)
+				return -1;
+			if (issue_char(wsi, '.') < 0)
+				return -1;
+			wsi->u.hdr.ups = URIPS_IDLE;
 			break;
 		}
 
