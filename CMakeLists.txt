@@ -864,7 +864,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					"test-server/test-server-status.c"
 					"test-server/test-server-echogen.c")
 			endif()
-			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBEV)
 				create_test_app(test-server-libev
 					"test-server/test-server-libev.c"
@@ -874,7 +874,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					"test-server/test-server-status.c"
 					"test-server/test-server-echogen.c")
 			endif()
-			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBUV)
 				create_test_app(test-server-libuv
 					"test-server/test-server-libuv.c"

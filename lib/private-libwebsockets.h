@@ -232,6 +232,12 @@ typedef unsigned __int64 u_int64_t;
 #endif
 #endif
 
+#include <stddef.h>
+
+#ifndef container_of
+#define container_of(P,T,M)	((T *)((char *)(P) - offsetof(T, M)))
+#endif
+
 #else
 
 #include <sys/stat.h>
