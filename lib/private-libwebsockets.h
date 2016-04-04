@@ -893,6 +893,8 @@ struct _lws_header_related {
 #ifndef LWS_NO_CLIENT
 	unsigned short c_port;
 #endif
+	unsigned short slashdotdot_pos_stash;
+
 	char esc_stash;
 	char post_literal_equal;
 	unsigned char parser_state; /* enum lws_token_indexes */
