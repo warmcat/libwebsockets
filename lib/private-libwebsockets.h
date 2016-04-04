@@ -960,6 +960,7 @@ struct _lws_header_related {
 	enum uri_esc_states ues;
 	short lextable_pos;
 	unsigned short current_token_limit;
+	unsigned short slashdotdot_pos_stash;
 	char esc_stash;
 	char post_literal_equal;
 	unsigned char parser_state; /* enum lws_token_indexes */
