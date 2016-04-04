@@ -39,7 +39,7 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	struct lws_pollfd eventfd;
 
 #if defined(WIN32) || defined(_WIN32)
-	eventfd.fd = watcher->sock;
+	eventfd.fd = watcher->socket;
 #else
 	eventfd.fd = watcher->io_watcher.fd;
 #endif
@@ -151,9 +151,10 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, uv_signal_cb cb,
 	 * We have to do it here because the uv loop(s) are not
 	 * initialized until after context creation.
 	 */
+
 	if (wsi) {
 		wsi->w_read.context = context;
-		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher,
+		uv_poll_init_socket(pt->io_loop_uv, &wsi->w_read.uv_watcher,
 			     pt->lserv_fd);
 		uv_poll_start(&wsi->w_read.uv_watcher, UV_READABLE,
 			      lws_io_cb);
@@ -226,7 +227,7 @@ lws_libuv_io(struct lws *wsi, int flags)
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 #if defined(WIN32) || defined(_WIN32)
-	int current_events = wsi->w_read.uv_watcher.io.events &
+	int current_events = wsi->w_read.uv_watcher.events &
 			     (UV_READABLE | UV_WRITABLE);
 #else
 	int current_events = wsi->w_read.uv_watcher.io_watcher.pevents &
