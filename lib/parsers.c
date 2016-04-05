@@ -596,6 +596,9 @@ lws_parse(struct lws *wsi, unsigned char c)
 		/* special URI processing... convert %xx */
 
 		switch (wsi->u.hdr.ues) {
+		case URIES_VERBATIM:
+			/* do nothing */
+			break;
 		case URIES_IDLE:
 			if (c == '%') {
 				wsi->u.hdr.ues = URIES_SEEN_PERCENT;
@@ -605,7 +608,8 @@ lws_parse(struct lws *wsi, unsigned char c)
 		case URIES_SEEN_PERCENT:
 			if (char_to_hex(c) < 0) {
 				/* regurgitate */
-				if (issue_char(wsi, '%') < 0)
+				wsi->u.hdr.ues = URIES_VERBATIM;
+				if (lws_parse(wsi, '%') < 0)
 					return -1;
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* continue on to assess c */
@@ -618,7 +622,8 @@ lws_parse(struct lws *wsi, unsigned char c)
 		case URIES_SEEN_PERCENT_H1:
 			if (char_to_hex(c) < 0) {
 				/* regurgitate */
-				if (issue_char(wsi, '%') < 0)
+				wsi->u.hdr.ues = URIES_VERBATIM;
+				if (lws_parse(wsi, '%') < 0)
 					return -1;
 				wsi->u.hdr.ues = URIES_IDLE;
 				/* regurgitate + assess */
