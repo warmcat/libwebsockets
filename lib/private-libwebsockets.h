@@ -770,6 +770,7 @@ enum uri_esc_states {
 	URIES_IDLE,
 	URIES_SEEN_PERCENT,
 	URIES_SEEN_PERCENT_H1,
+	URIES_VERBATIM,
 };
 
 /* notice that these union members:
