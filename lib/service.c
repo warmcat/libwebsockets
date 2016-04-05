@@ -603,9 +603,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 		n = lws_server_socket_service(context, wsi, pollfd);
 		if (n) /* closed by above */
 			return 1;
-		pending = lws_ssl_pending(wsi);
-		if (pending)
-			goto handle_pending;
 		goto handled;
 
 	case LWSCM_WS_SERVING:
@@ -792,7 +789,6 @@ drain:
 
 		pending = lws_ssl_pending(wsi);
 		if (pending) {
-handle_pending:
 			pending = pending > LWS_MAX_SOCKET_IO_BUF ?
 					LWS_MAX_SOCKET_IO_BUF : pending;
 			goto read;
