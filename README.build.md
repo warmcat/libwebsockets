@@ -137,6 +137,15 @@ Building on Windows (Visual Studio)
 4. Now you should have a generated Visual Studio Solution in  your
    `<path to src>/build` directory, which can be used to build.
 
+5. Some additional deps may be needed
+
+ - iphlpapi.lib
+ - psapi.lib
+ - userenv.lib
+
+6. If you're using libuv, you must make sure to compile libuv with the same multithread-dll / Mtd attributes as libwebsockets itself
+
+
 Building on Windows (MinGW)
 ---------------------------
 1. Install MinGW: http://sourceforge.net/projects/mingw/files
