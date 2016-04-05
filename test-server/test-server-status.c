@@ -57,7 +57,11 @@ update_status(struct lws *wsi, struct per_session_data__lws_status *pss)
 #endif
 			strcpy(date, "unknown");
 		else
+#ifdef WIN32
+			strftime(date, sizeof(date), "%Y %H:%M %Z", ptm);
+#else
 			strftime(date, sizeof(date), "%F %H:%M %Z", ptm);
+#endif
 		if ((p - start) > (sizeof(cache) - 512))
 			break;
 		if (subsequent)
