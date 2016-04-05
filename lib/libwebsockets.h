@@ -170,8 +170,15 @@ struct sockaddr_in;
 #endif
 
 #if defined(__GNUC__)
+
+/* warn_unused_result attribute only supported by GCC 3.4 or later */
+#if __GNUC__ >= 4 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 4)
+#define LWS_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
+#else
+#define LWS_WARN_UNUSED_RESULT
+#endif
+
 #define LWS_VISIBLE __attribute__((visibility("default")))
-#define LWS_WARN_UNUSED_RESULT __attribute__ ((warn_unused_result))
 #define LWS_WARN_DEPRECATED __attribute__ ((deprecated))
 #else
 #define LWS_VISIBLE
