@@ -194,6 +194,9 @@ static const char * get_mimetype(const char *file)
 	if (!strcmp(&file[n - 4], ".png"))
 		return "image/png";
 
+	if (!strcmp(&file[n - 4], ".jpg"))
+		return "image/jpeg";
+
 	if (!strcmp(&file[n - 5], ".html"))
 		return "text/html";
 
@@ -220,7 +223,7 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 	}
 
 	n = lws_serve_http_file(wsi, path, mimetype, NULL, 0);
-	if (n < 0)
+
 	if (n < 0 || ((n > 0) && lws_http_transaction_completed(wsi)))
 		return -1; /* error or can't reuse connection: close the socket */
 

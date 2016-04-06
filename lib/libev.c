@@ -32,7 +32,7 @@ void lws_feature_status_libev(struct lws_context_creation_info *info)
 static void
 lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 {
-	struct lws_io_watcher *lws_io = container_of(watcher,
+	struct lws_io_watcher *lws_io = lws_container_of(watcher,
 					struct lws_io_watcher, ev_watcher);
 	struct lws_context *context = lws_io->context;
 	struct lws_pollfd eventfd;

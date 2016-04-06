@@ -4,6 +4,14 @@ Libwebsockets Web Server
 lwsws is an implementation of a very lightweight, ws-capable generic web
 server, which uses libwebsockets to implement everything underneath.
 
+Build
+-----
+
+Just enable -DLWS_WITH_LWSWS=1 at cmake-time.
+
+It enables libuv and plugin support automatically.
+
+
 Configuration
 -------------
 
@@ -94,10 +102,12 @@ The vhost name field is used to match on incoming SNI or Host: header, so it
 must always be the host name used to reach the vhost externally.
 
 Vhosts may have the same name and different ports, these will each create a
-listening socket on the appropriate port, and they may have the same port and
-different name: these will be treated as true vhosts on one listening socket
-and the active vhost decided at SSL negotiation time (via SNI) or if no SSL,
-then after the Host: header from the client has been parsed.
+listening socket on the appropriate port.
+
+They may also have the same port and different name: these will be treated as
+true vhosts on one listening socket and the active vhost decided at SSL
+negotiation time (via SNI) or if no SSL, then after the Host: header from
+the client has been parsed.
 
 
 Mounts
@@ -108,3 +118,33 @@ be auto-served if it matches the mountpoint.
 
 Currently only file:// mount protocol and a fixed set of mimetypes are
 supported.
+
+
+Plugins
+-------
+
+Protcols and extensions may also be provided from "plugins", these are
+lightweight dynamic libraries.  They are scanned for at init time, and
+any protocols and extensions found are added to the list given at context
+creation time.
+
+Protocols receive init (LWS_CALLBACK_PROTOCOL_INIT) and destruction
+(LWS_CALLBACK_PROTOCOL_DESTROY) callbacks per-vhost, and there are arrangements
+they can make per-vhost allocations and get hold of the correct pointer from
+the wsi at the callback.
+
+This allows a protocol to choose to strictly segregate data on a per-vhost
+basis, and also allows the plugin to handle its own initialization and
+context storage.
+
+To help that happen conveniently, there are some new apis
+
+ - lws_vhost_get(wsi)
+ - lws_protocol_get(wsi)
+ - lws_callback_on_writable_all_protocol_vhost(vhost, protocol)
+ - lws_protocol_vh_priv_zalloc(vhost, protocol, size)
+ - lws_protocol_vh_priv_get(vhost, protocol)
+ 
+dumb increment, mirror and status protocol plugins are provided as examples.
+
+

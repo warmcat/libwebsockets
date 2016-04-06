@@ -47,6 +47,9 @@ const char * get_mimetype(const char *file)
 	if (!strcmp(&file[n - 4], ".png"))
 		return "image/png";
 
+	if (!strcmp(&file[n - 4], ".jpg"))
+		return "image/jpeg";
+
 	if (!strcmp(&file[n - 5], ".html"))
 		return "text/html";
 
@@ -190,7 +193,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return 0;
 
 		/* check for the "send a big file by hand" example case */
-
+		lwsl_notice("%s\n", in);
 		if (!strcmp((const char *)in, "/leaf.jpg")) {
 			if (strlen(resource_path) > sizeof(leaf_path) - 10)
 				return -1;

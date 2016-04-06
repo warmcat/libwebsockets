@@ -91,7 +91,14 @@ option(LWS_MBED3 "Platform is MBED3" OFF)
 option(LWS_SSL_SERVER_WITH_ECDH_CERT "Include SSL server use ECDH certificate" OFF)
 option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
 option(LWS_WITH_HTTP_PROXY "Support for rewriting HTTP proxying" OFF)
-option(LWS_WITH_LWSWS "Libwebsockets Webserver" ON)
+option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)
+option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions" OFF)
+
+if (LWS_WITH_LWSWS)
+ message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
+ set(LWS_WITH_PLUGINS 1)
+ set(LWS_WITH_LIBUV 1)
+endif()
 
 if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
 
@@ -101,6 +108,7 @@ set(LWS_WITH_ZLIB OFF)
 set(LWS_WITHOUT_CLIENT ON)
 set(LWS_WITHOUT_TESTAPPS ON)
 set(LWS_WITHOUT_EXTENSIONS ON)
+set(LWS_WITH_PLUGINS OFF)
 set(LWS_MBED3 ON)
 # this implies no pthreads in the lib
 set(LWS_MAX_SMP 1)
@@ -110,6 +118,9 @@ endif()
 if (WIN32)
 # this implies no pthreads in the lib
 set(LWS_MAX_SMP 1)
+
+# plugin stuff not implemented in win32 plat
+set (LWS_WITH_PLUGINS OFF)
 endif()
 
 
@@ -926,6 +937,10 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		message("OpenSSL executable: ${OPENSSL_EXECUTABLE}")
 	endif()
 
+	if (UNIX AND LWS_WITH_PLUGINS)
+		set(CMAKE_C_FLAGS "-fPIC ${CMAKE_C_FLAGS}")
+		target_link_libraries(websockets dl)
+	endif()
 
 	if (NOT LWS_WITHOUT_SERVER)
 		#
@@ -1115,6 +1130,54 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		endif()
 
 	endif(NOT LWS_WITHOUT_CLIENT)
+	
+	
+	if (LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
+		macro(create_plugin PLUGIN_NAME MAIN_SRC)
+
+		set(PLUGIN_SRCS ${MAIN_SRC})
+
+		if (WIN32)
+			list(APPEND PLUGIN_SRCSset_property
+				${WIN32_HELPERS_PATH}/getopt.c
+				${WIN32_HELPERS_PATH}/getopt_long.c
+				${WIN32_HELPERS_PATH}/gettimeofday.c
+			)
+
+			list(APPEND PLUGIN_HDR
+				${WIN32_HELPERS_PATH}/getopt.h
+				${WIN32_HELPERS_PATH}/gettimeofday.h
+			)
+		endif(WIN32)
+
+		source_group("Headers Private"   FILES ${PLUGIN_HDR})
+		source_group("Sources"   FILES ${PLUGIN_SRCS})
+		add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SRCS} ${PLUGIN_HDR})
+		
+		target_link_libraries(${PLUGIN_NAME} websockets)
+		add_dependencies(${PLUGIN_NAME} websockets)
+
+		# Set test app specific defines.
+		set_property(TARGET ${PLUGIN_NAME}
+			     PROPERTY COMPILE_DEFINITIONS
+			     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/plugins"
+		)
+
+#		set_target_properties(${PLUGIN_NAME}
+#			PROPERTIES
+#			OUTPUT_NAME ${PLUGIN_NAME})
+
+		list(APPEND PLUGINS_LIST ${PLUGIN_NAME})
+		endmacro()
+		
+
+		create_plugin(protocol_dumb_increment
+			      "plugins/protocol_dumb_increment.c")
+		create_plugin(protocol_lws_mirror
+			      "plugins/protocol_lws_mirror.c")
+		create_plugin(protocol_lws_status
+			      "plugins/protocol_lws_status.c")
+	endif(LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 
 	#
 	# Copy OpenSSL dlls to the output directory on Windows.
@@ -1318,6 +1381,15 @@ if (LWS_WITH_CGI)
 	endif()
 endif()
 
+# plugins
+
+if (LWS_WITH_PLUGINS)
+	install(TARGETS ${PLUGINS_LIST}
+		PERMISSIONS  OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE OWNER_READ GROUP_READ WORLD_READ
+		DESTINATION share/libwebsockets-test-server/plugins
+		COMPONENT plugins)
+endif()
+
 # Install the LibwebsocketsConfig.cmake and LibwebsocketsConfigVersion.cmake
 install(FILES
                "${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/LibwebsocketsConfig.cmake"
@@ -1379,6 +1451,7 @@ message(" LWS_WITH_CGI = ${LWS_WITH_CGI}")
 message(" LWS_HAVE_OPENSSL_ECDH_H = ${LWS_HAVE_OPENSSL_ECDH_H}")
 message(" LWS_WITH_HTTP_PROXY = ${LWS_WITH_HTTP_PROXY}")
 message(" LIBHUBBUB_LIBRARIES = ${LIBHUBBUB_LIBRARIES}")
+message(" PLUGINS = ${PLUGINS_LIST}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

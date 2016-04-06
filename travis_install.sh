@@ -10,6 +10,12 @@ then
 	then
 		sudo apt-get install -y -qq libev-dev;
 	fi
+
+	if [ "$LWS_METHOD" == "libuv" -o "$LWS_METHOD" == "lwsws" ];
+	then
+		sudo apt-get install -y -qq libuv-dev;
+	fi
+
 fi
 
 if [ "$TRAVIS_OS_NAME" == "osx" ];
@@ -18,6 +24,12 @@ then
 	then
 		brew install libev;
 	fi
+
+	if [ "$LWS_METHOD" == "libuv" -o "$LWS_METHOD" == "lwsws" ];
+	then
+		brew install libuv;
+	fi
+
 fi
 
 	

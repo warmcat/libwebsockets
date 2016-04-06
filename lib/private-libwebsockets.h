@@ -261,12 +261,6 @@ typedef unsigned __int64 u_int64_t;
 #endif
 #endif
 
-#include <stddef.h>
-
-#ifndef container_of
-#define container_of(P,T,M)	((T *)((char *)(P) - offsetof(T, M)))
-#endif
-
 #else
 
 #include <sys/stat.h>
@@ -282,11 +276,6 @@ typedef unsigned __int64 u_int64_t;
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-#include <stddef.h>
-
-#ifndef container_of
-#define container_of(P,T,M)	((T *)((char *)(P) - offsetof(T, M)))
 #endif
 
 #if defined(__QNX__)
@@ -664,6 +653,7 @@ struct lws_vhost {
 	const char *name;
 	const char *iface;
 	const struct lws_protocols *protocols;
+	void **protocol_vh_privs;
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX *ssl_ctx;
 	SSL_CTX *ssl_client_ctx;
@@ -704,6 +694,7 @@ struct lws_context {
 	struct lws **lws_lookup;  /* fd to wsi */
 #endif
 	struct lws_vhost *vhost_list;
+	struct lws_plugin *plugin_list;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
 
@@ -755,9 +746,12 @@ struct lws_context {
 	short max_http_header_data;
 	short max_http_header_pool;
 	short count_threads;
+	short plugin_protocol_count;
+	short plugin_extension_count;
 
 	unsigned int being_destroyed:1;
 	unsigned int requested_kill:1;
+	unsigned int protocol_init_done:1;
 };
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
@@ -1670,6 +1664,9 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
 
 LWS_EXTERN int
 lws_cgi_kill_terminated(struct lws_context_per_thread *pt);
+
+int
+lws_protocol_init(struct lws_context *context);
 
 /*
  * custom allocator

@@ -17,6 +17,8 @@
 #cmakedefine LWS_USE_MBEDTLS
 #cmakedefine LWS_USE_POLARSSL
 
+#cmakedefine LWS_WITH_PLUGINS
+
 /* The Libwebsocket version */
 #cmakedefine LWS_LIBRARY_VERSION "${LWS_LIBRARY_VERSION}"
 

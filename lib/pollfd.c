@@ -374,3 +374,37 @@ lws_callback_on_writable_all_protocol(const struct lws_context *context,
 
 	return 0;
 }
+
+
+/**
+ * lws_callback_on_writable_all_protocol_vhost() - Request a callback for
+ *			all connections using the given protocol when it
+ *			becomes possible to write to each socket without
+ *			blocking in turn.
+ *
+ * @vhost:	Only consider connections on this lws_vhost
+ * @protocol:	Protocol whose connections will get callbacks
+ */
+
+LWS_VISIBLE int
+lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
+				      const struct lws_protocols *protocol)
+{
+	const struct lws_context *context = vhost->context;
+	const struct lws_context_per_thread *pt = &context->pt[0];
+	unsigned int n, m = context->count_threads;
+	struct lws *wsi;
+
+	while (m--) {
+		for (n = 0; n < pt->fds_count; n++) {
+			wsi = wsi_from_fd(context, pt->fds[n].fd);
+			if (!wsi)
+				continue;
+			if (wsi->vhost == vhost && wsi->protocol == protocol)
+				lws_callback_on_writable(wsi);
+		}
+		pt++;
+	}
+
+	return 0;
+}

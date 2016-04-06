@@ -86,6 +86,86 @@ lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
 	return ((char *)store + sizeof(*m)) - (char *)orig;
 }
 
+LWS_VISIBLE void *
+lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols *prot,
+			    int size)
+{
+	int n = 0;
+
+	/* allocate the vh priv array only on demand */
+	if (!vhost->protocol_vh_privs) {
+		vhost->protocol_vh_privs = (void **)lws_zalloc(
+				vhost->count_protocols * sizeof(void *));
+		if (!vhost->protocol_vh_privs)
+			return NULL;
+	}
+
+	while (n < vhost->count_protocols && &vhost->protocols[n] != prot)
+		n++;
+
+	if (n == vhost->count_protocols)
+		return NULL;
+
+	vhost->protocol_vh_privs[n] = lws_zalloc(size);
+	return vhost->protocol_vh_privs[n];
+}
+
+LWS_VISIBLE void *
+lws_protocol_vh_priv_get(struct lws_vhost *vhost, const struct lws_protocols *prot)
+{
+	int n = 0;
+
+	if (!vhost->protocol_vh_privs)
+		return NULL;
+
+	while (n < vhost->count_protocols && &vhost->protocols[n] != prot)
+		n++;
+
+	if (n == vhost->count_protocols) {
+		lwsl_err("%s: unknown protocol %p\n", __func__, prot);
+		return NULL;
+	}
+
+	return vhost->protocol_vh_privs[n];
+}
+
+int
+lws_protocol_init(struct lws_context *context)
+{
+	struct lws_vhost *vh = context->vhost_list;
+	struct lws wsi;
+	int n;
+
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.context = context;
+
+	while (vh) {
+		wsi.vhost = vh;
+
+		/* initialize supported protocols on this vhost */
+
+		for (n = 0; n < vh->count_protocols; n++) {
+			wsi.protocol = &vh->protocols[n];
+
+			/*
+			 * inform all the protocols that they are doing their one-time
+			 * initialization if they want to.
+			 *
+			 * NOTE the wsi is all zeros except for the context, vh and
+			 * protocol ptrs so lws_get_context(wsi) etc can work
+			 */
+			vh->protocols[n].callback(&wsi,
+				LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
+		}
+
+		vh = vh->vhost_next;
+	}
+
+	context->protocol_init_done = 1;
+
+	return 0;
+}
+
 LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 struct lws_context_creation_info *info,
@@ -93,9 +173,12 @@ lws_create_vhost(struct lws_context *context,
 {
 	struct lws_vhost *vh = lws_zalloc(sizeof(*vh)),
 			 **vh1 = &context->vhost_list;
-	struct lws wsi;
+#ifdef LWS_WITH_PLUGINS
+	struct lws_plugin *plugin = context->plugin_list;
+	struct lws_protocols *lwsp;
+	int m;
+#endif
 	char *p;
-	int n;
 
 	if (!vh)
 		return NULL;
@@ -107,11 +190,38 @@ lws_create_vhost(struct lws_context *context,
 		vh->name = info->vhost_name;
 
 	vh->iface = info->iface;
-	vh->protocols = info->protocols;
 	for (vh->count_protocols = 0;
 	     info->protocols[vh->count_protocols].callback;
 	     vh->count_protocols++)
 		;
+#ifdef LWS_WITH_PLUGINS
+	if (plugin) {
+		/*
+		 * give the vhost a unified list of protocols including the
+		 * ones that came from plugins
+		 */
+		lwsp = lws_zalloc(sizeof(struct lws_protocols) *
+					   (vh->count_protocols +
+					   context->plugin_protocol_count + 1));
+		if (!lwsp)
+			return NULL;
+
+		m = vh->count_protocols;
+		memcpy(lwsp, info->protocols,
+		       sizeof(struct lws_protocols) * m);
+		while (plugin) {
+			memcpy(&lwsp[m], plugin->caps.protocols,
+			       sizeof(struct lws_protocols) *
+			       plugin->caps.count_protocols);
+			m += plugin->caps.count_protocols;
+			vh->count_protocols += plugin->caps.count_protocols;
+			plugin = plugin->list;
+		}
+		vh->protocols = lwsp;
+	} else
+#endif
+		vh->protocols = info->protocols;
+
 
 	vh->mount_list = mounts;
 
@@ -126,7 +236,35 @@ lws_create_vhost(struct lws_context *context,
 	}
 
 #ifndef LWS_NO_EXTENSIONS
-	vh->extensions = info->extensions;
+#ifdef LWS_WITH_PLUGINS
+	if (context->plugin_extension_count) {
+
+		m = 0;
+		while (info->extensions && info->extensions[m].callback)
+			m++;
+
+		/*
+		 * give the vhost a unified list of extensions including the
+		 * ones that came from plugins
+		 */
+		vh->extensions = lws_zalloc(sizeof(struct lws_extension) *
+					   (m +
+					   context->plugin_extension_count + 1));
+		if (!vh->extensions)
+			return NULL;
+
+		memcpy((struct lws_extension *)vh->extensions, info->extensions,
+		       sizeof(struct lws_extension) * m);
+		while (plugin) {
+			memcpy((struct lws_extension *)&vh->extensions[m], plugin->caps.extensions,
+			       sizeof(struct lws_extension) *
+			       plugin->caps.count_extensions);
+			m += plugin->caps.count_extensions;
+			plugin = plugin->list;
+		}
+	} else
+#endif
+		vh->extensions = info->extensions;
 #endif
 
 	vh->listen_port = info->port;
@@ -147,23 +285,6 @@ lws_create_vhost(struct lws_context *context,
 			lws_set_proxy(vh, p);
 #endif
 	}
-
-	memset(&wsi, 0, sizeof(wsi));
-	wsi.context = context;
-	wsi.vhost = vh;
-
-	/* initialize supported protocols */
-
-	for (n = 0; n < vh->count_protocols; n++)
-		/*
-		 * inform all the protocols that they are doing their one-time
-		 * initialization if they want to.
-		 *
-		 * NOTE the wsi is all zeros except for the context & vh ptrs
-		 * so lws_get_context(wsi) can work in the callback.
-		 */
-		info->protocols[n].callback(&wsi,
-				LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
 
 	vh->ka_time = info->ka_time;
 	vh->ka_interval = info->ka_interval;
@@ -467,7 +588,7 @@ lws_context_destroy(struct lws_context *context)
 {
 	const struct lws_protocols *protocol = NULL;
 	struct lws_context_per_thread *pt;
-	struct lws_vhost *vh;
+	struct lws_vhost *vh, *vh1;
 	struct lws wsi;
 	int n, m;
 
@@ -514,18 +635,25 @@ lws_context_destroy(struct lws_context *context)
 
 	/*
 	 * inform all the protocols that they are done and will have no more
-	 * callbacks
+	 * callbacks.
+	 *
+	 * We can't free things until after the event loop shuts down.
 	 */
 	vh = context->vhost_list;
 	while (vh) {
+		wsi.vhost = vh;
 		protocol = vh->protocols;
-		if (protocol)
-			while (protocol->callback) {
+		if (protocol) {
+			n = 0;
+			while (n < vh->count_protocols) {
+				wsi.protocol = protocol;
 				protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
 						   NULL, NULL, 0);
 				protocol++;
+				n++;
 			}
-		lws_ssl_SSL_CTX_destroy(vh);
+		}
+
 		vh = vh->vhost_next;
 	}
 
@@ -546,6 +674,39 @@ lws_context_destroy(struct lws_context *context)
 
 	if (context->pt[0].fds)
 		lws_free_set_NULL(context->pt[0].fds);
+
+	/* free all the vhost allocations */
+
+	vh = context->vhost_list;
+	while (vh) {
+		protocol = vh->protocols;
+		if (protocol) {
+			n = 0;
+			while (n < vh->count_protocols) {
+				if (vh->protocol_vh_privs &&
+				    vh->protocol_vh_privs[n]) {
+					lws_free(vh->protocol_vh_privs[n]);
+					vh->protocol_vh_privs[n] = NULL;
+				}
+				protocol++;
+				n++;
+			}
+		}
+		if (vh->protocol_vh_privs)
+			lws_free(vh->protocol_vh_privs);
+		lws_ssl_SSL_CTX_destroy(vh);
+#ifdef LWS_WITH_PLUGINS
+		if (context->plugin_list)
+			lws_free((void *)vh->protocols);
+#ifndef LWS_NO_EXTENSIONS
+		if (context->plugin_extension_count)
+			lws_free((void *)vh->extensions);
+#endif
+#endif
+		vh1 = vh->vhost_next;
+		lws_free(vh);
+		vh = vh1;
+	}
 
 	lws_plat_context_late_destroy(context);
 

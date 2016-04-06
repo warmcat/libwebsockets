@@ -128,7 +128,11 @@ void signal_cb(uv_signal_t *watcher, int signum)
 }
 
 static void
-uv_timeout_cb_dumb_increment(uv_timer_t *w)
+uv_timeout_cb_dumb_increment(uv_timer_t *w
+#if UV_VERSION_MAJOR == 0
+		, int status
+#endif
+)
 {
 	lws_callback_on_writable_all_protocol(context,
 					&protocols[PROTOCOL_DUMB_INCREMENT]);
