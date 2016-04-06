@@ -122,13 +122,16 @@ LWS_VISIBLE int
 lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	int n, m, c;
+	int n = -1, m, c;
 	char buf;
 
 	/* stay dead once we are dead */
 
 	if (!context || !context->vhost_list)
 		return 1;
+
+	if (timeout_ms < 0)
+		goto faked_service;
 
 	lws_libev_run(context, tsi);
 	lws_libuv_run(context, tsi);
@@ -139,7 +142,8 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		memset(&_lws, 0, sizeof(_lws));
 		_lws.context = context;
 
-		context->service_tid_detected = context->vhost_list->protocols[0].callback(
+		context->service_tid_detected =
+			context->vhost_list->protocols[0].callback(
 			&_lws, LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 	}
 	context->service_tid = context->service_tid_detected;
@@ -158,6 +162,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 	}
 
+faked_service:
 	m = lws_service_flag_pending(context, tsi);
 	if (m)
 		c = -1; /* unknown limit */

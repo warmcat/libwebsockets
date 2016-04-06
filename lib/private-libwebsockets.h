@@ -598,6 +598,7 @@ struct lws_context_per_thread {
 	uv_loop_t *io_loop_uv;
 	uv_signal_t signals[8];
 	uv_timer_t uv_timeout_watcher;
+	uv_idle_t uv_idle;
 #endif
 #if defined(LWS_USE_LIBEV)
 	struct lws_io_watcher w_accept;
