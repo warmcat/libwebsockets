@@ -4,6 +4,7 @@ env:
   global:
     - secure: "KhAdQ9ja+LBObWNQTYO7Df5J4DyOih6S+eerDMu8UPSO+CoWV2pWoQzbOfocjyOscGOwC+2PrrHDNZyGfqkCLDXg1BxynXPCFerHC1yc2IajvKpGXmAAygNIvp4KACDfGv/dkXrViqIzr/CdcNaU4vIMHSVb5xkeLi0W1dPnQOI="
   matrix:
+    - LWS_METHOD=lwsws CMAKE_ARGS="-DLWS_WITH_LWSWS=ON"
     - LWS_METHOD=default
     - LWS_METHOD=noserver CMAKE_ARGS="-DLWS_WITHOUT_SERVER=ON"
     - LWS_METHOD=noclient CMAKE_ARGS="-DLWS_WITHOUT_CLIENT=ON"
@@ -18,16 +19,18 @@ env:
 os:
   - linux
   - osx
-language: c
+language: generic
 install:
   - ./travis_install.sh
 script:
   - if [ "$COVERITY_SCAN_BRANCH" != 1 ]; then mkdir build && cd build && cmake $CMAKE_ARGS .. && cmake --build .; fi
+sudo: required
+dist: trusty
 addons:
   coverity_scan:
     project:
       name: "warmcat/libwebsockets"
-    notification_email: andy.green@linaro.org
+    notification_email: andy@warmcat.com
     build_command_prepend: "mkdir build && cd build && cmake .."
     build_command:   "cmake --build ."
     branch_pattern: coverity_scan

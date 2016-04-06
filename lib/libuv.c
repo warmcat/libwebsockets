@@ -31,9 +31,13 @@ lws_feature_status_libuv(struct lws_context_creation_info *info)
 }
 
 static void
-lws_uv_idle(uv_idle_t *handle)
+lws_uv_idle(uv_idle_t *handle
+#if UV_VERSION_MAJOR == 0
+		, int status
+#endif
+)
 {
-	struct lws_context_per_thread *pt = container_of(handle,
+	struct lws_context_per_thread *pt = lws_container_of(handle,
 					struct lws_context_per_thread, uv_idle);
 
 	lwsl_debug("%s\n", __func__);
@@ -57,9 +61,9 @@ lws_uv_idle(uv_idle_t *handle)
 static void
 lws_io_cb(uv_poll_t *watcher, int status, int revents)
 {
-	struct lws_io_watcher *lws_io = container_of(watcher,
+	struct lws_io_watcher *lws_io = lws_container_of(watcher,
 					struct lws_io_watcher, uv_watcher);
-	struct lws *wsi = container_of(lws_io, struct lws, w_read);
+	struct lws *wsi = lws_container_of(lws_io, struct lws, w_read);
 	struct lws_context *context = lws_io->context;
 	struct lws_pollfd eventfd;
 
@@ -117,9 +121,13 @@ lws_uv_sigint_cfg(struct lws_context *context, int use_uv_sigint,
 }
 
 static void
-lws_uv_timeout_cb(uv_timer_t *timer)
+lws_uv_timeout_cb(uv_timer_t *timer
+#if UV_VERSION_MAJOR == 0
+		, int status
+#endif
+)
 {
-	struct lws_context_per_thread *pt = container_of(timer,
+	struct lws_context_per_thread *pt = lws_container_of(timer,
 			struct lws_context_per_thread, uv_timeout_watcher);
 
 	lwsl_debug("%s\n", __func__);
@@ -138,7 +146,12 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 
 	if (!loop) {
 		loop = lws_malloc(sizeof(*loop));
+#if UV_VERSION_MAJOR > 0
 		uv_loop_init(loop);
+#else
+		lwsl_err("This libuv is too old to work...\n");
+		return 1;
+#endif
 		pt->ev_loop_foreign = 0;
 	} else
 		pt->ev_loop_foreign = 1;
@@ -217,9 +230,11 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 		uv_stop(pt->io_loop_uv);
 		uv_walk(pt->io_loop_uv, lws_uv_walk_cb, NULL);
 		while (uv_run(pt->io_loop_uv, UV_RUN_NOWAIT));
+#if UV_VERSION_MAJOR > 0
 		m = uv_loop_close(pt->io_loop_uv);
 		if (m == UV_EBUSY)
 			lwsl_debug("%s: uv_loop_close: UV_EBUSY\n", __func__);
+#endif
 		lws_free(pt->io_loop_uv);
 	}
 }
@@ -298,9 +313,8 @@ lws_libuv_init_fd_table(struct lws_context *context)
 	if (!LWS_LIBUV_ENABLED(context))
 		return 0;
 
-	for (n = 0; n < context->count_threads; n++) {
+	for (n = 0; n < context->count_threads; n++)
 		context->pt[n].w_sigint.context = context;
-	}
 
 	return 1;
 }

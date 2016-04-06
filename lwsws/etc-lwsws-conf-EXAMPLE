@@ -1,0 +1,14 @@
+# these are the server global settings
+# stuff related to vhosts should go in one
+# file per vhost in ../conf.d/
+
+{
+  "global": {
+   "uid": "99",
+   "gid": "99",
+   "interface": "eth0",
+   "count-threads": "1",
+   "init-ssl": "yes"
+ }
+}
+

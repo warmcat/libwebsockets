@@ -707,6 +707,18 @@ lws_context_user(struct lws_context *context)
 	return context->user_space;
 }
 
+LWS_VISIBLE struct lws_vhost *
+lws_vhost_get(struct lws *wsi)
+{
+	return wsi->vhost;
+}
+
+LWS_VISIBLE const struct lws_protocols *
+lws_protocol_get(struct lws *wsi)
+{
+	return wsi->protocol;
+}
+
 
 /**
  * lws_callback_all_protocol() - Callback all connections using
@@ -730,6 +742,39 @@ lws_callback_all_protocol(struct lws_context *context,
 			if (!wsi)
 				continue;
 			if (wsi->protocol == protocol)
+				protocol->callback(wsi, reason, wsi->user_space,
+						   NULL, 0);
+		}
+		pt++;
+	}
+
+	return 0;
+}
+
+/**
+ * lws_callback_all_protocol_vhost() - Callback all connections using
+ *				the given protocol with the given reason
+ *
+ * @vh:		Vhost whose connections will get callbacks
+ * @protocol:	Which protocol to match
+ * @reason:	Callback reason index
+ */
+
+LWS_VISIBLE int
+lws_callback_all_protocol_vhost(struct lws_vhost *vh,
+			  const struct lws_protocols *protocol, int reason)
+{
+	struct lws_context *context = vh->context;
+	struct lws_context_per_thread *pt = &context->pt[0];
+	unsigned int n, m = context->count_threads;
+	struct lws *wsi;
+
+	while (m--) {
+		for (n = 0; n < pt->fds_count; n++) {
+			wsi = wsi_from_fd(context, pt->fds[n].fd);
+			if (!wsi)
+				continue;
+			if (wsi->vhost == vh && wsi->protocol == protocol)
 				protocol->callback(wsi, reason, wsi->user_space,
 						   NULL, 0);
 		}

@@ -3,6 +3,10 @@
 #include <pwd.h>
 #include <grp.h>
 
+#include <dlfcn.h>
+#include <dirent.h>
+
+
 /*
  * included from libwebsockets.c for unix builds
  */
@@ -294,6 +298,141 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 	}
 }
 
+#ifdef LWS_WITH_PLUGINS
+
+static int filter(const struct dirent *ent)
+{
+	if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
+		return 0;
+
+	return 1;
+}
+
+LWS_VISIBLE int
+lws_plat_plugins_init(struct lws_context * context, const char *d)
+{
+	struct lws_plugin_capability lcaps;
+	struct lws_plugin *plugin;
+	lws_plugin_init_func initfunc;
+	struct dirent **namelist;
+	int n, i, m, ret = 0;
+	char path[256];
+	void *l;
+
+
+	n = scandir(d, &namelist, filter, alphasort);
+	if (n < 0) {
+		lwsl_err("Scandir on %d failed\n", d);
+		return 1;
+	}
+
+	lwsl_notice("  Plugins:\n");
+
+	for (i = 0; i < n; i++) {
+		if (strlen(namelist[i]->d_name) < 7)
+			goto inval;
+
+		lwsl_notice("   %s\n", namelist[i]->d_name);
+
+		snprintf(path, sizeof(path) - 1, "%s/%s", d,
+			 namelist[i]->d_name);
+		l = dlopen(path, RTLD_NOW);
+		if (!l) {
+			lwsl_err("Error loading DSO: %s\n", dlerror());
+			while (i++ < n)
+				free(namelist[i]);
+			goto bail;
+		}
+		/* we could open it, can we get his init function? */
+		m = snprintf(path, sizeof(path) - 1, "init_%s",
+			     namelist[i]->d_name + 3 /* snip lib... */);
+		path[m - 3] = '\0'; /* snip the .so */
+		initfunc = dlsym(l, path);
+		if (!initfunc) {
+			lwsl_err("Failed to get init on %s: %s",
+					namelist[i]->d_name, dlerror());
+			dlclose(l);
+		}
+		lcaps.api_magic = LWS_PLUGIN_API_MAGIC;
+		m = initfunc(context, &lcaps);
+		if (m) {
+			lwsl_err("Initializing %s failed %d\n",
+				namelist[i]->d_name, m);
+			dlclose(l);
+			goto skip;
+		}
+
+		plugin = lws_malloc(sizeof(*plugin));
+		if (!plugin) {
+			lwsl_err("OOM\n");
+			goto bail;
+		}
+		plugin->list = context->plugin_list;
+		context->plugin_list = plugin;
+		strncpy(plugin->name, namelist[i]->d_name, sizeof(plugin->name) - 1);
+		plugin->name[sizeof(plugin->name) - 1] = '\0';
+		plugin->l = l;
+		plugin->caps = lcaps;
+		context->plugin_protocol_count += lcaps.count_protocols;
+		context->plugin_extension_count += lcaps.count_extensions;
+
+		free(namelist[i]);
+		continue;
+
+skip:
+		dlclose(l);
+inval:
+		free(namelist[i]);
+	}
+
+bail:
+	free(namelist);
+
+	return ret;
+}
+
+LWS_VISIBLE int
+lws_plat_plugins_destroy(struct lws_context * context)
+{
+	struct lws_plugin *plugin = context->plugin_list, *p;
+	lws_plugin_destroy_func func;
+	char path[256];
+	int m;
+
+	if (!plugin)
+		return 0;
+
+	lwsl_notice("%s\n", __func__);
+
+	while (plugin) {
+		p = plugin;
+		m = snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
+		path[m - 3] = '\0';
+		func = dlsym(plugin->l, path);
+		if (!func) {
+			lwsl_err("Failed to get destroy on %s: %s",
+					plugin->name, dlerror());
+			goto next;
+		}
+		m = func(context);
+		if (m)
+			lwsl_err("Initializing %s failed %d\n",
+				plugin->name, m);
+next:
+		dlclose(p->l);
+		plugin = p->list;
+		p->list = NULL;
+		free(p);
+	}
+
+	context->plugin_list = NULL;
+
+	return 0;
+}
+
+#endif
+
+
 static void
 sigpipe_handler(int x)
 {
@@ -325,6 +464,11 @@ lws_plat_context_late_destroy(struct lws_context *context)
 {
 	struct lws_context_per_thread *pt = &context->pt[0];
 	int m = context->count_threads;
+
+#ifdef LWS_WITH_PLUGINS
+	if (context->plugin_list)
+		lws_plat_plugins_destroy(context);
+#endif
 
 	if (context->lws_lookup)
 		lws_free(context->lws_lookup);
@@ -513,6 +657,7 @@ _lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 	return 0;
 }
 
+
 LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
 	      struct lws_context_creation_info *info)
@@ -564,6 +709,11 @@ lws_plat_init(struct lws_context *context,
 	context->fops.seek_cur	= _lws_plat_file_seek_cur;
 	context->fops.read	= _lws_plat_file_read;
 	context->fops.write	= _lws_plat_file_write;
+
+#ifdef LWS_WITH_PLUGINS
+	if (info->plugins_dir)
+		lws_plat_plugins_init(context, info->plugins_dir);
+#endif
 
 	return 0;
 }

@@ -280,6 +280,14 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 #define lwsl_hexdump(a, b)
 
 #endif
+
+#include <stddef.h>
+
+#ifndef lws_container_of
+#define lws_container_of(P,T,M)	((T *)((char *)(P) - offsetof(T, M)))
+#endif
+
+
 struct lws;
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
@@ -1293,6 +1301,26 @@ struct lws_extension {
 	 * This is part of the ABI, don't needlessly break compatibility */
 };
 
+#define LWS_PLUGIN_API_MAGIC 180
+
+struct lws_plugin_capability {
+	unsigned int api_magic;	/* caller fills this in, plugin fills rest */
+	const struct lws_protocols *protocols;
+	int count_protocols;
+	const struct lws_extension *extensions;
+	int count_extensions;
+};
+
+typedef int (*lws_plugin_init_func)(struct lws_context *,
+				    struct lws_plugin_capability *);
+typedef int (*lws_plugin_destroy_func)(struct lws_context *);
+struct lws_plugin {
+	struct lws_plugin *list;
+	void *l;
+	char name[64];
+	struct lws_plugin_capability caps;
+};
+
 /*
  * The internal exts are part of the public abi
  * If we add more extensions, publish the callback here  ------v
@@ -1414,6 +1442,7 @@ struct lws_context_creation_info {
 	unsigned int timeout_secs;			/* VH */
 	const char *ecdh_curve;				/* VH */
 	const char *vhost_name;				/* VH */
+	const char *plugins_dir;			/* context */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -1504,6 +1533,18 @@ LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 struct lws_context_creation_info *info,
 		 struct lws_http_mount *mounts);
+
+LWS_VISIBLE struct lws_vhost *
+lws_vhost_get(struct lws *wsi);
+
+LWS_VISIBLE const struct lws_protocols *
+lws_protocol_get(struct lws *wsi);
+
+LWS_VISIBLE void *
+lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols *prot,
+			    int size);
+LWS_VISIBLE void *
+lws_protocol_vh_priv_get(struct lws_vhost *vhost, const struct lws_protocols *prot);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_finalize_startup(struct lws_context *context);
@@ -1740,8 +1781,16 @@ LWS_VISIBLE LWS_EXTERN int
 lws_callback_on_writable_all_protocol(const struct lws_context *context,
 				      const struct lws_protocols *protocol);
 
+LWS_VISIBLE int
+lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
+				      const struct lws_protocols *protocol);
+
 LWS_VISIBLE LWS_EXTERN int
 lws_callback_all_protocol(struct lws_context *context,
+			  const struct lws_protocols *protocol, int reason);
+
+LWS_VISIBLE int
+lws_callback_all_protocol_vhost(struct lws_vhost *vh,
 			  const struct lws_protocols *protocol, int reason);
 
 LWS_VISIBLE LWS_EXTERN int

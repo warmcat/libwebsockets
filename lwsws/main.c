@@ -62,6 +62,7 @@ static struct lws_protocols protocols[] = {
 		sizeof (struct per_session_data__http),	/* per_session_data_size */
 		0,			/* max frame size / rx buffer */
 	},
+	{ }
 };
 
 void sighandler(int sig)
@@ -177,17 +178,16 @@ int main(int argc, char **argv)
 
 	info.max_http_header_pool = 16;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 |
-		LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
-#ifdef LWS_USE_LIBUV
-	info.options |= LWS_SERVER_OPTION_LIBUV;
-#endif
+			      LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+			      LWS_SERVER_OPTION_LIBUV;
+
+	info.plugins_dir = INSTALL_DATADIR"/libwebsockets-test-server/plugins/";
 
 	lwsl_notice("Using config dir: \"%s\"\n", config_dir);
 
 	/*
 	 *  first go through the config for creating the outer context
 	 */
-
 	if (lwsws_get_config_globals(&info, config_dir, &cs, &cs_len))
 		goto bail;
 
@@ -214,21 +214,14 @@ int main(int argc, char **argv)
 	if (lwsws_get_config_vhosts(context, &info, config_dir, &cs, &cs_len))
 		goto bail;
 
-#ifdef LWS_USE_LIBUV
 	lws_uv_sigint_cfg(context, 1, signal_cb);
 	lws_uv_initloop(context, NULL, 0);
-	lws_libuv_run(context, 0);
-#else
 
-	n = 0;
-	while (n >= 0 && !force_exit) {
-		n = lws_service(context, 50);
-	}
-#endif
+	lws_libuv_run(context, 0);
 
 bail:
 	lws_context_destroy(context);
-	lwsl_notice("lwsws exited cleanly\n");
+	fprintf(stderr, "lwsws exited cleanly\n");
 
 #ifndef _WIN32
 	closelog();
