@@ -372,13 +372,13 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 
 	/* 1) if we know we are draining rx ext, do not wait in poll */
 	if (pt->rx_draining_ext_list)
-		timeout_ms = 0;
+		return 0;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	/* 2) if we know we have non-network pending data, do not wait in poll */
 	if (lws_ssl_anybody_has_buffered_read_tsi(context, tsi)) {
-		timeout_ms = 0;
-		lwsl_err("ssl buffered read\n");
+		lwsl_info("ssl buffered read\n");
+		return 0;
 	}
 #endif
 
@@ -387,8 +387,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 		if (pt->ah_pool[n].rxpos != pt->ah_pool[n].rxlen) {
 			/* any ah with pending rx must be attached to someone */
 			assert(pt->ah_pool[n].wsi);
-			timeout_ms = 0;
-			break;
+			return 0;
 		}
 
 	return timeout_ms;
