@@ -1226,19 +1226,8 @@ if (LWS_WITH_LWSWS)
 		source_group("Sources"   FILES ${LWSWS_SRCS})
 		add_executable("lwsws" ${LWSWS_SRCS} ${LWSWS_HDR})
 
-		if (LWS_LINK_TESTAPPS_DYNAMIC)
-			if (NOT LWS_WITH_SHARED)
-				message(FATAL_ERROR "Build of the shared library is disabled. LWS_LINK_TESTAPPS_DYNAMIC must be combined with LWS_WITH_SHARED.")
-			endif()
-			target_link_libraries("lwsws" websockets_shared)
-			add_dependencies("lwsws" websockets_shared)
-		else()
-			if (NOT LWS_WITH_STATIC)
-				message(FATAL_ERROR "Build of the static library is disabled. Disabled LWS_LINK_TESTAPPS_DYNAMIC must be combined with LWS_WITH_STATIC.")
-			endif()
-			target_link_libraries("lwsws" websockets)
-			add_dependencies("lwsws" websockets)
-		endif()
+		target_link_libraries("lwsws" websockets_shared)
+		add_dependencies("lwsws" websockets_shared)
 
 		# Set test app specific defines.
 		set_property(TARGET "lwsws"
