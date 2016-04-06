@@ -31,10 +31,35 @@ lws_feature_status_libuv(struct lws_context_creation_info *info)
 }
 
 static void
+lws_uv_idle(uv_idle_t *handle)
+{
+	struct lws_context_per_thread *pt = container_of(handle,
+					struct lws_context_per_thread, uv_idle);
+
+	lwsl_debug("%s\n", __func__);
+
+	/*
+	 * is there anybody with pending stuff that needs service forcing?
+	 */
+	if (!lws_service_adjust_timeout(pt->context, 1, pt->tid)) {
+		/* -1 timeout means just do forced service */
+		lws_plat_service_tsi(pt->context, -1, pt->tid);
+		/* still somebody left who wants forced service? */
+		if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
+			/* yes... come back again later */
+			return;
+	}
+
+	/* there is nobody who needs service forcing, shut down idle */
+	uv_idle_stop(handle);
+}
+
+static void
 lws_io_cb(uv_poll_t *watcher, int status, int revents)
 {
 	struct lws_io_watcher *lws_io = container_of(watcher,
 					struct lws_io_watcher, uv_watcher);
+	struct lws *wsi = container_of(lws_io, struct lws, w_read);
 	struct lws_context *context = lws_io->context;
 	struct lws_pollfd eventfd;
 
@@ -67,6 +92,8 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 		}
 	}
 	lws_service_fd(context, &eventfd);
+
+	uv_idle_start(&context->pt[(int)wsi->tsi].uv_idle, lws_uv_idle);
 }
 
 LWS_VISIBLE void
@@ -95,8 +122,7 @@ lws_uv_timeout_cb(uv_timer_t *timer)
 	struct lws_context_per_thread *pt = container_of(timer,
 			struct lws_context_per_thread, uv_timeout_watcher);
 
-	lwsl_info("%s\n", __func__);
-	/* do timeout check only */
+	lwsl_debug("%s\n", __func__);
 	lws_service_fd_tsi(pt->context, NULL, pt->tid);
 }
 
@@ -131,6 +157,7 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, uv_signal_cb cb,
 		pt->ev_loop_foreign = 1;
 
 	pt->io_loop_uv = loop;
+	uv_idle_init(loop, &pt->uv_idle);
 
 	if (pt->context->use_ev_sigint) {
 		assert(ARRAY_SIZE(sigs) <= ARRAY_SIZE(pt->signals));

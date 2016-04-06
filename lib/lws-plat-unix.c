@@ -122,13 +122,16 @@ LWS_VISIBLE int
 lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	int n, m, c;
+	int n = -1, m, c;
 	char buf;
 
 	/* stay dead once we are dead */
 
 	if (!context)
 		return 1;
+
+	if (timeout_ms < 0)
+		goto faked_service;
 
 	lws_libev_run(context, tsi);
 	lws_libuv_run(context, tsi);
@@ -158,6 +161,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 	}
 
+faked_service:
 	m = lws_service_flag_pending(context, tsi);
 	if (m)
 		c = -1; /* unknown limit */

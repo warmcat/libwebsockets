@@ -176,6 +176,9 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	}
 	context->service_tid = context->service_tid_detected;
 
+	if (timeout_ms < 0)
+		goto faked_service;
+
 	for (i = 0; i < pt->fds_count; ++i) {
 		pfd = &pt->fds[i];
 		if (pfd->fd == pt->lserv_fd)
@@ -234,6 +237,8 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			wsi->sock_send_blocking = 0;
 	}
 
+faked_service:
+
 	/* if someone faked their LWS_POLLIN, then go through all active fds */
 
 	if (lws_service_flag_pending(context, tsi)) {
@@ -251,6 +256,9 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		}
 		return 0;
 	}
+
+	if (timeout_ms < 0)
+		return 0;
 
 	/* otherwise just do the one... must be a way to improve that... */
 
