@@ -1154,8 +1154,8 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		source_group("Sources"   FILES ${PLUGIN_SRCS})
 		add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SRCS} ${PLUGIN_HDR})
 		
-		target_link_libraries(${PLUGIN_NAME} websockets)
-		add_dependencies(${PLUGIN_NAME} websockets)
+		target_link_libraries(${PLUGIN_NAME} websockets_shared)
+		add_dependencies(${PLUGIN_NAME} websockets_shared)
 
 		# Set test app specific defines.
 		set_property(TARGET ${PLUGIN_NAME}
@@ -1385,7 +1385,7 @@ endif()
 
 if (LWS_WITH_PLUGINS)
 	install(TARGETS ${PLUGINS_LIST}
-		PERMISSIONS  OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE OWNER_READ GROUP_READ WORLD_READ
+		PERMISSIONS  OWNER_WRITE OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE OWNER_READ GROUP_READ WORLD_READ
 		DESTINATION share/libwebsockets-test-server/plugins
 		COMPONENT plugins)
 endif()
