@@ -134,8 +134,11 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	struct lws_pollargs *pa = (struct lws_pollargs *)in;
 #endif
 
+
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
+
+		lwsl_notice("lws_http_serve: %s\n",in);
 
 		if (debug_level & LLL_INFO) {
 			dump_handshake_info(wsi);
@@ -164,7 +167,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		/* this example server has no concept of directories */
 		if (strchr((const char *)in + 1, '/')) {
-			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+			lws_return_http_status(wsi, HTTP_STATUS_NOT_ACCEPTABLE, NULL);
 			goto try_to_reuse;
 		}
 

@@ -546,6 +546,23 @@ lws_parse(struct lws *wsi, unsigned char c)
 				if (issue_char(wsi, '/') < 0)
 					return -1;
 
+			if (wsi->u.hdr.ups == URIPS_SEEN_SLASH_DOT_DOT) {
+				/*
+				 * back up one dir level if possible
+				 * safe against header fragmentation because
+				 * the method URI can only be in 1 fragment
+				 */
+				if (ah->frags[ah->nfrag].len > 2) {
+					ah->pos--;
+					ah->frags[ah->nfrag].len--;
+					do {
+						ah->pos--;
+						ah->frags[ah->nfrag].len--;
+					} while (ah->frags[ah->nfrag].len > 1 &&
+						 ah->data[ah->pos] != '/');
+				}
+			}
+
 			/* begin parsing HTTP version: */
 			if (issue_char(wsi, '\0') < 0)
 				return -1;
@@ -553,7 +570,10 @@ lws_parse(struct lws *wsi, unsigned char c)
 			goto start_fragment;
 		}
 
-		/* special URI processing... convert %xx */
+		/*
+		 * PRIORITY 1
+		 * special URI processing... convert %xx
+		 */
 
 		switch (wsi->u.hdr.ues) {
 		case URIES_IDLE:
@@ -563,30 +583,19 @@ lws_parse(struct lws *wsi, unsigned char c)
 			}
 			break;
 		case URIES_SEEN_PERCENT:
-			if (char_to_hex(c) < 0) {
-				/* regurgitate */
-				if (issue_char(wsi, '%') < 0)
-					return -1;
-				wsi->u.hdr.ues = URIES_IDLE;
-				/* continue on to assess c */
-				break;
-			}
+			if (char_to_hex(c) < 0)
+				/* illegal post-% char */
+				goto forbid;
+
 			wsi->u.hdr.esc_stash = c;
 			wsi->u.hdr.ues = URIES_SEEN_PERCENT_H1;
 			goto swallow;
 
 		case URIES_SEEN_PERCENT_H1:
-			if (char_to_hex(c) < 0) {
-				/* regurgitate */
-				if (issue_char(wsi, '%') < 0)
-					return -1;
-				wsi->u.hdr.ues = URIES_IDLE;
-				/* regurgitate + assess */
-				if (lws_parse(wsi, wsi->u.hdr.esc_stash) < 0)
-					return -1;
-				/* continue on to assess c */
-				break;
-			}
+			if (char_to_hex(c) < 0)
+				/* illegal post-% char */
+				goto forbid;
+
 			c = (char_to_hex(wsi->u.hdr.esc_stash) << 4) |
 					char_to_hex(c);
 			enc = 1;
@@ -595,6 +604,7 @@ lws_parse(struct lws *wsi, unsigned char c)
 		}
 
 		/*
+		 * PRIORITY 2
 		 * special URI processing...
 		 *  convert /.. or /... or /../ etc to /
 		 *  convert /./ to /
@@ -653,20 +663,6 @@ lws_parse(struct lws *wsi, unsigned char c)
 		case URIPS_SEEN_SLASH_DOT:
 			/* swallow second . */
 			if (c == '.') {
-				/*
-				 * back up one dir level if possible
-				 * safe against header fragmentation because
-				 * the method URI can only be in 1 fragment
-				 */
-				if (ah->frags[ah->nfrag].len > 2) {
-					ah->pos--;
-					ah->frags[ah->nfrag].len--;
-					do {
-						ah->pos--;
-						ah->frags[ah->nfrag].len--;
-					} while (ah->frags[ah->nfrag].len > 1 &&
-						 ah->data[ah->pos] != '/');
-				}
 				wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT_DOT;
 				goto swallow;
 			}
@@ -682,19 +678,44 @@ lws_parse(struct lws *wsi, unsigned char c)
 			break;
 
 		case URIPS_SEEN_SLASH_DOT_DOT:
-			/* swallow prior .. chars and any subsequent . */
-			if (c == '.')
+
+			/* /../ or /..[End of URI] --> backup to last / */
+			if (c == '/' || c == '?') {
+				/*
+				 * back up one dir level if possible
+				 * safe against header fragmentation because
+				 * the method URI can only be in 1 fragment
+				 */
+				if (ah->frags[ah->nfrag].len > 2) {
+					ah->pos--;
+					ah->frags[ah->nfrag].len--;
+					do {
+						ah->pos--;
+						ah->frags[ah->nfrag].len--;
+					} while (ah->frags[ah->nfrag].len > 1 &&
+						 ah->data[ah->pos] != '/');
+				}
+				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
+				if (ah->frags[ah->nfrag].len > 1)
+					break;
 				goto swallow;
-			/* last issued was /, so another / == // */
-			if (c == '/')
-				goto swallow;
-			/* last we issued was / so SEEN_SLASH */
-			wsi->u.hdr.ups = URIPS_SEEN_SLASH;
+			}
+
+			/*  /..[^/] ... regurgitate and allow */
+
+			if (issue_char(wsi, '.') < 0)
+				return -1;
+			if (issue_char(wsi, '.') < 0)
+				return -1;
+			wsi->u.hdr.ups = URIPS_IDLE;
 			break;
 		}
 
 		if (c == '?' && !enc &&
 		    !ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS]) { /* start of URI arguments */
+			if (wsi->u.hdr.ues != URIES_IDLE)
+				goto forbid;
+
 			/* seal off uri header */
 			if (issue_char(wsi, '\0') < 0)
 				return -1;
@@ -714,10 +735,12 @@ lws_parse(struct lws *wsi, unsigned char c)
 		}
 
 check_eol:
-
 		/* bail at EOL */
 		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE &&
 		    c == '\x0d') {
+			if (wsi->u.hdr.ues != URIES_IDLE)
+				goto forbid;
+
 			c = '\0';
 			wsi->u.hdr.parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 			lwsl_parser("*\n");
@@ -763,7 +786,7 @@ swallow:
 			 */
 			if (m == ARRAY_SIZE(methods)) {
 				lwsl_info("Unknown method - dropping\n");
-				return -1;
+				goto forbid;
 			}
 			break;
 		}
@@ -851,6 +874,8 @@ excessive:
 
 	case WSI_TOKEN_SKIPPING_SAW_CR:
 		lwsl_parser("WSI_TOKEN_SKIPPING_SAW_CR '%c'\n", c);
+		if (wsi->u.hdr.ues != URIES_IDLE)
+			goto forbid;
 		if (c == '\x0a') {
 			wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
 			wsi->u.hdr.lextable_pos = 0;
@@ -867,7 +892,8 @@ excessive:
 	return 0;
 
 set_parsing_complete:
-
+	if (wsi->u.hdr.ues != URIES_IDLE)
+		goto forbid;
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_VERSION))
 			wsi->ietf_spec_revision =
@@ -879,6 +905,11 @@ set_parsing_complete:
 	wsi->hdr_parsing_completed = 1;
 
 	return 0;
+
+forbid:
+	lwsl_notice(" forbidding on uri sanitation\n");
+	lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+	return -1;
 }
 
 
