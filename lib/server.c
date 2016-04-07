@@ -376,7 +376,7 @@ lws_http_action(struct lws *wsi)
 			goto bail_nuke_ah;
 		if (lws_add_http_header_status(wsi, 301, &p, end))
 			goto bail_nuke_ah;
-		n = sprintf((char *)end, "htt	struct lws_http_mount *hm;ps://%s/",
+		n = sprintf((char *)end, "https://%s/",
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
 				end, n, &p, end))
