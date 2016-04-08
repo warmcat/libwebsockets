@@ -514,6 +514,7 @@ enum lws_extension_callback_reasons {
 	LWS_EXT_CB_OPTION_DEFAULT			= 23,
 	LWS_EXT_CB_OPTION_SET				= 24,
 	LWS_EXT_CB_OPTION_CONFIRM			= 25,
+	LWS_EXT_CB_NAMED_OPTION_SET			= 26,
 
 	/****** add new things just above ---^ ******/
 };
@@ -1279,6 +1280,7 @@ struct lws_ext_options {
 };
 
 struct lws_ext_option_arg {
+	const char *option_name; /* may be NULL, option_index used then */
 	int option_index;
 	const char *start;
 	int len;
@@ -1330,6 +1332,10 @@ extern int lws_extension_callback_pm_deflate(
 	struct lws_context *context, const struct lws_extension *ext,
 	struct lws *wsi, enum lws_extension_callback_reasons reason,
 	void *user, void *in, size_t len);
+
+LWS_EXTERN int
+lws_set_extension_option(struct lws *wsi, const char *ext_name,
+			 const char *opt_name, const char *opt_val);
 
 
 /**

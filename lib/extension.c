@@ -27,6 +27,8 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 		     pending_close_quote = 0;
 	struct lws_ext_option_arg oa;
 
+	oa.option_name = NULL;
+
 	while (opts[count_options].name)
 		count_options++;
 	while (len) {
@@ -314,4 +316,38 @@ lws_any_extension_handled(struct lws *wsi, enum lws_extension_callback_reasons r
 	}
 
 	return handled;
+}
+
+/**
+ * lws_set_extension_option(): set extension option if possible
+ *
+ * @wsi:	websocket connection
+ * @ext_name:	name of ext, like "permessage-deflate"
+ * @opt_name:	name of option, like "rx_buf_size"
+ * @opt_val:	value to set option to
+ */
+
+int
+lws_set_extension_option(struct lws *wsi, const char *ext_name,
+			 const char *opt_name, const char *opt_val)
+{
+	struct lws_ext_option_arg oa;
+	int idx = 0;
+
+	/* first identify if the ext is active on this wsi */
+	while (idx < wsi->count_act_ext &&
+	       strcmp(wsi->active_extensions[idx]->name, ext_name))
+		idx++;
+
+	if (idx == wsi->count_act_ext)
+		return -1; /* request ext not active on this wsi */
+
+	oa.option_name = opt_name;
+	oa.option_index = 0;
+	oa.start = opt_val;
+	oa.len = 0;
+
+	return wsi->active_extensions[idx]->callback(
+			wsi->context, wsi->active_extensions[idx], wsi,
+			LWS_EXT_CB_NAMED_OPTION_SET, wsi->act_ext_user[idx], &oa, 0);
 }

@@ -41,6 +41,28 @@ const struct lws_ext_options lws_ext_pm_deflate_options[] = {
 	{ NULL, 0 }, /* sentinel */
 };
 
+static void
+lws_extension_pmdeflate_restrict_args(struct lws *wsi,
+				      struct lws_ext_pm_deflate_priv *priv)
+{
+	int n, extra;
+
+	/* cap the RX buf at the nearest power of 2 to protocol rx buf */
+
+	n = LWS_MAX_SOCKET_IO_BUF;
+	if (wsi->protocol->rx_buffer_size)
+		n =  wsi->protocol->rx_buffer_size;
+
+	extra = 7;
+	while (n >= 1 << (extra + 1))
+		extra++;
+
+	if (extra < priv->args[PMD_RX_BUF_PWR2]) {
+		priv->args[PMD_RX_BUF_PWR2] = extra;
+		lwsl_err(" Capping pmd rx to %d\n", 1 << extra);
+	}
+}
+
 LWS_VISIBLE int
 lws_extension_callback_pm_deflate(struct lws_context *context,
 				  const struct lws_extension *ext,
@@ -56,6 +78,20 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 	struct lws_ext_option_arg *oa;
 
 	switch (reason) {
+	case LWS_EXT_CB_NAMED_OPTION_SET:
+		oa = in;
+		if (!oa->option_name)
+			break;
+		for (n = 0; n < ARRAY_SIZE(lws_ext_pm_deflate_options); n++)
+			if (!strcmp(lws_ext_pm_deflate_options[n].name, oa->option_name))
+				break;
+
+		if (n == ARRAY_SIZE(lws_ext_pm_deflate_options))
+			break;
+		oa->option_index = n;
+
+		/* fallthru */
+
 	case LWS_EXT_CB_OPTION_SET:
 		oa = in;
 		lwsl_info("%s: option set: idx %d, %s, len %d\n", __func__,
@@ -64,7 +100,10 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			priv->args[oa->option_index] = atoi(oa->start);
 		else
 			priv->args[oa->option_index] = 1;
+
+		lws_extension_pmdeflate_restrict_args(wsi, priv);
 		break;
+
 	case LWS_EXT_CB_OPTION_CONFIRM:
 		if (priv->args[PMD_SERVER_MAX_WINDOW_BITS] < 8 ||
 		    priv->args[PMD_SERVER_MAX_WINDOW_BITS] > 15 ||
@@ -94,7 +133,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 		/* fill in pointer to options list */
 		if (in)
-			*((const struct lws_ext_options **)in) = lws_ext_pm_deflate_options;
+			*((const struct lws_ext_options **)in) =
+					lws_ext_pm_deflate_options;
 
 		/* fallthru */
 
@@ -114,22 +154,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		priv->args[PMD_COMP_LEVEL] = 1;
 		priv->args[PMD_MEM_LEVEL] = 8;
 
-		/* cap the RX buf at the nearest power of 2 to protocol rx buf */
-
-		n = LWS_MAX_SOCKET_IO_BUF;
-		if (wsi->protocol->rx_buffer_size)
-			n =  wsi->protocol->rx_buffer_size;
-
-		extra = 7;
-		while (n >= 1 << (extra + 1))
-			extra++;
-
-		if (extra < priv->args[PMD_RX_BUF_PWR2]) {
-			priv->args[PMD_RX_BUF_PWR2] = extra;
-			lwsl_err(" Capping pmd rx to %d\n", 1 << extra);
-		}
-		lwsl_err("   ok\n");
-
+		lws_extension_pmdeflate_restrict_args(wsi, priv);
 		break;
 
 	case LWS_EXT_CB_DESTROY:

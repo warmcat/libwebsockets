@@ -394,3 +394,25 @@ LWS_SERVER_OPTION_LIBEV
 LWS_SERVER_OPTION_LIBUV
 
 to indicate it will use either of the event libraries.
+
+
+Extension option control from user code
+---------------------------------------
+
+User code may set per-connection extension options now, using a new api
+"lws_set_extension_option()".
+
+This should be called from the ESTABLISHED callback like this
+
+ lws_set_extension_option(wsi, "permessage-deflate",
+                          "rx_buf_size", "12"); /* 1 << 12 */
+
+If the extension is not active (missing or not negotiated for the
+connection, or extensions are disabled on the library) the call is
+just returns -1.  Otherwise the connection's extension has its
+named option changed.
+
+The extension may decide to alter or disallow the change, in the
+example above permessage-deflate restricts the size of his rx
+output buffer also considering the protocol's rx_buf_size member.
+

@@ -2024,3 +2024,12 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 	return 0;
 }
 #endif
+
+#ifdef LWS_NO_EXTENSIONS
+LWS_EXTERN int
+lws_set_extension_option(struct lws *wsi, const char *ext_name,
+			 const char *opt_name, const char *opt_val)
+{
+	return -1;
+}
+#endif
