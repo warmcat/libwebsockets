@@ -191,6 +191,12 @@ static const char * get_mimetype(const char *file)
 	if (!strcmp(&file[n - 4], ".ico"))
 		return "image/x-icon";
 
+	if (!strcmp(&file[n - 4], ".gif"))
+		return "image/gif";
+
+	if (!strcmp(&file[n - 3], ".js"))
+		return "text/javascript";
+
 	if (!strcmp(&file[n - 4], ".png"))
 		return "image/png";
 
@@ -202,6 +208,9 @@ static const char * get_mimetype(const char *file)
 
 	if (!strcmp(&file[n - 4], ".css"))
 		return "text/css";
+
+	if (!strcmp(&file[n - 4], ".ttf"))
+		return "application/x-font-ttf";
 
 	return NULL;
 }
@@ -233,9 +242,7 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 int
 lws_http_action(struct lws *wsi)
 {
-#ifdef LWS_OPENSSL_SUPPORT
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-#endif
 	enum http_connection_type connection_type;
 	enum http_version request_version;
 	char content_length_str[32];
@@ -395,7 +402,6 @@ lws_http_action(struct lws *wsi)
 
 	hm = wsi->vhost->mount_list;
 	while (hm) {
-		lwsl_err("a %p\n", hm);
 		if (uri_len >= hm->mountpoint_len &&
 		    !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len)) {
 			if (hm->mountpoint_len > best) {
@@ -405,23 +411,75 @@ lws_http_action(struct lws *wsi)
 		}
 		hm = hm->mount_next;
 	}
-lwsl_err("x\n");
 	if (hit) {
 		char *s = uri_ptr + hit->mountpoint_len;
 
-		if (s[0] == '\0')
+		lwsl_err("*** hit %d %d %s\n", hit->mountpoint_len, hit->origin_protocol , hit->origin);
+
+		/*
+		 * if we have a mountpoint like https://xxx.com/yyy
+		 * there is an implied / at the end for our purposes since
+		 * we can only mount on a "directory".
+		 *
+		 * But if we just go with that, the browser cannot understand
+		 * that he is actually looking down one "directory level", so
+		 * even though we give him /yyy/abc.html he acts like the
+		 * current directory level is /.  So relative urls like "x.png"
+		 * wrongly look outside the mountpoint.
+		 *
+		 * Therefore if we didn't come in on a url with an explicit
+		 * / at the end, we must redirect to add it so the browser
+		 * understands he is one "directory level" down.
+		 */
+		if (hit->mountpoint_len > 1 || (hit->origin_protocol & 4))
+			if (*s != '/' || (hit->origin_protocol & 4)) {
+				unsigned char *start = pt->serv_buf + LWS_PRE,
+					      *p = start, *end = p + 512;
+				static const char *oprot[] = {
+					"http://", "https://"
+				};
+
+				if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
+					goto bail_nuke_ah;
+				if (lws_add_http_header_status(wsi, 301, &p, end))
+					goto bail_nuke_ah;
+
+				lwsl_err("**** %s", hit->origin);
+
+				/* > at start indicates deal with by redirect */
+				if (hit->origin_protocol & 4)
+					n = snprintf((char *)end, 256, "%s%s",
+						    oprot[hit->origin_protocol & 1],
+						    hit->origin);
+				else
+					n = snprintf((char *)end, 256,
+					    "https://%s/%s/",
+					    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
+					    uri_ptr);
+				if (lws_add_http_header_by_token(wsi,
+						WSI_TOKEN_HTTP_LOCATION,
+						end, n, &p, end))
+					goto bail_nuke_ah;
+				if (lws_finalize_http_header(wsi, &p, end))
+					goto bail_nuke_ah;
+				n = lws_write(wsi, start, p - start,
+						LWS_WRITE_HTTP_HEADERS);
+				if ((int)n < 0)
+					goto bail_nuke_ah;
+
+				return lws_http_transaction_completed(wsi);
+			}
+
+		if (s[0] == '\0' || (s[0] == '/' && s[1] == '\0'))
 			s = (char *)hit->def;
 
 		if (!s)
 			s = "index.html";
-lwsl_err("b\n");
 		n = lws_http_serve(wsi, s, hit->origin);
-	} else {
-		lwsl_err("c\n");
-
+	} else
 		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
-	}
+
 	if (n) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
 
@@ -895,22 +953,11 @@ lws_http_transaction_completed(struct lws *wsi)
 	return 0;
 }
 
-/**
- * lws_adopt_socket() - adopt foreign socket as if listen socket accepted it
- * @context: lws context
- * @accept_fd: fd of already-accepted socket to adopt
- *
- * Either returns new wsi bound to accept_fd, or closes accept_fd and
- * returns NULL, having cleaned up any new wsi pieces.
- *
- * LWS adopts the socket in http serving mode, it's ready to accept an upgrade
- * to ws or just serve http.
- */
-
-LWS_VISIBLE struct lws *
-lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
+static struct lws *
+lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 {
-	struct lws *new_wsi = lws_create_new_server_wsi(context->vhost_list);
+	struct lws_context *context = vh->context;
+	struct lws *new_wsi = lws_create_new_server_wsi(vh);
 
 	if (!new_wsi) {
 		compatible_close(accept_fd);
@@ -961,6 +1008,25 @@ fail:
 
 	return NULL;
 }
+
+/**
+ * lws_adopt_socket() - adopt foreign socket as if listen socket accepted it
+ * @context: lws context
+ * @accept_fd: fd of already-accepted socket to adopt
+ *
+ * Either returns new wsi bound to accept_fd, or closes accept_fd and
+ * returns NULL, having cleaned up any new wsi pieces.
+ *
+ * LWS adopts the socket in http serving mode, it's ready to accept an upgrade
+ * to ws or just serve http.
+ */
+
+LWS_VISIBLE struct lws *
+lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
+{
+	return lws_adopt_socket_vhost(context->vhost_list, accept_fd);
+}
+
 
 /**
  * lws_adopt_socket_readbuf() - adopt foreign socket and first rx as if listen socket accepted it
@@ -1273,7 +1339,7 @@ try_pollout:
 				break;
 			}
 
-			if (!lws_adopt_socket(context, accept_fd))
+			if (!lws_adopt_socket_vhost(wsi->vhost, accept_fd))
 				/* already closed cleanly as necessary */
 				return 1;
 

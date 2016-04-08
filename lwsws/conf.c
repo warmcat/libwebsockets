@@ -50,7 +50,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].default",
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
-	"vhosts[].ws-protocols[]"
+	"vhosts[].ws-protocols[]",
 };
 
 enum lejp_vhost_paths {

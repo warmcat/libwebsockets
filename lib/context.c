@@ -44,7 +44,9 @@ static const char * const mount_protocols[] = {
 	"http://",
 	"https://",
 	"file://",
-	"cgi://"
+	"cgi://",
+	">http://",
+	">https://",
 };
 
 LWS_VISIBLE LWS_EXTERN int
@@ -70,6 +72,7 @@ lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
 	m->mount_next = NULL;
 	if (next)
 		next->mount_next = m;
+
 	for (n = 0; n < ARRAY_SIZE(mount_protocols); n++)
 		if (!strncmp(origin, mount_protocols[n],
 		     strlen(mount_protocols[n]))) {
