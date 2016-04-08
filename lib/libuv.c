@@ -408,3 +408,134 @@ lws_libuv_closehandle(struct lws *wsi)
 	if (context->requested_kill && context->count_wsi_allocated == 0)
 		lws_libuv_kill(context);
 }
+
+#if defined(LWS_WITH_PLUGINS) && (UV_VERSION_MAJOR > 0)
+
+LWS_VISIBLE int
+lws_plat_plugins_init(struct lws_context * context, const char *d)
+{
+	struct lws_plugin_capability lcaps;
+	struct lws_plugin *plugin;
+	lws_plugin_init_func initfunc;
+	int m, ret = 0;
+	void *v;
+	uv_dirent_t dent;
+	uv_fs_t req;
+	char path[256];
+	uv_loop_t loop;
+	uv_lib_t lib;
+
+	lib.errmsg = NULL;
+	lib.handle = NULL;
+
+	uv_loop_init(&loop);
+
+	if (!uv_fs_scandir(&loop, &req, d, 0, NULL)) {
+		lwsl_err("Scandir on %s failed\n", d);
+		return 1;
+	}
+
+	lwsl_notice("  Plugins:\n");
+
+	while (uv_fs_scandir_next(&req, &dent) != UV_EOF) {
+		if (strlen(dent.name) < 7)
+			continue;
+
+		lwsl_notice("   %s\n", dent.name);
+
+		snprintf(path, sizeof(path) - 1, "%s/%s", d, dent.name);
+		if (uv_dlopen(path, &lib)) {
+			uv_dlerror(&lib);
+			lwsl_err("Error loading DSO: %s\n", lib.errmsg);
+			goto bail;
+		}
+		/* we could open it, can we get his init function? */
+		m = snprintf(path, sizeof(path) - 1, "init_%s",
+			     dent.name + 3 /* snip lib... */);
+		path[m - 3] = '\0'; /* snip the .so */
+		if (uv_dlsym(&lib, path, &v)) {
+			uv_dlerror(&lib);
+			lwsl_err("Failed to get init on %s: %s",
+					dent.name, lib.errmsg);
+			goto bail;
+		}
+		initfunc = (lws_plugin_init_func)v;
+		lcaps.api_magic = LWS_PLUGIN_API_MAGIC;
+		m = initfunc(context, &lcaps);
+		if (m) {
+			lwsl_err("Initializing %s failed %d\n", dent.name, m);
+			goto skip;
+		}
+
+		plugin = lws_malloc(sizeof(*plugin));
+		if (!plugin) {
+			lwsl_err("OOM\n");
+			goto bail;
+		}
+		plugin->list = context->plugin_list;
+		context->plugin_list = plugin;
+		strncpy(plugin->name, dent.name, sizeof(plugin->name) - 1);
+		plugin->name[sizeof(plugin->name) - 1] = '\0';
+		plugin->lib = lib;
+		plugin->caps = lcaps;
+		context->plugin_protocol_count += lcaps.count_protocols;
+		context->plugin_extension_count += lcaps.count_extensions;
+
+		continue;
+
+skip:
+		uv_dlclose(&lib);
+	}
+
+bail:
+	uv_fs_req_cleanup(&req);
+	uv_loop_close(&loop);
+
+	return ret;
+
+}
+
+LWS_VISIBLE int
+lws_plat_plugins_destroy(struct lws_context * context)
+{
+	struct lws_plugin *plugin = context->plugin_list, *p;
+	lws_plugin_destroy_func func;
+	char path[256];
+	void *v;
+	int m;
+
+	if (!plugin)
+		return 0;
+
+	lwsl_notice("%s\n", __func__);
+
+	while (plugin) {
+		p = plugin;
+		m = snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
+		path[m - 3] = '\0';
+
+		if (uv_dlsym(&plugin->lib, path, &v)) {
+			uv_dlerror(&plugin->lib);
+			lwsl_err("Failed to get init on %s: %s",
+					plugin->name, plugin->lib.errmsg);
+		} else {
+			func = (lws_plugin_destroy_func)v;
+			m = func(context);
+			if (m)
+				lwsl_err("Destroying %s failed %d\n",
+						plugin->name, m);
+		}
+
+		uv_dlclose(&p->lib);
+		plugin = p->list;
+		p->list = NULL;
+		free(p);
+	}
+
+	context->plugin_list = NULL;
+
+	return 0;
+}
+
+#endif
+

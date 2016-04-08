@@ -1305,6 +1305,11 @@ struct lws_extension {
 	 * This is part of the ABI, don't needlessly break compatibility */
 };
 
+
+#ifdef LWS_WITH_PLUGINS
+
+/* PLUGINS implies LIBUV */
+
 #define LWS_PLUGIN_API_MAGIC 180
 
 struct lws_plugin_capability {
@@ -1320,10 +1325,16 @@ typedef int (*lws_plugin_init_func)(struct lws_context *,
 typedef int (*lws_plugin_destroy_func)(struct lws_context *);
 struct lws_plugin {
 	struct lws_plugin *list;
+#if (UV_VERSION_MAJOR > 0)
+	uv_lib_t lib;
+#else
 	void *l;
+#endif
 	char name[64];
 	struct lws_plugin_capability caps;
 };
+
+#endif
 
 /*
  * The internal exts are part of the public abi

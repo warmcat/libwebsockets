@@ -345,6 +345,41 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 	return 0;
 }
 
+#if defined(LWS_USE_LIBUV) && UV_VERSION_MAJOR > 0
+
+static int
+lwsws_get_config_d(void *user, const char *d, const char * const *paths,
+		   int count_paths, lejp_callback cb)
+{
+	uv_dirent_t dent;
+	uv_fs_t req;
+	char path[256];
+	int ret = 0;
+	uv_loop_t loop;
+
+	uv_loop_init(&loop);
+
+	if (!uv_fs_scandir(&loop, &req, d, 0, NULL)) {
+		lwsl_err("Scandir on %s failed\n", d);
+		return 1;
+	}
+
+	while (uv_fs_scandir_next(&req, &dent) != UV_EOF) {
+		snprintf(path, sizeof(path) - 1, "%s/%s", d, dent.name);
+		ret = lwsws_get_config(user, path, paths, count_paths, cb);
+		if (ret)
+			goto bail;
+	}
+
+bail:
+	uv_fs_req_cleanup(&req);
+	uv_loop_close(&loop);
+
+	return ret;
+}
+
+#else
+
 #ifndef _WIN32
 static int filter(const struct dirent *ent)
 {
@@ -389,6 +424,8 @@ bail:
 	return 0;
 #endif
 }
+
+#endif
 
 int
 lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,

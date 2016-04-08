@@ -763,6 +763,12 @@ lws_close_free_wsi_final(struct lws *wsi);
 LWS_EXTERN void
 lws_libuv_closehandle(struct lws *wsi);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_plat_plugins_init(struct lws_context * context, const char *d);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_plat_plugins_destroy(struct lws_context * context);
+
 enum {
 	LWS_EV_READ = (1 << 0),
 	LWS_EV_WRITE = (1 << 1),
