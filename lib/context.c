@@ -79,6 +79,10 @@ lws_create_context(struct lws_context_creation_info *info)
 #endif
 	char *p;
 	int n, m;
+#if defined(__ANDROID__)
+	struct rlimit rt;
+#endif
+
 
 	lwsl_notice("Initial logging level %d\n", log_level);
 	lwsl_notice("Libwebsockets version: %s\n", library_version);
@@ -115,7 +119,16 @@ lws_create_context(struct lws_context_creation_info *info)
 		lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
 	}
 #endif
-	context->max_fds = getdtablesize();
+#if defined(__ANDROID__)
+		n = getrlimit ( RLIMIT_NOFILE,&rt);
+		if (-1 == n) {
+			lwsl_err("Get RLIMIT_NOFILE failed!\n");
+			return NULL;
+		}
+		context->max_fds = rt.rlim_cur;
+#else
+		context->max_fds = getdtablesize();
+#endif
 
 	if (info->count_threads)
 		context->count_threads = info->count_threads;
