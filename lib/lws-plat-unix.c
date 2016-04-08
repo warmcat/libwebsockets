@@ -300,6 +300,12 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 
 #ifdef LWS_WITH_PLUGINS
 
+#if defined(LWS_USE_LIBUV) && UV_VERSION_MAJOR > 0
+
+/* libuv.c implements these in a cross-platform way */
+
+#else
+
 static int filter(const struct dirent *ent)
 {
 	if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
@@ -322,7 +328,7 @@ lws_plat_plugins_init(struct lws_context * context, const char *d)
 
 	n = scandir(d, &namelist, filter, alphasort);
 	if (n < 0) {
-		lwsl_err("Scandir on %d failed\n", d);
+		lwsl_err("Scandir on %s failed\n", d);
 		return 1;
 	}
 
@@ -430,6 +436,7 @@ next:
 	return 0;
 }
 
+#endif
 #endif
 
 

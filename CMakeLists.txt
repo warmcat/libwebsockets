@@ -100,6 +100,11 @@ if (LWS_WITH_LWSWS)
  set(LWS_WITH_LIBUV 1)
 endif()
 
+if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
+message(STATUS "LWS_WITH_PLUGINS --> Enabling LWS_WITH_LIBUV")
+ set(LWS_WITH_LIBUV 1)
+endif()
+
 if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
 
 set(LWS_WITH_SHARED OFF)
@@ -118,9 +123,6 @@ endif()
 if (WIN32)
 # this implies no pthreads in the lib
 set(LWS_MAX_SMP 1)
-
-# plugin stuff not implemented in win32 plat
-set (LWS_WITH_PLUGINS OFF)
 endif()
 
 
