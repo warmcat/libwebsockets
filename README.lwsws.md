@@ -68,32 +68,56 @@ Listing multiple vhosts looks something like this
 
 ```
 {
-        "vhosts": [{
-                "name": "warmcat.com",
-                "port": "443",
-                "host-ssl-key": "/etc/pki/tls/private/warmcat.com.key",
-                "host-ssl-cert": "/etc/pki/tls/certs/warmcat.com.crt",
-                "host-ssl-ca": "/etc/pki/tls/certs/warmcat.com.cer",
-                "mounts": [{
-                        "mountpoint": "/",
-                        "origin": "file:///var/www/warmcat.com",
-                        "default": "index.html"
-                }]
-        }, {
-                "name": "warmcat2.com",
-                "port": "443",
-                "host-ssl-key": "/etc/pki/tls/private/warmcat.com.key",
-                "host-ssl-cert": "/etc/pki/tls/certs/warmcat.com.crt",
-                "host-ssl-ca": "/etc/pki/tls/certs/warmcat.com.cer",
-                "mounts": [{
-                        "mountpoint": "/",
-                        "origin": "file:///var/www/warmcat2.com",
-                        "default": "index.html"
-                }]
-        }
-]
+ "vhosts": [ {
+     "name": "localhost",
+     "port": "443",
+     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
+     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
+     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
+     "mounts": [{
+       "mountpoint": "/",
+       "origin": "file:///var/www/libwebsockets.org",
+       "default": "index.html"
+       }, {
+        "mountpoint": "/testserver",
+        "origin": "file:///usr/local/share/libwebsockets-test-server",
+        "default": "test.html"
+       }],
+     # which protocols are enabled for this vhost, and optional
+     # vhost-specific config options for the protocol
+     #
+     "ws-protocols": [{
+       "warmcat,timezoom": {
+         "status": "ok"
+       }
+     }]
+    },
+    {
+    "name": "localhost",
+    "port": "7681",
+     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
+     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
+     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
+     "mounts": [{
+       "mountpoint": "/",
+       "origin": ">https://localhost"
+     }]
+   },
+    {
+    "name": "localhost",
+    "port": "80",
+     "mounts": [{
+       "mountpoint": "/",
+       "origin": ">https://localhost"
+     }]
+   }
+
+  ]
 }
 ```
+
+That sets up three vhosts all called "localhost" on ports 443 and 7681 with SSL, and port 80 without SSL but with a forced redirect to https://localhost
+
 
 Vhost name and port
 -------------------
@@ -101,10 +125,10 @@ Vhost name and port
 The vhost name field is used to match on incoming SNI or Host: header, so it
 must always be the host name used to reach the vhost externally.
 
-Vhosts may have the same name and different ports, these will each create a
+ - Vhosts may have the same name and different ports, these will each create a
 listening socket on the appropriate port.
 
-They may also have the same port and different name: these will be treated as
+ - Vhosts may also have the same port and different name: these will be treated as
 true vhosts on one listening socket and the active vhost decided at SSL
 negotiation time (via SNI) or if no SSL, then after the Host: header from
 the client has been parsed.
@@ -147,4 +171,21 @@ To help that happen conveniently, there are some new apis
  
 dumb increment, mirror and status protocol plugins are provided as examples.
 
+
+Protocols
+---------
+
+Vhosts by default have available the union of any initial protocols from context creation time, and
+any protocols exposed by plugins.
+
+Vhosts can select which plugins they want to offer and give them per-vhost settings using this syntax
+
+```	
+     "ws-protocols": [{
+       "warmcat,timezoom": {
+         "status": "ok"
+       }
+     }]
+
+```
 

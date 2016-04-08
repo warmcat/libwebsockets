@@ -129,10 +129,26 @@ lws_protocol_vh_priv_get(struct lws_vhost *vhost, const struct lws_protocols *pr
 	return vhost->protocol_vh_privs[n];
 }
 
+static struct lws_protocol_vhost_options *
+lws_vhost_protocol_options(struct lws_vhost *vh, const char *name)
+{
+	struct lws_protocol_vhost_options *pvo = vh->pvo;
+
+	while (pvo) {
+		// lwsl_notice("%s: '%s' '%s'\n", __func__, pvo->name, name);
+		if (!strcmp(pvo->name, name))
+			return pvo;
+		pvo = pvo->next;
+	}
+
+	return NULL;
+}
+
 int
 lws_protocol_init(struct lws_context *context)
 {
 	struct lws_vhost *vh = context->vhost_list;
+	struct lws_protocol_vhost_options *pvo;
 	struct lws wsi;
 	int n;
 
@@ -147,6 +163,15 @@ lws_protocol_init(struct lws_context *context)
 		for (n = 0; n < vh->count_protocols; n++) {
 			wsi.protocol = &vh->protocols[n];
 
+			pvo = lws_vhost_protocol_options(vh,
+							 vh->protocols[n].name);
+			if (pvo)
+				/*
+				 * linked list of options specific to
+				 * vh + protocol
+				 */
+				pvo = pvo->options;
+
 			/*
 			 * inform all the protocols that they are doing their one-time
 			 * initialization if they want to.
@@ -155,7 +180,7 @@ lws_protocol_init(struct lws_context *context)
 			 * protocol ptrs so lws_get_context(wsi) etc can work
 			 */
 			vh->protocols[n].callback(&wsi,
-				LWS_CALLBACK_PROTOCOL_INIT, NULL, NULL, 0);
+				LWS_CALLBACK_PROTOCOL_INIT, NULL, pvo, 0);
 		}
 
 		vh = vh->vhost_next;
@@ -176,7 +201,7 @@ lws_create_vhost(struct lws_context *context,
 #ifdef LWS_WITH_PLUGINS
 	struct lws_plugin *plugin = context->plugin_list;
 	struct lws_protocols *lwsp;
-	int m;
+	int m, n;
 #endif
 	char *p;
 
@@ -194,6 +219,9 @@ lws_create_vhost(struct lws_context *context,
 	     info->protocols[vh->count_protocols].callback;
 	     vh->count_protocols++)
 		;
+
+	vh->pvo = info->pvo;
+
 #ifdef LWS_WITH_PLUGINS
 	if (plugin) {
 		/*
@@ -209,19 +237,28 @@ lws_create_vhost(struct lws_context *context,
 		m = vh->count_protocols;
 		memcpy(lwsp, info->protocols,
 		       sizeof(struct lws_protocols) * m);
+
 		while (plugin) {
-			memcpy(&lwsp[m], plugin->caps.protocols,
-			       sizeof(struct lws_protocols) *
-			       plugin->caps.count_protocols);
-			m += plugin->caps.count_protocols;
-			vh->count_protocols += plugin->caps.count_protocols;
+			for (n = 0; n < plugin->caps.count_protocols; n++) {
+				/*
+				 * for compatibility's sake, no pvo implies
+				 * allow all protocols
+				 */
+				if (!info->pvo || lws_vhost_protocol_options(vh,
+				    plugin->caps.protocols[n].name)) {
+					memcpy(&lwsp[m],
+					       &plugin->caps.protocols[n],
+					       sizeof(struct lws_protocols));
+					m++;
+					vh->count_protocols++;
+				}
+			}
 			plugin = plugin->list;
 		}
 		vh->protocols = lwsp;
 	} else
 #endif
 		vh->protocols = info->protocols;
-
 
 	vh->mount_list = mounts;
 

@@ -97,16 +97,56 @@ lejp_change_callback(struct lejp_ctx *ctx,
 static void
 lejp_check_path_match(struct lejp_ctx *ctx)
 {
+	const char *p, *q;
 	int n;
 
 	/* we only need to check if a match is not active */
 	for (n = 0; !ctx->path_match && n < ctx->count_paths; n++) {
-		if (strcmp(ctx->path, ctx->paths[n]))
+		ctx->wildcount = 0;
+		p = ctx->path;
+		q = ctx->paths[n];
+		while (*p && *q) {
+			if (*q != '*') {
+				if (*p != *q)
+					break;
+				p++;
+				q++;
+				continue;
+			}
+			ctx->wild[ctx->wildcount++] = p - ctx->path;
+			q++;
+			while (*p && *p != '.')
+				p++;
+		}
+		if (*p || *q)
 			continue;
+
 		ctx->path_match = n + 1;
 		ctx->path_match_len = ctx->ppos;
 		return;
 	}
+
+	if (!ctx->path_match)
+		ctx->wildcount = 0;
+}
+
+int
+lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len)
+{
+	int n;
+
+	if (wildcard >= ctx->wildcount || !len)
+		return 0;
+
+	n = ctx->wild[wildcard];
+
+	while (--len && n < ctx->ppos && ctx->path[n] != '.')
+		*dest++ = ctx->path[n++];
+
+	*dest = '\0';
+	n++;
+
+	return n - ctx->wild[wildcard];
 }
 
 /**

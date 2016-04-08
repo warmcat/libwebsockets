@@ -654,6 +654,7 @@ struct lws_vhost {
 	const char *iface;
 	const struct lws_protocols *protocols;
 	void **protocol_vh_privs;
+	struct lws_protocol_vhost_options *pvo;
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX *ssl_ctx;
 	SSL_CTX *ssl_client_ctx;

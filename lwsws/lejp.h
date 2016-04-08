@@ -187,6 +187,7 @@ struct lejp_ctx {
 
 	struct _lejp_stack st[LEJP_MAX_DEPTH];
 	unsigned short i[LEJP_MAX_INDEX_DEPTH]; /* index array */
+	unsigned short wild[LEJP_MAX_INDEX_DEPTH]; /* index array */
 	char path[LEJP_MAX_PATH];
 	char buf[LEJP_STRING_CHUNK];
 
@@ -209,6 +210,7 @@ struct lejp_ctx {
 	unsigned char count_paths;
 	unsigned char path_match;
 	unsigned char path_match_len;
+	unsigned char wildcount;
 };
 
 extern void
@@ -225,3 +227,6 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len);
 extern void
 lejp_change_callback(struct lejp_ctx *ctx,
 		       char (*callback)(struct lejp_ctx *ctx, char reason));
+
+extern int
+lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len);

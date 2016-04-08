@@ -239,13 +239,13 @@ lws_http_action(struct lws *wsi)
 	enum http_connection_type connection_type;
 	enum http_version request_version;
 	char content_length_str[32];
-	struct lws_http_mount *hm;
+	struct lws_http_mount *hm, *hit = NULL;
 	unsigned int n, count = 0;
 	char http_version_str[10];
 	char http_conn_str[20];
 	int http_version_len;
 	char *uri_ptr = NULL;
-	int uri_len = 0;
+	int uri_len = 0, best = 0;
 
 	static const unsigned char methods[] = {
 		WSI_TOKEN_GET_URI,
@@ -395,25 +395,33 @@ lws_http_action(struct lws *wsi)
 
 	hm = wsi->vhost->mount_list;
 	while (hm) {
-		char *s = uri_ptr + hm->mountpoint_len;
-
-		if (s[0] == '\0')
-			s = (char *)hm->def;
-
-		if (!s)
-			s = "index.html";
-
+		lwsl_err("a %p\n", hm);
 		if (uri_len >= hm->mountpoint_len &&
 		    !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len)) {
-			n = lws_http_serve(wsi, s, hm->origin);
-			break;
+			if (hm->mountpoint_len > best) {
+				best = hm->mountpoint_len;
+				hit = hm;
+			}
 		}
 		hm = hm->mount_next;
 	}
+lwsl_err("x\n");
+	if (hit) {
+		char *s = uri_ptr + hit->mountpoint_len;
 
-	if (!hm)
+		if (s[0] == '\0')
+			s = (char *)hit->def;
+
+		if (!s)
+			s = "index.html";
+lwsl_err("b\n");
+		n = lws_http_serve(wsi, s, hit->origin);
+	} else {
+		lwsl_err("c\n");
+
 		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
+	}
 	if (n) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
 

@@ -1339,6 +1339,12 @@ LWS_EXTERN int
 lws_set_extension_option(struct lws *wsi, const char *ext_name,
 			 const char *opt_name, const char *opt_val);
 
+struct lws_protocol_vhost_options {
+	struct lws_protocol_vhost_options *next;
+	struct lws_protocol_vhost_options *options;
+	const char *name;
+	const char *value;
+};
 
 /**
  * struct lws_context_creation_info - parameters to create context with
@@ -1451,6 +1457,7 @@ struct lws_context_creation_info {
 	const char *ecdh_curve;				/* VH */
 	const char *vhost_name;				/* VH */
 	const char *plugins_dir;			/* context */
+	struct lws_protocol_vhost_options *pvo;		/* VH */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

@@ -47,7 +47,10 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].host-ssl-ca",
 	"vhosts[].mounts[].mountpoint",
 	"vhosts[].mounts[].origin",
-	"vhosts[].mounts[].default"
+	"vhosts[].mounts[].default",
+	"vhosts[].ws-protocols[].*.*",
+	"vhosts[].ws-protocols[].*",
+	"vhosts[].ws-protocols[]"
 };
 
 enum lejp_vhost_paths {
@@ -61,6 +64,9 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNTPOINT,
 	LEJPVP_ORIGIN,
 	LEJPVP_DEFAULT,
+	LEJPVP_PROTOCOL_NAME_OPT,
+	LEJPVP_PROTOCOL_NAME,
+	LEJPVP_PROTOCOL,
 };
 
 struct jpargs {
@@ -71,7 +77,17 @@ struct jpargs {
 	char *p, *end, valid;
 	struct lws_http_mount *head, *last;
 	char *mountpoint, *origin, *def;
+	struct lws_protocol_vhost_options *pvo;
 };
+
+static void *
+lwsws_align(struct jpargs *a)
+{
+	if ((unsigned long)(a->p) & 15)
+		a->p += 16 - ((unsigned long)(a->p) & 15);
+
+	return a->p;
+}
 
 static int arg_to_bool(const char *s)
 {
@@ -128,10 +144,16 @@ static char
 lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jpargs *a = (struct jpargs *)ctx->user;
+	struct lws_protocol_vhost_options *pvo;
 	struct lws_http_mount *m;
 	int n;
 
+//	lwsl_notice(" %d: %s (%d)\n", reason, ctx->path, ctx->path_match);
+//	for (n = 0; n < ctx->wildcount; n++)
+//		lwsl_notice("    %d\n", ctx->wild[n]);
+
 	if (reason == LEJPCB_OBJECT_START && ctx->path_match == LEJPVP + 1) {
+		/* set the defaults for this vhost */
 		a->valid = 1;
 		a->head = NULL;
 		a->last = NULL;
@@ -156,6 +178,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!DHE-RSA-AES256-SHA256:"
 				       "!AES256-GCM-SHA384:"
 				       "!AES256-SHA256";
+		a->info->pvo = NULL;
 	}
 
 	if (reason == LEJPCB_OBJECT_START &&
@@ -163,6 +186,25 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->mountpoint = NULL;
 		a->origin = NULL;
 		a->def = NULL;
+	}
+
+	/* this catches, eg, vhosts[].ws-protocols[].xxx-protocol */
+	if (reason == LEJPCB_OBJECT_START &&
+	    ctx->path_match == LEJPVP_PROTOCOL_NAME + 1) {
+		a->pvo = lwsws_align(a);
+		a->p += sizeof(*a->pvo);
+
+		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		/* ie, enable this protocol, no options yet */
+		a->pvo->next = a->info->pvo;
+		a->info->pvo = a->pvo;
+		a->pvo->name = a->p;
+		lwsl_err("adding %s\n", a->p);
+		a->p += n;
+		a->pvo->value = a->p;
+		a->pvo->options = NULL;
+		a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
+		*(a->p)++ = '\0';
 	}
 
 	if (reason == LEJPCB_OBJECT_END &&
@@ -232,6 +274,27 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_DEFAULT:
 		a->def = a->p;
 		break;
+
+	case LEJPVP_PROTOCOL_NAME_OPT:
+		/* this catches, eg,
+		 * vhosts[].ws-protocols[].xxx-protocol.yyy-option
+		 * ie, these are options attached to a protocol with { }
+		 */
+		pvo = lwsws_align(a);
+		a->p += sizeof(*a->pvo);
+
+		n = lejp_get_wildcard(ctx, 1, a->p, a->end - a->p);
+		/* ie, enable this protocol, no options yet */
+		pvo->next = a->pvo->options;
+		a->pvo->options = pvo;
+		pvo->name = a->p;
+		a->p += n;
+		pvo->value = a->p;
+		pvo->options = NULL;
+		a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
+		*(a->p)++ = '\0';
+		break;
+
 	default:
 		return 0;
 	}
