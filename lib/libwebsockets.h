@@ -146,6 +146,8 @@ struct sockaddr_in;
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #define LWS_O_RDONLY _O_RDONLY
 
+#define snprintf _snprintf
+
 #else /* NOT WIN32 */
 #include <unistd.h>
 
