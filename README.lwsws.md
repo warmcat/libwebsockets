@@ -140,8 +140,56 @@ Mounts
 Where mounts are given in the vhost definition, then directory contents may
 be auto-served if it matches the mountpoint.
 
-Currently only file:// mount protocol and a fixed set of mimetypes are
-supported.
+Mount protocols are used to control what kind of translation happens
+
+ - file://  serve the uri using the remainder of the url past the mountpoint based on the origin directory.
+
+ Eg, with this mountpoint
+
+```
+       {
+        "mountpoint": "/",
+        "origin": "file:///var/www/mysite.com",
+        "default": "/"
+       }
+```
+
+ The uri /file.jpg would serve /var/www/mysite.com/file.jpg, since / matched.
+
+ - ^http:// or ^https://  these cause any url matching the mountpoint to issue a redirect to the origin url
+
+ - cgi://   this causes any matching url to be given to the named cgi, eg
+
+```
+       {
+        "mountpoint": "/git",
+        "origin": "cgi:///var/www/cgi-bin/cgit",
+        "default": "/"
+       }, {
+        "mountpoint": "/cgit-data",
+        "origin": "file:///usr/share/cgit",
+        "default": "/"
+       },
+```
+
+ would cause the url /git/myrepo to pass "myrepo" to the cgi /var/www/cgi-bin/cgit and send the results to the client.
+
+ When using a cgi:// protcol origin at a mountpoint, you may also give cgi environment variables specific to the mountpoint like this
+
+```
+       {
+        "mountpoint": "/git",
+        "origin": "cgi:///var/www/cgi-bin/cgit",
+        "default": "/",
+        "cgi-env": [{
+                "CGIT_CONFIG": "/etc/cgitrc/libwebsockets.org"
+        }]
+       }
+```
+
+ This allows you to customize one cgi depending on the mountpoint (and / or vhost).
+
+Currently only a fixed set of mimetypes are supported.
 
 
 Plugins

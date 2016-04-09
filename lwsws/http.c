@@ -152,42 +152,6 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 #endif
 
-#ifdef LWS_WITH_CGI
-		if (!strncmp(in, "/cgitest", 8)) {
-			static char *cmd[] = {
-				"/bin/sh",
-				"-c",
-				INSTALL_DATADIR"/libwebsockets-test-server/lws-cgi-test.sh",
-//				"/var/www/cgi-bin/cgit",
-				NULL
-			};
-
-			lwsl_notice("%s: cgitest\n", __func__);
-			n = lws_cgi(wsi, cmd, 8, 5);
-			if (n) {
-				lwsl_err("%s: cgi failed\n");
-				return -1;
-			}
-			p = buffer + LWS_PRE;
-			end = p + sizeof(buffer) - LWS_PRE;
-
-			if (lws_add_http_header_status(wsi, 200, &p, end))
-				return 1;
-			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
-					(unsigned char *)"close", 5, &p, end))
-				return 1;
-			n = lws_write(wsi, buffer + LWS_PRE,
-				      p - (buffer + LWS_PRE),
-				      LWS_WRITE_HTTP_HEADERS);
-
-			/* the cgi starts by outputting headers, we can't
-			 *  finalize the headers until we see the end of that
-			 */
-
-			break;
-		}
-#endif
-
 		/* if a legal POST URL, let it continue and accept data */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
 			return 0;

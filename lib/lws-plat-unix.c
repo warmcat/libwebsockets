@@ -441,8 +441,10 @@ next:
 
 
 static void
-sigpipe_handler(int x)
+sigabrt_handler(int x)
 {
+	printf("%s\n", __func__);
+	//*(char *)0 = 0;
 }
 
 LWS_VISIBLE int
@@ -456,7 +458,9 @@ lws_plat_context_early_init(void)
 
 	sigprocmask(SIG_BLOCK, &mask, NULL);
 
-	signal(SIGPIPE, sigpipe_handler);
+	signal(SIGPIPE, SIG_IGN);
+
+	signal(SIGABRT, sigabrt_handler);
 
 	return 0;
 }

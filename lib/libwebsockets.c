@@ -176,10 +176,11 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	if (wsi->mode == LWSCM_CGI) {
 		/* we are not a network connection, but a handler for CGI io */
 		if (wsi->parent && wsi->parent->cgi)
-		/* end the binding between us and master */
-		wsi->parent->cgi->stdwsi[(int)wsi->cgi_channel] = NULL;
+			/* end the binding between us and master */
+			wsi->parent->cgi->stdwsi[(int)wsi->cgi_channel] = NULL;
 		wsi->socket_is_permanently_unusable = 1;
 
+		lwsl_debug("------ %s: detected cgi fdhandler wsi %p\n", __func__, wsi);
 		goto just_kill_connection;
 	}
 
@@ -496,6 +497,7 @@ just_kill_connection:
 
 #ifdef LWS_USE_LIBUV
 	if (LWS_LIBUV_ENABLED(context)) {
+		lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
 		/* libuv has to do his own close handle processing asynchronously */
 		lws_libuv_closehandle(wsi);
 
@@ -1635,8 +1637,8 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
  */
 
 LWS_VISIBLE LWS_EXTERN int
-lws_cgi(struct lws *wsi, char * const *exec_array, int script_uri_path_len,
-	int timeout_secs)
+lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len,
+	int timeout_secs, struct lws_protocol_vhost_options *mp_cgienv)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	char *env_array[30], cgi_path[400], e[1024], *p = e,
@@ -1670,12 +1672,15 @@ lws_cgi(struct lws *wsi, char * const *exec_array, int script_uri_path_len,
 		if (!cgi->stdwsi[n])
 			goto bail2;
 		cgi->stdwsi[n]->cgi_channel = n;
+		cgi->stdwsi[n]->vhost = wsi->vhost;
+
 		/* read side is 0, stdin we want the write side, others read */
 		cgi->stdwsi[n]->sock = cgi->pipe_fds[n][!!(n == 0)];
 		fcntl(cgi->pipe_fds[n][!!(n == 0)], F_SETFL, O_NONBLOCK);
 	}
 
 	for (n = 0; n < 3; n++) {
+		lws_libuv_accept(cgi->stdwsi[n], cgi->stdwsi[n]->sock);
 		if (insert_wsi_socket_into_fds(wsi->context, cgi->stdwsi[n]))
 			goto bail3;
 		cgi->stdwsi[n]->parent = wsi;
@@ -1759,7 +1764,17 @@ lws_cgi(struct lws *wsi, char * const *exec_array, int script_uri_path_len,
 		p++;
 	}
 	env_array[n++] = p;
-	p += snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[2]) + 1;
+	p += snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[0]) + 1;
+
+	while (mp_cgienv) {
+		env_array[n++] = p;
+		p += snprintf(p, end - p, "%s=%s", mp_cgienv->name,
+			      mp_cgienv->value);
+		lwsl_notice("   Applying mount-specific cgi env '%s'\n",
+			    env_array[n - 1]);
+		p++;
+		mp_cgienv = mp_cgienv->next;
+	}
 
 	env_array[n++] = "SERVER_SOFTWARE=libwebsockets";
 	env_array[n++] = "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin";
@@ -1785,6 +1800,10 @@ lws_cgi(struct lws *wsi, char * const *exec_array, int script_uri_path_len,
 		/* we are the parent process */
 		return 0;
 
+	/* somewhere we can at least read things and enter it */
+	if (chdir("/"))
+		lwsl_notice("%s: Failed to chdir\n", __func__);
+
 	/* We are the forked process, redirect and kill inherited things.
 	 *
 	 * Because of vfork(), we cannot do anything that changes pages in
@@ -1806,9 +1825,9 @@ lws_cgi(struct lws *wsi, char * const *exec_array, int script_uri_path_len,
 		*p++ = '\0';
 		setenv(env_array[m], p, 1);
 	}
-	execvp(exec_array[0], &exec_array[0]);
+	execvp(exec_array[0], (char * const *)&exec_array[0]);
 #else
-	execvpe(exec_array[0], &exec_array[0], &env_array[0]);
+	execvpe(exec_array[0], (char * const *)&exec_array[0], &env_array[0]);
 #endif
 
 	exit(1);
@@ -1948,6 +1967,8 @@ lws_cgi_kill(struct lws *wsi)
 	struct lws_cgi_args args;
 	int n, status, do_close = 0;
 
+	lwsl_debug("!!!!! %s: %p\n", __func__, wsi);
+
 	if (!wsi->cgi)
 		return 0;
 
@@ -1986,17 +2007,20 @@ lws_cgi_kill(struct lws *wsi)
 		pcgi = &(*pcgi)->cgi_list;
 	}
 
-	for (n = 0 ; n < 3; n++) {
-		if (wsi->cgi->pipe_fds[n][!!(n == 0)] >= 0) {
-			close(wsi->cgi->pipe_fds[n][!!(n == 0)]);
-			wsi->cgi->pipe_fds[n][!!(n == 0)] = -1;
+	if (!do_close)
+		for (n = 0 ; n < 3; n++) {
+			if (wsi->cgi->pipe_fds[n][!!(n == 0)] >= 0) {
+				close(wsi->cgi->pipe_fds[n][!!(n == 0)]);
+				wsi->cgi->pipe_fds[n][!!(n == 0)] = -1;
+			}
 		}
-	}
 
 	lws_free_set_NULL(wsi->cgi);
 
-	if (do_close)
+	if (do_close) {
+		lwsl_debug("!!!!! %s: do_close\n", __func__);
 		lws_close_free_wsi(wsi, 0);
+	}
 
 	return 0;
 }

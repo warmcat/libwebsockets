@@ -52,7 +52,7 @@ static const char * const mount_protocols[] = {
 LWS_VISIBLE LWS_EXTERN int
 lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
 		     void *store, const char *mountpoint, const char *origin,
-		     const char *def)
+		     const char *def, struct lws_protocol_vhost_options *cgienv)
 {
 	struct lws_http_mount *m;
 	void *orig = store;
@@ -70,6 +70,7 @@ lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
 	m->mountpoint = mountpoint;
 	m->mountpoint_len = (unsigned char)strlen(mountpoint);
 	m->mount_next = NULL;
+	m->cgienv = cgienv;
 	if (next)
 		next->mount_next = m;
 

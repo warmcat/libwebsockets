@@ -51,11 +51,14 @@ lws_uv_idle(uv_idle_t *handle
 		/* still somebody left who wants forced service? */
 		if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
 			/* yes... come back again later */
+			lwsl_debug("%s: done again\n", __func__);
 			return;
 	}
 
 	/* there is nobody who needs service forcing, shut down idle */
 	uv_idle_stop(handle);
+
+	lwsl_debug("%s: done stop\n", __func__);
 }
 
 static void
@@ -272,7 +275,7 @@ lws_libuv_io(struct lws *wsi, int flags)
 	if (!LWS_LIBUV_ENABLED(context))
 		return;
 
-	lwsl_debug("%s: wsi: %p, flags:%d\n", __func__, wsi, flags);
+	lwsl_debug("%s: wsi: %p, flags:0x%x\n", __func__, wsi, flags);
 
 	if (!pt->io_loop_uv) {
 		lwsl_info("%s: no io loop yet\n", __func__);
