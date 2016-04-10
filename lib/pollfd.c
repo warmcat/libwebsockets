@@ -43,6 +43,10 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	pa->prev_events = pfd->events;
 	pa->events = pfd->events = (pfd->events & ~_and) | _or;
 
+
+	if (wsi->http2_substream)
+		return 0;
+
 	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CHANGE_MODE_POLL_FD,
 					   wsi->user_space, (void *)pa, 0)) {
 		ret = -1;
@@ -76,6 +80,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 #if LWS_POSIX
 	pa_events = pa->prev_events != pa->events;
 #endif
+
 	if (pa_events) {
 
 		if (lws_plat_change_pollfd(context, wsi, pfd)) {

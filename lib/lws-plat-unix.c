@@ -440,12 +440,14 @@ next:
 #endif
 
 
+#if 0
 static void
 sigabrt_handler(int x)
 {
 	printf("%s\n", __func__);
 	//*(char *)0 = 0;
 }
+#endif
 
 LWS_VISIBLE int
 lws_plat_context_early_init(void)
@@ -460,7 +462,7 @@ lws_plat_context_early_init(void)
 
 	signal(SIGPIPE, SIG_IGN);
 
-	signal(SIGABRT, sigabrt_handler);
+//	signal(SIGABRT, sigabrt_handler);
 
 	return 0;
 }

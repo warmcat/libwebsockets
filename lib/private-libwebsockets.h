@@ -392,6 +392,7 @@ enum lws_connection_states {
 enum http_version {
 	HTTP_VERSION_1_0,
 	HTTP_VERSION_1_1,
+	HTTP_VERSION_2
 };
 
 enum http_connection_type {
@@ -1216,6 +1217,7 @@ struct lws {
 #endif
 
 	unsigned int hdr_parsing_completed:1;
+	unsigned int http2_substream:1;
 	unsigned int listener:1;
 	unsigned int user_space_externally_allocated:1;
 	unsigned int socket_is_permanently_unusable:1;
@@ -1562,7 +1564,7 @@ lws_ssl_destroy(struct lws_vhost *vhost);
 
 #ifdef LWS_USE_HTTP2
 LWS_EXTERN void
-lws_context_init_http2_ssl(struct lws_context *context);
+lws_context_init_http2_ssl(struct lws_vhost *vhost);
 #else
 #define lws_context_init_http2_ssl(_a)
 #endif

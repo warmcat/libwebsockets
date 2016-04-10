@@ -66,7 +66,7 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 	int body_chunk_len;
 	size_t n;
 
-	lwsl_debug("%s: incoming len %d\n", __func__, (int)len);
+	lwsl_debug("%s: incoming len %d  state %d\n", __func__, (int)len, wsi->state);
 
 	switch (wsi->state) {
 #ifdef LWS_USE_HTTP2
@@ -87,8 +87,10 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 			/* account for what we're using in rxflow buffer */
 			if (wsi->rxflow_buffer)
 				wsi->rxflow_pos++;
-			if (lws_http2_parser(wsi, buf[n++]))
+			if (lws_http2_parser(wsi, buf[n++])) {
+				lwsl_debug("%s: http2_parser bailed\n", __func__);
 				goto bail;
+			}
 		}
 		break;
 #endif

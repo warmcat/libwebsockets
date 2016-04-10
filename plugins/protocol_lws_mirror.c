@@ -18,6 +18,7 @@
  * Public Domain.
  */
 #include "../lib/libwebsockets.h"
+#include <string.h>
 
 /* lws-mirror_protocol */
 

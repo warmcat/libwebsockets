@@ -40,11 +40,11 @@ static const char *set[] = {
 	"sec-websocket-version:",
 	"sec-websocket-origin:",
 
-	":authority:",
-	":method:",
-	":path:",
-	":scheme:",
-	":status:",
+	":authority",
+	":method",
+	":path",
+	":scheme",
+	":status",
 
 	"accept-charset:",
 	"accept-ranges:",

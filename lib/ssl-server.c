@@ -366,7 +366,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		 * If we're supporting HTTP2, initialize that
 		 */
 
-		lws_context_init_http2_ssl(context);
+		lws_context_init_http2_ssl(vhost);
 	}
 
 	return 0;

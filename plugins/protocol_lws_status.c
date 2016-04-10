@@ -19,6 +19,7 @@
  */
 #include "../lib/libwebsockets.h"
 #include <time.h>
+#include <string.h>
 
 struct per_session_data__lws_status {
 	struct per_session_data__lws_status *list;
