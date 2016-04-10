@@ -1644,7 +1644,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	char *env_array[30], cgi_path[400], e[1024], *p = e,
 	     *end = p + sizeof(e) - 1, tok[256], *t;
 	struct lws_cgi *cgi;
-	int n, m, i;
+	int n, m, i, uritok = WSI_TOKEN_GET_URI;
 
 	/*
 	 * give the master wsi a cgi struct
@@ -1673,6 +1673,9 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 			goto bail2;
 		cgi->stdwsi[n]->cgi_channel = n;
 		cgi->stdwsi[n]->vhost = wsi->vhost;
+
+		lwsl_err("%s: pipe fd %d -> fd %d\n", __func__, n,
+			 cgi->pipe_fds[n][!!(n == 0)]);
 
 		/* read side is 0, stdin we want the write side, others read */
 		cgi->stdwsi[n]->sock = cgi->pipe_fds[n][!!(n == 0)];
@@ -1712,11 +1715,13 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	if (lws_is_ssl(wsi))
 		env_array[n++] = "HTTPS=ON";
 	if (wsi->u.hdr.ah) {
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
+			uritok = WSI_TOKEN_POST_URI;
 		snprintf(cgi_path, sizeof(cgi_path) - 1, "REQUEST_URI=%s",
-			 lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
+			 lws_hdr_simple_ptr(wsi, uritok));
 		cgi_path[sizeof(cgi_path) - 1] = '\0';
 		env_array[n++] = cgi_path;
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
+		if (uritok == WSI_TOKEN_POST_URI)
 			env_array[n++] = "REQUEST_METHOD=POST";
 		else
 			env_array[n++] = "REQUEST_METHOD=GET";
@@ -1748,7 +1753,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 		env_array[n++] = p;
 		p += snprintf(p, end - p, "PATH_INFO=%s",
-			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI) +
+			      lws_hdr_simple_ptr(wsi, uritok) +
 			      script_uri_path_len);
 		p++;
 	}
@@ -1764,11 +1769,31 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 		p++;
 	}
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE)) {
+		env_array[n++] = p;
+		p += snprintf(p, end - p, "HTTP_COOKIE=%s",
+			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COOKIE));
+		p++;
+	}
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
 		env_array[n++] = p;
 		p += snprintf(p, end - p, "USER_AGENT=%s",
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_USER_AGENT));
 		p++;
+	}
+	if (uritok == WSI_TOKEN_POST_URI) {
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
+			env_array[n++] = p;
+			p += snprintf(p, end - p, "CONTENT_TYPE=%s",
+				      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE));
+			p++;
+		}
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+			env_array[n++] = p;
+			p += snprintf(p, end - p, "CONTENT_LENGTH=%s",
+				      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH));
+			p++;
+		}
 	}
 	env_array[n++] = p;
 	p += snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[0]) + 1;
@@ -1818,13 +1843,11 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	 * process is OK.  Stuff that happens after the execvpe() is OK.
 	 */
 
-	for (n = 0; n < 3; n++) {
+	for (n = 0; n < 3; n++)
 		if (dup2(cgi->pipe_fds[n][!(n == 0)], n) < 0) {
 			lwsl_err("%s: stdin dup2 failed\n", __func__);
 			goto bail3;
 		}
-		close(cgi->pipe_fds[n][!(n == 0)]);
-	}
 
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
 	for (m = 0; m < n; m++) {
@@ -1972,7 +1995,7 @@ lws_cgi_kill(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	struct lws_cgi **pcgi = &pt->cgi_list;
 	struct lws_cgi_args args;
-	int n, status, do_close = 0;
+	int n, status, do_close = 0, cgi_pipes[3];
 
 	lwsl_debug("!!!!! %s: %p\n", __func__, wsi);
 
@@ -2014,19 +2037,18 @@ lws_cgi_kill(struct lws *wsi)
 		pcgi = &(*pcgi)->cgi_list;
 	}
 
-	if (!do_close)
-		for (n = 0 ; n < 3; n++) {
-			if (wsi->cgi->pipe_fds[n][!!(n == 0)] >= 0) {
-				close(wsi->cgi->pipe_fds[n][!!(n == 0)]);
-				wsi->cgi->pipe_fds[n][!!(n == 0)] = -1;
-			}
-		}
+	for (n = 0 ; n < 3; n++)
+		cgi_pipes[n] = wsi->cgi->pipe_fds[n][!(n == 0)];
 
 	lws_free_set_NULL(wsi->cgi);
 
 	if (do_close) {
 		lwsl_debug("!!!!! %s: do_close\n", __func__);
 		lws_close_free_wsi(wsi, 0);
+
+		for (n = 0; n < 3; n++)
+			if (cgi_pipes[n] >= 0)
+				close(cgi_pipes[n]);
 	}
 
 	return 0;

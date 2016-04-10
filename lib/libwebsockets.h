@@ -1551,7 +1551,8 @@ LWS_VISIBLE LWS_EXTERN int
 lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
 		     void *store, const char *mountpoint, const char *origin,
 		     const char *def,
-		     struct lws_protocol_vhost_options *cgienv);
+		     struct lws_protocol_vhost_options *cgienv,
+		     int cgi_timeout);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_set_log_level(int level,

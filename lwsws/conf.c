@@ -48,6 +48,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].mountpoint",
 	"vhosts[].mounts[].origin",
 	"vhosts[].mounts[].default",
+	"vhosts[].mounts[].cgi-timeout",
 	"vhosts[].mounts[].cgi-env[].*",
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
@@ -65,6 +66,7 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNTPOINT,
 	LEJPVP_ORIGIN,
 	LEJPVP_DEFAULT,
+	LEJPVP_CGI_TIMEOUT,
 	LEJPVP_CGI_ENV,
 	LEJPVP_PROTOCOL_NAME_OPT,
 	LEJPVP_PROTOCOL_NAME,
@@ -81,6 +83,7 @@ struct jpargs {
 	char *mountpoint, *origin, *def;
 	struct lws_protocol_vhost_options *pvo;
 	struct lws_protocol_vhost_options *mp_cgienv;
+	int cgi_timeout;
 };
 
 static void *
@@ -192,6 +195,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->origin = NULL;
 		a->def = NULL;
 		a->mp_cgienv = NULL;
+		a->cgi_timeout = 0;
 	}
 
 	/* this catches, eg, vhosts[].ws-protocols[].xxx-protocol */
@@ -241,7 +245,8 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		}
 
 		n = lws_write_http_mount(a->last, &m, a->p, a->mountpoint,
-					 a->origin, a->def, a->mp_cgienv);
+					 a->origin, a->def, a->mp_cgienv,
+					 a->cgi_timeout);
 		if (!n)
 			return 1;
 		a->p += n;
@@ -280,6 +285,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_DEFAULT:
 		a->def = a->p;
 		break;
+	case LEJPVP_CGI_TIMEOUT:
+		a->cgi_timeout = atoi(ctx->buf);
+		return 0;
 	case LEJPVP_CGI_ENV:
 		mp_cgienv = lwsws_align(a);
 		a->p += sizeof(*a->mp_cgienv);

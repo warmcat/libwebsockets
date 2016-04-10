@@ -624,6 +624,8 @@ struct lws_http_mount {
 
 	struct lws_protocol_vhost_options *cgienv;
 
+	int cgi_timeout;
+
 	unsigned char origin_protocol;
 	unsigned char mountpoint_len;
 };

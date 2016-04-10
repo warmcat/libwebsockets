@@ -52,7 +52,8 @@ static const char * const mount_protocols[] = {
 LWS_VISIBLE LWS_EXTERN int
 lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
 		     void *store, const char *mountpoint, const char *origin,
-		     const char *def, struct lws_protocol_vhost_options *cgienv)
+		     const char *def, struct lws_protocol_vhost_options *cgienv,
+		     int cgi_timeout)
 {
 	struct lws_http_mount *m;
 	void *orig = store;
@@ -71,6 +72,8 @@ lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
 	m->mountpoint_len = (unsigned char)strlen(mountpoint);
 	m->mount_next = NULL;
 	m->cgienv = cgienv;
+	m->cgi_timeout = cgi_timeout;
+
 	if (next)
 		next->mount_next = m;
 
@@ -83,7 +86,7 @@ lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
 		}
 
 	if (n == ARRAY_SIZE(mount_protocols)) {
-		lwsl_err("unsupported protocol://\n");
+		lwsl_err("unsupported protocol:// %s\n", origin);
 		return 0; /* ie, fail */
 	}
 
@@ -578,6 +581,8 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	lws_context_init_ssl_library(info);
 
+	context->user_space = info->user;
+
 	/*
 	 * if he's not saying he'll make his own vhosts later then act
 	 * compatibly and make a default vhost using the data in the info
@@ -589,8 +594,6 @@ lws_create_context(struct lws_context_creation_info *info)
 		}
 
 	lws_context_init_extensions(info, context);
-
-	context->user_space = info->user;
 
 	lwsl_notice(" mem: per-conn:        %5u bytes + protocol rx buf\n",
 		    sizeof(struct lws));

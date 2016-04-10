@@ -234,7 +234,7 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 		}
 
 		lwsl_debug(" %s mode %d\n", path, S_IFMT & st.st_mode);
-
+#if !defined(WIN32)
 		if ((S_IFMT & st.st_mode) == S_IFLNK) {
 			if (readlink(path, sym, sizeof(sym))) {
 				lwsl_err("Failed to read link %s\n", path);
@@ -243,7 +243,7 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 			lwsl_debug("symlink %s -> %s\n", path, sym);
 			snprintf(path, sizeof(path) - 1, "%s", sym);
 		}
-
+#endif
 		if ((S_IFMT & st.st_mode) == S_IFDIR) {
 			lwsl_debug("default filename append to dir\n");
 			snprintf(path, sizeof(path) - 1, "%s/%s/index.html",
@@ -409,6 +409,7 @@ lws_http_action(struct lws *wsi)
 	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 			wsi->context->timeout_secs);
 #ifdef LWS_OPENSSL_SUPPORT
+#if 0
 	if (wsi->redirect_to_https) {
 		/*
 		 * we accepted http:// only so we could redirect to
@@ -436,6 +437,7 @@ lws_http_action(struct lws *wsi)
 		return lws_http_transaction_completed(wsi);
 	}
 #endif
+#endif
 
 	/* can we serve it from the mount list? */
 
@@ -447,7 +449,9 @@ lws_http_action(struct lws *wsi)
 		     uri_ptr[hm->mountpoint_len] == '/' ||
 		     hm->mountpoint_len == 1)
 		    ) {
-			if (hm->mountpoint_len > best) {
+			if ((hm->origin_protocol == LWSMPRO_CGI ||
+			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) &&
+			    hm->mountpoint_len > best) {
 				best = hm->mountpoint_len;
 				hit = hm;
 			}
@@ -476,14 +480,15 @@ lws_http_action(struct lws *wsi)
 		 * understands he is one "directory level" down.
 		 */
 		if ((hit->mountpoint_len > 1 || (hit->origin_protocol & 4)) &&
-		    (*s != '/' || (hit->origin_protocol & 4))) {
+		    (*s != '/' || (hit->origin_protocol & 4)) &&
+		    (hit->origin_protocol != LWSMPRO_CGI)) {
 			unsigned char *start = pt->serv_buf + LWS_PRE,
 					      *p = start, *end = p + 512;
 			static const char *oprot[] = {
 				"http://", "https://"
 			};
 
-			// lwsl_err("inin '%s'\n", s);
+			 lwsl_err("Doing 301 '%s' org %s\n", s, hit->origin);
 
 			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
 				goto bail_nuke_ah;
@@ -527,7 +532,12 @@ lws_http_action(struct lws *wsi)
 
 			lwsl_debug("%s: cgi\n", __func__);
 			cmd[0] = hit->origin;
-			n = lws_cgi(wsi, cmd, hit->mountpoint_len, 5,
+
+			n = 5;
+			if (hit->cgi_timeout)
+				n = hit->cgi_timeout;
+
+			n = lws_cgi(wsi, cmd, hit->mountpoint_len, n,
 				    hit->cgienv);
 			if (n) {
 				lwsl_err("%s: cgi failed\n");
@@ -545,7 +555,7 @@ lws_http_action(struct lws *wsi)
 				      p - (buffer + LWS_PRE),
 				      LWS_WRITE_HTTP_HEADERS);
 
-			return 0;
+			goto deal_body;
 		}
 #endif
 
@@ -569,6 +579,9 @@ lws_http_action(struct lws *wsi)
 		return 1;
 	}
 
+#ifdef LWS_WITH_CGI
+deal_body:
+#endif
 	/*
 	 * If we're not issuing a file, check for content_length or
 	 * HTTP keep-alive. No keep-alive header allocation for
@@ -611,7 +624,11 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	while (len--) {
 		wsi->more_rx_waiting = !!len;
 
-		assert(wsi->mode == LWSCM_HTTP_SERVING);
+		if (wsi->mode != LWSCM_HTTP_SERVING &&
+		    wsi->mode != LWSCM_HTTP_SERVING_ACCEPTED) {
+			lwsl_err("%s: bad wsi mode %d\n", __func__, wsi->mode);
+			goto bail_nuke_ah;
+		}
 
 		if (lws_parse(wsi, *(*buf)++)) {
 			lwsl_info("lws_parse failed\n");
