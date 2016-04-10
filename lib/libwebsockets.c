@@ -1536,7 +1536,7 @@ lws_urlencode(const char *in, int inlen, char *out, int outlen)
 	const char *hex = "0123456789ABCDEF";
 	char *start = out, *end = out + outlen;
 
-	while (inlen-- && out > end - 4) {
+	while (inlen-- && out < end - 4) {
 		if ((*in >= 'A' && *in <= 'Z') ||
 		    (*in >= 'a' && *in <= 'z') ||
 		    (*in >= '0' && *in <= '9') ||
@@ -1642,7 +1642,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	char *env_array[30], cgi_path[400], e[1024], *p = e,
-	     *end = p + sizeof(e) - 1, tok[256];
+	     *end = p + sizeof(e) - 1, tok[256], *t;
 	struct lws_cgi *cgi;
 	int n, m, i;
 
@@ -1730,9 +1730,16 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 					     WSI_TOKEN_HTTP_URI_ARGS, m);
 			if (i < 0)
 				break;
-			i = lws_urlencode(tok, i, p, end - p);
-			p += i;
-			*p++ = '&';
+			t = tok;
+			while (*t && *t != '=' && p < end - 4)
+				*p++ = *t++;
+			if (*t == '=')
+				*p++ = *t++;
+			i = lws_urlencode(t, i- (t - tok), p, end - p);
+			if (i > 0) {
+				p += i;
+				*p++ = '&';
+			}
 			m++;
 		}
 		if (m)
@@ -1780,7 +1787,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	env_array[n++] = "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin";
 	env_array[n] = NULL;
 
-#if 0
+#if 1
 	for (m = 0; m < n; m++)
 		lwsl_err("    %s\n", env_array[m]);
 #endif
