@@ -242,8 +242,15 @@ lws_http2_parser(struct lws *wsi, unsigned char c)
 			case LWS_HTTP2_FRAME_TYPE_CONTINUATION:
 			case LWS_HTTP2_FRAME_TYPE_HEADERS:
 				lwsl_info(" %02X\n", c);
-				if (lws_hpack_interpret(wsi->u.http2.stream_wsi, c))
+				if (!wsi->u.http2.stream_wsi->u.hdr.ah)
+					if (lws_header_table_attach(wsi->u.http2.stream_wsi, 0)) {
+						lwsl_err("%s: Failed to get ah\n", __func__);
+						return 1;
+					}
+				if (lws_hpack_interpret(wsi->u.http2.stream_wsi, c)) {
+					lwsl_notice("%s: lws_hpack_interpret failed\n", __func__);
 					return 1;
+				}
 				break;
 			case LWS_HTTP2_FRAME_TYPE_GOAWAY:
 				if (wsi->u.http2.count >= 5 && wsi->u.http2.count <= 8) {
@@ -376,9 +383,11 @@ lws_http2_parser(struct lws *wsi, unsigned char c)
 				lwsl_info("LWS_HTTP2_FRAME_TYPE_HEADERS: stream_id = %d\n", wsi->u.http2.stream_id);
 				if (!wsi->u.http2.stream_id)
 					return 1;
-				if (!wsi->u.http2.stream_wsi)
+				if (!wsi->u.http2.stream_wsi) {
 					wsi->u.http2.stream_wsi =
 						lws_create_server_child_wsi(wsi->vhost, wsi, wsi->u.http2.stream_id);
+					wsi->u.http2.stream_wsi->http2_substream = 1;
+				}
 
 				/* END_STREAM means after servicing this, close the stream */
 				wsi->u.http2.END_STREAM = !!(wsi->u.http2.flags & LWS_HTTP2_FLAG_END_STREAM);

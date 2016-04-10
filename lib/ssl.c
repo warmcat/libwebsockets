@@ -99,7 +99,11 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 #if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
 #else
+#if (OPENSSL_VERSION_NUMBER >= 0x10100005L)
+	ERR_remove_thread_state();
+#else
 	ERR_remove_thread_state(NULL);
+#endif
 #endif
 	ERR_free_strings();
 	EVP_cleanup();
@@ -443,7 +447,11 @@ lws_ssl_context_destroy(struct lws_context *context)
 #if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
 #else
+#if (OPENSSL_VERSION_NUMBER >= 0x10100005L)
+	ERR_remove_thread_state();
+#else
 	ERR_remove_thread_state(NULL);
+#endif
 #endif
 	ERR_free_strings();
 	EVP_cleanup();

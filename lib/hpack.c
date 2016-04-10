@@ -199,11 +199,15 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 {
 	struct allocated_headers * ah = wsi->u.http2.http.ah;
 
-	if (!hdr_token_idx)
+	if (!hdr_token_idx) {
+		lwsl_err("%s: zero hdr_token_idx\n", __func__);
 		return 1;
+	}
 
-	if (ah->nfrag >= ARRAY_SIZE(ah->frag_index))
+	if (ah->nfrag >= ARRAY_SIZE(ah->frag_index)) {
+		lwsl_err("%s: frag index %d too big\n", __func__, ah->nfrag);
 		return 1;
+	}
 
 	ah->frags[ah->nfrag].offset = ah->pos;
 	ah->frags[ah->nfrag].len = 0;
@@ -355,6 +359,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 	unsigned char c1;
 	int n;
 
+	lwsl_debug("   state %d\n", wsi->u.http2.hpack);
+
 	switch (wsi->u.http2.hpack) {
 	case HPKS_OPT_PADDING:
 		wsi->u.http2.padding = c;
@@ -388,6 +394,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		if (c & 0x80) { /* indexed header field only */
 			/* just a possibly-extended integer */
 			wsi->u.http2.hpack_type = HPKT_INDEXED_HDR_7;
+			lwsl_debug("HKPS_TYPE setting header_index %d\n", c & 0x7f);
 			wsi->u.http2.header_index = c & 0x7f;
 			if ((c & 0x7f) == 0x7f) {
 				wsi->u.http2.hpack_len = c & 0x7f;
@@ -395,6 +402,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				wsi->u.http2.hpack = HPKS_IDX_EXT;
 				break;
 			}
+			lwsl_debug("HKPS_TYPE: %d\n", c & 0x7f);
 			if (lws_write_indexed_hdr(wsi, c & 0x7f))
 				return 1;
 			/* stay at same state */
@@ -406,6 +414,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			 * H + possibly-extended value length
 			 * literal value
 			 */
+			lwsl_debug("HKPS_TYPE 2 setting header_index %d\n", 0);
 			wsi->u.http2.header_index = 0;
 			if (c == 0x40) { /* literal name */
 				wsi->u.http2.hpack_type = HPKT_LITERAL_HDR_VALUE_INCR;
@@ -421,6 +430,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				wsi->u.http2.hpack = HPKS_IDX_EXT;
 				break;
 			}
+			lwsl_debug("HKPS_TYPE 3 setting header_index %d\n", c & 0x3f);
 			wsi->u.http2.header_index = c & 0x3f;
 			wsi->u.http2.value = 1;
 			wsi->u.http2.hpack = HPKS_HLEN;
@@ -439,6 +449,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				wsi->u.http2.value = 0;
 				break;
 			}
+			//lwsl_debug("indexed\n");
 			/* indexed name */
 			wsi->u.http2.hpack_type = HPKT_INDEXED_HDR_4_VALUE;
 			wsi->u.http2.header_index = 0;
@@ -448,6 +459,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				wsi->u.http2.hpack = HPKS_IDX_EXT;
 				break;
 			}
+			//lwsl_err("HKPS_TYPE 5 setting header_index %d\n", c & 0xf);
 			wsi->u.http2.header_index = c & 0xf;
 			wsi->u.http2.value = 1;
 			wsi->u.http2.hpack = HPKS_HLEN;
@@ -475,11 +487,14 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		if (!(c & 0x80)) {
 			switch (wsi->u.http2.hpack_type) {
 			case HPKT_INDEXED_HDR_7:
+				//lwsl_err("HKPS_IDX_EXT hdr idx %d\n", wsi->u.http2.hpack_len);
 				if (lws_write_indexed_hdr(wsi, wsi->u.http2.hpack_len))
 					return 1;
 				wsi->u.http2.hpack = HPKS_TYPE;
 				break;
 			default:
+				// lwsl_err("HKPS_IDX_EXT setting header_index %d\n",
+				//		wsi->u.http2.hpack_len);
 				wsi->u.http2.header_index = wsi->u.http2.hpack_len;
 				wsi->u.http2.value = 1;
 				wsi->u.http2.hpack = HPKS_HLEN;
@@ -495,10 +510,13 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		if (wsi->u.http2.hpack_len < 0x7f) {
 pre_data:
 			if (wsi->u.http2.value) {
+				if (wsi->u.http2.header_index)
 				if (lws_frag_start(wsi, lws_token_from_index(wsi,
 						   wsi->u.http2.header_index,
-						   NULL, NULL)))
+						   NULL, NULL))) {
+				//	lwsl_notice("%s: hlen failed\n", __func__);
 					return 1;
+				}
 			} else
 				wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
 			wsi->u.http2.hpack = HPKS_DATA;
@@ -539,8 +557,9 @@ pre_data:
 				c1 = c;
 			}
 			if (wsi->u.http2.value) { /* value */
-				if (lws_frag_append(wsi, c1))
-					return 1;
+				if (wsi->u.http2.header_index)
+					if (lws_frag_append(wsi, c1))
+						return 1;
 			} else { /* name */
 				if (lws_parse(wsi, c1))
 					return 1;
@@ -566,7 +585,7 @@ pre_data:
 			if (wsi->u.http2.value) {
 				if (lws_frag_end(wsi))
 					return 1;
-
+				// lwsl_err("data\n");
 				lws_dump_header(wsi, lws_token_from_index(
 						wsi, wsi->u.http2.header_index,
 						NULL, NULL));
@@ -576,7 +595,7 @@ pre_data:
 				else
 					wsi->u.http2.hpack = HPKS_TYPE;
 			} else { /* name */
-				if (wsi->u.hdr.parser_state < WSI_TOKEN_COUNT)
+				//if (wsi->u.hdr.parser_state < WSI_TOKEN_COUNT)
 
 				wsi->u.http2.value = 1;
 				wsi->u.http2.hpack = HPKS_HLEN;

@@ -560,7 +560,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 	unsigned long amount;
 	int n, m;
 
-	while (!lws_send_pipe_choked(wsi)) {
+	while (wsi->http2_substream || !lws_send_pipe_choked(wsi)) {
 		if (wsi->trunc_len) {
 			if (lws_issue_raw(wsi, wsi->trunc_alloc +
 					  wsi->trunc_offset,

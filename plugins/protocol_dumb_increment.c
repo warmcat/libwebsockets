@@ -18,6 +18,7 @@
  * Public Domain.
  */
 #include "../lib/libwebsockets.h"
+#include <string.h>
 
 struct per_vhost_data__dumb_increment {
 	uv_timer_t timeout_watcher;

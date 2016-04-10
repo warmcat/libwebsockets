@@ -359,37 +359,41 @@ lws_http_action(struct lws *wsi)
 		wsi->u.http.content_length = atoi(content_length_str);
 	}
 
-	/* http_version? Default to 1.0, override with token: */
-	request_version = HTTP_VERSION_1_0;
+	if (wsi->http2_substream) {
+		wsi->u.http.request_version = HTTP_VERSION_2;
+	} else {
+		/* http_version? Default to 1.0, override with token: */
+		request_version = HTTP_VERSION_1_0;
 
-	/* Works for single digit HTTP versions. : */
-	http_version_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP);
-	if (http_version_len > 7) {
-		lws_hdr_copy(wsi, http_version_str,
-				sizeof(http_version_str) - 1, WSI_TOKEN_HTTP);
-		if (http_version_str[5] == '1' && http_version_str[7] == '1')
-			request_version = HTTP_VERSION_1_1;
-	}
-	wsi->u.http.request_version = request_version;
+		/* Works for single digit HTTP versions. : */
+		http_version_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP);
+		if (http_version_len > 7) {
+			lws_hdr_copy(wsi, http_version_str,
+					sizeof(http_version_str) - 1, WSI_TOKEN_HTTP);
+			if (http_version_str[5] == '1' && http_version_str[7] == '1')
+				request_version = HTTP_VERSION_1_1;
+		}
+		wsi->u.http.request_version = request_version;
 
-	/* HTTP/1.1 defaults to "keep-alive", 1.0 to "close" */
-	if (request_version == HTTP_VERSION_1_1)
-		connection_type = HTTP_CONNECTION_KEEP_ALIVE;
-	else
-		connection_type = HTTP_CONNECTION_CLOSE;
-
-	/* Override default if http "Connection:" header: */
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
-		lws_hdr_copy(wsi, http_conn_str, sizeof(http_conn_str) - 1,
-			     WSI_TOKEN_CONNECTION);
-		http_conn_str[sizeof(http_conn_str) - 1] = '\0';
-		if (!strcasecmp(http_conn_str, "keep-alive"))
+		/* HTTP/1.1 defaults to "keep-alive", 1.0 to "close" */
+		if (request_version == HTTP_VERSION_1_1)
 			connection_type = HTTP_CONNECTION_KEEP_ALIVE;
 		else
-			if (!strcasecmp(http_conn_str, "close"))
-				connection_type = HTTP_CONNECTION_CLOSE;
+			connection_type = HTTP_CONNECTION_CLOSE;
+
+		/* Override default if http "Connection:" header: */
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
+			lws_hdr_copy(wsi, http_conn_str, sizeof(http_conn_str) - 1,
+				     WSI_TOKEN_CONNECTION);
+			http_conn_str[sizeof(http_conn_str) - 1] = '\0';
+			if (!strcasecmp(http_conn_str, "keep-alive"))
+				connection_type = HTTP_CONNECTION_KEEP_ALIVE;
+			else
+				if (!strcasecmp(http_conn_str, "close"))
+					connection_type = HTTP_CONNECTION_CLOSE;
+		}
+		wsi->u.http.connection_type = connection_type;
 	}
-	wsi->u.http.connection_type = connection_type;
 
 	n = wsi->protocol->callback(wsi, LWS_CALLBACK_FILTER_HTTP_CONNECTION,
 				    wsi->user_space, uri_ptr, uri_len);
@@ -479,6 +483,8 @@ lws_http_action(struct lws *wsi)
 				"http://", "https://"
 			};
 
+			// lwsl_err("inin '%s'\n", s);
+
 			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
 				goto bail_nuke_ah;
 			if (lws_add_http_header_status(wsi, 301, &p, end))
@@ -550,7 +556,7 @@ lws_http_action(struct lws *wsi)
 		if (!s)
 			s = "index.html";
 
-
+			// lwsl_err("okok\n");
 
 		n = lws_http_serve(wsi, s, hit->origin);
 	} else
@@ -632,8 +638,8 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 			}
 #ifdef LWS_USE_HTTP2
 			if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
-					"h2c-14")) {
-				lwsl_info("Upgrade to h2c-14\n");
+					"h2c")) {
+				lwsl_info("Upgrade to h2c\n");
 				goto upgrade_h2c;
 			}
 #endif

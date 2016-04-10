@@ -86,6 +86,12 @@ Building on Unix:
 	$ LD_LIBRARY_PATH=/usr/local/ssl/lib libwebsockets-test-server --ssl
     ```
 
+	To get it to build on latest openssl (2016-04-10) it needed this approach
+
+    ```bash
+	cmake .. -DLWS_WITH_HTTP2=1 -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/include/openssl -DLWS_OPENSSL_LIBRARIES="/usr/local/lib64/libssl.so;/usr/local/lib64/libcrypto.so"
+    ```
+
 	**NOTE5**:
 	To build with debug info and _DEBUG for lower priority debug messages
 	compiled in, use

@@ -133,6 +133,7 @@ int main(int argc, char **argv)
 			#ifndef _WIN32
 			syslog_options &= ~LOG_PERROR;
 			#endif
+			printf("Daemonizing...\n");
 			break;
 #endif
 		case 'd':
@@ -159,6 +160,8 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Failed to daemonize\n");
 		return 10;
 	}
+	if (daemonize)
+		lwsl_notice("Daemonized\n");
 #endif
 
 	signal(SIGINT, sighandler);
