@@ -1513,6 +1513,9 @@ lws_socket_bind(struct lws_context *context, int sockfd, int port,
 			return -1;
 		}
 		strcpy(serv_unix.sun_path, iface);
+		if (serv_unix.sun_path[0] == '@')
+			serv_unix.sun_path[0] = '\0';
+
 	} else
 #endif
 #ifdef LWS_USE_IPV6
