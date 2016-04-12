@@ -53,6 +53,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
 	"vhosts[].ws-protocols[]",
+	"vhosts[].keepalive_timeout",
 };
 
 enum lejp_vhost_paths {
@@ -71,6 +72,7 @@ enum lejp_vhost_paths {
 	LEJPVP_PROTOCOL_NAME_OPT,
 	LEJPVP_PROTOCOL_NAME,
 	LEJPVP_PROTOCOL,
+	LEJPVP_KEEPALIVE_TIMEOUT,
 };
 
 struct jpargs {
@@ -187,6 +189,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!AES256-GCM-SHA384:"
 				       "!AES256-SHA256";
 		a->info->pvo = NULL;
+		a->info->keepalive_timeout = 60;
 	}
 
 	if (reason == LEJPCB_OBJECT_START &&
@@ -287,6 +290,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		break;
 	case LEJPVP_CGI_TIMEOUT:
 		a->cgi_timeout = atoi(ctx->buf);
+		return 0;
+	case LEJPVP_KEEPALIVE_TIMEOUT:
+		a->info->keepalive_timeout = atoi(ctx->buf);
 		return 0;
 	case LEJPVP_CGI_ENV:
 		mp_cgienv = lwsws_align(a);
