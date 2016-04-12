@@ -28,8 +28,8 @@ There is a single file intended for global settings
 
 {
   "global": {
-   "uid": "99",
-   "gid": "99",
+   "uid": "48",
+   "gid": "48",
    "interface": "eth0",
    "count-threads": "1",
    "init-ssl": "yes"
@@ -135,6 +135,33 @@ negotiation time (via SNI) or if no SSL, then after the Host: header from
 the client has been parsed.
 
 
+Protocols
+---------
+
+Vhosts by default have available the union of any initial protocols from context creation time, and
+any protocols exposed by plugins.
+
+Vhosts can select which plugins they want to offer and give them per-vhost settings using this syntax
+
+```	
+     "ws-protocols": [{
+       "warmcat,timezoom": {
+         "status": "ok"
+       }
+     }]
+
+```
+
+Other vhost options
+-------------------
+
+ - If the three options "host-ssl-cert", "host-ssl-ca" and "host-ssl-key" are given, then the vhost supports SSL.
+
+ Each vhost may have its own certs, SNI is used during the initial connection negotiation to figure out which certs to use by the server name it's asking for from the request DNS name.
+
+ - keeplive-timeout (in secs) defaults to 60 for lwsws, it may be set as a vhost option
+
+
 Mounts
 ------
 
@@ -228,20 +255,4 @@ To help that happen conveniently, there are some new apis
 dumb increment, mirror and status protocol plugins are provided as examples.
 
 
-Protocols
----------
-
-Vhosts by default have available the union of any initial protocols from context creation time, and
-any protocols exposed by plugins.
-
-Vhosts can select which plugins they want to offer and give them per-vhost settings using this syntax
-
-```	
-     "ws-protocols": [{
-       "warmcat,timezoom": {
-         "status": "ok"
-       }
-     }]
-
-```
 

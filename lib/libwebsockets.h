@@ -1469,6 +1469,7 @@ struct lws_context_creation_info {
 	const char *vhost_name;				/* VH */
 	const char *plugins_dir;			/* context */
 	struct lws_protocol_vhost_options *pvo;		/* VH */
+	int keepalive_timeout;				/* VH */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -1702,6 +1703,7 @@ enum pending_timeout {
 	PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE			= 12,
 	PENDING_TIMEOUT_SHUTDOWN_FLUSH				= 13,
 	PENDING_TIMEOUT_CGI					= 14,
+	PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE			= 15,
 
 	/****** add new things just above ---^ ******/
 };

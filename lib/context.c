@@ -228,6 +228,7 @@ lws_create_vhost(struct lws_context *context,
 		;
 
 	vh->pvo = info->pvo;
+	vh->keepalive_timeout = info->keepalive_timeout;
 
 #ifdef LWS_WITH_PLUGINS
 	if (plugin) {

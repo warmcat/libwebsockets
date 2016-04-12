@@ -1006,6 +1006,8 @@ lws_create_new_server_wsi(struct lws_vhost *vhost)
 LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)
 {
+	int n = NO_PENDING_TIMEOUT;
+
 	lwsl_debug("%s: wsi %p\n", __func__, wsi);
 	/* if we can't go back to accept new headers, drop the connection */
 	if (wsi->u.http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
@@ -1019,8 +1021,10 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->u.http.content_length = 0;
 	wsi->hdr_parsing_completed = 0;
 
-	/* He asked for it to stay alive indefinitely */
-	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	if (wsi->vhost->keepalive_timeout)
+		n = PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE;
+	lws_set_timeout(wsi, n, wsi->vhost->keepalive_timeout);
 
 	/*
 	 * We already know we are on http1.1 / keepalive and the next thing
