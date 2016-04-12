@@ -1674,8 +1674,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		cgi->stdwsi[n]->cgi_channel = n;
 		cgi->stdwsi[n]->vhost = wsi->vhost;
 
-		lwsl_err("%s: pipe fd %d -> fd %d\n", __func__, n,
-			 cgi->pipe_fds[n][!!(n == 0)]);
+		lwsl_err("%s: cgi %p: pipe fd %d -> fd %d / %d\n", __func__, wsi, n,
+			 cgi->pipe_fds[n][!!(n == 0)], cgi->pipe_fds[n][!(n == 0)]);
 
 		/* read side is 0, stdin we want the write side, others read */
 		cgi->stdwsi[n]->sock = cgi->pipe_fds[n][!!(n == 0)];
@@ -1995,16 +1995,12 @@ lws_cgi_kill(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	struct lws_cgi **pcgi = &pt->cgi_list;
 	struct lws_cgi_args args;
-	int n, status, do_close = 0, cgi_pipes[3];
+	int n, status, do_close = 0, cgi_pipes[6];
 
 	lwsl_debug("!!!!! %s: %p\n", __func__, wsi);
 
 	if (!wsi->cgi)
 		return 0;
-
-//	lwsl_notice("%s: wsi %p\n", __func__, wsi);
-
-	assert(wsi->cgi);
 
 	if (wsi->cgi->pid > 0) {
 		/* kill the process */
@@ -2037,19 +2033,19 @@ lws_cgi_kill(struct lws *wsi)
 		pcgi = &(*pcgi)->cgi_list;
 	}
 
-	for (n = 0 ; n < 3; n++)
-		cgi_pipes[n] = wsi->cgi->pipe_fds[n][!(n == 0)];
-
+	memcpy(cgi_pipes, wsi->cgi->pipe_fds[0], sizeof (cgi_pipes));
 	lws_free_set_NULL(wsi->cgi);
 
 	if (do_close) {
 		lwsl_debug("!!!!! %s: do_close\n", __func__);
 		lws_close_free_wsi(wsi, 0);
-
-		for (n = 0; n < 3; n++)
-			if (cgi_pipes[n] >= 0)
-				close(cgi_pipes[n]);
 	}
+
+	for (n = 0; n < 6; n++)
+		if (cgi_pipes[n] >= 0) {
+			lwsl_info("   closing %d\n", cgi_pipes[n]);
+			close(cgi_pipes[n]);
+		}
 
 	return 0;
 }
