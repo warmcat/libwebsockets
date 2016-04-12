@@ -274,6 +274,11 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 	switch (wsi->mode) {
 	case LWSCM_SSL_INIT:
 
+		if (wsi->ssl)
+			lwsl_err("%s: leaking ssl\n", __func__);
+		if (accept_fd == LWS_SOCK_INVALID)
+			assert(0);
+
 		wsi->ssl = SSL_new(wsi->vhost->ssl_ctx);
 		if (wsi->ssl == NULL) {
 			lwsl_err("SSL_new failed: %s\n",
@@ -316,8 +321,10 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		 */
 
 		wsi->mode = LWSCM_SSL_ACK_PENDING;
-		if (insert_wsi_socket_into_fds(context, wsi))
+		if (insert_wsi_socket_into_fds(context, wsi)) {
+			lwsl_err("%s: failed to insert into fds\n", __func__);
 			goto fail;
+		}
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
 				context->timeout_secs);
@@ -328,8 +335,10 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	case LWSCM_SSL_ACK_PENDING:
 
-		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+			lwsl_err("%s: lws_change_pollfd failed\n", __func__);
 			goto fail;
+		}
 
 		lws_latency_pre(context, wsi);
 
@@ -397,20 +406,34 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			   m, ERR_error_string(m, NULL));
 go_again:
 		if (m == SSL_ERROR_WANT_READ) {
-			if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+			if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+				lwsl_err("%s: WANT_READ change_pollfd failed\n", __func__);
 				goto fail;
+			}
 
 			lwsl_info("SSL_ERROR_WANT_READ\n");
 			break;
 		}
 		if (m == SSL_ERROR_WANT_WRITE) {
-			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
+				lwsl_err("%s: WANT_WRITE change_pollfd failed\n", __func__);
 				goto fail;
+			}
 
 			break;
 		}
-		lwsl_debug("SSL_accept failed skt %u: %s\n",
+		lwsl_err("SSL_accept failed skt %u: %s\n",
 			   wsi->sock, ERR_error_string(m, NULL));
+
+		{
+		   char buf[256];
+		   u_long err;
+
+		   while ((err = ERR_get_error()) != 0) {
+		      ERR_error_string_n(err, buf, sizeof(buf));
+		      lwsl_err("*** %s\n", buf);
+		   }
+		}
 		goto fail;
 
 accepted:
