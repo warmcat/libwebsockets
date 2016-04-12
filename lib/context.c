@@ -204,7 +204,7 @@ lws_create_vhost(struct lws_context *context,
 #ifdef LWS_WITH_PLUGINS
 	struct lws_plugin *plugin = context->plugin_list;
 	struct lws_protocols *lwsp;
-	int m, n;
+	int m, n, f = !info->pvo;
 #endif
 	char *p;
 
@@ -241,13 +241,21 @@ lws_create_vhost(struct lws_context *context,
 		memcpy(lwsp, info->protocols,
 		       sizeof(struct lws_protocols) * m);
 
+		/* for compatibility, all protocols enabled on vhost if only
+		 * the default vhost exists.  Otherwise only vhosts who ask
+		 * for a protocol get it enabled.
+		 */
+
+		if (info->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
+			f = 0;
+
 		while (plugin) {
 			for (n = 0; n < plugin->caps.count_protocols; n++) {
 				/*
 				 * for compatibility's sake, no pvo implies
 				 * allow all protocols
 				 */
-				if (!info->pvo || lws_vhost_protocol_options(vh,
+				if (f || lws_vhost_protocol_options(vh,
 				    plugin->caps.protocols[n].name)) {
 					memcpy(&lwsp[m],
 					       &plugin->caps.protocols[n],
