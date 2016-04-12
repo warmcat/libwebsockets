@@ -674,6 +674,7 @@ struct lws_vhost {
 	int ka_time;
 	int ka_probes;
 	int ka_interval;
+	int keepalive_timeout;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;
