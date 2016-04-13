@@ -384,6 +384,7 @@ SET(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/lib")
 SET(CMAKE_INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/${LWS_INSTALL_LIB_DIR}${LIB_SUFFIX}")
 
 include(CheckFunctionExists)
+include(CheckSymbolExists)
 include(CheckIncludeFile)
 include(CheckIncludeFiles)
 include(CheckLibraryExists)
@@ -463,15 +464,6 @@ if (NOT LWS_HAVE_REALLOC)
 	set(realloc rpl_realloc)
 endif()
 
-# Generate the lws_config.h that includes all the public compilation settings.
-configure_file(
-       "${PROJECT_SOURCE_DIR}/lws_config.h.in"
-       "${PROJECT_BINARY_DIR}/lws_config.h")
-
-# Generate the lws_config.h that includes all the private compilation settings.
-configure_file(
-       "${PROJECT_SOURCE_DIR}/lws_config_private.h.in"
-       "${PROJECT_BINARY_DIR}/lws_config_private.h")
 
 if (MSVC)
 	# Turn off stupid microsoft security warnings.
@@ -863,6 +855,22 @@ endif()
 foreach (lib ${LWS_LIBRARIES})
 	target_link_libraries(${lib} ${LIB_LIST})
 endforeach()
+
+set (temp ${CMAKE_REQUIRED_LIBRARIES})
+set(CMAKE_REQUIRED_LIBRARIES ${LIB_LIST})
+CHECK_FUNCTION_EXISTS(SSL_CTX_set1_param LWS_HAVE_SSL_CTX_set1_param)
+set(CMAKE_REQUIRED_LIBRARIES ${temp})
+# Generate the lws_config.h that includes all the public compilation settings.
+configure_file(
+       "${PROJECT_SOURCE_DIR}/lws_config.h.in"
+       "${PROJECT_BINARY_DIR}/lws_config.h")
+
+# Generate the lws_config.h that includes all the private compilation settings.
+configure_file(
+       "${PROJECT_SOURCE_DIR}/lws_config_private.h.in"
+       "${PROJECT_BINARY_DIR}/lws_config_private.h")
+
+
 
 #
 # Test applications
@@ -1450,6 +1458,7 @@ message(" LWS_SSL_SERVER_WITH_ECDH_CERT = ${LWS_SSL_SERVER_WITH_ECDH_CERT}")
 message(" LWS_MAX_SMP = ${LWS_MAX_SMP}")
 message(" LWS_WITH_CGI = ${LWS_WITH_CGI}")
 message(" LWS_HAVE_OPENSSL_ECDH_H = ${LWS_HAVE_OPENSSL_ECDH_H}")
+message(" LWS_HAVE_SSL_CTX_set1_param = ${LWS_HAVE_SSL_CTX_set1_param}")
 message(" LWS_WITH_HTTP_PROXY = ${LWS_WITH_HTTP_PROXY}")
 message(" LIBHUBBUB_LIBRARIES = ${LIBHUBBUB_LIBRARIES}")
 message(" PLUGINS = ${PLUGINS_LIST}")

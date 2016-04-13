@@ -34,6 +34,15 @@
  *				using this protocol, including the sender
  */
 
+#ifdef LWS_OPENSSL_SUPPORT
+#include <openssl/err.h>
+#endif
+
+#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+/* location of the certificate revocation list */
+char crl_path[1024] = "";
+#endif
+
 extern int debug_level;
 
 enum demo_protocols {
@@ -619,6 +628,39 @@ bail:
 		/* return pthread_getthreadid_np(); */
 
 		break;
+
+#if defined(LWS_OPENSSL_SUPPORT)
+	case LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION:
+		/* Verify the client certificate */
+		if (!len || (SSL_get_verify_result((SSL*)in) != X509_V_OK)) {
+			int err = X509_STORE_CTX_get_error((X509_STORE_CTX*)user);
+			int depth = X509_STORE_CTX_get_error_depth((X509_STORE_CTX*)user);
+			const char* msg = X509_verify_cert_error_string(err);
+			lwsl_err("LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION: SSL error: %s (%d), depth: %d\n", msg, err, depth);
+			return 1;
+		}
+		break;
+#if defined(LWS_HAVE_SSL_CTX_set1_param)
+	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS:
+		if (crl_path[0]) {
+			/* Enable CRL checking */
+			X509_VERIFY_PARAM *param = X509_VERIFY_PARAM_new();
+			X509_VERIFY_PARAM_set_flags(param, X509_V_FLAG_CRL_CHECK);
+			SSL_CTX_set1_param((SSL_CTX*)user, param);
+			X509_STORE *store = SSL_CTX_get_cert_store((SSL_CTX*)user);
+			X509_LOOKUP *lookup = X509_STORE_add_lookup(store, X509_LOOKUP_file());
+			n = X509_load_cert_crl_file(lookup, crl_path, X509_FILETYPE_PEM);
+			X509_VERIFY_PARAM_free(param);
+			if (n != 1) {
+				char errbuf[256];
+				n = ERR_get_error();
+				lwsl_err("LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS: SSL error: %s (%d)\n", ERR_error_string(n, errbuf), n);
+				return 1;
+			}
+		}
+		break;
+#endif
+#endif
 
 	default:
 		break;

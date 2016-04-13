@@ -165,6 +165,12 @@ static struct option options[] = {
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
 	{ "ssl-ca",  required_argument,		NULL, 'A' },
+#if defined(LWS_OPENSSL_SUPPORT)
+	{ "ssl-verify-client",  no_argument,		NULL, 'v' },
+#if defined(LWS_HAVE_SSL_CTX_set1_param)
+	{ "ssl-crl",  required_argument,		NULL, 'R' },
+#endif
+#endif
 	{ "libev",  no_argument,		NULL, 'e' },
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize", 	no_argument,		NULL, 'D' },
@@ -201,7 +207,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:u:g:", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -258,6 +264,17 @@ int main(int argc, char **argv)
 		case 'A':
 			strncpy(ca_path, optarg, sizeof ca_path);
 			break;
+#if defined(LWS_OPENSSL_SUPPORT)
+		case 'v':
+			use_ssl = 1;
+			opts |= LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT;
+			break;
+#if defined(LWS_HAVE_SSL_CTX_set1_param)
+		case 'R':
+			strncpy(crl_path, optarg, sizeof crl_path);
+			break;
+#endif
+#endif
 		case 'h':
 			fprintf(stderr, "Usage: test-server "
 					"[--port=<p>] [--ssl] "
