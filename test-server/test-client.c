@@ -35,10 +35,17 @@
 
 #include "../lib/libwebsockets.h"
 
+#ifdef LWS_OPENSSL_SUPPORT
+#include <openssl/err.h>
+#endif
+
 static int deny_deflate, deny_mux, longlived, mirror_lifetime;
 static struct lws *wsi_dumb, *wsi_mirror;
 static volatile int force_exit;
 static unsigned int opts;
+#ifdef LWS_OPENSSL_SUPPORT
+static char crl_path[1024] = "";
+#endif
 
 /*
  * This demo shows how to connect multiple websockets simultaneously to a
@@ -125,6 +132,27 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		wsi_dumb = NULL;
 		force_exit = 1;
 		break;
+
+#ifdef LWS_OPENSSL_SUPPORT
+	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
+		if (crl_path[0]) {
+			/* Enable CRL checking of the server certificate */
+			X509_VERIFY_PARAM *param = X509_VERIFY_PARAM_new();
+			X509_VERIFY_PARAM_set_flags(param, X509_V_FLAG_CRL_CHECK);
+			SSL_CTX_set1_param((SSL_CTX*)user, param);
+			X509_STORE *store = SSL_CTX_get_cert_store((SSL_CTX*)user);
+			X509_LOOKUP *lookup = X509_STORE_add_lookup(store, X509_LOOKUP_file());
+			int n = X509_load_cert_crl_file(lookup, crl_path, X509_FILETYPE_PEM);
+			X509_VERIFY_PARAM_free(param);
+			if (n != 1) {
+				char errbuf[256];
+				n = ERR_get_error();
+				lwsl_err("LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS: SSL error: %s (%d)\n", ERR_error_string(n, errbuf), n);
+				return 1;
+			}
+		}
+		break;
+#endif
 
 	default:
 		break;
@@ -262,6 +290,12 @@ static struct option options[] = {
 	{ "undeflated",	no_argument,		NULL, 'u' },
 	{ "nomux",	no_argument,		NULL, 'n' },
 	{ "longlived",	no_argument,		NULL, 'l' },
+	{ "ssl-cert",  required_argument,	NULL, 'C' },
+	{ "ssl-key",  required_argument,	NULL, 'K' },
+	{ "ssl-ca",  required_argument,		NULL, 'A' },
+#ifdef LWS_OPENSSL_SUPPORT
+	{ "ssl-crl",  required_argument,		NULL, 'R' },
+#endif
 	{ NULL, 0, 0, 0 }
 };
 
@@ -287,6 +321,9 @@ int main(int argc, char **argv)
 	struct lws_context *context;
 	const char *prot, *p;
 	char path[300];
+	char cert_path[1024] = "";
+	char key_path[1024] = "";
+	char ca_path[1024] = "";
 
 	memset(&info, 0, sizeof info);
 
@@ -297,7 +334,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "nuv:hsp:d:l", options, NULL);
+		n = getopt_long(argc, argv, "nuv:hsp:d:lC:K:A:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -322,6 +359,20 @@ int main(int argc, char **argv)
 		case 'n':
 			deny_mux = 1;
 			break;
+		case 'C':
+			strncpy(cert_path, optarg, sizeof cert_path);
+			break;
+		case 'K':
+			strncpy(key_path, optarg, sizeof key_path);
+			break;
+		case 'A':
+			strncpy(ca_path, optarg, sizeof ca_path);
+			break;
+#ifdef LWS_OPENSSL_SUPPORT
+		case 'R':
+			strncpy(crl_path, optarg, sizeof crl_path);
+			break;
+#endif
 		case 'h':
 			goto usage;
 		}
@@ -362,8 +413,29 @@ int main(int argc, char **argv)
 	info.gid = -1;
 	info.uid = -1;
 
-	if (use_ssl)
+	if (use_ssl) {
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+
+		/*
+		 * If the server wants us to present a valid SSL client certificate
+		 * then we can set it up here.
+		 */
+
+		if (cert_path[0])
+			info.ssl_cert_filepath = cert_path;
+		if (key_path[0])
+			info.ssl_private_key_filepath = key_path;
+
+		/*
+		 * A CA cert and CRL can be used to validate the cert send by the server
+		 */
+		if (ca_path[0])
+			info.ssl_ca_filepath = ca_path;
+#ifdef LWS_OPENSSL_SUPPORT
+		else if (crl_path[0])
+			lwsl_notice("WARNING, providing a CRL without a CA cert is meaningless!\n");
+#endif
+	}
 
 	context = lws_create_context(&info);
 	if (context == NULL) {
