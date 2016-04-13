@@ -621,6 +621,8 @@ struct lws_http_mount {
 	const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
 	const char *def; /* default target, eg, "index.html" */
 
+	struct lws_protocol_vhost_options *cgienv;
+
 	unsigned char origin_protocol;
 	unsigned char mountpoint_len;
 };

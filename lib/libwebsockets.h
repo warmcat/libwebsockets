@@ -1538,10 +1538,20 @@ struct lws_client_connect_info {
 
 struct lws_http_mount;
 
+enum {
+	LWSMPRO_HTTP,
+	LWSMPRO_HTTPS,
+	LWSMPRO_FILE,
+	LWSMPRO_CGI,
+	LWSMPRO_REDIR_HTTP,
+	LWSMPRO_REDIR_HTTPS,
+};
+
 LWS_VISIBLE LWS_EXTERN int
 lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
 		     void *store, const char *mountpoint, const char *origin,
-		     const char *def);
+		     const char *def,
+		     struct lws_protocol_vhost_options *cgienv);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_set_log_level(int level,
@@ -2012,8 +2022,9 @@ struct lws_cgi_args {
 };
 
 LWS_VISIBLE LWS_EXTERN int
-lws_cgi(struct lws *wsi, char * const *exec_array,  int script_uri_path_len,
-	int timeout_secs);
+lws_cgi(struct lws *wsi, const char * const *exec_array,
+	int script_uri_path_len, int timeout_secs,
+	struct lws_protocol_vhost_options *mp_cgienv);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_write_split_stdout_headers(struct lws *wsi);

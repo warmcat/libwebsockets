@@ -48,6 +48,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].mountpoint",
 	"vhosts[].mounts[].origin",
 	"vhosts[].mounts[].default",
+	"vhosts[].mounts[].cgi-env[].*",
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
 	"vhosts[].ws-protocols[]",
@@ -64,6 +65,7 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNTPOINT,
 	LEJPVP_ORIGIN,
 	LEJPVP_DEFAULT,
+	LEJPVP_CGI_ENV,
 	LEJPVP_PROTOCOL_NAME_OPT,
 	LEJPVP_PROTOCOL_NAME,
 	LEJPVP_PROTOCOL,
@@ -78,6 +80,7 @@ struct jpargs {
 	struct lws_http_mount *head, *last;
 	char *mountpoint, *origin, *def;
 	struct lws_protocol_vhost_options *pvo;
+	struct lws_protocol_vhost_options *mp_cgienv;
 };
 
 static void *
@@ -144,13 +147,15 @@ static char
 lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jpargs *a = (struct jpargs *)ctx->user;
-	struct lws_protocol_vhost_options *pvo;
+	struct lws_protocol_vhost_options *pvo, *mp_cgienv;
 	struct lws_http_mount *m;
 	int n;
 
-//	lwsl_notice(" %d: %s (%d)\n", reason, ctx->path, ctx->path_match);
-//	for (n = 0; n < ctx->wildcount; n++)
-//		lwsl_notice("    %d\n", ctx->wild[n]);
+#if 0
+	lwsl_notice(" %d: %s (%d)\n", reason, ctx->path, ctx->path_match);
+	for (n = 0; n < ctx->wildcount; n++)
+		lwsl_notice("    %d\n", ctx->wild[n]);
+#endif
 
 	if (reason == LEJPCB_OBJECT_START && ctx->path_match == LEJPVP + 1) {
 		/* set the defaults for this vhost */
@@ -186,6 +191,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->mountpoint = NULL;
 		a->origin = NULL;
 		a->def = NULL;
+		a->mp_cgienv = NULL;
 	}
 
 	/* this catches, eg, vhosts[].ws-protocols[].xxx-protocol */
@@ -235,7 +241,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		}
 
 		n = lws_write_http_mount(a->last, &m, a->p, a->mountpoint,
-					 a->origin, a->def);
+					 a->origin, a->def, a->mp_cgienv);
 		if (!n)
 			return 1;
 		a->p += n;
@@ -274,7 +280,25 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_DEFAULT:
 		a->def = a->p;
 		break;
+	case LEJPVP_CGI_ENV:
+		mp_cgienv = lwsws_align(a);
+		a->p += sizeof(*a->mp_cgienv);
 
+		mp_cgienv->next = a->mp_cgienv;
+		a->mp_cgienv = mp_cgienv;
+
+		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		mp_cgienv->name = a->p;
+		a->p += n;
+		mp_cgienv->value = a->p;
+		mp_cgienv->options = NULL;
+		a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
+		*(a->p)++ = '\0';
+
+		lwsl_notice("    adding cgi-env '%s' = '%s'\n", mp_cgienv->name,
+				mp_cgienv->value);
+
+		break;
 	case LEJPVP_PROTOCOL_NAME_OPT:
 		/* this catches, eg,
 		 * vhosts[].ws-protocols[].xxx-protocol.yyy-option
@@ -435,7 +459,7 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 
 	a.info = info;
 	a.p = *cs;
-	a.end = a.p + *len;
+	a.end = (a.p + *len) - 1;
 	a.valid = 0;
 
 	if (lwsws_get_config(&a, "/etc/lwsws/conf", paths_global,

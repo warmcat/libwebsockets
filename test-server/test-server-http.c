@@ -215,42 +215,6 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 #endif
 
-#ifdef LWS_WITH_CGI
-		if (!strncmp(in, "/cgitest", 8)) {
-			static char *cmd[] = {
-				"/bin/sh",
-				"-c",
-				INSTALL_DATADIR"/libwebsockets-test-server/lws-cgi-test.sh",
-//				"/var/www/cgi-bin/cgit",
-				NULL
-			};
-
-			lwsl_notice("%s: cgitest\n", __func__);
-			n = lws_cgi(wsi, cmd, 8, 5);
-			if (n) {
-				lwsl_err("%s: cgi failed\n");
-				return -1;
-			}
-			p = buffer + LWS_PRE;
-			end = p + sizeof(buffer) - LWS_PRE;
-
-			if (lws_add_http_header_status(wsi, 200, &p, end))
-				return 1;
-			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
-					(unsigned char *)"close", 5, &p, end))
-				return 1;
-			n = lws_write(wsi, buffer + LWS_PRE,
-				      p - (buffer + LWS_PRE),
-				      LWS_WRITE_HTTP_HEADERS);
-
-			/* the cgi starts by outputting headers, we can't
-			 *  finalize the headers until we see the end of that
-			 */
-
-			break;
-		}
-#endif
-
 		/* if a legal POST URL, let it continue and accept data */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
 			return 0;
@@ -423,15 +387,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (pss->fd == LWS_INVALID_FILE)
 			goto try_to_reuse;
-#ifdef LWS_WITH_CGI
-		if (pss->reason_bf & 1) {
-			if (lws_cgi_write_split_stdout_headers(wsi) < 0)
-				goto bail;
 
-			pss->reason_bf &= ~1;
-			break;
-		}
-#endif
 #ifndef LWS_NO_CLIENT
 		if (pss->reason_bf & 2) {
 			char *px = buf + LWS_PRE;
@@ -599,56 +555,6 @@ bail:
 		pss1 = lws_wsi_user(lws_get_parent(wsi));
 		pss1->client_finished = 1;
 		break;
-#endif
-
-#ifdef LWS_WITH_CGI
-	/* CGI IO events (POLLIN/OUT) appear here our demo user code policy is
-	 *
-	 *  - POST data goes on subprocess stdin
-	 *  - subprocess stdout goes on http via writeable callback
-	 *  - subprocess stderr goes to the logs
-	 */
-	case LWS_CALLBACK_CGI:
-		pss->args = *((struct lws_cgi_args *)in);
-		//lwsl_notice("LWS_CALLBACK_CGI: ch %d\n", pss->args.ch);
-		switch (pss->args.ch) { /* which of stdin/out/err ? */
-		case LWS_STDIN:
-			/* TBD stdin rx flow control */
-			break;
-		case LWS_STDOUT:
-			pss->reason_bf |= 1;
-			/* when writing to MASTER would not block */
-			lws_callback_on_writable(wsi);
-			break;
-		case LWS_STDERR:
-			n = read(lws_get_socket_fd(pss->args.stdwsi[LWS_STDERR]),
-					buf, 127);
-			//lwsl_notice("stderr reads %d\n", n);
-			if (n > 0) {
-				if (buf[n - 1] != '\n')
-					buf[n++] = '\n';
-				buf[n] = '\0';
-				lwsl_notice("CGI-stderr: %s\n", buf);
-			}
-			break;
-		}
-		break;
-
-	case LWS_CALLBACK_CGI_TERMINATED:
-		//lwsl_notice("LWS_CALLBACK_CGI_TERMINATED\n");
-		/* because we sent on openended http, close the connection */
-		return -1;
-
-	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */
-		//lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA\n");
-		pss->args = *((struct lws_cgi_args *)in);
-		n = write(lws_get_socket_fd(pss->args.stdwsi[LWS_STDIN]),
-			  pss->args.data, pss->args.len);
-		//lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: write says %d", n);
-		if (n < pss->args.len)
-			lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: sent %d only %d went",
-					n, pss->args.len);
-		return n;
 #endif
 
 	/*

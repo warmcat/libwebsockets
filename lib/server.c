@@ -218,17 +218,48 @@ static const char * get_mimetype(const char *file)
 int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 {
 	const char *mimetype;
-	char path[256];
-	int n;
+	struct stat st;
+	char path[256], sym[256];
+	int n, spin = 0;
 
 	lwsl_notice("%s: %s %s\n", __func__, uri, origin);
 	snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
+	do {
+		spin++;
+
+		if (stat(path, &st)) {
+			lwsl_err("unable to stat %s\n", path);
+			goto bail;
+		}
+
+		lwsl_debug(" %s mode %d\n", path, S_IFMT & st.st_mode);
+
+		if ((S_IFMT & st.st_mode) == S_IFLNK) {
+			if (readlink(path, sym, sizeof(sym))) {
+				lwsl_err("Failed to read link %s\n", path);
+				goto bail;
+			}
+			lwsl_debug("symlink %s -> %s\n", path, sym);
+			snprintf(path, sizeof(path) - 1, "%s", sym);
+		}
+
+		if ((S_IFMT & st.st_mode) == S_IFDIR) {
+			lwsl_debug("default filename append to dir\n");
+			snprintf(path, sizeof(path) - 1, "%s/%s/index.html",
+				 origin, uri);
+		}
+
+	} while ((S_IFMT & st.st_mode) != S_IFREG && spin < 5);
+
+	if (spin == 5) {
+		lwsl_err("symlink loop %s \n", path);
+	}
+
 	mimetype = get_mimetype(path);
 	if (!mimetype) {
 		lwsl_err("unknown mimetype for %s", path);
-		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
-		return -1;
+		goto bail;
 	}
 
 	n = lws_serve_http_file(wsi, path, mimetype, NULL, 0);
@@ -237,6 +268,10 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 		return -1; /* error or can't reuse connection: close the socket */
 
 	return 0;
+bail:
+	lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
+
+	return -1;
 }
 
 int
@@ -403,7 +438,11 @@ lws_http_action(struct lws *wsi)
 	hm = wsi->vhost->mount_list;
 	while (hm) {
 		if (uri_len >= hm->mountpoint_len &&
-		    !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len)) {
+		    !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len) &&
+		    (uri_ptr[hm->mountpoint_len] == '\0' ||
+		     uri_ptr[hm->mountpoint_len] == '/' ||
+		     hm->mountpoint_len == 1)
+		    ) {
 			if (hm->mountpoint_len > best) {
 				best = hm->mountpoint_len;
 				hit = hm;
@@ -414,7 +453,8 @@ lws_http_action(struct lws *wsi)
 	if (hit) {
 		char *s = uri_ptr + hit->mountpoint_len;
 
-		lwsl_err("*** hit %d %d %s\n", hit->mountpoint_len, hit->origin_protocol , hit->origin);
+		lwsl_debug("*** hit %d %d %s\n", hit->mountpoint_len,
+			   hit->origin_protocol , hit->origin);
 
 		/*
 		 * if we have a mountpoint like https://xxx.com/yyy
@@ -431,50 +471,87 @@ lws_http_action(struct lws *wsi)
 		 * / at the end, we must redirect to add it so the browser
 		 * understands he is one "directory level" down.
 		 */
-		if (hit->mountpoint_len > 1 || (hit->origin_protocol & 4))
-			if (*s != '/' || (hit->origin_protocol & 4)) {
-				unsigned char *start = pt->serv_buf + LWS_PRE,
+		if ((hit->mountpoint_len > 1 || (hit->origin_protocol & 4)) &&
+		    (*s != '/' || (hit->origin_protocol & 4))) {
+			unsigned char *start = pt->serv_buf + LWS_PRE,
 					      *p = start, *end = p + 512;
-				static const char *oprot[] = {
-					"http://", "https://"
-				};
+			static const char *oprot[] = {
+				"http://", "https://"
+			};
 
-				if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
-					goto bail_nuke_ah;
-				if (lws_add_http_header_status(wsi, 301, &p, end))
-					goto bail_nuke_ah;
+			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
+				goto bail_nuke_ah;
+			if (lws_add_http_header_status(wsi, 301, &p, end))
+				goto bail_nuke_ah;
 
-				lwsl_err("**** %s", hit->origin);
+			lwsl_debug("**** %s", hit->origin);
 
-				/* > at start indicates deal with by redirect */
-				if (hit->origin_protocol & 4)
-					n = snprintf((char *)end, 256, "%s%s",
-						    oprot[hit->origin_protocol & 1],
-						    hit->origin);
-				else
-					n = snprintf((char *)end, 256,
-					    "https://%s/%s/",
-					    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
-					    uri_ptr);
-				if (lws_add_http_header_by_token(wsi,
-						WSI_TOKEN_HTTP_LOCATION,
-						end, n, &p, end))
-					goto bail_nuke_ah;
-				if (lws_finalize_http_header(wsi, &p, end))
-					goto bail_nuke_ah;
-				n = lws_write(wsi, start, p - start,
-						LWS_WRITE_HTTP_HEADERS);
-				if ((int)n < 0)
-					goto bail_nuke_ah;
+			/* > at start indicates deal with by redirect */
+			if (hit->origin_protocol & 4)
+				n = snprintf((char *)end, 256, "%s%s",
+					    oprot[hit->origin_protocol & 1],
+					    hit->origin);
+			else
+				n = snprintf((char *)end, 256,
+				    "https://%s/%s/",
+				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
+				    uri_ptr);
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_LOCATION,
+					end, n, &p, end))
+				goto bail_nuke_ah;
+			if (lws_finalize_http_header(wsi, &p, end))
+				goto bail_nuke_ah;
+			n = lws_write(wsi, start, p - start,
+					LWS_WRITE_HTTP_HEADERS);
+			if ((int)n < 0)
+				goto bail_nuke_ah;
 
-				return lws_http_transaction_completed(wsi);
+			return lws_http_transaction_completed(wsi);
+		}
+
+#ifdef LWS_WITH_CGI
+		/* did we hit something with a cgi:// origin? */
+		if (hit->origin_protocol == LWSMPRO_CGI) {
+			const char *cmd[] = {
+				NULL, /* replace with cgi path */
+				NULL
+			};
+			unsigned char *p, *end, buffer[256];
+
+			lwsl_debug("%s: cgi\n", __func__);
+			cmd[0] = hit->origin;
+			n = lws_cgi(wsi, cmd, hit->mountpoint_len, 5,
+				    hit->cgienv);
+			if (n) {
+				lwsl_err("%s: cgi failed\n");
+				return -1;
 			}
+			p = buffer + LWS_PRE;
+			end = p + sizeof(buffer) - LWS_PRE;
 
-		if (s[0] == '\0' || (s[0] == '/' && s[1] == '\0'))
+			if (lws_add_http_header_status(wsi, 200, &p, end))
+				return 1;
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
+					(unsigned char *)"close", 5, &p, end))
+				return 1;
+			n = lws_write(wsi, buffer + LWS_PRE,
+				      p - (buffer + LWS_PRE),
+				      LWS_WRITE_HTTP_HEADERS);
+
+			return 0;
+		}
+#endif
+
+		n = strlen(s);
+		if (s[0] == '\0' || (n == 1 && s[n - 1] == '/'))
 			s = (char *)hit->def;
 
 		if (!s)
 			s = "index.html";
+
+
+
 		n = lws_http_serve(wsi, s, hit->origin);
 	} else
 		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
@@ -992,18 +1069,21 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 	lws_libuv_accept(new_wsi, new_wsi->sock);
 
 	if (!LWS_SSL_ENABLED(new_wsi->vhost)) {
-		if (insert_wsi_socket_into_fds(context, new_wsi))
+		if (insert_wsi_socket_into_fds(context, new_wsi)) {
+			lwsl_err("%s: fail inserting socket\n", __func__);
 			goto fail;
+		}
 	} else {
 		new_wsi->mode = LWSCM_SSL_INIT;
-		if (lws_server_socket_service_ssl(new_wsi, accept_fd))
+		if (lws_server_socket_service_ssl(new_wsi, accept_fd)) {
+			lwsl_err("%s: fail ssl negotiation\n", __func__);
 			goto fail;
+		}
 	}
 
 	return new_wsi;
 
 fail:
-	lwsl_err("%s: fail\n", __func__);
 	lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return NULL;

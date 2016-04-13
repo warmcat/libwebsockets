@@ -178,7 +178,8 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 	if (servername) {
 		vhost = lws_select_vhost(context, port, servername);
 		if (vhost) {
-			lwsl_notice("SNI: Found: %s (port %d)\n", servername, port);
+			lwsl_debug("SNI: Found: %s (port %d)\n",
+				   servername, port);
 			SSL_set_SSL_CTX(ssl, vhost->ssl_ctx);
 			return SSL_TLSEXT_ERR_OK;
 		}
