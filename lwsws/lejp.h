@@ -155,7 +155,7 @@ typedef char (*lejp_callback)(struct lejp_ctx *ctx, char reason);
 #endif
 #ifndef LEJP_STRING_CHUNK
 /* must be >= 30 to assemble floats */
-#define LEJP_STRING_CHUNK 64
+#define LEJP_STRING_CHUNK 128
 #endif
 
 enum num_flags {

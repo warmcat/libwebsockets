@@ -530,6 +530,17 @@ lws_close_free_wsi_final(struct lws *wsi)
 	wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
 				       wsi->user_space, NULL, 0);
 
+#ifdef LWS_WITH_CGI
+	if (wsi->cgi) {
+		for (n = 0; n < 6; n++)
+			if (wsi->cgi->pipe_fds[n / 2][n & 1] >= 0) {
+				lwsl_notice("   closing %d\n", wsi->cgi->pipe_fds[n / 2][n & 1]);
+				close(wsi->cgi->pipe_fds[n / 2][n & 1]);
+			}
+		lws_free(wsi->cgi);
+	}
+#endif
+
 	lws_free_wsi(wsi);
 }
 
@@ -1644,7 +1655,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	char *env_array[30], cgi_path[400], e[1024], *p = e,
 	     *end = p + sizeof(e) - 1, tok[256], *t;
 	struct lws_cgi *cgi;
-	int n, m, i;
+	int n, m, i, uritok = WSI_TOKEN_GET_URI;
 
 	/*
 	 * give the master wsi a cgi struct
@@ -1673,6 +1684,9 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 			goto bail2;
 		cgi->stdwsi[n]->cgi_channel = n;
 		cgi->stdwsi[n]->vhost = wsi->vhost;
+
+		lwsl_err("%s: cgi %p: pipe fd %d -> fd %d / %d\n", __func__, wsi, n,
+			 cgi->pipe_fds[n][!!(n == 0)], cgi->pipe_fds[n][!(n == 0)]);
 
 		/* read side is 0, stdin we want the write side, others read */
 		cgi->stdwsi[n]->sock = cgi->pipe_fds[n][!!(n == 0)];
@@ -1712,11 +1726,13 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	if (lws_is_ssl(wsi))
 		env_array[n++] = "HTTPS=ON";
 	if (wsi->u.hdr.ah) {
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
+			uritok = WSI_TOKEN_POST_URI;
 		snprintf(cgi_path, sizeof(cgi_path) - 1, "REQUEST_URI=%s",
-			 lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI));
+			 lws_hdr_simple_ptr(wsi, uritok));
 		cgi_path[sizeof(cgi_path) - 1] = '\0';
 		env_array[n++] = cgi_path;
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
+		if (uritok == WSI_TOKEN_POST_URI)
 			env_array[n++] = "REQUEST_METHOD=POST";
 		else
 			env_array[n++] = "REQUEST_METHOD=GET";
@@ -1748,7 +1764,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 		env_array[n++] = p;
 		p += snprintf(p, end - p, "PATH_INFO=%s",
-			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI) +
+			      lws_hdr_simple_ptr(wsi, uritok) +
 			      script_uri_path_len);
 		p++;
 	}
@@ -1764,11 +1780,31 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 		p++;
 	}
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE)) {
+		env_array[n++] = p;
+		p += snprintf(p, end - p, "HTTP_COOKIE=%s",
+			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COOKIE));
+		p++;
+	}
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
 		env_array[n++] = p;
 		p += snprintf(p, end - p, "USER_AGENT=%s",
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_USER_AGENT));
 		p++;
+	}
+	if (uritok == WSI_TOKEN_POST_URI) {
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
+			env_array[n++] = p;
+			p += snprintf(p, end - p, "CONTENT_TYPE=%s",
+				      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE));
+			p++;
+		}
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+			env_array[n++] = p;
+			p += snprintf(p, end - p, "CONTENT_LENGTH=%s",
+				      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH));
+			p++;
+		}
 	}
 	env_array[n++] = p;
 	p += snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[0]) + 1;
@@ -1808,7 +1844,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		return 0;
 
 	/* somewhere we can at least read things and enter it */
-	if (chdir("/"))
+	if (chdir("/tmp"))
 		lwsl_notice("%s: Failed to chdir\n", __func__);
 
 	/* We are the forked process, redirect and kill inherited things.
@@ -1818,13 +1854,11 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	 * process is OK.  Stuff that happens after the execvpe() is OK.
 	 */
 
-	for (n = 0; n < 3; n++) {
+	for (n = 0; n < 3; n++)
 		if (dup2(cgi->pipe_fds[n][!(n == 0)], n) < 0) {
 			lwsl_err("%s: stdin dup2 failed\n", __func__);
 			goto bail3;
 		}
-		close(cgi->pipe_fds[n][!(n == 0)]);
-	}
 
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
 	for (m = 0; m < n; m++) {
@@ -1872,9 +1906,13 @@ bail1:
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_write_split_stdout_headers(struct lws *wsi)
 {
-	int n, m;
+	int n, m, match = 0, lp = 0;
+	static const char * const content_length = "content-length: ";
 	char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
-	     *end = &buf[sizeof(buf) - 1 - LWS_PRE], c;
+	     *end = &buf[sizeof(buf) - 1 - LWS_PRE], c, l[12];
+
+	if (!wsi->cgi)
+		return -1;
 
 	while (wsi->hdr_state != LHCS_PAYLOAD) {
 		/* we have to separate header / finalize and
@@ -1883,20 +1921,40 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 		 */
 		n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]), &c, 1);
 		if (n < 0) {
-			if (errno != EAGAIN)
+			if (errno != EAGAIN) {
+				lwsl_debug("%s: read says %d\n", __func__, n);
 				return -1;
+			}
 			else
 				n = 0;
 		}
 		if (n) {
-			//lwsl_err("-- %c\n", c);
+			lwsl_debug("-- 0x%02X %c\n", (unsigned char)c, c);
 			switch (wsi->hdr_state) {
 			case LCHS_HEADER:
+				if (!content_length[match] &&
+				    (c >= '0' && c <= '9') &&
+				    lp < sizeof(l) - 1) {
+					l[lp++] = c;
+					l[lp] = '\0';
+					wsi->cgi->content_length = atol(l);
+				}
+				if (tolower(c) == content_length[match])
+					match++;
+				else
+					match = 0;
+
+				/* some cgi only send us \x0a for EOL */
+				if (c == '\x0a') {
+					wsi->hdr_state = LCHS_SINGLE_0A;
+					*p++ = '\x0d';
+				}
 				*p++ = c;
 				if (c == '\x0d') {
 					wsi->hdr_state = LCHS_LF1;
 					break;
 				}
+
 				break;
 			case LCHS_LF1:
 				*p++ = c;
@@ -1905,17 +1963,24 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 					break;
 				}
 				/* we got \r[^\n]... it's unreasonable */
+				lwsl_debug("%s: funny CRLF 0x%02X\n", __func__, (unsigned char)c);
 				return -1;
+
 			case LCHS_CR2:
 				if (c == '\x0d') {
 					/* drop the \x0d */
 					wsi->hdr_state = LCHS_LF2;
 					break;
 				}
+				wsi->hdr_state = LCHS_HEADER;
+				match = 0;
 				*p++ = c;
 				break;
 			case LCHS_LF2:
+			case LCHS_SINGLE_0A:
+				m = wsi->hdr_state;
 				if (c == '\x0a') {
+					lwsl_err("Content-Length: %ld\n", wsi->cgi->content_length);
 					wsi->hdr_state = LHCS_PAYLOAD;
 					/* drop the \0xa ... finalize will add it if needed */
 					lws_finalize_http_header(wsi,
@@ -1923,8 +1988,13 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 							(unsigned char *)end);
 					break;
 				}
-				/* we got \r\n\r[^\n]... it's unreasonable */
-				return -1;
+				if (m == LCHS_LF2)
+					/* we got \r\n\r[^\n]... it's unreasonable */
+					return -1;
+				/* we got \x0anext header, it's reasonable */
+				*p++ = c;
+				wsi->hdr_state = LCHS_HEADER;
+				break;
 			case LHCS_PAYLOAD:
 				break;
 			}
@@ -1935,8 +2005,10 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 
 			m = lws_write(wsi, (unsigned char *)start,
 				      p - start, LWS_WRITE_HTTP_HEADERS);
-			if (m < 0)
+			if (m < 0) {
+				lwsl_debug("%s: write says %d\n", __func__, m);
 				return -1;
+			}
 			/* writeability becomes uncertain now we wrote
 			 * something, we must return to the event loop
 			 */
@@ -1944,18 +2016,22 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			return 0;
 		}
 	}
-	//lwsl_err("%s: stdout\n", __func__);
+
 	n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]),
 		 start, sizeof(buf) - LWS_PRE);
 
-	if (n < 0 && errno != EAGAIN)
+	if (n < 0 && errno != EAGAIN) {
+		lwsl_debug("%s: stdout read says %d\n", __func__, n);
 		return -1;
+	}
 	if (n > 0) {
-		m = lws_write(wsi, (unsigned char *)start, n,
-			      LWS_WRITE_HTTP);
+		m = lws_write(wsi, (unsigned char *)start, n, LWS_WRITE_HTTP);
 		//lwsl_notice("write %d\n", m);
-		if (m < 0)
+		if (m < 0) {
+			lwsl_debug("%s: stdout write says %d\n", __func__, m);
 			return -1;
+		}
+		wsi->cgi->content_length_seen += m;
 	}
 
 	return 0;
@@ -1978,10 +2054,6 @@ lws_cgi_kill(struct lws *wsi)
 
 	if (!wsi->cgi)
 		return 0;
-
-//	lwsl_notice("%s: wsi %p\n", __func__, wsi);
-
-	assert(wsi->cgi);
 
 	if (wsi->cgi->pid > 0) {
 		/* kill the process */
@@ -2014,16 +2086,6 @@ lws_cgi_kill(struct lws *wsi)
 		pcgi = &(*pcgi)->cgi_list;
 	}
 
-	if (!do_close)
-		for (n = 0 ; n < 3; n++) {
-			if (wsi->cgi->pipe_fds[n][!!(n == 0)] >= 0) {
-				close(wsi->cgi->pipe_fds[n][!!(n == 0)]);
-				wsi->cgi->pipe_fds[n][!!(n == 0)] = -1;
-			}
-		}
-
-	lws_free_set_NULL(wsi->cgi);
-
 	if (do_close) {
 		lwsl_debug("!!!!! %s: do_close\n", __func__);
 		lws_close_free_wsi(wsi, 0);
@@ -2044,8 +2106,15 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		cgi = *pcgi;
 		pcgi = &(*pcgi)->cgi_list;
 
-		if (cgi->pid > 0 &&
-		    waitpid(cgi->pid, &status, WNOHANG) > 0) {
+		if (cgi->pid <= 0)
+			continue;
+
+		/* wait for stdout to be drained */
+		if (cgi->content_length > cgi->content_length_seen)
+			continue;
+
+		if (waitpid(cgi->pid, &status, WNOHANG) > 0) {
+			lwsl_notice("content length seen: %ld\n", cgi->content_length_seen);
 			cgi->pid = 0;
 			lws_cgi_kill(cgi->wsi);
 			pcgi = &pt->cgi_list;

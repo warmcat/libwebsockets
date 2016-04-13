@@ -4,8 +4,8 @@
 
 {
   "global": {
-   "uid": "99",
-   "gid": "99",
+   "uid": "48",
+   "gid": "48",
    "interface": "eth0",
    "count-threads": "1",
    "init-ssl": "yes"

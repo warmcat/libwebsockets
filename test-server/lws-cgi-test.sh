@@ -5,12 +5,16 @@ echo -e -n "\x0d\x0a"
 
 echo "<html><body>"
 echo "<h1>lwstest script stdout</h1>"
->&2 echo "lwstest script stderr"
+>&2 echo "lwstest script stderr: $REQUEST_METHOD"
 
 echo "<h2>REQUEST_METHOD=$REQUEST_METHOD</h2>"
 
 if [ "$REQUEST_METHOD" = "POST" ] ; then
-	read line
+	>&2 echo "lwstest script stderr: doing read"
+	echo "CONTENT_LENGTH=$CONTENT_LENGTH"
+	read -n $CONTENT_LENGTH line
+	>&2 echo "lwstest script stderr: done read"
+
 	echo "read=\"$line\""
 else
 	echo "<table>"

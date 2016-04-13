@@ -15,8 +15,9 @@ It enables libuv and plugin support automatically.
 Configuration
 -------------
 
-lwsws uses JSON config files, there is a single file intended for global
-settings
+lwsws uses JSON config files, they're pure JSON but # may be used to turn the rest of the line into a comment.
+
+There is a single file intended for global settings
 
 /etc/lwsws/conf
 
@@ -189,7 +190,14 @@ Mount protocols are used to control what kind of translation happens
 
  This allows you to customize one cgi depending on the mountpoint (and / or vhost).
 
-Currently only a fixed set of mimetypes are supported.
+ It's also possible to set the cgi timeout (in secs) per cgi:// mount, like this
+
+```
+	"cgi-timeout": "30"
+```
+
+
+Note: currently only a fixed set of mimetypes are supported.
 
 
 Plugins

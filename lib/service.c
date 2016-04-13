@@ -53,6 +53,8 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 #endif
 	int ret, m, n;
 
+	//lwsl_err("%s: %p\n", __func__, wsi);
+
 	/*
 	 * user callback is lowest priority to get these notifications
 	 * actually, since other pending things cannot be disordered
@@ -94,6 +96,12 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		return 0; /* leave POLLOUT active */
 	}
 #endif
+
+#ifdef LWS_WITH_CGI
+	if (wsi->cgi)
+		goto user_service_go_again;
+#endif
+
 	/* Priority 3: pending control packets (pong or close)
 	 */
 	if ((wsi->state == LWSS_ESTABLISHED &&
@@ -239,8 +247,13 @@ user_service:
 			return 1;
 		}
 
+
 	if (!wsi->hdr_parsing_completed)
 		return 0;
+
+#ifdef LWS_WITH_CGI
+user_service_go_again:
+#endif
 
 #ifdef LWS_USE_HTTP2
 	/*
@@ -741,6 +754,13 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 		if (wsi->state == LWSS_CLIENT_HTTP_ESTABLISHED) {
 			goto handled;
 		}
+#ifdef LWS_WITH_CGI
+		if (wsi->cgi && (pollfd->revents & LWS_POLLOUT)) {
+			n = lws_handle_POLLOUT_event(wsi, pollfd);
+			if (n)
+				goto close_and_handled;
+		}
+#endif
 		n = lws_server_socket_service(context, wsi, pollfd);
 		if (n) /* closed by above */
 			return 1;
@@ -994,6 +1014,9 @@ drain:
 			args.ch = wsi->cgi_channel;
 			args.stdwsi = &wsi->parent->cgi->stdwsi[0];
 			args.hdr_state = wsi->hdr_state;
+
+			//lwsl_err("CGI LWS_STDOUT waiting wsi %p mode %d state %d\n",
+			//	 wsi->parent, wsi->parent->mode, wsi->parent->state);
 
 			if (user_callback_handle_rxflow(
 					wsi->parent->protocol->callback,
