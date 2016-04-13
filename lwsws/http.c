@@ -71,7 +71,6 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	struct per_session_data__http *pss =
 			(struct per_session_data__http *)user;
 	unsigned char buffer[4096 + LWS_PRE];
-	unsigned long amount, file_len, sent;
 	char leaf_path[1024];
 	const char *mimetype;
 	char *other_headers;
@@ -137,9 +136,6 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				lwsl_err("proxy connect fail\n");
 				break;
 			}
-
-
-
 			break;
 		}
 #endif
@@ -156,89 +152,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
 			return 0;
 
-		/* check for the "send a big file by hand" example case */
-		lwsl_notice("%s\n", in);
-		if (!strcmp((const char *)in, "/leaf.jpg")) {
-			if (strlen(resource_path) > sizeof(leaf_path) - 10)
-				return -1;
-			sprintf(leaf_path, "%s/leaf.jpg", resource_path);
-
-			/* well, let's demonstrate how to send the hard way */
-
-			p = buffer + LWS_PRE;
-			end = p + sizeof(buffer) - LWS_PRE;
-
-			pss->fd = lws_plat_file_open(wsi, leaf_path, &file_len,
-						     LWS_O_RDONLY);
-
-			if (pss->fd == LWS_INVALID_FILE) {
-				lwsl_err("faild to open file %s\n", leaf_path);
-				return -1;
-			}
-
-			/*
-			 * we will send a big jpeg file, but it could be
-			 * anything.  Set the Content-Type: appropriately
-			 * so the browser knows what to do with it.
-			 *
-			 * Notice we use the APIs to build the header, which
-			 * will do the right thing for HTTP 1/1.1 and HTTP2
-			 * depending on what connection it happens to be working
-			 * on
-			 */
-			if (lws_add_http_header_status(wsi, 200, &p, end))
-				return 1;
-			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
-				    	(unsigned char *)"libwebsockets",
-					13, &p, end))
-				return 1;
-			if (lws_add_http_header_by_token(wsi,
-					WSI_TOKEN_HTTP_CONTENT_TYPE,
-				    	(unsigned char *)"image/jpeg",
-					10, &p, end))
-				return 1;
-			if (lws_add_http_header_content_length(wsi,
-							       file_len, &p,
-							       end))
-				return 1;
-			if (lws_finalize_http_header(wsi, &p, end))
-				return 1;
-
-			/*
-			 * send the http headers...
-			 * this won't block since it's the first payload sent
-			 * on the connection since it was established
-			 * (too small for partial)
-			 *
-			 * Notice they are sent using LWS_WRITE_HTTP_HEADERS
-			 * which also means you can't send body too in one step,
-			 * this is mandated by changes in HTTP2
-			 */
-
-			*p = '\0';
-			lwsl_info("%s\n", buffer + LWS_PRE);
-
-			n = lws_write(wsi, buffer + LWS_PRE,
-				      p - (buffer + LWS_PRE),
-				      LWS_WRITE_HTTP_HEADERS);
-			if (n < 0) {
-				lws_plat_file_close(wsi, pss->fd);
-				return -1;
-			}
-			/*
-			 * book us a LWS_CALLBACK_HTTP_WRITEABLE callback
-			 */
-			lws_callback_on_writable(wsi);
-			break;
-		}
-
-		/* if not, send a file the easy way */
-		if (!strncmp(in, "/cgit-data/", 11)) {
-			in = (char *)in + 11;
-			strcpy(buf, "/usr/share/cgit");
-		} else
-			strcpy(buf, resource_path);
-
+		strcpy(buf, resource_path);
 		if (strcmp(in, "/")) {
 			if (*((const char *)in) != '/')
 				strcat(buf, "/");
@@ -317,17 +231,14 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		goto try_to_reuse;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		lwsl_info("LWS_CALLBACK_HTTP_WRITEABLE\n");
+		// lwsl_notice("LWS_CALLBACK_HTTP_WRITEABLE\n");
 
-		if (pss->client_finished)
-			return -1;
-
-		if (pss->fd == LWS_INVALID_FILE)
-			goto try_to_reuse;
 #ifdef LWS_WITH_CGI
 		if (pss->reason_bf & 1) {
-			if (lws_cgi_write_split_stdout_headers(wsi) < 0)
-				goto bail;
+			if (lws_cgi_write_split_stdout_headers(wsi) < 0) {
+				lwsl_debug("lws_cgi_write_split_stdout_headers says close\n");
+				return -1;
+			}
 
 			pss->reason_bf &= ~1;
 			break;
@@ -348,13 +259,20 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			if (!wsi1)
 				break;
 			if (lws_http_client_read(wsi1, &px, &lenx) < 0)
-				goto bail;
+				return -1;
 
 			if (pss->client_finished)
 				return -1;
 			break;
 		}
 #endif
+#if 0
+		if (pss->client_finished)
+			return -1;
+
+		if (pss->fd == LWS_INVALID_FILE)
+			goto try_to_reuse;
+
 		/*
 		 * we can send more of whatever it is we were sending
 		 */
@@ -416,16 +334,7 @@ bail:
 		lws_plat_file_close(wsi, pss->fd);
 
 		return -1;
-
-	/*
-	 * callback for confirming to continue with client IP appear in
-	 * protocol 0 callback since no websocket protocol has been agreed
-	 * yet.  You can just ignore this if you won't filter on client IP
-	 * since the default unhandled callback return is 0 meaning let the
-	 * connection continue.
-	 */
-	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
-		/* if we returned non-zero from here, we kill the connection */
+#endif
 		break;
 
 #ifndef LWS_NO_CLIENT
@@ -516,7 +425,7 @@ bail:
 		case LWS_STDIN:
 			/* TBD stdin rx flow control */
 			break;
-		case LWS_STDOUT:
+		case LWS_STDOUT:;
 			pss->reason_bf |= 1;
 			/* when writing to MASTER would not block */
 			lws_callback_on_writable(wsi);
@@ -541,8 +450,10 @@ bail:
 		return -1;
 
 	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */
-		//lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA\n");
+		lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA\n");
 		pss->args = *((struct lws_cgi_args *)in);
+		pss->args.data[pss->args.len] = '\0';
+		//lwsl_err("(stdin fd = %d) %s\n", lws_get_socket_fd(pss->args.stdwsi[LWS_STDIN]), pss->args.data);
 		n = write(lws_get_socket_fd(pss->args.stdwsi[LWS_STDIN]),
 			  pss->args.data, pss->args.len);
 		//lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: write says %d", n);
@@ -558,59 +469,14 @@ bail:
 	 */
 
 	case LWS_CALLBACK_LOCK_POLL:
-		/*
-		 * lock mutex to protect pollfd state
-		 * called before any other POLL related callback
-		 * if protecting wsi lifecycle change, len == 1
-		 */
 		test_server_lock(len);
 		break;
 
 	case LWS_CALLBACK_UNLOCK_POLL:
-		/*
-		 * unlock mutex to protect pollfd state when
-		 * called after any other POLL related callback
-		 * if protecting wsi lifecycle change, len == 1
-		 */
 		test_server_unlock(len);
 		break;
 
-#ifdef EXTERNAL_POLL
-	case LWS_CALLBACK_ADD_POLL_FD:
-
-		if (count_pollfds >= max_poll_elements) {
-			lwsl_err("LWS_CALLBACK_ADD_POLL_FD: too many sockets to track\n");
-			return 1;
-		}
-
-		fd_lookup[pa->fd] = count_pollfds;
-		pollfds[count_pollfds].fd = pa->fd;
-		pollfds[count_pollfds].events = pa->events;
-		pollfds[count_pollfds++].revents = 0;
-		break;
-
-	case LWS_CALLBACK_DEL_POLL_FD:
-		if (!--count_pollfds)
-			break;
-		m = fd_lookup[pa->fd];
-		/* have the last guy take up the vacant slot */
-		pollfds[m] = pollfds[count_pollfds];
-		fd_lookup[pollfds[count_pollfds].fd] = m;
-		break;
-
-	case LWS_CALLBACK_CHANGE_MODE_POLL_FD:
-	        pollfds[fd_lookup[pa->fd]].events = pa->events;
-		break;
-#endif
-
 	case LWS_CALLBACK_GET_THREAD_ID:
-		/*
-		 * if you will call "lws_callback_on_writable"
-		 * from a different thread, return the caller thread ID
-		 * here so lws can use this information to work out if it
-		 * should signal the poll() loop to exit and restart early
-		 */
-
 		/* return pthread_getthreadid_np(); */
 
 		break;

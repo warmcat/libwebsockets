@@ -173,7 +173,7 @@ lws_daemonize(const char *_lock_path)
 	 * Change the current working directory.  This prevents the current
 	 * directory from being locked; hence not being able to remove it.
 	 */
-	if (chdir("/") < 0) {
+	if (chdir("/tmp") < 0) {
 		fprintf(stderr,
 			"unable to change directory to %s, code %d (%s)",
 			"/", errno, strerror(errno));

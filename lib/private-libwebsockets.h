@@ -624,6 +624,8 @@ struct lws_http_mount {
 
 	struct lws_protocol_vhost_options *cgienv;
 
+	int cgi_timeout;
+
 	unsigned char origin_protocol;
 	unsigned char mountpoint_len;
 };
@@ -1121,6 +1123,8 @@ struct lws_cgi {
 	struct lws_cgi *cgi_list;
 	struct lws *stdwsi[3]; /* points to the associated stdin/out/err wsis */
 	struct lws *wsi; /* owner */
+	unsigned long content_length;
+	unsigned long content_length_seen;
 	int pipe_fds[3][2];
 	int pid;
 
