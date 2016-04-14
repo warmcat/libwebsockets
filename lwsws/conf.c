@@ -41,6 +41,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].name",
 	"vhosts[].port",
 	"vhosts[].interface",
+	"vhosts[].unix-socket",
 	"vhosts[].host-ssl-key",
 	"vhosts[].host-ssl-cert",
 	"vhosts[].host-ssl-ca",
@@ -61,6 +62,7 @@ enum lejp_vhost_paths {
 	LEJPVP_NAME,
 	LEJPVP_PORT,
 	LEJPVP_INTERFACE,
+	LEJPVP_UNIXSKT,
 	LEJPVP_HOST_SSL_KEY,
 	LEJPVP_HOST_SSL_CERT,
 	LEJPVP_HOST_SSL_CA,
@@ -97,7 +99,8 @@ lwsws_align(struct jpargs *a)
 	return a->p;
 }
 
-static int arg_to_bool(const char *s)
+static int
+arg_to_bool(const char *s)
 {
 	static const char * const on[] = { "on", "yes", "true" };
 	int n = atoi(s);
@@ -187,6 +190,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!AES256-SHA256";
 		a->info->pvo = NULL;
 		a->info->keepalive_timeout = 60;
+		a->info->options &= ~(LWS_SERVER_OPTION_UNIX_SOCK);
 	}
 
 	if (reason == LEJPCB_OBJECT_START &&
@@ -270,6 +274,12 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_INTERFACE:
 		a->info->iface = a->p;
 		break;
+	case LEJPVP_UNIXSKT:
+		if (arg_to_bool(ctx->buf))
+			a->info->options |= LWS_SERVER_OPTION_UNIX_SOCK;
+		else
+			a->info->options &= ~(LWS_SERVER_OPTION_UNIX_SOCK);
+		return 0;
 	case LEJPVP_HOST_SSL_KEY:
 		a->info->ssl_private_key_filepath = a->p;
 		break;

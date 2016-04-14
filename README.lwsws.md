@@ -155,13 +155,16 @@ Vhosts can select which plugins they want to offer and give them per-vhost setti
 Other vhost options
 -------------------
 
- - If the three options "host-ssl-cert", "host-ssl-ca" and "host-ssl-key" are given, then the vhost supports SSL.
+ - If the three options `host-ssl-cert`, `host-ssl-ca` and `host-ssl-key` are given, then the vhost supports SSL.
 
  Each vhost may have its own certs, SNI is used during the initial connection negotiation to figure out which certs to use by the server name it's asking for from the request DNS name.
 
- - keeplive-timeout (in secs) defaults to 60 for lwsws, it may be set as a vhost option
+ - `keeplive-timeout` (in secs) defaults to 60 for lwsws, it may be set as a vhost option
 
  - `interface` lets you specify which network interface to listen on, if not given listens on all
+
+ - "`unix-socket`": "1" causes the unix socket specified in the interface option to be used instead of an INET socket
+
 
 Mounts
 ------
