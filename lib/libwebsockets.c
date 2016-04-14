@@ -2160,3 +2160,87 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 	return -1;
 }
 #endif
+
+
+LWS_EXTERN int
+lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
+{
+	static const char * const prots[] = {
+		"http://",
+		"https://",
+		"file://",
+		"cgi://",
+		">http://",
+		">https://",
+	};
+	char *orig = buf, *end = buf + len - 1, first = 1;
+	int n = 0;
+
+	if (len < 100)
+		return 0;
+
+	buf += snprintf(buf, end - buf,
+			"{\n \"name\":\"%s\",\n"
+			" \"port\":\"%d\",\n"
+			" \"use-ssl\":\"%d\",\n"
+			" \"sts\":\"%d\",\n"
+			" \"rx\":\"%lu\",\n"
+			" \"tx\":\"%lu\",\n",
+			vh->name, vh->listen_port,
+#ifdef LWS_OPENSSL_SUPPORT
+			vh->use_ssl,
+#else
+			0,
+#endif
+			!!(vh->options & LWS_SERVER_OPTION_STS),
+			vh->rx, vh->tx
+	);
+
+	if (vh->mount_list) {
+		struct lws_http_mount *m = vh->mount_list;
+
+		buf += snprintf(buf, end - buf, ",\n \"mounts\":[");
+		while (m) {
+			if (!first)
+				buf += snprintf(buf, end - buf, ",");
+			buf += snprintf(buf, end - buf,
+					"\n  {\n   \"mountpoint\":\"%s\",\n"
+					"  \"origin\":\"%s%s\""
+					,
+					m->mountpoint,
+					prots[m->origin_protocol],
+					m->origin);
+			if (m->def)
+				buf += snprintf(buf, end - buf,
+						",\n  \"default\":\"%s\"",
+						m->def);
+			buf += snprintf(buf, end - buf, "\n  }");
+			first = 0;
+			m = m->mount_next;
+		}
+		buf += snprintf(buf, end - buf, "\n ]");
+	}
+
+	if (vh->protocols) {
+		n = 0;
+		first = 1;
+
+		buf += snprintf(buf, end - buf, ",\n \"ws-protocols\":[");
+		while (n < vh->count_protocols) {
+			if (!first)
+				buf += snprintf(buf, end - buf, ",");
+			buf += snprintf(buf, end - buf,
+					"\n  {\n   \"%s\":\{\n"
+					"    \"status\":\"ok\"\n   }\n  }"
+					,
+					vh->protocols[n].name);
+			first = 0;
+			n++;
+		}
+		buf += snprintf(buf, end - buf, "\n ]");
+	}
+
+	buf += snprintf(buf, end - buf, "\n}");
+
+	return buf - orig;
+}

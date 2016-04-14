@@ -111,6 +111,8 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		   wsi->trunc_offset))) {
 		lwsl_err("****** %x Sending new, pending truncated ...\n", wsi);
 		assert(0);
+
+		return -1;
 	}
 
 	m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_TX_DO_SEND, &buf, len);
