@@ -670,6 +670,7 @@ struct lws_vhost {
 
 	int listen_port;
 	unsigned int http_proxy_port;
+	unsigned int options;
 	int count_protocols;
 	int ka_time;
 	int ka_probes;

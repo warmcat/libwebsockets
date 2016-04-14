@@ -227,6 +227,7 @@ lws_create_vhost(struct lws_context *context,
 	     vh->count_protocols++)
 		;
 
+	vh->options = context->options;
 	vh->pvo = info->pvo;
 	vh->keepalive_timeout = info->keepalive_timeout;
 
