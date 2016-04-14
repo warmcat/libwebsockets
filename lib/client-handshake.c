@@ -176,7 +176,7 @@ lws_client_connect_2(struct lws *wsi)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
 				AWAITING_TIMEOUT);
 
-		n = lws_socket_bind(context, wsi->sock, 0, wsi->vhost->iface);
+		n = lws_socket_bind(wsi->vhost, wsi->sock, 0, wsi->vhost->iface);
 		if (n < 0)
 			goto failed;
 	}

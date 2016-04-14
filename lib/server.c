@@ -62,7 +62,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 
 	for (m = 0; m < limit; m++) {
 #ifdef LWS_USE_UNIX_SOCK
-	if (LWS_UNIX_SOCK_ENABLED(vhost->context))
+	if (LWS_UNIX_SOCK_ENABLED(vhost))
 		sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
 	else
 #endif
@@ -103,7 +103,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	lws_plat_set_socket_options(vhost, sockfd);
 
 #if LWS_POSIX
-	n = lws_socket_bind(vhost->context, sockfd, info->port, info->iface);
+	n = lws_socket_bind(vhost, sockfd, info->port, info->iface);
 	if (n < 0)
 		goto bail;
 	info->port = n;
@@ -139,7 +139,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
 #ifdef LWS_USE_UNIX_SOCK
-		if (LWS_UNIX_SOCK_ENABLED(vhost->context))
+		if (LWS_UNIX_SOCK_ENABLED(vhost))
 			lwsl_notice(" Listening on \"%s\"\n", info->iface);
 		else
 #endif

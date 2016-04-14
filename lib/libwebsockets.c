@@ -1485,7 +1485,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 #endif
 
 LWS_EXTERN int
-lws_socket_bind(struct lws_context *context, int sockfd, int port,
+lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
 		const char *iface)
 {
 #if LWS_POSIX
@@ -1502,7 +1502,7 @@ lws_socket_bind(struct lws_context *context, int sockfd, int port,
 	struct sockaddr *v;
 
 #ifdef LWS_USE_UNIX_SOCK
-	if (LWS_UNIX_SOCK_ENABLED(context)) {
+	if (LWS_UNIX_SOCK_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_unix;
 		n = sizeof(struct sockaddr_un);
 		bzero((char *) &serv_unix, sizeof(serv_unix));
@@ -1519,7 +1519,7 @@ lws_socket_bind(struct lws_context *context, int sockfd, int port,
 	} else
 #endif
 #ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(context)) {
+	if (LWS_IPV6_ENABLED(vhost->context)) {
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
 		bzero((char *) &serv_addr6, sizeof(serv_addr6));
@@ -1536,7 +1536,7 @@ lws_socket_bind(struct lws_context *context, int sockfd, int port,
 		serv_addr4.sin_family = AF_INET;
 
 		if (iface &&
-		    interface_to_sa(context, iface,
+		    interface_to_sa(vhost->context, iface,
 				    (struct sockaddr_in *)v, n) < 0) {
 			lwsl_err("Unable to find interface %s\n", iface);
 			return -1;
@@ -1547,7 +1547,7 @@ lws_socket_bind(struct lws_context *context, int sockfd, int port,
 
 	n = bind(sockfd, v, n);
 #ifdef LWS_USE_UNIX_SOCK
-	if (n < 0 && LWS_UNIX_SOCK_ENABLED(context)) {
+	if (n < 0 && LWS_UNIX_SOCK_ENABLED(vhost)) {
 		lwsl_err("ERROR on binding fd %d to \"%s\" (%d %d)\n",
 				sockfd, iface, n, LWS_ERRNO);
 		return -1;

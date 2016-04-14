@@ -850,10 +850,10 @@ LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info)
 #endif
 
 #ifdef LWS_USE_UNIX_SOCK
-#define LWS_UNIX_SOCK_ENABLED(context) \
-	(context->options & LWS_SERVER_OPTION_UNIX_SOCK)
+#define LWS_UNIX_SOCK_ENABLED(vhost) \
+	(vhost->options & LWS_SERVER_OPTION_UNIX_SOCK)
 #else
-#define LWS_UNIX_SOCK_ENABLED(context) (0)
+#define LWS_UNIX_SOCK_ENABLED(vhost) (0)
 #endif
 enum uri_path_states {
 	URIPS_IDLE,
@@ -1282,7 +1282,7 @@ struct lws {
 LWS_EXTERN int log_level;
 
 LWS_EXTERN int
-lws_socket_bind(struct lws_context *context, int sockfd, int port,
+lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
 		const char *iface);
 
 LWS_EXTERN void
