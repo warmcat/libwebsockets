@@ -622,7 +622,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	int n;
 
 	n = recv(wsi->sock, (char *)buf, len, 0);
-	if (n >= 0)
+	if (n > 0)
 		return n;
 #if LWS_POSIX
 	if (LWS_ERRNO == LWS_EAGAIN ||
