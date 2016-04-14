@@ -333,6 +333,7 @@ enum lws_context_options {
 	LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT			= (1 << 12),
 	LWS_SERVER_OPTION_EXPLICIT_VHOSTS			= (1 << 13),
 	LWS_SERVER_OPTION_UNIX_SOCK				= (1 << 14),
+	LWS_SERVER_OPTION_STS					= (1 << 15),
 
 	/****** add new things just above ---^ ******/
 };

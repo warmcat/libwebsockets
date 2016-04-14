@@ -206,6 +206,13 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 					 &p, end))
 		return 1;
 
+	if (wsi->vhost->options & LWS_SERVER_OPTION_STS)
+		if (lws_add_http_header_by_name(wsi, (unsigned char *)
+				"Strict-Transport-Security:",
+				(unsigned char *)"max-age=15768000 ; "
+				"includeSubDomains", 36, &p, end))
+			return 1;
+
 	if (lws_finalize_http_header(wsi, &p, end))
 		return 1;
 

@@ -165,6 +165,8 @@ Other vhost options
 
  - "`unix-socket`": "1" causes the unix socket specified in the interface option to be used instead of an INET socket
 
+ - "`sts`": "1" causes lwsws to send a Strict Transport Security header with responses that informs the client he should never accept to connect to this address using http.  This is needed to get the A+ security rating from SSL Labs for your server.
+
 
 Mounts
 ------

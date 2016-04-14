@@ -227,7 +227,7 @@ lws_create_vhost(struct lws_context *context,
 	     vh->count_protocols++)
 		;
 
-	vh->options = context->options;
+	vh->options = info->options;
 	vh->pvo = info->pvo;
 	vh->keepalive_timeout = info->keepalive_timeout;
 
@@ -349,6 +349,9 @@ lws_create_vhost(struct lws_context *context,
 	vh->ka_time = info->ka_time;
 	vh->ka_interval = info->ka_interval;
 	vh->ka_probes = info->ka_probes;
+
+	if (vh->options & LWS_SERVER_OPTION_STS)
+		lwsl_notice("   STS enabled\n");
 
 	if (lws_context_init_server_ssl(info, vh))
 		goto bail;
