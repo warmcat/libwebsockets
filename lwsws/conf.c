@@ -24,7 +24,6 @@
 static const char * const paths_global[] = {
 	"global.uid",
 	"global.gid",
-	"global.interface",
 	"global.count-threads",
 	"global.init-ssl",
 };
@@ -32,7 +31,6 @@ static const char * const paths_global[] = {
 enum lejp_global_paths {
 	LEJPGP_UID,
 	LEJPGP_GID,
-	LEJPGP_INTERFACE,
 	LEJPGP_COUNT_THREADS,
 	LWJPGP_INIT_SSL,
 };
@@ -42,6 +40,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[]",
 	"vhosts[].name",
 	"vhosts[].port",
+	"vhosts[].interface",
 	"vhosts[].host-ssl-key",
 	"vhosts[].host-ssl-cert",
 	"vhosts[].host-ssl-ca",
@@ -61,6 +60,7 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNTS,
 	LEJPVP_NAME,
 	LEJPVP_PORT,
+	LEJPVP_INTERFACE,
 	LEJPVP_HOST_SSL_KEY,
 	LEJPVP_HOST_SSL_CERT,
 	LEJPVP_HOST_SSL_CA,
@@ -128,9 +128,6 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPGP_GID:
 		a->info->gid = atoi(ctx->buf);
 		return 0;
-	case LEJPGP_INTERFACE:
-		a->info->iface = a->p;
-		break;
 	case LEJPGP_COUNT_THREADS:
 		a->info->count_threads = atoi(ctx->buf);
 		return 0;
@@ -270,6 +267,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_PORT:
 		a->info->port = atoi(ctx->buf);
 		return 0;
+	case LEJPVP_INTERFACE:
+		a->info->iface = a->p;
+		break;
 	case LEJPVP_HOST_SSL_KEY:
 		a->info->ssl_private_key_filepath = a->p;
 		break;

@@ -28,9 +28,8 @@ There is a single file intended for global settings
 
 {
   "global": {
-   "uid": "48",
-   "gid": "48",
-   "interface": "eth0",
+   "uid": "48",  # apache user
+   "gid": "48",  # apache user
    "count-threads": "1",
    "init-ssl": "yes"
  }
@@ -46,10 +45,11 @@ and a config directory intended to take one file per vhost
 	"vhosts": [{
 		"name": "warmcat.com",
 		"port": "443",
-		"host-ssl-key": "/etc/pki/tls/private/warmcat.com.key",
+		"interface": "eth0",  # optional
+		"host-ssl-key": "/etc/pki/tls/private/warmcat.com.key",  # if given enable ssl
 		"host-ssl-cert": "/etc/pki/tls/certs/warmcat.com.crt",
 		"host-ssl-ca": "/etc/pki/tls/certs/warmcat.com.cer",
-		"mounts": [{
+		"mounts": [{  # autoserve
 			"mountpoint": "/",
 			"origin": "file:///var/www/warmcat.com",
 			"default": "index.html"
@@ -161,6 +161,7 @@ Other vhost options
 
  - keeplive-timeout (in secs) defaults to 60 for lwsws, it may be set as a vhost option
 
+ - `interface` lets you specify which network interface to listen on, if not given listens on all
 
 Mounts
 ------
