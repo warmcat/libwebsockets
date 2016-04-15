@@ -353,6 +353,23 @@ lws_create_vhost(struct lws_context *context,
 	if (vh->options & LWS_SERVER_OPTION_STS)
 		lwsl_notice("   STS enabled\n");
 
+#ifdef LWS_WITH_ACCESS_LOG
+	if (info->log_filepath) {
+		vh->log_fd = open(info->log_filepath, O_CREAT | O_APPEND | O_RDWR, 0600);
+		if (vh->log_fd == LWS_INVALID_FILE) {
+			lwsl_err("unable to open log filepath %s\n",
+				 info->log_filepath);
+			goto bail;
+		}
+		if (context->uid != -1)
+			if (chown(info->log_filepath, context->uid,
+				  context->gid) == -1)
+				lwsl_err("unable to chown log file %s\n",
+						info->log_filepath);
+	} else
+		vh->log_fd = LWS_INVALID_FILE;
+#endif
+
 	if (lws_context_init_server_ssl(info, vh))
 		goto bail;
 
@@ -779,6 +796,11 @@ lws_context_destroy(struct lws_context *context)
 			lws_free((void *)vh->extensions);
 #endif
 #endif
+#ifdef LWS_WITH_ACCESS_LOG
+		if (vh->log_fd != LWS_INVALID_FILE)
+			close(vh->log_fd);
+#endif
+
 		vh1 = vh->vhost_next;
 		lws_free(vh);
 		vh = vh1;

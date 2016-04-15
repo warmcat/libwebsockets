@@ -46,6 +46,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].host-ssl-key",
 	"vhosts[].host-ssl-cert",
 	"vhosts[].host-ssl-ca",
+	"vhosts[].access-log",
 	"vhosts[].mounts[].mountpoint",
 	"vhosts[].mounts[].origin",
 	"vhosts[].mounts[].default",
@@ -68,6 +69,7 @@ enum lejp_vhost_paths {
 	LEJPVP_HOST_SSL_KEY,
 	LEJPVP_HOST_SSL_CERT,
 	LEJPVP_HOST_SSL_CA,
+	LEJPVP_ACCESS_LOG,
 	LEJPVP_MOUNTPOINT,
 	LEJPVP_ORIGIN,
 	LEJPVP_DEFAULT,
@@ -192,6 +194,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!AES256-SHA256";
 		a->info->pvo = NULL;
 		a->info->keepalive_timeout = 60;
+		a->info->log_filepath = NULL;
 		a->info->options &= ~(LWS_SERVER_OPTION_UNIX_SOCK |
 				      LWS_SERVER_OPTION_STS);
 	}
@@ -297,6 +300,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		break;
 	case LEJPVP_HOST_SSL_CA:
 		a->info->ssl_ca_filepath = a->p;
+		break;
+	case LEJPVP_ACCESS_LOG:
+		a->info->log_filepath = a->p;
 		break;
 	case LEJPVP_MOUNTPOINT:
 		a->mountpoint = a->p;

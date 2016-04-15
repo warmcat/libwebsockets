@@ -248,6 +248,10 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	int pre = 0, n;
 	size_t orig_len = len;
 
+#ifdef LWS_WITH_ACCESS_LOG
+	wsi->access_log.sent += len;
+#endif
+
 	if (wsi->state == LWSS_ESTABLISHED && wsi->u.ws.tx_draining_ext) {
 		/* remove us from the list */
 		struct lws **w = &pt->tx_draining_ext_list;

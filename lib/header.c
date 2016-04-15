@@ -147,6 +147,13 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 	unsigned char code_and_desc[60];
 	const char *description = "";
 	int n;
+	static const char * const hver[] = {
+		"http/1.0", "http/1.1", "http/2"
+	};
+
+#ifdef LWS_WITH_ACCESS_LOG
+	wsi->access_log.response = code;
+#endif
 
 #ifdef LWS_USE_HTTP2
 	if (wsi->mode == LWSCM_HTTP2_SERVING)
@@ -157,7 +164,8 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 	if (code >= 500 && code < (500 + ARRAY_SIZE(err500)))
 		description = err500[code - 500];
 
-	n = sprintf((char *)code_and_desc, "HTTP/1.0 %u %s", code, description);
+	n = sprintf((char *)code_and_desc, "%s %u %s",
+		    hver[wsi->u.http.request_version], code, description);
 
 	return lws_add_http_header_by_name(wsi, NULL, code_and_desc,
 					   n, p, end);

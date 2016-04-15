@@ -167,6 +167,7 @@ Other vhost options
 
  - "`sts`": "1" causes lwsws to send a Strict Transport Security header with responses that informs the client he should never accept to connect to this address using http.  This is needed to get the A+ security rating from SSL Labs for your server.
 
+ - "`access-log`": "filepath"   sets where apache-compatible access logs will be written
 
 Mounts
 ------

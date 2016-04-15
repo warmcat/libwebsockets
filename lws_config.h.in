@@ -92,6 +92,9 @@
 /* HTTP Proxy support */
 #cmakedefine LWS_WITH_HTTP_PROXY
 
+/* Http access log support */
+#cmakedefine LWS_WITH_ACCESS_LOG
+
 /* Maximum supported service threads */
 #define LWS_MAX_SMP ${LWS_MAX_SMP}
 

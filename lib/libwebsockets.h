@@ -1476,6 +1476,7 @@ struct lws_context_creation_info {
 	const char *plugins_dir;			/* context */
 	struct lws_protocol_vhost_options *pvo;		/* VH */
 	int keepalive_timeout;				/* VH */
+	const char *log_filepath;			/* VH */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

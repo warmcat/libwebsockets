@@ -299,6 +299,7 @@ lws_http_action(struct lws *wsi)
 	int http_version_len;
 	char *uri_ptr = NULL;
 	int uri_len = 0, best = 0;
+	int meth = -1;
 
 	static const unsigned char methods[] = {
 		WSI_TOKEN_GET_URI,
@@ -311,7 +312,7 @@ lws_http_action(struct lws *wsi)
 		WSI_TOKEN_HTTP_COLON_PATH,
 #endif
 	};
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(LWS_WITH_ACCESS_LOG)
 	static const char * const method_names[] = {
 		"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE",
 #ifdef LWS_USE_HTTP2
@@ -344,8 +345,11 @@ lws_http_action(struct lws *wsi)
 			uri_len = lws_hdr_total_length(wsi, methods[n]);
 			lwsl_info("Method: %s request for '%s'\n",
 				  	method_names[n], uri_ptr);
+			meth = n;
 			break;
 		}
+
+	(void)meth;
 
 	/* we insist on absolute paths */
 
@@ -448,6 +452,66 @@ lws_http_action(struct lws *wsi)
 		return lws_http_transaction_completed(wsi);
 	}
 #endif
+#endif
+
+#ifdef LWS_WITH_ACCESS_LOG
+	/*
+	 * Produce Apache-compatible log string for wsi, like this:
+	 *
+	 * 2.31.234.19 - - [27/Mar/2016:03:22:44 +0800]
+	 * "GET /aep-screen.png HTTP/1.1"
+	 * 200 152987 "https://libwebsockets.org/index.html"
+	 * "Mozilla/5.0 (Macint... Chrome/49.0.2623.87 Safari/537.36"
+	 *
+	 */
+	{
+		static const char * const hver[] = {
+			"http/1.0", "http/1.1", "http/2"
+		};
+#ifdef LWS_USE_IPV6
+		char ads[INET6_ADDRSTRLEN];
+#else
+		char ads[INET_ADDRSTRLEN];
+#endif
+		char da[64];
+		const char *pa, *me;
+		struct tm *tmp;
+		time_t t = time(NULL);
+		int l = 256;
+
+		if (wsi->access_log_pending)
+			lws_access_log(wsi);
+
+		wsi->access_log.header_log = lws_malloc(l);
+
+		tmp = localtime(&t);
+		if (tmp)
+			strftime(da, sizeof(da), "%d/%b/%Y:%H:%M:%S %z", tmp);
+		else
+			strcpy(da, "01/Jan/1970:00:00:00 +0000");
+
+		pa = lws_get_peer_simple(wsi, ads, sizeof(ads));
+		if (!pa)
+			pa = "(unknown)";
+
+		if (meth >= 0)
+			me = method_names[meth];
+		else
+			me = "unknown";
+
+		snprintf(wsi->access_log.header_log, l,
+			 "%s - - [%s] \"%s %s %s\"",
+			 pa, da, me, uri_ptr,
+			 hver[wsi->u.http.request_version]);
+
+		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
+		if (l) {
+			wsi->access_log.user_agent = lws_malloc(l + 2);
+			lws_hdr_copy(wsi, wsi->access_log.user_agent,
+				     l + 1, WSI_TOKEN_HTTP_USER_AGENT);
+		}
+		wsi->access_log_pending = 1;
+	}
 #endif
 
 	/* can we serve it from the mount list? */
@@ -1018,6 +1082,8 @@ LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)
 {
 	int n = NO_PENDING_TIMEOUT;
+
+	lws_access_log(wsi);
 
 	lwsl_debug("%s: wsi %p\n", __func__, wsi);
 	/* if we can't go back to accept new headers, drop the connection */

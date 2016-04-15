@@ -151,6 +151,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	if (!wsi)
 		return;
 
+	lws_access_log(wsi);
+
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
 
@@ -638,6 +640,44 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
 	(void)rip_len;
 
 	return -1;
+#endif
+}
+
+const char *
+lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
+{
+#if LWS_POSIX
+	socklen_t len, olen;
+#ifdef LWS_USE_IPV6
+	struct sockaddr_in6 sin6;
+#endif
+	struct sockaddr_in sin4;
+	int af = AF_INET;
+	void *p, *q;
+
+#ifdef LWS_USE_IPV6
+	if (LWS_IPV6_ENABLED(wsi->context)) {
+		len = sizeof(sin6);
+		p = &sin6;
+		af = AF_INET6;
+		q = &sin6.sin6_addr;
+	} else
+#endif
+	{
+		len = sizeof(sin4);
+		p = &sin4;
+		q = &sin4.sin_addr;
+	}
+
+	olen = len;
+	if (getpeername(wsi->sock, p, &len) < 0 || len > olen) {
+		lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
+		return NULL;
+	}
+
+	return inet_ntop(af, q, name, namelen);
+#else
+	return NULL;
 #endif
 }
 
@@ -2161,6 +2201,38 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 }
 #endif
 
+#ifdef LWS_WITH_ACCESS_LOG
+int
+lws_access_log(struct lws *wsi)
+{
+	char *p = wsi->access_log.user_agent, ass[512];
+	int l;
+
+	if (!wsi->access_log_pending)
+		return 0;
+
+	if (!p)
+		p = "";
+
+	l = snprintf(ass, sizeof(ass) - 1, "%s %d %lu %s\n",
+		     wsi->access_log.header_log,
+		     wsi->access_log.response, wsi->access_log.sent, p);
+
+	if (wsi->vhost->log_fd != LWS_INVALID_FILE) {
+		if (write(wsi->vhost->log_fd, ass, l) != l)
+			lwsl_err("Failed to write log\n");
+	} else
+		lwsl_err("%s", ass);
+
+	if (wsi->access_log.header_log)
+		lws_free(wsi->access_log.header_log);
+	if (wsi->access_log.user_agent)
+		lws_free(wsi->access_log.user_agent);
+	wsi->access_log_pending = 0;
+
+	return 0;
+}
+#endif
 
 LWS_EXTERN int
 lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)

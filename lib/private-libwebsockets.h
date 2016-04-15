@@ -677,6 +677,9 @@ struct lws_vhost {
 	int ka_probes;
 	int ka_interval;
 	int keepalive_timeout;
+#ifdef LWS_WITH_ACCESS_LOG
+	int log_fd;
+#endif
 
 #ifdef LWS_OPENSSL_SUPPORT
 	int use_ssl;
@@ -1155,6 +1158,15 @@ enum lws_chunk_parser {
 
 struct lws_rewrite;
 
+#ifdef LWS_WITH_ACCESS_LOG
+struct lws_access_log {
+	char *header_log;
+	char *user_agent;
+	unsigned long sent;
+	int response;
+};
+#endif
+
 struct lws {
 
 	/* structs */
@@ -1192,6 +1204,9 @@ struct lws {
 	const struct lws_protocols *protocol;
 	struct lws *timeout_list;
 	struct lws **timeout_list_prev;
+#ifdef LWS_WITH_ACCESS_LOG
+	struct lws_access_log access_log;
+#endif
 	void *user_space;
 	/* rxflow handling */
 	unsigned char *rxflow_buffer;
@@ -1236,6 +1251,9 @@ struct lws {
 	unsigned int socket_is_permanently_unusable:1;
 	unsigned int rxflow_change_to:2;
 	unsigned int more_rx_waiting:1; /* has to live here since ah may stick to end */
+#ifdef LWS_WITH_ACCESS_LOG
+	unsigned int access_log_pending:1;
+#endif
 #ifndef LWS_NO_CLIENT
 	unsigned int do_ws:1; /* whether we are doing http or ws flow */
 	unsigned int chunked:1; /* if the clientside connection is chunked */
@@ -1685,6 +1703,16 @@ _lws_server_listen_accept_flow_control(struct lws *twsi, int on);
 LWS_EXTERN int
 lws_get_addresses(struct lws_context *context, void *ads, char *name,
 		  int name_len, char *rip, int rip_len);
+
+LWS_EXTERN const char *
+lws_get_peer_simple(struct lws *wsi, char *name, int namelen);
+
+#ifdef LWS_WITH_ACCESS_LOG
+LWS_EXTERN int
+lws_access_log(struct lws *wsi);
+#else
+#define lws_access_log(_a)
+#endif
 
 LWS_EXTERN int
 lws_cgi_kill_terminated(struct lws_context_per_thread *pt);
