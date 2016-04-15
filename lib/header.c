@@ -145,10 +145,10 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 			   unsigned char **p, unsigned char *end)
 {
 	unsigned char code_and_desc[60];
-	const char *description = "";
+	const char *description = "", *p1;
 	int n;
 	static const char * const hver[] = {
-		"http/1.0", "http/1.1", "http/2"
+		"HTTP/1.0", "HTTP/1.1", "HTTP/2"
 	};
 
 #ifdef LWS_WITH_ACCESS_LOG
@@ -164,8 +164,19 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 	if (code >= 500 && code < (500 + ARRAY_SIZE(err500)))
 		description = err500[code - 500];
 
+	if (code == 200)
+		description = "OK";
+
+	if (code >= 300 && code < 400)
+		description = "Redirect";
+
+	if (wsi->u.http.request_version < ARRAY_SIZE(hver))
+		p1 = hver[wsi->u.http.request_version];
+	else
+		p1 = hver[0];
+
 	n = sprintf((char *)code_and_desc, "%s %u %s",
-		    hver[wsi->u.http.request_version], code, description);
+		    p1, code, description);
 
 	return lws_add_http_header_by_name(wsi, NULL, code_and_desc,
 					   n, p, end);
