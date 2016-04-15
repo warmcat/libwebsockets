@@ -26,6 +26,7 @@ static const char * const paths_global[] = {
 	"global.gid",
 	"global.count-threads",
 	"global.init-ssl",
+	"global.server-string",
 };
 
 enum lejp_global_paths {
@@ -33,6 +34,7 @@ enum lejp_global_paths {
 	LEJPGP_GID,
 	LEJPGP_COUNT_THREADS,
 	LWJPGP_INIT_SSL,
+	LEJPGP_SERVER_STRING,
 };
 
 static const char * const paths_vhosts[] = {
@@ -142,6 +144,9 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		if (arg_to_bool(ctx->buf))
 			a->info->options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 		return 0;
+	case LEJPGP_SERVER_STRING:
+		a->info->server_string = a->p;
+		break;
 
 	default:
 		return 0;

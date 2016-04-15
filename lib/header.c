@@ -178,8 +178,25 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 	n = sprintf((char *)code_and_desc, "%s %u %s",
 		    p1, code, description);
 
-	return lws_add_http_header_by_name(wsi, NULL, code_and_desc,
-					   n, p, end);
+	if (lws_add_http_header_by_name(wsi, NULL, code_and_desc,
+					   n, p, end))
+		return 1;
+
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
+					 (unsigned char *)
+					 	 wsi->context->server_string,
+					 wsi->context->server_string_len,
+					 p, end))
+		return 1;
+
+	if (wsi->vhost->options & LWS_SERVER_OPTION_STS)
+		if (lws_add_http_header_by_name(wsi, (unsigned char *)
+				"Strict-Transport-Security:",
+				(unsigned char *)"max-age=15768000 ; "
+				"includeSubDomains", 36, p, end))
+			return 1;
+
+	return 0;
 }
 
 /**
@@ -211,10 +228,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 
 	if (lws_add_http_header_status(wsi, code, &p, end))
 		return 1;
-	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
-					 (unsigned char *)"libwebsockets", 13,
-					 &p, end))
-		return 1;
+
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 					 (unsigned char *)"text/html", 9,
 					 &p, end))
@@ -224,13 +238,6 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 					 (unsigned char *)slen, n,
 					 &p, end))
 		return 1;
-
-	if (wsi->vhost->options & LWS_SERVER_OPTION_STS)
-		if (lws_add_http_header_by_name(wsi, (unsigned char *)
-				"Strict-Transport-Security:",
-				(unsigned char *)"max-age=15768000 ; "
-				"includeSubDomains", 36, &p, end))
-			return 1;
 
 	if (lws_finalize_http_header(wsi, &p, end))
 		return 1;

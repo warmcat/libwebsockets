@@ -605,6 +605,14 @@ lws_create_context(struct lws_context_creation_info *info)
 	}
 	lwsl_info(" mem: pollfd map:      %5u\n", n);
 
+	if (info->server_string) {
+		context->server_string = info->server_string;
+		context->server_string_len = strlen(context->server_string);
+	} else {
+		context->server_string = "libwebsockets";
+		context->server_string_len = 13;
+	}
+
 #if LWS_MAX_SMP > 1
 	/* each thread serves his own chunk of fds */
 	for (n = 1; n < (int)info->count_threads; n++)

@@ -709,6 +709,7 @@ struct lws_context {
 	struct lws_plugin *plugin_list;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
+	const char *server_string;
 
 #if defined(LWS_USE_LIBEV)
 	lws_ev_signal_cb_t * lws_ev_sigint_cb;
@@ -760,6 +761,7 @@ struct lws_context {
 	short count_threads;
 	short plugin_protocol_count;
 	short plugin_extension_count;
+	short server_string_len;
 
 	unsigned int being_destroyed:1;
 	unsigned int requested_kill:1;
