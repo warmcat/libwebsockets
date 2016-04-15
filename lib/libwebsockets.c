@@ -2234,6 +2234,8 @@ lws_access_log(struct lws *wsi)
 }
 #endif
 
+#ifdef LWS_WITH_SERVER_STATUS
+
 LWS_EXTERN int
 lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 {
@@ -2254,10 +2256,15 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 	buf += snprintf(buf, end - buf,
 			"{\n \"name\":\"%s\",\n"
 			" \"port\":\"%d\",\n"
-			" \"use-ssl\":\"%d\",\n"
+			" \"use_ssl\":\"%d\",\n"
 			" \"sts\":\"%d\",\n"
 			" \"rx\":\"%lu\",\n"
-			" \"tx\":\"%lu\",\n",
+			" \"tx\":\"%lu\",\n"
+			" \"conn\":\"%lu\",\n"
+			" \"trans\":\"%lu\",\n"
+			" \"ws_upg\":\"%lu\",\n"
+			" \"http2_upg\":\"%lu\""
+			,
 			vh->name, vh->listen_port,
 #ifdef LWS_OPENSSL_SUPPORT
 			vh->use_ssl,
@@ -2265,7 +2272,8 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 			0,
 #endif
 			!!(vh->options & LWS_SERVER_OPTION_STS),
-			vh->rx, vh->tx
+			vh->rx, vh->tx, vh->conn, vh->trans, vh->ws_upgrades,
+			vh->http2_upgrades
 	);
 
 	if (vh->mount_list) {
@@ -2277,7 +2285,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 				buf += snprintf(buf, end - buf, ",");
 			buf += snprintf(buf, end - buf,
 					"\n  {\n   \"mountpoint\":\"%s\",\n"
-					"  \"origin\":\"%s%s\""
+					"  \"origin\":\"%s%s\"\n"
 					,
 					m->mountpoint,
 					prots[m->origin_protocol],
@@ -2316,3 +2324,34 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 
 	return buf - orig;
 }
+
+
+LWS_EXTERN LWS_VISIBLE int
+lws_json_dump_context(const struct lws_context *context, char *buf, int len)
+{
+	char *orig = buf, *end = buf + len - 1, first = 1;
+	struct lws_vhost *vh = context->vhost_list;
+	time_t t = time(NULL);
+
+	buf += snprintf(buf, end - buf, "{ "
+					"\"uptime\":\"%ld\",\n"
+					"\"wsi_alive\":\"%d\",\n"
+					"\"vhosts\":[\n ",
+					(unsigned long)(t - context->time_up),
+					context->count_wsi_allocated);
+
+	while (vh) {
+		if (!first)
+			if(buf != end)
+				*buf++ = ',';
+		buf += lws_json_dump_vhost(vh, buf, end - buf);
+		first = 0;
+		vh = vh->vhost_next;
+	}
+
+	buf += snprintf(buf, end - buf, "]}\n ");
+
+	return buf - orig;
+}
+
+#endif

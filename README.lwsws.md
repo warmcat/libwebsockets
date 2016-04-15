@@ -153,6 +153,11 @@ Vhosts can select which plugins they want to offer and give them per-vhost setti
 
 ```
 
+The "x":"y" parameters like "status":"ok" are made available to the protocol during its per-vhost
+LWS_CALLBACK_PROTOCOL_INIT (@in is a pointer to a linked list of struct lws_protocol_vhost_options
+containing the name and value pointers).
+
+
 Other vhost options
 -------------------
 
@@ -264,4 +269,29 @@ To help that happen conveniently, there are some new apis
 dumb increment, mirror and status protocol plugins are provided as examples.
 
 
+
+lws-server-status plugin
+------------------------
+
+One provided protocol can be used to monitor the server status.
+
+Enable the protocol like this on a vhost's ws-protocols section
+
+       "lws-server-status": {
+         "status": "ok",
+         "update-ms": "5000"
+       }
+
+"update-ms" is used to control how often updated JSON is sent on a ws link.
+
+And map the provided HTML into the vhost in the mounts section
+
+       {
+        "mountpoint": "/server-status",
+        "origin": "file:///usr/local/share/libwebsockets-test-server/server-status",
+        "default": "server-status.html"
+       }
+
+You might choose to put it on its own vhost which has "interface": "lo", so it's not
+externally visible.
 

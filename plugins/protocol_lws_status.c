@@ -102,8 +102,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
 	struct per_session_data__lws_status *pss =
-			(struct per_session_data__lws_status *)user,
-			**pp;
+			(struct per_session_data__lws_status *)user, **pp;
 	char name[128], rip[128];
 	int m;
 
