@@ -173,6 +173,9 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
+	if (wsi->vhost)
+		wsi->vhost->rx += n;
+
 	/*
 	 * if it was our buffer that limited what we read,
 	 * check if SSL has additional data pending inside SSL buffers.
