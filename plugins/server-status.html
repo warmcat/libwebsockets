@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset=utf-8 http-equiv="Content-Language" content="en"/>
+ <title>LWS Server Status</title>
+<style type="text/css">
+	span.title { font-size:18pt; font: Arial; font-weight:normal;
+			text-align:center; color:#000000; }
+	span.mount { font-size:10pt; font: Arial; font-weight:normal;
+			text-align:center; color:#000000; }
+	.browser { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px;}
+	.group2 { vertical-align:middle;
+		text-align:center;
+		background:#f0f0e0; 
+		padding:12px; 
+		-webkit-border-radius:10px; 
+		-moz-border-radius:10px;
+		border-radius:10px; }
+	.explain { vertical-align:middle;
+		text-align:center;
+		background:#f0f0c0; padding:12px;
+		-webkit-border-radius:10px;
+		-moz-border-radius:10px;
+		border-radius:10px;
+		color:#404000; }
+	td.wsstatus { vertical-align:middle; width:200px; height:50px;
+		text-align:center;
+		background:#f0f0c0; padding:6px;
+		-webkit-border-radius:8px;
+		-moz-border-radius:8px;
+		border-radius:8px;
+		color:#404000; }
+	td.l { vertical-align:middle;
+		text-align:center;
+		background:#d0d0b0; 
+		padding:3px; 
+		-webkit-border-radius:3px; 
+		-moz-border-radius:3px;
+		border-radius:3px; }
+	td.c { vertical-align:middle;
+		text-align:center;
+		background:#c0c0a0; 
+		padding:3px; 
+		-webkit-border-radius:3px; 
+		-moz-border-radius:3px;
+		border-radius:3px; }
+	td.t { vertical-align:middle;
+		text-align:center;
+		background:#e0e0c0; 
+		padding:3px; 
+		-webkit-border-radius:3px; 
+		-moz-border-radius:3px;
+		border-radius:3px; }
+	.content { vertical-align:top; text-align:center; background:#fffff0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
+	.canvas { vertical-align:top; text-align:center; background:#efefd0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
+.tabs {
+  position: relative;   
+  min-height: 750px; /* This part sucks */
+  clear: both;
+  margin: 25px 0;
+}
+.tab {
+  float: left;
+}
+.tab label {
+  background: #eee; 
+  padding: 10px; 
+  border: 1px solid #ccc; 
+  margin-left: -1px; 
+  position: relative;
+  left: 1px; 
+}
+.tab [type=radio] {
+  display: none;   
+}
+.content {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  background: white;
+  right: 0;
+  bottom: 0;
+  padding: 20px;
+  border: 1px solid #ccc; 
+}
+[type=radio]:checked ~ label {
+  background: white;
+  border-bottom: 1px solid white;
+  z-index: 2;
+}
+[type=radio]:checked ~ label ~ .content {
+  z-index: 1;
+}
+</style>
+</head>
+
+<body>
+<header></header>
+<article>
+
+<table><tr><td align=center>
+<div id="conninfo">...</div>
+</td></tr>
+
+
+</table>
+
+</article>
+
+<script>
+
+/*
+ * We display untrusted stuff in html context... reject anything
+ * that has HTML stuff in it
+ */
+
+function san(s)
+{
+	if (s.search("<") != -1)
+		return "invalid string";
+	
+	return s;
+}
+
+	var pos = 0;
+
+function get_appropriate_ws_url()
+{
+	var pcol;
+	var u = document.URL;
+
+	/*
+	 * We open the websocket encrypted if this page came on an
+	 * https:// url itself, otherwise unencrypted
+	 */
+
+	if (u.substring(0, 5) == "https") {
+		pcol = "wss://";
+		u = u.substr(8);
+	} else {
+		pcol = "ws://";
+		if (u.substring(0, 4) == "http")
+			u = u.substr(7);
+	}
+
+	u = u.split('/');
+
+	/* + "/xxx" bit is for IE10 workaround */
+
+	return pcol + u[0] + "/xxx";
+}
+
+
+	var socket_status, jso, s;
+
+	if (typeof MozWebSocket != "undefined") {
+		socket_status = new MozWebSocket(get_appropriate_ws_url(),
+				   "lws-server-status");
+	} else {
+		socket_status = new WebSocket(get_appropriate_ws_url(),
+				   "lws-server-status");
+	}
+
+
+	try {
+		socket_status.onopen = function() {
+		} 
+
+		socket_status.onmessage =function got_packet(msg) {
+			document.getElementById("conninfo").innerHTML = "<pre>"+msg.data+"</pre>";
+			jso = JSON.parse(msg.data);
+			
+			s="<table><tr><td class=\"c\">" +
+			  "Context</td><td>Uptime: " + san(jso.uptime) + "<br>" +
+			  "Current wsi alive: " + san(jso.wsi_alive) +
+			  "</td></tr>";
+			var n;
+			for (n = 0; n < jso.vhosts.length; n++) {
+				s = s + "<tr><td class=\"l\">vhost " + (n + 1) +
+				"</td><td><b>" + san(jso.vhosts[n].name) + ":" +
+				san(jso.vhosts[n].port) +
+				"</b><br>" +
+				"ssl " + san(jso.vhosts[n].use_ssl) + ", " +
+				"sts " + san(jso.vhosts[n].sts) + "<br>" +
+				"rx " + san(jso.vhosts[n].rx) + ", " +
+				"tx " + san(jso.vhosts[n].tx) + "<br>" +
+				"total connections " + san(jso.vhosts[n].conn) + ", " +
+				"total http transactions " + san(jso.vhosts[n].trans) + "<br>" +
+				"Upgrades to ws " + san(jso.vhosts[n].ws_upg) + ", " +
+				"to http2 " + san(jso.vhosts[n].http2_upg) + "<br>" +
+				"<table><tr><td class=t colspan=2>Mounts</td></tr>";
+				
+				var m;
+				for (m = 0; m < jso.vhosts[n].mounts.length; m++) {
+					s = s + "<tr><td>";
+					s = s + san(jso.vhosts[n].mounts[m].mountpoint) +
+						"</td><td>" +
+						san(jso.vhosts[n].mounts[m].origin);
+					s = s + "</td></tr>"
+				}
+				s = s + "</table>";
+				s = s + "</td></tr>";
+			}
+			s = s + "</table>";
+			
+			document.getElementById("conninfo").innerHTML = s;
+		} 
+
+		socket_status.onclose = function(){
+			document.getElementById("s_statustd").style.backgroundColor = "#ff4040";
+			document.getElementById("s_status").textContent = " websocket connection CLOSED ";
+		}
+	} catch(exception) {
+		alert('<p>Error' + exception);  
+	}
+</script>
+
+</body>
+</html>

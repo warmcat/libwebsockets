@@ -1566,6 +1566,9 @@ lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
 LWS_EXTERN int
 lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len);
 
+LWS_EXTERN int
+lws_json_dump_context(const struct lws_context *context, char *buf, int len);
+
 LWS_VISIBLE LWS_EXTERN void
 lws_set_log_level(int level,
 		  void (*log_emit_function)(int level, const char *line));

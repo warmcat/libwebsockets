@@ -59,7 +59,6 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		lwsl_notice("%s: pvo %p\n", __func__, in);
 		vhd = lws_protocol_vh_priv_zalloc(lws_vhost_get(wsi),
 				lws_protocol_get(wsi),
 				sizeof(struct per_vhost_data__dumb_increment));
@@ -73,6 +72,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		if (!vhd)
+			break;
 		uv_timer_stop(&vhd->timeout_watcher);
 		break;
 

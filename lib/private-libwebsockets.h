@@ -668,7 +668,7 @@ struct lws_vhost {
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *extensions;
 #endif
-	unsigned long rx, tx;
+	unsigned long rx, tx, conn, trans, ws_upgrades, http2_upgrades;
 
 	int listen_port;
 	unsigned int http_proxy_port;
@@ -698,6 +698,7 @@ struct lws_vhost {
 
 struct lws_context {
 	time_t last_timeout_check_s;
+	time_t time_up;
 	struct lws_plat_file_ops fops;
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
 #ifdef _WIN32
@@ -1255,6 +1256,7 @@ struct lws {
 	unsigned int socket_is_permanently_unusable:1;
 	unsigned int rxflow_change_to:2;
 	unsigned int more_rx_waiting:1; /* has to live here since ah may stick to end */
+	unsigned int conn_stat_done:1;
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
 #endif

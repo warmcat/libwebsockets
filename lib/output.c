@@ -251,6 +251,8 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->access_log.sent += len;
 #endif
+	if (wsi->vhost)
+		wsi->vhost->tx += len;
 
 	if (wsi->state == LWSS_ESTABLISHED && wsi->u.ws.tx_draining_ext) {
 		/* remove us from the list */
@@ -634,8 +636,11 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	int n;
 
 	n = recv(wsi->sock, (char *)buf, len, 0);
-	if (n > 0)
+	if (n > 0) {
+		if (wsi->vhost)
+			wsi->vhost->rx += n;
 		return n;
+	}
 #if LWS_POSIX
 	if (LWS_ERRNO == LWS_EAGAIN ||
 	    LWS_ERRNO == LWS_EWOULDBLOCK ||

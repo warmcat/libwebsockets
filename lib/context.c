@@ -440,7 +440,6 @@ lws_create_context(struct lws_context_creation_info *info)
 	struct rlimit rt;
 #endif
 
-
 	lwsl_notice("Initial logging level %d\n", log_level);
 	lwsl_notice("Libwebsockets version: %s\n", library_version);
 #if LWS_POSIX
@@ -471,6 +470,8 @@ lws_create_context(struct lws_context_creation_info *info)
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
+
+	context->time_up = time(NULL);
 #ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {
 		context->started_with_parent = pid_daemon;

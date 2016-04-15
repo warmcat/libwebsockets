@@ -700,6 +700,23 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		lwsl_debug("%s: wsi->more_rx_waiting=%d\n", __func__,
 				wsi->more_rx_waiting);
 
+		/* select vhost */
+
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
+			struct lws_vhost *vhost = lws_select_vhost(
+				context, wsi->vhost->listen_port,
+				lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
+
+			if (vhost)
+				wsi->vhost = vhost;
+		}
+
+		wsi->vhost->trans++;
+		if (!wsi->conn_stat_done) {
+			wsi->vhost->conn++;
+			wsi->conn_stat_done = 1;
+		}
+
 		wsi->mode = LWSCM_PRE_WS_SERVING_ACCEPT;
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
@@ -708,12 +725,14 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
 			if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
 					"websocket")) {
+				wsi->vhost->ws_upgrades++;
 				lwsl_info("Upgrade to ws\n");
 				goto upgrade_ws;
 			}
 #ifdef LWS_USE_HTTP2
 			if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
 					"h2c")) {
+				wsi->vhost->http2_upgrades++;
 				lwsl_info("Upgrade to h2c\n");
 				goto upgrade_h2c;
 			}
@@ -727,17 +746,6 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 
 		lwsl_info("No upgrade\n");
 		ah = wsi->u.hdr.ah;
-
-		/* select vhost */
-
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
-			struct lws_vhost *vhost = lws_select_vhost(
-				context, wsi->vhost->listen_port,
-				lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
-
-			if (vhost)
-				wsi->vhost = vhost;
-		}
 
 		lws_union_transition(wsi, LWSCM_HTTP_SERVING_ACCEPTED);
 		wsi->state = LWSS_HTTP;

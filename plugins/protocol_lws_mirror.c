@@ -66,6 +66,8 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY: /* per vhost */
+		if (!v)
+			break;
 		lwsl_info("%s: mirror protocol cleaning up %p\n", __func__, v);
 		for (n = 0; n < ARRAY_SIZE(v->ringbuffer); n++)
 			if (v->ringbuffer[n].payload) {

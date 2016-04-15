@@ -95,13 +95,14 @@ option(LWS_WITH_HTTP_PROXY "Support for rewriting HTTP proxying" OFF)
 option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)
 option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions" OFF)
 option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OFF)
-
+option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
  set(LWS_WITH_PLUGINS 1)
  set(LWS_WITH_LIBUV 1)
  set(LWS_WITH_ACCESS_LOG 1)
+ set(LWS_WITH_SERVER_STATUS 1)
 endif()
 
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
@@ -1199,6 +1200,10 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			      "plugins/protocol_lws_mirror.c")
 		create_plugin(protocol_lws_status
 			      "plugins/protocol_lws_status.c")
+if (LWS_WITH_SERVER_STATUS)
+		create_plugin(protocol_lws_server_status
+			      "plugins/protocol_lws_server_status.c")
+endif()
 	endif(LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 
 	#
@@ -1399,6 +1404,11 @@ if (LWS_WITH_PLUGINS)
 		PERMISSIONS  OWNER_WRITE OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE OWNER_READ GROUP_READ WORLD_READ
 		DESTINATION share/libwebsockets-test-server/plugins
 		COMPONENT plugins)
+if (LWS_WITH_SERVER_STATUS)
+	install(FILES plugins/server-status.html
+		DESTINATION share/libwebsockets-test-server/server-status
+			COMPONENT examples)
+endif()
 endif()
 
 # Install the LibwebsocketsConfig.cmake and LibwebsocketsConfigVersion.cmake
@@ -1466,6 +1476,7 @@ message(" LWS_WITH_HTTP_PROXY = ${LWS_WITH_HTTP_PROXY}")
 message(" LIBHUBBUB_LIBRARIES = ${LIBHUBBUB_LIBRARIES}")
 message(" PLUGINS = ${PLUGINS_LIST}")
 message(" LWS_WITH_ACCESS_LOG = ${LWS_WITH_ACCESS_LOG}")
+message(" LWS_WITH_SERVER_STATUS = ${LWS_WITH_SERVER_STATUS}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()
