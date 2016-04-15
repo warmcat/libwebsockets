@@ -250,3 +250,42 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 
 	return m != n;
 }
+
+LWS_VISIBLE int
+lws_http_redirect(struct lws *wsi, const unsigned char *loc, int len,
+		  unsigned char **p, unsigned char *end)
+{
+	unsigned char *start = *p;
+	int n;
+
+	if (lws_add_http_header_status(wsi, 301, p, end))
+		return -1;
+
+	if (lws_add_http_header_by_token(wsi,
+			WSI_TOKEN_HTTP_LOCATION,
+			loc, len, p, end))
+		return -1;
+	/*
+	 * if we're going with http/1.1 and keepalive,
+	 * we have to give fake content metadata so the
+	 * client knows we completed the transaction and
+	 * it can do the redirect...
+	 */
+	if (lws_add_http_header_by_token(wsi,
+			WSI_TOKEN_HTTP_CONTENT_TYPE,
+			(unsigned char *)"text/html", 9,
+			p, end))
+		return -1;
+	if (lws_add_http_header_by_token(wsi,
+			WSI_TOKEN_HTTP_CONTENT_LENGTH,
+			(unsigned char *)"0", 1, p, end))
+		return -1;
+
+	if (lws_finalize_http_header(wsi, p, end))
+		return -1;
+
+	n = lws_write(wsi, start, *p - start,
+			LWS_WRITE_HTTP_HEADERS);
+
+	return n;
+}

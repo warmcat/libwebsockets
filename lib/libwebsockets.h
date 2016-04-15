@@ -1643,6 +1643,10 @@ lws_add_http_header_status(struct lws *wsi,
 			   unsigned int code, unsigned char **p,
 			   unsigned char *end);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_http_redirect(struct lws *wsi, const unsigned char *loc, int len,
+		  unsigned char **p, unsigned char *end);
+
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi);
 

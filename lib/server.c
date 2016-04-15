@@ -424,7 +424,6 @@ lws_http_action(struct lws *wsi)
 	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 			wsi->context->timeout_secs);
 #ifdef LWS_OPENSSL_SUPPORT
-#if 0
 	if (wsi->redirect_to_https) {
 		/*
 		 * we accepted http:// only so we could redirect to
@@ -436,22 +435,16 @@ lws_http_action(struct lws *wsi)
 
 		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
 			goto bail_nuke_ah;
-		if (lws_add_http_header_status(wsi, 301, &p, end))
-			goto bail_nuke_ah;
+
 		n = sprintf((char *)end, "https://%s/",
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
-				end, n, &p, end))
-			goto bail_nuke_ah;
-		if (lws_finalize_http_header(wsi, &p, end))
-			goto bail_nuke_ah;
-		n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+
+		n = lws_http_redirect(wsi, end, n, &p, end);
 		if ((int)n < 0)
 			goto bail_nuke_ah;
 
 		return lws_http_transaction_completed(wsi);
 	}
-#endif
 #endif
 
 #ifdef LWS_WITH_ACCESS_LOG
@@ -563,14 +556,10 @@ lws_http_action(struct lws *wsi)
 				"http://", "https://"
 			};
 
-			 lwsl_err("Doing 301 '%s' org %s\n", s, hit->origin);
+			lwsl_notice("Doing 301 '%s' org %s\n", s, hit->origin);
 
 			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
 				goto bail_nuke_ah;
-			if (lws_add_http_header_status(wsi, 301, &p, end))
-				goto bail_nuke_ah;
-
-			lwsl_debug("**** %s", hit->origin);
 
 			/* > at start indicates deal with by redirect */
 			if (hit->origin_protocol & 4)
@@ -582,14 +571,8 @@ lws_http_action(struct lws *wsi)
 				    "https://%s/%s/",
 				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
 				    uri_ptr);
-			if (lws_add_http_header_by_token(wsi,
-					WSI_TOKEN_HTTP_LOCATION,
-					end, n, &p, end))
-				goto bail_nuke_ah;
-			if (lws_finalize_http_header(wsi, &p, end))
-				goto bail_nuke_ah;
-			n = lws_write(wsi, start, p - start,
-					LWS_WRITE_HTTP_HEADERS);
+
+			n = lws_http_redirect(wsi, end, n, &p, end);
 			if ((int)n < 0)
 				goto bail_nuke_ah;
 
