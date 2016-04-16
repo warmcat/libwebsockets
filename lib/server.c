@@ -828,7 +828,7 @@ upgrade_ws:
 		hit = 0;
 
 		while (*p && !hit) {
-			unsigned int n = 0;
+			n = 0;
 			while (n < sizeof(protocol_name) - 1 && *p && *p !=',')
 				protocol_name[n++] = *p++;
 			protocol_name[n] = '\0';
@@ -842,7 +842,6 @@ upgrade_ws:
 				if (wsi->vhost->protocols[n].name &&
 				    !strcmp(wsi->vhost->protocols[n].name,
 					    protocol_name)) {
-					lwsl_info("prot match %d\n", n);
 					wsi->protocol = &wsi->vhost->protocols[n];
 					hit = 1;
 					break;
@@ -862,10 +861,11 @@ upgrade_ws:
 			}
 			/*
 			 * some clients only have one protocol and
-			 * do not sent the protocol list header...
+			 * do not send the protocol list header...
 			 * allow it and match to protocol 0
 			 */
 			lwsl_info("defaulting to prot 0 handler\n");
+			n = 0;
 			wsi->protocol = &wsi->vhost->protocols[0];
 		}
 
@@ -877,7 +877,6 @@ upgrade_ws:
 		 * Give the user code a chance to study the request and
 		 * have the opportunity to deny it
 		 */
-
 		if ((wsi->protocol->callback)(wsi,
 				LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 				wsi->user_space,
@@ -905,6 +904,31 @@ upgrade_ws:
 				  wsi->ietf_spec_revision);
 			goto bail_nuke_ah;
 		}
+
+		/*
+		 * stitch protocol choice into the vh protocol linked list
+		 * We always insert ourselves at the start of the list
+		 *
+		 * X <-> B
+		 * X <-> pAn <-> pB
+		 */
+		//lwsl_err("%s: pre insert vhost start wsi %p, that wsi prev == %p\n",
+		//		__func__,
+		//		wsi->vhost->same_vh_protocol_list[n],
+		//		wsi->same_vh_protocol_prev);
+		wsi->same_vh_protocol_prev = /* guy who points to us */
+			&wsi->vhost->same_vh_protocol_list[n];
+		wsi->same_vh_protocol_next = /* old first guy is our next */
+				wsi->vhost->same_vh_protocol_list[n];
+		/* we become the new first guy */
+		wsi->vhost->same_vh_protocol_list[n] = wsi;
+
+		if (wsi->same_vh_protocol_next)
+			/* old first guy points back to us now */
+			wsi->same_vh_protocol_next->same_vh_protocol_prev =
+					&wsi->same_vh_protocol_next;
+
+
 
 		/* we are upgrading to ws, so http/1.1 and keepalive +
 		 * pipelined header considerations about keeping the ah around
