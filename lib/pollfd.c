@@ -289,6 +289,9 @@ lws_callback_on_writable(struct lws *wsi)
 	if (wsi->state == LWSS_SHUTDOWN)
 		return 0;
 
+	if (wsi->socket_is_permanently_unusable)
+		return 0;
+
 #ifdef LWS_USE_HTTP2
 	lwsl_info("%s: %p\n", __func__, wsi);
 
@@ -349,43 +352,13 @@ network_sock:
 }
 
 /**
- * lws_callback_on_writable_all_protocol() - Request a callback for
- *			all connections using the given protocol when it
- *			becomes possible to write to each socket without
- *			blocking in turn.
- *
- * @context:	lws_context
- * @protocol:	Protocol whose connections will get callbacks
- */
-
-LWS_VISIBLE int
-lws_callback_on_writable_all_protocol(const struct lws_context *context,
-				      const struct lws_protocols *protocol)
-{
-	const struct lws_context_per_thread *pt = &context->pt[0];
-	unsigned int n, m = context->count_threads;
-	struct lws *wsi;
-
-	while (m--) {
-		for (n = 0; n < pt->fds_count; n++) {
-			wsi = wsi_from_fd(context, pt->fds[n].fd);
-			if (!wsi)
-				continue;
-			if (wsi->protocol == protocol)
-				lws_callback_on_writable(wsi);
-		}
-		pt++;
-	}
-
-	return 0;
-}
-
-
-/**
  * lws_callback_on_writable_all_protocol_vhost() - Request a callback for
  *			all connections using the given protocol when it
  *			becomes possible to write to each socket without
  *			blocking in turn.
+ *
+ *	This calls back connections with the same protocol ON THE SAME
+ *	VHOST ONLY.
  *
  * @vhost:	Only consider connections on this lws_vhost
  * @protocol:	Protocol whose connections will get callbacks
@@ -395,20 +368,56 @@ LWS_VISIBLE int
 lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 				      const struct lws_protocols *protocol)
 {
-	const struct lws_context *context = vhost->context;
-	const struct lws_context_per_thread *pt = &context->pt[0];
-	unsigned int n, m = context->count_threads;
 	struct lws *wsi;
 
-	while (m--) {
-		for (n = 0; n < pt->fds_count; n++) {
-			wsi = wsi_from_fd(context, pt->fds[n].fd);
-			if (!wsi)
-				continue;
-			if (wsi->vhost == vhost && wsi->protocol == protocol)
-				lws_callback_on_writable(wsi);
-		}
-		pt++;
+	if (protocol < vhost->protocols ||
+	    protocol >= (vhost->protocols + vhost->count_protocols)) {
+		lwsl_err("%s: protocol is not from vhost\n", __func__);
+
+		return -1;
+	}
+
+	wsi = vhost->same_vh_protocol_list[protocol - vhost->protocols];
+	while (wsi) {
+		assert(wsi->protocol == protocol);
+		lws_callback_on_writable(wsi);
+		wsi = wsi->same_vh_protocol_next;
+	}
+
+	return 0;
+}
+
+/**
+ * lws_callback_on_writable_all_protocol() - Request a callback for
+ *			all connections using the given protocol when it
+ *			becomes possible to write to each socket without
+ *			blocking in turn.
+ *
+ *	This calls back any connection using the same protocol on ANY
+ *	VHOST.
+ *
+ * @context:	lws_context
+ * @protocol:	Protocol whose connections will get callbacks
+ */
+
+LWS_VISIBLE int
+lws_callback_on_writable_all_protocol(const struct lws_context *context,
+				      const struct lws_protocols *protocol)
+{
+	struct lws_vhost *vhost = context->vhost_list;
+	int n;
+
+	while (vhost) {
+		for (n = 0; n < vhost->count_protocols; n++)
+			if (protocol->callback ==
+			    vhost->protocols[n].callback &&
+			    !strcmp(protocol->name, vhost->protocols[n].name))
+				break;
+		if (n != vhost->count_protocols)
+			lws_callback_on_writable_all_protocol_vhost(
+				vhost, &vhost->protocols[n]);
+
+		vhost = vhost->vhost_next;
 	}
 
 	return 0;

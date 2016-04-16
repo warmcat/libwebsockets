@@ -401,6 +401,17 @@ just_kill_connection:
 	}
 #endif
 	/*
+	 * detach ourselves from vh protocol list if we're on one
+	 */
+	if (wsi->same_vh_protocol_prev) {
+		/* guy who pointed to us should point to our next */
+		*(wsi->same_vh_protocol_prev) = wsi->same_vh_protocol_next;
+		/* our next should point back to our prev */
+		if (wsi->same_vh_protocol_next)
+			wsi->same_vh_protocol_next->same_vh_protocol_prev =
+				wsi->same_vh_protocol_prev;
+	}
+	/*
 	 * we won't be servicing or receiving anything further from this guy
 	 * delete socket from the internal poll list if still present
 	 */

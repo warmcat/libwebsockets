@@ -277,6 +277,9 @@ lws_create_vhost(struct lws_context *context,
 #endif
 		vh->protocols = info->protocols;
 
+	vh->same_vh_protocol_list = (struct lws **)
+			lws_zalloc(sizeof(struct lws *) * vh->count_protocols);
+
 	vh->mount_list = mounts;
 
 #ifdef LWS_USE_UNIX_SOCK
@@ -796,6 +799,7 @@ lws_context_destroy(struct lws_context *context)
 		if (vh->protocol_vh_privs)
 			lws_free(vh->protocol_vh_privs);
 		lws_ssl_SSL_CTX_destroy(vh);
+		lws_free(vh->same_vh_protocol_list);
 #ifdef LWS_WITH_PLUGINS
 		if (context->plugin_list)
 			lws_free((void *)vh->protocols);

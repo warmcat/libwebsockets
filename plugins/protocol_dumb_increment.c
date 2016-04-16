@@ -40,7 +40,7 @@ uv_timeout_cb_dumb_increment(uv_timer_t *w
 {
 	struct per_vhost_data__dumb_increment *vhd = lws_container_of(w,
 			struct per_vhost_data__dumb_increment, timeout_watcher);
-	lws_callback_on_writable_all_protocol(vhd->context, vhd->protocol);
+	lws_callback_on_writable_all_protocol_vhost(vhd->vhost, vhd->protocol);
 }
 
 static int

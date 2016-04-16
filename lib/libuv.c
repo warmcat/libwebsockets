@@ -363,9 +363,9 @@ lws_libuv_stop(struct lws_context *context)
 
 		for (n = 0; (unsigned int)n < context->pt[m].fds_count; n++) {
 			struct lws *wsi = wsi_from_fd(context, pt->fds[n].fd);
+
 			if (!wsi)
 				continue;
-
 			lws_close_free_wsi(wsi,
 				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
 				/* no protocol close */);
@@ -373,6 +373,7 @@ lws_libuv_stop(struct lws_context *context)
 		}
 	}
 
+	lwsl_err("%s: feels everything closed\n", __func__);
 	if (context->count_wsi_allocated == 0)
 		lws_libuv_kill(context);
 }

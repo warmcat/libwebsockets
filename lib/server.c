@@ -828,7 +828,7 @@ upgrade_ws:
 		hit = 0;
 
 		while (*p && !hit) {
-			unsigned int n = 0;
+			n = 0;
 			while (n < sizeof(protocol_name) - 1 && *p && *p !=',')
 				protocol_name[n++] = *p++;
 			protocol_name[n] = '\0';
@@ -842,7 +842,6 @@ upgrade_ws:
 				if (wsi->vhost->protocols[n].name &&
 				    !strcmp(wsi->vhost->protocols[n].name,
 					    protocol_name)) {
-					lwsl_info("prot match %d\n", n);
 					wsi->protocol = &wsi->vhost->protocols[n];
 					hit = 1;
 					break;
@@ -866,6 +865,7 @@ upgrade_ws:
 			 * allow it and match to protocol 0
 			 */
 			lwsl_info("defaulting to prot 0 handler\n");
+			n = 0;
 			wsi->protocol = &wsi->vhost->protocols[0];
 		}
 
@@ -877,7 +877,6 @@ upgrade_ws:
 		 * Give the user code a chance to study the request and
 		 * have the opportunity to deny it
 		 */
-
 		if ((wsi->protocol->callback)(wsi,
 				LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 				wsi->user_space,
@@ -885,6 +884,16 @@ upgrade_ws:
 			lwsl_warn("User code denied connection\n");
 			goto bail_nuke_ah;
 		}
+
+		/*
+		 * stitch protocol choice into the vh protocol linked list
+		 */
+		wsi->same_vh_protocol_prev = /* guy who points to us */
+			&wsi->vhost->same_vh_protocol_list[n];
+		wsi->same_vh_protocol_next = /* old first guy is our next */
+				wsi->vhost->same_vh_protocol_list[n];
+		/* we become the new first guy */
+		wsi->vhost->same_vh_protocol_list[n] = wsi;
 
 		/*
 		 * Perform the handshake according to the protocol version the
