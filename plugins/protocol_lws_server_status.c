@@ -19,6 +19,7 @@
  */
 #include "../lib/libwebsockets.h"
 #include <string.h>
+#include <stdlib.h>
 
 #define LWS_SS_VERSIONS 3
 

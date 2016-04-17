@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -21,9 +21,59 @@
 
 #include "private-libwebsockets.h"
 
+#if defined(LWS_USE_POLARSSL)
+static const int ciphers[] =
+{
+	TLS_DHE_RSA_WITH_AES_256_CBC_SHA,
+	TLS_RSA_WITH_AES_256_CBC_SHA,
+	TLS_RSA_WITH_AES_128_CBC_SHA,
+	0
+};
+
+static int urandom_bytes(void *ctx, unsigned char *dest, size_t len)
+{
+	int cur;
+	int fd = open("/dev/urandom", O_RDONLY);
+
+	while (len) {
+		cur = read(fd, dest, len);
+		if (cur < 0)
+			continue;
+		len -= cur;
+	}
+	close(fd);
+
+	return 0;
+}
+
+static void pssl_debug(void *ctx, int level, const char *str)
+{
+    lwsl_err("PolarSSL [level %d]: %s", level, str);
+}
+
+#endif
+
 int openssl_websocket_private_data_index,
     openssl_SSL_CTX_private_data_index;
 
+int lws_ssl_get_error(struct lws *wsi, int n)
+{
+#if defined(LWS_USE_POLARSSL)
+#define ERR_error_string(a, b) ""
+	return n;
+#else
+#if defined(LWS_USE_MBEDTLS)
+	return n;
+#else
+	return SSL_get_error(wsi->ssl, n);
+#endif
+#endif
+}
+
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 static int
 lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
 {
@@ -35,12 +85,18 @@ lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userd
 
 	return strlen(buf);
 }
+#endif
+#endif
 
 void
 lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info)
 {
 	if (!info->ssl_private_key_password)
 		return;
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	/*
 	 * password provided, set ssl callback and user data
 	 * for checking password which will be trigered during
@@ -48,6 +104,8 @@ lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info
 	 */
 	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *)info);
 	SSL_CTX_set_default_passwd_cb(ssl_ctx, lws_context_init_ssl_pem_passwd_cb);
+#endif
+#endif
 }
 
 int
@@ -60,7 +118,15 @@ lws_context_init_ssl_library(struct lws_context_creation_info *info)
 	lwsl_notice(" Compiled with wolfSSL support\n");
 #endif
 #else
+#if defined(LWS_USE_POLARSSL)
+	lwsl_notice(" Compiled with PolarSSL support\n");
+#else
+#if defined(LWS_USE_MBEDTLS)
+	lwsl_notice(" Compiled with mbedTLS support\n");
+#else
 	lwsl_notice(" Compiled with OpenSSL support\n");
+#endif
+#endif
 #endif
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
@@ -70,6 +136,10 @@ lws_context_init_ssl_library(struct lws_context_creation_info *info)
 
 	/* basic openssl init */
 
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	SSL_library_init();
 
 	OpenSSL_add_all_algorithms();
@@ -80,6 +150,8 @@ lws_context_init_ssl_library(struct lws_context_creation_info *info)
 
 	openssl_SSL_CTX_private_data_index = SSL_CTX_get_ex_new_index(0,
 			NULL, NULL, NULL, NULL);
+#endif
+#endif
 
 	return 0;
 }
@@ -88,8 +160,14 @@ lws_context_init_ssl_library(struct lws_context_creation_info *info)
 LWS_VISIBLE void
 lws_ssl_destroy(struct lws_vhost *vhost)
 {
-	if (!lws_check_opt(vhost->context->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
+	if (!lws_check_opt(vhost->context->options,
+			   LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		return;
+
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 
 	if (vhost->ssl_ctx)
 		SSL_CTX_free(vhost->ssl_ctx);
@@ -108,18 +186,25 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
+#endif
+#endif
 }
 
 LWS_VISIBLE void
 lws_decode_ssl_error(void)
 {
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	char buf[256];
 	u_long err;
-
 	while ((err = ERR_get_error()) != 0) {
 		ERR_error_string_n(err, buf, sizeof(buf));
 		lwsl_err("*** %lu %s\n", err, buf);
 	}
+#endif
+#endif
 }
 
 LWS_VISIBLE void
@@ -155,18 +240,25 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int n;
+	int n = 0;
 
 	if (!wsi->ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	n = SSL_read(wsi->ssl, buf, len);
+#endif
+#endif
+
 	/* manpage: returning 0 means connection shut down */
 	if (!n)
 		return LWS_SSL_CAPABLE_ERROR;
 
 	if (n < 0) {
-		n = SSL_get_error(wsi->ssl, n);
+		n = lws_ssl_get_error(wsi, n);
 		if (n ==  SSL_ERROR_WANT_READ || n ==  SSL_ERROR_WANT_WRITE)
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 
@@ -187,8 +279,16 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 		goto bail;
 	if (!wsi->ssl)
 		goto bail;
+#if defined(LWS_USE_POLARSSL)
+	if (ssl_get_bytes_avail(wsi->ssl) <= 0)
+		goto bail;
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	if (!SSL_pending(wsi->ssl))
 		goto bail;
+#endif
+#endif
 	if (wsi->pending_read_list_next)
 		return n;
 	if (wsi->pending_read_list_prev)
@@ -216,8 +316,15 @@ lws_ssl_pending(struct lws *wsi)
 {
 	if (!wsi->ssl)
 		return 0;
-
+#if defined(LWS_USE_POLARSSL)
+	return ssl_get_bytes_avail(wsi->ssl) > 0;
+#else
+#if defined(LWS_USE_MBEDTLS)
+	return ssl_get_bytes_avail(wsi->ssl) > 0;;
+#else
 	return SSL_pending(wsi->ssl);
+#endif
+#endif
 }
 
 LWS_VISIBLE int
@@ -228,11 +335,18 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 	if (!wsi->ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
+#if defined(LWS_USE_POLARSSL)
+	n = ssl_write(wsi->ssl, buf, len);
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	n = SSL_write(wsi->ssl, buf, len);
+#endif
+#endif
 	if (n > 0)
 		return n;
 
-	n = SSL_get_error(wsi->ssl, n);
+	n = lws_ssl_get_error(wsi, n);
 	if (n == SSL_ERROR_WANT_READ || n == SSL_ERROR_WANT_WRITE) {
 		if (n == SSL_ERROR_WANT_WRITE)
 			lws_set_blocking_send(wsi);
@@ -250,10 +364,19 @@ lws_ssl_close(struct lws *wsi)
 	if (!wsi->ssl)
 		return 0; /* not handled */
 
+#if defined(LWS_USE_POLARSSL)
+	ssl_close_notify(wsi->ssl);
+	(void)n; /* we need to close the fd? */
+	ssl_free(wsi->ssl);
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	n = SSL_get_fd(wsi->ssl);
 	SSL_shutdown(wsi->ssl);
 	compatible_close(n);
 	SSL_free(wsi->ssl);
+#endif
+#endif
 	wsi->ssl = NULL;
 
 	return 1; /* handled */
@@ -267,7 +390,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n, m;
-#ifndef USE_WOLFSSL
+#if !defined(USE_WOLFSSL) && !defined(LWS_USE_POLARSSL) && !defined(LWS_USE_MBEDTLS)
 	BIO *bio;
 #endif
 
@@ -282,10 +405,48 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		if (accept_fd == LWS_SOCK_INVALID)
 			assert(0);
 
+#if defined(LWS_USE_POLARSSL)
+	{
+		ssl_session *ssn;
+		int rc;
+
+		wsi->ssl = lws_zalloc(sizeof(ssl_context));
+		ssn = lws_zalloc(sizeof(ssl_session));
+
+		rc = ssl_init(wsi->ssl);
+		if (rc) {
+			lwsl_err("ssl_init failed\n");
+			goto fail;
+		}
+
+		ssl_set_endpoint(wsi->ssl, SSL_IS_SERVER);
+		ssl_set_authmode(wsi->ssl, SSL_VERIFY_OPTIONAL);
+		ssl_set_rng(wsi->ssl, urandom_bytes, NULL);
+		ssl_set_dbg(wsi->ssl, pssl_debug, NULL);
+		ssl_set_bio(wsi->ssl, net_recv, &wsi->sock, net_send, &wsi->sock);
+
+		ssl_set_ciphersuites(wsi->ssl, ciphers);
+
+		ssl_set_session(wsi->ssl, ssn);
+
+		ssl_set_ca_chain(wsi->ssl, &wsi->vhost->ssl_ctx->ca,
+				 NULL, NULL);
+
+		ssl_set_own_cert_rsa(wsi->ssl,
+				&wsi->vhost->ssl_ctx->certificate,
+				&wsi->vhost->ssl_ctx->key);
+
+//		ssl_set_dh_param(wsi->ssl, my_dhm_P, my_dhm_G);
+
+		lwsl_err("%s: polarssl init done\n", __func__);
+	}
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 		wsi->ssl = SSL_new(wsi->vhost->ssl_ctx);
 		if (wsi->ssl == NULL) {
 			lwsl_err("SSL_new failed: %s\n",
-				 ERR_error_string(SSL_get_error(wsi->ssl, 0), NULL));
+				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
 			lws_decode_ssl_error();
 			if (accept_fd != LWS_SOCK_INVALID)
 				compatible_close(accept_fd);
@@ -296,6 +457,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			openssl_websocket_private_data_index, wsi->vhost);
 
 		SSL_set_fd(wsi->ssl, accept_fd);
+#endif
+#endif
 
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
@@ -303,6 +466,11 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 #else
 		wolfSSL_set_using_nonblock(wsi->ssl, 1);
 #endif
+#else
+#if defined(LWS_USE_POLARSSL)
+
+#else
+#if defined(LWS_USE_MBEDTLS)
 #else
 		SSL_set_mode(wsi->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 		bio = SSL_get_rbio(wsi->ssl);
@@ -315,6 +483,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			BIO_set_nbio(bio, 1); /* nonblocking */
 		else
 			lwsl_notice("NULL rbio\n");
+#endif
+#endif
 #endif
 
 		/*
@@ -368,8 +538,16 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				* connection upgrade directly.
 				*/
 				wsi->use_ssl = 0;
+#if defined(LWS_USE_POLARSSL)
+				ssl_close_notify(wsi->ssl);
+				ssl_free(wsi->ssl);
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 				SSL_shutdown(wsi->ssl);
 				SSL_free(wsi->ssl);
+#endif
+#endif
 				wsi->ssl = NULL;
 				if (lws_check_opt(context->options,
 				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS))
@@ -396,15 +574,21 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		}
 
 		/* normal SSL connection processing path */
-
+#if defined(LWS_USE_POLARSSL)
+		n = ssl_handshake(wsi->ssl);
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 		n = SSL_accept(wsi->ssl);
+#endif
+#endif
 		lws_latency(context, wsi,
 			"SSL_accept LWSCM_SSL_ACK_PENDING\n", n, n == 1);
 
 		if (n == 1)
 			goto accepted;
 
-		m = SSL_get_error(wsi->ssl, n);
+		m = lws_ssl_get_error(wsi, n);
 		lwsl_debug("SSL_accept failed %d / %s\n",
 			   m, ERR_error_string(m, NULL));
 go_again:
@@ -428,6 +612,10 @@ go_again:
 		lwsl_err("SSL_accept failed skt %u: %s\n",
 			   wsi->sock, ERR_error_string(m, NULL));
 
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 		{
 		   char buf[256];
 		   u_long err;
@@ -437,6 +625,8 @@ go_again:
 		      lwsl_err("*** %s\n", buf);
 		   }
 		}
+#endif
+#endif
 		goto fail;
 
 accepted:
@@ -461,15 +651,35 @@ fail:
 void
 lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 {
-	if (vhost->ssl_ctx)
+	if (vhost->ssl_ctx) {
+#if defined(LWS_USE_POLARSSL)
+		lws_free(vhost->ssl_ctx);
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 		SSL_CTX_free(vhost->ssl_ctx);
-	if (!vhost->user_supplied_ssl_ctx && vhost->ssl_client_ctx)
+#endif
+#endif
+	}
+	if (!vhost->user_supplied_ssl_ctx && vhost->ssl_client_ctx) {
+#if defined(LWS_USE_POLARSSL)
+		lws_free(vhost->ssl_client_ctx);
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 		SSL_CTX_free(vhost->ssl_client_ctx);
+#endif
+#endif
+	}
 }
 
 void
 lws_ssl_context_destroy(struct lws_context *context)
 {
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 #if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
 #else
@@ -482,4 +692,6 @@ lws_ssl_context_destroy(struct lws_context *context)
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
+#endif
+#endif
 }

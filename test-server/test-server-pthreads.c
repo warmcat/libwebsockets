@@ -33,6 +33,16 @@ int count_pollfds;
 volatile int force_exit = 0;
 struct lws_context *context;
 
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
+#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+char crl_path[1024] = "";
+#endif
+#endif
+#endif
+
 /*
  * This mutex lock protects code that changes or relies on wsi list outside of
  * the service thread.  The service thread will acquire it when changing the

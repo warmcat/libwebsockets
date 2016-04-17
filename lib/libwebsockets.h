@@ -215,13 +215,19 @@ struct sockaddr_in;
 #else
 #if defined(LWS_USE_POLARSSL)
 #include <polarssl/ssl.h>
-#define SSL_CTX ssl_context
-#define SSL ssl_session
+struct lws_polarssl_context {
+	x509_crt ca;
+	x509_crt certificate;
+	rsa_context key;
+};
+typedef struct lws_polarssl_context SSL_CTX;
+typedef ssl_context SSL;
 #else
 #if defined(LWS_USE_MBEDTLS)
 #include <mbedtls/ssl.h>
 #else
 #include <openssl/ssl.h>
+#include <openssl/err.h>
 #endif /* not USE_MBEDTLS */
 #endif /* not USE_POLARSSL */
 #endif /* not USE_WOLFSSL */

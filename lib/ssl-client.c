@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -27,9 +27,16 @@ extern int openssl_websocket_private_data_index,
 extern void
 lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info);
 
+extern int lws_ssl_get_error(struct lws *wsi, int n);
+
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
+#if defined(LWS_USE_POLARSSL)
+	return 0;
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	struct lws_context *context = wsi->context;
 #if defined(CYASSL_SNI_HOST_NAME) || defined(WOLFSSL_SNI_HOST_NAME) || defined(SSL_CTRL_SET_TLSEXT_HOSTNAME)
 	const char *hostname = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
@@ -93,24 +100,29 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			context);
 
 	return 0;
+#endif
+#endif
 }
 
 int
 lws_ssl_client_connect1(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	char *p = (char *)&pt->serv_buf[0];
-	char *sb = p;
-	int n;
+	int n = 0;
 
 	lws_latency_pre(context, wsi);
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	n = SSL_connect(wsi->ssl);
+#endif
+#endif
 	lws_latency(context, wsi,
 	  "SSL_connect LWSCM_WSCL_ISSUE_HANDSHAKE", n, n > 0);
 
 	if (n < 0) {
-		n = SSL_get_error(wsi->ssl, n);
+		n = lws_ssl_get_error(wsi, n);
 
 		if (n == SSL_ERROR_WANT_READ)
 			goto some_wait;
@@ -143,12 +155,22 @@ some_wait:
 		 * retry if new data comes until we
 		 * run into the connection timeout or win
 		 */
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 		n = ERR_get_error();
+
 		if (n != SSL_ERROR_NONE) {
+			struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+			char *p = (char *)&pt->serv_buf[0];
+			char *sb = p;
 			lwsl_err("SSL connect error %lu: %s\n",
 				n, ERR_error_string(n, sb));
 			return 0;
 		}
+#endif
+#endif
 	}
 
 	return 1;
@@ -158,19 +180,31 @@ int
 lws_ssl_client_connect2(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];
 	char *sb = p;
-	int n;
+#endif
+#endif
+	int n = 0;
 
 	if (wsi->mode == LWSCM_WSCL_WAITING_SSL) {
 		lws_latency_pre(context, wsi);
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 		n = SSL_connect(wsi->ssl);
+#endif
+#endif
 		lws_latency(context, wsi,
 			    "SSL_connect LWSCM_WSCL_WAITING_SSL", n, n > 0);
 
 		if (n < 0) {
-			n = SSL_get_error(wsi->ssl, n);
+			n = lws_ssl_get_error(wsi, n);
 
 			if (n == SSL_ERROR_WANT_READ) {
 				wsi->mode = LWSCM_WSCL_WAITING_SSL;
@@ -206,15 +240,25 @@ lws_ssl_client_connect2(struct lws *wsi)
 			 * retry if new data comes until we
 			 * run into the connection timeout or win
 			 */
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 			n = ERR_get_error();
 			if (n != SSL_ERROR_NONE) {
 				lwsl_err("SSL connect error %lu: %s\n",
 					 n, ERR_error_string(n, sb));
 				return 0;
 			}
+#endif
+#endif
 		}
 	}
 
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 #ifndef USE_WOLFSSL
 	/*
 	 * See comment above about wolfSSL certificate
@@ -239,6 +283,8 @@ lws_ssl_client_connect2(struct lws *wsi)
 		}
 	}
 #endif /* USE_WOLFSSL */
+#endif
+#endif
 
 	return 1;
 }
@@ -247,6 +293,11 @@ lws_ssl_client_connect2(struct lws *wsi)
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			        struct lws_vhost *vhost)
 {
+#if defined(LWS_USE_POLARSSL)
+	return 0;
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 	int error;
 	int n;
 	SSL_METHOD *method;
@@ -379,4 +430,6 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 				       vhost->ssl_client_ctx, NULL, 0);
 
 	return 0;
+#endif
+#endif
 }
