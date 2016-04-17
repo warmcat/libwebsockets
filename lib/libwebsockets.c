@@ -686,7 +686,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 		return NULL;
 	}
 
-	return inet_ntop(af, q, name, namelen);
+	return lws_plat_inet_ntop(af, q, name, namelen);
 #else
 	return NULL;
 #endif
