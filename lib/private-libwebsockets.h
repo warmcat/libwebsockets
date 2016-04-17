@@ -200,6 +200,9 @@ static inline int compatible_close(int fd) { return close(fd); }
 #include <polarssl/md5.h>
 #include <polarssl/sha1.h>
 #include <polarssl/ecdh.h>
+#define SSL_ERROR_WANT_READ POLARSSL_ERR_NET_WANT_READ
+#define SSL_ERROR_WANT_WRITE POLARSSL_ERR_NET_WANT_WRITE
+#define OPENSSL_VERSION_NUMBER  0x10002000L
 #else
 #if defined(LWS_USE_MBEDTLS)
 #include <mbedtls/ssl.h>
