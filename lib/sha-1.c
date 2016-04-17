@@ -189,7 +189,7 @@ sha1_step(struct sha1_ctxt *ctxt)
 /*------------------------------------------------------------*/
 
 static void
-sha1_init(struct sha1_ctxt *ctxt)
+_sha1_init(struct sha1_ctxt *ctxt)
 {
 	bzero(ctxt, sizeof(struct sha1_ctxt));
 	H(0) = 0x67452301;
@@ -290,7 +290,7 @@ lws_SHA1(const unsigned char *d, size_t n, unsigned char *md)
 {
 	struct sha1_ctxt ctx;
 
-	sha1_init(&ctx);
+	_sha1_init(&ctx);
 	sha1_loop(&ctx, d, n);
 	sha1_result(&ctx, (void *)md);
 

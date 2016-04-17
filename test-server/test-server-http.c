@@ -34,13 +34,15 @@
  *				using this protocol, including the sender
  */
 
-#ifdef LWS_OPENSSL_SUPPORT
-#include <openssl/err.h>
-#endif
-
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 #if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
 /* location of the certificate revocation list */
-char crl_path[1024] = "";
+extern char crl_path[1024];
+#endif
+#endif
 #endif
 
 extern int debug_level;
@@ -629,6 +631,10 @@ bail:
 
 		break;
 
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 #if defined(LWS_OPENSSL_SUPPORT)
 	case LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION:
 		/* Verify the client certificate */
@@ -659,6 +665,8 @@ bail:
 			}
 		}
 		break;
+#endif
+#endif
 #endif
 #endif
 

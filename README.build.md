@@ -327,6 +327,19 @@ cmake .. -DLWS_USE_CYASSL=1 \
 
 **NOTE**: On windows use the .lib file extension for `LWS_CYASSL_LIBRARIES` instead.
 
+Compiling libwebsockets with PolarSSL
+-------------------------------------
+
+Caution... at some point PolarSSL became MbedTLS.  But it did not happen all at once.
+The name changed first then at mbedTLS 2.0 the apis changed.  So eg in Fedora 22,
+there is an "mbedtls" package which is actually using polarssl for the include dir
+and polarssl apis... this should be treated as polarssl then.
+
+Example config for this case is
+
+cmake .. -DLWS_USE_POLARSSL=1 -DLWS_POLARSSL_LIBRARIES=/usr/lib64/libmbedtls.so \
+	 -DLWS_POLARSSL_INCLUDE_DIRS=/usr/include/polarssl/
+
 Reproducing HTTP2.0 tests
 -------------------------
 

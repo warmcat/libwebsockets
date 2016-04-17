@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -20,6 +20,11 @@
  */
 
 #include "private-libwebsockets.h"
+
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
 
 extern int openssl_websocket_private_data_index,
     openssl_SSL_CTX_private_data_index;
@@ -190,11 +195,13 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 }
 #endif
 
+#endif
+#endif
+
 LWS_VISIBLE int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost)
 {
-	SSL_METHOD *method;
 	struct lws_context *context = vhost->context;
 	struct lws wsi;
 	int error;
@@ -224,7 +231,70 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	 */
 	memset(&wsi, 0, sizeof(wsi));
 	wsi.vhost = vhost;
-	wsi.context = vhost->context;
+	wsi.context = context;
+
+	(void)n;
+	(void)error;
+
+#if defined(LWS_USE_POLARSSL)
+	lwsl_notice(" Compiled with PolarSSL support\n");
+
+	vhost->ssl_ctx = lws_zalloc(sizeof (*vhost->ssl_ctx));
+
+	/* Load the trusted CA */
+
+	if (info->ssl_ca_filepath) {
+		n = x509_crt_parse_file(&vhost->ssl_ctx->ca,
+					info->ssl_ca_filepath);
+
+		if (n < 0) {
+//			error_strerror(ret, errorbuf, sizeof(errorbuf));
+			lwsl_err("%s: Failed to load ca cert\n", __func__);
+			return -1;
+		}
+	}
+
+	/* Load our cert */
+
+	if (info->ssl_cert_filepath) {
+		n = x509_crt_parse_file(&vhost->ssl_ctx->certificate,
+					info->ssl_cert_filepath);
+
+		if (n < 0) {
+//			error_strerror(ret, errorbuf, sizeof(errorbuf));
+			lwsl_err("%s: Failed to load cert\n", __func__);
+			return -1;
+		}
+	}
+
+	/* Load cert private key */
+
+	if (info->ssl_private_key_filepath) {
+		pk_context pk;
+		pk_init(&pk);
+		n = pk_parse_keyfile(&pk, info->ssl_private_key_filepath,
+				     info->ssl_private_key_password);
+
+		if (!n && !pk_can_do(&pk, POLARSSL_PK_RSA))
+			n = POLARSSL_ERR_PK_TYPE_MISMATCH;
+
+		if (!n)
+			rsa_copy(&vhost->ssl_ctx->key, pk_rsa(pk));
+		else
+			rsa_free(&vhost->ssl_ctx->key);
+		pk_free(&pk);
+
+		if (n) {
+			//error_strerror(ret, errorbuf, sizeof(errorbuf));
+			lwsl_err("%s: error reading private key\n", __func__);
+
+			return -1;
+		}
+	}
+#else
+#if defined(LWS_USE_MBEDTLS)
+	lwsl_notice(" Compiled with mbedTLS support\n");
+#else
 
 	/*
 	 * Firefox insists on SSLv23 not SSLv3
@@ -235,21 +305,25 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	 * tlsv1.2. Unwanted versions must be disabled using SSL_CTX_set_options()
 	 */
 
-	method = (SSL_METHOD *)SSLv23_server_method();
-	if (!method) {
-		error = ERR_get_error();
-		lwsl_err("problem creating ssl method %lu: %s\n",
-			error, ERR_error_string(error,
+	{
+		SSL_METHOD *method;
+
+		method = (SSL_METHOD *)SSLv23_server_method();
+		if (!method) {
+			error = ERR_get_error();
+			lwsl_err("problem creating ssl method %lu: %s\n",
+					error, ERR_error_string(error,
 					      (char *)context->pt[0].serv_buf));
-		return 1;
-	}
-	vhost->ssl_ctx = SSL_CTX_new(method);	/* create context */
-	if (!vhost->ssl_ctx) {
-		error = ERR_get_error();
-		lwsl_err("problem creating ssl context %lu: %s\n",
-			error, ERR_error_string(error,
+			return 1;
+		}
+		vhost->ssl_ctx = SSL_CTX_new(method);	/* create context */
+		if (!vhost->ssl_ctx) {
+			error = ERR_get_error();
+			lwsl_err("problem creating ssl context %lu: %s\n",
+					error, ERR_error_string(error,
 					      (char *)context->pt[0].serv_buf));
-		return 1;
+			return 1;
+		}
 	}
 
 	/* associate the lws context with the SSL_CTX */
@@ -270,10 +344,12 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	/* as a server, are we requiring clients to identify themselves? */
 
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
+	if (lws_check_opt(info->options,
+			  LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
 		int verify_options = SSL_VERIFY_PEER;
 
-		if (!lws_check_opt(info->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
+		if (!lws_check_opt(info->options,
+				   LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
 			verify_options |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
 
 		SSL_CTX_set_session_id_context(vhost->ssl_ctx,
@@ -368,6 +444,9 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 		lws_context_init_http2_ssl(vhost);
 	}
+
+#endif
+#endif
 
 	return 0;
 }
