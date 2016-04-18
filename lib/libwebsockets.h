@@ -146,7 +146,9 @@ struct sockaddr_in;
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #define LWS_O_RDONLY _O_RDONLY
 
+#if !defined(_MSC_VER) || _MSC_VER < 1900 /* Visual Studio 2015 already defines this in <stdio.h> */
 #define snprintf _snprintf
+#endif
 
 #else /* NOT WIN32 */
 #include <unistd.h>
