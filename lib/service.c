@@ -492,6 +492,8 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 {
 	int rlen, n;
 
+	
+
 	rlen = lws_ssl_capable_read(wsi, (unsigned char *)*buf, *len);
 	if (rlen < 0)
 		return -1;
@@ -911,7 +913,8 @@ drain:
 			/* let user code know, he'll usually ask for writeable
 			 * callback and drain / reenable it there
 			 */
-			if (user_callback_handle_rxflow(wsi->protocol->callback,
+			if (user_callback_handle_rxflow(
+					wsi->protocol->callback,
 					wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
 					wsi->user_space, NULL, 0))
 				goto close_and_handled;

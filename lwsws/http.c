@@ -243,6 +243,8 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			pss->reason_bf &= ~1;
 			break;
 		}
+
+
 #endif
 #ifndef LWS_NO_CLIENT
 		if (pss->reason_bf & 2) {
@@ -269,6 +271,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 #ifndef LWS_NO_CLIENT
+
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
 		char ctype[64], ctlen = 0;
 		lwsl_err("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP\n");

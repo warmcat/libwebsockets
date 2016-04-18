@@ -95,6 +95,9 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 		break;
 #endif
 
+	case LWSS_CLIENT_HTTP_ESTABLISHED:
+		break;
+
 	case LWSS_HTTP:
 		wsi->hdr_parsing_completed = 0;
 		/* fallthru */
@@ -104,6 +107,7 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 		wsi->u.hdr.lextable_pos = 0;
 		/* fallthru */
 	case LWSS_HTTP_HEADERS:
+		
 		assert(wsi->u.hdr.ah);
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
 
@@ -227,7 +231,7 @@ postbody_completion:
 		}
 		break;
 	default:
-		lwsl_err("%s: Unhandled state\n", __func__);
+		lwsl_err("%s: Unhandled state %d\n", __func__, wsi->state);
 		break;
 	}
 

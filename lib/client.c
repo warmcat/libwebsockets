@@ -440,12 +440,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 #ifdef LWS_WITH_HTTP_PROXY
-	wsi->perform_rewrite = 0;
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
-		if (!strncmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE),
-				"text/html", 9))
-			wsi->perform_rewrite = 1;
-	}
+		wsi->perform_rewrite = 0;
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
+			if (!strncmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE),
+				     "text/html", 9))
+				wsi->perform_rewrite = 1;
+		}
 #endif
 
 		/* allocate the per-connection user memory (if any) */
@@ -491,7 +491,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		/* call him back to inform him he is up */
 		if (wsi->protocol->callback(wsi,
-				LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
+					    LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
 					    wsi->user_space, NULL, 0))
 			goto bail3;
 

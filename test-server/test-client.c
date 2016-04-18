@@ -83,8 +83,6 @@ static int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
-	char *buf = (char *)in;
-
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -126,8 +124,25 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
-		while (len--)
-			putchar(*buf++);
+		{
+			char buffer[1024 + LWS_PRE];
+			char *px = buffer + LWS_PRE;
+			int lenx = sizeof(buffer) - LWS_PRE;
+
+			lwsl_notice("LWS_CALLBACK_RECEIVE_CLIENT_HTTP\n");
+
+			/*
+			 * Often you need to flow control this by something
+			 * else being writable.  In that case call the api
+			 * to get a callback when writable here, and do the
+			 * pending client read in the writeable callback of
+			 * the output.
+			 */
+			if (lws_http_client_read(wsi, &px, &lenx) < 0)
+				return -1;
+			while (lenx--)
+				putchar(*px++);
+		}
 		break;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:

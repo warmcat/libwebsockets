@@ -416,3 +416,46 @@ The extension may decide to alter or disallow the change, in the
 example above permessage-deflate restricts the size of his rx
 output buffer also considering the protocol's rx_buf_size member.
 
+Client connections as HTTP[S] rather than WS[S]
+-----------------------------------------------
+
+You may open a generic http client connection using the same
+struct lws_client_connect_info used to create client ws[s]
+connections.
+
+To stay in http[s], set the optional info member "method" to
+point to the string "GET" instead of the default NULL.
+
+After the server headers are processed, when payload from the
+server is available the callback LWS_CALLBACK_RECEIVE_CLIENT_HTTP
+will be made.
+
+You can choose whether to process the data immediately, or
+queue a callback when an outgoing socket is writeable to provide
+flow control, and process the data in the writable callback.
+
+Either way you use the api lws_http_client_read() to access the
+data, eg
+
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+		{
+			char buffer[1024 + LWS_PRE];
+			char *px = buffer + LWS_PRE;
+			int lenx = sizeof(buffer) - LWS_PRE;
+
+			lwsl_notice("LWS_CALLBACK_RECEIVE_CLIENT_HTTP\n");
+
+			/*
+			 * Often you need to flow control this by something
+			 * else being writable.  In that case call the api
+			 * to get a callback when writable here, and do the
+			 * pending client read in the writeable callback of
+			 * the output.
+			 */
+			if (lws_http_client_read(wsi, &px, &lenx) < 0)
+				return -1;
+			while (lenx--)
+				putchar(*px++);
+		}
+		break;
