@@ -1,0 +1,5 @@
+{
+  "Name":           "libwebsockets",
+  "SourceUrl":      "https://github.com/warmcat/libwebsockets/releases",
+  "Git":            "https://github.com/warmcat/libwebsockets",
+}
