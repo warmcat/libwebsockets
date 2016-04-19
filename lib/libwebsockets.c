@@ -187,6 +187,17 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	}
 
 	if (wsi->cgi) {
+		struct lws_cgi **pcgi = &pt->cgi_list;
+		/* remove us from the cgi list */
+		lwsl_notice("%s: remove cgi %p from list\n", __func__, wsi->cgi);
+		while (*pcgi) {
+			if (*pcgi == wsi->cgi) {
+				/* drop us from the pt cgi list */
+				*pcgi = (*pcgi)->cgi_list;
+				break;
+			}
+			pcgi = &(*pcgi)->cgi_list;
+		}
 		/* we have a cgi going, we must kill it */
 		wsi->cgi->being_closed = 1;
 		lws_cgi_kill(wsi);
@@ -535,10 +546,9 @@ lws_close_free_wsi_final(struct lws *wsi)
 #ifdef LWS_WITH_CGI
 	if (wsi->cgi) {
 		for (n = 0; n < 6; n++)
-			if (wsi->cgi->pipe_fds[n / 2][n & 1] >= 0) {
-				lwsl_notice("   closing %d\n", wsi->cgi->pipe_fds[n / 2][n & 1]);
+			if (wsi->cgi->pipe_fds[n / 2][n & 1] >= 0)
 				close(wsi->cgi->pipe_fds[n / 2][n & 1]);
-			}
+
 		lws_free(wsi->cgi);
 	}
 #endif
@@ -1752,8 +1762,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		cgi->stdwsi[n]->cgi_channel = n;
 		cgi->stdwsi[n]->vhost = wsi->vhost;
 
-		lwsl_err("%s: cgi %p: pipe fd %d -> fd %d / %d\n", __func__, wsi, n,
-			 cgi->pipe_fds[n][!!(n == 0)], cgi->pipe_fds[n][!(n == 0)]);
+//		lwsl_err("%s: cgi %p: pipe fd %d -> fd %d / %d\n", __func__, wsi, n,
+//			 cgi->pipe_fds[n][!!(n == 0)], cgi->pipe_fds[n][!(n == 0)]);
 
 		/* read side is 0, stdin we want the write side, others read */
 		cgi->stdwsi[n]->sock = cgi->pipe_fds[n][!!(n == 0)];
@@ -1783,6 +1793,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	wsi->hdr_state = LCHS_HEADER;
 
 	/* add us to the pt list of active cgis */
+	lwsl_notice("%s: adding cgi %p to list\n", __func__, wsi->cgi);
 	cgi->cgi_list = pt->cgi_list;
 	pt->cgi_list = cgi;
 
@@ -1890,10 +1901,17 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	env_array[n++] = "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin";
 	env_array[n] = NULL;
 
-#if 1
+#if 0
 	for (m = 0; m < n; m++)
 		lwsl_err("    %s\n", env_array[m]);
 #endif
+
+	/*
+	 * Actually having made the env, as a cgi we don't need the ah
+	 * any more
+	 */
+	if (wsi->u.hdr.ah->rxpos == wsi->u.hdr.ah->rxlen)
+		lws_header_table_detach(wsi, 0);
 
 	/* we are ready with the redirection pipes... run the thing */
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
@@ -1906,9 +1924,17 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		goto bail3;
 	}
 
-	if (cgi->pid)
+#if defined(__linux__)
+	prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
+	setpgrp();
+
+	if (cgi->pid) {
 		/* we are the parent process */
+		wsi->context->count_cgi_spawned++;
+		lwsl_notice("%s: cgi %p spawned PID %d\n", __func__, cgi, cgi->pid);
 		return 0;
+	}
 
 	/* somewhere we can at least read things and enter it */
 	if (chdir("/tmp"))
@@ -2112,26 +2138,58 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_kill(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	struct lws_cgi **pcgi = &pt->cgi_list;
 	struct lws_cgi_args args;
-	int n, status, do_close = 0;
+	int status, n;
 
-	lwsl_debug("!!!!! %s: %p\n", __func__, wsi);
+	lwsl_debug("%s: %p\n", __func__, wsi);
 
 	if (!wsi->cgi)
 		return 0;
 
 	if (wsi->cgi->pid > 0) {
-		/* kill the process */
-		n = kill(wsi->cgi->pid, SIGTERM);
-		if (n < 0) {
-			lwsl_err("%s: failed\n", __func__);
-			return 1;
+		n = waitpid(wsi->cgi->pid, &status, WNOHANG);
+		if (n > 0) {
+			lwsl_notice("%s: PID %d reaped\n", __func__,
+				    wsi->cgi->pid);
+			goto handled;
 		}
-		waitpid(wsi->cgi->pid, &status, 0); /* !!! may hang !!! */
+		/* kill the process group */
+		n = kill(-wsi->cgi->pid, SIGTERM);
+		lwsl_notice("%s: SIGTERM child PID %d says %d (errno %d)\n", __func__,
+				wsi->cgi->pid, n, errno);
+		if (n < 0) {
+			/*
+			 * hum seen errno=3 when process is listed in ps,
+			 * it seems we don't always retain process grouping
+			 *
+			 * Direct these fallback attempt to the exact child
+			 */
+			n = kill(wsi->cgi->pid, SIGTERM);
+			if (n < 0) {
+				n = kill(wsi->cgi->pid, SIGPIPE);
+				if (n < 0) {
+					n = kill(wsi->cgi->pid, SIGKILL);
+					if (n < 0)
+						lwsl_err("%s: SIGKILL PID %d failed errno %d (maybe zombie)\n",
+								__func__, wsi->cgi->pid, errno);
+				}
+			}
+		}
+		/* He could be unkillable because he's a zombie */
+		n = 1;
+		while (n > 0) {
+			n = waitpid(-wsi->cgi->pid, &status, WNOHANG);
+			if (n > 0)
+				lwsl_notice("%s: reaped PID %d\n", __func__, n);
+			if (n < 0) {
+				n = waitpid(wsi->cgi->pid, &status, WNOHANG);
+				if (n > 0)
+					lwsl_notice("%s: reaped PID %d\n", __func__, n);
+			}
+		}
 	}
 
+handled:
 	args.stdwsi = &wsi->cgi->stdwsi[0];
 
 	if (wsi->cgi->pid != -1 && user_callback_handle_rxflow(
@@ -2140,22 +2198,8 @@ lws_cgi_kill(struct lws *wsi)
 			wsi->user_space,
 			(void *)&args, 0)) {
 		wsi->cgi->pid = -1;
-		do_close = !wsi->cgi->being_closed;
-	}
-
-	/* remove us from the cgi list */
-	while (*pcgi) {
-		if (*pcgi == wsi->cgi) {
-			/* drop us from the pt cgi list */
-			*pcgi = (*pcgi)->cgi_list;
-			break;
-		}
-		pcgi = &(*pcgi)->cgi_list;
-	}
-
-	if (do_close) {
-		lwsl_debug("!!!!! %s: do_close\n", __func__);
-		lws_close_free_wsi(wsi, 0);
+		if (!wsi->cgi->being_closed)
+			lws_close_free_wsi(wsi, 0);
 	}
 
 	return 0;
@@ -2164,12 +2208,68 @@ lws_cgi_kill(struct lws *wsi)
 LWS_EXTERN int
 lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 {
-	struct lws_cgi **pcgi = &pt->cgi_list, *cgi;
-	int status;
+	struct lws_cgi **pcgi, *cgi = NULL;
+	int status, n = 1;
 
-	/* check all the subprocesses on the cgi list for termination */
+	while (n > 0) {
+		/* find finished guys but don't reap yet */
+		n = waitpid(0, &status, WNOHANG | WNOWAIT);
+		if (n <= 0)
+			continue;
+		lwsl_notice("%s: observed PID %d terminated\n", __func__, n);
+
+		pcgi = &pt->cgi_list;
+
+		/* check all the subprocesses on the cgi list */
+		while (*pcgi) {
+			/* get the next one first as list may change */
+			cgi = *pcgi;
+			pcgi = &(*pcgi)->cgi_list;
+
+			if (cgi->pid <= 0)
+				continue;
+
+			/* wait for stdout to be drained */
+			if (cgi->content_length > cgi->content_length_seen)
+				continue;
+
+			if (cgi->content_length)
+				lwsl_notice("%s: wsi %p: expected content length seen: %ld\n",
+					__func__, cgi->wsi, cgi->content_length_seen);
+
+			/* reap it */
+			waitpid(n, &status, WNOHANG);
+			/*
+			 * he's already terminated so no need for kill()
+			 * but we should do the terminated cgi callback
+			 * and close him if he's not already closing
+			 */
+			if (n == cgi->pid) {
+				lwsl_notice("%s: found PID %d on cgi list\n",
+					    __func__, n);
+				/* defeat kill() */
+				cgi->pid = 0;
+				lws_cgi_kill(cgi->wsi);
+
+				break;
+			}
+			cgi = NULL;
+		}
+		/* if not found on the cgi list, as he's one of ours, reap */
+		if (!cgi) {
+			lwsl_notice("%s: reading PID %d although no cgi match\n",
+					__func__, n);
+			waitpid(n, &status, WNOHANG);
+		}
+	}
+
+/* disable this to confirm timeout cgi cleanup flow */
+#if 1
+	pcgi = &pt->cgi_list;
+
+	/* check all the subprocesses on the cgi list */
 	while (*pcgi) {
-		/* get the next one because we may close current one next */
+		/* get the next one first as list may change */
 		cgi = *pcgi;
 		pcgi = &(*pcgi)->cgi_list;
 
@@ -2180,13 +2280,23 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		if (cgi->content_length > cgi->content_length_seen)
 			continue;
 
+		if (cgi->content_length)
+			lwsl_notice("%s: wsi %p: expected content length seen: %ld\n",
+				__func__, cgi->wsi, cgi->content_length_seen);
+
+		/* reap it */
 		if (waitpid(cgi->pid, &status, WNOHANG) > 0) {
-			lwsl_notice("content length seen: %ld\n", cgi->content_length_seen);
+
+			lwsl_notice("%s: found PID %d on cgi list\n",
+				    __func__, cgi->pid);
+			/* defeat kill() */
 			cgi->pid = 0;
 			lws_cgi_kill(cgi->wsi);
-			pcgi = &pt->cgi_list;
+
+			break;
 		}
 	}
+#endif
 
 	return 0;
 }
@@ -2330,15 +2440,44 @@ LWS_EXTERN LWS_VISIBLE int
 lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 {
 	char *orig = buf, *end = buf + len - 1, first = 1;
-	struct lws_vhost *vh = context->vhost_list;
+	const struct lws_vhost *vh = context->vhost_list;
+
+#ifdef LWS_WITH_CGI
+	struct lws_cgi * const *pcgi;
+#endif
+	const struct lws_context_per_thread *pt;
 	time_t t = time(NULL);
+	int listening = 0, cgi_count = 0, n;
 
 	buf += snprintf(buf, end - buf, "{ "
 					"\"uptime\":\"%ld\",\n"
-					"\"wsi_alive\":\"%d\",\n"
-					"\"vhosts\":[\n ",
+					"\"cgi_spawned\":\"%d\",\n"
+					"\"pt_fd_max\":\"%d\",\n"
+					"\"ah_pool_max\":\"%d\",\n"
+					"\"wsi_alive\":\"%d\",\n",
 					(unsigned long)(t - context->time_up),
+					context->count_cgi_spawned,
+					context->fd_limit_per_thread,
+					context->max_http_header_pool,
 					context->count_wsi_allocated);
+
+	buf += snprintf(buf, end - buf, "\"pt\":[\n ");
+	for (n = 0; n < context->count_threads; n++) {
+		pt = &context->pt[n];
+		if (n)
+			buf += snprintf(buf, end - buf, ",");
+		buf += snprintf(buf, end - buf,
+				"\n  {\n"
+				"    \"fds_count\":\"%d\",\n"
+				"    \"ah_pool_inuse\":\"%d\",\n"
+				"    \"ah_wait_list\":\"%d\"\n"
+				"    }",
+				pt->fds_count,
+				pt->ah_count_in_use,
+				pt->ah_wait_list_length);
+	}
+
+	buf += snprintf(buf, end - buf, "], \"vhosts\":[\n ");
 
 	while (vh) {
 		if (!first)
@@ -2346,10 +2485,30 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 				*buf++ = ',';
 		buf += lws_json_dump_vhost(vh, buf, end - buf);
 		first = 0;
+		if (vh->lserv_wsi)
+			listening++;
 		vh = vh->vhost_next;
 	}
 
-	buf += snprintf(buf, end - buf, "]}\n ");
+	buf += snprintf(buf, end - buf, "],\n\"listen_wsi\":\"%d\"",
+			listening);
+
+#ifdef LWS_WITH_CGI
+	for (n = 0; n < context->count_threads; n++) {
+		pt = &context->pt[n];
+		pcgi = &pt->cgi_list;
+
+		while (*pcgi) {
+			pcgi = &(*pcgi)->cgi_list;
+
+			cgi_count++;
+		}
+	}
+#endif
+	buf += snprintf(buf, end - buf, ",\n \"cgi_alive\":\"%d\"\n ",
+			cgi_count);
+
+	buf += snprintf(buf, end - buf, "}\n ");
 
 	return buf - orig;
 }
