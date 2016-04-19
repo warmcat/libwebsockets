@@ -1200,6 +1200,9 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 		}
 	}
 
+	if (!lws_header_table_attach(new_wsi, 0))
+		lwsl_debug("Attached ah immediately\n");
+
 	return new_wsi;
 
 fail:
@@ -1279,7 +1282,7 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 	 * readbuf data to wsi or ah yet, and we will do it next if we get
 	 * the ah.
 	 */
-	if (!lws_header_table_attach(wsi, 0)) {
+	if (wsi->u.hdr.ah || !lws_header_table_attach(wsi, 0)) {
 		ah = wsi->u.hdr.ah;
 		memcpy(ah->rx, readbuf, len);
 		ah->rxpos = 0;
