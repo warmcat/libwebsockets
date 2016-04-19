@@ -171,23 +171,45 @@ function get_appropriate_ws_url()
 			jso = JSON.parse(msg.data);
 			
 			s="<table><tr><td class=\"c\">" +
-			  "Context</td><td>Uptime: " + san(jso.uptime) + "<br>" +
-			  "Current wsi alive: " + san(jso.wsi_alive) +
+			  "Context</td><td>Uptime: " + san(jso.uptime) + ", " +
+			  "Listening wsi: " + san(jso.listen_wsi) + ", " +
+			  "Current wsi alive: " + (parseInt(san(jso.wsi_alive)) -
+			  	parseInt(san(jso.listen_wsi))) + "<br>" +
+			  "Current cgi alive: " + san(jso.cgi_alive) + ", " +
+			  "Total CGI spawned: " + san(jso.cgi_spawned) +
 			  "</td></tr>";
 			var n;
+			for (n = 0; n < jso.pt.length; n++) {
+
+				s = s + "<tr><td class=\"l\">service thread " + (n + 1) +
+				"</td><td>" +
+				"fds: " + san(jso.pt[n].fds_count) + " / " +
+					  san(jso.pt_fd_max) + ", ";
+				s = s + "ah pool: " + san(jso.pt[n].ah_pool_inuse) + " / " +
+					      san(jso.ah_pool_max) + ", " +
+				"ah waiting list: " + san(jso.pt[n].ah_wait_list);
+
+				s = s + "</td></tr>";
+
+			}
 			for (n = 0; n < jso.vhosts.length; n++) {
 				s = s + "<tr><td class=\"l\">vhost " + (n + 1) +
-				"</td><td><b>" + san(jso.vhosts[n].name) + ":" +
-				san(jso.vhosts[n].port) +
-				"</b><br>" +
-				"ssl " + san(jso.vhosts[n].use_ssl) + ", " +
-				"sts " + san(jso.vhosts[n].sts) + "<br>" +
+				"</td><td><b>";
+				if (jso.vhosts[n].use_ssl == '1')
+					s = s + "https://";
+				else
+					s = s + "http://";
+				s = s + san(jso.vhosts[n].name) + ":" +
+					san(jso.vhosts[n].port) + "</b>";
+				if (jso.vhosts[n].sts == '1')
+					s = s + " (STS)";
+				s = s +"<br>" +
 				"rx " + san(jso.vhosts[n].rx) + ", " +
 				"tx " + san(jso.vhosts[n].tx) + "<br>" +
 				"total connections " + san(jso.vhosts[n].conn) + ", " +
 				"total http transactions " + san(jso.vhosts[n].trans) + "<br>" +
-				"Upgrades to ws " + san(jso.vhosts[n].ws_upg) + ", " +
-				"to http2 " + san(jso.vhosts[n].http2_upg) + "<br>" +
+				"Upgrades to ws: " + san(jso.vhosts[n].ws_upg) + ", " +
+				"to http/2: " + san(jso.vhosts[n].http2_upg) + "<br>" +
 				"<table><tr><td class=t colspan=2>Mounts</td></tr>";
 				
 				var m;
