@@ -748,6 +748,7 @@ struct lws_context {
 #define lws_ssl_anybody_has_buffered_read_tsi(ctx, t) (0)
 #endif
 	int count_wsi_allocated;
+	int count_cgi_spawned;
 	unsigned int options;
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;
