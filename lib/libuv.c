@@ -255,7 +255,7 @@ lws_libuv_accept(struct lws *wsi, int accept_fd)
 
 	wsi->w_read.context = context;
 
-	uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher, accept_fd);
+	uv_poll_init_socket(pt->io_loop_uv, &wsi->w_read.uv_watcher, accept_fd);
 }
 
 void
