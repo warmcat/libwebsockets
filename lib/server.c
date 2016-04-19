@@ -1112,7 +1112,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->mode = LWSCM_HTTP_SERVING;
 	wsi->u.http.content_length = 0;
 	wsi->hdr_parsing_completed = 0;
-
+	wsi->access_log.sent = 0;
 
 	if (wsi->vhost->keepalive_timeout)
 		n = PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE;
