@@ -151,7 +151,7 @@ struct sockaddr_in;
 #else /* NOT WIN32 */
 #include <unistd.h>
 
-#if defined(__NetBSD__)
+#if defined(__NetBSD__) || defined(__FreeBSD__)
 #include <netinet/in.h>
 #endif
 
