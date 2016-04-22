@@ -152,7 +152,8 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
 			return 0;
 
-		strcpy(buf, resource_path);
+		strncpy(buf, resource_path, sizeof(buf) - 1);
+		buf[sizeof(buf) - 1] = '\0';
 		if (strcmp(in, "/")) {
 			if (*((const char *)in) != '/')
 				strcat(buf, "/");
