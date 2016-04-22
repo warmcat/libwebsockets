@@ -304,6 +304,10 @@ lws_client_connect_2(struct lws *wsi)
 
 oom4:
 	lws_free(wsi->u.hdr.ah);
+	wsi->u.hdr.ah = NULL;
+	/* take care that we might be inserted in fds already */
+	if (wsi->position_in_fds_table != -1)
+		goto failed;
 	lws_free(wsi);
 
 	return NULL;
