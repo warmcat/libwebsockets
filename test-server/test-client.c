@@ -383,13 +383,16 @@ int main(int argc, char **argv)
 			deny_mux = 1;
 			break;
 		case 'C':
-			strncpy(cert_path, optarg, sizeof cert_path);
+			strncpy(cert_path, optarg, sizeof(cert_path) - 1);
+			cert_path[sizeof(cert_path) - 1] = '\0';
 			break;
 		case 'K':
-			strncpy(key_path, optarg, sizeof key_path);
+			strncpy(key_path, optarg, sizeof(key_path) - 1);
+			key_path[sizeof(key_path) - 1] = '\0';
 			break;
 		case 'A':
-			strncpy(ca_path, optarg, sizeof ca_path);
+			strncpy(ca_path, optarg, sizeof(ca_path) - 1);
+			ca_path[sizeof(ca_path) - 1] = '\0';
 			break;
 #if defined(LWS_USE_POLARSSL)
 #else
@@ -397,7 +400,8 @@ int main(int argc, char **argv)
 #else
 #if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
 		case 'R':
-			strncpy(crl_path, optarg, sizeof crl_path);
+			strncpy(crl_path, optarg, sizeof(crl_path) - 1);
+			crl_path[sizeof(crl_path) - 1] = '\0';
 			break;
 #endif
 #endif
