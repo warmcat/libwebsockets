@@ -1767,7 +1767,10 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 		/* read side is 0, stdin we want the write side, others read */
 		cgi->stdwsi[n]->sock = cgi->pipe_fds[n][!!(n == 0)];
-		fcntl(cgi->pipe_fds[n][!!(n == 0)], F_SETFL, O_NONBLOCK);
+		if (fcntl(cgi->pipe_fds[n][!!(n == 0)], F_SETFL, O_NONBLOCK) < 0) {
+			lwsl_err("%s: setting NONBLOCK failed\n", __func__);
+			goto bail2;
+		}
 	}
 
 	for (n = 0; n < 3; n++) {
