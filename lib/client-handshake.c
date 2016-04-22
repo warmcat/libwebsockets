@@ -305,6 +305,9 @@ oom4:
 	/* we're closing, losing some rx is OK */
 	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
 	lws_header_table_detach(wsi);
+	/* take care that we might be inserted in fds already */
+	if (wsi->position_in_fds_table != -1)
+		goto failed;
 	lws_free(wsi);
 
 	return NULL;
