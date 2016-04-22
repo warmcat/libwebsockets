@@ -327,7 +327,9 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 	 */
 	if ((time_t)sec > wsi->pending_timeout_limit) {
 #if LWS_POSIX
-		lwsl_notice("wsi %p: TIMEDOUT WAITING on %d (did hdr %d, ah %p, wl %d, pfd events %d)\n",
+		/* no need to log normal idle keepalive timeout */
+		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
+			lwsl_notice("wsi %p: TIMEDOUT WAITING on %d (did hdr %d, ah %p, wl %d, pfd events %d)\n",
 			    (void *)wsi, wsi->pending_timeout,
 			    wsi->hdr_parsing_completed, wsi->u.hdr.ah,
 			    pt->ah_wait_list_length,
@@ -492,7 +494,7 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 {
 	int rlen, n;
 
-	
+
 
 	rlen = lws_ssl_capable_read(wsi, (unsigned char *)*buf, *len);
 	if (rlen < 0)

@@ -1793,7 +1793,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	wsi->hdr_state = LCHS_HEADER;
 
 	/* add us to the pt list of active cgis */
-	lwsl_notice("%s: adding cgi %p to list\n", __func__, wsi->cgi);
+	lwsl_debug("%s: adding cgi %p to list\n", __func__, wsi->cgi);
 	cgi->cgi_list = pt->cgi_list;
 	pt->cgi_list = cgi;
 
@@ -1891,8 +1891,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		env_array[n++] = p;
 		p += snprintf(p, end - p, "%s=%s", mp_cgienv->name,
 			      mp_cgienv->value);
-		lwsl_notice("   Applying mount-specific cgi env '%s'\n",
-			    env_array[n - 1]);
+		lwsl_debug("   Applying mount-specific cgi env '%s'\n",
+			   env_array[n - 1]);
 		p++;
 		mp_cgienv = mp_cgienv->next;
 	}
@@ -1932,7 +1932,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	if (cgi->pid) {
 		/* we are the parent process */
 		wsi->context->count_cgi_spawned++;
-		lwsl_notice("%s: cgi %p spawned PID %d\n", __func__, cgi, cgi->pid);
+		lwsl_debug("%s: cgi %p spawned PID %d\n", __func__, cgi, cgi->pid);
 		return 0;
 	}
 
@@ -2073,7 +2073,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			case LCHS_SINGLE_0A:
 				m = wsi->hdr_state;
 				if (c == '\x0a') {
-					lwsl_err("Content-Length: %ld\n", wsi->cgi->content_length);
+					lwsl_debug("Content-Length: %ld\n", wsi->cgi->content_length);
 					wsi->hdr_state = LHCS_PAYLOAD;
 					/* drop the \0xa ... finalize will add it if needed */
 					lws_finalize_http_header(wsi,
@@ -2149,13 +2149,13 @@ lws_cgi_kill(struct lws *wsi)
 	if (wsi->cgi->pid > 0) {
 		n = waitpid(wsi->cgi->pid, &status, WNOHANG);
 		if (n > 0) {
-			lwsl_notice("%s: PID %d reaped\n", __func__,
+			lwsl_debug("%s: PID %d reaped\n", __func__,
 				    wsi->cgi->pid);
 			goto handled;
 		}
 		/* kill the process group */
 		n = kill(-wsi->cgi->pid, SIGTERM);
-		lwsl_notice("%s: SIGTERM child PID %d says %d (errno %d)\n", __func__,
+		lwsl_debug("%s: SIGTERM child PID %d says %d (errno %d)\n", __func__,
 				wsi->cgi->pid, n, errno);
 		if (n < 0) {
 			/*
@@ -2180,11 +2180,11 @@ lws_cgi_kill(struct lws *wsi)
 		while (n > 0) {
 			n = waitpid(-wsi->cgi->pid, &status, WNOHANG);
 			if (n > 0)
-				lwsl_notice("%s: reaped PID %d\n", __func__, n);
+				lwsl_debug("%s: reaped PID %d\n", __func__, n);
 			if (n <= 0) {
 				n = waitpid(wsi->cgi->pid, &status, WNOHANG);
 				if (n > 0)
-					lwsl_notice("%s: reaped PID %d\n", __func__, n);
+					lwsl_debug("%s: reaped PID %d\n", __func__, n);
 			}
 		}
 	}
@@ -2216,7 +2216,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		n = waitpid(-1, &status, WNOHANG | WNOWAIT);
 		if (n <= 0)
 			continue;
-		lwsl_notice("%s: observed PID %d terminated\n", __func__, n);
+		lwsl_debug("%s: observed PID %d terminated\n", __func__, n);
 
 		pcgi = &pt->cgi_list;
 
@@ -2233,9 +2233,10 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			if (cgi->content_length > cgi->content_length_seen)
 				continue;
 
-			if (cgi->content_length)
-				lwsl_notice("%s: wsi %p: expected content length seen: %ld\n",
+			if (cgi->content_length) {
+				lwsl_debug("%s: wsi %p: expected content length seen: %ld\n",
 					__func__, cgi->wsi, cgi->content_length_seen);
+			}
 
 			/* reap it */
 			waitpid(n, &status, WNOHANG);
@@ -2245,7 +2246,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			 * and close him if he's not already closing
 			 */
 			if (n == cgi->pid) {
-				lwsl_notice("%s: found PID %d on cgi list\n",
+				lwsl_debug("%s: found PID %d on cgi list\n",
 					    __func__, n);
 				/* defeat kill() */
 				cgi->pid = 0;
@@ -2257,7 +2258,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		}
 		/* if not found on the cgi list, as he's one of ours, reap */
 		if (!cgi) {
-			lwsl_notice("%s: reading PID %d although no cgi match\n",
+			lwsl_debug("%s: reading PID %d although no cgi match\n",
 					__func__, n);
 			waitpid(n, &status, WNOHANG);
 		}
@@ -2280,14 +2281,15 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		if (cgi->content_length > cgi->content_length_seen)
 			continue;
 
-		if (cgi->content_length)
-			lwsl_notice("%s: wsi %p: expected content length seen: %ld\n",
+		if (cgi->content_length) {
+			lwsl_debug("%s: wsi %p: expected content length seen: %ld\n",
 				__func__, cgi->wsi, cgi->content_length_seen);
+		}
 
 		/* reap it */
 		if (waitpid(cgi->pid, &status, WNOHANG) > 0) {
 
-			lwsl_notice("%s: found PID %d on cgi list\n",
+			lwsl_debug("%s: found PID %d on cgi list\n",
 				    __func__, cgi->pid);
 			/* defeat kill() */
 			cgi->pid = 0;

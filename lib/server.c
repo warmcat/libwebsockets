@@ -277,8 +277,8 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 		 */
 		if (!strcmp(sym, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_IF_NONE_MATCH))) {
 
-			lwsl_notice("%s: ETAG match %s %s\n", __func__,
-				    uri, origin);
+			lwsl_debug("%s: ETAG match %s %s\n", __func__,
+				   uri, origin);
 
 			/* we don't need to send the payload */
 			if (lws_add_http_header_status(wsi, 304, &p, end))
@@ -594,7 +594,7 @@ lws_http_action(struct lws *wsi)
 				"http://", "https://"
 			};
 
-			lwsl_notice("Doing 301 '%s' org %s\n", s, hit->origin);
+			lwsl_debug("Doing 301 '%s' org %s\n", s, hit->origin);
 
 			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
 				goto bail_nuke_ah;
