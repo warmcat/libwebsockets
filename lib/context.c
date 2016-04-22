@@ -274,8 +274,10 @@ lws_create_vhost(struct lws_context *context,
 
 		memcpy((struct lws_extension *)vh->extensions, info->extensions,
 		       sizeof(struct lws_extension) * m);
+		plugin = context->plugin_list;
 		while (plugin) {
-			memcpy((struct lws_extension *)&vh->extensions[m], plugin->caps.extensions,
+			memcpy((struct lws_extension *)&vh->extensions[m],
+				plugin->caps.extensions,
 			       sizeof(struct lws_extension) *
 			       plugin->caps.count_extensions);
 			m += plugin->caps.count_extensions;
