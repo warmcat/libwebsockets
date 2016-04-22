@@ -1644,27 +1644,29 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 LWS_VISIBLE LWS_EXTERN const unsigned char *
 lws_token_to_string(enum lws_token_indexes token);
 
-LWS_VISIBLE LWS_EXTERN int
+/* all the below must be LWS_WARN_UNUSED_RESULT as they can run short */
+
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			    const unsigned char *value, int length,
 			    unsigned char **p, unsigned char *end);
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 			 unsigned char *end);
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 			     const unsigned char *value, int length,
 			     unsigned char **p, unsigned char *end);
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_content_length(struct lws *wsi,
 				   unsigned long content_length,
 				   unsigned char **p, unsigned char *end);
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_status(struct lws *wsi,
 			   unsigned int code, unsigned char **p,
 			   unsigned char *end);
 
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_redirect(struct lws *wsi, const unsigned char *loc, int len,
 		  unsigned char **p, unsigned char *end);
 

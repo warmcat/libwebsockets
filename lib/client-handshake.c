@@ -502,7 +502,8 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		 * otherwise do it after the protocol negotiated
 		 */
 		if (i->method)
-			lws_ensure_user_space(wsi);
+			if (lws_ensure_user_space(wsi))
+				goto bail;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = i->ssl_connection;

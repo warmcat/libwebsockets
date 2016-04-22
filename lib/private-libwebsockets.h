@@ -1498,7 +1498,7 @@ lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ensure_user_space(struct lws *wsi);
 
 LWS_EXTERN int

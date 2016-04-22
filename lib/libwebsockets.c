@@ -2076,9 +2076,10 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 					lwsl_debug("Content-Length: %ld\n", wsi->cgi->content_length);
 					wsi->hdr_state = LHCS_PAYLOAD;
 					/* drop the \0xa ... finalize will add it if needed */
-					lws_finalize_http_header(wsi,
+					if (lws_finalize_http_header(wsi,
 							(unsigned char **)&p,
-							(unsigned char *)end);
+							(unsigned char *)end))
+						return -1;
 					break;
 				}
 				if (m == LCHS_LF2)
