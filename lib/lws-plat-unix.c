@@ -54,15 +54,6 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 	return poll(fd, 1, 0);
 }
 
-/*
- * This is just used to interrupt poll waiting
- * we don't have to do anything with it.
- */
-static void
-lws_sigusr2(int sig)
-{
-}
-
 /**
  * lws_cancel_service_pt() - Cancel servicing of pending socket activity
  *				on one thread
@@ -452,14 +443,6 @@ sigabrt_handler(int x)
 LWS_VISIBLE int
 lws_plat_context_early_init(void)
 {
-	sigset_t mask;
-
-	signal(SIGUSR2, lws_sigusr2);
-	sigemptyset(&mask);
-	sigaddset(&mask, SIGUSR2);
-
-	sigprocmask(SIG_BLOCK, &mask, NULL);
-
 	signal(SIGPIPE, SIG_IGN);
 
 //	signal(SIGABRT, sigabrt_handler);
