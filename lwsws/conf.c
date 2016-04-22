@@ -54,6 +54,10 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].default",
 	"vhosts[].mounts[].cgi-timeout",
 	"vhosts[].mounts[].cgi-env[].*",
+	"vhosts[].mounts[].cache-max-age",
+	"vhosts[].mounts[].cache-reuse",
+	"vhosts[].mounts[].cache-revalidate",
+	"vhosts[].mounts[].cache-intermediaries",
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
 	"vhosts[].ws-protocols[]",
@@ -77,6 +81,10 @@ enum lejp_vhost_paths {
 	LEJPVP_DEFAULT,
 	LEJPVP_CGI_TIMEOUT,
 	LEJPVP_CGI_ENV,
+	LEJPVP_MOUNT_CACHE_MAX_AGE,
+	LEJPVP_MOUNT_CACHE_REUSE,
+	LEJPVP_MOUNT_CACHE_REVALIDATE,
+	LEJPVP_MOUNT_CACHE_INTERMEDIARIES,
 	LEJPVP_PROTOCOL_NAME_OPT,
 	LEJPVP_PROTOCOL_NAME,
 	LEJPVP_PROTOCOL,
@@ -90,10 +98,9 @@ struct jpargs {
 	const struct lws_extension *extensions;
 	char *p, *end, valid;
 	struct lws_http_mount *head, *last;
-	char *mountpoint, *origin, *def;
+
 	struct lws_protocol_vhost_options *pvo;
-	struct lws_protocol_vhost_options *mp_cgienv;
-	int cgi_timeout;
+	struct lws_http_mount m;
 };
 
 static void *
@@ -205,13 +212,8 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	if (reason == LEJPCB_OBJECT_START &&
-	    ctx->path_match == LEJPVP_MOUNTS + 1) {
-		a->mountpoint = NULL;
-		a->origin = NULL;
-		a->def = NULL;
-		a->mp_cgienv = NULL;
-		a->cgi_timeout = 0;
-	}
+	    ctx->path_match == LEJPVP_MOUNTS + 1)
+		memset(&a->m, 0, sizeof(a->m));
 
 	/* this catches, eg, vhosts[].ws-protocols[].xxx-protocol */
 	if (reason == LEJPCB_OBJECT_START &&
@@ -254,17 +256,38 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 	if (reason == LEJPCB_OBJECT_END &&
 	    ctx->path_match == LEJPVP_MOUNTS + 1) {
-		if (!a->mountpoint || !a->origin) {
+		static const char * const mount_protocols[] = {
+			"http://",
+			"https://",
+			"file://",
+			"cgi://",
+			">http://",
+			">https://",
+		};
+
+		if (!a->m.mountpoint || !a->m.origin) {
 			lwsl_err("mountpoint and origin required\n");
 			return 1;
 		}
+		m = lwsws_align(a);
+		memcpy(m, &a->m, sizeof(*m));
+		if (a->last)
+			a->last->mount_next = m;
 
-		n = lws_write_http_mount(a->last, &m, a->p, a->mountpoint,
-					 a->origin, a->def, a->mp_cgienv,
-					 a->cgi_timeout);
-		if (!n)
+		for (n = 0; n < ARRAY_SIZE(mount_protocols); n++)
+			if (!strncmp(a->m.origin, mount_protocols[n],
+			     strlen(mount_protocols[n]))) {
+				m->origin_protocol = n;
+				m->origin = a->m.origin + strlen(mount_protocols[n]);
+				break;
+			}
+
+		if (n == ARRAY_SIZE(mount_protocols)) {
+			lwsl_err("unsupported protocol:// %s\n", a->m.origin);
 			return 1;
-		a->p += n;
+		}
+
+		a->p += sizeof(*m);
 		if (!a->head)
 			a->head = m;
 
@@ -310,26 +333,39 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->info->log_filepath = a->p;
 		break;
 	case LEJPVP_MOUNTPOINT:
-		a->mountpoint = a->p;
+		a->m.mountpoint = a->p;
+		a->m.mountpoint_len = strlen(ctx->buf);
 		break;
 	case LEJPVP_ORIGIN:
-		a->origin = a->p;
+		a->m.origin = a->p;
 		break;
 	case LEJPVP_DEFAULT:
-		a->def = a->p;
+		a->m.def = a->p;
 		break;
+	case LEJPVP_MOUNT_CACHE_MAX_AGE:
+		a->m.cache_max_age = atoi(ctx->buf);
+		return 0;
+	case LEJPVP_MOUNT_CACHE_REUSE:
+		a->m.cache_reusable = arg_to_bool(ctx->buf);
+		return 0;
+	case LEJPVP_MOUNT_CACHE_REVALIDATE:
+		a->m.cache_revalidate = arg_to_bool(ctx->buf);
+		return 0;
+	case LEJPVP_MOUNT_CACHE_INTERMEDIARIES:
+		a->m.cache_intermediaries = arg_to_bool(ctx->buf);;
+		return 0;
 	case LEJPVP_CGI_TIMEOUT:
-		a->cgi_timeout = atoi(ctx->buf);
+		a->m.cgi_timeout = atoi(ctx->buf);
 		return 0;
 	case LEJPVP_KEEPALIVE_TIMEOUT:
 		a->info->keepalive_timeout = atoi(ctx->buf);
 		return 0;
 	case LEJPVP_CGI_ENV:
 		mp_cgienv = lwsws_align(a);
-		a->p += sizeof(*a->mp_cgienv);
+		a->p += sizeof(*a->m.cgienv);
 
-		mp_cgienv->next = a->mp_cgienv;
-		a->mp_cgienv = mp_cgienv;
+		mp_cgienv->next = a->m.cgienv;
+		a->m.cgienv = mp_cgienv;
 
 		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
 		mp_cgienv->name = a->p;

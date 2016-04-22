@@ -167,8 +167,11 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 	if (code == 200)
 		description = "OK";
 
-	if (code >= 300 && code < 400)
-		description = "Redirect";
+	if (code == 304)
+		description = "Not Modified";
+	else
+		if (code >= 300 && code < 400)
+			description = "Redirect";
 
 	if (wsi->u.http.request_version < ARRAY_SIZE(hver))
 		p1 = hver[wsi->u.http.request_version];

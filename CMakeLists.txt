@@ -1405,7 +1405,7 @@ if (LWS_WITH_PLUGINS)
 		DESTINATION share/libwebsockets-test-server/plugins
 		COMPONENT plugins)
 if (LWS_WITH_SERVER_STATUS)
-	install(FILES plugins/server-status.html
+	install(FILES plugins/server-status.html;plugins/lwsws-logo.png
 		DESTINATION share/libwebsockets-test-server/server-status
 			COMPONENT examples)
 endif()

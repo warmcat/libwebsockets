@@ -98,7 +98,9 @@
 <header></header>
 <article>
 
-<table><tr><td align=center>
+<table>
+<tr><td><img src="./lwsws-logo.png"></td><td><span id=title class=title>Server status</span></td></tr>
+<tr><td align=center colspan=2>
 <div id="conninfo">...</div>
 </td></tr>
 
@@ -164,7 +166,8 @@ function get_appropriate_ws_url()
 
 	try {
 		socket_status.onopen = function() {
-		} 
+			document.getElementById("title").innerHTML = "Server Status (Active)";
+		}
 
 		socket_status.onmessage =function got_packet(msg) {
 			document.getElementById("conninfo").innerHTML = "<pre>"+msg.data+"</pre>";
@@ -210,14 +213,24 @@ function get_appropriate_ws_url()
 				"total http transactions " + san(jso.vhosts[n].trans) + "<br>" +
 				"Upgrades to ws: " + san(jso.vhosts[n].ws_upg) + ", " +
 				"to http/2: " + san(jso.vhosts[n].http2_upg) + "<br>" +
-				"<table><tr><td class=t colspan=2>Mounts</td></tr>";
+				"<table><tr><td class=t>Mountpoint</td><td class=t>Origin</td><td class=t>Cache Policy</td></tr>";
 				
 				var m;
 				for (m = 0; m < jso.vhosts[n].mounts.length; m++) {
 					s = s + "<tr><td>";
 					s = s + san(jso.vhosts[n].mounts[m].mountpoint) +
 						"</td><td>" +
-						san(jso.vhosts[n].mounts[m].origin);
+						san(jso.vhosts[n].mounts[m].origin) +
+						"</td><td>";
+					if (parseInt(san(jso.vhosts[n].mounts[m].cache_max_age)))
+						s = s + "max-age: " +
+						san(jso.vhosts[n].mounts[m].cache_max_age) +
+						", reuse: " +
+						san(jso.vhosts[n].mounts[m].cache_reuse) +
+						", reval: " +
+						san(jso.vhosts[n].mounts[m].cache_revalidate) +
+						", inter: " +
+						san(jso.vhosts[n].mounts[m].cache_intermediaries);
 					s = s + "</td></tr>"
 				}
 				s = s + "</table>";
@@ -229,8 +242,7 @@ function get_appropriate_ws_url()
 		} 
 
 		socket_status.onclose = function(){
-			document.getElementById("s_statustd").style.backgroundColor = "#ff4040";
-			document.getElementById("s_status").textContent = " websocket connection CLOSED ";
+			document.getElementById("title").innerHTML = "Server Status (Disconnected)";
 		}
 	} catch(exception) {
 		alert('<p>Error' + exception);  

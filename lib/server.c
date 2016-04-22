@@ -133,7 +133,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 
 #if LWS_POSIX
 	listen(wsi->sock, LWS_SOMAXCONN);
-	} /* for each thread able to independently lister */
+	} /* for each thread able to independently listen */
 #else
 	mbed3_tcp_stream_bind(wsi->sock, info->port, wsi);
 #endif
@@ -231,9 +231,10 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 	const char *mimetype;
 	struct stat st;
 	char path[256], sym[256];
+	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
+	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
 	int n, spin = 0;
 
-	lwsl_notice("%s: %s %s\n", __func__, uri, origin);
 	snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
 	do {
@@ -263,9 +264,46 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 
 	} while ((S_IFMT & st.st_mode) != S_IFREG && spin < 5);
 
-	if (spin == 5) {
+	if (spin == 5)
 		lwsl_err("symlink loop %s \n", path);
+
+	n = sprintf(sym, "%08lX%08lX", (unsigned long)st.st_size,
+				   (unsigned long)st.st_mtime);
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_NONE_MATCH)) {
+		/*
+		 * he thinks he has some version of it already,
+		 * check if the tag matches
+		 */
+		if (!strcmp(sym, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_IF_NONE_MATCH))) {
+
+			lwsl_notice("%s: ETAG match %s %s\n", __func__,
+				    uri, origin);
+
+			/* we don't need to send the payload */
+			if (lws_add_http_header_status(wsi, 304, &p, end))
+				return -1;
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_ETAG,
+					(unsigned char *)sym, n, &p, end))
+				return -1;
+			if (lws_finalize_http_header(wsi, &p, end))
+				return -1;
+
+			n = lws_write(wsi, start, p - start,
+					LWS_WRITE_HTTP_HEADERS);
+			if (n != (p - start)) {
+				lwsl_err("_write returned %d from %d\n", n, p - start);
+				return -1;
+			}
+
+			return lws_http_transaction_completed(wsi);
+		}
 	}
+
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_ETAG,
+			(unsigned char *)sym, n, &p, end))
+		return -1;
 
 	mimetype = get_mimetype(path);
 	if (!mimetype) {
@@ -273,7 +311,7 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 		goto bail;
 	}
 
-	n = lws_serve_http_file(wsi, path, mimetype, NULL, 0);
+	n = lws_serve_http_file(wsi, path, mimetype, (char *)start, p - start);
 
 	if (n < 0 || ((n > 0) && lws_http_transaction_completed(wsi)))
 		return -1; /* error or can't reuse connection: close the socket */
@@ -620,11 +658,13 @@ lws_http_action(struct lws *wsi)
 		n = strlen(s);
 		if (s[0] == '\0' || (n == 1 && s[n - 1] == '/'))
 			s = (char *)hit->def;
-
 		if (!s)
 			s = "index.html";
 
-			// lwsl_err("okok\n");
+		wsi->cache_secs = hit->cache_max_age;
+		wsi->cache_reuse = hit->cache_reusable;
+		wsi->cache_revalidate = hit->cache_revalidate;
+		wsi->cache_intermediaries = hit->cache_intermediaries;
 
 		n = lws_http_serve(wsi, s, hit->origin);
 	} else
@@ -1589,12 +1629,14 @@ LWS_VISIBLE int
 lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		    const char *other_headers, int other_headers_len)
 {
+	static const char * const intermediates[] = { "private", "public" };
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	char cache_control[50], *cc = "no-store";
 	unsigned char *response = pt->serv_buf + LWS_PRE;
 	unsigned char *p = response;
 	unsigned char *end = p + LWS_MAX_SOCKET_IO_BUF - LWS_PRE;
-	int ret = 0;
+	int ret = 0, cclen = 8;
 
 	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,
 					    O_RDONLY);
@@ -1608,15 +1650,27 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	if (lws_add_http_header_status(wsi, 200, &p, end))
 		return -1;
-	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
-					 (unsigned char *)"libwebsockets", 13,
-					 &p, end))
-		return -1;
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 					 (unsigned char *)content_type,
 					 strlen(content_type), &p, end))
 		return -1;
 	if (lws_add_http_header_content_length(wsi, wsi->u.http.filelen, &p, end))
+		return -1;
+
+	if (wsi->cache_secs && wsi->cache_reuse) {
+		if (wsi->cache_revalidate) {
+			cc = cache_control;
+			cclen = sprintf(cache_control, "%s max-age: %u",
+				    intermediates[wsi->cache_intermediaries],
+				    wsi->cache_secs);
+		} else {
+			cc = "no-cache";
+			cclen = 8;
+		}
+	}
+
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CACHE_CONTROL,
+			(unsigned char *)cc, cclen, &p, end))
 		return -1;
 
 	if (other_headers) {

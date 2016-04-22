@@ -619,20 +619,6 @@ struct lws_context_per_thread {
 	unsigned char tid;
 };
 
-struct lws_http_mount {
-	struct lws_http_mount *mount_next;
-	const char *mountpoint; /* mountpoint in http pathspace, eg, "/" */
-	const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
-	const char *def; /* default target, eg, "index.html" */
-
-	struct lws_protocol_vhost_options *cgienv;
-
-	int cgi_timeout;
-
-	unsigned char origin_protocol;
-	unsigned char mountpoint_len;
-};
-
 /*
  * virtual host -related context information
  *   vhostwide SSL context
@@ -1252,6 +1238,7 @@ struct lws {
 #ifndef LWS_NO_CLIENT
 	int chunk_remaining;
 #endif
+	unsigned int cache_secs;
 
 	unsigned int hdr_parsing_completed:1;
 	unsigned int http2_substream:1;
@@ -1261,6 +1248,9 @@ struct lws {
 	unsigned int rxflow_change_to:2;
 	unsigned int more_rx_waiting:1; /* has to live here since ah may stick to end */
 	unsigned int conn_stat_done:1;
+	unsigned int cache_reuse:1;
+	unsigned int cache_revalidate:1;
+	unsigned int cache_intermediaries:1;
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
 #endif

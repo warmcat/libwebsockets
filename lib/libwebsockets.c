@@ -2395,11 +2395,19 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 				buf += snprintf(buf, end - buf, ",");
 			buf += snprintf(buf, end - buf,
 					"\n  {\n   \"mountpoint\":\"%s\",\n"
-					"  \"origin\":\"%s%s\"\n"
+					"  \"origin\":\"%s%s\",\n"
+					"  \"cache_max_age\":\"%d\",\n"
+					"  \"cache_reuse\":\"%d\",\n"
+					"  \"cache_revalidate\":\"%d\",\n"
+					"  \"cache_intermediaries\":\"%d\"\n"
 					,
 					m->mountpoint,
 					prots[m->origin_protocol],
-					m->origin);
+					m->origin,
+					m->cache_max_age,
+					m->cache_reusable,
+					m->cache_revalidate,
+					m->cache_intermediaries);
 			if (m->def)
 				buf += snprintf(buf, end - buf,
 						",\n  \"default\":\"%s\"",

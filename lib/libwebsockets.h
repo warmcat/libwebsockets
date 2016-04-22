@@ -1367,6 +1367,25 @@ struct lws_protocol_vhost_options {
 	const char *value;
 };
 
+struct lws_http_mount {
+	struct lws_http_mount *mount_next;
+	const char *mountpoint; /* mountpoint in http pathspace, eg, "/" */
+	const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
+	const char *def; /* default target, eg, "index.html" */
+
+	struct lws_protocol_vhost_options *cgienv;
+
+	int cgi_timeout;
+	int cache_max_age;
+
+	unsigned int cache_reusable:1;
+	unsigned int cache_revalidate:1;
+	unsigned int cache_intermediaries:1;
+
+	unsigned char origin_protocol;
+	unsigned char mountpoint_len;
+};
+
 /**
  * struct lws_context_creation_info - parameters to create context with
  *
@@ -1553,8 +1572,6 @@ struct lws_client_connect_info {
 	void *_unused[4];
 };
 
-struct lws_http_mount;
-
 enum {
 	LWSMPRO_HTTP,
 	LWSMPRO_HTTPS,
@@ -1563,13 +1580,6 @@ enum {
 	LWSMPRO_REDIR_HTTP,
 	LWSMPRO_REDIR_HTTPS,
 };
-
-LWS_VISIBLE LWS_EXTERN int
-lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
-		     void *store, const char *mountpoint, const char *origin,
-		     const char *def,
-		     struct lws_protocol_vhost_options *cgienv,
-		     int cgi_timeout);
 
 LWS_EXTERN int
 lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len);

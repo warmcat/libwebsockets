@@ -1,28 +1,40 @@
+# comment
+
 {
  "vhosts": [ {
-     "name": "localhost",
-     "port": "80",
+     "name": "libwebsockets.org",
+     "port": "443",
+     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
+     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
+     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
+     "access-log": "/var/log/httpd/lws-access-log",
+     "sts": "on",
      "mounts": [{
        "mountpoint": "/",
        "origin": "file:///var/www/libwebsockets.org",
-       "default": "index.html"
+       "default": "index.html",
+       "cache-max-age": "60",
+       "cache-reuse": "1",
+       "cache-revalidate": "1",
+       "cache-intermediaries": "0"
        }, {
+        # this hooks us up to cgit cgi part
         "mountpoint": "/git",
         "origin": "cgi:///var/www/cgi-bin/cgit",
         "default": "/",
-        "cgi-env": [{
-                "CGIT_CONFIG": "/etc/cgitrc/libwebsockets.org"
-        }]
+	"cgi-env": [{
+		"CGIT_CONFIG": "/etc/cgitrc/git.libwebsockets.org"
+	}],
+	# we can also set up per-cgi process timeout
+	"cgi-timeout": "30"
        }, {
-        "mountpoint": "/cgit-data",
+        # this hooks us up to cgit static assets
+        "mountpoint": "/git/cgit-data",
         "origin": "file:///usr/share/cgit",
         "default": "/"
         }, {
-        "mountpoint": "/testcgi",
-        "origin": "cgi:///usr/local/share/libwebsockets-test-server/lws-cgi-test.sh"
-       }, {
         "mountpoint": "/mailman",
-        "origin": ">http://localhost/mailman/listinfo"
+        "origin": ">https://libwebsockets.org/mailman/listinfo"
        }, {
         "mountpoint": "/mailman/listinfo",
         "origin": "cgi:///usr/lib/mailman/cgi-bin/listinfo"
@@ -59,41 +71,110 @@
        }, {
         "mountpoint": "/pipermail",
         "origin": "file:///var/lib/mailman/archives/public",
-        "default": "index.html"
+	"default": "index.html"
+       }, {
+        # we used to have a trac, redirect anyone using it to github
+        "mountpoint": "/trac",
+        "origin": ">https://github.com/warmcat/libwebsockets"
+       }, {
+        "mountpoint": "/server-status",
+        "origin": "file:///usr/local/share/libwebsockets-test-server/server-status",
+        "default": "server-status.html"
        }, {
         "mountpoint": "/testserver",
         "origin": "file:///usr/local/share/libwebsockets-test-server",
         "default": "test.html"
-       }],
+       }
+     ],
      # which protocols are enabled for this vhost, and optional
      # vhost-specific config options for the protocol
      #
      "ws-protocols": [{
-       "warmcat,timezoom": {
+       "dumb-increment-protocol": {
          "status": "ok"
+       },
+       "lws-mirror-protocol": {
+         "status": "ok"
+       },
+       "lws-status": {
+         "status": "ok"
+       },
+       "lws-server-status": {
+         "status": "ok",
+	 "update-ms": "5000"
        }
+     }],
+     "ws-extensions": [{
+       "extension": "permessage-deflate"
      }]
-    },
+   },
+
+	# redirect any guys coming in on http to https
     {
-    "name": "localhost",
+     "name": "libwebsockets.org",
+     "port": "80",
+     "sts": "on",
+     "mounts": [{
+       "mountpoint": "/",
+       "origin": ">https://libwebsockets.org"
+     }]
+   },
+    {
+	# the old test server ran this on :7681, put a redirect
+	# there to take us to the new location
+    "name": "libwebsockets.org",
     "port": "7681",
      "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
      "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
      "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
      "mounts": [{
        "mountpoint": "/",
-       "origin": ">https://localhost"
+       "origin": ">https://libwebsockets.org/testserver/"
      }]
-   },
+  },
+
+	# old site for mailing list redirect to new one
     {
-    "name": "localhostx",
+    "name": "ml.libwebsockets.org",
     "port": "80",
      "mounts": [{
        "mountpoint": "/",
-       "origin": ">https://localhost"
+       "origin": ">https://libwebsockets.org/mailman"
+     }]
+   },
+	# old site for mailing list redirect to new one
+    {
+    "name": "ml.libwebsockets.org",
+    "port": "443",
+     "mounts": [{
+       "mountpoint": "/",
+       "origin": ">https://libwebsockets.org/mailman"
+     }]
+   },
+
+
+	# redirect any guys coming in on http to https
+    {
+    "name": "git.libwebsockets.org",
+    "port": "80",
+     "mounts": [{
+       "mountpoint": "/",
+       "origin": ">https://libwebsockets.org/git"
+     }]
+   },
+    {
+	# the old test server ran this on :7681, put a redirect
+	# there to take us to the new location
+    "name": "git.libwebsockets.org",
+    "port": "443",
+     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
+     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
+     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
+     "mounts": [{
+       "mountpoint": "/",
+       "origin": ">https://libwebsockets.org/git"
      }]
    }
-
-  ]
+ }]
 }
 

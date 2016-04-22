@@ -49,50 +49,6 @@ static const char * const mount_protocols[] = {
 	">https://",
 };
 
-LWS_VISIBLE LWS_EXTERN int
-lws_write_http_mount(struct lws_http_mount *next, struct lws_http_mount **res,
-		     void *store, const char *mountpoint, const char *origin,
-		     const char *def, struct lws_protocol_vhost_options *cgienv,
-		     int cgi_timeout)
-{
-	struct lws_http_mount *m;
-	void *orig = store;
-	unsigned long l = (unsigned long)store;
-	int n;
-
-	if (l & 15)
-		l += 16 - (l & 15);
-
-	store = (void *)l;
-	m = (struct lws_http_mount *)store;
-	*res = m;
-
-	m->def = def;
-	m->mountpoint = mountpoint;
-	m->mountpoint_len = (unsigned char)strlen(mountpoint);
-	m->mount_next = NULL;
-	m->cgienv = cgienv;
-	m->cgi_timeout = cgi_timeout;
-
-	if (next)
-		next->mount_next = m;
-
-	for (n = 0; n < ARRAY_SIZE(mount_protocols); n++)
-		if (!strncmp(origin, mount_protocols[n],
-		     strlen(mount_protocols[n]))) {
-			m->origin_protocol = n;
-			m->origin = origin + strlen(mount_protocols[n]);
-			break;
-		}
-
-	if (n == ARRAY_SIZE(mount_protocols)) {
-		lwsl_err("unsupported protocol:// %s\n", origin);
-		return 0; /* ie, fail */
-	}
-
-	return ((char *)store + sizeof(*m)) - (char *)orig;
-}
-
 LWS_VISIBLE void *
 lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols *prot,
 			    int size)
