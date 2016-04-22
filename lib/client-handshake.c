@@ -359,6 +359,7 @@ lws_client_connect(struct lws_context *context, const char *address,
 	wsi->state = LWSS_CLIENT_UNCONNECTED;
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
+	wsi->position_in_fds_table = -1;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = ssl_connection;
