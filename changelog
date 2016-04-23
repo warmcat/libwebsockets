@@ -1,6 +1,23 @@
 Changelog
 ---------
 
+v1.7.6
+======
+
+NB: No API change since v1.7.0
+
+Fixes
+-----
+
+1) MINOR: libuv-specific fixes
+
+2) MINOR: urldecode forbids malformed %xx in the library 
+
+3) MINOR: small fixes for Android and Windows
+
+4) MINOR: handle 0 read() as closed connection
+
+
 v1.7.5
 ======
 
