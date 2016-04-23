@@ -64,8 +64,7 @@ lws_create_server_child_wsi(struct lws_vhost *vhost, struct lws *parent_wsi,
 	if (parent_wsi->u.http2.child_count + 1 ==
 	    parent_wsi->u.http2.peer_settings.setting[
 			LWS_HTTP2_SETTINGS__MAX_CONCURRENT_STREAMS])
-		return NULL;
-
+		goto bail;
 	lws_http2_init(&wsi->u.http2.peer_settings);
 	lws_http2_init(&wsi->u.http2.my_settings);
 	wsi->u.http2.stream_id = sid;
@@ -83,12 +82,20 @@ lws_create_server_child_wsi(struct lws_vhost *vhost, struct lws *parent_wsi,
 	wsi->mode = parent_wsi->mode;
 
 	wsi->protocol = &vhost->protocols[0];
-	lws_ensure_user_space(wsi);
+	if (lws_ensure_user_space(wsi))
+		goto bail;
 
 	lwsl_info("%s: %p new child %p, sid %d, user_space=%p\n", __func__,
 		  parent_wsi, wsi, sid, wsi->user_space);
 
 	return wsi;
+
+bail:
+	vhost->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
+			       NULL, NULL, 0);
+	lws_free(wsi);
+
+	return NULL;
 }
 
 int lws_remove_server_child_wsi(struct lws_context *context, struct lws *wsi)
