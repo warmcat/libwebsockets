@@ -1414,6 +1414,19 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
 			goto try_pollout;
 
+		/*
+		 * If we previously just did POLLIN when IN and OUT were
+		 * signalled (because POLLIN processing may have used up
+		 * the POLLOUT), don't let that happen twice in a row...
+		 * next time we see the situation favour POLLOUT
+		 */
+
+		if (wsi->favoured_pollin &&
+		    (pollfd->revents & pollfd->events & LWS_POLLOUT)) {
+			wsi->favoured_pollin = 0;
+			goto try_pollout;
+		}
+
 		/* these states imply we MUST have an ah attached */
 
 		if (wsi->state == LWSS_HTTP ||
@@ -1492,14 +1505,19 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		/* just ignore incoming if waiting for close */
 		if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
 			/*
-			 * hm this may want to send
+			 * this may want to send
 			 * (via HTTP callback for example)
 			 */
 			n = lws_read(wsi, pt->serv_buf, len);
 			if (n < 0) /* we closed wsi */
 				return 1;
-			/* hum he may have used up the
-			 * writability above */
+			/*
+			 *  he may have used up the
+			 * writability above, if we will defer POLLOUT
+			 * processing in favour of POLLIN, note it
+			 */
+			if (pollfd->revents & LWS_POLLOUT)
+				wsi->favoured_pollin = 1;
 			break;
 		}
 

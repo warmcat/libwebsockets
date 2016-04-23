@@ -1251,6 +1251,7 @@ struct lws {
 	unsigned int cache_reuse:1;
 	unsigned int cache_revalidate:1;
 	unsigned int cache_intermediaries:1;
+	unsigned int favoured_pollin:1;
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
 #endif
