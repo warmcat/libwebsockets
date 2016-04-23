@@ -114,6 +114,7 @@
 #endif
 #if defined (__ANDROID__)
 #include <syslog.h>
+#include <sys/resource.h>
 #else
 #include <sys/syslog.h>
 #endif
