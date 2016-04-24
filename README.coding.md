@@ -434,7 +434,7 @@ You can choose whether to process the data immediately, or
 queue a callback when an outgoing socket is writeable to provide
 flow control, and process the data in the writable callback.
 
-Either way you use the api lws_http_client_read() to access the
+Either way you use the api `lws_http_client_read()` to access the
 data, eg
 
 
@@ -459,3 +459,94 @@ data, eg
 				putchar(*px++);
 		}
 		break;
+		
+Using lws v2 vhosts
+-------------------
+
+If you set LWS_SERVER_OPTION_EXPLICIT_VHOSTS options flag when you create
+your context, it won't create a default vhost using the info struct
+members for compatibility.  Instead you can call lws_create_vhost()
+afterwards to attach one or more vhosts manually.
+
+```
+LWS_VISIBLE struct lws_vhost *
+lws_create_vhost(struct lws_context *context,
+		 struct lws_context_creation_info *info,
+		 struct lws_http_mount *mounts);
+```
+
+lws_create_vhost() uses the same info struct as lws_create_context(),
+it ignores members related to context and uses the ones meaningful
+for vhost (marked with VH in libwebsockets.h).
+
+```
+struct lws_context_creation_info {
+	int port;					/* VH */
+	const char *iface;				/* VH */
+	const struct lws_protocols *protocols;		/* VH */
+	const struct lws_extension *extensions;		/* VH */
+...
+```
+
+When you attach the vhost, if the vhost's port already has a listen socket
+then both vhosts share it and use SNI (is SSL in use) or the Host: header
+from the client to select the right one.  Or if no other vhost already
+listening the a new listen socket is created.
+
+There are some new members but mainly it's stuff you used to set at
+context creation time.
+
+
+Using lws v2 mounts on a vhost
+------------------------------
+
+The last argument to lws_create_vhost() lets you associate a linked
+list of lws_http_mount structures with that vhost's URL 'namespace', in
+a similar way that unix lets you mount filesystems into areas of your /
+filesystem how you like and deal with the contents transparently.
+
+```
+struct lws_http_mount {
+	struct lws_http_mount *mount_next;
+	const char *mountpoint; /* mountpoint in http pathspace, eg, "/" */
+	const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
+	const char *def; /* default target, eg, "index.html" */
+
+	struct lws_protocol_vhost_options *cgienv;
+
+	int cgi_timeout;
+	int cache_max_age;
+
+	unsigned int cache_reusable:1;
+	unsigned int cache_revalidate:1;
+	unsigned int cache_intermediaries:1;
+
+	unsigned char origin_protocol;
+	unsigned char mountpoint_len;
+};
+```
+
+The last mount structure should have a NULL mount_next, otherwise it should
+point to the 'next' mount structure in your list.
+
+Both the mount structures and the strings must persist until the context is
+destroyed, since they are not copied but used in place.
+
+`.origin_protocol` should be one of
+
+```
+enum {
+	LWSMPRO_HTTP,
+	LWSMPRO_HTTPS,
+	LWSMPRO_FILE,
+	LWSMPRO_CGI,
+	LWSMPRO_REDIR_HTTP,
+	LWSMPRO_REDIR_HTTPS,
+};
+```
+
+LWSMPRO_FILE is used for mapping url namespace to a filesystem directory and
+serve it automatically.
+
+
+
