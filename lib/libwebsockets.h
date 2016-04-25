@@ -816,6 +816,10 @@ enum http_status {
 	HTTP_STATUS_OK						= 200,
 	HTTP_STATUS_NO_CONTENT					= 204,
 
+	HTTP_STATUS_MOVED_PERMANENTLY				= 301,
+	HTTP_STATUS_FOUND					= 302,
+	HTTP_STATUS_SEE_OTHER					= 303,
+
 	HTTP_STATUS_BAD_REQUEST					= 400,
 	HTTP_STATUS_UNAUTHORIZED,
 	HTTP_STATUS_PAYMENT_REQUIRED,
@@ -1667,7 +1671,7 @@ lws_add_http_header_status(struct lws *wsi,
 			   unsigned char *end);
 
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_http_redirect(struct lws *wsi, const unsigned char *loc, int len,
+lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 		  unsigned char **p, unsigned char *end);
 
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT

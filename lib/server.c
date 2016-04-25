@@ -242,7 +242,7 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 		spin++;
 
 		if (stat(path, &st)) {
-			lwsl_err("unable to stat %s\n", path);
+			lwsl_info("unable to stat %s\n", path);
 			goto bail;
 		}
 
@@ -321,7 +321,6 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 
 	return 0;
 bail:
-	lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
 
 	return -1;
 }
@@ -480,7 +479,8 @@ lws_http_action(struct lws *wsi)
 		n = sprintf((char *)end, "https://%s/",
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 
-		n = lws_http_redirect(wsi, end, n, &p, end);
+		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
+				      end, n, &p, end);
 		if ((int)n < 0)
 			goto bail_nuke_ah;
 
@@ -613,7 +613,8 @@ lws_http_action(struct lws *wsi)
 				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
 				    uri_ptr);
 
-			n = lws_http_redirect(wsi, end, n, &p, end);
+			n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
+					      end, n, &p, end);
 			if ((int)n < 0)
 				goto bail_nuke_ah;
 
@@ -670,6 +671,13 @@ lws_http_action(struct lws *wsi)
 		wsi->cache_intermediaries = hit->cache_intermediaries;
 
 		n = lws_http_serve(wsi, s, hit->origin);
+		if (n) {
+			/*
+			 * 	lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
+			 */
+			n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+					    wsi->user_space, uri_ptr, uri_len);
+		}
 	} else
 		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);

@@ -242,10 +242,39 @@ This information is sent by the server over a ws[s] link and updated live
 whenever the information changes server-side.
 </td></tr>
 	<tr>
-	<td align=center colspan=2><div id=servinfo></</div></td>
+	<td align=center colspan=2><div id=servinfo></div></td>
 	</tr>
 	<tr>
 	<td align=center colspan=2><div id=conninfo style="border : solid 2px #e0d040; padding : 4px; width : 500px; height : 350px; overflow : auto; "></</div></td>
+	</tr>
+</table>
+</div>
+       </div> 
+   </div>
+
+    <div class="tab">
+       <input type="radio" id="tab-5" name="tab-group-1">
+       <label for="tab-5">POST</label>
+
+       <div class="content">
+<div id="ot" class="group2">
+      <table>
+       <tr>
+	        <td colspan=1>
+<span class="title">POST Form testing</span>
+	</td>
+	</tr><tr>
+<td class="explain" colspan=2>
+This tests POST handling in lws.
+</td></tr>
+	<tr>
+	<td align=center colspan=2><div id=postinfo>
+	<form action="formtest" method="post">
+  Some text:<br>
+  <input type="text" name="Text" value="Give me some text"><br>
+  <input type="submit" value="Send the form">
+	</form>
+	</div></td>
 	</tr>
 </table>
 </div>

@@ -70,6 +70,7 @@ extern void test_server_unlock(int care);
 
 struct per_session_data__http {
 	lws_filefd_type fd;
+	char post_string[256];
 #ifdef LWS_WITH_CGI
 	struct lws_cgi_args args;
 #endif

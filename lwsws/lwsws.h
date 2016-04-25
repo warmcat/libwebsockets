@@ -45,6 +45,7 @@ struct per_session_data__http {
 #if defined(LWS_WITH_CGI) || !defined(LWS_NO_CLIENT)
 	int reason_bf;
 #endif
+	char post_string[256];
 	unsigned int client_finished:1;
 };
 

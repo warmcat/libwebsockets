@@ -137,7 +137,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	char leaf_path[1024];
 	const char *mimetype;
 	char *other_headers;
-	unsigned char *end;
+	unsigned char *end, *start;
 	struct timeval tv;
 	unsigned char *p;
 #ifndef LWS_NO_CLIENT
@@ -225,6 +225,39 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			goto try_to_reuse;
 		}
 #endif
+
+		if (!strncmp(in, "/postresults", 12)) {
+			m = sprintf(buf, "<html><body>Form results: '%s'<br>"
+					"</body></html>", pss->post_string);
+
+			p = buffer + LWS_PRE;
+			start = p;
+			end = p + sizeof(buffer) - LWS_PRE;
+
+			if (lws_add_http_header_status(wsi, 200, &p, end))
+				return 1;
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CONTENT_TYPE,
+				    	(unsigned char *)"text/html",
+					9, &p, end))
+				return 1;
+			if (lws_add_http_header_content_length(wsi, m, &p,
+							       end))
+				return 1;
+			if (lws_finalize_http_header(wsi, &p, end))
+				return 1;
+
+			n = lws_write(wsi, start, p - start,
+				      LWS_WRITE_HTTP_HEADERS);
+			if (n < 0)
+				return 1;
+
+			n = lws_write(wsi, (unsigned char *)buf, m, LWS_WRITE_HTTP);
+			if (n < 0)
+				return 1;
+
+			goto try_to_reuse;
+		}
 
 		/* if a legal POST URL, let it continue and accept data */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
@@ -371,20 +404,25 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY:
-		strncpy(buf, in, 20);
-		buf[20] = '\0';
-		if (len < 20)
-			buf[len] = '\0';
-
-		lwsl_notice("LWS_CALLBACK_HTTP_BODY: %s... len %d\n",
-				(const char *)buf, (int)len);
-
+		lwsl_notice("LWS_CALLBACK_HTTP_BODY: len %d\n", (int)len);
+		strncpy(pss->post_string, in, sizeof (pss->post_string) -1);
+		pss->post_string[sizeof(pss->post_string) - 1] = '\0';
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		lwsl_notice("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
-		/* the whole of the sent body arrived, close or reuse the connection */
-		lws_return_http_status(wsi, HTTP_STATUS_OK, NULL);
+		/*
+		 * the whole of the sent body arrived,
+		 * respond to the client with a redirect to show the
+		 * results
+		 */
+		p = (unsigned char *)buf + LWS_PRE;
+		n = lws_http_redirect(wsi,
+				      HTTP_STATUS_SEE_OTHER, /* 303 */
+				      (unsigned char *)"/postresults", 12, /* location + len */
+				      &p, /* temp buffer to use */
+				      p + sizeof(buf) - 1 - LWS_PRE /* buffer len */
+			);
 		goto try_to_reuse;
 
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:

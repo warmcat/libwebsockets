@@ -255,13 +255,13 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 }
 
 LWS_VISIBLE int
-lws_http_redirect(struct lws *wsi, const unsigned char *loc, int len,
+lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 		  unsigned char **p, unsigned char *end)
 {
 	unsigned char *start = *p;
 	int n;
 
-	if (lws_add_http_header_status(wsi, 301, p, end))
+	if (lws_add_http_header_status(wsi, code, p, end))
 		return -1;
 
 	if (lws_add_http_header_by_token(wsi,
