@@ -2464,16 +2464,31 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 	int listening = 0, cgi_count = 0, n;
 
 	buf += snprintf(buf, end - buf, "{ "
+					"\"version\":\"%s\",\n"
 					"\"uptime\":\"%ld\",\n"
 					"\"cgi_spawned\":\"%d\",\n"
 					"\"pt_fd_max\":\"%d\",\n"
 					"\"ah_pool_max\":\"%d\",\n"
 					"\"wsi_alive\":\"%d\",\n",
+					lws_get_library_version(),
 					(unsigned long)(t - context->time_up),
 					context->count_cgi_spawned,
 					context->fd_limit_per_thread,
 					context->max_http_header_pool,
 					context->count_wsi_allocated);
+#ifdef LWS_HAVE_GETLOADAVG
+	{
+		double d[3];
+		int m;
+
+		m = getloadavg(d, 3);
+		for (n = 0; n < m; n++) {
+			buf += snprintf(buf, end - buf,
+				"\"l%d\":\"%.2f\",\n",
+				n + 1, d[n]);
+		}
+	}
+#endif
 
 	buf += snprintf(buf, end - buf, "\"pt\":[\n ");
 	for (n = 0; n < context->count_threads; n++) {

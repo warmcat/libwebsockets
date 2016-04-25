@@ -102,6 +102,8 @@
 /* Define to 1 if you have the <zlib.h> header file. */
 #cmakedefine LWS_HAVE_ZLIB_H
 
+#cmakedefine LWS_HAVE_GETLOADAVG
+
 /* Define to the sub-directory in which libtool stores uninstalled libraries.
    */
 #undef LT_OBJDIR // We're not using libtool
