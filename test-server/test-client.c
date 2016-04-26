@@ -17,6 +17,8 @@
  * may be proprietary.  So unlike the library itself, they are licensed
  * Public Domain.
  */
+ 
+#include "lws_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
