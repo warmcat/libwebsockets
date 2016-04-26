@@ -7,7 +7,9 @@
   #define DELTA_EPOCH_IN_MICROSECS  11644473600000000ULL
 #endif
 
-#include <winsock2.h>
+#ifdef LWS_MINGW_SUPPORT
+  #include <winsock2.h>
+#endif
 
 #ifndef _TIMEZONE_DEFINED 
 struct timezone 
