@@ -1,0 +1,11 @@
+[Unit]
+Description=Libwebsockets Web Server
+After=syslog.target
+
+[Service]
+ExecStart=/usr/local/bin/lwsws
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target
+

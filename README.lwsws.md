@@ -310,3 +310,49 @@ And map the provided HTML into the vhost in the mounts section
 You might choose to put it on its own vhost which has "interface": "lo", so it's not
 externally visible.
 
+
+Integration with Systemd
+------------------------
+
+lwsws needs a service file like this as `/usr/lib/systemd/system/lwsws.service`
+
+```
+[Unit]
+Description=Libwebsockets Web Server
+After=syslog.target
+
+[Service]
+ExecStart=/usr/local/bin/lwsws
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target
+
+```
+
+You can find this prepared in `./lwsws/usr-lib-systemd-system-lwsws.service`
+
+
+Integration with logrotate
+--------------------------
+
+For correct operation with logrotate, `/etc/logrotate.d/lwsws` (if that's
+where we're putting the logs) should contain
+
+```
+/var/log/lwsws/*log {
+    copytruncate
+    missingok
+    notifempty
+    delaycompress
+}
+```
+
+You can find this prepared in `/lwsws/etc-logrotate.d-lwsws`
+
+Prepare the log directory like this
+
+```
+sudo mkdir /var/log/lwsws
+sudo chmod 700 /var/log/lwsws
+```
