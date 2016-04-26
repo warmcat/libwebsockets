@@ -541,7 +541,6 @@ _lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 {
 	DWORD _amount;
 
-	(void *)wsi;
 	if (!ReadFile((HANDLE)fd, buf, (DWORD)len, &_amount, NULL)) {
 		*amount = 0;
 

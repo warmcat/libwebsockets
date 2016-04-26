@@ -7,6 +7,8 @@
   #define DELTA_EPOCH_IN_MICROSECS  11644473600000000ULL
 #endif
 
+#include <winsock2.h>
+
 #ifndef _TIMEZONE_DEFINED 
 struct timezone 
 {

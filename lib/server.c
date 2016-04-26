@@ -233,7 +233,6 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 	char path[256], sym[256];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
-	size_t len;
 	int n, spin = 0;
 
 	snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
