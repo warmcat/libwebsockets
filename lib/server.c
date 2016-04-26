@@ -234,7 +234,7 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
 #if !defined(WIN32)
-	size len;
+	size_t len;
 #endif
 	int n, spin = 0;
 
