@@ -339,6 +339,43 @@ Example config for this case is
 
 cmake .. -DLWS_USE_POLARSSL=1 -DLWS_POLARSSL_LIBRARIES=/usr/lib64/libmbedtls.so \
 	 -DLWS_POLARSSL_INCLUDE_DIRS=/usr/include/polarssl/
+	 
+
+Building plugins outside of lws itself
+--------------------------------------
+
+The directory ./plugin-standalone/ shows how easy it is to create plugins
+outside of lws itself.  First build lws itself with -DLWS_WITH_PLUGINS,
+then use the same flow to build the standalone plugin
+
+```
+cd ./plugin-standalone
+mkdir build
+cd build
+cmake ..
+make && sudo make install
+```
+
+if you changed the default plugin directory when you built lws, you must
+also give the same arguments to cmake here (eg,
+` -DCMAKE_INSTALL_PREFIX:PATH=/usr/something/else...` )
+
+Otherwise if you run lwsws or libwebsockets-test-server-v2.0, it will now
+find the additional plugin "libprotocol_example_standalone.so"
+
+```
+lwsts[21257]:   Plugins:
+lwsts[21257]:    libprotocol_dumb_increment.so
+lwsts[21257]:    libprotocol_example_standalone.so
+lwsts[21257]:    libprotocol_lws_mirror.so
+lwsts[21257]:    libprotocol_lws_server_status.so
+lwsts[21257]:    libprotocol_lws_status.so
+```
+
+If you have multiple vhosts, you must enable plugins at the vhost
+additionally, discovered plugins are not enabled automatically for security
+reasons.  You do this using info->pvo or for lwsws, in the JSON config.
+
 
 Reproducing HTTP2.0 tests
 -------------------------
