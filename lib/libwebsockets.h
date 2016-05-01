@@ -1372,8 +1372,8 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 			 const char *opt_name, const char *opt_val);
 
 struct lws_protocol_vhost_options {
-	struct lws_protocol_vhost_options *next;
-	struct lws_protocol_vhost_options *options;
+	const struct lws_protocol_vhost_options *next;
+	const struct lws_protocol_vhost_options *options;
 	const char *name;
 	const char *value;
 };
@@ -1384,7 +1384,7 @@ struct lws_http_mount {
 	const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
 	const char *def; /* default target, eg, "index.html" */
 
-	struct lws_protocol_vhost_options *cgienv;
+	const struct lws_protocol_vhost_options *cgienv;
 
 	int cgi_timeout;
 	int cache_max_age;
@@ -1526,7 +1526,7 @@ struct lws_context_creation_info {
 	const char *ecdh_curve;				/* VH */
 	const char *vhost_name;				/* VH */
 	const char *plugins_dir;			/* context */
-	struct lws_protocol_vhost_options *pvo;		/* VH */
+	const struct lws_protocol_vhost_options *pvo;	/* VH */
 	int keepalive_timeout;				/* VH */
 	const char *log_filepath;			/* VH */
 	const struct lws_http_mount *mounts;		/* VH */
@@ -2091,7 +2091,7 @@ struct lws_cgi_args {
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi(struct lws *wsi, const char * const *exec_array,
 	int script_uri_path_len, int timeout_secs,
-	struct lws_protocol_vhost_options *mp_cgienv);
+	const struct lws_protocol_vhost_options *mp_cgienv);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_write_split_stdout_headers(struct lws *wsi);

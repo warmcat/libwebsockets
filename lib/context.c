@@ -92,10 +92,10 @@ lws_protocol_vh_priv_get(struct lws_vhost *vhost, const struct lws_protocols *pr
 	return vhost->protocol_vh_privs[n];
 }
 
-static struct lws_protocol_vhost_options *
+static const struct lws_protocol_vhost_options *
 lws_vhost_protocol_options(struct lws_vhost *vh, const char *name)
 {
-	struct lws_protocol_vhost_options *pvo = vh->pvo;
+	const struct lws_protocol_vhost_options *pvo = vh->pvo;
 
 	while (pvo) {
 		// lwsl_notice("%s: '%s' '%s'\n", __func__, pvo->name, name);
@@ -111,7 +111,7 @@ int
 lws_protocol_init(struct lws_context *context)
 {
 	struct lws_vhost *vh = context->vhost_list;
-	struct lws_protocol_vhost_options *pvo;
+	const struct lws_protocol_vhost_options *pvo;
 	struct lws wsi;
 	int n;
 
@@ -143,7 +143,8 @@ lws_protocol_init(struct lws_context *context)
 			 * protocol ptrs so lws_get_context(wsi) etc can work
 			 */
 			vh->protocols[n].callback(&wsi,
-				LWS_CALLBACK_PROTOCOL_INIT, NULL, pvo, 0);
+				LWS_CALLBACK_PROTOCOL_INIT, NULL,
+				(void *)pvo, 0);
 		}
 
 		vh = vh->vhost_next;

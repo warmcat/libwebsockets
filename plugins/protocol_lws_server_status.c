@@ -62,8 +62,8 @@ static int
 callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 			   void *user, void *in, size_t len)
 {
-	struct lws_protocol_vhost_options *pvo =
-			(struct lws_protocol_vhost_options *)in;
+	const struct lws_protocol_vhost_options *pvo =
+			(const struct lws_protocol_vhost_options *)in;
 	int m, period = 1000;
 
 	switch (reason) {

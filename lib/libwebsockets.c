@@ -1726,7 +1726,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len,
-	int timeout_secs, struct lws_protocol_vhost_options *mp_cgienv)
+	int timeout_secs, const struct lws_protocol_vhost_options *mp_cgienv)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	char *env_array[30], cgi_path[400], e[1024], *p = e,
