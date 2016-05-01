@@ -2393,7 +2393,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 	);
 
 	if (vh->mount_list) {
-		struct lws_http_mount *m = vh->mount_list;
+		const struct lws_http_mount *m = vh->mount_list;
 
 		buf += snprintf(buf, end - buf, ",\n \"mounts\":[");
 		while (m) {

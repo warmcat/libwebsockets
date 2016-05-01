@@ -244,8 +244,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			return 1;
 		}
 		a->valid = 0;
+		a->info->mounts = a->head;
 
-		if (!lws_create_vhost(a->context, a->info, a->head)) {
+		if (!lws_create_vhost(a->context, a->info)) {
 			lwsl_err("Failed to create vhost %s\n",
 				 a->info->vhost_name);
 			return 1;

@@ -334,7 +334,7 @@ lws_http_action(struct lws *wsi)
 	enum http_connection_type connection_type;
 	enum http_version request_version;
 	char content_length_str[32];
-	struct lws_http_mount *hm, *hit = NULL;
+	const struct lws_http_mount *hm, *hit = NULL;
 	unsigned int n, count = 0;
 	char http_version_str[10];
 	char http_conn_str[20];

@@ -1407,74 +1407,88 @@ struct lws_http_mount {
  * If LWS_SERVER_OPTION_EXPLICIT_VHOSTS is given, then no vhosts are created
  * at the same time as the context, they are expected to be created afterwards.
  *
- * @port:	Port to listen on... you can use CONTEXT_PORT_NO_LISTEN to
+ * @port:	VHOST: Port to listen on... you can use CONTEXT_PORT_NO_LISTEN to
  *		suppress listening on any port, that's what you want if you are
  *		not running a websocket server at all but just using it as a
  *		client
- * @iface:	NULL to bind the listen socket to all interfaces, or the
+ * @iface:	VHOST: NULL to bind the listen socket to all interfaces, or the
  *		interface name, eg, "eth2"
  *		If options specifies LWS_SERVER_OPTION_UNIX_SOCK, this member is
  *		the pathname of a UNIX domain socket. you can use the UNIX domain
  *		sockets in abstract namespace, by prepending an @ symbole to the
  *		socket name.
- * @protocols:	Array of structures listing supported protocols and a protocol-
+ * @protocols:	VHOST: Array of structures listing supported protocols and a protocol-
  *		specific callback for each one.  The list is ended with an
  *		entry that has a NULL callback pointer.
  *		It's not const because we write the owning_server member
- * @extensions: NULL or array of lws_extension structs listing the
+ * @extensions: VHOST: NULL or array of lws_extension structs listing the
  *		extensions this context supports.  If you configured with
  *		--without-extensions, you should give NULL here.
- * @token_limits: NULL or struct lws_token_limits pointer which is initialized
+ * @token_limits: CONTEXT: NULL or struct lws_token_limits pointer which is initialized
  *		with a token length limit for each possible WSI_TOKEN_***
- * @ssl_cert_filepath:	If libwebsockets was compiled to use ssl, and you want
+ * @ssl_cert_filepath:	VHOST: If libwebsockets was compiled to use ssl, and you want
  *			to listen using SSL, set to the filepath to fetch the
  *			server cert from, otherwise NULL for unencrypted
- * @ssl_private_key_filepath: filepath to private key if wanting SSL mode;
+ * @ssl_private_key_filepath: VHOST: filepath to private key if wanting SSL mode;
  *			if this is set to NULL but sll_cert_filepath is set, the
  *			OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called
  *			to allow setting of the private key directly via openSSL
  *			library calls
- * @ssl_ca_filepath: CA certificate filepath or NULL
- * @ssl_cipher_list:	List of valid ciphers to use (eg,
+ * @ssl_ca_filepath: VHOST: CA certificate filepath or NULL
+ * @ssl_cipher_list:	VHOST: List of valid ciphers to use (eg,
  * 			"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
  * 			or you can leave it as NULL to get "DEFAULT"
- * @http_proxy_address: If non-NULL, attempts to proxy via the given address.
+ * @http_proxy_address: VHOST: If non-NULL, attempts to proxy via the given address.
  *			If proxy auth is required, use format
  *			"username:password@server:port"
- * @http_proxy_port:	If http_proxy_address was non-NULL, uses this port at
+ * @http_proxy_port:	VHOST: If http_proxy_address was non-NULL, uses this port at
  * 			the address
- * @gid:	group id to change to after setting listen socket, or -1.
- * @uid:	user id to change to after setting listen socket, or -1.
- * @options:	0, or LWS_SERVER_OPTION_... bitfields
- * @user:	optional user pointer that can be recovered via the context
+ * @gid:	CONTEXT: group id to change to after setting listen socket, or -1.
+ * @uid:	CONTEXT: user id to change to after setting listen socket, or -1.
+ * @options:	VHOST + CONTEXT: 0, or LWS_SERVER_OPTION_... bitfields
+ * @user:	CONTEXT: optional user pointer that can be recovered via the context
  *		pointer using lws_context_user
- * @ka_time:	0 for no keepalive, otherwise apply this keepalive timeout to
+ * @ka_time:	CONTEXT: 0 for no keepalive, otherwise apply this keepalive timeout to
  *		all libwebsocket sockets, client or server
- * @ka_probes:	if ka_time was nonzero, after the timeout expires how many
+ * @ka_probes:	CONTEXT: if ka_time was nonzero, after the timeout expires how many
  *		times to try to get a response from the peer before giving up
  *		and killing the connection
- * @ka_interval: if ka_time was nonzero, how long to wait before each ka_probes
+ * @ka_interval: CONTEXT: if ka_time was nonzero, how long to wait before each ka_probes
  *		attempt
- * @provided_client_ssl_ctx: If non-null, swap out libwebsockets ssl
+ * @provided_client_ssl_ctx: CONTEXT: If non-null, swap out libwebsockets ssl
  *		implementation for the one provided by provided_ssl_ctx.
  *		Libwebsockets no longer is responsible for freeing the context
  *		if this option is selected.
- * @max_http_header_data: The max amount of header payload that can be handled
+ * @max_http_header_data: CONTEXT: The max amount of header payload that can be handled
  *		in an http request (unrecognized header payload is dropped)
- * @max_http_header_pool: The max number of connections with http headers that
+ * @max_http_header_pool: CONTEXT: The max number of connections with http headers that
  *		can be processed simultaneously (the corresponding memory is
  *		allocated for the lifetime of the context).  If the pool is
  *		busy new incoming connections must wait for accept until one
  *		becomes free.
- * @count_threads: how many contexts to create in an array, 0 = 1
- * @fd_limit_per_thread: nonzero means restrict each service thread to this
+ * @count_threads: CONTEXT: how many contexts to create in an array, 0 = 1
+ * @fd_limit_per_thread: CONTEXT: nonzero means restrict each service thread to this
  *		many fds, 0 means the default which is divide the process fd
  *		limit by the number of threads.
- * @timeout_secs: various processes involving network roundtrips in the
+ * @timeout_secs: VHOST: various processes involving network roundtrips in the
  *		library are protected from hanging forever by timeouts.  If
  *		nonzero, this member lets you set the timeout used in seconds.
  *		Otherwise a default timeout is used.
- * @ecdh_curve: if NULL, defaults to initializing server with "prime256v1"
+ * @ecdh_curve: VHOST: if NULL, defaults to initializing server with "prime256v1"
+ * @vhost_name: VHOST: name of vhost, must match external DNS name used to
+ *		access the site, like "warmcat.com" as it's used to match
+ *		Host: header and / or SNI name for SSL.
+ * @plugins_dir: CONTEXT: directory to scan for lws protocol plugins at
+ *		context creation time
+ * @pvo:	VHOST: pointer to optional linked list of per-vhost
+ *		options made accessible to protocols
+ * @keepalive_timeout: VHOST: (default = 0 = 60s) seconds to allow remote
+ *		client to hold on to an idle HTTP/1.1 connection
+ * @log_filepath: VHOST: filepath to append logs to... this is opened before
+ *		any dropping of initial privileges
+ * @mounts:	VHOST: optional linked list of mounts for this vhost
+ * @server_string: CONTEXT: string used in HTTP headers to identify server
+ *		software, if NULL, "libwebsockets".
  */
 
 struct lws_context_creation_info {
@@ -1482,7 +1496,7 @@ struct lws_context_creation_info {
 	const char *iface;				/* VH */
 	const struct lws_protocols *protocols;		/* VH */
 	const struct lws_extension *extensions;		/* VH */
-	const struct lws_token_limits *token_limits;
+	const struct lws_token_limits *token_limits;	/* context */
 	const char *ssl_private_key_password;		/* VH */
 	const char *ssl_cert_filepath;			/* VH */
 	const char *ssl_private_key_filepath;		/* VH */
@@ -1492,19 +1506,19 @@ struct lws_context_creation_info {
 	unsigned int http_proxy_port;			/* VH */
 	int gid;					/* context */
 	int uid;					/* context */
-	unsigned int options;				/* context */
+	unsigned int options;				/* VH + context */
 	void *user;					/* context */
-	int ka_time;
-	int ka_probes;
-	int ka_interval;
+	int ka_time;					/* context */
+	int ka_probes;					/* context */
+	int ka_interval;				/* context */
 #ifdef LWS_OPENSSL_SUPPORT
-	SSL_CTX *provided_client_ssl_ctx;
+	SSL_CTX *provided_client_ssl_ctx;		/* context */
 #else /* maintain structure layout either way */
 	void *provided_client_ssl_ctx;
 #endif
 
-	short max_http_header_data;
-	short max_http_header_pool;
+	short max_http_header_data;			/* context */
+	short max_http_header_pool;			/* context */
 
 	unsigned int count_threads;			/* context */
 	unsigned int fd_limit_per_thread;		/* context */
@@ -1515,6 +1529,7 @@ struct lws_context_creation_info {
 	struct lws_protocol_vhost_options *pvo;		/* VH */
 	int keepalive_timeout;				/* VH */
 	const char *log_filepath;			/* VH */
+	const struct lws_http_mount *mounts;		/* VH */
 	const char *server_string;			/* context */
 
 	/* Add new things just above here ---^
@@ -1612,8 +1627,7 @@ struct lws_vhost;
 
 LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
-		 struct lws_context_creation_info *info,
-		 struct lws_http_mount *mounts);
+		 struct lws_context_creation_info *info);
 
 LWS_VISIBLE struct lws_vhost *
 lws_vhost_get(struct lws *wsi);

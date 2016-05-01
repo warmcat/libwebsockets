@@ -643,7 +643,7 @@ struct lws_vhost {
 	char proxy_basic_auth_token[128];
 	struct lws_context *context;
 	struct lws_vhost *vhost_next;
-	struct lws_http_mount *mount_list;
+	const struct lws_http_mount *mount_list;
 	struct lws *lserv_wsi;
 	const char *name;
 	const char *iface;

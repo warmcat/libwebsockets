@@ -156,11 +156,11 @@ lws_protocol_init(struct lws_context *context)
 
 LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
-		 struct lws_context_creation_info *info,
-		 struct lws_http_mount *mounts)
+		 struct lws_context_creation_info *info)
 {
 	struct lws_vhost *vh = lws_zalloc(sizeof(*vh)),
 			 **vh1 = &context->vhost_list;
+	const struct lws_http_mount *mounts;
 #ifdef LWS_WITH_PLUGINS
 	struct lws_plugin *plugin = context->plugin_list;
 	struct lws_protocols *lwsp;
@@ -236,7 +236,7 @@ lws_create_vhost(struct lws_context *context,
 	vh->same_vh_protocol_list = (struct lws **)
 			lws_zalloc(sizeof(struct lws *) * vh->count_protocols);
 
-	vh->mount_list = mounts;
+	vh->mount_list = info->mounts;
 
 #ifdef LWS_USE_UNIX_SOCK
 	if (LWS_UNIX_SOCK_ENABLED(context)) {
@@ -247,6 +247,7 @@ lws_create_vhost(struct lws_context *context,
 	lwsl_notice("Creating Vhost '%s' port %d, %d protocols\n",
 			vh->name, info->port, vh->count_protocols);
 
+	mounts = info->mounts;
 	while (mounts) {
 		lwsl_notice("   mounting %s%s to %s\n",
 				mount_protocols[mounts->origin_protocol],
@@ -594,7 +595,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	 * compatibly and make a default vhost using the data in the info
 	 */
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
-		if (!lws_create_vhost(context, info, NULL)) {
+		if (!lws_create_vhost(context, info)) {
 			lwsl_err("Failed to create default vhost\n");
 			return NULL;
 		}
