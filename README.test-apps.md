@@ -79,6 +79,21 @@ if you connect to the test server using a browser at the
 same time you will be able to see the circles being drawn.
 
 
+Choosing between test server variations
+---------------------------------------
+
+If you will be doing standalone serving with lws, ideally you should avoid
+making your own server at all, and use lwsws with your own protocol plugins.
+
+The second best option is follow test-server-v2.0.c, which uses a mount to
+autoserve a directory, and lws protocol plugins for ws, without needing any
+user callback code (other than what's needed in the protocol plugin).
+
+For those two options libuv is needed to support the protocol plugins, if
+that's not possible then the other variations with their own protocol code
+should be considered.
+
+
 Testing simple echo
 -------------------
 

@@ -1041,6 +1041,20 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			endif(WIN32)
 		endif()
 
+		#
+		# test-server-v2.0
+		#
+		if (LWS_WITH_PLUGINS)
+			create_test_app(
+				test-server-v2.0
+				"test-server/test-server-v2.0.c"
+				""
+				""
+				""
+				""
+				"")
+		endif()
+
 		# Data files for running the test server.
 		set(TEST_SERVER_DATA
 			"${PROJECT_SOURCE_DIR}/test-server/favicon.ico"
