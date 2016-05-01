@@ -155,6 +155,30 @@ lws_protocol_init(struct lws_context *context)
 	return 0;
 }
 
+static int callback_http_dummy(
+		struct lws *wsi, enum lws_callback_reasons reason, void *user,
+		  void *in, size_t len)
+{
+	return 0;
+}
+
+/* list of supported protocols and callbacks */
+
+static const struct lws_protocols protocols_dummy[] = {
+	/* first protocol must always be HTTP handler */
+
+	{
+		"http-only",		/* name */
+		callback_http_dummy,		/* callback */
+		0,	/* per_session_data_size */
+		0,			/* max frame size / rx buffer */
+	},
+	/*
+	 * the other protocols are provided by lws plugins
+	 */
+	{ NULL, NULL, 0, 0 } /* terminator */
+};
+
 LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 struct lws_context_creation_info *info)
@@ -171,6 +195,9 @@ lws_create_vhost(struct lws_context *context,
 
 	if (!vh)
 		return NULL;
+
+	if (!info->protocols)
+		info->protocols = &protocols_dummy[0];
 
 	vh->context = context;
 	if (!info->vhost_name)

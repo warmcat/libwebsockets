@@ -22,10 +22,7 @@
 #include <getopt.h>
 #include <syslog.h>
 
-int close_testing;
 int debug_level = 7;
-
-volatile int force_exit = 0;
 struct lws_context *context;
 
 /* http server gets files from this path */
@@ -43,7 +40,8 @@ char crl_path[1024] = "";
 
 /*
  * This test server is ONLY this .c file, it's radically simpler than the
- * pre-v2.0 test servers.  For example it has no user callback content.
+ * pre-v2.0 test servers.  For example it has no user callback content or
+ * defines any protocols.
  *
  * To achieve that, it uses the LWS protocol plugins.  Those in turn
  * use libuv.  So you must configure with LWS_WITH_PLUGINS (which implies
@@ -52,39 +50,8 @@ char crl_path[1024] = "";
  * You can find the individual protocol plugin sources in ../plugins
  */
 
-
-/*
- * the mount we attach later will autoserve everything we need, so we
- * don't need to actually do anything in our http callback.
- */
-
-int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
-		  void *in, size_t len)
-{
-	return 0;
-}
-
-/* list of supported protocols and callbacks */
-
-static struct lws_protocols protocols[] = {
-	/* first protocol must always be HTTP handler */
-
-	{
-		"http-only",		/* name */
-		callback_http,		/* callback */
-		0,	/* per_session_data_size */
-		0,			/* max frame size / rx buffer */
-	},
-	/*
-	 * the other protocols are provided by lws plugins
-	 */
-	{ NULL, NULL, 0, 0 } /* terminator */
-};
-
-
 void sighandler(int sig)
 {
-	force_exit = 1;
 	lws_cancel_service(context);
 }
 
@@ -171,7 +138,6 @@ static const struct option options[] = {
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "allow-non-ssl",	no_argument,	NULL, 'a' },
 	{ "interface",  required_argument,	NULL, 'i' },
-	{ "closetest",  no_argument,		NULL, 'c' },
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
 	{ "ssl-ca",  required_argument,		NULL, 'A' },
@@ -216,7 +182,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:", options, NULL);
+		n = getopt_long(argc, argv, "ei:hsap:d:Dr:C:K:A:R:vu:g:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -253,12 +219,6 @@ int main(int argc, char **argv)
 			strncpy(interface_name, optarg, sizeof interface_name);
 			interface_name[(sizeof interface_name) - 1] = '\0';
 			iface = interface_name;
-			break;
-		case 'c':
-			close_testing = 1;
-			fprintf(stderr, " Close testing mode -- closes on "
-					   "client after 50 dumb increments"
-					   "and suppresses lws_mirror spam\n");
 			break;
 		case 'r':
 			resource_path = optarg;
@@ -329,12 +289,18 @@ int main(int argc, char **argv)
 	lwsl_notice("libwebsockets test server - license LGPL2.1+SLE\n");
 	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
 
-	printf("Using resource path \"%s\"\n", resource_path);
+	lwsl_notice(" Using resource path \"%s\"\n", resource_path);
 
 	info.iface = iface;
-	info.protocols = protocols;
+	info.protocols = NULL; /* all protocols from lib / plugins */
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
+	info.gid = gid;
+	info.uid = uid;
+	info.max_http_header_pool = 16;
+	info.options = opts |
+			LWS_SERVER_OPTION_VALIDATE_UTF8 |
+			LWS_SERVER_OPTION_LIBUV; /* plugins require this */
 
 	if (use_ssl) {
 		if (strlen(resource_path) > sizeof(cert_path) - 32) {
@@ -343,26 +309,24 @@ int main(int argc, char **argv)
 		}
 		if (!cert_path[0])
 			sprintf(cert_path, "%s/libwebsockets-test-server.pem",
-								resource_path);
+				resource_path);
 		if (strlen(resource_path) > sizeof(key_path) - 32) {
 			lwsl_err("resource path too long\n");
 			return -1;
 		}
 		if (!key_path[0])
 			sprintf(key_path, "%s/libwebsockets-test-server.key.pem",
-								resource_path);
+				resource_path);
 
 		info.ssl_cert_filepath = cert_path;
 		info.ssl_private_key_filepath = key_path;
 		if (ca_path[0])
 			info.ssl_ca_filepath = ca_path;
+
+		/* redirect guys coming on http */
+		info.options |= LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS;
 	}
-	info.gid = gid;
-	info.uid = uid;
-	info.max_http_header_pool = 16;
-	info.options = opts |
-			LWS_SERVER_OPTION_VALIDATE_UTF8 |
-			LWS_SERVER_OPTION_LIBUV; /* plugins require this */
+
 	info.extensions = exts;
 	info.timeout_secs = 5;
 	info.ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
@@ -391,11 +355,6 @@ int main(int argc, char **argv)
 	 */
 	info.pvo = &pvo;
 
-	if (use_ssl)
-		/* redirect guys coming on http */
-		info.options |=
-			LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS;
-
 	/*
 	 * As it is, this creates the context and a single Vhost at the same
 	 * time.  You can use LWS_SERVER_OPTION_EXPLICIT_VHOSTS option above
@@ -415,8 +374,8 @@ int main(int argc, char **argv)
 	else
 		lws_libuv_run(context, 0);
 
+	/* when we decided to exit the event loop */
 	lws_context_destroy(context);
-
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
 #ifndef _WIN32
