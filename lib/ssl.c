@@ -70,6 +70,26 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 #endif
 }
 
+void
+lws_ssl_elaborate_error(void)
+{
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
+
+	char buf[256];
+	u_long err;
+
+	while ((err = ERR_get_error()) != 0) {
+		ERR_error_string_n(err, buf, sizeof(buf));
+		lwsl_err("*** %s\n", buf);
+	}
+#endif
+#endif
+}
+
+
 #if defined(LWS_USE_POLARSSL)
 #else
 #if defined(LWS_USE_MBEDTLS)
@@ -612,21 +632,7 @@ go_again:
 		lwsl_err("SSL_accept failed skt %u: %s\n",
 			   wsi->sock, ERR_error_string(m, NULL));
 
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
-		{
-		   char buf[256];
-		   u_long err;
-
-		   while ((err = ERR_get_error()) != 0) {
-		      ERR_error_string_n(err, buf, sizeof(buf));
-		      lwsl_err("*** %s\n", buf);
-		   }
-		}
-#endif
-#endif
+		lws_ssl_elaborate_error();
 		goto fail;
 
 accepted:

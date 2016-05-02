@@ -78,6 +78,16 @@ same time as drawing random circles in the mirror protocol;
 if you connect to the test server using a browser at the
 same time you will be able to see the circles being drawn.
 
+The test client supports SSL too, use
+
+```bash
+$ libwebsockets-test-client localhost --ssl -s
+```
+
+the -s tells it to accept the default selfsigned cert from the server,
+otherwise it will strictly fail the connection if there is no CA cert to
+validate the server's certificate.
+
 
 Choosing between test server variations
 ---------------------------------------

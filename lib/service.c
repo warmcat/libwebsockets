@@ -343,6 +343,11 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 		 * cleanup like flush partials.
 		 */
 		wsi->socket_is_permanently_unusable = 1;
+		if (wsi->mode == LWSCM_WSCL_WAITING_SSL)
+			wsi->vhost->protocols[0].callback(wsi,
+				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+				wsi->user_space, NULL, 0);
+
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 		return 1;

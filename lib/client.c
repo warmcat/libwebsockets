@@ -152,8 +152,11 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			lws_ssl_client_bio_create(wsi);
 
 		if (wsi->use_ssl) {
-			if (!lws_ssl_client_connect1(wsi))
+			n = lws_ssl_client_connect1(wsi);
+			if (!n)
 				return 0;
+			if (n < 0)
+				goto bail3;
 		} else
 			wsi->ssl = NULL;
 
@@ -162,8 +165,11 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 	case LWSCM_WSCL_WAITING_SSL:
 
 		if (wsi->use_ssl) {
-			if (!lws_ssl_client_connect2(wsi))
+			n = lws_ssl_client_connect2(wsi);
+			if (!n)
 				return 0;
+			if (n < 0)
+				goto bail3;
 		} else
 			wsi->ssl = NULL;
 #endif
@@ -279,6 +285,9 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 
 bail3:
 		lwsl_info("closing conn at LWS_CONNMODE...SERVER_REPLY\n");
+		wsi->vhost->protocols[0].callback(wsi,
+			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+					wsi->user_space, NULL, 0);
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		return -1;
 

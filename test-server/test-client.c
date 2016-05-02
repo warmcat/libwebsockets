@@ -17,7 +17,7 @@
  * may be proprietary.  So unlike the library itself, they are licensed
  * Public Domain.
  */
- 
+
 #include "lws_config.h"
 
 #include <stdio.h>
@@ -433,7 +433,8 @@ int main(int argc, char **argv)
 	if (!strcmp(prot, "http") || !strcmp(prot, "ws"))
 		use_ssl = 0;
 	if (!strcmp(prot, "https") || !strcmp(prot, "wss"))
-		use_ssl = 1;
+		if (!use_ssl)
+			use_ssl = 1;
 
 	/*
 	 * create the websockets context.  This tracks open connections and
@@ -476,6 +477,11 @@ int main(int argc, char **argv)
 #endif
 #endif
 #endif
+
+		if (use_ssl == 1)
+			lwsl_notice(" Cert must validate correctly (use -s to allow selfsigned)\n");
+		else
+			lwsl_notice(" Selfsigned certs allowed\n");
 	}
 
 	context = lws_create_context(&info);

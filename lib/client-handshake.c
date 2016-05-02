@@ -112,8 +112,10 @@ lws_client_connect_2(struct lws *wsi)
 		ai.ai_socktype = SOCK_STREAM;
 		ai.ai_flags = AI_CANONNAME;
 
-		if (getaddrinfo(ads, NULL, &ai, &result))
+		if (getaddrinfo(ads, NULL, &ai, &result)) {
+			lwsl_err("getaddrinfo failed\n");
 			goto oom4;
+		}
 
 		res = result;
 		while (!p && res) {
@@ -127,6 +129,7 @@ lws_client_connect_2(struct lws *wsi)
 		}
 
 		if (!p) {
+			lwsl_err("Couldn't identify address\n");
 			freeaddrinfo(result);
 			goto oom4;
 		}
@@ -169,6 +172,9 @@ lws_client_connect_2(struct lws *wsi)
 		 * past here, we can't simply free the structs as error
 		 * handling as oom4 does.  We have to run the whole close flow.
 		 */
+
+		if (!wsi->protocol)
+			wsi->protocol = &wsi->vhost->protocols[0];
 
 		wsi->protocol->callback(wsi, LWS_CALLBACK_WSI_CREATE,
 					wsi->user_space, NULL, 0);
@@ -278,6 +284,11 @@ lws_client_connect_2(struct lws *wsi)
 oom4:
 	/* we're closing, losing some rx is OK */
 	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	//lwsl_err("%d\n", wsi->mode);
+	if (wsi->mode == LWSCM_HTTP_CLIENT)
+		wsi->vhost->protocols[0].callback(wsi,
+			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+			wsi->user_space, NULL, 0);
 	/* take care that we might be inserted in fds already */
 	if (wsi->position_in_fds_table != -1)
 		goto failed;

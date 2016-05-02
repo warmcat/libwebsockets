@@ -380,12 +380,13 @@ just_kill_connection:
 	 * the actual close.
 	 */
 	if (wsi->state != LWSS_SHUTDOWN &&
+	    wsi->state != LWSS_CLIENT_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !wsi->socket_is_permanently_unusable) {
-		lwsl_info("%s: shutting down connection: %p (sock %d)\n", __func__, wsi, wsi->sock);
+		lwsl_info("%s: shutting down connection: %p (sock %d, state %d)\n", __func__, wsi, wsi->sock, wsi->state);
 		n = shutdown(wsi->sock, SHUT_WR);
 		if (n)
-			lwsl_debug("closing: shutdown ret %d\n", LWS_ERRNO);
+			lwsl_debug("closing: shutdown (state %d) ret %d\n", wsi->state, LWS_ERRNO);
 
 // This causes problems with disconnection when the events are half closing connection
 // FD_READ | FD_CLOSE (33)
