@@ -284,6 +284,19 @@ To help that happen conveniently, there are some new apis
 dumb increment, mirror and status protocol plugins are provided as examples.
 
 
+Additional plugin search paths
+------------------------------
+
+Packages that have their own lws plugins can install them in their own
+preferred dir and ask lwsws to scan there by using a config fragment
+like this, in its own conf.d/ file managed by the other package
+
+{
+  "global": {
+   "plugin-dir": "/usr/local/share/coherent-timeline/plugins"
+  }
+}
+
 
 lws-server-status plugin
 ------------------------

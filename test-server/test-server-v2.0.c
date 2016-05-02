@@ -155,6 +155,11 @@ static const struct option options[] = {
 	{ NULL, 0, 0, 0 }
 };
 
+static const char * const plugin_dirs[] = {
+		INSTALL_DATADIR"/libwebsockets-test-server/plugins/",
+		NULL
+};
+
 int main(int argc, char **argv)
 {
 	struct lws_context_creation_info info;
@@ -344,7 +349,7 @@ int main(int argc, char **argv)
 			       "!AES256-SHA256";
 
 	/* tell lws to look for protocol plugins here */
-	info.plugins_dir = INSTALL_DATADIR"/libwebsockets-test-server/plugins/";
+	info.plugin_dirs = plugin_dirs;
 
 	/* tell lws about our mount we want */
 	info.mounts = &mount;

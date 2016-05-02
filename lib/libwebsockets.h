@@ -1478,8 +1478,8 @@ struct lws_http_mount {
  * @vhost_name: VHOST: name of vhost, must match external DNS name used to
  *		access the site, like "warmcat.com" as it's used to match
  *		Host: header and / or SNI name for SSL.
- * @plugins_dir: CONTEXT: directory to scan for lws protocol plugins at
- *		context creation time
+ * @plugin_dirs: CONTEXT: NULL, or NULL-terminated array of directories to
+ *		scan for lws protocol plugins at context creation time
  * @pvo:	VHOST: pointer to optional linked list of per-vhost
  *		options made accessible to protocols
  * @keepalive_timeout: VHOST: (default = 0 = 60s) seconds to allow remote
@@ -1525,7 +1525,7 @@ struct lws_context_creation_info {
 	unsigned int timeout_secs;			/* VH */
 	const char *ecdh_curve;				/* VH */
 	const char *vhost_name;				/* VH */
-	const char *plugins_dir;			/* context */
+	const char * const *plugin_dirs;		/* context */
 	const struct lws_protocol_vhost_options *pvo;	/* VH */
 	int keepalive_timeout;				/* VH */
 	const char *log_filepath;			/* VH */

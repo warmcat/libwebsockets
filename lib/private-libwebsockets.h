@@ -770,7 +770,7 @@ LWS_EXTERN void
 lws_libuv_closehandle(struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_plat_plugins_init(struct lws_context * context, const char *d);
+lws_plat_plugins_init(struct lws_context * context, const char * const *d);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_plat_plugins_destroy(struct lws_context * context);

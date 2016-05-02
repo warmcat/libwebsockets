@@ -27,6 +27,7 @@ static const char * const paths_global[] = {
 	"global.count-threads",
 	"global.init-ssl",
 	"global.server-string",
+	"global.plugin-dir"
 };
 
 enum lejp_global_paths {
@@ -35,6 +36,7 @@ enum lejp_global_paths {
 	LEJPGP_COUNT_THREADS,
 	LWJPGP_INIT_SSL,
 	LEJPGP_SERVER_STRING,
+	LEJPGP_PLUGIN_DIR
 };
 
 static const char * const paths_vhosts[] = {
@@ -91,6 +93,8 @@ enum lejp_vhost_paths {
 	LEJPVP_KEEPALIVE_TIMEOUT,
 };
 
+#define MAX_PLUGIN_DIRS 10
+
 struct jpargs {
 	struct lws_context_creation_info *info;
 	struct lws_context *context;
@@ -101,6 +105,8 @@ struct jpargs {
 
 	struct lws_protocol_vhost_options *pvo;
 	struct lws_http_mount m;
+	const char **plugin_dirs;
+	int count_plugin_dirs;
 };
 
 static void *
@@ -153,6 +159,13 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	case LEJPGP_SERVER_STRING:
 		a->info->server_string = a->p;
+		break;
+	case LEJPGP_PLUGIN_DIR:
+		if (a->count_plugin_dirs == MAX_PLUGIN_DIRS - 1) {
+			lwsl_err("Too many plugin dirs\n");
+			return -1;
+		}
+		a->plugin_dirs[a->count_plugin_dirs++] = a->p;
 		break;
 
 	default:
@@ -537,11 +550,26 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 			 char **cs, int *len)
 {
 	struct jpargs a;
+	const char * const *old = info->plugin_dirs;
+
+	memset(&a, 0, sizeof(a));
 
 	a.info = info;
 	a.p = *cs;
 	a.end = (a.p + *len) - 1;
 	a.valid = 0;
+
+	lwsws_align(&a);
+	info->plugin_dirs = (void *)a.p;
+	a.plugin_dirs = (void *)a.p; /* writeable version */
+	a.p += MAX_PLUGIN_DIRS * sizeof(void *);
+
+	/* copy any default paths */
+
+	while (old && *old) {
+		a.plugin_dirs[a.count_plugin_dirs++] = *old;
+		old++;
+	}
 
 	if (lwsws_get_config(&a, "/etc/lwsws/conf", paths_global,
 			     ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
@@ -549,6 +577,8 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 	if (lwsws_get_config_d(&a, d, paths_global,
 			       ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
 		return 1;
+
+	a.plugin_dirs[a.count_plugin_dirs] = NULL;
 
 	*cs = a.p;
 	*len = a.end - a.p;
@@ -562,6 +592,8 @@ lwsws_get_config_vhosts(struct lws_context *context,
 			char **cs, int *len)
 {
 	struct jpargs a;
+
+	memset(&a, 0, sizeof(a));
 
 	a.info = info;
 	a.p = *cs;

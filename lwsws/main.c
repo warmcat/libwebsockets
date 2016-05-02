@@ -80,6 +80,11 @@ static const struct lws_extension exts[] = {
 	{ NULL, NULL, NULL /* terminator */ }
 };
 
+static const char * const plugin_dirs[] = {
+		INSTALL_DATADIR"/libwebsockets-test-server/plugins/",
+		NULL
+};
+
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
@@ -106,6 +111,8 @@ void signal_cb(uv_signal_t *watcher, int signum)
 	lws_libuv_stop(context);
 }
 #endif
+
+
 
 int main(int argc, char **argv)
 {
@@ -184,8 +191,7 @@ int main(int argc, char **argv)
 			      LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 			      LWS_SERVER_OPTION_LIBUV;
 
-	info.plugins_dir = INSTALL_DATADIR"/libwebsockets-test-server/plugins/";
-
+	info.plugin_dirs = plugin_dirs;
 	lwsl_notice("Using config dir: \"%s\"\n", config_dir);
 
 	/*
