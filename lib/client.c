@@ -264,7 +264,7 @@ some_wait:
 				if (n != SSL_ERROR_NONE) {
 					lwsl_err("SSL connect error %lu: %s\n",
 						n, ERR_error_string(n, sb));
-					return 0;
+					goto bail3;
 				}
 			}
 		} else
@@ -318,7 +318,7 @@ some_wait:
 					if (n != SSL_ERROR_NONE) {
 						lwsl_err("SSL connect error %lu: %s\n",
 							 n, ERR_error_string(n, sb));
-						return 0;
+						goto bail3;
 					}
 				}
 			}
@@ -343,7 +343,7 @@ some_wait:
 						 n, ERR_error_string(n, sb));
 					lws_close_free_wsi(wsi,
 						LWS_CLOSE_STATUS_NOSTATUS);
-					return 0;
+					return -1;
 				}
 			}
 #endif /* USE_WOLFSSL */
@@ -462,6 +462,10 @@ some_wait:
 
 bail3:
 		lwsl_info("closing conn at LWS_CONNMODE...SERVER_REPLY\n");
+		wsi->context->protocols[0].callback(wsi,
+				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+				wsi->user_space, NULL, 0);
+
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		return -1;
 

@@ -335,7 +335,15 @@ int main(int argc, char **argv)
 	if (!strcmp(prot, "http") || !strcmp(prot, "ws"))
 		use_ssl = 0;
 	if (!strcmp(prot, "https") || !strcmp(prot, "wss"))
-		use_ssl = 1;
+		if (!use_ssl)
+			use_ssl = 1;
+
+	if (use_ssl) {
+		if (use_ssl == 1)
+			lwsl_notice(" Cert must validate correctly (use -s to allow selfsigned)\n");
+		else
+			lwsl_notice(" Selfsigned certs allowed\n");
+	}
 
 	/*
 	 * create the websockets context.  This tracks open connections and

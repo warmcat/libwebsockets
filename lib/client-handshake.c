@@ -171,6 +171,9 @@ lws_client_connect_2(struct lws *wsi)
 		 * past here, we can't simply free the structs as error
 		 * handling as oom4 does.  We have to run the whole close flow.
 		 */
+		if (!wsi->protocol)
+			wsi->protocol = &wsi->context->protocols[0];
+
 		wsi->protocol->callback(wsi, LWS_CALLBACK_WSI_CREATE,
 					wsi->user_space, NULL, 0);
 		lws_set_timeout(wsi,
