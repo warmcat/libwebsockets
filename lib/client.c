@@ -993,7 +993,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	/* give userland a chance to append, eg, cookies */
 
 	wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
-				       NULL, &p, (pkt + LWS_MAX_SOCKET_IO_BUF) - p - 12);
+				wsi->user_space, &p, (pkt + LWS_MAX_SOCKET_IO_BUF) - p - 12);
 
 	p += sprintf(p, "\x0d\x0a");
 
