@@ -157,6 +157,7 @@ static struct option options[] = {
 	{ "interface",  required_argument,	NULL, 'i' },
 	{ "closetest",  no_argument,		NULL, 'c' },
 	{ "libev",  no_argument,		NULL, 'e' },
+	{ "foreign",  no_argument,		NULL, 'f' },
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize", 	no_argument,		NULL, 'D' },
 #endif
@@ -164,10 +165,64 @@ static struct option options[] = {
 	{ NULL, 0, 0, 0 }
 };
 
+/* ----- this code is only needed for foreign / external libuv tests -----*/
+struct counter
+{
+	int cur, lim;
+	int stop_loop;
+};
+
+static void timer_cb(uv_timer_t *t)
+{
+	struct counter *c = t->data;
+
+	lwsl_notice("  timer %p cb, count %d, loop has %d handles\n",
+		    t, c->cur, t->loop->active_handles);
+
+	if (c->cur++ == c->lim) {
+		lwsl_debug("stop loop from timer\n");
+		uv_timer_stop(t);
+		if (c->stop_loop)
+			uv_stop(t->loop);
+	}
+}
+
+static void timer_close_cb(uv_handle_t *h)
+{
+	lwsl_notice("timer close cb %p, loop has %d handles\n",
+		    h, h->loop->active_handles);
+}
+
+void outer_signal_cb(uv_signal_t *s, int signum)
+{
+	lwsl_notice("Foreign loop got signal %d\n", signum);
+	uv_signal_stop(s);
+	uv_stop(s->loop);
+}
+
+static void lws_uv_close_cb(uv_handle_t *handle)
+{
+	//lwsl_err("%s\n", __func__);
+}
+
+static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
+{
+	uv_close(handle, lws_uv_close_cb);
+}
+
+/* --- end of foreign test code ---- */
+
 int main(int argc, char **argv)
 {
 	struct lws_context_creation_info info;
 	char interface_name[128] = "";
+/* --- only needed for foreign loop test ---> */
+	uv_loop_t loop;
+	uv_signal_t signal_outer;
+	uv_timer_t timer_outer;
+	struct counter ctr;
+	int foreign_libuv_loop = 0;
+/* <--- only needed for foreign loop test --- */
 	uv_timer_t timeout_watcher;
 	const char *iface = NULL;
 	char cert_path[1024];
@@ -190,10 +245,13 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:", options, NULL);
+		n = getopt_long(argc, argv, "feci:hsap:d:Dr:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
+		case 'f':
+			foreign_libuv_loop = 1;
+			break;
 		case 'e':
 			opts |= LWS_SERVER_OPTION_LIBEV;
 			break;
@@ -298,6 +356,28 @@ int main(int argc, char **argv)
 	info.timeout_secs = 5;
 	info.options = opts | LWS_SERVER_OPTION_LIBUV;
 
+	if (foreign_libuv_loop) {
+		/* create the foreign loop */
+		uv_loop_init(&loop);
+
+		/* run some timer on that loop just so loop is not 'clean' */
+
+		uv_signal_init(&loop, &signal_outer);
+		uv_signal_start(&signal_outer, outer_signal_cb, SIGINT);
+
+		uv_timer_init(&loop, &timer_outer);
+		timer_outer.data = &ctr;
+		ctr.cur = 0;
+		ctr.lim = ctr.cur + 5;
+		ctr.stop_loop = 1;
+		uv_timer_start(&timer_outer, timer_cb, 0, 1000);
+		lwsl_notice("running loop without libwebsockets for %d s\n", ctr.lim);
+
+		uv_run(&loop, UV_RUN_DEFAULT);
+
+		/* timer will stop loop and we will get here */
+	}
+
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
@@ -306,19 +386,101 @@ int main(int argc, char **argv)
 
 	lws_uv_sigint_cfg(context, 1, signal_cb);
 
-	if (lws_uv_initloop(context, NULL, 0)) {
-		lwsl_err("lws_uv_initloop failed\n");
+	if (foreign_libuv_loop)
+		/* we have our own uv loop outside of lws */
+		lws_uv_initloop(context, &loop, 0);
+	else {
+		/*
+		 * lws will create his own libuv loop in the context
+		 */
+		if (lws_uv_initloop(context, NULL, 0)) {
+			lwsl_err("lws_uv_initloop failed\n");
 
-		goto bail;
+			goto bail;
+		}
 	}
 
 	uv_timer_init(lws_uv_getloop(context, 0), &timeout_watcher);
 	uv_timer_start(&timeout_watcher, uv_timeout_cb_dumb_increment, 50, 50);
 
-	lws_libuv_run(context, 0);
+
+	if (foreign_libuv_loop) {
+		/*
+		 * prepare inner timer on loop, to run along with lws.
+		 * Will exit after 5s while lws keeps running
+		 */
+		struct counter ctr_inner = { 0, 3, 0 };
+		int e;
+		uv_timer_t timer_inner;
+		uv_timer_init(&loop, &timer_inner);
+		timer_inner.data = &ctr_inner;
+		uv_timer_start(&timer_inner, timer_cb, 200, 1000);
+
+		/* make this timer long-lived, should keep
+		 * firing after lws exits */
+		ctr.cur = 0;
+		ctr.lim = ctr.cur + 1000;
+		uv_timer_start(&timer_outer, timer_cb, 0, 1000);
+
+		uv_run(&loop, UV_RUN_DEFAULT);
+
+		/* we are here either because signal stopped us,
+		 * or outer timer expired */
+
+		/* close short timer */
+		uv_timer_stop(&timer_inner);
+		uv_close((uv_handle_t*)&timer_inner, timer_close_cb);
+
+		/* stop the dumb increment timer */
+		uv_timer_stop(&timeout_watcher);
+
+		lwsl_notice("Destroying lws context\n");
+
+		/* detach lws */
+		lws_context_destroy(context);
+
+		lwsl_notice("Please wait while the outer libuv test continues for 10s\n");
+
+		ctr.lim = ctr.cur + 10;
+
+		/* try and run outer timer for 10 more seconds,
+		 * (or sigint outer handler) after lws has left the loop */
+		uv_run(&loop, UV_RUN_DEFAULT);
+
+		/* Clean up the foreign loop now */
+
+		/* PHASE 1: stop and close things we created
+		 *          outside of lws */
+
+		uv_timer_stop(&timer_outer);
+		uv_close((uv_handle_t*)&timer_outer, timer_close_cb);
+		uv_signal_stop(&signal_outer);
+
+		e = 100;
+		while (e--)
+			uv_run(&loop, UV_RUN_NOWAIT);
+
+		/* PHASE 2: close anything remaining */
+
+		uv_walk(&loop, lws_uv_walk_cb, NULL);
+
+		e = 100;
+		while (e--)
+			uv_run(&loop, UV_RUN_NOWAIT);
+
+		/* PHASE 3: close the UV loop itself */
+
+		e = uv_loop_close(&loop);
+		lwsl_notice("uv loop close rc %s\n",
+			    e ? uv_strerror(e) : "ok");
+
+	} else {
+		lws_libuv_run(context, 0);
 
 bail:
-	lws_context_destroy(context);
+		lws_context_destroy(context);
+	}
+
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
 	return 0;
