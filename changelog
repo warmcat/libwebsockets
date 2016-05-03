@@ -1,6 +1,20 @@
 Changelog
 ---------
 
+v1.7.7
+======
+
+NB: No API change since v1.7.0
+
+Fixes:
+
+1) MINOR: Android add needed include file
+
+2) MINOR: Allow build on GCC < 3.4
+
+3) MINOR: Fix client problems recovering cleanly from SSL negotiation failure
+
+
 v1.7.6
 ======
 
