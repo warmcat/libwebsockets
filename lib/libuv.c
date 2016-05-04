@@ -106,7 +106,7 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 LWS_VISIBLE void
 lws_uv_sigint_cb(uv_signal_t *watcher, int signum)
 {
-	lwsl_info("internal signal handler caught signal %d\n", signum);
+	lwsl_err("internal signal handler caught signal %d\n", signum);
 	lws_libuv_stop(watcher->data);
 }
 
@@ -156,8 +156,10 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 		return 1;
 #endif
 		pt->ev_loop_foreign = 0;
-	} else
+	} else {
+		lwsl_notice(" Using foreign event loop...\n");
 		pt->ev_loop_foreign = 1;
+	}
 
 	pt->io_loop_uv = loop;
 	uv_idle_init(loop, &pt->uv_idle);
@@ -183,16 +185,15 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 		if (vh->lserv_wsi) {
 			vh->lserv_wsi->w_read.context = context;
 			n = uv_poll_init_socket(pt->io_loop_uv,
-				     &vh->lserv_wsi->w_read.uv_watcher,
-				     vh->lserv_wsi->sock);
+						&vh->lserv_wsi->w_read.uv_watcher,
+						vh->lserv_wsi->sock);
 			if (n) {
 				lwsl_err("uv_poll_init failed %d, sockfd=%p\n",
 					n, (void *)(long)vh->lserv_wsi->sock);
 
 				return -1;
 			}
-			uv_poll_start(&vh->lserv_wsi->w_read.uv_watcher,
-				      UV_READABLE, lws_io_cb);
+			lws_libuv_io(vh->lserv_wsi, LWS_EV_START | LWS_EV_READ);
 		}
 		vh = vh->vhost_next;
 	}
@@ -203,12 +204,12 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 	return status;
 }
 
-void lws_uv_close_cb(uv_handle_t *handle)
+static void lws_uv_close_cb(uv_handle_t *handle)
 {
-
+	//lwsl_err("%s\n", __func__);
 }
 
-void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
+static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
 {
 	uv_close(handle, lws_uv_close_cb);
 }
@@ -217,7 +218,7 @@ void
 lws_libuv_destroyloop(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	int m;
+	int m, budget = 100;
 
 	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
 		return;
@@ -227,19 +228,39 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 
 	if (context->use_ev_sigint)
 		uv_signal_stop(&pt->w_sigint.uv_watcher);
-	for (m = 0; m < ARRAY_SIZE(sigs); m++)
+
+	for (m = 0; m < ARRAY_SIZE(sigs); m++) {
 		uv_signal_stop(&pt->signals[m]);
-	if (!pt->ev_loop_foreign) {
-		uv_stop(pt->io_loop_uv);
-		uv_walk(pt->io_loop_uv, lws_uv_walk_cb, NULL);
-		while (uv_run(pt->io_loop_uv, UV_RUN_NOWAIT));
-#if UV_VERSION_MAJOR > 0
-		m = uv_loop_close(pt->io_loop_uv);
-		if (m == UV_EBUSY)
-			lwsl_debug("%s: uv_loop_close: UV_EBUSY\n", __func__);
-#endif
-		lws_free(pt->io_loop_uv);
+		uv_close((uv_handle_t *)&pt->signals[m], lws_uv_close_cb);
 	}
+
+	uv_timer_stop(&pt->uv_timeout_watcher);
+	uv_close((uv_handle_t *)&pt->uv_timeout_watcher, lws_uv_close_cb);
+
+	uv_idle_stop(&pt->uv_idle);
+	uv_close((uv_handle_t *)&pt->uv_idle, lws_uv_close_cb);
+
+	while (budget-- && uv_run(pt->io_loop_uv, UV_RUN_NOWAIT))
+		;
+
+	if (!pt->ev_loop_foreign)
+		uv_stop(pt->io_loop_uv);
+
+	if (pt->ev_loop_foreign)
+		return;
+
+	uv_walk(pt->io_loop_uv, lws_uv_walk_cb, NULL);
+	if (pt->ev_loop_foreign)
+		return;
+
+	while (uv_run(pt->io_loop_uv, UV_RUN_NOWAIT))
+		;
+#if UV_VERSION_MAJOR > 0
+	m = uv_loop_close(pt->io_loop_uv);
+	if (m == UV_EBUSY)
+		lwsl_err("%s: uv_loop_close: UV_EBUSY\n", __func__);
+#endif
+	lws_free(pt->io_loop_uv);
 }
 
 void
@@ -335,9 +356,10 @@ lws_libuv_kill(const struct lws_context *context)
 	int n;
 
 	for (n = 0; n < context->count_threads; n++)
-		if (context->pt[n].io_loop_uv && LWS_LIBUV_ENABLED(context))
+		if (context->pt[n].io_loop_uv &&
+		    LWS_LIBUV_ENABLED(context) &&
+		    !context->pt[n].ev_loop_foreign)
 			uv_stop(context->pt[n].io_loop_uv);
-	// TODO uv_stop check foreign loop? or not?
 }
 
 /*

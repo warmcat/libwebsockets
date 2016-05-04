@@ -567,6 +567,10 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 						struct lws *wsi, int m)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+
+	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
+	lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
+
 	pt->fds_count--;
 }
 

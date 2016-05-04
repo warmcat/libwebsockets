@@ -20,6 +20,7 @@
  */
 
 #include "test-server.h"
+#include <uv.h>
 
 int close_testing;
 int max_poll_elements;
@@ -165,6 +166,7 @@ static struct option options[] = {
 	{ NULL, 0, 0, 0 }
 };
 
+#if UV_VERSION_MAJOR > 0
 /* ----- this code is only needed for foreign / external libuv tests -----*/
 struct counter
 {
@@ -211,11 +213,13 @@ static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
 }
 
 /* --- end of foreign test code ---- */
+#endif
 
 int main(int argc, char **argv)
 {
 	struct lws_context_creation_info info;
 	char interface_name[128] = "";
+#if UV_VERSION_MAJOR > 0
 /* --- only needed for foreign loop test ---> */
 	uv_loop_t loop;
 	uv_signal_t signal_outer;
@@ -223,6 +227,7 @@ int main(int argc, char **argv)
 	struct counter ctr;
 	int foreign_libuv_loop = 0;
 /* <--- only needed for foreign loop test --- */
+#endif
 	uv_timer_t timeout_watcher;
 	const char *iface = NULL;
 	char cert_path[1024];
@@ -250,7 +255,9 @@ int main(int argc, char **argv)
 			continue;
 		switch (n) {
 		case 'f':
+#if UV_VERSION_MAJOR > 0
 			foreign_libuv_loop = 1;
+#endif
 			break;
 		case 'e':
 			opts |= LWS_SERVER_OPTION_LIBEV;
@@ -356,6 +363,7 @@ int main(int argc, char **argv)
 	info.timeout_secs = 5;
 	info.options = opts | LWS_SERVER_OPTION_LIBUV;
 
+#if UV_VERSION_MAJOR > 0
 	if (foreign_libuv_loop) {
 		/* create the foreign loop */
 		uv_loop_init(&loop);
@@ -377,6 +385,7 @@ int main(int argc, char **argv)
 
 		/* timer will stop loop and we will get here */
 	}
+#endif
 
 	context = lws_create_context(&info);
 	if (context == NULL) {
@@ -386,10 +395,13 @@ int main(int argc, char **argv)
 
 	lws_uv_sigint_cfg(context, 1, signal_cb);
 
+#if UV_VERSION_MAJOR > 0
 	if (foreign_libuv_loop)
 		/* we have our own uv loop outside of lws */
 		lws_uv_initloop(context, &loop, 0);
-	else {
+	else
+#endif
+	{
 		/*
 		 * lws will create his own libuv loop in the context
 		 */
@@ -403,7 +415,7 @@ int main(int argc, char **argv)
 	uv_timer_init(lws_uv_getloop(context, 0), &timeout_watcher);
 	uv_timer_start(&timeout_watcher, uv_timeout_cb_dumb_increment, 50, 50);
 
-
+#if UV_VERSION_MAJOR > 0
 	if (foreign_libuv_loop) {
 		/*
 		 * prepare inner timer on loop, to run along with lws.
@@ -474,7 +486,9 @@ int main(int argc, char **argv)
 		lwsl_notice("uv loop close rc %s\n",
 			    e ? uv_strerror(e) : "ok");
 
-	} else {
+	} else
+#endif
+	{
 		lws_libuv_run(context, 0);
 
 bail:
