@@ -2305,6 +2305,11 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 	}
 #endif
 
+	/* general anti zombie defence */
+	n = waitpid(-1, &status, WNOHANG);
+	if (n > 0)
+		lwsl_notice("%s: anti-zombie wait says %d\n", __func__, n);
+
 	return 0;
 }
 #endif
