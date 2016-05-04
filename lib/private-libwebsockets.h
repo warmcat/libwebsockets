@@ -658,7 +658,8 @@ struct lws_vhost {
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *extensions;
 #endif
-	unsigned long rx, tx, conn, trans, ws_upgrades, http2_upgrades;
+	unsigned long long rx, tx;
+	unsigned long conn, trans, ws_upgrades, http2_upgrades;
 
 	int listen_port;
 	unsigned int http_proxy_port;
