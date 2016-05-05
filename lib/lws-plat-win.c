@@ -31,7 +31,10 @@ time_in_microseconds()
 time_t time(time_t *t)
 {
 	time_t ret = time_in_microseconds() / 1000000;
-	*t = ret;
+
+	if(t != NULL)
+		*t = ret;
+
 	return ret;
 }
 #endif
