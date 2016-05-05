@@ -1,8 +1,41 @@
 Changelog
 ---------
 
+v2.0.0
+======
+
+Summary
+-------
+
+ - There are only api additions, the api is compatible with v1.7.x.  But
+   there is necessarily an soname bump to 8.
+ 
+ - If you are using lws client, you mainly need to be aware the option
+   LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT is needed at context-creation time
+   if you will use SSL.
+   
+ - If you are using lws for serving, the above is also true but there are
+   many new features to simplify your code (and life).  There is a
+   summany online here
+   
+     https://libwebsockets.org/lws-2.0-new-features.html
+     
+   but basically the keywords are vhosts, mounts and plugins.  You can now
+   do the web serving part from lws without any user callback code at all.
+   See ./test-server/test-server-v2.0.c for an example, it has no user
+   code for ws either since it uses the protocol plugins... that one C file
+   is all that is needed to do the whole test server function.
+   
+   You now have the option to use a small generic ws-capable webserver
+   "lwsws" and write your ws part as a plugin.  That eliminates even
+   cut-and-pasting the test server code and offers more configurable
+   features like control over http cacheability in JSON.
+
+
 Fixes
 -----
+
+These are already in 1.7.x series
 
 1) MAJOR (Windows-only) fix assert firing
 
