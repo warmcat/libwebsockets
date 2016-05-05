@@ -229,7 +229,9 @@ static const char * get_mimetype(const char *file)
 int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 {
 	const char *mimetype;
+#ifndef _WIN32_WCE
 	struct stat st;
+#endif
 	char path[256], sym[256];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
@@ -240,6 +242,7 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 
 	snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
+#ifndef _WIN32_WCE
 	do {
 		spin++;
 
@@ -309,6 +312,7 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_ETAG,
 			(unsigned char *)sym, n, &p, end))
 		return -1;
+#endif
 
 	mimetype = get_mimetype(path);
 	if (!mimetype) {
