@@ -6,6 +6,9 @@ Fixes
 
 1) OpenSSL version tests not needed on LibreSSL and BoringSSL
 
+2) Fix IPV6 build breakage
+
+
 
 v2.0.0
 ======
