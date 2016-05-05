@@ -1,6 +1,12 @@
 Changelog
 ---------
 
+Fixes
+-----
+
+1) OpenSSL version tests not needed on LibreSSL and BoringSSL
+
+
 v2.0.0
 ======
 
