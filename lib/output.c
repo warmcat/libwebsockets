@@ -636,7 +636,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	int n;
 
 	n = recv(wsi->sock, (char *)buf, len, 0);
-	if (n > 0) {
+	if (n >= 0) {
 		if (wsi->vhost)
 			wsi->vhost->rx += n;
 		return n;
@@ -647,7 +647,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	    LWS_ERRNO == LWS_EINTR)
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 #endif
-	lwsl_debug("error on reading from skt\n");
+	lwsl_notice("error on reading from skt : %d\n", LWS_ERRNO);
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
