@@ -112,16 +112,17 @@ struct sockaddr_in;
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <basetsd.h>
 #ifndef _WIN32_WCE
+#include <stdint.h>
 #include <fcntl.h>
 #else
 #define _O_RDONLY	0x0000
 #define O_RDONLY	_O_RDONLY
 #endif
 
-#ifdef _WIN32_WCE
+// Visual studio older than 2015 and WIN_CE has only _stricmp
+#if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(_WIN32_WCE)
 #define strcasecmp _stricmp
 #else
 #define strcasecmp stricmp

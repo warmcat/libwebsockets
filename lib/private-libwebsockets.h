@@ -87,7 +87,7 @@
 #define __func__ __FUNCTION__
 #endif
 
-#ifdef _WIN32_WCE
+#if defined(_MSC_VER) || defined(_WIN32_WCE)
 #define vsnprintf _vsnprintf
 #else
 #ifdef LWS_HAVE__VSNPRINTF

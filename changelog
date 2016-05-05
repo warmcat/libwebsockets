@@ -8,6 +8,7 @@ Fixes
 
 2) Fix IPV6 build breakage
 
+3) Some fixes for WinCE build
 
 
 v2.0.0
