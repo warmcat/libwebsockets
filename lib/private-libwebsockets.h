@@ -678,6 +678,7 @@ struct lws_vhost {
 	int allow_non_ssl_on_ssl_port;
 	unsigned int user_supplied_ssl_ctx:1;
 #endif
+	unsigned char default_protocol_index;
 };
 
 /*

@@ -942,11 +942,14 @@ upgrade_ws:
 			/*
 			 * some clients only have one protocol and
 			 * do not send the protocol list header...
-			 * allow it and match to protocol 0
+			 * allow it and match to the vhost's default
+			 * protocol (which itself defaults to zero)
 			 */
-			lwsl_info("defaulting to prot 0 handler\n");
+			lwsl_info("defaulting to prot handler %d\n",
+				wsi->vhost->default_protocol_index);
 			n = 0;
-			wsi->protocol = &wsi->vhost->protocols[0];
+			wsi->protocol = &wsi->vhost->protocols[
+				      (int)wsi->vhost->default_protocol_index];
 		}
 
 		/* allocate wsi->user storage */
