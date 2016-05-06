@@ -91,6 +91,19 @@ static const struct lws_http_mount mount = {
 };
 
 /*
+ * this sets a per-vhost, per-protocol option name:value pair
+ * the effect is to set this protocol to be the default one for the vhost,
+ * ie, selected if no Protocol: header is sent with the ws upgrade.
+ */
+
+static const struct lws_protocol_vhost_options pvo_opt = {
+	NULL,
+	NULL,
+	"default",
+	"1"
+};
+
+/*
  * We must enable the plugin protocols we want into our vhost with a
  * linked-list.  We can also give the plugin per-vhost options here.
  */
@@ -111,7 +124,7 @@ static const struct lws_protocol_vhost_options pvo_1 = {
 
 static const struct lws_protocol_vhost_options pvo = {
 	&pvo_1,
-	NULL,
+	&pvo_opt,
 	"dumb-increment-protocol",
 	""
 };
