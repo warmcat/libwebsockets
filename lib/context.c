@@ -111,12 +111,14 @@ int
 lws_protocol_init(struct lws_context *context)
 {
 	struct lws_vhost *vh = context->vhost_list;
-	const struct lws_protocol_vhost_options *pvo;
+	const struct lws_protocol_vhost_options *pvo, *pvo1;
 	struct lws wsi;
 	int n;
 
 	memset(&wsi, 0, sizeof(wsi));
 	wsi.context = context;
+
+	lwsl_notice("%s\n", __func__);
 
 	while (vh) {
 		wsi.vhost = vh;
@@ -128,12 +130,32 @@ lws_protocol_init(struct lws_context *context)
 
 			pvo = lws_vhost_protocol_options(vh,
 							 vh->protocols[n].name);
-			if (pvo)
+			if (pvo) {
 				/*
 				 * linked list of options specific to
 				 * vh + protocol
 				 */
-				pvo = pvo->options;
+				pvo1 = pvo;
+				pvo = pvo1->options;
+
+				while (pvo) {
+					lwsl_notice("    vh %s prot %s opt %s\n",
+							vh->name,
+							vh->protocols[n].name,
+							pvo->name);
+
+					if (!strcmp(pvo->name, "default")) {
+						lwsl_notice("Setting default "
+						   "protocol for vh %s to %s\n",
+						   vh->name,
+						   vh->protocols[n].name);
+						vh->default_protocol_index = n;
+					}
+					pvo = pvo->next;
+				}
+
+				pvo = pvo1->options;
+			}
 
 			/*
 			 * inform all the protocols that they are doing their one-time

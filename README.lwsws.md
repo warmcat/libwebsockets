@@ -146,7 +146,7 @@ Vhosts can select which plugins they want to offer and give them per-vhost setti
 
 ```	
      "ws-protocols": [{
-       "warmcat,timezoom": {
+       "warmcat-timezoom": {
          "status": "ok"
        }
      }]
@@ -156,6 +156,19 @@ Vhosts can select which plugins they want to offer and give them per-vhost setti
 The "x":"y" parameters like "status":"ok" are made available to the protocol during its per-vhost
 LWS_CALLBACK_PROTOCOL_INIT (@in is a pointer to a linked list of struct lws_protocol_vhost_options
 containing the name and value pointers).
+
+To indicate that a protocol should be used when no Protocol: header is sent
+by the client, you can use "default": "1"
+
+```	
+     "ws-protocols": [{
+       "warmcat-timezoom": {
+         "status": "ok",
+         "default": "1"
+       }
+     }]
+
+```
 
 
 Other vhost options

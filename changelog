@@ -26,7 +26,8 @@ Fixes
 	.woff   application/font-woff
 	.xml    application/xml
 
-
+5) Allow per-vhost setting of which protocol should get used
+when the protocol: header is not sent by the client
 
 
 v2.0.0
