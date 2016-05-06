@@ -214,14 +214,29 @@ static const char * get_mimetype(const char *file)
 	if (!strcmp(&file[n - 4], ".jpg"))
 		return "image/jpeg";
 
+	if (!strcmp(&file[n - 3], ".gz"))
+		return "application/gzip";
+
+	if (!strcmp(&file[n - 4], ".JPG"))
+		return "image/jpeg";
+
 	if (!strcmp(&file[n - 5], ".html"))
 		return "text/html";
 
 	if (!strcmp(&file[n - 4], ".css"))
 		return "text/css";
 
+	if (!strcmp(&file[n - 4], ".txt"))
+		return "text/plain";
+
 	if (!strcmp(&file[n - 4], ".ttf"))
 		return "application/x-font-ttf";
+
+	if (!strcmp(&file[n - 5], ".woff"))
+		return "application/font-woff";
+
+	if (!strcmp(&file[n - 4], ".xml"))
+		return "application/xml";
 
 	return NULL;
 }

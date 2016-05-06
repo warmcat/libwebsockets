@@ -10,6 +10,24 @@ Fixes
 
 3) Some fixes for WinCE build
 
+4) Additional canned mimetypes for mounts, the full list is
+
+	.ico    image/x-icon
+	.gif    image/gif
+	.js     text/javascript
+	.png    image/png
+	.jpg    image/jpeg
+	.gz     application/gzip
+	.JPG    image/jpeg
+	.html   text/html
+	.css    text/css
+	.txt    text/plain
+	.ttf    application/x-font-ttf
+	.woff   application/font-woff
+	.xml    application/xml
+
+
+
 
 v2.0.0
 ======
