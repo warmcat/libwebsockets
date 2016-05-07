@@ -219,6 +219,25 @@ context.  After calling this, any further use of the context is
 undefined.
 </blockquote>
 <hr>
+<h2>lws_set_extension_option - </h2>
+<i>int</i>
+<b>lws_set_extension_option</b>
+(<i>struct lws *</i> <b>wsi</b>,
+<i>const char *</i> <b>ext_name</b>,
+<i>const char *</i> <b>opt_name</b>,
+<i>const char *</i> <b>opt_val</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>websocket connection
+<dt><b>ext_name</b>
+<dd>name of ext, like "permessage-deflate"
+<dt><b>opt_name</b>
+<dd>name of option, like "rx_buf_size"
+<dt><b>opt_val</b>
+<dd>value to set option to
+</dl>
+<hr>
 <h2>lws_return_http_status - Return simple http status</h2>
 <i>int</i>
 <b>lws_return_http_status</b>
@@ -324,6 +343,22 @@ using globals statics in the user code.
 <dd>Callback reason index
 </dl>
 <hr>
+<h2>lws_callback_all_protocol_vhost - Callback all connections using the given protocol with the given reason</h2>
+<i>int</i>
+<b>lws_callback_all_protocol_vhost</b>
+(<i>struct lws_vhost *</i> <b>vh</b>,
+<i>const struct lws_protocols *</i> <b>protocol</b>,
+<i>int</i> <b>reason</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>vh</b>
+<dd>Vhost whose connections will get callbacks
+<dt><b>protocol</b>
+<dd>Which protocol to match
+<dt><b>reason</b>
+<dd>Callback reason index
+</dl>
+<hr>
 <h2>lws_get_socket_fd - returns the socket file descriptor</h2>
 <i>int</i>
 <b>lws_get_socket_fd</b>
@@ -396,12 +431,10 @@ has been created.
 <h2>lws_set_proxy - Setups proxy to lws_context.</h2>
 <i>int</i>
 <b>lws_set_proxy</b>
-(<i>struct lws_context *</i> <b>context</b>,
+(<i>struct lws_vhost *</i> <b>vhost</b>,
 <i>const char *</i> <b>proxy</b>)
 <h3>Arguments</h3>
 <dl>
-<dt><b>context</b>
-<dd>pointer to struct lws_context you want set proxy to
 <dt><b>proxy</b>
 <dd>pointer to c string containing proxy in format address:port
 </dl>
@@ -543,14 +576,26 @@ and the leading / on the path is consequently lost
 <i>LWS_EXTERN int</i>
 <b>lws_cgi</b>
 (<i>struct lws *</i> <b>wsi</b>,
-<i>char *const *</i> <b>exec_array</b>,
-<i>int</i> <b>timeout_secs</b>)
+<i>const char *const *</i> <b>exec_array</b>,
+<i>int</i> <b>script_uri_path_len</b>,
+<i>int</i> <b>timeout_secs</b>,
+<i>const struct lws_protocol_vhost_options *</i> <b>mp_cgienv</b>)
 <h3>Arguments</h3>
 <dl>
 <dt><b>wsi</b>
 <dd>connection to own the process
 <dt><b>exec_array</b>
 <dd>array of "exec-name" "arg1" ... "argn" NULL
+</dl>
+<hr>
+<h2>lws_cgi_write_split_stdout_headers - </h2>
+<i>LWS_EXTERN int</i>
+<b>lws_cgi_write_split_stdout_headers</b>
+(<i>struct lws *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>connection to own the process
 </dl>
 <hr>
 <h2>lws_cgi_kill - </h2>
@@ -800,6 +845,25 @@ Many protocols won't care becuse their packets are always small.
 <dd>Websocket connection instance to get callback for
 </dl>
 <hr>
+<h2>lws_callback_on_writable_all_protocol_vhost - Request a callback for all connections using the given protocol when it becomes possible to write to each socket without blocking in turn.</h2>
+<i>int</i>
+<b>lws_callback_on_writable_all_protocol_vhost</b>
+(<i>const struct lws_vhost *</i> <b>vhost</b>,
+<i>const struct lws_protocols *</i> <b>protocol</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>vhost</b>
+<dd>Only consider connections on this lws_vhost
+<dt><b>protocol</b>
+<dd>Protocol whose connections will get callbacks
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+This calls back connections with the same protocol ON THE SAME
+VHOST ONLY.
+</blockquote>
+<hr>
 <h2>lws_callback_on_writable_all_protocol - Request a callback for all connections using the given protocol when it becomes possible to write to each socket without blocking in turn.</h2>
 <i>int</i>
 <b>lws_callback_on_writable_all_protocol</b>
@@ -812,6 +876,12 @@ Many protocols won't care becuse their packets are always small.
 <dt><b>protocol</b>
 <dd>Protocol whose connections will get callbacks
 </dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+This calls back any connection using the same protocol on ANY
+VHOST.
+</blockquote>
 <hr>
 <h2>lws_http_transaction_completed - wait for new http transaction or close</h2>
 <i>int LWS_WARN_UNUSED_RESULT</i>
@@ -1615,104 +1685,149 @@ header.
 &nbsp; &nbsp; <i>unsigned int</i> <b>fd_limit_per_thread</b>;<br>
 &nbsp; &nbsp; <i>unsigned int</i> <b>timeout_secs</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>ecdh_curve</b>;<br>
+&nbsp; &nbsp; <i>const char *</i> <b>vhost_name</b>;<br>
+&nbsp; &nbsp; <i>const char *const *</i> <b>plugin_dirs</b>;<br>
+&nbsp; &nbsp; <i>const struct lws_protocol_vhost_options *</i> <b>pvo</b>;<br>
+&nbsp; &nbsp; <i>int</i> <b>keepalive_timeout</b>;<br>
+&nbsp; &nbsp; <i>const char *</i> <b>log_filepath</b>;<br>
+&nbsp; &nbsp; <i>const struct lws_http_mount *</i> <b>mounts</b>;<br>
+&nbsp; &nbsp; <i>const char *</i> <b>server_string</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
 <dt><b>port</b>
-<dd>Port to listen on... you can use CONTEXT_PORT_NO_LISTEN to
+<dd>VHOST: Port to listen on... you can use CONTEXT_PORT_NO_LISTEN to
 suppress listening on any port, that's what you want if you are
 not running a websocket server at all but just using it as a
 client
 <dt><b>iface</b>
-<dd>NULL to bind the listen socket to all interfaces, or the
+<dd>VHOST: NULL to bind the listen socket to all interfaces, or the
 interface name, eg, "eth2"
+If options specifies LWS_SERVER_OPTION_UNIX_SOCK, this member is
+the pathname of a UNIX domain socket. you can use the UNIX domain
+sockets in abstract namespace, by prepending an @ symbole to the
+socket name.
 <dt><b>protocols</b>
-<dd>Array of structures listing supported protocols and a protocol-
+<dd>VHOST: Array of structures listing supported protocols and a protocol-
 specific callback for each one.  The list is ended with an
 entry that has a NULL callback pointer.
 It's not const because we write the owning_server member
 <dt><b>extensions</b>
-<dd>NULL or array of lws_extension structs listing the
+<dd>VHOST: NULL or array of lws_extension structs listing the
 extensions this context supports.  If you configured with
 --without-extensions, you should give NULL here.
 <dt><b>token_limits</b>
-<dd>NULL or struct lws_token_limits pointer which is initialized
+<dd>CONTEXT: NULL or struct lws_token_limits pointer which is initialized
 with a token length limit for each possible WSI_TOKEN_***
 <dt><b>ssl_cert_filepath</b>
-<dd>If libwebsockets was compiled to use ssl, and you want
+<dd>VHOST: If libwebsockets was compiled to use ssl, and you want
 to listen using SSL, set to the filepath to fetch the
 server cert from, otherwise NULL for unencrypted
 <dt><b>ssl_private_key_filepath</b>
-<dd>filepath to private key if wanting SSL mode;
+<dd>VHOST: filepath to private key if wanting SSL mode;
 if this is set to NULL but sll_cert_filepath is set, the
 OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called
 to allow setting of the private key directly via openSSL
 library calls
 <dt><b>ssl_ca_filepath</b>
-<dd>CA certificate filepath or NULL
+<dd>VHOST: CA certificate filepath or NULL
 <dt><b>ssl_cipher_list</b>
-<dd>List of valid ciphers to use (eg,
+<dd>VHOST: List of valid ciphers to use (eg,
 "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
 or you can leave it as NULL to get "DEFAULT"
 <dt><b>http_proxy_address</b>
-<dd>If non-NULL, attempts to proxy via the given address.
+<dd>VHOST: If non-NULL, attempts to proxy via the given address.
 If proxy auth is required, use format
 "username:password<tt><b>server</b></tt>:port"
 <dt><b>http_proxy_port</b>
-<dd>If http_proxy_address was non-NULL, uses this port at
+<dd>VHOST: If http_proxy_address was non-NULL, uses this port at
 the address
 <dt><b>gid</b>
-<dd>group id to change to after setting listen socket, or -1.
+<dd>CONTEXT: group id to change to after setting listen socket, or -1.
 <dt><b>uid</b>
-<dd>user id to change to after setting listen socket, or -1.
+<dd>CONTEXT: user id to change to after setting listen socket, or -1.
 <dt><b>options</b>
-<dd>0, or LWS_SERVER_OPTION_... bitfields
+<dd>VHOST + CONTEXT: 0, or LWS_SERVER_OPTION_... bitfields
 <dt><b>user</b>
-<dd>optional user pointer that can be recovered via the context
+<dd>CONTEXT: optional user pointer that can be recovered via the context
 pointer using lws_context_user
 <dt><b>ka_time</b>
-<dd>0 for no keepalive, otherwise apply this keepalive timeout to
+<dd>CONTEXT: 0 for no keepalive, otherwise apply this keepalive timeout to
 all libwebsocket sockets, client or server
 <dt><b>ka_probes</b>
-<dd>if ka_time was nonzero, after the timeout expires how many
+<dd>CONTEXT: if ka_time was nonzero, after the timeout expires how many
 times to try to get a response from the peer before giving up
 and killing the connection
 <dt><b>ka_interval</b>
-<dd>if ka_time was nonzero, how long to wait before each ka_probes
+<dd>CONTEXT: if ka_time was nonzero, how long to wait before each ka_probes
 attempt
 <dt><b>provided_client_ssl_ctx</b>
-<dd>If non-null, swap out libwebsockets ssl
+<dd>CONTEXT: If non-null, swap out libwebsockets ssl
 implementation for the one provided by provided_ssl_ctx.
 Libwebsockets no longer is responsible for freeing the context
 if this option is selected.
 <dt><b>provided_client_ssl_ctx</b>
-<dd>If non-null, swap out libwebsockets ssl
+<dd>CONTEXT: If non-null, swap out libwebsockets ssl
 implementation for the one provided by provided_ssl_ctx.
 Libwebsockets no longer is responsible for freeing the context
 if this option is selected.
 <dt><b>max_http_header_data</b>
-<dd>The max amount of header payload that can be handled
+<dd>CONTEXT: The max amount of header payload that can be handled
 in an http request (unrecognized header payload is dropped)
 <dt><b>max_http_header_pool</b>
-<dd>The max number of connections with http headers that
+<dd>CONTEXT: The max number of connections with http headers that
 can be processed simultaneously (the corresponding memory is
 allocated for the lifetime of the context).  If the pool is
 busy new incoming connections must wait for accept until one
 becomes free.
 <dt><b>count_threads</b>
-<dd>how many contexts to create in an array, 0 = 1
+<dd>CONTEXT: how many contexts to create in an array, 0 = 1
 <dt><b>fd_limit_per_thread</b>
-<dd>nonzero means restrict each service thread to this
+<dd>CONTEXT: nonzero means restrict each service thread to this
 many fds, 0 means the default which is divide the process fd
 limit by the number of threads.
 <dt><b>timeout_secs</b>
-<dd>various processes involving network roundtrips in the
+<dd>VHOST: various processes involving network roundtrips in the
 library are protected from hanging forever by timeouts.  If
 nonzero, this member lets you set the timeout used in seconds.
 Otherwise a default timeout is used.
 <dt><b>ecdh_curve</b>
-<dd>if NULL, defaults to initializing server with "prime256v1"
+<dd>VHOST: if NULL, defaults to initializing server with "prime256v1"
+<dt><b>vhost_name</b>
+<dd>VHOST: name of vhost, must match external DNS name used to
+access the site, like "warmcat.com" as it's used to match
+<dt><b>plugin_dirs</b>
+<dd>CONTEXT: NULL, or NULL-terminated array of directories to
+scan for lws protocol plugins at context creation time
+<dt><b>pvo</b>
+<dd>VHOST: pointer to optional linked list of per-vhost
+options made accessible to protocols
+<dt><b>keepalive_timeout</b>
+<dd>VHOST: (default = 0 = 60s) seconds to allow remote
+client to hold on to an idle HTTP/1.1 connection
+<dt><b>log_filepath</b>
+<dd>VHOST: filepath to append logs to... this is opened before
+any dropping of initial privileges
+<dt><b>mounts</b>
+<dd>VHOST: optional linked list of mounts for this vhost
+<dt><b>server_string</b>
+<dd>CONTEXT: string used in HTTP headers to identify server
+software, if NULL, "libwebsockets".
 </dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+This is also used to create vhosts.... if LWS_SERVER_OPTION_EXPLICIT_VHOSTS
+is not given, then for backwards compatibility one vhost is created at
+context-creation time using the info from this struct.
+<p>
+If LWS_SERVER_OPTION_EXPLICIT_VHOSTS is given, then no vhosts are created
+at the same time as the context, they are expected to be created afterwards.
+</blockquote>
+<h3>Host</h3>
+<blockquote>
+header and / or SNI name for SSL.
+</blockquote>
 <hr>
 <h2>struct lws_client_connect_info - parameters to connect with when using lws_client_connect_via_info()</h2>
 <b>struct lws_client_connect_info</b> {<br>
@@ -1728,6 +1843,10 @@ Otherwise a default timeout is used.
 &nbsp; &nbsp; <i>void *</i> <b>userdata</b>;<br>
 &nbsp; &nbsp; <i>const struct lws_extension *</i> <b>client_exts</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>method</b>;<br>
+&nbsp; &nbsp; <i>struct lws *</i> <b>parent_wsi</b>;<br>
+&nbsp; &nbsp; <i>const char *</i> <b>uri_replace_from</b>;<br>
+&nbsp; &nbsp; <i>const char *</i> <b>uri_replace_to</b>;<br>
+&nbsp; &nbsp; <i>struct lws_vhost *</i> <b>vhost</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
@@ -1756,6 +1875,17 @@ Otherwise a default timeout is used.
 <dt><b>method</b>
 <dd>if non-NULL, do this http method instead of ws[s] upgrade.
 use "GET" to be a simple http client connection
+<dt><b>parent_wsi</b>
+<dd>if another wsi is responsible for this connection, give it here.
+this is used to make sure if the parent closes so do any
+child connections first.
+<dt><b>uri_replace_from</b>
+<dd>if non-NULL, when this string is found in URIs in
+text/html content-encoding, it's replaced with <tt><b>uri_replace_to</b></tt>
+<dt><b>uri_replace_to</b>
+<dd>see above
+<dt><b>vhost</b>
+<dd>vhost to bind to (used to determine related SSL_CTX)
 </dl>
 <hr>
 <h2>lws_close_reason - Set reason and aux data to send with Close packet If you are going to return nonzero from the callback requesting the connection to close, you can optionally call this to set the reason the peer will be told if possible.</h2>
