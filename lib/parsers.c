@@ -635,7 +635,9 @@ lws_parse(struct lws *wsi, unsigned char c)
 				goto swallow;
 			}
 			/* uriencoded = in the name part, disallow */
-			if (c == '=' && enc && !wsi->u.hdr.post_literal_equal)
+			if (c == '=' && enc &&
+			    ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] &&
+			    !wsi->u.hdr.post_literal_equal)
 				c = '_';
 
 			/* after the real =, we don't care how many = */

@@ -50,6 +50,14 @@ function check {
 		fi
 	fi
 
+	if [ "$1" == "0" ] ; then
+		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep "get\ \ =" | tr -s ' ' | cut -d' ' -f4-`"
+		if [ "$a" != "$2" ] ; then
+			echo "URL path '$a' not $2"
+			exit 1
+		fi
+	fi
+
 	if [ "$1" == "1" ] ; then
 		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 1\: | tr -s ' ' | cut -d' ' -f5-`"
 		if [ "$a" != "$2" ] ; then
@@ -106,9 +114,10 @@ check 1 "key1=value1"
 check
 
 echo
-echo "---- ? processing (/test?key1%3d2=value1)"
+echo "---- ? processing (/t%3dest?key1%3d2=value1)"
 rm -f /tmp/lwscap
-echo -e "GET /test?key1%3d2=value1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e "GET /t%3dest?key1%3d2=value1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+check 0 "/t=est"
 check 1 "key1_2=value1"
 check
 
