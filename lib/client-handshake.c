@@ -163,6 +163,7 @@ lws_client_connect_2(struct lws *wsi)
 		wsi->mode = LWSCM_WSCL_WAITING_CONNECT;
 
 		lws_libev_accept(wsi, wsi->sock);
+		lws_libuv_accept(wsi, wsi->sock);
 		if (insert_wsi_socket_into_fds(context, wsi)) {
 			compatible_close(wsi->sock);
 			goto oom4;
@@ -271,6 +272,7 @@ lws_client_connect_2(struct lws *wsi)
 
 	wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE;
 	pfd.fd = wsi->sock;
+	pfd.events = LWS_POLLIN;
 	pfd.revents = LWS_POLLIN;
 
 	n = lws_service_fd(context, &pfd);
@@ -475,6 +477,9 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	struct lws *wsi;
 	int v = SPEC_LATEST_SUPPORTED;
 
+	if (i->context->requested_kill)
+		return NULL;
+
 	wsi = lws_zalloc(sizeof(struct lws));
 	if (wsi == NULL)
 		goto bail;
@@ -566,10 +571,10 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	/* if we went on the waiting list, no probs just return the wsi
 	 * when we get the ah, now or later, he will call
-	 * lws_client_connect_via_info2() below
+	 * lws_client_connect_via_info2() below.
 	 */
-	if (lws_header_table_attach(wsi, 0))
-		lwsl_debug("%s: went on ah wait list\n", __func__);
+	if (lws_header_table_attach(wsi, 0) < 0)
+		return NULL;
 
 	if (i->parent_wsi) {
 		lwsl_info("%s: created child %p of parent %p\n", __func__,
