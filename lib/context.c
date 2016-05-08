@@ -703,7 +703,7 @@ lws_context_destroy(struct lws_context *context)
 {
 	const struct lws_protocols *protocol = NULL;
 	struct lws_context_per_thread *pt;
-	struct lws_vhost *vh, *vh1;
+	struct lws_vhost *vh = NULL, *vh1;
 	struct lws wsi;
 	int n, m;
 
@@ -754,7 +754,8 @@ lws_context_destroy(struct lws_context *context)
 	 *
 	 * We can't free things until after the event loop shuts down.
 	 */
-	vh = context->vhost_list;
+	if (context->protocol_init_done)
+		vh = context->vhost_list;
 	while (vh) {
 		wsi.vhost = vh;
 		protocol = vh->protocols;
