@@ -187,7 +187,11 @@ reset:
 
 #ifndef LWS_NO_CLIENT
 	if (wsi->state == LWSS_CLIENT_UNCONNECTED)
-		lws_client_connect_via_info2(wsi);
+		if (!lws_client_connect_via_info2(wsi))
+			/* our client connect has failed, the wsi
+			 * has been closed
+			 */
+			return -1;
 #endif
 
 	return 0;
@@ -300,7 +304,14 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 
 #ifndef LWS_NO_CLIENT
 	if (wsi->state == LWSS_CLIENT_UNCONNECTED)
-		lws_client_connect_via_info2(wsi);
+		if (!lws_client_connect_via_info2(wsi)) {
+			/* our client connect has failed, the wsi
+			 * has been closed
+			 */
+			lws_pt_unlock(pt);
+
+			return -1;
+		}
 #endif
 
 	assert(!!pt->ah_wait_list_length == !!(int)(long)pt->ah_wait_list);
