@@ -133,6 +133,9 @@ lws_uv_timeout_cb(uv_timer_t *timer
 	struct lws_context_per_thread *pt = lws_container_of(timer,
 			struct lws_context_per_thread, uv_timeout_watcher);
 
+	if (pt->context->requested_kill)
+		return;
+
 	lwsl_debug("%s\n", __func__);
 
 	lws_service_fd_tsi(pt->context, NULL, pt->tid);
@@ -199,14 +202,14 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 	}
 
 	uv_timer_init(pt->io_loop_uv, &pt->uv_timeout_watcher);
-	uv_timer_start(&pt->uv_timeout_watcher, lws_uv_timeout_cb, 1000, 1000);
+	uv_timer_start(&pt->uv_timeout_watcher, lws_uv_timeout_cb, 10, 1000);
 
 	return status;
 }
 
 static void lws_uv_close_cb(uv_handle_t *handle)
 {
-	//lwsl_err("%s\n", __func__);
+	//lwsl_err("%s: handle %p\n", __func__, handle);
 }
 
 static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
@@ -226,12 +229,13 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 	if (!pt->io_loop_uv)
 		return;
 
-	if (context->use_ev_sigint)
+	if (context->use_ev_sigint) {
 		uv_signal_stop(&pt->w_sigint.uv_watcher);
 
-	for (m = 0; m < ARRAY_SIZE(sigs); m++) {
-		uv_signal_stop(&pt->signals[m]);
-		uv_close((uv_handle_t *)&pt->signals[m], lws_uv_close_cb);
+		for (m = 0; m < ARRAY_SIZE(sigs); m++) {
+			uv_signal_stop(&pt->signals[m]);
+			uv_close((uv_handle_t *)&pt->signals[m], lws_uv_close_cb);
+		}
 	}
 
 	uv_timer_stop(&pt->uv_timeout_watcher);
@@ -243,15 +247,12 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 	while (budget-- && uv_run(pt->io_loop_uv, UV_RUN_NOWAIT))
 		;
 
-	if (!pt->ev_loop_foreign)
-		uv_stop(pt->io_loop_uv);
-
 	if (pt->ev_loop_foreign)
 		return;
+
+	uv_stop(pt->io_loop_uv);
 
 	uv_walk(pt->io_loop_uv, lws_uv_walk_cb, NULL);
-	if (pt->ev_loop_foreign)
-		return;
 
 	while (uv_run(pt->io_loop_uv, UV_RUN_NOWAIT))
 		;
@@ -296,7 +297,7 @@ lws_libuv_io(struct lws *wsi, int flags)
 	if (!LWS_LIBUV_ENABLED(context))
 		return;
 
-	lwsl_debug("%s: wsi: %p, flags:0x%x\n", __func__, wsi, flags);
+	// lwsl_notice("%s: wsi: %p, flags:0x%x\n", __func__, wsi, flags);
 
 	if (!pt->io_loop_uv) {
 		lwsl_info("%s: no io loop yet\n", __func__);
@@ -374,6 +375,9 @@ lws_libuv_stop(struct lws_context *context)
 {
 	struct lws_context_per_thread *pt;
 	int n, m;
+
+	if (context->requested_kill)
+		return;
 
 	context->requested_kill = 1;
 
@@ -539,7 +543,7 @@ lws_plat_plugins_destroy(struct lws_context * context)
 	if (!plugin)
 		return 0;
 
-	lwsl_notice("%s\n", __func__);
+	// lwsl_notice("%s\n", __func__);
 
 	while (plugin) {
 		p = plugin;
