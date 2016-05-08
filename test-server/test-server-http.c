@@ -407,6 +407,8 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lwsl_notice("LWS_CALLBACK_HTTP_BODY: len %d\n", (int)len);
 		strncpy(pss->post_string, in, sizeof (pss->post_string) -1);
 		pss->post_string[sizeof(pss->post_string) - 1] = '\0';
+		if (len < sizeof(pss->post_string) - 1)
+			pss->post_string[len] = '\0';
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
