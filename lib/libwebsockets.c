@@ -2368,6 +2368,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 		"cgi://",
 		">http://",
 		">https://",
+		"callback://"
 	};
 	char *orig = buf, *end = buf + len - 1, first = 1;
 	int n = 0;

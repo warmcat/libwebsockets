@@ -47,6 +47,7 @@ static const char * const mount_protocols[] = {
 	"cgi://",
 	">http://",
 	">https://",
+	"callback://"
 };
 
 LWS_VISIBLE void *

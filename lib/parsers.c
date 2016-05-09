@@ -82,7 +82,7 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 	ah->rxlen = 0;
 
 	/* since we will restart the ah, our new headers are not completed */
-	wsi->hdr_parsing_completed = 0;
+	// wsi->hdr_parsing_completed = 0;
 
 	/*
 	 * if we inherited pending rx (from socket adoption deferred

@@ -1216,6 +1216,8 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			      "plugins/protocol_lws_mirror.c")
 		create_plugin(protocol_lws_status
 			      "plugins/protocol_lws_status.c")
+		create_plugin(protocol_post_demo
+			      "plugins/protocol_post_demo.c")
 if (LWS_WITH_SERVER_STATUS)
 		create_plugin(protocol_lws_server_status
 			      "plugins/protocol_lws_server_status.c")

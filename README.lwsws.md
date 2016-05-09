@@ -256,7 +256,25 @@ Other mount options
 	"cgi-timeout": "30"
 ```
 
-3) Cache policy of the files in the mount can also be set.  If no
+3) `callback://` protocol may be used when defining a mount to associate a
+named protocol callback with the URL namespace area.  For example
+
+```
+       {
+        "mountpoint": "/formtest",
+        "origin": "callback://protocol-post-demo"
+       }
+```
+
+All handling of client access to /formtest[anything] will be passed to the
+callback registered to the protocol "protocol-post-demo".
+
+This is useful for handling POST http body content or general non-cgi http
+payload generation inside a plugin.
+
+See the related notes in README.coding.md
+
+4) Cache policy of the files in the mount can also be set.  If no
 options are given, the content is marked uncacheable.
 
        {

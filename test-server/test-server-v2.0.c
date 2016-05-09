@@ -70,13 +70,32 @@ static const struct lws_extension exts[] = {
 };
 
 /*
+ * mount a handler for a section of the URL space
+ */
+
+static const struct lws_http_mount mount_post = {
+	NULL,		/* linked-list pointer to next*/
+	"/formtest",		/* mountpoint in URL namespace on this vhost */
+	"protocol-post-demo",	/* handler */
+	NULL,	/* default filename if none given */
+	NULL,
+	0,
+	0,
+	0,
+	0,
+	0,
+	LWSMPRO_CALLBACK,	/* origin points to a callback */
+	9,			/* strlen("/formtest"), ie length of the mountpoint */
+};
+
+/*
  * mount a filesystem directory into the URL space at /
  * point it to our /usr/share directory with our assets in
  * stuff from here is autoserved by the library
  */
 
 static const struct lws_http_mount mount = {
-	NULL,		/* linked-list pointer to next, but we only have one */
+	(struct lws_http_mount *)&mount_post,		/* linked-list pointer to next*/
 	"/",		/* mountpoint in URL namespace on this vhost */
 	LOCAL_RESOURCE_PATH, /* where to go on the filesystem for that */
 	"test.html",	/* default filename if none given */
@@ -108,8 +127,15 @@ static const struct lws_protocol_vhost_options pvo_opt = {
  * linked-list.  We can also give the plugin per-vhost options here.
  */
 
-static const struct lws_protocol_vhost_options pvo_2 = {
+static const struct lws_protocol_vhost_options pvo_3 = {
 	NULL,
+	NULL,
+	"protocol-post-demo",
+	"" /* ignored, just matches the protocol name above */
+};
+
+static const struct lws_protocol_vhost_options pvo_2 = {
+	&pvo_3,
 	NULL,
 	"lws-status",
 	"" /* ignored, just matches the protocol name above */
@@ -160,7 +186,6 @@ static const struct option options[] = {
 	{ "ssl-crl",  required_argument,		NULL, 'R' },
 #endif
 #endif
-	{ "libev",  no_argument,		NULL, 'e' },
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize", 	no_argument,		NULL, 'D' },
 #endif
@@ -200,13 +225,10 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "ei:hsap:d:Dr:C:K:A:R:vu:g:", options, NULL);
+		n = getopt_long(argc, argv, "i:hsap:d:Dr:C:K:A:R:vu:g:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
-		case 'e':
-			opts |= LWS_SERVER_OPTION_LIBEV;
-			break;
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;

@@ -579,9 +579,10 @@ lws_http_action(struct lws *wsi)
 		     uri_ptr[hm->mountpoint_len] == '/' ||
 		     hm->mountpoint_len == 1)
 		    ) {
-			if ((hm->origin_protocol == LWSMPRO_CGI ||
+			if (hm->origin_protocol == LWSMPRO_CALLBACK ||
+			    ((hm->origin_protocol == LWSMPRO_CGI ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) &&
-			    hm->mountpoint_len > best) {
+			    hm->mountpoint_len > best)) {
 				best = hm->mountpoint_len;
 				hit = hm;
 			}
@@ -609,9 +610,13 @@ lws_http_action(struct lws *wsi)
 		 * / at the end, we must redirect to add it so the browser
 		 * understands he is one "directory level" down.
 		 */
-		if ((hit->mountpoint_len > 1 || (hit->origin_protocol & 4)) &&
-		    (*s != '/' || (hit->origin_protocol & 4)) &&
-		    (hit->origin_protocol != LWSMPRO_CGI)) {
+		if ((hit->mountpoint_len > 1 ||
+		     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+		      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
+		    (*s != '/' ||
+		     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+		      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
+		    (hit->origin_protocol != LWSMPRO_CGI && hit->origin_protocol != LWSMPRO_CALLBACK)) {
 			unsigned char *start = pt->serv_buf + LWS_PRE,
 					      *p = start, *end = p + 512;
 			static const char *oprot[] = {
@@ -641,6 +646,50 @@ lws_http_action(struct lws *wsi)
 
 			return lws_http_transaction_completed(wsi);
 		}
+
+		/*
+		 * A particular protocol callback is mounted here?
+		 *
+		 * For the duration of this http transaction, bind us to the
+		 * associated protocol
+		 */
+		if (hit->origin_protocol == LWSMPRO_CALLBACK) {
+
+			for (n = 0; n < wsi->vhost->count_protocols; n++)
+				if (!strcmp(wsi->vhost->protocols[n].name,
+					   hit->origin)) {
+
+					if (wsi->protocol != &wsi->vhost->protocols[n])
+						if (!wsi->user_space_externally_allocated)
+							lws_free_set_NULL(wsi->user_space);
+					wsi->protocol = &wsi->vhost->protocols[n];
+					if (lws_ensure_user_space(wsi)) {
+						lwsl_err("Unable to allocate user space\n");
+
+						return 1;
+					}
+					break;
+				}
+
+			if (n == wsi->vhost->count_protocols) {
+				n = -1;
+				lwsl_err("Unable to find plugin '%s'\n",
+					 hit->origin);
+			}
+
+			n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+						    wsi->user_space, uri_ptr, uri_len);
+
+			goto after;
+		}
+
+		/* deferred cleanup and reset to protocols[0] */
+
+		if (wsi->protocol != &wsi->vhost->protocols[0])
+			if (!wsi->user_space_externally_allocated)
+				lws_free_set_NULL(wsi->user_space);
+
+		wsi->protocol = &wsi->vhost->protocols[0];
 
 #ifdef LWS_WITH_CGI
 		/* did we hit something with a cgi:// origin? */
@@ -699,10 +748,18 @@ lws_http_action(struct lws *wsi)
 			n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 					    wsi->user_space, uri_ptr, uri_len);
 		}
-	} else
+	} else {
+		/* deferred cleanup and reset to protocols[0] */
+
+		if (wsi->protocol != &wsi->vhost->protocols[0])
+			if (!wsi->user_space_externally_allocated)
+				lws_free_set_NULL(wsi->user_space);
+		wsi->protocol = &wsi->vhost->protocols[0];
+
 		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
-
+	}
+after:
 	if (n) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
 
@@ -1185,6 +1242,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	/* otherwise set ourselves up ready to go again */
 	wsi->state = LWSS_HTTP;
 	wsi->mode = LWSCM_HTTP_SERVING;
+	/* reset of non [0] protocols (and freeing of user_space) is deferred */
 	wsi->u.http.content_length = 0;
 	wsi->hdr_parsing_completed = 0;
 #ifdef LWS_WITH_ACCESS_LOG

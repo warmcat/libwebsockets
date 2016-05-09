@@ -277,6 +277,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			"cgi://",
 			">http://",
 			">https://",
+			"callback://"
 		};
 
 		if (!a->m.mountpoint || !a->m.origin) {

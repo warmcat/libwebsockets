@@ -542,11 +542,64 @@ enum {
 	LWSMPRO_CGI,
 	LWSMPRO_REDIR_HTTP,
 	LWSMPRO_REDIR_HTTPS,
+	LWSMPRO_CALLBACK,
 };
 ```
 
 LWSMPRO_FILE is used for mapping url namespace to a filesystem directory and
 serve it automatically.
 
+LWSMPRO_CGI associates the url namespace with the given CGI executable, which
+runs when the URL is accessed and the output provided to the client.
+
+LWSMPRO_REDIR_HTTP and LWSMPRO_REDIR_HTTPS auto-redirect clients to the given
+origin URL.
+
+LWSMPRO_CALLBACK causes the http connection to attach to the callback
+associated with the named protocol (which may be a plugin).
 
 
+Operation of LWSMPRO_CALLBACK mounts
+------------------------------------
+
+The feature provided by CALLBACK type mounts is binding a part of the URL
+namespace to a named protocol callback handler.
+
+This allows protocol plugins to handle areas of the URL namespace.  For example
+in test-server-v2.0.c, the URL area "/formtest" is associated with the plugin
+providing "protocol-post-demo" like this
+
+```
+static const struct lws_http_mount mount_post = {
+	NULL,		/* linked-list pointer to next*/
+	"/formtest",		/* mountpoint in URL namespace on this vhost */
+	"protocol-post-demo",	/* handler */
+	NULL,	/* default filename if none given */
+	NULL,
+	0,
+	0,
+	0,
+	0,
+	0,
+	LWSMPRO_CALLBACK,	/* origin points to a callback */
+	9,			/* strlen("/formtest"), ie length of the mountpoint */
+};
+```
+
+Client access to /formtest[anything] will be passed to the callback registered
+with the named protocol, which in this case is provided by a protocol plugin.
+
+Access by all methods, eg, GET and POST are handled by the callback.
+
+protocol-post-demo deals with accepting and responding to the html form that
+is in the test server HTML.
+
+When a connection accesses a URL related to a CALLBACK type mount, the
+connection protocol is changed until the next access on the connection to a
+URL outside the same CALLBACK mount area.  User space on the connection is
+arranged to be the size of the new protocol user space allocation as given in
+the protocol struct.
+
+This allocation is only deleted / replaced when the connection accesses a
+URL region with a different protocol (or the default protocols[0] if no
+CALLBACK area matches it).
