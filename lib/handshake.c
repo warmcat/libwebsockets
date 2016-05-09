@@ -211,7 +211,7 @@ postbody_completion:
 					goto bail;
 			}
 
-			goto http_complete;
+			break;
 		}
 		break;
 
@@ -240,20 +240,6 @@ read_ok:
 	lwsl_info("%s: read_ok, used %d\n", __func__, buf - oldbuf);
 
 	return buf - oldbuf;
-
-http_complete:
-	lwsl_debug("%s: http_complete\n", __func__);
-
-#ifndef LWS_NO_SERVER
-	/* Did the client want to keep the HTTP connection going? */
-	if (lws_http_transaction_completed(wsi))
-		goto bail;
-#endif
-	/* we may have next header set already, but return to event loop first
-	 * so a heaily-pipelined http/1.1 connection cannot monopolize the
-	 * service thread with GET hugefile.bin GET hugefile.bin etc
-	 */
-	goto read_ok;
 
 bail:
 	lwsl_debug("closing connection at lws_read bail:\n");
