@@ -809,7 +809,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 				goto upgrade_h2c;
 			}
 #endif
-			lwsl_err("Unknown upgrade\n");
+			lwsl_info("Unknown upgrade\n");
 			/* dunno what he wanted to upgrade to */
 			goto bail_nuke_ah;
 		}
@@ -835,11 +835,11 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 #ifdef LWS_USE_HTTP2
 upgrade_h2c:
 		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP2_SETTINGS)) {
-			lwsl_err("missing http2_settings\n");
+			lwsl_info("missing http2_settings\n");
 			goto bail_nuke_ah;
 		}
 
-		lwsl_err("h2c upgrade...\n");
+		lwsl_info("h2c upgrade...\n");
 
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP2_SETTINGS);
 		/* convert the peer's HTTP-Settings */
@@ -935,7 +935,7 @@ upgrade_ws:
 
 		if (!hit) {
 			if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
-				lwsl_err("No protocol from \"%s\" supported\n",
+				lwsl_info("No protocol from \"%s\" supported\n",
 					 protocol_list);
 				goto bail_nuke_ah;
 			}
@@ -983,7 +983,7 @@ upgrade_ws:
 			break;
 
 		default:
-			lwsl_warn("Unknown client spec version %d\n",
+			lwsl_info("Unknown client spec version %d\n",
 				  wsi->ietf_spec_revision);
 			goto bail_nuke_ah;
 		}
