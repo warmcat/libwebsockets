@@ -32,7 +32,7 @@ static char *config_dir = "/etc/lwsws/conf.d";
  * strings and objects from the config file parsing are created here
  */
 #define LWSWS_CONFIG_STRING_SIZE (32 * 1024)
-char config_strings[LWSWS_CONFIG_STRING_SIZE];
+char *config_strings;
 
 /* singlethreaded version --> no locks */
 
@@ -107,8 +107,8 @@ void signal_cb(uv_signal_t *watcher, int signum)
 int main(int argc, char **argv)
 {
 	struct lws_context_creation_info info;
-	char *cs = config_strings;
-	int opts = 0, cs_len = sizeof(config_strings) - 1;
+	char *cs;
+	int opts = 0, cs_len = LWSWS_CONFIG_STRING_SIZE - 1;
 	int n = 0;
 #ifndef _WIN32
 	int syslog_options = LOG_PID | LOG_PERROR;
@@ -172,6 +172,12 @@ int main(int argc, char **argv)
 	lwsl_notice("lwsws libwebsockets web server - license GPL2.1\n");
 	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
 
+	cs = config_strings = malloc(LWSWS_CONFIG_STRING_SIZE);
+	if (!config_strings) {
+		lwsl_err("Unable to allocate config strings heap\n");
+		return -1;
+	}
+
 	memset(&info, 0, sizeof(info));
 
 	info.max_http_header_pool = 16;
@@ -186,12 +192,12 @@ int main(int argc, char **argv)
 	 *  first go through the config for creating the outer context
 	 */
 	if (lwsws_get_config_globals(&info, config_dir, &cs, &cs_len))
-		goto bail;
+		goto init_failed;
 
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
-		return -1;
+		goto init_failed;
 	}
 
 	/*
@@ -208,16 +214,19 @@ int main(int argc, char **argv)
 	info.protocols = protocols;
 	info.extensions = exts;
 
-	if (lwsws_get_config_vhosts(context, &info, config_dir, &cs, &cs_len))
-		goto bail;
+	if (!lwsws_get_config_vhosts(context, &info, config_dir,
+				     &cs, &cs_len)) {
 
-	lws_uv_sigint_cfg(context, 1, signal_cb);
-	lws_uv_initloop(context, NULL, 0);
+		/* run the server */
 
-	lws_libuv_run(context, 0);
+		lws_uv_sigint_cfg(context, 1, signal_cb);
+		lws_uv_initloop(context, NULL, 0);
 
-bail:
+		lws_libuv_run(context, 0);
+	}
+
 	lws_context_destroy(context);
+	free(config_strings);
 	fprintf(stderr, "lwsws exited cleanly\n");
 
 #ifndef _WIN32
@@ -225,4 +234,9 @@ bail:
 #endif
 
 	return 0;
+
+init_failed:
+	free(config_strings);
+
+	return 1;
 }
