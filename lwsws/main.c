@@ -65,12 +65,6 @@ static struct lws_protocols protocols[] = {
 	{ }
 };
 
-void sighandler(int sig)
-{
-	force_exit = 1;
-	lws_cancel_service(context);
-}
-
 static const struct lws_extension exts[] = {
 	{
 		"permessage-deflate",
@@ -95,7 +89,6 @@ static struct option options[] = {
 	{ NULL, 0, 0, 0 }
 };
 
-#ifdef LWS_USE_LIBUV
 void signal_cb(uv_signal_t *watcher, int signum)
 {
 	lwsl_err("Signal %d caught, exiting...\n", watcher->signum);
@@ -110,9 +103,6 @@ void signal_cb(uv_signal_t *watcher, int signum)
 	}
 	lws_libuv_stop(context);
 }
-#endif
-
-
 
 int main(int argc, char **argv)
 {
@@ -170,8 +160,6 @@ int main(int argc, char **argv)
 	if (daemonize)
 		lwsl_notice("Daemonized\n");
 #endif
-
-	signal(SIGINT, sighandler);
 
 #ifndef _WIN32
 	/* we will only try to log things according to our debug_level */
