@@ -1300,6 +1300,9 @@ struct lws {
 #ifndef LWS_NO_CLIENT
 	char chunk_parser; /* enum lws_chunk_parser */
 #endif
+#if defined(LWS_WITH_CGI) || !defined(LWS_NO_CLIENT)
+	char reason_bf; /* internal writeable callback reason bitfield */
+#endif
 };
 
 LWS_EXTERN int log_level;

@@ -1259,7 +1259,6 @@ if (LWS_WITH_LWSWS)
 		list(APPEND LWSWS_SRCS
 			"lwsws/main.c"
 			"lwsws/conf.c"
-			"lwsws/http.c"
 		)
 
 		if (WIN32)

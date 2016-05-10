@@ -178,10 +178,84 @@ lws_protocol_init(struct lws_context *context)
 	return 0;
 }
 
-static int callback_http_dummy(
-		struct lws *wsi, enum lws_callback_reasons reason, void *user,
-		  void *in, size_t len)
+static int
+callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
+		    void *user, void *in, size_t len)
 {
+#ifdef LWS_WITH_CGI
+	struct lws_cgi_args *args;
+	char buf[128];
+	int n;
+#endif
+
+	switch (reason) {
+	case LWS_CALLBACK_HTTP:
+#ifndef LWS_NO_SERVER
+		if (lws_http_transaction_completed(wsi))
+#endif
+			return -1;
+		break;
+
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+#ifdef LWS_WITH_CGI
+		if (wsi->reason_bf & 1) {
+			if (lws_cgi_write_split_stdout_headers(wsi) < 0)
+				return -1;
+
+			wsi->reason_bf &= ~1;
+			break;
+		}
+#endif
+		break;
+
+#ifdef LWS_WITH_CGI
+	/* CGI IO events (POLLIN/OUT) appear here, our default policy is:
+	 *
+	 *  - POST data goes on subprocess stdin
+	 *  - subprocess stdout goes on http via writeable callback
+	 *  - subprocess stderr goes to the logs
+	 */
+	case LWS_CALLBACK_CGI:
+		args = (struct lws_cgi_args *)in;
+		switch (args->ch) { /* which of stdin/out/err ? */
+		case LWS_STDIN:
+			/* TBD stdin rx flow control */
+			break;
+		case LWS_STDOUT:
+			wsi->reason_bf |= 1;
+			/* when writing to MASTER would not block */
+			lws_callback_on_writable(wsi);
+			break;
+		case LWS_STDERR:
+			n = read(lws_get_socket_fd(args->stdwsi[LWS_STDERR]),
+						   buf, sizeof(buf) - 1);
+			if (n > 0) {
+				if (buf[n - 1] != '\n')
+					buf[n++] = '\n';
+				buf[n] = '\0';
+				lwsl_notice("CGI-stderr: %s\n", buf);
+			}
+			break;
+		}
+		break;
+
+	case LWS_CALLBACK_CGI_TERMINATED:
+		return -1;
+
+	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */
+		args = (struct lws_cgi_args *)in;
+		args->data[args->len] = '\0';
+		n = write(lws_get_socket_fd(args->stdwsi[LWS_STDIN]),
+			  args->data, args->len);
+		if (n < args->len)
+			lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: "
+				    "sent %d only %d went", n, args->len);
+		return n;
+#endif
+	default:
+		break;
+	}
+
 	return 0;
 }
 

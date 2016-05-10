@@ -21,49 +21,9 @@
 
 #include "lwsws.h"
 
-int debug_level = 7;
+static struct lws_context *context;
 
-volatile int force_exit = 0;
-struct lws_context *context;
-
-static char *config_dir = "/etc/lwsws/conf.d";
-
-/*
- * strings and objects from the config file parsing are created here
- */
 #define LWSWS_CONFIG_STRING_SIZE (32 * 1024)
-char *config_strings;
-
-/* singlethreaded version --> no locks */
-
-void test_server_lock(int care)
-{
-}
-void test_server_unlock(int care)
-{
-}
-
-
-enum demo_protocols {
-	/* always first */
-	PROTOCOL_HTTP = 0,
-
-	/* always last */
-	DEMO_PROTOCOL_COUNT
-};
-
-/* list of supported protocols and callbacks */
-
-static struct lws_protocols protocols[] = {
-	/* first protocol must always be HTTP handler */
-	{
-		"http-only",		/* name */
-		callback_http,		/* callback */
-		sizeof (struct per_session_data__http),	/* per_session_data_size */
-		0,			/* max frame size / rx buffer */
-	},
-	{ }
-};
 
 static const struct lws_extension exts[] = {
 	{
@@ -75,8 +35,8 @@ static const struct lws_extension exts[] = {
 };
 
 static const char * const plugin_dirs[] = {
-		INSTALL_DATADIR"/libwebsockets-test-server/plugins/",
-		NULL
+	INSTALL_DATADIR"/libwebsockets-test-server/plugins/",
+	NULL
 };
 
 static struct option options[] = {
@@ -116,6 +76,9 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
  	int daemonize = 0;
 #endif
+	int debug_level = 7;
+	char *config_dir = "/etc/lwsws/conf.d";
+	char *config_strings;
 
 	memset(&info, 0, sizeof info);
 
@@ -201,17 +164,10 @@ int main(int argc, char **argv)
 	}
 
 	/*
-	 * then create the vhosts...
-	 *
-	 * protocols and extensions are the global list of possible
-	 * protocols and extensions offered serverwide.  The vhosts
-	 * in the config files enable the ones they want to offer
-	 * per vhost.
-	 *
-	 * The first protocol is always included for http support.
+	 * then create the vhosts... protocols are entirely coming from
+	 * plugins, so we leave it NULL
 	 */
 
-	info.protocols = protocols;
 	info.extensions = exts;
 
 	if (!lwsws_get_config_vhosts(context, &info, config_dir,
@@ -227,6 +183,7 @@ int main(int argc, char **argv)
 
 	lws_context_destroy(context);
 	free(config_strings);
+
 	fprintf(stderr, "lwsws exited cleanly\n");
 
 #ifndef _WIN32
