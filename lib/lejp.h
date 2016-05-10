@@ -1,4 +1,4 @@
-
+#include "libwebsockets.h"
 struct lejp_ctx;
 
 #ifndef ARRAY_SIZE
@@ -213,20 +213,20 @@ struct lejp_ctx {
 	unsigned char wildcount;
 };
 
-extern void
+LWS_VISIBLE void
 lejp_construct(struct lejp_ctx *ctx,
 	       char (*callback)(struct lejp_ctx *ctx, char reason), void *user,
 	       const char * const *paths, unsigned char paths_count);
 
-extern void
+LWS_VISIBLE void
 lejp_destruct(struct lejp_ctx *ctx);
 
-extern int
+LWS_VISIBLE int
 lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len);
 
-extern void
+LWS_VISIBLE void
 lejp_change_callback(struct lejp_ctx *ctx,
 		       char (*callback)(struct lejp_ctx *ctx, char reason));
 
-extern int
+LWS_VISIBLE int
 lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len);

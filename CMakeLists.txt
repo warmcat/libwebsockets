@@ -97,6 +97,7 @@ option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)
 option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions" OFF)
 option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OFF)
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
+option(LWS_WITH_LEJP "With the Lightweight JSON Parser" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -104,6 +105,7 @@ if (LWS_WITH_LWSWS)
  set(LWS_WITH_LIBUV 1)
  set(LWS_WITH_ACCESS_LOG 1)
  set(LWS_WITH_SERVER_STATUS 1)
+ set(LWS_WITH_LEJP 1)
 endif()
 
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
@@ -575,6 +577,13 @@ if (LWS_WITH_LIBUV)
 	list(APPEND SOURCES
 		lib/libuv.c)
 endif()
+
+if (LWS_WITH_LEJP)
+	list(APPEND SOURCES
+		lib/lejp.c)
+	list(APPEND HDR_PUBLIC
+		lib/lejp.h)
+endif()	
 
 # Add helper files for Windows.
 if (WIN32)
@@ -1249,7 +1258,6 @@ endif(NOT LWS_WITHOUT_TESTAPPS)
 if (LWS_WITH_LWSWS)
 		list(APPEND LWSWS_SRCS
 			"lwsws/main.c"
-			"lwsws/lejp.c"
 			"lwsws/conf.c"
 			"lwsws/http.c"
 		)
@@ -1495,6 +1503,7 @@ message(" LIBHUBBUB_LIBRARIES = ${LIBHUBBUB_LIBRARIES}")
 message(" PLUGINS = ${PLUGINS_LIST}")
 message(" LWS_WITH_ACCESS_LOG = ${LWS_WITH_ACCESS_LOG}")
 message(" LWS_WITH_SERVER_STATUS = ${LWS_WITH_SERVER_STATUS}")
+message(" LWS_WITH_LEJP = ${LWS_WITH_LEJP}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()
