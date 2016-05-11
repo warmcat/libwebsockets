@@ -448,11 +448,13 @@ lws_create_vhost(struct lws_context *context,
 				 info->log_filepath);
 			goto bail;
 		}
+#ifndef WIN32
 		if (context->uid != -1)
 			if (chown(info->log_filepath, context->uid,
 				  context->gid) == -1)
 				lwsl_err("unable to chown log file %s\n",
 						info->log_filepath);
+#endif
 	} else
 		vh->log_fd = LWS_INVALID_FILE;
 #endif
