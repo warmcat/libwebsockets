@@ -6,6 +6,11 @@ lws_rewrite_create(struct lws *wsi, hubbub_callback_t cb, const char *from, cons
 {
 	struct lws_rewrite *r = lws_malloc(sizeof(*r));
 
+	if (!r) {
+		lwsl_err("OOM\n");
+		return NULL;
+	}
+
 	if (hubbub_parser_create("UTF-8", false, &r->parser) != HUBBUB_OK) {
 		lws_free(r);
 

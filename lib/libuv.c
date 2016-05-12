@@ -152,6 +152,10 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 
 	if (!loop) {
 		loop = lws_malloc(sizeof(*loop));
+		if (!loop) {
+			lwsl_err("OOM\n");
+			return -1;
+		}
 #if UV_VERSION_MAJOR > 0
 		uv_loop_init(loop);
 #else

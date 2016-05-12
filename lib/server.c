@@ -538,34 +538,39 @@ lws_http_action(struct lws *wsi)
 			lws_access_log(wsi);
 
 		wsi->access_log.header_log = lws_malloc(l);
+		if (wsi->access_log.header_log) {
 
-		tmp = localtime(&t);
-		if (tmp)
-			strftime(da, sizeof(da), "%d/%b/%Y:%H:%M:%S %z", tmp);
-		else
-			strcpy(da, "01/Jan/1970:00:00:00 +0000");
+			tmp = localtime(&t);
+			if (tmp)
+				strftime(da, sizeof(da), "%d/%b/%Y:%H:%M:%S %z", tmp);
+			else
+				strcpy(da, "01/Jan/1970:00:00:00 +0000");
 
-		pa = lws_get_peer_simple(wsi, ads, sizeof(ads));
-		if (!pa)
-			pa = "(unknown)";
+			pa = lws_get_peer_simple(wsi, ads, sizeof(ads));
+			if (!pa)
+				pa = "(unknown)";
 
-		if (meth >= 0)
-			me = method_names[meth];
-		else
-			me = "unknown";
+			if (meth >= 0)
+				me = method_names[meth];
+			else
+				me = "unknown";
 
-		snprintf(wsi->access_log.header_log, l,
-			 "%s - - [%s] \"%s %s %s\"",
-			 pa, da, me, uri_ptr,
-			 hver[wsi->u.http.request_version]);
+			snprintf(wsi->access_log.header_log, l,
+				 "%s - - [%s] \"%s %s %s\"",
+				 pa, da, me, uri_ptr,
+				 hver[wsi->u.http.request_version]);
 
-		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
-		if (l) {
-			wsi->access_log.user_agent = lws_malloc(l + 2);
-			lws_hdr_copy(wsi, wsi->access_log.user_agent,
-				     l + 1, WSI_TOKEN_HTTP_USER_AGENT);
+			l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
+			if (l) {
+				wsi->access_log.user_agent = lws_malloc(l + 2);
+				if (wsi->access_log.user_agent)
+					lws_hdr_copy(wsi, wsi->access_log.user_agent,
+							l + 1, WSI_TOKEN_HTTP_USER_AGENT);
+				else
+					lwsl_err("OOM getting user agent\n");
+			}
+			wsi->access_log_pending = 1;
 		}
-		wsi->access_log_pending = 1;
 	}
 #endif
 
@@ -1391,6 +1396,10 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 	 * below to the rx buffer (via lws_header_table_reset()).
 	 */
 	wsi->u.hdr.preamble_rx = lws_malloc(len);
+	if (!wsi->u.hdr.preamble_rx) {
+		lwsl_err("OOM\n");
+		goto bail;
+	}
 	memcpy(wsi->u.hdr.preamble_rx, readbuf, len);
 	wsi->u.hdr.preamble_rx_len = len;
 
