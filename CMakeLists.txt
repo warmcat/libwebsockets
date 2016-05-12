@@ -1231,6 +1231,12 @@ if (LWS_WITH_SERVER_STATUS)
 		create_plugin(protocol_lws_server_status
 			      "plugins/protocol_lws_server_status.c")
 endif()
+
+if (NOT LWS_WITHOUT_CLIENT)
+		create_plugin(protocol_client_loopback_test
+                              "plugins/protocol_client_loopback_test.c")
+endif(NOT LWS_WITHOUT_CLIENT)
+
 	endif(LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 
 	#
