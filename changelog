@@ -1,6 +1,24 @@
 Changelog
 ---------
 
+v1.7.8
+======
+
+NB: No API change since v1.7.0
+
+Fixes:
+
+1) MINOR: user_space arg was mistakenly NULL on LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER
+
+2) MINOR: treating recv() returning 0 as peer close destroyed throughput on ab
+tests, reverted
+
+3) MINOR: %3d on URL part was always turned to _... this should only happen in
+?na%3dme=x part of the URL
+
+4) MINOR: some malloc escaped check for NULL / OOM
+
+
 v1.7.7
 ======
 
