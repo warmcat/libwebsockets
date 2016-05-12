@@ -64,6 +64,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].ws-protocols[].*",
 	"vhosts[].ws-protocols[]",
 	"vhosts[].keepalive_timeout",
+	"vhosts[].enable-client-ssl",
 };
 
 enum lejp_vhost_paths {
@@ -91,6 +92,7 @@ enum lejp_vhost_paths {
 	LEJPVP_PROTOCOL_NAME,
 	LEJPVP_PROTOCOL,
 	LEJPVP_KEEPALIVE_TIMEOUT,
+	LEJPVP_ENABLE_CLIENT_SSL,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -107,6 +109,8 @@ struct jpargs {
 	struct lws_http_mount m;
 	const char **plugin_dirs;
 	int count_plugin_dirs;
+
+	unsigned int enable_client_ssl:1;
 };
 
 static void *
@@ -222,6 +226,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->info->log_filepath = NULL;
 		a->info->options &= ~(LWS_SERVER_OPTION_UNIX_SOCK |
 				      LWS_SERVER_OPTION_STS);
+		a->enable_client_ssl = 0;
 	}
 
 	if (reason == LEJPCB_OBJECT_START &&
@@ -251,6 +256,8 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	    (ctx->path_match == LEJPVP + 1 || !ctx->path[0]) &&
 	    a->valid) {
 
+		struct lws_vhost *vhost;
+
 		//lwsl_notice("%s\n", ctx->path);
 		if (!a->info->port) {
 			lwsl_err("Port required (eg, 443)");
@@ -259,10 +266,17 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->valid = 0;
 		a->info->mounts = a->head;
 
-		if (!lws_create_vhost(a->context, a->info)) {
+		vhost = lws_create_vhost(a->context, a->info);
+		if (!vhost) {
 			lwsl_err("Failed to create vhost %s\n",
 				 a->info->vhost_name);
 			return 1;
+		}
+
+		if (a->enable_client_ssl) {
+			memset(a->info, 0, sizeof(*a->info));
+			a->info->options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+			lws_init_vhost_client_ssl(a->info, vhost);
 		}
 
 		return 0;
@@ -413,6 +427,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
 		*(a->p)++ = '\0';
 		break;
+	case LEJPVP_ENABLE_CLIENT_SSL:
+		a->enable_client_ssl = arg_to_bool(ctx->buf);
+		return 0;
 
 	default:
 		return 0;

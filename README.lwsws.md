@@ -188,6 +188,7 @@ Other vhost options
 
  - "`access-log`": "filepath"   sets where apache-compatible access logs will be written
 
+ - `"enable-client-ssl"`: `"1"` enables the vhost's client SSL context, you will need this if you plan to create client conections on the vhost that will use SSL.  You don't need it if you only want http / ws client connections.
 
 Mounts
 ------

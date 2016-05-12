@@ -1631,6 +1631,10 @@ LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 struct lws_context_creation_info *info);
 
+LWS_VISIBLE int
+lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
+			  struct lws_vhost *vhost);
+
 LWS_VISIBLE struct lws_vhost *
 lws_vhost_get(struct lws *wsi);
 

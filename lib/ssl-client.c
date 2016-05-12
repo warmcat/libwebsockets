@@ -291,17 +291,17 @@ lws_ssl_client_connect2(struct lws *wsi)
 
 
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
-			        struct lws_vhost *vhost)
+				struct lws_vhost *vhost)
 {
 #if defined(LWS_USE_POLARSSL)
 	return 0;
 #else
 #if defined(LWS_USE_MBEDTLS)
 #else
-	int error;
-	int n;
 	SSL_METHOD *method;
 	struct lws wsi;
+	int error;
+	int n;
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		return 0;
@@ -311,6 +311,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		vhost->ssl_client_ctx = info->provided_client_ssl_ctx;
 		/* nothing for lib to delete */
 		vhost->user_supplied_ssl_ctx = 1;
+
 		return 0;
 	}
 
@@ -343,11 +344,10 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	}
 
 #ifdef SSL_OP_NO_COMPRESSION
-	SSL_CTX_set_options(vhost->ssl_client_ctx,
-						 SSL_OP_NO_COMPRESSION);
+	SSL_CTX_set_options(vhost->ssl_client_ctx, SSL_OP_NO_COMPRESSION);
 #endif
 	SSL_CTX_set_options(vhost->ssl_client_ctx,
-				       SSL_OP_CIPHER_SERVER_PREFERENCE);
+			    SSL_OP_CIPHER_SERVER_PREFERENCE);
 	if (info->ssl_cipher_list)
 		SSL_CTX_set_cipher_list(vhost->ssl_client_ctx,
 						info->ssl_cipher_list);

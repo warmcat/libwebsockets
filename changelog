@@ -29,6 +29,12 @@ Fixes
 5) Allow per-vhost setting of which protocol should get used
 when the protocol: header is not sent by the client
 
+New APIs
+--------
+
+1) lws_init_vhost_client_ssl() lets you also enable client SSL context on a
+vhost.
+
 
 v2.0.0
 ======

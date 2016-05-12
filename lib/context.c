@@ -485,6 +485,43 @@ bail:
 }
 
 /**
+ * lws_init_vhost_client_ssl() - also enable client SSL on an existing vhost
+ *
+ * @info: client ssl related info
+ * @vhost: which vhost to initialize client ssl operations on
+ *
+ * You only need to call this if you plan on using SSL client connections on
+ * the vhost.  For non-SSL client connections, it's not necessary to call this.
+ *
+ * The following members of @info are used during the call
+ *
+ *	 - @options must have LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT set,
+ *	     otherwise the call does nothing
+ *	 - @provided_client_ssl_ctx must be NULL to get a generated client
+ *	     ssl context, otherwise you can pass a prepared one in by setting it
+ *	 - @ssl_cipher_list may be NULL or set to the client valid cipher list
+ *	 - @ssl_ca_filepath may be NULL or client cert filepath
+ *	 - @ssl_cert_filepath may be NULL or client cert filepath
+ *	 - @ssl_private_key_filepath may be NULL or client cert private key
+ *
+ * You must create your vhost explicitly if you want to use this, so you have
+ * a pointer to the vhost.  Create the context first with the option flag
+ * LWS_SERVER_OPTION_EXPLICIT_VHOSTS and then call lws_create_vhost() with
+ * the same info struct.
+ */
+LWS_VISIBLE int
+lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
+			  struct lws_vhost *vhost)
+{
+	struct lws_context_creation_info i;
+
+	memcpy(&i, info, sizeof(i));
+	i.port = CONTEXT_PORT_NO_LISTEN;
+
+	return lws_context_init_client_ssl(&i, vhost);
+}
+
+/**
  * lws_create_context() - Create the websocket handler
  * @info:	pointer to struct with parameters
  *
