@@ -1,5 +1,5 @@
 Name: libwebsockets
-Version: 2.0.0
+Version: 2.0.1
 Release: 1%{?dist}
 Summary: Websocket Server and Client Library
 
@@ -70,6 +70,9 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/pkgconfig/libwebsockets.pc
 
 %changelog
+* Thu May 12 2016 Andy Green <andy@warmcat.com> 2.0.1-1
+- MINOR Upstream 2.0.1 release
+
 * Thu May 05 2016 Andy Green <andy@warmcat.com> 2.0.0-1
 - MAJOR SONAMEBUMP APICHANGES Upstream 2.0.0 release
 

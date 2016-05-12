@@ -1,6 +1,9 @@
 Changelog
 ---------
 
+v2.0.1
+======
+
 Fixes
 -----
 
@@ -28,6 +31,27 @@ Fixes
 
 5) Allow per-vhost setting of which protocol should get used
 when the protocol: header is not sent by the client
+
+6) MINOR: user_space arg was mistakenly NULL on
+LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER
+
+7) MINOR: treating recv() returning 0 as peer close destroyed throughput on ab
+tests, reverted
+
+8) MINOR: %3d on URL part was always turned to _... this should only happen in
+?na%3dme=x part of the URL
+
+9) MINOR: some malloc escaped check for NULL / OOM
+
+10) MINOR: libuv cleanups and client connections can operate correctly with
+libuv
+
+11) MINOR: POST used to hang up the connection when the body had all arrived.
+Change it so you can reply with a 200 directly rather than requiring a
+redirect
+
+12) MINOR: API docs were a little behind the docs in the code
+
 
 
 v2.0.0
