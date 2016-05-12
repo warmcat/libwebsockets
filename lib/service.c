@@ -349,6 +349,8 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 	/* a new rxflow, buffer it and warn caller */
 	lwsl_info("new rxflow input buffer len %d\n", len - n);
 	wsi->rxflow_buffer = lws_malloc(len - n);
+	if (!wsi->rxflow_buffer)
+		return -1;
 	wsi->rxflow_len = len - n;
 	wsi->rxflow_pos = 0;
 	memcpy(wsi->rxflow_buffer, buf + n, len - n);

@@ -151,6 +151,10 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, uv_signal_cb cb,
 
 	if (!loop) {
 		loop = lws_malloc(sizeof(*loop));
+		if (!loop) {
+			lwsl_err("OOM\n");
+			return -1;
+		}
 		uv_loop_init(loop);
 		pt->ev_loop_foreign = 0;
 	} else
