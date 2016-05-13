@@ -1388,6 +1388,13 @@ lws_pt_mutex_init(struct lws_context_per_thread *pt)
 {
 	pthread_mutex_init(&pt->lock, NULL);
 }
+
+static LWS_INLINE void
+lws_pt_mutex_destroy(struct lws_context_per_thread *pt)
+{
+	pthread_mutex_destroy(&pt->lock);
+}
+
 static LWS_INLINE void
 lws_pt_lock(struct lws_context_per_thread *pt)
 {
@@ -1401,6 +1408,7 @@ lws_pt_unlock(struct lws_context_per_thread *pt)
 }
 #else
 #define lws_pt_mutex_init(_a) (void)(_a)
+#define lws_pt_mutex_destroy(_a) (void)(_a)
 #define lws_pt_lock(_a) (void)(_a)
 #define lws_pt_unlock(_a) (void)(_a)
 #endif
