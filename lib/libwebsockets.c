@@ -2333,6 +2333,9 @@ lws_access_log(struct lws *wsi)
 	if (!wsi->access_log_pending)
 		return 0;
 
+	if (!wsi->access_log.header_log)
+		return 0;
+
 	if (!p)
 		p = "";
 
@@ -2346,10 +2349,14 @@ lws_access_log(struct lws *wsi)
 	} else
 		lwsl_err("%s", ass);
 
-	if (wsi->access_log.header_log)
+	if (wsi->access_log.header_log) {
 		lws_free(wsi->access_log.header_log);
-	if (wsi->access_log.user_agent)
+		wsi->access_log.header_log = NULL;
+	}
+	if (wsi->access_log.user_agent) {
 		lws_free(wsi->access_log.user_agent);
+		wsi->access_log.user_agent = NULL;
+	}
 	wsi->access_log_pending = 0;
 
 	return 0;
