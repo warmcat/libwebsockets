@@ -850,6 +850,7 @@ lws_context_destroy(struct lws_context *context)
 				/* no protocol close */);
 			n--;
 		}
+		lws_pt_mutex_destroy(pt);
 	}
 	/*
 	 * give all extensions a chance to clean up any per-context
