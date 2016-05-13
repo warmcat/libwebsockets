@@ -1367,7 +1367,8 @@ struct lws_plugin {
  * If we add more extensions, publish the callback here  ------v
  */
 
-extern int lws_extension_callback_pm_deflate(
+LWS_EXTERN
+int lws_extension_callback_pm_deflate(
 	struct lws_context *context, const struct lws_extension *ext,
 	struct lws *wsi, enum lws_extension_callback_reasons reason,
 	void *user, void *in, size_t len);

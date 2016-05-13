@@ -1186,7 +1186,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		set(PLUGIN_SRCS ${MAIN_SRC})
 
 		if (WIN32)
-			list(APPEND PLUGIN_SRCSset_property
+			list(APPEND PLUGIN_SRCS
 				${WIN32_HELPERS_PATH}/getopt.c
 				${WIN32_HELPERS_PATH}/getopt_long.c
 				${WIN32_HELPERS_PATH}/gettimeofday.c
