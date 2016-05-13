@@ -20,7 +20,9 @@
 
 #include <libwebsockets.h>
 #include <getopt.h>
+#ifndef WIN32
 #include <syslog.h>
+#endif
 
 int debug_level = 7;
 struct lws_context *context;
