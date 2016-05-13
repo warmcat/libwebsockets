@@ -62,7 +62,7 @@ static struct lws_protocols protocols[] = {
 		sizeof (struct per_session_data__http),	/* per_session_data_size */
 		0,			/* max frame size / rx buffer */
 	},
-	{ }
+	{ NULL, NULL, 0, 0 }
 };
 
 void sighandler(int sig)

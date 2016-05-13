@@ -151,6 +151,10 @@ struct sockaddr_in;
 #define snprintf _snprintf
 #endif
 
+#ifndef __func__
+#define __func__ __FUNCTION__
+#endif
+
 #else /* NOT WIN32 */
 #include <unistd.h>
 
@@ -1368,7 +1372,7 @@ extern int lws_extension_callback_pm_deflate(
 	struct lws *wsi, enum lws_extension_callback_reasons reason,
 	void *user, void *in, size_t len);
 
-LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int
 lws_set_extension_option(struct lws *wsi, const char *ext_name,
 			 const char *opt_name, const char *opt_val);
 
@@ -1608,10 +1612,10 @@ enum {
 	LWSMPRO_REDIR_HTTPS,
 };
 
-LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int
 lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len);
 
-LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int
 lws_json_dump_context(const struct lws_context *context, char *buf, int len);
 
 LWS_VISIBLE LWS_EXTERN void
@@ -1626,20 +1630,20 @@ lws_create_context(struct lws_context_creation_info *info);
 
 struct lws_vhost;
 
-LWS_VISIBLE struct lws_vhost *
+LWS_EXTERN LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 struct lws_context_creation_info *info);
 
-LWS_VISIBLE struct lws_vhost *
+LWS_VISIBLE LWS_EXTERN struct lws_vhost *
 lws_vhost_get(struct lws *wsi);
 
-LWS_VISIBLE const struct lws_protocols *
+LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
 lws_protocol_get(struct lws *wsi);
 
-LWS_VISIBLE void *
+LWS_VISIBLE LWS_EXTERN void *
 lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols *prot,
 			    int size);
-LWS_VISIBLE void *
+LWS_VISIBLE LWS_EXTERN void *
 lws_protocol_vh_priv_get(struct lws_vhost *vhost, const struct lws_protocols *prot);
 
 LWS_VISIBLE LWS_EXTERN int
@@ -1709,7 +1713,7 @@ lws_ev_sigint_cfg(struct lws_context *context, int use_ev_sigint,
 LWS_VISIBLE LWS_EXTERN int
 lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi);
 
-LWS_VISIBLE void
+LWS_VISIBLE LWS_EXTERN void
 lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents);
 #endif /* LWS_USE_LIBEV */
 
@@ -1721,7 +1725,7 @@ lws_uv_sigint_cfg(struct lws_context *context, int use_uv_sigint,
 LWS_VISIBLE LWS_EXTERN void
 lws_libuv_run(const struct lws_context *context, int tsi);
 
-LWS_VISIBLE void
+LWS_VISIBLE LWS_EXTERN void
 lws_libuv_stop(struct lws_context *context);
 
 LWS_VISIBLE LWS_EXTERN int
@@ -1730,7 +1734,7 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi);
 LWS_VISIBLE LWS_EXTERN uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi);
 
-LWS_VISIBLE void
+LWS_VISIBLE LWS_EXTERN void
 lws_uv_sigint_cb(uv_signal_t *watcher, int signum);
 #endif /* LWS_USE_LIBUV */
 
@@ -1884,7 +1888,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_callback_on_writable_all_protocol(const struct lws_context *context,
 				      const struct lws_protocols *protocol);
 
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 				      const struct lws_protocols *protocol);
 
@@ -1892,7 +1896,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_callback_all_protocol(struct lws_context *context,
 			  const struct lws_protocols *protocol, int reason);
 
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_callback_all_protocol_vhost(struct lws_vhost *vh,
 			  const struct lws_protocols *protocol, int reason);
 

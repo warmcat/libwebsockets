@@ -149,7 +149,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #endif
 
 		if (strlen(in) >= 12 &&
-		    !strncmp(in + strlen(in) - 12, "/postresults", 12)) {
+		    !strncmp((char *)in + strlen(in) - 12, "/postresults", 12)) {
 			m = sprintf(buf, "<html><body>Form results: '%s'<br>"
 					"</body></html>", pss->post_string);
 

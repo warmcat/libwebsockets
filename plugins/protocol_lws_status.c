@@ -20,6 +20,10 @@
 #include "../lib/libwebsockets.h"
 #include <time.h>
 #include <string.h>
+#ifdef WIN32
+#include <gettimeofday.h>
+#endif
+
 
 struct per_session_data__lws_status {
 	struct per_session_data__lws_status *list;

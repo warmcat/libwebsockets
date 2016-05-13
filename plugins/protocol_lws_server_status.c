@@ -39,7 +39,7 @@ struct per_session_data__server_status {
 	int pos;
 };
 
-static const struct lws_protocols protocols[];
+static const struct lws_protocols protocols[1];
 
 static void
 uv_timeout_cb_server_status(uv_timer_t *w
