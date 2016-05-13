@@ -308,8 +308,11 @@ lws_libuv_io(struct lws *wsi, int flags)
 		return;
 	}
 
-	assert((flags & (LWS_EV_START | LWS_EV_STOP)) &&
-	       (flags & (LWS_EV_READ | LWS_EV_WRITE)));
+	if (!((flags & (LWS_EV_START | LWS_EV_STOP)) &&
+	      (flags & (LWS_EV_READ | LWS_EV_WRITE)))) {
+		lwsl_err("%s: assert: flags %d", __func__, flags);
+		assert(0);
+	}
 
 	if (flags & LWS_EV_START) {
 		if (flags & LWS_EV_WRITE)

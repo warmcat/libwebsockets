@@ -408,7 +408,10 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	for (n = 0; n < context->max_http_header_pool; n++)
 		if (pt->ah_pool[n].rxpos != pt->ah_pool[n].rxlen) {
 			/* any ah with pending rx must be attached to someone */
-			assert(pt->ah_pool[n].wsi);
+			if (!pt->ah_pool[n].wsi) {
+				lwsl_err("%s: assert: no wsi attached to ah\n", __func__);
+				assert(0);
+			}
 			return 0;
 		}
 

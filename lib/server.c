@@ -753,8 +753,15 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	char protocol_name[32];
 	char *p;
 
-	assert(len < 10000000);
-	assert(wsi->u.hdr.ah);
+	if (len >= 10000000) {
+		lwsl_err("%s: assert: len %ld\n", __func__, (long)len);
+		assert(0);
+	}
+
+	if (!wsi->u.hdr.ah) {
+		lwsl_err("%s: assert: NULL ah\n", __func__);
+		assert(0);
+	}
 
 	while (len--) {
 		wsi->more_rx_waiting = !!len;
@@ -1504,7 +1511,12 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					goto try_pollout;
 				}
 			}
-			assert(ah->rxpos != ah->rxlen && ah->rxlen);
+			if (!(ah->rxpos != ah->rxlen && ah->rxlen)) {
+				lwsl_err("%s: assert: rxpos %d, rxlen %d\n",
+					 __func__, ah->rxpos, ah->rxlen);
+
+				assert(0);
+			}
 			/* just ignore incoming if waiting for close */
 			if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
 				n = lws_read(wsi, ah->rx + ah->rxpos,
