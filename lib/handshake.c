@@ -107,8 +107,10 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 		wsi->u.hdr.lextable_pos = 0;
 		/* fallthru */
 	case LWSS_HTTP_HEADERS:
-		
-		assert(wsi->u.hdr.ah);
+		if (!wsi->u.hdr.ah) {
+			lwsl_err("%s: LWSS_HTTP_HEADERS: NULL ah\n", __func__);
+			assert(0);
+		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
 
 		if (lws_handshake_client(wsi, &buf, len))
