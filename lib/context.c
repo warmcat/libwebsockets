@@ -191,6 +191,9 @@ callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 #ifndef LWS_NO_SERVER
+		if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL))
+			return -1;
+
 		if (lws_http_transaction_completed(wsi))
 #endif
 			return -1;
@@ -206,6 +209,7 @@ callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 #endif
+
 		break;
 
 #ifdef LWS_WITH_CGI
@@ -268,7 +272,7 @@ static const struct lws_protocols protocols_dummy[] = {
 		"http-only",		/* name */
 		callback_http_dummy,		/* callback */
 		0,	/* per_session_data_size */
-		0,			/* max frame size / rx buffer */
+		4096,			/* max frame size / rx buffer */
 	},
 	/*
 	 * the other protocols are provided by lws plugins
