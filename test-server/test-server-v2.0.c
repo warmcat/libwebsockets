@@ -83,6 +83,7 @@ static const struct lws_http_mount mount = {
 	LOCAL_RESOURCE_PATH, /* where to go on the filesystem for that */
 	"test.html",	/* default filename if none given */
 	NULL,
+	NULL,
 	0,
 	0,
 	0,

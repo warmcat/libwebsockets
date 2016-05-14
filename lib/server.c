@@ -192,9 +192,14 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	return NULL;
 }
 
-static const char * get_mimetype(const char *file)
+static const char *
+get_mimetype(const char *file, const struct lws_http_mount *m)
 {
 	int n = strlen(file);
+	const struct lws_protocol_vhost_options *pvo = NULL;
+
+	if (m)
+		pvo = m->extra_mimetypes;
 
 	if (n < 5)
 		return NULL;
@@ -238,10 +243,19 @@ static const char * get_mimetype(const char *file)
 	if (!strcmp(&file[n - 4], ".xml"))
 		return "application/xml";
 
+	while (pvo) {
+		if (!strcmp(&file[n - strlen(pvo->name)], pvo->name))
+			return pvo->value;
+
+		pvo = pvo->next;
+	}
+
 	return NULL;
 }
 
-int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
+static int
+lws_http_serve(struct lws *wsi, char *uri, const char *origin,
+	       const struct lws_http_mount *m)
 {
 	const char *mimetype;
 #ifndef _WIN32_WCE
@@ -329,7 +343,7 @@ int lws_http_serve(struct lws *wsi, char *uri, const char *origin)
 		return -1;
 #endif
 
-	mimetype = get_mimetype(path);
+	mimetype = get_mimetype(path, m);
 	if (!mimetype) {
 		lwsl_err("unknown mimetype for %s", path);
 		goto bail;
@@ -696,7 +710,7 @@ lws_http_action(struct lws *wsi)
 		wsi->cache_revalidate = hit->cache_revalidate;
 		wsi->cache_intermediaries = hit->cache_intermediaries;
 
-		n = lws_http_serve(wsi, s, hit->origin);
+		n = lws_http_serve(wsi, s, hit->origin, hit);
 		if (n) {
 			/*
 			 * 	lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
