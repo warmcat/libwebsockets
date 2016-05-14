@@ -65,6 +65,8 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].ws-protocols[]",
 	"vhosts[].keepalive_timeout",
 	"vhosts[].enable-client-ssl",
+	"vhosts[].ciphers",
+	"vhosts[].ecdh-curve",
 };
 
 enum lejp_vhost_paths {
@@ -93,6 +95,8 @@ enum lejp_vhost_paths {
 	LEJPVP_PROTOCOL,
 	LEJPVP_KEEPALIVE_TIMEOUT,
 	LEJPVP_ENABLE_CLIENT_SSL,
+	LEJPVP_CIPHERS,
+	LEJPVP_ECDH_CURVE,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -389,6 +393,12 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_KEEPALIVE_TIMEOUT:
 		a->info->keepalive_timeout = atoi(ctx->buf);
 		return 0;
+	case LEJPVP_CIPHERS:
+		a->info->ssl_cipher_list = a->p;
+		break;
+	case LEJPVP_ECDH_CURVE:
+		a->info->ecdh_curve = a->p;
+		break;
 	case LEJPVP_CGI_ENV:
 		mp_cgienv = lwsws_align(a);
 		a->p += sizeof(*a->m.cgienv);
