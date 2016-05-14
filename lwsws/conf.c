@@ -60,6 +60,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].cache-reuse",
 	"vhosts[].mounts[].cache-revalidate",
 	"vhosts[].mounts[].cache-intermediaries",
+	"vhosts[].mounts[].extra-mimetypes.*",
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
 	"vhosts[].ws-protocols[]",
@@ -90,6 +91,7 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNT_CACHE_REUSE,
 	LEJPVP_MOUNT_CACHE_REVALIDATE,
 	LEJPVP_MOUNT_CACHE_INTERMEDIARIES,
+	LEJPVP_MOUNT_EXTRA_MIMETYPES,
 	LEJPVP_PROTOCOL_NAME_OPT,
 	LEJPVP_PROTOCOL_NAME,
 	LEJPVP_PROTOCOL,
@@ -110,11 +112,13 @@ struct jpargs {
 	struct lws_http_mount *head, *last;
 
 	struct lws_protocol_vhost_options *pvo;
+	struct lws_protocol_vhost_options *pvo_em;
 	struct lws_http_mount m;
 	const char **plugin_dirs;
 	int count_plugin_dirs;
 
 	unsigned int enable_client_ssl:1;
+	unsigned int fresh_mount:1;
 };
 
 static void *
@@ -234,8 +238,10 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	if (reason == LEJPCB_OBJECT_START &&
-	    ctx->path_match == LEJPVP_MOUNTS + 1)
+	    ctx->path_match == LEJPVP_MOUNTS + 1) {
+		a->fresh_mount = 1;
 		memset(&a->m, 0, sizeof(a->m));
+	}
 
 	/* this catches, eg, vhosts[].ws-protocols[].xxx-protocol */
 	if (reason == LEJPCB_OBJECT_START &&
@@ -248,7 +254,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->pvo->next = a->info->pvo;
 		a->info->pvo = a->pvo;
 		a->pvo->name = a->p;
-		lwsl_err("adding %s\n", a->p);
+		lwsl_notice("  adding protocol %s\n", a->p);
 		a->p += n;
 		a->pvo->value = a->p;
 		a->pvo->options = NULL;
@@ -298,10 +304,14 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			"callback://"
 		};
 
+		if (!a->fresh_mount)
+			return 0;
+
 		if (!a->m.mountpoint || !a->m.origin) {
 			lwsl_err("mountpoint and origin required\n");
 			return 1;
 		}
+		lwsl_debug("adding mount %s\n", a->m.mountpoint);
 		m = lwsws_align(a);
 		memcpy(m, &a->m, sizeof(*m));
 		if (a->last)
@@ -325,6 +335,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			a->head = m;
 
 		a->last = m;
+		a->fresh_mount = 0;
 	}
 
 	/* we only match on the prepared path strings */
@@ -434,9 +445,23 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		pvo->value = a->p;
 		pvo->options = NULL;
-		a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
-		*(a->p)++ = '\0';
 		break;
+
+	case LEJPVP_MOUNT_EXTRA_MIMETYPES:
+		a->pvo_em = lwsws_align(a);
+		a->p += sizeof(*a->pvo_em);
+
+		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		/* ie, enable this protocol, no options yet */
+		a->pvo_em->next = a->m.extra_mimetypes;
+		a->m.extra_mimetypes = a->pvo_em;
+		a->pvo_em->name = a->p;
+		lwsl_notice("  adding extra-mimetypes %s -> %s\n", a->p, ctx->buf);
+		a->p += n;
+		a->pvo_em->value = a->p;
+		a->pvo_em->options = NULL;
+		break;
+
 	case LEJPVP_ENABLE_CLIENT_SSL:
 		a->enable_client_ssl = arg_to_bool(ctx->buf);
 		return 0;

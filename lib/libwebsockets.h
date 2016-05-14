@@ -1391,6 +1391,7 @@ struct lws_http_mount {
 	const char *def; /* default target, eg, "index.html" */
 
 	const struct lws_protocol_vhost_options *cgienv;
+	const struct lws_protocol_vhost_options *extra_mimetypes;
 
 	int cgi_timeout;
 	int cache_max_age;

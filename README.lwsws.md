@@ -295,6 +295,14 @@ options are given, the content is marked uncacheable.
        }
 
 
+4) You can also define a list of additional mimetypes per-mount
+
+        "extra-mimetypes": {
+                 ".zip": "application/zip",
+                 ".doc": "text/evil"
+         }
+
+
 Plugins
 -------
 
