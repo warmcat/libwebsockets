@@ -188,6 +188,12 @@ Other vhost options
 
  - "`access-log`": "filepath"   sets where apache-compatible access logs will be written
 
+ - "`ciphers`": "<cipher list>"   sets the allowed list of ciphers and key exchange protocols for the vhost.  The default list is restricted to only those providing PFS (Perfect Forward Secrecy) on the author's Fedora system.
+ 
+ If you need to allow weaker ciphers,you can provide an alternative list here per-vhost.
+ 
+ - "`ecdh-curve`": "<curve name>"   The default ecdh curve is "prime256v1", but you can override it here, per-vhost
+
 
 Mounts
 ------
