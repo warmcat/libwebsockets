@@ -115,7 +115,15 @@ lejp_check_path_match(struct lejp_ctx *ctx)
 			}
 			ctx->wild[ctx->wildcount++] = p - ctx->path;
 			q++;
-			while (*p && *p != '.')
+			/*
+			 * if * has something after it, match to .
+			 * if ends with *, eat everything.
+			 * This implies match sequences must be ordered like
+			 *  x.*.*
+			 *  x.*
+			 * if both options are possible
+			 */
+			while (*p && (*p != '.' || !*q))
 				p++;
 		}
 		if (*p || *q)
@@ -140,7 +148,7 @@ lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len)
 
 	n = ctx->wild[wildcard];
 
-	while (--len && n < ctx->ppos && ctx->path[n] != '.')
+	while (--len && n < ctx->ppos && (n == ctx->wild[wildcard] || ctx->path[n] != '.'))
 		*dest++ = ctx->path[n++];
 
 	*dest = '\0';
