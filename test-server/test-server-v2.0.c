@@ -229,7 +229,8 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "i:hsap:d:Dr:C:K:A:R:vu:g:", options, NULL);
+		n = getopt_long(argc, argv, "i:hsap:d:Dr:C:K:A:R:vu:g:",
+				(struct option *)options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {

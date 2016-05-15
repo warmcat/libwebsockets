@@ -447,7 +447,7 @@ lws_create_vhost(struct lws_context *context,
 #ifdef LWS_WITH_ACCESS_LOG
 	if (info->log_filepath) {
 		vh->log_fd = open(info->log_filepath, O_CREAT | O_APPEND | O_RDWR, 0600);
-		if (vh->log_fd == LWS_INVALID_FILE) {
+		if (vh->log_fd == (int)LWS_INVALID_FILE) {
 			lwsl_err("unable to open log filepath %s\n",
 				 info->log_filepath);
 			goto bail;
@@ -460,7 +460,7 @@ lws_create_vhost(struct lws_context *context,
 						info->log_filepath);
 #endif
 	} else
-		vh->log_fd = LWS_INVALID_FILE;
+		vh->log_fd = (int)LWS_INVALID_FILE;
 #endif
 
 	if (lws_context_init_server_ssl(info, vh))
@@ -940,7 +940,7 @@ lws_context_destroy(struct lws_context *context)
 #endif
 #endif
 #ifdef LWS_WITH_ACCESS_LOG
-		if (vh->log_fd != LWS_INVALID_FILE)
+		if (vh->log_fd != (int)LWS_INVALID_FILE)
 			close(vh->log_fd);
 #endif
 

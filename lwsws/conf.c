@@ -378,7 +378,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		break;
 	case LEJPVP_MOUNTPOINT:
 		a->m.mountpoint = a->p;
-		a->m.mountpoint_len = strlen(ctx->buf);
+		a->m.mountpoint_len = (unsigned char)strlen(ctx->buf);
 		break;
 	case LEJPVP_ORIGIN:
 		a->m.origin = a->p;

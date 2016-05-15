@@ -674,7 +674,7 @@ lws_http_action(struct lws *wsi)
 		 */
 		if (hit->origin_protocol == LWSMPRO_CALLBACK) {
 
-			for (n = 0; n < wsi->vhost->count_protocols; n++)
+			for (n = 0; n < (unsigned int)wsi->vhost->count_protocols; n++)
 				if (!strcmp(wsi->vhost->protocols[n].name,
 					   hit->origin)) {
 

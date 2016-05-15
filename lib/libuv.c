@@ -269,7 +269,7 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 }
 
 void
-lws_libuv_accept(struct lws *wsi, int accept_fd)
+lws_libuv_accept(struct lws *wsi, lws_sockfd_type accept_fd)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];

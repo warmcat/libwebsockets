@@ -2343,7 +2343,7 @@ lws_access_log(struct lws *wsi)
 		     wsi->access_log.header_log,
 		     wsi->access_log.response, wsi->access_log.sent, p);
 
-	if (wsi->vhost->log_fd != LWS_INVALID_FILE) {
+	if (wsi->vhost->log_fd != (int)LWS_INVALID_FILE) {
 		if (write(wsi->vhost->log_fd, ass, l) != l)
 			lwsl_err("Failed to write log\n");
 	} else
@@ -2448,7 +2448,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 			if (!first)
 				buf += snprintf(buf, end - buf, ",");
 			buf += snprintf(buf, end - buf,
-					"\n  {\n   \"%s\":\{\n"
+					"\n  {\n   \"%s\":{\n"
 					"    \"status\":\"ok\"\n   }\n  }"
 					,
 					vh->protocols[n].name);
