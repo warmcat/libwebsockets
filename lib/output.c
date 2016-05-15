@@ -127,9 +127,10 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		lwsl_warn("** error invalid sock but expected to send\n");
 
 	/* limit sending */
-	n = wsi->protocol->rx_buffer_size + LWS_PRE + 4;
+	n = wsi->protocol->rx_buffer_size;
 	if (!n)
 		n = LWS_MAX_SOCKET_IO_BUF;
+	n += LWS_PRE + 4;
 	if (n > len)
 		n = len;
 
