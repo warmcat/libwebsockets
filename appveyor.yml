@@ -1,5 +1,8 @@
 environment:
   matrix:
+    - LWS_METHOD: lwsws
+      CMAKE_ARGS: -DLWS_WITH_LWSWS=1 -DLIBUV_INCLUDE_DIRS=C:\assets\libuv\include -DLIBUV_LIBRARIES=C:\assets\libuv\libuv.lib
+
     - LWS_METHOD: default
 
     - LWS_METHOD: noserver
@@ -14,10 +17,16 @@ environment:
     - LWS_METHOD: nossl
       CMAKE_ARGS: -DLWS_WITH_SSL=OFF
 install:
-  - appveyor DownloadFile https://slproweb.com/download/Win32OpenSSL-1_0_2h.exe
+  - appveyor DownloadFile https://libwebsockets.org:444/win-libuv.zip
+  - mkdir c:\assets
+  - mkdir c:\assets\libuv
+  - 7z x -oc:\assets\libuv win-libuv.zip
+#  - appveyor DownloadFile https://slproweb.com/download/Win32OpenSSL-1_0_2h.exe
+  - appveyor DownloadFile https://libwebsockets.org:444/Win32OpenSSL-1_0_2h.exe
   - Win32OpenSSL-1_0_2h.exe /silent /verysilent /sp- /suppressmsgboxes
-  - cinst -y nsis
-  - SET PATH=C:\Program Files\NSIS\;C:\Program Files (x86)\NSIS\;%PATH%
+  - appveyor DownloadFile https://libwebsockets.org:444/nsis-3.0rc1-setup.exe
+  - cmd /c start /wait nsis-3.0rc1-setup.exe /S /D=C:\nsis
+  - SET PATH=C:\Program Files\NSIS\;C:\Program Files (x86)\NSIS\;c:\nsis;%PATH%
 build:
 
 build_script:
