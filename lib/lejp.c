@@ -212,7 +212,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				ret = LEJP_REJECT_IDLE_NO_BRACE;
 				goto reject;
 			}
-			ctx->callback(ctx, LEJPCB_OBJECT_START);
+			if (ctx->callback(ctx, LEJPCB_OBJECT_START)) {
+				ret = LEJP_REJECT_CALLBACK;
+				goto reject;
+			}
 			ctx->st[ctx->sp].s = LEJP_MEMBERS;
 			break;
 		case LEJP_MEMBERS:
@@ -351,7 +354,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			ctx->path[ctx->ppos] = '\0';
 
 			lejp_check_path_match(ctx);
-			ctx->callback(ctx, LEJPCB_PAIR_NAME);
+			if (ctx->callback(ctx, LEJPCB_PAIR_NAME)) {
+				ret = LEJP_REJECT_CALLBACK;
+				goto reject;
+			}
 			break;
 
 		case LEJP_MP_VALUE:
@@ -369,7 +375,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				c = LEJP_MP_STRING;
 				ctx->npos = 0;
 				ctx->buf[0] = '\0';
-				ctx->callback(ctx, LEJPCB_VAL_STR_START);
+				if (ctx->callback(ctx, LEJPCB_VAL_STR_START)) {
+					ret = LEJP_REJECT_CALLBACK;
+					goto reject;
+				}
 				goto add_stack_level;
 
 			case '{':
@@ -377,7 +386,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				ctx->st[ctx->sp].s = LEJP_MP_COMMA_OR_END;
 				c = LEJP_MEMBERS;
 				lejp_check_path_match(ctx);
-				ctx->callback(ctx, LEJPCB_OBJECT_START);
+				if (ctx->callback(ctx, LEJPCB_OBJECT_START)) {
+					ret = LEJP_REJECT_CALLBACK;
+					goto reject;
+				}
 				ctx->path_match = 0;
 				goto add_stack_level;
 
@@ -388,7 +400,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				ctx->path[ctx->ppos++] = '[';
 				ctx->path[ctx->ppos++] = ']';
 				ctx->path[ctx->ppos] = '\0';
-				ctx->callback(ctx, LEJPCB_ARRAY_START);
+				if (ctx->callback(ctx, LEJPCB_ARRAY_START)) {
+					ret = LEJP_REJECT_CALLBACK;
+					goto reject;
+				}
 				ctx->i[ctx->ipos++] = 0;
 				if (ctx->ipos > ARRAY_SIZE(ctx->i)) {
 					ret = LEJP_REJECT_MP_DELIM_ISTACK;
@@ -462,10 +477,17 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			}
 
 			ctx->buf[ctx->npos] = '\0';
-			if (ctx->f & LEJP_SEEN_POINT)
-				ctx->callback(ctx, LEJPCB_VAL_NUM_FLOAT);
-			else
-				ctx->callback(ctx, LEJPCB_VAL_NUM_INT);
+			if (ctx->f & LEJP_SEEN_POINT) {
+				if (ctx->callback(ctx, LEJPCB_VAL_NUM_FLOAT)) {
+					ret = LEJP_REJECT_CALLBACK;
+					goto reject;
+				}
+			} else {
+				if (ctx->callback(ctx, LEJPCB_VAL_NUM_INT)) {
+					ret = LEJP_REJECT_CALLBACK;
+					goto reject;
+				}
+			}
 
 			/* then this is the post-number character, loop */
 			ctx->st[ctx->sp].s = LEJP_MP_COMMA_OR_END;
@@ -492,16 +514,25 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			case 3:
 				ctx->buf[0] = '1';
 				ctx->buf[1] = '\0';
-				ctx->callback(ctx, LEJPCB_VAL_TRUE);
+				if (ctx->callback(ctx, LEJPCB_VAL_TRUE)) {
+					ret = LEJP_REJECT_CALLBACK;
+					goto reject;
+				}
 				break;
 			case 8:
 				ctx->buf[0] = '0';
 				ctx->buf[1] = '\0';
-				ctx->callback(ctx, LEJPCB_VAL_FALSE);
+				if (ctx->callback(ctx, LEJPCB_VAL_FALSE)) {
+					ret = LEJP_REJECT_CALLBACK;
+					goto reject;
+				}
 				break;
 			case 12:
 				ctx->buf[0] = '\0';
-				ctx->callback(ctx, LEJPCB_VAL_NULL);
+				if (ctx->callback(ctx, LEJPCB_VAL_NULL)) {
+					ret = LEJP_REJECT_CALLBACK;
+					goto reject;
+				}
 				break;
 			}
 			ctx->st[ctx->sp].s = LEJP_MP_COMMA_OR_END;
@@ -568,7 +599,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			if (c == '}') {
 				if (ctx->sp == 0) {
 					lejp_check_path_match(ctx);
-					ctx->callback(ctx, LEJPCB_OBJECT_END);
+					if (ctx->callback(ctx, LEJPCB_OBJECT_END)) {
+						ret = LEJP_REJECT_CALLBACK;
+						goto reject;
+					}
 					ctx->callback(ctx, LEJPCB_COMPLETE);
 					/* done, return unused amount */
 					return len;
@@ -586,7 +620,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					 */
 					ctx->path_match = 0;
 				lejp_check_path_match(ctx);
-				ctx->callback(ctx, LEJPCB_OBJECT_END);
+				if (ctx->callback(ctx, LEJPCB_OBJECT_END)) {
+					ret = LEJP_REJECT_CALLBACK;
+					goto reject;
+				}
 				break;
 			}
 
@@ -622,7 +659,10 @@ emit_string_char:
 			/* assemble the string value into chunks */
 			ctx->buf[ctx->npos++] = c;
 			if (ctx->npos == sizeof(ctx->buf) - 1) {
-				ctx->callback(ctx, LEJPCB_VAL_STR_CHUNK);
+				if (ctx->callback(ctx, LEJPCB_VAL_STR_CHUNK)) {
+					ret = LEJP_REJECT_CALLBACK;
+					goto reject;
+				}
 				ctx->npos = 0;
 			}
 			continue;
