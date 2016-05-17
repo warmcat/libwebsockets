@@ -48,7 +48,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			(struct per_session_data__lws_mirror *)user;
 	struct per_vhost_data__lws_mirror *v =
 			(struct per_vhost_data__lws_mirror *)
-			lws_protocol_vh_priv_get(lws_vhost_get(wsi),
+			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
 	int n, m;
 
@@ -61,7 +61,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_INIT: /* per vhost */
-		lws_protocol_vh_priv_zalloc(lws_vhost_get(wsi),
+		lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__lws_mirror));
 		break;

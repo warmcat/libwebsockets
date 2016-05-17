@@ -777,6 +777,12 @@ lws_vhost_get(struct lws *wsi)
 	return wsi->vhost;
 }
 
+LWS_VISIBLE struct lws_vhost *
+lws_get_vhost(struct lws *wsi)
+{
+	return wsi->vhost;
+}
+
 LWS_VISIBLE const struct lws_protocols *
 lws_protocol_get(struct lws *wsi)
 {
