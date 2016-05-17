@@ -59,6 +59,16 @@ and a config directory intended to take one file per vhost
 }
 ```
 
+To get started quickly, an example config reproducing the old test server
+on port 7681, non-SSL is provided.  To set it up
+
+```
+# mkdir -p /etc/lwsws/conf.d /var/log/lwsws
+# cp ./lwsws/etc-lwsws-conf-EXAMPLE /etc/lwsws/conf
+# cp ./lwsws/etc-lwsws-conf.d-localhost-EXAMPLE /etc/lwsws/conf.d/test-server
+# sudo lwsws
+```
+
 Vhosts
 ------
 

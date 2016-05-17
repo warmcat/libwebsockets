@@ -1,91 +1,29 @@
-# comment
-
 {
  "vhosts": [ {
-     "name": "libwebsockets.org",
-     "port": "443",
-     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
-     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
-     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
-     "access-log": "/var/log/httpd/lws-access-log",
-     "sts": "on",
+     "name": "localhost",
+     "port": "7681",
+     "interface": "lo",
+#     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
+#     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
+#     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
+     "access-log": "/var/log/lwsws/test-access-log",
+#     "sts": "on",
      "mounts": [{
        "mountpoint": "/",
-       "origin": "file:///var/www/libwebsockets.org",
-       "default": "index.html",
+       "origin": "file:///usr/share/libwebsockets-test-server",
+       "default": "test.html",
        "cache-max-age": "60",
        "cache-reuse": "1",
        "cache-revalidate": "1",
        "cache-intermediaries": "0"
        }, {
-        # this hooks us up to cgit cgi part
-        "mountpoint": "/git",
-        "origin": "cgi:///var/www/cgi-bin/cgit",
-        "default": "/",
-	"cgi-env": [{
-		"CGIT_CONFIG": "/etc/cgitrc/git.libwebsockets.org"
-	}],
-	# we can also set up per-cgi process timeout
-	"cgi-timeout": "30"
-       }, {
-        # this hooks us up to cgit static assets
-        "mountpoint": "/git/cgit-data",
-        "origin": "file:///usr/share/cgit",
-        "default": "/"
-        }, {
-        "mountpoint": "/mailman",
-        "origin": ">https://libwebsockets.org/mailman/listinfo"
-       }, {
-        "mountpoint": "/mailman/listinfo",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/listinfo"
-       }, {
-        "mountpoint": "/mailman/admin",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/admin"
-       }, {
-        "mountpoint": "/mailman/admindb",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/admindb"
-       }, {
-        "mountpoint": "/mailman/confirm",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/confirm"
-       }, {
-        "mountpoint": "/mailman/create",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/create"
-       }, {
-        "mountpoint": "/mailman/edithtml",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/edithtml"
-       }, {
-        "mountpoint": "/mailman/options",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/options"
-       }, {
-        "mountpoint": "/mailman/private",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/private"
-       }, {
-        "mountpoint": "/mailman/rmlist",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/rmlist"
-       }, {
-        "mountpoint": "/mailman/roster",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/roster"
-       }, {
-        "mountpoint": "/mailman/subscribe",
-        "origin": "cgi:///usr/lib/mailman/cgi-bin/subscribe"
-       }, {
-        "mountpoint": "/pipermail",
-        "origin": "file:///var/lib/mailman/archives/public",
-	"default": "index.html"
-       }, {
-        # we used to have a trac, redirect anyone using it to github
-        "mountpoint": "/trac",
-        "origin": ">https://github.com/warmcat/libwebsockets"
-       }, {
         "mountpoint": "/server-status",
-        "origin": "file:///usr/local/share/libwebsockets-test-server/server-status",
+        "origin": "file:///usr/share/libwebsockets-test-server/server-status",
         "default": "server-status.html"
        }, {
-        "mountpoint": "/testserver",
-        "origin": "file:///usr/local/share/libwebsockets-test-server",
-        "default": "test.html"
-       }
-     ],
+        "mountpoint": "/formtest",
+        "origin": "callback://protocol-post-demo" 
+       }],
      # which protocols are enabled for this vhost, and optional
      # vhost-specific config options for the protocol
      #
@@ -99,82 +37,15 @@
        "lws-status": {
          "status": "ok"
        },
+       "protocol-post-demo": {
+         "status": "ok"
+       },
        "lws-server-status": {
          "status": "ok",
 	 "update-ms": "5000"
        }
-     }],
-     "ws-extensions": [{
-       "extension": "permessage-deflate"
      }]
-   },
-
-	# redirect any guys coming in on http to https
-    {
-     "name": "libwebsockets.org",
-     "port": "80",
-     "sts": "on",
-     "mounts": [{
-       "mountpoint": "/",
-       "origin": ">https://libwebsockets.org"
-     }]
-   },
-    {
-	# the old test server ran this on :7681, put a redirect
-	# there to take us to the new location
-    "name": "libwebsockets.org",
-    "port": "7681",
-     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
-     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
-     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
-     "mounts": [{
-       "mountpoint": "/",
-       "origin": ">https://libwebsockets.org/testserver/"
-     }]
-  },
-
-	# old site for mailing list redirect to new one
-    {
-    "name": "ml.libwebsockets.org",
-    "port": "80",
-     "mounts": [{
-       "mountpoint": "/",
-       "origin": ">https://libwebsockets.org/mailman"
-     }]
-   },
-	# old site for mailing list redirect to new one
-    {
-    "name": "ml.libwebsockets.org",
-    "port": "443",
-     "mounts": [{
-       "mountpoint": "/",
-       "origin": ">https://libwebsockets.org/mailman"
-     }]
-   },
-
-
-	# redirect any guys coming in on http to https
-    {
-    "name": "git.libwebsockets.org",
-    "port": "80",
-     "mounts": [{
-       "mountpoint": "/",
-       "origin": ">https://libwebsockets.org/git"
-     }]
-   },
-    {
-	# the old test server ran this on :7681, put a redirect
-	# there to take us to the new location
-    "name": "git.libwebsockets.org",
-    "port": "443",
-     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
-     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
-     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
-     "mounts": [{
-       "mountpoint": "/",
-       "origin": ">https://libwebsockets.org/git"
-     }]
-   }
- }]
+    }
+  ]
 }
 
