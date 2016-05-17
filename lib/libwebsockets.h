@@ -1644,8 +1644,9 @@ lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 LWS_VISIBLE LWS_EXTERN struct lws_vhost *
 lws_vhost_get(struct lws *wsi);
 
+/* deprecated: use lws_get_protocol */
 LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
-lws_protocol_get(struct lws *wsi);
+lws_protocol_get(struct lws *wsi) LWS_WARN_DEPRECATED;
 
 LWS_VISIBLE LWS_EXTERN void *
 lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols *prot,

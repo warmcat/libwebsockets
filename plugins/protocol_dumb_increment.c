@@ -52,7 +52,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	struct per_vhost_data__dumb_increment *vhd =
 			(struct per_vhost_data__dumb_increment *)
 			lws_protocol_vh_priv_get(lws_vhost_get(wsi),
-					lws_protocol_get(wsi));
+					lws_get_protocol(wsi));
 	unsigned char buf[LWS_PRE + 512];
 	unsigned char *p = &buf[LWS_PRE];
 	int n, m;
@@ -60,10 +60,10 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		vhd = lws_protocol_vh_priv_zalloc(lws_vhost_get(wsi),
-				lws_protocol_get(wsi),
+				lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__dumb_increment));
 		vhd->context = lws_get_context(wsi);
-		vhd->protocol = lws_protocol_get(wsi);
+		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_vhost_get(wsi);
 		uv_timer_init(lws_uv_getloop(vhd->context, 0),
 			      &vhd->timeout_watcher);
