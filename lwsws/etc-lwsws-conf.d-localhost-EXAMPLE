@@ -20,6 +20,10 @@
         "mountpoint": "/server-status",
         "origin": "file:///usr/share/libwebsockets-test-server/server-status",
         "default": "server-status.html"
+	}, {
+	"mountpoint": "/testcgi",
+	"origin": "cgi:///usr/share/libwebsockets-test-server/lws-cgi-test.sh"
+
        }, {
         "mountpoint": "/formtest",
         "origin": "callback://protocol-post-demo" 
