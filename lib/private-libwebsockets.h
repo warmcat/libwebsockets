@@ -352,7 +352,6 @@ extern "C" {
 #endif
 
 #define MAX_WEBSOCKET_04_KEY_LEN 128
-#define LWS_MAX_SOCKET_IO_BUF 4096
 
 #ifndef SYSTEM_RANDOM_FILEPATH
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
@@ -742,6 +741,7 @@ struct lws_context {
 	unsigned int options;
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;
+	unsigned int pt_serv_buf_size;
 
 	/*
 	 * set to the Thread ID that's doing the service loop just before entry

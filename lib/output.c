@@ -129,7 +129,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	/* limit sending */
 	n = wsi->protocol->rx_buffer_size;
 	if (!n)
-		n = LWS_MAX_SOCKET_IO_BUF;
+		n = context->pt_serv_buf_size;
 	n += LWS_PRE + 4;
 	if (n > len)
 		n = len;
@@ -585,7 +585,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 		if (lws_plat_file_read(wsi, wsi->u.http.fd, &amount,
 				       pt->serv_buf,
-				       LWS_MAX_SOCKET_IO_BUF) < 0)
+				       context->pt_serv_buf_size) < 0)
 			return -1; /* caller will close */
 
 		n = (int)amount;

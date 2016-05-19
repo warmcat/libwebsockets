@@ -537,7 +537,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 		lws_latency_pre(context, wsi);
 
-		n = recv(wsi->sock, (char *)pt->serv_buf, LWS_MAX_SOCKET_IO_BUF,
+		n = recv(wsi->sock, (char *)pt->serv_buf, context->pt_serv_buf_size,
 			 MSG_PEEK);
 
 		/*

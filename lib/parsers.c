@@ -1286,12 +1286,11 @@ handle_first:
 
 		/*
 		 * if there's no protocol max frame size given, we are
-		 * supposed to default to LWS_MAX_SOCKET_IO_BUF
+		 * supposed to default to context->pt_serv_buf_size
 		 */
 
 		if (!wsi->protocol->rx_buffer_size &&
-			 		wsi->u.ws.rx_ubuf_head !=
-			 				  LWS_MAX_SOCKET_IO_BUF)
+		    wsi->u.ws.rx_ubuf_head != wsi->context->pt_serv_buf_size)
 			break;
 		else
 			if (wsi->protocol->rx_buffer_size &&
@@ -1517,7 +1516,7 @@ lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf,
 	if (wsi->protocol->rx_buffer_size)
 		buffer_size = wsi->protocol->rx_buffer_size;
 	else
-		buffer_size = LWS_MAX_SOCKET_IO_BUF;
+		buffer_size = wsi->context->pt_serv_buf_size;
 	avail = buffer_size - wsi->u.ws.rx_ubuf_head;
 
 	/* do not consume more than we should */

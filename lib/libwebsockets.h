@@ -1496,6 +1496,11 @@ struct lws_http_mount {
  * @mounts:	VHOST: optional linked list of mounts for this vhost
  * @server_string: CONTEXT: string used in HTTP headers to identify server
  *		software, if NULL, "libwebsockets".
+ * @pt_serv_buf_size: CONTEXT: 0 = default of 4096.  This buffer is used by
+ *		various service related features including file serving, it
+ *		defines the max chunk of file that can be sent at once.
+ *		At the risk of lws having to buffer failed large sends, it
+ *		can be increased to, eg, 128KiB to improve throughput.
  */
 
 struct lws_context_creation_info {
@@ -1538,6 +1543,7 @@ struct lws_context_creation_info {
 	const char *log_filepath;			/* VH */
 	const struct lws_http_mount *mounts;		/* VH */
 	const char *server_string;			/* context */
+	unsigned int pt_serv_buf_size;			/* context */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

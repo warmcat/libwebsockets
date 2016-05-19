@@ -272,7 +272,7 @@ static const struct lws_protocols protocols_dummy[] = {
 		"http-only",		/* name */
 		callback_http_dummy,		/* callback */
 		0,	/* per_session_data_size */
-		4096,			/* max frame size / rx buffer */
+		0,			/* max frame size / rx buffer */
 	},
 	/*
 	 * the other protocols are provided by lws plugins
@@ -598,6 +598,11 @@ lws_create_context(struct lws_context_creation_info *info)
 		return NULL;
 	}
 
+	if (info->pt_serv_buf_size)
+		context->pt_serv_buf_size = info->pt_serv_buf_size;
+	else
+		context->pt_serv_buf_size = 4096;
+
 	context->time_up = time(NULL);
 #ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {
@@ -649,7 +654,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	 * and header data pool
 	 */
 	for (n = 0; n < context->count_threads; n++) {
-		context->pt[n].serv_buf = lws_zalloc(LWS_MAX_SOCKET_IO_BUF);
+		context->pt[n].serv_buf = lws_zalloc(context->pt_serv_buf_size);
 		if (!context->pt[n].serv_buf) {
 			lwsl_err("OOM\n");
 			return NULL;
@@ -714,10 +719,10 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	lwsl_info(" mem: context:         %5u bytes (%d ctx + (%d thr x %d))\n",
 		  sizeof(struct lws_context) +
-		  (context->count_threads * LWS_MAX_SOCKET_IO_BUF),
+		  (context->count_threads * context->pt_serv_buf_size),
 		  sizeof(struct lws_context),
 		  context->count_threads,
-		  LWS_MAX_SOCKET_IO_BUF);
+		  context->pt_serv_buf_size);
 
 	lwsl_info(" mem: http hdr rsvd:   %5u bytes (%u thr x (%u + %u) x %u))\n",
 		    (context->max_http_header_data +

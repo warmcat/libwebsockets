@@ -107,7 +107,7 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			return 0;
 		}
 
-		n = recv(wsi->sock, sb, LWS_MAX_SOCKET_IO_BUF, 0);
+		n = recv(wsi->sock, sb, context->pt_serv_buf_size, 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN) {
 				lwsl_debug("Proxy read returned EAGAIN... retrying\n");
@@ -368,11 +368,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 {
 	int n, len, okay = 0, isErrorCodeReceived = 0, port = 0, ssl = 0;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
+	struct lws_context *context = wsi->context;
 	const char *pc, *prot, *ads = NULL, *path;
 	struct allocated_headers *ah;
 	char *p;
 #ifndef LWS_NO_EXTENSIONS
-	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *sb = (char *)&pt->serv_buf[0];
 	const struct lws_ext_options *opts;
@@ -622,7 +622,7 @@ check_extensions:
 	 * and go through matching them or identifying bogons
 	 */
 
-	if (lws_hdr_copy(wsi, sb, LWS_MAX_SOCKET_IO_BUF, WSI_TOKEN_EXTENSIONS) < 0) {
+	if (lws_hdr_copy(wsi, sb, context->pt_serv_buf_size, WSI_TOKEN_EXTENSIONS) < 0) {
 		lwsl_warn("ext list from server failed to copy\n");
 		goto bail2;
 	}
@@ -789,7 +789,7 @@ check_accept:
 	 */
 	n = wsi->protocol->rx_buffer_size;
 	if (!n)
-		n = LWS_MAX_SOCKET_IO_BUF;
+		n = context->pt_serv_buf_size;
 	n += LWS_PRE;
 	wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */);
 	if (!wsi->u.ws.rx_ubuf) {
@@ -993,7 +993,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	/* give userland a chance to append, eg, cookies */
 
 	wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
-				wsi->user_space, &p, (pkt + LWS_MAX_SOCKET_IO_BUF) - p - 12);
+				wsi->user_space, &p, (pkt + context->pt_serv_buf_size) - p - 12);
 
 	p += sprintf(p, "\x0d\x0a");
 

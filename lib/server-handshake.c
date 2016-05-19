@@ -48,7 +48,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 	 * and go through them
 	 */
 
-	if (lws_hdr_copy(wsi, (char *)pt->serv_buf, LWS_MAX_SOCKET_IO_BUF,
+	if (lws_hdr_copy(wsi, (char *)pt->serv_buf, context->pt_serv_buf_size,
 			 WSI_TOKEN_EXTENSIONS) < 0)
 		return 1;
 
@@ -191,7 +191,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	lws_SHA1(pt->serv_buf, n, hash);
 
 	accept_len = lws_b64_encode_string((char *)hash, 20, (char *)pt->serv_buf,
-					   LWS_MAX_SOCKET_IO_BUF);
+			context->pt_serv_buf_size);
 	if (accept_len < 0) {
 		lwsl_warn("Base64 encoded hash too long\n");
 		goto bail;

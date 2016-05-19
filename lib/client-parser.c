@@ -321,10 +321,10 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 		/*
 		 * if there's no protocol max frame size given, we are
-		 * supposed to default to LWS_MAX_SOCKET_IO_BUF
+		 * supposed to default to context->pt_serv_buf_size
 		 */
 		if (!wsi->protocol->rx_buffer_size &&
-		    wsi->u.ws.rx_ubuf_head != LWS_MAX_SOCKET_IO_BUF)
+		    wsi->u.ws.rx_ubuf_head != wsi->context->pt_serv_buf_size)
 			break;
 
 		if (wsi->protocol->rx_buffer_size &&

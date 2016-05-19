@@ -49,7 +49,7 @@ lws_extension_pmdeflate_restrict_args(struct lws *wsi,
 
 	/* cap the RX buf at the nearest power of 2 to protocol rx buf */
 
-	n = LWS_MAX_SOCKET_IO_BUF;
+	n = wsi->context->pt_serv_buf_size;
 	if (wsi->protocol->rx_buffer_size)
 		n =  wsi->protocol->rx_buffer_size;
 
@@ -115,7 +115,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 	case LWS_EXT_CB_CLIENT_CONSTRUCT:
 	case LWS_EXT_CB_CONSTRUCT:
 
-		n = LWS_MAX_SOCKET_IO_BUF;
+		n = context->pt_serv_buf_size;
 		if (wsi->protocol->rx_buffer_size)
 			n =  wsi->protocol->rx_buffer_size;
 

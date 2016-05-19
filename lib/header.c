@@ -219,7 +219,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	unsigned char *p = pt->serv_buf + LWS_PRE;
 	unsigned char *start = p, *body = p + 512;
-	unsigned char *end = p + LWS_MAX_SOCKET_IO_BUF - LWS_PRE;
+	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
 	int n, m, len;
 	char slen[20];
 

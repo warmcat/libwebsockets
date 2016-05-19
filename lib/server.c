@@ -1134,7 +1134,7 @@ upgrade_ws:
 
 		n = wsi->protocol->rx_buffer_size;
 		if (!n)
-			n = LWS_MAX_SOCKET_IO_BUF;
+			n = context->pt_serv_buf_size;
 		n += LWS_PRE;
 		wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */);
 		if (!wsi->u.ws.rx_ubuf) {
@@ -1612,7 +1612,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		}
 
 		len = lws_ssl_capable_read(wsi, pt->serv_buf,
-					   LWS_MAX_SOCKET_IO_BUF);
+					   context->pt_serv_buf_size);
 		lwsl_debug("%s: wsi %p read %d\r\n", __func__, wsi, len);
 		switch (len) {
 		case 0:
@@ -1781,7 +1781,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	char cache_control[50], *cc = "no-store";
 	unsigned char *response = pt->serv_buf + LWS_PRE;
 	unsigned char *p = response;
-	unsigned char *end = p + LWS_MAX_SOCKET_IO_BUF - LWS_PRE;
+	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
 	int ret = 0, cclen = 8;
 
 	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,

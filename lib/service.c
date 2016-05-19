@@ -893,7 +893,7 @@ read:
 			if (wsi->mode != LWSCM_HTTP_CLIENT_ACCEPTED) {
 				eff_buf.token_len = lws_ssl_capable_read(wsi,
 					pt->serv_buf, pending ? pending :
-							LWS_MAX_SOCKET_IO_BUF);
+					context->pt_serv_buf_size);
 				switch (eff_buf.token_len) {
 				case 0:
 					lwsl_info("%s: zero length read\n", __func__);
@@ -989,8 +989,8 @@ drain:
 
 		pending = lws_ssl_pending(wsi);
 		if (pending) {
-			pending = pending > LWS_MAX_SOCKET_IO_BUF ?
-					LWS_MAX_SOCKET_IO_BUF : pending;
+			pending = pending > context->pt_serv_buf_size ?
+					context->pt_serv_buf_size : pending;
 			goto read;
 		}
 
