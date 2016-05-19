@@ -1,0 +1,183 @@
+<html>
+ <head>
+  <script src="lwsgs.js"></script>
+  <style>
+     .body { font-size: 12 }
+     .gstitle { font-size: 18 }
+  </style>
+  </head>
+  <body>
+    <table width="100%">
+     <tr>
+      <td style="vertical-align:top;text-align:left" width=1%>
+       <img src="lwsws-logo.png">
+      </td>
+      <td style="vertical-align:top;text-align:left" width=20%>
+        Example website with top</br>session management ribbon
+      </td>
+      <td style="vertical-align:top;text-align:left">
+
+       <div id="dlogin" style="display:none">
+        <form action="login" method="post">
+         <input type="hidden" name="admin" value="needadmin/admin-login.html">
+         <input type="hidden" name="good" value="index.html">
+         <input type="hidden" name="bad" value="failed-login.html">
+         <input type="hidden" name="forgot-good" value="sent-forgot-ok.html">
+         <input type="hidden" name="forgot-bad" value="sent-forgot-fail.html">
+         <input type="hidden" name="forgot-post-good" value="post-forgot-ok.html">
+         <input type="hidden" name="forgot-post-bad" value="post-forgot-fail.html">
+	 <table style="vertical-align:top;text-align:left">
+          <tr>
+           <td>User Name</br>
+            <input type="text" size="10" id="username" name="username" oninput="lwsgs_update()"></td>
+           <td>Password</br>
+            <input type="password" id="password" size="10" name="password" oninput="lwsgs_update()" onchange="lwsgs_update()"><div id="pw1"></div></td>
+	   <td><input type="submit" id="login" name="login" value="Login" style="margin: 8px; padding: 8px; font-weight=bold;">
+      &nbsp;<input type="submit" id="forgot" name="forgot" value="Forgot password" style="margin: 4px; padding: 4px"></td>
+           <td><input type="button" onclick="lwsgs_open_registration()" value="Sign up"></td>
+          </tr>
+         </table>
+        </form>
+       </div>
+  
+       <div id="dlogout" style="display:none">
+        <form action="logout" method="post">
+         <input type="hidden" name="good" value="index.html">
+         <table style="vertical-align:top;text-align:left">
+          <tr>
+ 	   <td>Logged in as <a href="#" onclick="lwsgs_select_change(); event.preventDefault();"><span id="curuser"></span></a></td>
+           <td><input type="submit" name="logout" value="Logout" style="margin: 4px; padding: 4px"></td>
+          </tr>
+         </table>
+        </form>
+       </div>
+
+       <div id="dregister" style="display:none">
+        <form action="login" method="post">
+         <input type="hidden" name="admin" value="needadmin/admin-login.html">
+         <input type="hidden" name="good" value="successful-login.html">
+         <input type="hidden" name="bad" value="failed-login.html">
+         <input type="hidden" name="reg-good" value="post-register-ok.html">
+         <input type="hidden" name="reg-bad" value="post-register-fail.html">
+         <input type="hidden" name="forgot-good" value="sent-forgot-ok.html">
+         <input type="hidden" name="forgot-bad" value="sent-forgot-fail.html">
+         <input type="hidden" name="forgot-post-good" value="post-forgot-ok.html">
+         <input type="hidden" name="forgot-post-bad" value="post-forgot-fail.html">
+         <table style="vertical-align:top;text-align:left">
+	     <tr>
+	      <td colspan=2 align=center>
+		<span id="curuser"></span>
+	<script>
+		if (lwsgs_user)
+			document.getElementById("curuser").innerHTML = "currently logged in as " + lwsgs_san(lwsgs_user) + "</br>";
+	</script>
+	       <b>Please enter your details to register</b>:
+	      </td>
+	     </tr>
+	    <tr><td align=right>
+	     User Name:</td>
+	     <td><input type="text" size="10" id="rusername" name="username" oninput="lwsgs_rupdate(); lwsgs_check_user();">&nbsp;<span id=uchk></span></td>
+	    </tr>
+	    <tr>
+	     <td align=right>Password:</td>
+	     <td><input type="password" size="10" id="rpassword" name="password" oninput="lwsgs_rupdate()">&nbsp;<span id="rpw1"></span></td>
+	    </tr>
+	    <tr>
+	    </tr>
+	    <tr>
+	     <td align=right><span id="pw2">Password (again):</span></td>
+	     <td><input type="password" size="10" id="password2" name="password2" oninput="lwsgs_rupdate()">&nbsp;<span id="match"></span></td>
+	    </tr>
+	    <tr>
+	     <td align=right>Email:</td>
+	     <td><input type="email" size="10" id="email" name="email"
+	          placeholder="me@example.com" oninput="lwsgs_rupdate(); lwsgs_check_email('email')">&nbsp;
+	          <span id=echk></span></td>
+	    </tr>
+	    <tr>
+	     <td colspan=2 align=center>
+	      <input type="submit" id="register" name="register" value="Register" style="margin: 6px; padding: 6px">
+	      <input type="submit" id="rforgot" name="forgot" value="Forgot Password" style="margin: 6px; padding: 6px;display: none">
+	      <input type="button" id="cancel" name="cancel" value="Cancel" style="margin: 6px; padding: 6px;" onclick="lwsgs_cancel_registration()">
+	     </td>
+	    </tr>
+         </table>
+        </form>
+       </div>
+       
+       <div id="dchange" style="display:none">
+        <form action="change" method="post">
+         <input type="hidden" id="cusername" name="username">
+         <input type="hidden" name="admin" value="needadmin/admin-login.html">
+         <input type="hidden" name="good" value="index.html">
+         <input type="hidden" name="bad" value="failed-login.html">
+         <input type="hidden" name="reg-good" value="post-register-ok.html">
+         <input type="hidden" name="reg-bad" value="post-register-fail.html">
+         <input type="hidden" name="forgot-good" value="sent-forgot-ok.html">
+         <input type="hidden" name="forgot-bad" value="sent-forgot-fail.html">
+         <input type="hidden" name="forgot-post-good" value="post-forgot-ok.html">
+         <input type="hidden" name="forgot-post-bad" value="post-forgot-fail.html">
+         <table style="vertical-align:top;text-align:left">
+	     <tr>
+	      <td colspan=2 align=center>
+		<span id="ccuruser"></span>
+	<script>
+		if (lwsgs_user)
+			document.getElementById("ccuruser").innerHTML =
+			  "<span class=\"gstitle\">Login settings for " +
+			  lwsgs_san(lwsgs_user) + "</span></br>";
+	</script>
+	       <b>Please enter your details to change</b>:
+	      </td>
+	     </tr>
+	    <tr><td align=right id="ccurpw_name">
+	     Current Password:</td>
+	     <td><input type="password" size="10" id="ccurpw" name="curpw"
+	          oninput="lwsgs_cupdate();">&nbsp;<span id=cuchk></span></td>
+	    </tr>
+	    <tr>
+	     <td align=right>Password:</td>
+	     <td><input type="password" size="10" id="cpassword" name="password"
+	          oninput="lwsgs_cupdate()">&nbsp;<span id="cpw1"></span></td>
+	    </tr>
+	    <tr>
+	     <td align=right><span id="pw2">Password (again)</span></td>
+	     <td><input type="password" size="10" id="cpassword2" name="password2"
+	          oninput="lwsgs_cupdate()">&nbsp;<span id="cmatch"></span></td>
+	    </tr>
+	<!-- not supported yet
+	    <tr>
+	     <td align=right id="cemail_name">Email:</td>
+	     <td><input type="email" size="10" id="cemail" name="email"
+	     	  placeholder="?" oninput="lwsgs_cupdate(); lwsgs_check_email('cemail')">
+	     	  &nbsp;<span id=cechk></span></td>
+	    </tr> -->
+	    <tr>
+	     <td colspan=2 align=center>
+	      <input type="submit" id="change" name="change"
+	       value="Change" style="margin: 6px; padding: 6px">
+	      <input type="submit" id="cforgot" name="forgot"
+	       value="Forgot Password" style="margin: 6px; padding: 6px;display: none">
+	      <input type="button" id="cancel" name="cancel"
+	       value="Cancel" style="margin: 6px; padding: 6px;"
+	       onclick="lwsgs_cancel_registration()">
+	     </td>
+	    </tr>
+         </table>
+        </form>
+       </div>
+       
+       <div id="dadmin" style="display:none">
+         Admin settings TBD
+       </div>
+
+      </td>
+     </tr>
+    </table>
+   </form>
+   
+   <script>lwsgs_initial();</script>
+
+ </body>
+</html>
+

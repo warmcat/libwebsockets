@@ -475,6 +475,9 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_RECEIVE_CLIENT_HTTP			= 46,
 	LWS_CALLBACK_COMPLETED_CLIENT_HTTP			= 47,
 	LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ			= 48,
+	LWS_CALLBACK_CHECK_ACCESS_RIGHTS			= 49,
+	LWS_CALLBACK_PROCESS_HTML				= 50,
+	LWS_CALLBACK_ADD_HEADERS				= 51,
 
 	/****** add new things just above ---^ ******/
 
@@ -1337,6 +1340,13 @@ struct lws_protocols {
 	 * This is part of the ABI, don't needlessly break compatibility */
 };
 
+struct lws_process_html_args {
+	char *p;
+	int len;
+	int max_len;
+	int final;
+};
+
 enum lws_ext_options_types {
 	EXTARG_NONE,
 	EXTARG_DEC,
@@ -1445,12 +1455,15 @@ struct lws_http_mount {
 	const char *mountpoint; /* mountpoint in http pathspace, eg, "/" */
 	const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
 	const char *def; /* default target, eg, "index.html" */
+	const char *protocol; /* "protocol-name" to handle mount */
 
 	const struct lws_protocol_vhost_options *cgienv;
 	const struct lws_protocol_vhost_options *extra_mimetypes;
+	const struct lws_protocol_vhost_options *interpret;
 
 	int cgi_timeout;
 	int cache_max_age;
+	unsigned int auth_mask;
 
 	unsigned int cache_reusable:1;
 	unsigned int cache_revalidate:1;
@@ -2284,6 +2297,51 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 LWS_VISIBLE LWS_EXTERN void
 lws_set_allocator(void *(*realloc)(void *ptr, size_t size));
 
+/* lws_email */
+#ifdef LWS_WITH_SMTP
+enum lwsgs_smtp_states {
+	LGSSMTP_IDLE,
+	LGSSMTP_CONNECTING,
+	LGSSMTP_CONNECTED,
+	LGSSMTP_SENT_HELO,
+	LGSSMTP_SENT_FROM,
+	LGSSMTP_SENT_TO,
+	LGSSMTP_SENT_DATA,
+	LGSSMTP_SENT_BODY,
+	LGSSMTP_SENT_QUIT,
+};
+
+struct lws_email {
+	uv_timer_t timeout_email;
+	enum lwsgs_smtp_states estate;
+	uv_connect_t email_connect_req;
+	uv_tcp_t email_client;
+	time_t email_connect_started;
+	char email_buf[256];
+	char email_smtp_ip[32];
+	char email_helo[32];
+	char email_from[100];
+	char email_to[100];
+
+	uv_loop_t *loop;
+
+	unsigned int max_content_size;
+	char *content;
+
+	void *data;
+
+	int (*on_sent)(struct lws_email *email);
+	int (*on_get_body)(struct lws_email *email, char *buf, int len);
+	int (*on_next)(struct lws_email *email);
+};
+
+LWS_VISIBLE LWS_EXTERN int
+lws_email_init(struct lws_email *email, uv_loop_t *loop, int max_content);
+LWS_VISIBLE LWS_EXTERN void
+lws_email_check(struct lws_email *email);
+LWS_VISIBLE LWS_EXTERN void
+lws_email_destroy(struct lws_email *email);
+#endif
 #ifdef __cplusplus
 }
 #endif
