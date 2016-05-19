@@ -1257,6 +1257,7 @@ struct lws {
 	unsigned int cache_revalidate:1;
 	unsigned int cache_intermediaries:1;
 	unsigned int favoured_pollin:1;
+	unsigned int sending_chunked:1;
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
 #endif
@@ -1295,6 +1296,7 @@ struct lws {
 	char pending_timeout; /* enum pending_timeout */
 	char pps; /* enum lws_pending_protocol_send */
 	char tsi; /* thread service index we belong to */
+	char protocol_interpret_idx;
 #ifdef LWS_WITH_CGI
 	char cgi_channel; /* which of stdin/out/err */
 	char hdr_state;

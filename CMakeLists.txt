@@ -99,6 +99,8 @@ option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OF
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
 option(LWS_WITH_LEJP "With the Lightweight JSON Parser" OFF)
 option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" OFF)
+option(LWS_WITH_GENERIC_SESSIONS "With the Generic Sessions plugin" OFF)
+option(LWS_WITH_SQLITE3 "Require SQLITE3 support" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -113,6 +115,10 @@ endif()
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
 message(STATUS "LWS_WITH_PLUGINS --> Enabling LWS_WITH_LIBUV")
  set(LWS_WITH_LIBUV 1)
+endif()
+
+if (LWS_WITH_GENERIC_SESSIONS)
+ set(LWS_WITH_SQLITE3 1)
 endif()
 
 if (DEFINED YOTTA_WEBSOCKETS_VERSION_STRING)
@@ -187,6 +193,9 @@ set( CACHE PATH "Path to the libev library")
 set(LWS_LIBEV_INCLUDE_DIRS CACHE PATH "Path to the libev include directory")
 set(LWS_LIBUV_LIBRARIES CACHE PATH "Path to the libuv library")
 set(LWS_LIBUV_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
+set(LWS_SQLITE3_LIBRARIES CACHE PATH "Path to the libuv library")
+set(LWS_SQLITE3_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
+
 
 if (NOT LWS_WITH_SSL)
 	set(LWS_WITHOUT_BUILTIN_SHA1 OFF)
@@ -271,6 +280,15 @@ if (LWS_WITH_LIBUV)
 		set(LIBUV_LIBRARIES ${LWS_LIBUV_LIBRARIES})
 		set(LIBUV_INCLUDE_DIRS ${LWS_LIBUV_INCLUDE_DIRS})
 		set(LIBUV_FOUND 1)
+	endif()
+endif()
+
+if (LWS_WITH_SQLITE3)
+	if ("${LWS_SQLITE3_LIBRARIES}" STREQUAL "" OR "${LWS_SQLITE3_INCLUDE_DIRS}" STREQUAL "")
+	else()
+		set(SQLITE3_LIBRARIES ${LWS_SQLITE3_LIBRARIES})
+		set(SQLITE3_INCLUDE_DIRS ${LWS_SQLITE3_INCLUDE_DIRS})
+		set(SQLITE3_FOUND 1)
 	endif()
 endif()
 
@@ -854,6 +872,22 @@ if (LWS_WITH_LIBUV)
 	include_directories("${LIBUV_INCLUDE_DIRS}")
 	list(APPEND LIB_LIST ${LIBUV_LIBRARIES})
 endif()
+
+if (LWS_WITH_SQLITE3)
+	if (NOT SQLITE3_FOUND)
+		find_path(SQLITE3_INCLUDE_DIRS NAMES sqlite3.h)
+		find_library(SQLITE3_LIBRARIES NAMES sqlite3)
+		if(SQLITE3_INCLUDE_DIRS AND SQLITE3_LIBRARIES)
+			set(SQLITE3_FOUND 1)
+		endif()
+	endif()
+	message("sqlite3 include dir: ${SQLITE3_INCLUDE_DIRS}")
+	message("sqlite3 libraries: ${SQLITE3_LIBRARIES}")
+	include_directories("${SQLITE3_INCLUDE_DIRS}")
+	list(APPEND LIB_LIST ${SQLITE3_LIBRARIES})
+endif()
+
+
 if (LWS_WITH_HTTP_PROXY)
 	find_library(LIBHUBBUB_LIBRARIES NAMES libhubbub)
 	list(APPEND LIB_LIST ${LIBHUBBUB_LIBRARIES} )
@@ -1244,6 +1278,17 @@ if (NOT LWS_WITHOUT_CLIENT)
                               "plugins/protocol_client_loopback_test.c")
 endif(NOT LWS_WITHOUT_CLIENT)
 
+if (LWS_WITH_GENERIC_SESSIONS)
+		create_plugin(protocol_generic_sessions
+                              "plugins/protocol_generic_sessions.c")
+	if (WIN32)
+		target_link_libraries(protocol_generic_sessions ${LWS_SQLITE3_LIBRARIES})
+	else()
+		target_link_libraries(protocol_generic_sessions sqlite3 )
+	endif(WIN32)
+endif(LWS_WITH_GENERIC_SESSIONS)
+
+
 	endif(LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 
 	#
@@ -1444,6 +1489,31 @@ if (LWS_WITH_SERVER_STATUS)
 		DESTINATION share/libwebsockets-test-server/server-status
 			COMPONENT examples)
 endif()
+if (LWS_WITH_GENERIC_SESSIONS)
+	install(FILES plugins/generic-sessions-login-example.html
+		      plugins/generic-sessions-register-example.html
+		      plugins/lwsws-logo.png
+		      plugins/failed-login.html
+		      plugins/lwsgs.js
+		      plugins/post-register-fail.html
+		      plugins/post-register-ok.html
+		      plugins/post-verify-ok.html
+		      plugins/post-verify-fail.html
+		      plugins/sent-forgot-ok.html
+		      plugins/sent-forgot-fail.html
+		      plugins/post-forgot-ok.html
+		      plugins/post-forgot-fail.html
+		      plugins/index.html
+		DESTINATION share/libwebsockets-test-server/generic-sessions
+			COMPONENT examples)
+	install(FILES plugins/successful-login.html 
+		DESTINATION share/libwebsockets-test-server/generic-sessions/needauth
+			COMPONENT examples)
+	install(FILES plugins/admin-login.html
+		DESTINATION share/libwebsockets-test-server/generic-sessions/needadmin
+			COMPONENT examples)
+endif()
+
 endif()
 
 # Install the LibwebsocketsConfig.cmake and LibwebsocketsConfigVersion.cmake
@@ -1514,6 +1584,8 @@ message(" LWS_WITH_ACCESS_LOG = ${LWS_WITH_ACCESS_LOG}")
 message(" LWS_WITH_SERVER_STATUS = ${LWS_WITH_SERVER_STATUS}")
 message(" LWS_WITH_LEJP = ${LWS_WITH_LEJP}")
 message(" LWS_WITH_LEJP_CONF = ${LWS_WITH_LEJP_CONF}")
+message(" LWS_WITH_GENERIC_SESSIONS = ${LWS_WITH_GENERIC_SESSIONS}")
+
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

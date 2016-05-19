@@ -1,0 +1,181 @@
+<html>
+ <head>
+  <!-- This js is modified per-connection to contain session info.
+       it's just a read-only copy of the real session info which
+       is held strictly server-side.  Modifying these vars clientside
+       doesn't change any server state (eg, access rights) -->
+  <script src="lwsgs.js"></script>
+  </head>
+  <body>
+
+  <script>
+
+   var user_check = '0';
+   var email_check = '0';
+
+   function update()
+   {
+	var en_register = 1, en_forgot = 0;
+
+	if (document.getElementById('password').value == document.getElementById('password2').value) {
+		if (document.getElementById('password').value.length)
+			document.getElementById('match').innerHTML = "<b style=\"color:green\">\u2713</b>";
+		else
+			document.getElementById('match').innerHTML = "";
+		document.getElementById('pw2').style = "";
+	} else {
+		if (document.getElementById('password2').value ||
+		    document.getElementById('email').value) { // ie, he is filling in "register" path and cares
+			document.getElementById('match').innerHTML =
+				"<span style=\"color: red\">\u2718 <b>Passwords do not match</b></span>";
+		} else
+			document.getElementById('match').innerHTML = "<span style=\"color: gray\">\u2718 Passwords do not match</span>";
+
+		en_register = 0;
+	}
+
+	if (document.getElementById('password').value.length &&
+	    document.getElementById('password').value.length < 8) {
+		en_register = 0;
+		document.getElementById('pw1').innerHTML = "Need 8 chars";
+	} else
+		if (document.getElementById('password').value.length)
+			document.getElementById('pw1').innerHTML = "<b style=\"color:green\">\u2713</b>";
+		else
+			document.getElementById('pw1').innerHTML = "";
+
+	if (!document.getElementById('password').value ||
+	    !document.getElementById('password2').value ||
+	    !document.getElementById('username').value ||
+	    !document.getElementById('email').value ||
+	    email_check === '1'||
+	    user_check === '1')
+		en_register = 0;
+
+	document.getElementById('register').disabled = !en_register;
+	document.getElementById('password').disabled = user_check === '1';
+	document.getElementById('password2').disabled = user_check === '1';
+	document.getElementById('email').disabled = user_check === '1';
+
+	if (user_check === '0') {
+		if (document.getElementById('username').value)
+			document.getElementById('uchk').innerHTML = "<b style=\"color:green\">\u2713</b>";
+		else
+			document.getElementById('uchk').innerHTML = "";
+	} else {
+		document.getElementById('uchk').innerHTML = "<b style=\"color:red\">\u2718 Already registered</b>";
+		en_forgot = 1;
+	}
+
+	if (email_check === '0') {
+		if (document.getElementById('email').value)
+			document.getElementById('echk').innerHTML = "<b style=\"color:green\">\u2713</b>";
+		else
+			document.getElementById('echk').innerHTML = "";
+	} else {
+		document.getElementById('echk').innerHTML = "<b style=\"color:red\">\u2718 Already registered</b>";
+		en_forgot = 1;
+	}
+
+	if (en_forgot)
+		document.getElementById('forgot').style.display = "inline";
+	else
+		document.getElementById('forgot').style.display = "none";
+
+	if (user_check === '1')
+		op = '0.5';
+	else
+		op = '1.0';
+	document.getElementById('password').style.opacity = op;
+ 	document.getElementById('password2').style.opacity = op;
+	document.getElementById('email').style.opacity = op;
+ }
+
+  function check_user()
+  {
+    var xmlHttp = new XMLHttpRequest();
+    xmlHttp.onreadystatechange = function() { 
+        if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
+            user_check = xmlHttp.responseText;
+	    update();
+        }
+    }
+    xmlHttp.open("GET", "check?username="+document.getElementById('username').value, true);
+    xmlHttp.send(null);
+  }
+
+ function check_email()
+  {
+    var xmlHttp = new XMLHttpRequest();
+    xmlHttp.onreadystatechange = function() { 
+        if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
+            email_check = xmlHttp.responseText;
+	    update();
+        }
+    }
+    xmlHttp.open("GET", "check?email="+document.getElementById('email').value, true);
+    xmlHttp.send(null);
+  }
+
+  </script>
+
+   <div id="dlogin" style="display:none">
+   <form action="login" method="post">
+    <!-- these control the URL the login action goes to
+        after a successful admin login, a successful
+        user login, and a failed login -->
+    <input type="hidden" name="admin" value="needadmin/admin-login.html">
+    <input type="hidden" name="good" value="needauth/successful-login.html">
+    <input type="hidden" name="bad" value="failed-login.html">
+    <input type="hidden" name="reg-good" value="post-register-ok.html">
+    <input type="hidden" name="reg-bad" value="post-register-fail.html">
+    <table>
+     <tr>
+      <td colspan=2 align=center>
+       <img src="lwsws-logo.png">
+      </td>
+     </tr>
+     <tr>
+      <td colspan=2 align=center>
+	<span id="curuser"></span>
+<script>
+	if (lwsgs_user)
+		document.getElementById("curuser").innerHTML = "currently logged in as " + san(lwsgs_user) + "</br>";
+</script>
+       <b>Please enter your details to register</b>:
+      </td>
+     </tr>
+    <tr><td align=right>
+     User Name:</td>
+     <td><input type="text" size="10" id="username" name="username" oninput="update(); check_user();">&nbsp;<span id=uchk></span></td>
+    </tr>
+    <tr>
+     <td align=right>Password:</td>
+     <td><input type="password" size="10" id="password" name="password" oninput="update()">&nbsp;<span id="pw1"></span></td>
+    </tr>
+    <tr>
+    </tr>
+    <tr>
+     <td align=right><span id="pw2">Password (again)</span></td>
+     <td><input type="password" size="10" id="password2" name="password2" oninput="update()">&nbsp;<span id="match"></span></td>
+    </tr>
+    <tr>
+     <td align=right>Email:</td>
+     <td><input type="email" size="10" id="email" name="email" placeholder="me@example.com" oninput="update(); check_email()">&nbsp;<span id=echk></span></td>
+    </tr>
+    <tr>
+     <td colspan=2 align=center>
+      <input type="submit" id="register" name="register" value="Register" style="margin: 6px; padding: 6px">
+      <input type="submit" id="forgot" name="forgot" value="Forgot Password" style="margin: 6px; padding: 6px;display: none">
+     </td>
+    </tr>
+   </table>
+  </form>
+  </div>
+<script>
+	update();
+	document.getElementById("dlogin").style.display = "inline";
+</script>
+ </body>
+</html>
+
