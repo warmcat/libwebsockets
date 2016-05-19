@@ -82,6 +82,9 @@ static const struct lws_http_mount mount_post = {
 	NULL,	/* default filename if none given */
 	NULL,
 	NULL,
+	NULL,
+	NULL,
+	0,
 	0,
 	0,
 	0,
@@ -104,6 +107,9 @@ static const struct lws_http_mount mount = {
 	"test.html",	/* default filename if none given */
 	NULL,
 	NULL,
+	NULL,
+	NULL,
+	0,
 	0,
 	0,
 	0,

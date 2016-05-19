@@ -1,0 +1,25 @@
+<html>
+ <head>
+  <script src="lwsgs.js"></script>
+ </head>
+ <body>
+  <table>
+    <tr>
+     <td colspan=2 align=center>
+      <img src="lwsws-logo.png">
+     </td>
+    </tr>
+    <tr>
+     <td>
+      Your registration as <span id="u"></span> is accepted,<br>
+      you will receive an email shortly with instructions<br>
+      to verify and enable the account for normal use.
+     </td>
+    </tr>
+   </table>
+  </body>
+ <script>
+	document.getElementById('u').innerHTML = "<b>" + san(lwsgs_user) + "</b>";
+ </script>
+</html>
+
