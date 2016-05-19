@@ -1,0 +1,176 @@
+<html>
+ <head>
+  <!-- This js is modified per-connection to contain session info.
+       it's just a read-only copy of the real session info which
+       is held strictly server-side.  Modifying these vars clientside
+       doesn't change any server state (eg, access rights) -->
+  <script src="lwsgs.js"></script>
+  </head>
+  <body>
+
+  <script>
+   function check_pw_match()
+   {
+	var en_login = 1, en_register = 1, en_forgot = 1;
+
+	if (document.getElementById('password').value == document.getElementById('password2').value) {
+		document.getElementById('match').innerHTML = "";
+		document.getElementById('pw2').innerHTML = "Password (again):";
+	} else {
+		if (document.getElementById('password2').value ||
+		    document.getElementById('email').value) { // ie, he is filling in "register" path and cares
+			document.getElementById('match').innerHTML =
+				"<span style=\"color: red\"><b>Passwords do not match</b></span>";
+			document.getElementById('pw2').innerHTML = "<b>Password (again):</b>";
+		} else {
+			document.getElementById('match').innerHTML = "<span style=\"color: gray\">Passwords do not match</span>";
+			document.getElementById('pw2').innerHTML = "Password (again):";
+		}
+
+		en_register = 0;
+	}
+
+	if (document.getElementById('password').value.length &&
+	    document.getElementById('password').value.length < 8) {
+		en_login = en_register = 0;
+		document.getElementById('pw1').innerHTML = "Need 8 chars";
+	} else
+		document.getElementById('pw1').innerHTML = "";
+
+	if (!document.getElementById('username').value ||
+	    !document.getElementById('password').value ||
+	    document.getElementById('password2').value ||
+	    document.getElementById('email').value)
+		en_login = 0;
+
+	if (!document.getElementById('password').value ||
+	    !document.getElementById('password2').value ||
+	    !document.getElementById('username').value ||
+	    !document.getElementById('email').value)
+		en_register = 0;
+
+	if (!document.getElementById('username').value &&
+	    !document.getElementById('email').value)
+		en_forgot = 0;
+
+	document.getElementById('login').disabled = !en_login;
+	document.getElementById('register').disabled = !en_register;
+ 	document.getElementById('forgot').disabled = !en_forgot;
+  }
+  </script>
+
+   <div id="dlogin" style="display:none">
+   <form action="login" method="post">
+    <!-- these control the URL the login action goes to
+        after a successful admin login, a successful
+        user login, and a failed login -->
+    <input type="hidden" name="admin" value="needadmin/admin-login.html">
+    <input type="hidden" name="good" value="needauth/successful-login.html">
+    <input type="hidden" name="bad" value="failed-login.html">
+    <input type="hidden" name="reg-good" value="post-register-ok.html">
+    <input type="hidden" name="reg-bad" value="post-register-fail.html">
+    <table>
+     <tr>
+      <td colspan=2 align=center>
+       <img src="lwsws-logo.png">
+      </td>
+     </tr>
+     <tr>
+      <td colspan=2 align=center>
+        This is a sample HTML file showing how<br>
+        to present and manage a login form for<br>
+        lws generic sessions.<br><br>
+	<span id="curuser"></span>
+<script>
+	if (lwsgs_user)
+		document.getElementById("curuser").innerHTML = "currently logged in as " + san(lwsgs_user) + "</br>";
+</script>
+       <b>Please enter your login credentials</b>:
+      </td>
+     </tr>
+    <tr><td colspan=2 align=center>
+	<table align=center style="background-color: #c0c040; margin: 8px; padding: 8px"><tr><td colspan=2 align=center>
+	<table align=center style="background-color: #e0e080; margin: 8px; padding: 8px">
+    <tr>
+     <td>User Name</td>
+     <td><input type="text" id="username" name="username" oninput="check_pw_match()"></td>
+    </tr>
+    <tr>
+     <td>Password</td>
+     <td><input type="password" id="password" name="password" oninput="check_pw_match()"><div id="pw1"></div></td>
+    </tr>
+    <tr>
+     <td colspan=2 align=center>
+      <input type="submit" id="login" name="login" value="Login" style="margin: 8px; padding: 8px; font-weight=bold;">
+      &nbsp;<input type="submit" id="forgot" name="forgot" value="Forgot password" style="margin: 4px; padding: 4px">
+
+     </td>
+    </tr>
+    </table></td></tr>
+    <tr>
+     <td colspan=2 align=center>
+	No account?  Fill in all the boxes and click Register,<br>
+	and get immediate access after email verification.
+     </td>
+    </tr>
+    <tr>
+     <td><span id="pw2">Password (again)</span></td>
+     <td><input type="password" id="password2" name="password2" oninput="check_pw_match()"><div id="match"></div></td>
+    </tr>
+    <tr>
+     <td>Email</td>
+     <td><input type="email" id="email" name="email" placeholder="me@example.com" oninput="check_pw_match()"></td>
+    </tr>
+    <tr>
+     <td colspan=2 align=center>
+      <input type="submit" id="register" name="register" value="Register" style="margin: 6px; padding: 6px">
+     </td>
+    </tr>
+    </table></td></tr>
+   </table>
+  </form>
+  </div>
+  <div id="dlogout" style="display:none">
+   <form action="logout" method="post">
+    <!-- this controls the URL the login action goes to
+        after the logout (in this case, back to login page) -->
+    <input type="hidden" name="good" value="generic-sessions-login-example.html">
+    <table>
+     <tr>
+      <td colspan=2 align=center>
+       <img src="lwsws-logo.png">
+      </td>
+     </tr>
+     <tr>
+      <td colspan=2 align=center>
+        This is a sample HTML file showing how<br>
+        to present and manage a login form for<br>
+        lws generic sessions.<br><br>
+	It's only showing the logout form<br>
+	because we know you are logged in<br><br>
+	<span id="out_curuser"></span>
+<script>
+	document.getElementById("out_curuser").innerHTML =
+		"currently logged in as " + san(lwsgs_user) + "</br>";
+</script>
+      </td>
+     </tr>
+     <tr>
+     <td colspan=2 align=center>
+      <input type="submit" name="logout" value="Logout" style="margin: 8px; padding: 8px">
+     </td>
+    </tr>
+   </table>
+  </form>
+  </div>
+
+<script>
+	check_pw_match();
+	if (lwsgs_user === "")
+		document.getElementById("dlogin").style.display = "inline";
+	else
+		document.getElementById("dlogout").style.display = "inline";	
+</script>
+ </body>
+</html>
+

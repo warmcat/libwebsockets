@@ -1,0 +1,258 @@
+<html>
+ <head>
+  <script src="lwsgs.js"></script>
+  </head>
+  <body>
+  <script>
+	function update()
+	{
+		var en_login = 1, en_forgot = 1;
+		
+		if (document.getElementById('password').value.length &&
+		    document.getElementById('password').value.length < 8)
+			en_login = 0;
+		
+		if (!document.getElementById('username').value ||
+		    !document.getElementById('password').value)
+			en_login = 0;
+		
+		if (!document.getElementById('username').value ||
+		     document.getElementById('password').value)
+			en_forgot = 0;
+		
+		document.getElementById('login').disabled = !en_login;
+		document.getElementById('forgot').disabled = !en_forgot;
+		
+		if (lwsgs_user)
+			document.getElementById("curuser").innerHTML = san(lwsgs_user);
+
+		if (lwsgs_user === "")
+			document.getElementById("dlogin").style.display = "inline";
+		else
+			document.getElementById("dlogout").style.display = "inline";
+	 }
+
+	function open_registration()
+	{
+		document.getElementById("dlogin").style.display = "none";
+		document.getElementById("dlogout").style.display = "none";
+		document.getElementById("dregister").style.display = "inline";
+	}
+	
+	function cancel_registration()
+	{
+		document.getElementById("dregister").style.display = "none";
+
+		if (lwsgs_user === "")
+			document.getElementById("dlogin").style.display = "inline";
+		else
+			document.getElementById("dlogout").style.display = "inline";
+	}
+
+	var user_check = '0';
+	var email_check = '0';
+	
+	function rupdate()
+	{
+		var en_register = 1, en_forgot = 0;
+
+		if (document.getElementById('rpassword').value ==
+		    document.getElementById('password2').value) {
+			if (document.getElementById('rpassword').value.length)
+				document.getElementById('match').innerHTML = "<b style=\"color:green\">\u2713</b>";
+			else
+				document.getElementById('match').innerHTML = "";
+			document.getElementById('pw2').style = "";
+		} else {
+			if (document.getElementById('password2').value ||
+			    document.getElementById('email').value) { // ie, he is filling in "register" path and cares
+				document.getElementById('match').innerHTML =
+					"<span style=\"color: red\">\u2718 <b>Passwords do not match</b></span>";
+			} else
+				document.getElementById('match').innerHTML = "<span style=\"color: gray\">\u2718 Passwords do not match</span>";
+
+			en_register = 0;
+		}
+
+		if (document.getElementById('rpassword').value.length &&
+		    document.getElementById('rpassword').value.length < 8) {
+			en_register = 0;
+			document.getElementById('rpw1').innerHTML = "Need 8 chars";
+		} else
+			if (document.getElementById('rpassword').value.length)
+				document.getElementById('rpw1').innerHTML = "<b style=\"color:green\">\u2713</b>";
+			else
+				document.getElementById('rpw1').innerHTML = "";
+
+		if (!document.getElementById('rpassword').value ||
+		    !document.getElementById('password2').value ||
+		    !document.getElementById('rusername').value ||
+		    !document.getElementById('email').value ||
+		    email_check === '1'||
+		    user_check === '1')
+			en_register = 0;
+
+		document.getElementById('register').disabled = !en_register;
+		document.getElementById('rpassword').disabled = user_check === '1';
+		document.getElementById('password2').disabled = user_check === '1';
+		document.getElementById('email').disabled = user_check === '1';
+
+		if (user_check === '0') {
+			if (document.getElementById('rusername').value)
+				document.getElementById('uchk').innerHTML = "<b style=\"color:green\">\u2713</b>";
+			else
+				document.getElementById('uchk').innerHTML = "";
+		} else {
+			document.getElementById('uchk').innerHTML = "<b style=\"color:red\">\u2718 Already registered</b>";
+			en_forgot = 1;
+		}
+
+		if (email_check === '0') {
+			if (document.getElementById('email').value)
+				document.getElementById('echk').innerHTML = "<b style=\"color:green\">\u2713</b>";
+			else
+				document.getElementById('echk').innerHTML = "";
+		} else {
+			document.getElementById('echk').innerHTML = "<b style=\"color:red\">\u2718 Already registered</b>";
+			en_forgot = 1;
+		}
+
+		if (en_forgot)
+			document.getElementById('rforgot').style.display = "inline";
+		else
+			document.getElementById('rforgot').style.display = "none";
+
+		if (user_check === '1')
+			op = '0.5';
+		else
+			op = '1.0';
+		document.getElementById('rpassword').style.opacity = op;
+	 	document.getElementById('password2').style.opacity = op;
+		document.getElementById('email').style.opacity = op;
+	 }
+
+	  function check_user()
+	  {
+	    var xmlHttp = new XMLHttpRequest();
+	    xmlHttp.onreadystatechange = function() { 
+	        if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
+	            user_check = xmlHttp.responseText;
+		    rupdate();
+	        }
+	    }
+	    xmlHttp.open("GET", "check?username="+document.getElementById('rusername').value, true);
+	    xmlHttp.send(null);
+	  }
+
+	 function check_email()
+	  {
+	    var xmlHttp = new XMLHttpRequest();
+	    xmlHttp.onreadystatechange = function() { 
+	        if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
+	            email_check = xmlHttp.responseText;
+		    rupdate();
+	        }
+	    }
+	    xmlHttp.open("GET", "check?email="+document.getElementById('email').value, true);
+	    xmlHttp.send(null);
+	  }
+  </script>
+
+    <table width="100%">
+     <tr>
+      <td style="vertical-align:top;text-align:left" width=1%>
+       <img src="lwsws-logo.png">
+      </td>
+      <td style="vertical-align:top;text-align:left" width=20%>
+        Example website with top</br>session management ribbon
+      </td>
+      <td style="vertical-align:top;text-align:left">
+
+       <div id="dlogin" style="display:none">
+        <form action="login" method="post">
+         <input type="hidden" name="admin" value="needadmin/admin-login.html">
+         <input type="hidden" name="good" value="index.html">
+         <input type="hidden" name="bad" value="failed-login.html">
+	 <table style="vertical-align:top;text-align:left">
+          <tr>
+           <td>User Name</br>
+            <input type="text" size="10" id="username" name="username" oninput="update()"></td>
+           <td>Password</br>
+            <input type="password" id="password" size="10" name="password" oninput="update()"><div id="pw1"></div></td>
+	   <td><input type="submit" id="login" name="login" value="Login" style="margin: 8px; padding: 8px; font-weight=bold;">
+      &nbsp;<input type="submit" id="forgot" name="forgot" value="Forgot password" style="margin: 4px; padding: 4px"></td>
+           <td><input type="button" onclick="open_registration()" value="Sign up"></td>
+          </tr>
+         </table>
+        </form>
+       </div>
+  
+       <div id="dlogout" style="display:none">
+        <form action="logout" method="post">
+         <input type="hidden" name="good" value="index.html">
+         <table style="vertical-align:top;text-align:left">
+          <tr>
+ 	   <td>Logged in as <span id="curuser"></span></td>
+           <td><input type="submit" name="logout" value="Logout" style="margin: 4px; padding: 4px"></td>
+          </tr>
+         </table>
+        </form>
+       </div>
+
+       <div id="dregister" style="display:none">
+        <form action="login" method="post">
+         <input type="hidden" name="admin" value="needadmin/admin-login.html">
+         <input type="hidden" name="good" value="successful-login.html">
+         <input type="hidden" name="bad" value="failed-login.html">
+         <input type="hidden" name="reg-good" value="post-register-ok.html">
+         <input type="hidden" name="reg-bad" value="post-register-fail.html">
+         <table style="vertical-align:top;text-align:left">
+	     <tr>
+	      <td colspan=2 align=center>
+		<span id="curuser"></span>
+	<script>
+		if (lwsgs_user)
+			document.getElementById("curuser").innerHTML = "currently logged in as " + san(lwsgs_user) + "</br>";
+	</script>
+	       <b>Please enter your details to register</b>:
+	      </td>
+	     </tr>
+	    <tr><td align=right>
+	     User Name:</td>
+	     <td><input type="text" size="10" id="rusername" name="username" oninput="rupdate(); check_user();">&nbsp;<span id=uchk></span></td>
+	    </tr>
+	    <tr>
+	     <td align=right>Password:</td>
+	     <td><input type="password" size="10" id="rpassword" name="password" oninput="rupdate()">&nbsp;<span id="rpw1"></span></td>
+	    </tr>
+	    <tr>
+	    </tr>
+	    <tr>
+	     <td align=right><span id="pw2">Password (again)</span></td>
+	     <td><input type="password" size="10" id="password2" name="password2" oninput="rupdate()">&nbsp;<span id="match"></span></td>
+	    </tr>
+	    <tr>
+	     <td align=right>Email:</td>
+	     <td><input type="email" size="10" id="email" name="email" placeholder="me@example.com" oninput="rupdate(); check_email()">&nbsp;<span id=echk></span></td>
+	    </tr>
+	    <tr>
+	     <td colspan=2 align=center>
+	      <input type="submit" id="register" name="register" value="Register" style="margin: 6px; padding: 6px">
+	      <input type="submit" id="rforgot" name="forgot" value="Forgot Password" style="margin: 6px; padding: 6px;display: none">
+	      <input type="button" id="cancel" name="cancel" value="Cancel" style="margin: 6px; padding: 6px;" onclick="cancel_registration()">
+	     </td>
+	    </tr>
+         </table>
+        </form>
+       </div>
+
+      </td>
+     </tr>
+    </table>
+   </form>
+  <script>
+	update();
+  </script>
+ </body>
+</html>
+
