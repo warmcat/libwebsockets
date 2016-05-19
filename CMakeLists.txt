@@ -99,8 +99,9 @@ option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OF
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
 option(LWS_WITH_LEJP "With the Lightweight JSON Parser" OFF)
 option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" OFF)
+option(LWS_WITH_GENERIC_SESSIONS "With the Generic Sessions plugin" OFF)
+option(LWS_WITH_SQLITE3 "Require SQLITE3 support" OFF)
 option(LWS_WITH_SMTP "Provide SMTP support" OFF)
-option(LWS_WITH_STATEFUL_URLDECODE "Provide stateful URLDECODE apis" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -112,13 +113,19 @@ if (LWS_WITH_LWSWS)
  set(LWS_WITH_LEJP_CONF 1)
 endif()
 
-if (LWS_WITH_PLUGINS)
- set(LWS_WITH_STATEFUL_URLDECODE 1)
-endif()
-
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
 message(STATUS "LWS_WITH_PLUGINS --> Enabling LWS_WITH_LIBUV")
  set(LWS_WITH_LIBUV 1)
+endif()
+
+if (LWS_WITH_SMTP AND NOT LWS_WITH_LIBUV)
+message(STATUS "LWS_WITH_SMTP --> Enabling LWS_WITH_LIBUV")
+ set(LWS_WITH_LIBUV 1)
+endif()
+
+if (LWS_WITH_GENERIC_SESSIONS)
+ set(LWS_WITH_SQLITE3 1)
+ set(LWS_WITH_SMTP 1)
 endif()
 
 if (LWS_WITH_SMTP AND NOT LWS_WITH_LIBUV)
@@ -198,6 +205,9 @@ set( CACHE PATH "Path to the libev library")
 set(LWS_LIBEV_INCLUDE_DIRS CACHE PATH "Path to the libev include directory")
 set(LWS_LIBUV_LIBRARIES CACHE PATH "Path to the libuv library")
 set(LWS_LIBUV_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
+set(LWS_SQLITE3_LIBRARIES CACHE PATH "Path to the libuv library")
+set(LWS_SQLITE3_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
+
 
 if (NOT LWS_WITH_SSL)
 	set(LWS_WITHOUT_BUILTIN_SHA1 OFF)
@@ -282,6 +292,15 @@ if (LWS_WITH_LIBUV)
 		set(LIBUV_LIBRARIES ${LWS_LIBUV_LIBRARIES})
 		set(LIBUV_INCLUDE_DIRS ${LWS_LIBUV_INCLUDE_DIRS})
 		set(LIBUV_FOUND 1)
+	endif()
+endif()
+
+if (LWS_WITH_SQLITE3)
+	if ("${LWS_SQLITE3_LIBRARIES}" STREQUAL "" OR "${LWS_SQLITE3_INCLUDE_DIRS}" STREQUAL "")
+	else()
+		set(SQLITE3_LIBRARIES ${LWS_SQLITE3_LIBRARIES})
+		set(SQLITE3_INCLUDE_DIRS ${LWS_SQLITE3_INCLUDE_DIRS})
+		set(SQLITE3_FOUND 1)
 	endif()
 endif()
 
@@ -612,6 +631,17 @@ endif()
 if (WIN32)
 	set(WIN32_HELPERS_PATH win32port/win32helpers)
 	include_directories(${WIN32_HELPERS_PATH})
+
+		if (WIN32)
+			list(APPEND SOURCES
+				${WIN32_HELPERS_PATH}/gettimeofday.c
+			)
+
+			list(APPEND HDR_PRIVATE
+				${WIN32_HELPERS_PATH}/gettimeofday.h
+			)
+		endif(WIN32)
+
 else()
 	# Unix.
 	if (NOT LWS_WITHOUT_DAEMONIZE)
@@ -870,6 +900,22 @@ if (LWS_WITH_LIBUV)
 	include_directories("${LIBUV_INCLUDE_DIRS}")
 	list(APPEND LIB_LIST ${LIBUV_LIBRARIES})
 endif()
+
+if (LWS_WITH_SQLITE3)
+	if (NOT SQLITE3_FOUND)
+		find_path(SQLITE3_INCLUDE_DIRS NAMES sqlite3.h)
+		find_library(SQLITE3_LIBRARIES NAMES sqlite3)
+		if(SQLITE3_INCLUDE_DIRS AND SQLITE3_LIBRARIES)
+			set(SQLITE3_FOUND 1)
+		endif()
+	endif()
+	message("sqlite3 include dir: ${SQLITE3_INCLUDE_DIRS}")
+	message("sqlite3 libraries: ${SQLITE3_LIBRARIES}")
+	include_directories("${SQLITE3_INCLUDE_DIRS}")
+	list(APPEND LIB_LIST ${SQLITE3_LIBRARIES})
+endif()
+
+
 if (LWS_WITH_HTTP_PROXY)
 	find_library(LIBHUBBUB_LIBRARIES NAMES libhubbub)
 	list(APPEND LIB_LIST ${LIBHUBBUB_LIBRARIES} )
@@ -1204,9 +1250,18 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 	
 	
 	if (LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
-		macro(create_plugin PLUGIN_NAME MAIN_SRC)
+		macro(create_plugin PLUGIN_NAME MAIN_SRC S2 S3)
 
 		set(PLUGIN_SRCS ${MAIN_SRC})
+
+		if ("${S2}" STREQUAL "")
+		else()
+			list(APPEND PLUGIN_SRCS ${S2})
+		endif()
+		if ("${S3}" STREQUAL "")
+		else()
+			list(APPEND PLUGIN_SRCS ${S3})
+		endif()
 
 		if (WIN32)
 			list(APPEND PLUGIN_SRCS
@@ -1239,26 +1294,41 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 #			OUTPUT_NAME ${PLUGIN_NAME})
 
 		list(APPEND PLUGINS_LIST ${PLUGIN_NAME})
+
 		endmacro()
 		
 
 		create_plugin(protocol_dumb_increment
-			      "plugins/protocol_dumb_increment.c")
+			      "plugins/protocol_dumb_increment.c" "" "")
 		create_plugin(protocol_lws_mirror
-			      "plugins/protocol_lws_mirror.c")
+			      "plugins/protocol_lws_mirror.c" "" "")
 		create_plugin(protocol_lws_status
-			      "plugins/protocol_lws_status.c")
+			      "plugins/protocol_lws_status.c" "" "")
 		create_plugin(protocol_post_demo
-			      "plugins/protocol_post_demo.c")
+			      "plugins/protocol_post_demo.c" "" "")
 if (LWS_WITH_SERVER_STATUS)
 		create_plugin(protocol_lws_server_status
-			      "plugins/protocol_lws_server_status.c")
+			      "plugins/protocol_lws_server_status.c" "" "")
 endif()
 
 if (NOT LWS_WITHOUT_CLIENT)
 		create_plugin(protocol_client_loopback_test
-                              "plugins/protocol_client_loopback_test.c")
+                              "plugins/protocol_client_loopback_test.c" "" "")
 endif(NOT LWS_WITHOUT_CLIENT)
+
+if (LWS_WITH_GENERIC_SESSIONS)
+	create_plugin(protocol_generic_sessions
+                      "plugins/generic-sessions/protocol_generic_sessions.c"
+		      "plugins/generic-sessions/utils.c"
+		      "plugins/generic-sessions/handlers.c")
+
+	if (WIN32)
+		target_link_libraries(protocol_generic_sessions ${LWS_SQLITE3_LIBRARIES})
+	else()
+		target_link_libraries(protocol_generic_sessions sqlite3 )
+	endif(WIN32)
+endif(LWS_WITH_GENERIC_SESSIONS)
+
 
 	endif(LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 
@@ -1460,6 +1530,31 @@ if (LWS_WITH_SERVER_STATUS)
 		DESTINATION share/libwebsockets-test-server/server-status
 			COMPONENT examples)
 endif()
+if (LWS_WITH_GENERIC_SESSIONS)
+	install(FILES
+		      plugins/generic-sessions/assets/lwsgs-logo.png
+		      plugins/generic-sessions/assets/seats.jpg
+		      plugins/generic-sessions/assets/failed-login.html
+		      plugins/generic-sessions/assets/lwsgs.js
+		      plugins/generic-sessions/assets/post-register-fail.html
+		      plugins/generic-sessions/assets/post-register-ok.html
+		      plugins/generic-sessions/assets/post-verify-ok.html
+		      plugins/generic-sessions/assets/post-verify-fail.html
+		      plugins/generic-sessions/assets/sent-forgot-ok.html
+		      plugins/generic-sessions/assets/sent-forgot-fail.html
+		      plugins/generic-sessions/assets/post-forgot-ok.html
+		      plugins/generic-sessions/assets/post-forgot-fail.html
+		      plugins/generic-sessions/assets/index.html
+		DESTINATION share/libwebsockets-test-server/generic-sessions
+			COMPONENT examples)
+	install(FILES plugins/generic-sessions/assets/successful-login.html 
+		DESTINATION share/libwebsockets-test-server/generic-sessions/needauth
+			COMPONENT examples)
+	install(FILES plugins/generic-sessions/assets/admin-login.html
+		DESTINATION share/libwebsockets-test-server/generic-sessions/needadmin
+			COMPONENT examples)
+endif()
+
 endif()
 
 # Install the LibwebsocketsConfig.cmake and LibwebsocketsConfigVersion.cmake
@@ -1531,7 +1626,8 @@ message(" LWS_WITH_SERVER_STATUS = ${LWS_WITH_SERVER_STATUS}")
 message(" LWS_WITH_LEJP = ${LWS_WITH_LEJP}")
 message(" LWS_WITH_LEJP_CONF = ${LWS_WITH_LEJP_CONF}")
 message(" LWS_WITH_SMTP = ${LWS_WITH_SMTP}")
-message(" LWS_WITH_STATEFUL_URLDECODE = ${LWS_WITH_STATEFUL_URLDECODE}")
+message(" LWS_WITH_GENERIC_SESSIONS = ${LWS_WITH_GENERIC_SESSIONS}")
+
 
 message("---------------------------------------------------------------------")
 

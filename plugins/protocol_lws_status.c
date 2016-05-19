@@ -25,6 +25,7 @@
 #include <time.h>
 #include <string.h>
 #ifdef WIN32
+#include <io.h>
 #include <gettimeofday.h>
 #endif
 

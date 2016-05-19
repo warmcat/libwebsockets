@@ -67,8 +67,15 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols 
 	while (n < vhost->count_protocols && &vhost->protocols[n] != prot)
 		n++;
 
-	if (n == vhost->count_protocols)
-		return NULL;
+	if (n == vhost->count_protocols) {
+		n = 0;
+		while (n < vhost->count_protocols &&
+		       strcmp(vhost->protocols[n].name, prot->name))
+			n++;
+
+		if (n == vhost->count_protocols)
+			return NULL;
+	}
 
 	vhost->protocol_vh_privs[n] = lws_zalloc(size);
 	return vhost->protocol_vh_privs[n];
@@ -86,8 +93,15 @@ lws_protocol_vh_priv_get(struct lws_vhost *vhost, const struct lws_protocols *pr
 		n++;
 
 	if (n == vhost->count_protocols) {
-		lwsl_err("%s: unknown protocol %p\n", __func__, prot);
-		return NULL;
+		n = 0;
+		while (n < vhost->count_protocols &&
+		       strcmp(vhost->protocols[n].name, prot->name))
+			n++;
+
+		if (n == vhost->count_protocols) {
+			lwsl_err("%s: unknown protocol %p\n", __func__, prot);
+			return NULL;
+		}
 	}
 
 	return vhost->protocol_vh_privs[n];
@@ -165,15 +179,17 @@ lws_protocol_init(struct lws_context *context)
 			 * NOTE the wsi is all zeros except for the context, vh and
 			 * protocol ptrs so lws_get_context(wsi) etc can work
 			 */
-			vh->protocols[n].callback(&wsi,
+			if (vh->protocols[n].callback(&wsi,
 				LWS_CALLBACK_PROTOCOL_INIT, NULL,
-				(void *)pvo, 0);
+				(void *)pvo, 0))
+				return 1;
 		}
 
 		vh = vh->vhost_next;
 	}
 
 	context->protocol_init_done = 1;
+	lws_finalize_startup(context);
 
 	return 0;
 }
@@ -287,12 +303,14 @@ lws_create_vhost(struct lws_context *context,
 	struct lws_vhost *vh = lws_zalloc(sizeof(*vh)),
 			 **vh1 = &context->vhost_list;
 	const struct lws_http_mount *mounts;
+	const struct lws_protocol_vhost_options *pvo;
 #ifdef LWS_WITH_PLUGINS
 	struct lws_plugin *plugin = context->plugin_list;
 	struct lws_protocols *lwsp;
-	int m, n, f = !info->pvo;
+	int m, f = !info->pvo;
 #endif
 	char *p;
+	int n;
 
 	if (!vh)
 		return NULL;
@@ -381,6 +399,21 @@ lws_create_vhost(struct lws_context *context,
 		lwsl_notice("   mounting %s%s to %s\n",
 				mount_protocols[mounts->origin_protocol],
 				mounts->origin, mounts->mountpoint);
+
+		/* convert interpreter protocol names to pointers */
+		pvo = mounts->interpret;
+		while (pvo) {
+			for (n = 0; n < vh->count_protocols; n++)
+				if (!strcmp(pvo->value, vh->protocols[n].name)) {
+					((struct lws_protocol_vhost_options *)pvo)->value =
+							(const char *)(long)n;
+					break;
+				}
+			if (n == vh->count_protocols)
+				lwsl_err("ignoring unknown interpret protocol %s\n", pvo->value);
+			pvo = pvo->next;
+		}
+
 		mounts = mounts->mount_next;
 	}
 

@@ -23,6 +23,13 @@
 #include "../lib/libwebsockets.h"
 
 #include <string.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#ifdef WIN32
+#include <io.h>
+#endif
+#include <stdio.h>
 
 struct per_session_data__post_demo {
 	struct lws_spa *spa;
@@ -31,7 +38,7 @@ struct per_session_data__post_demo {
 
 	char filename[256];
 	long file_length;
-	int fd;
+	lws_filefd_type fd;
 };
 
 static const char * const param_names[] = {

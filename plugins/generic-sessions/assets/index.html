@@ -1,0 +1,35 @@
+<html>
+ <head>
+  <script src="lwsgs.js"></script>
+  <style>
+     .body { font-size: 12 }
+     .gstitle { font-size: 18 }
+  </style>
+  </head>
+  <body style="background-image:url(seats.jpg)">
+    <table style="width:100%;transition: max-height 2s;">
+     <tr>
+      <td style="vertical-align:top;text-align:left;width=200px">
+       <img src="lwsgs-logo.png">
+      </td>
+      <td style="vertical-align:top;float:right">
+	<div id=lwsgs style="text-align:right;background-color: rgba(255, 255, 255, 0.8);"></div>
+      </td>
+     </tr>
+     <tr><td colspan=2>
+     	<div id="nolog" style="display:none">
+     	Register / Login to see the messages
+     	</div>
+     	<div id="logged" style="display:none">
+     	Logged in
+     	</div>
+     </td></tr>
+    </table>
+   </form>
+   <script>lwsgs_initial();
+   document.getElementById("nolog").style.display = !!lwsgs_user ? "none" : "inline";
+   document.getElementById("logged").style.display = !lwsgs_user ? "none" : "inline";
+   </script>
+ </body>
+</html>
+

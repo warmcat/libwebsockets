@@ -85,7 +85,7 @@ struct per_session_data__http {
 
 	char filename[256];
 	long file_length;
-	int post_fd;
+	lws_filefd_type post_fd;
 };
 
 /*

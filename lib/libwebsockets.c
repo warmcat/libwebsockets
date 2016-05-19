@@ -1735,39 +1735,6 @@ lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
 
 static const char *hex = "0123456789ABCDEF";
 
-static int
-urlencode(const char *in, int inlen, char *out, int outlen)
-{
-	char *start = out, *end = out + outlen;
-
-	while (inlen-- && out < end - 4) {
-		if ((*in >= 'A' && *in <= 'Z') ||
-		    (*in >= 'a' && *in <= 'z') ||
-		    (*in >= '0' && *in <= '9') ||
-		    *in == '-' ||
-		    *in == '_' ||
-		    *in == '.' ||
-		    *in == '~') {
-			*out++ = *in++;
-			continue;
-		}
-		if (*in == ' ') {
-			*out++ = '+';
-			in++;
-			continue;
-		}
-		*out++ = '%';
-		*out++ = hex[(*in) >> 4];
-		*out++ = hex[(*in++) & 15];
-	}
-	*out = '\0';
-
-	if (out >= end - 4)
-		return -1;
-
-	return out - start;
-}
-
 /**
  * lws_sql_purify() - like strncpy but with escaping for sql quotes
  *
@@ -1787,7 +1754,7 @@ lws_sql_purify(char *escaped, const char *string, int len)
 
 	while (*p && len-- > 2) {
 		if (*p == '\'') {
-			*q++ = '\\';
+			*q++ = '\'';
 			*q++ = '\'';
 			len --;
 			p++;
@@ -1963,6 +1930,39 @@ lws_is_cgi(struct lws *wsi) {
 }
 
 #ifdef LWS_WITH_CGI
+
+static int
+urlencode(const char *in, int inlen, char *out, int outlen)
+{
+	char *start = out, *end = out + outlen;
+
+	while (inlen-- && out < end - 4) {
+		if ((*in >= 'A' && *in <= 'Z') ||
+		    (*in >= 'a' && *in <= 'z') ||
+		    (*in >= '0' && *in <= '9') ||
+		    *in == '-' ||
+		    *in == '_' ||
+		    *in == '.' ||
+		    *in == '~') {
+			*out++ = *in++;
+			continue;
+		}
+		if (*in == ' ') {
+			*out++ = '+';
+			in++;
+			continue;
+		}
+		*out++ = '%';
+		*out++ = hex[(*in) >> 4];
+		*out++ = hex[(*in++) & 15];
+	}
+	*out = '\0';
+
+	if (out >= end - 4)
+		return -1;
+
+	return out - start;
+}
 
 static struct lws *
 lws_create_basic_wsi(struct lws_context *context, int tsi)
