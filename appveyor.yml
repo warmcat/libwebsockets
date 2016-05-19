@@ -1,7 +1,7 @@
 environment:
   matrix:
     - LWS_METHOD: lwsws
-      CMAKE_ARGS: -DLWS_WITH_LWSWS=1 -DLIBUV_INCLUDE_DIRS=C:\assets\libuv\include -DLIBUV_LIBRARIES=C:\assets\libuv\libuv.lib
+      CMAKE_ARGS: -DLWS_WITH_LWSWS=1 -DSQLITE3_INCLUDE_DIRS=C:\assets\sqlite3 -DSQLITE3_LIBRARIES=C:\assets\sqlite3\sqlite3.lib -DLIBUV_INCLUDE_DIRS=C:\assets\libuv\include -DLIBUV_LIBRARIES=C:\assets\libuv\libuv.lib
 
     - LWS_METHOD: default
 
@@ -26,6 +26,9 @@ install:
   - Win32OpenSSL-1_0_2h.exe /silent /verysilent /sp- /suppressmsgboxes
   - appveyor DownloadFile https://libwebsockets.org:444/nsis-3.0rc1-setup.exe
   - cmd /c start /wait nsis-3.0rc1-setup.exe /S /D=C:\nsis
+  - appveyor DownloadFile https://libwebsockets.org:444/sqlite-dll-win32-x86-3130000.zip
+  - mkdir c:\assets\sqlite3
+  - 7z x -oc:\assets\sqlite3 sqlite-dll-win32-x86-3130000.zip
   - SET PATH=C:\Program Files\NSIS\;C:\Program Files (x86)\NSIS\;c:\nsis;%PATH%
 build:
 

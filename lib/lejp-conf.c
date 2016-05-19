@@ -59,7 +59,9 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].access-log",
 	"vhosts[].mounts[].mountpoint",
 	"vhosts[].mounts[].origin",
+	"vhosts[].mounts[].protocol",
 	"vhosts[].mounts[].default",
+	"vhosts[].mounts[].auth-mask",
 	"vhosts[].mounts[].cgi-timeout",
 	"vhosts[].mounts[].cgi-env[].*",
 	"vhosts[].mounts[].cache-max-age",
@@ -67,6 +69,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].cache-revalidate",
 	"vhosts[].mounts[].cache-intermediaries",
 	"vhosts[].mounts[].extra-mimetypes.*",
+	"vhosts[].mounts[].interpret.*",
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
 	"vhosts[].ws-protocols[]",
@@ -94,7 +97,9 @@ enum lejp_vhost_paths {
 	LEJPVP_ACCESS_LOG,
 	LEJPVP_MOUNTPOINT,
 	LEJPVP_ORIGIN,
+	LEJPVP_MOUNT_PROTOCOL,
 	LEJPVP_DEFAULT,
+	LEJPVP_DEFAULT_AUTH_MASK,
 	LEJPVP_CGI_TIMEOUT,
 	LEJPVP_CGI_ENV,
 	LEJPVP_MOUNT_CACHE_MAX_AGE,
@@ -102,6 +107,7 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNT_CACHE_REVALIDATE,
 	LEJPVP_MOUNT_CACHE_INTERMEDIARIES,
 	LEJPVP_MOUNT_EXTRA_MIMETYPES,
+	LEJPVP_MOUNT_INTERPRET,
 	LEJPVP_PROTOCOL_NAME_OPT,
 	LEJPVP_PROTOCOL_NAME,
 	LEJPVP_PROTOCOL,
@@ -127,6 +133,7 @@ struct jpargs {
 
 	struct lws_protocol_vhost_options *pvo;
 	struct lws_protocol_vhost_options *pvo_em;
+	struct lws_protocol_vhost_options *pvo_int;
 	struct lws_http_mount m;
 	const char **plugin_dirs;
 	int count_plugin_dirs;
@@ -336,8 +343,10 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		for (n = 0; n < ARRAY_SIZE(mount_protocols); n++)
 			if (!strncmp(a->m.origin, mount_protocols[n],
 			     strlen(mount_protocols[n]))) {
+				lwsl_err("----%s\n", a->m.origin);
 				m->origin_protocol = n;
-				m->origin = a->m.origin + strlen(mount_protocols[n]);
+				m->origin = a->m.origin +
+					    strlen(mount_protocols[n]);
 				break;
 			}
 
@@ -397,11 +406,18 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->m.mountpoint_len = (unsigned char)strlen(ctx->buf);
 		break;
 	case LEJPVP_ORIGIN:
-		a->m.origin = a->p;
+		if (!strncmp(ctx->buf, "callback://", 11))
+			a->m.protocol = a->p + 11;
+
+		if (!a->m.origin)
+			a->m.origin = a->p;
 		break;
 	case LEJPVP_DEFAULT:
 		a->m.def = a->p;
 		break;
+	case LEJPVP_DEFAULT_AUTH_MASK:
+		a->m.auth_mask = atoi(ctx->buf);
+		return 0;
 	case LEJPVP_MOUNT_CACHE_MAX_AGE:
 		a->m.cache_max_age = atoi(ctx->buf);
 		return 0;
@@ -476,6 +492,22 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		a->pvo_em->value = a->p;
 		a->pvo_em->options = NULL;
+		break;
+
+	case LEJPVP_MOUNT_INTERPRET:
+		a->pvo_int = lwsws_align(a);
+		a->p += sizeof(*a->pvo_int);
+
+		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		/* ie, enable this protocol, no options yet */
+		a->pvo_int->next = a->m.interpret;
+		a->m.interpret = a->pvo_int;
+		a->pvo_int->name = a->p;
+		lwsl_notice("  adding interpret %s -> %s\n", a->p,
+			    ctx->buf);
+		a->p += n;
+		a->pvo_int->value = a->p;
+		a->pvo_int->options = NULL;
 		break;
 
 	case LEJPVP_ENABLE_CLIENT_SSL:

@@ -206,6 +206,18 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	return NULL;
 }
 
+static const struct lws_protocols *
+lws_vhost_name_to_protocol(struct lws_vhost *vh, const char *name)
+{
+	int n;
+
+	for (n = 0; n < vh->count_protocols; n++)
+		if (!strcmp(name, vh->protocols[n].name))
+			return &vh->protocols[n];
+
+	return NULL;
+}
+
 static const char *
 get_mimetype(const char *file, const struct lws_http_mount *m)
 {
@@ -271,11 +283,13 @@ static int
 lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	       const struct lws_http_mount *m)
 {
+	const struct lws_protocol_vhost_options *pvo = m->interpret;
+	struct lws_process_html_args args;
 	const char *mimetype;
 #ifndef _WIN32_WCE
 	struct stat st;
 #endif
-	char path[256], sym[256];
+	char path[256], sym[512];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
 #if !defined(WIN32)
@@ -342,7 +356,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 				return -1;
 
 			n = lws_write(wsi, start, p - start,
-					LWS_WRITE_HTTP_HEADERS);
+				      LWS_WRITE_HTTP_HEADERS);
 			if (n != (p - start)) {
 				lwsl_err("_write returned %d from %d\n", n, p - start);
 				return -1;
@@ -363,6 +377,44 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		goto bail;
 	}
 
+	wsi->sending_chunked = 0;
+
+	/*
+	 * check if this is in the list of file suffixes to be interpreted by
+	 * a protocol
+	 */
+	while (pvo) {
+		n = strlen(path);
+		if (n > (int)strlen(pvo->name) &&
+		    !strcmp(&path[n - strlen(pvo->name)], pvo->name)) {
+			wsi->sending_chunked = 1;
+			wsi->protocol_interpret_idx = (char)(long)pvo->value;
+			lwsl_notice("want %s interpreted by %s\n",
+				    path,
+				    wsi->vhost->protocols[(int)(long)(pvo->value)].name);
+			wsi->protocol = &wsi->vhost->protocols[(int)(long)(pvo->value)];
+			if (lws_ensure_user_space(wsi))
+				return -1;
+			break;
+		}
+		pvo = pvo->next;
+	}
+
+	if (m->protocol) {
+		const struct lws_protocols *pp = lws_vhost_name_to_protocol(
+							wsi->vhost, m->protocol);
+
+		wsi->protocol = pp;
+		if (lws_ensure_user_space(wsi))
+			return -1;
+		args.p = (char *)p;
+		args.max_len = end - p;
+		if (pp->callback(wsi, LWS_CALLBACK_ADD_HEADERS,
+					  wsi->user_space, &args, 0))
+			return -1;
+		p = (unsigned char *)args.p;
+	}
+
 	n = lws_serve_http_file(wsi, path, mimetype, (char *)start, p - start);
 
 	if (n < 0 || ((n > 0) && lws_http_transaction_completed(wsi)))
@@ -381,6 +433,7 @@ lws_http_action(struct lws *wsi)
 	enum http_connection_type connection_type;
 	enum http_version request_version;
 	char content_length_str[32];
+	struct lws_process_html_args args;
 	const struct lws_http_mount *hm, *hit = NULL;
 	unsigned int n, count = 0;
 	char http_version_str[10];
@@ -409,6 +462,9 @@ lws_http_action(struct lws *wsi)
 #endif
 	};
 #endif
+	static const char * const oprot[] = {
+		"http://", "https://"
+	};
 
 	/* it's not websocket.... shall we accept it as http? */
 
@@ -614,7 +670,8 @@ lws_http_action(struct lws *wsi)
 		    ) {
 			if (hm->origin_protocol == LWSMPRO_CALLBACK ||
 			    ((hm->origin_protocol == LWSMPRO_CGI ||
-			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) &&
+			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
+			     hm->protocol) &&
 			    hm->mountpoint_len > best)) {
 				best = hm->mountpoint_len;
 				hit = hm;
@@ -627,6 +684,38 @@ lws_http_action(struct lws *wsi)
 
 		lwsl_debug("*** hit %d %d %s\n", hit->mountpoint_len,
 			   hit->origin_protocol , hit->origin);
+
+		if (hit->protocol) {
+			const struct lws_protocols *pp = lws_vhost_name_to_protocol(
+					wsi->vhost, hit->protocol);
+
+			if (!pp) {
+				lwsl_err("unknown protocol %s\n", hit->protocol);
+				return 1;
+			}
+
+			wsi->protocol = pp;
+			if (lws_ensure_user_space(wsi)) {
+				lwsl_err("Unable to allocate user space\n");
+				return 1;
+			}
+		}
+		lwsl_info("wsi %s protocol '%s'\n", uri_ptr, wsi->protocol->name);
+
+		args.p = uri_ptr;
+		args.len = uri_len;
+		args.max_len = hit->auth_mask;
+		args.final = 0; /* used to signal callback dealt with it */
+
+		n = wsi->protocol->callback(wsi, LWS_CALLBACK_CHECK_ACCESS_RIGHTS,
+					    wsi->user_space, &args, 0);
+		if (n) {
+			lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED,
+					       NULL);
+			goto bail_nuke_ah;
+		}
+		if (args.final) /* callback completely handled it well */
+			return 0;
 
 		/*
 		 * if we have a mountpoint like https://xxx.com/yyy
@@ -649,12 +738,12 @@ lws_http_action(struct lws *wsi)
 		    (*s != '/' ||
 		     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
 		      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
-		    (hit->origin_protocol != LWSMPRO_CGI && hit->origin_protocol != LWSMPRO_CALLBACK)) {
+		    (hit->origin_protocol != LWSMPRO_CGI &&
+		     hit->origin_protocol != LWSMPRO_CALLBACK //&&
+		     //hit->protocol == NULL
+		     )) {
 			unsigned char *start = pt->serv_buf + LWS_PRE,
 					      *p = start, *end = p + 512;
-			static const char *oprot[] = {
-				"http://", "https://"
-			};
 
 			lwsl_debug("Doing 301 '%s' org %s\n", s, hit->origin);
 
@@ -662,13 +751,14 @@ lws_http_action(struct lws *wsi)
 				goto bail_nuke_ah;
 
 			/* > at start indicates deal with by redirect */
-			if (hit->origin_protocol & 4)
+			if (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+			    hit->origin_protocol == LWSMPRO_REDIR_HTTPS)
 				n = snprintf((char *)end, 256, "%s%s",
 					    oprot[hit->origin_protocol & 1],
 					    hit->origin);
 			else
 				n = snprintf((char *)end, 256,
-				    "https://%s/%s/",
+				    "%s%s%s/", oprot[lws_is_ssl(wsi)],
 				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
 				    uri_ptr);
 
@@ -686,32 +776,36 @@ lws_http_action(struct lws *wsi)
 		 * For the duration of this http transaction, bind us to the
 		 * associated protocol
 		 */
-		if (hit->origin_protocol == LWSMPRO_CALLBACK) {
 
-			for (n = 0; n < (unsigned int)wsi->vhost->count_protocols; n++)
-				if (!strcmp(wsi->vhost->protocols[n].name,
-					   hit->origin)) {
+		if (hit->origin_protocol == LWSMPRO_CALLBACK ||
+		    (hit->protocol && lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))) {
+			if (! hit->protocol) {
+				for (n = 0; n < (unsigned int)wsi->vhost->count_protocols; n++)
+					if (!strcmp(wsi->vhost->protocols[n].name,
+						   hit->origin)) {
 
-					if (wsi->protocol != &wsi->vhost->protocols[n])
-						if (!wsi->user_space_externally_allocated)
-							lws_free_set_NULL(wsi->user_space);
-					wsi->protocol = &wsi->vhost->protocols[n];
-					if (lws_ensure_user_space(wsi)) {
-						lwsl_err("Unable to allocate user space\n");
+						if (wsi->protocol != &wsi->vhost->protocols[n])
+							if (!wsi->user_space_externally_allocated)
+								lws_free_set_NULL(wsi->user_space);
+						wsi->protocol = &wsi->vhost->protocols[n];
+						if (lws_ensure_user_space(wsi)) {
+							lwsl_err("Unable to allocate user space\n");
 
-						return 1;
+							return 1;
+						}
+						break;
 					}
-					break;
+
+				if (n == wsi->vhost->count_protocols) {
+					n = -1;
+					lwsl_err("Unable to find plugin '%s'\n",
+						 hit->origin);
 				}
-
-			if (n == wsi->vhost->count_protocols) {
-				n = -1;
-				lwsl_err("Unable to find plugin '%s'\n",
-					 hit->origin);
 			}
-
 			n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
-						    wsi->user_space, uri_ptr, uri_len);
+						    wsi->user_space,
+						    uri_ptr + hit->mountpoint_len,
+						    uri_len - hit->mountpoint_len);
 
 			goto after;
 		}
@@ -765,16 +859,34 @@ lws_http_action(struct lws *wsi)
 		wsi->cache_revalidate = hit->cache_revalidate;
 		wsi->cache_intermediaries = hit->cache_intermediaries;
 
+
 		n = lws_http_serve(wsi, s, hit->origin, hit);
 		if (n) {
 			/*
 			 * 	lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
 			 */
-			n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+			if (hit->protocol) {
+				const struct lws_protocols *pp = lws_vhost_name_to_protocol(
+						wsi->vhost, hit->protocol);
+
+				wsi->protocol = pp;
+				if (lws_ensure_user_space(wsi)) {
+					lwsl_err("Unable to allocate user space\n");
+					return 1;
+				}
+
+				n = pp->callback(wsi, LWS_CALLBACK_HTTP,
+						 wsi->user_space,
+						 uri_ptr + hit->mountpoint_len,
+						 uri_len - hit->mountpoint_len);
+			} else
+				n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 					    wsi->user_space, uri_ptr, uri_len);
 		}
 	} else {
 		/* deferred cleanup and reset to protocols[0] */
+
+		lwsl_notice("no hit\n");
 
 		if (wsi->protocol != &wsi->vhost->protocols[0])
 			if (!wsi->user_space_externally_allocated)
@@ -1283,6 +1395,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->state = LWSS_HTTP;
 	wsi->mode = LWSCM_HTTP_SERVING;
 	wsi->u.http.content_length = 0;
+	wsi->u.http.content_remain = 0;
 	wsi->hdr_parsing_completed = 0;
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->access_log.sent = 0;
@@ -1813,8 +1926,16 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 					 (unsigned char *)content_type,
 					 strlen(content_type), &p, end))
 		return -1;
-	if (lws_add_http_header_content_length(wsi, wsi->u.http.filelen, &p, end))
-		return -1;
+
+	if (!wsi->sending_chunked) {
+		if (lws_add_http_header_content_length(wsi, wsi->u.http.filelen, &p, end))
+			return -1;
+	} else {
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING,
+						 (unsigned char *)"chunked",
+						 7, &p, end))
+			return -1;
+	}
 
 	if (wsi->cache_secs && wsi->cache_reuse) {
 		if (wsi->cache_revalidate) {

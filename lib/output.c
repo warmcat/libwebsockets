@@ -568,7 +568,9 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	unsigned long amount;
+	struct lws_process_html_args args;
+	unsigned long amount, poss;
+	unsigned char *p = pt->serv_buf;
 	int n, m;
 
 	while (wsi->http2_substream || !lws_send_pipe_choked(wsi)) {
@@ -585,31 +587,58 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		if (wsi->u.http.filepos == wsi->u.http.filelen)
 			goto all_sent;
 
-		if (lws_plat_file_read(wsi, wsi->u.http.fd, &amount,
-				       pt->serv_buf,
-				       context->pt_serv_buf_size) < 0)
+		poss = context->pt_serv_buf_size;
+
+		if (wsi->sending_chunked) {
+			/* we need to drop the chunk size in here */
+			p += 10;
+			/* allow for the chunk to grow by 128 in translation */
+			poss -= 10 + 128;
+		}
+
+		if (lws_plat_file_read(wsi, wsi->u.http.fd, &amount, p, poss) < 0)
 			return -1; /* caller will close */
 
 		n = (int)amount;
 		if (n) {
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 					context->timeout_secs);
-			wsi->u.http.filepos += n;
-			m = lws_write(wsi, pt->serv_buf, n,
+
+			if (wsi->sending_chunked) {
+				args.p = (char *)p;
+				args.len = n;
+				args.max_len = poss + 128;
+				args.final = wsi->u.http.filepos + n ==
+					     wsi->u.http.filelen;
+				if (user_callback_handle_rxflow(
+				     wsi->vhost->protocols[(int)wsi->protocol_interpret_idx].callback, wsi,
+				     LWS_CALLBACK_PROCESS_HTML,
+				     wsi->user_space, &args, 0) < 0)
+					return -1;
+				n = args.len;
+				p = (unsigned char *)args.p;
+			}
+
+			m = lws_write(wsi, p, n,
 				      wsi->u.http.filepos == wsi->u.http.filelen ?
-					LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
+					LWS_WRITE_HTTP_FINAL :
+					LWS_WRITE_HTTP
+				);
 			if (m < 0)
 				return -1;
 
-			if (m != n)
+			wsi->u.http.filepos += amount;
+			if (m != n) {
 				/* adjust for what was not sent */
 				if (lws_plat_file_seek_cur(wsi, wsi->u.http.fd,
 							   m - n) ==
 							     (unsigned long)-1)
 					return -1;
+			}
 		}
 all_sent:
-		if (!wsi->trunc_len && wsi->u.http.filepos == wsi->u.http.filelen) {
+		if (!wsi->trunc_len &&
+		    wsi->u.http.filepos == wsi->u.http.filelen) {
 			wsi->state = LWSS_HTTP;
 			/* we might be in keepalive, so close it off here */
 			lws_plat_file_close(wsi, wsi->u.http.fd);
@@ -622,11 +651,11 @@ all_sent:
 				     LWS_CALLBACK_HTTP_FILE_COMPLETION,
 				     wsi->user_space, NULL, 0) < 0)
 					return -1;
+
 			return 1;  /* >0 indicates completed */
 		}
 	}
 
-	lwsl_info("choked before able to send whole file (post)\n");
 	lws_callback_on_writable(wsi);
 
 	return 0; /* indicates further processing must be done */
