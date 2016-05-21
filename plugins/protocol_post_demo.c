@@ -1,5 +1,5 @@
 /*
- * ws protocol handler plugin for "dumb increment"
+ * ws protocol handler plugin for "POST demo"
  *
  * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
@@ -37,11 +37,6 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 	int n;
 
 	switch (reason) {
-	case LWS_CALLBACK_HTTP:
-		lwsl_debug("LWS_CALLBACK_HTTP\n");
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
-			return 0;
-		break;
 
 	case LWS_CALLBACK_HTTP_BODY:
 		lwsl_debug("LWS_CALLBACK_HTTP_BODY: len %d\n", (int)len);
