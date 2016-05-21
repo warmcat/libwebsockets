@@ -119,6 +119,7 @@ struct jpargs {
 
 	unsigned int enable_client_ssl:1;
 	unsigned int fresh_mount:1;
+	unsigned int any_vhosts:1;
 };
 
 static void *
@@ -282,6 +283,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				 a->info->vhost_name);
 			return 1;
 		}
+		a->any_vhosts = 1;
 
 		if (a->enable_client_ssl) {
 			memset(a->info, 0, sizeof(*a->info));
@@ -491,7 +493,7 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 	fd = open(f, O_RDONLY);
 	if (fd < 0) {
 		lwsl_err("Cannot open %s\n", f);
-		return 1;
+		return 2;
 	}
 	lwsl_info("%s: %s\n", __func__, f);
 	lejp_construct(&ctx, cb, user, paths, count_paths);
@@ -532,7 +534,7 @@ lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 
 	if (!uv_fs_scandir(&loop, &req, d, 0, NULL)) {
 		lwsl_err("Scandir on %s failed\n", d);
-		return 1;
+		return 2;
 	}
 
 	while (uv_fs_scandir_next(&req, &dent) != UV_EOF) {
@@ -604,6 +606,7 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 {
 	struct jpargs a;
 	const char * const *old = info->plugin_dirs;
+	char dd[128];
 
 	memset(&a, 0, sizeof(a));
 
@@ -624,10 +627,12 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 		old++;
 	}
 
-	if (lwsws_get_config(&a, "/etc/lwsws/conf", paths_global,
+	snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
+	if (lwsws_get_config(&a, dd, paths_global,
 			     ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
 		return 1;
-	if (lwsws_get_config_d(&a, d, paths_global,
+	snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
+	if (lwsws_get_config_d(&a, dd, paths_global,
 			       ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
 		return 1;
 
@@ -645,6 +650,7 @@ lwsws_get_config_vhosts(struct lws_context *context,
 			char **cs, int *len)
 {
 	struct jpargs a;
+	char dd[128];
 
 	memset(&a, 0, sizeof(a));
 
@@ -656,15 +662,22 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	a.protocols = info->protocols;
 	a.extensions = info->extensions;
 
-	if (lwsws_get_config(&a, "/etc/lwsws/conf", paths_vhosts,
+	snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
+	if (lwsws_get_config(&a, dd, paths_vhosts,
 			     ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
 		return 1;
-	if (lwsws_get_config_d(&a, d, paths_vhosts,
+	snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
+	if (lwsws_get_config_d(&a, dd, paths_vhosts,
 			       ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
 		return 1;
 
 	*cs = a.p;
 	*len = a.end - a.p;
+
+	if (!a.any_vhosts) {
+		lwsl_err("Need at least one vhost\n");
+		return 1;
+	}
 
 	lws_finalize_startup(context);
 

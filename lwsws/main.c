@@ -77,11 +77,11 @@ int main(int argc, char **argv)
  	int daemonize = 0;
 #endif
 	int debug_level = 7;
-	char *config_dir = "/etc/lwsws/conf.d";
+	char config_dir[128];
 	char *config_strings;
 
 	memset(&info, 0, sizeof info);
-
+	strcpy(config_dir, "/etc/lwsws");
 	while (n >= 0) {
 		n = getopt_long(argc, argv, "hd:c:D", options, NULL);
 		if (n < 0)
