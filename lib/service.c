@@ -675,6 +675,13 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 	time(&now);
 
+	/*
+	 * handle case that system time was uninitialized when lws started
+	 * at boot, and got initialized a little later
+	 */
+	if (context->time_up < 1464083026 && now > 1464083026)
+		context->time_up = now;
+
 	/* TODO: if using libev, we should probably use timeout watchers... */
 	if (context->last_timeout_check_s != now) {
 		context->last_timeout_check_s = now;
