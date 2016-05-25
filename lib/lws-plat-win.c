@@ -608,5 +608,10 @@ lws_plat_init(struct lws_context *context,
 	context->fops.read	= _lws_plat_file_read;
 	context->fops.write	= _lws_plat_file_write;
 
+#ifdef LWS_WITH_PLUGINS
+	if (info->plugin_dirs)
+		lws_plat_plugins_init(context, info->plugin_dirs);
+#endif
+
 	return 0;
 }
