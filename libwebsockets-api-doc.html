@@ -166,6 +166,40 @@ representing the library version followed by the git head hash it
 was built from
 </blockquote>
 <hr>
+<h2>lws_init_vhost_client_ssl - also enable client SSL on an existing vhost</h2>
+<i>int</i>
+<b>lws_init_vhost_client_ssl</b>
+(<i>const struct lws_context_creation_info *</i> <b>info</b>,
+<i>struct lws_vhost *</i> <b>vhost</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>info</b>
+<dd>client ssl related info
+<dt><b>vhost</b>
+<dd>which vhost to initialize client ssl operations on
+</dl>
+<h3>Description</h3>
+<blockquote>
+You only need to call this if you plan on using SSL client connections on
+the vhost.  For non-SSL client connections, it's not necessary to call this.
+<p>
+The following members of <tt><b>info</b></tt> are used during the call
+<p>
+- <tt><b>options</b></tt> must have LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT set,
+otherwise the call does nothing
+- <tt><b>provided_client_ssl_ctx</b></tt> must be NULL to get a generated client
+ssl context, otherwise you can pass a prepared one in by setting it
+- <tt><b>ssl_cipher_list</b></tt> may be NULL or set to the client valid cipher list
+- <tt><b>ssl_ca_filepath</b></tt> may be NULL or client cert filepath
+- <tt><b>ssl_cert_filepath</b></tt> may be NULL or client cert filepath
+- <tt><b>ssl_private_key_filepath</b></tt> may be NULL or client cert private key
+<p>
+You must create your vhost explicitly if you want to use this, so you have
+a pointer to the vhost.  Create the context first with the option flag
+LWS_SERVER_OPTION_EXPLICIT_VHOSTS and then call <b>lws_create_vhost</b> with
+the same info struct.
+</blockquote>
+<hr>
 <h2>lws_create_context - Create the websocket handler</h2>
 <i>struct lws_context *</i>
 <b>lws_create_context</b>
@@ -259,6 +293,104 @@ Helper to report HTTP errors back to the client cleanly and
 consistently
 </blockquote>
 <hr>
+<h2>lejp_construct - prepare a struct lejp_ctx for use</h2>
+<i>void</i>
+<b>lejp_construct</b>
+(<i>struct lejp_ctx *</i> <b>ctx</b>,
+<i>char (*</i><b>callback</b>) <i>(struct lejp_ctx *ctx, char reason)</i>,
+<i>void *</i> <b>user</b>,
+<i>const char *const *</i> <b>paths</b>,
+<i>unsigned char</i> <b>count_paths</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>ctx</b>
+<dd>pointer to your struct lejp_ctx
+<dt><b>callback</b>
+<dd>your user callback which will received parsed tokens
+<dt><b>user</b>
+<dd>optional user data pointer untouched by lejp
+<dt><b>paths</b>
+<dd>your array of name elements you are interested in
+<dt><b>count_paths</b>
+<dd><b>ARRAY_SIZE</b> of <tt><b>paths</b></tt>
+</dl>
+<h3>Description</h3>
+<blockquote>
+Prepares your context struct for use with lejp
+</blockquote>
+<hr>
+<h2>lejp_destruct - retire a previously constructed struct lejp_ctx</h2>
+<i>void</i>
+<b>lejp_destruct</b>
+(<i>struct lejp_ctx *</i> <b>ctx</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>ctx</b>
+<dd>pointer to your struct lejp_ctx
+</dl>
+<h3>Description</h3>
+<blockquote>
+lejp does not perform any allocations, but since your user code might, this
+provides a one-time LEJPCB_DESTRUCTED callback at destruction time where
+you can clean up in your callback.
+</blockquote>
+<hr>
+<h2>lejp_change_callback - switch to a different callback from now on</h2>
+<i>void</i>
+<b>lejp_change_callback</b>
+(<i>struct lejp_ctx *</i> <b>ctx</b>,
+<i>char (*</i><b>callback</b>) <i>(struct lejp_ctx *ctx, char reason)</i>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>ctx</b>
+<dd>pointer to your struct lejp_ctx
+<dt><b>callback</b>
+<dd>your user callback which will received parsed tokens
+</dl>
+<h3>Description</h3>
+<blockquote>
+This tells the old callback it was destroyed, in case you want to take any
+action because that callback "lost focus", then changes to the new
+callback and tells it first that it was constructed, and then started.
+<p>
+Changing callback is a cheap and powerful trick to split out handlers
+according to information earlier in the parse.  For example you may have
+a JSON pair "schema" whose value defines what can be expected for the rest
+of the JSON.  Rather than having one huge callback for all cases, you can
+have an initial one looking for "schema" which then calls
+<b>lejp_change_callback</b> to a handler specific for the schema.
+<p>
+Notice that afterwards, you need to construct the context again anyway to
+parse another JSON object, and the callback is reset then to the main,
+schema-interpreting one.  The construction action is very lightweight.
+</blockquote>
+<hr>
+<h2>lejp_parse - interpret some more incoming data incrementally</h2>
+<i>int</i>
+<b>lejp_parse</b>
+(<i>struct lejp_ctx *</i> <b>ctx</b>,
+<i>const unsigned char *</i> <b>json</b>,
+<i>int</i> <b>len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>ctx</b>
+<dd>previously constructed parsing context
+<dt><b>json</b>
+<dd>char buffer with the new data to interpret
+<dt><b>len</b>
+<dd>amount of data in the buffer
+</dl>
+<h3>Description</h3>
+<blockquote>
+Because lejp is a stream parser, it incrementally parses as new data
+becomes available, maintaining all state in the context struct.  So an
+incomplete JSON is a normal situation, getting you a LEJP_CONTINUE
+return, signalling there's no error but to call again with more data when
+it comes to complete the parsing.  Successful parsing completes with a
+0 or positive integer indicating how much of the last input buffer was
+unused.
+</blockquote>
+<hr>
 <h2>lws_set_timeout - marks the wsi as subject to a timeout</h2>
 <i>void</i>
 <b>lws_set_timeout</b>
@@ -278,6 +410,25 @@ consistently
 <blockquote>
 <p>
 You will not need this unless you are doing something special
+</blockquote>
+<hr>
+<h2>lws_get_peer_simple - Get client address information without RDNS</h2>
+<i>const char *</i>
+<b>lws_get_peer_simple</b>
+(<i>struct lws *</i> <b>wsi</b>,
+<i>char *</i> <b>name</b>,
+<i>int</i> <b>namelen</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Local struct lws associated with
+<dt><b>name</b>
+<dd>Buffer to take client address name
+</dl>
+<h3>Description</h3>
+<blockquote>
+This provides a 123.123.123.123 type IP address in <tt><b>name</b></tt> from the
+peer that has connected to <tt><b>wsi</b></tt>
 </blockquote>
 <hr>
 <h2>lws_get_peer_addresses - Get client address information</h2>
@@ -1692,6 +1843,7 @@ header.
 &nbsp; &nbsp; <i>const char *</i> <b>log_filepath</b>;<br>
 &nbsp; &nbsp; <i>const struct lws_http_mount *</i> <b>mounts</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>server_string</b>;<br>
+&nbsp; &nbsp; <i>unsigned int</i> <b>pt_serv_buf_size</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
@@ -1813,6 +1965,12 @@ any dropping of initial privileges
 <dt><b>server_string</b>
 <dd>CONTEXT: string used in HTTP headers to identify server
 software, if NULL, "libwebsockets".
+<dt><b>pt_serv_buf_size</b>
+<dd>CONTEXT: 0 = default of 4096.  This buffer is used by
+various service related features including file serving, it
+defines the max chunk of file that can be sent at once.
+At the risk of lws having to buffer failed large sends, it
+can be increased to, eg, 128KiB to improve throughput.
 </dl>
 <h3>Description</h3>
 <blockquote>

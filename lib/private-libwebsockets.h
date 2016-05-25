@@ -1722,9 +1722,6 @@ LWS_EXTERN int
 lws_get_addresses(struct lws_context *context, void *ads, char *name,
 		  int name_len, char *rip, int rip_len);
 
-LWS_EXTERN const char *
-lws_get_peer_simple(struct lws *wsi, char *name, int namelen);
-
 #ifdef LWS_WITH_ACCESS_LOG
 LWS_EXTERN int
 lws_access_log(struct lws *wsi);

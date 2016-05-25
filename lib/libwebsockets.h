@@ -1987,6 +1987,9 @@ LWS_VISIBLE LWS_EXTERN void
 lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		       int name_len, char *rip, int rip_len);
 
+LWS_VISIBLE LWS_EXTERN const char *
+lws_get_peer_simple(struct lws *wsi, char *name, int namelen);
+
 LWS_VISIBLE LWS_EXTERN int
 lws_get_random(struct lws_context *context, void *buf, int len);
 

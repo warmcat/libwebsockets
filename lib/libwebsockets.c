@@ -654,7 +654,17 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
 #endif
 }
 
-const char *
+/**
+ * lws_get_peer_simple() - Get client address information without RDNS
+ * @wsi:	Local struct lws associated with
+ * @name:	Buffer to take client address name
+ * @name_len:	Length of client address name buffer
+ *
+ * 	This provides a 123.123.123.123 type IP address in @name from the
+ * 	peer that has connected to @wsi
+ */
+
+LWS_VISIBLE const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 {
 #if LWS_POSIX
