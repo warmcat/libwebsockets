@@ -491,9 +491,15 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 				goto bail;
 			}
 			/* we could open it, can we get his init function? */
+#if !defined(WIN32)
 			m = snprintf(path, sizeof(path) - 1, "init_%s",
 				     dent.name + 3 /* snip lib... */);
 			path[m - 3] = '\0'; /* snip the .so */
+#else
+			m = snprintf(path, sizeof(path) - 1, "init_%s",
+				     dent.name);
+			path[m - 4] = '\0'; /* snip the .dll */
+#endif
 			if (uv_dlsym(&lib, path, &v)) {
 				uv_dlerror(&lib);
 				lwsl_err("Failed to get init on %s: %s",
@@ -554,8 +560,13 @@ lws_plat_plugins_destroy(struct lws_context * context)
 
 	while (plugin) {
 		p = plugin;
+#if !defined(WIN32)
 		m = snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
 		path[m - 3] = '\0';
+#else
+		m = snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name);
+		path[m - 4] = '\0';
+#endif
 
 		if (uv_dlsym(&plugin->lib, path, &v)) {
 			uv_dlerror(&plugin->lib);
