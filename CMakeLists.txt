@@ -1509,6 +1509,7 @@ message(" PLUGINS = ${PLUGINS_LIST}")
 message(" LWS_WITH_ACCESS_LOG = ${LWS_WITH_ACCESS_LOG}")
 message(" LWS_WITH_SERVER_STATUS = ${LWS_WITH_SERVER_STATUS}")
 message(" LWS_WITH_LEJP = ${LWS_WITH_LEJP}")
+message(" LWS_WITH_GENERIC_SESSIONS = ${LWS_WITH_GENERIC_SESSIONS}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

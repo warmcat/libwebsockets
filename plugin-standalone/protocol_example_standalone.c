@@ -21,7 +21,11 @@
  * "example-standalone-protocol", to show how to build protocol plugins
  * outside the library easily.
  */
+
+#define LWS_DLL
+#define LWS_INTERNAL
 #include "../lib/libwebsockets.h"
+
 #include <string.h>
 
 struct per_vhost_data__dumb_increment {

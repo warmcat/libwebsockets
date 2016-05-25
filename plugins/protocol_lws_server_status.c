@@ -17,6 +17,9 @@
  * may be proprietary.  So unlike the library itself, they are licensed
  * Public Domain.
  */
+
+#define LWS_DLL
+#define LWS_INTERNAL
 #include "../lib/libwebsockets.h"
 #include <string.h>
 #include <stdlib.h>
@@ -122,7 +125,7 @@ static const struct lws_protocols protocols[] = {
 	},
 };
 
-LWS_VISIBLE int
+LWS_EXTERN LWS_VISIBLE int
 init_protocol_lws_server_status(struct lws_context *context,
 			     struct lws_plugin_capability *c)
 {
@@ -140,7 +143,7 @@ init_protocol_lws_server_status(struct lws_context *context,
 	return 0;
 }
 
-LWS_VISIBLE int
+LWS_EXTERN LWS_VISIBLE int
 destroy_protocol_lws_server_status(struct lws_context *context)
 {
 	return 0;
