@@ -2130,6 +2130,18 @@ LWS_VISIBLE LWS_EXTERN int
 lws_http_client_read(struct lws *wsi, char **buf, int *len);
 
 /*
+ * lejp conf parsers
+ */
+LWS_VISIBLE LWS_EXTERN int
+lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
+			 char **config_strings, int *len);
+
+LWS_VISIBLE LWS_EXTERN int
+lwsws_get_config_vhosts(struct lws_context *context,
+			struct lws_context_creation_info *info, const char *d,
+			char **config_strings, int *len);
+
+/*
  * Wsi-associated File Operations access helpers
  *
  * Use these helper functions if you want to access a file from the perspective

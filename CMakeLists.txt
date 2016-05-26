@@ -98,6 +98,7 @@ option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions" OFF)
 option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OFF)
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
 option(LWS_WITH_LEJP "With the Lightweight JSON Parser" OFF)
+option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -106,6 +107,7 @@ if (LWS_WITH_LWSWS)
  set(LWS_WITH_ACCESS_LOG 1)
  set(LWS_WITH_SERVER_STATUS 1)
  set(LWS_WITH_LEJP 1)
+ set(LWS_WITH_LEJP_CONF 1)
 endif()
 
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
@@ -584,6 +586,11 @@ if (LWS_WITH_LEJP)
 	list(APPEND HDR_PUBLIC
 		lib/lejp.h)
 endif()	
+if (LWS_WITH_LEJP_CONF)
+		list(APPEND SOURCES
+			"lib/lejp-conf.c"
+		)
+endif()
 
 # Add helper files for Windows.
 if (WIN32)
@@ -1264,7 +1271,6 @@ endif(NOT LWS_WITHOUT_TESTAPPS)
 if (LWS_WITH_LWSWS)
 		list(APPEND LWSWS_SRCS
 			"lwsws/main.c"
-			"lwsws/conf.c"
 		)
 
 		if (WIN32)
@@ -1292,8 +1298,6 @@ if (LWS_WITH_LWSWS)
 			     PROPERTY COMPILE_DEFINITIONS
 			     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/share"
 		)
-	
-		
 endif (LWS_WITH_LWSWS)
 
 if (UNIX)
@@ -1509,7 +1513,7 @@ message(" PLUGINS = ${PLUGINS_LIST}")
 message(" LWS_WITH_ACCESS_LOG = ${LWS_WITH_ACCESS_LOG}")
 message(" LWS_WITH_SERVER_STATUS = ${LWS_WITH_SERVER_STATUS}")
 message(" LWS_WITH_LEJP = ${LWS_WITH_LEJP}")
-message(" LWS_WITH_GENERIC_SESSIONS = ${LWS_WITH_GENERIC_SESSIONS}")
+message(" LWS_WITH_LEJP_CONF = ${LWS_WITH_LEJP_CONF}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

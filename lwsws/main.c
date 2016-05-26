@@ -18,8 +18,27 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  * MA  02110-1301  USA
  */
+#include "lws_config.h"
 
-#include "lwsws.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <getopt.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <assert.h>
+#ifndef _WIN32
+#include <dirent.h>
+#include <syslog.h>
+#include <sys/time.h>
+#include <unistd.h>
+#else
+#include <io.h>
+#include "gettimeofday.h"
+#endif
+
+#include "../lib/libwebsockets.h"
 
 static struct lws_context *context;
 

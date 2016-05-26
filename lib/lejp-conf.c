@@ -19,7 +19,13 @@
  * MA  02110-1301  USA
  */
 
-#include "lwsws.h"
+#include "private-libwebsockets.h"
+#include "lejp.h"
+
+#ifndef _WIN32
+/* this is needed for Travis CI */
+#include <dirent.h>
+#endif
 
 static const char * const paths_global[] = {
 	"global.uid",
