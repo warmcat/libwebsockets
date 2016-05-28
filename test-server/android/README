@@ -25,9 +25,9 @@ to connect to the 'dumb-increment-protocol' of the libwebsockets test server.
 Building the native libraries requires the Android NDK which can be
 installed using the SDK manager.
 
-The app/src/main/jni/Makefile is fully integraded with Gradle but will only
-work on Linux and requires the following applications to be available in
-addition to the NDK:
+The app/src/main/jni/NativeLibs.mk is fully integraded with Gradle but will
+only work on Linux and requires the following applications to be available
+in addition to the NDK:
 
    awk cmake egrep git tar wget makedepend
 
