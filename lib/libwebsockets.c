@@ -1309,6 +1309,16 @@ lws_get_fops(struct lws_context *context)
 	return &context->fops;
 }
 
+/**
+ * lws_get_context - Allow geting lws_context from a Websocket connection
+ * instance
+ *
+ * With this function, users can access context in the callback function.
+ * Otherwise users may have to declare context as a global variable.
+ *
+ * @wsi:	Websocket connection instance
+ */
+
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_get_context(const struct lws *wsi)
 {

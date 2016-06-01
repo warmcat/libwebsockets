@@ -545,6 +545,22 @@ This is never set at the start of a writeable callback, but any write
 may set it.
 </blockquote>
 <hr>
+<h2>lws_get_context - Allow geting lws_context from a Websocket connection instance</h2>
+<i>LWS_EXTERN struct lws_context *</i>
+<b>lws_get_context</b>
+(<i>const struct lws *</i> <b>wsi</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>Websocket connection instance
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+With this function, users can access context in the callback function.
+Otherwise users may have to declare context as a global variable.
+</blockquote>
+<hr>
 <h2>lws_parse_uri - </h2>
 <i>LWS_EXTERN int</i>
 <b>lws_parse_uri</b>
