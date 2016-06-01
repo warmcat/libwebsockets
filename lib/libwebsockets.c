@@ -1173,7 +1173,7 @@ lwsl_timestamp(int level, char *p, int len)
 			n = snprintf(p, len,
 				"[%04d/%02d/%02d %02d:%02d:%02d:%04d] %s: ",
 				ptm->tm_year + 1900,
-				ptm->tm_mon,
+				ptm->tm_mon + 1,
 				ptm->tm_mday,
 				ptm->tm_hour,
 				ptm->tm_min,
