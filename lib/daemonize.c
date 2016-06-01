@@ -142,9 +142,20 @@ lws_daemonize(const char *_lock_path)
 		exit(9);
 	}
 
-	/* If we got a good PID, then we can exit the parent process. */
-	if (pid_daemon > 0)
-		exit(0);
+        /* If we got a good PID, then we can exit the parent process. */
+	if (pid_daemon > 0) {
+
+               /*
+                * Wait for confirmation signal from the child via
+                * SIGCHILD / USR1, or for two seconds to elapse
+                * (SIGALRM).  pause() should not return.
+                */
+               alarm(2);
+
+               pause();
+               /* should not be reachable */
+               exit(1);
+       }
 
 	/* At this point we are executing as the child process */
 	parent = getppid();
