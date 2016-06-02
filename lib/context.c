@@ -643,7 +643,11 @@ lws_create_context(struct lws_context_creation_info *info)
 	if (info->max_http_header_data)
 		context->max_http_header_data = info->max_http_header_data;
 	else
-		context->max_http_header_data = LWS_DEF_HEADER_LEN;
+		if (info->max_http_header_data2)
+			context->max_http_header_data =
+					info->max_http_header_data2;
+		else
+			context->max_http_header_data = LWS_DEF_HEADER_LEN;
 	if (info->max_http_header_pool)
 		context->max_http_header_pool = info->max_http_header_pool;
 	else

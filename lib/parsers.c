@@ -460,7 +460,7 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 int LWS_WARN_UNUSED_RESULT
 lws_pos_in_bounds(struct lws *wsi)
 {
-	if (wsi->u.hdr.ah->pos < wsi->context->max_http_header_data)
+	if (wsi->u.hdr.ah->pos < (unsigned int)wsi->context->max_http_header_data)
 		return 0;
 
 	if (wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {

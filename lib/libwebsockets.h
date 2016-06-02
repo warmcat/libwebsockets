@@ -1501,6 +1501,10 @@ struct lws_http_mount {
  *		defines the max chunk of file that can be sent at once.
  *		At the risk of lws having to buffer failed large sends, it
  *		can be increased to, eg, 128KiB to improve throughput.
+ * @max_http_header_data2 CONTEXT: if @max_http_header_data is 0 and this
+ *		is nonzero, this will be used in place of the default.  It's
+ *		like this for compatibility with the original short version,
+ *		this is unsigned int length.
  */
 
 struct lws_context_creation_info {
@@ -1544,6 +1548,7 @@ struct lws_context_creation_info {
 	const struct lws_http_mount *mounts;		/* VH */
 	const char *server_string;			/* context */
 	unsigned int pt_serv_buf_size;			/* context */
+	unsigned int max_http_header_data2;		/* context */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

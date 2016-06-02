@@ -520,7 +520,7 @@ struct lws_fd_hashtable {
  */
 
 struct lws_fragments {
-	unsigned short offset;
+	unsigned int offset;
 	unsigned short len;
 	unsigned char nfrag; /* which ah->frag[] continues this content, or 0 */
 };
@@ -548,12 +548,12 @@ struct allocated_headers {
 	unsigned char rx[2048];
 	unsigned int rxpos;
 	unsigned int rxlen;
+	unsigned int pos;
 
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
 #endif
 
-	unsigned short pos;
 	unsigned char in_use;
 	unsigned char nfrag;
 };
@@ -742,6 +742,7 @@ struct lws_context {
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;
 	unsigned int pt_serv_buf_size;
+	int max_http_header_data;
 
 	/*
 	 * set to the Thread ID that's doing the service loop just before entry
@@ -752,7 +753,6 @@ struct lws_context {
 	volatile int service_tid;
 	int service_tid_detected;
 
-	short max_http_header_data;
 	short max_http_header_pool;
 	short count_threads;
 	short plugin_protocol_count;
@@ -906,7 +906,7 @@ struct _lws_header_related {
 	enum uri_path_states ups;
 	enum uri_esc_states ues;
 	short lextable_pos;
-	unsigned short current_token_limit;
+	unsigned int current_token_limit;
 #ifndef LWS_NO_CLIENT
 	unsigned short c_port;
 #endif
