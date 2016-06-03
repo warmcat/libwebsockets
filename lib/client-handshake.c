@@ -35,7 +35,7 @@ lws_client_connect_2(struct lws *wsi)
 		ads = wsi->vhost->http_proxy_address;
 
 #ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(context)) {
+		if (LWS_IPV6_ENABLED(wsi->vhost)) {
 			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
 			server_addr6.sin6_port = htons(wsi->vhost->http_proxy_port);
 		} else
@@ -45,7 +45,7 @@ lws_client_connect_2(struct lws *wsi)
 	} else {
 		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 #ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(context)) {
+		if (LWS_IPV6_ENABLED(wsi->vhost)) {
 			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
 			server_addr6.sin6_port = htons(wsi->u.hdr.c_port);
 		} else
@@ -59,7 +59,7 @@ lws_client_connect_2(struct lws *wsi)
        lwsl_client("%s: address %s\n", __func__, ads);
 
 #ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(context)) {
+	if (LWS_IPV6_ENABLED(wsi->vhost)) {
 		memset(&hints, 0, sizeof(struct addrinfo));
 #if !defined(__ANDROID__)
 		hints.ai_family = AF_INET6;
@@ -143,7 +143,7 @@ lws_client_connect_2(struct lws *wsi)
 	if (!lws_socket_is_valid(wsi->sock)) {
 
 #ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(context))
+		if (LWS_IPV6_ENABLED(wsi->vhost))
 			wsi->sock = socket(AF_INET6, SOCK_STREAM, 0);
 		else
 #endif
@@ -189,7 +189,7 @@ lws_client_connect_2(struct lws *wsi)
 	}
 
 #ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(context)) {
+	if (LWS_IPV6_ENABLED(wsi->vhost)) {
 		v = (struct sockaddr *)&server_addr6;
 		n = sizeof(struct sockaddr_in6);
 	} else
