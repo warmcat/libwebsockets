@@ -67,7 +67,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	else
 #endif
 #ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(vhost->context))
+	if (LWS_IPV6_ENABLED(vhost))
 		sockfd = socket(AF_INET6, SOCK_STREAM, 0);
 	else
 #endif

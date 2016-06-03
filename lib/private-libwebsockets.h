@@ -845,8 +845,9 @@ LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info)
 
 
 #ifdef LWS_USE_IPV6
-#define LWS_IPV6_ENABLED(context) \
-	(!lws_check_opt(context->options, LWS_SERVER_OPTION_DISABLE_IPV6))
+#define LWS_IPV6_ENABLED(vh) \
+	(!lws_check_opt(vh->context->options, LWS_SERVER_OPTION_DISABLE_IPV6) &&
+	 !lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_IPV6))
 #else
 #define LWS_IPV6_ENABLED(context) (0)
 #endif
@@ -1538,7 +1539,7 @@ LWS_EXTERN int get_daemonize_pid();
 
 #if !defined(MBED_OPERATORS)
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-interface_to_sa(struct lws_context *context, const char *ifname,
+interface_to_sa(struct lws_vhost *vh, const char *ifname,
 		struct sockaddr_in *addr, size_t addrlen);
 #endif
 LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
@@ -1717,10 +1718,6 @@ _lws_server_listen_accept_flow_control(struct lws *twsi, int on);
 #define lws_handshake_server(_a, _b, _c) (0)
 #define _lws_server_listen_accept_flow_control(a, b) (0)
 #endif
-
-LWS_EXTERN int
-lws_get_addresses(struct lws_context *context, void *ads, char *name,
-		  int name_len, char *rip, int rip_len);
 
 #ifdef LWS_WITH_ACCESS_LOG
 LWS_EXTERN int

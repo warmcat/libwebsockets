@@ -74,6 +74,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].enable-client-ssl",
 	"vhosts[].ciphers",
 	"vhosts[].ecdh-curve",
+	"vhosts[].noipv6",
 };
 
 enum lejp_vhost_paths {
@@ -105,6 +106,7 @@ enum lejp_vhost_paths {
 	LEJPVP_ENABLE_CLIENT_SSL,
 	LEJPVP_CIPHERS,
 	LEJPVP_ECDH_CURVE,
+	LEJPVP_NOIPV6,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -472,6 +474,13 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 	case LEJPVP_ENABLE_CLIENT_SSL:
 		a->enable_client_ssl = arg_to_bool(ctx->buf);
+		return 0;
+
+	case LEJPVP_NOIPV6:
+		if (arg_to_bool(ctx->buf))
+			a->info->options |= LWS_SERVER_OPTION_DISABLE_IPV6;
+		else
+			a->info->options &= ~(LWS_SERVER_OPTION_DISABLE_IPV6);
 		return 0;
 
 	default:

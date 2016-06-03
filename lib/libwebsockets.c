@@ -587,20 +587,20 @@ lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
 
 #if LWS_POSIX
 LWS_VISIBLE int
-interface_to_sa(struct lws_context *context, const char *ifname, struct sockaddr_in *addr, size_t addrlen)
+interface_to_sa(struct lws_vhost *vh, const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
 	int ipv6 = 0;
 #ifdef LWS_USE_IPV6
-	ipv6 = LWS_IPV6_ENABLED(context);
+	ipv6 = LWS_IPV6_ENABLED(vh);
 #endif
-	(void)context;
+	(void)vh;
 
 	return lws_interface_to_sa(ipv6, ifname, addr, addrlen);
 }
 #endif
 
-LWS_VISIBLE int
-lws_get_addresses(struct lws_context *context, void *ads, char *name,
+static int
+lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 		  int name_len, char *rip, int rip_len)
 {
 #if LWS_POSIX
@@ -613,7 +613,7 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
 	addr4.sin_family = AF_UNSPEC;
 
 #ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(context)) {
+	if (LWS_IPV6_ENABLED(vh)) {
 		if (!lws_plat_inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ads)->sin6_addr, rip, rip_len)) {
 			lwsl_err("inet_ntop", strerror(LWS_ERRNO));
 			return -1;
@@ -671,7 +671,7 @@ lws_get_addresses(struct lws_context *context, void *ads, char *name,
 
 	return 0;
 #else
-	(void)context;
+	(void)vh;
 	(void)ads;
 	(void)name;
 	(void)name_len;
@@ -705,7 +705,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 	void *p, *q;
 
 #ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(wsi->context)) {
+	if (LWS_IPV6_ENABLED(wsi->vhost)) {
 		len = sizeof(sin6);
 		p = &sin6;
 		af = AF_INET6;
@@ -765,7 +765,7 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 	lws_latency_pre(context, wsi);
 
 #ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(context)) {
+	if (LWS_IPV6_ENABLED(wsi->vhost)) {
 		len = sizeof(sin6);
 		p = &sin6;
 	} else
@@ -780,7 +780,7 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		goto bail;
 	}
 
-	ret = lws_get_addresses(context, p, name, name_len, rip, rip_len);
+	ret = lws_get_addresses(wsi->vhost, p, name, name_len, rip, rip_len);
 
 bail:
 	lws_latency(context, wsi, "lws_get_peer_addresses", ret, 1);
@@ -1624,7 +1624,7 @@ lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
 	} else
 #endif
 #ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(vhost->context)) {
+	if (LWS_IPV6_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
 		bzero((char *) &serv_addr6, sizeof(serv_addr6));
@@ -1641,7 +1641,7 @@ lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
 		serv_addr4.sin_family = AF_INET;
 
 		if (iface &&
-		    interface_to_sa(vhost->context, iface,
+		    interface_to_sa(vhost, iface,
 				    (struct sockaddr_in *)v, n) < 0) {
 			lwsl_err("Unable to find interface %s\n", iface);
 			return -1;
