@@ -1628,7 +1628,12 @@ lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
 		bzero((char *) &serv_addr6, sizeof(serv_addr6));
-		serv_addr6.sin6_addr = in6addr_any;
+		if (iface &&
+		    interface_to_sa(vhost, iface,
+				    (struct sockaddr_in *)v, n) < 0) {
+			lwsl_err("Unable to find interface %s\n", iface);
+			return -1;
+		}
 		serv_addr6.sin6_family = AF_INET6;
 		serv_addr6.sin6_port = htons(port);
 	} else

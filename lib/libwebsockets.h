@@ -354,6 +354,8 @@ enum lws_context_options {
 	LWS_SERVER_OPTION_EXPLICIT_VHOSTS			= (1 << 13),
 	LWS_SERVER_OPTION_UNIX_SOCK				= (1 << 14),
 	LWS_SERVER_OPTION_STS					= (1 << 15),
+	LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY			= (1 << 16),
+	LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE			= (1 << 17),
 
 	/****** add new things just above ---^ ******/
 };
