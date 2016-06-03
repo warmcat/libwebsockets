@@ -557,6 +557,34 @@ lws_close_free_wsi_final(struct lws *wsi)
 	lws_free_wsi(wsi);
 }
 
+/**
+ * lws_get_urlarg_by_name() - return pointer to arg value if present
+ * @wsi: the connection to check
+ * @name: the arg name, like "token="
+ * @buf: the buffer to receive the urlarg (including the name= part)
+ * @len: the length of the buffer to receive the urlarg
+ *
+ *     Returns NULL if not found or a pointer inside @buf to just after the
+ *     name= part.
+ */
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
+{
+	int n = 0, sl = strlen(name);
+
+	while (lws_hdr_copy_fragment(wsi, buf, len,
+			  WSI_TOKEN_HTTP_URI_ARGS, n) >= 0) {
+
+		if (!strncmp(buf, name, sl))
+			return buf + sl;
+
+		n++;
+	}
+
+	return NULL;
+}
+
 #if LWS_POSIX
 LWS_VISIBLE int
 interface_to_sa(struct lws_context *context, const char *ifname, struct sockaddr_in *addr, size_t addrlen)
