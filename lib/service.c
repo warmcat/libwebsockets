@@ -310,6 +310,7 @@ int
 lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	int n = 0;
 
 	/*
 	 * if extensions want in on it (eg, we are a mux parent)
@@ -327,13 +328,15 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 	 */
 	if ((time_t)sec > wsi->pending_timeout_limit) {
 #if LWS_POSIX
+		if (wsi->sock != LWS_SOCK_INVALID)
+			n = pt->fds[wsi->sock].events;
+
 		/* no need to log normal idle keepalive timeout */
 		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
 			lwsl_notice("wsi %p: TIMEDOUT WAITING on %d (did hdr %d, ah %p, wl %d, pfd events %d)\n",
 			    (void *)wsi, wsi->pending_timeout,
 			    wsi->hdr_parsing_completed, wsi->u.hdr.ah,
-			    pt->ah_wait_list_length,
-			    pt->fds[wsi->sock].events);
+			    pt->ah_wait_list_length, n);
 #endif
 		/*
 		 * Since he failed a timeout, he already had a chance to do
