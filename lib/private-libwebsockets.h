@@ -846,7 +846,7 @@ LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info)
 
 #ifdef LWS_USE_IPV6
 #define LWS_IPV6_ENABLED(vh) \
-	(!lws_check_opt(vh->context->options, LWS_SERVER_OPTION_DISABLE_IPV6) &&
+	(!lws_check_opt(vh->context->options, LWS_SERVER_OPTION_DISABLE_IPV6) && \
 	 !lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_IPV6))
 #else
 #define LWS_IPV6_ENABLED(context) (0)
