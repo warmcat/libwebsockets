@@ -333,6 +333,58 @@ struct lws;
  * NOTE: These public enums are part of the abi.  If you want to add one,
  * add it at where specified so existing users are unaffected.
  */
+
+
+/**
+ * enum lws_context_options() - context + vhost options
+ *
+ * LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT:  (VH) Don't allow the
+ * 	connection unless the client has a client cert that we recognize;
+ * 	provides LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT
+ *
+ * LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME:  (CTX) Don't try to get the
+ *	server's hostname
+ *
+ * LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT:  (VH) Allow non-SSL (plaintext)
+ *	connections on the same port as SSL is listening... undermines the
+ *	security of SSL; provides  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT
+ *
+ * LWS_SERVER_OPTION_LIBEV:  (CTX) Use libev event loop
+ *
+ * LWS_SERVER_OPTION_DISABLE_IPV6:  (VH) Disable IPV6 support
+ *
+ * LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS:  (VH) Don't load OS CA certs, you
+ *	will need to load your own CA cert(s)
+ *
+ * LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED:  (VH) Accept connections with no
+ *	valid Cert (eg, selfsigned)
+ *
+ * LWS_SERVER_OPTION_VALIDATE_UTF8:  (VH) Check UT-8 correctness
+ *
+ * LWS_SERVER_OPTION_SSL_ECDH:  (VH)  initialize ECDH ciphers
+ *
+ * LWS_SERVER_OPTION_LIBUV:  (CTX)  Use libuv event loop
+ *
+ * LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS:  (VH) Use http redirect to force
+ *	http to https (deprecated: use mount redirection)
+ *
+ * LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT:  (CTX) Initialize the SSL library
+ *	at all
+ *
+ * LWS_SERVER_OPTION_EXPLICIT_VHOSTS: (CTX) Only create the context when
+ *	calling context create api, user code will create its own vhosts
+ *
+ * LWS_SERVER_OPTION_UNIX_SOCK:  (VH) Use Unix socket
+ *
+ * LWS_SERVER_OPTION_STS:  (VH) Send Strict Transport Security header, making
+ *	clients subsequently go to https even if user asked for http
+ *
+ * LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY:  (VH) Enable
+ *	LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE to take effect
+ *
+ * LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE:  (VH) if set, only ipv6 allowed on the
+ *	vhost
+ */
 enum lws_context_options {
 	LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT	= (1 << 1) |
 								  (1 << 12),

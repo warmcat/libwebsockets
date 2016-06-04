@@ -75,6 +75,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].ciphers",
 	"vhosts[].ecdh-curve",
 	"vhosts[].noipv6",
+	"vhosts[].ipv6only",
 };
 
 enum lejp_vhost_paths {
@@ -107,6 +108,7 @@ enum lejp_vhost_paths {
 	LEJPVP_CIPHERS,
 	LEJPVP_ECDH_CURVE,
 	LEJPVP_NOIPV6,
+	LEJPVP_IPV6ONLY,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -481,6 +483,14 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			a->info->options |= LWS_SERVER_OPTION_DISABLE_IPV6;
 		else
 			a->info->options &= ~(LWS_SERVER_OPTION_DISABLE_IPV6);
+		return 0;
+
+	case LEJPVP_IPV6ONLY:
+		a->info->options |= LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY;
+		if (arg_to_bool(ctx->buf))
+			a->info->options |= LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE;
+		else
+			a->info->options &= ~(LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
 		return 0;
 
 	default:

@@ -206,7 +206,10 @@ Other vhost options
  
  - "`ecdh-curve`": "<curve name>"   The default ecdh curve is "prime256v1", but you can override it here, per-vhost
 
- - "`noipv6`": "on"  Disable ipv6 for this vhost
+ - "`noipv6`": "on"  Disable ipv6 completely for this vhost
+
+ - "`ipv6only`": "on"  Only allow ipv6 on this vhost / "off" only allow ipv4 on this vhost
+
 
 Mounts
 ------
