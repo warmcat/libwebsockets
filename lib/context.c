@@ -373,8 +373,8 @@ lws_create_vhost(struct lws_context *context,
 				vh->name, info->iface, vh->count_protocols);
 	} else
 #endif
-	lwsl_notice("Creating Vhost '%s' port %d, %d protocols\n",
-			vh->name, info->port, vh->count_protocols);
+	lwsl_notice("Creating Vhost '%s' port %d, %d protocols, IPv6 %s\n",
+			vh->name, info->port, vh->count_protocols, LWS_IPV6_ENABLED(vh) ? "on" : "off");
 
 	mounts = info->mounts;
 	while (mounts) {
