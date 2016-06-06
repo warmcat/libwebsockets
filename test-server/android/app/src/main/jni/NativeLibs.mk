@@ -78,7 +78,7 @@ ifeq ($(APP_PLATFORM),)
 APP_PLATFORM = android-21
 endif
 
-NDK_MAKE_TOOLCHAIN := $(NDK_ROOT)/build/tools/make-standalone-toolchain.sh
+NDK_MAKE_TOOLCHAIN := $(NDK_ROOT)/build/tools/make_standalone_toolchain.py
 
 #
 # The source packages we want/need
@@ -141,14 +141,14 @@ TARGET_MIPS64 := mips64
 # libraries compiled for android-21 and upwards are incompatible with devices below that version!
 # http://stackoverflow.com/questions/28740315/android-ndk-getting-java-lang-unsatisfiedlinkerror-dlopen-failed-cannot-loca
 #
-TARGET_X86_NDK_API := $(APP_PLATFORM)
-TARGET_X86_64_NDK_API := $(APP_PLATFORM)
-TARGET_ARM_NDK_API := $(APP_PLATFORM)
-TARGET_ARM_V7A_NDK_API := $(APP_PLATFORM)
-TARGET_ARM_V7A_HARD_NDK_API := $(APP_PLATFORM)
-TARGET_ARM64_V8A_NDK_API := $(APP_PLATFORM)
-TARGET_MIPS_NDK_API := $(APP_PLATFORM)
-TARGET_MIPS64_NDK_API := $(APP_PLATFORM)
+TARGET_X86_NDK_API := $(subst android-,,$(APP_PLATFORM))
+TARGET_X86_64_NDK_API := $(subst android-,,$(APP_PLATFORM))
+TARGET_ARM_NDK_API := $(subst android-,,$(APP_PLATFORM))
+TARGET_ARM_V7A_NDK_API := $(subst android-,,$(APP_PLATFORM))
+TARGET_ARM_V7A_HARD_NDK_API := $(subst android-,,$(APP_PLATFORM))
+TARGET_ARM64_V8A_NDK_API := $(subst android-,,$(APP_PLATFORM))
+TARGET_MIPS_NDK_API := $(subst android-,,$(APP_PLATFORM))
+TARGET_MIPS64_NDK_API := $(subst android-,,$(APP_PLATFORM))
 
 # The configure arguments to pass to the OpenSSL Configure script
 # (--prefix and --openssldir are added automaticaly).
@@ -317,71 +317,74 @@ TOOLCHAIN_ARM64_V8A := toolchains/arm64-v8a
 TOOLCHAIN_MIPS := toolchains/mips
 TOOLCHAIN_MIPS64 := toolchains/mips64
 
-# The arch names for the different toolchains
-TOOLCHAIN_X86_ARCH := x86
-TOOLCHAIN_X86_64_ARCH := x86_64
-TOOLCHAIN_ARM_ARCH := arm-linux-androideabi
-TOOLCHAIN_ARM_V7A_ARCH := arm-linux-androideabi
-TOOLCHAIN_ARM_V7A_HARD_ARCH := arm-linux-androideabi
-TOOLCHAIN_ARM64_V8A_ARCH := aarch64-linux-android
-TOOLCHAIN_MIPS_ARCH := mipsel-linux-android
-TOOLCHAIN_MIPS64_ARCH := mips64el-linux-android
-
-# Other (global) toolchain settings
-TOOLCHAIN_GCC_VERSION := 4.9
+# Use APP_STL to determine what STL to use.
+#
+ifeq ($(APP_STL),stlport_static)
+TOOLCHAIN_STL := stlport
+else ifeq ($(APP_STL),stlport_shared)
+TOOLCHAIN_STL := stlport
+else ifeq ($(APP_STL),gnustl_static)
+TOOLCHAIN_STL := gnustl
+else ifeq ($(APP_STL),gnustl_shared)
+TOOLCHAIN_STL := gnustl
+else ifeq ($(APP_STL),c++_static)
+TOOLCHAIN_STL := libc++
+else ifeq ($(APP_STL),c++_shared)
+TOOLCHAIN_STL := libc++
+endif
 
 # The settings to use for the individual toolchains:
 # x86
-TOOLCHAIN_X86_PLATFORM := $(TARGET_X86_NDK_API)
+TOOLCHAIN_X86_API := $(TARGET_X86_NDK_API)
 TOOLCHAIN_X86_PREFIX := i686-linux-android
 TOOLCHAIN_X86_FLAGS := -march=i686 -msse3 -mstackrealign -mfpmath=sse
 TOOLCHAIN_X86_LINK :=
 TOOLCHAIN_X86_PLATFORM_HEADERS := $(shell pwd)/$(TOOLCHAIN_X86)/sysroot/usr/include
 TOOLCHAIN_X86_PLATFORM_LIBS := $(shell pwd)/$(TOOLCHAIN_X86)/sysroot/usr/lib
 # x86_64
-TOOLCHAIN_X86_64_PLATFORM := $(TARGET_X86_64_NDK_API)
+TOOLCHAIN_X86_64_API := $(TARGET_X86_64_NDK_API)
 TOOLCHAIN_X86_64_PREFIX := x86_64-linux-android
 TOOLCHAIN_X86_64_FLAGS :=
 TOOLCHAIN_X86_64_LINK :=
 TOOLCHAIN_X86_64_PLATFORM_HEADERS := $(shell pwd)/$(TOOLCHAIN_X86_64)/sysroot/usr/include
 TOOLCHAIN_X86_64_PLATFORM_LIBS := $(shell pwd)/$(TOOLCHAIN_X86_64)/sysroot/usr/lib
 # arm
-TOOLCHAIN_ARM_PLATFORM := $(TARGET_ARM_NDK_API)
+TOOLCHAIN_ARM_API := $(TARGET_ARM_NDK_API)
 TOOLCHAIN_ARM_PREFIX := arm-linux-androideabi
 TOOLCHAIN_ARM_FLAGS := -mthumb
 TOOLCHAIN_ARM_LINK :=
 TOOLCHAIN_ARM_PLATFORM_HEADERS := $(shell pwd)/$(TOOLCHAIN_ARM)/sysroot/usr/include
 TOOLCHAIN_ARM_PLATFORM_LIBS := $(shell pwd)/$(TOOLCHAIN_ARM)/sysroot/usr/lib
 # arm-v7a
-TOOLCHAIN_ARM_V7A_PLATFORM := $(TARGET_ARM_V7A_NDK_API)
+TOOLCHAIN_ARM_V7A_API := $(TARGET_ARM_V7A_NDK_API)
 TOOLCHAIN_ARM_V7A_PREFIX := arm-linux-androideabi
 TOOLCHAIN_ARM_V7A_FLAGS := -march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3-d16
 TOOLCHAIN_ARM_V7A_LINK := -march=armv7-a -Wl,--fix-cortex-a8
 TOOLCHAIN_ARM_V7A_PLATFORM_HEADERS :=  $(shell pwd)/$(TOOLCHAIN_ARM_V7A)/sysroot/usr/include
 TOOLCHAIN_ARM_V7A_PLATFORM_LIBS := $(shell pwd)/$(TOOLCHAIN_ARM_V7A)/sysroot/usr/lib
 # arm-v7a-hard
-TOOLCHAIN_ARM_V7A_HARD_PLATFORM := $(TARGET_ARM_V7A_HARD_NDK_API)
+TOOLCHAIN_ARM_V7A_HARD_API := $(TARGET_ARM_V7A_HARD_NDK_API)
 TOOLCHAIN_ARM_V7A_HARD_PREFIX := arm-linux-androideabi
 TOOLCHAIN_ARM_V7A_HARD_FLAGS := -march=armv7-a -mfpu=vfpv3-d16 -mhard-float -mfloat-abi=hard -D_NDK_MATH_NO_SOFTFP=1
 TOOLCHAIN_ARM_V7A_HARD_LINK := -march=armv7-a -Wl,--fix-cortex-a8 -Wl,--no-warn-mismatch -lm_hard
 TOOLCHAIN_ARM_V7A_HARD_PLATFORM_HEADERS :=  $(shell pwd)/$(TOOLCHAIN_ARM_V7A_HARD)/sysroot/usr/include
 TOOLCHAIN_ARM_V7A_HARD_PLATFORM_LIBS := $(shell pwd)/$(TOOLCHAIN_ARM_V7A_HARD)/sysroot/usr/lib
 # arm64-v8a
-TOOLCHAIN_ARM64_V8A_PLATFORM := $(TARGET_ARM64_V8A_NDK_API)
+TOOLCHAIN_ARM64_V8A_API := $(TARGET_ARM64_V8A_NDK_API)
 TOOLCHAIN_ARM64_V8A_PREFIX := aarch64-linux-android
 TOOLCHAIN_ARM64_V8A_FLAGS :=
 TOOLCHAIN_ARM64_V8A_LINK :=
 TOOLCHAIN_ARM64_V8A_PLATFORM_HEADERS := $(shell pwd)/$(TOOLCHAIN_ARM64_V8A)/sysroot/usr/include
 TOOLCHAIN_ARM64_V8A_PLATFORM_LIBS := $(shell pwd)/$(TOOLCHAIN_ARM64_V8A)/sysroot/usr/lib
 # mips
-TOOLCHAIN_MIPS_PLATFORM := $(TARGET_MIPS_NDK_API)
+TOOLCHAIN_MIPS_API := $(TARGET_MIPS_NDK_API)
 TOOLCHAIN_MIPS_PREFIX := mipsel-linux-android
 TOOLCHAIN_MIPS_FLAGS :=
 TOOLCHAIN_MIPS_LINK :=
 TOOLCHAIN_MIPS_PLATFORM_HEADERS := $(shell pwd)/$(TOOLCHAIN_MIPS)/sysroot/usr/include
 TOOLCHAIN_MIPS_PLATFORM_LIBS := $(shell pwd)/$(TOOLCHAIN_MIPS)/sysroot/usr/lib
 # mips64
-TOOLCHAIN_MIPS64_PLATFORM := $(TARGET_MIPS64_NDK_API)
+TOOLCHAIN_MIPS64_API := $(TARGET_MIPS64_NDK_API)
 TOOLCHAIN_MIPS64_PREFIX := mips64el-linux-android
 TOOLCHAIN_MIPS64_FLAGS :=
 TOOLCHAIN_MIPS64_LINK :=
@@ -703,52 +706,116 @@ toolchain-mips: $(TOOLCHAIN_MIPS)
 toolchain-mips64: $(TOOLCHAIN_MIPS64)
 
 $(TOOLCHAIN_X86):
+ifneq ($(TOOLCHAIN_STL),)
 	$(NDK_MAKE_TOOLCHAIN) \
-	  --platform=$(TOOLCHAIN_X86_PLATFORM) \
-	  --toolchain=$(TOOLCHAIN_X86_ARCH)-$(TOOLCHAIN_GCC_VERSION) \
-	  --install-dir=$(shell pwd)/$(TOOLCHAIN_X86)
+	  --stl $(TOOLCHAIN_STL) \
+	  --api $(TOOLCHAIN_X86_API) \
+	  --arch x86 \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_X86)
+else
+	$(NDK_MAKE_TOOLCHAIN) \
+	  --api $(TOOLCHAIN_X86_API) \
+	  --arch x86 \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_X86)
+endif
 
 $(TOOLCHAIN_X86_64):
+ifneq ($(TOOLCHAIN_STL),)
 	$(NDK_MAKE_TOOLCHAIN) \
-	  --platform=$(TOOLCHAIN_X86_64_PLATFORM) \
-	  --toolchain=$(TOOLCHAIN_X86_64_ARCH)-$(TOOLCHAIN_GCC_VERSION) \
-	  --install-dir=$(shell pwd)/$(TOOLCHAIN_X86_64)
+	  --stl $(TOOLCHAIN_STL) \
+	  --api $(TOOLCHAIN_X86_64_API) \
+	  --arch x86_64 \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_X86_64)
+else
+	$(NDK_MAKE_TOOLCHAIN) \
+	  --api $(TOOLCHAIN_X86_64_API) \
+	  --arch x86_64 \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_X86_64)
+endif
 
 $(TOOLCHAIN_ARM):
+ifneq ($(TOOLCHAIN_STL),)
 	$(NDK_MAKE_TOOLCHAIN) \
-	  --platform=$(TOOLCHAIN_ARM_PLATFORM) \
-	  --toolchain=$(TOOLCHAIN_ARM_ARCH)-$(TOOLCHAIN_GCC_VERSION) \
-	  --install-dir=$(shell pwd)/$(TOOLCHAIN_ARM)
+	  --stl $(TOOLCHAIN_STL) \
+	  --api $(TOOLCHAIN_ARM_API) \
+	  --arch arm \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_ARM)
+else
+	$(NDK_MAKE_TOOLCHAIN) \
+	  --api $(TOOLCHAIN_ARM_API) \
+	  --arch arm \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_ARM)
+endif
 
 $(TOOLCHAIN_ARM_V7A):
+ifneq ($(TOOLCHAIN_STL),)
 	$(NDK_MAKE_TOOLCHAIN) \
-	  --platform=$(TOOLCHAIN_ARM_V7A_PLATFORM) \
-	  --toolchain=$(TOOLCHAIN_ARM_V7A_ARCH)-$(TOOLCHAIN_GCC_VERSION) \
-	  --install-dir=$(shell pwd)/$(TOOLCHAIN_ARM_V7A)
+	  --stl $(TOOLCHAIN_STL) \
+	  --api $(TOOLCHAIN_ARM_V7A_API) \
+	  --arch arm \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_ARM_V7A)
+else
+	$(NDK_MAKE_TOOLCHAIN) \
+	  --api $(TOOLCHAIN_ARM_V7A_API) \
+	  --arch arm \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_ARM_V7A)
+endif
 
 $(TOOLCHAIN_ARM_V7A_HARD):
+ifneq ($(TOOLCHAIN_STL),)
 	$(NDK_MAKE_TOOLCHAIN) \
-	  --platform=$(TOOLCHAIN_ARM_V7A_HARD_PLATFORM) \
-	  --toolchain=$(TOOLCHAIN_ARM_V7A_HARD_ARCH)-$(TOOLCHAIN_GCC_VERSION) \
-	  --install-dir=$(shell pwd)/$(TOOLCHAIN_ARM_V7A_HARD)
+	  --stl $(TOOLCHAIN_STL) \
+	  --api $(TOOLCHAIN_ARM_V7A_HARD_API) \
+	  --arch arm \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_ARM_V7A_HARD)
+else
+	$(NDK_MAKE_TOOLCHAIN) \
+	  --api $(TOOLCHAIN_ARM_V7A_HARD_API) \
+	  --arch arm \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_ARM_V7A_HARD)
+endif
 
 $(TOOLCHAIN_ARM64_V8A):
+ifneq ($(TOOLCHAIN_STL),)
 	$(NDK_MAKE_TOOLCHAIN) \
-	  --platform=$(TOOLCHAIN_ARM64_V8A_PLATFORM) \
-	  --toolchain=$(TOOLCHAIN_ARM64_V8A_ARCH)-$(TOOLCHAIN_GCC_VERSION) \
-	  --install-dir=$(shell pwd)/$(TOOLCHAIN_ARM64_V8A)
+	  --stl $(TOOLCHAIN_STL) \
+	  --api $(TOOLCHAIN_ARM64_V8A_API) \
+	  --arch arm64 \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_ARM64_V8A)
+else
+	$(NDK_MAKE_TOOLCHAIN) \
+	  --api $(TOOLCHAIN_ARM64_V8A_API) \
+	  --arch arm64 \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_ARM64_V8A)
+endif
 
 $(TOOLCHAIN_MIPS):
+ifneq ($(TOOLCHAIN_STL),)
 	$(NDK_MAKE_TOOLCHAIN) \
-	  --platform=$(TOOLCHAIN_MIPS_PLATFORM) \
-	  --toolchain=$(TOOLCHAIN_MIPS_ARCH)-$(TOOLCHAIN_GCC_VERSION) \
-	  --install-dir=$(shell pwd)/$(TOOLCHAIN_MIPS)
+	  --stl $(TOOLCHAIN_STL) \
+	  --api $(TOOLCHAIN_MIPS_API) \
+	  --arch mips \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_MIPS)
+else
+	$(NDK_MAKE_TOOLCHAIN) \
+	  --api $(TOOLCHAIN_MIPS_API) \
+	  --arch mips \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_MIPS)
+endif
 
 $(TOOLCHAIN_MIPS64):
+ifneq ($(TOOLCHAIN_STL),)
 	$(NDK_MAKE_TOOLCHAIN) \
-	  --platform=$(TOOLCHAIN_MIPS64_PLATFORM) \
-	  --toolchain=$(TOOLCHAIN_MIPS64_ARCH)-$(TOOLCHAIN_GCC_VERSION) \
-	  --install-dir=$(shell pwd)/$(TOOLCHAIN_MIPS64)
+	  --stl $(TOOLCHAIN_STL) \
+	  --api $(TOOLCHAIN_MIPS64_API) \
+	  --arch mips64 \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_MIPS64)
+else
+	$(NDK_MAKE_TOOLCHAIN) \
+	  --api $(TOOLCHAIN_MIPS64_API) \
+	  --arch mips64 \
+	  --install-dir $(shell pwd)/$(TOOLCHAIN_MIPS64)
+endif
 
 #
 # Rules to build zlib
