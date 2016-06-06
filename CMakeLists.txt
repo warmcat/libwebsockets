@@ -826,7 +826,6 @@ if (LWS_WITH_SSL)
 
 		include_directories("${OPENSSL_INCLUDE_DIRS}")
 		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
-	endif()
 
 	# older (0.98) Openssl lacks this
 	set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIRS})
@@ -834,6 +833,7 @@ if (LWS_WITH_SSL)
 
 	if (LWS_SSL_SERVER_WITH_ECDH_CERT AND NOT LWS_HAVE_OPENSSL_ECDH_H)
 		message(FATAL_ERROR "Missing openssl/ecdh.h, so cannot use LWS_SSL_SERVER_WITH_ECDH_CERT")
+	endif()
 	endif()
 
 endif(LWS_WITH_SSL)
