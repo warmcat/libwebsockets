@@ -278,7 +278,6 @@ lws_ssl_client_connect2(struct lws *wsi)
 			lwsl_err("server's cert didn't look good, X509_V_ERR = %d: %s\n",
 				 n, ERR_error_string(n, sb));
 			lws_ssl_elaborate_error();
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			return -1;
 		}
 	}
