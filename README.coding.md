@@ -36,6 +36,19 @@ with the socket closing and the `wsi` freed.
 Websocket write activities should only take place in the
 `LWS_CALLBACK_SERVER_WRITEABLE` callback as described below.
 
+[This network-programming necessity to link the issue of new data to
+the peer taking the previous data is not obvious to all users so let's
+repeat that in other words:
+
+***ONLY DO LWS_WRITE FROM THE WRITEABLE CALLBACK***
+
+There is another network-programming truism that surprises some people which
+is if the sink for the data cannot accept more:
+
+***YOU MUST PERFORM RX FLOW CONTROL***
+
+See the mirror protocol implementations for example code.
+
 Only live connections appear in the user callbacks, so this removes any
 possibility of trying to used closed and freed wsis.
 

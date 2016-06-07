@@ -109,7 +109,9 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	if (wsi->trunc_len && (buf < wsi->trunc_alloc ||
 	    buf > (wsi->trunc_alloc + wsi->trunc_len +
 		   wsi->trunc_offset))) {
-		lwsl_err("****** %x Sending new, pending truncated ...\n", wsi);
+		lwsl_err("****** %p: Sending new, pending truncated ...\n"
+			 "       It's illegal to do an lws_write outside of\n"
+			 "       the writable callback: fix your code", wsi);
 		assert(0);
 
 		return -1;
