@@ -99,6 +99,7 @@ option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OF
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
 option(LWS_WITH_LEJP "With the Lightweight JSON Parser" OFF)
 option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" OFF)
+option(LWS_WITH_SMTP "Provide SMTP support" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -112,6 +113,11 @@ endif()
 
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
 message(STATUS "LWS_WITH_PLUGINS --> Enabling LWS_WITH_LIBUV")
+ set(LWS_WITH_LIBUV 1)
+endif()
+
+if (LWS_WITH_SMTP AND NOT LWS_WITH_LIBUV)
+message(STATUS "LWS_WITH_SMTP --> Enabling LWS_WITH_LIBUV")
  set(LWS_WITH_LIBUV 1)
 endif()
 
@@ -590,6 +596,11 @@ if (LWS_WITH_LEJP_CONF)
 		list(APPEND SOURCES
 			"lib/lejp-conf.c"
 		)
+endif()
+
+if (LWS_WITH_SMTP)
+	list(APPEND SOURCES
+		lib/smtp.c)
 endif()
 
 # Add helper files for Windows.
@@ -1514,6 +1525,7 @@ message(" LWS_WITH_ACCESS_LOG = ${LWS_WITH_ACCESS_LOG}")
 message(" LWS_WITH_SERVER_STATUS = ${LWS_WITH_SERVER_STATUS}")
 message(" LWS_WITH_LEJP = ${LWS_WITH_LEJP}")
 message(" LWS_WITH_LEJP_CONF = ${LWS_WITH_LEJP_CONF}")
+message(" LWS_WITH_SMTP = ${LWS_WITH_SMTP}")
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()

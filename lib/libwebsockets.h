@@ -2284,6 +2284,68 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 LWS_VISIBLE LWS_EXTERN void
 lws_set_allocator(void *(*realloc)(void *ptr, size_t size));
 
+/* lws_email */
+#ifdef LWS_WITH_SMTP
+enum lwsgs_smtp_states {
+	LGSSMTP_IDLE,
+	LGSSMTP_CONNECTING,
+	LGSSMTP_CONNECTED,
+	LGSSMTP_SENT_HELO,
+	LGSSMTP_SENT_FROM,
+	LGSSMTP_SENT_TO,
+	LGSSMTP_SENT_DATA,
+	LGSSMTP_SENT_BODY,
+	LGSSMTP_SENT_QUIT,
+};
+
+/*
+ * struct lws_email - abstract context for performing SMTP operations
+ *
+ * @data: opaque pointer set by user code and available to the callbacks
+ * @email_smtp_ip: IP address to access for SMTP server (usually 127.0.0.1)
+ * @email_helo: Server name to use when greeting SMTP server
+ * @on_next: called when idle, 0 = another email to send, nonzero is idle.
+ *		If you return 0, all of the email_* char arrays must be set
+ *		to something useful.
+ * @on_sent: called when transfer of the email to the SMTP server was
+ *		successful, your callback would remove the current email
+ *		from its queue
+ * @on_get_body: called when the body part of the queued email is about to be
+ *		sent to the SMTP server.
+ */
+struct lws_email {
+	uv_timer_t timeout_email;
+	enum lwsgs_smtp_states estate;
+	uv_connect_t email_connect_req;
+	uv_tcp_t email_client;
+	time_t email_connect_started;
+	char email_buf[256];
+	char *content;
+	void *data;		/* Fill before init, useful in callbacks */
+	uv_loop_t *loop;
+
+	char email_smtp_ip[32]; /* Fill before init, eg, "127.0.0.1" */
+	char email_helo[32];	/* Fill before init, eg, "myserver.com" */
+	char email_from[100];	/* Fill before init or @on_next */
+	char email_to[100];	/* Fill before init or @on_next */
+
+	unsigned int max_content_size;
+
+	/* Fill all the callbacks before init */
+
+	int (*on_next)(struct lws_email *email);
+	int (*on_sent)(struct lws_email *email);
+	int (*on_get_body)(struct lws_email *email, char *buf, int len);
+};
+
+LWS_VISIBLE LWS_EXTERN int
+lws_email_init(struct lws_email *email, uv_loop_t *loop, int max_content);
+LWS_VISIBLE LWS_EXTERN void
+lws_email_check(struct lws_email *email);
+LWS_VISIBLE LWS_EXTERN void
+lws_email_destroy(struct lws_email *email);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
