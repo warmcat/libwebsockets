@@ -475,6 +475,7 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_RECEIVE_CLIENT_HTTP			= 46,
 	LWS_CALLBACK_COMPLETED_CLIENT_HTTP			= 47,
 	LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ			= 48,
+	LWS_CALLBACK_HTTP_DROP_PROTOCOL				= 49,
 
 	/****** add new things just above ---^ ******/
 
@@ -1778,6 +1779,69 @@ LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_status(struct lws *wsi,
 			   unsigned int code, unsigned char **p,
 			   unsigned char *end);
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_urlencode(char *escaped, const char *string, int len);
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_sql_purify(char *escaped, const char *string, int len);
+
+
+
+/*
+ * URLDECODE 1 / 2
+ *
+ * This simple urldecode only operates until the first '\0' and requires the
+ * data to exist all at once
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_urldecode(char *string, const char *escaped, int len);
+
+
+/*
+ * URLDECODE 2 / 2
+ *
+ * These apis let you manage a form data parser that is capable of handling
+ * both urlencoded POST bodies and multipart ones (including file upload)
+ *
+ * Since it's stateful, and the decoded area is malloc'd, this is robust
+ * enough to handle the form data coming in multiple POST_BODY packets without
+ * having to get into any special code.
+ */
+
+enum lws_spa_fileupload_states {
+	LWS_UFS_CONTENT,
+	LWS_UFS_FINAL_CONTENT,
+	LWS_UFS_OPEN
+};
+
+typedef int (*lws_spa_fileupload_cb)(void *data, const char *name,
+			const char *filename, char *buf, int len,
+			enum lws_spa_fileupload_states state);
+
+struct lws_spa;
+
+LWS_VISIBLE LWS_EXTERN struct lws_spa *
+lws_spa_create(struct lws *wsi, const char * const *param_names,
+	       int count_params, int max_storage, lws_spa_fileupload_cb opt_cb,
+	       void *opt_data);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_spa_process(struct lws_spa *ludspa, const char *in, int len);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_spa_finalize(struct lws_spa *ludspa);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_spa_get_length(struct lws_spa *ludspa, int n);
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_spa_get_string(struct lws_spa *ludspa, int n);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_spa_destroy(struct lws_spa *ludspa);
+
 
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,

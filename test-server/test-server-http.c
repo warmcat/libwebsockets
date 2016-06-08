@@ -121,6 +121,60 @@ const char * get_mimetype(const char *file)
 	return NULL;
 }
 
+
+static const char * const param_names[] = {
+	"text",
+	"send",
+	"file",
+	"upload",
+};
+
+enum enum_param_names {
+	EPN_TEXT,
+	EPN_SEND,
+	EPN_FILE,
+	EPN_UPLOAD,
+};
+
+static int
+file_upload_cb(void *data, const char *name, const char *filename,
+	       char *buf, int len, enum lws_spa_fileupload_states state)
+{
+	struct per_session_data__http *pss =
+			(struct per_session_data__http *)data;
+	int n;
+
+	switch (state) {
+	case LWS_UFS_OPEN:
+		strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
+		/* we get the original filename in @filename arg, but for
+		 * simple demo use a fixed name so we don't have to deal with
+		 * attacks  */
+		pss->post_fd = open("/tmp/post-file",
+			       O_CREAT | O_TRUNC | O_RDWR, 0600);
+		break;
+	case LWS_UFS_FINAL_CONTENT:
+	case LWS_UFS_CONTENT:
+		if (len) {
+			pss->file_length += len;
+
+			/* if the file length is too big, drop it */
+			if (pss->file_length > 100000)
+				return 1;
+
+			n = write(pss->post_fd, buf, len);
+			lwsl_notice("%s: write %d says %d\n", __func__, len, n);
+		}
+		if (state == LWS_UFS_CONTENT)
+			break;
+		close(pss->post_fd);
+		pss->post_fd = LWS_INVALID_FILE;
+		break;
+	}
+
+	return 0;
+}
+
 /* this protocol server (always the first one) handles HTTP,
  *
  * Some misc callbacks that aren't associated with a protocol also turn up only
@@ -225,39 +279,6 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			goto try_to_reuse;
 		}
 #endif
-
-		if (!strncmp(in, "/postresults", 12)) {
-			m = sprintf(buf, "<html><body>Form results: '%s'<br>"
-					"</body></html>", pss->post_string);
-
-			p = buffer + LWS_PRE;
-			start = p;
-			end = p + sizeof(buffer) - LWS_PRE;
-
-			if (lws_add_http_header_status(wsi, 200, &p, end))
-				return 1;
-			if (lws_add_http_header_by_token(wsi,
-					WSI_TOKEN_HTTP_CONTENT_TYPE,
-				    	(unsigned char *)"text/html",
-					9, &p, end))
-				return 1;
-			if (lws_add_http_header_content_length(wsi, m, &p,
-							       end))
-				return 1;
-			if (lws_finalize_http_header(wsi, &p, end))
-				return 1;
-
-			n = lws_write(wsi, start, p - start,
-				      LWS_WRITE_HTTP_HEADERS);
-			if (n < 0)
-				return 1;
-
-			n = lws_write(wsi, (unsigned char *)buf, m, LWS_WRITE_HTTP);
-			if (n < 0)
-				return 1;
-
-			goto try_to_reuse;
-		}
 
 		/* if a legal POST URL, let it continue and accept data */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
@@ -404,27 +425,76 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY:
-		lwsl_notice("LWS_CALLBACK_HTTP_BODY: len %d\n", (int)len);
-		strncpy(pss->post_string, in, sizeof (pss->post_string) -1);
-		pss->post_string[sizeof(pss->post_string) - 1] = '\0';
-		if (len < sizeof(pss->post_string) - 1)
-			pss->post_string[len] = '\0';
+		/* create the POST argument parser if not already existing */
+		if (!pss->spa) {
+			pss->spa = lws_spa_create(wsi, param_names,
+					ARRAY_SIZE(param_names), 1024,
+					file_upload_cb, pss);
+			if (!pss->spa)
+				return -1;
+
+			pss->filename[0] = '\0';
+			pss->file_length = 0;
+		}
+
+		/* let it parse the POST data */
+		if (lws_spa_process(pss->spa, in, len))
+			return -1;
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
-		lwsl_notice("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
+		lwsl_debug("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
 		/*
 		 * the whole of the sent body arrived,
 		 * respond to the client with a redirect to show the
 		 * results
 		 */
-		p = (unsigned char *)buf + LWS_PRE;
-		n = lws_http_redirect(wsi,
-				      HTTP_STATUS_SEE_OTHER, /* 303 */
-				      (unsigned char *)"/postresults", 12, /* location + len */
-				      &p, /* temp buffer to use */
-				      p + sizeof(buf) - 1 - LWS_PRE /* buffer len */
-			);
+
+		/* call to inform no more payload data coming */
+		lws_spa_finalize(pss->spa);
+
+		p = (unsigned char *)pss->result + LWS_PRE;
+		end = p + sizeof(pss->result) - LWS_PRE - 1;
+		p += sprintf((char *)p,
+			"<html><body><h1>Form results (after urldecoding)</h1>"
+			"<table><tr><td>Name</td><td>Length</td><td>Value</td></tr>");
+
+		for (n = 0; n < ARRAY_SIZE(param_names); n++)
+			p += snprintf((char *)p, end - p,
+				    "<tr><td><b>%s</b></td><td>%d</td><td>%s</td></tr>",
+				    param_names[n],
+				    lws_spa_get_length(pss->spa, n),
+				    lws_spa_get_string(pss->spa, n));
+
+		p += snprintf((char *)p, end - p, "</table><br><b>filename:</b> %s, <b>length</b> %ld",
+				pss->filename, pss->file_length);
+
+		p += snprintf((char *)p, end - p, "</body></html>");
+		pss->result_len = p - (unsigned char *)(pss->result + LWS_PRE);
+
+		p = buffer + LWS_PRE;
+		start = p;
+		end = p + sizeof(buffer) - LWS_PRE;
+
+		if (lws_add_http_header_status(wsi, 200, &p, end))
+			return 1;
+
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+				(unsigned char *)"text/html", 9, &p, end))
+			return 1;
+		if (lws_add_http_header_content_length(wsi, pss->result_len, &p, end))
+			return 1;
+		if (lws_finalize_http_header(wsi, &p, end))
+			return 1;
+
+		n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+		if (n < 0)
+			return 1;
+
+		n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,
+			      pss->result_len, LWS_WRITE_HTTP);
+		if (n < 0)
+			return 1;
 		goto try_to_reuse;
 
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:

@@ -25,10 +25,67 @@
 #include <string.h>
 
 struct per_session_data__post_demo {
-	char post_string[256];
-	char result[500 + LWS_PRE];
+	struct lws_spa *spa;
+	char result[LWS_PRE + 500];
 	int result_len;
+
+	char filename[256];
+	long file_length;
+	int fd;
 };
+
+static const char * const param_names[] = {
+	"text",
+	"send",
+	"file",
+	"upload",
+};
+
+enum enum_param_names {
+	EPN_TEXT,
+	EPN_SEND,
+	EPN_FILE,
+	EPN_UPLOAD,
+};
+
+static int
+file_upload_cb(void *data, const char *name, const char *filename,
+	       char *buf, int len, enum lws_spa_fileupload_states state)
+{
+	struct per_session_data__post_demo *pss =
+			(struct per_session_data__post_demo *)data;
+	int n;
+
+	switch (state) {
+	case LWS_UFS_OPEN:
+		strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
+		/* we get the original filename in @filename arg, but for
+		 * simple demo use a fixed name so we don't have to deal with
+		 * attacks  */
+		pss->fd = open("/tmp/post-file",
+			       O_CREAT | O_TRUNC | O_RDWR, 0600);
+		break;
+	case LWS_UFS_FINAL_CONTENT:
+	case LWS_UFS_CONTENT:
+		if (len) {
+			pss->file_length += len;
+
+			/* if the file length is too big, drop it */
+			if (pss->file_length > 100000)
+				return 1;
+
+			n = write(pss->fd, buf, len);
+			lwsl_notice("%s: write %d says %d\n", __func__, len, n);
+		}
+		if (state == LWS_UFS_CONTENT)
+			break;
+		close(pss->fd);
+		pss->fd = LWS_INVALID_FILE;
+		break;
+	}
+
+	return 0;
+}
 
 static int
 callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
@@ -41,34 +98,47 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 	int n;
 
 	switch (reason) {
-
 	case LWS_CALLBACK_HTTP_BODY:
-		lwsl_debug("LWS_CALLBACK_HTTP_BODY: len %d\n", (int)len);
-		strncpy(pss->post_string, in, sizeof (pss->post_string) -1);
-		pss->post_string[sizeof(pss->post_string) - 1] = '\0';
+		/* create the POST argument parser if not already existing */
+		if (!pss->spa) {
+			pss->spa = lws_spa_create(wsi, param_names,
+					ARRAY_SIZE(param_names), 1024,
+					file_upload_cb, pss);
+			if (!pss->spa)
+				return -1;
 
-		if (len < sizeof(pss->post_string) - 1)
-			pss->post_string[len] = '\0';
+			pss->filename[0] = '\0';
+			pss->file_length = 0;
+		}
+
+		/* let it parse the POST data */
+		if (lws_spa_process(pss->spa, in, len))
+			return -1;
 		break;
-
-	case LWS_CALLBACK_HTTP_WRITEABLE:
-		lwsl_debug("LWS_CALLBACK_HTTP_WRITEABLE: sending %d\n", pss->result_len);
-		n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,
-			      pss->result_len, LWS_WRITE_HTTP);
-		if (n < 0)
-			return 1;
-		goto try_to_reuse;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		lwsl_debug("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
-		/*
-		 * the whole of the sent body arrived,
-		 * respond to the client with a redirect to show the
-		 * results
-		 */
-		pss->result_len = sprintf((char *)pss->result + LWS_PRE,
-			    "<html><body><h1>Form results</h1>'%s'<br>"
-			    "</body></html>", pss->post_string);
+		/* call to inform no more payload data coming */
+		lws_spa_finalize(pss->spa);
+
+		p = (unsigned char *)pss->result + LWS_PRE;
+		end = p + sizeof(pss->result) - LWS_PRE - 1;
+		p += sprintf((char *)p,
+			"<html><body><h1>Form results (after urldecoding)</h1>"
+			"<table><tr><td>Name</td><td>Length</td><td>Value</td></tr>");
+
+		for (n = 0; n < ARRAY_SIZE(param_names); n++)
+			p += snprintf((char *)p, end - p,
+				    "<tr><td><b>%s</b></td><td>%d</td><td>%s</td></tr>",
+				    param_names[n],
+				    lws_spa_get_length(pss->spa, n),
+				    lws_spa_get_string(pss->spa, n));
+
+		p += snprintf((char *)p, end - p, "</table><br><b>filename:</b> %s, <b>length</b> %ld",
+				pss->filename, pss->file_length);
+
+		p += snprintf((char *)p, end - p, "</body></html>");
+		pss->result_len = p - (unsigned char *)(pss->result + LWS_PRE);
 
 		p = buffer + LWS_PRE;
 		start = p;
@@ -89,11 +159,24 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		if (n < 0)
 			return 1;
 
-		/*
-		 *  send the payload next time, in case would block after
-		 * headers
-		 */
 		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+		lwsl_debug("LWS_CALLBACK_HTTP_WRITEABLE: sending %d\n",
+			   pss->result_len);
+		n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,
+			      pss->result_len, LWS_WRITE_HTTP);
+		if (n < 0)
+			return 1;
+		goto try_to_reuse;
+
+	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
+		/* called when our wsi user_space is going to be destroyed */
+		if (pss->spa) {
+			lws_spa_destroy(pss->spa);
+			pss->spa = NULL;
+		}
 		break;
 
 	default:

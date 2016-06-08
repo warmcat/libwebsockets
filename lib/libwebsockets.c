@@ -208,7 +208,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	    wsi->u.http.fd != LWS_INVALID_FILE) {
 		lws_plat_file_close(wsi, wsi->u.http.fd);
 		wsi->u.http.fd = LWS_INVALID_FILE;
-		wsi->vhost->protocols[0].callback(wsi,
+		wsi->vhost->protocols->callback(wsi,
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
 	}
 	if (wsi->socket_is_permanently_unusable ||
@@ -247,9 +247,14 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	    wsi->mode == LWSCM_WSCL_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
 
-	if (wsi->mode == LWSCM_HTTP_SERVING)
-		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
+	if (wsi->mode == LWSCM_HTTP_SERVING) {
+		if (wsi->user_space)
+			wsi->vhost->protocols->callback(wsi,
+						LWS_CALLBACK_HTTP_DROP_PROTOCOL,
 					       wsi->user_space, NULL, 0);
+		wsi->vhost->protocols->callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
+					       wsi->user_space, NULL, 0);
+	}
 	if (wsi->mode == LWSCM_HTTP_CLIENT)
 		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_CLIENT_HTTP,
 					       wsi->user_space, NULL, 0);
@@ -483,7 +488,7 @@ just_kill_connection:
 					wsi->user_space, NULL, 0);
 	} else if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED) {
 		lwsl_debug("calling back CLOSED_HTTP\n");
-		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
+		wsi->vhost->protocols->callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0 );
 	} else if (wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
 		   wsi->mode == LWSCM_WSCL_WAITING_CONNECT) {
@@ -1688,10 +1693,11 @@ lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
 	return port;
 }
 
-LWS_VISIBLE LWS_EXTERN int
-lws_urlencode(const char *in, int inlen, char *out, int outlen)
+static const char *hex = "0123456789ABCDEF";
+
+static int
+urlencode(const char *in, int inlen, char *out, int outlen)
 {
-	const char *hex = "0123456789ABCDEF";
 	char *start = out, *end = out + outlen;
 
 	while (inlen-- && out < end - 4) {
@@ -1701,13 +1707,18 @@ lws_urlencode(const char *in, int inlen, char *out, int outlen)
 		    *in == '-' ||
 		    *in == '_' ||
 		    *in == '.' ||
-		    *in == '~')
+		    *in == '~') {
 			*out++ = *in++;
-		else {
-			*out++ = '%';
-			*out++ = hex[(*in) >> 4];
-			*out++ = hex[(*in++) & 15];
+			continue;
 		}
+		if (*in == ' ') {
+			*out++ = '+';
+			in++;
+			continue;
+		}
+		*out++ = '%';
+		*out++ = hex[(*in) >> 4];
+		*out++ = hex[(*in++) & 15];
 	}
 	*out = '\0';
 
@@ -1715,6 +1726,140 @@ lws_urlencode(const char *in, int inlen, char *out, int outlen)
 		return -1;
 
 	return out - start;
+}
+
+/**
+ * lws_sql_purify() - like strncpy but with escaping for sql quotes
+ *
+ * @escaped: output buffer
+ * @string: input buffer ('/0' terminated)
+ * @len: output buffer max length
+ *
+ * Because escaping expands the output string, it's not
+ * possible to do it in-place, ie, with escaped == string
+ */
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_sql_purify(char *escaped, const char *string, int len)
+{
+	const char *p = string;
+	char *q = escaped;
+
+	while (*p && len-- > 2) {
+		if (*p == '\'') {
+			*q++ = '\\';
+			*q++ = '\'';
+			len --;
+			p++;
+		} else
+			*q++ = *p++;
+	}
+	*q = '\0';
+
+	return escaped;
+}
+
+/**
+ * lws_urlencode() - like strncpy but with urlencoding
+ *
+ * @escaped: output buffer
+ * @string: input buffer ('/0' terminated)
+ * @len: output buffer max length
+ *
+ * Because urlencoding expands the output string, it's not
+ * possible to do it in-place, ie, with escaped == string
+ */
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_urlencode(char *escaped, const char *string, int len)
+{
+	const char *p = string;
+	char *q = escaped;
+
+	while (*p && len-- > 3) {
+		if (*p == ' ') {
+			*q++ = '+';
+			p++;
+			continue;
+		}
+		if ((*p >= '0' && *p <= '9') ||
+		    (*p >= 'A' && *p <= 'Z') ||
+		    (*p >= 'a' && *p <= 'z')) {
+			*q++ = *p++;
+			continue;
+		}
+		*q++ = '%';
+		*q++ = hex[(*p >> 4) & 0xf];
+		*q++ = hex[*p & 0xf];
+
+		len -= 2;
+		p++;
+	}
+	*q = '\0';
+
+	return escaped;
+}
+
+/**
+ * lws_urldecode() - like strncpy but with urldecoding
+ *
+ * @string: output buffer
+ * @escaped: input buffer ('\0' terminated)
+ * @len: output buffer max length
+ *
+ * This is only useful for '\0' terminated strings
+ *
+ * Since urldecoding only shrinks the output string, it is possible to
+ * do it in-place, ie, string == escaped
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_urldecode(char *string, const char *escaped, int len)
+{
+	int state = 0, n;
+	char sum = 0;
+
+	while (*escaped && len) {
+		switch (state) {
+		case 0:
+			if (*escaped == '%') {
+				state++;
+				escaped++;
+				continue;
+			}
+			if (*escaped == '+') {
+				escaped++;
+				*string++ = ' ';
+				len--;
+				continue;
+			}
+			*string++ = *escaped++;
+			len--;
+			break;
+		case 1:
+			n = char_to_hex(*escaped);
+			if (n < 0)
+				return -1;
+			escaped++;
+			sum = n << 4;
+			state++;
+			break;
+
+		case 2:
+			n = char_to_hex(*escaped);
+			if (n < 0)
+				return -1;
+			escaped++;
+			*string++ = sum | n;
+			len--;
+			state = 0;
+			break;
+		}
+
+	}
+	*string = '\0';
+
+	return 0;
 }
 
 LWS_VISIBLE LWS_EXTERN int
@@ -1902,7 +2047,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 				*p++ = *t++;
 			if (*t == '=')
 				*p++ = *t++;
-			i = lws_urlencode(t, i- (t - tok), p, end - p);
+			i = urlencode(t, i- (t - tok), p, end - p);
 			if (i > 0) {
 				p += i;
 				*p++ = '&';

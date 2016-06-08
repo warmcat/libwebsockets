@@ -412,6 +412,30 @@ unused.
 You will not need this unless you are doing something special
 </blockquote>
 <hr>
+<h2>lws_get_urlarg_by_name - return pointer to arg value if present</h2>
+<i>LWS_EXTERN const char *</i>
+<b>lws_get_urlarg_by_name</b>
+(<i>struct lws *</i> <b>wsi</b>,
+<i>const char *</i> <b>name</b>,
+<i>char *</i> <b>buf</b>,
+<i>int</i> <b>len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>the connection to check
+<dt><b>name</b>
+<dd>the arg name, like "token="
+<dt><b>buf</b>
+<dd>the buffer to receive the urlarg (including the name= part)
+<dt><b>len</b>
+<dd>the length of the buffer to receive the urlarg
+</dl>
+<h3>Description</h3>
+<blockquote>
+Returns NULL if not found or a pointer inside <tt><b>buf</b></tt> to just after the
+name= part.
+</blockquote>
+<hr>
 <h2>lws_get_peer_simple - Get client address information without RDNS</h2>
 <i>const char *</i>
 <b>lws_get_peer_simple</b>
@@ -738,6 +762,164 @@ Otherwise users may have to declare context as a global variable.
 Notice it does so by dropping '\0' into input string
 and the leading / on the path is consequently lost
 </blockquote>
+<hr>
+<h2>lws_sql_purify - like strncpy but with escaping for sql quotes</h2>
+<i>LWS_EXTERN const char *</i>
+<b>lws_sql_purify</b>
+(<i>char *</i> <b>escaped</b>,
+<i>const char *</i> <b>string</b>,
+<i>int</i> <b>len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>escaped</b>
+<dd>output buffer
+<dt><b>string</b>
+<dd>input buffer ('/0' terminated)
+<dt><b>len</b>
+<dd>output buffer max length
+</dl>
+<h3>Description</h3>
+<blockquote>
+Because escaping expands the output string, it's not
+possible to do it in-place, ie, with escaped == string
+</blockquote>
+<hr>
+<h2>lws_urlencode - like strncpy but with urlencoding</h2>
+<i>LWS_EXTERN const char *</i>
+<b>lws_urlencode</b>
+(<i>char *</i> <b>escaped</b>,
+<i>const char *</i> <b>string</b>,
+<i>int</i> <b>len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>escaped</b>
+<dd>output buffer
+<dt><b>string</b>
+<dd>input buffer ('/0' terminated)
+<dt><b>len</b>
+<dd>output buffer max length
+</dl>
+<h3>Description</h3>
+<blockquote>
+Because urlencoding expands the output string, it's not
+possible to do it in-place, ie, with escaped == string
+</blockquote>
+<hr>
+<h2>lws_urldecode - like strncpy but with urldecoding</h2>
+<i>LWS_EXTERN int</i>
+<b>lws_urldecode</b>
+(<i>char *</i> <b>string</b>,
+<i>const char *</i> <b>escaped</b>,
+<i>int</i> <b>len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>string</b>
+<dd>output buffer
+<dt><b>escaped</b>
+<dd>input buffer ('\0' terminated)
+<dt><b>len</b>
+<dd>output buffer max length
+</dl>
+<h3>Description</h3>
+<blockquote>
+This is only useful for '\0' terminated strings
+<p>
+Since urldecoding only shrinks the output string, it is possible to
+do it in-place, ie, string == escaped
+</blockquote>
+<hr>
+<h2>lws_urldecode_spa_create - create urldecode parser</h2>
+<i>LWS_EXTERN struct lws_urldecode_stateful_param_array *</i>
+<b>lws_urldecode_spa_create</b>
+(<i>struct lws *</i> <b>wsi</b>,
+<i>const char *const *</i> <b>param_names</b>,
+<i>int</i> <b>count_params</b>,
+<i>int</i> <b>max_storage</b>,
+<i>lws_urldecode_fileupload_cb</i> <b>opt_cb</b>,
+<i>void *</i> <b>opt_data</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>wsi</b>
+<dd>lws connection (used to find Content Type)
+<dt><b>param_names</b>
+<dd>array of form parameter names, like "username"
+<dt><b>count_params</b>
+<dd>count of param_names
+<dt><b>max_storage</b>
+<dd>total amount of form parameter values we can store
+<dt><b>opt_cb</b>
+<dd>NULL, or callback to receive file upload data.
+<dt><b>opt_data</b>
+<dd>NULL, or user pointer provided to opt_cb.
+</dl>
+<h3>Description</h3>
+<blockquote>
+Creates a urldecode parser and initializes it.
+<p>
+<tt><b>opt_cb</b></tt> can be NULL if you just want normal name=value parsing, however
+if one or more entries in your form are bulk data (file transfer), you
+can provide this callback and filter on the name callback parameter to
+treat that urldecoded data separately.  The callback should return -1
+in case of fatal error, and 0 if OK.
+</blockquote>
+<hr>
+<h2>lws_urldecode_spa_process - parses a chunk of input data</h2>
+<i>LWS_EXTERN int</i>
+<b>lws_urldecode_spa_process</b>
+(<i>struct lws_urldecode_stateful_param_array *</i> <b>ludspa</b>,
+<i>const char *</i> <b>in</b>,
+<i>int</i> <b>len</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>ludspa</b>
+<dd>the parser object previously created
+<dt><b>in</b>
+<dd>incoming, urlencoded data
+<dt><b>len</b>
+<dd>count of bytes valid at <tt><b>in</b></tt>
+</dl>
+<hr>
+<h2>lws_urldecode_spa_get_length - return length of parameter value</h2>
+<i>LWS_EXTERN int</i>
+<b>lws_urldecode_spa_get_length</b>
+(<i>struct lws_urldecode_stateful_param_array *</i> <b>ludspa</b>,
+<i>int</i> <b>n</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>ludspa</b>
+<dd>the parser object previously created
+<dt><b>n</b>
+<dd>parameter ordinal to return length of value for
+</dl>
+<hr>
+<h2>lws_urldecode_spa_get_string - return pointer to parameter value</h2>
+<i>LWS_EXTERN const char *</i>
+<b>lws_urldecode_spa_get_string</b>
+(<i>struct lws_urldecode_stateful_param_array *</i> <b>ludspa</b>,
+<i>int</i> <b>n</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>ludspa</b>
+<dd>the parser object previously created
+<dt><b>n</b>
+<dd>parameter ordinal to return pointer to value for
+</dl>
+<hr>
+<h2>lws_urldecode_spa_finalize - indicate incoming data completed</h2>
+<i>LWS_EXTERN int</i>
+<b>lws_urldecode_spa_finalize</b>
+(<i>struct lws_urldecode_stateful_param_array *</i> <b>spa</b>)
+<h3>Arguments</h3>
+<dl>
+</dl>
+<hr>
+<h2>lws_urldecode_spa_destroy - destroy parser object</h2>
+<i>LWS_EXTERN int</i>
+<b>lws_urldecode_spa_destroy</b>
+(<i>struct lws_urldecode_stateful_param_array *</i> <b>spa</b>)
+<h3>Arguments</h3>
+<dl>
+</dl>
 <hr>
 <h2>lws_cgi - connected cgi process</h2>
 <i>LWS_EXTERN int</i>
@@ -1229,6 +1411,55 @@ If you are calling it in a single-threaded app, you don't want it to
 wait around blocking other things in your loop from happening, so you
 would call it with a timeout_ms of 0, so it returns immediately if
 nothing is pending, or as soon as it services whatever was pending.
+</blockquote>
+<hr>
+<h2>lws_email_init - Initialize a struct lws_email</h2>
+<i>LWS_EXTERN int</i>
+<b>lws_email_init</b>
+(<i>struct lws_email *</i> <b>email</b>,
+<i>uv_loop_t *</i> <b>loop</b>,
+<i>int</i> <b>max_content</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>email</b>
+<dd>struct lws_email to init
+<dt><b>loop</b>
+<dd>libuv loop to use
+<dt><b>max_content</b>
+<dd>max email content size
+</dl>
+<h3>Description</h3>
+<blockquote>
+Prepares a struct lws_email for use ending SMTP
+</blockquote>
+<hr>
+<h2>lws_email_check - Request check for new email</h2>
+<i>LWS_EXTERN void</i>
+<b>lws_email_check</b>
+(<i>struct lws_email *</i> <b>email</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>email</b>
+<dd>struct lws_email context to check
+</dl>
+<h3>Description</h3>
+<blockquote>
+Schedules a check for new emails in 1s... call this when you have queued an
+email for send.
+</blockquote>
+<hr>
+<h2>lws_email_destroy - stop using the struct lws_email</h2>
+<i>LWS_EXTERN void</i>
+<b>lws_email_destroy</b>
+(<i>struct lws_email *</i> <b>email</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>email</b>
+<dd>the struct lws_email context
+</dl>
+<h3>Description</h3>
+<blockquote>
+Stop sending email using <tt><b>email</b></tt> and free allocations
 </blockquote>
 <hr>
 <h2>struct lws_plat_file_ops - Platform-specific file operations</h2>
@@ -1860,6 +2091,9 @@ header.
 &nbsp; &nbsp; <i>const struct lws_http_mount *</i> <b>mounts</b>;<br>
 &nbsp; &nbsp; <i>const char *</i> <b>server_string</b>;<br>
 &nbsp; &nbsp; <i>unsigned int</i> <b>pt_serv_buf_size</b>;<br>
+&nbsp; &nbsp; <i>unsigned int</i> <b>max_http_header_data2</b>;<br>
+&nbsp; &nbsp; <i>long</i> <b>ssl_options_set</b>;<br>
+&nbsp; &nbsp; <i>long</i> <b>ssl_options_clear</b>;<br>
 };<br>
 <h3>Members</h3>
 <dl>
@@ -1987,6 +2221,15 @@ various service related features including file serving, it
 defines the max chunk of file that can be sent at once.
 At the risk of lws having to buffer failed large sends, it
 can be increased to, eg, 128KiB to improve throughput.
+<dt><b>max_http_header_data2</b>
+<dd>if <tt><b>max_http_header_data</b></tt> is 0 and this
+is nonzero, this will be used in place of the default.  It's
+like this for compatibility with the original short version,
+this is unsigned int length.
+<dt><b>ssl_options_set</b>
+<dd>VHOST: Any bits set here will be set as SSL options
+<dt><b>ssl_options_clear</b>
+<dd>VHOST: Any bits set here will be cleared as SSL options
 </dl>
 <h3>Description</h3>
 <blockquote>
