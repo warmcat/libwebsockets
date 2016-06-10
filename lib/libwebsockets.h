@@ -1561,6 +1561,8 @@ struct lws_http_mount {
  *		is nonzero, this will be used in place of the default.  It's
  *		like this for compatibility with the original short version,
  *		this is unsigned int length.
+ * @ssl_options_set:  VHOST: Any bits set here will be set as SSL options
+ * @ssl_options_clear:  VHOST: Any bits set here will be cleared as SSL options
  */
 
 struct lws_context_creation_info {
@@ -1605,6 +1607,8 @@ struct lws_context_creation_info {
 	const char *server_string;			/* context */
 	unsigned int pt_serv_buf_size;			/* context */
 	unsigned int max_http_header_data2;		/* context */
+	long ssl_options_set;				/* VH */
+	long ssl_options_clear;				/* VH */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

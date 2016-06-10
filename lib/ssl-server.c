@@ -390,6 +390,14 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		/* Normally SSL listener rejects non-ssl, optionally allow */
 		vhost->allow_non_ssl_on_ssl_port = 1;
 
+	if (info->ssl_options_set)
+		SSL_CTX_set_options(vhost->ssl_ctx, info->ssl_options_set);
+	if (info->ssl_options_clear)
+		SSL_CTX_clear_options(vhost->ssl_ctx, info->ssl_options_clear);
+
+	lwsl_info(" SSL options 0x%X\n",
+		    SSL_CTX_get_options(vhost->ssl_ctx));
+
 	if (vhost->use_ssl) {
 		/* openssl init for server sockets */
 

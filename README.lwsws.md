@@ -210,6 +210,23 @@ Other vhost options
 
  - "`ipv6only`": "on"  Only allow ipv6 on this vhost / "off" only allow ipv4 on this vhost
 
+ - "`ssl-option-set`": "<decimal>"  Sets the SSL option flag value for the vhost.
+ It may be used multiple times and OR's the flags together.
+ 
+ The values are derived from /usr/include/openssl/ssl.h
+ 
+ ```
+ # define SSL_OP_NO_TLSv1_1                               0x10000000L
+ ```
+ 
+ would equate to
+ 
+ ```
+ "`ssl-option-set`": "268435456"
+ ```
+ 
+ - "`ssl-option-clear'": "<decimal>"   Clears the SSL option flag value for the vhost.
+ It may be used multiple times and OR's the flags together.
 
 Mounts
 ------
