@@ -2514,3 +2514,101 @@ lws_spa_destroy(struct lws_spa *spa)
 
 	return n;
 }
+
+LWS_VISIBLE LWS_EXTERN int
+lws_chunked_html_process(struct lws_process_html_args *args,
+			 struct lws_process_html_state *s)
+{
+	char *sp, buffer[32];
+	const char *pc;
+	int old_len, n;
+
+	/* do replacements */
+	sp = args->p;
+	old_len = args->len;
+	args->len = 0;
+	s->start = sp;
+	while (sp < args->p + old_len) {
+
+		if (args->len + 7 >= args->max_len) {
+			lwsl_err("Used up interpret padding\n");
+			return -1;
+		}
+
+		if ((!s->pos && *sp == '$') || s->pos) {
+			int hits = 0, hit;
+
+			if (!s->pos)
+				s->start = sp;
+			s->swallow[s->pos++] = *sp;
+			if (s->pos == sizeof(s->swallow))
+				goto skip;
+			for (n = 0; n < s->count_vars; n++)
+				if (!strncmp(s->swallow, s->vars[n], s->pos)) {
+					hits++;
+					hit = n;
+				}
+			if (!hits) {
+skip:
+				s->swallow[s->pos] = '\0';
+				memcpy(s->start, s->swallow, s->pos);
+				args->len++;
+				s->pos = 0;
+				sp = s->start + 1;
+				continue;
+			}
+			if (hits == 1 && s->pos == strlen(s->vars[hit])) {
+				pc = s->replace(s->data, hit);
+				if (!pc)
+					pc = "NULL";
+				n = strlen(pc);
+				s->swallow[s->pos] = '\0';
+				if (n != s->pos) {
+					memmove(s->start + n,
+						s->start + s->pos,
+						old_len - (sp - args->p));
+					old_len += (n - s->pos) + 1;
+				}
+				memcpy(s->start, pc, n);
+				args->len++;
+				sp = s->start + 1;
+
+				s->pos = 0;
+			}
+			sp++;
+			continue;
+		}
+
+		args->len++;
+		sp++;
+	}
+
+	/* no space left for final chunk trailer */
+	if (args->final && args->len + 7 >= args->max_len)
+		return -1;
+
+	n = sprintf(buffer, "%X\x0d\x0a", args->len);
+
+	args->p -= n;
+	memcpy(args->p, buffer, n);
+	args->len += n;
+
+	if (args->final) {
+		sp = args->p + args->len;
+		*sp++ = '\x0d';
+		*sp++ = '\x0a';
+		*sp++ = '0';
+		*sp++ = '\x0d';
+		*sp++ = '\x0a';
+		*sp++ = '\x0d';
+		*sp++ = '\x0a';
+		args->len += 7;
+	} else {
+		sp = args->p + args->len;
+		*sp++ = '\x0d';
+		*sp++ = '\x0a';
+		args->len += 2;
+	}
+
+	return 0;
+}

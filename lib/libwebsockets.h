@@ -1338,6 +1338,30 @@ struct lws_protocols {
 	 * This is part of the ABI, don't needlessly break compatibility */
 };
 
+struct lws_process_html_args {
+	char *p;
+	int len;
+	int max_len;
+	int final;
+};
+
+typedef const char *(*lws_process_html_state_cb)(void *data, int index);
+
+struct lws_process_html_state {
+	char *start;
+	char swallow[16];
+	int pos;
+	void *data;
+	const char * const *vars;
+	int count_vars;
+
+	lws_process_html_state_cb replace;
+};
+
+LWS_VISIBLE LWS_EXTERN int
+lws_chunked_html_process(struct lws_process_html_args *args,
+			 struct lws_process_html_state *s);
+
 enum lws_ext_options_types {
 	EXTARG_NONE,
 	EXTARG_DEC,
