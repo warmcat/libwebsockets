@@ -868,9 +868,7 @@ bail3:
 	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
 bail2:
-	if (wsi->protocol &&
-	    (wsi->state == LWSS_ESTABLISHED ||
-	     wsi->state == LWSS_CLIENT_UNCONNECTED)) {
+	if (wsi->protocol && wsi->state == LWSS_ESTABLISHED) {
 		if (isErrorCodeReceived && p) {
 			wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
