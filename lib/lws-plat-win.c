@@ -153,6 +153,58 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 	lwsl_emit_stderr(level, line);
 }
 
+LWS_VISIBLE DWORD 
+lws_plat_wait_event(struct lws_context_per_thread* pt, int timeout)
+{
+	int event_count = pt->fds_count + 1;
+	HANDLE* events = pt->events;
+	DWORD ev;
+
+	// the WSAWaitForMultipleEvents can wait for maximum of 64 handles
+	if(event_count <= WSA_MAXIMUM_WAIT_EVENTS)
+	{		
+		return ev = WSAWaitForMultipleEvents(event_count, events,
+						FALSE, timeout, FALSE);
+	}
+	else
+	{
+		// back-up solution	
+		// this is really ugly and introduces unneeded latency / unfairness 
+		// but still better than the current crash
+		int timeout_left = timeout;
+
+		// the smaller step the closer we get to the valid solution
+		// and the more CPU we will use
+		int timeout_step = (timeout > 10) ? 10 : timeout;
+
+		while(timeout_left > 0)
+		{		
+			int events_left = event_count;
+			int events_handled = 0;
+
+			while(events_left > 0)
+			{
+				// split to groups to size of max 64
+				int events_to_handle = (events_left > WSA_MAXIMUM_WAIT_EVENTS) ?
+										WSA_MAXIMUM_WAIT_EVENTS :
+										events_left;
+
+				ev = WSAWaitForMultipleEvents(events_to_handle, &events[events_handled],
+							FALSE, timeout_step, FALSE);
+
+				if(ev != WSA_WAIT_TIMEOUT)
+					return ev + events_handled;
+
+				timeout_left -= timeout_step;
+				events_handled += events_to_handle;
+				events_left -= events_to_handle;
+			}
+		}
+	}
+
+	return WSA_WAIT_TIMEOUT;
+}
+
 LWS_VISIBLE int
 lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
@@ -206,8 +258,8 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/* if we know something needs service already, don't wait in poll */
 	timeout_ms = lws_service_adjust_timeout(context, timeout_ms, tsi);
 
-	ev = WSAWaitForMultipleEvents(pt->fds_count + 1, pt->events,
-				      FALSE, timeout_ms, FALSE);
+	ev = lws_plat_wait_event(pt, timeout_ms);
+
 	context->service_tid = 0;
 
 	if (ev == WSA_WAIT_TIMEOUT) {
