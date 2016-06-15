@@ -730,7 +730,7 @@ completion_flow:
 		goto redirect_with_cookie;
 
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
-		if (pss->spa) {
+		if (pss && pss->spa) {
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
 		}

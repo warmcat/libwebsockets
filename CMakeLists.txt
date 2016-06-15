@@ -1327,6 +1327,15 @@ if (LWS_WITH_GENERIC_SESSIONS)
 	else()
 		target_link_libraries(protocol_generic_sessions sqlite3 )
 	endif(WIN32)
+
+		create_plugin(protocol_lws_messageboard
+			      "plugins/generic-sessions/protocol_lws_messageboard.c" "" "")
+	if (WIN32)
+		target_link_libraries(protocol_lws_messageboard ${LWS_SQLITE3_LIBRARIES})
+	else()
+		target_link_libraries(protocol_lws_messageboard sqlite3 )
+	endif(WIN32)
+
 endif(LWS_WITH_GENERIC_SESSIONS)
 
 
