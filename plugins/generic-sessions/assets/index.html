@@ -2,12 +2,20 @@
  <head>
   <script src="lwsgs.js"></script>
   <style>
-     .body { font-size: 12 }
-     .gstitle { font-size: 18 }
+	.body { font-size: 12 }
+	.gstitle { font-size: 18 }
+	.group1 { vertical-align:middle;text-align:center;background:#f0f0e0; 
+		padding:12px; -webkit-border-radius:10px; 
+		-moz-border-radius:10px;border-radius:10px; }
+	.group2 { vertical-align:middle; font-size: 22;text-align:center;
+		margin:auto; align:center;
+		background-color: rgba(255, 255, 255, 0.8); padding:12px;
+		display:inline-block; -webkit-border-radius:10px; 
+		-moz-border-radius:10px; border-radius:10px; }
   </style>
   </head>
   <body style="background-image:url(seats.jpg)">
-    <table style="width:100%;transition: max-height 2s;">
+    <table style="width:100%;height:100%;transition: max-height 2s;">
      <tr>
       <td style="vertical-align:top;text-align:left;width=200px">
        <img src="lwsgs-logo.png">
@@ -16,20 +24,137 @@
 	<div id=lwsgs style="text-align:right;background-color: rgba(255, 255, 255, 0.8);"></div>
       </td>
      </tr>
-     <tr><td colspan=2>
-     	<div id="nolog" style="display:none">
-     	Register / Login to see the messages
+     
+     <tr><td colspan=2 style="height:99%;vertical-align:middle;">
+        <table style="text-align:center;width:100%"><tr>
+        <td style="margin:auto;align:center">
+     	<span id="nolog" class="group2" style="display:none;">
+     	This is a demo application for lws generic-sessions.<br><br>
+     	It's a simple messageboard.<br><br>
+     	What's interesting about it is there is <b>no serverside scripting</b>,<br>
+     	instead client js makes a wss:// connection back to the server<br>
+     	and then reacts to JSON from the ws protocol.  Sessions stuff is <br>
+     	handled by lws generic sessions, making the <a href="https://github.com/warmcat/libwebsockets/blob/master/plugins/generic-sessions/protocol_lws_messageboard.c">actual<br>
+     	test application</a> <a href="https://github.com/warmcat/libwebsockets/blob/master/plugins/generic-sessions/index.html">very small</a>.<br><br>
+	And because it's natively websocket, it's naturally connected<br>
+	for dynamic events and easy to maintain.
+     	<br><br>
+     	Register / Login at the top right to see and create new messages.
+     	</span>
+     	<span id="logged" class="group2" style="display:none">
+     	<div id="newmsg">
+     		<form action="msg" method="post" target="hidden">
+     		New message<br>
+         <textarea id="msg" placeholder="type your message here" cols="40" rows="5" name="msg" onkeyup="mupd()" onchange="mupd()"></textarea><br>
+         	<input type="submit" id="send" name="send" disabled=1>
+         	</form>
      	</div>
-     	<div id="logged" style="display:none">
-     	Logged in
+     	</span>
+     	<div id="dmessages">
+     	 <span id="messages" ></span>
      	</div>
+     	<span id="debug" class="group2"></span>
+     	</td></tr></table>
      </td></tr>
     </table>
    </form>
-   <script>lwsgs_initial();
-   document.getElementById("nolog").style.display = !!lwsgs_user ? "none" : "inline";
-   document.getElementById("logged").style.display = !lwsgs_user ? "none" : "inline";
+   <iframe name="hidden" style="display:none"></iframe>
+<script>lwsgs_initial();
+document.getElementById("nolog").style.display = !!lwsgs_user ? "none" : "inline-block";
+document.getElementById("logged").style.display = !lwsgs_user ? "none" : "inline-block";
+
+var ws;
+
+function mb_format(s)
+{
+	var r = "", n, wos = 0;
+	
+	for (n = 0; n < s.length; n++) {
+		if (s[n] == ' ')
+			wos = 0;
+		else {
+			wos++;
+			if (wos == 40) {
+				wos = 0;
+				r = r + ' ';
+			}
+		}
+		if (s[n] == '<') {
+			r = r + "&lt;";
+			continue;
+		}
+		if (s[n] == '\n') {
+			r = r + "<br>";
+			continue;
+		}
+			
+		r = r + s[n];
+	}
+	
+	return r;
+}
+
+function add_div(n, m)
+{
+	var q = document.getElementById(n);
+	var d = new Date(m.time * 1000);
+	
+	q.innerHTML = "<br><div style=\"margin:2px\" class=\"group2\"><table style=\"table-layout: fixed;\"><tr><td>" +
+		"<img src=\"https://www.gravatar.com/avatar/" + md5(m.email) +
+		"?d=identicon\"><br>" +
+		"<b>" + lwsgs_san(m.username) + "</b><br>" +
+		"<span style=\"font-size:8pt\">" + d.toDateString() +
+		  "<br>" + d.toTimeString() + "</span><br>" +
+		"IP: " + lwsgs_san(m.ip) +
+		"</td><td style=\"display:inline-block;vertical-align:top;word-wrap:break-word;\"><span>" +
+		mb_format(m.content) +
+		"</span></td></tr></table></div><br>" + q.innerHTML;
+}
+
+function get_appropriate_ws_url()
+{
+	var pcol;
+	var u = document.URL;
+
+	if (u.substring(0, 5) == "https") {
+		pcol = "wss://";
+		u = u.substr(8);
+	} else {
+		pcol = "ws://";
+		if (u.substring(0, 4) == "http")
+			u = u.substr(7);
+	}
+	u = u.split('/');
+
+	return pcol + u[0] + "/xxx";
+}
+
+if (lwsgs_user) {
+	if (typeof MozWebSocket != "undefined")
+		ws = new MozWebSocket(get_appropriate_ws_url(),
+				   "protocol-lws-messageboard");
+	else
+		ws = new WebSocket(get_appropriate_ws_url(),
+				   "protocol-lws-messageboard");
+
+	try {
+		ws.onopen = function() {
+			document.getElementById("debug").textContent = "ws opened";
+		}
+		ws.onmessage =function got_packet(msg) {
+			add_div("messages", JSON.parse(msg.data));
+		}
+		ws.onclose = function(){
+		}
+	} catch(exception) {
+		alert('<p>Error' + exception);  
+	}
+}
+
+function mupd()
+{
+	document.getElementById("send").disabled = !document.getElementById("msg").value;
+}
    </script>
  </body>
 </html>
-
