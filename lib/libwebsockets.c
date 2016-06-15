@@ -907,6 +907,31 @@ lws_callback_all_protocol_vhost(struct lws_vhost *vh,
 	return 0;
 }
 
+/**
+ * lws_callback_vhost_protocols() - Callback all protocols enabled on a vhost
+ *					with the given reason
+ *
+ * @wsi:	wsi whose vhost will get callbacks
+ * @reason:	Callback reason index
+ * @in:		in argument to callback
+ * @len:	len argument to callback
+ *
+ * This is useful when informing all fellow enabled protocols on a vhost about
+ * a vhost-wide event, eg, creation or deletion of an account
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
+{
+	int n;
+
+	for (n = 0; n < wsi->vhost->count_protocols; n++)
+		if (wsi->vhost->protocols[n].callback(wsi, reason, NULL, in, len))
+			return 1;
+
+	return 0;
+}
+
 #if LWS_POSIX
 
 /**

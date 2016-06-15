@@ -2072,6 +2072,9 @@ lws_callback_all_protocol_vhost(struct lws_vhost *vh,
 			  const struct lws_protocols *protocol, int reason);
 
 LWS_VISIBLE LWS_EXTERN int
+lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len);
+
+LWS_VISIBLE LWS_EXTERN int
 lws_get_socket_fd(struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
