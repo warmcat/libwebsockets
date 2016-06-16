@@ -173,15 +173,16 @@ lws_plat_wait_event(struct lws_context_per_thread* pt, int timeout)
 		// but still better than the current crash
 		int timeout_left = timeout;
 
-		// the smaller step the closer we get to the valid solution
-		// and the more CPU we will use
-		int timeout_step = (timeout > 10) ? 10 : timeout;
+		// the smaller the step the closer we get to the valid solution
+		// and the more CPU we will use	
+		int timeout_step = (timeout > 20) ? 20 : timeout;
 
 		while(timeout_left > 0)
 		{		
 			int events_left = event_count;
 			int events_handled = 0;
-
+			timeout = 0;
+	
 			while(events_left > 0)
 			{
 				// split to groups to size of max 64
@@ -189,16 +190,21 @@ lws_plat_wait_event(struct lws_context_per_thread* pt, int timeout)
 										WSA_MAXIMUM_WAIT_EVENTS :
 										events_left;
 
+				// wait only on the last group
+				if(events_left == events_to_handle)
+					timeout = timeout_step;
+
 				ev = WSAWaitForMultipleEvents(events_to_handle, &events[events_handled],
-							FALSE, timeout_step, FALSE);
+							FALSE, timeout, FALSE);
 
 				if(ev != WSA_WAIT_TIMEOUT)
 					return ev + events_handled;
 
-				timeout_left -= timeout_step;
 				events_handled += events_to_handle;
 				events_left -= events_to_handle;
 			}
+
+			timeout_left -= timeout_step;
 		}
 	}
 
