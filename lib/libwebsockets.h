@@ -1810,7 +1810,8 @@ lws_urlencode(char *escaped, const char *string, int len);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_sql_purify(char *escaped, const char *string, int len);
 
-
+LWS_VISIBLE LWS_EXTERN const char *
+lws_json_purify(char *escaped, const char *string, int len);
 
 /*
  * URLDECODE 1 / 2

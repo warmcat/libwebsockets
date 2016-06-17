@@ -1800,6 +1800,42 @@ lws_sql_purify(char *escaped, const char *string, int len)
 }
 
 /**
+ * lws_json_purify() - like strncpy but with escaping for json chars
+ *
+ * @escaped: output buffer
+ * @string: input buffer ('/0' terminated)
+ * @len: output buffer max length
+ *
+ * Because escaping expands the output string, it's not
+ * possible to do it in-place, ie, with escaped == string
+ */
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_json_purify(char *escaped, const char *string, int len)
+{
+	const char *p = string;
+	char *q = escaped;
+
+	while (*p && len-- > 6) {
+		if (*p == '\"' || *p == '\\' || *p < 0x20) {
+			*q++ = '\\';
+			*q++ = 'u';
+			*q++ = '0';
+			*q++ = '0';
+			*q++ = hex[((*p) >> 4) & 15];
+			*q++ = hex[(*p) & 15];
+			len -= 5;
+			p++;
+		} else
+			*q++ = *p++;
+	}
+	*q = '\0';
+
+	return escaped;
+}
+
+
+/**
  * lws_urlencode() - like strncpy but with urlencoding
  *
  * @escaped: output buffer
