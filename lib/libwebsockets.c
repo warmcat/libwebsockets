@@ -932,6 +932,21 @@ lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
 	return 0;
 }
 
+/**
+ * lws_now_secs() - seconds since 1970-1-1
+ *
+ */
+LWS_VISIBLE LWS_EXTERN unsigned long
+lws_now_secs(void)
+{
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+
+	return tv.tv_sec;
+}
+
+
 #if LWS_POSIX
 
 /**

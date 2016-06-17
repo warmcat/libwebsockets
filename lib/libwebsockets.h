@@ -2231,6 +2231,9 @@ lws_hdr_copy_fragment(struct lws *wsi, char *dest, int len,
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len);
 
+LWS_VISIBLE LWS_EXTERN unsigned long
+lws_now_secs(void);
+
 
 /* get the active file operations struct */
 LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops * LWS_WARN_UNUSED_RESULT
