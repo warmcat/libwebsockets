@@ -115,6 +115,33 @@ enum lejp_vhost_paths {
 	LEJPVP_SSL_OPTION_CLEAR,
 };
 
+static const char * const parser_errs[] = {
+	"",
+	"",
+	"No opening '{'",
+	"Expected closing '}'",
+	"Expected '\"'",
+	"String underrun",
+	"Illegal unescaped control char",
+	"Illegal escape format",
+	"Illegal hex number",
+	"Expected ':'",
+	"Illegal value start",
+	"Digit required after decimal point",
+	"Bad number format",
+	"Bad exponent format",
+	"Unknown token",
+	"Too many ']'",
+	"Mismatched ']'",
+	"Expected ']'",
+	"JSON nesting limit exceeded",
+	"Nesting tracking used up",
+	"Number too long",
+	"Comma or block end expected",
+	"Unknown",
+	"Parser callback errored (see earlier error)",
+};
+
 #define MAX_PLUGIN_DIRS 10
 
 struct jpargs {
@@ -547,7 +574,8 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 	lejp_destruct(&ctx);
 
 	if (m < 0) {
-		lwsl_err("%s(%u): parsing error %d\n", f, n, m);
+		lwsl_err("%s(%u): parsing error %d: %s\n", f, n, m,
+			 parser_errs[-m]);
 		return 2;
 	}
 
