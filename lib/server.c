@@ -412,9 +412,8 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		const struct lws_protocols *pp = lws_vhost_name_to_protocol(
 							wsi->vhost, m->protocol);
 
-		wsi->protocol = pp;
-		if (lws_ensure_user_space(wsi))
-			return -1;
+		if (lws_bind_protocol(wsi, pp))
+			return 1;
 		args.p = (char *)p;
 		args.max_len = end - p;
 		if (pp->callback(wsi, LWS_CALLBACK_ADD_HEADERS,
@@ -702,11 +701,8 @@ lws_http_action(struct lws *wsi)
 				return 1;
 			}
 
-			wsi->protocol = pp;
-			if (lws_ensure_user_space(wsi)) {
-				lwsl_err("Unable to allocate user space\n");
+			if (lws_bind_protocol(wsi, pp))
 				return 1;
-			}
 		}
 		lwsl_info("wsi %s protocol '%s'\n", uri_ptr, wsi->protocol->name);
 
@@ -791,16 +787,8 @@ lws_http_action(struct lws *wsi)
 				for (n = 0; n < (unsigned int)wsi->vhost->count_protocols; n++)
 					if (!strcmp(wsi->vhost->protocols[n].name,
 						   hit->origin)) {
-
-						if (wsi->protocol != &wsi->vhost->protocols[n])
-							if (!wsi->user_space_externally_allocated)
-								lws_free_set_NULL(wsi->user_space);
-						wsi->protocol = &wsi->vhost->protocols[n];
-						if (lws_ensure_user_space(wsi)) {
-							lwsl_err("Unable to allocate user space\n");
-
+						if (lws_bind_protocol(wsi, &wsi->vhost->protocols[n]))
 							return 1;
-						}
 						break;
 					}
 
@@ -877,11 +865,8 @@ lws_http_action(struct lws *wsi)
 				const struct lws_protocols *pp = lws_vhost_name_to_protocol(
 						wsi->vhost, hit->protocol);
 
-				wsi->protocol = pp;
-				if (lws_ensure_user_space(wsi)) {
-					lwsl_err("Unable to allocate user space\n");
+				if (lws_bind_protocol(wsi, pp))
 					return 1;
-				}
 
 				n = pp->callback(wsi, LWS_CALLBACK_HTTP,
 						 wsi->user_space,
@@ -896,10 +881,8 @@ lws_http_action(struct lws *wsi)
 
 		lwsl_notice("no hit\n");
 
-		if (wsi->protocol != &wsi->vhost->protocols[0])
-			if (!wsi->user_space_externally_allocated)
-				lws_free_set_NULL(wsi->user_space);
-		wsi->protocol = &wsi->vhost->protocols[0];
+		if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0]))
+			return 1;
 
 		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
@@ -935,6 +918,32 @@ bail_nuke_ah:
 	lws_header_table_detach(wsi, 1);
 
 	return 1;
+}
+
+int
+lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
+{
+//	if (wsi->protocol == p)
+//		return 0;
+
+	if (wsi->protocol)
+		wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_DROP_PROTOCOL,
+					wsi->user_space, NULL, 0);
+	if (!wsi->user_space_externally_allocated)
+		lws_free_set_NULL(wsi->user_space);
+
+	wsi->protocol = p;
+	if (!p)
+		return 0;
+
+	if (lws_ensure_user_space(wsi))
+		return 1;
+
+	if (wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_BIND_PROTOCOL,
+				    wsi->user_space, NULL, 0))
+		return 1;
+
+	return 0;
 }
 
 
@@ -1391,13 +1400,8 @@ lws_http_transaction_completed(struct lws *wsi)
 		return 1;
 	}
 
-	n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_DROP_PROTOCOL,
-				    wsi->user_space, NULL, 0);
-
-	if (!wsi->user_space_externally_allocated)
-		lws_free_set_NULL(wsi->user_space);
-
-	wsi->protocol = &wsi->vhost->protocols[0];
+	if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0]))
+		return 1;
 
 	/* otherwise set ourselves up ready to go again */
 	wsi->state = LWSS_HTTP;
@@ -2151,7 +2155,7 @@ static int
 lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int len)
 {
 	int n, m, hit = 0;
-	char sum = 0;
+	char sum = 0, c;
 
 	while (len--) {
 		if (s->pos == s->out_len - s->mp - 1) {
@@ -2160,13 +2164,11 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int le
 
 			s->pos = 0;
 		}
-
 		switch (s->state) {
 
 		/* states for url arg style */
 
 		case US_NAME:
-			//lwsl_notice("US_NAME: %c\n", *in);
 			s->inside_quote = 0;
 			if (*in == '=') {
 				s->name[s->pos] = '\0';
@@ -2191,7 +2193,6 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int le
 			s->name[s->pos++] = *in++;
 			break;
 		case US_IDLE:
-			//lwsl_notice("US_IDLE: %c\n", *in);
 			if (*in == '%') {
 				s->state++;
 				in++;
@@ -2237,7 +2238,6 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int le
 		/* states for multipart / mime style */
 
 		case MT_LOOK_BOUND_IN:
-			// lwsl_notice("MT_LOOK_BOUND_IN: %02x (%d)\n", *in, s->mp);
 			if (*in == s->mime_boundary[s->mp] &&
 			    s->mime_boundary[s->mp]) {
 				in++;
@@ -2274,29 +2274,27 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int le
 			break;
 
 		case MT_HNAME:
-
 			m = 0;
+			c =*in;
+			if (c >= 'A' && c <= 'Z')
+				c += 'a' - 'A';
 			for (n = 0; n < ARRAY_SIZE(mp_hdr); n++)
-				if (tolower(*in) == mp_hdr[n][s->mp]) {
+				if (c == mp_hdr[n][s->mp]) {
 					m++;
 					hit = n;
 				}
-
 			in++;
-			if (m > 1) {
-				s->mp++;
-				continue;
-			}
 			if (!m) {
 				s->mp = 0;
 				continue;
 			}
 
 			s->mp++;
-			if (mp_hdr[hit][s->mp])
+			if (m != 1)
 				continue;
 
-			/* ie, m == 1 */
+			if (mp_hdr[hit][s->mp])
+				continue;
 
 			s->mp = 0;
 			s->temp[0] = '\0';
@@ -2312,9 +2310,9 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int le
 			/* form-data; name="file"; filename="t.txt" */
 
 			if (*in == '\x0d') {
-				lwsl_debug("disp: '%s', '%s', '%s'\n",
-				   s->content_disp, s->name,
-				   s->content_disp_filename);
+//				lwsl_notice("disp: '%s', '%s', '%s'\n",
+//				   s->content_disp, s->name,
+//				   s->content_disp_filename);
 
 				if (s->content_disp_filename[0])
 					if (s->output(s->data, s->name,
@@ -2512,7 +2510,7 @@ lws_spa_create(struct lws *wsi, const char * const *param_names,
 			 int count_params, int max_storage,
 			 lws_spa_fileupload_cb opt_cb, void *opt_data)
 {
-	struct lws_spa *spa = lws_malloc(sizeof(*spa));
+	struct lws_spa *spa = lws_zalloc(sizeof(*spa));
 
 	if (!spa)
 		return NULL;
@@ -2541,6 +2539,8 @@ lws_spa_create(struct lws *wsi, const char * const *param_names,
 	if (!spa->param_length)
 		goto bail5;
 
+	lwsl_notice("%s: Created SPA %p\n", __func__, spa);
+
 	return spa;
 
 bail5:
@@ -2566,6 +2566,10 @@ bail2:
 LWS_VISIBLE LWS_EXTERN int
 lws_spa_process(struct lws_spa *ludspa, const char *in, int len)
 {
+	if (!ludspa) {
+		lwsl_err("%s: NULL spa\n");
+		return -1;
+	}
 	return lws_urldecode_s_process(ludspa->s, in, len);
 }
 
@@ -2628,6 +2632,8 @@ LWS_VISIBLE LWS_EXTERN int
 lws_spa_destroy(struct lws_spa *spa)
 {
 	int n = 0;
+
+	lwsl_notice("%s: destroy spa %p\n", __func__, spa);
 
 	if (spa->s)
 		lws_urldecode_s_destroy(spa->s);

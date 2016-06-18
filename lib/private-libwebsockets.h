@@ -1734,6 +1734,9 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt);
 int
 lws_protocol_init(struct lws_context *context);
 
+int
+lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p);
+
 /*
  * custom allocator
  */

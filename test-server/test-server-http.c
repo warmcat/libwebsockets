@@ -496,7 +496,15 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (n < 0)
 			return 1;
 		goto try_to_reuse;
+	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
+		lwsl_notice("LWS_CALLBACK_HTTP_DROP_PROTOCOL\n");
 
+		/* called when our wsi user_space is going to be destroyed */
+		if (pss->spa) {
+			lws_spa_destroy(pss->spa);
+			pss->spa = NULL;
+		}
+		break;
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
 		goto try_to_reuse;
 
