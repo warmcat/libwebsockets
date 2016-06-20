@@ -521,31 +521,6 @@ bail:
 	return NULL;
 }
 
-/**
- * lws_init_vhost_client_ssl() - also enable client SSL on an existing vhost
- *
- * @info: client ssl related info
- * @vhost: which vhost to initialize client ssl operations on
- *
- * You only need to call this if you plan on using SSL client connections on
- * the vhost.  For non-SSL client connections, it's not necessary to call this.
- *
- * The following members of @info are used during the call
- *
- *	 - @options must have LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT set,
- *	     otherwise the call does nothing
- *	 - @provided_client_ssl_ctx must be NULL to get a generated client
- *	     ssl context, otherwise you can pass a prepared one in by setting it
- *	 - @ssl_cipher_list may be NULL or set to the client valid cipher list
- *	 - @ssl_ca_filepath may be NULL or client cert filepath
- *	 - @ssl_cert_filepath may be NULL or client cert filepath
- *	 - @ssl_private_key_filepath may be NULL or client cert private key
- *
- * You must create your vhost explicitly if you want to use this, so you have
- * a pointer to the vhost.  Create the context first with the option flag
- * LWS_SERVER_OPTION_EXPLICIT_VHOSTS and then call lws_create_vhost() with
- * the same info struct.
- */
 LWS_VISIBLE int
 lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 			  struct lws_vhost *vhost)
@@ -558,35 +533,6 @@ lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 	return lws_context_init_client_ssl(&i, vhost);
 }
 
-/**
- * lws_create_context() - Create the websocket handler
- * @info:	pointer to struct with parameters
- *
- *	This function creates the listening socket (if serving) and takes care
- *	of all initialization in one step.
- *
- *	After initialization, it returns a struct lws_context * that
- *	represents this server.  After calling, user code needs to take care
- *	of calling lws_service() with the context pointer to get the
- *	server's sockets serviced.  This must be done in the same process
- *	context as the initialization call.
- *
- *	The protocol callback functions are called for a handful of events
- *	including http requests coming in, websocket connections becoming
- *	established, and data arriving; it's also called periodically to allow
- *	async transmission.
- *
- *	HTTP requests are sent always to the FIRST protocol in @protocol, since
- *	at that time websocket protocol has not been negotiated.  Other
- *	protocols after the first one never see any HTTP callack activity.
- *
- *	The server created is a simple http server by default; part of the
- *	websocket standard is upgrading this http connection to a websocket one.
- *
- *	This allows the same server to provide files like scripts and favicon /
- *	images or whatever over http and dynamic data over websockets all in
- *	one place; they're all handled in the user callback.
- */
 LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
 {
@@ -850,14 +796,6 @@ bail:
 	return NULL;
 }
 
-/**
- * lws_context_destroy() - Destroy the websocket context
- * @context:	Websocket context
- *
- *	This function closes any active connections and then frees the
- *	context.  After calling this, any further use of the context is
- *	undefined.
- */
 LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
 {

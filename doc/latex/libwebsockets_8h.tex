@@ -1,0 +1,889 @@
+\hypertarget{libwebsockets_8h}{}\section{lib/libwebsockets.h File Reference}
+\label{libwebsockets_8h}\index{lib/libwebsockets.\+h@{lib/libwebsockets.\+h}}
+\subsection*{Data Structures}
+\begin{DoxyCompactItemize}
+\item 
+class \hyperlink{classlws__conn}{lws\+\_\+conn}
+\item 
+class \hyperlink{classlws__conn__listener}{lws\+\_\+conn\+\_\+listener}
+\item 
+struct \hyperlink{structlws__polarssl__context}{lws\+\_\+polarssl\+\_\+context}
+\item 
+struct \hyperlink{structlws__pollfd}{lws\+\_\+pollfd}
+\item 
+struct \hyperlink{structpollfd}{pollfd}
+\item 
+struct \hyperlink{structlws__pollargs}{lws\+\_\+pollargs}
+\item 
+struct \hyperlink{structlws__ext__options}{lws\+\_\+ext\+\_\+options}
+\item 
+struct \hyperlink{structlws__ext__option__arg}{lws\+\_\+ext\+\_\+option\+\_\+arg}
+\item 
+struct \hyperlink{structlws__extension}{lws\+\_\+extension}
+\item 
+struct \hyperlink{structlws__protocols}{lws\+\_\+protocols}
+\item 
+struct \hyperlink{structlws__plugin__capability}{lws\+\_\+plugin\+\_\+capability}
+\item 
+struct \hyperlink{structlws__plugin}{lws\+\_\+plugin}
+\item 
+struct \hyperlink{structlwsgw__hash__bin}{lwsgw\+\_\+hash\+\_\+bin}
+\item 
+struct \hyperlink{structlwsgw__hash}{lwsgw\+\_\+hash}
+\item 
+struct \hyperlink{structlws__session__info}{lws\+\_\+session\+\_\+info}
+\item 
+struct \hyperlink{structlws__gs__event__args}{lws\+\_\+gs\+\_\+event\+\_\+args}
+\item 
+struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info}
+\item 
+struct \hyperlink{structlws__protocol__vhost__options}{lws\+\_\+protocol\+\_\+vhost\+\_\+options}
+\item 
+struct \hyperlink{structlws__http__mount}{lws\+\_\+http\+\_\+mount}
+\item 
+struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info}
+\item 
+struct \hyperlink{structlws__process__html__args}{lws\+\_\+process\+\_\+html\+\_\+args}
+\item 
+struct \hyperlink{structlws__process__html__state}{lws\+\_\+process\+\_\+html\+\_\+state}
+\item 
+struct \hyperlink{structlws__tokens}{lws\+\_\+tokens}
+\item 
+struct \hyperlink{structlws__token__limits}{lws\+\_\+token\+\_\+limits}
+\item 
+struct \hyperlink{structlws__cgi__args}{lws\+\_\+cgi\+\_\+args}
+\item 
+struct \hyperlink{structlws__plat__file__ops}{lws\+\_\+plat\+\_\+file\+\_\+ops}
+\item 
+struct \hyperlink{structlws__email}{lws\+\_\+email}
+\end{DoxyCompactItemize}
+\subsection*{Typedefs}
+\begin{DoxyCompactItemize}
+\item 
+typedef struct \hyperlink{structlws__polarssl__context}{lws\+\_\+polarssl\+\_\+context} {\bfseries S\+S\+L\+\_\+\+C\+TX}\hypertarget{libwebsockets_8h_abddb8d337fb2692586d892b494739003}{}\label{libwebsockets_8h_abddb8d337fb2692586d892b494739003}
+
+\item 
+typedef ssl\+\_\+context {\bfseries S\+SL}\hypertarget{libwebsockets_8h_ac3abb8b7e6d29a0292797230e4031681}{}\label{libwebsockets_8h_ac3abb8b7e6d29a0292797230e4031681}
+
+\item 
+typedef S\+O\+C\+K\+ET {\bfseries lws\+\_\+sockfd\+\_\+type}\hypertarget{libwebsockets_8h_adedbc79528b71a5c7f27cde87100c9aa}{}\label{libwebsockets_8h_adedbc79528b71a5c7f27cde87100c9aa}
+
+\item 
+typedef H\+A\+N\+D\+LE {\bfseries lws\+\_\+filefd\+\_\+type}\hypertarget{libwebsockets_8h_aff42d53861afdc1a6edfb999ba688ecb}{}\label{libwebsockets_8h_aff42d53861afdc1a6edfb999ba688ecb}
+
+\item 
+typedef int \hyperlink{group__usercb_gad4fcb82e68d60ffacca61a3f783a0a2f}{lws\+\_\+callback\+\_\+function}(struct lws $\ast$wsi, enum \hyperlink{group__usercb_gad62860e19975ba4c4af401c3cdb6abf7}{lws\+\_\+callback\+\_\+reasons} reason, void $\ast$user, void $\ast$in, size\+\_\+t len)
+\item 
+typedef int \hyperlink{group__extensions_gaae7169b2cd346b34fa33d0250db2afd0}{lws\+\_\+extension\+\_\+callback\+\_\+function}(struct lws\+\_\+context $\ast$context, const struct \hyperlink{structlws__extension}{lws\+\_\+extension} $\ast$ext, struct lws $\ast$wsi, enum lws\+\_\+extension\+\_\+callback\+\_\+reasons reason, void $\ast$user, void $\ast$in, size\+\_\+t len)
+\item 
+typedef int($\ast$ {\bfseries lws\+\_\+plugin\+\_\+init\+\_\+func}) (struct lws\+\_\+context $\ast$, struct \hyperlink{structlws__plugin__capability}{lws\+\_\+plugin\+\_\+capability} $\ast$)
+\item 
+typedef int($\ast$ {\bfseries lws\+\_\+plugin\+\_\+destroy\+\_\+func}) (struct lws\+\_\+context $\ast$)
+\item 
+typedef const char $\ast$($\ast$ {\bfseries lws\+\_\+process\+\_\+html\+\_\+state\+\_\+cb}) (void $\ast$data, int index)
+\item 
+typedef int($\ast$ \hyperlink{group__form-parsing_ga5a70527c0861c2ffa3d29333a6aa7f8e}{lws\+\_\+spa\+\_\+fileupload\+\_\+cb}) (void $\ast$data, const char $\ast$name, const char $\ast$filename, char $\ast$buf, int len, enum \hyperlink{group__form-parsing_ga41a74a822771d3dce89751aa3bce28ae}{lws\+\_\+spa\+\_\+fileupload\+\_\+states} state)
+\item 
+typedef void( {\bfseries lws\+\_\+ev\+\_\+signal\+\_\+cb\+\_\+t}) (E\+V\+\_\+\+P\+\_\+ struct ev\+\_\+signal $\ast$w, int revents)
+\end{DoxyCompactItemize}
+\subsection*{Enumerations}
+\begin{DoxyCompactItemize}
+\item 
+enum {\bfseries lws\+\_\+log\+\_\+levels} \{ \\*
+{\bfseries L\+L\+L\+\_\+\+E\+RR} = 1 $<$$<$ 0, 
+{\bfseries L\+L\+L\+\_\+\+W\+A\+RN} = 1 $<$$<$ 1, 
+{\bfseries L\+L\+L\+\_\+\+N\+O\+T\+I\+CE} = 1 $<$$<$ 2, 
+{\bfseries L\+L\+L\+\_\+\+I\+N\+FO} = 1 $<$$<$ 3, 
+\\*
+{\bfseries L\+L\+L\+\_\+\+D\+E\+B\+UG} = 1 $<$$<$ 4, 
+{\bfseries L\+L\+L\+\_\+\+P\+A\+R\+S\+ER} = 1 $<$$<$ 5, 
+{\bfseries L\+L\+L\+\_\+\+H\+E\+A\+D\+ER} = 1 $<$$<$ 6, 
+{\bfseries L\+L\+L\+\_\+\+E\+XT} = 1 $<$$<$ 7, 
+\\*
+{\bfseries L\+L\+L\+\_\+\+C\+L\+I\+E\+NT} = 1 $<$$<$ 8, 
+{\bfseries L\+L\+L\+\_\+\+L\+A\+T\+E\+N\+CY} = 1 $<$$<$ 9, 
+{\bfseries L\+L\+L\+\_\+\+C\+O\+U\+NT} = 10
+ \}\hypertarget{group__log_ga14542b84d2c76efa7814124bb10f9c5f}{}\label{group__log_ga14542b84d2c76efa7814124bb10f9c5f}
+
+\item 
+enum \hyperlink{group__wsclose_gae399c571df32ba532c0ca67da9284985}{lws\+\_\+close\+\_\+status} \{ \\*
+{\bfseries L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+S\+T\+A\+T\+US} = 0, 
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985a3ffa38d5081b85fb739e02a747ccf2c4}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+R\+M\+AL} = 1000, 
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985a9737a68759e739856b150ff9dfa30218}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+G\+O\+I\+N\+G\+A\+W\+AY} = 1001, 
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985a1bb501d212fa4d57053db681b1dfab98}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+E\+RR} = 1002, 
+\\*
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985a462c99b05459df700919cfd3f53c8276}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+U\+N\+A\+C\+C\+E\+P\+T\+A\+B\+L\+E\+\_\+\+O\+P\+C\+O\+DE} = 1003, 
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985af90cb98d983ad3d4c79df9b6f3d4a4d2}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+R\+E\+S\+E\+R\+V\+ED} = 1004, 
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985a4b8a3b7ce6f731e5248e4b0fb64a5044}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+\_\+\+S\+T\+A\+T\+US} = 1005, 
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985a68b3d34bebd88547dcfa5cadba0acd6c}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+A\+B\+N\+O\+R\+M\+A\+L\+\_\+\+C\+L\+O\+SE} = 1006, 
+\\*
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985a7aef2da0062da606eeb35aaca5cf9050}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+I\+N\+V\+A\+L\+I\+D\+\_\+\+P\+A\+Y\+L\+O\+AD} = 1007, 
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985ad09e68295eabdddcba4e332fbea70ae5}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+P\+O\+L\+I\+C\+Y\+\_\+\+V\+I\+O\+L\+A\+T\+I\+ON} = 1008, 
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985a2e1f0113494a58e762eed3d22e7080d8}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+M\+E\+S\+S\+A\+G\+E\+\_\+\+T\+O\+O\+\_\+\+L\+A\+R\+GE} = 1009, 
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985ac6a161822783ee873be1c66f48d14e0e}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+E\+X\+T\+E\+N\+S\+I\+O\+N\+\_\+\+R\+E\+Q\+U\+I\+R\+ED} = 1010, 
+\\*
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985ad0869604d79e13700ae5d196a431b350}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+U\+N\+E\+X\+P\+E\+C\+T\+E\+D\+\_\+\+C\+O\+N\+D\+I\+T\+I\+ON} = 1011, 
+\hyperlink{group__wsclose_ggae399c571df32ba532c0ca67da9284985ad2b477a91c8445bf34ecd43977f9b390}{L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+T\+L\+S\+\_\+\+F\+A\+I\+L\+U\+RE} = 1015, 
+{\bfseries L\+W\+S\+\_\+\+C\+L\+O\+S\+E\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+S\+T\+A\+T\+U\+S\+\_\+\+C\+O\+N\+T\+E\+X\+T\+\_\+\+D\+E\+S\+T\+R\+OY} = 9999
+ \}
+\item 
+enum \hyperlink{group__usercb_gad62860e19975ba4c4af401c3cdb6abf7}{lws\+\_\+callback\+\_\+reasons} \{ \\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a24d39bf1cfc0bad9d92da9ac1717e439}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED} = 0, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ad8c6207b0c4e732f3d507f0fb79370e8}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+O\+N\+\_\+\+E\+R\+R\+OR} = 1, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa536e574a642ff3ab9e12bff7ba2c6a2}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH} = 2, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a7e12418eec9bce85735e6460176ab604}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED} = 3, 
+\\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a48a9590e5e18c7920282e094a0bfd9d8}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+O\+S\+ED} = 4, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a838b18d255c1b94a533287ba302a2eba}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+O\+S\+E\+D\+\_\+\+H\+T\+TP} = 5, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a492c1b1c0ac0ed980042ee732fe2990c}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+R\+E\+C\+E\+I\+VE} = 6, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a2db02fc6e1c17ab62b52109d1aa9d738}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+R\+E\+C\+E\+I\+V\+E\+\_\+\+P\+O\+NG} = 7, 
+\\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7abbbe7a0a67c5866ca9109d46823fc5b1}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+R\+E\+C\+E\+I\+VE} = 8, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a136a7cec11c3afd13245623bd84e76c9}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+R\+E\+C\+E\+I\+V\+E\+\_\+\+P\+O\+NG} = 9, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a8e8b2e6dbeac76d8d126947d2166a514}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} = 10, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a7ec8e2e9557ee02a4fc9f7dec7e2babc}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} = 11, 
+\\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae8d1de0bb56e03aa58cb4d44b18edd2e}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+TP} = 12, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ac4c68e00efcf1ff7bda7ada462aff8ae}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+B\+O\+DY} = 13, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a2fce9a8608220f32abbf1422a5498804}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+B\+O\+D\+Y\+\_\+\+C\+O\+M\+P\+L\+E\+T\+I\+ON} = 14, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa627548e1296e654fcfab463ec3c9587}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+F\+I\+L\+E\+\_\+\+C\+O\+M\+P\+L\+E\+T\+I\+ON} = 15, 
+\\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7afedadfb3cde37a8ea4c84ed535f26d09}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} = 16, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a026502768778b8d79d62dd0fe4375fc6}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+N\+E\+T\+W\+O\+R\+K\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+ON} = 17, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a75199176c82c1a56e4a6bbf1cc30c12c}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+ON} = 18, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae9734e1d7af2abf291665ce9e4a728d3}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+N\+E\+W\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+I\+N\+S\+T\+A\+N\+T\+I\+A\+T\+ED} = 19, 
+\\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7accd8753672d319a30b4b4c2fb775e84d}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+ON} = 20, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae4986291b7a810fe290851d73bebeb1c}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+L\+O\+A\+D\+\_\+\+E\+X\+T\+R\+A\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+V\+E\+R\+I\+F\+Y\+\_\+\+C\+E\+R\+TS} = 21, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a06006e98d27e1e884364d88317f83493}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+L\+O\+A\+D\+\_\+\+E\+X\+T\+R\+A\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+V\+E\+R\+I\+F\+Y\+\_\+\+C\+E\+R\+TS} = 22, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae5ad65d779b7eab32ab67ceff91a3bac}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+P\+E\+R\+F\+O\+R\+M\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+E\+R\+T\+\_\+\+V\+E\+R\+I\+F\+I\+C\+A\+T\+I\+ON} = 23, 
+\\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a909cc2a7018864b0b71abacc4058fd8f}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+A\+P\+P\+E\+N\+D\+\_\+\+H\+A\+N\+D\+S\+H\+A\+K\+E\+\_\+\+H\+E\+A\+D\+ER} = 24, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a390da3639296660a78cc1a5dcb19037e}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+O\+N\+F\+I\+R\+M\+\_\+\+E\+X\+T\+E\+N\+S\+I\+O\+N\+\_\+\+O\+K\+AY} = 25, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a1ce5b22039ca37ee224d00047596ea46}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+F\+I\+R\+M\+\_\+\+E\+X\+T\+E\+N\+S\+I\+O\+N\+\_\+\+S\+U\+P\+P\+O\+R\+T\+ED} = 26, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ad5d34583e3556e153eda91620b48cc49}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+I\+N\+IT} = 27, 
+\\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a54269ca88508e6efd3afdb9d360a9caa}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+D\+E\+S\+T\+R\+OY} = 28, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7afd8fd77a1cc9405fcb4f26915d7f2d01}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+W\+S\+I\+\_\+\+C\+R\+E\+A\+TE} = 29, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aca834dc035b7f7486f9ce40fde54fe9e}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+W\+S\+I\+\_\+\+D\+E\+S\+T\+R\+OY} = 30, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7adfb41c92e2522712207ef7f2462b5e34}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+G\+E\+T\+\_\+\+T\+H\+R\+E\+A\+D\+\_\+\+ID} = 31, 
+\\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ab69783a9fbf2ca71ad70706bda77b412}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+A\+D\+D\+\_\+\+P\+O\+L\+L\+\_\+\+FD} = 32, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a1df60f314710236f9b53efbf468da768}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+D\+E\+L\+\_\+\+P\+O\+L\+L\+\_\+\+FD} = 33, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa87d2e82fffa42c3680c7403ef94216e}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+H\+A\+N\+G\+E\+\_\+\+M\+O\+D\+E\+\_\+\+P\+O\+L\+L\+\_\+\+FD} = 34, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a8909732521d379179003d97ab7a05428}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+L\+O\+C\+K\+\_\+\+P\+O\+LL} = 35, 
+\\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a0e9e3dd667c0c42cdbe1a3d921f4fd79}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+N\+L\+O\+C\+K\+\_\+\+P\+O\+LL} = 36, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa46f705dcf97502e95627ffde614f98b}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+C\+O\+N\+T\+E\+X\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+E\+S\+\_\+\+P\+R\+I\+V\+A\+T\+E\+\_\+\+K\+EY} = 37, 
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ac3fc5bbb55e69f90396526287ee84a51}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+W\+S\+\_\+\+P\+E\+E\+R\+\_\+\+I\+N\+I\+T\+I\+A\+T\+E\+D\+\_\+\+C\+L\+O\+SE} = 38, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+W\+S\+\_\+\+E\+X\+T\+\_\+\+D\+E\+F\+A\+U\+L\+TS} = 39, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+GI} = 40, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+G\+I\+\_\+\+T\+E\+R\+M\+I\+N\+A\+T\+ED} = 41, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+G\+I\+\_\+\+S\+T\+D\+I\+N\+\_\+\+D\+A\+TA} = 42, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+G\+I\+\_\+\+S\+T\+D\+I\+N\+\_\+\+C\+O\+M\+P\+L\+E\+T\+ED} = 43, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+E\+D\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+H\+T\+TP} = 44, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+O\+S\+E\+D\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+H\+T\+TP} = 45, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+R\+E\+C\+E\+I\+V\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+H\+T\+TP} = 46, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+O\+M\+P\+L\+E\+T\+E\+D\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+H\+T\+TP} = 47, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+R\+E\+C\+E\+I\+V\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+H\+T\+T\+P\+\_\+\+R\+E\+AD} = 48, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+B\+I\+N\+D\+\_\+\+P\+R\+O\+T\+O\+C\+OL} = 49, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+D\+R\+O\+P\+\_\+\+P\+R\+O\+T\+O\+C\+OL} = 50, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+H\+E\+C\+K\+\_\+\+A\+C\+C\+E\+S\+S\+\_\+\+R\+I\+G\+H\+TS} = 51, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+P\+R\+O\+C\+E\+S\+S\+\_\+\+H\+T\+ML} = 52, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+A\+D\+D\+\_\+\+H\+E\+A\+D\+E\+RS} = 53, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+S\+E\+S\+S\+I\+O\+N\+\_\+\+I\+N\+FO} = 54, 
+{\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+G\+S\+\_\+\+E\+V\+E\+NT} = 55, 
+\\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER} = 1000
+ \}
+\item 
+enum {\bfseries lws\+\_\+extension\+\_\+callback\+\_\+reasons} \{ \\*
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+C\+O\+N\+T\+E\+X\+T\+\_\+\+C\+O\+N\+S\+T\+R\+U\+CT} = 0, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+T\+E\+X\+T\+\_\+\+C\+O\+N\+S\+T\+R\+U\+CT} = 1, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+C\+O\+N\+T\+E\+X\+T\+\_\+\+D\+E\+S\+T\+R\+U\+CT} = 2, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+T\+E\+X\+T\+\_\+\+D\+E\+S\+T\+R\+U\+CT} = 3, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+C\+O\+N\+S\+T\+R\+U\+CT} = 4, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+S\+T\+R\+U\+CT} = 5, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+C\+H\+E\+C\+K\+\_\+\+O\+K\+\_\+\+T\+O\+\_\+\+R\+E\+A\+L\+L\+Y\+\_\+\+C\+L\+O\+SE} = 6, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+C\+H\+E\+C\+K\+\_\+\+O\+K\+\_\+\+T\+O\+\_\+\+P\+R\+O\+P\+O\+S\+E\+\_\+\+E\+X\+T\+E\+N\+S\+I\+ON} = 7, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+D\+E\+S\+T\+R\+OY} = 8, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+D\+E\+S\+T\+R\+O\+Y\+\_\+\+A\+N\+Y\+\_\+\+W\+S\+I\+\_\+\+C\+L\+O\+S\+I\+NG} = 9, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+A\+N\+Y\+\_\+\+W\+S\+I\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED} = 10, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+P\+A\+C\+K\+E\+T\+\_\+\+R\+X\+\_\+\+P\+R\+E\+P\+A\+R\+SE} = 11, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+P\+A\+C\+K\+E\+T\+\_\+\+T\+X\+\_\+\+P\+R\+E\+S\+E\+ND} = 12, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+P\+A\+C\+K\+E\+T\+\_\+\+T\+X\+\_\+\+D\+O\+\_\+\+S\+E\+ND} = 13, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+H\+A\+N\+D\+S\+H\+A\+K\+E\+\_\+\+R\+E\+P\+L\+Y\+\_\+\+TX} = 14, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+F\+L\+U\+S\+H\+\_\+\+P\+E\+N\+D\+I\+N\+G\+\_\+\+TX} = 15, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+E\+X\+T\+E\+N\+D\+E\+D\+\_\+\+P\+A\+Y\+L\+O\+A\+D\+\_\+\+RX} = 16, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+C\+A\+N\+\_\+\+P\+R\+O\+X\+Y\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+ON} = 17, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+1\+HZ} = 18, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+R\+E\+Q\+U\+E\+S\+T\+\_\+\+O\+N\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} = 19, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+I\+S\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} = 20, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+P\+A\+Y\+L\+O\+A\+D\+\_\+\+TX} = 21, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+P\+A\+Y\+L\+O\+A\+D\+\_\+\+RX} = 22, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+E\+F\+A\+U\+LT} = 23, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+ET} = 24, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+C\+O\+N\+F\+I\+RM} = 25, 
+{\bfseries L\+W\+S\+\_\+\+E\+X\+T\+\_\+\+C\+B\+\_\+\+N\+A\+M\+E\+D\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+ET} = 26
+ \}\hypertarget{group__extensions_gae9993815eee72c6070300a0ae2f022d7}{}\label{group__extensions_gae9993815eee72c6070300a0ae2f022d7}
+
+\item 
+enum \hyperlink{group__extensions_gacc9f55936dc165257a2e1f7d47bce89e}{lws\+\_\+ext\+\_\+options\+\_\+types} \{ \hyperlink{group__extensions_ggacc9f55936dc165257a2e1f7d47bce89eaabcf56c456c1ff6e81dc82586a16f14c}{E\+X\+T\+A\+R\+G\+\_\+\+N\+O\+NE}, 
+\hyperlink{group__extensions_ggacc9f55936dc165257a2e1f7d47bce89ea1c86adf924c8786a12bee9687094673e}{E\+X\+T\+A\+R\+G\+\_\+\+D\+EC}, 
+\hyperlink{group__extensions_ggacc9f55936dc165257a2e1f7d47bce89ea5265abe3e1c3f64412f2affe7bffd880}{E\+X\+T\+A\+R\+G\+\_\+\+O\+P\+T\+\_\+\+D\+EC}
+ \}
+\item 
+enum \hyperlink{group__generic-sessions_ga7c2dc7bfb4ccb91c5d771f9e9ea237e1}{lwsgs\+\_\+auth\+\_\+bits} \{ \hyperlink{group__generic-sessions_gga7c2dc7bfb4ccb91c5d771f9e9ea237e1a81e63075115dedd150265d81b8f7fa57}{L\+W\+S\+G\+S\+\_\+\+A\+U\+T\+H\+\_\+\+L\+O\+G\+G\+E\+D\+\_\+\+IN} = 1, 
+\hyperlink{group__generic-sessions_gga7c2dc7bfb4ccb91c5d771f9e9ea237e1a0657a9e846814781b128c397fe4b10bf}{L\+W\+S\+G\+S\+\_\+\+A\+U\+T\+H\+\_\+\+A\+D\+M\+IN} = 2, 
+\hyperlink{group__generic-sessions_gga7c2dc7bfb4ccb91c5d771f9e9ea237e1a5a607e4668d20cadada62c4b8007f887}{L\+W\+S\+G\+S\+\_\+\+A\+U\+T\+H\+\_\+\+V\+E\+R\+I\+F\+I\+ED} = 4, 
+\hyperlink{group__generic-sessions_gga7c2dc7bfb4ccb91c5d771f9e9ea237e1a2cd8fb86e3b85c106e7711c03f0ddd0a}{L\+W\+S\+G\+S\+\_\+\+A\+U\+T\+H\+\_\+\+F\+O\+R\+G\+O\+T\+\_\+\+F\+L\+OW} = 8
+ \}
+\item 
+enum \hyperlink{group__generic-sessions_gaa93946b3d921072209d5cd8cdfa5332e}{lws\+\_\+gs\+\_\+event} \{ \hyperlink{group__generic-sessions_ggaa93946b3d921072209d5cd8cdfa5332ea596010a165bf13473c5eea3a34cd4308}{L\+W\+S\+G\+S\+E\+\_\+\+C\+R\+E\+A\+T\+ED}, 
+\hyperlink{group__generic-sessions_ggaa93946b3d921072209d5cd8cdfa5332ead908cdc5689c5d22c9d3c8934e94dcde}{L\+W\+S\+G\+S\+E\+\_\+\+D\+E\+L\+E\+T\+ED}
+ \}
+\item 
+enum \hyperlink{group__context-and-vhost_ga41c2d763f78cc248df3b9f8645dbd2a5}{lws\+\_\+context\+\_\+options} \{ \\*
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a274ed462a1a9239eb6ddf9007f5b7092}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+Q\+U\+I\+R\+E\+\_\+\+V\+A\+L\+I\+D\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+E\+RT}, 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a6582c985ee0ceaadc1d277030eae2d7c}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+K\+I\+P\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+C\+A\+N\+O\+N\+I\+C\+A\+L\+\_\+\+N\+A\+ME} = (1 $<$$<$ 2), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a1cc4562d05cba52a6dfa0697a65ade0d}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+A\+L\+L\+O\+W\+\_\+\+N\+O\+N\+\_\+\+S\+S\+L\+\_\+\+O\+N\+\_\+\+S\+S\+L\+\_\+\+P\+O\+RT}, 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a273d9975675130de0c6dc937dde7c8a6}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+EV} = (1 $<$$<$ 4), 
+\\*
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a34ab36e68c0d593b6f19b8d5ef1240a9}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+I\+P\+V6} = (1 $<$$<$ 5), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a4933347a821e73c3f1e13fb6bfc7ad93}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+O\+S\+\_\+\+C\+A\+\_\+\+C\+E\+R\+TS} = (1 $<$$<$ 6), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5ac56a8a6590e74a8016d0fae09fb404fc}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+P\+E\+E\+R\+\_\+\+C\+E\+R\+T\+\_\+\+N\+O\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+ED} = (1 $<$$<$ 7), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aa0158b4e85420811e6b0f1378c6ded0f}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+V\+A\+L\+I\+D\+A\+T\+E\+\_\+\+U\+T\+F8} = (1 $<$$<$ 8), 
+\\*
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a1b2f8bde0f62adc7ebe81b2043f34c0c}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+S\+L\+\_\+\+E\+C\+DH}, 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aff121db04a10cf8b2c5df9d4f2b89f1e}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+UV} = (1 $<$$<$ 10), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a4832187186c4d130c68051214cd42ada}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+D\+I\+R\+E\+C\+T\+\_\+\+H\+T\+T\+P\+\_\+\+T\+O\+\_\+\+H\+T\+T\+PS}, 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a7fed6a527c8d5e0acac1b4179644583a}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+O\+\_\+\+S\+S\+L\+\_\+\+G\+L\+O\+B\+A\+L\+\_\+\+I\+N\+IT} = (1 $<$$<$ 12), 
+\\*
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5accc9d0d11d1124a21659586164b0962e}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+P\+L\+I\+C\+I\+T\+\_\+\+V\+H\+O\+S\+TS} = (1 $<$$<$ 13), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a9637e9001d8c8b2521086bcafbd8a941}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+U\+N\+I\+X\+\_\+\+S\+O\+CK} = (1 $<$$<$ 14), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5ac962efd35abf6c402f9fb14aa14f5016}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+TS} = (1 $<$$<$ 15), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5af62887536e25e053e68741006dba46d8}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+M\+O\+D\+I\+FY} = (1 $<$$<$ 16), 
+\\*
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aca5d42820b65eac5618ec3f0bd8a1160}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+V\+A\+L\+UE} = (1 $<$$<$ 17)
+ \}
+\item 
+enum \hyperlink{group__vhost-mounts_ga31eca18e50cb4357480f2fcad36ff437}{lws\+\_\+mount\+\_\+protocols} \{ \\*
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a1e9f0842b0e85db50fe648ed4ba9a4b0}{L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+TP} = 0, 
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437afbd10eb4777517ed1f6bfdcf3b9ea1d1}{L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+T\+PS} = 1, 
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a42f2361cfe76cd287fa8fcfc502357e2}{L\+W\+S\+M\+P\+R\+O\+\_\+\+F\+I\+LE} = 2, 
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a13ab58b01ac6e05f595977f1e0f0db69}{L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+GI} = 3, 
+\\*
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437aec137a2434851bd856ceebfb697b9970}{L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+TP} = 4, 
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a8894d16316863077dfe530963ca59f67}{L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+T\+PS} = 5, 
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a946a88cf9c852eed2c0317f4115d19da}{L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK} = 6
+ \}
+\item 
+enum {\bfseries http\+\_\+status} \{ \\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+OK} = 200, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+\_\+\+C\+O\+N\+T\+E\+NT} = 204, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+M\+O\+V\+E\+D\+\_\+\+P\+E\+R\+M\+A\+N\+E\+N\+T\+LY} = 301, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+F\+O\+U\+ND} = 302, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+S\+E\+E\+\_\+\+O\+T\+H\+ER} = 303, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+B\+A\+D\+\_\+\+R\+E\+Q\+U\+E\+ST} = 400, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+U\+N\+A\+U\+T\+H\+O\+R\+I\+Z\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+P\+A\+Y\+M\+E\+N\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+ED}, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+F\+O\+R\+B\+I\+D\+D\+EN}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+T\+\_\+\+F\+O\+U\+ND}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+M\+E\+T\+H\+O\+D\+\_\+\+N\+O\+T\+\_\+\+A\+L\+L\+O\+W\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+T\+\_\+\+A\+C\+C\+E\+P\+T\+A\+B\+LE}, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+P\+R\+O\+X\+Y\+\_\+\+A\+U\+T\+H\+\_\+\+R\+E\+Q\+U\+I\+R\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+R\+E\+Q\+U\+E\+S\+T\+\_\+\+T\+I\+M\+E\+O\+UT}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+C\+O\+N\+F\+L\+I\+CT}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+G\+O\+NE}, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+L\+E\+N\+G\+T\+H\+\_\+\+R\+E\+Q\+U\+I\+R\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+P\+R\+E\+C\+O\+N\+D\+I\+T\+I\+O\+N\+\_\+\+F\+A\+I\+L\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+R\+E\+Q\+\_\+\+E\+N\+T\+I\+T\+Y\+\_\+\+T\+O\+O\+\_\+\+L\+A\+R\+GE}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+R\+E\+Q\+\_\+\+U\+R\+I\+\_\+\+T\+O\+O\+\_\+\+L\+O\+NG}, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+U\+N\+S\+U\+P\+P\+O\+R\+T\+E\+D\+\_\+\+M\+E\+D\+I\+A\+\_\+\+T\+Y\+PE}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+R\+E\+Q\+\_\+\+R\+A\+N\+G\+E\+\_\+\+N\+O\+T\+\_\+\+S\+A\+T\+I\+S\+F\+I\+A\+B\+LE}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+E\+X\+P\+E\+C\+T\+A\+T\+I\+O\+N\+\_\+\+F\+A\+I\+L\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+I\+N\+T\+E\+R\+N\+A\+L\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+E\+R\+R\+OR} = 500, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+T\+\_\+\+I\+M\+P\+L\+E\+M\+E\+N\+T\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+B\+A\+D\+\_\+\+G\+A\+T\+E\+W\+AY}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+S\+E\+R\+V\+I\+C\+E\+\_\+\+U\+N\+A\+V\+A\+I\+L\+A\+B\+LE}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+G\+A\+T\+E\+W\+A\+Y\+\_\+\+T\+I\+M\+E\+O\+UT}, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+H\+T\+T\+P\+\_\+\+V\+E\+R\+S\+I\+O\+N\+\_\+\+N\+O\+T\+\_\+\+S\+U\+P\+P\+O\+R\+T\+ED}
+ \}\hypertarget{group__html-chunked-substitution_gabc3b93f68c8bdd857ad32913628dfa8d}{}\label{group__html-chunked-substitution_gabc3b93f68c8bdd857ad32913628dfa8d}
+
+\item 
+enum {\bfseries lws\+\_\+token\+\_\+indexes} \{ \\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+G\+E\+T\+\_\+\+U\+RI} = 0, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+P\+O\+S\+T\+\_\+\+U\+RI} = 1, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+O\+P\+T\+I\+O\+N\+S\+\_\+\+U\+RI} = 2, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+O\+ST} = 3, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+ON} = 4, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+U\+P\+G\+R\+A\+DE} = 5, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+O\+R\+I\+G\+IN} = 6, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+D\+R\+A\+FT} = 7, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+C\+H\+A\+L\+L\+E\+N\+GE} = 8, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+E\+X\+T\+E\+N\+S\+I\+O\+NS} = 9, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+K\+E\+Y1} = 10, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+K\+E\+Y2} = 11, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+P\+R\+O\+T\+O\+C\+OL} = 12, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+A\+C\+C\+E\+PT} = 13, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+N\+O\+N\+CE} = 14, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+TP} = 15, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P2\+\_\+\+S\+E\+T\+T\+I\+N\+GS} = 16, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+A\+C\+C\+E\+PT} = 17, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+A\+C\+\_\+\+R\+E\+Q\+U\+E\+S\+T\+\_\+\+H\+E\+A\+D\+E\+RS} = 18, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+I\+F\+\_\+\+M\+O\+D\+I\+F\+I\+E\+D\+\_\+\+S\+I\+N\+CE} = 19, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+I\+F\+\_\+\+N\+O\+N\+E\+\_\+\+M\+A\+T\+CH} = 20, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+A\+C\+C\+E\+P\+T\+\_\+\+E\+N\+C\+O\+D\+I\+NG} = 21, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+A\+C\+C\+E\+P\+T\+\_\+\+L\+A\+N\+G\+U\+A\+GE} = 22, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+P\+R\+A\+G\+MA} = 23, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+A\+C\+H\+E\+\_\+\+C\+O\+N\+T\+R\+OL} = 24, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+A\+U\+T\+H\+O\+R\+I\+Z\+A\+T\+I\+ON} = 25, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+O\+K\+IE} = 26, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+N\+T\+E\+N\+T\+\_\+\+L\+E\+N\+G\+TH} = 27, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+N\+T\+E\+N\+T\+\_\+\+T\+Y\+PE} = 28, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+D\+A\+TE} = 29, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+R\+A\+N\+GE} = 30, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+R\+E\+F\+E\+R\+ER} = 31, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+K\+EY} = 32, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+V\+E\+R\+S\+I\+ON} = 33, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+S\+W\+O\+R\+I\+G\+IN} = 34, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+L\+O\+N\+\_\+\+A\+U\+T\+H\+O\+R\+I\+TY} = 35, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+L\+O\+N\+\_\+\+M\+E\+T\+H\+OD} = 36, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+L\+O\+N\+\_\+\+P\+A\+TH} = 37, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+L\+O\+N\+\_\+\+S\+C\+H\+E\+ME} = 38, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+L\+O\+N\+\_\+\+S\+T\+A\+T\+US} = 39, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+A\+C\+C\+E\+P\+T\+\_\+\+C\+H\+A\+R\+S\+ET} = 40, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+A\+C\+C\+E\+P\+T\+\_\+\+R\+A\+N\+G\+ES} = 41, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+A\+C\+C\+E\+S\+S\+\_\+\+C\+O\+N\+T\+R\+O\+L\+\_\+\+A\+L\+L\+O\+W\+\_\+\+O\+R\+I\+G\+IN} = 42, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+A\+GE} = 43, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+A\+L\+L\+OW} = 44, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+N\+T\+E\+N\+T\+\_\+\+D\+I\+S\+P\+O\+S\+I\+T\+I\+ON} = 45, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+N\+T\+E\+N\+T\+\_\+\+E\+N\+C\+O\+D\+I\+NG} = 46, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+N\+T\+E\+N\+T\+\_\+\+L\+A\+N\+G\+U\+A\+GE} = 47, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+N\+T\+E\+N\+T\+\_\+\+L\+O\+C\+A\+T\+I\+ON} = 48, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+N\+T\+E\+N\+T\+\_\+\+R\+A\+N\+GE} = 49, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+E\+T\+AG} = 50, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+E\+X\+P\+E\+CT} = 51, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+E\+X\+P\+I\+R\+ES} = 52, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+F\+R\+OM} = 53, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+I\+F\+\_\+\+M\+A\+T\+CH} = 54, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+I\+F\+\_\+\+R\+A\+N\+GE} = 55, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+I\+F\+\_\+\+U\+N\+M\+O\+D\+I\+F\+I\+E\+D\+\_\+\+S\+I\+N\+CE} = 56, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+L\+A\+S\+T\+\_\+\+M\+O\+D\+I\+F\+I\+ED} = 57, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+L\+I\+NK} = 58, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+L\+O\+C\+A\+T\+I\+ON} = 59, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+M\+A\+X\+\_\+\+F\+O\+R\+W\+A\+R\+DS} = 60, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+P\+R\+O\+X\+Y\+\_\+\+A\+U\+T\+H\+E\+N\+T\+I\+C\+A\+TE} = 61, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+P\+R\+O\+X\+Y\+\_\+\+A\+U\+T\+H\+O\+R\+I\+Z\+A\+T\+I\+ON} = 62, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+R\+E\+F\+R\+E\+SH} = 63, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+R\+E\+T\+R\+Y\+\_\+\+A\+F\+T\+ER} = 64, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+S\+E\+R\+V\+ER} = 65, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+S\+E\+T\+\_\+\+C\+O\+O\+K\+IE} = 66, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+S\+T\+R\+I\+C\+T\+\_\+\+T\+R\+A\+N\+S\+P\+O\+R\+T\+\_\+\+S\+E\+C\+U\+R\+I\+TY} = 67, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+T\+R\+A\+N\+S\+F\+E\+R\+\_\+\+E\+N\+C\+O\+D\+I\+NG} = 68, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+U\+S\+E\+R\+\_\+\+A\+G\+E\+NT} = 69, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+V\+A\+RY} = 70, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+V\+IA} = 71, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+W\+W\+W\+\_\+\+A\+U\+T\+H\+E\+N\+T\+I\+C\+A\+TE} = 72, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+P\+A\+T\+C\+H\+\_\+\+U\+RI} = 73, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+P\+U\+T\+\_\+\+U\+RI} = 74, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+D\+E\+L\+E\+T\+E\+\_\+\+U\+RI} = 75, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+U\+R\+I\+\_\+\+A\+R\+GS} = 76, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+P\+R\+O\+XY} = 77, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P\+\_\+\+X\+\_\+\+R\+E\+A\+L\+\_\+\+IP} = 78, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+H\+T\+T\+P1\+\_\+0} = 79, 
+\\*
+{\bfseries \+\_\+\+W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+S\+E\+N\+T\+\_\+\+P\+R\+O\+T\+O\+C\+O\+LS}, 
+{\bfseries \+\_\+\+W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+P\+E\+E\+R\+\_\+\+A\+D\+D\+R\+E\+SS}, 
+{\bfseries \+\_\+\+W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+U\+RI}, 
+{\bfseries \+\_\+\+W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+H\+O\+ST}, 
+\\*
+{\bfseries \+\_\+\+W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+O\+R\+I\+G\+IN}, 
+{\bfseries \+\_\+\+W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+M\+E\+T\+H\+OD}, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+C\+O\+U\+NT}, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+N\+A\+M\+E\+\_\+\+P\+A\+RT}, 
+\\*
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+S\+K\+I\+P\+P\+I\+NG}, 
+{\bfseries W\+S\+I\+\_\+\+T\+O\+K\+E\+N\+\_\+\+S\+K\+I\+P\+P\+I\+N\+G\+\_\+\+S\+A\+W\+\_\+\+CR}, 
+{\bfseries W\+S\+I\+\_\+\+P\+A\+R\+S\+I\+N\+G\+\_\+\+C\+O\+M\+P\+L\+E\+TE}, 
+{\bfseries W\+S\+I\+\_\+\+I\+N\+I\+T\+\_\+\+T\+O\+K\+E\+N\+\_\+\+M\+U\+X\+U\+RL}
+ \}\hypertarget{group__HTTP-headers-read_ga6e747906f9d76532ec118d6ef418b82e}{}\label{group__HTTP-headers-read_ga6e747906f9d76532ec118d6ef418b82e}
+
+\item 
+enum \hyperlink{group__form-parsing_ga41a74a822771d3dce89751aa3bce28ae}{lws\+\_\+spa\+\_\+fileupload\+\_\+states} \{ \hyperlink{group__form-parsing_gga41a74a822771d3dce89751aa3bce28aead3a958e7719ac273c3ba4f684f00c87f}{L\+W\+S\+\_\+\+U\+F\+S\+\_\+\+C\+O\+N\+T\+E\+NT}, 
+\hyperlink{group__form-parsing_gga41a74a822771d3dce89751aa3bce28aea6ce2a55a4c3695cdb640c893d95bd3a7}{L\+W\+S\+\_\+\+U\+F\+S\+\_\+\+F\+I\+N\+A\+L\+\_\+\+C\+O\+N\+T\+E\+NT}, 
+\hyperlink{group__form-parsing_gga41a74a822771d3dce89751aa3bce28aea2d25de44865bd44e5a3903a2bab9ca83}{L\+W\+S\+\_\+\+U\+F\+S\+\_\+\+O\+P\+EN}
+ \}
+\item 
+enum {\bfseries pending\+\_\+timeout} \{ \\*
+{\bfseries N\+O\+\_\+\+P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+UT} = 0, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+A\+W\+A\+I\+T\+I\+N\+G\+\_\+\+P\+R\+O\+X\+Y\+\_\+\+R\+E\+S\+P\+O\+N\+SE} = 1, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+A\+W\+A\+I\+T\+I\+N\+G\+\_\+\+C\+O\+N\+N\+E\+C\+T\+\_\+\+R\+E\+S\+P\+O\+N\+SE} = 2, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+\_\+\+W\+I\+T\+H\+\_\+\+S\+E\+R\+V\+ER} = 3, 
+\\*
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+A\+W\+A\+I\+T\+I\+N\+G\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+R\+E\+S\+P\+O\+N\+SE} = 4, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+A\+W\+A\+I\+T\+I\+N\+G\+\_\+\+P\+I\+NG} = 5, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+C\+L\+O\+S\+E\+\_\+\+A\+CK} = 6, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+A\+W\+A\+I\+T\+I\+N\+G\+\_\+\+E\+X\+T\+E\+N\+S\+I\+O\+N\+\_\+\+C\+O\+N\+N\+E\+C\+T\+\_\+\+R\+E\+S\+P\+O\+N\+SE} = 7, 
+\\*
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+S\+E\+N\+T\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+H\+A\+N\+D\+S\+H\+A\+KE} = 8, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+S\+S\+L\+\_\+\+A\+C\+C\+E\+PT} = 9, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+H\+T\+T\+P\+\_\+\+C\+O\+N\+T\+E\+NT} = 10, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+A\+W\+A\+I\+T\+I\+N\+G\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+H\+S\+\_\+\+S\+E\+ND} = 11, 
+\\*
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+F\+L\+U\+S\+H\+\_\+\+S\+T\+O\+R\+E\+D\+\_\+\+S\+E\+N\+D\+\_\+\+B\+E\+F\+O\+R\+E\+\_\+\+C\+L\+O\+SE} = 12, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+S\+H\+U\+T\+D\+O\+W\+N\+\_\+\+F\+L\+U\+SH} = 13, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+C\+GI} = 14, 
+{\bfseries P\+E\+N\+D\+I\+N\+G\+\_\+\+T\+I\+M\+E\+O\+U\+T\+\_\+\+H\+T\+T\+P\+\_\+\+K\+E\+E\+P\+A\+L\+I\+V\+E\+\_\+\+I\+D\+LE} = 15
+ \}\hypertarget{group__timeout_ga2c0aa4b9c3c55bae7b35cbfac3246c87}{}\label{group__timeout_ga2c0aa4b9c3c55bae7b35cbfac3246c87}
+
+\item 
+enum \hyperlink{group__sending-data_ga98b099cf8c1c7e38ad78501f270e193d}{lws\+\_\+write\+\_\+protocol} \{ \\*
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da80e8f169fda236c56bfb795ed62903db}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+XT} = 0, 
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193daf6486c0dba50c44198100717721d9ab2}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+B\+I\+N\+A\+RY} = 1, 
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da10047eb05b5e1c298151dc47a5b44826}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+O\+N\+T\+I\+N\+U\+A\+T\+I\+ON} = 2, 
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dabb6705e1d1327cdda5025be28f07712e}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+TP} = 3, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+P\+I\+NG} = 5, 
+{\bfseries L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+P\+O\+NG} = 6, 
+{\bfseries L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+F\+I\+N\+AL} = 7, 
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dafe5a38e940ce56708ac814627e9c0917}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+H\+E\+A\+D\+E\+RS} = 8, 
+\\*
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da115440f272a5d55518adfc8099acfee3}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+N\+O\+\_\+\+F\+IN} = 0x40, 
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da220d8e8652d9b97fb66e476e2a60ffce}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+I\+G\+N\+O\+R\+E\+\_\+\+X\+O\+R\+\_\+\+M\+A\+SK} = 0x80
+ \}
+\item 
+enum {\bfseries lws\+\_\+enum\+\_\+stdinouterr} \{ {\bfseries L\+W\+S\+\_\+\+S\+T\+D\+IN} = 0, 
+{\bfseries L\+W\+S\+\_\+\+S\+T\+D\+O\+UT} = 1, 
+{\bfseries L\+W\+S\+\_\+\+S\+T\+D\+E\+RR} = 2
+ \}\hypertarget{libwebsockets_8h_a2271141d8be8d72b47ba327130b4905f}{}\label{libwebsockets_8h_a2271141d8be8d72b47ba327130b4905f}
+
+\item 
+enum {\bfseries lws\+\_\+cgi\+\_\+hdr\+\_\+state} \{ \\*
+{\bfseries L\+C\+H\+S\+\_\+\+H\+E\+A\+D\+ER}, 
+{\bfseries L\+C\+H\+S\+\_\+\+C\+R1}, 
+{\bfseries L\+C\+H\+S\+\_\+\+L\+F1}, 
+{\bfseries L\+C\+H\+S\+\_\+\+C\+R2}, 
+\\*
+{\bfseries L\+C\+H\+S\+\_\+\+L\+F2}, 
+{\bfseries L\+H\+C\+S\+\_\+\+P\+A\+Y\+L\+O\+AD}, 
+{\bfseries L\+C\+H\+S\+\_\+\+S\+I\+N\+G\+L\+E\+\_\+0A}
+ \}\hypertarget{libwebsockets_8h_a42394a38f08a97420c98127358cfeedb}{}\label{libwebsockets_8h_a42394a38f08a97420c98127358cfeedb}
+
+\item 
+enum \hyperlink{group__smtp_ga116be79bf44f9dc2a97f46e051fe4dc0}{lwsgs\+\_\+smtp\+\_\+states} \{ \\*
+\hyperlink{group__smtp_gga116be79bf44f9dc2a97f46e051fe4dc0a29e5b0ecf75375b5a643faa3d6222b7c}{L\+G\+S\+S\+M\+T\+P\+\_\+\+I\+D\+LE}, 
+\hyperlink{group__smtp_gga116be79bf44f9dc2a97f46e051fe4dc0ab89442b7a3ca2b94c3cdcf33756eb933}{L\+G\+S\+S\+M\+T\+P\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+NG}, 
+\hyperlink{group__smtp_gga116be79bf44f9dc2a97f46e051fe4dc0ab61778f70ecac007b334bb14942eb41d}{L\+G\+S\+S\+M\+T\+P\+\_\+\+C\+O\+N\+N\+E\+C\+T\+ED}, 
+\hyperlink{group__smtp_gga116be79bf44f9dc2a97f46e051fe4dc0a1dfec948a864205cec875f63cbe0d4ad}{L\+G\+S\+S\+M\+T\+P\+\_\+\+S\+E\+N\+T\+\_\+\+H\+E\+LO}, 
+\\*
+\hyperlink{group__smtp_gga116be79bf44f9dc2a97f46e051fe4dc0a929bb4623ff3f585108aba2a1b047fab}{L\+G\+S\+S\+M\+T\+P\+\_\+\+S\+E\+N\+T\+\_\+\+F\+R\+OM}, 
+\hyperlink{group__smtp_gga116be79bf44f9dc2a97f46e051fe4dc0aae20a0cb95b97a70f6b45d0ed2d5be83}{L\+G\+S\+S\+M\+T\+P\+\_\+\+S\+E\+N\+T\+\_\+\+TO}, 
+\hyperlink{group__smtp_gga116be79bf44f9dc2a97f46e051fe4dc0a85e3c452950c09a79086bff4b9be5c14}{L\+G\+S\+S\+M\+T\+P\+\_\+\+S\+E\+N\+T\+\_\+\+D\+A\+TA}, 
+\hyperlink{group__smtp_gga116be79bf44f9dc2a97f46e051fe4dc0a38fba41f28d754e38079b31418a86a69}{L\+G\+S\+S\+M\+T\+P\+\_\+\+S\+E\+N\+T\+\_\+\+B\+O\+DY}, 
+\\*
+\hyperlink{group__smtp_gga116be79bf44f9dc2a97f46e051fe4dc0a2c2ed16ffc572326e3040684084b21d5}{L\+G\+S\+S\+M\+T\+P\+\_\+\+S\+E\+N\+T\+\_\+\+Q\+U\+IT}
+ \}
+\end{DoxyCompactItemize}
+\subsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void {\bfseries \+\_\+lws\+\_\+log} (int filter, const char $\ast$format,...)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void {\bfseries \+\_\+lws\+\_\+logv} (int filter, const char $\ast$format, va\+\_\+list vl)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__log_ga42e39775c6b69b7251bdbf5a2cdd5dcd}{lwsl\+\_\+timestamp} (int level, char $\ast$p, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__log_ga898b1f03872ad019f507d4e35bbefa90}{lwsl\+\_\+hexdump} (void $\ast$buf, size\+\_\+t len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__log_ga244647f9e1bf0097ccdde66d74f41e26}{lws\+\_\+set\+\_\+log\+\_\+level} (int level, void($\ast$log\+\_\+emit\+\_\+function)(int level, const char $\ast$line))
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__log_gab7c0fc936cc9f1eb58e2bb234c15147c}{lwsl\+\_\+emit\+\_\+syslog} (int level, const char $\ast$line)
+\item 
+void $\ast$ {\bfseries mbed3\+\_\+create\+\_\+tcp\+\_\+stream\+\_\+socket} (void)\hypertarget{libwebsockets_8h_a0b056fdcf949a838ff82209b4a627dd9}{}\label{libwebsockets_8h_a0b056fdcf949a838ff82209b4a627dd9}
+
+\item 
+void {\bfseries mbed3\+\_\+delete\+\_\+tcp\+\_\+stream\+\_\+socket} (void $\ast$sockfd)\hypertarget{libwebsockets_8h_aefb2f20fe5bb29d79701a399838ef4ce}{}\label{libwebsockets_8h_aefb2f20fe5bb29d79701a399838ef4ce}
+
+\item 
+void {\bfseries mbed3\+\_\+tcp\+\_\+stream\+\_\+bind} (void $\ast$sock, int port, struct lws $\ast$)\hypertarget{libwebsockets_8h_a9f2a8506fd963db95a5103823c60fb0a}{}\label{libwebsockets_8h_a9f2a8506fd963db95a5103823c60fb0a}
+
+\item 
+void {\bfseries mbed3\+\_\+tcp\+\_\+stream\+\_\+accept} (void $\ast$sock, struct lws $\ast$)\hypertarget{libwebsockets_8h_a9032a3062641d334161c29adcc4fa15d}{}\label{libwebsockets_8h_a9032a3062641d334161c29adcc4fa15d}
+
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__wsclose_gaa1c863415d1783cd8de7938aa6efa262}{lws\+\_\+close\+\_\+reason} (struct lws $\ast$wsi, enum \hyperlink{group__wsclose_gae399c571df32ba532c0ca67da9284985}{lws\+\_\+close\+\_\+status} status, unsigned char $\ast$buf, size\+\_\+t len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__extensions_gae0e24e1768f83a7fb07896ce975704b9}{lws\+\_\+set\+\_\+extension\+\_\+option} (struct lws $\ast$wsi, const char $\ast$ext\+\_\+name, const char $\ast$opt\+\_\+name, const char $\ast$opt\+\_\+val)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__extensions_ga6fb3e2c3dfb9d64dc87026a4e99c128b}{lws\+\_\+ext\+\_\+parse\+\_\+options} (const struct \hyperlink{structlws__extension}{lws\+\_\+extension} $\ast$ext, struct lws $\ast$wsi, void $\ast$ext\+\_\+user, const struct \hyperlink{structlws__ext__options}{lws\+\_\+ext\+\_\+options} $\ast$opts, const char $\ast$o, int len)
+\item 
+L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__extensions_ga4cdbe42d872e21a448a947714d6c607e}{lws\+\_\+extension\+\_\+callback\+\_\+pm\+\_\+deflate} (struct lws\+\_\+context $\ast$context, const struct \hyperlink{structlws__extension}{lws\+\_\+extension} $\ast$ext, struct lws $\ast$wsi, enum lws\+\_\+extension\+\_\+callback\+\_\+reasons reason, void $\ast$user, void $\ast$in, size\+\_\+t len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$ \hyperlink{group__Protocols-and-Plugins_ga25754726d97c5f519d313e691a9fe29d}{lws\+\_\+vhost\+\_\+name\+\_\+to\+\_\+protocol} (struct lws\+\_\+vhost $\ast$vh, const char $\ast$name)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$ \hyperlink{group__Protocols-and-Plugins_ga72ad550786ca7976463589d347e62112}{lws\+\_\+get\+\_\+protocol} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$ \hyperlink{group__Protocols-and-Plugins_ga8bbe5e65faca068845704bab911a5030}{lws\+\_\+protocol\+\_\+get} (struct lws $\ast$wsi) L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+D\+E\+P\+R\+E\+C\+A\+T\+ED
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void $\ast$ \hyperlink{group__Protocols-and-Plugins_gaec0c0477288ff3f83aff38d357b883d1}{lws\+\_\+protocol\+\_\+vh\+\_\+priv\+\_\+zalloc} (struct lws\+\_\+vhost $\ast$vhost, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$prot, int size)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void $\ast$ \hyperlink{group__Protocols-and-Plugins_gaf3be4243443baac0f8be1fcfb4d25129}{lws\+\_\+protocol\+\_\+vh\+\_\+priv\+\_\+get} (struct lws\+\_\+vhost $\ast$vhost, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$prot)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__Protocols-and-Plugins_ga106b37ae9c247e84d191ab09441adc43}{lws\+\_\+finalize\+\_\+startup} (struct lws\+\_\+context $\ast$context)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+context $\ast$ \hyperlink{group__context-and-vhost_gaf2fff58562caab7510c41eeac85a8648}{lws\+\_\+create\+\_\+context} (struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$info)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__context-and-vhost_ga8ee0314028755f1ddfa9428e09b4fddb}{lws\+\_\+context\+\_\+destroy} (struct lws\+\_\+context $\ast$context)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__context-and-vhost_ga7e9d5405547a457d86e0b4f0ae2bb1c4}{lws\+\_\+set\+\_\+proxy} (struct lws\+\_\+vhost $\ast$vhost, const char $\ast$proxy)
+\item 
+L\+W\+S\+\_\+\+E\+X\+T\+E\+RN L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE struct lws\+\_\+vhost $\ast$ \hyperlink{group__context-and-vhost_ga0c54c667ccd9b8b3dddcd123ca72f87c}{lws\+\_\+create\+\_\+vhost} (struct lws\+\_\+context $\ast$context, struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$info)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__context-and-vhost_ga98d88c9080fd89c37114363a6474ea73}{lwsws\+\_\+get\+\_\+config\+\_\+globals} (struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$info, const char $\ast$d, char $\ast$$\ast$config\+\_\+strings, int $\ast$len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__context-and-vhost_ga341064721add2618ae1b29717493a212}{lwsws\+\_\+get\+\_\+config\+\_\+vhosts} (struct lws\+\_\+context $\ast$context, struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$info, const char $\ast$d, char $\ast$$\ast$config\+\_\+strings, int $\ast$len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+vhost $\ast$ \hyperlink{group__context-and-vhost_ga8db03e19a372e34ac25cf21af894a02c}{lws\+\_\+vhost\+\_\+get} (struct lws $\ast$wsi) L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+D\+E\+P\+R\+E\+C\+A\+T\+ED
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+vhost $\ast$ \hyperlink{group__context-and-vhost_ga06e77ce2916f8bc9826ef8d9d68e3932}{lws\+\_\+get\+\_\+vhost} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__context-and-vhost_ga94e6cc2223c4eec316b13bcebc3628b6}{lws\+\_\+json\+\_\+dump\+\_\+vhost} (const struct lws\+\_\+vhost $\ast$vh, char $\ast$buf, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__context-and-vhost_gae2134657cdd2ea7a59e13ad314e4c50d}{lws\+\_\+json\+\_\+dump\+\_\+context} (const struct lws\+\_\+context $\ast$context, char $\ast$buf, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void $\ast$ \hyperlink{group__context-and-vhost_gaeb12f934bfd178bd2132a9e73fc641da}{lws\+\_\+context\+\_\+user} (struct lws\+\_\+context $\ast$context)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__client_gac30a7be106abd0cedfbb2e8b8fe3a2f5}{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info} (struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} $\ast$ccinfo)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__client_ga4af0a20108a95e8b6d94dd4d80055ff3}{lws\+\_\+client\+\_\+connect} (struct lws\+\_\+context $\ast$clients, const char $\ast$address, int port, int ssl\+\_\+connection, const char $\ast$path, const char $\ast$host, const char $\ast$origin, const char $\ast$protocol, int ietf\+\_\+version\+\_\+or\+\_\+minus\+\_\+one) L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+D\+E\+P\+R\+E\+C\+A\+T\+ED
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__client_gac6a8558b4410961a880241c2ac1271e2}{lws\+\_\+client\+\_\+connect\+\_\+extended} (struct lws\+\_\+context $\ast$clients, const char $\ast$address, int port, int ssl\+\_\+connection, const char $\ast$path, const char $\ast$host, const char $\ast$origin, const char $\ast$protocol, int ietf\+\_\+version\+\_\+or\+\_\+minus\+\_\+one, void $\ast$userdata) L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+D\+E\+P\+R\+E\+C\+A\+T\+ED
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__client_ga4f44b8230e6732816ca5cd8d1aaaf340}{lws\+\_\+init\+\_\+vhost\+\_\+client\+\_\+ssl} (const struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$info, struct lws\+\_\+vhost $\ast$vhost)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int {\bfseries lws\+\_\+http\+\_\+client\+\_\+read} (struct lws $\ast$wsi, char $\ast$$\ast$buf, int $\ast$len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__service_gaf95bd0c663d6516a0c80047d9b1167a8}{lws\+\_\+service} (struct lws\+\_\+context $\ast$context, int timeout\+\_\+ms)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__service_ga9b3cc4473fd8848e5bbee7f310712939}{lws\+\_\+service\+\_\+tsi} (struct lws\+\_\+context $\ast$context, int timeout\+\_\+ms, int tsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__service_ga29c246707997ab7a466aa709aecd2d7b}{lws\+\_\+cancel\+\_\+service\+\_\+pt} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__service_ga53e3d0801dfda7960a7249dd559e68a2}{lws\+\_\+cancel\+\_\+service} (struct lws\+\_\+context $\ast$context)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__service_gad82efa5466d14a9f05aa06416375b28d}{lws\+\_\+service\+\_\+fd} (struct lws\+\_\+context $\ast$context, struct \hyperlink{structlws__pollfd}{lws\+\_\+pollfd} $\ast$\hyperlink{structpollfd}{pollfd})
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__service_gaebf426eda371ba23642fc11d8e0ace6b}{lws\+\_\+service\+\_\+fd\+\_\+tsi} (struct lws\+\_\+context $\ast$context, struct \hyperlink{structlws__pollfd}{lws\+\_\+pollfd} $\ast$\hyperlink{structpollfd}{pollfd}, int tsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__httpft_gab393a06d3d2722af4c3f8b06842c80d7}{lws\+\_\+serve\+\_\+http\+\_\+file} (struct lws $\ast$wsi, const char $\ast$file, const char $\ast$content\+\_\+type, const char $\ast$other\+\_\+headers, int other\+\_\+headers\+\_\+len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int {\bfseries lws\+\_\+serve\+\_\+http\+\_\+file\+\_\+fragment} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__html-chunked-substitution_ga643073f918c0a7016b690aae9793fd60}{lws\+\_\+chunked\+\_\+html\+\_\+process} (struct \hyperlink{structlws__process__html__args}{lws\+\_\+process\+\_\+html\+\_\+args} $\ast$args, struct \hyperlink{structlws__process__html__state}{lws\+\_\+process\+\_\+html\+\_\+state} $\ast$s)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const unsigned char $\ast$ \hyperlink{group__HTTP-headers-read_ga2c0597b2ef1d2cee35736c338bcbd17b}{lws\+\_\+token\+\_\+to\+\_\+string} (enum lws\+\_\+token\+\_\+indexes token)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__HTTP-headers-read_ga8ade0e1ffb0da7e62b989d8d867bf6c8}{lws\+\_\+hdr\+\_\+total\+\_\+length} (struct lws $\ast$wsi, enum lws\+\_\+token\+\_\+indexes h)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__HTTP-headers-read_ga594f3d0ece5b09c2ccf9f98ea533bb4e}{lws\+\_\+hdr\+\_\+fragment\+\_\+length} (struct lws $\ast$wsi, enum lws\+\_\+token\+\_\+indexes h, int frag\+\_\+idx)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__HTTP-headers-read_ga6ce6aa1c0155ea42b7708bed271d1c77}{lws\+\_\+hdr\+\_\+copy} (struct lws $\ast$wsi, char $\ast$dest, int len, enum lws\+\_\+token\+\_\+indexes h)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__HTTP-headers-read_gaa427cad61a9a5e3004afd65c4527b5e9}{lws\+\_\+hdr\+\_\+copy\+\_\+fragment} (struct lws $\ast$wsi, char $\ast$dest, int len, enum lws\+\_\+token\+\_\+indexes h, int frag\+\_\+idx)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char $\ast$ \hyperlink{group__HTTP-headers-read_ga84e9ce5e71a77501a0998ac403a984c2}{lws\+\_\+get\+\_\+urlarg\+\_\+by\+\_\+name} (struct lws $\ast$wsi, const char $\ast$name, char $\ast$buf, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__HTTP-headers-create_ga29b7d6d2ddfdbaff3d8b607e7e3151b6}{lws\+\_\+add\+\_\+http\+\_\+header\+\_\+status} (struct lws $\ast$wsi, unsigned int code, unsigned char $\ast$$\ast$p, unsigned char $\ast$end)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__HTTP-headers-create_ga2b36bf44405755ff51c1939303b995a8}{lws\+\_\+add\+\_\+http\+\_\+header\+\_\+by\+\_\+name} (struct lws $\ast$wsi, const unsigned char $\ast$name, const unsigned char $\ast$value, int length, unsigned char $\ast$$\ast$p, unsigned char $\ast$end)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__HTTP-headers-create_gaf74adb761b22566ad70004882712dce1}{lws\+\_\+add\+\_\+http\+\_\+header\+\_\+by\+\_\+token} (struct lws $\ast$wsi, enum lws\+\_\+token\+\_\+indexes token, const unsigned char $\ast$value, int length, unsigned char $\ast$$\ast$p, unsigned char $\ast$end)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__HTTP-headers-create_gacc76a5babcb4dce1b01b1955aa7a2faf}{lws\+\_\+add\+\_\+http\+\_\+header\+\_\+content\+\_\+length} (struct lws $\ast$wsi, unsigned long content\+\_\+length, unsigned char $\ast$$\ast$p, unsigned char $\ast$end)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__HTTP-headers-create_ga4887605ff2242a54db3a7fa01f6f864b}{lws\+\_\+finalize\+\_\+http\+\_\+header} (struct lws $\ast$wsi, unsigned char $\ast$$\ast$p, unsigned char $\ast$end)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+spa $\ast$ \hyperlink{group__form-parsing_ga162f86762173a2bc8c28497941d74815}{lws\+\_\+spa\+\_\+create} (struct lws $\ast$wsi, const char $\ast$const $\ast$param\+\_\+names, int count\+\_\+params, int max\+\_\+storage, \hyperlink{group__form-parsing_ga5a70527c0861c2ffa3d29333a6aa7f8e}{lws\+\_\+spa\+\_\+fileupload\+\_\+cb} opt\+\_\+cb, void $\ast$opt\+\_\+data)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__form-parsing_ga9ad9ebf5ea1a7108415ed7e04cb231d2}{lws\+\_\+spa\+\_\+process} (struct lws\+\_\+spa $\ast$spa, const char $\ast$in, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__form-parsing_ga83835bf250ee3d4a60f36a182f2b8d24}{lws\+\_\+spa\+\_\+finalize} (struct lws\+\_\+spa $\ast$spa)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__form-parsing_ga3fbe378632f85ec9a14cc2c1687bf05f}{lws\+\_\+spa\+\_\+get\+\_\+length} (struct lws\+\_\+spa $\ast$spa, int n)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char $\ast$ \hyperlink{group__form-parsing_ga2da476217166da02704b90d3a8d4f3cd}{lws\+\_\+spa\+\_\+get\+\_\+string} (struct lws\+\_\+spa $\ast$spa, int n)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__form-parsing_gaaa482f07dad3f04b391cccf0a814e13b}{lws\+\_\+spa\+\_\+destroy} (struct lws\+\_\+spa $\ast$spa)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char $\ast$ \hyperlink{group__urlendec_gabc2888476e50e001c875c1a8abf455b7}{lws\+\_\+urlencode} (char $\ast$escaped, const char $\ast$string, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__urlendec_gaa373a9c16acdd96c395af61ab915ece3}{lws\+\_\+urldecode} (char $\ast$string, const char $\ast$escaped, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__http_gac8a4a71240857dc6b2ed70456b6923f4}{lws\+\_\+return\+\_\+http\+\_\+status} (struct lws $\ast$wsi, unsigned int code, const char $\ast$html\+\_\+body)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__http_ga8fbf01e473ac421fc33ad9f8da8b8a25}{lws\+\_\+http\+\_\+redirect} (struct lws $\ast$wsi, int code, const unsigned char $\ast$loc, int len, unsigned char $\ast$$\ast$p, unsigned char $\ast$end)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__http_gad27aed6c66a41b2b89ffe4da2a309e8a}{lws\+\_\+http\+\_\+transaction\+\_\+completed} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char $\ast$ \hyperlink{group__pur_ga9cc82f06e5ae7e71458626d7a39a5865}{lws\+\_\+sql\+\_\+purify} (char $\ast$escaped, const char $\ast$string, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char $\ast$ \hyperlink{group__pur_gab15187efcfa256b7c928562c182b92a3}{lws\+\_\+json\+\_\+purify} (char $\ast$escaped, const char $\ast$string, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int {\bfseries lws\+\_\+ev\+\_\+sigint\+\_\+cfg} (struct lws\+\_\+context $\ast$context, int use\+\_\+ev\+\_\+sigint, lws\+\_\+ev\+\_\+signal\+\_\+cb\+\_\+t $\ast$cb)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int {\bfseries lws\+\_\+ev\+\_\+initloop} (struct lws\+\_\+context $\ast$context, struct ev\+\_\+loop $\ast$loop, int tsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void {\bfseries lws\+\_\+ev\+\_\+sigint\+\_\+cb} (struct ev\+\_\+loop $\ast$loop, struct ev\+\_\+signal $\ast$watcher, int revents)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int {\bfseries lws\+\_\+uv\+\_\+sigint\+\_\+cfg} (struct lws\+\_\+context $\ast$context, int use\+\_\+uv\+\_\+sigint, uv\+\_\+signal\+\_\+cb cb)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void {\bfseries lws\+\_\+libuv\+\_\+run} (const struct lws\+\_\+context $\ast$context, int tsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void {\bfseries lws\+\_\+libuv\+\_\+stop} (struct lws\+\_\+context $\ast$context)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int {\bfseries lws\+\_\+uv\+\_\+initloop} (struct lws\+\_\+context $\ast$context, uv\+\_\+loop\+\_\+t $\ast$loop, int tsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN uv\+\_\+loop\+\_\+t $\ast$ {\bfseries lws\+\_\+uv\+\_\+getloop} (struct lws\+\_\+context $\ast$context, int tsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void {\bfseries lws\+\_\+uv\+\_\+sigint\+\_\+cb} (uv\+\_\+signal\+\_\+t $\ast$watcher, int signum)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__timeout_gaced9f9237f6172fed9f730a2af51345a}{lws\+\_\+set\+\_\+timeout} (struct lws $\ast$wsi, enum pending\+\_\+timeout reason, int secs)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__sending-data_gafd5fdd285a0e25ba7e3e1051deec1001}{lws\+\_\+write} (struct lws $\ast$wsi, unsigned char $\ast$buf, size\+\_\+t len, enum \hyperlink{group__sending-data_ga98b099cf8c1c7e38ad78501f270e193d}{lws\+\_\+write\+\_\+protocol} protocol)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_ga941caaa468bc507b1cae52275f58800d}{lws\+\_\+callback\+\_\+on\+\_\+writable} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_gabbe4655c7eeb3eb1671b2323ec6b3107}{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol} (const struct lws\+\_\+context $\ast$context, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$protocol)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_ga8570860e191b62db264f2bac67354ea8}{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol\+\_\+vhost} (const struct lws\+\_\+vhost $\ast$vhost, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$protocol)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_gacf04bbe089f47c971c6408c5efe2ac70}{lws\+\_\+callback\+\_\+all\+\_\+protocol} (struct lws\+\_\+context $\ast$context, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$protocol, int reason)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_ga13c984d8c5a44a745fd02bc2fba36053}{lws\+\_\+callback\+\_\+all\+\_\+protocol\+\_\+vhost} (struct lws\+\_\+vhost $\ast$vh, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$protocol, int reason)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_ga60939cf0c073d933fde3d17f3591caf5}{lws\+\_\+callback\+\_\+vhost\+\_\+protocols} (struct lws $\ast$wsi, int reason, void $\ast$in, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_gaa709e02a10558753c851e58f1e2c16ba}{lws\+\_\+get\+\_\+socket\+\_\+fd} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN size\+\_\+t \hyperlink{group__callback-when-writeable_gac4643fe16b0940ae5b68b4ee6195cbde}{lws\+\_\+get\+\_\+peer\+\_\+write\+\_\+allowance} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{libwebsockets_8h_adf4abd01e8c43f07c6e498ce13590c3e}{lws\+\_\+rx\+\_\+flow\+\_\+control} (struct lws $\ast$wsi, int enable)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{libwebsockets_8h_a5e627dbf1db48170ef486edbaf268672}{lws\+\_\+rx\+\_\+flow\+\_\+allow\+\_\+all\+\_\+protocol} (const struct lws\+\_\+context $\ast$context, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$protocol)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN size\+\_\+t \hyperlink{libwebsockets_8h_a72fe65e83b8bb03f904a1a256c673536}{lws\+\_\+remaining\+\_\+packet\+\_\+payload} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws $\ast$ \hyperlink{group__sock-adopt_gabe71b7462afb21c767bdc67334f305af}{lws\+\_\+adopt\+\_\+socket} (struct lws\+\_\+context $\ast$context, lws\+\_\+sockfd\+\_\+type accept\+\_\+fd)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws $\ast$ \hyperlink{group__sock-adopt_gab2d045df0f81afe00891aaed312d552b}{lws\+\_\+adopt\+\_\+socket\+\_\+readbuf} (struct lws\+\_\+context $\ast$context, lws\+\_\+sockfd\+\_\+type accept\+\_\+fd, const char $\ast$readbuf, size\+\_\+t len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__net_gad0df22db2be9fc65a667a1e83f9a92a4}{lws\+\_\+canonical\+\_\+hostname} (struct lws\+\_\+context $\ast$context)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__net_ga092e5f473b3347f03ffeef8a950080f3}{lws\+\_\+get\+\_\+peer\+\_\+addresses} (struct lws $\ast$wsi, lws\+\_\+sockfd\+\_\+type fd, char $\ast$name, int name\+\_\+len, char $\ast$rip, int rip\+\_\+len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char $\ast$ \hyperlink{group__net_gad01014fed09759741b6d23afccfdaacc}{lws\+\_\+get\+\_\+peer\+\_\+simple} (struct lws $\ast$wsi, char $\ast$name, int namelen)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__net_ga869d8bdffb0f2a7ce08e3ce10d6be3d8}{lws\+\_\+interface\+\_\+to\+\_\+sa} (int ipv6, const char $\ast$ifname, struct sockaddr\+\_\+in $\ast$addr, size\+\_\+t addrlen)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__misc_ga58f906c6be0ca80efd813f694569dd4a}{lws\+\_\+get\+\_\+random} (struct lws\+\_\+context $\ast$context, void $\ast$buf, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__misc_gace5171b1dbbc03ec89a98f8afdb5c9af}{lws\+\_\+daemonize} (const char $\ast$\+\_\+lock\+\_\+path)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__misc_gac6abfc0b2bd5b2f09281a4432bb2f5f0}{lws\+\_\+get\+\_\+library\+\_\+version} (void)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void $\ast$ \hyperlink{group__misc_gaa194584fff9698f3b280658f770ccd0f}{lws\+\_\+wsi\+\_\+user} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__misc_ga1ec0d9faac5d3a5824d765c287c043aa}{lws\+\_\+parse\+\_\+uri} (char $\ast$p, const char $\ast$$\ast$prot, const char $\ast$$\ast$ads, int $\ast$port, const char $\ast$$\ast$path)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN unsigned long \hyperlink{group__misc_ga33bf2635033710b25f931b57ed663e1e}{lws\+\_\+now\+\_\+secs} (void)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+context $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__misc_ga0af4f7d2dd375aeedcfa7eb0e1101c4b}{lws\+\_\+get\+\_\+context} (const struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__misc_ga629f48268fd1856b54b11172991b97d9}{lws\+\_\+get\+\_\+count\+\_\+threads} (struct lws\+\_\+context $\ast$context)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__misc_ga8930fe36a3f3eefe4a6a4fd499d8e899}{lws\+\_\+get\+\_\+parent} (const struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__misc_gacae4d7b6a8d22e4c2d82ff8b12c1e234}{lws\+\_\+get\+\_\+child} (const struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int {\bfseries lws\+\_\+read} (struct lws $\ast$wsi, unsigned char $\ast$buf, size\+\_\+t len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__misc_gab321ed812f46f6dc7ef9e3ca6f00cf1b}{lws\+\_\+set\+\_\+allocator} (void $\ast$($\ast$realloc)(void $\ast$ptr, size\+\_\+t size))
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__wsstatus_ga2bb3655329b4651cd06f79ee3a764421}{lws\+\_\+send\+\_\+pipe\+\_\+choked} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__wsstatus_ga08e9ee165fca503fd9427d55cfecac37}{lws\+\_\+is\+\_\+final\+\_\+fragment} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN unsigned char \hyperlink{group__wsstatus_ga3df5045656dfb6b0e63a38de2dca79d2}{lws\+\_\+get\+\_\+reserved\+\_\+bits} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__wsstatus_gaeca4afc94b1f026034f99cbba37e2f85}{lws\+\_\+partial\+\_\+buffered} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__wsstatus_gaccd9c59336efad8af0554f79cc5966fd}{lws\+\_\+frame\+\_\+is\+\_\+binary} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__wsstatus_ga26a140623d202dd2bf2004deb6994baa}{lws\+\_\+is\+\_\+ssl} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__wsstatus_ga4ad226d5e01024b4046f4a5a37199aa1}{lws\+\_\+is\+\_\+cgi} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN unsigned char $\ast$ \hyperlink{group__sha_ga7b09ab74646266f0b555103b3bb8dfe5}{lws\+\_\+\+S\+H\+A1} (const unsigned char $\ast$d, size\+\_\+t n, unsigned char $\ast$md)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__sha_gaf39765e4a3b413efb65e4698b2ec3575}{lws\+\_\+b64\+\_\+encode\+\_\+string} (const char $\ast$in, int in\+\_\+len, char $\ast$out, int out\+\_\+size)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__sha_ga66316e6a5a0644a09d5a10e919dfdd8d}{lws\+\_\+b64\+\_\+decode\+\_\+string} (const char $\ast$in, char $\ast$out, int out\+\_\+size)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{libwebsockets_8h_af52923473c59e643a974d65e12290831}{lws\+\_\+cgi} (struct lws $\ast$wsi, const char $\ast$const $\ast$exec\+\_\+array, int script\+\_\+uri\+\_\+path\+\_\+len, int timeout\+\_\+secs, const struct \hyperlink{structlws__protocol__vhost__options}{lws\+\_\+protocol\+\_\+vhost\+\_\+options} $\ast$mp\+\_\+cgienv)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{libwebsockets_8h_a5326d3402af8429a166dd991dc65c4a2}{lws\+\_\+cgi\+\_\+write\+\_\+split\+\_\+stdout\+\_\+headers} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{libwebsockets_8h_a27bb0b3cdcd0af839c928c253b521ff4}{lws\+\_\+cgi\+\_\+kill} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct \hyperlink{structlws__plat__file__ops}{lws\+\_\+plat\+\_\+file\+\_\+ops} $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__fops_gac08aef64c4c34647ed699b24759b6b0e}{lws\+\_\+get\+\_\+fops} (struct lws\+\_\+context $\ast$context)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__smtp_ga77fc9b56a1bb39484844981ec375fc29}{lws\+\_\+email\+\_\+init} (struct \hyperlink{structlws__email}{lws\+\_\+email} $\ast$email, uv\+\_\+loop\+\_\+t $\ast$loop, int max\+\_\+content)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__smtp_ga5e535e346d92a9daf00be33abf79d4eb}{lws\+\_\+email\+\_\+check} (struct \hyperlink{structlws__email}{lws\+\_\+email} $\ast$email)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__smtp_ga25298a5afc1074e13b2d5711a86432b2}{lws\+\_\+email\+\_\+destroy} (struct \hyperlink{structlws__email}{lws\+\_\+email} $\ast$email)
+\end{DoxyCompactItemize}
+
+
+\subsection{Function Documentation}
+\index{libwebsockets.\+h@{libwebsockets.\+h}!lws\+\_\+cgi@{lws\+\_\+cgi}}
+\index{lws\+\_\+cgi@{lws\+\_\+cgi}!libwebsockets.\+h@{libwebsockets.\+h}}
+\subsubsection[{\texorpdfstring{lws\+\_\+cgi(struct lws $\ast$wsi, const char $\ast$const $\ast$exec\+\_\+array, int script\+\_\+uri\+\_\+path\+\_\+len, int timeout\+\_\+secs, const struct lws\+\_\+protocol\+\_\+vhost\+\_\+options $\ast$mp\+\_\+cgienv)}{lws\_cgi(struct lws *wsi, const char *const *exec\_array, int script\_uri\_path\_len, int timeout\_secs, const struct lws\_protocol\_vhost\_options *mp\_cgienv)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+cgi (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi, }
+\item[{const char $\ast$const $\ast$}]{exec\+\_\+array, }
+\item[{int}]{script\+\_\+uri\+\_\+path\+\_\+len, }
+\item[{int}]{timeout\+\_\+secs, }
+\item[{const struct {\bf lws\+\_\+protocol\+\_\+vhost\+\_\+options} $\ast$}]{mp\+\_\+cgienv}
+\end{DoxyParamCaption}
+)}\hypertarget{libwebsockets_8h_af52923473c59e643a974d65e12290831}{}\label{libwebsockets_8h_af52923473c59e643a974d65e12290831}
+lws\+\_\+cgi\+: spawn network-\/connected cgi process
+
+
+\begin{DoxyParams}{Parameters}
+{\em wsi} & connection to own the process \\
+\hline
+{\em exec\+\_\+array} & array of \char`\"{}exec-\/name\char`\"{} \char`\"{}arg1\char`\"{} ... \char`\"{}argn\char`\"{} N\+U\+LL \\
+\hline
+{\em script\+\_\+uri\+\_\+path\+\_\+len} & how many chars on the left of the uri are the path to the cgi \\
+\hline
+{\em timeout\+\_\+secs} & seconds script should be allowed to run \\
+\hline
+{\em mp\+\_\+cgienv} & pvo list with per-\/vhost cgi options to put in env \\
+\hline
+\end{DoxyParams}
+\index{libwebsockets.\+h@{libwebsockets.\+h}!lws\+\_\+cgi\+\_\+kill@{lws\+\_\+cgi\+\_\+kill}}
+\index{lws\+\_\+cgi\+\_\+kill@{lws\+\_\+cgi\+\_\+kill}!libwebsockets.\+h@{libwebsockets.\+h}}
+\subsubsection[{\texorpdfstring{lws\+\_\+cgi\+\_\+kill(struct lws $\ast$wsi)}{lws\_cgi\_kill(struct lws *wsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+cgi\+\_\+kill (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi}
+\end{DoxyParamCaption}
+)}\hypertarget{libwebsockets_8h_a27bb0b3cdcd0af839c928c253b521ff4}{}\label{libwebsockets_8h_a27bb0b3cdcd0af839c928c253b521ff4}
+lws\+\_\+cgi\+\_\+kill\+: terminate cgi process associated with wsi
+
+
+\begin{DoxyParams}{Parameters}
+{\em wsi} & connection to own the process \\
+\hline
+\end{DoxyParams}
+\index{libwebsockets.\+h@{libwebsockets.\+h}!lws\+\_\+cgi\+\_\+write\+\_\+split\+\_\+stdout\+\_\+headers@{lws\+\_\+cgi\+\_\+write\+\_\+split\+\_\+stdout\+\_\+headers}}
+\index{lws\+\_\+cgi\+\_\+write\+\_\+split\+\_\+stdout\+\_\+headers@{lws\+\_\+cgi\+\_\+write\+\_\+split\+\_\+stdout\+\_\+headers}!libwebsockets.\+h@{libwebsockets.\+h}}
+\subsubsection[{\texorpdfstring{lws\+\_\+cgi\+\_\+write\+\_\+split\+\_\+stdout\+\_\+headers(struct lws $\ast$wsi)}{lws\_cgi\_write\_split\_stdout\_headers(struct lws *wsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+cgi\+\_\+write\+\_\+split\+\_\+stdout\+\_\+headers (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi}
+\end{DoxyParamCaption}
+)}\hypertarget{libwebsockets_8h_a5326d3402af8429a166dd991dc65c4a2}{}\label{libwebsockets_8h_a5326d3402af8429a166dd991dc65c4a2}
+lws\+\_\+cgi\+\_\+write\+\_\+split\+\_\+stdout\+\_\+headers\+: write cgi output accounting for header part
+
+
+\begin{DoxyParams}{Parameters}
+{\em wsi} & connection to own the process \\
+\hline
+\end{DoxyParams}
+\index{libwebsockets.\+h@{libwebsockets.\+h}!lws\+\_\+remaining\+\_\+packet\+\_\+payload@{lws\+\_\+remaining\+\_\+packet\+\_\+payload}}
+\index{lws\+\_\+remaining\+\_\+packet\+\_\+payload@{lws\+\_\+remaining\+\_\+packet\+\_\+payload}!libwebsockets.\+h@{libwebsockets.\+h}}
+\subsubsection[{\texorpdfstring{lws\+\_\+remaining\+\_\+packet\+\_\+payload(struct lws $\ast$wsi)}{lws\_remaining\_packet\_payload(struct lws *wsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN size\+\_\+t lws\+\_\+remaining\+\_\+packet\+\_\+payload (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi}
+\end{DoxyParamCaption}
+)}\hypertarget{libwebsockets_8h_a72fe65e83b8bb03f904a1a256c673536}{}\label{libwebsockets_8h_a72fe65e83b8bb03f904a1a256c673536}
+\hyperlink{libwebsockets_8h_a72fe65e83b8bb03f904a1a256c673536}{lws\+\_\+remaining\+\_\+packet\+\_\+payload()} -\/ Bytes to come before \char`\"{}overall\char`\"{} rx packet is complete 
+\begin{DoxyParams}{Parameters}
+{\em wsi} & Websocket instance (available from user callback) \begin{DoxyVerb} This function is intended to be called from the callback if the
+\end{DoxyVerb}
+ user code is interested in \char`\"{}complete packets\char`\"{} from the client. libwebsockets just passes through payload as it comes and issues a buffer additionally when it hits a built-\/in limit. The L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+R\+E\+C\+E\+I\+VE callback handler can use this A\+PI to find out if the buffer it has just been given is the last piece of a \char`\"{}complete packet\char`\"{} from the client -- when that is the case \hyperlink{libwebsockets_8h_a72fe65e83b8bb03f904a1a256c673536}{lws\+\_\+remaining\+\_\+packet\+\_\+payload()} will return 0.\\
+\hline
+\end{DoxyParams}
+Many protocols won\textquotesingle{}t care becuse their packets are always small. \index{libwebsockets.\+h@{libwebsockets.\+h}!lws\+\_\+rx\+\_\+flow\+\_\+allow\+\_\+all\+\_\+protocol@{lws\+\_\+rx\+\_\+flow\+\_\+allow\+\_\+all\+\_\+protocol}}
+\index{lws\+\_\+rx\+\_\+flow\+\_\+allow\+\_\+all\+\_\+protocol@{lws\+\_\+rx\+\_\+flow\+\_\+allow\+\_\+all\+\_\+protocol}!libwebsockets.\+h@{libwebsockets.\+h}}
+\subsubsection[{\texorpdfstring{lws\+\_\+rx\+\_\+flow\+\_\+allow\+\_\+all\+\_\+protocol(const struct lws\+\_\+context $\ast$context, const struct lws\+\_\+protocols $\ast$protocol)}{lws\_rx\_flow\_allow\_all\_protocol(const struct lws\_context *context, const struct lws\_protocols *protocol)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void lws\+\_\+rx\+\_\+flow\+\_\+allow\+\_\+all\+\_\+protocol (
+\begin{DoxyParamCaption}
+\item[{const struct lws\+\_\+context $\ast$}]{context, }
+\item[{const struct {\bf lws\+\_\+protocols} $\ast$}]{protocol}
+\end{DoxyParamCaption}
+)}\hypertarget{libwebsockets_8h_a5e627dbf1db48170ef486edbaf268672}{}\label{libwebsockets_8h_a5e627dbf1db48170ef486edbaf268672}
+\hyperlink{libwebsockets_8h_a5e627dbf1db48170ef486edbaf268672}{lws\+\_\+rx\+\_\+flow\+\_\+allow\+\_\+all\+\_\+protocol()} -\/ Allow all connections with this protocol to receive
+
+When the user server code realizes it can accept more input, it can call this to have the RX flow restriction removed from all connections using the given protocol. 
+\begin{DoxyParams}{Parameters}
+{\em context} & lws\+\_\+context \\
+\hline
+{\em protocol} & all connections using this protocol will be allowed to receive \\
+\hline
+\end{DoxyParams}
+\index{libwebsockets.\+h@{libwebsockets.\+h}!lws\+\_\+rx\+\_\+flow\+\_\+control@{lws\+\_\+rx\+\_\+flow\+\_\+control}}
+\index{lws\+\_\+rx\+\_\+flow\+\_\+control@{lws\+\_\+rx\+\_\+flow\+\_\+control}!libwebsockets.\+h@{libwebsockets.\+h}}
+\subsubsection[{\texorpdfstring{lws\+\_\+rx\+\_\+flow\+\_\+control(struct lws $\ast$wsi, int enable)}{lws\_rx\_flow\_control(struct lws *wsi, int enable)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+rx\+\_\+flow\+\_\+control (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi, }
+\item[{int}]{enable}
+\end{DoxyParamCaption}
+)}\hypertarget{libwebsockets_8h_adf4abd01e8c43f07c6e498ce13590c3e}{}\label{libwebsockets_8h_adf4abd01e8c43f07c6e498ce13590c3e}
+\hyperlink{libwebsockets_8h_adf4abd01e8c43f07c6e498ce13590c3e}{lws\+\_\+rx\+\_\+flow\+\_\+control()} -\/ Enable and disable socket servicing for received packets.
+
+If the output side of a server process becomes choked, this allows flow control for the input side.
+
+
+\begin{DoxyParams}{Parameters}
+{\em wsi} & Websocket connection instance to get callback for \\
+\hline
+{\em enable} & 0 = disable read servicing for this connection, 1 = enable \\
+\hline
+\end{DoxyParams}

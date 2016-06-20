@@ -1396,22 +1396,6 @@ if (LWS_WITH_LWSWS)
 endif (LWS_WITH_LWSWS)
 
 if (UNIX)
-	# Generate documentation.
-	# TODO: Fix this on Windows.
-	message("Generating API documentation")
-	file(GLOB C_FILES "${PROJECT_SOURCE_DIR}/lib/*.c")
-	list(SORT C_FILES)
-	execute_process(COMMAND "${CMAKE_COMMAND}" -E make_directory "${PROJECT_BINARY_DIR}/doc/")
-
-	execute_process(
-		COMMAND "${PROJECT_SOURCE_DIR}/scripts/kernel-doc" -html ${C_FILES} ${HDR_PUBLIC}
-		OUTPUT_FILE "${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.html"
-		ERROR_QUIET)
-
-	execute_process(
-		COMMAND "${PROJECT_SOURCE_DIR}/scripts/kernel-doc" -text ${C_FILES} ${HDR_PUBLIC}
-		OUTPUT_FILE "${PROJECT_BINARY_DIR}/doc/libwebsockets-api-doc.txt"
-		ERROR_QUIET)
 
 # Generate and install pkgconfig.
 # (This is not indented, because the tabs will be part of the output)

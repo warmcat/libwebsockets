@@ -630,29 +630,6 @@ completed:
 }
 #endif
 
-/**
- * lws_service_fd() - Service polled socket with something waiting
- * @context:	Websocket context
- * @pollfd:	The pollfd entry describing the socket fd and which events
- *		happened.
- *
- *	This function takes a pollfd that has POLLIN or POLLOUT activity and
- *	services it according to the state of the associated
- *	struct lws.
- *
- *	The one call deals with all "service" that might happen on a socket
- *	including listen accepts, http files as well as websocket protocol.
- *
- *	If a pollfd says it has something, you can just pass it to
- *	lws_service_fd() whether it is a socket handled by lws or not.
- *	If it sees it is a lws socket, the traffic will be handled and
- *	pollfd->revents will be zeroed now.
- *
- *	If the socket is foreign to lws, it leaves revents alone.  So you can
- *	see if you should service yourself by checking the pollfd revents
- *	after letting lws try to service it.
- */
-
 LWS_VISIBLE int
 lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int tsi)
 {
@@ -1088,38 +1065,6 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 {
 	return lws_service_fd_tsi(context, pollfd, 0);
 }
-
-/**
- * lws_service() - Service any pending websocket activity
- * @context:	Websocket context
- * @timeout_ms:	Timeout for poll; 0 means return immediately if nothing needed
- *		service otherwise block and service immediately, returning
- *		after the timeout if nothing needed service.
- *
- *	This function deals with any pending websocket traffic, for three
- *	kinds of event.  It handles these events on both server and client
- *	types of connection the same.
- *
- *	1) Accept new connections to our context's server
- *
- *	2) Call the receive callback for incoming frame data received by
- *	    server or client connections.
- *
- *	You need to call this service function periodically to all the above
- *	functions to happen; if your application is single-threaded you can
- *	just call it in your main event loop.
- *
- *	Alternatively you can fork a new process that asynchronously handles
- *	calling this service in a loop.  In that case you are happy if this
- *	call blocks your thread until it needs to take care of something and
- *	would call it with a large nonzero timeout.  Your loop then takes no
- *	CPU while there is nothing happening.
- *
- *	If you are calling it in a single-threaded app, you don't want it to
- *	wait around blocking other things in your loop from happening, so you
- *	would call it with a timeout_ms of 0, so it returns immediately if
- *	nothing is pending, or as soon as it services whatever was pending.
- */
 
 LWS_VISIBLE int
 lws_service(struct lws_context *context, int timeout_ms)

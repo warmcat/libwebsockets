@@ -1,0 +1,68 @@
+\hypertarget{group__urlendec}{}\section{Urlencode and Urldecode}
+\label{group__urlendec}\index{Urlencode and Urldecode@{Urlencode and Urldecode}}
+\subsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char $\ast$ \hyperlink{group__urlendec_gabc2888476e50e001c875c1a8abf455b7}{lws\+\_\+urlencode} (char $\ast$escaped, const char $\ast$string, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__urlendec_gaa373a9c16acdd96c395af61ab915ece3}{lws\+\_\+urldecode} (char $\ast$string, const char $\ast$escaped, int len)
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+\subsubsection*{H\+T\+ML chunked Substitution}
+
+A\+P\+Is for receiving chunks of text, replacing a set of variable names via a callback, and then prepending and appending H\+T\+ML chunked encoding headers. 
+
+\subsection{Function Documentation}
+\index{Urlencode and Urldecode@{Urlencode and Urldecode}!lws\+\_\+urldecode@{lws\+\_\+urldecode}}
+\index{lws\+\_\+urldecode@{lws\+\_\+urldecode}!Urlencode and Urldecode@{Urlencode and Urldecode}}
+\subsubsection[{\texorpdfstring{lws\+\_\+urldecode(char $\ast$string, const char $\ast$escaped, int len)}{lws\_urldecode(char *string, const char *escaped, int len)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+urldecode (
+\begin{DoxyParamCaption}
+\item[{char $\ast$}]{string, }
+\item[{const char $\ast$}]{escaped, }
+\item[{int}]{len}
+\end{DoxyParamCaption}
+)}\hypertarget{group__urlendec_gaa373a9c16acdd96c395af61ab915ece3}{}\label{group__urlendec_gaa373a9c16acdd96c395af61ab915ece3}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__urlendec_gaa373a9c16acdd96c395af61ab915ece3}{lws\+\_\+urldecode()} -\/ like strncpy but with urldecoding
+
+
+\begin{DoxyParams}{Parameters}
+{\em string} & output buffer \\
+\hline
+{\em escaped} & input buffer (\textquotesingle{}\textbackslash{}0\textquotesingle{} terminated) \\
+\hline
+{\em len} & output buffer max length\\
+\hline
+\end{DoxyParams}
+This is only useful for \textquotesingle{}\textbackslash{}0\textquotesingle{} terminated strings
+
+Since urldecoding only shrinks the output string, it is possible to do it in-\/place, ie, string == escaped \index{Urlencode and Urldecode@{Urlencode and Urldecode}!lws\+\_\+urlencode@{lws\+\_\+urlencode}}
+\index{lws\+\_\+urlencode@{lws\+\_\+urlencode}!Urlencode and Urldecode@{Urlencode and Urldecode}}
+\subsubsection[{\texorpdfstring{lws\+\_\+urlencode(char $\ast$escaped, const char $\ast$string, int len)}{lws\_urlencode(char *escaped, const char *string, int len)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char$\ast$ lws\+\_\+urlencode (
+\begin{DoxyParamCaption}
+\item[{char $\ast$}]{escaped, }
+\item[{const char $\ast$}]{string, }
+\item[{int}]{len}
+\end{DoxyParamCaption}
+)}\hypertarget{group__urlendec_gabc2888476e50e001c875c1a8abf455b7}{}\label{group__urlendec_gabc2888476e50e001c875c1a8abf455b7}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__urlendec_gabc2888476e50e001c875c1a8abf455b7}{lws\+\_\+urlencode()} -\/ like strncpy but with urlencoding
+
+
+\begin{DoxyParams}{Parameters}
+{\em escaped} & output buffer \\
+\hline
+{\em string} & input buffer (\textquotesingle{}/0\textquotesingle{} terminated) \\
+\hline
+{\em len} & output buffer max length\\
+\hline
+\end{DoxyParams}
+Because urlencoding expands the output string, it\textquotesingle{}s not possible to do it in-\/place, ie, with escaped == string 

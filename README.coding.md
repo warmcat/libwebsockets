@@ -1,3 +1,6 @@
+Notes about coding with lws
+===========================
+
 Daemonization
 -------------
 
@@ -74,7 +77,8 @@ clients).
 If you want to send something, do not just send it but request a callback
 when the socket is writeable using
 
- - `lws_callback_on_writable(context, wsi)`` for a specific `wsi`, or
+ - `lws_callback_on_writable(context, wsi)` for a specific `wsi`, or
+ 
  - `lws_callback_on_writable_all_protocol(protocol)` for all connections
 using that protocol to get a callback when next writeable.
 
@@ -130,24 +134,24 @@ check can be combined with `libwebsockets_remaining_packet_payload`
 to gather the whole contents of a message, eg:
 
 ```
-    case LWS_CALLBACK_RECEIVE:
-    {
-        Client * const client = (Client *)user;
-        const size_t remaining = lws_remaining_packet_payload(wsi);
-
-        if (!remaining && lws_is_final_fragment(wsi)) {
-            if (client->HasFragments()) {
-                client->AppendMessageFragment(in, len, 0);
-                in = (void *)client->GetMessage();
-                len = client->GetMessageLength();
-            }
-
-            client->ProcessMessage((char *)in, len, wsi);
-            client->ResetMessage();
-        } else
-            client->AppendMessageFragment(in, len, remaining);
-    }
-    break;
+	    case LWS_CALLBACK_RECEIVE:
+	    {
+	        Client * const client = (Client *)user;
+	        const size_t remaining = lws_remaining_packet_payload(wsi);
+	
+	        if (!remaining && lws_is_final_fragment(wsi)) {
+	            if (client->HasFragments()) {
+	                client->AppendMessageFragment(in, len, 0);
+	                in = (void *)client->GetMessage();
+	                len = client->GetMessageLength();
+	            }
+	
+	            client->ProcessMessage((char *)in, len, wsi);
+	            client->ResetMessage();
+	        } else
+	            client->AppendMessageFragment(in, len, remaining);
+	    }
+	    break;
 ```
 
 The test app libwebsockets-test-fraggle sources also show how to
@@ -205,14 +209,14 @@ Using with in c++ apps
 The library is ready for use by C++ apps.  You can get started quickly by
 copying the test server
 
-```bash
-$ cp test-server/test-server.c test.cpp
+```
+	$ cp test-server/test-server.c test.cpp
 ```
 
 and building it in C++ like this
 
-```bash
-$ g++ -DINSTALL_DATADIR=\"/usr/share\" -ocpptest test.cpp -lwebsockets
+```
+	$ g++ -DINSTALL_DATADIR=\"/usr/share\" -ocpptest test.cpp -lwebsockets
 ```
 
 `INSTALL_DATADIR` is only needed because the test server uses it as shipped, if
@@ -266,9 +270,11 @@ context-creation time.
 You might want to look into that to stop the ssl peers selecting a cipher which
 is too computationally expensive.  To use it, point it to a string like
 
-`"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"`
+	`"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"`
 
 if left `NULL`, then the "DEFAULT" set of ciphers are all possible to select.
+
+You can also set it to `"ALL"` to allow everything (including insecure ciphers).
 
 
 Async nature of client connections
@@ -306,27 +312,31 @@ lws prepares a file operations structure that lives in the lws context.
 
 The user code can get a pointer to the file operations struct
 
-LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops *
-`lws_get_fops`(struct lws_context *context);
+```
+	LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops *
+		`lws_get_fops`(struct lws_context *context);
+```
 
 and then can use helpers to also leverage these platform-independent
 file handling apis
 
-static inline lws_filefd_type
-`lws_plat_file_open`(struct lws *wsi, const char *filename, unsigned long *filelen, int flags)
+```
+	static inline lws_filefd_type
+	`lws_plat_file_open`(struct lws *wsi, const char *filename, unsigned long *filelen, int flags)
 
-static inline int
-`lws_plat_file_close`(struct lws *wsi, lws_filefd_type fd)
+	static inline int
+	`lws_plat_file_close`(struct lws *wsi, lws_filefd_type fd)
 
-static inline unsigned long
-`lws_plat_file_seek_cur`(struct lws *wsi, lws_filefd_type fd, long offset_from_cur_pos)
+	static inline unsigned long
+	`lws_plat_file_seek_cur`(struct lws *wsi, lws_filefd_type fd, long offset_from_cur_pos)
 
-static inline int
-`lws_plat_file_read`(struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)
+	static inline int
+	`lws_plat_file_read`(struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)
 
-static inline int
-`lws_plat_file_write`(struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)
-		    
+	static inline int
+	`lws_plat_file_write`(struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)
+```
+
 The user code can also override or subclass the file operations, to either
 wrap or replace them.  An example is shown in test server.
 
@@ -335,11 +345,11 @@ ECDH Support
 
 ECDH Certs are now supported.  Enable the CMake option
 
-cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1 
+	cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1 
 
 **and** the info->options flag
 
-LWS_SERVER_OPTION_SSL_ECDH
+	LWS_SERVER_OPTION_SSL_ECDH
 
 to build in support and select it at runtime.
 
@@ -397,14 +407,14 @@ Libev / Libuv support
 
 You can select either or both
 
--DLWS_WITH_LIBEV=1
--DLWS_WITH_LIBUV=1
+	-DLWS_WITH_LIBEV=1
+	-DLWS_WITH_LIBUV=1
 
 at cmake configure-time.  The user application may use one of the
 context init options flags
 
-LWS_SERVER_OPTION_LIBEV
-LWS_SERVER_OPTION_LIBUV
+	LWS_SERVER_OPTION_LIBEV
+	LWS_SERVER_OPTION_LIBUV
 
 to indicate it will use either of the event libraries.
 
@@ -413,12 +423,13 @@ Extension option control from user code
 ---------------------------------------
 
 User code may set per-connection extension options now, using a new api
-"lws_set_extension_option()".
+`lws_set_extension_option()`.
 
 This should be called from the ESTABLISHED callback like this
-
- lws_set_extension_option(wsi, "permessage-deflate",
-                          "rx_buf_size", "12"); /* 1 << 12 */
+```
+	 lws_set_extension_option(wsi, "permessage-deflate",
+	                          "rx_buf_size", "12"); /* 1 << 12 */
+```
 
 If the extension is not active (missing or not negotiated for the
 connection, or extensions are disabled on the library) the call is
@@ -450,7 +461,7 @@ flow control, and process the data in the writable callback.
 Either way you use the api `lws_http_client_read()` to access the
 data, eg
 
-
+```
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		{
 			char buffer[1024 + LWS_PRE];
@@ -472,7 +483,8 @@ data, eg
 				putchar(*px++);
 		}
 		break;
-		
+```
+
 Using lws v2 vhosts
 -------------------
 
@@ -482,10 +494,10 @@ members for compatibility.  Instead you can call lws_create_vhost()
 afterwards to attach one or more vhosts manually.
 
 ```
-LWS_VISIBLE struct lws_vhost *
-lws_create_vhost(struct lws_context *context,
-		 struct lws_context_creation_info *info,
-		 struct lws_http_mount *mounts);
+	LWS_VISIBLE struct lws_vhost *
+	lws_create_vhost(struct lws_context *context,
+			 struct lws_context_creation_info *info,
+			 struct lws_http_mount *mounts);
 ```
 
 lws_create_vhost() uses the same info struct as lws_create_context(),
@@ -493,12 +505,12 @@ it ignores members related to context and uses the ones meaningful
 for vhost (marked with VH in libwebsockets.h).
 
 ```
-struct lws_context_creation_info {
-	int port;					/* VH */
-	const char *iface;				/* VH */
-	const struct lws_protocols *protocols;		/* VH */
-	const struct lws_extension *extensions;		/* VH */
-...
+	struct lws_context_creation_info {
+		int port;					/* VH */
+		const char *iface;				/* VH */
+		const struct lws_protocols *protocols;		/* VH */
+		const struct lws_extension *extensions;		/* VH */
+	...
 ```
 
 When you attach the vhost, if the vhost's port already has a listen socket
@@ -519,24 +531,24 @@ a similar way that unix lets you mount filesystems into areas of your /
 filesystem how you like and deal with the contents transparently.
 
 ```
-struct lws_http_mount {
-	struct lws_http_mount *mount_next;
-	const char *mountpoint; /* mountpoint in http pathspace, eg, "/" */
-	const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
-	const char *def; /* default target, eg, "index.html" */
-
-	struct lws_protocol_vhost_options *cgienv;
-
-	int cgi_timeout;
-	int cache_max_age;
-
-	unsigned int cache_reusable:1;
-	unsigned int cache_revalidate:1;
-	unsigned int cache_intermediaries:1;
-
-	unsigned char origin_protocol;
-	unsigned char mountpoint_len;
-};
+	struct lws_http_mount {
+		struct lws_http_mount *mount_next;
+		const char *mountpoint; /* mountpoint in http pathspace, eg, "/" */
+		const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
+		const char *def; /* default target, eg, "index.html" */
+	
+		struct lws_protocol_vhost_options *cgienv;
+	
+		int cgi_timeout;
+		int cache_max_age;
+	
+		unsigned int cache_reusable:1;
+		unsigned int cache_revalidate:1;
+		unsigned int cache_intermediaries:1;
+	
+		unsigned char origin_protocol;
+		unsigned char mountpoint_len;
+	};
 ```
 
 The last mount structure should have a NULL mount_next, otherwise it should
@@ -548,27 +560,27 @@ destroyed, since they are not copied but used in place.
 `.origin_protocol` should be one of
 
 ```
-enum {
-	LWSMPRO_HTTP,
-	LWSMPRO_HTTPS,
-	LWSMPRO_FILE,
-	LWSMPRO_CGI,
-	LWSMPRO_REDIR_HTTP,
-	LWSMPRO_REDIR_HTTPS,
-	LWSMPRO_CALLBACK,
-};
+	enum {
+		LWSMPRO_HTTP,
+		LWSMPRO_HTTPS,
+		LWSMPRO_FILE,
+		LWSMPRO_CGI,
+		LWSMPRO_REDIR_HTTP,
+		LWSMPRO_REDIR_HTTPS,
+		LWSMPRO_CALLBACK,
+	};
 ```
 
-LWSMPRO_FILE is used for mapping url namespace to a filesystem directory and
+ - LWSMPRO_FILE is used for mapping url namespace to a filesystem directory and
 serve it automatically.
 
-LWSMPRO_CGI associates the url namespace with the given CGI executable, which
+ - LWSMPRO_CGI associates the url namespace with the given CGI executable, which
 runs when the URL is accessed and the output provided to the client.
 
-LWSMPRO_REDIR_HTTP and LWSMPRO_REDIR_HTTPS auto-redirect clients to the given
+ - LWSMPRO_REDIR_HTTP and LWSMPRO_REDIR_HTTPS auto-redirect clients to the given
 origin URL.
 
-LWSMPRO_CALLBACK causes the http connection to attach to the callback
+ - LWSMPRO_CALLBACK causes the http connection to attach to the callback
 associated with the named protocol (which may be a plugin).
 
 
@@ -583,20 +595,20 @@ in test-server-v2.0.c, the URL area "/formtest" is associated with the plugin
 providing "protocol-post-demo" like this
 
 ```
-static const struct lws_http_mount mount_post = {
-	NULL,		/* linked-list pointer to next*/
-	"/formtest",		/* mountpoint in URL namespace on this vhost */
-	"protocol-post-demo",	/* handler */
-	NULL,	/* default filename if none given */
-	NULL,
-	0,
-	0,
-	0,
-	0,
-	0,
-	LWSMPRO_CALLBACK,	/* origin points to a callback */
-	9,			/* strlen("/formtest"), ie length of the mountpoint */
-};
+	static const struct lws_http_mount mount_post = {
+		NULL,		/* linked-list pointer to next*/
+		"/formtest",		/* mountpoint in URL namespace on this vhost */
+		"protocol-post-demo",	/* handler */
+		NULL,	/* default filename if none given */
+		NULL,
+		0,
+		0,
+		0,
+		0,
+		0,
+		LWSMPRO_CALLBACK,	/* origin points to a callback */
+		9,			/* strlen("/formtest"), ie length of the mountpoint */
+	};
 ```
 
 Client access to /formtest[anything] will be passed to the callback registered

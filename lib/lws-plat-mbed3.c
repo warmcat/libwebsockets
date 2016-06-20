@@ -73,7 +73,7 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 
 /**
  * lws_cancel_service() - Cancel servicing of pending websocket activity
- * @context:	Websocket context
+ * \param context:	Websocket context
  *
  *	This function let a call to lws_service() waiting for a timeout
  *	immediately return.

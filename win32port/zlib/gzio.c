@@ -5,7 +5,7 @@
  * Compile this file with -DNO_GZCOMPRESS to avoid the compression code.
  */
 
-/* @(#) $Id$ */
+/* \param (#) $Id$ */
 
 #include <stdio.h>
 

@@ -1,3 +1,6 @@
+Notes about lwsws
+=================
+
 Libwebsockets Web Server
 ------------------------
 
@@ -20,55 +23,49 @@ lwsws uses JSON config files, they're pure JSON but # may be used to turn the re
 There is a single file intended for global settings
 
 /etc/lwsws/conf
-
 ```
-# these are the server global settings
-# stuff related to vhosts should go in one
-# file per vhost in ../conf.d/
+	# these are the server global settings
+	# stuff related to vhosts should go in one
+	# file per vhost in ../conf.d/
 
-{
-  "global": {
-   "uid": "48",  # apache user
-   "gid": "48",  # apache user
-   "count-threads": "1",
-   "server-string": "myserver v1", # returned in http headers
-   "init-ssl": "yes"
- }
-}
+	{
+	  "global": {
+	   "uid": "48",  # apache user
+	   "gid": "48",  # apache user
+	   "count-threads": "1",
+	   "server-string": "myserver v1", # returned in http headers
+	   "init-ssl": "yes"
+	 }
+	}
 ```
-
 and a config directory intended to take one file per vhost
 
 /etc/lwsws/conf.d/warmcat.com
-
 ```
-{
-	"vhosts": [{
-		"name": "warmcat.com",
-		"port": "443",
-		"interface": "eth0",  # optional
-		"host-ssl-key": "/etc/pki/tls/private/warmcat.com.key",  # if given enable ssl
-		"host-ssl-cert": "/etc/pki/tls/certs/warmcat.com.crt",
-		"host-ssl-ca": "/etc/pki/tls/certs/warmcat.com.cer",
-		"mounts": [{  # autoserve
-			"mountpoint": "/",
-			"origin": "file:///var/www/warmcat.com",
-			"default": "index.html"
+	{
+		"vhosts": [{
+			"name": "warmcat.com",
+			"port": "443",
+			"interface": "eth0",  # optional
+			"host-ssl-key": "/etc/pki/tls/private/warmcat.com.key",  # if given enable ssl
+			"host-ssl-cert": "/etc/pki/tls/certs/warmcat.com.crt",
+			"host-ssl-ca": "/etc/pki/tls/certs/warmcat.com.cer",
+			"mounts": [{  # autoserve
+				"mountpoint": "/",
+				"origin": "file:///var/www/warmcat.com",
+				"default": "index.html"
+			}]
 		}]
-	}]
-}
+	}
 ```
-
 To get started quickly, an example config reproducing the old test server
 on port 7681, non-SSL is provided.  To set it up
-
 ```
-# mkdir -p /etc/lwsws/conf.d /var/log/lwsws
-# cp ./lwsws/etc-lwsws-conf-EXAMPLE /etc/lwsws/conf
-# cp ./lwsws/etc-lwsws-conf.d-localhost-EXAMPLE /etc/lwsws/conf.d/test-server
-# sudo lwsws
+	# mkdir -p /etc/lwsws/conf.d /var/log/lwsws
+	# cp ./lwsws/etc-lwsws-conf-EXAMPLE /etc/lwsws/conf
+	# cp ./lwsws/etc-lwsws-conf.d-localhost-EXAMPLE /etc/lwsws/conf.d/test-server
+	# sudo lwsws
 ```
-
 Vhosts
 ------
 
@@ -77,55 +74,54 @@ the connection to a vhost and its vhost-specific SSL keys during SSL
 negotiation.
 
 Listing multiple vhosts looks something like this
-
 ```
-{
- "vhosts": [ {
-     "name": "localhost",
-     "port": "443",
-     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
-     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
-     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
-     "mounts": [{
-       "mountpoint": "/",
-       "origin": "file:///var/www/libwebsockets.org",
-       "default": "index.html"
-       }, {
-        "mountpoint": "/testserver",
-        "origin": "file:///usr/local/share/libwebsockets-test-server",
-        "default": "test.html"
-       }],
-     # which protocols are enabled for this vhost, and optional
-     # vhost-specific config options for the protocol
-     #
-     "ws-protocols": [{
-       "warmcat,timezoom": {
-         "status": "ok"
-       }
-     }]
-    },
-    {
-    "name": "localhost",
-    "port": "7681",
-     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
-     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
-     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
-     "mounts": [{
-       "mountpoint": "/",
-       "origin": ">https://localhost"
-     }]
-   },
-    {
-    "name": "localhost",
-    "port": "80",
-     "mounts": [{
-       "mountpoint": "/",
-       "origin": ">https://localhost"
-     }]
-   }
-
-  ]
-}
+	{
+	 "vhosts": [ {
+	     "name": "localhost",
+	     "port": "443",
+	     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
+	     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
+	     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
+	     "mounts": [{
+	       "mountpoint": "/",
+	       "origin": "file:///var/www/libwebsockets.org",
+	       "default": "index.html"
+	       }, {
+	        "mountpoint": "/testserver",
+	        "origin": "file:///usr/local/share/libwebsockets-test-server",
+	        "default": "test.html"
+	       }],
+	     # which protocols are enabled for this vhost, and optional
+	     # vhost-specific config options for the protocol
+	     #
+	     "ws-protocols": [{
+	       "warmcat,timezoom": {
+	         "status": "ok"
+	       }
+	     }]
+	    },
+	    {
+	    "name": "localhost",
+	    "port": "7681",
+	     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
+	     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
+	     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
+	     "mounts": [{
+	       "mountpoint": "/",
+	       "origin": ">https://localhost"
+	     }]
+	   },
+	    {
+	    "name": "localhost",
+	    "port": "80",
+	     "mounts": [{
+	       "mountpoint": "/",
+	       "origin": ">https://localhost"
+	     }]
+	   }
+	
+	  ]
+	}
 ```
 
 That sets up three vhosts all called "localhost" on ports 443 and 7681 with SSL, and port 80 without SSL but with a forced redirect to https://localhost
@@ -153,14 +149,12 @@ Vhosts by default have available the union of any initial protocols from context
 any protocols exposed by plugins.
 
 Vhosts can select which plugins they want to offer and give them per-vhost settings using this syntax
-
-```	
-     "ws-protocols": [{
-       "warmcat-timezoom": {
-         "status": "ok"
-       }
-     }]
-
+```
+	     "ws-protocols": [{
+	       "warmcat-timezoom": {
+	         "status": "ok"
+	       }
+	     }]
 ```
 
 The "x":"y" parameters like "status":"ok" are made available to the protocol during its per-vhost
@@ -169,15 +163,13 @@ containing the name and value pointers).
 
 To indicate that a protocol should be used when no Protocol: header is sent
 by the client, you can use "default": "1"
-
-```	
-     "ws-protocols": [{
-       "warmcat-timezoom": {
-         "status": "ok",
-         "default": "1"
-       }
-     }]
-
+```
+	     "ws-protocols": [{
+	       "warmcat-timezoom": {
+	         "status": "ok",
+	         "default": "1"
+	       }
+	     }]
 ```
 
 
@@ -214,17 +206,15 @@ Other vhost options
  It may be used multiple times and OR's the flags together.
  
  The values are derived from /usr/include/openssl/ssl.h
- 
- ```
- # define SSL_OP_NO_TLSv1_1                               0x10000000L
- ```
+```
+	 # define SSL_OP_NO_TLSv1_1                               0x10000000L
+```
  
  would equate to
  
+```
+	 "`ssl-option-set`": "268435456"
  ```
- "`ssl-option-set`": "268435456"
- ```
- 
  - "`ssl-option-clear'": "<decimal>"   Clears the SSL option flag value for the vhost.
  It may be used multiple times and OR's the flags together.
 
@@ -239,72 +229,61 @@ Mount protocols are used to control what kind of translation happens
  - file://  serve the uri using the remainder of the url past the mountpoint based on the origin directory.
 
  Eg, with this mountpoint
-
 ```
-       {
-        "mountpoint": "/",
-        "origin": "file:///var/www/mysite.com",
-        "default": "/"
-       }
+	       {
+	        "mountpoint": "/",
+	        "origin": "file:///var/www/mysite.com",
+	        "default": "/"
+	       }
 ```
-
  The uri /file.jpg would serve /var/www/mysite.com/file.jpg, since / matched.
 
  - ^http:// or ^https://  these cause any url matching the mountpoint to issue a redirect to the origin url
 
  - cgi://   this causes any matching url to be given to the named cgi, eg
-
 ```
-       {
-        "mountpoint": "/git",
-        "origin": "cgi:///var/www/cgi-bin/cgit",
-        "default": "/"
-       }, {
-        "mountpoint": "/cgit-data",
-        "origin": "file:///usr/share/cgit",
-        "default": "/"
-       },
+	       {
+	        "mountpoint": "/git",
+	        "origin": "cgi:///var/www/cgi-bin/cgit",
+	        "default": "/"
+	       }, {
+	        "mountpoint": "/cgit-data",
+	        "origin": "file:///usr/share/cgit",
+	        "default": "/"
+	       },
 ```
-
  would cause the url /git/myrepo to pass "myrepo" to the cgi /var/www/cgi-bin/cgit and send the results to the client.
 
-Note: currently only a fixed set of mimetypes are supported.
 
 
 Other mount options
 -------------------
 
 1) When using a cgi:// protcol origin at a mountpoint, you may also give cgi environment variables specific to the mountpoint like this
-
 ```
-       {
-        "mountpoint": "/git",
-        "origin": "cgi:///var/www/cgi-bin/cgit",
-        "default": "/",
-        "cgi-env": [{
-                "CGIT_CONFIG": "/etc/cgitrc/libwebsockets.org"
-        }]
-       }
+	       {
+	        "mountpoint": "/git",
+	        "origin": "cgi:///var/www/cgi-bin/cgit",
+	        "default": "/",
+	        "cgi-env": [{
+	                "CGIT_CONFIG": "/etc/cgitrc/libwebsockets.org"
+	        }]
+	       }
 ```
-
  This allows you to customize one cgi depending on the mountpoint (and / or vhost).
 
 2) It's also possible to set the cgi timeout (in secs) per cgi:// mount, like this
-
 ```
 	"cgi-timeout": "30"
 ```
-
 3) `callback://` protocol may be used when defining a mount to associate a
 named protocol callback with the URL namespace area.  For example
-
 ```
-       {
-        "mountpoint": "/formtest",
-        "origin": "callback://protocol-post-demo"
-       }
+	       {
+	        "mountpoint": "/formtest",
+	        "origin": "callback://protocol-post-demo"
+	       }
 ```
-
 All handling of client access to /formtest[anything] will be passed to the
 callback registered to the protocol "protocol-post-demo".
 
@@ -315,24 +294,24 @@ See the related notes in README.coding.md
 
 4) Cache policy of the files in the mount can also be set.  If no
 options are given, the content is marked uncacheable.
-
-       {
-        "mountpoint": "/",
-        "origin": "file:///var/www/mysite.com",
-        "cache-max-age": "60",      # seconds
-        "cache-reuse": "1",         # allow reuse at client at all
-        "cache-revalidate": "1",    # check it with server each time
-        "cache-intermediaries": "1" # allow intermediary caches to hold
-       }
-
+```
+	       {
+	        "mountpoint": "/",
+	        "origin": "file:///var/www/mysite.com",
+	        "cache-max-age": "60",      # seconds
+	        "cache-reuse": "1",         # allow reuse at client at all
+	        "cache-revalidate": "1",    # check it with server each time
+	        "cache-intermediaries": "1" # allow intermediary caches to hold
+	       }
+```
 
 4) You can also define a list of additional mimetypes per-mount
-
-        "extra-mimetypes": {
-                 ".zip": "application/zip",
-                 ".doc": "text/evil"
-         }
-
+```
+	        "extra-mimetypes": {
+	                 ".zip": "application/zip",
+	                 ".doc": "text/evil"
+	         }
+```
 
 Plugins
 -------
@@ -368,13 +347,13 @@ Additional plugin search paths
 Packages that have their own lws plugins can install them in their own
 preferred dir and ask lwsws to scan there by using a config fragment
 like this, in its own conf.d/ file managed by the other package
-
-{
-  "global": {
-   "plugin-dir": "/usr/local/share/coherent-timeline/plugins"
-  }
-}
-
+```
+	{
+	  "global": {
+	   "plugin-dir": "/usr/local/share/coherent-timeline/plugins"
+	  }
+	}
+```
 
 lws-server-status plugin
 ------------------------
@@ -382,22 +361,22 @@ lws-server-status plugin
 One provided protocol can be used to monitor the server status.
 
 Enable the protocol like this on a vhost's ws-protocols section
-
-       "lws-server-status": {
-         "status": "ok",
-         "update-ms": "5000"
-       }
-
+```
+	       "lws-server-status": {
+	         "status": "ok",
+	         "update-ms": "5000"
+	       }
+```
 "update-ms" is used to control how often updated JSON is sent on a ws link.
 
 And map the provided HTML into the vhost in the mounts section
-
-       {
-        "mountpoint": "/server-status",
-        "origin": "file:///usr/local/share/libwebsockets-test-server/server-status",
-        "default": "server-status.html"
-       }
-
+```
+	       {
+	        "mountpoint": "/server-status",
+	        "origin": "file:///usr/local/share/libwebsockets-test-server/server-status",
+	        "default": "server-status.html"
+	       }
+```
 You might choose to put it on its own vhost which has "interface": "lo", so it's not
 externally visible.
 
@@ -406,19 +385,17 @@ Integration with Systemd
 ------------------------
 
 lwsws needs a service file like this as `/usr/lib/systemd/system/lwsws.service`
-
 ```
-[Unit]
-Description=Libwebsockets Web Server
-After=syslog.target
-
-[Service]
-ExecStart=/usr/local/bin/lwsws
-StandardError=null
-
-[Install]
-WantedBy=multi-user.target
-
+	[Unit]
+	Description=Libwebsockets Web Server
+	After=syslog.target
+	
+	[Service]
+	ExecStart=/usr/local/bin/lwsws
+	StandardError=null
+	
+	[Install]
+	WantedBy=multi-user.target
 ```
 
 You can find this prepared in `./lwsws/usr-lib-systemd-system-lwsws.service`
@@ -429,21 +406,19 @@ Integration with logrotate
 
 For correct operation with logrotate, `/etc/logrotate.d/lwsws` (if that's
 where we're putting the logs) should contain
-
 ```
-/var/log/lwsws/*log {
-    copytruncate
-    missingok
-    notifempty
-    delaycompress
-}
+	/var/log/lwsws/*log {
+	    copytruncate
+	    missingok
+	    notifempty
+	    delaycompress
+	}
 ```
-
 You can find this prepared in `/lwsws/etc-logrotate.d-lwsws`
 
 Prepare the log directory like this
 
 ```
-sudo mkdir /var/log/lwsws
-sudo chmod 700 /var/log/lwsws
+	sudo mkdir /var/log/lwsws
+	sudo chmod 700 /var/log/lwsws
 ```

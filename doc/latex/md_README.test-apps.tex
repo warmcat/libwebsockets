@@ -1,0 +1,245 @@
+\subsection*{Testing server with a browser }
+
+If you run \href{test-server/test-server.c}{\tt libwebsockets-\/test-\/server} and point your browser (eg, Chrome) to \begin{DoxyVerb}    http://127.0.0.1:7681
+\end{DoxyVerb}
+
+
+It will fetch a script in the form of {\ttfamily test.\+html}, and then run the script in there on the browser to open a websocket connection. Incrementing numbers should appear in the browser display.
+
+By default the test server logs to both stderr and syslog, you can control what is logged using {\ttfamily -\/d $<$log level$>$}, see later.
+
+\subsection*{Running test server as a Daemon }
+
+You can use the -\/D option on the test server to have it fork into the background and return immediately. In this daemonized mode all stderr is disabled and logging goes only to syslog, eg, {\ttfamily /var/log/messages} or similar.
+
+The server maintains a lockfile at {\ttfamily /tmp/.lwsts-\/lock} that contains the pid of the master process, and deletes this file when the master process terminates.
+
+To stop the daemon, do 
+\begin{DoxyCode}
+1 $ kill cat /tmp/.lwsts-lock 
+\end{DoxyCode}
+ If it finds a stale lock (the pid mentioned in the file does not exist any more) it will delete the lock and create a new one during startup.
+
+If the lock is valid, the daemon will exit with a note on stderr that it was already running.
+
+\subsection*{Using S\+SL on the server side }
+
+To test it using S\+S\+L/\+W\+SS, just run the test server with 
+\begin{DoxyCode}
+1 $ libwebsockets-test-server --ssl
+\end{DoxyCode}
+ and use the U\+RL 
+\begin{DoxyCode}
+1 https://127.0.0.1:7681
+\end{DoxyCode}
+ The connection will be entirely encrypted using some generated certificates that your browser will not accept, since they are not signed by any real Certificate Authority. Just accept the certificates in the browser and the connection will proceed in first https and then websocket wss, acting exactly the same.
+
+\href{test-server/test-server.c}{\tt test-\/server.\+c} is all that is needed to use libwebsockets for serving both the script html over http and websockets.
+
+\subsection*{Testing websocket client support }
+
+If you run the test server as described above, you can also connect to it using the test client as well as a browser.
+
+
+\begin{DoxyCode}
+1 $ libwebsockets-test-client localhost
+\end{DoxyCode}
+
+
+will by default connect to the test server on localhost\+:7681 and print the dumb increment number from the server at the same time as drawing random circles in the mirror protocol; if you connect to the test server using a browser at the same time you will be able to see the circles being drawn.
+
+The test client supports S\+SL too, use
+
+
+\begin{DoxyCode}
+1 $ libwebsockets-test-client localhost --ssl -s
+\end{DoxyCode}
+
+
+the -\/s tells it to accept the default selfsigned cert from the server, otherwise it will strictly fail the connection if there is no CA cert to validate the server\textquotesingle{}s certificate.
+
+\subsection*{Choosing between test server variations }
+
+If you will be doing standalone serving with lws, ideally you should avoid making your own server at all, and use lwsws with your own protocol plugins.
+
+The second best option is follow test-\/server-\/v2.\+0.\+c, which uses a mount to autoserve a directory, and lws protocol plugins for ws, without needing any user callback code (other than what\textquotesingle{}s needed in the protocol plugin).
+
+For those two options libuv is needed to support the protocol plugins, if that\textquotesingle{}s not possible then the other variations with their own protocol code should be considered.
+
+\subsection*{Testing simple echo }
+
+You can test against {\ttfamily echo.\+websockets.\+org} as a sanity test like this (the client connects to port {\ttfamily 80} by default)\+:
+
+
+\begin{DoxyCode}
+1 $ libwebsockets-test-echo --client echo.websocket.org
+\end{DoxyCode}
+
+
+This echo test is of limited use though because it doesn\textquotesingle{}t negotiate any protocol. You can run the same test app as a local server, by default on localhost\+:7681 
+\begin{DoxyCode}
+1 $ libwebsockets-test-echo
+\end{DoxyCode}
+ and do the echo test against the local echo server 
+\begin{DoxyCode}
+1 $ libwebsockets-test-echo --client localhost --port 7681
+\end{DoxyCode}
+ If you add the {\ttfamily -\/-\/ssl} switch to both the client and server, you can also test with an encrypted link.
+
+\subsection*{Testing S\+SL on the client side }
+
+To test S\+S\+L/\+W\+SS client action, just run the client test with 
+\begin{DoxyCode}
+1 $ libwebsockets-test-client localhost --ssl
+\end{DoxyCode}
+ By default the client test applet is set to accept selfsigned certificates used by the test server, this is indicated by the {\ttfamily use\+\_\+ssl} var being set to {\ttfamily 2}. Set it to {\ttfamily 1} to reject any server certificate that it doesn\textquotesingle{}t have a trusted CA cert for.
+
+\subsection*{Using the websocket ping utility }
+
+libwebsockets-\/test-\/ping connects as a client to a remote websocket server and pings it like the normal unix ping utility. 
+\begin{DoxyCode}
+1 $ libwebsockets-test-ping localhost
+2 handshake OK for protocol lws-mirror-protocol
+3 Websocket PING localhost.localdomain (127.0.0.1) 64 bytes of data.
+4 64 bytes from localhost: req=1 time=0.1ms
+5 64 bytes from localhost: req=2 time=0.1ms
+6 64 bytes from localhost: req=3 time=0.1ms
+7 64 bytes from localhost: req=4 time=0.2ms
+8 64 bytes from localhost: req=5 time=0.1ms
+9 64 bytes from localhost: req=6 time=0.2ms
+10 64 bytes from localhost: req=7 time=0.2ms
+11 64 bytes from localhost: req=8 time=0.1ms
+12 ^C
+13 --- localhost.localdomain websocket ping statistics ---
+14 8 packets transmitted, 8 received, 0% packet loss, time 7458ms
+15 rtt min/avg/max = 0.110/0.185/0.218 ms
+16 $
+\end{DoxyCode}
+ By default it sends 64 byte payload packets using the 04 P\+I\+NG packet opcode type. You can change the payload size using the {\ttfamily -\/s=} flag, up to a maximum of 125 mandated by the 04 standard.
+
+Using the lws-\/mirror protocol that is provided by the test server, libwebsockets-\/test-\/ping can also use larger payload sizes up to 4096 is B\+I\+N\+A\+RY packets; lws-\/mirror will copy them back to the client and they appear as a P\+O\+NG. Use the {\ttfamily -\/m} flag to select this operation.
+
+The default interval between pings is 1s, you can use the -\/i= flag to set this, including fractions like {\ttfamily -\/i=0.\+01} for 10ms interval.
+
+Before you can even use the P\+I\+NG opcode that is part of the standard, you must complete a handshake with a specified protocol. By default lws-\/mirror-\/protocol is used which is supported by the test server. But if you are using it on another server, you can specify the protcol to handshake with by {\ttfamily -\/-\/protocol=protocolname}
+
+\subsection*{Fraggle test app }
+
+By default it runs in server mode 
+\begin{DoxyCode}
+1 $ libwebsockets-test-fraggle
+2 libwebsockets test fraggle
+3 (C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under LGPL2.1
+4  Compiled with SSL support, not using it
+5  Listening on port 7681
+6 server sees client connect
+7 accepted v06 connection
+8 Spamming 360 random fragments
+9 Spamming session over, len = 371913. sum = 0x2D3C0AE
+10 Spamming 895 random fragments
+11 Spamming session over, len = 875970. sum = 0x6A74DA1
+12 ...
+\end{DoxyCode}
+ You need to run a second session in client mode, you have to give the {\ttfamily -\/c} switch and the server address at least\+: 
+\begin{DoxyCode}
+1 $ libwebsockets-test-fraggle -c localhost
+2 libwebsockets test fraggle
+3 (C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under LGPL2.1
+4  Client mode
+5 Connecting to localhost:7681
+6 denied deflate-stream extension
+7 handshake OK for protocol fraggle-protocol
+8 client connects to server
+9 EOM received 371913 correctly from 360 fragments
+10 EOM received 875970 correctly from 895 fragments
+11 EOM received 247140 correctly from 258 fragments
+12 EOM received 695451 correctly from 692 fragments
+13 ...
+\end{DoxyCode}
+ The fraggle test sends a random number up to 1024 fragmented websocket frames each of a random size between 1 and 2001 bytes in a single message, then sends a checksum and starts sending a new randomly sized and fragmented message.
+
+The fraggle test client receives the same message fragments and computes the same checksum using websocket framing to see when the message has ended. It then accepts the server checksum message and compares that to its checksum.
+
+\subsection*{proxy support }
+
+The http\+\_\+proxy environment variable is respected by the client connection code for both {\ttfamily ws\+://} and {\ttfamily wss\+://}. It doesn\textquotesingle{}t support authentication.
+
+You use it like this 
+\begin{DoxyCode}
+1 $ export http\_proxy=myproxy.com:3128
+2 $ libwebsockets-test-client someserver.com
+\end{DoxyCode}
+
+
+\subsection*{debug logging }
+
+By default logging of severity \char`\"{}notice\char`\"{}, \char`\"{}warn\char`\"{} or \char`\"{}err\char`\"{} is enabled to stderr.
+
+Again by default other logging is compiled in but disabled from printing.
+
+If you want to eliminate the debug logging below notice in severity, use the {\ttfamily -\/-\/disable-\/debug} configure option to have it removed from the code by the preprocesser.
+
+If you want to see more detailed debug logs, you can control a bitfield to select which logs types may print using the {\ttfamily \hyperlink{group__log_ga244647f9e1bf0097ccdde66d74f41e26}{lws\+\_\+set\+\_\+log\+\_\+level()}} api, in the test apps you can use {\ttfamily -\/d $<$number$>$} to control this. The types of logging available are (OR together the numbers to select multiple)
+
+
+\begin{DoxyItemize}
+\item 1 E\+RR
+\item 2 W\+A\+RN
+\item 4 N\+O\+T\+I\+CE
+\item 8 I\+N\+FO
+\item 16 D\+E\+B\+UG
+\item 32 P\+A\+R\+S\+ER
+\item 64 H\+E\+A\+D\+ER
+\item 128 E\+X\+T\+E\+N\+S\+I\+ON
+\item 256 C\+L\+I\+E\+NT
+\item 512 L\+A\+T\+E\+N\+CY
+\end{DoxyItemize}
+
+\subsection*{Websocket version supported }
+
+The final I\+E\+TF standard is supported for both client and server, protocol version 13.
+
+\subsection*{Latency Tracking }
+
+Since libwebsockets runs using {\ttfamily poll()} and a single threaded approach, any unexpected latency coming from system calls would be bad news. There\textquotesingle{}s now a latency tracking scheme that can be built in with {\ttfamily -\/-\/with-\/latency} at configure-\/time, logging the time taken for system calls to complete and if the whole action did complete that time or was deferred.
+
+You can see the detailed data by enabling logging level 512 (eg, {\ttfamily -\/d 519} on the test server to see that and the usual logs), however even without that the \char`\"{}worst\char`\"{} latency is kept and reported to the logs with N\+O\+T\+I\+CE severity when the context is destroyed.
+
+Some care is needed interpreting them, if the action completed the first figure (in us) is the time taken for the whole action, which may have retried through the poll loop many times and will depend on network roundtrip times. High figures here don\textquotesingle{}t indicate a problem. The figure in us reported after \char`\"{}lat\char`\"{} in the logging is the time taken by this particular attempt. High figures here may indicate a problem, or if you system is loaded with another app at that time, such as the browser, it may simply indicate the OS gave preferential treatment to the other app during that call.
+
+\subsection*{Autobahn Test Suite }
+
+Lws can be tested against the autobahn websocket fuzzer.
+
+1) pip install autobahntestsuite
+
+2) wstest -\/m fuzzingserver
+
+3) Run tests like this
+
+libwebsockets-\/test-\/echo --client localhost --port 9001 -\/u \char`\"{}/run\+Case?case=20\&agent=libwebsockets\char`\"{} -\/v -\/d 65535 -\/n 1
+
+(this runs test 20)
+
+4) In a browser, go here
+
+\href{http://localhost:8080/test_browser.html}{\tt http\+://localhost\+:8080/test\+\_\+browser.\+html}
+
+fill in \char`\"{}libwebsockets\char`\"{} in \char`\"{}\+User Agent Identifier\char`\"{} and press \char`\"{}\+Update Reports (\+Manual)\char`\"{}
+
+5) In a browser go to the directory you ran wstest in (eg, /projects/libwebsockets)
+
+\href{file:///projects/libwebsockets/reports/clients/index.html}{\tt file\+:///projects/libwebsockets/reports/clients/index.\+html}
+
+to see the results
+
+\subsection*{Autobahn Test Notes }
+
+1) Autobahn tests the user code + lws implementation. So to get the same results, you need to follow test-\/echo.\+c in terms of user implmentation.
+
+2) Some of the tests make no sense for Libwebsockets to support and we fail them.
+
+
+\begin{DoxyItemize}
+\item Tests 2.\+10 + 2.\+11\+: sends multiple pings on one connection. Lws policy is to only allow one active ping in flight on each connection, the rest are dropped. The autobahn test itself admits this is not part of the standard, just someone\textquotesingle{}s random opinion about how they think a ws server should act. So we will fail this by design and it is no problem about R\+F\+C6455 compliance. 
+\end{DoxyItemize}

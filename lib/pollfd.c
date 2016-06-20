@@ -293,15 +293,6 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	return ret;
 }
 
-
-/**
- * lws_callback_on_writable() - Request a callback when this socket
- *					 becomes able to be written to without
- *					 blocking
- *
- * @wsi:	Websocket connection instance to get callback for
- */
-
 LWS_VISIBLE int
 lws_callback_on_writable(struct lws *wsi)
 {
@@ -375,19 +366,6 @@ network_sock:
 	return 1;
 }
 
-/**
- * lws_callback_on_writable_all_protocol_vhost() - Request a callback for
- *			all connections using the given protocol when it
- *			becomes possible to write to each socket without
- *			blocking in turn.
- *
- *	This calls back connections with the same protocol ON THE SAME
- *	VHOST ONLY.
- *
- * @vhost:	Only consider connections on this lws_vhost
- * @protocol:	Protocol whose connections will get callbacks
- */
-
 LWS_VISIBLE int
 lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 				      const struct lws_protocols *protocol)
@@ -420,19 +398,6 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 
 	return 0;
 }
-
-/**
- * lws_callback_on_writable_all_protocol() - Request a callback for
- *			all connections using the given protocol when it
- *			becomes possible to write to each socket without
- *			blocking in turn.
- *
- *	This calls back any connection using the same protocol on ANY
- *	VHOST.
- *
- * @context:	lws_context
- * @protocol:	Protocol whose connections will get callbacks
- */
 
 LWS_VISIBLE int
 lws_callback_on_writable_all_protocol(const struct lws_context *context,

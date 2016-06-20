@@ -54,14 +54,6 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 	return poll(fd, 1, 0);
 }
 
-/**
- * lws_cancel_service_pt() - Cancel servicing of pending socket activity
- *				on one thread
- * @wsi:	Cancel service on the thread this wsi is serviced by
- *
- *	This function let a call to lws_service() waiting for a timeout
- *	immediately return.
- */
 LWS_VISIBLE void
 lws_cancel_service_pt(struct lws *wsi)
 {
@@ -72,13 +64,6 @@ lws_cancel_service_pt(struct lws *wsi)
 		lwsl_err("Cannot write to dummy pipe");
 }
 
-/**
- * lws_cancel_service() - Cancel ALL servicing of pending socket activity
- * @context:	Websocket context
- *
- *	This function let a call to lws_service() waiting for a timeout
- *	immediately return.
- */
 LWS_VISIBLE void
 lws_cancel_service(struct lws_context *context)
 {

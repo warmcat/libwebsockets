@@ -1,0 +1,244 @@
+\hypertarget{group__callback-when-writeable}{}\section{Callback when writeable}
+\label{group__callback-when-writeable}\index{Callback when writeable@{Callback when writeable}}
+\subsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_ga941caaa468bc507b1cae52275f58800d}{lws\+\_\+callback\+\_\+on\+\_\+writable} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_gabbe4655c7eeb3eb1671b2323ec6b3107}{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol} (const struct lws\+\_\+context $\ast$context, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$protocol)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_ga8570860e191b62db264f2bac67354ea8}{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol\+\_\+vhost} (const struct lws\+\_\+vhost $\ast$vhost, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$protocol)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_gacf04bbe089f47c971c6408c5efe2ac70}{lws\+\_\+callback\+\_\+all\+\_\+protocol} (struct lws\+\_\+context $\ast$context, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$protocol, int reason)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_ga13c984d8c5a44a745fd02bc2fba36053}{lws\+\_\+callback\+\_\+all\+\_\+protocol\+\_\+vhost} (struct lws\+\_\+vhost $\ast$vh, const struct \hyperlink{structlws__protocols}{lws\+\_\+protocols} $\ast$protocol, int reason)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_ga60939cf0c073d933fde3d17f3591caf5}{lws\+\_\+callback\+\_\+vhost\+\_\+protocols} (struct lws $\ast$wsi, int reason, void $\ast$in, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__callback-when-writeable_gaa709e02a10558753c851e58f1e2c16ba}{lws\+\_\+get\+\_\+socket\+\_\+fd} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN size\+\_\+t \hyperlink{group__callback-when-writeable_gac4643fe16b0940ae5b68b4ee6195cbde}{lws\+\_\+get\+\_\+peer\+\_\+write\+\_\+allowance} (struct lws $\ast$wsi)
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+\subsubsection*{Callback When Writeable}
+
+lws can only write data on a connection when it is able to accept more data without blocking.
+
+So a basic requirement is we should only use the \hyperlink{group__sending-data_gafd5fdd285a0e25ba7e3e1051deec1001}{lws\+\_\+write()} apis when the connection we want to write on says that he can accept more data.
+
+When lws cannot complete your send at the time, it will buffer the data and send it in the background, suppressing any further W\+R\+I\+T\+E\+A\+B\+LE callbacks on that connection until it completes. So it is important to write new things in a new writeable callback.
+
+These apis reflect the various ways we can indicate we would like to be called back when one or more connections is writeable. 
+
+\subsection{Function Documentation}
+\index{Callback when writeable@{Callback when writeable}!lws\+\_\+callback\+\_\+all\+\_\+protocol@{lws\+\_\+callback\+\_\+all\+\_\+protocol}}
+\index{lws\+\_\+callback\+\_\+all\+\_\+protocol@{lws\+\_\+callback\+\_\+all\+\_\+protocol}!Callback when writeable@{Callback when writeable}}
+\subsubsection[{\texorpdfstring{lws\+\_\+callback\+\_\+all\+\_\+protocol(struct lws\+\_\+context $\ast$context, const struct lws\+\_\+protocols $\ast$protocol, int reason)}{lws\_callback\_all\_protocol(struct lws\_context *context, const struct lws\_protocols *protocol, int reason)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+callback\+\_\+all\+\_\+protocol (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context, }
+\item[{const struct {\bf lws\+\_\+protocols} $\ast$}]{protocol, }
+\item[{int}]{reason}
+\end{DoxyParamCaption}
+)}\hypertarget{group__callback-when-writeable_gacf04bbe089f47c971c6408c5efe2ac70}{}\label{group__callback-when-writeable_gacf04bbe089f47c971c6408c5efe2ac70}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__callback-when-writeable_gacf04bbe089f47c971c6408c5efe2ac70}{lws\+\_\+callback\+\_\+all\+\_\+protocol()} -\/ Callback all connections using the given protocol with the given reason
+
+
+\begin{DoxyParams}{Parameters}
+{\em context} & lws\+\_\+context \\
+\hline
+{\em protocol} & Protocol whose connections will get callbacks \\
+\hline
+{\em reason} & Callback reason index\\
+\hline
+\end{DoxyParams}
+
+\begin{DoxyItemize}
+\item Which\+: connections using this protocol on A\+LL V\+H\+O\+S\+TS
+\item When\+: when the individual connection becomes writeable
+\item What\+: reason 
+\end{DoxyItemize}\index{Callback when writeable@{Callback when writeable}!lws\+\_\+callback\+\_\+all\+\_\+protocol\+\_\+vhost@{lws\+\_\+callback\+\_\+all\+\_\+protocol\+\_\+vhost}}
+\index{lws\+\_\+callback\+\_\+all\+\_\+protocol\+\_\+vhost@{lws\+\_\+callback\+\_\+all\+\_\+protocol\+\_\+vhost}!Callback when writeable@{Callback when writeable}}
+\subsubsection[{\texorpdfstring{lws\+\_\+callback\+\_\+all\+\_\+protocol\+\_\+vhost(struct lws\+\_\+vhost $\ast$vh, const struct lws\+\_\+protocols $\ast$protocol, int reason)}{lws\_callback\_all\_protocol\_vhost(struct lws\_vhost *vh, const struct lws\_protocols *protocol, int reason)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+callback\+\_\+all\+\_\+protocol\+\_\+vhost (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+vhost $\ast$}]{vh, }
+\item[{const struct {\bf lws\+\_\+protocols} $\ast$}]{protocol, }
+\item[{int}]{reason}
+\end{DoxyParamCaption}
+)}\hypertarget{group__callback-when-writeable_ga13c984d8c5a44a745fd02bc2fba36053}{}\label{group__callback-when-writeable_ga13c984d8c5a44a745fd02bc2fba36053}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__callback-when-writeable_ga13c984d8c5a44a745fd02bc2fba36053}{lws\+\_\+callback\+\_\+all\+\_\+protocol\+\_\+vhost()} -\/ Callback all connections using the given protocol with the given reason
+
+
+\begin{DoxyParams}{Parameters}
+{\em vh} & Vhost whose connections will get callbacks \\
+\hline
+{\em protocol} & Which protocol to match \\
+\hline
+{\em reason} & Callback reason index\\
+\hline
+\end{DoxyParams}
+
+\begin{DoxyItemize}
+\item Which\+: connections using this protocol on G\+I\+V\+EN V\+H\+O\+ST O\+N\+LY
+\item When\+: now
+\item What\+: reason 
+\end{DoxyItemize}\index{Callback when writeable@{Callback when writeable}!lws\+\_\+callback\+\_\+on\+\_\+writable@{lws\+\_\+callback\+\_\+on\+\_\+writable}}
+\index{lws\+\_\+callback\+\_\+on\+\_\+writable@{lws\+\_\+callback\+\_\+on\+\_\+writable}!Callback when writeable@{Callback when writeable}}
+\subsubsection[{\texorpdfstring{lws\+\_\+callback\+\_\+on\+\_\+writable(struct lws $\ast$wsi)}{lws\_callback\_on\_writable(struct lws *wsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+callback\+\_\+on\+\_\+writable (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi}
+\end{DoxyParamCaption}
+)}\hypertarget{group__callback-when-writeable_ga941caaa468bc507b1cae52275f58800d}{}\label{group__callback-when-writeable_ga941caaa468bc507b1cae52275f58800d}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__callback-when-writeable_ga941caaa468bc507b1cae52275f58800d}{lws\+\_\+callback\+\_\+on\+\_\+writable()} -\/ Request a callback when this socket becomes able to be written to without blocking
+
+
+\begin{DoxyParams}{Parameters}
+{\em wsi} & Websocket connection instance to get callback for\\
+\hline
+\end{DoxyParams}
+
+\begin{DoxyItemize}
+\item Which\+: only this wsi
+\item When\+: when the individual connection becomes writeable
+\item What\+: L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+$\ast$\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE 
+\end{DoxyItemize}\index{Callback when writeable@{Callback when writeable}!lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol@{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol}}
+\index{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol@{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol}!Callback when writeable@{Callback when writeable}}
+\subsubsection[{\texorpdfstring{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol(const struct lws\+\_\+context $\ast$context, const struct lws\+\_\+protocols $\ast$protocol)}{lws\_callback\_on\_writable\_all\_protocol(const struct lws\_context *context, const struct lws\_protocols *protocol)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol (
+\begin{DoxyParamCaption}
+\item[{const struct lws\+\_\+context $\ast$}]{context, }
+\item[{const struct {\bf lws\+\_\+protocols} $\ast$}]{protocol}
+\end{DoxyParamCaption}
+)}\hypertarget{group__callback-when-writeable_gabbe4655c7eeb3eb1671b2323ec6b3107}{}\label{group__callback-when-writeable_gabbe4655c7eeb3eb1671b2323ec6b3107}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__callback-when-writeable_gabbe4655c7eeb3eb1671b2323ec6b3107}{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol()} -\/ Request a callback for all connections on same vhost using the given protocol when it becomes possible to write to each socket without blocking in turn.
+
+
+\begin{DoxyParams}{Parameters}
+{\em context} & lws\+\_\+context \\
+\hline
+{\em protocol} & Protocol whose connections will get callbacks\\
+\hline
+\end{DoxyParams}
+
+\begin{DoxyItemize}
+\item Which\+: connections using this protocol on A\+NY V\+H\+O\+ST
+\item When\+: when the individual connection becomes writeable
+\item What\+: L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+$\ast$\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE 
+\end{DoxyItemize}\index{Callback when writeable@{Callback when writeable}!lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol\+\_\+vhost@{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol\+\_\+vhost}}
+\index{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol\+\_\+vhost@{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol\+\_\+vhost}!Callback when writeable@{Callback when writeable}}
+\subsubsection[{\texorpdfstring{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol\+\_\+vhost(const struct lws\+\_\+vhost $\ast$vhost, const struct lws\+\_\+protocols $\ast$protocol)}{lws\_callback\_on\_writable\_all\_protocol\_vhost(const struct lws\_vhost *vhost, const struct lws\_protocols *protocol)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol\+\_\+vhost (
+\begin{DoxyParamCaption}
+\item[{const struct lws\+\_\+vhost $\ast$}]{vhost, }
+\item[{const struct {\bf lws\+\_\+protocols} $\ast$}]{protocol}
+\end{DoxyParamCaption}
+)}\hypertarget{group__callback-when-writeable_ga8570860e191b62db264f2bac67354ea8}{}\label{group__callback-when-writeable_ga8570860e191b62db264f2bac67354ea8}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__callback-when-writeable_ga8570860e191b62db264f2bac67354ea8}{lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol\+\_\+vhost()} -\/ Request a callback for all connections using the given protocol when it becomes possible to write to each socket without blocking in turn.
+
+
+\begin{DoxyParams}{Parameters}
+{\em vhost} & Only consider connections on this lws\+\_\+vhost \\
+\hline
+{\em protocol} & Protocol whose connections will get callbacks\\
+\hline
+\end{DoxyParams}
+
+\begin{DoxyItemize}
+\item Which\+: connections using this protocol on G\+I\+V\+EN V\+H\+O\+ST O\+N\+LY
+\item When\+: when the individual connection becomes writeable
+\item What\+: L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+$\ast$\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE 
+\end{DoxyItemize}\index{Callback when writeable@{Callback when writeable}!lws\+\_\+callback\+\_\+vhost\+\_\+protocols@{lws\+\_\+callback\+\_\+vhost\+\_\+protocols}}
+\index{lws\+\_\+callback\+\_\+vhost\+\_\+protocols@{lws\+\_\+callback\+\_\+vhost\+\_\+protocols}!Callback when writeable@{Callback when writeable}}
+\subsubsection[{\texorpdfstring{lws\+\_\+callback\+\_\+vhost\+\_\+protocols(struct lws $\ast$wsi, int reason, void $\ast$in, int len)}{lws\_callback\_vhost\_protocols(struct lws *wsi, int reason, void *in, int len)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+callback\+\_\+vhost\+\_\+protocols (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi, }
+\item[{int}]{reason, }
+\item[{void $\ast$}]{in, }
+\item[{int}]{len}
+\end{DoxyParamCaption}
+)}\hypertarget{group__callback-when-writeable_ga60939cf0c073d933fde3d17f3591caf5}{}\label{group__callback-when-writeable_ga60939cf0c073d933fde3d17f3591caf5}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__callback-when-writeable_ga60939cf0c073d933fde3d17f3591caf5}{lws\+\_\+callback\+\_\+vhost\+\_\+protocols()} -\/ Callback all protocols enabled on a vhost with the given reason
+
+
+\begin{DoxyParams}{Parameters}
+{\em wsi} & wsi whose vhost will get callbacks \\
+\hline
+{\em reason} & Callback reason index \\
+\hline
+{\em in} & in argument to callback \\
+\hline
+{\em len} & len argument to callback\\
+\hline
+\end{DoxyParams}
+
+\begin{DoxyItemize}
+\item Which\+: connections using this protocol on same V\+H\+O\+ST as wsi O\+N\+LY
+\item When\+: now
+\item What\+: reason 
+\end{DoxyItemize}\index{Callback when writeable@{Callback when writeable}!lws\+\_\+get\+\_\+peer\+\_\+write\+\_\+allowance@{lws\+\_\+get\+\_\+peer\+\_\+write\+\_\+allowance}}
+\index{lws\+\_\+get\+\_\+peer\+\_\+write\+\_\+allowance@{lws\+\_\+get\+\_\+peer\+\_\+write\+\_\+allowance}!Callback when writeable@{Callback when writeable}}
+\subsubsection[{\texorpdfstring{lws\+\_\+get\+\_\+peer\+\_\+write\+\_\+allowance(struct lws $\ast$wsi)}{lws\_get\_peer\_write\_allowance(struct lws *wsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN size\+\_\+t lws\+\_\+get\+\_\+peer\+\_\+write\+\_\+allowance (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi}
+\end{DoxyParamCaption}
+)}\hypertarget{group__callback-when-writeable_gac4643fe16b0940ae5b68b4ee6195cbde}{}\label{group__callback-when-writeable_gac4643fe16b0940ae5b68b4ee6195cbde}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__callback-when-writeable_gac4643fe16b0940ae5b68b4ee6195cbde}{lws\+\_\+get\+\_\+peer\+\_\+write\+\_\+allowance()} -\/ get the amount of data writeable to peer if known
+
+
+\begin{DoxyParams}{Parameters}
+{\em wsi} & Websocket connection instance\\
+\hline
+\end{DoxyParams}
+if the protocol does not have any guidance, returns -\/1. Currently only http2 connections get send window information from this A\+PI. But your code should use it so it can work properly with any protocol.
+
+If nonzero return is the amount of payload data the peer or intermediary has reported it has buffer space for. That has NO relationship with the amount of buffer space your OS can accept on this connection for a write action.
+
+This number represents the maximum you could send to the peer or intermediary on this connection right now without the protocol complaining.
+
+lws manages accounting for send window updates and payload writes automatically, so this number reflects the situation at the peer or intermediary dynamically. \index{Callback when writeable@{Callback when writeable}!lws\+\_\+get\+\_\+socket\+\_\+fd@{lws\+\_\+get\+\_\+socket\+\_\+fd}}
+\index{lws\+\_\+get\+\_\+socket\+\_\+fd@{lws\+\_\+get\+\_\+socket\+\_\+fd}!Callback when writeable@{Callback when writeable}}
+\subsubsection[{\texorpdfstring{lws\+\_\+get\+\_\+socket\+\_\+fd(struct lws $\ast$wsi)}{lws\_get\_socket\_fd(struct lws *wsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+get\+\_\+socket\+\_\+fd (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi}
+\end{DoxyParamCaption}
+)}\hypertarget{group__callback-when-writeable_gaa709e02a10558753c851e58f1e2c16ba}{}\label{group__callback-when-writeable_gaa709e02a10558753c851e58f1e2c16ba}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__callback-when-writeable_gaa709e02a10558753c851e58f1e2c16ba}{lws\+\_\+get\+\_\+socket\+\_\+fd()} -\/ returns the socket file descriptor
+
+You will not need this unless you are doing something special
+
+
+\begin{DoxyParams}{Parameters}
+{\em wsi} & Websocket connection instance \\
+\hline
+\end{DoxyParams}

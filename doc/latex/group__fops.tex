@@ -1,0 +1,42 @@
+\hypertarget{group__fops}{}\section{file operation wrapping}
+\label{group__fops}\index{file operation wrapping@{file operation wrapping}}
+\subsection*{Data Structures}
+\begin{DoxyCompactItemize}
+\item 
+struct \hyperlink{structlws__plat__file__ops}{lws\+\_\+plat\+\_\+file\+\_\+ops}
+\end{DoxyCompactItemize}
+\subsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct \hyperlink{structlws__plat__file__ops}{lws\+\_\+plat\+\_\+file\+\_\+ops} $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__fops_gac08aef64c4c34647ed699b24759b6b0e}{lws\+\_\+get\+\_\+fops} (struct lws\+\_\+context $\ast$context)
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+\subsubsection*{File operation wrapping}
+
+Use these helper functions if you want to access a file from the perspective of a specific wsi, which is usually the case. If you just want contextless file access, use the fops callbacks directly with N\+U\+LL wsi instead of these helpers.
+
+If so, then it calls the platform handler or user overrides where present (as defined in info-\/$>$fops)
+
+The advantage from all this is user code can be portable for file operations without having to deal with differences between platforms. 
+
+\subsection{Function Documentation}
+\index{file operation wrapping@{file operation wrapping}!lws\+\_\+get\+\_\+fops@{lws\+\_\+get\+\_\+fops}}
+\index{lws\+\_\+get\+\_\+fops@{lws\+\_\+get\+\_\+fops}!file operation wrapping@{file operation wrapping}}
+\subsubsection[{\texorpdfstring{lws\+\_\+get\+\_\+fops(struct lws\+\_\+context $\ast$context)}{lws\_get\_fops(struct lws\_context *context)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct {\bf lws\+\_\+plat\+\_\+file\+\_\+ops}$\ast$ L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT lws\+\_\+get\+\_\+fops (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context}
+\end{DoxyParamCaption}
+)}\hypertarget{group__fops_gac08aef64c4c34647ed699b24759b6b0e}{}\label{group__fops_gac08aef64c4c34647ed699b24759b6b0e}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__fops_gac08aef64c4c34647ed699b24759b6b0e}{lws\+\_\+get\+\_\+fops()} -\/ get current file ops
+
+
+\begin{DoxyParams}{Parameters}
+{\em context} & context \\
+\hline
+\end{DoxyParams}

@@ -122,13 +122,6 @@ LWS_VISIBLE int lws_poll_listen_fd(struct lws_pollfd *fd)
 	return select(fd->fd + 1, &readfds, NULL, NULL, &tv);
 }
 
-/**
- * lws_cancel_service() - Cancel servicing of pending websocket activity
- * @context:	Websocket context
- *
- *	This function let a call to lws_service() waiting for a timeout
- *	immediately return.
- */
 LWS_VISIBLE void
 lws_cancel_service(struct lws_context *context)
 {
@@ -153,7 +146,7 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 	lwsl_emit_stderr(level, line);
 }
 
-LWS_VISIBLE DWORD 
+LWS_VISIBLE DWORD
 lws_plat_wait_event(struct lws_context_per_thread* pt, int timeout)
 {
 	int event_count = pt->fds_count + 1;
@@ -162,27 +155,27 @@ lws_plat_wait_event(struct lws_context_per_thread* pt, int timeout)
 
 	// the WSAWaitForMultipleEvents can wait for maximum of 64 handles
 	if(event_count <= WSA_MAXIMUM_WAIT_EVENTS)
-	{		
+	{
 		return ev = WSAWaitForMultipleEvents(event_count, events,
 						FALSE, timeout, FALSE);
 	}
 	else
 	{
-		// back-up solution	
-		// this is really ugly and introduces unneeded latency / unfairness 
+		// back-up solution
+		// this is really ugly and introduces unneeded latency / unfairness
 		// but still better than the current crash
 		int timeout_left = timeout;
 
 		// the smaller the step the closer we get to the valid solution
-		// and the more CPU we will use	
+		// and the more CPU we will use
 		int timeout_step = (timeout > 20) ? 20 : timeout;
 
 		while(timeout_left > 0)
-		{		
+		{
 			int events_left = event_count;
 			int events_handled = 0;
 			timeout = 0;
-	
+
 			while(events_left > 0)
 			{
 				// split to groups to size of max 64

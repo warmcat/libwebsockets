@@ -1,0 +1,45 @@
+\hypertarget{structlws__session__info}{}\section{lws\+\_\+session\+\_\+info Struct Reference}
+\label{structlws__session__info}\index{lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}}
+
+
+{\ttfamily \#include $<$libwebsockets.\+h$>$}
+
+\subsection*{Data Fields}
+\begin{DoxyCompactItemize}
+\item 
+char \hyperlink{structlws__session__info_a3d57a70b6e7181d95a8bec429b1a7697}{username} \mbox{[}32\mbox{]}
+\item 
+char \hyperlink{structlws__session__info_a94b813cfc6b0da4b182659de30038ad3}{email} \mbox{[}100\mbox{]}
+\item 
+char \hyperlink{structlws__session__info_a53eed02325e8717a53297391e3e98fac}{ip} \mbox{[}72\mbox{]}
+\item 
+unsigned int \hyperlink{structlws__session__info_afb924864b70f40372920688a5c1c895e}{mask}
+\item 
+char \hyperlink{structlws__session__info_a4353b5dd19400b2b15edfd7cee1e4cd5}{session} \mbox{[}42\mbox{]}
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+struct \hyperlink{structlws__session__info}{lws\+\_\+session\+\_\+info} -\/ information about user session status 
+
+\subsection{Field Documentation}
+\index{lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}!email@{email}}
+\index{email@{email}!lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}}
+\subsubsection[{\texorpdfstring{email}{email}}]{\setlength{\rightskip}{0pt plus 5cm}char lws\+\_\+session\+\_\+info\+::email\mbox{[}100\mbox{]}}\hypertarget{structlws__session__info_a94b813cfc6b0da4b182659de30038ad3}{}\label{structlws__session__info_a94b813cfc6b0da4b182659de30038ad3}
+email address associated with login, or empty string \index{lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}!ip@{ip}}
+\index{ip@{ip}!lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}}
+\subsubsection[{\texorpdfstring{ip}{ip}}]{\setlength{\rightskip}{0pt plus 5cm}char lws\+\_\+session\+\_\+info\+::ip\mbox{[}72\mbox{]}}\hypertarget{structlws__session__info_a53eed02325e8717a53297391e3e98fac}{}\label{structlws__session__info_a53eed02325e8717a53297391e3e98fac}
+ip address session was started from \index{lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}!mask@{mask}}
+\index{mask@{mask}!lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}}
+\subsubsection[{\texorpdfstring{mask}{mask}}]{\setlength{\rightskip}{0pt plus 5cm}unsigned int lws\+\_\+session\+\_\+info\+::mask}\hypertarget{structlws__session__info_afb924864b70f40372920688a5c1c895e}{}\label{structlws__session__info_afb924864b70f40372920688a5c1c895e}
+access rights mask associated with session see enum lwsgs\+\_\+auth\+\_\+bits \index{lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}!session@{session}}
+\index{session@{session}!lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}}
+\subsubsection[{\texorpdfstring{session}{session}}]{\setlength{\rightskip}{0pt plus 5cm}char lws\+\_\+session\+\_\+info\+::session\mbox{[}42\mbox{]}}\hypertarget{structlws__session__info_a4353b5dd19400b2b15edfd7cee1e4cd5}{}\label{structlws__session__info_a4353b5dd19400b2b15edfd7cee1e4cd5}
+session id string, usable as opaque uid when not logged in \index{lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}!username@{username}}
+\index{username@{username}!lws\+\_\+session\+\_\+info@{lws\+\_\+session\+\_\+info}}
+\subsubsection[{\texorpdfstring{username}{username}}]{\setlength{\rightskip}{0pt plus 5cm}char lws\+\_\+session\+\_\+info\+::username\mbox{[}32\mbox{]}}\hypertarget{structlws__session__info_a3d57a70b6e7181d95a8bec429b1a7697}{}\label{structlws__session__info_a3d57a70b6e7181d95a8bec429b1a7697}
+username logged in as, or empty string 
+
+The documentation for this struct was generated from the following file\+:\begin{DoxyCompactItemize}
+\item 
+lib/\hyperlink{libwebsockets_8h}{libwebsockets.\+h}\end{DoxyCompactItemize}

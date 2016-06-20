@@ -1,10 +1,13 @@
+Notes about lws test apps
+=========================
+
 Testing server with a browser
 -----------------------------
 
 If you run [libwebsockets-test-server](test-server/test-server.c) and point your browser
 (eg, Chrome) to
 
-  http://127.0.0.1:7681
+	http://127.0.0.1:7681
 
 It will fetch a script in the form of `test.html`, and then run the
 script in there on the browser to open a websocket connection.
@@ -26,11 +29,9 @@ of the master process, and deletes this file when the master process
 terminates.
 
 To stop the daemon, do
-
-```bash
-$ kill `cat /tmp/.lwsts-lock`
 ```
-
+	$ kill cat /tmp/.lwsts-lock 
+```
 If it finds a stale lock (the pid mentioned in the file does not exist
 any more) it will delete the lock and create a new one during startup.
 
@@ -42,15 +43,13 @@ Using SSL on the server side
 ----------------------------
 
 To test it using SSL/WSS, just run the test server with
-
-```bash
-$ libwebsockets-test-server --ssl
 ```
-
+	$ libwebsockets-test-server --ssl
+```
 and use the URL
-
-  https://127.0.0.1:7681
-
+```
+	https://127.0.0.1:7681
+```
 The connection will be entirely encrypted using some generated
 certificates that your browser will not accept, since they are
 not signed by any real Certificate Authority.  Just accept the
@@ -68,8 +67,8 @@ Testing websocket client support
 If you run the test server as described above, you can also
 connect to it using the test client as well as a browser.
 
-```bash
-$ libwebsockets-test-client localhost
+```
+	$ libwebsockets-test-client localhost
 ```
 
 will by default connect to the test server on localhost:7681
@@ -80,8 +79,8 @@ same time you will be able to see the circles being drawn.
 
 The test client supports SSL too, use
 
-```bash
-$ libwebsockets-test-client localhost --ssl -s
+```
+	$ libwebsockets-test-client localhost --ssl -s
 ```
 
 the -s tells it to accept the default selfsigned cert from the server,
@@ -110,24 +109,20 @@ Testing simple echo
 You can test against `echo.websockets.org` as a sanity test like
 this (the client connects to port `80` by default):
 
-```bash
-$ libwebsockets-test-echo --client echo.websocket.org
+```
+	$ libwebsockets-test-echo --client echo.websocket.org
 ```
 
 This echo test is of limited use though because it doesn't
 negotiate any protocol.  You can run the same test app as a
 local server, by default on localhost:7681
-
-```bash
-$ libwebsockets-test-echo
 ```
-
+	$ libwebsockets-test-echo
+```
 and do the echo test against the local echo server
-
-```bash
-$ libwebsockets-test-echo --client localhost --port 7681
 ```
-
+	$ libwebsockets-test-echo --client localhost --port 7681
+```
 If you add the `--ssl` switch to both the client and server, you can also test
 with an encrypted link.
 
@@ -136,11 +131,9 @@ Testing SSL on the client side
 ------------------------------
 
 To test SSL/WSS client action, just run the client test with
-
-```bash
-$ libwebsockets-test-client localhost --ssl
 ```
-
+	$ libwebsockets-test-client localhost --ssl
+```
 By default the client test applet is set to accept selfsigned
 certificates used by the test server, this is indicated by the
 `use_ssl` var being set to `2`.  Set it to `1` to reject any server
@@ -151,28 +144,26 @@ Using the websocket ping utility
 --------------------------------
 
 libwebsockets-test-ping connects as a client to a remote
-websocket server using 04 protocol and pings it like the
+websocket server and pings it like the
 normal unix ping utility.
-
-```bash
-$ libwebsockets-test-ping localhost
-handshake OK for protocol lws-mirror-protocol
-Websocket PING localhost.localdomain (127.0.0.1) 64 bytes of data.
-64 bytes from localhost: req=1 time=0.1ms
-64 bytes from localhost: req=2 time=0.1ms
-64 bytes from localhost: req=3 time=0.1ms
-64 bytes from localhost: req=4 time=0.2ms
-64 bytes from localhost: req=5 time=0.1ms
-64 bytes from localhost: req=6 time=0.2ms
-64 bytes from localhost: req=7 time=0.2ms
-64 bytes from localhost: req=8 time=0.1ms
-^C
---- localhost.localdomain websocket ping statistics ---
-8 packets transmitted, 8 received, 0% packet loss, time 7458ms
-rtt min/avg/max = 0.110/0.185/0.218 ms
-$
 ```
-
+	$ libwebsockets-test-ping localhost
+	handshake OK for protocol lws-mirror-protocol
+	Websocket PING localhost.localdomain (127.0.0.1) 64 bytes of data.
+	64 bytes from localhost: req=1 time=0.1ms
+	64 bytes from localhost: req=2 time=0.1ms
+	64 bytes from localhost: req=3 time=0.1ms
+	64 bytes from localhost: req=4 time=0.2ms
+	64 bytes from localhost: req=5 time=0.1ms
+	64 bytes from localhost: req=6 time=0.2ms
+	64 bytes from localhost: req=7 time=0.2ms
+	64 bytes from localhost: req=8 time=0.1ms
+	^C
+	--- localhost.localdomain websocket ping statistics ---
+	8 packets transmitted, 8 received, 0% packet loss, time 7458ms
+	rtt min/avg/max = 0.110/0.185/0.218 ms
+	$
+```
 By default it sends 64 byte payload packets using the 04
 PING packet opcode type.  You can change the payload size
 using the `-s=` flag, up to a maximum of 125 mandated by the
@@ -200,41 +191,37 @@ Fraggle test app
 ----------------
 
 By default it runs in server mode
-
-```bash
-$ libwebsockets-test-fraggle
-libwebsockets test fraggle
-(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under LGPL2.1
- Compiled with SSL support, not using it
- Listening on port 7681
-server sees client connect
-accepted v06 connection
-Spamming 360 random fragments
-Spamming session over, len = 371913. sum = 0x2D3C0AE
-Spamming 895 random fragments
-Spamming session over, len = 875970. sum = 0x6A74DA1
-...
 ```
-
+	$ libwebsockets-test-fraggle
+	libwebsockets test fraggle
+	(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under LGPL2.1
+	 Compiled with SSL support, not using it
+	 Listening on port 7681
+	server sees client connect
+	accepted v06 connection
+	Spamming 360 random fragments
+	Spamming session over, len = 371913. sum = 0x2D3C0AE
+	Spamming 895 random fragments
+	Spamming session over, len = 875970. sum = 0x6A74DA1
+	...
+```
 You need to run a second session in client mode, you have to
 give the `-c` switch and the server address at least:
-
-```bash
-$ libwebsockets-test-fraggle -c localhost
-libwebsockets test fraggle
-(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under LGPL2.1
- Client mode
-Connecting to localhost:7681
-denied deflate-stream extension
-handshake OK for protocol fraggle-protocol
-client connects to server
-EOM received 371913 correctly from 360 fragments
-EOM received 875970 correctly from 895 fragments
-EOM received 247140 correctly from 258 fragments
-EOM received 695451 correctly from 692 fragments
-...
 ```
-
+	$ libwebsockets-test-fraggle -c localhost
+	libwebsockets test fraggle
+	(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under LGPL2.1
+	 Client mode
+	Connecting to localhost:7681
+	denied deflate-stream extension
+	handshake OK for protocol fraggle-protocol
+	client connects to server
+	EOM received 371913 correctly from 360 fragments
+	EOM received 875970 correctly from 895 fragments
+	EOM received 247140 correctly from 258 fragments
+	EOM received 695451 correctly from 692 fragments
+	...
+```
 The fraggle test sends a random number up to 1024 fragmented websocket frames
 each of a random size between 1 and 2001 bytes in a single message, then sends
 a checksum and starts sending a new randomly sized and fragmented message.
@@ -252,12 +239,10 @@ connection code for both `ws://` and `wss://`.  It doesn't support
 authentication.
 
 You use it like this
-
-```bash
-$ export http_proxy=myproxy.com:3128
-$ libwebsockets-test-client someserver.com
 ```
-
+	$ export http_proxy=myproxy.com:3128
+	$ libwebsockets-test-client someserver.com
+```
 
 debug logging
 -------------

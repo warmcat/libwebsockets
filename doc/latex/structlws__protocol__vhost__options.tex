@@ -1,0 +1,42 @@
+\hypertarget{structlws__protocol__vhost__options}{}\section{lws\+\_\+protocol\+\_\+vhost\+\_\+options Struct Reference}
+\label{structlws__protocol__vhost__options}\index{lws\+\_\+protocol\+\_\+vhost\+\_\+options@{lws\+\_\+protocol\+\_\+vhost\+\_\+options}}
+
+
+{\ttfamily \#include $<$libwebsockets.\+h$>$}
+
+\subsection*{Data Fields}
+\begin{DoxyCompactItemize}
+\item 
+const struct \hyperlink{structlws__protocol__vhost__options}{lws\+\_\+protocol\+\_\+vhost\+\_\+options} $\ast$ \hyperlink{structlws__protocol__vhost__options_abc714ddb4171756fc8196e9823a1e21c}{next}
+\item 
+const struct \hyperlink{structlws__protocol__vhost__options}{lws\+\_\+protocol\+\_\+vhost\+\_\+options} $\ast$ \hyperlink{structlws__protocol__vhost__options_afd99fbc90be51ea2465b550c2ec47822}{options}
+\item 
+const char $\ast$ \hyperlink{structlws__protocol__vhost__options_acf9db77f8eb64cd4e314be9b43d8a8b9}{name}
+\item 
+const char $\ast$ \hyperlink{structlws__protocol__vhost__options_a0640a92513c70ee6b9b295a9ad1658e7}{value}
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+struct \hyperlink{structlws__protocol__vhost__options}{lws\+\_\+protocol\+\_\+vhost\+\_\+options} -\/ linked list of per-\/vhost protocol name=value options
+
+This provides a general way to attach a linked-\/list of name=value pairs, which can also have an optional child link-\/list using the options member. 
+
+\subsection{Field Documentation}
+\index{lws\+\_\+protocol\+\_\+vhost\+\_\+options@{lws\+\_\+protocol\+\_\+vhost\+\_\+options}!name@{name}}
+\index{name@{name}!lws\+\_\+protocol\+\_\+vhost\+\_\+options@{lws\+\_\+protocol\+\_\+vhost\+\_\+options}}
+\subsubsection[{\texorpdfstring{name}{name}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+protocol\+\_\+vhost\+\_\+options\+::name}\hypertarget{structlws__protocol__vhost__options_acf9db77f8eb64cd4e314be9b43d8a8b9}{}\label{structlws__protocol__vhost__options_acf9db77f8eb64cd4e314be9b43d8a8b9}
+name of name=value pair \index{lws\+\_\+protocol\+\_\+vhost\+\_\+options@{lws\+\_\+protocol\+\_\+vhost\+\_\+options}!next@{next}}
+\index{next@{next}!lws\+\_\+protocol\+\_\+vhost\+\_\+options@{lws\+\_\+protocol\+\_\+vhost\+\_\+options}}
+\subsubsection[{\texorpdfstring{next}{next}}]{\setlength{\rightskip}{0pt plus 5cm}const struct {\bf lws\+\_\+protocol\+\_\+vhost\+\_\+options}$\ast$ lws\+\_\+protocol\+\_\+vhost\+\_\+options\+::next}\hypertarget{structlws__protocol__vhost__options_abc714ddb4171756fc8196e9823a1e21c}{}\label{structlws__protocol__vhost__options_abc714ddb4171756fc8196e9823a1e21c}
+linked list \index{lws\+\_\+protocol\+\_\+vhost\+\_\+options@{lws\+\_\+protocol\+\_\+vhost\+\_\+options}!options@{options}}
+\index{options@{options}!lws\+\_\+protocol\+\_\+vhost\+\_\+options@{lws\+\_\+protocol\+\_\+vhost\+\_\+options}}
+\subsubsection[{\texorpdfstring{options}{options}}]{\setlength{\rightskip}{0pt plus 5cm}const struct {\bf lws\+\_\+protocol\+\_\+vhost\+\_\+options}$\ast$ lws\+\_\+protocol\+\_\+vhost\+\_\+options\+::options}\hypertarget{structlws__protocol__vhost__options_afd99fbc90be51ea2465b550c2ec47822}{}\label{structlws__protocol__vhost__options_afd99fbc90be51ea2465b550c2ec47822}
+child linked-\/list of more options for this node \index{lws\+\_\+protocol\+\_\+vhost\+\_\+options@{lws\+\_\+protocol\+\_\+vhost\+\_\+options}!value@{value}}
+\index{value@{value}!lws\+\_\+protocol\+\_\+vhost\+\_\+options@{lws\+\_\+protocol\+\_\+vhost\+\_\+options}}
+\subsubsection[{\texorpdfstring{value}{value}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+protocol\+\_\+vhost\+\_\+options\+::value}\hypertarget{structlws__protocol__vhost__options_a0640a92513c70ee6b9b295a9ad1658e7}{}\label{structlws__protocol__vhost__options_a0640a92513c70ee6b9b295a9ad1658e7}
+value of name=value pair 
+
+The documentation for this struct was generated from the following file\+:\begin{DoxyCompactItemize}
+\item 
+lib/\hyperlink{libwebsockets_8h}{libwebsockets.\+h}\end{DoxyCompactItemize}

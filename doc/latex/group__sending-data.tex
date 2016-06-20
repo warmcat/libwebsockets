@@ -1,0 +1,148 @@
+\hypertarget{group__sending-data}{}\section{Sending data}
+\label{group__sending-data}\index{Sending data@{Sending data}}
+\subsection*{Enumerations}
+\begin{DoxyCompactItemize}
+\item 
+enum \hyperlink{group__sending-data_ga98b099cf8c1c7e38ad78501f270e193d}{lws\+\_\+write\+\_\+protocol} \{ \\*
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da80e8f169fda236c56bfb795ed62903db}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+XT} = 0, 
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193daf6486c0dba50c44198100717721d9ab2}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+B\+I\+N\+A\+RY} = 1, 
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da10047eb05b5e1c298151dc47a5b44826}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+O\+N\+T\+I\+N\+U\+A\+T\+I\+ON} = 2, 
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dabb6705e1d1327cdda5025be28f07712e}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+TP} = 3, 
+\\*
+{\bfseries L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+P\+I\+NG} = 5, 
+{\bfseries L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+P\+O\+NG} = 6, 
+{\bfseries L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+F\+I\+N\+AL} = 7, 
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dafe5a38e940ce56708ac814627e9c0917}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+H\+E\+A\+D\+E\+RS} = 8, 
+\\*
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da115440f272a5d55518adfc8099acfee3}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+N\+O\+\_\+\+F\+IN} = 0x40, 
+\hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da220d8e8652d9b97fb66e476e2a60ffce}{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+I\+G\+N\+O\+R\+E\+\_\+\+X\+O\+R\+\_\+\+M\+A\+SK} = 0x80
+ \}
+\end{DoxyCompactItemize}
+\subsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__sending-data_gafd5fdd285a0e25ba7e3e1051deec1001}{lws\+\_\+write} (struct lws $\ast$wsi, unsigned char $\ast$buf, size\+\_\+t len, enum \hyperlink{group__sending-data_ga98b099cf8c1c7e38ad78501f270e193d}{lws\+\_\+write\+\_\+protocol} protocol)
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+A\+P\+Is related to writing data on a connection 
+
+\subsection{Enumeration Type Documentation}
+\index{Sending data@{Sending data}!lws\+\_\+write\+\_\+protocol@{lws\+\_\+write\+\_\+protocol}}
+\index{lws\+\_\+write\+\_\+protocol@{lws\+\_\+write\+\_\+protocol}!Sending data@{Sending data}}
+\subsubsection[{\texorpdfstring{lws\+\_\+write\+\_\+protocol}{lws\_write\_protocol}}]{\setlength{\rightskip}{0pt plus 5cm}enum {\bf lws\+\_\+write\+\_\+protocol}}\hypertarget{group__sending-data_ga98b099cf8c1c7e38ad78501f270e193d}{}\label{group__sending-data_ga98b099cf8c1c7e38ad78501f270e193d}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\begin{Desc}
+\item[Enumerator]\par
+\begin{description}
+\index{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+XT@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+XT}!Sending data@{Sending data}}\index{Sending data@{Sending data}!L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+XT@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+XT}}\item[{\em 
+L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+XT\hypertarget{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da80e8f169fda236c56bfb795ed62903db}{}\label{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da80e8f169fda236c56bfb795ed62903db}
+}]Send a ws T\+E\+XT message,the pointer must have L\+W\+S\+\_\+\+P\+RE valid memory behind it. The receiver expects only valid utf-\/8 in the payload \index{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+B\+I\+N\+A\+RY@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+B\+I\+N\+A\+RY}!Sending data@{Sending data}}\index{Sending data@{Sending data}!L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+B\+I\+N\+A\+RY@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+B\+I\+N\+A\+RY}}\item[{\em 
+L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+B\+I\+N\+A\+RY\hypertarget{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193daf6486c0dba50c44198100717721d9ab2}{}\label{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193daf6486c0dba50c44198100717721d9ab2}
+}]Send a ws B\+I\+N\+A\+RY message, the pointer must have L\+W\+S\+\_\+\+P\+RE valid memory behind it. Any sequence of bytes is valid \index{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+O\+N\+T\+I\+N\+U\+A\+T\+I\+ON@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+O\+N\+T\+I\+N\+U\+A\+T\+I\+ON}!Sending data@{Sending data}}\index{Sending data@{Sending data}!L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+O\+N\+T\+I\+N\+U\+A\+T\+I\+ON@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+O\+N\+T\+I\+N\+U\+A\+T\+I\+ON}}\item[{\em 
+L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+O\+N\+T\+I\+N\+U\+A\+T\+I\+ON\hypertarget{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da10047eb05b5e1c298151dc47a5b44826}{}\label{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da10047eb05b5e1c298151dc47a5b44826}
+}]Continue a previous ws message, the pointer must have L\+W\+S\+\_\+\+P\+RE valid memory behind it \index{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+TP@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+TP}!Sending data@{Sending data}}\index{Sending data@{Sending data}!L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+TP@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+TP}}\item[{\em 
+L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+TP\hypertarget{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dabb6705e1d1327cdda5025be28f07712e}{}\label{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dabb6705e1d1327cdda5025be28f07712e}
+}]Send H\+T\+TP content \index{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+H\+E\+A\+D\+E\+RS@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+H\+E\+A\+D\+E\+RS}!Sending data@{Sending data}}\index{Sending data@{Sending data}!L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+H\+E\+A\+D\+E\+RS@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+H\+E\+A\+D\+E\+RS}}\item[{\em 
+L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+H\+E\+A\+D\+E\+RS\hypertarget{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dafe5a38e940ce56708ac814627e9c0917}{}\label{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dafe5a38e940ce56708ac814627e9c0917}
+}]Send http headers (http2 encodes this payload and L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+TP payload differently, http 1.\+x links also handle this correctly. so to be compatible with both in the future,header response part should be sent using this regardless of http version expected) \index{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+N\+O\+\_\+\+F\+IN@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+N\+O\+\_\+\+F\+IN}!Sending data@{Sending data}}\index{Sending data@{Sending data}!L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+N\+O\+\_\+\+F\+IN@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+N\+O\+\_\+\+F\+IN}}\item[{\em 
+L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+N\+O\+\_\+\+F\+IN\hypertarget{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da115440f272a5d55518adfc8099acfee3}{}\label{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da115440f272a5d55518adfc8099acfee3}
+}]This part of the message is not the end of the message \index{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+I\+G\+N\+O\+R\+E\+\_\+\+X\+O\+R\+\_\+\+M\+A\+SK@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+I\+G\+N\+O\+R\+E\+\_\+\+X\+O\+R\+\_\+\+M\+A\+SK}!Sending data@{Sending data}}\index{Sending data@{Sending data}!L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+I\+G\+N\+O\+R\+E\+\_\+\+X\+O\+R\+\_\+\+M\+A\+SK@{L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+I\+G\+N\+O\+R\+E\+\_\+\+X\+O\+R\+\_\+\+M\+A\+SK}}\item[{\em 
+L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+I\+G\+N\+O\+R\+E\+\_\+\+X\+O\+R\+\_\+\+M\+A\+SK\hypertarget{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da220d8e8652d9b97fb66e476e2a60ffce}{}\label{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da220d8e8652d9b97fb66e476e2a60ffce}
+}]client packet payload goes out on wire unmunged only useful for security tests since normal servers cannot decode the content if used \end{description}
+\end{Desc}
+
+\begin{DoxyCode}
+2893                         \{
+2894         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da80e8f169fda236c56bfb795ed62903db}{LWS\_WRITE\_TEXT}                                            = 0,
+2898         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193daf6486c0dba50c44198100717721d9ab2}{LWS\_WRITE\_BINARY}                                        = 1,
+2901         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da10047eb05b5e1c298151dc47a5b44826}{LWS\_WRITE\_CONTINUATION}                                    = 2,
+2904         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dabb6705e1d1327cdda5025be28f07712e}{LWS\_WRITE\_HTTP}                                            = 3,
+2907         \textcolor{comment}{/* LWS\_WRITE\_CLOSE is handled by lws\_close\_reason() */}
+2908         LWS\_WRITE\_PING                                          = 5,
+2909         LWS\_WRITE\_PONG                                          = 6,
+2910 
+2911         \textcolor{comment}{/* Same as write\_http but we know this write ends the transaction */}
+2912         LWS\_WRITE\_HTTP\_FINAL                                    = 7,
+2913 
+2914         \textcolor{comment}{/* HTTP2 */}
+2915 
+2916         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dafe5a38e940ce56708ac814627e9c0917}{LWS\_WRITE\_HTTP\_HEADERS}                                    = 8,
+2923         \textcolor{comment}{/****** add new things just above ---^ ******/}
+2924 
+2925         \textcolor{comment}{/* flags */}
+2926 
+2927         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da115440f272a5d55518adfc8099acfee3}{LWS\_WRITE\_NO\_FIN} = 0x40,
+2930         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da220d8e8652d9b97fb66e476e2a60ffce}{LWS\_WRITE\_CLIENT\_IGNORE\_XOR\_MASK} = 0x80
+2934 \};
+\end{DoxyCode}
+
+
+\subsection{Function Documentation}
+\index{Sending data@{Sending data}!lws\+\_\+write@{lws\+\_\+write}}
+\index{lws\+\_\+write@{lws\+\_\+write}!Sending data@{Sending data}}
+\subsubsection[{\texorpdfstring{lws\+\_\+write(struct lws $\ast$wsi, unsigned char $\ast$buf, size\+\_\+t len, enum lws\+\_\+write\+\_\+protocol protocol)}{lws\_write(struct lws *wsi, unsigned char *buf, size\_t len, enum lws\_write\_protocol protocol)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+write (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi, }
+\item[{unsigned char $\ast$}]{buf, }
+\item[{size\+\_\+t}]{len, }
+\item[{enum {\bf lws\+\_\+write\+\_\+protocol}}]{protocol}
+\end{DoxyParamCaption}
+)}\hypertarget{group__sending-data_gafd5fdd285a0e25ba7e3e1051deec1001}{}\label{group__sending-data_gafd5fdd285a0e25ba7e3e1051deec1001}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__sending-data_gafd5fdd285a0e25ba7e3e1051deec1001}{lws\+\_\+write()} -\/ Apply protocol then write data to client 
+\begin{DoxyParams}{Parameters}
+{\em wsi} & Websocket instance (available from user callback) \\
+\hline
+{\em buf} & The data to send. For data being sent on a websocket connection (ie, not default http), this buffer M\+U\+ST have L\+W\+S\+\_\+\+P\+RE bytes valid B\+E\+F\+O\+RE the pointer. This is so the protocol header data can be added in-\/situ. \\
+\hline
+{\em len} & Count of the data bytes in the payload starting from buf \\
+\hline
+{\em protocol} & Use L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+TP to reply to an http connection, and one of L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+B\+I\+N\+A\+RY or L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+XT to send appropriate data on a websockets connection. Remember to allow the extra bytes before and after buf if L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+B\+I\+N\+A\+RY or L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+XT are used.\\
+\hline
+\end{DoxyParams}
+This function provides the way to issue data back to the client for both http and websocket protocols.
+
+I\+M\+P\+O\+R\+T\+A\+NT N\+O\+T\+I\+C\+E!
+
+When sending with websocket protocol
+
+L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+XT, L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+B\+I\+N\+A\+RY, L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+O\+N\+T\+I\+N\+U\+A\+T\+I\+ON, L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+P\+I\+NG, L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+P\+O\+NG
+
+the send buffer has to have L\+W\+S\+\_\+\+P\+RE bytes valid B\+E\+F\+O\+RE the buffer pointer you pass to \hyperlink{group__sending-data_gafd5fdd285a0e25ba7e3e1051deec1001}{lws\+\_\+write()}.
+
+This allows us to add protocol info before and after the data, and send as one packet on the network without payload copying, for maximum efficiency.
+
+So for example you need this kind of code to use lws\+\_\+write with a 128-\/byte payload
+
+char buf\mbox{[}L\+W\+S\+\_\+\+P\+RE + 128\mbox{]};
+
+// fill your part of the buffer... for example here it\textquotesingle{}s all zeros memset(\&buf\mbox{[}\+L\+W\+S\+\_\+\+P\+R\+E\mbox{]}, 0, 128);
+
+lws\+\_\+write(wsi, \&buf\mbox{[}\+L\+W\+S\+\_\+\+P\+R\+E\mbox{]}, 128, L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+T\+E\+X\+T);
+
+When sending H\+T\+TP, with
+
+L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+TP, L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+H\+E\+A\+D\+E\+RS L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+H\+T\+T\+P\+\_\+\+F\+I\+N\+AL
+
+there is no protocol data prepended, and don\textquotesingle{}t need to take care about the L\+W\+S\+\_\+\+P\+RE bytes valid before the buffer pointer.
+
+L\+W\+S\+\_\+\+P\+RE is at least the frame nonce + 2 header + 8 length L\+W\+S\+\_\+\+S\+E\+N\+D\+\_\+\+B\+U\+F\+F\+E\+R\+\_\+\+P\+O\+S\+T\+\_\+\+P\+A\+D\+D\+I\+NG is deprecated, it\textquotesingle{}s now 0 and can be left off. The example apps no longer use it.
+
+Pad L\+W\+S\+\_\+\+P\+RE to the C\+PU word size, so that word references to the address immediately after the padding won\textquotesingle{}t cause an unaligned access error. Sometimes for performance reasons the recommended padding is even larger than sizeof(void $\ast$). \begin{DoxyVerb} In the case of sending using websocket protocol, be sure to allocate
+ valid storage before and after buf as explained above.  This scheme
+ allows maximum efficiency of sending data and protocol in a single
+ packet while not burdening the user code with any protocol knowledge.
+
+ Return may be -1 for a fatal error needing connection close, or a
+ positive number reflecting the amount of bytes actually sent.  This
+ can be less than the requested number of bytes due to OS memory
+ pressure at any given time.\end{DoxyVerb}
+ 
