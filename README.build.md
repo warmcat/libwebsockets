@@ -1,3 +1,7 @@
+Notes about building lws
+========================
+
+
 Introduction to CMake
 ---------------------
 
@@ -38,73 +42,64 @@ Building on Unix:
 2. Install OpenSSL.
 
 3. Generate the build files (default is Make files):
+```
+        $ cd /path/to/src
+        $ mkdir build
+        $ cd build
+        $ cmake ..
+```
 
-    ```bash
-	$ cd /path/to/src
-	$ mkdir build
-	$ cd build
-	$ cmake ..
-    ```
+4. Finally you can build using the generated Makefile:
+```
+	$ make && sudo make install
+```
+**NOTE**: The `build/`` directory can have any name and be located anywhere
+ on your filesystem, and that the argument `..` given to cmake is simply
+ the source directory of **libwebsockets** containing the [CMakeLists.txt](CMakeLists.txt)
+ project file. All examples in this file assumes you use ".."
 
-	(**NOTE**: The `build/`` directory can have any name and be located anywhere
-	 on your filesystem, and that the argument `..` given to cmake is simply
-	 the source directory of **libwebsockets** containing the [CMakeLists.txt](CMakeLists.txt)
-	 project file. All examples in this file assumes you use "..")
+**NOTE2**:
+A common option you may want to give is to set the install path, same
+as --prefix= with autotools.  It defaults to /usr/local.
+You can do this by, eg
+```
+	$ cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr .
+```
 
-	**NOTE2**:
-	A common option you may want to give is to set the install path, same
-	as --prefix= with autotools.  It defaults to /usr/local.
-	You can do this by, eg
-
-    ```bash
-	$ cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr ..
-    ```
-
-	**NOTE3**:
-	On machines that want libraries in lib64, you can also add the
-	following to the cmake line
-
-    ```bash
+**NOTE3**:
+On machines that want libraries in lib64, you can also add the
+following to the cmake line
+```
 	-DLIB_SUFFIX=64
-    ```
+```
 
-	**NOTE4**:
-	If you are building against a non-distro OpenSSL (eg, in order to get
-	access to ALPN support only in newer OpenSSL versions) the nice way to
-	express that in one cmake command is eg,
-
-    ```bash
+**NOTE4**:
+If you are building against a non-distro OpenSSL (eg, in order to get
+access to ALPN support only in newer OpenSSL versions) the nice way to
+express that in one cmake command is eg,
+```
 	$ cmake .. -DOPENSSL_ROOT_DIR=/usr/local/ssl \
 		 -DCMAKE_INCLUDE_DIRECTORIES_PROJECT_BEFORE=/usr/local/ssl \
 		 -DLWS_WITH_HTTP2=1
-    ```
+```
 
-	When you run the test apps using non-distro SSL, you have to force them
-	to use your libs, not the distro ones
-
-    ```bash
+When you run the test apps using non-distro SSL, you have to force them
+to use your libs, not the distro ones
+```
 	$ LD_LIBRARY_PATH=/usr/local/ssl/lib libwebsockets-test-server --ssl
-    ```
+```
 
-	To get it to build on latest openssl (2016-04-10) it needed this approach
-
-    ```bash
+To get it to build on latest openssl (2016-04-10) it needed this approach
+```
 	cmake .. -DLWS_WITH_HTTP2=1 -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/include/openssl -DLWS_OPENSSL_LIBRARIES="/usr/local/lib64/libssl.so;/usr/local/lib64/libcrypto.so"
-    ```
+```
 
-	**NOTE5**:
-	To build with debug info and _DEBUG for lower priority debug messages
-	compiled in, use
-
-    ```bash
+**NOTE5**:
+To build with debug info and _DEBUG for lower priority debug messages
+compiled in, use
+```
 	$ cmake .. -DCMAKE_BUILD_TYPE=DEBUG
-    ````
-
-4. Finally you can build using the generated Makefile:
-
-    ```bash
-	$ make
-    ```
+```
 
 Quirk of cmake
 --------------
@@ -127,12 +122,12 @@ Building on Windows (Visual Studio)
 	 
 3. Generate the Visual studio project by opening the Visual Studio cmd prompt:
 
-   ```bash
-   cd <path to src>
-   md build
-   cd build
-   cmake -G "Visual Studio 10" ..
-   ```
+```
+	cd <path to src>
+	md build
+	cd build
+	cmake -G "Visual Studio 10" ..
+```
 
    (**NOTE**: There is also a cmake-gui available on Windows if you prefer that)
    
@@ -161,23 +156,21 @@ Building on Windows (MinGW)
 2. Fix up MinGW headers
 
    a) Add the following lines to C:\MinGW\include\winsock2.h:
-   
-   ```c
-   #if(_WIN32_WINNT >= 0x0600)
+```
+	#if(_WIN32_WINNT >= 0x0600)
 
-   typedef struct pollfd {
+	typedef struct pollfd {
 
-       SOCKET  fd;
-       SHORT   events;
-       SHORT   revents;
+		SOCKET  fd;
+		SHORT   events;
+		SHORT   revents;
 
-   } WSAPOLLFD, *PWSAPOLLFD, FAR *LPWSAPOLLFD;
+	} WSAPOLLFD, *PWSAPOLLFD, FAR *LPWSAPOLLFD;
 
-   WINSOCK_API_LINKAGE int WSAAPI WSAPoll(LPWSAPOLLFD fdArray, ULONG fds, INT timeout);
+	WINSOCK_API_LINKAGE int WSAAPI WSAPoll(LPWSAPOLLFD fdArray, ULONG fds, INT timeout);
 
-   #endif // (_WIN32_WINNT >= 0x0600)
-   ```
-
+	#endif // (_WIN32_WINNT >= 0x0600)
+```
    b) Create C:\MinGW\include\mstcpip.h and copy and paste the content from following link into it:
     
    http://wine-unstable.sourcearchive.com/documentation/1.1.32/mstcpip_8h-source.html
@@ -193,14 +186,12 @@ Building on Windows (MinGW)
    <OpenSSL install location>\bin\openssl.cfg
 
 5. Generate the build files (default is Make files) using MSYS shell:
-
-   ```bash
-   $ cd /drive/path/to/src
-   $ mkdir build
-   $ cd build
-   $ cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=C:/MinGW ..
-   ```
-
+```
+	$ cd /drive/path/to/src
+	$ mkdir build
+	$ cd build
+	$ cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=C:/MinGW ..
+```
    (**NOTE**: The `build/`` directory can have any name and be located anywhere
     on your filesystem, and that the argument `..` given to cmake is simply
     the source directory of **libwebsockets** containing the [CMakeLists.txt](CMakeLists.txt)
@@ -209,17 +200,15 @@ Building on Windows (MinGW)
    **NOTE2**:
    To generate build files allowing to create libwebsockets binaries with debug information
    set the CMAKE_BUILD_TYPE flag to DEBUG:
-
-   ```bash
-   $ cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=C:/MinGW -DCMAKE_BUILD_TYPE=DEBUG ..
-   ```
-
+```
+	$ cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=C:/MinGW -DCMAKE_BUILD_TYPE=DEBUG ..
+```
 6. Finally you can build using the generated Makefile and get the results deployed into your MinGW installation:
 
-   ```bash
-   $ make
-   $ make install
-   ```
+```
+	$ make
+	$ make install
+```
 
 Setting compile options
 -----------------------
@@ -307,22 +296,20 @@ this to work.
 
 Compiling libwebsockets with wolfSSL
 ------------------------------------
-
-```bash
-cmake .. -DLWS_USE_WOLFSSL=1 \
-	 -DLWS_WOLFSSL_INCLUDE_DIRS=/path/to/wolfssl \
-	 -DLWS_WOLFSSL_LIBRARIES=/path/to/wolfssl/wolfssl.a ..
+```
+	cmake .. -DLWS_USE_WOLFSSL=1 \
+		 -DLWS_WOLFSSL_INCLUDE_DIRS=/path/to/wolfssl \
+		 -DLWS_WOLFSSL_LIBRARIES=/path/to/wolfssl/wolfssl.a ..
 ```
 
 **NOTE**: On windows use the .lib file extension for `LWS_WOLFSSL_LIBRARIES` instead.
 
 Compiling libwebsockets with CyaSSL
 -----------------------------------
-
-```bash
-cmake .. -DLWS_USE_CYASSL=1 \
-	 -DLWS_CYASSL_INCLUDE_DIRS=/path/to/cyassl \
-	 -DLWS_CYASSL_LIBRARIES=/path/to/wolfssl/cyassl.a ..
+```
+	cmake .. -DLWS_USE_CYASSL=1 \
+		 -DLWS_CYASSL_INCLUDE_DIRS=/path/to/cyassl \
+		 -DLWS_CYASSL_LIBRARIES=/path/to/wolfssl/cyassl.a ..
 ```
 
 **NOTE**: On windows use the .lib file extension for `LWS_CYASSL_LIBRARIES` instead.
@@ -336,10 +323,10 @@ there is an "mbedtls" package which is actually using polarssl for the include d
 and polarssl apis... this should be treated as polarssl then.
 
 Example config for this case is
-
+```
 cmake .. -DLWS_USE_POLARSSL=1 -DLWS_POLARSSL_LIBRARIES=/usr/lib64/libmbedtls.so \
 	 -DLWS_POLARSSL_INCLUDE_DIRS=/usr/include/polarssl/
-	 
+```
 
 Building plugins outside of lws itself
 --------------------------------------
@@ -347,13 +334,12 @@ Building plugins outside of lws itself
 The directory ./plugin-standalone/ shows how easy it is to create plugins
 outside of lws itself.  First build lws itself with -DLWS_WITH_PLUGINS,
 then use the same flow to build the standalone plugin
-
 ```
-cd ./plugin-standalone
-mkdir build
-cd build
-cmake ..
-make && sudo make install
+	cd ./plugin-standalone
+	mkdir build
+	cd build
+	cmake ..
+	make && sudo make install
 ```
 
 if you changed the default plugin directory when you built lws, you must
@@ -362,16 +348,14 @@ also give the same arguments to cmake here (eg,
 
 Otherwise if you run lwsws or libwebsockets-test-server-v2.0, it will now
 find the additional plugin "libprotocol_example_standalone.so"
-
 ```
-lwsts[21257]:   Plugins:
-lwsts[21257]:    libprotocol_dumb_increment.so
-lwsts[21257]:    libprotocol_example_standalone.so
-lwsts[21257]:    libprotocol_lws_mirror.so
-lwsts[21257]:    libprotocol_lws_server_status.so
-lwsts[21257]:    libprotocol_lws_status.so
+	lwsts[21257]:   Plugins:
+	lwsts[21257]:    libprotocol_dumb_increment.so
+	lwsts[21257]:    libprotocol_example_standalone.so
+	lwsts[21257]:    libprotocol_lws_mirror.so
+	lwsts[21257]:    libprotocol_lws_server_status.so
+	lwsts[21257]:    libprotocol_lws_status.so
 ```
-
 If you have multiple vhosts, you must enable plugins at the vhost
 additionally, discovered plugins are not enabled automatically for security
 reasons.  You do this using info->pvo or for lwsws, in the JSON config.
@@ -383,25 +367,20 @@ Reproducing HTTP2.0 tests
 You must have built and be running lws against a version of openssl that has
 ALPN / NPN.  Most distros still have older versions.  You'll know it's right by
 seeing
-
-```bash
-lwsts[4752]:  Compiled with OpenSSL support
-lwsts[4752]:  Using SSL mode
-lwsts[4752]:  HTTP2 / ALPN enabled
 ```
-
+	lwsts[4752]:  Compiled with OpenSSL support
+	lwsts[4752]:  Using SSL mode
+	lwsts[4752]:  HTTP2 / ALPN enabled
+```
 at lws startup.
 
 For non-SSL HTTP2.0 upgrade
-
-```bash
-$ nghttp -nvasu http://localhost:7681/test.htm
 ```
-
+	$ nghttp -nvasu http://localhost:7681/test.htm
+```
 For SSL / ALPN HTTP2.0 upgrade
-
 ```
-$ nghttp -nvas https://localhost:7681/test.html
+	$ nghttp -nvas https://localhost:7681/test.html
 ```
 
 Cross compiling
@@ -415,13 +394,11 @@ to look for dependencies and such.
 you can use as a starting point.
 
 The commandline to configure for cross with this would look like
-
-```bash
-$ cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr \
-	 -DCMAKE_TOOLCHAIN_FILE=../cross-arm-linux-gnueabihf.cmake \
-	 -DWITHOUT_EXTENSIONS=1 -DWITH_SSL=0
 ```
-
+	$ cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr \
+		 -DCMAKE_TOOLCHAIN_FILE=../cross-arm-linux-gnueabihf.cmake \
+		 -DWITHOUT_EXTENSIONS=1 -DWITH_SSL=0
+```
 The example shows how to build with no external cross lib dependencies, you
 need to provide the cross libraries otherwise.
 
@@ -439,17 +416,15 @@ on websocket connections), but with full v13 websocket features and http
 server, built on ARM Cortex-A9:
 
 Update at 8dac94d (2013-02-18)
-
-```bash
-$ ./configure --without-client --without-extensions --disable-debug --without-daemonize
-
-Context Creation, 1024 fd limit[2]:   16720 (includes 12 bytes per fd)
-Per-connection [3]:                      72 bytes, +1328 during headers
-
-.text	.rodata	.data	.bss
-11512	2784	288	4
 ```
+	$ ./configure --without-client --without-extensions --disable-debug --without-daemonize
 
+	Context Creation, 1024 fd limit[2]:   16720 (includes 12 bytes per fd)
+	Per-connection [3]:                      72 bytes, +1328 during headers
+
+	.text	.rodata	.data	.bss
+	11512	2784	288	4
+```
 This shows the impact of the major configuration with/without options at
 13ba5bbc633ea962d46d using Ubuntu ARM on a PandaBoard ES.
 

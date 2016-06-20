@@ -82,8 +82,8 @@ enum lejp_callbacks {
 
 /**
  * _lejp_callback() - User parser actions
- * @ctx:	LEJP context
- * @reason:	Callback reason
+ * \param ctx:	LEJP context
+ * \param reason:	Callback reason
  *
  *	Your user callback is associated with the context at construction time,
  *	and receives calls as the parsing progresses.

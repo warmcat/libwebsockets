@@ -24,11 +24,8 @@ You can get the latest version of the library from git:
 - https://github.com/warmcat/libwebsockets
 - https://libwebsockets.org/git
 
-for more information:
+Doxygen API docs for master: https://libwebsockets.org/lws-api-doc-master/html/index.html
 
-- [README.build.md](README.build.md) - information on building the library
-- [README.coding.md](README.coding.md) - information for writing code using the library
-- [README.test-apps.md](README.test-apps.md) - information about the test apps built with the library
 
 After libwebsockets 1.3, tags will be signed using a key corresponding to this public key
 

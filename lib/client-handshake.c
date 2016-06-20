@@ -463,13 +463,6 @@ html_parser_cb(const hubbub_token *token, void *pw)
 	return HUBBUB_OK;
 }
 #endif
-/**
- * lws_client_connect_via_info() - Connect to another websocket server
- * @i:pointer to lws_client_connect_info struct
- *
- *	This function creates a connection to a remote server
- */
-
 
 LWS_VISIBLE struct lws *
 lws_client_connect_via_info(struct lws_client_connect_info *i)
@@ -672,28 +665,6 @@ bail1:
 	return NULL;
 }
 
-
-/**
- * lws_client_connect_extended() - Connect to another websocket server
- * 				DEPRECATED use lws_client_connect_via_info
- * @context:	Websocket context
- * @address:	Remote server address, eg, "myserver.com"
- * @port:	Port to connect to on the remote server, eg, 80
- * @ssl_connection:	0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
- *			signed certs
- * @path:	Websocket path on server
- * @host:	Hostname on server
- * @origin:	Socket origin name
- * @protocol:	Comma-separated list of protocols being asked for from
- *		the server, or just one.  The server will pick the one it
- *		likes best.
- * @ietf_version_or_minus_one: -1 to ask to connect using the default, latest
- *		protocol supported, or the specific protocol ordinal
- * @userdata: Pre-allocated user data
- *
- *	This function creates a connection to a remote server
- */
-
 LWS_VISIBLE struct lws *
 lws_client_connect_extended(struct lws_context *context, const char *address,
 			    int port, int ssl_connection, const char *path,
@@ -718,27 +689,6 @@ lws_client_connect_extended(struct lws_context *context, const char *address,
 
 	return lws_client_connect_via_info(&i);
 }
-/**
- * lws_client_connect_info() - Connect to another websocket server
- * 				DEPRECATED use lws_client_connect_via_info
- * @context:	Websocket context
- * @address:	Remote server address, eg, "myserver.com"
- * @port:	Port to connect to on the remote server, eg, 80
- * @ssl_connection:	0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
- *			signed certs
- * @path:	Websocket path on server
- * @host:	Hostname on server
- * @origin:	Socket origin name
- * @protocol:	Comma-separated list of protocols being asked for from
- *		the server, or just one.  The server will pick the one it
- *		likes best.  If you don't want to specify a protocol, which is
- *		legal, use NULL here.
- * @ietf_version_or_minus_one: -1 to ask to connect using the default, latest
- *		protocol supported, or the specific protocol ordinal
- *
- *	This function creates a connection to a remote server
- */
-
 
 LWS_VISIBLE struct lws *
 lws_client_connect(struct lws_context *context, const char *address,

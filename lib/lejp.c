@@ -14,11 +14,11 @@
 /**
  * lejp_construct - prepare a struct lejp_ctx for use
  *
- * @ctx:	pointer to your struct lejp_ctx
- * @callback:	your user callback which will received parsed tokens
- * @user:	optional user data pointer untouched by lejp
- * @paths:	your array of name elements you are interested in
- * @count_paths:	ARRAY_SIZE() of @paths
+ * \param ctx:	pointer to your struct lejp_ctx
+ * \param callback:	your user callback which will received parsed tokens
+ * \param user:	optional user data pointer untouched by lejp
+ * \param paths:	your array of name elements you are interested in
+ * \param count_paths:	ARRAY_SIZE() of @paths
  *
  * Prepares your context struct for use with lejp
  */
@@ -48,7 +48,7 @@ lejp_construct(struct lejp_ctx *ctx,
 /**
  * lejp_destruct - retire a previously constructed struct lejp_ctx
  *
- * @ctx:	pointer to your struct lejp_ctx
+ * \param ctx:	pointer to your struct lejp_ctx
  *
  * lejp does not perform any allocations, but since your user code might, this
  * provides a one-time LEJPCB_DESTRUCTED callback at destruction time where
@@ -65,8 +65,8 @@ lejp_destruct(struct lejp_ctx *ctx)
 /**
  * lejp_change_callback - switch to a different callback from now on
  *
- * @ctx:	pointer to your struct lejp_ctx
- * @callback:	your user callback which will received parsed tokens
+ * \param ctx:	pointer to your struct lejp_ctx
+ * \param callback:	your user callback which will received parsed tokens
  *
  * This tells the old callback it was destroyed, in case you want to take any
  * action because that callback "lost focus", then changes to the new
@@ -160,9 +160,9 @@ lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len)
 /**
  * lejp_parse - interpret some more incoming data incrementally
  *
- * @ctx:	previously constructed parsing context
- * @json:	char buffer with the new data to interpret
- * @len:	amount of data in the buffer
+ * \param ctx:	previously constructed parsing context
+ * \param json:	char buffer with the new data to interpret
+ * \param len:	amount of data in the buffer
  *
  * Because lejp is a stream parser, it incrementally parses as new data
  * becomes available, maintaining all state in the context struct.  So an

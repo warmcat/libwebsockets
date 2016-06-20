@@ -202,15 +202,6 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 	return 0;
 }
 
-/**
- * lws_return_http_status() - Return simple http status
- * @wsi:		Websocket instance (available from user callback)
- * @code:		Status index, eg, 404
- * @html_body:		User-readable HTML description < 1KB, or NULL
- *
- *	Helper to report HTTP errors back to the client cleanly and
- *	consistently
- */
 LWS_VISIBLE int
 lws_return_http_status(struct lws *wsi, unsigned int code,
 		       const char *html_body)

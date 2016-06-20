@@ -1,0 +1,90 @@
+\hypertarget{group__html-chunked-substitution}{}\section{H\+T\+ML Chunked Substitution}
+\label{group__html-chunked-substitution}\index{H\+T\+M\+L Chunked Substitution@{H\+T\+M\+L Chunked Substitution}}
+\subsection*{Data Structures}
+\begin{DoxyCompactItemize}
+\item 
+struct \hyperlink{structlws__process__html__args}{lws\+\_\+process\+\_\+html\+\_\+args}
+\item 
+struct \hyperlink{structlws__process__html__state}{lws\+\_\+process\+\_\+html\+\_\+state}
+\end{DoxyCompactItemize}
+\subsection*{Typedefs}
+\begin{DoxyCompactItemize}
+\item 
+typedef const char $\ast$($\ast$ {\bfseries lws\+\_\+process\+\_\+html\+\_\+state\+\_\+cb}) (void $\ast$data, int index)\hypertarget{group__html-chunked-substitution_ga669d3d7ce2d5f193473f649a89b3e7ac}{}\label{group__html-chunked-substitution_ga669d3d7ce2d5f193473f649a89b3e7ac}
+
+\end{DoxyCompactItemize}
+\subsection*{Enumerations}
+\begin{DoxyCompactItemize}
+\item 
+enum {\bfseries http\+\_\+status} \{ \\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+OK} = 200, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+\_\+\+C\+O\+N\+T\+E\+NT} = 204, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+M\+O\+V\+E\+D\+\_\+\+P\+E\+R\+M\+A\+N\+E\+N\+T\+LY} = 301, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+F\+O\+U\+ND} = 302, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+S\+E\+E\+\_\+\+O\+T\+H\+ER} = 303, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+B\+A\+D\+\_\+\+R\+E\+Q\+U\+E\+ST} = 400, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+U\+N\+A\+U\+T\+H\+O\+R\+I\+Z\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+P\+A\+Y\+M\+E\+N\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+ED}, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+F\+O\+R\+B\+I\+D\+D\+EN}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+T\+\_\+\+F\+O\+U\+ND}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+M\+E\+T\+H\+O\+D\+\_\+\+N\+O\+T\+\_\+\+A\+L\+L\+O\+W\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+T\+\_\+\+A\+C\+C\+E\+P\+T\+A\+B\+LE}, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+P\+R\+O\+X\+Y\+\_\+\+A\+U\+T\+H\+\_\+\+R\+E\+Q\+U\+I\+R\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+R\+E\+Q\+U\+E\+S\+T\+\_\+\+T\+I\+M\+E\+O\+UT}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+C\+O\+N\+F\+L\+I\+CT}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+G\+O\+NE}, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+L\+E\+N\+G\+T\+H\+\_\+\+R\+E\+Q\+U\+I\+R\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+P\+R\+E\+C\+O\+N\+D\+I\+T\+I\+O\+N\+\_\+\+F\+A\+I\+L\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+R\+E\+Q\+\_\+\+E\+N\+T\+I\+T\+Y\+\_\+\+T\+O\+O\+\_\+\+L\+A\+R\+GE}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+R\+E\+Q\+\_\+\+U\+R\+I\+\_\+\+T\+O\+O\+\_\+\+L\+O\+NG}, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+U\+N\+S\+U\+P\+P\+O\+R\+T\+E\+D\+\_\+\+M\+E\+D\+I\+A\+\_\+\+T\+Y\+PE}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+R\+E\+Q\+\_\+\+R\+A\+N\+G\+E\+\_\+\+N\+O\+T\+\_\+\+S\+A\+T\+I\+S\+F\+I\+A\+B\+LE}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+E\+X\+P\+E\+C\+T\+A\+T\+I\+O\+N\+\_\+\+F\+A\+I\+L\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+I\+N\+T\+E\+R\+N\+A\+L\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+E\+R\+R\+OR} = 500, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+N\+O\+T\+\_\+\+I\+M\+P\+L\+E\+M\+E\+N\+T\+ED}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+B\+A\+D\+\_\+\+G\+A\+T\+E\+W\+AY}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+S\+E\+R\+V\+I\+C\+E\+\_\+\+U\+N\+A\+V\+A\+I\+L\+A\+B\+LE}, 
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+G\+A\+T\+E\+W\+A\+Y\+\_\+\+T\+I\+M\+E\+O\+UT}, 
+\\*
+{\bfseries H\+T\+T\+P\+\_\+\+S\+T\+A\+T\+U\+S\+\_\+\+H\+T\+T\+P\+\_\+\+V\+E\+R\+S\+I\+O\+N\+\_\+\+N\+O\+T\+\_\+\+S\+U\+P\+P\+O\+R\+T\+ED}
+ \}\hypertarget{group__html-chunked-substitution_gabc3b93f68c8bdd857ad32913628dfa8d}{}\label{group__html-chunked-substitution_gabc3b93f68c8bdd857ad32913628dfa8d}
+
+\end{DoxyCompactItemize}
+\subsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__html-chunked-substitution_ga643073f918c0a7016b690aae9793fd60}{lws\+\_\+chunked\+\_\+html\+\_\+process} (struct \hyperlink{structlws__process__html__args}{lws\+\_\+process\+\_\+html\+\_\+args} $\ast$args, struct \hyperlink{structlws__process__html__state}{lws\+\_\+process\+\_\+html\+\_\+state} $\ast$s)
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+\subsubsection*{H\+T\+ML chunked Substitution}
+
+A\+P\+Is for receiving chunks of text, replacing a set of variable names via a callback, and then prepending and appending H\+T\+ML chunked encoding headers. 
+
+\subsection{Function Documentation}
+\index{H\+T\+M\+L Chunked Substitution@{H\+T\+M\+L Chunked Substitution}!lws\+\_\+chunked\+\_\+html\+\_\+process@{lws\+\_\+chunked\+\_\+html\+\_\+process}}
+\index{lws\+\_\+chunked\+\_\+html\+\_\+process@{lws\+\_\+chunked\+\_\+html\+\_\+process}!H\+T\+M\+L Chunked Substitution@{H\+T\+M\+L Chunked Substitution}}
+\subsubsection[{\texorpdfstring{lws\+\_\+chunked\+\_\+html\+\_\+process(struct lws\+\_\+process\+\_\+html\+\_\+args $\ast$args, struct lws\+\_\+process\+\_\+html\+\_\+state $\ast$s)}{lws\_chunked\_html\_process(struct lws\_process\_html\_args *args, struct lws\_process\_html\_state *s)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+chunked\+\_\+html\+\_\+process (
+\begin{DoxyParamCaption}
+\item[{struct {\bf lws\+\_\+process\+\_\+html\+\_\+args} $\ast$}]{args, }
+\item[{struct {\bf lws\+\_\+process\+\_\+html\+\_\+state} $\ast$}]{s}
+\end{DoxyParamCaption}
+)}\hypertarget{group__html-chunked-substitution_ga643073f918c0a7016b690aae9793fd60}{}\label{group__html-chunked-substitution_ga643073f918c0a7016b690aae9793fd60}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__html-chunked-substitution_ga643073f918c0a7016b690aae9793fd60}{lws\+\_\+chunked\+\_\+html\+\_\+process()} -\/ generic chunked substitution 
+\begin{DoxyParams}{Parameters}
+{\em args} & buffer to process using chunked encoding \\
+\hline
+{\em s} & current processing state \\
+\hline
+\end{DoxyParams}

@@ -1,0 +1,171 @@
+\hypertarget{group__service}{}\section{Built-\/in service loop entry}
+\label{group__service}\index{Built-\/in service loop entry@{Built-\/in service loop entry}}
+\subsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__service_gaf95bd0c663d6516a0c80047d9b1167a8}{lws\+\_\+service} (struct lws\+\_\+context $\ast$context, int timeout\+\_\+ms)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__service_ga9b3cc4473fd8848e5bbee7f310712939}{lws\+\_\+service\+\_\+tsi} (struct lws\+\_\+context $\ast$context, int timeout\+\_\+ms, int tsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__service_ga29c246707997ab7a466aa709aecd2d7b}{lws\+\_\+cancel\+\_\+service\+\_\+pt} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__service_ga53e3d0801dfda7960a7249dd559e68a2}{lws\+\_\+cancel\+\_\+service} (struct lws\+\_\+context $\ast$context)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__service_gad82efa5466d14a9f05aa06416375b28d}{lws\+\_\+service\+\_\+fd} (struct lws\+\_\+context $\ast$context, struct \hyperlink{structlws__pollfd}{lws\+\_\+pollfd} $\ast$\hyperlink{structpollfd}{pollfd})
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__service_gaebf426eda371ba23642fc11d8e0ace6b}{lws\+\_\+service\+\_\+fd\+\_\+tsi} (struct lws\+\_\+context $\ast$context, struct \hyperlink{structlws__pollfd}{lws\+\_\+pollfd} $\ast$\hyperlink{structpollfd}{pollfd}, int tsi)
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+\subsubsection*{Built-\/in service loop entry}
+
+If you\textquotesingle{}re not using libev / libuv, these apis are needed to enter the poll() wait in lws and service any connections with pending events. 
+
+\subsection{Function Documentation}
+\index{Built-\/in service loop entry@{Built-\/in service loop entry}!lws\+\_\+cancel\+\_\+service@{lws\+\_\+cancel\+\_\+service}}
+\index{lws\+\_\+cancel\+\_\+service@{lws\+\_\+cancel\+\_\+service}!Built-\/in service loop entry@{Built-\/in service loop entry}}
+\subsubsection[{\texorpdfstring{lws\+\_\+cancel\+\_\+service(struct lws\+\_\+context $\ast$context)}{lws\_cancel\_service(struct lws\_context *context)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void lws\+\_\+cancel\+\_\+service (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context}
+\end{DoxyParamCaption}
+)}\hypertarget{group__service_ga53e3d0801dfda7960a7249dd559e68a2}{}\label{group__service_ga53e3d0801dfda7960a7249dd559e68a2}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__service_ga53e3d0801dfda7960a7249dd559e68a2}{lws\+\_\+cancel\+\_\+service()} -\/ Cancel wait for new pending socket activity 
+\begin{DoxyParams}{Parameters}
+{\em context} & Websocket context \begin{DoxyVerb} This function let a call to lws_service() waiting for a timeout
+ immediately return.
+
+ What it basically does is provide a fake event that will be swallowed,
+ so the wait in poll() is ended.  That's useful because poll() doesn't
+ attend to changes in POLLIN/OUT/ERR until it re-enters the wait.\end{DoxyVerb}
+ \\
+\hline
+\end{DoxyParams}
+\index{Built-\/in service loop entry@{Built-\/in service loop entry}!lws\+\_\+cancel\+\_\+service\+\_\+pt@{lws\+\_\+cancel\+\_\+service\+\_\+pt}}
+\index{lws\+\_\+cancel\+\_\+service\+\_\+pt@{lws\+\_\+cancel\+\_\+service\+\_\+pt}!Built-\/in service loop entry@{Built-\/in service loop entry}}
+\subsubsection[{\texorpdfstring{lws\+\_\+cancel\+\_\+service\+\_\+pt(struct lws $\ast$wsi)}{lws\_cancel\_service\_pt(struct lws *wsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void lws\+\_\+cancel\+\_\+service\+\_\+pt (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi}
+\end{DoxyParamCaption}
+)}\hypertarget{group__service_ga29c246707997ab7a466aa709aecd2d7b}{}\label{group__service_ga29c246707997ab7a466aa709aecd2d7b}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__service_ga29c246707997ab7a466aa709aecd2d7b}{lws\+\_\+cancel\+\_\+service\+\_\+pt()} -\/ Cancel servicing of pending socket activity on one thread 
+\begin{DoxyParams}{Parameters}
+{\em wsi} & Cancel service on the thread this wsi is serviced by \begin{DoxyVerb} This function lets a call to lws_service() waiting for a timeout
+ immediately return.
+
+ It works by creating a phony event and then swallowing it silently.
+
+ The reason it may be needed is when waiting in poll(), changes to
+ the event masks are ignored by the OS until poll() is reentered.  This
+ lets you halt the poll() wait and make the reentry happen immediately
+ instead of having the wait out the rest of the poll timeout.\end{DoxyVerb}
+ \\
+\hline
+\end{DoxyParams}
+\index{Built-\/in service loop entry@{Built-\/in service loop entry}!lws\+\_\+service@{lws\+\_\+service}}
+\index{lws\+\_\+service@{lws\+\_\+service}!Built-\/in service loop entry@{Built-\/in service loop entry}}
+\subsubsection[{\texorpdfstring{lws\+\_\+service(struct lws\+\_\+context $\ast$context, int timeout\+\_\+ms)}{lws\_service(struct lws\_context *context, int timeout\_ms)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+service (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context, }
+\item[{int}]{timeout\+\_\+ms}
+\end{DoxyParamCaption}
+)}\hypertarget{group__service_gaf95bd0c663d6516a0c80047d9b1167a8}{}\label{group__service_gaf95bd0c663d6516a0c80047d9b1167a8}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__service_gaf95bd0c663d6516a0c80047d9b1167a8}{lws\+\_\+service()} -\/ Service any pending websocket activity 
+\begin{DoxyParams}{Parameters}
+{\em context} & Websocket context \\
+\hline
+{\em timeout\+\_\+ms} & Timeout for poll; 0 means return immediately if nothing needed service otherwise block and service immediately, returning after the timeout if nothing needed service.\\
+\hline
+\end{DoxyParams}
+This function deals with any pending websocket traffic, for three kinds of event. It handles these events on both server and client types of connection the same.
+
+1) Accept new connections to our context\textquotesingle{}s server
+
+2) Call the receive callback for incoming frame data received by server or client connections.
+
+You need to call this service function periodically to all the above functions to happen; if your application is single-\/threaded you can just call it in your main event loop.
+
+Alternatively you can fork a new process that asynchronously handles calling this service in a loop. In that case you are happy if this call blocks your thread until it needs to take care of something and would call it with a large nonzero timeout. Your loop then takes no C\+PU while there is nothing happening.
+
+If you are calling it in a single-\/threaded app, you don\textquotesingle{}t want it to wait around blocking other things in your loop from happening, so you would call it with a timeout\+\_\+ms of 0, so it returns immediately if nothing is pending, or as soon as it services whatever was pending. \index{Built-\/in service loop entry@{Built-\/in service loop entry}!lws\+\_\+service\+\_\+fd@{lws\+\_\+service\+\_\+fd}}
+\index{lws\+\_\+service\+\_\+fd@{lws\+\_\+service\+\_\+fd}!Built-\/in service loop entry@{Built-\/in service loop entry}}
+\subsubsection[{\texorpdfstring{lws\+\_\+service\+\_\+fd(struct lws\+\_\+context $\ast$context, struct lws\+\_\+pollfd $\ast$pollfd)}{lws\_service\_fd(struct lws\_context *context, struct lws\_pollfd *pollfd)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+service\+\_\+fd (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context, }
+\item[{struct {\bf lws\+\_\+pollfd} $\ast$}]{pollfd}
+\end{DoxyParamCaption}
+)}\hypertarget{group__service_gad82efa5466d14a9f05aa06416375b28d}{}\label{group__service_gad82efa5466d14a9f05aa06416375b28d}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__service_gad82efa5466d14a9f05aa06416375b28d}{lws\+\_\+service\+\_\+fd()} -\/ Service polled socket with something waiting 
+\begin{DoxyParams}{Parameters}
+{\em context} & Websocket context \\
+\hline
+{\em pollfd} & The pollfd entry describing the socket fd and which events happened.\\
+\hline
+\end{DoxyParams}
+This function takes a pollfd that has P\+O\+L\+L\+IN or P\+O\+L\+L\+O\+UT activity and services it according to the state of the associated struct lws.
+
+The one call deals with all \char`\"{}service\char`\"{} that might happen on a socket including listen accepts, http files as well as websocket protocol.
+
+If a pollfd says it has something, you can just pass it to \hyperlink{group__service_gad82efa5466d14a9f05aa06416375b28d}{lws\+\_\+service\+\_\+fd()} whether it is a socket handled by lws or not. If it sees it is a lws socket, the traffic will be handled and pollfd-\/$>$revents will be zeroed now.
+
+If the socket is foreign to lws, it leaves revents alone. So you can see if you should service yourself by checking the pollfd revents after letting lws try to service it. \index{Built-\/in service loop entry@{Built-\/in service loop entry}!lws\+\_\+service\+\_\+fd\+\_\+tsi@{lws\+\_\+service\+\_\+fd\+\_\+tsi}}
+\index{lws\+\_\+service\+\_\+fd\+\_\+tsi@{lws\+\_\+service\+\_\+fd\+\_\+tsi}!Built-\/in service loop entry@{Built-\/in service loop entry}}
+\subsubsection[{\texorpdfstring{lws\+\_\+service\+\_\+fd\+\_\+tsi(struct lws\+\_\+context $\ast$context, struct lws\+\_\+pollfd $\ast$pollfd, int tsi)}{lws\_service\_fd\_tsi(struct lws\_context *context, struct lws\_pollfd *pollfd, int tsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+service\+\_\+fd\+\_\+tsi (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context, }
+\item[{struct {\bf lws\+\_\+pollfd} $\ast$}]{pollfd, }
+\item[{int}]{tsi}
+\end{DoxyParamCaption}
+)}\hypertarget{group__service_gaebf426eda371ba23642fc11d8e0ace6b}{}\label{group__service_gaebf426eda371ba23642fc11d8e0ace6b}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__service_gaebf426eda371ba23642fc11d8e0ace6b}{lws\+\_\+service\+\_\+fd\+\_\+tsi()} -\/ Service polled socket in specific service thread 
+\begin{DoxyParams}{Parameters}
+{\em context} & Websocket context \\
+\hline
+{\em pollfd} & The pollfd entry describing the socket fd and which events happened. \\
+\hline
+{\em tsi} & thread service index\\
+\hline
+\end{DoxyParams}
+Same as \hyperlink{group__service_gad82efa5466d14a9f05aa06416375b28d}{lws\+\_\+service\+\_\+fd()} but used with multiple service threads \index{Built-\/in service loop entry@{Built-\/in service loop entry}!lws\+\_\+service\+\_\+tsi@{lws\+\_\+service\+\_\+tsi}}
+\index{lws\+\_\+service\+\_\+tsi@{lws\+\_\+service\+\_\+tsi}!Built-\/in service loop entry@{Built-\/in service loop entry}}
+\subsubsection[{\texorpdfstring{lws\+\_\+service\+\_\+tsi(struct lws\+\_\+context $\ast$context, int timeout\+\_\+ms, int tsi)}{lws\_service\_tsi(struct lws\_context *context, int timeout\_ms, int tsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+service\+\_\+tsi (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context, }
+\item[{int}]{timeout\+\_\+ms, }
+\item[{int}]{tsi}
+\end{DoxyParamCaption}
+)}\hypertarget{group__service_ga9b3cc4473fd8848e5bbee7f310712939}{}\label{group__service_ga9b3cc4473fd8848e5bbee7f310712939}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__service_gaf95bd0c663d6516a0c80047d9b1167a8}{lws\+\_\+service()} -\/ Service any pending websocket activity
+
+
+\begin{DoxyParams}{Parameters}
+{\em context} & Websocket context \\
+\hline
+{\em timeout\+\_\+ms} & Timeout for poll; 0 means return immediately if nothing needed service otherwise block and service immediately, returning after the timeout if nothing needed service.\\
+\hline
+\end{DoxyParams}
+Same as \hyperlink{group__service_gaf95bd0c663d6516a0c80047d9b1167a8}{lws\+\_\+service()}, but for a specific thread service index. Only needed if you are spawning multiple service threads. 

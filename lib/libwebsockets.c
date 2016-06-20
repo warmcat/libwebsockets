@@ -97,16 +97,6 @@ lws_remove_from_timeout_list(struct lws *wsi)
 	lws_pt_unlock(pt);
 }
 
-/**
- * lws_set_timeout() - marks the wsi as subject to a timeout
- *
- * You will not need this unless you are doing something special
- *
- * @wsi:	Websocket connection instance
- * @reason:	timeout reason
- * @secs:	how many seconds
- */
-
 LWS_VISIBLE void
 lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 {
@@ -572,17 +562,6 @@ lws_close_free_wsi_final(struct lws *wsi)
 	lws_free_wsi(wsi);
 }
 
-/**
- * lws_get_urlarg_by_name() - return pointer to arg value if present
- * @wsi: the connection to check
- * @name: the arg name, like "token="
- * @buf: the buffer to receive the urlarg (including the name= part)
- * @len: the length of the buffer to receive the urlarg
- *
- *     Returns NULL if not found or a pointer inside @buf to just after the
- *     name= part.
- */
-
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
 {
@@ -697,16 +676,6 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 #endif
 }
 
-/**
- * lws_get_peer_simple() - Get client address information without RDNS
- * @wsi:	Local struct lws associated with
- * @name:	Buffer to take client address name
- * @name_len:	Length of client address name buffer
- *
- * 	This provides a 123.123.123.123 type IP address in @name from the
- * 	peer that has connected to @wsi
- */
-
 LWS_VISIBLE const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 {
@@ -744,21 +713,6 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 	return NULL;
 #endif
 }
-
-/**
- * lws_get_peer_addresses() - Get client address information
- * @wsi:	Local struct lws associated with
- * @fd:		Connection socket descriptor
- * @name:	Buffer to take client address name
- * @name_len:	Length of client address name buffer
- * @rip:	Buffer to take client address IP dotted quad
- * @rip_len:	Length of client address IP buffer
- *
- *	This function fills in @name and @rip with the name and IP of
- *	the client connected with socket descriptor @fd.  Names may be
- *	truncated if there is not enough room.  If either cannot be
- *	determined, they will be returned as valid zero-length strings.
- */
 
 LWS_VISIBLE void
 lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
@@ -809,15 +763,6 @@ bail:
 #endif
 }
 
-/**
- * lws_context_user() - get the user data associated with the context
- * @context: Websocket context
- *
- *	This returns the optional user allocation that can be attached to
- *	the context the sockets live in at context_create time.  It's a way
- *	to let all sockets serviced in the same context share data without
- *	using globals statics in the user code.
- */
 LWS_EXTERN void *
 lws_context_user(struct lws_context *context)
 {
@@ -842,15 +787,6 @@ lws_protocol_get(struct lws *wsi)
 	return wsi->protocol;
 }
 
-
-/**
- * lws_callback_all_protocol() - Callback all connections using
- *				the given protocol with the given reason
- *
- * @protocol:	Protocol whose connections will get callbacks
- * @reason:	Callback reason index
- */
-
 LWS_VISIBLE int
 lws_callback_all_protocol(struct lws_context *context,
 			  const struct lws_protocols *protocol, int reason)
@@ -873,15 +809,6 @@ lws_callback_all_protocol(struct lws_context *context,
 
 	return 0;
 }
-
-/**
- * lws_callback_all_protocol_vhost() - Callback all connections using
- *				the given protocol with the given reason
- *
- * @vh:		Vhost whose connections will get callbacks
- * @protocol:	Which protocol to match
- * @reason:	Callback reason index
- */
 
 LWS_VISIBLE int
 lws_callback_all_protocol_vhost(struct lws_vhost *vh,
@@ -906,19 +833,6 @@ lws_callback_all_protocol_vhost(struct lws_vhost *vh,
 
 	return 0;
 }
-
-/**
- * lws_callback_vhost_protocols() - Callback all protocols enabled on a vhost
- *					with the given reason
- *
- * @wsi:	wsi whose vhost will get callbacks
- * @reason:	Callback reason index
- * @in:		in argument to callback
- * @len:	len argument to callback
- *
- * This is useful when informing all fellow enabled protocols on a vhost about
- * a vhost-wide event, eg, creation or deletion of an account
- */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
@@ -948,14 +862,6 @@ lws_now_secs(void)
 
 
 #if LWS_POSIX
-
-/**
- * lws_get_socket_fd() - returns the socket file descriptor
- *
- * You will not need this unless you are doing something special
- *
- * @wsi:	Websocket connection instance
- */
 
 LWS_VISIBLE int
 lws_get_socket_fd(struct lws *wsi)
@@ -1006,19 +912,6 @@ lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
 }
 #endif
 
-
-
-/**
- * lws_rx_flow_control() - Enable and disable socket servicing for
- *				received packets.
- *
- * If the output side of a server process becomes choked, this allows flow
- * control for the input side.
- *
- * @wsi:	Websocket connection instance to get callback for
- * @enable:	0 = disable read servicing for this connection, 1 = enable
- */
-
 LWS_VISIBLE int
 lws_rx_flow_control(struct lws *wsi, int enable)
 {
@@ -1030,16 +923,6 @@ lws_rx_flow_control(struct lws *wsi, int enable)
 
 	return 0;
 }
-
-/**
- * lws_rx_flow_allow_all_protocol() - Allow all connections with this protocol to receive
- *
- * When the user server code realizes it can accept more input, it can
- * call this to have the RX flow restriction removed from all connections using
- * the given protocol.
- *
- * @protocol:	all connections using this protocol will be allowed to receive
- */
 
 LWS_VISIBLE void
 lws_rx_flow_allow_all_protocol(const struct lws_context *context,
@@ -1061,16 +944,6 @@ lws_rx_flow_allow_all_protocol(const struct lws_context *context,
 	}
 }
 
-
-/**
- * lws_canonical_hostname() - returns this host's hostname
- *
- * This is typically used by client code to fill in the host parameter
- * when making a client connection.  You can only call it after the context
- * has been created.
- *
- * @context:	Websocket context
- */
 LWS_VISIBLE extern const char *
 lws_canonical_hostname(struct lws_context *context)
 {
@@ -1090,25 +963,6 @@ int user_callback_handle_rxflow(lws_callback_function callback_function,
 
 	return n;
 }
-
-
-/**
- * lws_set_proxy() - Setups proxy to lws_context.
- * @context:	pointer to struct lws_context you want set proxy to
- * @proxy: pointer to c string containing proxy in format address:port
- *
- * Returns 0 if proxy string was parsed and proxy was setup.
- * Returns -1 if @proxy is NULL or has incorrect format.
- *
- * This is only required if your OS does not provide the http_proxy
- * environment variable (eg, OSX)
- *
- *   IMPORTANT! You should call this function right after creation of the
- *   lws_context and before call to connect. If you call this
- *   function after connect behavior is undefined.
- *   This function will override proxy settings made on lws_context
- *   creation with genenv() call.
- */
 
 LWS_VISIBLE int
 lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
@@ -1166,16 +1020,6 @@ auth_too_long:
 	return -1;
 }
 
-/**
- * lws_get_protocol() - Returns a protocol pointer from a websocket
- *				  connection.
- * @wsi:	pointer to struct websocket you want to know the protocol of
- *
- *
- *	Some apis can act on all live connections of a given protocol,
- *	this is how you can get a pointer to the active protocol if needed.
- */
-
 LWS_VISIBLE const struct lws_protocols *
 lws_get_protocol(struct lws *wsi)
 {
@@ -1219,15 +1063,6 @@ lws_ensure_user_space(struct lws *wsi)
 	return 0;
 }
 
-/**
- * lwsl_timestamp: generate logging timestamp string
- *
- * @level:	logging level
- * @p:		char * buffer to take timestamp
- * @len:	length of p
- *
- * returns length written in p
- */
 LWS_VISIBLE int
 lwsl_timestamp(int level, char *p, int len)
 {
@@ -1303,17 +1138,6 @@ LWS_VISIBLE void _lws_log(int filter, const char *format, ...)
 	va_end(ap);
 }
 
-/**
- * lws_set_log_level() - Set the logging bitfield
- * @level:	OR together the LLL_ debug contexts you want output from
- * @log_emit_function:	NULL to leave it as it is, or a user-supplied
- *			function to perform log string emission instead of
- *			the default stderr one.
- *
- *	log level defaults to "err", "warn" and "notice" contexts enabled and
- *	emission on stderr.
- */
-
 LWS_VISIBLE void lws_set_log_level(int level,
 				   void (*func)(int level, const char *line))
 {
@@ -1322,14 +1146,6 @@ LWS_VISIBLE void lws_set_log_level(int level,
 		lwsl_emit = func;
 }
 
-/**
- * lws_use_ssl() - Find out if connection is using SSL
- * @wsi:	websocket connection to check
- *
- *	Returns 0 if the connection is not using SSL, 1 if using SSL and
- *	using verified cert, and 2 if using SSL but the cert was not
- *	checked (appears for client wsi told to skip check on connection)
- */
 LWS_VISIBLE int
 lws_is_ssl(struct lws *wsi)
 {
@@ -1340,23 +1156,6 @@ lws_is_ssl(struct lws *wsi)
 	return 0;
 #endif
 }
-
-/**
- * lws_partial_buffered() - find out if lws buffered the last write
- * @wsi:	websocket connection to check
- *
- * Returns 1 if you cannot use lws_write because the last
- * write on this connection is still buffered, and can't be cleared without
- * returning to the service loop and waiting for the connection to be
- * writeable again.
- *
- * If you will try to do >1 lws_write call inside a single
- * WRITEABLE callback, you must check this after every write and bail if
- * set, ask for a new writeable callback and continue writing from there.
- *
- * This is never set at the start of a writeable callback, but any write
- * may set it.
- */
 
 LWS_VISIBLE int
 lws_partial_buffered(struct lws *wsi)
@@ -1407,16 +1206,6 @@ lws_get_fops(struct lws_context *context)
 {
 	return &context->fops;
 }
-
-/**
- * lws_get_context - Allow geting lws_context from a Websocket connection
- * instance
- *
- * With this function, users can access context in the callback function.
- * Otherwise users may have to declare context as a global variable.
- *
- * @wsi:	Websocket connection instance
- */
 
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_get_context(const struct lws *wsi)
@@ -1562,18 +1351,6 @@ lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
 
 	return 0;
 }
-
-/**
- * lws_parse_uri:	cut up prot:/ads:port/path into pieces
- *			Notice it does so by dropping '\0' into input string
- *			and the leading / on the path is consequently lost
- *
- * @p:			incoming uri string.. will get written to
- * @prot:		result pointer for protocol part (https://)
- * @ads:		result pointer for address part
- * @port:		result pointer for port part
- * @path:		result pointer for path part
- */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
@@ -1735,17 +1512,6 @@ lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
 
 static const char *hex = "0123456789ABCDEF";
 
-/**
- * lws_sql_purify() - like strncpy but with escaping for sql quotes
- *
- * @escaped: output buffer
- * @string: input buffer ('/0' terminated)
- * @len: output buffer max length
- *
- * Because escaping expands the output string, it's not
- * possible to do it in-place, ie, with escaped == string
- */
-
 LWS_VISIBLE LWS_EXTERN const char *
 lws_sql_purify(char *escaped, const char *string, int len)
 {
@@ -1765,17 +1531,6 @@ lws_sql_purify(char *escaped, const char *string, int len)
 
 	return escaped;
 }
-
-/**
- * lws_json_purify() - like strncpy but with escaping for json chars
- *
- * @escaped: output buffer
- * @string: input buffer ('/0' terminated)
- * @len: output buffer max length
- *
- * Because escaping expands the output string, it's not
- * possible to do it in-place, ie, with escaped == string
- */
 
 LWS_VISIBLE LWS_EXTERN const char *
 lws_json_purify(char *escaped, const char *string, int len)
@@ -1800,18 +1555,6 @@ lws_json_purify(char *escaped, const char *string, int len)
 
 	return escaped;
 }
-
-
-/**
- * lws_urlencode() - like strncpy but with urlencoding
- *
- * @escaped: output buffer
- * @string: input buffer ('/0' terminated)
- * @len: output buffer max length
- *
- * Because urlencoding expands the output string, it's not
- * possible to do it in-place, ie, with escaped == string
- */
 
 LWS_VISIBLE LWS_EXTERN const char *
 lws_urlencode(char *escaped, const char *string, int len)
@@ -1842,19 +1585,6 @@ lws_urlencode(char *escaped, const char *string, int len)
 
 	return escaped;
 }
-
-/**
- * lws_urldecode() - like strncpy but with urldecoding
- *
- * @string: output buffer
- * @escaped: input buffer ('\0' terminated)
- * @len: output buffer max length
- *
- * This is only useful for '\0' terminated strings
- *
- * Since urldecoding only shrinks the output string, it is possible to
- * do it in-place, ie, string == escaped
- */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_urldecode(char *string, const char *escaped, int len)
@@ -2007,13 +1737,6 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 
 	return new_wsi;
 }
-
-/**
- * lws_cgi: spawn network-connected cgi process
- *
- * @wsi: connection to own the process
- * @exec_array: array of "exec-name" "arg1" ... "argn" NULL
- */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len,
@@ -2285,11 +2008,7 @@ bail1:
 
 	return -1;
 }
-/**
- * lws_cgi_write_split_headers: write cgi output accounting for header part
- *
- * @wsi: connection to own the process
- */
+
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_write_split_stdout_headers(struct lws *wsi)
 {
@@ -2425,11 +2144,6 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 	return 0;
 }
 
-/**
- * lws_cgi_kill: terminate cgi process associated with wsi
- *
- * @wsi: connection to own the process
- */
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_kill(struct lws *wsi)
 {

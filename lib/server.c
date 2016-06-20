@@ -206,15 +206,6 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	return NULL;
 }
 
-/**
- * lws_vhost_name_to_protocol() - get vhost's protocol object from its name
- *
- * @vh: vhost to search
- * @name: protocol name
- *
- * Returns NULL or a pointer to the vhost's protocol of the requested name
- */
-
 LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
 lws_vhost_name_to_protocol(struct lws_vhost *vh, const char *name)
 {
@@ -1377,15 +1368,6 @@ lws_create_new_server_wsi(struct lws_vhost *vhost)
 	return new_wsi;
 }
 
-/**
- * lws_http_transaction_completed() - wait for new http transaction or close
- * @wsi:	websocket connection
- *
- *	Returns 1 if the HTTP connection must close now
- *	Returns 0 and resets connection to wait for new HTTP header /
- *	  transaction if possible
- */
-
 LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)
 {
@@ -1510,47 +1492,11 @@ fail:
 	return NULL;
 }
 
-/**
- * lws_adopt_socket() - adopt foreign socket as if listen socket accepted it
- * @context: lws context
- * @accept_fd: fd of already-accepted socket to adopt
- *
- * Either returns new wsi bound to accept_fd, or closes accept_fd and
- * returns NULL, having cleaned up any new wsi pieces.
- *
- * LWS adopts the socket in http serving mode, it's ready to accept an upgrade
- * to ws or just serve http.
- */
-
 LWS_VISIBLE struct lws *
 lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 {
 	return lws_adopt_socket_vhost(context->vhost_list, accept_fd);
 }
-
-
-/**
- * lws_adopt_socket_readbuf() - adopt foreign socket and first rx as if listen socket accepted it
- * @context:	lws context
- * @accept_fd:	fd of already-accepted socket to adopt
- * @readbuf:	NULL or pointer to data that must be drained before reading from
- *		accept_fd
- * @len:	The length of the data held at @readbuf
- *
- * Either returns new wsi bound to accept_fd, or closes accept_fd and
- * returns NULL, having cleaned up any new wsi pieces.
- *
- * LWS adopts the socket in http serving mode, it's ready to accept an upgrade
- * to ws or just serve http.
- *
- * If your external code did not already read from the socket, you can use
- * lws_adopt_socket() instead.
- *
- * This api is guaranteed to use the data at @readbuf first, before reading from
- * the socket.
- *
- * @readbuf is limited to the size of the ah rx buf, currently 2048 bytes.
- */
 
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
@@ -1889,25 +1835,6 @@ fail:
 
 	return 1;
 }
-
-/**
- * lws_serve_http_file() - Send a file back to the client using http
- * @wsi:		Websocket instance (available from user callback)
- * @file:		The file to issue over http
- * @content_type:	The http content type, eg, text/html
- * @other_headers:	NULL or pointer to header string
- * @other_headers_len:	length of the other headers if non-NULL
- *
- *	This function is intended to be called from the callback in response
- *	to http requests from the client.  It allows the callback to issue
- *	local files down the http link in a single step.
- *
- *	Returning <0 indicates error and the wsi should be closed.  Returning
- *	>0 indicates the file was completely sent and
- *	lws_http_transaction_completed() called on the wsi (and close if != 0)
- *	==0 indicates the file transfer is started and needs more service later,
- *	the wsi should be left alone.
- */
 
 LWS_VISIBLE int
 lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
@@ -2486,25 +2413,6 @@ lws_urldecode_spa_cb(void *data, const char *name, char **buf, int len,
 	return 0;
 }
 
-/**
- * lws_spa_create() - create urldecode parser
- *
- * @wsi: lws connection (used to find Content Type)
- * @param_names: array of form parameter names, like "username"
- * @count_params: count of param_names
- * @max_storage: total amount of form parameter values we can store
- * @opt_cb: NULL, or callback to receive file upload data.
- * @opt_data: NULL, or user pointer provided to opt_cb.
- *
- * Creates a urldecode parser and initializes it.
- *
- * @opt_cb can be NULL if you just want normal name=value parsing, however
- * if one or more entries in your form are bulk data (file transfer), you
- * can provide this callback and filter on the name callback parameter to
- * treat that urldecoded data separately.  The callback should return -1
- * in case of fatal error, and 0 if OK.
- */
-
 LWS_VISIBLE LWS_EXTERN struct lws_spa *
 lws_spa_create(struct lws *wsi, const char * const *param_names,
 			 int count_params, int max_storage,
@@ -2555,14 +2463,6 @@ bail2:
 	return NULL;
 }
 
-/**
- * lws_spa_process() - parses a chunk of input data
- *
- * @ludspa: the parser object previously created
- * @in: incoming, urlencoded data
- * @len: count of bytes valid at @in
- */
-
 LWS_VISIBLE LWS_EXTERN int
 lws_spa_process(struct lws_spa *ludspa, const char *in, int len)
 {
@@ -2573,13 +2473,6 @@ lws_spa_process(struct lws_spa *ludspa, const char *in, int len)
 	return lws_urldecode_s_process(ludspa->s, in, len);
 }
 
-/**
- * lws_spa_get_length() - return length of parameter value
- *
- * @ludspa: the parser object previously created
- * @n: parameter ordinal to return length of value for
- */
-
 LWS_VISIBLE LWS_EXTERN int
 lws_spa_get_length(struct lws_spa *ludspa, int n)
 {
@@ -2589,13 +2482,6 @@ lws_spa_get_length(struct lws_spa *ludspa, int n)
 	return ludspa->param_length[n];
 }
 
-/**
- * lws_spa_get_string() - return pointer to parameter value
- *
- * @ludspa: the parser object previously created
- * @n: parameter ordinal to return pointer to value for
- */
-
 LWS_VISIBLE LWS_EXTERN const char *
 lws_spa_get_string(struct lws_spa *ludspa, int n)
 {
@@ -2604,12 +2490,6 @@ lws_spa_get_string(struct lws_spa *ludspa, int n)
 
 	return ludspa->params[n];
 }
-
-/**
- * lws_spa_finalize() - indicate incoming data completed
- *
- * @ludspa: the parser object previously created
- */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_spa_finalize(struct lws_spa *spa)
@@ -2621,12 +2501,6 @@ lws_spa_finalize(struct lws_spa *spa)
 
 	return 0;
 }
-
-/**
- * lws_spa_destroy() - destroy parser object
- *
- * @ludspa: the parser object previously created
- */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_spa_destroy(struct lws_spa *spa)

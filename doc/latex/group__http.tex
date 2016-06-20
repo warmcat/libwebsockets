@@ -1,0 +1,113 @@
+\hypertarget{group__http}{}\section{H\+T\+TP}
+\label{group__http}\index{H\+T\+TP@{H\+T\+TP}}
+\subsection*{Modules}
+\begin{DoxyCompactItemize}
+\item 
+\hyperlink{group__form-parsing}{Form Parsing}
+\item 
+\hyperlink{group__html-chunked-substitution}{H\+T\+M\+L Chunked Substitution}
+\item 
+\hyperlink{group__httpft}{H\+T\+T\+P File transfer}
+\item 
+\hyperlink{group__HTTP-headers-create}{H\+T\+T\+P headers\+: create}
+\item 
+\hyperlink{group__HTTP-headers-read}{H\+T\+T\+P headers\+: read}
+\item 
+\hyperlink{group__urlendec}{Urlencode and Urldecode}
+\end{DoxyCompactItemize}
+\subsection*{Data Structures}
+\begin{DoxyCompactItemize}
+\item 
+struct \hyperlink{structlws__tokens}{lws\+\_\+tokens}
+\end{DoxyCompactItemize}
+\subsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__http_gac8a4a71240857dc6b2ed70456b6923f4}{lws\+\_\+return\+\_\+http\+\_\+status} (struct lws $\ast$wsi, unsigned int code, const char $\ast$html\+\_\+body)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__http_ga8fbf01e473ac421fc33ad9f8da8b8a25}{lws\+\_\+http\+\_\+redirect} (struct lws $\ast$wsi, int code, const unsigned char $\ast$loc, int len, unsigned char $\ast$$\ast$p, unsigned char $\ast$end)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__http_gad27aed6c66a41b2b89ffe4da2a309e8a}{lws\+\_\+http\+\_\+transaction\+\_\+completed} (struct lws $\ast$wsi)
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+Modules related to handling H\+T\+TP 
+
+\subsection{Function Documentation}
+\index{H\+T\+TP@{H\+T\+TP}!lws\+\_\+http\+\_\+redirect@{lws\+\_\+http\+\_\+redirect}}
+\index{lws\+\_\+http\+\_\+redirect@{lws\+\_\+http\+\_\+redirect}!H\+T\+TP@{H\+T\+TP}}
+\subsubsection[{\texorpdfstring{lws\+\_\+http\+\_\+redirect(struct lws $\ast$wsi, int code, const unsigned char $\ast$loc, int len, unsigned char $\ast$$\ast$p, unsigned char $\ast$end)}{lws\_http\_redirect(struct lws *wsi, int code, const unsigned char *loc, int len, unsigned char **p, unsigned char *end)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT lws\+\_\+http\+\_\+redirect (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi, }
+\item[{int}]{code, }
+\item[{const unsigned char $\ast$}]{loc, }
+\item[{int}]{len, }
+\item[{unsigned char $\ast$$\ast$}]{p, }
+\item[{unsigned char $\ast$}]{end}
+\end{DoxyParamCaption}
+)}\hypertarget{group__http_ga8fbf01e473ac421fc33ad9f8da8b8a25}{}\label{group__http_ga8fbf01e473ac421fc33ad9f8da8b8a25}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__http_ga8fbf01e473ac421fc33ad9f8da8b8a25}{lws\+\_\+http\+\_\+redirect()} -\/ write http redirect into buffer
+
+
+\begin{DoxyParams}{Parameters}
+{\em wsi} & websocket connection \\
+\hline
+{\em code} & H\+T\+TP response code (eg, 301) \\
+\hline
+{\em loc} & where to redirect to \\
+\hline
+{\em len} & length of loc \\
+\hline
+{\em p} & pointer current position in buffer (updated as we write) \\
+\hline
+{\em end} & pointer to end of buffer \\
+\hline
+\end{DoxyParams}
+\index{H\+T\+TP@{H\+T\+TP}!lws\+\_\+http\+\_\+transaction\+\_\+completed@{lws\+\_\+http\+\_\+transaction\+\_\+completed}}
+\index{lws\+\_\+http\+\_\+transaction\+\_\+completed@{lws\+\_\+http\+\_\+transaction\+\_\+completed}!H\+T\+TP@{H\+T\+TP}}
+\subsubsection[{\texorpdfstring{lws\+\_\+http\+\_\+transaction\+\_\+completed(struct lws $\ast$wsi)}{lws\_http\_transaction\_completed(struct lws *wsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT lws\+\_\+http\+\_\+transaction\+\_\+completed (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi}
+\end{DoxyParamCaption}
+)}\hypertarget{group__http_gad27aed6c66a41b2b89ffe4da2a309e8a}{}\label{group__http_gad27aed6c66a41b2b89ffe4da2a309e8a}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__http_gad27aed6c66a41b2b89ffe4da2a309e8a}{lws\+\_\+http\+\_\+transaction\+\_\+completed()} -\/ wait for new http transaction or close 
+\begin{DoxyParams}{Parameters}
+{\em wsi} & websocket connection \begin{DoxyVerb} Returns 1 if the HTTP connection must close now
+ Returns 0 and resets connection to wait for new HTTP header /
+   transaction if possible\end{DoxyVerb}
+ \\
+\hline
+\end{DoxyParams}
+\index{H\+T\+TP@{H\+T\+TP}!lws\+\_\+return\+\_\+http\+\_\+status@{lws\+\_\+return\+\_\+http\+\_\+status}}
+\index{lws\+\_\+return\+\_\+http\+\_\+status@{lws\+\_\+return\+\_\+http\+\_\+status}!H\+T\+TP@{H\+T\+TP}}
+\subsubsection[{\texorpdfstring{lws\+\_\+return\+\_\+http\+\_\+status(struct lws $\ast$wsi, unsigned int code, const char $\ast$html\+\_\+body)}{lws\_return\_http\_status(struct lws *wsi, unsigned int code, const char *html\_body)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+return\+\_\+http\+\_\+status (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi, }
+\item[{unsigned int}]{code, }
+\item[{const char $\ast$}]{html\+\_\+body}
+\end{DoxyParamCaption}
+)}\hypertarget{group__http_gac8a4a71240857dc6b2ed70456b6923f4}{}\label{group__http_gac8a4a71240857dc6b2ed70456b6923f4}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__http_gac8a4a71240857dc6b2ed70456b6923f4}{lws\+\_\+return\+\_\+http\+\_\+status()} -\/ Return simple http status 
+\begin{DoxyParams}{Parameters}
+{\em wsi} & Websocket instance (available from user callback) \\
+\hline
+{\em code} & Status index, eg, 404 \\
+\hline
+{\em html\+\_\+body} & User-\/readable H\+T\+ML description $<$ 1\+KB, or N\+U\+LL \begin{DoxyVerb} Helper to report HTTP errors back to the client cleanly and
+ consistently\end{DoxyVerb}
+ \\
+\hline
+\end{DoxyParams}

@@ -1,0 +1,135 @@
+\hypertarget{group__log}{}\section{Logging}
+\label{group__log}\index{Logging@{Logging}}
+\subsection*{Enumerations}
+\begin{DoxyCompactItemize}
+\item 
+enum {\bfseries lws\+\_\+log\+\_\+levels} \{ \\*
+{\bfseries L\+L\+L\+\_\+\+E\+RR} = 1 $<$$<$ 0, 
+{\bfseries L\+L\+L\+\_\+\+W\+A\+RN} = 1 $<$$<$ 1, 
+{\bfseries L\+L\+L\+\_\+\+N\+O\+T\+I\+CE} = 1 $<$$<$ 2, 
+{\bfseries L\+L\+L\+\_\+\+I\+N\+FO} = 1 $<$$<$ 3, 
+\\*
+{\bfseries L\+L\+L\+\_\+\+D\+E\+B\+UG} = 1 $<$$<$ 4, 
+{\bfseries L\+L\+L\+\_\+\+P\+A\+R\+S\+ER} = 1 $<$$<$ 5, 
+{\bfseries L\+L\+L\+\_\+\+H\+E\+A\+D\+ER} = 1 $<$$<$ 6, 
+{\bfseries L\+L\+L\+\_\+\+E\+XT} = 1 $<$$<$ 7, 
+\\*
+{\bfseries L\+L\+L\+\_\+\+C\+L\+I\+E\+NT} = 1 $<$$<$ 8, 
+{\bfseries L\+L\+L\+\_\+\+L\+A\+T\+E\+N\+CY} = 1 $<$$<$ 9, 
+{\bfseries L\+L\+L\+\_\+\+C\+O\+U\+NT} = 10
+ \}\hypertarget{group__log_ga14542b84d2c76efa7814124bb10f9c5f}{}\label{group__log_ga14542b84d2c76efa7814124bb10f9c5f}
+
+\end{DoxyCompactItemize}
+\subsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void {\bfseries \+\_\+lws\+\_\+log} (int filter, const char $\ast$format,...)\hypertarget{group__log_gaf5f07837692b2f231a79da8a058288aa}{}\label{group__log_gaf5f07837692b2f231a79da8a058288aa}
+
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void {\bfseries \+\_\+lws\+\_\+logv} (int filter, const char $\ast$format, va\+\_\+list vl)\hypertarget{group__log_ga74eb146969f0595e12ea835851b4588e}{}\label{group__log_ga74eb146969f0595e12ea835851b4588e}
+
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__log_ga42e39775c6b69b7251bdbf5a2cdd5dcd}{lwsl\+\_\+timestamp} (int level, char $\ast$p, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__log_ga898b1f03872ad019f507d4e35bbefa90}{lwsl\+\_\+hexdump} (void $\ast$buf, size\+\_\+t len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__log_ga244647f9e1bf0097ccdde66d74f41e26}{lws\+\_\+set\+\_\+log\+\_\+level} (int level, void($\ast$log\+\_\+emit\+\_\+function)(int level, const char $\ast$line))
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__log_gab7c0fc936cc9f1eb58e2bb234c15147c}{lwsl\+\_\+emit\+\_\+syslog} (int level, const char $\ast$line)
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+\subsubsection*{Logging}
+
+Lws provides flexible and filterable logging facilities, which can be used inside lws and in user code.
+
+Log categories may be individually filtered bitwise, and directed to built-\/in sinks for syslog-\/compatible logging, or a user-\/defined function. 
+
+\subsection{Function Documentation}
+\index{Logging@{Logging}!lws\+\_\+set\+\_\+log\+\_\+level@{lws\+\_\+set\+\_\+log\+\_\+level}}
+\index{lws\+\_\+set\+\_\+log\+\_\+level@{lws\+\_\+set\+\_\+log\+\_\+level}!Logging@{Logging}}
+\subsubsection[{\texorpdfstring{lws\+\_\+set\+\_\+log\+\_\+level(int level, void($\ast$log\+\_\+emit\+\_\+function)(int level, const char $\ast$line))}{lws\_set\_log\_level(int level, void(*log\_emit\_function)(int level, const char *line))}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void lws\+\_\+set\+\_\+log\+\_\+level (
+\begin{DoxyParamCaption}
+\item[{int}]{level, }
+\item[{void($\ast$)(int level, const char $\ast$line)}]{log\+\_\+emit\+\_\+function}
+\end{DoxyParamCaption}
+)}\hypertarget{group__log_ga244647f9e1bf0097ccdde66d74f41e26}{}\label{group__log_ga244647f9e1bf0097ccdde66d74f41e26}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__log_ga244647f9e1bf0097ccdde66d74f41e26}{lws\+\_\+set\+\_\+log\+\_\+level()} -\/ Set the logging bitfield 
+\begin{DoxyParams}{Parameters}
+{\em level} & OR together the L\+L\+L\+\_\+ debug contexts you want output from \\
+\hline
+{\em log\+\_\+emit\+\_\+function} & N\+U\+LL to leave it as it is, or a user-\/supplied function to perform log string emission instead of the default stderr one.\\
+\hline
+\end{DoxyParams}
+log level defaults to \char`\"{}err\char`\"{}, \char`\"{}warn\char`\"{} and \char`\"{}notice\char`\"{} contexts enabled and emission on stderr. \index{Logging@{Logging}!lwsl\+\_\+emit\+\_\+syslog@{lwsl\+\_\+emit\+\_\+syslog}}
+\index{lwsl\+\_\+emit\+\_\+syslog@{lwsl\+\_\+emit\+\_\+syslog}!Logging@{Logging}}
+\subsubsection[{\texorpdfstring{lwsl\+\_\+emit\+\_\+syslog(int level, const char $\ast$line)}{lwsl\_emit\_syslog(int level, const char *line)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void lwsl\+\_\+emit\+\_\+syslog (
+\begin{DoxyParamCaption}
+\item[{int}]{level, }
+\item[{const char $\ast$}]{line}
+\end{DoxyParamCaption}
+)}\hypertarget{group__log_gab7c0fc936cc9f1eb58e2bb234c15147c}{}\label{group__log_gab7c0fc936cc9f1eb58e2bb234c15147c}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__log_gab7c0fc936cc9f1eb58e2bb234c15147c}{lwsl\+\_\+emit\+\_\+syslog()} -\/ helper log emit function writes to system log
+
+
+\begin{DoxyParams}{Parameters}
+{\em level} & one of L\+L\+L\+\_\+ log level indexes \\
+\hline
+{\em line} & log string\\
+\hline
+\end{DoxyParams}
+You use this by passing the function pointer to \hyperlink{group__log_ga244647f9e1bf0097ccdde66d74f41e26}{lws\+\_\+set\+\_\+log\+\_\+level()}, to set it as the log emit function, it is not called directly. \index{Logging@{Logging}!lwsl\+\_\+hexdump@{lwsl\+\_\+hexdump}}
+\index{lwsl\+\_\+hexdump@{lwsl\+\_\+hexdump}!Logging@{Logging}}
+\subsubsection[{\texorpdfstring{lwsl\+\_\+hexdump(void $\ast$buf, size\+\_\+t len)}{lwsl\_hexdump(void *buf, size\_t len)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void lwsl\+\_\+hexdump (
+\begin{DoxyParamCaption}
+\item[{void $\ast$}]{buf, }
+\item[{size\+\_\+t}]{len}
+\end{DoxyParamCaption}
+)}\hypertarget{group__log_ga898b1f03872ad019f507d4e35bbefa90}{}\label{group__log_ga898b1f03872ad019f507d4e35bbefa90}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__log_ga898b1f03872ad019f507d4e35bbefa90}{lwsl\+\_\+hexdump()} -\/ helper to hexdump a buffer (D\+E\+B\+UG builds only)
+
+
+\begin{DoxyParams}{Parameters}
+{\em buf} & buffer start to dump \\
+\hline
+{\em len} & length of buffer to dump \\
+\hline
+\end{DoxyParams}
+\index{Logging@{Logging}!lwsl\+\_\+timestamp@{lwsl\+\_\+timestamp}}
+\index{lwsl\+\_\+timestamp@{lwsl\+\_\+timestamp}!Logging@{Logging}}
+\subsubsection[{\texorpdfstring{lwsl\+\_\+timestamp(int level, char $\ast$p, int len)}{lwsl\_timestamp(int level, char *p, int len)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lwsl\+\_\+timestamp (
+\begin{DoxyParamCaption}
+\item[{int}]{level, }
+\item[{char $\ast$}]{p, }
+\item[{int}]{len}
+\end{DoxyParamCaption}
+)}\hypertarget{group__log_ga42e39775c6b69b7251bdbf5a2cdd5dcd}{}\label{group__log_ga42e39775c6b69b7251bdbf5a2cdd5dcd}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+lwsl\+\_\+timestamp\+: generate logging timestamp string
+
+
+\begin{DoxyParams}{Parameters}
+{\em level} & logging level \\
+\hline
+{\em p} & char $\ast$ buffer to take timestamp \\
+\hline
+{\em len} & length of p\\
+\hline
+\end{DoxyParams}
+returns length written in p 

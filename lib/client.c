@@ -318,15 +318,6 @@ strtolower(char *s)
 	}
 }
 
-/**
- * lws_http_transaction_completed() - wait for new http transaction or close
- * @wsi:	websocket connection
- *
- *	Returns 1 if the HTTP connection must close now
- *	Returns 0 and resets connection to wait for new HTTP header /
- *	  transaction if possible
- */
-
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi)
 {

@@ -205,16 +205,6 @@ uv_timeout_cb_email(uv_timer_t *w
 	}
 }
 
-/**
- * lws_email_init() - Initialize a struct lws_email
- *
- * @email: struct lws_email to init
- * @loop: libuv loop to use
- * @max_content: max email content size
- *
- * Prepares a struct lws_email for use ending SMTP
- */
-
 LWS_VISIBLE LWS_EXTERN int
 lws_email_init(struct lws_email *email, uv_loop_t *loop, int max_content)
 {
@@ -232,28 +222,11 @@ lws_email_init(struct lws_email *email, uv_loop_t *loop, int max_content)
 	return 0;
 }
 
-/**
- * lws_email_check() - Request check for new email
- *
- * @email: struct lws_email context to check
- *
- * Schedules a check for new emails in 1s... call this when you have queued an
- * email for send.
- */
-
 LWS_VISIBLE LWS_EXTERN void
 lws_email_check(struct lws_email *email)
 {
 	uv_timer_start(&email->timeout_email, uv_timeout_cb_email, 1000, 0);
 }
-
-/**
- * lws_email_destroy() - stop using the struct lws_email
- *
- * @email: the struct lws_email context
- *
- * Stop sending email using @email and free allocations
- */
 
 LWS_VISIBLE LWS_EXTERN void
 lws_email_destroy(struct lws_email *email)

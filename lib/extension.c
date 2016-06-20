@@ -318,15 +318,6 @@ lws_any_extension_handled(struct lws *wsi, enum lws_extension_callback_reasons r
 	return handled;
 }
 
-/**
- * lws_set_extension_option(): set extension option if possible
- *
- * @wsi:	websocket connection
- * @ext_name:	name of ext, like "permessage-deflate"
- * @opt_name:	name of option, like "rx_buf_size"
- * @opt_val:	value to set option to
- */
-
 int
 lws_set_extension_option(struct lws *wsi, const char *ext_name,
 			 const char *opt_name, const char *opt_val)

@@ -1,0 +1,329 @@
+\subsection*{Enabling for build }
+
+Enable at C\+Make with -\/\+D\+L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+G\+E\+N\+E\+R\+I\+C\+\_\+\+S\+E\+S\+S\+I\+O\+NS=1
+
+This also needs sqlite3 (libsqlite3-\/dev or similar package)
+
+\subsection*{Introduction }
+
+The generic-\/sessions protocol plugin provides cookie-\/based login authentication for lws web and ws connections.
+
+The plugin handles everything about generic account registration, email verification, lost password, account deletion, and other generic account management.
+
+Other code, in another eg, ws protocol handler, only needs very high-\/level state information from generic-\/sessions, ie, which user the client is authenticated as. Everything underneath is managed in generic-\/sessions.
+
+
+\begin{DoxyItemize}
+\item random 20-\/byte session id managed in a cookie
+\item all information related to the session held at the server, nothing managed clientside
+\item sqlite3 used at the server to manage active sessions and users
+\item defaults to creating anonymous sessions with no user associated
+\item admin account (with user-\/selectable username) is defined in config with a S\+H\+A-\/1 of the password; rest of the accounts are in sqlite3
+\item user account passwords stored as salted S\+H\+A-\/1 with additional confounder only stored in the J\+S\+ON config, not the database
+\item login, logout, register account + email verification built-\/in with examples
+\item in a mount, some file suffixes (ie, .js) can be associated with a protocol for the purposes of rewriting symbolnames. These are read-\/only copies of logged-\/in server state.
+\item When your page fetches .js or other rewritten files from that mount, \char`\"{}\$lwsgs\+\_\+user\char`\"{} and so on are rewritten on the fly using chunked transfer encoding
+\item Eliminates server-\/side scripting with a few rewritten symbols and javascript on client side
+\item 32-\/bit bitfield for authentication sectoring, mounts can provide a mask on the loggin-\/in session\textquotesingle{}s associated server-\/side bitfield that must be set for access.
+\item No code (just config) required for, eg, private U\+RL namespace that requires login to access.
+\end{DoxyItemize}
+
+\subsection*{Integration to H\+T\+ML }
+
+Only three steps are needed to integrate lwsgs in your H\+T\+ML.
+
+1) lwsgs H\+T\+ML UI is bundled with the javascript it uses in {\ttfamily lwsgs.\+js}, so import that script file in your head section
+
+2) define an empty div of id \char`\"{}lwsgs\char`\"{} somewhere
+
+3) Call lwsgs\+\_\+initial() in your page
+
+That\textquotesingle{}s it. An example is below
+
+
+\begin{DoxyCode}
+1 <html>
+2  <head>
+3   <script src="lwsgs.js"></script>
+4   <style>
+5      .body \{ font-size: 12 \}
+6      .gstitle \{ font-size: 18 \}
+7   </style>
+8   </head>
+9   <body style="background-image:url(seats.jpg)">
+10     <table style="width:100%;transition: max-height 2s;">
+11      <tr>
+12       <td style="vertical-align:top;text-align:left;width=200px">
+13        <img src="lwsgs-logo.png">
+14       </td>
+15       <td style="vertical-align:top;float:right">
+16         <div id=lwsgs style="text-align:right;background-color: rgba(255, 255, 255, 0.8);"></div>
+17       </td>
+18      </tr>
+19     </table>
+20    </form>
+21 
+22    <script>lwsgs\_initial();</script>
+23 
+24  </body>
+25 </html>
+\end{DoxyCode}
+ \subsection*{Overall Flow }
+
+When the protocol is initialized, it gets per-\/vhost information from the config, such as where the sqlite3 databases are to be stored. The admin username and sha-\/1 of the admin password are also taken from here.
+
+In the mounts using protocol-\/generic-\/sessions, a cookie is maintained against any requests; if no cookie was active on the initial request a new session is created with no attached user.
+
+So there should always be an active session after any transactions with the server.
+
+In the example html going to the mount /lwsgs loads a login / register page as the default.
+
+The $<$form$>$ in the login page contains \textquotesingle{}next url\textquotesingle{} hidden inputs that let the html \textquotesingle{}program\textquotesingle{} where the form handler will go after a successful admin login, a successful user login and a failed login.
+
+After a successful login, the sqlite record at the server for the current session is updated to have the logged-\/in username associated with it.
+
+\subsection*{Configuration }
+
+\char`\"{}auth-\/mask\char`\"{} defines the autorization sector bits that must be enabled on the session to gain access.
+
+\char`\"{}auth-\/mask\char`\"{} 0 is the default.
+
+
+\begin{DoxyItemize}
+\item b0 is set if you are logged in as a user at all.
+\item b1 is set if you are logged in with the user configured to be admin
+\item b2 is set if the account has been verified (the account configured for admin is always verified)
+\item b3 is set if your session just did the forgot password flow successfully
+\end{DoxyItemize}
+
+
+\begin{DoxyCode}
+1 \{
+2   # things in here can always be served
+3   "mountpoint": "/lwsgs",
+4   "origin": "file:///usr/share/libwebsockets-test-server/generic-sessions",
+5   "origin": "callback://protocol-lws-messageboard",
+6   "default": "generic-sessions-login-example.html",
+7   "auth-mask": "0",
+8   "interpret": \{
+9           ".js": "protocol-lws-messageboard"
+10   \}
+11  \}, \{
+12   # things in here can only be served if logged in as a user
+13   "mountpoint": "/lwsgs/needauth",
+14   "origin": "file:///usr/share/libwebsockets-test-server/generic-sessions/needauth",
+15   "origin": "callback://protocol-lws-messageboard",
+16   "default": "generic-sessions-login-example.html",
+17   "auth-mask": "5", # logged in as a verified user
+18   "interpret": \{
+19           ".js": "protocol-lws-messageboard"
+20   \}
+21  \}, \{
+22   # things in here can only be served if logged in as admin
+23   "mountpoint": "/lwsgs/needadmin",
+24   "origin": "file:///usr/share/libwebsockets-test-server/generic-sessions/needadmin",
+25   "origin": "callback://protocol-lws-messageboard",
+26   "default": "generic-sessions-login-example.html",
+27   "auth-mask": "7", # b2 = verified (by email / or admin), b1 = admin, b0 = logged in with any user name
+28   "interpret": \{
+29           ".js": "protocol-lws-messageboard"
+30   \}
+31  \}
+\end{DoxyCode}
+ Note that the name of the real application protocol that uses generic-\/sessions is used, not generic-\/sessions itself.
+
+The vhost configures the storage dir, admin credentials and session cookie lifetimes\+:
+
+
+\begin{DoxyCode}
+1      "ws-protocols": [\{
+2        "protocol-generic-sessions": \{
+3          "status": "ok",
+4          "admin-user": "admin",
+5 
+6 # create the pw hash like this (for the example pw, "jipdocesExunt" )
+7 # $ echo -n "jipdocesExunt" | sha1sum
+8 # 046ce9a9cca769e85798133be06ef30c9c0122c9 -
+9 #
+10 # Obviously ** change this password hash to a secret one before deploying **
+11 #
+12          "admin-password-sha1": "046ce9a9cca769e85798133be06ef30c9c0122c9",
+13          "session-db": "/var/www/sessions/lws.sqlite3",
+14          "timeout-idle-secs": "600",
+15          "timeout-anon-idle-secs": "1200",
+16          "timeout-absolute-secs": "6000",
+17 # the confounder is part of the salted password hashes.  If this config
+18 # file is in a 0700 root:root dir, an attacker with apache credentials
+19 # will have to get the confounder out of the process image to even try
+20 # to guess the password hashes.
+21          "confounder": "Change to <=31 chars of junk",
+22 
+23          "email-from": "noreply@example.com",
+24          "email-smtp-ip": "127.0.0.1",
+25          "email-expire": "3600",
+26          "email-helo": "myhost.com",
+27          "email-contact-person": "Set Me <real-person@email.com>",
+28          "email-confirm-url-base": "http://localhost:7681/lwsgs"
+29        \}
+\end{DoxyCode}
+
+
+The email-\/ related settings control generation of automatic emails for registration and forgotten password.
+
+
+\begin{DoxyItemize}
+\item {\ttfamily email-\/from}\+: The email address automatic emails are sent from
+\item {\ttfamily email-\/smtp-\/ip}\+: Normally 127.\+0.\+0.\+1, if you have a suitable server on port 25 on your lan you can use this instead here.
+\item {\ttfamily email-\/expire}\+: Seconds that links sent in email will work before being deleted
+\item {\ttfamily email-\/helo}\+: H\+E\+LO to use when communicating with your S\+M\+TP server
+\item {\ttfamily email-\/contact-\/person}\+: mentioned in the automatic emails as a human who can answer questions
+\item {\ttfamily email-\/confirm-\/url-\/base}\+: the U\+RL to start links with in the emails, so the recipient can get back to the web server
+\end{DoxyItemize}
+
+The real protocol that makes use of generic-\/sessions must also be listed and any configuration it needs given
+
+
+\begin{DoxyCode}
+1 "protocol-lws-messageboard": \{
+2   "status": "ok",
+3   "message-db": "/var/www/sessions/messageboard.sqlite3"
+4 \},
+\end{DoxyCode}
+
+
+Notice the real application uses his own sqlite db, no details about how generic-\/sessions works or how it stores data are available to it.
+
+\subsection*{Password Confounder }
+
+You can also define a per-\/vhost confounder shown in the example above, used when aggregating the password with the salt when it is hashed. Any attacker will also need to get the confounder along with the database, which you can make harder by making the config dir only eneterable / readable by root.
+
+\subsection*{Preparing the db directory }
+
+You will have to prepare the db directory so it\textquotesingle{}s suitable for the lwsws user to use, that usually means apache, eg
+
+
+\begin{DoxyCode}
+1 # mkdir -p /var/www/sessions
+2 # chown root:apache /var/www/sessions
+3 # chmod 770 /var/www/sessions
+\end{DoxyCode}
+
+
+\subsection*{Email configuration }
+
+lwsgs will can send emails by talking to an S\+M\+TP server on localhost\+:25. That will usually be sendmail or postfix, you should confirm that works first by itself using the {\ttfamily mail} application to send on it.
+
+lwsgs has been tested on stock Fedora sendmail and postfix.
+
+\subsection*{Integration with another protocol }
+
+lwsgs is designed to provide sessions and accounts in a standalone and generic way.
+
+But it\textquotesingle{}s not useful by itself, there will always be the actual application who wants to make use of generic-\/sessions features.
+
+The basic approach is the \textquotesingle{}real\textquotesingle{} protocol handler (usually a plugin itself) subclasses the generic-\/sessions plugin and calls through to it by default.
+
+The \char`\"{}real\char`\"{} protocol handler entirely deals with ws-\/related stuff itself, since generic-\/sessions does not use ws. But for
+
+
+\begin{DoxyItemize}
+\item L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+TP
+\item L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+B\+O\+DY
+\item L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+B\+O\+D\+Y\+\_\+\+C\+O\+M\+P\+L\+E\+T\+I\+ON
+\item L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+D\+R\+O\+P\+\_\+\+P\+R\+O\+T\+O\+C\+OL
+\end{DoxyItemize}
+
+the \char`\"{}real\char`\"{} protocol handler checks if it recognizes the activity (eg, his own P\+O\+ST form U\+RL) and if not, passes stuff through to the generic-\/sessions protocol callback to handle it. To simplify matters the real protocol can just pass through any unhandled messages to generic-\/sessions.
+
+The \char`\"{}real\char`\"{} protocol can get a pointer to generic-\/sessions protocol on the same vhost using
+
+
+\begin{DoxyCode}
+1 vhd->gsp = lws\_vhost\_name\_to\_protocol(vhd->vh, "protocol-generic-sessions");
+\end{DoxyCode}
+
+
+The \char`\"{}real\char`\"{} protocol must also arrange generic-\/sessions per\+\_\+session\+\_\+data in his own per-\/session allocation. To allow keeping generic-\/sessions opaque, the real protocol must allocate that space at runtime, using the pss size the generic-\/sessions protocol struct exposes
+
+
+\begin{DoxyCode}
+1 struct per\_session\_data\_\_myapp \{
+2         void *pss\_gs;
+3 ...
+4 
+5         pss->pss\_gs = malloc(vhd->gsp->per\_session\_data\_size);
+\end{DoxyCode}
+
+
+The allocation reserved for generic-\/sessions is then used as user\+\_\+space when the real protocol calls through to the generic-\/sessions callback
+
+
+\begin{DoxyCode}
+1 vhd->gsp->callback(wsi, reason, &pss->pss\_gs, in, len);
+\end{DoxyCode}
+
+
+In that way the \char`\"{}real\char`\"{} protocol can subclass generic-\/sessions functionality.
+
+To ease management of these secondary allocations, there are callbacks that occur when a wsi binds to a protocol and when the binding is dropped. These should be used to malloc and free and kind of per-\/connection secondary allocations.
+
+
+\begin{DoxyCode}
+1 case LWS\_CALLBACK\_HTTP\_BIND\_PROTOCOL:
+2         if (!pss || pss->pss\_gs)
+3                 break;
+4 
+5         pss->pss\_gs = malloc(vhd->gsp->per\_session\_data\_size);
+6         if (!pss->pss\_gs)
+7                 return -1;
+8 
+9         memset(pss->pss\_gs, 0, vhd->gsp->per\_session\_data\_size);
+10         break;
+11 
+12 case LWS\_CALLBACK\_HTTP\_DROP\_PROTOCOL:
+13         if (vhd->gsp->callback(wsi, reason, pss ? pss->pss\_gs : NULL, in, len))
+14                 return -1;
+15 
+16         if (pss->pss\_gs) \{
+17                 free(pss->pss\_gs);
+18                 pss->pss\_gs = NULL;
+19         \}
+20         break;
+\end{DoxyCode}
+
+
+\subsection*{Getting session-\/specific information from another protocol }
+
+At least at the time when someone tries to upgrade an http(s) connection to ws(s) with your real protocol, it is necessary to confirm the cookie the http(s) connection has with generic-\/sessions and find out his username and other info.
+
+Generic sessions lets another protocol check it again by calling his callback, and lws itself provides a generic session info struct to pass the related data
+
+
+\begin{DoxyCode}
+1 struct lws\_session\_info \{
+2         char username[32];
+3         char email[100];
+4         char ip[72];
+5         unsigned int mask;
+6         char session[42];
+7 \};
+8 
+9 struct lws\_session\_info sinfo;
+10 ...
+11 vhd->gsp->callback(wsi, LWS\_CALLBACK\_SESSION\_INFO,
+12                            &pss->pss\_gs, &sinfo, 0);
+\end{DoxyCode}
+
+
+After the call to generic-\/sessions, the results can be
+
+
+\begin{DoxyItemize}
+\item all the strings will be zero-\/length and .mask zero, there is no usable cookie
+\begin{DoxyItemize}
+\item only .ip and .session are set\+: the cookie is OK but no user logged in
+\item all the strings contain information about the logged-\/in user
+\end{DoxyItemize}
+\end{DoxyItemize}
+
+the real protocol can use this to reject attempts to open ws connections from http connections that are not authenticated; afterwards there\textquotesingle{}s no need to check the ws connection auth status again. 

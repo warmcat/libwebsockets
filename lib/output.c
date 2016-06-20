@@ -212,34 +212,6 @@ handle_truncated_send:
 	return real_len;
 }
 
-/**
- * lws_write() - Apply protocol then write data to client
- * @wsi:	Websocket instance (available from user callback)
- * @buf:	The data to send.  For data being sent on a websocket
- *		connection (ie, not default http), this buffer MUST have
- *		LWS_PRE bytes valid BEFORE the pointer.
- *		This is so the protocol header data can be added in-situ.
- * @len:	Count of the data bytes in the payload starting from buf
- * @protocol:	Use LWS_WRITE_HTTP to reply to an http connection, and one
- *		of LWS_WRITE_BINARY or LWS_WRITE_TEXT to send appropriate
- *		data on a websockets connection.  Remember to allow the extra
- *		bytes before and after buf if LWS_WRITE_BINARY or LWS_WRITE_TEXT
- *		are used.
- *
- *	This function provides the way to issue data back to the client
- *	for both http and websocket protocols.
- *
- *	In the case of sending using websocket protocol, be sure to allocate
- *	valid storage before and after buf as explained above.  This scheme
- *	allows maximum efficiency of sending data and protocol in a single
- *	packet while not burdening the user code with any protocol knowledge.
- *
- *	Return may be -1 for a fatal error needing connection close, or a
- *	positive number reflecting the amount of bytes actually sent.  This
- *	can be less than the requested number of bytes due to OS memory
- *	pressure at any given time.
- */
-
 LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 			  enum lws_write_protocol wp)
 {

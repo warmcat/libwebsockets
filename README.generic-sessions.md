@@ -1,5 +1,5 @@
-Generic Sessions Plugin
------------------------
+Notes about generic-sessions Plugin
+===================================
 
 Enabling for build
 ------------------
@@ -34,7 +34,7 @@ authenticated as.  Everything underneath is managed in generic-sessions.
 
  - admin account (with user-selectable username) is defined in config with a SHA-1 of the password; rest of the accounts are in sqlite3
  
-  - user account passwords stored as salted SHA-1 with additional confounder
+ - user account passwords stored as salted SHA-1 with additional confounder
   only stored in the JSON config, not the database 
 
  - login, logout, register account + email verification built-in with examples
@@ -65,35 +65,33 @@ import that script file in your head section
 
 That's it.  An example is below
 
-
 ```
-<html>
- <head>
-  <script src="lwsgs.js"></script>
-  <style>
-     .body { font-size: 12 }
-     .gstitle { font-size: 18 }
-  </style>
-  </head>
-  <body style="background-image:url(seats.jpg)">
-    <table style="width:100%;transition: max-height 2s;">
-     <tr>
-      <td style="vertical-align:top;text-align:left;width=200px">
-       <img src="lwsgs-logo.png">
-      </td>
-      <td style="vertical-align:top;float:right">
-	<div id=lwsgs style="text-align:right;background-color: rgba(255, 255, 255, 0.8);"></div>
-      </td>
-     </tr>
-    </table>
-   </form>
-   
-   <script>lwsgs_initial();</script>
-
- </body>
-</html>
+	<html>
+	 <head>
+	  <script src="lwsgs.js"></script>
+	  <style>
+	     .body { font-size: 12 }
+	     .gstitle { font-size: 18 }
+	  </style>
+	  </head>
+	  <body style="background-image:url(seats.jpg)">
+	    <table style="width:100%;transition: max-height 2s;">
+	     <tr>
+	      <td style="vertical-align:top;text-align:left;width=200px">
+	       <img src="lwsgs-logo.png">
+	      </td>
+	      <td style="vertical-align:top;float:right">
+		<div id=lwsgs style="text-align:right;background-color: rgba(255, 255, 255, 0.8);"></div>
+	      </td>
+	     </tr>
+	    </table>
+	   </form>
+	   
+	   <script>lwsgs_initial();</script>
+	
+	 </body>
+	</html>
 ```
-
 Overall Flow
 ------------
 
@@ -124,76 +122,76 @@ Configuration
   - b0 is set if you are logged in as a user at all.
   - b1 is set if you are logged in with the user configured to be admin
   - b2 is set if the account has been verified (the account configured for admin is always verified)
+  - b3 is set if your session just did the forgot password flow successfully
 
 ```
-      {
-        # things in here can always be served
-        "mountpoint": "/lwsgs",
-        "origin": "file:///usr/share/libwebsockets-test-server/generic-sessions",
-        "origin": "callback://protocol-lws-messageboard",
-        "default": "generic-sessions-login-example.html",
-        "auth-mask": "0",
-        "interpret": {
-                ".js": "protocol-lws-messageboard"
-        }
-       }, {
-        # things in here can only be served if logged in as a user
-        "mountpoint": "/lwsgs/needauth",
-        "origin": "file:///usr/share/libwebsockets-test-server/generic-sessions/needauth",
-        "origin": "callback://protocol-lws-messageboard",
-        "default": "generic-sessions-login-example.html",
-        "auth-mask": "5", # logged in as a verified user
-        "interpret": {
-                ".js": "protocol-lws-messageboard"
-        }
-       }, {
-        # things in here can only be served if logged in as admin
-        "mountpoint": "/lwsgs/needadmin",
-        "origin": "file:///usr/share/libwebsockets-test-server/generic-sessions/needadmin",
-        "origin": "callback://protocol-lws-messageboard",
-        "default": "generic-sessions-login-example.html",
-        "auth-mask": "7", # b2 = verified (by email / or admin), b1 = admin, b0 = logged in with any user name
-        "interpret": {
-                ".js": "protocol-lws-messageboard"
-        }
-       }
+	      {
+	        # things in here can always be served
+	        "mountpoint": "/lwsgs",
+	        "origin": "file:///usr/share/libwebsockets-test-server/generic-sessions",
+	        "origin": "callback://protocol-lws-messageboard",
+	        "default": "generic-sessions-login-example.html",
+	        "auth-mask": "0",
+	        "interpret": {
+	                ".js": "protocol-lws-messageboard"
+	        }
+	       }, {
+	        # things in here can only be served if logged in as a user
+	        "mountpoint": "/lwsgs/needauth",
+	        "origin": "file:///usr/share/libwebsockets-test-server/generic-sessions/needauth",
+	        "origin": "callback://protocol-lws-messageboard",
+	        "default": "generic-sessions-login-example.html",
+	        "auth-mask": "5", # logged in as a verified user
+	        "interpret": {
+	                ".js": "protocol-lws-messageboard"
+	        }
+	       }, {
+	        # things in here can only be served if logged in as admin
+	        "mountpoint": "/lwsgs/needadmin",
+	        "origin": "file:///usr/share/libwebsockets-test-server/generic-sessions/needadmin",
+	        "origin": "callback://protocol-lws-messageboard",
+	        "default": "generic-sessions-login-example.html",
+	        "auth-mask": "7", # b2 = verified (by email / or admin), b1 = admin, b0 = logged in with any user name
+	        "interpret": {
+	                ".js": "protocol-lws-messageboard"
+	        }
+	       }
 ```
-
 Note that the name of the real application protocol that uses generic-sessions
 is used, not generic-sessions itself. 
 
 The vhost configures the storage dir, admin credentials and session cookie lifetimes:
 
 ```
-     "ws-protocols": [{
-       "protocol-generic-sessions": {
-         "status": "ok",
-         "admin-user": "admin",
-
-# create the pw hash like this (for the example pw, "jipdocesExunt" )
-# $ echo -n "jipdocesExunt" | sha1sum
-# 046ce9a9cca769e85798133be06ef30c9c0122c9 -
-#
-# Obviously ** change this password hash to a secret one before deploying **
-#
-         "admin-password-sha1": "046ce9a9cca769e85798133be06ef30c9c0122c9",
-         "session-db": "/var/www/sessions/lws.sqlite3",
-         "timeout-idle-secs": "600",
-	 "timeout-anon-idle-secs": "1200",
-         "timeout-absolute-secs": "6000",
-# the confounder is part of the salted password hashes.  If this config
-# file is in a 0700 root:root dir, an attacker with apache credentials
-# will have to get the confounder out of the process image to even try
-# to guess the password hashes.
-         "confounder": "Change to <=31 chars of junk",
-
-         "email-from": "noreply@example.com",
-         "email-smtp-ip": "127.0.0.1",
-         "email-expire": "3600",
-         "email-helo": "myhost.com",
-         "email-contact-person": "Set Me <real-person@email.com>",
-         "email-confirm-url-base": "http://localhost:7681/lwsgs"
-       }
+	     "ws-protocols": [{
+	       "protocol-generic-sessions": {
+	         "status": "ok",
+	         "admin-user": "admin",
+	
+	# create the pw hash like this (for the example pw, "jipdocesExunt" )
+	# $ echo -n "jipdocesExunt" | sha1sum
+	# 046ce9a9cca769e85798133be06ef30c9c0122c9 -
+	#
+	# Obviously ** change this password hash to a secret one before deploying **
+	#
+	         "admin-password-sha1": "046ce9a9cca769e85798133be06ef30c9c0122c9",
+	         "session-db": "/var/www/sessions/lws.sqlite3",
+	         "timeout-idle-secs": "600",
+		 "timeout-anon-idle-secs": "1200",
+	         "timeout-absolute-secs": "6000",
+	# the confounder is part of the salted password hashes.  If this config
+	# file is in a 0700 root:root dir, an attacker with apache credentials
+	# will have to get the confounder out of the process image to even try
+	# to guess the password hashes.
+	         "confounder": "Change to <=31 chars of junk",
+	
+	         "email-from": "noreply@example.com",
+	         "email-smtp-ip": "127.0.0.1",
+	         "email-expire": "3600",
+	         "email-helo": "myhost.com",
+	         "email-contact-person": "Set Me <real-person@email.com>",
+	         "email-confirm-url-base": "http://localhost:7681/lwsgs"
+	       }
 ```
 
 The email- related settings control generation of automatic emails for
@@ -219,11 +217,12 @@ The real protocol that makes use of generic-sessions must also be listed and
 any configuration it needs given
 
 ```
-       "protocol-lws-messageboard": {
-         "status": "ok",
-         "message-db": "/var/www/sessions/messageboard.sqlite3"
-       },
+	       "protocol-lws-messageboard": {
+	         "status": "ok",
+	         "message-db": "/var/www/sessions/messageboard.sqlite3"
+	       },
 ```
+
 Notice the real application uses his own sqlite db, no details about how
 generic-sessions works or how it stores data are available to it.
 
@@ -244,9 +243,9 @@ You will have to prepare the db directory so it's suitable for the lwsws user to
 that usually means apache, eg
 
 ```
-# mkdir -p /var/www/sessions
-# chown root:apache /var/www/sessions
-# chmod 770 /var/www/sessions
+	# mkdir -p /var/www/sessions
+	# chown root:apache /var/www/sessions
+	# chmod 770 /var/www/sessions
 ```
 
 Email configuration
@@ -295,11 +294,11 @@ real protocol must allocate that space at runtime, using the pss size
 the generic-sessions protocol struct exposes
 
 ```
-struct per_session_data__myapp {
-	void *pss_gs;
-...
-
-	pss->pss_gs = malloc(vhd->gsp->per_session_data_size);
+	struct per_session_data__myapp {
+		void *pss_gs;
+	...
+	
+		pss->pss_gs = malloc(vhd->gsp->per_session_data_size);
 ```
 
 The allocation reserved for generic-sessions is then used as user_space when
@@ -316,7 +315,6 @@ To ease management of these secondary allocations, there are callbacks that
 occur when a wsi binds to a protocol and when the binding is dropped.  These
 should be used to malloc and free and kind of per-connection
 secondary allocations.
-
 
 ```
 	case LWS_CALLBACK_HTTP_BIND_PROTOCOL:
@@ -353,16 +351,14 @@ Generic sessions lets another protocol check it again by calling his callback,
 and lws itself provides a generic session info struct to pass the related data
 
 ```
-struct lws_session_info {
-	char username[32];
-	char email[100];
-	char ip[72];
-	unsigned int mask;
-	char session[42];
-};
-```
+	struct lws_session_info {
+		char username[32];
+		char email[100];
+		char ip[72];
+		unsigned int mask;
+		char session[42];
+	};
 
-```
 	struct lws_session_info sinfo;
 	...
 	vhd->gsp->callback(wsi, LWS_CALLBACK_SESSION_INFO,

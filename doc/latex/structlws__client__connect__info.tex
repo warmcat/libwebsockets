@@ -1,0 +1,105 @@
+\hypertarget{structlws__client__connect__info}{}\section{lws\+\_\+client\+\_\+connect\+\_\+info Struct Reference}
+\label{structlws__client__connect__info}\index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+
+
+{\ttfamily \#include $<$libwebsockets.\+h$>$}
+
+\subsection*{Data Fields}
+\begin{DoxyCompactItemize}
+\item 
+struct lws\+\_\+context $\ast$ \hyperlink{structlws__client__connect__info_afe999d133cc240a0bfd02aade0514cfd}{context}
+\item 
+const char $\ast$ \hyperlink{structlws__client__connect__info_aa364094f94ef1bcaaabbd9161971d502}{address}
+\item 
+int \hyperlink{structlws__client__connect__info_a1af124d81c3c22a46d39387c5bc3d6b9}{port}
+\item 
+int \hyperlink{structlws__client__connect__info_a9862297827639238a7a0b4054c3ddf3d}{ssl\+\_\+connection}
+\item 
+const char $\ast$ \hyperlink{structlws__client__connect__info_a76a8388733f114fb8fd3643874781185}{path}
+\item 
+const char $\ast$ \hyperlink{structlws__client__connect__info_a9b36d47c3422329df32c21040a35ebc7}{host}
+\item 
+const char $\ast$ \hyperlink{structlws__client__connect__info_a8595f83e64147cb687b6418cf500dd4c}{origin}
+\item 
+const char $\ast$ \hyperlink{structlws__client__connect__info_aba35adfb74845a5fd0c3dc141cbdddd2}{protocol}
+\item 
+int \hyperlink{structlws__client__connect__info_a69abb5aeed755750b9755e5c91db6895}{ietf\+\_\+version\+\_\+or\+\_\+minus\+\_\+one}
+\item 
+void $\ast$ \hyperlink{structlws__client__connect__info_a9831b9f9ab54a1aec4bb15324f1c3836}{userdata}
+\item 
+const struct \hyperlink{structlws__extension}{lws\+\_\+extension} $\ast$ \hyperlink{structlws__client__connect__info_a7732b996e977393c3e1076be2a8ded6c}{client\+\_\+exts}
+\item 
+const char $\ast$ \hyperlink{structlws__client__connect__info_aa9e8e3da4e783a0651b0dea62c2dd1db}{method}
+\item 
+struct lws $\ast$ \hyperlink{structlws__client__connect__info_a6843a60e1050b10db9d98d7eeb45f587}{parent\+\_\+wsi}
+\item 
+const char $\ast$ \hyperlink{structlws__client__connect__info_a03c305fdca809667b6a9a83b3edfd83a}{uri\+\_\+replace\+\_\+from}
+\item 
+const char $\ast$ \hyperlink{structlws__client__connect__info_a9959ba103d3d2484e559a9f7879eebe3}{uri\+\_\+replace\+\_\+to}
+\item 
+struct lws\+\_\+vhost $\ast$ \hyperlink{structlws__client__connect__info_a3893181d728f326f9f5b47c1459cb8be}{vhost}
+\item 
+void $\ast$ \hyperlink{structlws__client__connect__info_ad47f50d1633dc5df74548606c9a66d73}{\+\_\+unused} \mbox{[}4\mbox{]}
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} -\/ parameters to connect with when using \hyperlink{group__client_gac30a7be106abd0cedfbb2e8b8fe3a2f5}{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info()} 
+
+\subsection{Field Documentation}
+\index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!\+\_\+unused@{\+\_\+unused}}
+\index{\+\_\+unused@{\+\_\+unused}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{\+\_\+unused}{\_unused}}]{\setlength{\rightskip}{0pt plus 5cm}void$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::\+\_\+unused\mbox{[}4\mbox{]}}\hypertarget{structlws__client__connect__info_ad47f50d1633dc5df74548606c9a66d73}{}\label{structlws__client__connect__info_ad47f50d1633dc5df74548606c9a66d73}
+dummy \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!address@{address}}
+\index{address@{address}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{address}{address}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::address}\hypertarget{structlws__client__connect__info_aa364094f94ef1bcaaabbd9161971d502}{}\label{structlws__client__connect__info_aa364094f94ef1bcaaabbd9161971d502}
+remote address to connect to \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!client\+\_\+exts@{client\+\_\+exts}}
+\index{client\+\_\+exts@{client\+\_\+exts}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{client\+\_\+exts}{client\_exts}}]{\setlength{\rightskip}{0pt plus 5cm}const struct {\bf lws\+\_\+extension}$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::client\+\_\+exts}\hypertarget{structlws__client__connect__info_a7732b996e977393c3e1076be2a8ded6c}{}\label{structlws__client__connect__info_a7732b996e977393c3e1076be2a8ded6c}
+array of extensions that may be used on connection \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!context@{context}}
+\index{context@{context}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{context}{context}}]{\setlength{\rightskip}{0pt plus 5cm}struct lws\+\_\+context$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::context}\hypertarget{structlws__client__connect__info_afe999d133cc240a0bfd02aade0514cfd}{}\label{structlws__client__connect__info_afe999d133cc240a0bfd02aade0514cfd}
+lws context to create connection in \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!host@{host}}
+\index{host@{host}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{host}{host}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::host}\hypertarget{structlws__client__connect__info_a9b36d47c3422329df32c21040a35ebc7}{}\label{structlws__client__connect__info_a9b36d47c3422329df32c21040a35ebc7}
+content of host header \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!ietf\+\_\+version\+\_\+or\+\_\+minus\+\_\+one@{ietf\+\_\+version\+\_\+or\+\_\+minus\+\_\+one}}
+\index{ietf\+\_\+version\+\_\+or\+\_\+minus\+\_\+one@{ietf\+\_\+version\+\_\+or\+\_\+minus\+\_\+one}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{ietf\+\_\+version\+\_\+or\+\_\+minus\+\_\+one}{ietf\_version\_or\_minus\_one}}]{\setlength{\rightskip}{0pt plus 5cm}int lws\+\_\+client\+\_\+connect\+\_\+info\+::ietf\+\_\+version\+\_\+or\+\_\+minus\+\_\+one}\hypertarget{structlws__client__connect__info_a69abb5aeed755750b9755e5c91db6895}{}\label{structlws__client__connect__info_a69abb5aeed755750b9755e5c91db6895}
+deprecated\+: currently leave at 0 or -\/1 \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!method@{method}}
+\index{method@{method}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{method}{method}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::method}\hypertarget{structlws__client__connect__info_aa9e8e3da4e783a0651b0dea62c2dd1db}{}\label{structlws__client__connect__info_aa9e8e3da4e783a0651b0dea62c2dd1db}
+if non-\/\+N\+U\+LL, do this http method instead of ws\mbox{[}s\mbox{]} upgrade. use \char`\"{}\+G\+E\+T\char`\"{} to be a simple http client connection \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!origin@{origin}}
+\index{origin@{origin}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{origin}{origin}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::origin}\hypertarget{structlws__client__connect__info_a8595f83e64147cb687b6418cf500dd4c}{}\label{structlws__client__connect__info_a8595f83e64147cb687b6418cf500dd4c}
+content of origin header \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!parent\+\_\+wsi@{parent\+\_\+wsi}}
+\index{parent\+\_\+wsi@{parent\+\_\+wsi}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{parent\+\_\+wsi}{parent\_wsi}}]{\setlength{\rightskip}{0pt plus 5cm}struct lws$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::parent\+\_\+wsi}\hypertarget{structlws__client__connect__info_a6843a60e1050b10db9d98d7eeb45f587}{}\label{structlws__client__connect__info_a6843a60e1050b10db9d98d7eeb45f587}
+if another wsi is responsible for this connection, give it here. this is used to make sure if the parent closes so do any child connections first. \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!path@{path}}
+\index{path@{path}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{path}{path}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::path}\hypertarget{structlws__client__connect__info_a76a8388733f114fb8fd3643874781185}{}\label{structlws__client__connect__info_a76a8388733f114fb8fd3643874781185}
+uri path \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!port@{port}}
+\index{port@{port}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{port}{port}}]{\setlength{\rightskip}{0pt plus 5cm}int lws\+\_\+client\+\_\+connect\+\_\+info\+::port}\hypertarget{structlws__client__connect__info_a1af124d81c3c22a46d39387c5bc3d6b9}{}\label{structlws__client__connect__info_a1af124d81c3c22a46d39387c5bc3d6b9}
+remote port to connect to \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!protocol@{protocol}}
+\index{protocol@{protocol}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{protocol}{protocol}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::protocol}\hypertarget{structlws__client__connect__info_aba35adfb74845a5fd0c3dc141cbdddd2}{}\label{structlws__client__connect__info_aba35adfb74845a5fd0c3dc141cbdddd2}
+list of ws protocols we could accept \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!ssl\+\_\+connection@{ssl\+\_\+connection}}
+\index{ssl\+\_\+connection@{ssl\+\_\+connection}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{ssl\+\_\+connection}{ssl\_connection}}]{\setlength{\rightskip}{0pt plus 5cm}int lws\+\_\+client\+\_\+connect\+\_\+info\+::ssl\+\_\+connection}\hypertarget{structlws__client__connect__info_a9862297827639238a7a0b4054c3ddf3d}{}\label{structlws__client__connect__info_a9862297827639238a7a0b4054c3ddf3d}
+nonzero for ssl \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!uri\+\_\+replace\+\_\+from@{uri\+\_\+replace\+\_\+from}}
+\index{uri\+\_\+replace\+\_\+from@{uri\+\_\+replace\+\_\+from}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{uri\+\_\+replace\+\_\+from}{uri\_replace\_from}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::uri\+\_\+replace\+\_\+from}\hypertarget{structlws__client__connect__info_a03c305fdca809667b6a9a83b3edfd83a}{}\label{structlws__client__connect__info_a03c305fdca809667b6a9a83b3edfd83a}
+if non-\/\+N\+U\+LL, when this string is found in U\+R\+Is in text/html content-\/encoding, it\textquotesingle{}s replaced with uri\+\_\+replace\+\_\+to \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!uri\+\_\+replace\+\_\+to@{uri\+\_\+replace\+\_\+to}}
+\index{uri\+\_\+replace\+\_\+to@{uri\+\_\+replace\+\_\+to}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{uri\+\_\+replace\+\_\+to}{uri\_replace\_to}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::uri\+\_\+replace\+\_\+to}\hypertarget{structlws__client__connect__info_a9959ba103d3d2484e559a9f7879eebe3}{}\label{structlws__client__connect__info_a9959ba103d3d2484e559a9f7879eebe3}
+see uri\+\_\+replace\+\_\+from \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!userdata@{userdata}}
+\index{userdata@{userdata}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{userdata}{userdata}}]{\setlength{\rightskip}{0pt plus 5cm}void$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::userdata}\hypertarget{structlws__client__connect__info_a9831b9f9ab54a1aec4bb15324f1c3836}{}\label{structlws__client__connect__info_a9831b9f9ab54a1aec4bb15324f1c3836}
+if non-\/\+N\+U\+LL, use this as wsi user\+\_\+data instead of malloc it \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!vhost@{vhost}}
+\index{vhost@{vhost}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{vhost}{vhost}}]{\setlength{\rightskip}{0pt plus 5cm}struct lws\+\_\+vhost$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::vhost}\hypertarget{structlws__client__connect__info_a3893181d728f326f9f5b47c1459cb8be}{}\label{structlws__client__connect__info_a3893181d728f326f9f5b47c1459cb8be}
+vhost to bind to (used to determine related S\+S\+L\+\_\+\+C\+TX) 
+
+The documentation for this struct was generated from the following file\+:\begin{DoxyCompactItemize}
+\item 
+lib/\hyperlink{libwebsockets_8h}{libwebsockets.\+h}\end{DoxyCompactItemize}

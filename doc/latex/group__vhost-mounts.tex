@@ -1,0 +1,67 @@
+\hypertarget{group__vhost-mounts}{}\section{Vhost mounts and options}
+\label{group__vhost-mounts}\index{Vhost mounts and options@{Vhost mounts and options}}
+\subsection*{Data Structures}
+\begin{DoxyCompactItemize}
+\item 
+struct \hyperlink{structlws__protocol__vhost__options}{lws\+\_\+protocol\+\_\+vhost\+\_\+options}
+\item 
+struct \hyperlink{structlws__http__mount}{lws\+\_\+http\+\_\+mount}
+\end{DoxyCompactItemize}
+\subsection*{Enumerations}
+\begin{DoxyCompactItemize}
+\item 
+enum \hyperlink{group__vhost-mounts_ga31eca18e50cb4357480f2fcad36ff437}{lws\+\_\+mount\+\_\+protocols} \{ \\*
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a1e9f0842b0e85db50fe648ed4ba9a4b0}{L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+TP} = 0, 
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437afbd10eb4777517ed1f6bfdcf3b9ea1d1}{L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+T\+PS} = 1, 
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a42f2361cfe76cd287fa8fcfc502357e2}{L\+W\+S\+M\+P\+R\+O\+\_\+\+F\+I\+LE} = 2, 
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a13ab58b01ac6e05f595977f1e0f0db69}{L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+GI} = 3, 
+\\*
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437aec137a2434851bd856ceebfb697b9970}{L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+TP} = 4, 
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a8894d16316863077dfe530963ca59f67}{L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+T\+PS} = 5, 
+\hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a946a88cf9c852eed2c0317f4115d19da}{L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK} = 6
+ \}
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+\subsubsection*{Vhost mounts and options}
+
+\subsection{Enumeration Type Documentation}
+\index{Vhost mounts and options@{Vhost mounts and options}!lws\+\_\+mount\+\_\+protocols@{lws\+\_\+mount\+\_\+protocols}}
+\index{lws\+\_\+mount\+\_\+protocols@{lws\+\_\+mount\+\_\+protocols}!Vhost mounts and options@{Vhost mounts and options}}
+\subsubsection[{\texorpdfstring{lws\+\_\+mount\+\_\+protocols}{lws\_mount\_protocols}}]{\setlength{\rightskip}{0pt plus 5cm}enum {\bf lws\+\_\+mount\+\_\+protocols}}\hypertarget{group__vhost-mounts_ga31eca18e50cb4357480f2fcad36ff437}{}\label{group__vhost-mounts_ga31eca18e50cb4357480f2fcad36ff437}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+enum lws\+\_\+mount\+\_\+protocols This specifies the mount protocol for a mountpoint, whether it is to be served from a filesystem, or it is a cgi etc. \begin{Desc}
+\item[Enumerator]\par
+\begin{description}
+\index{L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+TP@{L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+TP}!Vhost mounts and options@{Vhost mounts and options}}\index{Vhost mounts and options@{Vhost mounts and options}!L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+TP@{L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+TP}}\item[{\em 
+L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+TP\hypertarget{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a1e9f0842b0e85db50fe648ed4ba9a4b0}{}\label{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a1e9f0842b0e85db50fe648ed4ba9a4b0}
+}]not supported yet \index{L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+T\+PS@{L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+T\+PS}!Vhost mounts and options@{Vhost mounts and options}}\index{Vhost mounts and options@{Vhost mounts and options}!L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+T\+PS@{L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+T\+PS}}\item[{\em 
+L\+W\+S\+M\+P\+R\+O\+\_\+\+H\+T\+T\+PS\hypertarget{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437afbd10eb4777517ed1f6bfdcf3b9ea1d1}{}\label{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437afbd10eb4777517ed1f6bfdcf3b9ea1d1}
+}]not supported yet \index{L\+W\+S\+M\+P\+R\+O\+\_\+\+F\+I\+LE@{L\+W\+S\+M\+P\+R\+O\+\_\+\+F\+I\+LE}!Vhost mounts and options@{Vhost mounts and options}}\index{Vhost mounts and options@{Vhost mounts and options}!L\+W\+S\+M\+P\+R\+O\+\_\+\+F\+I\+LE@{L\+W\+S\+M\+P\+R\+O\+\_\+\+F\+I\+LE}}\item[{\em 
+L\+W\+S\+M\+P\+R\+O\+\_\+\+F\+I\+LE\hypertarget{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a42f2361cfe76cd287fa8fcfc502357e2}{}\label{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a42f2361cfe76cd287fa8fcfc502357e2}
+}]serve from filesystem directory \index{L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+GI@{L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+GI}!Vhost mounts and options@{Vhost mounts and options}}\index{Vhost mounts and options@{Vhost mounts and options}!L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+GI@{L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+GI}}\item[{\em 
+L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+GI\hypertarget{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a13ab58b01ac6e05f595977f1e0f0db69}{}\label{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a13ab58b01ac6e05f595977f1e0f0db69}
+}]pass to C\+GI to handle \index{L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+TP@{L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+TP}!Vhost mounts and options@{Vhost mounts and options}}\index{Vhost mounts and options@{Vhost mounts and options}!L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+TP@{L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+TP}}\item[{\em 
+L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+TP\hypertarget{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437aec137a2434851bd856ceebfb697b9970}{}\label{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437aec137a2434851bd856ceebfb697b9970}
+}]redirect to \href{http://}{\tt http\+://} url \index{L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+T\+PS@{L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+T\+PS}!Vhost mounts and options@{Vhost mounts and options}}\index{Vhost mounts and options@{Vhost mounts and options}!L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+T\+PS@{L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+T\+PS}}\item[{\em 
+L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+T\+PS\hypertarget{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a8894d16316863077dfe530963ca59f67}{}\label{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a8894d16316863077dfe530963ca59f67}
+}]redirect to \href{https://}{\tt https\+://} url \index{L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK@{L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK}!Vhost mounts and options@{Vhost mounts and options}}\index{Vhost mounts and options@{Vhost mounts and options}!L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK@{L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK}}\item[{\em 
+L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK\hypertarget{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a946a88cf9c852eed2c0317f4115d19da}{}\label{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a946a88cf9c852eed2c0317f4115d19da}
+}]hand by named protocol\textquotesingle{}s callback \end{description}
+\end{Desc}
+
+\begin{DoxyCode}
+1745                          \{
+1746         \hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a1e9f0842b0e85db50fe648ed4ba9a4b0}{LWSMPRO\_HTTP}                = 0, 
+1747         \hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437afbd10eb4777517ed1f6bfdcf3b9ea1d1}{LWSMPRO\_HTTPS}              = 1, 
+1748         \hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a42f2361cfe76cd287fa8fcfc502357e2}{LWSMPRO\_FILE}                = 2, 
+1749         \hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a13ab58b01ac6e05f595977f1e0f0db69}{LWSMPRO\_CGI}          = 3, 
+1750         \hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437aec137a2434851bd856ceebfb697b9970}{LWSMPRO\_REDIR\_HTTP}    = 4, 
+1751         \hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a8894d16316863077dfe530963ca59f67}{LWSMPRO\_REDIR\_HTTPS}  = 5, 
+1752         \hyperlink{group__vhost-mounts_gga31eca18e50cb4357480f2fcad36ff437a946a88cf9c852eed2c0317f4115d19da}{LWSMPRO\_CALLBACK}        = 6, 
+1753 \};
+\end{DoxyCode}

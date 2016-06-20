@@ -1,0 +1,422 @@
+\hypertarget{group__context-and-vhost}{}\section{Context-\/and-\/vhost}
+\label{group__context-and-vhost}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsection*{Modules}
+\begin{DoxyCompactItemize}
+\item 
+\hyperlink{group__vhost-mounts}{Vhost mounts and options}
+\end{DoxyCompactItemize}
+\subsection*{Data Structures}
+\begin{DoxyCompactItemize}
+\item 
+struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info}
+\item 
+struct \hyperlink{structlws__protocol__vhost__options}{lws\+\_\+protocol\+\_\+vhost\+\_\+options}
+\end{DoxyCompactItemize}
+\subsection*{Enumerations}
+\begin{DoxyCompactItemize}
+\item 
+enum \hyperlink{group__context-and-vhost_ga41c2d763f78cc248df3b9f8645dbd2a5}{lws\+\_\+context\+\_\+options} \{ \\*
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a274ed462a1a9239eb6ddf9007f5b7092}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+Q\+U\+I\+R\+E\+\_\+\+V\+A\+L\+I\+D\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+E\+RT}, 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a6582c985ee0ceaadc1d277030eae2d7c}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+K\+I\+P\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+C\+A\+N\+O\+N\+I\+C\+A\+L\+\_\+\+N\+A\+ME} = (1 $<$$<$ 2), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a1cc4562d05cba52a6dfa0697a65ade0d}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+A\+L\+L\+O\+W\+\_\+\+N\+O\+N\+\_\+\+S\+S\+L\+\_\+\+O\+N\+\_\+\+S\+S\+L\+\_\+\+P\+O\+RT}, 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a273d9975675130de0c6dc937dde7c8a6}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+EV} = (1 $<$$<$ 4), 
+\\*
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a34ab36e68c0d593b6f19b8d5ef1240a9}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+I\+P\+V6} = (1 $<$$<$ 5), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a4933347a821e73c3f1e13fb6bfc7ad93}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+O\+S\+\_\+\+C\+A\+\_\+\+C\+E\+R\+TS} = (1 $<$$<$ 6), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5ac56a8a6590e74a8016d0fae09fb404fc}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+P\+E\+E\+R\+\_\+\+C\+E\+R\+T\+\_\+\+N\+O\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+ED} = (1 $<$$<$ 7), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aa0158b4e85420811e6b0f1378c6ded0f}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+V\+A\+L\+I\+D\+A\+T\+E\+\_\+\+U\+T\+F8} = (1 $<$$<$ 8), 
+\\*
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a1b2f8bde0f62adc7ebe81b2043f34c0c}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+S\+L\+\_\+\+E\+C\+DH}, 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aff121db04a10cf8b2c5df9d4f2b89f1e}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+UV} = (1 $<$$<$ 10), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a4832187186c4d130c68051214cd42ada}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+D\+I\+R\+E\+C\+T\+\_\+\+H\+T\+T\+P\+\_\+\+T\+O\+\_\+\+H\+T\+T\+PS}, 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a7fed6a527c8d5e0acac1b4179644583a}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+O\+\_\+\+S\+S\+L\+\_\+\+G\+L\+O\+B\+A\+L\+\_\+\+I\+N\+IT} = (1 $<$$<$ 12), 
+\\*
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5accc9d0d11d1124a21659586164b0962e}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+P\+L\+I\+C\+I\+T\+\_\+\+V\+H\+O\+S\+TS} = (1 $<$$<$ 13), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a9637e9001d8c8b2521086bcafbd8a941}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+U\+N\+I\+X\+\_\+\+S\+O\+CK} = (1 $<$$<$ 14), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5ac962efd35abf6c402f9fb14aa14f5016}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+TS} = (1 $<$$<$ 15), 
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5af62887536e25e053e68741006dba46d8}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+M\+O\+D\+I\+FY} = (1 $<$$<$ 16), 
+\\*
+\hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aca5d42820b65eac5618ec3f0bd8a1160}{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+V\+A\+L\+UE} = (1 $<$$<$ 17)
+ \}
+\end{DoxyCompactItemize}
+\subsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+context $\ast$ \hyperlink{group__context-and-vhost_gaf2fff58562caab7510c41eeac85a8648}{lws\+\_\+create\+\_\+context} (struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$info)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void \hyperlink{group__context-and-vhost_ga8ee0314028755f1ddfa9428e09b4fddb}{lws\+\_\+context\+\_\+destroy} (struct lws\+\_\+context $\ast$context)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__context-and-vhost_ga7e9d5405547a457d86e0b4f0ae2bb1c4}{lws\+\_\+set\+\_\+proxy} (struct lws\+\_\+vhost $\ast$vhost, const char $\ast$proxy)
+\item 
+L\+W\+S\+\_\+\+E\+X\+T\+E\+RN L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE struct lws\+\_\+vhost $\ast$ \hyperlink{group__context-and-vhost_ga0c54c667ccd9b8b3dddcd123ca72f87c}{lws\+\_\+create\+\_\+vhost} (struct lws\+\_\+context $\ast$context, struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$info)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__context-and-vhost_ga98d88c9080fd89c37114363a6474ea73}{lwsws\+\_\+get\+\_\+config\+\_\+globals} (struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$info, const char $\ast$d, char $\ast$$\ast$config\+\_\+strings, int $\ast$len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__context-and-vhost_ga341064721add2618ae1b29717493a212}{lwsws\+\_\+get\+\_\+config\+\_\+vhosts} (struct lws\+\_\+context $\ast$context, struct \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$info, const char $\ast$d, char $\ast$$\ast$config\+\_\+strings, int $\ast$len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+vhost $\ast$ \hyperlink{group__context-and-vhost_ga8db03e19a372e34ac25cf21af894a02c}{lws\+\_\+vhost\+\_\+get} (struct lws $\ast$wsi) L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+D\+E\+P\+R\+E\+C\+A\+T\+ED
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+vhost $\ast$ \hyperlink{group__context-and-vhost_ga06e77ce2916f8bc9826ef8d9d68e3932}{lws\+\_\+get\+\_\+vhost} (struct lws $\ast$wsi)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__context-and-vhost_ga94e6cc2223c4eec316b13bcebc3628b6}{lws\+\_\+json\+\_\+dump\+\_\+vhost} (const struct lws\+\_\+vhost $\ast$vh, char $\ast$buf, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__context-and-vhost_gae2134657cdd2ea7a59e13ad314e4c50d}{lws\+\_\+json\+\_\+dump\+\_\+context} (const struct lws\+\_\+context $\ast$context, char $\ast$buf, int len)
+\item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void $\ast$ \hyperlink{group__context-and-vhost_gaeb12f934bfd178bd2132a9e73fc641da}{lws\+\_\+context\+\_\+user} (struct lws\+\_\+context $\ast$context)
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+\subsubsection*{Context and Vhost releated functions}
+
+L\+WS requires that there is one context, in which you may define multiple vhosts. Each vhost is a virtual host, with either its own listen port or sharing an existing one. Each vhost has its own S\+SL context that can be set up individually or left disabled.
+
+If you don\textquotesingle{}t care about multiple \char`\"{}site\char`\"{} support, you can ignore it and lws will create a single default vhost at context creation time. 
+
+\subsection{Enumeration Type Documentation}
+\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lws\+\_\+context\+\_\+options@{lws\+\_\+context\+\_\+options}}
+\index{lws\+\_\+context\+\_\+options@{lws\+\_\+context\+\_\+options}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lws\+\_\+context\+\_\+options}{lws\_context\_options}}]{\setlength{\rightskip}{0pt plus 5cm}enum {\bf lws\+\_\+context\+\_\+options}}\hypertarget{group__context-and-vhost_ga41c2d763f78cc248df3b9f8645dbd2a5}{}\label{group__context-and-vhost_ga41c2d763f78cc248df3b9f8645dbd2a5}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+enum lws\+\_\+context\+\_\+options -\/ context and vhost options \begin{Desc}
+\item[Enumerator]\par
+\begin{description}
+\index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+Q\+U\+I\+R\+E\+\_\+\+V\+A\+L\+I\+D\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+E\+RT@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+Q\+U\+I\+R\+E\+\_\+\+V\+A\+L\+I\+D\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+E\+RT}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+Q\+U\+I\+R\+E\+\_\+\+V\+A\+L\+I\+D\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+E\+RT@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+Q\+U\+I\+R\+E\+\_\+\+V\+A\+L\+I\+D\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+E\+RT}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+Q\+U\+I\+R\+E\+\_\+\+V\+A\+L\+I\+D\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+E\+RT\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a274ed462a1a9239eb6ddf9007f5b7092}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a274ed462a1a9239eb6ddf9007f5b7092}
+}](VH) Don\textquotesingle{}t allow the connection unless the client has a client cert that we recognize; provides L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+O\+\_\+\+S\+S\+L\+\_\+\+G\+L\+O\+B\+A\+L\+\_\+\+I\+N\+IT \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+K\+I\+P\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+C\+A\+N\+O\+N\+I\+C\+A\+L\+\_\+\+N\+A\+ME@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+K\+I\+P\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+C\+A\+N\+O\+N\+I\+C\+A\+L\+\_\+\+N\+A\+ME}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+K\+I\+P\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+C\+A\+N\+O\+N\+I\+C\+A\+L\+\_\+\+N\+A\+ME@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+K\+I\+P\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+C\+A\+N\+O\+N\+I\+C\+A\+L\+\_\+\+N\+A\+ME}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+K\+I\+P\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+C\+A\+N\+O\+N\+I\+C\+A\+L\+\_\+\+N\+A\+ME\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a6582c985ee0ceaadc1d277030eae2d7c}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a6582c985ee0ceaadc1d277030eae2d7c}
+}](C\+TX) Don\textquotesingle{}t try to get the server\textquotesingle{}s hostname \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+A\+L\+L\+O\+W\+\_\+\+N\+O\+N\+\_\+\+S\+S\+L\+\_\+\+O\+N\+\_\+\+S\+S\+L\+\_\+\+P\+O\+RT@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+A\+L\+L\+O\+W\+\_\+\+N\+O\+N\+\_\+\+S\+S\+L\+\_\+\+O\+N\+\_\+\+S\+S\+L\+\_\+\+P\+O\+RT}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+A\+L\+L\+O\+W\+\_\+\+N\+O\+N\+\_\+\+S\+S\+L\+\_\+\+O\+N\+\_\+\+S\+S\+L\+\_\+\+P\+O\+RT@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+A\+L\+L\+O\+W\+\_\+\+N\+O\+N\+\_\+\+S\+S\+L\+\_\+\+O\+N\+\_\+\+S\+S\+L\+\_\+\+P\+O\+RT}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+A\+L\+L\+O\+W\+\_\+\+N\+O\+N\+\_\+\+S\+S\+L\+\_\+\+O\+N\+\_\+\+S\+S\+L\+\_\+\+P\+O\+RT\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a1cc4562d05cba52a6dfa0697a65ade0d}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a1cc4562d05cba52a6dfa0697a65ade0d}
+}](VH) Allow non-\/\+S\+SL (plaintext) connections on the same port as S\+SL is listening... undermines the security of S\+SL; provides L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+O\+\_\+\+S\+S\+L\+\_\+\+G\+L\+O\+B\+A\+L\+\_\+\+I\+N\+IT \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+EV@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+EV}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+EV@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+EV}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+EV\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a273d9975675130de0c6dc937dde7c8a6}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a273d9975675130de0c6dc937dde7c8a6}
+}](C\+TX) Use libev event loop \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+I\+P\+V6@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+I\+P\+V6}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+I\+P\+V6@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+I\+P\+V6}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+I\+P\+V6\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a34ab36e68c0d593b6f19b8d5ef1240a9}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a34ab36e68c0d593b6f19b8d5ef1240a9}
+}](VH) Disable I\+P\+V6 support \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+O\+S\+\_\+\+C\+A\+\_\+\+C\+E\+R\+TS@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+O\+S\+\_\+\+C\+A\+\_\+\+C\+E\+R\+TS}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+O\+S\+\_\+\+C\+A\+\_\+\+C\+E\+R\+TS@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+O\+S\+\_\+\+C\+A\+\_\+\+C\+E\+R\+TS}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+I\+S\+A\+B\+L\+E\+\_\+\+O\+S\+\_\+\+C\+A\+\_\+\+C\+E\+R\+TS\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a4933347a821e73c3f1e13fb6bfc7ad93}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a4933347a821e73c3f1e13fb6bfc7ad93}
+}](VH) Don\textquotesingle{}t load OS CA certs, you will need to load your own CA cert(s) \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+P\+E\+E\+R\+\_\+\+C\+E\+R\+T\+\_\+\+N\+O\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+ED@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+P\+E\+E\+R\+\_\+\+C\+E\+R\+T\+\_\+\+N\+O\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+ED}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+P\+E\+E\+R\+\_\+\+C\+E\+R\+T\+\_\+\+N\+O\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+ED@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+P\+E\+E\+R\+\_\+\+C\+E\+R\+T\+\_\+\+N\+O\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+ED}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+P\+E\+E\+R\+\_\+\+C\+E\+R\+T\+\_\+\+N\+O\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+ED\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5ac56a8a6590e74a8016d0fae09fb404fc}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5ac56a8a6590e74a8016d0fae09fb404fc}
+}](VH) Accept connections with no valid Cert (eg, selfsigned) \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+V\+A\+L\+I\+D\+A\+T\+E\+\_\+\+U\+T\+F8@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+V\+A\+L\+I\+D\+A\+T\+E\+\_\+\+U\+T\+F8}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+V\+A\+L\+I\+D\+A\+T\+E\+\_\+\+U\+T\+F8@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+V\+A\+L\+I\+D\+A\+T\+E\+\_\+\+U\+T\+F8}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+V\+A\+L\+I\+D\+A\+T\+E\+\_\+\+U\+T\+F8\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aa0158b4e85420811e6b0f1378c6ded0f}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aa0158b4e85420811e6b0f1378c6ded0f}
+}](VH) Check U\+T-\/8 correctness \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+S\+L\+\_\+\+E\+C\+DH@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+S\+L\+\_\+\+E\+C\+DH}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+S\+L\+\_\+\+E\+C\+DH@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+S\+L\+\_\+\+E\+C\+DH}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+S\+L\+\_\+\+E\+C\+DH\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a1b2f8bde0f62adc7ebe81b2043f34c0c}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a1b2f8bde0f62adc7ebe81b2043f34c0c}
+}](VH) initialize E\+C\+DH ciphers \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+UV@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+UV}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+UV@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+UV}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+L\+I\+B\+UV\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aff121db04a10cf8b2c5df9d4f2b89f1e}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aff121db04a10cf8b2c5df9d4f2b89f1e}
+}](C\+TX) Use libuv event loop \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+D\+I\+R\+E\+C\+T\+\_\+\+H\+T\+T\+P\+\_\+\+T\+O\+\_\+\+H\+T\+T\+PS@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+D\+I\+R\+E\+C\+T\+\_\+\+H\+T\+T\+P\+\_\+\+T\+O\+\_\+\+H\+T\+T\+PS}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+D\+I\+R\+E\+C\+T\+\_\+\+H\+T\+T\+P\+\_\+\+T\+O\+\_\+\+H\+T\+T\+PS@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+D\+I\+R\+E\+C\+T\+\_\+\+H\+T\+T\+P\+\_\+\+T\+O\+\_\+\+H\+T\+T\+PS}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+R\+E\+D\+I\+R\+E\+C\+T\+\_\+\+H\+T\+T\+P\+\_\+\+T\+O\+\_\+\+H\+T\+T\+PS\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a4832187186c4d130c68051214cd42ada}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a4832187186c4d130c68051214cd42ada}
+}](VH) Use http redirect to force http to https (deprecated\+: use mount redirection) \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+O\+\_\+\+S\+S\+L\+\_\+\+G\+L\+O\+B\+A\+L\+\_\+\+I\+N\+IT@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+O\+\_\+\+S\+S\+L\+\_\+\+G\+L\+O\+B\+A\+L\+\_\+\+I\+N\+IT}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+O\+\_\+\+S\+S\+L\+\_\+\+G\+L\+O\+B\+A\+L\+\_\+\+I\+N\+IT@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+O\+\_\+\+S\+S\+L\+\_\+\+G\+L\+O\+B\+A\+L\+\_\+\+I\+N\+IT}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+D\+O\+\_\+\+S\+S\+L\+\_\+\+G\+L\+O\+B\+A\+L\+\_\+\+I\+N\+IT\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a7fed6a527c8d5e0acac1b4179644583a}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a7fed6a527c8d5e0acac1b4179644583a}
+}](C\+TX) Initialize the S\+SL library at all \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+P\+L\+I\+C\+I\+T\+\_\+\+V\+H\+O\+S\+TS@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+P\+L\+I\+C\+I\+T\+\_\+\+V\+H\+O\+S\+TS}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+P\+L\+I\+C\+I\+T\+\_\+\+V\+H\+O\+S\+TS@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+P\+L\+I\+C\+I\+T\+\_\+\+V\+H\+O\+S\+TS}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+P\+L\+I\+C\+I\+T\+\_\+\+V\+H\+O\+S\+TS\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5accc9d0d11d1124a21659586164b0962e}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5accc9d0d11d1124a21659586164b0962e}
+}](C\+TX) Only create the context when calling context create api, implies user code will create its own vhosts \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+U\+N\+I\+X\+\_\+\+S\+O\+CK@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+U\+N\+I\+X\+\_\+\+S\+O\+CK}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+U\+N\+I\+X\+\_\+\+S\+O\+CK@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+U\+N\+I\+X\+\_\+\+S\+O\+CK}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+U\+N\+I\+X\+\_\+\+S\+O\+CK\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a9637e9001d8c8b2521086bcafbd8a941}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a9637e9001d8c8b2521086bcafbd8a941}
+}](VH) Use Unix socket \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+TS@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+TS}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+TS@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+TS}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+S\+TS\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5ac962efd35abf6c402f9fb14aa14f5016}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5ac962efd35abf6c402f9fb14aa14f5016}
+}](VH) Send Strict Transport Security header, making clients subsequently go to https even if user asked for http \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+M\+O\+D\+I\+FY@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+M\+O\+D\+I\+FY}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+M\+O\+D\+I\+FY@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+M\+O\+D\+I\+FY}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+M\+O\+D\+I\+FY\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5af62887536e25e053e68741006dba46d8}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5af62887536e25e053e68741006dba46d8}
+}](VH) Enable L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+V\+A\+L\+UE to take effect \index{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+V\+A\+L\+UE@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+V\+A\+L\+UE}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+V\+A\+L\+UE@{L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+V\+A\+L\+UE}}\item[{\em 
+L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+I\+P\+V6\+\_\+\+V6\+O\+N\+L\+Y\+\_\+\+V\+A\+L\+UE\hypertarget{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aca5d42820b65eac5618ec3f0bd8a1160}{}\label{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aca5d42820b65eac5618ec3f0bd8a1160}
+}](VH) if set, only ipv6 allowed on the vhost \end{description}
+\end{Desc}
+
+\begin{DoxyCode}
+1347                          \{
+1348         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a274ed462a1a9239eb6ddf9007f5b7092}{LWS\_SERVER\_OPTION\_REQUIRE\_VALID\_OPENSSL\_CLIENT\_CERT}  
+      = (1 << 1) |
+1349                                                                   (1 << 12),
+1353         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a6582c985ee0ceaadc1d277030eae2d7c}{LWS\_SERVER\_OPTION\_SKIP\_SERVER\_CANONICAL\_NAME}                
+      = (1 << 2),
+1355         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a1cc4562d05cba52a6dfa0697a65ade0d}{LWS\_SERVER\_OPTION\_ALLOW\_NON\_SSL\_ON\_SSL\_PORT}          = (
+      1 << 3) |
+1356                                                                   (1 << 12),
+1360         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a273d9975675130de0c6dc937dde7c8a6}{LWS\_SERVER\_OPTION\_LIBEV}                                  = (1 << 4),
+1362         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a34ab36e68c0d593b6f19b8d5ef1240a9}{LWS\_SERVER\_OPTION\_DISABLE\_IPV6}                            = (1 << 5),
+1364         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a4933347a821e73c3f1e13fb6bfc7ad93}{LWS\_SERVER\_OPTION\_DISABLE\_OS\_CA\_CERTS}                      = (
+      1 << 6),
+1367         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5ac56a8a6590e74a8016d0fae09fb404fc}{LWS\_SERVER\_OPTION\_PEER\_CERT\_NOT\_REQUIRED}                = (
+      1 << 7),
+1369         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aa0158b4e85420811e6b0f1378c6ded0f}{LWS\_SERVER\_OPTION\_VALIDATE\_UTF8}                          = (1 << 8),
+1371         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a1b2f8bde0f62adc7ebe81b2043f34c0c}{LWS\_SERVER\_OPTION\_SSL\_ECDH}                            = (1 << 9) |
+1372                                                                   (1 << 12),
+1374         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aff121db04a10cf8b2c5df9d4f2b89f1e}{LWS\_SERVER\_OPTION\_LIBUV}                                  = (1 << 10),
+1376         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a4832187186c4d130c68051214cd42ada}{LWS\_SERVER\_OPTION\_REDIRECT\_HTTP\_TO\_HTTPS}                = (
+      1 << 11) |
+1377                                                                   (1 << 3) |
+1378                                                                   (1 << 12),
+1381         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a7fed6a527c8d5e0acac1b4179644583a}{LWS\_SERVER\_OPTION\_DO\_SSL\_GLOBAL\_INIT}                        = (
+      1 << 12),
+1383         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5accc9d0d11d1124a21659586164b0962e}{LWS\_SERVER\_OPTION\_EXPLICIT\_VHOSTS}                      = (1 << 13)
+      ,
+1386         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5a9637e9001d8c8b2521086bcafbd8a941}{LWS\_SERVER\_OPTION\_UNIX\_SOCK}                          = (1 << 14),
+1388         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5ac962efd35abf6c402f9fb14aa14f5016}{LWS\_SERVER\_OPTION\_STS}                                      = (1 << 15),
+1391         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5af62887536e25e053e68741006dba46d8}{LWS\_SERVER\_OPTION\_IPV6\_V6ONLY\_MODIFY}                        = (
+      1 << 16),
+1393         \hyperlink{group__context-and-vhost_gga41c2d763f78cc248df3b9f8645dbd2a5aca5d42820b65eac5618ec3f0bd8a1160}{LWS\_SERVER\_OPTION\_IPV6\_V6ONLY\_VALUE}                  = (1 << 17)
+      ,
+1396         \textcolor{comment}{/****** add new things just above ---^ ******/}
+1397 \};
+\end{DoxyCode}
+
+
+\subsection{Function Documentation}
+\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lws\+\_\+context\+\_\+destroy@{lws\+\_\+context\+\_\+destroy}}
+\index{lws\+\_\+context\+\_\+destroy@{lws\+\_\+context\+\_\+destroy}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lws\+\_\+context\+\_\+destroy(struct lws\+\_\+context $\ast$context)}{lws\_context\_destroy(struct lws\_context *context)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void lws\+\_\+context\+\_\+destroy (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_ga8ee0314028755f1ddfa9428e09b4fddb}{}\label{group__context-and-vhost_ga8ee0314028755f1ddfa9428e09b4fddb}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_ga8ee0314028755f1ddfa9428e09b4fddb}{lws\+\_\+context\+\_\+destroy()} -\/ Destroy the websocket context 
+\begin{DoxyParams}{Parameters}
+{\em context} & Websocket context \begin{DoxyVerb} This function closes any active connections and then frees the
+ context.  After calling this, any further use of the context is
+ undefined.\end{DoxyVerb}
+ \\
+\hline
+\end{DoxyParams}
+\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lws\+\_\+context\+\_\+user@{lws\+\_\+context\+\_\+user}}
+\index{lws\+\_\+context\+\_\+user@{lws\+\_\+context\+\_\+user}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lws\+\_\+context\+\_\+user(struct lws\+\_\+context $\ast$context)}{lws\_context\_user(struct lws\_context *context)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN void$\ast$ lws\+\_\+context\+\_\+user (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_gaeb12f934bfd178bd2132a9e73fc641da}{}\label{group__context-and-vhost_gaeb12f934bfd178bd2132a9e73fc641da}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_gaeb12f934bfd178bd2132a9e73fc641da}{lws\+\_\+context\+\_\+user()} -\/ get the user data associated with the context 
+\begin{DoxyParams}{Parameters}
+{\em context} & Websocket context\\
+\hline
+\end{DoxyParams}
+This returns the optional user allocation that can be attached to the context the sockets live in at context\+\_\+create time. It\textquotesingle{}s a way to let all sockets serviced in the same context share data without using globals statics in the user code. \index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lws\+\_\+create\+\_\+context@{lws\+\_\+create\+\_\+context}}
+\index{lws\+\_\+create\+\_\+context@{lws\+\_\+create\+\_\+context}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lws\+\_\+create\+\_\+context(struct lws\+\_\+context\+\_\+creation\+\_\+info $\ast$info)}{lws\_create\_context(struct lws\_context\_creation\_info *info)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+context$\ast$ lws\+\_\+create\+\_\+context (
+\begin{DoxyParamCaption}
+\item[{struct {\bf lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$}]{info}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_gaf2fff58562caab7510c41eeac85a8648}{}\label{group__context-and-vhost_gaf2fff58562caab7510c41eeac85a8648}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_gaf2fff58562caab7510c41eeac85a8648}{lws\+\_\+create\+\_\+context()} -\/ Create the websocket handler 
+\begin{DoxyParams}{Parameters}
+{\em info} & pointer to struct with parameters \begin{DoxyVerb} This function creates the listening socket (if serving) and takes care
+ of all initialization in one step.
+
+ If option LWS_SERVER_OPTION_EXPLICIT_VHOSTS is given, no vhost is
+ created; you're expected to create your own vhosts afterwards using
+ lws_create_vhost().  Otherwise a vhost named "default" is also created
+ using the information in the vhost-related members, for compatibility.
+
+ After initialization, it returns a struct lws_context * that
+ represents this server.  After calling, user code needs to take care
+ of calling lws_service() with the context pointer to get the
+ server's sockets serviced.  This must be done in the same process
+ context as the initialization call.
+
+ The protocol callback functions are called for a handful of events
+ including http requests coming in, websocket connections becoming
+ established, and data arriving; it's also called periodically to allow
+ async transmission.
+
+ HTTP requests are sent always to the FIRST protocol in protocol, since
+ at that time websocket protocol has not been negotiated.  Other
+ protocols after the first one never see any HTTP callack activity.
+
+ The server created is a simple http server by default; part of the
+ websocket standard is upgrading this http connection to a websocket one.
+
+ This allows the same server to provide files like scripts and favicon /
+ images or whatever over http and dynamic data over websockets all in
+ one place; they're all handled in the user callback.\end{DoxyVerb}
+ \\
+\hline
+\end{DoxyParams}
+\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lws\+\_\+create\+\_\+vhost@{lws\+\_\+create\+\_\+vhost}}
+\index{lws\+\_\+create\+\_\+vhost@{lws\+\_\+create\+\_\+vhost}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lws\+\_\+create\+\_\+vhost(struct lws\+\_\+context $\ast$context, struct lws\+\_\+context\+\_\+creation\+\_\+info $\ast$info)}{lws\_create\_vhost(struct lws\_context *context, struct lws\_context\_creation\_info *info)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+E\+X\+T\+E\+RN L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE struct lws\+\_\+vhost$\ast$ lws\+\_\+create\+\_\+vhost (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context, }
+\item[{struct {\bf lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$}]{info}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_ga0c54c667ccd9b8b3dddcd123ca72f87c}{}\label{group__context-and-vhost_ga0c54c667ccd9b8b3dddcd123ca72f87c}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_ga0c54c667ccd9b8b3dddcd123ca72f87c}{lws\+\_\+create\+\_\+vhost()} -\/ Create a vhost (virtual server context) 
+\begin{DoxyParams}{Parameters}
+{\em context} & pointer to result of \hyperlink{group__context-and-vhost_gaf2fff58562caab7510c41eeac85a8648}{lws\+\_\+create\+\_\+context()} \\
+\hline
+{\em info} & pointer to struct with parameters\\
+\hline
+\end{DoxyParams}
+This function creates a virtual server (vhost) using the vhost-\/related members of the info struct. You can create many vhosts inside one context if you created the context with the option L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+P\+L\+I\+C\+I\+T\+\_\+\+V\+H\+O\+S\+TS \index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lws\+\_\+get\+\_\+vhost@{lws\+\_\+get\+\_\+vhost}}
+\index{lws\+\_\+get\+\_\+vhost@{lws\+\_\+get\+\_\+vhost}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lws\+\_\+get\+\_\+vhost(struct lws $\ast$wsi)}{lws\_get\_vhost(struct lws *wsi)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+vhost$\ast$ lws\+\_\+get\+\_\+vhost (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_ga06e77ce2916f8bc9826ef8d9d68e3932}{}\label{group__context-and-vhost_ga06e77ce2916f8bc9826ef8d9d68e3932}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_ga06e77ce2916f8bc9826ef8d9d68e3932}{lws\+\_\+get\+\_\+vhost()} -\/ return the vhost a wsi belongs to
+
+
+\begin{DoxyParams}{Parameters}
+{\em wsi} & which connection \\
+\hline
+\end{DoxyParams}
+\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lws\+\_\+json\+\_\+dump\+\_\+context@{lws\+\_\+json\+\_\+dump\+\_\+context}}
+\index{lws\+\_\+json\+\_\+dump\+\_\+context@{lws\+\_\+json\+\_\+dump\+\_\+context}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lws\+\_\+json\+\_\+dump\+\_\+context(const struct lws\+\_\+context $\ast$context, char $\ast$buf, int len)}{lws\_json\_dump\_context(const struct lws\_context *context, char *buf, int len)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+json\+\_\+dump\+\_\+context (
+\begin{DoxyParamCaption}
+\item[{const struct lws\+\_\+context $\ast$}]{context, }
+\item[{char $\ast$}]{buf, }
+\item[{int}]{len}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_gae2134657cdd2ea7a59e13ad314e4c50d}{}\label{group__context-and-vhost_gae2134657cdd2ea7a59e13ad314e4c50d}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_gae2134657cdd2ea7a59e13ad314e4c50d}{lws\+\_\+json\+\_\+dump\+\_\+context()} -\/ describe context state and stats in J\+S\+ON
+
+
+\begin{DoxyParams}{Parameters}
+{\em context} & the context \\
+\hline
+{\em buf} & buffer to fill with J\+S\+ON \\
+\hline
+{\em len} & max length of buf \\
+\hline
+\end{DoxyParams}
+\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lws\+\_\+json\+\_\+dump\+\_\+vhost@{lws\+\_\+json\+\_\+dump\+\_\+vhost}}
+\index{lws\+\_\+json\+\_\+dump\+\_\+vhost@{lws\+\_\+json\+\_\+dump\+\_\+vhost}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lws\+\_\+json\+\_\+dump\+\_\+vhost(const struct lws\+\_\+vhost $\ast$vh, char $\ast$buf, int len)}{lws\_json\_dump\_vhost(const struct lws\_vhost *vh, char *buf, int len)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+json\+\_\+dump\+\_\+vhost (
+\begin{DoxyParamCaption}
+\item[{const struct lws\+\_\+vhost $\ast$}]{vh, }
+\item[{char $\ast$}]{buf, }
+\item[{int}]{len}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_ga94e6cc2223c4eec316b13bcebc3628b6}{}\label{group__context-and-vhost_ga94e6cc2223c4eec316b13bcebc3628b6}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_ga94e6cc2223c4eec316b13bcebc3628b6}{lws\+\_\+json\+\_\+dump\+\_\+vhost()} -\/ describe vhost state and stats in J\+S\+ON
+
+
+\begin{DoxyParams}{Parameters}
+{\em vh} & the vhost \\
+\hline
+{\em buf} & buffer to fill with J\+S\+ON \\
+\hline
+{\em len} & max length of buf \\
+\hline
+\end{DoxyParams}
+\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lws\+\_\+set\+\_\+proxy@{lws\+\_\+set\+\_\+proxy}}
+\index{lws\+\_\+set\+\_\+proxy@{lws\+\_\+set\+\_\+proxy}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lws\+\_\+set\+\_\+proxy(struct lws\+\_\+vhost $\ast$vhost, const char $\ast$proxy)}{lws\_set\_proxy(struct lws\_vhost *vhost, const char *proxy)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+set\+\_\+proxy (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+vhost $\ast$}]{vhost, }
+\item[{const char $\ast$}]{proxy}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_ga7e9d5405547a457d86e0b4f0ae2bb1c4}{}\label{group__context-and-vhost_ga7e9d5405547a457d86e0b4f0ae2bb1c4}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_ga7e9d5405547a457d86e0b4f0ae2bb1c4}{lws\+\_\+set\+\_\+proxy()} -\/ Setups proxy to lws\+\_\+context. 
+\begin{DoxyParams}{Parameters}
+{\em vhost} & pointer to struct lws\+\_\+vhost you want set proxy for \\
+\hline
+{\em proxy} & pointer to c string containing proxy in format address\+:port\\
+\hline
+\end{DoxyParams}
+Returns 0 if proxy string was parsed and proxy was setup. Returns -\/1 if proxy is N\+U\+LL or has incorrect format.
+
+This is only required if your OS does not provide the http\+\_\+proxy environment variable (eg, O\+SX)
+
+I\+M\+P\+O\+R\+T\+A\+N\+T! You should call this function right after creation of the lws\+\_\+context and before call to connect. If you call this function after connect behavior is undefined. This function will override proxy settings made on lws\+\_\+context creation with genenv() call. \index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lws\+\_\+vhost\+\_\+get@{lws\+\_\+vhost\+\_\+get}}
+\index{lws\+\_\+vhost\+\_\+get@{lws\+\_\+vhost\+\_\+get}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lws\+\_\+vhost\+\_\+get(struct lws $\ast$wsi) L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+D\+E\+P\+R\+E\+C\+A\+T\+ED}{lws\_vhost\_get(struct lws *wsi) LWS\_WARN\_DEPRECATED}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws\+\_\+vhost$\ast$ lws\+\_\+vhost\+\_\+get (
+\begin{DoxyParamCaption}
+\item[{struct lws $\ast$}]{wsi}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_ga8db03e19a372e34ac25cf21af894a02c}{}\label{group__context-and-vhost_ga8db03e19a372e34ac25cf21af894a02c}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_ga8db03e19a372e34ac25cf21af894a02c}{lws\+\_\+vhost\+\_\+get()} -\/\begin{DoxyRefDesc}{Deprecated}
+\item[\hyperlink{deprecated__deprecated000001}{Deprecated}]deprecated\+: use \hyperlink{group__context-and-vhost_ga06e77ce2916f8bc9826ef8d9d68e3932}{lws\+\_\+get\+\_\+vhost()} \end{DoxyRefDesc}
+\index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lwsws\+\_\+get\+\_\+config\+\_\+globals@{lwsws\+\_\+get\+\_\+config\+\_\+globals}}
+\index{lwsws\+\_\+get\+\_\+config\+\_\+globals@{lwsws\+\_\+get\+\_\+config\+\_\+globals}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lwsws\+\_\+get\+\_\+config\+\_\+globals(struct lws\+\_\+context\+\_\+creation\+\_\+info $\ast$info, const char $\ast$d, char $\ast$$\ast$config\+\_\+strings, int $\ast$len)}{lwsws\_get\_config\_globals(struct lws\_context\_creation\_info *info, const char *d, char **config\_strings, int *len)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lwsws\+\_\+get\+\_\+config\+\_\+globals (
+\begin{DoxyParamCaption}
+\item[{struct {\bf lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$}]{info, }
+\item[{const char $\ast$}]{d, }
+\item[{char $\ast$$\ast$}]{config\+\_\+strings, }
+\item[{int $\ast$}]{len}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_ga98d88c9080fd89c37114363a6474ea73}{}\label{group__context-and-vhost_ga98d88c9080fd89c37114363a6474ea73}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_ga98d88c9080fd89c37114363a6474ea73}{lwsws\+\_\+get\+\_\+config\+\_\+globals()} -\/ Parse a J\+S\+ON server config file 
+\begin{DoxyParams}{Parameters}
+{\em info} & pointer to struct with parameters \\
+\hline
+{\em d} & filepath of the config file \\
+\hline
+{\em config\+\_\+strings} & storage for the config strings extracted from J\+S\+ON, the pointer is incremented as strings are stored \\
+\hline
+{\em len} & pointer to the remaining length left in config\+\_\+strings the value is decremented as strings are stored\\
+\hline
+\end{DoxyParams}
+This function prepares a n \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info} struct with global settings from a file d.
+
+Requires C\+Make option L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+L\+E\+J\+P\+\_\+\+C\+O\+NF to have been enabled \index{Context-\/and-\/vhost@{Context-\/and-\/vhost}!lwsws\+\_\+get\+\_\+config\+\_\+vhosts@{lwsws\+\_\+get\+\_\+config\+\_\+vhosts}}
+\index{lwsws\+\_\+get\+\_\+config\+\_\+vhosts@{lwsws\+\_\+get\+\_\+config\+\_\+vhosts}!Context-\/and-\/vhost@{Context-\/and-\/vhost}}
+\subsubsection[{\texorpdfstring{lwsws\+\_\+get\+\_\+config\+\_\+vhosts(struct lws\+\_\+context $\ast$context, struct lws\+\_\+context\+\_\+creation\+\_\+info $\ast$info, const char $\ast$d, char $\ast$$\ast$config\+\_\+strings, int $\ast$len)}{lwsws\_get\_config\_vhosts(struct lws\_context *context, struct lws\_context\_creation\_info *info, const char *d, char **config\_strings, int *len)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lwsws\+\_\+get\+\_\+config\+\_\+vhosts (
+\begin{DoxyParamCaption}
+\item[{struct lws\+\_\+context $\ast$}]{context, }
+\item[{struct {\bf lws\+\_\+context\+\_\+creation\+\_\+info} $\ast$}]{info, }
+\item[{const char $\ast$}]{d, }
+\item[{char $\ast$$\ast$}]{config\+\_\+strings, }
+\item[{int $\ast$}]{len}
+\end{DoxyParamCaption}
+)}\hypertarget{group__context-and-vhost_ga341064721add2618ae1b29717493a212}{}\label{group__context-and-vhost_ga341064721add2618ae1b29717493a212}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__context-and-vhost_ga341064721add2618ae1b29717493a212}{lwsws\+\_\+get\+\_\+config\+\_\+vhosts()} -\/ Create vhosts from a J\+S\+ON server config file 
+\begin{DoxyParams}{Parameters}
+{\em context} & pointer to result of \hyperlink{group__context-and-vhost_gaf2fff58562caab7510c41eeac85a8648}{lws\+\_\+create\+\_\+context()} \\
+\hline
+{\em info} & pointer to struct with parameters \\
+\hline
+{\em d} & filepath of the config file \\
+\hline
+{\em config\+\_\+strings} & storage for the config strings extracted from J\+S\+ON, the pointer is incremented as strings are stored \\
+\hline
+{\em len} & pointer to the remaining length left in config\+\_\+strings the value is decremented as strings are stored\\
+\hline
+\end{DoxyParams}
+This function creates vhosts into a context according to the settings in J\+S\+ON files found in directory d.
+
+Requires C\+Make option L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+L\+E\+J\+P\+\_\+\+C\+O\+NF to have been enabled 

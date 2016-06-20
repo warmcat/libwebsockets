@@ -1,0 +1,390 @@
+\subsection*{Libwebsockets Web Server }
+
+lwsws is an implementation of a very lightweight, ws-\/capable generic web server, which uses libwebsockets to implement everything underneath.
+
+\subsection*{Build }
+
+Just enable -\/\+D\+L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+L\+W\+S\+WS=1 at cmake-\/time.
+
+It enables libuv and plugin support automatically.
+
+\subsection*{Configuration }
+
+lwsws uses J\+S\+ON config files, they\textquotesingle{}re pure J\+S\+ON but \# may be used to turn the rest of the line into a comment.
+
+There is a single file intended for global settings
+
+/etc/lwsws/conf 
+\begin{DoxyCode}
+1 # these are the server global settings
+2 # stuff related to vhosts should go in one
+3 # file per vhost in ../conf.d/
+4 
+5 \{
+6   "global": \{
+7    "uid": "48",  # apache user
+8    "gid": "48",  # apache user
+9    "count-threads": "1",
+10    "server-string": "myserver v1", # returned in http headers
+11    "init-ssl": "yes"
+12  \}
+13 \}
+\end{DoxyCode}
+ and a config directory intended to take one file per vhost
+
+/etc/lwsws/conf.d/warmcat.\+com 
+\begin{DoxyCode}
+1 \{
+2         "vhosts": [\{
+3                 "name": "warmcat.com",
+4                 "port": "443",
+5                 "interface": "eth0",  # optional
+6                 "host-ssl-key": "/etc/pki/tls/private/warmcat.com.key",  # if given enable ssl
+7                 "host-ssl-cert": "/etc/pki/tls/certs/warmcat.com.crt",
+8                 "host-ssl-ca": "/etc/pki/tls/certs/warmcat.com.cer",
+9                 "mounts": [\{  # autoserve
+10                         "mountpoint": "/",
+11                         "origin": "file:///var/www/warmcat.com",
+12                         "default": "index.html"
+13                 \}]
+14         \}]
+15 \}
+\end{DoxyCode}
+ To get started quickly, an example config reproducing the old test server on port 7681, non-\/\+S\+SL is provided. To set it up 
+\begin{DoxyCode}
+1 # mkdir -p /etc/lwsws/conf.d /var/log/lwsws
+2 # cp ./lwsws/etc-lwsws-conf-EXAMPLE /etc/lwsws/conf
+3 # cp ./lwsws/etc-lwsws-conf.d-localhost-EXAMPLE /etc/lwsws/conf.d/test-server
+4 # sudo lwsws
+\end{DoxyCode}
+ \subsection*{Vhosts }
+
+One server can run many vhosts, where S\+SL is in use S\+NI is used to match the connection to a vhost and its vhost-\/specific S\+SL keys during S\+SL negotiation.
+
+Listing multiple vhosts looks something like this 
+\begin{DoxyCode}
+1 \{
+2  "vhosts": [ \{
+3      "name": "localhost",
+4      "port": "443",
+5      "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
+6      "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
+7      "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
+8      "mounts": [\{
+9        "mountpoint": "/",
+10        "origin": "file:///var/www/libwebsockets.org",
+11        "default": "index.html"
+12        \}, \{
+13         "mountpoint": "/testserver",
+14         "origin": "file:///usr/local/share/libwebsockets-test-server",
+15         "default": "test.html"
+16        \}],
+17      # which protocols are enabled for this vhost, and optional
+18      # vhost-specific config options for the protocol
+19      #
+20      "ws-protocols": [\{
+21        "warmcat,timezoom": \{
+22          "status": "ok"
+23        \}
+24      \}]
+25     \},
+26     \{
+27     "name": "localhost",
+28     "port": "7681",
+29      "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
+30      "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
+31      "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
+32      "mounts": [\{
+33        "mountpoint": "/",
+34        "origin": ">https://localhost"
+35      \}]
+36    \},
+37     \{
+38     "name": "localhost",
+39     "port": "80",
+40      "mounts": [\{
+41        "mountpoint": "/",
+42        "origin": ">https://localhost"
+43      \}]
+44    \}
+45 
+46   ]
+47 \}
+\end{DoxyCode}
+
+
+That sets up three vhosts all called \char`\"{}localhost\char`\"{} on ports 443 and 7681 with S\+SL, and port 80 without S\+SL but with a forced redirect to \href{https://localhost}{\tt https\+://localhost}
+
+\subsection*{Vhost name and port }
+
+The vhost name field is used to match on incoming S\+NI or Host\+: header, so it must always be the host name used to reach the vhost externally.
+
+
+\begin{DoxyItemize}
+\item Vhosts may have the same name and different ports, these will each create a listening socket on the appropriate port.
+\item Vhosts may also have the same port and different name\+: these will be treated as true vhosts on one listening socket and the active vhost decided at S\+SL negotiation time (via S\+NI) or if no S\+SL, then after the Host\+: header from the client has been parsed.
+\end{DoxyItemize}
+
+\subsection*{Protocols }
+
+Vhosts by default have available the union of any initial protocols from context creation time, and any protocols exposed by plugins.
+
+Vhosts can select which plugins they want to offer and give them per-\/vhost settings using this syntax 
+\begin{DoxyCode}
+1 "ws-protocols": [\{
+2   "warmcat-timezoom": \{
+3     "status": "ok"
+4   \}
+5 \}]
+\end{DoxyCode}
+
+
+The \char`\"{}x\char`\"{}\+:\char`\"{}y\char`\"{} parameters like \char`\"{}status\char`\"{}\+:\char`\"{}ok\char`\"{} are made available to the protocol during its per-\/vhost L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+I\+N\+IT ( is a pointer to a linked list of struct \hyperlink{structlws__protocol__vhost__options}{lws\+\_\+protocol\+\_\+vhost\+\_\+options} containing the name and value pointers).
+
+To indicate that a protocol should be used when no Protocol\+: header is sent by the client, you can use \char`\"{}default\char`\"{}\+: \char`\"{}1\char`\"{} 
+\begin{DoxyCode}
+1 "ws-protocols": [\{
+2   "warmcat-timezoom": \{
+3     "status": "ok",
+4     "default": "1"
+5   \}
+6 \}]
+\end{DoxyCode}
+
+
+\subsection*{Other vhost options }
+
+
+\begin{DoxyItemize}
+\item If the three options {\ttfamily host-\/ssl-\/cert}, {\ttfamily host-\/ssl-\/ca} and {\ttfamily host-\/ssl-\/key} are given, then the vhost supports S\+SL.
+\end{DoxyItemize}
+
+Each vhost may have its own certs, S\+NI is used during the initial connection negotiation to figure out which certs to use by the server name it\textquotesingle{}s asking for from the request D\+NS name.
+
+
+\begin{DoxyItemize}
+\item {\ttfamily keeplive-\/timeout} (in secs) defaults to 60 for lwsws, it may be set as a vhost option
+\item {\ttfamily interface} lets you specify which network interface to listen on, if not given listens on all
+\item \char`\"{}`unix-\/socket`\char`\"{}\+: \char`\"{}1\char`\"{} causes the unix socket specified in the interface option to be used instead of an I\+N\+ET socket
+\item \char`\"{}`sts`\char`\"{}\+: \char`\"{}1\char`\"{} causes lwsws to send a Strict Transport Security header with responses that informs the client he should never accept to connect to this address using http. This is needed to get the A+ security rating from S\+SL Labs for your server.
+\item \char`\"{}`access-\/log`\char`\"{}\+: \char`\"{}filepath\char`\"{} sets where apache-\/compatible access logs will be written
+\item {\ttfamily \char`\"{}enable-\/client-\/ssl\char`\"{}}\+: {\ttfamily \char`\"{}1\char`\"{}} enables the vhost\textquotesingle{}s client S\+SL context, you will need this if you plan to create client conections on the vhost that will use S\+SL. You don\textquotesingle{}t need it if you only want http / ws client connections.
+\item \char`\"{}`ciphers`\char`\"{}\+: \char`\"{}$<$cipher list$>$\char`\"{} sets the allowed list of ciphers and key exchange protocols for the vhost. The default list is restricted to only those providing P\+FS (Perfect Forward Secrecy) on the author\textquotesingle{}s Fedora system.
+\end{DoxyItemize}
+
+If you need to allow weaker ciphers,you can provide an alternative list here per-\/vhost.
+
+
+\begin{DoxyItemize}
+\item \char`\"{}`ecdh-\/curve`\char`\"{}\+: \char`\"{}$<$curve name$>$\char`\"{} The default ecdh curve is \char`\"{}prime256v1\char`\"{}, but you can override it here, per-\/vhost
+\item \char`\"{}`noipv6`\char`\"{}\+: \char`\"{}on\char`\"{} Disable ipv6 completely for this vhost
+\item \char`\"{}`ipv6only`\char`\"{}\+: \char`\"{}on\char`\"{} Only allow ipv6 on this vhost / \char`\"{}off\char`\"{} only allow ipv4 on this vhost
+\item \char`\"{}`ssl-\/option-\/set`\char`\"{}\+: \char`\"{}$<$decimal$>$\char`\"{} Sets the S\+SL option flag value for the vhost. It may be used multiple times and OR\textquotesingle{}s the flags together.
+\end{DoxyItemize}
+
+The values are derived from /usr/include/openssl/ssl.h 
+\begin{DoxyCode}
+1 # define SSL\_OP\_NO\_TLSv1\_1                               0x10000000L
+\end{DoxyCode}
+
+
+would equate to
+
+
+\begin{DoxyCode}
+1 "`ssl-option-set`": "268435456"
+\end{DoxyCode}
+
+\begin{DoxyItemize}
+\item \char`\"{}`ssl-\/option-\/clear\textquotesingle{}\char`\"{}\+: \char`\"{}$<$decimal$>$\char`\"{} Clears the S\+SL option flag value for the vhost. It may be used multiple times and OR\textquotesingle{}s the flags together.
+\end{DoxyItemize}
+
+\subsection*{Mounts }
+
+Where mounts are given in the vhost definition, then directory contents may be auto-\/served if it matches the mountpoint.
+
+Mount protocols are used to control what kind of translation happens
+
+
+\begin{DoxyItemize}
+\item \href{file://}{\tt file\+://} serve the uri using the remainder of the url past the mountpoint based on the origin directory.
+\end{DoxyItemize}
+
+Eg, with this mountpoint 
+\begin{DoxyCode}
+1 \{
+2  "mountpoint": "/",
+3  "origin": "file:///var/www/mysite.com",
+4  "default": "/"
+5 \}
+\end{DoxyCode}
+ The uri /file.jpg would serve /var/www/mysite.com/file.\+jpg, since / matched.
+
+
+\begin{DoxyItemize}
+\item $^\wedge$http\+:// or $^\wedge$https\+:// these cause any url matching the mountpoint to issue a redirect to the origin url
+\item cgi\+:// this causes any matching url to be given to the named cgi, eg 
+\begin{DoxyCode}
+1 \{
+2  "mountpoint": "/git",
+3  "origin": "cgi:///var/www/cgi-bin/cgit",
+4  "default": "/"
+5 \}, \{
+6  "mountpoint": "/cgit-data",
+7  "origin": "file:///usr/share/cgit",
+8  "default": "/"
+9 \},
+\end{DoxyCode}
+ would cause the url /git/myrepo to pass \char`\"{}myrepo\char`\"{} to the cgi /var/www/cgi-\/bin/cgit and send the results to the client.
+\end{DoxyItemize}
+
+\subsection*{Other mount options }
+
+1) When using a cgi\+:// protcol origin at a mountpoint, you may also give cgi environment variables specific to the mountpoint like this 
+\begin{DoxyCode}
+1 \{
+2  "mountpoint": "/git",
+3  "origin": "cgi:///var/www/cgi-bin/cgit",
+4  "default": "/",
+5  "cgi-env": [\{
+6          "CGIT\_CONFIG": "/etc/cgitrc/libwebsockets.org"
+7  \}]
+8 \}
+\end{DoxyCode}
+ This allows you to customize one cgi depending on the mountpoint (and / or vhost).
+
+2) It\textquotesingle{}s also possible to set the cgi timeout (in secs) per cgi\+:// mount, like this 
+\begin{DoxyCode}
+1 "cgi-timeout": "30"
+\end{DoxyCode}
+ 3) {\ttfamily callback\+://} protocol may be used when defining a mount to associate a named protocol callback with the U\+RL namespace area. For example 
+\begin{DoxyCode}
+1 \{
+2  "mountpoint": "/formtest",
+3  "origin": "callback://protocol-post-demo"
+4 \}
+\end{DoxyCode}
+ All handling of client access to /formtest\mbox{[}anything\mbox{]} will be passed to the callback registered to the protocol \char`\"{}protocol-\/post-\/demo\char`\"{}.
+
+This is useful for handling P\+O\+ST http body content or general non-\/cgi http payload generation inside a plugin.
+
+See the related notes in R\+E\+A\+D\+M\+E.\+coding.\+md
+
+4) Cache policy of the files in the mount can also be set. If no options are given, the content is marked uncacheable. 
+\begin{DoxyCode}
+1 \{
+2  "mountpoint": "/",
+3  "origin": "file:///var/www/mysite.com",
+4  "cache-max-age": "60",      # seconds
+5  "cache-reuse": "1",         # allow reuse at client at all
+6  "cache-revalidate": "1",    # check it with server each time
+7  "cache-intermediaries": "1" # allow intermediary caches to hold
+8 \}
+\end{DoxyCode}
+
+
+4) You can also define a list of additional mimetypes per-\/mount 
+\begin{DoxyCode}
+1 "extra-mimetypes": \{
+2          ".zip": "application/zip",
+3          ".doc": "text/evil"
+4  \}
+\end{DoxyCode}
+
+
+\subsection*{Plugins }
+
+Protcols and extensions may also be provided from \char`\"{}plugins\char`\"{}, these are lightweight dynamic libraries. They are scanned for at init time, and any protocols and extensions found are added to the list given at context creation time.
+
+Protocols receive init (L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+I\+N\+IT) and destruction (L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+D\+E\+S\+T\+R\+OY) callbacks per-\/vhost, and there are arrangements they can make per-\/vhost allocations and get hold of the correct pointer from the wsi at the callback.
+
+This allows a protocol to choose to strictly segregate data on a per-\/vhost basis, and also allows the plugin to handle its own initialization and context storage.
+
+To help that happen conveniently, there are some new apis
+
+
+\begin{DoxyItemize}
+\item lws\+\_\+vhost\+\_\+get(wsi)
+\item lws\+\_\+protocol\+\_\+get(wsi)
+\item lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol\+\_\+vhost(vhost, protocol)
+\item lws\+\_\+protocol\+\_\+vh\+\_\+priv\+\_\+zalloc(vhost, protocol, size)
+\item lws\+\_\+protocol\+\_\+vh\+\_\+priv\+\_\+get(vhost, protocol)
+\end{DoxyItemize}
+
+dumb increment, mirror and status protocol plugins are provided as examples.
+
+\subsection*{Additional plugin search paths }
+
+Packages that have their own lws plugins can install them in their own preferred dir and ask lwsws to scan there by using a config fragment like this, in its own conf.\+d/ file managed by the other package 
+\begin{DoxyCode}
+1 \{
+2   "global": \{
+3    "plugin-dir": "/usr/local/share/coherent-timeline/plugins"
+4   \}
+5 \}
+\end{DoxyCode}
+
+
+\subsection*{lws-\/server-\/status plugin }
+
+One provided protocol can be used to monitor the server status.
+
+Enable the protocol like this on a vhost\textquotesingle{}s ws-\/protocols section 
+\begin{DoxyCode}
+1 "lws-server-status": \{
+2   "status": "ok",
+3   "update-ms": "5000"
+4 \}
+\end{DoxyCode}
+ \char`\"{}update-\/ms\char`\"{} is used to control how often updated J\+S\+ON is sent on a ws link.
+
+And map the provided H\+T\+ML into the vhost in the mounts section 
+\begin{DoxyCode}
+1 \{
+2  "mountpoint": "/server-status",
+3  "origin": "file:///usr/local/share/libwebsockets-test-server/server-status",
+4  "default": "server-status.html"
+5 \}
+\end{DoxyCode}
+ You might choose to put it on its own vhost which has \char`\"{}interface\char`\"{}\+: \char`\"{}lo\char`\"{}, so it\textquotesingle{}s not externally visible.
+
+\subsection*{Integration with Systemd }
+
+lwsws needs a service file like this as {\ttfamily /usr/lib/systemd/system/lwsws.service} 
+\begin{DoxyCode}
+1 [Unit]
+2 Description=Libwebsockets Web Server
+3 After=syslog.target
+4 
+5 [Service]
+6 ExecStart=/usr/local/bin/lwsws
+7 StandardError=null
+8 
+9 [Install]
+10 WantedBy=multi-user.target
+\end{DoxyCode}
+
+
+You can find this prepared in {\ttfamily ./lwsws/usr-\/lib-\/systemd-\/system-\/lwsws.service}
+
+\subsection*{Integration with logrotate }
+
+For correct operation with logrotate, {\ttfamily /etc/logrotate.d/lwsws} (if that\textquotesingle{}s where we\textquotesingle{}re putting the logs) should contain 
+\begin{DoxyCode}
+1 /var/log/lwsws/*log \{
+2     copytruncate
+3     missingok
+4     notifempty
+5     delaycompress
+6 \}
+\end{DoxyCode}
+ You can find this prepared in {\ttfamily /lwsws/etc-\/logrotate.d-\/lwsws}
+
+Prepare the log directory like this
+
+
+\begin{DoxyCode}
+1 sudo mkdir /var/log/lwsws
+2 sudo chmod 700 /var/log/lwsws
+\end{DoxyCode}
+ 

@@ -1,0 +1,458 @@
+\subsection*{Daemonization }
+
+There\textquotesingle{}s a helper api {\ttfamily lws\+\_\+daemonize} built by default that does everything you need to daemonize well, including creating a lock file. If you\textquotesingle{}re making what\textquotesingle{}s basically a daemon, just call this early in your init to fork to a headless background process and exit the starting process.
+
+Notice stdout, stderr, stdin are all redirected to /dev/null to enforce your daemon is headless, so you\textquotesingle{}ll need to sort out alternative logging, by, eg, syslog.
+
+\subsection*{Maximum number of connections }
+
+The maximum number of connections the library can deal with is decided when it starts by querying the OS to find out how many file descriptors it is allowed to open (1024 on Fedora for example). It then allocates arrays that allow up to that many connections, minus whatever other file descriptors are in use by the user code.
+
+If you want to restrict that allocation, or increase it, you can use ulimit or similar to change the avaiable number of file descriptors, and when restarted {\bfseries libwebsockets} will adapt accordingly.
+
+\subsection*{Libwebsockets is singlethreaded }
+
+Directly performing websocket actions from other threads is not allowed. Aside from the internal data being inconsistent in {\ttfamily forked()} processes, the scope of a {\ttfamily wsi} ({\ttfamily struct websocket}) can end at any time during service with the socket closing and the {\ttfamily wsi} freed.
+
+Websocket write activities should only take place in the {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} callback as described below.
+
+\mbox{[}This network-\/programming necessity to link the issue of new data to the peer taking the previous data is not obvious to all users so let\textquotesingle{}s repeat that in other words\+:
+
+$\ast$$\ast$$\ast$\+O\+N\+LY DO L\+W\+S\+\_\+\+W\+R\+I\+TE F\+R\+OM T\+HE W\+R\+I\+T\+E\+A\+B\+LE C\+A\+L\+L\+B\+A\+C\+K$\ast$$\ast$$\ast$
+
+There is another network-\/programming truism that surprises some people which is if the sink for the data cannot accept more\+:
+
+$\ast$$\ast$$\ast$\+Y\+OU M\+U\+ST P\+E\+R\+F\+O\+RM RX F\+L\+OW C\+O\+N\+T\+R\+O\+L$\ast$$\ast$$\ast$
+
+See the mirror protocol implementations for example code.
+
+Only live connections appear in the user callbacks, so this removes any possibility of trying to used closed and freed wsis.
+
+If you need to service other socket or file descriptors as well as the websocket ones, you can combine them together with the websocket ones in one poll loop, see \char`\"{}\+External Polling Loop support\char`\"{} below, and still do it all in one thread / process context.
+
+If you insist on trying to use it from multiple threads, take special care if you might simultaneously create more than one context from different threads.
+
+S\+S\+L\+\_\+library\+\_\+init() is called from the context create api and it also is not reentrant. So at least create the contexts sequentially.
+
+\subsection*{Only send data when socket writeable }
+
+You should only send data on a websocket connection from the user callback {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} (or {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} for clients).
+
+If you want to send something, do not just send it but request a callback when the socket is writeable using
+
+
+\begin{DoxyItemize}
+\item {\ttfamily lws\+\_\+callback\+\_\+on\+\_\+writable(context, wsi)} for a specific {\ttfamily wsi}, or
+\item {\ttfamily lws\+\_\+callback\+\_\+on\+\_\+writable\+\_\+all\+\_\+protocol(protocol)} for all connections using that protocol to get a callback when next writeable.
+\end{DoxyItemize}
+
+Usually you will get called back immediately next time around the service loop, but if your peer is slow or temporarily inactive the callback will be delayed accordingly. Generating what to write and sending it should be done in the ...W\+R\+I\+T\+E\+A\+B\+LE callback.
+
+See the test server code for an example of how to do this.
+
+\subsection*{Do not rely on only your own W\+R\+I\+T\+E\+A\+B\+LE requests appearing }
+
+Libwebsockets may generate additional {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} events if it met network conditions where it had to buffer your send data internally.
+
+So your code for {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} needs to own the decision about what to send, it can\textquotesingle{}t assume that just because the writeable callback came it really is time to send something.
+
+It\textquotesingle{}s quite possible you get an \textquotesingle{}extra\textquotesingle{} writeable callback at any time and just need to {\ttfamily return 0} and wait for the expected callback later.
+
+\subsection*{Closing connections from the user side }
+
+When you want to close a connection, you do it by returning {\ttfamily -\/1} from a callback for that connection.
+
+You can provoke a callback by calling {\ttfamily lws\+\_\+callback\+\_\+on\+\_\+writable} on the wsi, then notice in the callback you want to close it and just return -\/1. But usually, the decision to close is made in a callback already and returning -\/1 is simple.
+
+If the socket knows the connection is dead, because the peer closed or there was an affirmitive network error like a F\+IN coming, then {\bfseries libwebsockets} will take care of closing the connection automatically.
+
+If you have a silently dead connection, it\textquotesingle{}s possible to enter a state where the send pipe on the connection is choked but no ack will ever come, so the dead connection will never become writeable. To cover that, you can use T\+CP keepalives (see later in this document)
+
+\subsection*{Fragmented messages }
+
+To support fragmented messages you need to check for the final frame of a message with {\ttfamily lws\+\_\+is\+\_\+final\+\_\+fragment}. This check can be combined with {\ttfamily libwebsockets\+\_\+remaining\+\_\+packet\+\_\+payload} to gather the whole contents of a message, eg\+:
+
+
+\begin{DoxyCode}
+1 case LWS\_CALLBACK\_RECEIVE:
+2 \{
+3     Client * const client = (Client *)user;
+4     const size\_t remaining = lws\_remaining\_packet\_payload(wsi);
+5 
+6     if (!remaining && lws\_is\_final\_fragment(wsi)) \{
+7         if (client->HasFragments()) \{
+8             client->AppendMessageFragment(in, len, 0);
+9             in = (void *)client->GetMessage();
+10             len = client->GetMessageLength();
+11         \}
+12 
+13         client->ProcessMessage((char *)in, len, wsi);
+14         client->ResetMessage();
+15     \} else
+16         client->AppendMessageFragment(in, len, remaining);
+17 \}
+18 break;
+\end{DoxyCode}
+
+
+The test app libwebsockets-\/test-\/fraggle sources also show how to deal with fragmented messages.
+
+\subsection*{Debug Logging }
+
+Also using {\ttfamily lws\+\_\+set\+\_\+log\+\_\+level} api you may provide a custom callback to actually emit the log string. By default, this points to an internal emit function that sends to stderr. Setting it to {\ttfamily N\+U\+LL} leaves it as it is instead.
+
+A helper function {\ttfamily \hyperlink{group__log_gab7c0fc936cc9f1eb58e2bb234c15147c}{lwsl\+\_\+emit\+\_\+syslog()}} is exported from the library to simplify logging to syslog. You still need to use {\ttfamily setlogmask}, {\ttfamily openlog} and {\ttfamily closelog} in your user code.
+
+The logging apis are made available for user code.
+
+
+\begin{DoxyItemize}
+\item {\ttfamily lwsl\+\_\+err(...)}
+\item {\ttfamily lwsl\+\_\+warn(...)}
+\item {\ttfamily lwsl\+\_\+notice(...)}
+\item {\ttfamily lwsl\+\_\+info(...)}
+\item {\ttfamily lwsl\+\_\+debug(...)}
+\end{DoxyItemize}
+
+The difference between notice and info is that notice will be logged by default whereas info is ignored by default.
+
+\subsection*{External Polling Loop support }
+
+{\bfseries libwebsockets} maintains an internal {\ttfamily poll()} array for all of its sockets, but you can instead integrate the sockets into an external polling array. That\textquotesingle{}s needed if {\bfseries libwebsockets} will cooperate with an existing poll array maintained by another server.
+
+Four callbacks {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+A\+D\+D\+\_\+\+P\+O\+L\+L\+\_\+\+FD}, {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+D\+E\+L\+\_\+\+P\+O\+L\+L\+\_\+\+FD}, {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+S\+E\+T\+\_\+\+M\+O\+D\+E\+\_\+\+P\+O\+L\+L\+\_\+\+FD} and {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+E\+A\+R\+\_\+\+M\+O\+D\+E\+\_\+\+P\+O\+L\+L\+\_\+\+FD} appear in the callback for protocol 0 and allow interface code to manage socket descriptors in other poll loops.
+
+You can pass all pollfds that need service to {\ttfamily \hyperlink{group__service_gad82efa5466d14a9f05aa06416375b28d}{lws\+\_\+service\+\_\+fd()}}, even if the socket or file does not belong to {\bfseries libwebsockets} it is safe.
+
+If {\bfseries libwebsocket} handled it, it zeros the pollfd {\ttfamily revents} field before returning. So you can let {\bfseries libwebsockets} try and if {\ttfamily pollfd-\/$>$revents} is nonzero on return, you know it needs handling by your code.
+
+\subsection*{Using with in c++ apps }
+
+The library is ready for use by C++ apps. You can get started quickly by copying the test server
+
+
+\begin{DoxyCode}
+1 $ cp test-server/test-server.c test.cpp
+\end{DoxyCode}
+
+
+and building it in C++ like this
+
+
+\begin{DoxyCode}
+1 $ g++ -DINSTALL\_DATADIR=\(\backslash\)"/usr/share\(\backslash\)" -ocpptest test.cpp -lwebsockets
+\end{DoxyCode}
+
+
+{\ttfamily I\+N\+S\+T\+A\+L\+L\+\_\+\+D\+A\+T\+A\+D\+IR} is only needed because the test server uses it as shipped, if you remove the references to it in your app you don\textquotesingle{}t need to define it on the g++ line either.
+
+\subsection*{Availability of header information }
+
+From v1.\+2 of the library onwards, the H\+T\+TP header content is {\ttfamily free()}d as soon as the websocket connection is established. For websocket servers, you can copy interesting headers by handling {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+ON} callback, for clients there\textquotesingle{}s a new callback just for this purpose {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH}.
+
+\subsection*{T\+CP Keepalive }
+
+It is possible for a connection which is not being used to send to die silently somewhere between the peer and the side not sending. In this case by default T\+CP will just not report anything and you will never get any more incoming data or sign the link is dead until you try to send.
+
+To deal with getting a notification of that situation, you can choose to enable T\+CP keepalives on all {\bfseries libwebsockets} sockets, when you create the context.
+
+To enable keepalive, set the ka\+\_\+time member of the context creation parameter struct to a nonzero value (in seconds) at context creation time. You should also fill ka\+\_\+probes and ka\+\_\+interval in that case.
+
+With keepalive enabled, the T\+CP layer will send control packets that should stimulate a response from the peer without affecting link traffic. If the response is not coming, the socket will announce an error at {\ttfamily poll()} forcing a close.
+
+Note that B\+S\+Ds don\textquotesingle{}t support keepalive time / probes / interval per-\/socket like Linux does. On those systems you can enable keepalive by a nonzero value in {\ttfamily ka\+\_\+time}, but the systemwide kernel settings for the time / probes/ interval are used, regardless of what nonzero value is in {\ttfamily ka\+\_\+time}.
+
+\subsection*{Optimizing S\+SL connections }
+
+There\textquotesingle{}s a member {\ttfamily ssl\+\_\+cipher\+\_\+list} in the {\ttfamily \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info}} struct which allows the user code to restrict the possible cipher selection at context-\/creation time.
+
+You might want to look into that to stop the ssl peers selecting a cipher which is too computationally expensive. To use it, point it to a string like \begin{DoxyVerb}    `"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"`
+\end{DoxyVerb}
+
+
+if left {\ttfamily N\+U\+LL}, then the \char`\"{}\+D\+E\+F\+A\+U\+L\+T\char`\"{} set of ciphers are all possible to select.
+
+You can also set it to {\ttfamily \char`\"{}\+A\+L\+L\char`\"{}} to allow everything (including insecure ciphers).
+
+\subsection*{Async nature of client connections }
+
+When you call {\ttfamily \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info}(..)} and get a {\ttfamily wsi} back, it does not mean your connection is active. It just means it started trying to connect.
+
+Your client connection is actually active only when you receive {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED} for it.
+
+There\textquotesingle{}s a 5 second timeout for the connection, and it may give up or die for other reasons, if any of that happens you\textquotesingle{}ll get a {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+O\+N\+\_\+\+E\+R\+R\+OR} callback on protocol 0 instead for the {\ttfamily wsi}.
+
+After attempting the connection and getting back a non-\/{\ttfamily N\+U\+LL} {\ttfamily wsi} you should loop calling {\ttfamily \hyperlink{group__service_gaf95bd0c663d6516a0c80047d9b1167a8}{lws\+\_\+service()}} until one of the above callbacks occurs.
+
+As usual, see \href{test-server/test-client.c}{\tt test-\/client.\+c} for example code.
+
+\subsection*{Lws platform-\/independent file access apis }
+
+lws now exposes his internal platform file abstraction in a way that can be both used by user code to make it platform-\/agnostic, and be overridden or subclassed by user code. This allows things like handling the U\+RI \char`\"{}directory
+space\char`\"{} as a virtual filesystem that may or may not be backed by a regular filesystem. One example use is serving files from inside large compressed archive storage without having to unpack anything except the file being requested.
+
+The test server shows how to use it, basically the platform-\/specific part of lws prepares a file operations structure that lives in the lws context.
+
+The user code can get a pointer to the file operations struct
+
+
+\begin{DoxyCode}
+1 LWS\_VISIBLE LWS\_EXTERN struct lws\_plat\_file\_ops *
+2         `lws\_get\_fops`(struct lws\_context *context);
+\end{DoxyCode}
+
+
+and then can use helpers to also leverage these platform-\/independent file handling apis
+
+
+\begin{DoxyCode}
+1 static inline lws\_filefd\_type
+2 `lws\_plat\_file\_open`(struct lws *wsi, const char *filename, unsigned long *filelen, int flags)
+3 
+4 static inline int
+5 `lws\_plat\_file\_close`(struct lws *wsi, lws\_filefd\_type fd)
+6 
+7 static inline unsigned long
+8 `lws\_plat\_file\_seek\_cur`(struct lws *wsi, lws\_filefd\_type fd, long offset\_from\_cur\_pos)
+9 
+10 static inline int
+11 `lws\_plat\_file\_read`(struct lws *wsi, lws\_filefd\_type fd, unsigned long *amount, unsigned char *buf,
+       unsigned long len)
+12 
+13 static inline int
+14 `lws\_plat\_file\_write`(struct lws *wsi, lws\_filefd\_type fd, unsigned long *amount, unsigned char *buf,
+       unsigned long len)
+\end{DoxyCode}
+
+
+The user code can also override or subclass the file operations, to either wrap or replace them. An example is shown in test server.
+
+\subsection*{E\+C\+DH Support }
+
+E\+C\+DH Certs are now supported. Enable the C\+Make option \begin{DoxyVerb}    cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1 
+\end{DoxyVerb}
+
+
+{\bfseries and} the info-\/$>$options flag \begin{DoxyVerb}    LWS_SERVER_OPTION_SSL_ECDH
+\end{DoxyVerb}
+
+
+to build in support and select it at runtime.
+
+\subsection*{S\+MP / Multithreaded service }
+
+S\+MP support is integrated into L\+WS without any internal threading. It\textquotesingle{}s very simple to use, libwebsockets-\/test-\/server-\/pthread shows how to do it, use -\/j $<$n$>$ argument there to control the number of service threads up to 32.
+
+Two new members are added to the info struct \begin{DoxyVerb}    unsigned int count_threads;
+    unsigned int fd_limit_per_thread;
+\end{DoxyVerb}
+
+
+leave them at the default 0 to get the normal singlethreaded service loop.
+
+Set count\+\_\+threads to n to tell lws you will have n simultaneous service threads operating on the context.
+
+There is still a single listen socket on one port, no matter how many service threads.
+
+When a connection is made, it is accepted by the service thread with the least connections active to perform load balancing.
+
+The user code is responsible for spawning n threads running the service loop associated to a specific tsi (Thread Service Index, 0 .. n -\/ 1). See the libwebsockets-\/test-\/server-\/pthread for how to do.
+
+If you leave fd\+\_\+limit\+\_\+per\+\_\+thread at 0, then the process limit of fds is shared between the service threads; if you process was allowed 1024 fds overall then each thread is limited to 1024 / n.
+
+You can set fd\+\_\+limit\+\_\+per\+\_\+thread to a nonzero number to control this manually, eg the overall supported fd limit is less than the process allowance.
+
+You can control the context basic data allocation for multithreading from Cmake using -\/\+D\+L\+W\+S\+\_\+\+M\+A\+X\+\_\+\+S\+MP=, if not given it\textquotesingle{}s set to 32. The serv\+\_\+buf allocation for the threads (currently 4096) is made at runtime only for active threads.
+
+Because lws will limit the requested number of actual threads supported according to L\+W\+S\+\_\+\+M\+A\+X\+\_\+\+S\+MP, there is an api lws\+\_\+get\+\_\+count\+\_\+threads(context) to discover how many threads were actually allowed when the context was created.
+
+It\textquotesingle{}s required to implement locking in the user code in the same way that libwebsockets-\/test-\/server-\/pthread does it, for the FD locking callbacks.
+
+There is no knowledge or dependency in lws itself about pthreads. How the locking is implemented is entirely up to the user code.
+
+\subsection*{Libev / Libuv support }
+
+You can select either or both \begin{DoxyVerb}    -DLWS_WITH_LIBEV=1
+    -DLWS_WITH_LIBUV=1
+\end{DoxyVerb}
+
+
+at cmake configure-\/time. The user application may use one of the context init options flags \begin{DoxyVerb}    LWS_SERVER_OPTION_LIBEV
+    LWS_SERVER_OPTION_LIBUV
+\end{DoxyVerb}
+
+
+to indicate it will use either of the event libraries.
+
+\subsection*{Extension option control from user code }
+
+User code may set per-\/connection extension options now, using a new api {\ttfamily \hyperlink{group__extensions_gae0e24e1768f83a7fb07896ce975704b9}{lws\+\_\+set\+\_\+extension\+\_\+option()}}.
+
+This should be called from the E\+S\+T\+A\+B\+L\+I\+S\+H\+ED callback like this 
+\begin{DoxyCode}
+1 lws\_set\_extension\_option(wsi, "permessage-deflate",
+2                          "rx\_buf\_size", "12"); /* 1 << 12 */
+\end{DoxyCode}
+
+
+If the extension is not active (missing or not negotiated for the connection, or extensions are disabled on the library) the call is just returns -\/1. Otherwise the connection\textquotesingle{}s extension has its named option changed.
+
+The extension may decide to alter or disallow the change, in the example above permessage-\/deflate restricts the size of his rx output buffer also considering the protocol\textquotesingle{}s rx\+\_\+buf\+\_\+size member.
+
+\subsection*{Client connections as H\+T\+TP\mbox{[}S\mbox{]} rather than WS\mbox{[}S\mbox{]} }
+
+You may open a generic http client connection using the same struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} used to create client ws\mbox{[}s\mbox{]} connections.
+
+To stay in http\mbox{[}s\mbox{]}, set the optional info member \char`\"{}method\char`\"{} to point to the string \char`\"{}\+G\+E\+T\char`\"{} instead of the default N\+U\+LL.
+
+After the server headers are processed, when payload from the server is available the callback L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+R\+E\+C\+E\+I\+V\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+H\+T\+TP will be made.
+
+You can choose whether to process the data immediately, or queue a callback when an outgoing socket is writeable to provide flow control, and process the data in the writable callback.
+
+Either way you use the api {\ttfamily lws\+\_\+http\+\_\+client\+\_\+read()} to access the data, eg
+
+
+\begin{DoxyCode}
+1 case LWS\_CALLBACK\_RECEIVE\_CLIENT\_HTTP:
+2         \{
+3                 char buffer[1024 + LWS\_PRE];
+4                 char *px = buffer + LWS\_PRE;
+5                 int lenx = sizeof(buffer) - LWS\_PRE;
+6 
+7                 lwsl\_notice("LWS\_CALLBACK\_RECEIVE\_CLIENT\_HTTP\(\backslash\)n");
+8 
+9                 /*
+10                  * Often you need to flow control this by something
+11                  * else being writable.  In that case call the api
+12                  * to get a callback when writable here, and do the
+13                  * pending client read in the writeable callback of
+14                  * the output.
+15                  */
+16                 if (lws\_http\_client\_read(wsi, &px, &lenx) < 0)
+17                         return -1;
+18                 while (lenx--)
+19                         putchar(*px++);
+20         \}
+21         break;
+\end{DoxyCode}
+
+
+\subsection*{Using lws v2 vhosts }
+
+If you set L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+P\+L\+I\+C\+I\+T\+\_\+\+V\+H\+O\+S\+TS options flag when you create your context, it won\textquotesingle{}t create a default vhost using the info struct members for compatibility. Instead you can call \hyperlink{group__context-and-vhost_ga0c54c667ccd9b8b3dddcd123ca72f87c}{lws\+\_\+create\+\_\+vhost()} afterwards to attach one or more vhosts manually.
+
+
+\begin{DoxyCode}
+1 LWS\_VISIBLE struct lws\_vhost *
+2 lws\_create\_vhost(struct lws\_context *context,
+3                  struct lws\_context\_creation\_info *info,
+4                  struct lws\_http\_mount *mounts);
+\end{DoxyCode}
+
+
+\hyperlink{group__context-and-vhost_ga0c54c667ccd9b8b3dddcd123ca72f87c}{lws\+\_\+create\+\_\+vhost()} uses the same info struct as \hyperlink{group__context-and-vhost_gaf2fff58562caab7510c41eeac85a8648}{lws\+\_\+create\+\_\+context()}, it ignores members related to context and uses the ones meaningful for vhost (marked with VH in \hyperlink{libwebsockets_8h}{libwebsockets.\+h}).
+
+
+\begin{DoxyCode}
+1 struct lws\_context\_creation\_info \{
+2         int port;                                       /* VH */
+3         const char *iface;                              /* VH */
+4         const struct lws\_protocols *protocols;          /* VH */
+5         const struct lws\_extension *extensions;         /* VH */
+6 ...
+\end{DoxyCode}
+
+
+When you attach the vhost, if the vhost\textquotesingle{}s port already has a listen socket then both vhosts share it and use S\+NI (is S\+SL in use) or the Host\+: header from the client to select the right one. Or if no other vhost already listening the a new listen socket is created.
+
+There are some new members but mainly it\textquotesingle{}s stuff you used to set at context creation time.
+
+\subsection*{Using lws v2 mounts on a vhost }
+
+The last argument to \hyperlink{group__context-and-vhost_ga0c54c667ccd9b8b3dddcd123ca72f87c}{lws\+\_\+create\+\_\+vhost()} lets you associate a linked list of \hyperlink{structlws__http__mount}{lws\+\_\+http\+\_\+mount} structures with that vhost\textquotesingle{}s U\+RL \textquotesingle{}namespace\textquotesingle{}, in a similar way that unix lets you mount filesystems into areas of your / filesystem how you like and deal with the contents transparently.
+
+
+\begin{DoxyCode}
+1 struct lws\_http\_mount \{
+2         struct lws\_http\_mount *mount\_next;
+3         const char *mountpoint; /* mountpoint in http pathspace, eg, "/" */
+4         const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
+5         const char *def; /* default target, eg, "index.html" */
+6 
+7         struct lws\_protocol\_vhost\_options *cgienv;
+8 
+9         int cgi\_timeout;
+10         int cache\_max\_age;
+11 
+12         unsigned int cache\_reusable:1;
+13         unsigned int cache\_revalidate:1;
+14         unsigned int cache\_intermediaries:1;
+15 
+16         unsigned char origin\_protocol;
+17         unsigned char mountpoint\_len;
+18 \};
+\end{DoxyCode}
+
+
+The last mount structure should have a N\+U\+LL mount\+\_\+next, otherwise it should point to the \textquotesingle{}next\textquotesingle{} mount structure in your list.
+
+Both the mount structures and the strings must persist until the context is destroyed, since they are not copied but used in place.
+
+{\ttfamily .origin\+\_\+protocol} should be one of
+
+
+\begin{DoxyCode}
+1 enum \{
+2         LWSMPRO\_HTTP,
+3         LWSMPRO\_HTTPS,
+4         LWSMPRO\_FILE,
+5         LWSMPRO\_CGI,
+6         LWSMPRO\_REDIR\_HTTP,
+7         LWSMPRO\_REDIR\_HTTPS,
+8         LWSMPRO\_CALLBACK,
+9 \};
+\end{DoxyCode}
+
+
+
+\begin{DoxyItemize}
+\item L\+W\+S\+M\+P\+R\+O\+\_\+\+F\+I\+LE is used for mapping url namespace to a filesystem directory and serve it automatically.
+\item L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+GI associates the url namespace with the given C\+GI executable, which runs when the U\+RL is accessed and the output provided to the client.
+\item L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+TP and L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+T\+PS auto-\/redirect clients to the given origin U\+RL.
+\item L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK causes the http connection to attach to the callback associated with the named protocol (which may be a plugin).
+\end{DoxyItemize}
+
+\subsection*{Operation of L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK mounts }
+
+The feature provided by C\+A\+L\+L\+B\+A\+CK type mounts is binding a part of the U\+RL namespace to a named protocol callback handler.
+
+This allows protocol plugins to handle areas of the U\+RL namespace. For example in test-\/server-\/v2.\+0.\+c, the U\+RL area \char`\"{}/formtest\char`\"{} is associated with the plugin providing \char`\"{}protocol-\/post-\/demo\char`\"{} like this
+
+
+\begin{DoxyCode}
+1 static const struct lws\_http\_mount mount\_post = \{
+2         NULL,           /* linked-list pointer to next*/
+3         "/formtest",            /* mountpoint in URL namespace on this vhost */
+4         "protocol-post-demo",   /* handler */
+5         NULL,   /* default filename if none given */
+6         NULL,
+7         0,
+8         0,
+9         0,
+10         0,
+11         0,
+12         LWSMPRO\_CALLBACK,       /* origin points to a callback */
+13         9,                      /* strlen("/formtest"), ie length of the mountpoint */
+14 \};
+\end{DoxyCode}
+
+
+Client access to /formtest\mbox{[}anything\mbox{]} will be passed to the callback registered with the named protocol, which in this case is provided by a protocol plugin.
+
+Access by all methods, eg, G\+ET and P\+O\+ST are handled by the callback.
+
+protocol-\/post-\/demo deals with accepting and responding to the html form that is in the test server H\+T\+ML.
+
+When a connection accesses a U\+RL related to a C\+A\+L\+L\+B\+A\+CK type mount, the connection protocol is changed until the next access on the connection to a U\+RL outside the same C\+A\+L\+L\+B\+A\+CK mount area. User space on the connection is arranged to be the size of the new protocol user space allocation as given in the protocol struct.
+
+This allocation is only deleted / replaced when the connection accesses a U\+RL region with a different protocol (or the default protocols\mbox{[}0\mbox{]} if no C\+A\+L\+L\+B\+A\+CK area matches it). 

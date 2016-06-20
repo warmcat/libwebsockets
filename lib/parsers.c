@@ -321,16 +321,6 @@ bail:
 	return 0;
 }
 
-/**
- * lws_hdr_fragment_length: report length of a single fragment of a header
- *		The returned length does not include the space for a
- *		terminating '\0'
- *
- * @wsi: websocket connection
- * @h: which header index we are interested in
- * @frag_idx: which fragment of @h we want to get the length of
- */
-
 LWS_VISIBLE int
 lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 {
@@ -348,15 +338,6 @@ lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 	return 0;
 }
 
-/**
- * lws_hdr_total_length: report length of all fragments of a header totalled up
- *		The returned length does not include the space for a
- *		terminating '\0'
- *
- * @wsi: websocket connection
- * @h: which header index we are interested in
- */
-
 LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;
@@ -372,20 +353,6 @@ LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 
 	return len;
 }
-
-/**
- * lws_hdr_copy_fragment: copy a single fragment of the given header to a buffer
- *		The buffer length @len must include space for an additional
- *		terminating '\0', or it will fail returning -1.
- *		If the requested fragment index is not present, it fails
- *		returning -1.
- *
- * @wsi: websocket connection
- * @dst: destination buffer
- * @len: length of destination buffer
- * @h: which header index we are interested in
- * @frag_index: which fragment of @h we want to copy
- */
 
 LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 				      enum lws_token_indexes h, int frag_idx)
@@ -412,17 +379,6 @@ LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 
 	return wsi->u.hdr.ah->frags[f].len;
 }
-
-/**
- * lws_hdr_copy: copy a single fragment of the given header to a buffer
- *		The buffer length @len must include space for an additional
- *		terminating '\0', or it will fail returning -1.
- *
- * @wsi: websocket connection
- * @dst: destination buffer
- * @len: length of destination buffer
- * @h: which header index we are interested in
- */
 
 LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 			     enum lws_token_indexes h)
@@ -965,17 +921,6 @@ forbid:
 	return -1;
 }
 
-
-/**
- * lws_frame_is_binary: true if the current frame was sent in binary mode
- *
- * @wsi: the connection we are inquiring about
- *
- * This is intended to be called from the LWS_CALLBACK_RECEIVE callback if
- * it's interested to see if the frame it's dealing with was sent in binary
- * mode.
- */
-
 LWS_VISIBLE int lws_frame_is_binary(struct lws *wsi)
 {
 	return wsi->u.ws.frame_is_binary;
@@ -1475,24 +1420,6 @@ illegal_ctl_length:
 	/* kill the connection */
 	return -1;
 }
-
-
-/**
- * lws_remaining_packet_payload() - Bytes to come before "overall"
- *					      rx packet is complete
- * @wsi:		Websocket instance (available from user callback)
- *
- *	This function is intended to be called from the callback if the
- *  user code is interested in "complete packets" from the client.
- *  libwebsockets just passes through payload as it comes and issues a buffer
- *  additionally when it hits a built-in limit.  The LWS_CALLBACK_RECEIVE
- *  callback handler can use this API to find out if the buffer it has just
- *  been given is the last piece of a "complete packet" from the client --
- *  when that is the case lws_remaining_packet_payload() will return
- *  0.
- *
- *  Many protocols won't care becuse their packets are always small.
- */
 
 LWS_VISIBLE size_t
 lws_remaining_packet_payload(struct lws *wsi)

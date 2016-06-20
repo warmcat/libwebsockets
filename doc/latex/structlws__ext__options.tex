@@ -1,0 +1,30 @@
+\hypertarget{structlws__ext__options}{}\section{lws\+\_\+ext\+\_\+options Struct Reference}
+\label{structlws__ext__options}\index{lws\+\_\+ext\+\_\+options@{lws\+\_\+ext\+\_\+options}}
+
+
+{\ttfamily \#include $<$libwebsockets.\+h$>$}
+
+\subsection*{Data Fields}
+\begin{DoxyCompactItemize}
+\item 
+const char $\ast$ \hyperlink{structlws__ext__options_a1769e4a9805bbdda227821e9578ddc7e}{name}
+\item 
+enum \hyperlink{group__extensions_gacc9f55936dc165257a2e1f7d47bce89e}{lws\+\_\+ext\+\_\+options\+\_\+types} \hyperlink{structlws__ext__options_a7c4dbd62dbeba63a9d50d2306bd1cc61}{type}
+\end{DoxyCompactItemize}
+
+
+\subsection{Detailed Description}
+struct \hyperlink{structlws__ext__options}{lws\+\_\+ext\+\_\+options} -\/ Option arguments to the extension. These are used in the negotiation at ws upgrade time. The helper function \hyperlink{group__extensions_ga6fb3e2c3dfb9d64dc87026a4e99c128b}{lws\+\_\+ext\+\_\+parse\+\_\+options()} uses these to generate callbacks 
+
+\subsection{Field Documentation}
+\index{lws\+\_\+ext\+\_\+options@{lws\+\_\+ext\+\_\+options}!name@{name}}
+\index{name@{name}!lws\+\_\+ext\+\_\+options@{lws\+\_\+ext\+\_\+options}}
+\subsubsection[{\texorpdfstring{name}{name}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+ext\+\_\+options\+::name}\hypertarget{structlws__ext__options_a1769e4a9805bbdda227821e9578ddc7e}{}\label{structlws__ext__options_a1769e4a9805bbdda227821e9578ddc7e}
+Option name, eg, \char`\"{}server\+\_\+no\+\_\+context\+\_\+takeover\char`\"{} \index{lws\+\_\+ext\+\_\+options@{lws\+\_\+ext\+\_\+options}!type@{type}}
+\index{type@{type}!lws\+\_\+ext\+\_\+options@{lws\+\_\+ext\+\_\+options}}
+\subsubsection[{\texorpdfstring{type}{type}}]{\setlength{\rightskip}{0pt plus 5cm}enum {\bf lws\+\_\+ext\+\_\+options\+\_\+types} lws\+\_\+ext\+\_\+options\+::type}\hypertarget{structlws__ext__options_a7c4dbd62dbeba63a9d50d2306bd1cc61}{}\label{structlws__ext__options_a7c4dbd62dbeba63a9d50d2306bd1cc61}
+What kind of args the option can take 
+
+The documentation for this struct was generated from the following file\+:\begin{DoxyCompactItemize}
+\item 
+lib/\hyperlink{libwebsockets_8h}{libwebsockets.\+h}\end{DoxyCompactItemize}
