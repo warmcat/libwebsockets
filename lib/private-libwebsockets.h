@@ -1737,6 +1737,9 @@ lws_protocol_init(struct lws_context *context);
 int
 lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p);
 
+const struct lws_http_mount *
+lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len);
+
 /*
  * custom allocator
  */

@@ -23,6 +23,7 @@ var NAVTREE =
       [ "Cross compiling", "md_README.build.html#cross", null ],
       [ "Memory efficiency", "md_README.build.html#mem", null ]
     ] ],
+    [ "Debugging problems", "md_README.problems.html", null ],
     [ "Notes about lwsws", "md_README.lwsws.html", [
       [ "Libwebsockets Web Server", "md_README.lwsws.html#lwsws", null ],
       [ "Build", "md_README.lwsws.html#lwswsb", null ],
@@ -76,6 +77,15 @@ var NAVTREE =
       [ "Lwsgs Email configuration", "md_README.generic-sessions.html#gsrmail", null ],
       [ "Lwsgs Integration with another protocol", "md_README.generic-sessions.html#gsap", null ]
     ] ],
+    [ "Notes about generic-table", "md_README.generic-table.html", [
+      [ "What is generic-table?", "md_README.generic-table.html#gtint", null ],
+      [ "Enabling for build", "md_README.generic-table.html#gteb", null ],
+      [ "Integrating with your html", "md_README.generic-table.html#gtinth", null ],
+      [ "Lwsgt constructor", "md_README.generic-table.html#gtc", null ],
+      [ "Lwsgt click handling function", "md_README.generic-table.html#gtclick", null ],
+      [ "Generic-table JSON", "md_README.generic-table.html#gtgj", null ],
+      [ "Setting up protocol-lws-table-dirlisting", "md_README.generic-table.html#gtdirl", null ]
+    ] ],
     [ "Overview of lws test apps", "md_README.test-apps.html", [
       [ "Testing server with a browser", "md_README.test-apps.html#tsb", null ],
       [ "Running test server as a Daemon", "md_README.test-apps.html#tsd", null ],
@@ -123,8 +133,8 @@ var NAVTREEINDEX =
 "annotated.html",
 "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5ac962efd35abf6c402f9fb14aa14f5016",
 "group__sha.html#ga7b09ab74646266f0b555103b3bb8dfe5",
-"libwebsockets_8h.html#a42394a38f08a97420c98127358cfeedbad9cdc12a796e6c7d912278834d9c7dde",
-"structlws__process__html__args.html#a362547891ee0d693f3900a1f807ea475"
+"libwebsockets_8h.html#a42394a38f08a97420c98127358cfeedbac8f5f992c6615324108cdf931da903be",
+"structlws__polarssl__context.html#ae7e11c9129ff71c7ee71b3b2e320ff27"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

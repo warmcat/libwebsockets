@@ -473,6 +473,13 @@ just_kill_connection:
 	    (wsi->state_pre_close == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) ||
 	    (wsi->mode == LWSCM_WS_CLIENT && wsi->state_pre_close == LWSS_HTTP) ||
 	    (wsi->mode == LWSCM_WS_SERVING && wsi->state_pre_close == LWSS_HTTP))) {
+
+		if (wsi->user_space) {
+			lwsl_debug("%s: doing LWS_CALLBACK_HTTP_DROP_PROTOCOL for %p prot %s", __func__, wsi, wsi->protocol->name);
+			wsi->protocol->callback(wsi,
+					LWS_CALLBACK_HTTP_DROP_PROTOCOL,
+					       wsi->user_space, NULL, 0);
+		}
 		lwsl_debug("calling back CLOSED\n");
 		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 					wsi->user_space, NULL, 0);
@@ -1527,6 +1534,11 @@ lws_json_purify(char *escaped, const char *string, int len)
 {
 	const char *p = string;
 	char *q = escaped;
+
+	if (!p) {
+		escaped[0] = '\0';
+		return escaped;
+	}
 
 	while (*p && len-- > 6) {
 		if (*p == '\"' || *p == '\\' || *p < 0x20) {
