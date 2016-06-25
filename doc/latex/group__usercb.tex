@@ -79,6 +79,7 @@ enum \hyperlink{group__usercb_gad62860e19975ba4c4af401c3cdb6abf7}{lws\+\_\+callb
 {\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+S\+E\+S\+S\+I\+O\+N\+\_\+\+I\+N\+FO} = 54, 
 {\bfseries L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+G\+S\+\_\+\+E\+V\+E\+NT} = 55, 
 \\*
+\hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa5cc921b7697743017a533822a3d556a}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+P\+MO} = 56, 
 \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a}{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER} = 1000
  \}
 \end{DoxyCompactItemize}
@@ -267,7 +268,9 @@ L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+N\+L\+O\+C\+K\+\_\+\+P\+O\+LL\hy
 L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+O\+P\+E\+N\+S\+S\+L\+\_\+\+C\+O\+N\+T\+E\+X\+T\+\_\+\+R\+E\+Q\+U\+I\+R\+E\+S\+\_\+\+P\+R\+I\+V\+A\+T\+E\+\_\+\+K\+EY\hypertarget{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa46f705dcf97502e95627ffde614f98b}{}\label{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa46f705dcf97502e95627ffde614f98b}
 }]if configured for including Open\+S\+SL support but no private key file has been specified (ssl\+\_\+private\+\_\+key\+\_\+filepath is N\+U\+LL), this is called to allow the user to set the private key directly via libopenssl and perform further operations if required; this might be useful in situations where the private key is not directly accessible by the OS, for example if it is stored on a smartcard. user is the server\textquotesingle{}s Open\+S\+SL S\+S\+L\+\_\+\+C\+T\+X$\ast$ \index{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+W\+S\+\_\+\+P\+E\+E\+R\+\_\+\+I\+N\+I\+T\+I\+A\+T\+E\+D\+\_\+\+C\+L\+O\+SE@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+W\+S\+\_\+\+P\+E\+E\+R\+\_\+\+I\+N\+I\+T\+I\+A\+T\+E\+D\+\_\+\+C\+L\+O\+SE}!User Callback@{User Callback}}\index{User Callback@{User Callback}!L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+W\+S\+\_\+\+P\+E\+E\+R\+\_\+\+I\+N\+I\+T\+I\+A\+T\+E\+D\+\_\+\+C\+L\+O\+SE@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+W\+S\+\_\+\+P\+E\+E\+R\+\_\+\+I\+N\+I\+T\+I\+A\+T\+E\+D\+\_\+\+C\+L\+O\+SE}}\item[{\em 
 L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+W\+S\+\_\+\+P\+E\+E\+R\+\_\+\+I\+N\+I\+T\+I\+A\+T\+E\+D\+\_\+\+C\+L\+O\+SE\hypertarget{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ac3fc5bbb55e69f90396526287ee84a51}{}\label{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ac3fc5bbb55e69f90396526287ee84a51}
-}]The peer has sent an unsolicited Close WS packet. in and len are the optional close code (first 2 bytes, network order) and the optional additional information which is not defined in the standard, and may be a string or non-\/human-\/ readable data. If you return 0 lws will echo the close and then close the connection. If you return nonzero lws will just close the connection. \index{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER}!User Callback@{User Callback}}\index{User Callback@{User Callback}!L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER}}\item[{\em 
+}]The peer has sent an unsolicited Close WS packet. in and len are the optional close code (first 2 bytes, network order) and the optional additional information which is not defined in the standard, and may be a string or non-\/human-\/ readable data. If you return 0 lws will echo the close and then close the connection. If you return nonzero lws will just close the connection. \index{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+P\+MO@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+P\+MO}!User Callback@{User Callback}}\index{User Callback@{User Callback}!L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+P\+MO@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+P\+MO}}\item[{\em 
+L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+T\+P\+\_\+\+P\+MO\hypertarget{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa5cc921b7697743017a533822a3d556a}{}\label{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa5cc921b7697743017a533822a3d556a}
+}]per-\/mount options for this connection, called before the normal L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+H\+T\+TP when the mount has per-\/mount options \index{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER}!User Callback@{User Callback}}\index{User Callback@{User Callback}!L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER}}\item[{\em 
 L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER\hypertarget{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a}{}\label{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a}
 }]user code can use any including / above without fear of clashes \end{description}
 \end{Desc}
@@ -343,8 +346,9 @@ L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER\hypertarget{group__usercb_
 905         LWS\_CALLBACK\_ADD\_HEADERS                                = 53,
 907         LWS\_CALLBACK\_SESSION\_INFO                               = 54,
 910         LWS\_CALLBACK\_GS\_EVENT                                   = 55,
-913         \textcolor{comment}{/****** add new things just above ---^ ******/}
-914 
-915         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a}{LWS\_CALLBACK\_USER} = 1000,
-917 \};
+912         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa5cc921b7697743017a533822a3d556a}{LWS\_CALLBACK\_HTTP\_PMO}                                      = 56,
+918         \textcolor{comment}{/****** add new things just above ---^ ******/}
+919 
+920         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a}{LWS\_CALLBACK\_USER} = 1000,
+922 \};
 \end{DoxyCode}

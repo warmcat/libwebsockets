@@ -106,6 +106,7 @@ var libwebsockets_8h =
       [ "LWS_CALLBACK_ADD_HEADERS", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7ab884f3d5f8a6126a0d34c0172f5e3725", null ],
       [ "LWS_CALLBACK_SESSION_INFO", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7ac11c336f7052abf3618962902a71ebc8", null ],
       [ "LWS_CALLBACK_GS_EVENT", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7af6cf80e57aae8ba0a57a5c456b1fe026", null ],
+      [ "LWS_CALLBACK_HTTP_PMO", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7aa5cc921b7697743017a533822a3d556a", null ],
       [ "LWS_CALLBACK_USER", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a", null ]
     ] ],
     [ "lws_cgi_hdr_state", "libwebsockets_8h.html#a42394a38f08a97420c98127358cfeedb", [

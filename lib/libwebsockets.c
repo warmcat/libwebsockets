@@ -1528,6 +1528,11 @@ lws_json_purify(char *escaped, const char *string, int len)
 	const char *p = string;
 	char *q = escaped;
 
+	if (!p) {
+		escaped[0] = '\0';
+		return escaped;
+	}
+
 	while (*p && len-- > 6) {
 		if (*p == '\"' || *p == '\\' || *p < 0x20) {
 			*q++ = '\\';

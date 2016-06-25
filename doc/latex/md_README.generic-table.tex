@@ -2,11 +2,135 @@
 
 Generic-\/table is a J\+S\+ON schema and client-\/side JS file that makes it easy to display live, table structured H\+T\+ML over a ws link.
 
-An example plugin and index.\+html using it are provided.
+An example plugin and index.\+html using it are provided, but lwsgt itself doesn\textquotesingle{}t have its own plugin, it\textquotesingle{}s just a J\+S\+ON schema and client-\/side JS that other plugins can use to simplify displaying live, table-\/based data without having to reinvent the wheel each time.
 
 \subsection*{Enabling for build }
 
-Enable at C\+Make with -\/\+D\+L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+P\+L\+U\+G\+I\+NS=1
+Enable the demo plugin at C\+Make with -\/\+D\+L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+P\+L\+U\+G\+I\+NS=1
+
+\subsection*{Integrating with your html }
+
+
+\begin{DoxyItemize}
+\item In your H\+E\+AD section, include lwsgt.\+js
+\end{DoxyItemize}
+
+
+\begin{DoxyCode}
+1 <script src="lwsgt.js"></script>
+\end{DoxyCode}
+
+
+
+\begin{DoxyItemize}
+\item Also in your H\+E\+AD section, style the lwsgt C\+SS, eg
+\end{DoxyItemize}
+
+
+\begin{DoxyCode}
+1 <style>
+2 .lwsgt\_title \{ font-size: 24; text-align:center \}
+3 .lwsgt\_breadcrumbs \{ font-size: 18; text-align:left \}
+4 .lwsgt\_table \{ font-size: 14; padding:12px; margin: 12px; align:center \}
+5 .lwsgt\_hdr \{ font-size: 18; text-align:center;
+6              background-color: rgba(40, 40, 40, 0.8); color: white \}
+7 .lwsgt\_tr \{ padding: 10px  \}
+8 .lwsgt\_td \{ padding: 3px  \}
+9 </style>
+\end{DoxyCode}
+
+
+You can skip this but the result will be less beautiful until some C\+SS is provided.
+
+
+\begin{DoxyItemize}
+\item In your body section, declare a div with an id (can be whatever you want)
+\end{DoxyItemize}
+
+
+\begin{DoxyCode}
+1 <tr><td><div id="lwsgt1" class="group1"></div></td></tr>
+\end{DoxyCode}
+
+
+lwsgt JS will put its content there.
+
+
+\begin{DoxyItemize}
+\item Finally in a $<$script$>$ at the end of your page, instantiate lwsgt and provide a custom callback for clickable links
+\end{DoxyItemize}
+
+
+\begin{DoxyCode}
+1 <script>
+2 var v1 = new lwsgt\_initial("Dir listing demo",
+3                            "protocol-lws-table-dirlisting",
+4                            "lwsgt1", "lwsgt\_dir\_click", "v1");
+5 
+6 function lwsgt\_dir\_click(gt, u, col, row)
+7 \{
+8         if (u[0] == '=') \{ /* change directory */
+9                 window[gt].lwsgt\_ws.send(u.substring(1, u.length));
+10                 return;
+11         \}
+12         var win = window.open(u, '\_blank');
+13         win.focus();
+14 \}
+15 
+16 </script>
+\end{DoxyCode}
+
+
+In the callback, you can recover the ws object by {\ttfamily window\mbox{[}gt\mbox{]}.lwsgt\+\_\+ws}.
+
+\subsection*{Lwsgt constructor }
+
+{\ttfamily var myvar = new lwsgt\+\_\+initial(title, ws\+\_\+protocol, div\+\_\+id, click\+\_\+cb, myvar);}
+
+All of the arguments are strings.
+
+\tabulinesep=1mm
+\begin{longtabu} spread 0pt [c]{*2{|X[-1]}|}
+\hline
+\rowcolor{\tableheadbgcolor}{\bf Parameter }&{\bf Description  }\\\cline{1-2}
+\endfirsthead
+\hline
+\endfoot
+\hline
+\rowcolor{\tableheadbgcolor}{\bf Parameter }&{\bf Description  }\\\cline{1-2}
+\endhead
+title &Title string to go above the table \\\cline{1-2}
+ws\+\_\+protocol &Protocol name string to use when making ws connection \\\cline{1-2}
+div\+\_\+id &H\+T\+ML id of div to fill with content \\\cline{1-2}
+click\+\_\+cb &Callback function name string to handle clickable links \\\cline{1-2}
+myvar &Name of var used to hold this instantiation globally \\\cline{1-2}
+\end{longtabu}
+
+
+\subsection*{Lwsgt click handling function }
+
+When a clickable link produced by lwsgt is clicked, the function named in the click\+\_\+cb parameter to lwsgt\+\_\+initial is called.
+
+That function is expected to take four parameters, eg
+
+{\ttfamily function lwsgt\+\_\+dir\+\_\+click(gt, u, col, row)}
+
+\tabulinesep=1mm
+\begin{longtabu} spread 0pt [c]{*2{|X[-1]}|}
+\hline
+\rowcolor{\tableheadbgcolor}{\bf Parameter }&{\bf Description  }\\\cline{1-2}
+\endfirsthead
+\hline
+\endfoot
+\hline
+\rowcolor{\tableheadbgcolor}{\bf Parameter }&{\bf Description  }\\\cline{1-2}
+\endhead
+gt &Name of global var holding this lwsgt context (ie, myvar) \\\cline{1-2}
+u &Link \char`\"{}url\char`\"{} string \\\cline{1-2}
+col &Table column number link is from \\\cline{1-2}
+row &Table row number link is from \\\cline{1-2}
+\end{longtabu}
+
 
 \subsection*{Generic-\/table J\+S\+ON }
 
@@ -16,14 +140,14 @@ When the ws connection is established, the protocol should send a J\+S\+ON messa
 
 
 \begin{DoxyCode}
-1 msg = "\{\(\backslash\)"cols\(\backslash\)":["
-2       "  \{\(\backslash\)"name\(\backslash\)": \(\backslash\)"Date\(\backslash\)"\},"
-3       "  \{\(\backslash\)"name\(\backslash\)": \(\backslash\)"Size\(\backslash\)", \(\backslash\)"align\(\backslash\)": \(\backslash\)"right\(\backslash\)"\},"
-4       "  \{\(\backslash\)"name\(\backslash\)": \(\backslash\)"Icon\(\backslash\)"\},"
-5       "  \{\(\backslash\)"name\(\backslash\)": \(\backslash\)"Name\(\backslash\)", \(\backslash\)"href\(\backslash\)": \(\backslash\)"uri\(\backslash\)"\},"
-6       "  \{\(\backslash\)"name\(\backslash\)": \(\backslash\)"uri\(\backslash\)", \(\backslash\)"hide\(\backslash\)": \(\backslash\)"1\(\backslash\)" \}"
-7       " ]"
-8       "\}";
+1 "cols": [
+2       \{ "name": "Date" \},
+3       \{ "name": "Size", "align": "right" \},
+4       \{ "name": "Icon" \},
+5       \{ "name": "Name", "href": "uri"\},
+6       \{ "name": "uri", "hide": "1" \}"
+7   ]
+8 \}
 \end{DoxyCode}
 
 
@@ -35,6 +159,34 @@ When the ws connection is established, the protocol should send a J\+S\+ON messa
 \item \char`\"{}\+Size\char`\"{} field should be presented aligned to the right
 \end{DoxyItemize}
 
+\subsubsection*{Breadcrumbs}
+
+When a view is hierarchical, it\textquotesingle{}s useful to provide a \char`\"{}path\char`\"{} with links back in the \char`\"{}path\char`\"{}, known as \char`\"{}breadcrumbs\char`\"{}.
+
+Elements before the last one should provide a \char`\"{}url\char`\"{} member as well as the displayable name, which is used to create the link destination.
+
+The last element, being the current displayed page should not have a url member and be displayed without link style.
+
+
+\begin{DoxyCode}
+1 "breadcrumbs":[\{"name":"top", "url": "/" \}, \{"name":"mydir"\}]
+\end{DoxyCode}
+
+
 \subsubsection*{Table data}
 
-The 
+The actual file data consists of an array of rows, containing the columns mentioned in the original \char`\"{}cols\char`\"{} section.
+
+
+\begin{DoxyCode}
+1 "data":[
+2         \{
+3          "Icon":" ",
+4          "Date":"2015-Feb-06 03:08:35 +0000",
+5          "Size":"1406",
+6          "uri":"./serve//favicon.ico",
+7          "Name":"favicon.ico"
+8         \}
+9 ]
+\end{DoxyCode}
+ 

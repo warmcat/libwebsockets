@@ -424,6 +424,35 @@ bail:
 	return -1;
 }
 
+const struct lws_http_mount *
+lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
+{
+	const struct lws_http_mount *hm, *hit = NULL;
+	int best = 0;
+
+	hm = wsi->vhost->mount_list;
+	while (hm) {
+		if (uri_len >= hm->mountpoint_len &&
+		    !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len) &&
+		    (uri_ptr[hm->mountpoint_len] == '\0' ||
+		     uri_ptr[hm->mountpoint_len] == '/' ||
+		     hm->mountpoint_len == 1)
+		    ) {
+			if (hm->origin_protocol == LWSMPRO_CALLBACK ||
+			    ((hm->origin_protocol == LWSMPRO_CGI ||
+			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
+			     hm->protocol) &&
+			    hm->mountpoint_len > best)) {
+				best = hm->mountpoint_len;
+				hit = hm;
+			}
+		}
+		hm = hm->mount_next;
+	}
+
+	return hit;
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -432,13 +461,13 @@ lws_http_action(struct lws *wsi)
 	enum http_version request_version;
 	char content_length_str[32];
 	struct lws_process_html_args args;
-	const struct lws_http_mount *hm, *hit = NULL;
+	const struct lws_http_mount *hit = NULL;
 	unsigned int n, count = 0;
 	char http_version_str[10];
 	char http_conn_str[20];
 	int http_version_len;
-	char *uri_ptr = NULL;
-	int uri_len = 0, best = 0;
+	char *uri_ptr = NULL, *s;
+	int uri_len = 0;
 	int meth = -1;
 
 	static const unsigned char methods[] = {
@@ -658,216 +687,8 @@ lws_http_action(struct lws *wsi)
 
 	/* can we serve it from the mount list? */
 
-	hm = wsi->vhost->mount_list;
-	while (hm) {
-		if (uri_len >= hm->mountpoint_len &&
-		    !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len) &&
-		    (uri_ptr[hm->mountpoint_len] == '\0' ||
-		     uri_ptr[hm->mountpoint_len] == '/' ||
-		     hm->mountpoint_len == 1)
-		    ) {
-			if (hm->origin_protocol == LWSMPRO_CALLBACK ||
-			    ((hm->origin_protocol == LWSMPRO_CGI ||
-			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
-			     hm->protocol) &&
-			    hm->mountpoint_len > best)) {
-				best = hm->mountpoint_len;
-				hit = hm;
-			}
-		}
-		hm = hm->mount_next;
-	}
-	if (hit) {
-		char *s = uri_ptr + hit->mountpoint_len;
-
-		lwsl_debug("*** hit %d %d %s\n", hit->mountpoint_len,
-			   hit->origin_protocol , hit->origin);
-
-		if (hit->protocol) {
-			const struct lws_protocols *pp = lws_vhost_name_to_protocol(
-					wsi->vhost, hit->protocol);
-
-			if (!pp) {
-				lwsl_err("unknown protocol %s\n", hit->protocol);
-				return 1;
-			}
-
-			if (lws_bind_protocol(wsi, pp))
-				return 1;
-		}
-		lwsl_info("wsi %s protocol '%s'\n", uri_ptr, wsi->protocol->name);
-
-		args.p = uri_ptr;
-		args.len = uri_len;
-		args.max_len = hit->auth_mask;
-		args.final = 0; /* used to signal callback dealt with it */
-
-		n = wsi->protocol->callback(wsi, LWS_CALLBACK_CHECK_ACCESS_RIGHTS,
-					    wsi->user_space, &args, 0);
-		if (n) {
-			lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED,
-					       NULL);
-			goto bail_nuke_ah;
-		}
-		if (args.final) /* callback completely handled it well */
-			return 0;
-
-		/*
-		 * if we have a mountpoint like https://xxx.com/yyy
-		 * there is an implied / at the end for our purposes since
-		 * we can only mount on a "directory".
-		 *
-		 * But if we just go with that, the browser cannot understand
-		 * that he is actually looking down one "directory level", so
-		 * even though we give him /yyy/abc.html he acts like the
-		 * current directory level is /.  So relative urls like "x.png"
-		 * wrongly look outside the mountpoint.
-		 *
-		 * Therefore if we didn't come in on a url with an explicit
-		 * / at the end, we must redirect to add it so the browser
-		 * understands he is one "directory level" down.
-		 */
-		if ((hit->mountpoint_len > 1 ||
-		     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
-		      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
-		    (*s != '/' ||
-		     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
-		      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
-		    (hit->origin_protocol != LWSMPRO_CGI &&
-		     hit->origin_protocol != LWSMPRO_CALLBACK //&&
-		     //hit->protocol == NULL
-		     )) {
-			unsigned char *start = pt->serv_buf + LWS_PRE,
-					      *p = start, *end = p + 512;
-
-			lwsl_debug("Doing 301 '%s' org %s\n", s, hit->origin);
-
-			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
-				goto bail_nuke_ah;
-
-			/* > at start indicates deal with by redirect */
-			if (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
-			    hit->origin_protocol == LWSMPRO_REDIR_HTTPS)
-				n = snprintf((char *)end, 256, "%s%s",
-					    oprot[hit->origin_protocol & 1],
-					    hit->origin);
-			else
-				n = snprintf((char *)end, 256,
-				    "%s%s%s/", oprot[lws_is_ssl(wsi)],
-				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
-				    uri_ptr);
-
-			n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
-					      end, n, &p, end);
-			if ((int)n < 0)
-				goto bail_nuke_ah;
-
-			return lws_http_transaction_completed(wsi);
-		}
-
-		/*
-		 * A particular protocol callback is mounted here?
-		 *
-		 * For the duration of this http transaction, bind us to the
-		 * associated protocol
-		 */
-
-		if (hit->origin_protocol == LWSMPRO_CALLBACK ||
-		    (hit->protocol && lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))) {
-			if (! hit->protocol) {
-				for (n = 0; n < (unsigned int)wsi->vhost->count_protocols; n++)
-					if (!strcmp(wsi->vhost->protocols[n].name,
-						   hit->origin)) {
-						if (lws_bind_protocol(wsi, &wsi->vhost->protocols[n]))
-							return 1;
-						break;
-					}
-
-				if (n == wsi->vhost->count_protocols) {
-					n = -1;
-					lwsl_err("Unable to find plugin '%s'\n",
-						 hit->origin);
-				}
-			}
-			n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
-						    wsi->user_space,
-						    uri_ptr + hit->mountpoint_len,
-						    uri_len - hit->mountpoint_len);
-
-			goto after;
-		}
-
-#ifdef LWS_WITH_CGI
-		/* did we hit something with a cgi:// origin? */
-		if (hit->origin_protocol == LWSMPRO_CGI) {
-			const char *cmd[] = {
-				NULL, /* replace with cgi path */
-				NULL
-			};
-			unsigned char *p, *end, buffer[256];
-
-			lwsl_debug("%s: cgi\n", __func__);
-			cmd[0] = hit->origin;
-
-			n = 5;
-			if (hit->cgi_timeout)
-				n = hit->cgi_timeout;
-
-			n = lws_cgi(wsi, cmd, hit->mountpoint_len, n,
-				    hit->cgienv);
-			if (n) {
-				lwsl_err("%s: cgi failed\n");
-				return -1;
-			}
-			p = buffer + LWS_PRE;
-			end = p + sizeof(buffer) - LWS_PRE;
-
-			if (lws_add_http_header_status(wsi, 200, &p, end))
-				return 1;
-			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
-					(unsigned char *)"close", 5, &p, end))
-				return 1;
-			n = lws_write(wsi, buffer + LWS_PRE,
-				      p - (buffer + LWS_PRE),
-				      LWS_WRITE_HTTP_HEADERS);
-
-			goto deal_body;
-		}
-#endif
-
-		n = strlen(s);
-		if (s[0] == '\0' || (n == 1 && s[n - 1] == '/'))
-			s = (char *)hit->def;
-		if (!s)
-			s = "index.html";
-
-		wsi->cache_secs = hit->cache_max_age;
-		wsi->cache_reuse = hit->cache_reusable;
-		wsi->cache_revalidate = hit->cache_revalidate;
-		wsi->cache_intermediaries = hit->cache_intermediaries;
-
-
-		n = lws_http_serve(wsi, s, hit->origin, hit);
-		if (n) {
-			/*
-			 * 	lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
-			 */
-			if (hit->protocol) {
-				const struct lws_protocols *pp = lws_vhost_name_to_protocol(
-						wsi->vhost, hit->protocol);
-
-				if (lws_bind_protocol(wsi, pp))
-					return 1;
-
-				n = pp->callback(wsi, LWS_CALLBACK_HTTP,
-						 wsi->user_space,
-						 uri_ptr + hit->mountpoint_len,
-						 uri_len - hit->mountpoint_len);
-			} else
-				n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
-					    wsi->user_space, uri_ptr, uri_len);
-		}
-	} else {
+	hit = lws_find_mount(wsi, uri_ptr, uri_len);
+	if (!hit) {
 		/* deferred cleanup and reset to protocols[0] */
 
 		lwsl_info("no hit\n");
@@ -877,7 +698,187 @@ lws_http_action(struct lws *wsi)
 
 		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
+
+		goto after;
 	}
+
+	s = uri_ptr + hit->mountpoint_len;
+
+	args.p = uri_ptr;
+	args.len = uri_len;
+	args.max_len = hit->auth_mask;
+	args.final = 0; /* used to signal callback dealt with it */
+
+	n = wsi->protocol->callback(wsi, LWS_CALLBACK_CHECK_ACCESS_RIGHTS,
+				    wsi->user_space, &args, 0);
+	if (n) {
+		lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED,
+				       NULL);
+		goto bail_nuke_ah;
+	}
+	if (args.final) /* callback completely handled it well */
+		return 0;
+
+	/*
+	 * if we have a mountpoint like https://xxx.com/yyy
+	 * there is an implied / at the end for our purposes since
+	 * we can only mount on a "directory".
+	 *
+	 * But if we just go with that, the browser cannot understand
+	 * that he is actually looking down one "directory level", so
+	 * even though we give him /yyy/abc.html he acts like the
+	 * current directory level is /.  So relative urls like "x.png"
+	 * wrongly look outside the mountpoint.
+	 *
+	 * Therefore if we didn't come in on a url with an explicit
+	 * / at the end, we must redirect to add it so the browser
+	 * understands he is one "directory level" down.
+	 */
+	if ((hit->mountpoint_len > 1 ||
+	     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
+	    (*s != '/' ||
+	     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
+	    (hit->origin_protocol != LWSMPRO_CGI &&
+	     hit->origin_protocol != LWSMPRO_CALLBACK //&&
+	     //hit->protocol == NULL
+	     )) {
+		unsigned char *start = pt->serv_buf + LWS_PRE,
+			      *p = start, *end = p + 512;
+
+		lwsl_debug("Doing 301 '%s' org %s\n", s, hit->origin);
+
+		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
+			goto bail_nuke_ah;
+
+		/* > at start indicates deal with by redirect */
+		if (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+		    hit->origin_protocol == LWSMPRO_REDIR_HTTPS)
+			n = snprintf((char *)end, 256, "%s%s",
+				    oprot[hit->origin_protocol & 1],
+				    hit->origin);
+		else
+			n = snprintf((char *)end, 256,
+			    "%s%s%s/", oprot[lws_is_ssl(wsi)],
+			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
+			    uri_ptr);
+
+		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
+				      end, n, &p, end);
+		if ((int)n < 0)
+			goto bail_nuke_ah;
+
+		return lws_http_transaction_completed(wsi);
+	}
+
+	/*
+	 * A particular protocol callback is mounted here?
+	 *
+	 * For the duration of this http transaction, bind us to the
+	 * associated protocol
+	 */
+	if (hit->origin_protocol == LWSMPRO_CALLBACK || hit->protocol) {
+		const struct lws_protocols *pp;
+		const char *name = hit->origin;
+		if (hit->protocol)
+			name = hit->protocol;
+
+		pp = lws_vhost_name_to_protocol(wsi->vhost, name);
+		if (!pp) {
+			n = -1;
+			lwsl_err("Unable to find plugin '%s'\n",
+				 hit->origin);
+			return 1;
+		}
+
+		if (lws_bind_protocol(wsi, pp))
+			return 1;
+
+		if (hit->cgienv && wsi->protocol->callback(wsi,
+				LWS_CALLBACK_HTTP_PMO,
+				wsi->user_space, (void *)hit->cgienv, 0))
+			return 1;
+
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+			n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+					    wsi->user_space,
+					    uri_ptr + hit->mountpoint_len,
+					    uri_len - hit->mountpoint_len);
+			goto after;
+		}
+	}
+
+#ifdef LWS_WITH_CGI
+	/* did we hit something with a cgi:// origin? */
+	if (hit->origin_protocol == LWSMPRO_CGI) {
+		const char *cmd[] = {
+			NULL, /* replace with cgi path */
+			NULL
+		};
+		unsigned char *p, *end, buffer[256];
+
+		lwsl_debug("%s: cgi\n", __func__);
+		cmd[0] = hit->origin;
+
+		n = 5;
+		if (hit->cgi_timeout)
+			n = hit->cgi_timeout;
+
+		n = lws_cgi(wsi, cmd, hit->mountpoint_len, n,
+			    hit->cgienv);
+		if (n) {
+			lwsl_err("%s: cgi failed\n");
+			return -1;
+		}
+		p = buffer + LWS_PRE;
+		end = p + sizeof(buffer) - LWS_PRE;
+
+		if (lws_add_http_header_status(wsi, 200, &p, end))
+			return 1;
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
+				(unsigned char *)"close", 5, &p, end))
+			return 1;
+		n = lws_write(wsi, buffer + LWS_PRE,
+			      p - (buffer + LWS_PRE),
+			      LWS_WRITE_HTTP_HEADERS);
+
+		goto deal_body;
+	}
+#endif
+
+	n = strlen(s);
+	if (s[0] == '\0' || (n == 1 && s[n - 1] == '/'))
+		s = (char *)hit->def;
+	if (!s)
+		s = "index.html";
+
+	wsi->cache_secs = hit->cache_max_age;
+	wsi->cache_reuse = hit->cache_reusable;
+	wsi->cache_revalidate = hit->cache_revalidate;
+	wsi->cache_intermediaries = hit->cache_intermediaries;
+
+	n = lws_http_serve(wsi, s, hit->origin, hit);
+	if (n) {
+		/*
+		 * 	lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
+		 */
+		if (hit->protocol) {
+			const struct lws_protocols *pp = lws_vhost_name_to_protocol(
+					wsi->vhost, hit->protocol);
+
+			if (lws_bind_protocol(wsi, pp))
+				return 1;
+
+			n = pp->callback(wsi, LWS_CALLBACK_HTTP,
+					 wsi->user_space,
+					 uri_ptr + hit->mountpoint_len,
+					 uri_len - hit->mountpoint_len);
+		} else
+			n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+				    wsi->user_space, uri_ptr, uri_len);
+	}
+
 after:
 	if (n) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
@@ -1268,7 +1269,7 @@ upgrade_ws:
 			return 1;
 		}
 		wsi->u.ws.rx_ubuf_alloc = n;
-		lwsl_info("Allocating RX buffer %d\n", n);
+		lwsl_notice("Allocating RX buffer %d\n", n);
 #if LWS_POSIX
 		if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF,
 			       (const char *)&n, sizeof n)) {
@@ -1276,6 +1277,7 @@ upgrade_ws:
 			return 1;
 		}
 #endif
+
 		lwsl_parser("accepted v%02d connection\n",
 			    wsi->ietf_spec_revision);
 

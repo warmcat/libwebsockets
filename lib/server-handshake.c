@@ -260,6 +260,18 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	wsi->state = LWSS_ESTABLISHED;
 	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 
+	{
+		const char * uri_ptr =
+			lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI);
+		int uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI);
+		const struct lws_http_mount *hit =
+			lws_find_mount(wsi, uri_ptr, uri_len);
+		if (hit && hit->cgienv &&
+		    wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_PMO,
+			wsi->user_space, (void *)hit->cgienv, 0))
+			return 1;
+	}
+
 	return 0;
 
 

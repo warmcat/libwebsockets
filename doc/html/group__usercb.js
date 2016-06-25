@@ -41,6 +41,7 @@ var group__usercb =
       [ "LWS_CALLBACK_UNLOCK_POLL", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7a0e9e3dd667c0c42cdbe1a3d921f4fd79", null ],
       [ "LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7aa46f705dcf97502e95627ffde614f98b", null ],
       [ "LWS_CALLBACK_WS_PEER_INITIATED_CLOSE", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7ac3fc5bbb55e69f90396526287ee84a51", null ],
+      [ "LWS_CALLBACK_HTTP_PMO", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7aa5cc921b7697743017a533822a3d556a", null ],
       [ "LWS_CALLBACK_USER", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a", null ]
     ] ]
 ];

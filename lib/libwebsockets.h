@@ -909,6 +909,11 @@ enum lws_callback_reasons {
 
 	LWS_CALLBACK_GS_EVENT					= 55,
 	/**<  */
+	LWS_CALLBACK_HTTP_PMO					= 56,
+	/**< per-mount options for this connection, called before
+	 * the normal LWS_CALLBACK_HTTP when the mount has per-mount
+	 * options
+	 */
 
 	/****** add new things just above ---^ ******/
 

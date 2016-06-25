@@ -1268,6 +1268,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			      "plugins/protocol_lws_status.c" "" "")
 		create_plugin(protocol_post_demo
 			      "plugins/protocol_post_demo.c" "" "")
+		create_plugin(protocol_lws_table_dirlisting
+			      "plugins/generic-table/protocol_table_dirlisting.c" "" "")
+
 if (LWS_WITH_SERVER_STATUS)
 		create_plugin(protocol_lws_server_status
 			      "plugins/protocol_lws_server_status.c" "" "")
@@ -1509,6 +1512,12 @@ if (LWS_WITH_GENERIC_SESSIONS)
 		DESTINATION share/libwebsockets-test-server/generic-sessions/needadmin
 			COMPONENT examples)
 endif()
+
+	install(FILES
+		      plugins/generic-table/assets/lwsgt.js
+		      plugins/generic-table/assets/index.html
+		DESTINATION share/libwebsockets-test-server/generic-table
+			COMPONENT examples)
 
 endif()
 

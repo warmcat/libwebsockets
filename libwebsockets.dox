@@ -101,9 +101,9 @@ WARN_LOGFILE           =
 #---------------------------------------------------------------------------
 # Configuration options related to the input files
 #---------------------------------------------------------------------------
-INPUT                  = lib/libwebsockets.h mainpage.md README.build.md README.lwsws.md README.coding.md README.generic-sessions.md README.test-apps.md 
+INPUT                  = lib/libwebsockets.h mainpage.md README.build.md README.problems.md README.lwsws.md README.coding.md README.generic-sessions.md README.generic-table.md README.test-apps.md doc-assets 
 INPUT_ENCODING         = UTF-8
-FILE_PATTERNS          = lib/*.c *.md
+FILE_PATTERNS          = lib/*.c *.md *.png
 RECURSIVE              = NO
 EXCLUDE                =
 EXCLUDE_SYMLINKS       = NO
@@ -112,7 +112,7 @@ EXCLUDE_SYMBOLS        =
 EXAMPLE_PATH           =
 EXAMPLE_PATTERNS       =
 EXAMPLE_RECURSIVE      = NO
-IMAGE_PATH             =
+IMAGE_PATH             = doc-assets
 INPUT_FILTER           =
 FILTER_PATTERNS        =
 FILTER_SOURCE_FILES    = NO
@@ -197,7 +197,7 @@ EXTRA_SEARCH_MAPPINGS  =
 #---------------------------------------------------------------------------
 # Configuration options related to the LaTeX output
 #---------------------------------------------------------------------------
-GENERATE_LATEX         = YES
+GENERATE_LATEX         = NO
 LATEX_OUTPUT           = latex
 LATEX_CMD_NAME         = latex
 MAKEINDEX_CMD_NAME     = makeindex
