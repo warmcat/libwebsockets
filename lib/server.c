@@ -2543,7 +2543,7 @@ lws_chunked_html_process(struct lws_process_html_args *args,
 		}
 
 		if ((!s->pos && *sp == '$') || s->pos) {
-			int hits = 0, hit;
+			int hits = 0, hit = 0;
 
 			if (!s->pos)
 				s->start = sp;

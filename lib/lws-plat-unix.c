@@ -3,7 +3,9 @@
 #include <pwd.h>
 #include <grp.h>
 
+#ifdef LWS_WITH_PLUGINS
 #include <dlfcn.h>
+#endif
 #include <dirent.h>
 
 
