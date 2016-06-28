@@ -38,11 +38,24 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #if defined(LWS_USE_MBEDTLS)
 #else
 	struct lws_context *context = wsi->context;
-#if defined(CYASSL_SNI_HOST_NAME) || defined(WOLFSSL_SNI_HOST_NAME) || defined(SSL_CTRL_SET_TLSEXT_HOSTNAME)
 	const char *hostname = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
-#endif
+	X509_VERIFY_PARAM *param;
+
+	(void)hostname;
+	(void)param;
 
 	wsi->ssl = SSL_new(wsi->vhost->ssl_client_ctx);
+
+#if defined LWS_HAVE_X509_VERIFY_PARAM_set1_host
+	param = SSL_get0_param(wsi->ssl);
+	/* Enable automatic hostname checks */
+	X509_VERIFY_PARAM_set_hostflags(param,
+					X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+	X509_VERIFY_PARAM_set1_host(param, hostname, 0);
+	/* Configure a non-zero callback if desired */
+	SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, 0);
+#endif
+
 #ifndef USE_WOLFSSL
 	SSL_set_mode(wsi->ssl,  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 #endif

@@ -943,6 +943,7 @@ endforeach()
 set (temp ${CMAKE_REQUIRED_LIBRARIES})
 set(CMAKE_REQUIRED_LIBRARIES ${LIB_LIST})
 CHECK_FUNCTION_EXISTS(SSL_CTX_set1_param LWS_HAVE_SSL_CTX_set1_param)
+CHECK_FUNCTION_EXISTS(X509_VERIFY_PARAM_set1_host LWS_HAVE_X509_VERIFY_PARAM_set1_host)
 set(CMAKE_REQUIRED_LIBRARIES ${temp})
 # Generate the lws_config.h that includes all the public compilation settings.
 configure_file(
