@@ -221,6 +221,7 @@ static inline int compatible_close(int fd) { return close(fd); }
 #ifdef LWS_HAVE_OPENSSL_ECDH_H
 #include <openssl/ecdh.h>
 #endif
+#include <openssl/x509v3.h>
 #endif /* not USE_MBEDTLS */
 #endif /* not USE_POLARSSL */
 #endif /* not USE_WOLFSSL */
