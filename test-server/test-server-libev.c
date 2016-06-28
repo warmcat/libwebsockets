@@ -128,6 +128,12 @@ static struct lws_protocols protocols[] = {
 		sizeof(struct per_session_data__lws_mirror),
 		128,
 	},
+	{
+		"lws-status",
+		callback_lws_status,
+		sizeof(struct per_session_data__lws_status),
+		128,
+	},
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 
