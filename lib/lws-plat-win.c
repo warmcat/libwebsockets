@@ -285,7 +285,17 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return -1;
 	}
 
-	pfd->revents = (short)networkevents.lNetworkEvents;
+	if ((networkevents.lNetworkEvents & FD_CONNECT) &&
+	     networkevents.iErrorCode[FD_CONNECT_BIT] &&
+	     networkevents.iErrorCode[FD_CONNECT_BIT] != LWS_EALREADY &&
+	     networkevents.iErrorCode[FD_CONNECT_BIT] != LWS_EINPROGRESS &&
+	     networkevents.iErrorCode[FD_CONNECT_BIT] != LWS_EWOULDBLOCK &&
+	     networkevents.iErrorCode[FD_CONNECT_BIT] != WSAEINVAL) {
+		lwsl_debug("Unable to connect errno=%d\n",
+			   networkevents.iErrorCode[FD_CONNECT_BIT]);
+		pfd->revents = LWS_POLLHUP;
+	} else
+		pfd->revents = (short)networkevents.lNetworkEvents;
 
 	if (pfd->revents & LWS_POLLOUT) {
 		wsi = wsi_from_fd(context, pfd->fd);
@@ -460,7 +470,7 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	pt->fds[pt->fds_count++].revents = 0;
 	pt->events[pt->fds_count] = WSACreateEvent();
 	WSAEventSelect(wsi->sock, pt->events[pt->fds_count],
-		       LWS_POLLIN | LWS_POLLHUP);
+		       LWS_POLLIN | LWS_POLLHUP | FD_CONNECT);
 }
 
 LWS_VISIBLE void
@@ -479,11 +489,28 @@ lws_plat_service_periodic(struct lws_context *context)
 }
 
 LWS_VISIBLE int
+lws_plat_check_connection_error(struct lws *wsi)
+{
+	int optVal;
+	int optLen = sizeof(int);
+
+	if (getsockopt(wsi->sock, SOL_SOCKET, SO_ERROR,
+		       (char*)&optVal, &optLen) != SOCKET_ERROR && optVal &&
+	    optVal != LWS_EALREADY && optVal != LWS_EINPROGRESS &&
+	    optVal != LWS_EWOULDBLOCK && optVal != WSAEINVAL) {
+	       lwsl_debug("Connect failed SO_ERROR=%d\n", optVal);
+	       return 1;
+	}
+
+	return 0;
+}
+
+LWS_VISIBLE int
 lws_plat_change_pollfd(struct lws_context *context,
 		      struct lws *wsi, struct lws_pollfd *pfd)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	long networkevents = LWS_POLLHUP;
+	long networkevents = LWS_POLLHUP | FD_CONNECT;
 
 	if ((pfd->events & LWS_POLLIN))
 		networkevents |= LWS_POLLIN;
