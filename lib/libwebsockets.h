@@ -2874,7 +2874,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 #define u_int64_t unsigned long long
 #endif
 
-#if __x86_64__
+#if defined(__x86_64__)
 #define _LWS_PAD_SIZE 16	/* Intel recommended for best performance */
 #else
 #define _LWS_PAD_SIZE LWS_SIZEOFPTR   /* Size of a pointer on the target arch */
