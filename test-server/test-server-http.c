@@ -209,7 +209,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 
-		lwsl_notice("lws_http_serve: %s\n",in);
+		lwsl_info("lws_http_serve: %s\n",in);
 
 		if (debug_level & LLL_INFO) {
 			dump_handshake_info(wsi);
@@ -223,11 +223,8 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		{
-			char name[100], rip[50];
-			lws_get_peer_addresses(wsi, lws_get_socket_fd(wsi), name,
-					       sizeof(name), rip, sizeof(rip));
-			sprintf(buf, "%s (%s)", name, rip);
-			lwsl_notice("HTTP connect from %s\n", buf);
+			lws_get_peer_simple(wsi, buf, sizeof(buf));
+			lwsl_info("HTTP connect from %s\n", buf);
 		}
 
 		if (len < 1) {
@@ -497,7 +494,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return 1;
 		goto try_to_reuse;
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
-		lwsl_notice("LWS_CALLBACK_HTTP_DROP_PROTOCOL\n");
+		lwsl_debug("LWS_CALLBACK_HTTP_DROP_PROTOCOL\n");
 
 		/* called when our wsi user_space is going to be destroyed */
 		if (pss->spa) {

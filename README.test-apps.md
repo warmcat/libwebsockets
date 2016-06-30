@@ -1,3 +1,49 @@
+Overview of lws test apps
+=========================
+
+Are you building a client?  You just need to look at the test client
+[libwebsockets-test-client](test-server/test-client.c).
+
+If you are building a standalone server, there are three choices, in order of
+preferability.
+
+1) lwsws + protocol plugins
+
+Lws provides a generic web server app that can be configured with JSON
+config files.  https://libwebsockets.org itself uses this method.
+
+With lwsws handling the serving part, you only need to write an lws protocol
+plugin.  See [plugin-standalone](plugin-standalone) for an example of how
+to do that outside lws itself, using lws public apis.
+
+ $ cmake .. -DLWS_WITH_LWSWS=1
+
+See [README.lwsws.md](README.lwsws.md) for information on how to configure
+lwsws.
+
+NOTE this method implies libuv is used by lws, to provide crossplatform
+implementations of timers, dynamic lib loading etc for plugins and lwsws.
+
+2) test-server-v2.0.c
+
+This method lets you configure web serving in code, instead of using lwsws.
+
+Plugins are still used, which implies libuv needed.
+
+ $ cmake .. -DLWS_WITH_PLUGINS=1
+
+See [test-server-v2.0.c](test-server/test-server-v2.0.c)
+
+3) protocols in the server app
+
+This is the original way lws implemented servers, plugins and libuv are not
+required, but without plugins separating the protocol code directly, the
+combined code is all squidged together and is much less maintainable.
+
+This method is still supported in lws but all ongoing and future work is
+being done in protocol plugins only.
+
+
 Notes about lws test apps
 =========================
 
