@@ -870,7 +870,7 @@ lws_http_action(struct lws *wsi)
 	} else {
 		/* deferred cleanup and reset to protocols[0] */
 
-		lwsl_notice("no hit\n");
+		lwsl_info("no hit\n");
 
 		if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0]))
 			return 1;
@@ -1853,7 +1853,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 					    O_RDONLY);
 
 	if (wsi->u.http.fd == LWS_INVALID_FILE) {
-		lwsl_err("Unable to open '%s'\n", file);
+		lwsl_info("Unable to open '%s'\n", file);
 		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
 
 		return -1;

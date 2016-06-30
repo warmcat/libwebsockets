@@ -1,3 +1,37 @@
+Are you building a client? You just need to look at the test client \href{test-server/test-client.c}{\tt libwebsockets-\/test-\/client}.
+
+If you are building a standalone server, there are three choices, in order of preferability.
+
+1) lwsws + protocol plugins
+
+Lws provides a generic web server app that can be configured with J\+S\+ON config files. \href{https://libwebsockets.org}{\tt https\+://libwebsockets.\+org} itself uses this method.
+
+With lwsws handling the serving part, you only need to write an lws protocol plugin. See \mbox{[}plugin-\/standalone\mbox{]}(plugin-\/standalone) for an example of how to do that outside lws itself, using lws public apis.
+
+\$ cmake .. -\/\+D\+L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+L\+W\+S\+WS=1
+
+See \hyperlink{md_README.lwsws}{R\+E\+A\+D\+ME.lwsws.md} for information on how to configure lwsws.
+
+N\+O\+TE this method implies libuv is used by lws, to provide crossplatform implementations of timers, dynamic lib loading etc for plugins and lwsws.
+
+2) test-\/server-\/v2.\+0.\+c
+
+This method lets you configure web serving in code, instead of using lwsws.
+
+Plugins are still used, which implies libuv needed.
+
+\$ cmake .. -\/\+D\+L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+P\+L\+U\+G\+I\+NS=1
+
+See \href{test-server/test-server-v2.0.c}{\tt test-\/server-\/v2.\+0.\+c}
+
+3) protocols in the server app
+
+This is the original way lws implemented servers, plugins and libuv are not required, but without plugins separating the protocol code directly, the combined code is all squidged together and is much less maintainable.
+
+This method is still supported in lws but all ongoing and future work is being done in protocol plugins only.
+
+\section*{Notes about lws test apps }
+
 \subsection*{Testing server with a browser }
 
 If you run \href{test-server/test-server.c}{\tt libwebsockets-\/test-\/server} and point your browser (eg, Chrome) to \begin{DoxyVerb}    http://127.0.0.1:7681

@@ -4,7 +4,7 @@
 <meta http-equiv="Content-Type" content="text/xhtml;charset=UTF-8"/>
 <meta http-equiv="X-UA-Compatible" content="IE=9"/>
 <meta name="generator" content="Doxygen 1.8.11"/>
-<title>libwebsockets: Notes about lws test apps</title>
+<title>libwebsockets: Overview of lws test apps</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -62,10 +62,27 @@ $(document).ready(function(){initNavTree('md_README.test-apps.html','');});
 <div id="doc-content">
 <div class="header">
   <div class="headertitle">
-<div class="title">Notes about lws test apps </div>  </div>
+<div class="title">Overview of lws test apps </div>  </div>
 </div><!--header-->
 <div class="contents">
-<div class="textblock"><h2>Testing server with a browser </h2>
+<div class="textblock"><p>Are you building a client? You just need to look at the test client <a href="test-server/test-client.c">libwebsockets-test-client</a>.</p>
+<p>If you are building a standalone server, there are three choices, in order of preferability.</p>
+<p>1) lwsws + protocol plugins</p>
+<p>Lws provides a generic web server app that can be configured with JSON config files. <a href="https://libwebsockets.org">https://libwebsockets.org</a> itself uses this method.</p>
+<p>With lwsws handling the serving part, you only need to write an lws protocol plugin. See [plugin-standalone](plugin-standalone) for an example of how to do that outside lws itself, using lws public apis.</p>
+<p>$ cmake .. -DLWS_WITH_LWSWS=1</p>
+<p>See <a class="el" href="md_README.lwsws.html">README.lwsws.md</a> for information on how to configure lwsws.</p>
+<p>NOTE this method implies libuv is used by lws, to provide crossplatform implementations of timers, dynamic lib loading etc for plugins and lwsws.</p>
+<p>2) test-server-v2.0.c</p>
+<p>This method lets you configure web serving in code, instead of using lwsws.</p>
+<p>Plugins are still used, which implies libuv needed.</p>
+<p>$ cmake .. -DLWS_WITH_PLUGINS=1</p>
+<p>See <a href="test-server/test-server-v2.0.c">test-server-v2.0.c</a></p>
+<p>3) protocols in the server app</p>
+<p>This is the original way lws implemented servers, plugins and libuv are not required, but without plugins separating the protocol code directly, the combined code is all squidged together and is much less maintainable.</p>
+<p>This method is still supported in lws but all ongoing and future work is being done in protocol plugins only.</p>
+<h1>Notes about lws test apps </h1>
+<h2>Testing server with a browser </h2>
 <p>If you run <a href="test-server/test-server.c">libwebsockets-test-server</a> and point your browser (eg, Chrome) to </p><pre class="fragment">    http://127.0.0.1:7681
 </pre><p>It will fetch a script in the form of <code>test.html</code>, and then run the script in there on the browser to open a websocket connection. Incrementing numbers should appear in the browser display.</p>
 <p>By default the test server logs to both stderr and syslog, you can control what is logged using <code>-d &lt;log level&gt;</code>, see later.</p>

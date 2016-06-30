@@ -6,7 +6,7 @@ var NAVTREE =
     [ "Notes about lwsws", "md_README.lwsws.html", null ],
     [ "Notes about coding with lws", "md_README.coding.html", null ],
     [ "Notes about generic-sessions Plugin", "md_README.generic-sessions.html", null ],
-    [ "Notes about lws test apps", "md_README.test-apps.html", null ],
+    [ "Overview of lws test apps", "md_README.test-apps.html", null ],
     [ "Deprecated List", "deprecated.html", null ],
     [ "Modules", "modules.html", "modules" ],
     [ "Data Structures", "annotated.html", [

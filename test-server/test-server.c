@@ -135,7 +135,7 @@ test_server_fops_open(struct lws *wsi, const char *filename,
 	/* call through to original platform implementation */
 	n = fops_plat.open(wsi, filename, filelen, flags);
 
-	lwsl_notice("%s: opening %s, ret %ld, len %lu\n", __func__, filename,
+	lwsl_info("%s: opening %s, ret %ld, len %lu\n", __func__, filename,
 			(long)n, *filelen);
 
 	return n;
