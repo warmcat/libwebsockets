@@ -206,41 +206,50 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/* if we know something needs service already, don't wait in poll */
 	timeout_ms = lws_service_adjust_timeout(context, timeout_ms, tsi);
 
-	ev = WSAWaitForMultipleEvents(pt->fds_count + 1, pt->events,
-				      FALSE, timeout_ms, FALSE);
-	context->service_tid = 0;
-
-	if (ev == WSA_WAIT_TIMEOUT) {
-		lws_service_fd(context, NULL);
-		return 0;
-	}
-
-	if (ev == WSA_WAIT_EVENT_0) {
+    ev = WSAWaitForMultipleEvents( 1,  pt->events , FALSE, 0, FALSE);
+    if (ev == WSA_WAIT_EVENT_0) {
 		WSAResetEvent(pt->events[0]);
 		return 0;
 	}
 
-	if (ev < WSA_WAIT_EVENT_0 || ev > WSA_WAIT_EVENT_0 + pt->fds_count)
-		return -1;
+    unsigned int indexToService =  -1;
+    for(unsigned int eIdx = 0; eIdx < pt->fds_count; ++eIdx)
+    {
+        ev = WSAWaitForMultipleEvents( 1,  &(pt->events[eIdx+1]) , FALSE, 0, FALSE);
+        if( ev ==  WSA_WAIT_FAILED )
+        {
+            lwsl_err("WSAWaitForMultipleEvents() failed with error %d\n", LWS_ERRNO);
+            continue;
+        }
+        if( ev == WSA_WAIT_EVENT_0 )
+        {
+            if (WSAEnumNetworkEvents(pt->fds[eIdx].fd,  pt->events[eIdx+1], &networkevents) == SOCKET_ERROR) {
+                lwsl_err("WSAEnumNetworkEvents() failed with error %d\n", LWS_ERRNO);
+                return -1;
+            }
+            if( indexToService == -1 )
+                indexToService = eIdx;
 
-	pfd = &pt->fds[ev - WSA_WAIT_EVENT_0 - 1];
+            pfd = &pt->fds[eIdx];
+            pfd->revents = (short)networkevents.lNetworkEvents;
 
-	/* eh... is one event at a time the best windows can do? */
+            if (pfd->revents & LWS_POLLOUT) {
+                wsi = wsi_from_fd(context, pfd->fd);
+                if (wsi)
+                    wsi->sock_send_blocking = 0;
+            }
 
-	if (WSAEnumNetworkEvents(pfd->fd, pt->events[ev - WSA_WAIT_EVENT_0],
-				 &networkevents) == SOCKET_ERROR) {
-		lwsl_err("WSAEnumNetworkEvents() failed with error %d\n",
-								     LWS_ERRNO);
-		return -1;
-	}
+            lws_service_fd_tsi(context, pfd, tsi);
+        }
+    }
+	context->service_tid = 0;
 
-	pfd->revents = (short)networkevents.lNetworkEvents;
+    if( timeout_ms >= 0 && indexToService == -1)
+    {
+        lws_service_fd(context, NULL);
+        return 0;
+    }
 
-	if (pfd->revents & LWS_POLLOUT) {
-		wsi = wsi_from_fd(context, pfd->fd);
-		if (wsi)
-			wsi->sock_send_blocking = 0;
-	}
 
 faked_service:
 
@@ -262,12 +271,7 @@ faked_service:
 		return 0;
 	}
 
-	if (timeout_ms < 0)
-		return 0;
-
-	/* otherwise just do the one... must be a way to improve that... */
-
-	return lws_service_fd_tsi(context, pfd, tsi);
+	return 0;
 }
 
 LWS_VISIBLE int
