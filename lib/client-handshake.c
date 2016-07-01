@@ -12,6 +12,7 @@ lws_client_connect_2(struct lws *wsi)
 	struct sockaddr_in server_addr4;
 	struct lws_pollfd pfd;
 	struct sockaddr *v;
+	const char *cce = NULL;
 	int n, plen = 0;
 	const char *ads;
 
@@ -72,6 +73,7 @@ lws_client_connect_2(struct lws *wsi)
 #else
 			lwsl_err("getaddrinfo: %s\n", gai_strerror(n));
 #endif
+			cce = "getaddrinfo (ipv6) failed";
 			goto oom4;
 		}
 
@@ -97,6 +99,7 @@ lws_client_connect_2(struct lws *wsi)
 		default:
 			lwsl_err("Unknown address family\n");
 			freeaddrinfo(result);
+			cce = "unknown address family";
 			goto oom4;
 		}
 
@@ -114,6 +117,7 @@ lws_client_connect_2(struct lws *wsi)
 
 		if (getaddrinfo(ads, NULL, &ai, &result)) {
 			lwsl_err("getaddrinfo failed\n");
+			cce = "getaddrinfo (ipv4) failed";
 			goto oom4;
 		}
 
@@ -157,6 +161,7 @@ lws_client_connect_2(struct lws *wsi)
 		if (lws_plat_set_socket_options(wsi->vhost, wsi->sock)) {
 			lwsl_err("Failed to set wsi socket options\n");
 			compatible_close(wsi->sock);
+			cce = "set socket opts failed";
 			goto oom4;
 		}
 
@@ -166,6 +171,7 @@ lws_client_connect_2(struct lws *wsi)
 		lws_libuv_accept(wsi, wsi->sock);
 		if (insert_wsi_socket_into_fds(context, wsi)) {
 			compatible_close(wsi->sock);
+			cce = "insert wsi failed";
 			goto oom4;
 		}
 
@@ -291,10 +297,12 @@ oom4:
 	/* we're closing, losing some rx is OK */
 	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
 	//lwsl_err("%d\n", wsi->mode);
-	if (wsi->mode == LWSCM_HTTP_CLIENT)
+	if (wsi->mode == LWSCM_HTTP_CLIENT) {
 		wsi->vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-			wsi->user_space, NULL, 0);
+			wsi->user_space, (void *)cce, strlen(cce));
+		wsi->already_did_cce = 1;
+	}
 	/* take care that we might be inserted in fds already */
 	if (wsi->position_in_fds_table != -1)
 		goto failed;
@@ -566,12 +574,20 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->u.hdr.stash->protocol[sizeof(wsi->u.hdr.stash->protocol) - 1] = '\0';
 	wsi->u.hdr.stash->method[sizeof(wsi->u.hdr.stash->method) - 1] = '\0';
 
+	if (i->pwsi)
+		*i->pwsi = wsi;
+
 	/* if we went on the waiting list, no probs just return the wsi
 	 * when we get the ah, now or later, he will call
 	 * lws_client_connect_via_info2() below.
 	 */
-	if (lws_header_table_attach(wsi, 0) < 0)
-		return NULL;
+	if (lws_header_table_attach(wsi, 0) < 0) {
+		/*
+		 * if we failed here, the connection is already closed
+		 * and freed.
+		 */
+		goto bail1;
+	}
 
 	if (i->parent_wsi) {
 		lwsl_info("%s: created child %p of parent %p\n", __func__,
@@ -591,6 +607,10 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 bail:
 	lws_free(wsi);
+
+bail1:
+	if (i->pwsi)
+		*i->pwsi = NULL;
 
 	return NULL;
 }

@@ -13,6 +13,7 @@ var group__client =
       [ "path", "structlws__client__connect__info.html#a76a8388733f114fb8fd3643874781185", null ],
       [ "port", "structlws__client__connect__info.html#a1af124d81c3c22a46d39387c5bc3d6b9", null ],
       [ "protocol", "structlws__client__connect__info.html#aba35adfb74845a5fd0c3dc141cbdddd2", null ],
+      [ "pwsi", "structlws__client__connect__info.html#a065063b5117ecd0a59567c97f04bda2e", null ],
       [ "ssl_connection", "structlws__client__connect__info.html#a9862297827639238a7a0b4054c3ddf3d", null ],
       [ "uri_replace_from", "structlws__client__connect__info.html#a03c305fdca809667b6a9a83b3edfd83a", null ],
       [ "uri_replace_to", "structlws__client__connect__info.html#a9959ba103d3d2484e559a9f7879eebe3", null ],
@@ -21,6 +22,6 @@ var group__client =
     ] ],
     [ "lws_client_connect", "group__client.html#ga4af0a20108a95e8b6d94dd4d80055ff3", null ],
     [ "lws_client_connect_extended", "group__client.html#gac6a8558b4410961a880241c2ac1271e2", null ],
-    [ "lws_client_connect_via_info", "group__client.html#gac30a7be106abd0cedfbb2e8b8fe3a2f5", null ],
+    [ "lws_client_connect_via_info", "group__client.html#ga0c966136905f467816307cfba6deb5fd", null ],
     [ "lws_init_vhost_client_ssl", "group__client.html#ga4f44b8230e6732816ca5cd8d1aaaf340", null ]
 ];

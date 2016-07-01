@@ -72,8 +72,9 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];
-	char *sb = p;
+	const char *cce = NULL;
 	unsigned char c;
+	char *sb = p;
 	int n, len;
 
 	switch (wsi->mode) {
@@ -155,8 +156,10 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			n = lws_ssl_client_connect1(wsi);
 			if (!n)
 				return 0;
-			if (n < 0)
+			if (n < 0) {
+				cce = "lws_ssl_client_connect1 failed";
 				goto bail3;
+			}
 		} else
 			wsi->ssl = NULL;
 
@@ -168,8 +171,10 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			n = lws_ssl_client_connect2(wsi);
 			if (!n)
 				return 0;
-			if (n < 0)
+			if (n < 0) {
+				cce = "lws_ssl_client_connect2 failed";
 				goto bail3;
+			}
 		} else
 			wsi->ssl = NULL;
 #endif
@@ -220,7 +225,7 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 
 			lwsl_debug("Server connection %p (fd=%d) dead\n",
 				(void *)wsi, pollfd->fd);
-
+			cce = "Peer hung up";
 			goto bail3;
 		}
 
@@ -255,6 +260,7 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			switch (n) {
 			case 0:
 			case LWS_SSL_CAPABLE_ERROR:
+				cce = "read failed";
 				goto bail3;
 			case LWS_SSL_CAPABLE_MORE_SERVICE:
 				return 0;
@@ -287,7 +293,8 @@ bail3:
 		lwsl_info("closing conn at LWS_CONNMODE...SERVER_REPLY\n");
 		wsi->vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-					wsi->user_space, NULL, 0);
+			wsi->user_space, (void *)cce, cce ? strlen(cce) : 0);
+		wsi->already_did_cce = 1;
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 		return -1;
 
@@ -357,10 +364,10 @@ lws_http_transaction_completed_client(struct lws *wsi)
 int
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
-	int n, len, okay = 0, isErrorCodeReceived = 0, port = 0, ssl = 0;
+	int n, len, okay = 0, port = 0, ssl = 0;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
 	struct lws_context *context = wsi->context;
-	const char *pc, *prot, *ads = NULL, *path;
+	const char *pc, *prot, *ads = NULL, *path, *cce = NULL;
 	struct allocated_headers *ah;
 	char *p;
 #ifndef LWS_NO_EXTENSIONS
@@ -404,6 +411,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
 	if (wsi->do_ws && !p) {
 		lwsl_info("no URI\n");
+		cce = "HS: URI missing";
 		goto bail3;
 	}
 	if (!p) {
@@ -411,23 +419,29 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		wsi->u.http.connection_type = HTTP_CONNECTION_CLOSE;
 	}
 	if (!p) {
+		cce = "HS: URI missing";
 		lwsl_info("no URI\n");
 		goto bail3;
 	}
 	n = atoi(p);
 	if (n == 301 || n == 302 || n == 303 || n == 307 || n == 308) {
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_LOCATION);
-		if (!p)
+		if (!p) {
+			cce = "HS: Redirect code but no Location";
 			goto bail3;
+		}
 
-		if (lws_parse_uri(p, &prot, &ads, &port, &path))
+		if (lws_parse_uri(p, &prot, &ads, &port, &path)) {
+			cce = "HS: URI did not parse";
 			goto bail3;
+		}
 
 		if (!strcmp(prot, "wss://") || !strcmp(prot, "https://"))
 			ssl = 1;
 
 		if (lws_client_reset(wsi, ssl, ads, port, path, ads)) {
 			lwsl_err("Redirect failed\n");
+			cce = "HS: Redirect failed";
 			goto bail3;
 		}
 		return 0;
@@ -436,6 +450,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	if (!wsi->do_ws) {
 		if (n != 200) {
 			lwsl_notice("Connection failed with code %d", n);
+			cce = "HS: Server did not return 200";
 			goto bail2;
 		}
 
@@ -451,6 +466,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* allocate the per-connection user memory (if any) */
 		if (lws_ensure_user_space(wsi)) {
 			lwsl_err("Problem allocating wsi user mem\n");
+			cce = "HS: OOM";
 			goto bail2;
 		}
 
@@ -481,8 +497,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * headers and OK it
 		 */
 		if (wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
-					    wsi->user_space, NULL, 0))
+					    wsi->user_space, NULL, 0)) {
+
+			cce = "HS: disallowed by client filter";
 			goto bail2;
+		}
 
 		/* clear his proxy connection timeout */
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
@@ -492,8 +511,10 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* call him back to inform him he is up */
 		if (wsi->protocol->callback(wsi,
 					    LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
-					    wsi->user_space, NULL, 0))
+					    wsi->user_space, NULL, 0)) {
+			cce = "HS: disallowed at ESTABLISHED";
 			goto bail3;
+		}
 
 		/* free up his parsing allocations */
 		lws_header_table_detach(wsi, 0);
@@ -505,36 +526,41 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
 		lwsl_info("no ACCEPT\n");
-		isErrorCodeReceived = 1;
+		cce = "HS: ACCEPT missing";
 		goto bail3;
 	}
 
 	if (p && strncmp(p, "101", 3)) {
 		lwsl_warn(
 		       "lws_client_handshake: got bad HTTP response '%s'\n", p);
+		cce = "HS: ws upgrade response not 101";
 		goto bail3;
 	}
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE);
 	if (!p) {
 		lwsl_info("no UPGRADE\n");
+		cce = "HS: UPGRADE missing";
 		goto bail3;
 	}
 	strtolower(p);
 	if (strcmp(p, "websocket")) {
 		lwsl_warn(
 		      "lws_client_handshake: got bad Upgrade header '%s'\n", p);
+		cce = "HS: Upgrade to something other than websocket";
 		goto bail3;
 	}
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_CONNECTION);
 	if (!p) {
 		lwsl_info("no Connection hdr\n");
+		cce = "HS: CONNECTION missing";
 		goto bail3;
 	}
 	strtolower(p);
 	if (strcmp(p, "upgrade")) {
 		lwsl_warn("lws_client_int_s_hs: bad header %s\n", p);
+		cce = "HS: UPGRADE malformed";
 		goto bail3;
 	}
 
@@ -577,6 +603,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	if (!okay) {
 		lwsl_err("lws_client_int_s_hs: got bad protocol %s\n", p);
+		cce = "HS: PROTOCOL malformed";
 		goto bail2;
 	}
 
@@ -595,6 +622,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	if (wsi->protocol == NULL) {
 		lwsl_err("lws_client_int_s_hs: fail protocol %s\n", p);
+		cce = "HS: Cannot match protocol";
 		goto bail2;
 	}
 
@@ -615,6 +643,7 @@ check_extensions:
 
 	if (lws_hdr_copy(wsi, sb, context->pt_serv_buf_size, WSI_TOKEN_EXTENSIONS) < 0) {
 		lwsl_warn("ext list from server failed to copy\n");
+		cce = "HS: EXT: list too big";
 		goto bail2;
 	}
 
@@ -688,8 +717,10 @@ check_extensions:
 			if (user_callback_handle_rxflow(wsi->protocol->callback,
 					wsi, LWS_CALLBACK_WS_EXT_DEFAULTS,
 					(char *)ext->name, ext_name,
-					sizeof(ext_name)))
+					sizeof(ext_name))) {
+				cce = "HS: EXT: failed setting defaults";
 				goto bail2;
+			}
 
 			if (ext_name[0] &&
 			    lws_ext_parse_options(ext, wsi, wsi->act_ext_user[
@@ -697,6 +728,7 @@ check_extensions:
 						  strlen(ext_name))) {
 				lwsl_err("%s: unable to parse user defaults '%s'",
 					 __func__, ext_name);
+				cce = "HS: EXT: failed parsing defaults";
 				goto bail2;
 			}
 
@@ -708,6 +740,7 @@ check_extensions:
 					opts, a, c - a)) {
 				lwsl_err("%s: unable to parse remote def '%s'",
 					 __func__, a);
+				cce = "HS: EXT: failed parsing options";
 				goto bail2;
 			}
 
@@ -717,6 +750,7 @@ check_extensions:
 				      NULL, 0)) {
 				lwsl_err("%s: ext %s rejects server options %s",
 					 ext->name, a);
+				cce = "HS: EXT: Rejects server options";
 				goto bail2;
 			}
 
@@ -727,6 +761,7 @@ check_extensions:
 
 		if (n == 0) {
 			lwsl_warn("Unknown ext '%s'!\n", ext_name);
+			cce = "HS: EXT: unknown ext";
 			goto bail2;
 		}
 
@@ -745,12 +780,14 @@ check_accept:
 	if (strcmp(p, wsi->u.hdr.ah->initial_handshake_hash_base64)) {
 		lwsl_warn("lws_client_int_s_hs: accept '%s' wrong vs '%s'\n", p,
 				  wsi->u.hdr.ah->initial_handshake_hash_base64);
+		cce = "HS: Accept hash wrong";
 		goto bail2;
 	}
 
 	/* allocate the per-connection user memory (if any) */
 	if (lws_ensure_user_space(wsi)) {
 		lwsl_err("Problem allocating wsi user mem\n");
+		cce = "HS: OOM";
 		goto bail2;
 	}
 
@@ -759,8 +796,10 @@ check_accept:
 	 * headers and OK it
 	 */
 	if (wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
-				    wsi->user_space, NULL, 0))
+				    wsi->user_space, NULL, 0)) {
+		cce = "HS: Rejected by filter cb";
 		goto bail2;
+	}
 
 	/* clear his proxy connection timeout */
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
@@ -785,6 +824,7 @@ check_accept:
 	wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */);
 	if (!wsi->u.ws.rx_ubuf) {
 		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
+		cce = "HS: OOM";
 		goto bail2;
 	}
        wsi->u.ws.rx_ubuf_alloc = n;
@@ -793,6 +833,7 @@ check_accept:
 	if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF, (const char *)&n,
 		       sizeof n)) {
 		lwsl_warn("Failed to set SNDBUF to %d", n);
+		cce = "HS: SO_SNDBUF failed";
 		goto bail3;
 	}
 
@@ -801,8 +842,10 @@ check_accept:
 	/* call him back to inform him he is up */
 
 	if (wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_ESTABLISHED,
-				    wsi->user_space, NULL, 0))
+				    wsi->user_space, NULL, 0)) {
+		cce = "HS: Rejected at CLIENT_ESTABLISHED";
 		goto bail3;
+	}
 #ifndef LWS_NO_EXTENSIONS
 	/*
 	 * inform all extensions, not just active ones since they
@@ -828,18 +871,10 @@ bail3:
 	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
 bail2:
-	if (wsi->protocol && wsi->state == LWSS_ESTABLISHED) {
-		if (isErrorCodeReceived && p) {
-			wsi->protocol->callback(wsi,
-				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-						wsi->user_space, p,
-						(unsigned int)strlen(p));
-		} else {
-			wsi->protocol->callback(wsi,
-				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-						wsi->user_space, NULL, 0);
-		}
-	}
+	wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+				wsi->user_space, (void *)cce,
+				(unsigned int) (cce ? strlen(cce): 0));
+	wsi->already_did_cce = 1;
 
 	lwsl_info("closing connection due to bail2 connection error\n");
 

@@ -389,7 +389,7 @@ var libwebsockets_8h =
     [ "lws_chunked_html_process", "group__html-chunked-substitution.html#ga643073f918c0a7016b690aae9793fd60", null ],
     [ "lws_client_connect", "group__client.html#ga4af0a20108a95e8b6d94dd4d80055ff3", null ],
     [ "lws_client_connect_extended", "group__client.html#gac6a8558b4410961a880241c2ac1271e2", null ],
-    [ "lws_client_connect_via_info", "group__client.html#gac30a7be106abd0cedfbb2e8b8fe3a2f5", null ],
+    [ "lws_client_connect_via_info", "group__client.html#ga0c966136905f467816307cfba6deb5fd", null ],
     [ "lws_close_reason", "group__wsclose.html#gaa1c863415d1783cd8de7938aa6efa262", null ],
     [ "lws_context_destroy", "group__context-and-vhost.html#ga8ee0314028755f1ddfa9428e09b4fddb", null ],
     [ "lws_context_user", "group__context-and-vhost.html#gaeb12f934bfd178bd2132a9e73fc641da", null ],

@@ -8,7 +8,7 @@ struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect
 \subsection*{Functions}
 \begin{DoxyCompactItemize}
 \item 
-L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__client_gac30a7be106abd0cedfbb2e8b8fe3a2f5}{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info} (struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} $\ast$ccinfo)
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws $\ast$ \hyperlink{group__client_ga0c966136905f467816307cfba6deb5fd}{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info} (struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} $\ast$ccinfo)
 \item 
 L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws $\ast$L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT \hyperlink{group__client_ga4af0a20108a95e8b6d94dd4d80055ff3}{lws\+\_\+client\+\_\+connect} (struct lws\+\_\+context $\ast$clients, const char $\ast$address, int port, int ssl\+\_\+connection, const char $\ast$path, const char $\ast$host, const char $\ast$origin, const char $\ast$protocol, int ietf\+\_\+version\+\_\+or\+\_\+minus\+\_\+one) L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+D\+E\+P\+R\+E\+C\+A\+T\+ED
 \item 
@@ -115,18 +115,19 @@ This function creates a connection to a remote server \index{Client@{Client}!lws
 \end{DoxyParams}
 \index{Client@{Client}!lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info}}
 \index{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info}!Client@{Client}}
-\subsubsection[{\texorpdfstring{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info(struct lws\+\_\+client\+\_\+connect\+\_\+info $\ast$ccinfo)}{lws\_client\_connect\_via\_info(struct lws\_client\_connect\_info *ccinfo)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws$\ast$ L\+W\+S\+\_\+\+W\+A\+R\+N\+\_\+\+U\+N\+U\+S\+E\+D\+\_\+\+R\+E\+S\+U\+LT lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info (
+\subsubsection[{\texorpdfstring{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info(struct lws\+\_\+client\+\_\+connect\+\_\+info $\ast$ccinfo)}{lws\_client\_connect\_via\_info(struct lws\_client\_connect\_info *ccinfo)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN struct lws$\ast$ lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info (
 \begin{DoxyParamCaption}
 \item[{struct {\bf lws\+\_\+client\+\_\+connect\+\_\+info} $\ast$}]{ccinfo}
 \end{DoxyParamCaption}
-)}\hypertarget{group__client_gac30a7be106abd0cedfbb2e8b8fe3a2f5}{}\label{group__client_gac30a7be106abd0cedfbb2e8b8fe3a2f5}
+)}\hypertarget{group__client_ga0c966136905f467816307cfba6deb5fd}{}\label{group__client_ga0c966136905f467816307cfba6deb5fd}
 
 
 {\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
 
-\hyperlink{group__client_gac30a7be106abd0cedfbb2e8b8fe3a2f5}{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info()} -\/ Connect to another websocket server 
+\hyperlink{group__client_ga0c966136905f467816307cfba6deb5fd}{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info()} -\/ Connect to another websocket server 
 \begin{DoxyParams}{Parameters}
-{\em ccinfo} & pointer to \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} struct \begin{DoxyVerb} This function creates a connection to a remote server\end{DoxyVerb}
+{\em ccinfo} & pointer to \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} struct \begin{DoxyVerb} This function creates a connection to a remote server using the
+ information provided in ccinfo.\end{DoxyVerb}
  \\
 \hline
 \end{DoxyParams}

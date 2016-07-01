@@ -57,28 +57,28 @@ L\+W\+S\+\_\+\+W\+R\+I\+T\+E\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+I\+G\+N\+O\+R\+E\+\_
 \end{Desc}
 
 \begin{DoxyCode}
-2893                         \{
-2894         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da80e8f169fda236c56bfb795ed62903db}{LWS\_WRITE\_TEXT}                                            = 0,
-2898         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193daf6486c0dba50c44198100717721d9ab2}{LWS\_WRITE\_BINARY}                                        = 1,
-2901         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da10047eb05b5e1c298151dc47a5b44826}{LWS\_WRITE\_CONTINUATION}                                    = 2,
-2904         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dabb6705e1d1327cdda5025be28f07712e}{LWS\_WRITE\_HTTP}                                            = 3,
-2907         \textcolor{comment}{/* LWS\_WRITE\_CLOSE is handled by lws\_close\_reason() */}
-2908         LWS\_WRITE\_PING                                          = 5,
-2909         LWS\_WRITE\_PONG                                          = 6,
-2910 
-2911         \textcolor{comment}{/* Same as write\_http but we know this write ends the transaction */}
-2912         LWS\_WRITE\_HTTP\_FINAL                                    = 7,
-2913 
-2914         \textcolor{comment}{/* HTTP2 */}
-2915 
-2916         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dafe5a38e940ce56708ac814627e9c0917}{LWS\_WRITE\_HTTP\_HEADERS}                                    = 8,
-2923         \textcolor{comment}{/****** add new things just above ---^ ******/}
-2924 
-2925         \textcolor{comment}{/* flags */}
-2926 
-2927         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da115440f272a5d55518adfc8099acfee3}{LWS\_WRITE\_NO\_FIN} = 0x40,
-2930         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da220d8e8652d9b97fb66e476e2a60ffce}{LWS\_WRITE\_CLIENT\_IGNORE\_XOR\_MASK} = 0x80
-2934 \};
+2945                         \{
+2946         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da80e8f169fda236c56bfb795ed62903db}{LWS\_WRITE\_TEXT}                                            = 0,
+2950         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193daf6486c0dba50c44198100717721d9ab2}{LWS\_WRITE\_BINARY}                                        = 1,
+2953         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da10047eb05b5e1c298151dc47a5b44826}{LWS\_WRITE\_CONTINUATION}                                    = 2,
+2956         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dabb6705e1d1327cdda5025be28f07712e}{LWS\_WRITE\_HTTP}                                            = 3,
+2959         \textcolor{comment}{/* LWS\_WRITE\_CLOSE is handled by lws\_close\_reason() */}
+2960         LWS\_WRITE\_PING                                          = 5,
+2961         LWS\_WRITE\_PONG                                          = 6,
+2962 
+2963         \textcolor{comment}{/* Same as write\_http but we know this write ends the transaction */}
+2964         LWS\_WRITE\_HTTP\_FINAL                                    = 7,
+2965 
+2966         \textcolor{comment}{/* HTTP2 */}
+2967 
+2968         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193dafe5a38e940ce56708ac814627e9c0917}{LWS\_WRITE\_HTTP\_HEADERS}                                    = 8,
+2975         \textcolor{comment}{/****** add new things just above ---^ ******/}
+2976 
+2977         \textcolor{comment}{/* flags */}
+2978 
+2979         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da115440f272a5d55518adfc8099acfee3}{LWS\_WRITE\_NO\_FIN} = 0x40,
+2982         \hyperlink{group__sending-data_gga98b099cf8c1c7e38ad78501f270e193da220d8e8652d9b97fb66e476e2a60ffce}{LWS\_WRITE\_CLIENT\_IGNORE\_XOR\_MASK} = 0x80
+2986 \};
 \end{DoxyCode}
 
 

@@ -576,7 +576,47 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_CLIENT_CONNECTION_ERROR			=  1,
 	/**< the request client connection has been unable to complete a
 	 * handshake with the remote server.  If in is non-NULL, you can
-	 * find an error string of length len where it points to. */
+	 * find an error string of length len where it points to
+	 *
+	 * Diagnostic strings that may be returned include
+	 *
+	 *     	"getaddrinfo (ipv6) failed"
+	 *     	"unknown address family"
+	 *     	"getaddrinfo (ipv4) failed"
+	 *     	"set socket opts failed"
+	 *     	"insert wsi failed"
+	 *     	"lws_ssl_client_connect1 failed"
+	 *     	"lws_ssl_client_connect2 failed"
+	 *     	"Peer hung up"
+	 *     	"read failed"
+	 *     	"HS: URI missing"
+	 *     	"HS: Redirect code but no Location"
+	 *     	"HS: URI did not parse"
+	 *     	"HS: Redirect failed"
+	 *     	"HS: Server did not return 200"
+	 *     	"HS: OOM"
+	 *     	"HS: disallowed by client filter"
+	 *     	"HS: disallowed at ESTABLISHED"
+	 *     	"HS: ACCEPT missing"
+	 *     	"HS: ws upgrade response not 101"
+	 *     	"HS: UPGRADE missing"
+	 *     	"HS: Upgrade to something other than websocket"
+	 *     	"HS: CONNECTION missing"
+	 *     	"HS: UPGRADE malformed"
+	 *     	"HS: PROTOCOL malformed"
+	 *     	"HS: Cannot match protocol"
+	 *     	"HS: EXT: list too big"
+	 *     	"HS: EXT: failed setting defaults"
+	 *     	"HS: EXT: failed parsing defaults"
+	 *     	"HS: EXT: failed parsing options"
+	 *     	"HS: EXT: Rejects server options"
+	 *     	"HS: EXT: unknown ext"
+	 *     	"HS: Accept hash wrong"
+	 *     	"HS: Rejected by filter cb"
+	 *     	"HS: OOM"
+	 *     	"HS: SO_SNDBUF failed"
+	 *     	"HS: Rejected at CLIENT_ESTABLISHED"
+	 */
 	LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH		=  2,
 	/**< this is the last chance for the client user code to examine the
 	 * http headers and decide to reject the connection.  If the
@@ -1841,6 +1881,17 @@ struct lws_client_connect_info {
 	/**< see uri_replace_from */
 	struct lws_vhost *vhost;
 	/**< vhost to bind to (used to determine related SSL_CTX) */
+	struct lws **pwsi;
+	/**< if not NULL, store the new wsi here early in the connection
+	 * process.  Although we return the new wsi, the call to create the
+	 * client connection does progress the connection somewhat and may
+	 * meet an error that will result in the connection being scrubbed and
+	 * NULL returned.  While the wsi exists though, he may process a
+	 * callback like CLIENT_CONNECTION_ERROR with his wsi: this gives the
+	 * user callback a way to identify which wsi it is that faced the error
+	 * even before the new wsi is returned and even if ultimately no wsi
+	 * is returned.
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -1857,9 +1908,10 @@ struct lws_client_connect_info {
  * lws_client_connect_via_info() - Connect to another websocket server
  * \param ccinfo: pointer to lws_client_connect_info struct
  *
- *	This function creates a connection to a remote server
+ *	This function creates a connection to a remote server using the
+ *	information provided in ccinfo.
  */
-LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
+LWS_VISIBLE LWS_EXTERN struct lws *
 lws_client_connect_via_info(struct lws_client_connect_info * ccinfo);
 
 /**

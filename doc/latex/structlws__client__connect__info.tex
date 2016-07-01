@@ -39,12 +39,14 @@ const char $\ast$ \hyperlink{structlws__client__connect__info_a9959ba103d3d2484e
 \item 
 struct lws\+\_\+vhost $\ast$ \hyperlink{structlws__client__connect__info_a3893181d728f326f9f5b47c1459cb8be}{vhost}
 \item 
+struct lws $\ast$$\ast$ \hyperlink{structlws__client__connect__info_a065063b5117ecd0a59567c97f04bda2e}{pwsi}
+\item 
 void $\ast$ \hyperlink{structlws__client__connect__info_ad47f50d1633dc5df74548606c9a66d73}{\+\_\+unused} \mbox{[}4\mbox{]}
 \end{DoxyCompactItemize}
 
 
 \subsection{Detailed Description}
-struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} -\/ parameters to connect with when using \hyperlink{group__client_gac30a7be106abd0cedfbb2e8b8fe3a2f5}{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info()} 
+struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} -\/ parameters to connect with when using \hyperlink{group__client_ga0c966136905f467816307cfba6deb5fd}{lws\+\_\+client\+\_\+connect\+\_\+via\+\_\+info()} 
 
 \subsection{Field Documentation}
 \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!\+\_\+unused@{\+\_\+unused}}
@@ -83,7 +85,10 @@ uri path \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+con
 remote port to connect to \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!protocol@{protocol}}
 \index{protocol@{protocol}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
 \subsubsection[{\texorpdfstring{protocol}{protocol}}]{\setlength{\rightskip}{0pt plus 5cm}const char$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::protocol}\hypertarget{structlws__client__connect__info_aba35adfb74845a5fd0c3dc141cbdddd2}{}\label{structlws__client__connect__info_aba35adfb74845a5fd0c3dc141cbdddd2}
-list of ws protocols we could accept \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!ssl\+\_\+connection@{ssl\+\_\+connection}}
+list of ws protocols we could accept \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!pwsi@{pwsi}}
+\index{pwsi@{pwsi}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
+\subsubsection[{\texorpdfstring{pwsi}{pwsi}}]{\setlength{\rightskip}{0pt plus 5cm}struct lws$\ast$$\ast$ lws\+\_\+client\+\_\+connect\+\_\+info\+::pwsi}\hypertarget{structlws__client__connect__info_a065063b5117ecd0a59567c97f04bda2e}{}\label{structlws__client__connect__info_a065063b5117ecd0a59567c97f04bda2e}
+if not N\+U\+LL, store the new wsi here early in the connection process. Although we return the new wsi, the call to create the client connection does progress the connection somewhat and may meet an error that will result in the connection being scrubbed and N\+U\+LL returned. While the wsi exists though, he may process a callback like C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+O\+N\+\_\+\+E\+R\+R\+OR with his wsi\+: this gives the user callback a way to identify which wsi it is that faced the error even before the new wsi is returned and even if ultimately no wsi is returned. \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!ssl\+\_\+connection@{ssl\+\_\+connection}}
 \index{ssl\+\_\+connection@{ssl\+\_\+connection}!lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}}
 \subsubsection[{\texorpdfstring{ssl\+\_\+connection}{ssl\_connection}}]{\setlength{\rightskip}{0pt plus 5cm}int lws\+\_\+client\+\_\+connect\+\_\+info\+::ssl\+\_\+connection}\hypertarget{structlws__client__connect__info_a9862297827639238a7a0b4054c3ddf3d}{}\label{structlws__client__connect__info_a9862297827639238a7a0b4054c3ddf3d}
 nonzero for ssl \index{lws\+\_\+client\+\_\+connect\+\_\+info@{lws\+\_\+client\+\_\+connect\+\_\+info}!uri\+\_\+replace\+\_\+from@{uri\+\_\+replace\+\_\+from}}

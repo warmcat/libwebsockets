@@ -135,7 +135,45 @@ enum lws\+\_\+callback\+\_\+reasons -\/ reason you\textquotesingle{}re getting a
 L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED\hypertarget{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a24d39bf1cfc0bad9d92da9ac1717e439}{}\label{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a24d39bf1cfc0bad9d92da9ac1717e439}
 }](VH) after the server completes a handshake with an incoming client. If you built the library with ssl support, in is a pointer to the ssl struct associated with the connection or N\+U\+LL. \index{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+O\+N\+\_\+\+E\+R\+R\+OR@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+O\+N\+\_\+\+E\+R\+R\+OR}!User Callback@{User Callback}}\index{User Callback@{User Callback}!L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+O\+N\+\_\+\+E\+R\+R\+OR@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+O\+N\+\_\+\+E\+R\+R\+OR}}\item[{\em 
 L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+O\+N\+\_\+\+E\+R\+R\+OR\hypertarget{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ad8c6207b0c4e732f3d507f0fb79370e8}{}\label{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ad8c6207b0c4e732f3d507f0fb79370e8}
-}]the request client connection has been unable to complete a handshake with the remote server. If in is non-\/\+N\+U\+LL, you can find an error string of length len where it points to. \index{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH}!User Callback@{User Callback}}\index{User Callback@{User Callback}!L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH}}\item[{\em 
+}]the request client connection has been unable to complete a handshake with the remote server. If in is non-\/\+N\+U\+LL, you can find an error string of length len where it points to
+
+Diagnostic strings that may be returned include \begin{DoxyVerb}    "getaddrinfo (ipv6) failed"
+    "unknown address family"
+    "getaddrinfo (ipv4) failed"
+    "set socket opts failed"
+    "insert wsi failed"
+    "lws_ssl_client_connect1 failed"
+    "lws_ssl_client_connect2 failed"
+    "Peer hung up"
+    "read failed"
+    "HS: URI missing"
+    "HS: Redirect code but no Location"
+    "HS: URI did not parse"
+    "HS: Redirect failed"
+    "HS: Server did not return 200"
+    "HS: OOM"
+    "HS: disallowed by client filter"
+    "HS: disallowed at ESTABLISHED"
+    "HS: ACCEPT missing"
+    "HS: ws upgrade response not 101"
+    "HS: UPGRADE missing"
+    "HS: Upgrade to something other than websocket"
+    "HS: CONNECTION missing"
+    "HS: UPGRADE malformed"
+    "HS: PROTOCOL malformed"
+    "HS: Cannot match protocol"
+    "HS: EXT: list too big"
+    "HS: EXT: failed setting defaults"
+    "HS: EXT: failed parsing defaults"
+    "HS: EXT: failed parsing options"
+    "HS: EXT: Rejects server options"
+    "HS: EXT: unknown ext"
+    "HS: Accept hash wrong"
+    "HS: Rejected by filter cb"
+    "HS: OOM"
+    "HS: SO_SNDBUF failed"
+    "HS: Rejected at CLIENT_ESTABLISHED"\end{DoxyVerb}
+ \index{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH}!User Callback@{User Callback}}\index{User Callback@{User Callback}!L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH}}\item[{\em 
 L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH\hypertarget{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa536e574a642ff3ab9e12bff7ba2c6a2}{}\label{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa536e574a642ff3ab9e12bff7ba2c6a2}
 }]this is the last chance for the client user code to examine the http headers and decide to reject the connection. If the content in the headers is interesting to the client (url, etc) it needs to copy it out at this point since it will be destroyed before the C\+L\+I\+E\+N\+T\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED call \index{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED}!User Callback@{User Callback}}\index{User Callback@{User Callback}!L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED@{L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED}}\item[{\em 
 L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED\hypertarget{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a7e12418eec9bce85735e6460176ab604}{}\label{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a7e12418eec9bce85735e6460176ab604}
@@ -239,74 +277,74 @@ L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+U\+S\+ER\hypertarget{group__usercb_
 572         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a24d39bf1cfc0bad9d92da9ac1717e439}{LWS\_CALLBACK\_ESTABLISHED}                                =  0,
 576         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ad8c6207b0c4e732f3d507f0fb79370e8}{LWS\_CALLBACK\_CLIENT\_CONNECTION\_ERROR}                        =  
       1,
-580         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa536e574a642ff3ab9e12bff7ba2c6a2}{LWS\_CALLBACK\_CLIENT\_FILTER\_PRE\_ESTABLISH}                =  
+620         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa536e574a642ff3ab9e12bff7ba2c6a2}{LWS\_CALLBACK\_CLIENT\_FILTER\_PRE\_ESTABLISH}                =  
       2,
-587         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a7e12418eec9bce85735e6460176ab604}{LWS\_CALLBACK\_CLIENT\_ESTABLISHED}                          =  3,
-590         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a48a9590e5e18c7920282e094a0bfd9d8}{LWS\_CALLBACK\_CLOSED}                                  =  4,
-592         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a838b18d255c1b94a533287ba302a2eba}{LWS\_CALLBACK\_CLOSED\_HTTP}                                =  5,
-594         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a492c1b1c0ac0ed980042ee732fe2990c}{LWS\_CALLBACK\_RECEIVE}                                        =  6,
-598         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a2db02fc6e1c17ab62b52109d1aa9d738}{LWS\_CALLBACK\_RECEIVE\_PONG}                              =  7,
-600         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7abbbe7a0a67c5866ca9109d46823fc5b1}{LWS\_CALLBACK\_CLIENT\_RECEIVE}                          =  8,
-603         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a136a7cec11c3afd13245623bd84e76c9}{LWS\_CALLBACK\_CLIENT\_RECEIVE\_PONG}                        =  9,
-605         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a8e8b2e6dbeac76d8d126947d2166a514}{LWS\_CALLBACK\_CLIENT\_WRITEABLE}                              = 10,
-613         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a7ec8e2e9557ee02a4fc9f7dec7e2babc}{LWS\_CALLBACK\_SERVER\_WRITEABLE}                              = 11,
-615         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae8d1de0bb56e03aa58cb4d44b18edd2e}{LWS\_CALLBACK\_HTTP}                                      = 12,
-629         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ac4c68e00efcf1ff7bda7ada462aff8ae}{LWS\_CALLBACK\_HTTP\_BODY}                                    = 13,
-632         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a2fce9a8608220f32abbf1422a5498804}{LWS\_CALLBACK\_HTTP\_BODY\_COMPLETION}                      = 14,
-634         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa627548e1296e654fcfab463ec3c9587}{LWS\_CALLBACK\_HTTP\_FILE\_COMPLETION}                      = 15,
-636         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7afedadfb3cde37a8ea4c84ed535f26d09}{LWS\_CALLBACK\_HTTP\_WRITEABLE}                          = 16,
-638         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a026502768778b8d79d62dd0fe4375fc6}{LWS\_CALLBACK\_FILTER\_NETWORK\_CONNECTION}                    = 
+627         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a7e12418eec9bce85735e6460176ab604}{LWS\_CALLBACK\_CLIENT\_ESTABLISHED}                          =  3,
+630         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a48a9590e5e18c7920282e094a0bfd9d8}{LWS\_CALLBACK\_CLOSED}                                  =  4,
+632         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a838b18d255c1b94a533287ba302a2eba}{LWS\_CALLBACK\_CLOSED\_HTTP}                                =  5,
+634         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a492c1b1c0ac0ed980042ee732fe2990c}{LWS\_CALLBACK\_RECEIVE}                                        =  6,
+638         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a2db02fc6e1c17ab62b52109d1aa9d738}{LWS\_CALLBACK\_RECEIVE\_PONG}                              =  7,
+640         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7abbbe7a0a67c5866ca9109d46823fc5b1}{LWS\_CALLBACK\_CLIENT\_RECEIVE}                          =  8,
+643         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a136a7cec11c3afd13245623bd84e76c9}{LWS\_CALLBACK\_CLIENT\_RECEIVE\_PONG}                        =  9,
+645         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a8e8b2e6dbeac76d8d126947d2166a514}{LWS\_CALLBACK\_CLIENT\_WRITEABLE}                              = 10,
+653         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a7ec8e2e9557ee02a4fc9f7dec7e2babc}{LWS\_CALLBACK\_SERVER\_WRITEABLE}                              = 11,
+655         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae8d1de0bb56e03aa58cb4d44b18edd2e}{LWS\_CALLBACK\_HTTP}                                      = 12,
+669         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ac4c68e00efcf1ff7bda7ada462aff8ae}{LWS\_CALLBACK\_HTTP\_BODY}                                    = 13,
+672         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a2fce9a8608220f32abbf1422a5498804}{LWS\_CALLBACK\_HTTP\_BODY\_COMPLETION}                      = 14,
+674         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa627548e1296e654fcfab463ec3c9587}{LWS\_CALLBACK\_HTTP\_FILE\_COMPLETION}                      = 15,
+676         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7afedadfb3cde37a8ea4c84ed535f26d09}{LWS\_CALLBACK\_HTTP\_WRITEABLE}                          = 16,
+678         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a026502768778b8d79d62dd0fe4375fc6}{LWS\_CALLBACK\_FILTER\_NETWORK\_CONNECTION}                    = 
       17,
-649         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a75199176c82c1a56e4a6bbf1cc30c12c}{LWS\_CALLBACK\_FILTER\_HTTP\_CONNECTION}                  = 18,
-661         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae9734e1d7af2abf291665ce9e4a728d3}{LWS\_CALLBACK\_SERVER\_NEW\_CLIENT\_INSTANTIATED}          = 
+689         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a75199176c82c1a56e4a6bbf1cc30c12c}{LWS\_CALLBACK\_FILTER\_HTTP\_CONNECTION}                  = 18,
+701         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae9734e1d7af2abf291665ce9e4a728d3}{LWS\_CALLBACK\_SERVER\_NEW\_CLIENT\_INSTANTIATED}          = 
       19,
-669         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7accd8753672d319a30b4b4c2fb775e84d}{LWS\_CALLBACK\_FILTER\_PROTOCOL\_CONNECTION}                  = 
+709         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7accd8753672d319a30b4b4c2fb775e84d}{LWS\_CALLBACK\_FILTER\_PROTOCOL\_CONNECTION}                  = 
       20,
-681         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae4986291b7a810fe290851d73bebeb1c}{LWS\_CALLBACK\_OPENSSL\_LOAD\_EXTRA\_CLIENT\_VERIFY\_CERTS}  
+721         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae4986291b7a810fe290851d73bebeb1c}{LWS\_CALLBACK\_OPENSSL\_LOAD\_EXTRA\_CLIENT\_VERIFY\_CERTS}  
       = 21,
-688         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a06006e98d27e1e884364d88317f83493}{LWS\_CALLBACK\_OPENSSL\_LOAD\_EXTRA\_SERVER\_VERIFY\_CERTS}  
+728         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a06006e98d27e1e884364d88317f83493}{LWS\_CALLBACK\_OPENSSL\_LOAD\_EXTRA\_SERVER\_VERIFY\_CERTS}  
       = 22,
-694         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae5ad65d779b7eab32ab67ceff91a3bac}{LWS\_CALLBACK\_OPENSSL\_PERFORM\_CLIENT\_CERT\_VERIFICATION}      
+734         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ae5ad65d779b7eab32ab67ceff91a3bac}{LWS\_CALLBACK\_OPENSSL\_PERFORM\_CLIENT\_CERT\_VERIFICATION}      
       = 23,
-712         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a909cc2a7018864b0b71abacc4058fd8f}{LWS\_CALLBACK\_CLIENT\_APPEND\_HANDSHAKE\_HEADER}          = 
+752         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a909cc2a7018864b0b71abacc4058fd8f}{LWS\_CALLBACK\_CLIENT\_APPEND\_HANDSHAKE\_HEADER}          = 
       24,
-736         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a390da3639296660a78cc1a5dcb19037e}{LWS\_CALLBACK\_CONFIRM\_EXTENSION\_OKAY}                  = 25,
-747         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a1ce5b22039ca37ee224d00047596ea46}{LWS\_CALLBACK\_CLIENT\_CONFIRM\_EXTENSION\_SUPPORTED}          
+776         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a390da3639296660a78cc1a5dcb19037e}{LWS\_CALLBACK\_CONFIRM\_EXTENSION\_OKAY}                  = 25,
+787         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a1ce5b22039ca37ee224d00047596ea46}{LWS\_CALLBACK\_CLIENT\_CONFIRM\_EXTENSION\_SUPPORTED}          
       = 26,
-756         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ad5d34583e3556e153eda91620b48cc49}{LWS\_CALLBACK\_PROTOCOL\_INIT}                            = 27,
-759         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a54269ca88508e6efd3afdb9d360a9caa}{LWS\_CALLBACK\_PROTOCOL\_DESTROY}                              = 28,
-764         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7afd8fd77a1cc9405fcb4f26915d7f2d01}{LWS\_CALLBACK\_WSI\_CREATE}                                  = 29,
-766         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aca834dc035b7f7486f9ce40fde54fe9e}{LWS\_CALLBACK\_WSI\_DESTROY}                                = 30,
-768         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7adfb41c92e2522712207ef7f2462b5e34}{LWS\_CALLBACK\_GET\_THREAD\_ID}                            = 31,
-773         \textcolor{comment}{/* external poll() management support */}
-774         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ab69783a9fbf2ca71ad70706bda77b412}{LWS\_CALLBACK\_ADD\_POLL\_FD}                                = 32,
-790         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a1df60f314710236f9b53efbf468da768}{LWS\_CALLBACK\_DEL\_POLL\_FD}                                = 33,
-796         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa87d2e82fffa42c3680c7403ef94216e}{LWS\_CALLBACK\_CHANGE\_MODE\_POLL\_FD}                        = 34,
-804         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a8909732521d379179003d97ab7a05428}{LWS\_CALLBACK\_LOCK\_POLL}                                    = 35,
-816         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a0e9e3dd667c0c42cdbe1a3d921f4fd79}{LWS\_CALLBACK\_UNLOCK\_POLL}                                = 36,
-819         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa46f705dcf97502e95627ffde614f98b}{LWS\_CALLBACK\_OPENSSL\_CONTEXT\_REQUIRES\_PRIVATE\_KEY}      
+796         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ad5d34583e3556e153eda91620b48cc49}{LWS\_CALLBACK\_PROTOCOL\_INIT}                            = 27,
+799         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a54269ca88508e6efd3afdb9d360a9caa}{LWS\_CALLBACK\_PROTOCOL\_DESTROY}                              = 28,
+804         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7afd8fd77a1cc9405fcb4f26915d7f2d01}{LWS\_CALLBACK\_WSI\_CREATE}                                  = 29,
+806         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aca834dc035b7f7486f9ce40fde54fe9e}{LWS\_CALLBACK\_WSI\_DESTROY}                                = 30,
+808         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7adfb41c92e2522712207ef7f2462b5e34}{LWS\_CALLBACK\_GET\_THREAD\_ID}                            = 31,
+813         \textcolor{comment}{/* external poll() management support */}
+814         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ab69783a9fbf2ca71ad70706bda77b412}{LWS\_CALLBACK\_ADD\_POLL\_FD}                                = 32,
+830         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a1df60f314710236f9b53efbf468da768}{LWS\_CALLBACK\_DEL\_POLL\_FD}                                = 33,
+836         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa87d2e82fffa42c3680c7403ef94216e}{LWS\_CALLBACK\_CHANGE\_MODE\_POLL\_FD}                        = 34,
+844         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a8909732521d379179003d97ab7a05428}{LWS\_CALLBACK\_LOCK\_POLL}                                    = 35,
+856         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a0e9e3dd667c0c42cdbe1a3d921f4fd79}{LWS\_CALLBACK\_UNLOCK\_POLL}                                = 36,
+859         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7aa46f705dcf97502e95627ffde614f98b}{LWS\_CALLBACK\_OPENSSL\_CONTEXT\_REQUIRES\_PRIVATE\_KEY}      
       = 37,
-827         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ac3fc5bbb55e69f90396526287ee84a51}{LWS\_CALLBACK\_WS\_PEER\_INITIATED\_CLOSE}                        = 
+867         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7ac3fc5bbb55e69f90396526287ee84a51}{LWS\_CALLBACK\_WS\_PEER\_INITIATED\_CLOSE}                        = 
       38,
-836         LWS\_CALLBACK\_WS\_EXT\_DEFAULTS                            = 39,
-839         LWS\_CALLBACK\_CGI                                        = 40,
-841         LWS\_CALLBACK\_CGI\_TERMINATED                             = 41,
-843         LWS\_CALLBACK\_CGI\_STDIN\_DATA                             = 42,
-845         LWS\_CALLBACK\_CGI\_STDIN\_COMPLETED                        = 43,
-847         LWS\_CALLBACK\_ESTABLISHED\_CLIENT\_HTTP                    = 44,
-849         LWS\_CALLBACK\_CLOSED\_CLIENT\_HTTP                         = 45,
-851         LWS\_CALLBACK\_RECEIVE\_CLIENT\_HTTP                        = 46,
-853         LWS\_CALLBACK\_COMPLETED\_CLIENT\_HTTP                      = 47,
-855         LWS\_CALLBACK\_RECEIVE\_CLIENT\_HTTP\_READ                   = 48,
-857         LWS\_CALLBACK\_HTTP\_BIND\_PROTOCOL                         = 49,
-859         LWS\_CALLBACK\_HTTP\_DROP\_PROTOCOL                         = 50,
-861         LWS\_CALLBACK\_CHECK\_ACCESS\_RIGHTS                        = 51,
-863         LWS\_CALLBACK\_PROCESS\_HTML                               = 52,
-865         LWS\_CALLBACK\_ADD\_HEADERS                                = 53,
-867         LWS\_CALLBACK\_SESSION\_INFO                               = 54,
-870         LWS\_CALLBACK\_GS\_EVENT                                   = 55,
-873         \textcolor{comment}{/****** add new things just above ---^ ******/}
-874 
-875         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a}{LWS\_CALLBACK\_USER} = 1000,
-877 \};
+876         LWS\_CALLBACK\_WS\_EXT\_DEFAULTS                            = 39,
+879         LWS\_CALLBACK\_CGI                                        = 40,
+881         LWS\_CALLBACK\_CGI\_TERMINATED                             = 41,
+883         LWS\_CALLBACK\_CGI\_STDIN\_DATA                             = 42,
+885         LWS\_CALLBACK\_CGI\_STDIN\_COMPLETED                        = 43,
+887         LWS\_CALLBACK\_ESTABLISHED\_CLIENT\_HTTP                    = 44,
+889         LWS\_CALLBACK\_CLOSED\_CLIENT\_HTTP                         = 45,
+891         LWS\_CALLBACK\_RECEIVE\_CLIENT\_HTTP                        = 46,
+893         LWS\_CALLBACK\_COMPLETED\_CLIENT\_HTTP                      = 47,
+895         LWS\_CALLBACK\_RECEIVE\_CLIENT\_HTTP\_READ                   = 48,
+897         LWS\_CALLBACK\_HTTP\_BIND\_PROTOCOL                         = 49,
+899         LWS\_CALLBACK\_HTTP\_DROP\_PROTOCOL                         = 50,
+901         LWS\_CALLBACK\_CHECK\_ACCESS\_RIGHTS                        = 51,
+903         LWS\_CALLBACK\_PROCESS\_HTML                               = 52,
+905         LWS\_CALLBACK\_ADD\_HEADERS                                = 53,
+907         LWS\_CALLBACK\_SESSION\_INFO                               = 54,
+910         LWS\_CALLBACK\_GS\_EVENT                                   = 55,
+913         \textcolor{comment}{/****** add new things just above ---^ ******/}
+914 
+915         \hyperlink{group__usercb_ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a}{LWS\_CALLBACK\_USER} = 1000,
+917 \};
 \end{DoxyCode}

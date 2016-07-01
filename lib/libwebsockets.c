@@ -480,22 +480,12 @@ just_kill_connection:
 		lwsl_debug("calling back CLOSED_HTTP\n");
 		wsi->vhost->protocols->callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0 );
-	} else if (wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
-		   wsi->mode == LWSCM_WSCL_WAITING_CONNECT) {
-		char* errorString;
-
-		lwsl_debug("Connection closed before server reply\n");
-		errorString = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
-		if (errorString) {
-			wsi->vhost->protocols[0].callback(wsi,
-					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-					wsi->user_space, errorString,
-					(unsigned int)strlen(errorString));
-		} else {
+	} else if ((wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
+		   wsi->mode == LWSCM_WSCL_WAITING_CONNECT) &&
+		   !wsi->already_did_cce) {
 			wsi->vhost->protocols[0].callback(wsi,
 					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 					wsi->user_space, NULL, 0);
-		}
 	} else
 		lwsl_debug("not calling back closed mode=%d state=%d\n",
 			   wsi->mode, wsi->state_pre_close);

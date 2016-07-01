@@ -349,7 +349,7 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 		if (wsi->mode == LWSCM_WSCL_WAITING_SSL)
 			wsi->vhost->protocols[0].callback(wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-				wsi->user_space, NULL, 0);
+				wsi->user_space, (void *)"Timed out waiting SSL", 21);
 
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
