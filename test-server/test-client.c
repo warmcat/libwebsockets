@@ -85,6 +85,8 @@ static int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
+	const char *which = "http";
+
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -104,14 +106,12 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	/* because we are protocols[0] ... */
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		if (wsi == wsi_dumb) {
-			lwsl_err("dumb: LWS_CALLBACK_CLIENT_CONNECTION_ERROR\n");
-			wsi_dumb = NULL;
-		}
-		if (wsi == wsi_mirror) {
-			lwsl_err("mirror: LWS_CALLBACK_CLIENT_CONNECTION_ERROR\n");
-			wsi_mirror = NULL;
-		}
+		if (wsi == wsi_dumb)
+			which = "dumb";
+		if (wsi == wsi_mirror)
+			which = "mirror";
+
+		lwsl_err("CLIENT_CONNECTION_ERROR: %s: %s %p\n", which, in);
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:
@@ -520,18 +520,21 @@ int main(int argc, char **argv)
 			if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
 				lwsl_notice("dumb: connecting\n");
 				i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;
-				wsi_dumb = lws_client_connect_via_info(&i);
+				i.pwsi = &wsi_dumb;
+				lws_client_connect_via_info(&i);
 			}
 
 			if (!wsi_mirror && ratelimit_connects(&rl_mirror, 2u)) {
 				lwsl_notice("mirror: connecting\n");
 				i.protocol = protocols[PROTOCOL_LWS_MIRROR].name;
+				i.pwsi = &wsi_mirror;
 				wsi_mirror = lws_client_connect_via_info(&i);
 			}
 		} else
 			if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
 				lwsl_notice("http: connecting\n");
-				wsi_dumb = lws_client_connect_via_info(&i);
+				i.pwsi = &wsi_dumb;
+				lws_client_connect_via_info(&i);
 			}
 
 		lws_service(context, 500);

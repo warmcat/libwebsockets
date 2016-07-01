@@ -76,8 +76,8 @@ Data Structures</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:gac30a7be106abd0cedfbb2e8b8fe3a2f5"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *LWS_WARN_UNUSED_RESULT&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__client.html#gac30a7be106abd0cedfbb2e8b8fe3a2f5">lws_client_connect_via_info</a> (struct <a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a> *ccinfo)</td></tr>
-<tr class="separator:gac30a7be106abd0cedfbb2e8b8fe3a2f5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga0c966136905f467816307cfba6deb5fd"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__client.html#ga0c966136905f467816307cfba6deb5fd">lws_client_connect_via_info</a> (struct <a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a> *ccinfo)</td></tr>
+<tr class="separator:ga0c966136905f467816307cfba6deb5fd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga4af0a20108a95e8b6d94dd4d80055ff3"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *LWS_WARN_UNUSED_RESULT&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__client.html#ga4af0a20108a95e8b6d94dd4d80055ff3">lws_client_connect</a> (struct lws_context *clients, const char *address, int port, int ssl_connection, const char *path, const char *host, const char *origin, const char *protocol, int ietf_version_or_minus_one) LWS_WARN_DEPRECATED</td></tr>
 <tr class="separator:ga4af0a20108a95e8b6d94dd4d80055ff3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gac6a8558b4410961a880241c2ac1271e2"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *LWS_WARN_UNUSED_RESULT&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__client.html#gac6a8558b4410961a880241c2ac1271e2">lws_client_connect_extended</a> (struct lws_context *clients, const char *address, int port, int ssl_connection, const char *path, const char *host, const char *origin, const char *protocol, int ietf_version_or_minus_one, void *userdata) LWS_WARN_DEPRECATED</td></tr>
@@ -269,12 +269,12 @@ LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b
 
 </div>
 </div>
-<a class="anchor" id="gac30a7be106abd0cedfbb2e8b8fe3a2f5"></a>
+<a class="anchor" id="ga0c966136905f467816307cfba6deb5fd"></a>
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">LWS_VISIBLE LWS_EXTERN struct lws* LWS_WARN_UNUSED_RESULT lws_client_connect_via_info </td>
+          <td class="memname">LWS_VISIBLE LWS_EXTERN struct lws* lws_client_connect_via_info </td>
           <td>(</td>
           <td class="paramtype">struct <a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a> *&#160;</td>
           <td class="paramname"><em>ccinfo</em></td><td>)</td>
@@ -284,9 +284,10 @@ LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b
 </div><div class="memdoc">
 
 <p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
-<p><a class="el" href="group__client.html#gac30a7be106abd0cedfbb2e8b8fe3a2f5">lws_client_connect_via_info()</a> - Connect to another websocket server </p><dl class="params"><dt>Parameters</dt><dd>
+<p><a class="el" href="group__client.html#ga0c966136905f467816307cfba6deb5fd">lws_client_connect_via_info()</a> - Connect to another websocket server </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">ccinfo</td><td>pointer to <a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a> struct <pre class="fragment"> This function creates a connection to a remote server</pre> </td></tr>
+    <tr><td class="paramname">ccinfo</td><td>pointer to <a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a> struct <pre class="fragment"> This function creates a connection to a remote server using the
+ information provided in ccinfo.</pre> </td></tr>
   </table>
   </dd>
 </dl>

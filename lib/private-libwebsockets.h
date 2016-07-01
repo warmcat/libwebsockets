@@ -1259,6 +1259,7 @@ struct lws {
 	unsigned int cache_intermediaries:1;
 	unsigned int favoured_pollin:1;
 	unsigned int sending_chunked:1;
+	unsigned int already_did_cce:1;
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
 #endif

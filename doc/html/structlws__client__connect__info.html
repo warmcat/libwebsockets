@@ -112,11 +112,13 @@ Data Fields</h2></td></tr>
 <tr class="separator:a9959ba103d3d2484e559a9f7879eebe3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3893181d728f326f9f5b47c1459cb8be"><td class="memItemLeft" align="right" valign="top">struct lws_vhost *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__client__connect__info.html#a3893181d728f326f9f5b47c1459cb8be">vhost</a></td></tr>
 <tr class="separator:a3893181d728f326f9f5b47c1459cb8be"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a065063b5117ecd0a59567c97f04bda2e"><td class="memItemLeft" align="right" valign="top">struct lws **&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__client__connect__info.html#a065063b5117ecd0a59567c97f04bda2e">pwsi</a></td></tr>
+<tr class="separator:a065063b5117ecd0a59567c97f04bda2e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ad47f50d1633dc5df74548606c9a66d73"><td class="memItemLeft" align="right" valign="top">void *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__client__connect__info.html#ad47f50d1633dc5df74548606c9a66d73">_unused</a> [4]</td></tr>
 <tr class="separator:ad47f50d1633dc5df74548606c9a66d73"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>struct <a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a> - parameters to connect with when using <a class="el" href="group__client.html#gac30a7be106abd0cedfbb2e8b8fe3a2f5">lws_client_connect_via_info()</a> </p>
+<div class="textblock"><p>struct <a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a> - parameters to connect with when using <a class="el" href="group__client.html#ga0c966136905f467816307cfba6deb5fd">lws_client_connect_via_info()</a> </p>
 </div><h2 class="groupheader">Field Documentation</h2>
 <a class="anchor" id="ad47f50d1633dc5df74548606c9a66d73"></a>
 <div class="memitem">
@@ -271,6 +273,19 @@ Data Fields</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <p>list of ws protocols we could accept </p>
+
+</div>
+</div>
+<a class="anchor" id="a065063b5117ecd0a59567c97f04bda2e"></a>
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">struct lws** lws_client_connect_info::pwsi</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>if not NULL, store the new wsi here early in the connection process. Although we return the new wsi, the call to create the client connection does progress the connection somewhat and may meet an error that will result in the connection being scrubbed and NULL returned. While the wsi exists though, he may process a callback like CLIENT_CONNECTION_ERROR with his wsi: this gives the user callback a way to identify which wsi it is that faced the error even before the new wsi is returned and even if ultimately no wsi is returned. </p>
 
 </div>
 </div>
