@@ -1268,6 +1268,17 @@ spill:
 				/* if he sends us 2 CLOSE, kill him */
 				return -1;
 
+			if (lws_partial_buffered(wsi)) {
+				/*
+				 * if we're in the middle of something,
+				 * we can't do a normal close response and
+				 * have to just close our end.
+				 */
+				wsi->socket_is_permanently_unusable = 1;
+				lwsl_parser("Closing on peer close due to Pending tx\n");
+				return -1;
+			}
+
 			if (user_callback_handle_rxflow(
 					wsi->protocol->callback, wsi,
 					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
