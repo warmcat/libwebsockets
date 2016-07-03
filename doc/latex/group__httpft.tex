@@ -3,6 +3,8 @@
 \subsection*{Functions}
 \begin{DoxyCompactItemize}
 \item 
+L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char $\ast$ \hyperlink{group__httpft_gab4da87a4800413f15e7aba649fb1d77c}{lws\+\_\+get\+\_\+mimetype} (const char $\ast$file, const struct \hyperlink{structlws__http__mount}{lws\+\_\+http\+\_\+mount} $\ast$m)
+\item 
 L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int \hyperlink{group__httpft_gab393a06d3d2722af4c3f8b06842c80d7}{lws\+\_\+serve\+\_\+http\+\_\+file} (struct lws $\ast$wsi, const char $\ast$file, const char $\ast$content\+\_\+type, const char $\ast$other\+\_\+headers, int other\+\_\+headers\+\_\+len)
 \item 
 L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int {\bfseries lws\+\_\+serve\+\_\+http\+\_\+file\+\_\+fragment} (struct lws $\ast$wsi)\hypertarget{group__httpft_ga29e1123f6d56cd777b3e5bf9ca40f9e5}{}\label{group__httpft_ga29e1123f6d56cd777b3e5bf9ca40f9e5}
@@ -14,7 +16,30 @@ L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int {\bfseries lw
 A\+P\+Is for sending local files in response to H\+T\+TP requests 
 
 \subsection{Function Documentation}
-\index{H\+T\+T\+P File transfer@{H\+T\+T\+P File transfer}!lws\+\_\+serve\+\_\+http\+\_\+file@{lws\+\_\+serve\+\_\+http\+\_\+file}}
+\index{H\+T\+T\+P File transfer@{H\+T\+T\+P File transfer}!lws\+\_\+get\+\_\+mimetype@{lws\+\_\+get\+\_\+mimetype}}
+\index{lws\+\_\+get\+\_\+mimetype@{lws\+\_\+get\+\_\+mimetype}!H\+T\+T\+P File transfer@{H\+T\+T\+P File transfer}}
+\subsubsection[{\texorpdfstring{lws\+\_\+get\+\_\+mimetype(const char $\ast$file, const struct lws\+\_\+http\+\_\+mount $\ast$m)}{lws\_get\_mimetype(const char *file, const struct lws\_http\_mount *m)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN const char$\ast$ lws\+\_\+get\+\_\+mimetype (
+\begin{DoxyParamCaption}
+\item[{const char $\ast$}]{file, }
+\item[{const struct {\bf lws\+\_\+http\+\_\+mount} $\ast$}]{m}
+\end{DoxyParamCaption}
+)}\hypertarget{group__httpft_gab4da87a4800413f15e7aba649fb1d77c}{}\label{group__httpft_gab4da87a4800413f15e7aba649fb1d77c}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+\hyperlink{group__httpft_gab4da87a4800413f15e7aba649fb1d77c}{lws\+\_\+get\+\_\+mimetype()} -\/ Determine mimetype to use from filename
+
+
+\begin{DoxyParams}{Parameters}
+{\em file} & filename \\
+\hline
+{\em m} & N\+U\+LL, or mount context\\
+\hline
+\end{DoxyParams}
+This uses a canned list of known filetypes first, if no match and m is non-\/\+N\+U\+LL, then tries a list of per-\/mount file suffix to mimtype mappings.
+
+Returns either N\+U\+LL or a pointer to the mimetype matching the file. \index{H\+T\+T\+P File transfer@{H\+T\+T\+P File transfer}!lws\+\_\+serve\+\_\+http\+\_\+file@{lws\+\_\+serve\+\_\+http\+\_\+file}}
 \index{lws\+\_\+serve\+\_\+http\+\_\+file@{lws\+\_\+serve\+\_\+http\+\_\+file}!H\+T\+T\+P File transfer@{H\+T\+T\+P File transfer}}
 \subsubsection[{\texorpdfstring{lws\+\_\+serve\+\_\+http\+\_\+file(struct lws $\ast$wsi, const char $\ast$file, const char $\ast$content\+\_\+type, const char $\ast$other\+\_\+headers, int other\+\_\+headers\+\_\+len)}{lws\_serve\_http\_file(struct lws *wsi, const char *file, const char *content\_type, const char *other\_headers, int other\_headers\_len)}}]{\setlength{\rightskip}{0pt plus 5cm}L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int lws\+\_\+serve\+\_\+http\+\_\+file (
 \begin{DoxyParamCaption}

@@ -412,6 +412,7 @@ var libwebsockets_8h =
     [ "lws_get_count_threads", "group__misc.html#ga629f48268fd1856b54b11172991b97d9", null ],
     [ "lws_get_fops", "group__fops.html#gac08aef64c4c34647ed699b24759b6b0e", null ],
     [ "lws_get_library_version", "group__misc.html#gac6abfc0b2bd5b2f09281a4432bb2f5f0", null ],
+    [ "lws_get_mimetype", "group__httpft.html#gab4da87a4800413f15e7aba649fb1d77c", null ],
     [ "lws_get_parent", "group__misc.html#ga8930fe36a3f3eefe4a6a4fd499d8e899", null ],
     [ "lws_get_peer_addresses", "group__net.html#ga092e5f473b3347f03ffeef8a950080f3", null ],
     [ "lws_get_peer_simple", "group__net.html#gad01014fed09759741b6d23afccfdaacc", null ],

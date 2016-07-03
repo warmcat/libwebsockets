@@ -218,8 +218,8 @@ lws_vhost_name_to_protocol(struct lws_vhost *vh, const char *name)
 	return NULL;
 }
 
-static const char *
-get_mimetype(const char *file, const struct lws_http_mount *m)
+LWS_VISIBLE LWS_EXTERN const char *
+lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 {
 	int n = strlen(file);
 	const struct lws_protocol_vhost_options *pvo = NULL;
@@ -371,7 +371,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		return -1;
 #endif
 
-	mimetype = get_mimetype(path, m);
+	mimetype = lws_get_mimetype(path, m);
 	if (!mimetype) {
 		lwsl_err("unknown mimetype for %s", path);
 		goto bail;

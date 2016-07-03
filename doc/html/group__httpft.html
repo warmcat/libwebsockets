@@ -70,6 +70,8 @@ $(document).ready(function(){initNavTree('group__httpft.html','');});
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="func-members"></a>
 Functions</h2></td></tr>
+<tr class="memitem:gab4da87a4800413f15e7aba649fb1d77c"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__httpft.html#gab4da87a4800413f15e7aba649fb1d77c">lws_get_mimetype</a> (const char *file, const struct <a class="el" href="structlws__http__mount.html">lws_http_mount</a> *m)</td></tr>
+<tr class="separator:gab4da87a4800413f15e7aba649fb1d77c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gab393a06d3d2722af4c3f8b06842c80d7"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__httpft.html#gab393a06d3d2722af4c3f8b06842c80d7">lws_serve_http_file</a> (struct lws *wsi, const char *file, const char *content_type, const char *other_headers, int other_headers_len)</td></tr>
 <tr class="separator:gab393a06d3d2722af4c3f8b06842c80d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga29e1123f6d56cd777b3e5bf9ca40f9e5"><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga29e1123f6d56cd777b3e5bf9ca40f9e5"></a>
@@ -79,6 +81,44 @@ LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <p>APIs for sending local files in response to HTTP requests </p>
 <h2 class="groupheader">Function Documentation</h2>
+<a class="anchor" id="gab4da87a4800413f15e7aba649fb1d77c"></a>
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">LWS_VISIBLE LWS_EXTERN const char* lws_get_mimetype </td>
+          <td>(</td>
+          <td class="paramtype">const char *&#160;</td>
+          <td class="paramname"><em>file</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const struct <a class="el" href="structlws__http__mount.html">lws_http_mount</a> *&#160;</td>
+          <td class="paramname"><em>m</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
+<p><a class="el" href="group__httpft.html#gab4da87a4800413f15e7aba649fb1d77c">lws_get_mimetype()</a> - Determine mimetype to use from filename</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">file</td><td>filename </td></tr>
+    <tr><td class="paramname">m</td><td>NULL, or mount context</td></tr>
+  </table>
+  </dd>
+</dl>
+<p>This uses a canned list of known filetypes first, if no match and m is non-NULL, then tries a list of per-mount file suffix to mimtype mappings.</p>
+<p>Returns either NULL or a pointer to the mimetype matching the file. </p>
+
+</div>
+</div>
 <a class="anchor" id="gab393a06d3d2722af4c3f8b06842c80d7"></a>
 <div class="memitem">
 <div class="memproto">
