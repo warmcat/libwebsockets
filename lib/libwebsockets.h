@@ -2144,6 +2144,20 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 //@{
 
 /**
+ * lws_get_mimetype() - Determine mimetype to use from filename
+ *
+ * \param file:		filename
+ * \param m:		NULL, or mount context
+ *
+ * This uses a canned list of known filetypes first, if no match and m is
+ * non-NULL, then tries a list of per-mount file suffix to mimtype mappings.
+ *
+ * Returns either NULL or a pointer to the mimetype matching the file.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_get_mimetype(const char *file, const struct lws_http_mount *m);
+
+/**
  * lws_serve_http_file() - Send a file back to the client using http
  * \param wsi:		Websocket instance (available from user callback)
  * \param file:		The file to issue over http
