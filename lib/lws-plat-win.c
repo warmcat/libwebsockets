@@ -212,39 +212,33 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 	}
 
-    unsigned int indexToService =  -1;
+    int servicedFd = 0;
+
     for(unsigned int eIdx = 0; eIdx < pt->fds_count; ++eIdx)
     {
-        ev = WSAWaitForMultipleEvents( 1,  &(pt->events[eIdx+1]) , FALSE, 0, FALSE);
-        if( ev ==  WSA_WAIT_FAILED )
-        {
-            lwsl_err("WSAWaitForMultipleEvents() failed with error %d\n", LWS_ERRNO);
-            continue;
+        if (WSAEnumNetworkEvents(pt->fds[eIdx].fd,  pt->events[eIdx+1], &networkevents) == SOCKET_ERROR) {
+            lwsl_err("WSAEnumNetworkEvents() failed with error %d\n", LWS_ERRNO);
+            return -1;
         }
-        if( ev == WSA_WAIT_EVENT_0 )
+
+        pfd = &pt->fds[eIdx];
+        pfd->revents = (short)networkevents.lNetworkEvents;
+
+        if (pfd->revents & LWS_POLLOUT) {
+            wsi = wsi_from_fd(context, pfd->fd);
+            if (wsi)
+                wsi->sock_send_blocking = 0;
+        }
+
+        if(pfd->revents  != 0 )
         {
-            if (WSAEnumNetworkEvents(pt->fds[eIdx].fd,  pt->events[eIdx+1], &networkevents) == SOCKET_ERROR) {
-                lwsl_err("WSAEnumNetworkEvents() failed with error %d\n", LWS_ERRNO);
-                return -1;
-            }
-            if( indexToService == -1 )
-                indexToService = eIdx;
-
-            pfd = &pt->fds[eIdx];
-            pfd->revents = (short)networkevents.lNetworkEvents;
-
-            if (pfd->revents & LWS_POLLOUT) {
-                wsi = wsi_from_fd(context, pfd->fd);
-                if (wsi)
-                    wsi->sock_send_blocking = 0;
-            }
-
             lws_service_fd_tsi(context, pfd, tsi);
+            ++servicedFd;
         }
     }
 	context->service_tid = 0;
 
-    if( timeout_ms >= 0 && indexToService == -1)
+    if( timeout_ms >= 0 && servicedFd == 0)
     {
         lws_service_fd(context, NULL);
         return 0;
