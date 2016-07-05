@@ -81,6 +81,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].ipv6only",
 	"vhosts[].ssl-option-set",
 	"vhosts[].ssl-option-clear",
+	"vhosts[].mounts[].pmo[].*",
 };
 
 enum lejp_vhost_paths {
@@ -119,6 +120,7 @@ enum lejp_vhost_paths {
 	LEJPVP_IPV6ONLY,
 	LEJPVP_SSL_OPTION_SET,
 	LEJPVP_SSL_OPTION_CLEAR,
+	LEJPVP_PMO
 };
 
 static const char * const parser_errs[] = {
@@ -469,6 +471,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_ECDH_CURVE:
 		a->info->ecdh_curve = a->p;
 		break;
+	case LEJPVP_PMO:
 	case LEJPVP_CGI_ENV:
 		mp_cgienv = lwsws_align(a);
 		a->p += sizeof(*a->m.cgienv);
@@ -484,7 +487,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
 		*(a->p)++ = '\0';
 
-		lwsl_notice("    adding cgi-env '%s' = '%s'\n", mp_cgienv->name,
+		lwsl_notice("    adding pmo / cgi-env '%s' = '%s'\n", mp_cgienv->name,
 				mp_cgienv->value);
 
 		break;
