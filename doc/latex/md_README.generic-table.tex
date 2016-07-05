@@ -1,0 +1,40 @@
+\subsection*{What is generic-\/table? }
+
+Generic-\/table is a J\+S\+ON schema and client-\/side JS file that makes it easy to display live, table structured H\+T\+ML over a ws link.
+
+An example plugin and index.\+html using it are provided.
+
+\subsection*{Enabling for build }
+
+Enable at C\+Make with -\/\+D\+L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+P\+L\+U\+G\+I\+NS=1
+
+\subsection*{Generic-\/table J\+S\+ON }
+
+\subsubsection*{Column layout}
+
+When the ws connection is established, the protocol should send a J\+S\+ON message describing the table columns. For example
+
+
+\begin{DoxyCode}
+1 msg = "\{\(\backslash\)"cols\(\backslash\)":["
+2       "  \{\(\backslash\)"name\(\backslash\)": \(\backslash\)"Date\(\backslash\)"\},"
+3       "  \{\(\backslash\)"name\(\backslash\)": \(\backslash\)"Size\(\backslash\)", \(\backslash\)"align\(\backslash\)": \(\backslash\)"right\(\backslash\)"\},"
+4       "  \{\(\backslash\)"name\(\backslash\)": \(\backslash\)"Icon\(\backslash\)"\},"
+5       "  \{\(\backslash\)"name\(\backslash\)": \(\backslash\)"Name\(\backslash\)", \(\backslash\)"href\(\backslash\)": \(\backslash\)"uri\(\backslash\)"\},"
+6       "  \{\(\backslash\)"name\(\backslash\)": \(\backslash\)"uri\(\backslash\)", \(\backslash\)"hide\(\backslash\)": \(\backslash\)"1\(\backslash\)" \}"
+7       " ]"
+8       "\}";
+\end{DoxyCode}
+
+
+
+\begin{DoxyItemize}
+\item This describes 5 columns
+\item Only four columns (not \char`\"{}uri\char`\"{}) should be visible
+\item \char`\"{}\+Name\char`\"{} should be presented as a clickable link using \char`\"{}uri\char`\"{} as the destination, when a \char`\"{}uri\char`\"{} field is presented.
+\item \char`\"{}\+Size\char`\"{} field should be presented aligned to the right
+\end{DoxyItemize}
+
+\subsubsection*{Table data}
+
+The 
