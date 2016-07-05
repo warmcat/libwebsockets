@@ -259,7 +259,18 @@ Mount protocols are used to control what kind of translation happens
 Other mount options
 -------------------
 
-1) When using a cgi:// protcol origin at a mountpoint, you may also give cgi environment variables specific to the mountpoint like this
+1) Some protocols may want "per-mount options" in name:value format.  You can
+provide them using "pmo"
+
+	       {
+	        "mountpoint": "/stuff",
+	        "origin": "callback://myprotocol",
+	        "pmo": [{
+	                "myname": "myvalue"
+	        }]
+	       }
+
+2) When using a cgi:// protcol origin at a mountpoint, you may also give cgi environment variables specific to the mountpoint like this
 ```
 	       {
 	        "mountpoint": "/git",
@@ -272,11 +283,11 @@ Other mount options
 ```
  This allows you to customize one cgi depending on the mountpoint (and / or vhost).
 
-2) It's also possible to set the cgi timeout (in secs) per cgi:// mount, like this
+3) It's also possible to set the cgi timeout (in secs) per cgi:// mount, like this
 ```
 	"cgi-timeout": "30"
 ```
-3) `callback://` protocol may be used when defining a mount to associate a
+4) `callback://` protocol may be used when defining a mount to associate a
 named protocol callback with the URL namespace area.  For example
 ```
 	       {
@@ -292,7 +303,7 @@ payload generation inside a plugin.
 
 See the related notes in README.coding.md
 
-4) Cache policy of the files in the mount can also be set.  If no
+5) Cache policy of the files in the mount can also be set.  If no
 options are given, the content is marked uncacheable.
 ```
 	       {
@@ -305,7 +316,7 @@ options are given, the content is marked uncacheable.
 	       }
 ```
 
-4) You can also define a list of additional mimetypes per-mount
+6) You can also define a list of additional mimetypes per-mount
 ```
 	        "extra-mimetypes": {
 	                 ".zip": "application/zip",
