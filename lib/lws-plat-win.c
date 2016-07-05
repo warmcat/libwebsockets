@@ -150,56 +150,47 @@ LWS_VISIBLE DWORD
 lws_plat_wait_event(struct lws_context_per_thread* pt, int timeout)
 {
 	int event_count = pt->fds_count + 1;
-	HANDLE* events = pt->events;
+	HANDLE *events = pt->events;
 	DWORD ev;
 
 	// the WSAWaitForMultipleEvents can wait for maximum of 64 handles
-	if(event_count <= WSA_MAXIMUM_WAIT_EVENTS)
-	{
-		return ev = WSAWaitForMultipleEvents(event_count, events,
-						FALSE, timeout, FALSE);
-	}
-	else
-	{
-		// back-up solution
-		// this is really ugly and introduces unneeded latency / unfairness
-		// but still better than the current crash
-		int timeout_left = timeout;
+	if (event_count <= WSA_MAXIMUM_WAIT_EVENTS)
+		return WSAWaitForMultipleEvents(event_count, events, FALSE,
+						timeout, FALSE);
 
-		// the smaller the step the closer we get to the valid solution
-		// and the more CPU we will use
-		int timeout_step = (timeout > 20) ? 20 : timeout;
+	/* you should use libuv instead of this */
+	int timeout_left = timeout;
 
-		while(timeout_left > 0)
-		{
-			int events_left = event_count;
-			int events_handled = 0;
-			timeout = 0;
+	// the smaller the step the closer we get to the valid solution
+	// and the more CPU we will use
+	int timeout_step = (timeout > 20) ? 20 : timeout;
 
-			while(events_left > 0)
-			{
-				// split to groups to size of max 64
-				int events_to_handle = (events_left > WSA_MAXIMUM_WAIT_EVENTS) ?
-										WSA_MAXIMUM_WAIT_EVENTS :
-										events_left;
+	do {
+		int events_left = event_count;
+		int events_handled = 0;
+		timeout = 0;
 
-				// wait only on the last group
-				if(events_left == events_to_handle)
-					timeout = timeout_step;
+		while (events_left > 0) {
+			// split to groups to size of max 64
+			int rem = (events_left > WSA_MAXIMUM_WAIT_EVENTS) ?
+				  WSA_MAXIMUM_WAIT_EVENTS : events_left;
 
-				ev = WSAWaitForMultipleEvents(events_to_handle, &events[events_handled],
-							FALSE, timeout, FALSE);
+			// wait only on the last group
+			if (events_left == rem)
+				timeout = timeout_step;
 
-				if(ev != WSA_WAIT_TIMEOUT)
-					return ev + events_handled;
+			ev = WSAWaitForMultipleEvents(rem, &events[events_handled],
+						      FALSE, timeout, FALSE);
 
-				events_handled += events_to_handle;
-				events_left -= events_to_handle;
-			}
+			if (ev != WSA_WAIT_TIMEOUT)
+				return ev + events_handled;
 
-			timeout_left -= timeout_step;
+			events_handled += rem;
+			events_left -= rem;
 		}
-	}
+
+		timeout_left -= timeout_step;
+	} while (timeout_left > 0);
 
 	return WSA_WAIT_TIMEOUT;
 }
