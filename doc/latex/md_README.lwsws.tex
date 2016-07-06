@@ -12,6 +12,8 @@ It enables libuv and plugin support automatically.
 
 lwsws uses J\+S\+ON config files, they\textquotesingle{}re pure J\+S\+ON but \# may be used to turn the rest of the line into a comment.
 
+There\textquotesingle{}s also a single substitution, if a string contains \char`\"{}\+\_\+lws\+\_\+ddir\+\_\+\char`\"{}, then that is replaced with the L\+WS install data directory path, eg, \char`\"{}/usr/share\char`\"{} or whatever was set when L\+WS was built + installed. That lets you refer to installed paths without having to change the config if your install path was different.
+
 There is a single file intended for global settings
 
 /etc/lwsws/conf 
@@ -240,7 +242,17 @@ Eg, with this mountpoint
 
 \subsection*{Other mount options }
 
-1) When using a cgi\+:// protcol origin at a mountpoint, you may also give cgi environment variables specific to the mountpoint like this 
+1) Some protocols may want \char`\"{}per-\/mount options\char`\"{} in name\+:value format. You can provide them using \char`\"{}pmo\char`\"{} \begin{DoxyVerb}           {
+            "mountpoint": "/stuff",
+            "origin": "callback://myprotocol",
+            "pmo": [{
+                    "myname": "myvalue"
+            }]
+           }
+\end{DoxyVerb}
+
+
+2) When using a cgi\+:// protcol origin at a mountpoint, you may also give cgi environment variables specific to the mountpoint like this 
 \begin{DoxyCode}
 1 \{
 2  "mountpoint": "/git",
@@ -253,11 +265,11 @@ Eg, with this mountpoint
 \end{DoxyCode}
  This allows you to customize one cgi depending on the mountpoint (and / or vhost).
 
-2) It\textquotesingle{}s also possible to set the cgi timeout (in secs) per cgi\+:// mount, like this 
+3) It\textquotesingle{}s also possible to set the cgi timeout (in secs) per cgi\+:// mount, like this 
 \begin{DoxyCode}
 1 "cgi-timeout": "30"
 \end{DoxyCode}
- 3) {\ttfamily callback\+://} protocol may be used when defining a mount to associate a named protocol callback with the U\+RL namespace area. For example 
+ 4) {\ttfamily callback\+://} protocol may be used when defining a mount to associate a named protocol callback with the U\+RL namespace area. For example 
 \begin{DoxyCode}
 1 \{
 2  "mountpoint": "/formtest",
@@ -270,7 +282,7 @@ This is useful for handling P\+O\+ST http body content or general non-\/cgi http
 
 See the related notes in R\+E\+A\+D\+M\+E.\+coding.\+md
 
-4) Cache policy of the files in the mount can also be set. If no options are given, the content is marked uncacheable. 
+5) Cache policy of the files in the mount can also be set. If no options are given, the content is marked uncacheable. 
 \begin{DoxyCode}
 1 \{
 2  "mountpoint": "/",
@@ -283,7 +295,7 @@ See the related notes in R\+E\+A\+D\+M\+E.\+coding.\+md
 \end{DoxyCode}
 
 
-4) You can also define a list of additional mimetypes per-\/mount 
+6) You can also define a list of additional mimetypes per-\/mount 
 \begin{DoxyCode}
 1 "extra-mimetypes": \{
 2          ".zip": "application/zip",
