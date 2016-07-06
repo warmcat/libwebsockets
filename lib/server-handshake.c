@@ -260,19 +260,6 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	wsi->state = LWSS_ESTABLISHED;
 	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 
-	/* notify user code that we're ready to roll */
-
-	if (wsi->protocol->callback)
-		if (wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
-					    wsi->user_space,
-#ifdef LWS_OPENSSL_SUPPORT
-					    wsi->ssl,
-#else
-					    NULL,
-#endif
-					    0))
-			goto bail;
-
 	return 0;
 
 
