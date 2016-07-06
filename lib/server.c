@@ -1279,6 +1279,19 @@ upgrade_ws:
 		lwsl_parser("accepted v%02d connection\n",
 			    wsi->ietf_spec_revision);
 
+		/* notify user code that we're ready to roll */
+
+		if (wsi->protocol->callback)
+			if (wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
+						    wsi->user_space,
+#ifdef LWS_OPENSSL_SUPPORT
+						    wsi->ssl,
+#else
+						    NULL,
+#endif
+						    0))
+				return 1;
+
 		return 0;
 	} /* while all chars are handled */
 
