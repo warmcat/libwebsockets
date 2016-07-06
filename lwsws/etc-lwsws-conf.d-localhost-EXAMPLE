@@ -10,7 +10,7 @@
 #     "sts": "on",
      "mounts": [{
        "mountpoint": "/",
-       "origin": "file:///usr/share/libwebsockets-test-server",
+       "origin": "file://_lws_ddir_/libwebsockets-test-server",
        "default": "test.html",
        "cache-max-age": "60",
        "cache-reuse": "1",
@@ -18,11 +18,11 @@
        "cache-intermediaries": "0"
        }, {
         "mountpoint": "/server-status",
-        "origin": "file:///usr/share/libwebsockets-test-server/server-status",
+        "origin": "file://_lws_ddir_/libwebsockets-test-server/server-status",
         "default": "server-status.html"
 	}, {
 	"mountpoint": "/testcgi",
-	"origin": "cgi:///usr/share/libwebsockets-test-server/lws-cgi-test.sh"
+	"origin": "cgi://_lws_ddir_/libwebsockets-test-server/lws-cgi-test.sh"
 
        }, {
         "mountpoint": "/formtest",

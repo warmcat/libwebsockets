@@ -27,6 +27,8 @@
 #include <dirent.h>
 #endif
 
+#define ESC_INSTALL_DATADIR "_lws_ddir_"
+
 static const char * const paths_global[] = {
 	"global.uid",
 	"global.gid",
@@ -246,6 +248,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	struct jpargs *a = (struct jpargs *)ctx->user;
 	struct lws_protocol_vhost_options *pvo, *mp_cgienv;
 	struct lws_http_mount *m;
+	char *p, *p1;
 	int n;
 
 #if 0
@@ -309,8 +312,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		a->pvo->value = a->p;
 		a->pvo->options = NULL;
-		a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
-		*(a->p)++ = '\0';
+		goto dostring;
 	}
 
 	if (reason == LEJPCB_OBJECT_END &&
@@ -484,13 +486,10 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		mp_cgienv->value = a->p;
 		mp_cgienv->options = NULL;
-		a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
-		*(a->p)++ = '\0';
-
 		lwsl_notice("    adding pmo / cgi-env '%s' = '%s'\n", mp_cgienv->name,
 				mp_cgienv->value);
+		goto dostring;
 
-		break;
 	case LEJPVP_PROTOCOL_NAME_OPT:
 		/* this catches, eg,
 		 * vhosts[].ws-protocols[].xxx-protocol.yyy-option
@@ -570,7 +569,20 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
-	a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
+dostring:
+	p = ctx->buf;
+	p1 = strstr(p, ESC_INSTALL_DATADIR);
+	if (p1) {
+		n = p1 - p;
+		if (n > a->end - a->p)
+			n = a->end - a->p;
+		strncpy(a->p, p, n);
+		a->p += n;
+		a->p += snprintf(a->p, a->end - a->p, "%s", LWS_INSTALL_DATADIR);
+		p += n + strlen(ESC_INSTALL_DATADIR);
+	}
+
+	a->p += snprintf(a->p, a->end - a->p, "%s", p);
 	*(a->p)++ = '\0';
 
 	return 0;

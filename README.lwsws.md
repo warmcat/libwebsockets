@@ -20,6 +20,11 @@ Configuration
 
 lwsws uses JSON config files, they're pure JSON but # may be used to turn the rest of the line into a comment.
 
+There's also a single substitution, if a string contains "_lws_ddir_", then that is
+replaced with the LWS install data directory path, eg, "/usr/share" or whatever was
+set when LWS was built + installed.  That lets you refer to installed paths without
+having to change the config if your install path was different.
+
 There is a single file intended for global settings
 
 /etc/lwsws/conf
