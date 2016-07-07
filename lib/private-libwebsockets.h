@@ -1275,7 +1275,7 @@ struct lws {
 	unsigned int extension_data_pending:1;
 #endif
 #ifdef LWS_OPENSSL_SUPPORT
-	unsigned int use_ssl:2;
+	unsigned int use_ssl:3;
 	unsigned int upgraded:1;
 #endif
 #ifdef _WIN32

@@ -117,6 +117,11 @@ var libwebsockets_8h =
       [ "LHCS_PAYLOAD", "libwebsockets_8h.html#a42394a38f08a97420c98127358cfeedbada3dca91d96bcde5df08a67b5a66e972", null ],
       [ "LCHS_SINGLE_0A", "libwebsockets_8h.html#a42394a38f08a97420c98127358cfeedbad655f0eecc9e94be37b8ed07348716ef", null ]
     ] ],
+    [ "lws_client_connect_ssl_connection_flags", "group__client.html#ga96f3dbad54b2853969cfa933d66871ce", [
+      [ "LCCSCF_USE_SSL", "group__client.html#gga96f3dbad54b2853969cfa933d66871cea7051e79bb97b69862f2ff00ae5298ec7", null ],
+      [ "LCCSCF_ALLOW_SELFSIGNED", "group__client.html#gga96f3dbad54b2853969cfa933d66871ceafc72c0ffbc7462bdddd4ce7bd99ac092", null ],
+      [ "LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK", "group__client.html#gga96f3dbad54b2853969cfa933d66871cea89866ab6a749aaa1684158c55f826b35", null ]
+    ] ],
     [ "lws_close_status", "group__wsclose.html#gae399c571df32ba532c0ca67da9284985", [
       [ "LWS_CLOSE_STATUS_NOSTATUS", "group__wsclose.html#ggae399c571df32ba532c0ca67da9284985acc9a317c70363dd88e823e066b2c73b7", null ],
       [ "LWS_CLOSE_STATUS_NORMAL", "group__wsclose.html#ggae399c571df32ba532c0ca67da9284985a3ffa38d5081b85fb739e02a747ccf2c4", null ],

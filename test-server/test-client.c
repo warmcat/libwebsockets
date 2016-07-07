@@ -311,6 +311,7 @@ static struct option options[] = {
 	{ "debug",      required_argument,      NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
+	{ "strict-ssl",	no_argument,		NULL, 'S' },
 	{ "version",	required_argument,	NULL, 'v' },
 	{ "undeflated",	no_argument,		NULL, 'u' },
 	{ "nomux",	no_argument,		NULL, 'n' },
@@ -359,15 +360,20 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "nuv:hsp:d:lC:K:A:", options, NULL);
+		n = getopt_long(argc, argv, "Snuv:hsp:d:lC:K:A:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
 		case 'd':
 			lws_set_log_level(atoi(optarg), NULL);
 			break;
-		case 's':
-			use_ssl = 2; /* 2 = allow selfsigned */
+		case 's': /* lax SSL, allow selfsigned, skip checking hostname */
+			use_ssl = LCCSCF_USE_SSL |
+				  LCCSCF_ALLOW_SELFSIGNED |
+				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+			break;
+		case 'S': /* Strict SSL, no selfsigned, check server hostname */
+			use_ssl = LCCSCF_USE_SSL;
 			break;
 		case 'p':
 			port = atoi(optarg);
@@ -434,7 +440,7 @@ int main(int argc, char **argv)
 		use_ssl = 0;
 	if (!strcmp(prot, "https") || !strcmp(prot, "wss"))
 		if (!use_ssl)
-			use_ssl = 1;
+			use_ssl = LCCSCF_USE_SSL;
 
 	/*
 	 * create the websockets context.  This tracks open connections and
@@ -477,12 +483,20 @@ int main(int argc, char **argv)
 #endif
 #endif
 #endif
-
-		if (use_ssl == 1)
-			lwsl_notice(" Cert must validate correctly (use -s to allow selfsigned)\n");
-		else
-			lwsl_notice(" Selfsigned certs allowed\n");
 	}
+
+	if (use_ssl & LCCSCF_USE_SSL)
+		lwsl_notice(" Using SSL\n");
+	else
+		lwsl_notice(" SSL disabled\n");
+	if (use_ssl & LCCSCF_ALLOW_SELFSIGNED)
+		lwsl_notice(" Selfsigned certs allowed\n");
+	else
+		lwsl_notice(" Cert must validate correctly (use -s to allow selfsigned)\n");
+	if (use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
+		lwsl_notice(" Skipping peer cert hostname check\n");
+	else
+		lwsl_notice(" Requiring peer cert hostname matches\n");
 
 	context = lws_create_context(&info);
 	if (context == NULL) {

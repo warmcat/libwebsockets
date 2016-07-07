@@ -63,6 +63,7 @@ $(document).ready(function(){initNavTree('group__client.html','');});
 <div class="header">
   <div class="summary">
 <a href="#nested-classes">Data Structures</a> &#124;
+<a href="#enum-members">Enumerations</a> &#124;
 <a href="#func-members">Functions</a>  </div>
   <div class="headertitle">
 <div class="title">Client</div>  </div>
@@ -73,6 +74,14 @@ $(document).ready(function(){initNavTree('group__client.html','');});
 Data Structures</h2></td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="enum-members"></a>
+Enumerations</h2></td></tr>
+<tr class="memitem:ga96f3dbad54b2853969cfa933d66871ce"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__client.html#ga96f3dbad54b2853969cfa933d66871ce">lws_client_connect_ssl_connection_flags</a> { <b>LCCSCF_USE_SSL</b> = (1 &lt;&lt; 0), 
+<b>LCCSCF_ALLOW_SELFSIGNED</b> = (1 &lt;&lt; 1), 
+<b>LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK</b> = (1 &lt;&lt; 2)
+ }</td></tr>
+<tr class="separator:ga96f3dbad54b2853969cfa933d66871ce"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="func-members"></a>
 Functions</h2></td></tr>
@@ -90,6 +99,22 @@ LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2>Client releated functions</h2>
+<h2 class="groupheader">Enumeration Type Documentation</h2>
+<a class="anchor" id="ga96f3dbad54b2853969cfa933d66871ce"></a>
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="group__client.html#ga96f3dbad54b2853969cfa933d66871ce">lws_client_connect_ssl_connection_flags</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
+<p>enum lws_client_connect_ssl_connection_flags - flags that may be used with struct <a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a> ssl_connection member to control if and how SSL checks apply to the client connection being created </p>
+<div class="fragment"><div class="line"><a name="l01848"></a><span class="lineno"> 1848</span>&#160;                                             {</div><div class="line"><a name="l01849"></a><span class="lineno"> 1849</span>&#160;        LCCSCF_USE_SSL                          = (1 &lt;&lt; 0),</div><div class="line"><a name="l01850"></a><span class="lineno"> 1850</span>&#160;        LCCSCF_ALLOW_SELFSIGNED                 = (1 &lt;&lt; 1),</div><div class="line"><a name="l01851"></a><span class="lineno"> 1851</span>&#160;        LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK  = (1 &lt;&lt; 2)</div><div class="line"><a name="l01852"></a><span class="lineno"> 1852</span>&#160;};</div></div><!-- fragment -->
+</div>
+</div>
 <h2 class="groupheader">Function Documentation</h2>
 <a class="anchor" id="ga4af0a20108a95e8b6d94dd4d80055ff3"></a>
 <div class="memitem">

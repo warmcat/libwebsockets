@@ -5,6 +5,14 @@
 \item 
 struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info}
 \end{DoxyCompactItemize}
+\subsection*{Enumerations}
+\begin{DoxyCompactItemize}
+\item 
+enum \hyperlink{group__client_ga96f3dbad54b2853969cfa933d66871ce}{lws\+\_\+client\+\_\+connect\+\_\+ssl\+\_\+connection\+\_\+flags} \{ {\bfseries L\+C\+C\+S\+C\+F\+\_\+\+U\+S\+E\+\_\+\+S\+SL} = (1 $<$$<$ 0), 
+{\bfseries L\+C\+C\+S\+C\+F\+\_\+\+A\+L\+L\+O\+W\+\_\+\+S\+E\+L\+F\+S\+I\+G\+N\+ED} = (1 $<$$<$ 1), 
+{\bfseries L\+C\+C\+S\+C\+F\+\_\+\+S\+K\+I\+P\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+C\+E\+R\+T\+\_\+\+H\+O\+S\+T\+N\+A\+M\+E\+\_\+\+C\+H\+E\+CK} = (1 $<$$<$ 2)
+ \}
+\end{DoxyCompactItemize}
 \subsection*{Functions}
 \begin{DoxyCompactItemize}
 \item 
@@ -23,6 +31,24 @@ L\+W\+S\+\_\+\+V\+I\+S\+I\+B\+LE L\+W\+S\+\_\+\+E\+X\+T\+E\+RN int {\bfseries lw
 
 \subsection{Detailed Description}
 \subsubsection*{Client releated functions}
+
+\subsection{Enumeration Type Documentation}
+\index{Client@{Client}!lws\+\_\+client\+\_\+connect\+\_\+ssl\+\_\+connection\+\_\+flags@{lws\+\_\+client\+\_\+connect\+\_\+ssl\+\_\+connection\+\_\+flags}}
+\index{lws\+\_\+client\+\_\+connect\+\_\+ssl\+\_\+connection\+\_\+flags@{lws\+\_\+client\+\_\+connect\+\_\+ssl\+\_\+connection\+\_\+flags}!Client@{Client}}
+\subsubsection[{\texorpdfstring{lws\+\_\+client\+\_\+connect\+\_\+ssl\+\_\+connection\+\_\+flags}{lws\_client\_connect\_ssl\_connection\_flags}}]{\setlength{\rightskip}{0pt plus 5cm}enum {\bf lws\+\_\+client\+\_\+connect\+\_\+ssl\+\_\+connection\+\_\+flags}}\hypertarget{group__client_ga96f3dbad54b2853969cfa933d66871ce}{}\label{group__client_ga96f3dbad54b2853969cfa933d66871ce}
+
+
+{\ttfamily \#include $<$\hyperlink{libwebsockets_8h}{lib/libwebsockets.\+h}$>$}
+
+enum lws\+\_\+client\+\_\+connect\+\_\+ssl\+\_\+connection\+\_\+flags -\/ flags that may be used with struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} ssl\+\_\+connection member to control if and how S\+SL checks apply to the client connection being created 
+\begin{DoxyCode}
+1848                                              \{
+1849         LCCSCF\_USE\_SSL                          = (1 << 0),
+1850         LCCSCF\_ALLOW\_SELFSIGNED                 = (1 << 1),
+1851         LCCSCF\_SKIP\_SERVER\_CERT\_HOSTNAME\_CHECK  = (1 << 2)
+1852 \};
+\end{DoxyCode}
+
 
 \subsection{Function Documentation}
 \index{Client@{Client}!lws\+\_\+client\+\_\+connect@{lws\+\_\+client\+\_\+connect}}

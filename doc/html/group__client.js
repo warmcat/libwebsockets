@@ -20,6 +20,7 @@ var group__client =
       [ "userdata", "structlws__client__connect__info.html#a9831b9f9ab54a1aec4bb15324f1c3836", null ],
       [ "vhost", "structlws__client__connect__info.html#a3893181d728f326f9f5b47c1459cb8be", null ]
     ] ],
+    [ "lws_client_connect_ssl_connection_flags", "group__client.html#ga96f3dbad54b2853969cfa933d66871ce", null ],
     [ "lws_client_connect", "group__client.html#ga4af0a20108a95e8b6d94dd4d80055ff3", null ],
     [ "lws_client_connect_extended", "group__client.html#gac6a8558b4410961a880241c2ac1271e2", null ],
     [ "lws_client_connect_via_info", "group__client.html#ga0c966136905f467816307cfba6deb5fd", null ],

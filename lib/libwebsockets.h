@@ -1414,7 +1414,6 @@ enum lws_context_options {
 	LWS_SERVER_OPTION_LIBUV					= (1 << 10),
 	/**< (CTX)  Use libuv event loop */
 	LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS		= (1 << 11) |
-								  (1 << 3) |
 								  (1 << 12),
 	/**< (VH) Use http redirect to force http to https
 	 * (deprecated: use mount redirection) */
@@ -1840,6 +1839,17 @@ struct lws_http_mount {
  * ##Client releated functions
  * */
 ///@{
+
+/** enum lws_client_connect_ssl_connection_flags - flags that may be used
+ * with struct lws_client_connect_info ssl_connection member to control if
+ * and how SSL checks apply to the client connection being created
+ */
+
+enum lws_client_connect_ssl_connection_flags {
+	LCCSCF_USE_SSL 				= (1 << 0),
+	LCCSCF_ALLOW_SELFSIGNED			= (1 << 1),
+	LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK	= (1 << 2)
+};
 
 /** struct lws_client_connect_info - parameters to connect with when using
  *				    lws_client_connect_via_info() */
