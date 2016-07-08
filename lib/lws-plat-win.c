@@ -220,10 +220,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 		WSAResetEvent(pt->events[0]);
 
-		int servicedFd = 0;
-
-		for(unsigned int eIdx = 0; eIdx < pt->fds_count; ++eIdx)
-		{
+		for(unsigned int eIdx = 0; eIdx < pt->fds_count; ++eIdx) {
 			if (WSAEnumNetworkEvents(pt->fds[eIdx].fd, 0, &networkevents) == SOCKET_ERROR) {
 				lwsl_err("WSAEnumNetworkEvents() failed with error %d\n", LWS_ERRNO);
 				return -1;
@@ -249,17 +246,14 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 				if (wsi)
 					wsi->sock_send_blocking = 0;
 			}
+			 /* if something closed, retry this slot */
+			if (pfd->revents & LWS_POLLHUP)
+					--eIdx;
 
-			if( pfd->revents != 0 )
-			{
+			if( pfd->revents != 0 ) {
 				lws_service_fd_tsi(context, pfd, tsi);
-				++servicedFd;
+
 			}
-		}
-		if(servicedFd) /* if something closed, retry all the slots */
-		{
-			WSASetEvent(pt->events[0]);
-			return 0;
 		}
 	}
 
