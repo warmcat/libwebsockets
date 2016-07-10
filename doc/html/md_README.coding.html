@@ -121,6 +121,12 @@ $(document).ready(function(){initNavTree('md_README.coding.html','');});
 <p>Four callbacks <code>LWS_CALLBACK_ADD_POLL_FD</code>, <code>LWS_CALLBACK_DEL_POLL_FD</code>, <code>LWS_CALLBACK_SET_MODE_POLL_FD</code> and <code>LWS_CALLBACK_CLEAR_MODE_POLL_FD</code> appear in the callback for protocol 0 and allow interface code to manage socket descriptors in other poll loops.</p>
 <p>You can pass all pollfds that need service to <code><a class="el" href="group__service.html#gad82efa5466d14a9f05aa06416375b28d">lws_service_fd()</a></code>, even if the socket or file does not belong to <b>libwebsockets</b> it is safe.</p>
 <p>If <b>libwebsocket</b> handled it, it zeros the pollfd <code>revents</code> field before returning. So you can let <b>libwebsockets</b> try and if <code>pollfd-&gt;revents</code> is nonzero on return, you know it needs handling by your code.</p>
+<p>Also note that when integrating a foreign event loop like libev or libuv where it doesn't natively use poll() semantics, and you must return a fake pollfd reflecting the real event:</p>
+<ul>
+<li>be sure you set .events to .revents value as well in the synthesized pollfd</li>
+<li>check the built-in support for the event loop if possible (eg, ./lib/libuv.c) to see how it interfaces to lws</li>
+<li>use LWS_POLLHUP / LWS_POLLIN / LWS_POLLOUT from <a class="el" href="libwebsockets_8h.html">libwebsockets.h</a> to avoid losing windows compatibility</li>
+</ul>
 <h2>Using with in c++ apps </h2>
 <p>The library is ready for use by C++ apps. You can get started quickly by copying the test server</p>
 <div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ cp test-server/test-server.c test.cpp</div></div><!-- fragment --><p>and building it in C++ like this</p>

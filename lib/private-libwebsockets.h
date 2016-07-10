@@ -62,9 +62,6 @@
 #define LWS_EINTR WSAEINTR
 #define LWS_EISCONN WSAEISCONN
 #define LWS_EWOULDBLOCK WSAEWOULDBLOCK
-#define LWS_POLLHUP (FD_CLOSE)
-#define LWS_POLLIN (FD_READ | FD_ACCEPT)
-#define LWS_POLLOUT (FD_WRITE)
 #define MSG_NOSIGNAL 0
 #define SHUT_RDWR SD_BOTH
 #define SOL_TCP IPPROTO_TCP
@@ -160,9 +157,7 @@
 #define LWS_EINTR EINTR
 #define LWS_EISCONN EISCONN
 #define LWS_EWOULDBLOCK EWOULDBLOCK
-#define LWS_POLLHUP (POLLHUP|POLLERR)
-#define LWS_POLLIN (POLLIN)
-#define LWS_POLLOUT (POLLOUT)
+
 static inline int compatible_close(int fd) { return close(fd); }
 #define lws_set_blocking_send(wsi)
 

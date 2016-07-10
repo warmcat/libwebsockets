@@ -399,6 +399,9 @@ struct lws_pollfd {
 	SHORT events; /**< which events to respond to */
 	SHORT revents; /**< which events happened */
 };
+#define LWS_POLLHUP (FD_CLOSE)
+#define LWS_POLLIN (FD_READ | FD_ACCEPT)
+#define LWS_POLLOUT (FD_WRITE)
 #else
 
 #if defined(MBED_OPERATORS)
@@ -431,6 +434,9 @@ typedef int lws_filefd_type;
 #endif
 
 #define lws_pollfd pollfd
+#define LWS_POLLHUP (POLLHUP|POLLERR)
+#define LWS_POLLIN (POLLIN)
+#define LWS_POLLOUT (POLLOUT)
 #endif
 
 /** struct lws_pollargs - argument structure for all external poll related calls

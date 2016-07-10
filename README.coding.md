@@ -202,6 +202,18 @@ If **libwebsocket** handled it, it zeros the pollfd `revents` field before retur
 So you can let **libwebsockets** try and if `pollfd->revents` is nonzero on return,
 you know it needs handling by your code.
 
+Also note that when integrating a foreign event loop like libev or libuv where
+it doesn't natively use poll() semantics, and you must return a fake pollfd
+reflecting the real event:
+
+ - be sure you set .events to .revents value as well in the synthesized pollfd
+
+ - check the built-in support for the event loop if possible (eg, ./lib/libuv.c)
+   to see how it interfaces to lws
+   
+ - use LWS_POLLHUP / LWS_POLLIN / LWS_POLLOUT from libwebsockets.h to avoid
+   losing windows compatibility
+
 
 Using with in c++ apps
 ----------------------

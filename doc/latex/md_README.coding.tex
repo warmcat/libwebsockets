@@ -126,6 +126,15 @@ You can pass all pollfds that need service to {\ttfamily \hyperlink{group__servi
 
 If {\bfseries libwebsocket} handled it, it zeros the pollfd {\ttfamily revents} field before returning. So you can let {\bfseries libwebsockets} try and if {\ttfamily pollfd-\/$>$revents} is nonzero on return, you know it needs handling by your code.
 
+Also note that when integrating a foreign event loop like libev or libuv where it doesn\textquotesingle{}t natively use poll() semantics, and you must return a fake pollfd reflecting the real event\+:
+
+
+\begin{DoxyItemize}
+\item be sure you set .events to .revents value as well in the synthesized pollfd
+\item check the built-\/in support for the event loop if possible (eg, ./lib/libuv.c) to see how it interfaces to lws
+\item use L\+W\+S\+\_\+\+P\+O\+L\+L\+H\+UP / L\+W\+S\+\_\+\+P\+O\+L\+L\+IN / L\+W\+S\+\_\+\+P\+O\+L\+L\+O\+UT from \hyperlink{libwebsockets_8h}{libwebsockets.\+h} to avoid losing windows compatibility
+\end{DoxyItemize}
+
 \subsection*{Using with in c++ apps }
 
 The library is ready for use by C++ apps. You can get started quickly by copying the test server
