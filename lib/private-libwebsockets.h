@@ -320,10 +320,10 @@ extern "C" {
 #endif
 
 #ifndef LWS_DEF_HEADER_LEN
-#define LWS_DEF_HEADER_LEN 1024
+#define LWS_DEF_HEADER_LEN 4096
 #endif
 #ifndef LWS_DEF_HEADER_POOL
-#define LWS_DEF_HEADER_POOL 16
+#define LWS_DEF_HEADER_POOL 4
 #endif
 #ifndef LWS_MAX_PROTOCOLS
 #define LWS_MAX_PROTOCOLS 5
