@@ -179,11 +179,43 @@ struct lws_vhost *
 lws_select_vhost(struct lws_context *context, int port, const char *servername)
 {
 	struct lws_vhost *vhost = context->vhost_list;
+	const char *p;
+	int n, m, colon;
+
+	n = strlen(servername);
+	colon = n;
+	p = strchr(servername, ':');
+	if (p)
+		colon = p - servername;
+
+	/* first try exact matches */
 
 	while (vhost) {
 		if (port == vhost->listen_port &&
-		    !strcmp(vhost->name, servername)) {
+		    !strncmp(vhost->name, servername, colon)) {
 			lwsl_info("SNI: Found: %s\n", servername);
+			return vhost;
+		}
+		vhost = vhost->vhost_next;
+	}
+
+	/*
+	 * if no exact matches, try matching *.vhost-name
+	 * unintentional matches are possible but resolve to x.com for *.x.com
+	 * which is reasonable.  If exact match exists we already chose it and
+	 * never reach here.  SSL will still fail it if the cert doesn't allow
+	 * *.x.com.
+	 */
+
+	vhost = context->vhost_list;
+	while (vhost) {
+		m = strlen(vhost->name);
+		if (port == vhost->listen_port &&
+		    m <= (colon - 2) &&
+		    servername[colon - m - 1] == '.' &&
+		    !strncmp(vhost->name, servername + colon - m, m)) {
+			lwsl_info("SNI: Found %s on wildcard: %s\n",
+				    servername, vhost->name);
 			return vhost;
 		}
 		vhost = vhost->vhost_next;
@@ -807,7 +839,8 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 
 			if (vhost)
 				wsi->vhost = vhost;
-		}
+		} else
+			lwsl_info("no host\n");
 
 		wsi->vhost->trans++;
 		if (!wsi->conn_stat_done) {
