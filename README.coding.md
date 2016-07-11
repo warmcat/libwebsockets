@@ -534,6 +534,25 @@ There are some new members but mainly it's stuff you used to set at
 context creation time.
 
 
+How lws matches hostname or SNI to a vhost
+------------------------------------------
+
+LWS first strips any trailing :port number.
+
+Then it tries to find an exact name match for a vhost listening on the correct
+port, ie, if SNI or the Host: header provided abc.com:1234, it will match on a
+vhost named abc.com that is listening on port 1234.
+
+If there is no exact match, lws will consider wildcard matches, for example
+if cats.abc.com:1234 is provided by the client by SNI or Host: header, it will
+accept a vhost "abc.com" listening on port 1234.  If there was a better, exact,
+match, it will have been chosen in preference to this.
+
+Connections with SSL will still have the client go on to check the
+certificate allows wildcards and error out if not.
+ 
+
+
 Using lws v2 mounts on a vhost
 ------------------------------
 
