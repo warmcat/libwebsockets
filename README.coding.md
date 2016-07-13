@@ -672,3 +672,25 @@ the protocol struct.
 This allocation is only deleted / replaced when the connection accesses a
 URL region with a different protocol (or the default protocols[0] if no
 CALLBACK area matches it).
+
+@section dim Dimming webpage when connection lost
+
+The lws test plugins' html provides useful feedback on the webpage about if it
+is still connected to the server, by greying out the page if not.  You can
+also add this to your own html easily
+
+ - include lws-common.js from your HEAD section
+ 
+   <script src="/lws-common.js"></script>
+   
+ - dim the page during initialization, in a script section on your page
+ 
+   lws_gray_out(true,{'zindex':'499'});
+   
+ - in your ws onOpen(), remove the dimming
+ 
+   lws_gray_out(false);
+   
+ - in your ws onClose(), reapply the dimming
+ 
+   lws_gray_out(true,{'zindex':'499'});
