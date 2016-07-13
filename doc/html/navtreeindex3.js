@@ -43,6 +43,7 @@ var NAVTREEINDEX3 =
 "md_README.coding.html#cpp":[4,9],
 "md_README.coding.html#dae":[4,0],
 "md_README.coding.html#debuglog":[4,7],
+"md_README.coding.html#dim":[4,24],
 "md_README.coding.html#ecdh":[4,15],
 "md_README.coding.html#evtloop":[4,2],
 "md_README.coding.html#extopts":[4,18],
@@ -248,6 +249,5 @@ var NAVTREEINDEX3 =
 "structlws__plugin__capability.html#abcf51db969522fdda9aaf902e65739d3":[9,10,2,1],
 "structlws__plugin__capability.html#ae38f7cf1246b9ca3af3cbf9d46b7090f":[9,10,2,2],
 "structlws__polarssl__context.html":[10,0,14],
-"structlws__polarssl__context.html#a1872f2ea24878d807ae20ca8513674af":[10,0,14,0],
-"structlws__polarssl__context.html#a919c33af37aab170f828d954de1fa270":[10,0,14,2]
+"structlws__polarssl__context.html#a1872f2ea24878d807ae20ca8513674af":[10,0,14,0]
 };

@@ -64,7 +64,8 @@ var NAVTREE =
       [ "Using lws vhosts", "md_README.coding.html#vhosts", null ],
       [ "How lws matches hostname or SNI to a vhost", "md_README.coding.html#sni", null ],
       [ "Using lws mounts on a vhost", "md_README.coding.html#mounts", null ],
-      [ "Operation of LWSMPRO_CALLBACK mounts", "md_README.coding.html#mountcallback", null ]
+      [ "Operation of LWSMPRO_CALLBACK mounts", "md_README.coding.html#mountcallback", null ],
+      [ "Dimming webpage when connection lost", "md_README.coding.html#dim", null ]
     ] ],
     [ "Notes about generic-sessions Plugin", "md_README.generic-sessions.html", [
       [ "Enabling lwsgs for build", "md_README.generic-sessions.html#gseb", null ],
@@ -134,7 +135,7 @@ var NAVTREEINDEX =
 "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5ac962efd35abf6c402f9fb14aa14f5016",
 "group__sha.html#ga7b09ab74646266f0b555103b3bb8dfe5",
 "libwebsockets_8h.html#a42394a38f08a97420c98127358cfeedbac8f5f992c6615324108cdf931da903be",
-"structlws__polarssl__context.html#ae7e11c9129ff71c7ee71b3b2e320ff27"
+"structlws__polarssl__context.html#a919c33af37aab170f828d954de1fa270"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

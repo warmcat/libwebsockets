@@ -24,15 +24,21 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define LWS_SS_VERSIONS 3
+struct lws_ss_load_sample {
+	time_t t;
+	int load_x100;
+};
 
 struct lws_ss_dumps {
 	char buf[32768];
 	int length;
+
+	struct lws_ss_load_sample load[64];
+	int load_head;
+	int load_tail;
 };
 
-static struct lws_ss_dumps d[LWS_SS_VERSIONS];
-static int last_dump;
+static struct lws_ss_dumps d;
 static uv_timer_t timeout_watcher;
 static struct lws_context *context;
 static int tow_flag;
@@ -51,12 +57,28 @@ uv_timeout_cb_server_status(uv_timer_t *w
 #endif
 )
 {
-	int n;
+	char *p = d.buf + LWS_PRE;
 
-	last_dump = (last_dump + 1) % LWS_SS_VERSIONS;
-	n = lws_json_dump_context(context, d[last_dump].buf + LWS_PRE,
-			sizeof(d[0].buf) - LWS_PRE);
-	d[last_dump].length = n;
+#if 0
+#ifdef LWS_HAVE_GETLOADAVG
+	double l = 0.0;
+
+	getloadavg(&l, 1);
+	d.load[d.load_head].load_x100 = (int)(l * 100);
+	d.load[d.load_head].t = lws_now_secs();
+	d.load_head++;
+	if (d.load_head == ARRAY_SIZE(d.load))
+		d.load_head = 0;
+	if (d.load_head == d.load_tail) {
+		d.load_tail++;
+		if (d.load_tail == ARRAY_SIZE(d.load))
+			d.load_tail = 0;
+	}
+#endif
+#endif
+
+	d.length = lws_json_dump_context(context, p,
+					 sizeof(d.buf) - LWS_PRE);
 
 	lws_callback_on_writable_all_protocol(context, &protocols[0]);
 }
@@ -99,14 +121,10 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		m = lws_write(wsi, (unsigned char *)
-				d[last_dump].buf + LWS_PRE, d[last_dump].length,
+		m = lws_write(wsi, (unsigned char *)d.buf + LWS_PRE, d.length,
 			      LWS_WRITE_TEXT);
 		if (m < 0)
 			return -1;
-		break;
-
-	case LWS_CALLBACK_RECEIVE:
 		break;
 
 	default:
