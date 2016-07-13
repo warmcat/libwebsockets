@@ -252,7 +252,24 @@ Operation of LWSMPRO_CALLBACK mounts</h1>
 <p>Access by all methods, eg, GET and POST are handled by the callback.</p>
 <p>protocol-post-demo deals with accepting and responding to the html form that is in the test server HTML.</p>
 <p>When a connection accesses a URL related to a CALLBACK type mount, the connection protocol is changed until the next access on the connection to a URL outside the same CALLBACK mount area. User space on the connection is arranged to be the size of the new protocol user space allocation as given in the protocol struct.</p>
-<p>This allocation is only deleted / replaced when the connection accesses a URL region with a different protocol (or the default protocols[0] if no CALLBACK area matches it). </p>
+<p>This allocation is only deleted / replaced when the connection accesses a URL region with a different protocol (or the default protocols[0] if no CALLBACK area matches it).</p>
+<h1><a class="anchor" id="dim"></a>
+Dimming webpage when connection lost</h1>
+<p>The lws test plugins' html provides useful feedback on the webpage about if it is still connected to the server, by greying out the page if not. You can also add this to your own html easily</p>
+<ul>
+<li><p class="startli">include lws-common.js from your HEAD section</p>
+<p class="startli">&lt;script src="/lws-common.js"&gt;&lt;/script&gt;</p>
+</li>
+<li><p class="startli">dim the page during initialization, in a script section on your page</p>
+<p class="startli">lws_gray_out(true,{'zindex':'499'});</p>
+</li>
+<li><p class="startli">in your ws onOpen(), remove the dimming</p>
+<p class="startli">lws_gray_out(false);</p>
+</li>
+<li><p class="startli">in your ws onClose(), reapply the dimming</p>
+<p class="startli">lws_gray_out(true,{'zindex':'499'}); </p>
+</li>
+</ul>
 </div></div><!-- contents -->
 </div><!-- doc-content -->
 <!-- start footer part -->
