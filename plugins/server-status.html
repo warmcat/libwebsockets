@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
  <meta charset=utf-8 http-equiv="Content-Language" content="en"/>
+ <script src="/lws-common.js"></script>
  <title>LWS Server Status</title>
 <style type="text/css">
 	span.title { font-size:18pt; font: Arial; font-weight:normal;
@@ -121,6 +122,8 @@
 
 <script>
 
+lws_gray_out(true,{'zindex':'499'});
+
 /*
  * We display untrusted stuff in html context... reject anything
  * that has HTML stuff in it
@@ -193,6 +196,7 @@ function get_appropriate_ws_url()
 	try {
 		socket_status.onopen = function() {
 			document.getElementById("title").innerHTML = "Server Status (Active)";
+			lws_gray_out(false);
 		}
 
 		socket_status.onmessage =function got_packet(msg) {
@@ -286,6 +290,7 @@ function get_appropriate_ws_url()
 
 		socket_status.onclose = function(){
 			document.getElementById("title").innerHTML = "Server Status (Disconnected)";
+			lws_gray_out(true,{'zindex':'499'});
 		}
 	} catch(exception) {
 		alert('<p>Error' + exception);  

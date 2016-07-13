@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
  <meta charset=utf-8 http-equiv="Content-Language" content="en"/>
+ <script src="/lws-common.js"></script>
  <title>Minimal Websocket test app</title>
 <style type="text/css">
 	span.title { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#000000; }
@@ -353,6 +354,8 @@ function san(s)
 	return s;
 }
 
+lws_gray_out(true,{'zindex':'499'});
+
 /* BrowserDetect came from http://www.quirksmode.org/js/detect.html */
 
 var BrowserDetect = {
@@ -665,6 +668,7 @@ function ot_req_close() {
 			document.getElementById("wslm_status").innerHTML =
 				" <b>websocket connection opened</b><br>" +
 				san(socket_lm.extensions);
+			lws_gray_out(false);
 		} 
 
 		socket_lm.onmessage =function got_packet(msg) {
@@ -693,6 +697,7 @@ function ot_req_close() {
 		socket_lm.onclose = function(){
 			document.getElementById("wslm_statustd").style.backgroundColor = "#ff4040";
 			document.getElementById("wslm_status").textContent = " websocket connection CLOSED ";
+			lws_gray_out(true,{'zindex':'499'});
 		}
 	} catch(exception) {
 		alert('<p>Error' + exception);  
