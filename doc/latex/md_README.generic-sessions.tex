@@ -1,11 +1,7 @@
-\subsection*{Enabling for build }
-
+\hypertarget{md_README.generic-sessions_gseb}{}\section{Enabling lwsgs for build}\label{md_README.generic-sessions_gseb}
 Enable at C\+Make with -\/\+D\+L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+G\+E\+N\+E\+R\+I\+C\+\_\+\+S\+E\+S\+S\+I\+O\+NS=1
 
-This also needs sqlite3 (libsqlite3-\/dev or similar package)
-
-\subsection*{Introduction }
-
+This also needs sqlite3 (libsqlite3-\/dev or similar package)\hypertarget{md_README.generic-sessions_gsi}{}\section{lwsgs Introduction}\label{md_README.generic-sessions_gsi}
 The generic-\/sessions protocol plugin provides cookie-\/based login authentication for lws web and ws connections.
 
 The plugin handles everything about generic account registration, email verification, lost password, account deletion, and other generic account management.
@@ -26,10 +22,7 @@ Other code, in another eg, ws protocol handler, only needs very high-\/level sta
 \item Eliminates server-\/side scripting with a few rewritten symbols and javascript on client side
 \item 32-\/bit bitfield for authentication sectoring, mounts can provide a mask on the loggin-\/in session\textquotesingle{}s associated server-\/side bitfield that must be set for access.
 \item No code (just config) required for, eg, private U\+RL namespace that requires login to access.
-\end{DoxyItemize}
-
-\subsection*{Integration to H\+T\+ML }
-
+\end{DoxyItemize}\hypertarget{md_README.generic-sessions_gsin}{}\section{Lwsgs Integration to H\+T\+ML}\label{md_README.generic-sessions_gsin}
 Only three steps are needed to integrate lwsgs in your H\+T\+ML.
 
 1) lwsgs H\+T\+ML UI is bundled with the javascript it uses in {\ttfamily lwsgs.\+js}, so import that script file in your head section
@@ -68,8 +61,7 @@ That\textquotesingle{}s it. An example is below
 24  </body>
 25 </html>
 \end{DoxyCode}
- \subsection*{Overall Flow }
-
+\hypertarget{md_README.generic-sessions_gsof}{}\section{Lwsgs Overall Flow@}\label{md_README.generic-sessions_gsof}
 When the protocol is initialized, it gets per-\/vhost information from the config, such as where the sqlite3 databases are to be stored. The admin username and sha-\/1 of the admin password are also taken from here.
 
 In the mounts using protocol-\/generic-\/sessions, a cookie is maintained against any requests; if no cookie was active on the initial request a new session is created with no attached user.
@@ -80,11 +72,8 @@ In the example html going to the mount /lwsgs loads a login / register page as t
 
 The $<$form$>$ in the login page contains \textquotesingle{}next url\textquotesingle{} hidden inputs that let the html \textquotesingle{}program\textquotesingle{} where the form handler will go after a successful admin login, a successful user login and a failed login.
 
-After a successful login, the sqlite record at the server for the current session is updated to have the logged-\/in username associated with it.
-
-\subsection*{Configuration }
-
-\char`\"{}auth-\/mask\char`\"{} defines the autorization sector bits that must be enabled on the session to gain access.
+After a successful login, the sqlite record at the server for the current session is updated to have the logged-\/in username associated with it.\hypertarget{md_README.generic-sessions_gsconf}{}\section{Lwsgs Configuration}\label{md_README.generic-sessions_gsconf}
+\char`\"{}auth-\/mask\char`\"{} defines the authorization sector bits that must be enabled on the session to gain access.
 
 \char`\"{}auth-\/mask\char`\"{} 0 is the default.
 
@@ -191,14 +180,8 @@ The real protocol that makes use of generic-\/sessions must also be listed and a
 \end{DoxyCode}
 
 
-Notice the real application uses his own sqlite db, no details about how generic-\/sessions works or how it stores data are available to it.
-
-\subsection*{Password Confounder }
-
-You can also define a per-\/vhost confounder shown in the example above, used when aggregating the password with the salt when it is hashed. Any attacker will also need to get the confounder along with the database, which you can make harder by making the config dir only eneterable / readable by root.
-
-\subsection*{Preparing the db directory }
-
+Notice the real application uses his own sqlite db, no details about how generic-\/sessions works or how it stores data are available to it.\hypertarget{md_README.generic-sessions_gspwc}{}\section{Lwsgs Password Confounder}\label{md_README.generic-sessions_gspwc}
+You can also define a per-\/vhost confounder shown in the example above, used when aggregating the password with the salt when it is hashed. Any attacker will also need to get the confounder along with the database, which you can make harder by making the config dir only eneterable / readable by root.\hypertarget{md_README.generic-sessions_gsprep}{}\section{Lwsgs Preparing the db directory}\label{md_README.generic-sessions_gsprep}
 You will have to prepare the db directory so it\textquotesingle{}s suitable for the lwsws user to use, that usually means apache, eg
 
 
@@ -207,19 +190,15 @@ You will have to prepare the db directory so it\textquotesingle{}s suitable for 
 2 # chown root:apache /var/www/sessions
 3 # chmod 770 /var/www/sessions
 \end{DoxyCode}
-
-
-\subsection*{Email configuration }
-
+\hypertarget{md_README.generic-sessions_gsrmail}{}\section{Lwsgs Email configuration}\label{md_README.generic-sessions_gsrmail}
 lwsgs will can send emails by talking to an S\+M\+TP server on localhost\+:25. That will usually be sendmail or postfix, you should confirm that works first by itself using the {\ttfamily mail} application to send on it.
 
-lwsgs has been tested on stock Fedora sendmail and postfix.
-
-\subsection*{Integration with another protocol }
-
+lwsgs has been tested on stock Fedora sendmail and postfix.\hypertarget{md_README.generic-sessions_gsap}{}\section{Lwsgs Integration with another protocol}\label{md_README.generic-sessions_gsap}
 lwsgs is designed to provide sessions and accounts in a standalone and generic way.
 
 But it\textquotesingle{}s not useful by itself, there will always be the actual application who wants to make use of generic-\/sessions features.
+
+We provide the \char`\"{}messageboard\char`\"{} plugin as an example of how to integrate with your actual application protocol.
 
 The basic approach is the \textquotesingle{}real\textquotesingle{} protocol handler (usually a plugin itself) subclasses the generic-\/sessions plugin and calls through to it by default.
 
@@ -292,7 +271,7 @@ To ease management of these secondary allocations, there are callbacks that occu
 \end{DoxyCode}
 
 
-\subsection*{Getting session-\/specific information from another protocol }
+\#section gsapsib Getting session-\/specific information from another protocol
 
 At least at the time when someone tries to upgrade an http(s) connection to ws(s) with your real protocol, it is necessary to confirm the cookie the http(s) connection has with generic-\/sessions and find out his username and other info.
 

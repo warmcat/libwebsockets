@@ -1,26 +1,29 @@
 Notes about lwsws
 =================
 
-Libwebsockets Web Server
-------------------------
+@section lwsws Libwebsockets Web Server
 
 lwsws is an implementation of a very lightweight, ws-capable generic web
 server, which uses libwebsockets to implement everything underneath.
 
-Build
------
+If you are basically implementing a standalone server with lws, you can avoid
+reinventing the wheel and use a debugged server including lws.
+
+
+@section lwswsb Build
 
 Just enable -DLWS_WITH_LWSWS=1 at cmake-time.
 
 It enables libuv and plugin support automatically.
 
 
-Configuration
--------------
+@section lwswsc Lwsws Configuration
 
-lwsws uses JSON config files, they're pure JSON but # may be used to turn the rest of the line into a comment.
+lwsws uses JSON config files, they're pure JSON except:
 
-There's also a single substitution, if a string contains "_lws_ddir_", then that is
+ - '#' may be used to turn the rest of the line into a comment.
+
+ - There's also a single substitution, if a string contains "_lws_ddir_", then that is
 replaced with the LWS install data directory path, eg, "/usr/share" or whatever was
 set when LWS was built + installed.  That lets you refer to installed paths without
 having to change the config if your install path was different.
@@ -71,8 +74,8 @@ on port 7681, non-SSL is provided.  To set it up
 	# cp ./lwsws/etc-lwsws-conf.d-localhost-EXAMPLE /etc/lwsws/conf.d/test-server
 	# sudo lwsws
 ```
-Vhosts
-------
+
+@section lwswsv Lwsws Vhosts
 
 One server can run many vhosts, where SSL is in use SNI is used to match
 the connection to a vhost and its vhost-specific SSL keys during SSL
@@ -132,8 +135,7 @@ Listing multiple vhosts looks something like this
 That sets up three vhosts all called "localhost" on ports 443 and 7681 with SSL, and port 80 without SSL but with a forced redirect to https://localhost
 
 
-Vhost name and port
--------------------
+@section lwswsvn Lwsws Vhost name and port sharing
 
 The vhost name field is used to match on incoming SNI or Host: header, so it
 must always be the host name used to reach the vhost externally.
@@ -147,8 +149,7 @@ negotiation time (via SNI) or if no SSL, then after the Host: header from
 the client has been parsed.
 
 
-Protocols
----------
+@section lwswspr Lwsws Protocols
 
 Vhosts by default have available the union of any initial protocols from context creation time, and
 any protocols exposed by plugins.
@@ -178,8 +179,7 @@ by the client, you can use "default": "1"
 ```
 
 
-Other vhost options
--------------------
+@section lwswsovo Lwsws Other vhost options
 
  - If the three options `host-ssl-cert`, `host-ssl-ca` and `host-ssl-key` are given, then the vhost supports SSL.
 
@@ -223,8 +223,7 @@ Other vhost options
  - "`ssl-option-clear'": "<decimal>"   Clears the SSL option flag value for the vhost.
  It may be used multiple times and OR's the flags together.
 
-Mounts
-------
+@section lwswsm Lwsws Mounts
 
 Where mounts are given in the vhost definition, then directory contents may
 be auto-served if it matches the mountpoint.
@@ -261,8 +260,7 @@ Mount protocols are used to control what kind of translation happens
 
 
 
-Other mount options
--------------------
+@section lwswsomo Lwsws Other mount options
 
 1) Some protocols may want "per-mount options" in name:value format.  You can
 provide them using "pmo"
@@ -329,8 +327,7 @@ options are given, the content is marked uncacheable.
 	         }
 ```
 
-Plugins
--------
+@section lwswspl Lwsws Plugins
 
 Protcols and extensions may also be provided from "plugins", these are
 lightweight dynamic libraries.  They are scanned for at init time, and
@@ -357,8 +354,7 @@ To help that happen conveniently, there are some new apis
 dumb increment, mirror and status protocol plugins are provided as examples.
 
 
-Additional plugin search paths
-------------------------------
+@section lwswsplaplp Additional plugin search paths
 
 Packages that have their own lws plugins can install them in their own
 preferred dir and ask lwsws to scan there by using a config fragment
@@ -371,8 +367,7 @@ like this, in its own conf.d/ file managed by the other package
 	}
 ```
 
-lws-server-status plugin
-------------------------
+@section lwswsssp lws-server-status plugin
 
 One provided protocol can be used to monitor the server status.
 
@@ -397,8 +392,7 @@ You might choose to put it on its own vhost which has "interface": "lo", so it's
 externally visible.
 
 
-Integration with Systemd
-------------------------
+@section lwswssysd Lwsws Integration with Systemd
 
 lwsws needs a service file like this as `/usr/lib/systemd/system/lwsws.service`
 ```
@@ -417,8 +411,7 @@ lwsws needs a service file like this as `/usr/lib/systemd/system/lwsws.service`
 You can find this prepared in `./lwsws/usr-lib-systemd-system-lwsws.service`
 
 
-Integration with logrotate
---------------------------
+@section lwswslr Lwsws Integration with logrotate
 
 For correct operation with logrotate, `/etc/logrotate.d/lwsws` (if that's
 where we're putting the logs) should contain

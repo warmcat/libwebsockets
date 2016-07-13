@@ -65,7 +65,8 @@ $(document).ready(function(){initNavTree('md_README.build.html','');});
 <div class="title">Notes about building lws </div>  </div>
 </div><!--header-->
 <div class="contents">
-<div class="textblock"><h2>Introduction to CMake </h2>
+<div class="textblock"><h1><a class="anchor" id="cm"></a>
+Introduction to CMake</h1>
 <p>CMake is a multi-platform build tool that can generate build files for many different target platforms. See more info at <a href="http://www.cmake.org">http://www.cmake.org</a></p>
 <p>CMake also allows/recommends you to do "out of source"-builds, that is, the build files are separated from your sources, so there is no need to create elaborate clean scripts to get a clean source tree, instead you simply remove your build directory.</p>
 <p>Libwebsockets has been tested to build successfully on the following platforms with SSL support (both OpenSSL/wolfSSL):</p>
@@ -76,19 +77,23 @@ $(document).ready(function(){initNavTree('md_README.build.html','');});
 <li>OSX</li>
 <li>NetBSD</li>
 </ul>
-<h2>Building the library and test apps </h2>
+<h1><a class="anchor" id="build1"></a>
+Building the library and test apps</h1>
 <p>The project settings used by CMake to generate the platform specific build files is called <a href="CMakeLists.txt">CMakeLists.txt</a>. CMake then uses one of its "Generators" to output a Visual Studio project or Make file for instance. To see a list of the available generators for your platform, simply run the "cmake" command.</p>
 <p>Note that by default OpenSSL will be linked, if you don't want SSL support see below on how to toggle compile options.</p>
-<h2>Building on Unix: </h2>
+<h1><a class="anchor" id="bu"></a>
+Building on Unix:</h1>
 <ol type="1">
 <li>Install CMake 2.8 or greater: <a href="http://cmake.org/cmake/resources/software.html">http://cmake.org/cmake/resources/software.html</a> (Most Unix distributions comes with a packaged version also)</li>
 <li>Install OpenSSL.</li>
 <li>Generate the build files (default is Make files): <div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ cd /path/to/src</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;$ mkdir build</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;$ cd build</div><div class="line"><a name="l00004"></a><span class="lineno">    4</span>&#160;$ cmake ..</div></div><!-- fragment --></li>
 <li>Finally you can build using the generated Makefile: <div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ make &amp;&amp; sudo make install</div></div><!-- fragment --> <b>NOTE</b>: The <code>build/</code><code>directory can have any name and be located anywhere on your filesystem, and that the argument</code>..` given to cmake is simply the source directory of <b>libwebsockets</b> containing the <a href="CMakeLists.txt">CMakeLists.txt</a> project file. All examples in this file assumes you use ".."</li>
 </ol>
-<p><b>NOTE2</b>: A common option you may want to give is to set the install path, same as &ndash;prefix= with autotools. It defaults to /usr/local. You can do this by, eg </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr .</div></div><!-- fragment --><p><b>NOTE3</b>: On machines that want libraries in lib64, you can also add the following to the cmake line </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;-DLIB_SUFFIX=64</div></div><!-- fragment --><p><b>NOTE4</b>: If you are building against a non-distro OpenSSL (eg, in order to get access to ALPN support only in newer OpenSSL versions) the nice way to express that in one cmake command is eg, </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ cmake .. -DOPENSSL_ROOT_DIR=/usr/local/ssl \</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;         -DCMAKE_INCLUDE_DIRECTORIES_PROJECT_BEFORE=/usr/local/ssl \</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;         -DLWS_WITH_HTTP2=1</div></div><!-- fragment --><p>When you run the test apps using non-distro SSL, you have to force them to use your libs, not the distro ones </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ LD_LIBRARY_PATH=/usr/local/ssl/lib libwebsockets-test-server --ssl</div></div><!-- fragment --><p>To get it to build on latest openssl (2016-04-10) it needed this approach </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;cmake .. -DLWS_WITH_HTTP2=1 -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/include/openssl -DLWS_OPENSSL_LIBRARIES=&quot;/usr/local/lib64/libssl.so;/usr/local/lib64/libcrypto.so&quot;</div></div><!-- fragment --><p><b>NOTE5</b>: To build with debug info and _DEBUG for lower priority debug messages compiled in, use </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ cmake .. -DCMAKE_BUILD_TYPE=DEBUG</div></div><!-- fragment --><h2>Quirk of cmake </h2>
+<p><b>NOTE2</b>: A common option you may want to give is to set the install path, same as &ndash;prefix= with autotools. It defaults to /usr/local. You can do this by, eg </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr .</div></div><!-- fragment --><p><b>NOTE3</b>: On machines that want libraries in lib64, you can also add the following to the cmake line </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;-DLIB_SUFFIX=64</div></div><!-- fragment --><p><b>NOTE4</b>: If you are building against a non-distro OpenSSL (eg, in order to get access to ALPN support only in newer OpenSSL versions) the nice way to express that in one cmake command is eg, </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ cmake .. -DOPENSSL_ROOT_DIR=/usr/local/ssl \</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;         -DCMAKE_INCLUDE_DIRECTORIES_PROJECT_BEFORE=/usr/local/ssl \</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;         -DLWS_WITH_HTTP2=1</div></div><!-- fragment --><p>When you run the test apps using non-distro SSL, you have to force them to use your libs, not the distro ones </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ LD_LIBRARY_PATH=/usr/local/ssl/lib libwebsockets-test-server --ssl</div></div><!-- fragment --><p>To get it to build on latest openssl (2016-04-10) it needed this approach </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;cmake .. -DLWS_WITH_HTTP2=1 -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/include/openssl -DLWS_OPENSSL_LIBRARIES=&quot;/usr/local/lib64/libssl.so;/usr/local/lib64/libcrypto.so&quot;</div></div><!-- fragment --><p><b>NOTE5</b>: To build with debug info and _DEBUG for lower priority debug messages compiled in, use </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ cmake .. -DCMAKE_BUILD_TYPE=DEBUG</div></div><!-- fragment --><h1><a class="anchor" id="cmq"></a>
+Quirk of cmake</h1>
 <p>When changing cmake options, for some reason the only way to get it to see the changes sometimes is delete the contents of your build directory and do the cmake from scratch.</p>
-<h2>Building on Windows (Visual Studio) </h2>
+<h1><a class="anchor" id="cmw"></a>
+Building on Windows (Visual Studio)</h1>
 <ol type="1">
 <li>Install CMake 2.6 or greater: <a href="http://cmake.org/cmake/resources/software.html">http://cmake.org/cmake/resources/software.html</a></li>
 <li><p class="startli">Install OpenSSL binaries. <a href="http://www.openssl.org/related/binaries.html">http://www.openssl.org/related/binaries.html</a></p>
@@ -109,7 +114,8 @@ $(document).ready(function(){initNavTree('md_README.build.html','');});
 </li>
 <li>If you're using libuv, you must make sure to compile libuv with the same multithread-dll / Mtd attributes as libwebsockets itself</li>
 </ol>
-<h2>Building on Windows (MinGW) </h2>
+<h1><a class="anchor" id="cmwmgw"></a>
+Building on Windows (MinGW)</h1>
 <ol type="1">
 <li><p class="startli">Install MinGW: <a href="http://sourceforge.net/projects/mingw/files">http://sourceforge.net/projects/mingw/files</a></p>
 <p class="startli">(<b>NOTE</b>: Preferably in the default location C:)</p>
@@ -127,13 +133,8 @@ $(document).ready(function(){initNavTree('md_README.build.html','');});
 <p class="startli"><b>NOTE2</b>: To generate build files allowing to create libwebsockets binaries with debug information set the CMAKE_BUILD_TYPE flag to DEBUG: </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ cmake -G &quot;MSYS Makefiles&quot; -DCMAKE_INSTALL_PREFIX=C:/MinGW -DCMAKE_BUILD_TYPE=DEBUG ..</div></div><!-- fragment --></li>
 <li>Finally you can build using the generated Makefile and get the results deployed into your MinGW installation:</li>
 </ol>
-<div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ make</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;$ make install</div></div><!-- fragment --><h2>Setting compile options </h2>
-<p>To set compile time flags you can either use one of the CMake gui applications or do it via command line.</p>
-<h2>Command line </h2>
-<p>To list avaialable options (ommit the H if you don't want the help text): </p><pre class="fragment">    cmake -LH ..
-</pre><p>Then to set an option and build (for example turn off SSL support): </p><pre class="fragment">    cmake -DLWS_WITH_SSL=0 ..
-</pre><p> or cmake -DLWS_WITH_SSL:BOOL=OFF ..</p>
-<h2>Building on mbed3 </h2>
+<div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ make</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;$ make install</div></div><!-- fragment --><h1><a class="anchor" id="mbed3"></a>
+Building on mbed3</h1>
 <p>MBED3 is a non-posix embedded OS targeted on Cortex M class chips.</p>
 <p><a href="https://www.mbed.com/">https://www.mbed.com/</a></p>
 <p>It's quite unlike any other Posixy platform since the OS is linked statically in with lws to form one binary.</p>
@@ -151,32 +152,47 @@ $(document).ready(function(){initNavTree('md_README.build.html','');});
 <p>6) yotta target frdm-k64f-gcc</p>
 <p>7) yotta install</p>
 <p>8) yotta build</p>
-<h2>Unix GUI </h2>
+<h1><a class="anchor" id="cmco"></a>
+Setting compile options</h1>
+<p>To set compile time flags you can either use one of the CMake gui applications or do it via command line.</p>
+<h2><a class="anchor" id="cmcocl"></a>
+Command line</h2>
+<p>To list avaialable options (omit the H if you don't want the help text): </p><pre class="fragment">    cmake -LH ..
+</pre><p>Then to set an option and build (for example turn off SSL support): </p><pre class="fragment">    cmake -DLWS_WITH_SSL=0 ..
+</pre><p> or cmake -DLWS_WITH_SSL:BOOL=OFF ..</p>
+<h2><a class="anchor" id="cmcoug"></a>
+Unix GUI</h2>
 <p>If you have a curses-enabled build you simply type: (not all packages include this, my debian install does not for example). </p><pre class="fragment">    ccmake
-</pre><h2>Windows GUI </h2>
+</pre><h2><a class="anchor" id="cmcowg"></a>
+Windows GUI</h2>
 <p>On windows CMake comes with a gui application: Start -&gt; Programs -&gt; CMake -&gt; CMake (cmake-gui)</p>
-<h2>wolfSSL/CyaSSL replacement for OpenSSL </h2>
+<h1><a class="anchor" id="wolf"></a>
+wolfSSL/CyaSSL replacement for OpenSSL</h1>
 <p>wolfSSL/CyaSSL is a lightweight SSL library targeted at embedded systems: <a href="https://www.wolfssl.com/wolfSSL/Products-wolfssl.html">https://www.wolfssl.com/wolfSSL/Products-wolfssl.html</a></p>
 <p>It contains a OpenSSL compatibility layer which makes it possible to pretty much link to it instead of OpenSSL, giving a much smaller footprint.</p>
 <p><b>NOTE</b>: wolfssl needs to be compiled using the <code>--enable-opensslextra</code> flag for this to work.</p>
-<h2>Compiling libwebsockets with wolfSSL </h2>
+<h1><a class="anchor" id="wolf1"></a>
+Compiling libwebsockets with wolfSSL</h1>
 <div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;cmake .. -DLWS_USE_WOLFSSL=1 \</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;         -DLWS_WOLFSSL_INCLUDE_DIRS=/path/to/wolfssl \</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;         -DLWS_WOLFSSL_LIBRARIES=/path/to/wolfssl/wolfssl.a ..</div></div><!-- fragment --><p><b>NOTE</b>: On windows use the .lib file extension for <code>LWS_WOLFSSL_LIBRARIES</code> instead.</p>
-<h2>Compiling libwebsockets with CyaSSL </h2>
+<h1><a class="anchor" id="cya"></a>
+Compiling libwebsockets with CyaSSL</h1>
 <div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;cmake .. -DLWS_USE_CYASSL=1 \</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;         -DLWS_CYASSL_INCLUDE_DIRS=/path/to/cyassl \</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;         -DLWS_CYASSL_LIBRARIES=/path/to/wolfssl/cyassl.a ..</div></div><!-- fragment --><p><b>NOTE</b>: On windows use the .lib file extension for <code>LWS_CYASSL_LIBRARIES</code> instead.</p>
-<h2>Compiling libwebsockets with PolarSSL </h2>
-<p>Caution... at some point PolarSSL became MbedTLS. But it did not happen all at once. The name changed first then at mbedTLS 2.0 the apis changed. So eg in Fedora 22, there is an "mbedtls" package which is actually using polarssl for the include dir and polarssl apis... this should be treated as polarssl then.</p>
-<p>Example config for this case is </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;cmake .. -DLWS_USE_POLARSSL=1 -DLWS_POLARSSL_LIBRARIES=/usr/lib64/libmbedtls.so \</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;         -DLWS_POLARSSL_INCLUDE_DIRS=/usr/include/polarssl/</div></div><!-- fragment --><h2>Building plugins outside of lws itself </h2>
+<h1><a class="anchor" id="extplugins"></a>
+Building plugins outside of lws itself</h1>
 <p>The directory ./plugin-standalone/ shows how easy it is to create plugins outside of lws itself. First build lws itself with -DLWS_WITH_PLUGINS, then use the same flow to build the standalone plugin </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;cd ./plugin-standalone</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;mkdir build</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;cd build</div><div class="line"><a name="l00004"></a><span class="lineno">    4</span>&#160;cmake ..</div><div class="line"><a name="l00005"></a><span class="lineno">    5</span>&#160;make &amp;&amp; sudo make install</div></div><!-- fragment --><p>if you changed the default plugin directory when you built lws, you must also give the same arguments to cmake here (eg, <code>-DCMAKE_INSTALL_PREFIX:PATH=/usr/something/else...</code> )</p>
 <p>Otherwise if you run lwsws or libwebsockets-test-server-v2.0, it will now find the additional plugin "libprotocol_example_standalone.so" </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;lwsts[21257]:   Plugins:</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;lwsts[21257]:    libprotocol_dumb_increment.so</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;lwsts[21257]:    libprotocol_example_standalone.so</div><div class="line"><a name="l00004"></a><span class="lineno">    4</span>&#160;lwsts[21257]:    libprotocol_lws_mirror.so</div><div class="line"><a name="l00005"></a><span class="lineno">    5</span>&#160;lwsts[21257]:    libprotocol_lws_server_status.so</div><div class="line"><a name="l00006"></a><span class="lineno">    6</span>&#160;lwsts[21257]:    libprotocol_lws_status.so</div></div><!-- fragment --><p> If you have multiple vhosts, you must enable plugins at the vhost additionally, discovered plugins are not enabled automatically for security reasons. You do this using info-&gt;pvo or for lwsws, in the JSON config.</p>
-<h2>Reproducing HTTP2.0 tests </h2>
+<h1><a class="anchor" id="http2rp"></a>
+Reproducing HTTP2.0 tests</h1>
 <p>You must have built and be running lws against a version of openssl that has ALPN / NPN. Most distros still have older versions. You'll know it's right by seeing </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;lwsts[4752]:  Compiled with OpenSSL support</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;lwsts[4752]:  Using SSL mode</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;lwsts[4752]:  HTTP2 / ALPN enabled</div></div><!-- fragment --><p> at lws startup.</p>
-<p>For non-SSL HTTP2.0 upgrade </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ nghttp -nvasu http://localhost:7681/test.htm</div></div><!-- fragment --><p> For SSL / ALPN HTTP2.0 upgrade </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ nghttp -nvas https://localhost:7681/test.html</div></div><!-- fragment --><h2>Cross compiling </h2>
+<p>For non-SSL HTTP2.0 upgrade </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ nghttp -nvasu http://localhost:7681/test.htm</div></div><!-- fragment --><p> For SSL / ALPN HTTP2.0 upgrade </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ nghttp -nvas https://localhost:7681/test.html</div></div><!-- fragment --><h1><a class="anchor" id="cross"></a>
+Cross compiling</h1>
 <p>To enable cross-compiling <b>libwebsockets</b> using CMake you need to create a "Toolchain file" that you supply to CMake when generating your build files. CMake will then use the cross compilers and build paths specified in this file to look for dependencies and such.</p>
 <p><b>Libwebsockets</b> includes an example toolchain file <a href="cross-arm-linux-gnueabihf.cmake">cross-arm-linux-gnueabihf.cmake</a> you can use as a starting point.</p>
 <p>The commandline to configure for cross with this would look like </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr \</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;         -DCMAKE_TOOLCHAIN_FILE=../cross-arm-linux-gnueabihf.cmake \</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;         -DWITHOUT_EXTENSIONS=1 -DWITH_SSL=0</div></div><!-- fragment --><p> The example shows how to build with no external cross lib dependencies, you need to provide the cross libraries otherwise.</p>
 <p><b>NOTE</b>: start from an EMPTY build directory if you had a non-cross build in there before the settings will be cached and your changes ignored.</p>
 <p>Additional information on cross compilation with CMake: <a href="http://www.vtk.org/Wiki/CMake_Cross_Compiling">http://www.vtk.org/Wiki/CMake_Cross_Compiling</a></p>
-<h2>Memory efficiency </h2>
+<h1><a class="anchor" id="mem"></a>
+Memory efficiency</h1>
 <p>Embedded server-only configuration without extensions (ie, no compression on websocket connections), but with full v13 websocket features and http server, built on ARM Cortex-A9:</p>
 <p>Update at 8dac94d (2013-02-18) </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;$ ./configure --without-client --without-extensions --disable-debug --without-daemonize</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;Context Creation, 1024 fd limit[2]:   16720 (includes 12 bytes per fd)</div><div class="line"><a name="l00004"></a><span class="lineno">    4</span>&#160;Per-connection [3]:                      72 bytes, +1328 during headers</div><div class="line"><a name="l00005"></a><span class="lineno">    5</span>&#160;</div><div class="line"><a name="l00006"></a><span class="lineno">    6</span>&#160;.text   .rodata .data   .bss</div><div class="line"><a name="l00007"></a><span class="lineno">    7</span>&#160;11512   2784    288     4</div></div><!-- fragment --><p> This shows the impact of the major configuration with/without options at 13ba5bbc633ea962d46d using Ubuntu ARM on a PandaBoard ES.</p>
 <p>These are accounting for static allocations from the library elf, there are additional dynamic allocations via malloc. These are a bit old now but give the right idea for relative "expense" of features.</p>

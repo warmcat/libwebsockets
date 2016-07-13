@@ -1,8 +1,7 @@
 Notes about coding with lws
 ===========================
 
-Daemonization
--------------
+@section dae Daemonization
 
 There's a helper api `lws_daemonize` built by default that does everything you
 need to daemonize well, including creating a lock file.  If you're making
@@ -14,8 +13,7 @@ daemon is headless, so you'll need to sort out alternative logging, by, eg,
 syslog.
 
 
-Maximum number of connections
------------------------------
+@section conns Maximum number of connections
 
 The maximum number of connections the library can deal with is decided when
 it starts by querying the OS to find out how many file descriptors it is
@@ -28,8 +26,9 @@ similar to change the avaiable number of file descriptors, and when restarted
 **libwebsockets** will adapt accordingly.
 
 
-Libwebsockets is singlethreaded
--------------------------------
+@section evtloop Libwebsockets is singlethreaded
+
+Libwebsockets works in a serialized event loop, in a single thread.
 
 Directly performing websocket actions from other threads is not allowed.
 Aside from the internal data being inconsistent in `forked()` processes,
@@ -67,8 +66,7 @@ SSL_library_init() is called from the context create api and it also is not
 reentrant.  So at least create the contexts sequentially.
 
 
-Only send data when socket writeable
-------------------------------------
+@section writeable Only send data when socket writeable
 
 You should only send data on a websocket connection from the user callback
 `LWS_CALLBACK_SERVER_WRITEABLE` (or `LWS_CALLBACK_CLIENT_WRITEABLE` for
@@ -90,8 +88,7 @@ in the ...WRITEABLE callback.
 See the test server code for an example of how to do this.
 
 
-Do not rely on only your own WRITEABLE requests appearing
----------------------------------------------------------
+@section otherwr Do not rely on only your own WRITEABLE requests appearing
 
 Libwebsockets may generate additional `LWS_CALLBACK_CLIENT_WRITEABLE` events
 if it met network conditions where it had to buffer your send data internally.
@@ -104,8 +101,7 @@ It's quite possible you get an 'extra' writeable callback at any time and
 just need to `return 0` and wait for the expected callback later.
 
 
-Closing connections from the user side
---------------------------------------
+@section closing Closing connections from the user side
 
 When you want to close a connection, you do it by returning `-1` from a
 callback for that connection.
@@ -122,11 +118,10 @@ take care of closing the connection automatically.
 If you have a silently dead connection, it's possible to enter a state where
 the send pipe on the connection is choked but no ack will ever come, so the
 dead connection will never become writeable.  To cover that, you can use TCP
-keepalives (see later in this document)
+keepalives (see later in this document) or pings.
 
 
-Fragmented messages
--------------------
+@section frags Fragmented messages
 
 To support fragmented messages you need to check for the final
 frame of a message with `lws_is_final_fragment`. This
@@ -158,8 +153,7 @@ The test app libwebsockets-test-fraggle sources also show how to
 deal with fragmented messages.
 
 
-Debug Logging
--------------
+@section debuglog Debug Logging
 
 Also using `lws_set_log_level` api you may provide a custom callback to actually
 emit the log string.  By default, this points to an internal emit function
@@ -180,9 +174,17 @@ The logging apis are made available for user code.
 The difference between notice and info is that notice will be logged by default
 whereas info is ignored by default.
 
+If you are not building with _DEBUG defined, ie, without this
 
-External Polling Loop support
------------------------------
+```
+	$ cmake .. -DCMAKE_BUILD_TYPE=DEBUG
+```
+
+then log levels below notice do not actually get compiled in.
+
+
+
+@section extpoll External Polling Loop support
 
 **libwebsockets** maintains an internal `poll()` array for all of its
 sockets, but you can instead integrate the sockets into an
@@ -215,8 +217,7 @@ reflecting the real event:
    losing windows compatibility
 
 
-Using with in c++ apps
-----------------------
+@section cpp Using with in c++ apps
 
 The library is ready for use by C++ apps.  You can get started quickly by
 copying the test server
@@ -236,18 +237,21 @@ you remove the references to it in your app you don't need to define it on
 the g++ line either.
 
 
-Availability of header information
-----------------------------------
+@section headerinfo Availability of header information
 
-From v1.2 of the library onwards, the HTTP header content is `free()`d as soon
-as the websocket connection is established.  For websocket servers, you can
-copy interesting headers by handling `LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION`
-callback, for clients there's a new callback just for this purpose
-`LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH`.
+HTTP Header information is managed by a pool of "ah" structs.  These are a
+limited resource so there is pressure to free the headers and return the ah to
+the pool for reuse.
+
+For that reason header information on HTTP connections that get upgraded to
+websockets is lost after the ESTABLISHED callback.  Anything important that
+isn't processed by user code before then should be copied out for later.
+
+For HTTP connections that don't upgrade, header info remains available the
+whole time.
 
 
-TCP Keepalive
--------------
+@section ka TCP Keepalive
 
 It is possible for a connection which is not being used to send to die
 silently somewhere between the peer and the side not sending.  In this case
@@ -272,8 +276,8 @@ like Linux does.  On those systems you can enable keepalive by a nonzero
 value in `ka_time`, but the systemwide kernel settings for the time / probes/
 interval are used, regardless of what nonzero value is in `ka_time`.
 
-Optimizing SSL connections
---------------------------
+
+@section sslopt Optimizing SSL connections
 
 There's a member `ssl_cipher_list` in the `lws_context_creation_info` struct
 which allows the user code to restrict the possible cipher selection at
@@ -289,8 +293,7 @@ if left `NULL`, then the "DEFAULT" set of ciphers are all possible to select.
 You can also set it to `"ALL"` to allow everything (including insecure ciphers).
 
 
-Async nature of client connections
-----------------------------------
+@section clientasync Async nature of client connections
 
 When you call `lws_client_connect_info(..)` and get a `wsi` back, it does not
 mean your connection is active.  It just means it started trying to connect.
@@ -308,8 +311,19 @@ loop calling `lws_service()` until one of the above callbacks occurs.
 
 As usual, see [test-client.c](test-server/test-client.c) for example code.
 
-Lws platform-independent file access apis
------------------------------------------
+Notice that the client connection api tries to progress the connection
+somewhat before returning.  That means it's possible to get callbacks like
+CONNECTION_ERROR on the new connection before your user code had a chance to
+get the wsi returned to identify it (in fact if the connection did fail early,
+NULL will be returned instead of the wsi anyway).
+
+To avoid that problem, you can fill in `pwsi` in the client connection info
+struct to point to a struct lws that get filled in early by the client
+connection api with the related wsi.  You can then check for that in the
+callback to confirm the identity of the failing client connection.
+
+
+@section fileapi Lws platform-independent file access apis
 
 lws now exposes his internal platform file abstraction in a way that can be
 both used by user code to make it platform-agnostic, and be overridden or
@@ -352,8 +366,7 @@ file handling apis
 The user code can also override or subclass the file operations, to either
 wrap or replace them.  An example is shown in test server.
 
-ECDH Support
-------------
+@section ecdh ECDH Support
 
 ECDH Certs are now supported.  Enable the CMake option
 
@@ -365,8 +378,7 @@ ECDH Certs are now supported.  Enable the CMake option
 
 to build in support and select it at runtime.
 
-SMP / Multithreaded service
----------------------------
+@section smp SMP / Multithreaded service
 
 SMP support is integrated into LWS without any internal threading.  It's
 very simple to use, libwebsockets-test-server-pthread shows how to do it,
@@ -414,8 +426,7 @@ There is no knowledge or dependency in lws itself about pthreads.  How the
 locking is implemented is entirely up to the user code.
 
 
-Libev / Libuv support
----------------------
+@section libevuv Libev / Libuv support
 
 You can select either or both
 
@@ -431,8 +442,7 @@ context init options flags
 to indicate it will use either of the event libraries.
 
 
-Extension option control from user code
----------------------------------------
+@section extopts Extension option control from user code
 
 User code may set per-connection extension options now, using a new api
 `lws_set_extension_option()`.
@@ -452,8 +462,8 @@ The extension may decide to alter or disallow the change, in the
 example above permessage-deflate restricts the size of his rx
 output buffer also considering the protocol's rx_buf_size member.
 
-Client connections as HTTP[S] rather than WS[S]
------------------------------------------------
+
+@section httpsclient Client connections as HTTP[S] rather than WS[S]
 
 You may open a generic http client connection using the same
 struct lws_client_connect_info used to create client ws[s]
@@ -497,8 +507,14 @@ data, eg
 		break;
 ```
 
-Using lws v2 vhosts
--------------------
+Notice that if you will use SSL client connections on a vhost, you must
+prepare the client SSL context for the vhost after creating the vhost, since
+this is not normally done if the vhost was set up to listen / serve.  Call
+the api lws_init_vhost_client_ssl() to also allow client SSL on the vhost.
+
+
+
+@section vhosts Using lws vhosts
 
 If you set LWS_SERVER_OPTION_EXPLICIT_VHOSTS options flag when you create
 your context, it won't create a default vhost using the info struct
@@ -534,8 +550,7 @@ There are some new members but mainly it's stuff you used to set at
 context creation time.
 
 
-How lws matches hostname or SNI to a vhost
-------------------------------------------
+@section sni How lws matches hostname or SNI to a vhost
 
 LWS first strips any trailing :port number.
 
@@ -553,8 +568,7 @@ certificate allows wildcards and error out if not.
  
 
 
-Using lws v2 mounts on a vhost
-------------------------------
+@section mounts Using lws mounts on a vhost
 
 The last argument to lws_create_vhost() lets you associate a linked
 list of lws_http_mount structures with that vhost's URL 'namespace', in
@@ -615,8 +629,7 @@ origin URL.
 associated with the named protocol (which may be a plugin).
 
 
-Operation of LWSMPRO_CALLBACK mounts
-------------------------------------
+@section mountcallback Operation of LWSMPRO_CALLBACK mounts
 
 The feature provided by CALLBACK type mounts is binding a part of the URL
 namespace to a named protocol callback handler.

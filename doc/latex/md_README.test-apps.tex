@@ -30,20 +30,14 @@ This is the original way lws implemented servers, plugins and libuv are not requ
 
 This method is still supported in lws but all ongoing and future work is being done in protocol plugins only.
 
-\section*{Notes about lws test apps }
-
-\subsection*{Testing server with a browser }
-
+\section*{Notes about lws test apps }\hypertarget{md_README.test-apps_tsb}{}\section{Testing server with a browser}\label{md_README.test-apps_tsb}
 If you run \href{test-server/test-server.c}{\tt libwebsockets-\/test-\/server} and point your browser (eg, Chrome) to \begin{DoxyVerb}    http://127.0.0.1:7681
 \end{DoxyVerb}
 
 
 It will fetch a script in the form of {\ttfamily test.\+html}, and then run the script in there on the browser to open a websocket connection. Incrementing numbers should appear in the browser display.
 
-By default the test server logs to both stderr and syslog, you can control what is logged using {\ttfamily -\/d $<$log level$>$}, see later.
-
-\subsection*{Running test server as a Daemon }
-
+By default the test server logs to both stderr and syslog, you can control what is logged using {\ttfamily -\/d $<$log level$>$}, see later.\hypertarget{md_README.test-apps_tsd}{}\section{Running test server as a Daemon}\label{md_README.test-apps_tsd}
 You can use the -\/D option on the test server to have it fork into the background and return immediately. In this daemonized mode all stderr is disabled and logging goes only to syslog, eg, {\ttfamily /var/log/messages} or similar.
 
 The server maintains a lockfile at {\ttfamily /tmp/.lwsts-\/lock} that contains the pid of the master process, and deletes this file when the master process terminates.
@@ -54,10 +48,7 @@ To stop the daemon, do
 \end{DoxyCode}
  If it finds a stale lock (the pid mentioned in the file does not exist any more) it will delete the lock and create a new one during startup.
 
-If the lock is valid, the daemon will exit with a note on stderr that it was already running.
-
-\subsection*{Using S\+SL on the server side }
-
+If the lock is valid, the daemon will exit with a note on stderr that it was already running.\hypertarget{md_README.test-apps_sssl}{}\section{Using S\+S\+L on the server side}\label{md_README.test-apps_sssl}
 To test it using S\+S\+L/\+W\+SS, just run the test server with 
 \begin{DoxyCode}
 1 $ libwebsockets-test-server --ssl
@@ -68,10 +59,7 @@ To test it using S\+S\+L/\+W\+SS, just run the test server with
 \end{DoxyCode}
  The connection will be entirely encrypted using some generated certificates that your browser will not accept, since they are not signed by any real Certificate Authority. Just accept the certificates in the browser and the connection will proceed in first https and then websocket wss, acting exactly the same.
 
-\href{test-server/test-server.c}{\tt test-\/server.\+c} is all that is needed to use libwebsockets for serving both the script html over http and websockets.
-
-\subsection*{Testing websocket client support }
-
+\href{test-server/test-server.c}{\tt test-\/server.\+c} is all that is needed to use libwebsockets for serving both the script html over http and websockets.\hypertarget{md_README.test-apps_wscl}{}\section{Testing websocket client support}\label{md_README.test-apps_wscl}
 If you run the test server as described above, you can also connect to it using the test client as well as a browser.
 
 
@@ -90,18 +78,12 @@ The test client supports S\+SL too, use
 \end{DoxyCode}
 
 
-the -\/s tells it to accept the default selfsigned cert from the server, otherwise it will strictly fail the connection if there is no CA cert to validate the server\textquotesingle{}s certificate.
-
-\subsection*{Choosing between test server variations }
-
+the -\/s tells it to accept the default selfsigned cert from the server, otherwise it will strictly fail the connection if there is no CA cert to validate the server\textquotesingle{}s certificate.\hypertarget{md_README.test-apps_choosingts}{}\section{Choosing between test server variations}\label{md_README.test-apps_choosingts}
 If you will be doing standalone serving with lws, ideally you should avoid making your own server at all, and use lwsws with your own protocol plugins.
 
 The second best option is follow test-\/server-\/v2.\+0.\+c, which uses a mount to autoserve a directory, and lws protocol plugins for ws, without needing any user callback code (other than what\textquotesingle{}s needed in the protocol plugin).
 
-For those two options libuv is needed to support the protocol plugins, if that\textquotesingle{}s not possible then the other variations with their own protocol code should be considered.
-
-\subsection*{Testing simple echo }
-
+For those two options libuv is needed to support the protocol plugins, if that\textquotesingle{}s not possible then the other variations with their own protocol code should be considered.\hypertarget{md_README.test-apps_echo}{}\section{Testing simple echo}\label{md_README.test-apps_echo}
 You can test against {\ttfamily echo.\+websockets.\+org} as a sanity test like this (the client connects to port {\ttfamily 80} by default)\+:
 
 
@@ -118,18 +100,12 @@ This echo test is of limited use though because it doesn\textquotesingle{}t nego
 \begin{DoxyCode}
 1 $ libwebsockets-test-echo --client localhost --port 7681
 \end{DoxyCode}
- If you add the {\ttfamily -\/-\/ssl} switch to both the client and server, you can also test with an encrypted link.
-
-\subsection*{Testing S\+SL on the client side }
-
+ If you add the {\ttfamily -\/-\/ssl} switch to both the client and server, you can also test with an encrypted link.\hypertarget{md_README.test-apps_tassl}{}\section{Testing S\+S\+L on the client side}\label{md_README.test-apps_tassl}
 To test S\+S\+L/\+W\+SS client action, just run the client test with 
 \begin{DoxyCode}
 1 $ libwebsockets-test-client localhost --ssl
 \end{DoxyCode}
- By default the client test applet is set to accept selfsigned certificates used by the test server, this is indicated by the {\ttfamily use\+\_\+ssl} var being set to {\ttfamily 2}. Set it to {\ttfamily 1} to reject any server certificate that it doesn\textquotesingle{}t have a trusted CA cert for.
-
-\subsection*{Using the websocket ping utility }
-
+ By default the client test applet is set to accept selfsigned certificates used by the test server, this is indicated by the {\ttfamily use\+\_\+ssl} var being set to {\ttfamily 2}. Set it to {\ttfamily 1} to reject any server certificate that it doesn\textquotesingle{}t have a trusted CA cert for.\hypertarget{md_README.test-apps_taping}{}\section{Using the websocket ping utility}\label{md_README.test-apps_taping}
 libwebsockets-\/test-\/ping connects as a client to a remote websocket server and pings it like the normal unix ping utility. 
 \begin{DoxyCode}
 1 $ libwebsockets-test-ping localhost
@@ -155,10 +131,7 @@ Using the lws-\/mirror protocol that is provided by the test server, libwebsocke
 
 The default interval between pings is 1s, you can use the -\/i= flag to set this, including fractions like {\ttfamily -\/i=0.\+01} for 10ms interval.
 
-Before you can even use the P\+I\+NG opcode that is part of the standard, you must complete a handshake with a specified protocol. By default lws-\/mirror-\/protocol is used which is supported by the test server. But if you are using it on another server, you can specify the protcol to handshake with by {\ttfamily -\/-\/protocol=protocolname}
-
-\subsection*{Fraggle test app }
-
+Before you can even use the P\+I\+NG opcode that is part of the standard, you must complete a handshake with a specified protocol. By default lws-\/mirror-\/protocol is used which is supported by the test server. But if you are using it on another server, you can specify the protcol to handshake with by {\ttfamily -\/-\/protocol=protocolname}\hypertarget{md_README.test-apps_ta}{}\section{fraggle Fraggle test app}\label{md_README.test-apps_ta}
 By default it runs in server mode 
 \begin{DoxyCode}
 1 $ libwebsockets-test-fraggle
@@ -192,10 +165,7 @@ By default it runs in server mode
 \end{DoxyCode}
  The fraggle test sends a random number up to 1024 fragmented websocket frames each of a random size between 1 and 2001 bytes in a single message, then sends a checksum and starts sending a new randomly sized and fragmented message.
 
-The fraggle test client receives the same message fragments and computes the same checksum using websocket framing to see when the message has ended. It then accepts the server checksum message and compares that to its checksum.
-
-\subsection*{proxy support }
-
+The fraggle test client receives the same message fragments and computes the same checksum using websocket framing to see when the message has ended. It then accepts the server checksum message and compares that to its checksum.\hypertarget{md_README.test-apps_taproxy}{}\section{proxy support}\label{md_README.test-apps_taproxy}
 The http\+\_\+proxy environment variable is respected by the client connection code for both {\ttfamily ws\+://} and {\ttfamily wss\+://}. It doesn\textquotesingle{}t support authentication.
 
 You use it like this 
@@ -203,15 +173,18 @@ You use it like this
 1 $ export http\_proxy=myproxy.com:3128
 2 $ libwebsockets-test-client someserver.com
 \end{DoxyCode}
-
-
-\subsection*{debug logging }
-
+\hypertarget{md_README.test-apps_talog}{}\section{debug logging}\label{md_README.test-apps_talog}
 By default logging of severity \char`\"{}notice\char`\"{}, \char`\"{}warn\char`\"{} or \char`\"{}err\char`\"{} is enabled to stderr.
 
 Again by default other logging is compiled in but disabled from printing.
 
-If you want to eliminate the debug logging below notice in severity, use the {\ttfamily -\/-\/disable-\/debug} configure option to have it removed from the code by the preprocesser.
+By default debug logs below \char`\"{}notice\char`\"{} in severity are not compiled in. To get them included, add this option in C\+M\+A\+KE
+
+
+\begin{DoxyCode}
+1 $ cmake .. -DCMAKE\_BUILD\_TYPE=DEBUG
+\end{DoxyCode}
+
 
 If you want to see more detailed debug logs, you can control a bitfield to select which logs types may print using the {\ttfamily \hyperlink{group__log_ga244647f9e1bf0097ccdde66d74f41e26}{lws\+\_\+set\+\_\+log\+\_\+level()}} api, in the test apps you can use {\ttfamily -\/d $<$number$>$} to control this. The types of logging available are (OR together the numbers to select multiple)
 
@@ -227,22 +200,13 @@ If you want to see more detailed debug logs, you can control a bitfield to selec
 \item 128 E\+X\+T\+E\+N\+S\+I\+ON
 \item 256 C\+L\+I\+E\+NT
 \item 512 L\+A\+T\+E\+N\+CY
-\end{DoxyItemize}
-
-\subsection*{Websocket version supported }
-
-The final I\+E\+TF standard is supported for both client and server, protocol version 13.
-
-\subsection*{Latency Tracking }
-
+\end{DoxyItemize}\hypertarget{md_README.test-apps_ws13}{}\section{Websocket version supported}\label{md_README.test-apps_ws13}
+The final I\+E\+TF standard is supported for both client and server, protocol version 13.\hypertarget{md_README.test-apps_latency}{}\section{Latency Tracking}\label{md_README.test-apps_latency}
 Since libwebsockets runs using {\ttfamily poll()} and a single threaded approach, any unexpected latency coming from system calls would be bad news. There\textquotesingle{}s now a latency tracking scheme that can be built in with {\ttfamily -\/-\/with-\/latency} at configure-\/time, logging the time taken for system calls to complete and if the whole action did complete that time or was deferred.
 
 You can see the detailed data by enabling logging level 512 (eg, {\ttfamily -\/d 519} on the test server to see that and the usual logs), however even without that the \char`\"{}worst\char`\"{} latency is kept and reported to the logs with N\+O\+T\+I\+CE severity when the context is destroyed.
 
-Some care is needed interpreting them, if the action completed the first figure (in us) is the time taken for the whole action, which may have retried through the poll loop many times and will depend on network roundtrip times. High figures here don\textquotesingle{}t indicate a problem. The figure in us reported after \char`\"{}lat\char`\"{} in the logging is the time taken by this particular attempt. High figures here may indicate a problem, or if you system is loaded with another app at that time, such as the browser, it may simply indicate the OS gave preferential treatment to the other app during that call.
-
-\subsection*{Autobahn Test Suite }
-
+Some care is needed interpreting them, if the action completed the first figure (in us) is the time taken for the whole action, which may have retried through the poll loop many times and will depend on network roundtrip times. High figures here don\textquotesingle{}t indicate a problem. The figure in us reported after \char`\"{}lat\char`\"{} in the logging is the time taken by this particular attempt. High figures here may indicate a problem, or if you system is loaded with another app at that time, such as the browser, it may simply indicate the OS gave preferential treatment to the other app during that call.\hypertarget{md_README.test-apps_autobahn}{}\section{Autobahn Test Suite}\label{md_README.test-apps_autobahn}
 Lws can be tested against the autobahn websocket fuzzer.
 
 1) pip install autobahntestsuite
@@ -265,13 +229,10 @@ fill in \char`\"{}libwebsockets\char`\"{} in \char`\"{}\+User Agent Identifier\c
 
 \href{file:///projects/libwebsockets/reports/clients/index.html}{\tt file\+:///projects/libwebsockets/reports/clients/index.\+html}
 
-to see the results
-
-\subsection*{Autobahn Test Notes }
-
+to see the results\hypertarget{md_README.test-apps_autobahnnotes}{}\section{Autobahn Test Notes}\label{md_README.test-apps_autobahnnotes}
 1) Autobahn tests the user code + lws implementation. So to get the same results, you need to follow test-\/echo.\+c in terms of user implmentation.
 
-2) Some of the tests make no sense for Libwebsockets to support and we fail them.
+2) Two of the tests make no sense for Libwebsockets to support and we fail them.
 
 
 \begin{DoxyItemize}

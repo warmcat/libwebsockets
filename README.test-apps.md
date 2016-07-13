@@ -47,8 +47,7 @@ being done in protocol plugins only.
 Notes about lws test apps
 =========================
 
-Testing server with a browser
------------------------------
+@section tsb Testing server with a browser
 
 If you run [libwebsockets-test-server](test-server/test-server.c) and point your browser
 (eg, Chrome) to
@@ -63,8 +62,7 @@ By default the test server logs to both stderr and syslog, you can control
 what is logged using `-d <log level>`, see later.
 
 
-Running test server as a Daemon
--------------------------------
+@section tsd Running test server as a Daemon
 
 You can use the -D option on the test server to have it fork into the
 background and return immediately.  In this daemonized mode all stderr is
@@ -85,8 +83,7 @@ If the lock is valid, the daemon will exit with a note on stderr that
 it was already running.
 
 
-Using SSL on the server side
-----------------------------
+@section sssl Using SSL on the server side
 
 To test it using SSL/WSS, just run the test server with
 ```
@@ -107,8 +104,7 @@ same.
 serving both the script html over http and websockets.
 
 
-Testing websocket client support
---------------------------------
+@section wscl Testing websocket client support
 
 If you run the test server as described above, you can also
 connect to it using the test client as well as a browser.
@@ -134,8 +130,7 @@ otherwise it will strictly fail the connection if there is no CA cert to
 validate the server's certificate.
 
 
-Choosing between test server variations
----------------------------------------
+@section choosingts Choosing between test server variations
 
 If you will be doing standalone serving with lws, ideally you should avoid
 making your own server at all, and use lwsws with your own protocol plugins.
@@ -149,8 +144,7 @@ that's not possible then the other variations with their own protocol code
 should be considered.
 
 
-Testing simple echo
--------------------
+@section echo Testing simple echo
 
 You can test against `echo.websockets.org` as a sanity test like
 this (the client connects to port `80` by default):
@@ -173,8 +167,7 @@ If you add the `--ssl` switch to both the client and server, you can also test
 with an encrypted link.
 
 
-Testing SSL on the client side
-------------------------------
+@section tassl Testing SSL on the client side
 
 To test SSL/WSS client action, just run the client test with
 ```
@@ -186,8 +179,7 @@ certificates used by the test server, this is indicated by the
 certificate that it doesn't have a trusted CA cert for.
 
 
-Using the websocket ping utility
---------------------------------
+@section taping Using the websocket ping utility
 
 libwebsockets-test-ping connects as a client to a remote
 websocket server and pings it like the
@@ -233,8 +225,7 @@ another server, you can specify the protcol to handshake with
 by `--protocol=protocolname`
 
 
-Fraggle test app
-----------------
+@section ta fraggle Fraggle test app
 
 By default it runs in server mode
 ```
@@ -277,8 +268,7 @@ same checksum using websocket framing to see when the message has ended.  It
 then accepts the server checksum message and compares that to its checksum.
 
 
-proxy support
--------------
+@section taproxy proxy support
 
 The http_proxy environment variable is respected by the client
 connection code for both `ws://` and `wss://`.  It doesn't support
@@ -290,16 +280,18 @@ You use it like this
 	$ libwebsockets-test-client someserver.com
 ```
 
-debug logging
--------------
+@section talog debug logging
 
 By default logging of severity "notice", "warn" or "err" is enabled to stderr.
 
 Again by default other logging is compiled in but disabled from printing.
 
-If you want to eliminate the debug logging below notice  in severity, use the
-`--disable-debug` configure option to have it removed from the code by the
-preprocesser.
+By default debug logs below "notice" in severity are not compiled in.  To get
+them included, add this option in CMAKE
+
+```
+	$ cmake .. -DCMAKE_BUILD_TYPE=DEBUG
+```
 
 If you want to see more detailed debug logs, you can control a bitfield to
 select which logs types may print using the `lws_set_log_level()` api, in the
@@ -318,15 +310,13 @@ available are (OR together the numbers to select multiple)
  - 512 LATENCY
 
 
-Websocket version supported
----------------------------
+@section ws13 Websocket version supported
 
 The final IETF standard is supported for both client and server, protocol
 version 13.
 
 
-Latency Tracking
-----------------
+@section latency Latency Tracking
 
 Since libwebsockets runs using `poll()` and a single threaded approach, any
 unexpected latency coming from system calls would be bad news.  There's now
@@ -349,8 +339,7 @@ that time, such as the browser, it may simply indicate the OS gave preferential
 treatment to the other app during that call.
 
 
-Autobahn Test Suite
--------------------
+@section autobahn Autobahn Test Suite
 
 Lws can be tested against the autobahn websocket fuzzer.
 
@@ -377,13 +366,12 @@ file:///projects/libwebsockets/reports/clients/index.html
 to see the results
 
 
-Autobahn Test Notes
--------------------
+@section autobahnnotes Autobahn Test Notes
 
 1) Autobahn tests the user code + lws implementation.  So to get the same
 results, you need to follow test-echo.c in terms of user implmentation.
 
-2) Some of the tests make no sense for Libwebsockets to support and we fail them.
+2) Two of the tests make no sense for Libwebsockets to support and we fail them.
 
  - Tests 2.10 + 2.11: sends multiple pings on one connection.  Lws policy is to
 only allow one active ping in flight on each connection, the rest are dropped.

@@ -2,8 +2,7 @@ Notes about building lws
 ========================
 
 
-Introduction to CMake
----------------------
+@section cm Introduction to CMake
 
 CMake is a multi-platform build tool that can generate build files for many
 different target platforms. See more info at http://www.cmake.org
@@ -22,8 +21,8 @@ with SSL support (both OpenSSL/wolfSSL):
 - OSX
 - NetBSD
 
-Building the library and test apps
-----------------------------------
+
+@section build1 Building the library and test apps
 
 The project settings used by CMake to generate the platform specific build
 files is called [CMakeLists.txt](CMakeLists.txt). CMake then uses one of its "Generators" to
@@ -33,8 +32,8 @@ the available generators for your platform, simply run the "cmake" command.
 Note that by default OpenSSL will be linked, if you don't want SSL support
 see below on how to toggle compile options.
 
-Building on Unix:
------------------
+
+@section bu Building on Unix:
 
 1. Install CMake 2.8 or greater: http://cmake.org/cmake/resources/software.html
    (Most Unix distributions comes with a packaged version also)
@@ -101,15 +100,15 @@ compiled in, use
 	$ cmake .. -DCMAKE_BUILD_TYPE=DEBUG
 ```
 
-Quirk of cmake
---------------
+@section cmq Quirk of cmake
 
 When changing cmake options, for some reason the only way to get it to see the
 changes sometimes is delete the contents of your build directory and do the
 cmake from scratch.
 
-Building on Windows (Visual Studio)
------------------------------------
+
+@section cmw Building on Windows (Visual Studio)
+
 1. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
 
 2. Install OpenSSL binaries. http://www.openssl.org/related/binaries.html
@@ -147,8 +146,8 @@ Building on Windows (Visual Studio)
 6. If you're using libuv, you must make sure to compile libuv with the same multithread-dll / Mtd attributes as libwebsockets itself
 
 
-Building on Windows (MinGW)
----------------------------
+@section cmwmgw Building on Windows (MinGW)
+
 1. Install MinGW: http://sourceforge.net/projects/mingw/files
 
    (**NOTE**: Preferably in the default location C:\MinGW)
@@ -210,26 +209,8 @@ Building on Windows (MinGW)
 	$ make install
 ```
 
-Setting compile options
------------------------
+@section mbed3 Building on mbed3
 
-To set compile time flags you can either use one of the CMake gui applications
-or do it via command line.
-
-Command line
-------------
-To list avaialable options (ommit the H if you don't want the help text):
-
-	cmake -LH ..
-
-Then to set an option and build (for example turn off SSL support):
-
-	cmake -DLWS_WITH_SSL=0 ..
-or
-	cmake -DLWS_WITH_SSL:BOOL=OFF ..
-
-Building on mbed3
------------------
 MBED3 is a non-posix embedded OS targeted on Cortex M class chips.
 
 https://www.mbed.com/
@@ -270,21 +251,39 @@ and cd into it
 
 8) yotta build
 
+@section cmco Setting compile options
 
-Unix GUI
---------
+
+To set compile time flags you can either use one of the CMake gui applications
+or do it via command line.
+
+@subsection cmcocl Command line
+
+To list avaialable options (omit the H if you don't want the help text):
+
+	cmake -LH ..
+
+Then to set an option and build (for example turn off SSL support):
+
+	cmake -DLWS_WITH_SSL=0 ..
+or
+	cmake -DLWS_WITH_SSL:BOOL=OFF ..
+
+@subsection cmcoug Unix GUI
+
 If you have a curses-enabled build you simply type:
 (not all packages include this, my debian install does not for example).
 
 	ccmake
 
-Windows GUI
------------
+@subsection cmcowg Windows GUI
+
 On windows CMake comes with a gui application:
 	Start -> Programs -> CMake -> CMake (cmake-gui)
 
-wolfSSL/CyaSSL replacement for OpenSSL
---------------------------------------
+
+@section wolf wolfSSL/CyaSSL replacement for OpenSSL
+
 wolfSSL/CyaSSL is a lightweight SSL library targeted at embedded systems:
 https://www.wolfssl.com/wolfSSL/Products-wolfssl.html
 
@@ -294,8 +293,8 @@ much link to it instead of OpenSSL, giving a much smaller footprint.
 **NOTE**: wolfssl needs to be compiled using the `--enable-opensslextra` flag for
 this to work.
 
-Compiling libwebsockets with wolfSSL
-------------------------------------
+@section wolf1 Compiling libwebsockets with wolfSSL
+
 ```
 	cmake .. -DLWS_USE_WOLFSSL=1 \
 		 -DLWS_WOLFSSL_INCLUDE_DIRS=/path/to/wolfssl \
@@ -304,8 +303,8 @@ Compiling libwebsockets with wolfSSL
 
 **NOTE**: On windows use the .lib file extension for `LWS_WOLFSSL_LIBRARIES` instead.
 
-Compiling libwebsockets with CyaSSL
------------------------------------
+@section cya Compiling libwebsockets with CyaSSL
+
 ```
 	cmake .. -DLWS_USE_CYASSL=1 \
 		 -DLWS_CYASSL_INCLUDE_DIRS=/path/to/cyassl \
@@ -314,22 +313,8 @@ Compiling libwebsockets with CyaSSL
 
 **NOTE**: On windows use the .lib file extension for `LWS_CYASSL_LIBRARIES` instead.
 
-Compiling libwebsockets with PolarSSL
--------------------------------------
 
-Caution... at some point PolarSSL became MbedTLS.  But it did not happen all at once.
-The name changed first then at mbedTLS 2.0 the apis changed.  So eg in Fedora 22,
-there is an "mbedtls" package which is actually using polarssl for the include dir
-and polarssl apis... this should be treated as polarssl then.
-
-Example config for this case is
-```
-cmake .. -DLWS_USE_POLARSSL=1 -DLWS_POLARSSL_LIBRARIES=/usr/lib64/libmbedtls.so \
-	 -DLWS_POLARSSL_INCLUDE_DIRS=/usr/include/polarssl/
-```
-
-Building plugins outside of lws itself
---------------------------------------
+@section extplugins Building plugins outside of lws itself
 
 The directory ./plugin-standalone/ shows how easy it is to create plugins
 outside of lws itself.  First build lws itself with -DLWS_WITH_PLUGINS,
@@ -361,8 +346,7 @@ additionally, discovered plugins are not enabled automatically for security
 reasons.  You do this using info->pvo or for lwsws, in the JSON config.
 
 
-Reproducing HTTP2.0 tests
--------------------------
+@section http2rp Reproducing HTTP2.0 tests
 
 You must have built and be running lws against a version of openssl that has
 ALPN / NPN.  Most distros still have older versions.  You'll know it's right by
@@ -383,8 +367,8 @@ For SSL / ALPN HTTP2.0 upgrade
 	$ nghttp -nvas https://localhost:7681/test.html
 ```
 
-Cross compiling
----------------
+@section cross Cross compiling
+
 To enable cross-compiling **libwebsockets** using CMake you need to create
 a "Toolchain file" that you supply to CMake when generating your build files.
 CMake will then use the cross compilers and build paths specified in this file
@@ -408,8 +392,7 @@ need to provide the cross libraries otherwise.
 Additional information on cross compilation with CMake:
 	http://www.vtk.org/Wiki/CMake_Cross_Compiling
 
-Memory efficiency
------------------
+@section mem Memory efficiency
 
 Embedded server-only configuration without extensions (ie, no compression
 on websocket connections), but with full v13 websocket features and http

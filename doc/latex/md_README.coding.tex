@@ -1,16 +1,11 @@
-\subsection*{Daemonization }
-
+\hypertarget{md_README.coding_dae}{}\section{Daemonization}\label{md_README.coding_dae}
 There\textquotesingle{}s a helper api {\ttfamily lws\+\_\+daemonize} built by default that does everything you need to daemonize well, including creating a lock file. If you\textquotesingle{}re making what\textquotesingle{}s basically a daemon, just call this early in your init to fork to a headless background process and exit the starting process.
 
-Notice stdout, stderr, stdin are all redirected to /dev/null to enforce your daemon is headless, so you\textquotesingle{}ll need to sort out alternative logging, by, eg, syslog.
-
-\subsection*{Maximum number of connections }
-
+Notice stdout, stderr, stdin are all redirected to /dev/null to enforce your daemon is headless, so you\textquotesingle{}ll need to sort out alternative logging, by, eg, syslog.\hypertarget{md_README.coding_conns}{}\section{Maximum number of connections}\label{md_README.coding_conns}
 The maximum number of connections the library can deal with is decided when it starts by querying the OS to find out how many file descriptors it is allowed to open (1024 on Fedora for example). It then allocates arrays that allow up to that many connections, minus whatever other file descriptors are in use by the user code.
 
-If you want to restrict that allocation, or increase it, you can use ulimit or similar to change the avaiable number of file descriptors, and when restarted {\bfseries libwebsockets} will adapt accordingly.
-
-\subsection*{Libwebsockets is singlethreaded }
+If you want to restrict that allocation, or increase it, you can use ulimit or similar to change the avaiable number of file descriptors, and when restarted {\bfseries libwebsockets} will adapt accordingly.\hypertarget{md_README.coding_evtloop}{}\section{Libwebsockets is singlethreaded}\label{md_README.coding_evtloop}
+Libwebsockets works in a serialized event loop, in a single thread.
 
 Directly performing websocket actions from other threads is not allowed. Aside from the internal data being inconsistent in {\ttfamily forked()} processes, the scope of a {\ttfamily wsi} ({\ttfamily struct websocket}) can end at any time during service with the socket closing and the {\ttfamily wsi} freed.
 
@@ -32,10 +27,7 @@ If you need to service other socket or file descriptors as well as the websocket
 
 If you insist on trying to use it from multiple threads, take special care if you might simultaneously create more than one context from different threads.
 
-S\+S\+L\+\_\+library\+\_\+init() is called from the context create api and it also is not reentrant. So at least create the contexts sequentially.
-
-\subsection*{Only send data when socket writeable }
-
+S\+S\+L\+\_\+library\+\_\+init() is called from the context create api and it also is not reentrant. So at least create the contexts sequentially.\hypertarget{md_README.coding_writeable}{}\section{Only send data when socket writeable}\label{md_README.coding_writeable}
 You should only send data on a websocket connection from the user callback {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} (or {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} for clients).
 
 If you want to send something, do not just send it but request a callback when the socket is writeable using
@@ -48,28 +40,19 @@ If you want to send something, do not just send it but request a callback when t
 
 Usually you will get called back immediately next time around the service loop, but if your peer is slow or temporarily inactive the callback will be delayed accordingly. Generating what to write and sending it should be done in the ...W\+R\+I\+T\+E\+A\+B\+LE callback.
 
-See the test server code for an example of how to do this.
-
-\subsection*{Do not rely on only your own W\+R\+I\+T\+E\+A\+B\+LE requests appearing }
-
+See the test server code for an example of how to do this.\hypertarget{md_README.coding_otherwr}{}\section{Do not rely on only your own W\+R\+I\+T\+E\+A\+B\+L\+E requests appearing}\label{md_README.coding_otherwr}
 Libwebsockets may generate additional {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} events if it met network conditions where it had to buffer your send data internally.
 
 So your code for {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+W\+R\+I\+T\+E\+A\+B\+LE} needs to own the decision about what to send, it can\textquotesingle{}t assume that just because the writeable callback came it really is time to send something.
 
-It\textquotesingle{}s quite possible you get an \textquotesingle{}extra\textquotesingle{} writeable callback at any time and just need to {\ttfamily return 0} and wait for the expected callback later.
-
-\subsection*{Closing connections from the user side }
-
+It\textquotesingle{}s quite possible you get an \textquotesingle{}extra\textquotesingle{} writeable callback at any time and just need to {\ttfamily return 0} and wait for the expected callback later.\hypertarget{md_README.coding_closing}{}\section{Closing connections from the user side}\label{md_README.coding_closing}
 When you want to close a connection, you do it by returning {\ttfamily -\/1} from a callback for that connection.
 
 You can provoke a callback by calling {\ttfamily lws\+\_\+callback\+\_\+on\+\_\+writable} on the wsi, then notice in the callback you want to close it and just return -\/1. But usually, the decision to close is made in a callback already and returning -\/1 is simple.
 
 If the socket knows the connection is dead, because the peer closed or there was an affirmitive network error like a F\+IN coming, then {\bfseries libwebsockets} will take care of closing the connection automatically.
 
-If you have a silently dead connection, it\textquotesingle{}s possible to enter a state where the send pipe on the connection is choked but no ack will ever come, so the dead connection will never become writeable. To cover that, you can use T\+CP keepalives (see later in this document)
-
-\subsection*{Fragmented messages }
-
+If you have a silently dead connection, it\textquotesingle{}s possible to enter a state where the send pipe on the connection is choked but no ack will ever come, so the dead connection will never become writeable. To cover that, you can use T\+CP keepalives (see later in this document) or pings.\hypertarget{md_README.coding_frags}{}\section{Fragmented messages}\label{md_README.coding_frags}
 To support fragmented messages you need to check for the final frame of a message with {\ttfamily lws\+\_\+is\+\_\+final\+\_\+fragment}. This check can be combined with {\ttfamily libwebsockets\+\_\+remaining\+\_\+packet\+\_\+payload} to gather the whole contents of a message, eg\+:
 
 
@@ -95,10 +78,7 @@ To support fragmented messages you need to check for the final frame of a messag
 \end{DoxyCode}
 
 
-The test app libwebsockets-\/test-\/fraggle sources also show how to deal with fragmented messages.
-
-\subsection*{Debug Logging }
-
+The test app libwebsockets-\/test-\/fraggle sources also show how to deal with fragmented messages.\hypertarget{md_README.coding_debuglog}{}\section{Debug Logging}\label{md_README.coding_debuglog}
 Also using {\ttfamily lws\+\_\+set\+\_\+log\+\_\+level} api you may provide a custom callback to actually emit the log string. By default, this points to an internal emit function that sends to stderr. Setting it to {\ttfamily N\+U\+LL} leaves it as it is instead.
 
 A helper function {\ttfamily \hyperlink{group__log_gab7c0fc936cc9f1eb58e2bb234c15147c}{lwsl\+\_\+emit\+\_\+syslog()}} is exported from the library to simplify logging to syslog. You still need to use {\ttfamily setlogmask}, {\ttfamily openlog} and {\ttfamily closelog} in your user code.
@@ -116,8 +96,15 @@ The logging apis are made available for user code.
 
 The difference between notice and info is that notice will be logged by default whereas info is ignored by default.
 
-\subsection*{External Polling Loop support }
+If you are not building with \+\_\+\+D\+E\+B\+UG defined, ie, without this
 
+
+\begin{DoxyCode}
+1 $ cmake .. -DCMAKE\_BUILD\_TYPE=DEBUG
+\end{DoxyCode}
+
+
+then log levels below notice do not actually get compiled in.\hypertarget{md_README.coding_extpoll}{}\section{External Polling Loop support}\label{md_README.coding_extpoll}
 {\bfseries libwebsockets} maintains an internal {\ttfamily poll()} array for all of its sockets, but you can instead integrate the sockets into an external polling array. That\textquotesingle{}s needed if {\bfseries libwebsockets} will cooperate with an existing poll array maintained by another server.
 
 Four callbacks {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+A\+D\+D\+\_\+\+P\+O\+L\+L\+\_\+\+FD}, {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+D\+E\+L\+\_\+\+P\+O\+L\+L\+\_\+\+FD}, {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+S\+E\+T\+\_\+\+M\+O\+D\+E\+\_\+\+P\+O\+L\+L\+\_\+\+FD} and {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+E\+A\+R\+\_\+\+M\+O\+D\+E\+\_\+\+P\+O\+L\+L\+\_\+\+FD} appear in the callback for protocol 0 and allow interface code to manage socket descriptors in other poll loops.
@@ -133,10 +120,7 @@ Also note that when integrating a foreign event loop like libev or libuv where i
 \item be sure you set .events to .revents value as well in the synthesized pollfd
 \item check the built-\/in support for the event loop if possible (eg, ./lib/libuv.c) to see how it interfaces to lws
 \item use L\+W\+S\+\_\+\+P\+O\+L\+L\+H\+UP / L\+W\+S\+\_\+\+P\+O\+L\+L\+IN / L\+W\+S\+\_\+\+P\+O\+L\+L\+O\+UT from \hyperlink{libwebsockets_8h}{libwebsockets.\+h} to avoid losing windows compatibility
-\end{DoxyItemize}
-
-\subsection*{Using with in c++ apps }
-
+\end{DoxyItemize}\hypertarget{md_README.coding_cpp}{}\section{Using with in c++ apps}\label{md_README.coding_cpp}
 The library is ready for use by C++ apps. You can get started quickly by copying the test server
 
 
@@ -153,14 +137,12 @@ and building it in C++ like this
 \end{DoxyCode}
 
 
-{\ttfamily I\+N\+S\+T\+A\+L\+L\+\_\+\+D\+A\+T\+A\+D\+IR} is only needed because the test server uses it as shipped, if you remove the references to it in your app you don\textquotesingle{}t need to define it on the g++ line either.
+{\ttfamily I\+N\+S\+T\+A\+L\+L\+\_\+\+D\+A\+T\+A\+D\+IR} is only needed because the test server uses it as shipped, if you remove the references to it in your app you don\textquotesingle{}t need to define it on the g++ line either.\hypertarget{md_README.coding_headerinfo}{}\section{Availability of header information}\label{md_README.coding_headerinfo}
+H\+T\+TP Header information is managed by a pool of \char`\"{}ah\char`\"{} structs. These are a limited resource so there is pressure to free the headers and return the ah to the pool for reuse.
 
-\subsection*{Availability of header information }
+For that reason header information on H\+T\+TP connections that get upgraded to websockets is lost after the E\+S\+T\+A\+B\+L\+I\+S\+H\+ED callback. Anything important that isn\textquotesingle{}t processed by user code before then should be copied out for later.
 
-From v1.\+2 of the library onwards, the H\+T\+TP header content is {\ttfamily free()}d as soon as the websocket connection is established. For websocket servers, you can copy interesting headers by handling {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+C\+O\+N\+N\+E\+C\+T\+I\+ON} callback, for clients there\textquotesingle{}s a new callback just for this purpose {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+F\+I\+L\+T\+E\+R\+\_\+\+P\+R\+E\+\_\+\+E\+S\+T\+A\+B\+L\+I\+SH}.
-
-\subsection*{T\+CP Keepalive }
-
+For H\+T\+TP connections that don\textquotesingle{}t upgrade, header info remains available the whole time.\hypertarget{md_README.coding_ka}{}\section{T\+C\+P Keepalive}\label{md_README.coding_ka}
 It is possible for a connection which is not being used to send to die silently somewhere between the peer and the side not sending. In this case by default T\+CP will just not report anything and you will never get any more incoming data or sign the link is dead until you try to send.
 
 To deal with getting a notification of that situation, you can choose to enable T\+CP keepalives on all {\bfseries libwebsockets} sockets, when you create the context.
@@ -169,10 +151,7 @@ To enable keepalive, set the ka\+\_\+time member of the context creation paramet
 
 With keepalive enabled, the T\+CP layer will send control packets that should stimulate a response from the peer without affecting link traffic. If the response is not coming, the socket will announce an error at {\ttfamily poll()} forcing a close.
 
-Note that B\+S\+Ds don\textquotesingle{}t support keepalive time / probes / interval per-\/socket like Linux does. On those systems you can enable keepalive by a nonzero value in {\ttfamily ka\+\_\+time}, but the systemwide kernel settings for the time / probes/ interval are used, regardless of what nonzero value is in {\ttfamily ka\+\_\+time}.
-
-\subsection*{Optimizing S\+SL connections }
-
+Note that B\+S\+Ds don\textquotesingle{}t support keepalive time / probes / interval per-\/socket like Linux does. On those systems you can enable keepalive by a nonzero value in {\ttfamily ka\+\_\+time}, but the systemwide kernel settings for the time / probes/ interval are used, regardless of what nonzero value is in {\ttfamily ka\+\_\+time}.\hypertarget{md_README.coding_sslopt}{}\section{Optimizing S\+S\+L connections}\label{md_README.coding_sslopt}
 There\textquotesingle{}s a member {\ttfamily ssl\+\_\+cipher\+\_\+list} in the {\ttfamily \hyperlink{structlws__context__creation__info}{lws\+\_\+context\+\_\+creation\+\_\+info}} struct which allows the user code to restrict the possible cipher selection at context-\/creation time.
 
 You might want to look into that to stop the ssl peers selecting a cipher which is too computationally expensive. To use it, point it to a string like \begin{DoxyVerb}    `"RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"`
@@ -181,10 +160,7 @@ You might want to look into that to stop the ssl peers selecting a cipher which 
 
 if left {\ttfamily N\+U\+LL}, then the \char`\"{}\+D\+E\+F\+A\+U\+L\+T\char`\"{} set of ciphers are all possible to select.
 
-You can also set it to {\ttfamily \char`\"{}\+A\+L\+L\char`\"{}} to allow everything (including insecure ciphers).
-
-\subsection*{Async nature of client connections }
-
+You can also set it to {\ttfamily \char`\"{}\+A\+L\+L\char`\"{}} to allow everything (including insecure ciphers).\hypertarget{md_README.coding_clientasync}{}\section{Async nature of client connections}\label{md_README.coding_clientasync}
 When you call {\ttfamily \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info}(..)} and get a {\ttfamily wsi} back, it does not mean your connection is active. It just means it started trying to connect.
 
 Your client connection is actually active only when you receive {\ttfamily L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+C\+L\+I\+E\+N\+T\+\_\+\+E\+S\+T\+A\+B\+L\+I\+S\+H\+ED} for it.
@@ -195,8 +171,9 @@ After attempting the connection and getting back a non-\/{\ttfamily N\+U\+LL} {\
 
 As usual, see \href{test-server/test-client.c}{\tt test-\/client.\+c} for example code.
 
-\subsection*{Lws platform-\/independent file access apis }
+Notice that the client connection api tries to progress the connection somewhat before returning. That means it\textquotesingle{}s possible to get callbacks like C\+O\+N\+N\+E\+C\+T\+I\+O\+N\+\_\+\+E\+R\+R\+OR on the new connection before your user code had a chance to get the wsi returned to identify it (in fact if the connection did fail early, N\+U\+LL will be returned instead of the wsi anyway).
 
+To avoid that problem, you can fill in {\ttfamily pwsi} in the client connection info struct to point to a struct lws that get filled in early by the client connection api with the related wsi. You can then check for that in the callback to confirm the identity of the failing client connection.\hypertarget{md_README.coding_fileapi}{}\section{Lws platform-\/independent file access apis}\label{md_README.coding_fileapi}
 lws now exposes his internal platform file abstraction in a way that can be both used by user code to make it platform-\/agnostic, and be overridden or subclassed by user code. This allows things like handling the U\+RI \char`\"{}directory
 space\char`\"{} as a virtual filesystem that may or may not be backed by a regular filesystem. One example use is serving files from inside large compressed archive storage without having to unpack anything except the file being requested.
 
@@ -234,10 +211,7 @@ and then can use helpers to also leverage these platform-\/independent file hand
 \end{DoxyCode}
 
 
-The user code can also override or subclass the file operations, to either wrap or replace them. An example is shown in test server.
-
-\subsection*{E\+C\+DH Support }
-
+The user code can also override or subclass the file operations, to either wrap or replace them. An example is shown in test server.\hypertarget{md_README.coding_ecdh}{}\section{E\+C\+D\+H Support}\label{md_README.coding_ecdh}
 E\+C\+DH Certs are now supported. Enable the C\+Make option \begin{DoxyVerb}    cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1 
 \end{DoxyVerb}
 
@@ -246,10 +220,7 @@ E\+C\+DH Certs are now supported. Enable the C\+Make option \begin{DoxyVerb}    
 \end{DoxyVerb}
 
 
-to build in support and select it at runtime.
-
-\subsection*{S\+MP / Multithreaded service }
-
+to build in support and select it at runtime.\hypertarget{md_README.coding_smp}{}\section{S\+M\+P / Multithreaded service}\label{md_README.coding_smp}
 S\+MP support is integrated into L\+WS without any internal threading. It\textquotesingle{}s very simple to use, libwebsockets-\/test-\/server-\/pthread shows how to do it, use -\/j $<$n$>$ argument there to control the number of service threads up to 32.
 
 Two new members are added to the info struct \begin{DoxyVerb}    unsigned int count_threads;
@@ -277,10 +248,7 @@ Because lws will limit the requested number of actual threads supported accordin
 
 It\textquotesingle{}s required to implement locking in the user code in the same way that libwebsockets-\/test-\/server-\/pthread does it, for the FD locking callbacks.
 
-There is no knowledge or dependency in lws itself about pthreads. How the locking is implemented is entirely up to the user code.
-
-\subsection*{Libev / Libuv support }
-
+There is no knowledge or dependency in lws itself about pthreads. How the locking is implemented is entirely up to the user code.\hypertarget{md_README.coding_libevuv}{}\section{Libev / Libuv support}\label{md_README.coding_libevuv}
 You can select either or both \begin{DoxyVerb}    -DLWS_WITH_LIBEV=1
     -DLWS_WITH_LIBUV=1
 \end{DoxyVerb}
@@ -291,10 +259,7 @@ at cmake configure-\/time. The user application may use one of the context init 
 \end{DoxyVerb}
 
 
-to indicate it will use either of the event libraries.
-
-\subsection*{Extension option control from user code }
-
+to indicate it will use either of the event libraries.\hypertarget{md_README.coding_extopts}{}\section{Extension option control from user code}\label{md_README.coding_extopts}
 User code may set per-\/connection extension options now, using a new api {\ttfamily \hyperlink{group__extensions_gae0e24e1768f83a7fb07896ce975704b9}{lws\+\_\+set\+\_\+extension\+\_\+option()}}.
 
 This should be called from the E\+S\+T\+A\+B\+L\+I\+S\+H\+ED callback like this 
@@ -306,10 +271,7 @@ This should be called from the E\+S\+T\+A\+B\+L\+I\+S\+H\+ED callback like this
 
 If the extension is not active (missing or not negotiated for the connection, or extensions are disabled on the library) the call is just returns -\/1. Otherwise the connection\textquotesingle{}s extension has its named option changed.
 
-The extension may decide to alter or disallow the change, in the example above permessage-\/deflate restricts the size of his rx output buffer also considering the protocol\textquotesingle{}s rx\+\_\+buf\+\_\+size member.
-
-\subsection*{Client connections as H\+T\+TP\mbox{[}S\mbox{]} rather than WS\mbox{[}S\mbox{]} }
-
+The extension may decide to alter or disallow the change, in the example above permessage-\/deflate restricts the size of his rx output buffer also considering the protocol\textquotesingle{}s rx\+\_\+buf\+\_\+size member.\hypertarget{md_README.coding_httpsclient}{}\section{Client connections as H\+T\+T\+P\mbox{[}\+S\mbox{]} rather than W\+S\mbox{[}\+S\mbox{]}}\label{md_README.coding_httpsclient}
 You may open a generic http client connection using the same struct \hyperlink{structlws__client__connect__info}{lws\+\_\+client\+\_\+connect\+\_\+info} used to create client ws\mbox{[}s\mbox{]} connections.
 
 To stay in http\mbox{[}s\mbox{]}, set the optional info member \char`\"{}method\char`\"{} to point to the string \char`\"{}\+G\+E\+T\char`\"{} instead of the default N\+U\+LL.
@@ -346,8 +308,7 @@ Either way you use the api {\ttfamily lws\+\_\+http\+\_\+client\+\_\+read()} to 
 \end{DoxyCode}
 
 
-\subsection*{Using lws v2 vhosts }
-
+Notice that if you will use S\+SL client connections on a vhost, you must prepare the client S\+SL context for the vhost after creating the vhost, since this is not normally done if the vhost was set up to listen / serve. Call the api \hyperlink{group__client_ga4f44b8230e6732816ca5cd8d1aaaf340}{lws\+\_\+init\+\_\+vhost\+\_\+client\+\_\+ssl()} to also allow client S\+SL on the vhost.\hypertarget{md_README.coding_vhosts}{}\section{Using lws vhosts}\label{md_README.coding_vhosts}
 If you set L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+P\+L\+I\+C\+I\+T\+\_\+\+V\+H\+O\+S\+TS options flag when you create your context, it won\textquotesingle{}t create a default vhost using the info struct members for compatibility. Instead you can call \hyperlink{group__context-and-vhost_ga0c54c667ccd9b8b3dddcd123ca72f87c}{lws\+\_\+create\+\_\+vhost()} afterwards to attach one or more vhosts manually.
 
 
@@ -374,10 +335,14 @@ If you set L\+W\+S\+\_\+\+S\+E\+R\+V\+E\+R\+\_\+\+O\+P\+T\+I\+O\+N\+\_\+\+E\+X\+
 
 When you attach the vhost, if the vhost\textquotesingle{}s port already has a listen socket then both vhosts share it and use S\+NI (is S\+SL in use) or the Host\+: header from the client to select the right one. Or if no other vhost already listening the a new listen socket is created.
 
-There are some new members but mainly it\textquotesingle{}s stuff you used to set at context creation time.
+There are some new members but mainly it\textquotesingle{}s stuff you used to set at context creation time.\hypertarget{md_README.coding_sni}{}\section{How lws matches hostname or S\+N\+I to a vhost}\label{md_README.coding_sni}
+L\+WS first strips any trailing \+:port number.
 
-\subsection*{Using lws v2 mounts on a vhost }
+Then it tries to find an exact name match for a vhost listening on the correct port, ie, if S\+NI or the Host\+: header provided abc.\+com\+:1234, it will match on a vhost named abc.\+com that is listening on port 1234.
 
+If there is no exact match, lws will consider wildcard matches, for example if cats.\+abc.\+com\+:1234 is provided by the client by S\+NI or Host\+: header, it will accept a vhost \char`\"{}abc.\+com\char`\"{} listening on port 1234. If there was a better, exact, match, it will have been chosen in preference to this.
+
+Connections with S\+SL will still have the client go on to check the certificate allows wildcards and error out if not.\hypertarget{md_README.coding_mounts}{}\section{Using lws mounts on a vhost}\label{md_README.coding_mounts}
 The last argument to \hyperlink{group__context-and-vhost_ga0c54c667ccd9b8b3dddcd123ca72f87c}{lws\+\_\+create\+\_\+vhost()} lets you associate a linked list of \hyperlink{structlws__http__mount}{lws\+\_\+http\+\_\+mount} structures with that vhost\textquotesingle{}s U\+RL \textquotesingle{}namespace\textquotesingle{}, in a similar way that unix lets you mount filesystems into areas of your / filesystem how you like and deal with the contents transparently.
 
 
@@ -429,10 +394,7 @@ Both the mount structures and the strings must persist until the context is dest
 \item L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+GI associates the url namespace with the given C\+GI executable, which runs when the U\+RL is accessed and the output provided to the client.
 \item L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+TP and L\+W\+S\+M\+P\+R\+O\+\_\+\+R\+E\+D\+I\+R\+\_\+\+H\+T\+T\+PS auto-\/redirect clients to the given origin U\+RL.
 \item L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK causes the http connection to attach to the callback associated with the named protocol (which may be a plugin).
-\end{DoxyItemize}
-
-\subsection*{Operation of L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+CK mounts }
-
+\end{DoxyItemize}\hypertarget{md_README.coding_mountcallback}{}\section{Operation of L\+W\+S\+M\+P\+R\+O\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K mounts}\label{md_README.coding_mountcallback}
 The feature provided by C\+A\+L\+L\+B\+A\+CK type mounts is binding a part of the U\+RL namespace to a named protocol callback handler.
 
 This allows protocol plugins to handle areas of the U\+RL namespace. For example in test-\/server-\/v2.\+0.\+c, the U\+RL area \char`\"{}/formtest\char`\"{} is associated with the plugin providing \char`\"{}protocol-\/post-\/demo\char`\"{} like this

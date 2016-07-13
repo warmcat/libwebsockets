@@ -1,18 +1,17 @@
-\subsection*{Libwebsockets Web Server }
-
+\hypertarget{md_README.lwsws_lwsws}{}\section{Libwebsockets Web Server}\label{md_README.lwsws_lwsws}
 lwsws is an implementation of a very lightweight, ws-\/capable generic web server, which uses libwebsockets to implement everything underneath.
 
-\subsection*{Build }
-
+If you are basically implementing a standalone server with lws, you can avoid reinventing the wheel and use a debugged server including lws.\hypertarget{md_README.lwsws_lwswsb}{}\section{Build}\label{md_README.lwsws_lwswsb}
 Just enable -\/\+D\+L\+W\+S\+\_\+\+W\+I\+T\+H\+\_\+\+L\+W\+S\+WS=1 at cmake-\/time.
 
-It enables libuv and plugin support automatically.
+It enables libuv and plugin support automatically.\hypertarget{md_README.lwsws_lwswsc}{}\section{Lwsws Configuration}\label{md_README.lwsws_lwswsc}
+lwsws uses J\+S\+ON config files, they\textquotesingle{}re pure J\+S\+ON except\+:
 
-\subsection*{Configuration }
 
-lwsws uses J\+S\+ON config files, they\textquotesingle{}re pure J\+S\+ON but \# may be used to turn the rest of the line into a comment.
-
-There\textquotesingle{}s also a single substitution, if a string contains \char`\"{}\+\_\+lws\+\_\+ddir\+\_\+\char`\"{}, then that is replaced with the L\+WS install data directory path, eg, \char`\"{}/usr/share\char`\"{} or whatever was set when L\+WS was built + installed. That lets you refer to installed paths without having to change the config if your install path was different.
+\begin{DoxyItemize}
+\item \textquotesingle{}\#\textquotesingle{} may be used to turn the rest of the line into a comment.
+\item There\textquotesingle{}s also a single substitution, if a string contains \char`\"{}\+\_\+lws\+\_\+ddir\+\_\+\char`\"{}, then that is replaced with the L\+WS install data directory path, eg, \char`\"{}/usr/share\char`\"{} or whatever was set when L\+WS was built + installed. That lets you refer to installed paths without having to change the config if your install path was different.
+\end{DoxyItemize}
 
 There is a single file intended for global settings
 
@@ -59,8 +58,7 @@ There is a single file intended for global settings
 3 # cp ./lwsws/etc-lwsws-conf.d-localhost-EXAMPLE /etc/lwsws/conf.d/test-server
 4 # sudo lwsws
 \end{DoxyCode}
- \subsection*{Vhosts }
-
+\hypertarget{md_README.lwsws_lwswsv}{}\section{Lwsws Vhosts}\label{md_README.lwsws_lwswsv}
 One server can run many vhosts, where S\+SL is in use S\+NI is used to match the connection to a vhost and its vhost-\/specific S\+SL keys during S\+SL negotiation.
 
 Listing multiple vhosts looks something like this 
@@ -115,20 +113,14 @@ Listing multiple vhosts looks something like this
 \end{DoxyCode}
 
 
-That sets up three vhosts all called \char`\"{}localhost\char`\"{} on ports 443 and 7681 with S\+SL, and port 80 without S\+SL but with a forced redirect to \href{https://localhost}{\tt https\+://localhost}
-
-\subsection*{Vhost name and port }
-
+That sets up three vhosts all called \char`\"{}localhost\char`\"{} on ports 443 and 7681 with S\+SL, and port 80 without S\+SL but with a forced redirect to \href{https://localhost}{\tt https\+://localhost}\hypertarget{md_README.lwsws_lwswsvn}{}\section{Lwsws Vhost name and port sharing}\label{md_README.lwsws_lwswsvn}
 The vhost name field is used to match on incoming S\+NI or Host\+: header, so it must always be the host name used to reach the vhost externally.
 
 
 \begin{DoxyItemize}
 \item Vhosts may have the same name and different ports, these will each create a listening socket on the appropriate port.
 \item Vhosts may also have the same port and different name\+: these will be treated as true vhosts on one listening socket and the active vhost decided at S\+SL negotiation time (via S\+NI) or if no S\+SL, then after the Host\+: header from the client has been parsed.
-\end{DoxyItemize}
-
-\subsection*{Protocols }
-
+\end{DoxyItemize}\hypertarget{md_README.lwsws_lwswspr}{}\section{Lwsws Protocols}\label{md_README.lwsws_lwswspr}
 Vhosts by default have available the union of any initial protocols from context creation time, and any protocols exposed by plugins.
 
 Vhosts can select which plugins they want to offer and give them per-\/vhost settings using this syntax 
@@ -152,10 +144,7 @@ To indicate that a protocol should be used when no Protocol\+: header is sent by
 5   \}
 6 \}]
 \end{DoxyCode}
-
-
-\subsection*{Other vhost options }
-
+\hypertarget{md_README.lwsws_lwswsovo}{}\section{Lwsws Other vhost options}\label{md_README.lwsws_lwswsovo}
 
 \begin{DoxyItemize}
 \item If the three options {\ttfamily host-\/ssl-\/cert}, {\ttfamily host-\/ssl-\/ca} and {\ttfamily host-\/ssl-\/key} are given, then the vhost supports S\+SL.
@@ -199,10 +188,7 @@ would equate to
 
 \begin{DoxyItemize}
 \item \char`\"{}`ssl-\/option-\/clear\textquotesingle{}\char`\"{}\+: \char`\"{}$<$decimal$>$\char`\"{} Clears the S\+SL option flag value for the vhost. It may be used multiple times and OR\textquotesingle{}s the flags together.
-\end{DoxyItemize}
-
-\subsection*{Mounts }
-
+\end{DoxyItemize}\hypertarget{md_README.lwsws_lwswsm}{}\section{Lwsws Mounts}\label{md_README.lwsws_lwswsm}
 Where mounts are given in the vhost definition, then directory contents may be auto-\/served if it matches the mountpoint.
 
 Mount protocols are used to control what kind of translation happens
@@ -238,10 +224,7 @@ Eg, with this mountpoint
 9 \},
 \end{DoxyCode}
  would cause the url /git/myrepo to pass \char`\"{}myrepo\char`\"{} to the cgi /var/www/cgi-\/bin/cgit and send the results to the client.
-\end{DoxyItemize}
-
-\subsection*{Other mount options }
-
+\end{DoxyItemize}\hypertarget{md_README.lwsws_lwswsomo}{}\section{Lwsws Other mount options}\label{md_README.lwsws_lwswsomo}
 1) Some protocols may want \char`\"{}per-\/mount options\char`\"{} in name\+:value format. You can provide them using \char`\"{}pmo\char`\"{} \begin{DoxyVerb}           {
             "mountpoint": "/stuff",
             "origin": "callback://myprotocol",
@@ -302,10 +285,7 @@ See the related notes in R\+E\+A\+D\+M\+E.\+coding.\+md
 3          ".doc": "text/evil"
 4  \}
 \end{DoxyCode}
-
-
-\subsection*{Plugins }
-
+\hypertarget{md_README.lwsws_lwswspl}{}\section{Lwsws Plugins}\label{md_README.lwsws_lwswspl}
 Protcols and extensions may also be provided from \char`\"{}plugins\char`\"{}, these are lightweight dynamic libraries. They are scanned for at init time, and any protocols and extensions found are added to the list given at context creation time.
 
 Protocols receive init (L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+I\+N\+IT) and destruction (L\+W\+S\+\_\+\+C\+A\+L\+L\+B\+A\+C\+K\+\_\+\+P\+R\+O\+T\+O\+C\+O\+L\+\_\+\+D\+E\+S\+T\+R\+OY) callbacks per-\/vhost, and there are arrangements they can make per-\/vhost allocations and get hold of the correct pointer from the wsi at the callback.
@@ -323,10 +303,7 @@ To help that happen conveniently, there are some new apis
 \item lws\+\_\+protocol\+\_\+vh\+\_\+priv\+\_\+get(vhost, protocol)
 \end{DoxyItemize}
 
-dumb increment, mirror and status protocol plugins are provided as examples.
-
-\subsection*{Additional plugin search paths }
-
+dumb increment, mirror and status protocol plugins are provided as examples.\hypertarget{md_README.lwsws_lwswsplaplp}{}\section{Additional plugin search paths}\label{md_README.lwsws_lwswsplaplp}
 Packages that have their own lws plugins can install them in their own preferred dir and ask lwsws to scan there by using a config fragment like this, in its own conf.\+d/ file managed by the other package 
 \begin{DoxyCode}
 1 \{
@@ -335,10 +312,7 @@ Packages that have their own lws plugins can install them in their own preferred
 4   \}
 5 \}
 \end{DoxyCode}
-
-
-\subsection*{lws-\/server-\/status plugin }
-
+\hypertarget{md_README.lwsws_lwswsssp}{}\section{lws-\/server-\/status plugin}\label{md_README.lwsws_lwswsssp}
 One provided protocol can be used to monitor the server status.
 
 Enable the protocol like this on a vhost\textquotesingle{}s ws-\/protocols section 
@@ -358,10 +332,7 @@ And map the provided H\+T\+ML into the vhost in the mounts section
 4  "default": "server-status.html"
 5 \}
 \end{DoxyCode}
- You might choose to put it on its own vhost which has \char`\"{}interface\char`\"{}\+: \char`\"{}lo\char`\"{}, so it\textquotesingle{}s not externally visible.
-
-\subsection*{Integration with Systemd }
-
+ You might choose to put it on its own vhost which has \char`\"{}interface\char`\"{}\+: \char`\"{}lo\char`\"{}, so it\textquotesingle{}s not externally visible.\hypertarget{md_README.lwsws_lwswssysd}{}\section{Lwsws Integration with Systemd}\label{md_README.lwsws_lwswssysd}
 lwsws needs a service file like this as {\ttfamily /usr/lib/systemd/system/lwsws.service} 
 \begin{DoxyCode}
 1 [Unit]
@@ -377,10 +348,7 @@ lwsws needs a service file like this as {\ttfamily /usr/lib/systemd/system/lwsws
 \end{DoxyCode}
 
 
-You can find this prepared in {\ttfamily ./lwsws/usr-\/lib-\/systemd-\/system-\/lwsws.service}
-
-\subsection*{Integration with logrotate }
-
+You can find this prepared in {\ttfamily ./lwsws/usr-\/lib-\/systemd-\/system-\/lwsws.service}\hypertarget{md_README.lwsws_lwswslr}{}\section{Lwsws Integration with logrotate}\label{md_README.lwsws_lwswslr}
 For correct operation with logrotate, {\ttfamily /etc/logrotate.d/lwsws} (if that\textquotesingle{}s where we\textquotesingle{}re putting the logs) should contain 
 \begin{DoxyCode}
 1 /var/log/lwsws/*log \{

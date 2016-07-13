@@ -1,16 +1,14 @@
 Notes about generic-sessions Plugin
 ===================================
 
-Enabling for build
-------------------
+@section gseb Enabling lwsgs for build
 
 Enable at CMake with -DLWS_WITH_GENERIC_SESSIONS=1
 
 This also needs sqlite3 (libsqlite3-dev or similar package)
 
 
-Introduction
-------------
+@section gsi lwsgs Introduction
 
 The generic-sessions protocol plugin provides cookie-based login
 authentication for lws web and ws connections.
@@ -51,8 +49,7 @@ authenticated as.  Everything underneath is managed in generic-sessions.
  - No code (just config) required for, eg, private URL namespace that requires login to access. 
  
 
-Integration to HTML
--------------------
+@section gsin Lwsgs Integration to HTML
 
 Only three steps are needed to integrate lwsgs in your HTML.
 
@@ -92,8 +89,8 @@ That's it.  An example is below
 	 </body>
 	</html>
 ```
-Overall Flow
-------------
+
+@section gsof Lwsgs Overall Flow@
 
 When the protocol is initialized, it gets per-vhost information from the config, such
 as where the sqlite3 databases are to be stored.  The admin username and sha-1 of the
@@ -112,10 +109,9 @@ After a successful login, the sqlite record at the server for the current sessio
 
 
 
-Configuration
--------------
+@section gsconf Lwsgs Configuration
 
-"auth-mask" defines the autorization sector bits that must be enabled on the session to gain access.
+"auth-mask" defines the authorization sector bits that must be enabled on the session to gain access.
 
 "auth-mask" 0 is the default.
 
@@ -227,8 +223,7 @@ Notice the real application uses his own sqlite db, no details about how
 generic-sessions works or how it stores data are available to it.
 
 
-Password Confounder
--------------------
+@section gspwc Lwsgs Password Confounder
 
 You can also define a per-vhost confounder shown in the example above, used
 when aggregating the password with the salt when it is hashed.  Any attacker
@@ -236,8 +231,7 @@ will also need to get the confounder along with the database, which you can
 make harder by making the config dir only eneterable / readable by root.
 
 
-Preparing the db directory
---------------------------
+@section gsprep Lwsgs Preparing the db directory
 
 You will have to prepare the db directory so it's suitable for the lwsws user to use,
 that usually means apache, eg
@@ -248,8 +242,7 @@ that usually means apache, eg
 	# chmod 770 /var/www/sessions
 ```
 
-Email configuration
--------------------
+@section gsrmail Lwsgs Email configuration
 
 lwsgs will can send emails by talking to an SMTP server on localhost:25.  That
 will usually be sendmail or postfix, you should confirm that works first by
@@ -258,13 +251,15 @@ itself using the `mail` application to send on it.
 lwsgs has been tested on stock Fedora sendmail and postfix.
 
 
-Integration with another protocol
----------------------------------
+@section gsap Lwsgs Integration with another protocol
 
 lwsgs is designed to provide sessions and accounts in a standalone and generic way.
 
 But it's not useful by itself, there will always be the actual application who wants
 to make use of generic-sessions features.
+
+We provide the "messageboard" plugin as an example of how to integrate with
+your actual application protocol.
 
 The basic approach is the 'real' protocol handler (usually a plugin itself)
 subclasses the generic-sessions plugin and calls through to it by default.
@@ -340,8 +335,7 @@ secondary allocations.
 ```
 
 
-Getting session-specific information from another protocol
-----------------------------------------------------------
+#section gsapsib Getting session-specific information from another protocol
 
 At least at the time when someone tries to upgrade an http(s) connection to
 ws(s) with your real protocol, it is necessary to confirm the cookie the http(s)
