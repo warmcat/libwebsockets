@@ -368,7 +368,9 @@ var libwebsockets_8h =
       [ "PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a0d6b956db11acb6d263af3ea054a914e", null ],
       [ "PENDING_TIMEOUT_SHUTDOWN_FLUSH", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a11292263c9eccd090294e7e316200d7f", null ],
       [ "PENDING_TIMEOUT_CGI", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a73f61afae387e16f7ab8a4f299aca8d2", null ],
-      [ "PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a5fe48ea6f3f5363cca55d39b78490b45", null ]
+      [ "PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a5fe48ea6f3f5363cca55d39b78490b45", null ],
+      [ "PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87aaac32d9ca2f7c31f5649ad4059d7b985", null ],
+      [ "PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a62ae208399be1f872e14843fd15f9e06", null ]
     ] ],
     [ "_lws_log", "group__log.html#gaf5f07837692b2f231a79da8a058288aa", null ],
     [ "_lws_logv", "group__log.html#ga74eb146969f0595e12ea835851b4588e", null ],

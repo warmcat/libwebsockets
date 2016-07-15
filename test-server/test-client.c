@@ -37,10 +37,11 @@
 
 #include "../lib/libwebsockets.h"
 
-static int deny_deflate, deny_mux, longlived, mirror_lifetime;
+static int deny_deflate, longlived, mirror_lifetime;
 static struct lws *wsi_dumb, *wsi_mirror;
 static volatile int force_exit;
 static unsigned int opts;
+static int flag_no_mirror_traffic;
 #if defined(LWS_USE_POLARSSL)
 #else
 #if defined(LWS_USE_MBEDTLS)
@@ -106,10 +107,14 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	/* because we are protocols[0] ... */
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		if (wsi == wsi_dumb)
+		if (wsi == wsi_dumb) {
 			which = "dumb";
-		if (wsi == wsi_mirror)
+			wsi_dumb = NULL;
+		}
+		if (wsi == wsi_mirror) {
 			which = "mirror";
+			wsi_mirror = NULL;
+		}
 
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s: %s %p\n", which, in);
 		break;
@@ -222,7 +227,8 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		 * start the ball rolling,
 		 * LWS_CALLBACK_CLIENT_WRITEABLE will come next service
 		 */
-		lws_callback_on_writable(wsi);
+		if (!flag_no_mirror_traffic)
+			lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_CLOSED:
@@ -231,6 +237,8 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (flag_no_mirror_traffic)
+			return 0;
 		for (n = 0; n < 1; n++) {
 			lws_get_random(lws_get_context(wsi), rands, sizeof(rands));
 			l += sprintf((char *)&buf[LWS_PRE + l],
@@ -314,8 +322,9 @@ static struct option options[] = {
 	{ "strict-ssl",	no_argument,		NULL, 'S' },
 	{ "version",	required_argument,	NULL, 'v' },
 	{ "undeflated",	no_argument,		NULL, 'u' },
-	{ "nomux",	no_argument,		NULL, 'n' },
+	{ "nomirror",	no_argument,		NULL, 'n' },
 	{ "longlived",	no_argument,		NULL, 'l' },
+	{ "pingpong-secs", required_argument,	NULL, 'P' },
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
 	{ "ssl-ca",  required_argument,		NULL, 'A' },
@@ -330,6 +339,7 @@ static int ratelimit_connects(unsigned int *last, unsigned int secs)
 	struct timeval tv;
 
 	gettimeofday(&tv, NULL);
+
 	if (tv.tv_sec - (*last) < secs)
 		return 0;
 
@@ -341,7 +351,7 @@ static int ratelimit_connects(unsigned int *last, unsigned int secs)
 int main(int argc, char **argv)
 {
 	int n = 0, ret = 0, port = 7681, use_ssl = 0, ietf_version = -1;
-	unsigned int rl_dumb = 0, rl_mirror = 0, do_ws = 1;
+	unsigned int rl_dumb = 0, rl_mirror = 0, do_ws = 1, pp_secs = 0;
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
@@ -360,7 +370,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "Snuv:hsp:d:lC:K:A:", options, NULL);
+		n = getopt_long(argc, argv, "Snuv:hsp:d:lC:K:A:P:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -378,6 +388,10 @@ int main(int argc, char **argv)
 		case 'p':
 			port = atoi(optarg);
 			break;
+		case 'P':
+			pp_secs = atoi(optarg);
+			lwsl_notice("Setting pingpong interval to %d\n", pp_secs);
+			break;
 		case 'l':
 			longlived = 1;
 			break;
@@ -388,7 +402,8 @@ int main(int argc, char **argv)
 			deny_deflate = 1;
 			break;
 		case 'n':
-			deny_mux = 1;
+			flag_no_mirror_traffic = 1;
+			lwsl_notice("Disabled sending mirror data (for pingpong testing)\n");
 			break;
 		case 'C':
 			strncpy(cert_path, optarg, sizeof(cert_path) - 1);
@@ -454,6 +469,7 @@ int main(int argc, char **argv)
 	info.protocols = protocols;
 	info.gid = -1;
 	info.uid = -1;
+	info.ws_ping_pong_interval = pp_secs;
 
 	if (use_ssl) {
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

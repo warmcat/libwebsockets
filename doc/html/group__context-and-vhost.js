@@ -40,7 +40,8 @@ var group__context_and_vhost =
       [ "token_limits", "structlws__context__creation__info.html#ac8a75b7b259a3c3a5fbb4219a3f06c29", null ],
       [ "uid", "structlws__context__creation__info.html#ac105b4180008cb3e672d57beead8382e", null ],
       [ "user", "structlws__context__creation__info.html#a0e9d94cdfb893d777b4a4db81e7b5ac0", null ],
-      [ "vhost_name", "structlws__context__creation__info.html#ad50db098a208f045f7811207d2bee4b9", null ]
+      [ "vhost_name", "structlws__context__creation__info.html#ad50db098a208f045f7811207d2bee4b9", null ],
+      [ "ws_ping_pong_interval", "structlws__context__creation__info.html#a33a1a25a7df3793f59047e20dd580078", null ]
     ] ],
     [ "lws_protocol_vhost_options", "structlws__protocol__vhost__options.html", [
       [ "name", "structlws__protocol__vhost__options.html#acf9db77f8eb64cd4e314be9b43d8a8b9", null ],

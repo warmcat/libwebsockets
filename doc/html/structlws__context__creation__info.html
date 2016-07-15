@@ -156,6 +156,8 @@ Data Fields</h2></td></tr>
 <tr class="separator:a704940261951ced6b5d8191bd8b9bb2d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:adb0bc0b28cd7d90ab306723d8ffa96fa"><td class="memItemLeft" align="right" valign="top">long&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#adb0bc0b28cd7d90ab306723d8ffa96fa">ssl_options_clear</a></td></tr>
 <tr class="separator:adb0bc0b28cd7d90ab306723d8ffa96fa"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a33a1a25a7df3793f59047e20dd580078"><td class="memItemLeft" align="right" valign="top">unsigned short&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#a33a1a25a7df3793f59047e20dd580078">ws_ping_pong_interval</a></td></tr>
+<tr class="separator:a33a1a25a7df3793f59047e20dd580078"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:afce3b59950eca3203faa07381bbed5d7"><td class="memItemLeft" align="right" valign="top">void *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#afce3b59950eca3203faa07381bbed5d7">_unused</a> [8]</td></tr>
 <tr class="separator:afce3b59950eca3203faa07381bbed5d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
@@ -668,6 +670,19 @@ Data Fields</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <p>VHOST: name of vhost, must match external DNS name used to access the site, like "warmcat.com" as it's used to match Host: header and / or SNI name for SSL. </p>
+
+</div>
+</div>
+<a class="anchor" id="a33a1a25a7df3793f59047e20dd580078"></a>
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">unsigned short lws_context_creation_info::ws_ping_pong_interval</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>CONTEXT: 0 for none, else interval in seconds between sending PINGs on idle websocket connections. When the PING is sent, the PONG must come within the normal timeout_secs timeout period or the connection will be dropped. Any RX or TX traffic on the connection restarts the interval timer, so a connection which always sends or receives something at intervals less than the interval given here will never send PINGs / expect PONGs. Conversely as soon as the ws connection is established, an idle connection will do the PING / PONG roundtrip as soon as ws_ping_pong_interval seconds has passed without traffic </p>
 
 </div>
 </div>

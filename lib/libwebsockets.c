@@ -1507,6 +1507,18 @@ lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
 	return port;
 }
 
+LWS_EXTERN void
+lws_restart_ws_ping_pong_timer(struct lws *wsi)
+{
+	if (!wsi->context->ws_ping_pong_interval)
+		return;
+	if (wsi->state != LWSS_ESTABLISHED)
+		return;
+
+	wsi->u.ws.time_next_ping_check = (time_t)lws_now_secs() +
+				    wsi->context->ws_ping_pong_interval;
+}
+
 static const char *hex = "0123456789ABCDEF";
 
 LWS_VISIBLE LWS_EXTERN const char *

@@ -127,6 +127,29 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		return 0;
 	}
 
+	if (wsi->state == LWSS_ESTABLISHED &&
+	    !wsi->socket_is_permanently_unusable &&
+	    wsi->u.ws.send_check_ping) {
+
+		lwsl_info("issuing ping on wsi %p\n", wsi);
+		wsi->u.ws.send_check_ping = 0;
+		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[LWS_PRE],
+			      0, LWS_WRITE_PING);
+		if (n < 0)
+			return -1;
+
+		/*
+		 * we apparently were able to send the PING in a reasonable time
+		 * now reset the clock on our peer to be able to send the
+		 * PONG in a reasonable time.
+		 */
+
+		lws_set_timeout(wsi, PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG,
+				wsi->context->timeout_secs);
+
+		return 0;
+	}
+
 	/* Priority 4: if we are closing, not allowed to send more data frags
 	 *	       which means user callback or tx ext flush banned now
 	 */
@@ -702,6 +725,41 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			lwsl_notice("load: %s\n", s);
 		}
 #endif
+	}
+
+	/*
+	 * at intervals, check for ws connections needing ping-pong checks
+	 */
+
+	if (context->ws_ping_pong_interval &&
+	    context->last_ws_ping_pong_check_s < now + 10) {
+		context->last_ws_ping_pong_check_s = now;
+
+		struct lws_vhost *vh = context->vhost_list;
+		while (vh) {
+			for (n = 0; n < vh->count_protocols; n++) {
+				wsi = vh->same_vh_protocol_list[n];
+
+				while (wsi) {
+					if (wsi->state == LWSS_ESTABLISHED &&
+					    !wsi->socket_is_permanently_unusable &&
+					    !wsi->u.ws.send_check_ping &&
+					    wsi->u.ws.time_next_ping_check &&
+					    wsi->u.ws.time_next_ping_check < now) {
+
+						lwsl_info("requesting ping-pong on wsi %p\n", wsi);
+						wsi->u.ws.send_check_ping = 1;
+						lws_set_timeout(wsi, PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
+								context->timeout_secs);
+						lws_callback_on_writable(wsi);
+						wsi->u.ws.time_next_ping_check = now +
+								wsi->context->ws_ping_pong_interval;
+					}
+					wsi = wsi->same_vh_protocol_next;
+				}
+			}
+			vh = vh->vhost_next;
+		}
 	}
 
 	/* the socket we came to service timed out, nothing to do */

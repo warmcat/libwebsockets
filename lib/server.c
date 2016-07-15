@@ -1286,6 +1286,8 @@ upgrade_ws:
 		wsi->u.hdr = hdr;
 		lws_pt_unlock(pt);
 
+		lws_restart_ws_ping_pong_timer(wsi);
+
 		/*
 		 * create the frame buffer for this connection according to the
 		 * size mentioned in the protocol definition.  If 0 there, use
