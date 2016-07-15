@@ -1331,6 +1331,11 @@ ping_drop:
 			lwsl_hexdump(&wsi->u.ws.rx_ubuf[LWS_PRE],
 			             wsi->u.ws.rx_ubuf_head);
 
+			if (wsi->pending_timeout == PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG) {
+				lwsl_info("received expected PONG on wsi %p\n", wsi);
+				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+			}
+
 			/* issue it */
 			callback_action = LWS_CALLBACK_RECEIVE_PONG;
 			break;

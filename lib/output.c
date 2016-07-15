@@ -249,6 +249,8 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		lwsl_ext("FORCED draining wp to 0x%02X\n", wp);
 	}
 
+	lws_restart_ws_ping_pong_timer(wsi);
+
 	if (wp == LWS_WRITE_HTTP ||
 	    wp == LWS_WRITE_HTTP_FINAL ||
 	    wp == LWS_WRITE_HTTP_HEADERS)
@@ -643,6 +645,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	if (n >= 0) {
 		if (wsi->vhost)
 			wsi->vhost->rx += n;
+		lws_restart_ws_ping_pong_timer(wsi);
 		return n;
 	}
 #if LWS_POSIX

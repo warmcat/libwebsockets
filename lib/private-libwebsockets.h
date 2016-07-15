@@ -674,6 +674,7 @@ struct lws_vhost {
 	int allow_non_ssl_on_ssl_port;
 	unsigned int user_supplied_ssl_ctx:1;
 #endif
+
 	unsigned char default_protocol_index;
 };
 
@@ -686,6 +687,7 @@ struct lws_vhost {
 
 struct lws_context {
 	time_t last_timeout_check_s;
+	time_t last_ws_ping_pong_check_s;
 	time_t time_up;
 	struct lws_plat_file_ops fops;
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
@@ -754,6 +756,7 @@ struct lws_context {
 	short plugin_protocol_count;
 	short plugin_extension_count;
 	short server_string_len;
+	unsigned short ws_ping_pong_interval;
 
 	unsigned int being_destroyed:1;
 	unsigned int requested_kill:1;
@@ -773,6 +776,9 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_plat_plugins_destroy(struct lws_context * context);
+
+LWS_EXTERN void
+lws_restart_ws_ping_pong_timer(struct lws *wsi);
 
 enum {
 	LWS_EV_READ = (1 << 0),
@@ -1087,6 +1093,7 @@ struct _lws_websocket_related {
 	unsigned int rx_ubuf_alloc;
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
+	time_t time_next_ping_check;
 	size_t rx_packet_length;
 	unsigned int rx_ubuf_head;
 	unsigned char mask[4];
@@ -1120,6 +1127,7 @@ struct _lws_websocket_related {
 	unsigned int stashed_write_pending:1;
 	unsigned int rx_draining_ext:1;
 	unsigned int tx_draining_ext:1;
+	unsigned int send_check_ping:1;
 };
 
 #ifdef LWS_WITH_CGI

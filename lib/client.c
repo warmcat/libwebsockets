@@ -627,6 +627,29 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	}
 
 
+	/*
+	 * stitch protocol choice into the vh protocol linked list
+	 * We always insert ourselves at the start of the list
+	 *
+	 * X <-> B
+	 * X <-> pAn <-> pB
+	 */
+	//lwsl_err("%s: pre insert vhost start wsi %p, that wsi prev == %p\n",
+	//		__func__,
+	//		wsi->vhost->same_vh_protocol_list[n],
+	//		wsi->same_vh_protocol_prev);
+	wsi->same_vh_protocol_prev = /* guy who points to us */
+		&wsi->vhost->same_vh_protocol_list[n];
+	wsi->same_vh_protocol_next = /* old first guy is our next */
+			wsi->vhost->same_vh_protocol_list[n];
+	/* we become the new first guy */
+	wsi->vhost->same_vh_protocol_list[n] = wsi;
+
+	if (wsi->same_vh_protocol_next)
+		/* old first guy points back to us now */
+		wsi->same_vh_protocol_next->same_vh_protocol_prev =
+				&wsi->same_vh_protocol_next;
+
 check_extensions:
 #ifndef LWS_NO_EXTENSIONS
 	/* instantiate the accepted extensions */
@@ -809,6 +832,7 @@ check_accept:
 
 	lws_union_transition(wsi, LWSCM_WS_CLIENT);
 	wsi->state = LWSS_ESTABLISHED;
+	lws_restart_ws_ping_pong_timer(wsi);
 
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 

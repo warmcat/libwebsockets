@@ -9,6 +9,7 @@
    "interface": "eth0",
    "count-threads": "1",
    "server-string": "lwsws",
+   "ws-pingpong-secs": "200",
    "init-ssl": "yes"
  }
 }

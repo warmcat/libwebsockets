@@ -35,7 +35,8 @@ static const char * const paths_global[] = {
 	"global.count-threads",
 	"global.init-ssl",
 	"global.server-string",
-	"global.plugin-dir"
+	"global.plugin-dir",
+	"global.ws-pingpong-secs",
 };
 
 enum lejp_global_paths {
@@ -44,7 +45,8 @@ enum lejp_global_paths {
 	LEJPGP_COUNT_THREADS,
 	LWJPGP_INIT_SSL,
 	LEJPGP_SERVER_STRING,
-	LEJPGP_PLUGIN_DIR
+	LEJPGP_PLUGIN_DIR,
+	LWJPGP_PINGPONG_SECS,
 };
 
 static const char * const paths_vhosts[] = {
@@ -232,6 +234,10 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		}
 		a->plugin_dirs[a->count_plugin_dirs++] = a->p;
 		break;
+
+	case LWJPGP_PINGPONG_SECS:
+		a->info->ws_ping_pong_interval = atoi(ctx->buf);
+		return 0;
 
 	default:
 		return 0;

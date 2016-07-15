@@ -42,6 +42,7 @@ There is a single file intended for global settings
 	   "gid": "48",  # apache user
 	   "count-threads": "1",
 	   "server-string": "myserver v1", # returned in http headers
+	   "ws-pingpong-secs": "200", # confirm idle established ws connections this often
 	   "init-ssl": "yes"
 	 }
 	}
