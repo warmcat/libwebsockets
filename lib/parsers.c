@@ -212,7 +212,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	time_t now;
 
 	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
-		  (void *)wsi, (void *)wsi->u.hdr.ah, wsi->tsi,
+		  (void *)wsi, (void *)ah, wsi->tsi,
 		  pt->ah_count_in_use);
 
 	if (wsi->u.hdr.preamble_rx)
@@ -245,7 +245,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	}
 	/* we did have an ah attached */
 	time(&now);
-	if (now - wsi->u.hdr.ah->assigned > 3) {
+	if (ah->assigned && now - ah->assigned > 3) {
 		/*
 		 * we're detaching the ah, but it was held an
 		 * unreasonably long time
@@ -253,15 +253,17 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 		lwsl_notice("%s: wsi %p: ah held %ds, "
 			    "ah.rxpos %d, ah.rxlen %d, mode/state %d %d,"
 			    "wsi->more_rx_waiting %d\n", __func__, wsi,
-			    (int)(now - wsi->u.hdr.ah->assigned),
+			    (int)(now - ah->assigned),
 			    ah->rxpos, ah->rxlen, wsi->mode, wsi->state,
 			    wsi->more_rx_waiting);
 	}
 
+	ah->assigned = 0;
+
 	/* if we think we're detaching one, there should be one in use */
 	assert(pt->ah_count_in_use > 0);
 	/* and this specific one should have been in use */
-	assert(wsi->u.hdr.ah->in_use);
+	assert(ah->in_use);
 	wsi->u.hdr.ah = NULL;
 	ah->wsi = NULL; /* no owner */
 
