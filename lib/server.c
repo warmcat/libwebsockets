@@ -22,11 +22,19 @@
 
 #include "private-libwebsockets.h"
 
+#if defined (LWS_WITH_ESP8266)
+#undef memcpy
+void *memcpy(void *dest, const void *src, size_t n)
+{
+	return ets_memcpy(dest, src, n);
+}
+#endif
+
 int
 lws_context_init_server(struct lws_context_creation_info *info,
 			struct lws_vhost *vhost)
 {
-#ifdef LWS_POSIX
+#if LWS_POSIX
 	int n, opt = 1, limit = 1;
 #endif
 	lws_sockfd_type sockfd;
@@ -75,8 +83,14 @@ lws_context_init_server(struct lws_context_creation_info *info,
 
 	if (sockfd == -1) {
 #else
+#if defined(LWS_WITH_ESP8266)
+	sockfd = esp8266_create_tcp_listen_socket(vhost);
+	if (!lws_sockfd_valid(sockfd)) {
+
+#else
 	sockfd = mbed3_create_tcp_stream_socket();
 	if (!lws_sockfd_valid(sockfd)) {
+#endif
 #endif
 		lwsl_err("ERROR opening socket\n");
 		return 1;
@@ -149,7 +163,11 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	listen(wsi->sock, LWS_SOMAXCONN);
 	} /* for each thread able to independently listen */
 #else
+#if defined(LWS_WITH_ESP8266)
+	esp8266_tcp_stream_bind(wsi->sock, info->port, wsi);
+#else
 	mbed3_tcp_stream_bind(wsi->sock, info->port, wsi);
+#endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
 #ifdef LWS_USE_UNIX_SOCK
@@ -188,6 +206,11 @@ _lws_server_listen_accept_flow_control(struct lws *twsi, int on)
 
 	return n;
 }
+
+#if defined(LWS_WITH_ESP8266)
+#undef strchr
+#define strchr ets_strchr
+#endif
 
 struct lws_vhost *
 lws_select_vhost(struct lws_context *context, int port, const char *servername)
@@ -318,20 +341,21 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	const struct lws_protocol_vhost_options *pvo = m->interpret;
 	struct lws_process_html_args args;
 	const char *mimetype;
-#ifndef _WIN32_WCE
+#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266)
 	struct stat st;
+	int spin = 0;
 #endif
 	char path[256], sym[512];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
-#if !defined(WIN32)
+#if !defined(WIN32) && LWS_POSIX
 	size_t len;
 #endif
-	int n, spin = 0;
+	int n;
 
 	snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
-#ifndef _WIN32_WCE
+#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266)
 	do {
 		spin++;
 
@@ -341,7 +365,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		}
 
 		lwsl_debug(" %s mode %d\n", path, S_IFMT & st.st_mode);
-#if !defined(WIN32)
+#if !defined(WIN32) && LWS_POSIX
 		if ((S_IFMT & st.st_mode) == S_IFLNK) {
 			len = readlink(path, sym, sizeof(sym) - 1);
 			if (len) {
@@ -405,7 +429,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 	mimetype = lws_get_mimetype(path, m);
 	if (!mimetype) {
-		lwsl_err("unknown mimetype for %s", path);
+		lwsl_err("unknown mimetype for %s\n", path);
 		goto bail;
 	}
 
@@ -939,6 +963,7 @@ deal_body:
 bail_nuke_ah:
 	/* we're closing, losing some rx is OK */
 	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	// lwsl_notice("%s: drop1\n", __func__);
 	lws_header_table_detach(wsi, 1);
 
 	return 1;
@@ -978,7 +1003,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct _lws_header_related hdr;
 	struct allocated_headers *ah;
-	int protocol_len, n, hit;
+	int protocol_len, n = 0, hit;
 	char protocol_list[128];
 	char protocol_name[32];
 	char *p;
@@ -1329,6 +1354,14 @@ upgrade_ws:
 						    0))
 				return 1;
 
+		/* !!! drop ah unreservedly after ESTABLISHED */
+		if (!wsi->more_rx_waiting) {
+			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+
+			//lwsl_notice("%p: dropping ah EST\n", wsi);
+			lws_header_table_detach(wsi, 1);
+		}
+
 		return 0;
 	} /* while all chars are handled */
 
@@ -1338,6 +1371,7 @@ bail_nuke_ah:
 	/* drop the header info */
 	/* we're closing, losing some rx is OK */
 	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	//lwsl_notice("%s: drop2\n", __func__);
 	lws_header_table_detach(wsi, 1);
 
 	return 1;
@@ -1425,7 +1459,7 @@ lws_http_transaction_completed(struct lws *wsi)
 
 	lws_access_log(wsi);
 
-	lwsl_debug("%s: wsi %p\n", __func__, wsi);
+	lwsl_info("%s: wsi %p\n", __func__, wsi);
 	/* if we can't go back to accept new headers, drop the connection */
 	if (wsi->u.http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
 		lwsl_info("%s: %p: close connection\n", __func__, wsi);
@@ -1480,7 +1514,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	return 0;
 }
 
-static struct lws *
+struct lws *
 lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 {
 	struct lws_context *context = vh->context;
@@ -1491,7 +1525,7 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 		return NULL;
 	}
 
-	lwsl_info("%s: new wsi %p, sockfd %d\n", __func__, new_wsi, accept_fd);
+	//lwsl_notice("%s: new wsi %p, sockfd %d, cb %p\n", __func__, new_wsi, accept_fd, context->vhost_list->protocols[0].callback);
 
 	new_wsi->sock = accept_fd;
 
@@ -1500,9 +1534,12 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 			context->timeout_secs);
 
 #if LWS_POSIX == 0
+#if defined(LWS_WITH_ESP8266)
+	esp8266_tcp_stream_accept(accept_fd, new_wsi);
+#else
 	mbed3_tcp_stream_accept(accept_fd, new_wsi);
 #endif
-
+#endif
 	/*
 	 * A new connection was accepted. Give the user a chance to
 	 * set properties of the newly created wsi. There's no protocol
@@ -1567,6 +1604,7 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 		lwsl_err("%s: rx in too big\n", __func__);
 		goto bail;
 	}
+
 	/*
 	 * we can't process the initial read data until we can attach an ah.
 	 *
@@ -1636,6 +1674,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 	socklen_t clilen;
 #endif
 	int n, len;
+	
+	// lwsl_notice("%s: mode %d\n", __func__, wsi->mode);
 
 	switch (wsi->mode) {
 
@@ -1674,35 +1714,39 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		 * the POLLOUT), don't let that happen twice in a row...
 		 * next time we see the situation favour POLLOUT
 		 */
-
+#if !defined(LWS_WITH_ESP8266)
 		if (wsi->favoured_pollin &&
 		    (pollfd->revents & pollfd->events & LWS_POLLOUT)) {
 			wsi->favoured_pollin = 0;
 			goto try_pollout;
 		}
-
+#endif
 		/* these states imply we MUST have an ah attached */
 
 		if (wsi->state == LWSS_HTTP ||
 		    wsi->state == LWSS_HTTP_ISSUING_FILE ||
 		    wsi->state == LWSS_HTTP_HEADERS) {
-			if (!wsi->u.hdr.ah)
+			if (!wsi->u.hdr.ah) {
+				
+				//lwsl_err("wsi %p: missing ah\n", wsi);
 				/* no autoservice beacuse we will do it next */
-				if (lws_header_table_attach(wsi, 0))
+				if (lws_header_table_attach(wsi, 0)) {
+					lwsl_err("wsi %p: failed to acquire ah\n", wsi);
 					goto try_pollout;
-
+				}
+			}
 			ah = wsi->u.hdr.ah;
 
-			lwsl_debug("%s: %p: rxpos:%d rxlen:%d\n", __func__, wsi,
-				   ah->rxpos, ah->rxlen);
+			//lwsl_notice("%s: %p: rxpos:%d rxlen:%d\n", __func__, wsi,
+			//	   ah->rxpos, ah->rxlen);
 
 			/* if nothing in ah rx buffer, get some fresh rx */
 			if (ah->rxpos == ah->rxlen) {
 				ah->rxlen = lws_ssl_capable_read(wsi, ah->rx,
 						   sizeof(ah->rx));
 				ah->rxpos = 0;
-				lwsl_debug("%s: wsi %p, ah->rxlen = %d\r\n",
-					   __func__, wsi, ah->rxlen);
+				//lwsl_notice("%s: wsi %p, ah->rxlen = %d\r\n",
+				//	   __func__, wsi, ah->rxlen);
 				switch (ah->rxlen) {
 				case 0:
 					lwsl_info("%s: read 0 len\n", __func__);
@@ -1717,12 +1761,14 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					goto try_pollout;
 				}
 			}
+
 			if (!(ah->rxpos != ah->rxlen && ah->rxlen)) {
 				lwsl_err("%s: assert: rxpos %d, rxlen %d\n",
 					 __func__, ah->rxpos, ah->rxlen);
 
 				assert(0);
 			}
+			
 			/* just ignore incoming if waiting for close */
 			if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
 				n = lws_read(wsi, ah->rx + ah->rxpos,
@@ -1747,7 +1793,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 
 		len = lws_ssl_capable_read(wsi, pt->serv_buf,
 					   context->pt_serv_buf_size);
-		lwsl_debug("%s: wsi %p read %d\r\n", __func__, wsi, len);
+		lwsl_notice("%s: wsi %p read %d\r\n", __func__, wsi, len);
 		switch (len) {
 		case 0:
 			lwsl_info("%s: read 0 len\n", __func__);
@@ -1760,7 +1806,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			goto try_pollout;
 		}
-
+		
 		/* just ignore incoming if waiting for close */
 		if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
 			/*
@@ -1781,6 +1827,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		}
 
 try_pollout:
+		
 		/* this handles POLLOUT for http serving fragments */
 
 		if (!(pollfd->revents & LWS_POLLOUT))
@@ -1812,6 +1859,7 @@ try_pollout:
 			lwsl_info("completed\n");
 			goto fail;
 		}
+
 		break;
 
 	case LWSCM_SERVER_LISTENER:
@@ -1903,8 +1951,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 					    O_RDONLY);
 
 	if (wsi->u.http.fd == LWS_INVALID_FILE) {
-		lwsl_info("Unable to open '%s'\n", file);
-		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
+		lwsl_err("Unable to open '%s'\n", file);
 
 		return -1;
 	}
@@ -1941,6 +1988,11 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CACHE_CONTROL,
 			(unsigned char *)cc, cclen, &p, end))
 		return -1;
+
+	if (wsi->u.http.connection_type == HTTP_CONNECTION_KEEP_ALIVE)
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
+				(unsigned char *)"keep-alive", 10, &p, end))
+			return -1;
 
 	if (other_headers) {
 		if ((end - p) < other_headers_len)

@@ -194,8 +194,8 @@ lws_protocol_init(struct lws_context *context)
 	return 0;
 }
 
-static int
-callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
+LWS_VISIBLE int
+lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
 #ifdef LWS_WITH_CGI
@@ -286,7 +286,7 @@ static const struct lws_protocols protocols_dummy[] = {
 
 	{
 		"http-only",		/* name */
-		callback_http_dummy,		/* callback */
+		lws_callback_http_dummy,		/* callback */
 		0,	/* per_session_data_size */
 		0,			/* max frame size / rx buffer */
 	},
@@ -309,7 +309,9 @@ lws_create_vhost(struct lws_context *context,
 	struct lws_protocols *lwsp;
 	int m, f = !info->pvo;
 #endif
+#ifdef LWS_HAVE_GETENV
 	char *p;
+#endif
 	int n;
 
 	if (!vh)
@@ -332,7 +334,10 @@ lws_create_vhost(struct lws_context *context,
 
 	vh->options = info->options;
 	vh->pvo = info->pvo;
-	vh->keepalive_timeout = info->keepalive_timeout;
+	if (info->keepalive_timeout)
+		vh->keepalive_timeout = info->keepalive_timeout;
+	else
+		vh->keepalive_timeout = 5;
 
 #ifdef LWS_WITH_PLUGINS
 	if (plugin) {
@@ -452,6 +457,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 	vh->listen_port = info->port;
+#if !defined(LWS_WITH_ESP8266)
 	vh->http_proxy_port = 0;
 	vh->http_proxy_address[0] = '\0';
 
@@ -469,7 +475,7 @@ lws_create_vhost(struct lws_context *context,
 			lws_set_proxy(vh, p);
 #endif
 	}
-
+#endif
 	vh->ka_time = info->ka_time;
 	vh->ka_interval = info->ka_interval;
 	vh->ka_probes = info->ka_probes;
@@ -532,12 +538,12 @@ lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 
 	return lws_context_init_client_ssl(&i, vhost);
 }
+	struct lws wsi;
 
 LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
 {
 	struct lws_context *context = NULL;
-	struct lws wsi;
 #ifndef LWS_NO_DAEMONIZE
 	int pid_daemon = get_daemonize_pid();
 #endif
@@ -576,7 +582,6 @@ lws_create_context(struct lws_context_creation_info *info)
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
-
 	if (info->pt_serv_buf_size)
 		context->pt_serv_buf_size = info->pt_serv_buf_size;
 	else

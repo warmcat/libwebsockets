@@ -18,9 +18,11 @@
  * Public Domain.
  */
 
+#if !defined (LWS_PLUGIN_STATIC)
 #define LWS_DLL
 #define LWS_INTERNAL
 #include "../lib/libwebsockets.h"
+#endif
 
 #include <string.h>
 #include <fcntl.h>
@@ -33,12 +35,14 @@
 
 struct per_session_data__post_demo {
 	struct lws_spa *spa;
-	char result[LWS_PRE + 500];
+	char result[LWS_PRE + 512];
 	int result_len;
 
-	char filename[256];
+	char filename[64];
 	long file_length;
+#if !defined(LWS_WITH_ESP8266)
 	lws_filefd_type fd;
+#endif
 };
 
 static const char * const param_names[] = {
@@ -69,8 +73,10 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		/* we get the original filename in @filename arg, but for
 		 * simple demo use a fixed name so we don't have to deal with
 		 * attacks  */
+#if !defined(LWS_WITH_ESP8266)
 		pss->fd = open("/tmp/post-file",
 			       O_CREAT | O_TRUNC | O_RDWR, 0600);
+#endif
 		break;
 	case LWS_UFS_FINAL_CONTENT:
 	case LWS_UFS_CONTENT:
@@ -81,13 +87,19 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			if (pss->file_length > 100000)
 				return 1;
 
+#if !defined(LWS_WITH_ESP8266)
 			n = write(pss->fd, buf, len);
 			lwsl_notice("%s: write %d says %d\n", __func__, len, n);
+#else
+			lwsl_notice("%s: Received chunk size %d\n", __func__, len);
+#endif
 		}
 		if (state == LWS_UFS_CONTENT)
 			break;
+#if !defined(LWS_WITH_ESP8266)
 		close(pss->fd);
 		pss->fd = LWS_INVALID_FILE;
+#endif
 		break;
 	}
 
@@ -100,7 +112,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct per_session_data__post_demo *pss =
 			(struct per_session_data__post_demo *)user;
-	unsigned char buffer[LWS_PRE + 512];
+	unsigned char *buffer;
 	unsigned char *p, *start, *end;
 	int n;
 
@@ -147,24 +159,27 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		p += snprintf((char *)p, end - p, "</body></html>");
 		pss->result_len = p - (unsigned char *)(pss->result + LWS_PRE);
 
+		n = LWS_PRE + 256;
+		buffer = malloc(n);
 		p = buffer + LWS_PRE;
 		start = p;
-		end = p + sizeof(buffer) - LWS_PRE;
+		end = p + n - LWS_PRE - 1;
 
 		if (lws_add_http_header_status(wsi, 200, &p, end))
-			return 1;
+			goto bail;
 
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 				(unsigned char *)"text/html", 9, &p, end))
-			return 1;
+			goto bail;
 		if (lws_add_http_header_content_length(wsi, pss->result_len, &p, end))
-			return 1;
+			goto bail;
 		if (lws_finalize_http_header(wsi, &p, end))
-			return 1;
+			goto bail;
 
 		n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
 		if (n < 0)
-			return 1;
+			goto bail;
+		free(buffer);
 
 		lws_callback_on_writable(wsi);
 		break;
@@ -192,6 +207,11 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 
 	return 0;
 
+bail:
+	free(buffer);
+
+	return 1;
+
 try_to_reuse:
 	if (lws_http_transaction_completed(wsi))
 		return -1;
@@ -199,13 +219,18 @@ try_to_reuse:
 	return 0;
 }
 
+#define LWS_PLUGIN_PROTOCOL_POST_DEMO \
+	{ \
+		"protocol-post-demo", \
+		callback_post_demo, \
+		sizeof(struct per_session_data__post_demo), \
+		1024, \
+	}
+
+#if !defined (LWS_PLUGIN_STATIC)
+
 static const struct lws_protocols protocols[] = {
-	{
-		"protocol-post-demo",
-		callback_post_demo,
-		sizeof(struct per_session_data__post_demo),
-		1024,
-	},
+	LWS_PLUGIN_PROTOCOL_POST_DEMO
 };
 
 LWS_EXTERN LWS_VISIBLE int
@@ -231,3 +256,5 @@ destroy_protocol_post_demo(struct lws_context *context)
 {
 	return 0;
 }
+
+#endif

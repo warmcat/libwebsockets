@@ -17,10 +17,20 @@
  * may be proprietary.  So unlike the library itself, they are licensed
  * Public Domain.
  */
+
+#if !defined (LWS_PLUGIN_STATIC)
 #define LWS_DLL
 #define LWS_INTERNAL
 #include "../lib/libwebsockets.h"
+#endif
+
 #include <string.h>
+
+#if defined(LWS_WITH_ESP8266)
+#define DUMB_PERIOD 50
+#else
+#define DUMB_PERIOD 50
+#endif
 
 struct per_vhost_data__dumb_increment {
 	uv_timer_t timeout_watcher;
@@ -55,7 +65,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			(struct per_vhost_data__dumb_increment *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
-	unsigned char buf[LWS_PRE + 512];
+	unsigned char buf[LWS_PRE + 20];
 	unsigned char *p = &buf[LWS_PRE];
 	int n, m;
 
@@ -67,10 +77,12 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->context = lws_get_context(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
+
 		uv_timer_init(lws_uv_getloop(vhd->context, 0),
 			      &vhd->timeout_watcher);
 		uv_timer_start(&vhd->timeout_watcher,
-			       uv_timeout_cb_dumb_increment, 50, 50);
+			       uv_timeout_cb_dumb_increment, DUMB_PERIOD, DUMB_PERIOD);
+
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
@@ -84,7 +96,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		n = sprintf((char *)p, "%d", pss->number++);
+		n = snprintf((char *)p, sizeof(buf) - LWS_PRE, "%d", pss->number++);
 		m = lws_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (m < n) {
 			lwsl_err("ERROR %d writing to di socket\n", n);
@@ -112,13 +124,18 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+#define LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT \
+	{ \
+		"dumb-increment-protocol", \
+		callback_dumb_increment, \
+		sizeof(struct per_session_data__dumb_increment), \
+		10, /* rx buf size must be >= permessage-deflate rx size */ \
+	}
+
+#if !defined (LWS_PLUGIN_STATIC)
+		
 static const struct lws_protocols protocols[] = {
-	{
-		"dumb-increment-protocol",
-		callback_dumb_increment,
-		sizeof(struct per_session_data__dumb_increment),
-		10, /* rx buf size must be >= permessage-deflate rx size */
-	},
+	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT
 };
 
 LWS_EXTERN LWS_VISIBLE int
@@ -144,3 +161,5 @@ destroy_protocol_dumb_increment(struct lws_context *context)
 {
 	return 0;
 }
+
+#endif

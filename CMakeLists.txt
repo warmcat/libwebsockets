@@ -100,6 +100,8 @@ option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" OFF)
 option(LWS_WITH_GENERIC_SESSIONS "With the Generic Sessions plugin" OFF)
 option(LWS_WITH_SQLITE3 "Require SQLITE3 support" OFF)
 option(LWS_WITH_SMTP "Provide SMTP support" OFF)
+option(LWS_WITH_ESP8266 "Build for ESP8266" OFF)
+option(LWS_WITH_NO_LOGS "Disable all logging from being compiled in" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -145,6 +147,22 @@ set(LWS_MBED3 ON)
 set(LWS_MAX_SMP 1)
 
 endif()
+
+if (LWS_WITH_ESP8266)
+ set(LWS_WITH_SHARED OFF)
+ set(LWS_WITH_SSL OFF)
+ set(LWS_WITH_ZLIB OFF)
+ set(LWS_WITHOUT_CLIENT ON)
+ set(LWS_WITHOUT_TESTAPPS ON)
+ set(LWS_WITHOUT_EXTENSIONS ON)
+ set(LWS_WITH_PLUGINS OFF)
+ # this implies no pthreads in the lib
+ set(LWS_MAX_SMP 1)
+ set(LWS_HAVE_MALLOC 1)
+ set(LWS_HAVE_REALLOC 1)
+ set(LWS_HAVE_GETIFADDRS 1)
+endif()
+
 
 if (WIN32)
 # this implies no pthreads in the lib
@@ -359,6 +377,9 @@ if ("${LWS_MAX_SMP}" STREQUAL "")
 endif()
 
 
+if (LWS_WITH_ESP8266)
+set(CMAKE_C_FLAGS "-nostdlib ${CMAKE_C_FLAGS}")
+endif()
 #if (LWS_MBED3)
 #	set(CMAKE_C_FLAGS "-D_DEBUG ${CMAKE_C_FLAGS}")
 #endif()
@@ -561,8 +582,13 @@ else()
 			lib/lws-plat-mbed3.cpp
 			lib/lws-plat-mbed3.c)
 	else()
-		list(APPEND SOURCES
-			lib/lws-plat-unix.c)
+		if (LWS_WITH_ESP8266)
+			list(APPEND SOURCES
+				lib/lws-plat-esp8266.c)
+		else()
+			list(APPEND SOURCES
+				lib/lws-plat-unix.c)
+		endif()
 	endif()
 endif()
 
@@ -648,7 +674,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
     if (LWS_HAVE_VISIBILITY)
                 set(VISIBILITY_FLAG -fvisibility=hidden)
     endif()
-    if (UNIX)
+    if (UNIX OR LWS_WITH_ESP8266)
                set(CMAKE_C_FLAGS "-Wall -Werror ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
     else(UNIX)
                set(CMAKE_C_FLAGS "-Wall ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )

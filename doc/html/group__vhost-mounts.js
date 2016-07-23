@@ -17,7 +17,7 @@ var group__vhost_mounts =
       [ "def", "structlws__http__mount.html#ae90d1efe7178199fad39de2926902ee4", null ],
       [ "extra_mimetypes", "structlws__http__mount.html#a4437423df85ee3dbcae0e15974c89ec7", null ],
       [ "interpret", "structlws__http__mount.html#a11ea62b952710d59733dbcf9794a5773", null ],
-      [ "mount_next", "structlws__http__mount.html#ad878546ae1c399bbca7d7f8a0baf973d", null ],
+      [ "mount_next", "structlws__http__mount.html#a0109baf93f23c07c824c997c3533ee44", null ],
       [ "mountpoint", "structlws__http__mount.html#aa2391bfcada0b7a290b3c6651f64586c", null ],
       [ "mountpoint_len", "structlws__http__mount.html#ac8489b60b8f969eb19c9abbdeac90743", null ],
       [ "origin", "structlws__http__mount.html#a21d86fd6043ec00e121ababbc29af39a", null ],

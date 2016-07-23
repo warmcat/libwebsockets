@@ -107,11 +107,19 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		return len;
 
 	if (wsi->trunc_len && (buf < wsi->trunc_alloc ||
-	    buf > (wsi->trunc_alloc + wsi->trunc_len +
-		   wsi->trunc_offset))) {
-		lwsl_err("****** %p: Sending new, pending truncated ...\n"
+	    buf > (wsi->trunc_alloc + wsi->trunc_len + wsi->trunc_offset))) {
+		char dump[20];
+		strncpy(dump, (char *)buf, sizeof(dump) - 1);
+		dump[sizeof(dump) - 1] = '\0';
+#if defined(LWS_WITH_ESP8266)
+		lwsl_err("****** %p: Sending new %d (%s), pending truncated ...\n",
+			 wsi, len, dump);
+#else
+		lwsl_err("****** %p: Sending new %d (%s), pending truncated ...\n"
 			 "       It's illegal to do an lws_write outside of\n"
-			 "       the writable callback: fix your code", wsi);
+			 "       the writable callback: fix your code",
+			 wsi, len, dump);
+#endif
 		assert(0);
 
 		return -1;
@@ -135,6 +143,12 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	n += LWS_PRE + 4;
 	if (n > len)
 		n = len;
+#if defined(LWS_WITH_ESP8266)	
+	if (wsi->pending_send_completion) {
+		n = 0;
+		goto handle_truncated_send;
+	}
+#endif
 
 	/* nope, send it on the socket directly */
 	lws_latency_pre(context, wsi);
@@ -184,7 +198,7 @@ handle_truncated_send:
 	 * Newly truncated send.  Buffer the remainder (it will get
 	 * first priority next time the socket is writable)
 	 */
-	lwsl_info("%p new partial sent %d from %d total\n", wsi, n, real_len);
+	lwsl_notice("%p new partial sent %d from %d total\n", wsi, n, real_len);
 
 	/*
 	 *  - if we still have a suitable malloc lying around, use it
@@ -546,6 +560,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 	unsigned long amount, poss;
 	unsigned char *p = pt->serv_buf;
 	int n, m;
+	
+	// lwsl_notice("%s (trunc len %d)\n", __func__, wsi->trunc_len);
 
 	while (wsi->http2_substream || !lws_send_pipe_choked(wsi)) {
 		if (wsi->trunc_len) {
@@ -572,6 +588,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 		if (lws_plat_file_read(wsi, wsi->u.http.fd, &amount, p, poss) < 0)
 			return -1; /* caller will close */
+		
+		//lwsl_notice("amount %ld\n", amount);
 
 		n = (int)amount;
 		if (n) {
@@ -617,6 +635,8 @@ all_sent:
 			/* we might be in keepalive, so close it off here */
 			lws_plat_file_close(wsi, wsi->u.http.fd);
 			wsi->u.http.fd = LWS_INVALID_FILE;
+			
+			lwsl_notice("file completed\n");
 
 			if (wsi->protocol->callback)
 				/* ignore callback returned value */

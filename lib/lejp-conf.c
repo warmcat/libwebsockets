@@ -290,7 +290,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!AES256-GCM-SHA384:"
 				       "!AES256-SHA256";
 		a->info->pvo = NULL;
-		a->info->keepalive_timeout = 60;
+		a->info->keepalive_timeout = 5;
 		a->info->log_filepath = NULL;
 		a->info->options &= ~(LWS_SERVER_OPTION_UNIX_SOCK |
 				      LWS_SERVER_OPTION_STS);

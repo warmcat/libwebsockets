@@ -5,6 +5,7 @@ var libwebsockets_8h =
     [ "lws_polarssl_context", "structlws__polarssl__context.html", "structlws__polarssl__context" ],
     [ "lws_pollfd", "structlws__pollfd.html", "structlws__pollfd" ],
     [ "pollfd", "structpollfd.html", "structpollfd" ],
+    [ "pollfd", "structpollfd.html", "structpollfd" ],
     [ "lws_pollargs", "structlws__pollargs.html", "structlws__pollargs" ],
     [ "lws_cgi_args", "structlws__cgi__args.html", "structlws__cgi__args" ],
     [ "lws_callback_function", "group__usercb.html#gad4fcb82e68d60ffacca61a3f783a0a2f", null ],
@@ -18,6 +19,8 @@ var libwebsockets_8h =
     [ "lws_spa_fileupload_cb", "group__form-parsing.html#ga5a70527c0861c2ffa3d29333a6aa7f8e", null ],
     [ "SSL", "libwebsockets_8h.html#ac3abb8b7e6d29a0292797230e4031681", null ],
     [ "SSL_CTX", "libwebsockets_8h.html#abddb8d337fb2692586d892b494739003", null ],
+    [ "uv_cb_t", "libwebsockets_8h.html#a27551d6899b1e4de4b2b5854e805c6eb", null ],
+    [ "uv_timer_t", "libwebsockets_8h.html#a1b12016562c728eb306c7f954c804bef", null ],
     [ "http_status", "group__html-chunked-substitution.html#gabc3b93f68c8bdd857ad32913628dfa8d", [
       [ "HTTP_STATUS_OK", "group__html-chunked-substitution.html#ggabc3b93f68c8bdd857ad32913628dfa8dad34cd21de350cd4fa83b8099e3993b91", null ],
       [ "HTTP_STATUS_NO_CONTENT", "group__html-chunked-substitution.html#ggabc3b93f68c8bdd857ad32913628dfa8dad000a2e30c534c201201dd74fac8d2f9", null ],
@@ -374,6 +377,10 @@ var libwebsockets_8h =
     ] ],
     [ "_lws_log", "group__log.html#gaf5f07837692b2f231a79da8a058288aa", null ],
     [ "_lws_logv", "group__log.html#ga74eb146969f0595e12ea835851b4588e", null ],
+    [ "esp8266_create_tcp_listen_socket", "libwebsockets_8h.html#a4e877a4f0bb027d05d3a90c8e6a632de", null ],
+    [ "esp8266_tcp_stream_accept", "libwebsockets_8h.html#a9b1bfc6f34319188d2aa40500d825bab", null ],
+    [ "ets_snprintf", "libwebsockets_8h.html#a75e9827318684877deb4189121a8cd2a", null ],
+    [ "ets_timer_arm_new", "libwebsockets_8h.html#a9b878fb94f4596226c982eef4f42a607", null ],
     [ "lws_add_http_header_by_name", "group__HTTP-headers-create.html#ga2b36bf44405755ff51c1939303b995a8", null ],
     [ "lws_add_http_header_by_token", "group__HTTP-headers-create.html#gaf74adb761b22566ad70004882712dce1", null ],
     [ "lws_add_http_header_content_length", "group__HTTP-headers-create.html#gacc76a5babcb4dce1b01b1955aa7a2faf", null ],
@@ -384,6 +391,7 @@ var libwebsockets_8h =
     [ "lws_b64_encode_string", "group__sha.html#gaf39765e4a3b413efb65e4698b2ec3575", null ],
     [ "lws_callback_all_protocol", "group__callback-when-writeable.html#gacf04bbe089f47c971c6408c5efe2ac70", null ],
     [ "lws_callback_all_protocol_vhost", "group__callback-when-writeable.html#ga13c984d8c5a44a745fd02bc2fba36053", null ],
+    [ "lws_callback_http_dummy", "group__callback-when-writeable.html#gaad3d524a84d2be08ac85153bc158504b", null ],
     [ "lws_callback_on_writable", "group__callback-when-writeable.html#ga941caaa468bc507b1cae52275f58800d", null ],
     [ "lws_callback_on_writable_all_protocol", "group__callback-when-writeable.html#gabbe4655c7eeb3eb1671b2323ec6b3107", null ],
     [ "lws_callback_on_writable_all_protocol_vhost", "group__callback-when-writeable.html#ga8570860e191b62db264f2bac67354ea8", null ],
@@ -498,5 +506,7 @@ var libwebsockets_8h =
     [ "mbed3_create_tcp_stream_socket", "libwebsockets_8h.html#a0b056fdcf949a838ff82209b4a627dd9", null ],
     [ "mbed3_delete_tcp_stream_socket", "libwebsockets_8h.html#aefb2f20fe5bb29d79701a399838ef4ce", null ],
     [ "mbed3_tcp_stream_accept", "libwebsockets_8h.html#a9032a3062641d334161c29adcc4fa15d", null ],
-    [ "mbed3_tcp_stream_bind", "libwebsockets_8h.html#a9f2a8506fd963db95a5103823c60fb0a", null ]
+    [ "mbed3_tcp_stream_bind", "libwebsockets_8h.html#a9f2a8506fd963db95a5103823c60fb0a", null ],
+    [ "os_timer_disarm", "libwebsockets_8h.html#a863bdd5bca33bcbaa424c42fb7b2fc96", null ],
+    [ "os_timer_setfn", "libwebsockets_8h.html#a17f5fc891b31d2920bd18b0d66d6cb25", null ]
 ];

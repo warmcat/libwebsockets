@@ -332,8 +332,12 @@ notify:
 int
 lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 {
+//#if LWS_POSIX
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int n = 0;
+//#endif
+
+	(void)n;
 
 	/*
 	 * if extensions want in on it (eg, we are a mux parent)
@@ -350,9 +354,9 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 	 * connection
 	 */
 	if ((time_t)sec > wsi->pending_timeout_limit) {
-#if LWS_POSIX
-		if (wsi->sock != LWS_SOCK_INVALID)
-			n = pt->fds[wsi->sock].events;
+//#if LWS_POSIX
+		if (wsi->sock != LWS_SOCK_INVALID && wsi->position_in_fds_table >= 0)
+			n = pt->fds[wsi->position_in_fds_table].events;
 
 		/* no need to log normal idle keepalive timeout */
 		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
@@ -360,7 +364,7 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 			    (void *)wsi, wsi->pending_timeout,
 			    wsi->hdr_parsing_completed, wsi->u.hdr.ah,
 			    pt->ah_wait_list_length, n);
-#endif
+//#endif
 		/*
 		 * Since he failed a timeout, he already had a chance to do
 		 * something and was unable to... that includes situations like
@@ -1022,7 +1026,7 @@ drain:
 		} while (more);
 
 		if (wsi->u.hdr.ah) {
-			lwsl_info("%s: %p: detaching inherited used ah\n",
+			lwsl_notice("%s: %p: detaching\n",
 				 __func__, wsi);
 			/* show we used all the pending rx up */
 			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;

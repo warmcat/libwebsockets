@@ -563,6 +563,8 @@ document.getElementById("number").textContent = get_appropriate_ws_url();
 		} 
 
 		socket_status.onmessage =function got_packet(msg) {
+			var s;
+			
 			jso = JSON.parse(msg.data);
 			
 			document.getElementById("servinfo").innerHTML = 
@@ -573,12 +575,15 @@ document.getElementById("number").textContent = get_appropriate_ws_url();
 					"</table>";
 			s="<table>";
 			var n;
-			for (n = 0; n < jso.conns.length; n++)
+			for (n = 0; n < jso.conns.length; n++) {
+				var d = new Date(parseInt(jso.conns[n].time));
+				
 				s = s + "<tr><td class=l>client " + (n + 1) +
 				"</td><td><b>" + san(jso.conns[n].peer) +
-				"</b><br>" + san(jso.conns[n].time) +
+				"</b><br>" + san(d.toString()) +
 				"<br>" + san(jso.conns[n].ua) +
 				"</td></tr>";
+			}
 			s = s + "</table>";
 			
 			document.getElementById("conninfo").innerHTML = s;

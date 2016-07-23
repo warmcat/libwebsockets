@@ -17,16 +17,23 @@
  * may be proprietary.  So unlike the library itself, they are licensed
  * Public Domain.
  */
+
+#if !defined (LWS_PLUGIN_STATIC)
 #define LWS_DLL
 #define LWS_INTERNAL
 #include "../lib/libwebsockets.h"
+#endif
+
 #include <string.h>
 #include <stdlib.h>
 
 /* lws-mirror_protocol */
 
+#if defined(LWS_WITH_ESP8266)
+#define MAX_MESSAGE_QUEUE 64
+#else
 #define MAX_MESSAGE_QUEUE 512
-
+#endif
 struct per_session_data__lws_mirror {
 	struct lws *wsi;
 	int ringbuffer_tail;
@@ -148,13 +155,17 @@ done:
 	return 0;
 }
 
+#define LWS_PLUGIN_PROTOCOL_MIRROR { \
+		"lws-mirror-protocol", \
+		callback_lws_mirror, \
+		sizeof(struct per_session_data__lws_mirror), \
+		128, /* rx buf size must be >= permessage-deflate rx size */ \
+	}
+
+#if !defined (LWS_PLUGIN_STATIC)
+
 static const struct lws_protocols protocols[] = {
-	{
-		"lws-mirror-protocol",
-		callback_lws_mirror,
-		sizeof(struct per_session_data__lws_mirror),
-		128, /* rx buf size must be >= permessage-deflate rx size */
-	},
+	LWS_PLUGIN_PROTOCOL_MIRROR
 };
 
 LWS_EXTERN LWS_VISIBLE int
@@ -180,4 +191,4 @@ destroy_protocol_lws_mirror(struct lws_context *context)
 {
 	return 0;
 }
-
+#endif

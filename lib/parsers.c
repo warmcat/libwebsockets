@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-unsigned char lextable[] = {
+const unsigned char lextable[] = {
 	#include "lextable.h"
 };
 
@@ -119,8 +119,8 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	struct lws **pwsi;
 	int n;
 
-	lwsl_info("%s: wsi %p: ah %p (tsi %d)\n", __func__, (void *)wsi,
-		 (void *)wsi->u.hdr.ah, wsi->tsi);
+	lwsl_notice("%s: wsi %p: ah %p (tsi %d, count = %d) in\n", __func__, (void *)wsi,
+		 (void *)wsi->u.hdr.ah, wsi->tsi, pt->ah_count_in_use);
 
 	/* if we are already bound to one, just clear it down */
 	if (wsi->u.hdr.ah) {
@@ -135,7 +135,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 			/* if already waiting on list, if no new ah just ret */
 			if (pt->ah_count_in_use ==
 			    context->max_http_header_pool) {
-				lwsl_err("ah wl denied\n");
+				lwsl_notice("%s: no free ah to attach\n", __func__);
 				goto bail;
 			}
 			/* new ah.... remove ourselves from waiting list */
@@ -151,7 +151,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	 * weren't able to deliver it right now
 	 */
 	if (pt->ah_count_in_use == context->max_http_header_pool) {
-		lwsl_info("%s: adding %p to ah waiting list\n", __func__, wsi);
+		lwsl_notice("%s: adding %p to ah waiting list\n", __func__, wsi);
 		wsi->u.hdr.ah_wait_list = pt->ah_wait_list;
 		pt->ah_wait_list = wsi;
 		pt->ah_wait_list_length++;
@@ -176,7 +176,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 
 	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 
-	lwsl_info("%s: wsi %p: ah %p: count %d (on exit)\n", __func__,
+	lwsl_notice("%s: wsi %p: ah %p: count %d (on exit)\n", __func__,
 		  (void *)wsi, (void *)wsi->u.hdr.ah, pt->ah_count_in_use);
 
 	lws_pt_unlock(pt);
@@ -220,9 +220,11 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	/* may not be detached while he still has unprocessed rx */
 	if (ah && ah->rxpos != ah->rxlen) {
-		lwsl_err("%s: %p: rxpos:%d, rxlen:%d\n", __func__, wsi,
+		lwsl_err("%s: %p: CANNOT DETACH rxpos:%d, rxlen:%d\n", __func__, wsi,
 				ah->rxpos, ah->rxlen);
 		assert(ah->rxpos == ah->rxlen);
+
+		return 0;
 	}
 
 	lws_pt_lock(pt);
@@ -318,6 +320,9 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	assert(!!pt->ah_wait_list_length == !!(int)(long)pt->ah_wait_list);
 bail:
+	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
+	  (void *)wsi, (void *)ah, wsi->tsi,
+	  pt->ah_count_in_use);
 	lws_pt_unlock(pt);
 
 	return 0;

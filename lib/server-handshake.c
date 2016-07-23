@@ -243,7 +243,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 		/* okay send the handshake response accepting the connection */
 
 		lwsl_parser("issuing resp pkt %d len\n", (int)(p - response));
-#ifdef DEBUG
+#if defined(DEBUG) && ! defined(LWS_WITH_ESP8266)
 		fwrite(response, 1,  p - response, stderr);
 #endif
 		n = lws_write(wsi, (unsigned char *)response,
