@@ -38,7 +38,6 @@
  * get the original with Bob's super-liberal terms directly if you prefer.
  */
 
-
 #include <stdio.h>
 #include <string.h>
 #include "private-libwebsockets.h"

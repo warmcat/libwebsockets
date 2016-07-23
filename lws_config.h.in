@@ -18,6 +18,7 @@
 
 #cmakedefine LWS_USE_MBEDTLS
 #cmakedefine LWS_USE_POLARSSL
+#cmakedefine LWS_WITH_ESP8266
 
 #cmakedefine LWS_WITH_PLUGINS
 

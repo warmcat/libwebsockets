@@ -3,7 +3,7 @@
 static void *_realloc(void *ptr, size_t size)
 {
 	if (size)
-		return realloc(ptr, size);
+		return (void *)realloc(ptr, size);
 	else if (ptr)
 		free(ptr);
 	return NULL;

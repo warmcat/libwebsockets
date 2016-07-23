@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-unsigned char lextable[] = {
+const unsigned char lextable[] = {
 	#include "lextable.h"
 };
 
@@ -119,8 +119,8 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	struct lws **pwsi;
 	int n;
 
-	lwsl_info("%s: wsi %p: ah %p (tsi %d)\n", __func__, (void *)wsi,
-		 (void *)wsi->u.hdr.ah, wsi->tsi);
+	lwsl_info("%s: wsi %p: ah %p (tsi %d, count = %d)\n", __func__, (void *)wsi,
+		 (void *)wsi->u.hdr.ah, wsi->tsi, pt->ah_count_in_use);
 
 	/* if we are already bound to one, just clear it down */
 	if (wsi->u.hdr.ah) {
@@ -318,6 +318,9 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	assert(!!pt->ah_wait_list_length == !!(int)(long)pt->ah_wait_list);
 bail:
+	lwsl_notice("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
+	  (void *)wsi, (void *)ah, wsi->tsi,
+	  pt->ah_count_in_use);
 	lws_pt_unlock(pt);
 
 	return 0;

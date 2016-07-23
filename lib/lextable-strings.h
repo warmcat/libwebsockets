@@ -1,6 +1,10 @@
 /* set of parsable strings -- ALL LOWER CASE */
 
-static const char *set[] = {
+#if !defined(STORE_IN_ROM)
+#define STORE_IN_ROM
+#endif
+
+STORE_IN_ROM static const char * const set[] = {
 	"get ",
 	"post ",
 	"options ",

@@ -124,7 +124,7 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 		return 1;
 	}
 
-#if !defined(_WIN32) && !defined(MBED_OPERATORS)
+#if !defined(_WIN32) && !defined(MBED_OPERATORS) && !defined(LWS_WITH_ESP8266)
 	if (wsi->sock >= context->max_fds) {
 		lwsl_err("Socket fd %d is too high (%d)\n",
 			 wsi->sock, context->max_fds);
@@ -171,16 +171,18 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 int
 remove_wsi_socket_from_fds(struct lws *wsi)
 {
+	struct lws_context *context = wsi->context;
 	struct lws_pollargs pa = { wsi->sock, 0, 0 };
+#if !defined(LWS_WITH_ESP8266)
 #ifndef LWS_NO_SERVER
 	struct lws_pollargs pa1;
 #endif
-	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws *end_wsi;
+#endif
 	int m, ret = 0;
 
-#if !defined(_WIN32) && !defined(MBED_OPERATORS)
+#if !defined(_WIN32) && !defined(MBED_OPERATORS) && !defined(LWS_WITH_ESP8266)
 	if (wsi->sock > context->max_fds) {
 		lwsl_err("fd %d too high (%d)\n", wsi->sock, context->max_fds);
 		return 1;
@@ -215,6 +217,10 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	} //else
 		//lwsl_err("null wsi->next\n");
 
+	/* the guy who is to be deleted's slot index in pt->fds */
+	m = wsi->position_in_fds_table;
+	
+#if !defined(LWS_WITH_ESP8266)
 	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE | LWS_EV_PREPARE_DELETION);
 	lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE | LWS_EV_PREPARE_DELETION);
 
@@ -224,14 +230,11 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 		  __func__, wsi, wsi->sock, wsi->position_in_fds_table,
 		  pt->fds_count, pt->fds[pt->fds_count].fd);
 
-	/* the guy who is to be deleted's slot index in pt->fds */
-	m = wsi->position_in_fds_table;
-
 	/* have the last guy take up the now vacant slot */
 	pt->fds[m] = pt->fds[pt->fds_count - 1];
-
+#endif
 	lws_plat_delete_socket_from_fds(context, wsi, m);
-
+#if !defined(LWS_WITH_ESP8266)
 	/* end guy's "position in fds table" is now the deletion guy's old one */
 	end_wsi = wsi_from_fd(context, pt->fds[pt->fds_count].fd);
 	assert(end_wsi);
@@ -258,7 +261,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
 					   wsi->user_space, (void *) &pa, 1))
 		ret = -1;
-
+#endif
 	return ret;
 }
 

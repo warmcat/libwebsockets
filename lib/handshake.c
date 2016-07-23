@@ -244,7 +244,7 @@ read_ok:
 	return buf - oldbuf;
 
 bail:
-	lwsl_debug("closing connection at lws_read bail:\n");
+	lwsl_notice("closing connection at lws_read bail:\n");
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return -1;

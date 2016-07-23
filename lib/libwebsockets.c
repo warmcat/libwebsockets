@@ -51,7 +51,7 @@ lws_free_wsi(struct lws *wsi)
 {
 	if (!wsi)
 		return;
-
+	
 	/* Protocol user data may be allocated either internally by lws
 	 * or by specified the user.
 	 * We should only free what we allocated. */
@@ -142,6 +142,14 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		return;
 
 	lws_access_log(wsi);
+#if defined(LWS_WITH_ESP8266)
+	if (wsi->pending_send_completion && !wsi->close_is_pending_send_completion) {
+		lwsl_notice("delaying close\n");
+		wsi->close_is_pending_send_completion = 1;
+		return;
+	} else
+		espconn_disconnect(wsi->sock);
+#endif
 
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
@@ -323,6 +331,9 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 				reason & 0xff;
 		}
 
+#if defined (LWS_WITH_ESP8266)
+		wsi->close_is_pending_send_completion = 1;
+#endif
 		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[LWS_PRE],
 			      wsi->u.ws.close_in_ping_buffer_len,
 			      LWS_WRITE_CLOSE);
@@ -349,6 +360,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	}
 
 just_kill_connection:
+
 	if (wsi->parent) {
 		/* detach ourselves from parent's child list */
 		pwsi = &wsi->parent->child_list;
@@ -401,6 +413,7 @@ just_kill_connection:
 
 	lwsl_info("%s: real just_kill_connection: %p (sockfd %d)\n", __func__,
 		  wsi, wsi->sock);
+	
 #ifdef LWS_WITH_HTTP_PROXY
 	if (wsi->rw) {
 		lws_rewrite_destroy(wsi->rw);
@@ -412,6 +425,7 @@ just_kill_connection:
 	 * delete socket from the internal poll list if still present
 	 */
 	lws_ssl_remove_wsi_from_buffered_list(wsi);
+
 	lws_remove_from_timeout_list(wsi);
 
 	/* checking return redundant since we anyway close */
@@ -538,6 +552,7 @@ lws_close_free_wsi_final(struct lws *wsi)
 
 #else
 		compatible_close(wsi->sock);
+		(void)n;
 #endif
 		wsi->sock = LWS_SOCK_INVALID;
 	}
@@ -590,6 +605,7 @@ interface_to_sa(struct lws_vhost *vh, const char *ifname, struct sockaddr_in *ad
 }
 #endif
 
+#if LWS_POSIX
 static int
 lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 		  int name_len, char *rip, int rip_len)
@@ -672,6 +688,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 	return -1;
 #endif
 }
+#endif
 
 LWS_VISIBLE const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
@@ -961,6 +978,11 @@ int user_callback_handle_rxflow(lws_callback_function callback_function,
 	return n;
 }
 
+#if defined(LWS_WITH_ESP8266)
+#undef strchr
+#define strchr ets_strchr
+#endif
+
 LWS_VISIBLE int
 lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 {
@@ -1106,22 +1128,37 @@ lwsl_timestamp(int level, char *p, int len)
 
 LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 {
+#if !defined(LWS_WITH_ESP8266)
 	char buf[50];
 
 	lwsl_timestamp(level, buf, sizeof(buf));
-
 	fprintf(stderr, "%s%s", buf, line);
+#endif
 }
 
 LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 {
+#if defined(LWS_WITH_ESP8266)
+	char buf[128];
+#else
 	char buf[256];
+#endif
+	int n;
 
 	if (!(log_level & filter))
 		return;
 
-	vsnprintf(buf, sizeof(buf), format, vl);
+	n = vsnprintf(buf, sizeof(buf) - 1, format, vl);
+	(void)n;
+#if defined(LWS_WITH_ESP8266)
 	buf[sizeof(buf) - 1] = '\0';
+#else
+	/* vnsprintf returns what it would have written, even if truncated */
+	if (n > sizeof(buf) - 1)
+		n = sizeof(buf) - 1;
+	if (n > 0)
+		buf[n] = '\0';
+#endif
 
 	lwsl_emit(filter, buf);
 }

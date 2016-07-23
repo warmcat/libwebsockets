@@ -20,7 +20,9 @@
  */
 
 #include "private-libwebsockets.h"
+
 #include "lextable-strings.h"
+
 
 const unsigned char *lws_token_to_string(enum lws_token_indexes token)
 {
@@ -110,7 +112,7 @@ int lws_add_http_header_content_length(struct lws *wsi,
 	return 0;
 }
 
-static const char *err400[] = {
+STORE_IN_ROM static const char * const err400[] = {
 	"Bad Request",
 	"Unauthorized",
 	"Payment Required",
@@ -131,7 +133,7 @@ static const char *err400[] = {
 	"Expectation Failed"
 };
 
-static const char *err500[] = {
+STORE_IN_ROM static const char * const err500[] = {
 	"Internal Server Error",
 	"Not Implemented",
 	"Bad Gateway",
@@ -147,7 +149,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 	unsigned char code_and_desc[60];
 	const char *description = "", *p1;
 	int n;
-	static const char * const hver[] = {
+	STORE_IN_ROM static const char * const hver[] = {
 		"HTTP/1.0", "HTTP/1.1", "HTTP/2"
 	};
 
