@@ -38,7 +38,6 @@
  * get the original with Bob's super-liberal terms directly if you prefer.
  */
 
-
 #include <stdio.h>
 #include <string.h>
 #include "private-libwebsockets.h"
@@ -98,11 +97,8 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
 LWS_VISIBLE int
 lws_b64_decode_string(const char *in, char *out, int out_size)
 {
-	int len;
-	int i, c;
-	int done = 0;
-	unsigned char v;
-	unsigned char quad[4];
+	int len, i, c = 0, done = 0;
+	unsigned char v, quad[4];
 
 	while (*in) {
 
@@ -129,6 +125,15 @@ lws_b64_decode_string(const char *in, char *out, int out_size)
 			/* out buffer is too small */
 			return -1;
 
+		/*
+		 * "The '==' sequence indicates that the last group contained
+		 * only one byte, and '=' indicates that it contained two
+		 * bytes." (wikipedia)
+		 */
+
+		if (!*in && c == '=')
+			len--;
+
 		if (len >= 2)
 			*out++ = quad[0] << 2 | quad[1] >> 4;
 		if (len >= 3)
@@ -142,7 +147,7 @@ lws_b64_decode_string(const char *in, char *out, int out_size)
 	if (done + 1 >= out_size)
 		return -1;
 
-	*out++ = '\0';
+	*out = '\0';
 
 	return done;
 }
@@ -152,13 +157,24 @@ int
 lws_b64_selftest(void)
 {
 	char buf[64];
-	unsigned int n;
+	unsigned int n,  r = 0;
 	unsigned int test;
+	/* examples from https://en.wikipedia.org/wiki/Base64 */
 	static const char * const plaintext[] = {
-		"sanity check base 64"
+		"any carnal pleasure.",
+		"any carnal pleasure",
+		"any carnal pleasur",
+		"any carnal pleasu",
+		"any carnal pleas",
+		"Admin:kloikloi"
 	};
 	static const char * const coded[] = {
-		"c2FuaXR5IGNoZWNrIGJhc2UgNjQ="
+		"YW55IGNhcm5hbCBwbGVhc3VyZS4=",
+		"YW55IGNhcm5hbCBwbGVhc3VyZQ==",
+		"YW55IGNhcm5hbCBwbGVhc3Vy",
+		"YW55IGNhcm5hbCBwbGVhc3U=",
+		"YW55IGNhcm5hbCBwbGVhcw==",
+		"QWRtaW46a2xvaWtsb2k="
 	};
 
 	for (test = 0; test < sizeof plaintext / sizeof(plaintext[0]); test++) {
@@ -169,7 +185,7 @@ lws_b64_selftest(void)
 		if (n != strlen(coded[test]) || strcmp(buf, coded[test])) {
 			lwsl_err("Failed lws_b64 encode selftest "
 					   "%d result '%s' %d\n", test, buf, n);
-			return -1;
+			r = -1;
 		}
 
 		buf[sizeof(buf) - 1] = '\0';
@@ -177,11 +193,14 @@ lws_b64_selftest(void)
 		if (n != strlen(plaintext[test]) ||
 						 strcmp(buf, plaintext[test])) {
 			lwsl_err("Failed lws_b64 decode selftest "
-					   "%d result '%s' %d\n", test, buf, n);
-			return -1;
+				 "%d result '%s' / '%s', %d / %d\n",
+				 test, buf, plaintext[test], n, strlen(plaintext[test]));
+			r = -1;
 		}
 	}
 
-	return 0;
+	lwsl_notice("Base 64 selftests passed\n");
+
+	return r;
 }
 #endif
