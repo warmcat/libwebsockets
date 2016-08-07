@@ -5,6 +5,11 @@
 libwebsockets
 -------------
 
+| News |
+------
+| ESP8266 is now supported in lws!  See https://github.com/warmcat/libwebsockets/blob/master/README.esp8266.md |
+
+
 This is the libwebsockets C library for lightweight websocket clients and
 servers.  For support, visit
 
@@ -14,10 +19,6 @@ servers.  For support, visit
 and consider joining the project mailing list at
 
  https://libwebsockets.org/mailman/listinfo/libwebsockets
-
-| News |
-------
-| We have updated https://libwebsockets.org, if you would like your project using lws featured in the image carousel, send an image, project URL and brief summary to andy@warmcat.com |
 
 You can get the latest version of the library from git:
 

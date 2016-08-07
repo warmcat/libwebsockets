@@ -701,6 +701,7 @@ struct lws_context_per_thread {
 
 	short ah_count_in_use;
 	unsigned char tid;
+	unsigned char lock_depth;
 };
 
 /*
@@ -1752,13 +1753,15 @@ lws_pt_mutex_destroy(struct lws_context_per_thread *pt)
 static LWS_INLINE void
 lws_pt_lock(struct lws_context_per_thread *pt)
 {
-	pthread_mutex_lock(&pt->lock);
+	if (!pt->lock_depth++)
+		pthread_mutex_lock(&pt->lock);
 }
 
 static LWS_INLINE void
 lws_pt_unlock(struct lws_context_per_thread *pt)
 {
-	pthread_mutex_unlock(&pt->lock);
+	if (!(--pt->lock_depth))
+		pthread_mutex_unlock(&pt->lock);
 }
 #else
 #define lws_pt_mutex_init(_a) (void)(_a)

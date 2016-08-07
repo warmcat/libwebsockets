@@ -119,7 +119,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	struct lws **pwsi;
 	int n;
 
-	lwsl_notice("%s: wsi %p: ah %p (tsi %d, count = %d) in\n", __func__, (void *)wsi,
+	lwsl_info("%s: wsi %p: ah %p (tsi %d, count = %d) in\n", __func__, (void *)wsi,
 		 (void *)wsi->u.hdr.ah, wsi->tsi, pt->ah_count_in_use);
 
 	/* if we are already bound to one, just clear it down */
@@ -291,14 +291,15 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	lws_header_table_reset(wsi, autoservice);
 	time(&wsi->u.hdr.ah->assigned);
 
-	assert(wsi->position_in_fds_table != -1);
+	/* clients acquire the ah and then insert themselves in fds table... */
+	if (wsi->position_in_fds_table != -1) {
+		lwsl_info("%s: Enabling %p POLLIN\n", __func__, wsi);
 
-	lwsl_info("%s: Enabling %p POLLIN\n", __func__, wsi);
-
-	/* he has been stuck waiting for an ah, but now his wait is over,
-	 * let him progress
-	 */
-	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
+		/* he has been stuck waiting for an ah, but now his wait is over,
+		 * let him progress
+		 */
+		_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
+	}
 
 	/* point prev guy to next guy in list instead */
 	*pwsi = wsi->u.hdr.ah_wait_list;

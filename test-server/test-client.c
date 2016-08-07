@@ -39,8 +39,9 @@
 
 static int deny_deflate, longlived, mirror_lifetime;
 static struct lws *wsi_dumb, *wsi_mirror;
+static struct lws *wsi_multi[3];
 static volatile int force_exit;
-static unsigned int opts;
+static unsigned int opts, rl_multi[3];
 static int flag_no_mirror_traffic;
 #if defined(LWS_USE_POLARSSL)
 #else
@@ -87,6 +88,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
 	const char *which = "http";
+	char which_wsi[10];
+	int n;
 
 	switch (reason) {
 
@@ -115,6 +118,13 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			which = "mirror";
 			wsi_mirror = NULL;
 		}
+
+		for (n = 0; n < ARRAY_SIZE(wsi_multi); n++)
+			if (wsi == wsi_multi[n]) {
+				sprintf(which_wsi, "multi %d", n);
+				which = which_wsi;
+				wsi_multi[n] = NULL;
+			}
 
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s: %s %p\n", which, in);
 		break;
@@ -150,6 +160,10 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			while (lenx--)
 				putchar(*px++);
 		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		lwsl_notice("Client wsi %p writable\n", wsi);
 		break;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
@@ -322,6 +336,7 @@ static struct option options[] = {
 	{ "strict-ssl",	no_argument,		NULL, 'S' },
 	{ "version",	required_argument,	NULL, 'v' },
 	{ "undeflated",	no_argument,		NULL, 'u' },
+	{ "multi-test",	no_argument,		NULL, 'm' },
 	{ "nomirror",	no_argument,		NULL, 'n' },
 	{ "longlived",	no_argument,		NULL, 'l' },
 	{ "pingpong-secs", required_argument,	NULL, 'P' },
@@ -350,8 +365,8 @@ static int ratelimit_connects(unsigned int *last, unsigned int secs)
 
 int main(int argc, char **argv)
 {
-	int n = 0, ret = 0, port = 7681, use_ssl = 0, ietf_version = -1;
-	unsigned int rl_dumb = 0, rl_mirror = 0, do_ws = 1, pp_secs = 0;
+	int n = 0, m, ret = 0, port = 7681, use_ssl = 0, ietf_version = -1;
+	unsigned int rl_dumb = 0, rl_mirror = 0, do_ws = 1, pp_secs = 0, do_multi = 0;
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
@@ -370,7 +385,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "Snuv:hsp:d:lC:K:A:P:", options, NULL);
+		n = getopt_long(argc, argv, "Snuv:hsp:d:lC:K:A:P:m", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -400,6 +415,9 @@ int main(int argc, char **argv)
 			break;
 		case 'u':
 			deny_deflate = 1;
+			break;
+		case 'm':
+			do_multi = 1;
 			break;
 		case 'n':
 			flag_no_mirror_traffic = 1;
@@ -544,30 +562,52 @@ int main(int argc, char **argv)
 	 * asynchronously.
 	 */
 
+	m = 0;
 	while (!force_exit) {
 
-		if (do_ws) {
-			if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
-				lwsl_notice("dumb: connecting\n");
-				i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;
-				i.pwsi = &wsi_dumb;
-				lws_client_connect_via_info(&i);
+		if (do_multi) {
+			for (n = 0; n < ARRAY_SIZE(wsi_multi); n++) {
+				if (!wsi_multi[n] && ratelimit_connects(&rl_multi[n], 2u)) {
+					lwsl_notice("dumb %d: connecting\n", n);
+					i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;
+					i.pwsi = &wsi_multi[n];
+					lws_client_connect_via_info(&i);
+				}
 			}
+		} else {
 
-			if (!wsi_mirror && ratelimit_connects(&rl_mirror, 2u)) {
-				lwsl_notice("mirror: connecting\n");
-				i.protocol = protocols[PROTOCOL_LWS_MIRROR].name;
-				i.pwsi = &wsi_mirror;
-				wsi_mirror = lws_client_connect_via_info(&i);
-			}
-		} else
-			if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
-				lwsl_notice("http: connecting\n");
-				i.pwsi = &wsi_dumb;
-				lws_client_connect_via_info(&i);
-			}
+			if (do_ws) {
+				if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
+					lwsl_notice("dumb: connecting\n");
+					i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;
+					i.pwsi = &wsi_dumb;
+					lws_client_connect_via_info(&i);
+				}
+
+				if (!wsi_mirror && ratelimit_connects(&rl_mirror, 2u)) {
+					lwsl_notice("mirror: connecting\n");
+					i.protocol = protocols[PROTOCOL_LWS_MIRROR].name;
+					i.pwsi = &wsi_mirror;
+					wsi_mirror = lws_client_connect_via_info(&i);
+				}
+			} else
+				if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
+					lwsl_notice("http: connecting\n");
+					i.pwsi = &wsi_dumb;
+					lws_client_connect_via_info(&i);
+				}
+		}
 
 		lws_service(context, 500);
+
+		if (do_multi) {
+			m++;
+			if (m == 10) {
+				m = 0;
+				lwsl_notice("doing lws_callback_on_writable_all_protocol\n");
+				lws_callback_on_writable_all_protocol(context, &protocols[PROTOCOL_DUMB_INCREMENT]);
+			}
+		}
 	}
 
 	lwsl_err("Exiting\n");

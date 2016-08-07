@@ -175,6 +175,8 @@ lws_client_connect_2(struct lws *wsi)
 			goto oom4;
 		}
 
+		lws_change_pollfd(wsi, 0, LWS_POLLIN);
+
 		/*
 		 * past here, we can't simply free the structs as error
 		 * handling as oom4 does.  We have to run the whole close flow.
@@ -484,6 +486,9 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	if (i->context->requested_kill)
 		return NULL;
+
+	if (!i->context->protocol_init_done)
+		lws_protocol_init(i->context);
 
 	wsi = lws_zalloc(sizeof(struct lws));
 	if (wsi == NULL)

@@ -43,6 +43,8 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	pa->prev_events = pfd->events;
 	pa->events = pfd->events = (pfd->events & ~_and) | _or;
 
+	//lwsl_notice("%s: wsi %p, posin %d. from %d -> %d\n", __func__, wsi, wsi->position_in_fds_table, pa->prev_events, pa->events);
+
 
 	if (wsi->http2_substream)
 		return 0;
@@ -147,6 +149,9 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	if (wsi->position_in_fds_table == -1)
 #endif
 		wsi->position_in_fds_table = pt->fds_count;
+
+	// lwsl_notice("%s: %p: setting posinfds %d\n", __func__, wsi, wsi->position_in_fds_table);
+
 	pt->fds[wsi->position_in_fds_table].fd = wsi->sock;
 #if LWS_POSIX
 	pt->fds[wsi->position_in_fds_table].events = LWS_POLLIN;
