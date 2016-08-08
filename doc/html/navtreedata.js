@@ -133,9 +133,9 @@ var NAVTREEINDEX =
 [
 "annotated.html",
 "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5ac56a8a6590e74a8016d0fae09fb404fc",
-"group__sha.html#ga7b09ab74646266f0b555103b3bb8dfe5",
-"libwebsockets_8h.html#a27551d6899b1e4de4b2b5854e805c6eb",
-"structlws__plugin.html#a65dffd68fd267ce17b988790d1d35f22"
+"group__sha.html#ga66316e6a5a0644a09d5a10e919dfdd8d",
+"libwebsockets_8h.html#a2271141d8be8d72b47ba327130b4905f",
+"structlws__plat__file__ops.html#abfcda19b003dcc13c61ff9e2bb4ff869"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

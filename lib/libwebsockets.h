@@ -1004,6 +1004,15 @@ enum lws_callback_reasons {
 	 * the normal LWS_CALLBACK_HTTP when the mount has per-mount
 	 * options
 	 */
+	LWS_CALLBACK_CLIENT_HTTP_WRITEABLE			= 57,
+	/**< when doing an HTTP type client connection, you can call
+	 * lws_client_http_body_pending(wsi, 1) from
+	 * LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER to get these callbacks
+	 * sending the HTTP headers.
+	 *
+	 * From this callback, when you have sent everything, you should let
+	 * lws know by calling lws_client_http_body_pending(wsi, 0)
+	 */
 
 	/****** add new things just above ---^ ******/
 
@@ -2116,6 +2125,30 @@ lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 
 LWS_VISIBLE LWS_EXTERN int
 lws_http_client_read(struct lws *wsi, char **buf, int *len);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_client_http_body_pending(struct lws *wsi, int something_left_to_send);
+
+/**
+ * lws_client_http_body_pending() - control if client connection neeeds to send body
+ *
+ * \param wsi: client connection
+ * \param something_left_to_send: nonzero if need to send more body, 0 (default)
+ * 				if nothing more to send
+ *
+ * If you will send payload data with your HTTP client connection, eg, for POST,
+ * when you set the related http headers in
+ * LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER callback you should also call
+ * this API with something_left_to_send nonzero, and call
+ * lws_callback_on_writable(wsi);
+ *
+ * After sending the headers, lws will call your callback with
+ * LWS_CALLBACK_CLIENT_HTTP_WRITEABLE reason when writable.  You can send the
+ * next part of the http body payload, calling lws_callback_on_writable(wsi);
+ * if there is more to come, or lws_client_http_body_pending(wsi, 0); to
+ * let lws know the last part is sent and the connection can move on.
+ */
+
 ///@}
 
 /** \defgroup service Built-in service loop entry
@@ -3030,6 +3063,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE			= 15,
 	PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING			= 16,
 	PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG			= 17,
+	PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD			= 18,
 
 	/****** add new things just above ---^ ******/
 };

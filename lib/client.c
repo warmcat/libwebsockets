@@ -66,6 +66,12 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 	return 0;
 }
 
+LWS_VISIBLE LWS_EXTERN void
+lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
+{
+	wsi->client_http_body_pending = !!something_left_to_send;
+}
+
 int
 lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			  struct lws_pollfd *pollfd)
@@ -210,6 +216,24 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			break;
 		}
 
+		if (wsi->client_http_body_pending) {
+			wsi->mode = LWSCM_WSCL_ISSUE_HTTP_BODY;
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
+					context->timeout_secs);
+			/* user code must ask for writable callback */
+			break;
+		}
+
+		goto client_http_body_sent;
+
+	case LWSCM_WSCL_ISSUE_HTTP_BODY:
+		if (wsi->client_http_body_pending) {
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
+					context->timeout_secs);
+			/* user code must ask for writable callback */
+			break;
+		}
+client_http_body_sent:
 		wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
 		wsi->u.hdr.lextable_pos = 0;
 		wsi->mode = LWSCM_WSCL_WAITING_SERVER_REPLY;

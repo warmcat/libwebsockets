@@ -290,6 +290,7 @@ Enumerations</h2></td></tr>
 <b>LWS_CALLBACK_GS_EVENT</b> = 55, 
 <br />
 &#160;&#160;<a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7aa5cc921b7697743017a533822a3d556a">LWS_CALLBACK_HTTP_PMO</a> = 56, 
+<a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7aeb0cec65ec82a713cd01e9ca9aeeb5e6">LWS_CALLBACK_CLIENT_HTTP_WRITEABLE</a> = 57, 
 <a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a">LWS_CALLBACK_USER</a> = 1000
 <br />
  }</td></tr>
@@ -573,7 +574,8 @@ Enumerations</h2></td></tr>
 <b>PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE</b> = 15, 
 <br />
 &#160;&#160;<b>PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING</b> = 16, 
-<b>PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG</b> = 17
+<b>PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG</b> = 17, 
+<b>PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD</b> = 18
 <br />
  }</td></tr>
 <tr class="separator:ga2c0aa4b9c3c55bae7b35cbfac3246c87"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -725,6 +727,9 @@ void&#160;</td><td class="memItemRight" valign="bottom"><b>ets_timer_arm_new</b>
 <tr class="memitem:ga4450c34200bf9dab3beb90ef23221870"><td class="memItemLeft" align="right" valign="top">
 LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b>lws_http_client_read</b> (struct lws *wsi, char **buf, int *len)</td></tr>
 <tr class="separator:ga4450c34200bf9dab3beb90ef23221870"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga26588fb345083076c14169dd5859f57a"><td class="memItemLeft" align="right" valign="top">
+LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><b>lws_client_http_body_pending</b> (struct lws *wsi, int something_left_to_send)</td></tr>
+<tr class="separator:ga26588fb345083076c14169dd5859f57a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gaf95bd0c663d6516a0c80047d9b1167a8"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__service.html#gaf95bd0c663d6516a0c80047d9b1167a8">lws_service</a> (struct lws_context *context, int timeout_ms)</td></tr>
 <tr class="separator:gaf95bd0c663d6516a0c80047d9b1167a8"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga9b3cc4473fd8848e5bbee7f310712939"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__service.html#ga9b3cc4473fd8848e5bbee7f310712939">lws_service_tsi</a> (struct lws_context *context, int timeout_ms, int tsi)</td></tr>

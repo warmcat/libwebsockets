@@ -84,6 +84,16 @@ Functions</h2></td></tr>
 <tr class="separator:gaebf426eda371ba23642fc11d8e0ace6b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
+<p>lws_client_http_body_pending() - control if client connection neeeds to send body</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">wsi</td><td>client connection </td></tr>
+    <tr><td class="paramname">something_left_to_send</td><td>nonzero if need to send more body, 0 (default) if nothing more to send</td></tr>
+  </table>
+  </dd>
+</dl>
+<p>If you will send payload data with your HTTP client connection, eg, for POST, when you set the related http headers in LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER callback you should also call this API with something_left_to_send nonzero, and call lws_callback_on_writable(wsi);</p>
+<p>After sending the headers, lws will call your callback with LWS_CALLBACK_CLIENT_HTTP_WRITEABLE reason when writable. You can send the next part of the http body payload, calling lws_callback_on_writable(wsi); if there is more to come, or lws_client_http_body_pending(wsi, 0); to let lws know the last part is sent and the connection can move on.</p>
 <h2>Built-in service loop entry</h2>
 <p>If you're not using libev / libuv, these apis are needed to enter the poll() wait in lws and service any connections with pending events. </p>
 <h2 class="groupheader">Function Documentation</h2>

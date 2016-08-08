@@ -519,12 +519,11 @@ enum lws_rx_parse_state {
 	LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED
 };
 
+#define LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP 32
 
 enum connection_mode {
 	LWSCM_HTTP_SERVING,
-	LWSCM_HTTP_CLIENT, /* we are client to someone else's server */
 	LWSCM_HTTP_SERVING_ACCEPTED, /* actual HTTP service going on */
-	LWSCM_HTTP_CLIENT_ACCEPTED, /* actual HTTP service going on */
 	LWSCM_PRE_WS_SERVING_ACCEPT,
 
 	LWSCM_WS_SERVING,
@@ -536,19 +535,26 @@ enum connection_mode {
 	LWSCM_SSL_ACK_PENDING,
 	LWSCM_SSL_INIT,
 
-	/* transient modes */
+	/* special internal types */
+	LWSCM_SERVER_LISTENER,
+	LWSCM_CGI, /* stdin, stdout, stderr for another cgi master wsi */
+
+	/* HTTP Client related */
+	LWSCM_HTTP_CLIENT = LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP,
+	LWSCM_HTTP_CLIENT_ACCEPTED, /* actual HTTP service going on */
 	LWSCM_WSCL_WAITING_CONNECT,
 	LWSCM_WSCL_WAITING_PROXY_REPLY,
 	LWSCM_WSCL_ISSUE_HANDSHAKE,
 	LWSCM_WSCL_ISSUE_HANDSHAKE2,
+	LWSCM_WSCL_ISSUE_HTTP_BODY,
 	LWSCM_WSCL_WAITING_SSL,
 	LWSCM_WSCL_WAITING_SERVER_REPLY,
 	LWSCM_WSCL_WAITING_EXTENSION_CONNECT,
 	LWSCM_WSCL_PENDING_CANDIDATE_CHILD,
 
-	/* special internal types */
-	LWSCM_SERVER_LISTENER,
-	LWSCM_CGI, /* stdin, stdout, stderr for another cgi master wsi */
+	/****** add new things just above ---^ ******/
+
+
 };
 
 enum {
@@ -1385,6 +1391,7 @@ struct lws {
 	unsigned int do_ws:1; /* whether we are doing http or ws flow */
 	unsigned int chunked:1; /* if the clientside connection is chunked */
 	unsigned int client_rx_avail:1;
+	unsigned int client_http_body_pending:1;
 #endif
 #ifdef LWS_WITH_HTTP_PROXY
 	unsigned int perform_rewrite:1;

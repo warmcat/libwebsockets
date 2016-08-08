@@ -37,7 +37,7 @@
 
 #include "../lib/libwebsockets.h"
 
-static int deny_deflate, longlived, mirror_lifetime;
+static int deny_deflate, longlived, mirror_lifetime, test_post;
 static struct lws *wsi_dumb, *wsi_mirror;
 static struct lws *wsi_multi[3];
 static volatile int force_exit;
@@ -88,7 +88,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
 	const char *which = "http";
-	char which_wsi[10];
+	char which_wsi[10], buf[50 + LWS_PRE];
 	int n;
 
 	switch (reason) {
@@ -163,7 +163,38 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
-		lwsl_notice("Client wsi %p writable\n", wsi);
+		lwsl_info("Client wsi %p writable\n", wsi);
+		break;
+
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		if (test_post) {
+			unsigned char **p = (unsigned char **)in, *end = (*p) + len;
+
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					(unsigned char *)"29", 2, p, end))
+				return -1;
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CONTENT_TYPE,
+					(unsigned char *)"application/x-www-form-urlencoded", 33, p, end))
+				return -1;
+
+			/* inform lws we have http body to send */
+			lws_client_http_body_pending(wsi, 1);
+			lws_callback_on_writable(wsi);
+		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+		strcpy(buf + LWS_PRE, "text=hello&send=Send+the+form");
+		n = lws_write(wsi, (unsigned char *)&buf[LWS_PRE], strlen(&buf[LWS_PRE]), LWS_WRITE_HTTP);
+		if (n < 0)
+			return -1;
+		/* we only had one thing to send, so inform lws we are done
+		 * if we had more to send, call lws_callback_on_writable(wsi);
+		 * and just return 0 from callback.  On having sent the last
+		 * part, call the below api instead.*/
+		lws_client_http_body_pending(wsi, 0);
 		break;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
@@ -339,6 +370,7 @@ static struct option options[] = {
 	{ "multi-test",	no_argument,		NULL, 'm' },
 	{ "nomirror",	no_argument,		NULL, 'n' },
 	{ "longlived",	no_argument,		NULL, 'l' },
+	{ "post",	no_argument,		NULL, 'o' },
 	{ "pingpong-secs", required_argument,	NULL, 'P' },
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
@@ -385,7 +417,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "Snuv:hsp:d:lC:K:A:P:m", options, NULL);
+		n = getopt_long(argc, argv, "Snuv:hsp:d:lC:K:A:P:mo", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -418,6 +450,9 @@ int main(int argc, char **argv)
 			break;
 		case 'm':
 			do_multi = 1;
+			break;
+		case 'o':
+			test_post = 1;
 			break;
 		case 'n':
 			flag_no_mirror_traffic = 1;
@@ -547,7 +582,12 @@ int main(int argc, char **argv)
 
 	if (!strcmp(prot, "http") || !strcmp(prot, "https")) {
 		lwsl_notice("using %s mode (non-ws)\n", prot);
-		i.method = "GET";
+		if (test_post) {
+			i.method = "POST";
+			lwsl_notice("POST mode\n");
+		}
+		else
+			i.method = "GET";
 		do_ws = 0;
 	} else
 		lwsl_notice("using %s mode (ws)\n", prot);

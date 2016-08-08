@@ -96,6 +96,9 @@ Functions</h2></td></tr>
 <tr class="memitem:ga4450c34200bf9dab3beb90ef23221870"><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga4450c34200bf9dab3beb90ef23221870"></a>
 LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b>lws_http_client_read</b> (struct lws *wsi, char **buf, int *len)</td></tr>
 <tr class="separator:ga4450c34200bf9dab3beb90ef23221870"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga26588fb345083076c14169dd5859f57a"><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga26588fb345083076c14169dd5859f57a"></a>
+LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><b>lws_client_http_body_pending</b> (struct lws *wsi, int something_left_to_send)</td></tr>
+<tr class="separator:ga26588fb345083076c14169dd5859f57a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2>Client releated functions</h2>
@@ -112,7 +115,7 @@ LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b
 
 <p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
 <p>enum lws_client_connect_ssl_connection_flags - flags that may be used with struct <a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a> ssl_connection member to control if and how SSL checks apply to the client connection being created </p>
-<div class="fragment"><div class="line"><a name="l01955"></a><span class="lineno"> 1955</span>&#160;                                             {</div><div class="line"><a name="l01956"></a><span class="lineno"> 1956</span>&#160;        LCCSCF_USE_SSL                          = (1 &lt;&lt; 0),</div><div class="line"><a name="l01957"></a><span class="lineno"> 1957</span>&#160;        LCCSCF_ALLOW_SELFSIGNED                 = (1 &lt;&lt; 1),</div><div class="line"><a name="l01958"></a><span class="lineno"> 1958</span>&#160;        LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK  = (1 &lt;&lt; 2)</div><div class="line"><a name="l01959"></a><span class="lineno"> 1959</span>&#160;};</div></div><!-- fragment -->
+<div class="fragment"><div class="line"><a name="l01964"></a><span class="lineno"> 1964</span>&#160;                                             {</div><div class="line"><a name="l01965"></a><span class="lineno"> 1965</span>&#160;        LCCSCF_USE_SSL                          = (1 &lt;&lt; 0),</div><div class="line"><a name="l01966"></a><span class="lineno"> 1966</span>&#160;        LCCSCF_ALLOW_SELFSIGNED                 = (1 &lt;&lt; 1),</div><div class="line"><a name="l01967"></a><span class="lineno"> 1967</span>&#160;        LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK  = (1 &lt;&lt; 2)</div><div class="line"><a name="l01968"></a><span class="lineno"> 1968</span>&#160;};</div></div><!-- fragment -->
 </div>
 </div>
 <h2 class="groupheader">Function Documentation</h2>

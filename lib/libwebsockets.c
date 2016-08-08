@@ -256,7 +256,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		wsi->vhost->protocols->callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0);
 	}
-	if (wsi->mode == LWSCM_HTTP_CLIENT)
+	if (wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP )
 		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_CLIENT_HTTP,
 					       wsi->user_space, NULL, 0);
 
@@ -1711,7 +1711,6 @@ lws_finalize_startup(struct lws_context *context)
 
 	return 0;
 }
-
 
 LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi) {

@@ -110,6 +110,7 @@ var libwebsockets_8h =
       [ "LWS_CALLBACK_SESSION_INFO", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7ac11c336f7052abf3618962902a71ebc8", null ],
       [ "LWS_CALLBACK_GS_EVENT", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7af6cf80e57aae8ba0a57a5c456b1fe026", null ],
       [ "LWS_CALLBACK_HTTP_PMO", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7aa5cc921b7697743017a533822a3d556a", null ],
+      [ "LWS_CALLBACK_CLIENT_HTTP_WRITEABLE", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7aeb0cec65ec82a713cd01e9ca9aeeb5e6", null ],
       [ "LWS_CALLBACK_USER", "group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a", null ]
     ] ],
     [ "lws_cgi_hdr_state", "libwebsockets_8h.html#a42394a38f08a97420c98127358cfeedb", [
@@ -373,7 +374,8 @@ var libwebsockets_8h =
       [ "PENDING_TIMEOUT_CGI", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a73f61afae387e16f7ab8a4f299aca8d2", null ],
       [ "PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a5fe48ea6f3f5363cca55d39b78490b45", null ],
       [ "PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87aaac32d9ca2f7c31f5649ad4059d7b985", null ],
-      [ "PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a62ae208399be1f872e14843fd15f9e06", null ]
+      [ "PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a62ae208399be1f872e14843fd15f9e06", null ],
+      [ "PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD", "group__timeout.html#gga2c0aa4b9c3c55bae7b35cbfac3246c87a8587dc22f946c45e2f38c4045479fda5", null ]
     ] ],
     [ "_lws_log", "group__log.html#gaf5f07837692b2f231a79da8a058288aa", null ],
     [ "_lws_logv", "group__log.html#ga74eb146969f0595e12ea835851b4588e", null ],
@@ -406,6 +408,7 @@ var libwebsockets_8h =
     [ "lws_client_connect", "group__client.html#ga4af0a20108a95e8b6d94dd4d80055ff3", null ],
     [ "lws_client_connect_extended", "group__client.html#gac6a8558b4410961a880241c2ac1271e2", null ],
     [ "lws_client_connect_via_info", "group__client.html#ga0c966136905f467816307cfba6deb5fd", null ],
+    [ "lws_client_http_body_pending", "group__client.html#ga26588fb345083076c14169dd5859f57a", null ],
     [ "lws_close_reason", "group__wsclose.html#gaa1c863415d1783cd8de7938aa6efa262", null ],
     [ "lws_context_destroy", "group__context-and-vhost.html#ga8ee0314028755f1ddfa9428e09b4fddb", null ],
     [ "lws_context_user", "group__context-and-vhost.html#gaeb12f934bfd178bd2132a9e73fc641da", null ],

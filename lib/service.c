@@ -30,6 +30,9 @@ lws_calllback_as_writeable(struct lws *wsi)
 	case LWSCM_WS_CLIENT:
 		n = LWS_CALLBACK_CLIENT_WRITEABLE;
 		break;
+	case LWSCM_WSCL_ISSUE_HTTP_BODY:
+		n = LWS_CALLBACK_CLIENT_HTTP_WRITEABLE;
+		break;
 	case LWSCM_WS_SERVING:
 		n = LWS_CALLBACK_SERVER_WRITEABLE;
 		break;
@@ -75,6 +78,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	} else
 		if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE)
 			return -1; /* retry closing now */
+
+	if (wsi->mode == LWSCM_WSCL_ISSUE_HTTP_BODY)
+		goto user_service;
 
 
 #ifdef LWS_USE_HTTP2
@@ -270,8 +276,8 @@ user_service:
 			return 1;
 		}
 
-
-	if (!wsi->hdr_parsing_completed)
+	if (wsi->mode != LWSCM_WSCL_ISSUE_HTTP_BODY &&
+	    !wsi->hdr_parsing_completed)
 		return 0;
 
 #ifdef LWS_WITH_CGI
@@ -1097,6 +1103,10 @@ drain:
 #ifdef LWS_NO_CLIENT
 		break;
 #else
+		if ((pollfd->revents & LWS_POLLOUT) &&
+		    lws_handle_POLLOUT_event(wsi, pollfd))
+			goto close_and_handled;
+
 		n = lws_client_socket_service(context, wsi, pollfd);
 		if (n)
 			return 1;
