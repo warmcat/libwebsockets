@@ -1005,7 +1005,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	struct allocated_headers *ah;
 	int protocol_len, n = 0, hit;
 	char protocol_list[128];
-	char protocol_name[32];
+	char protocol_name[64];
 	char *p;
 
 	if (len >= 10000000) {
