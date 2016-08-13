@@ -428,10 +428,8 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 #endif
 
 	mimetype = lws_get_mimetype(path, m);
-	if (!mimetype) {
-		lwsl_err("unknown mimetype for %s\n", path);
-		goto bail;
-	}
+	if (!mimetype)
+		lwsl_debug("sending no mimetype for %s\n", path);
 
 	wsi->sending_chunked = 0;
 
@@ -1958,10 +1956,12 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	if (lws_add_http_header_status(wsi, 200, &p, end))
 		return -1;
-	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
-					 (unsigned char *)content_type,
-					 strlen(content_type), &p, end))
-		return -1;
+	if (content_type) {
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+						 (unsigned char *)content_type,
+						 strlen(content_type), &p, end))
+			return -1;
+	}
 
 	if (!wsi->sending_chunked) {
 		if (lws_add_http_header_content_length(wsi, wsi->u.http.filelen, &p, end))
