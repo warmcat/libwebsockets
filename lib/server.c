@@ -325,6 +325,9 @@ lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 		return "application/xml";
 
 	while (pvo) {
+		if (pvo->name[0] == '*') /* ie, match anything */
+			return pvo->value;
+
 		if (!strcmp(&file[n - strlen(pvo->name)], pvo->name))
 			return pvo->value;
 
@@ -430,8 +433,10 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	mimetype = lws_get_mimetype(path, m);
 	if (!mimetype) {
 		lwsl_err("unknown mimetype for %s\n", path);
-		goto bail;
+               goto bail;
 	}
+	if (!mimetype[0])
+		lwsl_debug("sending no mimetype for %s\n", path);
 
 	wsi->sending_chunked = 0;
 
@@ -1958,10 +1963,12 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	if (lws_add_http_header_status(wsi, 200, &p, end))
 		return -1;
-	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
-					 (unsigned char *)content_type,
-					 strlen(content_type), &p, end))
-		return -1;
+	if (content_type && content_type[0]) {
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+						 (unsigned char *)content_type,
+						 strlen(content_type), &p, end))
+			return -1;
+	}
 
 	if (!wsi->sending_chunked) {
 		if (lws_add_http_header_content_length(wsi, wsi->u.http.filelen, &p, end))

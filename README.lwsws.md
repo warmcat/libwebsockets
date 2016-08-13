@@ -328,6 +328,18 @@ options are given, the content is marked uncacheable.
 	         }
 ```
 
+Normally a file suffix MUST match one of the canned mimetypes or one of the extra
+mimetypes, or the file is not served.  This adds a little bit of security because
+even if there is a bug somewhere and the mount dirs are circumvented, lws will not
+serve, eg, /etc/passwd.
+
+If you provide an extra mimetype entry
+
+			"*": ""
+
+Then any file is served, if the mimetype was not known then it is served without a
+Content-Type: header.
+
 @section lwswspl Lwsws Plugins
 
 Protcols and extensions may also be provided from "plugins", these are
