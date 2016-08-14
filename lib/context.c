@@ -650,7 +650,9 @@ lws_create_context(struct lws_context_creation_info *info)
 			return NULL;
 		}
 
+#ifdef LWS_USE_LIBUV
 		context->pt[n].context = context;
+#endif
 		context->pt[n].tid = n;
 		context->pt[n].http_header_data = lws_malloc(context->max_http_header_data *
 						       context->max_http_header_pool);
