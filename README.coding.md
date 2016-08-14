@@ -524,8 +524,7 @@ afterwards to attach one or more vhosts manually.
 ```
 	LWS_VISIBLE struct lws_vhost *
 	lws_create_vhost(struct lws_context *context,
-			 struct lws_context_creation_info *info,
-			 struct lws_http_mount *mounts);
+			 struct lws_context_creation_info *info);
 ```
 
 lws_create_vhost() uses the same info struct as lws_create_context(),
