@@ -45,6 +45,12 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	(void)param;
 
 	wsi->ssl = SSL_new(wsi->vhost->ssl_client_ctx);
+	if (!wsi->ssl) {
+		lwsl_err("SSL_new failed: %s\n",
+		         ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
+		lws_decode_ssl_error();
+		return -1;
+	}
 
 #if defined LWS_HAVE_X509_VERIFY_PARAM_set1_host
 	param = SSL_get0_param(wsi->ssl);
