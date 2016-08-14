@@ -155,8 +155,10 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 #ifdef LWS_OPENSSL_SUPPORT
 		/* we can retry this... just cook the SSL BIO the first time */
 
-		if (wsi->use_ssl && !wsi->ssl)
-			lws_ssl_client_bio_create(wsi);
+		if (wsi->use_ssl && !wsi->ssl) {
+			if (lws_ssl_client_bio_create(wsi))
+				return -1;
+		}
 
 		if (wsi->use_ssl) {
 			n = lws_ssl_client_connect1(wsi);
