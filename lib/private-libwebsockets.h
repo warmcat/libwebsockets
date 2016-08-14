@@ -660,7 +660,6 @@ struct lws_context_per_thread {
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
 	struct lws *timeout_list;
-	struct lws_context *context;
 #ifdef LWS_WITH_CGI
 	struct lws_cgi *cgi_list;
 #endif
