@@ -148,7 +148,7 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_vhost *vh = context->vhost_list;
-	int status = 0, n;
+	int status = 0, n, ns;
 
 	if (!loop) {
 		loop = lws_malloc(sizeof(*loop));
@@ -171,9 +171,13 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 	pt->io_loop_uv = loop;
 	uv_idle_init(loop, &pt->uv_idle);
 
+	ns = ARRAY_SIZE(sigs);
+	if (lws_check_opt(context->options, LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN))
+		ns = 2;
+
 	if (pt->context->use_ev_sigint) {
-		assert(ARRAY_SIZE(sigs) <= ARRAY_SIZE(pt->signals));
-		for (n = 0; n < ARRAY_SIZE(sigs); n++) {
+		assert(ns <= ARRAY_SIZE(pt->signals));
+		for (n = 0; n < ns; n++) {
 			uv_signal_init(loop, &pt->signals[n]);
 			pt->signals[n].data = pt->context;
 			uv_signal_start(&pt->signals[n],
@@ -225,7 +229,7 @@ void
 lws_libuv_destroyloop(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	int m, budget = 100;
+	int m, budget = 100, ns;
 
 	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
 		return;
@@ -236,7 +240,11 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 	if (context->use_ev_sigint) {
 		uv_signal_stop(&pt->w_sigint.uv_watcher);
 
-		for (m = 0; m < ARRAY_SIZE(sigs); m++) {
+		ns = ARRAY_SIZE(sigs);
+		if (lws_check_opt(context->options, LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN))
+			ns = 2;
+
+		for (m = 0; m < ns; m++) {
 			uv_signal_stop(&pt->signals[m]);
 			uv_close((uv_handle_t *)&pt->signals[m], lws_uv_close_cb);
 		}

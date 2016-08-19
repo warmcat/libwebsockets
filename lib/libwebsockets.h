@@ -1535,6 +1535,12 @@ enum lws_context_options {
 	/**< (VH) Enable LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE to take effect */
 	LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE			= (1 << 17),
 	/**< (VH) if set, only ipv6 allowed on the vhost */
+	LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN		= (1 << 18),
+	/**< (CTX) Libuv only: Do not spin on SIGSEGV / SIGFPE.  A segfault
+	 * normally makes the lib spin so you can attach a debugger to it
+	 * even if it happened without a debugger in place.  You can disable
+	 * that by giving this option.
+	 */
 
 	/****** add new things just above ---^ ******/
 };

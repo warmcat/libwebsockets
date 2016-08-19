@@ -1,5 +1,7 @@
 var NAVTREEINDEX3 =
 {
+"libwebsockets_8h.html#a17f5fc891b31d2920bd18b0d66d6cb25":[11,0,0,0,173],
+"libwebsockets_8h.html#a1b12016562c728eb306c7f954c804bef":[11,0,0,0,20],
 "libwebsockets_8h.html#a2271141d8be8d72b47ba327130b4905f":[11,0,0,0,27],
 "libwebsockets_8h.html#a2271141d8be8d72b47ba327130b4905fa7741c12fc97574fa73a810fedae2be76":[11,0,0,0,27,1],
 "libwebsockets_8h.html#a2271141d8be8d72b47ba327130b4905fa9ce9c65d4229d1d168fca3cc12e7f535":[11,0,0,0,27,2],
@@ -247,7 +249,5 @@ var NAVTREEINDEX3 =
 "structlws__http__mount.html#ae7b5c0f4c5408061e6ea3a8d281f45af":[9,4,0,1,6],
 "structlws__http__mount.html#ae90d1efe7178199fad39de2926902ee4":[9,4,0,1,7],
 "structlws__plat__file__ops.html":[9,20,0],
-"structlws__plat__file__ops.html#a01f483807a9862736b17ba9ed5110c40":[9,20,0,2],
-"structlws__plat__file__ops.html#a034ec96f2fbaf52b4aa3e82d20795f7b":[9,20,0,0],
-"structlws__plat__file__ops.html#a1fae8330ee94649a3551e31a30809793":[9,20,0,4]
+"structlws__plat__file__ops.html#a01f483807a9862736b17ba9ed5110c40":[9,20,0,2]
 };
