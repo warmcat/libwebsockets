@@ -1808,7 +1808,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	char *env_array[30], cgi_path[400], e[1024], *p = e,
 	     *end = p + sizeof(e) - 1, tok[256], *t;
 	struct lws_cgi *cgi;
-	int n, m, i, uritok = WSI_TOKEN_GET_URI;
+	int n, m, i, uritok = -1;
 
 	/*
 	 * give the master wsi a cgi struct
@@ -1883,16 +1883,37 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	if (lws_is_ssl(wsi))
 		env_array[n++] = "HTTPS=ON";
 	if (wsi->u.hdr.ah) {
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
-			uritok = WSI_TOKEN_POST_URI;
+		static const unsigned char meths[] = {
+			WSI_TOKEN_GET_URI,
+			WSI_TOKEN_POST_URI,
+			WSI_TOKEN_OPTIONS_URI,
+			WSI_TOKEN_PUT_URI,
+			WSI_TOKEN_PATCH_URI,
+			WSI_TOKEN_DELETE_URI,
+		};
+		static const char * const meth_names[] = {
+			"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE",
+		};
+
+		for (m = 0; m < ARRAY_SIZE(meths); m++)
+			if (lws_hdr_total_length(wsi, meths[m]) >=
+					script_uri_path_len) {
+				uritok = meths[m];
+				break;
+			}
+
+		if (uritok < 0)
+			goto bail3;
+
 		snprintf(cgi_path, sizeof(cgi_path) - 1, "REQUEST_URI=%s",
 			 lws_hdr_simple_ptr(wsi, uritok));
 		cgi_path[sizeof(cgi_path) - 1] = '\0';
 		env_array[n++] = cgi_path;
-		if (uritok == WSI_TOKEN_POST_URI)
-			env_array[n++] = "REQUEST_METHOD=POST";
-		else
-			env_array[n++] = "REQUEST_METHOD=GET";
+
+		env_array[n++] = p;
+		p += snprintf(p, end - p, "REQUEST_METHOD=%s",
+			      meth_names[m]);
+		p++;
 
 		env_array[n++] = p;
 		p += snprintf(p, end - p, "QUERY_STRING=");
