@@ -636,7 +636,7 @@ all_sent:
 			lws_plat_file_close(wsi, wsi->u.http.fd);
 			wsi->u.http.fd = LWS_INVALID_FILE;
 			
-			lwsl_notice("file completed\n");
+			lwsl_debug("file completed\n");
 
 			if (wsi->protocol->callback)
 				/* ignore callback returned value */

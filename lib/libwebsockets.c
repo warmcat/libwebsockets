@@ -190,7 +190,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	if (wsi->cgi) {
 		struct lws_cgi **pcgi = &pt->cgi_list;
 		/* remove us from the cgi list */
-		lwsl_notice("%s: remove cgi %p from list\n", __func__, wsi->cgi);
+		lwsl_debug("%s: remove cgi %p from list\n", __func__, wsi->cgi);
 		while (*pcgi) {
 			if (*pcgi == wsi->cgi) {
 				/* drop us from the pt cgi list */
