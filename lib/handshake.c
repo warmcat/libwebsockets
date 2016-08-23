@@ -201,6 +201,12 @@ http_postbody:
 			}
 			/* he sent all the content in time */
 postbody_completion:
+#ifdef LWS_WITH_CGI
+			/* if we're running a cgi, we can't let him off the hook just because he sent his POST data */
+			if (wsi->cgi)
+				lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, wsi->context->timeout_secs);
+			else
+#endif
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 #ifdef LWS_WITH_CGI
 			if (!wsi->cgi)
