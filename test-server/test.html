@@ -576,7 +576,7 @@ document.getElementById("number").textContent = get_appropriate_ws_url();
 			s="<table>";
 			var n;
 			for (n = 0; n < jso.conns.length; n++) {
-				var d = new Date(parseInt(jso.conns[n].time));
+				var d = new Date(parseInt(jso.conns[n].time) * 1000);
 				
 				s = s + "<tr><td class=l>client " + (n + 1) +
 				"</td><td><b>" + san(jso.conns[n].peer) +
