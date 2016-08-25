@@ -1,6 +1,27 @@
 Changelog
 ---------
 
+v2.0.2
+======
+
+Fixes
+-----
+
+1) Fix possible pthread mutex leak
+
+2) Make sure ACCESS_LOG can't touch freed area
+
+3) extra options in lwsws conf for cipher list and ecdh curve
+
+4) extra options in lwsws conf for extra mimetypes
+
+5) fix default rxbuf trimming for output
+
+6) lwsl_timestamp month number was off-by-one
+
+7) fix daemonize.c
+
+
 v2.0.1
 ======
 
