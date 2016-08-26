@@ -114,7 +114,6 @@ struct sockaddr_in;
 #include <stddef.h>
 #include <basetsd.h>
 #ifndef _WIN32_WCE
-#include <stdint.h>
 #include <fcntl.h>
 #else
 #define _O_RDONLY	0x0000

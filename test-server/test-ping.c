@@ -78,7 +78,7 @@ struct ping {
 };
 
 struct per_session_data__ping {
-	uint64_t ping_index;
+	unsigned long long ping_index;
 
 	struct ping ringbuffer[PING_RINGBUFFER_SIZE];
 	int ringbuffer_head;
@@ -110,7 +110,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	unsigned char *p;
 	unsigned long iv;
 	int match = 0;
-	uint64_t l;
+	unsigned long long l;
 	int shift;
 	int n;
 
@@ -158,7 +158,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		l = 0;
 
 		while (shift >= 0) {
-			l |= ((uint64_t)*p++) << shift;
+			l |= ((unsigned long long)*p++) << shift;
 			shift -= 8;
 		}
 
