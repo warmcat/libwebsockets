@@ -748,6 +748,7 @@ struct lws_vhost {
 	const struct lws_protocols *protocols;
 	void **protocol_vh_privs;
 	const struct lws_protocol_vhost_options *pvo;
+	const struct lws_protocol_vhost_options *headers;
 	struct lws **same_vh_protocol_list;
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX *ssl_ctx;

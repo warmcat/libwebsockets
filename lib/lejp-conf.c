@@ -86,6 +86,8 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].ssl-option-set",
 	"vhosts[].ssl-option-clear",
 	"vhosts[].mounts[].pmo[].*",
+	"vhosts[].headers[].*",
+	"vhosts[].headers[]",
 };
 
 enum lejp_vhost_paths {
@@ -124,7 +126,9 @@ enum lejp_vhost_paths {
 	LEJPVP_IPV6ONLY,
 	LEJPVP_SSL_OPTION_SET,
 	LEJPVP_SSL_OPTION_CLEAR,
-	LEJPVP_PMO
+	LEJPVP_PMO,
+	LEJPVP_HEADERS_NAME,
+	LEJPVP_HEADERS,
 };
 
 static const char * const parser_errs[] = {
@@ -244,6 +248,7 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
+	*(a->p)++ = '\0';
 
 	return 0;
 }
@@ -252,7 +257,7 @@ static char
 lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jpargs *a = (struct jpargs *)ctx->user;
-	struct lws_protocol_vhost_options *pvo, *mp_cgienv;
+	struct lws_protocol_vhost_options *pvo, *mp_cgienv, *headers;
 	struct lws_http_mount *m;
 	char *p, *p1;
 	int n;
@@ -290,6 +295,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!AES256-GCM-SHA384:"
 				       "!AES256-SHA256";
 		a->info->pvo = NULL;
+		a->info->headers = NULL;
 		a->info->keepalive_timeout = 5;
 		a->info->log_filepath = NULL;
 		a->info->options &= ~(LWS_SERVER_OPTION_UNIX_SOCK |
@@ -318,6 +324,29 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		a->pvo->value = a->p;
 		a->pvo->options = NULL;
+		goto dostring;
+	}
+
+	/* this catches, eg, vhosts[].headers[].xxx */
+	if (reason == LEJPCB_VAL_STR_END &&
+	    ctx->path_match == LEJPVP_HEADERS_NAME + 1) {
+		headers = lwsws_align(a);
+		a->p += sizeof(*headers);
+
+		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		/* ie, enable this protocol, no options yet */
+		headers->next = a->info->headers;
+		a->info->headers = headers;
+		headers->name = a->p;
+		// lwsl_notice("  adding header %s=%s\n", a->p, ctx->buf);
+		a->p += n - 1;
+		*(a->p++) = ':';
+		if (a->p < a->end)
+			*(a->p++) = '\0';
+		else
+			*(a->p - 1) = '\0';
+		headers->value = a->p;
+		headers->options = NULL;
 		goto dostring;
 	}
 

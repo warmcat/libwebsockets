@@ -17,13 +17,13 @@ var lwsgs_html = '\
 	 <table style="vertical-align:top;text-align:right"\
           <tr>\
            <td>User Name\
-            <input type="text" size="10" id="username" name="username" oninput="lwsgs_update()" onchange="lwsgs_update()"></td>\
+            <input type="text" size="10" id="username" name="username"></td>\
            <td>Password\
-            <input type="password" id="password" size="10" name="password" oninput="lwsgs_update()" onchange="lwsgs_update()"><div id="pw1"></div></td>\
+            <input type="password" id="password" size="10" name="password"><div id="pw1"></div></td>\
 	     </tr><tr>\
 	   <td colspan="2" style="text-align:center"><input type="submit" id="login" name="login" value="Login" style="margin: 4px; padding: 2px; font-weight=bold;">\
       &nbsp;<input type="submit" id="forgot" name="forgot" value="Forgot password" style="margin: 2px; padding: 2px">\
-           &nbsp;<input type="button" onclick="lwsgs_open_registration()" value="Sign up" style="margin: 2px; padding: 2px"></td>\
+           &nbsp;<input id="doreg" type="button" value="Sign up" style="margin: 2px; padding: 2px"></td>\
           </tr>\
          </table>\
         </form>\
@@ -35,7 +35,7 @@ var lwsgs_html = '\
          <table style="vertical-align:top;text-align:right">\
           <tr><td><span id=grav></span></td>\
  	   <td style="text-align:center"><table><tr><td style="text-align:center">\
-		<a href="#" onclick="lwsgs_select_change(); event.preventDefault();">\
+		<a href="#" id="clink">\
 		<span id="curuser"></span></a></td></tr><tr>\
            <td style="text-align:center"><input type="submit" name="logout" value="Logout" style="margin: 2px; padding: 2px"></td>\
           </tr></table></td></tr>\
@@ -66,28 +66,28 @@ var lwsgs_html = '\
 	     </tr>\
 	    <tr><td align=right>\
 	     User Name:</td>\
-	     <td><input type="text" size="10" id="rusername" name="username" oninput="lwsgs_rupdate(); lwsgs_check_user();">&nbsp;<span id=uchk></span></td>\
+	     <td><input type="text" size="10" id="rusername" name="username" &nbsp;<span id=uchk></span></td>\
 	    </tr>\
 	    <tr>\
 	     <td align=right>Password:</td>\
-	     <td><input type="password" size="10" id="rpassword" name="password" oninput="lwsgs_rupdate()">&nbsp;<span id="rpw1"></span></td>\
+	     <td><input type="password" size="10" id="rpassword" name="password">&nbsp;<span id="rpw1"></span></td>\
 	    </tr>\
 	    <tr>\
 	    </tr>\
 	    <tr>\
 	     <td align=right><span id="pw2">Password (again):</span></td>\
-	     <td><input type="password" size="10" id="password2" name="password2" oninput="lwsgs_rupdate()">&nbsp;<span id="match"></span></td>\
+	     <td><input type="password" size="10" id="password2" name="password2">&nbsp;<span id="match"></span></td>\
 	    </tr>\
 	    <tr>\
 	     <td align=right>Email:</td>\
 	     <td><input type="email" size="10" id="email" name="email"\
-	          placeholder="me@example.com" oninput="lwsgs_rupdate(); lwsgs_check_email(\'email\')">&nbsp;<span id=echk></span></td>\
+	          placeholder="me@example.com" &nbsp;<span id=echk></span></td>\
 	    </tr>\
 	    <tr>\
 	     <td colspan=2 align=center>\
 <input type="submit" id="register" name="register" value="Register" style="margin: 2px; padding: 2px">\
 <input type="submit" id="rforgot" name="forgot" value="Forgot Password" style="margin: 2px; padding: 2px;display: none">\
-<input type="button" id="cancel" name="cancel" value="Cancel" style="margin: 2px; padding: 2px;" onclick="lwsgs_cancel_registration()">\
+<input type="button" id="cancel" name="cancel" value="Cancel" style="margin: 2px; padding: 2px;">\
 	     </td>\
 	    </tr>\
          </table>\
@@ -110,7 +110,7 @@ var lwsgs_html = '\
 	     <tr>\
 	      <td colspan=2 align=center>\
 		<span id="ccuruser"></span>\
-	<script>\
+	<script nonce="lwscaro">\
 		if (lwsgs_user)\
 			document.getElementById("ccuruser").innerHTML =\
 			  "<span class=\"gstitle\">Login settings for " +\
@@ -122,23 +122,23 @@ var lwsgs_html = '\
 	    <tr><td align=right id="ccurpw_name">\
 	     Current Password:</td>\
 	     <td><input type="password" size="10" id="ccurpw" name="curpw"\
-	          oninput="lwsgs_cupdate();">&nbsp;<span id=cuchk></span></td>\
+	         >&nbsp;<span id=cuchk></span></td>\
 	    </tr>\
 	    <tr>\
 	     <td align=right>Password:</td>\
 	     <td><input type="password" size="10" id="cpassword" name="password"\
-	          oninput="lwsgs_cupdate()">&nbsp;<span id="cpw1"></span></td>\
+	          &nbsp;<span id="cpw1"></span></td>\
 	    </tr>\
 	    <tr>\
 	     <td align=right><span id="pw2">Password (again)</span></td>\
 	     <td><input type="password" size="10" id="cpassword2" name="password2"\
-	          oninput="lwsgs_cupdate()">&nbsp;<span id="cmatch"></span></td>\
+	         >&nbsp;<span id="cmatch"></span></td>\
 	    </tr>\
 	<!-- not supported yet\
 	    <tr>\
 	     <td align=right id="cemail_name">Email:</td>\
 	     <td><input type="email" size="10" id="cemail" name="email"\
-	     	  placeholder="?" oninput="lwsgs_cupdate(); lwsgs_check_email(\'cemail\')">\
+	     	  placeholder="?" \
 	     	  &nbsp;<span id=cechk></span></td>\
 	    </tr> -->\
 	    <tr>\
@@ -147,15 +147,14 @@ var lwsgs_html = '\
 	       value="Change" style="margin: 6px; padding: 6px">\
 	      <input type="submit" id="cforgot" name="forgot"\
 	       value="Forgot Password" style="margin: 6px; padding: 6px;display: none">\
-	      <input type="button" id="cancel" name="cancel"\
-	       value="Cancel" style="margin: 6px; padding: 6px;"\
-	       onclick="lwsgs_cancel_registration()">\
+	      <input type="button" id="cancel2" name="cancel"\
+	       value="Cancel" style="margin: 6px; padding: 6px;">\
 	     </td>\
 	    </tr>\
 	    <tr>\
 	     <td colspan=2>\
 	      <input type="checkbox" id="showdel" name="showdel"\
-	       onchange="lwsgs_cupdate();"> Show Delete&nbsp;\
+	       > Show Delete&nbsp;\
 	      <input type="submit" id="delete" name="delete" \
 	       value="Delete Account" style="margin: 6px; padding: 6px;display: none">\
 	     </td>\
@@ -246,6 +245,8 @@ function lwsgs_select_change()
 		document.getElementById("dadmin").style.display = "none";
 		document.getElementById("dchange").style.display = "inline";
 	}
+
+	event.preventDefault()
 }
 
 var lwsgs_user_check = '0';
@@ -299,22 +300,32 @@ function lwsgs_rupdate()
 	document.getElementById('email').disabled = lwsgs_user_check === '1';
 
 	if (lwsgs_user_check === '0') {
-		if (document.getElementById('rusername').value)
-			document.getElementById('uchk').innerHTML = "<b style=\"color:green\">\u2713</b>";
-		else
-			document.getElementById('uchk').innerHTML = "";
+		var uc = document.getElementById('uchk');
+
+		if (uc) {
+			if (document.getElementById('rusername').value)
+				uc.innerHTML = "<b style=\"color:green\">\u2713</b>";
+			else
+				uc.innerHTML = "";
+		}
 	} else {
-		document.getElementById('uchk').innerHTML = "<b style=\"color:red\">\u2718 Already registered</b>";
+		if (document.getElementById('uchk'))
+			ocument.getElementById('uchk').innerHTML = "<b style=\"color:red\">\u2718 Already registered</b>";
 		en_forgot = 1;
 	}
 
 	if (lwsgs_email_check === '0') {
-		if (document.getElementById('email').value)
-			document.getElementById('echk').innerHTML = "<b style=\"color:green\">\u2713</b>";
-		else
-			document.getElementById('echk').innerHTML = "";
+		var ec = document.getElementById('echk');
+
+		if (ec) {
+			if (document.getElementById('email').value)
+				ec.innerHTML = "<b style=\"color:green\">\u2713</b>";
+			else
+				ec.innerHTML = "";
+		}
 	} else {
-		document.getElementById('echk').innerHTML = "<b style=\"color:red\">\u2718 Already registered</b>";
+		if (document.getElementById('echk'))
+			document.getElementById('echk').innerHTML = "<b style=\"color:red\">\u2718 Already registered</b>";
 		en_forgot = 1;
 	}
 
@@ -376,11 +387,16 @@ function lwsgs_cupdate()
 	    document.getElementById('cpassword').value.length < 8) {
 		en_change = 0;
 		document.getElementById('cpw1').innerHTML = "Need 8 chars";
-	} else
-		if (document.getElementById('cpassword').value.length)
-			document.getElementById('cpw1').innerHTML = "<b style=\"color:green\">\u2713</b>";
-		else
-			document.getElementById('cpw1').innerHTML = "";
+	} else {
+		var cpw = document.getElementById('cpw1');
+
+		if (cpw) {
+			if (document.getElementById('cpassword').value.length)
+				cpw.innerHTML = "<b style=\"color:green\">\u2713</b>";
+			else
+				cpw.innerHTML = "";
+		}
+	}
 
 	if (!document.getElementById('cpassword').value ||
 	    !document.getElementById('cpassword2').value ||
@@ -461,9 +477,47 @@ function lwsgs_check_email(id)
     xmlHttp.send(null);
 }
 
+function rupdate_user()
+{
+	lwsgs_rupdate();
+	lwsgs_check_user();
+}
+
+function rupdate_email()
+{
+	lwsgs_rupdate();
+	lwsgs_check_email('email');
+}
+
+function cupdate_email()
+{
+	lwsgs_cupdate();
+	lwsgs_check_email('cemail');
+}
+
+
 function lwsgs_initial()
 {
 	document.getElementById('lwsgs').innerHTML = lwsgs_html;
+
+	document.getElementById('username').oninput = lwsgs_update;
+	document.getElementById('username').onchange = lwsgs_update;
+	document.getElementById('password').oninput = lwsgs_update;
+	document.getElementById('password').onchange = lwsgs_update;
+	document.getElementById('doreg').onclick = lwsgs_open_registration;
+	document.getElementById('clink').onclick = lwsgs_select_change;
+	document.getElementById('cancel').onclick =lwsgs_cancel_registration;
+	document.getElementById('cancel2').onclick =lwsgs_cancel_registration;
+ 	document.getElementById('rpassword').oninput = lwsgs_rupdate;
+ 	document.getElementById('password2').oninput = lwsgs_rupdate;
+	document.getElementById('rusername').oninput = rupdate_user;
+	document.getElementById('email').oninput  = rupdate_email;
+	document.getElementById('ccurpw').oninput = lwsgs_cupdate;
+	document.getElementById('cpassword').oninput = lwsgs_cupdate;
+	document.getElementById('cpassword2').oninput = lwsgs_cupdate;
+<!--	document.getElementById('cemail').oninput = cupdate_email;-->
+	document.getElementById('showdel').onchange = lwsgs_cupdate;
+
 	if (lwsgs_email)
 		document.getElementById('grav').innerHTML =
 			"<img src=\"https://www.gravatar.com/avatar/" + md5(lwsgs_email) +

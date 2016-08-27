@@ -385,7 +385,7 @@ static const struct lws_protocols protocols[] = {
 		"protocol-lws-messageboard",
 		callback_messageboard,
 		sizeof(struct per_session_data__gs_mb),
-		MAX_MSG_LEN + 128,
+		4096,
 	},
 };
 

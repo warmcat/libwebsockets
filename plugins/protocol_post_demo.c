@@ -159,7 +159,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		p += snprintf((char *)p, end - p, "</body></html>");
 		pss->result_len = p - (unsigned char *)(pss->result + LWS_PRE);
 
-		n = LWS_PRE + 256;
+		n = LWS_PRE + 1024;
 		buffer = malloc(n);
 		p = buffer + LWS_PRE;
 		start = p;

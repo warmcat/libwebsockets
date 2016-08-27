@@ -6,6 +6,7 @@ var structlws__context__creation__info =
     [ "extensions", "structlws__context__creation__info.html#a4a3d1155fc52f5048b481884f6fb947c", null ],
     [ "fd_limit_per_thread", "structlws__context__creation__info.html#a45e63e24c88289e0c8352377ef4d3646", null ],
     [ "gid", "structlws__context__creation__info.html#a9c9d22437de92c197f3cee52912b2c03", null ],
+    [ "headers", "structlws__context__creation__info.html#a8ca0ec6b8675c13849bbdcdc0d50c9a3", null ],
     [ "http_proxy_address", "structlws__context__creation__info.html#aef917c0b23976a264d2474901b4f5aa3", null ],
     [ "http_proxy_port", "structlws__context__creation__info.html#a7b59f2bdc869871e7bde232db94f5ca6", null ],
     [ "iface", "structlws__context__creation__info.html#a75434932bb5df54665ea678eb8ac104a", null ],

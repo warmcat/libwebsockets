@@ -1701,6 +1701,9 @@ struct lws_context_creation_info {
 	 * idle connection will do the PING / PONG roundtrip as soon as
 	 * ws_ping_pong_interval seconds has passed without traffic
 	 */
+	const struct lws_protocol_vhost_options *headers;
+		/**< VHOST: pointer to optional linked list of per-vhost
+		 * canned headers that are added to server responses */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

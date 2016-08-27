@@ -122,8 +122,11 @@ Lwsws Other vhost options</h1>
 <p>The values are derived from /usr/include/openssl/ssl.h </p><div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;# define SSL_OP_NO_TLSv1_1                               0x10000000L</div></div><!-- fragment --><p>would equate to</p>
 <div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;&quot;`ssl-option-set`&quot;: &quot;268435456&quot;</div></div><!-- fragment --><ul>
 <li>"`ssl-option-clear'": "&lt;decimal&gt;" Clears the SSL option flag value for the vhost. It may be used multiple times and OR's the flags together.</li>
+<li>"`headers':: [{ "header1": "h1value", "header2": "h2value" }]</li>
 </ul>
-<h1><a class="anchor" id="lwswsm"></a>
+<p>allows you to set arbitrary headers on every file served by the vhost</p>
+<p>recommended vhost headers for good client security are</p>
+<div class="fragment"><div class="line"><a name="l00001"></a><span class="lineno">    1</span>&#160;  &quot;headers&quot;: [{</div><div class="line"><a name="l00002"></a><span class="lineno">    2</span>&#160;       &quot;Content-Security-Policy&quot;: &quot;script-src &#39;self&#39;&quot;,</div><div class="line"><a name="l00003"></a><span class="lineno">    3</span>&#160;       &quot;X-Content-Type-Options&quot;: &quot;nosniff&quot;,</div><div class="line"><a name="l00004"></a><span class="lineno">    4</span>&#160;       &quot;X-XSS-Protection&quot;: &quot;1; mode=block&quot;,</div><div class="line"><a name="l00005"></a><span class="lineno">    5</span>&#160;       &quot;X-Frame-Options&quot;: &quot;SAMEORIGIN&quot;</div><div class="line"><a name="l00006"></a><span class="lineno">    6</span>&#160;}]</div></div><!-- fragment --><h1><a class="anchor" id="lwswsm"></a>
 Lwsws Mounts</h1>
 <p>Where mounts are given in the vhost definition, then directory contents may be auto-served if it matches the mountpoint.</p>
 <p>Mount protocols are used to control what kind of translation happens</p>

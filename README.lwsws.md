@@ -224,6 +224,22 @@ by the client, you can use "default": "1"
  - "`ssl-option-clear'": "<decimal>"   Clears the SSL option flag value for the vhost.
  It may be used multiple times and OR's the flags together.
 
+ - "`headers':: [{ "header1": "h1value", "header2": "h2value" }] 
+
+allows you to set arbitrary headers on every file served by the vhost
+
+recommended vhost headers for good client security are
+
+```
+                   "headers": [{
+                        "Content-Security-Policy": "script-src 'self'",
+                        "X-Content-Type-Options": "nosniff",
+                        "X-XSS-Protection": "1; mode=block",
+                        "X-Frame-Options": "SAMEORIGIN"
+                 }]
+
+```
+
 @section lwswsm Lwsws Mounts
 
 Where mounts are given in the vhost definition, then directory contents may

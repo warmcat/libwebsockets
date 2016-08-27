@@ -1,7 +1,7 @@
 <html>
  <head>
-  <script src="/lws-common.js"></script>
-  <script src="lwsgs.js"></script>
+  <script src="/lws-common.js" nonce="lwscaro"></script>
+  <script src="lwsgs.js" nonce="lwscaro"></script>
   <style>
 	.body { font-size: 12 }
 	.gstitle { font-size: 18 }
@@ -46,7 +46,7 @@
      	<div id="newmsg">
      		<form action="msg" method="post" target="hidden">
      		New message<br>
-         <textarea id="msg" placeholder="type your message here" cols="40" rows="5" name="msg" onkeyup="mupd()" onchange="mupd()"></textarea><br>
+         <textarea id="msg" placeholder="type your message here" cols="40" rows="5" name="msg"></textarea><br>
          	<input type="submit" id="send" name="send" disabled=1>
          	</form>
      	</div>
@@ -60,9 +60,12 @@
     </table>
    </form>
    <iframe name="hidden" style="display:none"></iframe>
-<script>lwsgs_initial();
+<script nonce="lwscaro">lwsgs_initial();
 document.getElementById("nolog").style.display = !!lwsgs_user ? "none" : "inline-block";
 document.getElementById("logged").style.display = !lwsgs_user ? "none" : "inline-block";
+
+document.getElementById("msg").onkeyup = mupd;
+document.getElementById("msg").onchange = mupd;
 
 var ws;
 

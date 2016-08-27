@@ -334,6 +334,7 @@ lws_create_vhost(struct lws_context *context,
 
 	vh->options = info->options;
 	vh->pvo = info->pvo;
+	vh->headers = info->headers;
 	if (info->keepalive_timeout)
 		vh->keepalive_timeout = info->keepalive_timeout;
 	else

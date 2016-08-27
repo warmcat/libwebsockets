@@ -146,6 +146,7 @@ int
 lws_add_http_header_status(struct lws *wsi, unsigned int code,
 			   unsigned char **p, unsigned char *end)
 {
+	const struct lws_protocol_vhost_options *headers;
 	unsigned char code_and_desc[60];
 	const char *description = "", *p1;
 	int n;
@@ -186,6 +187,17 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 	if (lws_add_http_header_by_name(wsi, NULL, code_and_desc,
 					   n, p, end))
 		return 1;
+
+	headers = wsi->vhost->headers;
+	while (headers) {
+		if (lws_add_http_header_by_name(wsi,
+				(const unsigned char *)headers->name,
+				(unsigned char *)headers->value,
+				strlen(headers->value), p, end))
+			return 1;
+
+		headers = headers->next;
+	}
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
 					 (unsigned char *)

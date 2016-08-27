@@ -18,6 +18,8 @@ function lwsgt_get_appropriate_ws_url()
 function lwsgt_app_hdr(j, bc, ws)
 {
 	var s = "", n, m = 0;
+
+	ws.bcq = 0;
 					
 	for (n = 0; n < j.cols.length; n++)
 		if (!j.cols[n].hide)
@@ -31,12 +33,12 @@ function lwsgt_app_hdr(j, bc, ws)
 			s += " / ";
 			if (!bc[n].url && bc[n].url !== "")
 				s += " " + lws_san(bc[n].name) + " ";
-			else
-				s += " <a href=\"#\"onclick=\"window[\'"+ ws.lwsgt_cb +"\']('" +
-					ws.lwsgt_parent + "', '=" + 
-					lws_san(encodeURI(bc[n].url)) +
-					"', -1, -1); event.preventDefault();\">" +
+			else {
+				s = s + "<a href=# id=\"bc_"+ ws.divname + ws.bcq + "\" h=\"" + ws.lwsgt_cb + "\" p=\""+ws.lwsgt_parent+"\" aa=\"="+
+					lws_san(encodeURI(bc[n].url))+"\" m=\"-1\" n=\"-1\">" +
 					lws_san(bc[n].name) + "</a> ";
+				ws.bcq++;
+			}
 		}
 		s += "</td></tr>";
 	}
@@ -72,7 +74,7 @@ function lwsgt_initial(title, pcol, divname, cb, gname)
 		}
 		this.lwsgt_ws.onmessage = function got_packet(msg) {
 			var s, m, n, j = JSON.parse(msg.data);
-			// document.getElementById("debug").textContent = msg.data;
+			document.getElementById("debug").textContent = msg.data;
 			if (j.cols) {
 				this.hdr = j;
 			}
@@ -80,6 +82,7 @@ function lwsgt_initial(title, pcol, divname, cb, gname)
 				this.breadcrumbs = j.breadcrumbs;
 
 			if (j.data) {
+				var q = 0;
 				s = "<table class=\"lwsgt_table\">" +
 					lwsgt_app_hdr(this.hdr, this.breadcrumbs, this);
 				for (m = 0; m < j.data.length; m++) {
@@ -92,13 +95,13 @@ function lwsgt_initial(title, pcol, divname, cb, gname)
 								s = s + "<td class=\"lwsgt_td\" style=\"text-align: right\">";
 
 							if (this.hdr.cols[n].href &&
-							    !!j.data[m][this.hdr.cols[n].href])
-								s = s + "<a href=\"#\" onclick=\"window[\'"+this.lwsgt_cb +"\']('" +
-									this.lwsgt_parent + "', '" + 
-									lws_san(encodeURI(j.data[m][this.hdr.cols[n].href])) +
-									"', " + m + ", " + n + "); event.preventDefault();\">" + 
+							    !!j.data[m][this.hdr.cols[n].href]) {
+								s = s + "<a href=# id=\""+ this.divname + q + "\" h=\"" + this.lwsgt_cb + "\" p=\""+this.lwsgt_parent+"\" aa=\""+
+									lws_san(encodeURI(j.data[m][this.hdr.cols[n].href]))+"\" m=\""+m+"\" n=\""+n+"\">" +
 									lws_san(j.data[m][this.hdr.cols[n].name]) +
 									"</a>";
+								q++;
+							}
 							else
 								s = s + lws_san(j.data[m][this.hdr.cols[n].name]);
 			
@@ -110,6 +113,12 @@ function lwsgt_initial(title, pcol, divname, cb, gname)
 				}
 				s = s + "</table>";
 				document.getElementById(this.divname).innerHTML = s;
+				for (n = 0; n < q; n++)
+					document.getElementById(this.divname + n).onclick = lwsgt_click_callthru;
+
+				for (n = 0; n < this.bcq; n++)
+					document.getElementById("bc_" + this.divname + n).onclick = lwsgt_click_callthru;
+
 			}		
 		}
 		this.lwsgt_ws.onclose = function(){
@@ -119,3 +128,10 @@ function lwsgt_initial(title, pcol, divname, cb, gname)
 		alert('<p>Error' + exception);  
 	}
 }
+
+function lwsgt_click_callthru()
+{
+	window[this.getAttribute("h")](this.getAttribute("p"), this.getAttribute("aa"), this.getAttribute("m"), this.getAttribute("n"));
+	event.preventDefault();
+}
+
