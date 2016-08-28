@@ -29,7 +29,7 @@ sha1_to_lwsgw_hash(unsigned char *hash, lwsgw_hash *shash)
 	int n;
 
 	for (n = 0; n < 20; n++) {
-		*p++ = hex[hash[n] >> 4];
+		*p++ = hex[(hash[n] >> 4) & 0xf];
 		*p++ = hex[hash[n] & 15];
 	}
 
