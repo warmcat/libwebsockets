@@ -12,7 +12,7 @@ lws_client_connect_2(struct lws *wsi)
 	struct sockaddr_in server_addr4;
 	struct lws_pollfd pfd;
 	struct sockaddr *v;
-	const char *cce = NULL;
+	const char *cce = "";
 	int n, plen = 0;
 	const char *ads;
 
