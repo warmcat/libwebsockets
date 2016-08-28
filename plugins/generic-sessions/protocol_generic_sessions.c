@@ -418,7 +418,8 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pss->login_session.id[0] = '\0';
 		pss->phs.pos = 0;
-		strncpy(pss->onward, (char *)in, sizeof(pss->onward));
+		strncpy(pss->onward, (char *)in, sizeof(pss->onward) - 1);
+		pss->onward[sizeof(pss->onward) - 1] = '\0';
 
 		if (!strcmp((const char *)in, "/lwsgs-forgot")) {
 			lwsgs_handler_forgot(vhd, wsi, pss);
@@ -512,9 +513,10 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 				 sqlite3_errmsg(vhd->pdb));
 			break;
 		}
-		strncpy(sinfo->username, u.username, sizeof(sinfo->username));
-		strncpy(sinfo->email, u.email, sizeof(sinfo->email));
-		strncpy(sinfo->session, sid.id, sizeof(sinfo->session));
+		strncpy(sinfo->username, u.username, sizeof(sinfo->username) - 1);
+		sinfo->username[sizeof(sinfo->username) - 1] = '\0';
+		strncpy(sinfo->email, u.email, sizeof(sinfo->email) - 1);
+		strncpy(sinfo->session, sid.id, sizeof(sinfo->session) - 1);
 		sinfo->mask = lwsgs_get_auth_level(vhd, username);
 		lws_get_peer_simple(wsi, sinfo->ip, sizeof(sinfo->ip));
 	}
