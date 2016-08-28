@@ -921,9 +921,10 @@ bail3:
 	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
 bail2:
-	wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+	if (wsi->protocol)
+		wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 				wsi->user_space, (void *)cce,
-				(unsigned int) (cce ? strlen(cce): 0));
+				(unsigned int)strlen(cce));
 	wsi->already_did_cce = 1;
 
 	lwsl_info("closing connection due to bail2 connection error\n");
