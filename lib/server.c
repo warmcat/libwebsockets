@@ -2659,7 +2659,7 @@ lws_chunked_html_process(struct lws_process_html_args *args,
 			if (!s->pos)
 				s->start = sp;
 			s->swallow[s->pos++] = *sp;
-			if (s->pos == sizeof(s->swallow))
+			if (s->pos == sizeof(s->swallow) - 1)
 				goto skip;
 			for (n = 0; n < s->count_vars; n++)
 				if (!strncmp(s->swallow, s->vars[n], s->pos)) {
