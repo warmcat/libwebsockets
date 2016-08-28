@@ -248,7 +248,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		case LWS_STDERR:
 			n = read(lws_get_socket_fd(args->stdwsi[LWS_STDERR]),
-						   buf, sizeof(buf) - 1);
+						   buf, sizeof(buf) - 2);
 			if (n > 0) {
 				if (buf[n - 1] != '\n')
 					buf[n++] = '\n';
