@@ -420,7 +420,8 @@ just_kill_connection:
 	lws_remove_from_timeout_list(wsi);
 
 	/* checking return redundant since we anyway close */
-	remove_wsi_socket_from_fds(wsi);
+	if (wsi->sock != LWS_SOCK_INVALID)
+		remove_wsi_socket_from_fds(wsi);
 
 	wsi->state = LWSS_DEAD_SOCKET;
 
