@@ -123,7 +123,7 @@ scan_dir(struct lws *wsi, struct per_session_data__tbl_dir *pss)
 
 		if (stat(path, &st)) {
 			lwsl_info("unable to stat %s\n", path);
-			goto bail;
+			continue;
 		}
 		f = malloc(sizeof(*f));
 		f->next = NULL;
@@ -142,8 +142,10 @@ scan_dir(struct lws *wsi, struct per_session_data__tbl_dir *pss)
 		if (f->uri)
 			pss->p += n + 1;
 
-		if (end - pss->p < 100)
+		if (end - pss->p < 100) {
+			free(f);
 			break;
+		}
 
 		icon = " ";
 		if ((S_IFMT & st.st_mode) == S_IFDIR)
@@ -165,7 +167,6 @@ scan_dir(struct lws *wsi, struct per_session_data__tbl_dir *pss)
 		prev = f;
 	}
 
-bail:
 	uv_fs_req_cleanup(&req);
 
 	return ret;
