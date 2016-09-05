@@ -468,7 +468,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 	DWORD bufferlen = cnt;
 	BOOL ok = FALSE;
 
-	buffer = lws_malloc(bufferlen);
+	buffer = lws_malloc(bufferlen * 2);
 	if (!buffer) {
 		lwsl_err("Out of memory\n");
 		return NULL;
