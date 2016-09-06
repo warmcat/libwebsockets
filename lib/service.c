@@ -968,7 +968,8 @@ read:
 
 drain:
 #ifndef LWS_NO_CLIENT
-		if (wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED) {
+		if (wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED &&
+		    !wsi->told_user_closed) {
 
 			/*
 			 * simply mark ourselves as having readable data

@@ -211,6 +211,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		wsi->u.http.fd = LWS_INVALID_FILE;
 		wsi->vhost->protocols->callback(wsi,
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
+		wsi->told_user_closed = 1;
 	}
 	if (wsi->socket_is_permanently_unusable ||
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY ||
@@ -255,10 +256,13 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 					       wsi->user_space, NULL, 0);
 		wsi->vhost->protocols->callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0);
+		wsi->told_user_closed = 1;
 	}
-	if (wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP )
+	if (wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP) {
 		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_CLIENT_HTTP,
 					       wsi->user_space, NULL, 0);
+		wsi->told_user_closed = 1;
+	}
 
 	/*
 	 * are his extensions okay with him closing?  Eg he might be a mux

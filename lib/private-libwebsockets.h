@@ -1383,6 +1383,7 @@ struct lws {
 	unsigned int favoured_pollin:1;
 	unsigned int sending_chunked:1;
 	unsigned int already_did_cce:1;
+	unsigned int told_user_closed:1;
 #if defined(LWS_WITH_ESP8266)
 	unsigned int pending_send_completion:3;
 	unsigned int close_is_pending_send_completion:1;
