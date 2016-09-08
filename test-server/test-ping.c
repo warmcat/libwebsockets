@@ -14,7 +14,7 @@
  * all without asking permission.
  *
  * The test apps are intended to be adapted for use in your code, which
- * may be proprietary.  So unlike the library itself, they are licensed
+ * may be proprietary.	So unlike the library itself, they are licensed
  * Public Domain.
  */
 
@@ -40,6 +40,10 @@
 
 #ifdef __ANDROID__
 #include <termiosh>
+#endif
+
+#ifdef __sun
+#include <sys/termios.h>
 #endif
 
 /*

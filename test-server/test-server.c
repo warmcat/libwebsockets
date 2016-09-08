@@ -14,7 +14,7 @@
  * all without asking permission.
  *
  * The test apps are intended to be adapted for use in your code, which
- * may be proprietary.  So unlike the library itself, they are licensed
+ * may be proprietary.	So unlike the library itself, they are licensed
  * Public Domain.
  */
 
@@ -122,7 +122,7 @@ static struct lws_protocols protocols[] = {
 };
 
 
-/* this shows how to override the lws file operations.  You don't need
+/* this shows how to override the lws file operations.	You don't need
  * to do any of this unless you have a reason (eg, want to serve
  * compressed files without decompressing the whole archive)
  */
@@ -169,20 +169,20 @@ static struct option options[] = {
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "allow-non-ssl",	no_argument,	NULL, 'a' },
-	{ "interface",  required_argument,	NULL, 'i' },
-	{ "closetest",  no_argument,		NULL, 'c' },
+	{ "interface",	required_argument,	NULL, 'i' },
+	{ "closetest",	no_argument,		NULL, 'c' },
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
 	{ "ssl-ca",  required_argument,		NULL, 'A' },
 #if defined(LWS_OPENSSL_SUPPORT)
-	{ "ssl-verify-client",  no_argument,		NULL, 'v' },
+	{ "ssl-verify-client",	no_argument,		NULL, 'v' },
 #if defined(LWS_HAVE_SSL_CTX_set1_param)
 	{ "ssl-crl",  required_argument,		NULL, 'R' },
 #endif
 #endif
 	{ "libev",  no_argument,		NULL, 'e' },
 #ifndef LWS_NO_DAEMONIZE
-	{ "daemonize", 	no_argument,		NULL, 'D' },
+	{ "daemonize",	no_argument,		NULL, 'D' },
 #endif
 	{ "resource_path", required_argument,	NULL, 'r' },
 	{ NULL, 0, 0, 0 }
@@ -202,10 +202,15 @@ int main(int argc, char **argv)
 	int opts = 0;
 	int n = 0;
 #ifndef _WIN32
+/* LOG_PERROR is not POSIX standard, and may not be portable */
+#ifdef __sun
+	int syslog_options = LOG_PID;
+#else	     
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
+#endif
 #ifndef LWS_NO_DAEMONIZE
- 	int daemonize = 0;
+	int daemonize = 0;
 #endif
 
 	/*
@@ -226,7 +231,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
-			#ifndef _WIN32
+			#if !defined(_WIN32) && !defined(__sun)
 			syslog_options &= ~LOG_PERROR;
 			#endif
 			break;
@@ -396,7 +401,7 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	/* this shows how to override the lws file operations.  You don't need
+	/* this shows how to override the lws file operations.	You don't need
 	 * to do any of this unless you have a reason (eg, want to serve
 	 * compressed files without decompressing the whole archive)
 	 */

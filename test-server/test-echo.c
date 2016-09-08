@@ -14,7 +14,7 @@
  * all without asking permission.
  *
  * The test apps are intended to be adapted for use in your code, which
- * may be proprietary.  So unlike the library itself, they are licensed
+ * may be proprietary.	So unlike the library itself, they are licensed
  * Public Domain.
  */
 
@@ -216,7 +216,7 @@ static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
-	{ "ssl-cert",	required_argument, 	NULL, 'C' },
+	{ "ssl-cert",	required_argument,	NULL, 'C' },
 	{ "ssl-key",	required_argument,	NULL, 'k' },
 #ifndef LWS_NO_CLIENT
 	{ "client",	required_argument,	NULL, 'c' },
@@ -226,11 +226,11 @@ static struct option options[] = {
 	{ "versa",	no_argument,		NULL, 'v' },
 	{ "uri",	required_argument,	NULL, 'u' },
 	{ "passphrase", required_argument,	NULL, 'P' },
-	{ "interface",  required_argument,	NULL, 'i' },
+	{ "interface",	required_argument,	NULL, 'i' },
 	{ "times",	required_argument,	NULL, 'n' },
 	{ "echogen",	no_argument,		NULL, 'e' },
 #ifndef LWS_NO_DAEMONIZE
-	{ "daemonize", 	no_argument,		NULL, 'D' },
+	{ "daemonize",	no_argument,		NULL, 'D' },
 #endif
 	{ NULL, 0, 0, 0 }
 };
@@ -247,7 +247,12 @@ int main(int argc, char **argv)
 	char ssl_cert[256] = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
 	char ssl_key[256] = LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
 #ifndef _WIN32
+/* LOG_PERROR is not POSIX standard, and may not be portable */
+#ifdef __sun
+	int syslog_options = LOG_PID;
+#else
 	int syslog_options = LOG_PID | LOG_PERROR;
+#endif
 #endif
 	int client = 0;
 	int listen_port = 80;
@@ -310,7 +315,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__sun)
 			syslog_options &= ~LOG_PERROR;
 #endif
 			break;
@@ -354,21 +359,21 @@ int main(int argc, char **argv)
 		case '?':
 		case 'h':
 			fprintf(stderr, "Usage: libwebsockets-test-echo\n"
-				"  --debug      / -d <debug bitfield>\n"
-				"  --port       / -p <port>\n"
-				"  --ssl-cert   / -C <cert path>\n"
-				"  --ssl-key    / -k <key path>\n"
+				"  --debug	/ -d <debug bitfield>\n"
+				"  --port	/ -p <port>\n"
+				"  --ssl-cert	/ -C <cert path>\n"
+				"  --ssl-key	/ -k <key path>\n"
 #ifndef LWS_NO_CLIENT
-				"  --client     / -c <server IP>\n"
-				"  --ratems     / -r <rate in ms>\n"
+				"  --client	/ -c <server IP>\n"
+				"  --ratems	/ -r <rate in ms>\n"
 #endif
-				"  --ssl        / -s\n"
+				"  --ssl	/ -s\n"
 				"  --passphrase / -P <passphrase>\n"
-				"  --interface  / -i <interface>\n"
-				"  --uri        / -u <uri path>\n"
-				"  --times      / -n <-1 unlimited or times to echo>\n"
+				"  --interface	/ -i <interface>\n"
+				"  --uri	/ -u <uri path>\n"
+				"  --times	/ -n <-1 unlimited or times to echo>\n"
 #ifndef LWS_NO_DAEMONIZE
-				"  --daemonize  / -D\n"
+				"  --daemonize	/ -D\n"
 #endif
 			);
 			exit(1);

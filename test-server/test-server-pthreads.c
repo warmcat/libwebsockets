@@ -14,7 +14,7 @@
  * all without asking permission.
  *
  * The test apps are intended to be adapted for use in your code, which
- * may be proprietary.  So unlike the library itself, they are licensed
+ * may be proprietary.	So unlike the library itself, they are licensed
  * Public Domain.
  */
 
@@ -45,7 +45,7 @@ char crl_path[1024] = "";
 
 /*
  * This mutex lock protects code that changes or relies on wsi list outside of
- * the service thread.  The service thread will acquire it when changing the
+ * the service thread.	The service thread will acquire it when changing the
  * wsi list and other threads should acquire it while dereferencing wsis or
  * calling apis like lws_callback_on_writable_all_protocol() which
  * use the wsi list and wsis from a different thread context.
@@ -176,12 +176,12 @@ static struct option options[] = {
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
 	{ "allow-non-ssl",	no_argument,	NULL, 'a' },
-	{ "interface",  required_argument,	NULL, 'i' },
-	{ "closetest",  no_argument,		NULL, 'c' },
+	{ "interface",	required_argument,	NULL, 'i' },
+	{ "closetest",	no_argument,		NULL, 'c' },
 	{ "libev",  no_argument,		NULL, 'e' },
 	{ "threads",  required_argument,	NULL, 'j' },
 #ifndef LWS_NO_DAEMONIZE
-	{ "daemonize", 	no_argument,		NULL, 'D' },
+	{ "daemonize",	no_argument,		NULL, 'D' },
 #endif
 	{ "resource_path", required_argument,	NULL, 'r' },
 	{ NULL, 0, 0, 0 }
@@ -195,16 +195,21 @@ int main(int argc, char **argv)
 	pthread_t pthread_dumb, pthread_service[32];
 	char cert_path[1024];
 	char key_path[1024];
- 	int threads = 1;
+	int threads = 1;
 	int use_ssl = 0;
 	void *retval;
 	int opts = 0;
 	int n = 0;
 #ifndef _WIN32
+/* LOG_PERROR is not POSIX standard, and may not be portable */
+#ifdef __sun
+	int syslog_options = LOG_PID;
+#else
 	int syslog_options = LOG_PID | LOG_PERROR;
 #endif
+#endif
 #ifndef LWS_NO_DAEMONIZE
- 	int daemonize = 0;
+	int daemonize = 0;
 #endif
 
 	/*
@@ -235,7 +240,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
-			#ifndef _WIN32
+			#if !defined(_WIN32) && !defined(__sun)
 			syslog_options &= ~LOG_PERROR;
 			#endif
 			break;
