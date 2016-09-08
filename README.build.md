@@ -100,6 +100,20 @@ compiled in, use
 	$ cmake .. -DCMAKE_BUILD_TYPE=DEBUG
 ```
 
+       **NOTE6**
+       To build on Solaris the linker needs to be informed to use lib socket
+       and libnsl, and only builds in 64bit mode.
+
+    ```bash
+	$ cmake .. -DCMAKE_C_FLAGS=-m64 -DCMAKE_EXE_LINKER_FLAGS="-lsocket -lnsl"
+    ```
+
+4. Finally you can build using the generated Makefile:
+
+    ```bash
+	$ make
+    ```
+
 @section cmq Quirk of cmake
 
 When changing cmake options, for some reason the only way to get it to see the

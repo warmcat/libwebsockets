@@ -75,6 +75,9 @@
 /* Define to 1 if you have the <sys/socket.h> header file. */
 #cmakedefine LWS_HAVE_SYS_SOCKET_H
 
+/* Define to 1 if you have the <sys/sockio.h> header file. */
+#cmakedefine LWS_HAVE_SYS_SOCKIO_H
+
 /* Define to 1 if you have the <sys/stat.h> header file. */
 #cmakedefine LWS_HAVE_SYS_STAT_H
 
