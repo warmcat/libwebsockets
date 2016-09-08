@@ -215,7 +215,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 #if defined(__APPLE__) || \
     defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || \
     defined(__NetBSD__) || \
-        defined(__CYGWIN__) || defined(__OpenBSD__)
+        defined(__CYGWIN__) || defined(__OpenBSD__) || defined (__sun)
 
 		/*
 		 * didn't find a way to set these per-socket, need to
@@ -242,10 +242,13 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 
 	/* Disable Nagle */
 	optval = 1;
-#if !defined(__APPLE__) && \
-    !defined(__FreeBSD__) && !defined(__FreeBSD_kernel__) && \
-    !defined(__NetBSD__) && \
-    !defined(__OpenBSD__)
+#if defined (__sun)
+	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
+		return 1;
+#elif !defined(__APPLE__) && \
+      !defined(__FreeBSD__) && !defined(__FreeBSD_kernel__) &&        \
+      !defined(__NetBSD__) && \
+      !defined(__OpenBSD__)
 	if (setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
 		return 1;
 #else
