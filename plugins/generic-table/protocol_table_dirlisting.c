@@ -152,7 +152,7 @@ scan_dir(struct lws *wsi, struct per_session_data__tbl_dir *pss)
 			icon = "&#x1f4c2;";
 
 		f->icon = pss->p;
-		n = snprintf(pss->p, end - pss->p, icon);
+		n = snprintf(pss->p, end - pss->p, "%s", icon);
 		pss->p += n + 1;
 
 		f->date = pss->p;
