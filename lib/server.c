@@ -1853,8 +1853,11 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 
 		/* consume payload bytes efficiently */
 		if (wsi->lws_rx_parse_state ==
-		    LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED)
-			lws_payload_until_length_exhausted(wsi, buf, &len);
+		    LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED) {
+			m = lws_payload_until_length_exhausted(wsi, buf, &len);
+			if (wsi->rxflow_buffer)
+				wsi->rxflow_pos += m;
+		}
 
 		/* process the byte */
 		m = lws_rx_sm(wsi, *(*buf)++);
