@@ -1455,7 +1455,7 @@ lws_remaining_packet_payload(struct lws *wsi)
  * to expect in that state and can deal with it in bulk more efficiently.
  */
 
-void
+int
 lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf,
 				   size_t *len)
 {
@@ -1480,7 +1480,7 @@ lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf,
 
 	/* we want to leave 1 byte for the parser to handle properly */
 	if (avail <= 1)
-		return;
+		return 0;
 
 	avail--;
 	rx_ubuf = wsi->u.ws.rx_ubuf + LWS_PRE + wsi->u.ws.rx_ubuf_head;
@@ -1510,4 +1510,6 @@ lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf,
 	wsi->u.ws.rx_ubuf_head += avail;
 	wsi->u.ws.rx_packet_length -= avail;
 	*len -= avail;
+
+	return avail;
 }
