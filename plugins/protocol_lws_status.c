@@ -148,6 +148,23 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 			if (pss->subsequent)
 				*p++ = ',';
 			pss->subsequent = 1;
+
+			m = 0;
+			pss2 = vhd->live_pss_list;
+			while (pss2) {
+				if (pss2 == pss->walk_next) {
+					m = 1;
+					break;
+				}
+				pss2 = pss2->next;
+			}
+			if (!m) {
+				/* our next guy went away */
+				pss->walk = WALK_FINAL;
+				pss->changed_partway = 1;
+				break;
+			}
+
 			lws_get_peer_simple(pss->walk_next->wsi, ip, sizeof(ip));
 			p += snprintf(p, end - p,
 					"{\"peer\":\"%s\",\"time\":\"%ld\","
