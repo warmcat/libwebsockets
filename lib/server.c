@@ -1554,6 +1554,8 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 	 */
 	if ((context->vhost_list->protocols[0].callback)(new_wsi,
 	     LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, NULL, NULL, 0)) {
+		/* force us off the timeout list by hand */
+		lws_set_timeout(new_wsi, NO_PENDING_TIMEOUT, 0);
 		compatible_close(new_wsi->sock);
 		lws_free(new_wsi);
 		return NULL;
