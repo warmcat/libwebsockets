@@ -130,7 +130,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		switch (pss->walk) {
 		case WALK_INITIAL:
 			n = LWS_WRITE_TEXT | LWS_WRITE_NO_FIN;;
-			p += snprintf(p, end - p,
+			p += lws_snprintf(p, end - p,
 				      "{ \"version\":\"%s\","
 				      " \"hostname\":\"%s\","
 				      " \"wsi\":\"%d\", \"conns\":[",
@@ -166,7 +166,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			lws_get_peer_simple(pss->walk_next->wsi, ip, sizeof(ip));
-			p += snprintf(p, end - p,
+			p += lws_snprintf(p, end - p,
 					"{\"peer\":\"%s\",\"time\":\"%ld\","
 					"\"ua\":\"%s\"}",
 					ip, (unsigned long)pss->walk_next->time_est,

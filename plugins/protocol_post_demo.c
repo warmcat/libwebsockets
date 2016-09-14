@@ -147,16 +147,16 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			"<table><tr><td>Name</td><td>Length</td><td>Value</td></tr>");
 
 		for (n = 0; n < ARRAY_SIZE(param_names); n++)
-			p += snprintf((char *)p, end - p,
+			p += lws_snprintf((char *)p, end - p,
 				    "<tr><td><b>%s</b></td><td>%d</td><td>%s</td></tr>",
 				    param_names[n],
 				    lws_spa_get_length(pss->spa, n),
 				    lws_spa_get_string(pss->spa, n));
 
-		p += snprintf((char *)p, end - p, "</table><br><b>filename:</b> %s, <b>length</b> %ld",
+		p += lws_snprintf((char *)p, end - p, "</table><br><b>filename:</b> %s, <b>length</b> %ld",
 				pss->filename, pss->file_length);
 
-		p += snprintf((char *)p, end - p, "</body></html>");
+		p += lws_snprintf((char *)p, end - p, "</body></html>");
 		pss->result_len = p - (unsigned char *)(pss->result + LWS_PRE);
 
 		n = LWS_PRE + 1024;

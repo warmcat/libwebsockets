@@ -10,5 +10,6 @@ var group__misc =
     [ "lws_now_secs", "group__misc.html#ga33bf2635033710b25f931b57ed663e1e", null ],
     [ "lws_parse_uri", "group__misc.html#ga1ec0d9faac5d3a5824d765c287c043aa", null ],
     [ "lws_set_allocator", "group__misc.html#gab321ed812f46f6dc7ef9e3ca6f00cf1b", null ],
+    [ "lws_snprintf", "group__misc.html#ga9f37d0e357de2ab4170723fcdb665d21", null ],
     [ "lws_wsi_user", "group__misc.html#gaa194584fff9698f3b280658f770ccd0f", null ]
 ];

@@ -247,7 +247,7 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
-	a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
+	a->p += lws_snprintf(a->p, a->end - a->p, "%s", ctx->buf);
 	*(a->p)++ = '\0';
 
 	return 0;
@@ -613,11 +613,11 @@ dostring:
 			n = a->end - a->p;
 		strncpy(a->p, p, n);
 		a->p += n;
-		a->p += snprintf(a->p, a->end - a->p, "%s", LWS_INSTALL_DATADIR);
+		a->p += lws_snprintf(a->p, a->end - a->p, "%s", LWS_INSTALL_DATADIR);
 		p += n + strlen(ESC_INSTALL_DATADIR);
 	}
 
-	a->p += snprintf(a->p, a->end - a->p, "%s", p);
+	a->p += lws_snprintf(a->p, a->end - a->p, "%s", p);
 	*(a->p)++ = '\0';
 
 	return 0;
@@ -684,7 +684,7 @@ lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 	}
 
 	while (uv_fs_scandir_next(&req, &dent) != UV_EOF) {
-		snprintf(path, sizeof(path) - 1, "%s/%s", d, dent.name);
+		lws_snprintf(path, sizeof(path) - 1, "%s/%s", d, dent.name);
 		ret = lwsws_get_config(user, path, paths, count_paths, cb);
 		if (ret)
 			goto bail;
@@ -724,7 +724,7 @@ lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 	}
 
 	for (i = 0; i < n; i++) {
-		snprintf(path, sizeof(path) - 1, "%s/%s", d,
+		lws_snprintf(path, sizeof(path) - 1, "%s/%s", d,
 			 namelist[i]->d_name);
 		ret = lwsws_get_config(user, path, paths, count_paths, cb);
 		if (ret) {
@@ -773,11 +773,11 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 		old++;
 	}
 
-	snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
+	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
 	if (lwsws_get_config(&a, dd, paths_global,
 			     ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
 		return 1;
-	snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
+	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
 	if (lwsws_get_config_d(&a, dd, paths_global,
 			       ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
 		return 1;
@@ -808,11 +808,11 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	a.protocols = info->protocols;
 	a.extensions = info->extensions;
 
-	snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
+	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
 	if (lwsws_get_config(&a, dd, paths_vhosts,
 			     ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
 		return 1;
-	snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
+	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
 	if (lwsws_get_config_d(&a, dd, paths_vhosts,
 			       ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
 		return 1;

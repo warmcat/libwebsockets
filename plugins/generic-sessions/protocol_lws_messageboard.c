@@ -132,7 +132,7 @@ post_message(struct lws *wsi, struct per_vhost_data__gs_mb *vhd,
 	vhd->gsp->callback(wsi, LWS_CALLBACK_SESSION_INFO,
 			   pss->pss_gs, &sinfo, 0);
 
-	snprintf((char *)s, sizeof(s) - 1,
+	lws_snprintf((char *)s, sizeof(s) - 1,
 		 "insert into msg(time, username, email, ip, content)"
 		 " values (%lu, '%s', '%s', '%s', '%s');",
 		 (unsigned long)lws_now_secs(), sinfo.username, sinfo.email, sinfo.ip,
@@ -253,16 +253,16 @@ callback_messageboard(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			/* format in JSON */
-			p += snprintf(p, end - p,
+			p += lws_snprintf(p, end - p,
 					"{\"idx\":\"%lu\",\"time\":\"%lu\",",
 					m.idx, m.time);
-			p += snprintf(p, end - p, " \"username\":\"%s\",",
+			p += lws_snprintf(p, end - p, " \"username\":\"%s\",",
 				lws_json_purify(e, m.username, sizeof(e)));
-			p += snprintf(p, end - p, " \"email\":\"%s\",",
+			p += lws_snprintf(p, end - p, " \"email\":\"%s\",",
 				lws_json_purify(e, m.email, sizeof(e)));
-			p += snprintf(p, end - p, " \"ip\":\"%s\",",
+			p += lws_snprintf(p, end - p, " \"ip\":\"%s\",",
 				lws_json_purify(e, m.ip, sizeof(e)));
-			p += snprintf(p, end - p, " \"content\":\"%s\"}",
+			p += lws_snprintf(p, end - p, " \"content\":\"%s\"}",
 				lws_json_purify(e, m.content, sizeof(e)));
 
 			if (lws_write(wsi, (unsigned char *)start, p - start,

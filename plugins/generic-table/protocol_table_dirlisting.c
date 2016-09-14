@@ -95,7 +95,7 @@ scan_dir(struct lws *wsi, struct per_session_data__tbl_dir *pss)
 
 	lws_protocol_dir_kill_monitor(pss);
 
-	snprintf(path, sizeof(path) - 1, "%s/%s", pss->dir, pss->reldir);
+	lws_snprintf(path, sizeof(path) - 1, "%s/%s", pss->dir, pss->reldir);
 	//lwsl_notice("path = %s\n", path);
 
 	pss->event_req = malloc(sizeof(*pss->event_req));
@@ -119,7 +119,7 @@ scan_dir(struct lws *wsi, struct per_session_data__tbl_dir *pss)
 	pss->p = pss->strings;
 
 	while (uv_fs_scandir_next(&req, &dent) != UV_EOF) {
-		snprintf(path, sizeof(path) - 1, "%s/%s/%s", pss->dir, pss->reldir, dent.name);
+		lws_snprintf(path, sizeof(path) - 1, "%s/%s/%s", pss->dir, pss->reldir, dent.name);
 
 		if (stat(path, &st)) {
 			lwsl_info("unable to stat %s\n", path);
@@ -128,15 +128,15 @@ scan_dir(struct lws *wsi, struct per_session_data__tbl_dir *pss)
 		f = malloc(sizeof(*f));
 		f->next = NULL;
 		f->name = pss->p;
-		n = snprintf(pss->p, end - pss->p, "%s", dent.name);
+		n = lws_snprintf(pss->p, end - pss->p, "%s", dent.name);
 		pss->p += n + 1;
 		f->uri = NULL;
 		if ((S_IFMT & st.st_mode) == S_IFDIR) {
-			n = snprintf(pss->p, end - pss->p, "=%s/%s", pss->reldir, dent.name);
+			n = lws_snprintf(pss->p, end - pss->p, "=%s/%s", pss->reldir, dent.name);
 			f->uri = pss->p;
 		}
 		if (lws_get_mimetype(dent.name, NULL)) {
-			n = snprintf(pss->p, end - pss->p, "./serve/%s/%s", pss->reldir, dent.name);
+			n = lws_snprintf(pss->p, end - pss->p, "./serve/%s/%s", pss->reldir, dent.name);
 			f->uri = pss->p;
 		}
 		if (f->uri)
@@ -152,13 +152,13 @@ scan_dir(struct lws *wsi, struct per_session_data__tbl_dir *pss)
 			icon = "&#x1f4c2;";
 
 		f->icon = pss->p;
-		n = snprintf(pss->p, end - pss->p, "%s", icon);
+		n = lws_snprintf(pss->p, end - pss->p, "%s", icon);
 		pss->p += n + 1;
 
 		f->date = pss->p;
 		tm = gmtime(&st.st_mtime);
 		strftime(da, sizeof(da), "%Y-%b-%d %H:%M:%S %z", tm);
-		n = snprintf(pss->p, end - pss->p, "%s", da);
+		n = lws_snprintf(pss->p, end - pss->p, "%s", da);
 		pss->p += n + 1;
 
 		f->size = st.st_size;
@@ -244,11 +244,11 @@ callback_lws_table_dirlisting(struct lws *wsi, enum lws_callback_reasons reason,
 		if (scan_dir(wsi, pss))
 			return 1;
 
-		p += snprintf(p, end - p, "{\"breadcrumbs\":[");
+		p += lws_snprintf(p, end - p, "{\"breadcrumbs\":[");
 		q = pss->reldir;
 
 		if (!q[0])
-			p += snprintf(p, end - p, "{\"name\":\"top\"}");
+			p += lws_snprintf(p, end - p, "{\"name\":\"top\"}");
 
 		while (*q) {
 
@@ -280,48 +280,48 @@ callback_lws_table_dirlisting(struct lws *wsi, enum lws_callback_reasons reason,
 				q = q1 + 1;
 			}
 			if (!first)
-				p += snprintf(p, end - p, ",");
+				p += lws_snprintf(p, end - p, ",");
 			else
 				first = 0;
 
-			p += snprintf(p, end - p, "{\"name\":\"%s\"",
+			p += lws_snprintf(p, end - p, "{\"name\":\"%s\"",
 					lws_json_purify(e, s, sizeof(e)));
 			if (*q) {
 				w = s1;
 				while (w[0] == '/' && w[1] == '/')
 					w++;
-				p += snprintf(p, end - p, ",\"url\":\"%s\"",
+				p += lws_snprintf(p, end - p, ",\"url\":\"%s\"",
 					lws_json_purify(e, w, sizeof(e)));
 			}
-			p += snprintf(p, end - p, "}");
+			p += lws_snprintf(p, end - p, "}");
 			if (!q1)
 				break;
 		}
 
-		p += snprintf(p, end - p, "],\"data\":[");
+		p += lws_snprintf(p, end - p, "],\"data\":[");
 
 		f = pss->base.next;
 		while (f) {
 			/* format in JSON */
-			p += snprintf(p, end - p, "{\"Icon\":\"%s\",",
+			p += lws_snprintf(p, end - p, "{\"Icon\":\"%s\",",
 					lws_json_purify(e, f->icon, sizeof(e)));
-			p += snprintf(p, end - p, " \"Date\":\"%s\",",
+			p += lws_snprintf(p, end - p, " \"Date\":\"%s\",",
 				lws_json_purify(e, f->date, sizeof(e)));
-			p += snprintf(p, end - p, " \"Size\":\"%ld\",",
+			p += lws_snprintf(p, end - p, " \"Size\":\"%ld\",",
 				f->size);
 			if (f->uri)
-				p += snprintf(p, end - p, " \"uri\":\"%s\",",
+				p += lws_snprintf(p, end - p, " \"uri\":\"%s\",",
 						lws_json_purify(e, f->uri, sizeof(e)));
-			p += snprintf(p, end - p, " \"Name\":\"%s\"}",
+			p += lws_snprintf(p, end - p, " \"Name\":\"%s\"}",
 				lws_json_purify(e, f->name, sizeof(e)));
 
 			f = f->next;
 
 			if (f)
-				p += snprintf(p, end - p, ",");
+				p += lws_snprintf(p, end - p, ",");
 		}
 
-		p += snprintf(p, end - p, "]}");
+		p += lws_snprintf(p, end - p, "]}");
 
 		free_scan_dir(pss);
 

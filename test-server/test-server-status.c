@@ -42,7 +42,7 @@ update_status(struct lws *wsi, struct per_session_data__lws_status *pss)
 	struct tm tm;
 #endif
 
-	p += snprintf(p, 512, " { %s, \"wsi\":\"%d\", \"conns\":[",
+	p += lws_snprintf(p, 512, " { %s, \"wsi\":\"%d\", \"conns\":[",
 		     server_info, live_wsi);
 
 	/* render the list */
@@ -67,7 +67,7 @@ update_status(struct lws *wsi, struct per_session_data__lws_status *pss)
 		if (subsequent)
 			*p++ = ',';
 		subsequent = 1;
-		p += snprintf(p, sizeof(cache) - (p - start) - 1,
+		p += lws_snprintf(p, sizeof(cache) - (p - start) - 1,
 				"{\"peer\":\"%s\",\"time\":\"%s\","
 				"\"ua\":\"%s\"}",
 			     (*pp)->ip, date, (*pp)->user_agent);

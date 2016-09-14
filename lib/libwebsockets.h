@@ -149,7 +149,7 @@ struct sockaddr_in;
 #define LWS_O_RDONLY _O_RDONLY
 
 #if !defined(_MSC_VER) || _MSC_VER < 1900 /* Visual Studio 2015 already defines this in <stdio.h> */
-#define snprintf _snprintf
+#define lws_snprintf _snprintf
 #endif
 
 #ifndef __func__
@@ -3566,6 +3566,20 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 * Various APIs outside of other categories
 */
 ///@{
+
+/**
+ * lws_snprintf(): snprintf that truncates the returned length too
+ *
+ * \param str: destination buffer
+ * \param size: bytes left in destination buffer
+ * \param format: format string
+ * \param ...: args for format
+ *
+ * This lets you correctly truncate buffers by concatenating lengths, if you
+ * reach the limit the reported length doesn't exceed the limit.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_snprintf(char *str, size_t size, const char *format, ...);
 
 /**
  * lws_get_random(): fill a buffer with platform random data

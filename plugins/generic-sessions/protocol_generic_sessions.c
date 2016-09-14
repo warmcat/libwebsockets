@@ -77,7 +77,7 @@ lwsgs_email_cb_get_body(struct lws_email *email, char *buf, int len)
 	a.buf = buf;
 	a.len = len;
 
-	snprintf(ss, sizeof(ss) - 1,
+	lws_snprintf(ss, sizeof(ss) - 1,
 		 "select content from email where username='%s';",
 		 lws_sql_purify(esc, vhd->u.username, sizeof(esc) - 1));
 
@@ -100,7 +100,7 @@ lwsgs_email_cb_sent(struct lws_email *email)
 	char s[200], esc[50];
 
 	/* mark the user as having sent the verification email */
-	snprintf(s, sizeof(s) - 1,
+	lws_snprintf(s, sizeof(s) - 1,
 		 "update users set verified=1 where username='%s' and verified==0;",
 		 lws_sql_purify(esc, vhd->u.username, sizeof(esc) - 1));
 	if (sqlite3_exec(vhd->pdb, s, NULL, NULL, NULL) != SQLITE_OK) {
@@ -109,7 +109,7 @@ lwsgs_email_cb_sent(struct lws_email *email)
 		return 1;
 	}
 
-	snprintf(s, sizeof(s) - 1,
+	lws_snprintf(s, sizeof(s) - 1,
 		 "delete from email where username='%s';",
 		 lws_sql_purify(esc, vhd->u.username, sizeof(esc) - 1));
 	if (sqlite3_exec(vhd->pdb, s, NULL, NULL, NULL) != SQLITE_OK) {
@@ -132,7 +132,7 @@ lwsgs_email_cb_on_next(struct lws_email *email)
 	/*
 	 * users not verified in 24h get deleted
 	 */
-	snprintf(s, sizeof(s) - 1, "delete from users where ((verified != %d)"
+	lws_snprintf(s, sizeof(s) - 1, "delete from users where ((verified != %d)"
 		 " and (creation_time <= %lu));", LWSGS_VERIFIED_ACCEPTED,
 		 (unsigned long)now - vhd->timeout_email_secs);
 	if (sqlite3_exec(vhd->pdb, s, NULL, NULL, NULL) != SQLITE_OK) {
@@ -141,7 +141,7 @@ lwsgs_email_cb_on_next(struct lws_email *email)
 		return 1;
 	}
 
-	snprintf(s, sizeof(s) - 1, "update users set token_time=0 where "
+	lws_snprintf(s, sizeof(s) - 1, "update users set token_time=0 where "
 		 "(token_time <= %lu);",
 		 (unsigned long)now - vhd->timeout_email_secs);
 	if (sqlite3_exec(vhd->pdb, s, NULL, NULL, NULL) != SQLITE_OK) {
@@ -151,14 +151,14 @@ lwsgs_email_cb_on_next(struct lws_email *email)
 	}
 
 	vhd->u.username[0] = '\0';
-	snprintf(s, sizeof(s) - 1, "select username from email limit 1;");
+	lws_snprintf(s, sizeof(s) - 1, "select username from email limit 1;");
 	if (sqlite3_exec(vhd->pdb, s, lwsgs_lookup_callback_user, &vhd->u,
 			 NULL) != SQLITE_OK) {
 		lwsl_err("Unable to lookup user: %s\n", sqlite3_errmsg(vhd->pdb));
 		return 1;
 	}
 
-	snprintf(s, sizeof(s) - 1,
+	lws_snprintf(s, sizeof(s) - 1,
 		 "select username, creation_time, email, ip, verified, token"
 		 " from users where username='%s' limit 1;",
 		 lws_sql_purify(esc, vhd->u.username, sizeof(esc) - 1));
@@ -207,7 +207,7 @@ lwsgs_subst(void *data, int index)
 			a->pss->delete_session = sid;
 			return NULL;
 		}
-		snprintf(s, sizeof(s) - 1, "select username,email "
+		lws_snprintf(s, sizeof(s) - 1, "select username,email "
 			 "from users where username = '%s';",
 			 lws_sql_purify(esc, a->pss->result, sizeof(esc) - 1));
 		if (sqlite3_exec(a->vhd->pdb, s, lwsgs_lookup_callback_user,
@@ -467,7 +467,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 				if (lws_hdr_copy(wsi, cookie, sizeof(cookie) - 1,
 					     WSI_TOKEN_HOST) < 0)
 					return 1;
-				snprintf(pss->onward, sizeof(pss->onward) - 1,
+				lws_snprintf(pss->onward, sizeof(pss->onward) - 1,
 					 "%s%s%s", oprot[lws_is_ssl(wsi)],
 					    cookie, args->p);
 				lwsl_notice("redirecting to ourselves with cookie refresh\n");
@@ -504,7 +504,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lwsgs_lookup_session(vhd, &sid, username, sizeof(username)))
 			break;
 
-		snprintf(s, sizeof(s) - 1,
+		lws_snprintf(s, sizeof(s) - 1,
 			 "select username, email from users where username='%s';",
 			 username);
 		if (sqlite3_exec(vhd->pdb, s, lwsgs_lookup_callback_user, &u, NULL) !=

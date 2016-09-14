@@ -484,6 +484,7 @@ var libwebsockets_8h =
     [ "lws_set_proxy", "group__context-and-vhost.html#ga7e9d5405547a457d86e0b4f0ae2bb1c4", null ],
     [ "lws_set_timeout", "group__timeout.html#gaced9f9237f6172fed9f730a2af51345a", null ],
     [ "lws_SHA1", "group__sha.html#ga7b09ab74646266f0b555103b3bb8dfe5", null ],
+    [ "lws_snprintf", "group__misc.html#ga9f37d0e357de2ab4170723fcdb665d21", null ],
     [ "lws_spa_create", "group__form-parsing.html#ga162f86762173a2bc8c28497941d74815", null ],
     [ "lws_spa_destroy", "group__form-parsing.html#gaaa482f07dad3f04b391cccf0a814e13b", null ],
     [ "lws_spa_finalize", "group__form-parsing.html#ga83835bf250ee3d4a60f36a182f2b8d24", null ],

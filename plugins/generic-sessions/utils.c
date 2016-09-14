@@ -64,16 +64,16 @@ lwsgw_cookie_from_session(lwsgw_hash *sid, time_t expires, char **p, char *end)
 	struct tm *tm = gmtime(&expires);
 	time_t n = lws_now_secs();
 
-	*p += snprintf(*p, end - *p, "id=%s;Expires=", sid->id);
+	*p += lws_snprintf(*p, end - *p, "id=%s;Expires=", sid->id);
 #ifdef WIN32
 	*p += strftime(*p, end - *p, "%Y %H:%M %Z", tm);
 #else
 	*p += strftime(*p, end - *p, "%F %H:%M %Z", tm);
 #endif
-	*p += snprintf(*p, end - *p, ";path=/");
-	*p += snprintf(*p, end - *p, ";Max-Age=%lu", (unsigned long)(expires - n));
-//	*p += snprintf(*p, end - *p, ";secure");
-	*p += snprintf(*p, end - *p, ";HttpOnly");
+	*p += lws_snprintf(*p, end - *p, ";path=/");
+	*p += lws_snprintf(*p, end - *p, ";Max-Age=%lu", (unsigned long)(expires - n));
+//	*p += lws_snprintf(*p, end - *p, ";secure");
+	*p += lws_snprintf(*p, end - *p, ";HttpOnly");
 }
 
 int
@@ -87,7 +87,7 @@ lwsgw_expire_old_sessions(struct per_vhost_data__gs *vhd)
 
 	vhd->last_session_expire = n;
 
-	snprintf(s, sizeof(s) - 1,
+	lws_snprintf(s, sizeof(s) - 1,
 		 "delete from sessions where "
 		 "expire <= %lu;", (unsigned long)n);
 
@@ -112,7 +112,7 @@ lwsgw_update_session(struct per_vhost_data__gs *vhd,
 	else
 		n += vhd->timeout_anon_absolute_secs;
 
-	snprintf(s, sizeof(s) - 1,
+	lws_snprintf(s, sizeof(s) - 1,
 		 "update sessions set expire=%lu,username='%s' where name='%s';",
 		 (unsigned long)n,
 		 lws_sql_purify(esc, user, sizeof(esc)),
@@ -222,7 +222,7 @@ lwsgs_lookup_session(struct per_vhost_data__gs *vhd,
 
 	lwsgw_expire_old_sessions(vhd);
 
-	snprintf(s, sizeof(s) - 1,
+	lws_snprintf(s, sizeof(s) - 1,
 		 "select username from sessions where name = '%s';",
 		 lws_sql_purify(esc, sid->id, sizeof(esc) - 1));
 
@@ -300,7 +300,7 @@ lwsgs_lookup_user(struct per_vhost_data__gs *vhd,
 	char s[150], esc[50];
 
 	u->username[0] = '\0';
-	snprintf(s, sizeof(s) - 1,
+	lws_snprintf(s, sizeof(s) - 1,
 		 "select username,creation_time,ip,email,verified,pwhash,pwsalt,last_forgot_validated "
 		 "from users where username = '%s';",
 		 lws_sql_purify(esc, username, sizeof(esc) - 1));
@@ -340,7 +340,7 @@ lwsgs_new_session_id(struct per_vhost_data__gs *vhd,
 
 	sha1_to_lwsgw_hash(sid_rand, sid);
 
-	snprintf(s, sizeof(s) - 1,
+	lws_snprintf(s, sizeof(s) - 1,
 		 "insert into sessions(name, username, expire) "
 		 "values ('%s', '%s', %u);",
 		 lws_sql_purify(esc, sid->id, sizeof(esc) - 1),
@@ -398,7 +398,7 @@ lwsgs_check_credentials(struct per_vhost_data__gs *vhd,
 	lwsl_info("user %s found, salt '%s'\n", username, u.pwsalt.id);
 
 	/* [password in ascii][salt] */
-	n = snprintf((char *)buffer, sizeof(buffer) - 1,
+	n = lws_snprintf((char *)buffer, sizeof(buffer) - 1,
 		     "%s-%s-%s", password, vhd->confounder, u.pwsalt.id);
 
 	/* sha1sum of password + salt */
@@ -439,7 +439,7 @@ lwsgs_hash_password(struct per_vhost_data__gs *vhd,
 	sha1_to_lwsgw_hash(sid_rand, &hash);
 
 	/* [password in ascii][salt] */
-	n = snprintf((char *)buffer, sizeof(buffer) - 1,
+	n = lws_snprintf((char *)buffer, sizeof(buffer) - 1,
 		    "%s-%s-%s", password, vhd->confounder, u->pwsalt.id);
 
 	/* sha1sum of password + salt */

@@ -70,6 +70,8 @@ $(document).ready(function(){initNavTree('group__misc.html','');});
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="func-members"></a>
 Functions</h2></td></tr>
+<tr class="memitem:ga9f37d0e357de2ab4170723fcdb665d21"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__misc.html#ga9f37d0e357de2ab4170723fcdb665d21">lws_snprintf</a> (char *str, size_t size, const char *format,...)</td></tr>
+<tr class="separator:ga9f37d0e357de2ab4170723fcdb665d21"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga58f906c6be0ca80efd813f694569dd4a"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__misc.html#ga58f906c6be0ca80efd813f694569dd4a">lws_get_random</a> (struct lws_context *context, void *buf, int len)</td></tr>
 <tr class="separator:ga58f906c6be0ca80efd813f694569dd4a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gace5171b1dbbc03ec89a98f8afdb5c9af"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__misc.html#gace5171b1dbbc03ec89a98f8afdb5c9af">lws_daemonize</a> (const char *_lock_path)</td></tr>
@@ -390,6 +392,57 @@ LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b
   </table>
   </dd>
 </dl>
+
+</div>
+</div>
+<a class="anchor" id="ga9f37d0e357de2ab4170723fcdb665d21"></a>
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">LWS_VISIBLE LWS_EXTERN int lws_snprintf </td>
+          <td>(</td>
+          <td class="paramtype">char *&#160;</td>
+          <td class="paramname"><em>str</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">size_t&#160;</td>
+          <td class="paramname"><em>size</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const char *&#160;</td>
+          <td class="paramname"><em>format</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">&#160;</td>
+          <td class="paramname"><em>...</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
+<p><a class="el" href="group__misc.html#ga9f37d0e357de2ab4170723fcdb665d21">lws_snprintf()</a>: snprintf that truncates the returned length too</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">str</td><td>destination buffer </td></tr>
+    <tr><td class="paramname">size</td><td>bytes left in destination buffer </td></tr>
+    <tr><td class="paramname">format</td><td>format string </td></tr>
+    <tr><td class="paramname">...</td><td>args for format</td></tr>
+  </table>
+  </dd>
+</dl>
+<p>This lets you correctly truncate buffers by concatenating lengths, if you reach the limit the reported length doesn't exceed the limit. </p>
 
 </div>
 </div>

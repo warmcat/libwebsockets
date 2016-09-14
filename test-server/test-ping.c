@@ -457,7 +457,7 @@ int main(int argc, char **argv)
 	/* create client websockets using dumb increment protocol */
 
 	address = argv[optind];
-	snprintf(ads_port, sizeof(ads_port), "%s:%u",
+	lws_snprintf(ads_port, sizeof(ads_port), "%s:%u",
 		 address, port & 65535);
 	lwsl_notice("Connecting to %s...\n", ads_port);
 	memset(&i, 0, sizeof(i));

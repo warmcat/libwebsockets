@@ -356,7 +356,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 #endif
 	int n;
 
-	snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
+	lws_snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
 #if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266)
 	do {
@@ -377,12 +377,12 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			}
 			sym[len] = '\0';
 			lwsl_debug("symlink %s -> %s\n", path, sym);
-			snprintf(path, sizeof(path) - 1, "%s", sym);
+			lws_snprintf(path, sizeof(path) - 1, "%s", sym);
 		}
 #endif
 		if ((S_IFMT & st.st_mode) == S_IFDIR) {
 			lwsl_debug("default filename append to dir\n");
-			snprintf(path, sizeof(path) - 1, "%s/%s/index.html",
+			lws_snprintf(path, sizeof(path) - 1, "%s/%s/index.html",
 				 origin, uri);
 		}
 
@@ -729,7 +729,7 @@ lws_http_action(struct lws *wsi)
 			else
 				me = "unknown";
 
-			snprintf(wsi->access_log.header_log, l,
+			lws_snprintf(wsi->access_log.header_log, l,
 				 "%s - - [%s] \"%s %s %s\"",
 				 pa, da, me, uri_ptr,
 				 hver[wsi->u.http.request_version]);
@@ -818,11 +818,11 @@ lws_http_action(struct lws *wsi)
 		/* > at start indicates deal with by redirect */
 		if (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
 		    hit->origin_protocol == LWSMPRO_REDIR_HTTPS)
-			n = snprintf((char *)end, 256, "%s%s",
+			n = lws_snprintf((char *)end, 256, "%s%s",
 				    oprot[hit->origin_protocol & 1],
 				    hit->origin);
 		else
-			n = snprintf((char *)end, 256,
+			n = lws_snprintf((char *)end, 256,
 			    "%s%s%s/", oprot[lws_is_ssl(wsi)],
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
 			    uri_ptr);

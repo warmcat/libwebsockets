@@ -249,7 +249,7 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen)
 {
 	unsigned char *p = wsi->sock->proto.tcp->remote_ip;
 
-	snprintf(name, namelen, "%u.%u.%u.%u", p[0], p[1], p[2], p[3]);
+	lws_snprintf(name, namelen, "%u.%u.%u.%u", p[0], p[1], p[2], p[3]);
 
 	return name;
 }

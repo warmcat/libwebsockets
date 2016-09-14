@@ -1124,7 +1124,7 @@ lwsl_timestamp(int level, char *p, int len)
 			continue;
 		now = time_in_microseconds() / 100;
 		if (ptm)
-			n = snprintf(p, len,
+			n = lws_snprintf(p, len,
 				"[%04d/%02d/%02d %02d:%02d:%02d:%04d] %s: ",
 				ptm->tm_year + 1900,
 				ptm->tm_mon + 1,
@@ -1134,7 +1134,7 @@ lwsl_timestamp(int level, char *p, int len)
 				ptm->tm_sec,
 				(int)(now % 10000), log_level_names[n]);
 		else
-			n = snprintf(p, len, "[%llu:%04d] %s: ",
+			n = lws_snprintf(p, len, "[%llu:%04d] %s: ",
 					(unsigned long long) now / 10000,
 					(int)(now % 10000), log_level_names[n]);
 		return n;
@@ -1717,6 +1717,26 @@ lws_finalize_startup(struct lws_context *context)
 	return 0;
 }
 
+int
+lws_snprintf(char *str, size_t size, const char *format, ...)
+{
+	va_list ap;
+	int n;
+
+	if (!size)
+		return 0;
+
+	va_start(ap, format);
+	n = vsnprintf(str, size, format, ap);
+	va_end(ap);
+
+	if (n >= size)
+		return size;
+
+	return n;
+}
+
+
 LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi) {
 #ifdef LWS_WITH_CGI
@@ -1910,18 +1930,18 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		if (uritok < 0)
 			goto bail3;
 
-		snprintf(cgi_path, sizeof(cgi_path) - 1, "REQUEST_URI=%s",
+		lws_snprintf(cgi_path, sizeof(cgi_path) - 1, "REQUEST_URI=%s",
 			 lws_hdr_simple_ptr(wsi, uritok));
 		cgi_path[sizeof(cgi_path) - 1] = '\0';
 		env_array[n++] = cgi_path;
 
 		env_array[n++] = p;
-		p += snprintf(p, end - p, "REQUEST_METHOD=%s",
+		p += lws_snprintf(p, end - p, "REQUEST_METHOD=%s",
 			      meth_names[m]);
 		p++;
 
 		env_array[n++] = p;
-		p += snprintf(p, end - p, "QUERY_STRING=");
+		p += lws_snprintf(p, end - p, "QUERY_STRING=");
 		/* dump the individual URI Arg parameters */
 		m = 0;
 		while (1) {
@@ -1946,55 +1966,55 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		*p++ = '\0';
 
 		env_array[n++] = p;
-		p += snprintf(p, end - p, "PATH_INFO=%s",
+		p += lws_snprintf(p, end - p, "PATH_INFO=%s",
 			      lws_hdr_simple_ptr(wsi, uritok) +
 			      script_uri_path_len);
 		p++;
 	}
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER)) {
 		env_array[n++] = p;
-		p += snprintf(p, end - p, "HTTP_REFERER=%s",
+		p += lws_snprintf(p, end - p, "HTTP_REFERER=%s",
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_REFERER));
 		p++;
 	}
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
 		env_array[n++] = p;
-		p += snprintf(p, end - p, "HTTP_HOST=%s",
+		p += lws_snprintf(p, end - p, "HTTP_HOST=%s",
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 		p++;
 	}
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE)) {
 		env_array[n++] = p;
-		p += snprintf(p, end - p, "HTTP_COOKIE=%s",
+		p += lws_snprintf(p, end - p, "HTTP_COOKIE=%s",
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COOKIE));
 		p++;
 	}
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
 		env_array[n++] = p;
-		p += snprintf(p, end - p, "USER_AGENT=%s",
+		p += lws_snprintf(p, end - p, "USER_AGENT=%s",
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_USER_AGENT));
 		p++;
 	}
 	if (uritok == WSI_TOKEN_POST_URI) {
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
 			env_array[n++] = p;
-			p += snprintf(p, end - p, "CONTENT_TYPE=%s",
+			p += lws_snprintf(p, end - p, "CONTENT_TYPE=%s",
 				      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE));
 			p++;
 		}
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 			env_array[n++] = p;
-			p += snprintf(p, end - p, "CONTENT_LENGTH=%s",
+			p += lws_snprintf(p, end - p, "CONTENT_LENGTH=%s",
 				      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH));
 			p++;
 		}
 	}
 	env_array[n++] = p;
-	p += snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[0]) + 1;
+	p += lws_snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[0]) + 1;
 
 	while (mp_cgienv) {
 		env_array[n++] = p;
-		p += snprintf(p, end - p, "%s=%s", mp_cgienv->name,
+		p += lws_snprintf(p, end - p, "%s=%s", mp_cgienv->name,
 			      mp_cgienv->value);
 		lwsl_debug("   Applying mount-specific cgi env '%s'\n",
 			   env_array[n - 1]);
@@ -2431,7 +2451,7 @@ lws_access_log(struct lws *wsi)
 	if (!p)
 		p = "";
 
-	l = snprintf(ass, sizeof(ass) - 1, "%s %d %lu %s\n",
+	l = lws_snprintf(ass, sizeof(ass) - 1, "%s %d %lu %s\n",
 		     wsi->access_log.header_log,
 		     wsi->access_log.response, wsi->access_log.sent, p);
 
@@ -2475,7 +2495,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 	if (len < 100)
 		return 0;
 
-	buf += snprintf(buf, end - buf,
+	buf += lws_snprintf(buf, end - buf,
 			"{\n \"name\":\"%s\",\n"
 			" \"port\":\"%d\",\n"
 			" \"use_ssl\":\"%d\",\n"
@@ -2501,11 +2521,11 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 	if (vh->mount_list) {
 		const struct lws_http_mount *m = vh->mount_list;
 
-		buf += snprintf(buf, end - buf, ",\n \"mounts\":[");
+		buf += lws_snprintf(buf, end - buf, ",\n \"mounts\":[");
 		while (m) {
 			if (!first)
-				buf += snprintf(buf, end - buf, ",");
-			buf += snprintf(buf, end - buf,
+				buf += lws_snprintf(buf, end - buf, ",");
+			buf += lws_snprintf(buf, end - buf,
 					"\n  {\n   \"mountpoint\":\"%s\",\n"
 					"  \"origin\":\"%s%s\",\n"
 					"  \"cache_max_age\":\"%d\",\n"
@@ -2521,25 +2541,25 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 					m->cache_revalidate,
 					m->cache_intermediaries);
 			if (m->def)
-				buf += snprintf(buf, end - buf,
+				buf += lws_snprintf(buf, end - buf,
 						",\n  \"default\":\"%s\"",
 						m->def);
-			buf += snprintf(buf, end - buf, "\n  }");
+			buf += lws_snprintf(buf, end - buf, "\n  }");
 			first = 0;
 			m = m->mount_next;
 		}
-		buf += snprintf(buf, end - buf, "\n ]");
+		buf += lws_snprintf(buf, end - buf, "\n ]");
 	}
 
 	if (vh->protocols) {
 		n = 0;
 		first = 1;
 
-		buf += snprintf(buf, end - buf, ",\n \"ws-protocols\":[");
+		buf += lws_snprintf(buf, end - buf, ",\n \"ws-protocols\":[");
 		while (n < vh->count_protocols) {
 			if (!first)
-				buf += snprintf(buf, end - buf, ",");
-			buf += snprintf(buf, end - buf,
+				buf += lws_snprintf(buf, end - buf, ",");
+			buf += lws_snprintf(buf, end - buf,
 					"\n  {\n   \"%s\":{\n"
 					"    \"status\":\"ok\"\n   }\n  }"
 					,
@@ -2547,10 +2567,10 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 			first = 0;
 			n++;
 		}
-		buf += snprintf(buf, end - buf, "\n ]");
+		buf += lws_snprintf(buf, end - buf, "\n ]");
 	}
 
-	buf += snprintf(buf, end - buf, "\n}");
+	buf += lws_snprintf(buf, end - buf, "\n}");
 
 	return buf - orig;
 }
@@ -2569,7 +2589,7 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 	time_t t = time(NULL);
 	int listening = 0, cgi_count = 0, n;
 
-	buf += snprintf(buf, end - buf, "{ "
+	buf += lws_snprintf(buf, end - buf, "{ "
 					"\"version\":\"%s\",\n"
 					"\"uptime\":\"%ld\",\n"
 					"\"cgi_spawned\":\"%d\",\n"
@@ -2589,19 +2609,19 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 
 		m = getloadavg(d, 3);
 		for (n = 0; n < m; n++) {
-			buf += snprintf(buf, end - buf,
+			buf += lws_snprintf(buf, end - buf,
 				"\"l%d\":\"%.2f\",\n",
 				n + 1, d[n]);
 		}
 	}
 #endif
 
-	buf += snprintf(buf, end - buf, "\"pt\":[\n ");
+	buf += lws_snprintf(buf, end - buf, "\"pt\":[\n ");
 	for (n = 0; n < context->count_threads; n++) {
 		pt = &context->pt[n];
 		if (n)
-			buf += snprintf(buf, end - buf, ",");
-		buf += snprintf(buf, end - buf,
+			buf += lws_snprintf(buf, end - buf, ",");
+		buf += lws_snprintf(buf, end - buf,
 				"\n  {\n"
 				"    \"fds_count\":\"%d\",\n"
 				"    \"ah_pool_inuse\":\"%d\",\n"
@@ -2612,7 +2632,7 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 				pt->ah_wait_list_length);
 	}
 
-	buf += snprintf(buf, end - buf, "], \"vhosts\":[\n ");
+	buf += lws_snprintf(buf, end - buf, "], \"vhosts\":[\n ");
 
 	while (vh) {
 		if (!first)
@@ -2625,7 +2645,7 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 		vh = vh->vhost_next;
 	}
 
-	buf += snprintf(buf, end - buf, "],\n\"listen_wsi\":\"%d\"",
+	buf += lws_snprintf(buf, end - buf, "],\n\"listen_wsi\":\"%d\"",
 			listening);
 
 #ifdef LWS_WITH_CGI
@@ -2640,10 +2660,10 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 		}
 	}
 #endif
-	buf += snprintf(buf, end - buf, ",\n \"cgi_alive\":\"%d\"\n ",
+	buf += lws_snprintf(buf, end - buf, ",\n \"cgi_alive\":\"%d\"\n ",
 			cgi_count);
 
-	buf += snprintf(buf, end - buf, "}\n ");
+	buf += lws_snprintf(buf, end - buf, "}\n ");
 
 	return buf - orig;
 }
