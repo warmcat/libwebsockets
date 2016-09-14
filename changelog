@@ -1,6 +1,29 @@
 Changelog
 ---------
 
+v2.0.3
+======
+
+NB New api lws_snprintf() -> SONAME bump to 8.1
+
+Fixes
+-----
+
+1) Remove duplicate close in one error path
+
+2) Build fix for ecdh and non-openssl
+
+3) Client confirms server cert
+
+4) SNI falls back to match wildcard DNS names (this is later checked against
+the cert for actual validity at SSL level)
+
+5) Fix one error path on vhost adopt_socket where we are left on timeout list
+
+6) lws_snprintf() - fix critical problem with snprintf not truncating buffer
+lengths (it truncated the buffer write) as (wrongly) expected
+
+
 v2.0.2
 ======
 
