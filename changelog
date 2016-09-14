@@ -1,6 +1,24 @@
 Changelog
 ---------
 
+v1.7.9
+======
+
+NB: lws_snprintf() added, but only used in library and test apps
+SONAME bump to 7.1
+
+Fixes:
+
+1) Fix leak caused by undestroyed pthread mutex
+
+2) Add CLIENT_CONNECTION_ERROR callbacks for more failure paths
+
+3) Fix for client close to callback on one error path 
+
+4) lws_snprintf() needed in a couple of test apps (1.7.x lib doesn't use it
+for aggregated buffer truncation)
+
+
 v1.7.8
 ======
 
