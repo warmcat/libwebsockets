@@ -147,7 +147,7 @@ struct sockaddr_in;
 #define LWS_O_RDONLY _O_RDONLY
 
 #if !defined(_MSC_VER) || _MSC_VER < 1900 /* Visual Studio 2015 already defines this in <stdio.h> */
-#define snprintf _snprintf
+#define lws_snprintf _snprintf
 #endif
 
 #ifndef __func__
@@ -2189,6 +2189,20 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_set_allocator(void *(*realloc)(void *ptr, size_t size));
+
+/**
+ * lws_snprintf(): lws_snprintf that truncates the returned length too
+ *
+ * \param str: destination buffer
+ * \param size: bytes left in destination buffer
+ * \param format: format string
+ * \param ...: args for format
+ *
+ * This lets you correctly truncate buffers by concatenating lengths, if you
+ * reach the limit the reported length doesn't exceed the limit.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_snprintf(char *str, size_t size, const char *format, ...);
 
 #ifdef __cplusplus
 }

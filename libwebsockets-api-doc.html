@@ -1923,3 +1923,27 @@ text/html content-encoding, it's replaced with <tt><b>uri_replace_to</b></tt>
 <dd>Length of data in <tt><b>buf</b></tt> to send
 </dl>
 <hr>
+<h2>lws_snprintf - </h2>
+<i>LWS_EXTERN int</i>
+<b>lws_snprintf</b>
+(<i>char *</i> <b>str</b>,
+<i>size_t</i> <b>size</b>,
+<i>const char *</i> <b>format</b>,
+<i></i> <b>...</b>)
+<h3>Arguments</h3>
+<dl>
+<dt><b>...</b>
+<dd>variable arguments
+</dl>
+<h3>Description</h3>
+<blockquote>
+<p>
+\param str: destination buffer
+\param size: bytes left in destination buffer
+\param format: format string
+\param ...: args for format
+<p>
+This lets you correctly truncate buffers by concatenating lengths, if you
+reach the limit the reported length doesn't exceed the limit.
+</blockquote>
+<hr>

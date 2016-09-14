@@ -331,7 +331,7 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 
 			lwsl_notice("   %s\n", namelist[i]->d_name);
 
-			snprintf(path, sizeof(path) - 1, "%s/%s", *d,
+			lws_snprintf(path, sizeof(path) - 1, "%s/%s", *d,
 				 namelist[i]->d_name);
 			l = dlopen(path, RTLD_NOW);
 			if (!l) {
@@ -341,7 +341,7 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 				goto bail;
 			}
 			/* we could open it, can we get his init function? */
-			m = snprintf(path, sizeof(path) - 1, "init_%s",
+			m = lws_snprintf(path, sizeof(path) - 1, "init_%s",
 				     namelist[i]->d_name + 3 /* snip lib... */);
 			path[m - 3] = '\0'; /* snip the .so */
 			initfunc = dlsym(l, path);
@@ -406,7 +406,7 @@ lws_plat_plugins_destroy(struct lws_context * context)
 
 	while (plugin) {
 		p = plugin;
-		m = snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
+		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
 		path[m - 3] = '\0';
 		func = dlsym(plugin->l, path);
 		if (!func) {

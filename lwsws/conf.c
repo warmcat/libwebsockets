@@ -181,7 +181,7 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
-	a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
+	a->p += lws_snprintf(a->p, a->end - a->p, "%s", ctx->buf);
 
 	return 0;
 }
@@ -254,7 +254,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		a->pvo->value = a->p;
 		a->pvo->options = NULL;
-		a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
+		a->p += lws_snprintf(a->p, a->end - a->p, "%s", ctx->buf);
 		*(a->p)++ = '\0';
 	}
 
@@ -408,7 +408,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		mp_cgienv->value = a->p;
 		mp_cgienv->options = NULL;
-		a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
+		a->p += lws_snprintf(a->p, a->end - a->p, "%s", ctx->buf);
 		*(a->p)++ = '\0';
 
 		lwsl_notice("    adding cgi-env '%s' = '%s'\n", mp_cgienv->name,
@@ -452,7 +452,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
-	a->p += snprintf(a->p, a->end - a->p, "%s", ctx->buf);
+	a->p += lws_snprintf(a->p, a->end - a->p, "%s", ctx->buf);
 	*(a->p)++ = '\0';
 
 	return 0;
@@ -518,7 +518,7 @@ lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 	}
 
 	while (uv_fs_scandir_next(&req, &dent) != UV_EOF) {
-		snprintf(path, sizeof(path) - 1, "%s/%s", d, dent.name);
+		lws_snprintf(path, sizeof(path) - 1, "%s/%s", d, dent.name);
 		ret = lwsws_get_config(user, path, paths, count_paths, cb);
 		if (ret)
 			goto bail;
@@ -558,7 +558,7 @@ lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 	}
 
 	for (i = 0; i < n; i++) {
-		snprintf(path, sizeof(path) - 1, "%s/%s", d,
+		lws_snprintf(path, sizeof(path) - 1, "%s/%s", d,
 			 namelist[i]->d_name);
 		ret = lwsws_get_config(user, path, paths, count_paths, cb);
 		if (ret) {

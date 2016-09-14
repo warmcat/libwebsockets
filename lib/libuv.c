@@ -484,14 +484,14 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 
 			lwsl_notice("   %s\n", dent.name);
 
-			snprintf(path, sizeof(path) - 1, "%s/%s", *d, dent.name);
+			lws_snprintf(path, sizeof(path) - 1, "%s/%s", *d, dent.name);
 			if (uv_dlopen(path, &lib)) {
 				uv_dlerror(&lib);
 				lwsl_err("Error loading DSO: %s\n", lib.errmsg);
 				goto bail;
 			}
 			/* we could open it, can we get his init function? */
-			m = snprintf(path, sizeof(path) - 1, "init_%s",
+			m = lws_snprintf(path, sizeof(path) - 1, "init_%s",
 				     dent.name + 3 /* snip lib... */);
 			path[m - 3] = '\0'; /* snip the .so */
 			if (uv_dlsym(&lib, path, &v)) {
@@ -554,7 +554,7 @@ lws_plat_plugins_destroy(struct lws_context * context)
 
 	while (plugin) {
 		p = plugin;
-		m = snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
+		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
 		path[m - 3] = '\0';
 
 		if (uv_dlsym(&plugin->lib, path, &v)) {
