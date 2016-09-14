@@ -91,7 +91,7 @@
 #endif
 
 #ifdef LWS_HAVE__SNPRINTF
-#define snprintf _snprintf
+#define lws_snprintf _snprintf
 #endif
 
 #else /* not windows --> */

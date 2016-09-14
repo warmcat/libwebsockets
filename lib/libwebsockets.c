@@ -1311,6 +1311,25 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 	return 0;
 }
 
+int
+lws_snprintf(char *str, size_t size, const char *format, ...)
+{
+	va_list ap;
+	int n;
+
+	if (!size)
+		return 0;
+
+	va_start(ap, format);
+	n = vsnprintf(str, size, format, ap);
+	va_end(ap);
+
+	if (n >= size)
+		return size;
+
+	return n;
+}
+
 #ifdef LWS_NO_EXTENSIONS
 
 /* we need to provide dummy callbacks for internal exts
