@@ -397,16 +397,6 @@ if (NOT LWS_HAVE_REALLOC)
 	set(realloc rpl_realloc)
 endif()
 
-# Generate the lws_config.h that includes all the public compilation settings.
-configure_file(
-       "${PROJECT_SOURCE_DIR}/lws_config.h.in"
-       "${PROJECT_BINARY_DIR}/lws_config.h")
-
-# Generate the lws_config.h that includes all the private compilation settings.
-configure_file(
-       "${PROJECT_SOURCE_DIR}/lws_config_private.h.in"
-       "${PROJECT_BINARY_DIR}/lws_config_private.h")
-
 if (MSVC)
 	# Turn off stupid microsoft security warnings.
 	add_definitions(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_NONSTDC_NO_DEPRECATE)
@@ -733,6 +723,18 @@ if (LWS_WITH_LIBUV)
 	include_directories("${LIBUV_INCLUDE_DIRS}")
 	list(APPEND LIB_LIST ${LIBUV_LIBRARIES})
 endif()
+
+
+# Generate the lws_config.h that includes all the public compilation settings.
+configure_file(
+       "${PROJECT_SOURCE_DIR}/lws_config.h.in"
+       "${PROJECT_BINARY_DIR}/lws_config.h")
+
+# Generate the lws_config.h that includes all the private compilation settings.
+configure_file(
+       "${PROJECT_SOURCE_DIR}/lws_config_private.h.in"
+       "${PROJECT_BINARY_DIR}/lws_config_private.h")
+
 
 #
 # Platform specific libs.
