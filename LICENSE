@@ -40,18 +40,8 @@ Public Domain (CC-zero) to simplify reuse
 
   - test-server/*.c
   - test-server/*.h
+  - lwsws/*
   
-4) lwsws (Libwebsocket web server) is a bundled application that is not
-part of the libwebsockets library, it's a separate application that uses
-the library.  The related sources are in a separate directory.  If you don't
-distribute lwsws, you do not need to observe its license.
-
-  - lwsws/lejp.c        - LGPL2.1
-  - lwsws/lejp.h        - LGPL2.1
-  - lwsws/[all else]    -  GPL2.1
-
-
-
                   GNU LESSER GENERAL PUBLIC LICENSE
                        Version 2.1, February 1999
 
