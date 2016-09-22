@@ -266,6 +266,9 @@ get_mimetype(const char *file, const struct lws_http_mount *m)
 	if (!strcmp(&file[n - 4], ".txt"))
 		return "text/plain";
 
+	if (!strcmp(&file[n - 4], ".svg"))
+		return "image/svg+xml";
+
 	if (!strcmp(&file[n - 4], ".ttf"))
 		return "application/x-font-ttf";
 
