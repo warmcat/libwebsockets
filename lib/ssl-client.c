@@ -39,10 +39,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #else
 	struct lws_context *context = wsi->context;
 	const char *hostname = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
-	X509_VERIFY_PARAM *param;
 
 	(void)hostname;
-	(void)param;
 
 	wsi->ssl = SSL_new(wsi->vhost->ssl_client_ctx);
 	if (!wsi->ssl) {
@@ -53,6 +51,9 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	}
 
 #if defined LWS_HAVE_X509_VERIFY_PARAM_set1_host
+	X509_VERIFY_PARAM *param;
+	(void)param;
+
 	if (!(wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
 		param = SSL_get0_param(wsi->ssl);
 		/* Enable automatic hostname checks */
