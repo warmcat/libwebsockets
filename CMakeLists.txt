@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 2.8.9)
 
 if(NOT DEFINED CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
@@ -97,6 +97,7 @@ option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)
 option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions" OFF)
 option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OFF)
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
+option(LWS_STATIC_PIC "Build the static version of the library with position-independent code" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -631,6 +632,9 @@ source_group("Sources"          FILES ${SOURCES})
 set(LWS_LIBRARIES)
 
 if (LWS_WITH_STATIC)
+    if (LWS_STATIC_PIC)
+        set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    endif()
 	add_library(websockets STATIC
 				${HDR_PRIVATE}
 				${HDR_PUBLIC}
@@ -1494,6 +1498,8 @@ message(" LIBHUBBUB_LIBRARIES = ${LIBHUBBUB_LIBRARIES}")
 message(" PLUGINS = ${PLUGINS_LIST}")
 message(" LWS_WITH_ACCESS_LOG = ${LWS_WITH_ACCESS_LOG}")
 message(" LWS_WITH_SERVER_STATUS = ${LWS_WITH_SERVER_STATUS}")
+message(" LWS_STATIC_PIC = ${LWS_STATIC_PIC}")
+
 message("---------------------------------------------------------------------")
 
 # These will be available to parent projects including libwebsockets using add_subdirectory()
