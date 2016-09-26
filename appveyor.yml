@@ -14,7 +14,7 @@ environment:
     - LWS_METHOD: nossl
       CMAKE_ARGS: -DLWS_WITH_SSL=OFF
 install:
-  - appveyor DownloadFile https://slproweb.com/download/Win32OpenSSL-1_0_2h.exe
+  - appveyor DownloadFile https://libwebsockets.org:444/Win32OpenSSL-1_0_2h.exe
   - Win32OpenSSL-1_0_2h.exe /silent /verysilent /sp- /suppressmsgboxes
   - cinst -y nsis
   - SET PATH=C:\Program Files\NSIS\;C:\Program Files (x86)\NSIS\;%PATH%
