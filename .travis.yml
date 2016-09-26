@@ -21,6 +21,7 @@ install:
   - ./travis_install.sh
 script:
   - if [ "$COVERITY_SCAN_BRANCH" != 1 ]; then mkdir build && cd build && cmake $CMAKE_ARGS .. && cmake --build .; fi
+dist: trusty
 addons:
   coverity_scan:
     project:
