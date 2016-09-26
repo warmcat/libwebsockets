@@ -16,7 +16,8 @@ environment:
 install:
   - appveyor DownloadFile https://libwebsockets.org:444/Win32OpenSSL-1_0_2h.exe
   - Win32OpenSSL-1_0_2h.exe /silent /verysilent /sp- /suppressmsgboxes
-  - cinst -y nsis
+  - appveyor DownloadFile https://libwebsockets.org:444/nsis-3.0rc1-setup.exe
+  - cmd /c start /wait nsis-3.0rc1-setup.exe /S /D=C:\nsis
   - SET PATH=C:\Program Files\NSIS\;C:\Program Files (x86)\NSIS\;%PATH%
 build:
 
