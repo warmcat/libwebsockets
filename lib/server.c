@@ -1579,11 +1579,15 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					if ( wsi->u.hdr.ah->rxlen)
 						 wsi->u.hdr.ah->rxpos += n;
 
+					lwsl_debug("%s: wsi %p: ah read rxpos %d, rxlen %d\n", __func__, wsi, wsi->u.hdr.ah->rxpos, wsi->u.hdr.ah->rxlen);
+
 					if (wsi->u.hdr.ah->rxpos == wsi->u.hdr.ah->rxlen &&
 					    (wsi->mode != LWSCM_HTTP_SERVING &&
 					     wsi->mode != LWSCM_HTTP_SERVING_ACCEPTED &&
 					     wsi->mode != LWSCM_HTTP2_SERVING))
 						lws_header_table_detach(wsi, 1);
+					else
+						wsi->more_rx_waiting = 1;
 				}
 				break;
 			}

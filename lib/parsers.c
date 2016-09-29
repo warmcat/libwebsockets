@@ -60,6 +60,8 @@ lextable_decode(int pos, char c)
 	}
 }
 
+// doesn't scrub the ah rxbuffer by default, parent must do if needed
+
 void
 lws_header_table_reset(struct lws *wsi, int autoservice)
 {
@@ -76,10 +78,6 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 	memset(ah->frag_index, 0, sizeof(ah->frag_index));
 	ah->nfrag = 0;
 	ah->pos = 0;
-
-	/* and reset the rx state */
-	ah->rxpos = 0;
-	ah->rxlen = 0;
 
 	/* since we will restart the ah, our new headers are not completed */
 	wsi->hdr_parsing_completed = 0;
@@ -182,6 +180,11 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	lws_pt_unlock(pt);
 
 reset:
+
+	/* and reset the rx state */
+	wsi->u.hdr.ah->rxpos = 0;
+	wsi->u.hdr.ah->rxlen = 0;
+
 	lws_header_table_reset(wsi, autoservice);
 	time(&wsi->u.hdr.ah->assigned);
 
@@ -284,6 +287,9 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	wsi->u.hdr.ah = ah;
 	ah->wsi = wsi; /* new owner */
+	/* and reset the rx state */
+	ah->rxpos = 0;
+	ah->rxlen = 0;
 	lws_header_table_reset(wsi, autoservice);
 	time(&wsi->u.hdr.ah->assigned);
 
