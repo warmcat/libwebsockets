@@ -194,6 +194,7 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 	if (!vhost->user_supplied_ssl_ctx && vhost->ssl_client_ctx)
 		SSL_CTX_free(vhost->ssl_client_ctx);
 
+#if (OPENSSL_VERSION_NUMBER < 0x10100006L)
 #if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
 #else
@@ -208,6 +209,7 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
+#endif
 #endif
 #endif
 }
@@ -688,6 +690,7 @@ lws_ssl_context_destroy(struct lws_context *context)
 #else
 #if defined(LWS_USE_MBEDTLS)
 #else
+#if (OPENSSL_VERSION_NUMBER < 0x10100006L)
 #if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
 #else
@@ -702,6 +705,7 @@ lws_ssl_context_destroy(struct lws_context *context)
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
+#endif
 #endif
 #endif
 }
