@@ -241,7 +241,7 @@ Note: currently only a fixed set of mimetypes are supported.
 Other mount options
 -------------------
 
-1) When using a cgi:// protcol origin at a mountpoint, you may also give cgi environment variables specific to the mountpoint like this
+1) When using a cgi:// protocol origin at a mountpoint, you may also give cgi environment variables specific to the mountpoint like this
 
 ```
        {

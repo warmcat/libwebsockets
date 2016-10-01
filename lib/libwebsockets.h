@@ -1012,7 +1012,7 @@ struct lws_extension;
  *
  *	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS: if configured for
  *		including OpenSSL support, this callback allows your user code
- *		to load extra certifcates into the server which allow it to
+ *		to load extra certificates into the server which allow it to
  *		verify the validity of certificates returned by clients.  @user
  *		is the server's OpenSSL SSL_CTX*
  *

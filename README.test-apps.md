@@ -84,7 +84,7 @@ The test client supports SSL too, use
 $ libwebsockets-test-client localhost --ssl -s
 ```
 
-the -s tells it to accept the default selfsigned cert from the server,
+the -s tells it to accept the default self-signed cert from the server,
 otherwise it will strictly fail the connection if there is no CA cert to
 validate the server's certificate.
 
@@ -141,7 +141,7 @@ To test SSL/WSS client action, just run the client test with
 $ libwebsockets-test-client localhost --ssl
 ```
 
-By default the client test applet is set to accept selfsigned
+By default the client test applet is set to accept self-signed
 certificates used by the test server, this is indicated by the
 `use_ssl` var being set to `2`.  Set it to `1` to reject any server
 certificate that it doesn't have a trusted CA cert for.
@@ -192,7 +192,7 @@ Before you can even use the PING opcode that is part of the
 standard, you must complete a handshake with a specified
 protocol.  By default lws-mirror-protocol is used which is
 supported by the test server.  But if you are using it on
-another server, you can specify the protcol to handshake with
+another server, you can specify the protocol to handshake with
 by `--protocol=protocolname`
 
 
@@ -350,7 +350,7 @@ Autobahn Test Notes
 -------------------
 
 1) Autobahn tests the user code + lws implementation.  So to get the same
-results, you need to follow test-echo.c in terms of user implmentation.
+results, you need to follow test-echo.c in terms of user implementation.
 
 2) Some of the tests make no sense for Libwebsockets to support and we fail them.
 

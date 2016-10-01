@@ -538,7 +538,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 	freeifaddrs(ifr);
 
 	if (rc == -1) {
-		/* check if bind to IP adddress */
+		/* check if bind to IP address */
 #ifdef LWS_USE_IPV6
 		if (inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1)
 			rc = 0;

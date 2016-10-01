@@ -1189,7 +1189,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost)
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
-	/* intialize the instance struct */
+	/* initialize the instance struct */
 
 	new_wsi->state = LWSS_HTTP;
 	new_wsi->mode = LWSCM_HTTP_SERVING;
@@ -1533,7 +1533,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		    wsi->state == LWSS_HTTP_ISSUING_FILE ||
 		    wsi->state == LWSS_HTTP_HEADERS) {
 			if (!wsi->u.hdr.ah)
-				/* no autoservice beacuse we will do it next */
+				/* no autoservice because we will do it next */
 				if (lws_header_table_attach(wsi, 0))
 					goto try_pollout;
 

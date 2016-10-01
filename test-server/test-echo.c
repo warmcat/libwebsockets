@@ -182,7 +182,7 @@ static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
 	{
-		"",		/* name - can be overriden with -e */
+		"",		/* name - can be overridden with -e */
 		callback_echo,
 		sizeof(struct per_session_data__echo),	/* per_session_data_size */
 		MAX_ECHO_PAYLOAD,

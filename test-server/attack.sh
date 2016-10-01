@@ -233,7 +233,7 @@ check default
 check
 
 echo
-echo "---- nonexistant file"
+echo "---- nonexistent file"
 rm -f /tmp/lwscap
 echo -e "GET /nope HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check media
