@@ -269,11 +269,11 @@ and cd into it
 
 
 To set compile time flags you can either use one of the CMake gui applications
-or do it via command line.
+or do it via the command line.
 
 @subsection cmcocl Command line
 
-To list avaialable options (omit the H if you don't want the help text):
+To list available options (omit the H if you don't want the help text):
 
 	cmake -LH ..
 

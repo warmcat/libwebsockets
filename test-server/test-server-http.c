@@ -300,7 +300,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 						     LWS_O_RDONLY);
 
 			if (pss->fd == LWS_INVALID_FILE) {
-				lwsl_err("faild to open file %s\n", leaf_path);
+				lwsl_err("failed to open file %s\n", leaf_path);
 				return -1;
 			}
 

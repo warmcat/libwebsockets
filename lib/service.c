@@ -979,7 +979,7 @@ drain:
 			lws_change_pollfd(wsi, LWS_POLLIN, 0);
 
 			/* let user code know, he'll usually ask for writeable
-			 * callback and drain / reenable it there
+			 * callback and drain / re-enable it there
 			 */
 			if (user_callback_handle_rxflow(
 					wsi->protocol->callback,

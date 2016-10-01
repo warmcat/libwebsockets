@@ -22,7 +22,7 @@ allow up to that many connections, minus whatever other file descriptors are
 in use by the user code.
 
 If you want to restrict that allocation, or increase it, you can use ulimit or
-similar to change the avaiable number of file descriptors, and when restarted
+similar to change the available number of file descriptors, and when restarted
 **libwebsockets** will adapt accordingly.
 
 

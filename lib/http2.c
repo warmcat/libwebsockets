@@ -479,7 +479,7 @@ int lws_http2_do_pps_send(struct lws_context *context, struct lws *wsi)
 			wsi->u.http.fd = LWS_INVALID_FILE;
 
 			if (lws_is_ssl(lws_http2_get_network_wsi(wsi))) {
-				lwsl_info("skipping nonexistant ssl upgrade headers\n");
+				lwsl_info("skipping nonexistent ssl upgrade headers\n");
 				break;
 			}
 

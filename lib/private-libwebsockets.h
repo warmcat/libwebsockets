@@ -733,7 +733,7 @@ struct lws_context_per_thread {
  *   vhostwide SSL context
  *   vhostwide proxy
  *
- * heirarchy:
+ * hierarchy:
  *
  * context -> vhost -> wsi
  *

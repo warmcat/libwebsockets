@@ -400,7 +400,7 @@ int main(int argc, char **argv)
 		case 'r':
 			clients = atoi(optarg);
 			if (clients > MAX_PING_CLIENTS || clients < 1) {
-				fprintf(stderr, "Max clients supportd = %d\n",
+				fprintf(stderr, "Max clients supported = %d\n",
 							      MAX_PING_CLIENTS);
 				return 1;
 			}

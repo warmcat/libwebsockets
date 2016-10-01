@@ -72,7 +72,7 @@ Daemonization</h1>
 <h1><a class="anchor" id="conns"></a>
 Maximum number of connections</h1>
 <p>The maximum number of connections the library can deal with is decided when it starts by querying the OS to find out how many file descriptors it is allowed to open (1024 on Fedora for example). It then allocates arrays that allow up to that many connections, minus whatever other file descriptors are in use by the user code.</p>
-<p>If you want to restrict that allocation, or increase it, you can use ulimit or similar to change the avaiable number of file descriptors, and when restarted <b>libwebsockets</b> will adapt accordingly.</p>
+<p>If you want to restrict that allocation, or increase it, you can use ulimit or similar to change the available number of file descriptors, and when restarted <b>libwebsockets</b> will adapt accordingly.</p>
 <h1><a class="anchor" id="evtloop"></a>
 Libwebsockets is singlethreaded</h1>
 <p>Libwebsockets works in a serialized event loop, in a single thread.</p>

@@ -417,7 +417,7 @@ if (NOT LWS_HAVE_inline)
 	endif()
 endif()
 
-# Put the libaries and binaries that get built into directories at the
+# Put the libraries and binaries that get built into directories at the
 # top of the build tree rather than in hard-to-find leaf directories. 
 SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
 SET(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/lib")

@@ -1803,7 +1803,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
-	/* intialize the instance struct */
+	/* initialize the instance struct */
 
 	new_wsi->state = LWSS_CGI;
 	new_wsi->mode = LWSCM_CGI;
