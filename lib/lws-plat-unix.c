@@ -131,6 +131,19 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	context->service_tid = context->service_tid_detected;
 
 	timeout_ms = lws_service_adjust_timeout(context, timeout_ms, tsi);
+	/*
+	 * is there anybody with pending stuff that needs service forcing?
+	 */
+	if (!timeout_ms) {
+		/* -1 timeout means just do forced service */
+		lws_plat_service_tsi(context, -1, pt->tid);
+		/* still somebody left who wants forced service? */
+		if (!lws_service_adjust_timeout(context, 1, pt->tid)) {
+			/* yes... come back again later */
+			lwsl_debug("%s: done again\n", __func__);
+		}
+		return 0;
+	}
 
 	n = poll(pt->fds, pt->fds_count, timeout_ms);
 
