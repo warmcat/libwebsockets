@@ -2288,6 +2288,7 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int le
 		/* states for multipart / mime style */
 
 		case MT_LOOK_BOUND_IN:
+retry_as_first:
 			if (*in == s->mime_boundary[s->mp] &&
 			    s->mime_boundary[s->mp]) {
 				in++;
@@ -2314,8 +2315,11 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int le
 				n = 0;
 				if (!s->boundary_real_crlf)
 					n = 2;
+
 				memcpy(s->out + s->pos, s->mime_boundary + n, s->mp - n);
 				s->pos += s->mp;
+				s->mp = 0;
+				goto retry_as_first;
 			}
 
 			s->out[s->pos++] = *in;
