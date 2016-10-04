@@ -140,7 +140,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		/* still somebody left who wants forced service? */
 		if (!lws_service_adjust_timeout(context, 1, pt->tid)) {
 			/* yes... come back again later */
-			lwsl_debug("%s: done again\n", __func__);
+			//lwsl_debug("%s: done again\n", __func__);
 		}
 		return 0;
 	}

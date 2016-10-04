@@ -1798,8 +1798,6 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					     wsi->mode != LWSCM_HTTP_SERVING_ACCEPTED &&
 					     wsi->mode != LWSCM_HTTP2_SERVING))
 						lws_header_table_detach(wsi, 1);
-					else
-						wsi->more_rx_waiting = 1;
 				}
 				break;
 			}
