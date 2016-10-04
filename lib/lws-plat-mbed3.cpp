@@ -82,6 +82,12 @@ lws_plat_change_pollfd(struct lws_context *context,
 }
 
 extern "C" LWS_VISIBLE int
+lws_plat_check_connection_error(struct lws *wsi)
+{
+	return 0;
+}
+
+extern "C" LWS_VISIBLE int
 lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	socket_error_t err;

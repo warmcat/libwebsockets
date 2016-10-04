@@ -207,7 +207,11 @@ lws_client_connect_2(struct lws *wsi)
 			|| LWS_ERRNO == WSAEINVAL
 #endif
 		) {
-			lwsl_client("nonblocking connect retry\n");
+			lwsl_client("nonblocking connect retry (errno = %d)\n",
+				    LWS_ERRNO);
+
+			if (lws_plat_check_connection_error(wsi))
+				goto failed;
 
 			/*
 			 * must do specifically a POLLOUT poll to hear

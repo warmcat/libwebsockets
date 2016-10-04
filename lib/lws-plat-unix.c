@@ -194,6 +194,12 @@ faked_service:
 }
 
 LWS_VISIBLE int
+lws_plat_check_connection_error(struct lws *wsi)
+{
+	return 0;
+}
+
+LWS_VISIBLE int
 lws_plat_service(struct lws_context *context, int timeout_ms)
 {
 	return lws_plat_service_tsi(context, timeout_ms, 0);

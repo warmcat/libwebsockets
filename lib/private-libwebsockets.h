@@ -1489,6 +1489,9 @@ void lws_http2_configure_if_upgraded(struct lws *wsi);
 LWS_EXTERN int
 lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd);
 
+LWS_EXTERN int
+lws_plat_check_connection_error(struct lws *wsi);
+
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_header_table_attach(struct lws *wsi, int autoservice);
 
