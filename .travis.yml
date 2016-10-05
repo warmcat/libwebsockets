@@ -23,7 +23,7 @@ language: generic
 install:
   - ./travis_install.sh
 script:
-  - if [ "$COVERITY_SCAN_BRANCH" != 1 ]; then mkdir build && cd build && cmake $CMAKE_ARGS .. && cmake --build .; fi
+  - if [ "$COVERITY_SCAN_BRANCH" != 1 -a "$TRAVIS_OS_NAME" = "osx" ]; then mkdir build && cd build && cmake -DOPENSSL_ROOT_DIR="/usr/local/opt/openssl" $CMAKE_ARGS .. && cmake --build .; else if [ "$COVERITY_SCAN_BRANCH" != 1 -a "$TRAVIS_OS_NAME" = "linux" ]; then mkdir build && cd build && cmake $CMAKE_ARGS .. && cmake --build .; fi ; fi
 sudo: required
 dist: trusty
 addons:
