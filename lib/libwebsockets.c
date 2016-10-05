@@ -62,10 +62,6 @@ lws_free_wsi(struct lws *wsi)
 	lws_free_set_NULL(wsi->rxflow_buffer);
 	lws_free_set_NULL(wsi->trunc_alloc);
 
-	if (wsi->u.hdr.ah)
-		/* we're closing, losing some rx is OK */
-		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
-
 	/* we may not have an ah, but may be on the waiting list... */
 	lws_header_table_detach(wsi, 0);
 
@@ -152,6 +148,10 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		return;
 
 	lws_access_log(wsi);
+
+	if (wsi->u.hdr.ah)
+		/* we're closing, losing some rx is OK */
+		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
 
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
