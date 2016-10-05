@@ -16,6 +16,9 @@ Just enable -DLWS_WITH_LWSWS=1 at cmake-time.
 
 It enables libuv and plugin support automatically.
 
+NOTICE on Ubuntu, the default libuv package is called "libuv-0.10".  This is ancient.
+
+You should replace this with libuv1 and libuv1-dev before proceeding.
 
 @section lwswsc Lwsws Configuration
 

@@ -204,6 +204,9 @@ struct sockaddr_in;
 #endif /* LWS_USE_LIBEV */
 #ifdef LWS_USE_LIBUV
 #include <uv.h>
+#ifdef LWS_HAVE_UV_VERSION_H
+#include <uv-version.h>
+#endif
 #endif /* LWS_USE_LIBUV */
 
 #ifndef LWS_EXTERN

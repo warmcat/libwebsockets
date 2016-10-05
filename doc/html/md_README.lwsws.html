@@ -73,6 +73,8 @@ Libwebsockets Web Server</h1>
 Build</h1>
 <p>Just enable -DLWS_WITH_LWSWS=1 at cmake-time.</p>
 <p>It enables libuv and plugin support automatically.</p>
+<p>NOTICE on Ubuntu, the default libuv package is called "libuv-0.10". This is ancient.</p>
+<p>You should replace this with libuv1 and libuv1-dev before proceeding.</p>
 <h1><a class="anchor" id="lwswsc"></a>
 Lwsws Configuration</h1>
 <p>lwsws uses JSON config files, they're pure JSON except:</p>
