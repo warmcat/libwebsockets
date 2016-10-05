@@ -52,7 +52,7 @@ lws_uv_idle(uv_idle_t *handle
 		if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
 			/* yes... come back again later */
 			lwsl_debug("%s: done again\n", __func__);
-			return;
+		return;
 	}
 
 	/* there is nobody who needs service forcing, shut down idle */
