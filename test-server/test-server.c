@@ -411,6 +411,9 @@ int main(int argc, char **argv)
 	lws_get_fops(context)->open = test_server_fops_open;
 
 	n = 0;
+#ifdef EXTERNAL_POLL
+	int ms_1sec = 0;
+#endif
 	while (n >= 0 && !force_exit) {
 		struct timeval tv;
 
@@ -455,6 +458,13 @@ int main(int argc, char **argv)
 			while (!lws_service_adjust_timeout(context, 1, 0)) {
 				lwsl_notice("extpoll doing forced service!\n");
 				lws_plat_service_tsi(context, -1, 0);
+			}
+		} else {
+			/* no revents, but before polling again, make lws check for any timeouts */
+			if (ms - ms_1sec > 1000) {
+				lwsl_notice("1 per sec\n");
+				lws_service_fd(context, NULL);
+				ms_1sec = ms;
 			}
 		}
 #else
