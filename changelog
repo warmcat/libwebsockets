@@ -1,39 +1,47 @@
 Changelog
 ---------
 
+v2.1.0
+======
+
+Major new features
+
+ - Support POST arguments, including multipart and file attachment
+
+ - Move most of lwsws into lws, make the stub CC0
+
+ - Add loopback test plugin to confirm client ws / http coexistence
+
+ - Integrate lwsws testing on Appveyor (ie, windows)
+
+ - Introduce helpers for sql, urlencode and urldecode sanitation
+
+ - Introduce LWS_CALLBACK_HTTP_BIND_PROTOCOL / DROP_PROTOCOL that
+ are compatible with http:/1.1 pipelining and different plugins
+ owning different parts of the URL space
+
+ - lwsgs - Generic Sessions plugin supports serverside sessions,
+ cookies, hashed logins, forgot password etc
+
+ - Added APIs for sending email to SMTP servers
+
+ - Messageboard example plugin for lwsgs
+
+ - Automatic PING sending at fixed intervals and close if no response
+
+ - Change default header limit in ah to 4096 (from 1024)
+
+ - Add SNI matching for wildcards if no specific wildcard vhost name match
+
+ - Convert docs to Doxygen
+
+ - ESP8266 support ^^
+
 Fixes
 -----
 
-1) OpenSSL version tests not needed on LibreSSL and BoringSSL
+See git log v2.0.0..
 
-2) Fix IPV6 build breakage
-
-3) Some fixes for WinCE build
-
-4) Additional canned mimetypes for mounts, the full list is
-
-	.ico    image/x-icon
-	.gif    image/gif
-	.js     text/javascript
-	.png    image/png
-	.jpg    image/jpeg
-	.gz     application/gzip
-	.JPG    image/jpeg
-	.html   text/html
-	.css    text/css
-	.txt    text/plain
-	.ttf    application/x-font-ttf
-	.woff   application/font-woff
-	.xml    application/xml
-
-5) Allow per-vhost setting of which protocol should get used
-when the protocol: header is not sent by the client
-
-New APIs
---------
-
-1) lws_init_vhost_client_ssl() lets you also enable client SSL context on a
-vhost.
 
 
 v2.0.0
