@@ -2289,6 +2289,44 @@ LWS_VISIBLE LWS_EXTERN int
 lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		   int tsi);
 
+/**
+ * lws_service_adjust_timeout() - Check for any connection needing forced service
+ * \param context:	Websocket context
+ * \param timeout_ms:	The original poll timeout value.  You can just set this
+ *			to 1 if you don't really have a poll timeout.
+ * \param tsi: thread service index
+ *
+ * Under some conditions connections may need service even though there is no
+ * pending network action on them, this is "forced service".  For default
+ * poll() and libuv / libev, the library takes care of calling this and
+ * dealing with it for you.  But for external poll() integration, you need
+ * access to the apis.
+ *
+ * If anybody needs "forced service", returned timeout is zero.  In that case,
+ * you can call lws_plat_service_tsi() with a timeout of -1 to only service
+ * guys who need forced service.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi);
+
+/**
+ * lws_plat_service_tsi() - Lowlevel platform-specific service api
+ * \param context:	Websocket context
+ * \param timeout_ms:	The original poll timeout value.  You can just set this
+ *			to 1 if you don't really have a poll timeout.
+ * \param tsi: thread service index
+ *
+ * For default poll() and libuv/ev, lws takes care of using this for you. and
+ * you can ignore it.
+ *
+ * But for external poll() integration, you need access to this api to service
+ * connections that need to be serviced but have no pending network activity.
+ *
+ * See lws_service_adjust_timeout() for more info.
+ */
+LWS_EXTERN LWS_VISIBLE int
+lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi);
+
 ///@}
 
 /*! \defgroup http HTTP

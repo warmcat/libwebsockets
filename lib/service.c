@@ -417,7 +417,7 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
  * activity in poll() when we have something that already needs service
  */
 
-int
+LWS_VISIBLE LWS_EXTERN int
 lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];

@@ -1506,9 +1506,6 @@ LWS_EXTERN int
 lws_b64_selftest(void);
 
 LWS_EXTERN int
-lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi);
-
-LWS_EXTERN int
 lws_service_flag_pending(struct lws_context *context, int tsi);
 
 #if defined(_WIN32) || defined(MBED_OPERATORS) || defined(LWS_WITH_ESP8266)

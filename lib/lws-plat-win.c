@@ -146,7 +146,7 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 	lwsl_emit_stderr(level, line);
 }
 
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
