@@ -27,6 +27,15 @@ function check {
 			exit 1
 		fi
 	fi
+	if [ "$1" = "defaultplusforbidden" ] ; then
+	cat $INSTALLED/../share/libwebsockets-test-server/test.html > /tmp/plusforb
+	echo -e -n "HTTP/1.1 403 Forbidden\x0d\x0aserver: libwebsockets\x0d\x0acontent-type: text/html\x0d\x0acontent-length: 38\x0d\x0a\x0d\x0a<html><body><h1>403</h1></body></html>" >> /tmp/plusforb
+		diff /tmp/lwscap /tmp/plusforb > /dev/null
+		if [ $? -ne 0 ] ; then
+			echo "FAIL: got something other than test.html back"
+			exit 1
+		fi
+	fi
 
 	if [ "$1" = "forbidden" ] ; then
 		if [ -z "`grep '<h1>403</h1>' /tmp/lwscap`" ] ; then
@@ -229,7 +238,7 @@ echo -e "GET /test.html HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD.................
  	"......................................................................................................................." \
  	"......................................................................................................................." \
 	 | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
-check default
+check defaultplusforbidden
 check
 
 echo
@@ -256,49 +265,49 @@ check
 echo
 echo "---- directory attack 2 (/../ should be /)"
 rm -f /tmp/lwscap
-echo -e "GET /../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 3 (/./ should be /)"
 rm -f /tmp/lwscap
-echo -e "GET /./ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /./ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 4 (/blah/.. should be /)"
 rm -f /tmp/lwscap
-echo -e "GET /blah/.. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /blah/.. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 5 (/blah/../ should be /)"
 rm -f /tmp/lwscap
-echo -e "GET /blah/../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /blah/../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 6 (/blah/../. should be /)"
 rm -f /tmp/lwscap
-echo -e "GET /blah/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /blah/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 7 (/%2e%2e%2f../../../etc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
-echo -e "GET /%2e%2e%2f../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /%2e%2e%2f../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check rejected
 check
 
 echo
 echo "---- directory attack 8 (%2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
-echo -e "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check rejected
 check
 
@@ -557,7 +566,7 @@ cat <<EOF >/tmp/lwsresult1
 - "/..///" -> 200 "/"
 - "/..//a" -> 415 "/a"
 - "/..//w" -> 415 "/w"
-- "/..//?" -> 200 "/"
+- "/..//1" -> 415 "/1"
 - "/..//%" -> 403
 - "/../a." -> 415 "/a."
 - "/../a/" -> 406 "/a/"
@@ -608,7 +617,7 @@ cat <<EOF >/tmp/lwsresult1
 - "//..//" -> 200 "/"
 - "//../a" -> 415 "/a"
 - "//../w" -> 415 "/w"
-- "//../?" -> 200 "/"
+- "//../1" -> 415 "/1"
 - "//../%" -> 403
 - "//..a." -> 415 "/..a."
 - "//..a/" -> 406 "/..a/"
