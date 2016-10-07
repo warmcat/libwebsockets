@@ -439,7 +439,7 @@ int main(int argc, char **argv)
 		if (n < 0)
 			continue;
 
-		if (n)
+		if (n) {
 			for (n = 0; n < count_pollfds; n++)
 				if (pollfds[n].revents)
 					/*
@@ -450,6 +450,13 @@ int main(int argc, char **argv)
 					if (lws_service_fd(context,
 								  &pollfds[n]) < 0)
 						goto done;
+
+			/* if needed, force-service wsis that may not have read all input */
+			while (!lws_service_adjust_timeout(context, 1, 0)) {
+				lwsl_notice("extpoll doing forced service!\n");
+				lws_plat_service_tsi(context, -1, 0);
+			}
+		}
 #else
 		/*
 		 * If libwebsockets sockets are all we care about,
