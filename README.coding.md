@@ -167,6 +167,14 @@ whereas info is ignored by default.
 External Polling Loop support
 -----------------------------
 
+NOTE:  You should use v2.1 or later (or master) for external polling loop
+support.  After v2.0 was released a problem was found meaning some internal
+APIs needed to be exposed to deal with connections that need service even
+without any new network activity.  For normal poll() and libuv/ev loops,
+lws takes care of this internally but external polling loop needs it doing
+externally.  Since we can't change the API on a released version that
+means you need to use v2.1 or later for this feature to work properly.
+
 **libwebsockets** maintains an internal `poll()` array for all of its
 sockets, but you can instead integrate the sockets into an
 external polling array.  That's needed if **libwebsockets** will
