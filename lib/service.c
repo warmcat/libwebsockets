@@ -680,12 +680,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	if (!context->protocol_init_done)
 		lws_protocol_init(context);
 
-	/*
-	 * you can call us with pollfd = NULL to just allow the once-per-second
-	 * global timeout checks; if less than a second since the last check
-	 * it returns immediately then.
-	 */
-
 	time(&now);
 
 	/*

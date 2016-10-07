@@ -2255,7 +2255,7 @@ lws_cancel_service(struct lws_context *context);
  * lws_service_fd() - Service polled socket with something waiting
  * \param context:	Websocket context
  * \param pollfd:	The pollfd entry describing the socket fd and which events
- *		happened.
+ *		happened, or NULL to tell lws to do only timeout servicing.
  *
  * This function takes a pollfd that has POLLIN or POLLOUT activity and
  * services it according to the state of the associated
@@ -2272,6 +2272,10 @@ lws_cancel_service(struct lws_context *context);
  * If the socket is foreign to lws, it leaves revents alone.  So you can
  * see if you should service yourself by checking the pollfd revents
  * after letting lws try to service it.
+ *
+ * You should also call this with pollfd = NULL to just allow the
+ * once-per-second global timeout checks; if less than a second since the last
+ * check it returns immediately then.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd);
