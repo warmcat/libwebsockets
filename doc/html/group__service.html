@@ -320,14 +320,15 @@ Functions</h2></td></tr>
 <p><a class="el" href="group__service.html#gad82efa5466d14a9f05aa06416375b28d">lws_service_fd()</a> - Service polled socket with something waiting </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">context</td><td>Websocket context </td></tr>
-    <tr><td class="paramname">pollfd</td><td>The pollfd entry describing the socket fd and which events happened.</td></tr>
+    <tr><td class="paramname">pollfd</td><td>The pollfd entry describing the socket fd and which events happened, or NULL to tell lws to do only timeout servicing.</td></tr>
   </table>
   </dd>
 </dl>
 <p>This function takes a pollfd that has POLLIN or POLLOUT activity and services it according to the state of the associated struct lws.</p>
 <p>The one call deals with all "service" that might happen on a socket including listen accepts, http files as well as websocket protocol.</p>
 <p>If a pollfd says it has something, you can just pass it to <a class="el" href="group__service.html#gad82efa5466d14a9f05aa06416375b28d">lws_service_fd()</a> whether it is a socket handled by lws or not. If it sees it is a lws socket, the traffic will be handled and pollfd-&gt;revents will be zeroed now.</p>
-<p>If the socket is foreign to lws, it leaves revents alone. So you can see if you should service yourself by checking the pollfd revents after letting lws try to service it. </p>
+<p>If the socket is foreign to lws, it leaves revents alone. So you can see if you should service yourself by checking the pollfd revents after letting lws try to service it.</p>
+<p>You should also call this with pollfd = NULL to just allow the once-per-second global timeout checks; if less than a second since the last check it returns immediately then. </p>
 
 </div>
 </div>
