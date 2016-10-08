@@ -3272,10 +3272,25 @@ enum lws_write_protocol {
  *	allows maximum efficiency of sending data and protocol in a single
  *	packet while not burdening the user code with any protocol knowledge.
  *
- *	Return may be -1 for a fatal error needing connection close, or a
- *	positive number reflecting the amount of bytes actually sent.  This
- *	can be less than the requested number of bytes due to OS memory
- *	pressure at any given time.
+ *	Return may be -1 for a fatal error needing connection close, or the
+ *	number of bytes sent.
+ *
+ * Truncated Writes
+ * ================
+ *
+ * The OS may not accept everything you asked to write on the connection.
+ *
+ * Posix defines POLLOUT indication from poll() to show that the connection
+ * will accept more write data, but it doesn't specifiy how much.  It may just
+ * accept one byte of whatever you wanted to send.
+ *
+ * LWS will buffer the remainder automatically, and send it out autonomously.
+ *
+ * During that time, WRITABLE callbacks will be suppressed.
+ *
+ * This is to handle corner cases where unexpectedly the OS refuses what we
+ * usually expect it to accept.  You should try to send in chunks that are
+ * almost always accepted in order to avoid the inefficiency of the buffering.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_write(struct lws *wsi, unsigned char *buf, size_t len,
@@ -3284,7 +3299,6 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 /* helper for case where buffer may be const */
 #define lws_write_http(wsi, buf, len) \
 	lws_write(wsi, (unsigned char *)(buf), len, LWS_WRITE_HTTP)
-
 ///@}
 
 /** \defgroup callback-when-writeable Callback when writeable

@@ -206,10 +206,15 @@ Functions</h2></td></tr>
  allows maximum efficiency of sending data and protocol in a single
  packet while not burdening the user code with any protocol knowledge.
 
- Return may be -1 for a fatal error needing connection close, or a
- positive number reflecting the amount of bytes actually sent.  This
- can be less than the requested number of bytes due to OS memory
- pressure at any given time.</pre> 
+ Return may be -1 for a fatal error needing connection close, or the
+ number of bytes sent.
+</pre><h1>Truncated Writes </h1>
+<p>The OS may not accept everything you asked to write on the connection.</p>
+<p>Posix defines POLLOUT indication from poll() to show that the connection will accept more write data, but it doesn't specifiy how much. It may just accept one byte of whatever you wanted to send.</p>
+<p>LWS will buffer the remainder automatically, and send it out autonomously.</p>
+<p>During that time, WRITABLE callbacks will be suppressed.</p>
+<p>This is to handle corner cases where unexpectedly the OS refuses what we usually expect it to accept. You should try to send in chunks that are almost always accepted in order to avoid the inefficiency of the buffering. </p>
+
 </div>
 </div>
 </div><!-- contents -->
