@@ -1606,6 +1606,23 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
  * to the address immediately after the padding won't cause an unaligned access
  * error. Sometimes for performance reasons the recommended padding is even
  * larger than sizeof(void *).
+ *
+ * Truncated Writes
+ * ================
+ *
+ * The OS may not accept everything you asked to write on the connection.
+ *
+ * Posix defines POLLOUT indication from poll() to show that the connection
+ * will accept more write data, but it doesn't specifiy how much.  It may just
+ * accept one byte of whatever you wanted to send.
+ *
+ * LWS will buffer the remainder automatically, and send it out autonomously.
+ *
+ * During that time, WRITABLE callbacks will be suppressed.
+ *
+ * This is to handle corner cases where unexpectedly the OS refuses what we
+ * usually expect it to accept.  You should try to send in chunks that are
+ * almost always accepted in order to avoid the inefficiency of the buffering.
  */
 
 #if !defined(LWS_SIZEOFPTR)
