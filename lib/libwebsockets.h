@@ -2194,7 +2194,7 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len);
  * client and server for how to do.
  */
 static LWS_INLINE LWS_WARN_DEPRECATED const struct lws_extension *
-lws_get_internal_extensions() { return NULL; }
+lws_get_internal_extensions(void) { return NULL; }
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 		       void *ext_user, const struct lws_ext_options *opts,
