@@ -914,7 +914,7 @@ endif()
 
 
 if (LWS_WITH_HTTP_PROXY)
-	find_library(LIBHUBBUB_LIBRARIES NAMES libhubbub)
+	find_library(LIBHUBBUB_LIBRARIES NAMES hubbub)
 	list(APPEND LIB_LIST ${LIBHUBBUB_LIBRARIES} )
 endif()
 
