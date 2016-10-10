@@ -1217,7 +1217,7 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
  * client and server for how to do.
  */
 static LWS_INLINE LWS_WARN_DEPRECATED const struct lws_extension *
-lws_get_internal_extensions() { return NULL; }
+lws_get_internal_extensions(void) { return NULL; }
 
 /**
  * lws_ext_parse_options() - deal with parsing negotiated extension options
