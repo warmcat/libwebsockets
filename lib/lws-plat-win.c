@@ -212,8 +212,17 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			i--;
 	}
 
-	/* if we know something needs service already, don't wait in poll */
-	timeout_ms = lws_service_adjust_timeout(context, timeout_ms, tsi);
+	/*
+	 * is there anybody with pending stuff that needs service forcing?
+	 */
+	if (!lws_service_adjust_timeout(context, 1, tsi)) {
+		/* -1 timeout means just do forced service */
+		lws_plat_service_tsi(context, -1, pt->tid);
+		/* still somebody left who wants forced service? */
+		if (!lws_service_adjust_timeout(context, 1, pt->tid))
+			/* yes... come back again quickly */
+			timeout_ms = 0;
+	}
 
 	ev = WSAWaitForMultipleEvents( 1,  pt->events , FALSE, timeout_ms, FALSE);
 	if (ev == WSA_WAIT_EVENT_0) {
