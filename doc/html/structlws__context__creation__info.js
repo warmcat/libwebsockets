@@ -27,6 +27,7 @@ var structlws__context__creation__info =
     [ "provided_client_ssl_ctx", "structlws__context__creation__info.html#a0e790dda6202604f73a03b6149bc12bb", null ],
     [ "pt_serv_buf_size", "structlws__context__creation__info.html#a57f88c0745adbd1d6b9b619b8de30209", null ],
     [ "pvo", "structlws__context__creation__info.html#a999866fcd15dbd621773436f97190458", null ],
+    [ "reject_service_keywords", "structlws__context__creation__info.html#a6b059b7ee248cba72a3a4fd6141b0b34", null ],
     [ "server_string", "structlws__context__creation__info.html#a137a9b9de4f6a7993fed8746d551e616", null ],
     [ "ssl_ca_filepath", "structlws__context__creation__info.html#a4f8e65c3a059d3b586fafa9ef3282c29", null ],
     [ "ssl_cert_filepath", "structlws__context__creation__info.html#ac62b0f0e8e402412ba5011d15c244103", null ],

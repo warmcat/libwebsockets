@@ -1708,6 +1708,14 @@ struct lws_context_creation_info {
 		/**< VHOST: pointer to optional linked list of per-vhost
 		 * canned headers that are added to server responses */
 
+	const struct lws_protocol_vhost_options *reject_service_keywords;
+	/**< CONTEXT: Optional list of keywords and rejection codes + text.
+	 *
+	 * The keywords are checked for existing in the user agent string.
+	 *
+	 * Eg, "badrobot" "404 Not Found"
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

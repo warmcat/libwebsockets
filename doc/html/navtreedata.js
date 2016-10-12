@@ -28,6 +28,7 @@ var NAVTREE =
       [ "Libwebsockets Web Server", "md_README.lwsws.html#lwsws", null ],
       [ "Build", "md_README.lwsws.html#lwswsb", null ],
       [ "Lwsws Configuration", "md_README.lwsws.html#lwswsc", null ],
+      [ "Other Global Options", "md_README.lwsws.html#lwsogo", null ],
       [ "Lwsws Vhosts", "md_README.lwsws.html#lwswsv", null ],
       [ "Lwsws Vhost name and port sharing", "md_README.lwsws.html#lwswsvn", null ],
       [ "Lwsws Protocols", "md_README.lwsws.html#lwswspr", null ],
@@ -135,7 +136,7 @@ var NAVTREEINDEX =
 "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5aa0158b4e85420811e6b0f1378c6ded0f",
 "group__service.html#gad82efa5466d14a9f05aa06416375b28d",
 "group__wsstatus.html#gaeca4afc94b1f026034f99cbba37e2f85",
-"structlws__http__mount.html#aabec1a326780aafe11b977000983be0c"
+"structlws__http__mount.html#a8316dd183ffbef50419a5a4968d35d84"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

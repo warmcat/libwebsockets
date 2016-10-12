@@ -1049,6 +1049,30 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		lwsl_debug("%s: wsi->more_rx_waiting=%d\n", __func__,
 				wsi->more_rx_waiting);
 
+		/* check for unwelcome guests */
+
+		if (wsi->context->reject_service_keywords) {
+			const struct lws_protocol_vhost_options *rej =
+					wsi->context->reject_service_keywords;
+			char ua[384], *msg = NULL;
+
+			if (!lws_hdr_copy(wsi, ua, sizeof(ua) - 1,
+					  WSI_TOKEN_HTTP_USER_AGENT)) {
+				ua[sizeof(ua) - 1] = '\0';
+				while (rej) {
+					if (strstr(ua, rej->name)) {
+						msg = strchr(rej->value, ' ');
+						if (msg)
+							msg++;
+						lws_return_http_status(wsi, atoi(rej->value), msg);
+
+						goto bail_nuke_ah;
+					}
+					rej = rej->next;
+				}
+			}
+		}
+
 		/* select vhost */
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
