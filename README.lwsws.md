@@ -79,6 +79,17 @@ on port 7681, non-SSL is provided.  To set it up
 	# sudo lwsws
 ```
 
+@section lwsogo Other Global Options
+
+ - `reject-service-keywords` allows you to return an HTTP error code and message of your choice
+if a keyword is found in the user agent
+
+```
+   "reject-service-keywords": [{
+        "scumbot": "404 Not Found"
+   }]
+```
+
 @section lwswsv Lwsws Vhosts
 
 One server can run many vhosts, where SSL is in use SNI is used to match

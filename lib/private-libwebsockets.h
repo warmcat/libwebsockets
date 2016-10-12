@@ -828,6 +828,7 @@ struct lws_context {
 	const struct lws_token_limits *token_limits;
 	void *user_space;
 	const char *server_string;
+	const struct lws_protocol_vhost_options *reject_service_keywords;
 
 #if defined(LWS_USE_LIBEV)
 	lws_ev_signal_cb_t * lws_ev_sigint_cb;

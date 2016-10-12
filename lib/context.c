@@ -588,6 +588,8 @@ lws_create_context(struct lws_context_creation_info *info)
 	else
 		context->pt_serv_buf_size = 4096;
 
+	context->reject_service_keywords = info->reject_service_keywords;
+
 	context->time_up = time(NULL);
 #ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {

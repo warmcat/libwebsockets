@@ -37,6 +37,8 @@ static const char * const paths_global[] = {
 	"global.server-string",
 	"global.plugin-dir",
 	"global.ws-pingpong-secs",
+	"global.reject-service-keywords[].*",
+	"global.reject-service-keywords[]",
 };
 
 enum lejp_global_paths {
@@ -47,6 +49,8 @@ enum lejp_global_paths {
 	LEJPGP_SERVER_STRING,
 	LEJPGP_PLUGIN_DIR,
 	LWJPGP_PINGPONG_SECS,
+	LWJPGP_REJECT_SERVICE_KEYWORDS_NAME,
+	LWJPGP_REJECT_SERVICE_KEYWORDS
 };
 
 static const char * const paths_vhosts[] = {
@@ -209,10 +213,30 @@ static char
 lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jpargs *a = (struct jpargs *)ctx->user;
+	struct lws_protocol_vhost_options *rej;
+	int n;
 
 	/* we only match on the prepared path strings */
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
 		return 0;
+
+	/* this catches, eg, vhosts[].headers[].xxx */
+	if (reason == LEJPCB_VAL_STR_END &&
+	    ctx->path_match == LWJPGP_REJECT_SERVICE_KEYWORDS_NAME + 1) {
+		rej = lwsws_align(a);
+		a->p += sizeof(*rej);
+
+		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		rej->next = a->info->reject_service_keywords;
+		a->info->reject_service_keywords = rej;
+		rej->name = a->p;
+		 lwsl_notice("  adding rej %s=%s\n", a->p, ctx->buf);
+		a->p += n - 1;
+		*(a->p++) = '\0';
+		rej->value = a->p;
+		rej->options = NULL;
+		goto dostring;
+	}
 
 	switch (ctx->path_match - 1) {
 	case LEJPGP_UID:
@@ -247,6 +271,7 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
+dostring:
 	a->p += lws_snprintf(a->p, a->end - a->p, "%s", ctx->buf);
 	*(a->p)++ = '\0';
 
