@@ -463,7 +463,6 @@ var libwebsockets_8h =
     [ "lws_now_secs", "group__misc.html#ga33bf2635033710b25f931b57ed663e1e", null ],
     [ "lws_parse_uri", "group__misc.html#ga1ec0d9faac5d3a5824d765c287c043aa", null ],
     [ "lws_partial_buffered", "group__wsstatus.html#gaeca4afc94b1f026034f99cbba37e2f85", null ],
-    [ "lws_plat_service_tsi", "group__service.html#gab1ff2c19455268fa0d5b617d8057fbfc", null ],
     [ "lws_protocol_get", "group__Protocols-and-Plugins.html#ga8bbe5e65faca068845704bab911a5030", null ],
     [ "lws_protocol_vh_priv_get", "group__Protocols-and-Plugins.html#gaf3be4243443baac0f8be1fcfb4d25129", null ],
     [ "lws_protocol_vh_priv_zalloc", "group__Protocols-and-Plugins.html#gaec0c0477288ff3f83aff38d357b883d1", null ],

@@ -47,7 +47,7 @@ lws_uv_idle(uv_idle_t *handle
 	 */
 	if (!lws_service_adjust_timeout(pt->context, 1, pt->tid)) {
 		/* -1 timeout means just do forced service */
-		lws_plat_service_tsi(pt->context, -1, pt->tid);
+		_lws_plat_service_tsi(pt->context, -1, pt->tid);
 		/* still somebody left who wants forced service? */
 		if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
 			/* yes... come back again later */

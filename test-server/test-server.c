@@ -457,7 +457,7 @@ int main(int argc, char **argv)
 			/* if needed, force-service wsis that may not have read all input */
 			while (!lws_service_adjust_timeout(context, 1, 0)) {
 				lwsl_notice("extpoll doing forced service!\n");
-				lws_plat_service_tsi(context, -1, 0);
+				lws_service_tsi(context, -1, 0);
 			}
 		} else {
 			/* no revents, but before polling again, make lws check for any timeouts */

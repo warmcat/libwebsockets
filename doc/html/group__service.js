@@ -2,7 +2,6 @@ var group__service =
 [
     [ "lws_cancel_service", "group__service.html#ga53e3d0801dfda7960a7249dd559e68a2", null ],
     [ "lws_cancel_service_pt", "group__service.html#ga29c246707997ab7a466aa709aecd2d7b", null ],
-    [ "lws_plat_service_tsi", "group__service.html#gab1ff2c19455268fa0d5b617d8057fbfc", null ],
     [ "lws_service", "group__service.html#gaf95bd0c663d6516a0c80047d9b1167a8", null ],
     [ "lws_service_adjust_timeout", "group__service.html#ga4fd9d714434ca499e2b3f7dbba86f241", null ],
     [ "lws_service_fd", "group__service.html#gad82efa5466d14a9f05aa06416375b28d", null ],

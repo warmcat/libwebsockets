@@ -1142,6 +1142,6 @@ lws_service(struct lws_context *context, int timeout_ms)
 LWS_VISIBLE int
 lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
-	return lws_plat_service_tsi(context, timeout_ms, tsi);
+	return _lws_plat_service_tsi(context, timeout_ms, tsi);
 }
 
