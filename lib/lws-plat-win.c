@@ -147,7 +147,7 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 }
 
 LWS_VISIBLE LWS_EXTERN int
-lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
+_lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	WSANETWORKEVENTS networkevents;
@@ -217,7 +217,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	 */
 	if (!lws_service_adjust_timeout(context, 1, tsi)) {
 		/* -1 timeout means just do forced service */
-		lws_plat_service_tsi(context, -1, pt->tid);
+		_lws_plat_service_tsi(context, -1, pt->tid);
 		/* still somebody left who wants forced service? */
 		if (!lws_service_adjust_timeout(context, 1, pt->tid))
 			/* yes... come back again quickly */
@@ -277,7 +277,7 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 LWS_VISIBLE int
 lws_plat_service(struct lws_context *context, int timeout_ms)
 {
-	return lws_plat_service_tsi(context, timeout_ms, 0);
+	return _lws_plat_service_tsi(context, timeout_ms, 0);
 }
 
 LWS_VISIBLE int

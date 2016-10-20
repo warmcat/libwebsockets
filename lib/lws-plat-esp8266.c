@@ -188,7 +188,7 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 }
 
 LWS_VISIBLE LWS_EXTERN int
-lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
+_lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	return 0;
 }
@@ -202,7 +202,7 @@ lws_plat_check_connection_error(struct lws *wsi)
 LWS_VISIBLE int
 lws_plat_service(struct lws_context *context, int timeout_ms)
 {
-//	return lws_plat_service_tsi(context, timeout_ms, 0);
+//	return _lws_plat_service_tsi(context, timeout_ms, 0);
 	return 0;
 }
 
