@@ -24,5 +24,6 @@ var group__client =
     [ "lws_client_connect", "group__client.html#ga4af0a20108a95e8b6d94dd4d80055ff3", null ],
     [ "lws_client_connect_extended", "group__client.html#gac6a8558b4410961a880241c2ac1271e2", null ],
     [ "lws_client_connect_via_info", "group__client.html#ga0c966136905f467816307cfba6deb5fd", null ],
+    [ "lws_http_client_http_response", "group__client.html#ga715efffc0c4e8fbf72a4293008eb2187", null ],
     [ "lws_init_vhost_client_ssl", "group__client.html#ga4f44b8230e6732816ca5cd8d1aaaf340", null ]
 ];

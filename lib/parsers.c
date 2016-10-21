@@ -78,6 +78,7 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 	memset(ah->frag_index, 0, sizeof(ah->frag_index));
 	ah->nfrag = 0;
 	ah->pos = 0;
+	ah->http_response = 0;
 
 	/* since we will restart the ah, our new headers are not completed */
 	// wsi->hdr_parsing_completed = 0;
