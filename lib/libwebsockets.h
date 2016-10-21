@@ -2145,6 +2145,16 @@ lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 LWS_VISIBLE LWS_EXTERN int
 lws_http_client_read(struct lws *wsi, char **buf, int *len);
 
+/**
+ * lws_http_client_http_response() - get last HTTP response code
+ *
+ * \param wsi: client connection
+ *
+ * Returns the last server response code, eg, 200 for client http connections.
+ */
+LWS_VISIBLE LWS_EXTERN unsigned int
+lws_http_client_http_response(struct lws *wsi);
+
 LWS_VISIBLE LWS_EXTERN void
 lws_client_http_body_pending(struct lws *wsi, int something_left_to_send);
 

@@ -447,6 +447,7 @@ var libwebsockets_8h =
     [ "lws_hdr_copy_fragment", "group__HTTP-headers-read.html#gaa427cad61a9a5e3004afd65c4527b5e9", null ],
     [ "lws_hdr_fragment_length", "group__HTTP-headers-read.html#ga594f3d0ece5b09c2ccf9f98ea533bb4e", null ],
     [ "lws_hdr_total_length", "group__HTTP-headers-read.html#ga8ade0e1ffb0da7e62b989d8d867bf6c8", null ],
+    [ "lws_http_client_http_response", "group__client.html#ga715efffc0c4e8fbf72a4293008eb2187", null ],
     [ "lws_http_client_read", "group__client.html#ga4450c34200bf9dab3beb90ef23221870", null ],
     [ "lws_http_redirect", "group__http.html#ga8fbf01e473ac421fc33ad9f8da8b8a25", null ],
     [ "lws_http_transaction_completed", "group__http.html#gad27aed6c66a41b2b89ffe4da2a309e8a", null ],

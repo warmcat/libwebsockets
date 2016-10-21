@@ -387,6 +387,15 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	return 0;
 }
 
+LWS_VISIBLE LWS_EXTERN unsigned int
+lws_http_client_http_response(struct lws *wsi)
+{
+	if (!wsi->u.http.ah)
+		return 0;
+
+	return wsi->u.http.ah->http_response;
+}
+
 int
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
@@ -394,7 +403,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
 	struct lws_context *context = wsi->context;
 	const char *pc, *prot, *ads = NULL, *path, *cce = NULL;
-	struct allocated_headers *ah;
+	struct allocated_headers *ah = NULL;
 	char *p;
 #ifndef LWS_NO_EXTENSIONS
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -415,6 +424,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		lws_union_transition(wsi, LWSCM_HTTP_CLIENT_ACCEPTED);
 		wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
 		wsi->u.http.ah = ah;
+		ah->http_response = 0;
 	}
 
 	/*
@@ -450,6 +460,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		goto bail3;
 	}
 	n = atoi(p);
+	if (ah)
+		ah->http_response = n;
+
 	if (n == 301 || n == 302 || n == 303 || n == 307 || n == 308) {
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_LOCATION);
 		if (!p) {

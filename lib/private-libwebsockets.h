@@ -652,6 +652,8 @@ struct allocated_headers {
 	unsigned int rxlen;
 	unsigned int pos;
 
+	unsigned int http_response;
+
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
 #endif

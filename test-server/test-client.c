@@ -140,6 +140,11 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 		break;
 
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		lwsl_notice("lws_http_client_http_response %d\n",
+				lws_http_client_http_response(wsi));
+		break;
+
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		{
 			char buffer[1024 + LWS_PRE];

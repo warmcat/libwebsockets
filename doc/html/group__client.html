@@ -96,6 +96,8 @@ Functions</h2></td></tr>
 <tr class="memitem:ga4450c34200bf9dab3beb90ef23221870"><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga4450c34200bf9dab3beb90ef23221870"></a>
 LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b>lws_http_client_read</b> (struct lws *wsi, char **buf, int *len)</td></tr>
 <tr class="separator:ga4450c34200bf9dab3beb90ef23221870"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga715efffc0c4e8fbf72a4293008eb2187"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN unsigned int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__client.html#ga715efffc0c4e8fbf72a4293008eb2187">lws_http_client_http_response</a> (struct lws *wsi)</td></tr>
+<tr class="separator:ga715efffc0c4e8fbf72a4293008eb2187"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga26588fb345083076c14169dd5859f57a"><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga26588fb345083076c14169dd5859f57a"></a>
 LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><b>lws_client_http_body_pending</b> (struct lws *wsi, int something_left_to_send)</td></tr>
 <tr class="separator:ga26588fb345083076c14169dd5859f57a"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -319,6 +321,32 @@ LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><
   </table>
   </dd>
 </dl>
+
+</div>
+</div>
+<a class="anchor" id="ga715efffc0c4e8fbf72a4293008eb2187"></a>
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">LWS_VISIBLE LWS_EXTERN unsigned int lws_http_client_http_response </td>
+          <td>(</td>
+          <td class="paramtype">struct lws *&#160;</td>
+          <td class="paramname"><em>wsi</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
+<p><a class="el" href="group__client.html#ga715efffc0c4e8fbf72a4293008eb2187">lws_http_client_http_response()</a> - get last HTTP response code</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">wsi</td><td>client connection</td></tr>
+  </table>
+  </dd>
+</dl>
+<p>Returns the last server response code, eg, 200 for client http connections. </p>
 
 </div>
 </div>
