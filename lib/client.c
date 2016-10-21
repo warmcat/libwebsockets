@@ -474,9 +474,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	}
 
 	if (!wsi->do_ws) {
-		if (n != 200) {
-			lwsl_notice("Connection failed with code %d", n);
-			cce = "HS: Server did not return 200";
+		if (n != 200 && n != 304) {
+			lwsl_notice("Connection failed with code %d\n", n);
+			cce = "HS: Server did not return 200 or 304";
 			goto bail2;
 		}
 
