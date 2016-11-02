@@ -359,6 +359,7 @@ lws_ssl_destroy(struct lws_context *context)
 	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
 
+#if (OPENSSL_VERSION_NUMBER < 0x10100006L)
 #if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
 #else
@@ -367,6 +368,7 @@ lws_ssl_destroy(struct lws_context *context)
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
+#endif
 }
 
 LWS_VISIBLE void
@@ -832,6 +834,7 @@ lws_ssl_context_destroy(struct lws_context *context)
 	if (!context->user_supplied_ssl_ctx && context->ssl_client_ctx)
 		SSL_CTX_free(context->ssl_client_ctx);
 
+#if (OPENSSL_VERSION_NUMBER < 0x10100006L)
 #if (OPENSSL_VERSION_NUMBER < 0x01000000) || defined(USE_WOLFSSL)
 	ERR_remove_state(0);
 #else
@@ -840,4 +843,5 @@ lws_ssl_context_destroy(struct lws_context *context)
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
+#endif
 }
