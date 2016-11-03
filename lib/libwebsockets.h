@@ -1752,7 +1752,7 @@ struct lws_context_creation_info {
  *
  *	HTTP requests are sent always to the FIRST protocol in protocol, since
  *	at that time websocket protocol has not been negotiated.  Other
- *	protocols after the first one never see any HTTP callack activity.
+ *	protocols after the first one never see any HTTP callback activity.
  *
  *	The server created is a simple http server by default; part of the
  *	websocket standard is upgrading this http connection to a websocket one.
