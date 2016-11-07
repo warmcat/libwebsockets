@@ -125,7 +125,7 @@ struct sockaddr_in;
 // Visual studio older than 2015 and WIN_CE has only _stricmp
 #if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(_WIN32_WCE)
 #define strcasecmp _stricmp
-#else
+#elif !defined(__MINGW32__)
 #define strcasecmp stricmp
 #endif
 #define getdtablesize() 30000
@@ -148,7 +148,7 @@ struct sockaddr_in;
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #define LWS_O_RDONLY _O_RDONLY
 
-#if !defined(_MSC_VER) || _MSC_VER < 1900 /* Visual Studio 2015 already defines this in <stdio.h> */
+#if !defined(__MINGW32__) && (!defined(_MSC_VER) || _MSC_VER < 1900) /* Visual Studio 2015 already defines this in <stdio.h> */
 #define lws_snprintf _snprintf
 #endif
 
