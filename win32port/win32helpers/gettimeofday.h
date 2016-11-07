@@ -1,6 +1,8 @@
 #ifndef _GET_TIME_OF_DAY_H
 #define _GET_TIME_OF_DAY_H
 
+#include <time.h>
+
 #if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
   #define DELTA_EPOCH_IN_MICROSECS  11644473600000000Ui64
 #else
@@ -18,9 +20,8 @@ struct timezone
   int  tz_dsttime;     /* type of dst correction */
 };
 
-int gettimeofday(struct timeval *tv, struct timezone *tz);
-
 #endif
 
+int gettimeofday(struct timeval *tv, struct timezone *tz);
 
 #endif

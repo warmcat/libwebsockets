@@ -37,3 +37,4 @@ config.sub
 ar-lib
 libwebsockets.pc
 build/
+*.swp
