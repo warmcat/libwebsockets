@@ -291,6 +291,10 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 static inline int compatible_close(int fd) { return close(fd); }
 #endif
 
+#if defined(WIN32) || defined(_WIN32)
+#include <gettimeofday.h>
+#endif
+
 #if defined(MBED_OPERATORS)
 #undef compatible_close
 #define compatible_close(fd) mbed3_delete_tcp_stream_socket(fd)
