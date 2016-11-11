@@ -1983,7 +1983,8 @@ struct lws_http_mount {
 enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_USE_SSL 				= (1 << 0),
 	LCCSCF_ALLOW_SELFSIGNED			= (1 << 1),
-	LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK	= (1 << 2)
+	LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK	= (1 << 2),
+	LCCSCF_ALLOW_EXPIRED			= (1 << 3)
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using

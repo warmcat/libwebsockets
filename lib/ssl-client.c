@@ -296,6 +296,10 @@ lws_ssl_client_connect2(struct lws *wsi)
 		     n == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) &&
 		     wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED) {
 			lwsl_notice("accepting self-signed certificate\n");
+		} else if ((n == X509_V_ERR_CERT_NOT_YET_VALID ||
+		            n == X509_V_ERR_CERT_HAS_EXPIRED) &&
+		     wsi->use_ssl & LCCSCF_ALLOW_EXPIRED) {
+			lwsl_notice("accepting expired certificate\n");
 		} else {
 			lwsl_err("server's cert didn't look good, X509_V_ERR = %d: %s\n",
 				 n, ERR_error_string(n, sb));
