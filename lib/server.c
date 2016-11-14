@@ -2227,13 +2227,14 @@ static int
 lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int len)
 {
 	int n, m, hit = 0;
-	char sum = 0, c;
+	char sum = 0, c, was_end = 0;
 
 	while (len--) {
 		if (s->pos == s->out_len - s->mp - 1) {
 			if (s->output(s->data, s->name, &s->out, s->pos, 0))
 				return -1;
 
+			was_end = s->pos;
 			s->pos = 0;
 		}
 		switch (s->state) {
@@ -2319,7 +2320,7 @@ retry_as_first:
 					s->mp = 0;
 					s->state = MT_IGNORE1;
 
-					if (s->pos)
+					if (s->pos || was_end)
 						if (s->output(s->data, s->name,
 						      &s->out, s->pos, 1))
 							return -1;
