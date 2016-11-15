@@ -17,6 +17,12 @@ lws_client_connect_2(struct lws *wsi)
 
 	lwsl_client("%s\n", __func__);
 
+	if (!wsi->u.hdr.ah) {
+		
+		lwsl_err("ah was NULL at cc2\n");
+		goto oom4;
+	}
+
 	/* proxy? */
 
 	if (wsi->vhost->http_proxy_port) {
