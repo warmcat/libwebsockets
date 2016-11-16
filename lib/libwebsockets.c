@@ -1473,7 +1473,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 #endif
 
 LWS_EXTERN int
-lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
+lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		const char *iface)
 {
 #if LWS_POSIX

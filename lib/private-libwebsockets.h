@@ -1463,7 +1463,7 @@ struct lws {
 LWS_EXTERN int log_level;
 
 LWS_EXTERN int
-lws_socket_bind(struct lws_vhost *vhost, int sockfd, int port,
+lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		const char *iface);
 
 LWS_EXTERN void
