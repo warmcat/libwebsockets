@@ -887,7 +887,7 @@ enum uri_esc_states {
 #ifndef LWS_NO_CLIENT
 struct client_info_stash {
 	char address[256];
-	char path[1024];
+	char path[4096];
 	char host[256];
 	char origin[256];
 	char protocol[256];
