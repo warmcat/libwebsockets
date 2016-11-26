@@ -770,21 +770,6 @@ lws_http_action(struct lws *wsi)
 
 	s = uri_ptr + hit->mountpoint_len;
 
-	args.p = uri_ptr;
-	args.len = uri_len;
-	args.max_len = hit->auth_mask;
-	args.final = 0; /* used to signal callback dealt with it */
-
-	n = wsi->protocol->callback(wsi, LWS_CALLBACK_CHECK_ACCESS_RIGHTS,
-				    wsi->user_space, &args, 0);
-	if (n) {
-		lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED,
-				       NULL);
-		goto bail_nuke_ah;
-	}
-	if (args.final) /* callback completely handled it well */
-		return 0;
-
 	/*
 	 * if we have a mountpoint like https://xxx.com/yyy
 	 * there is an implied / at the end for our purposes since
@@ -860,6 +845,21 @@ lws_http_action(struct lws *wsi)
 
 		if (lws_bind_protocol(wsi, pp))
 			return 1;
+
+		args.p = uri_ptr;
+		args.len = uri_len;
+		args.max_len = hit->auth_mask;
+		args.final = 0; /* used to signal callback dealt with it */
+
+		n = wsi->protocol->callback(wsi, LWS_CALLBACK_CHECK_ACCESS_RIGHTS,
+					    wsi->user_space, &args, 0);
+		if (n) {
+			lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED,
+					       NULL);
+			goto bail_nuke_ah;
+		}
+		if (args.final) /* callback completely handled it well */
+			return 0;
 
 		if (hit->cgienv && wsi->protocol->callback(wsi,
 				LWS_CALLBACK_HTTP_PMO,
