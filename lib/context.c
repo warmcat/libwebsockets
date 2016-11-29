@@ -122,6 +122,10 @@ lws_vhost_protocol_options(struct lws_vhost *vh, const char *name)
 	return NULL;
 }
 
+/*
+ * inform every vhost that hasn't already done it, that
+ * his protocols are initializing
+ */
 int
 lws_protocol_init(struct lws_context *context)
 {
@@ -137,6 +141,10 @@ lws_protocol_init(struct lws_context *context)
 
 	while (vh) {
 		wsi.vhost = vh;
+
+		/* only do the protocol init once for a given vhost */
+		if (vh->created_vhost_protocols)
+			goto next;
 
 		/* initialize supported protocols on this vhost */
 
@@ -185,11 +193,15 @@ lws_protocol_init(struct lws_context *context)
 				return 1;
 		}
 
+		vh->created_vhost_protocols = 1;
+next:
 		vh = vh->vhost_next;
 	}
 
+	if (!context->protocol_init_done)
+		lws_finalize_startup(context);
+
 	context->protocol_init_done = 1;
-	lws_finalize_startup(context);
 
 	return 0;
 }
@@ -519,6 +531,11 @@ lws_create_vhost(struct lws_context *context,
 		}
 		vh1 = &(*vh1)->vhost_next;
 	};
+
+	/* for the case we are adding a vhost much later, after server init */
+
+	if (context->protocol_init_done)
+		lws_protocol_init(context);
 
 	return vh;
 

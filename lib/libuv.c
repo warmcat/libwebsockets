@@ -143,47 +143,91 @@ lws_uv_timeout_cb(uv_timer_t *timer
 
 static const int sigs[] = { SIGINT, SIGTERM, SIGSEGV, SIGFPE };
 
+int
+lws_uv_initvhost(struct lws_vhost* vh, struct lws* wsi)
+{
+	struct lws_context_per_thread *pt;
+	int n;
+
+	if (!LWS_LIBUV_ENABLED(vh->context))
+		return 0;
+	if (!wsi)
+		wsi = vh->lserv_wsi;
+	if (!wsi)
+		return 0;
+	if (wsi->w_read.context)
+		return 0;
+
+	pt = &vh->context->pt[(int)wsi->tsi];
+	if (!pt->io_loop_uv)
+		return 0;
+
+	wsi->w_read.context = vh->context;
+	n = uv_poll_init_socket(pt->io_loop_uv,
+				&wsi->w_read.uv_watcher, wsi->sock);
+	if (n) {
+		lwsl_err("uv_poll_init failed %d, sockfd=%p\n",
+				 n, (void *)(long)wsi->sock);
+
+		return -1;
+	}
+	lws_libuv_io(wsi, LWS_EV_START | LWS_EV_READ);
+
+	return 0;
+}
+
+/*
+ * This needs to be called after vhosts have been defined.
+ *
+ * If later, after server start, another vhost is added, this must be
+ * called again to bind the vhost
+ */
+
 LWS_VISIBLE int
 lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_vhost *vh = context->vhost_list;
-	int status = 0, n, ns;
+	int status = 0, n, ns, first = 1;
 
-	if (!loop) {
-		loop = lws_malloc(sizeof(*loop));
+	if (!pt->io_loop_uv) {
 		if (!loop) {
-			lwsl_err("OOM\n");
-			return -1;
+			loop = lws_malloc(sizeof(*loop));
+			if (!loop) {
+				lwsl_err("OOM\n");
+				return -1;
+			}
+	#if UV_VERSION_MAJOR > 0
+			uv_loop_init(loop);
+	#else
+			lwsl_err("This libuv is too old to work...\n");
+			return 1;
+	#endif
+			pt->ev_loop_foreign = 0;
+		} else {
+			lwsl_notice(" Using foreign event loop...\n");
+			pt->ev_loop_foreign = 1;
 		}
-#if UV_VERSION_MAJOR > 0
-		uv_loop_init(loop);
-#else
-		lwsl_err("This libuv is too old to work...\n");
-		return 1;
-#endif
-		pt->ev_loop_foreign = 0;
-	} else {
-		lwsl_notice(" Using foreign event loop...\n");
-		pt->ev_loop_foreign = 1;
-	}
 
-	pt->io_loop_uv = loop;
-	uv_idle_init(loop, &pt->uv_idle);
+		pt->io_loop_uv = loop;
+		uv_idle_init(loop, &pt->uv_idle);
 
-	ns = ARRAY_SIZE(sigs);
-	if (lws_check_opt(context->options, LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN))
-		ns = 2;
+		ns = ARRAY_SIZE(sigs);
+		if (lws_check_opt(context->options,
+				  LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN))
+			ns = 2;
 
-	if (pt->context->use_ev_sigint) {
-		assert(ns <= ARRAY_SIZE(pt->signals));
-		for (n = 0; n < ns; n++) {
-			uv_signal_init(loop, &pt->signals[n]);
-			pt->signals[n].data = pt->context;
-			uv_signal_start(&pt->signals[n],
-					context->lws_uv_sigint_cb, sigs[n]);
+		if (pt->context->use_ev_sigint) {
+			assert(ns <= ARRAY_SIZE(pt->signals));
+			for (n = 0; n < ns; n++) {
+				uv_signal_init(loop, &pt->signals[n]);
+				pt->signals[n].data = pt->context;
+				uv_signal_start(&pt->signals[n],
+						context->lws_uv_sigint_cb, sigs[n]);
+			}
 		}
-	}
+	} else
+		first = 0;
 
 	/*
 	 * Initialize the accept wsi read watcher with all the listening sockets
@@ -193,24 +237,16 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 	 * initialized until after context creation.
 	 */
 	while (vh) {
-		if (vh->lserv_wsi) {
-			vh->lserv_wsi->w_read.context = context;
-			n = uv_poll_init_socket(pt->io_loop_uv,
-						&vh->lserv_wsi->w_read.uv_watcher,
-						vh->lserv_wsi->sock);
-			if (n) {
-				lwsl_err("uv_poll_init failed %d, sockfd=%p\n",
-					n, (void *)(long)vh->lserv_wsi->sock);
-
-				return -1;
-			}
-			lws_libuv_io(vh->lserv_wsi, LWS_EV_START | LWS_EV_READ);
-		}
+		if (lws_uv_initvhost(vh, vh->lserv_wsi) == -1)
+			return -1;
 		vh = vh->vhost_next;
 	}
 
-	uv_timer_init(pt->io_loop_uv, &pt->uv_timeout_watcher);
-	uv_timer_start(&pt->uv_timeout_watcher, lws_uv_timeout_cb, 10, 1000);
+	if (first) {
+		uv_timer_init(pt->io_loop_uv, &pt->uv_timeout_watcher);
+		uv_timer_start(&pt->uv_timeout_watcher, lws_uv_timeout_cb,
+			       10, 1000);
+	}
 
 	return status;
 }

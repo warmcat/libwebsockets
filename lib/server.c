@@ -153,6 +153,12 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	wsi->listener = 1;
 
 	vhost->context->pt[m].wsi_listening = wsi;
+
+#ifdef LWS_USE_LIBUV
+	if (LWS_LIBUV_ENABLED(vhost->context))
+		lws_uv_initvhost(vhost, wsi);
+#endif
+
 	if (insert_wsi_socket_into_fds(vhost->context, wsi))
 		goto bail;
 
