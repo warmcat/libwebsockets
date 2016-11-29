@@ -143,7 +143,7 @@ lws_uv_timeout_cb(uv_timer_t *timer
 
 static const int sigs[] = { SIGINT, SIGTERM, SIGSEGV, SIGFPE };
 
-LWS_VISIBLE int
+int
 lws_uv_initvhost(struct lws_vhost* vh, struct lws* wsi)
 {
 	int n;
