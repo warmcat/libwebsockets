@@ -143,6 +143,32 @@ lws_uv_timeout_cb(uv_timer_t *timer
 
 static const int sigs[] = { SIGINT, SIGTERM, SIGSEGV, SIGFPE };
 
+int
+lws_uv_initvhost(struct lws_vhost* vh, struct lws* wsi)
+{
+	int n;
+	struct lws_context_per_thread *pt;
+	if (!LWS_LIBUV_ENABLED(vh->context)) return 0;
+	if (wsi==NULL) wsi = vh->lserv_wsi;
+	if (wsi==NULL) return 0;
+	if (wsi->w_read.context) return 0;
+	pt = &vh->context->pt[(int)wsi->tsi];
+	if( pt->io_loop_uv==NULL ) return 0;
+
+	wsi->w_read.context = vh->context;
+	n = uv_poll_init_socket(pt->io_loop_uv,
+							&wsi->w_read.uv_watcher,
+							wsi->sock);
+	if (n) {
+		lwsl_err("uv_poll_init failed %d, sockfd=%p\n",
+				 n, (void *)(long)wsi->sock);
+
+		return -1;
+	}
+	lws_libuv_io(wsi, LWS_EV_START | LWS_EV_READ);
+	return 0;
+}
+
 LWS_VISIBLE int
 lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 {
@@ -193,19 +219,7 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 	 * initialized until after context creation.
 	 */
 	while (vh) {
-		if (vh->lserv_wsi) {
-			vh->lserv_wsi->w_read.context = context;
-			n = uv_poll_init_socket(pt->io_loop_uv,
-						&vh->lserv_wsi->w_read.uv_watcher,
-						vh->lserv_wsi->sock);
-			if (n) {
-				lwsl_err("uv_poll_init failed %d, sockfd=%p\n",
-					n, (void *)(long)vh->lserv_wsi->sock);
-
-				return -1;
-			}
-			lws_libuv_io(vh->lserv_wsi, LWS_EV_START | LWS_EV_READ);
-		}
+		if (lws_uv_initvhost( vh, vh->lserv_wsi )==-1) return -1;
 		vh = vh->vhost_next;
 	}
 

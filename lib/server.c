@@ -153,6 +153,9 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	wsi->listener = 1;
 
 	vhost->context->pt[m].wsi_listening = wsi;
+		
+	lws_uv_initvhost( vhost, wsi );
+
 	if (insert_wsi_socket_into_fds(vhost->context, wsi))
 		goto bail;
 
