@@ -965,6 +965,8 @@ LWS_EXTERN void
 lws_libuv_run(const struct lws_context *context, int tsi);
 LWS_EXTERN void
 lws_libuv_destroyloop(struct lws_context *context, int tsi);
+LWS_EXTERN int
+lws_uv_initvhost(struct lws_vhost* vh, struct lws*);
 #define LWS_LIBUV_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV)
 LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info);
 #else
