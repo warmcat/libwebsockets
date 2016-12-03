@@ -1964,6 +1964,19 @@ struct lws_http_mount {
 
 	unsigned char origin_protocol; /**< one of enum lws_mount_protocols */
 	unsigned char mountpoint_len; /**< length of mountpoint string */
+
+	const char *basic_auth_login_file;
+	/**<NULL, or filepath to use to check basic auth logins against */
+
+	/* Add new things just above here ---^
+	 * This is part of the ABI, don't needlessly break compatibility
+	 *
+	 * The below is to ensure later library versions with new
+	 * members added above will see 0 (default) even if the app
+	 * was not built against the newer headers.
+	 */
+
+	void *_unused[2]; /**< dummy */
 };
 ///@}
 ///@}

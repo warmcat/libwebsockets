@@ -1512,6 +1512,10 @@ endif()
 if (NOT LWS_WITHOUT_TESTAPPS AND NOT LWS_WITHOUT_SERVER)
 	install(FILES ${TEST_SERVER_DATA}
 			DESTINATION share/libwebsockets-test-server
+		COMPONENT examples)
+
+		install(FILES "${PROJECT_SOURCE_DIR}/test-server/private/index.html"
+			DESTINATION share/libwebsockets-test-server/private
 			COMPONENT examples)
 if (LWS_WITH_CGI)
 	set(CGI_TEST_SCRIPT "${PROJECT_SOURCE_DIR}/test-server/lws-cgi-test.sh")

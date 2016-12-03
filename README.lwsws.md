@@ -370,6 +370,36 @@ If you provide an extra mimetype entry
 Then any file is served, if the mimetype was not known then it is served without a
 Content-Type: header.
 
+7) A mount can be protected by HTTP Basic Auth.  This only makes sense when using
+https, since otherwise the password can be sniffed.
+
+You can add a `basic-auth` entry on a mount like this`
+
+```
+{
+        "mountpoint": "/basic-auth",
+        "origin": "file://_lws_ddir_/libwebsockets-test-server/private",
+        "basic-auth": "/var/www/balogins-private"
+}
+```
+
+Before serving anything, lws will signal to the browser that a username / password
+combination is required, and it will pop up a dialog.  When the user has filled it
+in, lwsws checks the user:password string against the text file named in the `basic-auth`
+entry.
+
+The file should contain user:pass one per line
+
+```
+testuser:testpass
+myuser:hispass
+```
+
+The file should be readable by lwsws, and for a little bit of extra security not
+have a file suffix, so lws would reject to serve it even if it could find it on
+a mount.
+
+
 @section lwswspl Lwsws Plugins
 
 Protcols and extensions may also be provided from "plugins", these are
