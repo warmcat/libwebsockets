@@ -1715,6 +1715,13 @@ struct lws_context_creation_info {
 	 *
 	 * Eg, "badrobot" "404 Not Found"
 	 */
+	void *external_baggage_free_on_destroy;
+	/**< CONTEXT: NULL, or pointer to something externally malloc'd, that
+	 * should be freed when the context is destroyed.  This allows you to
+	 * automatically sync the freeing action to the context destruction
+	 * action, so there is no need for an external free() if the context
+	 * succeeded to create.
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
