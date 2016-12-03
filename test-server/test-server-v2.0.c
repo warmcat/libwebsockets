@@ -84,6 +84,7 @@ static const struct lws_http_mount mount_post = {
 	NULL,
 	NULL,
 	NULL,
+	NULL,
 	0,
 	0,
 	0,
@@ -105,6 +106,7 @@ static const struct lws_http_mount mount = {
 	"/",		/* mountpoint in URL namespace on this vhost */
 	LOCAL_RESOURCE_PATH, /* where to go on the filesystem for that */
 	"test.html",	/* default filename if none given */
+	NULL,
 	NULL,
 	NULL,
 	NULL,

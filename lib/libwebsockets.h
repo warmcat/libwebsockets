@@ -1942,6 +1942,9 @@ struct lws_http_mount {
 	const char *protocol;
 	/**<"protocol-name" to handle mount */
 
+	const char *basic_auth_login_file;
+	/**<NULL, or filepath to use to check basic auth logins against */
+
 	const struct lws_protocol_vhost_options *cgienv;
 	/**< optional linked-list of cgi options.  These are created
 	 * as environment variables for the cgi process
