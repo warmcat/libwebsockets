@@ -92,6 +92,9 @@ static const struct lws_http_mount mount_post = {
 	0,
 	LWSMPRO_CALLBACK,	/* origin points to a callback */
 	9,			/* strlen("/formtest"), ie length of the mountpoint */
+	NULL,
+
+	{ NULL, NULL } // sentinel
 };
 
 /*
@@ -101,7 +104,7 @@ static const struct lws_http_mount mount_post = {
  */
 
 static const struct lws_http_mount mount = {
-	(struct lws_http_mount *)&mount_post,		/* linked-list pointer to next*/
+	(struct lws_http_mount *)&mount_post,	/* linked-list pointer to next*/
 	"/",		/* mountpoint in URL namespace on this vhost */
 	LOCAL_RESOURCE_PATH, /* where to go on the filesystem for that */
 	"test.html",	/* default filename if none given */
@@ -117,6 +120,9 @@ static const struct lws_http_mount mount = {
 	0,
 	LWSMPRO_FILE,	/* mount type is a directory in a filesystem */
 	1,		/* strlen("/"), ie length of the mountpoint */
+	NULL,
+
+	{ NULL, NULL } // sentinel
 };
 
 /*

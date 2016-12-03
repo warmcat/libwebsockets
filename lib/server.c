@@ -525,6 +525,84 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 	return hit;
 }
 
+#ifdef LWS_POSIX
+
+static int
+lws_find_string_in_file(const char *filename, const char *string, int stringlen)
+{
+	char buf[128];
+	int fd, match = 0, pos = 0, n = 0, hit = 0;
+
+	fd = open(filename, O_RDONLY);
+	if (fd < 0) {
+		lwsl_err("can't open auth file: %s\n", filename);
+		return 1;
+	}
+
+	while (1) {
+		if (pos == n) {
+			n = read(fd, buf, sizeof(buf));
+			if (n <= 0) {
+				if (match == stringlen)
+					hit = 1;
+				break;
+			}
+		}
+
+		if (match == stringlen) {
+			if (buf[pos] == '\r' || buf[pos] == '\n') {
+				hit = 1;
+				break;
+			}
+			match = 0;
+		}
+
+		if (buf[pos] == string[match])
+			match++;
+		else
+			match = 0;
+
+		pos++;
+	}
+
+	close(fd);
+
+	return hit;
+}
+
+static int
+lws_unauthorised_basic_auth(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	unsigned char *start = pt->serv_buf + LWS_PRE,
+		      *p = start, *end = p + 512;
+	char buf[64];
+	int n;
+
+	/* no auth... tell him it is required */
+
+	if (lws_add_http_header_status(wsi, HTTP_STATUS_UNAUTHORIZED, &p, end))
+		return -1;
+
+	n = lws_snprintf(buf, sizeof(buf), "Basic realm=\"lwsws\"");
+	if (lws_add_http_header_by_token(wsi,
+			WSI_TOKEN_HTTP_WWW_AUTHENTICATE,
+			(unsigned char *)buf, n, &p, end))
+		return -1;
+
+	if (lws_finalize_http_header(wsi, &p, end))
+		return -1;
+
+	n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+	if (n < 0)
+		return -1;
+
+	return lws_http_transaction_completed(wsi);
+
+}
+
+#endif
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -829,6 +907,52 @@ lws_http_action(struct lws *wsi)
 		return lws_http_transaction_completed(wsi);
 	}
 
+#ifdef LWS_POSIX
+	/* basic auth? */
+
+	if (hit->basic_auth_login_file) {
+		char b64[160], plain[(sizeof(b64) * 3) / 4];
+		int m;
+
+		/* Did he send auth? */
+		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION))
+			return lws_unauthorised_basic_auth(wsi);
+
+		n = HTTP_STATUS_FORBIDDEN;
+
+		m = lws_hdr_copy(wsi, b64, sizeof(b64), WSI_TOKEN_HTTP_AUTHORIZATION);
+		if (m < 7) {
+			lwsl_err("b64 auth too long\n");
+			goto transaction_result_n;
+		}
+
+		b64[5] = '\0';
+		if (strcasecmp(b64, "Basic")) {
+			lwsl_err("auth missing basic: %s\n", b64);
+			goto transaction_result_n;
+		}
+
+		/* It'll be like Authorization: Basic QWxhZGRpbjpPcGVuU2VzYW1l */
+
+		m = lws_b64_decode_string(b64 + 6, plain, sizeof(plain));
+		if (m < 0) {
+			lwsl_err("plain auth too long\n");
+			goto transaction_result_n;
+		}
+
+//		lwsl_notice(plain);
+
+		if (!lws_find_string_in_file(hit->basic_auth_login_file, plain, m)) {
+			lwsl_err("basic auth lookup failed\n");
+			return lws_unauthorised_basic_auth(wsi);
+		}
+
+		lwsl_notice("basic auth accepted\n");
+
+		/* accept the auth */
+	}
+#endif
+
 	/*
 	 * A particular protocol callback is mounted here?
 	 *
@@ -983,6 +1107,10 @@ bail_nuke_ah:
 	lws_header_table_detach(wsi, 1);
 
 	return 1;
+
+transaction_result_n:
+	lws_return_http_status(wsi, n, NULL);
+	return lws_http_transaction_completed(wsi);
 }
 
 int
@@ -1227,6 +1355,8 @@ upgrade_ws:
 
 			n = 0;
 			while (wsi->vhost->protocols[n].callback) {
+				lwsl_info("try %s\n", wsi->vhost->protocols[n].name);
+
 				if (wsi->vhost->protocols[n].name &&
 				    !strcmp(wsi->vhost->protocols[n].name,
 					    protocol_name)) {
