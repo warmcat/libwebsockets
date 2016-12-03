@@ -606,6 +606,9 @@ lws_create_context(struct lws_context_creation_info *info)
 		context->pt_serv_buf_size = 4096;
 
 	context->reject_service_keywords = info->reject_service_keywords;
+	if (info->external_baggage_free_on_destroy)
+		context->external_baggage_free_on_destroy =
+			info->external_baggage_free_on_destroy;
 
 	context->time_up = time(NULL);
 #ifndef LWS_NO_DAEMONIZE
@@ -959,6 +962,9 @@ lws_context_destroy(struct lws_context *context)
 	}
 
 	lws_plat_context_late_destroy(context);
+
+	if (context->external_baggage_free_on_destroy)
+		free(context->external_baggage_free_on_destroy);
 
 	lws_free(context);
 }

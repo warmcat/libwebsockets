@@ -161,6 +161,7 @@ int main(int argc, char **argv)
 
 	memset(&info, 0, sizeof(info));
 
+	info.external_baggage_free_on_destroy = config_strings;
 	info.max_http_header_pool = 16;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 |
 			      LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
@@ -200,7 +201,6 @@ int main(int argc, char **argv)
 	}
 
 	lws_context_destroy(context);
-	free(config_strings);
 
 	fprintf(stderr, "lwsws exited cleanly\n");
 

@@ -833,6 +833,7 @@ struct lws_context {
 #endif
 	struct lws_vhost *vhost_list;
 	struct lws_plugin *plugin_list;
+	void *external_baggage_free_on_destroy;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
 	const char *server_string;
