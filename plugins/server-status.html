@@ -55,6 +55,20 @@
 		-webkit-border-radius:3px; 
 		-moz-border-radius:3px;
 		border-radius:3px; }
+	td.c0 { vertical-align:middle;
+		text-align:center;
+		background:#b0b090; 
+		padding:3px; 
+		-webkit-border-radius:3px; 
+		-moz-border-radius:3px;
+		border-radius:3px; }
+	td.c1 { vertical-align:middle;
+		text-align:center;
+		background:#c0c0c0; 
+		padding:3px; 
+		-webkit-border-radius:3px; 
+		-moz-border-radius:3px;
+		border-radius:3px; }
 	td.t { vertical-align:middle;
 		text-align:center;
 		background:#e0e0c0; 
@@ -113,6 +127,7 @@
 <tr><td><img src="./lwsws-logo.png"></td><td><span id=title class=title>Server status</span></td></tr>
 <tr><td align=center colspan=2>
 <div id="conninfo">...</div>
+<div id="json"></div>
 </td></tr>
 
 
@@ -200,89 +215,122 @@ function get_appropriate_ws_url()
 		}
 
 		socket_status.onmessage =function got_packet(msg) {
-			var u;
-			//document.getElementById("conninfo").innerHTML = "<pre>"+msg.data+"</pre>";
+			var u, ci, n;
+			//document.getElementById("json").innerHTML = "<pre>"+msg.data+"</pre>";
 			jso = JSON.parse(msg.data);
-			u = parseInt(san(jso.uptime));
-			s = "<table><tr><td class=\"c\">" +
-			  "Context</td><td>" +
+			u = parseInt(san(jso.i.uptime));
+
+			s = "<table><tr><td></td><td class=\"c0\">" +
+			  "Server</td><td>" +
 			  "<span class=n>Version:</span> <span class=v>" +
-			   san(jso.version) + "</span><br>" +
+			   san(jso.i.version) + "</span><br>" +
 			  "<span class=n>Uptime:</span> <span class=v>" +
 			  ((u / (24 * 3600)) | 0) + "d " +
 			  (((u % (24 * 3600)) / 3600) | 0) + "h " +
 			  (((u % 3600) / 60) | 0) + "m</span>";
-			if (jso.l1)
-				s = s + ", <span class=n>Load:</span> <span class=v>" + san(jso.l1) + " ";
-			if (jso.l2)
-				s = s + san(jso.l2) + " ";
-			if (jso.l3)
-				s = s + san(jso.l3);
-			if (jso.l1)
+			if (jso.i.l1)
+				s = s + ", <span class=n>Load:</span> <span class=v>" + san(jso.i.l1) + " ";
+			if (jso.i.l2)
+				s = s + san(jso.i.l2) + " ";
+			if (jso.i.l3)
+				s = s + san(jso.i.l3);
+			if (jso.i.l1)
 				s =s + "<span>";
-			s = s +
-			  "<br>" +
-			  "<span class=n>Listening wsi:</span> <span class=v>" + san(jso.listen_wsi) + "</span>, " +
-			  "<span class=n>Current wsi alive:</span> <span class=v>" + (parseInt(san(jso.wsi_alive)) -
-			  	parseInt(san(jso.listen_wsi))) + "</span><br>" +
-			  "<span class=n>Current cgi alive:</span> <span class=v>" + san(jso.cgi_alive) + "</span>, " +
-			  "<span class=n>Total CGI spawned:</span> <span class=v>" + san(jso.cgi_spawned) +
-			  "</span></td></tr>";
-			var n;
-			for (n = 0; n < jso.pt.length; n++) {
-
-				s = s + "<tr><td class=\"l\">service thread " + (n + 1) +
-				"</td><td>" +
-				"<span class=n>fds:</span> <span class=v>" + san(jso.pt[n].fds_count) + " / " +
-					  san(jso.pt_fd_max) + "</span>, ";
-				s = s + "<span class=n>ah pool:</span> <span class=v>" + san(jso.pt[n].ah_pool_inuse) + " / " +
-					      san(jso.ah_pool_max) + "</span>, " +
-				"<span class=n>ah waiting list:</span> <span class=v>" + san(jso.pt[n].ah_wait_list);
-
-				s = s + "</span></td></tr>";
-
-			}
-			for (n = 0; n < jso.vhosts.length; n++) {
-				s = s + "<tr><td class=\"l\">vhost " + (n + 1) +
-				"</td><td><span class=\"mountname\">";
-				if (jso.vhosts[n].use_ssl == '1')
-					s = s + "https://";
-				else
-					s = s + "http://";
-				s = s + san(jso.vhosts[n].name) + ":" +
-					san(jso.vhosts[n].port) + "</span>";
-				if (jso.vhosts[n].sts == '1')
-					s = s + " (STS)";
-				s = s +"<br>" +
-				"<span class=n>rx:</span> <span class=v>" + humanize(san(jso.vhosts[n].rx)) + "B</span>, " +
-				"<span class=n>tx</span> <span class=v>" + humanize(san(jso.vhosts[n].tx)) + "B</span><br>" +
-				"<span class=n>total connections</span> <span class=v>" + san(jso.vhosts[n].conn) + "</span>, " +
-				"<span class=n>total http transactions</span> <span class=v>" + san(jso.vhosts[n].trans) + "</span><br>" +
-				"<span class=n>Upgrades to ws:</span> <span class=v>" + san(jso.vhosts[n].ws_upg) + "</span>, " +
-				"<span class=n>to http/2:</span> <span class=v>" + san(jso.vhosts[n].http2_upg) + "</span><br>" +
-				"<table style=\"margin-left:16px\"><tr><td class=t>Mountpoint</td><td class=t>Origin</td><td class=t>Cache Policy</td></tr>";
 				
-				var m;
-				for (m = 0; m < jso.vhosts[n].mounts.length; m++) {
-					s = s + "<tr><td>";
-					s = s + "<span class=\"m1\">" + san(jso.vhosts[n].mounts[m].mountpoint) +
-						"</span></td><td><span class=\"m2\">" +
-						san(jso.vhosts[n].mounts[m].origin) +
-						"</span></td><td>";
-					if (parseInt(san(jso.vhosts[n].mounts[m].cache_max_age)))
-						s = s + "<span class=n>max-age:</span> <span class=v>" +
-						san(jso.vhosts[n].mounts[m].cache_max_age) +
-						"</span>, <span class=n>reuse:</span> <span class=v>" +
-						san(jso.vhosts[n].mounts[m].cache_reuse) +
-						"</span>, <span class=n>reval:</span> <span class=v>" +
-						san(jso.vhosts[n].mounts[m].cache_revalidate) +
-						"</span>, <span class=n>inter:</span> <span class=v>" +
-						san(jso.vhosts[n].mounts[m].cache_intermediaries);
-					s = s + "</span></td></tr>"
-				}
-				s = s + "</table>";
-				s = s + "</td></tr>";
+			for (n = 0; n < jso.files.length; n++) {
+				s += "<br><span class=n>" + san(jso.files[n].path) + ":</span><br>    " + san(jso.files[n].val);
 			}
+			s += "</td></tr>";
+
+			for (ci = 0; ci < jso.i.contexts.length; ci++) {
+
+				if (ci == 0)
+					s += "<tr><td></td><td class=\"c\">" +
+					  "Active Context</td><td>";
+				else
+					s += "<tr><td></td><td class=\"c1\">" +
+					  "Deprecated Context " + ci + "</td><td>";
+
+				  u = parseInt(san(jso.i.contexts[ci].context_uptime));
+	  			  s += "<span class=n>Uptime:</span> <span class=v>" +
+				  ((u / (24 * 3600)) | 0) + "d " +
+				  (((u % (24 * 3600)) / 3600) | 0) + "h " +
+				  (((u % 3600) / 60) | 0) + "m</span>";
+
+				s = s +
+				  "<br>" +
+				  "<span class=n>Deprecated:</span> <span class=v>" + san(jso.i.contexts[ci].deprecated) + "</span>, " +
+				  "<span class=n>Listening wsi:</span> <span class=v>" + san(jso.i.contexts[ci].listen_wsi) + "</span>, " +
+				  "<span class=n>Current wsi alive:</span> <span class=v>" + (parseInt(san(jso.i.contexts[ci].wsi_alive)) -
+				  	parseInt(san(jso.i.contexts[ci].listen_wsi))) + "</span><br>" +
+			  	  "<span class=n>Total Rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].rx)) +"</span>, " +
+			  	  "<span class=n>Total Tx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].tx)) +"</span><br>" +
+			  	  "<span class=n>Total connections:</span> <span class=v>" + san(jso.i.contexts[ci].conn) +"</span>, " +
+			  	  "<span class=n>Total HTTP Transactions:</span> <span class=v>" + san(jso.i.contexts[ci].trans) +"</span><br>" +
+			  	  "<span class=n>Total ws upgrades:</span> <span class=v>" + san(jso.i.contexts[ci].ws_upg) +"</span>, " +
+			  	  "<span class=n>Total h2 upgrades:</span> <span class=v>" + san(jso.i.contexts[ci].http2_upg) +"</span><br>" +
+				  "<span class=n>Current cgi alive:</span> <span class=v>" + san(jso.i.contexts[ci].cgi_alive) + "</span>, " +
+				  "<span class=n>Total CGI spawned:</span> <span class=v>" + san(jso.i.contexts[ci].cgi_spawned) +
+				  "</span><table>";
+				
+				for (n = 0; n < jso.i.contexts[ci].pt.length; n++) {
+
+					s = s + "<tr><td>&nbsp;&nbsp;</td><td class=\"l\">service thread " + (n + 1) +
+					"</td><td>" +
+					"<span class=n>fds:</span> <span class=v>" + san(jso.i.contexts[ci].pt[n].fds_count) + " / " +
+						  san(jso.i.contexts[ci].pt_fd_max) + "</span>, ";
+					s = s + "<span class=n>ah pool:</span> <span class=v>" + san(jso.i.contexts[ci].pt[n].ah_pool_inuse) + " / " +
+						      san(jso.i.contexts[ci].ah_pool_max) + "</span>, " +
+					"<span class=n>ah waiting list:</span> <span class=v>" + san(jso.i.contexts[ci].pt[n].ah_wait_list);
+	
+					s = s + "</span></td></tr>";
+	
+				}
+				for (n = 0; n < jso.i.contexts[ci].vhosts.length; n++) {
+					s = s + "<tr><td>&nbsp;&nbsp;</td><td class=\"l\">vhost " + (n + 1) +
+					"</td><td><span class=\"mountname\">";
+					if (jso.i.contexts[ci].vhosts[n].use_ssl == '1')
+						s = s + "https://";
+					else
+						s = s + "http://";
+					s = s + san(jso.i.contexts[ci].vhosts[n].name) + ":" +
+						san(jso.i.contexts[ci].vhosts[n].port) + "</span>";
+					if (jso.i.contexts[ci].vhosts[n].sts == '1')
+						s = s + " (STS)";
+					s = s +"<br>" +
+					"<span class=n>rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].vhosts[n].rx)) + "B</span>, " +
+					"<span class=n>tx</span> <span class=v>" + humanize(san(jso.i.contexts[ci].vhosts[n].tx)) + "B</span><br>" +
+					"<span class=n>vh connections</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].conn) + "</span>, " +
+					"<span class=n>vh http transactions</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].trans) + "</span><br>" +
+					"<span class=n>vh upgrades to ws:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].ws_upg) + "</span>, " +
+					"<span class=n>to http/2:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].http2_upg) + "</span><br>" +
+					"<table style=\"margin-left:16px\"><tr><td class=t>Mountpoint</td><td class=t>Origin</td><td class=t>Cache Policy</td></tr>";
+
+					var m;
+					for (m = 0; m < jso.i.contexts[ci].vhosts[n].mounts.length; m++) {
+						s = s + "<tr><td>";
+						s = s + "<span class=\"m1\">" + san(jso.i.contexts[ci].vhosts[n].mounts[m].mountpoint) +
+							"</span></td><td><span class=\"m2\">" +
+							san(jso.i.contexts[ci].vhosts[n].mounts[m].origin) +
+							"</span></td><td>";
+						if (parseInt(san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_max_age)))
+							s = s + "<span class=n>max-age:</span> <span class=v>" +
+							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_max_age) +
+							"</span>, <span class=n>reuse:</span> <span class=v>" +
+							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_reuse) +
+							"</span>, <span class=n>reval:</span> <span class=v>" +
+							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_revalidate) +
+							"</span>, <span class=n>inter:</span> <span class=v>" +
+							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_intermediaries);
+						s = s + "</span></td></tr>"
+					}
+					s = s + "</table>";
+					s = s + "</td></tr>";
+				}
+
+				s += "</table></td></tr>";
+				
+			} // context
 			s = s + "</table>";
 			
 			document.getElementById("conninfo").innerHTML = s;

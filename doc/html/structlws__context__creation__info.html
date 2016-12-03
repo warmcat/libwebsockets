@@ -153,6 +153,8 @@ Data Fields</h2></td></tr>
 <tr class="separator:a8ca0ec6b8675c13849bbdcdc0d50c9a3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a6b059b7ee248cba72a3a4fd6141b0b34"><td class="memItemLeft" align="right" valign="top">const struct <a class="el" href="structlws__protocol__vhost__options.html">lws_protocol_vhost_options</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#a6b059b7ee248cba72a3a4fd6141b0b34">reject_service_keywords</a></td></tr>
 <tr class="separator:a6b059b7ee248cba72a3a4fd6141b0b34"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aadbc1b141d16c1084ec4c543e7768a72"><td class="memItemLeft" align="right" valign="top">void *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#aadbc1b141d16c1084ec4c543e7768a72">external_baggage_free_on_destroy</a></td></tr>
+<tr class="separator:aadbc1b141d16c1084ec4c543e7768a72"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:afce3b59950eca3203faa07381bbed5d7"><td class="memItemLeft" align="right" valign="top">void *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#afce3b59950eca3203faa07381bbed5d7">_unused</a> [8]</td></tr>
 <tr class="separator:afce3b59950eca3203faa07381bbed5d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
@@ -218,6 +220,21 @@ Data Fields</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <p>VHOST: NULL or array of <a class="el" href="structlws__extension.html">lws_extension</a> structs listing the extensions this context supports. </p>
+
+</div>
+</div>
+<a id="aadbc1b141d16c1084ec4c543e7768a72"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aadbc1b141d16c1084ec4c543e7768a72">&sect;&nbsp;</a></span>external_baggage_free_on_destroy</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void* lws_context_creation_info::external_baggage_free_on_destroy</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>CONTEXT: NULL, or pointer to something externally malloc'd, that should be freed when the context is destroyed. This allows you to automatically sync the freeing action to the context destruction action, so there is no need for an external free() if the context succeeded to create. </p>
 
 </div>
 </div>

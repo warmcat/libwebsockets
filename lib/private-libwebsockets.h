@@ -695,9 +695,6 @@ struct lws_context_per_thread {
 #ifdef LWS_OPENSSL_SUPPORT
 	struct lws *pending_read_list; /* linked list */
 #endif
-#ifndef LWS_NO_SERVER
-	struct lws *wsi_listening;
-#endif
 #if defined(LWS_USE_LIBEV)
 	struct ev_loop *io_loop_ev;
 #endif
@@ -734,6 +731,14 @@ struct lws_context_per_thread {
 	unsigned char lock_depth;
 };
 
+struct lws_conn_stats {
+	unsigned long long rx, tx;
+	unsigned long conn, trans, ws_upg, http2_upg;
+};
+
+void
+lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs);
+
 /*
  * virtual host -related context information
  *   vhostwide SSL context
@@ -761,6 +766,7 @@ struct lws_vhost {
 	/* listen sockets need a place to hang their hat */
 	esp_tcp tcp;
 #endif
+	struct lws_conn_stats conn_stats;
 	struct lws_context *context;
 	struct lws_vhost *vhost_next;
 	const struct lws_http_mount *mount_list;
@@ -779,8 +785,6 @@ struct lws_vhost {
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *extensions;
 #endif
-	unsigned long long rx, tx;
-	unsigned long conn, trans, ws_upgrades, http2_upgrades;
 
 	int listen_port;
 	unsigned int http_proxy_port;
@@ -815,9 +819,10 @@ struct lws_vhost {
 struct lws_context {
 	time_t last_timeout_check_s;
 	time_t last_ws_ping_pong_check_s;
-	time_t time_up;
+	time_t time_up, time_up_since_process_started;
 	struct lws_plat_file_ops fops;
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
+	struct lws_conn_stats conn_stats;
 #ifdef _WIN32
 /* different implementation between unix and windows */
 	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
@@ -833,11 +838,13 @@ struct lws_context {
 #endif
 	struct lws_vhost *vhost_list;
 	struct lws_plugin *plugin_list;
+	struct lws_context *deprecated_context_list, *deprecated_context_list_r;
 	void *external_baggage_free_on_destroy;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
 	const char *server_string;
 	const struct lws_protocol_vhost_options *reject_service_keywords;
+	lws_reload_func deprecation_cb;
 
 #if defined(LWS_USE_LIBEV)
 	lws_ev_signal_cb_t * lws_ev_sigint_cb;
@@ -878,6 +885,13 @@ struct lws_context {
 	unsigned int pt_serv_buf_size;
 	int max_http_header_data;
 
+	unsigned int deprecated:1;
+	unsigned int being_destroyed:1;
+	unsigned int being_destroyed1:1;
+	unsigned int requested_kill:1;
+	unsigned int protocol_init_done:1;
+	unsigned int destroy_deprecated_children:1;
+
 	/*
 	 * set to the Thread ID that's doing the service loop just before entry
 	 * to poll indicates service thread likely idling in poll()
@@ -893,10 +907,9 @@ struct lws_context {
 	short plugin_extension_count;
 	short server_string_len;
 	unsigned short ws_ping_pong_interval;
+	unsigned short deprecation_pending_listen_close_count;
 
-	unsigned int being_destroyed:1;
-	unsigned int requested_kill:1;
-	unsigned int protocol_init_done:1;
+	char deprecated_deletion_grace;
 };
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
@@ -1412,6 +1425,7 @@ struct lws {
 	unsigned int sending_chunked:1;
 	unsigned int already_did_cce:1;
 	unsigned int told_user_closed:1;
+	unsigned int :1;
 #if defined(LWS_WITH_ESP8266)
 	unsigned int pending_send_completion:3;
 	unsigned int close_is_pending_send_completion:1;
@@ -1874,12 +1888,9 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			  struct lws_pollfd *pollfd);
 LWS_EXTERN int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
-LWS_EXTERN int
-_lws_server_listen_accept_flow_control(struct lws *twsi, int on);
 #else
 #define lws_server_socket_service(_a, _b, _c) (0)
 #define lws_handshake_server(_a, _b, _c) (0)
-#define _lws_server_listen_accept_flow_control(a, b) (0)
 #endif
 
 #ifdef LWS_WITH_ACCESS_LOG

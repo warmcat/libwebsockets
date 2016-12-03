@@ -10,4 +10,7 @@ Libwebsockets covers a lot of interesting features for people making embedded se
  - account management (including registration, email verification, lost pw etc)
  - strong ssl PFS support (A+ on SSLlabs test)
 
-You can browse by api category <a href="modules.html">here</a>.
+You can browse by api category <a href="modules.html">here</a>
+
+A collection of READMEs for build, coding, lwsws etc are <a href="pages.html">here</a>
+

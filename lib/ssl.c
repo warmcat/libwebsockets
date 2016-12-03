@@ -35,6 +35,9 @@ static int urandom_bytes(void *ctx, unsigned char *dest, size_t len)
 	int cur;
 	int fd = open("/dev/urandom", O_RDONLY);
 
+	if (fd < 0)
+		return -1;
+
 	while (len) {
 		cur = read(fd, dest, len);
 		if (cur < 0)
@@ -290,7 +293,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	}
 
 	if (wsi->vhost)
-		wsi->vhost->rx += n;
+		wsi->vhost->conn_stats.rx += n;
 
 	lws_restart_ws_ping_pong_timer(wsi);
 

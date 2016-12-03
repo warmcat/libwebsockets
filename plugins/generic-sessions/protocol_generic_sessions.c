@@ -403,14 +403,20 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_email_init(&vhd->email, lws_uv_getloop(vhd->context, 0),
 				LWSGS_EMAIL_CONTENT_SIZE);
+
+		vhd->email_inited = 1;
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
+	//	lwsl_notice("gs: LWS_CALLBACK_PROTOCOL_DESTROY: v=%p, ctx=%p\n", vhd, vhd->context);
 		if (vhd->pdb) {
 			sqlite3_close(vhd->pdb);
 			vhd->pdb = NULL;
 		}
-		lws_email_destroy(&vhd->email);
+		if (vhd->email_inited) {
+			lws_email_destroy(&vhd->email);
+			vhd->email_inited = 0;
+		}
 		break;
 
 	case LWS_CALLBACK_HTTP:

@@ -38,6 +38,7 @@ var NAVTREE =
       [ "Lwsws Plugins", "md_README_8lwsws.html#lwswspl", null ],
       [ "Additional plugin search paths", "md_README_8lwsws.html#lwswsplaplp", null ],
       [ "lws-server-status plugin", "md_README_8lwsws.html#lwswsssp", null ],
+      [ "Lwsws Configuration Reload", "md_README_8lwsws.html#lwswsreload", null ],
       [ "Lwsws Integration with Systemd", "md_README_8lwsws.html#lwswssysd", null ],
       [ "Lwsws Integration with logrotate", "md_README_8lwsws.html#lwswslr", null ]
     ] ],
@@ -133,10 +134,10 @@ var NAVTREE =
 var NAVTREEINDEX =
 [
 "annotated.html",
-"group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5a87a824b2e812f4c3e7f2c4a1ea4f8abd",
-"group__service.html#ga9b3cc4473fd8848e5bbee7f310712939",
-"group__wsstatus.html#gaeca4afc94b1f026034f99cbba37e2f85",
-"structlws__http__mount.html#a614364c770b0bd4db464ad65cddab477"
+"group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5a4933347a821e73c3f1e13fb6bfc7ad93",
+"group__service.html#ga29c246707997ab7a466aa709aecd2d7b",
+"group__wsstatus.html#ga2bb3655329b4651cd06f79ee3a764421",
+"structlws__gs__event__args.html#acd17e4f9f91f7f9a8f0fbf0744a3a463"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

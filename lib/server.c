@@ -152,8 +152,6 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	wsi->vhost = vhost;
 	wsi->listener = 1;
 
-	vhost->context->pt[m].wsi_listening = wsi;
-
 #ifdef LWS_USE_LIBUV
 	if (LWS_LIBUV_ENABLED(vhost->context))
 		lws_uv_initvhost(vhost, wsi);
@@ -190,27 +188,6 @@ bail:
 	compatible_close(sockfd);
 
 	return 1;
-}
-
-int
-_lws_server_listen_accept_flow_control(struct lws *twsi, int on)
-{
-	struct lws_context_per_thread *pt = &twsi->context->pt[(int)twsi->tsi];
-	struct lws *wsi = pt->wsi_listening;
-	int n;
-
-	if (!wsi || twsi->context->being_destroyed)
-		return 0;
-
-	lwsl_debug("%s: Thr %d: LISTEN wsi %p: state %d\n",
-		   __func__, twsi->tsi, (void *)wsi, on);
-
-	if (on)
-		n = lws_change_pollfd(wsi, 0, LWS_POLLIN);
-	else
-		n = lws_change_pollfd(wsi, LWS_POLLIN, 0);
-
-	return n;
 }
 
 #if defined(LWS_WITH_ESP8266)
@@ -1219,9 +1196,9 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		} else
 			lwsl_info("no host\n");
 
-		wsi->vhost->trans++;
+		wsi->vhost->conn_stats.trans++;
 		if (!wsi->conn_stat_done) {
-			wsi->vhost->conn++;
+			wsi->vhost->conn_stats.conn++;
 			wsi->conn_stat_done = 1;
 		}
 
@@ -1233,14 +1210,14 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
 			if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
 					"websocket")) {
-				wsi->vhost->ws_upgrades++;
+				wsi->vhost->conn_stats.ws_upg++;
 				lwsl_info("Upgrade to ws\n");
 				goto upgrade_ws;
 			}
 #ifdef LWS_USE_HTTP2
 			if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
 					"h2c")) {
-				wsi->vhost->http2_upgrades++;
+				wsi->vhost->conn_stats.http2_upg++;
 				lwsl_info("Upgrade to h2c\n");
 				goto upgrade_h2c;
 			}
@@ -1583,7 +1560,8 @@ lws_create_new_server_wsi(struct lws_vhost *vhost)
 	}
 
 	new_wsi->tsi = n;
-	lwsl_info("Accepted %p to tsi %d\n", new_wsi, new_wsi->tsi);
+	lwsl_notice("Accepted wsi %p to context %p, tsi %d\n", new_wsi,
+		    vhost->context, new_wsi->tsi);
 
 	new_wsi->vhost = vhost;
 	new_wsi->context = vhost->context;

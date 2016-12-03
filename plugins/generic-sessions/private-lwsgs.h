@@ -63,6 +63,7 @@ struct lwsgs_user {
 
 struct per_vhost_data__gs {
 	struct lws_email email;
+	struct lwsgs_user u;
 	struct lws_context *context;
 	char session_db[256];
 	char admin_user[32];
@@ -78,7 +79,7 @@ struct per_vhost_data__gs {
 	int timeout_anon_absolute_secs;
 	int timeout_email_secs;
 	time_t last_session_expire;
-	struct lwsgs_user u;
+	char email_inited;
 };
 
 struct per_session_data__gs {

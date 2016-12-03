@@ -451,7 +451,7 @@ Enable the protocol like this on a vhost's ws-protocols section
 	         "update-ms": "5000"
 	       }
 ```
-"update-ms" is used to control how often updated JSON is sent on a ws link.
+`"update-ms"` is used to control how often updated JSON is sent on a ws link.
 
 And map the provided HTML into the vhost in the mounts section
 ```
@@ -462,8 +462,87 @@ And map the provided HTML into the vhost in the mounts section
 	       }
 ```
 You might choose to put it on its own vhost which has "interface": "lo", so it's not
-externally visible.
+externally visible, or use the Basic Auth support to require authentication to
+access it.
 
+`"hide-vhosts": "{0 | 1}"` lets you control if information about your vhosts is included.
+Since this includes mounts, you might not want to leak that information, mount names,
+etc.
+
+`"filespath":"{path}"` lets you give a server filepath which is read and sent to the browser
+on each refresh.  For example, you can provide server temperature information on most
+Linux systems by giving an appropriate path down /sys.
+
+This may be given multiple times.
+
+
+@section lwswsreload Lwsws Configuration Reload
+
+You may send lwsws a `HUP` signal, by, eg
+
+```
+$ sudo killall -HUP lwsws
+```
+
+This causes lwsws to reload and apply the current configuration, without dropping
+any existing connections or terminating the lwsws process.
+
+It does this by "deprecating" the existing context, and removing and closing
+its listen sockets, but otherwise allowing it to continue to run, until all
+of its open connections close.
+
+At the same time a new context is created, using the new configuration, and it
+creates new listen sockets according to the new configuration, so any new
+incoming connections are accepted by the new context.
+
+When a deprecated context has no open connections left, it is destroyed
+automatically.
+
+It's okay to reload the configuration multiple times without taking care about
+any deprecated contexts still existing; lws manages them with a linked-list.
+
+The new configuration may differ from the original one in arbitrary ways, the new
+context is created from scratch each time without reference to the original one.
+
+Notes
+
+1) Currently protocol plugins are not reloaded.
+
+2) Your protocol must take care about per-vhost storage to work with this, and not
+just store things in global variables.  This is because the original protocol instance
+will be logically destroyed when the original context is destroyed; if variables
+are stored globally then they will reflect the destruction flow even for the new
+replacement context.
+
+Your protocol should use a per_vhost_data struct like the dumb_increment and
+mirror protocol plugins do.  This will be created and destroyed per-vhost, and
+the vhosts are specific to each protocol.
+
+The provided example plugins already use per-vhost protocol storage and can be
+used as a template for how to do it correctly.
+
+3) Protocols that provide a "shared world" like mirror will have as many "worlds"
+as there are contexts still active.  People connected to a deprecated context
+remain connected to the existing peers.  But any new connections will apply to
+the new context, which does not share per-vhost "shared world" data with the
+deprecated context.  That means no new connections on the deprecated context,
+ie a "shrinking world" for those guys, and a "growing world" for people who
+connect after the SIGHUP.
+
+The advantage of this is the two contexts may be configured arbitrarily differently,
+and although it is not supported yet, it is possible for the two contexts to
+be running two completely different protocol plugins, with different internal
+struct sizes, etc.
+
+4) If you drop privileges when you start the lwsws process, the new context will
+start with the privileges already dropped.  That means tricks like opening
+logs, or databases, in places only root can reach, then using the
+already-opened fd after privileges drop, fails on the new context.
+
+You must arrange that anything needed like logs, may be opened with the lower
+privileges if you want to use configuration reload.  This is a security
+tradeoff (since the lwsws process can overwrite the logs) but much less of a
+security climbdown than running as root.
 
 @section lwswssysd Lwsws Integration with Systemd
 

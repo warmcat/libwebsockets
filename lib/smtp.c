@@ -211,6 +211,7 @@ lws_email_init(struct lws_email *email, uv_loop_t *loop, int max_content)
 	email->content = lws_malloc(max_content);
 	if (!email->content)
 		return 1;
+
 	email->max_content_size = max_content;
 	uv_timer_init(loop, &email->timeout_email);
 
@@ -235,5 +236,6 @@ lws_email_destroy(struct lws_email *email)
 		lws_free_set_NULL(email->content);
 
 	uv_timer_stop(&email->timeout_email);
+	uv_close((uv_handle_t *)&email->timeout_email, NULL);
 }
 

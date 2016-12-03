@@ -668,6 +668,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	lws_sockfd_type our_fd = 0, tmp_fd;
+	struct lws_context *ctx = context->deprecated_context_list;
 	struct lws_tokens eff_buf;
 	unsigned int pending = 0;
 	struct lws *wsi, *wsi1;
@@ -694,6 +695,44 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 		context->last_timeout_check_s = now;
 
 		lws_plat_service_periodic(context);
+
+		/* retire unused deprecated context */
+
+		if (ctx && ctx->deprecated && !ctx->count_wsi_allocated) {
+
+			if (ctx->being_destroyed) {
+
+				if (ctx->deprecated_deletion_grace) {
+					ctx->deprecated_deletion_grace--;
+				} else {
+					lwsl_notice("Completing ctx %p destruction %p\n", ctx);
+					/* point to whatever this guy was pointing to */
+					context->deprecated_context_list =
+						ctx->deprecated_context_list;
+					if (ctx->deprecated_context_list)
+						/* our new next guy should point back to us now */
+						ctx->deprecated_context_list->deprecated_context_list_r = context;
+					/* guy to be destroyed should not point anywhere */
+					ctx->deprecated_context_list_r = NULL;
+					ctx->deprecated_context_list = NULL;
+
+					lws_context_destroy2(ctx);
+				}
+			} else {
+
+				lwsl_notice("Destroying unused deprecated context %p\n", ctx);
+
+				/* do logical shutdown of protocols etc */
+				lws_context_destroy(ctx);
+
+				/*
+				 *  he's not really gone until we come back and
+				 * lws_context_destroy2(ctx);
+				 */
+
+				ctx->deprecated_deletion_grace = 5;
+			}
+		}
 
 		/* global timeout check once per second */
 

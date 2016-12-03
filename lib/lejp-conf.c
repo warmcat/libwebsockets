@@ -551,8 +551,8 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		mp_cgienv->value = a->p;
 		mp_cgienv->options = NULL;
-		lwsl_notice("    adding pmo / cgi-env '%s' = '%s'\n", mp_cgienv->name,
-				mp_cgienv->value);
+		//lwsl_notice("    adding pmo / cgi-env '%s' = '%s'\n", mp_cgienv->name,
+		//		mp_cgienv->value);
 		goto dostring;
 
 	case LEJPVP_PROTOCOL_NAME_OPT:
@@ -703,10 +703,13 @@ lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 	uv_dirent_t dent;
 	uv_fs_t req;
 	char path[256];
-	int ret = 0;
+	int ret = 0, ir;
 	uv_loop_t loop;
 
-	uv_loop_init(&loop);
+	ir = uv_loop_init(&loop);
+	if (ir) {
+		lwsl_err("%s: loop init failed %d\n", __func__, ir);
+	}
 
 	if (!uv_fs_scandir(&loop, &req, d, 0, NULL)) {
 		lwsl_err("Scandir on %s failed\n", d);
