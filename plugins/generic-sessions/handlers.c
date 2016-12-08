@@ -289,20 +289,27 @@ lwsgs_handler_change_password(struct per_vhost_data__gs *vhd, struct lws *wsi,
 				return 1;
 
 			/* did a forgot pw ? */
-			if (u.last_forgot_validated > lws_now_secs() - 300)
+			if (u.last_forgot_validated > lws_now_secs() - 300) {
 				n |= LWSGS_AUTH_FORGOT_FLOW;
+				lwsl_debug("within forgot password flow\n");
+			}
 		}
 	}
 
+	lwsl_debug("auth value %d\n", n);
+
 	/* if he just did forgot pw flow, don't need old pw */
-	if (!(n & (LWSGS_AUTH_FORGOT_FLOW | 1))) {
+	if ((n & (LWSGS_AUTH_FORGOT_FLOW | 1)) != (LWSGS_AUTH_FORGOT_FLOW | 1)) {
 		/* otherwise user:pass must be right */
+		lwsl_debug("checking pw\n");
 		if (lwsgs_check_credentials(vhd,
 			   lws_spa_get_string(pss->spa, FGS_USERNAME),
 			   lws_spa_get_string(pss->spa, FGS_CURPW))) {
 			lwsl_notice("credentials bad\n");
 			return 1;
 		}
+
+		lwsl_debug("current pw checks out\n");
 
 		strncpy(u.username, lws_spa_get_string(pss->spa, FGS_USERNAME), sizeof(u.username) - 1);
 		u.username[sizeof(u.username) - 1] = '\0';
