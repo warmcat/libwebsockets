@@ -6,6 +6,7 @@ var group__context_and_vhost =
       [ "count_threads", "structlws__context__creation__info.html#ae52f3237e144e9ddcab5e2cf91d1e419", null ],
       [ "ecdh_curve", "structlws__context__creation__info.html#afa5d4e7d9f86b58a1c6fac14f0a5f5f9", null ],
       [ "extensions", "structlws__context__creation__info.html#a4a3d1155fc52f5048b481884f6fb947c", null ],
+      [ "external_baggage_free_on_destroy", "structlws__context__creation__info.html#aadbc1b141d16c1084ec4c543e7768a72", null ],
       [ "fd_limit_per_thread", "structlws__context__creation__info.html#a45e63e24c88289e0c8352377ef4d3646", null ],
       [ "gid", "structlws__context__creation__info.html#a9c9d22437de92c197f3cee52912b2c03", null ],
       [ "headers", "structlws__context__creation__info.html#a8ca0ec6b8675c13849bbdcdc0d50c9a3", null ],

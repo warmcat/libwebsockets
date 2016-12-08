@@ -2620,6 +2620,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_PROXY						= 77,
 	WSI_TOKEN_HTTP_X_REAL_IP				= 78,
 	WSI_TOKEN_HTTP1_0					= 79,
+	WSI_TOKEN_X_FORWARDED_FOR				= 80,
 
 	/****** add new things just above ---^ ******/
 

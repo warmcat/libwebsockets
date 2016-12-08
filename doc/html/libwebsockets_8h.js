@@ -316,6 +316,7 @@ var libwebsockets_8h =
       [ "WSI_TOKEN_PROXY", "group__HTTP-headers-read.html#gga6e747906f9d76532ec118d6ef418b82eaee14b94fcd4ab788e313e0789bec0cdc", null ],
       [ "WSI_TOKEN_HTTP_X_REAL_IP", "group__HTTP-headers-read.html#gga6e747906f9d76532ec118d6ef418b82ea7e80eff7eefa68741f0a776d6d8feeae", null ],
       [ "WSI_TOKEN_HTTP1_0", "group__HTTP-headers-read.html#gga6e747906f9d76532ec118d6ef418b82eafc1e8568187b2de76e2ddd5cc692908e", null ],
+      [ "WSI_TOKEN_X_FORWARDED_FOR", "group__HTTP-headers-read.html#gga6e747906f9d76532ec118d6ef418b82eaafce2cb6a31235606d12fb65a32a41c5", null ],
       [ "_WSI_TOKEN_CLIENT_SENT_PROTOCOLS", "group__HTTP-headers-read.html#gga6e747906f9d76532ec118d6ef418b82ea157c1db7d8edd3cd3b649e7756a559c8", null ],
       [ "_WSI_TOKEN_CLIENT_PEER_ADDRESS", "group__HTTP-headers-read.html#gga6e747906f9d76532ec118d6ef418b82ea5dcd48b2643d8a82a97b7abbc3928ea8", null ],
       [ "_WSI_TOKEN_CLIENT_URI", "group__HTTP-headers-read.html#gga6e747906f9d76532ec118d6ef418b82ea21ac48d2a499f6afa44cee92cebd8ae3", null ],
