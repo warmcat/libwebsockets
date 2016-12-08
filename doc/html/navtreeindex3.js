@@ -1,7 +1,8 @@
 var NAVTREEINDEX3 =
 {
-"group__wsstatus.html#ga2bb3655329b4651cd06f79ee3a764421":[11,0,0,0,139],
+"group__wsstatus.html#ga26a140623d202dd2bf2004deb6994baa":[11,0,0,0,121],
 "group__wsstatus.html#ga2bb3655329b4651cd06f79ee3a764421":[9,18,6],
+"group__wsstatus.html#ga2bb3655329b4651cd06f79ee3a764421":[11,0,0,0,139],
 "group__wsstatus.html#ga3df5045656dfb6b0e63a38de2dca79d2":[9,18,1],
 "group__wsstatus.html#ga3df5045656dfb6b0e63a38de2dca79d2":[11,0,0,0,105],
 "group__wsstatus.html#ga4ad226d5e01024b4046f4a5a37199aa1":[9,18,2],
@@ -248,6 +249,5 @@ var NAVTREEINDEX3 =
 "structlws__extension.html#a36b06c213aedb02bf9a402651751855b":[9,5,2,1],
 "structlws__extension.html#afa21f3b3c8c2c9212a276c52b680c3af":[9,5,2,0],
 "structlws__gs__event__args.html":[9,10,0,3],
-"structlws__gs__event__args.html#a2bec693d8a43730d487004a44326178b":[9,10,0,3,2],
-"structlws__gs__event__args.html#a477274f8ca22ba7411b9285b9dc8dd06":[9,10,0,3,1]
+"structlws__gs__event__args.html#a2bec693d8a43730d487004a44326178b":[9,10,0,3,2]
 };

@@ -94,6 +94,8 @@ STORE_IN_ROM static const char * const set[] = {
 	"x-real-ip:",
 	"http/1.0 ",
 
+	"x-forwarded-for",
+
 	"", /* not matchable */
 
 };
