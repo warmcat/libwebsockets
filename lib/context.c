@@ -556,7 +556,6 @@ lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 
 	return lws_context_init_client_ssl(&i, vhost);
 }
-	struct lws wsi;
 
 LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
@@ -702,9 +701,6 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	lwsl_notice(" Threads: %d each %d fds\n", context->count_threads,
 		    context->fd_limit_per_thread);
-
-	memset(&wsi, 0, sizeof(wsi));
-	wsi.context = context;
 
 	if (!info->ka_interval && info->ka_time > 0) {
 		lwsl_err("info->ka_interval can't be 0 if ka_time used\n");
