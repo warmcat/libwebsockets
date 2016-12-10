@@ -214,12 +214,14 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	strcpy(p, (char *)pt->serv_buf);
 	p += accept_len;
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL)) {
+	/* we can only return the protocol header if:
+	 *  - one came in, and ... */
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) &&
+	    /*  - it is not an empty string */
+	    wsi->protocol->name &&
+	    wsi->protocol->name[0]) {
 		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Protocol: ");
-		n = lws_hdr_copy(wsi, p, 128, WSI_TOKEN_PROTOCOL);
-		if (n < 0)
-			goto bail;
-		p += n;
+		p += lws_snprintf(p, 128, "%s", wsi->protocol->name);
 	}
 
 #ifndef LWS_NO_EXTENSIONS
