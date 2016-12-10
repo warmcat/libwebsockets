@@ -990,7 +990,6 @@ lws_context_destroy(struct lws_context *context)
 			lws_free(pt->http_header_data);
 	}
 	lws_plat_context_early_destroy(context);
-	lws_ssl_context_destroy(context);
 
 	if (context->pt[0].fds)
 		lws_free_set_NULL(context->pt[0].fds);
@@ -1073,6 +1072,7 @@ lws_context_destroy2(struct lws_context *context)
 		vh = vh1;
 	}
 
+	lws_ssl_context_destroy(context);
 	lws_plat_context_late_destroy(context);
 
 	if (context->external_baggage_free_on_destroy)
