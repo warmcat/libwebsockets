@@ -110,6 +110,7 @@ option(LWS_WITH_SMTP "Provide SMTP support" OFF)
 option(LWS_WITH_ESP8266 "Build for ESP8266" OFF)
 option(LWS_WITH_NO_LOGS "Disable all logging from being compiled in" OFF)
 option(LWS_STATIC_PIC "Build the static version of the library with position-independent code" OFF)
+option(LWS_WITH_RANGES "Support http ranges (RFC7233)" ON)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -164,6 +165,7 @@ if (LWS_WITH_ESP8266)
  set(LWS_WITHOUT_TESTAPPS ON)
  set(LWS_WITHOUT_EXTENSIONS ON)
  set(LWS_WITH_PLUGINS OFF)
+ set(LWS_WITH_RANGES OFF)
  # this implies no pthreads in the lib
  set(LWS_MAX_SMP 1)
  set(LWS_HAVE_MALLOC 1)
@@ -650,6 +652,11 @@ endif()
 if (LWS_WITH_SMTP)
 	list(APPEND SOURCES
 		lib/smtp.c)
+endif()
+
+if (LWS_WITH_RANGES)
+	list(APPEND SOURCES
+		lib/ranges.c)
 endif()
 
 # Add helper files for Windows.
@@ -1640,7 +1647,7 @@ message(" LWS_WITH_LEJP_CONF = ${LWS_WITH_LEJP_CONF}")
 message(" LWS_WITH_SMTP = ${LWS_WITH_SMTP}")
 message(" LWS_WITH_GENERIC_SESSIONS = ${LWS_WITH_GENERIC_SESSIONS}")
 message(" LWS_STATIC_PIC = ${LWS_STATIC_PIC}")
-
+message(" LWS_WITH_RANGES = ${LWS_WITH_RANGES}")
 
 message("---------------------------------------------------------------------")
 

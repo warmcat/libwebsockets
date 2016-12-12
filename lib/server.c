@@ -380,6 +380,13 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	n = sprintf(sym, "%08lX%08lX", (unsigned long)st.st_size,
 				   (unsigned long)st.st_mtime);
 
+	/* disable ranges if IF_RANGE token invalid */
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_RANGE))
+		if (strcmp(sym, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_IF_RANGE)))
+			/* differs - defeat Range: */
+			wsi->u.http.ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
+
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_NONE_MATCH)) {
 		/*
 		 * he thinks he has some version of it already,
@@ -2093,11 +2100,18 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	static const char * const intermediates[] = { "private", "public" };
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+#if defined(LWS_WITH_RANGES)
+	struct lws_range_parsing *rp = &wsi->u.http.range;
+#endif
 	char cache_control[50], *cc = "no-store";
 	unsigned char *response = pt->serv_buf + LWS_PRE;
 	unsigned char *p = response;
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
-	int ret = 0, cclen = 8;
+	unsigned long computed_total_content_length;
+	int ret = 0, cclen = 8, n = HTTP_STATUS_OK;
+#if defined(LWS_WITH_RANGES)
+	int ranges;
+#endif
 
 	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,
 					    O_RDONLY);
@@ -2107,18 +2121,105 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 		return -1;
 	}
+	computed_total_content_length = wsi->u.http.filelen;
 
-	if (lws_add_http_header_status(wsi, 200, &p, end))
+#if defined(LWS_WITH_RANGES)
+	ranges = lws_ranges_init(wsi, rp, wsi->u.http.filelen);
+
+	lwsl_debug("Range count %d\n", ranges);
+	/*
+	 * no ranges -> 200;
+	 *  1 range  -> 206 + Content-Type: normal; Content-Range;
+	 *  more     -> 206 + Content-Type: multipart/byteranges
+	 *  		Repeat the true Content-Type in each multipart header
+	 *  		along with Content-Range
+	 */
+	if (ranges < 0) {
+		/* it means he expressed a range in Range:, but it was illegal */
+		lws_return_http_status(wsi, HTTP_STATUS_REQ_RANGE_NOT_SATISFIABLE, NULL);
+		if (lws_http_transaction_completed(wsi))
+			return -1; /* <0 means just hang up */
+
+		return 0; /* == 0 means we dealt with the transaction complete */
+	}
+	if (ranges)
+		n = HTTP_STATUS_PARTIAL_CONTENT;
+#endif
+
+	if (lws_add_http_header_status(wsi, n, &p, end))
 		return -1;
-	if (content_type && content_type[0]) {
+
+#if defined(LWS_WITH_RANGES)
+	if (ranges < 2 && content_type && content_type[0])
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 						 (unsigned char *)content_type,
 						 strlen(content_type), &p, end))
 			return -1;
+
+	if (ranges >= 2) { /* multipart byteranges */
+		strncpy(wsi->u.http.multipart_content_type, content_type,
+			sizeof(wsi->u.http.multipart_content_type) - 1);
+		wsi->u.http.multipart_content_type[
+		         sizeof(wsi->u.http.multipart_content_type) - 1] = '\0';
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+						 (unsigned char *)"multipart/byteranges; boundary=_lws",
+						 20, &p, end))
+			return -1;
+
+		/*
+		 *  our overall content length has to include
+		 *
+		 *  - (n + 1) x "_lws\r\n"
+		 *  - n x Content-Type: xxx/xxx\r\n
+		 *  - n x Content-Range: bytes xxx-yyy/zzz\r\n
+		 *  - n x /r/n
+		 *  - the actual payloads (aggregated in rp->agg)
+		 *
+		 *  Precompute it for the main response header
+		 */
+
+		computed_total_content_length = (unsigned long)rp->agg +
+						6 /* final _lws\r\n */;
+
+		lws_ranges_reset(rp);
+		while (lws_ranges_next(rp)) {
+			n = lws_snprintf(cache_control, sizeof(cache_control),
+					"bytes %llu-%llu/%llu",
+					rp->start, rp->end, rp->extent);
+
+			computed_total_content_length +=
+					6 /* header _lws\r\n */ +
+					14 + strlen(content_type) + 2 + /* Content-Type: xxx/xxx\r\n */
+					15 + n + 2 + /* Content-Range: xxxx\r\n */
+					2; /* /r/n */
+		}
+
+		lws_ranges_reset(rp);
+		lws_ranges_next(rp);
 	}
 
+	if (ranges == 1) {
+		computed_total_content_length = (unsigned long)rp->agg;
+		n = lws_snprintf(cache_control, sizeof(cache_control), "bytes %llu-%llu/%llu",
+				rp->start, rp->end, rp->extent);
+
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_RANGE,
+						 (unsigned char *)cache_control,
+						 n, &p, end))
+			return -1;
+	}
+
+	wsi->u.http.range.inside = 0;
+
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_ACCEPT_RANGES,
+					 (unsigned char *)"bytes", 5, &p, end))
+		return -1;
+#endif
+
 	if (!wsi->sending_chunked) {
-		if (lws_add_http_header_content_length(wsi, wsi->u.http.filelen, &p, end))
+		if (lws_add_http_header_content_length(wsi,
+						       computed_total_content_length,
+						       &p, end))
 			return -1;
 	} else {
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING,

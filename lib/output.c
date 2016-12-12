@@ -558,12 +558,16 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_process_html_args args;
 	unsigned long amount, poss;
-	unsigned char *p = pt->serv_buf;
+	unsigned char *p;
+#if defined(LWS_WITH_RANGES)
+	unsigned char finished = 0;
+#endif
 	int n, m;
-	
+
 	// lwsl_notice("%s (trunc len %d)\n", __func__, wsi->trunc_len);
 
 	while (wsi->http2_substream || !lws_send_pipe_choked(wsi)) {
+
 		if (wsi->trunc_len) {
 			if (lws_issue_raw(wsi, wsi->trunc_alloc +
 					  wsi->trunc_offset,
@@ -577,8 +581,47 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		if (wsi->u.http.filepos == wsi->u.http.filelen)
 			goto all_sent;
 
-		poss = context->pt_serv_buf_size;
+		n = 0;
 
+		p = pt->serv_buf;
+
+#if defined(LWS_WITH_RANGES)
+		if (wsi->u.http.range.count_ranges && !wsi->u.http.range.inside) {
+			if ((long)lws_plat_file_seek_cur(wsi, wsi->u.http.fd,
+						   wsi->u.http.range.start -
+						   wsi->u.http.filepos) < 0)
+				return -1;
+
+			wsi->u.http.filepos = wsi->u.http.range.start;
+
+			if (wsi->u.http.range.count_ranges > 1) {
+				n =  lws_snprintf((char *)p, context->pt_serv_buf_size,
+					"_lws\x0d\x0a"
+					"Content-Type: %s\x0d\x0a"
+					"Content-Range: bytes %llu-%llu/%llu\x0d\x0a"
+					"\x0d\x0a",
+					wsi->u.http.multipart_content_type,
+					wsi->u.http.range.start,
+					wsi->u.http.range.end,
+					wsi->u.http.range.extent);
+				p += n;
+			}
+
+			wsi->u.http.range.budget = wsi->u.http.range.end -
+						   wsi->u.http.range.start + 1;
+			wsi->u.http.range.inside = 1;
+		}
+#endif
+
+		poss = context->pt_serv_buf_size - n;
+#if defined(LWS_WITH_RANGES)
+		if (wsi->u.http.range.count_ranges) {
+			if (wsi->u.http.range.count_ranges > 1)
+				poss -= 7; /* allow for final boundary */
+			if (poss > wsi->u.http.range.budget)
+				poss = wsi->u.http.range.budget;
+		}
+#endif
 		if (wsi->sending_chunked) {
 			/* we need to drop the chunk size in here */
 			p += 10;
@@ -591,7 +634,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		
 		//lwsl_notice("amount %ld\n", amount);
 
-		n = (int)amount;
+		n = (p - pt->serv_buf) + (int)amount;
 		if (n) {
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 					context->timeout_secs);
@@ -611,7 +654,17 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				p = (unsigned char *)args.p;
 			}
 
-			m = lws_write(wsi, p, n,
+#if defined(LWS_WITH_RANGES)
+			if (wsi->u.http.range.send_ctr + 1 ==
+				wsi->u.http.range.count_ranges && // last range
+			    wsi->u.http.range.count_ranges > 1 && // was 2+ ranges (ie, multipart)
+			    wsi->u.http.range.budget - amount == 0) {// final part
+				n += lws_snprintf((char *)pt->serv_buf + n, 6,
+					"_lws\x0d\x0a"); // append trailing boundary
+				lwsl_debug("added trailing boundary\n");
+			}
+#endif
+			m = lws_write(wsi, pt->serv_buf, n,
 				      wsi->u.http.filepos == wsi->u.http.filelen ?
 					LWS_WRITE_HTTP_FINAL :
 					LWS_WRITE_HTTP
@@ -620,6 +673,19 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				return -1;
 
 			wsi->u.http.filepos += amount;
+
+#if defined(LWS_WITH_RANGES)
+			wsi->u.http.range.budget -= amount;
+			if (wsi->u.http.range.budget == 0) {
+				wsi->u.http.range.inside = 0;
+				wsi->u.http.range.send_ctr++;
+			}
+			if (lws_ranges_next(&wsi->u.http.range) < 1) {
+				finished = 1;
+				goto all_sent;
+			}
+#endif
+
 			if (m != n) {
 				/* adjust for what was not sent */
 				if (lws_plat_file_seek_cur(wsi, wsi->u.http.fd,
@@ -629,8 +695,13 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			}
 		}
 all_sent:
-		if (!wsi->trunc_len &&
-		    wsi->u.http.filepos == wsi->u.http.filelen) {
+		if ((!wsi->trunc_len && wsi->u.http.filepos == wsi->u.http.filelen)
+#if defined(LWS_WITH_RANGES)
+		    || finished)
+#else
+		)
+#endif
+		     {
 			wsi->state = LWSS_HTTP;
 			/* we might be in keepalive, so close it off here */
 			lws_plat_file_close(wsi, wsi->u.http.fd);
