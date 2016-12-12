@@ -523,7 +523,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		}
 
 		SSL_set_ex_data(wsi->ssl,
-			openssl_websocket_private_data_index, wsi->vhost);
+			openssl_websocket_private_data_index, wsi);
 
 		SSL_set_fd(wsi->ssl, accept_fd);
 #endif
