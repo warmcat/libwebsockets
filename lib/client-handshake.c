@@ -303,8 +303,9 @@ lws_client_connect_2(struct lws *wsi)
 
 oom4:
 	/* we're closing, losing some rx is OK */
-	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
-	//lwsl_err("%d\n", wsi->mode);
+	if (wsi->u.hdr.ah)
+		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+
 	if (wsi->mode == LWSCM_HTTP_CLIENT) {
 		wsi->vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
