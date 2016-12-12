@@ -311,8 +311,11 @@ lws_client_connect_2(struct lws *wsi)
 
 oom4:
 	/* we're closing, losing some rx is OK */
-	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	if (wsi->u.hdr.ah)
+		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+
 	lws_header_table_detach(wsi);
+
 	/* take care that we might be inserted in fds already */
 	if (wsi->position_in_fds_table != -1)
 		goto failed;
