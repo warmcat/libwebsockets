@@ -24,6 +24,7 @@ var libwebsockets_8h =
     [ "http_status", "group__html-chunked-substitution.html#gabc3b93f68c8bdd857ad32913628dfa8d", [
       [ "HTTP_STATUS_OK", "group__html-chunked-substitution.html#ggabc3b93f68c8bdd857ad32913628dfa8dad34cd21de350cd4fa83b8099e3993b91", null ],
       [ "HTTP_STATUS_NO_CONTENT", "group__html-chunked-substitution.html#ggabc3b93f68c8bdd857ad32913628dfa8dad000a2e30c534c201201dd74fac8d2f9", null ],
+      [ "HTTP_STATUS_PARTIAL_CONTENT", "group__html-chunked-substitution.html#ggabc3b93f68c8bdd857ad32913628dfa8daa55ceddb5bb2104bfcfefb16995192a4", null ],
       [ "HTTP_STATUS_MOVED_PERMANENTLY", "group__html-chunked-substitution.html#ggabc3b93f68c8bdd857ad32913628dfa8da9632802fcd318d1676be7589e6004e96", null ],
       [ "HTTP_STATUS_FOUND", "group__html-chunked-substitution.html#ggabc3b93f68c8bdd857ad32913628dfa8da53df069872b37830e4296f32e7ec20d8", null ],
       [ "HTTP_STATUS_SEE_OTHER", "group__html-chunked-substitution.html#ggabc3b93f68c8bdd857ad32913628dfa8dae301c12d0cf56920659cb7b947a95267", null ],

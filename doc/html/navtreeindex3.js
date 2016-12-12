@@ -1,6 +1,7 @@
 var NAVTREEINDEX3 =
 {
 "group__wsstatus.html#gaccd9c59336efad8af0554f79cc5966fd":[9,18,0],
+"group__wsstatus.html#gaccd9c59336efad8af0554f79cc5966fd":[11,0,0,0,87],
 "group__wsstatus.html#gaeca4afc94b1f026034f99cbba37e2f85":[9,18,5],
 "group__wsstatus.html#gaeca4afc94b1f026034f99cbba37e2f85":[11,0,0,0,124],
 "hierarchy.html":[10,2],
@@ -248,6 +249,5 @@ var NAVTREEINDEX3 =
 "structlws__http__mount.html#a05347d92c3d379809564bd4f3eab259b":[9,4,0,1,17],
 "structlws__http__mount.html#a11ea62b952710d59733dbcf9794a5773":[9,4,0,1,11],
 "structlws__http__mount.html#a21d86fd6043ec00e121ababbc29af39a":[9,4,0,1,15],
-"structlws__http__mount.html#a2f6c7dbc2d714b7259c67b7744d4ff98":[9,4,0,1,2],
-"structlws__http__mount.html#a4283e30ea89d27ae7d061ad760d1d146":[9,4,0,1,4]
+"structlws__http__mount.html#a2f6c7dbc2d714b7259c67b7744d4ff98":[9,4,0,1,2]
 };

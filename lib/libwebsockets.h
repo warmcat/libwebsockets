@@ -2423,6 +2423,7 @@ lws_serve_http_file_fragment(struct lws *wsi);
 enum http_status {
 	HTTP_STATUS_OK						= 200,
 	HTTP_STATUS_NO_CONTENT					= 204,
+	HTTP_STATUS_PARTIAL_CONTENT				= 206,
 
 	HTTP_STATUS_MOVED_PERMANENTLY				= 301,
 	HTTP_STATUS_FOUND					= 302,

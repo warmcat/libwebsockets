@@ -652,6 +652,7 @@ struct allocated_headers {
 	 */
 	unsigned char frag_index[WSI_TOKEN_COUNT];
 	unsigned char rx[2048];
+
 	unsigned int rxpos;
 	unsigned int rxlen;
 	unsigned int pos;
@@ -1061,6 +1062,33 @@ struct _lws_header_related {
 	char redirects;
 };
 
+#if defined(LWS_WITH_RANGES)
+enum range_states {
+	LWSRS_NO_ACTIVE_RANGE,
+	LWSRS_BYTES_EQ,
+	LWSRS_FIRST,
+	LWSRS_STARTING,
+	LWSRS_ENDING,
+	LWSRS_COMPLETED,
+	LWSRS_SYNTAX,
+};
+
+struct lws_range_parsing {
+	unsigned long long start, end, extent, agg, budget;
+	const char buf[128];
+	int pos;
+	enum range_states state;
+	char start_valid, end_valid, ctr, count_ranges, did_try, inside, send_ctr;
+};
+
+int
+lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp, unsigned long long extent);
+int
+lws_ranges_next(struct lws_range_parsing *rp);
+void
+lws_ranges_reset(struct lws_range_parsing *rp);
+#endif
+
 struct _lws_http_mode_related {
 	/* MUST be first in struct */
 	struct allocated_headers *ah; /* mirroring  _lws_header_related */
@@ -1074,6 +1102,11 @@ struct _lws_http_mode_related {
 	unsigned long filepos;
 	unsigned long filelen;
 	lws_filefd_type fd;
+
+#if defined(LWS_WITH_RANGES)
+	struct lws_range_parsing range;
+	char multipart_content_type[64];
+#endif
 
 	enum http_version request_version;
 	enum http_connection_type connection_type;
