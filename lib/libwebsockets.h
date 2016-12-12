@@ -3947,6 +3947,17 @@ lws_is_ssl(struct lws *wsi);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi);
+
+#ifdef LWS_OPENSSL_SUPPORT
+/**
+ * lws_get_ssl() - Return wsi's SSL context structure
+ * \param wsi:	websocket connection
+ *
+ * Returns pointer to the SSL library's context structure
+ */
+LWS_VISIBLE LWS_EXTERN SSL*
+lws_get_ssl(struct lws *wsi);
+#endif
 ///@}
 
 

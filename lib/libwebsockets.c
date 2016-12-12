@@ -1235,6 +1235,14 @@ lws_is_ssl(struct lws *wsi)
 #endif
 }
 
+#ifdef LWS_OPENSSL_SUPPORT
+LWS_VISIBLE SSL*
+lws_get_ssl(struct lws *wsi)
+{
+	return wsi->ssl;
+}
+#endif
+
 LWS_VISIBLE int
 lws_partial_buffered(struct lws *wsi)
 {
