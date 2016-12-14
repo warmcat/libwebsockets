@@ -53,13 +53,15 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	}
 
 #if defined LWS_HAVE_X509_VERIFY_PARAM_set1_host
-	param = SSL_get0_param(wsi->ssl);
-	/* Enable automatic hostname checks */
-	X509_VERIFY_PARAM_set_hostflags(param,
-					X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-	X509_VERIFY_PARAM_set1_host(param, hostname, 0);
-	/* Configure a non-zero callback if desired */
-	SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, 0);
+	{
+		param = SSL_get0_param(wsi->ssl);
+		/* Enable automatic hostname checks */
+		X509_VERIFY_PARAM_set_hostflags(param,
+						X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+		X509_VERIFY_PARAM_set1_host(param, hostname, 0);
+		/* Configure a non-zero callback if desired */
+		SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, 0);
+	}
 #endif
 
 #ifndef USE_WOLFSSL
@@ -286,12 +288,12 @@ lws_ssl_client_connect2(struct lws *wsi)
 	lws_latency_pre(context, wsi);
 	n = SSL_get_verify_result(wsi->ssl);
 	lws_latency(context, wsi,
-		"SSL_get_verify_result LWS_CONNMODE..HANDSHAKE",
-						      n, n > 0);
+		"SSL_get_verify_result LWS_CONNMODE..HANDSHAKE", n, n > 0);
 
 	if (n != X509_V_OK) {
 		if ((n == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
-		     n == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) && wsi->use_ssl == 2) {
+		     n == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) &&
+		     wsi->use_ssl == 2) {
 			lwsl_notice("accepting self-signed certificate\n");
 		} else {
 			lwsl_err("server's cert didn't look good, X509_V_ERR = %d: %s\n",

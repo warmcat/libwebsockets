@@ -349,7 +349,6 @@ enum lws_context_options {
 								  (1 << 12),
 	LWS_SERVER_OPTION_LIBUV					= (1 << 10),
 	LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS		= (1 << 11) |
-								  (1 << 3) |
 								  (1 << 12),
 	LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT			= (1 << 12),
 	LWS_SERVER_OPTION_EXPLICIT_VHOSTS			= (1 << 13),
