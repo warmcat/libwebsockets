@@ -253,6 +253,7 @@ typedef ssl_context SSL;
 
 
 #define CONTEXT_PORT_NO_LISTEN -1
+#define CONTEXT_PORT_NO_LISTEN_SERVER -2
 
 /** \defgroup log Logging
  *
@@ -1560,10 +1561,10 @@ enum lws_context_options {
  */
 struct lws_context_creation_info {
 	int port;
-	/**< VHOST: Port to listen on... you can use CONTEXT_PORT_NO_LISTEN to
-	 * suppress listening on any port, that's what you want if you are
-	 * not running a websocket server at all but just using it as a
-	 * client */
+	/**< VHOST: Port to listen on. Use CONTEXT_PORT_NO_LISTEN to suppress
+	 * listening for a client. Use CONTEXT_PORT_NO_LISTEN_SERVER if you are
+	 * writing a server but you are using \ref sock-adopt instead of the
+	 * built-in listener */
 	const char *iface;
 	/**< VHOST: NULL to bind the listen socket to all interfaces, or the
 	 * interface name, eg, "eth2"
