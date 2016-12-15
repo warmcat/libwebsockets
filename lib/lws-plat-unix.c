@@ -479,11 +479,16 @@ lws_plat_context_late_destroy(struct lws_context *context)
 		lws_free(context->lws_lookup);
 
 	while (m--) {
-		close(pt->dummy_pipe_fds[0]);
-		close(pt->dummy_pipe_fds[1]);
+		if (pt->dummy_pipe_fds[0])
+			close(pt->dummy_pipe_fds[0]);
+		if (pt->dummy_pipe_fds[1])
+			close(pt->dummy_pipe_fds[1]);
 		pt++;
 	}
-	close(context->fd_random);
+	if (!context->fd_random)
+		lwsl_err("ZERO RANDOM FD\n");
+	if (context->fd_random != LWS_INVALID_FILE)
+		close(context->fd_random);
 }
 
 /* cast a struct sockaddr_in6 * into addr for ipv6 */

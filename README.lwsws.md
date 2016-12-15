@@ -451,7 +451,7 @@ Enable the protocol like this on a vhost's ws-protocols section
 	         "update-ms": "5000"
 	       }
 ```
-"update-ms" is used to control how often updated JSON is sent on a ws link.
+`"update-ms"` is used to control how often updated JSON is sent on a ws link.
 
 And map the provided HTML into the vhost in the mounts section
 ```
@@ -462,23 +462,78 @@ And map the provided HTML into the vhost in the mounts section
 	       }
 ```
 You might choose to put it on its own vhost which has "interface": "lo", so it's not
-externally visible.
+externally visible, or use the Basic Auth support to require authentication to
+access it.
 
+`"hide-vhosts": "{0 | 1}"` lets you control if information about your vhosts is included.
+Since this includes mounts, you might not want to leak that information, mount names,
+etc.
+
+`"filespath":"{path}"` lets you give a server filepath which is read and sent to the browser
+on each refresh.  For example, you can provide server temperature information on most
+Linux systems by giving an appropriate path down /sys.
+
+This may be given multiple times.
+
+
+@section lwswsreload Lwsws Configuration Reload
+
+You may send lwsws a `HUP` signal, by, eg
+
+```
+$ sudo killall -HUP lwsws
+```
+
+This causes lwsws to "deprecate" the existing lwsws process, and remove and close all of
+its listen sockets, but otherwise allowing it to continue to run, until all
+of its open connections close.
+
+When a deprecated lwsws process has no open connections left, it is destroyed
+automatically.
+
+After sending the SIGHUP to the main lwsws process, a new lwsws process, which can
+pick up the newly-available listen sockets, and use the current configuration
+files, is automatically started.
+
+The new configuration may differ from the original one in arbitrary ways, the new
+context is created from scratch each time without reference to the original one.
+
+Notes
+
+1) Protocols that provide a "shared world" like mirror will have as many "worlds"
+as there are lwsws processes still active.  People connected to a deprecated lwsws
+process remain connected to the existing peers.
+
+But any new connections will apply to the new lwsws process, which does not share
+per-vhost "shared world" data with the deprecated process.  That means no new
+connections on the deprecated context, ie a "shrinking world" for those guys, and a
+"growing world" for people who connect after the SIGHUP.
+
+2) The new lwsws process owes nothing to the previous one.  It starts with fresh
+plugins, fresh configuration, fresh root privileges if that how you start it.
+
+The plugins may have been updated in arbitrary ways including struct size changes
+etc, and lwsws or lws may also have been updated arbitrarily.
+
+3) A root parent process is left up that is not able to do anything except
+respond to SIGHUP or SIGTERM.  Actual serving and network listening etc happens
+in child processes which use the privileges set in the lwsws config files.
 
 @section lwswssysd Lwsws Integration with Systemd
 
 lwsws needs a service file like this as `/usr/lib/systemd/system/lwsws.service`
 ```
-	[Unit]
-	Description=Libwebsockets Web Server
-	After=syslog.target
-	
-	[Service]
-	ExecStart=/usr/local/bin/lwsws
-	StandardError=null
-	
-	[Install]
-	WantedBy=multi-user.target
+[Unit]
+Description=Libwebsockets Web Server
+After=syslog.target
+
+[Service]
+ExecStart=/usr/local/bin/lwsws 
+ExecReload=/usr/bin/killall -s SIGHUP lwsws ; sleep 1 ; /usr/local/bin/lwsws
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target
 ```
 
 You can find this prepared in `./lwsws/usr-lib-systemd-system-lwsws.service`

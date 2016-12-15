@@ -67,7 +67,7 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	struct lws_io_watcher *lws_io = lws_container_of(watcher,
 					struct lws_io_watcher, uv_watcher);
 	struct lws *wsi = lws_container_of(lws_io, struct lws, w_read);
-	struct lws_context *context = lws_io->context;
+	struct lws_context *context = wsi->context;
 	struct lws_pollfd eventfd;
 
 #if defined(WIN32) || defined(_WIN32)
@@ -141,7 +141,7 @@ lws_uv_timeout_cb(uv_timer_t *timer
 	lws_service_fd_tsi(pt->context, NULL, pt->tid);
 }
 
-static const int sigs[] = { SIGINT, SIGTERM, SIGSEGV, SIGFPE };
+static const int sigs[] = { SIGINT, SIGTERM, SIGSEGV, SIGFPE, SIGHUP };
 
 int
 lws_uv_initvhost(struct lws_vhost* vh, struct lws* wsi)
@@ -265,6 +265,7 @@ void
 lws_libuv_destroyloop(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
+//	struct lws_context *ctx;
 	int m, budget = 100, ns;
 
 	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
@@ -272,6 +273,8 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 
 	if (!pt->io_loop_uv)
 		return;
+
+	lwsl_notice("%s: closing signals + timers context %p\n", __func__, context);
 
 	if (context->use_ev_sigint) {
 		uv_signal_stop(&pt->w_sigint.uv_watcher);
@@ -292,11 +295,13 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 	uv_idle_stop(&pt->uv_idle);
 	uv_close((uv_handle_t *)&pt->uv_idle, lws_uv_close_cb);
 
+	if (pt->ev_loop_foreign)
+		return;
+
 	while (budget-- && uv_run(pt->io_loop_uv, UV_RUN_NOWAIT))
 		;
 
-	if (pt->ev_loop_foreign)
-		return;
+	lwsl_notice("%s: closing all loop handles context %p\n", __func__, context);
 
 	uv_stop(pt->io_loop_uv);
 
@@ -404,15 +409,24 @@ lws_libuv_run(const struct lws_context *context, int tsi)
 		uv_run(context->pt[tsi].io_loop_uv, 0);
 }
 
+LWS_VISIBLE void
+lws_libuv_stop_without_kill(const struct lws_context *context, int tsi)
+{
+	if (context->pt[tsi].io_loop_uv && LWS_LIBUV_ENABLED(context))
+		uv_stop(context->pt[tsi].io_loop_uv);
+}
+
 static void
 lws_libuv_kill(const struct lws_context *context)
 {
 	int n;
 
+	lwsl_notice("%s\n", __func__);
+
 	for (n = 0; n < context->count_threads; n++)
 		if (context->pt[n].io_loop_uv &&
-		    LWS_LIBUV_ENABLED(context) &&
-		    !context->pt[n].ev_loop_foreign)
+		    LWS_LIBUV_ENABLED(context) )//&&
+		    //!context->pt[n].ev_loop_foreign)
 			uv_stop(context->pt[n].io_loop_uv);
 }
 
@@ -472,8 +486,24 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	struct lws *n = NULL, *wsi = (struct lws *)(((char *)handle) -
 			  (char *)(&n->w_read.uv_watcher));
 	struct lws_context *context = lws_get_context(wsi);
+	int lspd = 0;
+
+	if (wsi->mode == LWSCM_SERVER_LISTENER &&
+	    wsi->context->deprecated) {
+		lspd = 1;
+		context->deprecation_pending_listen_close_count--;
+		if (!context->deprecation_pending_listen_close_count)
+			lspd = 2;
+	}
 
 	lws_close_free_wsi_final(wsi);
+
+	if (lspd == 2 && context->deprecation_cb) {
+		lwsl_notice("calling deprecation callback\n");
+		context->deprecation_cb();
+	}
+
+	//lwsl_notice("%s: ctx %p: wsi left %d\n", __func__, context, context->count_wsi_allocated);
 
 	if (context->requested_kill && context->count_wsi_allocated == 0)
 		lws_libuv_kill(context);
@@ -495,7 +525,7 @@ lws_libuv_closehandle(struct lws *wsi)
 #if defined(LWS_WITH_PLUGINS) && (UV_VERSION_MAJOR > 0)
 
 LWS_VISIBLE int
-lws_plat_plugins_init(struct lws_context * context, const char * const *d)
+lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 {
 	struct lws_plugin_capability lcaps;
 	struct lws_plugin *plugin;
@@ -584,6 +614,7 @@ bail:
 		d++;
 	}
 
+	uv_run(&loop, UV_RUN_NOWAIT);
 	uv_loop_close(&loop);
 
 	return ret;
@@ -591,7 +622,7 @@ bail:
 }
 
 LWS_VISIBLE int
-lws_plat_plugins_destroy(struct lws_context * context)
+lws_plat_plugins_destroy(struct lws_context *context)
 {
 	struct lws_plugin *plugin = context->plugin_list, *p;
 	lws_plugin_destroy_func func;

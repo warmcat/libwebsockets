@@ -1782,6 +1782,41 @@ lws_create_context(struct lws_context_creation_info *info);
 LWS_VISIBLE LWS_EXTERN void
 lws_context_destroy(struct lws_context *context);
 
+LWS_VISIBLE LWS_EXTERN void
+lws_context_destroy2(struct lws_context *context);
+
+typedef int (*lws_reload_func)(void);
+
+/**
+ * lws_context_deprecate() - Deprecate the websocket context
+ * \param context:	Websocket context
+ *
+ *	This function is used on an existing context before superceding it
+ *	with a new context.
+ *
+ *	It closes any listen sockets in the context, so new connections are
+ *	not possible.
+ *
+ *	And it marks the context to be deleted when the number of active
+ *	connections into it falls to zero.
+ *
+ *	Otherwise if you attach the deprecated context to the replacement
+ *	context when it has been created using lws_context_attach_deprecated()
+ *	both any deprecated and the new context will service their connections.
+ *
+ *	This is aimed at allowing seamless configuration reloads.
+ *
+ *	The callback cb will be called after the listen sockets are actually
+ *	closed and may be reopened.  In the callback the new context should be
+ *	configured and created.  (With libuv, socket close happens async after
+ *	more loop events).
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_context_deprecate(struct lws_context *context, lws_reload_func cb);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_context_is_deprecated(struct lws_context *context);
+
 /**
  * lws_set_proxy() - Setups proxy to lws_context.
  * \param vhost:	pointer to struct lws_vhost you want set proxy for
@@ -1886,7 +1921,8 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len);
  * \param len: max length of buf
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_json_dump_context(const struct lws_context *context, char *buf, int len);
+lws_json_dump_context(const struct lws_context *context, char *buf, int len,
+		      int hide_vhosts);
 
 /**
  * lws_context_user() - get the user data associated with the context
@@ -3101,6 +3137,9 @@ lws_libuv_run(const struct lws_context *context, int tsi);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_libuv_stop(struct lws_context *context);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_libuv_stop_without_kill(const struct lws_context *context, int tsi);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi);

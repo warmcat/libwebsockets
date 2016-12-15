@@ -635,3 +635,17 @@ lws_plat_init(struct lws_context *context,
 
 	return 0;
 }
+
+
+int kill(int pid, int sig)
+{
+	lwsl_err("Sorry Windows doesn't support kill().");
+	exit(0);
+}
+
+int fork(void)
+{
+	lwsl_err("Sorry Windows doesn't support fork().");
+	exit(0);
+}
+

@@ -29,6 +29,11 @@ struct lws_ss_load_sample {
 	int load_x100;
 };
 
+struct lws_ss_filepath {
+	struct lws_ss_filepath *next;
+	char filepath[128];
+};
+
 struct lws_ss_dumps {
 	char buf[32768];
 	int length;
@@ -38,14 +43,18 @@ struct lws_ss_dumps {
 	int load_tail;
 };
 
-static struct lws_ss_dumps d;
-static uv_timer_t timeout_watcher;
-static struct lws_context *context;
-static int tow_flag;
-
 struct per_session_data__server_status {
 	int ver;
 	int pos;
+};
+
+struct per_vhost_data__lws_server_status {
+	uv_timer_t timeout_watcher;
+	struct lws_context *context;
+	int hide_vhosts;
+	int tow_flag;
+	struct lws_ss_dumps d;
+	struct lws_ss_filepath *fp;
 };
 
 static const struct lws_protocols protocols[1];
@@ -57,30 +66,58 @@ uv_timeout_cb_server_status(uv_timer_t *w
 #endif
 )
 {
-	char *p = d.buf + LWS_PRE;
+	struct per_vhost_data__lws_server_status *v = lws_container_of(w,
+			struct per_vhost_data__lws_server_status,
+			timeout_watcher);
+	struct lws_ss_filepath *fp;
+	char *p = v->d.buf + LWS_PRE, contents[256], pure[256];
+	int n, l, first = 1, fd;
 
-#if 0
-#ifdef LWS_HAVE_GETLOADAVG
-	double l = 0.0;
+	l = sizeof(v->d.buf) - LWS_PRE;
 
-	getloadavg(&l, 1);
-	d.load[d.load_head].load_x100 = (int)(l * 100);
-	d.load[d.load_head].t = lws_now_secs();
-	d.load_head++;
-	if (d.load_head == ARRAY_SIZE(d.load))
-		d.load_head = 0;
-	if (d.load_head == d.load_tail) {
-		d.load_tail++;
-		if (d.load_tail == ARRAY_SIZE(d.load))
-			d.load_tail = 0;
+	n = lws_snprintf(p, l, "{\"i\":");
+	p += n;
+	l -= n;
+
+	n = lws_json_dump_context(v->context, p, l, v->hide_vhosts);
+	p += n;
+	l -= n;
+
+	n = lws_snprintf(p, l, ", \"files\": [");
+	p += n;
+	l -= n;
+
+	fp = v->fp;
+	while (fp) {
+		if (!first) {
+			n = lws_snprintf(p, l, ",");
+			p += n;
+			l -= n;
+		}
+		fd = open(fp->filepath, LWS_O_RDONLY);
+		if (fd != LWS_INVALID_FILE) {
+			n = read(fd, contents, sizeof(contents) - 1);
+			if (n >= 0) {
+				contents[n] = '\0';
+				lws_json_purify(pure, contents, sizeof(pure));
+
+				n = lws_snprintf(p, l, "{\"path\":\"%s\",\"val\":\"%s\"}",
+						 fp->filepath, pure);
+				p += n;
+				l -= n;
+				first = 0;
+			}
+			close(fd);
+		}
+		fp = fp->next;
 	}
-#endif
-#endif
+	n = lws_snprintf(p, l, "]}");
+	p += n;
+	l -= n;
 
-	d.length = lws_json_dump_context(context, p,
-					 sizeof(d.buf) - LWS_PRE);
+	v->d.length = p - (v->d.buf + LWS_PRE);
 
-	lws_callback_on_writable_all_protocol(context, &protocols[0]);
+	lws_callback_on_writable_all_protocol(v->context, &protocols[0]);
 }
 
 static int
@@ -89,6 +126,11 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	const struct lws_protocol_vhost_options *pvo =
 			(const struct lws_protocol_vhost_options *)in;
+	struct per_vhost_data__lws_server_status *v =
+			(struct per_vhost_data__lws_server_status *)
+			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+					lws_get_protocol(wsi));
+	struct lws_ss_filepath *fp, *fp1, **fp_old;
 	int m, period = 1000;
 
 	switch (reason) {
@@ -99,30 +141,55 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_INIT: /* per vhost */
-		if (tow_flag)
+		if (v)
 			break;
+
+		lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+				lws_get_protocol(wsi),
+				sizeof(struct per_vhost_data__lws_server_status));
+		v = (struct per_vhost_data__lws_server_status *)
+				lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+				lws_get_protocol(wsi));
+
+		fp_old = &v->fp;
+
 		while (pvo) {
+			if (!strcmp(pvo->name, "hide-vhosts"))
+				v->hide_vhosts = atoi(pvo->value);
 			if (!strcmp(pvo->name, "update-ms"))
 				period = atoi(pvo->value);
+			if (!strcmp(pvo->name, "filepath")) {
+				fp = malloc(sizeof(*fp));
+				fp->next = NULL;
+				lws_snprintf(&fp->filepath[0], sizeof(fp->filepath), "%s", pvo->value);
+				*fp_old = fp;
+				fp_old = &fp->next;
+			}
 			pvo = pvo->next;
 		}
-		context = lws_get_context(wsi);
-		uv_timer_init(lws_uv_getloop(context, 0), &timeout_watcher);
-		uv_timer_start(&timeout_watcher,
+		v->context = lws_get_context(wsi);
+		uv_timer_init(lws_uv_getloop(v->context, 0), &v->timeout_watcher);
+		uv_timer_start(&v->timeout_watcher,
 				uv_timeout_cb_server_status, 2000, period);
-		tow_flag = 1;
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY: /* per vhost */
-		if (!tow_flag)
+	//	lwsl_notice("ss: LWS_CALLBACK_PROTOCOL_DESTROY: v=%p, ctx=%p\n", v, v->context);
+		if (!v)
 			break;
-		uv_timer_stop(&timeout_watcher);
-		tow_flag = 0;
+		uv_timer_stop(&v->timeout_watcher);
+		uv_close((uv_handle_t *)&v->timeout_watcher, NULL);
+		fp = v->fp;
+		while (fp) {
+			fp1= fp->next;
+			free(fp);
+			fp = fp1;
+		}
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		m = lws_write(wsi, (unsigned char *)d.buf + LWS_PRE, d.length,
-			      LWS_WRITE_TEXT);
+		m = lws_write(wsi, (unsigned char *)v->d.buf + LWS_PRE,
+			      v->d.length, LWS_WRITE_TEXT);
 		if (m < 0)
 			return -1;
 		break;

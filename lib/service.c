@@ -695,6 +695,14 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 		lws_plat_service_periodic(context);
 
+		/* retire unused deprecated context */
+
+		if (context->deprecated && !context->count_wsi_allocated) {
+			lwsl_notice("%s: ending deprecated context\n", __func__);
+			kill(getpid(), SIGINT);
+			return 0;
+		}
+
 		/* global timeout check once per second */
 
 		if (pollfd)

@@ -610,6 +610,7 @@ lws_create_context(struct lws_context_creation_info *info)
 			info->external_baggage_free_on_destroy;
 
 	context->time_up = time(NULL);
+
 #ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {
 		context->started_with_parent = pid_daemon;
@@ -824,22 +825,79 @@ bail:
 	return NULL;
 }
 
+LWS_VISIBLE LWS_EXTERN void
+lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
+{
+	struct lws_vhost *vh = context->vhost_list, *vh1;
+	struct lws *wsi;
+
+	/*
+	 * "deprecation" means disable the context from accepting any new
+	 * connections and free up listen sockets to be used by a replacement
+	 * context.
+	 *
+	 * Otherwise the deprecated context remains operational, until its
+	 * number of connected sockets falls to zero, when it is deleted.
+	 */
+
+	/* for each vhost, close his listen socket */
+
+	while (vh) {
+		wsi = vh->lserv_wsi;
+		if (wsi) {
+			wsi->socket_is_permanently_unusable = 1;
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			wsi->context->deprecation_pending_listen_close_count++;
+			/*
+			 * other vhosts can share the listen port, they
+			 * point to the same wsi.  So zap those too.
+			 */
+			vh1 = context->vhost_list;
+			while (vh1) {
+				if (vh1->lserv_wsi == wsi)
+					vh1->lserv_wsi = NULL;
+				vh1 = vh1->vhost_next;
+			}
+		}
+		vh = vh->vhost_next;
+	}
+
+	context->deprecated = 1;
+	context->deprecation_cb = cb;
+}
+
+LWS_VISIBLE LWS_EXTERN int
+lws_context_is_deprecated(struct lws_context *context)
+{
+	return context->deprecated;
+}
+
+LWS_VISIBLE void
+lws_context_destroy2(struct lws_context *context);
+
 LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
 {
 	const struct lws_protocols *protocol = NULL;
 	struct lws_context_per_thread *pt;
-	struct lws_vhost *vh = NULL, *vh1;
+	struct lws_vhost *vh = NULL;
 	struct lws wsi;
 	int n, m;
 
-	lwsl_notice("%s\n", __func__);
-
-	if (!context)
+	if (!context) {
+		lwsl_notice("%s: ctx %p\n", __func__, context);
 		return;
+	}
+	if (context->being_destroyed1) {
+		lwsl_notice("%s: ctx %p: already being destroyed\n", __func__, context);
+		return;
+	}
+
+	lwsl_notice("%s: ctx %p\n", __func__, context);
 
 	m = context->count_threads;
 	context->being_destroyed = 1;
+	context->being_destroyed1 = 1;
 
 	memset(&wsi, 0, sizeof(wsi));
 	wsi.context = context;
@@ -864,6 +922,7 @@ lws_context_destroy(struct lws_context *context)
 		}
 		lws_pt_mutex_destroy(pt);
 	}
+
 	/*
 	 * give all extensions a chance to clean up any per-context
 	 * allocations they might have made
@@ -913,12 +972,30 @@ lws_context_destroy(struct lws_context *context)
 			lws_free(pt->http_header_data);
 	}
 	lws_plat_context_early_destroy(context);
-	lws_ssl_context_destroy(context);
 
 	if (context->pt[0].fds)
 		lws_free_set_NULL(context->pt[0].fds);
 
-	/* free all the vhost allocations */
+	if (!LWS_LIBUV_ENABLED(context))
+		lws_context_destroy2(context);
+}
+
+/*
+ * call the second one after the event loop has been shut down cleanly
+ */
+
+LWS_VISIBLE void
+lws_context_destroy2(struct lws_context *context)
+{
+	const struct lws_protocols *protocol = NULL;
+	struct lws_vhost *vh = NULL, *vh1;
+	int n;
+
+	lwsl_notice("%s: ctx %p\n", __func__, context);
+
+	/*
+	 * free all the per-vhost allocations
+	 */
 
 	vh = context->vhost_list;
 	while (vh) {
@@ -928,6 +1005,7 @@ lws_context_destroy(struct lws_context *context)
 			while (n < vh->count_protocols) {
 				if (vh->protocol_vh_privs &&
 				    vh->protocol_vh_privs[n]) {
+					// lwsl_notice("   %s: freeing per-vhost protocol data %p\n", __func__, vh->protocol_vh_privs[n]);
 					lws_free(vh->protocol_vh_privs[n]);
 					vh->protocol_vh_privs[n] = NULL;
 				}
@@ -957,10 +1035,12 @@ lws_context_destroy(struct lws_context *context)
 		vh = vh1;
 	}
 
+	lws_ssl_context_destroy(context);
 	lws_plat_context_late_destroy(context);
 
 	if (context->external_baggage_free_on_destroy)
 		free(context->external_baggage_free_on_destroy);
+
 
 	lws_free(context);
 }

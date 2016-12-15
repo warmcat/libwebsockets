@@ -392,6 +392,21 @@ just_kill_connection:
 			lwsl_err("%s: failed to detach from parent\n",
 					__func__);
 	}
+#if 0
+	/* manage the vhost same protocol list entry */
+
+	if (wsi->same_vh_protocol_prev) { // we are on the vh list
+
+		// make guy who pointed to us, point to what our next was pointing to
+		*wsi->same_vh_protocol_prev = wsi->same_vh_protocol_next;
+
+		// if we had a next guy...
+		if (wsi->same_vh_protocol_next)
+			// have him point back to our prev
+			wsi->same_vh_protocol_next->same_vh_protocol_prev =
+					wsi->same_vh_protocol_prev;
+	}
+#endif
 
 #if LWS_POSIX
 	/*
@@ -583,9 +598,13 @@ lws_close_free_wsi_final(struct lws *wsi)
 
 #ifdef LWS_WITH_CGI
 	if (wsi->cgi) {
-		for (n = 0; n < 6; n++)
+		for (n = 0; n < 6; n++) {
+			if (wsi->cgi->pipe_fds[n / 2][n & 1] == 0)
+				lwsl_err("ZERO FD IN CGI CLOSE");
+
 			if (wsi->cgi->pipe_fds[n / 2][n & 1] >= 0)
 				close(wsi->cgi->pipe_fds[n / 2][n & 1]);
+		}
 
 		lws_free(wsi->cgi);
 	}
@@ -2516,6 +2535,25 @@ lws_access_log(struct lws *wsi)
 }
 #endif
 
+void
+lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs)
+{
+	const struct lws_vhost *vh = ctx->vhost_list;
+
+	while (vh) {
+
+		cs->rx += vh->conn_stats.rx;
+		cs->tx += vh->conn_stats.tx;
+		cs->conn += vh->conn_stats.conn;
+		cs->trans += vh->conn_stats.trans;
+		cs->ws_upg += vh->conn_stats.ws_upg;
+		cs->http2_upg += vh->conn_stats.http2_upg;
+		cs->rejected += vh->conn_stats.rejected;
+
+		vh = vh->vhost_next;
+	}
+}
+
 #ifdef LWS_WITH_SERVER_STATUS
 
 LWS_EXTERN int
@@ -2546,6 +2584,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 			" \"conn\":\"%lu\",\n"
 			" \"trans\":\"%lu\",\n"
 			" \"ws_upg\":\"%lu\",\n"
+			" \"rejected\":\"%lu\",\n"
 			" \"http2_upg\":\"%lu\""
 			,
 			vh->name, vh->listen_port,
@@ -2555,8 +2594,11 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 			0,
 #endif
 			!!(vh->options & LWS_SERVER_OPTION_STS),
-			vh->rx, vh->tx, vh->conn, vh->trans, vh->ws_upgrades,
-			vh->http2_upgrades
+			vh->conn_stats.rx, vh->conn_stats.tx,
+			vh->conn_stats.conn, vh->conn_stats.trans,
+			vh->conn_stats.ws_upg,
+			vh->conn_stats.rejected,
+			vh->conn_stats.http2_upg
 	);
 
 	if (vh->mount_list) {
@@ -2618,31 +2660,30 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 
 
 LWS_EXTERN LWS_VISIBLE int
-lws_json_dump_context(const struct lws_context *context, char *buf, int len)
+lws_json_dump_context(const struct lws_context *context, char *buf, int len,
+		int hide_vhosts)
 {
 	char *orig = buf, *end = buf + len - 1, first = 1;
 	const struct lws_vhost *vh = context->vhost_list;
-
+	const struct lws_context_per_thread *pt;
+	time_t t = time(NULL);
+	int n, cc = 0, listening = 0, cgi_count = 0;
+	struct lws_conn_stats cs;
+	double d = 0;
 #ifdef LWS_WITH_CGI
 	struct lws_cgi * const *pcgi;
 #endif
-	const struct lws_context_per_thread *pt;
-	time_t t = time(NULL);
-	int listening = 0, cgi_count = 0, n;
+
+#ifdef LWS_USE_LIBUV
+	uv_uptime(&d);
+#endif
 
 	buf += lws_snprintf(buf, end - buf, "{ "
-					"\"version\":\"%s\",\n"
-					"\"uptime\":\"%ld\",\n"
-					"\"cgi_spawned\":\"%d\",\n"
-					"\"pt_fd_max\":\"%d\",\n"
-					"\"ah_pool_max\":\"%d\",\n"
-					"\"wsi_alive\":\"%d\",\n",
-					lws_get_library_version(),
-					(unsigned long)(t - context->time_up),
-					context->count_cgi_spawned,
-					context->fd_limit_per_thread,
-					context->max_http_header_pool,
-					context->count_wsi_allocated);
+			    "\"version\":\"%s\",\n"
+			    "\"uptime\":\"%ld\",\n",
+			    lws_get_library_version(),
+			    (long)d);
+
 #ifdef LWS_HAVE_GETLOADAVG
 	{
 		double d[3];
@@ -2656,6 +2697,25 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 		}
 	}
 #endif
+
+	buf += lws_snprintf(buf, end - buf, "\"contexts\":[\n");
+
+	if (cc++)
+		buf += lws_snprintf(buf, end - buf, ",");
+
+	buf += lws_snprintf(buf, end - buf, "{ "
+				"\"context_uptime\":\"%ld\",\n"
+				"\"cgi_spawned\":\"%d\",\n"
+				"\"pt_fd_max\":\"%d\",\n"
+				"\"ah_pool_max\":\"%d\",\n"
+				"\"deprecated\":\"%d\",\n"
+				"\"wsi_alive\":\"%d\",\n",
+				(unsigned long)(t - context->time_up),
+				context->count_cgi_spawned,
+				context->fd_limit_per_thread,
+				context->max_http_header_pool,
+				context->deprecated,
+				context->count_wsi_allocated);
 
 	buf += lws_snprintf(buf, end - buf, "\"pt\":[\n ");
 	for (n = 0; n < context->count_threads; n++) {
@@ -2673,21 +2733,41 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 				pt->ah_wait_list_length);
 	}
 
-	buf += lws_snprintf(buf, end - buf, "], \"vhosts\":[\n ");
+	buf += lws_snprintf(buf, end - buf, "]");
 
+	buf += lws_snprintf(buf, end - buf, ", \"vhosts\":[\n ");
+
+	first = 1;
+	vh = context->vhost_list;
+	listening = 0;
+	cs = context->conn_stats;
+	lws_sum_stats(context, &cs);
 	while (vh) {
-		if (!first)
-			if(buf != end)
-				*buf++ = ',';
-		buf += lws_json_dump_vhost(vh, buf, end - buf);
-		first = 0;
+
+		if (!hide_vhosts) {
+			if (!first)
+				if(buf != end)
+					*buf++ = ',';
+			buf += lws_json_dump_vhost(vh, buf, end - buf);
+			first = 0;
+		}
 		if (vh->lserv_wsi)
 			listening++;
 		vh = vh->vhost_next;
 	}
 
-	buf += lws_snprintf(buf, end - buf, "],\n\"listen_wsi\":\"%d\"",
-			listening);
+	buf += lws_snprintf(buf, end - buf,
+			"],\n\"listen_wsi\":\"%d\",\n"
+			" \"rx\":\"%llu\",\n"
+			" \"tx\":\"%llu\",\n"
+			" \"conn\":\"%lu\",\n"
+			" \"trans\":\"%lu\",\n"
+			" \"ws_upg\":\"%lu\",\n"
+			" \"rejected\":\"%lu\",\n"
+			" \"http2_upg\":\"%lu\"",
+			listening,
+			cs.rx, cs.tx, cs.conn, cs.trans,
+			cs.ws_upg, cs.rejected, cs.http2_upg);
 
 #ifdef LWS_WITH_CGI
 	for (n = 0; n < context->count_threads; n++) {
@@ -2704,7 +2784,10 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len)
 	buf += lws_snprintf(buf, end - buf, ",\n \"cgi_alive\":\"%d\"\n ",
 			cgi_count);
 
-	buf += lws_snprintf(buf, end - buf, "}\n ");
+	buf += lws_snprintf(buf, end - buf, "}");
+
+
+	buf += lws_snprintf(buf, end - buf, "]}\n ");
 
 	return buf - orig;
 }
