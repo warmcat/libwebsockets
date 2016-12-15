@@ -66,6 +66,11 @@ callback_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 #ifndef LWS_NO_SERVER
 
+	case LWS_CALLBACK_ESTABLISHED:
+		pss->index = 0;
+		pss->len = -1;
+		break;
+
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 do_tx:
 
