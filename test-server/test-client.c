@@ -329,13 +329,13 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 static struct lws_protocols protocols[] = {
 	{
-		"dumb-increment-protocol,fake-nonexistant-protocol",
+		"dumb-increment-protocol",
 		callback_dumb_increment,
 		0,
 		20,
 	},
 	{
-		"fake-nonexistant-protocol,lws-mirror-protocol",
+		"lws-mirror-protocol",
 		callback_lws_mirror,
 		0,
 		128,
