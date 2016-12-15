@@ -38,9 +38,27 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #if defined(LWS_USE_MBEDTLS)
 #else
 	struct lws_context *context = wsi->context;
-	const char *hostname = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+	char hostname[128], *p;
 
-	(void)hostname;
+	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
+			 _WSI_TOKEN_CLIENT_HOST) <= 0) {
+		lwsl_err("%s: Unable to get hostname\n", __func__);
+
+		return -1;
+	}
+
+	/*
+	 * remove any :port part on the hostname... necessary for network
+	 * connection but typical certificates do not contain it
+	 */
+	p = hostname;
+	while (*p) {
+		if (*p == ':') {
+			*p = '\0';
+			break;
+		}
+		p++;
+	}
 
 	wsi->ssl = SSL_new(wsi->vhost->ssl_client_ctx);
 	if (!wsi->ssl) {
