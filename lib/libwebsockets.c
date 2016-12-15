@@ -30,6 +30,14 @@
 #include <sys/wait.h>
 #endif
 
+#ifdef LWS_USE_IPV6
+#if defined(WIN32) || defined(_WIN32)
+#include <Iphlpapi.h>
+#else
+#include <net/if.h>
+#endif
+#endif
+
 int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
 static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
 
@@ -1517,6 +1525,39 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 			lwsl_err("Unable to find interface %s\n", iface);
 			return -1;
 		}
+
+		if (iface) {
+			struct ifaddrs *addrs, *addr;
+			char ip[NI_MAXHOST];
+			unsigned int i;
+
+			getifaddrs(&addrs);
+			for (addr = addrs; addr; addr = addr->ifa_next) {
+				if (!addr->ifa_addr ||
+				    addr->ifa_addr->sa_family != AF_INET6)
+					continue;
+
+				getnameinfo(addr->ifa_addr,
+					    sizeof(struct sockaddr_in6),
+					    ip, sizeof(ip),
+					    NULL, 0, NI_NUMERICHOST);
+
+				i = 0;
+				while (ip[i])
+					if (ip[i++] == '%') {
+						ip[i - 1] = '\0';
+						break;
+					}
+
+				if (!strcmp(ip, iface)) {
+					serv_addr6.sin6_scope_id =
+						if_nametoindex(addr->ifa_name);
+					break;
+				}
+			}
+			freeifaddrs(addrs);
+		}
+
 		serv_addr6.sin6_family = AF_INET6;
 		serv_addr6.sin6_port = htons(port);
 	} else
