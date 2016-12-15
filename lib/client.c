@@ -621,6 +621,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * no protocol name to work from,
 		 * default to first protocol
 		 */
+		n = 0;
 		wsi->protocol = &wsi->vhost->protocols[0];
 		goto check_extensions;
 	}
@@ -665,7 +666,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		goto bail2;
 	}
 
-
+check_extensions:
 	/*
 	 * stitch protocol choice into the vh protocol linked list
 	 * We always insert ourselves at the start of the list
@@ -689,7 +690,6 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		wsi->same_vh_protocol_next->same_vh_protocol_prev =
 				&wsi->same_vh_protocol_next;
 
-check_extensions:
 #ifndef LWS_NO_EXTENSIONS
 	/* instantiate the accepted extensions */
 
