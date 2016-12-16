@@ -347,7 +347,9 @@ lws_libuv_io(struct lws *wsi, int flags)
 
 	// lwsl_notice("%s: wsi: %p, flags:0x%x\n", __func__, wsi, flags);
 
-	if (!pt->io_loop_uv) {
+	// w->context is set after the loop is initialized
+
+	if (!pt->io_loop_uv || !w->context) {
 		lwsl_info("%s: no io loop yet\n", __func__);
 		return;
 	}
