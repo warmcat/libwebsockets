@@ -73,6 +73,46 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 #endif
 }
 
+/* Copies a string describing the code returned by lws_ssl_get_error(),
+ * which may also contain system error information in the case of SSL_ERROR_SYSCALL,
+ * into buf up to len.
+ * Returns a pointer to buf.
+ *
+ * Note: the lws_ssl_get_error() code is *not* an error code that can be passed
+ * to ERR_error_string(),
+ *
+ * ret is the return value originally passed to lws_ssl_get_error(), needed to disambiguate
+ * SYS_ERROR_SYSCALL.
+ *
+ * See man page for SSL_get_error().
+ *
+ * Not thread safe, uses strerror()
+ */
+char* lws_ssl_get_error_string(int status, int ret, char *buf, size_t len) {
+	switch (status) {
+	case SSL_ERROR_NONE: return strncpy(buf, "SSL_ERROR_NONE", len);
+	case SSL_ERROR_ZERO_RETURN: return strncpy(buf, "SSL_ERROR_ZERO_RETURN", len);
+	case SSL_ERROR_WANT_READ: return strncpy(buf, "SSL_ERROR_WANT_READ", len);
+	case SSL_ERROR_WANT_WRITE: return strncpy(buf, "SSL_ERROR_WANT_WRITE", len);
+	case SSL_ERROR_WANT_CONNECT: return strncpy(buf, "SSL_ERROR_WANT_CONNECT", len);
+	case SSL_ERROR_WANT_ACCEPT: return strncpy(buf, "SSL_ERROR_WANT_ACCEPT", len);
+	case SSL_ERROR_WANT_X509_LOOKUP: return strncpy(buf, "SSL_ERROR_WANT_X509_LOOKUP", len);
+	case SSL_ERROR_SYSCALL:
+		switch (ret) {
+                case 0:
+                        snprintf(buf, len, "SSL_ERROR_SYSCALL: EOF");
+                        return buf;
+                case -1:
+                        snprintf(buf, len, "SSL_ERROR_SYSCALL: %s", strerror(errno));
+                        return buf;
+                default:
+                        return strncpy(buf, "SSL_ERROR_SYSCALL", len);
+	}
+	case SSL_ERROR_SSL: return "SSL_ERROR_SSL";
+	default: return "SSL_ERROR_UNKNOWN";
+	}
+}
+
 void
 lws_ssl_elaborate_error(void)
 {
@@ -618,8 +658,6 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			goto accepted;
 
 		m = lws_ssl_get_error(wsi, n);
-		lwsl_debug("SSL_accept failed %d / %s\n",
-			   m, ERR_error_string(m, NULL));
 go_again:
 		if (m == SSL_ERROR_WANT_READ) {
 			if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
@@ -638,9 +676,9 @@ go_again:
 
 			break;
 		}
-		lwsl_err("SSL_accept failed skt %u: %s\n",
-			   wsi->sock, ERR_error_string(m, NULL));
-
+                char buf[256];
+                lwsl_err("SSL_accept failed socket %u: %s\n", wsi->sock,
+                         lws_ssl_get_error_string(m, n, buf, sizeof(buf)));
 		lws_ssl_elaborate_error();
 		goto fail;
 
