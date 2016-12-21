@@ -44,7 +44,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 
 	/* set up our external listening socket we serve on */
 
-	if (info->port == CONTEXT_PORT_NO_LISTEN)
+	if (info->port == CONTEXT_PORT_NO_LISTEN || info->port == CONTEXT_PORT_NO_LISTEN_SERVER)
 		return 0;
 
 	vh = vhost->context->vhost_list;

@@ -211,7 +211,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		vhost->use_ssl = 0;
 		return 0;
 	}
-
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 
 		vhost->use_ssl = info->ssl_cert_filepath != NULL;
