@@ -394,6 +394,8 @@ var libwebsockets_8h =
     [ "lws_add_http_header_status", "group__HTTP-headers-create.html#ga29b7d6d2ddfdbaff3d8b607e7e3151b6", null ],
     [ "lws_adopt_socket", "group__sock-adopt.html#gabe71b7462afb21c767bdc67334f305af", null ],
     [ "lws_adopt_socket_readbuf", "group__sock-adopt.html#gab2d045df0f81afe00891aaed312d552b", null ],
+    [ "lws_adopt_socket_vhost", "group__sock-adopt.html#ga18747e81ff49df2076e7cd4f131f967c", null ],
+    [ "lws_adopt_socket_vhost_readbuf", "group__sock-adopt.html#ga5ed5fd251ac0ed46798af341c33bf067", null ],
     [ "lws_b64_decode_string", "group__sha.html#ga66316e6a5a0644a09d5a10e919dfdd8d", null ],
     [ "lws_b64_encode_string", "group__sha.html#gaf39765e4a3b413efb65e4698b2ec3575", null ],
     [ "lws_callback_all_protocol", "group__callback-when-writeable.html#gacf04bbe089f47c971c6408c5efe2ac70", null ],

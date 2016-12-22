@@ -509,7 +509,7 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 	return hit;
 }
 
-#ifdef LWS_POSIX
+#if LWS_POSIX
 
 static int
 lws_find_string_in_file(const char *filename, const char *string, int stringlen)
@@ -892,7 +892,7 @@ lws_http_action(struct lws *wsi)
 		return lws_http_transaction_completed(wsi);
 	}
 
-#ifdef LWS_POSIX
+#if LWS_POSIX
 	/* basic auth? */
 
 	if (hit->basic_auth_login_file) {
@@ -1092,10 +1092,12 @@ bail_nuke_ah:
 	lws_header_table_detach(wsi, 1);
 
 	return 1;
-
+#if LWS_POSIX
 transaction_result_n:
 	lws_return_http_status(wsi, n, NULL);
+
 	return lws_http_transaction_completed(wsi);
+#endif
 }
 
 int

@@ -71,8 +71,12 @@ $(document).ready(function(){initNavTree('group__sock-adopt.html','');});
 Functions</h2></td></tr>
 <tr class="memitem:gabe71b7462afb21c767bdc67334f305af"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__sock-adopt.html#gabe71b7462afb21c767bdc67334f305af">lws_adopt_socket</a> (struct lws_context *context, lws_sockfd_type accept_fd)</td></tr>
 <tr class="separator:gabe71b7462afb21c767bdc67334f305af"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga18747e81ff49df2076e7cd4f131f967c"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__sock-adopt.html#ga18747e81ff49df2076e7cd4f131f967c">lws_adopt_socket_vhost</a> (struct lws_vhost *vh, lws_sockfd_type accept_fd)</td></tr>
+<tr class="separator:ga18747e81ff49df2076e7cd4f131f967c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gab2d045df0f81afe00891aaed312d552b"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__sock-adopt.html#gab2d045df0f81afe00891aaed312d552b">lws_adopt_socket_readbuf</a> (struct lws_context *context, lws_sockfd_type accept_fd, const char *readbuf, size_t len)</td></tr>
 <tr class="separator:gab2d045df0f81afe00891aaed312d552b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga5ed5fd251ac0ed46798af341c33bf067"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__sock-adopt.html#ga5ed5fd251ac0ed46798af341c33bf067">lws_adopt_socket_vhost_readbuf</a> (struct lws_vhost *vhost, lws_sockfd_type accept_fd, const char *readbuf, size_t len)</td></tr>
+<tr class="separator:ga5ed5fd251ac0ed46798af341c33bf067"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2>Socket adoption helpers</h2>
@@ -106,7 +110,7 @@ Functions</h2></td></tr>
 </div><div class="memdoc">
 
 <p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
-<p><a class="el" href="group__sock-adopt.html#gabe71b7462afb21c767bdc67334f305af">lws_adopt_socket()</a> - adopt foreign socket as if listen socket accepted it </p><dl class="params"><dt>Parameters</dt><dd>
+<p><a class="el" href="group__sock-adopt.html#gabe71b7462afb21c767bdc67334f305af">lws_adopt_socket()</a> - adopt foreign socket as if listen socket accepted it for the default vhost of context. </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">context</td><td>lws context </td></tr>
     <tr><td class="paramname">accept_fd</td><td>fd of already-accepted socket to adopt</td></tr>
@@ -157,9 +161,109 @@ Functions</h2></td></tr>
 </div><div class="memdoc">
 
 <p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
-<p><a class="el" href="group__sock-adopt.html#gab2d045df0f81afe00891aaed312d552b">lws_adopt_socket_readbuf()</a> - adopt foreign socket and first rx as if listen socket accepted it </p><dl class="params"><dt>Parameters</dt><dd>
+<p><a class="el" href="group__sock-adopt.html#gab2d045df0f81afe00891aaed312d552b">lws_adopt_socket_readbuf()</a> - adopt foreign socket and first rx as if listen socket accepted it for the default vhost of context. </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">context</td><td>lws context </td></tr>
+    <tr><td class="paramname">accept_fd</td><td>fd of already-accepted socket to adopt </td></tr>
+    <tr><td class="paramname">readbuf</td><td>NULL or pointer to data that must be drained before reading from accept_fd </td></tr>
+    <tr><td class="paramname">len</td><td>The length of the data held at </td></tr>
+    <tr><td class="paramname">readbuf</td><td>Either returns new wsi bound to accept_fd, or closes accept_fd and returns NULL, having cleaned up any new wsi pieces.</td></tr>
+  </table>
+  </dd>
+</dl>
+<p>LWS adopts the socket in http serving mode, it's ready to accept an upgrade to ws or just serve http.</p>
+<p>If your external code did not already read from the socket, you can use <a class="el" href="group__sock-adopt.html#gabe71b7462afb21c767bdc67334f305af">lws_adopt_socket()</a> instead.</p>
+<p>This api is guaranteed to use the data at </p><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">readbuf</td><td>first, before reading from the socket.</td></tr>
+  </table>
+  </dd>
+</dl>
+<p>readbuf is limited to the size of the ah rx buf, currently 2048 bytes. </p>
+
+</div>
+</div>
+<a id="ga18747e81ff49df2076e7cd4f131f967c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga18747e81ff49df2076e7cd4f131f967c">&sect;&nbsp;</a></span>lws_adopt_socket_vhost()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">LWS_VISIBLE LWS_EXTERN struct lws* lws_adopt_socket_vhost </td>
+          <td>(</td>
+          <td class="paramtype">struct lws_vhost *&#160;</td>
+          <td class="paramname"><em>vh</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">lws_sockfd_type&#160;</td>
+          <td class="paramname"><em>accept_fd</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
+<p><a class="el" href="group__sock-adopt.html#ga18747e81ff49df2076e7cd4f131f967c">lws_adopt_socket_vhost()</a> - adopt foreign socket as if listen socket accepted it for vhost </p><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">vhost</td><td>lws vhost </td></tr>
+    <tr><td class="paramname">accept_fd</td><td>fd of already-accepted socket to adopt</td></tr>
+  </table>
+  </dd>
+</dl>
+<p>Either returns new wsi bound to accept_fd, or closes accept_fd and returns NULL, having cleaned up any new wsi pieces.</p>
+<p>LWS adopts the socket in http serving mode, it's ready to accept an upgrade to ws or just serve http. </p>
+
+</div>
+</div>
+<a id="ga5ed5fd251ac0ed46798af341c33bf067"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga5ed5fd251ac0ed46798af341c33bf067">&sect;&nbsp;</a></span>lws_adopt_socket_vhost_readbuf()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">LWS_VISIBLE LWS_EXTERN struct lws* lws_adopt_socket_vhost_readbuf </td>
+          <td>(</td>
+          <td class="paramtype">struct lws_vhost *&#160;</td>
+          <td class="paramname"><em>vhost</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">lws_sockfd_type&#160;</td>
+          <td class="paramname"><em>accept_fd</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const char *&#160;</td>
+          <td class="paramname"><em>readbuf</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">size_t&#160;</td>
+          <td class="paramname"><em>len</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
+<p><a class="el" href="group__sock-adopt.html#ga5ed5fd251ac0ed46798af341c33bf067">lws_adopt_socket_vhost_readbuf()</a> - adopt foreign socket and first rx as if listen socket accepted it for vhost. </p><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">vhost</td><td>lws vhost </td></tr>
     <tr><td class="paramname">accept_fd</td><td>fd of already-accepted socket to adopt </td></tr>
     <tr><td class="paramname">readbuf</td><td>NULL or pointer to data that must be drained before reading from accept_fd </td></tr>
     <tr><td class="paramname">len</td><td>The length of the data held at </td></tr>

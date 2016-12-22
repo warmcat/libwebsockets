@@ -168,6 +168,9 @@ int fork(void);
 #define vsnprintf ets_vsnprintf
 #define snprintf ets_snprintf
 #define sprintf ets_sprintf
+
+int kill(int pid, int sig);
+
 #else
 #include <sys/socket.h>
 #endif
