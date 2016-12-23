@@ -185,6 +185,7 @@ static struct option options[] = {
 	{ "daemonize",	no_argument,		NULL, 'D' },
 #endif
 	{ "resource_path", required_argument,	NULL, 'r' },
+	{ "pingpong-secs", required_argument,	NULL, 'P' },
 	{ NULL, 0, 0, 0 }
 };
 
@@ -199,6 +200,7 @@ int main(int argc, char **argv)
 	char ca_path[1024] = "";
 	int uid = -1, gid = -1;
 	int use_ssl = 0;
+	int pp_secs = 0;
 	int opts = 0;
 	int n = 0;
 #ifndef _WIN32
@@ -221,7 +223,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:P:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -280,6 +282,10 @@ int main(int argc, char **argv)
 		case 'A':
 			strncpy(ca_path, optarg, sizeof(ca_path) - 1);
 			ca_path[sizeof(ca_path) - 1] = '\0';
+			break;
+		case 'P':
+			pp_secs = atoi(optarg);
+			lwsl_notice("Setting pingpong interval to %d\n", pp_secs);
 			break;
 #if defined(LWS_OPENSSL_SUPPORT)
 		case 'v':
@@ -349,6 +355,7 @@ int main(int argc, char **argv)
 	info.protocols = protocols;
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
+	info.ws_ping_pong_interval = pp_secs;
 
 	if (use_ssl) {
 		if (strlen(resource_path) > sizeof(cert_path) - 32) {
