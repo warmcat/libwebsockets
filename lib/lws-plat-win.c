@@ -156,7 +156,7 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 LWS_VISIBLE int
 lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
-	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_context_per_thread *pt;
 	WSANETWORKEVENTS networkevents;
 	struct lws_pollfd *pfd;
 	struct lws *wsi;
@@ -167,6 +167,8 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/* stay dead once we are dead */
 	if (context == NULL)
 		return 1;
+
+	pt = &context->pt[tsi];
 
 	if (!context->service_tid_detected) {
 		struct lws _lws;

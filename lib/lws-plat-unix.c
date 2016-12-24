@@ -116,7 +116,7 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 LWS_VISIBLE int
 lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
-	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_context_per_thread *pt;
 	int n = -1, m, c;
 	char buf;
 
@@ -124,6 +124,8 @@ lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	if (!context || !context->vhost_list)
 		return 1;
+
+	pt = &context->pt[tsi];
 
 	if (timeout_ms < 0)
 		goto faked_service;
