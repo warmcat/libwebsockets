@@ -132,16 +132,8 @@ char *ets_strchr(const char *s, int c);
 #define __func__ __FUNCTION__
 #endif
 
-#if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(_WIN32_WCE)
-#define vsnprintf _vsnprintf
-#else
 #ifdef LWS_HAVE__VSNPRINTF
 #define vsnprintf _vsnprintf
-#endif
-#endif
-
-#ifdef LWS_HAVE__SNPRINTF
-#define lws_snprintf _snprintf
 #endif
 
 /* we don't have an implementation for this on windows... */
