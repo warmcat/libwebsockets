@@ -37,6 +37,7 @@ static const char * const paths_global[] = {
 	"global.server-string",
 	"global.plugin-dir",
 	"global.ws-pingpong-secs",
+	"global.timeout-secs",
 	"global.reject-service-keywords[].*",
 	"global.reject-service-keywords[]",
 };
@@ -49,6 +50,7 @@ enum lejp_global_paths {
 	LEJPGP_SERVER_STRING,
 	LEJPGP_PLUGIN_DIR,
 	LWJPGP_PINGPONG_SECS,
+	LWJPGP_TIMEOUT_SECS,
 	LWJPGP_REJECT_SERVICE_KEYWORDS_NAME,
 	LWJPGP_REJECT_SERVICE_KEYWORDS
 };
@@ -267,6 +269,10 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 
 	case LWJPGP_PINGPONG_SECS:
 		a->info->ws_ping_pong_interval = atoi(ctx->buf);
+		return 0;
+
+	case LWJPGP_TIMEOUT_SECS:
+		a->info->timeout_secs = atoi(ctx->buf);
 		return 0;
 
 	default:

@@ -90,6 +90,9 @@ if a keyword is found in the user agent
    }]
 ```
 
+ - `timeout-secs` lets you set the global timeout for various network-related
+ operations in lws, in seconds.  It defaults to 5.
+ 
 @section lwswsv Lwsws Vhosts
 
 One server can run many vhosts, where SSL is in use SNI is used to match
