@@ -160,7 +160,15 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	vhost->lserv_wsi = wsi;
 
 #if LWS_POSIX
-	listen(wsi->sock, LWS_SOMAXCONN);
+	n = listen(wsi->sock, LWS_SOMAXCONN);
+	if (n < 0) {
+		lwsl_err("listen failed with error %d\n", LWS_ERRNO);
+		vhost->lserv_wsi = NULL;
+		vhost->context->count_wsi_allocated--;
+		remove_wsi_socket_from_fds(wsi);
+		vhost->context->pt[m].wsi_listening = NULL;
+		goto bail;
+	}
 	} /* for each thread able to independently listen */
 #else
 #if defined(LWS_WITH_ESP8266)
