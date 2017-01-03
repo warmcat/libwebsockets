@@ -1331,6 +1331,8 @@ struct lws_cgi {
 	int pid;
 
 	unsigned int being_closed:1;
+
+	unsigned char chunked_grace;
 };
 #endif
 

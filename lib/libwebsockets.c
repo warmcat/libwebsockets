@@ -2390,7 +2390,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 
 	while (n > 0) {
 		/* find finished guys but don't reap yet */
-		n = waitpid(-1, &status, WNOHANG | WNOWAIT);
+		n = waitpid(-1, &status, WNOHANG);
 		if (n <= 0)
 			continue;
 		lwsl_debug("%s: observed PID %d terminated\n", __func__, n);
@@ -2425,6 +2425,16 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			if (n == cgi->pid) {
 				lwsl_debug("%s: found PID %d on cgi list\n",
 					    __func__, n);
+
+				if (!cgi->content_length) {
+					/*
+					 * well, if he sends chunked... give him 5s after the
+					 * cgi terminated to send buffered
+					 */
+					cgi->chunked_grace++;
+					continue;
+				}
+
 				/* defeat kill() */
 				cgi->pid = 0;
 				lws_cgi_kill(cgi->wsi);
@@ -2454,18 +2464,34 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		if (cgi->pid <= 0)
 			continue;
 
+		/* we deferred killing him after reaping his PID */
+		if (cgi->chunked_grace) {
+			cgi->chunked_grace++;
+			if (cgi->chunked_grace < 5)
+				continue;
+			goto finish_him;
+		}
+
 		/* wait for stdout to be drained */
 		if (cgi->content_length > cgi->content_length_seen)
 			continue;
 
-		if (cgi->content_length) {
+		if (cgi->content_length)
 			lwsl_debug("%s: wsi %p: expected content length seen: %ld\n",
 				__func__, cgi->wsi, cgi->content_length_seen);
-		}
 
 		/* reap it */
 		if (waitpid(cgi->pid, &status, WNOHANG) > 0) {
 
+			if (!cgi->content_length) {
+				/*
+				 * well, if he sends chunked... give him 5s after the
+				 * cgi terminated to send buffered
+				 */
+				cgi->chunked_grace++;
+				continue;
+			}
+finish_him:
 			lwsl_debug("%s: found PID %d on cgi list\n",
 				    __func__, cgi->pid);
 			/* defeat kill() */
@@ -2478,7 +2504,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 #endif
 
 	/* general anti zombie defence */
-	n = waitpid(-1, &status, WNOHANG);
+//	n = waitpid(-1, &status, WNOHANG);
 	//if (n > 0)
 	//	lwsl_notice("%s: anti-zombie wait says %d\n", __func__, n);
 
