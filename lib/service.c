@@ -540,21 +540,20 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 {
 	int rlen, n;
 
-
-
 	rlen = lws_ssl_capable_read(wsi, (unsigned char *)*buf, *len);
-	if (rlen < 0)
-		return -1;
-
-	*len = rlen;
-	if (rlen == 0)
-		return 0;
-
-//	lwsl_err("%s: read %d\n", __func__, rlen);
+	*len = 0;
 
 	/* allow the source to signal he has data again next time */
-	wsi->client_rx_avail = 0;
 	lws_change_pollfd(wsi, 0, LWS_POLLIN);
+
+	if (rlen == LWS_SSL_CAPABLE_ERROR)
+		return -1;
+
+	if (rlen <= 0)
+		return 0;
+
+	*len = rlen;
+	wsi->client_rx_avail = 0;
 
 	/*
 	 * server may insist on transfer-encoding: chunked,
@@ -974,6 +973,13 @@ drain:
 		    !wsi->told_user_closed) {
 
 			/*
+			 * In SSL mode we get POLLIN notification about
+			 * encrypted data in.
+			 *
+			 * But that is not necessarily related to decrypted
+			 * data out becoming available; in may need to perform
+			 * other in or out before that happens.
+			 *
 			 * simply mark ourselves as having readable data
 			 * and turn off our POLLIN
 			 */
