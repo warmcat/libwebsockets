@@ -223,9 +223,7 @@ int lws_header_table_detach(struct lws *wsi)
 	assert(pt->ah_count_in_use > 0);
 	/* and this specific one should have been in use */
 	assert(wsi->u.hdr.ah->in_use);
-	wsi->u.hdr.ah = NULL;
-	ah->wsi = NULL; /* no owner */
-
+	
 	/* oh there is nobody on the waiting list... leave it at that then */
 	if (!*pwsi) {
 		ah->in_use = 0;
@@ -233,6 +231,9 @@ int lws_header_table_detach(struct lws *wsi)
 
 		goto bail;
 	}
+
+	wsi->u.hdr.ah = NULL;
+	ah->wsi = NULL; /* no owner */
 
 	/* somebody else on same tsi is waiting, give it to oldest guy */
 
