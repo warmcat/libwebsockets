@@ -408,7 +408,9 @@ just_kill_connection:
 		char* errorString;
 
 		lwsl_debug("Connection closed before server reply\n");
-		errorString = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
+		errorString = NULL;
+		if (wsi->u.hdr.ah)
+			errorString = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
 		if (errorString) {
 			context->protocols[0].callback(wsi,
 					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
