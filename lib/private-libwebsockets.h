@@ -282,6 +282,15 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #include <openssl/ecdh.h>
 #endif
 #include <openssl/x509v3.h>
+
+#if (OPENSSL_VERSION_NUMBER < 0x0009080afL)
+/* later openssl defines this to negate the presence of tlsext... but it was only
+ * introduced at 0.9.8j.  Earlier versions don't know it exists so don't
+ * define it... making it look like the feature exists...
+ */
+#define OPENSSL_NO_TLSEXT
+#endif
+
 #endif /* not USE_MBEDTLS */
 #endif /* not USE_POLARSSL */
 #endif /* not USE_WOLFSSL */
