@@ -254,6 +254,7 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #else
 #include <wolfssl/openssl/ssl.h>
 #include <wolfssl/error-ssl.h>
+#define OPENSSL_NO_TLSEXT
 #endif /* not USE_OLD_CYASSL */
 #else
 #if defined(LWS_USE_POLARSSL)
