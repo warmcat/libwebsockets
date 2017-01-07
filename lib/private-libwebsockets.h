@@ -194,6 +194,7 @@ static inline int compatible_close(int fd) { return close(fd); }
 #else
 #include <wolfssl/openssl/ssl.h>
 #include <wolfssl/error-ssl.h>
+#define OPENSSL_NO_TLSEXT
 #endif /* not USE_OLD_CYASSL */
 #else
 #if defined(LWS_USE_POLARSSL)
