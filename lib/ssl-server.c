@@ -393,7 +393,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		SSL_CTX_set_options(vhost->ssl_ctx, info->ssl_options_set);
 
 /* SSL_clear_options introduced in 0.9.8m */
-#if (OPENSSL_VERSION_NUMBER >= 0x009080df)
+#if (OPENSSL_VERSION_NUMBER >= 0x009080df) && !defined(USE_WOLFSSL)
 	if (info->ssl_options_clear)
 		SSL_CTX_clear_options(vhost->ssl_ctx, info->ssl_options_clear);
 #endif
