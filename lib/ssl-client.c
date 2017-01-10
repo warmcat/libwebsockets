@@ -29,6 +29,64 @@ lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info
 
 extern int lws_ssl_get_error(struct lws *wsi, int n);
 
+#if defined(LWS_USE_POLARSSL)
+#else
+#if defined(LWS_USE_MBEDTLS)
+#else
+#ifdef USE_WOLFSSL
+#else
+
+static int
+OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
+{
+	SSL *ssl;
+	int n;
+	struct lws *wsi;
+
+	/* keep old behaviour accepting self-signed server certs */
+	if (!preverify_ok) {
+		int err = X509_STORE_CTX_get_error(x509_ctx);
+
+		if (err != X509_V_OK) {
+			ssl = X509_STORE_CTX_get_ex_data(x509_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+			wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+
+			if ((err == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
+					err == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) &&
+					wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED) {
+				lwsl_notice("accepting self-signed certificate\n");
+				X509_STORE_CTX_set_error(x509_ctx, X509_V_OK);
+				return 1;	// ok
+			}
+		}
+	}
+
+	ssl = X509_STORE_CTX_get_ex_data(x509_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+	wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+
+	n = lws_get_context_protocol(wsi->context, 0).callback(wsi, LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION, x509_ctx, ssl, preverify_ok);
+
+	/* keep old behaviour if something wrong with server certs */
+	/* if ssl error is overruled in callback and cert is ok,
+	 * X509_STORE_CTX_set_error(x509_ctx, X509_V_OK); must be set and
+	 * return value is 0 from callback */
+	if (!preverify_ok) {
+		int err = X509_STORE_CTX_get_error(x509_ctx);
+
+		if (err != X509_V_OK) {	/* cert validation error was not handled in callback */
+			int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
+			const char* msg = X509_verify_cert_error_string(err);
+			lwsl_err("SSL error: %s (preverify_ok=%d;err=%d;depth=%d)\n", msg, preverify_ok, err, depth);
+			return preverify_ok;	// not ok
+		}
+	}
+	/* convert callback return code from 0 = OK to verify callback return value 1 = OK */
+	return !n;
+}
+#endif
+#endif
+#endif
+
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
@@ -37,7 +95,6 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #else
 #if defined(LWS_USE_MBEDTLS)
 #else
-	struct lws_context *context = wsi->context;
 	char hostname[128], *p;
 
 	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
@@ -78,10 +135,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		X509_VERIFY_PARAM_set_hostflags(param,
 						X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 		X509_VERIFY_PARAM_set1_host(param, hostname, 0);
-		/* Configure a non-zero callback if desired */
-		SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, 0);
 	}
+
 #endif
+	/* OpenSSL_client_verify_callback will be called @ SSL_connect() */
+	SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
 
 #ifndef USE_WOLFSSL
 	SSL_set_mode(wsi->ssl,  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
@@ -137,7 +195,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 
 	SSL_set_ex_data(wsi->ssl, openssl_websocket_private_data_index,
-			context);
+			wsi);
 
 	return 0;
 #endif
@@ -325,6 +383,7 @@ lws_ssl_client_connect2(struct lws *wsi)
 			return -1;
 		}
 	}
+
 #endif /* USE_WOLFSSL */
 #endif
 #endif

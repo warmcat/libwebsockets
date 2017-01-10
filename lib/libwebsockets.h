@@ -1016,6 +1016,36 @@ enum lws_callback_reasons {
 	 * From this callback, when you have sent everything, you should let
 	 * lws know by calling lws_client_http_body_pending(wsi, 0)
 	 */
+	LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION = 58,
+	/**< Similar to LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION
+	 * this callback is called during OpenSSL verification of the cert
+	 * sent from the server to the client. It is sent to protocol[0]
+	 * callback as no protocol has been negotiated on the connection yet.
+	 * Notice that the wsi is set because lws_client_connect_via_info was
+	 * successful.
+	 *
+	 * See http://www.openssl.org/docs/ssl/SSL_CTX_set_verify.html
+	 * to understand more detail about the OpenSSL callback that
+	 * generates this libwebsockets callback and the meanings of the
+	 * arguments passed. In this callback, user is the x509_ctx,
+	 * in is the ssl pointer and len is preverify_ok.
+	 *
+	 * THIS IS NOT RECOMMENDED BUT if a cert validation error shall be
+	 * overruled and cert shall be accepted as ok,
+	 * X509_STORE_CTX_set_error((X509_STORE_CTX*)user, X509_V_OK); must be
+	 * called and return value must be 0 to mean the cert is OK;
+	 * returning 1 will fail the cert in any case.
+	 *
+	 * This also means that if you don't handle this callback then
+	 * the default callback action of returning 0 will not accept the
+	 * certificate in case of a validation error decided by the SSL lib.
+	 *
+	 * This is expected and secure behaviour when validating certificates.
+	 *
+	 * Note: LCCSCF_ALLOW_SELFSIGNED and
+	 * LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK still work without this
+	 * callback being implemented.
+	 */
 
 	/****** add new things just above ---^ ******/
 
