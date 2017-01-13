@@ -936,7 +936,7 @@ elseif (WIN32)
 endif()
 
 if (UNIX)
-	list(APPEND LIB_LIST m)
+	list(APPEND LIB_LIST m dl)
 endif()
 
 # Setup the linking for all libs.
