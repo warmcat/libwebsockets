@@ -1,5 +1,4 @@
 #Ignore build files
-Makefile
 config.h
 config.log
 config.status
@@ -23,6 +22,7 @@ win32port/zlib/Release*/
 *.suo
 *.su
 *.m4
+*.a
 missing
 depcomp
 install-sh

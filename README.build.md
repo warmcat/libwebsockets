@@ -13,7 +13,7 @@ create elaborate clean scripts to get a clean source tree, instead you
 simply remove your build directory.
 
 Libwebsockets has been tested to build successfully on the following platforms
-with SSL support (both OpenSSL/wolfSSL):
+with SSL support (for OpenSSL/wolfSSL/BoringSSL):
 
 - Windows (Visual Studio)
 - Windows (MinGW)
@@ -265,8 +265,18 @@ and cd into it
 
 8) yotta build
 
-@section cmco Setting compile options
+@section optee Building for OP-TEE
 
+OP-TEE is a "Secure World" Trusted Execution Environment.
+
+Although lws is only part of the necessary picture to have an https-enabled
+TA, it does support OP-TEE as a platform and if you provide the other
+pieces, does work very well.
+
+Select it in cmake with `-DLWS_PLAT_OPTEE=1`
+
+
+@section cmco Setting compile options
 
 To set compile time flags you can either use one of the CMake gui applications
 or do it via the command line.

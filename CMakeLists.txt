@@ -109,6 +109,7 @@ option(LWS_WITH_GENERIC_SESSIONS "With the Generic Sessions plugin" OFF)
 option(LWS_WITH_SQLITE3 "Require SQLITE3 support" OFF)
 option(LWS_WITH_SMTP "Provide SMTP support" OFF)
 option(LWS_WITH_ESP8266 "Build for ESP8266" OFF)
+option(LWS_PLAT_OPTEE "Build for OPTEE" OFF)
 option(LWS_WITH_NO_LOGS "Disable all logging from being compiled in" OFF)
 option(LWS_STATIC_PIC "Build the static version of the library with position-independent code" OFF)
 option(LWS_WITH_RANGES "Support http ranges (RFC7233)" ON)
@@ -603,8 +604,13 @@ else()
 			list(APPEND SOURCES
 				lib/lws-plat-esp8266.c)
 		else()
-			list(APPEND SOURCES
-				lib/lws-plat-unix.c)
+			if (LWS_PLAT_OPTEE)
+				list(APPEND SOURCES
+					lib/lws-plat-optee.c)
+			else()
+				list(APPEND SOURCES
+					lib/lws-plat-unix.c)
+			endif()
 		endif()
 	endif()
 endif()
@@ -1649,6 +1655,7 @@ message(" LWS_WITH_SMTP = ${LWS_WITH_SMTP}")
 message(" LWS_WITH_GENERIC_SESSIONS = ${LWS_WITH_GENERIC_SESSIONS}")
 message(" LWS_STATIC_PIC = ${LWS_STATIC_PIC}")
 message(" LWS_WITH_RANGES = ${LWS_WITH_RANGES}")
+message(" LWS_PLAT_OPTEE = ${LWS_PLAT_OPTEE}")
 
 message("---------------------------------------------------------------------")
 

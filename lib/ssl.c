@@ -103,8 +103,12 @@ char* lws_ssl_get_error_string(int status, int ret, char *buf, size_t len) {
                         snprintf(buf, len, "SSL_ERROR_SYSCALL: EOF");
                         return buf;
                 case -1:
-                        snprintf(buf, len, "SSL_ERROR_SYSCALL: %s", strerror(errno));
-                        return buf;
+#ifndef LWS_PLAT_OPTEE
+			snprintf(buf, len, "SSL_ERROR_SYSCALL: %s", strerror(errno));
+#else
+			snprintf(buf, len, "SSL_ERROR_SYSCALL: %d", errno);
+#endif
+			return buf;
                 default:
                         return strncpy(buf, "SSL_ERROR_SYSCALL", len);
 	}
@@ -187,7 +191,11 @@ lws_context_init_ssl_library(struct lws_context_creation_info *info)
 #if defined(LWS_USE_MBEDTLS)
 	lwsl_notice(" Compiled with mbedTLS support\n");
 #else
+#if defined(LWS_USE_BORINGSSL)
+	lwsl_notice(" Compiled with BoringSSL support\n");
+#else
 	lwsl_notice(" Compiled with OpenSSL support\n");
+#endif
 #endif
 #endif
 #endif
@@ -203,6 +211,9 @@ lws_context_init_ssl_library(struct lws_context_creation_info *info)
 #else
 #if defined(LWS_USE_MBEDTLS)
 #else
+
+	lwsl_notice("Doing SSL library init\n");
+
 	SSL_library_init();
 
 	OpenSSL_add_all_algorithms();
@@ -324,13 +335,22 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 #endif
 
 	/* manpage: returning 0 means connection shut down */
-	if (!n)
+	if (!n) {
+			lwsl_err("%s failed: %s\n",__func__,
+				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
+			lws_decode_ssl_error();
+
 		return LWS_SSL_CAPABLE_ERROR;
+	}
 
 	if (n < 0) {
 		n = lws_ssl_get_error(wsi, n);
 		if (n ==  SSL_ERROR_WANT_READ || n ==  SSL_ERROR_WANT_WRITE)
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
+
+		lwsl_err("%s failed2: %s\n",__func__,
+				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
+			lws_decode_ssl_error();
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
@@ -424,6 +444,10 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 			lws_set_blocking_send(wsi);
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 	}
+		lwsl_err("%s failed: %s\n",__func__,
+				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
+			lws_decode_ssl_error();
+
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

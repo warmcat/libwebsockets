@@ -15,6 +15,7 @@
 /* Also define to 1 (in addition to USE_WOLFSSL) when using the
   (older) CyaSSL library */
 #cmakedefine USE_OLD_CYASSL
+#cmakedefine LWS_USE_BORINGSSL
 
 #cmakedefine LWS_USE_MBEDTLS
 #cmakedefine LWS_USE_POLARSSL
@@ -116,5 +117,9 @@
 
 /* SMTP */
 #cmakedefine LWS_WITH_SMTP
+
+/* OPTEE */
+#cmakedefine LWS_PLAT_OPTEE
+
 
 ${LWS_SIZEOFPTR_CODE}

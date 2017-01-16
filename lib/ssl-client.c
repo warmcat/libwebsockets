@@ -216,6 +216,7 @@ lws_ssl_client_connect1(struct lws *wsi)
 	n = SSL_connect(wsi->ssl);
 #endif
 #endif
+
 	lws_latency(context, wsi,
 	  "SSL_connect LWSCM_WSCL_ISSUE_HANDSHAKE", n, n > 0);
 
@@ -245,6 +246,17 @@ some_wait:
 
 			return 0; /* no error */
 		}
+
+		{
+			struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+			char *p = (char *)&pt->serv_buf[0];
+			char *sb = p;
+
+			lwsl_err("ssl hs1 error, X509_V_ERR = %d: %s\n",
+				 n, ERR_error_string(n, sb));
+			lws_ssl_elaborate_error();
+		}
+
 		n = -1;
 	}
 
@@ -298,6 +310,8 @@ lws_ssl_client_connect2(struct lws *wsi)
 		n = SSL_connect(wsi->ssl);
 #endif
 #endif
+		lwsl_notice("%s: SSL_connect says %d\n", __func__, n);
+
 		lws_latency(context, wsi,
 			    "SSL_connect LWSCM_WSCL_WAITING_SSL", n, n > 0);
 
@@ -305,6 +319,8 @@ lws_ssl_client_connect2(struct lws *wsi)
 			n = lws_ssl_get_error(wsi, n);
 
 			if (n == SSL_ERROR_WANT_READ) {
+				lwsl_info("SSL_connect WANT_READ... retrying\n");
+
 				wsi->mode = LWSCM_WSCL_WAITING_SSL;
 
 				return 0; /* no error */
@@ -330,6 +346,7 @@ lws_ssl_client_connect2(struct lws *wsi)
 
 				return 0; /* no error */
 			}
+
 			n = -1;
 		}
 
@@ -376,6 +393,8 @@ lws_ssl_client_connect2(struct lws *wsi)
 		            n == X509_V_ERR_CERT_HAS_EXPIRED) &&
 		     wsi->use_ssl & LCCSCF_ALLOW_EXPIRED) {
 			lwsl_notice("accepting expired certificate\n");
+		} else if (n == X509_V_ERR_CERT_NOT_YET_VALID) {
+			lwsl_notice("Cert is from the future... probably our clock... accepting...\n");
 		} else {
 			lwsl_err("server's cert didn't look good, X509_V_ERR = %d: %s\n",
 				 n, ERR_error_string(n, sb));
@@ -468,11 +487,13 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	} else
 		if (!SSL_CTX_load_verify_locations(
 			vhost->ssl_client_ctx, info->ssl_ca_filepath,
-							  NULL))
+							  NULL)) {
 			lwsl_err(
 				"Unable to load SSL Client certs "
 				"file from %s -- client ssl isn't "
 				"going to work", info->ssl_ca_filepath);
+			lws_ssl_elaborate_error();
+		}
 		else
 			lwsl_info("loaded ssl_ca_filepath\n");
 
@@ -483,29 +504,31 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 
 	/* support for client-side certificate authentication */
 	if (info->ssl_cert_filepath) {
+	lwsl_notice("%s: doing cert filepath\n", __func__);
 		n = SSL_CTX_use_certificate_chain_file(vhost->ssl_client_ctx,
 						       info->ssl_cert_filepath);
-		if (n != 1) {
-			lwsl_err("problem getting cert '%s' %lu: %s\n",
-				info->ssl_cert_filepath,
-				ERR_get_error(),
-				ERR_error_string(ERR_get_error(),
-				(char *)vhost->context->pt[0].serv_buf));
+		if (n < 1) {
+			lwsl_err("problem %d getting cert '%s'\n", n,
+				info->ssl_cert_filepath);
+			lws_ssl_elaborate_error();
 			return 1;
 		}
+		lwsl_notice("Loaded client cert %s\n", info->ssl_cert_filepath);
 	}
+
 	if (info->ssl_private_key_filepath) {
+		lwsl_notice("%s: doing private key filepath\n", __func__);
 		lws_ssl_bind_passphrase(vhost->ssl_client_ctx, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(vhost->ssl_client_ctx,
 		    info->ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
-			lwsl_err("use_PrivateKey_file '%s' %lu: %s\n",
-				info->ssl_private_key_filepath,
-				ERR_get_error(),
-				ERR_error_string(ERR_get_error(),
-				      (char *)vhost->context->pt[0].serv_buf));
+			lwsl_err("use_PrivateKey_file '%s'\n",
+				info->ssl_private_key_filepath);
+			lws_ssl_elaborate_error();
 			return 1;
 		}
+		lwsl_notice("Loaded client cert private key %s\n",
+			    info->ssl_private_key_filepath);
 
 		/* verify private key */
 		if (!SSL_CTX_check_private_key(vhost->ssl_client_ctx)) {

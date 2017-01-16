@@ -346,7 +346,12 @@ static void
 strtolower(char *s)
 {
 	while (*s) {
+#ifdef LWS_PLAT_OPTEE
+		int tolower_optee(int c);
+		*s = tolower_optee((int)*s);
+#else
 		*s = tolower((int)*s);
+#endif
 		s++;
 	}
 }

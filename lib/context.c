@@ -137,7 +137,7 @@ lws_protocol_init(struct lws_context *context)
 	memset(&wsi, 0, sizeof(wsi));
 	wsi.context = context;
 
-	lwsl_notice("%s\n", __func__);
+	lwsl_info("%s\n", __func__);
 
 	while (vh) {
 		wsi.vhost = vh;
@@ -307,6 +307,10 @@ static const struct lws_protocols protocols_dummy[] = {
 	 */
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
+
+#ifdef LWS_PLAT_OPTEE
+#undef LWS_HAVE_GETENV
+#endif
 
 LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
@@ -514,13 +518,10 @@ lws_create_vhost(struct lws_context *context,
 	} else
 		vh->log_fd = (int)LWS_INVALID_FILE;
 #endif
-
 	if (lws_context_init_server_ssl(info, vh))
 		goto bail;
-
 	if (lws_context_init_client_ssl(info, vh))
 		goto bail;
-
 	if (lws_context_init_server(info, vh))
 		goto bail;
 
@@ -531,7 +532,6 @@ lws_create_vhost(struct lws_context *context,
 		}
 		vh1 = &(*vh1)->vhost_next;
 	};
-
 	/* for the case we are adding a vhost much later, after server init */
 
 	if (context->protocol_init_done)
@@ -571,6 +571,9 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	lwsl_notice("Initial logging level %d\n", log_level);
 	lwsl_notice("Libwebsockets version: %s\n", library_version);
+#if defined(GCC_VER)
+	lwsl_notice("Compiled with  %s\n", GCC_VER);
+#endif
 #if LWS_POSIX
 #ifdef LWS_USE_IPV6
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_IPV6))
@@ -580,8 +583,10 @@ lws_create_context(struct lws_context_creation_info *info)
 #else
 	lwsl_notice("IPV6 not compiled in\n");
 #endif
+#ifndef LWS_PLAT_OPTEE
 	lws_feature_status_libev(info);
 	lws_feature_status_libuv(info);
+#endif
 #endif
 	lwsl_info(" LWS_DEF_HEADER_LEN    : %u\n", LWS_DEF_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS     : %u\n", LWS_MAX_PROTOCOLS);

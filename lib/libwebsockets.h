@@ -166,7 +166,7 @@ struct sockaddr_in;
 #define LWS_INLINE inline
 #define LWS_O_RDONLY O_RDONLY
 
-#if !defined(MBED_OPERATORS) && !defined(LWS_WITH_ESP8266)
+#if !defined(MBED_OPERATORS) && !defined(LWS_WITH_ESP8266) && !defined(OPTEE_TA)
 #include <poll.h>
 #include <netdb.h>
 #define LWS_INVALID_FILE -1
@@ -216,8 +216,10 @@ struct sockaddr_in;
 #ifdef _WIN32
 #define random rand
 #else
+#if !defined(OPTEE_TA)
 #include <sys/time.h>
 #include <unistd.h>
+#endif
 #endif
 
 #ifdef LWS_OPENSSL_SUPPORT

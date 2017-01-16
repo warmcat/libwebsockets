@@ -113,8 +113,9 @@ lws_client_connect_2(struct lws *wsi)
 	} else
 #endif
 	{
-		struct addrinfo ai, *res, *result;
+		struct addrinfo ai, *res, *result = NULL;
 		void *p = NULL;
+		unsigned char *p1;
 
 		memset (&ai, 0, sizeof ai);
 		ai.ai_family = PF_UNSPEC;
@@ -134,15 +135,19 @@ lws_client_connect_2(struct lws *wsi)
 				p = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
 				break;
 			}
-
 			res = res->ai_next;
 		}
 
 		if (!p) {
 			lwsl_err("Couldn't identify address\n");
 			freeaddrinfo(result);
+			cce = "unable to lookup address";
 			goto oom4;
 		}
+
+		p1 = p;
+		lwsl_err("getaddrinfo %s -> %d.%d.%d.%d\n", ads,
+			p1[0], p1[1], p1[2], p1[3]);
 
 		server_addr4.sin_family = AF_INET;
 		server_addr4.sin_addr = *((struct in_addr *)p);
@@ -161,6 +166,7 @@ lws_client_connect_2(struct lws *wsi)
 
 		if (!lws_socket_is_valid(wsi->sock)) {
 			lwsl_warn("Unable to open socket\n");
+			cce = "unable to open socket";
 			goto oom4;
 		}
 
@@ -198,8 +204,10 @@ lws_client_connect_2(struct lws *wsi)
 				AWAITING_TIMEOUT);
 
 		n = lws_socket_bind(wsi->vhost, wsi->sock, 0, wsi->vhost->iface);
-		if (n < 0)
+		if (n < 0) {
+			cce = "unable to bind socket";
 			goto failed;
+		}
 	}
 
 #ifdef LWS_USE_IPV6
@@ -224,21 +232,26 @@ lws_client_connect_2(struct lws *wsi)
 			lwsl_client("nonblocking connect retry (errno = %d)\n",
 				    LWS_ERRNO);
 
-			if (lws_plat_check_connection_error(wsi))
+			if (lws_plat_check_connection_error(wsi)) {
+				cce = "socket connect failed";
 				goto failed;
+			}
 
 			/*
 			 * must do specifically a POLLOUT poll to hear
 			 * about the connect completion
 			 */
-			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
+				cce = "POLLOUT set failed";
 				goto failed;
+			}
 
 			return wsi;
 		}
 
 		if (LWS_ERRNO != LWS_EISCONN) {
-			lwsl_debug("Connect failed errno=%d\n", LWS_ERRNO);
+			lwsl_notice("Connect failed errno=%d\n", LWS_ERRNO);
+			cce = "connect failed";
 			goto failed;
 		}
 	}
@@ -264,6 +277,7 @@ lws_client_connect_2(struct lws *wsi)
 			 MSG_NOSIGNAL);
 		if (n < 0) {
 			lwsl_debug("ERROR writing to proxy socket\n");
+			cce = "proxy write failed";
 			goto failed;
 		}
 
@@ -294,8 +308,10 @@ lws_client_connect_2(struct lws *wsi)
 	pfd.revents = LWS_POLLIN;
 
 	n = lws_service_fd(context, &pfd);
-	if (n < 0)
+	if (n < 0) {
+		cce = "first service failed";
 		goto failed;
+	}
 	if (n) /* returns 1 on failure after closing wsi */
 		return NULL;
 
@@ -305,8 +321,9 @@ oom4:
 	/* we're closing, losing some rx is OK */
 	if (wsi->u.hdr.ah)
 		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
-
-	if (wsi->mode == LWSCM_HTTP_CLIENT) {
+	if (wsi->mode == LWSCM_HTTP_CLIENT ||
+	    wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED ||
+	    wsi->mode == LWSCM_WSCL_WAITING_CONNECT) {
 		wsi->vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 			wsi->user_space, (void *)cce, strlen(cce));
@@ -314,13 +331,18 @@ oom4:
 	}
 	/* take care that we might be inserted in fds already */
 	if (wsi->position_in_fds_table != -1)
-		goto failed;
+		goto failed1;
 	lws_header_table_detach(wsi, 0);
 	lws_free(wsi);
 
 	return NULL;
 
 failed:
+	wsi->vhost->protocols[0].callback(wsi,
+		LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+		wsi->user_space, (void *)cce, strlen(cce));
+	wsi->already_did_cce = 1;
+failed1:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return NULL;

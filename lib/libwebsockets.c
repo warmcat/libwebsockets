@@ -39,8 +39,12 @@
 #endif
 
 int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
-static void (*lwsl_emit)(int level, const char *line) = lwsl_emit_stderr;
-
+static void (*lwsl_emit)(int level, const char *line)
+#ifndef LWS_PLAT_OPTEE
+	= lwsl_emit_stderr
+#endif
+	;
+#ifndef LWS_PLAT_OPTEE
 static const char * const log_level_names[] = {
 	"ERR",
 	"WARN",
@@ -53,6 +57,7 @@ static const char * const log_level_names[] = {
 	"CLIENT",
 	"LATENCY",
 };
+#endif
 
 void
 lws_free_wsi(struct lws *wsi)
@@ -644,6 +649,7 @@ interface_to_sa(struct lws_vhost *vh, const char *ifname, struct sockaddr_in *ad
 }
 #endif
 
+#ifndef LWS_PLAT_OPTEE
 #if LWS_POSIX
 static int
 lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
@@ -729,6 +735,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 }
 #endif
 
+
 LWS_VISIBLE const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 {
@@ -770,11 +777,13 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 #endif
 #endif
 }
+#endif
 
 LWS_VISIBLE void
 lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		       int name_len, char *rip, int rip_len)
 {
+#ifndef LWS_PLAT_OPTEE
 #if LWS_POSIX
 	socklen_t len;
 #ifdef LWS_USE_IPV6
@@ -810,14 +819,15 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 
 bail:
 	lws_latency(context, wsi, "lws_get_peer_addresses", ret, 1);
-#else
+#endif
+#endif
 	(void)wsi;
 	(void)fd;
 	(void)name;
 	(void)name_len;
 	(void)rip;
 	(void)rip_len;
-#endif
+
 }
 
 LWS_EXTERN void *
@@ -1129,6 +1139,7 @@ lws_ensure_user_space(struct lws *wsi)
 LWS_VISIBLE int
 lwsl_timestamp(int level, char *p, int len)
 {
+#ifndef LWS_PLAT_OPTEE
 	time_t o_now = time(NULL);
 	unsigned long long now;
 	struct tm *ptm = NULL;
@@ -1166,10 +1177,11 @@ lwsl_timestamp(int level, char *p, int len)
 					(int)(now % 10000), log_level_names[n]);
 		return n;
 	}
-
+#endif
 	return 0;
 }
 
+#ifndef LWS_PLAT_OPTEE
 LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 {
 #if !defined(LWS_WITH_ESP8266)
@@ -1179,6 +1191,7 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 	fprintf(stderr, "%s%s", buf, line);
 #endif
 }
+#endif
 
 LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 {
@@ -1511,7 +1524,9 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	struct sockaddr_in6 serv_addr6;
 #endif
 	struct sockaddr_in serv_addr4;
+#ifndef LWS_PLAT_OPTEE
 	socklen_t len = sizeof(struct sockaddr);
+#endif
 	int n;
 	struct sockaddr_in sin;
 	struct sockaddr *v;
@@ -1612,9 +1627,11 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		return -1;
 	}
 
+#ifndef LWS_PLAT_OPTEE
 	if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
 		lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
 	else
+#endif
 		port = ntohs(sin.sin_port);
 #endif
 
