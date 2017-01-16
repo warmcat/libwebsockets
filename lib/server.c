@@ -1141,7 +1141,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct _lws_header_related hdr;
 	struct allocated_headers *ah;
-	int protocol_len, n = 0, hit;
+	int protocol_len, n = 0, hit,non_space_char_found=0;
 	char protocol_list[128];
 	char protocol_name[64];
 	char *p;
@@ -1341,8 +1341,18 @@ upgrade_ws:
 
 		while (*p && !hit) {
 			n = 0;
+			non_space_char_found = 0;
 			while (n < sizeof(protocol_name) - 1 && *p && *p !=',')
+			{
+			    // ignore leading spaces
+			    if( !non_space_char_found && *p == ' ' )
+			    {
+			        n++;
+			        continue;
+			    }
+			    non_space_char_found = 1;
 				protocol_name[n++] = *p++;
+			}
 			protocol_name[n] = '\0';
 			if (*p)
 				p++;
