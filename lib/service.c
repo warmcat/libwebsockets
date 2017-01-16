@@ -695,7 +695,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 		lws_plat_service_periodic(context);
 
 		/* retire unused deprecated context */
-#if LWS_POSIX
+#if LWS_POSIX && !defined(_WIN32)
 		if (context->deprecated && !context->count_wsi_allocated) {
 			lwsl_notice("%s: ending deprecated context\n", __func__);
 			kill(getpid(), SIGINT);
@@ -744,9 +744,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 	if (context->ws_ping_pong_interval &&
 	    context->last_ws_ping_pong_check_s < now + 10) {
+		struct lws_vhost *vh = context->vhost_list;
 		context->last_ws_ping_pong_check_s = now;
 
-		struct lws_vhost *vh = context->vhost_list;
 		while (vh) {
 			for (n = 0; n < vh->count_protocols; n++) {
 				wsi = vh->same_vh_protocol_list[n];

@@ -6,7 +6,9 @@
 unsigned long long
 time_in_microseconds()
 {
+#ifndef DELTA_EPOCH_IN_MICROSECS
 #define DELTA_EPOCH_IN_MICROSECS 11644473600000000ULL
+#endif
 	FILETIME filetime;
 	ULARGE_INTEGER datetime;
 
