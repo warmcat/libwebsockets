@@ -489,6 +489,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 #if !defined(USE_WOLFSSL) && !defined(LWS_USE_POLARSSL) && !defined(LWS_USE_MBEDTLS)
 	BIO *bio;
 #endif
+        char buf[256];
 
 	if (!LWS_SSL_ENABLED(wsi->vhost))
 		return 0;
@@ -703,7 +704,7 @@ go_again:
 
 			break;
 		}
-                char buf[256];
+
                 lwsl_err("SSL_accept failed socket %u: %s\n", wsi->sock,
                          lws_ssl_get_error_string(m, n, buf, sizeof(buf)));
 		lws_ssl_elaborate_error();

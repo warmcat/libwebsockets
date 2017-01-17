@@ -230,10 +230,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	ev = WSAWaitForMultipleEvents( 1,  pt->events , FALSE, timeout_ms, FALSE);
 	if (ev == WSA_WAIT_EVENT_0) {
+		unsigned int eIdx;
 
 		WSAResetEvent(pt->events[0]);
 
-		for(unsigned int eIdx = 0; eIdx < pt->fds_count; ++eIdx) {
+		for (eIdx = 0; eIdx < pt->fds_count; ++eIdx) {
 			if (WSAEnumNetworkEvents(pt->fds[eIdx].fd, 0, &networkevents) == SOCKET_ERROR) {
 				lwsl_err("WSAEnumNetworkEvents() failed with error %d\n", LWS_ERRNO);
 				return -1;

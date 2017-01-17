@@ -10,6 +10,7 @@ var NAVTREE =
       [ "Building on Windows (Visual Studio)", "md_README_8build.html#cmw", null ],
       [ "Building on Windows (MinGW)", "md_README_8build.html#cmwmgw", null ],
       [ "Building on mbed3", "md_README_8build.html#mbed3", null ],
+      [ "Building for OP-TEE", "md_README_8build.html#optee", null ],
       [ "Setting compile options", "md_README_8build.html#cmco", [
         [ "Command line", "md_README_8build.html#cmcocl", null ],
         [ "Unix GUI", "md_README_8build.html#cmcoug", null ],
@@ -137,7 +138,7 @@ var NAVTREEINDEX =
 "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5a4933347a821e73c3f1e13fb6bfc7ad93",
 "group__service.html#ga29c246707997ab7a466aa709aecd2d7b",
 "group__wsclose.html#ggae399c571df32ba532c0ca67da9284985af90cb98d983ad3d4c79df9b6f3d4a4d2",
-"structlws__extension.html#a1e5018c883d85176f5c2152176843f9e"
+"structlws__extension.html"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

@@ -68,7 +68,7 @@ $(document).ready(function(){initNavTree('md_README_8build.html','');});
 Introduction to CMake</h1>
 <p>CMake is a multi-platform build tool that can generate build files for many different target platforms. See more info at <a href="http://www.cmake.org">http://www.cmake.org</a></p>
 <p>CMake also allows/recommends you to do "out of source"-builds, that is, the build files are separated from your sources, so there is no need to create elaborate clean scripts to get a clean source tree, instead you simply remove your build directory.</p>
-<p>Libwebsockets has been tested to build successfully on the following platforms with SSL support (both OpenSSL/wolfSSL):</p>
+<p>Libwebsockets has been tested to build successfully on the following platforms with SSL support (for OpenSSL/wolfSSL/BoringSSL):</p>
 <ul>
 <li>Windows (Visual Studio)</li>
 <li>Windows (MinGW)</li>
@@ -155,6 +155,11 @@ Building on mbed3</h1>
 <p>6) yotta target frdm-k64f-gcc</p>
 <p>7) yotta install</p>
 <p>8) yotta build</p>
+<h1><a class="anchor" id="optee"></a>
+Building for OP-TEE</h1>
+<p>OP-TEE is a "Secure World" Trusted Execution Environment.</p>
+<p>Although lws is only part of the necessary picture to have an https-enabled TA, it does support OP-TEE as a platform and if you provide the other pieces, does work very well.</p>
+<p>Select it in cmake with <code>-DLWS_PLAT_OPTEE=1</code></p>
 <h1><a class="anchor" id="cmco"></a>
 Setting compile options</h1>
 <p>To set compile time flags you can either use one of the CMake gui applications or do it via the command line.</p>
