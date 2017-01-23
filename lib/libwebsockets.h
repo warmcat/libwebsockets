@@ -1576,6 +1576,13 @@ enum lws_context_options {
 	 * even if it happened without a debugger in place.  You can disable
 	 * that by giving this option.
 	 */
+	LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN			= (1 << 19),
+	/**< For backwards-compatibility reasons, by default
+	 * lws prepends "http://" to the origin you give in the client
+	 * connection info struct.  If you give this flag when you create
+	 * the context, only the string you give in the client connect
+	 * info for .origin (if any) will be used directly.
+	 */
 
 	/****** add new things just above ---^ ******/
 };

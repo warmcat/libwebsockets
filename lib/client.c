@@ -1010,9 +1010,14 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	p += sprintf(p, "Host: %s\x0d\x0a",
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
 
-	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN))
-		p += sprintf(p, "Origin: http://%s\x0d\x0a",
-			     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN));
+	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN)) {
+		if (lws_check_opt(context->options, LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN))
+			p += sprintf(p, "Origin: %s\x0d\x0a",
+				     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN));
+		else
+			p += sprintf(p, "Origin: http://%s\x0d\x0a",
+				     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN));
+	}
 
 	if (wsi->do_ws) {
 		p += sprintf(p, "Upgrade: websocket\x0d\x0a"
