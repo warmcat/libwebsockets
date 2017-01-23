@@ -1479,7 +1479,6 @@ struct lws {
 #endif
 #ifdef LWS_OPENSSL_SUPPORT
 	unsigned int use_ssl:3;
-	unsigned int upgraded:1;
 #endif
 #ifdef _WIN32
 	unsigned int sock_send_blocking:1;
