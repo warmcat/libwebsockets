@@ -1046,6 +1046,10 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 	if (!proxy)
 		return -1;
 
+	/* we have to deal with a possible redundant leading http:// */
+	if (!strncmp(proxy, "http://", 7))
+		proxy += 7;
+
 	p = strchr(proxy, '@');
 	if (p) { /* auth is around */
 
