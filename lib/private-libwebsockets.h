@@ -1964,9 +1964,15 @@ lws_realloc(void *ptr, size_t size);
 LWS_EXTERN void * LWS_WARN_UNUSED_RESULT
 lws_zalloc(size_t size);
 
+#ifdef LWS_PLAT_OPTEE
+void *lws_malloc(size_t size);
+void lws_free(void *p);
+#define lws_free_set_NULL(P)    do { lws_free(P); (P) = NULL; } while(0)
+#else
 #define lws_malloc(S)	lws_realloc(NULL, S)
 #define lws_free(P)	lws_realloc(P, 0)
 #define lws_free_set_NULL(P)	do { lws_realloc(P, 0); (P) = NULL; } while(0)
+#endif
 
 /* lws_plat_ */
 LWS_EXTERN void
