@@ -280,8 +280,9 @@ enum lws_log_levels {
 	LLL_EXT = 1 << 7,
 	LLL_CLIENT = 1 << 8,
 	LLL_LATENCY = 1 << 9,
+	LLL_USER = 1 << 10,
 
-	LLL_COUNT = 10 /* set to count of valid flags */
+	LLL_COUNT = 11 /* set to count of valid flags */
 };
 
 LWS_VISIBLE LWS_EXTERN void _lws_log(int filter, const char *format, ...);
@@ -298,15 +299,18 @@ LWS_VISIBLE LWS_EXTERN void _lws_logv(int filter, const char *format, va_list vl
 LWS_VISIBLE LWS_EXTERN int
 lwsl_timestamp(int level, char *p, int len);
 
+/* these guys are unconditionally included */
+
 #define lwsl_err(...) _lws_log(LLL_ERR, __VA_ARGS__)
+#define lwsl_user(...) _lws_log(LLL_USER, __VA_ARGS__)
 
 #if !defined(LWS_WITH_NO_LOGS)
-/* notice, warn and log are always compiled in */
+/* notice and warn are usually included by being compiled in */
 #define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
 #define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
 #endif
 /*
- *  weaker logging can be deselected at configure time using --disable-debug
+ *  weaker logging can be deselected by telling CMake to build in RELEASE mode
  *  that gets rid of the overhead of checking while keeping _warn and _err
  *  active
  */
@@ -318,7 +322,6 @@ lwsl_timestamp(int level, char *p, int len);
 #ifdef _DEBUG
 #if defined(LWS_WITH_NO_LOGS)
 /* notice, warn and log are always compiled in */
-//#define lwsl_err(...) _lws_log(LLL_ERR, __VA_ARGS__)
 #define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
 #define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
 #endif
@@ -339,7 +342,6 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 
 #else /* no debug */
 #if defined(LWS_WITH_NO_LOGS)
-//#define lwsl_err(...) do {} while(0)
 #define lwsl_warn(...) do {} while(0)
 #define lwsl_notice(...) do {} while(0)
 #endif

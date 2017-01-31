@@ -70,7 +70,8 @@ var group__context_and_vhost =
       [ "LWS_SERVER_OPTION_STS", "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5ac962efd35abf6c402f9fb14aa14f5016", null ],
       [ "LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY", "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5af62887536e25e053e68741006dba46d8", null ],
       [ "LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE", "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5aca5d42820b65eac5618ec3f0bd8a1160", null ],
-      [ "LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN", "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5a87a824b2e812f4c3e7f2c4a1ea4f8abd", null ]
+      [ "LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN", "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5a87a824b2e812f4c3e7f2c4a1ea4f8abd", null ],
+      [ "LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN", "group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5aa8d288cee6d03935ea6993546f2f2bcf", null ]
     ] ],
     [ "lws_context_deprecate", "group__context-and-vhost.html#ga1863f0a15ab9da0f07be7bd66230d232", null ],
     [ "lws_context_destroy", "group__context-and-vhost.html#ga8ee0314028755f1ddfa9428e09b4fddb", null ],
