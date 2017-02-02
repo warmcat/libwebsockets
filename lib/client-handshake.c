@@ -113,6 +113,8 @@ lws_client_connect_2(struct lws *wsi)
 	} else
 #endif
 	{
+		int addr_rv;
+		struct hostent *host;
 		struct addrinfo ai, *res, *result = NULL;
 		void *p = NULL;
 		unsigned char *p1;
@@ -122,25 +124,37 @@ lws_client_connect_2(struct lws *wsi)
 		ai.ai_socktype = SOCK_STREAM;
 		ai.ai_flags = AI_CANONNAME;
 
-		if (getaddrinfo(ads, NULL, &ai, &result)) {
+		addr_rv = getaddrinfo(ads, NULL, &ai, &result);
+		if (addr_rv == 0) {
+			res = result;
+			while (!p && res) {
+				switch (res->ai_family) {
+				case AF_INET:
+					p = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
+					break;
+				}
+
+				res = res->ai_next;
+			}
+			freeaddrinfo(result);
+		} else if (addr_rv == EAI_SYSTEM) {
+			lwsl_warn("getaddinfo (ipv4) failed, trying gethostbyname\n");
+			host = gethostbyname(ads);
+			if (host) {
+				p = host->h_addr;
+			} else {
+				lwsl_err("gethostbyname failed\n");
+				cce = "gethostbyname (ipv4) failed";
+				goto oom4;
+			}
+		} else {
 			lwsl_err("getaddrinfo failed\n");
 			cce = "getaddrinfo (ipv4) failed";
 			goto oom4;
 		}
 
-		res = result;
-		while (!p && res) {
-			switch (res->ai_family) {
-			case AF_INET:
-				p = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
-				break;
-			}
-			res = res->ai_next;
-		}
-
 		if (!p) {
 			lwsl_err("Couldn't identify address\n");
-			freeaddrinfo(result);
 			cce = "unable to lookup address";
 			goto oom4;
 		}
@@ -152,7 +166,6 @@ lws_client_connect_2(struct lws *wsi)
 		server_addr4.sin_family = AF_INET;
 		server_addr4.sin_addr = *((struct in_addr *)p);
 		bzero(&server_addr4.sin_zero, 8);
-		freeaddrinfo(result);
 	}
 
 	if (!lws_socket_is_valid(wsi->sock)) {
