@@ -2109,8 +2109,8 @@ struct lws_client_connect_info {
 	/**< deprecated: currently leave at 0 or -1 */
 	void *userdata;
 	/**< if non-NULL, use this as wsi user_data instead of malloc it */
-	const struct lws_extension *client_exts;
-	/**< array of extensions that may be used on connection */
+	const void *client_exts;
+	/**< UNUSED... provide in info.extensions at context creation time */
 	const char *method;
 	/**< if non-NULL, do this http method instead of ws[s] upgrade.
 	 * use "GET" to be a simple http client connection */

@@ -528,6 +528,7 @@ int main(int argc, char **argv)
 	info.gid = -1;
 	info.uid = -1;
 	info.ws_ping_pong_interval = pp_secs;
+	info.extensions = exts;
 
 	if (use_ssl) {
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -583,7 +584,6 @@ int main(int argc, char **argv)
 	i.host = i.address;
 	i.origin = i.address;
 	i.ietf_version_or_minus_one = ietf_version;
-	i.client_exts = exts;
 
 	if (!strcmp(prot, "http") || !strcmp(prot, "https")) {
 		lwsl_notice("using %s mode (non-ws)\n", prot);

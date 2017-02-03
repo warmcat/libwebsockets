@@ -447,6 +447,7 @@ int main(int argc, char **argv)
 		}
 	info.gid = -1;
 	info.uid = -1;
+	info.extensions = exts;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8;
 
 	if (use_ssl)
@@ -493,7 +494,6 @@ int main(int argc, char **argv)
 			i.host = ads_port;
 			i.origin = ads_port;
 			i.protocol = connect_protocol;
-			i.client_exts = exts;
 
 			wsi = lws_client_connect_via_info(&i);
 			if (!wsi) {

@@ -469,7 +469,6 @@ int main(int argc, char **argv)
 	i.host = ads_port;
 	i.origin = ads_port;
 	i.protocol = protocols[PROTOCOL_LWS_MIRROR].name;
-	i.client_exts = exts;
 	i.ietf_version_or_minus_one = ietf_version;
 
 	for (n = 0; n < clients; n++) {

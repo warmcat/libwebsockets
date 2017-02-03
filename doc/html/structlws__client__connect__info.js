@@ -2,7 +2,7 @@ var structlws__client__connect__info =
 [
     [ "_unused", "structlws__client__connect__info.html#ad47f50d1633dc5df74548606c9a66d73", null ],
     [ "address", "structlws__client__connect__info.html#aa364094f94ef1bcaaabbd9161971d502", null ],
-    [ "client_exts", "structlws__client__connect__info.html#a7732b996e977393c3e1076be2a8ded6c", null ],
+    [ "client_exts", "structlws__client__connect__info.html#aaf76f45db5b4354894bae03a4f8f65a5", null ],
     [ "context", "structlws__client__connect__info.html#afe999d133cc240a0bfd02aade0514cfd", null ],
     [ "host", "structlws__client__connect__info.html#a9b36d47c3422329df32c21040a35ebc7", null ],
     [ "ietf_version_or_minus_one", "structlws__client__connect__info.html#a69abb5aeed755750b9755e5c91db6895", null ],

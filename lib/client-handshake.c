@@ -146,7 +146,7 @@ lws_client_connect_2(struct lws *wsi)
 		}
 
 		p1 = p;
-		lwsl_err("getaddrinfo %s -> %d.%d.%d.%d\n", ads,
+		lwsl_debug("getaddrinfo %s -> %d.%d.%d.%d\n", ads,
 			p1[0], p1[1], p1[2], p1[3]);
 
 		server_addr4.sin_family = AF_INET;

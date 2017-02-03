@@ -223,6 +223,7 @@ var libwebsockets_8h =
       [ "LLL_EXT", "group__log.html#gga14542b84d2c76efa7814124bb10f9c5fa6353ac9650d35e8958981eebcb4b67a9", null ],
       [ "LLL_CLIENT", "group__log.html#gga14542b84d2c76efa7814124bb10f9c5fa083a44e71966a0e768426e477e1bc358", null ],
       [ "LLL_LATENCY", "group__log.html#gga14542b84d2c76efa7814124bb10f9c5fae4235ca28326353e283bc7dd1b39bd86", null ],
+      [ "LLL_USER", "group__log.html#gga14542b84d2c76efa7814124bb10f9c5fa78765040ed7e15a1280bd4a3f5323998", null ],
       [ "LLL_COUNT", "group__log.html#gga14542b84d2c76efa7814124bb10f9c5faacc8fe5891eba3cf4537bee50eaaa8fa", null ]
     ] ],
     [ "lws_mount_protocols", "group__vhost-mounts.html#ga31eca18e50cb4357480f2fcad36ff437", [
