@@ -115,7 +115,6 @@ lws_client_connect_2(struct lws *wsi)
 	{
 		struct addrinfo ai, *res, *result = NULL;
 		void *p = NULL;
-		unsigned char *p1;
 
 		memset (&ai, 0, sizeof ai);
 		ai.ai_family = PF_UNSPEC;
@@ -144,10 +143,6 @@ lws_client_connect_2(struct lws *wsi)
 			cce = "unable to lookup address";
 			goto oom4;
 		}
-
-		p1 = p;
-		lwsl_debug("getaddrinfo %s -> %d.%d.%d.%d\n", ads,
-			p1[0], p1[1], p1[2], p1[3]);
 
 		server_addr4.sin_family = AF_INET;
 		server_addr4.sin_addr = *((struct in_addr *)p);
