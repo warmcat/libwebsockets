@@ -3803,7 +3803,7 @@ lws_snprintf(char *str, size_t size, const char *format, ...);
 LWS_VISIBLE LWS_EXTERN int
 lws_get_random(struct lws_context *context, void *buf, int len);
 /**
- * lws_daemonize(): fill a buffer with platform random data
+ * lws_daemonize(): make current process run in the background
  *
  * \param _lock_path: the filepath to write the lock file
  *
