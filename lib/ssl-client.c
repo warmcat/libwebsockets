@@ -269,14 +269,14 @@ some_wait:
 #else
 #if defined(LWS_USE_MBEDTLS)
 #else
-		n = ERR_get_error();
+		unsigned long error = ERR_get_error();
 
-		if (n != SSL_ERROR_NONE) {
+		if (error != SSL_ERROR_NONE) {
 			struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 			char *p = (char *)&pt->serv_buf[0];
 			char *sb = p;
 			lwsl_err("SSL connect error %lu: %s\n",
-				n, ERR_error_string(n, sb));
+				error, ERR_error_string(error, sb));
 			return -1;
 		}
 #endif
@@ -359,10 +359,10 @@ lws_ssl_client_connect2(struct lws *wsi)
 #else
 #if defined(LWS_USE_MBEDTLS)
 #else
-			n = ERR_get_error();
-			if (n != SSL_ERROR_NONE) {
+			unsigned long error = ERR_get_error();
+			if (error != SSL_ERROR_NONE) {
 				lwsl_err("SSL connect error %lu: %s\n",
-					 n, ERR_error_string(n, sb));
+					 error, ERR_error_string(error, sb));
 				return -1;
 			}
 #endif
@@ -421,7 +421,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 #else
 	SSL_METHOD *method;
 	struct lws wsi;
-	int error;
+	unsigned long error;
 	int n;
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))

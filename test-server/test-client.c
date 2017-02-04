@@ -126,7 +126,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 				wsi_multi[n] = NULL;
 			}
 
-		lwsl_err("CLIENT_CONNECTION_ERROR: %s: %s %p\n", which, in);
+		lwsl_err("CLIENT_CONNECTION_ERROR: %s: %s\n", which,
+			 in ? (char *)in : "(null)");
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:

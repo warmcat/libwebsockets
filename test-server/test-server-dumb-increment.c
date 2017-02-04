@@ -79,8 +79,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	 * have a use for this.
 	 */
 	case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
-		lwsl_notice("LWS_CALLBACK_WS_PEER_INITIATED_CLOSE: len %d\n",
-			    len);
+		lwsl_notice("LWS_CALLBACK_WS_PEER_INITIATED_CLOSE: len %lu\n",
+			    (unsigned long)len);
 		for (n = 0; n < (int)len; n++)
 			lwsl_notice(" %d: 0x%02X\n", n,
 				    ((unsigned char *)in)[n]);

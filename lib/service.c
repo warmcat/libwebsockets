@@ -232,7 +232,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 			 * Keep amount spilled small to minimize chance of this
 			 */
 			if (n != eff_buf.token_len) {
-				lwsl_err("Unable to spill ext %d vs %s\n",
+				lwsl_err("Unable to spill ext %d vs %d\n",
 							  eff_buf.token_len, n);
 				return -1;
 			}

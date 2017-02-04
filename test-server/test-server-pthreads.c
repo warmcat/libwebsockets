@@ -229,8 +229,8 @@ int main(int argc, char **argv)
 		case 'j':
 			threads = atoi(optarg);
 			if (threads > ARRAY_SIZE(pthread_service)) {
-				lwsl_err("Max threads %d\n",
-					 ARRAY_SIZE(pthread_service));
+				lwsl_err("Max threads %lu\n",
+					 (unsigned long)ARRAY_SIZE(pthread_service));
 				return 1;
 			}
 			break;
