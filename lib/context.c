@@ -793,8 +793,8 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	lws_context_init_extensions(info, context);
 
-	lwsl_notice(" mem: per-conn:        %5u bytes + protocol rx buf\n",
-		    sizeof(struct lws));
+	lwsl_notice(" mem: per-conn:        %5lu bytes + protocol rx buf\n",
+		    (unsigned long)sizeof(struct lws));
 
 	strcpy(context->canonical_hostname, "unknown");
 	lws_server_get_canonical_hostname(context, info);

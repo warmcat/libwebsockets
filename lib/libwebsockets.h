@@ -186,10 +186,12 @@ struct sockaddr_in;
 
 #define LWS_VISIBLE __attribute__((visibility("default")))
 #define LWS_WARN_DEPRECATED __attribute__ ((deprecated))
+#define LWS_FORMAT(string_index) __attribute__ ((format(printf, string_index, string_index+1)))
 #else
 #define LWS_VISIBLE
 #define LWS_WARN_UNUSED_RESULT
 #define LWS_WARN_DEPRECATED
+#define LWS_FORMAT
 #endif
 
 #if defined(__ANDROID__)
@@ -285,7 +287,7 @@ enum lws_log_levels {
 	LLL_COUNT = 11 /* set to count of valid flags */
 };
 
-LWS_VISIBLE LWS_EXTERN void _lws_log(int filter, const char *format, ...);
+LWS_VISIBLE LWS_EXTERN void _lws_log(int filter, const char *format, ...) LWS_FORMAT(2);
 LWS_VISIBLE LWS_EXTERN void _lws_logv(int filter, const char *format, va_list vl);
 /**
  * lwsl_timestamp: generate logging timestamp string
@@ -481,7 +483,7 @@ void esp8266_tcp_stream_accept(lws_sockfd_type fd, struct lws *wsi);
 #include <osapi.h>
 #include "ets_sys.h"
 
-int ets_snprintf(char *str, size_t size, const char *format, ...);
+int ets_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
 #define snprintf  ets_snprintf
 
 typedef os_timer_t uv_timer_t;
@@ -3787,7 +3789,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
  * reach the limit the reported length doesn't exceed the limit.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_snprintf(char *str, size_t size, const char *format, ...);
+lws_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
 
 /**
  * lws_get_random(): fill a buffer with platform random data

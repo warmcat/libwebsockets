@@ -112,13 +112,13 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		strncpy(dump, (char *)buf, sizeof(dump) - 1);
 		dump[sizeof(dump) - 1] = '\0';
 #if defined(LWS_WITH_ESP8266)
-		lwsl_err("****** %p: Sending new %d (%s), pending truncated ...\n",
-			 wsi, len, dump);
+		lwsl_err("****** %p: Sending new %lu (%s), pending truncated ...\n",
+			 wsi, (unsigned long)len, dump);
 #else
-		lwsl_err("****** %p: Sending new %d (%s), pending truncated ...\n"
+		lwsl_err("****** %p: Sending new %lu (%s), pending truncated ...\n"
 			 "       It's illegal to do an lws_write outside of\n"
 			 "       the writable callback: fix your code",
-			 wsi, len, dump);
+			 wsi, (unsigned long)len, dump);
 #endif
 		assert(0);
 
@@ -198,7 +198,8 @@ handle_truncated_send:
 	 * Newly truncated send.  Buffer the remainder (it will get
 	 * first priority next time the socket is writable)
 	 */
-	lwsl_notice("%p new partial sent %d from %d total\n", wsi, n, real_len);
+	lwsl_notice("%p new partial sent %d from %lu total\n", wsi, n,
+		    (unsigned long)real_len);
 
 	/*
 	 *  - if we still have a suitable malloc lying around, use it
@@ -211,8 +212,8 @@ handle_truncated_send:
 		wsi->trunc_alloc_len = real_len - n;
 		wsi->trunc_alloc = lws_malloc(real_len - n);
 		if (!wsi->trunc_alloc) {
-			lwsl_err("truncated send: unable to malloc %d\n",
-				 real_len - n);
+			lwsl_err("truncated send: unable to malloc %lu\n",
+				 (unsigned long)(real_len - n));
 			return -1;
 		}
 	}
