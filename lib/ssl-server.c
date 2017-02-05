@@ -204,7 +204,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 {
 	struct lws_context *context = vhost->context;
 	struct lws wsi;
-	int error;
+	unsigned long error;
 	int n;
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {

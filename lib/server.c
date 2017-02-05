@@ -430,7 +430,8 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			n = lws_write(wsi, start, p - start,
 				      LWS_WRITE_HTTP_HEADERS);
 			if (n != (p - start)) {
-				lwsl_err("_write returned %d from %d\n", n, p - start);
+				lwsl_err("_write returned %d from %ld\n", n,
+					 (long)(p - start));
 				return -1;
 			}
 
@@ -2039,7 +2040,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	ret = lws_write(wsi, response, p - response, LWS_WRITE_HTTP_HEADERS);
 	if (ret != (p - response)) {
-		lwsl_err("_write returned %d from %d\n", ret, (p - response));
+		lwsl_err("_write returned %d from %ld\n", ret, (long)(p - response));
 		return -1;
 	}
 
@@ -2612,7 +2613,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_spa_process(struct lws_spa *ludspa, const char *in, int len)
 {
 	if (!ludspa) {
-		lwsl_err("%s: NULL spa\n");
+		lwsl_err("%s: NULL spa\n", __func__);
 		return -1;
 	}
 	return lws_urldecode_s_process(ludspa->s, in, len);

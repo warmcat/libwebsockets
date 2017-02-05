@@ -798,7 +798,7 @@ check_extensions:
 				      wsi->act_ext_user[wsi->count_act_ext],
 				      NULL, 0)) {
 				lwsl_err("%s: ext %s rejects server options %s",
-					 ext->name, a);
+					 __func__, ext->name, a);
 				cce = "HS: EXT: Rejects server options";
 				goto bail2;
 			}
