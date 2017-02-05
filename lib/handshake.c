@@ -129,7 +129,7 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 		 * appropriately:
 		 */
 		len -= (buf - last_char);
-		lwsl_debug("%s: thinks we have used %d\n", __func__, len);
+		lwsl_debug("%s: thinks we have used %ld\n", __func__, (long)len);
 
 		if (!wsi->hdr_parsing_completed)
 			/* More header content on the way */
@@ -245,7 +245,7 @@ postbody_completion:
 
 read_ok:
 	/* Nothing more to do for now */
-	lwsl_info("%s: read_ok, used %d\n", __func__, buf - oldbuf);
+	lwsl_info("%s: read_ok, used %ld\n", __func__, buf - oldbuf);
 
 	return buf - oldbuf;
 

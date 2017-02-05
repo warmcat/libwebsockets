@@ -1106,9 +1106,9 @@ lws_get_protocol(struct lws *wsi)
 LWS_VISIBLE int
 lws_is_final_fragment(struct lws *wsi)
 {
-	lwsl_info("%s: final %d, rx pk length %d, draining %d", __func__,
-			wsi->u.ws.final, wsi->u.ws.rx_packet_length,
-			wsi->u.ws.rx_draining_ext);
+	lwsl_info("%s: final %d, rx pk length %ld, draining %ld", __func__,
+			wsi->u.ws.final, (long)wsi->u.ws.rx_packet_length,
+			(long)wsi->u.ws.rx_draining_ext);
 	return wsi->u.ws.final && !wsi->u.ws.rx_packet_length && !wsi->u.ws.rx_draining_ext;
 }
 
@@ -1134,8 +1134,8 @@ lws_ensure_user_space(struct lws *wsi)
 			return 1;
 		}
 	} else
-		lwsl_info("%s: %p protocol pss %u, user_space=%d\n",
-			  __func__, wsi, wsi->protocol->per_session_data_size,
+		lwsl_info("%s: %p protocol pss %lu, user_space=%p\n",
+			  __func__, wsi, (long)wsi->protocol->per_session_data_size,
 			  wsi->user_space);
 	return 0;
 }

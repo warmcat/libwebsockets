@@ -1017,7 +1017,7 @@ lws_http_action(struct lws *wsi)
 		n = lws_cgi(wsi, cmd, hit->mountpoint_len, n,
 			    hit->cgienv);
 		if (n) {
-			lwsl_err("%s: cgi failed\n");
+			lwsl_err("%s: cgi failed\n", __func__);
 			return -1;
 		}
 		p = buffer + LWS_PRE;
@@ -2324,7 +2324,7 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		 */
 		if (!(wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
 			lws_rxflow_cache(wsi, *buf, 0, len);
-			lwsl_parser("%s: cached %d\n", __func__, len);
+			lwsl_parser("%s: cached %ld\n", __func__, (long)len);
 			return 1;
 		}
 

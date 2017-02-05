@@ -212,7 +212,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 
-		lwsl_info("lws_http_serve: %s\n",in);
+		lwsl_info("lws_http_serve: %s\n", (const char *)in);
 
 		if (debug_level & LLL_INFO) {
 			dump_handshake_info(wsi);

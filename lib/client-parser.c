@@ -32,7 +32,7 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 	if (wsi->u.ws.rx_draining_ext) {
 		struct lws **w = &pt->rx_draining_ext_list;
-		lwsl_ext("%s: RX EXT DRAINING: Removing from list\n", __func__, c);
+		lwsl_ext("%s: RX EXT DRAINING: Removing from list\n", __func__);
 		assert(!c);
 		eff_buf.token = NULL;
 		eff_buf.token_len = 0;
