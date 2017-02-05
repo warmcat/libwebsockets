@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=9"/>
 <meta name="generator" content="Doxygen 1.8.12"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>libwebsockets: libev helpers</title>
+<title>libwebsockets: Debugging problems</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -56,40 +56,41 @@ $(function() {
   </div>
 </div>
 <script type="text/javascript">
-$(document).ready(function(){initNavTree('group__ev.html','');});
+$(document).ready(function(){initNavTree('md_README_8problems.html','');});
 </script>
 <div id="doc-content">
 <div class="header">
-  <div class="summary">
-<a href="#typedef-members">Typedefs</a> &#124;
-<a href="#func-members">Functions</a>  </div>
   <div class="headertitle">
-<div class="title">libev helpers</div>  </div>
+<div class="title">Debugging problems </div>  </div>
 </div><!--header-->
 <div class="contents">
-<table class="memberdecls">
-<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="typedef-members"></a>
-Typedefs</h2></td></tr>
-<tr class="memitem:ga3b0ffd4d2b4fa791c0fd75353a330208"><td class="memItemLeft" align="right" valign="top"><a id="ga3b0ffd4d2b4fa791c0fd75353a330208"></a>
-typedef void(&#160;</td><td class="memItemRight" valign="bottom"><b>lws_ev_signal_cb_t</b>) (EV_P_ struct ev_signal *w, int revents)</td></tr>
-<tr class="separator:ga3b0ffd4d2b4fa791c0fd75353a330208"><td class="memSeparator" colspan="2">&#160;</td></tr>
-</table><table class="memberdecls">
-<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="func-members"></a>
-Functions</h2></td></tr>
-<tr class="memitem:ga5caf14a420a2a0bd687a1fc952f8d64e"><td class="memItemLeft" align="right" valign="top"><a id="ga5caf14a420a2a0bd687a1fc952f8d64e"></a>
-LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b>lws_ev_sigint_cfg</b> (struct lws_context *context, int use_ev_sigint, lws_ev_signal_cb_t *cb)</td></tr>
-<tr class="separator:ga5caf14a420a2a0bd687a1fc952f8d64e"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga3fdd23ded693b21853356dc9eaef5ccc"><td class="memItemLeft" align="right" valign="top"><a id="ga3fdd23ded693b21853356dc9eaef5ccc"></a>
-LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b>lws_ev_initloop</b> (struct lws_context *context, struct ev_loop *loop, int tsi)</td></tr>
-<tr class="separator:ga3fdd23ded693b21853356dc9eaef5ccc"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:gaabfc0880d6a98133550c61aa01ef3563"><td class="memItemLeft" align="right" valign="top"><a id="gaabfc0880d6a98133550c61aa01ef3563"></a>
-LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><b>lws_ev_sigint_cb</b> (struct ev_loop *loop, struct ev_signal *watcher, int revents)</td></tr>
-<tr class="separator:gaabfc0880d6a98133550c61aa01ef3563"><td class="memSeparator" colspan="2">&#160;</td></tr>
-</table>
-<a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<h2>libev helpers</h2>
-<p>APIs specific to libev event loop itegration </p>
-</div><!-- contents -->
+<div class="textblock"><h2>Library is a component </h2>
+<p>As a library, lws is always just a component in a bigger application.</p>
+<p>When users have a problem involving lws, what is happening in the bigger application is usually critical to understand what is going on (and where the solution lies).</p>
+<p>Many users are able to share their sources, but others decide not to, for presumed "commercial advantage" or whatever. (In any event, it can be painful looking through large chunks of someone else's sources for problems when that is not the library author's responsibility.)</p>
+<p>This makes answering questions like "what is wrong with my code I am not
+going to show you?" or even "what is wrong with my code?" very difficult.</p>
+<p>Even if it's clear there is a problem somewhere, it cannot be understood or reproduced by anyone else if it needs user code that isn't provided.</p>
+<p>The biggest question is, "is this an lws problem actually"?</p>
+<h2>Use the test apps as sanity checks </h2>
+<p>The test server and client are extremely useful for sanity checks and debugging guidance.</p>
+<ul>
+<li>test apps work on your platform, then either<ul>
+<li>your user code is broken, align it to how the test apps work, or,</li>
+<li>something from your code is required to show an lws problem, provide a minimal patch on a test app so it can be reproduced</li>
+</ul>
+</li>
+<li>test apps break on your platform, but work on, eg, x86_64, either<ul>
+<li>toolchain or platform-specific (eg, OS) issue, or</li>
+<li>lws platform support issue</li>
+</ul>
+</li>
+<li>test apps break everywhere<ul>
+<li>sounds like lws problem, info to reproduce and / or a patch is appreciated </li>
+</ul>
+</li>
+</ul>
+</div></div><!-- contents -->
 </div><!-- doc-content -->
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->

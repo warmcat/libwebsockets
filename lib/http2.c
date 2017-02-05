@@ -176,7 +176,7 @@ int lws_http2_frame_write(struct lws *wsi, int type, int flags,
 	if (type == LWS_HTTP2_FRAME_TYPE_DATA) {
 		if (wsi->u.http2.tx_credit < len)
 			lwsl_err("%s: %p: sending payload len %d"
-				 " but tx_credit only %d!\n", len,
+				 " but tx_credit only %d!\n", __func__, wsi, len,
 				 wsi->u.http2.tx_credit);
 		wsi->u.http2.tx_credit -= len;
 	}

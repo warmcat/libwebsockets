@@ -100,7 +100,7 @@ lws_context_init_http2_ssl(struct lws_vhost *vhost)
 	lwsl_notice(" HTTP2 / ALPN enabled\n");
 #else
 	lwsl_notice(
-		" HTTP2 / ALPN configured but not supported by OpenSSL 0x%x\n",
+		" HTTP2 / ALPN configured but not supported by OpenSSL 0x%lx\n",
 		    OPENSSL_VERSION_NUMBER);
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
 }
