@@ -2413,6 +2413,7 @@ struct lws_urldecode_stateful {
 	int pos;
 	int hdr_idx;
 	int mp;
+	int sum;
 
 	unsigned int multipart_form_data:1;
 	unsigned int inside_quote:1;
@@ -2439,6 +2440,7 @@ lws_urldecode_s_create(struct lws *wsi, char *out, int out_len, void *data,
 	s->out_len  = out_len;
 	s->output = output;
 	s->pos = 0;
+	s->sum = 0;
 	s->mp = 0;
 	s->state = US_NAME;
 	s->name[0] = '\0';
@@ -2476,7 +2478,7 @@ static int
 lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int len)
 {
 	int n, m, hit = 0;
-	char sum = 0, c, was_end = 0;
+	char c, was_end = 0;
 
 	while (len--) {
 		if (s->pos == s->out_len - s->mp - 1) {
@@ -2542,7 +2544,7 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int le
 				return -1;
 
 			in++;
-			sum = n << 4;
+			s->sum = n << 4;
 			s->state++;
 			break;
 
@@ -2552,7 +2554,7 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int le
 				return -1;
 
 			in++;
-			s->out[s->pos++] = sum | n;
+			s->out[s->pos++] = s->sum | n;
 			s->state = US_IDLE;
 			break;
 
