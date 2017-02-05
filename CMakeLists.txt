@@ -113,6 +113,7 @@ option(LWS_PLAT_OPTEE "Build for OPTEE" OFF)
 option(LWS_WITH_NO_LOGS "Disable all logging from being compiled in" OFF)
 option(LWS_STATIC_PIC "Build the static version of the library with position-independent code" OFF)
 option(LWS_WITH_RANGES "Support http ranges (RFC7233)" ON)
+option(LWS_FALLBACK_GETHOSTBYNAME "Also try to do dns resolution using gethostbyname if getaddrinfo fails" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")

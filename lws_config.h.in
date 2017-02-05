@@ -121,5 +121,5 @@
 /* OPTEE */
 #cmakedefine LWS_PLAT_OPTEE
 
-
+#cmakedefine LWS_FALLBACK_GETHOSTBYNAME
 ${LWS_SIZEOFPTR_CODE}
