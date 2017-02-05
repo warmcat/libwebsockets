@@ -570,7 +570,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	lwsl_info(" LWS_MAX_PROTOCOLS     : %u\n", LWS_MAX_PROTOCOLS);
 	lwsl_info(" LWS_MAX_SMP           : %u\n", LWS_MAX_SMP);
 	lwsl_info(" SPEC_LATEST_SUPPORTED : %u\n", SPEC_LATEST_SUPPORTED);
-	lwsl_info(" sizeof (*info)        : %u\n", sizeof(*info));
+	lwsl_info(" sizeof (*info)        : %ld\n", (long)sizeof(*info));
 #if LWS_POSIX
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
 #endif
@@ -706,20 +706,20 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->lws_uv_sigint_cb = &lws_uv_sigint_cb;
 #endif
 
-	lwsl_info(" mem: context:         %5u bytes (%d ctx + (%d thr x %d))\n",
-		  sizeof(struct lws_context) +
+	lwsl_info(" mem: context:         %5lu bytes (%ld ctx + (%ld thr x %d))\n",
+		  (long)sizeof(struct lws_context) +
 		  (context->count_threads * context->pt_serv_buf_size),
-		  sizeof(struct lws_context),
-		  context->count_threads,
+		  (long)sizeof(struct lws_context),
+		  (long)context->count_threads,
 		  context->pt_serv_buf_size);
 
-	lwsl_info(" mem: http hdr rsvd:   %5u bytes (%u thr x (%u + %u) x %u))\n",
-		    (context->max_http_header_data +
+	lwsl_info(" mem: http hdr rsvd:   %5lu bytes (%u thr x (%u + %lu) x %u))\n",
+		    (long)(context->max_http_header_data +
 		     sizeof(struct allocated_headers)) *
 		    context->max_http_header_pool * context->count_threads,
 		    context->count_threads,
 		    context->max_http_header_data,
-		    sizeof(struct allocated_headers),
+		    (long)sizeof(struct allocated_headers),
 		    context->max_http_header_pool);
 	n = sizeof(struct lws_pollfd) * context->count_threads *
 	    context->fd_limit_per_thread;

@@ -258,7 +258,7 @@ reply:
 
 	n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
 	if (n != (p - start)) {
-		lwsl_err("_write returned %d from %d\n", n, (p - start));
+		lwsl_err("_write returned %d from %ld\n", n, (long)(p - start));
 		return -1;
 	}
 	n = lws_write(wsi, (unsigned char *)s, 1, LWS_WRITE_HTTP);

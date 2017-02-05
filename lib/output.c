@@ -171,16 +171,16 @@ handle_truncated_send:
 	 * we were already handling a truncated send?
 	 */
 	if (wsi->trunc_len) {
-		lwsl_info("%p partial adv %d (vs %d)\n", wsi, n, real_len);
+		lwsl_info("%p partial adv %d (vs %ld)\n", wsi, n, (long)real_len);
 		wsi->trunc_offset += n;
 		wsi->trunc_len -= n;
 
 		if (!wsi->trunc_len) {
-			lwsl_info("***** %x partial send completed\n", wsi);
+			lwsl_info("***** %p partial send completed\n", wsi);
 			/* done with it, but don't free it */
 			n = real_len;
 			if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
-				lwsl_info("***** %x signalling to close now\n", wsi);
+				lwsl_info("***** %p signalling to close now\n", wsi);
 				return -1; /* retry closing now */
 			}
 		}

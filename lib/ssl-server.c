@@ -399,7 +399,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		SSL_CTX_clear_options(vhost->ssl_ctx, info->ssl_options_clear);
 #endif
 
-	lwsl_info(" SSL options 0x%X\n",
+	lwsl_info(" SSL options 0x%lX\n",
 		    SSL_CTX_get_options(vhost->ssl_ctx));
 
 	if (vhost->use_ssl) {

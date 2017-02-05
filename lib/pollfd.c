@@ -224,7 +224,6 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 		//lwsl_err("null wsi->prev\n");
 	/* our next should point back to our prev */
 	if (wsi->same_vh_protocol_next) {
-		lwsl_info("have next %p\n");
 		wsi->same_vh_protocol_next->same_vh_protocol_prev =
 				wsi->same_vh_protocol_prev;
 	} //else

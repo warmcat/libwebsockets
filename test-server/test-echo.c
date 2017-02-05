@@ -107,8 +107,8 @@ do_tx:
 do_rx:
 		pss->final = lws_is_final_fragment(wsi);
 		pss->binary = lws_frame_is_binary(wsi);
-		lwsl_info("+++ test-echo: RX len %d final %d, pss->len=%d\n",
-			  len, pss->final, (int)pss->len);
+		lwsl_info("+++ test-echo: RX len %ld final %ld, pss->len=%ld\n",
+			  (long)len, (long)pss->final, (long)pss->len);
 
 		memcpy(&pss->buf[LWS_PRE], in, len);
 		assert((int)pss->len == -1);

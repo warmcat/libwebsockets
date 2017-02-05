@@ -37,7 +37,7 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 			 * we were accepting input but now we stopped doing so
 			 */
 			if (!(wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
-				lwsl_debug("%s: caching %d\n", __func__, len);
+				lwsl_debug("%s: caching %ld\n", __func__, (long)len);
 				lws_rxflow_cache(wsi, *buf, 0, len);
 				return 0;
 			}
@@ -57,7 +57,7 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 			}
 			len--;
 		}
-		lwsl_debug("%s: finished with %d\n", __func__, len);
+		lwsl_debug("%s: finished with %ld\n", __func__, (long)len);
 		return 0;
 	default:
 		break;

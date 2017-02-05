@@ -414,7 +414,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP:
-		lwsl_info("LWS_CALLBACK_HTTP: %s\n", in);
+		lwsl_info("LWS_CALLBACK_HTTP: %s\n", (const char *)in);
 
 		pss->login_session.id[0] = '\0';
 		pss->phs.pos = 0;
@@ -446,7 +446,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* if no legitimate url for GET, return 404 */
 
-		lwsl_err("http doing 404 on %s\n", in);
+		lwsl_err("http doing 404 on %s\n", (const char *)in);
 		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
 		goto try_to_reuse;
 
