@@ -73,7 +73,7 @@ uv_timeout_cb_server_status(uv_timer_t *w
 	char *p = v->d.buf + LWS_PRE, contents[256], pure[256];
 	int n, l, first = 1, fd;
 
-	l = sizeof(v->d.buf) - LWS_PRE;
+	l = sizeof(v->d.buf) - LWS_PRE - 1;
 
 	n = lws_snprintf(p, l, "{\"i\":");
 	p += n;
