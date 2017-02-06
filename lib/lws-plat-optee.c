@@ -310,8 +310,8 @@ lws_plat_init(struct lws_context *context,
 		return 1;
 	}
 
-	lwsl_notice(" mem: platform fd map: %5u bytes\n",
-		    sizeof(struct lws *) * context->max_fds);
+	lwsl_notice(" mem: platform fd map: %5lu bytes\n",
+		    (long)sizeof(struct lws *) * context->max_fds);
 
 	context->fops.open	= _lws_plat_file_open;
 	context->fops.close	= _lws_plat_file_close;
