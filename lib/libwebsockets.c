@@ -56,6 +56,9 @@ static const char * const log_level_names[] = {
 	"EXTENSION",
 	"CLIENT",
 	"LATENCY",
+	"USER",
+	"?",
+	"?"
 };
 #endif
 
