@@ -2722,7 +2722,7 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 	const struct lws_vhost *vh = context->vhost_list;
 	const struct lws_context_per_thread *pt;
 	time_t t = time(NULL);
-	int n, cc = 0, listening = 0, cgi_count = 0;
+	int n, listening = 0, cgi_count = 0;
 	struct lws_conn_stats cs;
 	double d = 0;
 #ifdef LWS_WITH_CGI
@@ -2754,9 +2754,6 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 #endif
 
 	buf += lws_snprintf(buf, end - buf, "\"contexts\":[\n");
-
-	if (cc++)
-		buf += lws_snprintf(buf, end - buf, ",");
 
 	buf += lws_snprintf(buf, end - buf, "{ "
 				"\"context_uptime\":\"%ld\",\n"
