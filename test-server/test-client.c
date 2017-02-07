@@ -131,13 +131,13 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:
-		if ((strcmp(in, "deflate-stream") == 0) && deny_deflate) {
+		if ((strcmp((const char *)in, "deflate-stream") == 0) && deny_deflate) {
 			lwsl_notice("denied deflate-stream extension\n");
 			return 1;
 		}
-		if ((strcmp(in, "x-webkit-deflate-frame") == 0))
+		if ((strcmp((const char *)in, "x-webkit-deflate-frame") == 0))
 			return 1;
-		if ((strcmp(in, "deflate-frame") == 0))
+		if ((strcmp((const char *)in, "deflate-frame") == 0))
 			return 1;
 		break;
 
