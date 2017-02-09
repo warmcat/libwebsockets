@@ -522,6 +522,7 @@ var libwebsockets_8h =
     [ "lwsl_emit_syslog", "group__log.html#gab7c0fc936cc9f1eb58e2bb234c15147c", null ],
     [ "lwsl_hexdump", "group__log.html#ga898b1f03872ad019f507d4e35bbefa90", null ],
     [ "lwsl_timestamp", "group__log.html#ga42e39775c6b69b7251bdbf5a2cdd5dcd", null ],
+    [ "lwsl_visible", "group__log.html#ga2d1819ad1645062fd83817e6f20e03b4", null ],
     [ "lwsws_get_config_globals", "group__context-and-vhost.html#ga98d88c9080fd89c37114363a6474ea73", null ],
     [ "lwsws_get_config_vhosts", "group__context-and-vhost.html#ga341064721add2618ae1b29717493a212", null ],
     [ "mbed3_create_tcp_stream_socket", "libwebsockets_8h.html#a0b056fdcf949a838ff82209b4a627dd9", null ],

@@ -75,6 +75,17 @@ enum demo_protocols {
 	DEMO_PROTOCOL_COUNT
 };
 
+static void show_http_content(const char *p, size_t l)
+{
+	if (lwsl_visible(LLL_INFO)) {
+		while (l--)
+			if (*p < 0x7f)
+				putchar(*p++);
+			else
+				putchar('.');
+	}
+}
+
 
 /*
  * dumb_increment protocol
@@ -146,13 +157,19 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_http_client_http_response(wsi));
 		break;
 
+	/* chunked content */
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		lwsl_notice("LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: %ld\n",
+			    (long)len);
+		show_http_content(in, len);
+		break;
+
+	/* unchunked content */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		{
 			char buffer[1024 + LWS_PRE];
 			char *px = buffer + LWS_PRE;
 			int lenx = sizeof(buffer) - LWS_PRE;
-
-			lwsl_notice("LWS_CALLBACK_RECEIVE_CLIENT_HTTP\n");
 
 			/*
 			 * Often you need to flow control this by something
@@ -160,11 +177,21 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			 * to get a callback when writable here, and do the
 			 * pending client read in the writeable callback of
 			 * the output.
+			 *
+			 * In the case of chunked content, this will call back
+			 * LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ once per
+			 * chunk or partial chunk in the buffer, and report
+			 * zero length back here.
 			 */
 			if (lws_http_client_read(wsi, &px, &lenx) < 0)
 				return -1;
-			while (lenx--)
-				putchar(*px++);
+
+			if (lenx) {
+				lwsl_info("LWS_CALLBACK_RECEIVE_CLIENT_HTTP %ld\n",
+					  (long)lenx);
+
+				show_http_content(px, lenx);
+			}
 		}
 		break;
 

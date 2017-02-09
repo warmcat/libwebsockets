@@ -2256,6 +2256,26 @@ LWS_VISIBLE LWS_EXTERN int
 lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 			  struct lws_vhost *vhost);
 
+/**
+ * lws_http_client_read() - consume waiting received http client data
+ *
+ * \param wsi: client connection
+ * \param buf: pointer to buffer pointer - fill with pointer to your buffer
+ * \param len: pointer to chunk length - fill with max length of buffer
+ *
+ * This is called when the user code is notified client http data has arrived.
+ * The user code may choose to delay calling it to consume the data, for example
+ * waiting until an onward connection is writeable.
+ *
+ * For non-chunked connections, up to len bytes of buf are filled with the
+ * received content.  len is set to the actual amount filled before return.
+ *
+ * For chunked connections, the linear buffer content contains the chunking
+ * headers and it cannot be passed in one lump.  Instead, this function will
+ * call back LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ with in pointing to the
+ * chunk start and len set to the chunk length.  There will be as many calls
+ * as there are chunks or partial chunks in the buffer.
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_http_client_read(struct lws *wsi, char **buf, int *len);
 

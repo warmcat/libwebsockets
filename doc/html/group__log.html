@@ -105,6 +105,8 @@ LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><
 <tr class="separator:ga244647f9e1bf0097ccdde66d74f41e26"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gab7c0fc936cc9f1eb58e2bb234c15147c"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__log.html#gab7c0fc936cc9f1eb58e2bb234c15147c">lwsl_emit_syslog</a> (int level, const char *line)</td></tr>
 <tr class="separator:gab7c0fc936cc9f1eb58e2bb234c15147c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga2d1819ad1645062fd83817e6f20e03b4"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__log.html#ga2d1819ad1645062fd83817e6f20e03b4">lwsl_visible</a> (int level)</td></tr>
+<tr class="separator:ga2d1819ad1645062fd83817e6f20e03b4"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2>Logging</h2>
@@ -269,6 +271,34 @@ LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><
   </dd>
 </dl>
 <p>returns length written in p </p>
+
+</div>
+</div>
+<a id="ga2d1819ad1645062fd83817e6f20e03b4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga2d1819ad1645062fd83817e6f20e03b4">&sect;&nbsp;</a></span>lwsl_visible()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">LWS_VISIBLE LWS_EXTERN int lwsl_visible </td>
+          <td>(</td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>level</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
+<p><a class="el" href="group__log.html#ga2d1819ad1645062fd83817e6f20e03b4">lwsl_visible()</a> - returns true if the log level should be printed</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">level</td><td>one of LLL_ log level indexes</td></tr>
+  </table>
+  </dd>
+</dl>
+<p>This is useful if you have to do work to generate the log content, you can skip the work if the log level used to print it is not actually enabled at runtime. </p>
 
 </div>
 </div>

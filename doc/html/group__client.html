@@ -93,8 +93,7 @@ Functions</h2></td></tr>
 <tr class="separator:gac6a8558b4410961a880241c2ac1271e2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga4f44b8230e6732816ca5cd8d1aaaf340"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__client.html#ga4f44b8230e6732816ca5cd8d1aaaf340">lws_init_vhost_client_ssl</a> (const struct <a class="el" href="structlws__context__creation__info.html">lws_context_creation_info</a> *info, struct lws_vhost *vhost)</td></tr>
 <tr class="separator:ga4f44b8230e6732816ca5cd8d1aaaf340"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga4450c34200bf9dab3beb90ef23221870"><td class="memItemLeft" align="right" valign="top"><a id="ga4450c34200bf9dab3beb90ef23221870"></a>
-LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b>lws_http_client_read</b> (struct lws *wsi, char **buf, int *len)</td></tr>
+<tr class="memitem:ga4450c34200bf9dab3beb90ef23221870"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__client.html#ga4450c34200bf9dab3beb90ef23221870">lws_http_client_read</a> (struct lws *wsi, char **buf, int *len)</td></tr>
 <tr class="separator:ga4450c34200bf9dab3beb90ef23221870"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga715efffc0c4e8fbf72a4293008eb2187"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN unsigned int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__client.html#ga715efffc0c4e8fbf72a4293008eb2187">lws_http_client_http_response</a> (struct lws *wsi)</td></tr>
 <tr class="separator:ga715efffc0c4e8fbf72a4293008eb2187"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -119,7 +118,7 @@ LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><
 
 <p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
 <p>enum lws_client_connect_ssl_connection_flags - flags that may be used with struct <a class="el" href="structlws__client__connect__info.html">lws_client_connect_info</a> ssl_connection member to control if and how SSL checks apply to the client connection being created </p>
-<div class="fragment"><div class="line"><a name="l02084"></a><span class="lineno"> 2084</span>&#160;                                             {</div><div class="line"><a name="l02085"></a><span class="lineno"> 2085</span>&#160;        LCCSCF_USE_SSL                          = (1 &lt;&lt; 0),</div><div class="line"><a name="l02086"></a><span class="lineno"> 2086</span>&#160;        LCCSCF_ALLOW_SELFSIGNED                 = (1 &lt;&lt; 1),</div><div class="line"><a name="l02087"></a><span class="lineno"> 2087</span>&#160;        LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK  = (1 &lt;&lt; 2),</div><div class="line"><a name="l02088"></a><span class="lineno"> 2088</span>&#160;        LCCSCF_ALLOW_EXPIRED                    = (1 &lt;&lt; 3)</div><div class="line"><a name="l02089"></a><span class="lineno"> 2089</span>&#160;};</div></div><!-- fragment -->
+<div class="fragment"><div class="line"><a name="l02096"></a><span class="lineno"> 2096</span>&#160;                                             {</div><div class="line"><a name="l02097"></a><span class="lineno"> 2097</span>&#160;        LCCSCF_USE_SSL                          = (1 &lt;&lt; 0),</div><div class="line"><a name="l02098"></a><span class="lineno"> 2098</span>&#160;        LCCSCF_ALLOW_SELFSIGNED                 = (1 &lt;&lt; 1),</div><div class="line"><a name="l02099"></a><span class="lineno"> 2099</span>&#160;        LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK  = (1 &lt;&lt; 2),</div><div class="line"><a name="l02100"></a><span class="lineno"> 2100</span>&#160;        LCCSCF_ALLOW_EXPIRED                    = (1 &lt;&lt; 3)</div><div class="line"><a name="l02101"></a><span class="lineno"> 2101</span>&#160;};</div></div><!-- fragment -->
 </div>
 </div>
 <h2 class="groupheader">Function Documentation</h2>
@@ -357,6 +356,54 @@ LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><
   </dd>
 </dl>
 <p>Returns the last server response code, eg, 200 for client http connections. </p>
+
+</div>
+</div>
+<a id="ga4450c34200bf9dab3beb90ef23221870"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga4450c34200bf9dab3beb90ef23221870">&sect;&nbsp;</a></span>lws_http_client_read()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">LWS_VISIBLE LWS_EXTERN int lws_http_client_read </td>
+          <td>(</td>
+          <td class="paramtype">struct lws *&#160;</td>
+          <td class="paramname"><em>wsi</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">char **&#160;</td>
+          <td class="paramname"><em>buf</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int *&#160;</td>
+          <td class="paramname"><em>len</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p><code>#include &lt;<a class="el" href="libwebsockets_8h.html">lib/libwebsockets.h</a>&gt;</code></p>
+<p><a class="el" href="group__client.html#ga4450c34200bf9dab3beb90ef23221870">lws_http_client_read()</a> - consume waiting received http client data</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">wsi</td><td>client connection </td></tr>
+    <tr><td class="paramname">buf</td><td>pointer to buffer pointer - fill with pointer to your buffer </td></tr>
+    <tr><td class="paramname">len</td><td>pointer to chunk length - fill with max length of buffer</td></tr>
+  </table>
+  </dd>
+</dl>
+<p>This is called when the user code is notified client http data has arrived. The user code may choose to delay calling it to consume the data, for example waiting until an onward connection is writeable.</p>
+<p>For non-chunked connections, up to len bytes of buf are filled with the received content. len is set to the actual amount filled before return.</p>
+<p>For chunked connections, the linear buffer content contains the chunking headers and it cannot be passed in one lump. Instead, this function will call back LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ with in pointing to the chunk start and len set to the chunk length. There will be as many calls as there are chunks or partial chunks in the buffer. </p>
 
 </div>
 </div>
