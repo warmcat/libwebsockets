@@ -1244,6 +1244,11 @@ LWS_VISIBLE void lws_set_log_level(int level,
 		lwsl_emit = func;
 }
 
+LWS_VISIBLE int lwsl_visible(int level)
+{
+	return log_level & level;
+}
+
 LWS_VISIBLE int
 lws_is_ssl(struct lws *wsi)
 {

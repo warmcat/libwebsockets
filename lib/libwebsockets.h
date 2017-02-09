@@ -385,6 +385,18 @@ lws_set_log_level(int level,
 LWS_VISIBLE LWS_EXTERN void
 lwsl_emit_syslog(int level, const char *line);
 
+/**
+ * lwsl_visible() - returns true if the log level should be printed
+ *
+ * \param level: one of LLL_ log level indexes
+ *
+ * This is useful if you have to do work to generate the log content, you
+ * can skip the work if the log level used to print it is not actually
+ * enabled at runtime.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lwsl_visible(int level);
+
 ///@}
 
 
