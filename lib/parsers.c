@@ -60,6 +60,16 @@ lextable_decode(int pos, char c)
 	}
 }
 
+void
+_lws_header_table_reset(struct allocated_headers *ah)
+{
+	/* init the ah to reflect no headers or data have appeared yet */
+	memset(ah->frag_index, 0, sizeof(ah->frag_index));
+	ah->nfrag = 0;
+	ah->pos = 0;
+	ah->http_response = 0;
+}
+
 // doesn't scrub the ah rxbuffer by default, parent must do if needed
 
 void
@@ -74,11 +84,7 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 	/* ah also concurs with ownership */
 	assert(ah->wsi == wsi);
 
-	/* init the ah to reflect no headers or data have appeared yet */
-	memset(ah->frag_index, 0, sizeof(ah->frag_index));
-	ah->nfrag = 0;
-	ah->pos = 0;
-	ah->http_response = 0;
+	_lws_header_table_reset(ah);
 
 	/* since we will restart the ah, our new headers are not completed */
 	// wsi->hdr_parsing_completed = 0;

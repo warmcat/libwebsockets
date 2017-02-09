@@ -63,7 +63,7 @@ lws_client_connect_2(struct lws *wsi)
 	/*
 	 * prepare the actual connection (to the proxy, if any)
 	 */
-       lwsl_client("%s: address %s\n", __func__, ads);
+       lwsl_notice("%s: address %s\n", __func__, ads);
 
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(wsi->vhost)) {
@@ -374,6 +374,7 @@ failed1:
 LWS_VISIBLE struct lws *
 lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const char *path, const char *host)
 {
+	char origin[300] = "", protocol[300] = "", method[32] = "", *p;
 	if (wsi->u.hdr.redirects == 3) {
 		lwsl_err("%s: Too many redirects\n", __func__);
 		return NULL;
@@ -389,7 +390,32 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const 
 	}
 #endif
 
-	lwsl_notice("redirect ads='%s', port=%d, path='%s'\n", address, port, path);
+	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
+	if (p)
+		strncpy(origin, p, sizeof(origin) - 1);
+
+	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
+	if (p)
+		strncpy(protocol, p, sizeof(protocol) - 1);
+
+	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+	if (p)
+		strncpy(method, p, sizeof(method) - 1);
+
+	lwsl_notice("redirect ads='%s', port=%d, path='%s', ssl = %d\n", address, port, path, ssl);
+
+	/* close the connection by hand */
+
+	compatible_close(wsi->sock);
+	remove_wsi_socket_from_fds(wsi);
+
+	wsi->sock = LWS_SOCK_INVALID;
+	wsi->state = LWSS_CLIENT_UNCONNECTED;
+	wsi->protocol = NULL;
+	wsi->pending_timeout = NO_PENDING_TIMEOUT;
+	wsi->u.hdr.c_port = port;
+	wsi->hdr_parsing_completed = 0;
+	_lws_header_table_reset(wsi->u.hdr.ah);
 
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
 		return NULL;
@@ -400,13 +426,18 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const 
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, host))
 		return NULL;
 
-	compatible_close(wsi->sock);
-	remove_wsi_socket_from_fds(wsi);
-	wsi->sock = LWS_SOCK_INVALID;
-	wsi->state = LWSS_CLIENT_UNCONNECTED;
-	wsi->protocol = NULL;
-	wsi->pending_timeout = NO_PENDING_TIMEOUT;
-	wsi->u.hdr.c_port = port;
+	if (origin[0])
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ORIGIN,
+					  origin))
+			return NULL;
+	if (protocol[0])
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+					  protocol))
+			return NULL;
+	if (method[0])
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_METHOD,
+					  method))
+			return NULL;
 
 	return lws_client_connect_2(wsi);
 }

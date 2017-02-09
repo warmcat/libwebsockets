@@ -558,9 +558,11 @@ int main(int argc, char **argv)
 	info.ws_ping_pong_interval = pp_secs;
 	info.extensions = exts;
 
-	if (use_ssl) {
-		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+#if defined(LWS_OPENSSL_SUPPORT)
+	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+#endif
 
+	if (use_ssl) {
 		/*
 		 * If the server wants us to present a valid SSL client certificate
 		 * then we can set it up here.
