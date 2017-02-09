@@ -39,15 +39,17 @@ build_script:
   - cmake --build . --config Release
 
 # TODO: Keeps breaking Windows build, should be rewritten using CPack properly instead...
-#after_build:
+after_build:
+   - 7z a lws.zip %APPVEYOR_BUILD_FOLDER%\build\lib\Release\websockets.lib %APPVEYOR_BUILD_FOLDER%\build\lib\Release\websockets.exp %APPVEYOR_BUILD_FOLDER%\build\bin\Release\websockets.dll %APPVEYOR_BUILD_FOLDER%\lib\libwebsockets.h  %APPVEYOR_BUILD_FOLDER%\build\lws_config.h  %APPVEYOR_BUILD_FOLDER%\build\bin\Release\*.exe
 #  - cd ..
 #  - cd win32port
 #  - makensis -DVERSION=%APPVEYOR_BUILD_VERSION% libwebsockets.nsi
 
 
 artifacts:
-  - name: Installer
-    path: 'win32port/libwebsockets-*-install.exe'
+  - path: lws.zip
+    name: lws.zip
+    type: Zip
 
 cache:
   - C:\OpenSSL-Win32
