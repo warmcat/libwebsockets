@@ -372,9 +372,11 @@ failed1:
  * host:	host header to send to the new server
  */
 LWS_VISIBLE struct lws *
-lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const char *path, const char *host)
+lws_client_reset(struct lws *wsi, int ssl, const char *address, int port,
+		 const char *path, const char *host)
 {
 	char origin[300] = "", protocol[300] = "", method[32] = "", *p;
+
 	if (wsi->u.hdr.redirects == 3) {
 		lwsl_err("%s: Too many redirects\n", __func__);
 		return NULL;
@@ -402,7 +404,8 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const 
 	if (p)
 		strncpy(method, p, sizeof(method) - 1);
 
-	lwsl_notice("redirect ads='%s', port=%d, path='%s', ssl = %d\n", address, port, path, ssl);
+	lwsl_debug("redirect ads='%s', port=%d, path='%s', ssl = %d\n",
+		   address, port, path, ssl);
 
 	/* close the connection by hand */
 
@@ -420,9 +423,6 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const 
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
 		return NULL;
 
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, path))
-		return NULL;
-
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, host))
 		return NULL;
 
@@ -438,6 +438,11 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port, const 
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_METHOD,
 					  method))
 			return NULL;
+
+	origin[0] = '/';
+	strncpy(&origin[1], path, sizeof(origin) - 2);
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, origin))
+		return NULL;
 
 	return lws_client_connect_2(wsi);
 }

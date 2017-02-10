@@ -483,8 +483,6 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (!strcmp(prot, "wss") || !strcmp(prot, "https"))
 			ssl = 1;
 
-		lwsl_notice("ssl %d %s\n", ssl, prot);
-
 		if (!lws_client_reset(wsi, ssl, ads, port, path, ads)) {
 			lwsl_err("Redirect failed\n");
 			cce = "HS: Redirect failed";
