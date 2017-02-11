@@ -301,11 +301,12 @@ static const struct lws_protocols protocols_dummy[] = {
 		lws_callback_http_dummy,		/* callback */
 		0,	/* per_session_data_size */
 		0,			/* max frame size / rx buffer */
+		0, NULL
 	},
 	/*
 	 * the other protocols are provided by lws plugins
 	 */
-	{ NULL, NULL, 0, 0 } /* terminator */
+	{ NULL, NULL, 0, 0, 0, NULL} /* terminator */
 };
 
 #ifdef LWS_PLAT_OPTEE

@@ -344,7 +344,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	char path[256], sym[512];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
-#if !defined(WIN32) && LWS_POSIX
+#if !defined(WIN32) && LWS_POSIX && !defined(LWS_WITH_ESP32)
 	size_t len;
 #endif
 	int n;
@@ -361,7 +361,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		}
 
 		lwsl_debug(" %s mode %d\n", path, S_IFMT & st.st_mode);
-#if !defined(WIN32) && LWS_POSIX
+#if !defined(WIN32) && LWS_POSIX && !defined(LWS_WITH_ESP32)
 		if ((S_IFMT & st.st_mode) == S_IFLNK) {
 			len = readlink(path, sym, sizeof(sym) - 1);
 			if (len) {
@@ -2382,7 +2382,7 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 {
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME))
 		return;
-#if LWS_POSIX
+#if LWS_POSIX && !defined(LWS_WITH_ESP32)
 	/* find canonical hostname */
 	gethostname((char *)context->canonical_hostname,
 		    sizeof(context->canonical_hostname) - 1);

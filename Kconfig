@@ -1,0 +1,9 @@
+menu "OpenSSL"
+
+config LWS
+    bool "Enable Libwebsockets"
+    default n
+    help
+       Enable Libwebsockets Library
+
+endmenu

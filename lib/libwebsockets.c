@@ -428,7 +428,7 @@ just_kill_connection:
 	    wsi->state != LWSS_CLIENT_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !wsi->socket_is_permanently_unusable) {
-		lwsl_info("%s: shutting down connection: %p (sock %d, state %d)\n", __func__, wsi, wsi->sock, wsi->state);
+		lwsl_info("%s: shutting down connection: %p (sock %d, state %d)\n", __func__, wsi, (int)(long)wsi->sock, wsi->state);
 		n = shutdown(wsi->sock, SHUT_WR);
 		if (n)
 			lwsl_debug("closing: shutdown (state %d) ret %d\n", wsi->state, LWS_ERRNO);
@@ -638,7 +638,7 @@ lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
 	return NULL;
 }
 
-#if LWS_POSIX
+#if LWS_POSIX && !defined(LWS_WITH_ESP32)
 LWS_VISIBLE int
 interface_to_sa(struct lws_vhost *vh, const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
@@ -692,12 +692,12 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 		ai.ai_family = PF_UNSPEC;
 		ai.ai_socktype = SOCK_STREAM;
 		ai.ai_flags = AI_CANONNAME;
-
+#if !defined(LWS_WITH_ESP32)
 		if (getnameinfo((struct sockaddr *)ads,
 				sizeof(struct sockaddr_in),
 				name, name_len, NULL, 0, 0))
 			return -1;
-
+#endif
 		if (!rip)
 			return 0;
 
@@ -1568,7 +1568,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 
 	} else
 #endif
-#ifdef LWS_USE_IPV6
+#if defined(LWS_USE_IPV6) && !defined(LWS_WITH_ESP32)
 	if (LWS_IPV6_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
@@ -1622,6 +1622,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		bzero((char *) &serv_addr4, sizeof(serv_addr4));
 		serv_addr4.sin_addr.s_addr = INADDR_ANY;
 		serv_addr4.sin_family = AF_INET;
+#if !defined(LWS_WITH_ESP32)
 
 		if (iface &&
 		    interface_to_sa(vhost, iface,
@@ -1629,7 +1630,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 			lwsl_err("Unable to find interface %s\n", iface);
 			return -1;
 		}
-
+#endif
 		serv_addr4.sin_port = htons(port);
 	} /* ipv4 */
 
