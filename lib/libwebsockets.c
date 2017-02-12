@@ -221,6 +221,13 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	}
 #endif
 
+	if (wsi->mode == LWSCM_RAW) {
+		wsi->vhost->protocols->callback(wsi,
+			LWS_CALLBACK_RAW_CLOSE, wsi->user_space, NULL, 0);
+		wsi->socket_is_permanently_unusable = 1;
+		goto just_kill_connection;
+	}
+
 	if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED &&
 	    wsi->u.http.fd != LWS_INVALID_FILE) {
 		lws_plat_file_close(wsi, wsi->u.http.fd);
@@ -424,7 +431,7 @@ just_kill_connection:
 	 * for the POLLIN to show a zero-size rx before coming back and doing
 	 * the actual close.
 	 */
-	if (wsi->state != LWSS_SHUTDOWN &&
+	if (wsi->mode != LWSCM_RAW && wsi->state != LWSS_SHUTDOWN &&
 	    wsi->state != LWSS_CLIENT_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !wsi->socket_is_permanently_unusable) {
@@ -530,7 +537,7 @@ just_kill_connection:
 
 	/* tell the user it's all over for this guy */
 
-	if (wsi->protocol && wsi->protocol->callback &&
+	if (wsi->mode != LWSCM_RAW && wsi->protocol && wsi->protocol->callback &&
 	    ((wsi->state_pre_close == LWSS_ESTABLISHED) ||
 	    (wsi->state_pre_close == LWSS_RETURNED_CLOSE_ALREADY) ||
 	    (wsi->state_pre_close == LWSS_AWAITING_CLOSE_ACK) ||

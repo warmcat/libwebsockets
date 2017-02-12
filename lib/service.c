@@ -27,6 +27,9 @@ lws_calllback_as_writeable(struct lws *wsi)
 	int n;
 
 	switch (wsi->mode) {
+	case LWSCM_RAW:
+		n = LWS_CALLBACK_RAW_WRITEABLE;
+		break;
 	case LWSCM_WS_CLIENT:
 		n = LWS_CALLBACK_CLIENT_WRITEABLE;
 		break;
@@ -195,6 +198,8 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 */
 
 	ret = 1;
+	if (wsi->mode == LWSCM_RAW)
+		ret = 0;
 	while (ret == 1) {
 
 		/* default to nobody has more to spill */
@@ -841,6 +846,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	case LWSCM_HTTP_SERVING_ACCEPTED:
 	case LWSCM_SERVER_LISTENER:
 	case LWSCM_SSL_ACK_PENDING:
+	case LWSCM_SSL_ACK_PENDING_RAW:
 		if (wsi->state == LWSS_CLIENT_HTTP_ESTABLISHED)
 			goto handled;
 
@@ -861,15 +867,17 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	case LWSCM_WS_CLIENT:
 	case LWSCM_HTTP2_SERVING:
 	case LWSCM_HTTP_CLIENT_ACCEPTED:
+	case LWSCM_RAW:
 
 		/* 1: something requested a callback when it was OK to write */
 
 		if ((pollfd->revents & LWS_POLLOUT) &&
+		    ((wsi->mode == LWSCM_RAW) ||
 		    (wsi->state == LWSS_ESTABLISHED ||
 		     wsi->state == LWSS_HTTP2_ESTABLISHED ||
 		     wsi->state == LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS ||
 		     wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
-		     wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) &&
+		     wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE)) &&
 		    lws_handle_POLLOUT_event(wsi, pollfd)) {
 			if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY)
 				wsi->state = LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE;

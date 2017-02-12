@@ -496,7 +496,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	switch (wsi->mode) {
 	case LWSCM_SSL_INIT:
-
+	case LWSCM_SSL_INIT_RAW:
 		if (wsi->ssl)
 			lwsl_err("%s: leaking ssl\n", __func__);
 		if (accept_fd == LWS_SOCK_INVALID)
@@ -590,7 +590,11 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		 * pieces come if we're not sorted yet
 		 */
 
-		wsi->mode = LWSCM_SSL_ACK_PENDING;
+		if (wsi->mode == LWSCM_SSL_INIT)
+			wsi->mode = LWSCM_SSL_ACK_PENDING;
+		else
+			wsi->mode = LWSCM_SSL_ACK_PENDING_RAW;
+
 		if (insert_wsi_socket_into_fds(context, wsi)) {
 			lwsl_err("%s: failed to insert into fds\n", __func__);
 			goto fail;
@@ -604,7 +608,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		/* fallthru */
 
 	case LWSCM_SSL_ACK_PENDING:
-
+	case LWSCM_SSL_ACK_PENDING_RAW:
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_err("%s: lws_change_pollfd failed\n", __func__);
 			goto fail;
@@ -715,7 +719,10 @@ accepted:
 		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
 				context->timeout_secs);
 
-		wsi->mode = LWSCM_HTTP_SERVING;
+		if (wsi->mode == LWSCM_SSL_ACK_PENDING_RAW)
+			wsi->mode = LWSCM_RAW;
+		else
+			wsi->mode = LWSCM_HTTP_SERVING;
 
 		lws_http2_configure_if_upgraded(wsi);
 

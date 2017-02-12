@@ -1144,6 +1144,14 @@ enum lws_callback_reasons {
 	 * LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK still work without this
 	 * callback being implemented.
 	 */
+	LWS_CALLBACK_RAW_RX					= 59,
+	/**< RAW mode connection RX */
+	LWS_CALLBACK_RAW_CLOSE					= 60,
+	/**< RAW mode connection is closing */
+	LWS_CALLBACK_RAW_WRITEABLE				= 61,
+	/**< RAW mode connection may be written */
+	LWS_CALLBACK_RAW_ADOPT					= 62,
+	/**< RAW mode connection was adopted (equivalent to 'created') */
 
 	/****** add new things just above ---^ ******/
 
@@ -2817,7 +2825,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP_X_REAL_IP				= 78,
 	WSI_TOKEN_HTTP1_0					= 79,
 	WSI_TOKEN_X_FORWARDED_FOR				= 80,
-
+	WSI_TOKEN_CONNECT					= 81,
 	/****** add new things just above ---^ ******/
 
 	/* use token storage to stash these internally, not for
@@ -3764,6 +3772,24 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd);
  */
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
+/*
+* lws_adopt_socket_vhost2() - adopt foreign socket as if listen socket accepted it
+* for vhost, allow control over defeat SSL and raw transport mode
+* \param vhost: lws vhost
+* \param accept_fd: fd of already-accepted socket to adopt
+* \param allow_ssl: 0 = no SSL even if vhost supports, 1 = SSL if vhost supports
+* \param raw: 0 = http[s]/wss[s], 1 = raw mode semantics
+*
+* Either returns new wsi bound to accept_fd, or closes accept_fd and
+* returns NULL, having cleaned up any new wsi pieces.
+*
+* LWS adopts the socket in http serving mode, it's ready to accept an upgrade
+* to ws or just serve http.
+*/
+LWS_VISIBLE struct lws *
+lws_adopt_socket_vhost2(struct lws_vhost *vh, lws_sockfd_type accept_fd,
+			int allow_ssl, int raw);
+
 /**
  * lws_adopt_socket_readbuf() - adopt foreign socket and first rx as if listen socket accepted it
  * for the default vhost of context.

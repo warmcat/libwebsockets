@@ -541,6 +541,7 @@ lws_parse(struct lws *wsi, unsigned char c)
 		WSI_TOKEN_PUT_URI,
 		WSI_TOKEN_PATCH_URI,
 		WSI_TOKEN_DELETE_URI,
+		WSI_TOKEN_CONNECT,
 	};
 	struct allocated_headers *ah = wsi->u.hdr.ah;
 	struct lws_context *context = wsi->context;

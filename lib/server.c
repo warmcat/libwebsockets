@@ -333,7 +333,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	char path[256], sym[512];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
-#if !defined(WIN32) && LWS_POSIX && !defined(LWS_WITH_ESP32)
+#if !defined(WIN32) && LWS_POSIX
 	size_t len;
 #endif
 	int n;
@@ -350,7 +350,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		}
 
 		lwsl_debug(" %s mode %d\n", path, S_IFMT & st.st_mode);
-#if !defined(WIN32) && LWS_POSIX && !defined(LWS_WITH_ESP32)
+#if !defined(WIN32) && LWS_POSIX
 		if ((S_IFMT & st.st_mode) == S_IFLNK) {
 			len = readlink(path, sym, sizeof(sym) - 1);
 			if (len) {
@@ -609,13 +609,14 @@ lws_http_action(struct lws *wsi)
 		WSI_TOKEN_PUT_URI,
 		WSI_TOKEN_PATCH_URI,
 		WSI_TOKEN_DELETE_URI,
+		WSI_TOKEN_CONNECT,
 #ifdef LWS_USE_HTTP2
 		WSI_TOKEN_HTTP_COLON_PATH,
 #endif
 	};
 #if defined(_DEBUG) || defined(LWS_WITH_ACCESS_LOG)
 	static const char * const method_names[] = {
-		"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE",
+		"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT",
 #ifdef LWS_USE_HTTP2
 		":path",
 #endif
@@ -1211,6 +1212,17 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 			wsi->conn_stat_done = 1;
 		}
 
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECT)) {
+			lwsl_info("Changing to RAW mode\n");
+			lws_union_transition(wsi, LWSCM_RAW);
+			if (!wsi->more_rx_waiting) {
+				wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+
+				//lwsl_notice("%p: dropping ah EST\n", wsi);
+				lws_header_table_detach(wsi, 1);
+			}
+		}
+
 		wsi->mode = LWSCM_PRE_WS_SERVING_ACCEPT;
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
@@ -1681,10 +1693,12 @@ lws_http_transaction_completed(struct lws *wsi)
 }
 
 LWS_VISIBLE struct lws *
-lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
+lws_adopt_socket_vhost2(struct lws_vhost *vh, lws_sockfd_type accept_fd,
+			int allow_ssl, int raw)
 {
 	struct lws_context *context = vh->context;
 	struct lws *new_wsi = lws_create_new_server_wsi(vh);
+	int n;
 
 	if (!new_wsi) {
 		compatible_close(accept_fd);
@@ -1710,10 +1724,14 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 	/*
 	 * A new connection was accepted. Give the user a chance to
 	 * set properties of the newly created wsi. There's no protocol
-	 * selected yet so we issue this to protocols[0]
+	 * selected yet so we issue this to the vhosts's default protocol,
+	 * itself by default protocols[0]
 	 */
-	if ((context->vhost_list->protocols[0].callback)(new_wsi,
-	     LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, NULL, NULL, 0)) {
+	n = LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED;
+	if (raw)
+		n = LWS_CALLBACK_RAW_ADOPT;
+	if ((context->vhost_list->protocols[vh->default_protocol_index].callback)(
+			new_wsi, n, NULL, NULL, 0)) {
 		/* force us off the timeout list by hand */
 		lws_set_timeout(new_wsi, NO_PENDING_TIMEOUT, 0);
 		compatible_close(new_wsi->sock);
@@ -1724,13 +1742,18 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 	lws_libev_accept(new_wsi, new_wsi->sock);
 	lws_libuv_accept(new_wsi, new_wsi->sock);
 
-	if (!LWS_SSL_ENABLED(new_wsi->vhost)) {
+	if (!LWS_SSL_ENABLED(new_wsi->vhost) || allow_ssl == 0) {
+		if (raw)
+			new_wsi->mode = LWSCM_RAW;
 		if (insert_wsi_socket_into_fds(context, new_wsi)) {
 			lwsl_err("%s: fail inserting socket\n", __func__);
 			goto fail;
 		}
 	} else {
-		new_wsi->mode = LWSCM_SSL_INIT;
+		if (raw)
+			new_wsi->mode = LWSCM_SSL_INIT_RAW;
+		else
+			new_wsi->mode = LWSCM_SSL_INIT;
 		if (lws_server_socket_service_ssl(new_wsi, accept_fd)) {
 			lwsl_err("%s: fail ssl negotiation\n", __func__);
 			goto fail;
@@ -1749,9 +1772,15 @@ fail:
 }
 
 LWS_VISIBLE struct lws *
+lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
+{
+	return lws_adopt_socket_vhost2(vh, accept_fd, 1, 0);
+}
+
+LWS_VISIBLE struct lws *
 lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 {
-	return lws_adopt_socket_vhost(context->vhost_list, accept_fd);
+	return lws_adopt_socket_vhost2(context->vhost_list, accept_fd, 1, 0);
 }
 
 /* Common read-buffer adoption for lws_adopt_*_readbuf */
@@ -1903,6 +1932,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			goto try_pollout;
 		}
 #endif
+
 		/* these states imply we MUST have an ah attached */
 
 		if (wsi->state == LWSS_HTTP ||
@@ -1991,6 +2021,17 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			goto try_pollout;
 		}
 		
+		if (wsi->mode == LWSCM_RAW) {
+			n = user_callback_handle_rxflow(wsi->protocol->callback,
+					wsi, LWS_CALLBACK_RAW_RX,
+					wsi->user_space, pt->serv_buf, len);
+			if (n < 0) {
+				lwsl_info("raw writeable_fail\n");
+				goto fail;
+			}
+			break;
+		}
+
 		/* just ignore incoming if waiting for close */
 		if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
 			/*
@@ -2138,13 +2179,13 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	int ranges;
 #endif
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) {
-            char *accept = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING);
-            if (strstr(accept, "gzip") && strstr(accept, "deflate")) {
-                lwsl_debug("client indicates GZIP is acceptable\n");
-                fflags |= LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP;
-            }
-        }
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))
+		if (strstr("gzip",  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) &&
+		    strstr("deflate",  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))) {
+			lwsl_debug("client indicates GZIP is acceptable\n");
+			fflags |= LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP;
+		}
+
 
 	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,
 					    &fflags);
@@ -2154,6 +2195,16 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		return -1;
 	}
 	computed_total_content_length = wsi->u.http.filelen;
+
+	if ((fflags & (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP |
+		       LWS_FOP_FLAG_COMPR_IS_GZIP)) ==
+	    (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP | LWS_FOP_FLAG_COMPR_IS_GZIP)) {
+		if (lws_add_http_header_by_token(wsi,
+			WSI_TOKEN_HTTP_CONTENT_ENCODING,
+			(unsigned char *)"gzip, deflate", 13, &p, end))
+			return -1;
+		lwsl_debug("file is being provided in gzip\n");
+	}
 
 #if defined(LWS_WITH_RANGES)
 	ranges = lws_ranges_init(wsi, rp, wsi->u.http.filelen);
@@ -2180,16 +2231,6 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	if (lws_add_http_header_status(wsi, n, &p, end))
 		return -1;
-
-	if ((fflags & (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP |
-		       LWS_FOP_FLAG_COMPR_IS_GZIP)) ==
-	    (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP | LWS_FOP_FLAG_COMPR_IS_GZIP)) {
-		if (lws_add_http_header_by_token(wsi,
-			WSI_TOKEN_HTTP_CONTENT_ENCODING,
-			(unsigned char *)"gzip", 4, &p, end))
-			return -1;
-		lwsl_debug("file is being provided in gzip\n");
-	}
 
 #if defined(LWS_WITH_RANGES)
 	if (ranges < 2 && content_type && content_type[0])
@@ -2372,7 +2413,7 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 {
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME))
 		return;
-#if LWS_POSIX && !defined(LWS_WITH_ESP32)
+#if LWS_POSIX
 	/* find canonical hostname */
 	gethostname((char *)context->canonical_hostname,
 		    sizeof(context->canonical_hostname) - 1);

@@ -95,6 +95,7 @@ STORE_IN_ROM static const char * const set[] = {
 	"http/1.0 ",
 
 	"x-forwarded-for",
+	"connect ",
 
 	"", /* not matchable */
 

@@ -572,10 +572,14 @@ enum connection_mode {
 	/* transient, ssl delay hiding */
 	LWSCM_SSL_ACK_PENDING,
 	LWSCM_SSL_INIT,
+	/* as above, but complete into LWSCM_RAW */
+	LWSCM_SSL_ACK_PENDING_RAW,
+	LWSCM_SSL_INIT_RAW,
 
 	/* special internal types */
 	LWSCM_SERVER_LISTENER,
 	LWSCM_CGI, /* stdin, stdout, stderr for another cgi master wsi */
+	LWSCM_RAW, /* raw */
 
 	/* HTTP Client related */
 	LWSCM_HTTP_CLIENT = LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP,
