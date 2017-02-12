@@ -4174,22 +4174,31 @@ lws_cgi_kill(struct lws *wsi);
  * These provide platform-agnostic ways to deal with filesystem access in the
  * library and in the user code.
  */
+
+#define LWS_FOP_OPEN open
+#define LWS_FOP_CLOSE close
+#define LWS_FOP_SEEK_CUR seek_cur
+#define LWS_FOP_READ read
+#define LWS_FOP_WRITE write
+
 struct lws_plat_file_ops {
-	lws_filefd_type (*open)(struct lws *wsi, const char *filename,
+	lws_filefd_type (*LWS_FOP_OPEN)(struct lws *wsi, const char *filename,
 				unsigned long *filelen, int flags);
 	/**< Open file (always binary access if plat supports it)
 	 * filelen is filled on exit to be the length of the file
 	 * flags should be set to O_RDONLY or O_RDWR */
-	int (*close)(struct lws *wsi, lws_filefd_type fd);
+	int (*LWS_FOP_CLOSE)(struct lws *wsi, lws_filefd_type fd);
 	/**< close file */
-	unsigned long (*seek_cur)(struct lws *wsi, lws_filefd_type fd,
+	unsigned long (*LWS_FOP_SEEK_CUR)(struct lws *wsi, lws_filefd_type fd,
 				  long offset_from_cur_pos);
 	/**< seek from current position */
-	int (*read)(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
-		    unsigned char *buf, unsigned long len);
+	int (*LWS_FOP_READ)(struct lws *wsi, lws_filefd_type fd,
+			    unsigned long *amount, unsigned char *buf,
+			    unsigned long len);
 	/**< Read from file, on exit *amount is set to amount actually read */
-	int (*write)(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
-		     unsigned char *buf, unsigned long len);
+	int (*LWS_FOP_WRITE)(struct lws *wsi, lws_filefd_type fd,
+			     unsigned long *amount, unsigned char *buf,
+			     unsigned long len);
 	/**< Write to file, on exit *amount is set to amount actually written */
 
 	/* Add new things just above here ---^
@@ -4216,7 +4225,7 @@ static LWS_INLINE lws_filefd_type LWS_WARN_UNUSED_RESULT
 lws_plat_file_open(struct lws *wsi, const char *filename,
 		   unsigned long *filelen, int flags)
 {
-	return lws_get_fops(lws_get_context(wsi))->open(wsi, filename,
+	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_OPEN(wsi, filename,
 						    filelen, flags);
 }
 
@@ -4229,7 +4238,7 @@ lws_plat_file_open(struct lws *wsi, const char *filename,
 static LWS_INLINE int
 lws_plat_file_close(struct lws *wsi, lws_filefd_type fd)
 {
-	return lws_get_fops(lws_get_context(wsi))->close(wsi, fd);
+	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_CLOSE(wsi, fd);
 }
 
 /**
@@ -4242,7 +4251,8 @@ lws_plat_file_close(struct lws *wsi, lws_filefd_type fd)
 static LWS_INLINE unsigned long
 lws_plat_file_seek_cur(struct lws *wsi, lws_filefd_type fd, long offset)
 {
-	return lws_get_fops(lws_get_context(wsi))->seek_cur(wsi, fd, offset);
+	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_SEEK_CUR(wsi,
+								    fd, offset);
 }
 /**
  * lws_plat_file_read() - read from file
@@ -4257,8 +4267,8 @@ static LWS_INLINE int LWS_WARN_UNUSED_RESULT
 lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		   unsigned char *buf, unsigned long len)
 {
-	return lws_get_fops(lws_get_context(wsi))->read(wsi, fd, amount, buf,
-							len);
+	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_READ(wsi, fd,
+			amount, buf, len);
 }
 /**
  * lws_plat_file_write() - write from file
@@ -4273,8 +4283,8 @@ static LWS_INLINE int LWS_WARN_UNUSED_RESULT
 lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
 		    unsigned char *buf, unsigned long len)
 {
-	return lws_get_fops(lws_get_context(wsi))->write(wsi, fd, amount, buf,
-							 len);
+	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_WRITE(wsi, fd,
+						amount, buf, len);
 }
 //@}
 
