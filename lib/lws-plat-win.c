@@ -523,14 +523,14 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 static lws_filefd_type
 _lws_plat_file_open(struct lws *wsi, const char *filename,
-			unsigned long *filelen, int flags)
+			unsigned long *filelen, int *flags)
 {
 	HANDLE ret;
 	WCHAR buf[MAX_PATH];
 
 	(void)wsi;
 	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buf, ARRAY_SIZE(buf));
-	if ((flags & 7) == _O_RDONLY) {
+	if (((*flags) & 7) == _O_RDONLY) {
 		ret = CreateFileW(buf, GENERIC_READ, FILE_SHARE_READ,
 			  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	} else {

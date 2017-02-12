@@ -611,10 +611,10 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 static lws_filefd_type
 _lws_plat_file_open(struct lws *wsi, const char *filename,
-		    unsigned long *filelen, int flags)
+		    unsigned long *filelen, int *flags)
 {
 	struct stat stat_buf;
-	int ret = open(filename, flags, 0664);
+	int ret = open(filename, (*flags) & LWS_FOP_FLAGS_MASK, 0664);
 
 	if (ret < 0)
 		return LWS_INVALID_FILE;

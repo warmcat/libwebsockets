@@ -2143,20 +2143,37 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	unsigned char *p = response;
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
 	unsigned long computed_total_content_length;
-	int ret = 0, cclen = 8, n = HTTP_STATUS_OK;
+	int ret = 0, cclen = 8, n = HTTP_STATUS_OK, fflags = O_RDONLY;
 #if defined(LWS_WITH_RANGES)
 	int ranges;
 #endif
 
-	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,
-					    O_RDONLY);
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))
+		if (strstr("gzip",  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) &&
+		    strstr("deflate",  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))) {
+			lwsl_debug("client indicates GZIP is acceptable\n");
+			fflags |= LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP;
+		}
 
+
+	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,
+					    &fflags);
 	if (wsi->u.http.fd == LWS_INVALID_FILE) {
 		lwsl_err("Unable to open '%s'\n", file);
 
 		return -1;
 	}
 	computed_total_content_length = wsi->u.http.filelen;
+
+	if ((fflags & (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP |
+		       LWS_FOP_FLAG_COMPR_IS_GZIP)) ==
+	    (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP | LWS_FOP_FLAG_COMPR_IS_GZIP)) {
+		if (lws_add_http_header_by_token(wsi,
+			WSI_TOKEN_HTTP_CONTENT_ENCODING,
+			(unsigned char *)"gzip, deflate", 13, &p, end))
+			return -1;
+		lwsl_debug("file is being provided in gzip\n");
+	}
 
 #if defined(LWS_WITH_RANGES)
 	ranges = lws_ranges_init(wsi, rp, wsi->u.http.filelen);

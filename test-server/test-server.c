@@ -128,7 +128,7 @@ static struct lws_protocols protocols[] = {
  */
 static lws_filefd_type
 test_server_fops_open(struct lws *wsi, const char *filename,
-		      unsigned long *filelen, int flags)
+		      unsigned long *filelen, int *flags)
 {
 	lws_filefd_type n;
 

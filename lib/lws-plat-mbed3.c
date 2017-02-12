@@ -167,7 +167,7 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 
 static lws_filefd_type
 _lws_plat_file_open(struct lws *wsi, const char *filename,
-		    unsigned long *filelen, int flags)
+		    unsigned long *filelen, int *flags)
 {
 	(void)wsi;
 	(void)filename;

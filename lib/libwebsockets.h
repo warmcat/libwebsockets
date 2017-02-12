@@ -4181,12 +4181,21 @@ lws_cgi_kill(struct lws *wsi);
 #define LWS_FOP_READ read
 #define LWS_FOP_WRITE write
 
+#define LWS_FOP_FLAGS_MASK		   ((1 << 23) - 1)
+#define LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP (1 << 24)
+#define LWS_FOP_FLAG_COMPR_IS_GZIP	   (1 << 25)
+
 struct lws_plat_file_ops {
 	lws_filefd_type (*LWS_FOP_OPEN)(struct lws *wsi, const char *filename,
-				unsigned long *filelen, int flags);
+				unsigned long *filelen, int *flags);
 	/**< Open file (always binary access if plat supports it)
 	 * filelen is filled on exit to be the length of the file
-	 * flags should be set to O_RDONLY or O_RDWR */
+	 * *flags & LWS_FOP_FLAGS_MASK should be set to O_RDONLY or O_RDWR.
+	 * If the file may be gzip-compressed,
+	 * LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP is set.  If it actually is
+	 * gzip-compressed, then the open handler should OR
+	 * LWS_FOP_FLAG_COMPR_IS_GZIP on to *flags before returning.
+	 */
 	int (*LWS_FOP_CLOSE)(struct lws *wsi, lws_filefd_type fd);
 	/**< close file */
 	unsigned long (*LWS_FOP_SEEK_CUR)(struct lws *wsi, lws_filefd_type fd,
@@ -4223,7 +4232,7 @@ lws_get_fops(struct lws_context *context);
  */
 static LWS_INLINE lws_filefd_type LWS_WARN_UNUSED_RESULT
 lws_plat_file_open(struct lws *wsi, const char *filename,
-		   unsigned long *filelen, int flags)
+		   unsigned long *filelen, int *flags)
 {
 	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_OPEN(wsi, filename,
 						    filelen, flags);
