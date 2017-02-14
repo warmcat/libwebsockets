@@ -2148,13 +2148,13 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	int ranges;
 #endif
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))
-		if (strstr("gzip",  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) &&
-		    strstr("deflate",  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))) {
-			lwsl_debug("client indicates GZIP is acceptable\n");
-			fflags |= LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP;
-		}
-
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) {
+            char *accept = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING);
+            if (strstr(accept, "gzip") && strstr(accept, "deflate")) {
+                lwsl_debug("client indicates GZIP is acceptable\n");
+                fflags |= LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP;
+            }
+        }
 
 	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,
 					    &fflags);
@@ -2164,16 +2164,6 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		return -1;
 	}
 	computed_total_content_length = wsi->u.http.filelen;
-
-	if ((fflags & (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP |
-		       LWS_FOP_FLAG_COMPR_IS_GZIP)) ==
-	    (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP | LWS_FOP_FLAG_COMPR_IS_GZIP)) {
-		if (lws_add_http_header_by_token(wsi,
-			WSI_TOKEN_HTTP_CONTENT_ENCODING,
-			(unsigned char *)"gzip, deflate", 13, &p, end))
-			return -1;
-		lwsl_debug("file is being provided in gzip\n");
-	}
 
 #if defined(LWS_WITH_RANGES)
 	ranges = lws_ranges_init(wsi, rp, wsi->u.http.filelen);
@@ -2200,6 +2190,16 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	if (lws_add_http_header_status(wsi, n, &p, end))
 		return -1;
+
+	if ((fflags & (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP |
+		       LWS_FOP_FLAG_COMPR_IS_GZIP)) ==
+	    (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP | LWS_FOP_FLAG_COMPR_IS_GZIP)) {
+		if (lws_add_http_header_by_token(wsi,
+			WSI_TOKEN_HTTP_CONTENT_ENCODING,
+			(unsigned char *)"gzip", 4, &p, end))
+			return -1;
+		lwsl_debug("file is being provided in gzip\n");
+	}
 
 #if defined(LWS_WITH_RANGES)
 	if (ranges < 2 && content_type && content_type[0])
