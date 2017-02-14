@@ -947,7 +947,7 @@ endif()
 if (WINCE)
 	list(APPEND LIB_LIST ws2.lib)
 elseif (WIN32)
-	list(APPEND LIB_LIST ws2_32.lib)
+	list(APPEND LIB_LIST ws2_32.lib userenv.lib psapi.lib iphlpapi.lib)
 endif()
 
 if (UNIX)
