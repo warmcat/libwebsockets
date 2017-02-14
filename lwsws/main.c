@@ -39,8 +39,8 @@
 
 int fork(void)
 {
-	fprintf(stderr, "Sorry Windows doesn't support fork().");
-	exit(0);
+	fprintf(stderr, "Sorry Windows doesn't support fork().\n");
+	return 0;
 }
 #endif
 
