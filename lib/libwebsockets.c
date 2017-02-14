@@ -670,7 +670,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(vh)) {
 		if (!lws_plat_inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ads)->sin6_addr, rip, rip_len)) {
-			lwsl_err("inet_ntop", strerror(LWS_ERRNO));
+			lwsl_err("inet_ntop: %s", strerror(LWS_ERRNO));
 			return -1;
 		}
 
