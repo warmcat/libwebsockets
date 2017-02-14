@@ -830,6 +830,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 #endif
 
 	lwsl_debug("fd=%d, revents=%d\n", pollfd->fd, pollfd->revents);
+	if (pollfd->revents & LWS_POLLHUP)
+		goto close_and_handled;
 
 	/* okay, what we came here to do... */
 
