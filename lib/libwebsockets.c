@@ -341,7 +341,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		if (!wsi->u.ws.close_in_ping_buffer_len) {
 			wsi->u.ws.close_in_ping_buffer_len = 2;
 			wsi->u.ws.ping_payload_buf[LWS_PRE] =
-				(reason >> 16) & 0xff;
+                               (reason >> 8) & 0xff;
 			wsi->u.ws.ping_payload_buf[LWS_PRE + 1] =
 				reason & 0xff;
 		}
