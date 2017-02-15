@@ -251,18 +251,6 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	return NULL;
 }
 
-LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
-lws_vhost_name_to_protocol(struct lws_vhost *vh, const char *name)
-{
-	int n;
-
-	for (n = 0; n < vh->count_protocols; n++)
-		if (!strcmp(name, vh->protocols[n].name))
-			return &vh->protocols[n];
-
-	return NULL;
-}
-
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 {

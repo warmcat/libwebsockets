@@ -562,6 +562,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 {
 	struct lws *wsi;
 	int v = SPEC_LATEST_SUPPORTED;
+	const struct lws_protocols *p;
 
 	if (i->context->requested_kill)
 		return NULL;
@@ -590,7 +591,6 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->ietf_spec_revision = v;
 	wsi->user_space = NULL;
 	wsi->state = LWSS_CLIENT_UNCONNECTED;
-	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->position_in_fds_table = -1;
 	wsi->u.hdr.c_port = i->port;
@@ -599,6 +599,15 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		wsi->vhost = i->context->vhost_list;
 
 	wsi->protocol = &wsi->vhost->protocols[0];
+
+	/* for http[s] connection, allow protocol selection by name */
+
+	if (i->method && i->vhost && i->protocol) {
+		p = lws_vhost_name_to_protocol(i->vhost, i->protocol);
+		if (p)
+			wsi->protocol = p;
+	}
+
 	if (wsi && !wsi->user_space && i->userdata) {
 		wsi->user_space_externally_allocated = 1;
 		wsi->user_space = i->userdata;
