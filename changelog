@@ -1,6 +1,360 @@
 Changelog
 ---------
 
+v2.1.1
+======
+
+commit e2fcf47f0350a7f7beba64e96191b02acb754406
+Author: Silas Parker <skyhisi@user.github.invalid.com>
+Date:   Tue Feb 14 23:25:15 2017 +0800
+
+    fix close packet index coding
+    
+    https://github.com/warmcat/libwebsockets/issues/792
+
+commit b95e7fe4666105d474c87a7114cfefac4338bbbb
+Author: Andy Green <andy@warmcat.com>
+Date:   Sun Feb 5 22:46:39 2017 +0800
+
+    gcc format strings: http2
+
+commit 0b7ca30ed154861558065797e7562a30a340daa7
+Author: Andy Green <andy@warmcat.com>
+Date:   Sun Feb 5 22:13:16 2017 +0800
+
+    gcc- format strings: debug and extra plugins
+
+commit b03b17fd0ba2c967be213cf465301b57acf03f43
+Author: Martin Milata <martin@martinmilata.cz>
+Date:   Sun Feb 5 22:12:57 2017 +0800
+
+    Subject: gcc format strings: Make GCC check format strings, fix found problems
+
+commit a238984d1b6e3422ff8dada49d45c4a130bbd48e
+Author: Sven Hoffmann <sven@fredda.eu>
+Date:   Sun Feb 5 22:12:33 2017 +0800
+
+    post processing: fix problem where hex cant straddle block correctly
+
+commit 109d66c365a39b3ecdca1a5bccd722820e7bdd6a
+Author: Tobias <tobias@codeatelier.com>
+Date:   Tue Jan 17 06:28:27 2017 +0800
+
+    ignore leading spaces when checking for a suitable subprotocol
+    
+    My Browsers send as Subprotocols e.g. chat, superchat, mySubprotocol (with spaces after the ,). Libwebsockets now checked if ' mySubprotocol' was equal to 'mySubprotocol' which failed. With this fix the leading space is ignored and uses 'mySubprotocol' for comparision.
+
+commit da6f03b423d33f8f95fe939d8d5150ceddb43b8a
+Author: Andy Green <andy@warmcat.com>
+Date:   Tue Jan 10 09:16:49 2017 +0800
+
+    ssl: wolfssl doesn't have clear options
+    
+    https://github.com/warmcat/libwebsockets/issues/741
+
+commit c9d165bbcc8cf91f0170f16b6ec2e16b208432c7
+Author: Hai Vu <twoask@github.invalid.com>
+Date:   Tue Jan 10 09:16:41 2017 +0800
+
+    ssl-correct-option-clear-availability-version
+    
+    https://github.com/warmcat/libwebsockets/issues/744
+
+commit 82836590471c3949fe3a36fbcd1c52ceaf82fd0f
+Author: Andy Green <andy@warmcat.com>
+Date:   Sat Jan 7 10:24:50 2017 +0800
+
+    polarssl: turn off missing tlsext
+
+commit c447e1f9f3b39fadc1822aa2c7100c02934a5844
+Author: Andy Green <andy@warmcat.com>
+Date:   Sat Jan 7 10:24:42 2017 +0800
+
+    openssl: deal with missing OPENSSL_NO_TLSEXT on ancient versions
+
+commit 9706dd23a232c715a6077059dbe83caff390f5a9
+Author: Denis Osvald <denis.osvald@sartura.hr>
+Date:   Mon Jan 2 17:33:26 2017 +0100
+
+    server: check listen(2) return value
+    
+    The `listen` call can fail with EADDRINUSE after bind() succeeds, for
+    example because another process called listen on that port in the
+    meantime, or under some circumstances with IPv6-mapped-IPv4. This was
+    causing EINVAL on accept, with an infinite loop in case of libuv.
+    
+    A reproducible example was to run nc -l -p 5555 ( OpenBSD netcat (Debian
+    patchlevel 1)) before starting test-server
+    
+    Signed-off-by: Denis Osvald <denis.osvald@sartura.hr>
+
+commit 837e7fdd1422438d7232ee0bb829b98aba0229c3
+Author: namowen <namowen@github.invalid.com>
+Date:   Sat Dec 24 08:03:04 2016 +0800
+
+    lws_plat_service_tsi: accessing context before checking for NULL
+    
+    https://github.com/warmcat/libwebsockets/issues/730
+
+commit d2cb05f1f6807d120e3b9098096ad23862137a27
+Author: Namowen <namowen@github.invalid.com>
+Date:   Fri Dec 16 07:05:29 2016 +0800
+
+    echo: fix debug build
+    
+    https://github.com/warmcat/libwebsockets/issues/716#issuecomment-267377856
+
+commit d170ed06234a7ad055c2a8c82497a13dd1706685
+Author: Andy Green <andy@warmcat.com>
+Date:   Thu Dec 15 13:28:48 2016 +0800
+
+    test-client: fix broken protocol names
+
+commit 39807c1d10a6358af7628207021d0d93207d706e
+Author: Andy Green <andy@warmcat.com>
+Date:   Thu Dec 15 13:27:13 2016 +0800
+
+    client ssl hostname check: trim any port on host header
+
+commit 6dce477aef000041b9ad2a6b5e1716cfa3ef298a
+Author: Andy Green <andy@warmcat.com>
+Date:   Thu Dec 15 10:09:55 2016 +0800
+
+    ipv6-allow-binding-to-ipv6-address-in-iface
+    
+    ipv4 and ipv6 binding to a named interface works OK.  ipv4 binding to an IP also
+    works, but we need some extra ipv6 magic to identify the ipv6 interface from an
+    ipv6 address.
+    
+    This patch based on code from "user3546716" at
+    http://stackoverflow.com/questions/13504934/binding-sockets-to-ipv6-addresses
+    
+    adds the necessary magic.
+    
+    https://github.com/warmcat/libwebsockets/issues/717
+
+commit cf8b922df52730efadfbc794239ca214f2c9afba
+Author: Andy Green <andy@warmcat.com>
+Date:   Thu Dec 15 08:38:35 2016 +0800
+
+    client: if NULL protocol vhost same linked list entry
+    
+    Lws maintains a linked-list of wsi that are on the same vhost protocol...
+    it walks it to perform ..._all_protocol() type apis.
+    
+    Client connections also participate in this list, but in the case the
+    selected protocol is not given during negotation (a legal case where
+    the server default protocol is selected) we missed adding the new
+    ws negotiated client wsi to the list.
+    
+    This patch makes sure we add the wsi to the vhost protocols[0] list
+    in that case.
+    
+    https://github.com/warmcat/libwebsockets/issues/716
+
+commit 266819a1f5fe031ce4448279fb4c497c8e1b55aa
+Author: Andy Green <andy@warmcat.com>
+Date:   Mon Dec 12 20:38:32 2016 +0800
+
+    client: avoid possible NULL deref on error path
+    
+    https://github.com/warmcat/libwebsockets/issues/672
+
+commit e618359d4fc6587221f96ce284c872928d38056c
+Author: daren-qterics <daren-qterics@github.invalid.com>
+Date:   Sat Dec 10 08:55:18 2016 +0800
+
+    ssl destroy: change ordering of ssl destroy to later than vhost destroy
+    
+    https://github.com/warmcat/libwebsockets/issues/711
+
+commit 04fee5f75f423664cdee64ba7a75615a9fd2b6e4
+Author: Andy Green <andy@warmcat.com>
+Date:   Fri Dec 9 07:07:32 2016 +0800
+
+    clean: usused accidental global wsi
+    
+    https://github.com/warmcat/libwebsockets/issues/708
+
+commit 384ee53a36f95696a8a457b8160da05ca203f425
+Author: Andy Green <andy@warmcat.com>
+Date:   Thu Dec 8 17:36:51 2016 +0800
+
+    lwsgt: fix check against forgot password flow defeating existing pw check
+    
+    https://github.com/warmcat/libwebsockets/issues/706
+    
+    This fixes a problem where the check for the existing pw was
+    skipped when a logged-in user is changing his password.
+    
+    It's not good but because the user has to be logged in, it only affected
+    the situation someone changes his password on his logged in session.
+
+commit c01bbb2bbcd7b00d14440b7f66cd5058dd811f75
+Author: Bablooos <beetle@gambler.ru>
+Date:   Tue Nov 29 20:45:14 2016 +0800
+
+    Update CMakeLists.txt for BSD + libdl
+    
+    Fixing build failure of libwebsockets-test-fraggle  on FreeBSD when LWS_WITH_PLUGINS.
+    Solution: FreeBSD has no libdl
+
+commit d104d624ec9f7619660838f86ae8a58ba453bc42
+Author: Andy Green <andy@warmcat.com>
+Date:   Sat Dec 10 09:13:04 2016 +0800
+
+    ws-server: restrict returned Sec-Websocket-Protocol to the chosen name only
+    
+    https://libwebsockets.org/pipermail/libwebsockets/2016-November/002948.html
+    
+    Updated to fix a problem with no protocol
+    
+    https://github.com/warmcat/libwebsockets/issues/705
+
+commit 60b3a027d9cae0fa15e15547fb0a5539c48997a1
+Author: Andy Green <andy@warmcat.com>
+Date:   Sat Nov 26 20:47:34 2016 +0800
+
+    generic-sessions: move auth level check to after mount protocol selection
+
+commit c8bb24cf57954e0b1cedd65ecc575dfde53c5742
+Author: Iblis Lin <iblis@hs.ntnu.edu.tw>
+Date:   Wed Nov 23 23:02:13 2016 +0800
+
+    server: portable option for setsockopt
+    
+    From linux ipv6(7) manual (section `Note`):
+    
+            SOL_IP, SOL_IPV6, SOL_ICMPV6 and other SOL_* socket options are
+            nonportable variants of IPPROTO_*.  See also ip(7).
+    
+    Ref: http://man7.org/linux/man-pages/man7/ipv6.7.html
+
+commit 0bef3a8b01e401b6a6051d07c8f162a3dc148bb3
+Author: sjames1958gm <sajames1958@gmail.com>
+Date:   Mon Nov 21 09:23:17 2016 -0600
+
+    client stash: update path variable to larger size
+
+commit c2cd260311b2123a29bae17e151575457e8599b8
+Author: Andy Green <andy@warmcat.com>
+Date:   Wed Nov 16 09:00:45 2016 +0800
+
+    lws_socket_bind: use lws_sockfd_type
+
+commit 386bd4550bbcbb3e271113c2b69e1f116d0f2c25
+Author: Andy Green <andy@warmcat.com>
+Date:   Tue Nov 15 17:00:55 2016 +0800
+
+    client: protect againt losing ah by lws_client_connect_2
+
+commit 56826dbfd75c304f5466045646aaba1010539086
+Author: Andy Green <andy@warmcat.com>
+Date:   Mon Nov 14 18:16:36 2016 +0800
+
+    post file upload: dont lose sight of end of upload just because we hit end of incoming post data
+
+commit 9d061e1efd0af1f943bf6a848231bd4d1a2b5566
+Author: Rainer Poisel <rainer.poisel@logicals.com>
+Date:   Wed Nov 9 08:34:27 2016 +0800
+
+    Better support for MINW32
+
+commit 1e2e150ec4957f58dfbb8202725ba4e24fc19556
+Author: Yannick Kiekens <yannickkiekens@gmail.com>
+Date:   Thu Nov 3 10:03:18 2016 +0100
+
+    From 7f84bc3e864b52eb13c670362a4b53bc3505393e Mon Sep 17 00:00:00 2001
+    Subject: [PATCH] Fix typo in lws_create_context documentation
+
+commit 5fb327754ab4d202fca903dd5bd6b546b340eecb
+Author: Andy Green <andy@warmcat.com>
+Date:   Mon Oct 10 23:21:48 2016 +0800
+
+    adjust_timeout: with default lws_plat_service_tsi allow beings passed 0 timeout
+    
+    Some people are calling service with zero timeout, taking care of
+    not busywaiting by some other external arrangements.
+    
+    Adapt the forced service signalling to survive this.
+
+commit e2fcb9414785162d5affbf0aa87ab2fc06e64ded
+Author: Joerg Pommnitz <pommnitz@yahoo.com>
+Date:   Mon Oct 10 20:06:06 2016 +0800
+
+    some compilers need void param explicitly
+
+commit 5df8bf9d83299b1ec94e13aa9fa7ea5566750e66
+Author: Yuchen Xie <yuchen.xie@live.com>
+Date:   Mon Oct 10 19:04:46 2016 +0800
+
+    Correct the library name of LIBHUBBUB_LIBRARIES
+    
+    It should be `hubbub` in `find_library` to make the function work.
+
+commit 6670c6f953288379d008ac9d6ba2bd1475ccf106
+Author: Andy Green <andy@warmcat.com>
+Date:   Sat Oct 8 18:09:18 2016 +0800
+
+    docs: explain lws_write handling of truncated sends better
+
+commit 549b7ad02321e6e0db2df2fd33125ecd0dd7e692
+Author: Denis Osvald <denis.osvald@sartura.hr>
+Date:   Fri Oct 7 11:27:46 2016 +0200
+
+    publicly document lws_service_fd timeout servicing
+    
+    Signed-off-by: Denis Osvald <denis.osvald@sartura.hr>
+
+commit af8692e36f49b02725eeaa025988cb168c78e93b
+Author: Denis Osvald <denis.osvald@sartura.hr>
+Date:   Thu Oct 6 15:45:25 2016 +0200
+
+    test-server-extpoll: add 1-per-second timeout servicing
+    
+    Signed-off-by: Denis Osvald <denis.osvald@sartura.hr>
+
+    
+    Adapt the forced service signalling to survive this.
+
+commit e2fcb9414785162d5affbf0aa87ab2fc06e64ded
+Author: Joerg Pommnitz <pommnitz@yahoo.com>
+Date:   Mon Oct 10 20:06:06 2016 +0800
+
+    some compilers need void param explicitly
+
+commit 5df8bf9d83299b1ec94e13aa9fa7ea5566750e66
+Author: Yuchen Xie <yuchen.xie@live.com>
+Date:   Mon Oct 10 19:04:46 2016 +0800
+
+    Correct the library name of LIBHUBBUB_LIBRARIES
+    
+    It should be `hubbub` in `find_library` to make the function work.
+
+commit 6670c6f953288379d008ac9d6ba2bd1475ccf106
+Author: Andy Green <andy@warmcat.com>
+Date:   Sat Oct 8 18:09:18 2016 +0800
+
+    docs: explain lws_write handling of truncated sends better
+
+commit 549b7ad02321e6e0db2df2fd33125ecd0dd7e692
+Author: Denis Osvald <denis.osvald@sartura.hr>
+Date:   Fri Oct 7 11:27:46 2016 +0200
+
+    publicly document lws_service_fd timeout servicing
+    
+    Signed-off-by: Denis Osvald <denis.osvald@sartura.hr>
+
+commit af8692e36f49b02725eeaa025988cb168c78e93b
+Author: Denis Osvald <denis.osvald@sartura.hr>
+Date:   Thu Oct 6 15:45:25 2016 +0200
+
+    test-server-extpoll: add 1-per-second timeout servicing
+    
+    Signed-off-by: Denis Osvald <denis.osvald@sartura.hr>
+
+
+
 v2.1.0
 ======
 
