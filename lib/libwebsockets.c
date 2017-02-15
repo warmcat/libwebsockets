@@ -857,6 +857,18 @@ lws_protocol_get(struct lws *wsi)
 	return wsi->protocol;
 }
 
+LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
+lws_vhost_name_to_protocol(struct lws_vhost *vh, const char *name)
+{
+	int n;
+
+	for (n = 0; n < vh->count_protocols; n++)
+		if (!strcmp(name, vh->protocols[n].name))
+			return &vh->protocols[n];
+
+	return NULL;
+}
+
 LWS_VISIBLE int
 lws_callback_all_protocol(struct lws_context *context,
 			  const struct lws_protocols *protocol, int reason)
