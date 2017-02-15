@@ -395,7 +395,7 @@ The commandline to configure for cross with this would look like
 ```
 	$ cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr \
 		 -DCMAKE_TOOLCHAIN_FILE=../cross-arm-linux-gnueabihf.cmake \
-		 -DWITHOUT_EXTENSIONS=1 -DWITH_SSL=0
+		 -DLWS_WITHOUT_EXTENSIONS=1 -DLWS_WITH_SSL=0
 ```
 The example shows how to build with no external cross lib dependencies, you
 need to provide the cross libraries otherwise.
