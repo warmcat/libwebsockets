@@ -54,7 +54,16 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 			if ((err == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
 					err == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) &&
 					wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED) {
-				lwsl_notice("accepting self-signed certificate\n");
+				lwsl_notice("accepting self-signed certificate (verify_callback)\n");
+				X509_STORE_CTX_set_error(x509_ctx, X509_V_OK);
+				return 1;	// ok
+			} else if ((err == X509_V_ERR_CERT_NOT_YET_VALID ||
+					err == X509_V_ERR_CERT_HAS_EXPIRED) &&
+					wsi->use_ssl & LCCSCF_ALLOW_EXPIRED) {
+				if (err == X509_V_ERR_CERT_NOT_YET_VALID)
+					lwsl_notice("accepting not yet valid certificate (verify_callback)\n");
+				else if (err == X509_V_ERR_CERT_HAS_EXPIRED)
+					lwsl_notice("accepting expired certificate (verify_callback)\n");
 				X509_STORE_CTX_set_error(x509_ctx, X509_V_OK);
 				return 1;	// ok
 			}
@@ -138,8 +147,13 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	}
 
 #endif
+
+#ifndef USE_WOLFSSL
+#ifndef USE_OLD_CYASSL
 	/* OpenSSL_client_verify_callback will be called @ SSL_connect() */
 	SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
+#endif
+#endif
 
 #ifndef USE_WOLFSSL
 	SSL_set_mode(wsi->ssl,  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
