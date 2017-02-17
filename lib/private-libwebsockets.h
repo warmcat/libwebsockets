@@ -1490,7 +1490,7 @@ struct lws {
 	unsigned int extension_data_pending:1;
 #endif
 #ifdef LWS_OPENSSL_SUPPORT
-	unsigned int use_ssl:3;
+	unsigned int use_ssl:4;
 #endif
 #ifdef _WIN32
 	unsigned int sock_send_blocking:1;
