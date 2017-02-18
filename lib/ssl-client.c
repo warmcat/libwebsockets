@@ -498,7 +498,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			    "Unable to load SSL Client certs from %s "
 			    "(set by --with-client-cert-dir= "
 			    "in configure) --  client ssl isn't "
-			    "going to work", LWS_OPENSSL_CLIENT_CERTS);
+			    "going to work\n", LWS_OPENSSL_CLIENT_CERTS);
 	} else
 		if (!SSL_CTX_load_verify_locations(
 			vhost->ssl_client_ctx, info->ssl_ca_filepath,
@@ -506,7 +506,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			lwsl_err(
 				"Unable to load SSL Client certs "
 				"file from %s -- client ssl isn't "
-				"going to work", info->ssl_ca_filepath);
+				"going to work\n", info->ssl_ca_filepath);
 			lws_ssl_elaborate_error();
 		}
 		else
