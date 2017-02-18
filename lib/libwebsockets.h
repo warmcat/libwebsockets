@@ -167,13 +167,17 @@ struct sockaddr_in;
 #define LWS_INLINE inline
 #define LWS_O_RDONLY O_RDONLY
 
-#if !defined(MBED_OPERATORS) && !defined(LWS_WITH_ESP8266) && !defined(OPTEE_TA)
+#if !defined(MBED_OPERATORS) && !defined(LWS_WITH_ESP8266) && !defined(OPTEE_TA) && !defined(LWS_WITH_ESP32)
 #include <poll.h>
 #include <netdb.h>
 #define LWS_INVALID_FILE -1
 #else
 #define getdtablesize() (20)
+#if defined(LWS_WITH_ESP32)
 #define LWS_INVALID_FILE NULL
+#else
+#define LWS_INVALID_FILE NULL
+#endif
 #endif
 
 #if defined(__GNUC__)
@@ -533,6 +537,80 @@ static inline void uv_timer_stop(uv_timer_t *t)
 }
 
 #else
+#if defined(LWS_WITH_ESP32)
+
+typedef int lws_sockfd_type;
+typedef void * lws_filefd_type;
+#define lws_sockfd_valid(sfd) (sfd >= 0)
+struct pollfd {
+	lws_sockfd_type fd; /**< fd related to */
+	short events; /**< which POLL... events to respond to */
+	short revents; /**< which POLL... events occurred */
+};
+#define POLLIN		0x0001
+#define POLLPRI		0x0002
+#define POLLOUT		0x0004
+#define POLLERR		0x0008
+#define POLLHUP		0x0010
+#define POLLNVAL	0x0020
+
+#include "freertos/timers.h"
+
+#if !defined(CONFIG_FREERTOS_HZ)
+#define CONFIG_FREERTOS_HZ 100
+#endif
+
+typedef TimerHandle_t uv_timer_t;
+typedef void uv_cb_t(uv_timer_t *);
+typedef void * uv_handle_t;
+
+struct timer_mapping {
+	uv_cb_t *cb;
+	uv_timer_t *t;
+};
+
+#define UV_VERSION_MAJOR 1
+
+#define lws_uv_getloop(a, b) (NULL)
+
+static inline void uv_timer_init(void *l, uv_timer_t *t)
+{
+	(void)l;
+	*t = NULL;
+}
+
+extern void esp32_uvtimer_cb(TimerHandle_t t);
+
+static inline void uv_timer_start(uv_timer_t *t, uv_cb_t *cb, int first, int rep)
+{
+	struct timer_mapping *tm = malloc(sizeof(*tm));
+
+	if (!tm)
+		return;
+
+	tm->t = t;
+	tm->cb = cb;
+
+	*t = xTimerCreate("x", pdMS_TO_TICKS(first), !!rep, tm,
+			  (TimerCallbackFunction_t)esp32_uvtimer_cb);
+	xTimerStart(*t, 0);
+}
+
+static inline void uv_timer_stop(uv_timer_t *t)
+{
+	xTimerStop(*t, 0);
+}
+
+static inline void uv_close(uv_handle_t *h, void *v)
+{
+	free(pvTimerGetTimerID((uv_timer_t)h));
+	xTimerDelete(*(uv_timer_t *)h, 0);
+}
+
+
+
+
+#else
 typedef int lws_sockfd_type;
 typedef int lws_filefd_type;
 #define lws_sockfd_valid(sfd) (sfd >= 0)
@@ -543,6 +621,7 @@ typedef int lws_filefd_type;
 #define LWS_POLLHUP (POLLHUP|POLLERR)
 #define LWS_POLLIN (POLLIN)
 #define LWS_POLLOUT (POLLOUT)
+#endif
 #endif
 
 /** struct lws_pollargs - argument structure for all external poll related calls
@@ -1429,6 +1508,9 @@ lws_protocol_vh_priv_get(struct lws_vhost *vhost, const struct lws_protocols *pr
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_finalize_startup(struct lws_context *context);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_protocol_init(struct lws_context *context);
 
 #ifdef LWS_WITH_PLUGINS
 
@@ -3785,7 +3867,7 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen);
-#ifndef LWS_WITH_ESP8266
+#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
 /**
  * lws_interface_to_sa() - Convert interface name or IP to sockaddr struct
  *
@@ -4175,11 +4257,20 @@ lws_cgi_kill(struct lws *wsi);
  * library and in the user code.
  */
 
+#if defined(LWS_WITH_ESP32)
+/* sdk preprocessor defs? compiler issue? gets confused with member names */
+#define LWS_FOP_OPEN _open
+#define LWS_FOP_CLOSE _close
+#define LWS_FOP_SEEK_CUR _seek_cur
+#define LWS_FOP_READ _read
+#define LWS_FOP_WRITE _write
+#else
 #define LWS_FOP_OPEN open
 #define LWS_FOP_CLOSE close
 #define LWS_FOP_SEEK_CUR seek_cur
 #define LWS_FOP_READ read
 #define LWS_FOP_WRITE write
+#endif
 
 #define LWS_FOP_FLAGS_MASK		   ((1 << 23) - 1)
 #define LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP (1 << 24)
@@ -4221,7 +4312,8 @@ struct lws_plat_file_ops {
  */
 LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops * LWS_WARN_UNUSED_RESULT
 lws_get_fops(struct lws_context *context);
-
+LWS_VISIBLE LWS_EXTERN void
+lws_set_fops(struct lws_context *context, struct lws_plat_file_ops *fops);
 /**
  * lws_plat_file_open() - file open operations
  *

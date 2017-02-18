@@ -414,7 +414,10 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 
 	if (protocol < vhost->protocols ||
 	    protocol >= (vhost->protocols + vhost->count_protocols)) {
-		lwsl_err("%s: protocol is not from vhost\n", __func__);
+
+		lwsl_err("%s: protocol %p is not from vhost %p (%p - %p)\n",
+			__func__, protocol, vhost->protocols, vhost,
+			(vhost->protocols + vhost->count_protocols));
 
 		return -1;
 	}

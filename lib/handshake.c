@@ -245,7 +245,7 @@ postbody_completion:
 
 read_ok:
 	/* Nothing more to do for now */
-	lwsl_info("%s: read_ok, used %ld\n", __func__, buf - oldbuf);
+	lwsl_info("%s: read_ok, used %ld\n", __func__, (long)(buf - oldbuf));
 
 	return buf - oldbuf;
 

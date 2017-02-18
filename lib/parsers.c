@@ -156,7 +156,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	 * weren't able to deliver it right now
 	 */
 	if (pt->ah_count_in_use == context->max_http_header_pool) {
-		lwsl_notice("%s: adding %p to ah waiting list\n", __func__, wsi);
+		lwsl_info("%s: adding %p to ah waiting list\n", __func__, wsi);
 		wsi->u.hdr.ah_wait_list = pt->ah_wait_list;
 		pt->ah_wait_list = wsi;
 		pt->ah_wait_list_length++;

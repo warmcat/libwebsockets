@@ -42,6 +42,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	struct lws *wsi;
 	int m = 0;
 
+	(void)opt;
 	/* set up our external listening socket we serve on */
 
 	if (info->port == CONTEXT_PORT_NO_LISTEN || info->port == CONTEXT_PORT_NO_LISTEN_SERVER)
@@ -95,13 +96,13 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		lwsl_err("ERROR opening socket\n");
 		return 1;
 	}
-
-#if LWS_POSIX
+#if LWS_POSIX && !defined(LWS_WITH_ESP32)
 	/*
 	 * allow us to restart even if old sockets in TIME_WAIT
 	 */
 	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
 		       (const void *)&opt, sizeof(opt)) < 0) {
+		lwsl_err("reuseaddr failed\n");
 		compatible_close(sockfd);
 		return 1;
 	}
@@ -325,21 +326,21 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	const struct lws_protocol_vhost_options *pvo = m->interpret;
 	struct lws_process_html_args args;
 	const char *mimetype;
-#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266)
+#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
 	struct stat st;
 	int spin = 0;
 #endif
 	char path[256], sym[512];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
-#if !defined(WIN32) && LWS_POSIX
+#if !defined(WIN32) && LWS_POSIX && !defined(LWS_WITH_ESP32)
 	size_t len;
 #endif
 	int n;
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
-#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266)
+#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
 	do {
 		spin++;
 
@@ -349,7 +350,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		}
 
 		lwsl_debug(" %s mode %d\n", path, S_IFMT & st.st_mode);
-#if !defined(WIN32) && LWS_POSIX
+#if !defined(WIN32) && LWS_POSIX && !defined(LWS_WITH_ESP32)
 		if ((S_IFMT & st.st_mode) == S_IFLNK) {
 			len = readlink(path, sym, sizeof(sym) - 1);
 			if (len) {
@@ -1494,7 +1495,7 @@ upgrade_ws:
 		}
 		wsi->u.ws.rx_ubuf_alloc = n;
 		lwsl_debug("Allocating RX buffer %d\n", n);
-#if LWS_POSIX
+#if LWS_POSIX && !defined(LWS_WITH_ESP32)
 		if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF,
 			       (const char *)&n, sizeof n)) {
 			lwsl_warn("Failed to set SNDBUF to %d", n);
@@ -1577,7 +1578,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost)
 	}
 
 	new_wsi->tsi = n;
-	lwsl_notice("Accepted wsi %p to context %p, tsi %d\n", new_wsi,
+	lwsl_debug("Accepted wsi %p to context %p, tsi %d\n", new_wsi,
 		    vhost->context, new_wsi->tsi);
 
 	new_wsi->vhost = vhost;
@@ -1690,7 +1691,8 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 		return NULL;
 	}
 
-	//lwsl_notice("%s: new wsi %p, sockfd %d, cb %p\n", __func__, new_wsi, accept_fd, context->vhost_list->protocols[0].callback);
+	lwsl_debug("%s: new wsi %p, sockfd %d, cb %p\n", __func__, new_wsi,
+		   accept_fd, context->vhost_list->protocols[0].callback);
 
 	new_wsi->sock = accept_fd;
 
@@ -2370,7 +2372,7 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 {
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME))
 		return;
-#if LWS_POSIX
+#if LWS_POSIX && !defined(LWS_WITH_ESP32)
 	/* find canonical hostname */
 	gethostname((char *)context->canonical_hostname,
 		    sizeof(context->canonical_hostname) - 1);
