@@ -249,8 +249,8 @@ set( CACHE PATH "Path to the libev library")
 set(LWS_LIBEV_INCLUDE_DIRS CACHE PATH "Path to the libev include directory")
 set(LWS_LIBUV_LIBRARIES CACHE PATH "Path to the libuv library")
 set(LWS_LIBUV_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
-set(LWS_SQLITE3_LIBRARIES CACHE PATH "Path to the libuv library")
-set(LWS_SQLITE3_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
+set(LWS_SQLITE3_LIBRARIES CACHE PATH "Path to the sqlite3 library")
+set(LWS_SQLITE3_INCLUDE_DIRS CACHE PATH "Path to the sqlite3 include directory")
 
 
 if (NOT LWS_WITH_SSL)
