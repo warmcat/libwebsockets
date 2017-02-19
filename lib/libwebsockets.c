@@ -428,8 +428,15 @@ just_kill_connection:
 	    wsi->state != LWSS_CLIENT_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !wsi->socket_is_permanently_unusable) {
-		lwsl_info("%s: shutting down connection: %p (sock %d, state %d)\n", __func__, wsi, (int)(long)wsi->sock, wsi->state);
-		n = shutdown(wsi->sock, SHUT_WR);
+#ifdef LWS_OPENSSL_SUPPORT
+		if (lws_is_ssl(wsi) && wsi->ssl)
+			n = SSL_shutdown(wsi->ssl);
+		else
+#endif
+		{
+			lwsl_info("%s: shutting down connection: %p (sock %d, state %d)\n", __func__, wsi, (int)(long)wsi->sock, wsi->state);
+			n = shutdown(wsi->sock, SHUT_WR);
+		}
 		if (n)
 			lwsl_debug("closing: shutdown (state %d) ret %d\n", wsi->state, LWS_ERRNO);
 
