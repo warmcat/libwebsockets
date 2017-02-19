@@ -405,8 +405,10 @@ lws_create_vhost(struct lws_context *context,
 
 	if (info->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
 		vh->protocols = lwsp;
-	else
+	else {
 		vh->protocols = info->protocols;
+		free(lwsp);
+	}
 
 	vh->same_vh_protocol_list = (struct lws **)
 			lws_zalloc(sizeof(struct lws *) * vh->count_protocols);
@@ -1033,6 +1035,11 @@ lws_context_destroy2(struct lws_context *context)
 #ifdef LWS_WITH_PLUGINS
 		if (context->plugin_list)
 			lws_free((void *)vh->protocols);
+#else
+		if (vh->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
+			lws_free((void *)vh->protocols);
+#endif
+#ifdef LWS_WITH_PLUGINS
 #ifndef LWS_NO_EXTENSIONS
 		if (context->plugin_extension_count)
 			lws_free((void *)vh->extensions);
