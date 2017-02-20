@@ -1513,8 +1513,19 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 	else if (!strcmp(*prot, "https") || !strcmp(*prot, "wss"))
 		*port = 443;
 
-	while (*p && *p != ':' && *p != '/')
-		p++;
+       if (*p == '[')
+       {
+               ++(*ads);
+               while (*p && *p != ']')
+                       p++;
+               if (*p)
+                       *p++ = '\0';
+       }
+       else
+       {
+               while (*p && *p != ':' && *p != '/')
+                       p++;
+       }
 	if (*p == ':') {
 		*p++ = '\0';
 		*port = atoi(p);
