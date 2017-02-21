@@ -1870,6 +1870,29 @@ struct lws_context_creation_info {
 	 * succeeded to create.
 	 */
 
+#ifdef LWS_OPENSSL_SUPPORT
+	 /**< CONTEXT: NULL or struct lws_token_limits pointer which is initialized
+	 * with a token length limit for each possible WSI_TOKEN_ */
+	const char *client_ssl_private_key_password;
+	/**< VHOST: NULL or the passphrase needed for the private key */
+	const char *client_ssl_cert_filepath;
+	/**< VHOST: If libwebsockets was compiled to use ssl, and you want
+	* to listen using SSL, set to the filepath to fetch the
+	* server cert from, otherwise NULL for unencrypted */
+	const char *client_ssl_private_key_filepath;
+	/**<  VHOST: filepath to private key if wanting SSL mode;
+	* if this is set to NULL but sll_cert_filepath is set, the
+	* OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called
+	* to allow setting of the private key directly via openSSL
+	* library calls */
+	const char *client_ssl_ca_filepath;
+	/**< VHOST: CA certificate filepath or NULL */
+	const char *client_ssl_cipher_list;
+	/**< VHOST: List of valid ciphers to use (eg,
+	* "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
+	* or you can leave it as NULL to get "DEFAULT" */
+#endif
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *
