@@ -479,9 +479,9 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 #endif
 	SSL_CTX_set_options(vhost->ssl_client_ctx,
 			    SSL_OP_CIPHER_SERVER_PREFERENCE);
-	if (info->ssl_cipher_list)
+	if (info->client_ssl_cipher_list)
 		SSL_CTX_set_cipher_list(vhost->ssl_client_ctx,
-						info->ssl_cipher_list);
+						info->client_ssl_cipher_list);
 
 #ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS))
@@ -490,7 +490,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 #endif
 
 	/* openssl init for cert verification (for client sockets) */
-	if (!info->ssl_ca_filepath) {
+	if (!info->client_ssl_ca_filepath) {
 		if (!SSL_CTX_load_verify_locations(
 			vhost->ssl_client_ctx, NULL,
 					     LWS_OPENSSL_CLIENT_CERTS))
@@ -501,12 +501,12 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			    "going to work\n", LWS_OPENSSL_CLIENT_CERTS);
 	} else
 		if (!SSL_CTX_load_verify_locations(
-			vhost->ssl_client_ctx, info->ssl_ca_filepath,
+			vhost->ssl_client_ctx, info->client_ssl_ca_filepath,
 							  NULL)) {
 			lwsl_err(
 				"Unable to load SSL Client certs "
 				"file from %s -- client ssl isn't "
-				"going to work\n", info->ssl_ca_filepath);
+				"going to work\n", info->client_ssl_ca_filepath);
 			lws_ssl_elaborate_error();
 		}
 		else
@@ -518,32 +518,32 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	 */
 
 	/* support for client-side certificate authentication */
-	if (info->ssl_cert_filepath) {
+	if (info->client_ssl_cert_filepath) {
 	lwsl_notice("%s: doing cert filepath\n", __func__);
 		n = SSL_CTX_use_certificate_chain_file(vhost->ssl_client_ctx,
-						       info->ssl_cert_filepath);
+						       info->client_ssl_cert_filepath);
 		if (n < 1) {
 			lwsl_err("problem %d getting cert '%s'\n", n,
-				info->ssl_cert_filepath);
+				info->client_ssl_cert_filepath);
 			lws_ssl_elaborate_error();
 			return 1;
 		}
-		lwsl_notice("Loaded client cert %s\n", info->ssl_cert_filepath);
+		lwsl_notice("Loaded client cert %s\n", info->client_ssl_cert_filepath);
 	}
 
-	if (info->ssl_private_key_filepath) {
+	if (info->client_ssl_private_key_filepath) {
 		lwsl_notice("%s: doing private key filepath\n", __func__);
 		lws_ssl_bind_passphrase(vhost->ssl_client_ctx, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(vhost->ssl_client_ctx,
-		    info->ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
+		    info->client_ssl_private_key_filepath, SSL_FILETYPE_PEM) != 1) {
 			lwsl_err("use_PrivateKey_file '%s'\n",
-				info->ssl_private_key_filepath);
+				info->client_ssl_private_key_filepath);
 			lws_ssl_elaborate_error();
 			return 1;
 		}
 		lwsl_notice("Loaded client cert private key %s\n",
-			    info->ssl_private_key_filepath);
+			    info->client_ssl_private_key_filepath);
 
 		/* verify private key */
 		if (!SSL_CTX_check_private_key(vhost->ssl_client_ctx)) {
