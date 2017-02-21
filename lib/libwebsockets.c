@@ -89,7 +89,7 @@ lws_free_wsi(struct lws *wsi)
 	lws_free(wsi);
 }
 
-static void
+void
 lws_remove_from_timeout_list(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];

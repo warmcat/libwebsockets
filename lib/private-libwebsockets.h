@@ -1612,6 +1612,9 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_service_timeout_check(struct lws *wsi, unsigned int sec);
 
+LWS_EXTERN void
+lws_remove_from_timeout_list(struct lws *wsi);
+
 LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_2(struct lws *wsi);
 
