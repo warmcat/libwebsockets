@@ -483,10 +483,19 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (!strcmp(prot, "wss") || !strcmp(prot, "https"))
 			ssl = 1;
 
-		if (!lws_client_reset(wsi, ssl, ads, port, path, ads)) {
+		if (!lws_client_reset(&wsi, ssl, ads, port, path, ads)) {
+			/* there are two ways to fail out with NULL return...
+			 * simple, early problem where the wsi is intact, or
+			 * we went through with the reconnect attempt and the
+			 * wsi is already closed.  In the latter case, the wsi
+			 * has beet set to NULL additionally.
+			 */
 			lwsl_err("Redirect failed\n");
 			cce = "HS: Redirect failed";
-			goto bail3;
+			if (wsi)
+				goto bail3;
+
+			return 1;
 		}
 		return 0;
 	}

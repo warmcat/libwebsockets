@@ -372,10 +372,11 @@ failed1:
  * host:	host header to send to the new server
  */
 LWS_VISIBLE struct lws *
-lws_client_reset(struct lws *wsi, int ssl, const char *address, int port,
+lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		 const char *path, const char *host)
 {
 	char origin[300] = "", protocol[300] = "", method[32] = "", *p;
+	struct lws *wsi = *pwsi;
 
 	if (wsi->u.hdr.redirects == 3) {
 		lwsl_err("%s: Too many redirects\n", __func__);
@@ -444,7 +445,9 @@ lws_client_reset(struct lws *wsi, int ssl, const char *address, int port,
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, origin))
 		return NULL;
 
-	return lws_client_connect_2(wsi);
+	*pwsi = lws_client_connect_2(wsi);
+
+	return *pwsi;
 }
 
 #ifdef LWS_WITH_HTTP_PROXY
