@@ -1085,13 +1085,10 @@ struct _lws_header_related {
 	enum uri_esc_states ues;
 	short lextable_pos;
 	unsigned int current_token_limit;
-#ifndef LWS_NO_CLIENT
-	unsigned short c_port;
-#endif
+
 	char esc_stash;
 	char post_literal_equal;
 	unsigned char parser_state; /* enum lws_token_indexes */
-	char redirects;
 };
 
 #if defined(LWS_WITH_RANGES)
@@ -1509,6 +1506,10 @@ struct lws {
 	unsigned int redirect_to_https:1;
 #endif
 
+#ifndef LWS_NO_CLIENT
+	unsigned short c_port;
+#endif
+
 	/* chars */
 #ifndef LWS_NO_EXTENSIONS
 	unsigned char count_act_ext;
@@ -1523,6 +1524,7 @@ struct lws {
 	char pps; /* enum lws_pending_protocol_send */
 	char tsi; /* thread service index we belong to */
 	char protocol_interpret_idx;
+	char redirects;
 #ifdef LWS_WITH_CGI
 	char cgi_channel; /* which of stdin/out/err */
 	char hdr_state;

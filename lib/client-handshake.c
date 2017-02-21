@@ -31,7 +31,7 @@ lws_client_connect_2(struct lws *wsi)
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a",
 			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
-			wsi->u.hdr.c_port);
+			wsi->c_port);
 
 		if (wsi->vhost->proxy_basic_auth_token[0])
 			plen += sprintf((char *)pt->serv_buf + plen,
@@ -54,10 +54,10 @@ lws_client_connect_2(struct lws *wsi)
 #ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(wsi->vhost)) {
 			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
-			server_addr6.sin6_port = htons(wsi->u.hdr.c_port);
+			server_addr6.sin6_port = htons(wsi->c_port);
 		} else
 #endif
-			server_addr4.sin_port = htons(wsi->u.hdr.c_port);
+			server_addr4.sin_port = htons(wsi->c_port);
 	}
 
 	/*
@@ -285,7 +285,7 @@ lws_client_connect_2(struct lws *wsi)
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
 					  wsi->vhost->http_proxy_address))
 			goto failed;
-		wsi->u.hdr.c_port = wsi->vhost->http_proxy_port;
+		wsi->c_port = wsi->vhost->http_proxy_port;
 
 		n = send(wsi->sock, (char *)pt->serv_buf, plen,
 			 MSG_NOSIGNAL);
@@ -379,11 +379,11 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	char origin[300] = "", protocol[300] = "", method[32] = "", *p;
 	struct lws *wsi = *pwsi;
 
-	if (wsi->u.hdr.redirects == 3) {
+	if (wsi->redirects == 3) {
 		lwsl_err("%s: Too many redirects\n", __func__);
 		return NULL;
 	}
-	wsi->u.hdr.redirects++;
+	wsi->redirects++;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = ssl;
@@ -418,7 +418,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	wsi->state = LWSS_CLIENT_UNCONNECTED;
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
-	wsi->u.hdr.c_port = port;
+	wsi->c_port = port;
 	wsi->hdr_parsing_completed = 0;
 	_lws_header_table_reset(wsi->u.hdr.ah);
 
@@ -597,7 +597,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->state = LWSS_CLIENT_UNCONNECTED;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->position_in_fds_table = -1;
-	wsi->u.hdr.c_port = i->port;
+	wsi->c_port = i->port;
 	wsi->vhost = i->vhost;
 	if (!wsi->vhost)
 		wsi->vhost = i->context->vhost_list;
@@ -765,7 +765,7 @@ lws_client_connect_via_info2(struct lws *wsi)
 	if (lws_ext_cb_all_exts(wsi->context, wsi,
 				LWS_EXT_CB_CAN_PROXY_CLIENT_CONNECTION,
 				(void *)stash->address,
-				wsi->u.hdr.c_port) > 0) {
+				wsi->c_port) > 0) {
 		lwsl_client("lws_client_connect: ext handling conn\n");
 
 		lws_set_timeout(wsi,
