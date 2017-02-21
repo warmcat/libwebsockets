@@ -437,7 +437,13 @@ just_kill_connection:
 	    !wsi->socket_is_permanently_unusable) {
 #ifdef LWS_OPENSSL_SUPPORT
 		if (lws_is_ssl(wsi) && wsi->ssl)
+               {
+                       lwsl_info("%s: shutting down SSL connection: %p (ssl %p, sock %d, state %d)\n", __func__, wsi, wsi->ssl, (int)(long)wsi->sock, wsi->state);
 			n = SSL_shutdown(wsi->ssl);
+                       if (n == 0) /* Complete bidirectional SSL shutdown */
+                               n = SSL_shutdown(wsi->ssl);
+                       n = shutdown(wsi->sock, SHUT_WR);
+               }
 		else
 #endif
 		{
