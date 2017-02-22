@@ -409,7 +409,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	struct lws_context *context = wsi->context;
 	const char *pc, *prot, *ads = NULL, *path, *cce = NULL;
 	struct allocated_headers *ah = NULL;
-	char *p;
+	char *p, *q;
+	char new_path[300];
 #ifndef LWS_NO_EXTENSIONS
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *sb = (char *)&pt->serv_buf[0];
@@ -475,13 +476,50 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail3;
 		}
 
-		if (lws_parse_uri(p, &prot, &ads, &port, &path)) {
-			cce = "HS: URI did not parse";
-			goto bail3;
+		/* Relative reference absolute path */
+		if (p[0] == '/')
+		{
+#ifdef LWS_OPENSSL_SUPPORT
+			ssl = wsi->use_ssl;
+#endif
+			ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			port = wsi->c_port;
+			path = p + 1; /* +1 as lws_client_reset expects leading / to be omitted */
 		}
+		/* Absolute (Full) URI */
+		else if (strchr(p, ':'))
+		{
+			if (lws_parse_uri(p, &prot, &ads, &port, &path)) {
+				cce = "HS: URI did not parse";
+				goto bail3;
+			}
 
-		if (!strcmp(prot, "wss") || !strcmp(prot, "https"))
-			ssl = 1;
+			if (!strcmp(prot, "wss") || !strcmp(prot, "https"))
+				ssl = 1;
+		}
+		/* Relative reference relative path */
+		else
+		{
+			/* This doesn't try to calculate an absolute path, that will be left to the server */
+#ifdef LWS_OPENSSL_SUPPORT
+			ssl = wsi->use_ssl;
+#endif
+			ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			port = wsi->c_port;
+			path = new_path + 1; /* +1 as lws_client_reset expects leading / to be omitted */
+			strncpy(new_path, lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI), sizeof(new_path));
+			new_path[sizeof(new_path) - 1] = '\0';
+			q = strrchr(new_path, '/');
+			if (q)
+			{
+				strncpy(q + 1, p, sizeof(new_path) - (q - new_path) - 1);
+				new_path[sizeof(new_path) - 1] = '\0';
+			}
+			else
+			{
+				path = p;
+			}
+		}
 
 		if (!lws_client_reset(&wsi, ssl, ads, port, path, ads)) {
 			/* there are two ways to fail out with NULL return...
