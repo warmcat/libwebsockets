@@ -155,7 +155,7 @@ int fork(void);
 #include <strings.h>
 #include <unistd.h>
 #include <sys/types.h>
-#ifndef MBED_OPERATORS
+
 #ifndef __cplusplus
 #include <errno.h>
 #endif
@@ -209,8 +209,6 @@ int kill(int pid, int sig);
 #include <uv.h>
 #endif
 
-#endif /* MBED */
-
 #ifndef LWS_NO_FORK
 #ifdef LWS_HAVE_SYS_PRCTL_H
 #include <sys/prctl.h>
@@ -229,7 +227,7 @@ int kill(int pid, int sig);
 
 #define lws_set_blocking_send(wsi)
 
-#if defined(MBED_OPERATORS) || defined(LWS_WITH_ESP8266)
+#if defined(LWS_WITH_ESP8266)
 #define lws_socket_is_valid(x) ((x) != NULL)
 #define LWS_SOCK_INVALID (NULL)
 struct lws;
@@ -311,20 +309,6 @@ static inline int compatible_close(int fd) { return close(fd); }
 
 #if defined(WIN32) || defined(_WIN32)
 #include <gettimeofday.h>
-#endif
-
-#if defined(MBED_OPERATORS)
-#undef compatible_close
-#define compatible_close(fd) mbed3_delete_tcp_stream_socket(fd)
-#ifndef BIG_ENDIAN
-#define BIG_ENDIAN    4321  /* to show byte order (taken from gcc) */
-#endif
-#ifndef LITTLE_ENDIAN
-#define LITTLE_ENDIAN 1234
-#endif
-#ifndef BYTE_ORDER
-#define BYTE_ORDER LITTLE_ENDIAN
-#endif
 #endif
 
 #if defined(LWS_WITH_ESP8266)
@@ -1589,7 +1573,7 @@ lws_b64_selftest(void);
 LWS_EXTERN int
 lws_service_flag_pending(struct lws_context *context, int tsi);
 
-#if defined(_WIN32) || defined(MBED_OPERATORS) || defined(LWS_WITH_ESP8266)
+#if defined(_WIN32) || defined(LWS_WITH_ESP8266)
 LWS_EXTERN struct lws *
 wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd);
 
@@ -1772,7 +1756,7 @@ LWS_EXTERN int get_daemonize_pid();
 #define get_daemonize_pid() (0)
 #endif
 
-#if !defined(MBED_OPERATORS) && !defined(LWS_WITH_ESP8266)
+#if !defined(LWS_WITH_ESP8266)
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 interface_to_sa(struct lws_vhost *vh, const char *ifname,
 		struct sockaddr_in *addr, size_t addrlen);

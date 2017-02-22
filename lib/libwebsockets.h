@@ -27,77 +27,13 @@
 #ifdef __cplusplus
 #include <cstddef>
 #include <cstdarg>
-#ifdef MBED_OPERATORS
-#include "mbed-drivers/mbed.h"
-#include "sal-iface-eth/EthernetInterface.h"
-#include "sockets/TCPListener.h"
-#include "sal-stack-lwip/lwipv4_init.h"
-
-namespace {
-}
-using namespace mbed::Sockets::v0;
-
-
-struct sockaddr_in;
-struct lws;
-
-class lws_conn {
-	public:
-	lws_conn():
-		ts(NULL),
-		wsi(NULL),
-		writeable(1),
-		awaiting_on_writeable(0)
-	{
-	}
-
-public:
-	void set_wsi(struct lws *_wsi) { wsi = _wsi; }
-	int actual_onRX(Socket *s);
-	void onRX(Socket *s);
-	void onError(Socket *s, socket_error_t err);
-	void onDisconnect(TCPStream *s);
-	void onSent(Socket *s, uint16_t len);
-	void serialized_writeable(struct lws *wsi);
-
-public:
-	TCPStream *ts;
-
-public:
-	struct lws *wsi;
-	char writeable;
-	char awaiting_on_writeable;
-};
-
-class lws_conn_listener : lws_conn {
-public:
-	lws_conn_listener():
-		srv(SOCKET_STACK_LWIP_IPV4)
-	{
-		srv.setOnError(TCPStream::ErrorHandler_t(this,
-				&lws_conn_listener::onError));
-	}
-
-	void start(const uint16_t port); /**< start listening */
-
-protected:
-	void onRX(Socket *s); /**< incoming data ready */
-	void onError(Socket *s, socket_error_t err); /**< if error occurs */
-	void onIncoming(TCPListener *s, void *impl); /**< new connection */
-	void onDisconnect(TCPStream *s); /**< disconnection */
-
-public:
-	TCPListener srv;
-};
-
-#endif
-
+#
 extern "C" {
 #else
 #include <stdarg.h>
 #endif
 
-#if defined(MBED_OPERATORS) || defined(LWS_WITH_ESP8266)
+#if defined(LWS_WITH_ESP8266)
 struct sockaddr_in;
 #define LWS_POSIX 0
 #else
@@ -167,7 +103,7 @@ struct sockaddr_in;
 #define LWS_INLINE inline
 #define LWS_O_RDONLY O_RDONLY
 
-#if !defined(MBED_OPERATORS) && !defined(LWS_WITH_ESP8266) && !defined(OPTEE_TA) && !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP8266) && !defined(OPTEE_TA) && !defined(LWS_WITH_ESP32)
 #include <poll.h>
 #include <netdb.h>
 #define LWS_INVALID_FILE -1
@@ -447,30 +383,7 @@ struct lws_pollfd {
 #define LWS_POLLOUT (FD_WRITE)
 #else
 
-#if defined(MBED_OPERATORS)
-/* it's a class lws_conn * */
-typedef void * lws_sockfd_type;
-typedef void * lws_filefd_type;
-#define lws_sockfd_valid(sfd) (!!sfd)
-struct pollfd {
-	lws_sockfd_type fd; /**< fd related to */
-	short events; /**< which POLL... events to respond to */
-	short revents; /**< which POLL... events occurred */
-};
-#define POLLIN		0x0001
-#define POLLPRI		0x0002
-#define POLLOUT		0x0004
-#define POLLERR		0x0008
-#define POLLHUP		0x0010
-#define POLLNVAL	0x0020
 
-struct lws;
-
-void * mbed3_create_tcp_stream_socket(void);
-void mbed3_delete_tcp_stream_socket(void *sockfd);
-void mbed3_tcp_stream_bind(void *sock, int port, struct lws *);
-void mbed3_tcp_stream_accept(void *sock, struct lws *);
-#else
 #if defined(LWS_WITH_ESP8266)
 
 #include <user_interface.h>
@@ -621,7 +534,6 @@ typedef int lws_filefd_type;
 #define LWS_POLLHUP (POLLHUP|POLLERR)
 #define LWS_POLLIN (POLLIN)
 #define LWS_POLLOUT (POLLOUT)
-#endif
 #endif
 
 /** struct lws_pollargs - argument structure for all external poll related calls

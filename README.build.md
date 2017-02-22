@@ -223,48 +223,6 @@ cmake from scratch.
 	$ make install
 ```
 
-@section mbed3 Building on mbed3
-
-MBED3 is a non-posix embedded OS targeted on Cortex M class chips.
-
-https://www.mbed.com/
-
-It's quite unlike any other Posixy platform since the OS is linked statically
-in with lws to form one binary.
-
-At the minute server-only is supported and due to bugs in mbed3 network support,
-the port is of alpha quality.  However it can serve the test html, favicon.ico
-and logo png and may be able to make ws connections.  The binary for that
-including the OS, test app, lws and all the assets is only 117KB.
-
-0) Today mbed3 only properly works on FRDM K64F $35 Freescale Dev Board with
-1MB Flash, 256KB SRAM and Ethernet.
-
-http://www.freescale.com/products/arm-processors/kinetis-cortex-m/k-series/k6x-ethernet-mcus/freescale-freedom-development-platform-for-kinetis-k64-k63-and-k24-mcus:FRDM-K64F
-
-1) Get a working mbed3 environment with arm-none-eabi-cs toolchain
-(available in Fedora, Ubuntu and other distros)
-
-2) Confirm you can build things using yotta by following the getting started guide here
-
-https://docs.mbed.com/docs/getting-started-mbed-os/en/latest/
-
-3)
-
-git clone https://github.com/warmcat/lws-test-server
-
-and cd into it
-
-4) mkdir -p yotta_modules ; cd yotta_modules
-
-5) git clone https://github.com/warmcat/libwebsockets ; mv libwebsockets websockets ; cd ..
-
-6) yotta target frdm-k64f-gcc
-
-7) yotta install
-
-8) yotta build
-
 @section optee Building for OP-TEE
 
 OP-TEE is a "Secure World" Trusted Execution Environment.

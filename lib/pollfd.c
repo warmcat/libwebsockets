@@ -146,7 +146,7 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 		return 1;
 	}
 
-#if !defined(_WIN32) && !defined(MBED_OPERATORS) && !defined(LWS_WITH_ESP8266)
+#if !defined(_WIN32) && !defined(LWS_WITH_ESP8266)
 	if (wsi->sock >= context->max_fds) {
 		lwsl_err("Socket fd %d is too high (%d)\n",
 			 wsi->sock, context->max_fds);
@@ -212,7 +212,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 #endif
 	int m, ret = 0;
 
-#if !defined(_WIN32) && !defined(MBED_OPERATORS) && !defined(LWS_WITH_ESP8266)
+#if !defined(_WIN32) && !defined(LWS_WITH_ESP8266)
 	if (wsi->sock > context->max_fds) {
 		lwsl_err("fd %d too high (%d)\n", wsi->sock, context->max_fds);
 		return 1;

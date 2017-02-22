@@ -87,10 +87,6 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #if defined(LWS_WITH_ESP8266)
 	sockfd = esp8266_create_tcp_listen_socket(vhost);
 	if (!lws_sockfd_valid(sockfd)) {
-
-#else
-	sockfd = mbed3_create_tcp_stream_socket();
-	if (!lws_sockfd_valid(sockfd)) {
 #endif
 #endif
 		lwsl_err("ERROR opening socket\n");
@@ -177,8 +173,6 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #else
 #if defined(LWS_WITH_ESP8266)
 	esp8266_tcp_stream_bind(wsi->sock, info->port, wsi);
-#else
-	mbed3_tcp_stream_bind(wsi->sock, info->port, wsi);
 #endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
@@ -1717,8 +1711,6 @@ lws_adopt_socket_vhost2(struct lws_vhost *vh, lws_sockfd_type accept_fd,
 #if LWS_POSIX == 0
 #if defined(LWS_WITH_ESP8266)
 	esp8266_tcp_stream_accept(accept_fd, new_wsi);
-#else
-	mbed3_tcp_stream_accept(accept_fd, new_wsi);
 #endif
 #endif
 	/*
