@@ -43,14 +43,9 @@ static struct lws *wsi_multi[3];
 static volatile int force_exit;
 static unsigned int opts, rl_multi[3];
 static int flag_no_mirror_traffic;
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
+
 #if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
 char crl_path[1024] = "";
-#endif
-#endif
 #endif
 
 /*
@@ -235,10 +230,6 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		force_exit = 1;
 		break;
 
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
 #if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
 	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
 		if (crl_path[0]) {
@@ -258,8 +249,6 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 		break;
-#endif
-#endif
 #endif
 
 	default:
@@ -503,17 +492,12 @@ int main(int argc, char **argv)
 			strncpy(ca_path, optarg, sizeof(ca_path) - 1);
 			ca_path[sizeof(ca_path) - 1] = '\0';
 			break;
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
+
 #if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
 		case 'R':
 			strncpy(crl_path, optarg, sizeof(crl_path) - 1);
 			crl_path[sizeof(crl_path) - 1] = '\0';
 			break;
-#endif
-#endif
 #endif
 		case 'h':
 			goto usage;
@@ -578,15 +562,10 @@ int main(int argc, char **argv)
 		 */
 		if (ca_path[0])
 			info.ssl_ca_filepath = ca_path;
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
+
 #if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
 		else if (crl_path[0])
 			lwsl_notice("WARNING, providing a CRL requires a CA cert!\n");
-#endif
-#endif
 #endif
 	}
 

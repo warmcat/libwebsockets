@@ -261,23 +261,6 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #define OPENSSL_NO_TLSEXT
 #endif /* not USE_OLD_CYASSL */
 #else
-#if defined(LWS_USE_POLARSSL)
-#include <polarssl/ssl.h>
-#include <polarssl/error.h>
-#include <polarssl/md5.h>
-#include <polarssl/sha1.h>
-#include <polarssl/ecdh.h>
-#define SSL_ERROR_WANT_READ POLARSSL_ERR_NET_WANT_READ
-#define SSL_ERROR_WANT_WRITE POLARSSL_ERR_NET_WANT_WRITE
-#define OPENSSL_VERSION_NUMBER  0x10002000L
-#else
-#if defined(LWS_USE_MBEDTLS)
-#include <mbedtls/ssl.h>
-#include <mbedtls/error.h>
-#include <mbedtls/md5.h>
-#include <mbedtls/sha1.h>
-#include <mbedtls/ecdh.h>
-#else
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
@@ -295,9 +278,6 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
  */
 #define OPENSSL_NO_TLSEXT
 #endif
-
-#endif /* not USE_MBEDTLS */
-#endif /* not USE_POLARSSL */
 #endif /* not USE_WOLFSSL */
 #endif
 
@@ -1418,9 +1398,7 @@ struct lws {
 #endif
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL *ssl;
-#if !defined(LWS_USE_POLARSSL) && !defined(LWS_USE_MBEDTLS)
 	BIO *client_bio;
-#endif
 	struct lws *pending_read_list_prev, *pending_read_list_next;
 #endif
 #ifdef LWS_WITH_HTTP_PROXY

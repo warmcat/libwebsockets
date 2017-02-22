@@ -29,10 +29,6 @@ lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info
 
 extern int lws_ssl_get_error(struct lws *wsi, int n);
 
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
 #ifdef USE_WOLFSSL
 #else
 
@@ -93,17 +89,10 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	return !n;
 }
 #endif
-#endif
-#endif
 
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
-#if defined(LWS_USE_POLARSSL)
-	return 0;
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
 	char hostname[128], *p;
 
 	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
@@ -212,8 +201,6 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			wsi);
 
 	return 0;
-#endif
-#endif
 }
 
 int
@@ -223,13 +210,8 @@ lws_ssl_client_connect1(struct lws *wsi)
 	int n = 0;
 
 	lws_latency_pre(context, wsi);
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
+
 	n = SSL_connect(wsi->ssl);
-#endif
-#endif
 
 	lws_latency(context, wsi,
 	  "SSL_connect LWSCM_WSCL_ISSUE_HANDSHAKE", n, n > 0);
@@ -279,10 +261,7 @@ some_wait:
 		 * retry if new data comes until we
 		 * run into the connection timeout or win
 		 */
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
+
 		unsigned long error = ERR_get_error();
 
 		if (error != SSL_ERROR_NONE) {
@@ -293,8 +272,6 @@ some_wait:
 				error, ERR_error_string(error, sb));
 			return -1;
 		}
-#endif
-#endif
 	}
 
 	return 1;
@@ -304,26 +281,14 @@ int
 lws_ssl_client_connect2(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];
 	char *sb = p;
-#endif
-#endif
 	int n = 0;
 
 	if (wsi->mode == LWSCM_WSCL_WAITING_SSL) {
 		lws_latency_pre(context, wsi);
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
 		n = SSL_connect(wsi->ssl);
-#endif
-#endif
 		lwsl_notice("%s: SSL_connect says %d\n", __func__, n);
 
 		lws_latency(context, wsi,
@@ -369,25 +334,15 @@ lws_ssl_client_connect2(struct lws *wsi)
 			 * retry if new data comes until we
 			 * run into the connection timeout or win
 			 */
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
 			unsigned long error = ERR_get_error();
 			if (error != SSL_ERROR_NONE) {
 				lwsl_err("SSL connect error %lu: %s\n",
 					 error, ERR_error_string(error, sb));
 				return -1;
 			}
-#endif
-#endif
 		}
 	}
 
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
 #ifndef USE_WOLFSSL
 	/*
 	 * See comment above about wolfSSL certificate
@@ -419,8 +374,6 @@ lws_ssl_client_connect2(struct lws *wsi)
 	}
 
 #endif /* USE_WOLFSSL */
-#endif
-#endif
 
 	return 1;
 }
@@ -429,11 +382,6 @@ lws_ssl_client_connect2(struct lws *wsi)
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 				struct lws_vhost *vhost)
 {
-#if defined(LWS_USE_POLARSSL)
-	return 0;
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
 	SSL_METHOD *method;
 	struct lws wsi;
 	unsigned long error;
@@ -580,6 +528,4 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 				       vhost->ssl_client_ctx, NULL, 0);
 
 	return 0;
-#endif
-#endif
 }

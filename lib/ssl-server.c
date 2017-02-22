@@ -21,11 +21,6 @@
 
 #include "private-libwebsockets.h"
 
-#if defined(LWS_USE_POLARSSL)
-#else
-#if defined(LWS_USE_MBEDTLS)
-#else
-
 extern int openssl_websocket_private_data_index,
     openssl_SSL_CTX_private_data_index;
 
@@ -186,9 +181,6 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 }
 #endif
 
-#endif
-#endif
-
 LWS_VISIBLE int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost)
@@ -225,66 +217,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	(void)n;
 	(void)error;
-
-#if defined(LWS_USE_POLARSSL)
-	lwsl_notice(" Compiled with PolarSSL support\n");
-
-	vhost->ssl_ctx = lws_zalloc(sizeof (*vhost->ssl_ctx));
-
-	/* Load the trusted CA */
-
-	if (info->ssl_ca_filepath) {
-		n = x509_crt_parse_file(&vhost->ssl_ctx->ca,
-					info->ssl_ca_filepath);
-
-		if (n < 0) {
-//			error_strerror(ret, errorbuf, sizeof(errorbuf));
-			lwsl_err("%s: Failed to load ca cert\n", __func__);
-			return -1;
-		}
-	}
-
-	/* Load our cert */
-
-	if (info->ssl_cert_filepath) {
-		n = x509_crt_parse_file(&vhost->ssl_ctx->certificate,
-					info->ssl_cert_filepath);
-
-		if (n < 0) {
-//			error_strerror(ret, errorbuf, sizeof(errorbuf));
-			lwsl_err("%s: Failed to load cert\n", __func__);
-			return -1;
-		}
-	}
-
-	/* Load cert private key */
-
-	if (info->ssl_private_key_filepath) {
-		pk_context pk;
-		pk_init(&pk);
-		n = pk_parse_keyfile(&pk, info->ssl_private_key_filepath,
-				     info->ssl_private_key_password);
-
-		if (!n && !pk_can_do(&pk, POLARSSL_PK_RSA))
-			n = POLARSSL_ERR_PK_TYPE_MISMATCH;
-
-		if (!n)
-			rsa_copy(&vhost->ssl_ctx->key, pk_rsa(pk));
-		else
-			rsa_free(&vhost->ssl_ctx->key);
-		pk_free(&pk);
-
-		if (n) {
-			//error_strerror(ret, errorbuf, sizeof(errorbuf));
-			lwsl_err("%s: error reading private key\n", __func__);
-
-			return -1;
-		}
-	}
-#else
-#if defined(LWS_USE_MBEDTLS)
-	lwsl_notice(" Compiled with mbedTLS support\n");
-#else
 
 	/*
 	 * Firefox insists on SSLv23 not SSLv3
@@ -446,9 +378,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 		lws_context_init_http2_ssl(vhost);
 	}
-
-#endif
-#endif
 
 	return 0;
 }
