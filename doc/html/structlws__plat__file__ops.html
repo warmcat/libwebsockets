@@ -66,34 +66,29 @@ $(document).ready(function(){initNavTree('structlws__plat__file__ops.html','');}
 <div class="title">lws_plat_file_ops Struct Reference<div class="ingroups"><a class="el" href="group__fops.html">file operation wrapping</a></div></div>  </div>
 </div><!--header-->
 <div class="contents">
-
-<p><code>#include &lt;<a class="el" href="libwebsockets_8h_source.html">libwebsockets.h</a>&gt;</code></p>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="pub-attribs"></a>
 Data Fields</h2></td></tr>
-<tr class="memitem:ad37a97abc68d0af967cef874f4d8df32"><td class="memItemLeft" align="right" valign="top">lws_filefd_type(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__plat__file__ops.html#ad37a97abc68d0af967cef874f4d8df32">open</a> )(struct lws *wsi, const char *filename, unsigned long *filelen, int flags)</td></tr>
-<tr class="separator:ad37a97abc68d0af967cef874f4d8df32"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a034ec96f2fbaf52b4aa3e82d20795f7b"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__plat__file__ops.html#a034ec96f2fbaf52b4aa3e82d20795f7b">close</a> )(struct lws *wsi, lws_filefd_type fd)</td></tr>
-<tr class="separator:a034ec96f2fbaf52b4aa3e82d20795f7b"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:abfcda19b003dcc13c61ff9e2bb4ff869"><td class="memItemLeft" align="right" valign="top">unsigned long(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__plat__file__ops.html#abfcda19b003dcc13c61ff9e2bb4ff869">seek_cur</a> )(struct lws *wsi, lws_filefd_type fd, long offset_from_cur_pos)</td></tr>
-<tr class="separator:abfcda19b003dcc13c61ff9e2bb4ff869"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a01f483807a9862736b17ba9ed5110c40"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__plat__file__ops.html#a01f483807a9862736b17ba9ed5110c40">read</a> )(struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)</td></tr>
-<tr class="separator:a01f483807a9862736b17ba9ed5110c40"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a1fae8330ee94649a3551e31a30809793"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__plat__file__ops.html#a1fae8330ee94649a3551e31a30809793">write</a> )(struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)</td></tr>
-<tr class="separator:a1fae8330ee94649a3551e31a30809793"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a79484f37c8e54d75342eb2ecf97b5f7b"><td class="memItemLeft" align="right" valign="top">lws_filefd_type(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__plat__file__ops.html#a79484f37c8e54d75342eb2ecf97b5f7b">LWS_FOP_OPEN</a> )(struct lws *wsi, const char *filename, unsigned long *filelen, int *flags)</td></tr>
+<tr class="separator:a79484f37c8e54d75342eb2ecf97b5f7b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aaa412792d1e8df151729850a6448f001"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__plat__file__ops.html#aaa412792d1e8df151729850a6448f001">LWS_FOP_CLOSE</a> )(struct lws *wsi, lws_filefd_type fd)</td></tr>
+<tr class="separator:aaa412792d1e8df151729850a6448f001"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1352a356778159c97195a5bff65dda6c"><td class="memItemLeft" align="right" valign="top">unsigned long(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__plat__file__ops.html#a1352a356778159c97195a5bff65dda6c">LWS_FOP_SEEK_CUR</a> )(struct lws *wsi, lws_filefd_type fd, long offset_from_cur_pos)</td></tr>
+<tr class="separator:a1352a356778159c97195a5bff65dda6c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4ddeac2cd3d3bdf517ad355dbc123d00"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__plat__file__ops.html#a4ddeac2cd3d3bdf517ad355dbc123d00">LWS_FOP_READ</a> )(struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)</td></tr>
+<tr class="separator:a4ddeac2cd3d3bdf517ad355dbc123d00"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5e801362a7d11b83608980123233a220"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__plat__file__ops.html#a5e801362a7d11b83608980123233a220">LWS_FOP_WRITE</a> )(struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)</td></tr>
+<tr class="separator:a5e801362a7d11b83608980123233a220"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
-<a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>struct <a class="el" href="structlws__plat__file__ops.html">lws_plat_file_ops</a> - Platform-specific file operations</p>
-<p>These provide platform-agnostic ways to deal with filesystem access in the library and in the user code. </p>
-</div><h2 class="groupheader">Field Documentation</h2>
-<a id="a034ec96f2fbaf52b4aa3e82d20795f7b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a034ec96f2fbaf52b4aa3e82d20795f7b">&sect;&nbsp;</a></span>close</h2>
+<h2 class="groupheader">Field Documentation</h2>
+<a id="aaa412792d1e8df151729850a6448f001"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaa412792d1e8df151729850a6448f001">&sect;&nbsp;</a></span>LWS_FOP_CLOSE</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">int(* lws_plat_file_ops::close) (struct lws *wsi, lws_filefd_type fd)</td>
+          <td class="memname">int(* lws_plat_file_ops::LWS_FOP_CLOSE) (struct lws *wsi, lws_filefd_type fd)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -101,29 +96,29 @@ Data Fields</h2></td></tr>
 
 </div>
 </div>
-<a id="ad37a97abc68d0af967cef874f4d8df32"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad37a97abc68d0af967cef874f4d8df32">&sect;&nbsp;</a></span>open</h2>
+<a id="a79484f37c8e54d75342eb2ecf97b5f7b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a79484f37c8e54d75342eb2ecf97b5f7b">&sect;&nbsp;</a></span>LWS_FOP_OPEN</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">lws_filefd_type(* lws_plat_file_ops::open) (struct lws *wsi, const char *filename, unsigned long *filelen, int flags)</td>
+          <td class="memname">lws_filefd_type(* lws_plat_file_ops::LWS_FOP_OPEN) (struct lws *wsi, const char *filename, unsigned long *filelen, int *flags)</td>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Open file (always binary access if plat supports it) filelen is filled on exit to be the length of the file flags should be set to O_RDONLY or O_RDWR </p>
+<p>Open file (always binary access if plat supports it) filelen is filled on exit to be the length of the file *flags &amp; LWS_FOP_FLAGS_MASK should be set to O_RDONLY or O_RDWR. If the file may be gzip-compressed, LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP is set. If it actually is gzip-compressed, then the open handler should OR LWS_FOP_FLAG_COMPR_IS_GZIP on to *flags before returning. </p>
 
 </div>
 </div>
-<a id="a01f483807a9862736b17ba9ed5110c40"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a01f483807a9862736b17ba9ed5110c40">&sect;&nbsp;</a></span>read</h2>
+<a id="a4ddeac2cd3d3bdf517ad355dbc123d00"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4ddeac2cd3d3bdf517ad355dbc123d00">&sect;&nbsp;</a></span>LWS_FOP_READ</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">int(* lws_plat_file_ops::read) (struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)</td>
+          <td class="memname">int(* lws_plat_file_ops::LWS_FOP_READ) (struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -131,14 +126,14 @@ Data Fields</h2></td></tr>
 
 </div>
 </div>
-<a id="abfcda19b003dcc13c61ff9e2bb4ff869"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abfcda19b003dcc13c61ff9e2bb4ff869">&sect;&nbsp;</a></span>seek_cur</h2>
+<a id="a1352a356778159c97195a5bff65dda6c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1352a356778159c97195a5bff65dda6c">&sect;&nbsp;</a></span>LWS_FOP_SEEK_CUR</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">unsigned long(* lws_plat_file_ops::seek_cur) (struct lws *wsi, lws_filefd_type fd, long offset_from_cur_pos)</td>
+          <td class="memname">unsigned long(* lws_plat_file_ops::LWS_FOP_SEEK_CUR) (struct lws *wsi, lws_filefd_type fd, long offset_from_cur_pos)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -146,14 +141,14 @@ Data Fields</h2></td></tr>
 
 </div>
 </div>
-<a id="a1fae8330ee94649a3551e31a30809793"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a1fae8330ee94649a3551e31a30809793">&sect;&nbsp;</a></span>write</h2>
+<a id="a5e801362a7d11b83608980123233a220"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5e801362a7d11b83608980123233a220">&sect;&nbsp;</a></span>LWS_FOP_WRITE</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">int(* lws_plat_file_ops::write) (struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)</td>
+          <td class="memname">int(* lws_plat_file_ops::LWS_FOP_WRITE) (struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)</td>
         </tr>
       </table>
 </div><div class="memdoc">

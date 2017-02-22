@@ -1,6 +1,11 @@
 var structlws__context__creation__info =
 [
     [ "_unused", "structlws__context__creation__info.html#afce3b59950eca3203faa07381bbed5d7", null ],
+    [ "client_ssl_ca_filepath", "structlws__context__creation__info.html#a63efdf843aa178a7db3900fb9b3946c3", null ],
+    [ "client_ssl_cert_filepath", "structlws__context__creation__info.html#a092e5804a2a848c1d0b4fa904268c89d", null ],
+    [ "client_ssl_cipher_list", "structlws__context__creation__info.html#a67d9c2a43c9af69d9f12454df1afd49a", null ],
+    [ "client_ssl_private_key_filepath", "structlws__context__creation__info.html#a30d5102d5ea56788d07bb075d10cee66", null ],
+    [ "client_ssl_private_key_password", "structlws__context__creation__info.html#a8da6e0c48d4cabe2f85c353184ff8514", null ],
     [ "count_threads", "structlws__context__creation__info.html#ae52f3237e144e9ddcab5e2cf91d1e419", null ],
     [ "ecdh_curve", "structlws__context__creation__info.html#afa5d4e7d9f86b58a1c6fac14f0a5f5f9", null ],
     [ "extensions", "structlws__context__creation__info.html#a4a3d1155fc52f5048b481884f6fb947c", null ],

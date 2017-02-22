@@ -155,6 +155,16 @@ Data Fields</h2></td></tr>
 <tr class="separator:a6b059b7ee248cba72a3a4fd6141b0b34"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aadbc1b141d16c1084ec4c543e7768a72"><td class="memItemLeft" align="right" valign="top">void *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#aadbc1b141d16c1084ec4c543e7768a72">external_baggage_free_on_destroy</a></td></tr>
 <tr class="separator:aadbc1b141d16c1084ec4c543e7768a72"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8da6e0c48d4cabe2f85c353184ff8514"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#a8da6e0c48d4cabe2f85c353184ff8514">client_ssl_private_key_password</a></td></tr>
+<tr class="separator:a8da6e0c48d4cabe2f85c353184ff8514"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a092e5804a2a848c1d0b4fa904268c89d"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#a092e5804a2a848c1d0b4fa904268c89d">client_ssl_cert_filepath</a></td></tr>
+<tr class="separator:a092e5804a2a848c1d0b4fa904268c89d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a30d5102d5ea56788d07bb075d10cee66"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#a30d5102d5ea56788d07bb075d10cee66">client_ssl_private_key_filepath</a></td></tr>
+<tr class="separator:a30d5102d5ea56788d07bb075d10cee66"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a63efdf843aa178a7db3900fb9b3946c3"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#a63efdf843aa178a7db3900fb9b3946c3">client_ssl_ca_filepath</a></td></tr>
+<tr class="separator:a63efdf843aa178a7db3900fb9b3946c3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a67d9c2a43c9af69d9f12454df1afd49a"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#a67d9c2a43c9af69d9f12454df1afd49a">client_ssl_cipher_list</a></td></tr>
+<tr class="separator:a67d9c2a43c9af69d9f12454df1afd49a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:afce3b59950eca3203faa07381bbed5d7"><td class="memItemLeft" align="right" valign="top">void *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__context__creation__info.html#afce3b59950eca3203faa07381bbed5d7">_unused</a> [8]</td></tr>
 <tr class="separator:afce3b59950eca3203faa07381bbed5d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
@@ -175,6 +185,81 @@ Data Fields</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <p>dummy </p>
+
+</div>
+</div>
+<a id="a63efdf843aa178a7db3900fb9b3946c3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a63efdf843aa178a7db3900fb9b3946c3">&sect;&nbsp;</a></span>client_ssl_ca_filepath</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char* lws_context_creation_info::client_ssl_ca_filepath</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>VHOST: CA certificate filepath or NULL </p>
+
+</div>
+</div>
+<a id="a092e5804a2a848c1d0b4fa904268c89d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a092e5804a2a848c1d0b4fa904268c89d">&sect;&nbsp;</a></span>client_ssl_cert_filepath</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char* lws_context_creation_info::client_ssl_cert_filepath</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>VHOST: If libwebsockets was compiled to use ssl, and you want to listen using SSL, set to the filepath to fetch the server cert from, otherwise NULL for unencrypted </p>
+
+</div>
+</div>
+<a id="a67d9c2a43c9af69d9f12454df1afd49a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a67d9c2a43c9af69d9f12454df1afd49a">&sect;&nbsp;</a></span>client_ssl_cipher_list</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char* lws_context_creation_info::client_ssl_cipher_list</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>VHOST: List of valid ciphers to use (eg, "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL" or you can leave it as NULL to get "DEFAULT" </p>
+
+</div>
+</div>
+<a id="a30d5102d5ea56788d07bb075d10cee66"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a30d5102d5ea56788d07bb075d10cee66">&sect;&nbsp;</a></span>client_ssl_private_key_filepath</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char* lws_context_creation_info::client_ssl_private_key_filepath</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>VHOST: filepath to private key if wanting SSL mode; if this is set to NULL but sll_cert_filepath is set, the OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called to allow setting of the private key directly via openSSL library calls </p>
+
+</div>
+</div>
+<a id="a8da6e0c48d4cabe2f85c353184ff8514"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8da6e0c48d4cabe2f85c353184ff8514">&sect;&nbsp;</a></span>client_ssl_private_key_password</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char* lws_context_creation_info::client_ssl_private_key_password</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>&lt; CONTEXT: NULL or struct <a class="el" href="structlws__token__limits.html">lws_token_limits</a> pointer which is initialized with a token length limit for each possible WSI_TOKEN_ VHOST: NULL or the passphrase needed for the private key </p>
 
 </div>
 </div>

@@ -74,10 +74,6 @@ $(document).ready(function(){initNavTree('libwebsockets_8h.html','');});
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="nested-classes"></a>
 Data Structures</h2></td></tr>
-<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classlws__conn.html">lws_conn</a></td></tr>
-<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classlws__conn__listener.html">lws_conn_listener</a></td></tr>
-<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__polarssl__context.html">lws_polarssl_context</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__pollfd.html">lws_pollfd</a></td></tr>
@@ -85,6 +81,8 @@ Data Structures</h2></td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structpollfd.html">pollfd</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structpollfd.html">pollfd</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structtimer__mapping.html">timer_mapping</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structlws__pollargs.html">lws_pollargs</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -145,12 +143,15 @@ typedef SOCKET&#160;</td><td class="memItemRight" valign="bottom"><b>lws_sockfd_
 <tr class="memitem:aff42d53861afdc1a6edfb999ba688ecb"><td class="memItemLeft" align="right" valign="top"><a id="aff42d53861afdc1a6edfb999ba688ecb"></a>
 typedef HANDLE&#160;</td><td class="memItemRight" valign="bottom"><b>lws_filefd_type</b></td></tr>
 <tr class="separator:aff42d53861afdc1a6edfb999ba688ecb"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a1b12016562c728eb306c7f954c804bef"><td class="memItemLeft" align="right" valign="top"><a id="a1b12016562c728eb306c7f954c804bef"></a>
+<tr class="memitem:a02a9b41e0fbad0747763cead1ebe7bd9"><td class="memItemLeft" align="right" valign="top"><a id="a02a9b41e0fbad0747763cead1ebe7bd9"></a>
 typedef os_timer_t&#160;</td><td class="memItemRight" valign="bottom"><b>uv_timer_t</b></td></tr>
-<tr class="separator:a1b12016562c728eb306c7f954c804bef"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="separator:a02a9b41e0fbad0747763cead1ebe7bd9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a27551d6899b1e4de4b2b5854e805c6eb"><td class="memItemLeft" align="right" valign="top"><a id="a27551d6899b1e4de4b2b5854e805c6eb"></a>
 typedef void&#160;</td><td class="memItemRight" valign="bottom"><b>uv_cb_t</b>(uv_timer_t *)</td></tr>
 <tr class="separator:a27551d6899b1e4de4b2b5854e805c6eb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1ce1f21cc97ba9a131b3574911e998fd"><td class="memItemLeft" align="right" valign="top"><a id="a1ce1f21cc97ba9a131b3574911e998fd"></a>
+typedef void *&#160;</td><td class="memItemRight" valign="bottom"><b>uv_handle_t</b></td></tr>
+<tr class="separator:a1ce1f21cc97ba9a131b3574911e998fd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gad4fcb82e68d60ffacca61a3f783a0a2f"><td class="memItemLeft" align="right" valign="top">typedef int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__usercb.html#gad4fcb82e68d60ffacca61a3f783a0a2f">lws_callback_function</a>(struct lws *wsi, enum <a class="el" href="group__usercb.html#gad62860e19975ba4c4af401c3cdb6abf7">lws_callback_reasons</a> reason, void *user, void *in, size_t len)</td></tr>
 <tr class="separator:gad4fcb82e68d60ffacca61a3f783a0a2f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gaae7169b2cd346b34fa33d0250db2afd0"><td class="memItemLeft" align="right" valign="top">typedef int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__extensions.html#gaae7169b2cd346b34fa33d0250db2afd0">lws_extension_callback_function</a>(struct lws_context *context, const struct <a class="el" href="structlws__extension.html">lws_extension</a> *ext, struct lws *wsi, enum lws_extension_callback_reasons reason, void *user, void *in, size_t len)</td></tr>
@@ -289,6 +290,11 @@ Enumerations</h2></td></tr>
 &#160;&#160;<a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7aa5cc921b7697743017a533822a3d556a">LWS_CALLBACK_HTTP_PMO</a> = 56, 
 <a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7aeb0cec65ec82a713cd01e9ca9aeeb5e6">LWS_CALLBACK_CLIENT_HTTP_WRITEABLE</a> = 57, 
 <a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7a17620dd6cb920b9b6daeae63575be08b">LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION</a> = 58, 
+<a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7a6c4ce79afb3a5d96c8df3c8d5e3c869d">LWS_CALLBACK_RAW_RX</a> = 59, 
+<br />
+&#160;&#160;<a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7ae4cc93dadca4ea4541f3fe6d35bdb0a9">LWS_CALLBACK_RAW_CLOSE</a> = 60, 
+<a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7acd0e80a385c951eceb9c6e2a41ab1c82">LWS_CALLBACK_RAW_WRITEABLE</a> = 61, 
+<a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7a13e302be9ed9190d962591eb9c8c5f0b">LWS_CALLBACK_RAW_ADOPT</a> = 62, 
 <a class="el" href="group__usercb.html#ggad62860e19975ba4c4af401c3cdb6abf7a982579753e70e59a9ea13ce628ac891a">LWS_CALLBACK_USER</a> = 1000
 <br />
  }</td></tr>
@@ -533,21 +539,22 @@ Enumerations</h2></td></tr>
 <b>WSI_TOKEN_HTTP1_0</b> = 79, 
 <br />
 &#160;&#160;<b>WSI_TOKEN_X_FORWARDED_FOR</b> = 80, 
+<b>WSI_TOKEN_CONNECT</b> = 81, 
 <b>_WSI_TOKEN_CLIENT_SENT_PROTOCOLS</b>, 
 <b>_WSI_TOKEN_CLIENT_PEER_ADDRESS</b>, 
-<b>_WSI_TOKEN_CLIENT_URI</b>, 
 <br />
-&#160;&#160;<b>_WSI_TOKEN_CLIENT_HOST</b>, 
+&#160;&#160;<b>_WSI_TOKEN_CLIENT_URI</b>, 
+<b>_WSI_TOKEN_CLIENT_HOST</b>, 
 <b>_WSI_TOKEN_CLIENT_ORIGIN</b>, 
 <b>_WSI_TOKEN_CLIENT_METHOD</b>, 
-<b>WSI_TOKEN_COUNT</b>, 
 <br />
-&#160;&#160;<b>WSI_TOKEN_NAME_PART</b>, 
+&#160;&#160;<b>WSI_TOKEN_COUNT</b>, 
+<b>WSI_TOKEN_NAME_PART</b>, 
 <b>WSI_TOKEN_SKIPPING</b>, 
 <b>WSI_TOKEN_SKIPPING_SAW_CR</b>, 
-<b>WSI_PARSING_COMPLETE</b>, 
 <br />
-&#160;&#160;<b>WSI_INIT_TOKEN_MUXURL</b>
+&#160;&#160;<b>WSI_PARSING_COMPLETE</b>, 
+<b>WSI_INIT_TOKEN_MUXURL</b>
 <br />
  }</td></tr>
 <tr class="separator:ga6e747906f9d76532ec118d6ef418b82e"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -650,18 +657,6 @@ LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><
 <tr class="separator:gab7c0fc936cc9f1eb58e2bb234c15147c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga2d1819ad1645062fd83817e6f20e03b4"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__log.html#ga2d1819ad1645062fd83817e6f20e03b4">lwsl_visible</a> (int level)</td></tr>
 <tr class="separator:ga2d1819ad1645062fd83817e6f20e03b4"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a0b056fdcf949a838ff82209b4a627dd9"><td class="memItemLeft" align="right" valign="top"><a id="a0b056fdcf949a838ff82209b4a627dd9"></a>
-void *&#160;</td><td class="memItemRight" valign="bottom"><b>mbed3_create_tcp_stream_socket</b> (void)</td></tr>
-<tr class="separator:a0b056fdcf949a838ff82209b4a627dd9"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aefb2f20fe5bb29d79701a399838ef4ce"><td class="memItemLeft" align="right" valign="top"><a id="aefb2f20fe5bb29d79701a399838ef4ce"></a>
-void&#160;</td><td class="memItemRight" valign="bottom"><b>mbed3_delete_tcp_stream_socket</b> (void *sockfd)</td></tr>
-<tr class="separator:aefb2f20fe5bb29d79701a399838ef4ce"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a9f2a8506fd963db95a5103823c60fb0a"><td class="memItemLeft" align="right" valign="top"><a id="a9f2a8506fd963db95a5103823c60fb0a"></a>
-void&#160;</td><td class="memItemRight" valign="bottom"><b>mbed3_tcp_stream_bind</b> (void *sock, int port, struct lws *)</td></tr>
-<tr class="separator:a9f2a8506fd963db95a5103823c60fb0a"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a9032a3062641d334161c29adcc4fa15d"><td class="memItemLeft" align="right" valign="top"><a id="a9032a3062641d334161c29adcc4fa15d"></a>
-void&#160;</td><td class="memItemRight" valign="bottom"><b>mbed3_tcp_stream_accept</b> (void *sock, struct lws *)</td></tr>
-<tr class="separator:a9032a3062641d334161c29adcc4fa15d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4e877a4f0bb027d05d3a90c8e6a632de"><td class="memItemLeft" align="right" valign="top"><a id="a4e877a4f0bb027d05d3a90c8e6a632de"></a>
 lws_sockfd_type&#160;</td><td class="memItemRight" valign="bottom"><b>esp8266_create_tcp_listen_socket</b> (struct lws_vhost *vh)</td></tr>
 <tr class="separator:a4e877a4f0bb027d05d3a90c8e6a632de"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -680,6 +675,9 @@ void&#160;</td><td class="memItemRight" valign="bottom"><b>os_timer_setfn</b> (o
 <tr class="memitem:a9b878fb94f4596226c982eef4f42a607"><td class="memItemLeft" align="right" valign="top"><a id="a9b878fb94f4596226c982eef4f42a607"></a>
 void&#160;</td><td class="memItemRight" valign="bottom"><b>ets_timer_arm_new</b> (os_timer_t *, int, int, int)</td></tr>
 <tr class="separator:a9b878fb94f4596226c982eef4f42a607"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aba2915cb02e567cb4bede337cd5ee54b"><td class="memItemLeft" align="right" valign="top"><a id="aba2915cb02e567cb4bede337cd5ee54b"></a>
+void&#160;</td><td class="memItemRight" valign="bottom"><b>esp32_uvtimer_cb</b> (TimerHandle_t t)</td></tr>
+<tr class="separator:aba2915cb02e567cb4bede337cd5ee54b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gaa1c863415d1783cd8de7938aa6efa262"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__wsclose.html#gaa1c863415d1783cd8de7938aa6efa262">lws_close_reason</a> (struct lws *wsi, enum <a class="el" href="group__wsclose.html#gae399c571df32ba532c0ca67da9284985">lws_close_status</a> status, unsigned char *buf, size_t len)</td></tr>
 <tr class="separator:gaa1c863415d1783cd8de7938aa6efa262"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gae0e24e1768f83a7fb07896ce975704b9"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__extensions.html#gae0e24e1768f83a7fb07896ce975704b9">lws_set_extension_option</a> (struct lws *wsi, const char *ext_name, const char *opt_name, const char *opt_val)</td></tr>
@@ -700,6 +698,9 @@ void&#160;</td><td class="memItemRight" valign="bottom"><b>ets_timer_arm_new</b>
 <tr class="separator:gaf3be4243443baac0f8be1fcfb4d25129"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga106b37ae9c247e84d191ab09441adc43"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__Protocols-and-Plugins.html#ga106b37ae9c247e84d191ab09441adc43">lws_finalize_startup</a> (struct lws_context *context)</td></tr>
 <tr class="separator:ga106b37ae9c247e84d191ab09441adc43"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga502b1bc5295d2dc0f51fb95d9b8d7132"><td class="memItemLeft" align="right" valign="top">
+LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b>lws_protocol_init</b> (struct lws_context *context)</td></tr>
+<tr class="separator:ga502b1bc5295d2dc0f51fb95d9b8d7132"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gaf2fff58562caab7510c41eeac85a8648"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws_context *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__context-and-vhost.html#gaf2fff58562caab7510c41eeac85a8648">lws_create_context</a> (struct <a class="el" href="structlws__context__creation__info.html">lws_context_creation_info</a> *info)</td></tr>
 <tr class="separator:gaf2fff58562caab7510c41eeac85a8648"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga8ee0314028755f1ddfa9428e09b4fddb"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__context-and-vhost.html#ga8ee0314028755f1ddfa9428e09b4fddb">lws_context_destroy</a> (struct lws_context *context)</td></tr>
@@ -879,6 +880,9 @@ LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b
 <tr class="separator:gabe71b7462afb21c767bdc67334f305af"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga18747e81ff49df2076e7cd4f131f967c"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__sock-adopt.html#ga18747e81ff49df2076e7cd4f131f967c">lws_adopt_socket_vhost</a> (struct lws_vhost *vh, lws_sockfd_type accept_fd)</td></tr>
 <tr class="separator:ga18747e81ff49df2076e7cd4f131f967c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga03ec62bedd88f8cef062198a75b2202f"><td class="memItemLeft" align="right" valign="top">
+LWS_VISIBLE struct lws *&#160;</td><td class="memItemRight" valign="bottom"><b>lws_adopt_socket_vhost2</b> (struct lws_vhost *vh, lws_sockfd_type accept_fd, int allow_ssl, int raw)</td></tr>
+<tr class="separator:ga03ec62bedd88f8cef062198a75b2202f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gab2d045df0f81afe00891aaed312d552b"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__sock-adopt.html#gab2d045df0f81afe00891aaed312d552b">lws_adopt_socket_readbuf</a> (struct lws_context *context, lws_sockfd_type accept_fd, const char *readbuf, size_t len)</td></tr>
 <tr class="separator:gab2d045df0f81afe00891aaed312d552b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga5ed5fd251ac0ed46798af341c33bf067"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct lws *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__sock-adopt.html#ga5ed5fd251ac0ed46798af341c33bf067">lws_adopt_socket_vhost_readbuf</a> (struct lws_vhost *vhost, lws_sockfd_type accept_fd, const char *readbuf, size_t len)</td></tr>
@@ -948,6 +952,9 @@ LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><b
 <tr class="separator:a27bb0b3cdcd0af839c928c253b521ff4"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gac08aef64c4c34647ed699b24759b6b0e"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN struct <a class="el" href="structlws__plat__file__ops.html">lws_plat_file_ops</a> *LWS_WARN_UNUSED_RESULT&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__fops.html#gac08aef64c4c34647ed699b24759b6b0e">lws_get_fops</a> (struct lws_context *context)</td></tr>
 <tr class="separator:gac08aef64c4c34647ed699b24759b6b0e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga35ab3559612f45824e47a2285def4bde"><td class="memItemLeft" align="right" valign="top">
+LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><b>lws_set_fops</b> (struct lws_context *context, struct <a class="el" href="structlws__plat__file__ops.html">lws_plat_file_ops</a> *fops)</td></tr>
+<tr class="separator:ga35ab3559612f45824e47a2285def4bde"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga77fc9b56a1bb39484844981ec375fc29"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__smtp.html#ga77fc9b56a1bb39484844981ec375fc29">lws_email_init</a> (struct <a class="el" href="structlws__email.html">lws_email</a> *email, uv_loop_t *loop, int max_content)</td></tr>
 <tr class="separator:ga77fc9b56a1bb39484844981ec375fc29"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga5e535e346d92a9daf00be33abf79d4eb"><td class="memItemLeft" align="right" valign="top">LWS_VISIBLE LWS_EXTERN void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__smtp.html#ga5e535e346d92a9daf00be33abf79d4eb">lws_email_check</a> (struct <a class="el" href="structlws__email.html">lws_email</a> *email)</td></tr>

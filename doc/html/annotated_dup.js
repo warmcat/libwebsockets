@@ -2,8 +2,6 @@ var annotated_dup =
 [
     [ "lws_cgi_args", "structlws__cgi__args.html", "structlws__cgi__args" ],
     [ "lws_client_connect_info", "structlws__client__connect__info.html", "structlws__client__connect__info" ],
-    [ "lws_conn", "classlws__conn.html", "classlws__conn" ],
-    [ "lws_conn_listener", "classlws__conn__listener.html", "classlws__conn__listener" ],
     [ "lws_context_creation_info", "structlws__context__creation__info.html", "structlws__context__creation__info" ],
     [ "lws_email", "structlws__email.html", "structlws__email" ],
     [ "lws_ext_option_arg", "structlws__ext__option__arg.html", "structlws__ext__option__arg" ],
@@ -26,5 +24,6 @@ var annotated_dup =
     [ "lws_tokens", "structlws__tokens.html", "structlws__tokens" ],
     [ "lwsgw_hash", "structlwsgw__hash.html", "structlwsgw__hash" ],
     [ "lwsgw_hash_bin", "structlwsgw__hash__bin.html", "structlwsgw__hash__bin" ],
-    [ "pollfd", "structpollfd.html", "structpollfd" ]
+    [ "pollfd", "structpollfd.html", "structpollfd" ],
+    [ "timer_mapping", "structtimer__mapping.html", "structtimer__mapping" ]
 ];

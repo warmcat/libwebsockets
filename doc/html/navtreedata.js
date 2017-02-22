@@ -9,7 +9,6 @@ var NAVTREE =
       [ "Quirk of cmake", "md_README_8build.html#cmq", null ],
       [ "Building on Windows (Visual Studio)", "md_README_8build.html#cmw", null ],
       [ "Building on Windows (MinGW)", "md_README_8build.html#cmwmgw", null ],
-      [ "Building on mbed3", "md_README_8build.html#mbed3", null ],
       [ "Building for OP-TEE", "md_README_8build.html#optee", null ],
       [ "Setting compile options", "md_README_8build.html#cmco", [
         [ "Command line", "md_README_8build.html#cmcocl", null ],
@@ -112,10 +111,8 @@ var NAVTREE =
     [ "Data Structures", "annotated.html", [
       [ "Data Structures", "annotated.html", "annotated_dup" ],
       [ "Data Structure Index", "classes.html", null ],
-      [ "Class Hierarchy", "hierarchy.html", "hierarchy" ],
       [ "Data Fields", "functions.html", [
         [ "All", "functions.html", null ],
-        [ "Functions", "functions_func.html", null ],
         [ "Variables", "functions_vars.html", null ]
       ] ]
     ] ],
@@ -135,10 +132,10 @@ var NAVTREE =
 var NAVTREEINDEX =
 [
 "annotated.html",
-"group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5a4933347a821e73c3f1e13fb6bfc7ad93",
-"group__sending-data.html#gga98b099cf8c1c7e38ad78501f270e193dae7d8a025a65524652fe9e24c2654c935",
-"group__wsclose.html#ggae399c571df32ba532c0ca67da9284985ad0869604d79e13700ae5d196a431b350",
-"structlws__ext__option__arg.html"
+"group__context-and-vhost.html#gga41c2d763f78cc248df3b9f8645dbd2a5accc9d0d11d1124a21659586164b0962e",
+"group__service.html#gaf95bd0c663d6516a0c80047d9b1167a8",
+"group__wsstatus.html#ga26a140623d202dd2bf2004deb6994baa",
+"structlws__extension.html#a1e5018c883d85176f5c2152176843f9e"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

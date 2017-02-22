@@ -136,26 +136,7 @@ Building on Windows (MinGW)</h1>
 <p class="startli"><b>NOTE2</b>: To generate build files allowing to create libwebsockets binaries with debug information set the CMAKE_BUILD_TYPE flag to DEBUG: </p><div class="fragment"><div class="line">$ cmake -G &quot;MSYS Makefiles&quot; -DCMAKE_INSTALL_PREFIX=C:/MinGW -DCMAKE_BUILD_TYPE=DEBUG ..</div></div><!-- fragment --></li>
 <li>Finally you can build using the generated Makefile and get the results deployed into your MinGW installation:</li>
 </ol>
-<div class="fragment"><div class="line">$ make</div><div class="line">$ make install</div></div><!-- fragment --><h1><a class="anchor" id="mbed3"></a>
-Building on mbed3</h1>
-<p>MBED3 is a non-posix embedded OS targeted on Cortex M class chips.</p>
-<p><a href="https://www.mbed.com/">https://www.mbed.com/</a></p>
-<p>It's quite unlike any other Posixy platform since the OS is linked statically in with lws to form one binary.</p>
-<p>At the minute server-only is supported and due to bugs in mbed3 network support, the port is of alpha quality. However it can serve the test html, favicon.ico and logo png and may be able to make ws connections. The binary for that including the OS, test app, lws and all the assets is only 117KB.</p>
-<p>0) Today mbed3 only properly works on FRDM K64F $35 Freescale Dev Board with 1MB Flash, 256KB SRAM and Ethernet.</p>
-<p><a href="http://www.freescale.com/products/arm-processors/kinetis-cortex-m/k-series/k6x-ethernet-mcus/freescale-freedom-development-platform-for-kinetis-k64-k63-and-k24-mcus:FRDM-K64F">http://www.freescale.com/products/arm-processors/kinetis-cortex-m/k-series/k6x-ethernet-mcus/freescale-freedom-development-platform-for-kinetis-k64-k63-and-k24-mcus:FRDM-K64F</a></p>
-<p>1) Get a working mbed3 environment with arm-none-eabi-cs toolchain (available in Fedora, Ubuntu and other distros)</p>
-<p>2) Confirm you can build things using yotta by following the getting started guide here</p>
-<p><a href="https://docs.mbed.com/docs/getting-started-mbed-os/en/latest/">https://docs.mbed.com/docs/getting-started-mbed-os/en/latest/</a></p>
-<p>3)</p>
-<p>git clone <a href="https://github.com/warmcat/lws-test-server">https://github.com/warmcat/lws-test-server</a></p>
-<p>and cd into it</p>
-<p>4) mkdir -p yotta_modules ; cd yotta_modules</p>
-<p>5) git clone <a href="https://github.com/warmcat/libwebsockets">https://github.com/warmcat/libwebsockets</a> ; mv libwebsockets websockets ; cd ..</p>
-<p>6) yotta target frdm-k64f-gcc</p>
-<p>7) yotta install</p>
-<p>8) yotta build</p>
-<h1><a class="anchor" id="optee"></a>
+<div class="fragment"><div class="line">$ make</div><div class="line">$ make install</div></div><!-- fragment --><h1><a class="anchor" id="optee"></a>
 Building for OP-TEE</h1>
 <p>OP-TEE is a "Secure World" Trusted Execution Environment.</p>
 <p>Although lws is only part of the necessary picture to have an https-enabled TA, it does support OP-TEE as a platform and if you provide the other pieces, does work very well.</p>
@@ -196,7 +177,7 @@ Reproducing HTTP2.0 tests</h1>
 Cross compiling</h1>
 <p>To enable cross-compiling <b>libwebsockets</b> using CMake you need to create a "Toolchain file" that you supply to CMake when generating your build files. CMake will then use the cross compilers and build paths specified in this file to look for dependencies and such.</p>
 <p><b>Libwebsockets</b> includes an example toolchain file <a href="cross-arm-linux-gnueabihf.cmake">cross-arm-linux-gnueabihf.cmake</a> you can use as a starting point.</p>
-<p>The commandline to configure for cross with this would look like </p><div class="fragment"><div class="line">$ cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr \</div><div class="line">         -DCMAKE_TOOLCHAIN_FILE=../cross-arm-linux-gnueabihf.cmake \</div><div class="line">         -DWITHOUT_EXTENSIONS=1 -DWITH_SSL=0</div></div><!-- fragment --><p> The example shows how to build with no external cross lib dependencies, you need to provide the cross libraries otherwise.</p>
+<p>The commandline to configure for cross with this would look like </p><div class="fragment"><div class="line">$ cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr \</div><div class="line">         -DCMAKE_TOOLCHAIN_FILE=../cross-arm-linux-gnueabihf.cmake \</div><div class="line">         -DLWS_WITHOUT_EXTENSIONS=1 -DLWS_WITH_SSL=0</div></div><!-- fragment --><p> The example shows how to build with no external cross lib dependencies, you need to provide the cross libraries otherwise.</p>
 <p><b>NOTE</b>: start from an EMPTY build directory if you had a non-cross build in there before the settings will be cached and your changes ignored.</p>
 <p>Additional information on cross compilation with CMake: <a href="http://www.vtk.org/Wiki/CMake_Cross_Compiling">http://www.vtk.org/Wiki/CMake_Cross_Compiling</a></p>
 <h1><a class="anchor" id="mem"></a>
