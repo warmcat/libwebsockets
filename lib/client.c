@@ -479,7 +479,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* Relative reference absolute path */
 		if (p[0] == '/')
 		{
+#ifdef LWS_OPENSSL_SUPPORT
 			ssl = wsi->use_ssl;
+#endif
 			ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 			port = wsi->c_port;
 			path = p + 1; /* +1 as lws_client_reset expects leading / to be omitted */
@@ -499,7 +501,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		else
 		{
 			/* This doesn't try to calculate an absolute path, that will be left to the server */
+#ifdef LWS_OPENSSL_SUPPORT
 			ssl = wsi->use_ssl;
+#endif
 			ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 			port = wsi->c_port;
 			path = new_path + 1; /* +1 as lws_client_reset expects leading / to be omitted */
