@@ -230,6 +230,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n = 0;
+ int ssl_read_errno = 0;
 
 	if (!wsi->ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
@@ -238,6 +239,20 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 	/* manpage: returning 0 means connection shut down */
 	if (!n) {
+  n = lws_ssl_get_error(wsi, n);
+
+  if (n == SSL_ERROR_ZERO_RETURN)
+   return LWS_SSL_CAPABLE_ERROR;
+
+  if (n == SSL_ERROR_SYSCALL) {
+   int err = ERR_get_error();
+   if (err == 0
+     && (ssl_read_errno == EPIPE
+      || ssl_read_errno == ECONNABORTED
+      || ssl_read_errno == 0))
+     return LWS_SSL_CAPABLE_ERROR;
+  }
+
 		lwsl_err("%s failed: %s\n",__func__,
 			 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
 		lws_decode_ssl_error();
@@ -312,6 +327,7 @@ LWS_VISIBLE int
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n;
+ int ssl_read_errno = 0;
 
 	if (!wsi->ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
@@ -326,10 +342,22 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 			lws_set_blocking_send(wsi);
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 	}
-		lwsl_err("%s failed: %s\n",__func__,
-				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
-			lws_decode_ssl_error();
 
+ if (n == SSL_ERROR_ZERO_RETURN)
+  return LWS_SSL_CAPABLE_ERROR;
+
+ if (n == SSL_ERROR_SYSCALL) {
+  int err = ERR_get_error();
+  if (err == 0
+    && (ssl_read_errno == EPIPE
+     || ssl_read_errno == ECONNABORTED
+     || ssl_read_errno == 0))
+    return LWS_SSL_CAPABLE_ERROR;
+ }
+
+ lwsl_err("%s failed: %s\n",__func__,
+   ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
+ lws_decode_ssl_error();
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
