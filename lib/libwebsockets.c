@@ -229,9 +229,9 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	}
 
 	if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED &&
-	    wsi->u.http.fd != LWS_INVALID_FILE) {
-		lws_plat_file_close(wsi, wsi->u.http.fd);
-		wsi->u.http.fd = LWS_INVALID_FILE;
+	    wsi->u.http.fop_fd != NULL) {
+		lws_plat_file_close(wsi->u.http.fop_fd);
+		wsi->u.http.fop_fd = NULL;
 		wsi->vhost->protocols->callback(wsi,
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;

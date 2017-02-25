@@ -1092,9 +1092,9 @@ struct _lws_http_mode_related {
 #endif
 	unsigned int preamble_rx_len;
 	struct lws *new_wsi_list;
-	unsigned long filepos;
-	unsigned long filelen;
-	lws_filefd_type fd;
+	lws_filepos_t filepos;
+	lws_filepos_t filelen;
+	lws_fop_fd_t fop_fd;
 
 #if defined(LWS_WITH_RANGES)
 	struct lws_range_parsing range;

@@ -4233,9 +4233,29 @@ lws_cgi_kill(struct lws *wsi);
 #define LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP (1 << 24)
 #define LWS_FOP_FLAG_COMPR_IS_GZIP	   (1 << 25)
 
+struct lws_plat_file_ops;
+struct lws_fop_fd {
+	lws_filefd_type fd;
+	struct lws_plat_file_ops *fops;
+	void *filesystem_priv;
+};
+#if defined(WIN32) || defined(_WIN32)
+/* ... */
+typedef SSIZE_T ssize_t;
+/* !!! >:-[  */
+typedef unsigned __int32 uint32_t;
+typedef unsigned __int8 uint8_t;
+#endif
+typedef struct lws_fop_fd *lws_fop_fd_t;
+typedef size_t lws_filepos_t;
+typedef ssize_t lws_fileofs_t;
+typedef uint32_t lws_fop_flags_t;
+
 struct lws_plat_file_ops {
-	lws_filefd_type (*LWS_FOP_OPEN)(struct lws *wsi, const char *filename,
-				unsigned long *filelen, int *flags);
+	lws_fop_fd_t (*LWS_FOP_OPEN)(struct lws_plat_file_ops *fops,
+				     const char *filename,
+				     lws_filepos_t *filelen,
+				     lws_fop_flags_t *flags);
 	/**< Open file (always binary access if plat supports it)
 	 * filelen is filled on exit to be the length of the file
 	 * *flags & LWS_FOP_FLAGS_MASK should be set to O_RDONLY or O_RDWR.
@@ -4244,18 +4264,16 @@ struct lws_plat_file_ops {
 	 * gzip-compressed, then the open handler should OR
 	 * LWS_FOP_FLAG_COMPR_IS_GZIP on to *flags before returning.
 	 */
-	int (*LWS_FOP_CLOSE)(struct lws *wsi, lws_filefd_type fd);
+	int (*LWS_FOP_CLOSE)(lws_fop_fd_t fop_fd);
 	/**< close file */
-	unsigned long (*LWS_FOP_SEEK_CUR)(struct lws *wsi, lws_filefd_type fd,
-				  long offset_from_cur_pos);
+	lws_fileofs_t (*LWS_FOP_SEEK_CUR)(lws_fop_fd_t fop_fd,
+					  lws_fileofs_t offset_from_cur_pos);
 	/**< seek from current position */
-	int (*LWS_FOP_READ)(struct lws *wsi, lws_filefd_type fd,
-			    unsigned long *amount, unsigned char *buf,
-			    unsigned long len);
+	int (*LWS_FOP_READ)(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+			    uint8_t *buf, lws_filepos_t len);
 	/**< Read from file, on exit *amount is set to amount actually read */
-	int (*LWS_FOP_WRITE)(struct lws *wsi, lws_filefd_type fd,
-			     unsigned long *amount, unsigned char *buf,
-			     unsigned long len);
+	int (*LWS_FOP_WRITE)(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+			     uint8_t *buf, lws_filepos_t len);
 	/**< Write to file, on exit *amount is set to amount actually written */
 
 	/* Add new things just above here ---^
@@ -4274,75 +4292,70 @@ lws_set_fops(struct lws_context *context, struct lws_plat_file_ops *fops);
 /**
  * lws_plat_file_open() - file open operations
  *
- * \param wsi: connection doing the opening
+ * \param fops: file ops struct that applies to this descriptor
  * \param filename: filename to open
  * \param filelen: length of file (filled in by call)
- * \param flags: open flags
+ * \param flags: pointer to open flags
+ *
+ * returns semi-opaque handle
  */
-static LWS_INLINE lws_filefd_type LWS_WARN_UNUSED_RESULT
-lws_plat_file_open(struct lws *wsi, const char *filename,
-		   unsigned long *filelen, int *flags)
+static LWS_INLINE lws_fop_fd_t LWS_WARN_UNUSED_RESULT
+lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
+		   lws_filepos_t *filelen, lws_fop_flags_t *flags)
 {
-	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_OPEN(wsi, filename,
-						    filelen, flags);
+	return fops->LWS_FOP_OPEN(fops, filename, filelen, flags);
 }
 
 /**
  * lws_plat_file_close() - close file
  *
- * \param wsi: connection opened by
- * \param fd: file descriptor
+ * \param fop_fd: file handle to close
  */
 static LWS_INLINE int
-lws_plat_file_close(struct lws *wsi, lws_filefd_type fd)
+lws_plat_file_close(lws_fop_fd_t fop_fd)
 {
-	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_CLOSE(wsi, fd);
+	return fop_fd->fops->LWS_FOP_CLOSE(fop_fd);
 }
 
 /**
  * lws_plat_file_seek_cur() - close file
  *
- * \param wsi: connection opened by
- * \param fd: file descriptor
+ *
+ * \param fop_fd: file handle
  * \param offset: position to seek to
  */
-static LWS_INLINE unsigned long
-lws_plat_file_seek_cur(struct lws *wsi, lws_filefd_type fd, long offset)
+static LWS_INLINE lws_fileofs_t
+lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
-	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_SEEK_CUR(wsi,
-								    fd, offset);
+	return fop_fd->fops->LWS_FOP_SEEK_CUR(fop_fd, offset);
 }
 /**
  * lws_plat_file_read() - read from file
  *
- * \param wsi: connection opened by
- * \param fd: file descriptor
+ * \param fop_fd: file handle
  * \param amount: how much to read (rewritten by call)
  * \param buf: buffer to write to
  * \param len: max length
  */
 static LWS_INLINE int LWS_WARN_UNUSED_RESULT
-lws_plat_file_read(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
-		   unsigned char *buf, unsigned long len)
+lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+		   uint8_t *buf, lws_filepos_t len)
 {
-	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_READ(wsi, fd,
-			amount, buf, len);
+	return fop_fd->fops->LWS_FOP_READ(fop_fd, amount, buf, len);
 }
 /**
  * lws_plat_file_write() - write from file
  *
- * \param wsi: connection opened by
- * \param fd: file descriptor
+ * \param fop_fd: file handle
  * \param amount: how much to write (rewritten by call)
  * \param buf: buffer to read from
  * \param len: max length
  */
 static LWS_INLINE int LWS_WARN_UNUSED_RESULT
-lws_plat_file_write(struct lws *wsi, lws_filefd_type fd, unsigned long *amount,
-		    unsigned char *buf, unsigned long len)
+lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+		    uint8_t *buf, lws_filepos_t len)
 {
-	return lws_get_fops(lws_get_context(wsi))->LWS_FOP_WRITE(wsi, fd,
-						amount, buf, len);
+	return fop_fd->fops->LWS_FOP_WRITE(fop_fd, amount, buf, len);
 }
 //@}
 

@@ -347,24 +347,36 @@ and then can use helpers to also leverage these platform-independent
 file handling apis
 
 ```
-	static inline lws_filefd_type
-	`lws_plat_file_open`(struct lws *wsi, const char *filename, unsigned long *filelen, int flags)
-
+	static inline lws_fop_fd_t
+	`lws_plat_file_open`(struct lws_plat_file_ops *fops, const char *filename,
+			   lws_filepos_t *filelen, lws_fop_flags_t *flags)
 	static inline int
-	`lws_plat_file_close`(struct lws *wsi, lws_filefd_type fd)
+	`lws_plat_file_close`(lws_fop_fd_t fop_fd)
 
 	static inline unsigned long
-	`lws_plat_file_seek_cur`(struct lws *wsi, lws_filefd_type fd, long offset_from_cur_pos)
+	`lws_plat_file_seek_cur`(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 
 	static inline int
-	`lws_plat_file_read`(struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)
+	`lws_plat_file_read`(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+		   uint8_t *buf, lws_filepos_t len)
 
 	static inline int
-	`lws_plat_file_write`(struct lws *wsi, lws_filefd_type fd, unsigned long *amount, unsigned char *buf, unsigned long len)
+	`lws_plat_file_write`(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+		   uint8_t *buf, lws_filepos_t len )
 ```
 
 The user code can also override or subclass the file operations, to either
 wrap or replace them.  An example is shown in test server.
+
+### Changes from v2.1 and before fops
+
+There are three changes:
+
+1) Pre-2.2 fops directly used platform file descriptors.  Current fops returns and accepts a wrapper type lws_fop_fd_t which is a pointer to a malloc'd struct containing information specific to the filesystem implementation.
+
+2) Pre-2.2 fops bound the fops to a wsi.  This is completely removed, you just give a pointer to the fops struct that applies to this file when you open it.  Afterwards, the operations in the fops just need the lws_fop_fd_t returned from the open.
+
+3) Everything is wrapped in typedefs.  See lws-plat-unix.c for examples of how to implement.
 
 @section ecdh ECDH Support
 

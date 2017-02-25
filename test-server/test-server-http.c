@@ -281,6 +281,8 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/* check for the "send a big file by hand" example case */
 
 		if (!strcmp((const char *)in, "/leaf.jpg")) {
+			lws_fop_flags_t flags = LWS_O_RDONLY;
+
 			if (strlen(resource_path) > sizeof(leaf_path) - 10)
 				return -1;
 			sprintf(leaf_path, "%s/leaf.jpg", resource_path);
@@ -290,10 +292,10 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			p = buffer + LWS_PRE;
 			end = p + sizeof(buffer) - LWS_PRE;
 
-			pss->fd = lws_plat_file_open(wsi, leaf_path, &file_len,
-						     LWS_O_RDONLY);
+			pss->fop_fd = lws_plat_file_open(lws_get_fops(lws_get_context(wsi)),
+					leaf_path, &file_len, &flags);
 
-			if (pss->fd == LWS_INVALID_FILE) {
+			if (!pss->fop_fd) {
 				lwsl_err("failed to open file %s\n", leaf_path);
 				return -1;
 			}
@@ -344,7 +346,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				      p - (buffer + LWS_PRE),
 				      LWS_WRITE_HTTP_HEADERS);
 			if (n < 0) {
-				lws_plat_file_close(wsi, pss->fd);
+				lws_plat_file_close(pss->fop_fd);
 				return -1;
 			}
 			/*
@@ -508,7 +510,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (pss->client_finished)
 			return -1;
 
-		if (pss->fd == LWS_INVALID_FILE)
+		if (!pss->fop_fd)
 			goto try_to_reuse;
 
 #ifndef LWS_NO_CLIENT
@@ -553,7 +555,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				/* he couldn't handle that much */
 				n = m;
 
-			n = lws_plat_file_read(wsi, pss->fd,
+			n = lws_plat_file_read(pss->fop_fd,
 					       &amount, buffer + LWS_PRE, n);
 			/* problem reading, close conn */
 			if (n < 0) {
@@ -586,12 +588,12 @@ later:
 		lws_callback_on_writable(wsi);
 		break;
 penultimate:
-		lws_plat_file_close(wsi, pss->fd);
-		pss->fd = LWS_INVALID_FILE;
+		lws_plat_file_close(pss->fop_fd);
+		pss->fop_fd = NULL;
 		goto try_to_reuse;
 
 bail:
-		lws_plat_file_close(wsi, pss->fd);
+		lws_plat_file_close(pss->fop_fd);
 
 		return -1;
 

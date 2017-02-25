@@ -558,7 +558,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_process_html_args args;
-	unsigned long amount, poss;
+	lws_filepos_t amount, poss;
 	unsigned char *p;
 #if defined(LWS_WITH_RANGES)
 	unsigned char finished = 0;
@@ -591,7 +591,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 			lwsl_notice("%s: doing range start %llu\n", __func__, wsi->u.http.range.start);
 
-			if ((long)lws_plat_file_seek_cur(wsi, wsi->u.http.fd,
+			if ((long)lws_plat_file_seek_cur(wsi->u.http.fop_fd,
 						   wsi->u.http.range.start -
 						   wsi->u.http.filepos) < 0)
 				return -1;
@@ -633,7 +633,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			poss -= 10 + 128;
 		}
 
-		if (lws_plat_file_read(wsi, wsi->u.http.fd, &amount, p, poss) < 0)
+		if (lws_plat_file_read(wsi->u.http.fop_fd, &amount, p, poss) < 0)
 			return -1; /* caller will close */
 		
 		//lwsl_notice("amount %ld\n", amount);
@@ -700,7 +700,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 			if (m != n) {
 				/* adjust for what was not sent */
-				if (lws_plat_file_seek_cur(wsi, wsi->u.http.fd,
+				if (lws_plat_file_seek_cur(wsi->u.http.fop_fd,
 							   m - n) ==
 							     (unsigned long)-1)
 					return -1;
@@ -716,8 +716,8 @@ all_sent:
 		     {
 			wsi->state = LWSS_HTTP;
 			/* we might be in keepalive, so close it off here */
-			lws_plat_file_close(wsi, wsi->u.http.fd);
-			wsi->u.http.fd = LWS_INVALID_FILE;
+			lws_plat_file_close(wsi->u.http.fop_fd);
+			wsi->u.http.fop_fd = NULL;
 			
 			lwsl_debug("file completed\n");
 

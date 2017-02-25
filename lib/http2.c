@@ -476,7 +476,7 @@ int lws_http2_do_pps_send(struct lws_context *context, struct lws *wsi)
 		if (wsi->state == LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS) {
 			wsi->state = LWSS_HTTP2_ESTABLISHED;
 
-			wsi->u.http.fd = LWS_INVALID_FILE;
+			wsi->u.http.fop_fd = NULL;
 
 			if (lws_is_ssl(lws_http2_get_network_wsi(wsi))) {
 				lwsl_info("skipping nonexistent ssl upgrade headers\n");

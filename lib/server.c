@@ -1249,7 +1249,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 
 		lws_union_transition(wsi, LWSCM_HTTP_SERVING_ACCEPTED);
 		wsi->state = LWSS_HTTP;
-		wsi->u.http.fd = LWS_INVALID_FILE;
+		wsi->u.http.fop_fd = NULL;
 
 		/* expose it at the same offset as u.hdr */
 		wsi->u.http.ah = ah;
@@ -2166,7 +2166,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	unsigned char *p = response;
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
 	unsigned long computed_total_content_length;
-	int ret = 0, cclen = 8, n = HTTP_STATUS_OK, fflags = O_RDONLY;
+	int ret = 0, cclen = 8, n = HTTP_STATUS_OK;
+	lws_fop_flags_t fflags = O_RDONLY;
 #if defined(LWS_WITH_RANGES)
 	int ranges;
 #endif
@@ -2179,9 +2180,10 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		}
 
 
-	wsi->u.http.fd = lws_plat_file_open(wsi, file, &wsi->u.http.filelen,
-					    &fflags);
-	if (wsi->u.http.fd == LWS_INVALID_FILE) {
+	wsi->u.http.fop_fd = lws_plat_file_open(&wsi->context->fops, file,
+						&wsi->u.http.filelen,
+						&fflags);
+	if (!wsi->u.http.fop_fd) {
 		lwsl_err("Unable to open '%s'\n", file);
 
 		return -1;

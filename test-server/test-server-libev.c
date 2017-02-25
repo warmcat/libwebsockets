@@ -149,17 +149,17 @@ static const struct lws_extension exts[] = {
  * to do any of this unless you have a reason (eg, want to serve
  * compressed files without decompressing the whole archive)
  */
-static lws_filefd_type
-test_server_fops_open(struct lws *wsi, const char *filename,
-		      unsigned long *filelen, int *flags)
+static lws_fop_fd_t
+test_server_fops_open(struct lws_plat_file_ops *fops, const char *filename,
+		   lws_filepos_t *filelen, lws_fop_flags_t *flags)
 {
-	lws_filefd_type n;
+	lws_fop_fd_t n;
 
 	/* call through to original platform implementation */
-	n = fops_plat.open(wsi, filename, filelen, flags);
+	n = fops_plat.open(fops, filename, filelen, flags);
 
-	lwsl_notice("%s: opening %s, ret %ld, len %lu\n", __func__, filename,
-			(long)n, *filelen);
+	lwsl_notice("%s: opening %s, ret %p, len %lu\n", __func__, filename,
+		    n, *filelen);
 
 	return n;
 }
