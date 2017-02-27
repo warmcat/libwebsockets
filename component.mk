@@ -1,4 +1,4 @@
-COMPONENT_ADD_INCLUDEDIRS := ../../../../../../../../../$(COMPONENT_BUILD_DIR)/include-ext
+COMPONENT_ADD_INCLUDEDIRS := ../../../../../../../../../$(COMPONENT_BUILD_DIR)/include
 
 COMPONENT_OWNBUILDTARGET:= 1
 
@@ -21,10 +21,6 @@ build:
 		-DCMAKE_BUILD_TYPE=RELEASE \
 		-DLWS_WITH_NO_LOGS=0 \
 		-DLWS_WITH_ESP32=1 ;\
-	mkdir -p $(COMPONENT_BUILD_DIR)/include-ext ; \
-	cp $(COMPONENT_PATH)/lib/libwebsockets.h \
-	   $(COMPONENT_BUILD_DIR)/lws_config.h \
-	   $(COMPONENT_BUILD_DIR)/include-ext ; \
 	make VERBOSE=1 && \
 	cp ${COMPONENT_BUILD_DIR}/lib/libwebsockets.a ${COMPONENT_BUILD_DIR}/liblibwebsockets.a
 

@@ -734,6 +734,17 @@ if (LWS_WITH_STATIC)
 			PROPERTIES
 			OUTPUT_NAME websockets_static)
 	endif()
+	add_custom_command(
+		      TARGET websockets
+		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/lib/libwebsockets.h
+		     					 ${CMAKE_BINARY_DIR}/include/libwebsockets.h
+	)
+	add_custom_command(
+		      TARGET websockets
+		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/lws_config.h
+		     					 ${CMAKE_BINARY_DIR}/include/lws_config.h
+	)
+
 endif()
 
 if (LWS_WITH_SHARED)
@@ -761,6 +772,19 @@ if (LWS_WITH_SHARED)
 	if (APPLE)
 		set_property(TARGET websockets_shared PROPERTY MACOSX_RPATH YES)
 	endif()
+
+	add_custom_command(
+		      TARGET websockets_shared
+		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/lib/libwebsockets.h
+		     					 ${CMAKE_BINARY_DIR}/include/libwebsockets.h
+	)
+	add_custom_command(
+		      TARGET websockets_shared
+		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/lws_config.h
+		     					 ${CMAKE_BINARY_DIR}/include/lws_config.h
+	)
+
+
 endif()
 
 # Set the so version of the lib.
