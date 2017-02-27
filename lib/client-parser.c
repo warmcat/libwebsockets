@@ -381,13 +381,22 @@ spill:
 					wsi->user_space, pp,
 					wsi->u.ws.rx_ubuf_head))
 				return -1;
-			/*
-			 * parrot the close packet payload back
-			 * we do not care about how it went, we are closing
-			 * immediately afterwards
-			 */
-			lws_write(wsi, (unsigned char *)&wsi->u.ws.rx_ubuf[LWS_PRE],
-				  wsi->u.ws.rx_ubuf_head, LWS_WRITE_CLOSE);
+			if (lws_partial_buffered(wsi))
+				/*
+				 * if we're in the middle of something,
+				 * we can't do a normal close response and
+				 * have to just close our end.
+				 */
+				wsi->socket_is_permanently_unusable = 1;
+			else
+				/*
+				 * parrot the close packet payload back
+				 * we do not care about how it went, we are closing
+				 * immediately afterwards
+				 */
+				lws_write(wsi, (unsigned char *)&wsi->u.ws.rx_ubuf[LWS_PRE],
+					  wsi->u.ws.rx_ubuf_head,
+					  LWS_WRITE_CLOSE);
 			wsi->state = LWSS_RETURNED_CLOSE_ALREADY;
 			/* close the connection */
 			return -1;
