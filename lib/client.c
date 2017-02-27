@@ -114,7 +114,7 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			return 0;
 		}
 
-		n = recv(wsi->sock, sb, context->pt_serv_buf_size, 0);
+		n = recv(wsi->desc.sockfd, sb, context->pt_serv_buf_size, 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN) {
 				lwsl_debug("Proxy read returned EAGAIN... retrying\n");
@@ -952,7 +952,7 @@ check_accept:
        wsi->u.ws.rx_ubuf_alloc = n;
 	lwsl_info("Allocating client RX buffer %d\n", n);
 
-	if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF, (const char *)&n,
+	if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&n,
 		       sizeof n)) {
 		lwsl_warn("Failed to set SNDBUF to %d", n);
 		cce = "HS: SO_SNDBUF failed";

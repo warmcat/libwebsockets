@@ -50,7 +50,7 @@ wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd)
 	int n = 0;
 
 	for (n = 0; n < context->fd_hashtable[h].length; n++)
-		if (context->fd_hashtable[h].wsi[n]->sock == fd)
+		if (context->fd_hashtable[h].wsi[n]->desc.sockfd == fd)
 			return context->fd_hashtable[h].wsi[n];
 
 	return NULL;
@@ -59,7 +59,7 @@ wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd)
 int
 insert_wsi(struct lws_context *context, struct lws *wsi)
 {
-	int h = LWS_FD_HASH(wsi->sock);
+	int h = LWS_FD_HASH(wsi->desc.sockfd);
 
 	if (context->fd_hashtable[h].length == (getdtablesize() - 1)) {
 		lwsl_err("hash table overflow\n");
@@ -78,7 +78,7 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 	int n = 0;
 
 	for (n = 0; n < context->fd_hashtable[h].length; n++)
-		if (context->fd_hashtable[h].wsi[n]->sock == fd) {
+		if (context->fd_hashtable[h].wsi[n]->desc.sockfd == fd) {
 			while (n < context->fd_hashtable[h].length) {
 				context->fd_hashtable[h].wsi[n] =
 						context->fd_hashtable[h].wsi[n + 1];
@@ -417,7 +417,7 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 
 	pt->fds[pt->fds_count++].revents = 0;
 	pt->events[pt->fds_count] = pt->events[0];
-	WSAEventSelect(wsi->sock, pt->events[0],
+	WSAEventSelect(wsi->desc.sockfd, pt->events[0],
 			   LWS_POLLIN | LWS_POLLHUP | FD_CONNECT);
 }
 
@@ -441,7 +441,7 @@ lws_plat_check_connection_error(struct lws *wsi)
 	int optVal;
 	int optLen = sizeof(int);
 
-	if (getsockopt(wsi->sock, SOL_SOCKET, SO_ERROR,
+	if (getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR,
 			   (char*)&optVal, &optLen) != SOCKET_ERROR && optVal &&
 		optVal != LWS_EALREADY && optVal != LWS_EINPROGRESS &&
 		optVal != LWS_EWOULDBLOCK && optVal != WSAEINVAL) {
@@ -465,7 +465,7 @@ lws_plat_change_pollfd(struct lws_context *context,
 	if ((pfd->events & LWS_POLLOUT))
 		networkevents |= LWS_POLLOUT;
 
-	if (WSAEventSelect(wsi->sock,
+	if (WSAEventSelect(wsi->desc.sockfd,
 			pt->events[0],
 						   networkevents) != SOCKET_ERROR)
 		return 0;

@@ -97,7 +97,7 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 	while (vh) {
 		if (vh->lserv_wsi) {
 			vh->lserv_wsi->w_read.context = context;
-			ev_io_init(w_accept, lws_accept_cb, vh->lserv_wsi->sock,
+			ev_io_init(w_accept, lws_accept_cb, vh->lserv_wsi->desc.sockfd,
 				  EV_READ);
 		}
 		vh = vh->vhost_next;
@@ -160,19 +160,25 @@ lws_libev_destroyloop(struct lws_context *context, int tsi)
 }
 
 LWS_VISIBLE void
-lws_libev_accept(struct lws *new_wsi, int accept_fd)
+lws_libev_accept(struct lws *new_wsi, lws_sock_file_fd_type desc)
 {
 	struct lws_context *context = lws_get_context(new_wsi);
 	struct ev_io *r = &new_wsi->w_read.ev_watcher;
 	struct ev_io *w = &new_wsi->w_write.ev_watcher;
+	int fd;
 
 	if (!LWS_LIBEV_ENABLED(context))
 		return;
 
+	if (wsi->mode == LWSCM_RAW_FILEDESC)
+		fd = desc.filefd;
+	else
+		fd = desc.sockfd;
+
 	new_wsi->w_read.context = context;
 	new_wsi->w_write.context = context;
-	ev_io_init(r, lws_accept_cb, accept_fd, EV_READ);
-	ev_io_init(w, lws_accept_cb, accept_fd, EV_WRITE);
+	ev_io_init(r, lws_accept_cb, fd, EV_READ);
+	ev_io_init(w, lws_accept_cb, fd, EV_WRITE);
 }
 
 LWS_VISIBLE void

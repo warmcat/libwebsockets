@@ -72,7 +72,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	//lwsl_notice("%s: wsi %p: len %d\n", __func__, wsi, len);	
 	
 	wsi->pending_send_completion++;
-	espconn_send(wsi->sock, buf, len);
+	espconn_send(wsi->desc.sockfd, buf, len);
 	
 	return len;
 }
@@ -247,7 +247,7 @@ esp8266_create_tcp_listen_socket(struct lws_vhost *vh)
 const char *
 lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen)
 {
-	unsigned char *p = wsi->sock->proto.tcp->remote_ip;
+	unsigned char *p = wsi->desc.sockfd->proto.tcp->remote_ip;
 
 	lws_snprintf(name, namelen, "%u.%u.%u.%u", p[0], p[1], p[2], p[3]);
 
@@ -493,7 +493,7 @@ esp8266_tcp_stream_accept(lws_sockfd_type fd, struct lws *wsi)
 	fd->reverse = wsi;
 
 	for (n = 0; n < wsi->context->max_fds ; n++)
-		if (wsi->context->connpool[n] == wsi->sock)
+		if (wsi->context->connpool[n] == wsi->desc.sockfd)
 			wsi->position_in_fds_table = n;
 }
 
@@ -555,7 +555,7 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
 	context->connpool[wsi->position_in_fds_table + context->max_fds] = (lws_sockfd_type)wsi;
-	wsi->sock->reverse = wsi;
+	wsi->desc.sockfd->reverse = wsi;
 	pt->fds_count++;
 }
 
@@ -567,13 +567,13 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 	int n;
 	
 	for (n = 0; n < wsi->context->max_fds; n++)
-		if (wsi->context->connpool[n] == wsi->sock) {
+		if (wsi->context->connpool[n] == wsi->desc.sockfd) {
 			wsi->context->connpool[n] = NULL;
 			wsi->context->connpool[n + wsi->context->max_fds] = NULL;
 			lwsl_notice(" freed connpool %d\n", n);
 		}
 	
-	wsi->sock->reverse = NULL;
+	wsi->desc.sockfd->reverse = NULL;
 	pt->fds_count--;
 }
 
@@ -596,17 +596,17 @@ lws_plat_change_pollfd(struct lws_context *context,
 			lwsl_notice("replaying buffered rx: wsi %p\n", wsi);
 			p = wsi->premature_rx;
 			wsi->premature_rx = NULL;
-			esp8266_cb_rx(wsi->sock,
+			esp8266_cb_rx(wsi->desc.sockfd,
 				      (char *)p + wsi->prem_rx_pos,
 				      wsi->prem_rx_size - wsi->prem_rx_pos);
 			wsi->prem_rx_size = 0;
 			wsi->prem_rx_pos = 0;
 			lws_free(p);
 		}
-		if (espconn_recv_unhold(wsi->sock) < 0)
+		if (espconn_recv_unhold(wsi->desc.sockfd) < 0)
 			return -1;
 	} else
-		if (espconn_recv_hold(wsi->sock) < 0)
+		if (espconn_recv_hold(wsi->desc.sockfd) < 0)
 			return -1;
 	
 	if (!(pfd->events & LWS_POLLOUT))

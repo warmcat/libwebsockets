@@ -169,34 +169,34 @@ lws_client_connect_2(struct lws *wsi)
 			freeaddrinfo(result);
 	}
 
-	if (!lws_socket_is_valid(wsi->sock)) {
+	if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 
 #ifdef LWS_USE_IPV6
 		if (LWS_IPV6_ENABLED(wsi->vhost))
-			wsi->sock = socket(AF_INET6, SOCK_STREAM, 0);
+			wsi->desc.sockfd = socket(AF_INET6, SOCK_STREAM, 0);
 		else
 #endif
-			wsi->sock = socket(AF_INET, SOCK_STREAM, 0);
+			wsi->desc.sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
-		if (!lws_socket_is_valid(wsi->sock)) {
+		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 			lwsl_warn("Unable to open socket\n");
 			cce = "unable to open socket";
 			goto oom4;
 		}
 
-		if (lws_plat_set_socket_options(wsi->vhost, wsi->sock)) {
+		if (lws_plat_set_socket_options(wsi->vhost, wsi->desc.sockfd)) {
 			lwsl_err("Failed to set wsi socket options\n");
-			compatible_close(wsi->sock);
+			compatible_close(wsi->desc.sockfd);
 			cce = "set socket opts failed";
 			goto oom4;
 		}
 
 		wsi->mode = LWSCM_WSCL_WAITING_CONNECT;
 
-		lws_libev_accept(wsi, wsi->sock);
-		lws_libuv_accept(wsi, wsi->sock);
+		lws_libev_accept(wsi, wsi->desc);
+		lws_libuv_accept(wsi, wsi->desc);
 		if (insert_wsi_socket_into_fds(context, wsi)) {
-			compatible_close(wsi->sock);
+			compatible_close(wsi->desc.sockfd);
 			cce = "insert wsi failed";
 			goto oom4;
 		}
@@ -217,7 +217,7 @@ lws_client_connect_2(struct lws *wsi)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
 				AWAITING_TIMEOUT);
 
-		n = lws_socket_bind(wsi->vhost, wsi->sock, 0, wsi->vhost->iface);
+		n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0, wsi->vhost->iface);
 		if (n < 0) {
 			cce = "unable to bind socket";
 			goto failed;
@@ -235,7 +235,7 @@ lws_client_connect_2(struct lws *wsi)
 		n = sizeof(struct sockaddr);
 	}
 
-	if (connect(wsi->sock, v, n) == -1 || LWS_ERRNO == LWS_EISCONN) {
+	if (connect(wsi->desc.sockfd, v, n) == -1 || LWS_ERRNO == LWS_EISCONN) {
 		if (LWS_ERRNO == LWS_EALREADY ||
 		    LWS_ERRNO == LWS_EINPROGRESS ||
 		    LWS_ERRNO == LWS_EWOULDBLOCK
@@ -287,7 +287,7 @@ lws_client_connect_2(struct lws *wsi)
 			goto failed;
 		wsi->c_port = wsi->vhost->http_proxy_port;
 
-		n = send(wsi->sock, (char *)pt->serv_buf, plen,
+		n = send(wsi->desc.sockfd, (char *)pt->serv_buf, plen,
 			 MSG_NOSIGNAL);
 		if (n < 0) {
 			lwsl_debug("ERROR writing to proxy socket\n");
@@ -317,7 +317,7 @@ lws_client_connect_2(struct lws *wsi)
 			AWAITING_TIMEOUT);
 
 	wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE;
-	pfd.fd = wsi->sock;
+	pfd.fd = wsi->desc.sockfd;
 	pfd.events = LWS_POLLIN;
 	pfd.revents = LWS_POLLIN;
 
@@ -411,10 +411,10 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	/* close the connection by hand */
 
-	compatible_close(wsi->sock);
+	compatible_close(wsi->desc.sockfd);
 	remove_wsi_socket_from_fds(wsi);
 
-	wsi->sock = LWS_SOCK_INVALID;
+	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	wsi->state = LWSS_CLIENT_UNCONNECTED;
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
@@ -581,7 +581,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->context = i->context;
 	/* assert the mode and union status (hdr) clearly */
 	lws_union_transition(wsi, LWSCM_HTTP_CLIENT);
-	wsi->sock = LWS_SOCK_INVALID;
+	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
 	/* 1) fill up the wsi with stuff from the connect_info as far as it
 	 * can go.  It's because not only is our connection async, we might

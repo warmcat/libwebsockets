@@ -154,6 +154,15 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	if (!wsi)
 		return;
 
+	if (wsi->mode == LWSCM_RAW_FILEDESC) {
+		remove_wsi_socket_from_fds(wsi);
+		wsi->protocol->callback(wsi,
+			LWS_CALLBACK_RAW_CLOSE_FILE, wsi->user_space, NULL, 0);
+		lws_free_wsi(wsi);
+
+		return;
+	}
+
 	lws_access_log(wsi);
 #if defined(LWS_WITH_ESP8266)
 	if (wsi->premature_rx)
@@ -222,7 +231,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 #endif
 
 	if (wsi->mode == LWSCM_RAW) {
-		wsi->vhost->protocols->callback(wsi,
+		wsi->protocol->callback(wsi,
 			LWS_CALLBACK_RAW_CLOSE, wsi->user_space, NULL, 0);
 		wsi->socket_is_permanently_unusable = 1;
 		goto just_kill_connection;
@@ -438,17 +447,17 @@ just_kill_connection:
 #ifdef LWS_OPENSSL_SUPPORT
 		if (lws_is_ssl(wsi) && wsi->ssl)
                {
-                       lwsl_info("%s: shutting down SSL connection: %p (ssl %p, sock %d, state %d)\n", __func__, wsi, wsi->ssl, (int)(long)wsi->sock, wsi->state);
+                       lwsl_info("%s: shutting down SSL connection: %p (ssl %p, sock %d, state %d)\n", __func__, wsi, wsi->ssl, (int)(long)wsi->desc.sockfd, wsi->state);
 			n = SSL_shutdown(wsi->ssl);
                        if (n == 0) /* Complete bidirectional SSL shutdown */
                                n = SSL_shutdown(wsi->ssl);
-                       n = shutdown(wsi->sock, SHUT_WR);
+                       n = shutdown(wsi->desc.sockfd, SHUT_WR);
                }
 		else
 #endif
 		{
-			lwsl_info("%s: shutting down connection: %p (sock %d, state %d)\n", __func__, wsi, (int)(long)wsi->sock, wsi->state);
-			n = shutdown(wsi->sock, SHUT_WR);
+			lwsl_info("%s: shutting down connection: %p (sock %d, state %d)\n", __func__, wsi, (int)(long)wsi->desc.sockfd, wsi->state);
+			n = shutdown(wsi->desc.sockfd, SHUT_WR);
 		}
 		if (n)
 			lwsl_debug("closing: shutdown (state %d) ret %d\n", wsi->state, LWS_ERRNO);
@@ -470,7 +479,7 @@ just_kill_connection:
 #endif
 
 	lwsl_info("%s: real just_kill_connection: %p (sockfd %d)\n", __func__,
-		  wsi, wsi->sock);
+		  wsi, wsi->desc.sockfd);
 	
 #ifdef LWS_WITH_HTTP_PROXY
 	if (wsi->rw) {
@@ -487,11 +496,11 @@ just_kill_connection:
 	lws_remove_from_timeout_list(wsi);
 
 	/* checking return redundant since we anyway close */
-	if (wsi->sock != LWS_SOCK_INVALID)
+	if (wsi->desc.sockfd != LWS_SOCK_INVALID)
 		remove_wsi_socket_from_fds(wsi);
 
 #if defined(LWS_WITH_ESP8266)
-	espconn_disconnect(wsi->sock);
+	espconn_disconnect(wsi->desc.sockfd);
 #endif
 
 	wsi->state = LWSS_DEAD_SOCKET;
@@ -606,18 +615,18 @@ lws_close_free_wsi_final(struct lws *wsi)
 {
 	int n;
 
-	if (!lws_ssl_close(wsi) && lws_socket_is_valid(wsi->sock)) {
+	if (!lws_ssl_close(wsi) && lws_socket_is_valid(wsi->desc.sockfd)) {
 #if LWS_POSIX
-		//lwsl_err("*** closing sockfd %d\n", wsi->sock);
-		n = compatible_close(wsi->sock);
+		//lwsl_err("*** closing sockfd %d\n", wsi->desc.sockfd);
+		n = compatible_close(wsi->desc.sockfd);
 		if (n)
 			lwsl_debug("closing: close ret %d\n", LWS_ERRNO);
 
 #else
-		compatible_close(wsi->sock);
+		compatible_close(wsi->desc.sockfd);
 		(void)n;
 #endif
-		wsi->sock = LWS_SOCK_INVALID;
+		wsi->desc.sockfd = LWS_SOCK_INVALID;
 	}
 
 	/* outermost destroy notification for wsi (user_space still intact) */
@@ -786,7 +795,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 	}
 
 	olen = len;
-	if (getpeername(wsi->sock, p, &len) < 0 || len > olen) {
+	if (getpeername(wsi->desc.sockfd, p, &len) < 0 || len > olen) {
 		lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
 		return NULL;
 	}
@@ -974,7 +983,7 @@ lws_now_secs(void)
 LWS_VISIBLE int
 lws_get_socket_fd(struct lws *wsi)
 {
-	return wsi->sock;
+	return wsi->desc.sockfd;
 }
 
 #endif
@@ -1976,7 +1985,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 	new_wsi->protocol = context->vhost_list->protocols;
 	new_wsi->user_space = NULL;
 	new_wsi->ietf_spec_revision = 0;
-	new_wsi->sock = LWS_SOCK_INVALID;
+	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
 	context->count_wsi_allocated++;
 
 	return new_wsi;
@@ -2024,7 +2033,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 //			 cgi->pipe_fds[n][!!(n == 0)], cgi->pipe_fds[n][!(n == 0)]);
 
 		/* read side is 0, stdin we want the write side, others read */
-		cgi->stdwsi[n]->sock = cgi->pipe_fds[n][!!(n == 0)];
+		cgi->stdwsi[n]->desc.sockfd = cgi->pipe_fds[n][!!(n == 0)];
 		if (fcntl(cgi->pipe_fds[n][!!(n == 0)], F_SETFL, O_NONBLOCK) < 0) {
 			lwsl_err("%s: setting NONBLOCK failed\n", __func__);
 			goto bail2;
@@ -2032,7 +2041,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	}
 
 	for (n = 0; n < 3; n++) {
-		lws_libuv_accept(cgi->stdwsi[n], cgi->stdwsi[n]->sock);
+		lws_libuv_accept(cgi->stdwsi[n], cgi->stdwsi[n]->desc);
 		if (insert_wsi_socket_into_fds(wsi->context, cgi->stdwsi[n]))
 			goto bail3;
 		cgi->stdwsi[n]->parent = wsi;
@@ -2045,8 +2054,9 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	lws_change_pollfd(cgi->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN);
 
 	lwsl_debug("%s: fds in %d, out %d, err %d\n", __func__,
-		   cgi->stdwsi[LWS_STDIN]->sock, cgi->stdwsi[LWS_STDOUT]->sock,
-		   cgi->stdwsi[LWS_STDERR]->sock);
+		   cgi->stdwsi[LWS_STDIN]->desc.sockfd,
+		   cgi->stdwsi[LWS_STDOUT]->desc.sockfd,
+		   cgi->stdwsi[LWS_STDERR]->desc.sockfd);
 
 	lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, timeout_secs);
 

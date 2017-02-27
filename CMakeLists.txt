@@ -1340,6 +1340,10 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			      "plugins/protocol_post_demo.c" "" "")
 		create_plugin(protocol_lws_table_dirlisting
 			      "plugins/generic-table/protocol_table_dirlisting.c" "" "")
+		if (NOT WIN32)
+      		      create_plugin(protocol_lws_raw_test
+			      "plugins/protocol_lws_raw_test.c" "" "")
+		endif()
 
 if (LWS_WITH_SERVER_STATUS)
 		create_plugin(protocol_lws_server_status

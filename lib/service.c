@@ -30,6 +30,9 @@ lws_calllback_as_writeable(struct lws *wsi)
 	case LWSCM_RAW:
 		n = LWS_CALLBACK_RAW_WRITEABLE;
 		break;
+	case LWSCM_RAW_FILEDESC:
+		n = LWS_CALLBACK_RAW_WRITEABLE_FILE;
+		break;
 	case LWSCM_WS_CLIENT:
 		n = LWS_CALLBACK_CLIENT_WRITEABLE;
 		break;
@@ -198,7 +201,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 */
 
 	ret = 1;
-	if (wsi->mode == LWSCM_RAW)
+	if (wsi->mode == LWSCM_RAW || wsi->mode == LWSCM_RAW_FILEDESC)
 		ret = 0;
 	while (ret == 1) {
 
@@ -366,7 +369,7 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 	 */
 	if ((time_t)sec > wsi->pending_timeout_limit) {
 //#if LWS_POSIX
-		if (wsi->sock != LWS_SOCK_INVALID && wsi->position_in_fds_table >= 0)
+		if (wsi->desc.sockfd != LWS_SOCK_INVALID && wsi->position_in_fds_table >= 0)
 			n = pt->fds[wsi->position_in_fds_table].events;
 
 		/* no need to log normal idle keepalive timeout */
@@ -734,7 +737,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 		while (wsi) {
 			/* we have to take copies, because he may be deleted */
 			wsi1 = wsi->timeout_list;
-			tmp_fd = wsi->sock;
+			tmp_fd = wsi->desc.sockfd;
 			if (lws_service_timeout_check(wsi, (unsigned int)now)) {
 				/* he did time out... */
 				if (tmp_fd == our_fd)
@@ -863,17 +866,42 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			return 1;
 		goto handled;
 
+	case LWSCM_RAW_FILEDESC:
+	case LWSCM_RAW:
+		if (pollfd->revents & LWS_POLLOUT) {
+			n = lws_calllback_as_writeable(wsi);
+			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+				lwsl_info("failed at set pollfd\n");
+				return 1;
+			}
+			if (n)
+				goto close_and_handled;
+		}
+		n = LWS_CALLBACK_RAW_RX;
+		if (wsi->mode == LWSCM_RAW_FILEDESC)
+			n = LWS_CALLBACK_RAW_RX_FILE;
+
+		if (pollfd->revents & LWS_POLLIN) {
+			if (user_callback_handle_rxflow(
+					wsi->protocol->callback,
+					wsi, n,
+					wsi->user_space, NULL, 0)) {
+				lwsl_debug("raw rx callback closed it\n");
+				goto close_and_handled;
+			}
+		}
+		n = 0;
+		goto handled;
+
 	case LWSCM_WS_SERVING:
 	case LWSCM_WS_CLIENT:
 	case LWSCM_HTTP2_SERVING:
 	case LWSCM_HTTP_CLIENT_ACCEPTED:
-	case LWSCM_RAW:
 
 		/* 1: something requested a callback when it was OK to write */
 
 		if ((pollfd->revents & LWS_POLLOUT) &&
-		    ((wsi->mode == LWSCM_RAW) ||
-		    (wsi->state == LWSS_ESTABLISHED ||
+		    ((wsi->state == LWSS_ESTABLISHED ||
 		     wsi->state == LWSS_HTTP2_ESTABLISHED ||
 		     wsi->state == LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS ||
 		     wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||

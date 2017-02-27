@@ -470,7 +470,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 		lws_latency_pre(context, wsi);
 
-		n = recv(wsi->sock, (char *)pt->serv_buf, context->pt_serv_buf_size,
+		n = recv(wsi->desc.sockfd, (char *)pt->serv_buf, context->pt_serv_buf_size,
 			 MSG_PEEK);
 
 		/*
@@ -550,7 +550,7 @@ go_again:
 			break;
 		}
 
-                lwsl_err("SSL_accept failed socket %u: %s\n", wsi->sock,
+                lwsl_err("SSL_accept failed socket %u: %s\n", wsi->desc.sockfd,
                          lws_ssl_get_error_string(m, n, buf, sizeof(buf)));
 		lws_ssl_elaborate_error();
 		goto fail;

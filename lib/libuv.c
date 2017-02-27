@@ -164,10 +164,10 @@ lws_uv_initvhost(struct lws_vhost* vh, struct lws* wsi)
 
 	wsi->w_read.context = vh->context;
 	n = uv_poll_init_socket(pt->io_loop_uv,
-				&wsi->w_read.uv_watcher, wsi->sock);
+				&wsi->w_read.uv_watcher, wsi->desc.sockfd);
 	if (n) {
 		lwsl_err("uv_poll_init failed %d, sockfd=%p\n",
-				 n, (void *)(long)wsi->sock);
+				 n, (void *)(long)wsi->desc.sockfd);
 
 		return -1;
 	}
@@ -318,7 +318,7 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 }
 
 void
-lws_libuv_accept(struct lws *wsi, lws_sockfd_type accept_fd)
+lws_libuv_accept(struct lws *wsi, lws_sock_file_fd_type desc)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -329,8 +329,12 @@ lws_libuv_accept(struct lws *wsi, lws_sockfd_type accept_fd)
 	lwsl_debug("%s: new wsi %p\n", __func__, wsi);
 
 	wsi->w_read.context = context;
-
-	uv_poll_init_socket(pt->io_loop_uv, &wsi->w_read.uv_watcher, accept_fd);
+	if (wsi->mode == LWSCM_RAW_FILEDESC)
+		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher,
+			     desc.filefd);
+	else
+		uv_poll_init_socket(pt->io_loop_uv, &wsi->w_read.uv_watcher,
+				    desc.sockfd);
 }
 
 void

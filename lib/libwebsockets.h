@@ -1059,12 +1059,20 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_RAW_WRITEABLE				= 61,
 	/**< RAW mode connection may be written */
 	LWS_CALLBACK_RAW_ADOPT					= 62,
-	/**< RAW mode connection was adopted (equivalent to 'created') */
+	/**< RAW mode connection was adopted (equivalent to 'wsi created') */
+	LWS_CALLBACK_RAW_ADOPT_FILE				= 63,
+	/**< RAW mode file was adopted (equivalent to 'wsi created') */
+	LWS_CALLBACK_RAW_RX_FILE				= 64,
+	/**< RAW mode file has something to read */
+	LWS_CALLBACK_RAW_WRITEABLE_FILE				= 65,
+	/**< RAW mode file is writeable */
+	LWS_CALLBACK_RAW_CLOSE_FILE				= 66,
+	/**< RAW mode wsi that adopted a file is closing */
 
 	/****** add new things just above ---^ ******/
 
 	LWS_CALLBACK_USER = 1000,
-	/**<  user code can use any including / above without fear of clashes */
+	/**<  user code can use any including above without fear of clashes */
 };
 
 
@@ -3703,23 +3711,37 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd);
  */
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
+
+typedef enum {
+	LWS_ADOPT_HTTP = 1,		/* absent implies RAW */
+	LWS_ADOPT_SOCKET = 2,		/* absent implies file descriptor */
+	LWS_ADOPT_ALLOW_SSL = 4		/* if set requires LWS_ADOPT_SOCKET */
+} lws_adoption_type;
+
+typedef union {
+	lws_sockfd_type sockfd;
+	lws_filefd_type filefd;
+} lws_sock_file_fd_type;
+
 /*
-* lws_adopt_socket_vhost2() - adopt foreign socket as if listen socket accepted it
-* for vhost, allow control over defeat SSL and raw transport mode
+* lws_adopt_descriptor_vhost() - adopt foreign socket or file descriptor
+* if socket descriptor, should already have been accepted from listen socket
+*
 * \param vhost: lws vhost
-* \param accept_fd: fd of already-accepted socket to adopt
-* \param allow_ssl: 0 = no SSL even if vhost supports, 1 = SSL if vhost supports
-* \param raw: 0 = http[s]/wss[s], 1 = raw mode semantics
+* \param type: OR-ed combinations of lws_adoption_type flags
+* \param fd: union with either .sockfd or .filefd set
+* \param vh_prot_name: NULL or vh protocol name to bind raw connection to
 *
 * Either returns new wsi bound to accept_fd, or closes accept_fd and
 * returns NULL, having cleaned up any new wsi pieces.
 *
-* LWS adopts the socket in http serving mode, it's ready to accept an upgrade
-* to ws or just serve http.
+* If LWS_ADOPT_SOCKET is set, LWS adopts the socket in http serving mode, it's
+* ready to accept an upgrade to ws or just serve http.
 */
 LWS_VISIBLE struct lws *
-lws_adopt_socket_vhost2(struct lws_vhost *vh, lws_sockfd_type accept_fd,
-			int allow_ssl, int raw);
+lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
+			   lws_sock_file_fd_type fd, const char *vh_prot_name);
+
 
 /**
  * lws_adopt_socket_readbuf() - adopt foreign socket and first rx as if listen socket accepted it
@@ -4254,7 +4276,9 @@ struct lws_fop_fd {
 };
 #if defined(WIN32) || defined(_WIN32)
 /* ... */
+#if !defined(ssize_t)
 typedef SSIZE_T ssize_t;
+#endif
 /* !!! >:-[  */
 typedef unsigned __int32 uint32_t;
 typedef unsigned __int8 uint8_t;

@@ -543,7 +543,8 @@ enum connection_mode {
 	/* special internal types */
 	LWSCM_SERVER_LISTENER,
 	LWSCM_CGI, /* stdin, stdout, stderr for another cgi master wsi */
-	LWSCM_RAW, /* raw */
+	LWSCM_RAW, /* raw with bulk handling */
+	LWSCM_RAW_FILEDESC, /* raw without bulk handling */
 
 	/* HTTP Client related */
 	LWSCM_HTTP_CLIENT = LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP,
@@ -928,8 +929,7 @@ enum {
 
 #if defined(LWS_USE_LIBEV)
 LWS_EXTERN void
-lws_libev_accept(struct lws *new_wsi, lws_sockfd_type accept_fd);
-LWS_EXTERN void
+lws_libev_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
 lws_libev_io(struct lws *wsi, int flags);
 LWS_EXTERN int
 lws_libev_init_fd_table(struct lws_context *context);
@@ -956,7 +956,7 @@ LWS_EXTERN void lws_feature_status_libev(struct lws_context_creation_info *info)
 
 #if defined(LWS_USE_LIBUV)
 LWS_EXTERN void
-lws_libuv_accept(struct lws *new_wsi, lws_sockfd_type accept_fd);
+lws_libuv_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
 LWS_EXTERN void
 lws_libuv_io(struct lws *wsi, int flags);
 LWS_EXTERN int
@@ -1408,8 +1408,7 @@ struct lws {
 	unsigned long action_start;
 	unsigned long latency_start;
 #endif
-	/* pointer / int */
-	lws_sockfd_type sock;
+	lws_sock_file_fd_type desc; /* .filefd / .sockfd */
 
 	/* ints */
 	int position_in_fds_table;
@@ -1562,7 +1561,7 @@ LWS_EXTERN int
 delete_from_fd(struct lws_context *context, lws_sockfd_type fd);
 #else
 #define wsi_from_fd(A,B)  A->lws_lookup[B]
-#define insert_wsi(A,B)   assert(A->lws_lookup[B->sock] == 0); A->lws_lookup[B->sock]=B
+#define insert_wsi(A,B)   assert(A->lws_lookup[B->desc.sockfd] == 0); A->lws_lookup[B->desc.sockfd]=B
 #define delete_from_fd(A,B) A->lws_lookup[B]=0
 #endif
 

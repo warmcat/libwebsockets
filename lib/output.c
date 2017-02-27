@@ -133,7 +133,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		goto handle_truncated_send;
 	}
 
-	if (!lws_socket_is_valid(wsi->sock))
+	if (!lws_socket_is_valid(wsi->desc.sockfd))
 		lwsl_warn("** error invalid sock but expected to send\n");
 
 	/* limit sending */
@@ -744,7 +744,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n;
 
-	n = recv(wsi->sock, (char *)buf, len, 0);
+	n = recv(wsi->desc.sockfd, (char *)buf, len, 0);
 	if (n >= 0) {
 		if (wsi->vhost)
 			wsi->vhost->conn_stats.rx += n;
@@ -767,7 +767,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	int n = 0;
 
 #if LWS_POSIX
-	n = send(wsi->sock, (char *)buf, len, MSG_NOSIGNAL);
+	n = send(wsi->desc.sockfd, (char *)buf, len, MSG_NOSIGNAL);
 //	lwsl_info("%s: sent len %d result %d", __func__, len, n);
 	if (n >= 0)
 		return n;
@@ -789,7 +789,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	// !!!
 #endif
 
-	lwsl_debug("ERROR writing len %d to skt fd %d err %d / errno %d\n", len, wsi->sock, n, LWS_ERRNO);
+	lwsl_debug("ERROR writing len %d to skt fd %d err %d / errno %d\n", len, wsi->desc.sockfd, n, LWS_ERRNO);
 	return LWS_SSL_CAPABLE_ERROR;
 }
 #endif

@@ -142,7 +142,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		goto bail;
 	}
 	wsi->context = vhost->context;
-	wsi->sock = sockfd;
+	wsi->desc.sockfd = sockfd;
 	wsi->mode = LWSCM_SERVER_LISTENER;
 	wsi->protocol = vhost->protocols;
 	wsi->tsi = m;
@@ -161,7 +161,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	vhost->lserv_wsi = wsi;
 
 #if LWS_POSIX
-	n = listen(wsi->sock, LWS_SOMAXCONN);
+	n = listen(wsi->desc.sockfd, LWS_SOMAXCONN);
 	if (n < 0) {
 		lwsl_err("listen failed with error %d\n", LWS_ERRNO);
 		vhost->lserv_wsi = NULL;
@@ -172,7 +172,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	} /* for each thread able to independently listen */
 #else
 #if defined(LWS_WITH_ESP8266)
-	esp8266_tcp_stream_bind(wsi->sock, info->port, wsi);
+	esp8266_tcp_stream_bind(wsi->desc.sockfd, info->port, wsi);
 #endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
@@ -1502,7 +1502,7 @@ upgrade_ws:
 		wsi->u.ws.rx_ubuf_alloc = n;
 		lwsl_debug("Allocating RX buffer %d\n", n);
 #if LWS_POSIX && !defined(LWS_WITH_ESP32)
-		if (setsockopt(wsi->sock, SOL_SOCKET, SO_SNDBUF,
+		if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF,
 			       (const char *)&n, sizeof n)) {
 			lwsl_warn("Failed to set SNDBUF to %d", n);
 			return 1;
@@ -1611,7 +1611,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost)
 	new_wsi->protocol = vhost->protocols;
 	new_wsi->user_space = NULL;
 	new_wsi->ietf_spec_revision = 0;
-	new_wsi->sock = LWS_SOCK_INVALID;
+	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
 	vhost->context->count_wsi_allocated++;
 
 	/*
@@ -1686,33 +1686,56 @@ lws_http_transaction_completed(struct lws *wsi)
 	return 0;
 }
 
+/* if not a socket, it's a raw, non-ssl file descriptor */
+
 LWS_VISIBLE struct lws *
-lws_adopt_socket_vhost2(struct lws_vhost *vh, lws_sockfd_type accept_fd,
-			int allow_ssl, int raw)
+lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
+			   lws_sock_file_fd_type fd, const char *vh_prot_name)
 {
 	struct lws_context *context = vh->context;
 	struct lws *new_wsi = lws_create_new_server_wsi(vh);
-	int n;
+	int n, ssl = 0;
 
 	if (!new_wsi) {
-		compatible_close(accept_fd);
+		if (type & LWS_ADOPT_SOCKET)
+			compatible_close(fd.sockfd);
 		return NULL;
 	}
 
-	lwsl_debug("%s: new wsi %p, sockfd %d, cb %p\n", __func__, new_wsi,
-		   accept_fd, context->vhost_list->protocols[0].callback);
+	new_wsi->desc = fd;
+	new_wsi->protocol = &context->vhost_list->
+			protocols[vh->default_protocol_index];
 
-	new_wsi->sock = accept_fd;
+	if (!(type & LWS_ADOPT_SOCKET)) {
+		new_wsi->protocol = lws_vhost_name_to_protocol(new_wsi->vhost,
+				vh_prot_name);
+		if (!new_wsi->protocol) {
+			lwsl_err("Protocol %s not enabled on vhost %s\n",
+				 vh_prot_name, new_wsi->vhost->name);
+			lws_free(new_wsi);
 
-	/* the transport is accepted... give him time to negotiate */
-	lws_set_timeout(new_wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-			context->timeout_secs);
+			return NULL;
+		}
+	}
+	if (type & LWS_ADOPT_SOCKET) {
+
+		lwsl_debug("%s: new wsi %p, sockfd %d\n", __func__, new_wsi,
+			   (int)(size_t)fd.sockfd);
+
+
+		/* the transport is accepted... give him time to negotiate */
+		lws_set_timeout(new_wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+				context->timeout_secs);
 
 #if LWS_POSIX == 0
 #if defined(LWS_WITH_ESP8266)
-	esp8266_tcp_stream_accept(accept_fd, new_wsi);
+		esp8266_tcp_stream_accept(accept_fd, new_wsi);
 #endif
 #endif
+	} else  //* file desc */
+		lwsl_debug("%s: new wsi %p, filefd %d\n", __func__, new_wsi,
+			   (int)(size_t)fd.filefd);
+
 	/*
 	 * A new connection was accepted. Give the user a chance to
 	 * set properties of the newly created wsi. There's no protocol
@@ -1720,45 +1743,65 @@ lws_adopt_socket_vhost2(struct lws_vhost *vh, lws_sockfd_type accept_fd,
 	 * itself by default protocols[0]
 	 */
 	n = LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED;
-	if (raw)
-		n = LWS_CALLBACK_RAW_ADOPT;
-	if ((context->vhost_list->protocols[vh->default_protocol_index].callback)(
+	if (!(type & LWS_ADOPT_HTTP)) {
+		if (!(type & LWS_ADOPT_SOCKET))
+			n = LWS_CALLBACK_RAW_ADOPT_FILE;
+		else
+			n = LWS_CALLBACK_RAW_ADOPT;
+	}
+	if ((new_wsi->protocol->callback)(
 			new_wsi, n, NULL, NULL, 0)) {
-		/* force us off the timeout list by hand */
-		lws_set_timeout(new_wsi, NO_PENDING_TIMEOUT, 0);
-		compatible_close(new_wsi->sock);
+		if (type & LWS_ADOPT_SOCKET) {
+			/* force us off the timeout list by hand */
+			lws_set_timeout(new_wsi, NO_PENDING_TIMEOUT, 0);
+			compatible_close(new_wsi->desc.sockfd);
+		}
 		lws_free(new_wsi);
 		return NULL;
 	}
 
-	lws_libev_accept(new_wsi, new_wsi->sock);
-	lws_libuv_accept(new_wsi, new_wsi->sock);
+	if (!LWS_SSL_ENABLED(new_wsi->vhost) || !(type & LWS_ADOPT_ALLOW_SSL) ||
+	    !(type & LWS_ADOPT_SOCKET)) {
+		/* non-SSL */
+		if (!(type & LWS_ADOPT_HTTP)) {
+			if (!(type & LWS_ADOPT_SOCKET))
+				new_wsi->mode = LWSCM_RAW_FILEDESC;
+			else
+				new_wsi->mode = LWSCM_RAW;
+		}
+	} else {
+		/* SSL */
+		if (!(type & LWS_ADOPT_HTTP))
+			new_wsi->mode = LWSCM_SSL_INIT_RAW;
+		else
+			new_wsi->mode = LWSCM_SSL_INIT;
 
-	if (!LWS_SSL_ENABLED(new_wsi->vhost) || allow_ssl == 0) {
-		if (raw)
-			new_wsi->mode = LWSCM_RAW;
+		ssl = 1;
+	}
+
+	lws_libev_accept(new_wsi, new_wsi->desc);
+	lws_libuv_accept(new_wsi, new_wsi->desc);
+
+	if (!ssl) {
 		if (insert_wsi_socket_into_fds(context, new_wsi)) {
 			lwsl_err("%s: fail inserting socket\n", __func__);
 			goto fail;
 		}
-	} else {
-		if (raw)
-			new_wsi->mode = LWSCM_SSL_INIT_RAW;
-		else
-			new_wsi->mode = LWSCM_SSL_INIT;
-		if (lws_server_socket_service_ssl(new_wsi, accept_fd)) {
+	} else
+		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd)) {
 			lwsl_err("%s: fail ssl negotiation\n", __func__);
 			goto fail;
 		}
-	}
 
-	if (!lws_header_table_attach(new_wsi, 0))
-		lwsl_debug("Attached ah immediately\n");
+	if (type & LWS_ADOPT_HTTP)
+		if (!lws_header_table_attach(new_wsi, 0))
+			lwsl_debug("Attached ah immediately\n");
 
 	return new_wsi;
 
 fail:
-	lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	if (type & LWS_ADOPT_SOCKET)
+		lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return NULL;
 }
@@ -1766,13 +1809,17 @@ fail:
 LWS_VISIBLE struct lws *
 lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 {
-	return lws_adopt_socket_vhost2(vh, accept_fd, 1, 0);
+	lws_sock_file_fd_type fd;
+
+	fd.sockfd = accept_fd;
+	return lws_adopt_descriptor_vhost(vh, LWS_ADOPT_SOCKET |
+			LWS_ADOPT_HTTP | LWS_ADOPT_ALLOW_SSL, fd, NULL);
 }
 
 LWS_VISIBLE struct lws *
 lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 {
-	return lws_adopt_socket_vhost2(context->vhost_list, accept_fd, 1, 0);
+	return lws_adopt_socket_vhost(context->vhost_list, accept_fd);
 }
 
 /* Common read-buffer adoption for lws_adopt_*_readbuf */

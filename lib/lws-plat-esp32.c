@@ -30,9 +30,9 @@ lws_send_pipe_choked(struct lws *wsi)
 		return 1;
 
 	FD_ZERO(&writefds);
-	FD_SET(wsi->sock, &writefds);
+	FD_SET(wsi->desc.sockfd, &writefds);
 
-	if (select(wsi->sock + 1, NULL, &writefds, NULL, &tv) < 1)
+	if (select(wsi->desc.sockfd + 1, NULL, &writefds, NULL, &tv) < 1)
 		return 1;
 
 	return 0;

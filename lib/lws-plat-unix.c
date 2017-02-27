@@ -35,7 +35,7 @@ lws_send_pipe_choked(struct lws *wsi)
 	if (wsi->trunc_len)
 		return 1;
 
-	fds.fd = wsi->sock;
+	fds.fd = wsi->desc.sockfd;
 	fds.events = POLLOUT;
 	fds.revents = 0;
 

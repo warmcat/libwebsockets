@@ -39,7 +39,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	       wsi->position_in_fds_table < pt->fds_count);
 
 	pfd = &pt->fds[wsi->position_in_fds_table];
-	pa->fd = wsi->sock;
+	pa->fd = wsi->desc.sockfd;
 	pa->prev_events = pfd->events;
 	pa->events = pfd->events = (pfd->events & ~_and) | _or;
 
@@ -132,13 +132,13 @@ lws_accept_modulation(struct lws_context_per_thread *pt, int allow)
 int
 insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
-	struct lws_pollargs pa = { wsi->sock, LWS_POLLIN, 0 };
+	struct lws_pollargs pa = { wsi->desc.sockfd, LWS_POLLIN, 0 };
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int ret = 0;
 
 
 	lwsl_debug("%s: %p: tsi=%d, sock=%d, pos-in-fds=%d\n",
-		  __func__, wsi, wsi->tsi, wsi->sock, pt->fds_count);
+		  __func__, wsi, wsi->tsi, wsi->desc.sockfd, pt->fds_count);
 
 	if ((unsigned int)pt->fds_count >= context->fd_limit_per_thread) {
 		lwsl_err("Too many fds (%d vs %d)\n", context->max_fds,
@@ -147,16 +147,16 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	}
 
 #if !defined(_WIN32) && !defined(LWS_WITH_ESP8266)
-	if (wsi->sock >= context->max_fds) {
+	if (wsi->desc.sockfd >= context->max_fds) {
 		lwsl_err("Socket fd %d is too high (%d)\n",
-			 wsi->sock, context->max_fds);
+			 wsi->desc.sockfd, context->max_fds);
 		return 1;
 	}
 #endif
 
 	assert(wsi);
 	assert(wsi->vhost);
-	assert(lws_socket_is_valid(wsi->sock));
+	assert(lws_socket_is_valid(wsi->desc.sockfd));
 
 	if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
 					   wsi->user_space, (void *) &pa, 1))
@@ -172,7 +172,7 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 
 	// lwsl_notice("%s: %p: setting posinfds %d\n", __func__, wsi, wsi->position_in_fds_table);
 
-	pt->fds[wsi->position_in_fds_table].fd = wsi->sock;
+	pt->fds[wsi->position_in_fds_table].fd = wsi->desc.sockfd;
 #if LWS_POSIX
 	pt->fds[wsi->position_in_fds_table].events = LWS_POLLIN;
 #else
@@ -204,7 +204,7 @@ int
 remove_wsi_socket_from_fds(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
-	struct lws_pollargs pa = { wsi->sock, 0, 0 };
+	struct lws_pollargs pa = { wsi->desc.sockfd, 0, 0 };
 #if !defined(LWS_WITH_ESP8266)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws *end_wsi;
@@ -213,8 +213,8 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	int m, ret = 0;
 
 #if !defined(_WIN32) && !defined(LWS_WITH_ESP8266)
-	if (wsi->sock > context->max_fds) {
-		lwsl_err("fd %d too high (%d)\n", wsi->sock, context->max_fds);
+	if (wsi->desc.sockfd > context->max_fds) {
+		lwsl_err("fd %d too high (%d)\n", wsi->desc.sockfd, context->max_fds);
 		return 1;
 	}
 #endif
@@ -259,7 +259,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	lws_pt_lock(pt);
 
 	lwsl_debug("%s: wsi=%p, sock=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
-		  __func__, wsi, wsi->sock, wsi->position_in_fds_table,
+		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,
 		  pt->fds_count, pt->fds[pt->fds_count].fd);
 
 	/* have the last guy take up the now vacant slot */
@@ -278,12 +278,12 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 		end_wsi->position_in_fds_table = m;
 
 	/* deletion guy's lws_lookup entry needs nuking */
-	delete_from_fd(context, wsi->sock);
+	delete_from_fd(context, wsi->desc.sockfd);
 	/* removed wsi has no position any more */
 	wsi->position_in_fds_table = -1;
 
 	/* remove also from external POLL support via protocol 0 */
-	if (lws_socket_is_valid(wsi->sock))
+	if (lws_socket_is_valid(wsi->desc.sockfd))
 		if (wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_DEL_POLL_FD,
 						   wsi->user_space, (void *) &pa, 0))
 			ret = -1;
@@ -396,7 +396,7 @@ network_sock:
 		return 1;
 
 	if (wsi->position_in_fds_table < 0) {
-		lwsl_err("%s: failed to find socket %d\n", __func__, wsi->sock);
+		lwsl_err("%s: failed to find socket %d\n", __func__, wsi->desc.sockfd);
 		return -1;
 	}
 
