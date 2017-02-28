@@ -1073,7 +1073,7 @@ lws_get_protocol(struct lws *wsi)
 LWS_VISIBLE int
 lws_is_final_fragment(struct lws *wsi)
 {
-	lwsl_info("%s: final %d, rx pk length %ld, draining %ld", __func__,
+       lwsl_info("%s: final %d, rx pk length %ld, draining %ld\n", __func__,
 			wsi->u.ws.final, (long)wsi->u.ws.rx_packet_length,
 			(long)wsi->u.ws.rx_draining_ext);
 	return wsi->u.ws.final && !wsi->u.ws.rx_packet_length && !wsi->u.ws.rx_draining_ext;
