@@ -1374,6 +1374,16 @@ lws_wsi_user(struct lws *wsi)
 	return wsi->user_space;
 }
 
+LWS_VISIBLE LWS_EXTERN void
+lws_set_wsi_user(struct lws *wsi, void *data)
+{
+	if (wsi->user_space_externally_allocated)
+		wsi->user_space = data;
+	else
+		lwsl_err("%s: Cannot set internally-allocated user_space\n",
+			 __func__);
+}
+
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_get_parent(const struct lws *wsi)
 {

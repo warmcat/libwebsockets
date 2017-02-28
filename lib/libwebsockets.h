@@ -3903,6 +3903,19 @@ LWS_VISIBLE LWS_EXTERN void *
 lws_wsi_user(struct lws *wsi);
 
 /**
+ * lws_wsi_set_user() - set the user data associated with the client connection
+ * \param wsi: lws connection
+ * \param user: user data
+ *
+ * By default lws allocates this and it's not legal to externally set it
+ * yourself.  However client connections may have it set externally when the
+ * connection is created... if so, this api can be used to modify it at
+ * runtime additionally.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_set_wsi_user(struct lws *wsi, void *user);
+
+/**
  * lws_parse_uri:	cut up prot:/ads:port/path into pieces
  *			Notice it does so by dropping '\0' into input string
  *			and the leading / on the path is consequently lost
