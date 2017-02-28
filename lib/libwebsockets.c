@@ -552,7 +552,7 @@ just_kill_connection:
 	    (wsi->mode == LWSCM_WS_SERVING && wsi->state_pre_close == LWSS_HTTP))) {
 
 		if (wsi->user_space) {
-			lwsl_debug("%s: doing LWS_CALLBACK_HTTP_DROP_PROTOCOL for %p prot %s", __func__, wsi, wsi->protocol->name);
+                       lwsl_debug("%s: doing LWS_CALLBACK_HTTP_DROP_PROTOCOL for %p prot %s\n", __func__, wsi, wsi->protocol->name);
 			wsi->protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_DROP_PROTOCOL,
 					       wsi->user_space, NULL, 0);
@@ -1147,7 +1147,7 @@ lws_get_protocol(struct lws *wsi)
 LWS_VISIBLE int
 lws_is_final_fragment(struct lws *wsi)
 {
-	lwsl_info("%s: final %d, rx pk length %ld, draining %ld", __func__,
+       lwsl_info("%s: final %d, rx pk length %ld, draining %ld\n", __func__,
 			wsi->u.ws.final, (long)wsi->u.ws.rx_packet_length,
 			(long)wsi->u.ws.rx_draining_ext);
 	return wsi->u.ws.final && !wsi->u.ws.rx_packet_length && !wsi->u.ws.rx_draining_ext;
