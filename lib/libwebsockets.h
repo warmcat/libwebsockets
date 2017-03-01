@@ -4288,6 +4288,8 @@ struct lws_plat_file_ops {
 	int (*LWS_FOP_WRITE)(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 			     uint8_t *buf, lws_filepos_t len);
 	/**< Write to file, on exit *amount is set to amount actually written */
+	const char *path_prefix;
+	/**< Optional, NULL or filesystem namespace prefix matching this fops */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility */
