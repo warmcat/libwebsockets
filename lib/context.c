@@ -619,6 +619,23 @@ lws_create_context(struct lws_context_creation_info *info)
 	else
 		context->pt_serv_buf_size = 4096;
 
+	/* default to just the platform fops implementation */
+
+	context->fops_default[0].open		= _lws_plat_file_open;
+	context->fops_default[0].close		= _lws_plat_file_close;
+	context->fops_default[0].seek_cur	= _lws_plat_file_seek_cur;
+	context->fops_default[0].read		= _lws_plat_file_read;
+	context->fops_default[0].write		= _lws_plat_file_write;
+	context->fops_default[0].path_prefix	= "/";
+
+	// context->fops_default[1].open is already NULL from zalloc
+
+	/* it can be overridden from context creation info */
+	if (info->fops)
+		context->fops = info->fops;
+	else
+		context->fops = &context->fops_default[0];
+
 	context->reject_service_keywords = info->reject_service_keywords;
 	if (info->external_baggage_free_on_destroy)
 		context->external_baggage_free_on_destroy =

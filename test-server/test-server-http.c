@@ -292,7 +292,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			p = buffer + LWS_PRE;
 			end = p + sizeof(buffer) - LWS_PRE;
 
-			pss->fop_fd = lws_plat_file_open(lws_get_fops(lws_get_context(wsi)),
+			pss->fop_fd = lws_vfs_file_open(lws_get_fops(lws_get_context(wsi)),
 					leaf_path, &file_len, &flags);
 
 			if (!pss->fop_fd) {
@@ -346,7 +346,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				      p - (buffer + LWS_PRE),
 				      LWS_WRITE_HTTP_HEADERS);
 			if (n < 0) {
-				lws_plat_file_close(pss->fop_fd);
+				lws_vfs_file_close(pss->fop_fd);
 				return -1;
 			}
 			/*
@@ -555,7 +555,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				/* he couldn't handle that much */
 				n = m;
 
-			n = lws_plat_file_read(pss->fop_fd,
+			n = lws_vfs_file_read(pss->fop_fd,
 					       &amount, buffer + LWS_PRE, n);
 			/* problem reading, close conn */
 			if (n < 0) {
@@ -588,12 +588,12 @@ later:
 		lws_callback_on_writable(wsi);
 		break;
 penultimate:
-		lws_plat_file_close(pss->fop_fd);
+		lws_vfs_file_close(pss->fop_fd);
 		pss->fop_fd = NULL;
 		goto try_to_reuse;
 
 bail:
-		lws_plat_file_close(pss->fop_fd);
+		lws_vfs_file_close(pss->fop_fd);
 
 		return -1;
 

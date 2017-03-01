@@ -1612,6 +1612,8 @@ enum lws_context_options {
 
 #define lws_check_opt(c, f) (((c) & (f)) == (f))
 
+struct lws_plat_file_ops;
+
 /** struct lws_context_creation_info - parameters to create context and /or vhost with
  *
  * This is also used to create vhosts.... if LWS_SERVER_OPTION_EXPLICIT_VHOSTS
@@ -1808,6 +1810,16 @@ struct lws_context_creation_info {
 	* "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
 	* or you can leave it as NULL to get "DEFAULT" */
 #endif
+
+	const struct lws_plat_file_ops *fops;
+	/**< CONTEXT: NULL, or pointer to an array of fops structs, terminated
+	 * by a sentinel with NULL .open.
+	 *
+	 * If NULL, lws provides just the platform file operations struct for
+	 * backwards compatibility.  If set to point to an array of fops
+	 * structs, lws_select_fops_by_vfs_path() will select the best match
+	 * comparing the left of vfs_path to each fops .path_prefix.
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -4271,7 +4283,7 @@ lws_cgi_kill(struct lws *wsi);
 struct lws_plat_file_ops;
 struct lws_fop_fd {
 	lws_filefd_type fd;
-	struct lws_plat_file_ops *fops;
+	const struct lws_plat_file_ops *fops;
 	void *filesystem_priv;
 };
 #if defined(WIN32) || defined(_WIN32)
@@ -4289,7 +4301,7 @@ typedef ssize_t lws_fileofs_t;
 typedef uint32_t lws_fop_flags_t;
 
 struct lws_plat_file_ops {
-	lws_fop_fd_t (*LWS_FOP_OPEN)(struct lws_plat_file_ops *fops,
+	lws_fop_fd_t (*LWS_FOP_OPEN)(const struct lws_plat_file_ops *fops,
 				     const char *filename,
 				     lws_filepos_t *filelen,
 				     lws_fop_flags_t *flags);
@@ -4328,6 +4340,8 @@ LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops * LWS_WARN_UNUSED_RESULT
 lws_get_fops(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN void
 lws_set_fops(struct lws_context *context, struct lws_plat_file_ops *fops);
+LWS_VISIBLE LWS_EXTERN const struct lws_plat_file_ops * LWS_WARN_UNUSED_RESULT
+lws_select_fops_by_vfs_path(const struct lws_context *context, const char *vfs_path);
 /**
  * lws_plat_file_open() - file open operations
  *
@@ -4339,7 +4353,7 @@ lws_set_fops(struct lws_context *context, struct lws_plat_file_ops *fops);
  * returns semi-opaque handle
  */
 static LWS_INLINE lws_fop_fd_t LWS_WARN_UNUSED_RESULT
-lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
+lws_vfs_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 		   lws_filepos_t *filelen, lws_fop_flags_t *flags)
 {
 	return fops->LWS_FOP_OPEN(fops, filename, filelen, flags);
@@ -4351,7 +4365,7 @@ lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
  * \param fop_fd: file handle to close
  */
 static LWS_INLINE int
-lws_plat_file_close(lws_fop_fd_t fop_fd)
+lws_vfs_file_close(lws_fop_fd_t fop_fd)
 {
 	return fop_fd->fops->LWS_FOP_CLOSE(fop_fd);
 }
@@ -4364,7 +4378,7 @@ lws_plat_file_close(lws_fop_fd_t fop_fd)
  * \param offset: position to seek to
  */
 static LWS_INLINE lws_fileofs_t
-lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
+lws_vfs_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
 	return fop_fd->fops->LWS_FOP_SEEK_CUR(fop_fd, offset);
 }
@@ -4377,7 +4391,7 @@ lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
  * \param len: max length
  */
 static LWS_INLINE int LWS_WARN_UNUSED_RESULT
-lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+lws_vfs_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		   uint8_t *buf, lws_filepos_t len)
 {
 	return fop_fd->fops->LWS_FOP_READ(fop_fd, amount, buf, len);
@@ -4391,11 +4405,30 @@ lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
  * \param len: max length
  */
 static LWS_INLINE int LWS_WARN_UNUSED_RESULT
-lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+lws_vfs_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		    uint8_t *buf, lws_filepos_t len)
 {
 	return fop_fd->fops->LWS_FOP_WRITE(fop_fd, amount, buf, len);
 }
+
+/* these are the flatform file operations implmenetations... they can
+ * be called directly and used in fops arrays
+ */
+
+LWS_VISIBLE LWS_EXTERN lws_fop_fd_t
+_lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
+		    lws_filepos_t *filelen, lws_fop_flags_t *flags);
+LWS_VISIBLE LWS_EXTERN int
+_lws_plat_file_close(lws_fop_fd_t fop_fd);
+LWS_VISIBLE LWS_EXTERN lws_fileofs_t
+_lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset);
+LWS_VISIBLE LWS_EXTERN int
+_lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+		    uint8_t *buf, lws_filepos_t len);
+LWS_VISIBLE LWS_EXTERN int
+_lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+		     uint8_t *buf, lws_filepos_t len);
+
 //@}
 
 /** \defgroup smtp

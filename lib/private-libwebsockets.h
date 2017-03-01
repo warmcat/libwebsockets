@@ -808,7 +808,8 @@ struct lws_context {
 	time_t last_timeout_check_s;
 	time_t last_ws_ping_pong_check_s;
 	time_t time_up;
-	struct lws_plat_file_ops fops;
+	const struct lws_plat_file_ops *fops;
+	struct lws_plat_file_ops fops_default[2];
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
 	struct lws_conn_stats conn_stats;
 #ifdef _WIN32

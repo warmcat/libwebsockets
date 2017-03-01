@@ -239,7 +239,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 	if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED &&
 	    wsi->u.http.fop_fd != NULL) {
-		lws_plat_file_close(wsi->u.http.fop_fd);
+		lws_vfs_file_close(wsi->u.http.fop_fd);
 		wsi->u.http.fop_fd = NULL;
 		wsi->vhost->protocols->callback(wsi,
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
@@ -960,7 +960,30 @@ lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
 LWS_VISIBLE LWS_EXTERN void
 lws_set_fops(struct lws_context *context, struct lws_plat_file_ops *fops)
 {
-	memcpy(&context->fops, fops, sizeof *fops);
+	memcpy(&context->fops_default, fops, sizeof *fops);
+}
+
+LWS_VISIBLE LWS_EXTERN const struct lws_plat_file_ops *
+lws_select_fops_by_vfs_path(const struct lws_context *context, const char *vfs_path)
+{
+	const struct lws_plat_file_ops *fops = context->fops;
+	int hit = -1, n = 0, matchlen = 0, len;
+
+	while (fops->open) {
+		len = strlen(fops->path_prefix);
+
+		if (!strncmp(vfs_path, fops->path_prefix, len))
+			if (len > matchlen) {
+				hit = n;
+				matchlen = len;
+			}
+		fops++;
+	}
+
+	if (hit < 0)
+		return context->fops_default;
+
+	return &context->fops[hit];
 }
 
 /**
@@ -1362,7 +1385,7 @@ lws_union_transition(struct lws *wsi, enum connection_mode mode)
 LWS_VISIBLE struct lws_plat_file_ops *
 lws_get_fops(struct lws_context *context)
 {
-	return &context->fops;
+	return &context->fops_default[0];
 }
 
 LWS_VISIBLE LWS_EXTERN struct lws_context *

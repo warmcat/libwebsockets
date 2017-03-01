@@ -261,7 +261,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 	return "lws_plat_inet_ntop";
 }
 
-static lws_fop_fd_t
+LWS_VISIBLE lws_fop_fd_t
 _lws_plat_file_open(lws_plat_file_open(struct lws_plat_file_ops *fops,
 		    const char *filename, lws_filepos_t *filelen,
 		    lws_fop_flags_t *flags)
@@ -269,19 +269,19 @@ _lws_plat_file_open(lws_plat_file_open(struct lws_plat_file_ops *fops,
 	return NULL;
 }
 
-static int
+LWS_VISIBLE int
 _lws_plat_file_close(lws_fop_fd_t fop_fd)
 {
 	return 0;
 }
 
-unsigned lws_fileofs_t
+LWS_VISIBLE lws_fileofs_t
 _lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
 	return 0;
 }
 
-static int
+LWS_VISIBLE  int
 _lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		    uint8_t *buf, lws_filepos_t len)
 {
@@ -289,7 +289,7 @@ _lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 	return 0;
 }
 
-static int
+LWS_VISIBLE  int
 _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		     uint8_t *buf, lws_filepos_t len)
 {
@@ -313,12 +313,6 @@ lws_plat_init(struct lws_context *context,
 
 	lwsl_notice(" mem: platform fd map: %5lu bytes\n",
 		    (long)sizeof(struct lws *) * context->max_fds);
-
-	context->fops.open	= _lws_plat_file_open;
-	context->fops.close	= _lws_plat_file_close;
-	context->fops.seek_cur	= _lws_plat_file_seek_cur;
-	context->fops.read	= _lws_plat_file_read;
-	context->fops.write	= _lws_plat_file_write;
 
 #ifdef LWS_WITH_PLUGINS
 	if (info->plugin_dirs)

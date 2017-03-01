@@ -2227,7 +2227,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		}
 
 
-	wsi->u.http.fop_fd = lws_plat_file_open(&wsi->context->fops, file,
+	wsi->u.http.fop_fd = lws_vfs_file_open(lws_select_fops_by_vfs_path(
+						wsi->context, file), file,
 						&wsi->u.http.filelen,
 						&fflags);
 	if (!wsi->u.http.fop_fd) {

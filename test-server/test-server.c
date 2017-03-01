@@ -121,7 +121,7 @@ static struct lws_protocols protocols[] = {
  * compressed files without decompressing the whole archive)
  */
 static lws_fop_fd_t
-test_server_fops_open(struct lws_plat_file_ops *fops,
+test_server_fops_open(const struct lws_plat_file_ops *fops,
 		     const char *filename,
 		     lws_filepos_t *filelen,
 		     lws_fop_flags_t *flags)
