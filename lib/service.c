@@ -646,7 +646,10 @@ spin_chunks:
 	if (wsi->chunked)
 		return 0;
 
-	wsi->u.http.content_remain -= n;
+	/* if we know the content length, decrement the content remaining */
+	if (wsi->u.http.content_length > 0)
+		wsi->u.http.content_remain -= n;
+
 	if (wsi->u.http.content_remain || !wsi->u.http.content_length)
 		return 0;
 
