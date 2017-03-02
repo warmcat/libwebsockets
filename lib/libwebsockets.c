@@ -142,26 +142,40 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 		lws_remove_from_timeout_list(wsi);
 }
 
+static void
+lws_remove_child_from_any_parent(struct lws *wsi)
+{
+	struct lws **pwsi;
+
+	if (wsi->parent) {
+		/* detach ourselves from parent's child list */
+		pwsi = &wsi->parent->child_list;
+		while (*pwsi) {
+			if (*pwsi == wsi) {
+				//lwsl_notice("%s: detach %p from parent %p\n",
+				//		__func__, wsi, wsi->parent);
+				*pwsi = wsi->sibling_list;
+				break;
+			}
+			pwsi = &(*pwsi)->sibling_list;
+		}
+		if (*pwsi)
+			lwsl_err("%s: failed to detach from parent\n",
+					__func__);
+	}
+}
+
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 {
 	struct lws_context_per_thread *pt;
-	struct lws **pwsi, *wsi1, *wsi2;
+	struct lws *wsi1, *wsi2;
 	struct lws_context *context;
 	struct lws_tokens eff_buf;
 	int n, m, ret;
 
 	if (!wsi)
 		return;
-
-	if (wsi->mode == LWSCM_RAW_FILEDESC) {
-		remove_wsi_socket_from_fds(wsi);
-		wsi->protocol->callback(wsi,
-			LWS_CALLBACK_RAW_CLOSE_FILE, wsi->user_space, NULL, 0);
-		lws_free_wsi(wsi);
-
-		return;
-	}
 
 	lws_access_log(wsi);
 #if defined(LWS_WITH_ESP8266)
@@ -198,6 +212,17 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 			wsi2 = wsi1;
 		}
 		wsi->child_list = NULL;
+	}
+
+	if (wsi->mode == LWSCM_RAW_FILEDESC) {
+			lws_remove_child_from_any_parent(wsi);
+			remove_wsi_socket_from_fds(wsi);
+			wsi->protocol->callback(wsi,
+						LWS_CALLBACK_RAW_CLOSE_FILE,
+						wsi->user_space, NULL, 0);
+			lws_free_wsi(wsi);
+
+			return;
 	}
 
 #ifdef LWS_WITH_CGI
@@ -400,22 +425,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 just_kill_connection:
 
-	if (wsi->parent) {
-		/* detach ourselves from parent's child list */
-		pwsi = &wsi->parent->child_list;
-		while (*pwsi) {
-			if (*pwsi == wsi) {
-				//lwsl_notice("%s: detach %p from parent %p\n",
-				//		__func__, wsi, wsi->parent);
-				*pwsi = wsi->sibling_list;
-				break;
-			}
-			pwsi = &(*pwsi)->sibling_list;
-		}
-		if (*pwsi)
-			lwsl_err("%s: failed to detach from parent\n",
-					__func__);
-	}
+	lws_remove_child_from_any_parent(wsi);
+
 #if 0
 	/* manage the vhost same protocol list entry */
 

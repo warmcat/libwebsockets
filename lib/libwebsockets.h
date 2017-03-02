@@ -3725,9 +3725,10 @@ LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
 
 typedef enum {
-	LWS_ADOPT_HTTP = 1,		/* absent implies RAW */
-	LWS_ADOPT_SOCKET = 2,		/* absent implies file descriptor */
-	LWS_ADOPT_ALLOW_SSL = 4		/* if set requires LWS_ADOPT_SOCKET */
+	LWS_ADOPT_RAW_FILE_DESC = 0,	/* convenience constant */
+	LWS_ADOPT_HTTP = 1,		/* flag: absent implies RAW */
+	LWS_ADOPT_SOCKET = 2,		/* flag: absent implies file descr */
+	LWS_ADOPT_ALLOW_SSL = 4		/* flag: if set requires LWS_ADOPT_SOCKET */
 } lws_adoption_type;
 
 typedef union {
@@ -3743,17 +3744,21 @@ typedef union {
 * \param type: OR-ed combinations of lws_adoption_type flags
 * \param fd: union with either .sockfd or .filefd set
 * \param vh_prot_name: NULL or vh protocol name to bind raw connection to
+* \param parent: NULL or struct lws to attach new_wsi to as a child
 *
 * Either returns new wsi bound to accept_fd, or closes accept_fd and
 * returns NULL, having cleaned up any new wsi pieces.
 *
 * If LWS_ADOPT_SOCKET is set, LWS adopts the socket in http serving mode, it's
 * ready to accept an upgrade to ws or just serve http.
+*
+* parent may be NULL, if given it should be an existing wsi that will become the
+* parent of the new wsi created by this call.
 */
 LWS_VISIBLE struct lws *
 lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
-			   lws_sock_file_fd_type fd, const char *vh_prot_name);
-
+			   lws_sock_file_fd_type fd, const char *vh_prot_name,
+			   struct lws *parent);
 
 /**
  * lws_adopt_socket_readbuf() - adopt foreign socket and first rx as if listen socket accepted it

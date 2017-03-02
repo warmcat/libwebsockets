@@ -1690,7 +1690,8 @@ lws_http_transaction_completed(struct lws *wsi)
 
 LWS_VISIBLE struct lws *
 lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
-			   lws_sock_file_fd_type fd, const char *vh_prot_name)
+			   lws_sock_file_fd_type fd, const char *vh_prot_name,
+			   struct lws *parent)
 {
 	struct lws_context *context = vh->context;
 	struct lws *new_wsi = lws_create_new_server_wsi(vh);
@@ -1702,26 +1703,31 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		return NULL;
 	}
 
-	new_wsi->desc = fd;
-	new_wsi->protocol = &context->vhost_list->
-			protocols[vh->default_protocol_index];
+	if (parent) {
+		new_wsi->parent = parent;
+		new_wsi->sibling_list = parent->child_list;
+		parent->child_list = new_wsi;
+	}
 
-	if (!(type & LWS_ADOPT_SOCKET)) {
+	new_wsi->desc = fd;
+
+	if (vh_prot_name) {
 		new_wsi->protocol = lws_vhost_name_to_protocol(new_wsi->vhost,
-				vh_prot_name);
+							       vh_prot_name);
 		if (!new_wsi->protocol) {
 			lwsl_err("Protocol %s not enabled on vhost %s\n",
 				 vh_prot_name, new_wsi->vhost->name);
-			lws_free(new_wsi);
-
-			return NULL;
+			goto bail;
 		}
-	}
-	if (type & LWS_ADOPT_SOCKET) {
+		if (lws_ensure_user_space(new_wsi))
+			goto bail;
+	} else
+		new_wsi->protocol = &context->vhost_list->
+					protocols[vh->default_protocol_index];
 
+	if (type & LWS_ADOPT_SOCKET) { /* socket desc */
 		lwsl_debug("%s: new wsi %p, sockfd %d\n", __func__, new_wsi,
 			   (int)(size_t)fd.sockfd);
-
 
 		/* the transport is accepted... give him time to negotiate */
 		lws_set_timeout(new_wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
@@ -1732,7 +1738,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		esp8266_tcp_stream_accept(accept_fd, new_wsi);
 #endif
 #endif
-	} else  //* file desc */
+	} else /* file desc */
 		lwsl_debug("%s: new wsi %p, filefd %d\n", __func__, new_wsi,
 			   (int)(size_t)fd.filefd);
 
@@ -1756,8 +1762,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			lws_set_timeout(new_wsi, NO_PENDING_TIMEOUT, 0);
 			compatible_close(new_wsi->desc.sockfd);
 		}
-		lws_free(new_wsi);
-		return NULL;
+		goto bail;
 	}
 
 	if (!LWS_SSL_ENABLED(new_wsi->vhost) || !(type & LWS_ADOPT_ALLOW_SSL) ||
@@ -1804,6 +1809,15 @@ fail:
 		lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return NULL;
+
+bail:
+	if (parent)
+		parent->child_list = new_wsi->sibling_list;
+	if (new_wsi->user_space)
+		lws_free(new_wsi->user_space);
+	lws_free(new_wsi);
+
+	return NULL;
 }
 
 LWS_VISIBLE struct lws *
@@ -1813,7 +1827,7 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 
 	fd.sockfd = accept_fd;
 	return lws_adopt_descriptor_vhost(vh, LWS_ADOPT_SOCKET |
-			LWS_ADOPT_HTTP | LWS_ADOPT_ALLOW_SSL, fd, NULL);
+			LWS_ADOPT_HTTP | LWS_ADOPT_ALLOW_SSL, fd, NULL, NULL);
 }
 
 LWS_VISIBLE struct lws *
