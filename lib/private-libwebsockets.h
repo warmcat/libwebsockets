@@ -931,6 +931,7 @@ enum {
 #if defined(LWS_USE_LIBEV)
 LWS_EXTERN void
 lws_libev_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
+LWS_EXTERN void
 lws_libev_io(struct lws *wsi, int flags);
 LWS_EXTERN int
 lws_libev_init_fd_table(struct lws_context *context);
