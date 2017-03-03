@@ -114,6 +114,7 @@ option(LWS_WITH_NO_LOGS "Disable all logging from being compiled in" OFF)
 option(LWS_STATIC_PIC "Build the static version of the library with position-independent code" OFF)
 option(LWS_WITH_RANGES "Support http ranges (RFC7233)" ON)
 option(LWS_FALLBACK_GETHOSTBYNAME "Also try to do dns resolution using gethostbyname if getaddrinfo fails" OFF)
+option(LWS_WITH_ZIP_FOPS "Support serving pre-zipped files" ON)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -650,6 +651,11 @@ endif()
 if (LWS_WITH_RANGES)
 	list(APPEND SOURCES
 		lib/ranges.c)
+endif()
+
+if (LWS_WITH_ZIP_FOPS)
+	list(APPEND SOURCES
+		lib/junzip.c)
 endif()
 
 # Add helper files for Windows.
@@ -1670,6 +1676,7 @@ message(" LWS_STATIC_PIC = ${LWS_STATIC_PIC}")
 message(" LWS_WITH_RANGES = ${LWS_WITH_RANGES}")
 message(" LWS_PLAT_OPTEE = ${LWS_PLAT_OPTEE}")
 message(" LWS_WITH_ESP32 = ${LWS_WITH_ESP32}")
+message(" LWS_WITH_ZIP_FOPS = ${LWS_WITH_ZIP_FOPS}")
 
 message("---------------------------------------------------------------------")
 

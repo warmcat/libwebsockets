@@ -4296,10 +4296,23 @@ struct lws_fop_fd {
 #if !defined(ssize_t)
 typedef SSIZE_T ssize_t;
 #endif
+#endif
+
+#if defined(LWS_HAVE_STDINT_H)
+#include <stdint.h>
+#else
+#if defined(WIN32) || defined(_WIN32)
 /* !!! >:-[  */
 typedef unsigned __int32 uint32_t;
+typedef unsigned __int16 uint16_t;
 typedef unsigned __int8 uint8_t;
+#else
+typedef unsigned int uint32_t;
+typedef unsigned short uint16_t;
+typedef unsigned char uint8_t;
 #endif
+#endif
+
 typedef struct lws_fop_fd *lws_fop_fd_t;
 typedef size_t lws_filepos_t;
 typedef ssize_t lws_fileofs_t;

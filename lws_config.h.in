@@ -122,5 +122,9 @@
 /* OPTEE */
 #cmakedefine LWS_PLAT_OPTEE
 
+/* ZIP FOPS */
+#cmakedefine LWS_WITH_ZIP_FOPS
+#cmakedefine LWS_HAVE_STDINT_H
+
 #cmakedefine LWS_FALLBACK_GETHOSTBYNAME
 ${LWS_SIZEOFPTR_CODE}
