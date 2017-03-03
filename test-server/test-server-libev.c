@@ -150,16 +150,16 @@ static const struct lws_extension exts[] = {
  * compressed files without decompressing the whole archive)
  */
 static lws_fop_fd_t
-test_server_fops_open(struct lws_plat_file_ops *fops, const char *filename,
-		   lws_filepos_t *filelen, lws_fop_flags_t *flags)
+test_server_fops_open(const struct lws_plat_file_ops *fops,
+		      const char *vfs_path, const char *vpath,
+		      lws_fop_flags_t *flags)
 {
 	lws_fop_fd_t n;
 
 	/* call through to original platform implementation */
-	n = fops_plat.open(fops, filename, filelen, flags);
+	n = fops_plat.open(fops, vfs_path, vpath, flags);
 
-	lwsl_notice("%s: opening %s, ret %p, len %lu\n", __func__, filename,
-		    n, *filelen);
+	lwsl_notice("%s: opening %s, ret %p\n", __func__, vfs_path, n);
 
 	return n;
 }

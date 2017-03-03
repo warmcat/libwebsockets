@@ -220,9 +220,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 			wsi->protocol->callback(wsi,
 						LWS_CALLBACK_RAW_CLOSE_FILE,
 						wsi->user_space, NULL, 0);
-			lws_free_wsi(wsi);
-
-			return;
+			goto async_close;
 	}
 
 #ifdef LWS_WITH_CGI
@@ -264,8 +262,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 	if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED &&
 	    wsi->u.http.fop_fd != NULL) {
-		lws_vfs_file_close(wsi->u.http.fop_fd);
-		wsi->u.http.fop_fd = NULL;
+		lws_vfs_file_close(&wsi->u.http.fop_fd);
 		wsi->vhost->protocols->callback(wsi,
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;
@@ -606,6 +603,7 @@ just_kill_connection:
 		       LWS_EXT_CB_DESTROY_ANY_WSI_CLOSING, NULL, 0) < 0)
 		lwsl_warn("ext destroy wsi failed\n");
 
+async_close:
 	wsi->socket_is_permanently_unusable = 1;
 
 #ifdef LWS_USE_LIBUV
@@ -971,31 +969,104 @@ lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
 LWS_VISIBLE LWS_EXTERN void
 lws_set_fops(struct lws_context *context, struct lws_plat_file_ops *fops)
 {
-	memcpy(&context->fops_default, fops, sizeof *fops);
+	memcpy(&context->fops, fops, sizeof *fops);
 }
 
-LWS_VISIBLE LWS_EXTERN const struct lws_plat_file_ops *
-lws_select_fops_by_vfs_path(const struct lws_context *context, const char *vfs_path)
+LWS_VISIBLE LWS_EXTERN lws_filepos_t
+lws_vfs_tell(lws_fop_fd_t fop_fd)
 {
-	const struct lws_plat_file_ops *fops = context->fops;
-	int hit = -1, n = 0, matchlen = 0, len;
+	return fop_fd->pos;
+}
 
-	while (fops->open) {
-		len = strlen(fops->path_prefix);
+LWS_VISIBLE LWS_EXTERN lws_filepos_t
+lws_vfs_get_length(lws_fop_fd_t fop_fd)
+{
+	return fop_fd->len;
+}
 
-		if (!strncmp(vfs_path, fops->path_prefix, len))
-			if (len > matchlen) {
-				hit = n;
-				matchlen = len;
+LWS_VISIBLE LWS_EXTERN uint32_t
+lws_vfs_get_mod_time(lws_fop_fd_t fop_fd)
+{
+	return fop_fd->mod_time;
+}
+
+LWS_VISIBLE lws_fileofs_t
+lws_vfs_file_seek_set(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
+{
+	lws_fileofs_t ofs;
+	lwsl_debug("%s: seeking to %ld, len %ld\n", __func__, offset, fop_fd->len);
+	ofs = fop_fd->fops->LWS_FOP_SEEK_CUR(fop_fd, offset - fop_fd->pos);
+	lwsl_debug("%s: result %ld, fop_fd pos %ld\n", __func__, ofs, fop_fd->pos);
+	return ofs;
+}
+
+
+LWS_VISIBLE lws_fileofs_t
+lws_vfs_file_seek_end(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
+{
+	return fop_fd->fops->LWS_FOP_SEEK_CUR(fop_fd, fop_fd->len + fop_fd->pos + offset);
+}
+
+
+const struct lws_plat_file_ops *
+lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
+		    const char **vpath)
+{
+	const struct lws_plat_file_ops *pf;
+	const char *p = vfs_path;
+	int n;
+
+	*vpath = NULL;
+
+	/* no non-platform fops, just use that */
+
+	if (!fops->next)
+		return fops;
+
+	/*
+	 *  scan the vfs path looking for indications we are to be
+	 * handled by a specific fops
+	 */
+
+	while (*p) {
+		if (*p != '/') {
+			p++;
+			continue;
+		}
+		/* the first one is always platform fops, so skip */
+		pf = fops->next;
+		while (pf) {
+			n = 0;
+			while (n < ARRAY_SIZE(pf->fi) && pf->fi[n].sig) {
+				if (p >= vfs_path + pf->fi[n].len)
+					if (!strncmp(p - (pf->fi[n].len - 1),
+						    pf->fi[n].sig,
+						    pf->fi[n].len - 1)) {
+						*vpath = p + 1;
+						return pf;
+					}
+
+				n++;
 			}
-		fops++;
+			pf = pf->next;
+		}
+		p++;
 	}
 
-	if (hit < 0)
-		return context->fops_default;
-
-	return &context->fops[hit];
+	return fops;
 }
+
+LWS_VISIBLE LWS_EXTERN lws_fop_fd_t LWS_WARN_UNUSED_RESULT
+lws_vfs_file_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
+		  lws_fop_flags_t *flags)
+{
+	const char *vpath;
+	const struct lws_plat_file_ops *selected = lws_vfs_select_fops(
+			fops, vfs_path, &vpath);
+
+	return selected->LWS_FOP_OPEN(fops, vfs_path, vpath, flags);
+}
+
 
 /**
  * lws_now_secs() - seconds since 1970-1-1
@@ -1396,7 +1467,7 @@ lws_union_transition(struct lws *wsi, enum connection_mode mode)
 LWS_VISIBLE struct lws_plat_file_ops *
 lws_get_fops(struct lws_context *context)
 {
-	return &context->fops_default[0];
+	return (struct lws_plat_file_ops *)context->fops;
 }
 
 LWS_VISIBLE LWS_EXTERN struct lws_context *

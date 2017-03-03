@@ -67,11 +67,33 @@ static const struct lws_extension exts[] = {
 };
 
 /*
- * mount a handler for a section of the URL space
+ * mount handlers for sections of the URL space
  */
 
+static const struct lws_http_mount mount_ziptest = {
+	NULL,			/* linked-list pointer to next*/
+	"/ziptest",		/* mountpoint in URL namespace on this vhost */
+	LOCAL_RESOURCE_PATH"/candide.zip",	/* handler */
+	NULL,	/* default filename if none given */
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	LWSMPRO_FILE,	/* origin points to a callback */
+	8,			/* strlen("/ziptest"), ie length of the mountpoint */
+	NULL,
+
+	{ NULL, NULL } // sentinel
+};
+
 static const struct lws_http_mount mount_post = {
-	NULL,		/* linked-list pointer to next*/
+	(struct lws_http_mount *)&mount_ziptest, /* linked-list pointer to next*/
 	"/formtest",		/* mountpoint in URL namespace on this vhost */
 	"protocol-post-demo",	/* handler */
 	NULL,	/* default filename if none given */

@@ -439,57 +439,6 @@ extern "C" {
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
 #endif
 
-/**
- * Unzip library by Per Bothner.
- * Loosely based on Joonas Pihlajamaa's JUnzip.
- * Released into public domain. https://github.com/jokkebk/JUnzip
- * ------->
- */
-
-typedef struct jzfile {
-    unsigned char *start;
-    off_t length;
-    long position;
-    int numEntries;
-    uint32_t centralDirectoryOffset;
-} jzfile_t;
-
-#define zf_tell(ZF) ((ZF)->position)
-#define zf_available(ZF) ((ZF)->length - (ZF)->position)
-#define zf_current(ZF) ((ZF)->start + (ZF)->position)
-
-#define ZIP_LOCAL_FILE_HEADER_LENGTH 30
-
-typedef struct {
-    uint16_t compressionMethod;
-    uint32_t crc32;
-    uint32_t compressedSize;
-    uint32_t uncompressedSize;
-    long fileNameStart;
-    uint16_t fileNameLength;
-    uint16_t extraFieldLength; // unsupported
-    uint32_t offset;
-} jzfile_hdr_t;
-
-// Callback prototype for central and local file record reading functions
-typedef int (*jzcb_t)(jzfile_t *zip, int index, jzfile_hdr_t *header);
-
-// Read ZIP file end record. Will move within file.
-int jzReadEndRecord(jzfile_t *zip);
-
-// Read ZIP file global directory. Will move within file.
-// Callback is called for each record, until callback returns zero
-int jzReadCentralDirectory(jzfile_t *zip, jzcb_t callback);
-
-  // See to the start of the actual data of the given entry.
-int jzSeekData(jzfile_t *zip, jzfile_hdr_t *header);
-
-// Read data from file stream, described by header, to preallocated buffer
-// Return value is zlib coded, e.g. Z_OK, or error code
-int jzReadData(jzfile_t *zip, jzfile_hdr_t *header, void *buffer);
-
-/* <------ */
-
 enum lws_websocket_opcodes_07 {
 	LWSWSOPC_CONTINUATION = 0,
 	LWSWSOPC_TEXT_FRAME = 1,
@@ -860,7 +809,10 @@ struct lws_context {
 	time_t last_ws_ping_pong_check_s;
 	time_t time_up;
 	const struct lws_plat_file_ops *fops;
-	struct lws_plat_file_ops fops_default[2];
+	struct lws_plat_file_ops fops_platform;
+#if defined(LWS_WITH_ZIP_FOPS)
+	struct lws_plat_file_ops fops_zip;
+#endif
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
 	struct lws_conn_stats conn_stats;
 #ifdef _WIN32
@@ -947,6 +899,7 @@ struct lws_context {
 	short server_string_len;
 	unsigned short ws_ping_pong_interval;
 	unsigned short deprecation_pending_listen_close_count;
+	uint8_t max_fi;
 };
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
@@ -2004,6 +1957,10 @@ void lws_free(void *p);
 #define lws_free(P)	lws_realloc(P, 0)
 #define lws_free_set_NULL(P)	do { lws_realloc(P, 0); (P) = NULL; } while(0)
 #endif
+
+const struct lws_plat_file_ops *
+lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
+		    const char **vpath);
 
 /* lws_plat_ */
 LWS_EXTERN void

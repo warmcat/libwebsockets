@@ -523,7 +523,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 LWS_VISIBLE lws_fop_fd_t
 _lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
-		   lws_filepos_t *filelen, lws_fop_flags_t *flags)
+		    const char *vpath, lws_fop_flags_t *flags)
 {
 	HANDLE ret;
 	WCHAR buf[MAX_PATH];
@@ -548,22 +548,23 @@ _lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
 	fop_fd->fops = fops;
 	fop_fd->fd = ret;
 	fop_fd->filesystem_priv = NULL; /* we don't use it */
-
-	*filelen = GetFileSize(ret, NULL);
+	fop_fd->flags = *flags;
+	fop_fd->len = GetFileSize(ret, NULL);
+	fop_fd->pos = 0;
 
 	return fop_fd;
 
 bail:
-	*filelen = 0;
 	return NULL;
 }
 
 LWS_VISIBLE int
-_lws_plat_file_close(lws_fop_fd_t fop_fd)
+_lws_plat_file_close(lws_fop_fd_t *fop_fd)
 {
-	HANDLE fd = fop_fd->fd;
+	HANDLE fd = (*fop_fd)->fd;
 
-	free(fop_fd);
+	free(*fop_fd);
+	*fop_fd = NULL;
 
 	CloseHandle((HANDLE)fd);
 
@@ -588,6 +589,7 @@ _lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		return 1;
 	}
 
+	fop_fd->pos += _amount;
 	*amount = (unsigned long)_amount;
 
 	return 0;
@@ -601,6 +603,8 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 	(void)amount;
 	(void)buf;
 	(void)len;
+
+	fop_fd->pos += len;
 
 	lwsl_err("%s: not implemented yet on this platform\n", __func__);
 

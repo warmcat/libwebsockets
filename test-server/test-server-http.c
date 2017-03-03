@@ -292,13 +292,14 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			p = buffer + LWS_PRE;
 			end = p + sizeof(buffer) - LWS_PRE;
 
-			pss->fop_fd = lws_vfs_file_open(lws_get_fops(lws_get_context(wsi)),
-					leaf_path, &file_len, &flags);
-
+			pss->fop_fd = lws_vfs_file_open(
+					lws_get_fops(lws_get_context(wsi)),
+					leaf_path, &flags);
 			if (!pss->fop_fd) {
 				lwsl_err("failed to open file %s\n", leaf_path);
 				return -1;
 			}
+			file_len = lws_vfs_get_length(pss->fop_fd);
 
 			/*
 			 * we will send a big jpeg file, but it could be
@@ -346,7 +347,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				      p - (buffer + LWS_PRE),
 				      LWS_WRITE_HTTP_HEADERS);
 			if (n < 0) {
-				lws_vfs_file_close(pss->fop_fd);
+				lws_vfs_file_close(&pss->fop_fd);
 				return -1;
 			}
 			/*
@@ -588,12 +589,12 @@ later:
 		lws_callback_on_writable(wsi);
 		break;
 penultimate:
-		lws_vfs_file_close(pss->fop_fd);
+		lws_vfs_file_close(&pss->fop_fd);
 		pss->fop_fd = NULL;
 		goto try_to_reuse;
 
 bail:
-		lws_vfs_file_close(pss->fop_fd);
+		lws_vfs_file_close(&pss->fop_fd);
 
 		return -1;
 

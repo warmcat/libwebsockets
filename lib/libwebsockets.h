@@ -33,6 +33,12 @@ extern "C" {
 #include <stdarg.h>
 #endif
 
+static inline int lws_is_be(void) {
+	const int probe = ~0xff;
+
+	return *(const char *)&probe;
+}
+
 #if defined(LWS_WITH_ESP8266)
 struct sockaddr_in;
 #define LWS_POSIX 0
@@ -1816,9 +1822,7 @@ struct lws_context_creation_info {
 	 * by a sentinel with NULL .open.
 	 *
 	 * If NULL, lws provides just the platform file operations struct for
-	 * backwards compatibility.  If set to point to an array of fops
-	 * structs, lws_select_fops_by_vfs_path() will select the best match
-	 * comparing the left of vfs_path to each fops .path_prefix.
+	 * backwards compatibility.
 	 */
 
 	/* Add new things just above here ---^
@@ -2559,6 +2563,7 @@ lws_get_mimetype(const char *file, const struct lws_http_mount *m);
 LWS_VISIBLE LWS_EXTERN int
 lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		    const char *other_headers, int other_headers_len);
+
 LWS_VISIBLE LWS_EXTERN int
 lws_serve_http_file_fragment(struct lws *wsi);
 //@}
@@ -4268,29 +4273,27 @@ lws_cgi_kill(struct lws *wsi);
 
 #if defined(LWS_WITH_ESP32)
 /* sdk preprocessor defs? compiler issue? gets confused with member names */
-#define LWS_FOP_OPEN _open
-#define LWS_FOP_CLOSE _close
-#define LWS_FOP_SEEK_CUR _seek_cur
-#define LWS_FOP_READ _read
-#define LWS_FOP_WRITE _write
+#define LWS_FOP_OPEN		_open
+#define LWS_FOP_CLOSE		_close
+#define LWS_FOP_SEEK_CUR	_seek_cur
+#define LWS_FOP_READ		_read
+#define LWS_FOP_WRITE		_write
 #else
-#define LWS_FOP_OPEN open
-#define LWS_FOP_CLOSE close
-#define LWS_FOP_SEEK_CUR seek_cur
-#define LWS_FOP_READ read
-#define LWS_FOP_WRITE write
+#define LWS_FOP_OPEN		open
+#define LWS_FOP_CLOSE		close
+#define LWS_FOP_SEEK_CUR	seek_cur
+#define LWS_FOP_READ		read
+#define LWS_FOP_WRITE		write
 #endif
 
 #define LWS_FOP_FLAGS_MASK		   ((1 << 23) - 1)
 #define LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP (1 << 24)
 #define LWS_FOP_FLAG_COMPR_IS_GZIP	   (1 << 25)
+#define LWS_FOP_FLAG_MOD_TIME_VALID	   (1 << 26)
+#define LWS_FOP_FLAG_VIRTUAL		   (1 << 27)
 
 struct lws_plat_file_ops;
-struct lws_fop_fd {
-	lws_filefd_type fd;
-	const struct lws_plat_file_ops *fops;
-	void *filesystem_priv;
-};
+
 #if defined(WIN32) || defined(_WIN32)
 /* ... */
 #if !defined(ssize_t)
@@ -4313,26 +4316,49 @@ typedef unsigned char uint8_t;
 #endif
 #endif
 
-typedef struct lws_fop_fd *lws_fop_fd_t;
 typedef size_t lws_filepos_t;
 typedef ssize_t lws_fileofs_t;
 typedef uint32_t lws_fop_flags_t;
 
+struct lws_fop_fd {
+	lws_filefd_type			fd;
+	/**< real file descriptor related to the file... */
+	const struct lws_plat_file_ops	*fops;
+	/**< fops that apply to this fop_fd */
+	void				*filesystem_priv;
+	/**< ignored by lws; owned by the fops handlers */
+	lws_filepos_t			pos;
+	/**< generic "position in file" */
+	lws_filepos_t			len;
+	/**< generic "length of file" */
+	lws_fop_flags_t			flags;
+	/**< copy of the returned flags */
+	uint32_t			mod_time;
+	/**< optional "modification time of file", only valid if .open()
+	 * set the LWS_FOP_FLAG_MOD_TIME_VALID flag */
+};
+typedef struct lws_fop_fd *lws_fop_fd_t;
+
+struct lws_fops_index {
+	const char *sig;	/* NULL or vfs signature, eg, ".zip/" */
+	uint8_t len;		/* length of above string */
+};
+
 struct lws_plat_file_ops {
 	lws_fop_fd_t (*LWS_FOP_OPEN)(const struct lws_plat_file_ops *fops,
-				     const char *filename,
-				     lws_filepos_t *filelen,
+				     const char *filename, const char *vpath,
 				     lws_fop_flags_t *flags);
 	/**< Open file (always binary access if plat supports it)
-	 * filelen is filled on exit to be the length of the file
+	 * vpath may be NULL, or if the fops understands it, the point at which
+	 * the filename's virtual part starts.
 	 * *flags & LWS_FOP_FLAGS_MASK should be set to O_RDONLY or O_RDWR.
 	 * If the file may be gzip-compressed,
 	 * LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP is set.  If it actually is
 	 * gzip-compressed, then the open handler should OR
 	 * LWS_FOP_FLAG_COMPR_IS_GZIP on to *flags before returning.
 	 */
-	int (*LWS_FOP_CLOSE)(lws_fop_fd_t fop_fd);
-	/**< close file */
+	int (*LWS_FOP_CLOSE)(lws_fop_fd_t *fop_fd);
+	/**< close file AND set the pointer to NULL */
 	lws_fileofs_t (*LWS_FOP_SEEK_CUR)(lws_fop_fd_t fop_fd,
 					  lws_fileofs_t offset_from_cur_pos);
 	/**< seek from current position */
@@ -4342,8 +4368,12 @@ struct lws_plat_file_ops {
 	int (*LWS_FOP_WRITE)(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 			     uint8_t *buf, lws_filepos_t len);
 	/**< Write to file, on exit *amount is set to amount actually written */
-	const char *path_prefix;
-	/**< Optional, NULL or filesystem namespace prefix matching this fops */
+
+	struct lws_fops_index fi[3];
+	/**< vfs path signatures implying use of this fops */
+
+	const struct lws_plat_file_ops *next;
+	/**< NULL or next fops in list */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility */
@@ -4358,24 +4388,63 @@ LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops * LWS_WARN_UNUSED_RESULT
 lws_get_fops(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN void
 lws_set_fops(struct lws_context *context, struct lws_plat_file_ops *fops);
-LWS_VISIBLE LWS_EXTERN const struct lws_plat_file_ops * LWS_WARN_UNUSED_RESULT
-lws_select_fops_by_vfs_path(const struct lws_context *context, const char *vfs_path);
 /**
- * lws_plat_file_open() - file open operations
+ * lws_vfs_tell() - get current file position
+ *
+ * \param fop_fd: fop_fd we are asking about
+ */
+LWS_VISIBLE LWS_EXTERN lws_filepos_t LWS_WARN_UNUSED_RESULT
+lws_vfs_tell(lws_fop_fd_t fop_fd);
+/**
+ * lws_vfs_get_length() - get current file total length in bytes
+ *
+ * \param fop_fd: fop_fd we are asking about
+ */
+LWS_VISIBLE LWS_EXTERN lws_filepos_t LWS_WARN_UNUSED_RESULT
+lws_vfs_get_length(lws_fop_fd_t fop_fd);
+/**
+ * lws_vfs_get_mod_time() - get time file last modified
+ *
+ * \param fop_fd: fop_fd we are asking about
+ */
+LWS_VISIBLE LWS_EXTERN uint32_t LWS_WARN_UNUSED_RESULT
+lws_vfs_get_mod_time(lws_fop_fd_t fop_fd);
+/**
+ * lws_vfs_file_seek_set() - seek relative to start of file
+ *
+ * \param fop_fd: fop_fd we are seeking in
+ * \param offset: offset from start of file
+ */
+LWS_VISIBLE LWS_EXTERN lws_fileofs_t
+lws_vfs_file_seek_set(lws_fop_fd_t fop_fd, lws_fileofs_t offset);
+/**
+ * lws_vfs_file_seek_end() - seek relative to end of file
+ *
+ * \param fop_fd: fop_fd we are seeking in
+ * \param offset: offset from start of file
+ */
+LWS_VISIBLE LWS_EXTERN lws_fileofs_t
+lws_vfs_file_seek_end(lws_fop_fd_t fop_fd, lws_fileofs_t offset);
+
+LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops fops_zip;
+
+/**
+ * lws_plat_file_open() - open vfs filepath
  *
  * \param fops: file ops struct that applies to this descriptor
- * \param filename: filename to open
- * \param filelen: length of file (filled in by call)
+ * \param vfs_path: filename to open
  * \param flags: pointer to open flags
+ *
+ * The vfs_path is scanned for known fops signatures, and the open directed
+ * to any matching fops open.
+ *
+ * User code should use this api to perform vfs opens.
  *
  * returns semi-opaque handle
  */
-static LWS_INLINE lws_fop_fd_t LWS_WARN_UNUSED_RESULT
-lws_vfs_file_open(const struct lws_plat_file_ops *fops, const char *filename,
-		   lws_filepos_t *filelen, lws_fop_flags_t *flags)
-{
-	return fops->LWS_FOP_OPEN(fops, filename, filelen, flags);
-}
+LWS_VISIBLE LWS_EXTERN lws_fop_fd_t LWS_WARN_UNUSED_RESULT
+lws_vfs_file_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
+		  lws_fop_flags_t *flags);
 
 /**
  * lws_plat_file_close() - close file
@@ -4383,9 +4452,9 @@ lws_vfs_file_open(const struct lws_plat_file_ops *fops, const char *filename,
  * \param fop_fd: file handle to close
  */
 static LWS_INLINE int
-lws_vfs_file_close(lws_fop_fd_t fop_fd)
+lws_vfs_file_close(lws_fop_fd_t *fop_fd)
 {
-	return fop_fd->fops->LWS_FOP_CLOSE(fop_fd);
+	return (*fop_fd)->fops->LWS_FOP_CLOSE(fop_fd);
 }
 
 /**
@@ -4429,15 +4498,15 @@ lws_vfs_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 	return fop_fd->fops->LWS_FOP_WRITE(fop_fd, amount, buf, len);
 }
 
-/* these are the flatform file operations implmenetations... they can
+/* these are the platform file operations implementations... they can
  * be called directly and used in fops arrays
  */
 
 LWS_VISIBLE LWS_EXTERN lws_fop_fd_t
 _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
-		    lws_filepos_t *filelen, lws_fop_flags_t *flags);
+		    const char *vpath, lws_fop_flags_t *flags);
 LWS_VISIBLE LWS_EXTERN int
-_lws_plat_file_close(lws_fop_fd_t fop_fd);
+_lws_plat_file_close(lws_fop_fd_t *fop_fd);
 LWS_VISIBLE LWS_EXTERN lws_fileofs_t
 _lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset);
 LWS_VISIBLE LWS_EXTERN int

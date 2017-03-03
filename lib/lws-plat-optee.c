@@ -263,14 +263,13 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 LWS_VISIBLE lws_fop_fd_t
 _lws_plat_file_open(lws_plat_file_open(struct lws_plat_file_ops *fops,
-		    const char *filename, lws_filepos_t *filelen,
-		    lws_fop_flags_t *flags)
+		    const char *filename, lws_fop_flags_t *flags)
 {
 	return NULL;
 }
 
 LWS_VISIBLE int
-_lws_plat_file_close(lws_fop_fd_t fop_fd)
+_lws_plat_file_close(lws_fop_fd_t *fop_fd)
 {
 	return 0;
 }

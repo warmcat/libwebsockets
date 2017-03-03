@@ -655,7 +655,7 @@ endif()
 
 if (LWS_WITH_ZIP_FOPS)
 	list(APPEND SOURCES
-		lib/junzip.c)
+		lib/fops-zip.c)
 endif()
 
 # Add helper files for Windows.
@@ -1174,6 +1174,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		set(TEST_SERVER_DATA
 			"${PROJECT_SOURCE_DIR}/test-server/favicon.ico"
 			"${PROJECT_SOURCE_DIR}/test-server/leaf.jpg"
+			"${PROJECT_SOURCE_DIR}/test-server/candide.zip"
 			"${PROJECT_SOURCE_DIR}/test-server/libwebsockets.org-logo.png"
 			"${PROJECT_SOURCE_DIR}/test-server/lws-common.js"
 			"${PROJECT_SOURCE_DIR}/test-server/test.html")

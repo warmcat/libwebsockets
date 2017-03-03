@@ -122,17 +122,20 @@ static struct lws_protocols protocols[] = {
  */
 static lws_fop_fd_t
 test_server_fops_open(const struct lws_plat_file_ops *fops,
-		     const char *filename,
-		     lws_filepos_t *filelen,
+		     const char *vfs_path, const char *vpath,
 		     lws_fop_flags_t *flags)
 {
 	lws_fop_fd_t fop_fd;
 
 	/* call through to original platform implementation */
-	fop_fd = fops_plat.open(fops, filename, filelen, flags);
+	fop_fd = fops_plat.open(fops, vfs_path, vpath, flags);
 
-	lwsl_info("%s: opening %s, ret %p, len %lu\n", __func__, filename,
-			fop_fd, (long)*filelen);
+	if (fop_fd)
+		lwsl_info("%s: opening %s, ret %p, len %lu\n", __func__,
+				vfs_path, fop_fd,
+				(long)lws_vfs_get_length(fop_fd));
+	else
+		lwsl_info("%s: open %s failed\n", __func__, vfs_path);
 
 	return fop_fd;
 }

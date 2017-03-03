@@ -150,7 +150,8 @@ lws_protocol_init(struct lws_context *context)
 
 		for (n = 0; n < vh->count_protocols; n++) {
 			wsi.protocol = &vh->protocols[n];
-
+			if (!vh->protocols[n].name)
+				continue;
 			pvo = lws_vhost_protocol_options(vh,
 							 vh->protocols[n].name);
 			if (pvo) {
@@ -403,7 +404,11 @@ lws_create_vhost(struct lws_context *context,
 	}
 #endif
 
-	if (info->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
+	if (
+#ifdef LWS_WITH_PLUGINS
+	    (context->plugin_list) ||
+#endif
+	    info->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
 		vh->protocols = lwsp;
 	else {
 		vh->protocols = info->protocols;
@@ -571,6 +576,7 @@ LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
 {
 	struct lws_context *context = NULL;
+	struct lws_plat_file_ops *prev;
 #ifndef LWS_NO_DAEMONIZE
 	int pid_daemon = get_daemonize_pid();
 #endif
@@ -621,20 +627,34 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	/* default to just the platform fops implementation */
 
-	context->fops_default[0].open		= _lws_plat_file_open;
-	context->fops_default[0].close		= _lws_plat_file_close;
-	context->fops_default[0].seek_cur	= _lws_plat_file_seek_cur;
-	context->fops_default[0].read		= _lws_plat_file_read;
-	context->fops_default[0].write		= _lws_plat_file_write;
-	context->fops_default[0].path_prefix	= "/";
+	context->fops_platform.open		= _lws_plat_file_open;
+	context->fops_platform.close		= _lws_plat_file_close;
+	context->fops_platform.seek_cur		= _lws_plat_file_seek_cur;
+	context->fops_platform.read		= _lws_plat_file_read;
+	context->fops_platform.write		= _lws_plat_file_write;
+	context->fops_platform.fi[0].sig	= NULL;
 
-	// context->fops_default[1].open is already NULL from zalloc
+	/*
+	 *  arrange a linear linked-list of fops starting from context->fops
+	 *
+	 * platform fops
+	 * [ -> fops_zip (copied into context so .next settable) ]
+	 * [ -> info->fops ]
+	 */
 
-	/* it can be overridden from context creation info */
+	context->fops = &context->fops_platform;
+	prev = (struct lws_plat_file_ops *)context->fops;
+
+#if defined(LWS_WITH_ZIP_FOPS)
+	/* make a soft copy so we can set .next */
+	context->fops_zip = fops_zip;
+	prev->next = &context->fops_zip;
+	prev = (struct lws_plat_file_ops *)prev->next;
+#endif
+
+	/* if user provided fops, tack them on the end of the list */
 	if (info->fops)
-		context->fops = info->fops;
-	else
-		context->fops = &context->fops_default[0];
+		prev->next = info->fops;
 
 	context->reject_service_keywords = info->reject_service_keywords;
 	if (info->external_baggage_free_on_destroy)

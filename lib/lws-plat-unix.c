@@ -611,7 +611,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 LWS_VISIBLE lws_fop_fd_t
 _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
-		    lws_filepos_t *filelen, lws_fop_flags_t *flags)
+		    const char *vpath, lws_fop_flags_t *flags)
 {
 	struct stat stat_buf;
 	int ret = open(filename, (*flags) & LWS_FOP_FLAGS_MASK, 0664);
@@ -628,9 +628,11 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 		goto bail;
 
 	fop_fd->fops = fops;
+	fop_fd->flags = *flags;
 	fop_fd->fd = ret;
 	fop_fd->filesystem_priv = NULL; /* we don't use it */
-	*filelen = stat_buf.st_size;
+	fop_fd->len = stat_buf.st_size;
+	fop_fd->pos = 0;
 
 	return fop_fd;
 
@@ -640,18 +642,36 @@ bail:
 }
 
 LWS_VISIBLE int
-_lws_plat_file_close(lws_fop_fd_t fop_fd)
+_lws_plat_file_close(lws_fop_fd_t *fop_fd)
 {
-	int fd = fop_fd->fd;
+	int fd = (*fop_fd)->fd;
 
-	free(fop_fd);
+	free(*fop_fd);
+	*fop_fd = NULL;
+
 	return close(fd);
 }
 
 LWS_VISIBLE lws_fileofs_t
 _lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
-	return lseek(fop_fd->fd, offset, SEEK_CUR);
+	lws_fileofs_t r;
+
+	if (offset > 0 && offset > fop_fd->len - fop_fd->pos)
+		offset = fop_fd->len - fop_fd->pos;
+
+	if ((lws_fileofs_t)fop_fd->pos + offset < 0)
+		offset = -fop_fd->pos;
+
+	r = lseek(fop_fd->fd, offset, SEEK_CUR);
+
+	if (r >= 0)
+		fop_fd->pos = r;
+	else
+		lwsl_err("error seeking from cur %ld, offset %ld\n",
+			 fop_fd->pos, offset);
+
+	return r;
 }
 
 LWS_VISIBLE int
@@ -665,7 +685,9 @@ _lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		*amount = 0;
 		return -1;
 	}
-
+	fop_fd->pos += n;
+	lwsl_debug("%s: read %ld of req %ld, pos %ld, len %ld\n", __func__, n,
+		   (long)len, fop_fd->pos, fop_fd->len);
 	*amount = n;
 
 	return 0;
@@ -683,6 +705,7 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		return -1;
 	}
 
+	fop_fd->pos += n;
 	*amount = n;
 
 	return 0;

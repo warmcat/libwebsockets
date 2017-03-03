@@ -455,7 +455,8 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			"cgi://",
 			">http://",
 			">https://",
-			"callback://"
+			"callback://",
+			"gzip://",
 		};
 
 		if (!a->fresh_mount)

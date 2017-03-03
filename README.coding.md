@@ -120,6 +120,34 @@ the send pipe on the connection is choked but no ack will ever come, so the
 dead connection will never become writeable.  To cover that, you can use TCP
 keepalives (see later in this document) or pings.
 
+@section gzip Serving from inside a zip file
+
+Lws now supports serving gzipped files from inside a zip container.  Thanks to
+Per Bothner for contributing the code.
+
+This has the advtantage that if the client can accept GZIP encoding, lws can
+simply send the gzip-compressed file from inside the zip file with no further
+processing, saving time and bandwidth.
+
+In the case the client can't understand gzip compression, lws automatically
+decompressed the file and sends it normally.
+
+Clients with limited storage and RAM will find this useful; the memory needed
+for the inflate case is constrained so that only one input buffer at a time
+is ever in memory.
+
+To use this feature, ensure LWS_WITH_ZIP_FOPS is enabled at CMake (it is by
+default).
+
+`libwebsockets-test-server-v2.0` includes a mount using this technology
+already, run that test server and navigate to http://localhost:7681/ziptest/candide.html
+
+This will serve the book Candide in html, together with two jpgs, all from
+inside a .zip file in /usr/[local/]share-libwebsockets-test-server/candide.zip
+
+Usage is otherwise automatic, if you arrange a mount that points to the zipfile,
+eg, "/ziptest" -> "mypath/test.zip", then URLs like `/ziptest/index.html` will be
+servied from `index.html` inside `mypath/test.zip`
 
 @section frags Fragmented messages
 
@@ -347,36 +375,70 @@ and then can use helpers to also leverage these platform-independent
 file handling apis
 
 ```
-	static inline lws_fop_fd_t
+	lws_fop_fd_t
 	`lws_plat_file_open`(struct lws_plat_file_ops *fops, const char *filename,
-			   lws_filepos_t *filelen, lws_fop_flags_t *flags)
-	static inline int
+			   lws_fop_flags_t *flags)
+	int
 	`lws_plat_file_close`(lws_fop_fd_t fop_fd)
 
-	static inline unsigned long
+	unsigned long
 	`lws_plat_file_seek_cur`(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 
-	static inline int
+	int
 	`lws_plat_file_read`(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		   uint8_t *buf, lws_filepos_t len)
 
-	static inline int
+	int
 	`lws_plat_file_write`(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		   uint8_t *buf, lws_filepos_t len )
 ```
+
+Generic helpers are provided which provide access to generic fops information or
+call through to the above fops
+
+```
+lws_filepos_t
+lws_vfs_tell(lws_fop_fd_t fop_fd);
+
+lws_filepos_t
+lws_vfs_get_length(lws_fop_fd_t fop_fd);
+
+uint32_t
+lws_vfs_get_mod_time(lws_fop_fd_t fop_fd);
+
+lws_fileofs_t
+lws_vfs_file_seek_set(lws_fop_fd_t fop_fd, lws_fileofs_t offset);
+
+lws_fileofs_t
+lws_vfs_file_seek_end(lws_fop_fd_t fop_fd, lws_fileofs_t offset);
+```
+
 
 The user code can also override or subclass the file operations, to either
 wrap or replace them.  An example is shown in test server.
 
 ### Changes from v2.1 and before fops
 
-There are three changes:
+There are several changes:
 
 1) Pre-2.2 fops directly used platform file descriptors.  Current fops returns and accepts a wrapper type lws_fop_fd_t which is a pointer to a malloc'd struct containing information specific to the filesystem implementation.
 
 2) Pre-2.2 fops bound the fops to a wsi.  This is completely removed, you just give a pointer to the fops struct that applies to this file when you open it.  Afterwards, the operations in the fops just need the lws_fop_fd_t returned from the open.
 
 3) Everything is wrapped in typedefs.  See lws-plat-unix.c for examples of how to implement.
+
+4) Position in the file, File Length, and a copy of Flags left after open are now generically held in the fop_fd.
+VFS implementation must set and manage this generic information now.  See the implementations in lws-plat-unix.c for
+examples.
+
+5) The file length is no longer set at a pointer provided by the open() fop.  The api `lws_vfs_get_length()` is provided to
+get the file length after open.
+
+6) If your file namespace is virtual, ie, is not reachable by platform fops directly, you must set LWS_FOP_FLAG_VIRTUAL
+on the flags during open.
+
+7) There is an optional `mod_time` uint32_t member in the generic fop_fd.  If you are able to set it during open, you
+should indicate it by setting `LWS_FOP_FLAG_MOD_TIME_VALID` on the flags.
 
 @section ecdh ECDH Support
 

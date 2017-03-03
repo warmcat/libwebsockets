@@ -312,6 +312,22 @@ lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 
 	return NULL;
 }
+static lws_fop_flags_t
+lws_vfs_prepare_flags(struct lws *wsi)
+{
+	lws_fop_flags_t f = 0;
+
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))
+		return f;
+
+	if (strstr(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING),
+		   "gzip")) {
+		lwsl_info("client indicates GZIP is acceptable\n");
+		f |= LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP;
+	}
+
+	return f;
+}
 
 static int
 lws_http_serve(struct lws *wsi, char *uri, const char *origin,
@@ -319,8 +335,11 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 {
 	const struct lws_protocol_vhost_options *pvo = m->interpret;
 	struct lws_process_html_args args;
-	const char *mimetype;
-#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
+	const char *mimetype, *vpath;
+#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266) && \
+    !defined(LWS_WITH_ESP32)
+	const struct lws_plat_file_ops *fops;
+	lws_fop_flags_t fflags = LWS_O_RDONLY;
 	struct stat st;
 	int spin = 0;
 #endif
@@ -334,14 +353,36 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
-#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
+	fflags |= lws_vfs_prepare_flags(wsi);
+
+#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266) && \
+    !defined(LWS_WITH_ESP32)
 	do {
 		spin++;
+		fops = lws_vfs_select_fops(wsi->context->fops, path, &vpath);
 
-		if (stat(path, &st)) {
+		if (wsi->u.http.fop_fd)
+			lws_vfs_file_close(&wsi->u.http.fop_fd);
+
+		wsi->u.http.fop_fd = fops->LWS_FOP_OPEN(wsi->context->fops,
+							path, vpath, &fflags);
+		if (!wsi->u.http.fop_fd) {
+			lwsl_err("Unable to open '%s'\n", path);
+
+			return -1;
+		}
+
+		/* if it can't be statted, don't try */
+		if (fflags & LWS_FOP_FLAG_VIRTUAL)
+			break;
+
+		if (fstat(wsi->u.http.fop_fd->fd, &st)) {
 			lwsl_info("unable to stat %s\n", path);
 			goto bail;
 		}
+
+		wsi->u.http.fop_fd->mod_time = (uint32_t)st.st_mtime;
+		fflags |= LWS_FOP_FLAG_MOD_TIME_VALID;
 
 		lwsl_debug(" %s mode %d\n", path, S_IFMT & st.st_mode);
 #if !defined(WIN32) && LWS_POSIX
@@ -367,8 +408,9 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	if (spin == 5)
 		lwsl_err("symlink loop %s \n", path);
 
-	n = sprintf(sym, "%08lX%08lX", (unsigned long)st.st_size,
-				   (unsigned long)st.st_mtime);
+	n = sprintf(sym, "%08lX%08lX",
+		    (unsigned long)lws_vfs_get_length(wsi->u.http.fop_fd),
+		    (unsigned long)lws_vfs_get_mod_time(wsi->u.http.fop_fd));
 
 	/* disable ranges if IF_RANGE token invalid */
 
@@ -382,7 +424,8 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		 * he thinks he has some version of it already,
 		 * check if the tag matches
 		 */
-		if (!strcmp(sym, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_IF_NONE_MATCH))) {
+		if (!strcmp(sym, lws_hdr_simple_ptr(wsi,
+					WSI_TOKEN_HTTP_IF_NONE_MATCH))) {
 
 			lwsl_debug("%s: ETAG match %s %s\n", __func__,
 				   uri, origin);
@@ -406,6 +449,8 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 					 (long)(p - start));
 				return -1;
 			}
+
+			lws_vfs_file_close(&wsi->u.http.fop_fd);
 
 			return lws_http_transaction_completed(wsi);
 		}
@@ -2060,7 +2105,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 
 		len = lws_ssl_capable_read(wsi, pt->serv_buf,
 					   context->pt_serv_buf_size);
-		lwsl_notice("%s: wsi %p read %d\r\n", __func__, wsi, len);
+//		lwsl_notice("%s: wsi %p read %d\r\n", __func__, wsi, len);
 		switch (len) {
 		case 0:
 			lwsl_info("%s: read 0 len\n", __func__);
@@ -2228,39 +2273,33 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
 	unsigned long computed_total_content_length;
 	int ret = 0, cclen = 8, n = HTTP_STATUS_OK;
-	lws_fop_flags_t fflags = O_RDONLY;
+	lws_fop_flags_t fflags = LWS_O_RDONLY;
 #if defined(LWS_WITH_RANGES)
 	int ranges;
 #endif
+	const struct lws_plat_file_ops *fops;
+	const char *vpath;
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))
-		if (strstr("gzip",  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) &&
-		    strstr("deflate",  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))) {
-			lwsl_debug("client indicates GZIP is acceptable\n");
-			fflags |= LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP;
-		}
-
-
-	wsi->u.http.fop_fd = lws_vfs_file_open(lws_select_fops_by_vfs_path(
-						wsi->context, file), file,
-						&wsi->u.http.filelen,
-						&fflags);
+	/*
+	 * We either call the platform fops .open with first arg platform fops,
+	 * or we call fops_zip .open with first arg platform fops, and fops_zip
+	 * open will decide whether to switch to fops_zip or stay with fops_def.
+	 *
+	 * If wsi->u.http.fop_fd is already set, the caller already opened it
+	 */
 	if (!wsi->u.http.fop_fd) {
-		lwsl_err("Unable to open '%s'\n", file);
+		fops = lws_vfs_select_fops(wsi->context->fops, file, &vpath);
+		fflags |= lws_vfs_prepare_flags(wsi);
+		wsi->u.http.fop_fd = fops->LWS_FOP_OPEN(wsi->context->fops,
+							file, vpath, &fflags);
+		if (!wsi->u.http.fop_fd) {
+			lwsl_err("Unable to open '%s'\n", file);
 
-		return -1;
-	}
-	computed_total_content_length = wsi->u.http.filelen;
-
-	if ((fflags & (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP |
-		       LWS_FOP_FLAG_COMPR_IS_GZIP)) ==
-	    (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP | LWS_FOP_FLAG_COMPR_IS_GZIP)) {
-		if (lws_add_http_header_by_token(wsi,
-			WSI_TOKEN_HTTP_CONTENT_ENCODING,
-			(unsigned char *)"gzip, deflate", 13, &p, end))
 			return -1;
-		lwsl_debug("file is being provided in gzip\n");
+		}
 	}
+	wsi->u.http.filelen = lws_vfs_get_length(wsi->u.http.fop_fd);
+	computed_total_content_length = wsi->u.http.filelen;
 
 #if defined(LWS_WITH_RANGES)
 	ranges = lws_ranges_init(wsi, rp, wsi->u.http.filelen);
@@ -2279,6 +2318,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		if (lws_http_transaction_completed(wsi))
 			return -1; /* <0 means just hang up */
 
+		lws_vfs_file_close(&wsi->u.http.fop_fd);
+
 		return 0; /* == 0 means we dealt with the transaction complete */
 	}
 	if (ranges)
@@ -2287,6 +2328,16 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	if (lws_add_http_header_status(wsi, n, &p, end))
 		return -1;
+
+	if ((wsi->u.http.fop_fd->flags & (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP |
+		       LWS_FOP_FLAG_COMPR_IS_GZIP)) ==
+	    (LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP | LWS_FOP_FLAG_COMPR_IS_GZIP)) {
+		if (lws_add_http_header_by_token(wsi,
+			WSI_TOKEN_HTTP_CONTENT_ENCODING,
+			(unsigned char *)"gzip", 4, &p, end))
+			return -1;
+		lwsl_info("file is being provided in gzip\n");
+	}
 
 #if defined(LWS_WITH_RANGES)
 	if (ranges < 2 && content_type && content_type[0])

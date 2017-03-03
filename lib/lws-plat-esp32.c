@@ -397,7 +397,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 LWS_VISIBLE lws_fop_fd_t
 _lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
-		   lws_filepos_t *filelen, lws_fop_flags_t *flags)
+		    const char *vpath, lws_fop_flags_t *flags)
 {
 	struct stat stat_buf;
 	lws_fop_fd_t fop_fd;
@@ -414,9 +414,10 @@ _lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
 
 	fop_fd->fops = fops;
 	fop_fd->fd = ret;
+	fop_fd->flags = *flags;
 	fop_fd->filesystem_priv = NULL; /* we don't use it */
-
-	*filelen = stat_buf.st_size;
+	fop_fd->pos = 0;
+	fop_fd->len = stat_buf.st_size;
 
 	return fop_fd;
 
@@ -427,11 +428,12 @@ bail:
 }
 
 LWS_VISIBLE int
-_lws_plat_file_close(lws_fop_fd_t fops_fd)
+_lws_plat_file_close(lws_fop_fd_t *fops_fd)
 {
-	int fd = fops_fd->fd;
+	int fd = (*fops_fd)->fd;
 
-	free(fd);
+	free(*fops_fd);
+	*fops_fd = NULL;
 
 	return close(fd);
 }
@@ -453,7 +455,7 @@ _lws_plat_file_read(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 		*amount = 0;
 		return -1;
 	}
-
+	fop_fd->pos += n;
 	*amount = n;
 
 	return 0;
@@ -470,7 +472,7 @@ _lws_plat_file_write(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 		*amount = 0;
 		return -1;
 	}
-
+	fop_fd->pos += n;
 	*amount = n;
 
 	return 0;

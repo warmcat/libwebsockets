@@ -574,7 +574,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 					  wsi->trunc_offset,
 					  wsi->trunc_len) < 0) {
 				lwsl_info("%s: closing\n", __func__);
-				return -1;
+				goto file_had_it;
 			}
 			continue;
 		}
@@ -594,7 +594,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			if ((long)lws_vfs_file_seek_cur(wsi->u.http.fop_fd,
 						   wsi->u.http.range.start -
 						   wsi->u.http.filepos) < 0)
-				return -1;
+				goto file_had_it;
 
 			wsi->u.http.filepos = wsi->u.http.range.start;
 
@@ -634,7 +634,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		}
 
 		if (lws_vfs_file_read(wsi->u.http.fop_fd, &amount, p, poss) < 0)
-			return -1; /* caller will close */
+			goto file_had_it; /* caller will close */
 		
 		//lwsl_notice("amount %ld\n", amount);
 
@@ -656,7 +656,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				     wsi->vhost->protocols[(int)wsi->protocol_interpret_idx].callback, wsi,
 				     LWS_CALLBACK_PROCESS_HTML,
 				     wsi->user_space, &args, 0) < 0)
-					return -1;
+					goto file_had_it;
 				n = args.len;
 				p = (unsigned char *)args.p;
 			} else
@@ -678,7 +678,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 					LWS_WRITE_HTTP
 				);
 			if (m < 0)
-				return -1;
+				goto file_had_it;
 
 			wsi->u.http.filepos += amount;
 
@@ -703,7 +703,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				if (lws_vfs_file_seek_cur(wsi->u.http.fop_fd,
 							   m - n) ==
 							     (unsigned long)-1)
-					return -1;
+					goto file_had_it;
 			}
 		}
 all_sent:
@@ -716,8 +716,7 @@ all_sent:
 		     {
 			wsi->state = LWSS_HTTP;
 			/* we might be in keepalive, so close it off here */
-			lws_vfs_file_close(wsi->u.http.fop_fd);
-			wsi->u.http.fop_fd = NULL;
+			lws_vfs_file_close(&wsi->u.http.fop_fd);
 			
 			lwsl_debug("file completed\n");
 
@@ -736,6 +735,11 @@ all_sent:
 	lws_callback_on_writable(wsi);
 
 	return 0; /* indicates further processing must be done */
+
+file_had_it:
+	lws_vfs_file_close(&wsi->u.http.fop_fd);
+
+	return -1;
 }
 
 #if LWS_POSIX
