@@ -1463,6 +1463,16 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
 LWS_EXTERN int
 _lws_rx_flow_control(struct lws *wsi)
 {
+	struct lws *wsic = wsi->child_list;
+
+	/* if he has children, do those if they were changed */
+	while (wsic) {
+		if (wsic->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE)
+			_lws_rx_flow_control(wsic);
+
+		wsic = wsic->sibling_list;
+	}
+
 	/* there is no pending change */
 	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE)) {
 		lwsl_debug("%s: no pending change\n", __func__);
