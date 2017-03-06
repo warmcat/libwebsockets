@@ -147,6 +147,7 @@ enum {
 	LWS_FZ_ERR_CENTRAL_READ,
 	LWS_FZ_ERR_CENTRAL_SANITY,
 	LWS_FZ_ERR_NAME_TOO_LONG,
+	LWS_FZ_ERR_NAME_SEEK,
 	LWS_FZ_ERR_NAME_READ,
 	LWS_FZ_ERR_CONTENT_SANITY,
 	LWS_FZ_ERR_CONTENT_SEEK,
@@ -256,7 +257,8 @@ lws_fops_zip_scan(lws_fops_zip_t priv, const char *name, int len)
 			goto next;
 
 		/* we found a match */
-		lws_vfs_file_seek_set(priv->zip_fop_fd, priv->hdr.offset);
+		if (lws_vfs_file_seek_set(priv->zip_fop_fd, priv->hdr.offset) < 0)
+			return LWS_FZ_ERR_NAME_SEEK;
 		if (priv->zip_fop_fd->fops->LWS_FOP_READ(priv->zip_fop_fd,
 							&amount, buf,
 							ZL_HEADER_LENGTH))
