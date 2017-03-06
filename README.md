@@ -7,8 +7,8 @@ libwebsockets
 
 | News |
 ------
-| ESP8266 is now supported in lws!  See https://github.com/warmcat/libwebsockets/blob/master/README.esp8266.md |
-
+| ESP32 is now supported in lws!  https://libwebsockets.org/lws-api-doc-master/html/md_README_8build.html |
+| v2.2 is out... see the changelog https://github.com/warmcat/libwebsockets/blob/v2.2-stable/changelog |
 
 This is the libwebsockets C library for lightweight websocket clients and
 servers.  For support, visit

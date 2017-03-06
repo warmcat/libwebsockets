@@ -303,6 +303,26 @@ this to work.
 
 **NOTE**: On windows use the .lib file extension for `LWS_CYASSL_LIBRARIES` instead.
 
+@section esp32 Building for ESP32
+
+Step 1, get ESP-IDF with lws integrated as a component
+
+```
+    $ git clone --int --recursive https://github.com/lws-team/lws-esp-idf
+```
+
+Step 2: Get Application including the test plugins
+
+```
+    $ git clone https://github.com/lws-team/lws-esp32
+```
+
+Set your IDF_PATH to point to the esp-idf you downloaded in 1)
+
+There's docs for how to build the lws-esp32 test app and reproduce it in the README.md here
+
+https://github.com/lws-team/lws-esp32/blob/master/README.md
+
 
 @section extplugins Building plugins outside of lws itself
 

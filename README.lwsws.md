@@ -376,7 +376,7 @@ Content-Type: header.
 7) A mount can be protected by HTTP Basic Auth.  This only makes sense when using
 https, since otherwise the password can be sniffed.
 
-You can add a `basic-auth` entry on a mount like this`
+You can add a `basic-auth` entry on a mount like this
 
 ```
 {

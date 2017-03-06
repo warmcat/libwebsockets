@@ -1,6 +1,75 @@
 Changelog
 ---------
 
+v2.2.0
+======
+
+Major new features
+
+ - A mount can be protected by Basic Auth... in lwsws it looks like this
+
+ ```
+{
+        "mountpoint": "/basic-auth",
+        "origin": "file://_lws_ddir_/libwebsockets-test-server/private",
+        "basic-auth": "/var/www/balogins-private"
+}
+```
+
+The text file named in `basic-auth` contains user:password information
+one per line.
+
+See README.lwsws.md for more information.
+
+ - RFC7233 RANGES support in lws server... both single and multipart.
+ This allows seeking for multimedia file serving and download resume.
+ It's enabled by default but can be disabled by CMake option.
+
+ - On Linux, lwsws can reload configuration without dropping ongoing
+ connections, when sent a SIGHUP.  The old configuration drops its
+ listen sockets so the new configuration can listen on them.
+ New connections connect to the server instance with the new
+ configuration.  When all old connections eventually close, the old
+ instance automatically exits.  This is equivalent to
+ `systemctl reload apache`
+
+ - New `adopt` api allow adoption including SSL negotiation and
+ for raw sockets and file descriptors.
+
+ - Chunked transfer encoding supported for client and server
+
+ - Adaptations to allow operations inside OPTEE Secure World
+
+ - ESP32 initial port - able to do all test server functions. See
+ README.build.md
+
+ - Serving gzipped files from inside a ZIP file is supported... this
+ includes directly serving the gzipped content if the client
+ indicated it could accept it (ie, almost all browsers) saving
+ bandwidth and time.  For clients that can't accept it, lws
+ automatically decompresses and serves the content in memory-
+ efficient chunks. Only a few hundred bytes of heap are needed
+ to serve any size file from inside the zip.  See README.coding.md
+
+ - RAW file descriptors may now be adopted into the lws event loop,
+ independent of event backend (including poll service).
+ See README.coding.md
+
+ - RAW server socket descriptors may now be enabled on the vhost if
+ the first thing sent on the connection is not a valid http method.
+ The user code can associate these with a specific protocol per
+ vhost, and RAW-specific callbacks appear there for creation, rx,
+ writable and close.  See libwebsockets-test-server-v2.0 for an example.
+ See README.coding.md
+
+ - RAW client connections are now possible using the method "RAW".
+ After connection, the socket is associated to the protocol
+ named in the client connection info and RAW-specific callbacks
+ appear there for creation, rx, writable and close.
+ See libwebsockets-test-client (with raw://) for an example.
+ See README.coding.md
+
+
 v2.1.0
 ======
 

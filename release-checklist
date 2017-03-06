@@ -28,7 +28,7 @@ Release Checklist
      Force update by browser using agent "libwebsockets"
      http://localhost:8080/test_browser.html
      
-     scp -rp ./reports to libwebsockets.org
+     rsync -av ./reports/* root@warmcat.com:/var/www/libwebsockets.org
 
 1) api
 
