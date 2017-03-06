@@ -658,9 +658,8 @@ spin_chunks:
 	if (wsi->chunked && !wsi->chunk_remaining)
 		wsi->chunk_parser = ELCP_POST_CR;
 
-	if (wsi->chunked && *len) {
+	if (wsi->chunked && *len)
 		goto spin_chunks;
-	}
 
 	if (wsi->chunked)
 		return 0;

@@ -180,13 +180,6 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 			if (lws_http_client_read(wsi, &px, &lenx) < 0)
 				return -1;
-
-			if (lenx) {
-				lwsl_info("LWS_CALLBACK_RECEIVE_CLIENT_HTTP %ld\n",
-					  (long)lenx);
-
-				show_http_content(px, lenx);
-			}
 		}
 		break;
 
