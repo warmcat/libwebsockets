@@ -458,7 +458,7 @@ just_kill_connection:
                        lwsl_info("%s: shutting down SSL connection: %p (ssl %p, sock %d, state %d)\n", __func__, wsi, wsi->ssl, (int)(long)wsi->desc.sockfd, wsi->state);
 			n = SSL_shutdown(wsi->ssl);
                        if (n == 0) /* Complete bidirectional SSL shutdown */
-                               n = SSL_shutdown(wsi->ssl);
+                               SSL_shutdown(wsi->ssl);
                        n = shutdown(wsi->desc.sockfd, SHUT_WR);
                }
 		else
