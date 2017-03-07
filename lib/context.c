@@ -816,9 +816,6 @@ lws_create_context(struct lws_context_creation_info *info)
 		context->server_string = info->server_string;
 		context->server_string_len = (short)
 				strlen(context->server_string);
-	} else {
-		context->server_string = "libwebsockets";
-		context->server_string_len = 13;
 	}
 
 #if LWS_MAX_SMP > 1

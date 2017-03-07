@@ -199,12 +199,14 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 		headers = headers->next;
 	}
 
-	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
+	if (wsi->context->server_string)
+		if (lws_add_http_header_by_token(wsi,
+					 WSI_TOKEN_HTTP_SERVER,
 					 (unsigned char *)
 					 	 wsi->context->server_string,
 					 wsi->context->server_string_len,
 					 p, end))
-		return 1;
+			return 1;
 
 	if (wsi->vhost->options & LWS_SERVER_OPTION_STS)
 		if (lws_add_http_header_by_name(wsi, (unsigned char *)
