@@ -2589,6 +2589,7 @@ enum http_status {
 	HTTP_STATUS_MOVED_PERMANENTLY				= 301,
 	HTTP_STATUS_FOUND					= 302,
 	HTTP_STATUS_SEE_OTHER					= 303,
+	HTTP_STATUS_NOT_MODIFIED				= 304,
 
 	HTTP_STATUS_BAD_REQUEST					= 400,
 	HTTP_STATUS_UNAUTHORIZED,
@@ -2909,6 +2910,10 @@ lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len);
  * and fail with nonzero return.
  */
 ///@{
+
+#define LWSAHH_CODE_MASK			((1 << 16) - 1)
+#define LWSAHH_FLAG_NO_SERVER_NAME		(1 << 30)
+
 /**
  * lws_add_http_header_status() - add the HTTP response status code
  *
@@ -2917,7 +2922,11 @@ lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len);
  * \param p: pointer to current position in buffer pointer
  * \param end: pointer to end of buffer
  *
- * Adds the initial response code, so should be called first
+ * Adds the initial response code, so should be called first.
+ *
+ * Code may additionally take OR'd flags:
+ *
+ *    LWSAHH_FLAG_NO_SERVER_NAME:  don't apply server name header this time
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_status(struct lws *wsi,

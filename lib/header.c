@@ -143,16 +143,17 @@ STORE_IN_ROM static const char * const err500[] = {
 };
 
 int
-lws_add_http_header_status(struct lws *wsi, unsigned int code,
+lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 			   unsigned char **p, unsigned char *end)
 {
-	const struct lws_protocol_vhost_options *headers;
-	unsigned char code_and_desc[60];
-	const char *description = "", *p1;
-	int n;
 	STORE_IN_ROM static const char * const hver[] = {
 		"HTTP/1.0", "HTTP/1.1", "HTTP/2"
 	};
+	const struct lws_protocol_vhost_options *headers;
+	unsigned int code = _code & LWSAHH_CODE_MASK;
+	const char *description = "", *p1;
+	unsigned char code_and_desc[60];
+	int n;
 
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->access_log.response = code;
@@ -181,11 +182,9 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 	else
 		p1 = hver[0];
 
-	n = sprintf((char *)code_and_desc, "%s %u %s",
-		    p1, code, description);
+	n = sprintf((char *)code_and_desc, "%s %u %s", p1, code, description);
 
-	if (lws_add_http_header_by_name(wsi, NULL, code_and_desc,
-					   n, p, end))
+	if (lws_add_http_header_by_name(wsi, NULL, code_and_desc, n, p, end))
 		return 1;
 
 	headers = wsi->vhost->headers;
@@ -199,13 +198,11 @@ lws_add_http_header_status(struct lws *wsi, unsigned int code,
 		headers = headers->next;
 	}
 
-	if (wsi->context->server_string)
-		if (lws_add_http_header_by_token(wsi,
-					 WSI_TOKEN_HTTP_SERVER,
-					 (unsigned char *)
-					 	 wsi->context->server_string,
-					 wsi->context->server_string_len,
-					 p, end))
+	if (wsi->context->server_string &&
+	    !(_code & LWSAHH_FLAG_NO_SERVER_NAME))
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
+				(unsigned char *)wsi->context->server_string,
+				wsi->context->server_string_len, p, end))
 			return 1;
 
 	if (wsi->vhost->options & LWS_SERVER_OPTION_STS)

@@ -311,7 +311,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 * depending on what connection it happens to be working
 			 * on
 			 */
-			if (lws_add_http_header_status(wsi, 200, &p, end))
+			if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
 				return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
 				    	(unsigned char *)"libwebsockets",
@@ -473,7 +473,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		start = p;
 		end = p + sizeof(buffer) - LWS_PRE;
 
-		if (lws_add_http_header_status(wsi, 200, &p, end))
+		if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
 			return 1;
 
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
@@ -615,7 +615,7 @@ bail:
 		lwsl_err("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP\n");
 		p = buffer + LWS_PRE;
 		end = p + sizeof(buffer) - LWS_PRE;
-		if (lws_add_http_header_status(lws_get_parent(wsi), 200, &p, end))
+		if (lws_add_http_header_status(lws_get_parent(wsi), HTTP_STATUS_OK, &p, end))
 			return 1;
 		if (lws_add_http_header_by_token(lws_get_parent(wsi),
 				WSI_TOKEN_HTTP_SERVER,

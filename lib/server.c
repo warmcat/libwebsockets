@@ -445,7 +445,8 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 				   uri, origin);
 
 			/* we don't need to send the payload */
-			if (lws_add_http_header_status(wsi, 304, &p, end))
+			if (lws_add_http_header_status(wsi,
+					HTTP_STATUS_NOT_MODIFIED, &p, end))
 				return -1;
 
 			if (lws_add_http_header_by_token(wsi,
@@ -1066,7 +1067,7 @@ lws_http_action(struct lws *wsi)
 		p = buffer + LWS_PRE;
 		end = p + sizeof(buffer) - LWS_PRE;
 
-		if (lws_add_http_header_status(wsi, 200, &p, end))
+		if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
 			return 1;
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
 				(unsigned char *)"close", 5, &p, end))

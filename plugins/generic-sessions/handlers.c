@@ -243,7 +243,7 @@ reply:
 	start = p;
 	end = p + sizeof(buffer) - LWS_PRE;
 
-	if (lws_add_http_header_status(wsi, 200, &p, end))
+	if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
 		return -1;
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 					 (unsigned char *)"text/plain", 10,

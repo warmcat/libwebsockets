@@ -165,7 +165,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		start = p;
 		end = p + n - LWS_PRE - 1;
 
-		if (lws_add_http_header_status(wsi, 200, &p, end))
+		if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
 			goto bail;
 
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
