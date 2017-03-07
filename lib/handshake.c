@@ -121,6 +121,11 @@ lws_read(struct lws *wsi, unsigned char *buf, size_t len)
 			/* Handshake indicates this session is done. */
 			goto bail;
 
+		/* we might have transitioned to RAW */
+		if (wsi->mode == LWSCM_RAW)
+			 /* we gave the read buffer to RAW handler already */
+			goto read_ok;
+
 		/*
 		 * It's possible that we've exhausted our data already, or
 		 * rx flow control has stopped us dealing with this early,

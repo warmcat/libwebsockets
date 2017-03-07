@@ -334,10 +334,38 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+static int
+callback_test_raw_client(struct lws *wsi, enum lws_callback_reasons reason,
+			 void *user, void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_RAW_ADOPT:
+		lwsl_notice("LWS_CALLBACK_RAW_ADOPT\n");
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		lwsl_notice("LWS_CALLBACK_RAW_RX %ld\n", (long)len);
+		puts(in);
+		break;
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		lwsl_notice("LWS_CALLBACK_RAW_CLOSE\n");
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		lwsl_notice("LWS_CALLBACK_RAW_WRITEABLE\n");
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
 
 /* list of supported protocols and callbacks */
 
-static struct lws_protocols protocols[] = {
+static const struct lws_protocols protocols[] = {
 	{
 		"dumb-increment-protocol",
 		callback_dumb_increment,
@@ -349,6 +377,11 @@ static struct lws_protocols protocols[] = {
 		callback_lws_mirror,
 		0,
 		128,
+	}, {
+		"lws-test-raw-client",
+		callback_test_raw_client,
+		0,
+		128
 	},
 	{ NULL, NULL, 0, 0 } /* end */
 };
@@ -597,7 +630,13 @@ int main(int argc, char **argv)
 			i.method = "GET";
 		do_ws = 0;
 	} else
-		lwsl_notice("using %s mode (ws)\n", prot);
+		if (!strcmp(prot, "raw")) {
+			i.method = "RAW";
+			i.protocol = "lws-test-raw-client";
+			lwsl_notice("using RAW mode connection\n");
+			do_ws = 0;
+		} else
+			lwsl_notice("using %s mode (ws)\n", prot);
 
 	/*
 	 * sit there servicing the websocket context to handle incoming

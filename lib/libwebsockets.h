@@ -1612,6 +1612,8 @@ enum lws_context_options {
 	 * the context, only the string you give in the client connect
 	 * info for .origin (if any) will be used directly.
 	 */
+	LWS_SERVER_OPTION_FALLBACK_TO_RAW			= (1 << 20),
+	/**< (VH) if invalid http is coming in the first line,  */
 
 	/****** add new things just above ---^ ******/
 };

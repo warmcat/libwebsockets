@@ -210,7 +210,7 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	if (p)
 		colon = p - servername;
 
-	/* first try exact matches */
+	/* Priotity 1: first try exact matches */
 
 	while (vhost) {
 		if (port == vhost->listen_port &&
@@ -222,7 +222,7 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	}
 
 	/*
-	 * if no exact matches, try matching *.vhost-name
+	 * Priority 2: if no exact matches, try matching *.vhost-name
 	 * unintentional matches are possible but resolve to x.com for *.x.com
 	 * which is reasonable.  If exact match exists we already chose it and
 	 * never reach here.  SSL will still fail it if the cert doesn't allow
@@ -242,6 +242,20 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 		}
 		vhost = vhost->vhost_next;
 	}
+
+	/* Priority 3: match the first vhost on our port */
+
+	vhost = context->vhost_list;
+	while (vhost) {
+		if (port == vhost->listen_port) {
+			lwsl_info("vhost match to %s based on port %d\n",
+					vhost->name, port);
+			return vhost;
+		}
+		vhost = vhost->vhost_next;
+	}
+
+	/* no match */
 
 	return NULL;
 }
@@ -1137,43 +1151,19 @@ transaction_result_n:
 #endif
 }
 
-int
-lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
-{
-//	if (wsi->protocol == p)
-//		return 0;
-
-	if (wsi->protocol)
-		wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_DROP_PROTOCOL,
-					wsi->user_space, NULL, 0);
-	if (!wsi->user_space_externally_allocated)
-		lws_free_set_NULL(wsi->user_space);
-
-	wsi->protocol = p;
-	if (!p)
-		return 0;
-
-	if (lws_ensure_user_space(wsi))
-		return 1;
-
-	if (wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_BIND_PROTOCOL,
-				    wsi->user_space, NULL, 0))
-		return 1;
-
-	return 0;
-}
-
 
 int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
+	int protocol_len, n = 0, hit, non_space_char_found = 0, m;
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct _lws_header_related hdr;
 	struct allocated_headers *ah;
-	int protocol_len, n = 0, hit, non_space_char_found = 0;
+	unsigned char *obuf = *buf;
 	char protocol_list[128];
 	char protocol_name[64];
+	size_t olen = len;
 	char *p;
 
 	if (len >= 10000000) {
@@ -1195,7 +1185,38 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 			goto bail_nuke_ah;
 		}
 
-		if (lws_parse(wsi, *(*buf)++)) {
+		m = lws_parse(wsi, *(*buf)++);
+		if (m) {
+			if (m == 2) {
+				/*
+				 * we are transitioning from http with
+				 * an AH, to raw.  Drop the ah and set
+				 * the mode.
+				 */
+raw_transition:
+				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+				lws_bind_protocol(wsi, &wsi->vhost->protocols[
+				                        wsi->vhost->
+				                        raw_protocol_index]);
+				lwsl_info("transition to raw vh %s prot %d\n",
+					  wsi->vhost->name,
+					  wsi->vhost->raw_protocol_index);
+				if ((wsi->protocol->callback)(wsi,
+						LWS_CALLBACK_RAW_ADOPT,
+						wsi->user_space, NULL, 0))
+					goto bail_nuke_ah;
+
+				wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+				lws_union_transition(wsi, LWSCM_RAW);
+				lws_header_table_detach(wsi, 1);
+
+				if (m == 2 && (wsi->protocol->callback)(wsi,
+						LWS_CALLBACK_RAW_RX,
+						wsi->user_space, obuf, olen))
+					return 1;
+
+				return 0;
+			}
 			lwsl_info("lws_parse failed\n");
 			goto bail_nuke_ah;
 		}
@@ -1253,13 +1274,8 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECT)) {
 			lwsl_info("Changing to RAW mode\n");
-			lws_union_transition(wsi, LWSCM_RAW);
-			if (!wsi->more_rx_waiting) {
-				wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
-
-				//lwsl_notice("%p: dropping ah EST\n", wsi);
-				lws_header_table_detach(wsi, 1);
-			}
+			m = 0;
+			goto raw_transition;
 		}
 
 		wsi->mode = LWSCM_PRE_WS_SERVING_ACCEPT;
@@ -1991,6 +2007,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 	case LWSCM_HTTP_SERVING:
 	case LWSCM_HTTP_SERVING_ACCEPTED:
 	case LWSCM_HTTP2_SERVING:
+	case LWSCM_RAW:
 
 		/* handle http headers coming in */
 
@@ -2033,9 +2050,9 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 
 		/* these states imply we MUST have an ah attached */
 
-		if (wsi->state == LWSS_HTTP ||
+		if (wsi->mode != LWSCM_RAW && (wsi->state == LWSS_HTTP ||
 		    wsi->state == LWSS_HTTP_ISSUING_FILE ||
-		    wsi->state == LWSS_HTTP_HEADERS) {
+		    wsi->state == LWSS_HTTP_HEADERS)) {
 			if (!wsi->u.hdr.ah) {
 				
 				//lwsl_err("wsi %p: missing ah\n", wsi);
@@ -2105,7 +2122,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 
 		len = lws_ssl_capable_read(wsi, pt->serv_buf,
 					   context->pt_serv_buf_size);
-//		lwsl_notice("%s: wsi %p read %d\r\n", __func__, wsi, len);
+		lwsl_debug("%s: wsi %p read %d\r\n", __func__, wsi, len);
 		switch (len) {
 		case 0:
 			lwsl_info("%s: read 0 len\n", __func__);
@@ -2124,10 +2141,10 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					wsi, LWS_CALLBACK_RAW_RX,
 					wsi->user_space, pt->serv_buf, len);
 			if (n < 0) {
-				lwsl_info("raw writeable_fail\n");
+				lwsl_info("LWS_CALLBACK_RAW_RX_fail\n");
 				goto fail;
 			}
-			break;
+			goto try_pollout;
 		}
 
 		/* just ignore incoming if waiting for close */
@@ -2160,6 +2177,17 @@ try_pollout:
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_notice("%s a\n", __func__);
 			goto fail;
+		}
+
+		if (wsi->mode == LWSCM_RAW) {
+			n = user_callback_handle_rxflow(wsi->protocol->callback,
+					wsi, LWS_CALLBACK_RAW_WRITEABLE,
+					wsi->user_space, NULL, 0);
+			if (n < 0) {
+				lwsl_info("writeable_fail\n");
+				goto fail;
+			}
+			break;
 		}
 
 		if (!wsi->hdr_parsing_completed)

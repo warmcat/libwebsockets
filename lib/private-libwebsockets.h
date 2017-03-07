@@ -795,6 +795,7 @@ struct lws_vhost {
 	unsigned int created_vhost_protocols:1;
 
 	unsigned char default_protocol_index;
+	unsigned char raw_protocol_index;
 };
 
 /*

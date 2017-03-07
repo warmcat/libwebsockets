@@ -863,13 +863,15 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			goto handled;
 		}
 #endif
+		/* fallthru */
+	case LWSCM_RAW:
 		n = lws_server_socket_service(context, wsi, pollfd);
 		if (n) /* closed by above */
 			return 1;
 		goto handled;
 
 	case LWSCM_RAW_FILEDESC:
-	case LWSCM_RAW:
+
 		if (pollfd->revents & LWS_POLLOUT) {
 			n = lws_calllback_as_writeable(wsi);
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
@@ -892,6 +894,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 				goto close_and_handled;
 			}
 		}
+
+		if (pollfd->revents & LWS_POLLHUP)
+			goto close_and_handled;
 		n = 0;
 		goto handled;
 

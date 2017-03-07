@@ -440,6 +440,122 @@ on the flags during open.
 7) There is an optional `mod_time` uint32_t member in the generic fop_fd.  If you are able to set it during open, you
 should indicate it by setting `LWS_FOP_FLAG_MOD_TIME_VALID` on the flags.
 
+@section rawfd RAW file descriptor polling
+
+LWS allows you to include generic platform file descriptors in the lws service / poll / event loop.
+
+Open your fd normally and then
+
+```
+	lws_sock_file_fd_type u;
+
+	u.filefd = your_open_file_fd;
+
+	if (!lws_adopt_descriptor_vhost(vhost, 0, u,
+					"protocol-name-to-bind-to",
+					optional_wsi_parent_or_NULL)) {
+		// failed
+	}
+
+	// OK
+```
+
+A wsi is created for the file fd that acts like other wsi, you will get these
+callbacks on the named protocol
+
+```
+	LWS_CALLBACK_RAW_ADOPT_FILE
+	LWS_CALLBACK_RAW_RX_FILE
+	LWS_CALLBACK_RAW_WRITEABLE_FILE
+	LWS_CALLBACK_RAW_CLOSE_FILE
+```
+
+starting with LWS_CALLBACK_RAW_ADOPT_FILE.
+
+`protocol-lws-raw-test` plugin provides a method for testing this with
+`libwebsockets-test-server-v2.0`:
+
+The plugin creates a FIFO on your system called "/tmp/lws-test-raw"
+
+You can feed it data through the FIFO like this
+
+```
+  $ sudo sh -c "echo hello > /tmp/lws-test-raw"
+```
+
+This plugin simply prints the data.  But it does it through the lws event
+loop / service poll.
+
+@section rawsrvsocket RAW server socket descriptor polling
+
+You can also enable your vhost to accept RAW socket connections, in addition to
+HTTP[s] and WS[s].  If the first bytes written on the connection are not a
+valid HTTP method, then the connection switches to RAW mode.
+
+This is disabled by default, you enable it by setting the `.options` flag
+LWS_SERVER_OPTION_FALLBACK_TO_RAW when creating the vhost.
+
+RAW mode socket connections receive the following callbacks
+
+```
+	LWS_CALLBACK_RAW_ADOPT
+	LWS_CALLBACK_RAW_RX
+	LWS_CALLBACK_RAW_WRITEABLE
+	LWS_CALLBACK_RAW_CLOSE
+```
+
+You can control which protocol on your vhost handles these RAW mode
+incoming connections by marking the selected protocol with a pvo `raw`, eg
+
+```
+        "protocol-lws-raw-test": {
+                 "status": "ok",
+                 "raw": "1"
+        },
+```
+
+The "raw" pvo marks this protocol as being used for RAW connections.
+
+`protocol-lws-raw-test` plugin provides a method for testing this with
+`libwebsockets-test-server-v2.0`:
+
+Run libwebsockets-test-server-v2.0 and connect to it by telnet, eg
+
+```
+    $ telnet 127.0.0.1 7681
+```
+
+type something that isn't a valid HTTP method and enter, before the
+connection times out.  The connection will switch to RAW mode using this
+protocol, and pass the unused rx as a raw RX callback.
+    
+The test protocol echos back what was typed on telnet to telnet.
+
+@section rawclientsocket RAW client socket descriptor polling
+
+You can now also open RAW socket connections in client mode.
+
+Follow the usual method for creating a client connection, but set the
+`info.method` to "RAW".  When the connection is made, the wsi will be
+converted to RAW mode and operate using the same callbacks as the
+server RAW sockets described above.
+
+The libwebsockets-test-client supports this using raw:// URLS.  To
+test, open a netcat listener in one window
+
+```
+ $ nc -l 9999
+```
+
+and in another window, connect to it using the test client
+
+```
+ $ libwebsockets-test-client raw://127.0.0.1:9999
+```
+
+The connection should succeed, and text typed in the netcat window (including a CRLF)
+will be received in the client.
+
 @section ecdh ECDH Support
 
 ECDH Certs are now supported.  Enable the CMake option

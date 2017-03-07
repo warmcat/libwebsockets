@@ -813,9 +813,16 @@ swallow:
 				}
 			/*
 			 * hm it's an unknown http method from a client in fact,
-			 * treat as dangerous
+			 * it cannot be valid http
 			 */
 			if (m == ARRAY_SIZE(methods)) {
+				/*
+				 * are we set up to accept raw in these cases?
+				 */
+				if (lws_check_opt(wsi->vhost->options,
+					   LWS_SERVER_OPTION_FALLBACK_TO_RAW))
+					return 2; /* transition to raw */
+
 				lwsl_info("Unknown method - dropping\n");
 				goto forbid;
 			}

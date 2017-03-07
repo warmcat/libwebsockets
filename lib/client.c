@@ -196,6 +196,9 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 	case LWSCM_WSCL_ISSUE_HANDSHAKE2:
 		p = lws_generate_client_handshake(wsi, p);
 		if (p == NULL) {
+			if (wsi->mode == LWSCM_RAW)
+				return 0;
+
 			lwsl_err("Failed to generate handshake for client\n");
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			return 0;
@@ -1026,6 +1029,36 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		wsi->do_ws = 1;
 	} else
 		wsi->do_ws = 0;
+
+	if (!strcmp(meth, "RAW")) {
+		const char *pp = lws_hdr_simple_ptr(wsi,
+					_WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
+		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+		lwsl_notice("client transition to raw\n");
+		if (pp) {
+			const struct lws_protocols *pr;
+
+			pr = lws_vhost_name_to_protocol(wsi->vhost, pp);
+
+			if (!pr) {
+				lwsl_err("protocol %s not enabled on vhost\n",
+					 pp);
+				return NULL;
+			}
+
+			lws_bind_protocol(wsi, pr);
+		}
+		if ((wsi->protocol->callback)(wsi,
+				LWS_CALLBACK_RAW_ADOPT,
+				wsi->user_space, NULL, 0))
+			return NULL;
+
+		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+		lws_union_transition(wsi, LWSCM_RAW);
+		lws_header_table_detach(wsi, 1);
+
+		return NULL;
+	}
 
 	if (wsi->do_ws) {
 		/*

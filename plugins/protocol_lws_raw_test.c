@@ -17,6 +17,13 @@
  * may be proprietary.  So unlike the library itself, they are licensed
  * Public Domain.
  *
+ * This plugin test both raw file descriptors and raw socket descriptors.  It
+ * can test both or just one depending on how you configure it.  libwebsockets-
+ * test-server-v2.0 is set up to test both.
+ *
+ * RAW File Descriptor Testing
+ * ===========================
+ *
  * Enable on a vhost like this
  *
  *        "protocol-lws-raw-test": {
@@ -28,8 +35,33 @@
  *
  *  $ sudo sh -c "echo hello > /tmp/lws-test-raw"
  *
- * This plugin simply prints the data.  But it does it through the lws event loop /
- * service poll.
+ * This plugin simply prints the data.  But it does it through the lws event
+ * loop / service poll.
+ *
+ *
+ * RAW Socket Descriptor Testing
+ * =============================
+ *
+ * 1) You must give the vhost the option flag LWS_SERVER_OPTION_FALLBACK_TO_RAW
+ *
+ * 2) Enable on a vhost like this
+ *
+ *        "protocol-lws-raw-test": {
+ *                 "status": "ok",
+ *                 "raw": "1"
+ *        },
+ *
+ *    The "raw" pvo marks this protocol as being used for RAW connections.
+ *
+ * 3) Run libwebsockets-test-server-v2.0 and connect to it by telnet, eg
+ *
+ *    telnet 127.0.0.1 7681
+ *
+ *    type something that isn't a valid HTTP method and enter, before the
+ *    connection times out.  The connection will switch to RAW mode using this
+ *    protocol, and pass the unused rx as a raw RX callback.
+ *
+ *    The test protocol echos back what was typed on telnet to telnet.
  */
 
 #if !defined (LWS_PLUGIN_STATIC)
@@ -51,6 +83,8 @@ struct per_vhost_data__raw_test {
 
 struct per_session_data__raw_test {
 	int number;
+	unsigned char buf[128];
+	int len;
 };
 
 static int
@@ -84,8 +118,8 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 				pvo = pvo->next;
 			}
 			if (vhd->fifo_path[0] == '\0') {
-				lwsl_err("Missing pvo \"fifo-path\"\n");
-				return 1;
+				lwsl_err("%s: Missing pvo \"fifo-path\", raw file fd testing disabled\n", __func__);
+				break;
 			}
 		}
 		unlink(vhd->fifo_path);
@@ -101,7 +135,9 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lwsl_notice("FIFO %s created\n", vhd->fifo_path);
 		u.filefd = vhd->fifo;
-		if (!lws_adopt_descriptor_vhost(vhd->vhost, 0, u, "protocol-lws-raw-test", NULL)) {
+		if (!lws_adopt_descriptor_vhost(vhd->vhost, 0, u,
+						"protocol-lws-raw-test",
+						NULL)) {
 			lwsl_err("Failed to adopt fifo descriptor\n");
 			close(vhd->fifo);
 			unlink(vhd->fifo_path);
@@ -117,6 +153,11 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 			unlink(vhd->fifo_path);
 		}
 		break;
+
+
+	/*
+	 * Callbacks related to Raw file descriptor testing
+	 */
 
 	case LWS_CALLBACK_RAW_ADOPT_FILE:
 		lwsl_notice("LWS_CALLBACK_RAW_ADOPT_FILE\n");
@@ -177,6 +218,32 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_WRITEABLE_FILE:
 		lwsl_notice("LWS_CALLBACK_RAW_WRITEABLE_FILE\n");
+		break;
+
+	/*
+	 * Callbacks related to Raw socket descriptor testing
+	 */
+
+	case LWS_CALLBACK_RAW_ADOPT:
+		lwsl_notice("LWS_CALLBACK_RAW_ADOPT\n");
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		lwsl_notice("LWS_CALLBACK_RAW_RX %ld\n", (long)len);
+		if (len > sizeof(pss->buf))
+			len = sizeof(pss->buf);
+		memcpy(pss->buf, in, len);
+		pss->len = len;
+		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		lwsl_notice("LWS_CALLBACK_RAW_CLOSE\n");
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		lwsl_notice("LWS_CALLBACK_RAW_WRITEABLE\n");
+		lws_write(wsi, pss->buf, pss->len, LWS_WRITE_HTTP);
 		break;
 
 	default:

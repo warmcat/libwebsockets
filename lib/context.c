@@ -175,6 +175,13 @@ lws_protocol_init(struct lws_context *context)
 						   vh->protocols[n].name);
 						vh->default_protocol_index = n;
 					}
+					if (!strcmp(pvo->name, "raw")) {
+						lwsl_notice("Setting raw "
+						   "protocol for vh %s to %s\n",
+						   vh->name,
+						   vh->protocols[n].name);
+						vh->raw_protocol_index = n;
+					}
 					pvo = pvo->next;
 				}
 

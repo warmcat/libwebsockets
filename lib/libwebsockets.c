@@ -165,6 +165,32 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 	}
 }
 
+int
+lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
+{
+//	if (wsi->protocol == p)
+//		return 0;
+
+	if (wsi->protocol)
+		wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_DROP_PROTOCOL,
+					wsi->user_space, NULL, 0);
+	if (!wsi->user_space_externally_allocated)
+		lws_free_set_NULL(wsi->user_space);
+
+	wsi->protocol = p;
+	if (!p)
+		return 0;
+
+	if (lws_ensure_user_space(wsi))
+		return 1;
+
+	if (wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_BIND_PROTOCOL,
+				    wsi->user_space, NULL, 0))
+		return 1;
+
+	return 0;
+}
+
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 {

@@ -155,13 +155,34 @@ static const struct lws_protocol_vhost_options pvo_opt = {
 	"1"
 };
 
+static const struct lws_protocol_vhost_options pvo_opt4a = {
+	NULL,
+	NULL,
+	"raw", /* indicate we are the protocol that gets raw connections */
+	"1"
+};
+
+static const struct lws_protocol_vhost_options pvo_opt4 = {
+	&pvo_opt4a,
+	NULL,
+	"fifo-path", /* tell the raw test plugin to open a raw file here */
+	"/tmp/lws-test-raw"
+};
+
 /*
  * We must enable the plugin protocols we want into our vhost with a
  * linked-list.  We can also give the plugin per-vhost options here.
  */
 
-static const struct lws_protocol_vhost_options pvo_3 = {
+static const struct lws_protocol_vhost_options pvo_4 = {
 	NULL,
+	&pvo_opt4, /* set us as the protocol who gets raw connections */
+	"protocol-lws-raw-test",
+	"" /* ignored, just matches the protocol name above */
+};
+
+static const struct lws_protocol_vhost_options pvo_3 = {
+	&pvo_4,
 	NULL,
 	"protocol-post-demo",
 	"" /* ignored, just matches the protocol name above */
@@ -367,7 +388,7 @@ int main(int argc, char **argv)
 	info.gid = gid;
 	info.uid = uid;
 	info.max_http_header_pool = 16;
-	info.options = opts |
+	info.options = opts | LWS_SERVER_OPTION_FALLBACK_TO_RAW |
 			LWS_SERVER_OPTION_VALIDATE_UTF8 |
 			LWS_SERVER_OPTION_LIBUV; /* plugins require this */
 
