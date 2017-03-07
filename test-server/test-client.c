@@ -357,7 +357,7 @@ static const struct lws_extension exts[] = {
 	{
 		"permessage-deflate",
 		lws_extension_callback_pm_deflate,
-		"permessage-deflate; client_max_window_bits"
+		"permessage-deflate; client_no_context_takeover"
 	},
 	{
 		"deflate-frame",

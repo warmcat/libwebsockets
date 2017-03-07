@@ -22,18 +22,20 @@
 #include "private-libwebsockets.h"
 
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
+
 #ifndef LWS_NO_EXTENSIONS
-LWS_VISIBLE int
-lws_extension_server_handshake(struct lws *wsi, char **p)
+static int
+lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	char ext_name[64], *args, *end = (*p) + budget - 1;
+	const struct lws_ext_options *opts, *po;
 	const struct lws_extension *ext;
-	char ext_name[128];
+	struct lws_ext_option_arg oa;
+	int n, m, more = 1;
 	int ext_count = 0;
-	int more = 1;
 	char ignore;
-	int n, m;
 	char *c;
 
 	/*
@@ -55,13 +57,29 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 	c = (char *)pt->serv_buf;
 	lwsl_parser("WSI_TOKEN_EXTENSIONS = '%s'\n", c);
 	wsi->count_act_ext = 0;
-	n = 0;
 	ignore = 0;
+	n = 0;
+	args = NULL;
+
+	/*
+	 * We may get a simple request
+	 *
+	 * Sec-WebSocket-Extensions: permessage-deflate
+	 *
+	 * or an elaborated one with requested options
+	 *
+	 * Sec-WebSocket-Extensions: permessage-deflate; \
+	 *			     server_no_context_takeover; \
+	 *			     client_no_context_takeover
+	 */
+
 	while (more) {
 
 		if (*c && (*c != ',' && *c != '\t')) {
-			if (*c == ';')
+			if (*c == ';') {
 				ignore = 1;
+				args = c + 1;
+			}
 			if (ignore || *c == ' ') {
 				c++;
 				continue;
@@ -82,6 +100,9 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 				continue;
 		}
 
+		while (args && *args && *args == ' ')
+			args++;
+
 		/* check a client's extension against our support */
 
 		ext = wsi->vhost->extensions;
@@ -92,17 +113,18 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 				ext++;
 				continue;
 			}
-#if 0
-			m = ext->callback(lws_get_context(wsi), ext, wsi,
-					  LWS_EXT_CB_ARGS_VALIDATE,
-					  NULL, start + n, 0);
-			if (m) {
-				ext++;
-				continue;
-			}
-#endif
+
 			/*
 			 * oh, we do support this one he asked for... but let's
+			 * confirm he only gave it once
+			 */
+			for (m = 0; m < wsi->count_act_ext; m++)
+				if (wsi->active_extensions[m] == ext) {
+					lwsl_info("extension mentioned twice\n");
+					return 1; /* shenanigans */
+				}
+
+			/*
 			 * ask user code if it's OK to apply it on this
 			 * particular connection + protocol
 			 */
@@ -115,7 +137,6 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 			 * the extension, it's what we get if the callback is
 			 * unhandled
 			 */
-
 			if (m) {
 				ext++;
 				continue;
@@ -132,28 +153,73 @@ lws_extension_server_handshake(struct lws *wsi, char **p)
 			/* allow him to construct his context */
 
 			if (ext->callback(lws_get_context(wsi), ext, wsi,
-				      LWS_EXT_CB_CONSTRUCT,
-				      (void *)&wsi->act_ext_user[wsi->count_act_ext],
-				      NULL, 0)) {
-				lwsl_notice("ext %s failed construction\n", ext_name);
+					  LWS_EXT_CB_CONSTRUCT,
+					  (void *)&wsi->act_ext_user[
+					                    wsi->count_act_ext],
+					  &opts, 0)) {
+				lwsl_notice("ext %s failed construction\n",
+					    ext_name);
 				ext_count--;
 				ext++;
+
 				continue;
 			}
 
 			if (ext_count > 1)
 				*(*p)++ = ',';
 			else
-				LWS_CPYAPP(*p, "\x0d\x0aSec-WebSocket-Extensions: ");
-			*p += sprintf(*p, "%s", ext_name);
+				LWS_CPYAPP(*p,
+					  "\x0d\x0aSec-WebSocket-Extensions: ");
+			*p += lws_snprintf(*p, (end - *p), "%s", ext_name);
+
+			/*
+			 *  go through the options trying to apply the
+			 * recognized ones
+			 */
+
+			lwsl_debug("ext args %s", args);
+
+			while (args && *args && *args != ',') {
+				while (*args == ' ')
+					args++;
+				po = opts;
+				while (po->name) {
+					lwsl_debug("'%s' '%s'\n", po->name, args);
+					/* only support arg-less options... */
+					if (po->type == EXTARG_NONE &&
+					    !strncmp(args, po->name,
+							    strlen(po->name))) {
+						oa.option_name = NULL;
+						oa.option_index = (po - opts) /
+								sizeof(*po);
+						oa.start = NULL;
+						lwsl_debug("setting %s\n", po->name);
+						if (!ext->callback(
+								lws_get_context(wsi), ext, wsi,
+								  LWS_EXT_CB_OPTION_SET,
+								  wsi->act_ext_user[
+								         wsi->count_act_ext],
+								  &oa, (end - *p))) {
+
+							*p += lws_snprintf(*p, (end - *p), "; %s", po->name);
+							lwsl_debug("adding option %s\n", po->name);
+						}
+					}
+					po++;
+				}
+				while (*args && *args != ',' && *args != ';')
+					args++;
+			}
 
 			wsi->count_act_ext++;
-			lwsl_parser("count_act_ext <- %d\n", wsi->count_act_ext);
+			lwsl_parser("count_act_ext <- %d\n",
+				    wsi->count_act_ext);
 
 			ext++;
 		}
 
 		n = 0;
+		args = NULL;
 	}
 
 	return 0;
@@ -190,8 +256,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	lws_SHA1(pt->serv_buf, n, hash);
 
-	accept_len = lws_b64_encode_string((char *)hash, 20, (char *)pt->serv_buf,
-			context->pt_serv_buf_size);
+	accept_len = lws_b64_encode_string((char *)hash, 20,
+			(char *)pt->serv_buf, context->pt_serv_buf_size);
 	if (accept_len < 0) {
 		lwsl_warn("Base64 encoded hash too long\n");
 		goto bail;
@@ -227,9 +293,11 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 #ifndef LWS_NO_EXTENSIONS
 	/*
 	 * Figure out which extensions the client has that we want to
-	 * enable on this connection, and give him back the list
+	 * enable on this connection, and give him back the list.
+	 *
+	 * Give him a limited write bugdet
 	 */
-	if (lws_extension_server_handshake(wsi, &p))
+	if (lws_extension_server_handshake(wsi, &p, 192))
 		goto bail;
 #endif
 
