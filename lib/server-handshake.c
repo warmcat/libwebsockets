@@ -190,8 +190,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 					    !strncmp(args, po->name,
 							    strlen(po->name))) {
 						oa.option_name = NULL;
-						oa.option_index = (po - opts) /
-								sizeof(*po);
+						oa.option_index = po - opts;
 						oa.start = NULL;
 						lwsl_debug("setting %s\n", po->name);
 						if (!ext->callback(
