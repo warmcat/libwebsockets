@@ -3033,7 +3033,7 @@ lws_spa_create(struct lws *wsi, const char * const *param_names,
 	if (!spa->param_length)
 		goto bail5;
 
-	lwsl_notice("%s: Created SPA %p\n", __func__, spa);
+	lwsl_info("%s: Created SPA %p\n", __func__, spa);
 
 	return spa;
 
@@ -3093,7 +3093,7 @@ lws_spa_destroy(struct lws_spa *spa)
 {
 	int n = 0;
 
-	lwsl_notice("%s: destroy spa %p\n", __func__, spa);
+	lwsl_info("%s: destroy spa %p\n", __func__, spa);
 
 	if (spa->s)
 		lws_urldecode_s_destroy(spa->s);
