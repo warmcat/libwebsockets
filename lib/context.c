@@ -634,11 +634,11 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	/* default to just the platform fops implementation */
 
-	context->fops_platform.open		= _lws_plat_file_open;
-	context->fops_platform.close		= _lws_plat_file_close;
-	context->fops_platform.seek_cur		= _lws_plat_file_seek_cur;
-	context->fops_platform.read		= _lws_plat_file_read;
-	context->fops_platform.write		= _lws_plat_file_write;
+	context->fops_platform.LWS_FOP_OPEN	= _lws_plat_file_open;
+	context->fops_platform.LWS_FOP_CLOSE	= _lws_plat_file_close;
+	context->fops_platform.LWS_FOP_SEEK_CUR	= _lws_plat_file_seek_cur;
+	context->fops_platform.LWS_FOP_READ	= _lws_plat_file_read;
+	context->fops_platform.LWS_FOP_WRITE	= _lws_plat_file_write;
 	context->fops_platform.fi[0].sig	= NULL;
 
 	/*

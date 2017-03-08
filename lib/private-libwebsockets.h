@@ -262,6 +262,7 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #endif /* not USE_OLD_CYASSL */
 #else
 #include <openssl/ssl.h>
+#if !defined(LWS_WITH_ESP32)
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/md5.h>
@@ -270,7 +271,7 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #include <openssl/ecdh.h>
 #endif
 #include <openssl/x509v3.h>
-
+#endif
 #if (OPENSSL_VERSION_NUMBER < 0x0009080afL)
 /* later openssl defines this to negate the presence of tlsext... but it was only
  * introduced at 0.9.8j.  Earlier versions don't know it exists so don't
@@ -2000,6 +2001,8 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
+LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
+		                lws_filepos_t *amount);
 
 #ifdef __cplusplus
 };

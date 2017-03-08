@@ -349,10 +349,11 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 {
 	const struct lws_protocol_vhost_options *pvo = m->interpret;
 	struct lws_process_html_args args;
-	const char *mimetype, *vpath;
+	const char *mimetype;
 #if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266) && \
     !defined(LWS_WITH_ESP32)
 	const struct lws_plat_file_ops *fops;
+	const char *vpath;
 	lws_fop_flags_t fflags = LWS_O_RDONLY;
 	struct stat st;
 	int spin = 0;
@@ -360,17 +361,18 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	char path[256], sym[512];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
-#if !defined(WIN32) && LWS_POSIX
+#if !defined(WIN32) && LWS_POSIX && !defined(LWS_WITH_ESP32)
 	size_t len;
 #endif
 	int n;
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
-	fflags |= lws_vfs_prepare_flags(wsi);
-
 #if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266) && \
     !defined(LWS_WITH_ESP32)
+
+	fflags |= lws_vfs_prepare_flags(wsi);
+
 	do {
 		spin++;
 		fops = lws_vfs_select_fops(wsi->context->fops, path, &vpath);
@@ -2549,7 +2551,7 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 {
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME))
 		return;
-#if LWS_POSIX
+#if LWS_POSIX && !defined(LWS_WITH_ESP32)
 	/* find canonical hostname */
 	gethostname((char *)context->canonical_hostname,
 		    sizeof(context->canonical_hostname) - 1);

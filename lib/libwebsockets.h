@@ -182,19 +182,10 @@ struct sockaddr_in;
 #include <wolfssl/error-ssl.h>
 #endif /* not USE_OLD_CYASSL */
 #else
-#if defined(LWS_USE_POLARSSL)
-#include <polarssl/ssl.h>
-struct lws_polarssl_context {
-	x509_crt ca; /**< ca */
-	x509_crt certificate; /**< cert */
-	rsa_context key; /**< key */
-};
-typedef struct lws_polarssl_context SSL_CTX;
-typedef ssl_context SSL;
-#else
 #include <openssl/ssl.h>
+#if !defined(LWS_WITH_ESP32)
 #include <openssl/err.h>
-#endif /* not USE_POLARSSL */
+#endif
 #endif /* not USE_WOLFSSL */
 #endif
 
@@ -455,7 +446,7 @@ static inline void uv_timer_stop(uv_timer_t *t)
 #if defined(LWS_WITH_ESP32)
 
 typedef int lws_sockfd_type;
-typedef void * lws_filefd_type;
+typedef int lws_filefd_type;
 #define lws_sockfd_valid(sfd) (sfd >= 0)
 struct pollfd {
 	lws_sockfd_type fd; /**< fd related to */
@@ -4398,7 +4389,7 @@ struct lws_plat_file_ops {
 LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops * LWS_WARN_UNUSED_RESULT
 lws_get_fops(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN void
-lws_set_fops(struct lws_context *context, struct lws_plat_file_ops *fops);
+lws_set_fops(struct lws_context *context, const struct lws_plat_file_ops *fops);
 /**
  * lws_vfs_tell() - get current file position
  *

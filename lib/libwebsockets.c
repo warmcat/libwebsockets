@@ -993,9 +993,9 @@ lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
 }
 
 LWS_VISIBLE LWS_EXTERN void
-lws_set_fops(struct lws_context *context, struct lws_plat_file_ops *fops)
+lws_set_fops(struct lws_context *context, const struct lws_plat_file_ops *fops)
 {
-	memcpy(&context->fops, fops, sizeof *fops);
+	context->fops = fops;
 }
 
 LWS_VISIBLE LWS_EXTERN lws_filepos_t
@@ -1020,9 +1020,9 @@ LWS_VISIBLE lws_fileofs_t
 lws_vfs_file_seek_set(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
 	lws_fileofs_t ofs;
-	lwsl_debug("%s: seeking to %ld, len %ld\n", __func__, offset, fop_fd->len);
+	lwsl_debug("%s: seeking to %ld, len %ld\n", __func__, (long)offset, (long)fop_fd->len);
 	ofs = fop_fd->fops->LWS_FOP_SEEK_CUR(fop_fd, offset - fop_fd->pos);
-	lwsl_debug("%s: result %ld, fop_fd pos %ld\n", __func__, ofs, fop_fd->pos);
+	lwsl_debug("%s: result %ld, fop_fd pos %ld\n", __func__, (long)ofs, (long)fop_fd->pos);
 	return ofs;
 }
 
@@ -1054,7 +1054,7 @@ lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 	 * handled by a specific fops
 	 */
 
-	while (*p) {
+	while (p && *p) {
 		if (*p != '/') {
 			p++;
 			continue;
@@ -1086,7 +1086,7 @@ LWS_VISIBLE LWS_EXTERN lws_fop_fd_t LWS_WARN_UNUSED_RESULT
 lws_vfs_file_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
 		  lws_fop_flags_t *flags)
 {
-	const char *vpath;
+	const char *vpath = "";
 	const struct lws_plat_file_ops *selected = lws_vfs_select_fops(
 			fops, vfs_path, &vpath);
 

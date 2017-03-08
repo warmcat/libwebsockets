@@ -20,6 +20,8 @@ build:
 		-DCMAKE_TOOLCHAIN_FILE=$(COMPONENT_PATH)/cross-esp32.cmake \
 		-DCMAKE_BUILD_TYPE=RELEASE \
 		-DLWS_WITH_NO_LOGS=0 \
+		-DOPENSSL_INCLUDE_DIR=${COMPONENT_PATH}/../openssl/include \
+		-DOPENSSL_LIBRARIES=x \
 		-DLWS_WITH_ESP32=1 ;\
 	make VERBOSE=1 && \
 	cp ${COMPONENT_BUILD_DIR}/lib/libwebsockets.a ${COMPONENT_BUILD_DIR}/liblibwebsockets.a

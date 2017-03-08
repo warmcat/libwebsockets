@@ -160,6 +160,7 @@ if (LWS_WITH_ESP8266)
  set(LWS_HAVE_MALLOC 1)
  set(LWS_HAVE_REALLOC 1)
  set(LWS_HAVE_GETIFADDRS 1)
+ set(LWS_WITH_ZIP_FOPS 0)
 endif()
 
 if (LWS_WITH_ESP32)
@@ -169,6 +170,7 @@ if (LWS_WITH_ESP32)
  # set(LWS_WITHOUT_CLIENT ON)
  set(LWS_WITHOUT_TESTAPPS ON)
  set(LWS_WITHOUT_EXTENSIONS ON)
+ set(LWS_WITHOUT_CLIENT ON)
  set(LWS_WITH_PLUGINS OFF)
  set(LWS_WITH_RANGES ON)
  # this implies no pthreads in the lib
@@ -176,6 +178,7 @@ if (LWS_WITH_ESP32)
  set(LWS_HAVE_MALLOC 1)
  set(LWS_HAVE_REALLOC 1)
  set(LWS_HAVE_GETIFADDRS 1)
+ set(LWS_WITH_ZIP_FOPS 0)
 endif()
 
 
@@ -245,7 +248,9 @@ endif()
 if (LWS_WITH_SSL AND NOT LWS_USE_WOLFSSL)
 	if ("${LWS_OPENSSL_LIBRARIES}" STREQUAL "" OR "${LWS_OPENSSL_INCLUDE_DIRS}" STREQUAL "")
 	else()
-		set(OPENSSL_LIBRARIES ${LWS_OPENSSL_LIBRARIES})
+		if (NOT LWS_WITH_ESP32)
+			set(OPENSSL_LIBRARIES ${LWS_OPENSSL_LIBRARIES})
+		endif()
 		set(OPENSSL_INCLUDE_DIRS ${LWS_OPENSSL_INCLUDE_DIRS})
 		set(OPENSSL_FOUND 1)
 	endif()
@@ -886,15 +891,21 @@ if (LWS_WITH_SSL)
 	if (NOT chose_ssl)
 		if (NOT OPENSSL_FOUND AND NOT LWS_USE_BORINGSSL)
 			# TODO: Add support for STATIC also.
+		if (NOT LWS_WITH_ESP32)
 			find_package(OpenSSL REQUIRED)
+		endif()
 			set(OPENSSL_INCLUDE_DIRS "${OPENSSL_INCLUDE_DIR}")
 		endif()
 
 		message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIRS}")
-		message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
+		if (NOT LWS_WITH_ESP32)
+			message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
+		endif()
 
 		include_directories("${OPENSSL_INCLUDE_DIRS}")
-		list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
+		if (NOT LWS_WITH_ESP32)
+			list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
+		endif()
 
 	# older (0.98) Openssl lacks this
 	set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIRS})
@@ -989,6 +1000,93 @@ configure_file(
        "${PROJECT_SOURCE_DIR}/lws_config_private.h.in"
        "${PROJECT_BINARY_DIR}/lws_config_private.h")
 
+# Generate self-signed SSL certs for the test-server.
+
+if (LWS_WITH_SSL AND NOT LWS_USE_WOLFSSL)
+	message("Searching for OpenSSL executable and dlls")
+	find_package(OpenSSLbins)
+	message("OpenSSL executable: ${OPENSSL_EXECUTABLE}")
+	if (OPENSSL_EXECUTABLE MATCHES "^$")
+		set(OPENSSL_EXECUTABLE openssl)
+	endif()
+	if (NOT OPENSSL_EXECUTABLE)
+		set(OPENSSL_EXECUTABLE openssl)
+	endif()
+
+endif()
+
+set(GENCERTS 0)
+
+if (LWS_WITH_SSL AND OPENSSL_EXECUTABLE AND NOT LWS_WITHOUT_TEST_SERVER)
+	set(GENCERTS 1)
+endif()
+if (LWS_WITH_ESP32)
+	set(GENCERTS 1)
+endif()
+message(" GENCERTS = ${GENCERTS}")
+if (GENCERTS)
+	message("Generating SSL Certificates for the test-server...")
+
+	set(TEST_SERVER_SSL_KEY "${PROJECT_BINARY_DIR}/libwebsockets-test-server.key.pem")
+	set(TEST_SERVER_SSL_CERT "${PROJECT_BINARY_DIR}/libwebsockets-test-server.pem")
+
+	if (WIN32)
+		if (MINGW)
+			message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -subj \"/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost\" -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
+			execute_process(
+				COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -subj "/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+				RESULT_VARIABLE OPENSSL_RETURN_CODE)
+		else()
+			file(WRITE "${PROJECT_BINARY_DIR}/openssl_input.txt"
+				"GB\n"
+				"Erewhon\n"
+				"All around\n"
+				"libwebsockets-test\n"
+				"localhost\n"
+				"none@invalid.org\n\n"
+				)
+
+			# The "type" command is a bit picky with paths.
+			file(TO_NATIVE_PATH "${PROJECT_BINARY_DIR}/openssl_input.txt" OPENSSL_INPUT_WIN_PATH)
+			message("OPENSSL_INPUT_WIN_PATH = ${OPENSSL_INPUT_WIN_PATH}")
+			message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
+
+			execute_process(
+				COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
+				COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+				RESULT_VARIABLE OPENSSL_RETURN_CODE
+				OUTPUT_QUIET ERROR_QUIET)
+
+			message("\n")
+		endif()
+
+		if (OPENSSL_RETURN_CODE)
+			message(WARNING "!!! Failed to generate SSL certificate for Test Server using cmd.exe !!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
+		else()
+			message("SUCCSESFULLY generated SSL certificate")
+		endif()
+	else()
+		# Unix.
+		execute_process(
+			COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
+			COMMAND "${OPENSSL_EXECUTABLE}"
+				req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+			RESULT_VARIABLE OPENSSL_RETURN_CODE
+			OUTPUT_QUIET ERROR_QUIET)
+
+		if (OPENSSL_RETURN_CODE)
+			message(WARNING "!!! Failed to generate SSL certificate for Test Server!!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
+		else()
+			message("SUCCESSFULLY generated SSL certificate")
+		endif()
+	endif()
+
+	list(APPEND TEST_SERVER_DATA 
+		"${TEST_SERVER_SSL_KEY}"
+		"${TEST_SERVER_SSL_CERT}")
+endif()
+
+
 
 
 #
@@ -1069,18 +1167,15 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		list(APPEND TEST_APP_LIST ${TEST_NAME})
 	endmacro()
 
-	if (LWS_WITH_SSL AND NOT LWS_USE_WOLFSSL)
-		message("Searching for OpenSSL executable and dlls")
-		find_package(OpenSSLbins)
-		message("OpenSSL executable: ${OPENSSL_EXECUTABLE}")
-	endif()
-
 	if (UNIX AND LWS_WITH_PLUGINS)
 		set(CMAKE_C_FLAGS "-fPIC ${CMAKE_C_FLAGS}")
 		if(NOT(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD"))
 			target_link_libraries(websockets dl)
 		endif()
 	endif()
+
+
+
 
 	if (NOT LWS_WITHOUT_SERVER)
 		#
@@ -1178,69 +1273,6 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			"${PROJECT_SOURCE_DIR}/test-server/libwebsockets.org-logo.png"
 			"${PROJECT_SOURCE_DIR}/test-server/lws-common.js"
 			"${PROJECT_SOURCE_DIR}/test-server/test.html")
-
-		# Generate self-signed SSL certs for the test-server.
-		if (LWS_WITH_SSL AND OPENSSL_EXECUTABLE AND NOT LWS_WITHOUT_TEST_SERVER)
-			message("Generating SSL Certificates for the test-server...")
-
-			set(TEST_SERVER_SSL_KEY "${PROJECT_BINARY_DIR}/libwebsockets-test-server.key.pem")
-			set(TEST_SERVER_SSL_CERT "${PROJECT_BINARY_DIR}/libwebsockets-test-server.pem")
-
-			if (WIN32)
-				if (MINGW)
-					message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -subj \"/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost\" -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
-					execute_process(
-						COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -subj "/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-						RESULT_VARIABLE OPENSSL_RETURN_CODE)
-				else()
-					file(WRITE "${PROJECT_BINARY_DIR}/openssl_input.txt"
-						"GB\n"
-						"Erewhon\n"
-						"All around\n"
-						"libwebsockets-test\n"
-						"localhost\n"
-						"none@invalid.org\n\n"
-						)
-
-					# The "type" command is a bit picky with paths.
-					file(TO_NATIVE_PATH "${PROJECT_BINARY_DIR}/openssl_input.txt" OPENSSL_INPUT_WIN_PATH)
-					message("OPENSSL_INPUT_WIN_PATH = ${OPENSSL_INPUT_WIN_PATH}")
-					message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
-
-					execute_process(
-						COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
-						COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-						RESULT_VARIABLE OPENSSL_RETURN_CODE
-						OUTPUT_QUIET ERROR_QUIET)
-
-					message("\n")
-				endif()
-
-				if (OPENSSL_RETURN_CODE)
-					message(WARNING "!!! Failed to generate SSL certificate for Test Server using cmd.exe !!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
-				else()
-					message("SUCCSESFULLY generated SSL certificate")
-				endif()
-			else()
-				# Unix.
-				execute_process(
-					COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
-					COMMAND "${OPENSSL_EXECUTABLE}"
-						req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-					RESULT_VARIABLE OPENSSL_RETURN_CODE
-					OUTPUT_QUIET ERROR_QUIET)
-
-				if (OPENSSL_RETURN_CODE)
-					message(WARNING "!!! Failed to generate SSL certificate for Test Server!!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
-				else()
-					message("SUCCESSFULLY generated SSL certificate")
-				endif()
-			endif()
-
-			list(APPEND TEST_SERVER_DATA 
-				"${TEST_SERVER_SSL_KEY}"
-				"${TEST_SERVER_SSL_CERT}")
-		endif()
 
 		add_custom_command(TARGET test-server
 						POST_BUILD 

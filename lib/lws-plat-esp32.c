@@ -1,6 +1,6 @@
 #include "private-libwebsockets.h"
 #include "freertos/timers.h"
-
+#include <esp_attr.h>
 /*
  * included from libwebsockets.c for unix builds
  */
@@ -395,8 +395,8 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 	return inet_ntop(af, src, dst, cnt);
 }
 
-LWS_VISIBLE lws_fop_fd_t
-_lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
+LWS_VISIBLE lws_fop_fd_t IRAM_ATTR
+_lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 		    const char *vpath, lws_fop_flags_t *flags)
 {
 	struct stat stat_buf;
@@ -407,6 +407,7 @@ _lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
 		return NULL;
 
 	if (fstat(ret, &stat_buf) < 0)
+		goto bail;
 
 	fop_fd = malloc(sizeof(*fop_fd));
 	if (!fop_fd)
@@ -427,7 +428,7 @@ bail:
 	return NULL;
 }
 
-LWS_VISIBLE int
+LWS_VISIBLE int IRAM_ATTR
 _lws_plat_file_close(lws_fop_fd_t *fops_fd)
 {
 	int fd = (*fops_fd)->fd;
@@ -438,13 +439,13 @@ _lws_plat_file_close(lws_fop_fd_t *fops_fd)
 	return close(fd);
 }
 
-LWS_VISIBLE lws_fileofs_t
+LWS_VISIBLE lws_fileofs_t IRAM_ATTR
 _lws_plat_file_seek_cur(lws_fop_fd_t fops_fd, lws_fileofs_t offset)
 {
 	return lseek(fops_fd->fd, offset, SEEK_CUR);
 }
 
-LWS_VISIBLE int
+LWS_VISIBLE int IRAM_ATTR
 _lws_plat_file_read(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 		    uint8_t *buf, lws_filepos_t len)
 {
@@ -455,13 +456,13 @@ _lws_plat_file_read(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 		*amount = 0;
 		return -1;
 	}
-	fop_fd->pos += n;
+	fops_fd->pos += n;
 	*amount = n;
 
 	return 0;
 }
 
-LWS_VISIBLE int
+LWS_VISIBLE int IRAM_ATTR
 _lws_plat_file_write(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 		     uint8_t *buf, lws_filepos_t len)
 {
@@ -472,7 +473,7 @@ _lws_plat_file_write(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 		*amount = 0;
 		return -1;
 	}
-	fop_fd->pos += n;
+	fops_fd->pos += n;
 	*amount = n;
 
 	return 0;
@@ -511,3 +512,19 @@ LWS_VISIBLE void esp32_uvtimer_cb(TimerHandle_t t)
 	p->cb(p->t);
 }
 
+void ERR_error_string_n(unsigned long e, char *buf, size_t len)
+{
+	strncpy(buf, "unknown", len);
+}
+
+void ERR_free_strings(void)
+{
+}
+
+char *ERR_error_string(unsigned long e, char *buf)
+{
+	if (buf)
+		strcpy(buf, "unknown");
+
+	return "unknown";
+}
