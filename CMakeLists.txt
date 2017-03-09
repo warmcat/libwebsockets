@@ -659,8 +659,12 @@ if (LWS_WITH_RANGES)
 endif()
 
 if (LWS_WITH_ZIP_FOPS)
-	list(APPEND SOURCES
-		lib/fops-zip.c)
+       if (LWS_WITH_ZLIB)
+               list(APPEND SOURCES
+                       lib/fops-zip.c)
+       else()
+               message(FATAL_ERROR "Pre-zipped file support (LWS_WITH_ZIP_FOPS) requires ZLIB (LWS_WITH_ZLIB)")
+       endif()
 endif()
 
 # Add helper files for Windows.
