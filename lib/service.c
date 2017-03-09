@@ -839,9 +839,29 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 #endif
 
-	lwsl_debug("fd=%d, revents=%d\n", pollfd->fd, pollfd->revents);
+       lwsl_debug("fd=%d, revents=%d, mode=%d, state=%d\n", pollfd->fd, pollfd->revents, (int)wsi->mode, (int)wsi->state);
 	if (pollfd->revents & LWS_POLLHUP)
 		goto close_and_handled;
+
+
+#ifdef LWS_OPENSSL_SUPPORT
+       if ((wsi->state == LWSS_SHUTDOWN) && lws_is_ssl(wsi) && wsi->ssl)
+       {
+               n = SSL_shutdown(wsi->ssl);
+               lwsl_debug("SSH_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
+               if (n == 1)
+               {
+                       n = shutdown(wsi->desc.sockfd, SHUT_WR);
+                       goto close_and_handled;
+               }
+               else
+               {
+                       lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+                       n = 0;
+                       goto handled;
+               }
+       }
+#endif
 
 	/* okay, what we came here to do... */
 
