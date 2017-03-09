@@ -224,7 +224,7 @@ lws_fops_zip_scan(lws_fops_zip_t priv, const char *name, int len)
 		if (get_u32(buf + ZC_SIGNATURE) != 0x02014B50)
 			return LWS_FZ_ERR_CENTRAL_SANITY;
 
-		lwsl_debug("cstart 0x%lx\n", priv->content_start);
+               lwsl_debug("cstart 0x%lx\n", (unsigned long)priv->content_start);
 
 		priv->hdr.filename_len = get_u16(buf + ZC_FILE_NAME_LENGTH);
 		priv->hdr.extra = get_u16(buf + ZC_EXTRA_FIELD_LENGTH);
@@ -272,7 +272,7 @@ lws_fops_zip_scan(lws_fops_zip_t priv, const char *name, int len)
 				      get_u16(buf + ZL_REL_OFFSET_CONTENT);
 
 		lwsl_debug("content supposed to start at 0x%lx\n",
-			   priv->content_start);
+                          (unsigned long)priv->content_start);
 
 		if (priv->content_start > priv->zip_fop_fd->len)
 			return LWS_FZ_ERR_CONTENT_SANITY;

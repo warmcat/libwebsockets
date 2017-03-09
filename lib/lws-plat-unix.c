@@ -669,7 +669,7 @@ _lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 		fop_fd->pos = r;
 	else
 		lwsl_err("error seeking from cur %ld, offset %ld\n",
-			 fop_fd->pos, offset);
+                        (long)fop_fd->pos, (long)offset);
 
 	return r;
 }
@@ -687,7 +687,7 @@ _lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 	}
 	fop_fd->pos += n;
 	lwsl_debug("%s: read %ld of req %ld, pos %ld, len %ld\n", __func__, n,
-		   (long)len, fop_fd->pos, fop_fd->len);
+                  (long)len, (long)fop_fd->pos, (long)fop_fd->len);
 	*amount = n;
 
 	return 0;
