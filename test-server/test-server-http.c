@@ -184,7 +184,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	struct per_session_data__http *pss =
 			(struct per_session_data__http *)user;
 	unsigned char buffer[4096 + LWS_PRE];
-	unsigned long amount, file_len, sent;
+       lws_filepos_t amount, file_len, sent;
 	char leaf_path[1024];
 	const char *mimetype;
 	char *other_headers;
