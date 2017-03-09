@@ -492,7 +492,7 @@ send_raw:
 			    wsi->u.http.content_length) {
 				wsi->u.http.content_remain -= len;
 				lwsl_info("%s: content_remain = %lu\n", __func__,
-					  wsi->u.http.content_remain);
+					  (unsigned long)wsi->u.http.content_remain);
 				if (!wsi->u.http.content_remain) {
 					lwsl_info("%s: selecting final write mode\n", __func__);
 					wp = LWS_WRITE_HTTP_FINAL;
