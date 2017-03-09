@@ -169,7 +169,7 @@ int lws_http2_frame_write(struct lws *wsi, int type, int flags,
 	*p++ = sid >> 8;
 	*p++ = sid;
 
-	lwsl_info("%s: %p (eff %p). type %d, flags 0x%x, sid=%d, len=%d\n",
+	lwsl_info("%s: %p (eff %p). type %d, flags 0x%x, sid=%d, len=%d,tx_credit=%d\n",
 		  __func__, wsi, wsi_eff, type, flags, sid, len,
 		  wsi->u.http2.tx_credit);
 
