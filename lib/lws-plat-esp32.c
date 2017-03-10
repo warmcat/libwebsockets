@@ -528,3 +528,277 @@ char *ERR_error_string(unsigned long e, char *buf)
 
 	return "unknown";
 }
+
+
+/* helper functionality */
+
+#include "romfs.h"
+
+void (*lws_cb_scan_done)(void *);
+void *lws_cb_scan_done_arg;
+char lws_esp32_serial[16] = "unknown", lws_esp32_force_ap = 0,
+     lws_esp32_region = WIFI_COUNTRY_US; // default to safest option
+
+static romfs_t lws_esp32_romfs;
+
+/*
+ * configuration related to the AP setup website
+ *
+ * The 'esplws-scan' protocol drives the configuration
+ * site, and updates the scan results in realtime over
+ * a websocket link.
+ */
+
+#include "../plugins/protocol_esp32_lws_scan.c"
+
+static const struct lws_protocols protocols_ap[] = {
+	{
+		"http-only",
+		lws_callback_http_dummy,
+		0,	/* per_session_data_size */
+		900, 0, NULL
+	},
+	LWS_PLUGIN_PROTOCOL_ESPLWS_SCAN,
+	{ NULL, NULL, 0, 0, 0, NULL } /* terminator */
+};
+
+static const struct lws_protocol_vhost_options ap_pvo = {
+	NULL,
+	NULL,
+	"esplws-scan",
+	""
+};
+
+static const struct lws_http_mount mount_ap = {
+        .mountpoint		= "/",
+        .origin			= "/ap",
+        .def			= "index.html",
+        .origin_protocol	= LWSMPRO_FILE,
+        .mountpoint_len		= 1,
+};
+
+struct esp32_file {
+	const struct inode *i;
+};
+
+esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
+{
+	switch(event->event_id) {
+	case SYSTEM_EVENT_SCAN_DONE:
+		if (lws_cb_scan_done)
+			lws_cb_scan_done(lws_cb_scan_done_arg);
+		break;
+	case SYSTEM_EVENT_STA_START:
+		esp_wifi_connect();
+		break;
+	case SYSTEM_EVENT_STA_DISCONNECTED:
+		/* This is a workaround as ESP32 WiFi libs don't currently
+		   auto-reassociate. */
+		esp_wifi_connect();
+		break;
+	default:
+		break;
+	}
+	return ESP_OK;
+}
+
+static lws_fop_fd_t IRAM_ATTR
+esp32_lws_fops_open(const struct lws_plat_file_ops *fops, const char *filename,
+                const char *vfs_path, lws_fop_flags_t *flags)
+{
+	struct esp32_file *f = malloc(sizeof(*f));
+	lws_fop_fd_t fop_fd;
+	size_t len;
+
+	lwsl_notice("%s: %s\n", __func__, filename);
+
+	if (!f)
+		return NULL;
+
+	f->i = romfs_get_info(lws_esp32_romfs, filename, &len);
+	if (!f->i)
+		goto bail;
+
+        fop_fd = malloc(sizeof(*fop_fd));
+        if (!fop_fd)
+                goto bail;
+
+        fop_fd->fops = fops;
+        fop_fd->filesystem_priv = f;
+	fop_fd->flags = *flags;
+	
+	fop_fd->len = len;
+	fop_fd->pos = 0;
+
+	return fop_fd;
+
+bail:
+	free(f);
+
+	return NULL;
+}
+
+static int IRAM_ATTR
+esp32_lws_fops_close(lws_fop_fd_t *fop_fd)
+{
+	free((*fop_fd)->filesystem_priv);
+	free(*fop_fd);
+
+	*fop_fd = NULL;
+
+	return 0;
+}
+static lws_fileofs_t IRAM_ATTR
+esp32_lws_fops_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset_from_cur_pos)
+{
+	fop_fd->pos += offset_from_cur_pos;
+	
+	if (fop_fd->pos > fop_fd->len)
+		fop_fd->pos = fop_fd->len;
+
+       return 0;
+}
+
+static int IRAM_ATTR
+esp32_lws_fops_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount, uint8_t *buf,
+                   lws_filepos_t len)
+{
+       struct esp32_file *f = fop_fd->filesystem_priv;
+
+       if ((long)buf & 3) {
+               lwsl_err("misaligned buf\n");
+
+               return -1;
+       }
+
+       if (fop_fd->pos >= fop_fd->len)
+               return 0;
+
+       if (len > fop_fd->len - fop_fd->pos)
+               len = fop_fd->len - fop_fd->pos;
+
+       spi_flash_read((uint32_t)(char *)f->i + fop_fd->pos, buf, len);
+
+       *amount = len;
+       fop_fd->pos += len;
+
+       return 0;
+}
+
+static const struct lws_plat_file_ops fops = {
+	.LWS_FOP_OPEN = esp32_lws_fops_open,
+	.LWS_FOP_CLOSE = esp32_lws_fops_close,
+	.LWS_FOP_READ = esp32_lws_fops_read,
+	.LWS_FOP_SEEK_CUR = esp32_lws_fops_seek_cur,
+};
+
+static wifi_config_t sta_config = {
+		.sta = {
+			.bssid_set = false
+		}
+	}, ap_config = {
+		.ap = {
+		    .channel = 6,
+		    .authmode = WIFI_AUTH_OPEN,
+		    .max_connection = 1,
+		}
+	};
+
+void
+lws_esp32_wlan_config(void)
+{
+	nvs_handle nvh;
+	char r[2];
+	size_t s;
+
+	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
+
+	s = sizeof(sta_config.sta.ssid) - 1;
+	if (nvs_get_str(nvh, "ssid", (char *)sta_config.sta.ssid, &s) != ESP_OK)
+		lws_esp32_force_ap = 1;
+	s = sizeof(sta_config.sta.password) - 1;
+	if (nvs_get_str(nvh, "password", (char *)sta_config.sta.password, &s) != ESP_OK)
+		lws_esp32_force_ap = 1;
+	s = sizeof(lws_esp32_serial) - 1;
+	if (nvs_get_str(nvh, "serial", lws_esp32_serial, &s) != ESP_OK)
+		lws_esp32_force_ap = 1;
+	else
+		snprintf((char *)ap_config.ap.ssid, sizeof(ap_config.ap.ssid) - 1,
+			 "config-%s-%s", lws_esp32_model, lws_esp32_serial);
+	s = sizeof(r);
+	if (nvs_get_str(nvh, "region", r, &s) != ESP_OK)
+		lws_esp32_force_ap = 1;
+	else
+		lws_esp32_region = atoi(r);
+
+	nvs_close(nvh);
+
+	tcpip_adapter_init();
+}
+
+void
+lws_esp32_wlan_start(void)
+{
+	wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+
+	ESP_ERROR_CHECK( esp_wifi_init(&cfg));
+	ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM));
+	ESP_ERROR_CHECK( esp_wifi_set_country(lws_esp32_region));
+
+	if (!lws_esp32_is_booting_in_ap_mode() && !lws_esp32_force_ap) {
+		ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA));
+		ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config));
+	} else {
+		ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_APSTA) );
+		ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_AP, &ap_config) );
+	}
+
+	ESP_ERROR_CHECK( esp_wifi_start());
+	tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&ap_config.ap.ssid[7]);
+
+	if (!lws_esp32_is_booting_in_ap_mode() && !lws_esp32_force_ap)
+		ESP_ERROR_CHECK( esp_wifi_connect());
+}
+
+struct lws_context *
+lws_esp32_init(struct lws_context_creation_info *info, unsigned int _romfs)
+{
+	size_t romfs_size;
+	struct lws_context *context;
+
+	lws_set_log_level(65535, lwsl_emit_syslog);
+
+	context = lws_create_context(info);
+	if (context == NULL) {
+		lwsl_err("Failed to create context\n");
+		return NULL;
+	}
+
+	lws_esp32_romfs = (romfs_t)(void *)_romfs;
+	romfs_size = romfs_mount_check(lws_esp32_romfs);
+	if (!romfs_size) {
+		lwsl_err("Failed to mount ROMFS\n");
+		return NULL;
+	}
+
+	lwsl_notice("ROMFS length %uKiB\n", romfs_size >> 10);
+
+	/* set the lws vfs to use our romfs */
+
+	lws_set_fops(context, &fops);
+
+	if (lws_esp32_is_booting_in_ap_mode() || lws_esp32_force_ap) {
+		info->vhost_name = "ap";
+		info->protocols = protocols_ap;
+		info->mounts = &mount_ap;
+		info->pvo = &ap_pvo;
+	}
+
+	if (!lws_create_vhost(context, info))
+		lwsl_err("Failed to create vhost\n");
+
+	lws_protocol_init(context);
+
+	return context;
+}
+

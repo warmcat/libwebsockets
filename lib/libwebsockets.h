@@ -460,6 +460,16 @@ struct pollfd {
 #define POLLHUP		0x0010
 #define POLLNVAL	0x0020
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
+#include <string.h>
+#include "esp_wifi.h"
+#include "esp_system.h"
+#include "esp_event.h"
+#include "esp_event_loop.h"
+#include "nvs.h"
+#include "driver/gpio.h"
+#include "esp_spi_flash.h"
 #include "freertos/timers.h"
 
 #if !defined(CONFIG_FREERTOS_HZ)
@@ -513,8 +523,35 @@ static inline void uv_close(uv_handle_t *h, void *v)
 	xTimerDelete(*(uv_timer_t *)h, 0);
 }
 
+/* ESP32 helper declarations */
 
+#define LWS_PLUGIN_STATIC
 
+/* user code provides these */
+
+extern char lws_esp32_model[16];
+
+extern int
+lws_esp32_is_booting_in_ap_mode(void);
+extern void
+lws_esp32_identify_physical_device(void);
+
+/* lws-plat-esp32 provides these */
+
+extern void (*lws_cb_scan_done)(void *);
+extern void *lws_cb_scan_done_arg;
+
+extern char lws_esp32_serial[], lws_esp32_force_ap, lws_esp32_region;
+
+extern esp_err_t
+lws_esp32_event_passthru(void *ctx, system_event_t *event);
+extern void
+lws_esp32_wlan_config(void);
+extern void
+lws_esp32_wlan_start(void);
+struct lws_context_creation_info;
+extern struct lws_context *
+lws_esp32_init(struct lws_context_creation_info *, unsigned int _romfs);
 
 #else
 typedef int lws_sockfd_type;
