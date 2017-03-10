@@ -598,7 +598,8 @@ else()
 		else()
 			if (LWS_WITH_ESP32)
 				list(APPEND SOURCES
-					lib/lws-plat-esp32.c)
+					lib/lws-plat-esp32.c
+					lib/romfs.c)
 			else()
 				list(APPEND SOURCES
 					lib/lws-plat-unix.c)
