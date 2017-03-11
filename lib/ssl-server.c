@@ -27,6 +27,7 @@ extern int openssl_websocket_private_data_index,
 extern void
 lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info);
 
+#if !defined(LWS_WITH_ESP32)
 static int
 OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
@@ -50,6 +51,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	/* convert return code from 0 = OK to 1 = OK */
 	return !n;
 }
+#endif
 
 static int
 lws_context_ssl_init_ecdh(struct lws_vhost *vhost)
@@ -226,7 +228,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	 * versions", compared to e.g. TLSv1_2_server_method() which only allows
 	 * tlsv1.2. Unwanted versions must be disabled using SSL_CTX_set_options()
 	 */
-
+#if !defined(LWS_WITH_ESP32)
 	{
 		SSL_METHOD *method;
 
@@ -247,12 +249,24 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			return 1;
 		}
 	}
+#else
+	{
+		const SSL_METHOD *method = TLSv1_2_server_method();
+
+		vhost->ssl_ctx = SSL_CTX_new(method);	/* create context */
+		if (!vhost->ssl_ctx) {
+			lwsl_err("problem creating ssl context\n");
+			return 1;
+		}
+
+	}
+#endif
+#if !defined(LWS_WITH_ESP32)
 
 	/* associate the lws context with the SSL_CTX */
 
 	SSL_CTX_set_ex_data(vhost->ssl_ctx,
-			openssl_SSL_CTX_private_data_index, vhost->context);
-
+			openssl_SSL_CTX_private_data_index, (char *)vhost->context);
 	/* Disable SSLv2 and SSLv3 */
 	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
 #ifdef SSL_OP_NO_COMPRESSION
@@ -260,9 +274,11 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_SINGLE_DH_USE);
 	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+
 	if (info->ssl_cipher_list)
 		SSL_CTX_set_cipher_list(vhost->ssl_ctx,
 						info->ssl_cipher_list);
+#endif
 
 	/* as a server, are we requiring clients to identify themselves? */
 
@@ -274,6 +290,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 				   LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
 			verify_options |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
 
+#if !defined(LWS_WITH_ESP32)
 		SSL_CTX_set_session_id_context(vhost->ssl_ctx,
 				(unsigned char *)context, sizeof(void *));
 
@@ -281,6 +298,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 		SSL_CTX_set_verify(vhost->ssl_ctx,
 		       verify_options, OpenSSL_verify_callback);
+#endif
 	}
 
 #ifndef OPENSSL_NO_TLSEXT
@@ -292,13 +310,13 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	 * give user code a chance to load certs into the server
 	 * allowing it to verify incoming client certs
 	 */
-
+#if !defined(LWS_WITH_ESP32)
 	if (info->ssl_ca_filepath &&
 	    !SSL_CTX_load_verify_locations(vhost->ssl_ctx,
 					   info->ssl_ca_filepath, NULL)) {
 		lwsl_err("%s: SSL_CTX_load_verify_locations unhappy\n", __func__);
 	}
-
+#endif
 	if (vhost->use_ssl) {
 		if (lws_context_ssl_init_ecdh_curve(info, vhost))
 			return -1;
@@ -326,7 +344,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	if (vhost->use_ssl) {
 		/* openssl init for server sockets */
-
+#if !defined(LWS_WITH_ESP32)
 		/* set the local certificate from CertFile */
 		n = SSL_CTX_use_certificate_chain_file(vhost->ssl_ctx,
 					info->ssl_cert_filepath);
@@ -340,8 +358,42 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			return 1;
 		}
 		lws_ssl_bind_passphrase(vhost->ssl_ctx, info);
+#else
+		uint8_t *p;
+		lws_filepos_t flen;
+		int err;
 
+		if (alloc_file(vhost->context, info->ssl_cert_filepath, &p,
+				                &flen)) {
+			lwsl_err("couldn't find cert file %s\n",
+				 info->ssl_cert_filepath);
+
+			return 1;
+		}
+		err = SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx, flen, p);
+		if (!err) {
+			lwsl_err("Problem loading cert\n");
+			return 1;
+		}
+
+		if (alloc_file(vhost->context,
+			       info->ssl_private_key_filepath, &p, &flen)) {
+			lwsl_err("couldn't find cert file %s\n",
+				 info->ssl_cert_filepath);
+
+			return 1;
+		}
+		err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
+		if (!err) {
+			lwsl_err("Problem loading key\n");
+
+			return 1;
+		}
+
+//		free(p);
+#endif
 		if (info->ssl_private_key_filepath != NULL) {
+#if !defined(LWS_WITH_ESP32)
 			/* set the private key from KeyFile */
 			if (SSL_CTX_use_PrivateKey_file(vhost->ssl_ctx,
 				     info->ssl_private_key_filepath,
@@ -353,6 +405,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 					      (char *)context->pt[0].serv_buf));
 				return 1;
 			}
+#endif
 		} else
 			if (vhost->protocols[0].callback(&wsi,
 				LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
@@ -361,13 +414,13 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 				return 1;
 			}
-
+#if !defined(LWS_WITH_ESP32)
 		/* verify private key */
 		if (!SSL_CTX_check_private_key(vhost->ssl_ctx)) {
 			lwsl_err("Private SSL key doesn't match cert\n");
 			return 1;
 		}
-
+#endif
 		if (lws_context_ssl_init_ecdh(vhost))
 			return 1;
 

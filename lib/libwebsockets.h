@@ -114,7 +114,7 @@ struct sockaddr_in;
 #include <netdb.h>
 #define LWS_INVALID_FILE -1
 #else
-#define getdtablesize() (20)
+#define getdtablesize() (30)
 #if defined(LWS_WITH_ESP32)
 #define LWS_INVALID_FILE NULL
 #else

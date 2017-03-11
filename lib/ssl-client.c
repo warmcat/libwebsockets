@@ -29,7 +29,7 @@ lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info
 
 extern int lws_ssl_get_error(struct lws *wsi, int n);
 
-#ifdef USE_WOLFSSL
+#if defined(USE_WOLFSSL) || defined(LWS_WITH_ESP32)
 #else
 
 static int
@@ -137,14 +137,14 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 #endif
 
-#ifndef USE_WOLFSSL
+#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_ESP32)
 #ifndef USE_OLD_CYASSL
 	/* OpenSSL_client_verify_callback will be called @ SSL_connect() */
 	SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
 #endif
 #endif
 
-#ifndef USE_WOLFSSL
+#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_ESP32)
 	SSL_set_mode(wsi->ssl,  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 #endif
 	/*

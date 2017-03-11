@@ -743,7 +743,7 @@ lws_esp32_wlan_start(void)
 
 	ESP_ERROR_CHECK( esp_wifi_init(&cfg));
 	ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM));
-	ESP_ERROR_CHECK( esp_wifi_set_country(lws_esp32_region));
+	esp_wifi_set_country(lws_esp32_region);
 
 	if (!lws_esp32_is_booting_in_ap_mode() && !lws_esp32_force_ap) {
 		ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA));
@@ -754,6 +754,7 @@ lws_esp32_wlan_start(void)
 	}
 
 	ESP_ERROR_CHECK( esp_wifi_start());
+
 	tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&ap_config.ap.ssid[7]);
 
 	if (!lws_esp32_is_booting_in_ap_mode() && !lws_esp32_force_ap)
