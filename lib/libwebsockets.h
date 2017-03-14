@@ -4465,7 +4465,7 @@ lws_vfs_file_seek_set(lws_fop_fd_t fop_fd, lws_fileofs_t offset);
 LWS_VISIBLE LWS_EXTERN lws_fileofs_t
 lws_vfs_file_seek_end(lws_fop_fd_t fop_fd, lws_fileofs_t offset);
 
-LWS_VISIBLE LWS_EXTERN struct lws_plat_file_ops fops_zip;
+extern struct lws_plat_file_ops fops_zip;
 
 /**
  * lws_plat_file_open() - open vfs filepath
