@@ -3605,8 +3605,12 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
  * \param reason:	Callback reason index
  *
  * - Which:  connections using this protocol on ALL VHOSTS
- * - When:   when the individual connection becomes writeable
+ * - When:   before returning
  * - What:   reason
+ *
+ * This isn't normally what you want... normally any update of connection-
+ * specific information can wait until a network-related callback like rx,
+ * writable, or close.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_callback_all_protocol(struct lws_context *context,
