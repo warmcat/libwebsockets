@@ -663,7 +663,8 @@ lws_plat_init(struct lws_context *context,
         os_timer_arm(&context->to_timer, 1000, 1);
 
 	if (!lws_libev_init_fd_table(context) &&
-	    !lws_libuv_init_fd_table(context)) {
+	    !lws_libuv_init_fd_table(context) &&
+	    !lws_libevent_init_fd_table(context)) {
 		/* otherwise libev handled it instead */
 #if 0
 		while (n--) {
