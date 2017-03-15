@@ -75,6 +75,7 @@ option(LWS_USE_WOLFSSL "Use wolfSSL replacement for OpenSSL. When setting this, 
 option(LWS_WITH_ZLIB "Include zlib support (required for extensions)" ON)
 option(LWS_WITH_LIBEV "Compile with support for libev" OFF)
 option(LWS_WITH_LIBUV "Compile with support for libuv" OFF)
+option(LWS_WITH_LIBEVENT "Compile with support for libevent" OFF)
 option(LWS_USE_BUNDLED_ZLIB "Use bundled zlib version (Windows only)" ${LWS_USE_BUNDLED_ZLIB_DEFAULT})
 option(LWS_SSL_CLIENT_USE_OS_CA_CERTS "SSL support should make use of the OS-installed CA root certs" ON)
 option(LWS_WITHOUT_BUILTIN_GETIFADDRS "Don't use the BSD getifaddrs implementation from libwebsockets if it is missing (this will result in a compilation error) ... The default is to assume that your libc provides it. On some systems such as uclibc it doesn't exist." OFF)
@@ -240,6 +241,8 @@ set(LWS_LIBUV_LIBRARIES CACHE PATH "Path to the libuv library")
 set(LWS_LIBUV_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
 set(LWS_SQLITE3_LIBRARIES CACHE PATH "Path to the sqlite3 library")
 set(LWS_SQLITE3_INCLUDE_DIRS CACHE PATH "Path to the sqlite3 include directory")
+set(LWS_LIBEVENT_INCLUDE_DIRS CACHE PATH "Path to the libevent include directory")
+set(LWS_LIBEVENT_LIBRARIES CACHE PATH "Path to the libevent library")
 
 
 if (NOT LWS_WITH_SSL)
@@ -301,6 +304,15 @@ if (LWS_WITH_LIBUV)
 		set(LIBUV_LIBRARIES ${LWS_LIBUV_LIBRARIES})
 		set(LIBUV_INCLUDE_DIRS ${LWS_LIBUV_INCLUDE_DIRS})
 		set(LIBUV_FOUND 1)
+	endif()
+endif()
+
+if (LWS_WITH_LIBEVENT)
+	if ("${LWS_LIBEVENT_LIBRARIES}" STREQUAL "" OR "${LWS_LIBEVENT_INCLUDE_DIRS}" STREQUAL "")
+	else()
+		set(LIBEVENT_LIBRARIES ${LWS_LIBEVENT_LIBRARIES})
+		set(LIBEVENT_INCLUDE_DIRS ${LWS_LIBEVENT_INCLUDE_DIRS})
+		set(LIBEVENT_FOUND 1)
 	endif()
 endif()
 
@@ -366,6 +378,10 @@ endif()
 
 if (LWS_WITH_LIBUV)
 	set(LWS_USE_LIBUV 1)
+endif()
+
+if (LWS_WITH_LIBEVENT)
+	set(LWS_USE_LIBEVENT 1)
 endif()
 
 if (LWS_IPV6)
@@ -636,6 +652,11 @@ endif()
 if (LWS_WITH_LIBUV)
 	list(APPEND SOURCES
 		lib/libuv.c)
+endif()
+
+if (LWS_WITH_LIBEVENT)
+	list(APPEND SOURCES
+		lib/libevent.c)
 endif()
 
 if (LWS_WITH_LEJP)
@@ -952,6 +973,20 @@ if (LWS_WITH_LIBUV)
 	list(APPEND LIB_LIST ${LIBUV_LIBRARIES})
 endif()
 
+if (LWS_WITH_LIBEVENT)
+	if (NOT LIBEVENT_FOUND)
+		find_path(LIBEVENT_INCLUDE_DIRS NAMES event2/event.h)
+		find_library(LIBEVENT_LIBRARIES NAMES event)
+		if(LIBEVENT_INCLUDE_DIRS AND LIBEVENT_LIBRARIES)
+			set(LIBEVENT_FOUND 1)
+		endif()
+	endif()
+	message("libevent include dir: ${LIBEVENT_INCLUDE_DIRS}")
+	message("libevent libraries: ${LIBEVENT_LIBRARIES}")
+	include_directories("${LIBEVENT_INCLUDE_DIRS}")
+	list(APPEND LIB_LIST ${LIBEVENT_LIBRARIES})
+endif(LWS_WITH_LIBEVENT)
+
 if (LWS_WITH_SQLITE3)
 	if (NOT SQLITE3_FOUND)
 		find_path(SQLITE3_INCLUDE_DIRS NAMES sqlite3.h)
@@ -1225,6 +1260,16 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 				AND LWS_WITH_LIBUV)
 				create_test_app(test-server-libuv
 					"test-server/test-server-libuv.c"
+					"test-server/test-server-http.c"
+					"test-server/test-server-dumb-increment.c"
+					"test-server/test-server-mirror.c"
+					"test-server/test-server-status.c"
+					"test-server/test-server-echogen.c")
+			endif()
+			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+				AND LWS_WITH_LIBEVENT)
+				create_test_app(test-server-libevent
+					"test-server/test-server-libevent.c"
 					"test-server/test-server-http.c"
 					"test-server/test-server-dumb-increment.c"
 					"test-server/test-server-mirror.c"
@@ -1694,6 +1739,7 @@ message(" LWS_WITH_LATENCY = ${LWS_WITH_LATENCY}")
 message(" LWS_WITHOUT_DAEMONIZE = ${LWS_WITHOUT_DAEMONIZE}")
 message(" LWS_USE_LIBEV = ${LWS_USE_LIBEV}")
 message(" LWS_USE_LIBUV = ${LWS_USE_LIBUV}")
+message(" LWS_USE_LIBEVENT = ${LWS_USE_LIBEVENT}")
 message(" LWS_IPV6 = ${LWS_IPV6}")
 message(" LWS_UNIX_SOCK = ${LWS_UNIX_SOCK}")
 message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")

@@ -787,6 +787,16 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->use_ev_sigint = 1;
 	context->lws_uv_sigint_cb = &lws_uv_sigint_cb;
 #endif
+#ifdef LWS_USE_LIBEVENT
+	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
+	 * enable libev mediated SIGINT handling with a default handler of
+	 * lws_sigint_cb. The handler can be overridden or disabled
+	 * by invoking lws_sigint_cfg after creating the context, but
+	 * before invoking lws_initloop:
+	 */
+	context->use_ev_sigint = 1;
+	context->lws_event_sigint_cb = &lws_event_sigint_cb;
+#endif /* LWS_USE_LIBEVENT */
 
 	lwsl_info(" mem: context:         %5lu bytes (%ld ctx + (%ld thr x %d))\n",
 		  (long)sizeof(struct lws_context) +
@@ -1020,6 +1030,7 @@ lws_context_destroy(struct lws_context *context)
 
 		lws_libev_destroyloop(context, n);
 		lws_libuv_destroyloop(context, n);
+		lws_libevent_destroyloop(context, n);
 
 		lws_free_set_NULL(context->pt[n].serv_buf);
 		if (pt->ah_pool)

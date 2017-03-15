@@ -208,6 +208,9 @@ int kill(int pid, int sig);
 #ifdef LWS_USE_LIBUV
 #include <uv.h>
 #endif
+#ifdef LWS_USE_LIBEVENT
+#include <event2/event.h>
+#endif
 
 #ifndef LWS_NO_FORK
 #ifdef LWS_HAVE_SYS_PRCTL_H
@@ -576,7 +579,7 @@ enum {
 struct lws_protocols;
 struct lws;
 
-#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV)
+#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
 
 struct lws_io_watcher {
 #ifdef LWS_USE_LIBEV
@@ -584,6 +587,9 @@ struct lws_io_watcher {
 #endif
 #ifdef LWS_USE_LIBUV
 	uv_poll_t uv_watcher;
+#endif
+#ifdef LWS_USE_LIBEVENT
+	struct event *event_watcher;
 #endif
 	struct lws_context *context;
 };
@@ -594,6 +600,9 @@ struct lws_signal_watcher {
 #endif
 #ifdef LWS_USE_LIBUV
 	uv_signal_t uv_watcher;
+#endif
+#ifdef LWS_USE_LIBEVENT
+	struct event *event_watcher;
 #endif
 	struct lws_context *context;
 };
@@ -671,7 +680,7 @@ struct lws_context_per_thread {
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
 	struct lws *timeout_list;
-#ifdef LWS_USE_LIBUV
+#if defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
 	struct lws_context *context;
 #endif
 #ifdef LWS_WITH_CGI
@@ -693,10 +702,13 @@ struct lws_context_per_thread {
 	uv_timer_t uv_timeout_watcher;
 	uv_idle_t uv_idle;
 #endif
+#if defined(LWS_USE_LIBEVENT)
+	struct event_base *io_loop_event_base;
+#endif
 #if defined(LWS_USE_LIBEV)
 	struct lws_io_watcher w_accept;
 #endif
-#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV)
+#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
 	struct lws_signal_watcher w_sigint;
 	unsigned char ev_loop_foreign:1;
 #endif
@@ -846,6 +858,9 @@ struct lws_context {
 #if defined(LWS_USE_LIBUV)
 	uv_signal_cb lws_uv_sigint_cb;
 #endif
+#if defined(LWS_USE_LIBEVENT)
+	lws_event_signal_cb_t * lws_event_sigint_cb;
+#endif
 	char canonical_hostname[128];
 #ifdef LWS_LATENCY
 	unsigned long worst_latency;
@@ -853,7 +868,7 @@ struct lws_context {
 #endif
 
 	int max_fds;
-#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV)
+#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
 	int use_ev_sigint;
 #endif
 	int started_with_parent;
@@ -989,6 +1004,34 @@ LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info)
 			lwsl_notice("libuv support not compiled in\n")
 #else
 #define lws_feature_status_libuv(_a)
+#endif
+#endif
+
+#if defined(LWS_USE_LIBEVENT)
+LWS_EXTERN void
+lws_libevent_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
+LWS_EXTERN void
+lws_libevent_io(struct lws *wsi, int flags);
+LWS_EXTERN int
+lws_libevent_init_fd_table(struct lws_context *context);
+LWS_EXTERN void
+lws_libevent_destroyloop(struct lws_context *context, int tsi);
+LWS_EXTERN void
+lws_libevent_run(const struct lws_context *context, int tsi);
+#define LWS_LIBEVENT_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEVENT)
+LWS_EXTERN void lws_feature_status_libevent(struct lws_context_creation_info *info);
+#else
+#define lws_libevent_accept(_a, _b) ((void) 0)
+#define lws_libevent_io(_a, _b) ((void) 0)
+#define lws_libevent_init_fd_table(_a) (0)
+#define lws_libevent_run(_a, _b) ((void) 0)
+#define lws_libevent_destroyloop(_a, _b) ((void) 0)
+#define LWS_LIBEVENT_ENABLED(context) (0)
+#if LWS_POSIX && !defined(LWS_WITH_ESP32)
+#define lws_feature_status_libevent(_a) \
+			lwsl_notice("libevent support not compiled in\n")
+#else
+#define lws_feature_status_libevent(_a)
 #endif
 #endif
 
@@ -1364,10 +1407,10 @@ struct lws {
 
 	/* lifetime members */
 
-#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV)
+#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
 	struct lws_io_watcher w_read;
 #endif
-#if defined(LWS_USE_LIBEV)
+#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBEVENT)
 	struct lws_io_watcher w_write;
 #endif
 	time_t pending_timeout_limit;

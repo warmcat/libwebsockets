@@ -195,6 +195,7 @@ lws_client_connect_2(struct lws *wsi)
 
 		lws_libev_accept(wsi, wsi->desc);
 		lws_libuv_accept(wsi, wsi->desc);
+		lws_libevent_accept(wsi, wsi->desc);
 		if (insert_wsi_socket_into_fds(context, wsi)) {
 			compatible_close(wsi->desc.sockfd);
 			cce = "insert wsi failed";

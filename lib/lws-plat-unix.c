@@ -119,6 +119,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	lws_libev_run(context, tsi);
 	lws_libuv_run(context, tsi);
+	lws_libevent_run(context, tsi);
 
 	if (!context->service_tid_detected) {
 		struct lws _lws;
@@ -573,6 +574,7 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 
 	lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
 	lws_libuv_io(wsi, LWS_EV_START | LWS_EV_READ);
+	lws_libevent_io(wsi, LWS_EV_START | LWS_EV_READ);
 
 	pt->fds[pt->fds_count++].revents = 0;
 }
@@ -585,6 +587,7 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 
 	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 	lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
+	lws_libevent_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
 	pt->fds_count--;
 }
@@ -742,7 +745,8 @@ lws_plat_init(struct lws_context *context,
 	}
 
 	if (!lws_libev_init_fd_table(context) &&
-	    !lws_libuv_init_fd_table(context)) {
+	    !lws_libuv_init_fd_table(context) &&
+	    !lws_libevent_init_fd_table(context)) {
 		/* otherwise libev handled it instead */
 
 		while (n--) {
