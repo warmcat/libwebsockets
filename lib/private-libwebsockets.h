@@ -905,6 +905,8 @@ struct lws_context {
 	unsigned int timeout_secs;
 	unsigned int pt_serv_buf_size;
 	int max_http_header_data;
+	int simultaneous_ssl_restriction;
+	int simultaneous_ssl;
 
 	unsigned int deprecated:1;
 	unsigned int being_destroyed:1;
@@ -1860,7 +1862,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 LWS_EXTERN void
 lws_ssl_destroy(struct lws_vhost *vhost);
-
 /* HTTP2-related */
 
 #ifdef LWS_USE_HTTP2

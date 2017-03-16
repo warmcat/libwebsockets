@@ -320,7 +320,9 @@ client_http_body_sent:
 
 bail3:
 		lwsl_info("closing conn at LWS_CONNMODE...SERVER_REPLY\n");
-		wsi->vhost->protocols[0].callback(wsi,
+		if (cce)
+			lwsl_info("reason: %s\n", cce);
+		wsi->protocol->callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 			wsi->user_space, (void *)cce, cce ? strlen(cce) : 0);
 		wsi->already_did_cce = 1;
@@ -368,6 +370,9 @@ lws_http_transaction_completed_client(struct lws *wsi)
 		lwsl_info("%s: %p: close connection\n", __func__, wsi);
 		return 1;
 	}
+
+	/* we don't support chained client connections yet */
+	return 1;
 
 	/* otherwise set ourselves up ready to go again */
 	wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
@@ -1022,19 +1027,21 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	const struct lws_extension *ext;
 	int ext_count = 0;
 #endif
+	const char *pp = lws_hdr_simple_ptr(wsi,
+				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
 
 	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 	if (!meth) {
 		meth = "GET";
 		wsi->do_ws = 1;
-	} else
+	} else {
 		wsi->do_ws = 0;
+	}
 
 	if (!strcmp(meth, "RAW")) {
-		const char *pp = lws_hdr_simple_ptr(wsi,
-					_WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 		lwsl_notice("client transition to raw\n");
+
 		if (pp) {
 			const struct lws_protocols *pr;
 
@@ -1048,6 +1055,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 			lws_bind_protocol(wsi, pr);
 		}
+
 		if ((wsi->protocol->callback)(wsi,
 				LWS_CALLBACK_RAW_ADOPT,
 				wsi->user_space, NULL, 0))

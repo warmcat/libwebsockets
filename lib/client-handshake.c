@@ -63,7 +63,7 @@ lws_client_connect_2(struct lws *wsi)
 	/*
 	 * prepare the actual connection (to the proxy, if any)
 	 */
-       lwsl_notice("%s: address %s\n", __func__, ads);
+       lwsl_notice("%s: %p: address %s\n", __func__, wsi, ads);
 
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(wsi->vhost)) {

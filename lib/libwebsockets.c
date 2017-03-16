@@ -474,7 +474,9 @@ just_kill_connection:
 	 * for the POLLIN to show a zero-size rx before coming back and doing
 	 * the actual close.
 	 */
-	if (wsi->mode != LWSCM_RAW && wsi->state != LWSS_SHUTDOWN &&
+	if (wsi->mode != LWSCM_RAW &&
+	    !(wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP) &&
+	    wsi->state != LWSS_SHUTDOWN &&
 	    wsi->state != LWSS_CLIENT_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !wsi->socket_is_permanently_unusable) {
@@ -499,7 +501,7 @@ just_kill_connection:
 
 // This causes problems with disconnection when the events are half closing connection
 // FD_READ | FD_CLOSE (33)
-#ifndef _WIN32_WCE
+#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP32)
 		/* libuv: no event available to guarantee completion */
 		if (!LWS_LIBUV_ENABLED(context)) {
 
@@ -507,6 +509,7 @@ just_kill_connection:
 			wsi->state = LWSS_SHUTDOWN;
 			lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
 					context->timeout_secs);
+
 			return;
 		}
 #endif
@@ -541,7 +544,6 @@ just_kill_connection:
 	wsi->state = LWSS_DEAD_SOCKET;
 
 	lws_free_set_NULL(wsi->rxflow_buffer);
-
 	if (wsi->state_pre_close == LWSS_ESTABLISHED ||
 	    wsi->mode == LWSCM_WS_SERVING ||
 	    wsi->mode == LWSCM_WS_CLIENT) {
@@ -631,6 +633,7 @@ just_kill_connection:
 		lwsl_warn("ext destroy wsi failed\n");
 
 async_close:
+
 	wsi->socket_is_permanently_unusable = 1;
 
 #ifdef LWS_USE_LIBUV

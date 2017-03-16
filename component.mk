@@ -15,16 +15,16 @@ build:
 	cd $(COMPONENT_BUILD_DIR) ; \
 	echo "doing lws cmake" ; \
 	cmake $(COMPONENT_PATH)  -DLWS_C_FLAGS="$(CFLAGS)" \
+		-DIDF_PATH=$(IDF_PATH) \
 		-DCROSS_PATH=$(CROSS_PATH) \
 		-DCOMPONENT_PATH=$(COMPONENT_PATH) \
 		-DBUILD_DIR_BASE=$(BUILD_DIR_BASE) \
 		-DCMAKE_TOOLCHAIN_FILE=$(COMPONENT_PATH)/cross-esp32.cmake \
 		-DCMAKE_BUILD_TYPE=RELEASE \
-		-DLWS_WITH_NO_LOGS=0 \
-		-DOPENSSL_INCLUDE_DIR=${COMPONENT_PATH}/../openssl/include \
+		-DOPENSSL_INCLUDE_DIR=${IDF_PATH}/components/openssl/include \
 		-DOPENSSL_LIBRARIES=x \
 		-DLWS_WITH_ESP32=1 ;\
-	make VERBOSE=1 && \
+	make && \
 	cp ${COMPONENT_BUILD_DIR}/lib/libwebsockets.a ${COMPONENT_BUILD_DIR}/liblibwebsockets.a
 
 clean: myclean

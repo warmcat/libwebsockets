@@ -1744,6 +1744,19 @@ lws_http_transaction_completed(struct lws *wsi)
 		if (!wsi->more_rx_waiting) {
 			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
 			lws_header_table_detach(wsi, 1);
+#ifdef LWS_OPENSSL_SUPPORT
+			/*
+			 * additionally... if we are hogging an SSL instance
+			 * with no pending pipelined headers (or ah now), and
+			 * SSL is scarce, drop this connection without waiting
+			 */
+
+			if (wsi->vhost->use_ssl &&
+			    wsi->context->simultaneous_ssl == wsi->context->simultaneous_ssl_restriction) {
+				lwsl_info("%s: simultaneous_ssl_restriction and nothing pipelined\n", __func__);
+				return 1;
+			}
+#endif
 		} else
 			lws_header_table_reset(wsi, 1);
 	}
@@ -2232,6 +2245,21 @@ try_pollout:
 			if (!(pollfd->revents & LWS_POLLIN) || !(pollfd->events & LWS_POLLIN))
 				break;
 
+#ifdef LWS_OPENSSL_SUPPORT
+			/*
+			 * can we really accept it, with regards to SSL limit?
+			 * another vhost may also have had POLLIN on his listener this
+			 * round and used it up already
+			 */
+
+			if (wsi->vhost->use_ssl &&
+			    context->simultaneous_ssl == context->simultaneous_ssl_restriction)
+				/* no... ignore it, he won't come again until we are
+				 * below the simultaneous_ssl_restriction limit and
+				 * POLLIN is enabled on him again
+				 */
+				break;
+#endif
 			/* listen socket got an unencrypted connection... */
 
 			clilen = sizeof(cli_addr);
@@ -3112,6 +3140,32 @@ lws_spa_destroy(struct lws_spa *spa)
 {
 	int n = 0;
 
+	lwsl_notice("%s: destroy spa %p\n", __func__, spa);
+
+	if (spa->s)
+		lws_urldecode_s_destroy(spa->s);
+
+	lwsl_debug("%s %p %p %p %p\n", __func__,
+			spa->param_length,
+			spa->params,
+			spa->storage,
+			spa
+			);
+
+	lws_free(spa->param_length);
+	lws_free(spa->params);
+	lws_free(spa->storage);
+	lws_free(spa);
+
+	return n;
+}
+
+#if 0
+LWS_VISIBLE LWS_EXTERN int
+lws_spa_destroy(struct lws_spa *spa)
+{
+	int n = 0;
+
 	lwsl_info("%s: destroy spa %p\n", __func__, spa);
 
 	if (spa->s)
@@ -3126,7 +3180,7 @@ lws_spa_destroy(struct lws_spa *spa)
 
 	return n;
 }
-
+#endif
 LWS_VISIBLE LWS_EXTERN int
 lws_chunked_html_process(struct lws_process_html_args *args,
 			 struct lws_process_html_state *s)
