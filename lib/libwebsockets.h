@@ -525,14 +525,12 @@ static inline void uv_close(uv_handle_t *h, void *v)
 
 /* ESP32 helper declarations */
 
+#include <mdns.h>
+
 #define LWS_PLUGIN_STATIC
 
 /* user code provides these */
 
-extern char lws_esp32_model[16];
-
-extern int
-lws_esp32_is_booting_in_ap_mode(void);
 extern void
 lws_esp32_identify_physical_device(void);
 
@@ -541,18 +539,32 @@ lws_esp32_identify_physical_device(void);
 extern void (*lws_cb_scan_done)(void *);
 extern void *lws_cb_scan_done_arg;
 
-extern char lws_esp32_serial[], lws_esp32_force_ap, lws_esp32_region;
+struct lws_esp32 {
+	char sta_ip[16];
+	char sta_mask[16];
+	char sta_gw[16];
+	char serial[16];
+	char model[16];
+	mdns_server_t *mdns;
+       	char region;
+       	char inet;
+};
+
+extern struct lws_esp32 lws_esp32;
 
 extern esp_err_t
 lws_esp32_event_passthru(void *ctx, system_event_t *event);
 extern void
 lws_esp32_wlan_config(void);
 extern void
-lws_esp32_wlan_start(void);
+lws_esp32_wlan_start_ap(void);
+extern void
+lws_esp32_wlan_start_station(void);
 struct lws_context_creation_info;
 extern struct lws_context *
-lws_esp32_init(struct lws_context_creation_info *, unsigned int _romfs);
-
+lws_esp32_init(struct lws_context_creation_info *);
+extern int
+lws_esp32_wlan_nvs_get(int retry);
 #else
 typedef int lws_sockfd_type;
 typedef int lws_filefd_type;
@@ -1384,8 +1396,8 @@ struct lws_protocols {
 	 * be able to consume it all without having to return to the event
 	 * loop.  That is supported in lws.
 	 *
-	 * This also controls how much may be sent at once at the moment,
-	 * although this is likely to change.
+	 * If .tx_packet_size is 0, this also controls how much may be sent at once
+	 * for backwards compatibility.
 	 */
 	unsigned int id;
 	/**< ignored by lws, but useful to contain user information bound
@@ -1396,6 +1408,15 @@ struct lws_protocols {
 	 * capability flags based on selected protocol version, etc. */
 	void *user; /**< ignored by lws, but user code can pass a pointer
 			here it can later access from the protocol callback */
+	size_t tx_packet_size;
+	/**< 0 indicates restrict send() size to .rx_buffer_size for backwards-
+	 * compatibility.
+	 * If greater than zero, a single send() is restricted to this amount
+	 * and any remainder is buffered by lws and sent afterwards also in
+	 * these size chunks.  Since that is expensive, it's preferable
+	 * to restrict one fragment you are trying to send to match this
+	 * size.
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility */
@@ -1854,6 +1875,8 @@ struct lws_context_creation_info {
 	 * If NULL, lws provides just the platform file operations struct for
 	 * backwards compatibility.
 	 */
+	int simultaneous_ssl_restriction;
+	/**< CONTEXT: 0 (no limit) or limit of simultaneous SSL sessions possible.*/
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -2994,7 +3017,7 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 			     const unsigned char *value, int length,
 			     unsigned char **p, unsigned char *end);
 /**
- * lws_add_http_header_by_name() - append content-length helper
+ * lws_add_http_header_content_length() - append content-length helper
  *
  * \param wsi: the connection to check
  * \param content_length: the content length to use

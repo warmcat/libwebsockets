@@ -309,12 +309,12 @@ static const struct lws_protocols protocols_dummy[] = {
 		lws_callback_http_dummy,		/* callback */
 		0,	/* per_session_data_size */
 		0,			/* max frame size / rx buffer */
-		0, NULL
+		0, NULL, 0
 	},
 	/*
 	 * the other protocols are provided by lws plugins
 	 */
-	{ NULL, NULL, 0, 0, 0, NULL} /* terminator */
+	{ NULL, NULL, 0, 0, 0, NULL, 0} /* terminator */
 };
 
 #ifdef LWS_PLAT_OPTEE
@@ -669,6 +669,8 @@ lws_create_context(struct lws_context_creation_info *info)
 			info->external_baggage_free_on_destroy;
 
 	context->time_up = time(NULL);
+
+	context->simultaneous_ssl_restriction = info->simultaneous_ssl_restriction;
 
 #ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {

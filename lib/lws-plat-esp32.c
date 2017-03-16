@@ -1,6 +1,8 @@
 #include "private-libwebsockets.h"
 #include "freertos/timers.h"
 #include <esp_attr.h>
+#include <esp_system.h>
+
 /*
  * included from libwebsockets.c for unix builds
  */
@@ -15,7 +17,20 @@ unsigned long long time_in_microseconds(void)
 LWS_VISIBLE int
 lws_get_random(struct lws_context *context, void *buf, int len)
 {
-	// !!!
+	while (len) {
+		uint32_t r = esp_random();
+		uint8_t *p = (uint8_t *)&r, *pb = buf;
+		int b = 4;
+
+		if (len < b)
+			b = len;
+
+		len -= b;
+
+		while (b--)
+			*pb++ = p[b];
+	}
+
 	return 0;
 }
 
@@ -109,7 +124,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	{
 		fd_set readfds, writefds, errfds;
 		struct timeval tv = { timeout_ms / 1000,
-				      (timeout_ms % 1000) * 1000 };
+				      (timeout_ms % 1000) * 1000 }, *ptv = &tv;
 		int max_fd = 0;
 		FD_ZERO(&readfds);
 		FD_ZERO(&writefds);
@@ -126,7 +141,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			FD_SET(pt->fds[n].fd, &errfds);
 		}
 
-		n = select(max_fd + 1, &readfds, &writefds, &errfds, &tv);
+		if (timeout_ms == 0)
+			ptv = NULL;
+
+		n = select(max_fd + 1, &readfds, &writefds, &errfds, ptv);
 		for (n = 0; n < pt->fds_count; n++) {
 			if (FD_ISSET(pt->fds[n].fd, &readfds))
 				pt->fds[n].revents |= LWS_POLLIN;
@@ -237,15 +255,14 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 			return 1;
 #endif
 	}
-#if 0
+
 	/* Disable Nagle */
 	optval = 1;
 //	if (setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
 //		return 1;
-	tcp_proto = getprotobyname("TCP");
-	if (setsockopt(fd, tcp_proto->p_proto, TCP_NODELAY, &optval, optlen) < 0)
+	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &optval, optlen) < 0)
 		return 1;
-#endif
+
 	/* We are nonblocking... */
 	if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0)
 		return 1;
@@ -533,72 +550,49 @@ char *ERR_error_string(unsigned long e, char *buf)
 /* helper functionality */
 
 #include "romfs.h"
+#include <esp_partition.h>
+#include <esp_ota_ops.h>
+#include <tcpip_adapter.h>
+#include <esp_image_format.h>
 
-void (*lws_cb_scan_done)(void *);
-void *lws_cb_scan_done_arg;
-char lws_esp32_serial[16] = "unknown", lws_esp32_force_ap = 0,
-     lws_esp32_region = WIFI_COUNTRY_US; // default to safest option
+struct lws_esp32 lws_esp32 = {
+	.model = CONFIG_LWS_MODEL_NAME,
+	.serial = "unknown",
+	.region = WIFI_COUNTRY_US, // default to safest option
+};
 
 static romfs_t lws_esp32_romfs;
-
-/*
- * configuration related to the AP setup website
- *
- * The 'esplws-scan' protocol drives the configuration
- * site, and updates the scan results in realtime over
- * a websocket link.
- */
-
-#include "../plugins/protocol_esp32_lws_scan.c"
-
-static const struct lws_protocols protocols_ap[] = {
-	{
-		"http-only",
-		lws_callback_http_dummy,
-		0,	/* per_session_data_size */
-		900, 0, NULL
-	},
-	LWS_PLUGIN_PROTOCOL_ESPLWS_SCAN,
-	{ NULL, NULL, 0, 0, 0, NULL } /* terminator */
-};
-
-static const struct lws_protocol_vhost_options ap_pvo = {
-	NULL,
-	NULL,
-	"esplws-scan",
-	""
-};
-
-static const struct lws_http_mount mount_ap = {
-        .mountpoint		= "/",
-        .origin			= "/ap",
-        .def			= "index.html",
-        .origin_protocol	= LWSMPRO_FILE,
-        .mountpoint_len		= 1,
-};
 
 struct esp32_file {
 	const struct inode *i;
 };
 
+static void render_ip(char *dest, int len, uint8_t *ip)
+{
+	snprintf(dest, len, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+}
+
+
 esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 {
 	switch(event->event_id) {
-	case SYSTEM_EVENT_SCAN_DONE:
-		if (lws_cb_scan_done)
-			lws_cb_scan_done(lws_cb_scan_done_arg);
-		break;
 	case SYSTEM_EVENT_STA_START:
 		esp_wifi_connect();
 		break;
 	case SYSTEM_EVENT_STA_DISCONNECTED:
-		/* This is a workaround as ESP32 WiFi libs don't currently
-		   auto-reassociate. */
+		lws_esp32.inet = 0;
 		esp_wifi_connect();
+		break;
+	case SYSTEM_EVENT_STA_GOT_IP:
+		lws_esp32.inet = 1;
+		render_ip(lws_esp32.sta_ip, sizeof(lws_esp32.sta_ip) - 1, (uint8_t *)&event->event_info.got_ip.ip_info.ip);
+		render_ip(lws_esp32.sta_mask, sizeof(lws_esp32.sta_mask) - 1, (uint8_t *)&event->event_info.got_ip.ip_info.netmask);
+		render_ip(lws_esp32.sta_gw, sizeof(lws_esp32.sta_gw) - 1, (uint8_t *)&event->event_info.got_ip.ip_info.gw);
 		break;
 	default:
 		break;
 	}
+
 	return ESP_OK;
 }
 
@@ -692,82 +686,168 @@ static const struct lws_plat_file_ops fops = {
 	.LWS_FOP_SEEK_CUR = esp32_lws_fops_seek_cur,
 };
 
-static wifi_config_t sta_config = {
-		.sta = {
-			.bssid_set = false
-		}
-	}, ap_config = {
-		.ap = {
-		    .channel = 6,
-		    .authmode = WIFI_AUTH_OPEN,
-		    .max_connection = 1,
-		}
-	};
+static wifi_config_t config = {
+	.ap = {
+	    .channel = 6,
+	    .authmode = WIFI_AUTH_OPEN,
+	    .max_connection = 1,
+	} }, sta_config = {
+	.sta = {
+		.bssid_set = 0,
+	} };
 
-void
-lws_esp32_wlan_config(void)
+int
+lws_esp32_wlan_nvs_get(int retry)
 {
 	nvs_handle nvh;
-	char r[2];
+	char r[2], lws_esp32_force_ap = 0;
 	size_t s;
+	uint8_t mac[6];
+
+	esp_efuse_read_mac(mac);
+	mac[5] |= 1; /* match the AP MAC */
+	snprintf(lws_esp32.serial, sizeof(lws_esp32.serial) - 1, "%02X%02X%02X", mac[3], mac[4], mac[5]);
 
 	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
 
-	s = sizeof(sta_config.sta.ssid) - 1;
+	s = sizeof(config.sta.ssid) - 1;
 	if (nvs_get_str(nvh, "ssid", (char *)sta_config.sta.ssid, &s) != ESP_OK)
 		lws_esp32_force_ap = 1;
-	s = sizeof(sta_config.sta.password) - 1;
+	s = sizeof(config.sta.password) - 1;
 	if (nvs_get_str(nvh, "password", (char *)sta_config.sta.password, &s) != ESP_OK)
 		lws_esp32_force_ap = 1;
-	s = sizeof(lws_esp32_serial) - 1;
-	if (nvs_get_str(nvh, "serial", lws_esp32_serial, &s) != ESP_OK)
+	s = sizeof(lws_esp32.serial) - 1;
+	if (nvs_get_str(nvh, "serial", lws_esp32.serial, &s) != ESP_OK)
 		lws_esp32_force_ap = 1;
 	else
-		snprintf((char *)ap_config.ap.ssid, sizeof(ap_config.ap.ssid) - 1,
-			 "config-%s-%s", lws_esp32_model, lws_esp32_serial);
+		snprintf((char *)config.ap.ssid, sizeof(config.ap.ssid) - 1,
+			 "config-%s-%s", lws_esp32.model, lws_esp32.serial);
 	s = sizeof(r);
 	if (nvs_get_str(nvh, "region", r, &s) != ESP_OK)
 		lws_esp32_force_ap = 1;
 	else
-		lws_esp32_region = atoi(r);
+		lws_esp32.region = atoi(r);
 
 	nvs_close(nvh);
 
+	if (retry && sta_config.sta.ssid[0]) {
+		tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&config.ap.ssid[7]);
+		ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config));
+		ESP_ERROR_CHECK( esp_wifi_connect());
+
+		ESP_ERROR_CHECK(mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns));
+		mdns_set_hostname(lws_esp32.mdns,  (const char *)&config.ap.ssid[7]);
+		mdns_set_instance(lws_esp32.mdns, "instance");
+	}
+
+	return lws_esp32_force_ap;
+}
+
+void
+lws_esp32_wlan_config(void)
+{
+	lws_esp32_wlan_nvs_get(0);
 	tcpip_adapter_init();
 }
 
 void
-lws_esp32_wlan_start(void)
+lws_esp32_wlan_start_ap(void)
 {
 	wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
 
 	ESP_ERROR_CHECK( esp_wifi_init(&cfg));
 	ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM));
-	esp_wifi_set_country(lws_esp32_region);
+	esp_wifi_set_country(lws_esp32.region);
 
-	if (!lws_esp32_is_booting_in_ap_mode() && !lws_esp32_force_ap) {
-		ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA));
+	ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_APSTA) );
+	ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_AP, &config) );
+	ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config));
+	ESP_ERROR_CHECK( esp_wifi_start());
+
+	if (sta_config.sta.ssid[0]) {
+		tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&config.ap.ssid[7]);
+		esp_wifi_set_auto_connect(1);
+		ESP_ERROR_CHECK( esp_wifi_connect());
 		ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config));
-	} else {
-		ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_APSTA) );
-		ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_AP, &ap_config) );
+		ESP_ERROR_CHECK( esp_wifi_connect());
 	}
+}
+
+void
+lws_esp32_wlan_start_station(void)
+{
+	wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+
+	ESP_ERROR_CHECK( esp_wifi_init(&cfg));
+	ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM));
+	esp_wifi_set_country(lws_esp32.region);
+
+	ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA));
+	ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config));
 
 	ESP_ERROR_CHECK( esp_wifi_start());
 
-	tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&ap_config.ap.ssid[7]);
+	tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&config.ap.ssid[7]);
+	esp_wifi_set_auto_connect(1);
+	ESP_ERROR_CHECK( esp_wifi_connect());
 
-	if (!lws_esp32_is_booting_in_ap_mode() && !lws_esp32_force_ap)
-		ESP_ERROR_CHECK( esp_wifi_connect());
+	ESP_ERROR_CHECK(mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns));
+	mdns_set_hostname(lws_esp32.mdns,  (const char *)&config.ap.ssid[7]);
+	mdns_set_instance(lws_esp32.mdns, "instance");
 }
 
-struct lws_context *
-lws_esp32_init(struct lws_context_creation_info *info, unsigned int _romfs)
-{
-	size_t romfs_size;
-	struct lws_context *context;
 
-	lws_set_log_level(65535, lwsl_emit_syslog);
+struct lws_context *
+lws_esp32_init(struct lws_context_creation_info *info)
+{
+	const esp_partition_t *part = esp_ota_get_boot_partition();
+	esp_image_segment_header_t eis;
+	struct lws_context *context;
+	esp_image_header_t eih;
+	size_t romfs_size, s;
+	nvs_handle nvh;
+	uint32_t hdr;
+	int n;
+
+	/* find where the ROMFS starts */
+
+	spi_flash_read(part->address , &eih, sizeof(eih));
+	if (eih.spi_mode == 0xff) {
+		/*
+		 * we believed we were going to boot OTA, but we fell
+		 * back to FACTORY in the bootloader when we saw it
+		 * had been erased.  esp_ota_get_boot_partition() still
+		 * says the OTA partition then even if we are in the
+		 * factory partition right now.
+		 */
+		part = esp_partition_find_first(ESP_PARTITION_TYPE_APP,
+				ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
+		spi_flash_read(part->address , &eih, sizeof(eih));
+	}
+	hdr = part->address + sizeof(eih);
+	eis.data_len = 0;
+	while (eih.segment_count-- && eis.data_len != 0xffffffff) {
+		spi_flash_read(hdr, &eis, sizeof(eis));
+		hdr += sizeof(eis) + eis.data_len;
+	}
+	hdr += (~hdr & 15) + 1;
+
+	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
+	n = 0;
+	s = 1;
+	if (nvs_get_blob(nvh, "ssl-pub.der", NULL, &s) == ESP_OK)
+		n = 1;
+	s = 1;
+	if (nvs_get_blob(nvh, "ssl-pri.der", NULL, &s) == ESP_OK)
+		n |= 2;
+	nvs_close(nvh);
+
+	if (n != 3) {
+		/* we are not configured for SSL yet... fall back to port 80 / http */
+		info->port = 80;
+		info->options &= ~LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		lwsl_notice("No SSL certs... using port 80\n");
+	}
 
 	context = lws_create_context(info);
 	if (context == NULL) {
@@ -775,10 +855,10 @@ lws_esp32_init(struct lws_context_creation_info *info, unsigned int _romfs)
 		return NULL;
 	}
 
-	lws_esp32_romfs = (romfs_t)(void *)_romfs;
+	lws_esp32_romfs = (romfs_t)(void *)hdr;
 	romfs_size = romfs_mount_check(lws_esp32_romfs);
 	if (!romfs_size) {
-		lwsl_err("Failed to mount ROMFS\n");
+		lwsl_err("Failed to mount ROMFS at %p\n", lws_esp32_romfs);
 		return NULL;
 	}
 
@@ -787,13 +867,6 @@ lws_esp32_init(struct lws_context_creation_info *info, unsigned int _romfs)
 	/* set the lws vfs to use our romfs */
 
 	lws_set_fops(context, &fops);
-
-	if (lws_esp32_is_booting_in_ap_mode() || lws_esp32_force_ap) {
-		info->vhost_name = "ap";
-		info->protocols = protocols_ap;
-		info->mounts = &mount_ap;
-		info->pvo = &ap_pvo;
-	}
 
 	if (!lws_create_vhost(context, info))
 		lwsl_err("Failed to create vhost\n");
