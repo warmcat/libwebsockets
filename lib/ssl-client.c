@@ -119,7 +119,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	if (!wsi->ssl) {
 		lwsl_err("SSL_new failed: %s\n",
 		         ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
-		lws_decode_ssl_error();
+		lws_ssl_elaborate_error();
 		return -1;
 	}
 
@@ -184,8 +184,12 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 #endif /* USE_WOLFSSL */
 
+#if !defined(LWS_WITH_ESP32)
 	wsi->client_bio = BIO_new_socket(wsi->desc.sockfd, BIO_NOCLOSE);
 	SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
+#else
+	SSL_set_fd(wsi->ssl, wsi->desc.sockfd);
+#endif
 
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
@@ -194,14 +198,25 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	wolfSSL_set_using_nonblock(wsi->ssl, 1);
 #endif
 #else
+#if !defined(LWS_WITH_ESP32)
 	BIO_set_nbio(wsi->client_bio, 1); /* nonblocking */
 #endif
+#endif
 
+#if !defined(LWS_WITH_ESP32)
 	SSL_set_ex_data(wsi->ssl, openssl_websocket_private_data_index,
 			wsi);
+#endif
 
 	return 0;
 }
+
+#if defined(LWS_WITH_ESP32)
+int ERR_get_error(void)
+{
+	return 0;
+}
+#endif
 
 int
 lws_ssl_client_connect1(struct lws *wsi)
@@ -385,10 +400,12 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	SSL_METHOD *method;
 	struct lws wsi;
 	unsigned long error;
+#if !defined(LWS_WITH_ESP32)
 	const char *cipher_list = info->ssl_cipher_list;
 	const char *ca_filepath = info->ssl_ca_filepath;
-	const char *cert_filepath = info->ssl_cert_filepath;
 	const char *private_key_filepath = info->ssl_private_key_filepath;
+	const char *cert_filepath = info->ssl_cert_filepath;
+
 	int n;
 
 	/*
@@ -403,6 +420,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		cert_filepath = info->client_ssl_cert_filepath;
 	if (info->client_ssl_private_key_filepath)
 		private_key_filepath = info->client_ssl_private_key_filepath;
+#endif
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		return 0;
@@ -421,7 +439,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 
 	/* basic openssl init already happened in context init */
 
-	method = (SSL_METHOD *)SSLv23_client_method();
+	method = (SSL_METHOD *)TLSv1_2_client_method();
 	if (!method) {
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl method %lu: %s\n",
@@ -442,8 +460,11 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(vhost->ssl_client_ctx, SSL_OP_NO_COMPRESSION);
 #endif
+
+#if !defined(LWS_WITH_ESP32)
 	SSL_CTX_set_options(vhost->ssl_client_ctx,
 			    SSL_OP_CIPHER_SERVER_PREFERENCE);
+
 	if (cipher_list)
 		SSL_CTX_set_cipher_list(vhost->ssl_client_ctx, cipher_list);
 
@@ -474,11 +495,12 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		}
 		else
 			lwsl_info("loaded ssl_ca_filepath\n");
-
+#endif
 	/*
 	 * callback allowing user code to load extra verification certs
 	 * helping the client to verify server identity
 	 */
+#if !defined(LWS_WITH_ESP32)
 
 	/* support for client-side certificate authentication */
 	if (cert_filepath) {
@@ -493,7 +515,6 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		}
 		lwsl_notice("Loaded client cert %s\n", cert_filepath);
 	}
-
 	if (private_key_filepath) {
 		lwsl_notice("%s: doing private key filepath\n", __func__);
 		lws_ssl_bind_passphrase(vhost->ssl_client_ctx, info);
@@ -514,7 +535,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			return 1;
 		}
 	}
-
+#endif
 	/*
 	 * give him a fake wsi with context set, so he can use
 	 * lws_get_context() in the callback

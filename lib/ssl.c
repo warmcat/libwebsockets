@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-#if defined(LWS_WITH_ESP32)
+#if 0
 int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		lws_filepos_t *amount)
 {
@@ -48,6 +48,35 @@ bail:
 	lws_vfs_file_close(&fops_fd);
 
 	return ret;
+}
+#endif
+#if defined(LWS_WITH_ESP32)
+int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
+	       lws_filepos_t *amount)
+{
+	nvs_handle nvh;
+	size_t s;
+	int n = 0;
+
+	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
+	if (nvs_get_blob(nvh, filename, NULL, &s) != ESP_OK) {
+		n = 1;
+		goto bail;
+	}
+	*buf = malloc(s);
+	if (!*buf) {
+		n = 2;
+		goto bail;
+	}
+	if (nvs_get_blob(nvh, filename, (char *)*buf, &s) != ESP_OK)
+		n = 1;
+
+	*amount = s;
+
+bail:
+	nvs_close(nvh);
+
+	return n;
 }
 #endif
 
@@ -225,20 +254,6 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 }
 
 LWS_VISIBLE void
-lws_decode_ssl_error(void)
-{
-#if defined(LWS_WITH_ESP32)
-#else
-	char buf[256];
-	u_long err;
-	while ((err = ERR_get_error()) != 0) {
-		ERR_error_string_n(err, buf, sizeof(buf));
-		lwsl_err("*** %lu %s\n", err, buf);
-	}
-#endif
-}
-
-LWS_VISIBLE void
 lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
@@ -291,37 +306,38 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	lwsl_debug("%p: SSL_read says %d\n", wsi, n);
 	/* manpage: returning 0 means connection shut down */
 	if (!n) {
-  n = lws_ssl_get_error(wsi, n);
-lwsl_debug("%p: ssl err %d errno %d\n", wsi, n, errno);
-  if (n == SSL_ERROR_ZERO_RETURN)
-   return LWS_SSL_CAPABLE_ERROR;
+		n = lws_ssl_get_error(wsi, n);
+		lwsl_debug("%p: ssl err %d errno %d\n", wsi, n, errno);
+		if (n == SSL_ERROR_ZERO_RETURN)
+			return LWS_SSL_CAPABLE_ERROR;
 
-  if (n == SSL_ERROR_SYSCALL) {
+		if (n == SSL_ERROR_SYSCALL) {
 #if !defined(LWS_WITH_ESP32)
-   int err = ERR_get_error();
-   if (err == 0
-     && (ssl_read_errno == EPIPE
-      || ssl_read_errno == ECONNABORTED
-      || ssl_read_errno == 0))
-		return LWS_SSL_CAPABLE_ERROR;
+			int err = ERR_get_error();
+			if (err == 0 && (ssl_read_errno == EPIPE ||
+					 ssl_read_errno == ECONNABORTED ||
+					 ssl_read_errno == 0))
+				return LWS_SSL_CAPABLE_ERROR;
 #endif
-  }
+		}
 
 		lwsl_err("%s failed: %s\n",__func__,
 			 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
-		lws_decode_ssl_error();
+		lws_ssl_elaborate_error();
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
 	if (n < 0) {
 		n = lws_ssl_get_error(wsi, n);
-		if (n ==  SSL_ERROR_WANT_READ || n ==  SSL_ERROR_WANT_WRITE)
+		if (n ==  SSL_ERROR_WANT_READ || n ==  SSL_ERROR_WANT_WRITE) {
+			lwsl_info("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
+		}
 
 		lwsl_err("%s failed2: %s\n",__func__,
 				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
-			lws_decode_ssl_error();
+			lws_ssl_elaborate_error();
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
@@ -381,7 +397,9 @@ LWS_VISIBLE int
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n;
- int ssl_read_errno = 0;
+#if !defined(LWS_WITH_ESP32)
+       	int ssl_read_errno = 0;
+#endif
 
 	if (!wsi->ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
@@ -415,9 +433,27 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 
  lwsl_err("%s failed: %s\n",__func__,
    ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
- lws_decode_ssl_error();
+	lws_ssl_elaborate_error();
 
 	return LWS_SSL_CAPABLE_ERROR;
+}
+
+static int
+lws_gate_accepts(struct lws_context *context, int on)
+{
+	struct lws_vhost *v = context->vhost_list;
+
+	lwsl_info("gating accepts %d\n", on);
+
+	while (v) {
+		if (v->use_ssl &&  v->lserv_wsi) /* gate ability to accept incoming connections */
+			if (lws_change_pollfd(v->lserv_wsi, (LWS_POLLIN) * !on, (LWS_POLLIN) * on))
+				lwsl_err("Unable to set accept POLLIN %d\n", on);
+
+		v = v->vhost_next;
+	}
+
+	return 0;
 }
 
 LWS_VISIBLE int
@@ -433,6 +469,10 @@ lws_ssl_close(struct lws *wsi)
 	compatible_close(n);
 	SSL_free(wsi->ssl);
 	wsi->ssl = NULL;
+
+	if (wsi->context->simultaneous_ssl-- == wsi->context->simultaneous_ssl_restriction)
+		/* we made space and can do an accept */
+		lws_gate_accepts(wsi->context, 1);
 
 	return 1; /* handled */
 }
@@ -460,18 +500,25 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			lwsl_err("%s: leaking ssl\n", __func__);
 		if (accept_fd == LWS_SOCK_INVALID)
 			assert(0);
-
+		if (context->simultaneous_ssl >= context->simultaneous_ssl_restriction) {
+			lwsl_notice("unable to deal with SSL connection\n");
+			return 1;
+		}
 		errno = 0;
 		wsi->ssl = SSL_new(wsi->vhost->ssl_ctx);
 		if (wsi->ssl == NULL) {
-			lwsl_err("SSL_new failed: %s (errno %d)\n",
-				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL), errno);
+			lwsl_err("SSL_new failed: %d (errno %d)\n",
+				 lws_ssl_get_error(wsi, 0), errno);
 
-			lws_decode_ssl_error();
+			lws_ssl_elaborate_error();
 			if (accept_fd != LWS_SOCK_INVALID)
 				compatible_close(accept_fd);
 			goto fail;
 		}
+		if (++context->simultaneous_ssl == context->simultaneous_ssl_restriction)
+			/* that was the last allowed SSL connection */
+			lws_gate_accepts(context, 0);
+
 #if !defined(LWS_WITH_ESP32)
 		SSL_set_ex_data(wsi->ssl,
 			openssl_websocket_private_data_index, wsi);
