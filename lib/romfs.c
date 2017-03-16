@@ -37,7 +37,7 @@
 #include "romfs.h"
 #include "esp_spi_flash.h"
 
-#define RFS_STRING_MAX 64
+#define RFS_STRING_MAX 96
 
 static u32_be_t cache[(RFS_STRING_MAX + 32) / 4];
 static romfs_inode_t ci = (romfs_inode_t)cache;
@@ -118,7 +118,7 @@ dir_link(romfs_t romfs, romfs_inode_t i)
 static romfs_inode_t
 romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 {
-	romfs_inode_t level, i = start;
+	romfs_inode_t level, i = start, i_in;
 	const char *p, *n, *cp;
 	uint32_t next_be;
 
@@ -128,6 +128,7 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 	while (i != (romfs_inode_t)romfs) {
 		p = path;
 		n = ((const char *)i) + sizeof(*i);
+		i_in = i;
 
 		set_cache(i, sizeof(*i));
 		next_be = ci->next;
@@ -135,7 +136,7 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 		cp = (const char *)cache;
 		set_cache((romfs_inode_t)n, RFS_STRING_MAX);
 
-		while (*p && *p != '/' && *cp && *p == *cp) {
+		while (*p && *p != '/' && *cp && *p == *cp && (p - path) < RFS_STRING_MAX) {
 			p++;
 			n++;
 			cp++;
@@ -157,6 +158,9 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 			}
 			return i;
 		}
+
+		if (!*p && *cp == '/')
+			return NULL;
 
 		if (*p == '/' && !*cp) {
 			set_cache(i, sizeof(*i));
@@ -191,6 +195,8 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 
 		i = (romfs_inode_t)((const uint8_t *)romfs +
 				    (ntohl(ci->next) & ~15));
+		if (i == i_in)
+			return NULL;
 	}
 
 	return NULL;

@@ -178,7 +178,7 @@ int
 lws_fops_zip_scan(lws_fops_zip_t priv, const char *name, int len)
 {
 	lws_filepos_t amount;
-	uint8_t buf[64];
+	uint8_t buf[96];
 	int i;
 
 	if (lws_vfs_file_seek_end(priv->zip_fop_fd, -ZE_DIRECTORY_LENGTH) < 0)

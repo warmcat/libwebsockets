@@ -130,7 +130,9 @@ lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 
 	lwsl_notice(" SSL ECDH curve '%s'\n", ecdh_curve);
 #else
+#if !defined(LWS_WITH_ESP32)
 	lwsl_notice(" OpenSSL doesn't support ECDH\n");
+#endif
 #endif
 	return 0;
 }

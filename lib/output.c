@@ -137,9 +137,13 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		lwsl_warn("** error invalid sock but expected to send\n");
 
 	/* limit sending */
-	n = wsi->protocol->rx_buffer_size;
-	if (!n)
-		n = context->pt_serv_buf_size;
+	if (wsi->protocol->tx_packet_size)
+		n = wsi->protocol->tx_packet_size;
+	else {
+		n = wsi->protocol->rx_buffer_size;
+		if (!n)
+			n = context->pt_serv_buf_size;
+	}
 	n += LWS_PRE + 4;
 	if (n > len)
 		n = len;
@@ -618,6 +622,14 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 #endif
 
 		poss = context->pt_serv_buf_size - n;
+
+		/*
+		 * if there is a hint about how much we will do well to send at one time,
+		 * restrict ourselves to only trying to send that.
+		 */
+		if (wsi->protocol->tx_packet_size && poss > wsi->protocol->tx_packet_size)
+			poss = wsi->protocol->tx_packet_size;
+
 #if defined(LWS_WITH_RANGES)
 		if (wsi->u.http.range.count_ranges) {
 			if (wsi->u.http.range.count_ranges > 1)

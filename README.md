@@ -5,10 +5,17 @@
 libwebsockets
 -------------
 
-| News |
-------
-| ESP32 is now supported in lws!  https://libwebsockets.org/lws-api-doc-master/html/md_README_8build.html |
-| v2.2 is out... see the changelog https://github.com/warmcat/libwebsockets/blob/v2.2-stable/changelog |
+News
+----
+
+ESP32 is now supported in lws!  Download the
+
+ - factory https://github.com/warmcat/lws-esp32-factory and
+ - test server app https://github.com/warmcat/lws-esp32-test-server-demos
+
+v2.2 is out... see the changelog https://github.com/warmcat/libwebsockets/blob/v2.2-stable/changelog
+
+
 
 This is the libwebsockets C library for lightweight websocket clients and
 servers.  For support, visit
