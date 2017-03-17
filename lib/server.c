@@ -391,11 +391,17 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		/* if it can't be statted, don't try */
 		if (fflags & LWS_FOP_FLAG_VIRTUAL)
 			break;
-
+#if !defined(WIN32)
 		if (fstat(wsi->u.http.fop_fd->fd, &st)) {
 			lwsl_info("unable to stat %s\n", path);
 			goto bail;
 		}
+#else
+		if (stat(path, &st)) {
+			lwsl_info("unable to stat %s\n", path);
+			goto bail;
+		}
+#endif
 
 		wsi->u.http.fop_fd->mod_time = (uint32_t)st.st_mtime;
 		fflags |= LWS_FOP_FLAG_MOD_TIME_VALID;
