@@ -975,6 +975,7 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 #endif
 #endif
 	buf[0] = '\0';
+
 	for (n = 0; n < LLL_COUNT; n++) {
 		if (level != (1 << n))
 			continue;
