@@ -131,6 +131,11 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		update_status(wsi, pss);
 		break;
 
+	case LWS_CALLBACK_RECEIVE:
+		lwsl_notice("pmd test: RX len %d\n", (int)len);
+		puts(in);
+		break;
+
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		m = lws_write(wsi, (unsigned char *)cache + LWS_PRE, cache_len,
 			      LWS_WRITE_TEXT);
