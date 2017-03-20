@@ -234,7 +234,8 @@ initiate the close, which it does with code 1001 and reason "Seeya".
 	 <div id=s_status>Websocket connection not initialized</div>
 	</td>
 	        <td colspan=1>
-<span class="title">Server Info</span>
+<span class="title">Server Info</span>	     <input type=button id=pmd value="Test pmd" onclick=on_pmd>
+
 	</td>
 	</tr><tr>
 <td class="explain" colspan=2>
@@ -548,6 +549,10 @@ function reset() {
 function junk() {
 	for(var word = ''; word.length < 9000; word += 'a'){}
 	socket_di.send(word);
+}
+
+function on_pmd() {
+   socket_status.send("{ \"RequestType\":\"DDoS\", \"blob\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAABQCAYAAACOEfKtAAAJbElEQVR4Xu2af4xUVxXHv+e9O0OhIEibgrRlF8rOG6CWKiumrUlTo6byj6mmNFta2DdQsRJJrP5j+0cnjSVp1BoSU1yzO28LEeL6h7GJNhpJNa2CBQ1gd9k3QPlRBU2LLV0W2p173zFvZvbtzOybmbd7J9DEd/+befece97nfe+95/4gxEWLAGlZx8aIAWqKIAYYA9QkoGkeKzAGqElA0zxWYAxQk4CmeazAGKAmAU3zWIExQE0CmuaxAmOAmgQ0zWMFxgA1CWiaxwqMAWoS0DRvrQJ3ujeb17Hrx6SuzLwV32x7VzO+1pj3HJprJue8BcBQCSONRzr+2RrHaO2OtHDc1wDcUwqOj0s7nWpVoDp+hOMeA5Au+zggbesuHX+Vti1VoOh3j4BxRxEf8xmVSbe3KlAdP2bOPUmEpaXviiGZsVbq+IsBxgCnpp9YgVPjNan2RwagmXMfUpnUAEAc9k6Rx8AHB0zzy3euU5nUXk02RXMzl+9Ssw8PYN06FeYvOkAmM5dfpzLWL6LGFXkSMR13jIAEmKXMpBM6AIXjeih+BVLqTEcSWfJ/T71ks4bZ9vAYgU1/epC2ZegAFLnhAogEM0tV5x1r/UcGKBw3UJ1sTyVwH8laZ5EU2DO4WCTFmXFbOTbnemxZdHnq9AAMvDVTjF4ObKVS7di8IvA97jOSArNsiLZ8oGBpW5HYRKrkB1IFcGwkiS2dhWkB7B1qE6Z5uiUAew7NEsk5o4EveEtgLw98TwngwIApRlcFoogBVnzdSArUAWg6+T4QS3U69Xi98eiqK7A4vnX1+YsldWbPJmSzk8fJa6FAP67FXTv9sVLZqU1k9rvHibGsmKQzBlTGeih0gqgcA69CFxaO+zKA+4uxEF6W3dbaSXFdA4Bmzt1DhK5SLHycTMd9n4A5pT9oSNqp0GXO1VagcFx/cphZhnZF2tasjwJAkRs+CqJPFvEBIzHA8a8ScQyMAdbbTGgJwAY7FS3LA3edXCyUbJoHitzwKIhK3Zb5ssykr5/Uha9BHigc9whQ3nHyu7DIDe8A0TY/OI/xtJexngnP5ocLRCRAkLLbas1KhOGps6lE2MxvOO6TBvBsMS7Pe8rbtHz7pLhavRLpdwtgCDCkzIS/o9Gff8pg/n55EtlRSqT7h+8B0xhs62AYvHJlf524QZ3duzs0pfCT7aj7gQNsmqPHH1V2qr9+ewBePHYXIICNHfsb1TNzw7Y6e343svdNWh35dpHyQL9iKUV5VGVSu+qt94tx7DrZCa8wA93pP0deiTR80fLDyACjOGthncgAp9FmqwG+CsbnynHkpW1Z04ip5Sai3x0CY3kpU+P9sjt9d6saaSlA9JybJWaMXARDyRFjLrZ1fNiqQLX8DAwmxai4CCAhzblzsWFhsH7W8lvM8eOiRSAGqIUvVqAmvhhgDFCbgKaDqY+B2ayBBV2fQJJnwzQlSL6HjcsvhMaRHUwG/2dXjjWMtXdwPjBjPryCARKXIcQ7sJd8EOn9fFuTbkCBCDOMUZw69596SXWVv4HB2bicXAClBARdwqm95+stEurFER1gz6GESM45DGBFmLNJW+C5E7cKUmfH68pkoh3rl046r8CL7s3CQ+hdFQY2KNvaXS94o8/\" }");
 }
 
 var socket_ot;

@@ -630,6 +630,17 @@ completed:
 }
 #endif
 
+static int
+lws_is_ws_with_ext(struct lws *wsi)
+{
+#if defined(LWS_NO_EXTENSIONS)
+	return 0;
+#else
+	return wsi->state == LWSS_ESTABLISHED &&
+	       !!wsi->count_act_ext;
+#endif
+}
+
 /**
  * lws_service_fd() - Service polled socket with something waiting
  * @context:	Websocket context
@@ -894,9 +905,21 @@ read:
 					wsi->u.hdr.ah->rxpos;
 		} else {
 			if (wsi->mode != LWSCM_HTTP_CLIENT_ACCEPTED) {
+				/*
+				 * extension may not consume everything (eg, pmd may be constrained
+				 * as to what it can output...) has to go in per-wsi rx buf area.
+				 * Otherwise in large temp serv_buf area.
+				 */
+				eff_buf.token = (char *)pt->serv_buf;
+				if (lws_is_ws_with_ext(wsi)) {
+					eff_buf.token_len = wsi->u.ws.rx_ubuf_alloc;
+				} else {
+					eff_buf.token_len = LWS_MAX_SOCKET_IO_BUF;
+				}
+
 				eff_buf.token_len = lws_ssl_capable_read(wsi,
-					pt->serv_buf, pending ? pending :
-							LWS_MAX_SOCKET_IO_BUF);
+					(unsigned char *)eff_buf.token, pending ? pending :
+					eff_buf.token_len);
 				switch (eff_buf.token_len) {
 				case 0:
 					lwsl_info("%s: zero length read\n", __func__);
@@ -909,8 +932,7 @@ read:
 					lwsl_info("Closing when error\n");
 					goto close_and_handled;
 				}
-
-				eff_buf.token = (char *)pt->serv_buf;
+				// lwsl_notice("Actual RX %d\n", eff_buf.token_len);
 			}
 		}
 
@@ -966,6 +988,8 @@ drain:
 				 * around again it will pick up from where it
 				 * left off.
 				 */
+				// lwsl_notice("doing lws_read from pt->serv_buf %p %p for len %d\n", pt->serv_buf, eff_buf.token, (int)eff_buf.token_len);
+
 				n = lws_read(wsi, (unsigned char *)eff_buf.token,
 					     eff_buf.token_len);
 				if (n < 0) {
@@ -992,7 +1016,11 @@ drain:
 
 		pending = lws_ssl_pending(wsi);
 		if (pending) {
-			pending = pending > LWS_MAX_SOCKET_IO_BUF ?
+			if (lws_is_ws_with_ext(wsi))
+				pending = pending > wsi->u.ws.rx_ubuf_alloc ?
+					wsi->u.ws.rx_ubuf_alloc : pending;
+			else
+				pending = pending > LWS_MAX_SOCKET_IO_BUF ?
 					LWS_MAX_SOCKET_IO_BUF : pending;
 			goto read;
 		}

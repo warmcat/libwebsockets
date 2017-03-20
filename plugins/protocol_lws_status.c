@@ -151,6 +151,11 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
+	case LWS_CALLBACK_RECEIVE:
+		lwsl_notice("pmd test: RX len %d\n", (int)len);
+		puts(in);
+		break;
+
 	case LWS_CALLBACK_CLOSED:
 		pp = &list;
 		while (*pp) {
