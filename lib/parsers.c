@@ -966,6 +966,9 @@ lws_rx_sm(struct lws *wsi, unsigned char c)
 	int ret = 0, n, rx_draining_ext = 0;
 	struct lws_tokens eff_buf;
 
+	eff_buf.token = NULL;
+	eff_buf.token_len = 0;
+
 	if (wsi->socket_is_permanently_unusable)
 		return -1;
 

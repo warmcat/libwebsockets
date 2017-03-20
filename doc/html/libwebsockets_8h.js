@@ -9,7 +9,7 @@ var libwebsockets_8h =
     [ "lws_pollargs", "structlws__pollargs.html", "structlws__pollargs" ],
     [ "lws_cgi_args", "structlws__cgi__args.html", "structlws__cgi__args" ],
     [ "lws_callback_function", "group__usercb.html#gad4fcb82e68d60ffacca61a3f783a0a2f", null ],
-    [ "lws_ev_signal_cb_t", "group__ev.html#ga3b0ffd4d2b4fa791c0fd75353a330208", null ],
+    [ "lws_ev_signal_cb_t", "group__ev.html#ga3fd389d64c6fa45a3c1427d2f6988741", null ],
     [ "lws_extension_callback_function", "group__extensions.html#gaae7169b2cd346b34fa33d0250db2afd0", null ],
     [ "lws_filefd_type", "libwebsockets_8h.html#aff42d53861afdc1a6edfb999ba688ecb", null ],
     [ "lws_plugin_destroy_func", "group__Protocols-and-Plugins.html#ga83f7a924ba790fa273476075a59f08b0", null ],
