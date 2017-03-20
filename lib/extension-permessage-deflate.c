@@ -202,7 +202,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * rx buffer by the caller, so this assumption is safe while
 		 * we block new rx while draining the existing rx
 		 */
-		if (eff_buf->token && eff_buf->token_len) {
+		if (!priv->rx.avail_in && eff_buf->token && eff_buf->token_len) {
 			priv->rx.next_in = (unsigned char *)eff_buf->token;
 			priv->rx.avail_in = eff_buf->token_len;
 		}

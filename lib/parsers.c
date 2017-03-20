@@ -954,6 +954,24 @@ LWS_VISIBLE int lws_frame_is_binary(struct lws *wsi)
 {
 	return wsi->u.ws.frame_is_binary;
 }
+static void
+lws_remove_wsi_from_draining_ext_list(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws **w = &pt->rx_draining_ext_list;
+
+	wsi->u.ws.rx_draining_ext = 0;
+	/* remove us from context draining ext list */
+	while (*w) {
+		if (*w == wsi) {
+			*w = wsi->u.ws.rx_draining_ext_list;
+			break;
+		}
+		w = &((*w)->u.ws.rx_draining_ext_list);
+	}
+	wsi->u.ws.rx_draining_ext_list = NULL;
+}
+
 
 int
 lws_rx_sm(struct lws *wsi, unsigned char c)
@@ -963,26 +981,18 @@ lws_rx_sm(struct lws *wsi, unsigned char c)
 	int ret = 0, n, rx_draining_ext = 0;
 	struct lws_tokens eff_buf;
 
+	eff_buf.token = NULL;
+	eff_buf.token_len = 0;
+
 	if (wsi->socket_is_permanently_unusable)
 		return -1;
 
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
 		if (wsi->u.ws.rx_draining_ext) {
-			struct lws **w = &pt->rx_draining_ext_list;
-
 			eff_buf.token = NULL;
 			eff_buf.token_len = 0;
-			wsi->u.ws.rx_draining_ext = 0;
-			/* remove us from context draining ext list */
-			while (*w) {
-				if (*w == wsi) {
-					*w = wsi->u.ws.rx_draining_ext_list;
-					break;
-				}
-				w = &((*w)->u.ws.rx_draining_ext_list);
-			}
-			wsi->u.ws.rx_draining_ext_list = NULL;
+			lws_remove_wsi_from_draining_ext_list(wsi);
 			rx_draining_ext = 1;
 			lwsl_err("%s: doing draining flow\n", __func__);
 
@@ -1238,6 +1248,9 @@ handle_first:
 	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
 		assert(wsi->u.ws.rx_ubuf);
 
+		if (wsi->u.ws.rx_draining_ext)
+			goto drain_extension;
+
 		if (wsi->u.ws.rx_ubuf_head + LWS_PRE >=
 		    wsi->u.ws.rx_ubuf_alloc) {
 			lwsl_err("Attempted overflow \n");
@@ -1413,6 +1426,9 @@ drain_extension:
 			goto already_done;
 
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &eff_buf, 0);
+		/* eff_buf may be pointing somewhere completely different now,
+		 * it's the output
+		 */
 		if (n < 0) {
 			/*
 			 * we may rely on this to get RX, just drop connection
@@ -1426,9 +1442,12 @@ drain_extension:
 
 		if (n && eff_buf.token_len) {
 			/* extension had more... main loop will come back */
+			// lwsl_notice("ext has stuff to drain\n");
 			wsi->u.ws.rx_draining_ext = 1;
 			wsi->u.ws.rx_draining_ext_list = pt->rx_draining_ext_list;
 			pt->rx_draining_ext_list = wsi;
+		} else {
+			lws_remove_wsi_from_draining_ext_list(wsi);
 		}
 
 		if (eff_buf.token_len > 0 ||

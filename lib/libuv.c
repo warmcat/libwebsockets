@@ -40,7 +40,7 @@ lws_uv_idle(uv_idle_t *handle
 	struct lws_context_per_thread *pt = lws_container_of(handle,
 					struct lws_context_per_thread, uv_idle);
 
-	lwsl_debug("%s\n", __func__);
+//	lwsl_debug("%s\n", __func__);
 
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
@@ -51,7 +51,7 @@ lws_uv_idle(uv_idle_t *handle
 		/* still somebody left who wants forced service? */
 		if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
 			/* yes... come back again later */
-			lwsl_debug("%s: done again\n", __func__);
+//			lwsl_debug("%s: done again\n", __func__);
 		return;
 	}
 

@@ -200,6 +200,11 @@ walk_final:
 			lws_callback_on_writable(wsi);
 		break;
 
+	case LWS_CALLBACK_RECEIVE:
+		lwsl_notice("pmd test: RX len %d\n", (int)len);
+		puts(in);
+		break;
+
 	case LWS_CALLBACK_CLOSED:
 		pss1 = vhd->live_pss_list;
 		pss2 = NULL;
