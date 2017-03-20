@@ -1914,7 +1914,7 @@ try_pollout:
 			if (accept_fd < 0) {
 				if (LWS_ERRNO == LWS_EAGAIN ||
 				    LWS_ERRNO == LWS_EWOULDBLOCK) {
-					lwsl_err("accept asks to try again\n");
+//					lwsl_err("accept asks to try again\n");
 					break;
 				}
 				lwsl_err("ERROR on accept: %s\n", strerror(LWS_ERRNO));
@@ -2073,6 +2073,7 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		}
 
 		if (wsi->u.ws.rx_draining_ext) {
+			// lwsl_notice("draining with 0\n");
 			m = lws_rx_sm(wsi, 0);
 			if (m < 0)
 				return -1;
@@ -2084,7 +2085,8 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 			wsi->rxflow_pos++;
 
 		/* consume payload bytes efficiently */
-		if (wsi->lws_rx_parse_state ==
+		if (
+		    wsi->lws_rx_parse_state ==
 		    LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED) {
 			m = lws_payload_until_length_exhausted(wsi, buf, &len);
 			if (wsi->rxflow_buffer)
