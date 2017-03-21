@@ -19,6 +19,7 @@
  */
 
 #include <libwebsockets.h>
+#include <string.h>
 #include <getopt.h>
 #ifndef WIN32
 #include <syslog.h>
