@@ -157,6 +157,9 @@ struct sockaddr_in;
 #include <uv-version.h>
 #endif
 #endif /* LWS_USE_LIBUV */
+#ifdef LWS_USE_LIBEVENT
+#include <event2/event.h>
+#endif /* LWS_USE_LIBEVENT */
 
 #ifndef LWS_EXTERN
 #define LWS_EXTERN extern
@@ -1663,6 +1666,8 @@ enum lws_context_options {
 	 */
 	LWS_SERVER_OPTION_FALLBACK_TO_RAW			= (1 << 20),
 	/**< (VH) if invalid http is coming in the first line,  */
+	LWS_SERVER_OPTION_LIBEVENT				= (1 << 21),
+	/**< (CTX) Use libevent event loop */
 
 	/****** add new things just above ---^ ******/
 };
@@ -3335,6 +3340,33 @@ lws_uv_getloop(struct lws_context *context, int tsi);
 LWS_VISIBLE LWS_EXTERN void
 lws_uv_sigint_cb(uv_signal_t *watcher, int signum);
 #endif /* LWS_USE_LIBUV */
+///@}
+
+/*! \defgroup event libevent helpers
+ *
+ * ##libevent helpers
+ *
+ * APIs specific to libevent event loop itegration
+ */
+///@{
+
+#ifdef LWS_USE_LIBEVENT
+typedef void (lws_event_signal_cb_t) (evutil_socket_t sock_fd, short revents,
+		  void *ctx);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_event_sigint_cfg(struct lws_context *context, int use_event_sigint,
+		  lws_event_signal_cb_t cb);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_event_initloop(struct lws_context *context, struct event_base *loop,
+		  int tsi);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_event_sigint_cb(evutil_socket_t sock_fd, short revents,
+		  void *ctx);
+#endif /* LWS_USE_LIBEVENT */
+
 ///@}
 
 /*! \defgroup timeout Connection timeouts

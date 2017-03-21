@@ -58,18 +58,22 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	if (_and & LWS_POLLIN) {
 		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ);
 		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ);
+		lws_libevent_io(wsi, LWS_EV_STOP | LWS_EV_READ);
 	}
 	if (_or & LWS_POLLIN) {
 		lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
 		lws_libuv_io(wsi, LWS_EV_START | LWS_EV_READ);
+		lws_libevent_io(wsi, LWS_EV_START | LWS_EV_READ);
 	}
 	if (_and & LWS_POLLOUT) {
 		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
+		lws_libevent_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 	}
 	if (_or & LWS_POLLOUT) {
 		lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
 		lws_libuv_io(wsi, LWS_EV_START | LWS_EV_WRITE);
+		lws_libevent_io(wsi, LWS_EV_START | LWS_EV_WRITE);
 	}
 
 	/*

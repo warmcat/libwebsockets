@@ -1869,6 +1869,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 
 	lws_libev_accept(new_wsi, new_wsi->desc);
 	lws_libuv_accept(new_wsi, new_wsi->desc);
+	lws_libevent_accept(new_wsi, new_wsi->desc);
 
 	if (!ssl) {
 		if (insert_wsi_socket_into_fds(context, new_wsi)) {
