@@ -126,5 +126,7 @@
 #cmakedefine LWS_WITH_ZIP_FOPS
 #cmakedefine LWS_HAVE_STDINT_H
 
+#cmakedefine LWS_AVOID_SIGPIPE_IGN
+
 #cmakedefine LWS_FALLBACK_GETHOSTBYNAME
 ${LWS_SIZEOFPTR_CODE}

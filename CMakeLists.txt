@@ -115,6 +115,7 @@ option(LWS_STATIC_PIC "Build the static version of the library with position-ind
 option(LWS_WITH_RANGES "Support http ranges (RFC7233)" ON)
 option(LWS_FALLBACK_GETHOSTBYNAME "Also try to do dns resolution using gethostbyname if getaddrinfo fails" OFF)
 option(LWS_WITH_ZIP_FOPS "Support serving pre-zipped files" ON)
+option(LWS_AVOID_SIGPIPE_IGN "Android 7+ seems to need this" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -1715,6 +1716,7 @@ message(" LWS_WITH_RANGES = ${LWS_WITH_RANGES}")
 message(" LWS_PLAT_OPTEE = ${LWS_PLAT_OPTEE}")
 message(" LWS_WITH_ESP32 = ${LWS_WITH_ESP32}")
 message(" LWS_WITH_ZIP_FOPS = ${LWS_WITH_ZIP_FOPS}")
+message(" LWS_AVOID_SIGPIPE_IGN = ${LWS_AVOID_SIGPIPE_IGN}")
 
 message("---------------------------------------------------------------------")
 

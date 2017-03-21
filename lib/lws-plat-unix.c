@@ -454,7 +454,9 @@ sigabrt_handler(int x)
 LWS_VISIBLE int
 lws_plat_context_early_init(void)
 {
+#if !defined(LWS_AVOID_SIGPIPE_IGN)
 	signal(SIGPIPE, SIG_IGN);
+#endif
 
 //	signal(SIGABRT, sigabrt_handler);
 
