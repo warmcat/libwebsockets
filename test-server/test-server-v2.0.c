@@ -148,13 +148,14 @@ static const struct lws_http_mount mount = {
  * the effect is to set this protocol to be the default one for the vhost,
  * ie, selected if no Protocol: header is sent with the ws upgrade.
  */
-
+#if 0
 static const struct lws_protocol_vhost_options pvo_opt = {
 	NULL,
 	NULL,
 	"default",
 	"1"
 };
+#endif
 
 static const struct lws_protocol_vhost_options pvo_opt4a = {
 	NULL,
@@ -205,7 +206,7 @@ static const struct lws_protocol_vhost_options pvo_1 = {
 
 static const struct lws_protocol_vhost_options pvo = {
 	&pvo_1,
-	&pvo_opt,
+	NULL, // &pvo_opt,
 	"dumb-increment-protocol",
 	""
 };
