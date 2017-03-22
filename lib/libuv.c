@@ -58,7 +58,7 @@ lws_uv_idle(uv_idle_t *handle
 	/* there is nobody who needs service forcing, shut down idle */
 	uv_idle_stop(handle);
 
-	lwsl_debug("%s: done stop\n", __func__);
+	//lwsl_debug("%s: done stop\n", __func__);
 }
 
 static void

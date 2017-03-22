@@ -1573,7 +1573,7 @@ _lws_rx_flow_control(struct lws *wsi)
 
 	/* there is no pending change */
 	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE)) {
-		lwsl_debug("%s: no pending change\n", __func__);
+//		lwsl_debug("%s: no pending change\n", __func__);
 		return 0;
 	}
 
