@@ -110,8 +110,15 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 #endif
 
 #ifdef LWS_WITH_CGI
-	if (wsi->cgi)
+	if (wsi->cgi) {
+		/* also one shot */
+		if (pollfd)
+			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+				lwsl_info("failed at set pollfd\n");
+				return 1;
+			}
 		goto user_service_go_again;
+	}
 #endif
 
 	/* Priority 3: pending control packets (pong or close)
