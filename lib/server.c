@@ -2952,6 +2952,8 @@ struct lws_spa {
 	char *storage;
 	char *end;
 	int max_storage;
+
+	char finalized;
 };
 
 static int
@@ -3067,6 +3069,10 @@ lws_spa_process(struct lws_spa *ludspa, const char *in, int len)
 		lwsl_err("%s: NULL spa\n", __func__);
 		return -1;
 	}
+	/* we reject any junk after the last part arrived and we finalized */
+	if (ludspa->finalized)
+		return 0;
+
 	return lws_urldecode_s_process(ludspa->s, in, len);
 }
 
@@ -3095,6 +3101,8 @@ lws_spa_finalize(struct lws_spa *spa)
 		lws_urldecode_s_destroy(spa->s);
 		spa->s = NULL;
 	}
+
+	spa->finalized = 1;
 
 	return 0;
 }
