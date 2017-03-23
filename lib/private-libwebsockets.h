@@ -370,10 +370,22 @@ extern "C" {
 #endif
 
 #if defined(__sun) && defined(__GNUC__)
+
+#include <arpa/nameser_compat.h>
+
+#if !defined (BYTE_ORDER)
 # define BYTE_ORDER __BYTE_ORDER__
+#endif
+
+#if !defined(LITTLE_ENDIAN)
 # define LITTLE_ENDIAN __ORDER_LITTLE_ENDIAN__
+#endif
+
+#if !defined(BIG_ENDIAN)
 # define BIG_ENDIAN __ORDER_BIG_ENDIAN__
 #endif
+
+#endif /* sun + GNUC */
 
 #if !defined(BYTE_ORDER)
 # define BYTE_ORDER __BYTE_ORDER
