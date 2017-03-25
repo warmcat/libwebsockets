@@ -566,7 +566,10 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 		return -1;
 	}
 
-	if (rlen <= 0)
+	if (rlen == 0)
+		return -1;
+
+	if (rlen < 0)
 		return 0;
 
 	*len = rlen;
@@ -1105,7 +1108,7 @@ drain:
 					wsi->protocol->callback,
 					wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
 					wsi->user_space, NULL, 0)) {
-				lwsl_debug("LWS_CALLBACK_RECEIVE_CLIENT_HTTP closed it\n");
+				lwsl_notice("LWS_CALLBACK_RECEIVE_CLIENT_HTTP closed it\n");
 				goto close_and_handled;
 			}
 		}
