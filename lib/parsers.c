@@ -954,7 +954,7 @@ LWS_VISIBLE int lws_frame_is_binary(struct lws *wsi)
 {
 	return wsi->u.ws.frame_is_binary;
 }
-static void
+void
 lws_remove_wsi_from_draining_ext_list(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
@@ -972,6 +972,10 @@ lws_remove_wsi_from_draining_ext_list(struct lws *wsi)
 	wsi->u.ws.rx_draining_ext_list = NULL;
 }
 
+/*
+ * client-parser.c: lws_client_rx_sm() needs to be roughly kept in
+ *   sync with changes here, esp related to ext draining
+ */
 
 int
 lws_rx_sm(struct lws *wsi, unsigned char c)
@@ -994,7 +998,7 @@ lws_rx_sm(struct lws *wsi, unsigned char c)
 			eff_buf.token_len = 0;
 			lws_remove_wsi_from_draining_ext_list(wsi);
 			rx_draining_ext = 1;
-			lwsl_err("%s: doing draining flow\n", __func__);
+			lwsl_debug("%s: doing draining flow\n", __func__);
 
 			goto drain_extension;
 		}
@@ -1446,9 +1450,8 @@ drain_extension:
 			wsi->u.ws.rx_draining_ext = 1;
 			wsi->u.ws.rx_draining_ext_list = pt->rx_draining_ext_list;
 			pt->rx_draining_ext_list = wsi;
-		} else {
+		} else
 			lws_remove_wsi_from_draining_ext_list(wsi);
-		}
 
 		if (eff_buf.token_len > 0 ||
 		    callback_action == LWS_CALLBACK_RECEIVE_PONG) {
