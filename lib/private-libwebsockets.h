@@ -1929,6 +1929,8 @@ lws_plat_service_periodic(struct lws_context *context);
 LWS_EXTERN int
 lws_plat_change_pollfd(struct lws_context *context, struct lws *wsi,
 		       struct lws_pollfd *pfd);
+LWS_EXTERN void
+lws_remove_wsi_from_draining_ext_list(struct lws *wsi);
 LWS_EXTERN int
 lws_plat_context_early_init(void);
 LWS_EXTERN void
