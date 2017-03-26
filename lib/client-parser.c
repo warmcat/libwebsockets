@@ -28,7 +28,6 @@
 
 int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	int handled, n, m, rx_draining_ext = 0;
 	unsigned short close_code;
@@ -548,17 +547,14 @@ utf8_fail:			lwsl_info("utf8 error\n");
 		if (callback_action == LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			lwsl_info("Client doing pong callback\n");
 
-		if (n && eff_buf.token_len) {
+		if (n && eff_buf.token_len)
 			/* extension had more... main loop will come back
 			 * we want callback to be done with this set, if so,
 			 * because lws_is_final() hides it was final until the
 			 * last chunk
 			 */
-			wsi->u.ws.rx_draining_ext = 1;
-			wsi->u.ws.rx_draining_ext_list = pt->rx_draining_ext_list;
-			pt->rx_draining_ext_list = wsi;
-			lwsl_ext("%s: RX EXT DRAINING: Adding to list\n", __func__);
-		} else
+			lws_add_wsi_to_draining_ext_list(wsi);
+		else
 			lws_remove_wsi_from_draining_ext_list(wsi);
 
 		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
