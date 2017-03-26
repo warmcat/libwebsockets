@@ -481,9 +481,10 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	while (wsi) {
 		pt->fds[wsi->position_in_fds_table].revents |=
 			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
-		if (pt->fds[wsi->position_in_fds_table].revents &
-		    LWS_POLLIN)
+		if (pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN) {
 			forced = 1;
+			break;
+		}
 		wsi = wsi->u.ws.rx_draining_ext_list;
 	}
 
