@@ -986,16 +986,39 @@ LWS_VISIBLE int lws_frame_is_binary(struct lws *wsi)
 {
 	return wsi->u.ws.frame_is_binary;
 }
-static void
+
+void
+lws_add_wsi_to_draining_ext_list(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	if (wsi->u.ws.rx_draining_ext)
+		return;
+
+	lwsl_ext("%s: RX EXT DRAINING: Adding to list\n", __func__);
+
+	wsi->u.ws.rx_draining_ext = 1;
+	wsi->u.ws.rx_draining_ext_list = pt->rx_draining_ext_list;
+	pt->rx_draining_ext_list = wsi;
+}
+
+void
 lws_remove_wsi_from_draining_ext_list(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	struct lws **w = &pt->rx_draining_ext_list;
 
+	if (!wsi->u.ws.rx_draining_ext)
+		return;
+
+	lwsl_ext("%s: RX EXT DRAINING: Removing from list\n", __func__);
+
 	wsi->u.ws.rx_draining_ext = 0;
+
 	/* remove us from context draining ext list */
 	while (*w) {
 		if (*w == wsi) {
+			/* if us, point it instead to who we were pointing to */
 			*w = wsi->u.ws.rx_draining_ext_list;
 			break;
 		}
@@ -1008,7 +1031,6 @@ lws_remove_wsi_from_draining_ext_list(struct lws *wsi)
 int
 lws_rx_sm(struct lws *wsi, unsigned char c)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int callback_action = LWS_CALLBACK_RECEIVE;
 	int ret = 0, n, rx_draining_ext = 0;
 	struct lws_tokens eff_buf;
@@ -1458,15 +1480,11 @@ drain_extension:
 		if (rx_draining_ext && eff_buf.token_len == 0)
 			goto already_done;
 
-		if (n && eff_buf.token_len) {
+		if (n && eff_buf.token_len)
 			/* extension had more... main loop will come back */
-			// lwsl_notice("ext has stuff to drain\n");
-			wsi->u.ws.rx_draining_ext = 1;
-			wsi->u.ws.rx_draining_ext_list = pt->rx_draining_ext_list;
-			pt->rx_draining_ext_list = wsi;
-		} else {
+			lws_add_wsi_to_draining_ext_list(wsi);
+		else
 			lws_remove_wsi_from_draining_ext_list(wsi);
-		}
 
 		if (eff_buf.token_len > 0 ||
 		    callback_action == LWS_CALLBACK_RECEIVE_PONG) {
