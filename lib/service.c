@@ -1064,6 +1064,9 @@ read:
 					eff_buf.token_len = context->pt_serv_buf_size;
 				}
 
+				if (eff_buf.token_len > context->pt_serv_buf_size)
+					eff_buf.token_len = context->pt_serv_buf_size;
+
 				eff_buf.token_len = lws_ssl_capable_read(wsi,
 					(unsigned char *)eff_buf.token, pending ? pending :
 					eff_buf.token_len);
