@@ -918,6 +918,9 @@ read:
 					eff_buf.token_len = LWS_MAX_SOCKET_IO_BUF;
 				}
 
+				if (eff_buf.token_len > LWS_MAX_SOCKET_IO_BUF)
+					eff_buf.token_len = LWS_MAX_SOCKET_IO_BUF;
+
 				eff_buf.token_len = lws_ssl_capable_read(wsi,
 					(unsigned char *)eff_buf.token, pending ? pending :
 					eff_buf.token_len);
