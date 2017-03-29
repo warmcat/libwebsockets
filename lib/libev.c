@@ -190,7 +190,7 @@ lws_libev_io(struct lws *wsi, int flags)
 	if (!LWS_LIBEV_ENABLED(context))
 		return;
 
-	if (!pt->io_loop_ev || context->being_destroyed)
+	if (!pt->io_loop_ev)
 		return;
 
 	assert((flags & (LWS_EV_START | LWS_EV_STOP)) &&
