@@ -146,23 +146,27 @@ static void
 lws_remove_child_from_any_parent(struct lws *wsi)
 {
 	struct lws **pwsi;
+	int seen = 0;
 
-	if (wsi->parent) {
-		/* detach ourselves from parent's child list */
-		pwsi = &wsi->parent->child_list;
-		while (*pwsi) {
-			if (*pwsi == wsi) {
-				//lwsl_notice("%s: detach %p from parent %p\n",
-				//		__func__, wsi, wsi->parent);
-				*pwsi = wsi->sibling_list;
-				break;
-			}
-			pwsi = &(*pwsi)->sibling_list;
+	if (!wsi->parent)
+		return;
+
+	/* detach ourselves from parent's child list */
+	pwsi = &wsi->parent->child_list;
+	while (*pwsi) {
+		if (*pwsi == wsi) {
+			lwsl_info("%s: detach %p from parent %p\n",
+					__func__, wsi, wsi->parent);
+			*pwsi = wsi->sibling_list;
+			seen = 1;
+			break;
 		}
-		if (*pwsi)
-			lwsl_err("%s: failed to detach from parent\n",
-					__func__);
+		pwsi = &(*pwsi)->sibling_list;
 	}
+	if (!seen)
+		lwsl_err("%s: failed to detach from parent\n", __func__);
+
+	wsi->parent = NULL;
 }
 
 int
