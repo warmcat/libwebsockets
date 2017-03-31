@@ -33,12 +33,6 @@ extern "C" {
 #include <stdarg.h>
 #endif
 
-static inline int lws_is_be(void) {
-	const int probe = ~0xff;
-
-	return *(const char *)&probe;
-}
-
 #if defined(LWS_WITH_ESP8266)
 struct sockaddr_in;
 #define LWS_POSIX 0
@@ -294,6 +288,12 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 #define lwsl_hexdump(a, b)
 
 #endif
+
+static LWS_INLINE int lws_is_be(void) {
+	const int probe = ~0xff;
+
+	return *(const char *)&probe;
+}
 
 /**
  * lws_set_log_level() - Set the logging bitfield
