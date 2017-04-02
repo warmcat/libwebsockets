@@ -2081,7 +2081,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 				//lwsl_err("wsi %p: missing ah\n", wsi);
 				/* no autoservice beacuse we will do it next */
 				if (lws_header_table_attach(wsi, 0)) {
-					lwsl_err("wsi %p: failed to acquire ah\n", wsi);
+					lwsl_info("wsi %p: failed to acquire ah\n", wsi);
 					goto try_pollout;
 				}
 			}
