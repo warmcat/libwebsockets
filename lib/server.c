@@ -350,8 +350,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	const struct lws_protocol_vhost_options *pvo = m->interpret;
 	struct lws_process_html_args args;
 	const char *mimetype;
-#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266) && \
-    !defined(LWS_WITH_ESP32)
+#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266)
 	const struct lws_plat_file_ops *fops;
 	const char *vpath;
 	lws_fop_flags_t fflags = LWS_O_RDONLY;
@@ -368,8 +367,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
-#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266) && \
-    !defined(LWS_WITH_ESP32)
+#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266)
 
 	fflags |= lws_vfs_prepare_flags(wsi);
 
@@ -391,6 +389,9 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		/* if it can't be statted, don't try */
 		if (fflags & LWS_FOP_FLAG_VIRTUAL)
 			break;
+#if defined(LWS_WITH_ESP32)
+		break;
+#endif
 #if !defined(WIN32)
 		if (fstat(wsi->u.http.fop_fd->fd, &st)) {
 			lwsl_info("unable to stat %s\n", path);
@@ -407,7 +408,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		fflags |= LWS_FOP_FLAG_MOD_TIME_VALID;
 
 		lwsl_debug(" %s mode %d\n", path, S_IFMT & st.st_mode);
-#if !defined(WIN32) && LWS_POSIX
+#if !defined(WIN32) && LWS_POSIX && !defined(LWS_WITH_ESP32)
 		if ((S_IFMT & st.st_mode) == S_IFLNK) {
 			len = readlink(path, sym, sizeof(sym) - 1);
 			if (len) {

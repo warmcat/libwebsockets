@@ -880,9 +880,11 @@ lws_esp_ota_get_boot_partition(void)
 		 * factory partition right now.
 		 */
 		part = factory_part;
-	} else
-		if (LWS_IS_FACTORY_APPLICATION == 1 &&
-		    ota_eih.spi_mode != 0xff &&
+	} 
+	
+#ifdef CONFIG_LWS_IS_FACTORY_APPLICATION
+	else
+		if (ota_eih.spi_mode != 0xff &&
 		    part->address != factory_part->address) {
 			uint8_t buf[4096];
 			uint32_t n;
@@ -919,6 +921,7 @@ lws_esp_ota_get_boot_partition(void)
 retry:
 			esp_restart();
 		}
+#endif
 
 	return part;
 }

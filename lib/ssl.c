@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -329,10 +329,17 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 	if (n < 0) {
 		n = lws_ssl_get_error(wsi, n);
-		if (n ==  SSL_ERROR_WANT_READ || n ==  SSL_ERROR_WANT_WRITE) {
+		if (n ==  SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl)) {
+			lwsl_debug("%s: WANT_READ\n", __func__);
 			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
+		if (n ==  SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->ssl)) {
+			lwsl_debug("%s: WANT_WRITE\n", __func__);
+			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
+			return LWS_SSL_CAPABLE_MORE_SERVICE;
+		}
+
 
 		lwsl_err("%s failed2: %s\n",__func__,
 				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
@@ -410,6 +417,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 	n = lws_ssl_get_error(wsi, n);
 	if (n == SSL_ERROR_WANT_READ || n == SSL_ERROR_WANT_WRITE) {
 		if (n == SSL_ERROR_WANT_WRITE) {
+			lwsl_debug("%s: WANT_WRITE\n", __func__);
 			lws_set_blocking_send(wsi);
 		}
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
@@ -532,6 +540,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 #endif
 #else
 #if defined(LWS_WITH_ESP32)
+		lws_plat_set_socket_options(wsi->vhost, accept_fd);
 #else
 		SSL_set_mode(wsi->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 		bio = SSL_get_rbio(wsi->ssl);
@@ -648,7 +657,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 #endif
 
 go_again:
-		if (m == SSL_ERROR_WANT_READ) {
+		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl)) {
 			if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 				lwsl_err("%s: WANT_READ change_pollfd failed\n", __func__);
 				goto fail;
@@ -657,7 +666,9 @@ go_again:
 			lwsl_info("SSL_ERROR_WANT_READ\n");
 			break;
 		}
-		if (m == SSL_ERROR_WANT_WRITE) {
+		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->ssl)) {
+			lwsl_debug("%s: WANT_WRITE\n", __func__);
+
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
 				lwsl_err("%s: WANT_WRITE change_pollfd failed\n", __func__);
 				goto fail;
