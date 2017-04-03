@@ -363,6 +363,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 			uint8_t mac[6];
 			struct lws_esp32_image i;
 			char img_factory[512], img_ota[512];
+			int grt;
 
 		case SCAN_STATE_INITIAL:
 
@@ -377,6 +378,14 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 			nvs_get_str(nvh, "ssid", ssid, &s);
 
 			nvs_close(nvh);
+
+			/*
+			 * this value in the JSON is just
+			 * used for UI indication.  Each conditional feature confirms
+			 * it itself before it allows itself to be used.
+			 */
+
+			grt = lws_esp32_get_reboot_type();
 
 			esp_efuse_read_mac(mac);
 			strcpy(img_factory, " { \"date\": \"Empty\" }");
@@ -406,7 +415,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				      " \"img_factory\": %s,\n"
 				      " \"img_ota\": %s,\n",
 				      lws_esp32.model,
-				      lws_esp32_get_reboot_type() == LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON, 
+				      grt == LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON, 
 				      lws_esp32.serial,
 				      lws_esp32.opts,
 				      lws_esp32.model, lws_esp32.serial,

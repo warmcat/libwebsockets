@@ -537,7 +537,6 @@ static inline void uv_close(uv_handle_t *h, void *v)
 #define LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY 0xfaceb00b
 #define LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON 0xf0cedfac
 
-static inline uint32_t lws_esp32_get_reboot_type(void) { uint32_t *p = (uint32_t *)LWS_MAGIC_REBOOT_TYPE_ADS; return *p; }
 
 /* user code provides these */
 
@@ -592,6 +591,7 @@ extern const esp_partition_t *
 lws_esp_ota_get_boot_partition(void);
 extern int
 lws_esp32_get_image_info(const esp_partition_t *part, struct lws_esp32_image *i, char *json, int json_len);
+extern uint32_t lws_esp32_get_reboot_type(void);
 #else
 typedef int lws_sockfd_type;
 typedef int lws_filefd_type;

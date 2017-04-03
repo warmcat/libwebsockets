@@ -585,6 +585,30 @@ struct esp32_file {
 	const struct inode *i;
 };
 
+uint32_t lws_esp32_get_reboot_type(void)
+{
+	uint32_t *p = (uint32_t *)LWS_MAGIC_REBOOT_TYPE_ADS, val = *p;
+	nvs_handle nvh;
+	size_t s = 0;
+	int n = 0;
+
+	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
+	if (nvs_get_blob(nvh, "ssl-pub.der", NULL, &s) == ESP_OK)
+		n = 1;
+	if (nvs_get_blob(nvh, "ssl-pri.der", NULL, &s) == ESP_OK)
+		n |= 2;
+	nvs_close(nvh);
+
+	/*
+	 * in the case the SSL certs are not there, don't require
+	 * the button to be down to access all features.
+	 */
+	if (n != 3)
+		val = LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON;
+
+	return val;
+}
+
 static void render_ip(char *dest, int len, uint8_t *ip)
 {
 	snprintf(dest, len, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
