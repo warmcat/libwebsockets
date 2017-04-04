@@ -173,6 +173,8 @@ static void reboot_timer_cb(TimerHandle_t t)
 static int
 client_connection(struct per_vhost_data__esplws_scan *vhd, const char *file)
 {
+#if CONFIG_LWS_IS_FACTORY_APPLICATION == 'y' && defined(CONFIG_LWS_OTA_SERVER_BASE_URL) &&
+    defined(CONFIG_LWS_OTA_SERVER_FQDN)
 	static struct lws_client_connect_info i;
 	char path[256];
 
@@ -199,7 +201,7 @@ client_connection(struct per_vhost_data__esplws_scan *vhd, const char *file)
 		lwsl_notice("NULL return\n");
 		return 1; /* fail */
 	}
-
+#endif
 	return 0; /* ongoing */
 }
 

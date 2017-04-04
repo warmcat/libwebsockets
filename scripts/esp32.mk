@@ -8,6 +8,12 @@
 
 jbi=$(COMPONENT_PATH)/../build/json-buildinfo
 
+FAC=$(CONFIG_LWS_IS_FACTORY_APPLICATION)
+ifeq ($(FAC),)
+	FAC=0
+endif
+export FAC
+
 .PHONY: romfs.img
 pack.img:
 	DIRNAME=$$(basename $$(pwd) | tr -d '\n') ;\
@@ -36,7 +42,7 @@ pack.img:
 	echo -n -e "\",\r\n \"unixtime\": \"" >> $(jbi) ;\
 	echo -n $$UNIXTIME >> $(jbi) ;\
 	echo -n -e "\",\r\n \"file\": \""$$DIRNAME-$$UNIXTIME.bin >> $(jbi) ;\
-	echo -n -e "\",\r\n \"factory\": \"$(LWS_IS_FACTORY_APPLICATION)" >> $(jbi) ;\
+	echo -n -e "\",\r\n \"factory\": \"$(FAC)" >> $(jbi) ;\
 	echo -n -e "\"\r\n}"  >> $(jbi) ;\
 	JLEN=$$(stat -c %s $(jbi)) ;\
 	printf %02x $$(( $$JLEN % 256 )) | xxd -r -p >> $(COMPONENT_PATH)/../build/$$DIRNAME.bin ;\
