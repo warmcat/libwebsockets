@@ -57,7 +57,7 @@ typedef const struct romfs_i *romfs_inode_t;
 typedef const struct romfs_superblock *romfs_t;
 
 const void *
-romfs_get_info(romfs_t romfs, const char *path, size_t *len);
+romfs_get_info(romfs_t romfs, const char *path, size_t *len, size_t *csum);
 size_t
 romfs_mount_check(romfs_t romfs);
 

@@ -203,7 +203,7 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 }
 
 const void *
-romfs_get_info(romfs_t romfs, const char *path, size_t *len)
+romfs_get_info(romfs_t romfs, const char *path, size_t *len, size_t *csum)
 {
 	romfs_inode_t i;
        
@@ -217,6 +217,8 @@ romfs_get_info(romfs_t romfs, const char *path, size_t *len)
 
 	set_cache(i, sizeof(*i));
 	*len = ntohl(ci->size);
+	if (csum)
+		*csum = ntohl(ci->checksum);
 
 	return (void *)skip_and_pad(i);
 }

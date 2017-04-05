@@ -653,13 +653,13 @@ esp32_lws_fops_open(const struct lws_plat_file_ops *fops, const char *filename,
 {
 	struct esp32_file *f = malloc(sizeof(*f));
 	lws_fop_fd_t fop_fd;
-	size_t len;
+	size_t len, csum;
 
 	lwsl_notice("%s: %s\n", __func__, filename);
 
 	if (!f)
 		return NULL;
-	f->i = romfs_get_info(lws_esp32_romfs, filename, &len);
+	f->i = romfs_get_info(lws_esp32_romfs, filename, &len, &csum);
 	if (!f->i)
 		goto bail;
 
@@ -669,6 +669,8 @@ esp32_lws_fops_open(const struct lws_plat_file_ops *fops, const char *filename,
 
         fop_fd->fops = fops;
         fop_fd->filesystem_priv = f;
+	fop_fd->mod_time = csum;
+	*flags |= LWS_FOP_FLAG_MOD_TIME_VALID;
 	fop_fd->flags = *flags;
 	
 	fop_fd->len = len;
