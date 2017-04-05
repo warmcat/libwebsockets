@@ -33,6 +33,26 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	if (!wsi || wsi->position_in_fds_table < 0)
 		return 0;
 
+	if (wsi->handling_pollout && !_and && _or == LWS_POLLOUT) {
+		/*
+		 * Happening alongside service thread handling POLLOUT.
+		 * The danger is when he is finished, he will disable POLLOUT,
+		 * countermanding what we changed here.
+		 *
+		 * Instead of changing the fds, inform the service thread
+		 * what happened, and ask it to leave POLLOUT active on exit
+		 */
+		wsi->leave_pollout_active = 1;
+		/*
+		 * by definition service thread is not in poll wait, so no need
+		 * to cancel service
+		 */
+
+		lwsl_debug("%s: using leave_pollout_active\n", __func__);
+
+		return 0;
+	}
+
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
 	assert(wsi->position_in_fds_table >= 0 &&
