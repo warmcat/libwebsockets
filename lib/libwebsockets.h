@@ -1696,6 +1696,10 @@ enum lws_context_options {
 	/**< (VH) if invalid http is coming in the first line,  */
 	LWS_SERVER_OPTION_LIBEVENT				= (1 << 21),
 	/**< (CTX) Use libevent event loop */
+	LWS_SERVER_OPTION_ONLY_RAW				= (1 << 22),
+	/**< (VH) All connections to this vhost / port are RAW as soon as
+	 * the connection is accepted, no HTTP is going to be coming.
+	 */
 
 	/****** add new things just above ---^ ******/
 };

@@ -2018,6 +2018,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
 	struct allocated_headers *ah;
+	lws_sock_file_fd_type fd;
+	int opts = LWS_ADOPT_SOCKET | LWS_ADOPT_ALLOW_SSL;
 #if LWS_POSIX
 	struct sockaddr_in cli_addr;
 	socklen_t clilen;
@@ -2301,7 +2303,12 @@ try_pollout:
 				break;
 			}
 
-			if (!lws_adopt_socket_vhost(wsi->vhost, accept_fd))
+			if (!(wsi->vhost->options & LWS_SERVER_OPTION_ONLY_RAW))
+				opts |= LWS_ADOPT_HTTP;
+
+			fd.sockfd = accept_fd;
+			if (!lws_adopt_descriptor_vhost(wsi->vhost, opts, fd,
+							NULL, NULL))
 				/* already closed cleanly as necessary */
 				return 1;
 
