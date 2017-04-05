@@ -6,6 +6,8 @@
 # [ 32-b LE len ] [ Image information JSON ]
 #
 
+SHELL=/bin/bash
+
 jbi=$(COMPONENT_PATH)/../build/json-buildinfo
 
 FAC=$(CONFIG_LWS_IS_FACTORY_APPLICATION)
