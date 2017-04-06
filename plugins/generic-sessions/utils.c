@@ -4,7 +4,7 @@
  * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
  *
  * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public
+ * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation:
  * version 2.1 of the License.
  *
