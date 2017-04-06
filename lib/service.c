@@ -911,22 +911,40 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 
 #ifdef LWS_OPENSSL_SUPPORT
-       if ((wsi->state == LWSS_SHUTDOWN) && lws_is_ssl(wsi) && wsi->ssl)
-       {
-               n = SSL_shutdown(wsi->ssl);
-               lwsl_debug("SSH_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
-               if (n == 1)
-               {
-                       n = shutdown(wsi->desc.sockfd, SHUT_WR);
-                       goto close_and_handled;
-               }
-               else
-               {
-                       lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
-                       n = 0;
-                       goto handled;
-               }
-       }
+	if ((wsi->state == LWSS_SHUTDOWN) && lws_is_ssl(wsi) && wsi->ssl)
+	{
+		n = SSL_shutdown(wsi->ssl);
+		lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
+		if (n == 1)
+		{
+			n = shutdown(wsi->desc.sockfd, SHUT_WR);
+			goto close_and_handled;
+		}
+		else if (n == 0)
+		{
+			lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+			n = 0;
+			goto handled;
+		}
+		else /* n < 0 */
+		{
+			int shutdown_error = SSL_get_error(wsi->ssl, n);
+			lwsl_debug("SSL_shutdown returned %d, SSL_get_error: %d\n", n, shutdown_error);
+			if (shutdown_error == SSL_ERROR_WANT_READ) {
+				lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+				n = 0;
+				goto handled;
+			} else if (shutdown_error == SSL_ERROR_WANT_WRITE) {
+				lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLOUT);
+				n = 0;
+				goto handled;
+			}
+
+			// actual error occurred, just close the connection
+			n = shutdown(wsi->desc.sockfd, SHUT_WR);
+			goto close_and_handled;
+		}
+	}
 #endif
 
 	/* okay, what we came here to do... */
