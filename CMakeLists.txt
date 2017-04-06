@@ -1329,7 +1329,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 
 		add_custom_command(TARGET test-server
 						POST_BUILD 
-						COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server")
+						COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server" VERBATIM)
 
 		# Copy the file needed to run the server so that the test apps can
 		# reach them from their default output location
