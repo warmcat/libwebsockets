@@ -127,4 +127,10 @@
 #cmakedefine LWS_HAVE_STDINT_H
 
 #cmakedefine LWS_FALLBACK_GETHOSTBYNAME
+
+/* OpenSSL various APIs */
+
+#cmakedefine LWS_HAVE_TLS_CLIENT_METHOD
+#cmakedefine LWS_HAVE_TLSV1_2_CLIENT_METHOD
+
 ${LWS_SIZEOFPTR_CODE}
