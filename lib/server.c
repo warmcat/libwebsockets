@@ -1806,16 +1806,25 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		if (lws_ensure_user_space(new_wsi))
 			goto bail;
 	} else
-		new_wsi->protocol = &context->vhost_list->
-					protocols[vh->default_protocol_index];
+		if (type & LWS_ADOPT_HTTP) /* he will transition later */
+			new_wsi->protocol =
+				&vh->protocols[vh->default_protocol_index];
+		else { /* this is the only time he will transition */
+			lws_bind_protocol(new_wsi,
+				&vh->protocols[vh->raw_protocol_index]);
+			lws_union_transition(new_wsi, LWSCM_RAW);
+		}
 
 	if (type & LWS_ADOPT_SOCKET) { /* socket desc */
 		lwsl_debug("%s: new wsi %p, sockfd %d\n", __func__, new_wsi,
 			   (int)(size_t)fd.sockfd);
 
-		/* the transport is accepted... give him time to negotiate */
-		lws_set_timeout(new_wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-				context->timeout_secs);
+		if (type & LWS_ADOPT_HTTP)
+			/* the transport is accepted...
+			 * give him time to negotiate */
+			lws_set_timeout(new_wsi,
+					PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+					context->timeout_secs);
 
 #if LWS_POSIX == 0
 #if defined(LWS_WITH_ESP8266)
@@ -1840,7 +1849,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			n = LWS_CALLBACK_RAW_ADOPT;
 	}
 	if ((new_wsi->protocol->callback)(
-			new_wsi, n, NULL, NULL, 0)) {
+			new_wsi, n, new_wsi->user_space, NULL, 0)) {
 		if (type & LWS_ADOPT_SOCKET) {
 			/* force us off the timeout list by hand */
 			lws_set_timeout(new_wsi, NO_PENDING_TIMEOUT, 0);
