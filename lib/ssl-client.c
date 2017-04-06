@@ -426,7 +426,7 @@ lws_ssl_client_connect2(struct lws *wsi)
 int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 				struct lws_vhost *vhost)
 {
-	SSL_METHOD *method;
+	SSL_METHOD *method = NULL;
 	struct lws wsi;
 	unsigned long error;
 #if !defined(LWS_WITH_ESP32)
@@ -468,7 +468,16 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 
 	/* basic openssl init already happened in context init */
 
+
+	/* choose the most recent spin of the api */
+#if defined(LWS_HAVE_TLS_CLIENT_METHOD)
+	method = (SSL_METHOD *)TLS_client_method();
+#if defined(LWS_HAVE_TLSV1_2_CLIENT_METHOD)
 	method = (SSL_METHOD *)TLSv1_2_client_method();
+#else
+	method = (SSL_METHOD *)SSLv23_client_method();
+#endif
+#endif
 	if (!method) {
 		error = ERR_get_error();
 		lwsl_err("problem creating ssl method %lu: %s\n",
