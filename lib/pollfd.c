@@ -247,31 +247,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 					   wsi->user_space, (void *)&pa, 1))
 		return -1;
 
-	/*
-	 * detach ourselves from vh protocol list if we're on one
-	 * A -> B -> C
-	 * A -> C , or, B -> C, or A -> B
-	 */
-	lwsl_info("%s: removing same prot wsi %p\n", __func__, wsi);
-	if (wsi->same_vh_protocol_prev) {
-		assert (*(wsi->same_vh_protocol_prev) == wsi);
-		lwsl_info("have prev %p, setting him to our next %p\n",
-			 wsi->same_vh_protocol_prev,
-			 wsi->same_vh_protocol_next);
-
-		/* guy who pointed to us should point to our next */
-		*(wsi->same_vh_protocol_prev) = wsi->same_vh_protocol_next;
-	} //else
-		//lwsl_err("null wsi->prev\n");
-	/* our next should point back to our prev */
-	if (wsi->same_vh_protocol_next) {
-		wsi->same_vh_protocol_next->same_vh_protocol_prev =
-				wsi->same_vh_protocol_prev;
-	} //else
-		//lwsl_err("null wsi->next\n");
-
-	wsi->same_vh_protocol_prev = NULL;
-	wsi->same_vh_protocol_next = NULL;
+	lws_same_vh_protocol_remove(wsi);
 
 	/* the guy who is to be deleted's slot index in pt->fds */
 	m = wsi->position_in_fds_table;
@@ -429,6 +405,74 @@ network_sock:
 
 	return 1;
 }
+
+/*
+ * stitch protocol choice into the vh protocol linked list
+ * We always insert ourselves at the start of the list
+ *
+ * X <-> B
+ * X <-> pAn <-> pB
+ *
+ * Illegal to attach more than once without detach inbetween
+ */
+void
+lws_same_vh_protocol_insert(struct lws *wsi, int n)
+{
+	//lwsl_err("%s: pre insert vhost start wsi %p, that wsi prev == %p\n",
+	//		__func__,
+	//		wsi->vhost->same_vh_protocol_list[n],
+	//		wsi->same_vh_protocol_prev);
+
+	if (wsi->same_vh_protocol_prev || wsi->same_vh_protocol_next) {
+		lwsl_err("Attempted to attach wsi twice to same vh prot\n");
+		assert(0);
+	}
+
+	wsi->same_vh_protocol_prev = /* guy who points to us */
+		&wsi->vhost->same_vh_protocol_list[n];
+	wsi->same_vh_protocol_next = /* old first guy is our next */
+			wsi->vhost->same_vh_protocol_list[n];
+	/* we become the new first guy */
+	wsi->vhost->same_vh_protocol_list[n] = wsi;
+
+	if (wsi->same_vh_protocol_next)
+		/* old first guy points back to us now */
+		wsi->same_vh_protocol_next->same_vh_protocol_prev =
+				&wsi->same_vh_protocol_next;
+}
+
+void
+lws_same_vh_protocol_remove(struct lws *wsi)
+{
+	/*
+	 * detach ourselves from vh protocol list if we're on one
+	 * A -> B -> C
+	 * A -> C , or, B -> C, or A -> B
+	 *
+	 * OK to call on already-detached wsi
+	 */
+	lwsl_info("%s: removing same prot wsi %p\n", __func__, wsi);
+
+	if (wsi->same_vh_protocol_prev) {
+		assert (*(wsi->same_vh_protocol_prev) == wsi);
+		lwsl_info("have prev %p, setting him to our next %p\n",
+			 wsi->same_vh_protocol_prev,
+			 wsi->same_vh_protocol_next);
+
+		/* guy who pointed to us should point to our next */
+		*(wsi->same_vh_protocol_prev) = wsi->same_vh_protocol_next;
+	}
+
+	/* our next should point back to our prev */
+	if (wsi->same_vh_protocol_next) {
+		wsi->same_vh_protocol_next->same_vh_protocol_prev =
+				wsi->same_vh_protocol_prev;
+	}
+
+	wsi->same_vh_protocol_prev = NULL;
+	wsi->same_vh_protocol_next = NULL;
+}
+
 
 LWS_VISIBLE int
 lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,

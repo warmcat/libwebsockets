@@ -2067,6 +2067,10 @@ LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
 LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		                lws_filepos_t *amount);
+LWS_EXTERN void
+lws_same_vh_protocol_remove(struct lws *wsi);
+LWS_EXTERN void
+lws_same_vh_protocol_insert(struct lws *wsi, int n);
 
 #ifdef __cplusplus
 };

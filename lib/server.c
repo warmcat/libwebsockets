@@ -1161,7 +1161,6 @@ transaction_result_n:
 #endif
 }
 
-
 int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
@@ -1498,30 +1497,7 @@ upgrade_ws:
 			goto bail_nuke_ah;
 		}
 
-		/*
-		 * stitch protocol choice into the vh protocol linked list
-		 * We always insert ourselves at the start of the list
-		 *
-		 * X <-> B
-		 * X <-> pAn <-> pB
-		 */
-		//lwsl_err("%s: pre insert vhost start wsi %p, that wsi prev == %p\n",
-		//		__func__,
-		//		wsi->vhost->same_vh_protocol_list[n],
-		//		wsi->same_vh_protocol_prev);
-		wsi->same_vh_protocol_prev = /* guy who points to us */
-			&wsi->vhost->same_vh_protocol_list[n];
-		wsi->same_vh_protocol_next = /* old first guy is our next */
-				wsi->vhost->same_vh_protocol_list[n];
-		/* we become the new first guy */
-		wsi->vhost->same_vh_protocol_list[n] = wsi;
-
-		if (wsi->same_vh_protocol_next)
-			/* old first guy points back to us now */
-			wsi->same_vh_protocol_next->same_vh_protocol_prev =
-					&wsi->same_vh_protocol_next;
-
-
+		lws_same_vh_protocol_insert(wsi, n);
 
 		/* we are upgrading to ws, so http/1.1 and keepalive +
 		 * pipelined header considerations about keeping the ah around

@@ -174,6 +174,7 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 {
 //	if (wsi->protocol == p)
 //		return 0;
+	const struct lws_protocols *vp = wsi->vhost->protocols, *vpo;
 
 	if (wsi->protocol)
 		wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_DROP_PROTOCOL,
@@ -181,12 +182,35 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 	if (!wsi->user_space_externally_allocated)
 		lws_free_set_NULL(wsi->user_space);
 
+	lws_same_vh_protocol_remove(wsi);
+
 	wsi->protocol = p;
 	if (!p)
 		return 0;
 
 	if (lws_ensure_user_space(wsi))
 		return 1;
+
+	if (p > vp && p < &vp[wsi->vhost->count_protocols])
+		lws_same_vh_protocol_insert(wsi, p - vp);
+	else {
+		int n = wsi->vhost->count_protocols;
+		int hit = 0;
+
+		vpo = vp;
+
+		while (n--) {
+			if (!strcmp(p->name, vp->name)) {
+				hit = 1;
+				lws_same_vh_protocol_insert(wsi, vp - vpo);
+				break;
+			}
+			vp++;
+		}
+		if (!hit)
+			lwsl_err("%s: protocol %p is not in vhost %s protocols list\n",
+			 __func__, p, wsi->vhost->name);
+	}
 
 	if (wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_BIND_PROTOCOL,
 				    wsi->user_space, NULL, 0))
