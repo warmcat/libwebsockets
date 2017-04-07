@@ -200,7 +200,7 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 		vpo = vp;
 
 		while (n--) {
-			if (!strcmp(p->name, vp->name)) {
+			if (p->name && vp->name && !strcmp(p->name, vp->name)) {
 				hit = 1;
 				lws_same_vh_protocol_insert(wsi, vp - vpo);
 				break;
