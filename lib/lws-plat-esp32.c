@@ -38,9 +38,10 @@ unsigned long long time_in_microseconds(void)
 LWS_VISIBLE int
 lws_get_random(struct lws_context *context, void *buf, int len)
 {
+	uint8_t *pb = buf;
 	while (len) {
 		uint32_t r = esp_random();
-		uint8_t *p = (uint8_t *)&r, *pb = buf;
+		uint8_t *p = (uint8_t *)&r;
 		int b = 4;
 
 		if (len < b)
