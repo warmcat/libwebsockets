@@ -1824,15 +1824,6 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		else
 			n = LWS_CALLBACK_RAW_ADOPT;
 	}
-	if ((new_wsi->protocol->callback)(
-			new_wsi, n, new_wsi->user_space, NULL, 0)) {
-		if (type & LWS_ADOPT_SOCKET) {
-			/* force us off the timeout list by hand */
-			lws_set_timeout(new_wsi, NO_PENDING_TIMEOUT, 0);
-			compatible_close(new_wsi->desc.sockfd);
-		}
-		goto bail;
-	}
 
 	if (!LWS_SSL_ENABLED(new_wsi->vhost) || !(type & LWS_ADOPT_ALLOW_SSL) ||
 	    !(type & LWS_ADOPT_SOCKET)) {
@@ -1867,6 +1858,14 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			lwsl_err("%s: fail ssl negotiation\n", __func__);
 			goto fail;
 		}
+
+	/*
+	 *  by deferring callback to this point, after insertion to fds,
+	 * lws_callback_on_writable() can work from the callback
+	 */
+	if ((new_wsi->protocol->callback)(
+			new_wsi, n, new_wsi->user_space, NULL, 0))
+		goto fail;
 
 	if (type & LWS_ADOPT_HTTP)
 		if (!lws_header_table_attach(new_wsi, 0))
