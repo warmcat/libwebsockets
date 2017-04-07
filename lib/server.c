@@ -1729,7 +1729,9 @@ lws_http_transaction_completed(struct lws *wsi)
 			 */
 
 			if (wsi->vhost->use_ssl &&
-			    wsi->context->simultaneous_ssl == wsi->context->simultaneous_ssl_restriction) {
+			    wsi->context->simultaneous_ssl_restriction &&
+			    wsi->context->simultaneous_ssl ==
+				   wsi->context->simultaneous_ssl_restriction) {
 				lwsl_info("%s: simultaneous_ssl_restriction and nothing pipelined\n", __func__);
 				return 1;
 			}
@@ -2240,7 +2242,9 @@ try_pollout:
 			 */
 
 			if (wsi->vhost->use_ssl &&
-			    context->simultaneous_ssl == context->simultaneous_ssl_restriction)
+			    context->simultaneous_ssl_restriction &&
+			    context->simultaneous_ssl ==
+					  context->simultaneous_ssl_restriction)
 				/* no... ignore it, he won't come again until we are
 				 * below the simultaneous_ssl_restriction limit and
 				 * POLLIN is enabled on him again

@@ -477,7 +477,9 @@ lws_ssl_close(struct lws *wsi)
 	SSL_free(wsi->ssl);
 	wsi->ssl = NULL;
 
-	if (wsi->context->simultaneous_ssl-- == wsi->context->simultaneous_ssl_restriction)
+	if (wsi->context->simultaneous_ssl_restriction &&
+	    wsi->context->simultaneous_ssl-- ==
+			    wsi->context->simultaneous_ssl_restriction)
 		/* we made space and can do an accept */
 		lws_gate_accepts(wsi->context, 1);
 
@@ -507,7 +509,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			lwsl_err("%s: leaking ssl\n", __func__);
 		if (accept_fd == LWS_SOCK_INVALID)
 			assert(0);
-		if (context->simultaneous_ssl >= context->simultaneous_ssl_restriction) {
+		if (context->simultaneous_ssl_restriction &&
+		    context->simultaneous_ssl >= context->simultaneous_ssl_restriction) {
 			lwsl_notice("unable to deal with SSL connection\n");
 			return 1;
 		}
@@ -522,7 +525,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				compatible_close(accept_fd);
 			goto fail;
 		}
-		if (++context->simultaneous_ssl == context->simultaneous_ssl_restriction)
+		if (context->simultaneous_ssl_restriction &&
+		    ++context->simultaneous_ssl == context->simultaneous_ssl_restriction)
 			/* that was the last allowed SSL connection */
 			lws_gate_accepts(context, 0);
 
