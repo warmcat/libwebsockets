@@ -426,10 +426,10 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	void *v;
 #endif
 
+	ah = wsi->u.hdr.ah;
 	if (!wsi->do_ws) {
 		/* we are being an http client...
 		 */
-		ah = wsi->u.hdr.ah;
 		lws_union_transition(wsi, LWSCM_HTTP_CLIENT_ACCEPTED);
 		wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
 		wsi->u.http.ah = ah;
