@@ -415,7 +415,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	int n, len, okay = 0, port = 0, ssl = 0;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
 	struct lws_context *context = wsi->context;
-	const char *pc, *prot, *ads = NULL, *path, *cce = NULL;
+	const char *pc, *prot, *ads = NULL, *path;
+	char *cce = NULL;
+	int free_cce = 0;
 	struct allocated_headers *ah = NULL;
 	char *p, *q;
 	char new_path[300];
@@ -628,6 +630,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		lwsl_notice("%s: client connection up\n", __func__);
 
 		return 0;
+	}
+
+	if (n >= 400) {
+		lwsl_info("HTTP error status\n");
+		asprintf(&cce, "HTTP: %s", p);
+		free_cce = 1;
+		goto bail3;
 	}
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
@@ -1006,6 +1015,8 @@ bail2:
 				wsi->user_space, (void *)cce,
 				(unsigned int)strlen(cce));
 	wsi->already_did_cce = 1;
+	if (free_cce && cce)
+		free(cce);
 
 	lwsl_info("closing connection due to bail2 connection error\n");
 
