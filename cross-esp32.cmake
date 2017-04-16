@@ -25,6 +25,7 @@ SET(CMAKE_C_FLAGS "-nostdlib -Wall -Werror \
 	-I${IDF_PATH}/components/esp32/include/ \
 	-I${IDF_PATH}/components/bootloader_support/include/ \
 	-I${IDF_PATH}/components/app_update/include/ \
+	-I$(IDF_PATH)/components/soc/esp32/include/ \
 	${LWS_C_FLAGS} -Os \
 	-I${IDF_PATH}/components/nvs_flash/test_nvs_host \
 	-I${IDF_PATH}/components/freertos/include" CACHE STRING "" FORCE)
