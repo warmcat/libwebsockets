@@ -1,0 +1,40 @@
+*** libwebsockets.c.old	2016-02-18 14:01:27.000000000 +0100
+--- libwebsockets.c	2016-02-20 23:36:10.964721543 +0100
+***************
+*** 925,938 ****
+  	unsigned long long now;
+  	char buf[300];
+  	int n;
+  
+  	buf[0] = '\0';
+  	for (n = 0; n < LLL_COUNT; n++) {
+  		if (level != (1 << n))
+  			continue;
+  		now = time_in_microseconds() / 100;
+! 		sprintf(buf, "[%llu:%04d] %s: ",
+! 			(unsigned long long) now / 10000,
+  			(int)(now % 10000), log_level_names[n]);
+  		break;
+  	}
+--- 925,945 ----
+  	unsigned long long now;
+  	char buf[300];
+  	int n;
++ 	time_t							o_now				= time(NULL);
++ 	struct tm*						o_now_time			= localtime(&o_now);
+  
+  	buf[0] = '\0';
+  	for (n = 0; n < LLL_COUNT; n++) {
+  		if (level != (1 << n))
+  			continue;
+  		now = time_in_microseconds() / 100;
+! 		sprintf(buf, "[%04d/%02d/%02d %02d:%02d:%02d:%04d] %s: ",
+! 			o_now_time->tm_year + 1900,
+! 			o_now_time->tm_mon,
+! 			o_now_time->tm_mday,
+! 			o_now_time->tm_hour,
+! 			o_now_time->tm_min,
+! 			o_now_time->tm_sec,
+  			(int)(now % 10000), log_level_names[n]);
+  		break;
+  	}
