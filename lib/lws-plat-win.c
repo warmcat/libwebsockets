@@ -106,6 +106,10 @@ LWS_VISIBLE int lws_get_random(struct lws_context *context,
 
 LWS_VISIBLE int lws_send_pipe_choked(struct lws *wsi)
 {
+	/* treat the fact we got a truncated send pending as if we're choked */
+	if (wsi->trunc_len)
+		return 1;
+
 	return (int)wsi->sock_send_blocking;
 }
 
