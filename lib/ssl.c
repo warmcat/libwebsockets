@@ -21,6 +21,11 @@
 
 #include "private-libwebsockets.h"
 
+/* workaround for mingw */
+#if !defined(ECONNABORTED)
+#define ECONNABORTED 103
+#endif
+
 int lws_alloc_vfs_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		lws_filepos_t *amount)
 {

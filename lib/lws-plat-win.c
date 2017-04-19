@@ -526,7 +526,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 }
 
 LWS_VISIBLE lws_fop_fd_t
-_lws_plat_file_open(struct lws_plat_file_ops *fops, const char *filename,
+_lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 		    const char *vpath, lws_fop_flags_t *flags)
 {
 	HANDLE ret;
