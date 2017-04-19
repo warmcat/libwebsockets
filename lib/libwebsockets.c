@@ -480,14 +480,28 @@ just_kill_connection:
 	    !wsi->socket_is_permanently_unusable) {
 #ifdef LWS_OPENSSL_SUPPORT
 		if (lws_is_ssl(wsi) && wsi->ssl)
-               {
-                       lwsl_info("%s: shutting down SSL connection: %p (ssl %p, sock %d, state %d)\n", __func__, wsi, wsi->ssl, (int)(long)wsi->desc.sockfd, wsi->state);
+		{
+			lwsl_info("%s: shutting down SSL connection: %p (ssl %p, sock %d, state %d)\n", __func__, wsi, wsi->ssl, (int)(long)wsi->desc.sockfd, wsi->state);
 			n = SSL_shutdown(wsi->ssl);
-                       if (n == 1) /* If finished the SSL shutdown, then do socket shutdown, else need to retry SSL shutdown */
-                               n = shutdown(wsi->desc.sockfd, SHUT_WR);
-                       else
-                               lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
-               }
+			if (n == 1) /* If finished the SSL shutdown, then do socket shutdown, else need to retry SSL shutdown */
+				n = shutdown(wsi->desc.sockfd, SHUT_WR);
+			else if (n == 0)
+				lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+			else /* n < 0 */
+			{
+				int shutdown_error = SSL_get_error(wsi->ssl, n);
+				lwsl_debug("SSL_shutdown returned %d, SSL_get_error: %d\n", n, shutdown_error);
+				if (shutdown_error == SSL_ERROR_WANT_READ) {
+					lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+					n = 0;
+				} else if (shutdown_error == SSL_ERROR_WANT_WRITE) {
+					lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLOUT);
+					n = 0;
+				} else { // actual error occurred, just close the connection
+					n = shutdown(wsi->desc.sockfd, SHUT_WR);
+				}
+			}
+		}
 		else
 #endif
 		{
