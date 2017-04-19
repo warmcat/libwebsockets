@@ -84,6 +84,9 @@ struct sockaddr_in;
 
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #define LWS_O_RDONLY _O_RDONLY
+#define LWS_O_WRONLY _O_WRONLY
+#define LWS_O_CREAT _O_CREAT
+#define LWS_O_TRUNC _O_TRUNC
 
 #if !defined(__MINGW32__) && (!defined(_MSC_VER) || _MSC_VER < 1900) /* Visual Studio 2015 already defines this in <stdio.h> */
 #define lws_snprintf _snprintf
@@ -106,6 +109,9 @@ struct sockaddr_in;
 
 #define LWS_INLINE inline
 #define LWS_O_RDONLY O_RDONLY
+#define LWS_O_WRONLY O_WRONLY
+#define LWS_O_CREAT O_CREAT
+#define LWS_O_TRUNC O_TRUNC
 
 #if !defined(LWS_WITH_ESP8266) && !defined(OPTEE_TA) && !defined(LWS_WITH_ESP32)
 #include <poll.h>
