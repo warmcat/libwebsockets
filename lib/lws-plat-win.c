@@ -538,8 +538,8 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 		ret = CreateFileW(buf, GENERIC_READ, FILE_SHARE_READ,
 			  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	} else {
-		lwsl_err("%s: open for write not implemented\n", __func__);
-		goto bail;
+		ret = CreateFileW(buf, GENERIC_WRITE, 0, NULL, 
+			  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	}
 
 	if (ret == LWS_INVALID_FILE)
@@ -603,16 +603,18 @@ LWS_VISIBLE int
 _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 			 uint8_t* buf, lws_filepos_t len)
 {
-	(void)fop_fd;
-	(void)amount;
-	(void)buf;
-	(void)len;
+	DWORD _amount;
 
-	fop_fd->pos += len;
+	if (!WriteFile((HANDLE)fop_fd->fd, buf, (DWORD)len, &_amount, NULL)) {
+		*amount = 0;
 
-	lwsl_err("%s: not implemented yet on this platform\n", __func__);
+		return 1;
+	}
 
-	return -1;
+	fop_fd->pos += _amount;
+	*amount = (unsigned long)_amount;
+
+	return 0;
 }
 
 LWS_VISIBLE int
