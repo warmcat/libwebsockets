@@ -4341,7 +4341,7 @@ lws_cgi_kill(struct lws *wsi);
 
 struct lws_plat_file_ops;
 
-#if defined(WIN32) || defined(_WIN32)
+#if (defined(WIN32) || defined(_WIN32)) && !defined(__MINGW32__)
 /* ... */
 #if !defined(ssize_t)
 typedef SSIZE_T ssize_t;
