@@ -467,6 +467,13 @@ int main(int argc, char **argv)
 				lws_service_fd(context, NULL);
 				ms_1sec = ms;
 			}
+		} else {
+			/* no revents, but before polling again, make lws check for any timeouts */
+			if (ms - ms_1sec > 1000) {
+				lwsl_notice("1 per sec\n");
+				lws_service_fd(context, NULL);
+				ms_1sec = ms;
+			}
 		}
 #else
 		/*
