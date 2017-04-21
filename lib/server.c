@@ -44,7 +44,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 
 	/* set up our external listening socket we serve on */
 
-	if (info->port == CONTEXT_PORT_NO_LISTEN)
+	if (info->port == CONTEXT_PORT_NO_LISTEN || info->port == CONTEXT_PORT_NO_LISTEN_SERVER)
 		return 0;
 
 	vh = vhost->context->vhost_list;
@@ -1542,7 +1542,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	return 0;
 }
 
-struct lws *
+LWS_VISIBLE struct lws *
 lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 {
 	struct lws_context *context = vh->context;
@@ -1615,11 +1615,10 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 	return lws_adopt_socket_vhost(context->vhost_list, accept_fd);
 }
 
-LWS_VISIBLE LWS_EXTERN struct lws *
-lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
-			 const char *readbuf, size_t len)
+/* Common read-buffer adoption for lws_adopt_*_readbuf */
+static struct lws*
+adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 {
-	struct lws *wsi = lws_adopt_socket(context, accept_fd);
 	struct lws_context_per_thread *pt;
 	struct allocated_headers *ah;
 	struct lws_pollfd *pfd;
@@ -1627,7 +1626,7 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 	if (!wsi)
 		return NULL;
 
-	if (!readbuf)
+	if (!readbuf || len == 0)
 		return wsi;
 
 	if (len > sizeof(ah->rx)) {
@@ -1652,7 +1651,7 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 		ah->rxlen = len;
 
 		lwsl_notice("%s: calling service on readbuf ah\n", __func__);
-		pt = &context->pt[(int)wsi->tsi];
+		pt = &wsi->context->pt[(int)wsi->tsi];
 
 		/* unlike a normal connect, we have the headers already
 		 * (or the first part of them anyway).
@@ -1662,7 +1661,7 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 		pfd = &pt->fds[wsi->position_in_fds_table];
 		pfd->revents |= LWS_POLLIN;
 		lwsl_err("%s: calling service\n", __func__);
-		if (lws_service_fd_tsi(context, pfd, wsi->tsi))
+		if (lws_service_fd_tsi(wsi->context, pfd, wsi->tsi))
 			/* service closed us */
 			return NULL;
 
@@ -1690,6 +1689,20 @@ bail:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return NULL;
+}
+
+LWS_VISIBLE struct lws *
+lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
+			 const char *readbuf, size_t len)
+{
+        return adopt_socket_readbuf(lws_adopt_socket(context, accept_fd), readbuf, len);
+}
+
+LWS_VISIBLE struct lws *
+lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost, lws_sockfd_type accept_fd,
+			 const char *readbuf, size_t len)
+{
+        return adopt_socket_readbuf(lws_adopt_socket_vhost(vhost, accept_fd), readbuf, len);
 }
 
 LWS_VISIBLE int

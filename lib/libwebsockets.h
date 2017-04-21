@@ -256,6 +256,7 @@ typedef ssl_context SSL;
 
 
 #define CONTEXT_PORT_NO_LISTEN -1
+#define CONTEXT_PORT_NO_LISTEN_SERVER -2
 
 /** \defgroup log Logging
  *
@@ -1563,10 +1564,10 @@ enum lws_context_options {
  */
 struct lws_context_creation_info {
 	int port;
-	/**< VHOST: Port to listen on... you can use CONTEXT_PORT_NO_LISTEN to
-	 * suppress listening on any port, that's what you want if you are
-	 * not running a websocket server at all but just using it as a
-	 * client */
+	/**< VHOST: Port to listen on. Use CONTEXT_PORT_NO_LISTEN to suppress
+	 * listening for a client. Use CONTEXT_PORT_NO_LISTEN_SERVER if you are
+	 * writing a server but you are using \ref sock-adopt instead of the
+	 * built-in listener */
 	const char *iface;
 	/**< VHOST: NULL to bind the listen socket to all interfaces, or the
 	 * interface name, eg, "eth2"
@@ -3517,6 +3518,7 @@ lws_remaining_packet_payload(struct lws *wsi);
 
 /**
  * lws_adopt_socket() - adopt foreign socket as if listen socket accepted it
+ * for the default vhost of context.
  * \param context: lws context
  * \param accept_fd: fd of already-accepted socket to adopt
  *
@@ -3529,7 +3531,22 @@ lws_remaining_packet_payload(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd);
 /**
+ * lws_adopt_socket_vhost() - adopt foreign socket as if listen socket accepted it
+ * for vhost
+ * \param vhost: lws vhost
+ * \param accept_fd: fd of already-accepted socket to adopt
+ *
+ * Either returns new wsi bound to accept_fd, or closes accept_fd and
+ * returns NULL, having cleaned up any new wsi pieces.
+ *
+ * LWS adopts the socket in http serving mode, it's ready to accept an upgrade
+ * to ws or just serve http.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
+/**
  * lws_adopt_socket_readbuf() - adopt foreign socket and first rx as if listen socket accepted it
+ * for the default vhost of context.
  * \param context:	lws context
  * \param accept_fd:	fd of already-accepted socket to adopt
  * \param readbuf:	NULL or pointer to data that must be drained before reading from
@@ -3552,7 +3569,33 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd);
  */
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
-		const char *readbuf, size_t len);
+                         const char *readbuf, size_t len);
+/**
+ * lws_adopt_socket_vhost_readbuf() - adopt foreign socket and first rx as if listen socket
+ * accepted it for vhost.
+ * \param vhost:	lws vhost
+ * \param accept_fd:	fd of already-accepted socket to adopt
+ * \param readbuf:	NULL or pointer to data that must be drained before reading from
+ *			accept_fd
+ * \param len:		The length of the data held at \param readbuf
+ *
+ * Either returns new wsi bound to accept_fd, or closes accept_fd and
+ * returns NULL, having cleaned up any new wsi pieces.
+ *
+ * LWS adopts the socket in http serving mode, it's ready to accept an upgrade
+ * to ws or just serve http.
+ *
+ * If your external code did not already read from the socket, you can use
+ * lws_adopt_socket() instead.
+ *
+ * This api is guaranteed to use the data at \param readbuf first, before reading from
+ * the socket.
+ *
+ * readbuf is limited to the size of the ah rx buf, currently 2048 bytes.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost, lws_sockfd_type accept_fd,
+                               const char *readbuf, size_t len);
 ///@}
 
 /** \defgroup net Network related helper APIs
