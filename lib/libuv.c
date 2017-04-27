@@ -331,7 +331,7 @@ lws_libuv_accept(struct lws *wsi, lws_sock_file_fd_type desc)
 	wsi->w_read.context = context;
 	if (wsi->mode == LWSCM_RAW_FILEDESC)
 		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher,
-			     desc.filefd);
+			     (int)desc.filefd);
 	else
 		uv_poll_init_socket(pt->io_loop_uv, &wsi->w_read.uv_watcher,
 				    desc.sockfd);
@@ -571,7 +571,7 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 				goto bail;
 			}
 			/* we could open it, can we get his init function? */
-#if !defined(WIN32)
+#if !defined(WIN32) || defined(__MINGW32__)
 			m = lws_snprintf(path, sizeof(path) - 1, "init_%s",
 				     dent.name + 3 /* snip lib... */);
 			path[m - 3] = '\0'; /* snip the .so */
@@ -582,7 +582,7 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 #endif
 			if (uv_dlsym(&lib, path, &v)) {
 				uv_dlerror(&lib);
-				lwsl_err("Failed to get init on %s: %s",
+				lwsl_err("Failed to get %s on %s: %s", path,
 						dent.name, lib.errmsg);
 				goto bail;
 			}
@@ -641,7 +641,7 @@ lws_plat_plugins_destroy(struct lws_context *context)
 
 	while (plugin) {
 		p = plugin;
-#if !defined(WIN32)
+#if !defined(WIN32) || defined(__MINGW32__)
 		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
 		path[m - 3] = '\0';
 #else
@@ -651,7 +651,7 @@ lws_plat_plugins_destroy(struct lws_context *context)
 
 		if (uv_dlsym(&plugin->lib, path, &v)) {
 			uv_dlerror(&plugin->lib);
-			lwsl_err("Failed to get init on %s: %s",
+			lwsl_err("Failed to get %s on %s: %s", path,
 					plugin->name, plugin->lib.errmsg);
 		} else {
 			func = (lws_plugin_destroy_func)v;

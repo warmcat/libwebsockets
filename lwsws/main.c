@@ -223,7 +223,7 @@ int main(int argc, char **argv)
 			exit(1);
 		}
 	}
-
+#ifndef _WIN32
 	/*
 	 * We leave our original process up permanently, because that
 	 * suits systemd.
@@ -267,7 +267,7 @@ int main(int argc, char **argv)
 // !!! implemenation needed
 #endif
 	}
-
+#endif
 	/* child process */
 
 #ifndef _WIN32

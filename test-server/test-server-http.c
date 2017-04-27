@@ -147,7 +147,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		/* we get the original filename in @filename arg, but for
 		 * simple demo use a fixed name so we don't have to deal with
 		 * attacks  */
-		pss->post_fd = open("/tmp/post-file",
+		pss->post_fd = (lws_filefd_type)open("/tmp/post-file",
 			       O_CREAT | O_TRUNC | O_RDWR, 0600);
 		break;
 	case LWS_UFS_FINAL_CONTENT:
@@ -159,12 +159,12 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			if (pss->file_length > 100000)
 				return 1;
 
-			n = write(pss->post_fd, buf, len);
+			n = write((int)pss->post_fd, buf, len);
 			lwsl_notice("%s: write %d says %d\n", __func__, len, n);
 		}
 		if (state == LWS_UFS_CONTENT)
 			break;
-		close(pss->post_fd);
+		close((int)pss->post_fd);
 		pss->post_fd = LWS_INVALID_FILE;
 		break;
 	}
