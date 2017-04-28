@@ -541,6 +541,11 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 	char path[256];
 	uv_loop_t loop;
 	uv_lib_t lib;
+	int pofs = 0;
+
+#if  defined(__MINGW32__) || !defined(WIN32)
+	pofs = 3;
+#endif
 
 	lib.errmsg = NULL;
 	lib.handle = NULL;
@@ -570,14 +575,15 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 				lwsl_err("Error loading DSO: %s\n", lib.errmsg);
 				goto bail;
 			}
+
 			/* we could open it, can we get his init function? */
 #if !defined(WIN32) && !defined(__MINGW32__)
 			m = lws_snprintf(path, sizeof(path) - 1, "init_%s",
-				     dent.name + 3 /* snip lib... */);
+				     dent.name + pofs /* snip lib... */);
 			path[m - 3] = '\0'; /* snip the .so */
 #else
 			m = lws_snprintf(path, sizeof(path) - 1, "init_%s",
-				     dent.name);
+				     dent.name + pofs);
 			path[m - 4] = '\0'; /* snip the .dll */
 #endif
 			if (uv_dlsym(&lib, path, &v)) {
@@ -633,6 +639,11 @@ lws_plat_plugins_destroy(struct lws_context *context)
 	char path[256];
 	void *v;
 	int m;
+	int pofs = 0;
+
+#if  defined(__MINGW32__) || !defined(WIN32)
+	pofs = 3;
+#endif
 
 	if (!plugin)
 		return 0;
@@ -642,10 +653,10 @@ lws_plat_plugins_destroy(struct lws_context *context)
 	while (plugin) {
 		p = plugin;
 #if !defined(WIN32) && !defined(__MINGW32__)
-		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
+		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + pofs);
 		path[m - 3] = '\0';
 #else
-		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name);
+		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + pofs);
 		path[m - 4] = '\0';
 #endif
 
