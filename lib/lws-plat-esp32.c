@@ -39,6 +39,7 @@ LWS_VISIBLE int
 lws_get_random(struct lws_context *context, void *buf, int len)
 {
 	uint8_t *pb = buf;
+
 	while (len) {
 		uint32_t r = esp_random();
 		uint8_t *p = (uint8_t *)&r;
@@ -53,7 +54,7 @@ lws_get_random(struct lws_context *context, void *buf, int len)
 			*pb++ = p[b];
 	}
 
-	return 0;
+	return pb - (uint8_t *)buf;
 }
 
 LWS_VISIBLE int
