@@ -331,7 +331,7 @@ lws_libuv_accept(struct lws *wsi, lws_sock_file_fd_type desc)
 	wsi->w_read.context = context;
 	if (wsi->mode == LWSCM_RAW_FILEDESC)
 		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher,
-			     desc.filefd);
+			     (int)desc.filefd);
 	else
 		uv_poll_init_socket(pt->io_loop_uv, &wsi->w_read.uv_watcher,
 				    desc.sockfd);
@@ -541,6 +541,11 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 	char path[256];
 	uv_loop_t loop;
 	uv_lib_t lib;
+	int pofs = 0;
+
+#if  defined(__MINGW32__) || !defined(WIN32)
+	pofs = 3;
+#endif
 
 	lib.errmsg = NULL;
 	lib.handle = NULL;
@@ -570,19 +575,21 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 				lwsl_err("Error loading DSO: %s\n", lib.errmsg);
 				goto bail;
 			}
+
 			/* we could open it, can we get his init function? */
-#if !defined(WIN32)
+
+#if !defined(WIN32) && !defined(__MINGW32__)
 			m = lws_snprintf(path, sizeof(path) - 1, "init_%s",
-				     dent.name + 3 /* snip lib... */);
+				     dent.name + pofs /* snip lib... */);
 			path[m - 3] = '\0'; /* snip the .so */
 #else
 			m = lws_snprintf(path, sizeof(path) - 1, "init_%s",
-				     dent.name);
+				     dent.name + pofs);
 			path[m - 4] = '\0'; /* snip the .dll */
 #endif
 			if (uv_dlsym(&lib, path, &v)) {
 				uv_dlerror(&lib);
-				lwsl_err("Failed to get init on %s: %s",
+				lwsl_err("Failed to get %s on %s: %s", path,
 						dent.name, lib.errmsg);
 				goto bail;
 			}
@@ -633,6 +640,11 @@ lws_plat_plugins_destroy(struct lws_context *context)
 	char path[256];
 	void *v;
 	int m;
+	int pofs = 0;
+
+#if  defined(__MINGW32__) || !defined(WIN32)
+	pofs = 3;
+#endif
 
 	if (!plugin)
 		return 0;
@@ -641,17 +653,18 @@ lws_plat_plugins_destroy(struct lws_context *context)
 
 	while (plugin) {
 		p = plugin;
-#if !defined(WIN32)
-		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
+
+#if !defined(WIN32) && !defined(__MINGW32__)
+		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + pofs);
 		path[m - 3] = '\0';
 #else
-		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name);
+		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + pofs);
 		path[m - 4] = '\0';
 #endif
 
 		if (uv_dlsym(&plugin->lib, path, &v)) {
 			uv_dlerror(&plugin->lib);
-			lwsl_err("Failed to get init on %s: %s",
+			lwsl_err("Failed to get %s on %s: %s", path,
 					plugin->name, plugin->lib.errmsg);
 		} else {
 			func = (lws_plugin_destroy_func)v;

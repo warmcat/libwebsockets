@@ -95,7 +95,7 @@ uv_timeout_cb_server_status(uv_timer_t *w
 			l -= n;
 		}
 		fd = open(fp->filepath, LWS_O_RDONLY);
-		if (fd != LWS_INVALID_FILE) {
+		if (fd >= 0) {
 			n = read(fd, contents, sizeof(contents) - 1);
 			if (n >= 0) {
 				contents[n] = '\0';

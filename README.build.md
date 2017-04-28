@@ -176,7 +176,7 @@ cmake from scratch.
 
 2. Fix up MinGW headers
 
-   a) Add the following lines to C:\MinGW\include\winsock2.h:
+   a) If still necessary, sdd the following lines to C:\MinGW\include\winsock2.h:
 ```
 	#if(_WIN32_WINNT >= 0x0600)
 
@@ -192,9 +192,16 @@ cmake from scratch.
 
 	#endif // (_WIN32_WINNT >= 0x0600)
 ```
+
+       Update crtdefs.h line 47 to say:
+
+```
+	typedef __int64 ssize_t;
+```
+
    b) Create C:\MinGW\include\mstcpip.h and copy and paste the content from following link into it:
-    
-   http://wine-unstable.sourcearchive.com/documentation/1.1.32/mstcpip_8h-source.html
+
+   https://github.com/Alexpux/mingw-w64/blob/master/mingw-w64-headers/include/mstcpip.h
 
 3. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
 
