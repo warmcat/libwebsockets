@@ -571,7 +571,7 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 				goto bail;
 			}
 			/* we could open it, can we get his init function? */
-#if !defined(WIN32) || defined(__MINGW32__)
+#if !defined(WIN32) && !defined(__MINGW32__)
 			m = lws_snprintf(path, sizeof(path) - 1, "init_%s",
 				     dent.name + 3 /* snip lib... */);
 			path[m - 3] = '\0'; /* snip the .so */
@@ -641,7 +641,7 @@ lws_plat_plugins_destroy(struct lws_context *context)
 
 	while (plugin) {
 		p = plugin;
-#if !defined(WIN32) || defined(__MINGW32__)
+#if !defined(WIN32) && !defined(__MINGW32__)
 		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + 3);
 		path[m - 3] = '\0';
 #else
