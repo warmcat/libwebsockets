@@ -61,13 +61,13 @@ char* lws_ssl_get_error_string(int status, int ret, char *buf, size_t len) {
 	case SSL_ERROR_SYSCALL:
 		switch (ret) {
                 case 0:
-                        snprintf(buf, len, "SSL_ERROR_SYSCALL: EOF");
+                        lws_snprintf(buf, len, "SSL_ERROR_SYSCALL: EOF");
                         return buf;
                 case -1:
 #ifndef LWS_PLAT_OPTEE
-			snprintf(buf, len, "SSL_ERROR_SYSCALL: %s", strerror(errno));
+			lws_snprintf(buf, len, "SSL_ERROR_SYSCALL: %s", strerror(errno));
 #else
-			snprintf(buf, len, "SSL_ERROR_SYSCALL: %d", errno);
+			lws_snprintf(buf, len, "SSL_ERROR_SYSCALL: %d", errno);
 #endif
 			return buf;
                 default:
