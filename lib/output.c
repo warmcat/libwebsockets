@@ -801,5 +801,5 @@ LWS_VISIBLE int
 lws_ssl_pending_no_ssl(struct lws *wsi)
 {
 	(void)wsi;
-	return 1;
+	return 0;
 }
