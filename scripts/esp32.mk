@@ -18,18 +18,20 @@ export FAC
 
 .PHONY: romfs.img
 pack.img:
+	GNUSTAT=stat ;\
+	if [ `which gstat 2>/dev/null` ] ; then GNUSTAT=gstat ; fi ;\
 	DIRNAME=$$(basename $$(pwd) | tr -d '\n') ;\
 	cp $(COMPONENT_PATH)/../build/$(PROJECT_NAME).bin $(COMPONENT_PATH)/../build/$$DIRNAME.bin ; \
 	genromfs -f $(COMPONENT_PATH)/../build/romfs.img -d $(COMPONENT_PATH)/../romfs-files ; \
-        RLEN=$$(stat -c %s $(COMPONENT_PATH)/../build/romfs.img) ;\
-        LEN=$$(stat -c %s $(COMPONENT_PATH)/../build/$$DIRNAME.bin) ;\
+        RLEN=$$($$GNUSTAT -c %s $(COMPONENT_PATH)/../build/romfs.img) ;\
+        LEN=$$($$GNUSTAT -c %s $(COMPONENT_PATH)/../build/$$DIRNAME.bin) ;\
         printf "             Original length: 0x%06x (%8d)\n" $$LEN $$LEN ; \
         printf %02x $$(( $$RLEN % 256 )) | xxd -r -p >> $(COMPONENT_PATH)/../build/$$DIRNAME.bin ;\
         printf %02x $$(( ( $$RLEN / 256 ) % 256 )) | xxd -r -p >> $(COMPONENT_PATH)/../build/$$DIRNAME.bin ;\
         printf %02x $$(( ( $$RLEN / 65536 ) % 256 )) | xxd -r -p >> $(COMPONENT_PATH)/../build/$$DIRNAME.bin ;\
         printf %02x $$(( ( $$RLEN / 16777216 ) % 256 )) | xxd -r -p >> $(COMPONENT_PATH)/../build/$$DIRNAME.bin ;\
         cat $(COMPONENT_PATH)/../build/romfs.img >>$(COMPONENT_PATH)/../build/$$DIRNAME.bin ; \
-        LEN=$$(stat -c %s $(COMPONENT_PATH)/../build/$$DIRNAME.bin) ;\
+        LEN=$$($$GNUSTAT -c %s $(COMPONENT_PATH)/../build/$$DIRNAME.bin) ;\
 	UNIXTIME=$$(date +%s | tr -d '\n') ; \
 	echo -n -e "{\r\n \"schema\": \"lws1\",\r\n \"model\": \"$(CONFIG_LWS_MODEL_NAME)\",\r\n \"builder\": \"" > $(jbi) ;\
 	hostname | tr -d '\n' >> $(jbi) ;\
@@ -46,13 +48,13 @@ pack.img:
 	echo -n -e "\",\r\n \"file\": \""$$DIRNAME-$$UNIXTIME.bin >> $(jbi) ;\
 	echo -n -e "\",\r\n \"factory\": \"$(FAC)" >> $(jbi) ;\
 	echo -n -e "\"\r\n}"  >> $(jbi) ;\
-	JLEN=$$(stat -c %s $(jbi)) ;\
+	JLEN=$$($$GNUSTAT -c %s $(jbi)) ;\
 	printf %02x $$(( $$JLEN % 256 )) | xxd -r -p >> $(COMPONENT_PATH)/../build/$$DIRNAME.bin ;\
 	printf %02x $$(( ( $$JLEN / 256 ) % 256 )) | xxd -r -p >> $(COMPONENT_PATH)/../build/$$DIRNAME.bin ;\
 	printf %02x $$(( ( $$JLEN / 65536 ) % 256 )) | xxd -r -p >> $(COMPONENT_PATH)/../build/$$DIRNAME.bin ;\
 	printf %02x $$(( ( $$JLEN / 16777216 ) % 256 )) | xxd -r -p >> $(COMPONENT_PATH)/../build/$$DIRNAME.bin ;\
 	cat $(jbi) >> $(COMPONENT_PATH)/../build/$$DIRNAME.bin ;\
-        LEN=$$(stat -c %s $(COMPONENT_PATH)/../build/$$DIRNAME.bin) ;\
+        LEN=$$($$GNUSTAT -c %s $(COMPONENT_PATH)/../build/$$DIRNAME.bin) ;\
 	cp $(COMPONENT_PATH)/../build/$$DIRNAME.bin $(COMPONENT_PATH)/../build/$$DIRNAME-$$UNIXTIME.bin ;\
 	printf "    After ROMFS + Build info: 0x%06x (%8d)\n" $$LEN $$LEN
 
