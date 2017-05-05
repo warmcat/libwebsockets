@@ -1325,6 +1325,76 @@ auth_too_long:
 	return -1;
 }
 
+LWS_VISIBLE int
+lws_set_socks(struct lws_vhost *vhost, const char *socks)
+{
+#if !defined(LWS_WITH_ESP8266)
+	char *p_at, *p_colon;
+	char user[96];
+	char password[96];
+
+	if (!socks)
+		return -1;
+
+	vhost->socks_user[0] = '\0';
+	vhost->socks_password[0] = '\0';
+
+	p_at = strchr(socks, '@');
+	if (p_at) { /* auth is around */
+		if ((unsigned int)(p_at - socks) > (sizeof(user)
+			+ sizeof(password) - 2))
+			goto auth_too_long;
+
+		p_colon = strchr(socks, ':');
+		if (p_colon) {
+			if ((unsigned int)(p_colon - socks) > (sizeof(user)
+				- 1) )
+				goto auth_user_too_long;
+			if ((unsigned int)(p_at - p_colon) > (sizeof(password)
+				- 1) )
+				goto auth_password_too_long;
+		}
+		strncpy(vhost->socks_user, socks, p_colon - socks);
+		strncpy(vhost->socks_password, p_colon + 1,
+			p_at - (p_colon + 1));
+
+		lwsl_info(" Socks auth, user: %s, password: %s\n",
+			vhost->socks_user, vhost->socks_password );
+
+		socks = p_at + 1;
+	}
+
+	strncpy(vhost->socks_proxy_address, socks,
+				sizeof(vhost->socks_proxy_address) - 1);
+	vhost->socks_proxy_address[sizeof(vhost->socks_proxy_address) - 1]
+		= '\0';
+
+	p_colon = strchr(vhost->socks_proxy_address, ':');
+	if (!p_colon && !vhost->socks_proxy_port) {
+		lwsl_err("socks_proxy needs to be address:port\n");
+		return -1;
+	} else {
+		if (p_colon) {
+			*p_colon = '\0';
+			vhost->socks_proxy_port = atoi(p_colon + 1);
+		}
+	}
+
+	lwsl_info(" Socks %s:%u\n", vhost->socks_proxy_address,
+			vhost->socks_proxy_port);
+
+	return 0;
+
+auth_too_long:
+	lwsl_err("Socks auth too long\n");
+auth_user_too_long:
+	lwsl_err("Socks user too long\n");
+auth_password_too_long:
+	lwsl_err("Socks password too long\n");
+#endif
+	return -1;
+}
+
 LWS_VISIBLE const struct lws_protocols *
 lws_get_protocol(struct lws *wsi)
 {

@@ -26,6 +26,7 @@ lws_client_connect_2(struct lws *wsi)
 
 	/* proxy? */
 
+	/* http proxy */
 	if (wsi->vhost->http_proxy_port) {
 		plen = sprintf((char *)pt->serv_buf,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
@@ -48,6 +49,22 @@ lws_client_connect_2(struct lws *wsi)
 		} else
 #endif
 			server_addr4.sin_port = htons(wsi->vhost->http_proxy_port);
+
+	}
+	/* socks proxy */
+	else if (wsi->vhost->socks_proxy_port) {
+		socks_generate_msg(wsi, SOCKS_MSG_GREETING, (size_t *)&plen);
+		lwsl_client("%s\n", "Sending SOCKS Greeting.");
+
+		ads = wsi->vhost->socks_proxy_address;
+
+#ifdef LWS_USE_IPV6
+		if (LWS_IPV6_ENABLED(wsi->vhost)) {
+			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
+			server_addr6.sin6_port = htons(wsi->vhost->socks_proxy_port);
+		} else
+#endif
+			server_addr4.sin_port = htons(wsi->vhost->socks_proxy_port);
 
 	} else {
 		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
@@ -275,6 +292,7 @@ lws_client_connect_2(struct lws *wsi)
 
 	/* we are connected to server, or proxy */
 
+	/* http proxy */
 	if (wsi->vhost->http_proxy_port) {
 
 		/*
@@ -300,6 +318,24 @@ lws_client_connect_2(struct lws *wsi)
 				AWAITING_TIMEOUT);
 
 		wsi->mode = LWSCM_WSCL_WAITING_PROXY_REPLY;
+
+		return wsi;
+	}
+	/* socks proxy */
+	else if (wsi->vhost->socks_proxy_port) {
+		n = send(wsi->desc.sockfd, (char *)pt->serv_buf, plen,
+			 MSG_NOSIGNAL);
+		if (n < 0) {
+			lwsl_debug("ERROR writing greeting to socks proxy"
+				"socket.\n");
+			cce = "socks write failed";
+			goto failed;
+		}
+
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
+				AWAITING_TIMEOUT);
+
+		wsi->mode = LWSCM_WSCL_WAITING_SOCKS_GREETING_REPLY;
 
 		return wsi;
 	}
@@ -754,7 +790,8 @@ lws_client_connect_via_info2(struct lws *wsi)
 					  stash->method))
 			goto bail1;
 
-	lws_free_set_NULL(wsi->u.hdr.stash);
+	if (!wsi->vhost->socks_proxy_port)
+		lws_free_set_NULL(wsi->u.hdr.stash);
 
 	/*
 	 * Check with each extension if it is able to route and proxy this
@@ -782,7 +819,8 @@ lws_client_connect_via_info2(struct lws *wsi)
 	return lws_client_connect_2(wsi);
 
 bail1:
-	lws_free_set_NULL(wsi->u.hdr.stash);
+	if (!wsi->vhost->socks_proxy_port)
+		lws_free_set_NULL(wsi->u.hdr.stash);
 
 	return NULL;
 }
@@ -836,3 +874,72 @@ lws_client_connect(struct lws_context *context, const char *address,
 	return lws_client_connect_via_info(&i);
 }
 
+void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
+			size_t *msg_len)
+{
+	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	size_t len = 0;
+
+	if(type == SOCKS_MSG_GREETING ) {
+		/* socks version, version 5 only */
+		pt->serv_buf[len++] = SOCKS_VERSION_5;
+		/* number of methods */
+		pt->serv_buf[len++] = 2;
+		/* username password method */
+		pt->serv_buf[len++] = SOCKS_AUTH_USERNAME_PASSWORD;
+		/* no authentication method */
+		pt->serv_buf[len++] = SOCKS_AUTH_NO_AUTH;
+	}
+	else if(type == SOCKS_MSG_USERNAME_PASSWORD) {
+		size_t user_len = 0;
+		size_t passwd_len = 0;
+
+		user_len = strlen(wsi->vhost->socks_user);
+		passwd_len = strlen(wsi->vhost->socks_password);
+
+		/* the subnegotiation version */
+		pt->serv_buf[len++] = SOCKS_SUBNEGOTIATION_VERSION_1;
+		/* length of the user name */
+		pt->serv_buf[len++] = user_len;
+		/* user name */
+		strncpy(&pt->serv_buf[len], wsi->vhost->socks_user,
+			context->pt_serv_buf_size - len);
+		len += user_len;
+		/* length of the password */
+		pt->serv_buf[len++] = passwd_len;
+		/* password */
+		strncpy(&pt->serv_buf[len], wsi->vhost->socks_password,
+			context->pt_serv_buf_size - len);
+		len += passwd_len;
+	}
+	else if(type == SOCKS_MSG_CONNECT) {
+		size_t len_index = 0;
+		short net_num = 0;
+		char *net_buf = (char*)&net_num;
+
+		/* socks version */
+		pt->serv_buf[len++] = SOCKS_VERSION_5;
+		/* socks command */
+		pt->serv_buf[len++] = SOCKS_COMMAND_CONNECT;
+		/* reserved */
+		pt->serv_buf[len++] = 0;
+		/* address type */
+		pt->serv_buf[len++] = SOCKS_ATYP_DOMAINNAME;
+		len_index = len;
+		len++;
+		/* the address we tell SOCKS proxy to connect to */
+		strncpy(&(pt->serv_buf[len]), wsi->u.hdr.stash->address,
+			context->pt_serv_buf_size - len);
+		len += strlen(wsi->u.hdr.stash->address);
+		net_num = htons((short)wsi->c_port);
+		/* the port we tell SOCKS proxy to connect to */
+		pt->serv_buf[len++] = net_buf[0];
+		pt->serv_buf[len++] = net_buf[1];
+		/* the length of the address, excluding port */
+		pt->serv_buf[len_index] = strlen(wsi->u.hdr.stash->address);
+	}
+
+	*msg_len = len;
+	return;
+}

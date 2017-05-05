@@ -1794,6 +1794,11 @@ struct lws_context_creation_info {
 	 * If proxy auth is required, use format "username:password\@server:port" */
 	unsigned int http_proxy_port;
 	/**< VHOST: If http_proxy_address was non-NULL, uses this port */
+	const char *socks_proxy_address;
+	/**< VHOST: If non-NULL, attempts to proxy via the given address.
+	 * If proxy auth is required, use format "username:password\@server:port" */
+	unsigned int socks_proxy_port;
+	/**< VHOST: If socks_proxy_address was non-NULL, uses this port */
 	int gid;
 	/**< CONTEXT: group id to change to after setting listen socket, or -1. */
 	int uid;
@@ -2060,6 +2065,25 @@ lws_context_is_deprecated(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN int
 lws_set_proxy(struct lws_vhost *vhost, const char *proxy);
 
+/**
+ * lws_set_socks() - Setup socks to lws_context.
+ * \param vhost:	pointer to struct lws_vhost you want set socks for
+ * \param socks: pointer to c string containing socks in format address:port
+ *
+ * Returns 0 if socks string was parsed and socks was setup.
+ * Returns -1 if socks is NULL or has incorrect format.
+ *
+ * This is only required if your OS does not provide the socks_proxy
+ * environment variable (eg, OSX)
+ *
+ *   IMPORTANT! You should call this function right after creation of the
+ *   lws_context and before call to connect. If you call this
+ *   function after connect behavior is undefined.
+ *   This function will override proxy settings made on lws_context
+ *   creation with genenv() call.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_set_socks(struct lws_vhost *vhost, const char *socks);
 
 struct lws_vhost;
 
@@ -3461,6 +3485,9 @@ enum pending_timeout {
 	PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING			= 16,
 	PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG			= 17,
 	PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD			= 18,
+	PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY	        = 19,
+	PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY		= 20,
+	PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY		= 21,
 
 	/****** add new things just above ---^ ******/
 };

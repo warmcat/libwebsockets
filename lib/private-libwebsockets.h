@@ -574,10 +574,73 @@ enum connection_mode {
 	LWSCM_WSCL_WAITING_SERVER_REPLY,
 	LWSCM_WSCL_WAITING_EXTENSION_CONNECT,
 	LWSCM_WSCL_PENDING_CANDIDATE_CHILD,
+	LWSCM_WSCL_WAITING_SOCKS_GREETING_REPLY,
+	LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY,
+	LWSCM_WSCL_WAITING_SOCKS_AUTH_REPLY,
 
 	/****** add new things just above ---^ ******/
 
 
+};
+
+/* enums of socks version */
+enum socks_version {
+	SOCKS_VERSION_4 = 4,
+	SOCKS_VERSION_5 = 5
+};
+
+/* enums of subnegotiation version */
+enum socks_subnegotiation_version {
+	SOCKS_SUBNEGOTIATION_VERSION_1 = 1,
+};
+
+/* enums of socks commands */
+enum socks_command {
+	SOCKS_COMMAND_CONNECT = 1,
+	SOCKS_COMMAND_BIND = 2,
+	SOCKS_COMMAND_UDP_ASSOCIATE = 3
+};
+
+/* enums of socks address type */
+enum socks_atyp {
+	SOCKS_ATYP_IPV4 = 1,
+	SOCKS_ATYP_DOMAINNAME = 3,
+	SOCKS_ATYP_IPV6 = 4
+};
+
+/* enums of socks authentication methods */
+enum socks_auth_method {
+	SOCKS_AUTH_NO_AUTH = 0,
+	SOCKS_AUTH_GSSAPI = 1,
+	SOCKS_AUTH_USERNAME_PASSWORD = 2
+};
+
+/* enums of subnegotiation status */
+enum socks_subnegotiation_status {
+	SOCKS_SUBNEGOTIATION_STATUS_SUCCESS = 0,
+};
+
+/* enums of socks request reply */
+enum socks_request_reply {
+	SOCKS_REQUEST_REPLY_SUCCESS = 0,
+	SOCKS_REQUEST_REPLY_FAILURE_GENERAL = 1,
+	SOCKS_REQUEST_REPLY_CONNECTION_NOT_ALLOWED = 2,
+	SOCKS_REQUEST_REPLY_NETWORK_UNREACHABLE = 3,
+	SOCKS_REQUEST_REPLY_HOST_UNREACHABLE = 4,
+	SOCKS_REQUEST_REPLY_CONNECTION_REFUSED = 5,
+	SOCKS_REQUEST_REPLY_TTL_EXPIRED = 6,
+	SOCKS_REQUEST_REPLY_COMMAND_NOT_SUPPORTED = 7,
+	SOCKS_REQUEST_REPLY_ATYP_NOT_SUPPORTED = 8
+};
+
+/* enums used to generate socks messages */
+enum socks_msg_type {
+	/* greeting */
+	SOCKS_MSG_GREETING,
+	/* credential, user name and password */
+	SOCKS_MSG_USERNAME_PASSWORD,
+	/* connect command */
+	SOCKS_MSG_CONNECT
 };
 
 enum {
@@ -774,6 +837,9 @@ struct lws_vhost {
 #if !defined(LWS_WITH_ESP8266)
 	char http_proxy_address[128];
 	char proxy_basic_auth_token[128];
+	char socks_proxy_address[128];
+	char socks_user[96];
+	char socks_password[96];
 #endif
 #if defined(LWS_WITH_ESP8266)
 	/* listen sockets need a place to hang their hat */
@@ -801,6 +867,7 @@ struct lws_vhost {
 
 	int listen_port;
 	unsigned int http_proxy_port;
+	unsigned int socks_proxy_port;
 	unsigned int options;
 	int count_protocols;
 	int ka_time;
@@ -2102,6 +2169,10 @@ static inline uint64_t lws_stats_atomic_max(struct lws_context * context,
 		struct lws_context_per_thread *pt, int index, uint64_t val) {
 	(void)context; (void)pt; (void)index; (void)val; return 0; }
 #endif
+
+/* socks */
+void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
+			size_t *msg_len);
 
 #ifdef __cplusplus
 };
