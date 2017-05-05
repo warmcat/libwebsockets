@@ -118,6 +118,7 @@ option(LWS_FALLBACK_GETHOSTBYNAME "Also try to do dns resolution using gethostby
 option(LWS_WITH_ZIP_FOPS "Support serving pre-zipped files" ON)
 option(LWS_AVOID_SIGPIPE_IGN "Android 7+ seems to need this" OFF)
 option(LWS_WITH_STATS "Keep statistics of lws internal operations" OFF)
+option(LWS_WITH_SOCKS5 "Allow use of SOCKS5 proxy on client connections" OFF)
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -1770,6 +1771,7 @@ message(" LWS_WITH_ESP32 = ${LWS_WITH_ESP32}")
 message(" LWS_WITH_ZIP_FOPS = ${LWS_WITH_ZIP_FOPS}")
 message(" LWS_AVOID_SIGPIPE_IGN = ${LWS_AVOID_SIGPIPE_IGN}")
 message(" LWS_WITH_STATS = ${LWS_WITH_STATS}")
+message(" LWS_WITH_SOCKS5 = ${LWS_WITH_SOCKS5}")
 
 message("---------------------------------------------------------------------")
 

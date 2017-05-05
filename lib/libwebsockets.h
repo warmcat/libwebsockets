@@ -1812,7 +1812,7 @@ struct lws_context_creation_info {
 	/**< VHOST + CONTEXT: 0, or LWS_SERVER_OPTION_... bitfields */
 	void *user;
 	/**< CONTEXT: optional user pointer that can be recovered via the context
- *		pointer using lws_context_user */
+	 *		pointer using lws_context_user */
 	int ka_time;
 	/**< CONTEXT: 0 for no TCP keepalive, otherwise apply this keepalive
 	 * timeout to all libwebsocket sockets, client or server */
@@ -1955,6 +1955,11 @@ struct lws_context_creation_info {
 	 */
 	int simultaneous_ssl_restriction;
 	/**< CONTEXT: 0 (no limit) or limit of simultaneous SSL sessions possible.*/
+	const char *socks_proxy_address;
+	/**< VHOST: If non-NULL, attempts to proxy via the given address.
+	 * If proxy auth is required, use format "username:password\@server:port" */
+	unsigned int socks_proxy_port;
+	/**< VHOST: If socks_proxy_address was non-NULL, uses this port */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -2070,6 +2075,25 @@ lws_context_is_deprecated(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN int
 lws_set_proxy(struct lws_vhost *vhost, const char *proxy);
 
+/**
+ * lws_set_socks() - Setup socks to lws_context.
+ * \param vhost:	pointer to struct lws_vhost you want set socks for
+ * \param socks: pointer to c string containing socks in format address:port
+ *
+ * Returns 0 if socks string was parsed and socks was setup.
+ * Returns -1 if socks is NULL or has incorrect format.
+ *
+ * This is only required if your OS does not provide the socks_proxy
+ * environment variable (eg, OSX)
+ *
+ *   IMPORTANT! You should call this function right after creation of the
+ *   lws_context and before call to connect. If you call this
+ *   function after connect behavior is undefined.
+ *   This function will override proxy settings made on lws_context
+ *   creation with genenv() call.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_set_socks(struct lws_vhost *vhost, const char *socks);
 
 struct lws_vhost;
 
@@ -3471,6 +3495,9 @@ enum pending_timeout {
 	PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING			= 16,
 	PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG			= 17,
 	PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD			= 18,
+	PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY	        = 19,
+	PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY		= 20,
+	PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY		= 21,
 
 	/****** add new things just above ---^ ******/
 };
