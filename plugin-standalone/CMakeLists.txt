@@ -17,6 +17,9 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PACKAGE} ${PACKAGE_VERSION}")
 set(SOVERSION "1")
 set(VERSION "0.1")
 
+set(PLUGIN_NAME "protocol_example_standalone")
+# space-separated list of sources
+set(PLUGIN_SRCS protocol_example_standalone.c)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
 
@@ -50,27 +53,19 @@ endif()
 
 set(CMAKE_C_FLAGS "-fPIC ${CMAKE_C_FLAGS}")
 
-macro(create_plugin PLUGIN_NAME MAIN_SRC)
-	set(PLUGIN_SRCS ${MAIN_SRC})
-	
-	source_group("Headers Private"   FILES ${PLUGIN_HDR})
-	source_group("Sources"   FILES ${PLUGIN_SRCS})
-	add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SRCS} ${PLUGIN_HDR})
-	
-	target_link_libraries(${PLUGIN_NAME} -lwebsockets)
-	
-	# Set test app specific defines.
-	set_property(TARGET ${PLUGIN_NAME}
-		     PROPERTY COMPILE_DEFINITIONS
-		     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/plugins"
-	)
-	
-	list(APPEND PLUGINS_LIST ${PLUGIN_NAME})
-endmacro()
+source_group("Headers Private"   FILES ${PLUGIN_HDR})
+source_group("Sources"   FILES ${PLUGIN_SRCS})
+add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SRCS} ${PLUGIN_HDR})
 
+target_link_libraries(${PLUGIN_NAME} -lwebsockets)
 
-create_plugin(protocol_example_standalone
-	      "protocol_example_standalone.c")
+# Set test app specific defines.
+set_property(TARGET ${PLUGIN_NAME}
+	     PROPERTY COMPILE_DEFINITIONS
+	     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/plugins"
+)
+
+list(APPEND PLUGINS_LIST ${PLUGIN_NAME})
 
 install(TARGETS ${PLUGINS_LIST}
 	PERMISSIONS  OWNER_WRITE OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE OWNER_READ GROUP_READ WORLD_READ
