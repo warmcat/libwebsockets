@@ -602,6 +602,10 @@ lws_esp_ota_get_boot_partition(void);
 extern int
 lws_esp32_get_image_info(const esp_partition_t *part, struct lws_esp32_image *i, char *json, int json_len);
 extern uint32_t lws_esp32_get_reboot_type(void);
+extern uint16_t lws_esp32_sine_interp(int n);
+
+/* required in external code by esp32 plat (may just return if no leds) */
+extern void lws_esp32_leds_timer_cb(TimerHandle_t th);
 #else
 typedef int lws_sockfd_type;
 typedef int lws_filefd_type;

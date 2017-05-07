@@ -574,6 +574,8 @@ char *ERR_error_string(unsigned long e, char *buf)
 #include <tcpip_adapter.h>
 #include <esp_image_format.h>
 #include <esp_task_wdt.h>
+#include "soc/ledc_reg.h"
+#include "driver/ledc.h"
 
 struct lws_esp32 lws_esp32 = {
 	.model = CONFIG_LWS_MODEL_NAME,
@@ -582,6 +584,7 @@ struct lws_esp32 lws_esp32 = {
 };
 
 static romfs_t lws_esp32_romfs;
+static TimerHandle_t leds_timer;
 
 struct esp32_file {
 	const struct inode *i;
@@ -1002,6 +1005,20 @@ lws_esp32_init(struct lws_context_creation_info *info)
 	char buf[512];
 	size_t s;
 	int n;
+	ledc_timer_config_t ledc_timer = {
+	        .bit_num = LEDC_TIMER_13_BIT,
+	        .freq_hz = 5000,
+	        .speed_mode = LEDC_HIGH_SPEED_MODE,
+	        .timer_num = LEDC_TIMER_0
+	};
+
+	ledc_timer_config(&ledc_timer);
+
+	/* user code needs to provide lws_esp32_leds_timer_cb */
+
+        leds_timer = xTimerCreate("lws_leds", pdMS_TO_TICKS(25), 1, NULL,
+                          (TimerCallbackFunction_t)lws_esp32_leds_timer_cb);
+        xTimerStart(leds_timer, 0);
 
 	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
 	n = 0;
@@ -1052,3 +1069,39 @@ lws_esp32_init(struct lws_context_creation_info *info)
 
 	return context;
 }
+
+static const uint16_t sineq16[] = {
+        0x0000, 0x0191, 0x031e, 0x04a4, 0x061e, 0x0789, 0x08e2, 0x0a24,
+        0x0b4e, 0x0c5c, 0x0d4b, 0x0e1a, 0x0ec6, 0x0f4d, 0x0faf, 0x0fea,
+};
+
+static uint16_t sine_lu(int n)
+{
+        switch ((n >> 4) & 3) {
+        case 0:
+                return 4096 + sineq16[n & 15];
+        case 1:
+                return 4096 + sineq16[15 - (n & 15)];
+        case 2:
+                return 4096 - sineq16[n & 15];
+        default:
+                return  4096 - sineq16[15 - (n & 15)];
+        }
+}
+
+/* useful for sine led fade patterns */
+
+uint16_t lws_esp32_sine_interp(int n)
+{
+        /*
+         * 2: quadrant
+         * 4: table entry in quadrant
+         * 4: interp (LSB)
+         *
+         * total 10 bits / 1024 steps per cycle
+         */
+
+        return (sine_lu(n >> 4) * (15 - (n & 15)) +
+                sine_lu((n >> 4) + 1) * (n & 15)) / 15;
+}
+
