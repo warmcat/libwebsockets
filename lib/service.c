@@ -90,8 +90,10 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		/* leave POLLOUT active either way */
 		goto bail_ok;
 	} else
-		if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE)
+		if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
+			wsi->socket_is_permanently_unusable = 1;
 			goto bail_die; /* retry closing now */
+		}
 
 	if (wsi->mode == LWSCM_WSCL_ISSUE_HTTP_BODY)
 		goto user_service;
@@ -906,8 +908,11 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 #endif
 
 //       lwsl_debug("fd=%d, revents=%d, mode=%d, state=%d\n", pollfd->fd, pollfd->revents, (int)wsi->mode, (int)wsi->state);
-	if (pollfd->revents & LWS_POLLHUP)
+	if (pollfd->revents & LWS_POLLHUP) {
+		lwsl_debug("pollhup\n");
+		wsi->socket_is_permanently_unusable = 1;
 		goto close_and_handled;
+	}
 
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -1318,7 +1323,7 @@ drain:
 	goto handled;
 
 close_and_handled:
-	lwsl_debug("Close and handled\n");
+	lwsl_debug("%p: Close and handled\n", wsi);
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 	/*
 	 * pollfd may point to something else after the close

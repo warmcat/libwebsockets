@@ -39,6 +39,7 @@ struct store_json {
 struct per_session_data__esplws_scan {
 	struct per_session_data__esplws_scan *next;
 	scan_state scan_state;
+	struct timeval last_send;
 
 	struct lws_spa *spa;
 	char filename[32];
@@ -361,6 +362,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		switch (pss->scan_state) {
+			struct timeval t;
 			char ssid[32];
 			uint8_t mac[6];
 			struct lws_esp32_image i;
@@ -368,6 +370,12 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 			int grt;
 
 		case SCAN_STATE_INITIAL:
+
+			gettimeofday(&t, NULL);
+			if (t.tv_sec - pss->last_send.tv_sec < 10)
+				return 0;
+
+			pss->last_send = t;
 
 			ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
 			n = 0;
@@ -495,6 +503,7 @@ scan_state_final:
 			return 0;
 		}
 issue:
+//		lwsl_notice("issue: %d (%d)\n", p - start, n);
 		m = lws_write(wsi, (unsigned char *)start, p - start, n);
 		if (m < 0) {
 			lwsl_err("ERROR %d writing to di socket\n", m);

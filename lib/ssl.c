@@ -334,6 +334,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 	if (n < 0) {
 		n = lws_ssl_get_error(wsi, n);
+		lwsl_notice("get_ssl_err result %d\n", n);
 		if (n ==  SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl)) {
 			lwsl_debug("%s: WANT_READ\n", __func__);
 			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);

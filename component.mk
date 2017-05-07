@@ -10,11 +10,13 @@ CROSS_PATH:= $(shell dirname $(CROSS_PATH1) )/..
 #		-DOPENSSL_LIBRARIES="${PWD}/../../boringssl/build/ssl/libssl.a;${PWD}/../../boringssl/build/crypto/libcrypto.a" \
 #		-DOPENSSL_INCLUDE_DIRS="${PWD}/../../boringssl/include" \
 
+# -DNDEBUG=1 after cflags
+
 .PHONY: build
 build:
 	cd $(COMPONENT_BUILD_DIR) ; \
 	echo "doing lws cmake" ; \
-	cmake $(COMPONENT_PATH)  -DLWS_C_FLAGS="$(CFLAGS) -DNDEBUG=1 " \
+	cmake $(COMPONENT_PATH)  -DLWS_C_FLAGS="$(CFLAGS) -DNDEBUG=1" \
 		-DIDF_PATH=$(IDF_PATH) \
 		-DCROSS_PATH=$(CROSS_PATH) \
 		-DCOMPONENT_PATH=$(COMPONENT_PATH) \

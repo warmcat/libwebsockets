@@ -159,6 +159,8 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	n = lws_ssl_capable_write(wsi, buf, n);
 	lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
 
+	//lwsl_notice("lws_ssl_capable_write: %d\n", n);
+
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
 		/* we're going to close, let close know sends aren't possible */
@@ -202,7 +204,7 @@ handle_truncated_send:
 	 * Newly truncated send.  Buffer the remainder (it will get
 	 * first priority next time the socket is writable)
 	 */
-	lwsl_info("%p new partial sent %d from %lu total\n", wsi, n,
+	lwsl_debug("%p new partial sent %d from %lu total\n", wsi, n,
 		    (unsigned long)real_len);
 
 	/*
@@ -813,5 +815,9 @@ LWS_VISIBLE int
 lws_ssl_pending_no_ssl(struct lws *wsi)
 {
 	(void)wsi;
+#if defined(LWS_WITH_ESP32)
+	return 100;
+#else
 	return 0;
+#endif
 }

@@ -59,7 +59,7 @@ static void ota_reboot_timer_cb(TimerHandle_t t)
 const esp_partition_t *
 ota_choose_part(void)
 {
-	const esp_partition_t *bootpart, *part;
+	const esp_partition_t *bootpart, *part = NULL;
 	esp_partition_iterator_t i;
 
 	bootpart = lws_esp_ota_get_boot_partition();
