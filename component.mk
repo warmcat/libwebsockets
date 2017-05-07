@@ -25,6 +25,7 @@ build:
 		-DCMAKE_BUILD_TYPE=RELEASE \
 		-DOPENSSL_INCLUDE_DIR=${IDF_PATH}/components/openssl/include \
 		-DOPENSSL_LIBRARIES=x \
+		-DLWS_WITH_STATS=1 \
 		-DZLIB_LIBRARY=$(BUILD_DIR_BASE)/zlib/libzlib.a \
 		-DZLIB_INCLUDE_DIR=$(COMPONENT_PATH)/../zlib \
 		-DLWS_WITH_ESP32=1 ;\

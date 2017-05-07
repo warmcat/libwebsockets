@@ -336,6 +336,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 LWS_VISIBLE int
 lws_callback_on_writable(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt;
 #ifdef LWS_USE_HTTP2
 	struct lws *network_wsi, *wsi2;
 	int already;
@@ -346,6 +347,15 @@ lws_callback_on_writable(struct lws *wsi)
 
 	if (wsi->socket_is_permanently_unusable)
 		return 0;
+
+	pt = &wsi->context->pt[(int)wsi->tsi];
+	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB_REQ, 1);
+#if defined(LWS_WITH_STATS)
+	if (!wsi->active_writable_req_us) {
+		wsi->active_writable_req_us = time_in_microseconds();
+		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB_EFF_REQ, 1);
+	}
+#endif
 
 #ifdef LWS_USE_HTTP2
 	lwsl_info("%s: %p\n", __func__, wsi);

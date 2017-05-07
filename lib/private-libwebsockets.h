@@ -879,6 +879,12 @@ struct lws_context {
 	char worst_latency_info[256];
 #endif
 
+#if defined(LWS_WITH_STATS)
+	uint64_t lws_stats[LWSSTATS_SIZE];
+	uint64_t last_dump;
+	int updated;
+#endif
+
 	int max_fds;
 #if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
 	int use_ev_sigint;
@@ -1465,6 +1471,9 @@ struct lws {
 	SSL *ssl;
 	BIO *client_bio;
 	struct lws *pending_read_list_prev, *pending_read_list_next;
+#if defined(LWS_WITH_STATS)
+	uint64_t accept_start_us;
+#endif
 #endif
 #ifdef LWS_WITH_HTTP_PROXY
 	struct lws_rewrite *rw;
@@ -1474,7 +1483,9 @@ struct lws {
 	unsigned long latency_start;
 #endif
 	lws_sock_file_fd_type desc; /* .filefd / .sockfd */
-
+#if defined(LWS_WITH_STATS)
+	uint64_t active_writable_req_us;
+#endif
 	/* ints */
 	int position_in_fds_table;
 	int rxflow_len;
@@ -2071,6 +2082,22 @@ LWS_EXTERN void
 lws_same_vh_protocol_remove(struct lws *wsi);
 LWS_EXTERN void
 lws_same_vh_protocol_insert(struct lws *wsi, int n);
+
+#if defined(LWS_WITH_STATS)
+void
+lws_stats_atomic_bump(struct lws_context * context,
+		struct lws_context_per_thread *pt, int index, uint64_t bump);
+void
+lws_stats_atomic_max(struct lws_context * context,
+		struct lws_context_per_thread *pt, int index, uint64_t val);
+#else
+static inline uint64_t lws_stats_atomic_bump(struct lws_context * context,
+		struct lws_context_per_thread *pt, int index, uint64_t bump) {
+	(void)context; (void)pt; (void)index; (void)bump; return 0; }
+static inline uint64_t lws_stats_atomic_max(struct lws_context * context,
+		struct lws_context_per_thread *pt, int index, uint64_t val) {
+	(void)context; (void)pt; (void)index; (void)val; return 0; }
+#endif
 
 #ifdef __cplusplus
 };

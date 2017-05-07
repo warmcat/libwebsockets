@@ -249,6 +249,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
+	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_CLOSE, 1);
 
 	/* if we have children, close them first */
 	if (wsi->child_list) {
@@ -3107,6 +3108,84 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 	buf += lws_snprintf(buf, end - buf, "]}\n ");
 
 	return buf - orig;
+}
+
+#endif
+
+#if defined(LWS_WITH_STATS)
+
+LWS_VISIBLE LWS_EXTERN uint64_t
+lws_stats_get(struct lws_context *context, int index)
+{
+	if (index >= LWSSTATS_SIZE)
+		return 0;
+
+	return context->lws_stats[index];
+}
+
+LWS_VISIBLE LWS_EXTERN void
+lws_stats_log_dump(struct lws_context *context)
+{
+	if (!context->updated)
+		return;
+
+	context->updated = 0;
+
+	lwsl_notice("\n");
+	lwsl_notice("LWS internal statistics dump ----->\n");
+	lwsl_notice("LWSSTATS_C_CONNECTIONS:                     %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_CONNECTIONS));
+	lwsl_notice("LWSSTATS_C_API_CLOSE:                       %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_API_CLOSE));
+	lwsl_notice("LWSSTATS_C_API_READ:                        %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_API_READ));
+	lwsl_notice("LWSSTATS_C_API_LWS_WRITE:                   %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_API_LWS_WRITE));
+	lwsl_notice("LWSSTATS_C_API_WRITE:                       %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_API_WRITE));
+	lwsl_notice("LWSSTATS_C_WRITE_PARTIALS:                  %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_WRITE_PARTIALS));
+	lwsl_notice("LWSSTATS_C_WRITEABLE_CB_REQ:                %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_WRITEABLE_CB_REQ));
+	lwsl_notice("LWSSTATS_C_WRITEABLE_CB_EFF_REQ:            %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_WRITEABLE_CB_EFF_REQ));
+	lwsl_notice("LWSSTATS_C_WRITEABLE_CB:                    %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_WRITEABLE_CB));
+	lwsl_notice("LWSSTATS_C_SSL_CONNECTIONS_FAILED:          %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SSL_CONNECTIONS_FAILED));
+	lwsl_notice("LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED:        %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED));
+	lwsl_notice("LWSSTATS_C_TIMEOUTS:                        %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_TIMEOUTS));
+	lwsl_notice("LWSSTATS_C_SERVICE_ENTRY:                   %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SERVICE_ENTRY));
+	lwsl_notice("LWSSTATS_B_READ:                            %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_B_READ));
+	lwsl_notice("LWSSTATS_B_WRITE:                           %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_B_WRITE));
+	lwsl_notice("LWSSTATS_B_PARTIALS_ACCEPTED_PARTS:         %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_B_PARTIALS_ACCEPTED_PARTS));
+	lwsl_notice("LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY: %8llums\n", (unsigned long long)lws_stats_get(context, LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY) / 1000);
+	if (lws_stats_get(context, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED))
+		lwsl_notice("  Avg accept delay:                         %8llums\n",
+			(unsigned long long)(lws_stats_get(context, LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY) /
+			lws_stats_get(context, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED)) / 1000);
+	lwsl_notice("LWSSTATS_MS_WRITABLE_DELAY:                 %8lluus\n",
+			(unsigned long long)lws_stats_get(context, LWSSTATS_MS_WRITABLE_DELAY));
+	lwsl_notice("LWSSTATS_MS_WORST_WRITABLE_DELAY:           %8lluus\n",
+				(unsigned long long)lws_stats_get(context, LWSSTATS_MS_WORST_WRITABLE_DELAY));
+	if (lws_stats_get(context, LWSSTATS_C_WRITEABLE_CB))
+		lwsl_notice("  Avg writable delay:                       %8lluus\n",
+			(unsigned long long)(lws_stats_get(context, LWSSTATS_MS_WRITABLE_DELAY) /
+			lws_stats_get(context, LWSSTATS_C_WRITEABLE_CB)));
+	lwsl_notice("\n");
+}
+
+void
+lws_stats_atomic_bump(struct lws_context * context,
+		struct lws_context_per_thread *pt, int index, uint64_t bump)
+{
+	lws_pt_lock(pt);
+	context->lws_stats[index] += bump;
+	if (index != LWSSTATS_C_SERVICE_ENTRY)
+		context->updated = 1;
+	lws_pt_unlock(pt);
+}
+
+void
+lws_stats_atomic_max(struct lws_context * context,
+		struct lws_context_per_thread *pt, int index, uint64_t val)
+{
+	lws_pt_lock(pt);
+	if (val > context->lws_stats[index]) {
+		context->lws_stats[index] = val;
+		context->updated = 1;
+	}
+	lws_pt_unlock(pt);
 }
 
 #endif

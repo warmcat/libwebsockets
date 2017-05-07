@@ -616,6 +616,9 @@ lws_create_context(struct lws_context_creation_info *info)
 	lwsl_info(" LWS_MAX_SMP           : %u\n", LWS_MAX_SMP);
 	lwsl_info(" SPEC_LATEST_SUPPORTED : %u\n", SPEC_LATEST_SUPPORTED);
 	lwsl_info(" sizeof (*info)        : %ld\n", (long)sizeof(*info));
+#if defined(LWS_WITH_STATS)
+	lwsl_notice(" LWS_WITH_STATS        : on\n");
+#endif
 #if LWS_POSIX
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
 #endif
@@ -1109,12 +1112,13 @@ lws_context_destroy2(struct lws_context *context)
 		vh = vh1;
 	}
 
+	lws_stats_log_dump(context);
+
 	lws_ssl_context_destroy(context);
 	lws_plat_context_late_destroy(context);
 
 	if (context->external_baggage_free_on_destroy)
 		free(context->external_baggage_free_on_destroy);
-
 
 	lws_free(context);
 }

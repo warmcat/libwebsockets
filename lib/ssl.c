@@ -298,6 +298,8 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	if (!wsi->ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
+	lws_stats_atomic_bump(context, pt, LWSSTATS_C_API_READ, 1);
+
 	errno = 0;
 	n = SSL_read(wsi->ssl, buf, len);
 #if defined(LWS_WITH_ESP32)
@@ -353,6 +355,8 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
+
+	lws_stats_atomic_bump(context, pt, LWSSTATS_B_READ, n);
 
 	if (wsi->vhost)
 		wsi->vhost->conn_stats.rx += n;
@@ -652,6 +656,11 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 		/* normal SSL connection processing path */
 
+#if defined(LWS_WITH_STATS)
+		if (!wsi->accept_start_us)
+			wsi->accept_start_us = time_in_microseconds();
+#endif
+
 		n = SSL_accept(wsi->ssl);
 		lws_latency(context, wsi,
 			"SSL_accept LWSCM_SSL_ACK_PENDING\n", n, n == 1);
@@ -686,13 +695,18 @@ go_again:
 
 			break;
 		}
-
+		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
                 lwsl_err("SSL_accept failed socket %u: %s\n", wsi->desc.sockfd,
                          lws_ssl_get_error_string(m, n, buf, sizeof(buf)));
 		lws_ssl_elaborate_error();
 		goto fail;
 
 accepted:
+		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, 1);
+#if defined(LWS_WITH_STATS)
+		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY, time_in_microseconds() - wsi->accept_start_us);
+#endif
+
 		/* OK, we are accepted... give him some time to negotiate */
 		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
 				context->timeout_secs);

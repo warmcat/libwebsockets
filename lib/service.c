@@ -24,7 +24,19 @@
 static int
 lws_calllback_as_writeable(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int n;
+
+	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB, 1);
+#if defined(LWS_WITH_STATS)
+	{
+		uint64_t ul = time_in_microseconds() - wsi->active_writable_req_us;
+
+		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_WRITABLE_DELAY, ul);
+		lws_stats_atomic_max(wsi->context, pt, LWSSTATS_MS_WORST_WRITABLE_DELAY, ul);
+		wsi->active_writable_req_us = 0;
+	}
+#endif
 
 	switch (wsi->mode) {
 	case LWSCM_RAW:
@@ -425,6 +437,8 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 		if (wsi->desc.sockfd != LWS_SOCK_INVALID && wsi->position_in_fds_table >= 0)
 			n = pt->fds[wsi->position_in_fds_table].events;
 
+		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_TIMEOUTS, 1);
+
 		/* no need to log normal idle keepalive timeout */
 		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
 			lwsl_notice("wsi %p: TIMEDOUT WAITING on %d (did hdr %d, ah %p, wl %d, pfd events %d) %llu vs %llu\n",
@@ -785,6 +799,13 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	/* TODO: if using libev, we should probably use timeout watchers... */
 	if (context->last_timeout_check_s != now) {
 		context->last_timeout_check_s = now;
+
+#if defined(LWS_WITH_STATS)
+		if (!tsi && now - context->last_dump > 10) {
+			lws_stats_log_dump(context);
+			context->last_dump = now;
+		}
+#endif
 
 		lws_plat_service_periodic(context);
 

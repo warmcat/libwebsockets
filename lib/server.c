@@ -1757,6 +1757,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 {
 	struct lws_context *context = vh->context;
 	struct lws *new_wsi = lws_create_new_server_wsi(vh);
+	struct lws_context_per_thread *pt;
 	int n, ssl = 0;
 
 	if (!new_wsi) {
@@ -1764,6 +1765,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			compatible_close(fd.sockfd);
 		return NULL;
 	}
+	pt = &context->pt[(int)new_wsi->tsi];
+	lws_stats_atomic_bump(context, pt, LWSSTATS_C_CONNECTIONS, 1);
 
 	if (parent) {
 		new_wsi->parent = parent;
@@ -2192,6 +2195,16 @@ try_pollout:
 		}
 
 		if (wsi->mode == LWSCM_RAW) {
+			lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB, 1);
+#if defined(LWS_WITH_STATS)
+			{
+				uint64_t ul = time_in_microseconds() - wsi->active_writable_req_us;
+
+				lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_WRITABLE_DELAY, ul);
+				lws_stats_atomic_max(wsi->context, pt, LWSSTATS_MS_WORST_WRITABLE_DELAY, ul);
+				wsi->active_writable_req_us = 0;
+			}
+#endif
 			n = user_callback_handle_rxflow(wsi->protocol->callback,
 					wsi, LWS_CALLBACK_RAW_WRITEABLE,
 					wsi->user_space, NULL, 0);
@@ -2206,6 +2219,18 @@ try_pollout:
 			break;
 
 		if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
+
+			lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB, 1);
+#if defined(LWS_WITH_STATS)
+			{
+				uint64_t ul = time_in_microseconds() - wsi->active_writable_req_us;
+
+				lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_WRITABLE_DELAY, ul);
+				lws_stats_atomic_max(wsi->context, pt, LWSSTATS_MS_WORST_WRITABLE_DELAY, ul);
+				wsi->active_writable_req_us = 0;
+			}
+#endif
+
 			n = user_callback_handle_rxflow(wsi->protocol->callback,
 					wsi, LWS_CALLBACK_HTTP_WRITEABLE,
 					wsi->user_space, NULL, 0);

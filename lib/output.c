@@ -95,9 +95,12 @@ LWS_VISIBLE void lwsl_hexdump(void *vbuf, size_t len)
 int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	size_t real_len = len;
 	unsigned int n;
 	int m;
+
+	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_WRITE, 1);
 
 	if (!len)
 		return 0;
@@ -207,6 +210,9 @@ handle_truncated_send:
 	lwsl_debug("%p new partial sent %d from %lu total\n", wsi, n,
 		    (unsigned long)real_len);
 
+	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITE_PARTIALS, 1);
+	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, n);
+
 	/*
 	 *  - if we still have a suitable malloc lying around, use it
 	 *  - or, if too small, reallocate it
@@ -244,11 +250,15 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	int pre = 0, n;
 	size_t orig_len = len;
 
+	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_LWS_WRITE, 1);
+
 	if ((int)len < 0) {
 		lwsl_err("%s: suspicious len int %d, ulong %lu\n", __func__,
 				(int)len, (unsigned long)len);
 		return -1;
 	}
+
+	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_B_WRITE, len);
 
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->access_log.sent += len;
@@ -766,12 +776,17 @@ file_had_it:
 LWS_VISIBLE int
 lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
+	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n;
+
+	lws_stats_atomic_bump(context, pt, LWSSTATS_C_API_READ, 1);
 
 	n = recv(wsi->desc.sockfd, (char *)buf, len, 0);
 	if (n >= 0) {
 		if (wsi->vhost)
 			wsi->vhost->conn_stats.rx += n;
+		lws_stats_atomic_bump(context, pt, LWSSTATS_B_READ, n);
 		lws_restart_ws_ping_pong_timer(wsi);
 		return n;
 	}
