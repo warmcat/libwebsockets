@@ -244,6 +244,12 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	int pre = 0, n;
 	size_t orig_len = len;
 
+	if ((int)len < 0) {
+		lwsl_err("%s: suspicious len int %d, ulong %lu\n", __func__,
+				(int)len, (unsigned long)len);
+		return -1;
+	}
+
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->access_log.sent += len;
 #endif
