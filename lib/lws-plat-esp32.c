@@ -584,8 +584,52 @@ struct lws_esp32 lws_esp32 = {
 	.region = WIFI_COUNTRY_US, // default to safest option
 };
 
+/*
+ * Group AP / Station State
+ */
+
+enum lws_gapss {
+	LWS_GAPSS_INITIAL,	/* just started up, init and move to LWS_GAPSS_SCAN */
+	LWS_GAPSS_SCAN,		/*
+				 * Unconnected, scanning: AP known in one of the config
+				 * slots -> configure it, start timeout + LWS_GAPSS_STAT,
+				 * if no AP already up in same group with lower MAC,
+				 * after a random period start up our AP (LWS_GAPSS_AP)
+				 */
+	LWS_GAPSS_AP,		/*
+				 * Trying to be the group AP... periodically do a scan
+				 * LWS_GAPSS_AP_SCAN, faster and then slower
+       				 */
+	LWS_GAPSS_AP_SCAN,	/*
+				 * doing a scan while trying to be the group AP... if
+				 * we see a lower MAC being the AP for the same group
+				 * AP, abandon being an AP and join that AP as a
+				 * station
+				 */
+	LWS_GAPSS_STAT_GRP_AP,	/*
+				 * We have decided to join another group member who is
+				 * being the AP, as its MAC is lower than ours.  This
+				 * is a stable state, but we still do periodic scans
+				 * (LWS_GAPSS_STAT_GRP_AP_SCAN) and will always prefer
+				 * an AP configured in a slot.
+				 */
+	LWS_GAPSS_STAT_GRP_AP_SCAN,
+				/*
+				 * We have joined a group member who is doing the AP
+				 * job... we want to check every now and then if a
+				 * configured AP has appeared that we should better
+				 * use instead.  Otherwise stay in LWS_GAPSS_STAT_GRP_AP
+				 */
+	LWS_GAPSS_STAT,		/*
+				 * trying to connect to another non-group AP.  If we
+				 * don't get an IP within a timeout and retries,
+				 * blacklist it and go back 
+				 */
+};
+
 static romfs_t lws_esp32_romfs;
 static TimerHandle_t leds_timer;
+//static enum lws_gapss gapss = LWS_GAPSS_INITIAL;
 
 struct esp32_file {
 	const struct inode *i;
@@ -599,9 +643,9 @@ uint32_t lws_esp32_get_reboot_type(void)
 	int n = 0;
 
 	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
-	if (nvs_get_blob(nvh, "ssl-pub.der", NULL, &s) == ESP_OK)
+	if (nvs_get_blob(nvh, "ssl-pub.pem", NULL, &s) == ESP_OK)
 		n = 1;
-	if (nvs_get_blob(nvh, "ssl-pri.der", NULL, &s) == ESP_OK)
+	if (nvs_get_blob(nvh, "ssl-pri.pem", NULL, &s) == ESP_OK)
 		n |= 2;
 	nvs_close(nvh);
 
@@ -642,9 +686,14 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 		break;
 	case SYSTEM_EVENT_STA_GOT_IP:
 		lws_esp32.inet = 1;
-		render_ip(lws_esp32.sta_ip, sizeof(lws_esp32.sta_ip) - 1, (uint8_t *)&event->event_info.got_ip.ip_info.ip);
-		render_ip(lws_esp32.sta_mask, sizeof(lws_esp32.sta_mask) - 1, (uint8_t *)&event->event_info.got_ip.ip_info.netmask);
-		render_ip(lws_esp32.sta_gw, sizeof(lws_esp32.sta_gw) - 1, (uint8_t *)&event->event_info.got_ip.ip_info.gw);
+		render_ip(lws_esp32.sta_ip, sizeof(lws_esp32.sta_ip) - 1,
+				(uint8_t *)&event->event_info.got_ip.ip_info.ip);
+		render_ip(lws_esp32.sta_mask, sizeof(lws_esp32.sta_mask) - 1,
+				(uint8_t *)&event->event_info.got_ip.ip_info.netmask);
+		render_ip(lws_esp32.sta_gw, sizeof(lws_esp32.sta_gw) - 1,
+				(uint8_t *)&event->event_info.got_ip.ip_info.gw);
+		break;
+	case SYSTEM_EVENT_SCAN_DONE:
 		break;
 	default:
 		break;
@@ -770,10 +819,15 @@ lws_esp32_wlan_nvs_get(int retry)
 	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
 
 	s = sizeof(config.sta.ssid) - 1;
-	if (nvs_get_str(nvh, "ssid", (char *)sta_config.sta.ssid, &s) != ESP_OK)
+	if (nvs_get_str(nvh, "ssid0", (char *)sta_config.sta.ssid, &s) != ESP_OK)
 		lws_esp32_force_ap = 1;
+
+	/* set the ssid we last tried to connect to */
+	strncpy(lws_esp32.active_ssid, (char *)sta_config.sta.ssid, sizeof(lws_esp32.active_ssid) - 1);
+	lws_esp32.active_ssid[sizeof(lws_esp32.active_ssid) - 1] = '\0';
+
 	s = sizeof(config.sta.password) - 1;
-	if (nvs_get_str(nvh, "password", (char *)sta_config.sta.password, &s) != ESP_OK)
+	if (nvs_get_str(nvh, "password0", (char *)sta_config.sta.password, &s) != ESP_OK)
 		lws_esp32_force_ap = 1;
 	s = sizeof(lws_esp32.serial) - 1;
 	if (nvs_get_str(nvh, "serial", lws_esp32.serial, &s) != ESP_OK)
@@ -792,6 +846,14 @@ lws_esp32_wlan_nvs_get(int retry)
 		lws_esp32.region = atoi(r);
 	lws_esp32.access_pw[0] = '\0';
 	nvs_get_str(nvh, "access_pw", lws_esp32.access_pw, &s);
+
+	lws_esp32.group[0] = '\0';
+	s = sizeof(lws_esp32.group);
+	nvs_get_str(nvh, "group", lws_esp32.group, &s);
+
+	lws_esp32.role[0] = '\0';
+	s = sizeof(lws_esp32.role);
+	nvs_get_str(nvh, "role", lws_esp32.role, &s);
 
 	nvs_close(nvh);
 
@@ -957,8 +1019,8 @@ lws_esp32_set_creation_defaults(struct lws_context_creation_info *info)
 	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
-	info->ssl_cert_filepath = "ssl-pub.der";
-	info->ssl_private_key_filepath = "ssl-pri.der";
+	info->ssl_cert_filepath = "ssl-pub.pem";
+	info->ssl_private_key_filepath = "ssl-pri.pem";
 }
 
 int
@@ -1024,10 +1086,10 @@ lws_esp32_init(struct lws_context_creation_info *info)
 	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
 	n = 0;
 	s = 1;
-	if (nvs_get_blob(nvh, "ssl-pub.der", NULL, &s) == ESP_OK)
+	if (nvs_get_blob(nvh, "ssl-pub.pem", NULL, &s) == ESP_OK)
 		n = 1;
 	s = 1;
-	if (nvs_get_blob(nvh, "ssl-pri.der", NULL, &s) == ESP_OK)
+	if (nvs_get_blob(nvh, "ssl-pri.pem", NULL, &s) == ESP_OK)
 		n |= 2;
 	nvs_close(nvh);
 

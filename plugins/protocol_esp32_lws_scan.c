@@ -27,6 +27,7 @@ typedef enum {
 	SCAN_STATE_NONE,
 	SCAN_STATE_INITIAL,
 	SCAN_STATE_INITIAL_MANIFEST,
+	SCAN_STATE_KNOWN,
 	SCAN_STATE_LIST,
 	SCAN_STATE_FINAL
 } scan_state;
@@ -84,9 +85,17 @@ struct per_vhost_data__esplws_scan {
 };
 
 static const struct store_json store_json[] = {
-	{ "ssid\":\"", "ssid" },
-	{ ",\"pw\":\"", "password" },
+	{ "\"ssid0\":\"", "ssid0" },
+	{ ",\"pw0\":\"", "password0" },
+	{ "\"ssid1\":\"", "ssid1" },
+	{ ",\"pw1\":\"", "password1" },
+	{ "\"ssid2\":\"", "ssid2" },
+	{ ",\"pw2\":\"", "password2" },
+	{ "\"ssid3\":\"", "ssid3" },
+	{ ",\"pw3\":\"", "password3" },
 	{ ",\"access_pw\":\"", "access_pw" },
+	{ "{\"group\":\"", "group" },
+	{ "{\"role\":\"", "role" },
 	{ ",\"region\":\"", "region" },
 };
 
@@ -240,7 +249,7 @@ scan_finished(void *v)
                esp_wifi_connect();
 }
 
-static const char *ssl_names[] = { "ssl-pub.der", "ssl-pri.der" };
+static const char *ssl_names[] = { "ssl-pub.pem", "ssl-pri.pem" };
 
 static int
 file_upload_cb(void *data, const char *name, const char *filename,
@@ -363,10 +372,9 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 
 		switch (pss->scan_state) {
 			struct timeval t;
-			char ssid[32];
 			uint8_t mac[6];
 			struct lws_esp32_image i;
-			char img_factory[512], img_ota[512];
+			char img_factory[512], img_ota[512], group[16];
 			int grt;
 
 		case SCAN_STATE_INITIAL:
@@ -379,13 +387,13 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 
 			ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
 			n = 0;
-			if (nvs_get_blob(nvh, "ssl-pub.der", NULL, &s) == ESP_OK)
+			if (nvs_get_blob(nvh, "ssl-pub.pem", NULL, &s) == ESP_OK)
 				n = 1;
-			if (nvs_get_blob(nvh, "ssl-pri.der", NULL, &s) == ESP_OK)
+			if (nvs_get_blob(nvh, "ssl-pri.pem", NULL, &s) == ESP_OK)
 				n |= 2;
-			s = sizeof(ssid) - 1;
-			ssid[0] = '\0';
-			nvs_get_str(nvh, "ssid", ssid, &s);
+			s = sizeof(group) - 1;
+			group[0] = '\0';
+			nvs_get_str(nvh, "group", group, &s);
 
 			nvs_close(nvh);
 
@@ -422,6 +430,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				      " \"conn_ip\":\"%s\",\n"
 				      " \"conn_mask\":\"%s\",\n"
 				      " \"conn_gw\":\"%s\",\n"
+				      " \"group\":\"%s\",\n"
 				      " \"img_factory\": %s,\n"
 				      " \"img_ota\": %s,\n",
 				      lws_esp32.model,
@@ -432,10 +441,11 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				      lws_esp32.region,
 				      n & 1, (n >> 1) & 1,
 				      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5] | 1,
-				      ssid,
+				      lws_esp32.active_ssid,
 				      lws_esp32.sta_ip,
 				      lws_esp32.sta_mask,
 				      lws_esp32.sta_gw,
+				      group,
 					img_factory,
 					img_ota
 				      );
@@ -455,7 +465,46 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				      );
 
 			p += snprintf((char *)p, end - p,
-                                      " \"aps\":[\n");
+                                      " \"known\":[\n");
+
+			n = LWS_WRITE_CONTINUATION | LWS_WRITE_NO_FIN;
+			pss->scan_state = SCAN_STATE_KNOWN;
+			break;
+
+		case SCAN_STATE_KNOWN:
+			if (nvs_open("lws-station", NVS_READONLY, &nvh)) {
+				lwsl_notice("unable to open nvh\n");
+				return -1;
+			}
+
+			for (m = 0; m < 4; m++) {
+				char name[10], ssid[32];
+				unsigned int pp = 0, use = 0;
+
+				if (m)
+					*p++ = ',';
+
+				s = sizeof(ssid) - 1;
+				ssid[0] = '\0';
+				lws_snprintf(name, sizeof(name) - 1, "ssid%d", m);
+				nvs_get_str(nvh, name, ssid, &s);
+				lws_snprintf(name, sizeof(name) - 1, "password%d", m);
+				s = 10;
+				nvs_get_str(nvh, name, NULL, &s);
+				pp = !!s;
+				lws_snprintf(name, sizeof(name) - 1, "use%d", m);
+				nvs_get_u32(nvh, name, &use);
+
+				p += snprintf((char *)p, end - p,
+					"{\"ssid\":\"%s\",\n"
+					" \"pp\":\"%u\",\n"
+					"\"use\":\"%u\"}\n",
+					ssid, pp, use);
+			}
+			nvs_close(nvh);
+
+			p += snprintf((char *)p, end - p,
+                                      "], \"aps\":[\n");
 
 			n = LWS_WRITE_CONTINUATION | LWS_WRITE_NO_FIN;
 			pss->scan_state = SCAN_STATE_LIST;
@@ -534,7 +583,7 @@ issue:
 			if (vhd->json_len && strstr((const char *)in, "update-ota"))
 				goto auton;
 
-			if (strstr((const char *)in, "reset"))
+			if (strstr((const char *)in, "\"reset\""))
 				goto sched_reset;
 
 			if (nvs_open("lws-station", NVS_READWRITE, &nvh) != ESP_OK) {
@@ -547,10 +596,18 @@ issue:
 					continue;
 
 				/* only change access password if he has physical access to device */
-				if (n == 2 && lws_esp32_get_reboot_type() != LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON)
+				if (n == 8 && lws_esp32_get_reboot_type() != LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON)
 					continue;
 
 				lwsl_notice("%s '%s\n", store_json[n].nvs, p);
+				if (n == 9) {
+					strncpy(lws_esp32.group, p, sizeof(lws_esp32.group) - 1);
+					lws_esp32.group[sizeof(lws_esp32.group) - 1] = '\0';
+				}
+				if (n == 10) {
+					strncpy(lws_esp32.role, p, sizeof(lws_esp32.role) - 1);
+					lws_esp32.role[sizeof(lws_esp32.role) - 1] = '\0';
+				}
 
 				if (nvs_set_str(nvh, store_json[n].nvs, p) != ESP_OK) {
 					lwsl_err("Unable to store %s in nvm\n", store_json[n].nvs);
@@ -561,17 +618,21 @@ issue:
 			nvs_commit(nvh);
 			nvs_close(nvh);
 
-			if (lws_esp32_get_reboot_type() == LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON) {
+			if (strstr((const char *)in, "\"factory-reset\"")) {
+				if (lws_esp32_get_reboot_type() ==
+					LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON) {
 
-				if (strstr((const char *)in, "factory-reset")) {
+					lwsl_notice("Doing factory reset\n");
 					ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
-					nvs_erase_all(nvh);
+					n = nvs_erase_all(nvh);
+					if (n)
+						lwsl_notice("erase_all failed %d\n", n);
 					nvs_commit(nvh);
 					nvs_close(nvh);
 
 					goto sched_reset;
-				}
-
+				} else
+					lwsl_notice("failed on factory button boot\n");
 			}
 
 			if (vhd->scan_ongoing)

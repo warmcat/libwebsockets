@@ -1118,7 +1118,8 @@ if (GENCERTS)
 			COMMAND "${OPENSSL_EXECUTABLE}"
 				req -new -newkey rsa:1024 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
 			RESULT_VARIABLE OPENSSL_RETURN_CODE
-			OUTPUT_QUIET ERROR_QUIET)
+			#		OUTPUT_QUIET ERROR_QUIET
+			)
 
 		if (OPENSSL_RETURN_CODE)
 			message(WARNING "!!! Failed to generate SSL certificate for Test Server!!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")

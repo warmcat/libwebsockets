@@ -11,6 +11,8 @@ CROSS_PATH:= $(shell dirname $(CROSS_PATH1) )/..
 #		-DOPENSSL_INCLUDE_DIRS="${PWD}/../../boringssl/include" \
 
 # -DNDEBUG=1 after cflags
+#		-DOPENSSL_LIBRARIES=x \
+#		-DCOMPONENT_PATH=$(COMPONENT_PATH) \
 
 .PHONY: build
 build:
@@ -19,12 +21,10 @@ build:
 	cmake $(COMPONENT_PATH)  -DLWS_C_FLAGS="$(CFLAGS) -DNDEBUG=1" \
 		-DIDF_PATH=$(IDF_PATH) \
 		-DCROSS_PATH=$(CROSS_PATH) \
-		-DCOMPONENT_PATH=$(COMPONENT_PATH) \
 		-DBUILD_DIR_BASE=$(BUILD_DIR_BASE) \
 		-DCMAKE_TOOLCHAIN_FILE=$(COMPONENT_PATH)/cross-esp32.cmake \
 		-DCMAKE_BUILD_TYPE=RELEASE \
 		-DOPENSSL_INCLUDE_DIR=${IDF_PATH}/components/openssl/include \
-		-DOPENSSL_LIBRARIES=x \
 		-DLWS_WITH_STATS=1 \
 		-DZLIB_LIBRARY=$(BUILD_DIR_BASE)/zlib/libzlib.a \
 		-DZLIB_INCLUDE_DIR=$(COMPONENT_PATH)/../zlib \

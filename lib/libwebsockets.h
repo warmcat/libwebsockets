@@ -565,6 +565,9 @@ struct lws_esp32 {
 	char serial[16];
 	char opts[16];
 	char model[16];
+	char group[16];
+	char role[16];
+	char active_ssid[32];
 	char access_pw[16];
 	mdns_server_t *mdns;
        	char region;

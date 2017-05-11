@@ -365,7 +365,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		lws_filepos_t flen;
 		int err;
 
-		if (alloc_file(vhost->context, info->ssl_cert_filepath, &p,
+		if (alloc_pem_to_der_file(vhost->context, info->ssl_cert_filepath, &p,
 				                &flen)) {
 			lwsl_err("couldn't find cert file %s\n",
 				 info->ssl_cert_filepath);
@@ -378,7 +378,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			return 1;
 		}
 
-		if (alloc_file(vhost->context,
+		if (alloc_pem_to_der_file(vhost->context,
 			       info->ssl_private_key_filepath, &p, &flen)) {
 			lwsl_err("couldn't find cert file %s\n",
 				 info->ssl_cert_filepath);

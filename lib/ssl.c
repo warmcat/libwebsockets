@@ -72,8 +72,11 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		n = 2;
 		goto bail;
 	}
-	if (nvs_get_blob(nvh, filename, (char *)*buf, &s) != ESP_OK)
+	if (nvs_get_blob(nvh, filename, (char *)*buf, &s) != ESP_OK) {
+		free(*buf);
 		n = 1;
+		goto bail;
+	}
 
 	*amount = s;
 
@@ -81,6 +84,60 @@ bail:
 	nvs_close(nvh);
 
 	return n;
+}
+int alloc_pem_to_der_file(struct lws_context *context, const char *filename, uint8_t **buf,
+	       lws_filepos_t *amount)
+{
+	uint8_t *pem, *p, *q, *end;
+	lws_filepos_t len;
+	int n;
+
+	n = alloc_file(context, filename, &pem, &len);
+	if (n)
+		return n;
+
+	/* trim the first line */
+
+	p = pem;
+	end = p + len;
+	if (strncmp((char *)p, "-----", 5))
+		goto bail;
+	p += 5;
+	while (p < end && *p != '\n' && *p != '-')
+		p++;
+
+	if (*p != '-')
+		goto bail;
+
+	while (p < end && *p != '\n')
+		p++;
+
+	if (p >= end)
+		goto bail;
+
+	p++;
+
+	/* trim the last line */
+
+	q = end - 2;
+
+	while (q > pem && *q != '\n')
+		q--;
+
+	if (*q != '\n')
+		goto bail;
+
+	*q = '\0';
+
+	*amount = lws_b64_decode_string((char *)p, (char *)pem, len);
+	*buf = pem;
+
+	return 0;
+
+bail:
+	free(pem);
+
+	return 4;
 }
 #endif
 
@@ -336,7 +393,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 	if (n < 0) {
 		n = lws_ssl_get_error(wsi, n);
-		lwsl_notice("get_ssl_err result %d\n", n);
+		// lwsl_notice("get_ssl_err result %d\n", n);
 		if (n ==  SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl)) {
 			lwsl_debug("%s: WANT_READ\n", __func__);
 			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
