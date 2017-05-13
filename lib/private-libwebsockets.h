@@ -1473,6 +1473,7 @@ struct lws {
 	struct lws *pending_read_list_prev, *pending_read_list_next;
 #if defined(LWS_WITH_STATS)
 	uint64_t accept_start_us;
+	char seen_rx;
 #endif
 #endif
 #ifdef LWS_WITH_HTTP_PROXY

@@ -555,8 +555,7 @@ lws_esp32_identify_physical_device(void);
 
 /* lws-plat-esp32 provides these */
 
-extern void (*lws_cb_scan_done)(void *);
-extern void *lws_cb_scan_done_arg;
+typedef void (*lws_cb_scan_done)(uint16_t count, wifi_ap_record_t *recs, void *arg);
 
 struct lws_esp32 {
 	char sta_ip[16];
@@ -567,11 +566,15 @@ struct lws_esp32 {
 	char model[16];
 	char group[16];
 	char role[16];
+	char ssid[4][16];
+	char password[4][32];
 	char active_ssid[32];
 	char access_pw[16];
 	mdns_server_t *mdns;
        	char region;
        	char inet;
+	lws_cb_scan_done scan_consumer;
+	void *scan_consumer_arg;
 };
 
 struct lws_esp32_image {
@@ -598,6 +601,8 @@ extern struct lws_context *
 lws_esp32_init(struct lws_context_creation_info *);
 extern int
 lws_esp32_wlan_nvs_get(int retry);
+extern esp_err_t
+lws_nvs_set_str(nvs_handle handle, const char* key, const char* value);
 extern void
 lws_esp32_restart_guided(uint32_t type);
 extern const esp_partition_t *
@@ -4808,6 +4813,7 @@ enum {
 	LWSSTATS_C_WRITEABLE_CB, /**< count of writable callbacks */
 	LWSSTATS_C_SSL_CONNECTIONS_FAILED, /**< count of failed SSL connections */
 	LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, /**< count of accepted SSL connections */
+	LWSSTATS_C_SSL_CONNS_HAD_RX, /**< count of accepted SSL conns that have had some RX */
 	LWSSTATS_C_TIMEOUTS, /**< count of timed-out connections */
 	LWSSTATS_C_SERVICE_ENTRY, /**< count of entries to lws service loop */
 	LWSSTATS_B_READ, /**< aggregate bytes read */
@@ -4816,6 +4822,7 @@ enum {
 	LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY, /**< aggregate delay in accepting connection */
 	LWSSTATS_MS_WRITABLE_DELAY, /**< aggregate delay between asking for writable and getting cb */
 	LWSSTATS_MS_WORST_WRITABLE_DELAY, /**< single worst delay between asking for writable and getting cb */
+	LWSSTATS_MS_SSL_RX_DELAY, /**< aggregate delay between ssl accept complete and first RX */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility */

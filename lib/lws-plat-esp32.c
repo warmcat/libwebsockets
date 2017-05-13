@@ -625,15 +625,33 @@ enum lws_gapss {
 				 * don't get an IP within a timeout and retries,
 				 * blacklist it and go back 
 				 */
+	LWS_GAPSS_STAT_HAPPY,
+};
+
+static const char *gapss_str[] = {
+	"LWS_GAPSS_INITIAL",
+        "LWS_GAPSS_SCAN",
+        "LWS_GAPSS_AP",
+        "LWS_GAPSS_AP_SCAN",
+        "LWS_GAPSS_STAT_GRP_AP",
+        "LWS_GAPSS_STAT_GRP_AP_SCAN",
+        "LWS_GAPSS_STAT",
+	"LWS_GAPSS_STAT_HAPPY",
 };
 
 static romfs_t lws_esp32_romfs;
-static TimerHandle_t leds_timer;
-//static enum lws_gapss gapss = LWS_GAPSS_INITIAL;
+static TimerHandle_t leds_timer, scan_timer;
+static enum lws_gapss gapss = LWS_GAPSS_INITIAL;
 
 struct esp32_file {
 	const struct inode *i;
 };
+
+static void lws_gapss_to(enum lws_gapss to)
+{
+	lwsl_notice("gapss from %s to %s\n", gapss_str[gapss], gapss_str[to]);
+	gapss = to;
+}
 
 uint32_t lws_esp32_get_reboot_type(void)
 {
@@ -674,17 +692,178 @@ void lws_esp32_restart_guided(uint32_t type)
 	esp_restart();
 }
 
+/*
+ * esp-idf goes crazy with zero length str nvs.  Use this as a workaround
+ * to delete the key in that case.
+ */
+
+esp_err_t lws_nvs_set_str(nvs_handle handle, const char* key, const char* value)
+{
+	if (*value)
+		return nvs_set_str(handle, key, value);
+
+	return nvs_erase_key(handle, key);
+}
+
+static wifi_scan_config_t scan_config = {
+        .ssid = 0,
+        .bssid = 0,
+        .channel = 0,
+        .show_hidden = true
+};
+
+static char scan_ongoing = 0i, scan_timer_exists = 0;
+static int try_slot = -1;
+
+static wifi_config_t config = {
+	.ap = {
+	    .channel = 6,
+	    .authmode = WIFI_AUTH_OPEN,
+	    .max_connection = 1,
+	} }, sta_config = {
+	.sta = {
+		.bssid_set = 0,
+	} };
+
+static void lws_esp32_scan_timer_cb(TimerHandle_t th)
+{
+	int n;
+
+	scan_ongoing = 0;
+	n = esp_wifi_scan_start(&scan_config, false);
+	if (n != ESP_OK)
+		lwsl_err("scan start failed %d\n", n);
+}
+
+
+static int
+start_scan()
+{
+	/* if no APs configured, no point... */
+
+	if (!lws_esp32.ssid[0][0] &&
+	    !lws_esp32.ssid[1][0] &&
+	    !lws_esp32.ssid[2][0] &&
+	    !lws_esp32.ssid[3][0])
+		return 0;
+
+	if (scan_timer_exists && !scan_ongoing) {
+		scan_ongoing = 1;
+		xTimerStart(scan_timer, 0);
+	} else
+		lwsl_notice("%s: ignoring, no scan timer\n", __func__);
+
+	return 0;
+}
+
+
+
+static void
+end_scan()
+{
+	wifi_ap_record_t ap_records[10];
+	uint16_t count_ap_records;
+	int n, m;
+
+	count_ap_records = ARRAY_SIZE(ap_records);
+	if (esp_wifi_scan_get_ap_records(&count_ap_records, ap_records) != ESP_OK) {
+		lwsl_err("%s: failed\n", __func__);
+		return;
+	}
+
+	if (!count_ap_records)
+		goto passthru;
+
+	if (gapss != LWS_GAPSS_SCAN) {
+		lwsl_notice("ignoring scan as gapss %s\n", gapss_str[gapss]);
+		goto passthru;
+	}
+
+	/* no point if no APs set up */
+	if (!lws_esp32.ssid[0][0] &&
+	    !lws_esp32.ssid[1][0] &&
+	    !lws_esp32.ssid[2][0] &&
+	    !lws_esp32.ssid[3][0])
+		goto passthru;
+
+	lwsl_notice("checking %d scan records\n", count_ap_records);
+
+	for (n = 0; n < 4; n++) {
+
+		if (!lws_esp32.ssid[(n + try_slot + 1) & 3][0])
+			continue;
+
+		lwsl_notice("looking for %s\n", lws_esp32.ssid[(n + try_slot + 1) & 3]);
+
+		/* this ssid appears in scan results? */
+
+		for (m = 0; m < count_ap_records; m++) {
+		//	lwsl_notice("  %s\n", ap_records[m].ssid);
+			if (strcmp((char *)ap_records[m].ssid, lws_esp32.ssid[(n + try_slot + 1) & 3]) == 0)
+				goto hit;
+		}
+
+		continue;
+
+hit:
+		m = (n + try_slot + 1) & 3;
+		try_slot = m;
+		lwsl_notice("Attempting connection with slot %d: %s:\n", m,
+				lws_esp32.ssid[m]);
+		/* set the ssid we last tried to connect to */
+		strncpy(lws_esp32.active_ssid, lws_esp32.ssid[m],
+				sizeof(lws_esp32.active_ssid) - 1);
+		lws_esp32.active_ssid[sizeof(lws_esp32.active_ssid) - 1] = '\0';
+
+		strncpy((char *)sta_config.sta.ssid, lws_esp32.ssid[m], sizeof(sta_config.sta.ssid) - 1);
+		strncpy((char *)sta_config.sta.password, lws_esp32.password[m], sizeof(sta_config.sta.password) - 1);
+
+		tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&config.ap.ssid[7]);
+		lws_gapss_to(LWS_GAPSS_STAT);
+
+		esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+		esp_wifi_connect();
+
+		mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns);
+		mdns_set_hostname(lws_esp32.mdns,  (const char *)&config.ap.ssid[7]);
+		mdns_set_instance(lws_esp32.mdns, "instance");
+		break;
+	}
+
+	if (n == 4)
+		start_scan();
+
+passthru:
+	if (lws_esp32.scan_consumer)
+		lws_esp32.scan_consumer(count_ap_records, ap_records, lws_esp32.scan_consumer_arg);
+
+}	
+
 esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 {
+	char slot[8];
+	nvs_handle nvh;
+	uint32_t use;
+
 	switch(event->event_id) {
 	case SYSTEM_EVENT_STA_START:
-		esp_wifi_connect();
-		break;
+		//esp_wifi_connect();
+//		break;
+		/* fallthru */
 	case SYSTEM_EVENT_STA_DISCONNECTED:
+		lwsl_notice("SYSTEM_EVENT_STA_DISCONNECTED\n");
 		lws_esp32.inet = 0;
+		lws_esp32.sta_ip[0] = '\0';
+		lws_esp32.sta_mask[0] = '\0';
+		lws_esp32.sta_gw[0] = '\0';
+		lws_gapss_to(LWS_GAPSS_SCAN);
+		lws_esp32.inet = 0;
+		start_scan();
 		esp_wifi_connect();
 		break;
 	case SYSTEM_EVENT_STA_GOT_IP:
+		lwsl_notice("SYSTEM_EVENT_STA_GOT_IP\n");
+
 		lws_esp32.inet = 1;
 		render_ip(lws_esp32.sta_ip, sizeof(lws_esp32.sta_ip) - 1,
 				(uint8_t *)&event->event_info.got_ip.ip_info.ip);
@@ -692,8 +871,23 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 				(uint8_t *)&event->event_info.got_ip.ip_info.netmask);
 		render_ip(lws_esp32.sta_gw, sizeof(lws_esp32.sta_gw) - 1,
 				(uint8_t *)&event->event_info.got_ip.ip_info.gw);
+
+		lwsl_notice(" --- Got IP %s\n", lws_esp32.sta_ip);
+
+		if (!nvs_open("lws-station", NVS_READWRITE, &nvh)) {
+			lws_snprintf(slot, sizeof(slot) - 1, "%duse", try_slot);
+			use = 0;
+			nvs_get_u32(nvh, slot, &use);
+			nvs_set_u32(nvh, slot, use + 1);
+			nvs_commit(nvh);
+			nvs_close(nvh);
+		}
+
+		lws_gapss_to(LWS_GAPSS_STAT_HAPPY);
 		break;
 	case SYSTEM_EVENT_SCAN_DONE:
+		lwsl_notice("SYSTEM_EVENT_SCAN_DONE\n");
+		end_scan();
 		break;
 	default:
 		break;
@@ -794,41 +988,38 @@ static const struct lws_plat_file_ops fops = {
 	.LWS_FOP_SEEK_CUR = esp32_lws_fops_seek_cur,
 };
 
-static wifi_config_t config = {
-	.ap = {
-	    .channel = 6,
-	    .authmode = WIFI_AUTH_OPEN,
-	    .max_connection = 1,
-	} }, sta_config = {
-	.sta = {
-		.bssid_set = 0,
-	} };
-
 int
 lws_esp32_wlan_nvs_get(int retry)
 {
 	nvs_handle nvh;
-	char r[2], lws_esp32_force_ap = 0;
+	char r[2], lws_esp32_force_ap = 0, slot[12];
 	size_t s;
 	uint8_t mac[6];
+	int n, m;
 
-	esp_efuse_read_mac(mac);
+	esp_efuse_mac_get_default(mac);
 	mac[5] |= 1; /* match the AP MAC */
 	snprintf(lws_esp32.serial, sizeof(lws_esp32.serial) - 1, "%02X%02X%02X", mac[3], mac[4], mac[5]);
 
 	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
 
-	s = sizeof(config.sta.ssid) - 1;
-	if (nvs_get_str(nvh, "ssid0", (char *)sta_config.sta.ssid, &s) != ESP_OK)
-		lws_esp32_force_ap = 1;
+	config.sta.ssid[0] = '\0';
+	config.sta.password[0] = '\0';
 
-	/* set the ssid we last tried to connect to */
-	strncpy(lws_esp32.active_ssid, (char *)sta_config.sta.ssid, sizeof(lws_esp32.active_ssid) - 1);
-	lws_esp32.active_ssid[sizeof(lws_esp32.active_ssid) - 1] = '\0';
+	for (n = 0; n < 4; n++) {
+		lws_snprintf(slot, sizeof(slot) - 1, "%dssid", n);
+		s = sizeof(lws_esp32.ssid[0]) - 1;
+		lws_esp32.ssid[n][0] = '\0';
+		m = nvs_get_str(nvh, slot, lws_esp32.ssid[n], &s);
+		lwsl_notice("%s: %s: %d\n", slot, lws_esp32.ssid[n], m);
 
-	s = sizeof(config.sta.password) - 1;
-	if (nvs_get_str(nvh, "password0", (char *)sta_config.sta.password, &s) != ESP_OK)
-		lws_esp32_force_ap = 1;
+		lws_snprintf(slot, sizeof(slot) - 1, "%dpassword", n);
+		s = sizeof(lws_esp32.password[0]) - 1;
+		lws_esp32.password[n][0] = '\0';
+		m = nvs_get_str(nvh, slot, lws_esp32.password[n], &s);
+		lwsl_notice("%s: %s: %d\n", slot, lws_esp32.password[n], m);
+	}
+
 	s = sizeof(lws_esp32.serial) - 1;
 	if (nvs_get_str(nvh, "serial", lws_esp32.serial, &s) != ESP_OK)
 		lws_esp32_force_ap = 1;
@@ -857,15 +1048,8 @@ lws_esp32_wlan_nvs_get(int retry)
 
 	nvs_close(nvh);
 
-	if (retry && sta_config.sta.ssid[0]) {
-		tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&config.ap.ssid[7]);
-		ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config));
-		ESP_ERROR_CHECK( esp_wifi_connect());
-
-		ESP_ERROR_CHECK(mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns));
-		mdns_set_hostname(lws_esp32.mdns,  (const char *)&config.ap.ssid[7]);
-		mdns_set_instance(lws_esp32.mdns, "instance");
-	}
+	lws_gapss_to(LWS_GAPSS_SCAN);
+	start_scan();
 
 	return lws_esp32_force_ap;
 }
@@ -873,6 +1057,26 @@ lws_esp32_wlan_nvs_get(int retry)
 void
 lws_esp32_wlan_config(void)
 {
+	ledc_timer_config_t ledc_timer = {
+	        .bit_num = LEDC_TIMER_13_BIT,
+	        .freq_hz = 5000,
+	        .speed_mode = LEDC_HIGH_SPEED_MODE,
+	        .timer_num = LEDC_TIMER_0
+	};
+
+	ledc_timer_config(&ledc_timer);
+
+	/* user code needs to provide lws_esp32_leds_timer_cb */
+
+        leds_timer = xTimerCreate("lws_leds", pdMS_TO_TICKS(25), 1, NULL,
+                          (TimerCallbackFunction_t)lws_esp32_leds_timer_cb);
+        scan_timer = xTimerCreate("lws_scan", pdMS_TO_TICKS(10000), 0, NULL,
+                          (TimerCallbackFunction_t)lws_esp32_scan_timer_cb);
+
+	scan_timer_exists = 1;
+        xTimerStart(leds_timer, 0);
+
+
 	lws_esp32_wlan_nvs_get(0);
 	tcpip_adapter_init();
 }
@@ -890,6 +1094,8 @@ lws_esp32_wlan_start_ap(void)
 	ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_AP, &config) );
 	ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config));
 	ESP_ERROR_CHECK( esp_wifi_start());
+
+	esp_wifi_scan_start(&scan_config, false);
 
 	if (sta_config.sta.ssid[0]) {
 		tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&config.ap.ssid[7]);
@@ -1011,11 +1217,12 @@ lws_esp32_set_creation_defaults(struct lws_context_creation_info *info)
 
 	info->port = 443;
 	info->fd_limit_per_thread = 30;
-	info->max_http_header_pool = 2;
+	info->max_http_header_pool = 3;
 	info->max_http_header_data = 1024;
 	info->pt_serv_buf_size = 4096;
-	info->keepalive_timeout = 5;
-	info->simultaneous_ssl_restriction = 2;
+	info->keepalive_timeout = 30;
+	info->timeout_secs = 30;
+	info->simultaneous_ssl_restriction = 3;
 	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
@@ -1068,20 +1275,6 @@ lws_esp32_init(struct lws_context_creation_info *info)
 	char buf[512];
 	size_t s;
 	int n;
-	ledc_timer_config_t ledc_timer = {
-	        .bit_num = LEDC_TIMER_13_BIT,
-	        .freq_hz = 5000,
-	        .speed_mode = LEDC_HIGH_SPEED_MODE,
-	        .timer_num = LEDC_TIMER_0
-	};
-
-	ledc_timer_config(&ledc_timer);
-
-	/* user code needs to provide lws_esp32_leds_timer_cb */
-
-        leds_timer = xTimerCreate("lws_leds", pdMS_TO_TICKS(25), 1, NULL,
-                          (TimerCallbackFunction_t)lws_esp32_leds_timer_cb);
-        xTimerStart(leds_timer, 0);
 
 	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
 	n = 0;

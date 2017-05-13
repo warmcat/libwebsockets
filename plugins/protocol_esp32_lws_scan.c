@@ -85,14 +85,14 @@ struct per_vhost_data__esplws_scan {
 };
 
 static const struct store_json store_json[] = {
-	{ "\"ssid0\":\"", "ssid0" },
-	{ ",\"pw0\":\"", "password0" },
-	{ "\"ssid1\":\"", "ssid1" },
-	{ ",\"pw1\":\"", "password1" },
-	{ "\"ssid2\":\"", "ssid2" },
-	{ ",\"pw2\":\"", "password2" },
-	{ "\"ssid3\":\"", "ssid3" },
-	{ ",\"pw3\":\"", "password3" },
+	{ "\"ssid0\":\"", "0ssid" },
+	{ ",\"pw0\":\"", "0password" },
+	{ "\"ssid1\":\"", "1ssid" },
+	{ ",\"pw1\":\"", "1password" },
+	{ "\"ssid2\":\"", "2ssid" },
+	{ ",\"pw2\":\"", "2password" },
+	{ "\"ssid3\":\"", "3ssid" },
+	{ ",\"pw3\":\"", "3password" },
 	{ ",\"access_pw\":\"", "access_pw" },
 	{ "{\"group\":\"", "group" },
 	{ "{\"role\":\"", "role" },
@@ -105,9 +105,6 @@ static wifi_scan_config_t scan_config = {
 	.channel = 0,
         .show_hidden = true
 };
-
-extern void (*lws_cb_scan_done)(void *);
-extern void *lws_cb_scan_done_arg;
 
 const esp_partition_t *
 ota_choose_part(void);
@@ -130,7 +127,7 @@ enum enum_param_names {
 
 
 static void
-scan_finished(void *v);
+scan_finished(uint16_t count, wifi_ap_record_t *recs, void *v);
 
 static int
 esplws_simple_arg(char *dest, int len, const char *in, const char *match)
@@ -161,8 +158,8 @@ scan_start(struct per_vhost_data__esplws_scan *vhd)
 		return;
 
 	vhd->scan_ongoing = 1;
-	lws_cb_scan_done = scan_finished;
-	lws_cb_scan_done_arg = vhd;
+	lws_esp32.scan_consumer = scan_finished;
+	lws_esp32.scan_consumer_arg = vhd;
 	n = esp_wifi_scan_start(&scan_config, false);
 	if (n != ESP_OK)
 		lwsl_err("scan start failed %d\n", n);
@@ -216,18 +213,21 @@ client_connection(struct per_vhost_data__esplws_scan *vhd, const char *file)
 }
 
 static void
-scan_finished(void *v)
+scan_finished(uint16_t count, wifi_ap_record_t *recs, void *v)
 {
 	struct per_vhost_data__esplws_scan *vhd = v;
 	struct per_session_data__esplws_scan *p = vhd->live_pss_list;
 
+	lwsl_notice("%s: count %d\n", __func__, count);
+
 	vhd->scan_ongoing = 0;
 
-	vhd->count_ap_records = ARRAY_SIZE(vhd->ap_records);
-	if (esp_wifi_scan_get_ap_records(&vhd->count_ap_records, vhd->ap_records) != ESP_OK) {
-		lwsl_err("%s: failed\n", __func__);
-		return;
-	}
+	if (count < ARRAY_SIZE(vhd->ap_records))
+		vhd->count_ap_records = count;
+	else
+		vhd->count_ap_records = ARRAY_SIZE(vhd->ap_records);
+
+	memcpy(vhd->ap_records, recs, vhd->count_ap_records * sizeof(*recs));
 	
 	while (p) {
 		if (p->scan_state != SCAN_STATE_INITIAL && p->scan_state != SCAN_STATE_NONE)
@@ -333,7 +333,6 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->vhost = lws_get_vhost(wsi);
 		vhd->timer = xTimerCreate("x", pdMS_TO_TICKS(10000), 1, vhd,
 			  (TimerCallbackFunction_t)timer_cb);
-		xTimerStart(vhd->timer, 0);
 		vhd->scan_ongoing = 0;
 		strcpy(vhd->json, " { }");
 		scan_start(vhd);
@@ -347,6 +346,11 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
+		lwsl_notice("%s: ESTABLISHED\n", __func__);
+		if (!vhd->live_pss_list) {
+			scan_start(vhd);
+			xTimerStart(vhd->timer, 0);
+		}
 		vhd->count_live_pss++;
 		pss->next = vhd->live_pss_list;
 		vhd->live_pss_list = pss;
@@ -374,7 +378,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 			struct timeval t;
 			uint8_t mac[6];
 			struct lws_esp32_image i;
-			char img_factory[512], img_ota[512], group[16];
+			char img_factory[512], img_ota[512], group[16], role[16];
 			int grt;
 
 		case SCAN_STATE_INITIAL:
@@ -385,7 +389,10 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 
 			pss->last_send = t;
 
-			ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
+			if (nvs_open("lws-station", NVS_READWRITE, &nvh)) {
+				lwsl_err("unable to open nvs\n");
+				return -1;
+			}
 			n = 0;
 			if (nvs_get_blob(nvh, "ssl-pub.pem", NULL, &s) == ESP_OK)
 				n = 1;
@@ -393,7 +400,9 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				n |= 2;
 			s = sizeof(group) - 1;
 			group[0] = '\0';
+			role[0] = '\0';
 			nvs_get_str(nvh, "group", group, &s);
+			nvs_get_str(nvh, "role", role, &s);
 
 			nvs_close(nvh);
 
@@ -405,7 +414,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 
 			grt = lws_esp32_get_reboot_type();
 
-			esp_efuse_read_mac(mac);
+			esp_efuse_mac_get_default(mac);
 			strcpy(img_factory, " { \"date\": \"Empty\" }");
 			strcpy(img_ota, " { \"date\": \"Empty\" }");
 
@@ -431,6 +440,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				      " \"conn_mask\":\"%s\",\n"
 				      " \"conn_gw\":\"%s\",\n"
 				      " \"group\":\"%s\",\n"
+				      " \"role\":\"%s\",\n"
 				      " \"img_factory\": %s,\n"
 				      " \"img_ota\": %s,\n",
 				      lws_esp32.model,
@@ -445,7 +455,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				      lws_esp32.sta_ip,
 				      lws_esp32.sta_mask,
 				      lws_esp32.sta_gw,
-				      group,
+				      group, role,
 					img_factory,
 					img_ota
 				      );
@@ -486,13 +496,13 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 
 				s = sizeof(ssid) - 1;
 				ssid[0] = '\0';
-				lws_snprintf(name, sizeof(name) - 1, "ssid%d", m);
+				lws_snprintf(name, sizeof(name) - 1, "%dssid", m);
 				nvs_get_str(nvh, name, ssid, &s);
-				lws_snprintf(name, sizeof(name) - 1, "password%d", m);
+				lws_snprintf(name, sizeof(name) - 1, "%dpassword", m);
 				s = 10;
 				nvs_get_str(nvh, name, NULL, &s);
 				pp = !!s;
-				lws_snprintf(name, sizeof(name) - 1, "use%d", m);
+				lws_snprintf(name, sizeof(name) - 1, "%duse", m);
 				nvs_get_u32(nvh, name, &use);
 
 				p += snprintf((char *)p, end - p,
@@ -568,8 +578,8 @@ issue:
 		{
 			const char *sect = "\"app\": {", *b;
 			nvs_handle nvh;
-			char p[64];
-			int n;
+			char p[64], use[6];
+			int n, si = -1;
 
 			if (strstr((const char *)in, "identify")) {
 				lws_esp32_identify_physical_device();
@@ -591,6 +601,11 @@ issue:
 				break;
 			}
 
+			if (!esplws_simple_arg(p, sizeof(p), in, ",\"slot\":\""))
+				si = atoi(p);
+
+			lwsl_notice("si %d\n", si);
+
 			for (n = 0; n < ARRAY_SIZE(store_json); n++) {
 				if (esplws_simple_arg(p, sizeof(p), in, store_json[n].j))
 					continue;
@@ -599,7 +614,7 @@ issue:
 				if (n == 8 && lws_esp32_get_reboot_type() != LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON)
 					continue;
 
-				lwsl_notice("%s '%s\n", store_json[n].nvs, p);
+				//lwsl_notice("%s: %s '%s'\n", __func__, store_json[n].nvs, p);
 				if (n == 9) {
 					strncpy(lws_esp32.group, p, sizeof(lws_esp32.group) - 1);
 					lws_esp32.group[sizeof(lws_esp32.group) - 1] = '\0';
@@ -609,10 +624,29 @@ issue:
 					lws_esp32.role[sizeof(lws_esp32.role) - 1] = '\0';
 				}
 
-				if (nvs_set_str(nvh, store_json[n].nvs, p) != ESP_OK) {
+				if (lws_nvs_set_str(nvh, store_json[n].nvs, p) != ESP_OK) {
 					lwsl_err("Unable to store %s in nvm\n", store_json[n].nvs);
 					goto bail_nvs;
 				}
+
+				if (si != -1 && n < 8) {
+					if (!(n & 1)) {
+						strncpy(lws_esp32.ssid[(n >> 1) & 3], p,
+								sizeof(lws_esp32.ssid[0]));
+						lws_esp32.ssid[(n >> 1) & 3]
+							[sizeof(lws_esp32.ssid[0]) - 1] = '\0';
+						lws_snprintf(use, sizeof(use) - 1, "%duse", si);
+						lwsl_notice("resetting %s to 0\n", use);
+						nvs_set_u32(nvh, use, 0);
+
+					} else {
+						strncpy(lws_esp32.password[(n >> 1) & 3], p,
+								sizeof(lws_esp32.password[0]));
+						lws_esp32.password[(n >> 1) & 3]
+							[sizeof(lws_esp32.password[0]) - 1] = '\0';
+					}
+				}
+
 			}
 
 			nvs_commit(nvh);
@@ -702,6 +736,8 @@ auton:
 
 			vhd->count_live_pss--;
 		}
+		if (!vhd->live_pss_list)
+			xTimerStop(vhd->timer, 0);
 		break;
 
 	/* "factory" POST handling */
@@ -738,7 +774,7 @@ auton:
 		if (lws_esp32_get_reboot_type() == LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON) {
 
 			if (lws_spa_get_string(pss->spa, EPN_SERIAL)) {
-				if (nvs_set_str(nvh, "serial", lws_spa_get_string(pss->spa, EPN_SERIAL)) != ESP_OK) {
+				if (lws_nvs_set_str(nvh, "serial", lws_spa_get_string(pss->spa, EPN_SERIAL)) != ESP_OK) {
 					lwsl_err("Unable to store serial in nvm\n");
 					goto bail_nvs;
 				}
@@ -747,7 +783,7 @@ auton:
 			}
 
 			if (lws_spa_get_string(pss->spa, EPN_OPTS)) {
-				if (nvs_set_str(nvh, "opts", lws_spa_get_string(pss->spa, EPN_OPTS)) != ESP_OK) {
+				if (lws_nvs_set_str(nvh, "opts", lws_spa_get_string(pss->spa, EPN_OPTS)) != ESP_OK) {
 					lwsl_err("Unable to store options in nvm\n");
 					goto bail_nvs;
 				}

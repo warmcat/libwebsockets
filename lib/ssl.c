@@ -365,6 +365,15 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 #endif
+#if defined(LWS_WITH_STATS)
+	if (!wsi->seen_rx) {
+                lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_SSL_RX_DELAY,
+				time_in_microseconds() - wsi->accept_start_us);
+                lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_SSL_CONNS_HAD_RX, 1);
+		wsi->seen_rx = 1;
+	}
+#endif
+
 
 	lwsl_debug("%p: SSL_read says %d\n", wsi, n);
 	/* manpage: returning 0 means connection shut down */
@@ -762,6 +771,7 @@ accepted:
 		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, 1);
 #if defined(LWS_WITH_STATS)
 		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY, time_in_microseconds() - wsi->accept_start_us);
+		wsi->accept_start_us = time_in_microseconds();
 #endif
 
 		/* OK, we are accepted... give him some time to negotiate */

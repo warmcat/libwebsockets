@@ -3144,6 +3144,8 @@ lws_stats_log_dump(struct lws_context *context)
 	lwsl_notice("LWSSTATS_C_WRITEABLE_CB:                    %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_WRITEABLE_CB));
 	lwsl_notice("LWSSTATS_C_SSL_CONNECTIONS_FAILED:          %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SSL_CONNECTIONS_FAILED));
 	lwsl_notice("LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED:        %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED));
+	lwsl_notice("LWSSTATS_C_SSL_CONNS_HAD_RX:                %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SSL_CONNS_HAD_RX));
+
 	lwsl_notice("LWSSTATS_C_TIMEOUTS:                        %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_TIMEOUTS));
 	lwsl_notice("LWSSTATS_C_SERVICE_ENTRY:                   %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SERVICE_ENTRY));
 	lwsl_notice("LWSSTATS_B_READ:                            %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_B_READ));
@@ -3154,6 +3156,12 @@ lws_stats_log_dump(struct lws_context *context)
 		lwsl_notice("  Avg accept delay:                         %8llums\n",
 			(unsigned long long)(lws_stats_get(context, LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY) /
 			lws_stats_get(context, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED)) / 1000);
+	lwsl_notice("LWSSTATS_MS_SSL_RX_DELAY:                   %8llums\n", (unsigned long long)lws_stats_get(context, LWSSTATS_MS_SSL_RX_DELAY) / 1000);
+	if (lws_stats_get(context, LWSSTATS_C_SSL_CONNS_HAD_RX))
+		lwsl_notice("  Avg accept-rx delay:                      %8llums\n",
+			(unsigned long long)(lws_stats_get(context, LWSSTATS_MS_SSL_RX_DELAY) /
+			lws_stats_get(context, LWSSTATS_C_SSL_CONNS_HAD_RX)) / 1000);
+
 	lwsl_notice("LWSSTATS_MS_WRITABLE_DELAY:                 %8lluus\n",
 			(unsigned long long)lws_stats_get(context, LWSSTATS_MS_WRITABLE_DELAY));
 	lwsl_notice("LWSSTATS_MS_WORST_WRITABLE_DELAY:           %8lluus\n",
