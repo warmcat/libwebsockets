@@ -557,6 +557,16 @@ lws_esp32_identify_physical_device(void);
 
 typedef void (*lws_cb_scan_done)(uint16_t count, wifi_ap_record_t *recs, void *arg);
 
+struct lws_group_member {
+	struct lws_group_member *next;
+	uint64_t last_seen;
+	char model[16];
+	char role[16];
+	char host[32];
+	struct ip4_addr addr;
+	struct ip6_addr addrv6;
+};
+
 struct lws_esp32 {
 	char sta_ip[16];
 	char sta_mask[16];
@@ -570,11 +580,14 @@ struct lws_esp32 {
 	char password[4][32];
 	char active_ssid[32];
 	char access_pw[16];
+	char hostname[32];
 	mdns_server_t *mdns;
        	char region;
        	char inet;
 	lws_cb_scan_done scan_consumer;
 	void *scan_consumer_arg;
+	struct lws_group_member *first;
+	int extant_group_members;
 };
 
 struct lws_esp32_image {

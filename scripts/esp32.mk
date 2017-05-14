@@ -8,6 +8,8 @@
 
 SHELL=/bin/bash
 
+ESPPORT ?= $(CONFIG_ESPTOOLPY_PORT)
+
 jbi=$(COMPONENT_PATH)/../build/json-buildinfo
 
 FAC=$(CONFIG_LWS_IS_FACTORY_APPLICATION)
@@ -82,14 +84,14 @@ flash_ota: $(COMPONENT_PATH)/../build/pack.img
 	DIRNAME=$$(basename $$(pwd) | tr -d '\n') ;\
 	$(IDF_PATH)/components/esptool_py/esptool/esptool.py \
 		--chip esp32 \
-		--port $(CONFIG_ESPTOOLPY_PORT) \
+		--port $(ESPPORT) \
 		--baud $(CONFIG_ESPTOOLPY_BAUD) \
 		write_flash 0x110000 $(COMPONENT_PATH)/../build/$$DIRNAME.bin
 
 erase_ota:
 	$(IDF_PATH)/components/esptool_py/esptool/esptool.py \
 	        --chip esp32 \
-	        --port $(CONFIG_ESPTOOLPY_PORT) \
+	        --port $(ESPPORT) \
 	        --baud $(CONFIG_ESPTOOLPY_BAUD) \
 	        erase_region 0x110000 0x2f0000
 

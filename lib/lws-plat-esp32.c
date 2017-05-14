@@ -640,7 +640,11 @@ static const char *gapss_str[] = {
 };
 
 static romfs_t lws_esp32_romfs;
-static TimerHandle_t leds_timer, scan_timer;
+static TimerHandle_t leds_timer, scan_timer
+#if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
+, mdns_timer
+#endif
+;
 static enum lws_gapss gapss = LWS_GAPSS_INITIAL;
 
 struct esp32_file {
@@ -712,7 +716,7 @@ static wifi_scan_config_t scan_config = {
         .show_hidden = true
 };
 
-static char scan_ongoing = 0i, scan_timer_exists = 0;
+static char scan_ongoing = 0, scan_timer_exists = 0;
 static int try_slot = -1;
 
 static wifi_config_t config = {
@@ -729,12 +733,82 @@ static void lws_esp32_scan_timer_cb(TimerHandle_t th)
 {
 	int n;
 
+	lwsl_notice("%s\n", __func__);
 	scan_ongoing = 0;
 	n = esp_wifi_scan_start(&scan_config, false);
 	if (n != ESP_OK)
 		lwsl_err("scan start failed %d\n", n);
 }
 
+#if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
+static void lws_esp32_mdns_timer_cb(TimerHandle_t th)
+{
+	uint64_t now = time_in_microseconds(); 
+	struct lws_group_member *p, **p1;
+	const mdns_result_t *r;
+	int n, m;
+
+	if (!lws_esp32.mdns)
+		return;
+	n = mdns_query_end(lws_esp32.mdns);
+	lwsl_notice("%s: %d results\n", __func__, n);
+
+	for (m = 0; m < n; m++) {
+		r = mdns_result_get(lws_esp32.mdns, m);
+		lwsl_notice("found %s / %s / %s\n", r->host, r->instance, r->txt);
+		p = lws_esp32.first;
+		while (p) {
+			if (strcmp(r->host, p->host)) {
+				lwsl_notice("%s vs %s\n", r->host, p->host);
+				goto next;
+			}
+			if (memcmp(&r->addr, &p->addr, sizeof(r->addr))) {
+				lwsl_notice("0x%x vs 0x%x\n", *((unsigned int *)&r->addr),
+						*((unsigned int *)&p->addr));
+				goto next;
+			}
+			lwsl_notice("updating existing group member\n");
+			p->last_seen = now;
+			break;
+next:
+			p = p->next;
+		}
+		if (!p) { /* did not find */
+			lwsl_notice("creating new group member\n");
+			p = malloc(sizeof(*p));
+			if (!p)
+				continue;
+			strncpy(p->host, r->host, sizeof(p->host) - 1);
+			p->host[sizeof(p->host) - 1] = '\0';
+			memcpy(&p->addr, &r->addr, sizeof(p->addr));
+			memcpy(&p->addrv6, &r->addrv6, sizeof(p->addrv6));
+			p->last_seen = now;
+			p->next = lws_esp32.first;
+			lws_esp32.first = p;
+			lws_esp32.extant_group_members++;
+		}
+	}
+
+	mdns_result_free(lws_esp32.mdns);
+
+	/* garbage-collect group members not seen for too long */
+	p1 = &lws_esp32.first;
+	while (*p1) {
+		p = *p1;
+		if (now - p->last_seen > 60000000) {
+			lwsl_notice("timing out group member\n");
+			lws_esp32.extant_group_members--;
+			*p1 = p->next;
+			free(p);
+			continue;
+		}
+		p1 = &(*p1)->next;
+	}
+
+	mdns_query(lws_esp32.mdns, "_lwsgrmem", "_tcp", 0);
+	xTimerStart(mdns_timer, 0);
+}
+#endif
 
 static int
 start_scan()
@@ -748,10 +822,10 @@ start_scan()
 		return 0;
 
 	if (scan_timer_exists && !scan_ongoing) {
+		// lwsl_notice("Starting scan timer...\n");
 		scan_ongoing = 1;
 		xTimerStart(scan_timer, 0);
-	} else
-		lwsl_notice("%s: ignoring, no scan timer\n", __func__);
+	}
 
 	return 0;
 }
@@ -798,7 +872,7 @@ end_scan()
 		/* this ssid appears in scan results? */
 
 		for (m = 0; m < count_ap_records; m++) {
-		//	lwsl_notice("  %s\n", ap_records[m].ssid);
+			// lwsl_notice("  %s\n", ap_records[m].ssid);
 			if (strcmp((char *)ap_records[m].ssid, lws_esp32.ssid[(n + try_slot + 1) & 3]) == 0)
 				goto hit;
 		}
@@ -823,10 +897,6 @@ hit:
 
 		esp_wifi_set_config(WIFI_IF_STA, &sta_config);
 		esp_wifi_connect();
-
-		mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns);
-		mdns_set_hostname(lws_esp32.mdns,  (const char *)&config.ap.ssid[7]);
-		mdns_set_instance(lws_esp32.mdns, "instance");
 		break;
 	}
 
@@ -857,7 +927,9 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 		lws_esp32.sta_mask[0] = '\0';
 		lws_esp32.sta_gw[0] = '\0';
 		lws_gapss_to(LWS_GAPSS_SCAN);
-		lws_esp32.inet = 0;
+		if (lws_esp32.mdns)
+			mdns_service_remove_all(lws_esp32.mdns);
+		lws_esp32.mdns = NULL;
 		start_scan();
 		esp_wifi_connect();
 		break;
@@ -872,8 +944,6 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 		render_ip(lws_esp32.sta_gw, sizeof(lws_esp32.sta_gw) - 1,
 				(uint8_t *)&event->event_info.got_ip.ip_info.gw);
 
-		lwsl_notice(" --- Got IP %s\n", lws_esp32.sta_ip);
-
 		if (!nvs_open("lws-station", NVS_READWRITE, &nvh)) {
 			lws_snprintf(slot, sizeof(slot) - 1, "%duse", try_slot);
 			use = 0;
@@ -884,7 +954,43 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 		}
 
 		lws_gapss_to(LWS_GAPSS_STAT_HAPPY);
+
+#if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
+		if (!mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns)) {
+			static char *txta[4];
+
+			mdns_set_hostname(lws_esp32.mdns, lws_esp32.hostname);
+			mdns_set_instance(lws_esp32.mdns, lws_esp32.group);
+			mdns_service_add(lws_esp32.mdns, "_lwsgrmem", "_tcp", 443);
+			if (txta[0])
+				free(txta[0]);
+			txta[0] = malloc(32 * 4);
+			if (!txta[0]) {
+				lwsl_notice("mdns OOM\n");
+				break;
+			}
+			txta[1] = &txta[0][32];
+			txta[2] = &txta[1][32];
+			txta[3] = &txta[2][32];
+
+			lws_snprintf(txta[0], 31, "model=%s", lws_esp32.model);
+			lws_snprintf(txta[1], 31, "group=%s", lws_esp32.group);
+			lws_snprintf(txta[2], 31, "role=%s", lws_esp32.role);
+			lws_snprintf(txta[3], 31, "role=%s", lws_esp32.role);
+
+			if (mdns_service_txt_set(lws_esp32.mdns, "_lwsgrmem", "_tcp", 4,
+						 (const char **)txta))
+				lwsl_notice("txt set failed\n");
+		} else
+			lwsl_err("unable to init mdns on STA\n");
+
+		mdns_query(lws_esp32.mdns, "_lwsgrmem", "_tcp", 0);
+		xTimerStart(mdns_timer, 0);
+#endif
+
+		lwsl_notice(" --- Got IP %s\n", lws_esp32.sta_ip);
 		break;
+
 	case SYSTEM_EVENT_SCAN_DONE:
 		lwsl_notice("SYSTEM_EVENT_SCAN_DONE\n");
 		end_scan();
@@ -995,7 +1101,7 @@ lws_esp32_wlan_nvs_get(int retry)
 	char r[2], lws_esp32_force_ap = 0, slot[12];
 	size_t s;
 	uint8_t mac[6];
-	int n, m;
+	int n;
 
 	esp_efuse_mac_get_default(mac);
 	mac[5] |= 1; /* match the AP MAC */
@@ -1010,14 +1116,12 @@ lws_esp32_wlan_nvs_get(int retry)
 		lws_snprintf(slot, sizeof(slot) - 1, "%dssid", n);
 		s = sizeof(lws_esp32.ssid[0]) - 1;
 		lws_esp32.ssid[n][0] = '\0';
-		m = nvs_get_str(nvh, slot, lws_esp32.ssid[n], &s);
-		lwsl_notice("%s: %s: %d\n", slot, lws_esp32.ssid[n], m);
+		nvs_get_str(nvh, slot, lws_esp32.ssid[n], &s);
 
 		lws_snprintf(slot, sizeof(slot) - 1, "%dpassword", n);
 		s = sizeof(lws_esp32.password[0]) - 1;
 		lws_esp32.password[n][0] = '\0';
-		m = nvs_get_str(nvh, slot, lws_esp32.password[n], &s);
-		lwsl_notice("%s: %s: %d\n", slot, lws_esp32.password[n], m);
+		nvs_get_str(nvh, slot, lws_esp32.password[n], &s);
 	}
 
 	s = sizeof(lws_esp32.serial) - 1;
@@ -1046,6 +1150,11 @@ lws_esp32_wlan_nvs_get(int retry)
 	s = sizeof(lws_esp32.role);
 	nvs_get_str(nvh, "role", lws_esp32.role, &s);
 
+	lws_snprintf(lws_esp32.hostname, sizeof(lws_esp32.hostname) - 1,
+			"%s-%s-%s", lws_esp32.model,
+			lws_esp32.group,
+			lws_esp32.serial);
+
 	nvs_close(nvh);
 
 	lws_gapss_to(LWS_GAPSS_SCAN);
@@ -1072,7 +1181,10 @@ lws_esp32_wlan_config(void)
                           (TimerCallbackFunction_t)lws_esp32_leds_timer_cb);
         scan_timer = xTimerCreate("lws_scan", pdMS_TO_TICKS(10000), 0, NULL,
                           (TimerCallbackFunction_t)lws_esp32_scan_timer_cb);
-
+#if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
+        mdns_timer = xTimerCreate("lws_mdns", pdMS_TO_TICKS(5000), 0, NULL,
+                          (TimerCallbackFunction_t)lws_esp32_mdns_timer_cb);
+#endif
 	scan_timer_exists = 1;
         xTimerStart(leds_timer, 0);
 
@@ -1124,9 +1236,8 @@ lws_esp32_wlan_start_station(void)
 	esp_wifi_set_auto_connect(1);
 	ESP_ERROR_CHECK( esp_wifi_connect());
 
-	ESP_ERROR_CHECK(mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns));
-	mdns_set_hostname(lws_esp32.mdns,  (const char *)&config.ap.ssid[7]);
-	mdns_set_instance(lws_esp32.mdns, "instance");
+	if (mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns))
+		lwsl_notice("mdns init failed\n");
 }
 
 const esp_partition_t *
