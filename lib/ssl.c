@@ -527,6 +527,10 @@ lws_gate_accepts(struct lws_context *context, int on)
 	struct lws_vhost *v = context->vhost_list;
 
 	lwsl_info("gating accepts %d\n", on);
+	context->ssl_gate_accepts = !on;
+#if defined(LWS_WITH_STATS)
+	context->updated = 1;
+#endif
 
 	while (v) {
 		if (v->use_ssl &&  v->lserv_wsi) /* gate ability to accept incoming connections */
@@ -558,6 +562,9 @@ lws_ssl_close(struct lws *wsi)
 			    wsi->context->simultaneous_ssl_restriction)
 		/* we made space and can do an accept */
 		lws_gate_accepts(wsi->context, 1);
+#if defined(LWS_WITH_STATS)
+	wsi->context->updated = 1;
+#endif
 
 	return 1; /* handled */
 }
@@ -605,6 +612,9 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		    ++context->simultaneous_ssl == context->simultaneous_ssl_restriction)
 			/* that was the last allowed SSL connection */
 			lws_gate_accepts(context, 0);
+#if defined(LWS_WITH_STATS)
+	context->updated = 1;
+#endif
 
 #if !defined(LWS_WITH_ESP32)
 		SSL_set_ex_data(wsi->ssl,

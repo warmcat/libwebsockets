@@ -3126,6 +3126,9 @@ lws_stats_get(struct lws_context *context, int index)
 LWS_VISIBLE LWS_EXTERN void
 lws_stats_log_dump(struct lws_context *context)
 {
+	struct lws_vhost *v = context->vhost_list;
+	int n;
+
 	if (!context->updated)
 		return;
 
@@ -3170,6 +3173,54 @@ lws_stats_log_dump(struct lws_context *context)
 		lwsl_notice("  Avg writable delay:                       %8lluus\n",
 			(unsigned long long)(lws_stats_get(context, LWSSTATS_MS_WRITABLE_DELAY) /
 			lws_stats_get(context, LWSSTATS_C_WRITEABLE_CB)));
+	lwsl_notice("Simultaneous SSL restriction:               %8d/%d/%d\n", context->simultaneous_ssl,
+		context->simultaneous_ssl_restriction, context->ssl_gate_accepts);
+
+	lwsl_notice("Live wsi:                                   %8d\n", context->count_wsi_allocated);
+
+#if defined(LWS_WITH_STATS)
+	context->updated = 1;
+#endif
+
+	while (v) {
+		if (v->use_ssl && v->lserv_wsi) {
+			struct lws_context_per_thread *pt = &context->pt[(int)v->lserv_wsi->tsi];
+			struct lws_pollfd *pfd;
+
+			pfd = &pt->fds[v->lserv_wsi->position_in_fds_table];
+
+			lwsl_notice("  Listen port %d actual POLLIN:   %d\n",
+					v->listen_port, (int)pfd->events & LWS_POLLIN);
+		}
+
+		v = v->vhost_next;
+	}
+
+	for (n = 0; n < context->count_threads; n++) {
+		struct lws_context_per_thread *pt = &context->pt[n];
+		struct lws *wl;
+		int m = 0;
+
+		lwsl_notice("PT %d\n", n + 1);
+
+		lws_pt_lock(pt);
+
+		lwsl_notice("  AH in use / max:                  %d / %d\n",
+				pt->ah_count_in_use,
+				context->max_http_header_pool);
+
+		wl = pt->ah_wait_list;
+		while (wl) {
+			m++;
+			wl = wl->u.hdr.ah_wait_list;
+		}
+
+		lwsl_notice("  AH wait list count / actual:      %d / %d\n",
+				pt->ah_wait_list_length, m);
+
+		lws_pt_unlock(pt);
+	}
+
 	lwsl_notice("\n");
 }
 

@@ -914,6 +914,7 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 	char slot[8];
 	nvs_handle nvh;
 	uint32_t use;
+	int n;
 
 	switch(event->event_id) {
 	case SYSTEM_EVENT_STA_START:
@@ -956,7 +957,8 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 		lws_gapss_to(LWS_GAPSS_STAT_HAPPY);
 
 #if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
-		if (!mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns)) {
+		n = mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns);
+		if (!n) {
 			static char *txta[4];
 
 			mdns_set_hostname(lws_esp32.mdns, lws_esp32.hostname);
@@ -982,7 +984,7 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 						 (const char **)txta))
 				lwsl_notice("txt set failed\n");
 		} else
-			lwsl_err("unable to init mdns on STA\n");
+			lwsl_err("unable to init mdns on STA: %d\n", n);
 
 		mdns_query(lws_esp32.mdns, "_lwsgrmem", "_tcp", 0);
 		xTimerStart(mdns_timer, 0);
@@ -1236,8 +1238,7 @@ lws_esp32_wlan_start_station(void)
 	esp_wifi_set_auto_connect(1);
 	ESP_ERROR_CHECK( esp_wifi_connect());
 
-	if (mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns))
-		lwsl_notice("mdns init failed\n");
+	lws_esp32_scan_timer_cb(NULL);
 }
 
 const esp_partition_t *
