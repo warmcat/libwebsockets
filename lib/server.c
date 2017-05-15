@@ -1784,8 +1784,10 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 				 vh_prot_name, new_wsi->vhost->name);
 			goto bail;
 		}
-		if (lws_ensure_user_space(new_wsi))
+               if (lws_ensure_user_space(new_wsi)) {
+                       lwsl_notice("OOM trying to get user_space\n");
 			goto bail;
+               }
 	} else
 		if (type & LWS_ADOPT_HTTP) /* he will transition later */
 			new_wsi->protocol =
@@ -1889,11 +1891,13 @@ fail:
 	return NULL;
 
 bail:
+       lwsl_notice("%s: exiting on bail\n", __func__);
 	if (parent)
 		parent->child_list = new_wsi->sibling_list;
 	if (new_wsi->user_space)
 		lws_free(new_wsi->user_space);
 	lws_free(new_wsi);
+       compatible_close(fd.sockfd);
 
 	return NULL;
 }

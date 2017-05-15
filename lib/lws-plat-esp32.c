@@ -914,7 +914,9 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 	char slot[8];
 	nvs_handle nvh;
 	uint32_t use;
+#if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
 	int n;
+#endif
 
 	switch(event->event_id) {
 	case SYSTEM_EVENT_STA_START:
