@@ -741,6 +741,50 @@ static void lws_esp32_scan_timer_cb(TimerHandle_t th)
 }
 
 #if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
+
+void __attribute__(( weak ))
+lws_group_member_event(int e, void *p)
+{
+}
+
+void __attribute__(( weak ))
+lws_get_iframe_size(int *w, int *h)
+{
+	*w = 320;
+	*h = 160;
+}
+
+void lws_group_member_event_call(int e, void *p)
+{
+	lws_group_member_event(e, p);
+}
+
+static int
+get_txt_param(const char *txt, const char *param, char *result, int len)
+{
+	const char *p;
+
+again:
+	p = strstr(txt, param);
+	if (!p) {
+		*result = '\0';
+		return 1;
+	}
+
+	p += strlen(param);
+	if (*p != '=') {
+		txt = p;
+		goto again;
+	}
+	p++;
+	while (*p && *p != '&' && --len)
+		*result++ = *p++;
+
+	*result = '\0';
+
+	return 0;
+}
+
 static void lws_esp32_mdns_timer_cb(TimerHandle_t th)
 {
 	uint64_t now = time_in_microseconds(); 
@@ -751,41 +795,67 @@ static void lws_esp32_mdns_timer_cb(TimerHandle_t th)
 	if (!lws_esp32.mdns)
 		return;
 	n = mdns_query_end(lws_esp32.mdns);
-	lwsl_notice("%s: %d results\n", __func__, n);
 
 	for (m = 0; m < n; m++) {
+		char ch = 0, group[16];
+
 		r = mdns_result_get(lws_esp32.mdns, m);
-		lwsl_notice("found %s / %s / %s\n", r->host, r->instance, r->txt);
+
+		get_txt_param(r->txt, "group", group, sizeof(group));
+		if (strcmp(group, lws_esp32.group)) /* not our group */ {
+			lwsl_notice("group %s vs %s  %s\n",
+					group, lws_esp32.group, r->txt);
+			continue;
+		}
+
 		p = lws_esp32.first;
 		while (p) {
-			if (strcmp(r->host, p->host)) {
-				lwsl_notice("%s vs %s\n", r->host, p->host);
+			if (strcmp(r->host, p->host))
 				goto next;
-			}
-			if (memcmp(&r->addr, &p->addr, sizeof(r->addr))) {
-				lwsl_notice("0x%x vs 0x%x\n", *((unsigned int *)&r->addr),
-						*((unsigned int *)&p->addr));
+			if (memcmp(&r->addr, &p->addr, sizeof(r->addr)))
 				goto next;
-			}
-			lwsl_notice("updating existing group member\n");
+
 			p->last_seen = now;
 			break;
 next:
 			p = p->next;
 		}
 		if (!p) { /* did not find */
-			lwsl_notice("creating new group member\n");
+			char temp[8];
 			p = malloc(sizeof(*p));
 			if (!p)
 				continue;
 			strncpy(p->host, r->host, sizeof(p->host) - 1);
 			p->host[sizeof(p->host) - 1] = '\0';
+
+			get_txt_param(r->txt, "model", p->model, sizeof(p->model));
+			get_txt_param(r->txt, "role", p->role, sizeof(p->role));
+			get_txt_param(r->txt, "mac", p->mac, sizeof(p->mac));
+			get_txt_param(r->txt, "width", temp, sizeof(temp));
+			p->width = atoi(temp);
+			get_txt_param(r->txt, "height", temp, sizeof(temp));
+			p->height = atoi(temp);
+
 			memcpy(&p->addr, &r->addr, sizeof(p->addr));
 			memcpy(&p->addrv6, &r->addrv6, sizeof(p->addrv6));
 			p->last_seen = now;
+			p->flags = 0;
 			p->next = lws_esp32.first;
 			lws_esp32.first = p;
 			lws_esp32.extant_group_members++;
+
+			lws_group_member_event_call(LWS_SYSTEM_GROUP_MEMBER_ADD, p);
+		} else {
+			if (memcmp(&p->addr, &r->addr, sizeof(p->addr))) {
+				memcpy(&p->addr, &r->addr, sizeof(p->addr));
+				ch = 1;
+			}
+			if (memcmp(&p->addrv6, &r->addrv6, sizeof(p->addrv6))) {
+				memcpy(&p->addrv6, &r->addrv6, sizeof(p->addrv6));
+				ch = 1;
+			}
+			if (ch)
+				lws_group_member_event_call(LWS_SYSTEM_GROUP_MEMBER_CHANGE, p);
 		}
 	}
 
@@ -795,10 +865,12 @@ next:
 	p1 = &lws_esp32.first;
 	while (*p1) {
 		p = *p1;
-		if (now - p->last_seen > 60000000) {
-			lwsl_notice("timing out group member\n");
+		if (!(p->flags & LWS_GROUP_FLAG_SELF) &&
+				now - p->last_seen > 60000000) {
 			lws_esp32.extant_group_members--;
 			*p1 = p->next;
+
+			lws_group_member_event_call(LWS_SYSTEM_GROUP_MEMBER_REMOVE, p);
 			free(p);
 			continue;
 		}
@@ -907,18 +979,20 @@ passthru:
 	if (lws_esp32.scan_consumer)
 		lws_esp32.scan_consumer(count_ap_records, ap_records, lws_esp32.scan_consumer_arg);
 
-}	
+}
+
 
 esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 {
+#if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
+	struct lws_group_member *mem;
+	int n;
+#endif
 	char slot[8];
 	nvs_handle nvh;
 	uint32_t use;
-#if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
-	int n;
-#endif
 
-	switch(event->event_id) {
+	switch((int)event->event_id) {
 	case SYSTEM_EVENT_STA_START:
 		//esp_wifi_connect();
 //		break;
@@ -932,6 +1006,7 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 		lws_gapss_to(LWS_GAPSS_SCAN);
 		if (lws_esp32.mdns)
 			mdns_service_remove_all(lws_esp32.mdns);
+		mdns_free(lws_esp32.mdns);
 		lws_esp32.mdns = NULL;
 		start_scan();
 		esp_wifi_connect();
@@ -961,14 +1036,15 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 #if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
 		n = mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns);
 		if (!n) {
-			static char *txta[4];
+			static char *txta[6];
+			int w, h;
 
 			mdns_set_hostname(lws_esp32.mdns, lws_esp32.hostname);
 			mdns_set_instance(lws_esp32.mdns, lws_esp32.group);
 			mdns_service_add(lws_esp32.mdns, "_lwsgrmem", "_tcp", 443);
 			if (txta[0])
 				free(txta[0]);
-			txta[0] = malloc(32 * 4);
+			txta[0] = malloc(32 * ARRAY_SIZE(txta));
 			if (!txta[0]) {
 				lwsl_notice("mdns OOM\n");
 				break;
@@ -976,13 +1052,55 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 			txta[1] = &txta[0][32];
 			txta[2] = &txta[1][32];
 			txta[3] = &txta[2][32];
+			txta[4] = &txta[3][32];
+			txta[5] = &txta[4][32];
+
+			lws_get_iframe_size(&w, &h);
 
 			lws_snprintf(txta[0], 31, "model=%s", lws_esp32.model);
 			lws_snprintf(txta[1], 31, "group=%s", lws_esp32.group);
 			lws_snprintf(txta[2], 31, "role=%s", lws_esp32.role);
-			lws_snprintf(txta[3], 31, "role=%s", lws_esp32.role);
+			lws_snprintf(txta[3], 31, "mac=%s", lws_esp32.mac);
+			lws_snprintf(txta[4], 31, "width=%d", w);
+			lws_snprintf(txta[5], 31, "height=%d", h);
 
-			if (mdns_service_txt_set(lws_esp32.mdns, "_lwsgrmem", "_tcp", 4,
+			mem = lws_esp32.first;
+			while (mem) {
+				if (mem->flags & 1)
+					break;
+				mem = mem->next;
+			}
+
+			if (!mem) {
+				struct lws_group_member *mem = malloc(sizeof(*mem));
+				if (mem) {
+					mem->last_seen = ~(uint64_t)0;
+					strcpy(mem->model, lws_esp32.model);
+					strcpy(mem->role, lws_esp32.role);
+					strcpy(mem->host, lws_esp32.hostname);
+					strcpy(mem->mac, lws_esp32.mac);
+					mem->flags = LWS_GROUP_FLAG_SELF;
+					lws_get_iframe_size(&mem->width, &mem->height);
+					memcpy(&mem->addr, &event->event_info.got_ip.ip_info.ip,
+							sizeof(mem->addr));
+					memcpy(&mem->addrv6, &event->event_info.got_ip6.ip6_info.ip,
+							sizeof(mem->addrv6));
+					mem->next = lws_esp32.first;
+					lws_esp32.first = mem;
+					lws_esp32.extant_group_members++;
+
+					lws_group_member_event_call(LWS_SYSTEM_GROUP_MEMBER_ADD, mem);
+				}
+			} else { /* update our IP */
+					memcpy(&mem->addr, &event->event_info.got_ip.ip_info.ip,
+							sizeof(mem->addr));
+					memcpy(&mem->addrv6, &event->event_info.got_ip6.ip6_info.ip,
+							sizeof(mem->addrv6));
+					lws_group_member_event_call(LWS_SYSTEM_GROUP_MEMBER_CHANGE, mem);
+			}
+
+
+			if (mdns_service_txt_set(lws_esp32.mdns, "_lwsgrmem", "_tcp", ARRAY_SIZE(txta),
 						 (const char **)txta))
 				lwsl_notice("txt set failed\n");
 		} else
@@ -999,6 +1117,7 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 		lwsl_notice("SYSTEM_EVENT_SCAN_DONE\n");
 		end_scan();
 		break;
+
 	default:
 		break;
 	}
@@ -1110,6 +1229,8 @@ lws_esp32_wlan_nvs_get(int retry)
 	esp_efuse_mac_get_default(mac);
 	mac[5] |= 1; /* match the AP MAC */
 	snprintf(lws_esp32.serial, sizeof(lws_esp32.serial) - 1, "%02X%02X%02X", mac[3], mac[4], mac[5]);
+	snprintf(lws_esp32.mac, sizeof(lws_esp32.mac) - 1, "%02X%02X%02X%02X%02X%02X", mac[0],
+			mac[1], mac[2], mac[3], mac[4], mac[5]);
 
 	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
 

@@ -181,7 +181,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 
 	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 
-	lwsl_notice("%s: did attach wsi %p: ah %p: count %d (on exit)\n", __func__,
+	lwsl_info("%s: did attach wsi %p: ah %p: count %d (on exit)\n", __func__,
 		  (void *)wsi, (void *)wsi->u.hdr.ah, pt->ah_count_in_use);
 
 	lws_pt_unlock(pt);

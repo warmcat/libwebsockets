@@ -512,7 +512,7 @@ extern void esp32_uvtimer_cb(TimerHandle_t t);
 
 static inline void uv_timer_start(uv_timer_t *t, uv_cb_t *cb, int first, int rep)
 {
-	struct timer_mapping *tm = malloc(sizeof(*tm));
+	struct timer_mapping *tm = (struct timer_mapping *)malloc(sizeof(*tm));
 
 	if (!tm)
 		return;
@@ -563,9 +563,18 @@ struct lws_group_member {
 	char model[16];
 	char role[16];
 	char host[32];
+	char mac[20];
+	int width, height;
 	struct ip4_addr addr;
 	struct ip6_addr addrv6;
+	uint8_t	flags;
 };
+
+#define LWS_SYSTEM_GROUP_MEMBER_ADD		1
+#define LWS_SYSTEM_GROUP_MEMBER_CHANGE		2
+#define LWS_SYSTEM_GROUP_MEMBER_REMOVE		3
+
+#define LWS_GROUP_FLAG_SELF 1
 
 struct lws_esp32 {
 	char sta_ip[16];
@@ -581,6 +590,7 @@ struct lws_esp32 {
 	char active_ssid[32];
 	char access_pw[16];
 	char hostname[32];
+	char mac[20];
 	mdns_server_t *mdns;
        	char region;
        	char inet;
