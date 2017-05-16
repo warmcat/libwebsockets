@@ -497,9 +497,12 @@ lws_create_vhost(struct lws_context *context,
 #if !defined(LWS_WITH_ESP8266)
 	vh->http_proxy_port = 0;
 	vh->http_proxy_address[0] = '\0';
+	vh->socks_proxy_port = 0;
+	vh->socks_proxy_address[0] = '\0';
 
 	/* either use proxy from info, or try get it from env var */
 
+	/* http proxy */
 	if (info->http_proxy_address) {
 		/* override for backwards compatibility */
 		if (info->http_proxy_port)
@@ -512,7 +515,21 @@ lws_create_vhost(struct lws_context *context,
 			lws_set_proxy(vh, p);
 #endif
 	}
+	/* socks proxy */
+	if (info->socks_proxy_address) {
+		/* override for backwards compatibility */
+		if (info->socks_proxy_port)
+			vh->socks_proxy_port = info->socks_proxy_port;
+		lws_set_socks(vh, info->socks_proxy_address);
+	} else {
+#ifdef LWS_HAVE_GETENV
+		p = getenv("socks_proxy");
+		if (p)
+			lws_set_socks(vh, p);
 #endif
+	}
+#endif
+
 	vh->ka_time = info->ka_time;
 	vh->ka_interval = info->ka_interval;
 	vh->ka_probes = info->ka_probes;
