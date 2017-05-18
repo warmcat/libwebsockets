@@ -2590,10 +2590,15 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			/* finalize cached headers before dumping them */
 			if (lws_finalize_http_header(wsi,
 					(unsigned char **)&wsi->cgi->headers_pos,
-					(unsigned char *)wsi->cgi->headers_end))
+					(unsigned char *)wsi->cgi->headers_end)) {
+
+				lwsl_notice("finalize failed\n");
 				return -1;
+			}
 
 			wsi->hdr_state = LHCS_DUMP_HEADERS;
+			wsi->reason_bf |= 8;
+			lws_callback_on_writable(wsi);
 			/* back to the loop for writeability again */
 			return 0;
 
@@ -2613,6 +2618,9 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			if (wsi->cgi->headers_dumped == wsi->cgi->headers_pos) {
 				wsi->hdr_state = LHCS_PAYLOAD;
 				lws_free_set_NULL(wsi->cgi->headers_buf);
+			} else {
+				wsi->reason_bf |= 8;
+				lws_callback_on_writable(wsi);
 			}
 
 			/* writeability becomes uncertain now we wrote
@@ -2873,6 +2881,10 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			if (cgi->pid <= 0)
 				continue;
 
+			/* finish sending cached headers */
+			if (cgi->headers_buf)
+				continue;
+
 			/* wait for stdout to be drained */
 			if (cgi->content_length > cgi->content_length_seen)
 				continue;
@@ -2938,6 +2950,10 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				continue;
 			goto finish_him;
 		}
+
+		/* finish sending cached headers */
+		if (cgi->headers_buf)
+			continue;
 
 		/* wait for stdout to be drained */
 		if (cgi->content_length > cgi->content_length_seen)

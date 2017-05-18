@@ -241,7 +241,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_cgi_write_split_stdout_headers(wsi) < 0)
 				return -1;
 
-			wsi->reason_bf &= ~1;
+			if (wsi->reason_bf & 8)
+				wsi->reason_bf &= ~8;
+			else
+				wsi->reason_bf &= ~1;
 			break;
 		}
 #endif
