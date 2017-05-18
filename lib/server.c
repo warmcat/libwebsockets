@@ -1058,7 +1058,6 @@ lws_http_action(struct lws *wsi)
 			NULL, /* replace with cgi path */
 			NULL
 		};
-		unsigned char *p, *end, buffer[1024];
 
 		lwsl_debug("%s: cgi\n", __func__);
 		cmd[0] = hit->origin;
@@ -1073,17 +1072,6 @@ lws_http_action(struct lws *wsi)
 			lwsl_err("%s: cgi failed\n", __func__);
 			return -1;
 		}
-		p = buffer + LWS_PRE;
-		end = p + sizeof(buffer) - LWS_PRE;
-
-		if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
-			return 1;
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
-				(unsigned char *)"close", 5, &p, end))
-			return 1;
-		n = lws_write(wsi, buffer + LWS_PRE,
-			      p - (buffer + LWS_PRE),
-			      LWS_WRITE_HTTP_HEADERS);
 
 		goto deal_body;
 	}

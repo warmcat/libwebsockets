@@ -1442,16 +1442,32 @@ struct _lws_websocket_related {
 
 #ifdef LWS_WITH_CGI
 
+enum {
+	SIGNIFICANT_HDR_CONTENT_LENGTH,
+	SIGNIFICANT_HDR_LOCATION,
+	SIGNIFICANT_HDR_STATUS,
+
+	SIGNIFICANT_HDR_COUNT
+};
+
 /* wsi who is master of the cgi points to an lws_cgi */
 
 struct lws_cgi {
 	struct lws_cgi *cgi_list;
 	struct lws *stdwsi[3]; /* points to the associated stdin/out/err wsis */
 	struct lws *wsi; /* owner */
+	unsigned char *headers_buf;
+	unsigned char *headers_pos;
+	unsigned char *headers_dumped;
+	unsigned char *headers_end;
 	unsigned long content_length;
 	unsigned long content_length_seen;
 	int pipe_fds[3][2];
+	int match[SIGNIFICANT_HDR_COUNT];
 	int pid;
+	int response_code;
+	int lp;
+	char l[12];
 
 	unsigned int being_closed:1;
 

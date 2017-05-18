@@ -302,6 +302,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 			}
 			pcgi = &(*pcgi)->cgi_list;
 		}
+		if (wsi->cgi->headers_buf)
+			lws_free_set_NULL(wsi->cgi->headers_buf);
 		/* we have a cgi going, we must kill it */
 		wsi->cgi->being_closed = 1;
 		lws_cgi_kill(wsi);
@@ -2272,6 +2274,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		return -1;
 	}
 
+	wsi->cgi->response_code = HTTP_STATUS_OK;
+
 	cgi = wsi->cgi;
 	cgi->wsi = wsi; /* set cgi's owning wsi */
 
@@ -2545,13 +2549,21 @@ bail1:
 	return -1;
 }
 
+/* we have to parse out these headers in the CGI output */
+
+static const char * const significant_hdr[SIGNIFICANT_HDR_COUNT] = {
+	"content-length: ",
+	"location: ",
+	"status: ",
+};
+
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_write_split_stdout_headers(struct lws *wsi)
 {
-	int n, m, match = 0, lp = 0;
-	static const char * const content_length = "content-length: ";
-	char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
-	     *end = &buf[sizeof(buf) - 1 - LWS_PRE], c, l[12];
+	int n, m;
+	unsigned char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
+	     *end = &buf[sizeof(buf) - 1 - LWS_PRE];
+	char c;
 
 	if (!wsi->cgi)
 		return -1;
@@ -2561,6 +2573,72 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 		 * payload chunks, since they need to be
 		 * handled separately
 		 */
+
+		switch (wsi->hdr_state) {
+
+		case LHCS_RESPONSE:
+			lwsl_info("LHCS_RESPONSE: issuing response %d\n",
+					wsi->cgi->response_code);
+			if (lws_add_http_header_status(wsi, wsi->cgi->response_code, &p, end))
+				return 1;
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
+					(unsigned char *)"close", 5, &p, end))
+				return 1;
+			n = lws_write(wsi, start, p - start,
+				      LWS_WRITE_HTTP_HEADERS);
+
+			/* finalize cached headers before dumping them */
+			if (lws_finalize_http_header(wsi,
+					(unsigned char **)&wsi->cgi->headers_pos,
+					(unsigned char *)wsi->cgi->headers_end))
+				return -1;
+
+			wsi->hdr_state = LHCS_DUMP_HEADERS;
+			/* back to the loop for writeability again */
+			return 0;
+
+		case LHCS_DUMP_HEADERS:
+
+			n = wsi->cgi->headers_pos - wsi->cgi->headers_dumped;
+			if (n > 512)
+				n = 512;
+
+			m = lws_write(wsi, (unsigned char *)wsi->cgi->headers_dumped,
+				      n, LWS_WRITE_HTTP_HEADERS);
+			if (m < 0) {
+				lwsl_debug("%s: write says %d\n", __func__, m);
+				return -1;
+			}
+			wsi->cgi->headers_dumped += n;
+			if (wsi->cgi->headers_dumped == wsi->cgi->headers_pos) {
+				wsi->hdr_state = LHCS_PAYLOAD;
+				lws_free_set_NULL(wsi->cgi->headers_buf);
+			}
+
+			/* writeability becomes uncertain now we wrote
+			 * something, we must return to the event loop
+			 */
+			return 0;
+		}
+
+		if (!wsi->cgi->headers_buf) {
+			/* if we don't already have a headers buf, cook one up */
+			n = 2048;
+			wsi->cgi->headers_buf = malloc(n);
+			if (!wsi->cgi->headers_buf) {
+				lwsl_err("OOM\n");
+				return -1;
+			}
+			wsi->cgi->headers_pos = wsi->cgi->headers_buf;
+			wsi->cgi->headers_dumped = wsi->cgi->headers_pos;
+			wsi->cgi->headers_end = wsi->cgi->headers_buf + n - 1;
+
+			for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++) {
+				wsi->cgi->match[n] = 0;
+				wsi->cgi->lp = 0;
+			}
+		}
+
 		n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]), &c, 1);
 		if (n < 0) {
 			if (errno != EAGAIN) {
@@ -2569,37 +2647,67 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			}
 			else
 				n = 0;
+
+			if (wsi->cgi->headers_pos >= wsi->cgi->headers_end - 4) {
+				lwsl_notice("CGI headers larger than buffer size\n");
+
+				return -1;
+			}
 		}
 		if (n) {
-			lwsl_debug("-- 0x%02X %c\n", (unsigned char)c, c);
+			lwsl_debug("-- 0x%02X %c %d %d\n", (unsigned char)c, c, wsi->cgi->match[1], wsi->hdr_state);
+			if (!c)
+				return -1;
 			switch (wsi->hdr_state) {
 			case LCHS_HEADER:
-				if (!content_length[match] &&
-				    (c >= '0' && c <= '9') &&
-				    lp < sizeof(l) - 1) {
-					l[lp++] = c;
-					l[lp] = '\0';
-					wsi->cgi->content_length = atol(l);
+				hdr:
+				for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++) {
+					/* significant headers with numeric decimal payloads */
+					if (!significant_hdr[n][wsi->cgi->match[n]] &&
+					    (c >= '0' && c <= '9') &&
+					    wsi->cgi->lp < sizeof(wsi->cgi->l) - 1) {
+						wsi->cgi->l[wsi->cgi->lp++] = c;
+						wsi->cgi->l[wsi->cgi->lp] = '\0';
+						switch (n) {
+						case SIGNIFICANT_HDR_CONTENT_LENGTH:
+							wsi->cgi->content_length = atol(wsi->cgi->l);
+							break;
+						case SIGNIFICANT_HDR_STATUS:
+							wsi->cgi->response_code = atol(wsi->cgi->l);
+							lwsl_debug("Status set to %d\n", wsi->cgi->response_code);
+							break;
+						default:
+							break;
+						}
+					}
+					/* hits up to the NUL are sticky until next hdr */
+					if (significant_hdr[n][wsi->cgi->match[n]]) {
+						if (tolower(c) == significant_hdr[n][wsi->cgi->match[n]])
+							wsi->cgi->match[n]++;
+						else
+							wsi->cgi->match[n] = 0;
+					}
 				}
-				if (tolower(c) == content_length[match])
-					match++;
-				else
-					match = 0;
 
 				/* some cgi only send us \x0a for EOL */
 				if (c == '\x0a') {
 					wsi->hdr_state = LCHS_SINGLE_0A;
-					*p++ = '\x0d';
+					*wsi->cgi->headers_pos++ = '\x0d';
 				}
-				*p++ = c;
-				if (c == '\x0d') {
+				*wsi->cgi->headers_pos++ = c;
+				if (c == '\x0d')
 					wsi->hdr_state = LCHS_LF1;
-					break;
+
+				/* presence of Location: mandates 302 retcode */
+				if (wsi->hdr_state != LCHS_HEADER &&
+				    !significant_hdr[SIGNIFICANT_HDR_LOCATION][wsi->cgi->match[SIGNIFICANT_HDR_LOCATION]]) {
+					lwsl_debug("CGI: Location hdr seen\n");
+					wsi->cgi->response_code = 302;
 				}
 
 				break;
 			case LCHS_LF1:
-				*p++ = c;
+				*wsi->cgi->headers_pos++ = c;
 				if (c == '\x0a') {
 					wsi->hdr_state = LCHS_CR2;
 					break;
@@ -2615,28 +2723,29 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 					break;
 				}
 				wsi->hdr_state = LCHS_HEADER;
-				match = 0;
-				*p++ = c;
-				break;
+				for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++)
+					wsi->cgi->match[n] = 0;
+				wsi->cgi->lp = 0;
+				goto hdr;
+
 			case LCHS_LF2:
 			case LCHS_SINGLE_0A:
 				m = wsi->hdr_state;
 				if (c == '\x0a') {
 					lwsl_debug("Content-Length: %ld\n", wsi->cgi->content_length);
-					wsi->hdr_state = LHCS_PAYLOAD;
+					wsi->hdr_state = LHCS_RESPONSE;
 					/* drop the \0xa ... finalize will add it if needed */
-					if (lws_finalize_http_header(wsi,
-							(unsigned char **)&p,
-							(unsigned char *)end))
-						return -1;
 					break;
 				}
 				if (m == LCHS_LF2)
 					/* we got \r\n\r[^\n]... it's unreasonable */
 					return -1;
 				/* we got \x0anext header, it's reasonable */
-				*p++ = c;
+				*wsi->cgi->headers_pos++ = c;
 				wsi->hdr_state = LCHS_HEADER;
+				for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++)
+					wsi->cgi->match[n] = 0;
+				wsi->cgi->lp = 0;
 				break;
 			case LHCS_PAYLOAD:
 				break;
@@ -2644,21 +2753,11 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 		}
 
 		/* ran out of input, ended the headers, or filled up the headers buf */
-		if (!n || wsi->hdr_state == LHCS_PAYLOAD || (p + 4) == end) {
-
-			m = lws_write(wsi, (unsigned char *)start,
-				      p - start, LWS_WRITE_HTTP_HEADERS);
-			if (m < 0) {
-				lwsl_debug("%s: write says %d\n", __func__, m);
-				return -1;
-			}
-			/* writeability becomes uncertain now we wrote
-			 * something, we must return to the event loop
-			 */
-
+		if (!n || wsi->hdr_state == LHCS_PAYLOAD)
 			return 0;
-		}
 	}
+
+	/* payload processing */
 
 	n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]),
 		 start, sizeof(buf) - LWS_PRE);
