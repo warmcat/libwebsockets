@@ -258,7 +258,8 @@ static void lws_uv_close_cb(uv_handle_t *handle)
 
 static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
 {
-	uv_close(handle, lws_uv_close_cb);
+	if (!uv_is_closing(handle))
+		uv_close(handle, lws_uv_close_cb);
 }
 
 void
