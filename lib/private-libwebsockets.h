@@ -1446,6 +1446,7 @@ enum {
 	SIGNIFICANT_HDR_CONTENT_LENGTH,
 	SIGNIFICANT_HDR_LOCATION,
 	SIGNIFICANT_HDR_STATUS,
+	SIGNIFICANT_HDR_TRANSFER_ENCODING,
 
 	SIGNIFICANT_HDR_COUNT
 };
@@ -1470,6 +1471,7 @@ struct lws_cgi {
 	char l[12];
 
 	unsigned int being_closed:1;
+	unsigned int explicitly_chunked:1;
 
 	unsigned char chunked_grace;
 };

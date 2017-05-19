@@ -302,8 +302,10 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 			}
 			pcgi = &(*pcgi)->cgi_list;
 		}
-		if (wsi->cgi->headers_buf)
+		if (wsi->cgi->headers_buf) {
+			lwsl_debug("close: freed cgi headers\n");
 			lws_free_set_NULL(wsi->cgi->headers_buf);
+		}
 		/* we have a cgi going, we must kill it */
 		wsi->cgi->being_closed = 1;
 		lws_cgi_kill(wsi);
@@ -2555,6 +2557,7 @@ static const char * const significant_hdr[SIGNIFICANT_HDR_COUNT] = {
 	"content-length: ",
 	"location: ",
 	"status: ",
+	"transfer-encoding: chunked",
 };
 
 LWS_VISIBLE LWS_EXTERN int
@@ -2608,6 +2611,8 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			if (n > 512)
 				n = 512;
 
+			lwsl_debug("LHCS_DUMP_HEADERS: %d\n", n);
+
 			m = lws_write(wsi, (unsigned char *)wsi->cgi->headers_dumped,
 				      n, LWS_WRITE_HTTP_HEADERS);
 			if (m < 0) {
@@ -2618,6 +2623,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			if (wsi->cgi->headers_dumped == wsi->cgi->headers_pos) {
 				wsi->hdr_state = LHCS_PAYLOAD;
 				lws_free_set_NULL(wsi->cgi->headers_buf);
+				lwsl_debug("freed cgi headers\n");
 			} else {
 				wsi->reason_bf |= 8;
 				lws_callback_on_writable(wsi);
@@ -2637,6 +2643,8 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 				lwsl_err("OOM\n");
 				return -1;
 			}
+
+			lwsl_debug("allocated cgi hdrs\n");
 			wsi->cgi->headers_pos = wsi->cgi->headers_buf;
 			wsi->cgi->headers_dumped = wsi->cgi->headers_pos;
 			wsi->cgi->headers_end = wsi->cgi->headers_buf + n - 1;
@@ -2705,6 +2713,12 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 				*wsi->cgi->headers_pos++ = c;
 				if (c == '\x0d')
 					wsi->hdr_state = LCHS_LF1;
+
+				if (wsi->hdr_state != LCHS_HEADER &&
+				    !significant_hdr[SIGNIFICANT_HDR_TRANSFER_ENCODING][wsi->cgi->match[SIGNIFICANT_HDR_TRANSFER_ENCODING]]) {
+					lwsl_debug("cgi produced chunked\n");
+					wsi->cgi->explicitly_chunked = 1;
+				}
 
 				/* presence of Location: mandates 302 retcode */
 				if (wsi->hdr_state != LCHS_HEADER &&
@@ -2905,7 +2919,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				lwsl_debug("%s: found PID %d on cgi list\n",
 					    __func__, n);
 
-				if (!cgi->content_length) {
+				if (!cgi->content_length && cgi->explicitly_chunked) {
 					/*
 					 * well, if he sends chunked... give him 5s after the
 					 * cgi terminated to send buffered
