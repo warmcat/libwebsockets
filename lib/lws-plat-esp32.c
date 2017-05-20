@@ -640,12 +640,15 @@ static const char *gapss_str[] = {
 };
 
 static romfs_t lws_esp32_romfs;
-static TimerHandle_t leds_timer, scan_timer
+static TimerHandle_t leds_timer, scan_timer, debounce_timer
 #if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
 , mdns_timer
 #endif
 ;
 static enum lws_gapss gapss = LWS_GAPSS_INITIAL;
+static char bdown;
+
+#define GPIO_SW 14
 
 struct esp32_file {
 	const struct inode *i;
@@ -783,6 +786,29 @@ again:
 	*result = '\0';
 
 	return 0;
+}
+
+void __attribute__(( weak ))
+lws_esp32_button(int down)
+{
+}
+
+void IRAM_ATTR
+gpio_irq(void *arg)
+{
+	bdown ^= 1;
+	gpio_set_intr_type(GPIO_SW, GPIO_INTR_DISABLE);
+	xTimerStart(debounce_timer, 0);
+
+	lws_esp32_button(bdown);
+}
+
+static void lws_esp32_debounce_timer_cb(TimerHandle_t th)
+{
+	if (bdown)
+		gpio_set_intr_type(GPIO_SW, GPIO_INTR_POSEDGE);
+	else
+		gpio_set_intr_type(GPIO_SW, GPIO_INTR_NEGEDGE);
 }
 
 static void lws_esp32_mdns_timer_cb(TimerHandle_t th)
@@ -1353,6 +1379,7 @@ lws_esp32_wlan_nvs_get(int retry)
 	return lws_esp32_force_ap;
 }
 
+
 void
 lws_esp32_wlan_config(void)
 {
@@ -1362,6 +1389,7 @@ lws_esp32_wlan_config(void)
 	        .speed_mode = LEDC_HIGH_SPEED_MODE,
 	        .timer_num = LEDC_TIMER_0
 	};
+	int n;
 
 	ledc_timer_config(&ledc_timer);
 
@@ -1373,6 +1401,9 @@ lws_esp32_wlan_config(void)
                           (TimerCallbackFunction_t)lws_esp32_leds_timer_cb);
         scan_timer = xTimerCreate("lws_scan", pdMS_TO_TICKS(10000), 0, NULL,
                           (TimerCallbackFunction_t)lws_esp32_scan_timer_cb);
+        debounce_timer = xTimerCreate("lws_db", pdMS_TO_TICKS(100), 0, NULL,
+                          (TimerCallbackFunction_t)lws_esp32_debounce_timer_cb);
+
 #if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
         mdns_timer = xTimerCreate("lws_mdns", pdMS_TO_TICKS(5000), 0, NULL,
                           (TimerCallbackFunction_t)lws_esp32_mdns_timer_cb);
@@ -1380,6 +1411,25 @@ lws_esp32_wlan_config(void)
 	scan_timer_exists = 1;
         xTimerStart(leds_timer, 0);
 
+	*(volatile uint32_t *)PERIPHS_IO_MUX_MTMS_U = FUNC_MTMS_GPIO14;
+
+	gpio_output_set(0, 0, 0, (1 << GPIO_SW));
+
+	n = gpio_install_isr_service(0);
+	if (!n) {
+		gpio_config_t c;
+
+		c.intr_type = GPIO_INTR_NEGEDGE;
+		c.mode = GPIO_MODE_INPUT;
+		c.pin_bit_mask = 1 << GPIO_SW;
+		c.pull_down_en = 0;
+		c.pull_up_en = 0;
+		gpio_config(&c);
+
+		if (gpio_isr_handler_add(GPIO_SW, gpio_irq, NULL))
+			lwsl_notice("isr handler add for 14 failed\n");
+	} else
+		lwsl_notice("failed to install gpio isr service: %d\n", n);
 
 	lws_esp32_wlan_nvs_get(0);
 	tcpip_adapter_init();
