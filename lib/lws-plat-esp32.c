@@ -981,6 +981,61 @@ passthru:
 
 }
 
+static void
+lws_set_genled(int n)
+{
+	lws_esp32.genled_t = time_in_microseconds();
+	lws_esp32.genled = n;
+}
+
+int
+lws_esp32_leds_network_indication(void)
+{
+	uint64_t us, r;
+	int n, fadein = 100, speed = 1199, div = 1, base = 0;
+
+	r = time_in_microseconds();
+	us = r - lws_esp32.genled_t;
+
+	switch (lws_esp32.genled) {
+	case LWSESP32_GENLED__INIT:
+		lws_esp32.genled = LWSESP32_GENLED__LOST_NETWORK;
+		/* fallthru */
+	case LWSESP32_GENLED__LOST_NETWORK:
+		fadein = us / 10000; /* 100 steps in 1s */
+		if (fadein > 100) {
+			fadein = 100;
+			lws_esp32.genled = LWSESP32_GENLED__NO_NETWORK;
+		}
+		/* fallthru */
+	case LWSESP32_GENLED__NO_NETWORK:
+		break;
+	case LWSESP32_GENLED__CONN_AP:
+		base = 4096;
+		speed = 933;
+		div = 2;
+		break;
+	case LWSESP32_GENLED__GOT_IP:
+		fadein = us / 10000; /* 100 steps in 1s */
+		if (fadein > 100) {
+			fadein = 100;
+			lws_esp32.genled = LWSESP32_GENLED__OK;
+		}
+		fadein = 100 - fadein; /* we are fading out */
+		/* fallthru */
+	case LWSESP32_GENLED__OK:
+		if (lws_esp32.genled == LWSESP32_GENLED__OK)
+			return 0;
+
+		base = 4096;
+		speed = 766;
+		div = 3;
+		break;
+	}
+
+	n = base + (lws_esp32_sine_interp(r / speed) / div);
+	return (n * fadein) / 100;
+}
 
 esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 {
@@ -999,6 +1054,7 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 		/* fallthru */
 	case SYSTEM_EVENT_STA_DISCONNECTED:
 		lwsl_notice("SYSTEM_EVENT_STA_DISCONNECTED\n");
+		lws_esp32.conn_ap = 0;
 		lws_esp32.inet = 0;
 		lws_esp32.sta_ip[0] = '\0';
 		lws_esp32.sta_mask[0] = '\0';
@@ -1008,13 +1064,22 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 			mdns_service_remove_all(lws_esp32.mdns);
 		mdns_free(lws_esp32.mdns);
 		lws_esp32.mdns = NULL;
+		lws_set_genled(LWSESP32_GENLED__LOST_NETWORK);
 		start_scan();
 		esp_wifi_connect();
 		break;
+
+	case SYSTEM_EVENT_STA_CONNECTED:
+		lws_esp32.conn_ap = 1;
+		lws_set_genled(LWSESP32_GENLED__CONN_AP);
+		break;
+
 	case SYSTEM_EVENT_STA_GOT_IP:
 		lwsl_notice("SYSTEM_EVENT_STA_GOT_IP\n");
 
 		lws_esp32.inet = 1;
+		lws_set_genled(LWSESP32_GENLED__GOT_IP);
+
 		render_ip(lws_esp32.sta_ip, sizeof(lws_esp32.sta_ip) - 1,
 				(uint8_t *)&event->event_info.got_ip.ip_info.ip);
 		render_ip(lws_esp32.sta_mask, sizeof(lws_esp32.sta_mask) - 1,
@@ -1300,6 +1365,8 @@ lws_esp32_wlan_config(void)
 
 	ledc_timer_config(&ledc_timer);
 
+	lws_set_genled(LWSESP32_GENLED__INIT);
+
 	/* user code needs to provide lws_esp32_leds_timer_cb */
 
         leds_timer = xTimerCreate("lws_leds", pdMS_TO_TICKS(25), 1, NULL,
@@ -1569,11 +1636,11 @@ static const uint16_t sineq16[] = {
 static uint16_t sine_lu(int n)
 {
         switch ((n >> 4) & 3) {
-        case 0:
-                return 4096 + sineq16[n & 15];
         case 1:
-                return 4096 + sineq16[15 - (n & 15)];
+                return 4096 + sineq16[n & 15];
         case 2:
+                return 4096 + sineq16[15 - (n & 15)];
+        case 3:
                 return 4096 - sineq16[n & 15];
         default:
                 return  4096 - sineq16[15 - (n & 15)];
@@ -1590,6 +1657,12 @@ uint16_t lws_esp32_sine_interp(int n)
          * 4: interp (LSB)
          *
          * total 10 bits / 1024 steps per cycle
+	 *
+	 * +   0: 0
+	 * + 256: 4096
+	 * + 512: 8192
+	 * + 768: 4096
+	 * +1023: 0
          */
 
         return (sine_lu(n >> 4) * (15 - (n & 15)) +

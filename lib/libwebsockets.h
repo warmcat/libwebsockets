@@ -557,6 +557,15 @@ lws_esp32_identify_physical_device(void);
 
 typedef void (*lws_cb_scan_done)(uint16_t count, wifi_ap_record_t *recs, void *arg);
 
+enum genled_state {
+	LWSESP32_GENLED__INIT,
+	LWSESP32_GENLED__LOST_NETWORK,
+	LWSESP32_GENLED__NO_NETWORK,
+	LWSESP32_GENLED__CONN_AP,
+	LWSESP32_GENLED__GOT_IP,
+	LWSESP32_GENLED__OK,
+};
+
 struct lws_group_member {
 	struct lws_group_member *next;
 	uint64_t last_seen;
@@ -594,6 +603,11 @@ struct lws_esp32 {
 	mdns_server_t *mdns;
        	char region;
        	char inet;
+	char conn_ap;
+
+	enum genled_state genled;
+	uint64_t genled_t;
+
 	lws_cb_scan_done scan_consumer;
 	void *scan_consumer_arg;
 	struct lws_group_member *first;
@@ -632,6 +646,9 @@ extern const esp_partition_t *
 lws_esp_ota_get_boot_partition(void);
 extern int
 lws_esp32_get_image_info(const esp_partition_t *part, struct lws_esp32_image *i, char *json, int json_len);
+extern int
+lws_esp32_leds_network_indication(void);
+
 extern uint32_t lws_esp32_get_reboot_type(void);
 extern uint16_t lws_esp32_sine_interp(int n);
 
