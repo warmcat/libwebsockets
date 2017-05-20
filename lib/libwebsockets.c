@@ -2506,11 +2506,13 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	 * process is OK.  Stuff that happens after the execvpe() is OK.
 	 */
 
-	for (n = 0; n < 3; n++)
+	for (n = 0; n < 3; n++) {
 		if (dup2(cgi->pipe_fds[n][!(n == 0)], n) < 0) {
 			lwsl_err("%s: stdin dup2 failed\n", __func__);
 			goto bail3;
 		}
+		close(cgi->pipe_fds[n][!(n == 0)]);
+	}
 
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
 	for (m = 0; m < n; m++) {
