@@ -308,6 +308,9 @@ lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 	if (!strcmp(&file[n - 4], ".ttf"))
 		return "application/x-font-ttf";
 
+	if (!strcmp(&file[n - 4], ".otf"))
+		return "application/font-woff";
+
 	if (!strcmp(&file[n - 5], ".woff"))
 		return "application/font-woff";
 

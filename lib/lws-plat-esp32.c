@@ -1366,10 +1366,13 @@ lws_esp32_wlan_nvs_get(int retry)
 	s = sizeof(lws_esp32.role);
 	nvs_get_str(nvh, "role", lws_esp32.role, &s);
 
-	lws_snprintf(lws_esp32.hostname, sizeof(lws_esp32.hostname) - 1,
-			"%s-%s-%s", lws_esp32.model,
-			lws_esp32.group,
-			lws_esp32.serial);
+	/* if group and role defined: group-role */
+	if (lws_esp32.group[0] && lws_esp32.role[0])
+		lws_snprintf(lws_esp32.hostname, sizeof(lws_esp32.hostname) - 1,
+				"%s-%s", lws_esp32.group, lws_esp32.role);
+	else /* otherwise model-serial */
+		lws_snprintf(lws_esp32.hostname, sizeof(lws_esp32.hostname) - 1,
+				"%s-%s", lws_esp32.model, lws_esp32.serial);
 
 	nvs_close(nvh);
 
