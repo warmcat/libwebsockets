@@ -4904,9 +4904,9 @@ lws_stats_get(struct lws_context *context, int index);
 LWS_VISIBLE LWS_EXTERN void
 lws_stats_log_dump(struct lws_context *context);
 #else
-static inline uint64_t
+static LWS_INLINE uint64_t
 lws_stats_get(struct lws_context *context, int index) { return 0; }
-static inline void
+static LWS_INLINE void
 lws_stats_log_dump(struct lws_context *context) { }
 #endif
 
