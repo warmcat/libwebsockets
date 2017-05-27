@@ -168,11 +168,6 @@ do_rx:
 		}
 		break;
 #endif
-	case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:
-		/* reject everything else except permessage-deflate */
-		if (strcmp(in, "permessage-deflate"))
-			return 1;
-		break;
 
 	default:
 		break;
@@ -202,11 +197,6 @@ static const struct lws_extension exts[] = {
 		"permessage-deflate",
 		lws_extension_callback_pm_deflate,
 		"permessage-deflate; client_no_context_takeover; client_max_window_bits"
-	},
-	{
-		"deflate-frame",
-		lws_extension_callback_pm_deflate,
-		"deflate_frame"
 	},
 	{ NULL, NULL, NULL /* terminator */ }
 };

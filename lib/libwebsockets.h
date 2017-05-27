@@ -1016,8 +1016,7 @@ enum lws_callback_reasons {
 	 * and with in being the extension name, len is 0 and user is
 	 * valid.  Note though at this time the ESTABLISHED callback hasn't
 	 * happened yet so if you initialize user content there, user
-	 * content during this callback might not be useful for anything.
-	 * Notice this callback comes to protocols[0]. */
+	 * content during this callback might not be useful for anything. */
 	LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED		= 26,
 	/**< When a client
 	 * connection is being prepared to start a handshake to a server,

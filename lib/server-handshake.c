@@ -128,7 +128,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 			 * ask user code if it's OK to apply it on this
 			 * particular connection + protocol
 			 */
-			m = wsi->vhost->protocols[0].callback(wsi,
+			m = (wsi->protocol->callback)(wsi,
 				LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
 				wsi->user_space, ext_name, 0);
 
