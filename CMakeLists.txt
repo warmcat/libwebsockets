@@ -752,13 +752,13 @@ if (LWS_WITH_STATIC)
 	endif()
 	add_custom_command(
 		      TARGET websockets
-		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/lib/libwebsockets.h
-		     					 ${CMAKE_BINARY_DIR}/include/libwebsockets.h
+		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libwebsockets.h
+		     					 ${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets.h
 	)
 	add_custom_command(
 		      TARGET websockets
-		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/lws_config.h
-		     					 ${CMAKE_BINARY_DIR}/include/lws_config.h
+		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/lws_config.h
+		     					 ${CMAKE_CURRENT_BINARY_DIR}/include/lws_config.h
 	)
 
 endif()
@@ -791,13 +791,13 @@ if (LWS_WITH_SHARED)
 
 	add_custom_command(
 		      TARGET websockets_shared
-		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/lib/libwebsockets.h
-		     					 ${CMAKE_BINARY_DIR}/include/libwebsockets.h
+		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libwebsockets.h
+		     					 ${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets.h
 	)
 	add_custom_command(
 		      TARGET websockets_shared
-		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/lws_config.h
-		     					 ${CMAKE_BINARY_DIR}/include/lws_config.h
+		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/lws_config.h
+		     					 ${CMAKE_CURRENT_BINARY_DIR}/include/lws_config.h
 	)
 
 
