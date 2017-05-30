@@ -121,6 +121,8 @@ lws_client_connect_2(struct lws *wsi)
 			memcpy(&server_addr6.sin6_addr,
 			  &((struct sockaddr_in6 *)result->ai_addr)->sin6_addr,
 						sizeof(struct in6_addr));
+			server_addr6.sin6_scope_id = ((struct sockaddr_in6 *)result->ai_addr)->sin6_scope_id;
+			server_addr6.sin6_flowinfo = ((struct sockaddr_in6 *)result->ai_addr)->sin6_flowinfo;
 			break;
 		default:
 			lwsl_err("Unknown address family\n");

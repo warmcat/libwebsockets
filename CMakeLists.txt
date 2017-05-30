@@ -326,19 +326,14 @@ if (LWS_WITH_SQLITE3)
 endif()
 
 
-# FIXME: This must be runtime-only option.
 # The base dir where the test-apps look for the SSL certs.
 set(LWS_OPENSSL_CLIENT_CERTS ../share CACHE PATH "Server SSL certificate directory")
 if (WIN32)
 	set(LWS_OPENSSL_CLIENT_CERTS . CACHE PATH "Client SSL certificate directory")
 
-	if (LWS_IPV6)
-		set(LWS_IPV6 OFF)
-		message(WARNING "IPv6 does not currently work on Windows!")
-	endif()
-        if (LWS_UNIX_SOCK)
+	if (LWS_UNIX_SOCK)
 		set(LWS_UNIX_SOCK OFF)
-                message(WARNING "Windows does not support UNIX domain sockets")
+		message(WARNING "Windows does not support UNIX domain sockets")
 	endif()
 else()
 	set(LWS_OPENSSL_CLIENT_CERTS /etc/pki/tls/certs/ CACHE PATH "Client SSL certificate directory")
