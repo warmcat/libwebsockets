@@ -1447,7 +1447,7 @@ upgrade_ws:
 			 */
 			lwsl_info("defaulting to prot handler %d\n",
 				wsi->vhost->default_protocol_index);
-			n = 0;
+			n = wsi->vhost->default_protocol_index;
 			wsi->protocol = &wsi->vhost->protocols[
 				      (int)wsi->vhost->default_protocol_index];
 		}
