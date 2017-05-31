@@ -1769,10 +1769,10 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 #endif
 	struct sockaddr_in serv_addr4;
 #ifndef LWS_PLAT_OPTEE
-	socklen_t len = sizeof(struct sockaddr);
+	socklen_t len = sizeof(struct sockaddr_storage);
 #endif
 	int n;
-	struct sockaddr_in sin;
+	struct sockaddr_storage sin;
 	struct sockaddr *v;
 
 #ifdef LWS_USE_UNIX_SOCK
@@ -1804,6 +1804,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 			return -1;
 		}
 
+#ifndef WIN32
 		if (iface) {
 			struct ifaddrs *addrs, *addr;
 			char ip[NI_MAXHOST];
@@ -1835,6 +1836,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 			}
 			freeifaddrs(addrs);
 		}
+#endif
 
 		serv_addr6.sin6_family = AF_INET6;
 		serv_addr6.sin6_port = htons(port);
@@ -1877,7 +1879,13 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
 	else
 #endif
-		port = ntohs(sin.sin_port);
+#if defined(LWS_USE_IPV6)
+		port = (sin.ss_family == AF_INET6) ?
+				  ntohs(((struct sockaddr_in6 *) &sin)->sin6_port) :
+				  ntohs(((struct sockaddr_in *) &sin)->sin_port);
+#else
+		port = ntohs(((struct sockaddr_in *) &sin)->sin_port);
+#endif
 #endif
 
 	return port;

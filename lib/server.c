@@ -2004,7 +2004,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
 	struct allocated_headers *ah;
 #if LWS_POSIX
-	struct sockaddr_in cli_addr;
+	struct sockaddr_storage cli_addr;
 	socklen_t clilen;
 #endif
 	int n, len;
@@ -2251,8 +2251,17 @@ try_pollout:
 
 			lws_plat_set_socket_options(wsi->vhost, accept_fd);
 
-			lwsl_debug("accepted new conn  port %u on fd=%d\n",
-					  ntohs(cli_addr.sin_port), accept_fd);
+#if defined(LWS_USE_IPV6)
+			lwsl_debug("accepted new conn port %u on fd=%d\n",
+					  ((cli_addr.ss_family == AF_INET6) ?
+					  ntohs(((struct sockaddr_in6 *) &cli_addr)->sin6_port) :
+					  ntohs(((struct sockaddr_in *) &cli_addr)->sin_port)),
+					  accept_fd);
+#else
+			lwsl_debug("accepted new conn port %u on fd=%d\n",
+					  ntohs(((struct sockaddr_in *) &cli_addr)->sin_port),
+					  accept_fd);
+#endif
 
 #else
 			/* not very beautiful... */
