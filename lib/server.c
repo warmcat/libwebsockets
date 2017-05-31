@@ -2303,7 +2303,7 @@ try_pollout:
 					  accept_fd);
 #else
 			lwsl_debug("accepted new conn port %u on fd=%d\n",
-					  ntohs(((struct sockaddr_in *) &cli_addr)->sin_port)),
+					  ntohs(((struct sockaddr_in *) &cli_addr)->sin_port),
 					  accept_fd);
 #endif
 
