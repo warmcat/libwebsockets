@@ -78,14 +78,8 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	eventfd.events = 0;
 	eventfd.revents = 0;
 
-	if (status < 0) {
-		/* at this point status will be an UV error, like UV_EBADF,
-		we treat all errors as LWS_POLLHUP */
-
-		/* you might want to return; instead of servicing the fd in some cases */
-		if (status == UV_EAGAIN)
-			return;
-
+	/* treat all errors as LWS_POLLHUP, except for UV_EAGAIN */
+	if (status < 0 && status != UV_EAGAIN) {
 		eventfd.events |= LWS_POLLHUP;
 		eventfd.revents |= LWS_POLLHUP;
 	} else {
