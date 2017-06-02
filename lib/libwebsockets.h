@@ -1976,6 +1976,15 @@ struct lws_context_creation_info {
 	 * If proxy auth is required, use format "username:password\@server:port" */
 	unsigned int socks_proxy_port;
 	/**< VHOST: If socks_proxy_address was non-NULL, uses this port */
+	int bind_iface;
+	/**< VHOST: nonzero to bind accepted sockets to the interface name from
+	 * iface value (eg, "eth2"), otherwise only the listen socket is
+	 * bound to the requested interface. (requires SO_BINDTODEVICE
+	 * support from your OS, which in turn requires root)
+	 * Notice that common thing like access network interface IP from
+	 * your local machine use your lo / loopback interface and will be
+	 * disallowed by this.
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

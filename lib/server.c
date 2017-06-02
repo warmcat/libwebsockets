@@ -127,6 +127,17 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #endif
 	lws_plat_set_socket_options(vhost, sockfd);
 
+#if defined(SO_BINDTODEVICE)
+	if (vhost->bind_iface) {
+		lwsl_info("binding listen skt to %s using SO_BINDTODEVICE\n", vhost->iface);
+		if (setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE, vhost->iface,
+				strlen(vhost->iface)) < 0) {
+			lwsl_warn("Failed to bind to device %s\n", vhost->iface);
+			return 1;
+		}
+	}
+#endif
+
 #if LWS_POSIX
 	n = lws_socket_bind(vhost, sockfd, info->port, info->iface);
 	if (n < 0)

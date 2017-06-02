@@ -854,6 +854,9 @@ struct lws_vhost {
 	struct lws *lserv_wsi;
 	const char *name;
 	const char *iface;
+#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
+	int bind_iface;
+#endif
 	const struct lws_protocols *protocols;
 	void **protocol_vh_privs;
 	const struct lws_protocol_vhost_options *pvo;
