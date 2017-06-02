@@ -355,6 +355,10 @@ lws_create_vhost(struct lws_context *context,
 		vh->name = info->vhost_name;
 
 	vh->iface = info->iface;
+#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
+	vh->bind_iface = info->bind_iface;
+#endif
+
 	for (vh->count_protocols = 0;
 	     info->protocols[vh->count_protocols].callback;
 	     vh->count_protocols++)
