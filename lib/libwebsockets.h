@@ -1787,6 +1787,11 @@ struct lws_context_creation_info {
 	 * the pathname of a UNIX domain socket. you can use the UNIX domain
 	 * sockets in abstract namespace, by prepending an at symbol to the
 	 * socket name. */
+#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
+	int bind_iface;
+	/**< VHOST: 1 to bind to the interface name from iface value (eg, "eth2"),
+	 0 otherwise. */
+#endif
 	const struct lws_protocols *protocols;
 	/**< VHOST: Array of structures listing supported protocols and a protocol-
 	 * specific callback for each one.  The list is ended with an
