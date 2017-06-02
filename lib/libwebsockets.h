@@ -1991,6 +1991,17 @@ struct lws_context_creation_info {
 	/**< CONTEXT: count of Linux capabilities in .caps[].  0 means
 	 * no capabilities will be inherited from root (the default) */
 #endif
+	int bind_iface;
+	/**< VHOST: nonzero to strictly bind sockets to the interface name in
+	 * .iface (eg, "eth2"), using SO_BIND_TO_DEVICE.
+	 *
+	 * Requires SO_BINDTODEVICE support from your OS and CAP_NET_RAW
+	 * capability.
+	 *
+	 * Notice that common things like access network interface IP from
+	 * your local machine use your lo / loopback interface and will be
+	 * disallowed by this.
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

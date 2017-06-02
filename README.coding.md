@@ -862,6 +862,40 @@ This allocation is only deleted / replaced when the connection accesses a
 URL region with a different protocol (or the default protocols[0] if no
 CALLBACK area matches it).
 
+@section BINDTODEV SO_BIND_TO_DEVICE
+
+The .bind_iface flag in the context / vhost creation struct lets you
+declare that you want all traffic for listen and transport on that
+vhost to be strictly bound to the network interface named in .iface.
+
+This Linux-only feature requires SO_BIND_TO_DEVICE, which in turn
+requires CAP_NET_RAW capability... root has this capability.
+
+However this feature needs to apply the binding also to accepted
+sockets during normal operation, which implies the server must run
+the whole time as root.
+
+You can avoid this by using the Linux capabilities feature to have
+the unprivileged user inherit just the CAP_NET_RAW capability.
+
+You can confirm this with the test server
+
+
+```
+ $ sudo /usr/local/bin/libwebsockets-test-server -u agreen -i eno1 -k
+```
+
+The part that ensures the capability is inherited by the unprivileged
+user is
+
+```
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+                        info.caps[0] = CAP_NET_RAW;
+                        info.count_caps = 1;
+#endif
+```
+
+
 @section dim Dimming webpage when connection lost
 
 The lws test plugins' html provides useful feedback on the webpage about if it

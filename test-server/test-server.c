@@ -222,7 +222,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:P:", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:P:k", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -259,6 +259,13 @@ int main(int argc, char **argv)
 			strncpy(interface_name, optarg, sizeof interface_name);
 			interface_name[(sizeof interface_name) - 1] = '\0';
 			iface = interface_name;
+			break;
+		case 'k':
+			info.bind_iface = 1;
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+			info.caps[0] = CAP_NET_RAW;
+			info.count_caps = 1;
+#endif
 			break;
 		case 'c':
 			close_testing = 1;
