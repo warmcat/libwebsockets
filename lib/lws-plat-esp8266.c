@@ -631,6 +631,13 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 }
 
 LWS_VISIBLE int
+lws_plat_inet_pton(int af, const char *src, void *dst)
+{
+	//return inet_pton(af, src, dst);
+	return 1;
+}
+
+LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
 	      struct lws_context_creation_info *info)
 {

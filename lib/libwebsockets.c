@@ -1906,46 +1906,14 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
 		bzero((char *) &serv_addr6, sizeof(serv_addr6));
-		if (iface &&
-		    interface_to_sa(vhost, iface,
-				    (struct sockaddr_in *)v, n) < 0) {
-			lwsl_err("Unable to find interface %s\n", iface);
-			return -1;
-		}
-
-#ifndef WIN32
 		if (iface) {
-			struct ifaddrs *addrs, *addr;
-			char ip[NI_MAXHOST];
-			unsigned int i;
-
-			getifaddrs(&addrs);
-			for (addr = addrs; addr; addr = addr->ifa_next) {
-				if (!addr->ifa_addr ||
-				    addr->ifa_addr->sa_family != AF_INET6)
-					continue;
-
-				getnameinfo(addr->ifa_addr,
-					    sizeof(struct sockaddr_in6),
-					    ip, sizeof(ip),
-					    NULL, 0, NI_NUMERICHOST);
-
-				i = 0;
-				while (ip[i])
-					if (ip[i++] == '%') {
-						ip[i - 1] = '\0';
-						break;
-					}
-
-				if (!strcmp(ip, iface)) {
-					serv_addr6.sin6_scope_id =
-						if_nametoindex(addr->ifa_name);
-					break;
-				}
+			if (interface_to_sa(vhost, iface,
+				    (struct sockaddr_in *)v, n) < 0) {
+				lwsl_err("Unable to find interface %s\n", iface);
+				return -1;
 			}
-			freeifaddrs(addrs);
+			serv_addr6.sin6_scope_id = lws_get_addr_scope(iface);
 		}
-#endif
 
 		serv_addr6.sin6_family = AF_INET6;
 		serv_addr6.sin6_port = htons(port);
@@ -1999,6 +1967,108 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 
 	return port;
 }
+
+#if defined(LWS_USE_IPV6)
+LWS_EXTERN unsigned long
+lws_get_addr_scope(const char *ipaddr)
+{
+	unsigned long scope = 0;
+
+#ifndef WIN32
+	struct ifaddrs *addrs, *addr;
+	char ip[NI_MAXHOST];
+	unsigned int i;
+
+	getifaddrs(&addrs);
+	for (addr = addrs; addr; addr = addr->ifa_next) {
+		if (!addr->ifa_addr ||
+			addr->ifa_addr->sa_family != AF_INET6)
+			continue;
+
+		getnameinfo(addr->ifa_addr,
+				sizeof(struct sockaddr_in6),
+				ip, sizeof(ip),
+				NULL, 0, NI_NUMERICHOST);
+
+		i = 0;
+		while (ip[i])
+			if (ip[i++] == '%') {
+				ip[i - 1] = '\0';
+				break;
+			}
+
+		if (!strcmp(ip, ipaddr)) {
+			scope = if_nametoindex(addr->ifa_name);
+			break;
+		}
+	}
+	freeifaddrs(addrs);
+#else
+	PIP_ADAPTER_ADDRESSES adapter, addrs = NULL;
+	PIP_ADAPTER_UNICAST_ADDRESS addr;
+	ULONG size = 0;
+	DWORD ret;
+	struct sockaddr_in6 *sockaddr;
+	char ip[NI_MAXHOST];
+	unsigned int i;
+	int found = 0;
+
+	for (i = 0; i < 5; i++)
+	{
+		ret = GetAdaptersAddresses(AF_INET6, GAA_FLAG_INCLUDE_PREFIX,
+				NULL, addrs, &size);
+		if ((ret == NO_ERROR) || (ret == ERROR_NO_DATA)) {
+			break;
+		} else if (ret == ERROR_BUFFER_OVERFLOW)
+		{
+			if (addrs)
+				free(addrs);
+			addrs = (IP_ADAPTER_ADDRESSES *) malloc(size);
+		} else
+		{
+			if (addrs)
+			{
+				free(addrs);
+				addrs = NULL;
+			}
+			lwsl_err("Failed to get IPv6 address table (%d)", ret);
+			break;
+		}
+	}
+
+	if ((ret == NO_ERROR) && (addrs))
+	{
+		adapter = addrs;
+		while ((adapter) && (!found))
+		{
+			addr = adapter->FirstUnicastAddress;
+			while ((addr) && (!found))
+			{
+				if (addr->Address.lpSockaddr->sa_family == AF_INET6)
+				{
+					sockaddr = (struct sockaddr_in6 *) (addr->Address.lpSockaddr);
+
+					lws_plat_inet_ntop(sockaddr->sin6_family, &sockaddr->sin6_addr,
+							ip, sizeof(ip));
+
+					if (!strcmp(ip, ipaddr)) {
+						scope = sockaddr->sin6_scope_id;
+						found = 1;
+						break;
+					}
+				}
+				addr = addr->Next;
+			}
+			adapter = adapter->Next;
+		}
+	}
+	if (addrs)
+		free(addrs);
+#endif
+
+	return scope;
+}
+#endif
 
 LWS_EXTERN void
 lws_restart_ws_ping_pong_timer(struct lws *wsi)

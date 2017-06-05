@@ -1677,6 +1677,11 @@ LWS_EXTERN int
 lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		const char *iface);
 
+#if defined(LWS_USE_IPV6)
+LWS_EXTERN unsigned long
+lws_get_addr_scope(const char *ipaddr);
+#endif
+
 LWS_EXTERN void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status);
 
@@ -2166,6 +2171,8 @@ LWS_EXTERN unsigned long long
 time_in_microseconds(void);
 LWS_EXTERN const char * LWS_WARN_UNUSED_RESULT
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_plat_inet_pton(int af, const char *src, void *dst);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
