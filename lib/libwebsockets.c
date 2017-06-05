@@ -1968,6 +1968,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	return port;
 }
 
+#if defined(LWS_USE_IPV6)
 LWS_EXTERN unsigned long
 lws_get_addr_scope(const char *ipaddr)
 {
@@ -2067,6 +2068,7 @@ lws_get_addr_scope(const char *ipaddr)
 
 	return scope;
 }
+#endif
 
 LWS_EXTERN void
 lws_restart_ws_ping_pong_timer(struct lws *wsi)

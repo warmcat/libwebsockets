@@ -1677,8 +1677,10 @@ LWS_EXTERN int
 lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		const char *iface);
 
+#if defined(LWS_USE_IPV6)
 LWS_EXTERN unsigned long
 lws_get_addr_scope(const char *ipaddr);
+#endif
 
 LWS_EXTERN void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status);
