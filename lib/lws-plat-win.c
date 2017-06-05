@@ -398,6 +398,16 @@ LWS_VISIBLE LWS_EXTERN int
 lws_interface_to_sa(int ipv6,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
+#ifdef LWS_USE_IPV6
+	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
+
+	if (ipv6) {
+		if (lws_plat_inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1) {
+			return 0;
+		}
+	}
+#endif
+
 	long long address = inet_addr(ifname);
 
 	if (address == INADDR_NONE) {
@@ -523,6 +533,59 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 	lws_free(buffer);
 	return ok ? dst : NULL;
+}
+
+LWS_VISIBLE int
+lws_plat_inet_pton(int af, const char *src, void *dst)
+{
+	WCHAR *buffer;
+	DWORD bufferlen = strlen(src) + 1;
+	BOOL ok = FALSE;
+
+	buffer = lws_malloc(bufferlen * 2);
+	if (!buffer) {
+		lwsl_err("Out of memory\n");
+		return -1;
+	}
+
+	if (MultiByteToWideChar(CP_ACP, 0, src, bufferlen, buffer, bufferlen) <= 0) {
+		lwsl_err("Failed to convert multi byte to wide char\n");
+		lws_free(buffer);
+		return -1;
+	}
+
+	if (af == AF_INET) {
+		struct sockaddr_in dstaddr;
+		int dstaddrlen = sizeof(dstaddr);
+		bzero(&dstaddr, sizeof(dstaddr));
+		dstaddr.sin_family = AF_INET;
+
+		if (!WSAStringToAddressW(buffer, af, 0, (struct sockaddr *) &dstaddr, &dstaddrlen)) {
+			ok = TRUE;
+			memcpy(dst, &dstaddr.sin_addr, sizeof(dstaddr.sin_addr));
+		}
+#ifdef LWS_USE_IPV6
+	} else if (af == AF_INET6) {
+		struct sockaddr_in6 dstaddr;
+		int dstaddrlen = sizeof(dstaddr);
+		bzero(&dstaddr, sizeof(dstaddr));
+		dstaddr.sin6_family = AF_INET6;
+
+		if (!WSAStringToAddressW(buffer, af, 0, (struct sockaddr *) &dstaddr, &dstaddrlen)) {
+			ok = TRUE;
+			memcpy(dst, &dstaddr.sin6_addr, sizeof(dstaddr.sin6_addr));
+		}
+#endif
+	} else
+		lwsl_err("Unsupported type\n");
+
+	if (!ok) {
+		int rv = WSAGetLastError();
+		lwsl_err("WSAAddressToString() : %d\n", rv);
+	}
+
+	lws_free(buffer);
+	return ok ? 1 : -1;
 }
 
 LWS_VISIBLE lws_fop_fd_t
