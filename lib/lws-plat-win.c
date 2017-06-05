@@ -398,6 +398,16 @@ LWS_VISIBLE LWS_EXTERN int
 lws_interface_to_sa(int ipv6,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
+#ifdef LWS_USE_IPV6
+	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
+
+	if (ipv6) {
+		if (lws_plat_inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1) {
+			return 0;
+		}
+	}
+#endif
+
 	long long address = inet_addr(ifname);
 
 	if (address == INADDR_NONE) {
@@ -523,6 +533,12 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 	lws_free(buffer);
 	return ok ? dst : NULL;
+}
+
+LWS_VISIBLE int
+lws_plat_inet_pton(int af, const char *src, void *dst)
+{
+	return inet_pton(af, src, dst);
 }
 
 LWS_VISIBLE lws_fop_fd_t
