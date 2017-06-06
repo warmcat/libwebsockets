@@ -367,12 +367,12 @@ if (LWS_WITHOUT_CLIENT)
 	set(LWS_NO_CLIENT 1)
 endif()
 
-if (LWS_WITH_LIBEV)
-	set(LWS_USE_LIBEV 1)
+if (LWS_USE_LIBEV)
+	set(LWS_WITH_LIBEV 1)
 endif()
 
-if (LWS_WITH_LIBUV)
-	set(LWS_USE_LIBUV 1)
+if (LWS_USE_LIBUV)
+	set(LWS_WITH_LIBUV 1)
 endif()
 
 if (LWS_WITH_LIBEVENT)
