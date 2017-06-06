@@ -495,6 +495,9 @@ CHECK_INCLUDE_FILE(sys/stat.h LWS_HAVE_SYS_STAT_H)
 CHECK_INCLUDE_FILE(sys/types.h LWS_HAVE_SYS_TYPES_H)
 CHECK_INCLUDE_FILE(unistd.h LWS_HAVE_UNISTD_H)
 CHECK_INCLUDE_FILE(vfork.h LWS_HAVE_VFORK_H)
+CHECK_INCLUDE_FILE(sys/capability.h LWS_HAVE_SYS_CAPABILITY_H)
+
+CHECK_LIBRARY_EXISTS(cap cap_set_flag "" LWS_HAVE_LIBCAP) 
 
 if (LWS_WITH_LIBUV)
 CHECK_INCLUDE_FILE(uv-version.h LWS_HAVE_UV_VERSION_H)
@@ -1015,6 +1018,12 @@ endif()
 if (UNIX)
 	list(APPEND LIB_LIST m)
 endif()
+
+if (LWS_HAVE_LIBCAP)
+	list(APPEND LIB_LIST cap )
+endif()
+
+
 
 # Setup the linking for all libs.
 foreach (lib ${LWS_LIBRARIES})
@@ -1767,6 +1776,8 @@ message(" LWS_WITH_ZIP_FOPS = ${LWS_WITH_ZIP_FOPS}")
 message(" LWS_AVOID_SIGPIPE_IGN = ${LWS_AVOID_SIGPIPE_IGN}")
 message(" LWS_WITH_STATS = ${LWS_WITH_STATS}")
 message(" LWS_WITH_SOCKS5 = ${LWS_WITH_SOCKS5}")
+message(" LWS_HAVE_SYS_CAPABILITY_H = ${LWS_HAVE_SYS_CAPABILITY_H}")
+message(" LWS_HAVE_LIBCAP = ${LWS_HAVE_LIBCAP}")
 
 message("---------------------------------------------------------------------")
 

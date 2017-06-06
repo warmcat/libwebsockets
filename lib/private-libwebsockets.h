@@ -935,6 +935,11 @@ struct lws_context {
 	const struct lws_protocol_vhost_options *reject_service_keywords;
 	lws_reload_func deprecation_cb;
 
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+	cap_value_t caps[4];
+	char count_caps;
+#endif
+
 #if defined(LWS_USE_LIBEV)
 	lws_ev_signal_cb_t * lws_ev_sigint_cb;
 #endif

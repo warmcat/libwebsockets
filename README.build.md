@@ -122,11 +122,24 @@ and libnsl, and only builds in 64bit mode.
 	$ make
  ```
 
+@section lcap Linux Capabilities
+
+On Linux, lws now lets you retain selected root capabilities when dropping
+privileges.  If libcap-dev or similar package is installed providing
+sys/capabilities.h, and libcap or similar package is installed providing
+libcap.so, CMake will enable the capability features.
+
+The context creation info struct .caps[] and .count_caps members can then
+be set by user code to enable selected root capabilities to survive the
+transition to running under an unprivileged user.
+
 @section cmq Quirk of cmake
 
 When changing cmake options, for some reason the only way to get it to see the
 changes sometimes is delete the contents of your build directory and do the
 cmake from scratch.
+
+deleting build/CMakeCache.txt may be enough.
 
 
 @section cmw Building on Windows (Visual Studio)

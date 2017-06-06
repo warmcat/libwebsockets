@@ -2220,6 +2220,11 @@ lws_finalize_startup(struct lws_context *context)
 	info.uid = context->uid;
 	info.gid = context->gid;
 
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+	memcpy(info.caps, context->caps, sizeof(info.caps));
+	info.count_caps = context->count_caps;
+#endif
+
 	if (lws_check_opt(context->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
 		lws_plat_drop_app_privileges(&info);
 

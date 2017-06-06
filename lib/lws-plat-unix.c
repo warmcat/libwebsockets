@@ -279,9 +279,29 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 	return 0;
 }
 
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+static void
+_lws_plat_apply_caps(int mode, cap_value_t *cv, int count)
+{
+	cap_t caps = cap_get_proc();
+
+	if (!count)
+		return;
+
+	cap_set_flag(caps, mode, count, cv, CAP_SET);
+	cap_set_proc(caps);
+	prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
+	cap_free(caps);
+}
+#endif
+
 LWS_VISIBLE void
 lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 {
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+	int n;
+#endif
+
 	if (info->gid != -1)
 		if (setgid(info->gid))
 			lwsl_warn("setgid: %s\n", strerror(LWS_ERRNO));
@@ -290,11 +310,25 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 		struct passwd *p = getpwuid(info->uid);
 
 		if (p) {
+
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+			_lws_plat_apply_caps(CAP_PERMITTED, info->caps, info->count_caps);
+#endif
+
 			initgroups(p->pw_name, info->gid);
 			if (setuid(info->uid))
 				lwsl_warn("setuid: %s\n", strerror(LWS_ERRNO));
 			else
 				lwsl_notice("Set privs to user '%s'\n", p->pw_name);
+
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+			_lws_plat_apply_caps(CAP_EFFECTIVE, info->caps, info->count_caps);
+
+			if (info->count_caps)
+				for (n = 0; n < info->count_caps; n++)
+					lwsl_notice("   RETAINING CAPABILITY %d\n", (int)info->caps[n]);
+#endif
+
 		} else
 			lwsl_warn("getpwuid: unable to find uid %d", info->uid);
 	}

@@ -102,6 +102,9 @@ struct sockaddr_in;
 
 #else /* NOT WIN32 */
 #include <unistd.h>
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+#include <sys/capability.h>
+#endif
 
 #if defined(__NetBSD__) || defined(__FreeBSD__)
 #include <netinet/in.h>
@@ -1976,6 +1979,18 @@ struct lws_context_creation_info {
 	 * If proxy auth is required, use format "username:password\@server:port" */
 	unsigned int socks_proxy_port;
 	/**< VHOST: If socks_proxy_address was non-NULL, uses this port */
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+	cap_value_t caps[4];
+	/**< CONTEXT: array holding Linux capabilities you want to
+	 * continue to be available to the server after it transitions
+	 * to a noprivileged user.  Usually none are needed but for, eg,
+	 * .bind_iface, CAP_NET_RAW is required.  This gives you a way
+	 * to still have the capability but drop root.
+	 */
+	char count_caps;
+	/**< CONTEXT: count of Linux capabilities in .caps[].  0 means
+	 * no capabilities will be inherited from root (the default) */
+#endif
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

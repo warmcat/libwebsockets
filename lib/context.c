@@ -892,6 +892,11 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->uid = info->uid;
 	context->gid = info->gid;
 
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+	memcpy(context->caps, info->caps, sizeof(context->caps));
+	context->count_caps = info->count_caps;
+#endif
+
 	/*
 	 * drop any root privs for this process
 	 * to listen on port < 1023 we would have needed root, but now we are

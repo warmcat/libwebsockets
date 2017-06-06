@@ -136,6 +136,9 @@
 #cmakedefine LWS_WITH_STATS
 #cmakedefine LWS_WITH_SOCKS5
 
+#cmakedefine LWS_HAVE_SYS_CAPABILITY_H
+#cmakedefine LWS_HAVE_LIBCAP
+
 /* OpenSSL various APIs */
 
 #cmakedefine LWS_HAVE_TLS_CLIENT_METHOD
