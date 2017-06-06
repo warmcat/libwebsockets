@@ -2771,7 +2771,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 						wsi->cgi->l[wsi->cgi->lp] = '\0';
 						switch (n) {
 						case SIGNIFICANT_HDR_CONTENT_LENGTH:
-							wsi->cgi->content_length = atol(wsi->cgi->l);
+							wsi->cgi->content_length = atoll(wsi->cgi->l);
 							break;
 						case SIGNIFICANT_HDR_STATUS:
 							wsi->cgi->response_code = atol(wsi->cgi->l);
@@ -2839,7 +2839,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			case LCHS_SINGLE_0A:
 				m = wsi->hdr_state;
 				if (c == '\x0a') {
-					lwsl_debug("Content-Length: %ld\n", wsi->cgi->content_length);
+					lwsl_debug("Content-Length: %lld\n", (unsigned long long)wsi->cgi->content_length);
 					wsi->hdr_state = LHCS_RESPONSE;
 					/* drop the \0xa ... finalize will add it if needed */
 					break;
@@ -2989,8 +2989,8 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				continue;
 
 			if (cgi->content_length) {
-				lwsl_debug("%s: wsi %p: expected content length seen: %ld\n",
-					__func__, cgi->wsi, cgi->content_length_seen);
+				lwsl_debug("%s: wsi %p: expected content length seen: %lld\n",
+					__func__, cgi->wsi, (unsigned long long)cgi->content_length_seen);
 			}
 
 			/* reap it */
@@ -3059,8 +3059,8 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			continue;
 
 		if (cgi->content_length)
-			lwsl_debug("%s: wsi %p: expected content length seen: %ld\n",
-				__func__, cgi->wsi, cgi->content_length_seen);
+			lwsl_debug("%s: wsi %p: expected content length seen: %lld\n",
+				__func__, cgi->wsi, (unsigned long long)cgi->content_length_seen);
 
 		/* reap it */
 		if (waitpid(cgi->pid, &status, WNOHANG) > 0) {

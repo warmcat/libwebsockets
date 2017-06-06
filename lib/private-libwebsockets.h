@@ -1253,8 +1253,8 @@ struct _lws_http_mode_related {
 
 	enum http_version request_version;
 	enum http_connection_type connection_type;
-	unsigned int content_length;
-	unsigned int content_remain;
+	lws_filepos_t content_length;
+	lws_filepos_t content_remain;
 };
 
 #ifdef LWS_USE_HTTP2
@@ -1469,8 +1469,8 @@ struct lws_cgi {
 	unsigned char *headers_pos;
 	unsigned char *headers_dumped;
 	unsigned char *headers_end;
-	unsigned long content_length;
-	unsigned long content_length_seen;
+	lws_filepos_t content_length;
+	lws_filepos_t content_length_seen;
 	int pipe_fds[3][2];
 	int match[SIGNIFICANT_HDR_COUNT];
 	int pid;

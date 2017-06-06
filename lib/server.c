@@ -742,7 +742,7 @@ lws_http_action(struct lws *wsi)
 		lws_hdr_copy(wsi, content_length_str,
 			     sizeof(content_length_str) - 1,
 			     WSI_TOKEN_HTTP_CONTENT_LENGTH);
-		wsi->u.http.content_length = atoi(content_length_str);
+		wsi->u.http.content_length = atoll(content_length_str);
 	}
 
 	if (wsi->http2_substream) {
@@ -2366,7 +2366,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	unsigned char *response = pt->serv_buf + LWS_PRE;
 	unsigned char *p = response;
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
-	unsigned long computed_total_content_length;
+	lws_filepos_t computed_total_content_length;
 	int ret = 0, cclen = 8, n = HTTP_STATUS_OK;
 	lws_fop_flags_t fflags = LWS_O_RDONLY;
 #if defined(LWS_WITH_RANGES)
@@ -2463,7 +2463,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		 *  Precompute it for the main response header
 		 */
 
-		computed_total_content_length = (unsigned long)rp->agg +
+		computed_total_content_length = (lws_filepos_t)rp->agg +
 						6 /* final _lws\r\n */;
 
 		lws_ranges_reset(rp);
@@ -2484,7 +2484,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	}
 
 	if (ranges == 1) {
-		computed_total_content_length = (unsigned long)rp->agg;
+		computed_total_content_length = (lws_filepos_t)rp->agg;
 		n = lws_snprintf(cache_control, sizeof(cache_control), "bytes %llu-%llu/%llu",
 				rp->start, rp->end, rp->extent);
 

@@ -786,8 +786,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			wsi->u.http.content_length =
 					atoi(lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_CONTENT_LENGTH));
-			lwsl_notice("%s: incoming content length %d\n", __func__,
-					wsi->u.http.content_length);
+			lwsl_notice("%s: incoming content length %llu\n", __func__,
+					(unsigned long long)wsi->u.http.content_length);
 			wsi->u.http.content_remain = wsi->u.http.content_length;
 		} else /* can't do 1.1 without a content length or chunked */
 			if (!wsi->chunked)
