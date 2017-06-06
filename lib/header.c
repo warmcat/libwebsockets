@@ -96,13 +96,13 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 }
 
 int lws_add_http_header_content_length(struct lws *wsi,
-				       unsigned long content_length,
+				       lws_filepos_t content_length,
 				       unsigned char **p, unsigned char *end)
 {
 	char b[24];
 	int n;
 
-	n = sprintf(b, "%lu", content_length);
+	n = sprintf(b, "%llu", (unsigned long long)content_length);
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
 					 (unsigned char *)b, n, p, end))
 		return 1;

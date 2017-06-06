@@ -664,6 +664,32 @@ typedef int lws_filefd_type;
 #endif
 #endif
 
+#if (defined(WIN32) || defined(_WIN32)) && !defined(__MINGW32__)
+/* ... */
+#if !defined(ssize_t)
+typedef SSIZE_T ssize_t;
+#endif
+#endif
+
+#if defined(LWS_HAVE_STDINT_H)
+#include <stdint.h>
+#else
+#if defined(WIN32) || defined(_WIN32)
+/* !!! >:-[  */
+typedef unsigned __int32 uint32_t;
+typedef unsigned __int16 uint16_t;
+typedef unsigned __int8 uint8_t;
+#else
+typedef unsigned int uint32_t;
+typedef unsigned short uint16_t;
+typedef unsigned char uint8_t;
+#endif
+#endif
+
+typedef size_t lws_filepos_t;
+typedef ssize_t lws_fileofs_t;
+typedef uint32_t lws_fop_flags_t;
+
 #define lws_pollfd pollfd
 #define LWS_POLLHUP (POLLHUP|POLLERR)
 #define LWS_POLLIN (POLLIN)
@@ -3171,7 +3197,7 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_content_length(struct lws *wsi,
-				   unsigned long content_length,
+				   lws_filepos_t content_length,
 				   unsigned char **p, unsigned char *end);
 /**
  * lws_finalize_http_header() - terminate header block
@@ -4534,32 +4560,6 @@ lws_cgi_kill(struct lws *wsi);
 #define LWS_FOP_FLAG_VIRTUAL		   (1 << 27)
 
 struct lws_plat_file_ops;
-
-#if (defined(WIN32) || defined(_WIN32)) && !defined(__MINGW32__)
-/* ... */
-#if !defined(ssize_t)
-typedef SSIZE_T ssize_t;
-#endif
-#endif
-
-#if defined(LWS_HAVE_STDINT_H)
-#include <stdint.h>
-#else
-#if defined(WIN32) || defined(_WIN32)
-/* !!! >:-[  */
-typedef unsigned __int32 uint32_t;
-typedef unsigned __int16 uint16_t;
-typedef unsigned __int8 uint8_t;
-#else
-typedef unsigned int uint32_t;
-typedef unsigned short uint16_t;
-typedef unsigned char uint8_t;
-#endif
-#endif
-
-typedef size_t lws_filepos_t;
-typedef ssize_t lws_fileofs_t;
-typedef uint32_t lws_fop_flags_t;
 
 struct lws_fop_fd {
 	lws_filefd_type			fd;
