@@ -835,6 +835,7 @@ lws_ssl_context_destroy(struct lws_context *context)
 	ERR_remove_thread_state(NULL);
 #endif
 #endif
+	sk_SSL_COMP_free(SSL_COMP_get_compression_methods());
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
