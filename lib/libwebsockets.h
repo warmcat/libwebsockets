@@ -852,6 +852,7 @@ enum lws_callback_reasons {
 	 *     	"lws_ssl_client_connect2 failed"
 	 *     	"Peer hung up"
 	 *     	"read failed"
+	 *  	"HTTP: <http response code>"
 	 *     	"HS: URI missing"
 	 *     	"HS: Redirect code but no Location"
 	 *     	"HS: URI did not parse"
