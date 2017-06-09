@@ -595,6 +595,7 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 	HANDLE ret;
 	WCHAR buf[MAX_PATH];
 	lws_fop_fd_t fop_fd;
+	LARGE_INTEGER llFileSize = {0};
 
 	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buf, ARRAY_SIZE(buf));
 	if (((*flags) & 7) == _O_RDONLY) {
@@ -617,6 +618,9 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 	fop_fd->filesystem_priv = NULL; /* we don't use it */
 	fop_fd->flags = *flags;
 	fop_fd->len = GetFileSize(ret, NULL);
+	if(GetFileSizeEx(ret, &llFileSize))
+		fop_fd->len = llFileSize.QuadPart;
+
 	fop_fd->pos = 0;
 
 	return fop_fd;
@@ -641,7 +645,10 @@ _lws_plat_file_close(lws_fop_fd_t *fop_fd)
 LWS_VISIBLE lws_fileofs_t
 _lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
-	return SetFilePointer((HANDLE)fop_fd->fd, offset, NULL, FILE_CURRENT);
+	LARGE_INTEGER l;
+
+	l.QuadPart = offset;
+	return SetFilePointerEx((HANDLE)fop_fd->fd, l, NULL, FILE_CURRENT);
 }
 
 LWS_VISIBLE int

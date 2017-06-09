@@ -2244,7 +2244,7 @@ lws_snprintf(char *str, size_t size, const char *format, ...)
 	n = vsnprintf(str, size, format, ap);
 	va_end(ap);
 
-	if (n >= size)
+	if (n >= (int)size)
 		return size;
 
 	return n;

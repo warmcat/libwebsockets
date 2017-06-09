@@ -784,7 +784,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 			wsi->u.http.content_length =
-					atoi(lws_hdr_simple_ptr(wsi,
+					atoll(lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_CONTENT_LENGTH));
 			lwsl_notice("%s: incoming content length %llu\n", __func__,
 					(unsigned long long)wsi->u.http.content_length);

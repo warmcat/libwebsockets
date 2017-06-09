@@ -697,8 +697,8 @@ spin_chunks:
 		return 0;
 
 	if (wsi->u.http.content_remain &&
-	    (int)wsi->u.http.content_remain < *len)
-		n = wsi->u.http.content_remain;
+	    wsi->u.http.content_remain < *len)
+		n = (int)wsi->u.http.content_remain;
 	else
 		n = *len;
 
@@ -1152,7 +1152,7 @@ read:
 					eff_buf.token_len = context->pt_serv_buf_size;
 				}
 
-				if (eff_buf.token_len > context->pt_serv_buf_size)
+				if ((unsigned int)eff_buf.token_len > context->pt_serv_buf_size)
 					eff_buf.token_len = context->pt_serv_buf_size;
 
 				eff_buf.token_len = lws_ssl_capable_read(wsi,

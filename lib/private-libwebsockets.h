@@ -134,6 +134,15 @@ char *ets_strchr(const char *s, int c);
 #include <mstcpip.h>
 #include <io.h>
 
+#if !defined(LWS_HAVE_ATOLL)
+#if defined(LWS_HAVE__ATOI64)
+#define atoll _atoi64
+#else
+#warning No atoll or _atoi64 available, using atoi
+#define atoll atoi
+#endif
+#endif
+
 #ifndef __func__
 #define __func__ __FUNCTION__
 #endif

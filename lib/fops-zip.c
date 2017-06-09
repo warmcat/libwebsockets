@@ -535,7 +535,7 @@ lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 			*amount = 0;
 		}
 
-		priv->inflate.avail_out = len;
+		priv->inflate.avail_out = (unsigned int)len;
 		priv->inflate.next_out = buf;
 
 spin:
@@ -554,7 +554,7 @@ spin:
 
 			cur += ramount;
 
-			priv->inflate.avail_in = ramount;
+			priv->inflate.avail_in = (unsigned int)ramount;
 			priv->inflate.next_in = priv->rbuf;
 		}
 
@@ -596,7 +596,7 @@ spin:
 			if (rlen > len)
 				rlen = len;
 			/* provide stuff from canned header */
-			memcpy(buf, hd + fd->pos, rlen);
+			memcpy(buf, hd + fd->pos, (size_t)rlen);
 			fd->pos += rlen;
 			buf += rlen;
 			len -= rlen;
@@ -636,7 +636,7 @@ spin:
 			if (rlen > len)
 				rlen = len;
 
-			memcpy(buf, priv->u.trailer8 + cur, rlen);
+			memcpy(buf, priv->u.trailer8 + cur, (size_t)rlen);
 
 			*amount += rlen;
 			fd->pos += rlen;

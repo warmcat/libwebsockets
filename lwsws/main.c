@@ -199,8 +199,9 @@ reload_handler(int signum)
 
 int main(int argc, char **argv)
 {
-	int n = 0, m, debug_level = 7;
+	int n = 0, debug_level = 7;
 #ifndef _WIN32
+	int m;
 	int status, syslog_options = LOG_PID | LOG_PERROR;
 #endif
 

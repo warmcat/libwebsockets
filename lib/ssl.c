@@ -40,7 +40,7 @@ int lws_alloc_vfs_file(struct lws_context *context, const char *filename, uint8_
 
 	len = lws_vfs_get_length(fops_fd);
 
-	*buf = malloc(len);
+	*buf = malloc((size_t)len);
 	if (!buf)
 		goto bail;
 

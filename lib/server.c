@@ -357,7 +357,11 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	const struct lws_plat_file_ops *fops;
 	const char *vpath;
 	lws_fop_flags_t fflags = LWS_O_RDONLY;
+#if defined(WIN32) && defined(LWS_HAVE__STAT32I64)
+	struct _stat32i64 st;
+#else
 	struct stat st;
+#endif
 	int spin = 0;
 #endif
 	char path[256], sym[512];
@@ -401,10 +405,17 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			goto bail;
 		}
 #else
+#if defined(LWS_HAVE__STAT32I64)
+		if (_stat32i64(path, &st)) {
+			lwsl_info("unable to stat %s\n", path);
+			goto bail;
+		}
+#else
 		if (stat(path, &st)) {
 			lwsl_info("unable to stat %s\n", path);
 			goto bail;
 		}
+#endif
 #endif
 
 		wsi->u.http.fop_fd->mod_time = (uint32_t)st.st_mtime;

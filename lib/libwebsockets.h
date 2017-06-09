@@ -673,9 +673,12 @@ typedef int lws_filefd_type;
 
 #if (defined(WIN32) || defined(_WIN32)) && !defined(__MINGW32__)
 /* ... */
-#if !defined(ssize_t)
-typedef SSIZE_T ssize_t;
+#define ssize_t SSIZE_T
 #endif
+
+#if defined(WIN32) && defined(LWS_HAVE__STAT32I64)
+#include <sys/types.h>
+#include <sys/stat.h>
 #endif
 
 #if defined(LWS_HAVE_STDINT_H)
@@ -693,8 +696,8 @@ typedef unsigned char uint8_t;
 #endif
 #endif
 
-typedef size_t lws_filepos_t;
-typedef ssize_t lws_fileofs_t;
+typedef unsigned long long lws_filepos_t;
+typedef long long lws_fileofs_t;
 typedef uint32_t lws_fop_flags_t;
 
 /** struct lws_pollargs - argument structure for all external poll related calls
@@ -4296,7 +4299,7 @@ lws_get_child(const struct lws *wsi);
  * useful when integrating with other app poll loop service code.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_read(struct lws *wsi, unsigned char *buf, size_t len);
+lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
 
 /**
  * lws_set_allocator() - custom allocator support

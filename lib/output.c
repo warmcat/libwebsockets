@@ -513,8 +513,8 @@ send_raw:
 			     wp == LWS_WRITE_HTTP_FINAL) &&
 			    wsi->u.http.content_length) {
 				wsi->u.http.content_remain -= len;
-				lwsl_info("%s: content_remain = %lu\n", __func__,
-					  (unsigned long)wsi->u.http.content_remain);
+				lwsl_info("%s: content_remain = %llu\n", __func__,
+					  (unsigned long long)wsi->u.http.content_remain);
 				if (!wsi->u.http.content_remain) {
 					lwsl_info("%s: selecting final write mode\n", __func__);
 					wp = LWS_WRITE_HTTP_FINAL;
@@ -679,7 +679,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			if (wsi->sending_chunked) {
 				args.p = (char *)p;
 				args.len = n;
-				args.max_len = poss + 128;
+				args.max_len = (unsigned int)poss + 128;
 				args.final = wsi->u.http.filepos + n ==
 					     wsi->u.http.filelen;
 				if (user_callback_handle_rxflow(
