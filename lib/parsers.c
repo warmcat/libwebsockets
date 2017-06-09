@@ -225,7 +225,7 @@ int lws_header_table_detach(struct lws *wsi)
 	assert(wsi->u.hdr.ah->in_use);
 	wsi->u.hdr.ah = NULL;
 	ah->wsi = NULL; /* no owner */
-	
+
 	/* oh there is nobody on the waiting list... leave it at that then */
 	if (!*pwsi) {
 		ah->in_use = 0;
