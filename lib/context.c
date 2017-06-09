@@ -290,16 +290,20 @@ lws_create_context(struct lws_context_creation_info *info)
 			lws_set_proxy(context, p);
 #endif
 	}
-
-	if (lws_context_init_server_ssl(info, context))
-		goto bail;
-
+	
+	if (info->port != CONTEXT_PORT_NO_LISTEN) {
+		if (lws_context_init_server_ssl(info, context))
+			goto bail;
+	}
+	
 	if (lws_context_init_client_ssl(info, context))
 		goto bail;
-
-	if (lws_context_init_server(info, context))
-		goto bail;
-
+	
+	if (info->port != CONTEXT_PORT_NO_LISTEN) {
+		if (lws_context_init_server(info, context))
+			goto bail;
+	}
+	
 	/*
 	 * drop any root privs for this process
 	 * to listen on port < 1023 we would have needed root, but now we are
