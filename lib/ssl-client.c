@@ -318,7 +318,7 @@ lws_ssl_client_connect2(struct lws *wsi)
 	if (wsi->mode == LWSCM_WSCL_WAITING_SSL) {
 		lws_latency_pre(context, wsi);
 		n = SSL_connect(wsi->ssl);
-		lwsl_notice("%s: SSL_connect says %d\n", __func__, n);
+		lwsl_debug("%s: SSL_connect says %d\n", __func__, n);
 
 		lws_latency(context, wsi,
 			    "SSL_connect LWSCM_WSCL_WAITING_SSL", n, n > 0);
@@ -395,7 +395,7 @@ lws_ssl_client_connect2(struct lws *wsi)
 	lws_latency(context, wsi,
 		"SSL_get_verify_result LWS_CONNMODE..HANDSHAKE", n, n > 0);
 
-	lwsl_notice("get_verify says %d\n", n);
+	lwsl_debug("get_verify says %d\n", n);
 
 	if (n != X509_V_OK) {
 		if ((n == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||

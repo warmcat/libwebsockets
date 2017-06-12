@@ -2289,8 +2289,8 @@ struct lws_protocol_vhost_options {
  * served from a filesystem, or it is a cgi etc.
  */
 enum lws_mount_protocols {
-	LWSMPRO_HTTP		= 0, /**< not supported yet */
-	LWSMPRO_HTTPS		= 1, /**< not supported yet */
+	LWSMPRO_HTTP		= 0, /**< http reverse proxy */
+	LWSMPRO_HTTPS		= 1, /**< https reverse proxy */
 	LWSMPRO_FILE		= 2, /**< serve from filesystem directory */
 	LWSMPRO_CGI		= 3, /**< pass to CGI to handle */
 	LWSMPRO_REDIR_HTTP	= 4, /**< redirect to http:// url */

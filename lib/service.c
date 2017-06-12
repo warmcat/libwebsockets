@@ -1203,6 +1203,9 @@ drain:
 				lwsl_notice("LWS_CALLBACK_RECEIVE_CLIENT_HTTP closed it\n");
 				goto close_and_handled;
 			}
+
+			n = 0;
+			goto handled;
 		}
 #endif
 		/*

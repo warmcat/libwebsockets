@@ -262,7 +262,8 @@ lws_client_connect_2(struct lws *wsi)
 		n = sizeof(struct sockaddr);
 	}
 
-	if (connect(wsi->desc.sockfd, v, n) == -1 || LWS_ERRNO == LWS_EISCONN) {
+	if (connect(wsi->desc.sockfd, v, n) == -1 ||
+	    LWS_ERRNO == LWS_EISCONN) {
 		if (LWS_ERRNO == LWS_EALREADY ||
 		    LWS_ERRNO == LWS_EINPROGRESS ||
 		    LWS_ERRNO == LWS_EWOULDBLOCK
@@ -527,14 +528,14 @@ html_parser_cb(const hubbub_token *token, void *pw)
 						"(force-quirks) " : "");
 
 		if (token->data.doctype.public_missing)
-			printf("\tpublic: missing\n");
+			lwsl_debug("\tpublic: missing\n");
 		else
 			p += lws_snprintf(p, end - p, "PUBLIC \"%.*s\"\n",
 				(int) token->data.doctype.public_id.len,
 				token->data.doctype.public_id.ptr);
 
 		if (token->data.doctype.system_missing)
-			printf("\tsystem: missing\n");
+			lwsl_debug("\tsystem: missing\n");
 		else
 			p += lws_snprintf(p, end - p, " \"%.*s\">\n",
 				(int) token->data.doctype.system_id.len,
@@ -557,25 +558,28 @@ html_parser_cb(const hubbub_token *token, void *pw)
 				const char *pp = (const char *)token->data.tag.attributes[i].value.ptr;
 				int plen = (int) token->data.tag.attributes[i].value.len;
 
-				if (!hstrcmp(&token->data.tag.attributes[i].value,
-					     r->from, r->from_len)) {
-					pp += r->from_len;
-					plen -= r->from_len;
+				if (strncmp(pp, "http:", 5) && strncmp(pp, "https:", 6)) {
+
+					if (!hstrcmp(&token->data.tag.attributes[i].value,
+						     r->from, r->from_len)) {
+						pp += r->from_len;
+						plen -= r->from_len;
+					}
+					p += lws_snprintf(p, end - p, " %.*s=\"%s/%.*s\"",
+					       (int) token->data.tag.attributes[i].name.len,
+					       token->data.tag.attributes[i].name.ptr,
+					       r->to, plen, pp);
+					continue;
 				}
-				p += lws_snprintf(p, end - p, " %.*s=\"%s/%.*s\"",
-				       (int) token->data.tag.attributes[i].name.len,
-				       token->data.tag.attributes[i].name.ptr,
-				       r->to, plen, pp);
+			}
 
-			} else
-
-				p += lws_snprintf(p, end - p, " %.*s=\"%.*s\"",
-					(int) token->data.tag.attributes[i].name.len,
-					token->data.tag.attributes[i].name.ptr,
-					(int) token->data.tag.attributes[i].value.len,
-					token->data.tag.attributes[i].value.ptr);
+			p += lws_snprintf(p, end - p, " %.*s=\"%.*s\"",
+				(int) token->data.tag.attributes[i].name.len,
+				token->data.tag.attributes[i].name.ptr,
+				(int) token->data.tag.attributes[i].value.len,
+				token->data.tag.attributes[i].value.ptr);
 		}
-		p += lws_snprintf(p, end - p, ">\n");
+		p += lws_snprintf(p, end - p, ">");
 		break;
 	case HUBBUB_TOKEN_END_TAG:
 		p += lws_snprintf(p, end - p, "</%.*s", (int) token->data.tag.name.len,
@@ -593,7 +597,7 @@ html_parser_cb(const hubbub_token *token, void *pw)
 				(int) token->data.tag.attributes[i].value.len,
 				token->data.tag.attributes[i].value.ptr);
 		}
-		p += lws_snprintf(p, end - p, ">\n");
+		p += lws_snprintf(p, end - p, ">");
 		break;
 	case HUBBUB_TOKEN_COMMENT:
 		p += lws_snprintf(p, end - p, "<!-- %.*s -->\n",
@@ -601,6 +605,21 @@ html_parser_cb(const hubbub_token *token, void *pw)
 				token->data.comment.ptr);
 		break;
 	case HUBBUB_TOKEN_CHARACTER:
+		if (token->data.character.len == 1) {
+			if (*token->data.character.ptr == '<') {
+				p += lws_snprintf(p, end - p, "&lt;");
+				break;
+			}
+			if (*token->data.character.ptr == '>') {
+				p += lws_snprintf(p, end - p, "&gt;");
+				break;
+			}
+			if (*token->data.character.ptr == '&') {
+				p += lws_snprintf(p, end - p, "&amp;");
+				break;
+			}
+		}
+
 		p += lws_snprintf(p, end - p, "%.*s", (int) token->data.character.len,
 				token->data.character.ptr);
 		break;

@@ -191,6 +191,7 @@ static struct option options[] = {
 int main(int argc, char **argv)
 {
 	struct lws_context_creation_info info;
+	struct lws_vhost *vhost;
 	char interface_name[128] = "";
 	unsigned int ms, oldms = 0;
 	const char *iface = NULL;
@@ -382,7 +383,7 @@ int main(int argc, char **argv)
 	info.gid = gid;
 	info.uid = uid;
 	info.max_http_header_pool = 16;
-	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8;
+	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 | LWS_SERVER_OPTION_EXPLICIT_VHOSTS | LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.extensions = exts;
 	info.timeout_secs = 5;
 	info.ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
@@ -408,6 +409,16 @@ int main(int argc, char **argv)
 		lwsl_err("libwebsocket init failed\n");
 		return -1;
 	}
+
+	vhost = lws_create_vhost(context, &info);
+	if (!vhost) {
+		lwsl_err("vhost creation failed\n");
+		return -1;
+	}
+
+#if !defined(LWS_NO_CLIENT) && defined(LWS_OPENSSL_SUPPORT)
+	lws_init_vhost_client_ssl(&info, vhost);
+#endif
 
 	/* this shows how to override the lws file operations.	You don't need
 	 * to do any of this unless you have a reason (eg, want to serve

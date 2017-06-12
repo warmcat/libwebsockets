@@ -292,6 +292,20 @@ Mount protocols are used to control what kind of translation happens
 ```
  would cause the url /git/myrepo to pass "myrepo" to the cgi /var/www/cgi-bin/cgit and send the results to the client.
 
+ - http:// or https://  these perform reverse proxying, serving the remote origin content from the mountpoint.  Eg
+
+```
+		{
+		 "mountpoint": "/proxytest",
+		 "origin": "https://libwebsockets.org"
+		}
+```
+
+This will cause your local url `/proxytest` to serve content fetched from libwebsockets.org over ssl; whether it's served from your server using ssl is unrelated and depends how you configured your local server.  Notice if you will use the proxying feature, `LWS_WITH_HTTP_PROXY` is required to be enabled at cmake, and for `https` proxy origins, your lwsws configuration must include `"init-ssl": "1"` and the vhost with the proxy mount must have `"enable-client-ssl": "1"`, even if you are not using ssl to serve.
+
+`/proxytest/abc`, or `/proxytest/abc?def=ghi` etc map to the origin + the part past `/proxytest`, so links and img src urls etc work as do all urls under the origin path.
+
+In addition link and src urls in the document are rewritten so / or the origin url part are rewritten to the mountpoint part.
 
 
 @section lwswsomo Lwsws Other mount options

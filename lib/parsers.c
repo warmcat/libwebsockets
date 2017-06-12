@@ -321,15 +321,18 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	pt->ah_wait_list_length--;
 
 #ifndef LWS_NO_CLIENT
-	if (wsi->state == LWSS_CLIENT_UNCONNECTED)
+	if (wsi->state == LWSS_CLIENT_UNCONNECTED) {
+		lws_pt_unlock(pt);
+
 		if (!lws_client_connect_via_info2(wsi)) {
 			/* our client connect has failed, the wsi
 			 * has been closed
 			 */
-			lws_pt_unlock(pt);
 
 			return -1;
 		}
+		return 0;
+	}
 #endif
 
 	assert(!!pt->ah_wait_list_length == !!(int)(long)pt->ah_wait_list);

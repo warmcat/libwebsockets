@@ -98,7 +98,7 @@ option(LWS_UNIX_SOCK "Compile with support for UNIX domain socket" OFF)
 option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
 option(LWS_SSL_SERVER_WITH_ECDH_CERT "Include SSL server use ECDH certificate" OFF)
 option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
-option(LWS_WITH_HTTP_PROXY "Support for rewriting HTTP proxying" OFF)
+option(LWS_WITH_HTTP_PROXY "Support for rewriting HTTP proxying (requires libhubbub)" OFF)
 option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)
 option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions" OFF)
 option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OFF)
@@ -392,7 +392,7 @@ if (LWS_WITH_HTTP2)
 endif()
 
 if ("${LWS_MAX_SMP}" STREQUAL "")
-	set(LWS_MAX_SMP 32)
+	set(LWS_MAX_SMP 1)
 endif()
 
 
@@ -735,7 +735,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
 endif ()
 
 if ((CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX) AND NOT LWS_WITHOUT_TESTAPPS)
-    if (UNIX)
+	if (UNIX AND LWS_MAX_SMP GREATER 1)
 	# jeez clang understands -pthread but dies if he sees it at link time!
 	# http://stackoverflow.com/questions/2391194/what-is-gs-pthread-equiv-in-clang
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread" )
@@ -1251,7 +1251,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					""
 					"")
 			endif()
-			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang")))
+			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang")) AND LWS_MAX_SMP GREATER 1)
 				create_test_app(test-server-pthreads
 					"test-server/test-server-pthreads.c"
 					"test-server/test-server-http.c"

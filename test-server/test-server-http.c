@@ -230,37 +230,36 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			goto try_to_reuse;
 		}
 
-#ifndef LWS_NO_CLIENT
+#if !defined(LWS_NO_CLIENT) && defined(LWS_OPENSSL_SUPPORT)
 		if (!strncmp(in, "/proxytest", 10)) {
 			struct lws_client_connect_info i;
-			char *rootpath = "/";
+			char *rootpath = "/git/";
 			const char *p = (const char *)in;
 
 			if (lws_get_child(wsi))
 				break;
 
 			pss->client_finished = 0;
-			memset(&i,0, sizeof(i));
+			memset(&i, 0, sizeof(i));
 			i.context = lws_get_context(wsi);
-			i.address = "git.libwebsockets.org";
-			i.port = 80;
-			i.ssl_connection = 0;
+			i.address = "libwebsockets.org";
+			i.port = 443;
+			i.ssl_connection = 1;
 			if (p[10])
 				i.path = (char *)in + 10;
 			else
 				i.path = rootpath;
-			i.host = "git.libwebsockets.org";
+			i.host = i.address;
 			i.origin = NULL;
 			i.method = "GET";
 			i.parent_wsi = wsi;
-			i.uri_replace_from = "git.libwebsockets.org/";
+			i.uri_replace_from = "libwebsockets.org/git/";
 			i.uri_replace_to = "/proxytest/";
+
 			if (!lws_client_connect_via_info(&i)) {
 				lwsl_err("proxy connect fail\n");
 				break;
 			}
-
-
 
 			break;
 		}
@@ -421,6 +420,11 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		 */
 		break;
 
+        case LWS_CALLBACK_CLIENT_RECEIVE:
+                ((char *)in)[len] = '\0';
+                lwsl_info("rx %d '%s'\n", (int)len, (char *)in);
+                break;
+
 	case LWS_CALLBACK_HTTP_BODY:
 		/* create the POST argument parser if not already existing */
 		if (!pss->spa) {
@@ -511,8 +515,10 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (pss->client_finished)
 			return -1;
 
-		if (!pss->fop_fd)
+		if (!lws_get_child(wsi) && !pss->fop_fd) {
+			lwsl_notice("fop_fd NULL\n");
 			goto try_to_reuse;
+		}
 
 #ifndef LWS_NO_CLIENT
 		if (pss->reason_bf & 2) {
@@ -524,17 +530,24 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 * suitable size to send or what's available, whichever
 			 * is the smaller.
 			 */
+
+
 			pss->reason_bf &= ~2;
 			wsi1 = lws_get_child(wsi);
 			if (!wsi1)
 				break;
 			if (lws_http_client_read(wsi1, &px, &lenx) < 0)
-				goto bail;
+				return -1;
 
 			if (pss->client_finished)
 				return -1;
+
 			break;
 		}
+
+		if (lws_get_child(wsi))
+			break;
+
 #endif
 		/*
 		 * we can send more of whatever it is we were sending
@@ -657,16 +670,12 @@ bail:
 		assert(lws_get_parent(wsi));
 		if (!lws_get_parent(wsi))
 			break;
-		// lwsl_err("LWS_CALLBACK_RECEIVE_CLIENT_HTTP: wsi %p: sock: %d, parent_wsi: %p, parent_sock:%d,  len %d\n",
-		//		wsi, lws_get_socket_fd(wsi),
-		//		lws_get_parent(wsi),
-		//		lws_get_socket_fd(lws_get_parent(wsi)), len);
 		pss1 = lws_wsi_user(lws_get_parent(wsi));
 		pss1->reason_bf |= 2;
 		lws_callback_on_writable(lws_get_parent(wsi));
 		break;
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-		//lwsl_err("LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ len %d\n", len);
+		//lwsl_err("LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ len %d\n", (int)len);
 		assert(lws_get_parent(wsi));
 		m = lws_write(lws_get_parent(wsi), (unsigned char *)in,
 				len, LWS_WRITE_HTTP);

@@ -662,6 +662,23 @@ lws_unauthorised_basic_auth(struct lws *wsi)
 
 #endif
 
+int lws_clean_url(char *p)
+{
+	while (*p) {
+		if (p[0] == '/' && p[1] == '/') {
+			char *p1 = p;
+			while (*p1) {
+				*p1 = p1[1];
+				p1++;
+			}
+			continue;
+		}
+		p++;
+	}
+
+	return 0;
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -958,6 +975,7 @@ lws_http_action(struct lws *wsi)
 			    "%s%s%s/", oprot[lws_is_ssl(wsi)],
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
 			    uri_ptr);
+		lws_clean_url((char *)end);
 
 		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
 				      end, n, &p, end);
@@ -1010,6 +1028,84 @@ lws_http_action(struct lws *wsi)
 		lwsl_notice("basic auth accepted\n");
 
 		/* accept the auth */
+	}
+#endif
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	/*
+	 * The mount is a reverse proxy?
+	 */
+
+	if (hit->origin_protocol == LWSMPRO_HTTPS ||
+	    hit->origin_protocol == LWSMPRO_HTTP)  {
+		struct lws_client_connect_info i;
+		char ads[96], rpath[256], *pcolon, *pslash, *p;
+		int n, na;
+
+		memset(&i, 0, sizeof(i));
+		i.context = lws_get_context(wsi);
+
+		pcolon = strchr(hit->origin, ':');
+		pslash = strchr(hit->origin, '/');
+		if (!pslash) {
+			lwsl_err("Proxy mount origin '%s' must have /\n", hit->origin);
+			return -1;
+		}
+		if (pcolon > pslash)
+			pcolon = NULL;
+		
+		if (pcolon)
+			n = pcolon - hit->origin;
+		else
+			n = pslash - hit->origin;
+
+		if (n >= sizeof(ads) - 2)
+			n = sizeof(ads) - 2;
+
+		memcpy(ads, hit->origin, n);
+		ads[n] = '\0';
+
+		i.address = ads;
+		i.port = 80;
+		if (hit->origin_protocol == LWSMPRO_HTTPS) { 
+			i.port = 443;
+			i.ssl_connection = 1;
+		}
+		if (pcolon)
+			i.port = atoi(pcolon + 1);
+		
+		lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s", pslash + 1, uri_ptr + hit->mountpoint_len);
+		lws_clean_url(rpath);
+		na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
+		if (na) {
+			p = rpath + strlen(rpath);
+			*p++ = '?';
+			lws_hdr_copy(wsi, p, &rpath[sizeof(rpath) - 1] - p, WSI_TOKEN_HTTP_URI_ARGS);
+			while (--na) {
+				if (*p == '\0')
+					*p = '&';
+				p++;
+			}
+		}
+				
+
+		i.path = rpath;
+		i.host = i.address;
+		i.origin = NULL;
+		i.method = "GET";
+		i.parent_wsi = wsi;
+		i.uri_replace_from = hit->origin;
+		i.uri_replace_to = hit->mountpoint;
+
+		lwsl_notice("proxying to %s port %d url %s, ssl %d, from %s, to %s\n",
+				i.address, i.port, i.path, i.ssl_connection, i.uri_replace_from, i.uri_replace_to);
+	
+		if (!lws_client_connect_via_info(&i)) {
+			lwsl_err("proxy connect fail\n");
+			return 1;
+		}
+
+		return 0;
 	}
 #endif
 

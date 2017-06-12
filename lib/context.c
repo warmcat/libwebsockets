@@ -222,9 +222,12 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 {
 #ifdef LWS_WITH_CGI
 	struct lws_cgi_args *args;
-	char buf[128];
+#endif
+#if defined(LWS_WITH_CGI) || defined(LWS_WITH_HTTP_PROXY)
+	char buf[512];
 	int n;
 #endif
+
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
@@ -250,8 +253,91 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 #endif
+#if defined(LWS_WITH_HTTP_PROXY)
+		if (wsi->reason_bf & 2) {
+			char *px = buf + LWS_PRE;
+			int lenx = sizeof(buf) - LWS_PRE;
+			/*
+			 * our sink is writeable and our source has something
+			 * to read.  So read a lump of source material of
+			 * suitable size to send or what's available, whichever
+			 * is the smaller.
+			 */
 
+
+			wsi->reason_bf &= ~2;
+			if (!lws_get_child(wsi))
+				break;
+			if (lws_http_client_read(lws_get_child(wsi), &px, &lenx) < 0)
+				return -1;
+			break;
+		}
+#endif
 		break;
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+		//lwsl_err("LWS_CALLBACK_RECEIVE_CLIENT_HTTP: wsi %p\n", wsi);
+		assert(lws_get_parent(wsi));
+		if (!lws_get_parent(wsi))
+			break;
+		lws_get_parent(wsi)->reason_bf |= 2;
+		lws_callback_on_writable(lws_get_parent(wsi));
+		break;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		//lwsl_err("LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ len %d\n", (int)len);
+		assert(lws_get_parent(wsi));
+		n = lws_write(lws_get_parent(wsi), (unsigned char *)in,
+				len, LWS_WRITE_HTTP);
+		if (n < 0)
+			return -1;
+		break;
+
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
+		unsigned char *p, *end;
+		char ctype[64], ctlen = 0;
+
+		//lwsl_err("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP\n");
+	
+		p = (unsigned char *)buf + LWS_PRE;
+		end = p + sizeof(buf) - LWS_PRE;
+
+		if (lws_add_http_header_status(lws_get_parent(wsi), HTTP_STATUS_OK, &p, end))
+			return 1;
+		if (lws_add_http_header_by_token(lws_get_parent(wsi),
+				WSI_TOKEN_HTTP_SERVER,
+			    	(unsigned char *)"libwebsockets",
+				13, &p, end))
+			return 1;
+
+		ctlen = lws_hdr_copy(wsi, ctype, sizeof(ctype), WSI_TOKEN_HTTP_CONTENT_TYPE);
+		if (ctlen > 0) {
+			if (lws_add_http_header_by_token(lws_get_parent(wsi),
+				WSI_TOKEN_HTTP_CONTENT_TYPE,
+				(unsigned char *)ctype, ctlen, &p, end))
+				return 1;
+		}
+#if 0
+		if (lws_add_http_header_content_length(lws_get_parent(wsi),
+						       file_len, &p, end))
+			return 1;
+#endif
+		if (lws_finalize_http_header(lws_get_parent(wsi), &p, end))
+			return 1;
+
+		*p = '\0';
+//		lwsl_info("%s\n", buf + LWS_PRE);
+
+		n = lws_write(lws_get_parent(wsi), (unsigned char *)buf + LWS_PRE,
+			      p - ((unsigned char *)buf + LWS_PRE),
+			      LWS_WRITE_HTTP_HEADERS);
+		if (n < 0)
+			return -1;
+
+		break; }
+
+#endif
 
 #ifdef LWS_WITH_CGI
 	/* CGI IO events (POLLIN/OUT) appear here, our default policy is:
