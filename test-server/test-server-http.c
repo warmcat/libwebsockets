@@ -139,7 +139,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 {
 	struct per_session_data__http *pss =
 			(struct per_session_data__http *)data;
-	int n;
+	LWS_UNUSED int n;
 
 	switch (state) {
 	case LWS_UFS_OPEN:

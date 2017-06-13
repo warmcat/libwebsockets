@@ -141,11 +141,13 @@ struct sockaddr_in;
 #define LWS_VISIBLE __attribute__((visibility("default")))
 #define LWS_WARN_DEPRECATED __attribute__ ((deprecated))
 #define LWS_FORMAT(string_index) __attribute__ ((format(printf, string_index, string_index+1)))
+#define LWS_UNUSED __attribute__((unused))
 #else
 #define LWS_VISIBLE
 #define LWS_WARN_UNUSED_RESULT
 #define LWS_WARN_DEPRECATED
 #define LWS_FORMAT(string_index)
+#define LWS_UNUSED
 #endif
 
 #if defined(__ANDROID__)
