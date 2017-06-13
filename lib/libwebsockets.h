@@ -71,6 +71,7 @@ struct sockaddr_in;
 #define LWS_WARN_UNUSED_RESULT
 #define LWS_WARN_DEPRECATED
 #define LWS_FORMAT(string_index)
+#define LWS_UNUSED
 
 #ifdef LWS_DLL
 #ifdef LWS_INTERNAL
