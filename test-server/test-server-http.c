@@ -141,6 +141,8 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			(struct per_session_data__http *)data;
 	int n;
 
+	(void)n;
+
 	switch (state) {
 	case LWS_UFS_OPEN:
 		strncpy(pss->filename, filename, sizeof(pss->filename) - 1);

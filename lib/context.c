@@ -40,7 +40,6 @@ lws_get_library_version(void)
 	return library_version;
 }
 
-#if !defined(LWS_WITH_NO_LOGS)
 static const char * const mount_protocols[] = {
 	"http://",
 	"https://",
@@ -50,7 +49,6 @@ static const char * const mount_protocols[] = {
 	">https://",
 	"callback://"
 };
-#endif
 
 LWS_VISIBLE void *
 lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols *prot,
@@ -533,6 +531,7 @@ lws_create_vhost(struct lws_context *context,
 
 	mounts = info->mounts;
 	while (mounts) {
+		(void)mount_protocols[0];
 		lwsl_notice("   mounting %s%s to %s\n",
 				mount_protocols[mounts->origin_protocol],
 				mounts->origin, mounts->mountpoint);

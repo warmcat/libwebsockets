@@ -842,6 +842,7 @@ main(int argc, char **argv)
 	construct_state(pfds, FZY_S_LISTENING, POLLIN | POLLERR);
 	pfds++;
 
+	(void)interface_name_local;
 	lwsl_notice("Local side listening on %s:%u\n",
 		    interface_name_local, port_local);
 
