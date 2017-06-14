@@ -10,7 +10,10 @@
 set(CMAKE_SYSTEM_NAME Linux)
 
 # Name of C compiler.
-set(CMAKE_C_COMPILER "${CROSS_PATH}/bin/xtensa-esp32-elf-gcc")
+set(CMAKE_C_COMPILER	"${CROSS_PATH}/bin/xtensa-esp32-elf-gcc")
+set(CMAKE_AR		"${CROSS_PATH}/bin/xtensa-esp32-elf-ar")
+set(CMAKE_RANLIB	"${CROSS_PATH}/bin/xtensa-esp32-elf-ranlib")
+set(CMAKE_LINKER	"${CROSS_PATH}/bin/xtensa-esp32-elf-ld")
 
 SET(CMAKE_C_FLAGS "-nostdlib -Wall -Werror \
 	-I${BUILD_DIR_BASE}/include \
