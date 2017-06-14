@@ -794,29 +794,6 @@ again:
 	return 0;
 }
 
-void __attribute__(( weak ))
-lws_esp32_button(int down)
-{
-}
-
-void IRAM_ATTR
-gpio_irq(void *arg)
-{
-	bdown ^= 1;
-	gpio_set_intr_type(GPIO_SW, GPIO_INTR_DISABLE);
-	xTimerStart(debounce_timer, 0);
-
-	lws_esp32_button(bdown);
-}
-
-static void lws_esp32_debounce_timer_cb(TimerHandle_t th)
-{
-	if (bdown)
-		gpio_set_intr_type(GPIO_SW, GPIO_INTR_POSEDGE);
-	else
-		gpio_set_intr_type(GPIO_SW, GPIO_INTR_NEGEDGE);
-}
-
 static void lws_esp32_mdns_timer_cb(TimerHandle_t th)
 {
 	uint64_t now = time_in_microseconds(); 
@@ -913,6 +890,30 @@ next:
 	xTimerStart(mdns_timer, 0);
 }
 #endif
+
+void __attribute__(( weak ))
+lws_esp32_button(int down)
+{
+}
+
+void IRAM_ATTR
+gpio_irq(void *arg)
+{
+	bdown ^= 1;
+	gpio_set_intr_type(GPIO_SW, GPIO_INTR_DISABLE);
+	xTimerStart(debounce_timer, 0);
+
+	lws_esp32_button(bdown);
+}
+
+static void lws_esp32_debounce_timer_cb(TimerHandle_t th)
+{
+	if (bdown)
+		gpio_set_intr_type(GPIO_SW, GPIO_INTR_POSEDGE);
+	else
+		gpio_set_intr_type(GPIO_SW, GPIO_INTR_NEGEDGE);
+}
+
 
 static int
 start_scan()
