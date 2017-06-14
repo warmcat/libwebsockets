@@ -2423,6 +2423,9 @@ struct lws_client_connect_info {
 	 * even before the new wsi is returned and even if ultimately no wsi
 	 * is returned.
 	 */
+	const char *iface;
+	/**< NULL to allow routing on any interface, or interface name or IP
+	 * to bind the socket to */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -3020,6 +3023,7 @@ enum lws_token_indexes {
 	_WSI_TOKEN_CLIENT_HOST,
 	_WSI_TOKEN_CLIENT_ORIGIN,
 	_WSI_TOKEN_CLIENT_METHOD,
+	_WSI_TOKEN_CLIENT_IFACE,
 
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,

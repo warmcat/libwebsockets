@@ -1192,6 +1192,7 @@ struct client_info_stash {
 	char origin[256];
 	char protocol[256];
 	char method[16];
+	char iface[16];
 };
 #endif
 

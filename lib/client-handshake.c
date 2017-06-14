@@ -12,7 +12,7 @@ lws_client_connect_2(struct lws *wsi)
 	struct sockaddr_in server_addr4;
 	struct lws_pollfd pfd;
 	struct sockaddr *v;
-	const char *cce = "";
+	const char *cce = "", *iface;
 	int n, plen = 0;
 	const char *ads;
 
@@ -240,10 +240,14 @@ lws_client_connect_2(struct lws *wsi)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
 				AWAITING_TIMEOUT);
 
-		n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0, wsi->vhost->iface);
-		if (n < 0) {
-			cce = "unable to bind socket";
-			goto failed;
+		iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
+
+		if (iface) {
+			n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0, iface);
+			if (n < 0) {
+				cce = "unable to bind socket";
+				goto failed;
+			}
 		}
 	}
 
@@ -420,7 +424,7 @@ LWS_VISIBLE struct lws *
 lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		 const char *path, const char *host)
 {
-	char origin[300] = "", protocol[300] = "", method[32] = "", *p;
+	char origin[300] = "", protocol[300] = "", method[32] = "", iface[16] = "", *p;
 	struct lws *wsi = *pwsi;
 
 	if (wsi->redirects == 3) {
@@ -449,6 +453,10 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 	if (p)
 		strncpy(method, p, sizeof(method) - 1);
+
+	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
+	if (p)
+		strncpy(method, p, sizeof(iface) - 1);
 
 	lwsl_debug("redirect ads='%s', port=%d, path='%s', ssl = %d\n",
 		   address, port, path, ssl);
@@ -483,6 +491,11 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	if (method[0])
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_METHOD,
 					  method))
+			return NULL;
+
+	if (iface[0])
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_IFACE,
+					  iface))
 			return NULL;
 
 	origin[0] = '/';
@@ -691,6 +704,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->u.hdr.stash->origin[0] = '\0';
 	wsi->u.hdr.stash->protocol[0] = '\0';
 	wsi->u.hdr.stash->method[0] = '\0';
+	wsi->u.hdr.stash->iface[0] = '\0';
 
 	strncpy(wsi->u.hdr.stash->address, i->address,
 		sizeof(wsi->u.hdr.stash->address) - 1);
@@ -707,6 +721,9 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	if (i->method)
 		strncpy(wsi->u.hdr.stash->method, i->method,
 			sizeof(wsi->u.hdr.stash->method) - 1);
+	if (i->iface)
+		strncpy(wsi->u.hdr.stash->iface, i->iface,
+			sizeof(wsi->u.hdr.stash->iface) - 1);
 
 	wsi->u.hdr.stash->address[sizeof(wsi->u.hdr.stash->address) - 1] = '\0';
 	wsi->u.hdr.stash->path[sizeof(wsi->u.hdr.stash->path) - 1] = '\0';
@@ -714,6 +731,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->u.hdr.stash->origin[sizeof(wsi->u.hdr.stash->origin) - 1] = '\0';
 	wsi->u.hdr.stash->protocol[sizeof(wsi->u.hdr.stash->protocol) - 1] = '\0';
 	wsi->u.hdr.stash->method[sizeof(wsi->u.hdr.stash->method) - 1] = '\0';
+	wsi->u.hdr.stash->iface[sizeof(wsi->u.hdr.stash->iface) - 1] = '\0';
 
 	if (i->pwsi)
 		*i->pwsi = wsi;
@@ -795,6 +813,10 @@ lws_client_connect_via_info2(struct lws *wsi)
 	if (stash->method[0])
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_METHOD,
 					  stash->method))
+			goto bail1;
+	if (stash->iface[0])
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_IFACE,
+					  stash->iface))
 			goto bail1;
 
 #if defined(LWS_WITH_SOCKS5)
