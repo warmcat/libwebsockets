@@ -749,7 +749,7 @@ static void sigpipe_handler(int x)
 int
 main(int argc, char **argv)
 {
-	char interface_name[128] = "", interface_name_local[128] = "lo";
+	char interface_name[128] = "", LWS_UNUSED interface_name_local[128] = "lo";
 	int port_local = 8880, accept_fd;
 	struct sockaddr_in cli_addr;
 	int debug_level = 7;
