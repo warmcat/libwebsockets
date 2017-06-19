@@ -1558,6 +1558,26 @@ Cflags: -I\${includedir}"
 
 	install(FILES "${PROJECT_BINARY_DIR}/libwebsockets.pc"
 		DESTINATION lib${LIB_SUFFIX}/pkgconfig)
+
+file(WRITE "${PROJECT_BINARY_DIR}/libwebsockets_static.pc"
+"prefix=\"${CMAKE_INSTALL_PREFIX}\"
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib${LIB_SUFFIX}
+includedir=\${prefix}/include
+
+Name: libwebsockets_static
+Description: Websockets server and client static library
+Version: ${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}
+
+Libs: -L\${libdir} -lwebsockets_static
+Libs.private:
+Cflags: -I\${includedir}"
+)
+
+	install(FILES "${PROJECT_BINARY_DIR}/libwebsockets_static.pc"
+		DESTINATION lib${LIB_SUFFIX}/pkgconfig)
+
+
 endif(UNIX)
 
 #
