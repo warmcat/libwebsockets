@@ -1160,6 +1160,13 @@ LWS_EXTERN void lws_feature_status_libevent(struct lws_context_creation_info *in
 #define LWS_UNIX_SOCK_ENABLED(vhost) (0)
 #endif
 
+typedef union {
+#ifdef LWS_USE_IPV6
+	struct sockaddr_in6 sa6;
+#endif
+	struct sockaddr_in sa4;
+} sockaddr46;
+
 enum uri_path_states {
 	URIPS_IDLE,
 	URIPS_SEEN_SLASH,
@@ -1623,6 +1630,7 @@ struct lws {
 	unsigned int sending_chunked:1;
 	unsigned int already_did_cce:1;
 	unsigned int told_user_closed:1;
+	unsigned int ipv6:1;
 
 #if defined(LWS_WITH_ESP8266)
 	unsigned int pending_send_completion:3;

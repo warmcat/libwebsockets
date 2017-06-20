@@ -1,20 +1,51 @@
 #include "private-libwebsockets.h"
 
+static int
+lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
+{
+	struct addrinfo hints;
+
+	memset(&hints, 0, sizeof(hints));
+	*result = NULL;
+
+#ifdef LWS_USE_IPV6
+	if (wsi->ipv6) {
+
+#if !defined(__ANDROID__)
+		hints.ai_family = AF_INET6;
+		hints.ai_flags = AI_V4MAPPED;
+#endif
+	} else
+#endif
+	{
+		hints.ai_family = PF_UNSPEC;
+		hints.ai_socktype = SOCK_STREAM;
+		hints.ai_flags = AI_CANONNAME;
+	}
+
+	return getaddrinfo(ads, NULL, &hints, result);
+}
+
 struct lws *
 lws_client_connect_2(struct lws *wsi)
 {
-#ifdef LWS_USE_IPV6
-	struct sockaddr_in6 server_addr6;
-	struct addrinfo hints, *result;
-#endif
+	sockaddr46 sa46;
+	struct addrinfo *result;
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	struct sockaddr_in server_addr4;
 	struct lws_pollfd pfd;
-	struct sockaddr *v;
 	const char *cce = "", *iface;
-	int n, plen = 0;
+	int n, plen = 0, port;
 	const char *ads;
+#ifdef LWS_USE_IPV6
+	char ipv6only = lws_check_opt(wsi->vhost->options,
+			LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
+			LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
+
+#if defined(__ANDROID__)
+	ipv6only = 0;
+#endif
+#endif
 
 	lwsl_client("%s\n", __func__);
 
@@ -24,9 +55,15 @@ lws_client_connect_2(struct lws *wsi)
 		goto oom4;
 	}
 
-	/* proxy? */
+	/*
+	 * start off allowing ipv6 on connection if vhost allows it
+	 */
+	wsi->ipv6 = LWS_IPV6_ENABLED(wsi->vhost);
 
-	/* http proxy */
+	/* Decide what it is we need to connect to:
+	 *
+	 * Priority 1: connect to http proxy */
+
 	if (wsi->vhost->http_proxy_port) {
 		plen = sprintf((char *)pt->serv_buf,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
@@ -41,88 +78,63 @@ lws_client_connect_2(struct lws *wsi)
 
 		plen += sprintf((char *)pt->serv_buf + plen, "\x0d\x0a");
 		ads = wsi->vhost->http_proxy_address;
+		port = wsi->vhost->http_proxy_port;
 
-#ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(wsi->vhost)) {
-			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
-			server_addr6.sin6_port = htons(wsi->vhost->http_proxy_port);
-		} else
-#endif
-			server_addr4.sin_port = htons(wsi->vhost->http_proxy_port);
-
-	}
 #if defined(LWS_WITH_SOCKS5)
-	/* socks proxy */
-	else if (wsi->vhost->socks_proxy_port) {
+
+	/* Priority 2: Connect to SOCK5 Proxy */
+
+	} else if (wsi->vhost->socks_proxy_port) {
 		socks_generate_msg(wsi, SOCKS_MSG_GREETING, (size_t *)&plen);
 		lwsl_client("%s\n", "Sending SOCKS Greeting.");
 
 		ads = wsi->vhost->socks_proxy_address;
-
-#ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(wsi->vhost)) {
-			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
-			server_addr6.sin6_port = htons(wsi->vhost->socks_proxy_port);
-		} else
+		port = wsi->vhost->socks_proxy_port;
 #endif
-			server_addr4.sin_port = htons(wsi->vhost->socks_proxy_port);
+	} else {
 
-	}
-#endif
-	else {
+		/* Priority 3: Connect directly */
+
 		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
-#ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(wsi->vhost)) {
-			memset(&server_addr6, 0, sizeof(struct sockaddr_in6));
-			server_addr6.sin6_port = htons(wsi->c_port);
-		} else
-#endif
-			server_addr4.sin_port = htons(wsi->c_port);
+		port = wsi->c_port;
 	}
 
 	/*
-	 * prepare the actual connection (to the proxy, if any)
+	 * prepare the actual connection
+	 * to whatever we decided to connect to
 	 */
+
        lwsl_notice("%s: %p: address %s\n", __func__, wsi, ads);
 
-#ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(wsi->vhost)) {
-		memset(&hints, 0, sizeof(struct addrinfo));
-#if !defined(__ANDROID__)
-		hints.ai_family = AF_INET6;
-		hints.ai_flags = AI_V4MAPPED;
-#endif
-		n = getaddrinfo(ads, NULL, &hints, &result);
-		if (n) {
-#ifdef _WIN32
-			lwsl_err("getaddrinfo: %ls\n", gai_strerrorW(n));
-#else
-			lwsl_err("getaddrinfo: %s\n", gai_strerror(n));
-#endif
-			cce = "getaddrinfo (ipv6) failed";
-			goto oom4;
-		}
+       n = lws_getaddrinfo46(wsi, ads, &result);
 
-		server_addr6.sin6_family = AF_INET6;
+#ifdef LWS_USE_IPV6
+	if (wsi->ipv6) {
+
+		memset(&sa46, 0, sizeof(sa46));
+
+		sa46.sa6.sin6_family = AF_INET6;
 		switch (result->ai_family) {
-#if defined(__ANDROID__)
 		case AF_INET:
+			if (ipv6only)
+				break;
 			/* map IPv4 to IPv6 */
-			bzero((char *)&server_addr6.sin6_addr,
-						sizeof(struct in6_addr));
-			server_addr6.sin6_addr.s6_addr[10] = 0xff;
-			server_addr6.sin6_addr.s6_addr[11] = 0xff;
-			memcpy(&server_addr6.sin6_addr.s6_addr[12],
+			bzero((char *)&sa46.sa6.sin6_addr,
+						sizeof(sa46.sa6.sin6_addr));
+			sa46.sa6.sin6_addr.s6_addr[10] = 0xff;
+			sa46.sa6.sin6_addr.s6_addr[11] = 0xff;
+			memcpy(&sa46.sa6.sin6_addr.s6_addr[12],
 				&((struct sockaddr_in *)result->ai_addr)->sin_addr,
 							sizeof(struct in_addr));
+			lwsl_notice("uplevelling AF_INET to AF_INET6\n");
 			break;
-#endif
+
 		case AF_INET6:
-			memcpy(&server_addr6.sin6_addr,
+			memcpy(&sa46.sa6.sin6_addr,
 			  &((struct sockaddr_in6 *)result->ai_addr)->sin6_addr,
 						sizeof(struct in6_addr));
-			server_addr6.sin6_scope_id = ((struct sockaddr_in6 *)result->ai_addr)->sin6_scope_id;
-			server_addr6.sin6_flowinfo = ((struct sockaddr_in6 *)result->ai_addr)->sin6_flowinfo;
+			sa46.sa6.sin6_scope_id = ((struct sockaddr_in6 *)result->ai_addr)->sin6_scope_id;
+			sa46.sa6.sin6_flowinfo = ((struct sockaddr_in6 *)result->ai_addr)->sin6_flowinfo;
 			break;
 		default:
 			lwsl_err("Unknown address family\n");
@@ -130,23 +142,18 @@ lws_client_connect_2(struct lws *wsi)
 			cce = "unknown address family";
 			goto oom4;
 		}
-
-		freeaddrinfo(result);
 	} else
-#endif
+#endif /* use ipv6 */
+
+	/* use ipv4 */
 	{
-		struct addrinfo ai, *res, *result = NULL;
 		void *p = NULL;
-		int addr_rv;
 
-		memset (&ai, 0, sizeof ai);
-		ai.ai_family = PF_UNSPEC;
-		ai.ai_socktype = SOCK_STREAM;
-		ai.ai_flags = AI_CANONNAME;
+		if (!n) {
+			struct addrinfo *res = result;
 
-		addr_rv = getaddrinfo(ads, NULL, &ai, &result);
-		if (!addr_rv) {
-			res = result;
+			/* pick the first AF_INET (IPv4) result */
+
 			while (!p && res) {
 				switch (res->ai_family) {
 				case AF_INET:
@@ -157,7 +164,7 @@ lws_client_connect_2(struct lws *wsi)
 				res = res->ai_next;
 			}
 #if defined(LWS_FALLBACK_GETHOSTBYNAME)
-		} else if (addr_rv == EAI_SYSTEM) {
+		} else if (n == EAI_SYSTEM) {
 			struct hostent *host;
 
 			lwsl_info("getaddrinfo (ipv4) failed, trying gethostbyname\n");
@@ -172,7 +179,7 @@ lws_client_connect_2(struct lws *wsi)
 #endif
 		} else {
 			lwsl_err("getaddrinfo failed\n");
-			cce = "getaddrinfo (ipv4) failed";
+			cce = "getaddrinfo failed";
 			goto oom4;
 		}
 
@@ -184,21 +191,28 @@ lws_client_connect_2(struct lws *wsi)
 			goto oom4;
 		}
 
-		server_addr4.sin_family = AF_INET;
-		server_addr4.sin_addr = *((struct in_addr *)p);
-		bzero(&server_addr4.sin_zero, 8);
-		if (result)
-			freeaddrinfo(result);
+		sa46.sa4.sin_family = AF_INET;
+		sa46.sa4.sin_addr = *((struct in_addr *)p);
+		bzero(&sa46.sa4.sin_zero, 8);
 	}
+
+	if (result)
+		freeaddrinfo(result);
+
+	/* now we decided on ipv4 or ipv6, set the port */
 
 	if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 
 #ifdef LWS_USE_IPV6
-		if (LWS_IPV6_ENABLED(wsi->vhost))
+		if (wsi->ipv6) {
+			sa46.sa6.sin6_port = htons(port);
 			wsi->desc.sockfd = socket(AF_INET6, SOCK_STREAM, 0);
-		else
+		} else
 #endif
+		{
+			sa46.sa4.sin_port = htons(port);
 			wsi->desc.sockfd = socket(AF_INET, SOCK_STREAM, 0);
+		}
 
 		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 			lwsl_warn("Unable to open socket\n");
@@ -252,17 +266,13 @@ lws_client_connect_2(struct lws *wsi)
 	}
 
 #ifdef LWS_USE_IPV6
-	if (LWS_IPV6_ENABLED(wsi->vhost)) {
-		v = (struct sockaddr *)&server_addr6;
+	if (wsi->ipv6)
 		n = sizeof(struct sockaddr_in6);
-	} else
+	else
 #endif
-	{
-		v = (struct sockaddr *)&server_addr4;
 		n = sizeof(struct sockaddr);
-	}
 
-	if (connect(wsi->desc.sockfd, v, n) == -1 ||
+	if (connect(wsi->desc.sockfd, (const struct sockaddr *)&sa46, n) == -1 ||
 	    LWS_ERRNO == LWS_EISCONN) {
 		if (LWS_ERRNO == LWS_EALREADY ||
 		    LWS_ERRNO == LWS_EINPROGRESS ||
