@@ -130,6 +130,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
+#if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
+	if (wsi->vhost->ssl_info_event_mask)
+		SSL_set_info_callback(wsi->ssl, lws_ssl_info_callback);
+#endif
+
 #if defined LWS_HAVE_X509_VERIFY_PARAM_set1_host
 	X509_VERIFY_PARAM *param;
 	(void)param;

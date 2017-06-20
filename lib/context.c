@@ -381,6 +381,16 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				    "sent %d only %d went", n, args->len);
 		return n;
 #endif
+
+	case LWS_CALLBACK_SSL_INFO:
+		{
+			struct lws_ssl_info *si = in;
+
+			lwsl_notice("LWS_CALLBACK_SSL_INFO: where: 0x%x, ret: 0x%x\n",
+					si->where, si->ret);
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -453,6 +463,7 @@ lws_create_vhost(struct lws_context *context,
 	vh->options = info->options;
 	vh->pvo = info->pvo;
 	vh->headers = info->headers;
+	vh->ssl_info_event_mask = info->ssl_info_event_mask;
 	if (info->keepalive_timeout)
 		vh->keepalive_timeout = info->keepalive_timeout;
 	else

@@ -829,6 +829,10 @@ struct lws_extension;
  */
 ///@{
 
+struct lws_ssl_info {
+	int where;
+	int ret;
+};
 
 /*
  * NOTE: These public enums are part of the abi.  If you want to add one,
@@ -1235,6 +1239,12 @@ enum lws_callback_reasons {
 	/**< RAW mode file is writeable */
 	LWS_CALLBACK_RAW_CLOSE_FILE				= 66,
 	/**< RAW mode wsi that adopted a file is closing */
+	LWS_CALLBACK_SSL_INFO					= 67,
+	/**< SSL connections only.  An event you registered an
+	 * interest in at the vhost has occurred on a connection
+	 * using the vhost.  @in is a pointer to a
+	 * struct lws_ssl_info containing information about the
+	 * event*/
 
 	/****** add new things just above ---^ ******/
 
@@ -2039,6 +2049,12 @@ struct lws_context_creation_info {
 	 * The below is to ensure later library versions with new
 	 * members added above will see 0 (default) even if the app
 	 * was not built against the newer headers.
+	 */
+	int ssl_info_event_mask;
+	/**< VHOST: mask of ssl events to be reported on LWS_CALLBACK_SSL_INFO
+	 * callback for connections on this vhost.  The mask values are of
+	 * the form SSL_CB_ALERT, defined in openssl/ssl.h.  The default of
+	 * 0 means no info events will be reported.
 	 */
 
 	void *_unused[8]; /**< dummy */
@@ -3574,6 +3590,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY	        = 19,
 	PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY		= 20,
 	PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY		= 21,
+	PENDING_TIMEOUT_KILLED_BY_SSL_INFO			= 22,
 
 	/****** add new things just above ---^ ******/
 };

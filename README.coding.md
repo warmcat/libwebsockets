@@ -568,6 +568,32 @@ ECDH Certs are now supported.  Enable the CMake option
 
 to build in support and select it at runtime.
 
+@section sslinfo SSL info callbacks
+
+OpenSSL allows you to receive callbacks for various events defined in a
+bitmask in openssl/ssl.h.  The events include stuff like TLS Alerts.
+
+By default, lws doesn't register for these callbacks.
+
+However if you set the info.ssl_info_event_mask to nonzero (ie, set some
+of the bits in it like `SSL_CB_ALERT` at vhost creation time, then
+connections to that vhost will call back using LWS_CALLBACK_SSL_INFO
+for the wsi, and the `in` parameter will be pointing to a struct of
+related args:
+
+```
+struct lws_ssl_info {
+	int where;
+	int ret;
+};
+```
+
+The default callback handler in lws has a handler for LWS_CALLBACK_SSL_INFO
+which prints the related information,  You can test it using the switch
+-S -s  on `libwebsockets-test-server-v2.0`.
+
+Returning nonzero from the callback will close the wsi.
+
 @section smp SMP / Multithreaded service
 
 SMP support is integrated into LWS without any internal threading.  It's

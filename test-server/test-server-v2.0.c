@@ -231,6 +231,7 @@ static const struct option options[] = {
 	{ "debug",	required_argument,	NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
+	{ "ssl-alerts",	no_argument,		NULL, 'S' },
 	{ "allow-non-ssl",	no_argument,	NULL, 'a' },
 	{ "interface",  required_argument,	NULL, 'i' },
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
@@ -281,7 +282,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "i:hsap:d:Dr:C:K:A:R:vu:g:",
+		n = getopt_long(argc, argv, "i:hsap:d:Dr:C:K:A:R:vu:g:S",
 				(struct option *)options, NULL);
 		if (n < 0)
 			continue;
@@ -305,6 +306,11 @@ int main(int argc, char **argv)
 			break;
 		case 's':
 			use_ssl = 1;
+			break;
+		case 'S':
+#if defined(LWS_OPENSSL_SUPPORT)
+			info.ssl_info_event_mask |= SSL_CB_ALERT;
+#endif
 			break;
 		case 'a':
 			opts |= LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT;

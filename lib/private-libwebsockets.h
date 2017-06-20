@@ -890,6 +890,7 @@ struct lws_vhost {
 	int ka_probes;
 	int ka_interval;
 	int keepalive_timeout;
+	int ssl_info_event_mask;
 #ifdef LWS_WITH_ACCESS_LOG
 	int log_fd;
 #endif
@@ -1158,6 +1159,7 @@ LWS_EXTERN void lws_feature_status_libevent(struct lws_context_creation_info *in
 #else
 #define LWS_UNIX_SOCK_ENABLED(vhost) (0)
 #endif
+
 enum uri_path_states {
 	URIPS_IDLE,
 	URIPS_SEEN_SLASH,
@@ -2077,6 +2079,10 @@ lws_http_transaction_completed_client(struct lws *wsi);
 LWS_EXTERN int
 lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost);
+
+LWS_EXTERN void
+lws_ssl_info_callback(const SSL *ssl, int where, int ret);
+
 #else
 	#define lws_context_init_client_ssl(_a, _b) (0)
 #endif

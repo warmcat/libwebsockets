@@ -543,6 +543,35 @@ lws_gate_accepts(struct lws_context *context, int on)
 	return 0;
 }
 
+void
+lws_ssl_info_callback(const SSL *ssl, int where, int ret)
+{
+	struct lws *wsi;
+	struct lws_context *context;
+	struct lws_ssl_info si;
+
+	context = (struct lws_context *)SSL_CTX_get_ex_data(
+					SSL_get_SSL_CTX(ssl),
+					openssl_SSL_CTX_private_data_index);
+	if (!context)
+		return;
+	wsi = wsi_from_fd(context, SSL_get_fd(ssl));
+	if (!wsi)
+		return;
+
+	if (!(where & wsi->vhost->ssl_info_event_mask))
+		return;
+
+	si.where = where;
+	si.ret = ret;
+
+	if (user_callback_handle_rxflow(wsi->protocol->callback,
+						   wsi, LWS_CALLBACK_SSL_INFO,
+						   wsi->user_space, &si, 0))
+		lws_set_timeout(wsi, PENDING_TIMEOUT_KILLED_BY_SSL_INFO, -1);
+}
+
+
 LWS_VISIBLE int
 lws_ssl_close(struct lws *wsi)
 {
@@ -550,6 +579,14 @@ lws_ssl_close(struct lws *wsi)
 
 	if (!wsi->ssl)
 		return 0; /* not handled */
+
+#if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
+	/* kill ssl callbacks, becausse we will remove the fd from the
+	 * table linking it to the wsi
+	 */
+	if (wsi->vhost->ssl_info_event_mask)
+		SSL_set_info_callback(wsi->ssl, NULL);
+#endif
 
 	n = SSL_get_fd(wsi->ssl);
 	SSL_shutdown(wsi->ssl);
@@ -608,6 +645,10 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				compatible_close(accept_fd);
 			goto fail;
 		}
+#if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
+		if (wsi->vhost->ssl_info_event_mask)
+			SSL_set_info_callback(wsi->ssl, lws_ssl_info_callback);
+#endif
 		if (context->simultaneous_ssl_restriction &&
 		    ++context->simultaneous_ssl == context->simultaneous_ssl_restriction)
 			/* that was the last allowed SSL connection */
