@@ -468,11 +468,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		return 0;
 	}
 
-	if (info->port != CONTEXT_PORT_NO_LISTEN)
-		return 0;
-
 	/* basic openssl init already happened in context init */
-
 
 	/* choose the most recent spin of the api */
 #if defined(LWS_HAVE_TLS_CLIENT_METHOD)
