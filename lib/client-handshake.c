@@ -264,6 +264,9 @@ lws_client_connect_2(struct lws *wsi)
 			}
 		}
 	}
+	else {
+		lws_change_pollfd(wsi, 0, LWS_POLLIN);	
+	}
 
 #ifdef LWS_USE_IPV6
 	if (wsi->ipv6)
