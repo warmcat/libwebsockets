@@ -65,6 +65,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	}
 
 #if LWS_POSIX
+	(void)n;
 #if defined(__linux__)
 	limit = vhost->context->count_threads;
 #endif
@@ -93,6 +94,24 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		return 1;
 	}
 #if LWS_POSIX && !defined(LWS_WITH_ESP32)
+
+#if (defined(WIN32) || defined(_WIN32)) && defined(SO_EXCLUSIVEADDRUSE)
+	/*
+	 * only accept that we are the only listener on the port
+	 * https://msdn.microsoft.com/zh-tw/library/windows/desktop/ms740621(v=vs.85).aspx
+	 *
+	 * for lws, to match Linux, we default to exclusive listen
+	 */
+	if (!lws_check_opt(vhost->options, LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE)) {
+		if (setsockopt(sockfd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+			       (const void *)&opt, sizeof(opt)) < 0) {
+			lwsl_err("reuseaddr failed\n");
+			compatible_close(sockfd);
+			return 1;
+		}
+	} else
+#endif
+
 	/*
 	 * allow us to restart even if old sockets in TIME_WAIT
 	 */
@@ -116,13 +135,19 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	}
 #endif
 
-#if defined(__linux__) && defined(SO_REUSEPORT) && LWS_MAX_SMP > 1
-	if (vhost->context->count_threads > 1)
-		if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
-				(const void *)&opt, sizeof(opt)) < 0) {
-			compatible_close(sockfd);
-			return 1;
-		}
+#if defined(__linux__) && defined(SO_REUSEPORT)
+	n = lws_check_opt(vhost->options, LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE);
+#if LWS_MAX_SMP > 1
+	n = 1;
+#endif
+
+	if (n)
+		if (vhost->context->count_threads > 1)
+			if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
+					(const void *)&opt, sizeof(opt)) < 0) {
+				compatible_close(sockfd);
+				return 1;
+			}
 #endif
 #endif
 	lws_plat_set_socket_options(vhost, sockfd);

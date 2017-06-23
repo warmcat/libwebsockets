@@ -1800,6 +1800,12 @@ enum lws_context_options {
 	/**< (VH) All connections to this vhost / port are RAW as soon as
 	 * the connection is accepted, no HTTP is going to be coming.
 	 */
+	LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE			= (1 << 23),
+	/**< (VH) Set to allow multiple listen sockets on one interface +
+	 * address + port.  The default is to strictly allow only one
+	 * listen socket at a time.  This is automatically selected if you
+	 * have multiple service threads.
+	 */
 
 	/****** add new things just above ---^ ******/
 };
