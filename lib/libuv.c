@@ -520,12 +520,38 @@ lws_libuv_closehandle(struct lws *wsi)
 	struct lws_context *context = lws_get_context(wsi);
 
 	/* required to defer actual deletion until libuv has processed it */
-
 	uv_close((uv_handle_t*)&wsi->w_read.uv_watcher, lws_libuv_closewsi);
 
 	if (context->requested_kill && context->count_wsi_allocated == 0)
 		lws_libuv_kill(context);
 }
+
+static void
+lws_libuv_closewsi_m(uv_handle_t* handle)
+{
+	lws_sockfd_type sockfd = (lws_sockfd_type)(long long)handle->data;
+
+	compatible_close(sockfd);
+}
+
+void
+lws_libuv_closehandle_manually(struct lws *wsi)
+{
+	uv_handle_t *h = (void *)&wsi->w_read.uv_watcher;
+
+	h->data = (void *)(long long)wsi->desc.sockfd;
+	/* required to defer actual deletion until libuv has processed it */
+	uv_close((uv_handle_t*)&wsi->w_read.uv_watcher, lws_libuv_closewsi_m);
+}
+
+int
+lws_libuv_check_watcher_active(struct lws *wsi)
+{
+	uv_handle_t *h = (void *)&wsi->w_read.uv_watcher;
+
+	return uv_is_active(h);
+}
+
 
 #if defined(LWS_WITH_PLUGINS) && (UV_VERSION_MAJOR > 0)
 

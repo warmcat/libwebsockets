@@ -1035,6 +1035,10 @@ LWS_EXTERN void
 lws_close_free_wsi_final(struct lws *wsi);
 LWS_EXTERN void
 lws_libuv_closehandle(struct lws *wsi);
+LWS_EXTERN void
+lws_libuv_closehandle_manually(struct lws *wsi);
+LWS_EXTERN int
+lws_libuv_check_watcher_active(struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_plat_plugins_init(struct lws_context * context, const char * const *d);

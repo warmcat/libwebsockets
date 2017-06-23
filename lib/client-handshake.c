@@ -203,6 +203,15 @@ lws_client_connect_2(struct lws *wsi)
 
 	if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 
+#if defined(LWS_USE_LIBUV)
+		if (LWS_LIBUV_ENABLED(context))
+			if (lws_libuv_check_watcher_active(wsi)) {
+				lwsl_warn("Waiting for libuv watcher to close\n");
+				cce = "waiting for libuv watcher to close";
+				goto oom4;
+			}
+#endif
+
 #ifdef LWS_USE_IPV6
 		if (wsi->ipv6) {
 			sa46.sa6.sin6_port = htons(port);
@@ -232,6 +241,7 @@ lws_client_connect_2(struct lws *wsi)
 		lws_libev_accept(wsi, wsi->desc);
 		lws_libuv_accept(wsi, wsi->desc);
 		lws_libevent_accept(wsi, wsi->desc);
+
 		if (insert_wsi_socket_into_fds(context, wsi)) {
 			compatible_close(wsi->desc.sockfd);
 			cce = "insert wsi failed";
@@ -474,7 +484,22 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	/* close the connection by hand */
 
+#ifdef LWS_USE_LIBUV
+	if (LWS_LIBUV_ENABLED(wsi->context)) {
+		lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
+		/*
+		 * libuv has to do his own close handle processing asynchronously
+		 * but once it starts we can do everything else synchronously,
+		 * including trash wsi->desc.sockfd since it took a copy.
+		 *
+		 * When it completes it will call compatible_close()
+		 */
+		lws_libuv_closehandle_manually(wsi);
+	} else
+#else
 	compatible_close(wsi->desc.sockfd);
+#endif
+
 	remove_wsi_socket_from_fds(wsi);
 
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
