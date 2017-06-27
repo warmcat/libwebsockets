@@ -95,17 +95,16 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		break;
 #endif
 
+	case LWSS_HTTP_ISSUING_FILE:
+		return 0;
+
 	case LWSS_CLIENT_HTTP_ESTABLISHED:
 		break;
 
 	case LWSS_HTTP:
 		wsi->hdr_parsing_completed = 0;
 		/* fallthru */
-	case LWSS_HTTP_ISSUING_FILE:
-		wsi->state = LWSS_HTTP_HEADERS;
-		wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
-		wsi->u.hdr.lextable_pos = 0;
-		/* fallthru */
+
 	case LWSS_HTTP_HEADERS:
 		if (!wsi->u.hdr.ah) {
 			lwsl_err("%s: LWSS_HTTP_HEADERS: NULL ah\n", __func__);

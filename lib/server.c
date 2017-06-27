@@ -2243,7 +2243,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			}
 			
 			/* just ignore incoming if waiting for close */
-			if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
+			if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE &&
+			    wsi->state != LWSS_HTTP_ISSUING_FILE) {
 				n = lws_read(wsi, ah->rx + ah->rxpos,
 					     ah->rxlen - ah->rxpos);
 				if (n < 0) /* we closed wsi */
@@ -2294,7 +2295,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		}
 
 		/* just ignore incoming if waiting for close */
-		if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
+		if (wsi->state != LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE &&
+		    wsi->state != LWSS_HTTP_ISSUING_FILE) {
 			/*
 			 * this may want to send
 			 * (via HTTP callback for example)

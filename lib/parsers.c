@@ -86,6 +86,9 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 
 	_lws_header_table_reset(ah);
 
+        wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
+        wsi->u.hdr.lextable_pos = 0;
+
 	/* since we will restart the ah, our new headers are not completed */
 	// wsi->hdr_parsing_completed = 0;
 
