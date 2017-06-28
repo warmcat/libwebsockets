@@ -463,6 +463,7 @@ int main(int argc, char **argv)
 
 bail:
 		lws_context_destroy(context);
+		lws_context_destroy2(context);
 	}
 
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
