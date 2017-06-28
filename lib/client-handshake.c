@@ -402,8 +402,8 @@ lws_client_connect_2(struct lws *wsi)
 
 oom4:
 	/* we're closing, losing some rx is OK */
-	if (wsi->u.hdr.ah)
-		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	lws_header_table_force_to_detachable_state(wsi);
+
 	if (wsi->mode == LWSCM_HTTP_CLIENT ||
 	    wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED ||
 	    wsi->mode == LWSCM_WSCL_WAITING_CONNECT) {

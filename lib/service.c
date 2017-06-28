@@ -1257,8 +1257,7 @@ drain:
 		if (wsi->u.hdr.ah) {
 			lwsl_notice("%s: %p: detaching\n",
 				 __func__, wsi);
-			/* show we used all the pending rx up */
-			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+			lws_header_table_force_to_detachable_state(wsi);
 			/* we can run the normal ah detach flow despite
 			 * being in ws union mode, since all union members
 			 * start with hdr */

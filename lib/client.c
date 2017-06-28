@@ -583,7 +583,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	 * we can drop the ah, if any
 	 */
 	if (wsi->u.hdr.ah) {
-		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+		lws_header_table_force_to_detachable_state(wsi);
 		lws_header_table_detach(wsi, 0);
 	}
 
@@ -1258,7 +1258,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 				wsi->user_space, NULL, 0))
 			return NULL;
 
-		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+		lws_header_table_force_to_detachable_state(wsi);
 		lws_union_transition(wsi, LWSCM_RAW);
 		lws_header_table_detach(wsi, 1);
 

@@ -1271,7 +1271,7 @@ deal_body:
 
 bail_nuke_ah:
 	/* we're closing, losing some rx is OK */
-	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	lws_header_table_force_to_detachable_state(wsi);
 	// lwsl_notice("%s: drop1\n", __func__);
 	lws_header_table_detach(wsi, 1);
 
@@ -1338,7 +1338,7 @@ raw_transition:
 						wsi->user_space, NULL, 0))
 					goto bail_nuke_ah;
 
-				wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+				lws_header_table_force_to_detachable_state(wsi);
 				lws_union_transition(wsi, LWSCM_RAW);
 				lws_header_table_detach(wsi, 1);
 
@@ -1697,7 +1697,7 @@ upgrade_ws:
 
 		/* !!! drop ah unreservedly after ESTABLISHED */
 		if (!wsi->more_rx_waiting) {
-			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+			lws_header_table_force_to_detachable_state(wsi);
 
 			//lwsl_notice("%p: dropping ah EST\n", wsi);
 			lws_header_table_detach(wsi, 1);
@@ -1711,7 +1711,7 @@ upgrade_ws:
 bail_nuke_ah:
 	/* drop the header info */
 	/* we're closing, losing some rx is OK */
-	wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	lws_header_table_force_to_detachable_state(wsi);
 	//lwsl_notice("%s: drop2\n", __func__);
 	lws_header_table_detach(wsi, 1);
 
@@ -1847,7 +1847,7 @@ lws_http_transaction_completed(struct lws *wsi)
 				wsi->more_rx_waiting);
 
 		if (!wsi->more_rx_waiting) {
-			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+			lws_header_table_force_to_detachable_state(wsi);
 			lws_header_table_detach(wsi, 1);
 #ifdef LWS_OPENSSL_SUPPORT
 			/*
@@ -2260,7 +2260,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 
 					lwsl_debug("%s: wsi %p: ah read rxpos %d, rxlen %d\n", __func__, wsi, wsi->u.hdr.ah->rxpos, wsi->u.hdr.ah->rxlen);
 
-					if (wsi->u.hdr.ah->rxpos == wsi->u.hdr.ah->rxlen &&
+					if (lws_header_table_is_in_detachable_state(wsi) &&
 					    (wsi->mode != LWSCM_HTTP_SERVING &&
 					     wsi->mode != LWSCM_HTTP_SERVING_ACCEPTED &&
 					     wsi->mode != LWSCM_HTTP2_SERVING))

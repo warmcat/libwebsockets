@@ -1904,6 +1904,11 @@ lws_header_table_reset(struct lws *wsi, int autoservice);
 void
 _lws_header_table_reset(struct allocated_headers *ah);
 
+void
+lws_header_table_force_to_detachable_state(struct lws *wsi);
+int
+lws_header_table_is_in_detachable_state(struct lws *wsi);
+
 LWS_EXTERN char * LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h);
 

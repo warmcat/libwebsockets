@@ -215,6 +215,24 @@ bail:
 	return 1;
 }
 
+void
+lws_header_table_force_to_detachable_state(struct lws *wsi)
+{
+	if (wsi->u.hdr.ah) {
+		wsi->u.hdr.ah->rxpos = -1;
+		wsi->u.hdr.ah->rxlen = -1;
+		wsi->hdr_parsing_completed = 1;
+	}
+}
+
+int
+lws_header_table_is_in_detachable_state(struct lws *wsi)
+{
+	struct allocated_headers *ah = wsi->u.hdr.ah;
+
+	return ah && ah->rxpos == ah->rxlen && wsi->hdr_parsing_completed;
+}
+
 int lws_header_table_detach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->context;
@@ -224,6 +242,9 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	struct lws **pwsi;
 	time_t now;
 
+	if (!ah)
+		return 0;
+
 	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
 		  (void *)wsi, (void *)ah, wsi->tsi,
 		  pt->ah_count_in_use);
@@ -232,11 +253,9 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 		lws_free_set_NULL(wsi->u.hdr.preamble_rx);
 
 	/* may not be detached while he still has unprocessed rx */
-	if (ah && ah->rxpos != ah->rxlen) {
-		lwsl_err("%s: %p: CANNOT DETACH rxpos:%d, rxlen:%d\n", __func__, wsi,
-				ah->rxpos, ah->rxlen);
-		assert(ah->rxpos == ah->rxlen);
-
+	if (!lws_header_table_is_in_detachable_state(wsi)) {
+		lwsl_err("%s: %p: CANNOT DETACH rxpos:%d, rxlen:%d, wsi->hdr_parsing_completed = %d\n", __func__, wsi,
+				ah->rxpos, ah->rxlen, wsi->hdr_parsing_completed);
 		return 0;
 	}
 

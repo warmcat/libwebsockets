@@ -243,9 +243,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	}
 #endif
 
-	if (wsi->u.hdr.ah)
-		/* we're closing, losing some rx is OK */
-		wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
+	/* we're closing, losing some rx is OK */
+	lws_header_table_force_to_detachable_state(wsi);
 
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
@@ -2552,7 +2551,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	 * Actually having made the env, as a cgi we don't need the ah
 	 * any more
 	 */
-	if (wsi->u.hdr.ah->rxpos == wsi->u.hdr.ah->rxlen)
+	if (lws_header_table_is_in_detachable_state(wsi))
 		lws_header_table_detach(wsi, 0);
 
 	/* we are ready with the redirection pipes... run the thing */
