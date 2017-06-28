@@ -1270,6 +1270,8 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					""
 					""
 					"")
+				# libev generates a big mess of warnings with gcc, maintainers blame gcc
+				set_source_files_properties( test-server/test-server-libev.c PROPERTIES COMPILE_FLAGS "-Wno-error" )
 			endif()
 			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBUV)
