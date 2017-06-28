@@ -412,13 +412,14 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		n = (char *)p - leaf_path;
 
 		n = lws_serve_http_file(wsi, buf, mimetype, other_headers, n);
-		if (n < 0 || ((n > 0) && lws_http_transaction_completed(wsi)))
-			return -1; /* error or can't reuse connection: close the socket */
+		if (n < 0)
+			return -1; /* error*/
 
 		/*
 		 * notice that the sending of the file completes asynchronously,
 		 * we'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION callback when
-		 * it's done
+		 * it's done.  That's the case even if we just completed the
+		 * send, so wait for that.
 		 */
 		break;
 
