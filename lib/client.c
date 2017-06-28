@@ -42,7 +42,12 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 				return 0;
 			}
 			if (wsi->u.ws.rx_draining_ext) {
-				m = lws_rx_sm(wsi, 0);
+#if !defined(LWS_NO_CLIENT)
+				if (wsi->mode == LWSCM_WS_CLIENT)
+					m = lws_client_rx_sm(wsi, 0);
+				else
+#endif
+					m = lws_rx_sm(wsi, 0);
 				if (m < 0)
 					return -1;
 				continue;
