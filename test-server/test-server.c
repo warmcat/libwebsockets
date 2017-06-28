@@ -110,7 +110,7 @@ static struct lws_protocols protocols[] = {
 		"lws-status",
 		callback_lws_status,
 		sizeof(struct per_session_data__lws_status),
-		128, /* rx buf size must be >= permessage-deflate rx size */
+		512, /* rx buf size must be >= permessage-deflate rx size */
 	},
 	{ NULL, NULL, 0, 0 } /* terminator */
 };

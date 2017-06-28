@@ -149,7 +149,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		/*
 		 * remove ourselves from live pss list
 		 */
-		lwsl_err("CLOSING pss %p ********\n", pss);
+		lwsl_debug("CLOSING pss %p ********\n", pss);
 
 		pp = &list;
 		while (*pp) {
