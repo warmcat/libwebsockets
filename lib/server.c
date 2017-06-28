@@ -2379,12 +2379,15 @@ try_pollout:
 			break;
 		}
 
-		/* >0 == completion, <0 == error */
+		/* >0 == completion, <0 == error
+		 *
+		 * We'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION callback when
+		 * it's done.  That's the case even if we just completed the
+		 * send, so wait for that.
+		 */
 		n = lws_serve_http_file_fragment(wsi);
-		if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi))) {
-			lwsl_info("completed\n");
+		if (n < 0)
 			goto fail;
-		}
 
 		break;
 
