@@ -40,6 +40,34 @@ char *resource_path = LOCAL_RESOURCE_PATH;
 char crl_path[1024] = "";
 #endif
 
+/*
+ * This demonstrates how to use the clean protocol service separation of
+ * plugins, but with static inclusion instead of runtime dynamic loading
+ * (which requires libuv).
+ *
+ * dumb-increment doesn't use the plugin, both to demonstrate how to
+ * do the protocols directly, and because it wants libuv for a timer.
+ *
+ * Please consider using test-server-v2.0.c instead of this: it has the
+ * same functionality but
+ *
+ * 1) uses lws built-in http handling so you don't need to deal with it in
+ * your callback
+ *
+ * 2) Links with libuv and uses the plugins at runtime
+ *
+ * 3) Uses advanced lws features like mounts to bind parts of the filesystem
+ * to the served URL space
+ *
+ * Another option is lwsws, this operates like test-server-v2,0.c but is
+ * configured using JSON, do you do not need to provide any code for the
+ * serving action at all, just implement your protocols in plugins.
+ */
+
+#define LWS_PLUGIN_STATIC
+#include "../plugins/protocol_lws_mirror.c"
+#include "../plugins/protocol_lws_status.c"
+
 /* singlethreaded version --> no locks */
 
 void test_server_lock(int care)
@@ -62,6 +90,9 @@ void test_server_unlock(int care)
  *
  *  lws-mirror-protocol: copies any received packet to every connection also
  *				using this protocol, including the sender
+ *
+ *  lws-status:			informs connected browsers of who else is
+ *				connected.
  */
 
 enum demo_protocols {
@@ -70,7 +101,6 @@ enum demo_protocols {
 
 	PROTOCOL_DUMB_INCREMENT,
 	PROTOCOL_LWS_MIRROR,
-	PROTOCOL_LWS_ECHOGEN,
 	PROTOCOL_LWS_STATUS,
 
 	/* always last */
@@ -92,26 +122,13 @@ static struct lws_protocols protocols[] = {
 		"dumb-increment-protocol",
 		callback_dumb_increment,
 		sizeof(struct per_session_data__dumb_increment),
-		10, /* rx buf size must be >= permessage-deflate rx size */
+		10, /* rx buf size must be >= permessage-deflate rx size
+		     * dumb-increment only sends very small packets, so we set
+		     * this accordingly.  If your protocol will send bigger
+		     * things, adjust this to match */
 	},
-	{
-		"lws-mirror-protocol",
-		callback_lws_mirror,
-		sizeof(struct per_session_data__lws_mirror),
-		128, /* rx buf size must be >= permessage-deflate rx size */
-	},
-	{
-		"lws-echogen",
-		callback_lws_echogen,
-		sizeof(struct per_session_data__echogen),
-		128, /* rx buf size must be >= permessage-deflate rx size */
-	},
-	{
-		"lws-status",
-		callback_lws_status,
-		sizeof(struct per_session_data__lws_status),
-		512, /* rx buf size must be >= permessage-deflate rx size */
-	},
+	LWS_PLUGIN_PROTOCOL_MIRROR,
+	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 

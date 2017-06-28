@@ -1241,9 +1241,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			create_test_app(test-server "test-server/test-server.c"
 				"test-server/test-server-http.c"
 				"test-server/test-server-dumb-increment.c"
-				"test-server/test-server-mirror.c"
-				"test-server/test-server-status.c"
-				"test-server/test-server-echogen.c")
+				""
+				""
+				"")
 			if (UNIX)
 				create_test_app(test-fuzxy "test-server/fuzxy.c"
 					""
@@ -1257,9 +1257,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					"test-server/test-server-pthreads.c"
 					"test-server/test-server-http.c"
 					"test-server/test-server-dumb-increment.c"
-					"test-server/test-server-mirror.c"
-					"test-server/test-server-status.c"
-					"test-server/test-server-echogen.c")
+					""
+					""
+					"")
 			endif()
 			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBEV)
@@ -1267,19 +1267,19 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					"test-server/test-server-libev.c"
 					"test-server/test-server-http.c"
 					"test-server/test-server-dumb-increment.c"
-					"test-server/test-server-mirror.c"
-					"test-server/test-server-status.c"
-					"test-server/test-server-echogen.c")
+					""
+					""
+					"")
 			endif()
 			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBUV)
 				create_test_app(test-server-libuv
 					"test-server/test-server-libuv.c"
 					"test-server/test-server-http.c"
-					"test-server/test-server-dumb-increment.c"
-					"test-server/test-server-mirror.c"
-					"test-server/test-server-status.c"
-					"test-server/test-server-echogen.c")
+					""
+					""
+					""
+					"")
 			endif()
 			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBEVENT)
@@ -1287,9 +1287,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					"test-server/test-server-libevent.c"
 					"test-server/test-server-http.c"
 					"test-server/test-server-dumb-increment.c"
-					"test-server/test-server-mirror.c"
-					"test-server/test-server-status.c"
-					"test-server/test-server-echogen.c")
+					""
+					""
+					"")
 			endif()
 		endif()
 
@@ -1300,9 +1300,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			create_test_app(test-server-extpoll "test-server/test-server.c"
 				"test-server/test-server-http.c"
 				"test-server/test-server-dumb-increment.c"
-				"test-server/test-server-mirror.c"
-				"test-server/test-server-status.c"
-				"test-server/test-server-echogen.c")
+				""
+				""
+				"")
 			# Set defines for this executable only.
 			set_property(
 				TARGET test-server-extpoll

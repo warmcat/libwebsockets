@@ -96,48 +96,22 @@ struct per_session_data__http {
  * connection.
  */
 
+#if !defined(DI_HANDLED_BY_PLUGIN)
 struct per_session_data__dumb_increment {
 	int number;
 };
+#endif
 
-struct per_session_data__lws_mirror {
-	struct lws *wsi;
-	int ringbuffer_tail;
-};
-
-struct per_session_data__echogen {
-	size_t total;
-	size_t total_rx;
-	int fd;
-	int fragsize;
-	int wr;
-};
-
-struct per_session_data__lws_status {
-	struct per_session_data__lws_status *list;
-	struct timeval tv_established;
-	int last;
-	char ip[270];
-	char user_agent[512];
-	const char *pos;
-	int len;
-};
 
 extern int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	      void *in, size_t len);
-extern int
-callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
-		    void *user, void *in, size_t len);
+
+#if !defined(DI_HANDLED_BY_PLUGIN)
 extern int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len);
-extern int
-callback_lws_echogen(struct lws *wsi, enum lws_callback_reasons reason,
-			void *user, void *in, size_t len);
-extern int
-callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
-		    void *user, void *in, size_t len);
+#endif
 
 
 extern void

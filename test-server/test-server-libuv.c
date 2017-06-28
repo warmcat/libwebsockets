@@ -19,6 +19,7 @@
  *  MA  02110-1301  USA
  */
 
+#define DI_HANDLED_BY_PLUGIN
 #include "test-server.h"
 #include <uv.h>
 
@@ -45,6 +46,11 @@ void test_server_unlock(int care)
 {
 }
 
+#define LWS_PLUGIN_STATIC
+#include "../plugins/protocol_dumb_increment.c"
+#include "../plugins/protocol_lws_mirror.c"
+#include "../plugins/protocol_lws_status.c"
+
 /*
  * This demo server shows how to use libwebsockets for one or more
  * websocket protocols in the same server
@@ -66,6 +72,7 @@ enum demo_protocols {
 
 	PROTOCOL_DUMB_INCREMENT,
 	PROTOCOL_LWS_MIRROR,
+	PROTOCOL_LWS_STATUS,
 
 	/* always last */
 	DEMO_PROTOCOL_COUNT
@@ -82,24 +89,9 @@ static struct lws_protocols protocols[] = {
 		sizeof (struct per_session_data__http),	/* per_session_data_size */
 		0,			/* max frame size / rx buffer */
 	},
-	{
-		"dumb-increment-protocol",
-		callback_dumb_increment,
-		sizeof(struct per_session_data__dumb_increment),
-		10,
-	},
-	{
-		"lws-mirror-protocol",
-		callback_lws_mirror,
-		sizeof(struct per_session_data__lws_mirror),
-		128,
-	},
-	{
-		"lws-status",
-		callback_lws_status,
-		sizeof(struct per_session_data__lws_status),
-		128,
-	},
+	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT,
+	LWS_PLUGIN_PROTOCOL_MIRROR,
+	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 
@@ -132,16 +124,6 @@ void signal_cb(uv_signal_t *watcher, int signum)
 	lws_libuv_stop(context);
 }
 
-static void
-uv_timeout_cb_dumb_increment(uv_timer_t *w
-#if UV_VERSION_MAJOR == 0
-		, int status
-#endif
-)
-{
-	lws_callback_on_writable_all_protocol(context,
-					&protocols[PROTOCOL_DUMB_INCREMENT]);
-}
 
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
@@ -222,7 +204,6 @@ int main(int argc, char **argv)
 	int foreign_libuv_loop = 0;
 /* <--- only needed for foreign loop test --- */
 #endif
-	uv_timer_t timeout_watcher;
 	const char *iface = NULL;
 	char cert_path[1024];
 	char key_path[1024];
@@ -406,9 +387,6 @@ int main(int argc, char **argv)
 		}
 	}
 
-	uv_timer_init(lws_uv_getloop(context, 0), &timeout_watcher);
-	uv_timer_start(&timeout_watcher, uv_timeout_cb_dumb_increment, 50, 50);
-
 #if UV_VERSION_MAJOR > 0
 	if (foreign_libuv_loop) {
 		/*
@@ -437,8 +415,6 @@ int main(int argc, char **argv)
 		uv_timer_stop(&timer_inner);
 		uv_close((uv_handle_t*)&timer_inner, timer_close_cb);
 
-		/* stop the dumb increment timer */
-		uv_timer_stop(&timeout_watcher);
 
 		lwsl_notice("Destroying lws context\n");
 
@@ -490,6 +466,8 @@ bail:
 	}
 
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
+
+	context = NULL;
 
 	return 0;
 }

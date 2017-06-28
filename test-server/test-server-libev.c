@@ -34,35 +34,9 @@ char *resource_path = LOCAL_RESOURCE_PATH;
 char crl_path[1024] = "";
 #endif
 
-/*
- * libev dumps their hygiene problems on their users blaming compiler
- * http://lists.schmorp.de/pipermail/libev/2008q4/000442.html
- */
-
-#if EV_MINPRI == EV_MAXPRI
-# define _ev_set_priority(ev, pri) ((ev), (pri))
-#else
-# define _ev_set_priority(ev, pri) { \
-	ev_watcher *evw = (ev_watcher *)(void *)ev; \
-	evw->priority = pri; \
-}
-#endif
-
-#define _ev_init(ev,cb_) {  \
-	ev_watcher *evw = (ev_watcher *)(void *)ev; \
-\
-	evw->active = evw->pending = 0; \
-	_ev_set_priority((ev), 0); \
-	ev_set_cb((ev), cb_); \
-}
-
-#define _ev_timer_init(ev, cb, after, _repeat) { \
-	ev_watcher_time *evwt = (ev_watcher_time *)(void *)ev; \
-\
-	_ev_init(ev, cb); \
-	evwt->at = after; \
-	(ev)->repeat = _repeat; \
-}
+#define LWS_PLUGIN_STATIC
+#include "../plugins/protocol_lws_mirror.c"
+#include "../plugins/protocol_lws_status.c"
 
 /* singlethreaded version --> no locks */
 
@@ -94,6 +68,7 @@ enum demo_protocols {
 
 	PROTOCOL_DUMB_INCREMENT,
 	PROTOCOL_LWS_MIRROR,
+	PROTOCOL_LWS_STATUS,
 
 	/* always last */
 	DEMO_PROTOCOL_COUNT
@@ -114,20 +89,13 @@ static struct lws_protocols protocols[] = {
 		"dumb-increment-protocol",
 		callback_dumb_increment,
 		sizeof(struct per_session_data__dumb_increment),
-		10,
+		10, /* rx buf size must be >= permessage-deflate rx size
+		     * dumb-increment only sends very small packets, so we set
+		     * this accordingly.  If your protocol will send bigger
+		     * things, adjust this to match */
 	},
-	{
-		"lws-mirror-protocol",
-		callback_lws_mirror,
-		sizeof(struct per_session_data__lws_mirror),
-		128,
-	},
-	{
-		"lws-status",
-		callback_lws_status,
-		sizeof(struct per_session_data__lws_status),
-		128,
-	},
+	LWS_PLUGIN_PROTOCOL_MIRROR,
+	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 
@@ -296,7 +264,7 @@ int main(int argc, char **argv)
 #endif
 
 	for (n = 0; n < ARRAY_SIZE(sigs); n++) {
-		_ev_init(&signals[n], signal_cb);
+		ev_init(&signals[n], signal_cb);
 		ev_signal_set(&signals[n], sigs[n]);
 		ev_signal_start(loop, &signals[n]);
 	}
@@ -364,7 +332,7 @@ int main(int argc, char **argv)
 
 	lws_ev_initloop(context, loop, 0);
 
-	_ev_timer_init(&timeout_watcher, ev_timeout_cb, 0.05, 0.05);
+	ev_timer_init(&timeout_watcher, ev_timeout_cb, 0.05, 0.05);
 	ev_timer_start(loop, &timeout_watcher);
 	ev_run(loop, 0);
 
