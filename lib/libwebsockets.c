@@ -3470,7 +3470,8 @@ lws_stats_log_dump(struct lws_context *context)
 #endif
 
 	while (v) {
-		if (v->use_ssl && v->lserv_wsi) {
+		if (v->lserv_wsi) {
+
 			struct lws_context_per_thread *pt = &context->pt[(int)v->lserv_wsi->tsi];
 			struct lws_pollfd *pfd;
 
