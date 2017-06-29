@@ -2238,6 +2238,13 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					ah->rxlen = ah->rxpos = 0;
 					goto try_pollout;
 				}
+
+				/*
+				 *  make sure ah does not get detached if we
+				 * have live data in the rx
+				 */
+				if (ah->rxlen)
+					wsi->more_rx_waiting = 1;
 			}
 
 			if (!(ah->rxpos != ah->rxlen && ah->rxlen)) {
