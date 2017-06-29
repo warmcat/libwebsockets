@@ -378,7 +378,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!mimetype) {
 			lwsl_err("Unknown mimetype for %s\n", buf);
 			lws_return_http_status(wsi,
-				      HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE, NULL);
+				      HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE, "Unknown Mimetype");
 			return -1;
 		}
 

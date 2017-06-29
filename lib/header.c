@@ -222,16 +222,13 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	unsigned char *p = pt->serv_buf + LWS_PRE;
-	unsigned char *start = p, *body = p + 512;
+	unsigned char *start = p;
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
-	int n, m, len;
+	int n = 0, m, len;
 	char slen[20];
 
 	if (!html_body)
 		html_body = "";
-
-	len = sprintf((char *)body, "<html><body><h1>%u</h1>%s</body></html>",
-		      code, html_body);
 
 	if (lws_add_http_header_status(wsi, code, &p, end))
 		return 1;
@@ -240,7 +237,10 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 					 (unsigned char *)"text/html", 9,
 					 &p, end))
 		return 1;
+
+	len = 37 + strlen(html_body) + sprintf(slen, "%d", code);
 	n = sprintf(slen, "%d", len);
+
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
 					 (unsigned char *)slen, n,
 					 &p, end))
@@ -249,11 +249,30 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	if (lws_finalize_http_header(wsi, &p, end))
 		return 1;
 
-	m = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
-	if (m != (int)(p - start))
-		return 1;
+#if defined(LWS_USE_HTTP2)
+	{
+		unsigned char *body = p + 512;
 
-	m = lws_write(wsi, body, len, LWS_WRITE_HTTP);
+		m = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+		if (m != (int)(p - start))
+			return 1;
+
+		len = sprintf((char *)body, "<html><body><h1>%u</h1>%s</body></html>",
+		      code, html_body);
+
+		n = len;
+		m = lws_write(wsi, body, len, LWS_WRITE_HTTP);
+	}
+#else
+	p += lws_snprintf((char *)p, end - p - 1,
+			  "<html><body><h1>%u</h1>%s</body></html>",
+			  code, html_body);
+
+	n = (int)(p - start);
+	m = lws_write(wsi, start, n, LWS_WRITE_HTTP);
+	if (m != n)
+		return 1;
+#endif
 
 	return m != n;
 }
