@@ -33,6 +33,13 @@ extern "C" {
 #include <stdarg.h>
 #endif
 
+#if defined(LWS_HAS_INTPTR_T)
+#include <stdint.h>
+#define lws_intptr_t intptr_t
+#else
+typedef unsigned long long lws_intptr_t;
+#endif
+
 #if defined(LWS_WITH_ESP8266)
 struct sockaddr_in;
 #define LWS_POSIX 0

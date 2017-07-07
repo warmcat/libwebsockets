@@ -419,7 +419,7 @@ lws_interface_to_sa(int ipv6,
 	if (address == INADDR_NONE)
 		return -1;
 
-	addr->sin_addr.s_addr = (unsigned long)address;
+	addr->sin_addr.s_addr = (lws_intptr_t)address;
 
 	return 0;
 }

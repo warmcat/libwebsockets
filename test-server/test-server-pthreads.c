@@ -142,7 +142,7 @@ void *thread_dumb_increment(void *threadid)
 
 void *thread_service(void *threadid)
 {
-	while (lws_service_tsi(context, 50, (int)(long)threadid) >= 0 && !force_exit)
+	while (lws_service_tsi(context, 50, (int)(lws_intptr_t)threadid) >= 0 && !force_exit)
 		;
 
 	pthread_exit(NULL);
@@ -368,7 +368,7 @@ int main(int argc, char **argv)
 
 	for (n = 0; n < lws_get_count_threads(context); n++)
 		if (pthread_create(&pthread_service[n], NULL, thread_service,
-				   (void *)(long)n))
+				   (void *)(lws_intptr_t)n))
 			lwsl_err("Failed to start service thread\n");
 
 	/* wait for all the service threads to exit */

@@ -470,8 +470,8 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	if (spin == 5)
 		lwsl_err("symlink loop %s \n", path);
 
-	n = sprintf(sym, "%08lX%08lX",
-		    (unsigned long)lws_vfs_get_length(wsi->u.http.fop_fd),
+	n = sprintf(sym, "%08llX%08lX",
+		    (unsigned long long)lws_vfs_get_length(wsi->u.http.fop_fd),
 		    (unsigned long)lws_vfs_get_mod_time(wsi->u.http.fop_fd));
 
 	/* disable ranges if IF_RANGE token invalid */
@@ -543,10 +543,10 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		if (n > (int)strlen(pvo->name) &&
 		    !strcmp(&path[n - strlen(pvo->name)], pvo->name)) {
 			wsi->sending_chunked = 1;
-			wsi->protocol_interpret_idx = (char)(long)pvo->value;
+			wsi->protocol_interpret_idx = (char)(lws_intptr_t)pvo->value;
 			lwsl_info("want %s interpreted by %s\n", path,
-				    wsi->vhost->protocols[(int)(long)(pvo->value)].name);
-			wsi->protocol = &wsi->vhost->protocols[(int)(long)(pvo->value)];
+				    wsi->vhost->protocols[(int)(lws_intptr_t)(pvo->value)].name);
+			wsi->protocol = &wsi->vhost->protocols[(int)(lws_intptr_t)(pvo->value)];
 			if (lws_ensure_user_space(wsi))
 				return -1;
 			break;
@@ -1928,7 +1928,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 
 	if (type & LWS_ADOPT_SOCKET) { /* socket desc */
 		lwsl_debug("%s: new wsi %p, sockfd %d\n", __func__, new_wsi,
-			   (int)(size_t)fd.sockfd);
+			   (int)(lws_intptr_t)fd.sockfd);
 
 		if (type & LWS_ADOPT_HTTP)
 			/* the transport is accepted...
@@ -1944,7 +1944,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 #endif
 	} else /* file desc */
 		lwsl_debug("%s: new wsi %p, filefd %d\n", __func__, new_wsi,
-			   (int)(size_t)fd.filefd);
+			   (int)(lws_intptr_t)fd.filefd);
 
 	/*
 	 * A new connection was accepted. Give the user a chance to
@@ -2467,7 +2467,7 @@ try_pollout:
 			 */
 			if ((wsi->vhost->protocols[0].callback)(wsi,
 					LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
-					NULL, (void *)(long)accept_fd, 0)) {
+					NULL, (void *)(lws_intptr_t)accept_fd, 0)) {
 				lwsl_debug("Callback denied network connection\n");
 				compatible_close(accept_fd);
 				break;

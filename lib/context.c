@@ -553,7 +553,7 @@ lws_create_vhost(struct lws_context *context,
 			for (n = 0; n < vh->count_protocols; n++)
 				if (!strcmp(pvo->value, vh->protocols[n].name)) {
 					((struct lws_protocol_vhost_options *)pvo)->value =
-							(const char *)(long)n;
+							(const char *)(lws_intptr_t)n;
 					break;
 				}
 			if (n == vh->count_protocols)
