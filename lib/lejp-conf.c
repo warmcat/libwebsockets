@@ -199,8 +199,8 @@ struct jpargs {
 static void *
 lwsws_align(struct jpargs *a)
 {
-	if ((unsigned long)(a->p) & 15)
-		a->p += 16 - ((unsigned long)(a->p) & 15);
+	if ((lws_intptr_t)(a->p) & 15)
+		a->p += 16 - ((lws_intptr_t)(a->p) & 15);
 
 	return a->p;
 }

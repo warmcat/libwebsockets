@@ -357,7 +357,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	}
 #endif
 
-	assert(!!pt->ah_wait_list_length == !!(int)(long)pt->ah_wait_list);
+	assert(!!pt->ah_wait_list_length == !!(lws_intptr_t)pt->ah_wait_list);
 bail:
 	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
 	  (void *)wsi, (void *)ah, wsi->tsi,

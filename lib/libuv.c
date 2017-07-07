@@ -167,7 +167,7 @@ lws_uv_initvhost(struct lws_vhost* vh, struct lws* wsi)
 				&wsi->w_read.uv_watcher, wsi->desc.sockfd);
 	if (n) {
 		lwsl_err("uv_poll_init failed %d, sockfd=%p\n",
-				 n, (void *)(long)wsi->desc.sockfd);
+				 n, (void *)(lws_intptr_t)wsi->desc.sockfd);
 
 		return -1;
 	}
@@ -529,7 +529,7 @@ lws_libuv_closehandle(struct lws *wsi)
 static void
 lws_libuv_closewsi_m(uv_handle_t* handle)
 {
-	lws_sockfd_type sockfd = (lws_sockfd_type)(long long)handle->data;
+	lws_sockfd_type sockfd = (lws_sockfd_type)(lws_intptr_t)handle->data;
 
 	compatible_close(sockfd);
 }
@@ -539,7 +539,7 @@ lws_libuv_closehandle_manually(struct lws *wsi)
 {
 	uv_handle_t *h = (void *)&wsi->w_read.uv_watcher;
 
-	h->data = (void *)(long long)wsi->desc.sockfd;
+	h->data = (void *)(lws_intptr_t)wsi->desc.sockfd;
 	/* required to defer actual deletion until libuv has processed it */
 	uv_close((uv_handle_t*)&wsi->w_read.uv_watcher, lws_libuv_closewsi_m);
 }

@@ -320,7 +320,7 @@ lws_http2_parser(struct lws *wsi, unsigned char c)
 				break;
 			case LWS_HTTP2_FRAME_TYPE_WINDOW_UPDATE:
 				wsi->u.http2.hpack_e_dep &= ~(1 << 31);
-				if ((long long)swsi->u.http2.tx_credit + (unsigned long long)wsi->u.http2.hpack_e_dep > (~(1 << 31)))
+				if ((lws_intptr_t)swsi->u.http2.tx_credit + (lws_intptr_t)wsi->u.http2.hpack_e_dep > (~(1 << 31)))
 					return 1; /* actually need to close swsi not the whole show */
 				swsi->u.http2.tx_credit += wsi->u.http2.hpack_e_dep;
 				if (swsi->u.http2.waiting_tx_credit && swsi->u.http2.tx_credit > 0) {

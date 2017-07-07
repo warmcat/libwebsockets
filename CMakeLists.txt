@@ -517,6 +517,12 @@ set(LWS_HAVE_WORKING_VFORK LWS_HAVE_VFORK)
 
 CHECK_INCLUDE_FILES("stdlib.h;stdarg.h;string.h;float.h" STDC_HEADERS)
 
+CHECK_C_SOURCE_COMPILES("#include <stdint.h> 
+	int main(void) {
+		intptr_t test = 1;
+		return 0;
+	}" LWS_HAS_INTPTR_T)
+
 # These don't work Cross...
 #CHECK_TYPE_SIZE(pid_t PID_T_SIZE)
 #CHECK_TYPE_SIZE(size_t SIZE_T_SIZE)
@@ -1807,6 +1813,7 @@ message(" LWS_HAVE_LIBCAP = ${LWS_HAVE_LIBCAP}")
 message(" LWS_HAVE_ATOLL = ${LWS_HAVE_ATOLL}")
 message(" LWS_HAVE__ATOI64 = ${LWS_HAVE__ATOI64}")
 message(" LWS_HAVE_STAT32I64 = ${LWS_HAVE_STAT32I64}")
+message(" LWS_HAS_INTPTR_T = ${LWS_HAS_INTPTR_T}")
 
 message("---------------------------------------------------------------------")
 

@@ -613,7 +613,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 			lwsl_notice("%s: doing range start %llu\n", __func__, wsi->u.http.range.start);
 
-			if ((long)lws_vfs_file_seek_cur(wsi->u.http.fop_fd,
+			if ((long long)lws_vfs_file_seek_cur(wsi->u.http.fop_fd,
 						   wsi->u.http.range.start -
 						   wsi->u.http.filepos) < 0)
 				goto file_had_it;

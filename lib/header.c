@@ -71,7 +71,7 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 #else
 	(void)wsi;
 #endif
-	if ((long)(end - *p) < 3)
+	if ((lws_intptr_t)(end - *p) < 3)
 		return 1;
 	*((*p)++) = '\x0d';
 	*((*p)++) = '\x0a';

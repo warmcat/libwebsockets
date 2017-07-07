@@ -229,7 +229,7 @@ print_addr(const char *s, struct sockaddr *sa)
 	printf("  %s=%d/", s, sa->sa_family);
 #ifdef LWS_HAVE_STRUCT_SOCKADDR_SA_LEN
 	for (i = 0;
-	       i < sa->sa_len - ((long)sa->sa_data - (long)&sa->sa_family); i++)
+	       i < sa->sa_len - ((lws_intptr_t)sa->sa_data - (lws_intptr_t)&sa->sa_family); i++)
 		printf("%02x", ((unsigned char *)sa->sa_data)[i]);
 #else
 	for (i = 0; i < sizeof(sa->sa_data); i++)
