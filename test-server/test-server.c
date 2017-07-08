@@ -266,6 +266,7 @@ int main(int argc, char **argv)
 			break;
 		case 's':
 			use_ssl = 1;
+			opts |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 			break;
 		case 'a':
 			opts |= LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT;
@@ -400,7 +401,7 @@ int main(int argc, char **argv)
 	info.gid = gid;
 	info.uid = uid;
 	info.max_http_header_pool = 16;
-	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 | LWS_SERVER_OPTION_EXPLICIT_VHOSTS | LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 | LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 	info.extensions = exts;
 	info.timeout_secs = 5;
 	info.ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
