@@ -459,6 +459,9 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		return 0;
 
+	if (vhost->ssl_client_ctx)
+		return 0;
+
 	if (info->provided_client_ssl_ctx) {
 		/* use the provided OpenSSL context if given one */
 		vhost->ssl_client_ctx = info->provided_client_ssl_ctx;
