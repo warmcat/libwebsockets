@@ -490,7 +490,7 @@ document.getElementById("brow").textContent = " " + BrowserDetect.browser + " "
 
 	var pos = 0;
 
-function get_appropriate_ws_url()
+function get_appropriate_ws_url(extra_url)
 {
 	var pcol;
 	var u = document.URL;
@@ -513,11 +513,29 @@ function get_appropriate_ws_url()
 
 	/* + "/xxx" bit is for IE10 workaround */
 
-	return pcol + u[0] + "/xxx";
+	return pcol + u[0] + "/" + extra_url;
 }
 
+var params = {};
 
-document.getElementById("number").textContent = get_appropriate_ws_url();
+if (location.search) {
+    var parts = location.search.substring(1).split('&');
+
+    for (var i = 0; i < parts.length; i++) {
+        var nv = parts[i].split('=');
+        if (!nv[0]) continue;
+        params[nv[0]] = nv[1] || true;
+    }
+}
+
+var mirror_name = "";
+if (params.mirror)
+	mirror_name = params.mirror;
+
+	console.log(mirror_name);
+
+
+document.getElementById("number").textContent = get_appropriate_ws_url(mirror_name);
 
 /* dumb increment protocol */
 	
@@ -674,10 +692,10 @@ function ot_req_close() {
 	var color = "#000000";
 
 	if (typeof MozWebSocket != "undefined") {
-		socket_lm = new MozWebSocket(get_appropriate_ws_url(),
+		socket_lm = new MozWebSocket(get_appropriate_ws_url("?mirror=" + mirror_name),
 				   "lws-mirror-protocol");
 	} else {
-		socket_lm = new WebSocket(get_appropriate_ws_url(),
+		socket_lm = new WebSocket(get_appropriate_ws_url("?mirror=" + mirror_name),
 				   "lws-mirror-protocol");
 	}
 
