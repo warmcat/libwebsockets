@@ -4197,6 +4197,74 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 ///@{
 
 /**
+ * lws_start_foreach_ll(): linkedlist iterator helper start
+ *
+ * \param type: type of iteration, eg, struct xyz *
+ * \param it: iterator var name to create
+ * \param start: start of list
+ *
+ * This helper creates an iterator and starts a while (it) {
+ * loop.  The iterator runs through the linked list starting at start and
+ * ends when it gets a NULL.
+ * The while loop should be terminated using lws_start_foreach_ll().
+ */
+#define lws_start_foreach_ll(type, it, start)\
+{ \
+	type it = start; \
+	while (it) {
+
+/**
+ * lws_end_foreach_ll(): linkedlist iterator helper end
+ *
+ * \param it: same iterator var name given when starting
+ * \param nxt: member name in the iterator pointing to next list element
+ *
+ * This helper is the partner for lws_start_foreach_ll() that ends the
+ * while loop.
+ */
+
+#define lws_end_foreach_ll(it, nxt) \
+		it = it->nxt; \
+	} \
+}
+
+/**
+ * lws_start_foreach_llp(): linkedlist pointer iterator helper start
+ *
+ * \param type: type of iteration, eg, struct xyz **
+ * \param it: iterator var name to create
+ * \param start: start of list
+ *
+ * This helper creates an iterator and starts a while (it) {
+ * loop.  The iterator runs through the linked list starting at the
+ * address of start and ends when it gets a NULL.
+ * The while loop should be terminated using lws_start_foreach_llp().
+ *
+ * This helper variant iterates using a pointer to the previous linked-list
+ * element.  That allows you to easily delete list members by rewriting the
+ * previous pointer to the element's next pointer.
+ */
+#define lws_start_foreach_llp(type, it, start)\
+{ \
+	type it = &(start); \
+	while (*(it)) {
+
+/**
+ * lws_end_foreach_llp(): linkedlist pointer iterator helper end
+ *
+ * \param it: same iterator var name given when starting
+ * \param nxt: member name in the iterator pointing to next list element
+ *
+ * This helper is the partner for lws_start_foreach_llp() that ends the
+ * while loop.
+ */
+
+#define lws_end_foreach_llp(it, nxt) \
+		it = &(*(it))->nxt; \
+	} \
+}
+
+/**
  * lws_snprintf(): snprintf that truncates the returned length too
  *
  * \param str: destination buffer

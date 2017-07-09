@@ -68,13 +68,12 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
 	struct per_session_data__lws_mirror *pss =
-			(struct per_session_data__lws_mirror *)user, **ppss,
-			*pss1;
+			(struct per_session_data__lws_mirror *)user;
 	struct per_vhost_data__lws_mirror *v =
 			(struct per_vhost_data__lws_mirror *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
-	struct lws_mirror_instance *mi, **pmi;
+	struct lws_mirror_instance *mi = NULL;
 	char name[30];
 	int n, m, count_mi = 0;
 
@@ -95,17 +94,16 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* is there already a mirror instance of this name? */
 
-		mi = v->mi_list;
-		while (mi) {
-			if (!strcmp(name, mi->name)) {
-				lwsl_notice("Joining existing mi %p '%s'\n",
-						mi, name);
-				/* yes... we will join it */
-				break;
-			}
+		lws_start_foreach_ll(struct lws_mirror_instance *,
+				     mi1, v->mi_list) {
 			count_mi++;
-			mi = mi->next;
-		}
+			if (strcmp(name, mi1->name))
+				continue;
+			/* yes... we will join it */
+			lwsl_notice("Joining existing mi %p '%s'\n", mi1, name);
+			mi = mi1;
+			break;
+		} lws_end_foreach_ll(mi1, next);
 
 		if (!mi) {
 
@@ -122,7 +120,6 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			v->mi_list = mi;
 			strcpy(mi->name, name);
 			mi->ringbuffer_head = 0;
-
 
 			lwsl_notice("Created new mi %p '%s'\n", mi, name);
 		}
@@ -147,42 +144,40 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		mi = pss->mi;
 		if (!mi)
 			break;
-		ppss = &mi->same_mi_pss_list;
 
-		while (*ppss) {
+		lws_start_foreach_llp(struct per_session_data__lws_mirror **,
+			ppss, mi->same_mi_pss_list) {
 			if (*ppss == pss) {
+
 				*ppss = pss->same_mi_pss_list;
 				break;
 			}
+		} lws_end_foreach_llp(ppss, same_mi_pss_list);
 
-			ppss = &(*ppss)->same_mi_pss_list;
-		}
+		pss->mi = NULL;
 
-		if (!mi->same_mi_pss_list) {
+		if (mi->same_mi_pss_list)
+			break;
 
-			/* last pss unbound from mi... delete mi */
+		/* last pss unbound from mi... delete mi */
 
-			pmi = &v->mi_list;
-			while (*pmi) {
-				if (*pmi == mi) {
-					*pmi = (*pmi)->next;
+		lws_start_foreach_llp(struct lws_mirror_instance **,
+				pmi, v->mi_list) {
+			if (*pmi != mi)
+				continue;
 
-					if (!pss->mi)
-						break;
-					lwsl_info("%s: mirror protocol cleaning up %p\n", __func__, v);
-					for (n = 0; n < ARRAY_SIZE(pss->mi->ringbuffer); n++)
-						if (pss->mi->ringbuffer[n].payload) {
-							free(pss->mi->ringbuffer[n].payload);
-							pss->mi->ringbuffer[n].payload = NULL;
-						}
+			*pmi = (*pmi)->next;
 
-					free(mi);
-					break;
+			lwsl_info("%s: mirror cleaniup %p\n", __func__, v);
+			for (n = 0; n < ARRAY_SIZE(mi->ringbuffer); n++)
+				if (mi->ringbuffer[n].payload) {
+					free(mi->ringbuffer[n].payload);
+					mi->ringbuffer[n].payload = NULL;
 				}
-				count_mi++;
-				pmi = &(*pmi)->next;
-			}
-		}
+
+			free(mi);
+			break;
+		} lws_end_foreach_llp(pmi, next);
 
 		break;
 
@@ -257,12 +252,10 @@ done:
 		 *  ask for WRITABLE callback for every wsi bound to this
 		 * mirror instance
 		 */
-
-		pss1 = pss->mi->same_mi_pss_list;
-		while (pss1) {
+		lws_start_foreach_ll(struct per_session_data__lws_mirror *,
+					pss1, pss->mi->same_mi_pss_list) {
 			lws_callback_on_writable(pss1->wsi);
-			pss1 = pss1->same_mi_pss_list;
-		}
+		} lws_end_foreach_ll(pss1, same_mi_pss_list);
 		break;
 
 	default:
