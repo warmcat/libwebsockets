@@ -1,4 +1,4 @@
-COMPONENT_ADD_INCLUDEDIRS := ../../../../../../../../../$(COMPONENT_BUILD_DIR)/include
+COMPONENT_ADD_INCLUDEDIRS := ../../../../../../../../../../../../../../../../../../$(COMPONENT_BUILD_DIR)/include
 
 COMPONENT_OWNBUILDTARGET:= 1
 
