@@ -534,21 +534,20 @@ if (params.mirror)
 
 	console.log(mirror_name);
 
+function new_ws(urlpath, protocol)
+{
+	if (typeof MozWebSocket != "undefined")
+		return new MozWebSocket(urlpath, protocol);
+
+	return new WebSocket(get_appropriate_ws_url(urlpath), protocol);
+}
+
 
 document.getElementById("number").textContent = get_appropriate_ws_url(mirror_name);
 
 /* dumb increment protocol */
 	
-	var socket_di;
-
-	if (typeof MozWebSocket != "undefined") {
-		socket_di = new MozWebSocket(get_appropriate_ws_url(),
-				   "dumb-increment-protocol");
-	} else {
-		socket_di = new WebSocket(get_appropriate_ws_url(),
-				   "dumb-increment-protocol");
-	}
-
+	var socket_di = new_ws("", "dumb-increment-protocol");
 
 	try {
 		socket_di.onopen = function() {
@@ -572,13 +571,7 @@ document.getElementById("number").textContent = get_appropriate_ws_url(mirror_na
 	
 	var socket_status, jso, s;
 
-	if (typeof MozWebSocket != "undefined") {
-		socket_status = new MozWebSocket(get_appropriate_ws_url(),
-				   "lws-status");
-	} else {
-		socket_status = new WebSocket(get_appropriate_ws_url(),
-				   "lws-status");
-	}
+	socket_status = new_ws(get_appropriate_ws_url(""), "lws-status");
 
 
 	try {
@@ -643,13 +636,9 @@ function on_pmd() {
 var socket_ot;
 
 function ot_open() {
-	if (typeof MozWebSocket != "undefined") {
-		socket_ot = new MozWebSocket(get_appropriate_ws_url(),
-				   "dumb-increment-protocol");
-	} else {
-		socket_ot = new WebSocket(get_appropriate_ws_url(),
-				   "dumb-increment-protocol");
-	}
+
+	socket_ot = new_ws(get_appropriate_ws_url(""), "dumb-increment-protocol");
+
 	try {
 		socket_ot.onopen = function() {
 			document.getElementById("ot_statustd").style.backgroundColor = "#40ff40";
@@ -691,14 +680,8 @@ function ot_req_close() {
 	var socket_lm;
 	var color = "#000000";
 
-	if (typeof MozWebSocket != "undefined") {
-		socket_lm = new MozWebSocket(get_appropriate_ws_url("?mirror=" + mirror_name),
-				   "lws-mirror-protocol");
-	} else {
-		socket_lm = new WebSocket(get_appropriate_ws_url("?mirror=" + mirror_name),
-				   "lws-mirror-protocol");
-	}
-
+	socket_lm = new_ws(get_appropriate_ws_url("?mirror=" + mirror_name),
+			"lws-mirror-protocol");
 
 	try {
 		socket_lm.onopen = function() {
