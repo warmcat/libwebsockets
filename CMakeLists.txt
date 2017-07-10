@@ -1443,6 +1443,8 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		endmacro()
 		
 
+		create_plugin(protocol_lws_meta
+			      "plugins/protocol_lws_meta.c" "" "")
 		create_plugin(protocol_dumb_increment
 			      "plugins/protocol_dumb_increment.c" "" "")
 		create_plugin(protocol_lws_mirror

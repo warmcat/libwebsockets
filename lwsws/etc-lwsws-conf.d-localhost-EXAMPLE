@@ -32,6 +32,9 @@
      # vhost-specific config options for the protocol
      #
      "ws-protocols": [{
+       "lws-meta": {
+         "status": "ok"
+       },
        "dumb-increment-protocol": {
          "status": "ok"
        },

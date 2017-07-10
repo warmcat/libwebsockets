@@ -116,6 +116,12 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	time_t now;
 
+	if (secs == LWS_TO_KILL_SYNC) {
+		lws_remove_from_timeout_list(wsi);
+		lwsl_debug("synchronously killing %p\n", wsi);
+		return lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	}
+
 	lws_pt_lock(pt);
 
 	time(&now);
@@ -157,6 +163,12 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 		if (*pwsi == wsi) {
 			lwsl_info("%s: detach %p from parent %p\n",
 					__func__, wsi, wsi->parent);
+
+			if (wsi->parent->protocol)
+				wsi->parent->protocol->callback(wsi,
+						LWS_CALLBACK_CHILD_CLOSING,
+					       wsi->parent->user_space, wsi, 0);
+
 			*pwsi = wsi->sibling_list;
 			seen = 1;
 			break;
@@ -227,6 +239,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	struct lws_context *context;
 	struct lws_tokens eff_buf;
 	int n, m, ret;
+
+	lwsl_debug("%s: %p\n", __func__, wsi);
 
 	if (!wsi)
 		return;
@@ -683,13 +697,14 @@ async_close:
 	wsi->socket_is_permanently_unusable = 1;
 
 #ifdef LWS_USE_LIBUV
-	if (LWS_LIBUV_ENABLED(context)) {
-		lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
-		/* libuv has to do his own close handle processing asynchronously */
-		lws_libuv_closehandle(wsi);
+	if (!wsi->parent_carries_io)
+		if (LWS_LIBUV_ENABLED(context)) {
+			lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
+			/* libuv has to do his own close handle processing asynchronously */
+			lws_libuv_closehandle(wsi);
 
-		return;
-	}
+			return;
+		}
 #endif
 
 	lws_close_free_wsi_final(wsi);
@@ -864,6 +879,9 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 	struct sockaddr_in sin4;
 	int af = AF_INET;
 	void *p, *q;
+
+	if (wsi->parent_carries_io)
+		wsi = wsi->parent;
 
 #ifdef LWS_USE_IPV6
 	if (LWS_IPV6_ENABLED(wsi->vhost)) {
@@ -1416,6 +1434,12 @@ lws_is_final_fragment(struct lws *wsi)
 	return wsi->u.ws.final && !wsi->u.ws.rx_packet_length && !wsi->u.ws.rx_draining_ext;
 }
 
+LWS_VISIBLE int
+lws_is_first_fragment(struct lws *wsi)
+{
+	return wsi->u.ws.first_fragment;
+}
+
 LWS_VISIBLE unsigned char
 lws_get_reserved_bits(struct lws *wsi)
 {
@@ -1657,6 +1681,48 @@ LWS_VISIBLE LWS_EXTERN struct lws *
 lws_get_child(const struct lws *wsi)
 {
 	return wsi->child_list;
+}
+
+LWS_VISIBLE LWS_EXTERN void
+lws_set_parent_carries_io(struct lws *wsi)
+{
+	wsi->parent_carries_io = 1;
+}
+
+LWS_VISIBLE LWS_EXTERN void *
+lws_get_opaque_parent_data(const struct lws *wsi)
+{
+	return wsi->opaque_parent_data;
+}
+
+LWS_VISIBLE LWS_EXTERN void
+lws_set_opaque_parent_data(struct lws *wsi, void *data)
+{
+	wsi->opaque_parent_data = data;
+}
+
+LWS_VISIBLE LWS_EXTERN int
+lws_get_child_pending_on_writable(const struct lws *wsi)
+{
+	return wsi->parent_pending_cb_on_writable;
+}
+
+LWS_VISIBLE LWS_EXTERN void
+lws_clear_child_pending_on_writable(struct lws *wsi)
+{
+	wsi->parent_pending_cb_on_writable = 0;
+}
+
+LWS_VISIBLE LWS_EXTERN int
+lws_get_close_length(struct lws *wsi)
+{
+	return wsi->u.ws.close_in_ping_buffer_len;
+}
+
+LWS_VISIBLE LWS_EXTERN unsigned char *
+lws_get_close_payload(struct lws *wsi)
+{
+	return &wsi->u.ws.ping_payload_buf[LWS_PRE];
 }
 
 LWS_VISIBLE LWS_EXTERN void

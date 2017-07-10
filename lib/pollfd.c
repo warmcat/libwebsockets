@@ -236,6 +236,11 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 #endif
 	int m, ret = 0;
 
+	if (wsi->parent_carries_io) {
+		lws_same_vh_protocol_remove(wsi);
+		return 0;
+	}
+
 #if !defined(_WIN32) && !defined(LWS_WITH_ESP8266)
 	if (wsi->desc.sockfd > context->max_fds) {
 		lwsl_err("fd %d too high (%d)\n", wsi->desc.sockfd, context->max_fds);
@@ -347,6 +352,16 @@ lws_callback_on_writable(struct lws *wsi)
 
 	if (wsi->socket_is_permanently_unusable)
 		return 0;
+
+	if (wsi->parent_carries_io) {
+		int n = lws_callback_on_writable(wsi->parent);
+
+		if (n < 0)
+			return n;
+
+		wsi->parent_pending_cb_on_writable = 1;
+		return 1;
+	}
 
 	pt = &wsi->context->pt[(int)wsi->tsi];
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB_REQ, 1);

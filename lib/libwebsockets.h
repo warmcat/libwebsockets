@@ -823,6 +823,38 @@ struct lws_context;
 /* needed even with extensions disabled for create context */
 struct lws_extension;
 
+/*! \defgroup lwsmeta lws-meta
+ *
+ * ##lws-meta protocol
+ *
+ * The protocol wraps other muxed connections inside one tcp connection.
+ *
+ * Commands are assigned from 0x41 up (so they are valid unicode)
+ */
+///@{
+
+enum lws_meta_commands {
+	LWS_META_CMD_OPEN_SUBCHANNEL = 'A',
+	/**< Client requests to open new subchannel
+	 */
+	LWS_META_CMD_OPEN_RESULT,
+	/**< Result of client request to open new subchannel */
+	LWS_META_CMD_CLOSE_NOTIFY,
+	/**< Notification of subchannel closure */
+	LWS_META_CMD_CLOSE_RQ,
+	/**< client requests to close a subchannel */
+	LWS_META_CMD_WRITE,
+	/**< connection writes something to specific channel index */
+
+	/****** add new things just above ---^ ******/
+};
+
+/* channel numbers are transported offset by 0x20 so they are valid unicode */
+
+#define LWS_META_CHANNEL_OFFSET_TRANSPORT 0x20
+
+///@}
+
 /*! \defgroup usercb User Callback
  *
  * ##User protocol callback
@@ -1252,6 +1284,16 @@ enum lws_callback_reasons {
 	 * using the vhost.  @in is a pointer to a
 	 * struct lws_ssl_info containing information about the
 	 * event*/
+	LWS_CALLBACK_CHILD_WRITE_VIA_PARENT			= 68,
+	/**< Child has been marked with parent_carries_io attribute, so
+	 * lws_write directs the to this callback at the parent,
+	 * @in is a struct lws_write_passthru containing the args
+	 * the lws_write() was called with.
+	 */
+	LWS_CALLBACK_CHILD_CLOSING				= 69,
+	/**< Sent to parent to notify them a child is closing / being
+	 * destroyed.  @in is the child wsi.
+	 */
 
 	/****** add new things just above ---^ ******/
 
@@ -3604,10 +3646,24 @@ enum pending_timeout {
 	PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY		= 20,
 	PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY		= 21,
 	PENDING_TIMEOUT_KILLED_BY_SSL_INFO			= 22,
+	PENDING_TIMEOUT_KILLED_BY_PARENT			= 23,
 
 	/****** add new things just above ---^ ******/
 };
 
+#define LWS_TO_KILL_ASYNC -1
+/**< If LWS_TO_KILL_ASYNC is given as the timeout sec in a lws_set_timeout()
+ * call, then the connection is marked to be killed at the next timeout
+ * check.  This is how you should force-close the wsi being serviced if
+ * you are doing it outside the callback (where you should close by nonzero
+ * return).
+ */
+#define LWS_TO_KILL_SYNC -2
+/**< If LWS_TO_KILL_SYNC is given as the timeout sec in a lws_set_timeout()
+ * call, then the connection is closed before returning (which may delete
+ * the wsi).  This should only be used where the wsi being closed is not the
+ * wsi currently being serviced.
+ */
 /**
  * lws_set_timeout() - marks the wsi as subject to a timeout
  *
@@ -3615,7 +3671,10 @@ enum pending_timeout {
  *
  * \param wsi:	Websocket connection instance
  * \param reason:	timeout reason
- * \param secs:	how many seconds
+ * \param secs:	how many seconds.  You may set to LWS_TO_KILL_ASYNC to
+ *		force the connection to timeout at the next opportunity, or
+ *		LWS_TO_KILL_SYNC to close it synchronously if you know the
+ *		wsi is not the one currently being serviced.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
@@ -3640,7 +3699,8 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 #endif
 #define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? \
 		((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
-#define LWS_PRE _LWS_PAD(4 + 10)
+/* last 2 is for lws-meta */
+#define LWS_PRE _LWS_PAD(4 + 10 + 2)
 /* used prior to 1.7 and retained for backward compatibility */
 #define LWS_SEND_BUFFER_PRE_PADDING LWS_PRE
 #define LWS_SEND_BUFFER_POST_PADDING 0
@@ -3690,6 +3750,15 @@ enum lws_write_protocol {
 	/**< client packet payload goes out on wire unmunged
 	 * only useful for security tests since normal servers cannot
 	 * decode the content if used */
+};
+
+/* used with LWS_CALLBACK_CHILD_WRITE_VIA_PARENT */
+
+struct lws_write_passthru {
+	struct lws *wsi;
+	unsigned char *buf;
+	size_t len;
+	enum lws_write_protocol wp;
 };
 
 
@@ -4036,7 +4105,11 @@ typedef enum {
 	LWS_ADOPT_RAW_FILE_DESC = 0,	/* convenience constant */
 	LWS_ADOPT_HTTP = 1,		/* flag: absent implies RAW */
 	LWS_ADOPT_SOCKET = 2,		/* flag: absent implies file descr */
-	LWS_ADOPT_ALLOW_SSL = 4		/* flag: if set requires LWS_ADOPT_SOCKET */
+	LWS_ADOPT_ALLOW_SSL = 4,	/* flag: if set requires LWS_ADOPT_SOCKET */
+	LWS_ADOPT_WS_PARENTIO = 8,	/* flag: ws mode parent handles IO
+					 *   if given must be only flag
+					 *   wsi put directly into ws mode
+					 */
 } lws_adoption_type;
 
 typedef union {
@@ -4394,6 +4467,32 @@ lws_get_parent(const struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_get_child(const struct lws *wsi);
 
+/**
+ * lws_parent_carries_io() - mark wsi as needing to send messages via parent
+ *
+ * \param wsi: child lws connection
+ */
+
+LWS_VISIBLE LWS_EXTERN void
+lws_set_parent_carries_io(struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN void *
+lws_get_opaque_parent_data(const struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_set_opaque_parent_data(struct lws *wsi, void *data);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_get_child_pending_on_writable(const struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_clear_child_pending_on_writable(struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_get_close_length(struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN unsigned char *
+lws_get_close_payload(struct lws *wsi);
 
 /*
  * \deprecated DEPRECATED Note: this is not normally needed as a user api.
@@ -4431,10 +4530,19 @@ lws_send_pipe_choked(struct lws *wsi);
 
 /**
  * lws_is_final_fragment() - tests if last part of ws message
+ *
  * \param wsi: lws connection
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_is_final_fragment(struct lws *wsi);
+
+/**
+ * lws_is_first_fragment() - tests if first part of ws message
+ *
+ * \param wsi: lws connection
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_is_first_fragment(struct lws *wsi);
 
 /**
  * lws_get_reserved_bits() - access reserved bits of ws frame
