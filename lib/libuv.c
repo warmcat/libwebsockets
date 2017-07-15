@@ -572,7 +572,6 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 	uv_dirent_t dent;
 	uv_fs_t req;
 	char path[256];
-	uv_loop_t loop;
 	uv_lib_t lib;
 	int pofs = 0;
 
@@ -583,14 +582,14 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 	lib.errmsg = NULL;
 	lib.handle = NULL;
 
-	uv_loop_init(&loop);
+	uv_loop_init(&context->pu_loop);
 
 	lwsl_notice("  Plugins:\n");
 
 	while (d && *d) {
 
 		lwsl_notice("  Scanning %s\n", *d);
-		m =uv_fs_scandir(&loop, &req, *d, 0, NULL);
+		m =uv_fs_scandir(&context->pu_loop, &req, *d, 0, NULL);
 		if (m < 1) {
 			lwsl_err("Scandir on %s failed\n", *d);
 			return 1;
@@ -624,6 +623,7 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 				uv_dlerror(&lib);
 				lwsl_err("Failed to get %s on %s: %s", path,
 						dent.name, lib.errmsg);
+				uv_dlclose(&lib);
 				goto bail;
 			}
 			initfunc = (lws_plugin_init_func)v;
@@ -636,6 +636,7 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 
 			plugin = lws_malloc(sizeof(*plugin));
 			if (!plugin) {
+				uv_dlclose(&lib);
 				lwsl_err("OOM\n");
 				goto bail;
 			}
@@ -658,11 +659,7 @@ bail:
 		d++;
 	}
 
-	uv_run(&loop, UV_RUN_NOWAIT);
-	uv_loop_close(&loop);
-
 	return ret;
-
 }
 
 LWS_VISIBLE int
@@ -714,6 +711,9 @@ lws_plat_plugins_destroy(struct lws_context *context)
 	}
 
 	context->plugin_list = NULL;
+
+	while (uv_loop_close(&context->pu_loop))
+		;
 
 	return 0;
 }
