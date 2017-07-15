@@ -3582,6 +3582,9 @@ lws_uv_getloop(struct lws_context *context, int tsi);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_uv_sigint_cb(uv_signal_t *watcher, int signum);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_close_all_handles_in_loop(uv_loop_t *loop);
 #endif /* LWS_USE_LIBUV */
 ///@}
 
