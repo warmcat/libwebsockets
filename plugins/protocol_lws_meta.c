@@ -293,7 +293,8 @@ callback_lws_meta(struct lws *wsi, enum lws_callback_reasons reason,
 		 * lws_meta command blocks.
 		 */
 
-		while (pss->state != MP_IDLE && (bin - (unsigned char *)in) < len) {
+		while (pss->state != MP_IDLE &&
+		       (unsigned int)(bin - (unsigned char *)in) < len) {
 
 			switch (pss->state) {
 			case MP_IDLE: /* in body of message */
@@ -515,7 +516,7 @@ callback_lws_meta(struct lws *wsi, enum lws_callback_reasons reason,
 			*p++ = LWS_META_CMD_CLOSE_NOTIFY;
 			*p++ = LWS_META_CHANNEL_OFFSET_TRANSPORT +
 					lws_get_channel_id(pas->wsi);
-			for (n = 0; n < pas->len; n++)
+			for (n = 0; n < (int)pas->len; n++)
 				*p++ = bin[n];
 
 			if (lws_write(wsi, start, p - start, LWS_WRITE_BINARY) < 0)

@@ -4139,7 +4139,7 @@ typedef union {
 * parent may be NULL, if given it should be an existing wsi that will become the
 * parent of the new wsi created by this call.
 */
-LWS_VISIBLE struct lws *
+LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			   lws_sock_file_fd_type fd, const char *vh_prot_name,
 			   struct lws *parent);

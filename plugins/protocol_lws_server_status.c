@@ -23,6 +23,7 @@
 #include "../lib/libwebsockets.h"
 #include <string.h>
 #include <stdlib.h>
+#include <fcntl.h>
 
 struct lws_ss_load_sample {
 	time_t t;

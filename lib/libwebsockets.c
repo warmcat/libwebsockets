@@ -119,7 +119,8 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	if (secs == LWS_TO_KILL_SYNC) {
 		lws_remove_from_timeout_list(wsi);
 		lwsl_debug("synchronously killing %p\n", wsi);
-		return lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+		return;
 	}
 
 	lws_pt_lock(pt);
