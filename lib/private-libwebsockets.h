@@ -958,6 +958,7 @@ struct lws_context {
 #endif
 #if defined(LWS_USE_LIBUV)
 	uv_signal_cb lws_uv_sigint_cb;
+	uv_loop_t pu_loop;
 #endif
 #if defined(LWS_USE_LIBEVENT)
 	lws_event_signal_cb_t * lws_event_sigint_cb;
