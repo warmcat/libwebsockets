@@ -262,6 +262,12 @@ static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
 		uv_close(handle, lws_uv_close_cb);
 }
 
+LWS_VISIBLE void
+lws_close_all_handles_in_loop(uv_loop_t *loop)
+{
+	uv_walk(loop, lws_uv_walk_cb, NULL);
+}
+
 void
 lws_libuv_destroyloop(struct lws_context *context, int tsi)
 {

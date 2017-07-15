@@ -303,8 +303,9 @@ int main(int argc, char **argv)
 	lws_context_destroy(context);
 
 #if (UV_VERSION_MAJOR > 0) // Travis...
+	lws_close_all_handles_in_loop(&loop);
 	n = 0;
-	while (n++ < 1024 && uv_loop_close(&loop))
+	while (n++ < 4096 && uv_loop_close(&loop))
 		uv_run(&loop, UV_RUN_NOWAIT);
 #endif
 
