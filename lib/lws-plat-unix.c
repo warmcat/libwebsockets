@@ -294,10 +294,12 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 static void
 _lws_plat_apply_caps(int mode, cap_value_t *cv, int count)
 {
-	cap_t caps = cap_get_proc();
+	cap_t caps;
 
 	if (!count)
 		return;
+
+	caps = cap_get_proc();
 
 	cap_set_flag(caps, mode, count, cv, CAP_SET);
 	cap_set_proc(caps);
