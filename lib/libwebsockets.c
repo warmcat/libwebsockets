@@ -700,6 +700,10 @@ async_close:
 #ifdef LWS_USE_LIBUV
 	if (!wsi->parent_carries_io)
 		if (LWS_LIBUV_ENABLED(context)) {
+			if (wsi->listener) {
+				lwsl_debug("%s: stopping listner libuv poll\n", __func__);
+				uv_poll_stop(&wsi->w_read.uv_watcher);
+			}
 			lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
 			/* libuv has to do his own close handle processing asynchronously */
 			lws_libuv_closehandle(wsi);

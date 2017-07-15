@@ -605,6 +605,7 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 			if (uv_dlopen(path, &lib)) {
 				uv_dlerror(&lib);
 				lwsl_err("Error loading DSO: %s\n", lib.errmsg);
+				uv_dlclose(&lib);
 				goto bail;
 			}
 

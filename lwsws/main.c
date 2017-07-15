@@ -317,5 +317,7 @@ int main(int argc, char **argv)
 	closelog();
 #endif
 
+	context = NULL;
+
 	return 0;
 }
