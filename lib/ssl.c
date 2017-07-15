@@ -307,6 +307,10 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 	ERR_remove_thread_state(NULL);
 #endif
 #endif
+	// after 1.1.0 no need
+#if  (OPENSSL_VERSION_NUMBER >= 0x10002000) && (OPENSSL_VERSION_NUMBER <= 0x10100000)
+	SSL_COMP_free_compression_methods();
+#endif
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
@@ -875,6 +879,10 @@ lws_ssl_context_destroy(struct lws_context *context)
 #else
 	ERR_remove_thread_state(NULL);
 #endif
+#endif
+	// after 1.1.0 no need
+#if  (OPENSSL_VERSION_NUMBER >= 0x10002000) && (OPENSSL_VERSION_NUMBER <= 0x10100000)
+	SSL_COMP_free_compression_methods();
 #endif
 	ERR_free_strings();
 	EVP_cleanup();
