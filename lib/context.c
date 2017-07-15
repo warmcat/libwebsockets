@@ -1078,10 +1078,242 @@ lws_context_is_deprecated(struct lws_context *context)
 LWS_VISIBLE void
 lws_context_destroy2(struct lws_context *context);
 
+
+static void
+lws_vhost_destroy1(struct lws_vhost *vh)
+{
+	const struct lws_protocols *protocol = NULL;
+	struct lws_context_per_thread *pt;
+	int n, m = vh->context->count_threads;
+	struct lws_context *context = vh->context;
+	struct lws wsi;
+
+	lwsl_notice("%s\n", __func__);
+
+	if (vh->being_destroyed)
+		return;
+
+	vh->being_destroyed = 1;
+
+	/*
+	 * Are there other vhosts that are piggybacking on our listen socket?
+	 * If so we need to hand the listen socket off to one of the others
+	 * so it will remain open.  If not, leave it attached to the closing
+	 * vhost and it will get closed.
+	 */
+
+	if (vh->lserv_wsi)
+		lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
+			if (v != vh &&
+			    !v->being_destroyed &&
+			    v->listen_port == vh->listen_port &&
+			    ((!v->iface && !vh->iface) ||
+			    (v->iface && vh->iface &&
+			    !strcmp(v->iface, vh->iface)))) {
+				/*
+				 * this can only be a listen wsi, which is
+				 * restricted... it has no protocol or other
+				 * bindings or states.  So we can simply
+				 * swap it to a vhost that has the same
+				 * iface + port, but is not closing.
+				 */
+				assert(v->lserv_wsi == NULL);
+				v->lserv_wsi = vh->lserv_wsi;
+				vh->lserv_wsi = NULL;
+				v->lserv_wsi->vhost = v;
+
+				lwsl_notice("%s: listen skt from %s to %s\n",
+					    __func__, vh->name, v->name);
+				break;
+			}
+		} lws_end_foreach_ll(v, vhost_next);
+
+	/*
+	 * Forcibly close every wsi assoicated with this vhost.  That will
+	 * include the listen socket if it is still associated with the closing
+	 * vhost.
+	 */
+
+	while (m--) {
+		pt = &context->pt[m];
+
+		for (n = 0; (unsigned int)n < context->pt[m].fds_count; n++) {
+			struct lws *wsi = wsi_from_fd(context, pt->fds[n].fd);
+			if (!wsi)
+				continue;
+			if (wsi->vhost != vh)
+				continue;
+
+			lws_close_free_wsi(wsi,
+				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
+				/* no protocol close */);
+			n--;
+		}
+	}
+
+	/*
+	 * let the protocols destroy the per-vhost protocol objects
+	 */
+
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.context = vh->context;
+	wsi.vhost = vh;
+	protocol = vh->protocols;
+	if (protocol) {
+		n = 0;
+		while (n < vh->count_protocols) {
+			wsi.protocol = protocol;
+			protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
+					   NULL, NULL, 0);
+			protocol++;
+			n++;
+		}
+	}
+
+	/*
+	 * remove vhost from context list of vhosts
+	 */
+
+	lws_start_foreach_llp(struct lws_vhost **, pv, context->vhost_list) {
+		if (*pv == vh) {
+			*pv = vh->vhost_next;
+			break;
+		}
+	} lws_end_foreach_llp(pv, vhost_next);
+
+	/* add ourselves to the pending destruction list */
+
+	vh->vhost_next = vh->context->vhost_pending_destruction_list;
+	vh->context->vhost_pending_destruction_list = vh;
+}
+
+static void
+lws_vhost_destroy2(struct lws_vhost *vh)
+{
+	const struct lws_protocols *protocol = NULL;
+	struct lws_context *context = vh->context;
+	struct lws_deferred_free *df;
+	int n;
+
+	lwsl_notice("%s: %p\n", __func__, vh);
+
+	/* if we are still on deferred free list, remove ourselves */
+
+	lws_start_foreach_llp(struct lws_deferred_free **, pdf, context->deferred_free_list) {
+		if ((*pdf)->payload == vh) {
+			df = *pdf;
+			*pdf = df->next;
+			lws_free(df);
+			break;
+		}
+	} lws_end_foreach_llp(pdf, next);
+
+	/* remove ourselves from the pending destruction list */
+
+	lws_start_foreach_llp(struct lws_vhost **, pv, context->vhost_pending_destruction_list) {
+		if ((*pv) == vh) {
+			*pv = (*pv)->vhost_next;
+			break;
+		}
+	} lws_end_foreach_llp(pv, vhost_next);
+
+	/*
+	 * Free all the allocations associated with the vhost
+	 */
+
+	protocol = vh->protocols;
+	if (protocol) {
+		n = 0;
+		while (n < vh->count_protocols) {
+			if (vh->protocol_vh_privs &&
+			    vh->protocol_vh_privs[n]) {
+				lws_free(vh->protocol_vh_privs[n]);
+				vh->protocol_vh_privs[n] = NULL;
+			}
+			protocol++;
+			n++;
+		}
+	}
+	if (vh->protocol_vh_privs)
+		lws_free(vh->protocol_vh_privs);
+	lws_ssl_SSL_CTX_destroy(vh);
+	lws_free(vh->same_vh_protocol_list);
+#ifdef LWS_WITH_PLUGINS
+	if (LWS_LIBUV_ENABLED(context)) {
+		if (context->plugin_list)
+			lws_free((void *)vh->protocols);
+	} else
+#endif
+	{
+		if (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
+			lws_free((void *)vh->protocols);
+	}
+
+#ifdef LWS_WITH_PLUGINS
+#ifndef LWS_NO_EXTENSIONS
+	if (context->plugin_extension_count)
+		lws_free((void *)vh->extensions);
+#endif
+#endif
+#ifdef LWS_WITH_ACCESS_LOG
+	if (vh->log_fd != (int)LWS_INVALID_FILE)
+		close(vh->log_fd);
+#endif
+
+	/*
+	 * although async event callbacks may still come for wsi handles with
+	 * pending close in the case of asycn event library like libuv,
+	 * they do not refer to the vhost.  So it's safe to free.
+	 */
+
+	lwsl_notice("  %s: Freeing vhost %p\n", __func__, vh);
+
+	memset(vh, 0, sizeof(*vh));
+	free(vh);
+}
+
+int
+lws_check_deferred_free(struct lws_context *context, int force)
+{
+	struct lws_deferred_free *df;
+	time_t now = lws_now_secs();
+
+	lws_start_foreach_llp(struct lws_deferred_free **, pdf, context->deferred_free_list) {
+		if (now > (*pdf)->deadline || force) {
+			df = *pdf;
+			*pdf = df->next;
+			/* finalize vh destruction */
+			lwsl_notice("doing deferred vh %p destroy\n", df->payload);
+			lws_vhost_destroy2(df->payload);
+			lws_free(df);
+			continue; /* after deletion we already point to next */
+		}
+	} lws_end_foreach_llp(pdf, next);
+
+	return 0;
+}
+
+LWS_VISIBLE void
+lws_vhost_destroy(struct lws_vhost *vh)
+{
+	struct lws_deferred_free *df = malloc(sizeof(*df));
+
+	if (!df)
+		return;
+
+	lws_vhost_destroy1(vh);
+
+	/* part 2 is deferred to allow all the handle closes to complete */
+
+	df->next = vh->context->deferred_free_list;
+	df->deadline = lws_now_secs() + 5;
+	df->payload = vh;
+	vh->context->deferred_free_list = df;
+}
+
 LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
 {
-	const struct lws_protocols *protocol = NULL;
 	struct lws_context_per_thread *pt;
 	struct lws_vhost *vh = NULL;
 	struct lws wsi;
@@ -1146,19 +1378,7 @@ lws_context_destroy(struct lws_context *context)
 	if (context->protocol_init_done)
 		vh = context->vhost_list;
 	while (vh) {
-		wsi.vhost = vh;
-		protocol = vh->protocols;
-		if (protocol) {
-			n = 0;
-			while (n < vh->count_protocols) {
-				wsi.protocol = protocol;
-				protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
-						   NULL, NULL, 0);
-				protocol++;
-				n++;
-			}
-		}
-
+		lws_vhost_destroy1(vh);
 		vh = vh->vhost_next;
 	}
 
@@ -1191,9 +1411,7 @@ lws_context_destroy(struct lws_context *context)
 LWS_VISIBLE void
 lws_context_destroy2(struct lws_context *context)
 {
-	const struct lws_protocols *protocol = NULL;
 	struct lws_vhost *vh = NULL, *vh1;
-	int n;
 
 	lwsl_notice("%s: ctx %p\n", __func__, context);
 
@@ -1203,46 +1421,17 @@ lws_context_destroy2(struct lws_context *context)
 
 	vh = context->vhost_list;
 	while (vh) {
-		protocol = vh->protocols;
-		if (protocol) {
-			n = 0;
-			while (n < vh->count_protocols) {
-				if (vh->protocol_vh_privs &&
-				    vh->protocol_vh_privs[n]) {
-					// lwsl_notice("   %s: freeing per-vhost protocol data %p\n", __func__, vh->protocol_vh_privs[n]);
-					lws_free(vh->protocol_vh_privs[n]);
-					vh->protocol_vh_privs[n] = NULL;
-				}
-				protocol++;
-				n++;
-			}
-		}
-		if (vh->protocol_vh_privs)
-			lws_free(vh->protocol_vh_privs);
-		lws_ssl_SSL_CTX_destroy(vh);
-		lws_free(vh->same_vh_protocol_list);
-#ifdef LWS_WITH_PLUGINS
-		if (context->plugin_list)
-			lws_free((void *)vh->protocols);
-#else
-		if (vh->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
-			lws_free((void *)vh->protocols);
-#endif
-#ifdef LWS_WITH_PLUGINS
-#ifndef LWS_NO_EXTENSIONS
-		if (context->plugin_extension_count)
-			lws_free((void *)vh->extensions);
-#endif
-#endif
-#ifdef LWS_WITH_ACCESS_LOG
-		if (vh->log_fd != (int)LWS_INVALID_FILE)
-			close(vh->log_fd);
-#endif
-
 		vh1 = vh->vhost_next;
-		lws_free(vh);
+		lws_vhost_destroy2(vh);
 		vh = vh1;
 	}
+
+	/* remove ourselves from the pending destruction list */
+
+	while (context->vhost_pending_destruction_list)
+		/* removes itself from list */
+		lws_vhost_destroy2(context->vhost_pending_destruction_list);
+
 
 	lws_stats_log_dump(context);
 
@@ -1251,6 +1440,8 @@ lws_context_destroy2(struct lws_context *context)
 
 	if (context->external_baggage_free_on_destroy)
 		free(context->external_baggage_free_on_destroy);
+
+	lws_check_deferred_free(context, 1);
 
 	lws_free(context);
 }

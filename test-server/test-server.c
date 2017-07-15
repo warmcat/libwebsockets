@@ -29,7 +29,8 @@ struct lws_pollfd *pollfds;
 int *fd_lookup;
 int count_pollfds;
 #endif
-volatile int force_exit = 0;
+volatile int force_exit = 0, dynamic_vhost_enable = 0;
+struct lws_vhost *dynamic_vhost;
 struct lws_context *context;
 struct lws_plat_file_ops fops_plat;
 
@@ -159,6 +160,20 @@ test_server_fops_open(const struct lws_plat_file_ops *fops,
 
 void sighandler(int sig)
 {
+#if !defined(WIN32) && !defined(_WIN32)
+	/* because windows is too dumb to have SIGUSR1... */
+	if (sig == SIGUSR1) {
+		/*
+		 * For testing, you can fire a SIGUSR1 at the test server
+		 * to toggle the existence of an identical server on
+		 * port + 1
+		 */
+		dynamic_vhost_enable ^= 1;
+		lwsl_notice("SIGUSR1: dynamic_vhost_enable: %d\n",
+				dynamic_vhost_enable);
+		return;
+	}
+#endif
 	force_exit = 1;
 	lws_cancel_service(context);
 }
@@ -347,6 +362,11 @@ int main(int argc, char **argv)
 #endif
 
 	signal(SIGINT, sighandler);
+#if !defined(WIN32) && !defined(_WIN32)
+	/* because windows is too dumb to have SIGUSR1... */
+	/* dynamic vhost create / destroy toggle (on port + 1) */
+	signal(SIGUSR1, sighandler);
+#endif
 
 #ifndef _WIN32
 	/* we will only try to log things according to our debug_level */
@@ -434,6 +454,14 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+	/*
+	 * For testing dynamic vhost create / destroy later, we use port + 1
+	 * Normally if you were creating more vhosts, you would set info.name
+	 * for each to be the hostname external clients use to reach it
+	 */
+
+	info.port++;
+
 #if !defined(LWS_NO_CLIENT) && defined(LWS_OPENSSL_SUPPORT)
 	lws_init_vhost_client_ssl(&info, vhost);
 #endif
@@ -516,6 +544,17 @@ int main(int argc, char **argv)
 
 		n = lws_service(context, 50);
 #endif
+
+		if (dynamic_vhost_enable && !dynamic_vhost) {
+			lwsl_notice("creating dynamic vhost...\n");
+			dynamic_vhost = lws_create_vhost(context, &info);
+		} else
+			if (!dynamic_vhost_enable && dynamic_vhost) {
+				lwsl_notice("destroying dynamic vhost...\n");
+				lws_vhost_destroy(dynamic_vhost);
+				dynamic_vhost = NULL;
+			}
+
 	}
 
 #ifdef EXTERNAL_POLL

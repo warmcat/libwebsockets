@@ -902,9 +902,17 @@ struct lws_vhost {
 #endif
 
 	unsigned int created_vhost_protocols:1;
+	unsigned int being_destroyed:1;
 
 	unsigned char default_protocol_index;
 	unsigned char raw_protocol_index;
+};
+
+struct lws_deferred_free
+{
+	struct lws_deferred_free *next;
+	time_t deadline;
+	void *payload;
 };
 
 /*
@@ -939,7 +947,9 @@ struct lws_context {
 #endif
 #endif
 	struct lws_vhost *vhost_list;
+	struct lws_vhost *vhost_pending_destruction_list;
 	struct lws_plugin *plugin_list;
+	struct lws_deferred_free *deferred_free_list;
 
 	void *external_baggage_free_on_destroy;
 	const struct lws_token_limits *token_limits;
@@ -1028,6 +1038,9 @@ struct lws_context {
 	unsigned short deprecation_pending_listen_close_count;
 	uint8_t max_fi;
 };
+
+int
+lws_check_deferred_free(struct lws_context *context, int force);
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
 #define lws_get_vh_protocol(vh, x) vh->protocols[x]

@@ -2207,9 +2207,21 @@ struct lws_vhost;
  * members of the info struct.  You can create many vhosts inside one context
  * if you created the context with the option LWS_SERVER_OPTION_EXPLICIT_VHOSTS
  */
-LWS_EXTERN LWS_VISIBLE struct lws_vhost *
+LWS_VISIBLE LWS_EXTERN struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 struct lws_context_creation_info *info);
+
+/**
+ * lws_destroy_vhost() - Destroy a vhost (virtual server context)
+ * \param vhost:	pointer to result of lws_create_vhost()
+ *
+ * This function destroys a vhost.  Normally, if you just want to exit,
+ * then lws_destroy_context() will take care of everything.  If you want
+ * to destroy an individual vhost and all connections and allocations, you
+ * can do it with this.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_vhost_destroy(struct lws_vhost *vh);
 
 /**
  * lwsws_get_config_globals() - Parse a JSON server config file

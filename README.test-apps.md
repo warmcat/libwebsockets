@@ -103,6 +103,13 @@ same.
 [test-server.c](test-server/test-server.c) is all that is needed to use libwebsockets for
 serving both the script html over http and websockets.
 
+@section lwstsdynvhost Dynamic Vhosts
+
+You can send libwebsockets-test-server or libwebsockets-test-server-v2.0 a SIGUSR1
+to toggle the creation and destruction of an identical second vhost on port + 1.
+
+This is intended as a test and demonstration for how to bring up and remove
+vhosts dynamically.
 
 @section wscl Testing websocket client support
 

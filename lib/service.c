@@ -809,6 +809,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 		lws_plat_service_periodic(context);
 
+		lws_check_deferred_free(context, 0);
+
 		/* retire unused deprecated context */
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_ESP32)
 #if LWS_POSIX && !defined(_WIN32)
