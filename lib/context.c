@@ -384,10 +384,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_SSL_INFO:
 		{
-			struct lws_ssl_info *si = in;
-
 			lwsl_notice("LWS_CALLBACK_SSL_INFO: where: 0x%x, ret: 0x%x\n",
-					si->where, si->ret);
+					((struct lws_ssl_info *) in)->where,
+					((struct lws_ssl_info *) in)->ret);
 		}
 		break;
 
