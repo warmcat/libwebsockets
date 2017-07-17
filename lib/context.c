@@ -386,6 +386,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		{
 			struct lws_ssl_info *si = in;
 
+			(void)si;
 			lwsl_notice("LWS_CALLBACK_SSL_INFO: where: 0x%x, ret: 0x%x\n",
 					si->where, si->ret);
 		}
