@@ -558,6 +558,7 @@ utf8_fail:			lwsl_info("utf8 error\n");
 			lws_remove_wsi_from_draining_ext_list(wsi);
 
 		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
+		    wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION ||
 		    wsi->state == LWSS_AWAITING_CLOSE_ACK)
 			goto already_done;
 
