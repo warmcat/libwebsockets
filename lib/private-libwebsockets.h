@@ -488,6 +488,7 @@ enum lws_connection_states {
 	LWSS_ESTABLISHED,
 	LWSS_CLIENT_HTTP_ESTABLISHED,
 	LWSS_CLIENT_UNCONNECTED,
+	LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION,
 	LWSS_RETURNED_CLOSE_ALREADY,
 	LWSS_AWAITING_CLOSE_ACK,
 	LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE,
@@ -1650,6 +1651,7 @@ struct lws {
 	unsigned int sending_chunked:1;
 	unsigned int already_did_cce:1;
 	unsigned int told_user_closed:1;
+	unsigned int waiting_to_send_close_frame:1;
 	unsigned int ipv6:1;
 	unsigned int parent_carries_io:1;
 	unsigned int parent_pending_cb_on_writable:1;

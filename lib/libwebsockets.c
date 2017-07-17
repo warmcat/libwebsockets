@@ -352,6 +352,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		return;
 
 	/* we tried the polite way... */
+	case LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION:
 	case LWSS_AWAITING_CLOSE_ACK:
 		goto just_kill_connection;
 
@@ -468,29 +469,14 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 #if defined (LWS_WITH_ESP8266)
 		wsi->close_is_pending_send_completion = 1;
 #endif
-		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[LWS_PRE],
-			      wsi->u.ws.close_in_ping_buffer_len,
-			      LWS_WRITE_CLOSE);
-		if (n >= 0) {
-			/*
-			 * we have sent a nice protocol level indication we
-			 * now wish to close, we should not send anything more
-			 */
-			wsi->state = LWSS_AWAITING_CLOSE_ACK;
 
-			/*
-			 * ...and we should wait for a reply for a bit
-			 * out of politeness
-			 */
-			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 1);
-			lwsl_debug("sent close indication, awaiting ack\n");
+		lwsl_debug("waiting for chance to send close\n");
+		wsi->waiting_to_send_close_frame = 1;
+		wsi->state = LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION;
+		lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 2);
+		lws_callback_on_writable(wsi);
 
-			return;
-		}
-
-		lwsl_info("close: sending close packet failed, hanging up\n");
-
-		/* else, the send failed and we should just hang up */
+		return;
 	}
 
 just_kill_connection:
@@ -654,6 +640,7 @@ just_kill_connection:
 	    ((wsi->state_pre_close == LWSS_ESTABLISHED) ||
 	    (wsi->state_pre_close == LWSS_RETURNED_CLOSE_ALREADY) ||
 	    (wsi->state_pre_close == LWSS_AWAITING_CLOSE_ACK) ||
+	    (wsi->state_pre_close == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION) ||
 	    (wsi->state_pre_close == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) ||
 	    (wsi->mode == LWSCM_WS_CLIENT && wsi->state_pre_close == LWSS_HTTP) ||
 	    (wsi->mode == LWSCM_WS_SERVING && wsi->state_pre_close == LWSS_HTTP))) {

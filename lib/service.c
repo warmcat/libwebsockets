@@ -58,13 +58,13 @@ lws_calllback_as_writeable(struct lws *wsi)
 		n = LWS_CALLBACK_HTTP_WRITEABLE;
 		break;
 	}
-	lwsl_debug("%s: %p (user=%p)\n", __func__, wsi, wsi->user_space);
+
 	return user_callback_handle_rxflow(wsi->protocol->callback,
 					   wsi, (enum lws_callback_reasons) n,
 					   wsi->user_space, NULL, 0);
 }
 
-int
+LWS_VISIBLE int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	int write_type = LWS_WRITE_PONG;
@@ -74,7 +74,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 #endif
 	int ret, m, n;
 
-	//lwsl_err("%s: %p\n", __func__, wsi);
+//	lwsl_err("%s: %p\n", __func__, wsi);
 
 	wsi->leave_pollout_active = 0;
 	wsi->handling_pollout = 1;
@@ -144,7 +144,29 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 #endif
 
 	/* Priority 3: pending control packets (pong or close)
+	 *
+	 * 3a: close notification packet requested from close api
 	 */
+
+	if (wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION) {
+		lwsl_debug("sending close packet\n");
+		wsi->waiting_to_send_close_frame = 0;
+		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[LWS_PRE],
+			      wsi->u.ws.close_in_ping_buffer_len,
+			      LWS_WRITE_CLOSE);
+		if (n >= 0) {
+			wsi->state = LWSS_AWAITING_CLOSE_ACK;
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 1);
+			lwsl_debug("sent close indication, awaiting ack\n");
+
+			goto bail_ok;
+		}
+
+		goto bail_die;
+	}
+
+	/* else, the send failed and we should just hang up */
+
 	if ((wsi->state == LWSS_ESTABLISHED &&
 	     wsi->u.ws.ping_pending_flag) ||
 	    (wsi->state == LWSS_RETURNED_CLOSE_ALREADY &&
@@ -307,6 +329,13 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 user_service:
 	/* one shot */
 
+	if (wsi->parent_carries_io) {
+		wsi->handling_pollout = 0;
+		wsi->leave_pollout_active = 0;
+
+		return lws_calllback_as_writeable(wsi);
+	}
+
 	if (pollfd) {
 		int eff = wsi->leave_pollout_active;
 
@@ -319,7 +348,6 @@ user_service:
 		wsi->handling_pollout = 0;
 
 		/* cannot get leave_pollout_active set after the above */
-
 		if (!eff && wsi->leave_pollout_active)
 			/* got set inbetween sampling eff and clearing
 			 * handling_pollout, force POLLOUT on */
@@ -906,6 +934,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 		/* not lws connection ... leave revents alone and return */
 		return 0;
 
+	if (wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION)
+		lwsl_notice("yy\n");
+
 	/*
 	 * so that caller can tell we handled, past here we need to
 	 * zero down pollfd->revents after handling
@@ -1039,11 +1070,15 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 		/* 1: something requested a callback when it was OK to write */
 
+		if (wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION)
+			lwsl_notice("xxx\n");
+
 		if ((pollfd->revents & LWS_POLLOUT) &&
 		    ((wsi->state == LWSS_ESTABLISHED ||
 		     wsi->state == LWSS_HTTP2_ESTABLISHED ||
 		     wsi->state == LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS ||
 		     wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
+		     wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION ||
 		     wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE)) &&
 		    lws_handle_POLLOUT_event(wsi, pollfd)) {
 			if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY)
@@ -1053,6 +1088,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 		}
 
 		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
+		    wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION ||
 		    wsi->state == LWSS_AWAITING_CLOSE_ACK) {
 			/*
 			 * we stopped caring about anything except control

@@ -229,6 +229,7 @@ postbody_completion:
 
 	case LWSS_ESTABLISHED:
 	case LWSS_AWAITING_CLOSE_ACK:
+	case LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION:
 	case LWSS_SHUTDOWN:
 		if (lws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;

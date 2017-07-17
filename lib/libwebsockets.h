@@ -2825,6 +2825,9 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 /* Backwards compatibility */
 #define lws_plat_service_tsi lws_service_tsi
 
+LWS_VISIBLE LWS_EXTERN int
+lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
+
 ///@}
 
 /*! \defgroup http HTTP
@@ -3662,6 +3665,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY		= 21,
 	PENDING_TIMEOUT_KILLED_BY_SSL_INFO			= 22,
 	PENDING_TIMEOUT_KILLED_BY_PARENT			= 23,
+	PENDING_TIMEOUT_CLOSE_SEND				= 24,
 
 	/****** add new things just above ---^ ******/
 };

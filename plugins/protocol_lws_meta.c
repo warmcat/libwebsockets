@@ -41,6 +41,7 @@ enum lws_meta_parser_state {
 	MP_OPEN_SUBCHANNEL_COOKIE,
 
 	MP_CLOSE_CHID,
+	MP_CLOSE_LEN,
 	MP_CLOSE_CODEM,
 	MP_CLOSE_CODEL,
 	MP_CLOSE_PAYLOAD,
@@ -83,6 +84,8 @@ struct per_session_data__lws_meta {
 	int count_pending;
 	int round_robin;
 	int close_status_16;
+	int close_len;
+	int which_close;
 	int ch;
 };
 
@@ -268,21 +271,15 @@ callback_lws_meta(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 		} else
-			/* one child is in middle of message, must stay with it */
+			/* one child is in middle of message, stay with it */
 			cwsi = pss->wsi[pss->active_subchannel_tx];
 
-		if (cwsi) {
+		if (!cwsi)
+			break;
 
-			lws_clear_child_pending_on_writable(cwsi);
-
-			if (lws_get_protocol(cwsi)->callback(cwsi,
-					LWS_CALLBACK_SERVER_WRITEABLE,
-					lws_wsi_user(cwsi),
-					in, len))
-				return -1;
-
-		}
-
+		lws_clear_child_pending_on_writable(cwsi);
+		if (lws_handle_POLLOUT_event(cwsi, NULL))
+			return -1;
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
@@ -320,12 +317,15 @@ callback_lws_meta(struct lws *wsi, enum lws_callback_reasons reason,
 					pss->state = MP_OPEN_SUBCHANNEL_PROTOCOL;
 
 					break;
+				case LWS_META_CMD_CLOSE_NOTIFY:
 				case LWS_META_CMD_CLOSE_RQ:
+					pss->which_close = bin[-1];
 					pss->state = MP_CLOSE_CHID;
 					break;
 				case LWS_META_CMD_WRITE:
 					pss->state = MP_WRITE_CHID;
 					break;
+
 				// open result is also illegal to receive
 				default:
 					lwsl_notice("illegal lws_meta cmd 0x%x\n", bin[-1]);
@@ -415,6 +415,12 @@ callback_lws_meta(struct lws *wsi, enum lws_callback_reasons reason,
 
 			case MP_CLOSE_CHID:
 				pss->ch = (*bin++) - LWS_META_CHANNEL_OFFSET_TRANSPORT;
+				pss->state = MP_CLOSE_LEN;
+				pss->pos = 0;
+				break;
+			case MP_CLOSE_LEN:
+				pss->close_len = (*bin++) - LWS_META_CHANNEL_OFFSET_TRANSPORT;
+				lwsl_debug("close len %d\n", pss->close_len);
 				pss->state = MP_CLOSE_CODEM;
 				pss->pos = 0;
 				break;
@@ -434,34 +440,38 @@ callback_lws_meta(struct lws *wsi, enum lws_callback_reasons reason,
 					lwsl_notice("close payload too long\n");
 					return -1;
 				}
-				if (bin[-1] != '\0')
+				if (--pss->close_len)
 					break;
 
 				cwsi = lws_get_channel_wsi(pss, pss->ch);
 				if (!cwsi)
-					return -1;
+					lwsl_notice("received close (%d) for unknown ch %d\n", pss->which_close, pss->ch);
+				else {
 
+					if (pss->which_close == LWS_META_CMD_CLOSE_RQ) {
 
-				if (lws_get_protocol(cwsi)->callback(cwsi,
-				    LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
-				    lws_wsi_user(cwsi),
-				    &pss->close, pss->pos))
-					return -1;
+						if (lws_get_protocol(cwsi)->callback(cwsi,
+						    LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
+						    lws_wsi_user(cwsi),
+						    &pss->close, pss->pos))
+							return -1;
 
-				/*
-				 * we need to echo back the close payload
-				 * when we send the close notification
-				 */
+						/*
+						 * we need to echo back the close payload
+						 * when we send the close notification
+						 */
 
-				lws_close_reason(cwsi,
-						 pss->close_status_16,
-						 pss->close, pss->pos);
+						lws_close_reason(cwsi,
+								 pss->close_status_16,
+								 &pss->close[2], pss->pos - 2);
+					}
 
-				/* so force him closed */
+					/* so force him closed */
 
-				lws_set_timeout(cwsi,
-					PENDING_TIMEOUT_KILLED_BY_PARENT,
-					LWS_TO_KILL_SYNC);
+					lws_set_timeout(cwsi,
+						PENDING_TIMEOUT_KILLED_BY_PARENT,
+						LWS_TO_KILL_SYNC);
+				}
 
 				pss->state = MP_CMD;
 				break;
@@ -486,6 +496,8 @@ callback_lws_meta(struct lws *wsi, enum lws_callback_reasons reason,
 
 			return -1;
 		}
+
+		lwsl_debug("%s: RX len %d\n", __func__, (int)len);
 
 		if (lws_get_protocol(cwsi)->callback(
 				cwsi,
@@ -516,14 +528,16 @@ callback_lws_meta(struct lws *wsi, enum lws_callback_reasons reason,
 			*p++ = LWS_META_CMD_CLOSE_NOTIFY;
 			*p++ = LWS_META_CHANNEL_OFFSET_TRANSPORT +
 					lws_get_channel_id(pas->wsi);
-			for (n = 0; n < (int)pas->len; n++)
+			*p++ = pas->len - 2 + LWS_META_CHANNEL_OFFSET_TRANSPORT;
+			*p++ = *bin++;
+			*p++ = *bin++;
+			for (n = 0; n < (int)pas->len - 2; n++)
 				*p++ = bin[n];
 
 			if (lws_write(wsi, start, p - start, LWS_WRITE_BINARY) < 0)
 				return 1;
 
 			pss->told_closing[lws_get_channel_id(pas->wsi)] = 1;
-
 			break;
 		}
 

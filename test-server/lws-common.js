@@ -188,12 +188,13 @@ lws_meta_ws_child.prototype.close = function(close_code, close_string)
 	pkt[m++] = lws_meta_cmd.CLOSE_RQ;
 	pkt[m++] = this.channel_id;
 	
+	pkt[m++] = close_string.length + 0x20;
+	
 	pkt[m++] = close_code / 256;
 	pkt[m++] = close_code % 256;
 	
 	for (i = 0; i < close_string.length; i++)
 		pkt[m++] = close_string.charCodeAt(i);
-	pkt[m++] = 0;
 	
 	pkt1 = new Uint8Array(m);
 	for (n = 0; n < m; n++)
@@ -297,7 +298,7 @@ lws_meta_ws.prototype.new_parent = function(urlpath)
 	
 				case lws_meta_cmd.CLOSE_NOT:
 				{
-					var code = 0, str = "", ch = 0, m;
+					var code = 0, str = "", ch = 0, m, le;
 					var ba = new Uint8Array(msg.data);
 					/*
 					 * BYTE: channel
@@ -307,23 +308,27 @@ lws_meta_ws.prototype.new_parent = function(urlpath)
 					 */
 					 
 					 ch = ba[n++];
+					 le = ba[n++] - 0x20;
 					 code = ba[n++] * 256;
 					 code += ba[n++];
 					 
-					 while (n < ba.length)
+					 while (le--)
 					 	str += String.fromCharCode(ba[n++]);
 					 	
-					console.log("channel id " + ch + " code " + code + " str " + str + "len " + str.length);
+					console.log("channel id " + ch + " code " + code + " str " + str + " len " + str.length);
 					 	
 					for (m = 0; m < this.myparent.active_children.length; m++)
 						if (this.myparent.active_children[m].channel_id == ch) {
 							var child = this.myparent.active_children[m];
 							var ms = new CloseEvent("close", { code:code, reason:str } );
 							
+							/* reply with close ack */
+							this.send(msg.data);
+							
 							if (child.onclose)
 								child.onclose(ms);
-								
-							ws.active_children.splice(m, 1);
+							
+							this.myparent.active_children.splice(m, 1);
 							break;
 						}
 

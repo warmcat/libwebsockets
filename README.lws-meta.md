@@ -126,17 +126,19 @@ the channel ID is 0 (after subtracting the transport offset of
 ### 0x43: TX: LWS_META_CMD_CLOSE_NOTIFY
 
    - BYTE channel id
+   - BYTE: payload length + 0x20
    - BYTE: close code MSB
    - BYTE: close code LSB
-   - CSTRING: message (< 123 bytes)
+   - PAYLOAD: payload (< 123 bytes)
 
 Server notifies the client that a child has closed, for whatever reason.
 
 ### 0x44: RX: LWS_META_CMD_CLOSE_RQ
    - BYTE: channel id
+   - BYTE: payload length + 0x20
    - BYTE: close code MSB
    - BYTE: close code LSB
-   - CSTRING: message (< 123 bytes)
+   - PAYLOAD: payload (< 123 bytes)
 
 The client requests to close a child connection
 
