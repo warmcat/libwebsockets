@@ -385,6 +385,9 @@ lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 {
 	int n;
 
+	if (!wsi->u.hdr.ah)
+		return 0;
+
 	n = wsi->u.hdr.ah->frag_index[h];
 	if (!n)
 		return 0;
@@ -402,6 +405,9 @@ LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 	int n;
 	int len = 0;
 
+	if (!wsi->u.hdr.ah)
+		return 0;
+
 	n = wsi->u.hdr.ah->frag_index[h];
 	if (!n)
 		return 0;
@@ -417,7 +423,12 @@ LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 				      enum lws_token_indexes h, int frag_idx)
 {
 	int n = 0;
-	int f = wsi->u.hdr.ah->frag_index[h];
+	int f;
+
+	if (!wsi->u.hdr.ah)
+		return -1;
+
+	f = wsi->u.hdr.ah->frag_index[h];
 
 	if (!f)
 		return -1;
@@ -446,6 +457,9 @@ LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 	int n;
 
 	if (toklen >= len)
+		return -1;
+
+	if (!wsi->u.hdr.ah)
 		return -1;
 
 	n = wsi->u.hdr.ah->frag_index[h];
@@ -1145,6 +1159,7 @@ handle_first:
 			wsi->u.ws.rsv_first_msg = (c & 0x70);
 			wsi->u.ws.frame_is_binary =
 			     wsi->u.ws.opcode == LWSWSOPC_BINARY_FRAME;
+			wsi->u.ws.first_fragment = 1;
 			break;
 		case 3:
 		case 4:
@@ -1492,6 +1507,7 @@ drain_extension:
 		/* eff_buf may be pointing somewhere completely different now,
 		 * it's the output
 		 */
+		wsi->u.ws.first_fragment = 0;
 		if (n < 0) {
 			/*
 			 * we may rely on this to get RX, just drop connection

@@ -250,6 +250,23 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	int pre = 0, n;
 	size_t orig_len = len;
 
+	if (wsi->parent_carries_io) {
+		struct lws_write_passthru pas;
+
+		pas.buf = buf;
+		pas.len = len;
+		pas.wp = wp;
+		pas.wsi = wsi;
+
+		if (wsi->parent->protocol->callback(wsi->parent,
+				LWS_CALLBACK_CHILD_WRITE_VIA_PARENT,
+				wsi->parent->user_space,
+				(void *)&pas, 0))
+			return 1;
+
+		return len;
+	}
+
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_LWS_WRITE, 1);
 
 	if ((int)len < 0) {

@@ -226,8 +226,15 @@ static const struct lws_protocol_vhost_options pvo_opt4 = {
  * linked-list.  We can also give the plugin per-vhost options here.
  */
 
-static const struct lws_protocol_vhost_options pvo_4 = {
+static const struct lws_protocol_vhost_options pvo_5 = {
 	NULL,
+	NULL,
+	"lws-meta",
+	"" /* ignored, just matches the protocol name above */
+};
+
+static const struct lws_protocol_vhost_options pvo_4 = {
+	&pvo_5,
 	&pvo_opt4, /* set us as the protocol who gets raw connections */
 	"protocol-lws-raw-test",
 	"" /* ignored, just matches the protocol name above */

@@ -329,6 +329,13 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 user_service:
 	/* one shot */
 
+	if (wsi->parent_carries_io) {
+		wsi->handling_pollout = 0;
+		wsi->leave_pollout_active = 0;
+
+		return lws_calllback_as_writeable(wsi);
+	}
+
 	if (pollfd) {
 		int eff = wsi->leave_pollout_active;
 

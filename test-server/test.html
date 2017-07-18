@@ -533,21 +533,31 @@ if (params.mirror)
 	mirror_name = params.mirror;
 
 	console.log(mirror_name);
+	
 
-function new_ws(urlpath, protocol)
-{
-	if (typeof MozWebSocket != "undefined")
-		return new MozWebSocket(urlpath, protocol);
+/*
+ * if using lws-meta to carry the other ws connections, declare the
+ * parent connection object and start its connection to the server.
+ *
+ * These helpers are defined in lws-common.js
+ */
 
-	return new WebSocket(get_appropriate_ws_url(urlpath), protocol);
-}
+
+var lws_meta = new lws_meta_ws();
+lws_meta.new_parent(get_appropriate_ws_url("?mirror=" + mirror_name));
 
 
 document.getElementById("number").textContent = get_appropriate_ws_url(mirror_name);
 
 /* dumb increment protocol */
+
+	/*
+	 * to connect via an lws-meta connection, start the connection using
+	 * lws_meta.new_ws().  To connect by independent connection, start
+	 * the connection using just new_ws()
+	 */
 	
-	var socket_di = new_ws("", "dumb-increment-protocol");
+	var socket_di = lws_meta.new_ws("", "dumb-increment-protocol");
 
 	try {
 		socket_di.onopen = function() {
@@ -571,8 +581,8 @@ document.getElementById("number").textContent = get_appropriate_ws_url(mirror_na
 	
 	var socket_status, jso, s;
 
-	socket_status = new_ws(get_appropriate_ws_url(""), "lws-status");
 
+	socket_status = lws_meta.new_ws(get_appropriate_ws_url(""), "lws-status");
 
 	try {
 		socket_status.onopen = function() {
@@ -584,6 +594,8 @@ document.getElementById("number").textContent = get_appropriate_ws_url(mirror_na
 
 		socket_status.onmessage =function got_packet(msg) {
 			var s;
+			
+			console.log(msg.data);
 			
 			jso = JSON.parse(msg.data);
 			
@@ -637,7 +649,9 @@ var socket_ot;
 
 function ot_open() {
 
-	socket_ot = new_ws(get_appropriate_ws_url(""), "dumb-increment-protocol");
+	socket_ot = lws_meta.new_ws(get_appropriate_ws_url(""), "dumb-increment-protocol");
+
+	console.log("ot_open");
 
 	try {
 		socket_ot.onopen = function() {
@@ -646,6 +660,7 @@ function ot_open() {
 			document.getElementById("ot_open_btn").disabled = true;
 			document.getElementById("ot_close_btn").disabled = false;
 			document.getElementById("ot_req_close_btn").disabled = false;
+			console.log("ot_open.onopen");
 		} 
 
 		socket_ot.onclose = function(e){
@@ -680,7 +695,7 @@ function ot_req_close() {
 	var socket_lm;
 	var color = "#000000";
 
-	socket_lm = new_ws(get_appropriate_ws_url("?mirror=" + mirror_name),
+	socket_lm = lws_meta.new_ws(get_appropriate_ws_url("?mirror=" + mirror_name),
 			"lws-mirror-protocol");
 
 	try {

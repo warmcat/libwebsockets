@@ -1284,6 +1284,57 @@ transaction_result_n:
 #endif
 }
 
+static int
+lws_server_init_wsi_for_ws(struct lws *wsi)
+{
+	int n;
+
+	wsi->state = LWSS_ESTABLISHED;
+	lws_restart_ws_ping_pong_timer(wsi);
+
+	/*
+	 * create the frame buffer for this connection according to the
+	 * size mentioned in the protocol definition.  If 0 there, use
+	 * a big default for compatibility
+	 */
+
+	n = wsi->protocol->rx_buffer_size;
+	if (!n)
+		n = wsi->context->pt_serv_buf_size;
+	n += LWS_PRE;
+	wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */);
+	if (!wsi->u.ws.rx_ubuf) {
+		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
+		return 1;
+	}
+	wsi->u.ws.rx_ubuf_alloc = n;
+	lwsl_debug("Allocating RX buffer %d\n", n);
+
+#if LWS_POSIX && !defined(LWS_WITH_ESP32)
+	if (!wsi->parent_carries_io)
+		if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF,
+		       (const char *)&n, sizeof n)) {
+			lwsl_warn("Failed to set SNDBUF to %d", n);
+			return 1;
+		}
+#endif
+
+	/* notify user code that we're ready to roll */
+
+	if (wsi->protocol->callback)
+		if (wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
+					    wsi->user_space,
+#ifdef LWS_OPENSSL_SUPPORT
+					    wsi->ssl,
+#else
+					    NULL,
+#endif
+					    0))
+			return 1;
+
+	return 0;
+}
+
 int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
@@ -1652,48 +1703,9 @@ upgrade_ws:
 		wsi->u.hdr = hdr;
 		lws_pt_unlock(pt);
 
-		lws_restart_ws_ping_pong_timer(wsi);
-
-		/*
-		 * create the frame buffer for this connection according to the
-		 * size mentioned in the protocol definition.  If 0 there, use
-		 * a big default for compatibility
-		 */
-
-		n = wsi->protocol->rx_buffer_size;
-		if (!n)
-			n = context->pt_serv_buf_size;
-		n += LWS_PRE;
-		wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */);
-		if (!wsi->u.ws.rx_ubuf) {
-			lwsl_err("Out of Mem allocating rx buffer %d\n", n);
-			return 1;
-		}
-		wsi->u.ws.rx_ubuf_alloc = n;
-		lwsl_debug("Allocating RX buffer %d\n", n);
-#if LWS_POSIX && !defined(LWS_WITH_ESP32)
-		if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF,
-			       (const char *)&n, sizeof n)) {
-			lwsl_warn("Failed to set SNDBUF to %d", n);
-			return 1;
-		}
-#endif
-
+		lws_server_init_wsi_for_ws(wsi);
 		lwsl_parser("accepted v%02d connection\n",
 			    wsi->ietf_spec_revision);
-
-		/* notify user code that we're ready to roll */
-
-		if (wsi->protocol->callback)
-			if (wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
-						    wsi->user_space,
-#ifdef LWS_OPENSSL_SUPPORT
-						    wsi->ssl,
-#else
-						    NULL,
-#endif
-						    0))
-				return 1;
 
 		/* !!! drop ah unreservedly after ESTABLISHED */
 		if (!wsi->more_rx_waiting) {
@@ -1782,6 +1794,8 @@ lws_create_new_server_wsi(struct lws_vhost *vhost)
 	new_wsi->user_space = NULL;
 	new_wsi->ietf_spec_revision = 0;
 	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
+	new_wsi->position_in_fds_table = -1;
+
 	vhost->context->count_wsi_allocated++;
 
 	/*
@@ -1889,7 +1903,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	int n, ssl = 0;
 
 	if (!new_wsi) {
-		if (type & LWS_ADOPT_SOCKET)
+		if (type & LWS_ADOPT_SOCKET && !(type & LWS_ADOPT_WS_PARENTIO))
 			compatible_close(fd.sockfd);
 		return NULL;
 	}
@@ -1900,6 +1914,9 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		new_wsi->parent = parent;
 		new_wsi->sibling_list = parent->child_list;
 		parent->child_list = new_wsi;
+
+		if (type & LWS_ADOPT_WS_PARENTIO)
+			new_wsi->parent_carries_io = 1;
 	}
 
 	new_wsi->desc = fd;
@@ -1915,6 +1932,15 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
                if (lws_ensure_user_space(new_wsi)) {
                        lwsl_notice("OOM trying to get user_space\n");
 			goto bail;
+               }
+               if (type & LWS_ADOPT_WS_PARENTIO) {
+			new_wsi->desc.sockfd = LWS_SOCK_INVALID;
+			lwsl_debug("binding to %s\n", new_wsi->protocol->name);
+			lws_bind_protocol(new_wsi, new_wsi->protocol);
+			lws_union_transition(new_wsi, LWSCM_WS_SERVING);
+			lws_server_init_wsi_for_ws(new_wsi);
+
+			return new_wsi;
                }
 	} else
 		if (type & LWS_ADOPT_HTTP) /* he will transition later */

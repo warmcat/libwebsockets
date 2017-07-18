@@ -1484,6 +1484,7 @@ struct _lws_websocket_related {
 	unsigned int rx_draining_ext:1;
 	unsigned int tx_draining_ext:1;
 	unsigned int send_check_ping:1;
+	unsigned int first_fragment:1;
 };
 
 #ifdef LWS_WITH_CGI
@@ -1588,6 +1589,7 @@ struct lws {
 	struct lws_access_log access_log;
 #endif
 	void *user_space;
+	void *opaque_parent_data;
 	/* rxflow handling */
 	unsigned char *rxflow_buffer;
 	/* truncated send handling */
@@ -1651,6 +1653,8 @@ struct lws {
 	unsigned int told_user_closed:1;
 	unsigned int waiting_to_send_close_frame:1;
 	unsigned int ipv6:1;
+	unsigned int parent_carries_io:1;
+	unsigned int parent_pending_cb_on_writable:1;
 
 #if defined(LWS_WITH_ESP8266)
 	unsigned int pending_send_completion:3;
