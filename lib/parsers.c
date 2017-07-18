@@ -233,6 +233,29 @@ lws_header_table_is_in_detachable_state(struct lws *wsi)
 	return ah && ah->rxpos == ah->rxlen && wsi->hdr_parsing_completed;
 }
 
+void
+__lws_remove_from_ah_waiting_list(struct lws *wsi)
+{
+        struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws **pwsi =&pt->ah_wait_list;
+
+	if (wsi->u.hdr.ah)
+		return;
+
+	while (*pwsi) {
+		if (*pwsi == wsi) {
+			lwsl_info("%s: wsi %p, remv wait\n",
+				  __func__, wsi);
+			*pwsi = wsi->u.hdr.ah_wait_list;
+			wsi->u.hdr.ah_wait_list = NULL;
+			pt->ah_wait_list_length--;
+			return;
+		}
+		pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+	}
+}
+
+
 int lws_header_table_detach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->context;
@@ -241,6 +264,10 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	struct lws_pollargs pa;
 	struct lws **pwsi;
 	time_t now;
+
+	lws_pt_lock(pt);
+	__lws_remove_from_ah_waiting_list(wsi);
+	lws_pt_unlock(pt);
 
 	if (!ah)
 		return 0;
@@ -261,22 +288,6 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	lws_pt_lock(pt);
 
-	pwsi = &pt->ah_wait_list;
-	if (!ah) { /* remove from wait list if none attached */
-		while (*pwsi) {
-			if (*pwsi == wsi) {
-				lwsl_info("%s: wsi %p, remv wait\n",
-					  __func__, wsi);
-				*pwsi = wsi->u.hdr.ah_wait_list;
-				wsi->u.hdr.ah_wait_list = NULL;
-				pt->ah_wait_list_length--;
-				goto bail;
-			}
-			pwsi = &(*pwsi)->u.hdr.ah_wait_list;
-		}
-		/* no ah, not on list... no more business here */
-		goto bail;
-	}
 	/* we did have an ah attached */
 	time(&now);
 	if (ah->assigned && now - ah->assigned > 3) {
@@ -300,6 +311,8 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	assert(ah->in_use);
 	wsi->u.hdr.ah = NULL;
 	ah->wsi = NULL; /* no owner */
+
+	pwsi = &pt->ah_wait_list;
 
 	/* oh there is nobody on the waiting list... leave it at that then */
 	if (!*pwsi) {
