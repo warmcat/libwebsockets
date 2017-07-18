@@ -490,7 +490,7 @@ lws_create_vhost(struct lws_context *context,
 	 * for a protocol get it enabled.
 	 */
 
-	if (info->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
+	if (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
 		f = 0;
 	(void)f;
 #ifdef LWS_WITH_PLUGINS
@@ -520,7 +520,7 @@ lws_create_vhost(struct lws_context *context,
 #ifdef LWS_WITH_PLUGINS
 	    (context->plugin_list) ||
 #endif
-	    info->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
+	    context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
 		vh->protocols = lwsp;
 	else {
 		vh->protocols = info->protocols;
