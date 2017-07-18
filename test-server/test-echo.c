@@ -296,7 +296,9 @@ int main(int argc, char **argv)
 		case 'C':
 			strncpy(ssl_cert, optarg, sizeof(ssl_cert));
 			ssl_cert[sizeof(ssl_cert) - 1] = '\0';
+#ifndef LWS_NO_CLIENT
 			disallow_selfsigned = 1;
+#endif
 			break;
 		case 'k':
 			strncpy(ssl_key, optarg, sizeof(ssl_key));
@@ -340,7 +342,9 @@ int main(int argc, char **argv)
 			break;
 		case 'e':
 			protocols[0].name = "lws-echogen";
+#ifndef LWS_NO_CLIENT
 			connect_protocol = protocols[0].name;
+#endif
 			lwsl_err("using lws-echogen\n");
 			break;
 		case 'i':
