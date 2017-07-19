@@ -256,7 +256,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 	}
 
 #if defined(SO_BINDTODEVICE)
-	if (vhost->bind_iface) {
+	if (vhost->bind_iface && vhost->iface) {
 		lwsl_info("binding listen skt to %s using SO_BINDTODEVICE\n", vhost->iface);
 		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, vhost->iface,
 				strlen(vhost->iface)) < 0) {
