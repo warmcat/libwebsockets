@@ -529,7 +529,8 @@ callback_lws_meta(struct lws *wsi, enum lws_callback_reasons reason,
 			*p++ = LWS_META_CMD_CLOSE_NOTIFY;
 			*p++ = LWS_META_TRANSPORT_OFFSET +
 					lws_get_channel_id(pas->wsi);
-			*p++ = pas->len - 2 + LWS_META_TRANSPORT_OFFSET;
+			*p++ = (unsigned char)pas->len +
+					LWS_META_TRANSPORT_OFFSET - 2;
 			*p++ = *bin++;
 			*p++ = *bin++;
 			for (n = 0; n < (int)pas->len - 2; n++)

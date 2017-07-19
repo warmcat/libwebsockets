@@ -22,8 +22,8 @@ install:
   - mkdir c:\assets\libuv
   - 7z x -oc:\assets\libuv win-libuv.zip
 #  - appveyor DownloadFile https://slproweb.com/download/Win32OpenSSL-1_0_2h.exe
-  - appveyor DownloadFile https://libwebsockets.org:444/Win32OpenSSL-1_0_2h.exe
-  - Win32OpenSSL-1_0_2h.exe /silent /verysilent /sp- /suppressmsgboxes
+#  - appveyor DownloadFile https://libwebsockets.org:444/Win32OpenSSL-1_0_2L.exe
+#  - Win32OpenSSL-1_0_2L.exe /silent /verysilent /sp- /suppressmsgboxes
   - appveyor DownloadFile https://libwebsockets.org:444/nsis-3.0rc1-setup.exe
   - cmd /c start /wait nsis-3.0rc1-setup.exe /S /D=C:\nsis
   - appveyor DownloadFile https://libwebsockets.org:444/sqlite-dll-win32-x86-3130000.zip
@@ -51,8 +51,8 @@ artifacts:
     name: lws.zip
     type: Zip
 
-cache:
-  - C:\OpenSSL-Win32
+    #cache:
+    #  - C:\OpenSSL-Win32
 
 matrix:
   fast_finish: true
