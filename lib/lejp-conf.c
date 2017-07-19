@@ -776,7 +776,8 @@ lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 
 bail:
 	uv_fs_req_cleanup(&req);
-	uv_loop_close(&loop);
+	while (uv_loop_close(&loop))
+		;
 
 	return ret;
 }
