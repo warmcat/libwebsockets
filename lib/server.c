@@ -997,7 +997,7 @@ lws_http_action(struct lws *wsi)
 				    hit->origin);
 		else
 			n = lws_snprintf((char *)end, 256,
-			    "%s%s%s/", oprot[lws_is_ssl(wsi)],
+			    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
 			    uri_ptr);
 		lws_clean_url((char *)end);
