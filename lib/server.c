@@ -913,10 +913,7 @@ lws_http_action(struct lws *wsi)
 			if (!pa)
 				pa = "(unknown)";
 
-			if (meth >= 0)
-				me = method_names[meth];
-			else
-				me = "unknown";
+			me = method_names[meth];
 
 			lws_snprintf(wsi->access_log.header_log, l,
 				 "%s - - [%s] \"%s %s %s\"",
