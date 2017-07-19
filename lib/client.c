@@ -573,7 +573,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 
 	/* we don't support chained client connections yet */
 	return 1;
-
+#if 0
 	/* otherwise set ourselves up ready to go again */
 	wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
 	wsi->mode = LWSCM_HTTP_CLIENT_ACCEPTED;
@@ -598,6 +598,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	lwsl_info("%s: %p: keep-alive await new transaction\n", __func__, wsi);
 
 	return 0;
+#endif
 }
 
 LWS_VISIBLE LWS_EXTERN unsigned int
