@@ -33,12 +33,11 @@ extern "C" {
 #include <stdarg.h>
 #endif
 
-#if defined(LWS_HAS_INTPTR_T)
-#include <stdint.h>
-#define lws_intptr_t intptr_t
-#else
-typedef unsigned long long lws_intptr_t;
-#endif
+#include "lws_config.h"
+
+/*
+ * CARE: everything using cmake defines needs to be below here
+ */
 
 #if defined(LWS_WITH_ESP8266)
 struct sockaddr_in;
@@ -47,7 +46,12 @@ struct sockaddr_in;
 #define LWS_POSIX 1
 #endif
 
-#include "lws_config.h"
+#if defined(LWS_HAS_INTPTR_T)
+#include <stdint.h>
+#define lws_intptr_t intptr_t
+#else
+typedef unsigned long long lws_intptr_t;
+#endif
 
 #if defined(WIN32) || defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
