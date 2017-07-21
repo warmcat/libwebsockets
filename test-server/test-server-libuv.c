@@ -456,6 +456,9 @@ int main(int argc, char **argv)
 		lwsl_notice("uv loop close rc %s\n",
 			    e ? uv_strerror(e) : "ok");
 
+		/* PHASE 4: finalize context destruction */
+
+		lws_context_destroy2(context);
 	} else
 #endif
 	{
