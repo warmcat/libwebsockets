@@ -326,6 +326,22 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	}
 #endif
 
+#if !defined(LWS_NO_CLIENT)
+	if (wsi->mode == LWSCM_HTTP_CLIENT ||
+	    wsi->mode == LWSCM_WSCL_WAITING_CONNECT ||
+	    wsi->mode == LWSCM_WSCL_WAITING_PROXY_REPLY ||
+	    wsi->mode == LWSCM_WSCL_ISSUE_HANDSHAKE ||
+	    wsi->mode == LWSCM_WSCL_ISSUE_HANDSHAKE2 ||
+	    wsi->mode == LWSCM_WSCL_WAITING_SSL ||
+	    wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
+	    wsi->mode == LWSCM_WSCL_WAITING_EXTENSION_CONNECT ||
+	    wsi->mode == LWSCM_WSCL_WAITING_SOCKS_GREETING_REPLY ||
+	    wsi->mode == LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY ||
+	    wsi->mode == LWSCM_WSCL_WAITING_SOCKS_AUTH_REPLY)
+		if (wsi->u.hdr.stash)
+			lws_free_set_NULL(wsi->u.hdr.stash);
+#endif
+
 	if (wsi->mode == LWSCM_RAW) {
 		wsi->protocol->callback(wsi,
 			LWS_CALLBACK_RAW_CLOSE, wsi->user_space, NULL, 0);
