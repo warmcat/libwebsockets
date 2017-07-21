@@ -454,15 +454,6 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	}
 	wsi->redirects++;
 
-#ifdef LWS_OPENSSL_SUPPORT
-	wsi->use_ssl = ssl;
-#else
-	if (ssl) {
-		lwsl_err("%s: not configured for ssl\n", __func__);
-		return NULL;
-	}
-#endif
-
 	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
 	if (p)
 		strncpy(origin, p, sizeof(origin) - 1);
@@ -479,10 +470,14 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	if (p)
 		strncpy(method, p, sizeof(iface) - 1);
 
-	lwsl_debug("redirect ads='%s', port=%d, path='%s', ssl = %d\n",
+	lwsl_notice("redirect ads='%s', port=%d, path='%s', ssl = %d\n",
 		   address, port, path, ssl);
 
 	/* close the connection by hand */
+
+#ifdef LWS_OPENSSL_SUPPORT
+	lws_ssl_close(wsi);
+#endif
 
 #ifdef LWS_USE_LIBUV
 	if (LWS_LIBUV_ENABLED(wsi->context)) {
@@ -501,6 +496,15 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #endif
 
 	remove_wsi_socket_from_fds(wsi);
+
+#ifdef LWS_OPENSSL_SUPPORT
+	wsi->use_ssl = ssl;
+#else
+	if (ssl) {
+		lwsl_err("%s: not configured for ssl\n", __func__);
+		return NULL;
+	}
+#endif
 
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	wsi->state = LWSS_CLIENT_UNCONNECTED;
