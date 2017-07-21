@@ -213,15 +213,11 @@ lws_client_connect_2(struct lws *wsi)
 #endif
 
 #ifdef LWS_USE_IPV6
-		if (wsi->ipv6) {
-			sa46.sa6.sin6_port = htons(port);
+		if (wsi->ipv6)
 			wsi->desc.sockfd = socket(AF_INET6, SOCK_STREAM, 0);
-		} else
+		else
 #endif
-		{
-			sa46.sa4.sin_port = htons(port);
 			wsi->desc.sockfd = socket(AF_INET, SOCK_STREAM, 0);
-		}
 
 		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 			lwsl_warn("Unable to open socket\n");
@@ -276,11 +272,15 @@ lws_client_connect_2(struct lws *wsi)
 	}
 
 #ifdef LWS_USE_IPV6
-	if (wsi->ipv6)
+	if (wsi->ipv6) {
+		sa46.sa6.sin6_port = htons(port);
 		n = sizeof(struct sockaddr_in6);
-	else
+	} else
 #endif
+	{
+		sa46.sa4.sin_port = htons(port);
 		n = sizeof(struct sockaddr);
+	}
 
 	if (connect(wsi->desc.sockfd, (const struct sockaddr *)&sa46, n) == -1 ||
 	    LWS_ERRNO == LWS_EISCONN) {
