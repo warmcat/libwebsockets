@@ -689,6 +689,17 @@ lws_unauthorised_basic_auth(struct lws *wsi)
 
 int lws_clean_url(char *p)
 {
+	if (p[0] == 'h' && p[1] == 't' && p[2] == 't' && p[3] == 'p') {
+		p += 4;
+		if (*p == 's')
+		p++;
+		if (*p == ':') {
+			p++;
+			if (*p == '/')
+			p++;
+		}
+	}
+
 	while (*p) {
 		if (p[0] == '/' && p[1] == '/') {
 			char *p1 = p;
@@ -997,7 +1008,10 @@ lws_http_action(struct lws *wsi)
 			    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
 			    uri_ptr);
+
+		lwsl_notice("%s\n", end);
 		lws_clean_url((char *)end);
+		lwsl_notice("%s\n", end);
 
 		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
 				      end, n, &p, end);
