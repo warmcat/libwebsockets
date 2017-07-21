@@ -631,6 +631,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	int more = 1;
 	void *v;
 #endif
+	if (wsi->u.hdr.stash)
+		lws_free_set_NULL(wsi->u.hdr.stash);
 
 	ah = wsi->u.hdr.ah;
 	if (!wsi->do_ws) {
