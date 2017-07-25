@@ -111,6 +111,14 @@ lws_client_connect_2(struct lws *wsi)
 #ifdef LWS_USE_IPV6
 	if (wsi->ipv6) {
 
+		if (n) {
+			/* lws_getaddrinfo46 failed, there is no usable result */
+			lwsl_notice("%s: lws_getaddrinfo46 failed %d\n",
+					__func__, n);
+			cce = "ipv6 lws_getaddrinfo46 failed";
+			goto oom4;
+		}
+
 		memset(&sa46, 0, sizeof(sa46));
 
 		sa46.sa6.sin6_family = AF_INET6;
