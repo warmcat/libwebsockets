@@ -891,6 +891,7 @@ struct lws_vhost {
 	int ka_probes;
 	int ka_interval;
 	int keepalive_timeout;
+	int timeout_secs_ah_idle;
 	int ssl_info_event_mask;
 #ifdef LWS_WITH_ACCESS_LOG
 	int log_fd;

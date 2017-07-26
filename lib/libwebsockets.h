@@ -2115,6 +2115,9 @@ struct lws_context_creation_info {
 	 * the form SSL_CB_ALERT, defined in openssl/ssl.h.  The default of
 	 * 0 means no info events will be reported.
 	 */
+	unsigned int timeout_secs_ah_idle;
+	/**< VHOST: seconds to allow a client to hold an ah without using it.
+	 * 0 defaults to 10s. */
 
 	void *_unused[8]; /**< dummy */
 };
@@ -3670,6 +3673,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_KILLED_BY_SSL_INFO			= 22,
 	PENDING_TIMEOUT_KILLED_BY_PARENT			= 23,
 	PENDING_TIMEOUT_CLOSE_SEND				= 24,
+	PENDING_TIMEOUT_HOLDING_AH				= 25,
 
 	/****** add new things just above ---^ ******/
 };

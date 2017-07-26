@@ -470,6 +470,11 @@ lws_create_vhost(struct lws_context *context,
 	else
 		vh->keepalive_timeout = 5;
 
+	if (info->timeout_secs_ah_idle)
+		vh->timeout_secs_ah_idle = info->timeout_secs_ah_idle;
+	else
+		vh->timeout_secs_ah_idle = 10;
+
 	/*
 	 * give the vhost a unified list of protocols including the
 	 * ones that came from plugins

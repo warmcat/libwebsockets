@@ -92,6 +92,10 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 	/* since we will restart the ah, our new headers are not completed */
 	wsi->hdr_parsing_completed = 0;
 
+	/* while we hold the ah, keep a timeout on the wsi */
+	lws_set_timeout(wsi, PENDING_TIMEOUT_HOLDING_AH,
+			wsi->vhost->timeout_secs_ah_idle);
+
 	/*
 	 * if we inherited pending rx (from socket adoption deferred
 	 * processing), apply and free it.
