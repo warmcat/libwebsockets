@@ -39,12 +39,15 @@ lws_event_cb(evutil_socket_t sock_fd, short revents, void *ctx)
   if (revents & EV_TIMEOUT)
     return;
 
+  /* !!! EV_CLOSED doesn't exist in libevent2 */
+#if LIBEVENT_VERSION_NUMBER < 0x02000000
   if (revents & EV_CLOSED)
   {
     event_del(lws_io->event_watcher);
     event_free(lws_io->event_watcher);
     return;
   }
+#endif
 
   eventfd.fd = sock_fd;
   eventfd.events = 0;
