@@ -50,6 +50,7 @@ void test_server_unlock(int care)
 #include "../plugins/protocol_dumb_increment.c"
 #include "../plugins/protocol_lws_mirror.c"
 #include "../plugins/protocol_lws_status.c"
+#include "../plugins/protocol_lws_meta.c"
 
 /*
  * This demo server shows how to use libwebsockets for one or more
@@ -73,6 +74,7 @@ enum demo_protocols {
 	PROTOCOL_DUMB_INCREMENT,
 	PROTOCOL_LWS_MIRROR,
 	PROTOCOL_LWS_STATUS,
+	PROTOCOL_LWS_META,
 
 	/* always last */
 	DEMO_PROTOCOL_COUNT
@@ -92,6 +94,7 @@ static struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT,
 	LWS_PLUGIN_PROTOCOL_MIRROR,
 	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
+	LWS_PLUGIN_PROTOCOL_LWS_META,
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 
