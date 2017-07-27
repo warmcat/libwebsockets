@@ -238,7 +238,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 					 &p, end))
 		return 1;
 
-	len = 37 + strlen(html_body) + sprintf(slen, "%d", code);
+	len = 35 + strlen(html_body) + sprintf(slen, "%d", code);
 	n = sprintf(slen, "%d", len);
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
