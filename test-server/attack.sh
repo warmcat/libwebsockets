@@ -29,10 +29,10 @@ function check {
 	fi
 	if [ "$1" = "defaultplusforbidden" ] ; then
 	cat $INSTALLED/../share/libwebsockets-test-server/test.html > /tmp/plusforb
-	echo -e -n "HTTP/1.1 403 Forbidden\x0d\x0aserver: libwebsockets\x0d\x0acontent-type: text/html\x0d\x0acontent-length: 38\x0d\x0a\x0d\x0a<html><body><h1>403</h1></body></html>" >> /tmp/plusforb
+	echo -e -n "HTTP/1.1 403 Forbidden\x0d\x0acontent-type: text/html\x0d\x0acontent-length: 38\x0d\x0a\x0d\x0a<html><body><h1>403</h1></body></html>" >> /tmp/plusforb
 		diff /tmp/lwscap /tmp/plusforb > /dev/null
 		if [ $? -ne 0 ] ; then
-			echo "FAIL: got something other than test.html back"
+			echo "FAIL: got something other than test.html + forbidden back"
 			exit 1
 		fi
 	fi
@@ -101,7 +101,9 @@ killall libwebsockets-test-server 2>/dev/null
 libwebsockets-test-server -d15 2>> $LOG &
 CPID=$!
 
-while [ -z "`grep Listening $LOG`" ] ; do
+echo "Started server on PID $CPID"
+
+while [ -z "`grep ort\ 7681 $LOG`" ] ; do
 	sleep 0.5s
 done
 check
@@ -220,7 +222,7 @@ echo -e "GET ...................................................................
 check
 
 echo
-echo "---- good request but http payload coming too (should be ignored and test.html served)"
+echo "---- good request but http payload coming too (test.html served then forbidden)"
 echo -e "GET /test.html HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD........................................" \
 	"......................................................................................................................." \
  	"......................................................................................................................." \
