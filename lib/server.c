@@ -2040,11 +2040,10 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		goto fail;
 
 	if (type & LWS_ADOPT_HTTP) {
-		if (!lws_header_table_attach(new_wsi, 0)) {
+		if (!lws_header_table_attach(new_wsi, 0))
 			lwsl_debug("Attached ah immediately\n");
-		} else {
-			lwsl_notice("%s: waiting for ah\n", __func__);
-		}
+		else
+			lwsl_info("%s: waiting for ah\n", __func__);
 	}
 
 	return new_wsi;
