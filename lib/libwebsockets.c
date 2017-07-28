@@ -769,12 +769,13 @@ lws_close_free_wsi_final(struct lws *wsi)
 
 #ifdef LWS_WITH_CGI
 	if (wsi->cgi) {
-		for (n = 0; n < 6; n++) {
-			if (wsi->cgi->pipe_fds[n / 2][n & 1] == 0)
+
+		for (n = 0; n < 3; n++) {
+			if (wsi->cgi->pipe_fds[n][!!(n == 0)] == 0)
 				lwsl_err("ZERO FD IN CGI CLOSE");
 
-			if (wsi->cgi->pipe_fds[n / 2][n & 1] >= 0)
-				close(wsi->cgi->pipe_fds[n / 2][n & 1]);
+			if (wsi->cgi->pipe_fds[n][!!(n == 0)] >= 0)
+				close(wsi->cgi->pipe_fds[n][!!(n == 0)]);
 		}
 
 		lws_free(wsi->cgi);
@@ -2680,6 +2681,10 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		/* we are the parent process */
 		wsi->context->count_cgi_spawned++;
 		lwsl_debug("%s: cgi %p spawned PID %d\n", __func__, cgi, cgi->pid);
+
+		for (n = 0; n < 3; n++)
+			close(cgi->pipe_fds[n][!(n == 0)]);
+
 		return 0;
 	}
 
