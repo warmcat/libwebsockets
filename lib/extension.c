@@ -62,7 +62,7 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 							oa.option_index = n;
 							lwsl_ext("hit %d\n", oa.option_index);
 							leap = LEAPS_SEEK_VAL;
-							if (len ==1)
+							if (len == 1)
 								goto set_arg;
 							break;
 						}

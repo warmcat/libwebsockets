@@ -94,12 +94,15 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 	case LWS_EXT_CB_OPTION_SET:
 		oa = in;
-		lwsl_info("%s: option set: idx %d, %s, len %d\n", __func__,
+		lwsl_notice("%s: option set: idx %d, %s, len %d\n", __func__,
 			  oa->option_index, oa->start, oa->len);
 		if (oa->start)
 			priv->args[oa->option_index] = atoi(oa->start);
 		else
 			priv->args[oa->option_index] = 1;
+
+		if (priv->args[PMD_CLIENT_MAX_WINDOW_BITS] == 8)
+			priv->args[PMD_CLIENT_MAX_WINDOW_BITS] = 9;
 
 		lws_extension_pmdeflate_restrict_args(wsi, priv);
 		break;
@@ -325,16 +328,18 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 	case LWS_EXT_CB_PAYLOAD_TX:
 
-		if (!priv->tx_init)
-			if (deflateInit2(&priv->tx, priv->args[PMD_COMP_LEVEL],
+		if (!priv->tx_init) {
+			n = deflateInit2(&priv->tx, priv->args[PMD_COMP_LEVEL],
 					 Z_DEFLATED,
-					 -priv->args[PMD_CLIENT_MAX_WINDOW_BITS +
-						     !wsi->vhost->listen_port],
+					 -priv->args[PMD_SERVER_MAX_WINDOW_BITS +
+						     (wsi->vhost->listen_port <= 0)],
 					 priv->args[PMD_MEM_LEVEL],
-					 Z_DEFAULT_STRATEGY) != Z_OK) {
-				lwsl_ext("inflateInit2 failed\n");
+					 Z_DEFAULT_STRATEGY);
+			if (n != Z_OK) {
+				lwsl_ext("inflateInit2 failed %d\n", n);
 				return 1;
 			}
+		}
 		priv->tx_init = 1;
 		if (!priv->buf_tx_deflated)
 			priv->buf_tx_deflated = lws_malloc(LWS_PRE + 7 + 5 +
@@ -436,7 +441,9 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			break;
 		priv->compressed_out = 0;
 
-		if ((*(eff_buf->token) & 0x80) && priv->args[PMD_CLIENT_NO_CONTEXT_TAKEOVER]) {
+		if ((*(eff_buf->token) & 0x80) &&
+		    priv->args[PMD_CLIENT_NO_CONTEXT_TAKEOVER]) {
+			lwsl_debug("PMD_CLIENT_NO_CONTEXT_TAKEOVER\n");
 			(void)deflateEnd(&priv->tx);
 			priv->tx_init = 0;
 		}

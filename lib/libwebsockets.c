@@ -65,9 +65,14 @@ static const char * const log_level_names[] = {
 void
 lws_free_wsi(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt;
+	int n;
+
 	if (!wsi)
 		return;
 	
+	pt = &wsi->context->pt[(int)wsi->tsi];
+
 	/* Protocol user data may be allocated either internally by lws
 	 * or by specified the user.
 	 * We should only free what we allocated. */
@@ -80,7 +85,21 @@ lws_free_wsi(struct lws *wsi)
 
 	/* we may not have an ah, but may be on the waiting list... */
 	lwsl_info("ah det due to close\n");
+	/* we're closing, losing some rx is OK */
+	lws_header_table_force_to_detachable_state(wsi);
 	lws_header_table_detach(wsi, 0);
+
+	lws_pt_lock(pt);
+	for (n = 0; n < wsi->context->max_http_header_pool; n++) {
+		if (pt->ah_pool[n].in_use &&
+		    pt->ah_pool[n].wsi == wsi) {
+			lwsl_err("%s: ah leak: wsi %p\n", __func__, wsi);
+			pt->ah_pool[n].in_use = 0;
+			pt->ah_pool[n].wsi = NULL;
+			pt->ah_count_in_use--;
+		}
+	}
+	lws_pt_unlock(pt);
 
 	wsi->context->count_wsi_allocated--;
 	lwsl_debug("%s: %p, remaining wsi %d\n", __func__, wsi,

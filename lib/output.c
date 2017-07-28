@@ -286,7 +286,8 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	if (wsi->state == LWSS_ESTABLISHED && wsi->u.ws.tx_draining_ext) {
 		/* remove us from the list */
 		struct lws **w = &pt->tx_draining_ext_list;
-		lwsl_debug("%s: TX EXT DRAINING: Remove from list\n", __func__);
+
+	//	lwsl_notice("%s: TX EXT DRAINING: Remove from list\n", __func__);
 		wsi->u.ws.tx_draining_ext = 0;
 		/* remove us from context draining ext list */
 		while (*w) {
@@ -349,11 +350,13 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	case LWS_WRITE_CLOSE:
 		break;
 	default:
+		lwsl_debug("LWS_EXT_CB_PAYLOAD_TX\n");
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_TX, &eff_buf, wp);
 		if (n < 0)
 			return -1;
 
 		if (n && eff_buf.token_len) {
+			lwsl_debug("drain len %d\n", (int)eff_buf.token_len);
 			/* extension requires further draining */
 			wsi->u.ws.tx_draining_ext = 1;
 			wsi->u.ws.tx_draining_ext_list = pt->tx_draining_ext_list;
@@ -387,8 +390,8 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	 */
 	if ((char *)buf != eff_buf.token) {
 		/*
-		 * ext might eat it, but no have anything to issue yet
-		 * in that case we have to follow his lead, but stash and
+		 * ext might eat it, but not have anything to issue yet.
+		 * In that case we have to follow his lead, but stash and
 		 * replace the write type that was lost here the first time.
 		 */
 		if (len && !eff_buf.token_len) {
@@ -406,6 +409,13 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 
 	buf = (unsigned char *)eff_buf.token;
 	len = eff_buf.token_len;
+
+	lwsl_debug("%p / %d\n", buf, (int)len);
+
+	if (!buf) {
+		lwsl_err("null buf (%d)\n", (int)len);
+		return -1;
+	}
 
 	switch (wsi->ietf_spec_revision) {
 	case 13:
