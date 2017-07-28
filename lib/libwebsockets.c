@@ -820,8 +820,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 	struct addrinfo ai, *res;
 	struct sockaddr_in addr4;
 
-	if (rip)
-		rip[0] = '\0';
+	rip[0] = '\0';
 	name[0] = '\0';
 	addr4.sin_family = AF_UNSPEC;
 
@@ -856,8 +855,6 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 				name, name_len, NULL, 0, 0))
 			return -1;
 #endif
-		if (!rip)
-			return 0;
 
 		if (getaddrinfo(name, NULL, &ai, &result))
 			return -1;
