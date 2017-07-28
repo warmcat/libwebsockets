@@ -474,7 +474,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 					     WSI_TOKEN_HOST) < 0)
 					return 1;
 				lws_snprintf(pss->onward, sizeof(pss->onward) - 1,
-					 "%s%s%s", oprot[lws_is_ssl(wsi)],
+					 "%s%s%s", oprot[!!lws_is_ssl(wsi)],
 					    cookie, args->p);
 				lwsl_notice("redirecting to ourselves with cookie refresh\n");
 				/* we need a redirect to ourselves, session cookie is expired */
