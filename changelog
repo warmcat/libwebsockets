@@ -1,6 +1,43 @@
 Changelog
 ---------
 
+v2.3.0
+======
+
+ - ESP32 OpenSSL support for client and server
+
+ - ESP32 4 x WLAN credential slots may be configured
+
+ - Libevent event loop support
+
+ - SOCKS5 proxy support
+
+ - lws_meta protocol for websocket connection multiplexing
+
+ - lws_vhost_destroy() added... allows dynamic removal of listening
+   vhosts.  Vhosts with shared listen sockets adopt the listen socket
+   automatically if the owner is destroyed.
+
+ - IPv6 on Windows
+
+ - Improved CGI handling suitable for general CGI scripting, eg, PHP
+
+ - Convert even the "old style" test servers to use statically included
+   plugin sources
+
+ - LWS_WITH_STATS cmake option dumps resource usage and timing information
+   every few seconds to debug log, including latency information about
+   delay from asking for writeable callback to getting it
+
+ - Large (> 2GB) files may be served
+
+ - LWS_WITH_HTTP_PROXY Cmake option adds proxying mounts
+
+ - Workaround for libev build by disabling -Werror on the test app
+
+ - HTTP2 support disabled since no way to serve websockets on it
+
+
 v2.2.0
 ======
 
