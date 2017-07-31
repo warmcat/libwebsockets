@@ -256,6 +256,31 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 	return 0;
 }
 
+static void
+lws_cgi_remove_and_kill(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_cgi **pcgi = &pt->cgi_list;
+
+	/* remove us from the cgi list */
+	lwsl_debug("%s: remove cgi %p from list\n", __func__, wsi->cgi);
+	while (*pcgi) {
+		if (*pcgi == wsi->cgi) {
+			/* drop us from the pt cgi list */
+			*pcgi = (*pcgi)->cgi_list;
+			break;
+		}
+		pcgi = &(*pcgi)->cgi_list;
+	}
+	if (wsi->cgi->headers_buf) {
+		lwsl_debug("close: freed cgi headers\n");
+		lws_free_set_NULL(wsi->cgi->headers_buf);
+	}
+	/* we have a cgi going, we must kill it */
+	wsi->cgi->being_closed = 1;
+	lws_cgi_kill(wsi);
+}
+
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 {
@@ -319,35 +344,22 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 #ifdef LWS_WITH_CGI
 	if (wsi->mode == LWSCM_CGI) {
 		/* we are not a network connection, but a handler for CGI io */
-		if (wsi->parent && wsi->parent->cgi)
+		if (wsi->parent && wsi->parent->cgi) {
+
+			if (wsi->cgi_channel == LWS_STDOUT)
+				lws_cgi_remove_and_kill(wsi->parent);
+
 			/* end the binding between us and master */
 			wsi->parent->cgi->stdwsi[(int)wsi->cgi_channel] = NULL;
+		}
 		wsi->socket_is_permanently_unusable = 1;
 
 		lwsl_debug("------ %s: detected cgi fdhandler wsi %p\n", __func__, wsi);
 		goto just_kill_connection;
 	}
 
-	if (wsi->cgi) {
-		struct lws_cgi **pcgi = &pt->cgi_list;
-		/* remove us from the cgi list */
-		lwsl_debug("%s: remove cgi %p from list\n", __func__, wsi->cgi);
-		while (*pcgi) {
-			if (*pcgi == wsi->cgi) {
-				/* drop us from the pt cgi list */
-				*pcgi = (*pcgi)->cgi_list;
-				break;
-			}
-			pcgi = &(*pcgi)->cgi_list;
-		}
-		if (wsi->cgi->headers_buf) {
-			lwsl_debug("close: freed cgi headers\n");
-			lws_free_set_NULL(wsi->cgi->headers_buf);
-		}
-		/* we have a cgi going, we must kill it */
-		wsi->cgi->being_closed = 1;
-		lws_cgi_kill(wsi);
-	}
+	if (wsi->cgi)
+		lws_cgi_remove_and_kill(wsi);
 #endif
 
 #if !defined(LWS_NO_CLIENT)
