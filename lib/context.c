@@ -256,6 +256,13 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				wsi->reason_bf &= ~1;
 			break;
 		}
+
+		if (wsi->reason_bf & 4) {
+			n = lws_write(wsi, (unsigned char *)"0\x0d\x0a\x0d\x0a", 5, LWS_WRITE_HTTP);
+			if (n < 0)
+				return -1;
+			break;
+		}
 #endif
 #if defined(LWS_WITH_HTTP_PROXY)
 		if (wsi->reason_bf & 2) {
@@ -375,6 +382,11 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CGI_TERMINATED:
+		if (!wsi->cgi->explicitly_chunked && !wsi->cgi->content_length) {
+			/* send terminating chunk */
+			wsi->reason_bf |= 4;
+			lws_callback_on_writable(wsi);
+		}
 		return -1;
 
 	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */

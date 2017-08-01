@@ -1490,6 +1490,8 @@ struct _lws_websocket_related {
 
 #ifdef LWS_WITH_CGI
 
+#define LWS_HTTP_CHUNK_HDR_SIZE 16
+
 enum {
 	SIGNIFICANT_HDR_CONTENT_LENGTH,
 	SIGNIFICANT_HDR_LOCATION,
