@@ -101,6 +101,11 @@ lws_free_wsi(struct lws *wsi)
 	}
 	lws_pt_unlock(pt);
 
+	/* since we will destroy the wsi, make absolutely sure now */
+
+	lws_ssl_remove_wsi_from_buffered_list(wsi);
+	lws_remove_from_timeout_list(wsi);
+
 	wsi->context->count_wsi_allocated--;
 	lwsl_debug("%s: %p, remaining wsi %d\n", __func__, wsi,
 			wsi->context->count_wsi_allocated);
