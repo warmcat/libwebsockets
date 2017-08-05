@@ -3974,10 +3974,11 @@ lws_callback_all_protocol(struct lws_context *context,
 
 /**
  * lws_callback_all_protocol_vhost() - Callback all connections using
- *				the given protocol with the given reason
+ *			the given protocol with the given reason.  This is
+ *			deprecated since v2.4: use lws_callback_all_protocol_vhost_args
  *
  * \param vh:		Vhost whose connections will get callbacks
- * \param protocol:	Which protocol to match
+ * \param protocol:	Which protocol to match.  NULL means all.
  * \param reason:	Callback reason index
  *
  * - Which:  connections using this protocol on GIVEN VHOST ONLY
@@ -3986,7 +3987,27 @@ lws_callback_all_protocol(struct lws_context *context,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_callback_all_protocol_vhost(struct lws_vhost *vh,
-			  const struct lws_protocols *protocol, int reason);
+			  const struct lws_protocols *protocol, int reason)
+LWS_WARN_DEPRECATED;
+
+/**
+ * lws_callback_all_protocol_vhost_args() - Callback all connections using
+ *			the given protocol with the given reason and args
+ *
+ * \param vh:		Vhost whose connections will get callbacks
+ * \param protocol:	Which protocol to match.  NULL means all.
+ * \param reason:	Callback reason index
+ * \param argp:		Callback "in" parameter
+ * \param len:		Callback "len" parameter
+ *
+ * - Which:  connections using this protocol on GIVEN VHOST ONLY
+ * - When:   now
+ * - What:   reason
+ */
+LWS_VISIBLE int
+lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
+			  const struct lws_protocols *protocol, int reason,
+			  void *argp, size_t len);
 
 /**
  * lws_callback_vhost_protocols() - Callback all protocols enabled on a vhost

@@ -1056,8 +1056,9 @@ lws_callback_all_protocol(struct lws_context *context,
 }
 
 LWS_VISIBLE int
-lws_callback_all_protocol_vhost(struct lws_vhost *vh,
-			  const struct lws_protocols *protocol, int reason)
+lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
+			  const struct lws_protocols *protocol, int reason,
+			  void *argp, size_t len)
 {
 	struct lws_context *context = vh->context;
 	struct lws_context_per_thread *pt = &context->pt[0];
@@ -1069,14 +1070,22 @@ lws_callback_all_protocol_vhost(struct lws_vhost *vh,
 			wsi = wsi_from_fd(context, pt->fds[n].fd);
 			if (!wsi)
 				continue;
-			if (wsi->vhost == vh && wsi->protocol == protocol)
-				protocol->callback(wsi, reason, wsi->user_space,
-						   NULL, 0);
+			if (wsi->vhost == vh && (wsi->protocol == protocol ||
+						 !protocol))
+				wsi->protocol->callback(wsi, reason,
+						wsi->user_space, argp, len);
 		}
 		pt++;
 	}
 
 	return 0;
+}
+
+LWS_VISIBLE int
+lws_callback_all_protocol_vhost(struct lws_vhost *vh,
+			  const struct lws_protocols *protocol, int reason)
+{
+	return lws_callback_all_protocol_vhost_args(vh, protocol, reason, NULL, 0);
 }
 
 LWS_VISIBLE LWS_EXTERN int
