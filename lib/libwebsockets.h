@@ -636,6 +636,7 @@ struct lws_esp32_image {
 };
 
 extern struct lws_esp32 lws_esp32;
+struct lws_vhost;
 
 extern esp_err_t
 lws_esp32_event_passthru(void *ctx, system_event_t *event);
@@ -649,7 +650,7 @@ struct lws_context_creation_info;
 extern void
 lws_esp32_set_creation_defaults(struct lws_context_creation_info *info);
 extern struct lws_context *
-lws_esp32_init(struct lws_context_creation_info *);
+lws_esp32_init(struct lws_context_creation_info *, struct lws_vhost **pvh);
 extern int
 lws_esp32_wlan_nvs_get(int retry);
 extern esp_err_t

@@ -1627,7 +1627,7 @@ lws_esp32_get_image_info(const esp_partition_t *part, struct lws_esp32_image *i,
 }
 
 struct lws_context *
-lws_esp32_init(struct lws_context_creation_info *info)
+lws_esp32_init(struct lws_context_creation_info *info, struct lws_vhost **pvh)
 {
 	const esp_partition_t *part = lws_esp_ota_get_boot_partition();
 	struct lws_context *context;
@@ -1682,6 +1682,9 @@ lws_esp32_init(struct lws_context_creation_info *info)
 		lwsl_err("Failed to create vhost\n");
 	else
 		lws_init_vhost_client_ssl(info, vhost); 
+
+	if (pvh)
+		*pvh = vhost;
 
 	lws_protocol_init(context);
 
