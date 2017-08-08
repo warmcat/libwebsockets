@@ -220,7 +220,7 @@ int main(int argc, char **argv)
 			break;
 		case 'h':
 			fprintf(stderr, "Usage: lwsws [-c <config dir>] "
-					"[-d <log bitfield>] [-D] [--help]\n");
+					"[-d <log bitfield>] [--help]\n");
 			exit(1);
 		}
 	}
