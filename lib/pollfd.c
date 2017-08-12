@@ -449,8 +449,8 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 	//		wsi->same_vh_protocol_prev);
 
 	if (wsi->same_vh_protocol_prev || wsi->same_vh_protocol_next) {
-		lwsl_err("Attempted to attach wsi twice to same vh prot\n");
-		assert(0);
+		lws_same_vh_protocol_remove(wsi);
+		lwsl_notice("Attempted to attach wsi twice to same vh prot\n");
 	}
 
 	wsi->same_vh_protocol_prev = /* guy who points to us */
