@@ -2625,7 +2625,15 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 						 (unsigned char *)content_type,
 						 strlen(content_type), &p, end))
 			return -1;
+#else
+	if (content_type && content_type[0])
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+						 (unsigned char *)content_type,
+						 strlen(content_type), &p, end))
+			return -1;
+#endif
 
+#if defined(LWS_WITH_RANGES)
 	if (ranges >= 2) { /* multipart byteranges */
 		strncpy(wsi->u.http.multipart_content_type, content_type,
 			sizeof(wsi->u.http.multipart_content_type) - 1);
