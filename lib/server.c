@@ -1889,8 +1889,17 @@ lws_http_transaction_completed(struct lws *wsi)
 				return 1;
 			}
 #endif
-		} else
+		} else {
 			lws_header_table_reset(wsi, 1);
+			/*
+			 * If we kept the ah, we should restrict the amount
+			 * of time we are willing to keep it.  Otherwise it
+			 * will be bound the whole time the connection remains
+			 * open.
+			 */
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HOLDING_AH,
+					wsi->vhost->keepalive_timeout);
+		}
 	}
 
 	/* If we're (re)starting on headers, need other implied init */
