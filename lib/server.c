@@ -1744,8 +1744,17 @@ lws_http_transaction_completed(struct lws *wsi)
 		if (!wsi->more_rx_waiting) {
 			wsi->u.hdr.ah->rxpos = wsi->u.hdr.ah->rxlen;
 			lws_header_table_detach(wsi, 1);
-		} else
+		} else {
 			lws_header_table_reset(wsi, 1);
+			/*
+			 * If we kept the ah, we should restrict the amount
+			 * of time we are willing to keep it.  Otherwise it
+			 * will be bound the whole time the connection remains
+			 * open.
+			 */
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
+					wsi->vhost->keepalive_timeout);
+		}
 	}
 
 	/* If we're (re)starting on headers, need other implied init */
