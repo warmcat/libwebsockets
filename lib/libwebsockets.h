@@ -3920,7 +3920,7 @@ lws_callback_on_writable(struct lws *wsi);
 
 /**
  * lws_callback_on_writable_all_protocol() - Request a callback for all
- *			connections on same vhost using the given protocol when it
+ *			connections using the given protocol when it
  *			becomes possible to write to each socket without
  *			blocking in turn.
  *
@@ -3937,8 +3937,8 @@ lws_callback_on_writable_all_protocol(const struct lws_context *context,
 
 /**
  * lws_callback_on_writable_all_protocol_vhost() - Request a callback for
- *			all connections using the given protocol when it
- *			becomes possible to write to each socket without
+ *			all connections on same vhost using the given protocol
+ *			when it becomes possible to write to each socket without
  *			blocking in turn.
  *
  * \param vhost:	Only consider connections on this lws_vhost
