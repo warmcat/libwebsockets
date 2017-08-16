@@ -535,7 +535,7 @@ lws_create_vhost(struct lws_context *context,
 		vh->protocols = lwsp;
 	else {
 		vh->protocols = info->protocols;
-		free(lwsp);
+		lws_free(lwsp);
 	}
 
 	vh->same_vh_protocol_list = (struct lws **)
