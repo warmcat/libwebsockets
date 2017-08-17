@@ -54,7 +54,12 @@ extern "C" {
 
 #undef ifa_dstaddr
 
+#if defined(ANDROID)
+#define ifaddrs __lws_ifaddrs
+struct __lws_ifaddrs {
+#else
 struct ifaddrs {
+#endif
 	struct ifaddrs *ifa_next;
 	char *ifa_name;
 	unsigned int ifa_flags;
