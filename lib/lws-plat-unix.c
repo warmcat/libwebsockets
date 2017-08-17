@@ -1,4 +1,5 @@
 #include "private-libwebsockets.h"
+#include "getifaddrs.h"
 
 #include <pwd.h>
 #include <grp.h>
