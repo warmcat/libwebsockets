@@ -1613,7 +1613,12 @@ lws_esp32_get_image_info(const esp_partition_t *part, struct lws_esp32_image *i,
 	}
 	hdr += (~hdr & 15) + 1;
 
-	i->romfs = hdr + 4;
+	if (eih.hash_appended)
+		hdr += 0x20;
+
+//	lwsl_notice("romfs estimated at 0x%x\n", hdr);
+
+	i->romfs = hdr + 0x4;
 	spi_flash_read(hdr, &i->romfs_len, sizeof(i->romfs_len));
 	i->json = i->romfs + i->romfs_len + 4;
 	spi_flash_read(i->json - 4, &i->json_len, sizeof(i->json_len));
