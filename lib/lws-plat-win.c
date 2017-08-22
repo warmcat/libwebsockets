@@ -218,6 +218,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		/* if something closed, retry this slot */
 		if (n)
 			i--;
+
+		if (wsi->trunc_len)
+			WSASetEvent(pt->events[0]);
 	}
 
 	/*
