@@ -170,7 +170,6 @@ endif()
 
 if (LWS_WITH_ESP32)
  set(LWS_WITH_SHARED OFF)
- set(LWS_WITH_SSL ON)
  set(LWS_USE_MBEDTLS ON)
   # set(LWS_WITHOUT_CLIENT ON)
  set(LWS_WITHOUT_TESTAPPS ON)
@@ -595,6 +594,48 @@ if (NOT LWS_WITHOUT_CLIENT)
 		lib/client-parser.c)
 endif()
 
+if (LWS_USE_MBEDTLS)
+ 	set(LWS_WITH_SSL ON)
+
+	list(APPEND HDR_PRIVATE
+		lib/mbedtls_wrapper/include/internal/ssl3.h
+		lib/mbedtls_wrapper/include/internal/ssl_cert.h
+		lib/mbedtls_wrapper/include/internal/ssl_code.h
+		lib/mbedtls_wrapper/include/internal/ssl_dbg.h
+		lib/mbedtls_wrapper/include/internal/ssl_lib.h
+		lib/mbedtls_wrapper/include/internal/ssl_methods.h
+		lib/mbedtls_wrapper/include/internal/ssl_pkey.h
+		lib/mbedtls_wrapper/include/internal/ssl_stack.h
+		lib/mbedtls_wrapper/include/internal/ssl_types.h
+		lib/mbedtls_wrapper/include/internal/ssl_x509.h
+		lib/mbedtls_wrapper/include/internal/tls1.h
+		lib/mbedtls_wrapper/include/internal/x509_vfy.h)
+
+	list(APPEND HDR_PRIVATE
+		lib/mbedtls_wrapper/include/openssl/ssl.h)
+
+	list(APPEND HDR_PRIVATE
+		lib/mbedtls_wrapper/include/platform/ssl_pm.h
+		lib/mbedtls_wrapper/include/platform/ssl_port.h)
+
+	include_directories(lib/mbedtls_wrapper/include)
+	include_directories(lib/mbedtls_wrapper/include/platform)
+	include_directories(lib/mbedtls_wrapper/include/internal)
+	include_directories(lib/mbedtls_wrapper/include/openssl)
+
+	list(APPEND SOURCES
+		lib/mbedtls_wrapper/library/ssl_cert.c
+		lib/mbedtls_wrapper/library/ssl_lib.c
+		lib/mbedtls_wrapper/library/ssl_methods.c
+		lib/mbedtls_wrapper/library/ssl_pkey.c
+		lib/mbedtls_wrapper/library/ssl_stack.c
+		lib/mbedtls_wrapper/library/ssl_x509.c)
+
+	list(APPEND SOURCES
+		lib/mbedtls_wrapper/platform/ssl_pm.c
+		lib/mbedtls_wrapper/platform/ssl_port.c)
+endif()
+
 if (LWS_WITH_SSL)
 	list(APPEND SOURCES
 		lib/ssl.c)
@@ -609,20 +650,6 @@ if (LWS_WITH_SSL)
 	endif()
 endif()
 
-if (LWS_WITH_MBEDTLS)
-	#	list(APPEND HDR_PRIVATE)
-	list(APPEND SOURCES
-		lib/mbedtls_wrapper/library/ssl_cert.c
-		lib/mbedtls_wrapper/library/ssl_lib.c
-		lib/mbedtls_wrapper/library/ssl_methods.c
-		lib/mbedtls_wrapper/library/ssl_pkey.c
-		lib/mbedtls_wrapper/library/ssl_stack.c
-		lib/mbedtls_wrapper/library/ssl_x509.c)
-
-	list(APPEND SOURCES
-		lib/mbedtls_wrapper/platform/ssl_pm.c
-		lib/mbedtls_wrapper/platform/ssl_port.c)
-endif()
 
 
 if (NOT LWS_WITHOUT_BUILTIN_SHA1)
@@ -1087,7 +1114,7 @@ set(CMAKE_REQUIRED_LIBRARIES ${LIB_LIST})
 CHECK_FUNCTION_EXISTS(SSL_CTX_set1_param LWS_HAVE_SSL_CTX_set1_param)
 CHECK_FUNCTION_EXISTS(SSL_set_info_callback LWS_HAVE_SSL_SET_INFO_CALLBACK)
 CHECK_FUNCTION_EXISTS(X509_VERIFY_PARAM_set1_host LWS_HAVE_X509_VERIFY_PARAM_set1_host)
-if (LWS_WITH_ESP32)
+if (LWS_USE_MBEDTLS)
 	set(LWS_HAVE_TLS_CLIENT_METHOD 1)
 else()
 CHECK_FUNCTION_EXISTS(TLS_client_method LWS_HAVE_TLS_CLIENT_METHOD)

@@ -35,7 +35,7 @@ extern int lws_ssl_get_error(struct lws *wsi, int n);
 static int
 OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_USE_MBEDTLS)
 //	long gvr = ssl_pm_get_verify_result(
 	lwsl_notice("%s\n", __func__);
 
@@ -149,14 +149,14 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 #endif
 
-#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_ESP32)
+#if !defined(USE_WOLFSSL) && !defined(LWS_USE_MBEDTLS)
 #ifndef USE_OLD_CYASSL
 	/* OpenSSL_client_verify_callback will be called @ SSL_connect() */
 	SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
 #endif
 #endif
 
-#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_ESP32)
+#if !defined(USE_WOLFSSL) && !defined(LWS_USE_MBEDTLS)
 	SSL_set_mode(wsi->ssl,  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 #endif
 	/*
@@ -174,7 +174,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 #endif
 #else
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_USE_MBEDTLS)
 // esp-idf openssl shim does not seem ready for this
 //	SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
 	SSL_set_verify(wsi->ssl, SSL_VERIFY_NONE, OpenSSL_client_verify_callback);
@@ -203,7 +203,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 #endif /* USE_WOLFSSL */
 
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_USE_MBEDTLS)
 	wsi->client_bio = BIO_new_socket(wsi->desc.sockfd, BIO_NOCLOSE);
 	SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
 #else
@@ -217,12 +217,12 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	wolfSSL_set_using_nonblock(wsi->ssl, 1);
 #endif
 #else
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_USE_MBEDTLS)
 	BIO_set_nbio(wsi->client_bio, 1); /* nonblocking */
 #endif
 #endif
 
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_USE_MBEDTLS)
 	SSL_set_ex_data(wsi->ssl, openssl_websocket_private_data_index,
 			wsi);
 #endif
@@ -230,7 +230,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	return 0;
 }
 
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_USE_MBEDTLS)
 int ERR_get_error(void)
 {
 	return 0;
@@ -377,7 +377,7 @@ lws_ssl_client_connect2(struct lws *wsi)
 		}
 	}
 
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_USE_MBEDTLS)
 	{
 		X509 *peer = SSL_get_peer_certificate(wsi->ssl);
 
@@ -434,7 +434,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	SSL_METHOD *method = NULL;
 	struct lws wsi;
 	unsigned long error;
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_USE_MBEDTLS)
 	const char *cipher_list = info->ssl_cipher_list;
 	const char *ca_filepath = info->ssl_ca_filepath;
 	const char *private_key_filepath = info->ssl_private_key_filepath;
@@ -502,7 +502,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	SSL_CTX_set_options(vhost->ssl_client_ctx, SSL_OP_NO_COMPRESSION);
 #endif
 
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_USE_MBEDTLS)
 	SSL_CTX_set_options(vhost->ssl_client_ctx,
 			    SSL_OP_CIPHER_SERVER_PREFERENCE);
 
@@ -541,7 +541,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	 * callback allowing user code to load extra verification certs
 	 * helping the client to verify server identity
 	 */
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_USE_MBEDTLS)
 
 	/* support for client-side certificate authentication */
 	if (cert_filepath) {

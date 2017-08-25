@@ -283,3 +283,17 @@ X509 *SSL_get_peer_certificate(const SSL *ssl)
     return ssl->session->peer;
 }
 
+int X509_STORE_CTX_get_error(X509_STORE_CTX *ctx)
+{
+	return X509_V_ERR_UNSPECIFIED;
+}
+
+int X509_STORE_CTX_get_error_depth(X509_STORE_CTX *ctx)
+{
+	return 0;
+}
+
+const char *X509_verify_cert_error_string(long n)
+{
+	return "unknown";
+}

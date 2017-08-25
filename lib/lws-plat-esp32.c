@@ -556,24 +556,6 @@ LWS_VISIBLE void esp32_uvtimer_cb(TimerHandle_t t)
 	p->cb(p->t);
 }
 
-void ERR_error_string_n(unsigned long e, char *buf, size_t len)
-{
-	strncpy(buf, "unknown", len);
-}
-
-void ERR_free_strings(void)
-{
-}
-
-char *ERR_error_string(unsigned long e, char *buf)
-{
-	if (buf)
-		strcpy(buf, "unknown");
-
-	return "unknown";
-}
-
-
 /* helper functionality */
 
 #include "romfs.h"
