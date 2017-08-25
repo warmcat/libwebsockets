@@ -256,6 +256,7 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 	return 0;
 }
 
+#ifdef LWS_WITH_CGI
 static void
 lws_cgi_remove_and_kill(struct lws *wsi)
 {
@@ -280,6 +281,7 @@ lws_cgi_remove_and_kill(struct lws *wsi)
 	wsi->cgi->being_closed = 1;
 	lws_cgi_kill(wsi);
 }
+#endif
 
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
