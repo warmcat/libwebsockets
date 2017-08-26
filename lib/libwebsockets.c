@@ -3145,7 +3145,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				lwsl_debug("%s: found PID %d on cgi list\n",
 					    __func__, n);
 
-				if (!cgi->content_length && cgi->explicitly_chunked) {
+				if (!cgi->content_length) {
 					/*
 					 * well, if he sends chunked... give him 5s after the
 					 * cgi terminated to send buffered
