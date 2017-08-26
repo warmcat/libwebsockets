@@ -2646,6 +2646,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 			p++;
 		}
 	}
+	env_array[n++] = "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin";
+
 	env_array[n++] = p;
 	p += lws_snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[0]) + 1;
 
@@ -2660,7 +2662,6 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	}
 
 	env_array[n++] = "SERVER_SOFTWARE=libwebsockets";
-	env_array[n++] = "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin";
 	env_array[n] = NULL;
 
 #if 0
