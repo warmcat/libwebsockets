@@ -2793,6 +2793,11 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 					wsi->cgi->response_code);
 			if (lws_add_http_header_status(wsi, wsi->cgi->response_code, &p, end))
 				return 1;
+			if (!wsi->cgi->explicitly_chunked &&
+					!wsi->cgi->content_length &&
+					lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING,
+					(unsigned char *)"chunked", 7, &p, end))
+				return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
 					(unsigned char *)"close", 5, &p, end))
 				return 1;
@@ -2990,14 +2995,24 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 
 	/* payload processing */
 
+	m = !wsi->cgi->explicitly_chunked && !wsi->cgi->content_length;
+
 	n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]),
-		 start, sizeof(buf) - LWS_PRE);
+		 start, sizeof(buf) - LWS_PRE - (m ? LWS_HTTP_CHUNK_HDR_SIZE : 0));
 
 	if (n < 0 && errno != EAGAIN) {
 		lwsl_debug("%s: stdout read says %d\n", __func__, n);
 		return -1;
 	}
 	if (n > 0) {
+		if (m) {
+			char chdr[LWS_HTTP_CHUNK_HDR_SIZE];
+			m = lws_snprintf(chdr, LWS_HTTP_CHUNK_HDR_SIZE - 3, "%X\x0d\x0a", n);
+			memmove(start + m, start, n);
+			memcpy(start, chdr, m);
+			memcpy(start + m + n, "\x0d\x0a", 2);
+			n += m + 2;
+		}
 		m = lws_write(wsi, (unsigned char *)start, n, LWS_WRITE_HTTP);
 		//lwsl_notice("write %d\n", m);
 		if (m < 0) {
