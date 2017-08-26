@@ -1326,6 +1326,11 @@ enum lws_callback_reasons {
 typedef int
 lws_callback_function(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len);
+
+#define LWS_CB_REASON_AUX_BF__CGI		1
+#define LWS_CB_REASON_AUX_BF__PROXY		2
+#define LWS_CB_REASON_AUX_BF__CGI_CHUNK_END	4
+#define LWS_CB_REASON_AUX_BF__CGI_HEADERS	8
 ///@}
 
 /*! \defgroup extensions

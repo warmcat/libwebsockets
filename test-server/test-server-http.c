@@ -524,7 +524,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 #ifndef LWS_NO_CLIENT
-		if (pss->reason_bf & 2) {
+		if (pss->reason_bf & LWS_CB_REASON_AUX_BF__PROXY) {
 			char *px = buf + LWS_PRE;
 			int lenx = sizeof(buf) - LWS_PRE;
 			/*
@@ -535,7 +535,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 */
 
 
-			pss->reason_bf &= ~2;
+			pss->reason_bf &= ~LWS_CB_REASON_AUX_BF__PROXY;
 			wsi1 = lws_get_child(wsi);
 			if (!wsi1)
 				break;
@@ -674,7 +674,7 @@ bail:
 		if (!lws_get_parent(wsi))
 			break;
 		pss1 = lws_wsi_user(lws_get_parent(wsi));
-		pss1->reason_bf |= 2;
+		pss1->reason_bf |= LWS_CB_REASON_AUX_BF__PROXY;
 		lws_callback_on_writable(lws_get_parent(wsi));
 		break;
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:

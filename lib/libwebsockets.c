@@ -2781,11 +2781,11 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 		return -1;
 
 	while (wsi->hdr_state != LHCS_PAYLOAD) {
-		/* we have to separate header / finalize and
+		/*
+		 *  we have to separate header / finalize and
 		 * payload chunks, since they need to be
 		 * handled separately
 		 */
-
 		switch (wsi->hdr_state) {
 
 		case LHCS_RESPONSE:
@@ -2794,8 +2794,9 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			if (lws_add_http_header_status(wsi, wsi->cgi->response_code, &p, end))
 				return 1;
 			if (!wsi->cgi->explicitly_chunked &&
-					!wsi->cgi->content_length &&
-					lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING,
+			    !wsi->cgi->content_length &&
+				lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
 					(unsigned char *)"chunked", 7, &p, end))
 				return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
@@ -2814,7 +2815,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			}
 
 			wsi->hdr_state = LHCS_DUMP_HEADERS;
-			wsi->reason_bf |= 8;
+			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 			lws_callback_on_writable(wsi);
 			/* back to the loop for writeability again */
 			return 0;
@@ -2839,7 +2840,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 				lws_free_set_NULL(wsi->cgi->headers_buf);
 				lwsl_debug("freed cgi headers\n");
 			} else {
-				wsi->reason_bf |= 8;
+				wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 				lws_callback_on_writable(wsi);
 			}
 
