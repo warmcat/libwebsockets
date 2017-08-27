@@ -3248,7 +3248,8 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 int
 lws_access_log(struct lws *wsi)
 {
-	char *p = wsi->access_log.user_agent, ass[512];
+	char *p = wsi->access_log.user_agent, ass[512],
+	     *p1 = wsi->access_log.referrer;
 	int l;
 
 	if (!wsi->access_log_pending)
@@ -3260,9 +3261,12 @@ lws_access_log(struct lws *wsi)
 	if (!p)
 		p = "";
 
-	l = lws_snprintf(ass, sizeof(ass) - 1, "%s %d %lu %s\n",
+	if (!p1)
+		p1 = "";
+
+	l = lws_snprintf(ass, sizeof(ass) - 1, "%s %d %lu \"%s\" \"%s\"\n",
 		     wsi->access_log.header_log,
-		     wsi->access_log.response, wsi->access_log.sent, p);
+		     wsi->access_log.response, wsi->access_log.sent, p1, p);
 
 	if (wsi->vhost->log_fd != (int)LWS_INVALID_FILE) {
 		if (write(wsi->vhost->log_fd, ass, l) != l)
@@ -3277,6 +3281,10 @@ lws_access_log(struct lws *wsi)
 	if (wsi->access_log.user_agent) {
 		lws_free(wsi->access_log.user_agent);
 		wsi->access_log.user_agent = NULL;
+	}
+	if (wsi->access_log.referrer) {
+		lws_free(wsi->access_log.referrer);
+		wsi->access_log.referrer = NULL;
 	}
 	wsi->access_log_pending = 0;
 

@@ -906,7 +906,7 @@ lws_http_action(struct lws *wsi)
 		const char *pa, *me;
 		struct tm *tmp;
 		time_t t = time(NULL);
-		int l = 256;
+		int l = 256, m;
 
 		if (wsi->access_log_pending)
 			lws_access_log(wsi);
@@ -939,6 +939,23 @@ lws_http_action(struct lws *wsi)
 							l + 1, WSI_TOKEN_HTTP_USER_AGENT);
 				else
 					lwsl_err("OOM getting user agent\n");
+
+				for (m = 0; m < l; m++)
+					if (wsi->access_log.user_agent[m] == '\"')
+						wsi->access_log.user_agent[m] = '\'';
+			}
+			l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
+			if (l) {
+				wsi->access_log.referrer = lws_malloc(l + 2);
+				if (wsi->access_log.referrer)
+					lws_hdr_copy(wsi, wsi->access_log.referrer,
+							l + 1, WSI_TOKEN_HTTP_REFERER);
+				else
+					lwsl_err("OOM getting user agent\n");
+
+				for (m = 0; m < l; m++)
+					if (wsi->access_log.referrer[m] == '\"')
+						wsi->access_log.referrer[m] = '\'';
 			}
 			wsi->access_log_pending = 1;
 		}

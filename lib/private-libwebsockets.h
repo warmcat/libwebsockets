@@ -1545,6 +1545,7 @@ struct lws_rewrite;
 struct lws_access_log {
 	char *header_log;
 	char *user_agent;
+	char *referrer;
 	unsigned long sent;
 	int response;
 };
