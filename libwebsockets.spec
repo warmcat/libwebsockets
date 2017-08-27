@@ -49,7 +49,6 @@ rm -rf $RPM_BUILD_ROOT
 %attr(755,root,root)
 /usr/bin/libwebsockets-test-server
 /usr/bin/libwebsockets-test-server-extpoll
-/usr/bin/libwebsockets-test-server-pthreads
 /usr/bin/libwebsockets-test-client
 /usr/bin/libwebsockets-test-ping
 /usr/bin/libwebsockets-test-echo
@@ -70,6 +69,7 @@ rm -rf $RPM_BUILD_ROOT
 %attr(755,root,root)
 /%{_libdir}/libwebsockets.a
 /%{_libdir}/pkgconfig/libwebsockets.pc
+/%{_libdir}/pkgconfig/libwebsockets_static.pc
 
 %changelog
 * Fri Jul 28 2017 Andy Green <andy@warmcat.com> 2.3.0-1
