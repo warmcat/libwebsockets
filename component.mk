@@ -24,7 +24,7 @@ build:
 		-DBUILD_DIR_BASE=$(BUILD_DIR_BASE) \
 		-DCMAKE_TOOLCHAIN_FILE=$(COMPONENT_PATH)/cross-esp32.cmake \
 		-DCMAKE_BUILD_TYPE=RELEASE \
-		-DOPENSSL_INCLUDE_DIR=${IDF_PATH}/components/openssl/include \
+		-DLWS_MBEDTLS_INCLUDE_DIRS=${IDF_PATH}/components/openssl/include \
 		-DLWS_WITH_STATS=0 \
 		-DZLIB_LIBRARY=$(BUILD_DIR_BASE)/zlib/libzlib.a \
 		-DZLIB_INCLUDE_DIR=$(COMPONENT_PATH)/../zlib \
