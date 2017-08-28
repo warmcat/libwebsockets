@@ -576,3 +576,26 @@ Prepare the log directory like this
 	sudo mkdir /var/log/lwsws
 	sudo chmod 700 /var/log/lwsws
 ```
+
+@section lwswsgdb Debugging lwsws with gdb
+
+Hopefully you won't need to debug lwsws itself, but you may want to debug your plugins.  start lwsws like this to have everything running under gdb
+
+```
+sudo gdb -ex "set follow-fork-mode child" -ex "run" --args /usr/local/bin/lwsws
+
+```
+
+this will give nice backtraces in lwsws itself and in plugins, if they were built with symbols.
+
+@section lwswsvgd Running lwsws under valgrind
+
+You can just run lwsws under galgrind as usual and get valid results.  However the results / analysis part of valgrind runs
+after the plugins have removed themselves, this means valgrind backtraces into plugin code is opaque, without
+source-level info because the dynamic library is gone.
+
+There's a simple workaround, use LD_PRELOAD=<plugin.so> before running lwsws, this has the loader bring the plugin
+in before executing lwsws as if it was a direct dependency.  That means it's still mapped until the whole process
+exits after valgtind has done its thing.
+
+

@@ -58,11 +58,13 @@ static int pids[32];
 #define LWSWS_CONFIG_STRING_SIZE (32 * 1024)
 
 static const struct lws_extension exts[] = {
+#if !defined(LWS_NO_EXTENSIONS)
 	{
 		"permessage-deflate",
 		lws_extension_callback_pm_deflate,
 		"permessage-deflate"
 	},
+#endif
 	{ NULL, NULL, NULL /* terminator */ }
 };
 

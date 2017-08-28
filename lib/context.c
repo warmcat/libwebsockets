@@ -246,19 +246,27 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 #ifdef LWS_WITH_CGI
-		if (wsi->reason_bf & 1) {
+		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI) {
 			if (lws_cgi_write_split_stdout_headers(wsi) < 0)
 				return -1;
 
-			if (wsi->reason_bf & 8)
-				wsi->reason_bf &= ~8;
+			if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_HEADERS)
+				wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 			else
-				wsi->reason_bf &= ~1;
+				wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__CGI;
+			break;
+		}
+
+		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_CHUNK_END) {
+			n = lws_write(wsi, (unsigned char *)"0\x0d\x0a\x0d\x0a",
+				      5, LWS_WRITE_HTTP);
+			if (n < 0)
+				return -1;
 			break;
 		}
 #endif
 #if defined(LWS_WITH_HTTP_PROXY)
-		if (wsi->reason_bf & 2) {
+		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__PROXY) {
 			char *px = buf + LWS_PRE;
 			int lenx = sizeof(buf) - LWS_PRE;
 			/*
@@ -268,8 +276,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			 * is the smaller.
 			 */
 
-
-			wsi->reason_bf &= ~2;
+			wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__PROXY;
 			if (!lws_get_child(wsi))
 				break;
 			if (lws_http_client_read(lws_get_child(wsi), &px, &lenx) < 0)
@@ -285,7 +292,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		assert(lws_get_parent(wsi));
 		if (!lws_get_parent(wsi))
 			break;
-		lws_get_parent(wsi)->reason_bf |= 2;
+		lws_get_parent(wsi)->reason_bf |= LWS_CB_REASON_AUX_BF__PROXY;
 		lws_callback_on_writable(lws_get_parent(wsi));
 		break;
 
@@ -357,7 +364,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			/* TBD stdin rx flow control */
 			break;
 		case LWS_STDOUT:
-			wsi->reason_bf |= 1;
+			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI;
 			/* when writing to MASTER would not block */
 			lws_callback_on_writable(wsi);
 			break;
@@ -375,6 +382,11 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CGI_TERMINATED:
+		if (!wsi->cgi->explicitly_chunked && !wsi->cgi->content_length) {
+			/* send terminating chunk */
+			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_CHUNK_END;
+			lws_callback_on_writable(wsi);
+		}
 		return -1;
 
 	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */

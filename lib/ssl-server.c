@@ -377,6 +377,10 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			lwsl_err("Problem loading cert\n");
 			return 1;
 		}
+#if defined(LWS_USE_MBEDTLS)
+		free(p);
+		p = NULL;
+#endif
 
 		if (alloc_pem_to_der_file(vhost->context,
 			       info->ssl_private_key_filepath, &p, &flen)) {
@@ -394,6 +398,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 #if defined(LWS_USE_MBEDTLS)
 		free(p);
+		p = NULL;
 #endif
 #endif
 		if (info->ssl_private_key_filepath != NULL) {

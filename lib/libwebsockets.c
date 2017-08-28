@@ -256,6 +256,33 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 	return 0;
 }
 
+#ifdef LWS_WITH_CGI
+static void
+lws_cgi_remove_and_kill(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_cgi **pcgi = &pt->cgi_list;
+
+	/* remove us from the cgi list */
+	lwsl_debug("%s: remove cgi %p from list\n", __func__, wsi->cgi);
+	while (*pcgi) {
+		if (*pcgi == wsi->cgi) {
+			/* drop us from the pt cgi list */
+			*pcgi = (*pcgi)->cgi_list;
+			break;
+		}
+		pcgi = &(*pcgi)->cgi_list;
+	}
+	if (wsi->cgi->headers_buf) {
+		lwsl_debug("close: freed cgi headers\n");
+		lws_free_set_NULL(wsi->cgi->headers_buf);
+	}
+	/* we have a cgi going, we must kill it */
+	wsi->cgi->being_closed = 1;
+	lws_cgi_kill(wsi);
+}
+#endif
+
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 {
@@ -319,35 +346,22 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 #ifdef LWS_WITH_CGI
 	if (wsi->mode == LWSCM_CGI) {
 		/* we are not a network connection, but a handler for CGI io */
-		if (wsi->parent && wsi->parent->cgi)
+		if (wsi->parent && wsi->parent->cgi) {
+
+			if (wsi->cgi_channel == LWS_STDOUT)
+				lws_cgi_remove_and_kill(wsi->parent);
+
 			/* end the binding between us and master */
 			wsi->parent->cgi->stdwsi[(int)wsi->cgi_channel] = NULL;
+		}
 		wsi->socket_is_permanently_unusable = 1;
 
 		lwsl_debug("------ %s: detected cgi fdhandler wsi %p\n", __func__, wsi);
 		goto just_kill_connection;
 	}
 
-	if (wsi->cgi) {
-		struct lws_cgi **pcgi = &pt->cgi_list;
-		/* remove us from the cgi list */
-		lwsl_debug("%s: remove cgi %p from list\n", __func__, wsi->cgi);
-		while (*pcgi) {
-			if (*pcgi == wsi->cgi) {
-				/* drop us from the pt cgi list */
-				*pcgi = (*pcgi)->cgi_list;
-				break;
-			}
-			pcgi = &(*pcgi)->cgi_list;
-		}
-		if (wsi->cgi->headers_buf) {
-			lwsl_debug("close: freed cgi headers\n");
-			lws_free_set_NULL(wsi->cgi->headers_buf);
-		}
-		/* we have a cgi going, we must kill it */
-		wsi->cgi->being_closed = 1;
-		lws_cgi_kill(wsi);
-	}
+	if (wsi->cgi)
+		lws_cgi_remove_and_kill(wsi);
 #endif
 
 #if !defined(LWS_NO_CLIENT)
@@ -769,12 +783,13 @@ lws_close_free_wsi_final(struct lws *wsi)
 
 #ifdef LWS_WITH_CGI
 	if (wsi->cgi) {
-		for (n = 0; n < 6; n++) {
-			if (wsi->cgi->pipe_fds[n / 2][n & 1] == 0)
+
+		for (n = 0; n < 3; n++) {
+			if (wsi->cgi->pipe_fds[n][!!(n == 0)] == 0)
 				lwsl_err("ZERO FD IN CGI CLOSE");
 
-			if (wsi->cgi->pipe_fds[n / 2][n & 1] >= 0)
-				close(wsi->cgi->pipe_fds[n / 2][n & 1]);
+			if (wsi->cgi->pipe_fds[n][!!(n == 0)] >= 0)
+				close(wsi->cgi->pipe_fds[n][!!(n == 0)]);
 		}
 
 		lws_free(wsi->cgi);
@@ -2631,6 +2646,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 			p++;
 		}
 	}
+	env_array[n++] = "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin";
+
 	env_array[n++] = p;
 	p += lws_snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[0]) + 1;
 
@@ -2645,7 +2662,6 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	}
 
 	env_array[n++] = "SERVER_SOFTWARE=libwebsockets";
-	env_array[n++] = "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin";
 	env_array[n] = NULL;
 
 #if 0
@@ -2680,6 +2696,10 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		/* we are the parent process */
 		wsi->context->count_cgi_spawned++;
 		lwsl_debug("%s: cgi %p spawned PID %d\n", __func__, cgi, cgi->pid);
+
+		for (n = 0; n < 3; n++)
+			close(cgi->pipe_fds[n][!(n == 0)]);
+
 		return 0;
 	}
 
@@ -2762,17 +2782,23 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 		return -1;
 
 	while (wsi->hdr_state != LHCS_PAYLOAD) {
-		/* we have to separate header / finalize and
+		/*
+		 *  we have to separate header / finalize and
 		 * payload chunks, since they need to be
 		 * handled separately
 		 */
-
 		switch (wsi->hdr_state) {
 
 		case LHCS_RESPONSE:
 			lwsl_info("LHCS_RESPONSE: issuing response %d\n",
 					wsi->cgi->response_code);
 			if (lws_add_http_header_status(wsi, wsi->cgi->response_code, &p, end))
+				return 1;
+			if (!wsi->cgi->explicitly_chunked &&
+			    !wsi->cgi->content_length &&
+				lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
+					(unsigned char *)"chunked", 7, &p, end))
 				return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
 					(unsigned char *)"close", 5, &p, end))
@@ -2790,7 +2816,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			}
 
 			wsi->hdr_state = LHCS_DUMP_HEADERS;
-			wsi->reason_bf |= 8;
+			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 			lws_callback_on_writable(wsi);
 			/* back to the loop for writeability again */
 			return 0;
@@ -2815,7 +2841,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 				lws_free_set_NULL(wsi->cgi->headers_buf);
 				lwsl_debug("freed cgi headers\n");
 			} else {
-				wsi->reason_bf |= 8;
+				wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 				lws_callback_on_writable(wsi);
 			}
 
@@ -2971,14 +2997,24 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 
 	/* payload processing */
 
+	m = !wsi->cgi->explicitly_chunked && !wsi->cgi->content_length;
+
 	n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]),
-		 start, sizeof(buf) - LWS_PRE);
+		 start, sizeof(buf) - LWS_PRE - (m ? LWS_HTTP_CHUNK_HDR_SIZE : 0));
 
 	if (n < 0 && errno != EAGAIN) {
 		lwsl_debug("%s: stdout read says %d\n", __func__, n);
 		return -1;
 	}
 	if (n > 0) {
+		if (m) {
+			char chdr[LWS_HTTP_CHUNK_HDR_SIZE];
+			m = lws_snprintf(chdr, LWS_HTTP_CHUNK_HDR_SIZE - 3, "%X\x0d\x0a", n);
+			memmove(start + m, start, n);
+			memcpy(start, chdr, m);
+			memcpy(start + m + n, "\x0d\x0a", 2);
+			n += m + 2;
+		}
 		m = lws_write(wsi, (unsigned char *)start, n, LWS_WRITE_HTTP);
 		//lwsl_notice("write %d\n", m);
 		if (m < 0) {
@@ -3109,7 +3145,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				lwsl_debug("%s: found PID %d on cgi list\n",
 					    __func__, n);
 
-				if (!cgi->content_length && cgi->explicitly_chunked) {
+				if (!cgi->content_length) {
 					/*
 					 * well, if he sends chunked... give him 5s after the
 					 * cgi terminated to send buffered
@@ -3212,7 +3248,8 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 int
 lws_access_log(struct lws *wsi)
 {
-	char *p = wsi->access_log.user_agent, ass[512];
+	char *p = wsi->access_log.user_agent, ass[512],
+	     *p1 = wsi->access_log.referrer;
 	int l;
 
 	if (!wsi->access_log_pending)
@@ -3224,9 +3261,12 @@ lws_access_log(struct lws *wsi)
 	if (!p)
 		p = "";
 
-	l = lws_snprintf(ass, sizeof(ass) - 1, "%s %d %lu %s\n",
+	if (!p1)
+		p1 = "";
+
+	l = lws_snprintf(ass, sizeof(ass) - 1, "%s %d %lu \"%s\" \"%s\"\n",
 		     wsi->access_log.header_log,
-		     wsi->access_log.response, wsi->access_log.sent, p);
+		     wsi->access_log.response, wsi->access_log.sent, p1, p);
 
 	if (wsi->vhost->log_fd != (int)LWS_INVALID_FILE) {
 		if (write(wsi->vhost->log_fd, ass, l) != l)
@@ -3241,6 +3281,10 @@ lws_access_log(struct lws *wsi)
 	if (wsi->access_log.user_agent) {
 		lws_free(wsi->access_log.user_agent);
 		wsi->access_log.user_agent = NULL;
+	}
+	if (wsi->access_log.referrer) {
+		lws_free(wsi->access_log.referrer);
+		wsi->access_log.referrer = NULL;
 	}
 	wsi->access_log_pending = 0;
 

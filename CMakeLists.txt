@@ -650,8 +650,6 @@ if (LWS_WITH_SSL)
 	endif()
 endif()
 
-
-
 if (NOT LWS_WITHOUT_BUILTIN_SHA1)
 	list(APPEND SOURCES
 		lib/sha-1.c)
