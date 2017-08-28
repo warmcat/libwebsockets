@@ -19,6 +19,7 @@
  extern "C" {
 #endif
 
+#include <stdlib.h>
 #include "internal/ssl_x509.h"
 #include "internal/ssl_pkey.h"
 
@@ -26,6 +27,7 @@
 {
 */
 
+#define SSL_CB_ALERT 0x4000
 /**
  * @brief create a SSL context
  *

@@ -204,7 +204,7 @@ typedef unsigned long long lws_intptr_t;
 #endif /* not USE_OLD_CYASSL */
 #else
 #include <openssl/ssl.h>
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_USE_MBEDTLS)
 #include <openssl/err.h>
 #endif
 #endif /* not USE_WOLFSSL */
