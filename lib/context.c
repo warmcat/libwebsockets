@@ -1292,7 +1292,7 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 	lwsl_notice("  %s: Freeing vhost %p\n", __func__, vh);
 
 	memset(vh, 0, sizeof(*vh));
-	free(vh);
+	lws_free(vh);
 }
 
 int
