@@ -274,7 +274,7 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #endif /* not USE_OLD_CYASSL */
 #else
 #include <openssl/ssl.h>
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_USE_MBEDTLS)
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/md5.h>
@@ -1490,6 +1490,8 @@ struct _lws_websocket_related {
 
 #ifdef LWS_WITH_CGI
 
+#define LWS_HTTP_CHUNK_HDR_SIZE 16
+
 enum {
 	SIGNIFICANT_HDR_CONTENT_LENGTH,
 	SIGNIFICANT_HDR_LOCATION,
@@ -1543,6 +1545,7 @@ struct lws_rewrite;
 struct lws_access_log {
 	char *header_log;
 	char *user_agent;
+	char *referrer;
 	unsigned long sent;
 	int response;
 };

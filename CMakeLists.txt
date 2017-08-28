@@ -72,6 +72,7 @@ option(LWS_WITH_SSL "Include SSL support (default OpenSSL, wolfSSL if LWS_USE_WO
 option(LWS_USE_BORINGSSL "Use BoringSSL replacement for OpenSSL" OFF)
 option(LWS_USE_CYASSL "Use CyaSSL replacement for OpenSSL. When setting this, you also need to specify LWS_CYASSL_LIBRARIES and LWS_CYASSL_INCLUDE_DIRS" OFF)
 option(LWS_USE_WOLFSSL "Use wolfSSL replacement for OpenSSL. When setting this, you also need to specify LWS_WOLFSSL_LIBRARIES and LWS_WOLFSSL_INCLUDE_DIRS" OFF)
+option(LWS_USE_MBEDTLS "Use mbedTLS (>=2.0) replacement for OpenSSL. When setting this, you also need to specify LWS_MBEDTLS_LIBRARIES and LWS_MBEDTLS_INCLUDE_DIRS" OFF)
 option(LWS_WITH_ZLIB "Include zlib support (required for extensions)" ON)
 option(LWS_WITH_LIBEV "Compile with support for libev" OFF)
 option(LWS_WITH_LIBUV "Compile with support for libuv" OFF)
@@ -169,7 +170,7 @@ endif()
 
 if (LWS_WITH_ESP32)
  set(LWS_WITH_SHARED OFF)
- set(LWS_WITH_SSL ON)
+ set(LWS_USE_MBEDTLS ON)
   # set(LWS_WITHOUT_CLIENT ON)
  set(LWS_WITHOUT_TESTAPPS ON)
  set(LWS_WITHOUT_EXTENSIONS ON)
@@ -249,7 +250,7 @@ if (NOT LWS_WITH_SSL)
 	set(LWS_WITHOUT_BUILTIN_SHA1 OFF)
 endif()
 
-if (LWS_WITH_SSL AND NOT LWS_USE_WOLFSSL)
+if (LWS_WITH_SSL AND NOT LWS_USE_WOLFSSL AND NOT LWS_USE_MBEDTLS)
 	if ("${LWS_OPENSSL_LIBRARIES}" STREQUAL "" OR "${LWS_OPENSSL_INCLUDE_DIRS}" STREQUAL "")
 	else()
 		if (NOT LWS_WITH_ESP32)
@@ -278,6 +279,33 @@ if (LWS_WITH_SSL AND LWS_USE_WOLFSSL)
 	if (LWS_USE_CYASSL)
 		set(USE_OLD_CYASSL 1)
 	endif()
+endif()
+
+if (LWS_WITH_SSL AND LWS_USE_MBEDTLS)
+	if ("${LWS_MBEDTLS_LIBRARIES}" STREQUAL "" OR "${LWS_MBEDTLS_INCLUDE_DIRS}" STREQUAL "")
+
+		find_path(LWS_MBEDTLS_INCLUDE_DIRS mbedtls/ssl.h)
+
+		find_library(MBEDTLS_LIBRARY mbedtls)
+		find_library(MBEDX509_LIBRARY mbedx509)
+		find_library(MBEDCRYPTO_LIBRARY mbedcrypto)
+
+		set(LWS_MBEDTLS_LIBRARIES "${MBEDTLS_LIBRARY}" "${MBEDX509_LIBRARY}" "${MBEDCRYPTO_LIBRARY}")
+
+		include(FindPackageHandleStandardArgs)
+		find_package_handle_standard_args(MBEDTLS DEFAULT_MSG
+			LWS_MBEDTLS_INCLUDE_DIRS MBEDTLS_LIBRARY MBEDX509_LIBRARY MBEDCRYPTO_LIBRARY)
+
+		mark_as_advanced(LWS_MBEDTLS_INCLUDE_DIRS MBEDTLS_LIBRARY MBEDX509_LIBRARY MBEDCRYPTO_LIBRARY)
+
+		if ("${LWS_MBEDTLS_LIBRARIES}" STREQUAL "" OR "${LWS_MBEDTLS_INCLUDE_DIRS}" STREQUAL "")
+			message(FATAL_ERROR "You must set LWS_MBEDTLS_LIBRARIES and LWS_MBEDTLS_INCLUDE_DIRS when LWS_USE_MBEDTLS is turned on.")
+		endif()
+	endif()
+		set(MBEDTLS_LIBRARIES ${LWS_MBEDTLS_LIBRARIES})
+		set(MBEDTLS_INCLUDE_DIRS ${LWS_MBEDTLS_INCLUDE_DIRS})
+		set(MBEDTLS_FOUND 1)
+	set(USE_MBEDTLS 1)
 endif()
 
 if (LWS_WITH_ZLIB AND NOT LWS_USE_BUNDLED_ZLIB)
@@ -578,6 +606,48 @@ if (NOT LWS_WITHOUT_CLIENT)
 		lib/client.c
 		lib/client-handshake.c
 		lib/client-parser.c)
+endif()
+
+if (LWS_USE_MBEDTLS)
+ 	set(LWS_WITH_SSL ON)
+
+	list(APPEND HDR_PRIVATE
+		lib/mbedtls_wrapper/include/internal/ssl3.h
+		lib/mbedtls_wrapper/include/internal/ssl_cert.h
+		lib/mbedtls_wrapper/include/internal/ssl_code.h
+		lib/mbedtls_wrapper/include/internal/ssl_dbg.h
+		lib/mbedtls_wrapper/include/internal/ssl_lib.h
+		lib/mbedtls_wrapper/include/internal/ssl_methods.h
+		lib/mbedtls_wrapper/include/internal/ssl_pkey.h
+		lib/mbedtls_wrapper/include/internal/ssl_stack.h
+		lib/mbedtls_wrapper/include/internal/ssl_types.h
+		lib/mbedtls_wrapper/include/internal/ssl_x509.h
+		lib/mbedtls_wrapper/include/internal/tls1.h
+		lib/mbedtls_wrapper/include/internal/x509_vfy.h)
+
+	list(APPEND HDR_PRIVATE
+		lib/mbedtls_wrapper/include/openssl/ssl.h)
+
+	list(APPEND HDR_PRIVATE
+		lib/mbedtls_wrapper/include/platform/ssl_pm.h
+		lib/mbedtls_wrapper/include/platform/ssl_port.h)
+
+	include_directories(lib/mbedtls_wrapper/include)
+	include_directories(lib/mbedtls_wrapper/include/platform)
+	include_directories(lib/mbedtls_wrapper/include/internal)
+	include_directories(lib/mbedtls_wrapper/include/openssl)
+
+	list(APPEND SOURCES
+		lib/mbedtls_wrapper/library/ssl_cert.c
+		lib/mbedtls_wrapper/library/ssl_lib.c
+		lib/mbedtls_wrapper/library/ssl_methods.c
+		lib/mbedtls_wrapper/library/ssl_pkey.c
+		lib/mbedtls_wrapper/library/ssl_stack.c
+		lib/mbedtls_wrapper/library/ssl_x509.c)
+
+	list(APPEND SOURCES
+		lib/mbedtls_wrapper/platform/ssl_pm.c
+		lib/mbedtls_wrapper/platform/ssl_port.c)
 endif()
 
 if (LWS_WITH_SSL)
@@ -922,6 +992,18 @@ if (LWS_WITH_SSL)
 		set(chose_ssl 1)
 	endif()
 
+	if (LWS_USE_MBEDTLS)
+		message("MBEDTLS include dir: ${MBEDTLS_INCLUDE_DIRS}")
+		message("MBEDTLS libraries: ${MBEDTLS_LIBRARIES}")
+
+		foreach(inc ${MBEDTLS_INCLUDE_DIRS})
+			include_directories("${inc}" "${inc}/mbedtls")
+		endforeach()
+
+		list(APPEND LIB_LIST "${MBEDTLS_LIBRARIES}")
+		set(chose_ssl 1)
+	endif()
+
 	if (NOT chose_ssl)
 		if (NOT OPENSSL_FOUND AND NOT LWS_USE_BORINGSSL)
 			# TODO: Add support for STATIC also.
@@ -941,13 +1023,15 @@ if (LWS_WITH_SSL)
 			list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
 		endif()
 
-	# older (0.98) Openssl lacks this
-	set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIRS})
-	check_include_file(openssl/ecdh.h LWS_HAVE_OPENSSL_ECDH_H)
+	if (NOT LWS_USE_MBEDTLS)
+		# older (0.98) Openssl lacks this
+		set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIRS})
+		check_include_file(openssl/ecdh.h LWS_HAVE_OPENSSL_ECDH_H)
 
-	if (LWS_SSL_SERVER_WITH_ECDH_CERT AND NOT LWS_HAVE_OPENSSL_ECDH_H)
-		message(FATAL_ERROR "Missing openssl/ecdh.h, so cannot use LWS_SSL_SERVER_WITH_ECDH_CERT")
-	endif()
+		if (LWS_SSL_SERVER_WITH_ECDH_CERT AND NOT LWS_HAVE_OPENSSL_ECDH_H)
+			message(FATAL_ERROR "Missing openssl/ecdh.h, so cannot use LWS_SSL_SERVER_WITH_ECDH_CERT")
+		endif()
+	endif(NOT LWS_USE_MBEDTLS)
 	endif()
 
 endif(LWS_WITH_SSL)
@@ -1044,7 +1128,7 @@ set(CMAKE_REQUIRED_LIBRARIES ${LIB_LIST})
 CHECK_FUNCTION_EXISTS(SSL_CTX_set1_param LWS_HAVE_SSL_CTX_set1_param)
 CHECK_FUNCTION_EXISTS(SSL_set_info_callback LWS_HAVE_SSL_SET_INFO_CALLBACK)
 CHECK_FUNCTION_EXISTS(X509_VERIFY_PARAM_set1_host LWS_HAVE_X509_VERIFY_PARAM_set1_host)
-if (LWS_WITH_ESP32)
+if (LWS_USE_MBEDTLS)
 	set(LWS_HAVE_TLS_CLIENT_METHOD 1)
 else()
 CHECK_FUNCTION_EXISTS(TLS_client_method LWS_HAVE_TLS_CLIENT_METHOD)
@@ -1063,7 +1147,7 @@ configure_file(
 
 # Generate self-signed SSL certs for the test-server.
 
-if (LWS_WITH_SSL AND NOT LWS_USE_WOLFSSL)
+if (LWS_WITH_SSL AND NOT LWS_USE_WOLFSSL AND NOT LWS_USE_MBEDTLS)
 	message("Searching for OpenSSL executable and dlls")
 	find_package(OpenSSLbins)
 	message("OpenSSL executable: ${OPENSSL_EXECUTABLE}")
@@ -1767,6 +1851,7 @@ if (LWS_USE_WOLFSSL)
 	message("   LWS_WOLFSSL_LIBRARIES = ${LWS_WOLFSSL_LIBRARIES}")
 	message("   LWS_WOLFSSL_INCLUDE_DIRS = ${LWS_WOLFSSL_INCLUDE_DIRS}")
 endif()
+message(" LWS_USE_MBEDTLS = ${LWS_USE_MBEDTLS} (mbedTLS replacement for OpenSSL)")
 message(" LWS_WITHOUT_BUILTIN_SHA1 = ${LWS_WITHOUT_BUILTIN_SHA1}")
 message(" LWS_WITHOUT_BUILTIN_GETIFADDRS = ${LWS_WITHOUT_BUILTIN_GETIFADDRS}")
 message(" LWS_WITHOUT_CLIENT = ${LWS_WITHOUT_CLIENT}")

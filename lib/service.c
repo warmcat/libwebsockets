@@ -854,6 +854,10 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 		if (pollfd)
 			our_fd = pollfd->fd;
 
+		/*
+		 * Phase 1: check every wsi on the timeout check list
+		 */
+
 		wsi = context->pt[tsi].timeout_list;
 		while (wsi) {
 			/* we have to take copies, because he may be deleted */
@@ -868,7 +872,70 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			}
 			wsi = wsi1;
 		}
+
+		/*
+		 * Phase 2: double-check active ah timeouts independent of wsi
+		 *	    timeout status
+		 */
+
+		for (n = 0; n < context->max_http_header_pool; n++)
+			if (pt->ah_pool[n].in_use && pt->ah_pool[n].wsi &&
+			    pt->ah_pool[n].assigned &&
+			    now - pt->ah_pool[n].assigned > 60) {
+				int len;
+				char buf[256];
+				const unsigned char *c;
+
+				/*
+				 * a single ah session somehow got held for
+				 * an unreasonable amount of time.
+				 *
+				 * Dump info on the connection...
+				 */
+
+				wsi = pt->ah_pool[n].wsi;
+				buf[0] = '\0';
+				lws_get_peer_simple(wsi, buf, sizeof(buf));
+				lwsl_notice("ah excessive hold: wsi %p\n"
+					    "  peer address: %s\n"
+					    "  ah rxpos %u, rxlen %u, pos %u\n",
+					    wsi, buf, pt->ah_pool[n].rxpos,
+					    pt->ah_pool[n].rxlen,
+					    pt->ah_pool[n].pos);
+
+				m = 0;
+				do {
+					c = lws_token_to_string(m);
+					if (!c)
+						break;
+
+					len = lws_hdr_total_length(wsi, m);
+					if (!len || len > sizeof(buf) - 1) {
+						m++;
+						continue;
+					}
+
+					lws_hdr_copy(wsi, buf, sizeof buf, m);
+					buf[sizeof(buf) - 1] = '\0';
+
+					lwsl_notice("   %s = %s\n",
+						    (const char *)c, buf);
+					m++;
+				} while (1);
+
+				/* ... and then drop the connection */
+
+				if (wsi->desc.sockfd == our_fd)
+					/* it was the guy we came to service! */
+					timed_out = 1;
+
+				lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			}
+
 #ifdef LWS_WITH_CGI
+		/*
+		 * Phase 3: handle cgi timeouts
+		 */
 		lws_cgi_kill_terminated(pt);
 #endif
 #if 0
@@ -959,7 +1026,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 #endif
 
 //       lwsl_debug("fd=%d, revents=%d, mode=%d, state=%d\n", pollfd->fd, pollfd->revents, (int)wsi->mode, (int)wsi->state);
-	if (pollfd->revents & LWS_POLLHUP) {
+	if ((!(pollfd->revents & pollfd->events & LWS_POLLIN)) &&
+			(pollfd->revents & LWS_POLLHUP)) {
 		lwsl_debug("pollhup\n");
 		wsi->socket_is_permanently_unusable = 1;
 		goto close_and_handled;
@@ -1066,9 +1134,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	case LWSCM_HTTP_CLIENT_ACCEPTED:
 
 		/* 1: something requested a callback when it was OK to write */
-
-		if (wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION)
-			lwsl_notice("xxx\n");
 
 		if ((pollfd->revents & LWS_POLLOUT) &&
 		    ((wsi->state == LWSS_ESTABLISHED ||

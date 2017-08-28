@@ -35,6 +35,7 @@ Original liberal license retained
 
   - lib/sha-1.c         - 3-clause BSD license retained, link to original
   - win32port/zlib      - ZLIB license (see zlib.h)
+  - lib/mbedtls_wrapper - Apache 2.0 (only built if linked against mbedtls)
 
 Relicensed to libwebsocket license
 
