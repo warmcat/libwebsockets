@@ -609,6 +609,22 @@ if (LWS_WITH_SSL)
 	endif()
 endif()
 
+if (LWS_WITH_MBEDTLS)
+	#	list(APPEND HDR_PRIVATE)
+	list(APPEND SOURCES
+		lib/mbedtls_wrapper/library/ssl_cert.c
+		lib/mbedtls_wrapper/library/ssl_lib.c
+		lib/mbedtls_wrapper/library/ssl_methods.c
+		lib/mbedtls_wrapper/library/ssl_pkey.c
+		lib/mbedtls_wrapper/library/ssl_stack.c
+		lib/mbedtls_wrapper/library/ssl_x509.c)
+
+	list(APPEND SOURCES
+		lib/mbedtls_wrapper/platform/ssl_pm.c
+		lib/mbedtls_wrapper/platform/ssl_port.c)
+endif()
+
+
 if (NOT LWS_WITHOUT_BUILTIN_SHA1)
 	list(APPEND SOURCES
 		lib/sha-1.c)
