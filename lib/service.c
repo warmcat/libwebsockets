@@ -1135,9 +1135,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 		/* 1: something requested a callback when it was OK to write */
 
-		if (wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION)
-			lwsl_notice("xxx\n");
-
 		if ((pollfd->revents & LWS_POLLOUT) &&
 		    ((wsi->state == LWSS_ESTABLISHED ||
 		     wsi->state == LWSS_HTTP2_ESTABLISHED ||
