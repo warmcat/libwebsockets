@@ -377,7 +377,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			lwsl_err("Problem loading cert\n");
 			return 1;
 		}
-#if defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_ESP32)
 		free(p);
 		p = NULL;
 #endif
@@ -396,7 +396,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			return 1;
 		}
 
-#if defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_ESP32)
 		free(p);
 		p = NULL;
 #endif
