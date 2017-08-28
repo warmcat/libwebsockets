@@ -304,7 +304,11 @@ lws_context_init_ssl_library(struct lws_context_creation_info *info)
 #if defined(LWS_USE_BORINGSSL)
 	lwsl_notice(" Compiled with BoringSSL support\n");
 #else
+#if defined(LWS_USE_MBEDTLS)
+	lwsl_notice(" Compiled with MbedTLS support\n");
+#else
 	lwsl_notice(" Compiled with OpenSSL support\n");
+#endif
 #endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
