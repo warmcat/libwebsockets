@@ -1554,3 +1554,26 @@ void SSL_set_verify(SSL *ssl, int mode, int (*verify_callback)(int, X509_STORE_C
     ssl->verify_mode = mode;
     ssl->verify_callback = verify_callback;
 }
+
+void ERR_error_string_n(unsigned long e, char *buf, size_t len)
+{
+	strncpy(buf, "unknown", len);
+}
+
+void ERR_free_strings(void)
+{
+}
+
+char *ERR_error_string(unsigned long e, char *buf)
+{
+	if (buf) {
+		strcpy(buf, "unknown");
+	}
+
+	return "unknown";
+}
+
+void *SSL_CTX_get_ex_data(const SSL_CTX *ctx, int idx)
+{
+	return NULL;
+}

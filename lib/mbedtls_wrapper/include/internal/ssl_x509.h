@@ -101,6 +101,8 @@ int SSL_add_client_CA(SSL *ssl, X509 *x);
  */
 int SSL_use_certificate_ASN1(SSL *ssl, int len, const unsigned char *d);
 
+const char *X509_verify_cert_error_string(long n);
+
 #ifdef __cplusplus
 }
 #endif

@@ -15,7 +15,6 @@
 #ifndef _SSL_DEBUG_H_
 #define _SSL_DEBUG_H_
 
-#include "platform/ssl_opt.h"
 #include "platform/ssl_port.h"
 
 #ifdef __cplusplus

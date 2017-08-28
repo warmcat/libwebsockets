@@ -274,7 +274,7 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #endif /* not USE_OLD_CYASSL */
 #else
 #include <openssl/ssl.h>
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_USE_MBEDTLS)
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/md5.h>
