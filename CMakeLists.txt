@@ -283,14 +283,28 @@ endif()
 
 if (LWS_WITH_SSL AND LWS_USE_MBEDTLS)
 	if ("${LWS_MBEDTLS_LIBRARIES}" STREQUAL "" OR "${LWS_MBEDTLS_INCLUDE_DIRS}" STREQUAL "")
-		if (NOT MBEDTLS_FOUND)
+
+		find_path(LWS_MBEDTLS_INCLUDE_DIRS mbedtls/ssl.h)
+
+		find_library(MBEDTLS_LIBRARY mbedtls)
+		find_library(MBEDX509_LIBRARY mbedx509)
+		find_library(MBEDCRYPTO_LIBRARY mbedcrypto)
+
+		set(LWS_MBEDTLS_LIBRARIES "${MBEDTLS_LIBRARY}" "${MBEDX509_LIBRARY}" "${MBEDCRYPTO_LIBRARY}")
+
+		include(FindPackageHandleStandardArgs)
+		find_package_handle_standard_args(MBEDTLS DEFAULT_MSG
+			LWS_MBEDTLS_INCLUDE_DIRS MBEDTLS_LIBRARY MBEDX509_LIBRARY MBEDCRYPTO_LIBRARY)
+
+		mark_as_advanced(LWS_MBEDTLS_INCLUDE_DIRS MBEDTLS_LIBRARY MBEDX509_LIBRARY MBEDCRYPTO_LIBRARY)
+
+		if ("${LWS_MBEDTLS_LIBRARIES}" STREQUAL "" OR "${LWS_MBEDTLS_INCLUDE_DIRS}" STREQUAL "")
 			message(FATAL_ERROR "You must set LWS_MBEDTLS_LIBRARIES and LWS_MBEDTLS_INCLUDE_DIRS when LWS_USE_MBEDTLS is turned on.")
 		endif()
-	else()
+	endif()
 		set(MBEDTLS_LIBRARIES ${LWS_MBEDTLS_LIBRARIES})
 		set(MBEDTLS_INCLUDE_DIRS ${LWS_MBEDTLS_INCLUDE_DIRS})
 		set(MBEDTLS_FOUND 1)
-	endif()
 	set(USE_MBEDTLS 1)
 endif()
 
@@ -1009,13 +1023,15 @@ if (LWS_WITH_SSL)
 			list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
 		endif()
 
-	# older (0.98) Openssl lacks this
-	set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIRS})
-	check_include_file(openssl/ecdh.h LWS_HAVE_OPENSSL_ECDH_H)
+	if (NOT LWS_USE_MBEDTLS)
+		# older (0.98) Openssl lacks this
+		set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIRS})
+		check_include_file(openssl/ecdh.h LWS_HAVE_OPENSSL_ECDH_H)
 
-	if (LWS_SSL_SERVER_WITH_ECDH_CERT AND NOT LWS_HAVE_OPENSSL_ECDH_H)
-		message(FATAL_ERROR "Missing openssl/ecdh.h, so cannot use LWS_SSL_SERVER_WITH_ECDH_CERT")
-	endif()
+		if (LWS_SSL_SERVER_WITH_ECDH_CERT AND NOT LWS_HAVE_OPENSSL_ECDH_H)
+			message(FATAL_ERROR "Missing openssl/ecdh.h, so cannot use LWS_SSL_SERVER_WITH_ECDH_CERT")
+		endif()
+	endif(NOT LWS_USE_MBEDTLS)
 	endif()
 
 endif(LWS_WITH_SSL)
