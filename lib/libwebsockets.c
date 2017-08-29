@@ -1012,6 +1012,12 @@ bail:
 }
 
 LWS_EXTERN void *
+lws_vhost_user(struct lws_vhost *vhost)
+{
+	return vhost->user;
+}
+
+LWS_EXTERN void *
 lws_context_user(struct lws_context *context)
 {
 	return context->user_space;

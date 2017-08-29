@@ -482,6 +482,7 @@ lws_create_vhost(struct lws_context *context,
 	vh->options = info->options;
 	vh->pvo = info->pvo;
 	vh->headers = info->headers;
+	vh->user = info->user;
 	vh->ssl_info_event_mask = info->ssl_info_event_mask;
 	if (info->keepalive_timeout)
 		vh->keepalive_timeout = info->keepalive_timeout;

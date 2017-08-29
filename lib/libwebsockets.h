@@ -1935,8 +1935,14 @@ struct lws_context_creation_info {
 	unsigned int options;
 	/**< VHOST + CONTEXT: 0, or LWS_SERVER_OPTION_... bitfields */
 	void *user;
-	/**< CONTEXT: optional user pointer that can be recovered via the context
-	 *		pointer using lws_context_user */
+	/**< VHOST + CONTEXT: optional user pointer that will be associated
+	 * with the context when creating the context (and can be retrieved by
+	 * lws_context_user(context), or with the vhost when creating the vhost
+	 * (and can be retrieved by lws_vhost_user(vhost)).  You will need to
+	 * use LWS_SERVER_OPTION_EXPLICIT_VHOSTS and create the vhost separately
+	 * if you care about giving the context and vhost different user pointer
+	 * values.
+	 */
 	int ka_time;
 	/**< CONTEXT: 0 for no TCP keepalive, otherwise apply this keepalive
 	 * timeout to all libwebsocket sockets, client or server */
@@ -2348,6 +2354,17 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len);
 LWS_VISIBLE LWS_EXTERN int
 lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 		      int hide_vhosts);
+
+/**
+ * lws_vhost_user() - get the user data associated with the vhost
+ * \param vhost: Websocket vhost
+ *
+ * This returns the optional user pointer that can be attached to
+ * a vhost when it was created.  Lws never dereferences this pointer, it only
+ * sets it when the vhost is created, and returns it using this api.
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lws_vhost_user(struct lws_vhost *vhost);
 
 /**
  * lws_context_user() - get the user data associated with the context

@@ -881,6 +881,7 @@ struct lws_vhost {
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *extensions;
 #endif
+	void *user;
 
 	int listen_port;
 	unsigned int http_proxy_port;
