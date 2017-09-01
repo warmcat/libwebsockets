@@ -87,8 +87,7 @@ lws_client_connect_2(struct lws *wsi)
 
 	} else if (wsi->vhost->socks_proxy_port) {
 		socks_generate_msg(wsi, SOCKS_MSG_GREETING, &plen);
-		lwsl_client("%s\n", "Sending SOCKS Greeting.");
-
+		lwsl_client("Sending SOCKS Greeting\n");
 		ads = wsi->vhost->socks_proxy_address;
 		port = wsi->vhost->socks_proxy_port;
 #endif
@@ -366,8 +365,7 @@ lws_client_connect_2(struct lws *wsi)
 		n = send(wsi->desc.sockfd, (char *)pt->serv_buf, plen,
 			 MSG_NOSIGNAL);
 		if (n < 0) {
-			lwsl_debug("ERROR writing greeting to socks proxy"
-				"socket.\n");
+			lwsl_debug("ERROR writing socks greeting\n");
 			cce = "socks write failed";
 			goto failed;
 		}
@@ -980,9 +978,12 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	ssize_t len = 0;
+	ssize_t len = 0, n, passwd_len;
+	short net_num;
+	char *p;
 
-	if (type == SOCKS_MSG_GREETING) {
+	switch (type) {
+	case SOCKS_MSG_GREETING:
 		/* socks version, version 5 only */
 		pt->serv_buf[len++] = SOCKS_VERSION_5;
 		/* number of methods */
@@ -991,33 +992,30 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 		pt->serv_buf[len++] = SOCKS_AUTH_USERNAME_PASSWORD;
 		/* no authentication method */
 		pt->serv_buf[len++] = SOCKS_AUTH_NO_AUTH;
-	}
-	else if (type == SOCKS_MSG_USERNAME_PASSWORD) {
-		ssize_t user_len = 0;
-		ssize_t passwd_len = 0;
+		break;
 
-		user_len = strlen(wsi->vhost->socks_user);
+	case SOCKS_MSG_USERNAME_PASSWORD:
+		n = strlen(wsi->vhost->socks_user);
 		passwd_len = strlen(wsi->vhost->socks_password);
 
 		/* the subnegotiation version */
 		pt->serv_buf[len++] = SOCKS_SUBNEGOTIATION_VERSION_1;
 		/* length of the user name */
-		pt->serv_buf[len++] = user_len;
+		pt->serv_buf[len++] = n;
 		/* user name */
 		strncpy((char *)&pt->serv_buf[len], wsi->vhost->socks_user,
 			context->pt_serv_buf_size - len);
-		len += user_len;
+		len += n;
 		/* length of the password */
 		pt->serv_buf[len++] = passwd_len;
 		/* password */
 		strncpy((char *)&pt->serv_buf[len], wsi->vhost->socks_password,
 			context->pt_serv_buf_size - len);
 		len += passwd_len;
-	}
-	else if (type == SOCKS_MSG_CONNECT) {
-		ssize_t len_index = 0;
-		short net_num = 0;
-		char *net_buf = (char*)&net_num;
+		break;
+
+	case SOCKS_MSG_CONNECT:
+		p = (char*)&net_num;
 
 		/* socks version */
 		pt->serv_buf[len++] = SOCKS_VERSION_5;
@@ -1027,20 +1025,25 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 		pt->serv_buf[len++] = 0;
 		/* address type */
 		pt->serv_buf[len++] = SOCKS_ATYP_DOMAINNAME;
-		len_index = len++;
+		/* skip length, we fill it in at the end */
+		n = len++;
 
 		/* the address we tell SOCKS proxy to connect to */
 		strncpy((char *)&(pt->serv_buf[len]), wsi->u.hdr.stash->address,
 			context->pt_serv_buf_size - len);
 		len += strlen(wsi->u.hdr.stash->address);
-		net_num = htons((short)wsi->c_port);
+		net_num = htons(wsi->c_port);
 
 		/* the port we tell SOCKS proxy to connect to */
-		pt->serv_buf[len++] = net_buf[0];
-		pt->serv_buf[len++] = net_buf[1];
+		pt->serv_buf[len++] = p[0];
+		pt->serv_buf[len++] = p[1];
 
 		/* the length of the address, excluding port */
-		pt->serv_buf[len_index] = strlen(wsi->u.hdr.stash->address);
+		pt->serv_buf[n] = strlen(wsi->u.hdr.stash->address);
+		break;
+		
+	default:
+		return;
 	}
 
 	*msg_len = len;
