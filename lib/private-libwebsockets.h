@@ -2269,7 +2269,7 @@ static inline uint64_t lws_stats_atomic_max(struct lws_context * context,
 
 /* socks */
 void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
-			size_t *msg_len);
+			ssize_t *msg_len);
 
 #ifdef __cplusplus
 };

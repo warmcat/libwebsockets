@@ -86,7 +86,8 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 	const char *cce = NULL;
 	unsigned char c;
 	char *sb = p;
-	int n = 0, len = 0;
+	int n = 0;
+	ssize_t len = 0;
 #if defined(LWS_WITH_SOCKS5)
 	char conn_mode = 0, pending_timeout = 0;
 #endif
@@ -143,7 +144,7 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 		{
 			lwsl_client("%s\n", "SOCKS greeting reply received "
 				"- No Authentication Method");
-			socks_generate_msg(wsi, SOCKS_MSG_CONNECT, (size_t *)&len);
+			socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len);
 
 			conn_mode = LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY;
 			pending_timeout = PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
@@ -155,7 +156,7 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			lwsl_client("%s\n", "SOCKS greeting reply received "
 				"- User Name Password Method");
 			socks_generate_msg(wsi, SOCKS_MSG_USERNAME_PASSWORD,
-				(size_t *)&len);
+					   &len);
 
 			conn_mode = LWSCM_WSCL_WAITING_SOCKS_AUTH_REPLY;
 			pending_timeout = PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY;
@@ -214,7 +215,7 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 		{
 			lwsl_client("%s\n", "SOCKS password reply recieved - "
 				"successful");
-			socks_generate_msg(wsi, SOCKS_MSG_CONNECT, (size_t *)&len);
+			socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len);
 
 			conn_mode = LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY;
 			pending_timeout =

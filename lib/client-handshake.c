@@ -35,7 +35,8 @@ lws_client_connect_2(struct lws *wsi)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_pollfd pfd;
 	const char *cce = "", *iface;
-	int n, plen = 0, port;
+	int n, port;
+	ssize_t plen = 0;
 	const char *ads;
 #ifdef LWS_USE_IPV6
 	char ipv6only = lws_check_opt(wsi->vhost->options,
@@ -85,7 +86,7 @@ lws_client_connect_2(struct lws *wsi)
 	/* Priority 2: Connect to SOCK5 Proxy */
 
 	} else if (wsi->vhost->socks_proxy_port) {
-		socks_generate_msg(wsi, SOCKS_MSG_GREETING, (size_t *)&plen);
+		socks_generate_msg(wsi, SOCKS_MSG_GREETING, &plen);
 		lwsl_client("%s\n", "Sending SOCKS Greeting.");
 
 		ads = wsi->vhost->socks_proxy_address;
@@ -975,11 +976,11 @@ lws_client_connect(struct lws_context *context, const char *address,
 
 #if defined(LWS_WITH_SOCKS5)
 void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
-			size_t *msg_len)
+			ssize_t *msg_len)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	size_t len = 0;
+	ssize_t len = 0;
 
 	if (type == SOCKS_MSG_GREETING) {
 		/* socks version, version 5 only */
@@ -992,8 +993,8 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 		pt->serv_buf[len++] = SOCKS_AUTH_NO_AUTH;
 	}
 	else if (type == SOCKS_MSG_USERNAME_PASSWORD) {
-		size_t user_len = 0;
-		size_t passwd_len = 0;
+		ssize_t user_len = 0;
+		ssize_t passwd_len = 0;
 
 		user_len = strlen(wsi->vhost->socks_user);
 		passwd_len = strlen(wsi->vhost->socks_password);
@@ -1014,7 +1015,7 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 		len += passwd_len;
 	}
 	else if (type == SOCKS_MSG_CONNECT) {
-		size_t len_index = 0;
+		ssize_t len_index = 0;
 		short net_num = 0;
 		char *net_buf = (char*)&net_num;
 
@@ -1026,16 +1027,18 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 		pt->serv_buf[len++] = 0;
 		/* address type */
 		pt->serv_buf[len++] = SOCKS_ATYP_DOMAINNAME;
-		len_index = len;
-		len++;
+		len_index = len++;
+
 		/* the address we tell SOCKS proxy to connect to */
 		strncpy((char *)&(pt->serv_buf[len]), wsi->u.hdr.stash->address,
 			context->pt_serv_buf_size - len);
 		len += strlen(wsi->u.hdr.stash->address);
 		net_num = htons((short)wsi->c_port);
+
 		/* the port we tell SOCKS proxy to connect to */
 		pt->serv_buf[len++] = net_buf[0];
 		pt->serv_buf[len++] = net_buf[1];
+
 		/* the length of the address, excluding port */
 		pt->serv_buf[len_index] = strlen(wsi->u.hdr.stash->address);
 	}
