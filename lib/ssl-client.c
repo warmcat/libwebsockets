@@ -175,9 +175,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 #else
 #if defined(LWS_USE_MBEDTLS)
-// esp-idf openssl shim does not seem ready for this
-//	SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
-	SSL_set_verify(wsi->ssl, SSL_VERIFY_NONE, OpenSSL_client_verify_callback);
+	if (wsi->vhost->x509_client_CA)
+		SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
+	else
+		SSL_set_verify(wsi->ssl, SSL_VERIFY_NONE, OpenSSL_client_verify_callback);
 
 #else
 #ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
@@ -434,12 +435,11 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	SSL_METHOD *method = NULL;
 	struct lws wsi;
 	unsigned long error;
+	const char *ca_filepath = info->ssl_ca_filepath;
 #if !defined(LWS_USE_MBEDTLS)
 	const char *cipher_list = info->ssl_cipher_list;
-	const char *ca_filepath = info->ssl_ca_filepath;
 	const char *private_key_filepath = info->ssl_private_key_filepath;
 	const char *cert_filepath = info->ssl_cert_filepath;
-
 	int n;
 
 	/*
@@ -448,13 +448,13 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	 */
 	if (info->client_ssl_cipher_list)
 		cipher_list = info->client_ssl_cipher_list;
-	if (info->client_ssl_ca_filepath)
-		ca_filepath = info->client_ssl_ca_filepath;
 	if (info->client_ssl_cert_filepath)
 		cert_filepath = info->client_ssl_cert_filepath;
 	if (info->client_ssl_private_key_filepath)
 		private_key_filepath = info->client_ssl_private_key_filepath;
 #endif
+	if (info->client_ssl_ca_filepath)
+		ca_filepath = info->client_ssl_ca_filepath;
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		return 0;
@@ -498,11 +498,40 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		return 1;
 	}
 
+	lwsl_notice("created client ssl context for %s\n", vhost->name);
+
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(vhost->ssl_client_ctx, SSL_OP_NO_COMPRESSION);
 #endif
 
-#if !defined(LWS_USE_MBEDTLS)
+#if defined(LWS_USE_MBEDTLS)
+	if (ca_filepath) {
+		lws_filepos_t len;
+		uint8_t *buf;
+		/*
+		 * prototype this here, the shim does not export it in the
+		 * header, and we need to use the shim unchanged for ESP32 case
+		 */
+		X509 *d2i_X509(X509 **cert, const unsigned char *buffer, long len);
+
+		if (alloc_file(vhost->context, ca_filepath, &buf, &len)) {
+			lwsl_err("Load CA cert file %s failed\n", ca_filepath);
+			return 1;
+		}
+
+		vhost->x509_client_CA = d2i_X509(NULL, buf, len);
+		free(buf);
+		if (!vhost->x509_client_CA) {
+			lwsl_err("client CA: x509 parse failed\n");
+			return 1;
+		}
+
+		SSL_CTX_add_client_CA(vhost->ssl_client_ctx,
+				      vhost->x509_client_CA);
+
+		lwsl_notice("client loaded CA for verification %s\n", ca_filepath);
+	}
+#else
 	SSL_CTX_set_options(vhost->ssl_client_ctx,
 			    SSL_OP_CIPHER_SERVER_PREFERENCE);
 
@@ -518,13 +547,11 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	/* openssl init for cert verification (for client sockets) */
 	if (!ca_filepath) {
 		if (!SSL_CTX_load_verify_locations(
-			vhost->ssl_client_ctx, NULL,
-					     LWS_OPENSSL_CLIENT_CERTS))
-			lwsl_err(
-			    "Unable to load SSL Client certs from %s "
-			    "(set by --with-client-cert-dir= "
-			    "in configure) --  client ssl isn't "
-			    "going to work\n", LWS_OPENSSL_CLIENT_CERTS);
+			vhost->ssl_client_ctx, NULL, LWS_OPENSSL_CLIENT_CERTS))
+			lwsl_err("Unable to load SSL Client certs from %s "
+			    "(set by LWS_OPENSSL_CLIENT_CERTS) -- "
+			    "client ssl isn't going to work\n",
+			    LWS_OPENSSL_CLIENT_CERTS);
 	} else
 		if (!SSL_CTX_load_verify_locations(
 			vhost->ssl_client_ctx, ca_filepath, NULL)) {
@@ -536,12 +563,11 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 		}
 		else
 			lwsl_info("loaded ssl_ca_filepath\n");
-#endif
+
 	/*
 	 * callback allowing user code to load extra verification certs
 	 * helping the client to verify server identity
 	 */
-#if !defined(LWS_USE_MBEDTLS)
 
 	/* support for client-side certificate authentication */
 	if (cert_filepath) {

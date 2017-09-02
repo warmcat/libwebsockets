@@ -346,8 +346,11 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 		SSL_CTX_free(vhost->ssl_ctx);
 	if (!vhost->user_supplied_ssl_ctx && vhost->ssl_client_ctx)
 		SSL_CTX_free(vhost->ssl_client_ctx);
-#if !defined(LWS_USE_MBEDTLS)
 
+#if defined(LWS_USE_MBEDTLS)
+	if (vhost->x509_client_CA)
+		X509_free(vhost->x509_client_CA);
+#else
 // after 1.1.0 no need
 #if (OPENSSL_VERSION_NUMBER <  0x10100000)
 // <= 1.0.1f = old api, 1.0.1g+ = new api

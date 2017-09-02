@@ -273,10 +273,11 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #define OPENSSL_NO_TLSEXT
 #endif /* not USE_OLD_CYASSL */
 #else
-#if !defined(LWS_WITH_ESP32)
+#if defined(LWS_USE_MBEDTLS)
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509_crt.h>
+#else
 #include <openssl/ssl.h>
-#endif
-#if !defined(LWS_USE_MBEDTLS)
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/md5.h>
@@ -877,6 +878,9 @@ struct lws_vhost {
 #ifdef LWS_OPENSSL_SUPPORT
 	SSL_CTX *ssl_ctx;
 	SSL_CTX *ssl_client_ctx;
+#endif
+#if defined(LWS_USE_MBEDTLS)
+	X509 *x509_client_CA;
 #endif
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *extensions;
