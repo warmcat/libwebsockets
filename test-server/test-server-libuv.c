@@ -37,6 +37,9 @@ char *resource_path = LOCAL_RESOURCE_PATH;
 char crl_path[1024] = "";
 #endif
 
+char cert_path[1024] = "";
+char key_path[1024] = "";
+
 /* singlethreaded version --> no locks */
 
 void test_server_lock(int care)
@@ -208,8 +211,6 @@ int main(int argc, char **argv)
 /* <--- only needed for foreign loop test --- */
 #endif
 	const char *iface = NULL;
-	char cert_path[1024];
-	char key_path[1024];
 	int use_ssl = 0;
 	int opts = 0;
 	int n = 0;

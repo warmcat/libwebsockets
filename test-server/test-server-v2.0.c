@@ -48,6 +48,9 @@ char *resource_path = LOCAL_RESOURCE_PATH;
 char crl_path[1024] = "";
 #endif
 
+char cert_path[1024] = "";
+char key_path[1024] = "";
+
 /*
  * This test server is ONLY this .c file, it's radically simpler than the
  * pre-v2.0 test servers.  For example it has no user callback content or
@@ -317,8 +320,6 @@ int main(int argc, char **argv)
 	struct lws_vhost *vhost;
 	char interface_name[128] = "";
 	const char *iface = NULL;
-	char cert_path[1024] = "";
-	char key_path[1024] = "";
 	char ca_path[1024] = "";
 	int uid = -1, gid = -1;
 	int use_ssl = 0;

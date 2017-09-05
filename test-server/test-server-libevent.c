@@ -34,6 +34,9 @@ char *resource_path = LOCAL_RESOURCE_PATH;
 char crl_path[1024] = "";
 #endif
 
+char cert_path[1024] = "";
+char key_path[1024] = "";
+
 #define LWS_PLUGIN_STATIC
 #include "../plugins/protocol_lws_mirror.c"
 #include "../plugins/protocol_lws_status.c"
@@ -174,8 +177,6 @@ int main(int argc, char **argv)
 	char interface_name[128] = "";
 	const char *iface = NULL;
 	struct event *timeout_watcher;
-	char cert_path[1024];
-	char key_path[1024];
 	int use_ssl = 0;
 	int opts = 0;
 	int n = 0;
