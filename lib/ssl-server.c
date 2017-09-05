@@ -401,14 +401,15 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 				free(p);
 				p = NULL;
 #endif
-			} else
-			        if (vhost->protocols[0].callback(&wsi,
-			                LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_CERT,
-			                vhost->ssl_ctx, NULL, 0)) {
-			                lwsl_err("ssl certificate not set\n");
-			                return 1;
-			        }
 #endif
+			} else
+				if (vhost->protocols[0].callback(&wsi,
+					LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_CERT,
+					vhost->ssl_ctx, NULL, 0)) {
+					lwsl_err("ssl certificate not set\n");
+					return 1;
+				}
+
 			if (info->ssl_private_key_filepath != NULL) {
 #if !defined(LWS_USE_MBEDTLS)
 				/* set the private key from KeyFile */
