@@ -38,6 +38,8 @@
 /* location of the certificate revocation list */
 extern char crl_path[1024];
 #endif
+extern char cert_path[1024];
+extern char key_path[1024];
 
 extern int debug_level;
 
@@ -789,6 +791,31 @@ bail:
 		}
 		break;
 #endif
+	case LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_CERT:
+		if (cert_path[0]) {
+			lwsl_notice("Loading server cert %s", cert_path);
+			n = SSL_CTX_use_certificate_chain_file((SSL_CTX*)user, cert_path);
+			if (n != 1) {
+				char errbuf[256];
+				n = ERR_get_error();
+				lwsl_err("LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_CERT: SSL error: %s (%d)\n", ERR_error_string(n, errbuf), n);
+				return 1;
+			}
+		}
+		break;
+
+        case LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY:
+		if (key_path[0]) {
+			lwsl_notice("Loading server private key %s", key_path);
+			n = SSL_CTX_use_PrivateKey_file((SSL_CTX*)user, key_path, SSL_FILETYPE_PEM);
+			if (n != 1) {
+				char errbuf[256];
+				n = ERR_get_error();
+				lwsl_err("LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY: SSL error: %s (%d)\n", ERR_error_string(n, errbuf), n);
+				return 1;
+			}
+		}
+		break;
 #endif
 
 	default:

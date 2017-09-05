@@ -199,8 +199,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		return 0;
 	}
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
-
-		vhost->use_ssl = info->ssl_cert_filepath != NULL;
+		vhost->use_ssl = 1;
 
 		if (vhost->use_ssl && info->ssl_cipher_list)
 			lwsl_notice(" SSL ciphers: '%s'\n", info->ssl_cipher_list);
@@ -346,90 +345,101 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	if (vhost->use_ssl) {
 		/* openssl init for server sockets */
+		if (!lws_check_opt(info->options, LWS_SERVER_OPTION_NO_CERT)) {
+			if (info->ssl_cert_filepath != NULL) {
 #if !defined(LWS_USE_MBEDTLS)
-		/* set the local certificate from CertFile */
-		n = SSL_CTX_use_certificate_chain_file(vhost->ssl_ctx,
-					info->ssl_cert_filepath);
-		if (n != 1) {
-			error = ERR_get_error();
-			lwsl_err("problem getting cert '%s' %lu: %s\n",
-				info->ssl_cert_filepath,
-				error,
-				ERR_error_string(error,
-					      (char *)context->pt[0].serv_buf));
-			return 1;
-		}
-		lws_ssl_bind_passphrase(vhost->ssl_ctx, info);
+				/* set the local certificate from CertFile */
+				n = SSL_CTX_use_certificate_chain_file(vhost->ssl_ctx,
+							info->ssl_cert_filepath);
+				if (n != 1) {
+					error = ERR_get_error();
+					lwsl_err("problem getting cert '%s' %lu: %s\n",
+						info->ssl_cert_filepath,
+						error,
+						ERR_error_string(error,
+							      (char *)context->pt[0].serv_buf));
+					return 1;
+				}
+				lws_ssl_bind_passphrase(vhost->ssl_ctx, info);
 #else
-		uint8_t *p;
-		lws_filepos_t flen;
-		int err;
+				uint8_t *p;
+				lws_filepos_t flen;
+				int err;
 
-		if (alloc_pem_to_der_file(vhost->context, info->ssl_cert_filepath, &p,
-				                &flen)) {
-			lwsl_err("couldn't find cert file %s\n",
-				 info->ssl_cert_filepath);
+				if (alloc_pem_to_der_file(vhost->context, info->ssl_cert_filepath, &p,
+						                &flen)) {
+					lwsl_err("couldn't find cert file %s\n",
+						 info->ssl_cert_filepath);
 
-			return 1;
-		}
-		err = SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx, flen, p);
-		if (!err) {
-			lwsl_err("Problem loading cert\n");
-			return 1;
-		}
+					return 1;
+				}
+				err = SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx, flen, p);
+				if (!err) {
+					lwsl_err("Problem loading cert\n");
+					return 1;
+				}
 #if !defined(LWS_WITH_ESP32)
-		free(p);
-		p = NULL;
+				free(p);
+				p = NULL;
 #endif
 
-		if (alloc_pem_to_der_file(vhost->context,
-			       info->ssl_private_key_filepath, &p, &flen)) {
-			lwsl_err("couldn't find cert file %s\n",
-				 info->ssl_cert_filepath);
+				if (alloc_pem_to_der_file(vhost->context,
+					       info->ssl_private_key_filepath, &p, &flen)) {
+					lwsl_err("couldn't find cert file %s\n",
+						 info->ssl_cert_filepath);
 
-			return 1;
-		}
-		err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
-		if (!err) {
-			lwsl_err("Problem loading key\n");
+					return 1;
+				}
+				err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
+				if (!err) {
+					lwsl_err("Problem loading key\n");
 
-			return 1;
-		}
+					return 1;
+				}
 
 #if !defined(LWS_WITH_ESP32)
-		free(p);
-		p = NULL;
+				free(p);
+				p = NULL;
 #endif
 #endif
-		if (info->ssl_private_key_filepath != NULL) {
+			} else
+				if (vhost->protocols[0].callback(&wsi,
+					LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_CERT,
+					vhost->ssl_ctx, NULL, 0)) {
+					lwsl_err("ssl certificate not set\n");
+					return 1;
+				}
+
+			if (info->ssl_private_key_filepath != NULL) {
 #if !defined(LWS_USE_MBEDTLS)
-			/* set the private key from KeyFile */
-			if (SSL_CTX_use_PrivateKey_file(vhost->ssl_ctx,
-				     info->ssl_private_key_filepath,
-						       SSL_FILETYPE_PEM) != 1) {
-				error = ERR_get_error();
-				lwsl_err("ssl problem getting key '%s' %lu: %s\n",
-					 info->ssl_private_key_filepath, error,
-					 ERR_error_string(error,
-					      (char *)context->pt[0].serv_buf));
+				/* set the private key from KeyFile */
+				if (SSL_CTX_use_PrivateKey_file(vhost->ssl_ctx,
+					     info->ssl_private_key_filepath,
+							       SSL_FILETYPE_PEM) != 1) {
+					error = ERR_get_error();
+					lwsl_err("ssl problem getting key '%s' %lu: %s\n",
+						 info->ssl_private_key_filepath, error,
+						 ERR_error_string(error,
+						      (char *)context->pt[0].serv_buf));
+					return 1;
+				}
+#endif
+			} else
+				if (vhost->protocols[0].callback(&wsi,
+					LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
+					vhost->ssl_ctx, NULL, 0)) {
+					lwsl_err("ssl private key not set\n");
+
+					return 1;
+				}
+#if !defined(LWS_USE_MBEDTLS)
+			/* verify private key */
+			if (!SSL_CTX_check_private_key(vhost->ssl_ctx)) {
+				lwsl_err("Private SSL key doesn't match cert\n");
 				return 1;
 			}
 #endif
-		} else
-			if (vhost->protocols[0].callback(&wsi,
-				LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
-				vhost->ssl_ctx, NULL, 0)) {
-				lwsl_err("ssl private key not set\n");
-
-				return 1;
-			}
-#if !defined(LWS_USE_MBEDTLS)
-		/* verify private key */
-		if (!SSL_CTX_check_private_key(vhost->ssl_ctx)) {
-			lwsl_err("Private SSL key doesn't match cert\n");
-			return 1;
 		}
-#endif
 		if (lws_context_ssl_init_ecdh(vhost))
 			return 1;
 
