@@ -22,6 +22,15 @@
 
 #include "private-libwebsockets.h"
 
+#if defined(_DEBUG) || defined(LWS_WITH_ACCESS_LOG)
+	static const char * const method_names[] = {
+		"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT",
+#ifdef LWS_USE_HTTP2
+		":path",
+#endif
+	};
+#endif
+
 #if defined (LWS_WITH_ESP8266)
 #undef memcpy
 void *memcpy(void *dest, const void *src, size_t n)
@@ -715,6 +724,128 @@ int lws_clean_url(char *p)
 	return 0;
 }
 
+/*
+ * Produce Apache-compatible log string for wsi, like this:
+ *
+ * 2.31.234.19 - - [27/Mar/2016:03:22:44 +0800]
+ * "GET /aep-screen.png HTTP/1.1"
+ * 200 152987 "https://libwebsockets.org/index.html"
+ * "Mozilla/5.0 (Macint... Chrome/49.0.2623.87 Safari/537.36"
+ *
+ */
+#ifdef LWS_WITH_ACCESS_LOG
+static void
+lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
+{
+	static const char * const hver[] = {
+		"http/1.0", "http/1.1", "http/2"
+	};
+#ifdef LWS_USE_IPV6
+	char ads[INET6_ADDRSTRLEN];
+#else
+	char ads[INET_ADDRSTRLEN];
+#endif
+	char da[64];
+	const char *pa, *me;
+	struct tm *tmp;
+	time_t t = time(NULL);
+	int l = 256, m;
+
+	if (wsi->access_log_pending)
+		lws_access_log(wsi);
+
+	wsi->access_log.header_log = lws_malloc(l);
+	if (wsi->access_log.header_log) {
+
+		tmp = localtime(&t);
+		if (tmp)
+			strftime(da, sizeof(da), "%d/%b/%Y:%H:%M:%S %z", tmp);
+		else
+			strcpy(da, "01/Jan/1970:00:00:00 +0000");
+
+		pa = lws_get_peer_simple(wsi, ads, sizeof(ads));
+		if (!pa)
+			pa = "(unknown)";
+
+		me = method_names[meth];
+
+		lws_snprintf(wsi->access_log.header_log, l,
+			 "%s - - [%s] \"%s %s %s\"",
+			 pa, da, me, uri_ptr,
+			 hver[wsi->u.http.request_version]);
+
+		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
+		if (l) {
+			wsi->access_log.user_agent = lws_malloc(l + 2);
+			if (wsi->access_log.user_agent)
+				lws_hdr_copy(wsi, wsi->access_log.user_agent,
+						l + 1, WSI_TOKEN_HTTP_USER_AGENT);
+			else
+				lwsl_err("OOM getting user agent\n");
+
+			for (m = 0; m < l; m++)
+				if (wsi->access_log.user_agent[m] == '\"')
+					wsi->access_log.user_agent[m] = '\'';
+		}
+		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
+		if (l) {
+			wsi->access_log.referrer = lws_malloc(l + 2);
+			if (wsi->access_log.referrer)
+				lws_hdr_copy(wsi, wsi->access_log.referrer,
+						l + 1, WSI_TOKEN_HTTP_REFERER);
+			else
+				lwsl_err("OOM getting user agent\n");
+
+			for (m = 0; m < l; m++)
+				if (wsi->access_log.referrer[m] == '\"')
+					wsi->access_log.referrer[m] = '\'';
+		}
+		wsi->access_log_pending = 1;
+	}
+}
+#endif
+
+static const unsigned char methods[] = {
+	WSI_TOKEN_GET_URI,
+	WSI_TOKEN_POST_URI,
+	WSI_TOKEN_OPTIONS_URI,
+	WSI_TOKEN_PUT_URI,
+	WSI_TOKEN_PATCH_URI,
+	WSI_TOKEN_DELETE_URI,
+	WSI_TOKEN_CONNECT,
+#ifdef LWS_USE_HTTP2
+	WSI_TOKEN_HTTP_COLON_PATH,
+#endif
+};
+
+static int
+lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
+{
+	int n, count = 0;
+
+	for (n = 0; n < ARRAY_SIZE(methods); n++)
+		if (lws_hdr_total_length(wsi, methods[n]))
+			count++;
+	if (!count) {
+		lwsl_warn("Missing URI in HTTP request\n");
+		return -1;
+	}
+
+	if (count != 1) {
+		lwsl_warn("multiple methods?\n");
+		return -1;
+	}
+
+	for (n = 0; n < ARRAY_SIZE(methods); n++)
+		if (lws_hdr_total_length(wsi, methods[n])) {
+			*puri_ptr = lws_hdr_simple_ptr(wsi, methods[n]);
+			*puri_len = lws_hdr_total_length(wsi, methods[n]);
+			return n;
+		}
+
+	return -1;
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -724,67 +855,19 @@ lws_http_action(struct lws *wsi)
 	char content_length_str[32];
 	struct lws_process_html_args args;
 	const struct lws_http_mount *hit = NULL;
-	unsigned int n, count = 0;
+	unsigned int n;
 	char http_version_str[10];
 	char http_conn_str[20];
 	int http_version_len;
 	char *uri_ptr = NULL, *s;
-	int uri_len = 0;
-	int meth = -1;
-
-	static const unsigned char methods[] = {
-		WSI_TOKEN_GET_URI,
-		WSI_TOKEN_POST_URI,
-		WSI_TOKEN_OPTIONS_URI,
-		WSI_TOKEN_PUT_URI,
-		WSI_TOKEN_PATCH_URI,
-		WSI_TOKEN_DELETE_URI,
-		WSI_TOKEN_CONNECT,
-#ifdef LWS_USE_HTTP2
-		WSI_TOKEN_HTTP_COLON_PATH,
-#endif
-	};
-#if defined(_DEBUG) || defined(LWS_WITH_ACCESS_LOG)
-	static const char * const method_names[] = {
-		"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT",
-#ifdef LWS_USE_HTTP2
-		":path",
-#endif
-	};
-#endif
+	int uri_len = 0, meth;
 	static const char * const oprot[] = {
 		"http://", "https://"
 	};
 
-	/* it's not websocket.... shall we accept it as http? */
-
-	for (n = 0; n < ARRAY_SIZE(methods); n++)
-		if (lws_hdr_total_length(wsi, methods[n]))
-			count++;
-	if (!count) {
-		lwsl_warn("Missing URI in HTTP request\n");
+	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
+	if (meth < 0)
 		goto bail_nuke_ah;
-	}
-
-	if (count != 1) {
-		lwsl_warn("multiple methods?\n");
-		goto bail_nuke_ah;
-	}
-
-	if (lws_ensure_user_space(wsi))
-		goto bail_nuke_ah;
-
-	for (n = 0; n < ARRAY_SIZE(methods); n++)
-		if (lws_hdr_total_length(wsi, methods[n])) {
-			uri_ptr = lws_hdr_simple_ptr(wsi, methods[n]);
-			uri_len = lws_hdr_total_length(wsi, methods[n]);
-			lwsl_info("Method: %s request for '%s'\n",
-				  	method_names[n], uri_ptr);
-			meth = n;
-			break;
-		}
-
-	(void)meth;
 
 	/* we insist on absolute paths */
 
@@ -793,6 +876,11 @@ lws_http_action(struct lws *wsi)
 
 		goto bail_nuke_ah;
 	}
+
+	lwsl_info("Method: %s request for '%s'\n", method_names[meth], uri_ptr);
+
+	if (lws_ensure_user_space(wsi))
+		goto bail_nuke_ah;
 
 	/* HTTP header had a content length? */
 
@@ -884,82 +972,7 @@ lws_http_action(struct lws *wsi)
 #endif
 
 #ifdef LWS_WITH_ACCESS_LOG
-	/*
-	 * Produce Apache-compatible log string for wsi, like this:
-	 *
-	 * 2.31.234.19 - - [27/Mar/2016:03:22:44 +0800]
-	 * "GET /aep-screen.png HTTP/1.1"
-	 * 200 152987 "https://libwebsockets.org/index.html"
-	 * "Mozilla/5.0 (Macint... Chrome/49.0.2623.87 Safari/537.36"
-	 *
-	 */
-	{
-		static const char * const hver[] = {
-			"http/1.0", "http/1.1", "http/2"
-		};
-#ifdef LWS_USE_IPV6
-		char ads[INET6_ADDRSTRLEN];
-#else
-		char ads[INET_ADDRSTRLEN];
-#endif
-		char da[64];
-		const char *pa, *me;
-		struct tm *tmp;
-		time_t t = time(NULL);
-		int l = 256, m;
-
-		if (wsi->access_log_pending)
-			lws_access_log(wsi);
-
-		wsi->access_log.header_log = lws_malloc(l);
-		if (wsi->access_log.header_log) {
-
-			tmp = localtime(&t);
-			if (tmp)
-				strftime(da, sizeof(da), "%d/%b/%Y:%H:%M:%S %z", tmp);
-			else
-				strcpy(da, "01/Jan/1970:00:00:00 +0000");
-
-			pa = lws_get_peer_simple(wsi, ads, sizeof(ads));
-			if (!pa)
-				pa = "(unknown)";
-
-			me = method_names[meth];
-
-			lws_snprintf(wsi->access_log.header_log, l,
-				 "%s - - [%s] \"%s %s %s\"",
-				 pa, da, me, uri_ptr,
-				 hver[wsi->u.http.request_version]);
-
-			l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
-			if (l) {
-				wsi->access_log.user_agent = lws_malloc(l + 2);
-				if (wsi->access_log.user_agent)
-					lws_hdr_copy(wsi, wsi->access_log.user_agent,
-							l + 1, WSI_TOKEN_HTTP_USER_AGENT);
-				else
-					lwsl_err("OOM getting user agent\n");
-
-				for (m = 0; m < l; m++)
-					if (wsi->access_log.user_agent[m] == '\"')
-						wsi->access_log.user_agent[m] = '\'';
-			}
-			l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
-			if (l) {
-				wsi->access_log.referrer = lws_malloc(l + 2);
-				if (wsi->access_log.referrer)
-					lws_hdr_copy(wsi, wsi->access_log.referrer,
-							l + 1, WSI_TOKEN_HTTP_REFERER);
-				else
-					lwsl_err("OOM getting user agent\n");
-
-				for (m = 0; m < l; m++)
-					if (wsi->access_log.referrer[m] == '\"')
-						wsi->access_log.referrer[m] = '\'';
-			}
-			wsi->access_log_pending = 1;
-		}
-	}
+	lws_prepare_access_log_info(wsi, uri_ptr, meth);
 #endif
 
 	/* can we serve it from the mount list? */
@@ -1439,32 +1452,6 @@ raw_transition:
 		lwsl_debug("%s: wsi->more_rx_waiting=%d\n", __func__,
 				wsi->more_rx_waiting);
 
-		/* check for unwelcome guests */
-
-		if (wsi->context->reject_service_keywords) {
-			const struct lws_protocol_vhost_options *rej =
-					wsi->context->reject_service_keywords;
-			char ua[384], *msg = NULL;
-
-			if (lws_hdr_copy(wsi, ua, sizeof(ua) - 1,
-					  WSI_TOKEN_HTTP_USER_AGENT) > 0) {
-				ua[sizeof(ua) - 1] = '\0';
-				while (rej) {
-					if (strstr(ua, rej->name)) {
-						msg = strchr(rej->value, ' ');
-						if (msg)
-							msg++;
-						lws_return_http_status(wsi, atoi(rej->value), msg);
-
-						wsi->vhost->conn_stats.rejected++;
-
-						goto bail_nuke_ah;
-					}
-					rej = rej->next;
-				}
-			}
-		}
-
 		/* select vhost */
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
@@ -1482,6 +1469,49 @@ raw_transition:
 			wsi->vhost->conn_stats.conn++;
 			wsi->conn_stat_done = 1;
 		}
+
+		/* check for unwelcome guests */
+
+		if (wsi->context->reject_service_keywords) {
+			const struct lws_protocol_vhost_options *rej =
+					wsi->context->reject_service_keywords;
+			char ua[384], *msg = NULL;
+
+			if (lws_hdr_copy(wsi, ua, sizeof(ua) - 1,
+					 WSI_TOKEN_HTTP_USER_AGENT) > 0) {
+				ua[sizeof(ua) - 1] = '\0';
+				while (rej) {
+					if (strstr(ua, rej->name)) {
+						char *uri_ptr = NULL;
+						int meth, uri_len;
+
+						msg = strchr(rej->value, ' ');
+						if (msg)
+							msg++;
+						lws_return_http_status(wsi, atoi(rej->value), msg);
+#ifdef LWS_WITH_ACCESS_LOG
+						meth = lws_http_get_uri_and_method(wsi,
+								&uri_ptr, &uri_len);
+						if (meth >= 0)
+							lws_prepare_access_log_info(wsi,
+								uri_ptr, meth);
+
+						/* wsi close will do the log */
+#endif
+						wsi->vhost->conn_stats.rejected++;
+						/*
+						 * We don't want anything from
+						 * this rejected guy.  Follow
+						 * the close flow, not the
+						 * transaction complete flow.
+						 */
+						goto bail_nuke_ah;
+					}
+					rej = rej->next;
+				}
+			}
+		}
+
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECT)) {
 			lwsl_info("Changing to RAW mode\n");
