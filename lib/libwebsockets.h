@@ -1865,6 +1865,13 @@ enum lws_context_options {
 	 * listen socket at a time.  This is automatically selected if you
 	 * have multiple service threads.
 	 */
+	LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX			= (1 << 24),
+	/**< (VH) Force setting up the vhost SSL_CTX, even though the user
+	 * code doesn't explicitly provide a cert in the info struct.  It
+	 * implies the user code is going to provide a cert at the
+	 * LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS callback, which
+	 * provides the vhost SSL_CTX * in the user parameter.
+	 */
 
 	/****** add new things just above ---^ ******/
 };

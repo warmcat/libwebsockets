@@ -198,9 +198,22 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		vhost->use_ssl = 0;
 		return 0;
 	}
+
+	/*
+	 * If he is giving a cert filepath, take it as a sign he wants to use
+	 * it on this vhost.  User code can leave the cert filepath NULL and
+	 * set the LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX option itself, in
+	 * which case he's expected to set up the cert himself at
+	 * LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS, which
+	 * provides the vhost SSL_CTX * in the user parameter.
+	 */
+	if (info->ssl_cert_filepath)
+		info->options |= LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX;
+
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 
-		vhost->use_ssl = info->ssl_cert_filepath != NULL;
+		vhost->use_ssl = lws_check_opt(info->options,
+					LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX);
 
 		if (vhost->use_ssl && info->ssl_cipher_list)
 			lwsl_notice(" SSL ciphers: '%s'\n", info->ssl_cipher_list);
@@ -341,11 +354,19 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		SSL_CTX_clear_options(vhost->ssl_ctx, info->ssl_options_clear);
 #endif
 
-	lwsl_info(" SSL options 0x%lX\n",
-		    SSL_CTX_get_options(vhost->ssl_ctx));
+	lwsl_info(" SSL options 0x%lX\n", SSL_CTX_get_options(vhost->ssl_ctx));
 
-	if (vhost->use_ssl) {
-		/* openssl init for server sockets */
+	if (vhost->use_ssl && info->ssl_cert_filepath) {
+		/*
+		 * The user code can choose to either pass the cert and
+		 * key filepaths using the info members like this, or it can
+		 * leave them NULL; force the vhost SSL_CTX init using the info
+		 * options flag LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX; and
+		 * set up the cert himself using the user callback
+		 * LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS, which
+		 * happened just above and has the vhost SSL_CTX * in the user
+		 * parameter.
+		 */
 #if !defined(LWS_USE_MBEDTLS)
 		/* set the local certificate from CertFile */
 		n = SSL_CTX_use_certificate_chain_file(vhost->ssl_ctx,
@@ -430,6 +451,8 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			return 1;
 		}
 #endif
+	}
+	if (vhost->use_ssl) {
 		if (lws_context_ssl_init_ecdh(vhost))
 			return 1;
 

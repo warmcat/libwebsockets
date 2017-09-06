@@ -321,6 +321,20 @@ if left `NULL`, then the "DEFAULT" set of ciphers are all possible to select.
 You can also set it to `"ALL"` to allow everything (including insecure ciphers).
 
 
+@section sslcerts Passing your own cert information direct to SSL_CTX
+
+For most users it's enough to pass the SSL certificate and key information by
+giving filepaths to the info.ssl_cert_filepath and info.ssl_private_key_filepath
+members when creating the vhost.
+
+If you want to control that from your own code instead, you can do so by leaving
+the related info members NULL, and setting the info.options flag
+LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX at vhost creation time.  That will create
+the vhost SSL_CTX without any certificate, and allow you to use the callback
+LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS to add your certificate to
+the SSL_CTX directly.  The vhost SSL_CTX * is in the user parameter in that
+callback.
+
 @section clientasync Async nature of client connections
 
 When you call `lws_client_connect_info(..)` and get a `wsi` back, it does not
