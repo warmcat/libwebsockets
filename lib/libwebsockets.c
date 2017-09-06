@@ -3270,9 +3270,17 @@ lws_access_log(struct lws *wsi)
 	if (!p1)
 		p1 = "";
 
-	l = lws_snprintf(ass, sizeof(ass) - 1, "%s %d %lu \"%s\" \"%s\"\n",
+	/*
+	 * We do this in two parts to restrict an oversize referrer such that
+	 * we will always have space left to append an empty useragent, while
+	 * maintaining the structure of the log text
+	 */
+	l = lws_snprintf(ass, sizeof(ass) - 7, "%s %d %lu \"%s",
 		     wsi->access_log.header_log,
-		     wsi->access_log.response, wsi->access_log.sent, p1, p);
+		     wsi->access_log.response, wsi->access_log.sent, p1);
+	if (strlen(p) > sizeof(ass) - 6 - l)
+		p[sizeof(ass) - 6 - l] = '\0';
+	l += lws_snprintf(ass + l, sizeof(ass) - 1 - l, "\" \"%s\"\n", p);
 
 	if (wsi->vhost->log_fd != (int)LWS_INVALID_FILE) {
 		if (write(wsi->vhost->log_fd, ass, l) != l)
