@@ -1299,7 +1299,14 @@ enum lws_callback_reasons {
 	/**< Sent to parent to notify them a child is closing / being
 	 * destroyed.  @in is the child wsi.
 	 */
-
+	LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_CERT	= 70,
+	/**< if configured for including OpenSSL support but no server cert
+	 * file has been specified (ssl_cert_filepath is NULL), this is
+	 * called to allow the user to set the server cert directly via
+	 * libopenssl and perform further operations if required; this might be
+	 * useful in situations where the server cert is not directly accessible
+	 * by the OS, for example if it is stored on a smartcard.
+	 * user is the server's OpenSSL SSL_CTX* */
 	/****** add new things just above ---^ ******/
 
 	LWS_CALLBACK_USER = 1000,
@@ -1865,7 +1872,10 @@ enum lws_context_options {
 	 * listen socket at a time.  This is automatically selected if you
 	 * have multiple service threads.
 	 */
-
+	LWS_SERVER_OPTION_NO_CERT				= (1 << 24),
+	/**< (CTX) creating server context without any certificate and
+	 * private key.
+	 */
 	/****** add new things just above ---^ ******/
 };
 

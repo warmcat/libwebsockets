@@ -41,6 +41,9 @@ char *resource_path = LOCAL_RESOURCE_PATH;
 char crl_path[1024] = "";
 #endif
 
+char cert_path[1024] = "";
+char key_path[1024] = "";
+
 /*
  * This demonstrates how to use the clean protocol service separation of
  * plugins, but with static inclusion instead of runtime dynamic loading
@@ -204,6 +207,7 @@ static struct option options[] = {
 	{ "debug",	required_argument,	NULL, 'd' },
 	{ "port",	required_argument,	NULL, 'p' },
 	{ "ssl",	no_argument,		NULL, 's' },
+	{ "ssl-skip-cert",	no_argument,	NULL, 'S' },
 	{ "allow-non-ssl",	no_argument,	NULL, 'a' },
 	{ "interface",	required_argument,	NULL, 'i' },
 	{ "closetest",	no_argument,		NULL, 'c' },
@@ -232,11 +236,10 @@ int main(int argc, char **argv)
 	char interface_name[128] = "";
 	unsigned int ms, oldms = 0;
 	const char *iface = NULL;
-	char cert_path[1024] = "";
-	char key_path[1024] = "";
 	char ca_path[1024] = "";
 	int uid = -1, gid = -1;
 	int use_ssl = 0;
+	int skip_cert = 0;
 	int pp_secs = 0;
 	int opts = 0;
 	int n = 0;
@@ -260,7 +263,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:P:k", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsSap:d:Dr:C:K:A:R:vu:g:P:k", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -286,6 +289,11 @@ int main(int argc, char **argv)
 			break;
 		case 's':
 			use_ssl = 1;
+			opts |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+			break;
+		case 'S':
+			use_ssl = 1;
+			skip_cert = 1;
 			opts |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 			break;
 		case 'a':
@@ -417,9 +425,10 @@ int main(int argc, char **argv)
 		if (!key_path[0])
 			sprintf(key_path, "%s/libwebsockets-test-server.key.pem",
 								resource_path);
-
-		info.ssl_cert_filepath = cert_path;
-		info.ssl_private_key_filepath = key_path;
+		if (!skip_cert) {
+			info.ssl_cert_filepath = cert_path;
+			info.ssl_private_key_filepath = key_path;
+		}
 		if (ca_path[0])
 			info.ssl_ca_filepath = ca_path;
 	}
