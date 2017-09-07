@@ -902,7 +902,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 					    wsi, buf, pt->ah_pool[n].rxpos,
 					    pt->ah_pool[n].rxlen,
 					    pt->ah_pool[n].pos);
-
+				buf[0] = '\0';
 				m = 0;
 				do {
 					c = lws_token_to_string(m);
@@ -915,11 +915,12 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 						continue;
 					}
 
-					lws_hdr_copy(wsi, buf, sizeof buf, m);
-					buf[sizeof(buf) - 1] = '\0';
+					if (lws_hdr_copy(wsi, buf, sizeof buf, m) > 0) {
+						buf[sizeof(buf) - 1] = '\0';
 
-					lwsl_notice("   %s = %s\n",
-						    (const char *)c, buf);
+						lwsl_notice("   %s = %s\n",
+								(const char *)c, buf);
+					}
 					m++;
 				} while (1);
 
