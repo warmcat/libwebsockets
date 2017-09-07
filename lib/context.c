@@ -246,18 +246,27 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 #ifdef LWS_WITH_CGI
-		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI) {
-			if (lws_cgi_write_split_stdout_headers(wsi) < 0)
+		if (wsi->reason_bf & (LWS_CB_REASON_AUX_BF__CGI_HEADERS | LWS_CB_REASON_AUX_BF__CGI)) {
+			n = lws_cgi_write_split_stdout_headers(wsi);
+			if (n < 0) {
+				lwsl_debug("LWS_CB_REASON_AUX_BF__CGI forcing close\n");
 				return -1;
+			}
+			if (!n)
+				lws_rx_flow_control(wsi->cgi->stdwsi[LWS_STDOUT], 1);
 
 			if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_HEADERS)
 				wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 			else
 				wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__CGI;
 			break;
+
+			if (!(wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_CHUNK_END))
+				break;
 		}
 
 		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_CHUNK_END) {
+			lwsl_debug("writing chunk terminator and exiting\n");
 			n = lws_write(wsi, (unsigned char *)"0\x0d\x0a\x0d\x0a",
 				      5, LWS_WRITE_HTTP);
 			/* always close after sending it */
@@ -363,6 +372,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			/* TBD stdin rx flow control */
 			break;
 		case LWS_STDOUT:
+			/* quench POLLIN on STDOUT until MASTER got writeable */
+			lws_rx_flow_control(args->stdwsi[LWS_STDOUT], 0);
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI;
 			/* when writing to MASTER would not block */
 			lws_callback_on_writable(wsi);
@@ -381,8 +392,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CGI_TERMINATED:
+		lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: %d %lu\n", wsi->cgi->explicitly_chunked, (uint64_t)wsi->cgi->content_length);
 		if (!wsi->cgi->explicitly_chunked && !wsi->cgi->content_length) {
 			/* send terminating chunk */
+			lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: looking to send terminating chunk\n");
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_CHUNK_END;
 			lws_callback_on_writable(wsi);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, 3);

@@ -1666,6 +1666,7 @@ struct lws {
 	unsigned int ipv6:1;
 	unsigned int parent_carries_io:1;
 	unsigned int parent_pending_cb_on_writable:1;
+	unsigned int cgi_stdout_zero_length:1;
 
 #if defined(LWS_WITH_ESP8266)
 	unsigned int pending_send_completion:3;

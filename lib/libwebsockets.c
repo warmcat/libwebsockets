@@ -3028,8 +3028,13 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			return -1;
 		}
 		wsi->cgi->content_length_seen += m;
+	} else {
+		if (wsi->cgi_stdout_zero_length) {
+			lwsl_debug("%s: failed to read anything: stdout is POLLHUP'd\n", __func__);
+			return 1;
+		}
+		wsi->cgi_stdout_zero_length = 1;
 	}
-
 	return 0;
 }
 
@@ -3153,7 +3158,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 
 				if (!cgi->content_length) {
 					/*
-					 * well, if he sends chunked... give him 5s after the
+					 * well, if he sends chunked... give him 2s after the
 					 * cgi terminated to send buffered
 					 */
 					cgi->chunked_grace++;
@@ -3192,7 +3197,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		/* we deferred killing him after reaping his PID */
 		if (cgi->chunked_grace) {
 			cgi->chunked_grace++;
-			if (cgi->chunked_grace < 5)
+			if (cgi->chunked_grace < 2)
 				continue;
 			goto finish_him;
 		}
@@ -3214,7 +3219,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 
 			if (!cgi->content_length) {
 				/*
-				 * well, if he sends chunked... give him 5s after the
+				 * well, if he sends chunked... give him 2s after the
 				 * cgi terminated to send buffered
 				 */
 				cgi->chunked_grace++;
