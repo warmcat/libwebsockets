@@ -3090,13 +3090,13 @@ lws_cgi_kill(struct lws *wsi)
 handled:
 	args.stdwsi = &wsi->cgi->stdwsi[0];
 
-	if (wsi->cgi->pid != -1 && user_callback_handle_rxflow(
-			wsi->protocol->callback,
-			wsi, LWS_CALLBACK_CGI_TERMINATED,
-			wsi->user_space,
-			(void *)&args, 0)) {
+	if (wsi->cgi->pid != -1) {
+		n = user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+						LWS_CALLBACK_CGI_TERMINATED,
+						wsi->user_space,
+						(void *)&args, 0);
 		wsi->cgi->pid = -1;
-		if (!wsi->cgi->being_closed)
+		if (n && !wsi->cgi->being_closed)
 			lws_close_free_wsi(wsi, 0);
 	}
 

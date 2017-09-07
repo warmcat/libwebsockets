@@ -260,9 +260,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_CHUNK_END) {
 			n = lws_write(wsi, (unsigned char *)"0\x0d\x0a\x0d\x0a",
 				      5, LWS_WRITE_HTTP);
-			if (n < 0)
-				return -1;
-			break;
+			/* always close after sending it */
+			return -1;
 		}
 #endif
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -386,6 +385,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			/* send terminating chunk */
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_CHUNK_END;
 			lws_callback_on_writable(wsi);
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, 3);
+			break;
 		}
 		return -1;
 
