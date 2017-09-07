@@ -1,6 +1,24 @@
 Notes about coding with lws
 ===========================
 
+@section era Old lws and lws v2.0
+
+Originally lws only supported the "manual" method of handling everything in the
+user callback found in test-server.c.
+
+Since v2.0, the need for most or all of this manual boilerplate has been eliminated:
+the protocols[0] http stuff is provided by a lib export `lws_callback_http_dummy()`.
+You can serve parts of your filesystem at part of the URL space using mounts.
+
+It's much preferred to use the "automated" v2.0 type scheme, because it's less
+code and it's easier to support.
+
+You can see an example of the new way in test-server-v2.0.c.
+
+If you just need generic serving capability, consider not writing any server code
+and instead use lwsws and writing your user code in a standalone plugin.  The
+server is configured for mounts etc using JSON, see README.lwsws.md.
+
 @section dae Daemonization
 
 There's a helper api `lws_daemonize` built by default that does everything you
@@ -901,6 +919,15 @@ the protocol struct.
 This allocation is only deleted / replaced when the connection accesses a
 URL region with a different protocol (or the default protocols[0] if no
 CALLBACK area matches it).
+
+This "binding connection to a protocol" lifecycle in managed by
+`LWS_CALLBACK_HTTP_BIND_PROTOCOL` and `LWS_CALLBACK_HTTP_DROP_PROTOCOL`.
+Because of HTTP/1.1 connection pipelining, one connection may perform
+many transactions, each of which may map to different URLs and need
+binding to different protocols.  So these messages are used to
+create the binding of the wsi to your protocol including any
+allocations, and to destroy the binding, at which point you should
+destroy any related allocations.
 
 @section BINDTODEV SO_BIND_TO_DEVICE
 
