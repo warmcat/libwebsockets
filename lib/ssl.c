@@ -257,7 +257,7 @@ lws_ssl_elaborate_error(void)
 
 	while ((err = ERR_get_error()) != 0) {
 		ERR_error_string_n(err, buf, sizeof(buf));
-		lwsl_err("*** %s\n", buf);
+		lwsl_info("*** %s\n", buf);
 	}
 #endif
 }
@@ -455,7 +455,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 #endif
 		}
 
-		lwsl_err("%s failed: %s\n",__func__,
+		lwsl_info("%s failed: %s\n",__func__,
 			 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
 		lws_ssl_elaborate_error();
 
@@ -477,7 +477,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 		}
 
 
-		lwsl_err("%s failed2: %s\n",__func__,
+		lwsl_info("%s failed2: %s\n",__func__,
 				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
 			lws_ssl_elaborate_error();
 
@@ -561,23 +561,22 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 	}
 
- if (n == SSL_ERROR_ZERO_RETURN)
-  return LWS_SSL_CAPABLE_ERROR;
+	if (n == SSL_ERROR_ZERO_RETURN)
+		return LWS_SSL_CAPABLE_ERROR;
 
 #if !defined(LWS_USE_MBEDTLS)
- if (n == SSL_ERROR_SYSCALL) {
+	if (n == SSL_ERROR_SYSCALL) {
+		int err = ERR_get_error();
 
-  int err = ERR_get_error();
-  if (err == 0
-    && (ssl_read_errno == EPIPE
-     || ssl_read_errno == ECONNABORTED
-     || ssl_read_errno == 0))
-    return LWS_SSL_CAPABLE_ERROR;
- }
+		if (err == 0 && (ssl_read_errno == EPIPE ||
+				 ssl_read_errno == ECONNABORTED ||
+				 ssl_read_errno == 0))
+			return LWS_SSL_CAPABLE_ERROR;
+	}
 #endif
 
- lwsl_err("%s failed: %s\n",__func__,
-   ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
+	lwsl_info("%s failed: %s\n",__func__,
+			ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
 	lws_ssl_elaborate_error();
 
 	return LWS_SSL_CAPABLE_ERROR;
@@ -596,8 +595,9 @@ lws_gate_accepts(struct lws_context *context, int on)
 
 	while (v) {
 		if (v->use_ssl &&  v->lserv_wsi) /* gate ability to accept incoming connections */
-			if (lws_change_pollfd(v->lserv_wsi, (LWS_POLLIN) * !on, (LWS_POLLIN) * on))
-				lwsl_err("Unable to set accept POLLIN %d\n", on);
+			if (lws_change_pollfd(v->lserv_wsi, (LWS_POLLIN) * !on,
+					      (LWS_POLLIN) * on))
+				lwsl_info("Unable to set accept POLLIN %d\n", on);
 
 		v = v->vhost_next;
 	}
@@ -680,6 +680,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 	BIO *bio;
 #endif
         char buf[256];
+
+        (void)buf;
 
 	if (!LWS_SSL_ENABLED(wsi->vhost))
 		return 0;
@@ -857,7 +859,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 go_again:
 		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl)) {
 			if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
-				lwsl_err("%s: WANT_READ change_pollfd failed\n", __func__);
+				lwsl_info("%s: WANT_READ change_pollfd failed\n", __func__);
 				goto fail;
 			}
 
@@ -868,14 +870,14 @@ go_again:
 			lwsl_debug("%s: WANT_WRITE\n", __func__);
 
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
-				lwsl_err("%s: WANT_WRITE change_pollfd failed\n", __func__);
+				lwsl_info("%s: WANT_WRITE change_pollfd failed\n", __func__);
 				goto fail;
 			}
 
 			break;
 		}
 		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
-                lwsl_err("SSL_accept failed socket %u: %s\n", wsi->desc.sockfd,
+                lwsl_info("SSL_accept failed socket %u: %s\n", wsi->desc.sockfd,
                          lws_ssl_get_error_string(m, n, buf, sizeof(buf)));
 		lws_ssl_elaborate_error();
 		goto fail;

@@ -299,7 +299,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 		 * we're detaching the ah, but it was held an
 		 * unreasonably long time
 		 */
-		lwsl_notice("%s: wsi %p: ah held %ds, "
+		lwsl_info("%s: wsi %p: ah held %ds, "
 			    "ah.rxpos %d, ah.rxlen %d, mode/state %d %d,"
 			    "wsi->more_rx_waiting %d\n", __func__, wsi,
 			    (int)(now - ah->assigned),
