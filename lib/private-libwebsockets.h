@@ -273,6 +273,9 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #define OPENSSL_NO_TLSEXT
 #endif /* not USE_OLD_CYASSL */
 #else
+#if defined(LWS_WITH_ESP32)
+#define OPENSSL_NO_TLSEXT
+#else
 #if defined(LWS_USE_MBEDTLS)
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
@@ -294,6 +297,7 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
  */
 #define OPENSSL_NO_TLSEXT
 #endif
+#endif /* not ESP32 */
 #endif /* not USE_WOLFSSL */
 #endif
 
