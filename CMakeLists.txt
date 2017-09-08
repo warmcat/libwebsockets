@@ -1147,7 +1147,7 @@ configure_file(
 
 # Generate self-signed SSL certs for the test-server.
 
-if (LWS_WITH_SSL AND NOT LWS_USE_WOLFSSL AND NOT LWS_USE_MBEDTLS)
+if (LWS_WITH_SSL AND NOT LWS_USE_WOLFSSL)
 	message("Searching for OpenSSL executable and dlls")
 	find_package(OpenSSLbins)
 	message("OpenSSL executable: ${OPENSSL_EXECUTABLE}")
