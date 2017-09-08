@@ -38,6 +38,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <inttypes.h>
 
 #if defined(LWS_WITH_ESP32)
 #define MSG_NOSIGNAL 0
