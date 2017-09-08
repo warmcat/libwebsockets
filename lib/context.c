@@ -392,7 +392,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CGI_TERMINATED:
-		lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: %d %lu\n", wsi->cgi->explicitly_chunked, (uint64_t)wsi->cgi->content_length);
+		lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: %d %" PRIu64 "\n", wsi->cgi->explicitly_chunked, (uint64_t)wsi->cgi->content_length);
 		if (!wsi->cgi->explicitly_chunked && !wsi->cgi->content_length) {
 			/* send terminating chunk */
 			lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: looking to send terminating chunk\n");
