@@ -2817,12 +2817,13 @@ LWS_VISIBLE LWS_EXTERN int
 lws_service(struct lws_context *context, int timeout_ms);
 
 /**
- * lws_service() - Service any pending websocket activity
+ * lws_service_tsi() - Service any pending websocket activity
  *
  * \param context:	Websocket context
  * \param timeout_ms:	Timeout for poll; 0 means return immediately if nothing needed
  *		service otherwise block and service immediately, returning
  *		after the timeout if nothing needed service.
+ * \param tsi:		Thread service index, starting at 0
  *
  * Same as lws_service(), but for a specific thread service index.  Only needed
  * if you are spawning multiple service threads.
