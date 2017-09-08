@@ -1039,10 +1039,7 @@ lws_http_action(struct lws *wsi)
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
 			    uri_ptr);
 
-		lwsl_notice("%s\n", end);
 		lws_clean_url((char *)end);
-		lwsl_notice("%s\n", end);
-
 		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
 				      end, n, &p, end);
 		if ((int)n < 0)
