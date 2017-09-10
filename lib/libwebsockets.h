@@ -203,6 +203,14 @@ typedef unsigned long long lws_intptr_t;
 #include <wolfssl/error-ssl.h>
 #endif /* not USE_OLD_CYASSL */
 #else
+#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_ESP32)
+/* this filepath is passed to us but without quotes or <> */
+#undef MBEDTLS_CONFIG_FILE
+#define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
+#endif
+#include <mbedtls/ssl.h>
+#endif
 #include <openssl/ssl.h>
 #if !defined(LWS_USE_MBEDTLS)
 #include <openssl/err.h>
@@ -1396,6 +1404,91 @@ lws_callback_function(struct lws *wsi, enum lws_callback_reasons reason,
 #define LWS_CB_REASON_AUX_BF__PROXY		2
 #define LWS_CB_REASON_AUX_BF__CGI_CHUNK_END	4
 #define LWS_CB_REASON_AUX_BF__CGI_HEADERS	8
+///@}
+
+/*! \defgroup generic hash
+ * ## Generic Hash related functions
+ *
+ * Lws provides generic hash / digest accessors that abstract the ones
+ * provided by whatever OpenSSL library you are linking against.
+ *
+ * It lets you use the same code if you build against mbedtls or OpenSSL
+ * for example.
+ */
+///@{
+
+#ifdef LWS_OPENSSL_SUPPORT
+
+#if defined(LWS_USE_MBEDTLS)
+#include <mbedtls/sha1.h>
+#include <mbedtls/sha256.h>
+#include <mbedtls/sha512.h>
+#endif
+
+#define LWS_GENHASH_TYPE_SHA1		0
+#define LWS_GENHASH_TYPE_SHA256		1
+#define LWS_GENHASH_TYPE_SHA512		2
+
+struct lws_genhash_ctx {
+        uint8_t type;
+#if defined(LWS_USE_MBEDTLS)
+        union {
+		mbedtls_sha1_context sha1;
+		mbedtls_sha256_context sha256;
+		mbedtls_sha512_context sha512;
+        } u;
+#else
+        const EVP_MD *evp_type;
+        EVP_MD_CTX *mdctx;
+#endif
+};
+
+/** lws_genhash_size() - get hash size in bytes
+ *
+ * \param type:	one of LWS_GENHASH_TYPE_...
+ *
+ * Returns number of bytes in this type of hash
+ */
+LWS_VISIBLE LWS_EXTERN size_t LWS_WARN_UNUSED_RESULT
+lws_genhash_size(int type);
+
+/** lws_genhash_init() - prepare your struct lws_genhash_ctx for use
+ *
+ * \param ctx: your struct lws_genhash_ctx
+ * \param type:	one of LWS_GENHASH_TYPE_...
+ *
+ * Initializes the hash context for the type you requested
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_genhash_init(struct lws_genhash_ctx *ctx, int type);
+
+/** lws_genhash_update() - digest len bytes of the buffer starting at in
+ *
+ * \param ctx: your struct lws_genhash_ctx
+ * \param in: start of the bytes to digest
+ * \param len: count of bytes to digest
+ *
+ * Updates the state of your hash context to reflect digesting len bytes from in
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_genhash_update(struct lws_genhash_ctx *ctx, const void *in, size_t len);
+
+/** lws_genhash_destroy() - copy out the result digest and destroy the ctx
+ *
+ * \param ctx: your struct lws_genhash_ctx
+ * \param result: NULL, or where to copy the result hash
+ *
+ * Finalizes the hash and copies out the digest.  Destroys any allocations such
+ * that ctx can safely go out of scope after calling this.
+ *
+ * NULL result is supported so that you can destroy the ctx cleanly on error
+ * conditions, where there is no valid result.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result);
+
+#endif
+
 ///@}
 
 /*! \defgroup extensions

@@ -104,7 +104,7 @@ static int
 lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 				struct lws_vhost *vhost)
 {
-#ifdef LWS_HAVE_OPENSSL_ECDH_H
+#if defined(LWS_HAVE_OPENSSL_ECDH_H) && !defined(LWS_USE_MBEDTLS)
 	EC_KEY *ecdh;
 	int ecdh_nid;
 	const char *ecdh_curve = "prime256v1";

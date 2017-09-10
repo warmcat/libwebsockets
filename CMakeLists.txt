@@ -652,7 +652,8 @@ endif()
 
 if (LWS_WITH_SSL)
 	list(APPEND SOURCES
-		lib/ssl.c)
+		lib/ssl.c
+		lib/lws-genhash.c)
 		
 	if (NOT LWS_WITHOUT_SERVER)
 		list(APPEND SOURCES
@@ -1031,6 +1032,8 @@ if (LWS_WITH_SSL)
 		if (LWS_SSL_SERVER_WITH_ECDH_CERT AND NOT LWS_HAVE_OPENSSL_ECDH_H)
 			message(FATAL_ERROR "Missing openssl/ecdh.h, so cannot use LWS_SSL_SERVER_WITH_ECDH_CERT")
 		endif()
+	else()
+		unset(LWS_HAVE_OPENSSL_ECDH_H)
 	endif(NOT LWS_USE_MBEDTLS)
 	endif()
 
