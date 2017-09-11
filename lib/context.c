@@ -798,6 +798,10 @@ lws_create_context(struct lws_context_creation_info *info)
 	else
 		context->pt_serv_buf_size = 4096;
 
+#if defined(LWS_WITH_ESP32)
+	context->last_free_heap = esp_get_free_heap_size();
+#endif
+
 	/* default to just the platform fops implementation */
 
 	context->fops_platform.LWS_FOP_OPEN	= _lws_plat_file_open;

@@ -998,6 +998,10 @@ struct lws_context {
 	uint64_t last_dump;
 	int updated;
 #endif
+#if defined(LWS_WITH_ESP32)
+	unsigned long time_last_state_dump;
+	uint32_t last_free_heap;
+#endif
 
 	int max_fds;
 #if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)

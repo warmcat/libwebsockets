@@ -117,6 +117,22 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	pt = &context->pt[tsi];
 	lws_stats_atomic_bump(context, pt, LWSSTATS_C_SERVICE_ENTRY, 1);
 
+	{
+		unsigned long m = lws_now_secs();
+
+		if (m > context->time_last_state_dump) {
+			context->time_last_state_dump = m;
+			n = esp_get_free_heap_size();
+			if (n != context->last_free_heap) {
+				if (n > context->last_free_heap)
+					lwsl_info(" heap :%d (+%d)\n", n, n - context->last_free_heap);
+				else
+					lwsl_info(" heap :%d (-%d)\n", n, context->last_free_heap - n);
+				context->last_free_heap = n;
+			}
+		}
+	}
+
 	if (timeout_ms < 0)
 		goto faked_service;
 
