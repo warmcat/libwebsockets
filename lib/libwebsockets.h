@@ -2438,7 +2438,7 @@ lws_create_vhost(struct lws_context *context,
 		 struct lws_context_creation_info *info);
 
 /**
- * lws_destroy_vhost() - Destroy a vhost (virtual server context)
+ * lws_vhost_destroy() - Destroy a vhost (virtual server context)
  * \param vhost:	pointer to result of lws_create_vhost()
  *
  * This function destroys a vhost.  Normally, if you just want to exit,
