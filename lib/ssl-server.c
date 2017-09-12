@@ -137,7 +137,7 @@ lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 	return 0;
 }
 
-#ifndef OPENSSL_NO_TLSEXT
+#if defined(SSL_TLSEXT_ERR_NOACK) && !defined(OPENSSL_NO_TLSEXT)
 static int
 lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 {
@@ -316,7 +316,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 	}
 
-#ifndef OPENSSL_NO_TLSEXT
+#if !defined(LWS_USE_MBEDTLS) && !defined(OPENSSL_NO_TLSEXT)
 	SSL_CTX_set_tlsext_servername_callback(vhost->ssl_ctx,
 					       lws_ssl_server_name_cb);
 #endif
@@ -349,9 +349,11 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		SSL_CTX_set_options(vhost->ssl_ctx, info->ssl_options_set);
 
 /* SSL_clear_options introduced in 0.9.8m */
+#if !defined(LWS_USE_MBEDTLS)
 #if (OPENSSL_VERSION_NUMBER >= 0x009080df) && !defined(USE_WOLFSSL)
 	if (info->ssl_options_clear)
 		SSL_CTX_clear_options(vhost->ssl_ctx, info->ssl_options_clear);
+#endif
 #endif
 
 	lwsl_info(" SSL options 0x%lX\n", SSL_CTX_get_options(vhost->ssl_ctx));

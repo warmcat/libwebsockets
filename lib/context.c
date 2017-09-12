@@ -112,6 +112,9 @@ lws_vhost_protocol_options(struct lws_vhost *vh, const char *name)
 {
 	const struct lws_protocol_vhost_options *pvo = vh->pvo;
 
+	if (!name)
+		return NULL;
+
 	while (pvo) {
 		// lwsl_notice("%s: '%s' '%s'\n", __func__, pvo->name, name);
 		if (!strcmp(pvo->name, name))
