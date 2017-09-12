@@ -669,7 +669,7 @@ int X509_VERIFY_PARAM_set1_host(X509_VERIFY_PARAM *param,
 {
 	SSL *ssl = (SSL *)((char *)param - offsetof(SSL, param));
 	struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
-	char *name_cstr;
+	char *name_cstr = NULL;
 
 	if (namelen) {
 		name_cstr = malloc(namelen + 1);
