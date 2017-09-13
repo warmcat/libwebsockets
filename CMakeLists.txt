@@ -816,7 +816,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
     if (LWS_HAVE_VISIBILITY)
                 set(VISIBILITY_FLAG -fvisibility=hidden)
     endif()
-    if (UNIX OR LWS_WITH_ESP8266)
+    if ((UNIX OR LWS_WITH_ESP8266) AND NOT LWS_WITH_ESP32)
 	    set(CMAKE_C_FLAGS "-Wall -Werror ${VISIBILITY_FLAG} -Wundef ${CMAKE_C_FLAGS}" )
     else()
                set(CMAKE_C_FLAGS "-Wall ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
