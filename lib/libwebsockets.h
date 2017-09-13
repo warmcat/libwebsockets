@@ -2071,23 +2071,38 @@ struct lws_context_creation_info {
 	/**< CONTEXT: NULL or struct lws_token_limits pointer which is initialized
 	 * with a token length limit for each possible WSI_TOKEN_ */
 	const char *ssl_private_key_password;
-	/**< VHOST: NULL or the passphrase needed for the private key */
+	/**< VHOST: NULL or the passphrase needed for the private key. (For
+	 * backwards compatibility, this can also be used to pass the client
+	 * cert passphrase when setting up a vhost client SSL context, but it is
+	 * preferred to use .client_ssl_private_key_password for that.) */
 	const char *ssl_cert_filepath;
 	/**< VHOST: If libwebsockets was compiled to use ssl, and you want
 	 * to listen using SSL, set to the filepath to fetch the
- 	 * server cert from, otherwise NULL for unencrypted */
+	 * server cert from, otherwise NULL for unencrypted.  (For backwards
+	 * compatibility, this can also be used to pass the client certificate
+	 * when setting up a vhost client SSL context, but it is preferred to
+	 * use .client_ssl_cert_filepath for that.) */
 	const char *ssl_private_key_filepath;
 	/**<  VHOST: filepath to private key if wanting SSL mode;
-	 * if this is set to NULL but sll_cert_filepath is set, the
+	 * if this is set to NULL but ssl_cert_filepath is set, the
 	 * OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called
 	 * to allow setting of the private key directly via openSSL
-	 * library calls */
+	 * library calls.   (For backwards compatibility, this can also be used
+	 * to pass the client cert private key filepath when setting up a
+	 * vhost client SSL context, but it is preferred to use
+	 * .client_ssl_private_key_filepath for that.) */
 	const char *ssl_ca_filepath;
-	/**< VHOST: CA certificate filepath or NULL */
+	/**< VHOST: CA certificate filepath or NULL.  (For backwards
+	 * compatibility, this can also be used to pass the client CA
+	 * filepath when setting up a vhost client SSL context,
+	 * but it is preferred to use .client_ssl_ca_filepath for that.) */
 	const char *ssl_cipher_list;
 	/**< VHOST: List of valid ciphers to use (eg,
 	 * "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
-	 * or you can leave it as NULL to get "DEFAULT" */
+	 * or you can leave it as NULL to get "DEFAULT" (For backwards
+	 * compatibility, this can also be used to pass the client cipher
+	 * list when setting up a vhost client SSL context,
+	 * but it is preferred to use .client_ssl_cipher_list for that.)*/
 	const char *http_proxy_address;
 	/**< VHOST: If non-NULL, attempts to proxy via the given address.
 	 * If proxy auth is required, use format "username:password\@server:port" */
@@ -2218,28 +2233,24 @@ struct lws_context_creation_info {
 	 * succeeded to create.
 	 */
 
-#ifdef LWS_OPENSSL_SUPPORT
-	 /**< CONTEXT: NULL or struct lws_token_limits pointer which is initialized
-	 * with a token length limit for each possible WSI_TOKEN_ */
 	const char *client_ssl_private_key_password;
-	/**< VHOST: NULL or the passphrase needed for the private key */
+	/**< VHOST: Client SSL context init: NULL or the passphrase needed
+	 * for the private key */
 	const char *client_ssl_cert_filepath;
-	/**< VHOST: If libwebsockets was compiled to use ssl, and you want
-	* to listen using SSL, set to the filepath to fetch the
-	* server cert from, otherwise NULL for unencrypted */
+	/**< VHOST: Client SSL context init:T he certificate the client
+	 * should present to the peer on connection */
 	const char *client_ssl_private_key_filepath;
-	/**<  VHOST: filepath to private key if wanting SSL mode;
-	* if this is set to NULL but sll_cert_filepath is set, the
-	* OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called
-	* to allow setting of the private key directly via openSSL
-	* library calls */
+	/**<  VHOST: Client SSL context init: filepath to client private key
+	 * if this is set to NULL but client_ssl_cert_filepath is set, you
+	 * can handle the LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS
+	 * callback of protocols[0] to allow setting of the private key directly
+	 * via openSSL library calls */
 	const char *client_ssl_ca_filepath;
-	/**< VHOST: CA certificate filepath or NULL */
+	/**< VHOST: Client SSL context init: CA certificate filepath or NULL */
 	const char *client_ssl_cipher_list;
-	/**< VHOST: List of valid ciphers to use (eg,
+	/**< VHOST: Client SSL context init: List of valid ciphers to use (eg,
 	* "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
 	* or you can leave it as NULL to get "DEFAULT" */
-#endif
 
 	const struct lws_plat_file_ops *fops;
 	/**< CONTEXT: NULL, or pointer to an array of fops structs, terminated

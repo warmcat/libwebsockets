@@ -579,15 +579,15 @@ int main(int argc, char **argv)
 		 */
 
 		if (cert_path[0])
-			info.ssl_cert_filepath = cert_path;
+			info.client_ssl_cert_filepath = cert_path;
 		if (key_path[0])
-			info.ssl_private_key_filepath = key_path;
+			info.client_ssl_private_key_filepath = key_path;
 
 		/*
 		 * A CA cert and CRL can be used to validate the cert send by the server
 		 */
 		if (ca_path[0])
-			info.ssl_ca_filepath = ca_path;
+			info.client_ssl_ca_filepath = ca_path;
 
 #if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
 		else if (crl_path[0])
