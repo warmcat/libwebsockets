@@ -346,6 +346,7 @@ lws_callback_on_writable(struct lws *wsi)
 	struct lws *network_wsi, *wsi2;
 	int already;
 #endif
+	int n;
 
 	if (wsi->state == LWSS_SHUTDOWN)
 		return 0;
@@ -353,9 +354,16 @@ lws_callback_on_writable(struct lws *wsi)
 	if (wsi->socket_is_permanently_unusable)
 		return 0;
 
-	if (wsi->parent_carries_io) {
-		int n = lws_callback_on_writable(wsi->parent);
+	pt = &wsi->context->pt[(int)wsi->tsi];
 
+	if (wsi->parent_carries_io) {
+#if defined(LWS_WITH_STATS)
+		if (!wsi->active_writable_req_us) {
+			wsi->active_writable_req_us = time_in_microseconds();
+			lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB_EFF_REQ, 1);
+		}
+#endif
+		n = lws_callback_on_writable(wsi->parent);
 		if (n < 0)
 			return n;
 
@@ -363,7 +371,6 @@ lws_callback_on_writable(struct lws *wsi)
 		return 1;
 	}
 
-	pt = &wsi->context->pt[(int)wsi->tsi];
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB_REQ, 1);
 #if defined(LWS_WITH_STATS)
 	if (!wsi->active_writable_req_us) {

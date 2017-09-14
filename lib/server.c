@@ -2433,7 +2433,7 @@ try_pollout:
 		if (wsi->mode == LWSCM_RAW) {
 			lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB, 1);
 #if defined(LWS_WITH_STATS)
-			{
+			if (wsi->active_writable_req_us) {
 				uint64_t ul = time_in_microseconds() - wsi->active_writable_req_us;
 
 				lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_WRITABLE_DELAY, ul);
@@ -2458,7 +2458,7 @@ try_pollout:
 
 			lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB, 1);
 #if defined(LWS_WITH_STATS)
-			{
+			if (wsi->active_writable_req_us) {
 				uint64_t ul = time_in_microseconds() - wsi->active_writable_req_us;
 
 				lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_WRITABLE_DELAY, ul);
