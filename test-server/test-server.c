@@ -442,6 +442,8 @@ int main(int argc, char **argv)
 			       "!DHE-RSA-AES256-SHA256:"
 			       "!AES256-GCM-SHA384:"
 			       "!AES256-SHA256";
+	info.ip_limit_ah = 4; /* for testing */
+	info.ip_limit_wsi = 105; /* for testing */
 
 	if (use_ssl)
 		/* redirect guys coming on http */

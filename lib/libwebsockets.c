@@ -99,6 +99,12 @@ lws_free_wsi(struct lws *wsi)
 			pt->ah_count_in_use--;
 		}
 	}
+
+#if defined(LWS_WITH_PEER_LIMITS)
+	lws_peer_track_wsi_close(wsi->context, wsi->peer);
+	wsi->peer = NULL;
+#endif
+
 	lws_pt_unlock(pt);
 
 	/* since we will destroy the wsi, make absolutely sure now */
@@ -3582,7 +3588,9 @@ LWS_VISIBLE LWS_EXTERN void
 lws_stats_log_dump(struct lws_context *context)
 {
 	struct lws_vhost *v = context->vhost_list;
-	int n;
+	int n, m;
+
+	(void)m;
 
 	if (!context->updated)
 		return;
@@ -3603,6 +3611,8 @@ lws_stats_log_dump(struct lws_context *context)
 	lwsl_notice("LWSSTATS_C_SSL_CONNECTIONS_FAILED:          %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SSL_CONNECTIONS_FAILED));
 	lwsl_notice("LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED:        %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED));
 	lwsl_notice("LWSSTATS_C_SSL_CONNS_HAD_RX:                %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SSL_CONNS_HAD_RX));
+	lwsl_notice("LWSSTATS_C_PEER_LIMIT_AH_DENIED:            %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_PEER_LIMIT_AH_DENIED));
+	lwsl_notice("LWSSTATS_C_PEER_LIMIT_WSI_DENIED:           %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_PEER_LIMIT_WSI_DENIED));
 
 	lwsl_notice("LWSSTATS_C_TIMEOUTS:                        %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_TIMEOUTS));
 	lwsl_notice("LWSSTATS_C_SERVICE_ENTRY:                   %8llu\n", (unsigned long long)lws_stats_get(context, LWSSTATS_C_SERVICE_ENTRY));
@@ -3633,9 +3643,7 @@ lws_stats_log_dump(struct lws_context *context)
 
 	lwsl_notice("Live wsi:                                   %8d\n", context->count_wsi_allocated);
 
-#if defined(LWS_WITH_STATS)
 	context->updated = 1;
-#endif
 
 	while (v) {
 		if (v->lserv_wsi) {
@@ -3676,6 +3684,41 @@ lws_stats_log_dump(struct lws_context *context)
 
 		lws_pt_unlock(pt);
 	}
+
+#if defined(LWS_WITH_PEER_LIMITS)
+	m = 0;
+	for (n = 0; n < context->pl_hash_elements; n++)	{
+		lws_start_foreach_llp(struct lws_peer **, peer, context->pl_hash_table[n]) {
+			m++;
+		} lws_end_foreach_llp(peer, next);
+	}
+
+	lwsl_notice(" Peers: total active %d\n", m);
+	if (m > 10) {
+		m = 10;
+		lwsl_notice("  (showing 10 peers only)\n");
+	}
+
+	if (m) {
+		for (n = 0; n < context->pl_hash_elements; n++)	{
+			char buf[72];
+
+			lws_start_foreach_llp(struct lws_peer **, peer, context->pl_hash_table[n]) {
+				struct lws_peer *df = *peer;
+
+				if (!lws_plat_inet_ntop(df->af, df->addr, buf,
+							sizeof(buf) - 1))
+					strcpy(buf, "unknown");
+
+				lwsl_notice("  peer %s: count wsi: %d, count ah: %d\n",
+					    buf, df->count_wsi, df->count_ah);
+
+				if (!--m)
+					break;
+			} lws_end_foreach_llp(peer, next);
+		}
+	}
+#endif
 
 	lwsl_notice("\n");
 }

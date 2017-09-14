@@ -112,6 +112,7 @@
 #cmakedefine LWS_WITH_SERVER_STATUS
 
 #cmakedefine LWS_WITH_STATEFUL_URLDECODE
+#cmakedefine LWS_WITH_PEER_LIMITS
 
 /* Maximum supported service threads */
 #define LWS_MAX_SMP ${LWS_MAX_SMP}

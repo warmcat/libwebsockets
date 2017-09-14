@@ -43,6 +43,22 @@ If you want to restrict that allocation, or increase it, you can use ulimit or
 similar to change the available number of file descriptors, and when restarted
 **libwebsockets** will adapt accordingly.
 
+@section peer_limits optional LWS_WITH_PEER_LIMITS
+
+If you select `LWS_WITH_PEER_LIMITS` at cmake, then lws will track peer IPs
+and monitor how many connections and ah resources they are trying to use
+at one time.  You can choose to limit these at context creation time, using
+`info.ip_limit_ah` and `info.ip_limit_wsi`.
+
+Note that although the ah limit is 'soft', ie, the connection will just wait
+until the IP is under the ah limit again before attaching a new ah, the
+wsi limit is 'hard', lws will drop any additional connections from the
+IP until it's under the limit again.
+
+If you use these limits, you should consider multiple clients may simultaneously
+try to access the site through NAT, etc.  So the limits should err on the side
+of being generous, while still making it impossible for one IP to exhaust
+all the server resources.
 
 @section evtloop Libwebsockets is singlethreaded
 

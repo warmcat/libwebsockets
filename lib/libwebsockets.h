@@ -2289,14 +2289,6 @@ struct lws_context_creation_info {
 	 * your local machine use your lo / loopback interface and will be
 	 * disallowed by this.
 	 */
-
-	/* Add new things just above here ---^
-	 * This is part of the ABI, don't needlessly break compatibility
-	 *
-	 * The below is to ensure later library versions with new
-	 * members added above will see 0 (default) even if the app
-	 * was not built against the newer headers.
-	 */
 	int ssl_info_event_mask;
 	/**< VHOST: mask of ssl events to be reported on LWS_CALLBACK_SSL_INFO
 	 * callback for connections on this vhost.  The mask values are of
@@ -2306,6 +2298,29 @@ struct lws_context_creation_info {
 	unsigned int timeout_secs_ah_idle;
 	/**< VHOST: seconds to allow a client to hold an ah without using it.
 	 * 0 defaults to 10s. */
+	unsigned short ip_limit_ah;
+	/**< CONTEXT: max number of ah a single IP may use simultaneously
+	 *	      0 is no limit. This is a soft limit: if the limit is
+	 *	      reached, connections from that IP will wait in the ah
+	 *	      waiting list and not be able to acquire an ah until
+	 *	      a connection belonging to the IP relinquishes one it
+	 *	      already has.
+	 */
+	unsigned short ip_limit_wsi;
+	/**< CONTEXT: max number of wsi a single IP may use simultaneously.
+	 *	      0 is no limit.  This is a hard limit, connections from
+	 *	      the same IP will simply be dropped once it acquires the
+	 *	      amount of simultanoues wsi / accepted connections
+	 *	      given here.
+	 */
+
+	/* Add new things just above here ---^
+	 * This is part of the ABI, don't needlessly break compatibility
+	 *
+	 * The below is to ensure later library versions with new
+	 * members added above will see 0 (default) even if the app
+	 * was not built against the newer headers.
+	 */
 
 	void *_unused[8]; /**< dummy */
 };
@@ -5379,6 +5394,8 @@ enum {
 	LWSSTATS_MS_WRITABLE_DELAY, /**< aggregate delay between asking for writable and getting cb */
 	LWSSTATS_MS_WORST_WRITABLE_DELAY, /**< single worst delay between asking for writable and getting cb */
 	LWSSTATS_MS_SSL_RX_DELAY, /**< aggregate delay between ssl accept complete and first RX */
+	LWSSTATS_C_PEER_LIMIT_AH_DENIED, /**< number of times we would have given an ah but for the peer limit */
+	LWSSTATS_C_PEER_LIMIT_WSI_DENIED, /**< number of times we would have given a wsi but for the peer limit */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility */

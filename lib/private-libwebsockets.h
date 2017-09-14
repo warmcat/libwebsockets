@@ -931,6 +931,34 @@ struct lws_deferred_free
 	void *payload;
 };
 
+typedef union {
+#ifdef LWS_USE_IPV6
+	struct sockaddr_in6 sa6;
+#endif
+	struct sockaddr_in sa4;
+} sockaddr46;
+
+
+#if defined(LWS_WITH_PEER_LIMITS)
+struct lws_peer {
+	struct lws_peer *next;
+	struct lws_peer *peer_wait_list;
+
+	time_t time_created;
+	time_t time_closed_all;
+
+	uint8_t addr[32];
+	uint32_t hash;
+	uint32_t count_wsi;
+	uint32_t count_ah;
+
+	uint32_t total_wsi;
+	uint32_t total_ah;
+
+	uint8_t af;
+};
+#endif
+
 /*
  * the rest is managed per-context, that includes
  *
@@ -949,6 +977,10 @@ struct lws_context {
 #endif
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
 	struct lws_conn_stats conn_stats;
+#if LWS_MAX_SMP > 1
+	pthread_mutex_t lock;
+	int lock_depth;
+#endif
 #ifdef _WIN32
 /* different implementation between unix and windows */
 	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
@@ -966,6 +998,11 @@ struct lws_context {
 	struct lws_vhost *vhost_pending_destruction_list;
 	struct lws_plugin *plugin_list;
 	struct lws_deferred_free *deferred_free_list;
+#if defined(LWS_WITH_PEER_LIMITS)
+	struct lws_peer **pl_hash_table;
+	struct lws_peer *peer_wait_list;
+	time_t next_cull;
+#endif
 
 	void *external_baggage_free_on_destroy;
 	const struct lws_token_limits *token_limits;
@@ -1033,7 +1070,12 @@ struct lws_context {
 	int max_http_header_data;
 	int simultaneous_ssl_restriction;
 	int simultaneous_ssl;
-
+#if defined(LWS_WITH_PEER_LIMITS)
+	uint32_t pl_hash_elements;	/* protected by context->lock */
+	uint32_t count_peers;		/* protected by context->lock */
+	unsigned short ip_limit_ah;
+	unsigned short ip_limit_wsi;
+#endif
 	unsigned int deprecated:1;
 	unsigned int being_destroyed:1;
 	unsigned int being_destroyed1:1;
@@ -1056,6 +1098,7 @@ struct lws_context {
 	short server_string_len;
 	unsigned short ws_ping_pong_interval;
 	unsigned short deprecation_pending_listen_close_count;
+
 	uint8_t max_fi;
 };
 
@@ -1197,13 +1240,6 @@ LWS_EXTERN void lws_feature_status_libevent(struct lws_context_creation_info *in
 #else
 #define LWS_UNIX_SOCK_ENABLED(vhost) (0)
 #endif
-
-typedef union {
-#ifdef LWS_USE_IPV6
-	struct sockaddr_in6 sa6;
-#endif
-	struct sockaddr_in sa4;
-} sockaddr46;
 
 enum uri_path_states {
 	URIPS_IDLE,
@@ -1591,6 +1627,9 @@ struct lws {
 #if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBEVENT)
 	struct lws_io_watcher w_write;
 #endif
+#ifdef LWS_WITH_ACCESS_LOG
+	struct lws_access_log access_log;
+#endif
 	time_t pending_timeout_limit;
 
 	/* pointers */
@@ -1607,9 +1646,10 @@ struct lws {
 	struct lws **same_vh_protocol_prev, *same_vh_protocol_next;
 	struct lws *timeout_list;
 	struct lws **timeout_list_prev;
-#ifdef LWS_WITH_ACCESS_LOG
-	struct lws_access_log access_log;
+#if defined(LWS_WITH_PEER_LIMITS)
+	struct lws_peer *peer;
 #endif
+
 	void *user_space;
 	void *opaque_parent_data;
 	/* rxflow handling */
@@ -2088,11 +2128,27 @@ lws_pt_unlock(struct lws_context_per_thread *pt)
 	if (!(--pt->lock_depth))
 		pthread_mutex_unlock(&pt->lock);
 }
+static LWS_INLINE void
+lws_context_lock(struct lws_context *context)
+{
+	if (!context->lock_depth++)
+		pthread_mutex_lock(&context->lock);
+}
+
+static LWS_INLINE void
+lws_context_unlock(struct lws_context *context)
+{
+	if (!(--context->lock_depth))
+		pthread_mutex_unlock(&context->lock);
+}
+
 #else
 #define lws_pt_mutex_init(_a) (void)(_a)
 #define lws_pt_mutex_destroy(_a) (void)(_a)
 #define lws_pt_lock(_a) (void)(_a)
 #define lws_pt_unlock(_a) (void)(_a)
+#define lws_context_lock(_a) (void)(_a)
+#define lws_context_unlock(_a) (void)(_a)
 #endif
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
@@ -2286,6 +2342,17 @@ static inline uint64_t lws_stats_atomic_max(struct lws_context * context,
 /* socks */
 void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 			ssize_t *msg_len);
+
+#if defined(LWS_WITH_PEER_LIMITS)
+void
+lws_peer_track_wsi_close(struct lws_context *context, struct lws_peer *peer);
+int
+lws_peer_confirm_ah_attach_ok(struct lws_context *context, struct lws_peer *peer);
+void
+lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer);
+void
+lws_peer_cull_peer_wait_list(struct lws_context *context);
+#endif
 
 #ifdef __cplusplus
 };

@@ -96,6 +96,8 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 	lws_set_timeout(wsi, PENDING_TIMEOUT_HOLDING_AH,
 			wsi->vhost->timeout_secs_ah_idle);
 
+	time(&ah->assigned);
+
 	/*
 	 * if we inherited pending rx (from socket adoption deferred
 	 * processing), apply and free it.
@@ -122,57 +124,98 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 	}
 }
 
+static void
+_lws_header_ensure_we_are_on_waiting_list(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_pollargs pa;
+	struct lws **pwsi = &pt->ah_wait_list;
+
+	while (*pwsi) {
+		if (*pwsi == wsi)
+			return;
+		pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+	}
+
+	lwsl_info("%s: wsi: %p\n", __func__, wsi);
+	wsi->u.hdr.ah_wait_list = pt->ah_wait_list;
+	pt->ah_wait_list = wsi;
+	pt->ah_wait_list_length++;
+
+	/* we cannot accept input then */
+
+	_lws_change_pollfd(wsi, LWS_POLLIN, 0, &pa);
+}
+
+static int
+__lws_remove_from_ah_waiting_list(struct lws *wsi)
+{
+        struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws **pwsi =&pt->ah_wait_list;
+
+	//if (wsi->u.hdr.ah)
+	//	return 0;
+
+	while (*pwsi) {
+		if (*pwsi == wsi) {
+			lwsl_info("%s: wsi %p\n", __func__, wsi);
+			/* point prev guy to our next */
+			*pwsi = wsi->u.hdr.ah_wait_list;
+			/* we shouldn't point anywhere now */
+			wsi->u.hdr.ah_wait_list = NULL;
+			pt->ah_wait_list_length--;
+
+			return 1;
+		}
+		pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+	}
+
+	return 0;
+}
+
 int LWS_WARN_UNUSED_RESULT
 lws_header_table_attach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_pollargs pa;
-	struct lws **pwsi;
 	int n;
 
-	lwsl_info("%s: wsi %p: ah %p (tsi %d, count = %d) in\n", __func__, (void *)wsi,
-		 (void *)wsi->u.hdr.ah, wsi->tsi, pt->ah_count_in_use);
+	lwsl_info("%s: wsi %p: ah %p (tsi %d, count = %d) in\n", __func__,
+		  (void *)wsi, (void *)wsi->u.hdr.ah, wsi->tsi,
+		  pt->ah_count_in_use);
 
 	/* if we are already bound to one, just clear it down */
 	if (wsi->u.hdr.ah) {
-		lwsl_info("cleardown\n");
+		lwsl_info("%s: cleardown\n", __func__);
 		goto reset;
 	}
 
 	lws_pt_lock(pt);
-	pwsi = &pt->ah_wait_list;
-	while (*pwsi) {
-		if (*pwsi == wsi) {
-			/* if already waiting on list, if no new ah just ret */
-			if (pt->ah_count_in_use ==
-			    context->max_http_header_pool) {
-				lwsl_notice("%s: no free ah to attach\n", __func__);
-				goto bail;
-			}
-			/* new ah.... remove ourselves from waiting list */
-			*pwsi = wsi->u.hdr.ah_wait_list; /* set our prev to our next */
-			wsi->u.hdr.ah_wait_list = NULL; /* no next any more */
-			pt->ah_wait_list_length--;
-			break;
-		}
-		pwsi = &(*pwsi)->u.hdr.ah_wait_list;
+
+	n = pt->ah_count_in_use == context->max_http_header_pool;
+#if defined(LWS_WITH_PEER_LIMITS)
+	if (!n) {
+		n = lws_peer_confirm_ah_attach_ok(context, wsi->peer);
+		if (n)
+			lws_stats_atomic_bump(wsi->context, pt,
+				LWSSTATS_C_PEER_LIMIT_AH_DENIED, 1);
 	}
-	/*
-	 * pool is all busy... add us to waiting list and return that we
-	 * weren't able to deliver it right now
-	 */
-	if (pt->ah_count_in_use == context->max_http_header_pool) {
-		lwsl_info("%s: adding %p to ah waiting list\n", __func__, wsi);
-		wsi->u.hdr.ah_wait_list = pt->ah_wait_list;
-		pt->ah_wait_list = wsi;
-		pt->ah_wait_list_length++;
+#endif
+	if (n) {
+		/*
+		 * Pool is either all busy, or we don't want to give this
+		 * particular guy an ah right now...
+		 *
+		 * Make sure we are on the waiting list, and return that we
+		 * weren't able to provide the ah
+		 */
+		_lws_header_ensure_we_are_on_waiting_list(wsi);
 
-		/* we cannot accept input then */
-
-		_lws_change_pollfd(wsi, LWS_POLLIN, 0, &pa);
 		goto bail;
 	}
+
+	__lws_remove_from_ah_waiting_list(wsi);
 
 	for (n = 0; n < context->max_http_header_pool; n++)
 		if (!pt->ah_pool[n].in_use)
@@ -185,6 +228,11 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	wsi->u.hdr.ah->in_use = 1;
 	pt->ah_pool[n].wsi = wsi; /* mark our owner */
 	pt->ah_count_in_use++;
+
+#if defined(LWS_WITH_PEER_LIMITS)
+	if (wsi->peer)
+		wsi->peer->count_ah++;
+#endif
 
 	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 
@@ -200,7 +248,6 @@ reset:
 	wsi->u.hdr.ah->rxlen = 0;
 
 	lws_header_table_reset(wsi, autoservice);
-	time(&wsi->u.hdr.ah->assigned);
 
 #ifndef LWS_NO_CLIENT
 	if (wsi->state == LWSS_CLIENT_UNCONNECTED)
@@ -237,36 +284,13 @@ lws_header_table_is_in_detachable_state(struct lws *wsi)
 	return ah && ah->rxpos == ah->rxlen && wsi->hdr_parsing_completed;
 }
 
-void
-__lws_remove_from_ah_waiting_list(struct lws *wsi)
-{
-        struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	struct lws **pwsi =&pt->ah_wait_list;
-
-	if (wsi->u.hdr.ah)
-		return;
-
-	while (*pwsi) {
-		if (*pwsi == wsi) {
-			lwsl_info("%s: wsi %p, remv wait\n",
-				  __func__, wsi);
-			*pwsi = wsi->u.hdr.ah_wait_list;
-			wsi->u.hdr.ah_wait_list = NULL;
-			pt->ah_wait_list_length--;
-			return;
-		}
-		pwsi = &(*pwsi)->u.hdr.ah_wait_list;
-	}
-}
-
-
 int lws_header_table_detach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->context;
 	struct allocated_headers *ah = wsi->u.hdr.ah;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_pollargs pa;
-	struct lws **pwsi;
+	struct lws **pwsi, **pwsi_eligible;
 	time_t now;
 
 	lws_pt_lock(pt);
@@ -285,8 +309,9 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	/* may not be detached while he still has unprocessed rx */
 	if (!lws_header_table_is_in_detachable_state(wsi)) {
-		lwsl_err("%s: %p: CANNOT DETACH rxpos:%d, rxlen:%d, wsi->hdr_parsing_completed = %d\n", __func__, wsi,
-				ah->rxpos, ah->rxlen, wsi->hdr_parsing_completed);
+		lwsl_err("%s: %p: CANNOT DETACH rxpos:%d, rxlen:%d, "
+			 "wsi->hdr_parsing_completed = %d\n", __func__, wsi,
+			 ah->rxpos, ah->rxlen, wsi->hdr_parsing_completed);
 		return 0;
 	}
 
@@ -299,7 +324,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 		 * we're detaching the ah, but it was held an
 		 * unreasonably long time
 		 */
-		lwsl_info("%s: wsi %p: ah held %ds, "
+		lwsl_debug("%s: wsi %p: ah held %ds, "
 			    "ah.rxpos %d, ah.rxlen %d, mode/state %d %d,"
 			    "wsi->more_rx_waiting %d\n", __func__, wsi,
 			    (int)(now - ah->assigned),
@@ -315,46 +340,70 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	assert(ah->in_use);
 	wsi->u.hdr.ah = NULL;
 	ah->wsi = NULL; /* no owner */
+#if defined(LWS_WITH_PEER_LIMITS)
+	lws_peer_track_ah_detach(context, wsi->peer);
+#endif
 
 	pwsi = &pt->ah_wait_list;
 
-	/* oh there is nobody on the waiting list... leave it at that then */
-	if (!*pwsi) {
-		ah->in_use = 0;
-		pt->ah_count_in_use--;
+	/* oh there is nobody on the waiting list... leave the ah unattached */
+	if (!*pwsi)
+		goto nobody_usable_waiting;
 
-		goto bail;
+	/*
+	 * at least one wsi on the same tsi is waiting, give it to oldest guy
+	 * who is allowed to take it (if any)
+	 */
+	lwsl_info("pt wait list %p\n", *pwsi);
+	wsi = NULL;
+	pwsi_eligible = NULL;
+
+	while (*pwsi) {
+#if defined(LWS_WITH_PEER_LIMITS)
+		/* are we willing to give this guy an ah? */
+		if (!lws_peer_confirm_ah_attach_ok(context, (*pwsi)->peer))
+#endif
+		{
+			wsi = *pwsi;
+			pwsi_eligible = pwsi;
+		}
+#if defined(LWS_WITH_PEER_LIMITS)
+		else
+			if (!(*pwsi)->u.hdr.ah_wait_list)
+				lws_stats_atomic_bump(wsi->context, pt,
+					LWSSTATS_C_PEER_LIMIT_AH_DENIED, 1);
+#endif
+		pwsi = &(*pwsi)->u.hdr.ah_wait_list;
 	}
 
-	/* somebody else on same tsi is waiting, give it to oldest guy */
+	if (!wsi) /* everybody waiting already has too many ah... */
+		goto nobody_usable_waiting;
 
-	lwsl_info("pt wait list %p\n", *pwsi);
-	while ((*pwsi)->u.hdr.ah_wait_list)
-		pwsi = &(*pwsi)->u.hdr.ah_wait_list;
-
-	wsi = *pwsi;
-	lwsl_info("last wsi in wait list %p\n", wsi);
+	lwsl_info("%s: last eligible wsi in wait list %p\n", __func__, wsi);
 
 	wsi->u.hdr.ah = ah;
 	ah->wsi = wsi; /* new owner */
+
 	/* and reset the rx state */
 	ah->rxpos = 0;
 	ah->rxlen = 0;
 	lws_header_table_reset(wsi, autoservice);
-	time(&wsi->u.hdr.ah->assigned);
+#if defined(LWS_WITH_PEER_LIMITS)
+	if (wsi->peer)
+		wsi->peer->count_ah++;
+#endif
 
 	/* clients acquire the ah and then insert themselves in fds table... */
 	if (wsi->position_in_fds_table != -1) {
 		lwsl_info("%s: Enabling %p POLLIN\n", __func__, wsi);
 
-		/* he has been stuck waiting for an ah, but now his wait is over,
-		 * let him progress
-		 */
+		/* he has been stuck waiting for an ah, but now his wait is
+		 * over, let him progress */
 		_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 	}
 
 	/* point prev guy to next guy in list instead */
-	*pwsi = wsi->u.hdr.ah_wait_list;
+	*pwsi_eligible = wsi->u.hdr.ah_wait_list;
 	/* the guy who got one is out of the list */
 	wsi->u.hdr.ah_wait_list = NULL;
 	pt->ah_wait_list_length--;
@@ -377,11 +426,18 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	assert(!!pt->ah_wait_list_length == !!(lws_intptr_t)pt->ah_wait_list);
 bail:
 	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
-	  (void *)wsi, (void *)ah, wsi->tsi,
-	  pt->ah_count_in_use);
+	  (void *)wsi, (void *)ah, pt->tid, pt->ah_count_in_use);
+
 	lws_pt_unlock(pt);
 
 	return 0;
+
+nobody_usable_waiting:
+	lwsl_info("%s: nobody usable waiting\n", __func__);
+	ah->in_use = 0;
+	pt->ah_count_in_use--;
+
+	goto bail;
 }
 
 LWS_VISIBLE int

@@ -839,6 +839,10 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 		lws_check_deferred_free(context, 0);
 
+#if defined(LWS_WITH_PEER_LIMITS)
+		lws_peer_cull_peer_wait_list(context);
+#endif
+
 		/* retire unused deprecated context */
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_ESP32)
 #if LWS_POSIX && !defined(_WIN32)
@@ -987,6 +991,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			vh = vh->vhost_next;
 		}
 	}
+
 
 	/* the socket we came to service timed out, nothing to do */
 	if (timed_out)
