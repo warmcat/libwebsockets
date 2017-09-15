@@ -86,7 +86,7 @@ lws_protocol_vh_priv_get(struct lws_vhost *vhost, const struct lws_protocols *pr
 {
 	int n = 0;
 
-	if (!vhost->protocol_vh_privs)
+	if (!vhost || !vhost->protocol_vh_privs)
 		return NULL;
 
 	while (n < vhost->count_protocols && &vhost->protocols[n] != prot)
