@@ -297,13 +297,6 @@ lwsl_timestamp(int level, char *p, int len);
 #define lwsl_ext(...)  _lws_log(LLL_EXT, __VA_ARGS__)
 #define lwsl_client(...) _lws_log(LLL_CLIENT, __VA_ARGS__)
 #define lwsl_latency(...) _lws_log(LLL_LATENCY, __VA_ARGS__)
-/**
- * lwsl_hexdump() - helper to hexdump a buffer (DEBUG builds only)
- *
- * \param buf: buffer start to dump
- * \param len: length of buffer to dump
- */
-LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 
 #else /* no debug */
 #if defined(LWS_WITH_NO_LOGS)
@@ -317,9 +310,16 @@ LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(void *buf, size_t len);
 #define lwsl_ext(...) do {} while(0)
 #define lwsl_client(...) do {} while(0)
 #define lwsl_latency(...) do {} while(0)
-#define lwsl_hexdump(a, b)
 
 #endif
+
+/**
+ * lwsl_hexdump() - helper to hexdump a buffer (DEBUG builds only)
+ *
+ * \param buf: buffer start to dump
+ * \param len: length of buffer to dump
+ */
+LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(const void *buf, size_t len);
 
 static LWS_INLINE int lws_is_be(void) {
 	const int probe = ~0xff;
