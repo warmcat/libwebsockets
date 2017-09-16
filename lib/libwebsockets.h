@@ -3891,6 +3891,8 @@ enum pending_timeout {
 	PENDING_TIMEOUT_HOLDING_AH				= 25,
 
 	/****** add new things just above ---^ ******/
+
+	PENDING_TIMEOUT_USER_REASON_BASE			= 1000
 };
 
 #define LWS_TO_KILL_ASYNC -1
