@@ -315,11 +315,11 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 	int n;
 #endif
 
-	if (info->gid != -1)
+	if (info->gid && info->gid != -1)
 		if (setgid(info->gid))
 			lwsl_warn("setgid: %s\n", strerror(LWS_ERRNO));
 
-	if (info->uid != -1) {
+	if (info->uid && info->uid != -1) {
 		struct passwd *p = getpwuid(info->uid);
 
 		if (p) {
