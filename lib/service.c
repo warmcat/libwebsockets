@@ -1418,8 +1418,8 @@ drain:
 			args.stdwsi = &wsi->parent->cgi->stdwsi[0];
 			args.hdr_state = wsi->hdr_state;
 
-			//lwsl_err("CGI LWS_STDOUT waiting wsi %p mode %d state %d\n",
-			//	 wsi->parent, wsi->parent->mode, wsi->parent->state);
+			lwsl_debug("CGI LWS_STDOUT waiting wsi %p mode %d state %d\n",
+				 wsi->parent, wsi->parent->mode, wsi->parent->state);
 
 			if (user_callback_handle_rxflow(
 					wsi->parent->protocol->callback,

@@ -1213,7 +1213,7 @@ enum lws_callback_reasons {
 	 * the wsi is closed.  Used to, eg, terminate chunking.
 	 * The provided `lws_callback_http_dummy()`
 	 * handles this and the callback should be directed there if
-	 * you use CGI. */
+	 * you use CGI.  The child PID that terminated is in @len. */
 	LWS_CALLBACK_CGI_STDIN_DATA				= 42,
 	/**< CGI: Data is, to be sent to the CGI process stdin, eg from
 	 * a POST body.  The provided `lws_callback_http_dummy()`
@@ -1389,6 +1389,9 @@ enum lws_callback_reasons {
 	/**< Sent to parent to notify them a child is closing / being
 	 * destroyed.  @in is the child wsi.
 	 */
+	LWS_CALLBACK_CGI_PROCESS_ATTACH				= 70,
+	/**< CGI: Sent when the CGI process is spawned for the wsi.  The
+	 * @len parameter is the PID of the child process */
 
 	/****** add new things just above ---^ ******/
 
@@ -5140,7 +5143,7 @@ lws_b64_decode_string(const char *in, char *out, int out_size);
  * However for most cases, binding the cgi to http in and out, the default
  * lws implementation already does the right thing.
  */
-#ifdef LWS_WITH_CGI
+
 enum lws_enum_stdinouterr {
 	LWS_STDIN = 0,
 	LWS_STDOUT = 1,
@@ -5167,13 +5170,14 @@ struct lws_cgi_args {
 	int len; /**< length */
 };
 
-
+#ifdef LWS_WITH_CGI
 /**
  * lws_cgi: spawn network-connected cgi process
  *
  * \param wsi: connection to own the process
  * \param exec_array: array of "exec-name" "arg1" ... "argn" NULL
- * \param script_uri_path_len: how many chars on the left of the uri are the path to the cgi
+ * \param script_uri_path_len: how many chars on the left of the uri are the
+ *        path to the cgi, or -1 to spawn without URL-related env vars
  * \param timeout_secs: seconds script should be allowed to run
  * \param mp_cgienv: pvo list with per-vhost cgi options to put in env
  */
@@ -5197,6 +5201,15 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_cgi_kill(struct lws *wsi);
+
+/**
+ * lws_cgi_get_stdwsi: get wsi for stdin, stdout, or stderr
+ *
+ * \param wsi: parent wsi that has cgi
+ */
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_cgi_get_stdwsi(struct lws *wsi, enum lws_enum_stdinouterr ch);
+
 #endif
 ///@}
 

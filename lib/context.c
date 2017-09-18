@@ -230,7 +230,6 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	int n;
 #endif
 
-
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 #ifndef LWS_NO_SERVER
