@@ -2702,7 +2702,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 #if defined(__linux__)
 	prctl(PR_SET_PDEATHSIG, SIGTERM);
 #endif
-	setpgrp(); /* stops on-daemonized main processess getting SIGINT from TTY */
+	if (script_uri_path_len >= 0)
+		setpgrp(); /* stops on-daemonized main processess getting SIGINT from TTY */
 
 	if (cgi->pid) {
 		/* we are the parent process */

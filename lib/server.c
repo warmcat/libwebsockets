@@ -212,10 +212,10 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
 #ifdef LWS_USE_UNIX_SOCK
 		if (LWS_UNIX_SOCK_ENABLED(vhost))
-			lwsl_notice(" Listening on \"%s\"\n", info->iface);
+			lwsl_info(" Listening on \"%s\"\n", info->iface);
 		else
 #endif
-			lwsl_notice(" Listening on port %d\n", info->port);
+			lwsl_info(" Listening on port %d\n", info->port);
         }
 
 	return 0;
@@ -2341,7 +2341,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		}
 	} else
 		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd)) {
-			lwsl_err("%s: fail ssl negotiation\n", __func__);
+			lwsl_info("%s: fail ssl negotiation\n", __func__);
 			goto fail;
 		}
 
@@ -3132,7 +3132,7 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 	gethostname((char *)context->canonical_hostname,
 		    sizeof(context->canonical_hostname) - 1);
 
-	lwsl_notice(" canonical_hostname = %s\n", context->canonical_hostname);
+	lwsl_info(" canonical_hostname = %s\n", context->canonical_hostname);
 #else
 	(void)context;
 #endif

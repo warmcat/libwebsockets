@@ -166,7 +166,8 @@ lws_protocol_init(struct lws_context *context)
 				pvo = pvo1->options;
 
 				while (pvo) {
-					lwsl_notice("    vh %s prot %s opt %s\n",
+					lwsl_notice(
+						"    vhost \"%s\", protocol \"%s\", option \"%s\"\n",
 							vh->name,
 							vh->protocols[n].name,
 							pvo->name);
@@ -758,19 +759,19 @@ lws_create_context(struct lws_context_creation_info *info)
 	struct rlimit rt;
 #endif
 
-	lwsl_notice("Initial logging level %d\n", log_level);
-	lwsl_notice("Libwebsockets version: %s\n", library_version);
+	lwsl_info("Initial logging level %d\n", log_level);
+	lwsl_info("Libwebsockets version: %s\n", library_version);
 #if defined(GCC_VER)
-	lwsl_notice("Compiled with  %s\n", GCC_VER);
+	lwsl_info("Compiled with  %s\n", GCC_VER);
 #endif
 #if LWS_POSIX
 #ifdef LWS_USE_IPV6
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_IPV6))
-		lwsl_notice("IPV6 compiled in and enabled\n");
+		lwsl_info("IPV6 compiled in and enabled\n");
 	else
-		lwsl_notice("IPV6 compiled in but disabled\n");
+		lwsl_info("IPV6 compiled in but disabled\n");
 #else
-	lwsl_notice("IPV6 not compiled in\n");
+	lwsl_info("IPV6 not compiled in\n");
 #endif
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_ESP32)
 	lws_feature_status_libev(info);
@@ -783,7 +784,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	lwsl_info(" SPEC_LATEST_SUPPORTED : %u\n", SPEC_LATEST_SUPPORTED);
 	lwsl_info(" sizeof (*info)        : %ld\n", (long)sizeof(*info));
 #if defined(LWS_WITH_STATS)
-	lwsl_notice(" LWS_WITH_STATS        : on\n");
+	lwsl_info(" LWS_WITH_STATS        : on\n");
 #endif
 #if LWS_POSIX
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
@@ -852,7 +853,7 @@ lws_create_context(struct lws_context_creation_info *info)
 #ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {
 		context->started_with_parent = pid_daemon;
-		lwsl_notice(" Started with daemon pid %d\n", pid_daemon);
+		lwsl_info(" Started with daemon pid %d\n", pid_daemon);
 	}
 #endif
 #if defined(__ANDROID__)
@@ -938,7 +939,7 @@ lws_create_context(struct lws_context_creation_info *info)
 		context->fd_limit_per_thread = context->max_fds /
 					       context->count_threads;
 
-	lwsl_notice(" Threads: %d each %d fds\n", context->count_threads,
+	lwsl_info(" Threads: %d each %d fds\n", context->count_threads,
 		    context->fd_limit_per_thread);
 
 	if (!info->ka_interval && info->ka_time > 0) {
@@ -1046,7 +1047,7 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	lws_context_init_extensions(info, context);
 
-	lwsl_notice(" mem: per-conn:        %5lu bytes + protocol rx buf\n",
+	lwsl_info(" mem: per-conn:        %5lu bytes + protocol rx buf\n",
 		    (unsigned long)sizeof(struct lws));
 
 	strcpy(context->canonical_hostname, "unknown");
@@ -1148,7 +1149,7 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	struct lws_context *context = vh->context;
 	struct lws wsi;
 
-	lwsl_notice("%s\n", __func__);
+	lwsl_info("%s\n", __func__);
 
 	if (vh->being_destroyed)
 		return;
@@ -1255,7 +1256,7 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 	struct lws_deferred_free *df;
 	int n;
 
-	lwsl_notice("%s: %p\n", __func__, vh);
+	lwsl_info("%s: %p\n", __func__, vh);
 
 	/* if we are still on deferred free list, remove ourselves */
 
@@ -1326,7 +1327,7 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 	 * they do not refer to the vhost.  So it's safe to free.
 	 */
 
-	lwsl_notice("  %s: Freeing vhost %p\n", __func__, vh);
+	lwsl_info("  %s: Freeing vhost %p\n", __func__, vh);
 
 	memset(vh, 0, sizeof(*vh));
 	lws_free(vh);
@@ -1388,7 +1389,7 @@ lws_context_destroy(struct lws_context *context)
 		return;
 	}
 
-	lwsl_notice("%s: ctx %p\n", __func__, context);
+	lwsl_info("%s: ctx %p\n", __func__, context);
 
 	m = context->count_threads;
 	context->being_destroyed = 1;
@@ -1476,7 +1477,7 @@ lws_context_destroy2(struct lws_context *context)
 	uint32_t n;
 #endif
 
-	lwsl_notice("%s: ctx %p\n", __func__, context);
+	lwsl_info("%s: ctx %p\n", __func__, context);
 
 	/*
 	 * free all the per-vhost allocations

@@ -1161,7 +1161,7 @@ LWS_EXTERN void lws_feature_status_libev(struct lws_context_creation_info *info)
 #define LWS_LIBEV_ENABLED(context) (0)
 #if LWS_POSIX && !defined(LWS_WITH_ESP32)
 #define lws_feature_status_libev(_a) \
-			lwsl_notice("libev support not compiled in\n")
+			lwsl_info("libev support not compiled in\n")
 #else
 #define lws_feature_status_libev(_a)
 #endif

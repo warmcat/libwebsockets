@@ -296,29 +296,29 @@ lws_context_init_ssl_library(struct lws_context_creation_info *info)
 {
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
-	lwsl_notice(" Compiled with CyaSSL support\n");
+	lwsl_info(" Compiled with CyaSSL support\n");
 #else
-	lwsl_notice(" Compiled with wolfSSL support\n");
+	lwsl_info(" Compiled with wolfSSL support\n");
 #endif
 #else
 #if defined(LWS_USE_BORINGSSL)
-	lwsl_notice(" Compiled with BoringSSL support\n");
+	lwsl_info(" Compiled with BoringSSL support\n");
 #else
 #if defined(LWS_USE_MBEDTLS)
-	lwsl_notice(" Compiled with MbedTLS support\n");
+	lwsl_info(" Compiled with MbedTLS support\n");
 #else
-	lwsl_notice(" Compiled with OpenSSL support\n");
+	lwsl_info(" Compiled with OpenSSL support\n");
 #endif
 #endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
-		lwsl_notice(" SSL disabled: no LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
+		lwsl_info(" SSL disabled: no LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
 		return 0;
 	}
 
 	/* basic openssl init */
 
-	lwsl_notice("Doing SSL library init\n");
+	lwsl_info("Doing SSL library init\n");
 
 #if !defined(LWS_USE_MBEDTLS)
 	SSL_library_init();

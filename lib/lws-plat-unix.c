@@ -788,7 +788,7 @@ lws_plat_init(struct lws_context *context,
 		return 1;
 	}
 
-	lwsl_notice(" mem: platform fd map: %5lu bytes\n",
+	lwsl_info(" mem: platform fd map: %5lu bytes\n",
 		    (unsigned long)(sizeof(struct lws *) * context->max_fds));
 	fd = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 

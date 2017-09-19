@@ -25,9 +25,9 @@ void
 lws_feature_status_libuv(struct lws_context_creation_info *info)
 {
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBUV))
-		lwsl_notice("libuv support compiled in and enabled\n");
+		lwsl_info("libuv support compiled in and enabled\n");
 	else
-		lwsl_notice("libuv support compiled in but disabled\n");
+		lwsl_info("libuv support compiled in but disabled\n");
 }
 
 static void

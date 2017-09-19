@@ -24,9 +24,9 @@
 void lws_feature_status_libev(struct lws_context_creation_info *info)
 {
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEV))
-		lwsl_notice("libev support compiled in and enabled\n");
+		lwsl_info("libev support compiled in and enabled\n");
 	else
-		lwsl_notice("libev support compiled in but disabled\n");
+		lwsl_info("libev support compiled in but disabled\n");
 }
 
 static void
@@ -79,7 +79,7 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 	struct ev_signal *w_sigint = &context->pt[tsi].w_sigint.ev_watcher;
 	struct ev_io *w_accept = &context->pt[tsi].w_accept.ev_watcher;
 	struct lws_vhost *vh = context->vhost_list;
-	const char * backend_name;
+	const char *backend_name;
 	int status = 0;
 	int backend;
 
@@ -135,7 +135,8 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 		break;
 	}
 
-	lwsl_notice(" libev backend: %s\n", backend_name);
+	lwsl_info(" libev backend: %s\n", backend_name);
+	(void)backend_name;
 
 	return status;
 }
