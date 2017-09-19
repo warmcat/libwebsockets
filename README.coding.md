@@ -278,6 +278,26 @@ reflecting the real event:
  - use LWS_POLLHUP / LWS_POLLIN / LWS_POLLOUT from libwebsockets.h to avoid
    losing windows compatibility
 
+You also need to take care about "forced service" somehow... these are cases
+where the network event was consumed, incoming data was all read, for example,
+but the work arising from it was not completed.  There will not be any more
+network event to trigger the remaining work, Eg, we read compressed data, but
+we did not use up all the decompressed data before returning to the event loop
+because we had to write some of it.
+
+Lws provides an API to determine if anyone is waiting for forced service,
+`lws_service_adjust_timeout(context, 1, tsi)`, normally tsi is 0.  If it returns
+0, then at least one connection has pending work you can get done by calling
+`lws_service_tsi(context, -1, tsi)`, again normally tsi is 0.
+
+For eg, the default poll() event loop, or libuv/ev/event, lws does this
+checking for you and handles it automatically.  But in the external polling
+loop case, you must do it explicitly.  Handling it after every normal service
+triggered by the external poll fd should be enough, since the situations needing
+it are initially triggered by actual network events.
+
+An example of handling it is shown in the test-server code specific to
+external polling.
 
 @section cpp Using with in c++ apps
 
