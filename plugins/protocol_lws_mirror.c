@@ -1,7 +1,7 @@
 /*
  * libwebsockets-test-server - libwebsockets test implementation
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -43,7 +43,7 @@ struct per_session_data__lws_mirror {
 	struct lws *wsi;
 	struct lws_mirror_instance *mi;
 	struct per_session_data__lws_mirror *same_mi_pss_list;
-	int ringbuffer_tail;
+	uint32_t tail;
 };
 
 struct a_message {
@@ -54,14 +54,72 @@ struct a_message {
 struct lws_mirror_instance {
 	struct lws_mirror_instance *next;
 	struct per_session_data__lws_mirror *same_mi_pss_list;
+	struct lws_ring *ring;
 	char name[30];
-	struct a_message ringbuffer[MAX_MESSAGE_QUEUE];
-	int ringbuffer_head;
+	char rx_enabled;
 };
 
 struct per_vhost_data__lws_mirror {
 	struct lws_mirror_instance *mi_list;
 };
+
+
+/*
+ * Find out which connection to this mirror instance has the longest number
+ * of still unread elements in the ringbuffer and update the lws_ring with it.
+ *
+ * You can skip calling this if on your connection, before processing, the tail
+ * was not equal to the current worst, ie,  if the tail you will work on is !=
+ * lws_ring_get_oldest_tail(ring) then no need to call this when the tail
+ * has changed; it wasn't the oldest so it won't change the oldest.
+ *
+ * Returns 0 if oldest unchanged or 1 if oldest changed from this call.
+ */
+static int
+lws_mirror_update_worst_tail(struct lws_mirror_instance *mi)
+{
+	struct per_session_data__lws_mirror *pss = mi->same_mi_pss_list;
+	uint32_t wai, worst = 0, worst_tail, valid = 0, oldest;
+
+	oldest = lws_ring_get_oldest_tail(pss->mi->ring);
+
+	while (pss) {
+		wai = lws_ring_get_count_waiting_elements(mi->ring, &pss->tail);
+		if (wai > worst) {
+			worst = wai;
+			worst_tail = pss->tail;
+			valid = 1;
+		}
+		pss = pss->same_mi_pss_list;
+	}
+
+	if (!valid)
+		return 0;
+
+	lws_ring_update_oldest_tail(mi->ring, worst_tail);
+
+	return oldest != lws_ring_get_oldest_tail(mi->ring);
+}
+
+/* enable or disable rx from all connections to this mirror instance */
+static void
+lws_mirror_rxflow_instance(struct lws_mirror_instance *mi, int enable)
+{
+	lws_start_foreach_ll(struct per_session_data__lws_mirror *,
+			     pss, mi->same_mi_pss_list) {
+		lws_rx_flow_control(pss->wsi, enable);
+	} lws_end_foreach_ll(pss, same_mi_pss_list);
+
+	mi->rx_enabled = enable;
+}
+
+static void
+lws_mirror_destroy_message(void *_msg)
+{
+	struct a_message *msg = _msg;
+
+	free(msg->payload);
+}
 
 static int
 callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
@@ -74,8 +132,11 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
 	struct lws_mirror_instance *mi = NULL;
-	char name[30];
-	int n, m, count_mi = 0;
+	const struct a_message *msg;
+	struct a_message amsg;
+	char name[300], update_worst, sent_something;
+	uint32_t oldest_tail;
+	int n, count_mi = 0;
 
 	switch (reason) {
 
@@ -86,16 +147,14 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		 * mirror instance name... defaults to "", but if URL includes
 		 * "?mirror=xxx", will be "xxx"
 		 */
-
 		name[0] = '\0';
-		lws_get_urlarg_by_name(wsi, "mirror", name, sizeof(name) - 1);
-
-		lwsl_notice("mirror %s\n", name);
+		if (lws_get_urlarg_by_name(wsi, "mirror", name, sizeof(name) - 1))
+			lwsl_notice("get urlarg failed\n");
+		lwsl_notice("%s: mirror name '%s'\n", __func__, name);
 
 		/* is there already a mirror instance of this name? */
 
-		lws_start_foreach_ll(struct lws_mirror_instance *,
-				     mi1, v->mi_list) {
+		lws_start_foreach_ll(struct lws_mirror_instance *, mi1, v->mi_list) {
 			count_mi++;
 			if (strcmp(name, mi1->name))
 				continue;
@@ -108,20 +167,28 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!mi) {
 
 			/* no existing mirror instance for name */
-
 			if (count_mi == MAX_MIRROR_INSTANCES)
 				return -1;
 
 			/* create one with this name, and join it */
-
 			mi = malloc(sizeof(*mi));
+			if (!mi)
+				return 1;
 			memset(mi, 0, sizeof(*mi));
+			mi->ring = lws_ring_create(sizeof(struct a_message),
+						   MAX_MESSAGE_QUEUE,
+						   lws_mirror_destroy_message);
+			if (!mi->ring) {
+				free(mi);
+				return 1;
+			}
+
 			mi->next = v->mi_list;
 			v->mi_list = mi;
 			strcpy(mi->name, name);
-			mi->ringbuffer_head = 0;
+			mi->rx_enabled = 1;
 
-			lwsl_notice("Created new mi %p '%s'\n", mi, name);
+			lwsl_info("Created new mi %p '%s'\n", mi, name);
 		}
 
 		/* add our pss to list of guys bound to this mi */
@@ -132,7 +199,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		/* init the pss */
 
 		pss->mi = mi;
-		pss->ringbuffer_tail = mi->ringbuffer_head;
+		pss->tail = lws_ring_get_oldest_tail(mi->ring);
 		pss->wsi = wsi;
 
 		break;
@@ -140,7 +207,6 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLOSED:
 
 		/* detach our pss from the mirror instance */
-
 		mi = pss->mi;
 		if (!mi)
 			break;
@@ -148,19 +214,16 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_start_foreach_llp(struct per_session_data__lws_mirror **,
 			ppss, mi->same_mi_pss_list) {
 			if (*ppss == pss) {
-
 				*ppss = pss->same_mi_pss_list;
 				break;
 			}
 		} lws_end_foreach_llp(ppss, same_mi_pss_list);
 
 		pss->mi = NULL;
-
 		if (mi->same_mi_pss_list)
 			break;
 
 		/* last pss unbound from mi... delete mi */
-
 		lws_start_foreach_llp(struct lws_mirror_instance **,
 				pmi, v->mi_list) {
 			if (*pmi != mi)
@@ -168,13 +231,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 			*pmi = (*pmi)->next;
 
-			lwsl_info("%s: mirror cleaniup %p\n", __func__, v);
-			for (n = 0; n < ARRAY_SIZE(mi->ringbuffer); n++)
-				if (mi->ringbuffer[n].payload) {
-					free(mi->ringbuffer[n].payload);
-					mi->ringbuffer[n].payload = NULL;
-				}
-
+			lws_ring_destroy(mi->ring);
 			free(mi);
 			break;
 		} lws_end_foreach_llp(pmi, next);
@@ -191,69 +248,77 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		while (pss->ringbuffer_tail != pss->mi->ringbuffer_head) {
-			m = pss->mi->ringbuffer[pss->ringbuffer_tail].len;
-			n = lws_write(wsi, (unsigned char *)
-					pss->mi->ringbuffer[pss->ringbuffer_tail].payload +
-				   LWS_PRE, m, LWS_WRITE_TEXT);
+		oldest_tail = lws_ring_get_oldest_tail(pss->mi->ring);
+		update_worst = oldest_tail == pss->tail;
+		sent_something = 0;
+
+		do {
+			msg = lws_ring_get_element(pss->mi->ring, &pss->tail);
+			if (!msg)
+				break;
+
+			n = lws_write(wsi, (unsigned char *)msg->payload +
+				      LWS_PRE, msg->len, LWS_WRITE_TEXT);
 			if (n < 0) {
-				lwsl_err("ERROR %d writing to mirror socket\n", n);
+				lwsl_err("%s: WRITEABLE: ERROR %d\n", __func__, n);
 				return -1;
 			}
-			if (n < m)
-				lwsl_err("mirror partial write %d vs %d\n", n, m);
+			sent_something = 1;
+			lws_ring_consume(pss->mi->ring, &pss->tail, NULL, 1);
 
-			if (pss->ringbuffer_tail == (MAX_MESSAGE_QUEUE - 1))
-				pss->ringbuffer_tail = 0;
-			else
-				pss->ringbuffer_tail++;
+		} while (!lws_send_pipe_choked(wsi));
 
-			if (((pss->mi->ringbuffer_head - pss->ringbuffer_tail) &
-			    (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 15))
-				lws_rx_flow_allow_all_protocol(lws_get_context(wsi),
-					       lws_get_protocol(wsi));
+		/* if any left for us to send, ask for writeable again */
+		if (lws_ring_get_count_waiting_elements(pss->mi->ring, &pss->tail))
+			lws_callback_on_writable(wsi);
 
-			if (lws_send_pipe_choked(wsi)) {
-				lws_callback_on_writable(wsi);
-				break;
-			}
-		}
+		/*
+		 * If we were originally at the oldest fifo position of all the
+		 * tails, now we used some up we may have changed the oldest
+		 * fifo position and made some space.
+		 */
+		if (!sent_something || !update_worst ||
+		    !lws_mirror_update_worst_tail(pss->mi))
+			break;
+
+		/*
+		 * the oldest tail did move on... so we were the oldest...
+		 * check if we should re-enable rx flow for the mirror instance
+		 * since we made some space now
+		 */
+		if (!pss->mi->rx_enabled && /* rx is disabled */
+		    lws_ring_get_count_free_elements(pss->mi->ring) >
+					MAX_MESSAGE_QUEUE - 5)
+			/* there is enough space, let's allow rx */
+			lws_mirror_rxflow_instance(pss->mi, 1);
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-		if (((pss->mi->ringbuffer_head - pss->ringbuffer_tail) &
-		    (MAX_MESSAGE_QUEUE - 1)) == (MAX_MESSAGE_QUEUE - 1)) {
-			lwsl_err("dropping!\n");
-			goto choke;
+		n = lws_ring_get_count_free_elements(pss->mi->ring);
+		if (!n) {
+			lwsl_notice("dropping!\n");
+			if (pss->mi->rx_enabled)
+				lws_mirror_rxflow_instance(pss->mi, 0);
+			break;
 		}
 
-		if (pss->mi->ringbuffer[pss->mi->ringbuffer_head].payload)
-			free(pss->mi->ringbuffer[pss->mi->ringbuffer_head].payload);
+		amsg.payload = malloc(LWS_PRE + len);
+		amsg.len = len;
+		if (!amsg.payload) {
+			lwsl_notice("OOM: dropping\n");
+			break;
+		}
+		memcpy((char *)amsg.payload + LWS_PRE, in, len);
+		lws_ring_insert(pss->mi->ring, &amsg, 1);
 
-		pss->mi->ringbuffer[pss->mi->ringbuffer_head].payload = malloc(LWS_PRE + len);
-		pss->mi->ringbuffer[pss->mi->ringbuffer_head].len = len;
-		memcpy((char *)pss->mi->ringbuffer[pss->mi->ringbuffer_head].payload +
-		       LWS_PRE, in, len);
-		if (pss->mi->ringbuffer_head == (MAX_MESSAGE_QUEUE - 1))
-			pss->mi->ringbuffer_head = 0;
-		else
-			pss->mi->ringbuffer_head++;
+		if (pss->mi->rx_enabled &&
+		    lws_ring_get_count_free_elements(pss->mi->ring) <
+		    	    MAX_MESSAGE_QUEUE - 5)
+			lws_mirror_rxflow_instance(pss->mi, 0);
 
-		if (((pss->mi->ringbuffer_head - pss->ringbuffer_tail) &
-		    (MAX_MESSAGE_QUEUE - 1)) != (MAX_MESSAGE_QUEUE - 2))
-			goto done;
-
-choke:
-		lwsl_debug("LWS_CALLBACK_RECEIVE: throttling %p\n", wsi);
-		lws_rx_flow_control(wsi, 0);
-
-done:
-		/*
-		 *  ask for WRITABLE callback for every wsi bound to this
-		 * mirror instance
-		 */
+		/* ask for WRITABLE callback for every wsi on this mi */
 		lws_start_foreach_ll(struct per_session_data__lws_mirror *,
-					pss1, pss->mi->same_mi_pss_list) {
+				     pss1, pss->mi->same_mi_pss_list) {
 			lws_callback_on_writable(pss1->wsi);
 		} lws_end_foreach_ll(pss1, same_mi_pss_list);
 		break;
