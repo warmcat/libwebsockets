@@ -694,6 +694,8 @@ function ot_req_close() {
 	var ctx;
 	var socket_lm;
 	var color = "#000000";
+	var pending = "";
+	var lm_timer;
 
 	socket_lm = lws_meta.new_ws(get_appropriate_ws_url("?mirror=" + mirror_name),
 			"lws-mirror-protocol");
@@ -772,6 +774,11 @@ function ev_mouseup(ev) {
 	no_last = 1;
 }
 
+function lm_timer_handler(ev) {
+	socket_lm.send(pending);
+	pending="";
+}
+
 function ev_mousemove (ev) {
 	var x, y;
 
@@ -792,7 +799,15 @@ function ev_mousemove (ev) {
 		last_y = y;
 		return;
 	}
-	socket_lm.send("d " + color + " " + last_x + " " + last_y + " " + x + ' ' + y + ';');
+	pending = pending + "d " + color + " " + last_x + " " + last_y +
+			" " + x + ' ' + y + ';';
+			
+	if (pending.length > 400) {
+		socket_lm.send(pending);
+		clearTimeout(lm_timer);
+		pending = "";
+	} else
+		lm_timer = setTimeout(lm_timer_handler, 30);
 
 	last_x = x;
 	last_y = y;

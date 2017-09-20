@@ -939,7 +939,7 @@ check_extensions:
 				      LWS_EXT_CB_CLIENT_CONSTRUCT,
 				      (void *)&wsi->act_ext_user[wsi->count_act_ext],
 				      (void *)&opts, 0)) {
-				lwsl_notice(" ext %s failed construction\n", ext_name);
+				lwsl_info(" ext %s failed construction\n", ext_name);
 				ext++;
 				continue;
 			}

@@ -59,7 +59,7 @@ lws_extension_pmdeflate_restrict_args(struct lws *wsi,
 
 	if (extra < priv->args[PMD_RX_BUF_PWR2]) {
 		priv->args[PMD_RX_BUF_PWR2] = extra;
-		lwsl_err(" Capping pmd rx to %d\n", 1 << extra);
+		lwsl_info(" Capping pmd rx to %d\n", 1 << extra);
 	}
 }
 
@@ -123,7 +123,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			n =  wsi->protocol->rx_buffer_size;
 
 		if (n < 128) {
-			lwsl_err(" permessage-deflate requires the protocol (%s) to have an RX buffer >= 128\n",
+			lwsl_info(" permessage-deflate requires the protocol (%s) to have an RX buffer >= 128\n",
 					wsi->protocol->name);
 			return -1;
 		}

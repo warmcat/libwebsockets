@@ -157,7 +157,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 					  (void *)&wsi->act_ext_user[
 					                    wsi->count_act_ext],
 					  (void *)&opts, 0)) {
-				lwsl_notice("ext %s failed construction\n",
+				lwsl_info("ext %s failed construction\n",
 					    ext_name);
 				ext_count--;
 				ext++;

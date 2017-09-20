@@ -668,6 +668,15 @@ enum {
 	LWS_RXFLOW_PENDING_CHANGE = (1 << 1),
 };
 
+struct lws_ring {
+	void *buf;
+	void (*destroy_element)(void *element);
+	size_t buflen;
+	size_t element_len;
+	uint32_t head;
+	uint32_t oldest_tail;
+};
+
 /* this is not usable directly by user code any more, lws_close_reason() */
 #define LWS_WRITE_CLOSE 4
 
