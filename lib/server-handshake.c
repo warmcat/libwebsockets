@@ -228,6 +228,7 @@ int
 handshake_0405(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_process_html_args args;
 	unsigned char hash[20];
 	int n, accept_len;
 	char *response;
@@ -299,12 +300,20 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	if (lws_extension_server_handshake(wsi, &p, 192))
 		goto bail;
 #endif
+	LWS_CPYAPP(p, "\x0d\x0a");
 
-	//LWS_CPYAPP(p, "\x0d\x0a""An-unknown-header: blah");
+	args.p = p;
+	args.max_len = ((char *)pt->serv_buf + context->pt_serv_buf_size) - p;
+	if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+					LWS_CALLBACK_ADD_HEADERS,
+					wsi->user_space, &args, 0))
+		goto bail;
+
+	p = args.p;
 
 	/* end of response packet */
 
-	LWS_CPYAPP(p, "\x0d\x0a\x0d\x0a");
+	LWS_CPYAPP(p, "\x0d\x0a");
 
 	if (!lws_any_extension_handled(wsi, LWS_EXT_CB_HANDSHAKE_REPLY_TX,
 				       response, p - response)) {
