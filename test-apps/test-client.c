@@ -42,7 +42,7 @@ static struct lws *wsi_dumb, *wsi_mirror;
 static struct lws *wsi_multi[3];
 static volatile int force_exit;
 static unsigned int opts, rl_multi[3];
-static int flag_no_mirror_traffic;
+static int flag_no_mirror_traffic, justmirror;
 
 #if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
 char crl_path[1024] = "";
@@ -317,14 +317,15 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_err("Partial write LWS_CALLBACK_CLIENT_WRITEABLE\n");
 			return -1;
 		}
-
-		mirror_lifetime--;
+		if (!justmirror)
+			mirror_lifetime--;
 		if (!mirror_lifetime) {
 			lwsl_info("closing mirror session\n");
 			return -1;
 		}
 		/* get notified as soon as we can write again */
-		lws_callback_on_writable(wsi);
+		if (!justmirror)
+			lws_callback_on_writable(wsi);
 		break;
 
 	default:
@@ -417,6 +418,7 @@ static struct option options[] = {
 	{ "undeflated",	no_argument,		NULL, 'u' },
 	{ "multi-test",	no_argument,		NULL, 'm' },
 	{ "nomirror",	no_argument,		NULL, 'n' },
+	{ "justmirror",	no_argument,		NULL, 'j' },
 	{ "longlived",	no_argument,		NULL, 'l' },
 	{ "post",	no_argument,		NULL, 'o' },
 	{ "pingpong-secs", required_argument,	NULL, 'P' },
@@ -465,7 +467,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "Snuv:hsp:d:lC:K:A:P:mo", options, NULL);
+		n = getopt_long(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:mo", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -486,6 +488,9 @@ int main(int argc, char **argv)
 		case 'P':
 			pp_secs = atoi(optarg);
 			lwsl_notice("Setting pingpong interval to %d\n", pp_secs);
+			break;
+		case 'j':
+			justmirror = 1;
 			break;
 		case 'l':
 			longlived = 1;
@@ -663,7 +668,7 @@ int main(int argc, char **argv)
 		} else {
 
 			if (do_ws) {
-				if (!wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
+				if (!justmirror && !wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
 					lwsl_notice("dumb: connecting\n");
 					i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;
 					i.pwsi = &wsi_dumb;
