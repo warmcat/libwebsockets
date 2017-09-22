@@ -305,7 +305,7 @@ The library is ready for use by C++ apps.  You can get started quickly by
 copying the test server
 
 ```
-	$ cp test-server/test-server.c test.cpp
+	$ cp test-apps/test-server.c test.cpp
 ```
 
 and building it in C++ like this
@@ -405,7 +405,7 @@ other reasons, if any of that happens you'll get a
 After attempting the connection and getting back a non-`NULL` `wsi` you should
 loop calling `lws_service()` until one of the above callbacks occurs.
 
-As usual, see [test-client.c](test-server/test-client.c) for example code.
+As usual, see [test-client.c](test-apps/test-client.c) for example code.
 
 Notice that the client connection api tries to progress the connection
 somewhat before returning.  That means it's possible to get callbacks like

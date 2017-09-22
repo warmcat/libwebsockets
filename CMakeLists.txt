@@ -1158,12 +1158,12 @@ endif()
 set(CMAKE_REQUIRED_LIBRARIES ${temp})
 # Generate the lws_config.h that includes all the public compilation settings.
 configure_file(
-       "${PROJECT_SOURCE_DIR}/lws_config.h.in"
+       "${PROJECT_SOURCE_DIR}/cmake/lws_config.h.in"
        "${PROJECT_BINARY_DIR}/lws_config.h")
 
 # Generate the lws_config.h that includes all the private compilation settings.
 configure_file(
-       "${PROJECT_SOURCE_DIR}/lws_config_private.h.in"
+       "${PROJECT_SOURCE_DIR}/cmake/lws_config_private.h.in"
        "${PROJECT_BINARY_DIR}/lws_config_private.h")
 
 # Generate self-signed SSL certs for the test-server.
@@ -1349,14 +1349,14 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		# test-server
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER)
-			create_test_app(test-server "test-server/test-server.c"
-				"test-server/test-server-http.c"
-				"test-server/test-server-dumb-increment.c"
+			create_test_app(test-server "test-apps/test-server.c"
+				"test-apps/test-server-http.c"
+				"test-apps/test-server-dumb-increment.c"
 				""
 				""
 				"")
 			if (UNIX)
-				create_test_app(test-fuzxy "test-server/fuzxy.c"
+				create_test_app(test-fuzxy "test-apps/fuzxy.c"
 					""
 					""
 					""
@@ -1365,9 +1365,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			endif()
 			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang")) AND LWS_MAX_SMP GREATER 1)
 				create_test_app(test-server-pthreads
-					"test-server/test-server-pthreads.c"
-					"test-server/test-server-http.c"
-					"test-server/test-server-dumb-increment.c"
+					"test-apps/test-server-pthreads.c"
+					"test-apps/test-server-http.c"
+					"test-apps/test-server-dumb-increment.c"
 					""
 					""
 					"")
@@ -1375,20 +1375,20 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBEV)
 				create_test_app(test-server-libev
-					"test-server/test-server-libev.c"
-					"test-server/test-server-http.c"
-					"test-server/test-server-dumb-increment.c"
+					"test-apps/test-server-libev.c"
+					"test-apps/test-server-http.c"
+					"test-apps/test-server-dumb-increment.c"
 					""
 					""
 					"")
 				# libev generates a big mess of warnings with gcc, maintainers blame gcc
-				set_source_files_properties( test-server/test-server-libev.c PROPERTIES COMPILE_FLAGS "-Wno-error" )
+				set_source_files_properties( test-apps/test-server-libev.c PROPERTIES COMPILE_FLAGS "-Wno-error" )
 			endif()
 			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBUV)
 				create_test_app(test-server-libuv
-					"test-server/test-server-libuv.c"
-					"test-server/test-server-http.c"
+					"test-apps/test-server-libuv.c"
+					"test-apps/test-server-http.c"
 					""
 					""
 					""
@@ -1397,9 +1397,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBEVENT)
 				create_test_app(test-server-libevent
-					"test-server/test-server-libevent.c"
-					"test-server/test-server-http.c"
-					"test-server/test-server-dumb-increment.c"
+					"test-apps/test-server-libevent.c"
+					"test-apps/test-server-http.c"
+					"test-apps/test-server-dumb-increment.c"
 					""
 					""
 					"")
@@ -1410,9 +1410,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		# test-server-extpoll
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER_EXTPOLL)
-			create_test_app(test-server-extpoll "test-server/test-server.c"
-				"test-server/test-server-http.c"
-				"test-server/test-server-dumb-increment.c"
+			create_test_app(test-server-extpoll "test-apps/test-server.c"
+				"test-apps/test-server-http.c"
+				"test-apps/test-server-dumb-increment.c"
 				""
 				""
 				"")
@@ -1436,7 +1436,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		if (LWS_WITH_PLUGINS)
 			create_test_app(
 				test-server-v2.0
-				"test-server/test-server-v2.0.c"
+				"test-apps/test-server-v2.0.c"
 				""
 				""
 				""
@@ -1446,12 +1446,12 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 
 		# Data files for running the test server.
 		set(TEST_SERVER_DATA
-			"${PROJECT_SOURCE_DIR}/test-server/favicon.ico"
-			"${PROJECT_SOURCE_DIR}/test-server/leaf.jpg"
-			"${PROJECT_SOURCE_DIR}/test-server/candide.zip"
-			"${PROJECT_SOURCE_DIR}/test-server/libwebsockets.org-logo.png"
-			"${PROJECT_SOURCE_DIR}/test-server/lws-common.js"
-			"${PROJECT_SOURCE_DIR}/test-server/test.html")
+			"${PROJECT_SOURCE_DIR}/test-apps/favicon.ico"
+			"${PROJECT_SOURCE_DIR}/test-apps/leaf.jpg"
+			"${PROJECT_SOURCE_DIR}/test-apps/candide.zip"
+			"${PROJECT_SOURCE_DIR}/test-apps/libwebsockets.org-logo.png"
+			"${PROJECT_SOURCE_DIR}/test-apps/lws-common.js"
+			"${PROJECT_SOURCE_DIR}/test-apps/test.html")
 
 		add_custom_command(TARGET test-server
 						POST_BUILD 
@@ -1473,27 +1473,27 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		# test-client
 		#
 		if (NOT LWS_WITHOUT_TEST_CLIENT)
-			create_test_app(test-client "test-server/test-client.c" "" "" "" "" "")
+			create_test_app(test-client "test-apps/test-client.c" "" "" "" "" "")
 		endif()
 
 		#
 		# test-fraggle
 		#
 		if (NOT LWS_WITHOUT_TEST_FRAGGLE)
-			create_test_app(test-fraggle "test-server/test-fraggle.c" "" "" "" "" "")
+			create_test_app(test-fraggle "test-apps/test-fraggle.c" "" "" "" "" "")
 		endif()
 
 		#
 		# test-ping
 		#
 		if (NOT LWS_WITHOUT_TEST_PING)
-			create_test_app(test-ping "test-server/test-ping.c" "" "" "" "" "")
+			create_test_app(test-ping "test-apps/test-ping.c" "" "" "" "" "")
 		endif()
 		#
 		# test-echo
 		#
 		if (NOT LWS_WITHOUT_TEST_ECHO)
-			create_test_app(test-echo "test-server/test-echo.c" "" "" "" "" "")
+			create_test_app(test-echo "test-apps/test-echo.c" "" "" "" "" "")
 		endif()
 
 	endif(NOT LWS_WITHOUT_CLIENT)
@@ -1782,11 +1782,11 @@ if (NOT LWS_WITHOUT_TESTAPPS AND NOT LWS_WITHOUT_SERVER)
 			DESTINATION share/libwebsockets-test-server
 		COMPONENT examples)
 
-		install(FILES "${PROJECT_SOURCE_DIR}/test-server/private/index.html"
+		install(FILES "${PROJECT_SOURCE_DIR}/test-apps/private/index.html"
 			DESTINATION share/libwebsockets-test-server/private
 			COMPONENT examples)
 if (LWS_WITH_CGI)
-	set(CGI_TEST_SCRIPT "${PROJECT_SOURCE_DIR}/test-server/lws-cgi-test.sh")
+	set(CGI_TEST_SCRIPT "${PROJECT_SOURCE_DIR}/test-apps/lws-cgi-test.sh")
 	install(FILES ${CGI_TEST_SCRIPT}
 			PERMISSIONS  OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE OWNER_READ GROUP_READ WORLD_READ
 			DESTINATION share/libwebsockets-test-server
@@ -1857,7 +1857,7 @@ add_custom_target(dist COMMAND "${CMAKE_MAKE_PROGRAM}" package_source)
 
 include(UseRPMTools)
 if (RPMTools_FOUND)
-	RPMTools_ADD_RPM_TARGETS(libwebsockets libwebsockets.spec)
+	RPMTools_ADD_RPM_TARGETS(libwebsockets scripts/libwebsockets.spec)
 endif()
 
 message("---------------------------------------------------------------------")

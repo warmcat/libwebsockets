@@ -1,5 +1,5 @@
 COMPONENT_DEPENDS:=mbedtls openssl
-COMPONENT_ADD_INCLUDEDIRS := ../../../../../../../../../../../../../../../../../../$(COMPONENT_BUILD_DIR)/include
+COMPONENT_ADD_INCLUDEDIRS := ../../../../../../../../../../../../../../../../../../../../$(COMPONENT_BUILD_DIR)/include
 
 COMPONENT_OWNBUILDTARGET:= 1
 
@@ -23,7 +23,7 @@ build:
 		-DIDF_PATH=$(IDF_PATH) \
 		-DCROSS_PATH=$(CROSS_PATH) \
 		-DBUILD_DIR_BASE=$(BUILD_DIR_BASE) \
-		-DCMAKE_TOOLCHAIN_FILE=$(COMPONENT_PATH)/cross-esp32.cmake \
+		-DCMAKE_TOOLCHAIN_FILE=$(COMPONENT_PATH)/contrib/cross-esp32.cmake \
 		-DCMAKE_BUILD_TYPE=RELEASE \
 		-DLWS_MBEDTLS_INCLUDE_DIRS="${IDF_PATH}/components/openssl/include;${IDF_PATH}/components/mbedtls/include;${IDF_PATH}/components/mbedtls/port/include" \
 		-DLWS_WITH_STATS=0 \
