@@ -605,7 +605,9 @@ set(HDR_PRIVATE
 
 set(HDR_PUBLIC
 	"${PROJECT_SOURCE_DIR}/lib/libwebsockets.h"
-	"${PROJECT_BINARY_DIR}/lws_config.h")
+	"${PROJECT_BINARY_DIR}/lws_config.h"
+	"${PROJECT_SOURCE_DIR}/plugins/ssh-base/include/lws-plugin-ssh.h"
+	)
 
 set(SOURCES
 	lib/base64-decode.c
@@ -1153,6 +1155,8 @@ set(CMAKE_REQUIRED_LIBRARIES ${LIB_LIST})
 CHECK_FUNCTION_EXISTS(SSL_CTX_set1_param LWS_HAVE_SSL_CTX_set1_param)
 CHECK_FUNCTION_EXISTS(SSL_set_info_callback LWS_HAVE_SSL_SET_INFO_CALLBACK)
 CHECK_FUNCTION_EXISTS(X509_VERIFY_PARAM_set1_host LWS_HAVE_X509_VERIFY_PARAM_set1_host)
+CHECK_FUNCTION_EXISTS(RSA_set0_key LWS_HAVE_RSA_SET0_KEY)
+
 if (LWS_USE_MBEDTLS)
 	set(LWS_HAVE_TLS_CLIENT_METHOD 1)
 	if (NOT LWS_WITH_ESP32)
@@ -1363,6 +1367,18 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 				""
 				""
 				"")
+
+			if (LWS_WITH_CGI)
+			create_test_app(test-sshd "test-apps/test-sshd.c"
+				""
+				""
+				""
+				""
+				"")
+			target_include_directories(test-sshd PRIVATE "${PROJECT_SOURCE_DIR}/plugins/ssh-base/include")
+
+			endif()
+
 			if (UNIX)
 				create_test_app(test-fuzxy "test-apps/fuzxy.c"
 					""
@@ -1508,7 +1524,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 	
 	
 	if (LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
-		macro(create_plugin PLUGIN_NAME MAIN_SRC S2 S3)
+		macro(create_plugin PLUGIN_NAME PLUGIN_INCLUDE MAIN_SRC S2 S3)
 
 		set(PLUGIN_SRCS ${MAIN_SRC})
 
@@ -1540,6 +1556,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		
 		target_link_libraries(${PLUGIN_NAME} websockets_shared)
 		add_dependencies(${PLUGIN_NAME} websockets_shared)
+		include_directories(${PLUGIN_INCLUDE})
 
 		# Set test app specific defines.
 		set_property(TARGET ${PLUGIN_NAME}
@@ -1556,35 +1573,40 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		endmacro()
 		
 
-		create_plugin(protocol_lws_meta
+		create_plugin(protocol_lws_meta ""
 			      "plugins/protocol_lws_meta.c" "" "")
-		create_plugin(protocol_dumb_increment
+		create_plugin(protocol_dumb_increment ""
 			      "plugins/protocol_dumb_increment.c" "" "")
-		create_plugin(protocol_lws_mirror
+		create_plugin(protocol_lws_mirror ""
 			      "plugins/protocol_lws_mirror.c" "" "")
-		create_plugin(protocol_lws_status
+		create_plugin(protocol_lws_status ""
 			      "plugins/protocol_lws_status.c" "" "")
-		create_plugin(protocol_post_demo
+		create_plugin(protocol_post_demo ""
 			      "plugins/protocol_post_demo.c" "" "")
-		create_plugin(protocol_lws_table_dirlisting
+		create_plugin(protocol_lws_table_dirlisting ""
 			      "plugins/generic-table/protocol_table_dirlisting.c" "" "")
+		create_plugin(protocol_lws_sshd_base "plugins/ssh-base/include"
+			      "plugins/ssh-base/sshd.c;plugins/ssh-base/telnet.c;plugins/ssh-base/kex-25519.c" "plugins/ssh-base/crypto/chacha.c;plugins/ssh-base/crypto/ed25519.c;plugins/ssh-base/crypto/fe25519.c;plugins/ssh-base/crypto/ge25519.c;plugins/ssh-base/crypto/poly1305.c;plugins/ssh-base/crypto/sc25519.c;plugins/ssh-base/crypto/smult_curve25519_ref.c" "")
+
+		include_directories("${PROJECT_SOURCE_DIR}/plugins/ssh-base/include")
+
 		if (NOT WIN32)
-      		      create_plugin(protocol_lws_raw_test
+			create_plugin(protocol_lws_raw_test ""
 			      "plugins/protocol_lws_raw_test.c" "" "")
 		endif()
 
 if (LWS_WITH_SERVER_STATUS)
-		create_plugin(protocol_lws_server_status
+		create_plugin(protocol_lws_server_status ""
 			      "plugins/protocol_lws_server_status.c" "" "")
 endif()
 
 if (NOT LWS_WITHOUT_CLIENT)
-		create_plugin(protocol_client_loopback_test
+		create_plugin(protocol_client_loopback_test ""
                               "plugins/protocol_client_loopback_test.c" "" "")
 endif(NOT LWS_WITHOUT_CLIENT)
 
 if (LWS_WITH_GENERIC_SESSIONS)
-	create_plugin(protocol_generic_sessions
+	create_plugin(protocol_generic_sessions ""
                       "plugins/generic-sessions/protocol_generic_sessions.c"
 		      "plugins/generic-sessions/utils.c"
 		      "plugins/generic-sessions/handlers.c")
@@ -1595,7 +1617,7 @@ if (LWS_WITH_GENERIC_SESSIONS)
 		target_link_libraries(protocol_generic_sessions sqlite3 )
 	endif(WIN32)
 
-		create_plugin(protocol_lws_messageboard
+		create_plugin(protocol_lws_messageboard ""
 			      "plugins/generic-sessions/protocol_lws_messageboard.c" "" "")
 	if (WIN32)
 		target_link_libraries(protocol_lws_messageboard ${LWS_SQLITE3_LIBRARIES})
@@ -1802,6 +1824,10 @@ if (LWS_WITH_CGI)
 	endif()
 endif()
 
+install(FILES test-apps/lws-ssh-test-keys;test-apps/lws-ssh-test-keys.pub
+	DESTINATION share/libwebsockets-test-server
+	COMPONENT examples)
+
 # plugins
 
 if (LWS_WITH_PLUGINS)
@@ -1907,6 +1933,7 @@ message(" LWS_MAX_SMP = ${LWS_MAX_SMP}")
 message(" LWS_WITH_CGI = ${LWS_WITH_CGI}")
 message(" LWS_HAVE_OPENSSL_ECDH_H = ${LWS_HAVE_OPENSSL_ECDH_H}")
 message(" LWS_HAVE_SSL_CTX_set1_param = ${LWS_HAVE_SSL_CTX_set1_param}")
+message(" LWS_HAVE_RSA_SET0_KEY = ${LWS_HAVE_RSA_SET0_KEY}")
 message(" LWS_WITH_HTTP_PROXY = ${LWS_WITH_HTTP_PROXY}")
 message(" LIBHUBBUB_LIBRARIES = ${LIBHUBBUB_LIBRARIES}")
 message(" PLUGINS = ${PLUGINS_LIST}")
