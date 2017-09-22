@@ -4743,17 +4743,43 @@ lws_ring_insert(struct lws_ring *ring, const void *src, size_t max_count);
  *
  * \param ring: the struct lws_ring to report on
  * \param tail: a pointer to the tail struct to use, or NULL for single tail
- * \param dest: the array of elements to be inserted
+ * \param dest: the array of elements to be inserted. or NULL for no copy
  * \param max_count: the number of available elements at src
  *
  * Attempts to copy out as many waiting elements as possible into dest, from
- * the perspective of the given tail, up to max_count.
+ * the perspective of the given tail, up to max_count.  If dest is NULL, the
+ * copying out is not done but the elements are logically consumed as usual.
+ * NULL dest is useful in combination with lws_ring_get_element(), where you
+ * can use the element direct from the ringbuffer and then call this with NULL
+ * dest to logically consume it.
  *
- * Returns the number of elements copied out.
+ * Increments the tail position according to how many elements could be
+ * consumed.
+ *
+ * Returns the number of elements consumed.
  */
 LWS_VISIBLE LWS_EXTERN size_t
 lws_ring_consume(struct lws_ring *ring, uint32_t *tail, void *dest,
 		 size_t max_count);
+
+/**
+ * lws_ring_get_element():  get a pointer to the next waiting element for tail
+ *
+ * \param ring: the struct lws_ring to report on
+ * \param tail: a pointer to the tail struct to use, or NULL for single tail
+ *
+ * Points to the next element that tail would consume, directly in the
+ * ringbuffer.  This lets you write() or otherwise use the element without
+ * having to copy it out somewhere first.
+ *
+ * After calling this, you must call lws_ring_consume(ring, &tail, NULL, 1)
+ * which will logically consume the element you used up and increment your
+ * tail (tail may also be NULL there if you use a single tail).
+ *
+ * Returns NULL if no waiting element, or a const void * pointing to it.
+ */
+LWS_VISIBLE LWS_EXTERN const void *
+lws_ring_get_element(struct lws_ring *ring, uint32_t *tail);
 
 /**
  * lws_ring_update_oldest_tail():  free up elements older than tail for reuse

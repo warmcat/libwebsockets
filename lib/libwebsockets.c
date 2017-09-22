@@ -3975,7 +3975,6 @@ lws_ring_consume(struct lws_ring *ring, uint32_t *tail, void *dest,
 
 		return n / ring->element_len;
 	}
-
 	if (*tail + n > ring->buflen) {
 
 		/*
@@ -4001,6 +4000,18 @@ lws_ring_consume(struct lws_ring *ring, uint32_t *tail, void *dest,
 		lws_ring_update_oldest_tail(ring, *tail);
 
 	return (((uint8_t *)dest + n) - odest) / ring->element_len;
+}
+
+LWS_VISIBLE LWS_EXTERN const void *
+lws_ring_get_element(struct lws_ring *ring, uint32_t *tail)
+{
+	if (!tail)
+		tail = &ring->oldest_tail;
+
+	if (*tail == ring->head)
+		return NULL;
+
+	return ((uint8_t *)ring->buf) + *tail;
 }
 
 LWS_VISIBLE LWS_EXTERN void
