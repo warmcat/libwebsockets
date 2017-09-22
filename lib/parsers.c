@@ -1556,6 +1556,9 @@ ping_drop:
 		eff_buf.token = &wsi->u.ws.rx_ubuf[LWS_PRE];
 		eff_buf.token_len = wsi->u.ws.rx_ubuf_head;
 
+		if (wsi->u.ws.opcode == LWSWSOPC_PONG && !eff_buf.token_len)
+			goto already_done;
+
 drain_extension:
 		lwsl_ext("%s: passing %d to ext\n", __func__, eff_buf.token_len);
 
