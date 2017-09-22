@@ -8,6 +8,8 @@ libwebsockets
 News
 ----
 
+Please note the additional READMEs have moved to ./READMEs/
+
 v2.3 is out... see the changelog https://github.com/warmcat/libwebsockets/blob/v2.3-stable/changelog
 
 ESP32 is now supported in lws!  Download the

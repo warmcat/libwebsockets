@@ -18,12 +18,12 @@ Release Checklist
 
  e) attack.sh
  
-     $ ./test-server/attack.sh
+     $ ./test-apps/attack.sh
 
  f) Autobahn
 
      $ wstest -m fuzzingserver &
-     $ ./autobahn-test.sh
+     $ ./scripts/autobahn-test.sh
 
      Force update by browser using agent "libwebsockets"
      http://localhost:8080/test_browser.html
@@ -42,7 +42,7 @@ Release Checklist
 
    set(SOVERSION "6")
 
-  libwebsockets.spec
+  scripts/libwebsockets.spec
 
   -/%{_libdir}/libwebsockets.so.6
   +/%{_libdir}/libwebsockets.so.7
@@ -69,29 +69,24 @@ Release Checklist
 
  a) rpm version bump to match CMake one
 
-  libwebsockets.spec
+  scripts/libwebsockets.spec
 
    Version: 1.6.0
 
  b) Summarize changelog
 
-  libwebsockets.spec
+  scripts/libwebsockets.spec
 
 %changelog
 * Sun Jan 17 2016 Andrew Cooks <acooks@linux.com> 1.6.4-1
 - Bump version to 1.6.4
 - MINOR fix xyz
 
-6) update api docs
-
- $ cmake ..
- $ cp doc/* ..
-
-7) signed tag
+6) signed tag
 
   git tag -s vX.Y[.Z]
 
-8) git
+7) git
 
  a) push
  

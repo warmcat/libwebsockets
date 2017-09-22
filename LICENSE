@@ -45,8 +45,8 @@ Relicensed to libwebsocket license
 
 Public Domain (CC-zero) to simplify reuse
 
-  - test-server/*.c
-  - test-server/*.h
+  - test-apps/*.c
+  - test-apps/*.h
   - lwsws/*
 
 ------ end of exceptions
