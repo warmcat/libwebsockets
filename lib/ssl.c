@@ -785,8 +785,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 		if (wsi->vhost->allow_non_ssl_on_ssl_port) {
 
-			n = recv(wsi->desc.sockfd, (char *)pt->serv_buf, context->pt_serv_buf_size,
-				 MSG_PEEK);
+			n = recv(wsi->desc.sockfd, (char *)pt->serv_buf,
+				 context->pt_serv_buf_size, MSG_PEEK);
 
 		/*
 		 * optionally allow non-SSL connect on SSL listening socket
@@ -876,16 +876,20 @@ go_again:
 
 			break;
 		}
-		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
+		lws_stats_atomic_bump(wsi->context, pt,
+				      LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
                 lwsl_info("SSL_accept failed socket %u: %s\n", wsi->desc.sockfd,
                          lws_ssl_get_error_string(m, n, buf, sizeof(buf)));
 		lws_ssl_elaborate_error();
 		goto fail;
 
 accepted:
-		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, 1);
+		lws_stats_atomic_bump(wsi->context, pt,
+				      LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, 1);
 #if defined(LWS_WITH_STATS)
-		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY, time_in_microseconds() - wsi->accept_start_us);
+		lws_stats_atomic_bump(wsi->context, pt,
+				      LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY,
+				      time_in_microseconds() - wsi->accept_start_us);
 		wsi->accept_start_us = time_in_microseconds();
 #endif
 

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -36,7 +36,6 @@ static int
 OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
 #if defined(LWS_USE_MBEDTLS)
-//	long gvr = ssl_pm_get_verify_result(
 	lwsl_notice("%s\n", __func__);
 
 	return 0;
@@ -75,7 +74,9 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	ssl = X509_STORE_CTX_get_ex_data(x509_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
 	wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
 
-	n = lws_get_context_protocol(wsi->context, 0).callback(wsi, LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION, x509_ctx, ssl, preverify_ok);
+	n = lws_get_context_protocol(wsi->context, 0).callback(wsi,
+			LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION,
+			x509_ctx, ssl, preverify_ok);
 
 	/* keep old behaviour if something wrong with server certs */
 	/* if ssl error is overruled in callback and cert is ok,

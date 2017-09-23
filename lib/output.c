@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -159,8 +159,6 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	n = lws_ssl_capable_write(wsi, buf, n);
 	lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
 
-	//lwsl_notice("lws_ssl_capable_write: %d\n", n);
-
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
 		/* we're going to close, let close know sends aren't possible */
@@ -244,8 +242,8 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	unsigned char is_masked_bit = 0;
 	unsigned char *dropmask = NULL;
 	struct lws_tokens eff_buf;
-	int pre = 0, n;
 	size_t orig_len = len;
+	int pre = 0, n;
 
 	if (wsi->parent_carries_io) {
 		struct lws_write_passthru pas;
@@ -284,7 +282,6 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		/* remove us from the list */
 		struct lws **w = &pt->tx_draining_ext_list;
 
-	//	lwsl_notice("%s: TX EXT DRAINING: Remove from list\n", __func__);
 		wsi->u.ws.tx_draining_ext = 0;
 		/* remove us from context draining ext list */
 		while (*w) {
@@ -406,8 +403,6 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 
 	buf = (unsigned char *)eff_buf.token;
 	len = eff_buf.token_len;
-
-	lwsl_debug("%p / %d\n", buf, (int)len);
 
 	if (!buf) {
 		lwsl_err("null buf (%d)\n", (int)len);
@@ -611,8 +606,6 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 #endif
 	int n, m;
 
-	// lwsl_notice("%s (trunc len %d)\n", __func__, wsi->trunc_len);
-
 	while (wsi->http2_substream || !lws_send_pipe_choked(wsi)) {
 
 		if (wsi->trunc_len) {
@@ -689,8 +682,6 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 		if (lws_vfs_file_read(wsi->u.http.fop_fd, &amount, p, poss) < 0)
 			goto file_had_it; /* caller will close */
-		
-		//lwsl_notice("amount %ld\n", amount);
 
 		if (wsi->sending_chunked)
 			n = (int)amount;
@@ -852,7 +843,8 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	// !!!
 #endif
 
-	lwsl_debug("ERROR writing len %d to skt fd %d err %d / errno %d\n", len, wsi->desc.sockfd, n, LWS_ERRNO);
+	lwsl_debug("ERROR writing len %d to skt fd %d err %d / errno %d\n",
+			len, wsi->desc.sockfd, n, LWS_ERRNO);
 	return LWS_SSL_CAPABLE_ERROR;
 }
 #endif

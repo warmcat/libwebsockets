@@ -121,7 +121,10 @@ lws_ranges_next(struct lws_range_parsing *rp)
 				if (c == ',')
 					rp->pos++;
 
-				/* by the end of this, start and end are always valid if the range still is */
+				/*
+				 * By the end of this, start and end are
+				 * always valid if the range still is
+				 */
 
 				if (!rp->start_valid) { /* eg, -500 */
 					if (rp->end > rp->extent)

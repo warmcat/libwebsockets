@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -462,7 +462,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		 * SSL is happy and has a cert it's content with
 		 * If we're supporting HTTP2, initialize that
 		 */
-
 		lws_context_init_http2_ssl(vhost);
 	}
 

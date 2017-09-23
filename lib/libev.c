@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -43,6 +43,7 @@ lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 	eventfd.fd = watcher->fd;
 	eventfd.events = 0;
 	eventfd.revents = EV_NONE;
+
 	if (revents & EV_READ) {
 		eventfd.events |= LWS_POLLIN;
 		eventfd.revents |= LWS_POLLIN;
@@ -51,6 +52,7 @@ lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 		eventfd.events |= LWS_POLLOUT;
 		eventfd.revents |= LWS_POLLOUT;
 	}
+
 	lws_service_fd(context, &eventfd);
 }
 
@@ -97,8 +99,8 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 	while (vh) {
 		if (vh->lserv_wsi) {
 			vh->lserv_wsi->w_read.context = context;
-			ev_io_init(w_accept, lws_accept_cb, vh->lserv_wsi->desc.sockfd,
-				  EV_READ);
+			ev_io_init(w_accept, lws_accept_cb,
+				   vh->lserv_wsi->desc.sockfd, EV_READ);
 		}
 		vh = vh->vhost_next;
 	}

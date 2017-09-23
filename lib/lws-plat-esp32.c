@@ -125,9 +125,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			n = esp_get_free_heap_size();
 			if (n != context->last_free_heap) {
 				if (n > context->last_free_heap)
-					lwsl_notice(" heap :%d (+%d)\n", n, n - context->last_free_heap);
+					lwsl_notice(" heap :%d (+%d)\n", n,
+						    n - context->last_free_heap);
 				else
-					lwsl_notice(" heap :%d (-%d)\n", n, context->last_free_heap - n);
+					lwsl_notice(" heap :%d (-%d)\n", n,
+						    context->last_free_heap - n);
 				context->last_free_heap = n;
 			}
 		}
@@ -295,8 +297,6 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 
 	/* Disable Nagle */
 	optval = 1;
-//	if (setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
-//		return 1;
 	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &optval, optlen) < 0)
 		return 1;
 
@@ -315,10 +315,6 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 LWS_VISIBLE int
 lws_plat_context_early_init(void)
 {
-	//signal(SIGPIPE, SIG_IGN);
-
-//	signal(SIGABRT, sigabrt_handler);
-
 	return 0;
 }
 
