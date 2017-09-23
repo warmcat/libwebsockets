@@ -1450,10 +1450,11 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 				lwsl_err("Socks password too long\n");
 				goto bail;
 			}
+
+			strncpy(vhost->socks_user, socks, p_colon - socks);
+			strncpy(vhost->socks_password, p_colon + 1,
+				p_at - (p_colon + 1));
 		}
-		strncpy(vhost->socks_user, socks, p_colon - socks);
-		strncpy(vhost->socks_password, p_colon + 1,
-			p_at - (p_colon + 1));
 
 		lwsl_info(" Socks auth, user: %s, password: %s\n",
 			vhost->socks_user, vhost->socks_password );
@@ -2581,8 +2582,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 		if (script_uri_path_len < 0 && uritok < 0)
 			goto bail3;
-		if (script_uri_path_len < 0)
-			uritok = 0;
+//		if (script_uri_path_len < 0)
+//			uritok = 0;
 
 		lws_snprintf(cgi_path, sizeof(cgi_path) - 1, "REQUEST_URI=%s",
 			 lws_hdr_simple_ptr(wsi, uritok));
@@ -2905,7 +2906,10 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			}
 		}
 
-		n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]), &c, 1);
+		n = lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]);
+		if (n < 0)
+			return -1;
+		n = read(n, &c, 1);
 		if (n < 0) {
 			if (errno != EAGAIN) {
 				lwsl_debug("%s: read says %d\n", __func__, n);
@@ -3033,9 +3037,10 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 	/* payload processing */
 
 	m = !wsi->cgi->explicitly_chunked && !wsi->cgi->content_length;
-
-	n = read(lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]),
-		 start, sizeof(buf) - LWS_PRE - (m ? LWS_HTTP_CHUNK_HDR_SIZE : 0));
+	n = lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]);
+	if (n < 0)
+		return -1;
+	n = read(n, start, sizeof(buf) - LWS_PRE - (m ? LWS_HTTP_CHUNK_HDR_SIZE : 0));
 
 	if (n < 0 && errno != EAGAIN) {
 		lwsl_debug("%s: stdout read says %d\n", __func__, n);

@@ -367,7 +367,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 #if defined(LWS_WITH_PEER_LIMITS)
 		else
 			if (!(*pwsi)->u.hdr.ah_wait_list)
-				lws_stats_atomic_bump(wsi->context, pt,
+				lws_stats_atomic_bump(context, pt,
 					LWSSTATS_C_PEER_LIMIT_AH_DENIED, 1);
 #endif
 		pwsi = &(*pwsi)->u.hdr.ah_wait_list;
