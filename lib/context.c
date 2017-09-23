@@ -374,8 +374,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_callback_on_writable(wsi);
 			break;
 		case LWS_STDERR:
-			n = read(lws_get_socket_fd(args->stdwsi[LWS_STDERR]),
-						   buf, sizeof(buf) - 2);
+			n = lws_get_socket_fd(args->stdwsi[LWS_STDERR]);
+			if (n < 0)
+				break;
+			n = read(n, buf, sizeof(buf) - 2);
 			if (n > 0) {
 				if (buf[n - 1] != '\n')
 					buf[n++] = '\n';
@@ -403,8 +405,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */
 		args = (struct lws_cgi_args *)in;
 		args->data[args->len] = '\0';
-		n = write(lws_get_socket_fd(args->stdwsi[LWS_STDIN]),
-			  args->data, args->len);
+		n = lws_get_socket_fd(args->stdwsi[LWS_STDIN]);
+		if (n < 0)
+			return -1;
+		n = write(n, args->data, args->len);
 		if (n < args->len)
 			lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: "
 				    "sent %d only %d went", n, args->len);

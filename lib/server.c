@@ -775,11 +775,14 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
 		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
 		if (l) {
 			wsi->access_log.user_agent = lws_malloc(l + 2);
-			if (wsi->access_log.user_agent)
-				lws_hdr_copy(wsi, wsi->access_log.user_agent,
-						l + 1, WSI_TOKEN_HTTP_USER_AGENT);
-			else
+			if (!wsi->access_log.user_agent) {
 				lwsl_err("OOM getting user agent\n");
+				lws_free_set_NULL(wsi->access_log.header_log);
+				return;
+			}
+
+			lws_hdr_copy(wsi, wsi->access_log.user_agent,
+					l + 1, WSI_TOKEN_HTTP_USER_AGENT);
 
 			for (m = 0; m < l; m++)
 				if (wsi->access_log.user_agent[m] == '\"')
@@ -788,11 +791,14 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
 		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
 		if (l) {
 			wsi->access_log.referrer = lws_malloc(l + 2);
-			if (wsi->access_log.referrer)
-				lws_hdr_copy(wsi, wsi->access_log.referrer,
-						l + 1, WSI_TOKEN_HTTP_REFERER);
-			else
+			if (!wsi->access_log.referrer) {
 				lwsl_err("OOM getting user agent\n");
+				lws_free_set_NULL(wsi->access_log.user_agent);
+				lws_free_set_NULL(wsi->access_log.header_log);
+				return;
+			}
+			lws_hdr_copy(wsi, wsi->access_log.referrer,
+					l + 1, WSI_TOKEN_HTTP_REFERER);
 
 			for (m = 0; m < l; m++)
 				if (wsi->access_log.referrer[m] == '\"')
@@ -1835,7 +1841,7 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	if (af == AF_INET) {
 		struct sockaddr_in *s = (struct sockaddr_in *)&addr;
 		q = &s->sin_addr;
-		rlen = sizeof(&s->sin_addr);
+		rlen = sizeof(s->sin_addr);
 	} else
 #ifdef LWS_USE_IPV6
 	{
