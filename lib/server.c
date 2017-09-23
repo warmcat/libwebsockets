@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -262,7 +262,6 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	 * never reach here.  SSL will still fail it if the cert doesn't allow
 	 * *.x.com.
 	 */
-
 	vhost = context->vhost_list;
 	while (vhost) {
 		m = strlen(vhost->name);
@@ -455,7 +454,6 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		wsi->u.http.fop_fd->mod_time = (uint32_t)st.st_mtime;
 		fflags |= LWS_FOP_FLAG_MOD_TIME_VALID;
 
-		lwsl_debug(" %s mode %d\n", path, S_IFMT & st.st_mode);
 #if !defined(WIN32) && LWS_POSIX && !defined(LWS_WITH_ESP32)
 		if ((S_IFMT & st.st_mode) == S_IFLNK) {
 			len = readlink(path, sym, sizeof(sym) - 1);
@@ -1016,9 +1014,7 @@ lws_http_action(struct lws *wsi)
 	     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
 	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
 	    (hit->origin_protocol != LWSMPRO_CGI &&
-	     hit->origin_protocol != LWSMPRO_CALLBACK //&&
-	     //hit->protocol == NULL
-	     )) {
+	     hit->origin_protocol != LWSMPRO_CALLBACK)) {
 		unsigned char *start = pt->serv_buf + LWS_PRE,
 			      *p = start, *end = p + 512;
 
@@ -1080,8 +1076,6 @@ lws_http_action(struct lws *wsi)
 			lwsl_err("plain auth too long\n");
 			goto transaction_result_n;
 		}
-
-//		lwsl_notice(plain);
 
 		if (!lws_find_string_in_file(hit->basic_auth_login_file, plain, m)) {
 			lwsl_err("basic auth lookup failed\n");
@@ -1310,10 +1304,10 @@ deal_body:
 bail_nuke_ah:
 	/* we're closing, losing some rx is OK */
 	lws_header_table_force_to_detachable_state(wsi);
-	// lwsl_notice("%s: drop1\n", __func__);
 	lws_header_table_detach(wsi, 1);
 
 	return 1;
+
 #if LWS_POSIX
 transaction_result_n:
 	lws_return_http_status(wsi, n, NULL);
@@ -1639,9 +1633,9 @@ upgrade_ws:
 		while (*p && !hit) {
 			n = 0;
 			non_space_char_found = 0;
-			while (n < sizeof(protocol_name) - 1 && *p &&
-			       *p != ',') {
-				// ignore leading spaces
+			while (n < sizeof(protocol_name) - 1 &&
+			       *p && *p != ',') {
+				/* ignore leading spaces */
 				if (!non_space_char_found && *p == ' ') {
 					n++;
 					continue;
@@ -1767,8 +1761,6 @@ upgrade_ws:
 		/* !!! drop ah unreservedly after ESTABLISHED */
 		if (!wsi->more_rx_waiting) {
 			lws_header_table_force_to_detachable_state(wsi);
-
-			//lwsl_notice("%p: dropping ah EST\n", wsi);
 			lws_header_table_detach(wsi, 1);
 		}
 
@@ -1781,7 +1773,6 @@ bail_nuke_ah:
 	/* drop the header info */
 	/* we're closing, losing some rx is OK */
 	lws_header_table_force_to_detachable_state(wsi);
-	//lwsl_notice("%s: drop2\n", __func__);
 	lws_header_table_detach(wsi, 1);
 
 	return 1;
@@ -2500,8 +2491,6 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 	socklen_t clilen;
 #endif
 	int n, len;
-	
-	// lwsl_notice("%s: mode %d\n", __func__, wsi->mode);
 
 	switch (wsi->mode) {
 
@@ -2555,8 +2544,6 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		    wsi->state == LWSS_HTTP_ISSUING_FILE ||
 		    wsi->state == LWSS_HTTP_HEADERS)) {
 			if (!wsi->u.hdr.ah) {
-				
-				//lwsl_err("wsi %p: missing ah\n", wsi);
 				/* no autoservice beacuse we will do it next */
 				if (lws_header_table_attach(wsi, 0)) {
 					lwsl_info("wsi %p: failed to acquire ah\n", wsi);
@@ -2565,22 +2552,14 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			}
 			ah = wsi->u.hdr.ah;
 
-			//lwsl_notice("%s: %p: rxpos:%d rxlen:%d\n", __func__, wsi,
-			//	   ah->rxpos, ah->rxlen);
-
 			/* if nothing in ah rx buffer, get some fresh rx */
 			if (ah->rxpos == ah->rxlen) {
 				ah->rxlen = lws_ssl_capable_read(wsi, ah->rx,
 						   sizeof(ah->rx));
 				ah->rxpos = 0;
-				//lwsl_notice("%s: wsi %p, ah->rxlen = %d\r\n",
-				//	   __func__, wsi, ah->rxlen);
 				switch (ah->rxlen) {
 				case 0:
 					lwsl_info("%s: read 0 len\n", __func__);
-					/* lwsl_info("   state=%d\n", wsi->state); */
-//					if (!wsi->hdr_parsing_completed)
-//						lws_header_table_detach(wsi);
 					/* fallthru */
 				case LWS_SSL_CAPABLE_ERROR:
 					goto fail;
@@ -2615,7 +2594,10 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					if ( wsi->u.hdr.ah->rxlen)
 						 wsi->u.hdr.ah->rxpos += n;
 
-					lwsl_debug("%s: wsi %p: ah read rxpos %d, rxlen %d\n", __func__, wsi, wsi->u.hdr.ah->rxpos, wsi->u.hdr.ah->rxlen);
+					lwsl_debug("%s: wsi %p: ah read rxpos %d, rxlen %d\n",
+						   __func__, wsi,
+						   wsi->u.hdr.ah->rxpos,
+						   wsi->u.hdr.ah->rxlen);
 
 					if (lws_header_table_is_in_detachable_state(wsi) &&
 					    (wsi->mode != LWSCM_HTTP_SERVING &&
@@ -2635,9 +2617,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		switch (len) {
 		case 0:
 			lwsl_info("%s: read 0 len\n", __func__);
-			/* lwsl_info("   state=%d\n", wsi->state); */
-//			if (!wsi->hdr_parsing_completed)
-//				lws_header_table_detach(wsi);
+
 			/* fallthru */
 		case LWS_SSL_CAPABLE_ERROR:
 			goto fail;
@@ -2792,7 +2772,6 @@ try_pollout:
 			if (accept_fd < 0) {
 				if (LWS_ERRNO == LWS_EAGAIN ||
 				    LWS_ERRNO == LWS_EWOULDBLOCK) {
-//					lwsl_err("accept asks to try again\n");
 					break;
 				}
 				lwsl_err("ERROR on accept: %s\n", strerror(LWS_ERRNO));
@@ -3089,7 +3068,6 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		}
 
 		if (wsi->u.ws.rx_draining_ext) {
-			// lwsl_notice("draining with 0\n");
 			m = lws_rx_sm(wsi, 0);
 			if (m < 0)
 				return -1;
@@ -3401,10 +3379,6 @@ retry_as_first:
 			/* form-data; name="file"; filename="t.txt" */
 
 			if (*in == '\x0d') {
-//				lwsl_notice("disp: '%s', '%s', '%s'\n",
-//				   s->content_disp, s->name,
-//				   s->content_disp_filename);
-
 				if (s->content_disp_filename[0])
 					if (s->output(s->data, s->name,
 						      &s->out, s->pos, LWS_UFS_OPEN))

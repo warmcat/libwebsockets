@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -87,7 +87,8 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 	const unsigned char *name;
 #ifdef LWS_USE_HTTP2
 	if (wsi->mode == LWSCM_HTTP2_SERVING)
-		return lws_add_http2_header_by_token(wsi, token, value, length, p, end);
+		return lws_add_http2_header_by_token(wsi, token, value,
+						     length, p, end);
 #endif
 	name = lws_token_to_string(token);
 	if (!name)
@@ -292,9 +293,8 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 			loc, len, p, end))
 		return -1;
 	/*
-	 * if we're going with http/1.1 and keepalive,
-	 * we have to give fake content metadata so the
-	 * client knows we completed the transaction and
+	 * if we're going with http/1.1 and keepalive, we have to give fake
+	 * content metadata so the client knows we completed the transaction and
 	 * it can do the redirect...
 	 */
 	if (lws_add_http_header_by_token(wsi,
@@ -310,8 +310,7 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 	if (lws_finalize_http_header(wsi, p, end))
 		return -1;
 
-	n = lws_write(wsi, start, *p - start,
-			LWS_WRITE_HTTP_HEADERS);
+	n = lws_write(wsi, start, *p - start, LWS_WRITE_HTTP_HEADERS);
 
 	return n;
 }

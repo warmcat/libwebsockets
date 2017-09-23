@@ -1,3 +1,24 @@
+/*
+ * libwebsockets - small server side websockets and web server implementation
+ *
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ *
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Lesser General Public
+ *  License as published by the Free Software Foundation:
+ *  version 2.1 of the License.
+ *
+ *  This library is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Lesser General Public License for more details.
+ *
+ *  You should have received a copy of the GNU Lesser General Public
+ *  License along with this library; if not, write to the Free Software
+ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ *  MA  02110-1301  USA
+ */
+
 #include "private-libwebsockets.h"
 
 #include <pwd.h>
@@ -8,14 +29,10 @@
 #endif
 #include <dirent.h>
 
-
-/*
- * included from libwebsockets.c for unix builds
- */
-
 unsigned long long time_in_microseconds(void)
 {
 	struct timeval tv;
+
 	gettimeofday(&tv, NULL);
 	return ((unsigned long long)tv.tv_sec * 1000000LL) + tv.tv_usec;
 }
@@ -497,7 +514,6 @@ static void
 sigabrt_handler(int x)
 {
 	printf("%s\n", __func__);
-	//*(char *)0 = 0;
 }
 #endif
 
@@ -507,8 +523,6 @@ lws_plat_context_early_init(void)
 #if !defined(LWS_AVOID_SIGPIPE_IGN)
 	signal(SIGPIPE, SIG_IGN);
 #endif
-
-//	signal(SIGABRT, sigabrt_handler);
 
 	return 0;
 }
@@ -802,7 +816,7 @@ lws_plat_init(struct lws_context *context,
 	if (!lws_libev_init_fd_table(context) &&
 	    !lws_libuv_init_fd_table(context) &&
 	    !lws_libevent_init_fd_table(context)) {
-		/* otherwise libev handled it instead */
+		/* otherwise libev/uv/event handled it instead */
 
 		while (n--) {
 			if (pipe(pt->dummy_pipe_fds)) {

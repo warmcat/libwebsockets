@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -108,7 +108,8 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 				return -1;
 			}
 			wsi->u.ws.final = !!((c >> 7) & 1);
-			lwsl_ext("%s:    This RX frame Final %d\n", __func__, wsi->u.ws.final);
+			lwsl_ext("%s:    This RX frame Final %d\n", __func__,
+				 wsi->u.ws.final);
 
 			if (wsi->u.ws.owed_a_fin &&
 			    (wsi->u.ws.opcode == LWSWSOPC_TEXT_FRAME ||
@@ -122,7 +123,7 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 			}
 
 			if ((wsi->u.ws.opcode & 8) && !wsi->u.ws.final) {
-				lwsl_info("control message cannot be fragmented\n");
+				lwsl_info("control msg can't be fragmented\n");
 				return -1;
 			}
 			if (!wsi->u.ws.final)
@@ -140,7 +141,7 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 		default:
 			lwsl_err("unknown spec version %02d\n",
-						       wsi->ietf_spec_revision);
+				 wsi->ietf_spec_revision);
 			break;
 		}
 		break;
@@ -399,7 +400,8 @@ spill:
 				 * we do not care about how it went, we are closing
 				 * immediately afterwards
 				 */
-				lws_write(wsi, (unsigned char *)&wsi->u.ws.rx_ubuf[LWS_PRE],
+				lws_write(wsi, (unsigned char *)
+					  &wsi->u.ws.rx_ubuf[LWS_PRE],
 					  wsi->u.ws.rx_ubuf_head,
 					  LWS_WRITE_CLOSE);
 			wsi->state = LWSS_RETURNED_CLOSE_ALREADY;
@@ -449,8 +451,9 @@ ping_drop:
 			lwsl_hexdump(&wsi->u.ws.rx_ubuf[LWS_PRE],
 				     wsi->u.ws.rx_ubuf_head);
 
-			if (wsi->pending_timeout == PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG) {
-				lwsl_info("received expected PONG on wsi %p\n", wsi);
+			if (wsi->pending_timeout ==
+				       PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG) {
+				lwsl_info("%p: received expected PONG\n", wsi);
 				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 			}
 
@@ -478,9 +481,10 @@ ping_drop:
 
 			if (lws_ext_cb_active(wsi,
 				LWS_EXT_CB_EXTENDED_PAYLOAD_RX,
-					&eff_buf, 0) <= 0) { /* not handle or fail */
-
-				lwsl_ext("Unhandled ext opc 0x%x\n", wsi->u.ws.opcode);
+					&eff_buf, 0) <= 0) {
+				/* not handled or failed */
+				lwsl_ext("Unhandled ext opc 0x%x\n",
+					 wsi->u.ws.opcode);
 				wsi->u.ws.rx_ubuf_head = 0;
 
 				return 0;
@@ -516,7 +520,7 @@ drain_extension:
 		lwsl_ext("post inflate eff_buf len %d\n", eff_buf.token_len);
 
 		if (rx_draining_ext && !eff_buf.token_len) {
-			lwsl_err("   --- ignoring zero drain result, ending drain\n");
+			lwsl_debug("   --- ending drain on 0 read result\n");
 			goto already_done;
 		}
 
@@ -530,7 +534,8 @@ drain_extension:
 			if (!wsi->u.ws.rx_packet_length && wsi->u.ws.final &&
 			    wsi->u.ws.utf8 && !n) {
 				lwsl_info("FINAL utf8 error\n");
-utf8_fail:			lwsl_info("utf8 error\n");
+utf8_fail:
+				lwsl_info("utf8 error\n");
 				return -1;
 			}
 		}
@@ -585,6 +590,7 @@ already_done:
 
 illegal_ctl_length:
 	lwsl_warn("Control frame asking for extended length is illegal\n");
+
 	/* kill the connection */
 	return -1;
 }

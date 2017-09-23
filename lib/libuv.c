@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -40,8 +40,6 @@ lws_uv_idle(uv_idle_t *handle
 	struct lws_context_per_thread *pt = lws_container_of(handle,
 					struct lws_context_per_thread, uv_idle);
 
-//	lwsl_debug("%s\n", __func__);
-
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
@@ -51,14 +49,11 @@ lws_uv_idle(uv_idle_t *handle
 		/* still somebody left who wants forced service? */
 		if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
 			/* yes... come back again later */
-//			lwsl_debug("%s: done again\n", __func__);
 		return;
 	}
 
 	/* there is nobody who needs service forcing, shut down idle */
 	uv_idle_stop(handle);
-
-	//lwsl_debug("%s: done stop\n", __func__);
 }
 
 static void
@@ -79,10 +74,12 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	eventfd.revents = 0;
 
 	if (status < 0) {
-		/* at this point status will be an UV error, like UV_EBADF,
-		we treat all errors as LWS_POLLHUP */
-
-		/* you might want to return; instead of servicing the fd in some cases */
+		/*
+		 * At this point status will be an UV error, like UV_EBADF,
+		 * we treat all errors as LWS_POLLHUP
+		 *
+		 * You might want to return; instead of servicing the fd in
+		 * some cases */
 		if (status == UV_EAGAIN)
 			return;
 
@@ -223,7 +220,8 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 				uv_signal_init(loop, &pt->signals[n]);
 				pt->signals[n].data = pt->context;
 				uv_signal_start(&pt->signals[n],
-						context->lws_uv_sigint_cb, sigs[n]);
+						context->lws_uv_sigint_cb,
+						sigs[n]);
 			}
 		}
 	} else
@@ -253,7 +251,6 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 
 static void lws_uv_close_cb(uv_handle_t *handle)
 {
-	//lwsl_err("%s: handle %p\n", __func__, handle);
 }
 
 static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
@@ -272,7 +269,6 @@ void
 lws_libuv_destroyloop(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-//	struct lws_context *ctx;
 	int m, budget = 100, ns;
 
 	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
@@ -281,13 +277,12 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 	if (!pt->io_loop_uv)
 		return;
 
-	lwsl_notice("%s: closing signals + timers context %p\n", __func__, context);
-
 	if (context->use_ev_sigint) {
 		uv_signal_stop(&pt->w_sigint.uv_watcher);
 
 		ns = ARRAY_SIZE(sigs);
-		if (lws_check_opt(context->options, LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN))
+		if (lws_check_opt(context->options,
+				  LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN))
 			ns = 2;
 
 		for (m = 0; m < ns; m++) {
@@ -308,12 +303,8 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 	while (budget-- && uv_run(pt->io_loop_uv, UV_RUN_NOWAIT))
 		;
 
-	lwsl_notice("%s: closing all loop handles context %p\n", __func__, context);
-
 	uv_stop(pt->io_loop_uv);
-
 	uv_walk(pt->io_loop_uv, lws_uv_walk_cb, NULL);
-
 	while (uv_run(pt->io_loop_uv, UV_RUN_NOWAIT))
 		;
 #if UV_VERSION_MAJOR > 0
@@ -332,8 +323,6 @@ lws_libuv_accept(struct lws *wsi, lws_sock_file_fd_type desc)
 
 	if (!LWS_LIBUV_ENABLED(context))
 		return;
-
-	lwsl_debug("%s: new wsi %p\n", __func__, wsi);
 
 	wsi->w_read.context = context;
 	if (wsi->mode == LWSCM_RAW_FILEDESC)
@@ -360,8 +349,6 @@ lws_libuv_io(struct lws *wsi, int flags)
 
 	if (!LWS_LIBUV_ENABLED(context))
 		return;
-
-	// lwsl_notice("%s: wsi: %p, flags:0x%x\n", __func__, wsi, flags);
 
 	// w->context is set after the loop is initialized
 
@@ -432,12 +419,9 @@ lws_libuv_kill(const struct lws_context *context)
 {
 	int n;
 
-	lwsl_notice("%s\n", __func__);
-
 	for (n = 0; n < context->count_threads; n++)
 		if (context->pt[n].io_loop_uv &&
-		    LWS_LIBUV_ENABLED(context) )//&&
-		    //!context->pt[n].ev_loop_foreign)
+		    LWS_LIBUV_ENABLED(context))
 			uv_stop(context->pt[n].io_loop_uv);
 }
 
@@ -447,7 +431,6 @@ lws_libuv_kill(const struct lws_context *context)
  * wsi, and set a flag; when all the wsi closures are finalized then we
  * actually stop the libuv event loops.
  */
-
 LWS_VISIBLE void
 lws_libuv_stop(struct lws_context *context)
 {
@@ -513,8 +496,6 @@ lws_libuv_closewsi(uv_handle_t* handle)
 		lwsl_notice("calling deprecation callback\n");
 		context->deprecation_cb();
 	}
-
-	//lwsl_notice("%s: ctx %p: wsi left %d\n", __func__, context, context->count_wsi_allocated);
 
 	if (context->requested_kill && context->count_wsi_allocated == 0)
 		lws_libuv_kill(context);
@@ -601,7 +582,8 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 
 			lwsl_notice("   %s\n", dent.name);
 
-			lws_snprintf(path, sizeof(path) - 1, "%s/%s", *d, dent.name);
+			lws_snprintf(path, sizeof(path) - 1, "%s/%s", *d,
+				     dent.name);
 			if (uv_dlopen(path, &lib)) {
 				uv_dlerror(&lib);
 				lwsl_err("Error loading DSO: %s\n", lib.errmsg);
@@ -631,7 +613,7 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 			lcaps.api_magic = LWS_PLUGIN_API_MAGIC;
 			m = initfunc(context, &lcaps);
 			if (m) {
-				lwsl_err("Initializing %s failed %d\n", dent.name, m);
+				lwsl_err("Init %s failed %d\n", dent.name, m);
 				goto skip;
 			}
 
@@ -669,9 +651,9 @@ lws_plat_plugins_destroy(struct lws_context *context)
 	struct lws_plugin *plugin = context->plugin_list, *p;
 	lws_plugin_destroy_func func;
 	char path[256];
+	int pofs = 0;
 	void *v;
 	int m;
-	int pofs = 0;
 
 #if  defined(__MINGW32__) || !defined(WIN32)
 	pofs = 3;
@@ -680,16 +662,16 @@ lws_plat_plugins_destroy(struct lws_context *context)
 	if (!plugin)
 		return 0;
 
-	// lwsl_notice("%s\n", __func__);
-
 	while (plugin) {
 		p = plugin;
 
 #if !defined(WIN32) && !defined(__MINGW32__)
-		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + pofs);
+		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s",
+				 plugin->name + pofs);
 		path[m - 3] = '\0';
 #else
-		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s", plugin->name + pofs);
+		m = lws_snprintf(path, sizeof(path) - 1, "destroy_%s",
+				 plugin->name + pofs);
 		path[m - 4] = '\0';
 #endif
 

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -51,8 +51,8 @@ static const char * const mount_protocols[] = {
 };
 
 LWS_VISIBLE void *
-lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols *prot,
-			    int size)
+lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
+			    const struct lws_protocols *prot, int size)
 {
 	int n = 0;
 
@@ -82,7 +82,8 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols 
 }
 
 LWS_VISIBLE void *
-lws_protocol_vh_priv_get(struct lws_vhost *vhost, const struct lws_protocols *prot)
+lws_protocol_vh_priv_get(struct lws_vhost *vhost,
+			 const struct lws_protocols *prot)
 {
 	int n = 0;
 
@@ -116,7 +117,6 @@ lws_vhost_protocol_options(struct lws_vhost *vh, const char *name)
 		return NULL;
 
 	while (pvo) {
-		// lwsl_notice("%s: '%s' '%s'\n", __func__, pvo->name, name);
 		if (!strcmp(pvo->name, name))
 			return pvo;
 		pvo = pvo->next;
@@ -193,15 +193,15 @@ lws_protocol_init(struct lws_context *context)
 			}
 
 			/*
-			 * inform all the protocols that they are doing their one-time
-			 * initialization if they want to.
+			 * inform all the protocols that they are doing their
+			 * one-time initialization if they want to.
 			 *
-			 * NOTE the wsi is all zeros except for the context, vh and
-			 * protocol ptrs so lws_get_context(wsi) etc can work
+			 * NOTE the wsi is all zeros except for the context, vh
+			 * + protocol ptrs so lws_get_context(wsi) etc can work
 			 */
 			if (vh->protocols[n].callback(&wsi,
-				LWS_CALLBACK_PROTOCOL_INIT, NULL,
-				(void *)pvo, 0))
+					LWS_CALLBACK_PROTOCOL_INIT, NULL,
+					(void *)pvo, 0))
 				return 1;
 		}
 
@@ -222,6 +222,7 @@ LWS_VISIBLE int
 lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
+	struct lws_ssl_info *si;
 #ifdef LWS_WITH_CGI
 	struct lws_cgi_args *args;
 #endif
@@ -249,7 +250,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 #ifdef LWS_WITH_CGI
-		if (wsi->reason_bf & (LWS_CB_REASON_AUX_BF__CGI_HEADERS | LWS_CB_REASON_AUX_BF__CGI)) {
+		if (wsi->reason_bf & (LWS_CB_REASON_AUX_BF__CGI_HEADERS |
+				      LWS_CB_REASON_AUX_BF__CGI)) {
 			n = lws_cgi_write_split_stdout_headers(wsi);
 			if (n < 0) {
 				lwsl_debug("LWS_CB_REASON_AUX_BF__CGI forcing close\n");
@@ -277,13 +279,13 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__PROXY) {
 			char *px = buf + LWS_PRE;
 			int lenx = sizeof(buf) - LWS_PRE;
+
 			/*
 			 * our sink is writeable and our source has something
 			 * to read.  So read a lump of source material of
 			 * suitable size to send or what's available, whichever
 			 * is the smaller.
 			 */
-
 			wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__PROXY;
 			if (!lws_get_child(wsi))
 				break;
@@ -296,7 +298,6 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
-		//lwsl_err("LWS_CALLBACK_RECEIVE_CLIENT_HTTP: wsi %p\n", wsi);
 		assert(lws_get_parent(wsi));
 		if (!lws_get_parent(wsi))
 			break;
@@ -305,7 +306,6 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-		//lwsl_err("LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ len %d\n", (int)len);
 		assert(lws_get_parent(wsi));
 		n = lws_write(lws_get_parent(wsi), (unsigned char *)in,
 				len, LWS_WRITE_HTTP);
@@ -316,13 +316,12 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
 		unsigned char *p, *end;
 		char ctype[64], ctlen = 0;
-
-		//lwsl_err("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP\n");
 	
 		p = (unsigned char *)buf + LWS_PRE;
 		end = p + sizeof(buf) - LWS_PRE;
 
-		if (lws_add_http_header_status(lws_get_parent(wsi), HTTP_STATUS_OK, &p, end))
+		if (lws_add_http_header_status(lws_get_parent(wsi),
+					       HTTP_STATUS_OK, &p, end))
 			return 1;
 		if (lws_add_http_header_by_token(lws_get_parent(wsi),
 				WSI_TOKEN_HTTP_SERVER,
@@ -330,25 +329,21 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				13, &p, end))
 			return 1;
 
-		ctlen = lws_hdr_copy(wsi, ctype, sizeof(ctype), WSI_TOKEN_HTTP_CONTENT_TYPE);
+		ctlen = lws_hdr_copy(wsi, ctype, sizeof(ctype),
+				     WSI_TOKEN_HTTP_CONTENT_TYPE);
 		if (ctlen > 0) {
 			if (lws_add_http_header_by_token(lws_get_parent(wsi),
 				WSI_TOKEN_HTTP_CONTENT_TYPE,
 				(unsigned char *)ctype, ctlen, &p, end))
 				return 1;
 		}
-#if 0
-		if (lws_add_http_header_content_length(lws_get_parent(wsi),
-						       file_len, &p, end))
-			return 1;
-#endif
+
 		if (lws_finalize_http_header(lws_get_parent(wsi), &p, end))
 			return 1;
 
 		*p = '\0';
-//		lwsl_info("%s\n", buf + LWS_PRE);
-
-		n = lws_write(lws_get_parent(wsi), (unsigned char *)buf + LWS_PRE,
+		n = lws_write(lws_get_parent(wsi),
+			      (unsigned char *)buf + LWS_PRE,
 			      p - ((unsigned char *)buf + LWS_PRE),
 			      LWS_WRITE_HTTP_HEADERS);
 		if (n < 0)
@@ -393,10 +388,11 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CGI_TERMINATED:
 		lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: %d %" PRIu64 "\n",
-				wsi->cgi->explicitly_chunked, (uint64_t)wsi->cgi->content_length);
+				wsi->cgi->explicitly_chunked,
+				(uint64_t)wsi->cgi->content_length);
 		if (!wsi->cgi->explicitly_chunked && !wsi->cgi->content_length) {
 			/* send terminating chunk */
-			lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: looking to send terminating chunk\n");
+			lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: ending\n");
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_CHUNK_END;
 			lws_callback_on_writable(wsi);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, 3);
@@ -416,13 +412,11 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 
 	case LWS_CALLBACK_SSL_INFO:
-		{
-			struct lws_ssl_info *si = in;
+		si = in;
 
-			(void)si;
-			lwsl_notice("LWS_CALLBACK_SSL_INFO: where: 0x%x, ret: 0x%x\n",
-					si->where, si->ret);
-		}
+		(void)si;
+		lwsl_notice("LWS_CALLBACK_SSL_INFO: where: 0x%x, ret: 0x%x\n",
+			    si->where, si->ret);
 		break;
 
 	default:
@@ -578,7 +572,8 @@ lws_create_vhost(struct lws_context *context,
 	} else
 #endif
 	lwsl_notice("Creating Vhost '%s' port %d, %d protocols, IPv6 %s\n",
-			vh->name, info->port, vh->count_protocols, LWS_IPV6_ENABLED(vh) ? "on" : "off");
+			vh->name, info->port, vh->count_protocols,
+			LWS_IPV6_ENABLED(vh) ? "on" : "off");
 
 	mounts = info->mounts;
 	while (mounts) {
@@ -597,7 +592,8 @@ lws_create_vhost(struct lws_context *context,
 					break;
 				}
 			if (n == vh->count_protocols)
-				lwsl_err("ignoring unknown interpret protocol %s\n", pvo->value);
+				lwsl_err("ignoring unknown interpret protocol %s\n",
+					 pvo->value);
 			pvo = pvo->next;
 		}
 
@@ -688,7 +684,8 @@ lws_create_vhost(struct lws_context *context,
 
 #ifdef LWS_WITH_ACCESS_LOG
 	if (info->log_filepath) {
-		vh->log_fd = open(info->log_filepath, O_CREAT | O_APPEND | O_RDWR, 0600);
+		vh->log_fd = open(info->log_filepath,
+				  O_CREAT | O_APPEND | O_RDWR, 0600);
 		if (vh->log_fd == (int)LWS_INVALID_FILE) {
 			lwsl_err("unable to open log filepath %s\n",
 				 info->log_filepath);
@@ -780,7 +777,6 @@ lws_create_context(struct lws_context_creation_info *info)
 	lwsl_info(" LWS_DEF_HEADER_LEN    : %u\n", LWS_DEF_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS     : %u\n", LWS_MAX_PROTOCOLS);
 	lwsl_info(" LWS_MAX_SMP           : %u\n", LWS_MAX_SMP);
-	lwsl_info(" SPEC_LATEST_SUPPORTED : %u\n", SPEC_LATEST_SUPPORTED);
 	lwsl_info(" sizeof (*info)        : %ld\n", (long)sizeof(*info));
 #if defined(LWS_WITH_STATS)
 	lwsl_info(" LWS_WITH_STATS        : on\n");
@@ -1259,7 +1255,8 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 
 	/* if we are still on deferred free list, remove ourselves */
 
-	lws_start_foreach_llp(struct lws_deferred_free **, pdf, context->deferred_free_list) {
+	lws_start_foreach_llp(struct lws_deferred_free **, pdf,
+			      context->deferred_free_list) {
 		if ((*pdf)->payload == vh) {
 			df = *pdf;
 			*pdf = df->next;
@@ -1270,7 +1267,8 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 
 	/* remove ourselves from the pending destruction list */
 
-	lws_start_foreach_llp(struct lws_vhost **, pv, context->vhost_pending_destruction_list) {
+	lws_start_foreach_llp(struct lws_vhost **, pv,
+			      context->vhost_pending_destruction_list) {
 		if ((*pv) == vh) {
 			*pv = (*pv)->vhost_next;
 			break;
@@ -1338,12 +1336,13 @@ lws_check_deferred_free(struct lws_context *context, int force)
 	struct lws_deferred_free *df;
 	time_t now = lws_now_secs();
 
-	lws_start_foreach_llp(struct lws_deferred_free **, pdf, context->deferred_free_list) {
+	lws_start_foreach_llp(struct lws_deferred_free **, pdf,
+			      context->deferred_free_list) {
 		if (now > (*pdf)->deadline || force) {
 			df = *pdf;
 			*pdf = df->next;
 			/* finalize vh destruction */
-			lwsl_notice("doing deferred vh %p destroy\n", df->payload);
+			lwsl_notice("deferred vh %p destroy\n", df->payload);
 			lws_vhost_destroy2(df->payload);
 			lws_free(df);
 			continue; /* after deletion we already point to next */
@@ -1384,7 +1383,8 @@ lws_context_destroy(struct lws_context *context)
 		return;
 	}
 	if (context->being_destroyed1) {
-		lwsl_notice("%s: ctx %p: already being destroyed\n", __func__, context);
+		lwsl_notice("%s: ctx %p: already being destroyed\n",
+			    __func__, context);
 		return;
 	}
 
@@ -1503,7 +1503,8 @@ lws_context_destroy2(struct lws_context *context)
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	for (n = 0; n < context->pl_hash_elements; n++)	{
-		lws_start_foreach_llp(struct lws_peer **, peer, context->pl_hash_table[n]) {
+		lws_start_foreach_llp(struct lws_peer **, peer,
+				      context->pl_hash_table[n]) {
 			struct lws_peer *df = *peer;
 			*peer = df->next;
 			lws_free(df);

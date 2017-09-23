@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -109,11 +109,11 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 		lws_free_set_NULL(wsi->u.hdr.preamble_rx);
 
 		if (autoservice) {
-			lwsl_notice("%s: calling service on readbuf ah\n", __func__);
+			lwsl_debug("%s: service on readbuf ah\n", __func__);
 
 			pt = &wsi->context->pt[(int)wsi->tsi];
-
-			/* unlike a normal connect, we have the headers already
+			/*
+			 * Unlike a normal connect, we have the headers already
 			 * (or the first part of them anyway)
 			 */
 			pfd = &pt->fds[wsi->position_in_fds_table];
@@ -152,9 +152,6 @@ __lws_remove_from_ah_waiting_list(struct lws *wsi)
 {
         struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	struct lws **pwsi =&pt->ah_wait_list;
-
-	//if (wsi->u.hdr.ah)
-	//	return 0;
 
 	while (*pwsi) {
 		if (*pwsi == wsi) {
@@ -426,7 +423,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	assert(!!pt->ah_wait_list_length == !!(lws_intptr_t)pt->ah_wait_list);
 bail:
 	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
-	  (void *)wsi, (void *)ah, pt->tid, pt->ah_count_in_use);
+		  (void *)wsi, (void *)ah, pt->tid, pt->ah_count_in_use);
 
 	lws_pt_unlock(pt);
 
@@ -527,7 +524,8 @@ LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 		return 0;
 
 	do {
-		strcpy(dst, &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset]);
+		strcpy(dst,
+		       &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset]);
 		dst += wsi->u.hdr.ah->frags[n].len;
 		n = wsi->u.hdr.ah->frags[n].nfrag;
 	} while (n);
@@ -549,7 +547,8 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 int LWS_WARN_UNUSED_RESULT
 lws_pos_in_bounds(struct lws *wsi)
 {
-	if (wsi->u.hdr.ah->pos < (unsigned int)wsi->context->max_http_header_data)
+	if (wsi->u.hdr.ah->pos <
+	    (unsigned int)wsi->context->max_http_header_data)
 		return 0;
 
 	if (wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {
@@ -559,9 +558,8 @@ lws_pos_in_bounds(struct lws *wsi)
 
 	/*
 	 * with these tests everywhere, it should never be able to exceed
-	 * the limit, only meet the limit
+	 * the limit, only meet it
 	 */
-
 	lwsl_err("%s: pos %d, limit %d\n", __func__, wsi->u.hdr.ah->pos,
 		 wsi->context->max_http_header_data);
 	assert(0);
@@ -1567,7 +1565,8 @@ drain_extension:
 			goto already_done;
 
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &eff_buf, 0);
-		/* eff_buf may be pointing somewhere completely different now,
+		/*
+		 * eff_buf may be pointing somewhere completely different now,
 		 * it's the output
 		 */
 		wsi->u.ws.first_fragment = 0;
@@ -1582,10 +1581,10 @@ drain_extension:
 		if (rx_draining_ext && eff_buf.token_len == 0)
 			goto already_done;
 
-		if (n && eff_buf.token_len) {
+		if (n && eff_buf.token_len)
 			/* extension had more... main loop will come back */
 			lws_add_wsi_to_draining_ext_list(wsi);
-		} else
+		else
 			lws_remove_wsi_from_draining_ext_list(wsi);
 
 		if (eff_buf.token_len > 0 ||

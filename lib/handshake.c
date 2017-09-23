@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2015 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -66,8 +66,6 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	lws_filepos_t body_chunk_len;
 	size_t n;
 
-	lwsl_debug("%s: incoming len %d  state %d\n", __func__, (int)len, wsi->state);
-
 	switch (wsi->state) {
 #ifdef LWS_USE_HTTP2
 	case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
@@ -103,6 +101,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 
 	case LWSS_HTTP:
 		wsi->hdr_parsing_completed = 0;
+
 		/* fallthru */
 
 	case LWSS_HTTP_HEADERS:
@@ -206,9 +205,13 @@ http_postbody:
 			/* he sent all the content in time */
 postbody_completion:
 #ifdef LWS_WITH_CGI
-			/* if we're running a cgi, we can't let him off the hook just because he sent his POST data */
+			/*
+			 * If we're running a cgi, we can't let him off the
+			 * hook just because he sent his POST data
+			 */
 			if (wsi->cgi)
-				lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, wsi->context->timeout_secs);
+				lws_set_timeout(wsi, PENDING_TIMEOUT_CGI,
+						wsi->context->timeout_secs);
 			else
 #endif
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
@@ -255,7 +258,6 @@ read_ok:
 	return buf - oldbuf;
 
 bail:
-	//lwsl_notice("closing connection at lws_read bail:\n");
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return -1;
