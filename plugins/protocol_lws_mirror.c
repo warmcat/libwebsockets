@@ -27,14 +27,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-/* lws-mirror_protocol */
-
-#if defined(LWS_WITH_ESP8266)
 #define MAX_MESSAGE_QUEUE 64
-#else
-#define MAX_MESSAGE_QUEUE 512
-#endif
-
 #define MAX_MIRROR_INSTANCES 10
 
 struct lws_mirror_instance;
@@ -111,6 +104,7 @@ lws_mirror_rxflow_instance(struct lws_mirror_instance *mi, int enable)
 	} lws_end_foreach_ll(pss, same_mi_pss_list);
 
 	mi->rx_enabled = enable;
+	lwsl_notice("%s: %d\n", __func__, enable);
 }
 
 static void
@@ -248,9 +242,12 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
+		lwsl_notice("LWS_CALLBACK_SERVER_WRITEABLE\n");
 		oldest_tail = lws_ring_get_oldest_tail(pss->mi->ring);
 		update_worst = oldest_tail == pss->tail;
 		sent_something = 0;
+
+		lwsl_notice(" original oldest %d, free elements %ld\n", oldest_tail, lws_ring_get_count_free_elements(pss->mi->ring));
 
 		do {
 			msg = lws_ring_get_element(pss->mi->ring, &pss->tail);
@@ -278,8 +275,14 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		 * fifo position and made some space.
 		 */
 		if (!sent_something || !update_worst ||
-		    !lws_mirror_update_worst_tail(pss->mi))
+		    !lws_mirror_update_worst_tail(pss->mi)) {
+			lwsl_notice("worst didnt change\n");
+			lwsl_notice("free elements: %ld\n", lws_ring_get_count_free_elements(pss->mi->ring));
+
 			break;
+		}
+
+		lwsl_notice("free elements: %ld\n", lws_ring_get_count_free_elements(pss->mi->ring));
 
 		/*
 		 * the oldest tail did move on... so we were the oldest...
@@ -287,8 +290,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		 * since we made some space now
 		 */
 		if (!pss->mi->rx_enabled && /* rx is disabled */
-		    lws_ring_get_count_free_elements(pss->mi->ring) >
-					MAX_MESSAGE_QUEUE - 5)
+		    lws_ring_get_count_free_elements(pss->mi->ring) > 5)
 			/* there is enough space, let's allow rx */
 			lws_mirror_rxflow_instance(pss->mi, 1);
 		break;
@@ -312,10 +314,9 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_ring_insert(pss->mi->ring, &amsg, 1);
 
 		if (pss->mi->rx_enabled &&
-		    lws_ring_get_count_free_elements(pss->mi->ring) <
-		    	    MAX_MESSAGE_QUEUE - 5)
+		    lws_ring_get_count_free_elements(pss->mi->ring) < 5) {
 			lws_mirror_rxflow_instance(pss->mi, 0);
-
+		}
 		/* ask for WRITABLE callback for every wsi on this mi */
 		lws_start_foreach_ll(struct per_session_data__lws_mirror *,
 				     pss1, pss->mi->same_mi_pss_list) {
