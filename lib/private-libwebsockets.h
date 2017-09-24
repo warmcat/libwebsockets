@@ -190,13 +190,16 @@ int kill(int pid, int sig);
  #include <getifaddrs.h>
 #else
  #if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
+ #if defined(__HAIKU__)
+   #define _BSD_SOURCE
+ #endif
  #include <ifaddrs.h>
  #endif
 #endif
 #if defined (__ANDROID__)
 #include <syslog.h>
 #include <sys/resource.h>
-#elif defined (__sun)
+#elif defined (__sun) || defined(__HAIKU__)
 #include <syslog.h>
 #else
 #if !defined(LWS_WITH_ESP8266)  && !defined(LWS_WITH_ESP32)
