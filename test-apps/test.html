@@ -542,9 +542,12 @@ if (params.mirror)
  * These helpers are defined in lws-common.js
  */
 
+var use_lws_meta = 0, lws_meta;
 
-var lws_meta = new lws_meta_ws();
-lws_meta.new_parent(get_appropriate_ws_url("?mirror=" + mirror_name));
+if (use_lws_meta) {
+	lws_meta = new lws_meta_ws();
+	lws_meta.new_parent(get_appropriate_ws_url("?mirror=" + mirror_name));
+}
 
 
 document.getElementById("number").textContent = get_appropriate_ws_url(mirror_name);
@@ -557,7 +560,12 @@ document.getElementById("number").textContent = get_appropriate_ws_url(mirror_na
 	 * the connection using just new_ws()
 	 */
 	
-	var socket_di = lws_meta.new_ws("", "dumb-increment-protocol");
+	var socket_di;
+	
+	if (use_lws_meta)
+		socket_di = lws_meta.new_ws("", "dumb-increment-protocol");
+	else
+		socket_di = new_ws(get_appropriate_ws_url(""), "dumb-increment-protocol");
 
 	try {
 		socket_di.onopen = function() {
@@ -581,8 +589,10 @@ document.getElementById("number").textContent = get_appropriate_ws_url(mirror_na
 	
 	var socket_status, jso, s;
 
-
-	socket_status = lws_meta.new_ws(get_appropriate_ws_url(""), "lws-status");
+	if (use_lws_meta)
+		socket_status = lws_meta.new_ws("", "lws-status");
+	else
+		socket_status = new_ws(get_appropriate_ws_url(""), "lws-status");
 
 	try {
 		socket_status.onopen = function() {
@@ -648,8 +658,10 @@ function on_pmd() {
 var socket_ot;
 
 function ot_open() {
-
-	socket_ot = lws_meta.new_ws(get_appropriate_ws_url(""), "dumb-increment-protocol");
+	if (use_lws_meta)
+		socket_ot = lws_meta.new_ws(get_appropriate_ws_url(""), "dumb-increment-protocol");
+	else
+		socket_ot = new_ws(get_appropriate_ws_url(""), "dumb-increment-protocol");
 
 	console.log("ot_open");
 
@@ -697,9 +709,12 @@ function ot_req_close() {
 	var pending = "";
 	var lm_timer;
 
-	socket_lm = lws_meta.new_ws(get_appropriate_ws_url("?mirror=" + mirror_name),
+	if (use_lws_meta)
+		socket_lm = lws_meta.new_ws(get_appropriate_ws_url("?mirror=" + mirror_name),
 			"lws-mirror-protocol");
-
+	else
+		socket_lm = new_ws(get_appropriate_ws_url("?mirror=" + mirror_name),
+			"lws-mirror-protocol");
 	try {
 		socket_lm.onopen = function() {
 			document.getElementById("wslm_statustd").style.backgroundColor = "#40ff40";
