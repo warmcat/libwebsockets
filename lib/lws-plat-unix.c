@@ -233,7 +233,8 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 #if defined(__APPLE__) || \
     defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || \
     defined(__NetBSD__) || \
-    defined(__OpenBSD__)
+    defined(__OpenBSD__) || \
+    defined(__HAIKU__)
 	struct protoent *tcp_proto;
 #endif
 
@@ -247,7 +248,8 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 #if defined(__APPLE__) || \
     defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || \
     defined(__NetBSD__) || \
-        defined(__CYGWIN__) || defined(__OpenBSD__) || defined (__sun)
+    defined(__CYGWIN__) || defined(__OpenBSD__) || defined (__sun) || \
+    defined(__HAIKU__)
 
 		/*
 		 * didn't find a way to set these per-socket, need to
@@ -291,7 +293,8 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 #elif !defined(__APPLE__) && \
       !defined(__FreeBSD__) && !defined(__FreeBSD_kernel__) &&        \
       !defined(__NetBSD__) && \
-      !defined(__OpenBSD__)
+      !defined(__OpenBSD__) && \
+      !defined(__HAIKU__)
 	if (setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
 		return 1;
 #else
