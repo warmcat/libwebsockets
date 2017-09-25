@@ -338,14 +338,13 @@ lws_libuv_io(struct lws *wsi, int flags)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-#if defined(WIN32) || defined(_WIN32)
-	int current_events = wsi->w_read.uv_watcher.events &
-			     (UV_READABLE | UV_WRITABLE);
-#else
-	int current_events = wsi->w_read.uv_watcher.io_watcher.pevents &
-			     (UV_READABLE | UV_WRITABLE);
-#endif
 	struct lws_io_watcher *w = &wsi->w_read;
+//#if defined(WIN32) || defined(_WIN32)
+//	int current_events = w->uv_watcher.events &
+//			     (UV_READABLE | UV_WRITABLE);
+//#else
+	int current_events = w->actual_events & (UV_READABLE | UV_WRITABLE);
+//#endif
 
 	if (!LWS_LIBUV_ENABLED(context))
 		return;
@@ -384,6 +383,8 @@ lws_libuv_io(struct lws *wsi, int flags)
 			uv_poll_start(&w->uv_watcher, current_events,
 				      lws_io_cb);
 	}
+
+	w->actual_events = current_events;
 }
 
 int

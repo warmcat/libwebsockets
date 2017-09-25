@@ -696,6 +696,8 @@ struct lws_io_watcher {
 	struct event *event_watcher;
 #endif
 	struct lws_context *context;
+
+	uint8_t actual_events;
 };
 
 struct lws_signal_watcher {
