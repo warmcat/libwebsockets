@@ -146,7 +146,7 @@ deleting build/CMakeCache.txt may be enough.
 
 1. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
 
-2. Install OpenSSL binaries. http://www.openssl.org/related/binaries.html
+2. Install OpenSSL binaries. https://wiki.openssl.org/index.php/Binaries
 
    (**NOTE**: Preferably in the default location to make it easier for CMake to find them)
 
@@ -218,7 +218,7 @@ deleting build/CMakeCache.txt may be enough.
 
 3. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
 
-4. Install OpenSSL binaries. http://www.openssl.org/related/binaries.html
+4. Install OpenSSL binaries. https://wiki.openssl.org/index.php/Binaries
 
    (**NOTE**: Preferably in the default location to make it easier for CMake to find them)
 
