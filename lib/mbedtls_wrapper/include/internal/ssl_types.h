@@ -144,6 +144,10 @@ struct X509_VERIFY_PARAM_st {
 
 };
 
+typedef int (*next_proto_cb)(SSL *ssl, unsigned char **out,
+                             unsigned char *outlen, const unsigned char *in,
+                             unsigned int inlen, void *arg);
+
 struct ssl_ctx_st
 {
     int version;
@@ -152,15 +156,15 @@ struct ssl_ctx_st
 
     unsigned long options;
 
-    #if 0
-        struct alpn_protocols alpn_protocol;
-    #endif
-
     const SSL_METHOD *method;
 
     CERT *cert;
 
     X509 *client_CA;
+
+    const char **alpn_protos;
+
+    next_proto_cb alpn_cb;
 
     int verify_mode;
 
@@ -277,9 +281,7 @@ struct pkey_method_st {
     int (*pkey_load)(EVP_PKEY *pkey, const unsigned char *buf, int len);
 };
 
-typedef int (*next_proto_cb)(SSL *ssl, unsigned char **out,
-                             unsigned char *outlen, const unsigned char *in,
-                             unsigned int inlen, void *arg);
+#define OPENSSL_NPN_NEGOTIATED 1
 
 #ifdef __cplusplus
 }

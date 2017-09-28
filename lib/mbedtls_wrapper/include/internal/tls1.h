@@ -48,6 +48,9 @@
 #define TLS1_1_VERSION                  0x0302
 #define TLS1_2_VERSION                  0x0303
 
+#define SSL_TLSEXT_ERR_OK 0
+#define SSL_TLSEXT_ERR_NOACK 3
+
 #ifdef __cplusplus
 }
 #endif

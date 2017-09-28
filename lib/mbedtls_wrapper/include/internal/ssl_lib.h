@@ -21,6 +21,8 @@
 
 #include "ssl_types.h"
 
+ void _ssl_set_alpn_list(const SSL *ssl);
+
 #ifdef __cplusplus
 }
 #endif
