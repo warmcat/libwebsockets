@@ -25,7 +25,7 @@
 #if defined(_DEBUG) || defined(LWS_WITH_ACCESS_LOG)
 	static const char * const method_names[] = {
 		"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT",
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 		":path",
 #endif
 	};
@@ -80,12 +80,12 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #endif
 
 	for (m = 0; m < limit; m++) {
-#ifdef LWS_USE_UNIX_SOCK
+#ifdef LWS_WITH_UNIX_SOCK
 	if (LWS_UNIX_SOCK_ENABLED(vhost))
 		sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
 	else
 #endif
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	if (LWS_IPV6_ENABLED(vhost))
 		sockfd = socket(AF_INET6, SOCK_STREAM, 0);
 	else
@@ -131,7 +131,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		return 1;
 	}
 
-#if defined(LWS_USE_IPV6) && defined(IPV6_V6ONLY)
+#if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 	if (LWS_IPV6_ENABLED(vhost)) {
 		if (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) {
 			int value = (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE) ? 1 : 0;
@@ -183,7 +183,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	wsi->vhost = vhost;
 	wsi->listener = 1;
 
-#ifdef LWS_USE_LIBUV
+#ifdef LWS_WITH_LIBUV
 	if (LWS_LIBUV_ENABLED(vhost->context))
 		lws_uv_initvhost(vhost, wsi);
 #endif
@@ -210,7 +210,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
-#ifdef LWS_USE_UNIX_SOCK
+#ifdef LWS_WITH_UNIX_SOCK
 		if (LWS_UNIX_SOCK_ENABLED(vhost))
 			lwsl_info(" Listening on \"%s\"\n", info->iface);
 		else
@@ -738,7 +738,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
 	static const char * const hver[] = {
 		"http/1.0", "http/1.1", "http/2"
 	};
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	char ads[INET6_ADDRSTRLEN];
 #else
 	char ads[INET_ADDRSTRLEN];
@@ -817,7 +817,7 @@ static const unsigned char methods[] = {
 	WSI_TOKEN_PATCH_URI,
 	WSI_TOKEN_DELETE_URI,
 	WSI_TOKEN_CONNECT,
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	WSI_TOKEN_HTTP_COLON_PATH,
 #endif
 };
@@ -1530,7 +1530,7 @@ raw_transition:
 				lwsl_info("Upgrade to ws\n");
 				goto upgrade_ws;
 			}
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 			if (!strcasecmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE),
 					"h2c")) {
 				wsi->vhost->conn_stats.http2_upg++;
@@ -1561,7 +1561,7 @@ raw_transition:
 
 		return n;
 
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 upgrade_h2c:
 		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP2_SETTINGS)) {
 			lwsl_info("missing http2_settings\n");
@@ -1829,7 +1829,7 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	int n, af = AF_INET;
 	struct sockaddr_storage addr;
 
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	if (LWS_IPV6_ENABLED(vhost)) {
 		af = AF_INET6;
 	}
@@ -1843,7 +1843,7 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 		q = &s->sin_addr;
 		rlen = sizeof(s->sin_addr);
 	} else
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	{
 		struct sockaddr_in6 *s = (struct sockaddr_in6 *)&addr;
 		q = &s->sin6_addr;
@@ -2786,7 +2786,7 @@ try_pollout:
 
 			lws_plat_set_socket_options(wsi->vhost, accept_fd);
 
-#if defined(LWS_USE_IPV6)
+#if defined(LWS_WITH_IPV6)
 			lwsl_debug("accepted new conn port %u on fd=%d\n",
 					  ((cli_addr.ss_family == AF_INET6) ?
 					  ntohs(((struct sockaddr_in6 *) &cli_addr)->sin6_port) :

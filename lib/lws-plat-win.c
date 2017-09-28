@@ -401,7 +401,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_interface_to_sa(int ipv6,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
 
 	if (ipv6) {
@@ -513,7 +513,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 		if (!WSAAddressToStringW((struct sockaddr*)&srcaddr, sizeof(srcaddr), 0, buffer, &bufferlen))
 			ok = TRUE;
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	} else if (af == AF_INET6) {
 		struct sockaddr_in6 srcaddr;
 		bzero(&srcaddr, sizeof(srcaddr));
@@ -567,7 +567,7 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 			ok = TRUE;
 			memcpy(dst, &dstaddr.sin_addr, sizeof(dstaddr.sin_addr));
 		}
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	} else if (af == AF_INET6) {
 		struct sockaddr_in6 dstaddr;
 		int dstaddrlen = sizeof(dstaddr);

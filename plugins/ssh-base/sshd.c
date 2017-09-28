@@ -523,7 +523,7 @@ ssh_destroy_channel(struct per_session_data__sshd *pss,
 static int
 lws_ssh_parse_plaintext(struct per_session_data__sshd *pss, uint8_t *p, size_t len)
 {
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	mbedtls_rsa_context *ctx;
 #else
 	BIGNUM *bn_e = NULL, *bn_n = NULL;
@@ -1222,7 +1222,7 @@ again:
 			 * Prepare the RSA decryption context: load in
 			 * the E and N factors
 			 */
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 			ctx = sshd_zalloc(sizeof(*ctx));
 			if (!ctx)
 				goto ua_fail;
@@ -1300,7 +1300,7 @@ again:
 			m = lws_g32(&pp);
 			pp += m;
 			m = lws_g32(&pp);
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 			ctx->len = m;
 #endif
 
@@ -1313,7 +1313,7 @@ again:
 			if (!otmp)
 				/* ua_fail1 frees bn_e, bn_n and rsa */
 				goto ua_fail1;
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 			m = mbedtls_rsa_rsaes_pkcs1_v15_decrypt(ctx,
 				NULL, NULL, MBEDTLS_RSA_PUBLIC,
 				&olen, pp, otmp, m);
@@ -1350,7 +1350,7 @@ again:
 				}
 			} else
 				lwsl_notice("decrypt failed\n");
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 			mbedtls_rsa_free(ctx);
 			free(ctx);
 #endif
@@ -1876,7 +1876,7 @@ ch_fail:
 			break;
 
 ua_fail1:
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 			mbedtls_rsa_free(ctx);
 			free(ctx);
 #else

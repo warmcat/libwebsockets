@@ -166,18 +166,18 @@ typedef unsigned long long lws_intptr_t;
 
 #endif
 
-#ifdef LWS_USE_LIBEV
+#ifdef LWS_WITH_LIBEV
 #include <ev.h>
-#endif /* LWS_USE_LIBEV */
-#ifdef LWS_USE_LIBUV
+#endif /* LWS_WITH_LIBEV */
+#ifdef LWS_WITH_LIBUV
 #include <uv.h>
 #ifdef LWS_HAVE_UV_VERSION_H
 #include <uv-version.h>
 #endif
-#endif /* LWS_USE_LIBUV */
-#ifdef LWS_USE_LIBEVENT
+#endif /* LWS_WITH_LIBUV */
+#ifdef LWS_WITH_LIBEVENT
 #include <event2/event.h>
-#endif /* LWS_USE_LIBEVENT */
+#endif /* LWS_WITH_LIBEVENT */
 
 #ifndef LWS_EXTERN
 #define LWS_EXTERN extern
@@ -203,7 +203,7 @@ typedef unsigned long long lws_intptr_t;
 #include <wolfssl/error-ssl.h>
 #endif /* not USE_OLD_CYASSL */
 #else
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 #if defined(LWS_WITH_ESP32)
 /* this filepath is passed to us but without quotes or <> */
 #undef MBEDTLS_CONFIG_FILE
@@ -212,7 +212,7 @@ typedef unsigned long long lws_intptr_t;
 #include <mbedtls/ssl.h>
 #endif
 #include <openssl/ssl.h>
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 #include <openssl/err.h>
 #endif
 #endif /* not USE_WOLFSSL */
@@ -1439,7 +1439,7 @@ lws_callback_function(struct lws *wsi, enum lws_callback_reasons reason,
 
 #ifdef LWS_OPENSSL_SUPPORT
 
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/sha1.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/sha512.h>
@@ -1451,7 +1451,7 @@ lws_callback_function(struct lws *wsi, enum lws_callback_reasons reason,
 
 struct lws_genhash_ctx {
         uint8_t type;
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
         union {
 		mbedtls_sha1_context sha1;
 		mbedtls_sha256_context sha256;
@@ -3811,7 +3811,7 @@ lws_json_purify(char *escaped, const char *string, int len);
  */
 ///@{
 
-#ifdef LWS_USE_LIBEV
+#ifdef LWS_WITH_LIBEV
 typedef void (lws_ev_signal_cb_t)(EV_P_ struct ev_signal *w, int revents);
 
 LWS_VISIBLE LWS_EXTERN int
@@ -3823,7 +3823,7 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents);
-#endif /* LWS_USE_LIBEV */
+#endif /* LWS_WITH_LIBEV */
 
 ///@}
 
@@ -3834,7 +3834,7 @@ lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents);
  * APIs specific to libuv event loop itegration
  */
 ///@{
-#ifdef LWS_USE_LIBUV
+#ifdef LWS_WITH_LIBUV
 LWS_VISIBLE LWS_EXTERN int
 lws_uv_sigint_cfg(struct lws_context *context, int use_uv_sigint,
 		  uv_signal_cb cb);
@@ -3859,7 +3859,7 @@ lws_uv_sigint_cb(uv_signal_t *watcher, int signum);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_close_all_handles_in_loop(uv_loop_t *loop);
-#endif /* LWS_USE_LIBUV */
+#endif /* LWS_WITH_LIBUV */
 ///@}
 
 /*! \defgroup event libevent helpers
@@ -3870,7 +3870,7 @@ lws_close_all_handles_in_loop(uv_loop_t *loop);
  */
 ///@{
 
-#ifdef LWS_USE_LIBEVENT
+#ifdef LWS_WITH_LIBEVENT
 typedef void (lws_event_signal_cb_t) (evutil_socket_t sock_fd, short revents,
 		  void *ctx);
 
@@ -3885,7 +3885,7 @@ lws_event_initloop(struct lws_context *context, struct event_base *loop,
 LWS_VISIBLE LWS_EXTERN void
 lws_event_sigint_cb(evutil_socket_t sock_fd, short revents,
 		  void *ctx);
-#endif /* LWS_USE_LIBEVENT */
+#endif /* LWS_WITH_LIBEVENT */
 
 ///@}
 

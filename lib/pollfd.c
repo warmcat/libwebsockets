@@ -341,7 +341,7 @@ LWS_VISIBLE int
 lws_callback_on_writable(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt;
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	struct lws *network_wsi, *wsi2;
 	int already;
 #endif
@@ -379,7 +379,7 @@ lws_callback_on_writable(struct lws *wsi)
 	}
 #endif
 
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	lwsl_info("%s: %p\n", __func__, wsi);
 
 	if (wsi->mode != LWSCM_HTTP2_SERVING)

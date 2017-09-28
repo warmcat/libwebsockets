@@ -15,10 +15,10 @@
 /* Also define to 1 (in addition to USE_WOLFSSL) when using the
   (older) CyaSSL library */
 #cmakedefine USE_OLD_CYASSL
-#cmakedefine LWS_USE_BORINGSSL
+#cmakedefine LWS_WITH_BORINGSSL
 
-#cmakedefine LWS_USE_MBEDTLS
-#cmakedefine LWS_USE_POLARSSL
+#cmakedefine LWS_WITH_MBEDTLS
+#cmakedefine LWS_WITH_POLARSSL
 #cmakedefine LWS_WITH_ESP8266
 #cmakedefine LWS_WITH_ESP32
 
@@ -50,22 +50,22 @@
 #cmakedefine LWS_NO_EXTENSIONS
 
 /* Enable libev io loop */
-#cmakedefine LWS_USE_LIBEV
+#cmakedefine LWS_WITH_LIBEV
 
 /* Enable libuv io loop */
-#cmakedefine LWS_USE_LIBUV
+#cmakedefine LWS_WITH_LIBUV
 
 /* Enable libevent io loop */
-#cmakedefine LWS_USE_LIBEVENT
+#cmakedefine LWS_WITH_LIBEVENT
 
 /* Build with support for ipv6 */
-#cmakedefine LWS_USE_IPV6
+#cmakedefine LWS_WITH_IPV6
 
 /* Build with support for UNIX domain socket */
-#cmakedefine LWS_USE_UNIX_SOCK
+#cmakedefine LWS_WITH_UNIX_SOCK
 
 /* Build with support for HTTP2 */
-#cmakedefine LWS_USE_HTTP2
+#cmakedefine LWS_WITH_HTTP2
 
 /* Turn on latency measuring code */
 #cmakedefine LWS_LATENCY

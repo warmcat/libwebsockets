@@ -572,7 +572,7 @@ lws_create_vhost(struct lws_context *context,
 
 	vh->mount_list = info->mounts;
 
-#ifdef LWS_USE_UNIX_SOCK
+#ifdef LWS_WITH_UNIX_SOCK
 	if (LWS_UNIX_SOCK_ENABLED(context)) {
 		lwsl_notice("Creating Vhost '%s' path \"%s\", %d protocols\n",
 				vh->name, info->iface, vh->count_protocols);
@@ -768,7 +768,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	lwsl_info("Compiled with  %s\n", GCC_VER);
 #endif
 #if LWS_POSIX
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_IPV6))
 		lwsl_info("IPV6 compiled in and enabled\n");
 	else
@@ -914,7 +914,7 @@ lws_create_context(struct lws_context_creation_info *info)
 			return NULL;
 		}
 
-#ifdef LWS_USE_LIBUV
+#ifdef LWS_WITH_LIBUV
 		context->pt[n].context = context;
 #endif
 		context->pt[n].tid = n;
@@ -949,7 +949,7 @@ lws_create_context(struct lws_context_creation_info *info)
 		return NULL;
 	}
 
-#ifdef LWS_USE_LIBEV
+#ifdef LWS_WITH_LIBEV
 	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
 	 * enable libev mediated SIGINT handling with a default handler of
 	 * lws_sigint_cb. The handler can be overridden or disabled
@@ -958,8 +958,8 @@ lws_create_context(struct lws_context_creation_info *info)
 	 */
 	context->use_ev_sigint = 1;
 	context->lws_ev_sigint_cb = &lws_ev_sigint_cb;
-#endif /* LWS_USE_LIBEV */
-#ifdef LWS_USE_LIBUV
+#endif /* LWS_WITH_LIBEV */
+#ifdef LWS_WITH_LIBUV
 	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
 	 * enable libev mediated SIGINT handling with a default handler of
 	 * lws_sigint_cb. The handler can be overridden or disabled
@@ -969,7 +969,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->use_ev_sigint = 1;
 	context->lws_uv_sigint_cb = &lws_uv_sigint_cb;
 #endif
-#ifdef LWS_USE_LIBEVENT
+#ifdef LWS_WITH_LIBEVENT
 	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
 	 * enable libev mediated SIGINT handling with a default handler of
 	 * lws_sigint_cb. The handler can be overridden or disabled
@@ -978,7 +978,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	 */
 	context->use_ev_sigint = 1;
 	context->lws_event_sigint_cb = &lws_event_sigint_cb;
-#endif /* LWS_USE_LIBEVENT */
+#endif /* LWS_WITH_LIBEVENT */
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	/* scale the peer hash table according to the max fds for the process,

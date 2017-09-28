@@ -306,7 +306,7 @@ this to work.
 @section wolf1 Compiling libwebsockets with wolfSSL
 
 ```
-	cmake .. -DLWS_USE_WOLFSSL=1 \
+	cmake .. -DLWS_WITH_WOLFSSL=1 \
 		 -DLWS_WOLFSSL_INCLUDE_DIRS=/path/to/wolfssl \
 		 -DLWS_WOLFSSL_LIBRARIES=/path/to/wolfssl/wolfssl.a ..
 ```
@@ -316,7 +316,7 @@ this to work.
 @section cya Compiling libwebsockets with CyaSSL
 
 ```
-	cmake .. -DLWS_USE_CYASSL=1 \
+	cmake .. -DLWS_WITH_CYASSL=1 \
 		 -DLWS_CYASSL_INCLUDE_DIRS=/path/to/cyassl \
 		 -DLWS_CYASSL_LIBRARIES=/path/to/wolfssl/cyassl.a ..
 ```

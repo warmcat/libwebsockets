@@ -35,7 +35,7 @@ extern int lws_ssl_get_error(struct lws *wsi, int n);
 static int
 OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	lwsl_notice("%s\n", __func__);
 
 	return 0;
@@ -150,14 +150,14 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 #endif
 
-#if !defined(USE_WOLFSSL) && !defined(LWS_USE_MBEDTLS)
+#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
 #ifndef USE_OLD_CYASSL
 	/* OpenSSL_client_verify_callback will be called @ SSL_connect() */
 	SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
 #endif
 #endif
 
-#if !defined(USE_WOLFSSL) && !defined(LWS_USE_MBEDTLS)
+#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
 	SSL_set_mode(wsi->ssl,  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 #endif
 	/*
@@ -175,7 +175,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 #endif
 #else
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	if (wsi->vhost->x509_client_CA)
 		SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
 	else
@@ -205,7 +205,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 #endif /* USE_WOLFSSL */
 
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 	wsi->client_bio = BIO_new_socket(wsi->desc.sockfd, BIO_NOCLOSE);
 	SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
 #else
@@ -219,12 +219,12 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	wolfSSL_set_using_nonblock(wsi->ssl, 1);
 #endif
 #else
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 	BIO_set_nbio(wsi->client_bio, 1); /* nonblocking */
 #endif
 #endif
 
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 	SSL_set_ex_data(wsi->ssl, openssl_websocket_private_data_index,
 			wsi);
 #endif
@@ -232,7 +232,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	return 0;
 }
 
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 int ERR_get_error(void)
 {
 	return 0;
@@ -379,7 +379,7 @@ lws_ssl_client_connect2(struct lws *wsi)
 		}
 	}
 
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	{
 		X509 *peer = SSL_get_peer_certificate(wsi->ssl);
 
@@ -437,7 +437,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	struct lws wsi;
 	unsigned long error;
 	const char *ca_filepath = info->ssl_ca_filepath;
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 	const char *cipher_list = info->ssl_cipher_list;
 	const char *private_key_filepath = info->ssl_private_key_filepath;
 	const char *cert_filepath = info->ssl_cert_filepath;
@@ -508,7 +508,7 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	SSL_CTX_set_options(vhost->ssl_client_ctx, SSL_OP_NO_COMPRESSION);
 #endif
 
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	if (ca_filepath) {
 		lws_filepos_t len;
 		uint8_t *buf;

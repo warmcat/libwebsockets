@@ -30,7 +30,7 @@
 #include <sys/wait.h>
 #endif
 
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 #if defined(WIN32) || defined(_WIN32)
 #include <Iphlpapi.h>
 #else
@@ -741,7 +741,7 @@ just_kill_connection:
 async_close:
 	wsi->socket_is_permanently_unusable = 1;
 
-#ifdef LWS_USE_LIBUV
+#ifdef LWS_WITH_LIBUV
 	if (!wsi->parent_carries_io)
 		if (LWS_LIBUV_ENABLED(context)) {
 			if (wsi->listener) {
@@ -826,7 +826,7 @@ interface_to_sa(struct lws_vhost *vh, const char *ifname,
 		struct sockaddr_in *addr, size_t addrlen)
 {
 	int ipv6 = 0;
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	ipv6 = LWS_IPV6_ENABLED(vh);
 #endif
 	(void)vh;
@@ -849,7 +849,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 	name[0] = '\0';
 	addr4.sin_family = AF_UNSPEC;
 
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	if (LWS_IPV6_ENABLED(vh)) {
 		if (!lws_plat_inet_ntop(AF_INET6,
 					&((struct sockaddr_in6 *)ads)->sin6_addr,
@@ -926,7 +926,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 {
 #if LWS_POSIX
 	socklen_t len, olen;
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	struct sockaddr_in6 sin6;
 #endif
 	struct sockaddr_in sin4;
@@ -936,7 +936,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 	if (wsi->parent_carries_io)
 		wsi = wsi->parent;
 
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	if (LWS_IPV6_ENABLED(wsi->vhost)) {
 		len = sizeof(sin6);
 		p = &sin6;
@@ -974,7 +974,7 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 #ifndef LWS_PLAT_OPTEE
 #if LWS_POSIX
 	socklen_t len;
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	struct sockaddr_in6 sin6;
 #endif
 	struct sockaddr_in sin4;
@@ -987,7 +987,7 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 
 	lws_latency_pre(context, wsi);
 
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	if (LWS_IPV6_ENABLED(wsi->vhost)) {
 		len = sizeof(sin6);
 		p = &sin6;
@@ -1699,7 +1699,7 @@ void lws_set_protocol_write_pending(struct lws *wsi,
 LWS_VISIBLE size_t
 lws_get_peer_write_allowance(struct lws *wsi)
 {
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	/* only if we are using HTTP2 on this connection */
 	if (wsi->mode != LWSCM_HTTP2_SERVING)
 		return -1;
@@ -2018,10 +2018,10 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		const char *iface)
 {
 #if LWS_POSIX
-#ifdef LWS_USE_UNIX_SOCK
+#ifdef LWS_WITH_UNIX_SOCK
 	struct sockaddr_un serv_unix;
 #endif
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	struct sockaddr_in6 serv_addr6;
 #endif
 	struct sockaddr_in serv_addr4;
@@ -2032,7 +2032,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	struct sockaddr_storage sin;
 	struct sockaddr *v;
 
-#ifdef LWS_USE_UNIX_SOCK
+#ifdef LWS_WITH_UNIX_SOCK
 	if (LWS_UNIX_SOCK_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_unix;
 		n = sizeof(struct sockaddr_un);
@@ -2049,7 +2049,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 
 	} else
 #endif
-#if defined(LWS_USE_IPV6) && !defined(LWS_WITH_ESP32)
+#if defined(LWS_WITH_IPV6) && !defined(LWS_WITH_ESP32)
 	if (LWS_IPV6_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
@@ -2086,7 +2086,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	} /* ipv4 */
 
 	n = bind(sockfd, v, n);
-#ifdef LWS_USE_UNIX_SOCK
+#ifdef LWS_WITH_UNIX_SOCK
 	if (n < 0 && LWS_UNIX_SOCK_ENABLED(vhost)) {
 		lwsl_err("ERROR on binding fd %d to \"%s\" (%d %d)\n",
 				sockfd, iface, n, LWS_ERRNO);
@@ -2104,7 +2104,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
 	else
 #endif
-#if defined(LWS_USE_IPV6)
+#if defined(LWS_WITH_IPV6)
 		port = (sin.ss_family == AF_INET6) ?
 				  ntohs(((struct sockaddr_in6 *) &sin)->sin6_port) :
 				  ntohs(((struct sockaddr_in *) &sin)->sin_port);
@@ -2116,7 +2116,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	return port;
 }
 
-#if defined(LWS_USE_IPV6)
+#if defined(LWS_WITH_IPV6)
 LWS_EXTERN unsigned long
 lws_get_addr_scope(const char *ipaddr)
 {
@@ -3504,7 +3504,7 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 	struct lws_cgi * const *pcgi;
 #endif
 
-#ifdef LWS_USE_LIBUV
+#ifdef LWS_WITH_LIBUV
 	uv_uptime(&d);
 #endif
 

@@ -754,7 +754,7 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 	return 0;
 }
 
-#if defined(LWS_USE_LIBUV) && UV_VERSION_MAJOR > 0
+#if defined(LWS_WITH_LIBUV) && UV_VERSION_MAJOR > 0
 
 static int
 lwsws_get_config_d(void *user, const char *d, const char * const *paths,

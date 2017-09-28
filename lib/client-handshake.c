@@ -8,7 +8,7 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	memset(&hints, 0, sizeof(hints));
 	*result = NULL;
 
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	if (wsi->ipv6) {
 
 #if !defined(__ANDROID__)
@@ -38,7 +38,7 @@ lws_client_connect_2(struct lws *wsi)
 	int n, port;
 	ssize_t plen = 0;
 	const char *ads;
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	char ipv6only = lws_check_opt(wsi->vhost->options,
 			LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
 			LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
@@ -108,7 +108,7 @@ lws_client_connect_2(struct lws *wsi)
 
        n = lws_getaddrinfo46(wsi, ads, &result);
 
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	if (wsi->ipv6) {
 
 		if (n) {
@@ -211,7 +211,7 @@ lws_client_connect_2(struct lws *wsi)
 
 	if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 
-#if defined(LWS_USE_LIBUV)
+#if defined(LWS_WITH_LIBUV)
 		if (LWS_LIBUV_ENABLED(context))
 			if (lws_libuv_check_watcher_active(wsi)) {
 				lwsl_warn("Waiting for libuv watcher to close\n");
@@ -220,7 +220,7 @@ lws_client_connect_2(struct lws *wsi)
 			}
 #endif
 
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 		if (wsi->ipv6)
 			wsi->desc.sockfd = socket(AF_INET6, SOCK_STREAM, 0);
 		else
@@ -279,7 +279,7 @@ lws_client_connect_2(struct lws *wsi)
 		}
 	}
 
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	if (wsi->ipv6) {
 		sa46.sa6.sin6_port = htons(port);
 		n = sizeof(struct sockaddr_in6);
@@ -486,7 +486,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	lws_ssl_close(wsi);
 #endif
 
-#ifdef LWS_USE_LIBUV
+#ifdef LWS_WITH_LIBUV
 	if (LWS_LIBUV_ENABLED(wsi->context)) {
 		lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
 		/*

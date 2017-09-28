@@ -516,7 +516,7 @@ send_raw:
 	case LWS_WRITE_HTTP_HEADERS:
 	case LWS_WRITE_PONG:
 	case LWS_WRITE_PING:
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 		if (wsi->mode == LWSCM_HTTP2_SERVING) {
 			unsigned char flags = 0;
 

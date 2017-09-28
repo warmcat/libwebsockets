@@ -67,7 +67,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	size_t n;
 
 	switch (wsi->state) {
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
 	case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
 	case LWSS_HTTP2_ESTABLISHED:

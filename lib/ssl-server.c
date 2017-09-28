@@ -27,7 +27,7 @@ extern int openssl_websocket_private_data_index,
 extern void
 lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info);
 
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 static int
 OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
@@ -104,7 +104,7 @@ static int
 lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 				struct lws_vhost *vhost)
 {
-#if defined(LWS_HAVE_OPENSSL_ECDH_H) && !defined(LWS_USE_MBEDTLS)
+#if defined(LWS_HAVE_OPENSSL_ECDH_H) && !defined(LWS_WITH_MBEDTLS)
 	EC_KEY *ecdh;
 	int ecdh_nid;
 	const char *ecdh_curve = "prime256v1";
@@ -130,7 +130,7 @@ lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 
 	lwsl_notice(" SSL ECDH curve '%s'\n", ecdh_curve);
 #else
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 	lwsl_notice(" OpenSSL doesn't support ECDH\n");
 #endif
 #endif
@@ -243,7 +243,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	 * versions", compared to e.g. TLSv1_2_server_method() which only allows
 	 * tlsv1.2. Unwanted versions must be disabled using SSL_CTX_set_options()
 	 */
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 	{
 		SSL_METHOD *method;
 
@@ -276,7 +276,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 	}
 #endif
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 
 	/* associate the lws context with the SSL_CTX */
 
@@ -305,7 +305,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 				   LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
 			verify_options |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
 
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 		SSL_CTX_set_session_id_context(vhost->ssl_ctx,
 				(unsigned char *)context, sizeof(void *));
 
@@ -316,7 +316,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 	}
 
-#if !defined(LWS_USE_MBEDTLS) && !defined(OPENSSL_NO_TLSEXT)
+#if !defined(LWS_WITH_MBEDTLS) && !defined(OPENSSL_NO_TLSEXT)
 	SSL_CTX_set_tlsext_servername_callback(vhost->ssl_ctx,
 					       lws_ssl_server_name_cb);
 #endif
@@ -325,7 +325,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	 * give user code a chance to load certs into the server
 	 * allowing it to verify incoming client certs
 	 */
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 	if (info->ssl_ca_filepath &&
 	    !SSL_CTX_load_verify_locations(vhost->ssl_ctx,
 					   info->ssl_ca_filepath, NULL)) {
@@ -349,7 +349,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		SSL_CTX_set_options(vhost->ssl_ctx, info->ssl_options_set);
 
 /* SSL_clear_options introduced in 0.9.8m */
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 #if (OPENSSL_VERSION_NUMBER >= 0x009080df) && !defined(USE_WOLFSSL)
 	if (info->ssl_options_clear)
 		SSL_CTX_clear_options(vhost->ssl_ctx, info->ssl_options_clear);
@@ -369,7 +369,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		 * happened just above and has the vhost SSL_CTX * in the user
 		 * parameter.
 		 */
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 		/* set the local certificate from CertFile */
 		n = SSL_CTX_use_certificate_chain_file(vhost->ssl_ctx,
 					info->ssl_cert_filepath);
@@ -425,7 +425,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 #endif
 		if (info->ssl_private_key_filepath != NULL) {
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 			/* set the private key from KeyFile */
 			if (SSL_CTX_use_PrivateKey_file(vhost->ssl_ctx,
 				     info->ssl_private_key_filepath,
@@ -446,7 +446,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 				return 1;
 			}
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 		/* verify private key */
 		if (!SSL_CTX_check_private_key(vhost->ssl_ctx)) {
 			lwsl_err("Private SSL key doesn't match cert\n");
