@@ -337,6 +337,11 @@ void SSL_CTX_set_next_proto_select_cb(SSL_CTX *ctx,
                                                  void *arg),
                                       void *arg);
 
+void SSL_get0_alpn_selected(const SSL *ssl, const unsigned char **data,
+                             unsigned int *len);
+
+void _ssl_set_alpn_list(const SSL *ssl);
+
 /**
  * @brief get SSL error code
  *

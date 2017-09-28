@@ -224,6 +224,9 @@ void SSL_CTX_free(SSL_CTX* ctx)
 
     X509_free(ctx->client_CA);
 
+    if (ctx->alpn_protos)
+	    ssl_mem_free(ctx->alpn_protos);
+
     ssl_mem_free(ctx);
 }
 
@@ -302,6 +305,8 @@ SSL *SSL_new(SSL_CTX *ctx)
         SSL_DEBUG(SSL_LIB_ERROR_LEVEL, "SSL_METHOD_CALL(new) return %d", ret);
         goto failed5;
     }
+
+   _ssl_set_alpn_list(ssl);
 
     ssl->rwstate = SSL_NOTHING;
 
@@ -1576,4 +1581,79 @@ char *ERR_error_string(unsigned long e, char *buf)
 void *SSL_CTX_get_ex_data(const SSL_CTX *ctx, int idx)
 {
 	return NULL;
+}
+
+/*
+ * Openssl wants the valid protocol names supplied like this:
+ *
+ * (unsigned char *)"\x02h2\x08http/1.1", 6 + 9
+ *
+ * Mbedtls wants this:
+ *
+ * Pointer to a NULL-terminated list of supported protocols, in decreasing
+ * preference order. The pointer to the list is recorded by the library for
+ * later reference as required, so the lifetime of the table must be at least
+ * as long as the lifetime of the SSL configuration structure.
+ *
+ * So accept the OpenSSL style and convert to mbedtls style
+ */
+
+struct alpn_ctx {
+	unsigned char *data;
+	unsigned short len;
+};
+
+void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx, next_proto_cb cb, void *arg)
+{
+	struct alpn_ctx *ac = arg;
+	unsigned char *p = ac->data, *q;
+	unsigned char len;
+	int count = 0;
+
+	/* find out how many entries he gave us */
+
+	len = *p++;
+	while (p - ac->data < ac->len) {
+		if (len--) {
+			p++;
+			continue;
+		}
+		count++;
+		len = *p++;
+		if (!len)
+			break;
+	}
+
+	if (!count)
+		return;
+
+	/* allocate space for count + 1 pointers and the data afterwards */
+
+	ctx->alpn_protos = ssl_mem_zalloc((count + 1) * sizeof(char *) + ac->len + 1);
+	if (!ctx->alpn_protos)
+		return;
+
+	/* convert to mbedtls format */
+
+	q = (unsigned char *)ctx->alpn_protos + (count + 1) * sizeof(char *);
+	p = ac->data;
+	count = 0;
+
+	len = *p++;
+	ctx->alpn_protos[count] = (char *)q;
+	while (p - ac->data < ac->len) {
+		if (len--) {
+			*q++ = *p++;
+			continue;
+		}
+		*q++ = '\0';
+		count++;
+		len = *p++;
+		ctx->alpn_protos[count] = (char *)q;
+		if (!len)
+			break;
+	}
+	ctx->alpn_protos[count] = NULL; /* last pointer ends list with NULL */
+
+	ctx->alpn_cb = cb;
 }
