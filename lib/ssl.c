@@ -54,7 +54,7 @@ bail:
 	return ret;
 }
 
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 #if defined(LWS_WITH_ESP32)
 int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 	       lws_filepos_t *amount)
@@ -250,7 +250,7 @@ char* lws_ssl_get_error_string(int status, int ret, char *buf, size_t len) {
 void
 lws_ssl_elaborate_error(void)
 {
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 #else
 	char buf[256];
 	u_long err;
@@ -262,7 +262,7 @@ lws_ssl_elaborate_error(void)
 #endif
 }
 
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 
 static int
 lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag, void *userdata)
@@ -301,10 +301,10 @@ lws_context_init_ssl_library(struct lws_context_creation_info *info)
 	lwsl_info(" Compiled with wolfSSL support\n");
 #endif
 #else
-#if defined(LWS_USE_BORINGSSL)
+#if defined(LWS_WITH_BORINGSSL)
 	lwsl_info(" Compiled with BoringSSL support\n");
 #else
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	lwsl_info(" Compiled with MbedTLS support\n");
 #else
 	lwsl_info(" Compiled with OpenSSL support\n");
@@ -320,7 +320,7 @@ lws_context_init_ssl_library(struct lws_context_creation_info *info)
 
 	lwsl_info("Doing SSL library init\n");
 
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 	SSL_library_init();
 	OpenSSL_add_all_algorithms();
 	SSL_load_error_strings();
@@ -347,7 +347,7 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 	if (!vhost->user_supplied_ssl_ctx && vhost->ssl_client_ctx)
 		SSL_CTX_free(vhost->ssl_client_ctx);
 
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	if (vhost->x509_client_CA)
 		X509_free(vhost->x509_client_CA);
 #else
@@ -410,7 +410,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n = 0;
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 	int ssl_read_errno = 0;
 #endif
 
@@ -446,7 +446,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 			return LWS_SSL_CAPABLE_ERROR;
 
 		if (n == SSL_ERROR_SYSCALL) {
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 			int err = ERR_get_error();
 			if (err == 0 && (ssl_read_errno == EPIPE ||
 					 ssl_read_errno == ECONNABORTED ||
@@ -541,7 +541,7 @@ LWS_VISIBLE int
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n;
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
        	int ssl_read_errno = 0;
 #endif
 
@@ -564,7 +564,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 	if (n == SSL_ERROR_ZERO_RETURN)
 		return LWS_SSL_CAPABLE_ERROR;
 
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 	if (n == SSL_ERROR_SYSCALL) {
 		int err = ERR_get_error();
 
@@ -676,7 +676,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n, m;
-#if !defined(USE_WOLFSSL) && !defined(LWS_USE_MBEDTLS)
+#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
 	BIO *bio;
 #endif
         char buf[256];
@@ -721,7 +721,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 	context->updated = 1;
 #endif
 
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 		SSL_set_ex_data(wsi->ssl,
 			openssl_websocket_private_data_index, wsi);
 #endif
@@ -734,7 +734,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		wolfSSL_set_using_nonblock(wsi->ssl, 1);
 #endif
 #else
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 		lws_plat_set_socket_options(wsi->vhost, accept_fd);
 #else
 		SSL_set_mode(wsi->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
@@ -851,7 +851,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 		m = lws_ssl_get_error(wsi, n);
 
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 		if (m == 5 && errno == 11)
 			m = SSL_ERROR_WANT_READ;
 #endif
@@ -928,7 +928,7 @@ void
 lws_ssl_context_destroy(struct lws_context *context)
 {
 
-#if !defined(LWS_USE_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS)
 
 // after 1.1.0 no need
 #if (OPENSSL_VERSION_NUMBER <  0x10100000)

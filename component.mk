@@ -6,7 +6,7 @@ COMPONENT_OWNBUILDTARGET:= 1
 CROSS_PATH1:=$(shell which xtensa-esp32-elf-gcc )
 CROSS_PATH:= $(shell dirname $(CROSS_PATH1) )/..
 
-#-DLWS_USE_BORINGSSL=1 \
+#-DLWS_WITH_BORINGSSL=1 \
 #		-DOPENSSL_ROOT_DIR="${PWD}/../../boringssl" \
 #		-DOPENSSL_LIBRARIES="${PWD}/../../boringssl/build/ssl/libssl.a;${PWD}/../../boringssl/build/crypto/libcrypto.a" \
 #		-DOPENSSL_INCLUDE_DIRS="${PWD}/../../boringssl/include" \

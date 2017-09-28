@@ -25,13 +25,13 @@ CMAKE_OPTIONS += -DLWS_WITHOUT_TESTAPPS=$(if $(CONFIG_PACKAGE_libwebsockets-exam
 
 # for wolfssl, define these in addition to LWS_OPENSSL_SUPPORT and
 # edit package/libs/wolfssl/Makefile to include --enable-opensslextra
-# CMAKE_OPTIONS += -DLWS_USE_WOLFSSL=ON
+# CMAKE_OPTIONS += -DLWS_WITH_WOLFSSL=ON
 # CMAKE_OPTIONS += -DLWS_WOLFSSL_LIBRARIES=$(STAGING_DIR)/usr/lib/libwolfssl.so
 # CMAKE_OPTIONS += -DLWS_WOLFSSL_INCLUDE_DIRS=$(STAGING_DIR)/usr/include
 
 # for cyassl, define these in addition to LWS_OPENSSL_SUPPORT and
 # edit package/libs/wolfssl/Makefile to include --enable-opensslextra
-# CMAKE_OPTIONS += -DLWS_USE_CYASSL=ON
+# CMAKE_OPTIONS += -DLWS_WITH_CYASSL=ON
 # CMAKE_OPTIONS += -DLWS_CYASSL_LIBRARIES=$(STAGING_DIR)/usr/lib/libcyassl.so
 # CMAKE_OPTIONS += -DLWS_CYASSL_INCLUDE_DIRS=$(STAGING_DIR)/usr/include
 

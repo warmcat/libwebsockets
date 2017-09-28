@@ -215,13 +215,13 @@ int kill(int pid, int sig);
 #include <arpa/inet.h>
 #include <poll.h>
 #endif
-#ifdef LWS_USE_LIBEV
+#ifdef LWS_WITH_LIBEV
 #include <ev.h>
 #endif
-#ifdef LWS_USE_LIBUV
+#ifdef LWS_WITH_LIBUV
 #include <uv.h>
 #endif
-#ifdef LWS_USE_LIBEVENT
+#ifdef LWS_WITH_LIBEVENT
 #include <event2/event.h>
 #endif
 
@@ -280,7 +280,7 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #if defined(LWS_WITH_ESP32)
 #define OPENSSL_NO_TLSEXT
 #else
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #else
@@ -686,16 +686,16 @@ struct lws_ring {
 struct lws_protocols;
 struct lws;
 
-#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 
 struct lws_io_watcher {
-#ifdef LWS_USE_LIBEV
+#ifdef LWS_WITH_LIBEV
 	ev_io ev_watcher;
 #endif
-#ifdef LWS_USE_LIBUV
+#ifdef LWS_WITH_LIBUV
 	uv_poll_t uv_watcher;
 #endif
-#ifdef LWS_USE_LIBEVENT
+#ifdef LWS_WITH_LIBEVENT
 	struct event *event_watcher;
 #endif
 	struct lws_context *context;
@@ -704,13 +704,13 @@ struct lws_io_watcher {
 };
 
 struct lws_signal_watcher {
-#ifdef LWS_USE_LIBEV
+#ifdef LWS_WITH_LIBEV
 	ev_signal ev_watcher;
 #endif
-#ifdef LWS_USE_LIBUV
+#ifdef LWS_WITH_LIBUV
 	uv_signal_t uv_watcher;
 #endif
-#ifdef LWS_USE_LIBEVENT
+#ifdef LWS_WITH_LIBEVENT
 	struct event *event_watcher;
 #endif
 	struct lws_context *context;
@@ -789,7 +789,7 @@ struct lws_context_per_thread {
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
 	struct lws *timeout_list;
-#if defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
+#if defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_context *context;
 #endif
 #ifdef LWS_WITH_CGI
@@ -802,22 +802,22 @@ struct lws_context_per_thread {
 #ifdef LWS_OPENSSL_SUPPORT
 	struct lws *pending_read_list; /* linked list */
 #endif
-#if defined(LWS_USE_LIBEV)
+#if defined(LWS_WITH_LIBEV)
 	struct ev_loop *io_loop_ev;
 #endif
-#if defined(LWS_USE_LIBUV)
+#if defined(LWS_WITH_LIBUV)
 	uv_loop_t *io_loop_uv;
 	uv_signal_t signals[8];
 	uv_timer_t uv_timeout_watcher;
 	uv_idle_t uv_idle;
 #endif
-#if defined(LWS_USE_LIBEVENT)
+#if defined(LWS_WITH_LIBEVENT)
 	struct event_base *io_loop_event_base;
 #endif
-#if defined(LWS_USE_LIBEV)
+#if defined(LWS_WITH_LIBEV)
 	struct lws_io_watcher w_accept;
 #endif
-#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_signal_watcher w_sigint;
 	unsigned char ev_loop_foreign:1;
 #endif
@@ -900,7 +900,7 @@ struct lws_vhost {
 	SSL_CTX *ssl_ctx;
 	SSL_CTX *ssl_client_ctx;
 #endif
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	X509 *x509_client_CA;
 #endif
 #ifndef LWS_NO_EXTENSIONS
@@ -946,7 +946,7 @@ struct lws_deferred_free
 };
 
 typedef union {
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	struct sockaddr_in6 sa6;
 #endif
 	struct sockaddr_in sa4;
@@ -1030,14 +1030,14 @@ struct lws_context {
 	char count_caps;
 #endif
 
-#if defined(LWS_USE_LIBEV)
+#if defined(LWS_WITH_LIBEV)
 	lws_ev_signal_cb_t * lws_ev_sigint_cb;
 #endif
-#if defined(LWS_USE_LIBUV)
+#if defined(LWS_WITH_LIBUV)
 	uv_signal_cb lws_uv_sigint_cb;
 	uv_loop_t pu_loop;
 #endif
-#if defined(LWS_USE_LIBEVENT)
+#if defined(LWS_WITH_LIBEVENT)
 	lws_event_signal_cb_t * lws_event_sigint_cb;
 #endif
 	char canonical_hostname[128];
@@ -1057,7 +1057,7 @@ struct lws_context {
 #endif
 
 	int max_fds;
-#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	int use_ev_sigint;
 #endif
 	int started_with_parent;
@@ -1153,7 +1153,7 @@ enum {
 	LWS_EV_PREPARE_DELETION = (1 << 31),
 };
 
-#if defined(LWS_USE_LIBEV)
+#if defined(LWS_WITH_LIBEV)
 LWS_EXTERN void
 lws_libev_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
 LWS_EXTERN void
@@ -1181,7 +1181,7 @@ LWS_EXTERN void lws_feature_status_libev(struct lws_context_creation_info *info)
 #endif
 #endif
 
-#if defined(LWS_USE_LIBUV)
+#if defined(LWS_WITH_LIBUV)
 LWS_EXTERN void
 lws_libuv_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
 LWS_EXTERN void
@@ -1211,7 +1211,7 @@ LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info)
 #endif
 #endif
 
-#if defined(LWS_USE_LIBEVENT)
+#if defined(LWS_WITH_LIBEVENT)
 LWS_EXTERN void
 lws_libevent_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
 LWS_EXTERN void
@@ -1240,7 +1240,7 @@ LWS_EXTERN void lws_feature_status_libevent(struct lws_context_creation_info *in
 #endif
 
 
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 #define LWS_IPV6_ENABLED(vh) \
 	(!lws_check_opt(vh->context->options, LWS_SERVER_OPTION_DISABLE_IPV6) && \
 	 !lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_IPV6))
@@ -1248,7 +1248,7 @@ LWS_EXTERN void lws_feature_status_libevent(struct lws_context_creation_info *in
 #define LWS_IPV6_ENABLED(context) (0)
 #endif
 
-#ifdef LWS_USE_UNIX_SOCK
+#ifdef LWS_WITH_UNIX_SOCK
 #define LWS_UNIX_SOCK_ENABLED(vhost) \
 	(vhost->options & LWS_SERVER_OPTION_UNIX_SOCK)
 #else
@@ -1364,7 +1364,7 @@ struct _lws_http_mode_related {
 	lws_filepos_t content_remain;
 };
 
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 
 enum lws_http2_settings {
 	LWS_HTTP2_SETTINGS__HEADER_TABLE_SIZE = 1,
@@ -1626,7 +1626,7 @@ struct lws {
 
 	union u {
 		struct _lws_http_mode_related http;
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 		struct _lws_http2_related http2;
 #endif
 		struct _lws_header_related hdr;
@@ -1635,10 +1635,10 @@ struct lws {
 
 	/* lifetime members */
 
-#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBUV) || defined(LWS_USE_LIBEVENT)
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_io_watcher w_read;
 #endif
-#if defined(LWS_USE_LIBEV) || defined(LWS_USE_LIBEVENT)
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_io_watcher w_write;
 #endif
 #ifdef LWS_WITH_ACCESS_LOG
@@ -1803,7 +1803,7 @@ LWS_EXTERN int
 lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		const char *iface);
 
-#if defined(LWS_USE_IPV6)
+#if defined(LWS_WITH_IPV6)
 LWS_EXTERN unsigned long
 lws_get_addr_scope(const char *ipaddr);
 #endif
@@ -1946,7 +1946,7 @@ LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
 			    enum lws_callback_reasons reason, void *user,
 			    void *in, size_t len);
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 LWS_EXTERN struct lws *lws_http2_get_network_wsi(struct lws *wsi);
 struct lws * lws_http2_get_nth_child(struct lws *wsi, int n);
 LWS_EXTERN int
@@ -2108,7 +2108,7 @@ LWS_EXTERN void
 lws_ssl_destroy(struct lws_vhost *vhost);
 /* HTTP2-related */
 
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 LWS_EXTERN void
 lws_context_init_http2_ssl(struct lws_vhost *vhost);
 #else

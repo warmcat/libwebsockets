@@ -346,7 +346,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 
 	struct ifaddrs *ifr;
 	struct ifaddrs *ifc;
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
 #endif
 
@@ -362,7 +362,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 
 		switch (ifc->ifa_addr->sa_family) {
 		case AF_INET:
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 			if (ipv6) {
 				/* map IPv4 to IPv6 */
 				bzero((char *)&addr6->sin6_addr,
@@ -378,7 +378,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 					(struct sockaddr_in *)ifc->ifa_addr,
 						    sizeof(struct sockaddr_in));
 			break;
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 		case AF_INET6:
 			memcpy(&addr6->sin6_addr,
 			  &((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr,
@@ -395,7 +395,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 
 	if (rc == -1) {
 		/* check if bind to IP address */
-#ifdef LWS_USE_IPV6
+#ifdef LWS_WITH_IPV6
 		if (inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1)
 			rc = 0;
 		else

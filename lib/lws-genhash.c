@@ -43,7 +43,7 @@ lws_genhash_init(struct lws_genhash_ctx *ctx, int type)
 {
 	ctx->type = type;
 
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	switch (ctx->type) {
 	case LWS_GENHASH_TYPE_SHA1:
 		mbedtls_sha1_init(&ctx->u.sha1);
@@ -92,7 +92,7 @@ lws_genhash_init(struct lws_genhash_ctx *ctx, int type)
 int
 lws_genhash_update(struct lws_genhash_ctx *ctx, const void *in, size_t len)
 {
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	switch (ctx->type) {
 	case LWS_GENHASH_TYPE_SHA1:
 		mbedtls_sha1_update(&ctx->u.sha1, in, len);
@@ -114,7 +114,7 @@ lws_genhash_update(struct lws_genhash_ctx *ctx, const void *in, size_t len)
 int
 lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 {
-#if defined(LWS_USE_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	switch (ctx->type) {
 	case LWS_GENHASH_TYPE_SHA1:
 		mbedtls_sha1_finish(&ctx->u.sha1, result);

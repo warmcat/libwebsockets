@@ -37,7 +37,7 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			    const unsigned char *value, int length,
 			    unsigned char **p, unsigned char *end)
 {
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	if (wsi->mode == LWSCM_HTTP2_SERVING)
 		return lws_add_http2_header_by_name(wsi, name,
 						    value, length, p, end);
@@ -65,7 +65,7 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 			     unsigned char *end)
 {
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	if (wsi->mode == LWSCM_HTTP2_SERVING)
 		return 0;
 #else
@@ -85,7 +85,7 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 			     unsigned char **p, unsigned char *end)
 {
 	const unsigned char *name;
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	if (wsi->mode == LWSCM_HTTP2_SERVING)
 		return lws_add_http2_header_by_token(wsi, token, value,
 						     length, p, end);
@@ -160,7 +160,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	wsi->access_log.response = code;
 #endif
 
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	if (wsi->mode == LWSCM_HTTP2_SERVING)
 		return lws_add_http2_header_status(wsi, code, p, end);
 #endif
@@ -250,7 +250,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	if (lws_finalize_http_header(wsi, &p, end))
 		return 1;
 
-#if defined(LWS_USE_HTTP2)
+#if defined(LWS_WITH_HTTP2)
 	{
 		unsigned char *body = p + 512;
 

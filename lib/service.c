@@ -72,7 +72,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	int write_type = LWS_WRITE_PONG;
 	struct lws_tokens eff_buf;
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	struct lws *wsi2;
 #endif
 	int ret, m, n;
@@ -111,7 +111,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	if (wsi->mode == LWSCM_WSCL_ISSUE_HTTP_BODY)
 		goto user_service;
 
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	/*
 	 * Priority 2: protocol packets
 	 */
@@ -366,7 +366,7 @@ user_service:
 user_service_go_again:
 #endif
 
-#ifdef LWS_USE_HTTP2
+#ifdef LWS_WITH_HTTP2
 	/*
 	 * we are the 'network wsi' for potentially many muxed child wsi with
 	 * no network connection of their own, who have to use us for all their
