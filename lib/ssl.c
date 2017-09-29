@@ -197,10 +197,15 @@ int openssl_websocket_private_data_index,
 
 int lws_ssl_get_error(struct lws *wsi, int n)
 {
+	int m;
+
 	if (!wsi->ssl)
 		return 99;
-	lwsl_debug("%s: %p %d\n", __func__, wsi->ssl, n);
-	return SSL_get_error(wsi->ssl, n);
+
+	m = SSL_get_error(wsi->ssl, n);
+	lwsl_debug("%s: %p %d -> %d\n", __func__, wsi->ssl, n, m);
+
+	return m;
 }
 
 /* Copies a string describing the code returned by lws_ssl_get_error(),
@@ -463,19 +468,16 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	}
 
 	if (n < 0) {
-		n = lws_ssl_get_error(wsi, n);
-		// lwsl_notice("get_ssl_err result %d\n", n);
-		if (n ==  SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl)) {
+		if (SSL_want_read(wsi->ssl)) {
 			lwsl_debug("%s: WANT_READ\n", __func__);
 			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
-		if (n ==  SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->ssl)) {
+		if (SSL_want_write(wsi->ssl)) {
 			lwsl_debug("%s: WANT_WRITE\n", __func__);
 			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
-
 
 		lwsl_info("%s failed2: %s\n",__func__,
 				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));

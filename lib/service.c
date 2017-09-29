@@ -1047,37 +1047,37 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	}
 
 #ifdef LWS_OPENSSL_SUPPORT
-	if ((wsi->state == LWSS_SHUTDOWN) && lws_is_ssl(wsi) && wsi->ssl)
-	{
+	if ((wsi->state == LWSS_SHUTDOWN) && lws_is_ssl(wsi) && wsi->ssl) {
 		n = SSL_shutdown(wsi->ssl);
 		lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
-		if (n == 1)
-		{
+		switch (n) {
+		case 1:
 			n = shutdown(wsi->desc.sockfd, SHUT_WR);
 			goto close_and_handled;
-		}
-		else if (n == 0)
-		{
-			lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+
+		case 0:
+			lws_change_pollfd(wsi, 0, LWS_POLLIN);
 			n = 0;
 			goto handled;
-		}
-		else /* n < 0 */
-		{
-			int shutdown_error = SSL_get_error(wsi->ssl, n);
-			lwsl_debug("SSL_shutdown ret %d, SSL_get_error: %d\n",
-				   n, shutdown_error);
-			if (shutdown_error == SSL_ERROR_WANT_READ) {
-				lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
-				n = 0;
-				goto handled;
-			} else if (shutdown_error == SSL_ERROR_WANT_WRITE) {
-				lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLOUT);
-				n = 0;
-				goto handled;
+
+		default:
+			n = SSL_get_error(wsi->ssl, n);
+			if (n != SSL_ERROR_SYSCALL) {
+				if (SSL_want_read(wsi->ssl)) {
+					lwsl_debug("(wants read)\n");
+					lws_change_pollfd(wsi, 0, LWS_POLLIN);
+					n = 0;
+					goto handled;
+				}
+				if (SSL_want_write(wsi->ssl)) {
+					lwsl_debug("(wants write)\n");
+					lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+					n = 0;
+					goto handled;
+				}
 			}
 
-			// actual error occurred, just close the connection
+			/* actual error occurred, just close the connection */
 			n = shutdown(wsi->desc.sockfd, SHUT_WR);
 			goto close_and_handled;
 		}
