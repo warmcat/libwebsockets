@@ -87,6 +87,9 @@ int SSL_want_nothing(const SSL *ssl)
 {
     SSL_ASSERT1(ssl);
 
+    if (ssl->err)
+	    return 1;
+
     return (SSL_want(ssl) == SSL_NOTHING);
 }
 
@@ -97,6 +100,9 @@ int SSL_want_read(const SSL *ssl)
 {
     SSL_ASSERT1(ssl);
 
+    if (ssl->err)
+	    return 0;
+
     return (SSL_want(ssl) == SSL_READING);
 }
 
@@ -106,6 +112,9 @@ int SSL_want_read(const SSL *ssl)
 int SSL_want_write(const SSL *ssl)
 {
     SSL_ASSERT1(ssl);
+
+    if (ssl->err)
+	    return 0;
 
     return (SSL_want(ssl) == SSL_WRITING);
 }
