@@ -836,6 +836,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		if (m == SSL_ERROR_SYSCALL && errno == 11)
 			m = SSL_ERROR_WANT_READ;
 #endif
+    if (m == SSL_ERROR_SYSCALL)
+        goto fail;
 
 go_again:
 		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl)) {
