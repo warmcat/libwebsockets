@@ -60,17 +60,21 @@ lws_get_random(struct lws_context *context, void *buf, int len)
 LWS_VISIBLE int
 lws_send_pipe_choked(struct lws *wsi)
 {
+	struct lws *wsi_eff = wsi;
 	fd_set writefds;
 	struct timeval tv = { 0, 0 };
+#if defined(LWS_WITH_HTTP2)
+	wsi_eff = lws_http2_get_network_wsi(wsi);
+#endif
 
 	/* treat the fact we got a truncated send pending as if we're choked */
-	if (wsi->trunc_len)
+	if (wsi_eff->trunc_len)
 		return 1;
 
 	FD_ZERO(&writefds);
-	FD_SET(wsi->desc.sockfd, &writefds);
+	FD_SET(wsi_eff->desc.sockfd, &writefds);
 
-	if (select(wsi->desc.sockfd + 1, NULL, &writefds, NULL, &tv) < 1)
+	if (select(wsi_eff->desc.sockfd + 1, NULL, &writefds, NULL, &tv) < 1)
 		return 1;
 
 	return 0;
@@ -568,6 +572,7 @@ LWS_VISIBLE void esp32_uvtimer_cb(TimerHandle_t t)
 	p->cb(p->t);
 }
 
+#if 0
 void ERR_error_string_n(unsigned long e, char *buf, size_t len)
 {
 	strncpy(buf, "unknown", len);
@@ -584,7 +589,7 @@ char *ERR_error_string(unsigned long e, char *buf)
 
 	return "unknown";
 }
-
+#endif
 
 /* helper functionality */
 
@@ -1498,7 +1503,7 @@ lws_esp32_wlan_start_station(void)
 
 	tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&config.ap.ssid[7]);
 	esp_wifi_set_auto_connect(1);
-	ESP_ERROR_CHECK( esp_wifi_connect());
+	//ESP_ERROR_CHECK( esp_wifi_connect());
 
 	lws_esp32_scan_timer_cb(NULL);
 }

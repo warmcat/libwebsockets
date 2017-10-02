@@ -165,6 +165,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 				break;
 			}
 
+			strcpy(ip, "unknown");
 			lws_get_peer_simple(pss->walk_next->wsi, ip, sizeof(ip));
 			p += lws_snprintf(p, end - p,
 					"{\"peer\":\"%s\",\"time\":\"%ld\","

@@ -65,6 +65,7 @@ _lws_header_table_reset(struct allocated_headers *ah)
 {
 	/* init the ah to reflect no headers or data have appeared yet */
 	memset(ah->frag_index, 0, sizeof(ah->frag_index));
+	memset(ah->frags, 0, sizeof(ah->frags));
 	ah->nfrag = 0;
 	ah->pos = 0;
 	ah->http_response = 0;
@@ -396,6 +397,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 
 		/* he has been stuck waiting for an ah, but now his wait is
 		 * over, let him progress */
+
 		_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 	}
 

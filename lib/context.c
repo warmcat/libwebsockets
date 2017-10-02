@@ -788,6 +788,11 @@ lws_create_context(struct lws_context_creation_info *info)
 #if LWS_POSIX
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
 #endif
+#if defined(LWS_WITH_HTTP2)
+	lwsl_info(" HTTP2 support         : available\n");
+#else
+	lwsl_info(" HTTP2 support         : not configured");
+#endif
 	if (lws_plat_context_early_init())
 		return NULL;
 

@@ -95,6 +95,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 *	       corrupted.
 	 */
 	if (wsi->trunc_len) {
+		//lwsl_notice("%s: completing partial\n", __func__);
 		if (lws_issue_raw(wsi, wsi->trunc_alloc + wsi->trunc_offset,
 				  wsi->trunc_len) < 0) {
 			lwsl_info("%s signalling to close\n", __func__);
@@ -117,14 +118,12 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 */
 	if (wsi->pps) {
 		lwsl_info("servicing pps %d\n", wsi->pps);
-		switch (wsi->pps) {
-		case LWS_PPS_HTTP2_MY_SETTINGS:
-		case LWS_PPS_HTTP2_ACK_SETTINGS:
-			lws_http2_do_pps_send(lws_get_context(wsi), wsi);
-			break;
-		default:
-			break;
-		}
+		if (wsi->pps != LWS_PPS_NONE)
+			if (lws_http2_do_pps_send(wsi)) {
+				wsi->socket_is_permanently_unusable = 1;
+				goto bail_die;
+			}
+
 		wsi->pps = LWS_PPS_NONE;
 		lws_rx_flow_control(wsi, 1);
 
@@ -391,23 +390,54 @@ user_service_go_again:
 		goto bail_ok;
 	}
 
+//	if (SSL_want_read(wsi->ssl) || SSL_want_write(wsi->ssl)) {
+//		lws_callback_on_writable(wsi);
+//		goto bail_ok;
+//	}
+
 	lwsl_info("%s: doing children\n", __func__);
 
-	wsi2 = wsi;
+	wsi2 = wsi->u.http2.child_list;
+	if (!wsi2)
+		goto bail_ok;
 	do {
-		wsi2 = wsi2->u.http2.next_child_wsi;
-		lwsl_info("%s: child %p\n", __func__, wsi2);
-		if (!wsi2)
-			continue;
-		if (!wsi2->u.http2.requested_POLLOUT)
-			continue;
-		wsi2->u.http2.requested_POLLOUT = 0;
-		if (lws_calllback_as_writeable(wsi2)) {
-			lwsl_debug("Closing POLLOUT child\n");
-			lws_close_free_wsi(wsi2, LWS_CLOSE_STATUS_NOSTATUS);
+		if (wsi2->u.http2.requested_POLLOUT) {
+			wsi2->u.http2.requested_POLLOUT = 0;
+
+			lwsl_info("%s: child %p (state %d)\n", __func__, wsi2, wsi2->state);
+
+			if (wsi2->state == LWSS_HTTP_ISSUING_FILE) {
+
+				wsi2->leave_pollout_active = 0;
+
+				/* >0 == completion, <0 == error
+				 *
+				 * We'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION callback when
+				 * it's done.  That's the case even if we just completed the
+				 * send, so wait for that.
+				 */
+				n = lws_serve_http_file_fragment(wsi2);
+				lwsl_debug("lws_serve_http_file_fragment says %d\n", n);
+
+				if (n > 0)
+					if (lws_http_transaction_completed(wsi2))
+						goto bail_die;
+				if (n < 0) {
+					lwsl_debug("Closing POLLOUT child %p\n", wsi2);
+					lws_close_free_wsi(wsi2, LWS_CLOSE_STATUS_NOSTATUS);
+				}
+
+				goto next_child;
+			}
+
+			if (lws_calllback_as_writeable(wsi2)) {
+				lwsl_debug("Closing POLLOUT child\n");
+				lws_close_free_wsi(wsi2, LWS_CLOSE_STATUS_NOSTATUS);
+			}
 		}
-		wsi2 = wsi;
-	} while (wsi2 != NULL && !lws_send_pipe_choked(wsi));
+next_child:
+		wsi2 = wsi2->u.http2.sibling_list;
+	} while (wsi2 && !lws_send_pipe_choked(wsi));
 
 	lwsl_info("%s: completed\n", __func__);
 
@@ -1191,6 +1221,17 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			 */
 			break;
 
+#if defined(LWS_WITH_HTTP2)
+		wsi1 = lws_http2_get_network_wsi(wsi);
+		if (wsi1 && wsi1->trunc_len)
+			/* We cannot deal with any kind of new RX
+			 * because we are dealing with a partial send
+			 * (new RX may trigger new http_action() that expect
+			 * to be able to send)
+			 */
+			break;
+#endif
+
 		/* 2: RX Extension needs to be drained
 		 */
 
@@ -1258,15 +1299,32 @@ read:
 				 * as to what it can output...) has to go in per-wsi rx buf area.
 				 * Otherwise in large temp serv_buf area.
 				 */
-				eff_buf.token = (char *)pt->serv_buf;
-				if (lws_is_ws_with_ext(wsi)) {
-					eff_buf.token_len = wsi->u.ws.rx_ubuf_alloc;
-				} else {
-					eff_buf.token_len = context->pt_serv_buf_size;
+
+#if defined(LWS_WITH_HTTP2)
+				if (wsi->upgraded_to_http2) {
+					if (!wsi->u.http2.h2n->rx_scratch) {
+						wsi->u.http2.h2n->rx_scratch = lws_malloc(514);
+						if (!wsi->u.http2.h2n->rx_scratch)
+							goto close_and_handled;
+					}
+					eff_buf.token = wsi->u.http2.h2n->rx_scratch;
+					eff_buf.token_len = 512;
+				} else
+#endif
+				{
+					eff_buf.token = (char *)pt->serv_buf;
+					if (lws_is_ws_with_ext(wsi)) {
+						eff_buf.token_len = wsi->u.ws.rx_ubuf_alloc;
+					} else {
+						eff_buf.token_len = context->pt_serv_buf_size;
+					}
+
+					if ((unsigned int)eff_buf.token_len > context->pt_serv_buf_size)
+						eff_buf.token_len = context->pt_serv_buf_size;
 				}
 
-				if ((unsigned int)eff_buf.token_len > context->pt_serv_buf_size)
-					eff_buf.token_len = context->pt_serv_buf_size;
+				if (pending > eff_buf.token_len)
+					pending = eff_buf.token_len;
 
 				eff_buf.token_len = lws_ssl_capable_read(wsi,
 					(unsigned char *)eff_buf.token, pending ? pending :
@@ -1352,7 +1410,6 @@ drain:
 				 * around again it will pick up from where it
 				 * left off.
 				 */
-
 				n = lws_read(wsi, (unsigned char *)eff_buf.token,
 					     eff_buf.token_len);
 				if (n < 0) {
@@ -1367,8 +1424,7 @@ drain:
 		} while (more);
 
 		if (wsi->u.hdr.ah) {
-			lwsl_notice("%s: %p: detaching\n",
-				 __func__, wsi);
+			lwsl_debug("%s: %p: detaching\n", __func__, wsi);
 			lws_header_table_force_to_detachable_state(wsi);
 			/* we can run the normal ah detach flow despite
 			 * being in ws union mode, since all union members
