@@ -85,6 +85,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			/* account for what we're using in rxflow buffer */
 			if (wsi->rxflow_buffer)
 				wsi->rxflow_pos++;
+
 			if (lws_http2_parser(wsi, buf[n++])) {
 				lwsl_debug("%s: http2_parser bailed\n", __func__);
 				goto bail;
@@ -110,6 +111,8 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			assert(0);
 		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
+
+		lwsl_hexdump(buf, len);
 
 		if (lws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;

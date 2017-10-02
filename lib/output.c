@@ -117,7 +117,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 #else
 		lwsl_err("****** %p: Sending new %lu (%s), pending truncated ...\n"
 			 "       It's illegal to do an lws_write outside of\n"
-			 "       the writable callback: fix your code",
+			 "       the writable callback: fix your code\n",
 			 wsi, (unsigned long)len, dump);
 #endif
 		assert(0);
@@ -133,7 +133,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		goto handle_truncated_send;
 	}
 
-	if (!lws_socket_is_valid(wsi->desc.sockfd))
+	if (!wsi->http2_substream && !lws_socket_is_valid(wsi->desc.sockfd))
 		lwsl_warn("** error invalid sock but expected to send\n");
 
 	/* limit sending */
@@ -540,7 +540,7 @@ send_raw:
 				}
 			}
 
-			if (wp == LWS_WRITE_HTTP_FINAL && wsi->u.http2.END_STREAM) {
+			if (wp == LWS_WRITE_HTTP_FINAL && lws_http2_get_network_wsi(wsi)->u.http2.END_STREAM) {
 				lwsl_info("%s: setting END_STREAM\n", __func__);
 				flags |= LWS_HTTP2_FLAG_END_STREAM;
 			}
@@ -600,13 +600,15 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_process_html_args args;
 	lws_filepos_t amount, poss;
-	unsigned char *p;
+	unsigned char *p, *pstart;
 #if defined(LWS_WITH_RANGES)
 	unsigned char finished = 0;
 #endif
 	int n, m;
 
-	while (wsi->http2_substream || !lws_send_pipe_choked(wsi)) {
+	lwsl_debug("wsi->http2_substream %d\n", wsi->http2_substream);
+
+	while (!lws_send_pipe_choked(wsi)) {
 
 		if (wsi->trunc_len) {
 			if (lws_issue_raw(wsi, wsi->trunc_alloc +
@@ -623,7 +625,9 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 		n = 0;
 
-		p = pt->serv_buf;
+		pstart = pt->serv_buf + LWS_HTTP2_FRAME_HEADER_LENGTH;
+
+		p = pstart;
 
 #if defined(LWS_WITH_RANGES)
 		if (wsi->u.http.range.count_ranges && !wsi->u.http.range.inside) {
@@ -638,7 +642,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			wsi->u.http.filepos = wsi->u.http.range.start;
 
 			if (wsi->u.http.range.count_ranges > 1) {
-				n =  lws_snprintf((char *)p, context->pt_serv_buf_size,
+				n =  lws_snprintf((char *)p, context->pt_serv_buf_size - LWS_HTTP2_FRAME_HEADER_LENGTH,
 					"_lws\x0d\x0a"
 					"Content-Type: %s\x0d\x0a"
 					"Content-Range: bytes %llu-%llu/%llu\x0d\x0a"
@@ -656,7 +660,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		}
 #endif
 
-		poss = context->pt_serv_buf_size - n;
+		poss = context->pt_serv_buf_size - n - LWS_HTTP2_FRAME_HEADER_LENGTH;
 
 		/*
 		 * if there is a hint about how much we will do well to send at one time,
@@ -686,7 +690,10 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		if (wsi->sending_chunked)
 			n = (int)amount;
 		else
-			n = (p - pt->serv_buf) + (int)amount;
+			n = (p - pstart) + (int)amount;
+
+		lwsl_debug("%s: sending %d\n", __func__, n);
+
 		if (n) {
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 					context->timeout_secs);
@@ -705,14 +712,14 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				n = args.len;
 				p = (unsigned char *)args.p;
 			} else
-				p = pt->serv_buf;
+				p = pstart;
 
 #if defined(LWS_WITH_RANGES)
 			if (wsi->u.http.range.send_ctr + 1 ==
 				wsi->u.http.range.count_ranges && // last range
 			    wsi->u.http.range.count_ranges > 1 && // was 2+ ranges (ie, multipart)
 			    wsi->u.http.range.budget - amount == 0) {// final part
-				n += lws_snprintf((char *)pt->serv_buf + n, 6,
+				n += lws_snprintf((char *)pstart + n, 6,
 					"_lws\x0d\x0a"); // append trailing boundary
 				lwsl_debug("added trailing boundary\n");
 			}

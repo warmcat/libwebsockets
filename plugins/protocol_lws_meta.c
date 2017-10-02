@@ -501,7 +501,7 @@ callback_lws_meta(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		lwsl_debug("%s: RX len %d\n", __func__, (int)len);
+		// lwsl_debug("%s: RX len %d\n", __func__, (int)len);
 
 		if (lws_get_protocol(cwsi)->callback(cwsi,
 					LWS_CALLBACK_RECEIVE,

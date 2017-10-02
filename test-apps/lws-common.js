@@ -14,6 +14,7 @@
  */
 
 function lws_gray_out(vis, options) {
+
 	var options = options || {};
 	var zindex = options.zindex || 50;
 	var opacity = options.opacity || 70;
@@ -36,7 +37,7 @@ function lws_gray_out(vis, options) {
 	if (vis) {
 		dark.style.opacity = opaque;
 		dark.style.MozOpacity = opaque;
-		dark.style.filter ='alpha(opacity='+opacity+')';
+		// dark.style.filter ='alpha(opacity='+opacity+')';
 		dark.style.zIndex = zindex;
 		dark.style.backgroundColor = bgcolor;
 		dark.style.width = gsize(1);

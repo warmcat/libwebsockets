@@ -27,6 +27,7 @@ build:
 		-DCMAKE_BUILD_TYPE=RELEASE \
 		-DLWS_MBEDTLS_INCLUDE_DIRS="${IDF_PATH}/components/openssl/include;${IDF_PATH}/components/mbedtls/include;${IDF_PATH}/components/mbedtls/port/include" \
 		-DLWS_WITH_STATS=0 \
+		-DLWS_WITH_HTTP2=1 \
 		-DZLIB_LIBRARY=$(BUILD_DIR_BASE)/zlib/libzlib.a \
 		-DZLIB_INCLUDE_DIR=$(COMPONENT_PATH)/../zlib \
 		-DLWS_WITH_ESP32=1 ;\
