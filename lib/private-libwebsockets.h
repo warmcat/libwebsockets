@@ -530,6 +530,8 @@ enum lws_pending_protocol_send {
 	LWS_PPS_HTTP2_MY_SETTINGS,
 	LWS_PPS_HTTP2_ACK_SETTINGS,
 	LWS_PPS_HTTP2_PONG,
+	LWS_PPS_HTTP2_GOAWAY,
+	LWS_PPS_HTTP2_RST_STREAM,
 };
 
 enum lws_rx_parse_state {
@@ -735,6 +737,7 @@ struct lws_fragments {
 	unsigned int offset;
 	unsigned short len;
 	unsigned char nfrag; /* which ah->frag[] continues this content, or 0 */
+	unsigned char flags; /* only http2 cares */
 };
 
 /*
@@ -1364,6 +1367,8 @@ struct _lws_http_mode_related {
 	lws_filepos_t content_remain;
 };
 
+#define LWS_HTTP2_FRAME_HEADER_LENGTH 9
+
 #ifdef LWS_WITH_HTTP2
 
 enum lws_http2_settings {
@@ -1401,8 +1406,87 @@ enum lws_http2_flags {
 	LWS_HTTP2_FLAG_SETTINGS_ACK = 1,
 };
 
+enum lws_http2_errors {
+	LWS_HTTP2_ERR_NO_ERROR,		   /* Graceful shutdown */
+	LWS_HTTP2_ERR_PROTOCOL_ERROR,	   /* Protocol error detected */
+	LWS_HTTP2_ERR_INTERNAL_ERROR,	   /* Implementation fault */
+	LWS_HTTP2_ERR_FLOW_CONTROL_ERROR,  /* Flow-control limits exceeded */
+	LWS_HTTP2_ERR_SETTINGS_TIMEOUT,	   /* Settings not acknowledged */
+	LWS_HTTP2_ERR_STREAM_CLOSED,	   /* Frame received for closed stream */
+	LWS_HTTP2_ERR_FRAME_SIZE_ERROR,	   /* Frame size incorrect */
+	LWS_HTTP2_ERR_REFUSED_STREAM,	   /* Stream not processed */
+	LWS_HTTP2_ERR_CANCEL,		   /* Stream cancelled */
+	LWS_HTTP2_ERR_COMPRESSION_ERROR,   /* Compression state not updated */
+	LWS_HTTP2_ERR_CONNECT_ERROR,	   /* TCP connection error for CONNECT method */
+	LWS_HTTP2_ERR_ENHANCE_YOUR_CALM,   /* Processing capacity exceeded */
+	LWS_HTTP2_ERR_INADEQUATE_SECURITY, /* Negotiated TLS parameters not acceptable */
+	LWS_HTTP2_ERR_HTTP_1_1_REQUIRED,   /* Use HTTP/1.1 for the request */
+};
+
+enum lws_http2_states {
+	LWS_HTTP2_STATE_IDLE,
+	/*
+	 * Send PUSH_PROMISE    -> LWS_HTTP2_STATE_RESERVED_LOCAL
+	 * Recv PUSH_PROMISE    -> LWS_HTTP2_STATE_RESERVED_REMOTE
+	 * Send HEADERS         -> LWS_HTTP2_STATE_OPEN
+	 * Recv HEADERS         -> LWS_HTTP2_STATE_OPEN
+	 *
+	 *  - Only PUSH_PROMISE + HEADERS valid to send
+	 *  - Only HEADERS or PRIORITY valid to receive
+	 */
+	LWS_HTTP2_STATE_RESERVED_LOCAL,
+	/*
+	 * Send RST_STREAM      -> LWS_HTTP2_STATE_CLOSED
+	 * Recv RST_STREAM      -> LWS_HTTP2_STATE_CLOSED
+	 * Send HEADERS         -> LWS_HTTP2_STATE_HALF_CLOSED_REMOTE
+	 *
+	 * - Only HEADERS, RST_STREAM, or PRIORITY valid to send
+	 * - Only RST_STREAM, PRIORITY, or WINDOW_UPDATE valid to receive
+	 */
+	LWS_HTTP2_STATE_RESERVED_REMOTE,
+	/*
+	 * Send RST_STREAM      -> LWS_HTTP2_STATE_CLOSED
+	 * Recv RST_STREAM      -> LWS_HTTP2_STATE_CLOSED
+	 * Recv HEADERS         -> LWS_HTTP2_STATE_HALF_CLOSED_LOCAL
+	 *
+	 *  - Only RST_STREAM, WINDOW_UPDATE, or PRIORITY valid to send
+	 *  - Only HEADERS, RST_STREAM, or PRIORITY valid to receive
+	 */
+	LWS_HTTP2_STATE_OPEN,
+	/*
+	 * Send RST_STREAM      -> LWS_HTTP2_STATE_CLOSED
+	 * Recv RST_STREAM      -> LWS_HTTP2_STATE_CLOSED
+	 * Send END_STREAM flag -> LWS_HTTP2_STATE_HALF_CLOSED_LOCAL
+	 * Recv END_STREAM flag -> LWS_HTTP2_STATE_HALF_CLOSED_REMOTE
+	 */
+	LWS_HTTP2_STATE_HALF_CLOSED_REMOTE,
+	/*
+	 * Send RST_STREAM      -> LWS_HTTP2_STATE_CLOSED
+	 * Recv RST_STREAM      -> LWS_HTTP2_STATE_CLOSED
+	 * Send END_STREAM flag -> LWS_HTTP2_STATE_CLOSED
+	 *
+	 *  - Any frame valid to send
+	 *  - Only WINDOW_UPDATE, PRIORITY, or RST_STREAM valid to receive
+	 */
+	LWS_HTTP2_STATE_HALF_CLOSED_LOCAL,
+	/*
+	 * Send RST_STREAM      -> LWS_HTTP2_STATE_CLOSED
+	 * Recv RST_STREAM      -> LWS_HTTP2_STATE_CLOSED
+	 * Recv END_STREAM flag -> LWS_HTTP2_STATE_CLOSED
+	 *
+	 *  - Only WINDOW_UPDATE, PRIORITY, and RST_STREAM valid to send
+	 *  - Any frame valid to receive
+	 */
+	LWS_HTTP2_STATE_CLOSED,
+	/*
+	 *  - Only PRIORITY, WINDOW_UPDATE (IGNORE) and RST_STREAM (IGNORE)
+	 *     may be received
+	 *
+	 *  - Only PRIORITY valid to send
+	 */
+};
+
 #define LWS_HTTP2_STREAM_ID_MASTER 0
-#define LWS_HTTP2_FRAME_HEADER_LENGTH 9
 #define LWS_HTTP2_SETTINGS_LENGTH 6
 
 struct http2_settings {
@@ -1410,13 +1494,6 @@ struct http2_settings {
 };
 
 enum http2_hpack_state {
-
-	/* optional before first header block */
-	HPKS_OPT_PADDING,
-	HKPS_OPT_E_DEPENDENCY,
-	HKPS_OPT_WEIGHT,
-
-	/* header block */
 	HPKS_TYPE,
 
 	HPKS_IDX_EXT,
@@ -1425,33 +1502,107 @@ enum http2_hpack_state {
 	HPKS_HLEN_EXT,
 
 	HPKS_DATA,
-
-	/* optional after last header block */
-	HKPS_OPT_DISCARD_PADDING,
 };
 
+/*
+ * lws general parsimonious header strategy is only store values from known
+ * headers, and refer to them by index.
+ *
+ * That means if we can't map the peer header name to one that lws knows, we
+ * will drop the content but track the indexing with associated_lws_hdr_idx =
+ * LWS_HPACK_IGNORE_ENTRY.
+ */
+
 enum http2_hpack_type {
-	HPKT_INDEXED_HDR_7,
-	HPKT_INDEXED_HDR_6_VALUE_INCR,
-	HPKT_LITERAL_HDR_VALUE_INCR,
-	HPKT_INDEXED_HDR_4_VALUE,
-	HPKT_LITERAL_HDR_VALUE,
+	HPKT_INDEXED_HDR_7,		/* 1xxxxxxx: just "header field" */
+	HPKT_INDEXED_HDR_6_VALUE_INCR,  /* 01xxxxxx: NEW indexed hdr with value */
+	HPKT_LITERAL_HDR_VALUE_INCR,	/* 01000000: NEW literal hdr with value */
+	HPKT_INDEXED_HDR_4_VALUE,	/* 0000xxxx: indexed hdr with value */
+	HPKT_INDEXED_HDR_4_VALUE_NEVER,	/* 0001xxxx: indexed hdr with value NEVER NEW */
+	HPKT_LITERAL_HDR_VALUE,		/* 00000000: literal hdr with value */
+	HPKT_LITERAL_HDR_VALUE_NEVER,	/* 00010000: literal hdr with value NEVER NEW */
 	HPKT_SIZE_5
 };
 
+#define LWS_HPACK_IGNORE_ENTRY 0xffff
+
 struct hpack_dt_entry {
-	int token; /* additions that don't map to a token are ignored */
-	int arg_offset;
-	int arg_len;
+	char *value; /* malloc'd */
+	uint16_t value_len;
+	uint16_t lws_hdr_idx; /* LWS_HPACK_IGNORE_ENTRY = IGNORE */
 };
 
 struct hpack_dynamic_table {
-	struct hpack_dt_entry *entries;
-	char *args;
+	struct hpack_dt_entry *entries; /* malloc'd */
 	int pos;
-	int next;
+	int used_entries;
 	int num_entries;
-	int args_length;
+};
+
+/*
+ * http/2 connection info that is only used by the root connection that has
+ * the network connection.
+ *
+ * h2 tends to spawn many child connections from one network connection, so
+ * it's necessary to make members only needed by the network connection
+ * distinct and only malloc'd on network connections.
+ *
+ * There's only one HPACK parser per network connection.
+ *
+ * But there is an ah per logical child connection... the network connection
+ * fills it but it belongs to the logical child.
+ */
+struct lws_http2_netconn {
+	struct http2_settings my_settings;
+	struct http2_settings peer_settings;
+	struct hpack_dynamic_table hpack_dyn_table;
+	unsigned char ping_payload[8];
+	unsigned char one_setting[LWS_HTTP2_SETTINGS_LENGTH];
+	char goaway_error_string[32];
+	struct lws *stream_wsi;
+	char *rx_scratch;
+
+	uint32_t  goaway_last_sid;
+	uint32_t  goaway_error_code;
+	enum http2_hpack_state hpack;
+	enum http2_hpack_type hpack_type;
+
+	unsigned int huff:1;
+	unsigned int value:1;
+	unsigned int unknown_header:1;
+	unsigned int continuation_expected:1;
+	unsigned int continuation_expected_headers:1;
+	unsigned int we_told_goaway:1;
+	unsigned int collected_padding_length:1;
+	unsigned int collected_priority:1;
+	unsigned int is_first_header_char:1;
+	unsigned int seen_nonpseudoheader:1;
+	unsigned int zero_huffman_padding:1;
+	unsigned int last_action_dyntable_resize:1;
+
+	uint32_t header_index;
+	uint32_t hpack_len;
+	uint32_t hpack_e_dep;
+	uint32_t count;
+	uint32_t preamble;
+	uint32_t length;
+	uint32_t stream_id;
+	uint32_t inside;
+	uint32_t highest_stream_id;
+	uint32_t continuation_expected_stream_id;
+	uint32_t dep_temp;
+
+	uint16_t hpack_pos;
+
+	uint8_t frame_state;
+	uint8_t type;
+	uint8_t flags;
+	uint8_t padding;
+	uint8_t weight_temp;
+	uint8_t huffman_pad;
+	char first_hdr_char;
+	uint8_t hpack_m;
+	uint8_t ext_count;
 };
 
 struct _lws_http2_related {
@@ -1462,29 +1613,16 @@ struct _lws_http2_related {
 	 */
 	struct _lws_http_mode_related http; /* MUST BE FIRST IN STRUCT */
 
-	struct http2_settings my_settings;
-	struct http2_settings peer_settings;
-
+	struct lws_http2_netconn *h2n; /* malloc'd for root net conn */
 	struct lws *parent_wsi;
-	struct lws *next_child_wsi;
+	struct lws *child_list;
+	struct lws *sibling_list;
 
-	struct hpack_dynamic_table *hpack_dyn_table;
-	struct lws *stream_wsi;
-	unsigned char ping_payload[8];
-	unsigned char one_setting[LWS_HTTP2_SETTINGS_LENGTH];
-
-	unsigned int count;
-	unsigned int length;
-	unsigned int stream_id;
-	enum http2_hpack_state hpack;
-	enum http2_hpack_type hpack_type;
-	unsigned int header_index;
-	unsigned int hpack_len;
-	unsigned int hpack_e_dep;
 	int tx_credit;
 	unsigned int my_stream_id;
 	unsigned int child_count;
 	int my_priority;
+	uint32_t dependent_on;
 
 	unsigned int END_STREAM:1;
 	unsigned int END_HEADERS:1;
@@ -1492,19 +1630,13 @@ struct _lws_http2_related {
 	unsigned int GOING_AWAY;
 	unsigned int requested_POLLOUT:1;
 	unsigned int waiting_tx_credit:1;
-	unsigned int huff:1;
-	unsigned int value:1;
 
-	unsigned short round_robin_POLLOUT;
-	unsigned short count_POLLOUT_children;
-	unsigned short hpack_pos;
+	uint16_t round_robin_POLLOUT;
+	uint16_t count_POLLOUT_children;
+	uint8_t http2_state; /* the RFC7540 state of the connection */
+	uint8_t weight;
 
-	unsigned char type;
-	unsigned char flags;
-	unsigned char frame_state;
-	unsigned char padding;
-	unsigned char hpack_m;
-	unsigned char initialized;
+	uint8_t initialized;
 };
 
 #define HTTP2_IS_TOPLEVEL_WSI(wsi) (!wsi->u.http2.parent_wsi)
@@ -1714,6 +1846,7 @@ struct lws {
 
 	unsigned int hdr_parsing_completed:1;
 	unsigned int http2_substream:1;
+	unsigned int upgraded_to_http2:1;
 	unsigned int listener:1;
 	unsigned int user_space_externally_allocated:1;
 	unsigned int socket_is_permanently_unusable:1;
@@ -1949,14 +2082,13 @@ user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
 #ifdef LWS_WITH_HTTP2
 LWS_EXTERN struct lws *lws_http2_get_network_wsi(struct lws *wsi);
 struct lws * lws_http2_get_nth_child(struct lws *wsi, int n);
-LWS_EXTERN int
-lws_http2_interpret_settings_payload(struct http2_settings *settings,
-				     unsigned char *buf, int len);
 LWS_EXTERN void lws_http2_init(struct http2_settings *settings);
 LWS_EXTERN int
+lws_http2_interpret_settings_payload(struct lws *nwsi, struct http2_settings *settings,
+				     unsigned char *buf, int len);
+LWS_EXTERN int
 lws_http2_parser(struct lws *wsi, unsigned char c);
-LWS_EXTERN int lws_http2_do_pps_send(struct lws_context *context,
-				     struct lws *wsi);
+LWS_EXTERN int lws_http2_do_pps_send(struct lws *wsi);
 LWS_EXTERN int lws_http2_frame_write(struct lws *wsi, int type, int flags,
 				     unsigned int sid, unsigned int len,
 				     unsigned char *buf);
@@ -1979,7 +2111,13 @@ lws_add_http2_header_status(struct lws *wsi,
 			    unsigned int code, unsigned char **p,
 			    unsigned char *end);
 LWS_EXTERN
-void lws_http2_configure_if_upgraded(struct lws *wsi);
+int lws_http2_configure_if_upgraded(struct lws *wsi);
+void
+lws_hpack_destroy_dynamic_header(struct lws *wsi);
+int
+lws_hpack_dynamic_size(struct lws *wsi, int size);
+void
+lws_http2_goaway(struct lws *wsi, uint32_t err, const char *reason);
 #else
 #define lws_http2_configure_if_upgraded(x)
 #endif

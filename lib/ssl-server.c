@@ -137,7 +137,7 @@ lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 	return 0;
 }
 
-#if defined(SSL_TLSEXT_ERR_NOACK) && !defined(OPENSSL_NO_TLSEXT)
+#if !defined(LWS_WITH_MBEDTLS) && defined(SSL_TLSEXT_ERR_NOACK) && !defined(OPENSSL_NO_TLSEXT)
 static int
 lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 {
@@ -405,18 +405,20 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		p = NULL;
 #endif
 
-		if (alloc_pem_to_der_file(vhost->context,
-			       info->ssl_private_key_filepath, &p, &flen)) {
-			lwsl_err("couldn't find cert file %s\n",
-				 info->ssl_cert_filepath);
+		if (info->ssl_private_key_filepath) {
+			if (alloc_pem_to_der_file(vhost->context,
+				       info->ssl_private_key_filepath, &p, &flen)) {
+				lwsl_err("couldn't find cert file %s\n",
+					 info->ssl_cert_filepath);
 
-			return 1;
-		}
-		err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
-		if (!err) {
-			lwsl_err("Problem loading key\n");
+				return 1;
+			}
+			err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
+			if (!err) {
+				lwsl_err("Problem loading key\n");
 
-			return 1;
+				return 1;
+			}
 		}
 
 #if !defined(LWS_WITH_ESP32)
