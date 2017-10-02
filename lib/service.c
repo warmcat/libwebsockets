@@ -1092,7 +1092,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 		default:
 			n = SSL_get_error(wsi->ssl, n);
-			if (n != SSL_ERROR_SYSCALL) {
+			if (n != SSL_ERROR_SYSCALL && n != SSL_ERROR_SSL) {
 				if (SSL_want_read(wsi->ssl)) {
 					lwsl_debug("(wants read)\n");
 					lws_change_pollfd(wsi, 0, LWS_POLLIN);
