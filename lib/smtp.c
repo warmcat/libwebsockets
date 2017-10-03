@@ -208,7 +208,7 @@ uv_timeout_cb_email(uv_timer_t *w
 LWS_VISIBLE LWS_EXTERN int
 lws_email_init(struct lws_email *email, uv_loop_t *loop, int max_content)
 {
-	email->content = lws_malloc(max_content);
+	email->content = lws_malloc(max_content, "email content");
 	if (!email->content)
 		return 1;
 

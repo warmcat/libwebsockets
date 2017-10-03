@@ -499,7 +499,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 	DWORD bufferlen = cnt;
 	BOOL ok = FALSE;
 
-	buffer = lws_malloc(bufferlen * 2);
+	buffer = lws_malloc(bufferlen * 2, "inet_ntop");
 	if (!buffer) {
 		lwsl_err("Out of memory\n");
 		return NULL;
@@ -545,7 +545,7 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 	DWORD bufferlen = strlen(src) + 1;
 	BOOL ok = FALSE;
 
-	buffer = lws_malloc(bufferlen * 2);
+	buffer = lws_malloc(bufferlen * 2, "inet_pton");
 	if (!buffer) {
 		lwsl_err("Out of memory\n");
 		return -1;
@@ -699,7 +699,7 @@ lws_plat_init(struct lws_context *context,
 
 	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
 		context->fd_hashtable[i].wsi =
-			lws_zalloc(sizeof(struct lws*) * context->max_fds);
+			lws_zalloc(sizeof(struct lws*) * context->max_fds, "win hashtable");
 
 		if (!context->fd_hashtable[i].wsi)
 			return -1;
@@ -707,7 +707,7 @@ lws_plat_init(struct lws_context *context,
 
 	while (n--) {
 		pt->events = lws_malloc(sizeof(WSAEVENT) *
-					(context->fd_limit_per_thread + 1));
+					(context->fd_limit_per_thread + 1), "event table");
 		if (pt->events == NULL) {
 			lwsl_err("Unable to allocate events array for %d connections\n",
 					context->fd_limit_per_thread + 1);

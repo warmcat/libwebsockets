@@ -231,7 +231,7 @@ esp8266_create_tcp_listen_socket(struct lws_vhost *vh)
 	if (n < 0)
 		return NULL;
 	
-	conn = lws_zalloc(sizeof *conn);
+	conn = lws_zalloc(sizeof *conn, "listen skt");
 	if (!conn)
 		return NULL;
 	
@@ -646,7 +646,7 @@ lws_plat_init(struct lws_context *context,
 
 	/* master context has the global fd lookup array */
 	context->connpool = lws_zalloc(sizeof(struct espconn *) *
-					 context->max_fds * 2);
+					 context->max_fds * 2, "connpool");
 	if (context->connpool == NULL) {
 		lwsl_err("OOM on lws_lookup array for %d connections\n",
 			 context->max_fds);

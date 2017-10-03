@@ -40,7 +40,7 @@ int lws_alloc_vfs_file(struct lws_context *context, const char *filename, uint8_
 
 	len = lws_vfs_get_length(fops_fd);
 
-	*buf = malloc((size_t)len);
+	*buf = lws_malloc((size_t)len, "lws_alloc_vfs_file");
 	if (!*buf)
 		goto bail;
 
@@ -68,13 +68,13 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		n = 1;
 		goto bail;
 	}
-	*buf = malloc(s);
+	*buf = lws_malloc(s, "alloc_file");
 	if (!*buf) {
 		n = 2;
 		goto bail;
 	}
 	if (nvs_get_blob(nvh, filename, (char *)*buf, &s) != ESP_OK) {
-		free(*buf);
+		lws_free(*buf);
 		n = 1;
 		goto bail;
 	}
@@ -116,14 +116,14 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		goto bail;
 	}
 
-	*buf = malloc(s);
+	*buf = lws_malloc(s, "alloc_file");
 	if (!*buf) {
 		n = 2;
 		goto bail;
 	}
 
 	if (fread(*buf, s, 1, f) != 1) {
-		free(*buf);
+		lws_free(*buf);
 		n = 1;
 		goto bail;
 	}
@@ -186,7 +186,7 @@ int alloc_pem_to_der_file(struct lws_context *context, const char *filename, uin
 	return 0;
 
 bail:
-	free(pem);
+	lws_free(pem);
 
 	return 4;
 }

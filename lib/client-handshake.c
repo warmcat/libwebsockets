@@ -696,7 +696,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	if (!i->context->protocol_init_done)
 		lws_protocol_init(i->context);
 
-	wsi = lws_zalloc(sizeof(struct lws));
+	wsi = lws_zalloc(sizeof(struct lws), "client wsi");
 	if (wsi == NULL)
 		goto bail;
 
@@ -760,7 +760,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	 * things pointed to have gone out of scope.
 	 */
 
-	wsi->u.hdr.stash = lws_malloc(sizeof(*wsi->u.hdr.stash));
+	wsi->u.hdr.stash = lws_malloc(sizeof(*wsi->u.hdr.stash), "client stash");
 	if (!wsi->u.hdr.stash) {
 		lwsl_err("%s: OOM\n", __func__);
 		goto bail;

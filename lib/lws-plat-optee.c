@@ -310,7 +310,7 @@ lws_plat_init(struct lws_context *context,
 {
 	/* master context has the global fd lookup array */
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
-					 context->max_fds);
+					 context->max_fds, "lws_lookup");
 	if (context->lws_lookup == NULL) {
 		lwsl_err("OOM on lws_lookup array for %d connections\n",
 			 context->max_fds);

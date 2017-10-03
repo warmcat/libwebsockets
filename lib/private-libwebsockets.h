@@ -2265,19 +2265,19 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len);
  * custom allocator
  */
 LWS_EXTERN void *
-lws_realloc(void *ptr, size_t size);
+lws_realloc(void *ptr, size_t size, const char *reason);
 
 LWS_EXTERN void * LWS_WARN_UNUSED_RESULT
-lws_zalloc(size_t size);
+lws_zalloc(size_t size, const char *reason);
 
 #ifdef LWS_PLAT_OPTEE
-void *lws_malloc(size_t size);
+void *lws_malloc(size_t size, const char *reason);
 void lws_free(void *p);
 #define lws_free_set_NULL(P)    do { lws_free(P); (P) = NULL; } while(0)
 #else
-#define lws_malloc(S)	lws_realloc(NULL, S)
-#define lws_free(P)	lws_realloc(P, 0)
-#define lws_free_set_NULL(P)	do { lws_realloc(P, 0); (P) = NULL; } while(0)
+#define lws_malloc(S, R)	lws_realloc(NULL, S, R)
+#define lws_free(P)	lws_realloc(P, 0, "lws_free")
+#define lws_free_set_NULL(P)	do { lws_realloc(P, 0, "free"); (P) = NULL; } while(0)
 #endif
 
 const struct lws_plat_file_ops *
