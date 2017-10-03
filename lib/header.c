@@ -169,6 +169,9 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	if (code >= 500 && code < (500 + ARRAY_SIZE(err500)))
 		description = err500[code - 500];
 
+	if (code == 100)
+		description = "Continue";
+
 	if (code == 200)
 		description = "OK";
 
