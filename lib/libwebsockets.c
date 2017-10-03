@@ -1529,7 +1529,7 @@ lws_ensure_user_space(struct lws *wsi)
 	/* allocate the per-connection user memory (if any) */
 
 	if (wsi->protocol->per_session_data_size && !wsi->user_space) {
-		wsi->user_space = lws_zalloc(wsi->protocol->per_session_data_size);
+		wsi->user_space = lws_zalloc(wsi->protocol->per_session_data_size, "user space");
 		if (wsi->user_space  == NULL) {
 			lwsl_err("%s: OOM\n", __func__);
 			return 1;
@@ -2171,7 +2171,7 @@ lws_get_addr_scope(const char *ipaddr)
 		{
 			if (addrs)
 				free(addrs);
-			addrs = (IP_ADAPTER_ADDRESSES *) malloc(size);
+			addrs = (IP_ADAPTER_ADDRESSES *)malloc(size);
 		} else
 		{
 			if (addrs)
@@ -2452,7 +2452,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 		return NULL;
 	}
 
-	new_wsi = lws_zalloc(sizeof(struct lws));
+	new_wsi = lws_zalloc(sizeof(struct lws), "new wsi");
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
@@ -2499,7 +2499,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	 * give the master wsi a cgi struct
 	 */
 
-	wsi->cgi = lws_zalloc(sizeof(*wsi->cgi));
+	wsi->cgi = lws_zalloc(sizeof(*wsi->cgi), "new cgi");
 	if (!wsi->cgi) {
 		lwsl_err("%s: OOM\n", __func__);
 		return -1;
@@ -2902,7 +2902,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 		if (!wsi->cgi->headers_buf) {
 			/* if we don't already have a headers buf, cook one up */
 			n = 2048;
-			wsi->cgi->headers_buf = malloc(n);
+			wsi->cgi->headers_buf = lws_malloc(n, "cgi hdr buf");
 			if (!wsi->cgi->headers_buf) {
 				lwsl_err("OOM\n");
 				return -1;
@@ -3799,7 +3799,7 @@ lws_stats_atomic_max(struct lws_context * context,
 LWS_VISIBLE LWS_EXTERN struct lws_ring *
 lws_ring_create(size_t element_len, size_t count, void (*destroy_element)(void *))
 {
-	struct lws_ring *ring = lws_malloc(sizeof(*ring));
+	struct lws_ring *ring = lws_malloc(sizeof(*ring), "ring create");
 
 	if (!ring)
 		return NULL;
@@ -3810,7 +3810,7 @@ lws_ring_create(size_t element_len, size_t count, void (*destroy_element)(void *
 	ring->oldest_tail = 0;
 	ring->destroy_element = destroy_element;
 
-	ring->buf = lws_malloc(ring->buflen);
+	ring->buf = lws_malloc(ring->buflen, "ring buf");
 	if (!ring->buf) {
 		lws_free(ring);
 

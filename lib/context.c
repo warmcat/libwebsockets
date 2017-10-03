@@ -59,7 +59,7 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 	/* allocate the vh priv array only on demand */
 	if (!vhost->protocol_vh_privs) {
 		vhost->protocol_vh_privs = (void **)lws_zalloc(
-				vhost->count_protocols * sizeof(void *));
+				vhost->count_protocols * sizeof(void *), "protocol_vh_privs");
 		if (!vhost->protocol_vh_privs)
 			return NULL;
 	}
@@ -77,7 +77,7 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 			return NULL;
 	}
 
-	vhost->protocol_vh_privs[n] = lws_zalloc(size);
+	vhost->protocol_vh_privs[n] = lws_zalloc(size, "vh priv");
 	return vhost->protocol_vh_privs[n];
 }
 
@@ -456,7 +456,7 @@ LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 struct lws_context_creation_info *info)
 {
-	struct lws_vhost *vh = lws_zalloc(sizeof(*vh)),
+	struct lws_vhost *vh = lws_zalloc(sizeof(*vh), "create vhost"),
 			 **vh1 = &context->vhost_list;
 	const struct lws_http_mount *mounts;
 	const struct lws_protocol_vhost_options *pvo;
@@ -516,7 +516,7 @@ lws_create_vhost(struct lws_context *context,
 	 */
 	lwsp = lws_zalloc(sizeof(struct lws_protocols) *
 				   (vh->count_protocols +
-				   context->plugin_protocol_count + 1));
+				   context->plugin_protocol_count + 1), "vhost-specific plugin table");
 	if (!lwsp) {
 		lwsl_err("OOM\n");
 		return NULL;
@@ -568,7 +568,7 @@ lws_create_vhost(struct lws_context *context,
 	}
 
 	vh->same_vh_protocol_list = (struct lws **)
-			lws_zalloc(sizeof(struct lws *) * vh->count_protocols);
+			lws_zalloc(sizeof(struct lws *) * vh->count_protocols, "same vh list");
 
 	vh->mount_list = info->mounts;
 
@@ -621,7 +621,7 @@ lws_create_vhost(struct lws_context *context,
 		 */
 		vh->extensions = lws_zalloc(sizeof(struct lws_extension) *
 					   (m +
-					   context->plugin_extension_count + 1));
+					   context->plugin_extension_count + 1), "extensions");
 		if (!vh->extensions)
 			return NULL;
 
@@ -794,7 +794,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	if (lws_plat_context_early_init())
 		return NULL;
 
-	context = lws_zalloc(sizeof(struct lws_context));
+	context = lws_zalloc(sizeof(struct lws_context), "context");
 	if (!context) {
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
@@ -908,7 +908,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	 * and header data pool
 	 */
 	for (n = 0; n < context->count_threads; n++) {
-		context->pt[n].serv_buf = lws_zalloc(context->pt_serv_buf_size);
+		context->pt[n].serv_buf = lws_zalloc(context->pt_serv_buf_size, "pt_serv_buf");
 		if (!context->pt[n].serv_buf) {
 			lwsl_err("OOM\n");
 			return NULL;
@@ -919,12 +919,12 @@ lws_create_context(struct lws_context_creation_info *info)
 #endif
 		context->pt[n].tid = n;
 		context->pt[n].http_header_data = lws_malloc(context->max_http_header_data *
-						       context->max_http_header_pool);
+						       context->max_http_header_pool, "context ah hdr data");
 		if (!context->pt[n].http_header_data)
 			goto bail;
 
 		context->pt[n].ah_pool = lws_zalloc(sizeof(struct allocated_headers) *
-					      context->max_http_header_pool);
+					      context->max_http_header_pool, "context ah hdr pool");
 		for (m = 0; m < context->max_http_header_pool; m++)
 			context->pt[n].ah_pool[m].data =
 				(char *)context->pt[n].http_header_data +
@@ -988,7 +988,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->pl_hash_elements =
 		(context->count_threads * context->fd_limit_per_thread) / 16;
 	context->pl_hash_table = lws_zalloc(sizeof(struct lws_peer *) *
-			context->pl_hash_elements);
+			context->pl_hash_elements, "peer limits hash table");
 	context->ip_limit_ah = info->ip_limit_ah;
 	context->ip_limit_wsi = info->ip_limit_wsi;
 #endif
@@ -1010,7 +1010,7 @@ lws_create_context(struct lws_context_creation_info *info)
 		    context->max_http_header_pool);
 	n = sizeof(struct lws_pollfd) * context->count_threads *
 	    context->fd_limit_per_thread;
-	context->pt[0].fds = lws_zalloc(n);
+	context->pt[0].fds = lws_zalloc(n, "fds table");
 	if (context->pt[0].fds == NULL) {
 		lwsl_err("OOM allocating %d fds\n", context->max_fds);
 		goto bail;
@@ -1362,7 +1362,7 @@ lws_check_deferred_free(struct lws_context *context, int force)
 LWS_VISIBLE void
 lws_vhost_destroy(struct lws_vhost *vh)
 {
-	struct lws_deferred_free *df = malloc(sizeof(*df));
+	struct lws_deferred_free *df = lws_malloc(sizeof(*df), "deferred free");
 
 	if (!df)
 		return;

@@ -189,7 +189,7 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 
 	if (!pt->io_loop_uv) {
 		if (!loop) {
-			loop = lws_malloc(sizeof(*loop));
+			loop = lws_malloc(sizeof(*loop), "libuv loop");
 			if (!loop) {
 				lwsl_err("OOM\n");
 				return -1;
@@ -618,7 +618,7 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 				goto skip;
 			}
 
-			plugin = lws_malloc(sizeof(*plugin));
+			plugin = lws_malloc(sizeof(*plugin), "plugin");
 			if (!plugin) {
 				uv_dlclose(&lib);
 				lwsl_err("OOM\n");

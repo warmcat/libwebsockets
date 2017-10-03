@@ -1057,7 +1057,7 @@ check_accept:
 	if (!n)
 		n = context->pt_serv_buf_size;
 	n += LWS_PRE;
-	wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */);
+	wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */, "client frame buffer");
 	if (!wsi->u.ws.rx_ubuf) {
 		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
 		cce = "HS: OOM";

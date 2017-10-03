@@ -465,7 +465,7 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 	if (fstat(ret, &stat_buf) < 0)
 		goto bail;
 
-	fop_fd = malloc(sizeof(*fop_fd));
+	fop_fd = lws_malloc(sizeof(*fop_fd), "fops open");
 	if (!fop_fd)
 		goto bail;
 
@@ -489,7 +489,7 @@ _lws_plat_file_close(lws_fop_fd_t *fops_fd)
 {
 	int fd = (*fops_fd)->fd;
 
-	free(*fops_fd);
+	lws_free(*fops_fd);
 	*fops_fd = NULL;
 
 	return close(fd);
@@ -542,7 +542,7 @@ lws_plat_init(struct lws_context *context,
 {
 	/* master context has the global fd lookup array */
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
-					 context->max_fds);
+					 context->max_fds, "esp32 lws_lookup");
 	if (context->lws_lookup == NULL) {
 		lwsl_err("OOM on lws_lookup array for %d connections\n",
 			 context->max_fds);
@@ -843,7 +843,8 @@ next:
 		}
 		if (!p) { /* did not find */
 			char temp[8];
-			p = malloc(sizeof(*p));
+
+			p = lws_malloc(sizeof(*p), "group");
 			if (!p)
 				continue;
 			strncpy(p->host, r->host, sizeof(p->host) - 1);
@@ -892,7 +893,7 @@ next:
 			*p1 = p->next;
 
 			lws_group_member_event_call(LWS_SYSTEM_GROUP_MEMBER_REMOVE, p);
-			free(p);
+			lws_free(p);
 			continue;
 		}
 		p1 = &(*p1)->next;
@@ -1153,8 +1154,8 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 			mdns_set_instance(lws_esp32.mdns, lws_esp32.group);
 			mdns_service_add(lws_esp32.mdns, "_lwsgrmem", "_tcp", 443);
 			if (txta[0])
-				free(txta[0]);
-			txta[0] = malloc(32 * ARRAY_SIZE(txta));
+				lws_free(txta[0]);
+			txta[0] = lws_malloc(32 * ARRAY_SIZE(txta), "group");
 			if (!txta[0]) {
 				lwsl_notice("mdns OOM\n");
 				break;
@@ -1182,7 +1183,7 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 			}
 
 			if (!mem) {
-				struct lws_group_member *mem = malloc(sizeof(*mem));
+				struct lws_group_member *mem = lws_malloc(sizeof(*mem), "group");
 				if (mem) {
 					mem->last_seen = ~(uint64_t)0;
 					strcpy(mem->model, lws_esp32.model);

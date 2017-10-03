@@ -73,7 +73,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	int write_type = LWS_WRITE_PONG;
 	struct lws_tokens eff_buf;
 #ifdef LWS_WITH_HTTP2
-	struct lws *wsi2;
+	struct lws *wsi2, *wsi2a;
 #endif
 	int ret, m, n;
 
@@ -511,8 +511,7 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 
 	/* a new rxflow, buffer it and warn caller */
 	lwsl_info("new rxflow input buffer len %d\n", len - n);
-	wsi->rxflow_buffer = lws_malloc(len - n);
-
+	wsi->rxflow_buffer = lws_malloc(len - n, "rxflow buf");
 	if (!wsi->rxflow_buffer)
 		return -1;
 

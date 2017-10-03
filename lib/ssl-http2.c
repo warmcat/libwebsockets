@@ -143,6 +143,7 @@ void lws_http2_configure_if_upgraded(struct lws *wsi)
 	/* http2 union member has http union struct at start */
 	wsi->u.http.ah = ah;
 
+
 	lws_http2_init(&wsi->u.http2.peer_settings);
 	lws_http2_init(&wsi->u.http2.my_settings);
 

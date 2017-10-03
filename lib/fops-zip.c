@@ -340,7 +340,7 @@ lws_fops_zip_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
 	 * will come pointing at "/index.html"
 	 */
 
-	priv = lws_zalloc(sizeof(*priv));
+	priv = lws_zalloc(sizeof(*priv), "fops_zip priv");
 	if (!priv)
 		return NULL;
 

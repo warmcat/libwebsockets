@@ -129,7 +129,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		}
 
 		/* fill in **user */
-		priv = lws_zalloc(sizeof(*priv));
+		priv = lws_zalloc(sizeof(*priv), "pmd priv");
 		*((void **)user) = priv;
 		lwsl_ext("%s: LWS_EXT_CB_*CONSTRUCT\n", __func__);
 		memset(priv, 0, sizeof(*priv));
@@ -193,7 +193,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		priv->rx_init = 1;
 		if (!priv->buf_rx_inflated)
 			priv->buf_rx_inflated = lws_malloc(LWS_PRE + 7 + 5 +
-					    (1 << priv->args[PMD_RX_BUF_PWR2]));
+					    (1 << priv->args[PMD_RX_BUF_PWR2]), "pmd rx inflate buf");
 		if (!priv->buf_rx_inflated) {
 			lwsl_err("%s: OOM\n", __func__);
 			return -1;
@@ -343,7 +343,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		priv->tx_init = 1;
 		if (!priv->buf_tx_deflated)
 			priv->buf_tx_deflated = lws_malloc(LWS_PRE + 7 + 5 +
-					    (1 << priv->args[PMD_TX_BUF_PWR2]));
+					    (1 << priv->args[PMD_TX_BUF_PWR2]), "pmd tx deflate buf");
 		if (!priv->buf_tx_deflated) {
 			lwsl_err("%s: OOM\n", __func__);
 			return -1;

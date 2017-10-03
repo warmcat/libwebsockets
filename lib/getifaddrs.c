@@ -84,7 +84,7 @@ getifaddrs2(struct ifaddrs **ifap, int af, int siocgifconf, int siocgifflags,
 
 	buf_size = 8192;
 	for (;;) {
-		buf = lws_zalloc(buf_size);
+		buf = lws_zalloc(buf_size, "getifaddrs2");
 		if (buf == NULL) {
 			ret = ENOMEM;
 			goto error_out;
@@ -136,7 +136,7 @@ getifaddrs2(struct ifaddrs **ifap, int af, int siocgifconf, int siocgifflags,
 			goto error_out;
 		}
 
-		*end = lws_malloc(sizeof(**end));
+		*end = lws_malloc(sizeof(**end), "getifaddrs");
 
 		(*end)->ifa_next = NULL;
 		(*end)->ifa_name = strdup(ifr->ifr_name);
@@ -149,12 +149,12 @@ getifaddrs2(struct ifaddrs **ifap, int af, int siocgifconf, int siocgifflags,
 		/* fix these when we actually need them */
 		if (ifreq.ifr_flags & IFF_BROADCAST) {
 			(*end)->ifa_broadaddr =
-				lws_malloc(sizeof(ifr->ifr_broadaddr));
+				lws_malloc(sizeof(ifr->ifr_broadaddr), "getifaddrs");
 			memcpy((*end)->ifa_broadaddr, &ifr->ifr_broadaddr,
 						    sizeof(ifr->ifr_broadaddr));
 		} else if (ifreq.ifr_flags & IFF_POINTOPOINT) {
 			(*end)->ifa_dstaddr =
-				lws_malloc(sizeof(ifr->ifr_dstaddr));
+				lws_malloc(sizeof(ifr->ifr_dstaddr), "getifaddrs");
 			memcpy((*end)->ifa_dstaddr, &ifr->ifr_dstaddr,
 						      sizeof(ifr->ifr_dstaddr));
 		} else

@@ -5030,7 +5030,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
  * Allows you to replace the allocator (and deallocator) used by lws
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_set_allocator(void *(*realloc)(void *ptr, size_t size));
+lws_set_allocator(void *(*realloc)(void *ptr, size_t size, const char *reason));
 ///@}
 
 /** \defgroup wsstatus Websocket status APIs

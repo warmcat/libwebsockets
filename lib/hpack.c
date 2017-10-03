@@ -284,7 +284,7 @@ lws_hpack_add_dynamic_header(struct lws *wsi, int token, char *arg, int len)
 	dyn = wsi->u.http2.hpack_dyn_table;
 
 	if (!dyn) {
-		dyn = lws_zalloc(sizeof(*dyn));
+		dyn = lws_zalloc(sizeof(*dyn), "hpack dyn");
 		if (!dyn)
 			return 1;
 		wsi->u.http2.hpack_dyn_table = dyn;

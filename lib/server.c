@@ -170,7 +170,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	vhost->listen_port = info->port;
 	vhost->iface = info->iface;
 
-	wsi = lws_zalloc(sizeof(struct lws));
+	wsi = lws_zalloc(sizeof(struct lws), "listen wsi");
 	if (wsi == NULL) {
 		lwsl_err("Out of mem\n");
 		goto bail;
@@ -752,7 +752,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
 	if (wsi->access_log_pending)
 		lws_access_log(wsi);
 
-	wsi->access_log.header_log = lws_malloc(l);
+	wsi->access_log.header_log = lws_malloc(l, "access log");
 	if (wsi->access_log.header_log) {
 
 		tmp = localtime(&t);
@@ -774,7 +774,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
 
 		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
 		if (l) {
-			wsi->access_log.user_agent = lws_malloc(l + 2);
+			wsi->access_log.user_agent = lws_malloc(l + 2, "access log");
 			if (!wsi->access_log.user_agent) {
 				lwsl_err("OOM getting user agent\n");
 				lws_free_set_NULL(wsi->access_log.header_log);
@@ -790,7 +790,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
 		}
 		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
 		if (l) {
-			wsi->access_log.referrer = lws_malloc(l + 2);
+			wsi->access_log.referrer = lws_malloc(l + 2, "referrer");
 			if (!wsi->access_log.referrer) {
 				lwsl_err("OOM getting user agent\n");
 				lws_free_set_NULL(wsi->access_log.user_agent);
@@ -1340,7 +1340,7 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 	if (!n)
 		n = wsi->context->pt_serv_buf_size;
 	n += LWS_PRE;
-	wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */);
+	wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */, "rx_ubuf");
 	if (!wsi->u.ws.rx_ubuf) {
 		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
 		return 1;
@@ -1871,7 +1871,7 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 
 	lwsl_info("%s: creating new peer\n", __func__);
 
-	peer = lws_zalloc(sizeof(*peer));
+	peer = lws_zalloc(sizeof(*peer), "peer");
 	if (!peer) {
 		lws_context_unlock(context); /* === */
 		return NULL;
@@ -2046,7 +2046,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost)
 		return NULL;
 	}
 
-	new_wsi = lws_zalloc(sizeof(struct lws));
+	new_wsi = lws_zalloc(sizeof(struct lws), "new server wsi");
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
@@ -2453,7 +2453,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	 * later successful lws_header_table_attach() will apply the
 	 * below to the rx buffer (via lws_header_table_reset()).
 	 */
-	wsi->u.hdr.preamble_rx = lws_malloc(len);
+	wsi->u.hdr.preamble_rx = lws_malloc(len, "preamble_rx");
 	if (!wsi->u.hdr.preamble_rx) {
 		lwsl_err("OOM\n");
 		goto bail;
@@ -3178,7 +3178,7 @@ static struct lws_urldecode_stateful *
 lws_urldecode_s_create(struct lws *wsi, char *out, int out_len, void *data,
 		       lws_urldecode_stateful_cb output)
 {
-	struct lws_urldecode_stateful *s = lws_zalloc(sizeof(*s));
+	struct lws_urldecode_stateful *s = lws_zalloc(sizeof(*s), "stateful urldecode");
 	char buf[200], *p;
 	int m = 0;
 
@@ -3566,7 +3566,7 @@ lws_spa_create(struct lws *wsi, const char * const *param_names,
 			 int count_params, int max_storage,
 			 lws_spa_fileupload_cb opt_cb, void *opt_data)
 {
-	struct lws_spa *spa = lws_zalloc(sizeof(*spa));
+	struct lws_spa *spa = lws_zalloc(sizeof(*spa), "spa");
 
 	if (!spa)
 		return NULL;
@@ -3577,12 +3577,12 @@ lws_spa_create(struct lws *wsi, const char * const *param_names,
 	spa->opt_cb = opt_cb;
 	spa->opt_data = opt_data;
 
-	spa->storage = lws_malloc(max_storage);
+	spa->storage = lws_malloc(max_storage, "spa");
 	if (!spa->storage)
 		goto bail2;
 	spa->end = spa->storage + max_storage - 1;
 
-	spa->params = lws_zalloc(sizeof(char *) * count_params);
+	spa->params = lws_zalloc(sizeof(char *) * count_params, "spa params");
 	if (!spa->params)
 		goto bail3;
 
@@ -3591,7 +3591,7 @@ lws_spa_create(struct lws *wsi, const char * const *param_names,
 	if (!spa->s)
 		goto bail4;
 
-	spa->param_length = lws_zalloc(sizeof(int) * count_params);
+	spa->param_length = lws_zalloc(sizeof(int) * count_params, "spa param len");
 	if (!spa->param_length)
 		goto bail5;
 
