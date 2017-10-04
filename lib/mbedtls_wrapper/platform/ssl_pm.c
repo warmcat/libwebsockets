@@ -109,7 +109,11 @@ int ssl_pm_new(SSL *ssl)
         goto no_mem;
     }
 
+    if (!ssl->ctx->read_buffer_len)
+	    ssl->ctx->read_buffer_len = 2048;
+
     max_content_len = ssl->ctx->read_buffer_len;
+    // printf("ssl->ctx->read_buffer_len = %d ++++++++++++++++++++\n", ssl->ctx->read_buffer_len);
 
     mbedtls_net_init(&ssl_pm->fd);
     mbedtls_net_init(&ssl_pm->cl_fd);
