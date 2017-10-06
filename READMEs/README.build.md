@@ -409,18 +409,184 @@ you can use as a starting point.
 
 The commandline to configure for cross with this would look like
 ```
-	$ cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr \
-		 -DCMAKE_TOOLCHAIN_FILE=../cross-arm-linux-gnueabihf.cmake \
-		 -DLWS_WITHOUT_EXTENSIONS=1 -DLWS_WITH_SSL=0
+	$ cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/usr/lib/my-cross-root \
+		 -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-arm-linux-gnueabihf.cmake \
+		 -DLWS_WITHOUT_EXTENSIONS=1 -DLWS_WITH_SSL=0 \
+		 -DLWS_WITH_ZIP_FOPS=0 -DLWS_WITH_ZLIB=0
 ```
 The example shows how to build with no external cross lib dependencies, you
 need to provide the cross libraries otherwise.
 
 **NOTE**: start from an EMPTY build directory if you had a non-cross build in there
 	before the settings will be cached and your changes ignored.
+	Delete `build/CMakeCache.txt` at least before trying a new cmake config
+	to ensure you are really building the options you think you are.
 
 Additional information on cross compilation with CMake:
 	http://www.vtk.org/Wiki/CMake_Cross_Compiling
+
+@section cross_example Complex Cross compiling example
+
+Here are step by step instructions for cross-building the external projects needed for lws with lwsws + mbedtls as an example.
+
+In the example, my toolchain lives in `/projects/aist-tb/arm-tc` and is named `arm-linux-gnueabihf`.  So you will need to adapt those to where your toolchain lives and its name where you see them here.
+
+Likewise I do all this in /tmp but it has no special meaning, you can adapt that to somewhere else.
+
+All "foreign" cross-built binaries are sent into `/tmp/cross` so they cannot be confused for 'native' x86_64 stuff on your host machine in /usr/[local/]....
+
+## Prepare the cmake toolchain file
+
+1) `cd /tmp`
+
+2) `wget -O mytoolchainfile https://raw.githubusercontent.com/warmcat/libwebsockets/master/contrib/cross-arm-linux-gnueabihf.cmake` 
+
+3) Edit `/tmp/mytoolchainfile` adapting `CROSS_PATH`, `CMAKE_C_COMPILER` and `CMAKE_CXX_COMPILER` to reflect your toolchain install dir and path to your toolchain C and C++ compilers respectively.  For my case:
+
+```
+set(CROSS_PATH /projects/aist-tb/arm-tc/)
+set(CMAKE_C_COMPILER "${CROSS_PATH}/bin/arm-linux-gnueabihf-gcc")
+set(CMAKE_CXX_COMPILER "${CROSS_PATH}/bin/arm-linux-gnueabihf-g++")
+```
+
+## 1/4: Building libuv cross:
+
+1) `export PATH=/projects/aist-tb/arm-tc/bin:$PATH`  Notice there is a **/bin** on the end of the toolchain path
+
+2) `cd /tmp ; mkdir cross` we will put the cross-built libs in /tmp/cross
+
+3) `git clone https://github.com/libuv/libuv.git` get libuv
+
+4) `cd libuv`
+
+5) `./autogen.sh`
+
+```
++ libtoolize --copy
+libtoolize: putting auxiliary files in '.'.
+libtoolize: copying file './ltmain.sh'
+libtoolize: putting macros in AC_CONFIG_MACRO_DIRS, 'm4'.
+libtoolize: copying file 'm4/libtool.m4'
+libtoolize: copying file 'm4/ltoptions.m4'
+libtoolize: copying file 'm4/ltsugar.m4'
+libtoolize: copying file 'm4/ltversion.m4'
+libtoolize: copying file 'm4/lt~obsolete.m4'
++ aclocal -I m4
++ autoconf
++ automake --add-missing --copy
+configure.ac:38: installing './ar-lib'
+configure.ac:25: installing './compile'
+configure.ac:22: installing './config.guess'
+configure.ac:22: installing './config.sub'
+configure.ac:21: installing './install-sh'
+configure.ac:21: installing './missing'
+Makefile.am: installing './depcomp'
+```
+If it has problems, you will need to install `automake`, `libtool` etc.
+
+6) `./configure  --host=arm-linux-gnueabihf --prefix=/tmp/cross`
+
+7) `make && make install` this will install to `/tmp/cross/...`
+
+8) `file /tmp/cross/lib/libuv.so.1.0.0`  Check it's really built for ARM
+```
+/tmp/cross/lib/libuv.so.1.0.0: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=cdde0bc945e51db6001a9485349c035baaec2b46, with debug_info, not stripped
+```
+
+## 2/4: Building zlib cross
+
+1) `cd /tmp`
+
+2) `git clone https://github.com/madler/zlib.git`
+
+3) `CC=arm-linux-gnueabihf-gcc ./configure --prefix=/tmp/cross`
+```
+Checking for shared library support...
+Building shared library libz.so.1.2.11 with arm-linux-gnueabihf-gcc.
+Checking for size_t... Yes.
+Checking for off64_t... Yes.
+Checking for fseeko... Yes.
+Checking for strerror... Yes.
+Checking for unistd.h... Yes.
+Checking for stdarg.h... Yes.
+Checking whether to use vs[n]printf() or s[n]printf()... using vs[n]printf().
+Checking for vsnprintf() in stdio.h... Yes.
+Checking for return value of vsnprintf()... Yes.
+Checking for attribute(visibility) support... Yes.
+```
+
+4)  `make && make install`
+```
+arm-linux-gnueabihf-gcc -O3 -D_LARGEFILE64_SOURCE=1 -DHAVE_HIDDEN -I. -c -o example.o test/example.c
+...
+rm -f /tmp/cross/include/zlib.h /tmp/cross/include/zconf.h
+cp zlib.h zconf.h /tmp/cross/include
+chmod 644 /tmp/cross/include/zlib.h /tmp/cross/include/zconf.h
+```
+
+5) `file /tmp/cross/lib/libz.so.1.2.11`  This is just to confirm we built an ARM lib as expected
+```
+/tmp/cross/lib/libz.so.1.2.11: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=6f8ffef84389b1417d2fd1da1bd0c90f748f300d, with debug_info, not stripped
+```
+
+## 3/4: Building mbedtls cross
+
+1) `cd /tmp`
+
+2) `git clone https://github.com/ARMmbed/mbedtls.git`
+
+3) `cd mbedtls ; mkdir build ; cd build`
+
+3) `cmake .. -DCMAKE_TOOLCHAIN_FILE=/tmp/mytoolchainfile -DCMAKE_INSTALL_PREFIX:PATH=/tmp/cross -DUSE_SHARED_MBEDTLS_LIBRARY=1`  mbedtls also uses cmake, so you can simply reuse the toolchain file you used for libwebsockets.  That is why you shouldn't put project-specific options in the toolchain file, it should just describe the toolchain.
+
+4) `make && make install`
+
+5) `file /tmp/cross/lib/libmbedcrypto.so.2.6.0`
+```
+/tmp/cross/lib/libmbedcrypto.so.2.6.0: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=bcca195e78bd4fd2fb37f36ab7d72d477d609d87, with debug_info, not stripped
+```
+
+## 4/4: Building libwebsockets with everything
+
+1) `cd /tmp`
+
+2) `git clone ssh://git@github.com/warmcat/libwebsockets`
+
+3) `cd libwebsockets ; mkdir build ; cd build`
+
+4)  (this is all one line on the commandline)
+```
+cmake .. -DCMAKE_TOOLCHAIN_FILE=/tmp/mytoolchainfile \
+-DCMAKE_INSTALL_PREFIX:PATH=/tmp/cross \
+-DLWS_WITH_LWSWS=1 \
+-DLWS_WITH_MBEDTLS=1 \
+-DLWS_MBEDTLS_LIBRARIES="/tmp/cross/lib/libmbedcrypto.so;/tmp/cross/lib/libmbedtls.so;/tmp/cross/lib/libmbedx509.so" \
+-DLWS_MBEDTLS_INCLUDE_DIRS=/tmp/cross/include \
+-DLWS_LIBUV_LIBRARIES=/tmp/cross/lib/libuv.so \
+-DLWS_LIBUV_INCLUDE_DIRS=/tmp/cross/include \
+-DLWS_ZLIB_LIBRARIES=/tmp/cross/lib/libz.so \
+-DLWS_ZLIB_INCLUDE_DIRS=/tmp/cross/include
+```
+
+3) `make && make install`
+
+4) `file /tmp/cross/lib/libwebsockets.so.11`
+```
+/tmp/cross/lib/libwebsockets.so.11: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=81e59c6534f8e9629a9fc9065c6e955ce96ca690, with debug_info, not stripped
+```
+
+5) `arm-linux-gnueabihf-objdump -p /tmp/cross/lib/libwebsockets.so.11 | grep NEEDED`  Confirm that the lws library was linked against everything we expect (libm / libc are provided by your toolchain)
+```
+  NEEDED               libz.so.1
+  NEEDED               libmbedcrypto.so.0
+  NEEDED               libmbedtls.so.10
+  NEEDED               libmbedx509.so.0
+  NEEDED               libuv.so.1
+  NEEDED               libm.so.6
+  NEEDED               libc.so.6
+```
+
+You will also find the lws test apps in `/tmp/cross/bin`... to run lws on the target you will need to copy the related things from /tmp/cross... all the .so from /tmp/cross/lib and anything from /tmp/cross/bin you want.
 
 @section mem Memory efficiency
 
