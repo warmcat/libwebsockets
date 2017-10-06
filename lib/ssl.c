@@ -843,7 +843,9 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		if (!wsi->accept_start_us)
 			wsi->accept_start_us = time_in_microseconds();
 #endif
-
+		errno = 0;
+		lws_stats_atomic_bump(wsi->context, pt,
+				      LWSSTATS_C_SSL_CONNECTIONS_ACCEPT_SPIN, 1);
 		n = SSL_accept(wsi->ssl);
 		lws_latency(context, wsi,
 			"SSL_accept LWSCM_SSL_ACK_PENDING\n", n, n == 1);

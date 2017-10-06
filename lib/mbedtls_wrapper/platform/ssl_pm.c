@@ -279,27 +279,41 @@ int ssl_pm_handshake(SSL *ssl)
     if (ret)
         return 0;
 
-    ssl_speed_up_enter();
+    if (ssl_pm->ssl.state != MBEDTLS_SSL_HANDSHAKE_OVER) {
+	    ssl_speed_up_enter();
 
-    while((ret = mbedtls_handshake(&ssl_pm->ssl)) != 0) {
-        if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
-           break;
-        }
+	   /* mbedtls return codes
+	    * 0 = successful, or MBEDTLS_ERR_SSL_WANT_READ/WRITE
+	    * anything else = death
+	    */
+	    ret = mbedtls_handshake(&ssl_pm->ssl);
+	    ssl_speed_up_exit();
+    } else
+	    ret = 0;
+
+    /*
+     * OpenSSL return codes:
+     *   0 = did not complete, but may be retried
+     *   1 = successfully completed
+     *   <0 = death
+     */
+    if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_handshake() return -0x%x", -ret);
+        return 0; /* OpenSSL: did not complete but may be retried */
     }
 
-    ssl_speed_up_exit();
-
-    if (ret) {
-        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_handshake() return -0x%x", -ret);
-        ret = 0;
-    } else {
+    if (ret == 0) { /* successful */
         struct x509_pm *x509_pm = (struct x509_pm *)ssl->session->peer->x509_pm;
 
         x509_pm->ex_crt = (mbedtls_x509_crt *)mbedtls_ssl_get_peer_cert(&ssl_pm->ssl);
-        ret = 1;
+        return 1; /* openssl successful */
     }
 
-    return ret;
+    /* it's had it */
+
+    ssl->err = SSL_ERROR_SYSCALL;
+
+    return -1; /* openssl death */
 }
 
 int ssl_pm_shutdown(SSL *ssl)

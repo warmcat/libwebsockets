@@ -5651,6 +5651,7 @@ enum {
 	LWSSTATS_C_WRITEABLE_CB, /**< count of writable callbacks */
 	LWSSTATS_C_SSL_CONNECTIONS_FAILED, /**< count of failed SSL connections */
 	LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, /**< count of accepted SSL connections */
+	LWSSTATS_C_SSL_CONNECTIONS_ACCEPT_SPIN, /**< count of SSL_accept() attempts */
 	LWSSTATS_C_SSL_CONNS_HAD_RX, /**< count of accepted SSL conns that have had some RX */
 	LWSSTATS_C_TIMEOUTS, /**< count of timed-out connections */
 	LWSSTATS_C_SERVICE_ENTRY, /**< count of entries to lws service loop */
