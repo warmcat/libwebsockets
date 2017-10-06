@@ -60,6 +60,51 @@ lextable_decode(int pos, char c)
 	}
 }
 
+static struct allocated_headers *
+_lws_create_ah(struct lws_context_per_thread *pt, ah_data_idx_t data_size)
+{
+	struct allocated_headers *ah = lws_zalloc(sizeof(*ah), "ah struct");
+
+	if (!ah)
+		return NULL;
+
+	ah->data = lws_malloc(data_size, "ah data");
+	if (!ah->data) {
+		lws_free(ah);
+
+		return NULL;
+	}
+	ah->next = pt->ah_list;
+	pt->ah_list = ah;
+	ah->data_length = data_size;
+	pt->ah_pool_length++;
+
+	lwsl_info("%s: created ah %p (size %d): pool length %d\n", __func__,
+		    ah, (int)data_size, pt->ah_pool_length);
+
+	return ah;
+}
+
+int
+_lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah)
+{
+	lws_start_foreach_llp(struct allocated_headers **, a, pt->ah_list) {
+		if ((*a) == ah) {
+			*a = ah->next;
+			pt->ah_pool_length--;
+			lwsl_info("%s: freed ah %p : pool length %d\n",
+				    __func__, ah, pt->ah_pool_length);
+			if (ah->data)
+				lws_free(ah->data);
+			lws_free(ah);
+
+			return 0;
+		}
+	} lws_end_foreach_llp(a, next);
+
+	return 1;
+}
+
 void
 _lws_header_table_reset(struct allocated_headers *ah)
 {
@@ -214,16 +259,15 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 
 	__lws_remove_from_ah_waiting_list(wsi);
 
-	for (n = 0; n < context->max_http_header_pool; n++)
-		if (!pt->ah_pool[n].in_use)
-			break;
+	wsi->u.hdr.ah = _lws_create_ah(pt, context->max_http_header_data);
+	if (!wsi->u.hdr.ah) { /* we could not create an ah */
+		_lws_header_ensure_we_are_on_waiting_list(wsi);
 
-	/* if the count of in use said something free... */
-	assert(n != context->max_http_header_pool);
+		goto bail;
+	}
 
-	wsi->u.hdr.ah = &pt->ah_pool[n];
 	wsi->u.hdr.ah->in_use = 1;
-	pt->ah_pool[n].wsi = wsi; /* mark our owner */
+	wsi->u.hdr.ah->wsi = wsi; /* mark our owner */
 	pt->ah_count_in_use++;
 
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -431,7 +475,7 @@ bail:
 
 nobody_usable_waiting:
 	lwsl_info("%s: nobody usable waiting\n", __func__);
-	ah->in_use = 0;
+	_lws_destroy_ah(pt, ah);
 	pt->ah_count_in_use--;
 
 	goto bail;

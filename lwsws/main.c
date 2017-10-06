@@ -119,7 +119,7 @@ context_creation(void)
 	memset(&info, 0, sizeof(info));
 
 	info.external_baggage_free_on_destroy = config_strings;
-	info.max_http_header_pool = 16;
+	info.max_http_header_pool = 256;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 |
 			      LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 			      LWS_SERVER_OPTION_LIBUV;

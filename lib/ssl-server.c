@@ -137,7 +137,7 @@ lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 	return 0;
 }
 
-#if defined(SSL_TLSEXT_ERR_NOACK) && !defined(OPENSSL_NO_TLSEXT)
+#if !defined(LWS_WITH_MBEDTLS) && defined(SSL_TLSEXT_ERR_NOACK) && !defined(OPENSSL_NO_TLSEXT)
 static int
 lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 {

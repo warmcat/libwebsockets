@@ -757,7 +757,7 @@ lws_create_context(struct lws_context_creation_info *info)
 #ifndef LWS_NO_DAEMONIZE
 	int pid_daemon = get_daemonize_pid();
 #endif
-	int n, m;
+	int n;
 #if defined(__ANDROID__)
 	struct rlimit rt;
 #endif
@@ -908,7 +908,8 @@ lws_create_context(struct lws_context_creation_info *info)
 	 * and header data pool
 	 */
 	for (n = 0; n < context->count_threads; n++) {
-		context->pt[n].serv_buf = lws_zalloc(context->pt_serv_buf_size, "pt_serv_buf");
+		context->pt[n].serv_buf = lws_malloc(context->pt_serv_buf_size,
+						     "pt_serv_buf");
 		if (!context->pt[n].serv_buf) {
 			lwsl_err("OOM\n");
 			return NULL;
@@ -918,19 +919,8 @@ lws_create_context(struct lws_context_creation_info *info)
 		context->pt[n].context = context;
 #endif
 		context->pt[n].tid = n;
-		context->pt[n].http_header_data = lws_malloc(context->max_http_header_data *
-						       context->max_http_header_pool, "context ah hdr data");
-		if (!context->pt[n].http_header_data)
-			goto bail;
-
-		context->pt[n].ah_pool = lws_zalloc(sizeof(struct allocated_headers) *
-					      context->max_http_header_pool, "context ah hdr pool");
-		for (m = 0; m < context->max_http_header_pool; m++)
-			context->pt[n].ah_pool[m].data =
-				(char *)context->pt[n].http_header_data +
-				(m * context->max_http_header_data);
-		if (!context->pt[n].ah_pool)
-			goto bail;
+		context->pt[n].ah_list = NULL;
+		context->pt[n].ah_pool_length = 0;
 
 		lws_pt_mutex_init(&context->pt[n]);
 	}
@@ -1457,10 +1447,9 @@ lws_context_destroy(struct lws_context *context)
 		lws_libevent_destroyloop(context, n);
 
 		lws_free_set_NULL(context->pt[n].serv_buf);
-		if (pt->ah_pool)
-			lws_free(pt->ah_pool);
-		if (pt->http_header_data)
-			lws_free(pt->http_header_data);
+
+		while (pt->ah_list)
+			_lws_destroy_ah(pt, pt->ah_list);
 	}
 	lws_plat_context_early_destroy(context);
 

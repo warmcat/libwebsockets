@@ -52,7 +52,7 @@
 #ifndef LWS_NO_SERVER
 #ifdef LWS_OPENSSL_SUPPORT
 
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+#if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x10002000L)
 
 struct alpn_ctx {
 	unsigned char *data;
@@ -89,7 +89,7 @@ alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 LWS_VISIBLE void
 lws_context_init_http2_ssl(struct lws_vhost *vhost)
 {
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+#if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x10002000L)
 	static struct alpn_ctx protos = { (unsigned char *)"\x02h2"
 					  "\x08http/1.1", 6 + 9 };
 
@@ -107,7 +107,7 @@ lws_context_init_http2_ssl(struct lws_vhost *vhost)
 
 void lws_http2_configure_if_upgraded(struct lws *wsi)
 {
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+#if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x10002000L)
 	struct allocated_headers *ah;
 	const char *method = "alpn";
 	const unsigned char *name;

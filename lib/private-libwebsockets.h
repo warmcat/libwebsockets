@@ -731,10 +731,17 @@ struct lws_fd_hashtable {
  * other APIs to get information out of it.
  */
 
+#if defined(LWS_WITH_ESP32)
+typedef uint16_t ah_data_idx_t;
+#else
+typedef uint32_t ah_data_idx_t;
+#endif
+
 struct lws_fragments {
-	unsigned int offset;
-	unsigned short len;
-	unsigned char nfrag; /* which ah->frag[] continues this content, or 0 */
+	ah_data_idx_t	offset;
+	uint16_t	len;
+	uint8_t		nfrag; /* which ah->frag[] continues this content, or 0 */
+	uint8_t		flags; /* only http2 cares */
 };
 
 /*
@@ -743,34 +750,39 @@ struct lws_fragments {
  */
 
 struct allocated_headers {
+	struct allocated_headers *next; /* linked list */
 	struct lws *wsi; /* owner */
 	char *data; /* prepared by context init to point to dedicated storage */
+	ah_data_idx_t data_length;
 	/*
 	 * the randomly ordered fragments, indexed by frag_index and
 	 * lws_fragments->nfrag for continuation.
 	 */
-	struct lws_fragments frags[WSI_TOKEN_COUNT * 2];
+	struct lws_fragments frags[WSI_TOKEN_COUNT];
 	time_t assigned;
 	/*
 	 * for each recognized token, frag_index says which frag[] his data
 	 * starts in (0 means the token did not appear)
 	 * the actual header data gets dumped as it comes in, into data[]
 	 */
-	unsigned char frag_index[WSI_TOKEN_COUNT];
-	unsigned char rx[2048];
+	uint8_t frag_index[WSI_TOKEN_COUNT];
+#if defined(LWS_WITH_ESP32)
+	uint8_t rx[256];
+#else
+	uint8_t rx[2048];
+#endif
 
-	unsigned int rxpos;
-	unsigned int rxlen;
-	unsigned int pos;
-
-	unsigned int http_response;
+	int16_t rxpos;
+	int16_t rxlen;
+	uint32_t pos;
+	uint32_t http_response;
 
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
 #endif
 
-	unsigned char in_use;
-	unsigned char nfrag;
+	uint8_t in_use;
+	uint8_t nfrag;
 };
 
 /*
@@ -796,7 +808,7 @@ struct lws_context_per_thread {
 	struct lws_cgi *cgi_list;
 #endif
 	void *http_header_data;
-	struct allocated_headers *ah_pool;
+	struct allocated_headers *ah_list;
 	struct lws *ah_wait_list;
 	int ah_wait_list_length;
 #ifdef LWS_OPENSSL_SUPPORT
@@ -835,6 +847,7 @@ struct lws_context_per_thread {
 	lws_sockfd_type dummy_pipe_fds[2];
 #endif
 	unsigned int fds_count;
+	uint32_t ah_pool_length;
 
 	short ah_count_in_use;
 	unsigned char tid;
@@ -1900,6 +1913,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
 
 LWS_EXTERN struct lws *
 lws_client_connect_via_info2(struct lws *wsi);
+
+LWS_EXTERN int
+_lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah);
 
 /*
  * EXTENSIONS
