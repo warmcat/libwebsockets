@@ -66,7 +66,7 @@ void
 lws_free_wsi(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt;
-	int n;
+	struct allocated_headers *ah;
 
 	if (!wsi)
 		return;
@@ -91,14 +91,16 @@ lws_free_wsi(struct lws *wsi)
 	lws_header_table_detach(wsi, 0);
 
 	lws_pt_lock(pt);
-	for (n = 0; n < wsi->context->max_http_header_pool; n++) {
-		if (pt->ah_pool[n].in_use &&
-		    pt->ah_pool[n].wsi == wsi) {
+	ah = pt->ah_list;
+	while (ah) {
+		if (ah->in_use && ah->wsi == wsi) {
 			lwsl_err("%s: ah leak: wsi %p\n", __func__, wsi);
-			pt->ah_pool[n].in_use = 0;
-			pt->ah_pool[n].wsi = NULL;
+			ah->in_use = 0;
+			ah->wsi = NULL;
 			pt->ah_count_in_use--;
+			break;
 		}
+		ah = ah->next;
 	}
 
 #if defined(LWS_WITH_PEER_LIMITS)

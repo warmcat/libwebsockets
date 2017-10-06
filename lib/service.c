@@ -73,7 +73,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	int write_type = LWS_WRITE_PONG;
 	struct lws_tokens eff_buf;
 #ifdef LWS_WITH_HTTP2
-	struct lws *wsi2, *wsi2a;
+	struct lws *wsi2;
 #endif
 	int ret, m, n;
 
@@ -530,7 +530,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	int n;
+	struct allocated_headers *ah;
 
 	/* Figure out if we really want to wait in poll()
 	 * We only need to wait if really nothing already to do and we have
@@ -550,15 +550,16 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 #endif
 
 	/* 3) if any ah has pending rx, do not wait in poll */
-	for (n = 0; n < context->max_http_header_pool; n++)
-		if (pt->ah_pool[n].rxpos != pt->ah_pool[n].rxlen) {
-			/* any ah with pending rx must be attached to someone */
-			if (!pt->ah_pool[n].wsi) {
-				lwsl_err("%s: ah with no wsi\n", __func__);
+	ah = pt->ah_list;
+	while (ah) {
+		if (ah->rxpos != ah->rxlen) {
+			if (!ah->wsi) {
 				assert(0);
 			}
 			return 0;
 		}
+		ah = ah->next;
+	}
 
 	return timeout_ms;
 }
@@ -573,12 +574,12 @@ int
 lws_service_flag_pending(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct allocated_headers *ah;
 #ifdef LWS_OPENSSL_SUPPORT
 	struct lws *wsi_next;
 #endif
 	struct lws *wsi;
 	int forced = 0;
-	int n;
 
 	/* POLLIN faking */
 
@@ -629,16 +630,20 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	 * fake their POLLIN status so they will be able to drain the
 	 * rx buffered in the ah
 	 */
-	for (n = 0; n < context->max_http_header_pool; n++)
-		if (pt->ah_pool[n].rxpos != pt->ah_pool[n].rxlen &&
-		    !pt->ah_pool[n].wsi->hdr_parsing_completed) {
-			pt->fds[pt->ah_pool[n].wsi->position_in_fds_table].revents |=
-				pt->fds[pt->ah_pool[n].wsi->position_in_fds_table].events &
+	ah = pt->ah_list;
+	while (ah) {
+		if (ah->rxpos != ah->rxlen && !ah->wsi->hdr_parsing_completed) {
+			pt->fds[ah->wsi->position_in_fds_table].revents |=
+				pt->fds[ah->wsi->position_in_fds_table].events &
 					LWS_POLLIN;
-			if (pt->fds[pt->ah_pool[n].wsi->position_in_fds_table].revents &
-			    LWS_POLLIN)
+			if (pt->fds[ah->wsi->position_in_fds_table].revents &
+			    LWS_POLLIN) {
 				forced = 1;
+				break;
+			}
 		}
+		ah = ah->next;
+	}
 
 	return forced;
 }
@@ -809,6 +814,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	lws_sockfd_type our_fd = 0, tmp_fd;
+	struct allocated_headers *ah;
 	struct lws_tokens eff_buf;
 	unsigned int pending = 0;
 	struct lws *wsi, *wsi1;
@@ -888,61 +894,65 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 		 *	    timeout status
 		 */
 
-		for (n = 0; n < context->max_http_header_pool; n++)
-			if (pt->ah_pool[n].in_use && pt->ah_pool[n].wsi &&
-			    pt->ah_pool[n].assigned &&
-			    now - pt->ah_pool[n].assigned > 60) {
-				int len;
-				char buf[256];
-				const unsigned char *c;
+		ah = pt->ah_list;
+		while (ah) {
+			int len;
+			char buf[256];
+			const unsigned char *c;
 
-				/*
-				 * a single ah session somehow got held for
-				 * an unreasonable amount of time.
-				 *
-				 * Dump info on the connection...
-				 */
-
-				wsi = pt->ah_pool[n].wsi;
-				buf[0] = '\0';
-				lws_get_peer_simple(wsi, buf, sizeof(buf));
-				lwsl_notice("ah excessive hold: wsi %p\n"
-					    "  peer address: %s\n"
-					    "  ah rxpos %u, rxlen %u, pos %u\n",
-					    wsi, buf, pt->ah_pool[n].rxpos,
-					    pt->ah_pool[n].rxlen,
-					    pt->ah_pool[n].pos);
-				buf[0] = '\0';
-				m = 0;
-				do {
-					c = lws_token_to_string(m);
-					if (!c)
-						break;
-
-					len = lws_hdr_total_length(wsi, m);
-					if (!len || len > sizeof(buf) - 1) {
-						m++;
-						continue;
-					}
-
-					if (lws_hdr_copy(wsi, buf,
-							 sizeof buf, m) > 0) {
-						buf[sizeof(buf) - 1] = '\0';
-
-						lwsl_notice("   %s = %s\n",
-							    (const char *)c, buf);
-					}
-					m++;
-				} while (1);
-
-				/* ... and then drop the connection */
-
-				if (wsi->desc.sockfd == our_fd)
-					/* it was the guy we came to service! */
-					timed_out = 1;
-
-				lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			if (!ah->in_use || !ah->wsi || !ah->assigned ||
+			    now - ah->assigned < 60) {
+				ah = ah->next;
+				continue;
 			}
+
+			/*
+			 * a single ah session somehow got held for
+			 * an unreasonable amount of time.
+			 *
+			 * Dump info on the connection...
+			 */
+			wsi = ah->wsi;
+			buf[0] = '\0';
+			lws_get_peer_simple(wsi, buf, sizeof(buf));
+			lwsl_notice("ah excessive hold: wsi %p\n"
+				    "  peer address: %s\n"
+				    "  ah rxpos %u, rxlen %u, pos %u\n",
+				    wsi, buf, ah->rxpos, ah->rxlen,
+				    ah->pos);
+			buf[0] = '\0';
+			m = 0;
+			do {
+				c = lws_token_to_string(m);
+				if (!c)
+					break;
+
+				len = lws_hdr_total_length(wsi, m);
+				if (!len || len > sizeof(buf) - 1) {
+					m++;
+					continue;
+				}
+
+				if (lws_hdr_copy(wsi, buf,
+						 sizeof buf, m) > 0) {
+					buf[sizeof(buf) - 1] = '\0';
+
+					lwsl_notice("   %s = %s\n",
+						    (const char *)c, buf);
+				}
+				m++;
+			} while (1);
+
+			/* ... and then drop the connection */
+
+			if (wsi->desc.sockfd == our_fd)
+				/* it was the guy we came to service! */
+				timed_out = 1;
+
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+
+			ah = ah->next;
+		}
 
 #ifdef LWS_WITH_CGI
 		/*

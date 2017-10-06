@@ -289,11 +289,11 @@ lws_hpack_add_dynamic_header(struct lws *wsi, int token, char *arg, int len)
 			return 1;
 		wsi->u.http2.hpack_dyn_table = dyn;
 
-		dyn->args = lws_malloc(1024);
+		dyn->args = lws_malloc(1024, "hpack");
 		if (!dyn->args)
 			goto bail1;
 		dyn->args_length = 1024;
-		dyn->entries = lws_malloc(sizeof(dyn->entries[0]) * 20);
+		dyn->entries = lws_malloc(sizeof(dyn->entries[0]) * 20, "hpack dyn entries");
 		if (!dyn->entries)
 			goto bail2;
 		dyn->num_entries = 20;
