@@ -2330,8 +2330,16 @@ struct lws_context_creation_info {
 	/**< CONTEXT: max number of wsi a single IP may use simultaneously.
 	 *	      0 is no limit.  This is a hard limit, connections from
 	 *	      the same IP will simply be dropped once it acquires the
-	 *	      amount of simultanoues wsi / accepted connections
+	 *	      amount of simultaneous wsi / accepted connections
 	 *	      given here.
+	 */
+	uint32_t	http2_settings[7];
+	/**< CONTEXT: after context creation http2_settings[1] thru [6] have
+	 *	      been set to the lws platform default values.
+	 *   VHOST:   if http2_settings[0] is nonzero, the values given in
+	 *	      http2_settings[1]..[6] are used instead of the lws
+	 *	      platform default values.
+	 *	      Just leave all at 0 if you don't care.
 	 */
 
 	/* Add new things just above here ---^
@@ -3342,6 +3350,8 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP1_0					= 79,
 	WSI_TOKEN_X_FORWARDED_FOR				= 80,
 	WSI_TOKEN_CONNECT					= 81,
+	WSI_TOKEN_HEAD						= 82,
+	WSI_TOKEN_TE						= 83,
 	/****** add new things just above ---^ ******/
 
 	/* use token storage to stash these internally, not for
@@ -3377,7 +3387,6 @@ struct lws_token_limits {
  */
 LWS_VISIBLE LWS_EXTERN const unsigned char *
 lws_token_to_string(enum lws_token_indexes token);
-
 
 /**
  * lws_hdr_total_length: report length of all fragments of a header totalled up

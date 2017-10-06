@@ -96,7 +96,7 @@ option(LWS_WITH_LATENCY "Build latency measuring code into the library" OFF)
 option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" ON)
 option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_UNIX_SOCK "Compile with support for UNIX domain socket" OFF)
-#option(LWS_WITH_HTTP2 "Compile with support for http2" OFF)
+option(LWS_WITH_HTTP2 "Compile with INCOMPLETE, EXPERIMENTAL support for http2" OFF)
 option(LWS_SSL_SERVER_WITH_ECDH_CERT "Include SSL server use ECDH certificate" OFF)
 option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
 option(LWS_WITH_HTTP_PROXY "Support for rewriting HTTP proxying (requires libhubbub)" OFF)
@@ -628,7 +628,7 @@ if (NOT LWS_WITHOUT_CLIENT)
 		lib/client-parser.c)
 endif()
 
-if (LWS_WITH_MBEDTLS AND NOT LWS_WITH_ESP32)
+if (LWS_WITH_MBEDTLS)
  	set(LWS_WITH_SSL ON)
 
 	list(APPEND HDR_PRIVATE
@@ -1474,6 +1474,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			"${PROJECT_SOURCE_DIR}/test-apps/leaf.jpg"
 			"${PROJECT_SOURCE_DIR}/test-apps/candide.zip"
 			"${PROJECT_SOURCE_DIR}/test-apps/libwebsockets.org-logo.png"
+			"${PROJECT_SOURCE_DIR}/test-apps/http2.png"
 			"${PROJECT_SOURCE_DIR}/test-apps/lws-common.js"
 			"${PROJECT_SOURCE_DIR}/test-apps/test.html")
 
