@@ -405,18 +405,20 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		p = NULL;
 #endif
 
-		if (alloc_pem_to_der_file(vhost->context,
-			       info->ssl_private_key_filepath, &p, &flen)) {
-			lwsl_err("couldn't find cert file %s\n",
-				 info->ssl_cert_filepath);
+		if (info->ssl_private_key_filepath) {
+			if (alloc_pem_to_der_file(vhost->context,
+				       info->ssl_private_key_filepath, &p, &flen)) {
+				lwsl_err("couldn't find cert file %s\n",
+					 info->ssl_cert_filepath);
 
-			return 1;
-		}
-		err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
-		if (!err) {
-			lwsl_err("Problem loading key\n");
+				return 1;
+			}
+			err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
+			if (!err) {
+				lwsl_err("Problem loading key\n");
 
-			return 1;
+				return 1;
+			}
 		}
 
 #if !defined(LWS_WITH_ESP32)

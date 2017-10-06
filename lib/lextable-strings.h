@@ -96,6 +96,8 @@ STORE_IN_ROM static const char * const set[] = {
 
 	"x-forwarded-for",
 	"connect ",
+	"head ",
+	"te:",		/* http/2 wants it to reject it */
 
 	"", /* not matchable */
 

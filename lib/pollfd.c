@@ -385,35 +385,38 @@ lws_callback_on_writable(struct lws *wsi)
 	if (wsi->mode != LWSCM_HTTP2_SERVING)
 		goto network_sock;
 
-	if (wsi->u.http2.requested_POLLOUT) {
+	if (wsi->u.h2.requested_POLLOUT) {
 		lwsl_info("already pending writable\n");
 		return 1;
 	}
 
-	if (wsi->u.http2.tx_credit <= 0) {
+	/* is this for DATA or for control messages? */
+	if (wsi->upgraded_to_http2 && !wsi->u.h2.h2n->pps &&
+	    !lws_h2_tx_cr_get(wsi)) {
 		/*
-		 * other side is not able to cope with us sending
-		 * anything so no matter if we have POLLOUT on our side.
+		 * other side is not able to cope with us sending DATA
+		 * anything so no matter if we have POLLOUT on our side if it's
+		 * DATA we want to send.
 		 *
 		 * Delay waiting for our POLLOUT until peer indicates he has
 		 * space for more using tx window command in http2 layer
 		 */
-		lwsl_info("%s: %p: waiting_tx_credit (%d)\n", __func__, wsi,
-			  wsi->u.http2.tx_credit);
-		wsi->u.http2.waiting_tx_credit = 1;
+		lwsl_notice("%s: %p: skint (%d)\n", __func__, wsi, wsi->u.h2.tx_cr);
+		wsi->u.h2.skint = 1;
 		return 0;
 	}
 
-	network_wsi = lws_http2_get_network_wsi(wsi);
-	already = network_wsi->u.http2.requested_POLLOUT;
+	wsi->u.h2.skint = 0;
+	network_wsi = lws_h2_get_network_wsi(wsi);
+	already = network_wsi->u.h2.requested_POLLOUT;
 
 	/* mark everybody above him as requesting pollout */
 
 	wsi2 = wsi;
 	while (wsi2) {
-		wsi2->u.http2.requested_POLLOUT = 1;
+		wsi2->u.h2.requested_POLLOUT = 1;
 		lwsl_info("mark %p pending writable\n", wsi2);
-		wsi2 = wsi2->u.http2.parent_wsi;
+		wsi2 = wsi2->u.h2.parent_wsi;
 	}
 
 	/* for network action, act only on the network wsi */
@@ -428,7 +431,7 @@ network_sock:
 		return 1;
 
 	if (wsi->position_in_fds_table < 0) {
-		lwsl_err("%s: failed to find socket %d\n", __func__, wsi->desc.sockfd);
+		lwsl_debug("%s: failed to find socket %d\n", __func__, wsi->desc.sockfd);
 		return -1;
 	}
 

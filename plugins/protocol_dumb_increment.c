@@ -132,6 +132,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		callback_dumb_increment, \
 		sizeof(struct per_session_data__dumb_increment), \
 		10, /* rx buf size must be >= permessage-deflate rx size */ \
+		0, NULL, 0 \
 	}
 
 #if !defined (LWS_PLUGIN_STATIC)

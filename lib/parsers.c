@@ -110,6 +110,7 @@ _lws_header_table_reset(struct allocated_headers *ah)
 {
 	/* init the ah to reflect no headers or data have appeared yet */
 	memset(ah->frag_index, 0, sizeof(ah->frag_index));
+	memset(ah->frags, 0, sizeof(ah->frags));
 	ah->nfrag = 0;
 	ah->pos = 0;
 	ah->http_response = 0;
@@ -440,6 +441,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 
 		/* he has been stuck waiting for an ah, but now his wait is
 		 * over, let him progress */
+
 		_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 	}
 
@@ -954,7 +956,7 @@ swallow:
 		 * Server needs to look out for unknown methods...
 		 */
 		if (wsi->u.hdr.lextable_pos < 0 &&
-		    wsi->mode == LWSCM_HTTP_SERVING) {
+		    (wsi->mode == LWSCM_HTTP_SERVING)) {
 			/* this is not a header we know about */
 			for (m = 0; m < ARRAY_SIZE(methods); m++)
 				if (ah->frag_index[methods[m]]) {
@@ -1041,6 +1043,7 @@ excessive:
 		ah->frags[ah->nfrag].offset = ah->pos;
 		ah->frags[ah->nfrag].len = 0;
 		ah->frags[ah->nfrag].nfrag = 0;
+		ah->frags[ah->nfrag].flags = 2;
 
 		n = ah->frag_index[wsi->u.hdr.parser_state];
 		if (!n) { /* first fragment */

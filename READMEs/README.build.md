@@ -376,11 +376,14 @@ additionally, discovered plugins are not enabled automatically for security
 reasons.  You do this using info->pvo or for lwsws, in the JSON config.
 
 
-@section http2rp Reproducing HTTP2.0 tests
+@section http2rp Reproducing HTTP/2 tests
+
+Enable `-DLWS_WITH_HTTP2=1` in cmake to build with http/2 support enabled.
 
 You must have built and be running lws against a version of openssl that has
-ALPN / NPN.  Most distros still have older versions.  You'll know it's right by
-seeing
+ALPN.  At the time of writing, recent distros have started upgrading to OpenSSL
+1.1+ that supports this already.  You'll know it's right by seeing
+
 ```
 	lwsts[4752]:  Compiled with OpenSSL support
 	lwsts[4752]:  Using SSL mode
@@ -388,14 +391,29 @@ seeing
 ```
 at lws startup.
 
-For non-SSL HTTP2.0 upgrade
-```
-	$ nghttp -nvasu http://localhost:7681/test.htm
-```
-For SSL / ALPN HTTP2.0 upgrade
+Recent Firefox and Chrome also support HTTP/2 by ALPN, so these should just work
+with the test server running in -s / ssl mode.
+
+For testing with nghttp client:
+
 ```
 	$ nghttp -nvas https://localhost:7681/test.html
 ```
+
+Testing with h2spec (https://github.com/summerwind/h2spec)
+
+```
+        $ h2spec  -h 127.0.0.1 -p 7681 -t -k -v -o 1
+```
+
+At the time of writing, http/2 support is not fully complete; however all the
+h2spec tests pass.
+
+```
+145 tests, 144 passed, 1 skipped, 0 failed
+
+```
+
 
 @section cross Cross compiling
 
