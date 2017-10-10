@@ -164,7 +164,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	int n, m;
 
 	/* stay dead once we are dead */
-	if (context == NULL)
+	if (context == NULL || !context->vhost_list)
 		return 1;
 
 	pt = &context->pt[tsi];

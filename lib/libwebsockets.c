@@ -2448,6 +2448,9 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 {
 	struct lws *new_wsi;
 
+	if (!context->vhost_list)
+		return NULL;
+
 	if ((unsigned int)context->pt[tsi].fds_count ==
 	    context->fd_limit_per_thread - 1) {
 		lwsl_err("no space for new conn\n");
