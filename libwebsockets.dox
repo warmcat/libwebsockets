@@ -101,7 +101,19 @@ WARN_LOGFILE           =
 #---------------------------------------------------------------------------
 # Configuration options related to the input files
 #---------------------------------------------------------------------------
-INPUT                  = lib/libwebsockets.h mainpage.md README.build.md README.problems.md README.lwsws.md README.coding.md README.generic-sessions.md README.generic-table.md README.test-apps.md README.lws-meta.md doc-assets 
+INPUT                  = lib/libwebsockets.h \
+			 plugins/ssh-base/include/lws-plugin-ssh.h \
+			 ./READMEs/mainpage.md \
+			 ./READMEs/README.build.md \
+			 ./READMEs/README.problems.md \
+			 ./READMEs/README.lwsws.md \
+			 ./READMEs/README.coding.md \
+			 ./READMEs/README.generic-sessions.md \
+			 ./READMEs/README.generic-table.md \
+			 ./READMEs/README.test-apps.md \
+			 ./READMEs/README.lws-meta.md \
+			 ./READMEs/README-plugin-sshd-base.md \
+			 ./doc-assets 
 INPUT_ENCODING         = UTF-8
 FILE_PATTERNS          = lib/*.c *.md *.png
 RECURSIVE              = NO

@@ -666,7 +666,7 @@ Returning nonzero from the callback will close the wsi.
 
 SMP support is integrated into LWS without any internal threading.  It's
 very simple to use, libwebsockets-test-server-pthread shows how to do it,
-use -j <n> argument there to control the number of service threads up to 32.
+use -j n argument there to control the number of service threads up to 32.
 
 Two new members are added to the info struct
 
@@ -1007,7 +1007,7 @@ also add this to your own html easily
 
  - include lws-common.js from your HEAD section
  
-   <script src="/lws-common.js"></script>
+   \<script src="/lws-common.js">\</script>
    
  - dim the page during initialization, in a script section on your page
  

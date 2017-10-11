@@ -18,7 +18,7 @@ to do that outside lws itself, using lws public apis.
 
  $ cmake .. -DLWS_WITH_LWSWS=1
 
-See [README.lwsws.md](README.lwsws.md) for information on how to configure
+See [README.lwsws.md](READMEs/README.lwsws.md) for information on how to configure
 lwsws.
 
 NOTE this method implies libuv is used by lws, to provide crossplatform

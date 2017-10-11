@@ -182,7 +182,7 @@ Vhosts can select which plugins they want to offer and give them per-vhost setti
 ```
 
 The "x":"y" parameters like "status":"ok" are made available to the protocol during its per-vhost
-LWS_CALLBACK_PROTOCOL_INIT (@in is a pointer to a linked list of struct lws_protocol_vhost_options
+LWS_CALLBACK_PROTOCOL_INIT (in is a pointer to a linked list of struct lws_protocol_vhost_options
 containing the name and value pointers).
 
 To indicate that a protocol should be used when no Protocol: header is sent

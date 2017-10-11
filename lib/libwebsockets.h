@@ -1213,7 +1213,7 @@ enum lws_callback_reasons {
 	 * the wsi is closed.  Used to, eg, terminate chunking.
 	 * The provided `lws_callback_http_dummy()`
 	 * handles this and the callback should be directed there if
-	 * you use CGI.  The child PID that terminated is in @len. */
+	 * you use CGI.  The child PID that terminated is in len. */
 	LWS_CALLBACK_CGI_STDIN_DATA				= 42,
 	/**< CGI: Data is, to be sent to the CGI process stdin, eg from
 	 * a POST body.  The provided `lws_callback_http_dummy()`
@@ -1376,22 +1376,22 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_SSL_INFO					= 67,
 	/**< SSL connections only.  An event you registered an
 	 * interest in at the vhost has occurred on a connection
-	 * using the vhost.  @in is a pointer to a
+	 * using the vhost.  in is a pointer to a
 	 * struct lws_ssl_info containing information about the
 	 * event*/
 	LWS_CALLBACK_CHILD_WRITE_VIA_PARENT			= 68,
 	/**< Child has been marked with parent_carries_io attribute, so
 	 * lws_write directs the to this callback at the parent,
-	 * @in is a struct lws_write_passthru containing the args
+	 * in is a struct lws_write_passthru containing the args
 	 * the lws_write() was called with.
 	 */
 	LWS_CALLBACK_CHILD_CLOSING				= 69,
 	/**< Sent to parent to notify them a child is closing / being
-	 * destroyed.  @in is the child wsi.
+	 * destroyed.  in is the child wsi.
 	 */
 	LWS_CALLBACK_CGI_PROCESS_ATTACH				= 70,
 	/**< CGI: Sent when the CGI process is spawned for the wsi.  The
-	 * @len parameter is the PID of the child process */
+	 * len parameter is the PID of the child process */
 
 	/****** add new things just above ---^ ******/
 
@@ -1511,8 +1511,7 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result);
 
 ///@}
 
-/*! \defgroup extensions
- *
+/*! \defgroup extensions Extension related functions
  * ##Extension releated functions
  *
  *  Ws defines optional extensions, lws provides the ability to implement these
@@ -1965,10 +1964,10 @@ struct lws_gs_event_args {
 ///@}
 
 
-/*! \defgroup context-and-vhost
+/*! \defgroup context-and-vhost context and vhost related functions
+ * ##Context and Vhost releated functions
  * \ingroup lwsapi
  *
- * ##Context and Vhost releated functions
  *
  *  LWS requires that there is one context, in which you may define multiple
  *  vhosts.  Each vhost is a virtual host, with either its own listen port
@@ -2417,7 +2416,9 @@ typedef int (*lws_reload_func)(void);
 
 /**
  * lws_context_deprecate() - Deprecate the websocket context
+ *
  * \param context:	Websocket context
+ * \param cb: Callback notified when old context listen sockets are closed
  *
  *	This function is used on an existing context before superceding it
  *	with a new context.
@@ -2502,12 +2503,16 @@ lws_create_vhost(struct lws_context *context,
 
 /**
  * lws_vhost_destroy() - Destroy a vhost (virtual server context)
- * \param vhost:	pointer to result of lws_create_vhost()
+ *
+ * \param vh:	pointer to result of lws_create_vhost()
  *
  * This function destroys a vhost.  Normally, if you just want to exit,
  * then lws_destroy_context() will take care of everything.  If you want
  * to destroy an individual vhost and all connections and allocations, you
  * can do it with this.
+ *
+ * If the vhost has a listen sockets shared by other vhosts, it will be given
+ * to one of the vhosts sharing it rather than closed.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_vhost_destroy(struct lws_vhost *vh);
@@ -2578,6 +2583,9 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len);
  * \param context: the context
  * \param buf: buffer to fill with JSON
  * \param len: max length of buf
+ * \param hide_vhosts: nonzero to not provide per-vhost mount etc information
+ *
+ * Generates a JSON description of vhost state into buf
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_json_dump_context(const struct lws_context *context, char *buf, int len,
@@ -2694,10 +2702,10 @@ struct lws_http_mount {
 ///@}
 ///@}
 
-/*! \defgroup client
+/*! \defgroup client Client related functions
+ * ##Client releated functions
  * \ingroup lwsapi
  *
- * ##Client releated functions
  * */
 ///@{
 
@@ -3142,16 +3150,6 @@ LWS_VISIBLE LWS_EXTERN int
 lws_serve_http_file_fragment(struct lws *wsi);
 //@}
 
-/*! \defgroup html-chunked-substitution HTML Chunked Substitution
- * \ingroup http
- *
- * ##HTML chunked Substitution
- *
- * APIs for receiving chunks of text, replacing a set of variable names via
- * a callback, and then prepending and appending HTML chunked encoding
- * headers.
- */
-//@{
 
 enum http_status {
 	HTTP_STATUS_CONTINUE					= 100,
@@ -3191,6 +3189,16 @@ enum http_status {
 	HTTP_STATUS_GATEWAY_TIMEOUT,
 	HTTP_STATUS_HTTP_VERSION_NOT_SUPPORTED,
 };
+/*! \defgroup html-chunked-substitution HTML Chunked Substitution
+ * \ingroup http
+ *
+ * ##HTML chunked Substitution
+ *
+ * APIs for receiving chunks of text, replacing a set of variable names via
+ * a callback, and then prepending and appending HTML chunked encoding
+ * headers.
+ */
+//@{
 
 struct lws_process_html_args {
 	char *p; /**< pointer to the buffer containing the data */
@@ -3390,7 +3398,7 @@ struct lws_token_limits {
 /**
  * lws_token_to_string() - returns a textual representation of a hdr token index
  *
- * \param: token index
+ * \param token: token index
  */
 LWS_VISIBLE LWS_EXTERN const unsigned char *
 lws_token_to_string(enum lws_token_indexes token);
@@ -4379,6 +4387,7 @@ lws_remaining_packet_payload(struct lws *wsi);
 /**
  * lws_adopt_socket() - adopt foreign socket as if listen socket accepted it
  * for the default vhost of context.
+ *
  * \param context: lws context
  * \param accept_fd: fd of already-accepted socket to adopt
  *
@@ -4393,7 +4402,8 @@ lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd);
 /**
  * lws_adopt_socket_vhost() - adopt foreign socket as if listen socket accepted it
  * for vhost
- * \param vhost: lws vhost
+ *
+ * \param vh: lws vhost
  * \param accept_fd: fd of already-accepted socket to adopt
  *
  * Either returns new wsi bound to accept_fd, or closes accept_fd and
@@ -5251,6 +5261,7 @@ lws_cgi_kill(struct lws *wsi);
  * lws_cgi_get_stdwsi: get wsi for stdin, stdout, or stderr
  *
  * \param wsi: parent wsi that has cgi
+ * \param ch: which of LWS_STDIN, LWS_STDOUT or LWS_STDERR
  */
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_cgi_get_stdwsi(struct lws *wsi, enum lws_enum_stdinouterr ch);
@@ -5502,13 +5513,13 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		     uint8_t *buf, lws_filepos_t len);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_alloc_vfs_file(struct lws_context *context, const char *filename, uint8_t **buf,
-                lws_filepos_t *amount);
+lws_alloc_vfs_file(struct lws_context *context, const char *filename,
+		   uint8_t **buf, lws_filepos_t *amount);
 //@}
 
-/** \defgroup smtp
- * \ingroup lwsapi
+/** \defgroup smtp SMTP related functions
  * ##SMTP related functions
+ * \ingroup lwsapi
  *
  * These apis let you communicate with a local SMTP server to send email from
  * lws.  It handles all the SMTP sequencing and protocol actions.
