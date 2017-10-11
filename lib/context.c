@@ -1173,7 +1173,8 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 				assert(v->lserv_wsi == NULL);
 				v->lserv_wsi = vh->lserv_wsi;
 				vh->lserv_wsi = NULL;
-				v->lserv_wsi->vhost = v;
+				if (v->lserv_wsi)
+					v->lserv_wsi->vhost = v;
 
 				lwsl_notice("%s: listen skt from %s to %s\n",
 					    __func__, vh->name, v->name);
@@ -1435,8 +1436,9 @@ lws_context_destroy(struct lws_context *context)
 	if (context->protocol_init_done)
 		vh = context->vhost_list;
 	while (vh) {
+		struct lws_vhost *vhn = vh->vhost_next;
 		lws_vhost_destroy1(vh);
-		vh = vh->vhost_next;
+		vh = vhn;
 	}
 
 	for (n = 0; n < context->count_threads; n++) {
