@@ -1,7 +1,7 @@
 /*
  * libwebsockets web server application
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -815,9 +815,12 @@ lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 	n = scandir(d, &namelist, filter, alphasort);
 	if (n < 0) {
 		lwsl_err("Scandir on %s failed\n", d);
+		return 1;
 	}
 
 	for (i = 0; i < n; i++) {
+		if (strchr(namelist[i]->d_name, '~'))
+			goto skip;
 		lws_snprintf(path, sizeof(path) - 1, "%s/%s", d,
 			 namelist[i]->d_name);
 		ret = lwsws_get_config(user, path, paths, count_paths, cb);
@@ -826,6 +829,7 @@ lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 				free(namelist[i]);
 			goto bail;
 		}
+skip:
 		free(namelist[i]);
 	}
 
