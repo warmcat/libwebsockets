@@ -27,13 +27,13 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define QUEUELEN 64
+#define QUEUELEN 32
 /* queue free space below this, rx flow is disabled */
 #define RXFLOW_MIN (4)
 /* queue free space above this, rx flow is enabled */
 #define RXFLOW_MAX (QUEUELEN / 3)
 
-#define MAX_MIRROR_INSTANCES 10
+#define MAX_MIRROR_INSTANCES 3
 
 struct mirror_instance;
 
@@ -44,6 +44,7 @@ struct per_session_data__lws_mirror {
 	uint32_t tail;
 };
 
+/* this is the element in the ring */
 struct a_message {
 	void *payload;
 	size_t len;
@@ -53,6 +54,7 @@ struct mirror_instance {
 	struct mirror_instance *next;
 	struct per_session_data__lws_mirror *same_mi_pss_list;
 	struct lws_ring *ring;
+	int messages_allocated;
 	char name[30];
 	char rx_enabled;
 };
@@ -99,7 +101,7 @@ mirror_rxflow_instance(struct mirror_instance *mi, int enable)
 static int
 mirror_update_worst_tail(struct mirror_instance *mi)
 {
-	uint32_t wai, worst = 0, worst_tail, oldest;
+	uint32_t wai, worst = 0, worst_tail = 0, oldest;
 	struct per_session_data__lws_mirror *worst_pss = NULL;
 
 	oldest = lws_ring_get_oldest_tail(mi->ring);
@@ -317,10 +319,6 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		update_worst = oldest_tail == pss->tail;
 		sent_something = 0;
 
-		lwsl_debug(" original oldest %d, free elements %ld\n",
-			   oldest_tail,
-			   lws_ring_get_count_free_elements(pss->mi->ring));
-
 		do {
 			msg = lws_ring_get_element(pss->mi->ring, &pss->tail);
 			if (!msg)
@@ -385,6 +383,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice("OOM: dropping\n");
 			break;
 		}
+
 		memcpy((char *)amsg.payload + LWS_PRE, in, len);
 		if (!lws_ring_insert(pss->mi->ring, &amsg, 1)) {
 			mirror_destroy_message(&amsg);
@@ -414,6 +413,7 @@ req_writable:
 		callback_lws_mirror, \
 		sizeof(struct per_session_data__lws_mirror), \
 		128, /* rx buf size must be >= permessage-deflate rx size */ \
+		0, NULL, 0 \
 	}
 
 #if !defined (LWS_PLUGIN_STATIC)

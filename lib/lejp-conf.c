@@ -477,7 +477,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		for (n = 0; n < ARRAY_SIZE(mount_protocols); n++)
 			if (!strncmp(a->m.origin, mount_protocols[n],
 			     strlen(mount_protocols[n]))) {
-				lwsl_err("----%s\n", a->m.origin);
+				lwsl_info("----%s\n", a->m.origin);
 				m->origin_protocol = n;
 				m->origin = a->m.origin +
 					    strlen(mount_protocols[n]);

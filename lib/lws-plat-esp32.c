@@ -60,17 +60,21 @@ lws_get_random(struct lws_context *context, void *buf, int len)
 LWS_VISIBLE int
 lws_send_pipe_choked(struct lws *wsi)
 {
+	struct lws *wsi_eff = wsi;
 	fd_set writefds;
 	struct timeval tv = { 0, 0 };
+#if defined(LWS_WITH_HTTP2)
+	wsi_eff = lws_get_network_wsi(wsi);
+#endif
 
 	/* treat the fact we got a truncated send pending as if we're choked */
-	if (wsi->trunc_len)
+	if (wsi_eff->trunc_len)
 		return 1;
 
 	FD_ZERO(&writefds);
-	FD_SET(wsi->desc.sockfd, &writefds);
+	FD_SET(wsi_eff->desc.sockfd, &writefds);
 
-	if (select(wsi->desc.sockfd + 1, NULL, &writefds, NULL, &tv) < 1)
+	if (select(wsi_eff->desc.sockfd + 1, NULL, &writefds, NULL, &tv) < 1)
 		return 1;
 
 	return 0;
@@ -535,6 +539,21 @@ _lws_plat_file_write(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 	return 0;
 }
 
+#if defined(LWS_WITH_HTTP2)
+/*
+ * These are the default SETTINGS used on this platform.  The user
+ * can selectively modify them for a vhost during vhost creation.
+ */
+const struct http2_settings const lws_h2_defaults_esp32 = { {
+	1,
+	/* H2SET_HEADER_TABLE_SIZE */			 512,
+	/* H2SET_ENABLE_PUSH */				   0,
+	/* H2SET_MAX_CONCURRENT_STREAMS */		   8,
+	/* H2SET_INITIAL_WINDOW_SIZE */		       65535,
+	/* H2SET_MAX_FRAME_SIZE */		       16384,
+	/* H2SET_MAX_HEADER_LIST_SIZE */	 	 512,
+}};
+#endif
 
 LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
@@ -556,10 +575,13 @@ lws_plat_init(struct lws_context *context,
 	if (info->plugin_dirs)
 		lws_plat_plugins_init(context, info->plugin_dirs);
 #endif
+#if defined(LWS_WITH_HTTP2)
+	/* override settings */
+	context->set = lws_h2_defaults_esp32;
+#endif
 
 	return 0;
 }
-
 
 LWS_VISIBLE void esp32_uvtimer_cb(TimerHandle_t t)
 {
@@ -567,24 +589,6 @@ LWS_VISIBLE void esp32_uvtimer_cb(TimerHandle_t t)
 
 	p->cb(p->t);
 }
-
-void ERR_error_string_n(unsigned long e, char *buf, size_t len)
-{
-	strncpy(buf, "unknown", len);
-}
-
-void ERR_free_strings(void)
-{
-}
-
-char *ERR_error_string(unsigned long e, char *buf)
-{
-	if (buf)
-		strcpy(buf, "unknown");
-
-	return "unknown";
-}
-
 
 /* helper functionality */
 
@@ -1499,7 +1503,7 @@ lws_esp32_wlan_start_station(void)
 
 	tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, (const char *)&config.ap.ssid[7]);
 	esp_wifi_set_auto_connect(1);
-	ESP_ERROR_CHECK( esp_wifi_connect());
+	//ESP_ERROR_CHECK( esp_wifi_connect());
 
 	lws_esp32_scan_timer_cb(NULL);
 }
@@ -1591,13 +1595,13 @@ lws_esp32_set_creation_defaults(struct lws_context_creation_info *info)
 	(void)part;
 
 	info->port = 443;
-	info->fd_limit_per_thread = 30;
-	info->max_http_header_pool = 3;
-	info->max_http_header_data = 1024;
-	info->pt_serv_buf_size = 4096;
+	info->fd_limit_per_thread = 10;
+	info->max_http_header_pool = 16;
+	info->max_http_header_data = 512;
+	info->pt_serv_buf_size = 2048;
 	info->keepalive_timeout = 30;
 	info->timeout_secs = 30;
-	info->simultaneous_ssl_restriction = 3;
+	info->simultaneous_ssl_restriction = 4;
 	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 

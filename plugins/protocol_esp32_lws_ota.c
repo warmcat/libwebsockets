@@ -126,7 +126,7 @@ ota_file_upload_cb(void *data, const char *name, const char *filename,
 			return 1;
 		}
 
-		lwsl_debug("writing 0x%lx... 0x%lx\n",
+		lwsl_notice("writing 0x%lx... 0x%lx\n",
 			   pss->part->address + pss->file_length,
 			   pss->part->address + pss->file_length + len);
 		if (esp_ota_write(pss->otahandle, buf, len) != ESP_OK) {
@@ -193,6 +193,7 @@ callback_esplws_ota(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP_BODY:
 		/* create the POST argument parser if not already existing */
 		//lwsl_notice("LWS_CALLBACK_HTTP_BODY (ota) %d %d %p\n", (int)pss->file_length, (int)len, pss->spa);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 5);
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, ota_param_names,
 					ARRAY_SIZE(ota_param_names), 4096,
@@ -228,7 +229,7 @@ callback_esplws_ota(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_finalize_http_header(wsi, &p, end))
 			goto bail;
 
-		n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+		n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
 		if (n < 0)
 			goto bail;
 
@@ -236,6 +237,8 @@ callback_esplws_ota(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (!pss->result_len)
+			break;
 		lwsl_debug("LWS_CALLBACK_HTTP_WRITEABLE: sending %d\n",
 			   pss->result_len);
 		n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,

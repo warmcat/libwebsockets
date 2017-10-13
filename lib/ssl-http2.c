@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2014 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -49,8 +49,8 @@
 
 #include "private-libwebsockets.h"
 
-#ifndef LWS_NO_SERVER
-#ifdef LWS_OPENSSL_SUPPORT
+#if !defined(LWS_NO_SERVER)
+#if defined(LWS_OPENSSL_SUPPORT)
 
 #if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x10002000L)
 
@@ -59,29 +59,19 @@ struct alpn_ctx {
 	unsigned short len;
 };
 
-static int
-npn_cb(SSL *s, const unsigned char **data, unsigned int *len, void *arg)
-{
-	struct alpn_ctx *alpn_ctx = arg;
-
-	lwsl_info("%s\n", __func__);
-	*data = alpn_ctx->data;
-	*len = alpn_ctx->len;
-
-	return SSL_TLSEXT_ERR_OK;
-}
 
 static int
 alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 	const unsigned char *in, unsigned int inlen, void *arg)
 {
+#if !defined(LWS_WITH_MBEDTLS)
 	struct alpn_ctx *alpn_ctx = arg;
 
 	if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_ctx->data,
 				  alpn_ctx->len, in, inlen) !=
 	    OPENSSL_NPN_NEGOTIATED)
 		return SSL_TLSEXT_ERR_NOACK;
-
+#endif
 	return SSL_TLSEXT_ERR_OK;
 }
 #endif
@@ -93,9 +83,6 @@ lws_context_init_http2_ssl(struct lws_vhost *vhost)
 	static struct alpn_ctx protos = { (unsigned char *)"\x02h2"
 					  "\x08http/1.1", 6 + 9 };
 
-	SSL_CTX_set_next_protos_advertised_cb(vhost->ssl_ctx, npn_cb, &protos);
-
-	// ALPN selection callback
 	SSL_CTX_set_alpn_select_cb(vhost->ssl_ctx, alpn_cb, &protos);
 	lwsl_notice(" HTTP2 / ALPN enabled\n");
 #else
@@ -105,33 +92,35 @@ lws_context_init_http2_ssl(struct lws_vhost *vhost)
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
 }
 
-void lws_http2_configure_if_upgraded(struct lws *wsi)
+int lws_h2_configure_if_upgraded(struct lws *wsi)
 {
 #if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x10002000L)
 	struct allocated_headers *ah;
-	const char *method = "alpn";
-	const unsigned char *name;
+	const unsigned char *name = NULL;
+	char cstr[10];
 	unsigned len;
 
 	SSL_get0_alpn_selected(wsi->ssl, &name, &len);
-
 	if (!len) {
-		SSL_get0_next_proto_negotiated(wsi->ssl, &name, &len);
-		method = "npn";
+		lwsl_info("no ALPN upgrade\n");
+		return 0;
 	}
 
-	if (!len) {
-		lwsl_info("no npn/alpn upgrade\n");
-		return;
-	}
+	if (len > sizeof(cstr) - 1)
+		len = sizeof(cstr) - 1;
 
-	(void)method;
-	lwsl_info("negotiated %s using %s\n", name, method);
+	memcpy(cstr, name, len);
+	cstr[len] = '\0';
+
+	lwsl_info("negotiated '%s' using ALPN\n", cstr);
 	wsi->use_ssl = 1;
 	if (strncmp((char *)name, "http/1.1", 8) == 0)
-		return;
+		return 0;
 
 	/* http2 */
+
+	wsi->upgraded_to_http2 = 1;
+	wsi->vhost->conn_stats.h2_alpn++;
 
 	/* adopt the header info */
 
@@ -143,13 +132,21 @@ void lws_http2_configure_if_upgraded(struct lws *wsi)
 	/* http2 union member has http union struct at start */
 	wsi->u.http.ah = ah;
 
+	wsi->u.h2.h2n = lws_zalloc(sizeof(*wsi->u.h2.h2n), "h2n");
+	if (!wsi->u.h2.h2n)
+		return 1;
 
-	lws_http2_init(&wsi->u.http2.peer_settings);
-	lws_http2_init(&wsi->u.http2.my_settings);
+	lws_h2_init(wsi);
 
 	/* HTTP2 union */
+
+	lws_hpack_dynamic_size(wsi, wsi->u.h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
+	wsi->u.h2.tx_cr = 65535;
+
+	lwsl_info("%s: wsi %p: configured for h2\n", __func__, wsi);
+
+	return 0;
 #endif
 }
-
 #endif
 #endif

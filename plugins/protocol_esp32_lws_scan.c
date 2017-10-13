@@ -378,7 +378,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 			struct timeval t;
 			uint8_t mac[6];
 			struct lws_esp32_image i;
-			char img_factory[512], img_ota[512], group[16], role[16];
+			char img_factory[384], img_ota[384], group[16], role[16];
 			int grt;
 
 		case SCAN_STATE_INITIAL:
@@ -418,12 +418,21 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 			strcpy(img_factory, " { \"date\": \"Empty\" }");
 			strcpy(img_ota, " { \"date\": \"Empty\" }");
 
-			lws_esp32_get_image_info(esp_partition_find_first(ESP_PARTITION_TYPE_APP,
-				ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL), &i,
-				img_factory, sizeof(img_factory));
-			lws_esp32_get_image_info(esp_partition_find_first(ESP_PARTITION_TYPE_APP,
-				ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL), &i,
-				img_ota, sizeof(img_ota));
+			if (grt != LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON) {
+				lws_esp32_get_image_info(esp_partition_find_first(ESP_PARTITION_TYPE_APP,
+					ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL), &i,
+					img_factory, sizeof(img_factory) - 1);
+				img_factory[sizeof(img_factory) - 1] = '\0';
+				if (img_factory[0] == 0xff || strlen(img_factory) < 8)
+					strcpy(img_factory, " { \"date\": \"Empty\" }");
+
+				lws_esp32_get_image_info(esp_partition_find_first(ESP_PARTITION_TYPE_APP,
+					ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL), &i,
+					img_ota, sizeof(img_ota) - 1);
+				img_ota[sizeof(img_ota) - 1] = '\0';
+				if (img_ota[0] == 0xff || strlen(img_ota) < 8)
+					strcpy(img_ota, " { \"date\": \"Empty\" }");
+			}
 
 			p += snprintf((char *)p, end - p,
 				      "{ \"model\":\"%s\",\n"
@@ -440,9 +449,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				      " \"conn_mask\":\"%s\",\n"
 				      " \"conn_gw\":\"%s\",\n"
 				      " \"group\":\"%s\",\n"
-				      " \"role\":\"%s\",\n"
-				      " \"img_factory\": %s,\n"
-				      " \"img_ota\": %s,\n",
+				      " \"role\":\"%s\",\n",
 				      lws_esp32.model,
 				      grt == LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON, 
 				      lws_esp32.serial,
@@ -455,10 +462,14 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				      lws_esp32.sta_ip,
 				      lws_esp32.sta_mask,
 				      lws_esp32.sta_gw,
-				      group, role,
+				      group, role);
+			p += snprintf((char *)p, end - p,
+				      " \"img_factory\": %s,\n"
+				      " \"img_ota\": %s,\n",
 					img_factory,
 					img_ota
 				      );
+
 
 			n = LWS_WRITE_TEXT | LWS_WRITE_NO_FIN;
 			pss->scan_state = SCAN_STATE_INITIAL_MANIFEST;
@@ -563,6 +574,7 @@ scan_state_final:
 		}
 issue:
 //		lwsl_notice("issue: %d (%d)\n", p - start, n);
+		lwsl_hexdump(start, p - start);
 		m = lws_write(wsi, (unsigned char *)start, p - start, n);
 		if (m < 0) {
 			lwsl_err("ERROR %d writing to di socket\n", m);

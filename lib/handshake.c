@@ -72,24 +72,33 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
 	case LWSS_HTTP2_ESTABLISHED:
 		n = 0;
+		//lwsl_debug("%s: starting new block of %d\n", __func__, (int)len);
+		/*
+		 * wsi here is always the network connection wsi, not a stream
+		 * wsi.
+		 */
 		while (n < len) {
 			/*
 			 * we were accepting input but now we stopped doing so
 			 */
-			if (!(wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
+			if (lws_is_flowcontrolled(wsi)) {
 				lws_rxflow_cache(wsi, buf, n, len);
 
 				return 1;
 			}
 
 			/* account for what we're using in rxflow buffer */
-			if (wsi->rxflow_buffer)
+			if (wsi->rxflow_buffer) {
 				wsi->rxflow_pos++;
-			if (lws_http2_parser(wsi, buf[n++])) {
+				assert(wsi->rxflow_pos <= wsi->rxflow_len);
+			}
+
+			if (lws_h2_parser(wsi, buf[n++])) {
 				lwsl_debug("%s: http2_parser bailed\n", __func__);
 				goto bail;
 			}
 		}
+		lwsl_debug("%s: used up block of %d\n", __func__, (int)len);
 		break;
 #endif
 
@@ -110,6 +119,8 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			assert(0);
 		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
+
+		lwsl_hexdump(buf, (size_t)len);
 
 		if (lws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;
@@ -145,9 +156,9 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			case LWSS_HTTP_ISSUING_FILE:
 				goto read_ok;
 			case LWSS_HTTP_BODY:
-				wsi->u.http.content_remain =
-						wsi->u.http.content_length;
-				if (wsi->u.http.content_remain)
+				wsi->u.http.rx_content_remain =
+						wsi->u.http.rx_content_length;
+				if (wsi->u.http.rx_content_remain)
 					goto http_postbody;
 
 				/* there is no POST content */
@@ -159,13 +170,14 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 
 	case LWSS_HTTP_BODY:
 http_postbody:
-		while (len && wsi->u.http.content_remain) {
+		//lwsl_notice("http post body\n");
+		while (len && wsi->u.http.rx_content_remain) {
 			/* Copy as much as possible, up to the limit of:
 			 * what we have in the read buffer (len)
 			 * remaining portion of the POST body (content_remain)
 			 */
-			body_chunk_len = min(wsi->u.http.content_remain,len);
-			wsi->u.http.content_remain -= body_chunk_len;
+			body_chunk_len = min(wsi->u.http.rx_content_remain, len);
+			wsi->u.http.rx_content_remain -= body_chunk_len;
 			len -= body_chunk_len;
 #ifdef LWS_WITH_CGI
 			if (wsi->cgi) {
@@ -197,7 +209,7 @@ http_postbody:
 #endif
 			buf += n;
 
-			if (wsi->u.http.content_remain)  {
+			if (wsi->u.http.rx_content_remain)  {
 				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 						wsi->context->timeout_secs);
 				break;
@@ -219,11 +231,15 @@ postbody_completion:
 			if (!wsi->cgi)
 #endif
 			{
+				lwsl_notice("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
 				n = wsi->protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY_COMPLETION,
 					wsi->user_space, NULL, 0);
 				if (n)
 					goto bail;
+
+				if (wsi->http2_substream)
+					wsi->state = LWSS_HTTP2_ESTABLISHED;
 			}
 
 			break;

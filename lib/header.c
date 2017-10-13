@@ -107,8 +107,8 @@ int lws_add_http_header_content_length(struct lws *wsi,
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
 					 (unsigned char *)b, n, p, end))
 		return 1;
-	wsi->u.http.content_length = content_length;
-	wsi->u.http.content_remain = content_length;
+	wsi->u.http.tx_content_length = content_length;
+	wsi->u.http.tx_content_remain = content_length;
 
 	return 0;
 }
@@ -228,7 +228,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	unsigned char *p = pt->serv_buf + LWS_PRE;
 	unsigned char *start = p;
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
-	int n = 0, m, len;
+	int n = 0, m = 0, len;
 	char slen[20];
 
 	if (!html_body)
@@ -254,29 +254,65 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		return 1;
 
 #if defined(LWS_WITH_HTTP2)
-	{
+	if (wsi->http2_substream) {
 		unsigned char *body = p + 512;
 
+		/*
+		 * for HTTP/2, the headers must be sent separately, since they
+		 * go out in their own frame.  That puts us in a bind that
+		 * we won't always be able to get away with two lws_write()s in
+		 * sequence, since the first may use up the writability due to
+		 * the pipe being choked or SSL_WANT_.
+		 *
+		 * However we do need to send the human-readable body, and the
+		 * END_STREAM.
+		 *
+		 * Solve it by writing the headers now...
+		 */
 		m = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
 		if (m != (int)(p - start))
 			return 1;
 
-		len = sprintf((char *)body, "<html><body><h1>%u</h1>%s</body></html>",
-		      code, html_body);
+		/*
+		 * ... but stash the body and send it as a priority next
+		 * handle_POLLOUT
+		 */
 
-		n = len;
-		m = lws_write(wsi, body, len, LWS_WRITE_HTTP);
-	}
-#else
-	p += lws_snprintf((char *)p, end - p - 1,
-			  "<html><body><h1>%u</h1>%s</body></html>",
-			  code, html_body);
+		len = sprintf((char *)body,
+			      "<html><body><h1>%u</h1>%s</body></html>",
+			      code, html_body);
+		wsi->u.http.tx_content_length = len;
+		wsi->u.http.tx_content_remain = len;
 
-	n = (int)(p - start);
-	m = lws_write(wsi, start, n, LWS_WRITE_HTTP);
-	if (m != n)
-		return 1;
+		wsi->u.h2.pending_status_body = lws_malloc(len + LWS_PRE + 1,
+							"pending status body");
+		if (!wsi->u.h2.pending_status_body)
+			return -1;
+
+		strcpy(wsi->u.h2.pending_status_body + LWS_PRE,
+		       (const char *)body);
+		lws_callback_on_writable(wsi);
+
+		return 0;
+	} else
 #endif
+	{
+		/*
+		 * for http/1, we can just append the body after the finalized
+		 * headers and send it all in one go.
+		 */
+		p += lws_snprintf((char *)p, end - p - 1,
+				  "<html><body><h1>%u</h1>%s</body></html>",
+				  code, html_body);
+
+		n = (int)(p - start);
+
+		m = lws_write(wsi, start, n, LWS_WRITE_HTTP);
+		if (m != n)
+			return 1;
+	}
+
+	lwsl_notice("%s: return\n", __func__);
 
 	return m != n;
 }
@@ -313,7 +349,7 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 	if (lws_finalize_http_header(wsi, p, end))
 		return -1;
 
-	n = lws_write(wsi, start, *p - start, LWS_WRITE_HTTP_HEADERS);
+	n = lws_write(wsi, start, *p - start, LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
 
 	return n;
 }

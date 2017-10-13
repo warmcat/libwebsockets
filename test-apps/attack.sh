@@ -29,11 +29,18 @@ function check {
 	fi
 	if [ "$1" = "defaultplusforbidden" ] ; then
 	cat $INSTALLED/../share/libwebsockets-test-server/test.html > /tmp/plusforb
-	echo -e -n "HTTP/1.1 403 Forbidden\x0d\x0acontent-type: text/html\x0d\x0acontent-length: 38\x0d\x0a\x0d\x0a<html><body><h1>403</h1></body></html>" >> /tmp/plusforb
+	echo -e -n "HTTP/1.0 403 Forbidden\x0d\x0acontent-type: text/html\x0d\x0acontent-length: 38\x0d\x0a\x0d\x0a<html><body><h1>403</h1></body></html>" >> /tmp/plusforb
 		diff /tmp/lwscap /tmp/plusforb > /dev/null
 		if [ $? -ne 0 ] ; then
-			echo "FAIL: got something other than test.html + forbidden back"
-			exit 1
+			cat $INSTALLED/../share/libwebsockets-test-server/test.html > /tmp/plusforb
+
+			echo -e -n "HTTP/1.1 403 Forbidden\x0d\x0acontent-type: text/html\x0d\x0acontent-length: 38\x0d\x0a\x0d\x0a<html><body><h1>403</h1></body></html>" >> /tmp/plusforb
+			diff /tmp/lwscap /tmp/plusforb > /dev/null
+			if [ $? -ne 0 ] ; then
+
+				echo "FAIL: got something other than test.html + forbidden back"
+				exit 1
+			fi
 		fi
 	fi
 
@@ -98,7 +105,7 @@ function check {
 
 rm -rf $LOG
 killall libwebsockets-test-server 2>/dev/null
-libwebsockets-test-server -d15 2>> $LOG &
+libwebsockets-test-server -d127 2>> $LOG &
 CPID=$!
 
 echo "Started server on PID $CPID"
@@ -111,7 +118,7 @@ check
 echo
 echo "---- /cgi-bin/settingsjs?UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=%3F&Root_Channels_1_Channel_location_http_post=%3F"
 rm -f /tmp/lwscap
-echo -e "GET /cgi-bin/settingsjs?UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=%3F&Root_Channels_1_Channel_location_http_post=%3F HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET /cgi-bin/settingsjs?UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=%3F&Root_Channels_1_Channel_location_http_post=%3F HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check 1 "UPDATE_SETTINGS=1"
 check 2 "Root_Channels_1_Channel_name_http_post=?"
 check 3 "Root_Channels_1_Channel_location_http_post=?"
@@ -120,14 +127,14 @@ check
 echo
 echo "---- ? processing (/cgi-bin/settings.js?key1=value1)"
 rm -f /tmp/lwscap
-echo -e "GET /cgi-bin/settings.js?key1=value1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET /cgi-bin/settings.js?key1=value1 HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check 1 "key1=value1"
 check
 
 echo
 echo "---- ? processing (/t%3dest?key1%3d2=value1)"
 rm -f /tmp/lwscap
-echo -e "GET /t%3dest?key1%3d2=value1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET /t%3dest?key1%3d2=value1 HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check 0 "/t=est"
 check 1 "key1_2=value1"
 check
@@ -135,14 +142,14 @@ check
 echo
 echo "---- ? processing (%2f%2e%2e%2f%2e./test.html?arg=1)"
 rm -f /tmp/lwscap
-echo -e "GET %2f%2e%2e%2f%2e./test.html?arg=1 HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo  -n -e "GET %2f%2e%2e%2f%2e./test.html?arg=1 HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check 1 "arg=1"
 check
 
 echo
 echo "---- ? processing (%2f%2e%2e%2f%2e./test.html?arg=/../.)"
 rm -f /tmp/lwscap
-echo -e "GET %2f%2e%2e%2f%2e./test.html?arg=/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET %2f%2e%2e%2f%2e./test.html?arg=/../. HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check 1 "arg=/../."
 check
 
@@ -169,17 +176,17 @@ check
 
 echo
 echo "---- missing URI"
-echo -e "GET HTTP/1.1\x0d\x0a\x0d\x0a" | nc -i1s $SERVER $PORT >/tmp/lwscap
+echo -n -e "GET HTTP/1.0\x0d\x0a\x0d\x0a" | nc -i1s $SERVER $PORT >/tmp/lwscap
 check
 
 echo
 echo "---- repeated method"
-echo -e "GET blah HTTP/1.1\x0d\x0aGET blah HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT >/tmp/lwscap 
+echo -n -e "GET blah HTTP/1.0\x0d\x0aGET blah HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT >/tmp/lwscap 
 check
 
 echo
 echo "---- crazy header name part"
-echo -e "GET blah HTTP/1.1\x0d\x0a................................................................................................................" \
+echo -n -e "GET blah HTTP/1.0\x0d\x0a................................................................................................................" \
 	"......................................................................................................................." \
  	"......................................................................................................................." \
  	"......................................................................................................................." \
@@ -201,7 +208,7 @@ check
 
 echo
 echo "---- excessive uri content"
-echo -e "GET ................................................................................................................" \
+echo -n -e "GET ................................................................................................................" \
 	"......................................................................................................................." \
  	"......................................................................................................................." \
  	"......................................................................................................................." \
@@ -223,7 +230,7 @@ check
 
 echo
 echo "---- good request but http payload coming too (test.html served then forbidden)"
-echo -e "GET /test.html HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD........................................" \
+echo -n -e "GET /test.html HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD........................................" \
 	"......................................................................................................................." \
  	"......................................................................................................................." \
  	"......................................................................................................................." \
@@ -246,70 +253,70 @@ check
 echo
 echo "---- nonexistent file"
 rm -f /tmp/lwscap
-echo -e "GET /nope HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET /nope HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check media
 check
 
 echo
 echo "---- relative uri path"
 rm -f /tmp/lwscap
-echo -e "GET nope HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET nope HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check forbidden
 check
 
 echo
 echo "---- directory attack 1 (/../../../../etc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
-echo -e "GET /../../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET /../../../../etc/passwd HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check rejected
 check
 
 echo
 echo "---- directory attack 2 (/../ should be /)"
 rm -f /tmp/lwscap
-echo -e -n "GET /../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /../ HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 3 (/./ should be /)"
 rm -f /tmp/lwscap
-echo -e -n "GET /./ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /./ HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 4 (/blah/.. should be /)"
 rm -f /tmp/lwscap
-echo -e -n "GET /blah/.. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /blah/.. HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 5 (/blah/../ should be /)"
 rm -f /tmp/lwscap
-echo -e -n "GET /blah/../ HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /blah/../ HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 6 (/blah/../. should be /)"
 rm -f /tmp/lwscap
-echo -e -n "GET /blah/../. HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /blah/../. HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 7 (/%2e%2e%2f../../../etc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
-echo -e -n "GET /%2e%2e%2f../../../etc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /%2e%2e%2f../../../etc/passwd HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check rejected
 check
 
 echo
 echo "---- directory attack 8 (%2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
-echo -e -n "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.1\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
 check rejected
 check
 

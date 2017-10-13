@@ -141,17 +141,12 @@ lws_context_ssl_init_ecdh_curve(struct lws_context_creation_info *info,
 static int
 lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 {
-	struct lws_context *context;
+	struct lws_context *context = (struct lws_context *)arg;
 	struct lws_vhost *vhost, *vh;
 	const char *servername;
-	int port;
 
 	if (!ssl)
 		return SSL_TLSEXT_ERR_NOACK;
-
-	context = (struct lws_context *)SSL_CTX_get_ex_data(
-					SSL_get_SSL_CTX(ssl),
-					openssl_SSL_CTX_private_data_index);
 
 	/*
 	 * We can only get ssl accepted connections by using a vhost's ssl_ctx
@@ -165,21 +160,30 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 		vh = vh->vhost_next;
 	}
 
-	assert(vh); /* we cannot get an ssl without using a vhost ssl_ctx */
-	port = vh->listen_port;
+	if (!vh) {
+		assert(vh); /* can't match the incoming vh? */
+		return SSL_TLSEXT_ERR_OK;
+	}
 
 	servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+	if (!servername) {
+		/* the client doesn't know what hostname it wants */
+		lwsl_info("SNI: Unknown ServerName: %s\n", servername);
 
-	if (servername) {
-		vhost = lws_select_vhost(context, port, servername);
-		if (vhost) {
-			lwsl_debug("SNI: Found: %s (port %d)\n",
-				   servername, port);
-			SSL_set_SSL_CTX(ssl, vhost->ssl_ctx);
-			return SSL_TLSEXT_ERR_OK;
-		}
-		lwsl_err("SNI: Unknown ServerName: %s\n", servername);
+		return SSL_TLSEXT_ERR_OK;
 	}
+
+	vhost = lws_select_vhost(context, vh->listen_port, servername);
+	if (!vhost) {
+		lwsl_info("SNI: none: %s:%d\n", servername, vh->listen_port);
+
+		return SSL_TLSEXT_ERR_OK;
+	}
+
+	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);
+
+	/* select the ssl ctx from the selected vhost for this conn */
+	SSL_set_SSL_CTX(ssl, vhost->ssl_ctx);
 
 	return SSL_TLSEXT_ERR_OK;
 }
@@ -319,6 +323,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #if !defined(LWS_WITH_MBEDTLS) && !defined(OPENSSL_NO_TLSEXT)
 	SSL_CTX_set_tlsext_servername_callback(vhost->ssl_ctx,
 					       lws_ssl_server_name_cb);
+	SSL_CTX_set_tlsext_servername_arg(vhost->ssl_ctx, context);
 #endif
 
 	/*
@@ -405,18 +410,20 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		p = NULL;
 #endif
 
-		if (alloc_pem_to_der_file(vhost->context,
-			       info->ssl_private_key_filepath, &p, &flen)) {
-			lwsl_err("couldn't find cert file %s\n",
-				 info->ssl_cert_filepath);
+		if (info->ssl_private_key_filepath) {
+			if (alloc_pem_to_der_file(vhost->context,
+				       info->ssl_private_key_filepath, &p, &flen)) {
+				lwsl_err("couldn't find cert file %s\n",
+					 info->ssl_cert_filepath);
 
-			return 1;
-		}
-		err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
-		if (!err) {
-			lwsl_err("Problem loading key\n");
+				return 1;
+			}
+			err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
+			if (!err) {
+				lwsl_err("Problem loading key\n");
 
-			return 1;
+				return 1;
+			}
 		}
 
 #if !defined(LWS_WITH_ESP32)

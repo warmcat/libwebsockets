@@ -36,7 +36,7 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 			/*
 			 * we were accepting input but now we stopped doing so
 			 */
-			if (!(wsi->rxflow_change_to & LWS_RXFLOW_ALLOW)) {
+			if (lws_is_flowcontrolled(wsi)) {
 				lwsl_debug("%s: caching %ld\n", __func__, (long)len);
 				lws_rxflow_cache(wsi, *buf, 0, len);
 				return 0;
@@ -308,7 +308,6 @@ start_ws_handshake:
 		}
 
 		/* send our request to the server */
-
 		lws_latency_pre(context, wsi);
 
 		n = lws_ssl_capable_write(wsi, (unsigned char *)sb, p - sb);
@@ -350,10 +349,12 @@ client_http_body_sent:
 		break;
 
 	case LWSCM_WSCL_WAITING_SERVER_REPLY:
-
-		/* handle server hung up on us */
-
-		if (pollfd->revents & LWS_POLLHUP) {
+		/*
+		 * handle server hanging up on us...
+		 * but if there is POLLIN waiting, handle that first
+		 */
+		if ((pollfd->revents & (LWS_POLLIN | LWS_POLLHUP)) ==
+								LWS_POLLHUP) {
 
 			lwsl_debug("Server connection %p (fd=%d) dead\n",
 				(void *)wsi, pollfd->fd);
@@ -364,18 +365,15 @@ client_http_body_sent:
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
-		/* interpret the server response */
-
-		/*
+		/* interpret the server response
+		 *
 		 *  HTTP/1.1 101 Switching Protocols
 		 *  Upgrade: websocket
 		 *  Connection: Upgrade
 		 *  Sec-WebSocket-Accept: me89jWimTRKTWwrS3aRrL53YZSo=
 		 *  Sec-WebSocket-Nonce: AQIDBAUGBwgJCgsMDQ4PEC==
 		 *  Sec-WebSocket-Protocol: chat
-		 */
-
-		/*
+		 *
 		 * we have to take some care here to only take from the
 		 * socket bytewise.  The browser may (and has been seen to
 		 * in the case that onopen() performs websocket traffic)
@@ -409,7 +407,6 @@ client_http_body_sent:
 		 * libwebsocket timeout still active here too, so if parsing did
 		 * not complete just wait for next packet coming in this state
 		 */
-
 		if (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE)
 			break;
 
@@ -418,7 +415,6 @@ client_http_body_sent:
 		 * packet traffic already arrived we'll trigger poll() again
 		 * right away and deal with it that way
 		 */
-
 		return lws_client_interpret_server_handshake(wsi);
 
 bail3:
@@ -480,7 +476,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	/* otherwise set ourselves up ready to go again */
 	wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
 	wsi->mode = LWSCM_HTTP_CLIENT_ACCEPTED;
-	wsi->u.http.content_length = 0;
+	wsi->u.http.rx_content_length = 0;
 	wsi->hdr_parsing_completed = 0;
 
 	/* He asked for it to stay alive indefinitely */
@@ -694,12 +690,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-			wsi->u.http.content_length =
+			wsi->u.http.rx_content_length =
 					atoll(lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_CONTENT_LENGTH));
 			lwsl_notice("%s: incoming content length %llu\n", __func__,
-					(unsigned long long)wsi->u.http.content_length);
-			wsi->u.http.content_remain = wsi->u.http.content_length;
+					(unsigned long long)wsi->u.http.rx_content_length);
+			wsi->u.http.rx_content_remain = wsi->u.http.rx_content_length;
 		} else /* can't do 1.1 without a content length or chunked */
 			if (!wsi->chunked)
 				wsi->u.http.connection_type = HTTP_CONNECTION_CLOSE;

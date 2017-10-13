@@ -5,48 +5,44 @@
  <script src="/lws-common.js"></script>
  <title>Minimal Websocket test app</title>
 <style type="text/css">
-	span.title { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#000000; }
-	.browser { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px;}
+	span.title { font-size:18pt; font-family: Arial; font-weight:normal; text-align:center; color:#000000; }
+	.browser { font-size:18pt; font-family: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; border-radius:10px;}
 	.group2 { vertical-align:middle;
 		text-align:center;
 		background:#f0f0e0; 
 		padding:12px; 
 		-webkit-border-radius:10px; 
-		-moz-border-radius:10px;
 		border-radius:10px; }
 	.explain { vertical-align:middle;
 		text-align:center;
 		background:#f0f0c0; padding:12px;
 		-webkit-border-radius:10px;
-		-moz-border-radius:10px;
 		border-radius:10px;
 		color:#404000; }
 	td.wsstatus { vertical-align:middle; width:200px; height:50px;
 		text-align:center;
 		background:#f0f0c0; padding:6px;
 		-webkit-border-radius:8px;
-		-moz-border-radius:8px;
 		border-radius:8px;
 		color:#404000; }
 	.tdform { vertical-align:middle; width:200px; height:50px;
 		text-align:center;
 		background:#f0f0d0; padding:6px;
 		-webkit-border-radius:8px;
-		-moz-border-radius:8px; margin:10px;
+		margin:10px;
 		border-radius:8px;
 		border: 1px solid black;
-		border-collapse: collapse;font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#000000; 
+		border-collapse: collapse;font-size:18pt; font-family: Arial; font-weight:normal; text-align:center; color:#000000; 
 		color:#404000; }
 		
 	td.l { vertical-align:middle;
 		text-align:center;
 		background:#d0d0b0; 
 		padding:3px; 
-		-webkit-border-radius:3px; 
-		-moz-border-radius:3px;
+		-webkit-border-radius:3px;
 		border-radius:3px; }
-	.content { vertical-align:top; text-align:center; background:#fffff0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
-	.canvas { vertical-align:top; text-align:center; background:#efefd0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
+	.content { vertical-align:top; text-align:center; background:#fffff0; padding:12px; -webkit-border-radius:10px; border-radius:10px; }
+	.canvas { vertical-align:top; text-align:center; background:#efefd0; padding:12px; -webkit-border-radius:10px; border-radius:10px; }
 .tabs {
   position: relative;   
   min-height: 750px; /* This part sucks */
@@ -101,6 +97,8 @@
     <img src="libwebsockets.org-logo.png"></a></td><td>
 	<section class="browser">Detected Browser: 
 	<div id=brow>...</div></section>
+  </td>
+  <td width="64" id="transport">
   </td>
  </tr>
 
@@ -213,7 +211,7 @@ run.
 		<td colspan=2><span class="title">Open and close testing</span></td>
 		</tr>
 		<tr>	
-<td class="explain" colspan=3 style="padding:3">
+<td class="explain" colspan=3 style="padding:3px">
 To help with open and close testing, you can open and close a connection by hand using
  the buttons.<br>
  "<b>Close</b>" closes the connection from the browser with code 3000
@@ -257,7 +255,7 @@ whenever the information changes server-side.
 	<td align=center colspan=2><div id=servinfo></div></td>
 	</tr>
 	<tr>
-	<td align=center colspan=2><div id=conninfo style="border : solid 2px #e0d040; padding : 4px; width : 500px; height : 350px; overflow : auto; "></</div></td>
+	<td align=center colspan=2><div id=conninfo style="border: solid 2px #e0d040; padding: 4px; width: 500px; height:350px; overflow: auto;"></div></td>
 	</tr>
 </table>
 </div>
@@ -527,6 +525,27 @@ if (location.search) {
         params[nv[0]] = nv[1] || true;
     }
 }
+
+var transport_protocol = "";
+
+if ( performance && performance.timing.nextHopProtocol ) {
+    transport_protocol = performance.timing.nextHopProtocol;
+} else if ( window.chrome && window.chrome.loadTimes ) {
+    transport_protocol = window.chrome.loadTimes().connectionInfo;
+} else {
+
+  var p = performance.getEntriesByType("resource");
+  for (var i=0; i < p.length; i++) {
+var value = "nextHopProtocol" in p[i];
+  if (value)
+    transport_protocol = p[i].nextHopProtocol;
+    }
+   }
+   
+   console.log("transport protocol " + transport_protocol);
+   
+   if (transport_protocol == "h2")
+   	document.getElementById("transport").innerHTML = "<img src=\"/http2.png\">";
 
 var mirror_name = "";
 if (params.mirror)

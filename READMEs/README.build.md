@@ -251,6 +251,31 @@ deleting build/CMakeCache.txt may be enough.
 	$ make install
 ```
 
+@section ssllib Choosing Your TLS Poison
+
+ - If you are really restricted on memory, code size, or don't care about TLS
+   speed, mbedTLS is a good choice: `cmake .. -DLWS_WITH_MBEDTLS=1`
+ 
+ - If cpu and memory is not super restricted and you care about TLS speed,
+   OpenSSL or a directly compatible variant like Boring SSL is a good choice.
+ 
+Just building lws against stock Fedora OpenSSL or stock Fedora mbedTLS, for
+SSL handhake mbedTLS takes ~36ms and OpenSSL takes ~1ms on the same x86_64
+build machine here, with everything else the same.  Over the 144 connections of
+h2spec compliance testing for example, this ends up completing in 400ms for
+OpenSSL and 5.5sec for mbedTLS on x86_64.  In other words mbedTLS is very slow
+compared to OpenSSL under the (fairly typical) conditions I tested it.
+
+This isn't an inefficiency in the mbedtls interface implementation, it's just
+mbedTLS doing the crypto much slower than OpenSSL, which has accelerated
+versions of common crypto operations it automatically uses for platforms
+supporting it.  As of Oct 2017 mbedTLS itself has no such optimizations for any
+platform that I could find.  It's just pure C running on the CPU.
+
+Lws supports both almost the same, so instead of taking my word for it you are
+invited to try it both ways and see which the results (including, eg, binary
+size and memory usage as well as speed) suggest you use.
+
 @section optee Building for OP-TEE
 
 OP-TEE is a "Secure World" Trusted Execution Environment.
@@ -376,11 +401,14 @@ additionally, discovered plugins are not enabled automatically for security
 reasons.  You do this using info->pvo or for lwsws, in the JSON config.
 
 
-@section http2rp Reproducing HTTP2.0 tests
+@section http2rp Reproducing HTTP/2 tests
+
+Enable `-DLWS_WITH_HTTP2=1` in cmake to build with http/2 support enabled.
 
 You must have built and be running lws against a version of openssl that has
-ALPN / NPN.  Most distros still have older versions.  You'll know it's right by
-seeing
+ALPN.  At the time of writing, recent distros have started upgrading to OpenSSL
+1.1+ that supports this already.  You'll know it's right by seeing
+
 ```
 	lwsts[4752]:  Compiled with OpenSSL support
 	lwsts[4752]:  Using SSL mode
@@ -388,14 +416,29 @@ seeing
 ```
 at lws startup.
 
-For non-SSL HTTP2.0 upgrade
-```
-	$ nghttp -nvasu http://localhost:7681/test.htm
-```
-For SSL / ALPN HTTP2.0 upgrade
+Recent Firefox and Chrome also support HTTP/2 by ALPN, so these should just work
+with the test server running in -s / ssl mode.
+
+For testing with nghttp client:
+
 ```
 	$ nghttp -nvas https://localhost:7681/test.html
 ```
+
+Testing with h2spec (https://github.com/summerwind/h2spec)
+
+```
+        $ h2spec  -h 127.0.0.1 -p 7681 -t -k -v -o 1
+```
+
+At the time of writing, http/2 support is not fully complete; however all the
+h2spec tests pass.
+
+```
+145 tests, 144 passed, 1 skipped, 0 failed
+
+```
+
 
 @section cross Cross compiling
 
@@ -537,7 +580,7 @@ chmod 644 /tmp/cross/include/zlib.h /tmp/cross/include/zconf.h
 
 3) `cd mbedtls ; mkdir build ; cd build`
 
-3) `cmake .. -DCMAKE_TOOLCHAIN_FILE=/tmp/mytoolchainfile -DCMAKE_INSTALL_PREFIX:PATH=/tmp/cross -DUSE_SHARED_MBEDTLS_LIBRARY=1`  mbedtls also uses cmake, so you can simply reuse the toolchain file you used for libwebsockets.  That is why you shouldn't put project-specific options in the toolchain file, it should just describe the toolchain.
+3) `cmake .. -DCMAKE_TOOLCHAIN_FILE=/tmp/mytoolchainfile -DCMAKE_INSTALL_PREFIX:PATH=/tmp/cross -DCMAKE_BUILD_TYPE=RELEASE -DUSE_SHARED_MBEDTLS_LIBRARY=1`  mbedtls also uses cmake, so you can simply reuse the toolchain file you used for libwebsockets.  That is why you shouldn't put project-specific options in the toolchain file, it should just describe the toolchain.
 
 4) `make && make install`
 

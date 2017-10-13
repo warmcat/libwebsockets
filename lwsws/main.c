@@ -54,6 +54,7 @@ static int opts = 0, do_reload = 1;
 static uv_loop_t loop;
 static uv_signal_t signal_outer;
 static int pids[32];
+void lwsl_emit_stderr(int level, const char *line);
 
 #define LWSWS_CONFIG_STRING_SIZE (32 * 1024)
 
@@ -119,7 +120,7 @@ context_creation(void)
 	memset(&info, 0, sizeof(info));
 
 	info.external_baggage_free_on_destroy = config_strings;
-	info.max_http_header_pool = 256;
+	info.max_http_header_pool = 1024;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 |
 			      LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 			      LWS_SERVER_OPTION_LIBUV;

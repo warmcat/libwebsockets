@@ -221,10 +221,8 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			}
 		}
 
-		{
-			lws_get_peer_simple(wsi, buf, sizeof(buf));
+		if (lws_get_peer_simple(wsi, buf, sizeof(buf)))
 			lwsl_info("HTTP connect from %s\n", buf);
-		}
 
 		if (len < 1) {
 			lws_return_http_status(wsi,
@@ -276,8 +274,16 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #endif
 
 		/* if a legal POST URL, let it continue and accept data */
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI))
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+			n = lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_POST_URI);
+			if (n < 0)
+				return -1;
+			if (strcmp(buf, "/formtest")) {
+				lws_return_http_status(wsi, HTTP_STATUS_NOT_ACCEPTABLE, NULL);
+				return -1;
+			}
 			return 0;
+		}
 
 		/* check for the "send a big file by hand" example case */
 
@@ -400,6 +406,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				(unsigned char *)leaf_path + sizeof(leaf_path)))
 				return 1;
 		}
+#if !defined(LWS_WITH_HTTP2)
 		if (lws_is_ssl(wsi) && lws_add_http_header_by_name(wsi,
 						(unsigned char *)
 						"Strict-Transport-Security:",
@@ -409,6 +416,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 						(unsigned char *)leaf_path +
 							sizeof(leaf_path)))
 			return 1;
+#endif
 		n = (char *)p - leaf_path;
 
 		n = lws_serve_http_file(wsi, buf, mimetype, other_headers, n);
@@ -513,15 +521,13 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		goto try_to_reuse;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		lwsl_info("LWS_CALLBACK_HTTP_WRITEABLE\n");
+		lwsl_info("LWS_CALLBACK_HTTP_WRITEABLE: %p\n", wsi);
 
 		if (pss->client_finished)
 			return -1;
 
-		if (!lws_get_child(wsi) && !pss->fop_fd) {
-			lwsl_notice("fop_fd NULL\n");
+		if (!lws_get_child(wsi) && !pss->fop_fd)
 			goto try_to_reuse;
-		}
 
 #ifndef LWS_NO_CLIENT
 		if (pss->reason_bf & LWS_CB_REASON_AUX_BF__PROXY) {
@@ -769,7 +775,7 @@ bail:
 			return 1;
 		}
 		break;
-#if defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_HAVE_SSL_CTX_set1_param) && !defined(LWS_WITH_MBEDTLS)
 	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS:
 		if (crl_path[0]) {
 			/* Enable CRL checking */

@@ -23,6 +23,8 @@
 #include "../lib/libwebsockets.h"
 #include <string.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 
 struct lws_ss_load_sample {
@@ -102,8 +104,9 @@ uv_timeout_cb_server_status(uv_timer_t *w
 				contents[n] = '\0';
 				lws_json_purify(pure, contents, sizeof(pure));
 
-				n = lws_snprintf(p, l, "{\"path\":\"%s\",\"val\":\"%s\"}",
-						 fp->filepath, pure);
+				n = lws_snprintf(p, l,
+					"{\"path\":\"%s\",\"val\":\"%s\"}",
+						fp->filepath, pure);
 				p += n;
 				l -= n;
 				first = 0;
@@ -162,20 +165,22 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!strcmp(pvo->name, "filepath")) {
 				fp = malloc(sizeof(*fp));
 				fp->next = NULL;
-				lws_snprintf(&fp->filepath[0], sizeof(fp->filepath), "%s", pvo->value);
+				lws_snprintf(&fp->filepath[0],
+					     sizeof(fp->filepath), "%s",
+					     pvo->value);
 				*fp_old = fp;
 				fp_old = &fp->next;
 			}
 			pvo = pvo->next;
 		}
 		v->context = lws_get_context(wsi);
-		uv_timer_init(lws_uv_getloop(v->context, 0), &v->timeout_watcher);
+		uv_timer_init(lws_uv_getloop(v->context, 0),
+			      &v->timeout_watcher);
 		uv_timer_start(&v->timeout_watcher,
-				uv_timeout_cb_server_status, 2000, period);
+			       uv_timeout_cb_server_status, 2000, period);
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY: /* per vhost */
-	//	lwsl_notice("ss: LWS_CALLBACK_PROTOCOL_DESTROY: v=%p, ctx=%p\n", v, v->context);
 		if (!v)
 			break;
 		uv_timer_stop(&v->timeout_watcher);
@@ -213,7 +218,7 @@ static const struct lws_protocols protocols[] = {
 
 LWS_EXTERN LWS_VISIBLE int
 init_protocol_lws_server_status(struct lws_context *context,
-			     struct lws_plugin_capability *c)
+				struct lws_plugin_capability *c)
 {
 	if (c->api_magic != LWS_PLUGIN_API_MAGIC) {
 		lwsl_err("Plugin API %d, library API %d",
@@ -234,4 +239,3 @@ destroy_protocol_lws_server_status(struct lws_context *context)
 {
 	return 0;
 }
-

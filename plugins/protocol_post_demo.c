@@ -40,7 +40,7 @@ struct per_session_data__post_demo {
 
 	char filename[64];
 	long file_length;
-#if !defined(LWS_WITH_ESP8266)
+#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
 	lws_filefd_type fd;
 #endif
 };
@@ -65,7 +65,9 @@ file_upload_cb(void *data, const char *name, const char *filename,
 {
 	struct per_session_data__post_demo *pss =
 			(struct per_session_data__post_demo *)data;
+#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
 	int n;
+#endif
 
 	switch (state) {
 	case LWS_UFS_OPEN:
@@ -73,7 +75,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		/* we get the original filename in @filename arg, but for
 		 * simple demo use a fixed name so we don't have to deal with
 		 * attacks  */
-#if !defined(LWS_WITH_ESP8266)
+#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
 		pss->fd = (lws_filefd_type)open("/tmp/post-file",
 			       O_CREAT | O_TRUNC | O_RDWR, 0600);
 #endif
@@ -87,7 +89,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			if (pss->file_length > 100000)
 				return 1;
 
-#if !defined(LWS_WITH_ESP8266)
+#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
 			n = write((int)pss->fd, buf, len);
 			lwsl_notice("%s: write %d says %d\n", __func__, len, n);
 #else
@@ -96,7 +98,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		}
 		if (state == LWS_UFS_CONTENT)
 			break;
-#if !defined(LWS_WITH_ESP8266)
+#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
 		close((int)pss->fd);
 		pss->fd = LWS_INVALID_FILE;
 #endif
@@ -185,6 +187,8 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (!pss->result_len)
+			break;
 		lwsl_debug("LWS_CALLBACK_HTTP_WRITEABLE: sending %d\n",
 			   pss->result_len);
 		n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,
@@ -225,6 +229,7 @@ try_to_reuse:
 		callback_post_demo, \
 		sizeof(struct per_session_data__post_demo), \
 		1024, \
+		0, NULL, 0 \
 	}
 
 #if !defined (LWS_PLUGIN_STATIC)

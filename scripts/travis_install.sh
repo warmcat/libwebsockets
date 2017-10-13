@@ -22,11 +22,13 @@ if [ "$TRAVIS_OS_NAME" == "osx" ];
 then
 	if [ "$LWS_METHOD" == "libev" ];
 	then
+		brew update;
 		brew install libev;
 	fi
 
 	if [ "$LWS_METHOD" == "libuv" -o "$LWS_METHOD" == "lwsws" ];
 	then
+		brew update;
 		brew install libuv;
 	fi
 

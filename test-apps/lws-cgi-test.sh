@@ -1,6 +1,7 @@
 #!/bin/sh
 
-echo -e -n "Content-type: text/html\x0d\x0a"
+echo -e -n "content-type: text/html\x0d\x0a"
+echo -e -n "transfer-encoding: chunked\x0d\x0a"
 echo -e -n "\x0d\x0a"
 
 echo "<html><body>"

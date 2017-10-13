@@ -332,6 +332,75 @@ isn't processed by user code before then should be copied out for later.
 For HTTP connections that don't upgrade, header info remains available the
 whole time.
 
+@section http2compat Code Requirements for HTTP/2 compatibility
+
+Websocket connections only work over http/1, so there is nothing special to do
+when you want to enable -DLWS_WITH_HTTP2=1.
+
+The internal http apis already follow these requirements and are compatible with
+http/2 already.  So if you use stuff like mounts and serve stuff out of the
+filesystem, there's also nothing special to do.
+
+However if you are getting your hands dirty with writing response headers, or
+writing bulk data over http/2, you need to observe these rules so that it will
+work over both http/1.x and http/2 the same.
+
+1) LWS_PRE requirement applies on ALL lws_write().  For http/1, you don't have
+to take care of LWS_PRE for http data, since it is just sent straight out.
+For http/2, it will write up to LWS_PRE bytes behind the buffer start to create
+the http/2 frame header.
+
+This has implications if you treated the input buffer to lws_write() as const...
+it isn't any more with http/2, up to 9 bytes behind the buffer will be trashed.
+
+2) Headers are encoded using a sophisticated scheme in http/2.  The existing
+header access apis are already made compatible for incoming headers,
+for outgoing headers you must:
+
+ - observe the LWS_PRE buffer requirement mentioned above
+ 
+ - Use `lws_add_http_header_status()` to add the transaction status (200 etc)
+ 
+ - use lws apis `lws_add_http_header_by_name()` and `lws_add_http_header_by_token()`
+   to put the headers into the buffer (these will translate what is actually
+   written to the buffer depending on if the connection is in http/2 mode or not)
+   
+ - use the `lws api lws_finalize_http_header()` api after adding the last
+   response header
+   
+ - write the header using lws_write(..., `LWS_WRITE_HTTP_HEADERS`);
+ 
+ 3) http/2 introduces per-stream transmit credit... how much more you can send
+ on a stream is decided by the peer.  You start off with some amount, as the
+ stream sends stuff lws will reduce your credit accordingly, when it reaches
+ zero, you must not send anything further until lws receives "more credit" for
+ that stream the peer.  Lws will suppress writable callbacks if you hit 0 until
+ more credit for the stream appears, and lws built-in file serving (via mounts
+ etc) already takes care of observing the tx credit restrictions.  However if
+ you write your own code that wants to send http data, you must consult the
+ `lws_get_peer_write_allowance()` api to find out the state of your tx credit.
+ For http/1, it will always return (size_t)-1, ie, no limit.
+ 
+ This is orthogonal to the question of how much space your local side's kernel
+ will make to buffer your send data on that connection.  So although the result
+ from `lws_get_peer_write_allowance()` is "how much you can send" logically,
+ and may be megabytes if the peer allows it, you should restrict what you send
+ at one time to whatever your machine will generally accept in one go, and
+ further reduce that amount if `lws_get_peer_write_allowance()` returns
+ something smaller.  If it returns 0, you should not consume or send anything
+ and return having asked for callback on writable, it will only come back when
+ more tx credit has arrived for your stream.
+ 
+ 4) Header names with captital letters are illegal in http/2.  Header names in
+ http/1 are case insensitive.  So if you generate headers by name, change all
+ your header name strings to lower-case to be compatible both ways.
+ 
+ 5) Chunked Transfer-encoding is illegal in http/2, http/2 peers will actively
+ reject it.  Lws takes care of removing the header and converting CGIs that
+ emit chunked into unchunked automatically for http/2 connections.
+ 
+If you follow these rules, your code will automatically work with both http/1.x
+and http/2.
 
 @section ka TCP Keepalive
 

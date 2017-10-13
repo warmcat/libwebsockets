@@ -5,40 +5,37 @@
  <script src="/lws-common.js"></script>
  <title>LWS Server Status</title>
 <style type="text/css">
-	span.title { font-size:18pt; font: Arial; font-weight:normal;
+	span.title { font-size:18pt; font-family: Arial; font-weight:normal;
 			text-align:center; color:#000000; }
-	span.mount { font-size:10pt; font: Arial; font-weight:normal;
+	span.mount { font-size:10pt; font-family: Arial; font-weight:normal;
 			text-align:center; color:#000000; }
-	span.mountname { font-size:14pt; font: Arial; font-weight:bold;
+	span.mountname { font-size:14pt; font-family: Arial; font-weight:bold;
 			text-align:center; color:#404010; }
-	span.n { font-size:12pt; font: Arial; font-weight:normal;
+	span.n { font-size:12pt; font-family: Arial; font-weight:normal;
 			text-align:center; color:#808020; }
-	span.v { font-size:12pt; font: Arial; font-weight:bold;
+	span.v { font-size:12pt; font-family: Arial; font-weight:bold;
 			text-align:center; color:#202020; }
-	span.m1 { font-size:12pt; font: Arial; font-weight:bold;
+	span.m1 { font-size:12pt; font-family: Arial; font-weight:bold;
 			text-align:center; color:#202020; }
-	span.m2 { font-size:12pt; font: Arial; font-weight:normal;
+	span.m2 { font-size:12pt; font-family: Arial; font-weight:normal;
 			text-align:center; color:#202020; }
-	.browser { font-size:18pt; font: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px;}
+	.browser { font-size:18pt; font-family: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; border-radius:10px;}
 	.group2 { vertical-align:middle;
 		text-align:center;
 		background:#f0f0e0; 
 		padding:12px; 
 		-webkit-border-radius:10px; 
-		-moz-border-radius:10px;
 		border-radius:10px; }
 	.explain { vertical-align:middle;
 		text-align:center;
 		background:#f0f0c0; padding:12px;
 		-webkit-border-radius:10px;
-		-moz-border-radius:10px;
 		border-radius:10px;
 		color:#404000; }
 	td.wsstatus { vertical-align:middle; width:200px; height:50px;
 		text-align:center;
 		background:#f0f0c0; padding:6px;
 		-webkit-border-radius:8px;
-		-moz-border-radius:8px;
 		border-radius:8px;
 		color:#404000; }
 	td.l { vertical-align:middle;
@@ -46,52 +43,45 @@
 		background:#d0d0b0; 
 		padding:3px; 
 		-webkit-border-radius:3px; 
-		-moz-border-radius:3px;
 		border-radius:3px; }
 	td.dl { vertical-align:middle;
 		text-align:center;
 		background:#c0c0c0; 
 		padding:3px; 
 		-webkit-border-radius:3px; 
-		-moz-border-radius:3px;
 		border-radius:3px; }
 	td.c { vertical-align:middle;
 		text-align:center;
 		background:#c0c0a0; 
 		padding:3px; 
 		-webkit-border-radius:3px; 
-		-moz-border-radius:3px;
 		border-radius:3px; }
 	td.c0 { vertical-align:middle;
 		text-align:center;
 		background:#b0b090; 
 		padding:3px; 
 		-webkit-border-radius:3px; 
-		-moz-border-radius:3px;
 		border-radius:3px; }
 	td.dc0 { vertical-align:middle;
 		text-align:center;
 		background:#a0a0a0; 
 		padding:3px; 
 		-webkit-border-radius:3px; 
-		-moz-border-radius:3px;
 		border-radius:3px; }
 	td.c1 { vertical-align:middle;
 		text-align:center;
 		background:#c0c0c0; 
 		padding:3px; 
 		-webkit-border-radius:3px; 
-		-moz-border-radius:3px;
 		border-radius:3px; }
 	td.t { vertical-align:middle;
 		text-align:center;
 		background:#e0e0c0; 
 		padding:3px; 
 		-webkit-border-radius:3px; 
-		-moz-border-radius:3px;
 		border-radius:3px; }
-	.content { vertical-align:top; text-align:center; background:#fffff0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
-	.canvas { vertical-align:top; text-align:center; background:#efefd0; padding:12px; -webkit-border-radius:10px; -moz-border-radius:10px; border-radius:10px; }
+	.content { vertical-align:top; text-align:center; background:#fffff0; padding:12px; -webkit-border-radius:10px; border-radius:10px; }
+	.canvas { vertical-align:top; text-align:center; background:#efefd0; padding:12px; -webkit-border-radius:10px; border-radius:10px; }
 .tabs {
   position: relative;   
   min-height: 750px; /* This part sucks */
@@ -279,16 +269,22 @@ function get_appropriate_ws_url()
 				  "<br>" +
 				  "<span class=n>Listening wsi:</span> <span class=v>" + san(jso.i.contexts[ci].listen_wsi) + "</span>, " +
 				  "<span class=n>Current wsi alive:</span> <span class=v>" + (parseInt(san(jso.i.contexts[ci].wsi_alive)) -
-				  	parseInt(san(jso.i.contexts[ci].listen_wsi))) + "</span><br>" +
+				  							      parseInt(san(jso.i.contexts[ci].listen_wsi))) + "</span><br>" +
 			  	  "<span class=n>Total Rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].rx)) +"</span>, " +
 			  	  "<span class=n>Total Tx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].tx)) +"</span><br>" +
-			  	  "<span class=n>Total connections:</span> <span class=v>" + san(jso.i.contexts[ci].conn) +"</span>, " +
-			  	  "<span class=n>Total HTTP Transactions:</span> <span class=v>" + san(jso.i.contexts[ci].trans) +"</span><br>" +
-			  	  "<span class=n>Total ws upgrades:</span> <span class=v>" + san(jso.i.contexts[ci].ws_upg) +"</span>, " +
-			  	  "<span class=n>Total h2 upgrades:</span> <span class=v>" + san(jso.i.contexts[ci].http2_upg) +"</span>, " +
-			  	  "<span class=n>Total Rejected:</span> <span class=v>" + san(jso.i.contexts[ci].rejected) +"</span><br>" +
-				  "<span class=n>Current cgi alive:</span> <span class=v>" + san(jso.i.contexts[ci].cgi_alive) + "</span>, " +
-				  "<span class=n>Total CGI spawned:</span> <span class=v>" + san(jso.i.contexts[ci].cgi_spawned) +
+			  	  
+			  	  "<span class=n>CONNECTIONS: HTTP/1.x:</span> <span class=v>" + san(jso.i.contexts[ci].h1_conn) +"</span>, " +
+			  	  "<span class=n>Websocket:</span> <span class=v>" + san(jso.i.contexts[ci].ws_upg) +"</span>, " +
+			  	  "<span class=n>H2 upgrade:</span> <span class=v>" + san(jso.i.contexts[ci].h2_upg) +"</span>, " +
+			  	  "<span class=n>H2 ALPN:</span> <span class=v>" + san(jso.i.contexts[ci].h2_alpn) +"</span>, " +
+			  	  "<span class=n>Rejected:</span> <span class=v>" + san(jso.i.contexts[ci].rejected) +"</span><br>" +
+
+			  	  "<span class=n>TRANSACTIONS: HTTP/1.x:</span> <span class=v>" + san(jso.i.contexts[ci].h1_trans) + "</span>, " +
+			  	  "<span class=n>H2:</span> <span class=v>" + san(jso.i.contexts[ci].h2_trans) +"</span>, " +
+			  	   "<span class=n>Total H2 substreams:</span> <span class=v>" + san(jso.i.contexts[ci].h2_subs) +"</span><br>" +
+
+				  "<span class=n>CGI: alive:</span> <span class=v>" + san(jso.i.contexts[ci].cgi_alive) + "</span>, " +
+				  "<span class=n>spawned:</span> <span class=v>" + san(jso.i.contexts[ci].cgi_spawned) +
 				  "</span><table>";
 				
 				for (n = 0; n < jso.i.contexts[ci].pt.length; n++) {
@@ -322,13 +318,20 @@ function get_appropriate_ws_url()
 					if (jso.i.contexts[ci].vhosts[n].sts == '1')
 						s = s + " (STS)";
 					s = s +"<br>" +
-					"<span class=n>rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].vhosts[n].rx)) + "B</span>, " +
-					"<span class=n>tx</span> <span class=v>" + humanize(san(jso.i.contexts[ci].vhosts[n].tx)) + "B</span><br>" +
-					"<span class=n>vh connections</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].conn) + "</span>, " +
-					"<span class=n>vh http transactions</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].trans) + "</span><br>" +
-					"<span class=n>vh upgrades to ws:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].ws_upg) + "</span>, " +
-					"<span class=n>to http/2:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].http2_upg) + "</span>, " +
-					"<span class=n>rejected:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].rejected) + "</span><br>" +
+					
+					  "<span class=n>Total Rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].vhosts[n].rx)) +"</span>, " +
+					  "<span class=n>Total Tx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].vhosts[n].tx)) +"</span><br>" +
+					  
+					  "<span class=n>CONNECTIONS: HTTP/1.x:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h1_conn) +"</span>, " +
+					  "<span class=n>Websocket:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].ws_upg) +"</span>, " +
+					  "<span class=n>H2 upgrade:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h2_upg) +"</span>, " +
+					  "<span class=n>H2 ALPN:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h2_alpn) +"</span>, " +
+					  "<span class=n>Rejected:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].rejected) +"</span><br>" +
+					
+					  "<span class=n>TRANSACTIONS: HTTP/1.x:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h1_trans) + "</span>, " +
+					  "<span class=n>H2:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h2_trans) +"</span>, " +
+					  "<span class=n>Total H2 substreams:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h2_subs) +"</span><br>" +
+					
 					"<table style=\"margin-left:16px\"><tr><td class=t>Mountpoint</td><td class=t>Origin</td><td class=t>Cache Policy</td></tr>";
 
 					var m;

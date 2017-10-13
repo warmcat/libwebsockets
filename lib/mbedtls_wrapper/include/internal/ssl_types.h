@@ -19,6 +19,12 @@
  extern "C" {
 #endif
 
+#include <lws_config.h>
+#if defined(LWS_WITH_ESP32)
+#undef MBEDTLS_CONFIG_FILE
+#define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
+#endif
+
 #include "ssl_code.h"
 
 typedef void SSL_CIPHER;

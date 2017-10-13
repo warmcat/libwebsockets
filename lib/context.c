@@ -50,6 +50,64 @@ static const char * const mount_protocols[] = {
 	"callback://"
 };
 
+#if defined(LWS_WITH_HTTP2)
+/*
+ * These are the standardized defaults.
+ * Override what actually goes in the vhost settings in platform or user code.
+ * Leave these alone because they are used to determine "what is different
+ * from the protocol defaults".
+ */
+const struct http2_settings lws_h2_defaults = { {
+	1,
+	/* H2SET_HEADER_TABLE_SIZE */			4096,
+	/* *** This controls how many entries in the dynamic table ***
+	 * Allows the sender to inform the remote endpoint of the maximum
+	 * size of the header compression table used to decode header
+	 * blocks, in octets.  The encoder can select any size equal to or
+	 * less than this value by using signaling specific to the header
+	 * compression format inside a header block (see [COMPRESSION]).
+	 * The initial value is 4,096 octets.
+	 */
+	/* H2SET_ENABLE_PUSH */				   1,
+	/* H2SET_MAX_CONCURRENT_STREAMS */	  0x7fffffff,
+	/* H2SET_INITIAL_WINDOW_SIZE */		       65535,
+	/* H2SET_MAX_FRAME_SIZE */		       16384,
+	/* H2SET_MAX_HEADER_LIST_SIZE */	  0x7fffffff,
+	/*< This advisory setting informs a peer of the maximum size of
+	 * header list that the sender is prepared to accept, in octets.
+	 * The value is based on the uncompressed size of header fields,
+	 * including the length of the name and value in octets plus an
+	 * overhead of 32 octets for each header field.
+	 */
+
+}};
+
+const struct http2_settings lws_h2_stock_settings = { {
+	1,
+	/* H2SET_HEADER_TABLE_SIZE */			 512,
+	/* *** This controls how many entries in the dynamic table ***
+	 * Allows the sender to inform the remote endpoint of the maximum
+	 * size of the header compression table used to decode header
+	 * blocks, in octets.  The encoder can select any size equal to or
+	 * less than this value by using signaling specific to the header
+	 * compression format inside a header block (see [COMPRESSION]).
+	 * The initial value is 4,096 octets.
+	 */
+	/* H2SET_ENABLE_PUSH */				   1,
+	/* H2SET_MAX_CONCURRENT_STREAMS */		  24,
+	/* H2SET_INITIAL_WINDOW_SIZE */		       65535,
+	/* H2SET_MAX_FRAME_SIZE */		       16384,
+	/* H2SET_MAX_HEADER_LIST_SIZE */	  	4096,
+	/*< This advisory setting informs a peer of the maximum size of
+	 * header list that the sender is prepared to accept, in octets.
+	 * The value is based on the uncompressed size of header fields,
+	 * including the length of the name and value in octets plus an
+	 * overhead of 32 octets for each header field.
+	 */
+
+}};
+#endif
+
 LWS_VISIBLE void *
 lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 			    const struct lws_protocols *prot, int size)
@@ -268,9 +326,15 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_CHUNK_END) {
-			lwsl_debug("writing chunk terminator and exiting\n");
-			n = lws_write(wsi, (unsigned char *)"0\x0d\x0a\x0d\x0a",
-				      5, LWS_WRITE_HTTP);
+			if (!wsi->http2_substream) {
+				memcpy(buf + LWS_PRE, "0\x0d\x0a\x0d\x0a", 5);
+				lwsl_debug("writing chunk terminator and exiting\n");
+				n = lws_write(wsi, (unsigned char *)buf + LWS_PRE,
+						5, LWS_WRITE_HTTP);
+			} else
+				n = lws_write(wsi, (unsigned char *)buf + LWS_PRE,
+					      0, LWS_WRITE_HTTP_FINAL);
+
 			/* always close after sending it */
 			return -1;
 		}
@@ -392,7 +456,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: %d %" PRIu64 "\n",
 				wsi->cgi->explicitly_chunked,
 				(uint64_t)wsi->cgi->content_length);
-		if (!wsi->cgi->explicitly_chunked && !wsi->cgi->content_length) {
+		if (!wsi->cgi->explicitly_chunked &&
+		    !wsi->cgi->content_length) {
 			/* send terminating chunk */
 			lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: ending\n");
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_CHUNK_END;
@@ -484,6 +549,13 @@ lws_create_vhost(struct lws_context *context,
 
 	if (info->options & LWS_SERVER_OPTION_ONLY_RAW)
 		lwsl_info("%s set to only support RAW\n", vh->name);
+
+#if defined(LWS_WITH_HTTP2)
+	vh->set = context->set;
+	if (info->http2_settings[0])
+		for (n = 1; n < LWS_H2_SETTINGS_LEN; n++)
+			vh->set.s[n] = info->http2_settings[n];
+#endif
 
 	vh->iface = info->iface;
 #if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
@@ -791,6 +863,11 @@ lws_create_context(struct lws_context_creation_info *info)
 #if LWS_POSIX
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
 #endif
+#if defined(LWS_WITH_HTTP2)
+	lwsl_info(" HTTP2 support         : available\n");
+#else
+	lwsl_info(" HTTP2 support         : not configured");
+#endif
 	if (lws_plat_context_early_init())
 		return NULL;
 
@@ -803,6 +880,10 @@ lws_create_context(struct lws_context_creation_info *info)
 		context->pt_serv_buf_size = info->pt_serv_buf_size;
 	else
 		context->pt_serv_buf_size = 4096;
+
+#if defined(LWS_WITH_HTTP2)
+	context->set = lws_h2_stock_settings;
+#endif
 
 #if LWS_MAX_SMP > 1
 	pthread_mutex_init(&context->lock, NULL);
@@ -1022,6 +1103,15 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	if (lws_plat_init(context, info))
 		goto bail;
+
+#if defined(LWS_WITH_HTTP2)
+	/*
+	 * let the user code see what the platform default SETTINGS were, he
+	 * can modify them when he creates the vhosts.
+	 */
+	for (n = 1; n < LWS_H2_SETTINGS_LEN; n++)
+		info->http2_settings[n] = context->set.s[n];
+#endif
 
 	lws_context_init_ssl_library(info);
 

@@ -2346,8 +2346,16 @@ struct lws_context_creation_info {
 	/**< CONTEXT: max number of wsi a single IP may use simultaneously.
 	 *	      0 is no limit.  This is a hard limit, connections from
 	 *	      the same IP will simply be dropped once it acquires the
-	 *	      amount of simultanoues wsi / accepted connections
+	 *	      amount of simultaneous wsi / accepted connections
 	 *	      given here.
+	 */
+	uint32_t	http2_settings[7];
+	/**< CONTEXT: after context creation http2_settings[1] thru [6] have
+	 *	      been set to the lws platform default values.
+	 *   VHOST:   if http2_settings[0] is nonzero, the values given in
+	 *	      http2_settings[1]..[6] are used instead of the lws
+	 *	      platform default values.
+	 *	      Just leave all at 0 if you don't care.
 	 */
 
 	/* Add new things just above here ---^
@@ -3367,6 +3375,8 @@ enum lws_token_indexes {
 	WSI_TOKEN_HTTP1_0					= 79,
 	WSI_TOKEN_X_FORWARDED_FOR				= 80,
 	WSI_TOKEN_CONNECT					= 81,
+	WSI_TOKEN_HEAD_URI					= 82,
+	WSI_TOKEN_TE						= 83,
 	/****** add new things just above ---^ ******/
 
 	/* use token storage to stash these internally, not for
@@ -3402,7 +3412,6 @@ struct lws_token_limits {
  */
 LWS_VISIBLE LWS_EXTERN const unsigned char *
 lws_token_to_string(enum lws_token_indexes token);
-
 
 /**
  * lws_hdr_total_length: report length of all fragments of a header totalled up
@@ -3735,6 +3744,9 @@ lws_urlencode(char *escaped, const char *string, int len);
  *
  * Since urldecoding only shrinks the output string, it is possible to
  * do it in-place, ie, string == escaped
+ *
+ * Returns 0 if completed OK or nonzero for urldecode violation (non-hex chars
+ * where hex required, etc)
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_urldecode(char *string, const char *escaped, int len);
@@ -4029,6 +4041,9 @@ enum lws_write_protocol {
 	 * to be compatible with both in the future,header response part should
 	 * be sent using this regardless of http version expected)
 	 */
+	LWS_WRITE_HTTP_HEADERS_CONTINUATION			= 9,
+	/**< Continuation of http/2 headers
+	 */
 
 	/****** add new things just above ---^ ******/
 
@@ -4036,6 +4051,11 @@ enum lws_write_protocol {
 
 	LWS_WRITE_NO_FIN = 0x40,
 	/**< This part of the message is not the end of the message */
+
+	LWS_WRITE_H2_STREAM_END = 0x80,
+	/**< Flag indicates this packet should go out with STREAM_END if h2
+	 * STREAM_END is allowed on DATA or HEADERS.
+	 */
 
 	LWS_WRITE_CLIENT_IGNORE_XOR_MASK = 0x80
 	/**< client packet payload goes out on wire unmunged
@@ -4328,6 +4348,24 @@ LWS_VISIBLE LWS_EXTERN size_t
 lws_get_peer_write_allowance(struct lws *wsi);
 ///@}
 
+enum {
+	/*
+	 * Flags for enable and disable rxflow with reason bitmap and with
+	 * backwards-compatible single bool
+	 */
+	LWS_RXFLOW_REASON_USER_BOOL		= (1 << 0),
+	LWS_RXFLOW_REASON_HTTP_RXBUFFER		= (1 << 6),
+	LWS_RXFLOW_REASON_H2_PPS_PENDING	= (1 << 7),
+
+	LWS_RXFLOW_REASON_APPLIES		= (1 << 14),
+	LWS_RXFLOW_REASON_APPLIES_ENABLE_BIT	= (1 << 13),
+	LWS_RXFLOW_REASON_APPLIES_ENABLE	= LWS_RXFLOW_REASON_APPLIES |
+						  LWS_RXFLOW_REASON_APPLIES_ENABLE_BIT,
+	LWS_RXFLOW_REASON_APPLIES_DISABLE	= LWS_RXFLOW_REASON_APPLIES,
+	LWS_RXFLOW_REASON_FLAG_PROCESS_NOW	= (1 << 12),
+
+};
+
 /**
  * lws_rx_flow_control() - Enable and disable socket servicing for
  *				received packets.
@@ -4337,6 +4375,15 @@ lws_get_peer_write_allowance(struct lws *wsi);
  *
  * \param wsi:	Websocket connection instance to get callback for
  * \param enable:	0 = disable read servicing for this connection, 1 = enable
+ *
+ * If you need more than one additive reason for rxflow control, you can give
+ * iLWS_RXFLOW_REASON_APPLIES_ENABLE or _DISABLE together with one or more of
+ * b5..b0 set to idicate which bits to enable or disable.  If any bits are
+ * enabled, rx on the connection is suppressed.
+ *
+ * LWS_RXFLOW_REASON_FLAG_PROCESS_NOW  flag may also be given to force any change
+ * in rxflowbstatus to benapplied immediately, this should be used when you are
+ * changing a wsi flow control state from outside a callback on that wsi.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_rx_flow_control(struct lws *wsi, int enable);
@@ -4652,9 +4699,299 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 }
 
 /**
- * lws_ring: generic ringbuffer struct
+ * lws_snprintf(): snprintf that truncates the returned length too
  *
- * all of the members are opaque and manipulated by lws_ring_...() apis.
+ * \param str: destination buffer
+ * \param size: bytes left in destination buffer
+ * \param format: format string
+ * \param ...: args for format
+ *
+ * This lets you correctly truncate buffers by concatenating lengths, if you
+ * reach the limit the reported length doesn't exceed the limit.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
+
+/**
+ * lws_get_random(): fill a buffer with platform random data
+ *
+ * \param context: the lws context
+ * \param buf: buffer to fill
+ * \param len: how much to fill
+ *
+ * This is intended to be called from the LWS_CALLBACK_RECEIVE callback if
+ * it's interested to see if the frame it's dealing with was sent in binary
+ * mode.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_get_random(struct lws_context *context, void *buf, int len);
+/**
+ * lws_daemonize(): make current process run in the background
+ *
+ * \param _lock_path: the filepath to write the lock file
+ *
+ * Spawn lws as a background process, taking care of various things
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_daemonize(const char *_lock_path);
+/**
+ * lws_get_library_version(): return string describing the version of lws
+ *
+ * On unix, also includes the git describe
+ */
+LWS_VISIBLE LWS_EXTERN const char * LWS_WARN_UNUSED_RESULT
+lws_get_library_version(void);
+
+/**
+ * lws_wsi_user() - get the user data associated with the connection
+ * \param wsi: lws connection
+ *
+ * Not normally needed since it's passed into the callback
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lws_wsi_user(struct lws *wsi);
+
+/**
+ * lws_wsi_set_user() - set the user data associated with the client connection
+ * \param wsi: lws connection
+ * \param user: user data
+ *
+ * By default lws allocates this and it's not legal to externally set it
+ * yourself.  However client connections may have it set externally when the
+ * connection is created... if so, this api can be used to modify it at
+ * runtime additionally.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_set_wsi_user(struct lws *wsi, void *user);
+
+/**
+ * lws_parse_uri:	cut up prot:/ads:port/path into pieces
+ *			Notice it does so by dropping '\0' into input string
+ *			and the leading / on the path is consequently lost
+ *
+ * \param p:			incoming uri string.. will get written to
+ * \param prot:		result pointer for protocol part (https://)
+ * \param ads:		result pointer for address part
+ * \param port:		result pointer for port part
+ * \param path:		result pointer for path part
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
+	      const char **path);
+
+/**
+ * lws_now_secs(): return seconds since 1970-1-1
+ */
+LWS_VISIBLE LWS_EXTERN unsigned long
+lws_now_secs(void);
+
+/**
+ * lws_get_context - Allow geting lws_context from a Websocket connection
+ * instance
+ *
+ * With this function, users can access context in the callback function.
+ * Otherwise users may have to declare context as a global variable.
+ *
+ * \param wsi:	Websocket connection instance
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_context * LWS_WARN_UNUSED_RESULT
+lws_get_context(const struct lws *wsi);
+
+/**
+ * lws_get_count_threads(): how many service threads the context uses
+ *
+ * \param context: the lws context
+ *
+ * By default this is always 1, if you asked for more than lws can handle it
+ * will clip the number of threads.  So you can use this to find out how many
+ * threads are actually in use.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_get_count_threads(struct lws_context *context);
+
+/**
+ * lws_get_parent() - get parent wsi or NULL
+ * \param wsi: lws connection
+ *
+ * Specialized wsi like cgi stdin/out/err are associated to a parent wsi,
+ * this allows you to get their parent.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
+lws_get_parent(const struct lws *wsi);
+
+/**
+ * lws_get_child() - get child wsi or NULL
+ * \param wsi: lws connection
+ *
+ * Allows you to find a related wsi from the parent wsi.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
+lws_get_child(const struct lws *wsi);
+
+/**
+ * lws_parent_carries_io() - mark wsi as needing to send messages via parent
+ *
+ * \param wsi: child lws connection
+ */
+
+LWS_VISIBLE LWS_EXTERN void
+lws_set_parent_carries_io(struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN void *
+lws_get_opaque_parent_data(const struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_set_opaque_parent_data(struct lws *wsi, void *data);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_get_child_pending_on_writable(const struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_clear_child_pending_on_writable(struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_get_close_length(struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN unsigned char *
+lws_get_close_payload(struct lws *wsi);
+
+/**
+ * lws_get_network_wsi() - Returns wsi that has the tcp connection for this wsi
+ *
+ * \param wsi: wsi you have
+ *
+ * Returns wsi that has the tcp connection (which may be the incoming wsi)
+ *
+ * HTTP/1 connections will always return the incoming wsi
+ * HTTP/2 connections may return a different wsi that has the tcp connection
+ */
+LWS_VISIBLE LWS_EXTERN
+struct lws *lws_get_network_wsi(struct lws *wsi);
+
+/*
+ * \deprecated DEPRECATED Note: this is not normally needed as a user api.
+ * It's provided in case it is
+ * useful when integrating with other app poll loop service code.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
+
+/**
+ * lws_set_allocator() - custom allocator support
+ *
+ * \param realloc
+ *
+ * Allows you to replace the allocator (and deallocator) used by lws
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_set_allocator(void *(*realloc)(void *ptr, size_t size, const char *reason));
+///@}
+
+/** \defgroup wsstatus Websocket status APIs
+ * ##Websocket connection status APIs
+ *
+ * These provide information about ws connection or message status
+ */
+///@{
+/**
+ * lws_send_pipe_choked() - tests if socket is writable or not
+ * \param wsi: lws connection
+ *
+ * Allows you to check if you can write more on the socket
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_send_pipe_choked(struct lws *wsi);
+
+/**
+ * lws_is_final_fragment() - tests if last part of ws message
+ *
+ * \param wsi: lws connection
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_is_final_fragment(struct lws *wsi);
+
+/**
+ * lws_is_first_fragment() - tests if first part of ws message
+ *
+ * \param wsi: lws connection
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_is_first_fragment(struct lws *wsi);
+
+/**
+ * lws_get_reserved_bits() - access reserved bits of ws frame
+ * \param wsi: lws connection
+ */
+LWS_VISIBLE LWS_EXTERN unsigned char
+lws_get_reserved_bits(struct lws *wsi);
+
+/**
+ * lws_partial_buffered() - find out if lws buffered the last write
+ * \param wsi:	websocket connection to check
+ *
+ * Returns 1 if you cannot use lws_write because the last
+ * write on this connection is still buffered, and can't be cleared without
+ * returning to the service loop and waiting for the connection to be
+ * writeable again.
+ *
+ * If you will try to do >1 lws_write call inside a single
+ * WRITEABLE callback, you must check this after every write and bail if
+ * set, ask for a new writeable callback and continue writing from there.
+ *
+ * This is never set at the start of a writeable callback, but any write
+ * may set it.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_partial_buffered(struct lws *wsi);
+
+/**
+ * lws_frame_is_binary(): true if the current frame was sent in binary mode
+ *
+ * \param wsi: the connection we are inquiring about
+ *
+ * This is intended to be called from the LWS_CALLBACK_RECEIVE callback if
+ * it's interested to see if the frame it's dealing with was sent in binary
+ * mode.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_frame_is_binary(struct lws *wsi);
+
+/**
+ * lws_is_ssl() - Find out if connection is using SSL
+ * \param wsi:	websocket connection to check
+ *
+ *	Returns 0 if the connection is not using SSL, 1 if using SSL and
+ *	using verified cert, and 2 if using SSL but the cert was not
+ *	checked (appears for client wsi told to skip check on connection)
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_is_ssl(struct lws *wsi);
+/**
+ * lws_is_cgi() - find out if this wsi is running a cgi process
+ * \param wsi: lws connection
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_is_cgi(struct lws *wsi);
+
+#ifdef LWS_OPENSSL_SUPPORT
+/**
+ * lws_get_ssl() - Return wsi's SSL context structure
+ * \param wsi:	websocket connection
+ *
+ * Returns pointer to the SSL library's context structure
+ */
+LWS_VISIBLE LWS_EXTERN SSL*
+lws_get_ssl(struct lws *wsi);
+#endif
+///@}
+
+/** \defgroup lws_ring LWS Ringbuffer APIs
+ * ##lws_ring: generic ringbuffer struct
+ *
+ * Provides an abstract ringbuffer api supporting one head and one or an
+ * unlimited number of tails.
+ *
+ * All of the members are opaque and manipulated by lws_ring_...() apis.
  *
  * The lws_ring and its buffer is allocated at runtime on the heap, using
  *
@@ -4663,6 +5000,11 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
  *
  * It may contain any type, the size of the "element" stored in the ring
  * buffer and the number of elements is given at creation time.
+ *
+ * When you create the ringbuffer, you can optionally provide an element
+ * destroy callback that frees any allocations inside the element.  This is then
+ * automatically called for elements with no tail behind them, ie, elements
+ * which don't have any pending consumer are auto-freed.
  *
  * Whole elements may be inserted into the ringbuffer and removed from it, using
  *
@@ -4697,6 +5039,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
  *
  *   - lws_ring_update_oldest_tail()
  */
+///@{
 struct lws_ring;
 
 /**
@@ -4856,7 +5199,6 @@ LWS_VISIBLE LWS_EXTERN int
 lws_ring_next_linear_insert_range(struct lws_ring *ring, void **start,
 				  size_t *bytes);
 
-
 /**
  * lws_ring_bump_head():  used to write directly into the ring
  *
@@ -4865,282 +5207,7 @@ lws_ring_next_linear_insert_range(struct lws_ring *ring, void **start,
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_ring_bump_head(struct lws_ring *ring, size_t bytes);
-
-
-/**
- * lws_snprintf(): snprintf that truncates the returned length too
- *
- * \param str: destination buffer
- * \param size: bytes left in destination buffer
- * \param format: format string
- * \param ...: args for format
- *
- * This lets you correctly truncate buffers by concatenating lengths, if you
- * reach the limit the reported length doesn't exceed the limit.
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
-
-/**
- * lws_get_random(): fill a buffer with platform random data
- *
- * \param context: the lws context
- * \param buf: buffer to fill
- * \param len: how much to fill
- *
- * This is intended to be called from the LWS_CALLBACK_RECEIVE callback if
- * it's interested to see if the frame it's dealing with was sent in binary
- * mode.
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_get_random(struct lws_context *context, void *buf, int len);
-/**
- * lws_daemonize(): make current process run in the background
- *
- * \param _lock_path: the filepath to write the lock file
- *
- * Spawn lws as a background process, taking care of various things
- */
-LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_daemonize(const char *_lock_path);
-/**
- * lws_get_library_version(): return string describing the version of lws
- *
- * On unix, also includes the git describe
- */
-LWS_VISIBLE LWS_EXTERN const char * LWS_WARN_UNUSED_RESULT
-lws_get_library_version(void);
-
-/**
- * lws_wsi_user() - get the user data associated with the connection
- * \param wsi: lws connection
- *
- * Not normally needed since it's passed into the callback
- */
-LWS_VISIBLE LWS_EXTERN void *
-lws_wsi_user(struct lws *wsi);
-
-/**
- * lws_wsi_set_user() - set the user data associated with the client connection
- * \param wsi: lws connection
- * \param user: user data
- *
- * By default lws allocates this and it's not legal to externally set it
- * yourself.  However client connections may have it set externally when the
- * connection is created... if so, this api can be used to modify it at
- * runtime additionally.
- */
-LWS_VISIBLE LWS_EXTERN void
-lws_set_wsi_user(struct lws *wsi, void *user);
-
-/**
- * lws_parse_uri:	cut up prot:/ads:port/path into pieces
- *			Notice it does so by dropping '\0' into input string
- *			and the leading / on the path is consequently lost
- *
- * \param p:			incoming uri string.. will get written to
- * \param prot:		result pointer for protocol part (https://)
- * \param ads:		result pointer for address part
- * \param port:		result pointer for port part
- * \param path:		result pointer for path part
- */
-LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
-	      const char **path);
-
-/**
- * lws_now_secs(): return seconds since 1970-1-1
- */
-LWS_VISIBLE LWS_EXTERN unsigned long
-lws_now_secs(void);
-
-/**
- * lws_get_context - Allow geting lws_context from a Websocket connection
- * instance
- *
- * With this function, users can access context in the callback function.
- * Otherwise users may have to declare context as a global variable.
- *
- * \param wsi:	Websocket connection instance
- */
-LWS_VISIBLE LWS_EXTERN struct lws_context * LWS_WARN_UNUSED_RESULT
-lws_get_context(const struct lws *wsi);
-
-/**
- * lws_get_count_threads(): how many service threads the context uses
- *
- * \param context: the lws context
- *
- * By default this is always 1, if you asked for more than lws can handle it
- * will clip the number of threads.  So you can use this to find out how many
- * threads are actually in use.
- */
-LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_get_count_threads(struct lws_context *context);
-
-/**
- * lws_get_parent() - get parent wsi or NULL
- * \param wsi: lws connection
- *
- * Specialized wsi like cgi stdin/out/err are associated to a parent wsi,
- * this allows you to get their parent.
- */
-LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
-lws_get_parent(const struct lws *wsi);
-
-/**
- * lws_get_child() - get child wsi or NULL
- * \param wsi: lws connection
- *
- * Allows you to find a related wsi from the parent wsi.
- */
-LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
-lws_get_child(const struct lws *wsi);
-
-/**
- * lws_parent_carries_io() - mark wsi as needing to send messages via parent
- *
- * \param wsi: child lws connection
- */
-
-LWS_VISIBLE LWS_EXTERN void
-lws_set_parent_carries_io(struct lws *wsi);
-
-LWS_VISIBLE LWS_EXTERN void *
-lws_get_opaque_parent_data(const struct lws *wsi);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_set_opaque_parent_data(struct lws *wsi, void *data);
-
-LWS_VISIBLE LWS_EXTERN int
-lws_get_child_pending_on_writable(const struct lws *wsi);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_clear_child_pending_on_writable(struct lws *wsi);
-
-LWS_VISIBLE LWS_EXTERN int
-lws_get_close_length(struct lws *wsi);
-
-LWS_VISIBLE LWS_EXTERN unsigned char *
-lws_get_close_payload(struct lws *wsi);
-
-/*
- * \deprecated DEPRECATED Note: this is not normally needed as a user api.
- * It's provided in case it is
- * useful when integrating with other app poll loop service code.
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
-
-/**
- * lws_set_allocator() - custom allocator support
- *
- * \param realloc
- *
- * Allows you to replace the allocator (and deallocator) used by lws
- */
-LWS_VISIBLE LWS_EXTERN void
-lws_set_allocator(void *(*realloc)(void *ptr, size_t size, const char *reason));
 ///@}
-
-/** \defgroup wsstatus Websocket status APIs
- * ##Websocket connection status APIs
- *
- * These provide information about ws connection or message status
- */
-///@{
-/**
- * lws_send_pipe_choked() - tests if socket is writable or not
- * \param wsi: lws connection
- *
- * Allows you to check if you can write more on the socket
- */
-LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_send_pipe_choked(struct lws *wsi);
-
-/**
- * lws_is_final_fragment() - tests if last part of ws message
- *
- * \param wsi: lws connection
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_is_final_fragment(struct lws *wsi);
-
-/**
- * lws_is_first_fragment() - tests if first part of ws message
- *
- * \param wsi: lws connection
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_is_first_fragment(struct lws *wsi);
-
-/**
- * lws_get_reserved_bits() - access reserved bits of ws frame
- * \param wsi: lws connection
- */
-LWS_VISIBLE LWS_EXTERN unsigned char
-lws_get_reserved_bits(struct lws *wsi);
-
-/**
- * lws_partial_buffered() - find out if lws buffered the last write
- * \param wsi:	websocket connection to check
- *
- * Returns 1 if you cannot use lws_write because the last
- * write on this connection is still buffered, and can't be cleared without
- * returning to the service loop and waiting for the connection to be
- * writeable again.
- *
- * If you will try to do >1 lws_write call inside a single
- * WRITEABLE callback, you must check this after every write and bail if
- * set, ask for a new writeable callback and continue writing from there.
- *
- * This is never set at the start of a writeable callback, but any write
- * may set it.
- */
-LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_partial_buffered(struct lws *wsi);
-
-/**
- * lws_frame_is_binary(): true if the current frame was sent in binary mode
- *
- * \param wsi: the connection we are inquiring about
- *
- * This is intended to be called from the LWS_CALLBACK_RECEIVE callback if
- * it's interested to see if the frame it's dealing with was sent in binary
- * mode.
- */
-LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_frame_is_binary(struct lws *wsi);
-
-/**
- * lws_is_ssl() - Find out if connection is using SSL
- * \param wsi:	websocket connection to check
- *
- *	Returns 0 if the connection is not using SSL, 1 if using SSL and
- *	using verified cert, and 2 if using SSL but the cert was not
- *	checked (appears for client wsi told to skip check on connection)
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_is_ssl(struct lws *wsi);
-/**
- * lws_is_cgi() - find out if this wsi is running a cgi process
- * \param wsi: lws connection
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_is_cgi(struct lws *wsi);
-
-#ifdef LWS_OPENSSL_SUPPORT
-/**
- * lws_get_ssl() - Return wsi's SSL context structure
- * \param wsi:	websocket connection
- *
- * Returns pointer to the SSL library's context structure
- */
-LWS_VISIBLE LWS_EXTERN SSL*
-lws_get_ssl(struct lws *wsi);
-#endif
-///@}
-
 
 /** \defgroup sha SHA and B64 helpers
  * ##SHA and B64 helpers

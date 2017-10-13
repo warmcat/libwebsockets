@@ -110,6 +110,7 @@ _lws_header_table_reset(struct allocated_headers *ah)
 {
 	/* init the ah to reflect no headers or data have appeared yet */
 	memset(ah->frag_index, 0, sizeof(ah->frag_index));
+	memset(ah->frags, 0, sizeof(ah->frags));
 	ah->nfrag = 0;
 	ah->pos = 0;
 	ah->http_response = 0;
@@ -440,6 +441,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 
 		/* he has been stuck waiting for an ah, but now his wait is
 		 * over, let him progress */
+
 		_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 	}
 
@@ -676,6 +678,7 @@ issue_char(struct lws *wsi, unsigned char c)
 	if (frag_len == wsi->u.hdr.current_token_limit) {
 		if (lws_pos_in_bounds(wsi))
 			return -1;
+
 		wsi->u.hdr.ah->data[wsi->u.hdr.ah->pos++] = '\0';
 		lwsl_warn("header %i exceeds limit %d\n",
 			  wsi->u.hdr.parser_state,
@@ -685,21 +688,213 @@ issue_char(struct lws *wsi, unsigned char c)
 	return 1;
 }
 
+int
+lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
+{
+	struct allocated_headers *ah = wsi->u.hdr.ah;
+	unsigned int enc = 0;
+	uint8_t c = *_c;
+
+	/*
+	 * PRIORITY 1
+	 * special URI processing... convert %xx
+	 */
+	switch (wsi->u.hdr.ues) {
+	case URIES_IDLE:
+		if (c == '%') {
+			wsi->u.hdr.ues = URIES_SEEN_PERCENT;
+			goto swallow;
+		}
+		break;
+	case URIES_SEEN_PERCENT:
+		if (char_to_hex(c) < 0)
+			/* illegal post-% char */
+			goto forbid;
+
+		wsi->u.hdr.esc_stash = c;
+		wsi->u.hdr.ues = URIES_SEEN_PERCENT_H1;
+		goto swallow;
+
+	case URIES_SEEN_PERCENT_H1:
+		if (char_to_hex(c) < 0)
+			/* illegal post-% char */
+			goto forbid;
+
+		*_c = (char_to_hex(wsi->u.hdr.esc_stash) << 4) |
+				char_to_hex(c);
+		c = *_c;
+		enc = 1;
+		wsi->u.hdr.ues = URIES_IDLE;
+		break;
+	}
+
+	/*
+	 * PRIORITY 2
+	 * special URI processing...
+	 *  convert /.. or /... or /../ etc to /
+	 *  convert /./ to /
+	 *  convert // or /// etc to /
+	 *  leave /.dir or whatever alone
+	 */
+
+	switch (wsi->u.hdr.ups) {
+	case URIPS_IDLE:
+		if (!c)
+			return -1;
+		/* genuine delimiter */
+		if ((c == '&' || c == ';') && !enc) {
+			if (issue_char(wsi, c) < 0)
+				return -1;
+			/* swallow the terminator */
+			ah->frags[ah->nfrag].len--;
+			/* link to next fragment */
+			ah->frags[ah->nfrag].nfrag = ah->nfrag + 1;
+			ah->nfrag++;
+			if (ah->nfrag >= ARRAY_SIZE(ah->frags))
+				goto excessive;
+			/* start next fragment after the & */
+			wsi->u.hdr.post_literal_equal = 0;
+			ah->frags[ah->nfrag].offset = ah->pos;
+			ah->frags[ah->nfrag].len = 0;
+			ah->frags[ah->nfrag].nfrag = 0;
+			goto swallow;
+		}
+		/* uriencoded = in the name part, disallow */
+		if (c == '=' && enc &&
+		    ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] &&
+		    !wsi->u.hdr.post_literal_equal) {
+			c = '_';
+			*_c =c;
+		}
+
+		/* after the real =, we don't care how many = */
+		if (c == '=' && !enc)
+			wsi->u.hdr.post_literal_equal = 1;
+
+		/* + to space */
+		if (c == '+' && !enc) {
+			c = ' ';
+			*_c = c;
+		}
+		/* issue the first / always */
+		if (c == '/' && !ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS])
+			wsi->u.hdr.ups = URIPS_SEEN_SLASH;
+		break;
+	case URIPS_SEEN_SLASH:
+		/* swallow subsequent slashes */
+		if (c == '/')
+			goto swallow;
+		/* track and swallow the first . after / */
+		if (c == '.') {
+			wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT;
+			goto swallow;
+		}
+		wsi->u.hdr.ups = URIPS_IDLE;
+		break;
+	case URIPS_SEEN_SLASH_DOT:
+		/* swallow second . */
+		if (c == '.') {
+			wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT_DOT;
+			goto swallow;
+		}
+		/* change /./ to / */
+		if (c == '/') {
+			wsi->u.hdr.ups = URIPS_SEEN_SLASH;
+			goto swallow;
+		}
+		/* it was like /.dir ... regurgitate the . */
+		wsi->u.hdr.ups = URIPS_IDLE;
+		if (issue_char(wsi, '.') < 0)
+			return -1;
+		break;
+
+	case URIPS_SEEN_SLASH_DOT_DOT:
+
+		/* /../ or /..[End of URI] --> backup to last / */
+		if (c == '/' || c == '?') {
+			/*
+			 * back up one dir level if possible
+			 * safe against header fragmentation because
+			 * the method URI can only be in 1 fragment
+			 */
+			if (ah->frags[ah->nfrag].len > 2) {
+				ah->pos--;
+				ah->frags[ah->nfrag].len--;
+				do {
+					ah->pos--;
+					ah->frags[ah->nfrag].len--;
+				} while (ah->frags[ah->nfrag].len > 1 &&
+					 ah->data[ah->pos] != '/');
+			}
+			wsi->u.hdr.ups = URIPS_SEEN_SLASH;
+			if (ah->frags[ah->nfrag].len > 1)
+				break;
+			goto swallow;
+		}
+
+		/*  /..[^/] ... regurgitate and allow */
+
+		if (issue_char(wsi, '.') < 0)
+			return -1;
+		if (issue_char(wsi, '.') < 0)
+			return -1;
+		wsi->u.hdr.ups = URIPS_IDLE;
+		break;
+	}
+
+	if (c == '?' && !enc &&
+	    !ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS]) { /* start of URI arguments */
+		if (wsi->u.hdr.ues != URIES_IDLE)
+			goto forbid;
+
+		/* seal off uri header */
+		if (issue_char(wsi, '\0') < 0)
+			return -1;
+
+		/* move to using WSI_TOKEN_HTTP_URI_ARGS */
+		ah->nfrag++;
+		if (ah->nfrag >= ARRAY_SIZE(ah->frags))
+			goto excessive;
+		ah->frags[ah->nfrag].offset = ah->pos;
+		ah->frags[ah->nfrag].len = 0;
+		ah->frags[ah->nfrag].nfrag = 0;
+
+		wsi->u.hdr.post_literal_equal = 0;
+		ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] = ah->nfrag;
+		wsi->u.hdr.ups = URIPS_IDLE;
+		goto swallow;
+	}
+
+	return LPUR_CONTINUE;
+
+swallow:
+	return LPUR_SWALLOW;
+
+forbid:
+	return LPUR_FORBID;
+
+excessive:
+	return LPUR_EXCESSIVE;
+}
+
+static const unsigned char methods[] = {
+	WSI_TOKEN_GET_URI,
+	WSI_TOKEN_POST_URI,
+	WSI_TOKEN_OPTIONS_URI,
+	WSI_TOKEN_PUT_URI,
+	WSI_TOKEN_PATCH_URI,
+	WSI_TOKEN_DELETE_URI,
+	WSI_TOKEN_CONNECT,
+	WSI_TOKEN_HEAD_URI,
+};
+
 int LWS_WARN_UNUSED_RESULT
 lws_parse(struct lws *wsi, unsigned char c)
 {
-	static const unsigned char methods[] = {
-		WSI_TOKEN_GET_URI,
-		WSI_TOKEN_POST_URI,
-		WSI_TOKEN_OPTIONS_URI,
-		WSI_TOKEN_PUT_URI,
-		WSI_TOKEN_PATCH_URI,
-		WSI_TOKEN_DELETE_URI,
-		WSI_TOKEN_CONNECT,
-	};
 	struct allocated_headers *ah = wsi->u.hdr.ah;
 	struct lws_context *context = wsi->context;
-	unsigned int n, m, enc = 0;
+	unsigned int n, m;
+	int r;
 
 	assert(wsi->u.hdr.ah);
 
@@ -753,172 +948,19 @@ lws_parse(struct lws *wsi, unsigned char c)
 			goto start_fragment;
 		}
 
-		/*
-		 * PRIORITY 1
-		 * special URI processing... convert %xx
-		 */
-
-		switch (wsi->u.hdr.ues) {
-		case URIES_IDLE:
-			if (c == '%') {
-				wsi->u.hdr.ues = URIES_SEEN_PERCENT;
-				goto swallow;
-			}
+		r = lws_parse_urldecode(wsi, &c);
+		switch (r) {
+		case LPUR_CONTINUE:
 			break;
-		case URIES_SEEN_PERCENT:
-			if (char_to_hex(c) < 0)
-				/* illegal post-% char */
-				goto forbid;
-
-			wsi->u.hdr.esc_stash = c;
-			wsi->u.hdr.ues = URIES_SEEN_PERCENT_H1;
+		case LPUR_SWALLOW:
 			goto swallow;
-
-		case URIES_SEEN_PERCENT_H1:
-			if (char_to_hex(c) < 0)
-				/* illegal post-% char */
-				goto forbid;
-
-			c = (char_to_hex(wsi->u.hdr.esc_stash) << 4) |
-					char_to_hex(c);
-			enc = 1;
-			wsi->u.hdr.ues = URIES_IDLE;
-			break;
+		case LPUR_FORBID:
+			goto forbid;
+		case LPUR_EXCESSIVE:
+			goto excessive;
+		default:
+			return -1;
 		}
-
-		/*
-		 * PRIORITY 2
-		 * special URI processing...
-		 *  convert /.. or /... or /../ etc to /
-		 *  convert /./ to /
-		 *  convert // or /// etc to /
-		 *  leave /.dir or whatever alone
-		 */
-
-		switch (wsi->u.hdr.ups) {
-		case URIPS_IDLE:
-			if (!c)
-				return -1;
-			/* genuine delimiter */
-			if ((c == '&' || c == ';') && !enc) {
-				if (issue_char(wsi, c) < 0)
-					return -1;
-				/* swallow the terminator */
-				ah->frags[ah->nfrag].len--;
-				/* link to next fragment */
-				ah->frags[ah->nfrag].nfrag = ah->nfrag + 1;
-				ah->nfrag++;
-				if (ah->nfrag >= ARRAY_SIZE(ah->frags))
-					goto excessive;
-				/* start next fragment after the & */
-				wsi->u.hdr.post_literal_equal = 0;
-				ah->frags[ah->nfrag].offset = ah->pos;
-				ah->frags[ah->nfrag].len = 0;
-				ah->frags[ah->nfrag].nfrag = 0;
-				goto swallow;
-			}
-			/* uriencoded = in the name part, disallow */
-			if (c == '=' && enc &&
-			    ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] &&
-			    !wsi->u.hdr.post_literal_equal)
-				c = '_';
-
-			/* after the real =, we don't care how many = */
-			if (c == '=' && !enc)
-				wsi->u.hdr.post_literal_equal = 1;
-
-			/* + to space */
-			if (c == '+' && !enc)
-				c = ' ';
-			/* issue the first / always */
-			if (c == '/' && !ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS])
-				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
-			break;
-		case URIPS_SEEN_SLASH:
-			/* swallow subsequent slashes */
-			if (c == '/')
-				goto swallow;
-			/* track and swallow the first . after / */
-			if (c == '.') {
-				wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT;
-				goto swallow;
-			}
-			wsi->u.hdr.ups = URIPS_IDLE;
-			break;
-		case URIPS_SEEN_SLASH_DOT:
-			/* swallow second . */
-			if (c == '.') {
-				wsi->u.hdr.ups = URIPS_SEEN_SLASH_DOT_DOT;
-				goto swallow;
-			}
-			/* change /./ to / */
-			if (c == '/') {
-				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
-				goto swallow;
-			}
-			/* it was like /.dir ... regurgitate the . */
-			wsi->u.hdr.ups = URIPS_IDLE;
-			if (issue_char(wsi, '.') < 0)
-				return -1;
-			break;
-
-		case URIPS_SEEN_SLASH_DOT_DOT:
-
-			/* /../ or /..[End of URI] --> backup to last / */
-			if (c == '/' || c == '?') {
-				/*
-				 * back up one dir level if possible
-				 * safe against header fragmentation because
-				 * the method URI can only be in 1 fragment
-				 */
-				if (ah->frags[ah->nfrag].len > 2) {
-					ah->pos--;
-					ah->frags[ah->nfrag].len--;
-					do {
-						ah->pos--;
-						ah->frags[ah->nfrag].len--;
-					} while (ah->frags[ah->nfrag].len > 1 &&
-						 ah->data[ah->pos] != '/');
-				}
-				wsi->u.hdr.ups = URIPS_SEEN_SLASH;
-				if (ah->frags[ah->nfrag].len > 1)
-					break;
-				goto swallow;
-			}
-
-			/*  /..[^/] ... regurgitate and allow */
-
-			if (issue_char(wsi, '.') < 0)
-				return -1;
-			if (issue_char(wsi, '.') < 0)
-				return -1;
-			wsi->u.hdr.ups = URIPS_IDLE;
-			break;
-		}
-
-		if (c == '?' && !enc &&
-		    !ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS]) { /* start of URI arguments */
-			if (wsi->u.hdr.ues != URIES_IDLE)
-				goto forbid;
-
-			/* seal off uri header */
-			if (issue_char(wsi, '\0') < 0)
-				return -1;
-
-			/* move to using WSI_TOKEN_HTTP_URI_ARGS */
-			ah->nfrag++;
-			if (ah->nfrag >= ARRAY_SIZE(ah->frags))
-				goto excessive;
-			ah->frags[ah->nfrag].offset = ah->pos;
-			ah->frags[ah->nfrag].len = 0;
-			ah->frags[ah->nfrag].nfrag = 0;
-
-			wsi->u.hdr.post_literal_equal = 0;
-			ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] = ah->nfrag;
-			wsi->u.hdr.ups = URIPS_IDLE;
-			goto swallow;
-		}
-
 check_eol:
 		/* bail at EOL */
 		if (wsi->u.hdr.parser_state != WSI_TOKEN_CHALLENGE &&
@@ -946,7 +988,7 @@ swallow:
 
 		/* collecting and checking a name part */
 	case WSI_TOKEN_NAME_PART:
-		lwsl_parser("WSI_TOKEN_NAME_PART '%c' (mode=%d)\n", c, wsi->mode);
+		lwsl_parser("WSI_TOKEN_NAME_PART '%c' 0x%02X (mode=%d) wsi->u.hdr.lextable_pos=%d\n", c, c, wsi->mode, wsi->u.hdr.lextable_pos);
 
 		wsi->u.hdr.lextable_pos =
 				lextable_decode(wsi->u.hdr.lextable_pos, c);
@@ -954,7 +996,7 @@ swallow:
 		 * Server needs to look out for unknown methods...
 		 */
 		if (wsi->u.hdr.lextable_pos < 0 &&
-		    wsi->mode == LWSCM_HTTP_SERVING) {
+		    (wsi->mode == LWSCM_HTTP_SERVING)) {
 			/* this is not a header we know about */
 			for (m = 0; m < ARRAY_SIZE(methods); m++)
 				if (ah->frag_index[methods[m]]) {
@@ -1041,10 +1083,12 @@ excessive:
 		ah->frags[ah->nfrag].offset = ah->pos;
 		ah->frags[ah->nfrag].len = 0;
 		ah->frags[ah->nfrag].nfrag = 0;
+		ah->frags[ah->nfrag].flags = 2;
 
 		n = ah->frag_index[wsi->u.hdr.parser_state];
 		if (!n) { /* first fragment */
 			ah->frag_index[wsi->u.hdr.parser_state] = ah->nfrag;
+			ah->hdr_token_idx = wsi->u.hdr.parser_state;
 			break;
 		}
 		/* continuation */
@@ -1101,6 +1145,7 @@ set_parsing_complete:
 forbid:
 	lwsl_notice(" forbidding on uri sanitation\n");
 	lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+
 	return -1;
 }
 

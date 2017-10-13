@@ -94,7 +94,7 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 	size_t s;
 	int n = 0;
 
-	f =fopen(filename, "rb");
+	f = fopen(filename, "rb");
 	if (f == NULL) {
 		n = 1;
 		goto bail;
@@ -131,7 +131,9 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 	*amount = s;
 
 bail:
-	fclose(f);
+	if (f)
+		fclose(f);
+
 	return n;
 
 }
@@ -414,10 +416,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int n = 0;
-#if !defined(LWS_WITH_MBEDTLS)
-	int ssl_read_errno = 0;
-#endif
+	int n = 0, m;
 
 	if (!wsi->ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
@@ -445,29 +444,18 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	lwsl_debug("%p: SSL_read says %d\n", wsi, n);
 	/* manpage: returning 0 means connection shut down */
 	if (!n) {
-		n = lws_ssl_get_error(wsi, n);
-		lwsl_debug("%p: ssl err %d errno %d\n", wsi, n, errno);
-		if (n == SSL_ERROR_ZERO_RETURN)
-			return LWS_SSL_CAPABLE_ERROR;
-
-		if (n == SSL_ERROR_SYSCALL) {
-#if !defined(LWS_WITH_MBEDTLS)
-			int err = ERR_get_error();
-			if (err == 0 && (ssl_read_errno == EPIPE ||
-					 ssl_read_errno == ECONNABORTED ||
-					 ssl_read_errno == 0))
-				return LWS_SSL_CAPABLE_ERROR;
-#endif
-		}
-
-		lwsl_info("%s failed: %s\n",__func__,
-			 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
-		lws_ssl_elaborate_error();
+		wsi->socket_is_permanently_unusable = 1;
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
 	if (n < 0) {
+		m = lws_ssl_get_error(wsi, n);
+		lwsl_debug("%p: ssl err %d errno %d\n", wsi, m, errno);
+		if (m == SSL_ERROR_ZERO_RETURN ||
+		    m == SSL_ERROR_SYSCALL)
+			return LWS_SSL_CAPABLE_ERROR;
+
 		if (SSL_want_read(wsi->ssl)) {
 			lwsl_debug("%s: WANT_READ\n", __func__);
 			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
@@ -478,10 +466,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
-
-		lwsl_info("%s failed2: %s\n",__func__,
-				 ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
-			lws_ssl_elaborate_error();
+		wsi->socket_is_permanently_unusable = 1;
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
@@ -542,10 +527,7 @@ lws_ssl_pending(struct lws *wsi)
 LWS_VISIBLE int
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 {
-	int n;
-#if !defined(LWS_WITH_MBEDTLS)
-       	int ssl_read_errno = 0;
-#endif
+	int n, m;
 
 	if (!wsi->ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
@@ -554,32 +536,28 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 	if (n > 0)
 		return n;
 
-	n = lws_ssl_get_error(wsi, n);
-	if (n == SSL_ERROR_WANT_READ || n == SSL_ERROR_WANT_WRITE) {
-		if (n == SSL_ERROR_WANT_WRITE) {
-			lwsl_debug("%s: WANT_WRITE\n", __func__);
-			lws_set_blocking_send(wsi);
+	m = lws_ssl_get_error(wsi, n);
+	if (m != SSL_ERROR_SYSCALL) {
+
+		if (SSL_want_read(wsi->ssl)) {
+			lwsl_notice("%s: want read\n", __func__);
+
+			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
+
+		if (SSL_want_write(wsi->ssl)) {
+			lws_set_blocking_send(wsi);
+
+			lwsl_notice("%s: want write\n", __func__);
+
+			return LWS_SSL_CAPABLE_MORE_SERVICE;
+		}
 	}
 
-	if (n == SSL_ERROR_ZERO_RETURN)
-		return LWS_SSL_CAPABLE_ERROR;
-
-#if !defined(LWS_WITH_MBEDTLS)
-	if (n == SSL_ERROR_SYSCALL) {
-		int err = ERR_get_error();
-
-		if (err == 0 && (ssl_read_errno == EPIPE ||
-				 ssl_read_errno == ECONNABORTED ||
-				 ssl_read_errno == 0))
-			return LWS_SSL_CAPABLE_ERROR;
-	}
-#endif
-
-	lwsl_info("%s failed: %s\n",__func__,
-			ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
+	lwsl_debug("%s failed: %s\n",__func__, ERR_error_string(m, NULL));
 	lws_ssl_elaborate_error();
+
+	wsi->socket_is_permanently_unusable = 1;
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
@@ -653,7 +631,8 @@ lws_ssl_close(struct lws *wsi)
 #endif
 
 	n = SSL_get_fd(wsi->ssl);
-	SSL_shutdown(wsi->ssl);
+	if (!wsi->socket_is_permanently_unusable)
+		SSL_shutdown(wsi->ssl);
 	compatible_close(n);
 	SSL_free(wsi->ssl);
 	wsi->ssl = NULL;
@@ -676,6 +655,7 @@ LWS_VISIBLE int
 lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 {
 	struct lws_context *context = wsi->context;
+	struct lws_vhost *vh;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n, m;
 #if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
@@ -856,9 +836,11 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		m = lws_ssl_get_error(wsi, n);
 
 #if defined(LWS_WITH_MBEDTLS)
-		if (m == 5 && errno == 11)
+		if (m == SSL_ERROR_SYSCALL && errno == 11)
 			m = SSL_ERROR_WANT_READ;
 #endif
+		if (m == SSL_ERROR_SYSCALL || m == SSL_ERROR_SSL)
+			goto failed;
 
 go_again:
 		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl)) {
@@ -880,6 +862,7 @@ go_again:
 
 			break;
 		}
+failed:
 		lws_stats_atomic_bump(wsi->context, pt,
 				      LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
                 lwsl_info("SSL_accept failed socket %u: %s\n", wsi->desc.sockfd,
@@ -897,6 +880,18 @@ accepted:
 		wsi->accept_start_us = time_in_microseconds();
 #endif
 
+		/* adapt our vhost to match the SNI SSL_CTX that was chosen */
+		vh = context->vhost_list;
+		while (vh) {
+			if (!vh->being_destroyed &&
+			    vh->ssl_ctx == SSL_get_SSL_CTX(wsi->ssl)) {
+				lwsl_info("setting wsi to vh %s\n", vh->name);
+				wsi->vhost = vh;
+				break;
+			}
+			vh = vh->vhost_next;
+		}
+
 		/* OK, we are accepted... give him some time to negotiate */
 		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
 				context->timeout_secs);
@@ -905,9 +900,10 @@ accepted:
 			wsi->mode = LWSCM_RAW;
 		else
 			wsi->mode = LWSCM_HTTP_SERVING;
-
-		lws_http2_configure_if_upgraded(wsi);
-
+#if defined(LWS_WITH_HTTP2)
+		if (lws_h2_configure_if_upgraded(wsi))
+			goto fail;
+#endif
 		lwsl_debug("accepted new SSL conn\n");
 		break;
 	}
