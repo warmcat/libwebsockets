@@ -258,9 +258,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 				 networkevents.iErrorCode[FD_CONNECT_BIT] != WSAEINVAL) {
 				lwsl_debug("Unable to connect errno=%d\n",
 					   networkevents.iErrorCode[FD_CONNECT_BIT]);
-				pfd->revents = LWS_POLLHUP;
-			} else
-				pfd->revents = (short)networkevents.lNetworkEvents;
+				pfd->revents |= LWS_POLLHUP;
+			}
 
 			if (pfd->revents & LWS_POLLOUT) {
 				wsi = wsi_from_fd(context, pfd->fd);
