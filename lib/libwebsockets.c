@@ -447,11 +447,6 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 					       wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;
 	}
-	if (wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP) {
-		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CLOSED_CLIENT_HTTP,
-						  wsi->user_space, NULL, 0);
-		wsi->told_user_closed = 1;
-	}
 
 	/*
 	 * are his extensions okay with him closing?  Eg he might be a mux
@@ -541,6 +536,30 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 just_kill_connection:
 
 	lws_remove_child_from_any_parent(wsi);
+
+	if (wsi->user_space) {
+	    lwsl_debug("%s: %p: DROP_PROTOCOL %s\n", __func__, wsi,
+		       wsi->protocol->name);
+		wsi->protocol->callback(wsi,
+				        LWS_CALLBACK_HTTP_DROP_PROTOCOL,
+				        wsi->user_space, NULL, 0);
+	}
+
+	if ((wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
+			   wsi->mode == LWSCM_WSCL_WAITING_CONNECT) &&
+			   !wsi->already_did_cce) {
+				wsi->vhost->protocols[0].callback(wsi,
+						LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+						wsi->user_space, NULL, 0);
+	}
+
+	if (wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP) {
+		wsi->vhost->protocols[0].callback(wsi,
+					LWS_CALLBACK_CLOSED_CLIENT_HTTP,
+						  wsi->user_space, NULL, 0);
+		wsi->told_user_closed = 1;
+	}
+
 
 #if LWS_POSIX
 	/*
@@ -694,7 +713,8 @@ just_kill_connection:
 
 	/* tell the user it's all over for this guy */
 
-	if (wsi->mode != LWSCM_RAW && wsi->protocol &&
+	if (!wsi->told_user_closed &&
+	    wsi->mode != LWSCM_RAW && wsi->protocol &&
 	    wsi->protocol->callback &&
 	    ((wsi->state_pre_close == LWSS_ESTABLISHED) ||
 	    (wsi->state_pre_close == LWSS_RETURNED_CLOSE_ALREADY) ||
@@ -703,27 +723,13 @@ just_kill_connection:
 	    (wsi->state_pre_close == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) ||
 	    (wsi->mode == LWSCM_WS_CLIENT && wsi->state_pre_close == LWSS_HTTP) ||
 	    (wsi->mode == LWSCM_WS_SERVING && wsi->state_pre_close == LWSS_HTTP))) {
-
-		if (wsi->user_space) {
-                       lwsl_debug("%s: %p: DROP_PROTOCOL %s\n", __func__, wsi,
-                		  wsi->protocol->name);
-			wsi->protocol->callback(wsi,
-					        LWS_CALLBACK_HTTP_DROP_PROTOCOL,
-					        wsi->user_space, NULL, 0);
-		}
-		lwsl_debug("calling back CLOSED\n");
+		lwsl_debug("calling back CLOSED %d %d\n", wsi->mode, wsi->state);
 		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 					wsi->user_space, NULL, 0);
 	} else if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED) {
 		lwsl_debug("calling back CLOSED_HTTP\n");
 		wsi->vhost->protocols->callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0 );
-	} else if ((wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
-		   wsi->mode == LWSCM_WSCL_WAITING_CONNECT) &&
-		   !wsi->already_did_cce) {
-			wsi->vhost->protocols[0].callback(wsi,
-					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-					wsi->user_space, NULL, 0);
 	} else
 		lwsl_debug("not calling back closed mode=%d state=%d\n",
 			   wsi->mode, wsi->state_pre_close);
