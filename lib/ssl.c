@@ -383,6 +383,26 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 #endif
 }
 
+int
+lws_ssl_anybody_has_buffered_read_tsi(struct lws_context *context, int tsi)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws *wsi, *wsi_next;
+
+	wsi = pt->pending_read_list;
+	while (wsi) {
+		wsi_next = wsi->pending_read_list_next;
+		pt->fds[wsi->position_in_fds_table].revents |=
+			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
+		if (pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN)
+			return 1;
+
+		wsi = wsi_next;
+	}
+
+	return 0;
+}
+
 LWS_VISIBLE void
 lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 {

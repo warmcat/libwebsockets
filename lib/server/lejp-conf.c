@@ -20,7 +20,7 @@
  */
 
 #include "private-libwebsockets.h"
-#include "lejp.h"
+#include "../misc/lejp.h"
 
 #ifndef _WIN32
 /* this is needed for Travis CI */

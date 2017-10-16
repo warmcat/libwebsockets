@@ -1,7 +1,7 @@
 /*
  * SMTP support for libwebsockets
  *
- * Copyright (C) 2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2016-2017 Andy Green <andy@warmcat.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -93,7 +93,8 @@ lwsgs_email_read(struct uv_stream_s *s, ssize_t nread, const uv_buf_t *buf)
 		email->estate = LGSSMTP_SENT_HELO;
 		break;
 	case LGSSMTP_SENT_HELO:
-		n = sprintf(email->content, "MAIL FROM: <%s>\n", email->email_from);
+		n = sprintf(email->content, "MAIL FROM: <%s>\n",
+			    email->email_from);
 		email->estate = LGSSMTP_SENT_FROM;
 		break;
 	case LGSSMTP_SENT_FROM:
@@ -105,7 +106,8 @@ lwsgs_email_read(struct uv_stream_s *s, ssize_t nread, const uv_buf_t *buf)
 		email->estate = LGSSMTP_SENT_DATA;
 		break;
 	case LGSSMTP_SENT_DATA:
-		if (email->on_get_body(email, email->content, email->max_content_size))
+		if (email->on_get_body(email, email->content,
+				       email->max_content_size))
 			return;
 		n = strlen(email->content);
 		email->estate = LGSSMTP_SENT_BODY;
@@ -238,4 +240,3 @@ lws_email_destroy(struct lws_email *email)
 	uv_timer_stop(&email->timeout_email);
 	uv_close((uv_handle_t *)&email->timeout_email, NULL);
 }
-

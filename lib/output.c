@@ -46,49 +46,9 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 	return 0;
 }
 
-LWS_VISIBLE void lwsl_hexdump(const void *vbuf, size_t len)
-{
-	unsigned char *buf = (unsigned char *)vbuf;
-	unsigned int n, m, start;
-	char line[80];
-	char *p;
-
-	lwsl_debug("\n");
-
-	for (n = 0; n < len;) {
-		start = n;
-		p = line;
-
-		p += sprintf(p, "%04X: ", start);
-
-		for (m = 0; m < 16 && n < len; m++)
-			p += sprintf(p, "%02X ", buf[n++]);
-		while (m++ < 16)
-			p += sprintf(p, "   ");
-
-		p += sprintf(p, "   ");
-
-		for (m = 0; m < 16 && (start + m) < len; m++) {
-			if (buf[start + m] >= ' ' && buf[start + m] < 127)
-				*p++ = buf[start + m];
-			else
-				*p++ = '.';
-		}
-		while (m++ < 16)
-			*p++ = ' ';
-
-		*p++ = '\n';
-		*p = '\0';
-		lwsl_debug("%s", line);
-		(void)line;
-	}
-	lwsl_debug("\n");
-}
-
 /*
  * notice this returns number of bytes consumed, or -1
  */
-
 int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);

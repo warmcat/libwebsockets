@@ -250,7 +250,7 @@ set(LWS_OPENSSL_LIBRARIES CACHE PATH "Path to the OpenSSL library")
 set(LWS_OPENSSL_INCLUDE_DIRS CACHE PATH "Path to the OpenSSL include directory")
 set(LWS_WOLFSSL_LIBRARIES CACHE PATH "Path to the wolfSSL library")
 set(LWS_WOLFSSL_INCLUDE_DIRS CACHE PATH "Path to the wolfSSL include directory")
-set( CACHE PATH "Path to the libev library")
+set(LWS_LIBEV_LIBRARIES CACHE PATH "Path to the libev library")
 set(LWS_LIBEV_INCLUDE_DIRS CACHE PATH "Path to the libev include directory")
 set(LWS_LIBUV_LIBRARIES CACHE PATH "Path to the libuv library")
 set(LWS_LIBUV_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
@@ -610,22 +610,38 @@ set(HDR_PUBLIC
 	)
 
 set(SOURCES
-	lib/base64-decode.c
+	lib/misc/base64-decode.c
 	lib/handshake.c
 	lib/libwebsockets.c
 	lib/service.c
 	lib/pollfd.c
 	lib/output.c
-	lib/parsers.c
+	lib/server/parsers.c
 	lib/context.c
 	lib/alloc.c
-	lib/header.c)
+	lib/header.c
+	lib/misc/lws-ring.c)
+
+if (LWS_WITH_CGI)
+	list(APPEND SOURCES
+		lib/server/cgi.c)
+endif()
+
+if (LWS_WITH_ACCESS_LOG)
+	list(APPEND SOURCES
+		lib/server/access-log.c)
+endif()
+
+if (LWS_WITH_PEER_LIMITS)
+	list(APPEND SOURCES
+		lib/server/peer-limits.c)
+endif()
 
 if (NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
-		lib/client.c
-		lib/client-handshake.c
-		lib/client-parser.c)
+		lib/client/client.c
+		lib/client/client-handshake.c
+		lib/client/client-parser.c)
 endif()
 
 if (LWS_WITH_MBEDTLS)
@@ -673,51 +689,51 @@ endif()
 if (LWS_WITH_SSL)
 	list(APPEND SOURCES
 		lib/ssl.c
-		lib/lws-genhash.c)
+		lib/misc/lws-genhash.c)
 		
 	if (NOT LWS_WITHOUT_SERVER)
 		list(APPEND SOURCES
-		lib/ssl-server.c)
+		lib/server/ssl-server.c)
 	endif()
 	if (NOT LWS_WITHOUT_CLIENT)
 		list(APPEND SOURCES
-		lib/ssl-client.c)
+		lib/client/ssl-client.c)
 	endif()
 endif()
 
 if (NOT LWS_WITHOUT_BUILTIN_SHA1)
 	list(APPEND SOURCES
-		lib/sha-1.c)
+		lib/misc/sha-1.c)
 endif()
 
 if (LWS_WITH_HTTP2)
 	list(APPEND SOURCES
-		lib/http2.c
-		lib/hpack.c
-		lib/ssl-http2.c)
+		lib/http2/http2.c
+		lib/http2/hpack.c
+		lib/http2/ssl-http2.c)
 endif()
 # select the active platform files
 
 if (WIN32)
 	list(APPEND SOURCES
-		lib/lws-plat-win.c)
+		lib/plat/lws-plat-win.c)
 else()
 
 	if (LWS_WITH_ESP8266)
 		list(APPEND SOURCES
-			lib/lws-plat-esp8266.c)
+			lib/plat/lws-plat-esp8266.c)
 	else()
 		if (LWS_PLAT_OPTEE)
 			list(APPEND SOURCES
-				lib/lws-plat-optee.c)
+				lib/plat/lws-plat-optee.c)
 		else()
 			if (LWS_WITH_ESP32)
 				list(APPEND SOURCES
-					lib/lws-plat-esp32.c
-					lib/romfs.c)
+					lib/plat/lws-plat-esp32.c
+					lib/misc/romfs.c)
 			else()
 				list(APPEND SOURCES
-					lib/lws-plat-unix.c)
+					lib/plat/lws-plat-unix.c)
 			endif()
 		endif()
 	endif()
@@ -725,64 +741,65 @@ endif()
 
 if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
-		lib/server.c
-		lib/server-handshake.c)
+		lib/server/server.c
+		lib/server/lws-spa.c
+		lib/server/server-handshake.c)
 endif()
 
 if (NOT LWS_WITHOUT_EXTENSIONS)
 	list(APPEND HDR_PRIVATE
-		lib/extension-permessage-deflate.h)
+		lib/ext/extension-permessage-deflate.h)
 	list(APPEND SOURCES
-		lib/extension.c
-		lib/extension-permessage-deflate.c)
+		lib/ext/extension.c
+		lib/ext/extension-permessage-deflate.c)
 endif()
 
 if (LWS_WITH_HTTP_PROXY)
 	list(APPEND SOURCES
-		lib/rewrite.c)
+		lib/server/rewrite.c)
 endif()
 
 if (LWS_WITH_LIBEV)
 	list(APPEND SOURCES
-		lib/libev.c)
+		lib/event-libs/libev.c)
 endif()
 
 if (LWS_WITH_LIBUV)
 	list(APPEND SOURCES
-		lib/libuv.c)
+		lib/event-libs/libuv.c)
 endif()
 
 if (LWS_WITH_LIBEVENT)
 	list(APPEND SOURCES
-		lib/libevent.c)
+		lib/event-libs/libevent.c)
 endif()
 
 if (LWS_WITH_LEJP)
 	list(APPEND SOURCES
-		lib/lejp.c)
+		lib/misc/lejp.c)
 	list(APPEND HDR_PUBLIC
-		lib/lejp.h)
+		lib/misc/lejp.h)
 endif()	
 if (LWS_WITH_LEJP_CONF)
 		list(APPEND SOURCES
-			"lib/lejp-conf.c"
+			"lib/server/lejp-conf.c"
 		)
 endif()
 
 if (LWS_WITH_SMTP)
 	list(APPEND SOURCES
-		lib/smtp.c)
+		lib/misc/smtp.c)
 endif()
 
 if (LWS_WITH_RANGES)
 	list(APPEND SOURCES
-		lib/ranges.c)
+		lib/server/ranges.c)
 endif()
 
 if (LWS_WITH_ZIP_FOPS)
        if (LWS_WITH_ZLIB)
                list(APPEND SOURCES
-                       lib/fops-zip.c)
+                       lib/server/fops-zip.c)
        else()
                message(FATAL_ERROR "Pre-zipped file support (LWS_WITH_ZIP_FOPS) requires ZLIB (LWS_WITH_ZLIB)")
        endif()
@@ -807,14 +824,14 @@ else()
 	# Unix.
 	if (NOT LWS_WITHOUT_DAEMONIZE)
 		list(APPEND SOURCES
-			lib/daemonize.c)
+			lib/server/daemonize.c)
 	endif()
 endif()
 
 if (UNIX)
 	if (NOT LWS_HAVE_GETIFADDRS)
-		list(APPEND HDR_PRIVATE lib/getifaddrs.h)
-		list(APPEND SOURCES lib/getifaddrs.c)
+		list(APPEND HDR_PRIVATE lib/misc/getifaddrs.h)
+		list(APPEND SOURCES lib/misc/getifaddrs.c)
 	endif()
 endif()
 

@@ -4,20 +4,81 @@ Notes about coding with lws
 @section era Old lws and lws v2.0
 
 Originally lws only supported the "manual" method of handling everything in the
-user callback found in test-server.c.
+user callback found in test-server.c / test-server-http.c.
 
-Since v2.0, the need for most or all of this manual boilerplate has been eliminated:
-the protocols[0] http stuff is provided by a lib export `lws_callback_http_dummy()`.
-You can serve parts of your filesystem at part of the URL space using mounts.
+Since v2.0, the need for most or all of this manual boilerplate has been
+eliminated: the protocols[0] http stuff is provided by a generic lib export
+`lws_callback_http_dummy()`.  You can serve parts of your filesystem at part of
+the URL space using mounts, the dummy http callback will do the right thing.
 
 It's much preferred to use the "automated" v2.0 type scheme, because it's less
 code and it's easier to support.
 
 You can see an example of the new way in test-server-v2.0.c.
 
-If you just need generic serving capability, consider not writing any server code
-and instead use lwsws and writing your user code in a standalone plugin.  The
-server is configured for mounts etc using JSON, see README.lwsws.md.
+If you just need generic serving capability, without the need to integrate lws
+to some other app, consider not writing any server code at all, and instead use
+the generic server `lwsws`, and writing your special user code in a standalone
+"plugin".  The server is configured for mounts etc using JSON, see
+./READMEs/README.lwsws.md.
+
+Although the "plugins" are dynamically loaded if you use lwsws or lws built
+with libuv, actually they may perfectly well be statically included if that
+suits your situation better, eg, ESP32 test server, where the platform does
+not support processes or dynamic loading, just #includes the plugins
+one after the other and gets the same benefit from the same code.
+
+Isolating and collating the protocol code in one place also makes it very easy
+to maintain and understand.
+
+So it if highly recommended you put your protocol-specific code into the
+form of a "plugin" at the source level, even if you have no immediate plan to
+use it dynamically-loaded.
+
+@section writeable Only send data when socket writeable
+
+You should only send data on a websocket connection from the user callback
+`LWS_CALLBACK_SERVER_WRITEABLE` (or `LWS_CALLBACK_CLIENT_WRITEABLE` for
+clients).
+
+If you want to send something, do NOT just send it but request a callback
+when the socket is writeable using
+
+ - `lws_callback_on_writable(context, wsi)` for a specific `wsi`, or
+ 
+ - `lws_callback_on_writable_all_protocol(protocol)` for all connections
+using that protocol to get a callback when next writeable.
+
+Usually you will get called back immediately next time around the service
+loop, but if your peer is slow or temporarily inactive the callback will be
+delayed accordingly.  Generating what to write and sending it should be done
+in the ...WRITEABLE callback.
+
+See the test server code for an example of how to do this.
+
+Otherwise evolved libs like libuv get this wrong, they will allow you to "send"
+anything you want but it only uses up your local memory (and costs you
+memcpys) until the socket can actually accept it.  It is much better to regulate
+your send action by the downstream peer readiness to take new data in the first
+place, avoiding all the wasted buffering.
+
+Libwebsockets' concept is that the downstream peer is truly the boss, if he,
+or our connection to him, cannot handle anything new, we should not generate
+anything new for him.  This is how unix shell piping works, you may have
+`cat a.txt | grep xyz > remote", but actually that does not cat anything from
+a.txt while remote cannot accept anything new. 
+
+@section otherwr Do not rely on only your own WRITEABLE requests appearing
+
+Libwebsockets may generate additional `LWS_CALLBACK_CLIENT_WRITEABLE` events
+if it met network conditions where it had to buffer your send data internally.
+
+So your code for `LWS_CALLBACK_CLIENT_WRITEABLE` needs to own the decision
+about what to send, it can't assume that just because the writeable callback
+came it really is time to send something.
+
+It's quite possible you get an 'extra' writeable callback at any time and
+just need to `return 0` and wait for the expected callback later.
 
 @section dae Daemonization
 
@@ -28,8 +89,7 @@ headless background process and exit the starting process.
 
 Notice stdout, stderr, stdin are all redirected to /dev/null to enforce your
 daemon is headless, so you'll need to sort out alternative logging, by, eg,
-syslog.
-
+syslog via `lws_set_log_level(..., lwsl_emit_syslog)`.
 
 @section conns Maximum number of connections
 
@@ -81,7 +141,9 @@ repeat that in other words:
 There is another network-programming truism that surprises some people which
 is if the sink for the data cannot accept more:
 
-***YOU MUST PERFORM RX FLOW CONTROL***
+***YOU MUST PERFORM RX FLOW CONTROL*** to stop taking new input.  TCP will make
+this situation known to the upstream sender by making it impossible for him to
+send anything more on the connection until we start accepting things again.
 
 See the mirror protocol implementations for example code.
 
@@ -98,42 +160,6 @@ you might simultaneously create more than one context from different threads.
 
 SSL_library_init() is called from the context create api and it also is not
 reentrant.  So at least create the contexts sequentially.
-
-
-@section writeable Only send data when socket writeable
-
-You should only send data on a websocket connection from the user callback
-`LWS_CALLBACK_SERVER_WRITEABLE` (or `LWS_CALLBACK_CLIENT_WRITEABLE` for
-clients).
-
-If you want to send something, do not just send it but request a callback
-when the socket is writeable using
-
- - `lws_callback_on_writable(context, wsi)` for a specific `wsi`, or
- 
- - `lws_callback_on_writable_all_protocol(protocol)` for all connections
-using that protocol to get a callback when next writeable.
-
-Usually you will get called back immediately next time around the service
-loop, but if your peer is slow or temporarily inactive the callback will be
-delayed accordingly.  Generating what to write and sending it should be done
-in the ...WRITEABLE callback.
-
-See the test server code for an example of how to do this.
-
-
-@section otherwr Do not rely on only your own WRITEABLE requests appearing
-
-Libwebsockets may generate additional `LWS_CALLBACK_CLIENT_WRITEABLE` events
-if it met network conditions where it had to buffer your send data internally.
-
-So your code for `LWS_CALLBACK_CLIENT_WRITEABLE` needs to own the decision
-about what to send, it can't assume that just because the writeable callback
-came it really is time to send something.
-
-It's quite possible you get an 'extra' writeable callback at any time and
-just need to `return 0` and wait for the expected callback later.
-
 
 @section closing Closing connections from the user side
 

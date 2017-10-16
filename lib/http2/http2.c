@@ -189,7 +189,8 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 
 	wsi->vhost->conn_stats.h2_subs++;
 
-	lwsl_info("%s: %p new ch %p, sid %d, usersp=%p, tx cr %d, peer_credit %d (nwsi tx_cr %d)\n",
+	lwsl_info("%s: %p new ch %p, sid %d, usersp=%p, tx cr %d, "
+		  "peer_credit %d (nwsi tx_cr %d)\n",
 		  __func__, parent_wsi, wsi, sid, wsi->user_space,
 		  wsi->u.h2.tx_cr, wsi->u.h2.peer_tx_cr_est, nwsi->u.h2.tx_cr);
 
@@ -274,6 +275,7 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 	lwsl_info("%s: %p: ERR 0x%x, '%s'\n", __func__, wsi, err, reason);
 
 	pps->u.ga.err = err;
+	pps->u.ga.highest_sid = h2n->highest_sid;
 	strncpy(pps->u.ga.str, reason, sizeof(pps->u.ga.str) - 1);
 	pps->u.ga.str[sizeof(pps->u.ga.str) - 1] = '\0';
 	lws_pps_schedule(wsi, pps);
@@ -334,7 +336,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 		case H2SET_ENABLE_PUSH:
 			if (b > 1) {
 				lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
-						"ENABLE_PUSH invalid arg");
+					      "ENABLE_PUSH invalid arg");
 				return 1;
 			}
 			break;
@@ -343,7 +345,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 		case H2SET_INITIAL_WINDOW_SIZE:
 			if (b > 0x7fffffff) {
 				lws_h2_goaway(nwsi, H2_ERR_FLOW_CONTROL_ERROR,
-						"Inital Window beyond max");
+					      "Inital Window beyond max");
 				return 1;
 			}
 			/*
@@ -621,9 +623,9 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		*p++ = pps->u.ga.err >> 16;
 		*p++ = pps->u.ga.err >> 8;
 		*p++ = pps->u.ga.err;
-		q = (unsigned char *)h2n->goaway_str;
+		q = (unsigned char *)pps->u.ga.str;
 		n = 0;
-		while (*q && n++ < sizeof(h2n->goaway_str))
+		while (*q && n++ < sizeof(pps->u.ga.str))
 			*p++ = *q++;
 		h2n->we_told_goaway = 1;
 		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_GOAWAY, 0,
@@ -653,13 +655,16 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		break;
 
 	case LWS_H2_PPS_UPDATE_WINDOW:
-		lwsl_notice("LWS_H2_PPS_UPDATE_WINDOW: sid %d: add %d\n", pps->u.update_window.sid, pps->u.update_window.credit);
+		lwsl_notice("LWS_H2_PPS_UPDATE_WINDOW: sid %d: add %d\n",
+			    pps->u.update_window.sid,
+			    pps->u.update_window.credit);
 		*p++ = pps->u.update_window.credit >> 24;
 		*p++ = pps->u.update_window.credit >> 16;
 		*p++ = pps->u.update_window.credit >> 8;
 		*p++ = pps->u.update_window.credit;
 		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_WINDOW_UPDATE,
-				       0, pps->u.update_window.sid, 4, &set[LWS_PRE]);
+				       0, pps->u.update_window.sid, 4,
+				       &set[LWS_PRE]);
 		if (n != 4) {
 			lwsl_info("send %d %d\n", n, m);
 			goto bail;
@@ -802,7 +807,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			break;
 
 		h2n->swsi->u.h2.peer_tx_cr_est -= h2n->length;
-		lwsl_debug("   peer_tx_cr_est %d\n", h2n->swsi->u.h2.peer_tx_cr_est);
+		lwsl_debug("   peer_tx_cr_est %d\n",
+			   h2n->swsi->u.h2.peer_tx_cr_est);
 		if (h2n->swsi->u.h2.peer_tx_cr_est < 32768) {
 			h2n->swsi->u.h2.peer_tx_cr_est += 65536;
 			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
@@ -819,9 +825,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			lws_pps_schedule(wsi, pps);
 		}
 
-		if ((
+		if (
 		    h2n->swsi->u.h2.h2_state == LWS_H2_STATE_HALF_CLOSED_REMOTE ||
-		    h2n->swsi->u.h2.h2_state == LWS_H2_STATE_CLOSED)) {
+		    h2n->swsi->u.h2.h2_state == LWS_H2_STATE_CLOSED) {
 			lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED, "conn closed");
 			break;
 		}
@@ -950,7 +956,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 				return 1;
 			}
 
-			h2n->swsi = lws_wsi_server_new(wsi->vhost, wsi, h2n->sid);
+			h2n->swsi = lws_wsi_server_new(wsi->vhost, wsi,
+						       h2n->sid);
 			if (!h2n->swsi) {
 				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "OOM");
 
@@ -986,7 +993,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 
 		/* END_STREAM means after servicing this, close the stream */
-		h2n->swsi->u.h2.END_STREAM = !!(h2n->flags & LWS_H2_FLAG_END_STREAM);
+		h2n->swsi->u.h2.END_STREAM =
+					!!(h2n->flags & LWS_H2_FLAG_END_STREAM);
 		lwsl_info("%s: hdr END_STREAM = %d\n",__func__,
 			  h2n->swsi->u.h2.END_STREAM);
 
@@ -1187,7 +1195,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		lwsl_info("  action start...\n");
 		n = lws_http_action(h2n->swsi);
-		lwsl_info("  action result %d (wsi->u.http.rx_content_remain %lld)\n", n, h2n->swsi->u.http.rx_content_remain);
+		lwsl_info("  action result %d "
+			  "(wsi->u.http.rx_content_remain %lld)\n",
+			  n, h2n->swsi->u.http.rx_content_remain);
 
 		/*
 		 * Commonly we only managed to start a larger transfer that will
@@ -1206,7 +1216,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break;
 
 		if (lws_hdr_total_length(h2n->swsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-		    h2n->swsi->u.h2.END_STREAM && h2n->swsi->u.http.rx_content_length &&
+		    h2n->swsi->u.h2.END_STREAM &&
+		    h2n->swsi->u.http.rx_content_length &&
 		    h2n->swsi->u.http.rx_content_remain) {
 			lws_h2_rst_stream(h2n->swsi, H2_ERR_PROTOCOL_ERROR,
 					  "Not enough rx content");
@@ -1291,7 +1302,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 	case LWS_H2_FRAME_TYPE_GOAWAY:
 		lwsl_info("GOAWAY: last sid %d, error 0x%08X, string '%s'\n",
-			  h2n->goaway_last_sid, h2n->goaway_err, h2n->goaway_str);
+			  h2n->goaway_last_sid, h2n->goaway_err,
+			  h2n->goaway_str);
 		wsi->u.h2.GOING_AWAY = 1;
 
 		return 1;
@@ -1446,17 +1458,11 @@ lws_h2_parser(struct lws *wsi, unsigned char c)
 			}
 
 			h2n->swsi->state = LWSS_HTTP_BODY;
-
 			h2n->inside++;
-			/* because the HTTP_BODY stuff will handle it */
-			//h2n->swsi->u.http.rx_content_remain--;
-			//lwsl_info("remain %lld, %d / %d",
-			//	    (long long)h2n->swsi->u.http.rx_content_remain,
-			//	    h2n->inside, h2n->length);
 			if (lws_hdr_total_length(h2n->swsi,
 						 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 			    h2n->swsi->u.http.rx_content_length &&
-			    h2n->swsi->u.http.rx_content_remain == 1 && /* last byte */
+			    h2n->swsi->u.http.rx_content_remain == 1 && /* last */
 			    h2n->inside < h2n->length) { /* unread data in frame */
 				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 					      "More rx than content_length told");

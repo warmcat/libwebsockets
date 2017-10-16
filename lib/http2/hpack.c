@@ -384,7 +384,8 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 	if (index < 0)
 		index += dyn->num_entries;
 
-	lwsl_header("%s: dyn index %d, tok %d\n", __func__, index, dyn->entries[index].lws_hdr_idx);
+	lwsl_header("%s: dyn index %d, tok %d\n", __func__, index,
+		    dyn->entries[index].lws_hdr_idx);
 
 	if (arg && len) {
 		*arg = dyn->entries[index].value;
@@ -410,9 +411,11 @@ lws_h2_dynamic_table_dump(struct lws *wsi)
 		return 1;
 	dyn = &nwsi->u.h2.h2n->hpack_dyn_table;
 
-	lwsl_header("Dump dyn table for nwsi %p (%d / %d members, pos = %d, start index %d, virt used %d / %d)\n", nwsi,
-			dyn->used_entries, dyn->num_entries, dyn->pos, (uint32_t)ARRAY_SIZE(static_token),
-			dyn->virtual_payload_usage, dyn->virtual_payload_max);
+	lwsl_header("Dump dyn table for nwsi %p (%d / %d members, pos = %d, "
+		    "start index %d, virt used %d / %d)\n", nwsi,
+		    dyn->used_entries, dyn->num_entries, dyn->pos,
+		    (uint32_t)ARRAY_SIZE(static_token),
+		    dyn->virtual_payload_usage, dyn->virtual_payload_max);
 
 	for (n = 0; n < dyn->used_entries; n++) {
 		m = (dyn->pos - 1 - n) % dyn->num_entries;
@@ -424,8 +427,9 @@ lws_h2_dynamic_table_dump(struct lws *wsi)
 		else
 			p = "(ignored)";
 		lwsl_header("   %3d: tok %s: (len %d) val '%s'\n",
-			    (int)(n + ARRAY_SIZE(static_token)), p, dyn->entries[m].hdr_len,
-			    dyn->entries[m].value ? dyn->entries[m].value : "null");
+			    (int)(n + ARRAY_SIZE(static_token)), p,
+			    dyn->entries[m].hdr_len, dyn->entries[m].value ?
+			    dyn->entries[m].value : "null");
 	}
 #endif
 	return 0;
@@ -509,6 +513,8 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 	dyn->entries[new_index].value_len = 0;
 
 	if (lws_hdr_index != LWS_HPACK_IGNORE_ENTRY) {
+		if (dyn->entries[new_index].value)
+			lws_free_set_NULL(dyn->entries[new_index].value);
 		dyn->entries[new_index].value = lws_malloc(len + 1, "hpack dyn");
 		if (!dyn->entries[new_index].value)
 			return 1;
@@ -565,7 +571,9 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 		goto bail;
 
 	dyn = &nwsi->u.h2.h2n->hpack_dyn_table;
-	lwsl_info("%s: from %d to %d\n", __func__, (int)dyn->num_entries, size);
+	lwsl_info("%s: from %d to %d, lim %d\n", __func__,
+		  (int)dyn->num_entries, size,
+		  nwsi->u.h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
 
 	if (size > nwsi->u.h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]) {
 		lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
@@ -615,7 +623,10 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 	dyn->entries = dte;
 	dyn->num_entries = size;
 	dyn->used_entries = min;
-	dyn->pos = min % size;
+	if (size)
+		dyn->pos = min % size;
+	else
+		dyn->pos = 0;
 
 	lws_h2_dynamic_table_dump(wsi);
 
@@ -732,7 +743,6 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		h2n->ext_count = 0;
 		h2n->hpack_hdr_len = 0;
 		h2n->unknown_header = 0;
-		h2n->seen_nonpseudoheader = 0;
 
 		if (c & 0x80) { /* 1....  indexed header field only */
 			/* just a possibly-extended integer */
@@ -930,7 +940,8 @@ pre_data:
 			} else
 				h2n->hdr_idx = 1;
 		} else {
-			n = lws_token_from_index(wsi, h2n->hdr_idx, NULL, NULL, NULL);
+			n = lws_token_from_index(wsi, h2n->hdr_idx, NULL,
+						 NULL, NULL);
 			lwsl_header("  lws_tok_from_idx(%d) says %d\n",
 				   h2n->hdr_idx, n);
 		}
@@ -1010,9 +1021,11 @@ pre_data:
 				if (h2n->hdr_idx &&
 				    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY) {
 
-					if (ah->hdr_token_idx == WSI_TOKEN_HTTP_COLON_PATH) {
+					if (ah->hdr_token_idx ==
+					    WSI_TOKEN_HTTP_COLON_PATH) {
 
-						switch (lws_parse_urldecode(wsi, &c1)) {
+						switch (lws_parse_urldecode(
+								    wsi, &c1)) {
 						case LPUR_CONTINUE:
 							break;
 						case LPUR_SWALLOW:
@@ -1020,8 +1033,8 @@ pre_data:
 						case LPUR_EXCESSIVE:
 						case LPUR_FORBID:
 							lws_h2_goaway(nwsi,
-								H2_ERR_PROTOCOL_ERROR,
-								"Evil URI");
+							  H2_ERR_PROTOCOL_ERROR,
+							  "Evil URI");
 							return 1;
 
 						default:
@@ -1030,11 +1043,11 @@ pre_data:
 					}
 					if (lws_frag_append(wsi, c1)) {
 						lwsl_notice("%s: frag app fail\n",
-									__func__);
+							    __func__);
 						return 1;
 					}
-				} else
-					lwsl_header("ignoring %c\n", c1);
+				} //else
+					//lwsl_header("ignoring %c\n", c1);
 			} else {
 				/*
 				 * Convert name using existing parser,
@@ -1140,7 +1153,8 @@ swallow:
 			    wsi->u.hdr.parser_state == WSI_TOKEN_NAME_PART ||
 			    wsi->u.hdr.parser_state == WSI_TOKEN_SKIPPING) {
 				if (h2n->first_hdr_char == ':') {
-					lwsl_info("HPKT_LITERAL_HDR_VALUE_INCR: end parser state %d unk hdr %d\n",
+					lwsl_info("HPKT_LITERAL_HDR_VALUE_INCR:"
+						  " end state %d unk hdr %d\n",
 						wsi->u.hdr.parser_state,
 						h2n->unknown_header);
 					/* unknown pseudoheaders are illegal */
@@ -1180,7 +1194,8 @@ add_it:
 			if (m == 255)
 				m = -1;
 		} else
-			m = lws_token_from_index(wsi, h2n->hdr_idx, NULL, NULL, NULL);
+			m = lws_token_from_index(wsi, h2n->hdr_idx, NULL, NULL,
+						 NULL);
 		if (m != -1 && m != LWS_HPACK_IGNORE_ENTRY)
 			lws_dump_header(wsi, m);
 

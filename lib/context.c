@@ -84,7 +84,7 @@ const struct http2_settings lws_h2_defaults = { {
 
 const struct http2_settings lws_h2_stock_settings = { {
 	1,
-	/* H2SET_HEADER_TABLE_SIZE */			 512,
+	/* H2SET_HEADER_TABLE_SIZE */			4096,
 	/* *** This controls how many entries in the dynamic table ***
 	 * Allows the sender to inform the remote endpoint of the maximum
 	 * size of the header compression table used to decode header
@@ -92,6 +92,8 @@ const struct http2_settings lws_h2_stock_settings = { {
 	 * less than this value by using signaling specific to the header
 	 * compression format inside a header block (see [COMPRESSION]).
 	 * The initial value is 4,096 octets.
+	 *
+	 * Can't pass h2spec with less than 4096 here...
 	 */
 	/* H2SET_ENABLE_PUSH */				   1,
 	/* H2SET_MAX_CONCURRENT_STREAMS */		  24,

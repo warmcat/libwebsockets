@@ -1094,17 +1094,7 @@ struct lws_context {
 	int uid, gid;
 
 	int fd_random;
-#ifdef LWS_OPENSSL_SUPPORT
-#define lws_ssl_anybody_has_buffered_read(w) \
-		(w->vhost->use_ssl && \
-		 w->context->pt[(int)w->tsi].pending_read_list)
-#define lws_ssl_anybody_has_buffered_read_tsi(c, t) \
-		(/*c->use_ssl && */ \
-		 c->pt[(int)t].pending_read_list)
-#else
-#define lws_ssl_anybody_has_buffered_read(ctx) (0)
-#define lws_ssl_anybody_has_buffered_read_tsi(ctx, t) (0)
-#endif
+
 	int count_wsi_allocated;
 	int count_cgi_spawned;
 	unsigned int options;
@@ -2023,6 +2013,9 @@ lws_get_addr_scope(const char *ipaddr);
 LWS_EXTERN void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status);
 
+LWS_EXTERN void
+lws_free_wsi(struct lws *wsi);
+
 LWS_EXTERN int
 remove_wsi_socket_from_fds(struct lws *wsi);
 LWS_EXTERN int
@@ -2297,6 +2290,7 @@ enum lws_ssl_capable_status {
 #define lws_ssl_SSL_CTX_destroy(_a)
 #define lws_ssl_remove_wsi_from_buffered_list(_a)
 #define lws_context_init_ssl_library(_a)
+#define lws_ssl_anybody_has_buffered_read_tsi(_a, _b) (0)
 #else
 #define LWS_SSL_ENABLED(context) (context->use_ssl)
 LWS_EXTERN int openssl_websocket_private_data_index;
@@ -2326,6 +2320,8 @@ LWS_EXTERN int
 lws_ssl_client_connect2(struct lws *wsi);
 LWS_EXTERN void
 lws_ssl_elaborate_error(void);
+LWS_EXTERN int
+lws_ssl_anybody_has_buffered_read_tsi(struct lws_context *context, int tsi);
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
@@ -2474,12 +2470,17 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
 #ifdef LWS_WITH_ACCESS_LOG
 LWS_EXTERN int
 lws_access_log(struct lws *wsi);
+LWS_EXTERN void
+lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth);
 #else
 #define lws_access_log(_a)
 #endif
 
 LWS_EXTERN int
 lws_cgi_kill_terminated(struct lws_context_per_thread *pt);
+
+LWS_EXTERN void
+lws_cgi_remove_and_kill(struct lws *wsi);
 
 int
 lws_protocol_init(struct lws_context *context);
@@ -2595,6 +2596,11 @@ void
 lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer);
 void
 lws_peer_cull_peer_wait_list(struct lws_context *context);
+struct lws_peer *
+lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd);
+void
+lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
+		 struct lws *wsi);
 #endif
 
 #ifdef __cplusplus

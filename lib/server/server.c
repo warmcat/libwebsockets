@@ -19,10 +19,9 @@
  *  MA  02110-1301  USA
  */
 
-
 #include "private-libwebsockets.h"
 
-static const char * const method_names[] = {
+const char * const method_names[] = {
 	"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT", "HEAD",
 #ifdef LWS_WITH_HTTP2
 	":path",
@@ -107,11 +106,13 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #if (defined(WIN32) || defined(_WIN32)) && defined(SO_EXCLUSIVEADDRUSE)
 	/*
 	 * only accept that we are the only listener on the port
-	 * https://msdn.microsoft.com/zh-tw/library/windows/desktop/ms740621(v=vs.85).aspx
+	 * https://msdn.microsoft.com/zh-tw/library/
+	 *    windows/desktop/ms740621(v=vs.85).aspx
 	 *
 	 * for lws, to match Linux, we default to exclusive listen
 	 */
-	if (!lws_check_opt(vhost->options, LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE)) {
+	if (!lws_check_opt(vhost->options,
+			LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE)) {
 		if (setsockopt(sockfd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
 			       (const void *)&opt, sizeof(opt)) < 0) {
 			lwsl_err("reuseaddr failed\n");
@@ -134,9 +135,10 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 	if (LWS_IPV6_ENABLED(vhost)) {
 		if (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) {
-			int value = (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE) ? 1 : 0;
+			int value = (vhost->options &
+				LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE) ? 1 : 0;
 			if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
-					(const void*)&value, sizeof(value)) < 0) {
+				      (const void*)&value, sizeof(value)) < 0) {
 				compatible_close(sockfd);
 				return 1;
 			}
@@ -551,10 +553,13 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		if (n > (int)strlen(pvo->name) &&
 		    !strcmp(&path[n - strlen(pvo->name)], pvo->name)) {
 			wsi->sending_chunked = 1;
-			wsi->protocol_interpret_idx = (char)(lws_intptr_t)pvo->value;
+			wsi->protocol_interpret_idx =
+					(char)(lws_intptr_t)pvo->value;
 			lwsl_info("want %s interpreted by %s\n", path,
-				    wsi->vhost->protocols[(int)(lws_intptr_t)(pvo->value)].name);
-			wsi->protocol = &wsi->vhost->protocols[(int)(lws_intptr_t)(pvo->value)];
+				    wsi->vhost->protocols[
+				         (int)(lws_intptr_t)(pvo->value)].name);
+			wsi->protocol = &wsi->vhost->protocols[
+			                       (int)(lws_intptr_t)(pvo->value)];
 			if (lws_ensure_user_space(wsi))
 				return -1;
 			break;
@@ -564,7 +569,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 	if (m->protocol) {
 		const struct lws_protocols *pp = lws_vhost_name_to_protocol(
-							wsi->vhost, m->protocol);
+						       wsi->vhost, m->protocol);
 
 		if (lws_bind_protocol(wsi, pp))
 			return 1;
@@ -605,7 +610,8 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 			    ((hm->origin_protocol == LWSMPRO_CGI ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
 			     (wsi->http2_substream &&
-				lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH)) ||
+				lws_hdr_total_length(wsi,
+						WSI_TOKEN_HTTP_COLON_PATH)) ||
 			     hm->protocol) &&
 			    hm->mountpoint_len > best)) {
 				best = hm->mountpoint_len;
@@ -687,7 +693,8 @@ lws_unauthorised_basic_auth(struct lws *wsi)
 	if (lws_finalize_http_header(wsi, &p, end))
 		return -1;
 
-	n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
+	n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS |
+					     LWS_WRITE_H2_STREAM_END);
 	if (n < 0)
 		return -1;
 
@@ -725,97 +732,6 @@ int lws_clean_url(char *p)
 	return 0;
 }
 
-/*
- * Produce Apache-compatible log string for wsi, like this:
- *
- * 2.31.234.19 - - [27/Mar/2016:03:22:44 +0800]
- * "GET /aep-screen.png HTTP/1.1"
- * 200 152987 "https://libwebsockets.org/index.html"
- * "Mozilla/5.0 (Macint... Chrome/49.0.2623.87 Safari/537.36"
- *
- */
-#ifdef LWS_WITH_ACCESS_LOG
-static const char * const hver[] = {
-	"http/1.0", "http/1.1", "http/2"
-};
-static void
-lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
-{
-#ifdef LWS_WITH_IPV6
-	char ads[INET6_ADDRSTRLEN];
-#else
-	char ads[INET_ADDRSTRLEN];
-#endif
-	char da[64];
-	const char *pa, *me;
-	struct tm *tmp;
-	time_t t = time(NULL);
-	int l = 256, m;
-
-	if (wsi->access_log_pending)
-		lws_access_log(wsi);
-
-	wsi->access_log.header_log = lws_malloc(l, "access log");
-	if (wsi->access_log.header_log) {
-
-		tmp = localtime(&t);
-		if (tmp)
-			strftime(da, sizeof(da), "%d/%b/%Y:%H:%M:%S %z", tmp);
-		else
-			strcpy(da, "01/Jan/1970:00:00:00 +0000");
-
-		pa = lws_get_peer_simple(wsi, ads, sizeof(ads));
-		if (!pa)
-			pa = "(unknown)";
-
-		if (wsi->http2_substream)
-			me = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
-		else
-			me = method_names[meth];
-		if (!me)
-			me = "(null)";
-
-		lws_snprintf(wsi->access_log.header_log, l,
-			 "%s - - [%s] \"%s %s %s\"",
-			 pa, da, me, uri_ptr,
-			 hver[wsi->u.http.request_version]);
-
-		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
-		if (l) {
-			wsi->access_log.user_agent = lws_malloc(l + 2, "access log");
-			if (!wsi->access_log.user_agent) {
-				lwsl_err("OOM getting user agent\n");
-				lws_free_set_NULL(wsi->access_log.header_log);
-				return;
-			}
-
-			lws_hdr_copy(wsi, wsi->access_log.user_agent,
-					l + 1, WSI_TOKEN_HTTP_USER_AGENT);
-
-			for (m = 0; m < l; m++)
-				if (wsi->access_log.user_agent[m] == '\"')
-					wsi->access_log.user_agent[m] = '\'';
-		}
-		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
-		if (l) {
-			wsi->access_log.referrer = lws_malloc(l + 2, "referrer");
-			if (!wsi->access_log.referrer) {
-				lwsl_err("OOM getting user agent\n");
-				lws_free_set_NULL(wsi->access_log.user_agent);
-				lws_free_set_NULL(wsi->access_log.header_log);
-				return;
-			}
-			lws_hdr_copy(wsi, wsi->access_log.referrer,
-					l + 1, WSI_TOKEN_HTTP_REFERER);
-
-			for (m = 0; m < l; m++)
-				if (wsi->access_log.referrer[m] == '\"')
-					wsi->access_log.referrer[m] = '\'';
-		}
-		wsi->access_log_pending = 1;
-	}
-}
-#endif
 
 static const unsigned char methods[] = {
 	WSI_TOKEN_GET_URI,
@@ -892,7 +808,8 @@ lws_http_action(struct lws *wsi)
 		goto bail_nuke_ah;
 	}
 
-	lwsl_info("Method: '%s' (%d), request for '%s'\n", method_names[meth], meth, uri_ptr);
+	lwsl_info("Method: '%s' (%d), request for '%s'\n", method_names[meth],
+		  meth, uri_ptr);
 
 	if (lws_ensure_user_space(wsi))
 		goto bail_nuke_ah;
@@ -922,8 +839,10 @@ lws_http_action(struct lws *wsi)
 		http_version_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP);
 		if (http_version_len > 7) {
 			lws_hdr_copy(wsi, http_version_str,
-					sizeof(http_version_str) - 1, WSI_TOKEN_HTTP);
-			if (http_version_str[5] == '1' && http_version_str[7] == '1')
+				     sizeof(http_version_str) - 1,
+				     WSI_TOKEN_HTTP);
+			if (http_version_str[5] == '1' &&
+			    http_version_str[7] == '1')
 				request_version = HTTP_VERSION_1_1;
 		}
 		wsi->u.http.request_version = request_version;
@@ -936,7 +855,8 @@ lws_http_action(struct lws *wsi)
 
 		/* Override default if http "Connection:" header: */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
-			lws_hdr_copy(wsi, http_conn_str, sizeof(http_conn_str) - 1,
+			lws_hdr_copy(wsi, http_conn_str,
+				     sizeof(http_conn_str) - 1,
 				     WSI_TOKEN_CONNECTION);
 			http_conn_str[sizeof(http_conn_str) - 1] = '\0';
 			if (!strcasecmp(http_conn_str, "keep-alive"))
@@ -1045,11 +965,13 @@ lws_http_action(struct lws *wsi)
 				    hit->origin);
 		else {
 			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
-				if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY))
+				if (!lws_hdr_total_length(wsi,
+						WSI_TOKEN_HTTP_COLON_AUTHORITY))
 					goto bail_nuke_ah;
 				n = lws_snprintf((char *)end, 256,
 				    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
-				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY),
+				    lws_hdr_simple_ptr(wsi,
+						WSI_TOKEN_HTTP_COLON_AUTHORITY),
 				    uri_ptr);
 			} else
 				n = lws_snprintf((char *)end, 256,
@@ -1080,7 +1002,8 @@ lws_http_action(struct lws *wsi)
 
 		n = HTTP_STATUS_FORBIDDEN;
 
-		m = lws_hdr_copy(wsi, b64, sizeof(b64), WSI_TOKEN_HTTP_AUTHORIZATION);
+		m = lws_hdr_copy(wsi, b64, sizeof(b64),
+				 WSI_TOKEN_HTTP_AUTHORIZATION);
 		if (m < 7) {
 			lwsl_err("b64 auth too long\n");
 			goto transaction_result_n;
@@ -1100,7 +1023,8 @@ lws_http_action(struct lws *wsi)
 			goto transaction_result_n;
 		}
 
-		if (!lws_find_string_in_file(hit->basic_auth_login_file, plain, m)) {
+		if (!lws_find_string_in_file(hit->basic_auth_login_file,
+					     plain, m)) {
 			lwsl_err("basic auth lookup failed\n");
 			return lws_unauthorised_basic_auth(wsi);
 		}
@@ -1128,7 +1052,8 @@ lws_http_action(struct lws *wsi)
 		pcolon = strchr(hit->origin, ':');
 		pslash = strchr(hit->origin, '/');
 		if (!pslash) {
-			lwsl_err("Proxy mount origin '%s' must have /\n", hit->origin);
+			lwsl_err("Proxy mount origin '%s' must have /\n",
+				 hit->origin);
 			return -1;
 		}
 		if (pcolon > pslash)
@@ -1154,13 +1079,15 @@ lws_http_action(struct lws *wsi)
 		if (pcolon)
 			i.port = atoi(pcolon + 1);
 		
-		lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s", pslash + 1, uri_ptr + hit->mountpoint_len);
+		lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s", pslash + 1,
+			     uri_ptr + hit->mountpoint_len);
 		lws_clean_url(rpath);
 		na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
 		if (na) {
 			p = rpath + strlen(rpath);
 			*p++ = '?';
-			lws_hdr_copy(wsi, p, &rpath[sizeof(rpath) - 1] - p, WSI_TOKEN_HTTP_URI_ARGS);
+			lws_hdr_copy(wsi, p, &rpath[sizeof(rpath) - 1] - p,
+				     WSI_TOKEN_HTTP_URI_ARGS);
 			while (--na) {
 				if (*p == '\0')
 					*p = '&';
@@ -1178,7 +1105,8 @@ lws_http_action(struct lws *wsi)
 		i.uri_replace_to = hit->mountpoint;
 
 		lwsl_notice("proxying to %s port %d url %s, ssl %d, from %s, to %s\n",
-				i.address, i.port, i.path, i.ssl_connection, i.uri_replace_from, i.uri_replace_to);
+				i.address, i.port, i.path, i.ssl_connection,
+				i.uri_replace_from, i.uri_replace_to);
 	
 		if (!lws_client_connect_via_info(&i)) {
 			lwsl_err("proxy connect fail\n");
@@ -1319,11 +1247,15 @@ deal_body:
 	 */
 	if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
 		/* Prepare to read body if we have a content length: */
-		lwsl_debug("wsi->u.http.rx_content_length %lld %d %d\n", (long long)wsi->u.http.rx_content_length, wsi->upgraded_to_http2, wsi->http2_substream);
+		lwsl_debug("wsi->u.http.rx_content_length %lld %d %d\n",
+			   (long long)wsi->u.http.rx_content_length,
+			   wsi->upgraded_to_http2, wsi->http2_substream);
 		if (wsi->u.http.rx_content_length > 0) {
-			lwsl_notice("%s: %p: LWSS_HTTP_BODY state set\n", __func__, wsi);
+			lwsl_notice("%s: %p: LWSS_HTTP_BODY state set\n",
+				    __func__, wsi);
 			wsi->state = LWSS_HTTP_BODY;
-			wsi->u.http.rx_content_remain = wsi->u.http.rx_content_length;
+			wsi->u.http.rx_content_remain =
+					wsi->u.http.rx_content_length;
 		}
 	}
 
@@ -1514,7 +1446,8 @@ raw_transition:
 						msg = strchr(rej->value, ' ');
 						if (msg)
 							msg++;
-						lws_return_http_status(wsi, atoi(rej->value), msg);
+						lws_return_http_status(wsi,
+							atoi(rej->value), msg);
 #ifdef LWS_WITH_ACCESS_LOG
 						meth = lws_http_get_uri_and_method(wsi,
 								&uri_ptr, &uri_len);
@@ -1628,7 +1561,8 @@ upgrade_h2c:
 		lws_h2_settings(wsi, &wsi->u.h2.h2n->set,
 				(unsigned char *)protocol_list, n);
 
-		lws_hpack_dynamic_size(wsi, wsi->u.h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
+		lws_hpack_dynamic_size(wsi, wsi->u.h2.h2n->set.s[
+		                                      H2SET_HEADER_TABLE_SIZE]);
 
 		strcpy(protocol_list, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 				      "Connection: Upgrade\x0d\x0a"
@@ -1690,7 +1624,8 @@ upgrade_ws:
 
 			n = 0;
 			while (wsi->vhost->protocols[n].callback) {
-				lwsl_info("try %s\n", wsi->vhost->protocols[n].name);
+				lwsl_info("try %s\n",
+					  wsi->vhost->protocols[n].name);
 
 				if (wsi->vhost->protocols[n].name &&
 				    !strcmp(wsi->vhost->protocols[n].name,
@@ -1770,7 +1705,7 @@ upgrade_ws:
 		 * upgrade request and to already be in the ah rx buffer.
 		 */
 
-		lwsl_info("%s: %p: inheriting ah in ws mode (rxpos:%d, rxlen:%d)\n",
+		lwsl_info("%s: %p: inheriting ws ah (rxpos:%d, rxlen:%d)\n",
 			  __func__, wsi, wsi->u.hdr.ah->rxpos,
 			  wsi->u.hdr.ah->rxlen);
 		lws_pt_lock(pt);
@@ -1817,238 +1752,6 @@ bail_nuke_ah:
 	return 1;
 }
 
-#if defined(LWS_WITH_PEER_LIMITS)
-
-/* requires context->lock */
-static void
-__lws_peer_remove_from_peer_wait_list(struct lws_context *context,
-				      struct lws_peer *peer)
-{
-	struct lws_peer *df;
-
-	lws_start_foreach_llp(struct lws_peer **, p, context->peer_wait_list) {
-		if (*p == peer) {
-			df = *p;
-
-			*p = df->peer_wait_list;
-			df->peer_wait_list = NULL;
-
-			return;
-		}
-	} lws_end_foreach_llp(p, peer_wait_list);
-}
-
-/* requires context->lock */
-static void
-__lws_peer_add_to_peer_wait_list(struct lws_context *context,
-				 struct lws_peer *peer)
-{
-	__lws_peer_remove_from_peer_wait_list(context, peer);
-
-	peer->peer_wait_list = context->peer_wait_list;
-	context->peer_wait_list = peer;
-}
-
-
-static struct lws_peer *
-lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
-{
-	struct lws_context *context = vhost->context;
-	socklen_t rlen = 0;
-	void *q;
-	uint8_t *q8;
-	struct lws_peer *peer;
-	uint32_t hash = 0;
-	int n, af = AF_INET;
-	struct sockaddr_storage addr;
-
-#ifdef LWS_WITH_IPV6
-	if (LWS_IPV6_ENABLED(vhost)) {
-		af = AF_INET6;
-	}
-#endif
-	rlen = sizeof(addr);
-	if (getpeername(sockfd, (struct sockaddr*)&addr, &rlen))
-		return NULL;
-
-	if (af == AF_INET) {
-		struct sockaddr_in *s = (struct sockaddr_in *)&addr;
-		q = &s->sin_addr;
-		rlen = sizeof(s->sin_addr);
-	} else
-#ifdef LWS_WITH_IPV6
-	{
-		struct sockaddr_in6 *s = (struct sockaddr_in6 *)&addr;
-		q = &s->sin6_addr;
-		rlen = sizeof(s->sin6_addr);
-	}
-#else
-		return NULL;
-#endif
-
-	q8 = q;
-	for (n = 0; n < rlen; n++)
-		hash = (((hash << 4) | (hash >> 28)) * n) ^ q8[n];
-
-	hash = hash % context->pl_hash_elements;
-
-	lws_context_lock(context); /* <====================================== */
-
-	lws_start_foreach_ll(struct lws_peer *, peerx,
-			     context->pl_hash_table[hash]) {
-		if (peerx->af == af && !memcmp(q, peerx->addr, rlen)) {
-			lws_context_unlock(context); /* === */
-			return peerx;
-		}
-	} lws_end_foreach_ll(peerx, next);
-
-	lwsl_info("%s: creating new peer\n", __func__);
-
-	peer = lws_zalloc(sizeof(*peer), "peer");
-	if (!peer) {
-		lws_context_unlock(context); /* === */
-		return NULL;
-	}
-
-	context->count_peers++;
-	peer->next = context->pl_hash_table[hash];
-	peer->hash = hash;
-	peer->af = af;
-	context->pl_hash_table[hash] = peer;
-	memcpy(peer->addr, q, rlen);
-	time(&peer->time_created);
-	/*
-	 * On creation, the peer has no wsi attached, so is created on the
-	 * wait list.  When a wsi is added it is removed from the wait list.
-	 */
-	time(&peer->time_closed_all);
-	__lws_peer_add_to_peer_wait_list(context, peer);
-
-	lws_context_unlock(context); /* ====================================> */
-
-	return peer;
-}
-
-/* requires context->lock */
-static int
-__lws_peer_destroy(struct lws_context *context, struct lws_peer *peer)
-{
-	lws_start_foreach_llp(struct lws_peer **, p,
-			      context->pl_hash_table[peer->hash]) {
-		if (*p == peer) {
-			struct lws_peer *df = *p;
-			*p = df->next;
-			lws_free(df);
-			context->count_peers--;
-
-			return 0;
-		}
-	} lws_end_foreach_llp(p, next);
-
-	return 1;
-}
-
-void
-lws_peer_cull_peer_wait_list(struct lws_context *context)
-{
-	struct lws_peer *df;
-	time_t t;
-
-	time(&t);
-
-	if (context->next_cull && t < context->next_cull)
-		return;
-
-	lws_context_lock(context); /* <====================================== */
-
-	context->next_cull = t + 5;
-
-	lws_start_foreach_llp(struct lws_peer **, p, context->peer_wait_list) {
-		if (t - (*p)->time_closed_all > 10) {
-			df = *p;
-
-			/* remove us from the peer wait list */
-			*p = df->peer_wait_list;
-			df->peer_wait_list = NULL;
-
-			__lws_peer_destroy(context, df);
-			continue; /* we already point to next, if any */
-		}
-	} lws_end_foreach_llp(p, peer_wait_list);
-
-	lws_context_unlock(context); /* ====================================> */
-}
-
-static void
-lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
-		 struct lws *wsi)
-{
-	if (!peer)
-		return;
-
-	lws_context_lock(context); /* <====================================== */
-
-	peer->count_wsi++;
-	wsi->peer = peer;
-	__lws_peer_remove_from_peer_wait_list(context, peer);
-
-	lws_context_unlock(context); /* ====================================> */
-}
-
-void
-lws_peer_track_wsi_close(struct lws_context *context, struct lws_peer *peer)
-{
-	if (!peer)
-		return;
-
-	lws_context_lock(context); /* <====================================== */
-
-	assert(peer->count_wsi);
-	peer->count_wsi--;
-
-	if (!peer->count_wsi && !peer->count_ah) {
-		/*
-		 * in order that we can accumulate peer activity correctly
-		 * allowing for periods when the peer has no connections,
-		 * we don't synchronously destroy the peer when his last
-		 * wsi closes.  Instead we mark the time his last wsi
-		 * closed and add him to a peer_wait_list to be reaped
-		 * later if no further activity is coming.
-		 */
-		time(&peer->time_closed_all);
-		__lws_peer_add_to_peer_wait_list(context, peer);
-	}
-
-	lws_context_unlock(context); /* ====================================> */
-}
-
-int
-lws_peer_confirm_ah_attach_ok(struct lws_context *context, struct lws_peer *peer)
-{
-	if (!peer)
-		return 0;
-
-	if (context->ip_limit_ah && peer->count_ah >= context->ip_limit_ah) {
-		lwsl_info("peer reached ah limit %d, deferring\n",
-				context->ip_limit_ah);
-
-		return 1;
-	}
-
-	return 0;
-}
-
-void
-lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer)
-{
-	if (!peer)
-		return;
-
-	assert(peer->count_ah);
-	peer->count_ah--;
-}
-
-#endif
 
 static int
 lws_get_idlest_tsi(struct lws_context *context)
@@ -2202,7 +1905,8 @@ lws_http_transaction_completed(struct lws *wsi)
 			    wsi->context->simultaneous_ssl_restriction &&
 			    wsi->context->simultaneous_ssl ==
 				   wsi->context->simultaneous_ssl_restriction) {
-				lwsl_info("%s: simultaneous_ssl_restriction and nothing pipelined\n", __func__);
+				lwsl_info("%s: simultaneous_ssl_restriction\n",
+					  __func__);
 				return 1;
 			}
 #endif
@@ -2514,14 +2218,17 @@ LWS_VISIBLE struct lws *
 lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 			 const char *readbuf, size_t len)
 {
-        return adopt_socket_readbuf(lws_adopt_socket(context, accept_fd), readbuf, len);
+        return adopt_socket_readbuf(lws_adopt_socket(context, accept_fd),
+        			    readbuf, len);
 }
 
 LWS_VISIBLE struct lws *
-lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost, lws_sockfd_type accept_fd,
-			 const char *readbuf, size_t len)
+lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
+			       lws_sockfd_type accept_fd,
+			       const char *readbuf, size_t len)
 {
-        return adopt_socket_readbuf(lws_adopt_socket_vhost(vhost, accept_fd), readbuf, len);
+        return adopt_socket_readbuf(lws_adopt_socket_vhost(vhost, accept_fd),
+        			    readbuf, len);
 }
 
 LWS_VISIBLE int
@@ -2594,7 +2301,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			if (!wsi->u.hdr.ah) {
 				/* no autoservice beacuse we will do it next */
 				if (lws_header_table_attach(wsi, 0)) {
-					lwsl_info("wsi %p: failed to acquire ah\n", wsi);
+					lwsl_info("wsi %p: ah get fail\n", wsi);
 					goto try_pollout;
 				}
 			}
@@ -2734,13 +2441,17 @@ try_pollout:
 		}
 
 		if (wsi->mode == LWSCM_RAW) {
-			lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB, 1);
+			lws_stats_atomic_bump(wsi->context, pt,
+						LWSSTATS_C_WRITEABLE_CB, 1);
 #if defined(LWS_WITH_STATS)
 			if (wsi->active_writable_req_us) {
-				uint64_t ul = time_in_microseconds() - wsi->active_writable_req_us;
+				uint64_t ul = time_in_microseconds() -
+						wsi->active_writable_req_us;
 
-				lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_WRITABLE_DELAY, ul);
-				lws_stats_atomic_max(wsi->context, pt, LWSSTATS_MS_WORST_WRITABLE_DELAY, ul);
+				lws_stats_atomic_bump(wsi->context, pt,
+						LWSSTATS_MS_WRITABLE_DELAY, ul);
+				lws_stats_atomic_max(wsi->context, pt,
+					  LWSSTATS_MS_WORST_WRITABLE_DELAY, ul);
 				wsi->active_writable_req_us = 0;
 			}
 #endif
@@ -2759,13 +2470,17 @@ try_pollout:
 
 		if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
 
-			lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB, 1);
+			lws_stats_atomic_bump(wsi->context, pt,
+						LWSSTATS_C_WRITEABLE_CB, 1);
 #if defined(LWS_WITH_STATS)
 			if (wsi->active_writable_req_us) {
-				uint64_t ul = time_in_microseconds() - wsi->active_writable_req_us;
+				uint64_t ul = time_in_microseconds() -
+						wsi->active_writable_req_us;
 
-				lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_WRITABLE_DELAY, ul);
-				lws_stats_atomic_max(wsi->context, pt, LWSSTATS_MS_WORST_WRITABLE_DELAY, ul);
+				lws_stats_atomic_bump(wsi->context, pt,
+						LWSSTATS_MS_WRITABLE_DELAY, ul);
+				lws_stats_atomic_max(wsi->context, pt,
+					  LWSSTATS_MS_WORST_WRITABLE_DELAY, ul);
 				wsi->active_writable_req_us = 0;
 			}
 #endif
@@ -2798,7 +2513,8 @@ try_pollout:
 		/* pollin means a client has connected to us then */
 
 		do {
-			if (!(pollfd->revents & LWS_POLLIN) || !(pollfd->events & LWS_POLLIN))
+			if (!(pollfd->revents & LWS_POLLIN) ||
+			    !(pollfd->events & LWS_POLLIN))
 				break;
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -2846,14 +2562,14 @@ try_pollout:
 
 #if defined(LWS_WITH_IPV6)
 			lwsl_debug("accepted new conn port %u on fd=%d\n",
-					  ((cli_addr.ss_family == AF_INET6) ?
-					  ntohs(((struct sockaddr_in6 *) &cli_addr)->sin6_port) :
-					  ntohs(((struct sockaddr_in *) &cli_addr)->sin_port)),
-					  accept_fd);
+				((cli_addr.ss_family == AF_INET6) ?
+				ntohs(((struct sockaddr_in6 *) &cli_addr)->sin6_port) :
+				ntohs(((struct sockaddr_in *) &cli_addr)->sin_port)),
+				accept_fd);
 #else
 			lwsl_debug("accepted new conn port %u on fd=%d\n",
-					  ntohs(((struct sockaddr_in *) &cli_addr)->sin_port),
-					  accept_fd);
+				   ntohs(((struct sockaddr_in *) &cli_addr)->sin_port),
+				   accept_fd);
 #endif
 
 #else
@@ -2960,7 +2676,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	 */
 	if (ranges < 0) {
 		/* it means he expressed a range in Range:, but it was illegal */
-		lws_return_http_status(wsi, HTTP_STATUS_REQ_RANGE_NOT_SATISFIABLE, NULL);
+		lws_return_http_status(wsi, HTTP_STATUS_REQ_RANGE_NOT_SATISFIABLE,
+				       NULL);
 		if (lws_http_transaction_completed(wsi))
 			return -1; /* <0 means just hang up */
 
@@ -3002,8 +2719,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		wsi->u.http.multipart_content_type[
 		         sizeof(wsi->u.http.multipart_content_type) - 1] = '\0';
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
-						 (unsigned char *)"multipart/byteranges; boundary=_lws",
-						 20, &p, end))
+			 (unsigned char *)"multipart/byteranges; boundary=_lws",
+			 20, &p, end))
 			return -1;
 
 		/*
@@ -3028,10 +2745,12 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 					rp->start, rp->end, rp->extent);
 
 			computed_total_content_length +=
-					6 /* header _lws\r\n */ +
-					14 + strlen(content_type) + 2 + /* Content-Type: xxx/xxx\r\n */
-					15 + n + 2 + /* Content-Range: xxxx\r\n */
-					2; /* /r/n */
+				6 /* header _lws\r\n */ +
+				/* Content-Type: xxx/xxx\r\n */
+				14 + strlen(content_type) + 2 +
+				/* Content-Range: xxxx\r\n */
+				15 + n + 2 +
+				2; /* /r/n */
 		}
 
 		lws_ranges_reset(rp);
@@ -3040,8 +2759,9 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	if (ranges == 1) {
 		computed_total_content_length = (lws_filepos_t)rp->agg;
-		n = lws_snprintf(cache_control, sizeof(cache_control), "bytes %llu-%llu/%llu",
-				rp->start, rp->end, rp->extent);
+		n = lws_snprintf(cache_control, sizeof(cache_control),
+				 "bytes %llu-%llu/%llu",
+				 rp->start, rp->end, rp->extent);
 
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_RANGE,
 						 (unsigned char *)cache_control,
@@ -3062,7 +2782,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 						       &p, end))
 			return -1;
 	} else {
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING,
+		if (lws_add_http_header_by_token(wsi,
+						 WSI_TOKEN_HTTP_TRANSFER_ENCODING,
 						 (unsigned char *)"chunked",
 						 7, &p, end))
 			return -1;
@@ -3101,7 +2822,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	ret = lws_write(wsi, response, p - response, LWS_WRITE_HTTP_HEADERS);
 	if (ret != (p - response)) {
-		lwsl_err("_write returned %d from %ld\n", ret, (long)(p - response));
+		lwsl_err("_write returned %d from %ld\n", ret,
+			 (long)(p - response));
 		return -1;
 	}
 
@@ -3173,7 +2895,8 @@ LWS_VISIBLE void
 lws_server_get_canonical_hostname(struct lws_context *context,
 				  struct lws_context_creation_info *info)
 {
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME))
+	if (lws_check_opt(info->options,
+			LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME))
 		return;
 #if LWS_POSIX && !defined(LWS_WITH_ESP32)
 	/* find canonical hostname */
@@ -3186,584 +2909,7 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 #endif
 }
 
-#define LWS_MAX_ELEM_NAME 32
 
-enum urldecode_stateful {
-	US_NAME,
-	US_IDLE,
-	US_PC1,
-	US_PC2,
-
-	MT_LOOK_BOUND_IN,
-	MT_HNAME,
-	MT_DISP,
-	MT_TYPE,
-	MT_IGNORE1,
-	MT_IGNORE2,
-};
-
-static const char * const mp_hdr[] = {
-	"content-disposition: ",
-	"content-type: ",
-	"\x0d\x0a"
-};
-
-typedef int (*lws_urldecode_stateful_cb)(void *data,
-		const char *name, char **buf, int len, int final);
-
-struct lws_urldecode_stateful {
-	char *out;
-	void *data;
-	char name[LWS_MAX_ELEM_NAME];
-	char temp[LWS_MAX_ELEM_NAME];
-	char content_type[32];
-	char content_disp[32];
-	char content_disp_filename[256];
-	char mime_boundary[128];
-	int out_len;
-	int pos;
-	int hdr_idx;
-	int mp;
-	int sum;
-
-	unsigned int multipart_form_data:1;
-	unsigned int inside_quote:1;
-	unsigned int subname:1;
-	unsigned int boundary_real_crlf:1;
-
-	enum urldecode_stateful state;
-
-	lws_urldecode_stateful_cb output;
-};
-
-static struct lws_urldecode_stateful *
-lws_urldecode_s_create(struct lws *wsi, char *out, int out_len, void *data,
-		       lws_urldecode_stateful_cb output)
-{
-	struct lws_urldecode_stateful *s = lws_zalloc(sizeof(*s), "stateful urldecode");
-	char buf[200], *p;
-	int m = 0;
-
-	if (!s)
-		return NULL;
-
-	s->out = out;
-	s->out_len  = out_len;
-	s->output = output;
-	s->pos = 0;
-	s->sum = 0;
-	s->mp = 0;
-	s->state = US_NAME;
-	s->name[0] = '\0';
-	s->data = data;
-
-	if (lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_HTTP_CONTENT_TYPE) > 0) {
-		/* multipart/form-data; boundary=----WebKitFormBoundarycc7YgAPEIHvgE9Bf */
-
-		if (!strncmp(buf, "multipart/form-data", 19)) {
-			s->multipart_form_data = 1;
-			s->state = MT_LOOK_BOUND_IN;
-			s->mp = 2;
-			p = strstr(buf, "boundary=");
-			if (p) {
-				p += 9;
-				s->mime_boundary[m++] = '\x0d';
-				s->mime_boundary[m++] = '\x0a';
-				s->mime_boundary[m++] = '-';
-				s->mime_boundary[m++] = '-';
-				while (m < sizeof(s->mime_boundary) - 1 &&
-				       *p && *p != ' ')
-					s->mime_boundary[m++] = *p++;
-
-				s->mime_boundary[m] = '\0';
-
-				lwsl_notice("boundary '%s'\n", s->mime_boundary);
-			}
-		}
-	}
-
-	return s;
-}
-
-static int
-lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in, int len)
-{
-	int n, m, hit = 0;
-	char c, was_end = 0;
-
-	while (len--) {
-		if (s->pos == s->out_len - s->mp - 1) {
-			if (s->output(s->data, s->name, &s->out, s->pos, 0))
-				return -1;
-
-			was_end = s->pos;
-			s->pos = 0;
-		}
-		switch (s->state) {
-
-		/* states for url arg style */
-
-		case US_NAME:
-			s->inside_quote = 0;
-			if (*in == '=') {
-				s->name[s->pos] = '\0';
-				s->pos = 0;
-				s->state = US_IDLE;
-				in++;
-				continue;
-			}
-			if (*in == '&') {
-				s->name[s->pos] = '\0';
-				if (s->output(s->data, s->name, &s->out, s->pos, 1))
-					return -1;
-				s->pos = 0;
-				s->state = US_IDLE;
-				in++;
-				continue;
-			}
-			if (s->pos >= sizeof(s->name) - 1) {
-				lwsl_notice("Name too long\n");
-				return -1;
-			}
-			s->name[s->pos++] = *in++;
-			break;
-		case US_IDLE:
-			if (*in == '%') {
-				s->state++;
-				in++;
-				continue;
-			}
-			if (*in == '&') {
-				s->out[s->pos] = '\0';
-				if (s->output(s->data, s->name, &s->out, s->pos, 1))
-					return -1;
-				s->pos = 0;
-				s->state = US_NAME;
-				in++;
-				continue;
-			}
-			if (*in == '+') {
-				in++;
-				s->out[s->pos++] = ' ';
-				continue;
-			}
-			s->out[s->pos++] = *in++;
-			break;
-		case US_PC1:
-			n = char_to_hex(*in);
-			if (n < 0)
-				return -1;
-
-			in++;
-			s->sum = n << 4;
-			s->state++;
-			break;
-
-		case US_PC2:
-			n = char_to_hex(*in);
-			if (n < 0)
-				return -1;
-
-			in++;
-			s->out[s->pos++] = s->sum | n;
-			s->state = US_IDLE;
-			break;
-
-
-		/* states for multipart / mime style */
-
-		case MT_LOOK_BOUND_IN:
-retry_as_first:
-			if (*in == s->mime_boundary[s->mp] &&
-			    s->mime_boundary[s->mp]) {
-				in++;
-				s->mp++;
-				if (!s->mime_boundary[s->mp]) {
-					s->mp = 0;
-					s->state = MT_IGNORE1;
-
-					if (s->pos || was_end)
-						if (s->output(s->data, s->name,
-						      &s->out, s->pos, 1))
-							return -1;
-
-					s->pos = 0;
-
-					s->content_disp[0] = '\0';
-					s->name[0] = '\0';
-					s->content_disp_filename[0] = '\0';
-					s->boundary_real_crlf = 1;
-				}
-				continue;
-			}
-			if (s->mp) {
-				n = 0;
-				if (!s->boundary_real_crlf)
-					n = 2;
-
-				memcpy(s->out + s->pos, s->mime_boundary + n, s->mp - n);
-				s->pos += s->mp;
-				s->mp = 0;
-				goto retry_as_first;
-			}
-
-			s->out[s->pos++] = *in;
-			in++;
-			s->mp = 0;
-			break;
-
-		case MT_HNAME:
-			m = 0;
-			c =*in;
-			if (c >= 'A' && c <= 'Z')
-				c += 'a' - 'A';
-			for (n = 0; n < ARRAY_SIZE(mp_hdr); n++)
-				if (c == mp_hdr[n][s->mp]) {
-					m++;
-					hit = n;
-				}
-			in++;
-			if (!m) {
-				s->mp = 0;
-				continue;
-			}
-
-			s->mp++;
-			if (m != 1)
-				continue;
-
-			if (mp_hdr[hit][s->mp])
-				continue;
-
-			s->mp = 0;
-			s->temp[0] = '\0';
-			s->subname = 0;
-
-			if (hit == 2)
-				s->state = MT_LOOK_BOUND_IN;
-			else
-				s->state += hit + 1;
-			break;
-
-		case MT_DISP:
-			/* form-data; name="file"; filename="t.txt" */
-
-			if (*in == '\x0d') {
-				if (s->content_disp_filename[0])
-					if (s->output(s->data, s->name,
-						      &s->out, s->pos, LWS_UFS_OPEN))
-						return -1;
-				s->state = MT_IGNORE2;
-				goto done;
-			}
-			if (*in == ';') {
-				s->subname = 1;
-				s->temp[0] = '\0';
-				s->mp = 0;
-				goto done;
-			}
-
-			if (*in == '\"') {
-				s->inside_quote ^= 1;
-				goto done;
-			}
-
-			if (s->subname) {
-				if (*in == '=') {
-					s->temp[s->mp] = '\0';
-					s->subname = 0;
-					s->mp = 0;
-					goto done;
-				}
-				if (s->mp < sizeof(s->temp) - 1 &&
-				    (*in != ' ' || s->inside_quote))
-					s->temp[s->mp++] = *in;
-				goto done;
-			}
-
-			if (!s->temp[0]) {
-				if (s->mp < sizeof(s->content_disp) - 1)
-					s->content_disp[s->mp++] = *in;
-				s->content_disp[s->mp] = '\0';
-				goto done;
-			}
-
-			if (!strcmp(s->temp, "name")) {
-				if (s->mp < sizeof(s->name) - 1)
-					s->name[s->mp++] = *in;
-				s->name[s->mp] = '\0';
-				goto done;
-			}
-
-			if (!strcmp(s->temp, "filename")) {
-				if (s->mp < sizeof(s->content_disp_filename) - 1)
-					s->content_disp_filename[s->mp++] = *in;
-				s->content_disp_filename[s->mp] = '\0';
-				goto done;
-			}
-done:
-			in++;
-			break;
-
-		case MT_TYPE:
-			if (*in == '\x0d')
-				s->state = MT_IGNORE2;
-			else {
-				if (s->mp < sizeof(s->content_type) - 1)
-					s->content_type[s->mp++] = *in;
-				s->content_type[s->mp] = '\0';
-			}
-			in++;
-			break;
-
-		case MT_IGNORE1:
-			if (*in == '\x0d')
-				s->state = MT_IGNORE2;
-			in++;
-			break;
-
-		case MT_IGNORE2:
-			s->mp = 0;
-			if (*in == '\x0a')
-				s->state = MT_HNAME;
-			in++;
-			break;
-		}
-	}
-
-	return 0;
-}
-
-static int
-lws_urldecode_s_destroy(struct lws_urldecode_stateful *s)
-{
-	int ret = 0;
-
-	if (s->state != US_IDLE)
-		ret = -1;
-
-	if (!ret)
-		if (s->output(s->data, s->name, &s->out, s->pos, 1))
-			ret = -1;
-
-	lws_free(s);
-
-	return ret;
-}
-
-struct lws_spa {
-	struct lws_urldecode_stateful *s;
-	lws_spa_fileupload_cb opt_cb;
-	const char * const *param_names;
-	int count_params;
-	char **params;
-	int *param_length;
-	void *opt_data;
-
-	char *storage;
-	char *end;
-	int max_storage;
-
-	char finalized;
-};
-
-static int
-lws_urldecode_spa_lookup(struct lws_spa *spa,
-			 const char *name)
-{
-	int n;
-
-	for (n = 0; n < spa->count_params; n++)
-		if (!strcmp(spa->param_names[n], name))
-			return n;
-
-	return -1;
-}
-
-static int
-lws_urldecode_spa_cb(void *data, const char *name, char **buf, int len,
-		     int final)
-{
-	struct lws_spa *spa =
-			(struct lws_spa *)data;
-	int n;
-
-	if (spa->s->content_disp_filename[0]) {
-		if (spa->opt_cb) {
-			n = spa->opt_cb(spa->opt_data, name,
-					spa->s->content_disp_filename,
-					*buf, len, final);
-
-			if (n < 0)
-				return -1;
-		}
-		return 0;
-	}
-	n = lws_urldecode_spa_lookup(spa, name);
-
-	if (n == -1 || !len) /* unrecognized */
-		return 0;
-
-	if (!spa->params[n])
-		spa->params[n] = *buf;
-
-	if ((*buf) + len >= spa->end) {
-		lwsl_notice("%s: exceeded storage\n", __func__);
-		return -1;
-	}
-
-	spa->param_length[n] += len;
-
-	/* move it on inside storage */
-	(*buf) += len;
-	*((*buf)++) = '\0';
-
-	spa->s->out_len -= len + 1;
-
-	return 0;
-}
-
-LWS_VISIBLE LWS_EXTERN struct lws_spa *
-lws_spa_create(struct lws *wsi, const char * const *param_names,
-			 int count_params, int max_storage,
-			 lws_spa_fileupload_cb opt_cb, void *opt_data)
-{
-	struct lws_spa *spa = lws_zalloc(sizeof(*spa), "spa");
-
-	if (!spa)
-		return NULL;
-
-	spa->param_names = param_names;
-	spa->count_params = count_params;
-	spa->max_storage = max_storage;
-	spa->opt_cb = opt_cb;
-	spa->opt_data = opt_data;
-
-	spa->storage = lws_malloc(max_storage, "spa");
-	if (!spa->storage)
-		goto bail2;
-	spa->end = spa->storage + max_storage - 1;
-
-	spa->params = lws_zalloc(sizeof(char *) * count_params, "spa params");
-	if (!spa->params)
-		goto bail3;
-
-	spa->s = lws_urldecode_s_create(wsi, spa->storage, max_storage, spa,
-					lws_urldecode_spa_cb);
-	if (!spa->s)
-		goto bail4;
-
-	spa->param_length = lws_zalloc(sizeof(int) * count_params, "spa param len");
-	if (!spa->param_length)
-		goto bail5;
-
-	lwsl_info("%s: Created SPA %p\n", __func__, spa);
-
-	return spa;
-
-bail5:
-	lws_urldecode_s_destroy(spa->s);
-bail4:
-	lws_free(spa->params);
-bail3:
-	lws_free(spa->storage);
-bail2:
-	lws_free(spa);
-
-	return NULL;
-}
-
-LWS_VISIBLE LWS_EXTERN int
-lws_spa_process(struct lws_spa *ludspa, const char *in, int len)
-{
-	if (!ludspa) {
-		lwsl_err("%s: NULL spa\n", __func__);
-		return -1;
-	}
-	/* we reject any junk after the last part arrived and we finalized */
-	if (ludspa->finalized)
-		return 0;
-
-	return lws_urldecode_s_process(ludspa->s, in, len);
-}
-
-LWS_VISIBLE LWS_EXTERN int
-lws_spa_get_length(struct lws_spa *ludspa, int n)
-{
-	if (n >= ludspa->count_params)
-		return 0;
-
-	return ludspa->param_length[n];
-}
-
-LWS_VISIBLE LWS_EXTERN const char *
-lws_spa_get_string(struct lws_spa *ludspa, int n)
-{
-	if (n >= ludspa->count_params)
-		return NULL;
-
-	return ludspa->params[n];
-}
-
-LWS_VISIBLE LWS_EXTERN int
-lws_spa_finalize(struct lws_spa *spa)
-{
-	if (spa->s) {
-		lws_urldecode_s_destroy(spa->s);
-		spa->s = NULL;
-	}
-
-	spa->finalized = 1;
-
-	return 0;
-}
-
-LWS_VISIBLE LWS_EXTERN int
-lws_spa_destroy(struct lws_spa *spa)
-{
-	int n = 0;
-
-	lwsl_notice("%s: destroy spa %p\n", __func__, spa);
-
-	if (spa->s)
-		lws_urldecode_s_destroy(spa->s);
-
-	lwsl_debug("%s %p %p %p %p\n", __func__,
-			spa->param_length,
-			spa->params,
-			spa->storage,
-			spa
-			);
-
-	lws_free(spa->param_length);
-	lws_free(spa->params);
-	lws_free(spa->storage);
-	lws_free(spa);
-
-	return n;
-}
-
-#if 0
-LWS_VISIBLE LWS_EXTERN int
-lws_spa_destroy(struct lws_spa *spa)
-{
-	int n = 0;
-
-	lwsl_info("%s: destroy spa %p\n", __func__, spa);
-
-	if (spa->s)
-		lws_urldecode_s_destroy(spa->s);
-
-	lwsl_debug("%s\n", __func__);
-
-	lws_free(spa->param_length);
-	lws_free(spa->params);
-	lws_free(spa->storage);
-	lws_free(spa);
-
-	return n;
-}
-#endif
 LWS_VISIBLE LWS_EXTERN int
 lws_chunked_html_process(struct lws_process_html_args *args,
 			 struct lws_process_html_state *s)

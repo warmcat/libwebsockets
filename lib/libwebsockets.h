@@ -314,13 +314,34 @@ lwsl_timestamp(int level, char *p, int len);
 #endif
 
 /**
+ * lwsl_hexdump() - helper to hexdump a buffer
+ *
+ * \param level: one of LLL_ constants
+ * \param buf: buffer start to dump
+ * \param len: length of buffer to dump
+ *
+ * If \p level is visible, does a nice hexdump -C style dump of \p buf for
+ * \p len bytes.  This can be extremely convenient while debugging.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lwsl_hexdump_level(int level, const void *vbuf, size_t len);
+
+/**
  * lwsl_hexdump() - helper to hexdump a buffer (DEBUG builds only)
  *
  * \param buf: buffer start to dump
  * \param len: length of buffer to dump
+ *
+ * Calls through to lwsl_hexdump_level(LLL_DEBUG, ... for compatability.
+ * It's better to use lwsl_hexdump_level(level, ... directly so you can control
+ * the visibility.
  */
-LWS_VISIBLE LWS_EXTERN void lwsl_hexdump(const void *buf, size_t len);
+LWS_VISIBLE LWS_EXTERN void
+lwsl_hexdump(const void *buf, size_t len);
 
+/**
+ * lws_is_be() - returns nonzero if the platform is Big Endian
+ */
 static LWS_INLINE int lws_is_be(void) {
 	const int probe = ~0xff;
 
@@ -335,7 +356,8 @@ static LWS_INLINE int lws_is_be(void) {
  *			the default stderr one.
  *
  *	log level defaults to "err", "warn" and "notice" contexts enabled and
- *	emission on stderr.
+ *	emission on stderr.  If stderr is a tty (according to isatty()) then
+ *	the output is coloured according to the log level using ANSI escapes.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_set_log_level(int level,
