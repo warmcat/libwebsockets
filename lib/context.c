@@ -482,6 +482,9 @@ lws_create_vhost(struct lws_context *context,
 	else
 		vh->name = info->vhost_name;
 
+	if (info->options & LWS_SERVER_OPTION_ONLY_RAW)
+		lwsl_info("%s set to only support RAW\n", vh->name);
+
 	vh->iface = info->iface;
 #if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
 	vh->bind_iface = info->bind_iface;

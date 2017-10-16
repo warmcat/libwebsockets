@@ -2817,6 +2817,8 @@ try_pollout:
 
 			if (!(wsi->vhost->options & LWS_SERVER_OPTION_ONLY_RAW))
 				opts |= LWS_ADOPT_HTTP;
+			else
+				opts = LWS_ADOPT_SOCKET;
 
 			fd.sockfd = accept_fd;
 			if (!lws_adopt_descriptor_vhost(wsi->vhost, opts, fd,

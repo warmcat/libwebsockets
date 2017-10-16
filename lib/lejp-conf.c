@@ -99,6 +99,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].client-ssl-cert",
 	"vhosts[].client-ssl-ca",
 	"vhosts[].client-ssl-ciphers",
+	"vhosts[].onlyraw",
 };
 
 enum lejp_vhost_paths {
@@ -145,6 +146,7 @@ enum lejp_vhost_paths {
 	LEJPVP_CLIENT_SSL_CERT,
 	LEJPVP_CLIENT_SSL_CA,
 	LEJPVP_CLIENT_CIPHERS,
+	LEJPVP_FLAG_ONLYRAW,
 };
 
 static const char * const parser_errs[] = {
@@ -356,7 +358,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->info->keepalive_timeout = 5;
 		a->info->log_filepath = NULL;
 		a->info->options &= ~(LWS_SERVER_OPTION_UNIX_SOCK |
-				      LWS_SERVER_OPTION_STS);
+				      LWS_SERVER_OPTION_STS | LWS_SERVER_OPTION_ONLY_RAW);
 		a->enable_client_ssl = 0;
 	}
 
@@ -664,6 +666,13 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			a->info->options |= LWS_SERVER_OPTION_DISABLE_IPV6;
 		else
 			a->info->options &= ~(LWS_SERVER_OPTION_DISABLE_IPV6);
+		return 0;
+
+	case LEJPVP_FLAG_ONLYRAW:
+		if (arg_to_bool(ctx->buf))
+			a->info->options |= LWS_SERVER_OPTION_ONLY_RAW;
+		else
+			a->info->options &= ~(LWS_SERVER_OPTION_ONLY_RAW);
 		return 0;
 
 	case LEJPVP_IPV6ONLY:

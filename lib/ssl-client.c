@@ -443,6 +443,9 @@ int lws_context_init_client_ssl(struct lws_context_creation_info *info,
 	const char *cert_filepath = info->ssl_cert_filepath;
 	int n;
 
+	if (vhost->options & LWS_SERVER_OPTION_ONLY_RAW)
+		return 0;
+
 	/*
 	 *  for backwards-compatibility default to using ssl_... members, but
 	 * if the newer client-specific ones are given, use those

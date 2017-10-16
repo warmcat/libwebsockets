@@ -196,6 +196,18 @@ by the client, you can use "default": "1"
 	     }]
 ```
 
+Similarly, if your vhost is serving a raw protocol, you can mark the protocol
+to be selected using "raw": "1"
+```
+	     "ws-protocols": [{
+	       "warmcat-timezoom": {
+	         "status": "ok",
+	         "raw": "1"
+	       }
+	     }]
+```
+
+See also "rawonly" below.
 
 @section lwswsovo Lwsws Other vhost options
 
@@ -256,6 +268,8 @@ recommended vhost headers for good client security are
                  }]
 
 ```
+
+ - "`rawonly`": "on"  This vhost only serves a raw protocol, disable HTTP on it
 
 @section lwswsm Lwsws Mounts
 
@@ -590,7 +604,7 @@ this will give nice backtraces in lwsws itself and in plugins, if they were buil
 
 @section lwswsvgd Running lwsws under valgrind
 
-You can just run lwsws under galgrind as usual and get valid results.  However the results / analysis part of valgrind runs
+You can just run lwsws under valgrind as usual and get valid results.  However the results / analysis part of valgrind runs
 after the plugins have removed themselves, this means valgrind backtraces into plugin code is opaque, without
 source-level info because the dynamic library is gone.
 

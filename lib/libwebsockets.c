@@ -90,6 +90,9 @@ lws_free_wsi(struct lws *wsi)
 	lws_header_table_force_to_detachable_state(wsi);
 	lws_header_table_detach(wsi, 0);
 
+	if (wsi->vhost->lserv_wsi == wsi)
+		wsi->vhost->lserv_wsi = NULL;
+
 	lws_pt_lock(pt);
 	for (n = 0; n < wsi->context->max_http_header_pool; n++) {
 		if (pt->ah_pool[n].in_use &&
@@ -1520,8 +1523,6 @@ lws_get_reserved_bits(struct lws *wsi)
 int
 lws_ensure_user_space(struct lws *wsi)
 {
-	lwsl_debug("%s: %p protocol %p\n", __func__, wsi, wsi->protocol);
-
 	if (!wsi->protocol)
 		return 1;
 
@@ -1538,6 +1539,18 @@ lws_ensure_user_space(struct lws *wsi)
 			   wsi, (long)wsi->protocol->per_session_data_size,
 			   wsi->user_space);
 	return 0;
+}
+
+LWS_VISIBLE void *
+lws_adjust_protocol_psds(struct lws *wsi, size_t new_size)
+{
+	((struct lws_protocols *)lws_get_protocol(wsi))->per_session_data_size =
+		new_size;
+
+	if (lws_ensure_user_space(wsi))
+			return NULL;
+
+	return wsi->user_space;
 }
 
 LWS_VISIBLE int
@@ -3975,7 +3988,6 @@ lws_ring_consume(struct lws_ring *ring, uint32_t *tail, void *dest,
 
 		return n / ring->element_len;
 	}
-
 	if (*tail + n > ring->buflen) {
 
 		/*
@@ -4001,6 +4013,18 @@ lws_ring_consume(struct lws_ring *ring, uint32_t *tail, void *dest,
 		lws_ring_update_oldest_tail(ring, *tail);
 
 	return (((uint8_t *)dest + n) - odest) / ring->element_len;
+}
+
+LWS_VISIBLE LWS_EXTERN const void *
+lws_ring_get_element(struct lws_ring *ring, uint32_t *tail)
+{
+	if (!tail)
+		tail = &ring->oldest_tail;
+
+	if (*tail == ring->head)
+		return NULL;
+
+	return ((uint8_t *)ring->buf) + *tail;
 }
 
 LWS_VISIBLE LWS_EXTERN void
