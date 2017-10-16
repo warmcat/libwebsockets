@@ -1,11 +1,13 @@
 Release Checklist
 -----------------
 
-0) QA
+1) QA
 
- a) ab
+ a) ab / h2load / h2spec
 
-   $ ab -n 100000 -c 200 http://localhost:7681/
+   $ ab -n 100000 -c 200 https://127.0.0.1:7681/
+   $ h2load -n 100000 -c 200  https://localhost:7681
+   $ h2spec  -h 127.0.0.1 -p 7681 -t -k -o 1
 
  b) coverity
  
@@ -29,10 +31,6 @@ Release Checklist
      http://localhost:8080/test_browser.html
      
      rsync -av ./reports/* root@warmcat.com:/var/www/libwebsockets.org
-
-1) api
-
-     $ cp build/doc/* .
 
 2) soname bump?
 
@@ -82,16 +80,18 @@ Release Checklist
 - Bump version to 1.6.4
 - MINOR fix xyz
 
-6) signed tag
+6) Announce latest version on README.md
+
+7) signed tag
 
   git tag -s vX.Y[.Z]
 
-7) git
+8) git
 
  a) push
  
  b) final CI check, if fail delete tag, kill pushed tags, restart flow
 
-8) website
+9) website
 
  a) update latest tag for release branch

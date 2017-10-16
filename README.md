@@ -8,9 +8,13 @@ libwebsockets
 News
 ----
 
+ - v2.4 is out... HTTP/2 server support and mbedTLS as a TLS backend.
+
+see the changelog https://github.com/warmcat/libwebsockets/blob/v2.4-stable/changelog
+
 Please note the additional READMEs have moved to ./READMEs/
 
-v2.3 is out... see the changelog https://github.com/warmcat/libwebsockets/blob/v2.3-stable/changelog
+ - v2.3 is out... see the changelog https://github.com/warmcat/libwebsockets/blob/v2.3-stable/changelog
 
 ESP32 is now supported in lws!  Download the
 

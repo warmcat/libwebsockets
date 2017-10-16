@@ -1,5 +1,5 @@
 Name: libwebsockets
-Version: 2.3.0
+Version: 2.4.0
 Release: 1%{?dist}
 Summary: Websocket Server and Client Library
 
@@ -54,7 +54,7 @@ rm -rf $RPM_BUILD_ROOT
 /usr/bin/libwebsockets-test-echo
 /usr/bin/libwebsockets-test-fraggle
 /usr/bin/libwebsockets-test-fuzxy
-/%{_libdir}/libwebsockets.so.11
+/%{_libdir}/libwebsockets.so.12
 /%{_libdir}/libwebsockets.so
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsConfig.cmake
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsConfigVersion.cmake
@@ -72,6 +72,9 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/pkgconfig/libwebsockets_static.pc
 
 %changelog
+* Mon Oct 16 2017 Andy Green <andy@warmcat.com> 2.4.0-1
+- MAJOR SONAMEBUMP APICHANGES Upstream 2.4.0 release
+
 * Fri Jul 28 2017 Andy Green <andy@warmcat.com> 2.3.0-1
 - MAJOR SONAMEBUMP APICHANGES Upstream 2.3.0 release
 

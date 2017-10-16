@@ -1,6 +1,37 @@
 Changelog
 ---------
 
+v2.4.0
+======
+
+ - HTTP/2 server support is now mature and usable!  LWS_WITH_HTTP2=1 enables it.
+   Uses ALPN to serve HTTP/2, HTTP/1 and ws[s] connections all from the same
+   listen port seamlessly.  (Requires ALPN-capable OpenSSL 1.1 or mbedTLS).
+
+ - LWS_WITH_MBEDTLS=1 at CMake now builds and works against mbedTLS instead of
+   OpenSSL.  Most things work identically, although on common targets where
+   OpenSSL has acceleration, mbedTLS is many times slower in operation.  However
+   it is a lot smaller codewise.
+   
+ - Generic hash apis introduced that work the same on mbedTLS or OpenSSL backend
+ 
+ - LWS_WITH_PEER_LIMITS tracks IPs across all vhosts and allows restrictions on
+   both the number of simultaneous connections and wsi in use for any single IP
+
+ - lws_ring apis provide a generic single- or multi-tail ringbuffer... mirror
+   protocol now uses this.  Features include ring elements may be sized to fit
+   structs in the ringbuffer, callback when no tail any longer needs an element
+   and it can be deleted, and zerocopy options to write new members directly
+   into the ringbuffer, and use the ringbuffer element by address too.
+ 
+ - abstract ssh 2 server plugin included, with both plugin and standalone
+   demos provided.  You can bind the plugin to a vhost and also serve full-
+   strength ssh from the vhost.  IO from the ssh server is controlled by an
+   "ops" struct of callbacks for tx, rx, auth etc.
+   
+ - Many fixes, cleanups, source refactors and other improvements.
+
+
 v2.3.0
 ======
 
