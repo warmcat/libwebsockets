@@ -308,6 +308,8 @@ some_wait:
 				error, ERR_error_string(error, sb));
 			return -1;
 		}
+
+		return 0;
 	}
 
 	return 1;
