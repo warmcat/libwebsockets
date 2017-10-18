@@ -1217,6 +1217,9 @@ lws_restart_ws_ping_pong_timer(struct lws *wsi);
 struct lws *
 lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
 
+int
+lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max);
+
 
 enum {
 	LWS_EV_READ = (1 << 0),
@@ -2495,6 +2498,8 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending_no_ssl(struct lws *wsi);
+
+int lws_jws_selftest(void);
 
 #ifdef LWS_WITH_HTTP_PROXY
 struct lws_rewrite {
