@@ -107,23 +107,27 @@ lws_b64_encode_string_url(const char *in, int in_len, char *out, int out_size)
 /*
  * returns length of decoded string in out, or -1 if out was too small
  * according to out_size
+ *
+ * Only reads up to in_len chars, otherwise if in_len is -1 on entry reads until
+ * the first NUL in the input.
  */
 
-LWS_VISIBLE int
-lws_b64_decode_string(const char *in, char *out, int out_size)
+static int
+_lws_b64_decode_string(const char *in, int in_len, char *out, int out_size)
 {
 	int len, i, c = 0, done = 0;
 	unsigned char v, quad[4];
 
-	while (*in) {
+	while (in_len && *in) {
 
 		len = 0;
-		for (i = 0; i < 4 && *in; i++) {
+		for (i = 0; i < 4 && in_len && *in; i++) {
 
 			v = 0;
 			c = 0;
-			while (*in && !v) {
+			while (in_len && *in  && !v) {
 				c = v = *in++;
+				in_len--;
 				/* support the url base64 variant too */
 				if (v == '-')
 					c = v = '+';
@@ -151,7 +155,7 @@ lws_b64_decode_string(const char *in, char *out, int out_size)
 		 * bytes." (wikipedia)
 		 */
 
-		if (!*in && c == '=')
+		if ((!in_len || !*in) && c == '=')
 			len--;
 
 		if (len >= 2)
@@ -170,6 +174,18 @@ lws_b64_decode_string(const char *in, char *out, int out_size)
 	*out = '\0';
 
 	return done;
+}
+
+LWS_VISIBLE int
+lws_b64_decode_string(const char *in, char *out, int out_size)
+{
+	return _lws_b64_decode_string(in, -1, out, out_size);
+}
+
+LWS_VISIBLE int
+lws_b64_decode_string_len(const char *in, int in_len, char *out, int out_size)
+{
+	return _lws_b64_decode_string(in, in_len, out, out_size);
 }
 
 #if 0
