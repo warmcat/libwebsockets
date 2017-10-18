@@ -145,6 +145,9 @@
 #cmakedefine LWS_HAVE__ATOI64
 #cmakedefine LWS_HAVE__STAT32I64
 
+#cmakedefine LWS_WITH_JWS
+#cmakedefine LWS_WITH_SELFTESTS
+
 /* OpenSSL various APIs */
 
 #cmakedefine LWS_HAVE_TLS_CLIENT_METHOD

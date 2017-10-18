@@ -1761,8 +1761,164 @@ lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 LWS_VISIBLE LWS_EXTERN void
 lws_genrsa_destroy(struct lws_genrsa_ctx *ctx);
 ///@}
-#endif
 
+/*! \defgroup jwk JSON Web Keys
+ * ## JSON Web Keys API
+ *
+ * Lws provides an API to parse JSON Web Keys into a struct lws_genrsa_elements.
+ *
+ * "oct" and "RSA" type keys are supported.  For "oct" keys, they are held in
+ * the "e" member of the struct lws_genrsa_elements.
+ *
+ * Keys elements are allocated on the heap.  You must destroy the allocations
+ * in the struct lws_genrsa_elements by calling
+ * lws_jwk_destroy_genrsa_elements() when you are finished with it.
+ */
+///@{
+
+struct lws_jwk {
+	char keytype[5];		/**< "oct" or "RSA" */
+	struct lws_genrsa_elements el;	/**< OCTet key is in el.e */
+};
+
+/** lws_jwk_import() - Create a JSON Web key from the textual representation
+ *
+ * \param s: the JWK object to create
+ * \param in: a single JWK JSON stanza in utf-8
+ * \param len: the length of the JWK JSON stanza in bytes
+ *
+ * Creates an lws_jwk struct filled with data from the JSON representation.
+ * "oct" and "rsa" key types are supported.
+ *
+ * For "oct" type keys, it is loaded into el.e.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwk_import(struct lws_jwk *s, const char *in, size_t len);
+
+/** lws_jwk_destroy() - Destroy a JSON Web key
+ *
+ * \param s: the JWK object to destroy
+ *
+ * All allocations in the lws_jwk are destroyed
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_jwk_destroy(struct lws_jwk *s);
+
+/** lws_jwk_export() - Export a JSON Web key to a textual representation
+ *
+ * \param s: the JWK object to export
+ * \param private: 0 = just export public parts, 1 = export everything
+ * \param p: the buffer to write the exported JWK to
+ * \param len: the length of the buffer \p p in bytes
+ *
+ * Returns length of the used part of the buffer if OK, or -1 for error.
+ *
+ * Serializes the content of the JWK into a char buffer.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len);
+
+/** lws_jwk_load() - Import a JSON Web key from a file
+ *
+ * \param s: the JWK object to load into
+ * \param filename: filename to load from
+ *
+ * Returns 0 for OK or -1 for failure
+ */
+LWS_VISIBLE int
+lws_jwk_load(struct lws_jwk *s, const char *filename);
+
+/** lws_jwk_save() - Export a JSON Web key to a file
+ *
+ * \param s: the JWK object to save from
+ * \param filename: filename to save to
+ *
+ * Returns 0 for OK or -1 for failure
+ */
+LWS_VISIBLE int
+lws_jwk_save(struct lws_jwk *s, const char *filename);
+///@}
+
+
+/*! \defgroup jws JSON Web Signature
+ * ## JSON Web Signature API
+ *
+ * Lws provides an API to check and create RFC7515 JSON Web Signatures
+ *
+ * SHA256/384/512 HMAC, and RSA 256/384/512 are supported.
+ *
+ * The API uses your TLS library crypto, but works exactly the same no matter
+ * what you TLS backend is.
+ */
+///@{
+
+LWS_VISIBLE LWS_EXTERN int
+lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk);
+
+/**
+ * lws_jws_sign_from_b64() - add b64 sig to b64 hdr + payload
+ *
+ * \param b64_hdr: protected header encoded in b64, may be NULL
+ * \param hdr_len: bytes in b64 coding of protected header
+ * \param b64_pay: payload encoded in b64
+ * \param pay_len: bytes in b64 coding of payload
+ * \param b64_sig: buffer to write the b64 encoded signature into
+ * \param sig_len: max bytes we can write at b64_sig
+ * \param hash_type: one of LWS_GENHASH_TYPE_SHA[256|384|512]
+ * \param jwk: the struct lws_jwk containing the signing key
+ *
+ * This adds a b64-coded JWS signature of the b64-encoded protected header
+ * and b64-encoded payload, at \p b64_sig.  The signature will be as large
+ * as the N element of the RSA key when the RSA key is used, eg, 512 bytes for
+ * a 4096-bit key, and then b64-encoding on top.
+ *
+ * In some special cases, there is only payload to sign and no header, in that
+ * case \p b64_hdr may be NULL, and only the payload will be hashed before
+ * signing.
+ *
+ * Returns the length of the encoded signature written to \p b64_sig, or -1.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jws_sign_from_b64(const char *b64_hdr, size_t hdr_len, const char *b64_pay,
+		      size_t pay_len, char *b64_sig, size_t sig_len,
+		      enum lws_genhash_types hash_type, struct lws_jwk *jwk);
+
+/**
+ * lws_jws_create_packet() - add b64 sig to b64 hdr + payload
+ *
+ * \param jwk: the struct lws_jwk containing the signing key
+ * \param payload: unencoded payload JSON
+ * \param len: length of unencoded payload JSON
+ * \param nonce: Nonse string to include in protected header
+ * \param out: buffer to take signed packet
+ * \param out_len: size of \p out buffer
+ *
+ * This creates a "flattened" JWS packet from the jwk and the plaintext
+ * payload, and signs it.  The packet is written into \p out.
+ *
+ * This does the whole packet assembly and signing, calling through to
+ * lws_jws_sign_from_b64() as part of the process.
+ *
+ * Returns the length written to \p out, or -1.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jws_create_packet(struct lws_jwk *jwk, const char *payload, size_t len,
+		      const char *nonce, char *out, size_t out_len);
+
+/**
+ * lws_jws_base64_enc() - encode input data into b64url data
+ *
+ * \param in: the incoming plaintext
+ * \param in_len: the length of the incoming plaintext in bytes
+ * \param out: the buffer to store the b64url encoded data to
+ * \param out_max: the length of \p out in bytes
+ *
+ * Returns either -1 if problems, or the number of bytes written to \p out.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max);
+///@}
+#endif
 
 /*! \defgroup extensions Extension related functions
  * ##Extension releated functions

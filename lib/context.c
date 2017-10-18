@@ -1177,6 +1177,10 @@ lws_create_context(struct lws_context_creation_info *info)
 			LWS_EXT_CB_CLIENT_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
 
+#if defined(LWS_WITH_SELFTESTS)
+	lws_jws_selftest();
+#endif
+
 	return context;
 
 bail:
