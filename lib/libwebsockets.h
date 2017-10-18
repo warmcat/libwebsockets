@@ -5267,6 +5267,18 @@ lws_SHA1(const unsigned char *d, size_t n, unsigned char *md);
 LWS_VISIBLE LWS_EXTERN int
 lws_b64_encode_string(const char *in, int in_len, char *out, int out_size);
 /**
+ * lws_b64_encode_string_url(): encode a string into base 64
+ *
+ * \param in: incoming buffer
+ * \param in_len: length of incoming buffer
+ * \param out: result buffer
+ * \param out_size: length of result buffer
+ *
+ * Encodes a string using b64 with the "URL" variant (+ -> -, and / -> _)
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_b64_encode_string_url(const char *in, int in_len, char *out, int out_size);
+/**
  * lws_b64_decode_string(): decode a string from base 64
  *
  * \param in: incoming buffer
