@@ -210,10 +210,11 @@ typedef unsigned long long lws_intptr_t;
 #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
 #endif
 #include <mbedtls/ssl.h>
-#endif
+#else
 #include <openssl/ssl.h>
 #if !defined(LWS_WITH_MBEDTLS)
 #include <openssl/err.h>
+#endif
 #endif
 #endif /* not USE_WOLFSSL */
 #endif
@@ -2191,12 +2192,12 @@ struct lws_context_creation_info {
 	int ka_interval;
 	/**< CONTEXT: if ka_time was nonzero, how long to wait before each ka_probes
 	 * attempt */
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
 	SSL_CTX *provided_client_ssl_ctx;
 	/**< CONTEXT: If non-null, swap out libwebsockets ssl
- *		implementation for the one provided by provided_ssl_ctx.
- *		Libwebsockets no longer is responsible for freeing the context
- *		if this option is selected. */
+	  * implementation for the one provided by provided_ssl_ctx.
+	  * Libwebsockets no longer is responsible for freeing the context
+	  * if this option is selected. */
 #else /* maintain structure layout either way */
 	void *provided_client_ssl_ctx; /**< dummy if ssl disabled */
 #endif
@@ -4995,7 +4996,7 @@ lws_is_ssl(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi);
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
 /**
  * lws_get_ssl() - Return wsi's SSL context structure
  * \param wsi:	websocket connection

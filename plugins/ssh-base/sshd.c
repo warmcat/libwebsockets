@@ -23,6 +23,7 @@
 #include "lws-ssh.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 void *sshd_zalloc(size_t s)
 {

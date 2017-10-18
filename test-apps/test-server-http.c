@@ -764,7 +764,7 @@ bail:
 
 		break;
 
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
 	case LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION:
 		/* Verify the client certificate */
 		if (!len || (SSL_get_verify_result((SSL*)in) != X509_V_OK)) {

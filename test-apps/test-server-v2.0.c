@@ -24,6 +24,7 @@
 #ifndef WIN32
 #include <syslog.h>
 #endif
+#include <stdlib.h>
 
 /* windows has no SIGUSR1 */
 #if !defined(WIN32) && !defined(_WIN32)
@@ -365,7 +366,7 @@ int main(int argc, char **argv)
 			use_ssl = 1;
 			break;
 		case 'S':
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
 			info.ssl_info_event_mask |= SSL_CB_ALERT;
 #endif
 			break;

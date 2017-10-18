@@ -25,6 +25,7 @@
 
 #include <sqlite3.h>
 #include <string.h>
+#include <stdlib.h>
 
 struct per_vhost_data__gs_mb {
 	struct lws_vhost *vh;

@@ -8,6 +8,7 @@ Public domain.
 #include "lws-ssh.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 struct chacha_ctx {
 	u_int input[16];

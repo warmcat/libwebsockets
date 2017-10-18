@@ -27,6 +27,7 @@
 #include <lws-ssh.h>
 
 #include <string.h>
+#include <stdlib.h>
 
 #define TEST_SERVER_KEY_PATH "/etc/lws-test-sshd-server-key"
 
@@ -160,7 +161,7 @@ ssh_ops_tx(void *_priv, int stdch, uint8_t *buf, size_t len)
 	if (stdch != LWS_STDOUT)
 		return 0;
 
-	if (priv->len - priv->pos < chunk)
+	if ((size_t)(priv->len - priv->pos) < chunk)
 		chunk = priv->len - priv->pos;
 
 	if (!chunk)

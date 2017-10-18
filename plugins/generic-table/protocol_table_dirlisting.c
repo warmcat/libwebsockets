@@ -24,6 +24,7 @@
 #include "../lib/libwebsockets.h"
 
 #include <string.h>
+#include <stdlib.h>
 #include <uv.h>
 
 struct fobj {

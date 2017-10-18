@@ -20,6 +20,7 @@
  */
 
 #include "private-lwsgs.h"
+#include <stdlib.h>
 
 /* keep changes in sync with the enum in lwsgs.h */
 static const char * const param_names[] = {

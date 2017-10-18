@@ -20,6 +20,7 @@
  */
 
 #include "private-lwsgs.h"
+#include <stdlib.h>
 
 void
 sha1_to_lwsgw_hash(unsigned char *hash, lwsgw_hash *shash)

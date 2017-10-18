@@ -1190,46 +1190,24 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 #endif
 
 	if ((!(pollfd->revents & pollfd->events & LWS_POLLIN)) &&
-			(pollfd->revents & LWS_POLLHUP)) {
+	    (pollfd->revents & LWS_POLLHUP)) {
 		lwsl_debug("pollhup\n");
 		wsi->socket_is_permanently_unusable = 1;
 		goto close_and_handled;
 	}
 
 #ifdef LWS_OPENSSL_SUPPORT
-	if ((wsi->state == LWSS_SHUTDOWN) && lws_is_ssl(wsi) && wsi->ssl) {
-		n = SSL_shutdown(wsi->ssl);
-		lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
-		switch (n) {
-		case 1:
-			n = shutdown(wsi->desc.sockfd, SHUT_WR);
+	if (wsi->state == LWSS_SHUTDOWN && lws_is_ssl(wsi) && wsi->ssl) {
+		n = 0;
+		switch (lws_tls_shutdown(wsi)) {
+		case LWS_SSL_CAPABLE_DONE:
+		case LWS_SSL_CAPABLE_ERROR:
 			goto close_and_handled;
 
-		case 0:
-			lws_change_pollfd(wsi, 0, LWS_POLLIN);
-			n = 0;
+		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			goto handled;
-
-		default:
-			n = SSL_get_error(wsi->ssl, n);
-			if (n != SSL_ERROR_SYSCALL && n != SSL_ERROR_SSL) {
-				if (SSL_want_read(wsi->ssl)) {
-					lwsl_debug("(wants read)\n");
-					lws_change_pollfd(wsi, 0, LWS_POLLIN);
-					n = 0;
-					goto handled;
-				}
-				if (SSL_want_write(wsi->ssl)) {
-					lwsl_debug("(wants write)\n");
-					lws_change_pollfd(wsi, 0, LWS_POLLOUT);
-					n = 0;
-					goto handled;
-				}
-			}
-
-			/* actual error occurred, just close the connection */
-			n = shutdown(wsi->desc.sockfd, SHUT_WR);
-			goto close_and_handled;
 		}
 	}
 #endif

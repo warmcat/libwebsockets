@@ -621,35 +621,19 @@ just_kill_connection:
 	    wsi->state != LWSS_CLIENT_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !wsi->socket_is_permanently_unusable) {
+
 #ifdef LWS_OPENSSL_SUPPORT
-		if (lws_is_ssl(wsi) && wsi->ssl) {
-			n = SSL_shutdown(wsi->ssl);
-			/*
-			 * If finished the SSL shutdown, then do socket
-			 * shutdown, else need to retry SSL shutdown
-			 */
-			switch (n) {
-			case 0:
-				lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
-				break;
-			case 1:
-				n = shutdown(wsi->desc.sockfd, SHUT_WR);
-				break;
-			default:
-				if (SSL_want_read(wsi->ssl)) {
-					lws_change_pollfd(wsi, 0, LWS_POLLIN);
-					n = 0;
-					break;
-				}
-				if (SSL_want_write(wsi->ssl)) {
-					lws_change_pollfd(wsi, 0, LWS_POLLOUT);
-					n = 0;
-					break;
-				}
-				n = shutdown(wsi->desc.sockfd, SHUT_WR);
-				break;
-			}
-		} else
+	if (lws_is_ssl(wsi) && wsi->ssl) {
+		n = 0;
+		switch (lws_tls_shutdown(wsi)) {
+		case LWS_SSL_CAPABLE_DONE:
+		case LWS_SSL_CAPABLE_ERROR:
+		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+		case LWS_SSL_CAPABLE_MORE_SERVICE:
+			break;
+		}
+	} else
 #endif
 		{
 			lwsl_info("%s: shutdown conn: %p (sock %d, state %d)\n",
@@ -1858,7 +1842,7 @@ lws_is_ssl(struct lws *wsi)
 }
 
 #ifdef LWS_OPENSSL_SUPPORT
-LWS_VISIBLE SSL*
+LWS_VISIBLE lws_tls_conn*
 lws_get_ssl(struct lws *wsi)
 {
 	return wsi->ssl;

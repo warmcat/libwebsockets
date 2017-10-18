@@ -283,6 +283,7 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
+#include "tls/mbedtls/wrapper/include/openssl/ssl.h" /* wrapper !!!! */
 #else
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
@@ -476,6 +477,53 @@ extern "C" {
 #ifndef SYSTEM_RANDOM_FILEPATH
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
 #endif
+
+/*
+ * Choose the SSL backend
+ */
+
+#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_MBEDTLS________)
+struct lws_tls_mbed_ctx {
+
+};
+struct lws_tls_mbed_conn {
+
+};
+struct lws_tls_mbed_bio {
+
+};
+struct lws_tls_mbed_x509 {
+
+};
+typedef struct lws_tls_mbed_conn lws_tls_conn;
+typedef struct lws_tls_mbed_ctx lws_tls_ctx;
+typedef struct lws_tls_mbed_bio lws_tls_bio;
+typedef struct lws_tls_mbed_x509 lws_tls_x509;
+#else
+typedef SSL lws_tls_conn;
+typedef SSL_CTX lws_tls_ctx;
+typedef BIO lws_tls_bio;
+typedef X509 lws_tls_x509;
+#endif
+#endif
+
+/*
+ * All lws_tls...() functions must return this type, converting the
+ * native backend result and doing the extra work to determine which one
+ * as needed.
+ *
+ * Native TLS backend return codes are NOT ALLOWED outside the backend.
+ *
+ * Non-SSL mode also uses these types.
+ */
+enum lws_ssl_capable_status {
+	LWS_SSL_CAPABLE_ERROR = -1,		 /* it failed */
+	LWS_SSL_CAPABLE_DONE = 0,		 /* it succeeded */
+	LWS_SSL_CAPABLE_MORE_SERVICE_READ = -2,	 /* retry WANT_READ */
+	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE = -3,  /* retry WANT_WRITE */
+	LWS_SSL_CAPABLE_MORE_SERVICE = -4,	 /* general retry */
+};
 
 enum lws_websocket_opcodes_07 {
 	LWSWSOPC_CONTINUATION = 0,
@@ -924,11 +972,11 @@ struct lws_vhost {
 	const struct lws_protocol_vhost_options *headers;
 	struct lws **same_vh_protocol_list;
 #ifdef LWS_OPENSSL_SUPPORT
-	SSL_CTX *ssl_ctx;
-	SSL_CTX *ssl_client_ctx;
+	lws_tls_ctx *ssl_ctx;
+	lws_tls_ctx *ssl_client_ctx;
 #endif
 #if defined(LWS_WITH_MBEDTLS)
-	X509 *x509_client_CA;
+	lws_tls_x509 *x509_client_CA;
 #endif
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *extensions;
@@ -1879,8 +1927,8 @@ struct lws {
 	void *act_ext_user[LWS_MAX_EXTENSIONS_ACTIVE];
 #endif
 #ifdef LWS_OPENSSL_SUPPORT
-	SSL *ssl;
-	BIO *client_bio;
+	lws_tls_conn *ssl;
+	lws_tls_bio *client_bio;
 	struct lws *pending_read_list_prev, *pending_read_list_next;
 #if defined(LWS_WITH_STATS)
 	uint64_t accept_start_us;
@@ -2272,11 +2320,6 @@ interface_to_sa(struct lws_vhost *vh, const char *ifname,
 #endif
 LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 
-enum lws_ssl_capable_status {
-	LWS_SSL_CAPABLE_ERROR = -1,
-	LWS_SSL_CAPABLE_MORE_SERVICE = -2,
-};
-
 #ifndef LWS_OPENSSL_SUPPORT
 #define LWS_SSL_ENABLED(context) (0)
 #define lws_context_init_server_ssl(_a, _b) (0)
@@ -2323,6 +2366,13 @@ LWS_EXTERN void
 lws_ssl_elaborate_error(void);
 LWS_EXTERN int
 lws_ssl_anybody_has_buffered_read_tsi(struct lws_context *context, int tsi);
+LWS_EXTERN int
+lws_gate_accepts(struct lws_context *context, int on);
+LWS_EXTERN void
+lws_ssl_bind_passphrase(lws_tls_ctx *ssl_ctx, struct lws_context_creation_info *info);
+LWS_EXTERN void
+lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);
+
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
@@ -2332,6 +2382,47 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 #endif
 LWS_EXTERN void
 lws_ssl_destroy(struct lws_vhost *vhost);
+LWS_EXTERN char *
+lws_ssl_get_error_string(int status, int ret, char *buf, size_t len);
+
+/*
+ * lws_tls_ abstract backend implementations
+ */
+
+LWS_EXTERN int
+lws_tls_server_client_cert_verify_config(struct lws_context_creation_info *info,
+					 struct lws_vhost *vh);
+LWS_EXTERN int
+lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
+				  struct lws_vhost *vhost, struct lws *wsi);
+LWS_EXTERN int
+lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd);
+
+LWS_EXTERN enum lws_ssl_capable_status
+lws_tls_server_accept(struct lws *wsi);
+
+LWS_EXTERN enum lws_ssl_capable_status
+lws_tls_server_abort_connection(struct lws *wsi);
+
+LWS_EXTERN enum lws_ssl_capable_status
+lws_tls_shutdown(struct lws *wsi);
+
+LWS_EXTERN enum lws_ssl_capable_status
+lws_tls_client_connect(struct lws *wsi);
+LWS_EXTERN int
+lws_tls_client_confirm_peer_cert(struct lws *wsi);
+LWS_EXTERN int
+lws_tls_client_create_vhost_context(struct lws_vhost *vh,
+				    struct lws_context_creation_info *info,
+				    const char *cipher_list,
+				    const char *ca_filepath,
+				    const char *cert_filepath,
+				    const char *private_key_filepath);
+LWS_EXTERN lws_tls_ctx *
+lws_tls_ctx_from_wsi(struct lws *wsi);
+LWS_EXTERN int
+lws_ssl_get_error(struct lws *wsi, int n);
+
 /* HTTP2-related */
 
 #ifdef LWS_WITH_HTTP2
@@ -2437,7 +2528,7 @@ lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost);
 
 LWS_EXTERN void
-lws_ssl_info_callback(const SSL *ssl, int where, int ret);
+lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);
 
 #else
 	#define lws_context_init_client_ssl(_a, _b) (0)
@@ -2560,8 +2651,7 @@ LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
 LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		                lws_filepos_t *amount);
-LWS_EXTERN int alloc_pem_to_der_file(struct lws_context *context, const char *filename, uint8_t **buf,
-	       lws_filepos_t *amount);
+
 
 LWS_EXTERN void
 lws_same_vh_protocol_remove(struct lws *wsi);
