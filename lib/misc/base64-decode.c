@@ -42,13 +42,16 @@
 #include <string.h>
 #include "private-libwebsockets.h"
 
-static const char encode[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+static const char encode_orig[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 			     "abcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char encode_url[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+			     "abcdefghijklmnopqrstuvwxyz0123456789-_";
 static const char decode[] = "|$$$}rstuvwxyz{$$$$$$$>?@ABCDEFGHIJKLMNOPQRSTUVW"
 			     "$$$$$$XYZ[\\]^_`abcdefghijklmnopq";
 
-LWS_VISIBLE int
-lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
+static int
+_lws_b64_encode_string(const char *encode, const char *in, int in_len,
+		       char *out, int out_size)
 {
 	unsigned char triple[3];
 	int i;
@@ -89,6 +92,18 @@ lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
 	return done;
 }
 
+LWS_VISIBLE int
+lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
+{
+	return _lws_b64_encode_string(encode_orig, in, in_len, out, out_size);
+}
+
+LWS_VISIBLE int
+lws_b64_encode_string_url(const char *in, int in_len, char *out, int out_size)
+{
+	return _lws_b64_encode_string(encode_url, in, in_len, out, out_size);
+}
+
 /*
  * returns length of decoded string in out, or -1 if out was too small
  * according to out_size
@@ -109,6 +124,11 @@ lws_b64_decode_string(const char *in, char *out, int out_size)
 			c = 0;
 			while (*in && !v) {
 				c = v = *in++;
+				/* support the url base64 variant too */
+				if (v == '-')
+					c = v = '+';
+				if (v == '_')
+					c = v = '/';
 				v = (v < 43 || v > 122) ? 0 : decode[v - 43];
 				if (v)
 					v = (v == '$') ? 0 : v - 61;
