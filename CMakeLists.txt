@@ -121,6 +121,8 @@ option(LWS_AVOID_SIGPIPE_IGN "Android 7+ seems to need this" OFF)
 option(LWS_WITH_STATS "Keep statistics of lws internal operations" OFF)
 option(LWS_WITH_SOCKS5 "Allow use of SOCKS5 proxy on client connections" OFF)
 option(LWS_WITH_PEER_LIMITS "Track peers and restrict resources a single peer can allocate" OFF)
+option(LWS_WITH_JWS "JSON Web Signature (RFC7515) API" OFF)
+option(LWS_WITH_SELFTESTS "Selftests run at context creation" OFF)
 
 macro(confirm_command CMD NOCMD)
 	find_program (HAVE_CMD_${CMD} ${CMD} )
@@ -139,6 +141,10 @@ if (LWS_WITH_LWSWS)
  set(LWS_WITH_LEJP 1)
  set(LWS_WITH_LEJP_CONF 1)
  set(LWS_WITH_PEER_LIMITS 1)
+endif()
+
+if (LWS_WITH_JWS)
+ set(LWS_WITH_LEJP 1)
 endif()
 
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
@@ -830,6 +836,12 @@ if (LWS_WITH_ZIP_FOPS)
        else()
                message(FATAL_ERROR "Pre-zipped file support (LWS_WITH_ZIP_FOPS) requires ZLIB (LWS_WITH_ZLIB)")
        endif()
+endif()
+
+if (LWS_WITH_JWS)
+	list(APPEND SOURCES
+		lib/jws/jwk.c
+		lib/jws/jws.c)
 endif()
 
 # Add helper files for Windows.
