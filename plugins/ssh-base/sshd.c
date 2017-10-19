@@ -2045,13 +2045,11 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 				pss->vhd->protocol);
 	else
-		vhd = (struct per_vhost_data__sshd *)
+		if (lws_get_vhost(wsi))
+			vhd = (struct per_vhost_data__sshd *)
 				lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 				lws_vhost_name_to_protocol(
 					lws_get_vhost(wsi), "lws-ssh-base"));
-
-	if (!vhd && reason != LWS_CALLBACK_PROTOCOL_INIT)
-		return -1;
 
 	switch ((int)reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
