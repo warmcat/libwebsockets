@@ -688,16 +688,20 @@ endif()
 
 if (LWS_WITH_SSL)
 	list(APPEND SOURCES
-		lib/tls/tls.c)
+		lib/tls/tls.c
+	)
 		
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				lib/tls/mbedtls/ssl.c
-				lib/tls/mbedtls/lws-genhash.c)
+				lib/tls/mbedtls/lws-genhash.c
+				lib/tls/mbedtls/lws-genrsa.c
+			)
 		else()
 			list(APPEND SOURCES
 				lib/tls/openssl/ssl.c
 				lib/tls/openssl/lws-genhash.c
+				lib/tls/openssl/lws-genrsa.c
 			)
 		endif()
 		
