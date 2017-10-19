@@ -524,16 +524,11 @@ ssh_destroy_channel(struct per_session_data__sshd *pss,
 static int
 lws_ssh_parse_plaintext(struct per_session_data__sshd *pss, uint8_t *p, size_t len)
 {
-#if defined(LWS_WITH_MBEDTLS)
-	mbedtls_rsa_context *ctx;
-#else
-	BIGNUM *bn_e = NULL, *bn_n = NULL;
-	RSA *rsa = NULL;
-#endif
+	struct lws_genrsa_elements el;
+	struct lws_genrsa_ctx ctx;
 	struct lws_ssh_channel *ch;
 	struct lws_subprotocol_scp *scp;
 	uint8_t *pp, *ps, hash[64], *otmp;
-	size_t olen;
 	uint32_t m;
 	int n;
 
@@ -1223,76 +1218,22 @@ again:
 			 * Prepare the RSA decryption context: load in
 			 * the E and N factors
 			 */
-#if defined(LWS_WITH_MBEDTLS)
-			ctx = sshd_zalloc(sizeof(*ctx));
-			if (!ctx)
-				goto ua_fail;
-			mbedtls_rsa_init(ctx, MBEDTLS_RSA_PKCS_V15, 0);
 
+			memset(&el, 0, sizeof(el));
 			pp = pss->ua->pubkey;
 			m = lws_g32(&pp);
 			pp += m;
 			m = lws_g32(&pp);
-			if (mbedtls_mpi_read_binary(&ctx->E, pp, m))
-				lwsl_notice("mpi load E failed\n");
+			el.e[JWK_KEY_E].buf = pp;
+			el.e[JWK_KEY_E].len = m;
 			pp += m;
 			m = lws_g32(&pp);
+			el.e[JWK_KEY_N].buf = pp;
+			el.e[JWK_KEY_N].len = m;
 
-			m = mbedtls_mpi_read_binary(&ctx->N, pp, m);
-			if (m)
-				lwsl_notice("mpi load N failed %d\n", m);
-#else
-			/* Step 1:
-			 *
-			 * convert the MPI for e and n to OpenSSL BIGNUMs
-			 */
-
-			pp = pss->ua->pubkey;
-			m = lws_g32(&pp);
-			pp += m;
-			m = lws_g32(&pp);
-			pp -= 4;
-			bn_e = BN_mpi2bn(pp, m + 4, NULL);
-			if (!bn_e) {
-				lwsl_notice("mpi load E failed\n");
+			if (lws_genrsa_create(&ctx, &el))
 				goto ua_fail;
-			}
-			pp += m + 4;
-			m = lws_g32(&pp);
-			pp -= 4;
-			bn_n = BN_mpi2bn(pp, m + 4, NULL);
-			if (!bn_n) {
-				lwsl_notice("mpi load N failed %d\n", m);
-				BN_free(bn_e);
-				bn_e = NULL;
-				goto ua_fail;
-			}
 
-			/* Step 2:
-			 *
-			 * assemble the OpenSSL RSA from the BIGNUMs
-			 */
-
-			rsa = RSA_new();
-			if (!rsa) {
-				lwsl_notice("Failed to create RSA\n");
-				BN_free(bn_e);
-				BN_free(bn_n);
-				goto ua_fail;
-			}
-#if defined(LWS_HAVE_RSA_SET0_KEY)
-			if (RSA_set0_key(rsa, bn_n, bn_e, NULL) != 1) {
-				lwsl_notice("RSA_set0_key failed\n");
-				BN_free(bn_e);
-				BN_free(bn_n);
-				goto ua_fail;
-			}
-
-#else
-			rsa->e = bn_e;
-			rsa->n = bn_n;
-#endif
-#endif
 			/*
 			 * point to the encrypted signature payload we
 			 * were sent
@@ -1301,39 +1242,21 @@ again:
 			m = lws_g32(&pp);
 			pp += m;
 			m = lws_g32(&pp);
-#if defined(LWS_WITH_MBEDTLS)
-			ctx->len = m;
-#endif
 
 			/*
-			 * decrypt it, resulting in an error or some
-			 * ASN1 including the decrypted signature
+			 * decrypt it, resulting in an error, or some ASN1
+			 * including the decrypted signature
 			 */
-
 			otmp = sshd_zalloc(m);
 			if (!otmp)
 				/* ua_fail1 frees bn_e, bn_n and rsa */
 				goto ua_fail1;
-#if defined(LWS_WITH_MBEDTLS)
-			m = mbedtls_rsa_rsaes_pkcs1_v15_decrypt(ctx,
-				NULL, NULL, MBEDTLS_RSA_PUBLIC,
-				&olen, pp, otmp, m);
-#else
-			olen = 0;
-			m = RSA_public_decrypt((int)m, pp, otmp, rsa,
-					       RSA_PKCS1_PADDING);
-			if (m != (uint32_t)-1) {
-				olen = m;
-				m = 0;
-			}
-			/* the bignums are also freed by freeing the RSA */
-			RSA_free(rsa);
-#endif
-			if (!m) {
+
+			n = lws_genrsa_public_decrypt(&ctx, pp, m, otmp, m);
+			if (n > 0) {
 				/* the decrypted sig is in ASN1 format */
 				m = 0;
-
-				while (m < olen) {
+				while ((int)m < n) {
 					/* sig payload */
 					if (otmp[m] == 0x04 &&
 					    otmp[m + 1] == lws_genhash_size(
@@ -1350,17 +1273,15 @@ again:
 					/* otherwise skip payloads */
 					m += otmp[m + 1] + 2;
 				}
-			} else
-				lwsl_notice("decrypt failed\n");
-#if defined(LWS_WITH_MBEDTLS)
-			mbedtls_rsa_free(ctx);
-			free(ctx);
-#endif
+			}
+
 			free(otmp);
+			lws_genrsa_destroy(&ctx);
+
 			/*
 			 * if no good, m is nonzero and inform peer
 			 */
-			if (m) {
+			if (n <= 0) {
 				lwsl_notice("hash sig verify fail: %d\n", m);
 				goto ua_fail;
 			}
@@ -1878,13 +1799,7 @@ ch_fail:
 			break;
 
 ua_fail1:
-#if defined(LWS_WITH_MBEDTLS)
-			mbedtls_rsa_free(ctx);
-			free(ctx);
-#else
-			/* also frees the bignums */
-			RSA_free(rsa);
-#endif
+			lws_genrsa_destroy(&ctx);
 ua_fail:
 			write_task(pss, NULL, SSH_WT_UA_FAILURE);
 ua_fail_silently:
