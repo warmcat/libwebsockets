@@ -1773,3 +1773,26 @@ uint16_t lws_esp32_sine_interp(int n)
                 sine_lu((n >> 4) + 1) * (n & 15)) / 15;
 }
 
+/* we write vhostname.cert.pem and vhostname.key.pem, 0 return means OK */
+
+int
+lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
+			int len)
+{
+	char name[64];
+	int n;
+
+	lws_snprintf(name, sizeof(name) - 1, "%s-%s.pem", vhost->name,
+		     is_key ? "key" : "cert");
+
+	if (nvs_open("lws-station", NVS_READWRITE, &nvh))
+		return 1;
+
+	n = nvs_set_blob(nvh, ssl_names[n], pss->buffer, pss->file_length);
+	if (n)
+		nvs_commit(nvh);
+
+	nvs_close(nvh);
+
+	return n;
+}

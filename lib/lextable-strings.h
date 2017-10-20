@@ -98,6 +98,7 @@ STORE_IN_ROM static const char * const set[] = {
 	"connect ",
 	"head ",
 	"te:",		/* http/2 wants it to reject it */
+	"replay-nonce:", /* ACME */
 
 	"", /* not matchable */
 
