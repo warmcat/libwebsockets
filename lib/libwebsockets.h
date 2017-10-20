@@ -3858,6 +3858,8 @@ enum lws_token_indexes {
 	WSI_TOKEN_CONNECT					= 81,
 	WSI_TOKEN_HEAD_URI					= 82,
 	WSI_TOKEN_TE						= 83,
+	WSI_TOKEN_REPLAY_NONCE					= 84,
+
 	/****** add new things just above ---^ ******/
 
 	/* use token storage to stash these internally, not for
@@ -5583,7 +5585,13 @@ enum {
 	LWS_TLS_REQ_ELEMENT_COMMON_NAME,
 	LWS_TLS_REQ_ELEMENT_EMAIL,
 
-	LWS_TLS_REQ_ELEMENT_COUNT
+	LWS_TLS_REQ_ELEMENT_COUNT,
+	LWS_TLS_SET_DIR_URL = LWS_TLS_REQ_ELEMENT_COUNT,
+	LWS_TLS_SET_AUTH_PATH,
+	LWS_TLS_SET_CERT_PATH,
+	LWS_TLS_SET_KEY_PATH,
+
+	LWS_TLS_TOTAL_COUNT
 };
 
 /**

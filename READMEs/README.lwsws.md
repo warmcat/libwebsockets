@@ -79,6 +79,12 @@ on port 7681, non-SSL is provided.  To set it up
 	# sudo lwsws
 ```
 
+@section lwswsacme Using Letsencrypt or other ACME providers
+
+Lws supports automatic provisioning and renewal of TLS certificates.
+
+See ./READMEs/README.plugin-acme.md for examples of how to set it up on an lwsws vhost.
+
 @section lwsogo Other Global Options
 
  - `reject-service-keywords` allows you to return an HTTP error code and message of your choice
@@ -430,6 +436,17 @@ The file should be readable by lwsws, and for a little bit of extra security not
 have a file suffix, so lws would reject to serve it even if it could find it on
 a mount.
 
+@section lwswscc Requiring a Client Cert on a vhost
+
+You can make a vhost insist to get a client certificate from the peer before
+allowing the connection with
+
+```
+	"client-cert-required": "1"
+```
+
+the connection will only proceed if the client certificate was signed by the
+same CA as the server has been told to trust.
 
 @section lwswspl Lwsws Plugins
 

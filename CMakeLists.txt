@@ -27,6 +27,7 @@ option(LWS_WITH_PEER_LIMITS "Track peers and restrict resources a single peer ca
 option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OFF)
 option(LWS_WITH_RANGES "Support http ranges (RFC7233)" ON)
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
+option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
 #
@@ -173,6 +174,12 @@ if (LWS_WITH_LWSWS)
  set(LWS_WITH_LEJP 1)
  set(LWS_WITH_LEJP_CONF 1)
  set(LWS_WITH_PEER_LIMITS 1)
+endif()
+
+if (LWS_WITH_ACME)
+ set (LWS_WITHOUT_CLIENT 0)
+ set (LWS_WITHOUT_SERVER 0)
+ set (LWS_WITH_JWS 1)
 endif()
 
 if (LWS_WITH_JWS)
@@ -1708,6 +1715,11 @@ if (NOT LWS_WITHOUT_CLIENT)
 		create_plugin(protocol_client_loopback_test ""
                               "plugins/protocol_client_loopback_test.c" "" "")
 endif(NOT LWS_WITHOUT_CLIENT)
+
+if (LWS_WITH_ACME)
+		create_plugin(protocol_lws_acme_client ""
+			      "plugins/acme-client/protocol_lws_acme_client.c" "" "")
+endif()
 
 if (LWS_WITH_GENERIC_SESSIONS)
 	create_plugin(protocol_generic_sessions ""
