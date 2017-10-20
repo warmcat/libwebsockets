@@ -3786,6 +3786,8 @@ enum lws_token_indexes {
 	WSI_TOKEN_CONNECT					= 81,
 	WSI_TOKEN_HEAD_URI					= 82,
 	WSI_TOKEN_TE						= 83,
+	WSI_TOKEN_REPLAY_NONCE					= 84,
+
 	/****** add new things just above ---^ ******/
 
 	/* use token storage to stash these internally, not for
