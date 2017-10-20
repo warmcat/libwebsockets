@@ -78,7 +78,7 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		return 0;
 	}
 
-	lwsl_notice("SNI: Found: %s:%d\n", servername, vh->listen_port);
+	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);
 
 	/* select the ssl ctx from the selected vhost for this conn */
 	SSL_set_SSL_CTX(ssl, vhost->ssl_ctx);

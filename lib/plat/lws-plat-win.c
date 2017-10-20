@@ -749,3 +749,15 @@ int fork(void)
 	exit(0);
 }
 
+int
+lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
+			int len)
+{
+	int n;
+
+	n = write(fd, buf, len);
+
+	lseek(fd, 0, SEEK_SET);
+
+	return n != len;
+}
