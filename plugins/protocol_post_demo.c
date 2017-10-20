@@ -149,7 +149,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			"<html><body><h1>Form results (after urldecoding)</h1>"
 			"<table><tr><td>Name</td><td>Length</td><td>Value</td></tr>");
 
-		for (n = 0; n < ARRAY_SIZE(param_names); n++)
+		for (n = 0; n < (int)ARRAY_SIZE(param_names); n++)
 			p += lws_snprintf((char *)p, end - p,
 				    "<tr><td><b>%s</b></td><td>%d</td><td>%s</td></tr>",
 				    param_names[n],

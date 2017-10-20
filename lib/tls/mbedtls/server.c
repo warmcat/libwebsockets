@@ -79,7 +79,7 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 	}
 
 	s = ftell(f);
-	if (s == -1) {
+	if (s == (size_t)-1) {
 		n = 1;
 		goto bail;
 	}

@@ -496,7 +496,7 @@ int main(int argc, char **argv)
 		if (client && !versa && times) {
 			gettimeofday(&tv, NULL);
 
-			if (((((unsigned long long)tv.tv_sec * 1000000) + tv.tv_usec) - oldus) > rate_us) {
+			if ((int)((((unsigned long long)tv.tv_sec * 1000000) + tv.tv_usec) - oldus) > rate_us) {
 				lws_callback_on_writable_all_protocol(context,
 						&protocols[0]);
 				oldus = ((unsigned long long)tv.tv_sec * 1000000) + tv.tv_usec;

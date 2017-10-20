@@ -597,7 +597,7 @@ lws_pos_in_bounds(struct lws *wsi)
 	    (unsigned int)wsi->context->max_http_header_data)
 		return 0;
 
-	if (wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {
+	if ((int)wsi->u.hdr.ah->pos == wsi->context->max_http_header_data) {
 		lwsl_err("Ran out of header data space\n");
 		return 1;
 	}

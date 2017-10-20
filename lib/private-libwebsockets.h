@@ -2502,7 +2502,7 @@ struct lws_rewrite {
 };
 static LWS_INLINE int hstrcmp(hubbub_string *s, const char *p, int len)
 {
-	if (s->len != len)
+	if ((int)s->len != len)
 		return 1;
 
 	return strncmp((const char *)s->ptr, p, len);

@@ -877,7 +877,7 @@ spin_chunks:
 		return 0;
 
 	if (wsi->u.http.rx_content_remain &&
-	    wsi->u.http.rx_content_remain < *len)
+	    wsi->u.http.rx_content_remain < (unsigned int)*len)
 		n = (int)wsi->u.http.rx_content_remain;
 	else
 		n = *len;
@@ -1069,7 +1069,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 					break;
 
 				len = lws_hdr_total_length(wsi, m);
-				if (!len || len > sizeof(buf) - 1) {
+				if (!len || len > (int)sizeof(buf) - 1) {
 					m++;
 					continue;
 				}
@@ -1448,7 +1448,7 @@ read:
 					pending = eff_buf.token_len;
 
 				eff_buf.token_len = lws_ssl_capable_read(wsi,
-					(unsigned char *)eff_buf.token, pending ? pending :
+					(unsigned char *)eff_buf.token, pending ? (int)pending :
 					eff_buf.token_len);
 				switch (eff_buf.token_len) {
 				case 0:

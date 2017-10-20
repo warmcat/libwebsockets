@@ -56,7 +56,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
 	assert(wsi->position_in_fds_table >= 0 &&
-	       wsi->position_in_fds_table < pt->fds_count);
+	       wsi->position_in_fds_table < (int)pt->fds_count);
 
 	pfd = &pt->fds[wsi->position_in_fds_table];
 	pa->fd = wsi->desc.sockfd;

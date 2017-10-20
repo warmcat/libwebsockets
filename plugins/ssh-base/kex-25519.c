@@ -146,7 +146,7 @@ ed25519_key_parse(uint8_t *p, size_t len, char *type, size_t type_len,
 		return 6;
 
 	publ = lws_g32(&p); /* length of pubkey block */
-	if ((p - op) + publ >= len)
+	if ((size_t)((p - op) + publ) >= len)
 		return 7;
 
 	l = lws_g32(&p); /* key type length */
@@ -166,7 +166,7 @@ ed25519_key_parse(uint8_t *p, size_t len, char *type, size_t type_len,
 	p += l;
 
 	publ = lws_g32(&p); /* length of private key block */
-	if ((p - op) + publ != len)
+	if ((size_t)((p - op) + publ) != len)
 		return 11;
 
 	l = lws_g32(&p); /* checkint 1 */
@@ -363,7 +363,7 @@ kex_ecdh(struct per_session_data__sshd *pss, uint8_t *reply, uint32_t *plen)
 	crypto_scalarmult_curve25519(kex->Q_S, kex->eph_pri_key, basepoint);
 
 	a = 0;
-	for (r = 0; r < sizeof(kex->Q_S); r++)
+	for (r = 0; r < (int)sizeof(kex->Q_S); r++)
 		a |= kex->Q_S[r];
 	if (!a) {
 		lwsl_notice("all zero pubkey\n");

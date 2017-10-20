@@ -371,7 +371,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 					    w->u.h2.tx_cr + b - settings->s[a]);
 				w->u.h2.tx_cr += b - settings->s[a];
 				if (w->u.h2.tx_cr > 0 &&
-				    w->u.h2.tx_cr <= b - settings->s[a])
+				    w->u.h2.tx_cr <= (int32_t)(b - settings->s[a]))
 					lws_callback_on_writable(w);
 			} lws_end_foreach_ll(w, u.h2.sibling_list);
 
@@ -480,7 +480,7 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 		  sid, len, wsi->u.h2.tx_cr, nwsi->u.h2.tx_cr);
 
 	if (type == LWS_H2_FRAME_TYPE_DATA) {
-		if (wsi->u.h2.tx_cr < len)
+		if (wsi->u.h2.tx_cr < (int)len)
 			lwsl_err("%s: %p: sending payload len %d"
 				 " but tx_cr only %d!\n", __func__, wsi,
 				 len, wsi->u.h2.tx_cr);
@@ -627,7 +627,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		*p++ = pps->u.ga.err;
 		q = (unsigned char *)pps->u.ga.str;
 		n = 0;
-		while (*q && n++ < sizeof(pps->u.ga.str))
+		while (*q && n++ < (int)sizeof(pps->u.ga.str))
 			*p++ = *q++;
 		h2n->we_told_goaway = 1;
 		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_GOAWAY, 0,
@@ -1134,7 +1134,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				}
 
 				len = lws_hdr_total_length(h2n->swsi, n);
-				if (!len || len > sizeof(buf) - 1) {
+				if (!len || len > (int)sizeof(buf) - 1) {
 					n++;
 					continue;
 				}

@@ -275,7 +275,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (flood &&
-			 (psd->ping_index - psd->rx_count) < (screen_width - 1))
+		    (int)(psd->ping_index - psd->rx_count) < (screen_width - 1))
 			fprintf(stderr, ".");
 		break;
 

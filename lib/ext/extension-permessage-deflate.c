@@ -82,11 +82,11 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		oa = in;
 		if (!oa->option_name)
 			break;
-		for (n = 0; n < ARRAY_SIZE(lws_ext_pm_deflate_options); n++)
+		for (n = 0; n < (int)ARRAY_SIZE(lws_ext_pm_deflate_options); n++)
 			if (!strcmp(lws_ext_pm_deflate_options[n].name, oa->option_name))
 				break;
 
-		if (n == ARRAY_SIZE(lws_ext_pm_deflate_options))
+		if (n == (int)ARRAY_SIZE(lws_ext_pm_deflate_options))
 			break;
 		oa->option_index = n;
 
@@ -377,7 +377,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 		if (priv->tx_held_valid) {
 			priv->tx_held_valid = 0;
-			if (priv->tx.avail_out == 1 << priv->args[PMD_TX_BUF_PWR2])
+			if ((int)priv->tx.avail_out == 1 << priv->args[PMD_TX_BUF_PWR2])
 				/*
 				 * we can get a situation he took something in
 				 * but did not generate anything out, at the end

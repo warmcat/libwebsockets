@@ -259,7 +259,7 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 	ah->data[ah->pos++] = c;
 	ah->frags[ah->nfrag].len++;
 
-	return ah->pos >= wsi->context->max_http_header_data;
+	return (int)ah->pos >= wsi->context->max_http_header_data;
 }
 
 static int lws_frag_end(struct lws *wsi)
@@ -354,8 +354,8 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 	if (index < 0)
 		return -1;
 
-	if (index < ARRAY_SIZE(static_token)) {
-		if (arg && index < ARRAY_SIZE(http2_canned)) {
+	if (index < (int)ARRAY_SIZE(static_token)) {
+		if (arg && index < (int)ARRAY_SIZE(http2_canned)) {
 			*arg = http2_canned[index];
 			*len = strlen(http2_canned[index]);
 		}
@@ -370,8 +370,8 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 		return -1;
 	}
 
-	if (index < ARRAY_SIZE(static_token) ||
-	    index >= ARRAY_SIZE(static_token) + dyn->used_entries) {
+	if (index < (int)ARRAY_SIZE(static_token) ||
+	    index >= (int)ARRAY_SIZE(static_token) + dyn->used_entries) {
 		lwsl_err("  %s: adjusted index %d >= %d\n", __func__, index,
 			    dyn->used_entries);
 		lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
@@ -379,7 +379,7 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 		return -1;
 	}
 
-	index -= ARRAY_SIZE(static_token);
+	index -= (int)ARRAY_SIZE(static_token);
 	index = (dyn->pos - 1 - index) % dyn->num_entries;
 	if (index < 0)
 		index += dyn->num_entries;
@@ -575,7 +575,7 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 		  (int)dyn->num_entries, size,
 		  nwsi->u.h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
 
-	if (size > nwsi->u.h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]) {
+	if (size > (int)nwsi->u.h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]) {
 		lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 			"Asked for header table bigger than we told");
 		goto bail;
@@ -693,7 +693,7 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 	if (arg)
 		p = arg;
 
-	if (idx < ARRAY_SIZE(http2_canned))
+	if (idx < (int)ARRAY_SIZE(http2_canned))
 		p = http2_canned[idx];
 
 	if (lws_frag_start(wsi, tok))
@@ -1231,7 +1231,7 @@ add_it:
 static int
 lws_h2_num_start(int starting_bits, unsigned long num)
 {
-	int mask = (1 << starting_bits) - 1;
+	unsigned int mask = (1 << starting_bits) - 1;
 
 	if (num < mask)
 		return (int)num;
@@ -1243,7 +1243,7 @@ static int
 lws_h2_num(int starting_bits, unsigned long num,
 			 unsigned char **p, unsigned char *end)
 {
-	int mask = (1 << starting_bits) - 1;
+	unsigned int mask = (1 << starting_bits) - 1;
 
 	if (num < mask)
 		return 0;

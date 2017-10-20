@@ -216,7 +216,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		};
 
 		if (script_uri_path_len >= 0)
-			for (m = 0; m < ARRAY_SIZE(meths); m++)
+			for (m = 0; m < (int)ARRAY_SIZE(meths); m++)
 				if (lws_hdr_total_length(wsi, meths[m]) >=
 						script_uri_path_len) {
 					uritok = meths[m];
@@ -703,7 +703,7 @@ post_hpack_recode:
 				 */
 				if (!significant_hdr[n][wsi->cgi->match[n]] &&
 				    (c >= '0' && c <= '9') &&
-				    wsi->cgi->lp < sizeof(wsi->cgi->l) - 1) {
+				    wsi->cgi->lp < (int)sizeof(wsi->cgi->l) - 1) {
 					wsi->cgi->l[wsi->cgi->lp++] = c;
 					wsi->cgi->l[wsi->cgi->lp] = '\0';
 					switch (n) {

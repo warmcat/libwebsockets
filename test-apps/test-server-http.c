@@ -80,7 +80,7 @@ dump_handshake_info(struct lws *wsi)
 		}
 
 		len = lws_hdr_total_length(wsi, n);
-		if (!len || len > sizeof(buf) - 1) {
+		if (!len || len > (int)sizeof(buf) - 1) {
 			n++;
 			continue;
 		}
@@ -471,7 +471,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			"<html><body><h1>Form results (after urldecoding)</h1>"
 			"<table><tr><td>Name</td><td>Length</td><td>Value</td></tr>");
 
-		for (n = 0; n < ARRAY_SIZE(param_names); n++)
+		for (n = 0; n < (int)ARRAY_SIZE(param_names); n++)
 			p += lws_snprintf((char *)p, end - p,
 				    "<tr><td><b>%s</b></td><td>%d</td><td>%s</td></tr>",
 				    param_names[n],

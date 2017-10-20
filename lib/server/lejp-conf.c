@@ -216,7 +216,7 @@ arg_to_bool(const char *s)
 	if (n)
 		return 1;
 
-	for (n = 0; n < ARRAY_SIZE(on); n++)
+	for (n = 0; n < (int)ARRAY_SIZE(on); n++)
 		if (!strcasecmp(s, on[n]))
 			return 1;
 
@@ -474,7 +474,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		if (a->last)
 			a->last->mount_next = m;
 
-		for (n = 0; n < ARRAY_SIZE(mount_protocols); n++)
+		for (n = 0; n < (int)ARRAY_SIZE(mount_protocols); n++)
 			if (!strncmp(a->m.origin, mount_protocols[n],
 			     strlen(mount_protocols[n]))) {
 				lwsl_info("----%s\n", a->m.origin);
@@ -484,7 +484,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				break;
 			}
 
-		if (n == ARRAY_SIZE(mount_protocols)) {
+		if (n == (int)ARRAY_SIZE(mount_protocols)) {
 			lwsl_err("unsupported protocol:// %s\n", a->m.origin);
 			return 1;
 		}

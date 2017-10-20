@@ -752,7 +752,7 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 {
 	int n, count = 0;
 
-	for (n = 0; n < ARRAY_SIZE(methods); n++)
+	for (n = 0; n < (int)ARRAY_SIZE(methods); n++)
 		if (lws_hdr_total_length(wsi, methods[n]))
 			count++;
 	if (!count) {
@@ -767,7 +767,7 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 		return -1;
 	}
 
-	for (n = 0; n < ARRAY_SIZE(methods); n++)
+	for (n = 0; n < (int)ARRAY_SIZE(methods); n++)
 		if (lws_hdr_total_length(wsi, methods[n])) {
 			*puri_ptr = lws_hdr_simple_ptr(wsi, methods[n]);
 			*puri_len = lws_hdr_total_length(wsi, methods[n]);
@@ -797,7 +797,7 @@ lws_http_action(struct lws *wsi)
 	};
 
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
-	if (meth < 0 || meth >= ARRAY_SIZE(method_names))
+	if (meth < 0 || meth >= (int)ARRAY_SIZE(method_names))
 		goto bail_nuke_ah;
 
 	/* we insist on absolute paths */
@@ -1064,7 +1064,7 @@ lws_http_action(struct lws *wsi)
 		else
 			n = pslash - hit->origin;
 
-		if (n >= sizeof(ads) - 2)
+		if (n >= (int)sizeof(ads) - 2)
 			n = sizeof(ads) - 2;
 
 		memcpy(ads, hit->origin, n);
@@ -1569,7 +1569,7 @@ upgrade_h2c:
 				      "Upgrade: h2c\x0d\x0a\x0d\x0a");
 		n = lws_issue_raw(wsi, (unsigned char *)protocol_list,
 					strlen(protocol_list));
-		if (n != strlen(protocol_list)) {
+		if (n != (int)strlen(protocol_list)) {
 			lwsl_debug("http2 switch: ERROR writing to socket\n");
 			return 1;
 		}
@@ -1606,7 +1606,7 @@ upgrade_ws:
 		while (*p && !hit) {
 			n = 0;
 			non_space_char_found = 0;
-			while (n < sizeof(protocol_name) - 1 &&
+			while (n < (int)sizeof(protocol_name) - 1 &&
 			       *p && *p != ',') {
 				/* ignore leading spaces */
 				if (!non_space_char_found && *p == ' ') {
@@ -2952,7 +2952,7 @@ skip:
 				sp = s->start + 1;
 				continue;
 			}
-			if (hits == 1 && s->pos == strlen(s->vars[hit])) {
+			if (hits == 1 && s->pos == (int)strlen(s->vars[hit])) {
 				pc = s->replace(s->data, hit);
 				if (!pc)
 					pc = "NULL";

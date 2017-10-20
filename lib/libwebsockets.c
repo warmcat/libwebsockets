@@ -1262,7 +1262,7 @@ lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 		pf = fops->next;
 		while (pf) {
 			n = 0;
-			while (n < ARRAY_SIZE(pf->fi) && pf->fi[n].sig) {
+			while (n < (int)ARRAY_SIZE(pf->fi) && pf->fi[n].sig) {
 				if (p >= vfs_path + pf->fi[n].len)
 					if (!strncmp(p - (pf->fi[n].len - 1),
 						    pf->fi[n].sig,
@@ -1749,7 +1749,7 @@ LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 	buf[sizeof(buf) - 1] = '\0';
 #else
 	/* vnsprintf returns what it would have written, even if truncated */
-	if (n > sizeof(buf) - 1)
+	if (n > (int)sizeof(buf) - 1)
 		n = sizeof(buf) - 1;
 	if (n > 0)
 		buf[n] = '\0';

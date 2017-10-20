@@ -653,7 +653,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			lwsl_info("%s: came here with no tx credit", __func__);
 			return 0;
 		}
-		if (m < poss)
+		if ((lws_filepos_t)m < poss)
 			poss = m;
 		/*
 		 * consumption of the actual payload amount sent will be handled
@@ -746,7 +746,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				/* adjust for what was not sent */
 				if (lws_vfs_file_seek_cur(wsi->u.http.fop_fd,
 							   m - n) ==
-							     (unsigned long)-1)
+							     (lws_fileofs_t)-1)
 					goto file_had_it;
 			}
 		}

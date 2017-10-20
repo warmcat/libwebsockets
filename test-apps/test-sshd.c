@@ -483,7 +483,7 @@ ssh_ops_child_process_io(void *_priv, struct lws *wsi,
 				n = bytes / 2;
 			else
 				n = 1;
-			if (n > sizeof(buf))
+			if (n > (int)sizeof(buf))
 				n = sizeof(buf);
 
 			if (!n)
@@ -513,7 +513,7 @@ ssh_ops_child_process_io(void *_priv, struct lws *wsi,
 				*p++ = *d++;
 			}
 			n = (void *)p - rp;
-			if (n < bytes && priv->insert_lf) {
+			if (n < (int)bytes && priv->insert_lf) {
 				priv->insert_lf = 0;
 				*p++ = 0x0d;
 				n++;

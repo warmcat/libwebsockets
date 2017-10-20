@@ -108,7 +108,7 @@ lws_urldecode_s_create(struct lws *wsi, char *out, int out_len, void *data,
 				s->mime_boundary[m++] = '\x0a';
 				s->mime_boundary[m++] = '-';
 				s->mime_boundary[m++] = '-';
-				while (m < sizeof(s->mime_boundary) - 1 &&
+				while (m < (int)sizeof(s->mime_boundary) - 1 &&
 				       *p && *p != ' ')
 					s->mime_boundary[m++] = *p++;
 
@@ -160,7 +160,7 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 				in++;
 				continue;
 			}
-			if (s->pos >= sizeof(s->name) - 1) {
+			if (s->pos >= (int)sizeof(s->name) - 1) {
 				lwsl_notice("Name too long\n");
 				return -1;
 			}
@@ -258,7 +258,7 @@ retry_as_first:
 			c =*in;
 			if (c >= 'A' && c <= 'Z')
 				c += 'a' - 'A';
-			for (n = 0; n < ARRAY_SIZE(mp_hdr); n++)
+			for (n = 0; n < (int)ARRAY_SIZE(mp_hdr); n++)
 				if (c == mp_hdr[n][s->mp]) {
 					m++;
 					hit = n;
@@ -317,28 +317,28 @@ retry_as_first:
 					s->mp = 0;
 					goto done;
 				}
-				if (s->mp < sizeof(s->temp) - 1 &&
+				if (s->mp < (int)sizeof(s->temp) - 1 &&
 				    (*in != ' ' || s->inside_quote))
 					s->temp[s->mp++] = *in;
 				goto done;
 			}
 
 			if (!s->temp[0]) {
-				if (s->mp < sizeof(s->content_disp) - 1)
+				if (s->mp < (int)sizeof(s->content_disp) - 1)
 					s->content_disp[s->mp++] = *in;
 				s->content_disp[s->mp] = '\0';
 				goto done;
 			}
 
 			if (!strcmp(s->temp, "name")) {
-				if (s->mp < sizeof(s->name) - 1)
+				if (s->mp < (int)sizeof(s->name) - 1)
 					s->name[s->mp++] = *in;
 				s->name[s->mp] = '\0';
 				goto done;
 			}
 
 			if (!strcmp(s->temp, "filename")) {
-				if (s->mp < sizeof(s->content_disp_filename) - 1)
+				if (s->mp < (int)sizeof(s->content_disp_filename) - 1)
 					s->content_disp_filename[s->mp++] = *in;
 				s->content_disp_filename[s->mp] = '\0';
 				goto done;
@@ -351,7 +351,7 @@ done:
 			if (*in == '\x0d')
 				s->state = MT_IGNORE2;
 			else {
-				if (s->mp < sizeof(s->content_type) - 1)
+				if (s->mp < (int)sizeof(s->content_type) - 1)
 					s->content_type[s->mp++] = *in;
 				s->content_type[s->mp] = '\0';
 			}

@@ -85,7 +85,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 				continue;
 			}
 			ext_name[n] = *c++;
-			if (n < sizeof(ext_name) - 1)
+			if (n < (int)sizeof(ext_name) - 1)
 				n++;
 			continue;
 		}

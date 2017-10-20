@@ -215,7 +215,7 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 			ns = 2;
 
 		if (pt->context->use_ev_sigint) {
-			assert(ns <= ARRAY_SIZE(pt->signals));
+			assert(ns <= (int)ARRAY_SIZE(pt->signals));
 			for (n = 0; n < ns; n++) {
 				uv_signal_init(loop, &pt->signals[n]);
 				pt->signals[n].data = pt->context;

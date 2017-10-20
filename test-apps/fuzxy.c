@@ -354,7 +354,7 @@ fuzxy_tok(const char **src, unsigned char **buf, int *len)
 				return -1;
 			rlen = *buf - start;
 			while (count--) {
-				if (*len < rlen) {
+				if (*len < (int)rlen) {
 					lwsl_err("out of space\n");
 					return -1;
 				}
@@ -587,7 +587,7 @@ inject:
 
 		case FZY_FP_INJECT:
 			out[m++] = s->buf[s->fuzc++];
-			if (s->fuzc == s->inject_len)
+			if (s->fuzc == (int)s->inject_len)
 				s->fp = FZY_FP_PENDING;
 			break;
 

@@ -289,7 +289,7 @@ lwsgs_handler_change_password(struct per_vhost_data__gs *vhd, struct lws *wsi,
 				return 1;
 
 			/* did a forgot pw ? */
-			if (u.last_forgot_validated > lws_now_secs() - 300) {
+			if (u.last_forgot_validated > (time_t)lws_now_secs() - 300) {
 				n |= LWSGS_AUTH_FORGOT_FLOW;
 				lwsl_debug("within forgot password flow\n");
 			}

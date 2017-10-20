@@ -889,7 +889,7 @@ check_extensions:
 			}
 
 			ext_name[n] = *c++;
-			if (n < sizeof(ext_name) - 1)
+			if (n < (int)sizeof(ext_name) - 1)
 				n++;
 			continue;
 		}

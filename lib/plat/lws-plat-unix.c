@@ -193,7 +193,7 @@ faked_service:
 			c = n;
 
 	/* any socket with events to service? */
-	for (n = 0; n < pt->fds_count && c; n++) {
+	for (n = 0; n < (int)pt->fds_count && c; n++) {
 		if (!pt->fds[n].revents)
 			continue;
 
@@ -738,7 +738,8 @@ _lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
 	lws_fileofs_t r;
 
-	if (offset > 0 && offset > fop_fd->len - fop_fd->pos)
+	if (offset > 0 &&
+	    offset > (lws_fileofs_t)fop_fd->len - (lws_fileofs_t)fop_fd->pos)
 		offset = fop_fd->len - fop_fd->pos;
 
 	if ((lws_fileofs_t)fop_fd->pos + offset < 0)

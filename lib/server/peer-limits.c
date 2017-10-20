@@ -89,7 +89,7 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 #endif
 
 	q8 = q;
-	for (n = 0; n < rlen; n++)
+	for (n = 0; n < (int)rlen; n++)
 		hash = (((hash << 4) | (hash >> 28)) * n) ^ q8[n];
 
 	hash = hash % context->pl_hash_elements;

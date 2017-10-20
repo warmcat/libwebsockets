@@ -179,7 +179,7 @@ reload_handler(int signum)
 		fprintf(stderr, "root process receives reload\n");
 		if (!do_reload) {
 			fprintf(stderr, "passing HUP to child processes\n");
-			for (m = 0; m < ARRAY_SIZE(pids); m++)
+			for (m = 0; m < (int)ARRAY_SIZE(pids); m++)
 				if (pids[m])
 					kill(pids[m], SIGHUP);
 			sleep(1);
@@ -190,7 +190,7 @@ reload_handler(int signum)
 	case SIGTERM:
 	case SIGKILL:
 		fprintf(stderr, "killing service processes\n");
-		for (m = 0; m < ARRAY_SIZE(pids); m++)
+		for (m = 0; m < (int)ARRAY_SIZE(pids); m++)
 			if (pids[m])
 				kill(pids[m], SIGTERM);
 		exit(0);
@@ -249,7 +249,7 @@ int main(int argc, char **argv)
 				break;
 			/* old */
 			if (n > 0)
-				for (m = 0; m < ARRAY_SIZE(pids); m++)
+				for (m = 0; m < (int)ARRAY_SIZE(pids); m++)
 					if (!pids[m]) {
 						// fprintf(stderr, "added child pid %d\n", n);
 						pids[m] = n;
@@ -261,7 +261,7 @@ int main(int argc, char **argv)
 
 		n = waitpid(-1, &status, WNOHANG);
 		if (n > 0)
-			for (m = 0; m < ARRAY_SIZE(pids); m++)
+			for (m = 0; m < (int)ARRAY_SIZE(pids); m++)
 				if (pids[m] == n) {
 					// fprintf(stderr, "reaped child pid %d\n", pids[m]);
 					pids[m] = 0;
