@@ -213,12 +213,12 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_start_foreach_ll(struct mirror_instance *, mi1,
 				     v->mi_list) {
 			count_mi++;
-			if (strcmp(name, mi1->name))
-				continue;
-			/* yes... we will join it */
-			lwsl_info("Joining existing mi %p '%s'\n", mi1, name);
-			mi = mi1;
-			break;
+			if (!strcmp(name, mi1->name)) {
+				/* yes... we will join it */
+				lwsl_info("Joining existing mi %p '%s'\n", mi1, name);
+				mi = mi1;
+				break;
+			}
 		} lws_end_foreach_ll(mi1, next);
 
 		if (!mi) {
