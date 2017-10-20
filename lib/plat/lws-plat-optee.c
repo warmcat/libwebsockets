@@ -319,3 +319,10 @@ lws_plat_init(struct lws_context *context,
 
 	return 0;
 }
+
+int
+lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
+			int len)
+{
+	return 1;
+}
