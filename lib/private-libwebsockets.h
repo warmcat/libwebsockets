@@ -1116,6 +1116,7 @@ struct lws_context {
 	unsigned int requested_kill:1;
 	unsigned int protocol_init_done:1;
 	unsigned int ssl_gate_accepts:1;
+	unsigned int doing_protocol_init;
 	/*
 	 * set to the Thread ID that's doing the service loop just before entry
 	 * to poll indicates service thread likely idling in poll()

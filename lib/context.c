@@ -197,6 +197,11 @@ lws_protocol_init(struct lws_context *context)
 	struct lws wsi;
 	int n;
 
+	if (context->doing_protocol_init)
+		return 0;
+
+	context->doing_protocol_init = 1;
+
 	memset(&wsi, 0, sizeof(wsi));
 	wsi.context = context;
 
@@ -261,14 +266,20 @@ lws_protocol_init(struct lws_context *context)
 			 */
 			if (vh->protocols[n].callback(&wsi,
 					LWS_CALLBACK_PROTOCOL_INIT, NULL,
-					(void *)pvo, 0))
+					(void *)pvo, 0)) {
+				lwsl_err("%s: vhost %s failed init\n", __func__,
+					 vh->protocols[n].name);
+				context->doing_protocol_init = 0;
 				return 1;
+			}
 		}
 
 		vh->created_vhost_protocols = 1;
 next:
 		vh = vh->vhost_next;
 	}
+
+	context->doing_protocol_init = 0;
 
 	if (!context->protocol_init_done)
 		lws_finalize_startup(context);
