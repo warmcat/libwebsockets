@@ -129,6 +129,8 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 	lwsl_info("%s: wsi %p: state %s -> %s\n", __func__, wsi,
 			h2_state_names[wsi->u.h2.h2_state],
 			h2_state_names[s]);
+		
+	(void)h2_state_names;
 	wsi->u.h2.h2_state = (uint8_t)s;
 }
 
