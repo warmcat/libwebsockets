@@ -656,11 +656,6 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	}
 
 	if (!wsi->do_ws) {
-		if (n != 200 && n != 201 && n != 304 && n != 401) {
-			lwsl_notice("Connection failed with code %d\n", n);
-			cce = "HS: Server unrecognized response code";
-			goto bail2;
-		}
 
 #ifdef LWS_WITH_HTTP_PROXY
 		wsi->perform_rewrite = 0;
