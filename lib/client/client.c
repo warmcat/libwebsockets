@@ -1175,7 +1175,6 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		if (n != 16) {
 			lwsl_err("Unable to read from random dev %s\n",
 				 SYSTEM_RANDOM_FILEPATH);
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 			return NULL;
 		}
 
@@ -1286,8 +1285,9 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	/* give userland a chance to append, eg, cookies */
 
-	wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
-				wsi->user_space, &p, (pkt + context->pt_serv_buf_size) - p - 12);
+	if (wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
+				wsi->user_space, &p, (pkt + context->pt_serv_buf_size) - p - 12))
+		return NULL;
 
 	p += sprintf(p, "\x0d\x0a");
 
