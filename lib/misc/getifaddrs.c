@@ -1,9 +1,4 @@
 /*
- * downloaded from
- * http://ftp.uninett.no/pub/OpenBSD/src/kerberosV/src/lib/roken/getifaddrs.c
- */
-#if !LWS_HAVE_GETIFADDRS
-/*
  * Copyright (c) 2000 - 2001 Kungliga Tekniska H�gskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
@@ -34,6 +29,10 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ * originally downloaded from
+ *
+ * http://ftp.uninett.no/pub/OpenBSD/src/kerberosV/src/lib/roken/getifaddrs.c
  */
 
 #include <errno.h>
@@ -268,5 +267,4 @@ main()
 	print_ifaddrs(b);
 	return 0;
 }
-#endif
 #endif
