@@ -147,9 +147,8 @@ int lws_h2_configure_if_upgraded(struct lws *wsi)
 	wsi->u.h2.tx_cr = 65535;
 
 	lwsl_info("%s: wsi %p: configured for h2\n", __func__, wsi);
-
-	return 0;
 #endif
+	return 0;
 }
 #endif
 #endif
