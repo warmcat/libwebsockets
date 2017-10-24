@@ -92,6 +92,9 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 
 	context->pt[tsi].io_loop_ev = loop;
 
+	if (lws_create_event_pipes(context))
+		return -1;
+
 	/*
 	 * Initialize the accept w_accept with all the listening sockets
 	 * and register a callback for read operations
