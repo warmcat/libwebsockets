@@ -316,6 +316,24 @@ lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
 {
 }
 
+
+int
+lws_plat_pipe_create(struct lws *wsi)
+{
+	return 1;
+}
+
+int
+lws_plat_pipe_signal(struct lws *wsi)
+{
+	return 1;
+}
+
+void
+lws_plat_pipe_close(struct lws *wsi)
+{
+}
+
 LWS_VISIBLE int
 lws_plat_context_early_init(void)
 {

@@ -168,6 +168,15 @@ static void timer_cb(uv_timer_t *t)
 	}
 }
 
+static void timer_test_cancel_cb(uv_timer_t *h)
+{
+	if (context) {
+		lwsl_notice("(doing cancel test)\n");
+		lws_cancel_service(context);
+	}
+}
+
+
 static void timer_close_cb(uv_handle_t *h)
 {
 	lwsl_notice("timer close cb %p, loop has %d handles\n",
@@ -205,6 +214,7 @@ int main(int argc, char **argv)
 	uv_timer_t timer_outer;
 	struct counter ctr;
 	int foreign_libuv_loop = 0;
+	uv_timer_t timer_test_cancel;
 /* <--- only needed for foreign loop test --- */
 #endif
 	const char *iface = NULL;
@@ -351,6 +361,9 @@ int main(int argc, char **argv)
 		uv_signal_init(&loop, &signal_outer);
 		uv_signal_start(&signal_outer, outer_signal_cb, SIGINT);
 
+		uv_timer_init(&loop, &timer_test_cancel);
+		uv_timer_start(&timer_test_cancel, timer_test_cancel_cb, 2000, 2000);
+
 		uv_timer_init(&loop, &timer_outer);
 		timer_outer.data = &ctr;
 		ctr.cur = 0;
@@ -374,10 +387,10 @@ int main(int argc, char **argv)
 	lws_uv_sigint_cfg(context, 1, signal_cb);
 
 #if UV_VERSION_MAJOR > 0
-	if (foreign_libuv_loop)
+	if (foreign_libuv_loop) {
 		/* we have our own uv loop outside of lws */
 		lws_uv_initloop(context, &loop, 0);
-	else
+	} else
 #endif
 	{
 		/*
@@ -438,6 +451,7 @@ int main(int argc, char **argv)
 		 *          outside of lws */
 
 		uv_timer_stop(&timer_outer);
+		uv_timer_stop(&timer_test_cancel);
 		uv_close((uv_handle_t*)&timer_outer, timer_close_cb);
 		uv_signal_stop(&signal_outer);
 
