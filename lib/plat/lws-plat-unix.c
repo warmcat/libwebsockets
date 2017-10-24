@@ -29,6 +29,41 @@
 #endif
 #include <dirent.h>
 
+int
+lws_plat_pipe_create(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	return pipe(pt->dummy_pipe_fds);
+}
+
+int
+lws_plat_pipe_signal(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	char buf = 0;
+	int n;
+
+	n = write(pt->dummy_pipe_fds[1], &buf, 1);
+
+	lwsl_debug("%s: fd %d %d\n", __func__, pt->dummy_pipe_fds[1], n);
+
+	return n != 1;
+}
+
+void
+lws_plat_pipe_close(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	if (pt->dummy_pipe_fds[0] && pt->dummy_pipe_fds[0] != -1)
+		close(pt->dummy_pipe_fds[0]);
+	if (pt->dummy_pipe_fds[1] && pt->dummy_pipe_fds[1] != -1)
+		close(pt->dummy_pipe_fds[1]);
+
+	pt->dummy_pipe_fds[0] = pt->dummy_pipe_fds[1] = -1;
+}
+
 unsigned long long time_in_microseconds(void)
 {
 	struct timeval tv;
@@ -77,29 +112,6 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 	return poll(fd, 1, 0);
 }
 
-LWS_VISIBLE void
-lws_cancel_service_pt(struct lws *wsi)
-{
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	char buf = 0;
-
-	if (write(pt->dummy_pipe_fds[1], &buf, sizeof(buf)) != 1)
-		lwsl_err("Cannot write to dummy pipe");
-}
-
-LWS_VISIBLE void
-lws_cancel_service(struct lws_context *context)
-{
-	struct lws_context_per_thread *pt = &context->pt[0];
-	char buf = 0, m = context->count_threads;
-
-	while (m--) {
-		if (write(pt->dummy_pipe_fds[1], &buf, sizeof(buf)) != 1)
-			lwsl_err("Cannot write to dummy pipe");
-		pt++;
-	}
-}
-
 LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 {
 	int syslog_level = LOG_DEBUG;
@@ -126,7 +138,6 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt;
 	int n = -1, m, c;
-	char buf;
 
 	/* stay dead once we are dead */
 
@@ -198,12 +209,6 @@ faked_service:
 			continue;
 
 		c--;
-
-		if (pt->fds[n].fd == pt->dummy_pipe_fds[0]) {
-			if (read(pt->fds[n].fd, &buf, 1) != 1)
-				lwsl_err("Cannot read from dummy pipe.");
-			continue;
-		}
 
 		m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
 		if (m < 0)
@@ -542,9 +547,6 @@ lws_plat_context_early_destroy(struct lws_context *context)
 LWS_VISIBLE void
 lws_plat_context_late_destroy(struct lws_context *context)
 {
-	struct lws_context_per_thread *pt = &context->pt[0];
-	int m = context->count_threads;
-
 #ifdef LWS_WITH_PLUGINS
 	if (context->plugin_list)
 		lws_plat_plugins_destroy(context);
@@ -553,13 +555,6 @@ lws_plat_context_late_destroy(struct lws_context *context)
 	if (context->lws_lookup)
 		lws_free(context->lws_lookup);
 
-	while (m--) {
-		if (pt->dummy_pipe_fds[0])
-			close(pt->dummy_pipe_fds[0]);
-		if (pt->dummy_pipe_fds[1])
-			close(pt->dummy_pipe_fds[1]);
-		pt++;
-	}
 	if (!context->fd_random)
 		lwsl_err("ZERO RANDOM FD\n");
 	if (context->fd_random != LWS_INVALID_FILE)
@@ -793,13 +788,11 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 	return 0;
 }
 
-
 LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
 	      struct lws_context_creation_info *info)
 {
-	struct lws_context_per_thread *pt = &context->pt[0];
-	int n = context->count_threads, fd;
+	int fd;
 
 	/* master context has the global fd lookup array */
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
@@ -821,25 +814,9 @@ lws_plat_init(struct lws_context *context,
 		return 1;
 	}
 
-	if (!lws_libev_init_fd_table(context) &&
-	    !lws_libuv_init_fd_table(context) &&
-	    !lws_libevent_init_fd_table(context)) {
-		/* otherwise libev/uv/event handled it instead */
-
-		while (n--) {
-			if (pipe(pt->dummy_pipe_fds)) {
-				lwsl_err("Unable to create pipe\n");
-				return 1;
-			}
-
-			/* use the read end of pipe as first item */
-			pt->fds[0].fd = pt->dummy_pipe_fds[0];
-			pt->fds[0].events = LWS_POLLIN;
-			pt->fds[0].revents = 0;
-			pt->fds_count = 1;
-			pt++;
-		}
-	}
+	(void)lws_libev_init_fd_table(context);
+	(void)lws_libuv_init_fd_table(context);
+	(void)lws_libevent_init_fd_table(context);
 
 #ifdef LWS_WITH_PLUGINS
 	if (info->plugin_dirs)
