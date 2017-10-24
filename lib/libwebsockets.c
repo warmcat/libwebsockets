@@ -2265,7 +2265,11 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 				  ntohs(((struct sockaddr_in6 *) &sin)->sin6_port) :
 				  ntohs(((struct sockaddr_in *) &sin)->sin_port);
 #else
-		port = ntohs(((struct sockaddr_in *) &sin)->sin_port);
+		{
+			struct sockaddr_in sain;
+			memcpy(&sain, &sin, sizeof(sain));
+			port = ntohs(sain.sin_port);
+		}
 #endif
 #endif
 
