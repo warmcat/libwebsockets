@@ -991,8 +991,6 @@ if (LWS_WITH_ZLIB)
 				${WIN32_ZLIB_PATH}/compress.c
 				${WIN32_ZLIB_PATH}/crc32.c
 				${WIN32_ZLIB_PATH}/deflate.c
-				${WIN32_ZLIB_PATH}/gzclose.c
-				${WIN32_ZLIB_PATH}/gzio.c
 				${WIN32_ZLIB_PATH}/gzlib.c
 				${WIN32_ZLIB_PATH}/gzread.c
 				${WIN32_ZLIB_PATH}/gzwrite.c
