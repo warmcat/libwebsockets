@@ -98,6 +98,9 @@ int tsi)
 		context->pt[tsi].io_loop_event_base = loop;
 	}
 
+	if (lws_create_event_pipes(context))
+		return 1;
+
 	/*
 	* Initialize all events with the listening sockets
 	* and register a callback for read operations

@@ -1416,6 +1416,12 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_CGI_PROCESS_ATTACH				= 70,
 	/**< CGI: Sent when the CGI process is spawned for the wsi.  The
 	 * len parameter is the PID of the child process */
+	LWS_CALLBACK_EVENT_WAIT_CANCELLED			= 71,
+	/**< This is sent to every protocol of every vhost in response
+	 * to lws_cancel_service() or lws_cancel_service_pt().  This
+	 * callback is serialized in the lws event loop normally, even
+	 * if the lws_cancel_service[_pt]() call was from a different
+	 * thread. */
 
 	/****** add new things just above ---^ ******/
 
@@ -3440,15 +3446,8 @@ lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi);
  *				on one thread
  * \param wsi:	Cancel service on the thread this wsi is serviced by
  *
- *	This function lets a call to lws_service() waiting for a timeout
- *	immediately return.
- *
- *	It works by creating a phony event and then swallowing it silently.
- *
- *	The reason it may be needed is when waiting in poll(), changes to
- *	the event masks are ignored by the OS until poll() is reentered.  This
- *	lets you halt the poll() wait and make the reentry happen immediately
- *	instead of having the wait out the rest of the poll timeout.
+ * Same as lws_cancel_service(), but targets a single service thread, the one
+ * the wsi belongs to.  You probably want to use lws_cancel_service() instead.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_cancel_service_pt(struct lws *wsi);
@@ -3457,12 +3456,13 @@ lws_cancel_service_pt(struct lws *wsi);
  * lws_cancel_service() - Cancel wait for new pending socket activity
  * \param context:	Websocket context
  *
- *	This function let a call to lws_service() waiting for a timeout
- *	immediately return.
+ * This function creates an immediate "synchronous interrupt" to the lws poll()
+ * wait or event loop.  As soon as possible in the serialzed service sequencing,
+ * a LWS_CALLBACK_EVENT_WAIT_CANCELLED callback is sent to every protocol on
+ * every vhost.
  *
- *	What it basically does is provide a fake event that will be swallowed,
- *	so the wait in poll() is ended.  That's useful because poll() doesn't
- *	attend to changes in POLLIN/OUT/ERR until it re-enters the wait.
+ * lws_cancel_service() may be called from another thread while the context
+ * exists, and its effect will be immediately serialized.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_cancel_service(struct lws_context *context);

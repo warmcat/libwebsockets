@@ -85,7 +85,7 @@ lws_free_wsi(struct lws *wsi)
 	lws_header_table_force_to_detachable_state(wsi);
 	lws_header_table_detach(wsi, 0);
 
-	if (wsi->vhost->lserv_wsi == wsi)
+	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
 		wsi->vhost->lserv_wsi = NULL;
 
 	lws_pt_lock(pt);
@@ -822,8 +822,9 @@ lws_close_free_wsi_final(struct lws *wsi)
 	}
 
 	/* outermost destroy notification for wsi (user_space still intact) */
-	wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
-				          wsi->user_space, NULL, 0);
+	if (wsi->vhost)
+		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
+						  wsi->user_space, NULL, 0);
 
 #ifdef LWS_WITH_CGI
 	if (wsi->cgi) {
