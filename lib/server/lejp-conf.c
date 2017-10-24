@@ -223,7 +223,7 @@ arg_to_bool(const char *s)
 	return 0;
 }
 
-static char
+static signed char
 lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jpargs *a = (struct jpargs *)ctx->user;
@@ -296,7 +296,7 @@ dostring:
 	return 0;
 }
 
-static char
+static signed char
 lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jpargs *a = (struct jpargs *)ctx->user;
