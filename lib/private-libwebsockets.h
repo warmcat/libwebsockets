@@ -630,6 +630,7 @@ enum connection_mode {
 	LWSCM_CGI, /* stdin, stdout, stderr for another cgi master wsi */
 	LWSCM_RAW, /* raw with bulk handling */
 	LWSCM_RAW_FILEDESC, /* raw without bulk handling */
+	LWSCM_EVENT_PIPE, /* event pipe with no vhost or protocol binding */
 
 	/* HTTP Client related */
 	LWSCM_HTTP_CLIENT = LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP,
@@ -890,9 +891,10 @@ struct lws_context_per_thread {
 	unsigned char *serv_buf;
 #ifdef _WIN32
 	WSAEVENT *events;
-#else
-	lws_sockfd_type dummy_pipe_fds[2];
 #endif
+	lws_sockfd_type dummy_pipe_fds[2];
+	struct lws *pipe_wsi;
+
 	unsigned int fds_count;
 	uint32_t ah_pool_length;
 
@@ -1989,6 +1991,7 @@ struct lws {
 	unsigned int cgi_stdout_zero_length:1;
 	unsigned int seen_zero_length_recv:1;
 	unsigned int rxflow_will_be_applied:1;
+	unsigned int event_pipe:1;
 
 #if defined(LWS_WITH_ESP8266)
 	unsigned int pending_send_completion:3;
@@ -2611,6 +2614,15 @@ void lws_free(void *p);
 #define lws_free(P)	lws_realloc(P, 0, "lws_free")
 #define lws_free_set_NULL(P)	do { lws_realloc(P, 0, "free"); (P) = NULL; } while(0)
 #endif
+
+int
+lws_plat_pipe_create(struct lws *wsi);
+int
+lws_plat_pipe_signal(struct lws *wsi);
+void
+lws_plat_pipe_close(struct lws *wsi);
+int
+lws_create_event_pipes(struct lws_context *context);
 
 const struct lws_plat_file_ops *
 lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,

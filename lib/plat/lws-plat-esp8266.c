@@ -41,6 +41,24 @@ time_t time(time_t *tloc)
 	return 0;
 }
 
+
+int
+lws_plat_pipe_create(struct lws *wsi)
+{
+	return 1;
+}
+
+int
+lws_plat_pipe_signal(struct lws *wsi)
+{
+	return 1;
+}
+
+void
+lws_plat_pipe_close(struct lws *wsi)
+{
+}
+
 LWS_VISIBLE int
 lws_get_random(struct lws_context *context, void *buf, int len)
 {
@@ -169,16 +187,6 @@ LWS_VISIBLE int
 lws_poll_listen_fd(struct lws_pollfd *fd)
 {
 	return 0;
-}
-
-LWS_VISIBLE void
-lws_cancel_service_pt(struct lws *wsi)
-{
-}
-
-LWS_VISIBLE void
-lws_cancel_service(struct lws_context *context)
-{
 }
 
 LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)

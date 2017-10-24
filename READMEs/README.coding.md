@@ -132,7 +132,7 @@ with the socket closing and the `wsi` freed.
 Websocket write activities should only take place in the
 `LWS_CALLBACK_SERVER_WRITEABLE` callback as described below.
 
-[This network-programming necessity to link the issue of new data to
+This network-programming necessity to link the issue of new data to
 the peer taking the previous data is not obvious to all users so let's
 repeat that in other words:
 
@@ -155,11 +155,19 @@ websocket ones, you can combine them together with the websocket ones
 in one poll loop, see "External Polling Loop support" below, and
 still do it all in one thread / process context.
 
-If you insist on trying to use it from multiple threads, take special care if
-you might simultaneously create more than one context from different threads.
-
 SSL_library_init() is called from the context create api and it also is not
 reentrant.  So at least create the contexts sequentially.
+
+If you must interoperate with other threads, you can use `lws_cancel_service()`
+to notify lws that something has happened on another thread.  lws will send
+`LWS_CALLBACK_EVENT_WAIT_CANCELLED` events to all protocols, serialized with
+the main event loop operations, ie, safely.
+
+You can handle this callback to check the reason you were notified and take
+action using any usual lws api, since you are in a callback in the normal
+service thread.
+
+`lws_cancel_service()` is very cheap for the other thread to call.
 
 @section closing Closing connections from the user side
 

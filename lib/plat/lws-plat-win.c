@@ -3,6 +3,27 @@
 #endif
 #include "private-libwebsockets.h"
 
+int
+lws_plat_pipe_create(struct lws *wsi)
+{
+	return 0;
+}
+
+int
+lws_plat_pipe_signal(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	WSASetEvent(pt->events[0]);
+
+	return 0;
+}
+
+void
+lws_plat_pipe_close(struct lws *wsi)
+{
+}
+
 unsigned long long
 time_in_microseconds()
 {
@@ -81,7 +102,7 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 		if (context->fd_hashtable[h].wsi[n]->desc.sockfd == fd) {
 			while (n < context->fd_hashtable[h].length) {
 				context->fd_hashtable[h].wsi[n] =
-						context->fd_hashtable[h].wsi[n + 1];
+					context->fd_hashtable[h].wsi[n + 1];
 				n++;
 			}
 			context->fd_hashtable[h].length--;
@@ -94,8 +115,8 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 	return 1;
 }
 
-LWS_VISIBLE int lws_get_random(struct lws_context *context,
-								 void *buf, int len)
+LWS_VISIBLE int
+lws_get_random(struct lws_context *context, void *buf, int len)
 {
 	int n;
 	char *p = (char *)buf;
@@ -106,7 +127,8 @@ LWS_VISIBLE int lws_get_random(struct lws_context *context,
 	return n;
 }
 
-LWS_VISIBLE int lws_send_pipe_choked(struct lws *wsi)
+LWS_VISIBLE int
+lws_send_pipe_choked(struct lws *wsi)
 {
 	/* treat the fact we got a truncated send pending as if we're choked */
 	if (wsi->trunc_len)
@@ -115,7 +137,8 @@ LWS_VISIBLE int lws_send_pipe_choked(struct lws *wsi)
 	return (int)wsi->sock_send_blocking;
 }
 
-LWS_VISIBLE int lws_poll_listen_fd(struct lws_pollfd *fd)
+LWS_VISIBLE int
+lws_poll_listen_fd(struct lws_pollfd *fd)
 {
 	fd_set readfds;
 	struct timeval tv = { 0, 0 };
@@ -129,25 +152,7 @@ LWS_VISIBLE int lws_poll_listen_fd(struct lws_pollfd *fd)
 }
 
 LWS_VISIBLE void
-lws_cancel_service(struct lws_context *context)
-{
-	struct lws_context_per_thread *pt = &context->pt[0];
-	int n = context->count_threads;
-
-	while (n--) {
-		WSASetEvent(pt->events[0]);
-		pt++;
-	}
-}
-
-LWS_VISIBLE void
-lws_cancel_service_pt(struct lws *wsi)
-{
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	WSASetEvent(pt->events[0]);
-}
-
-LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
+lwsl_emit_syslog(int level, const char *line)
 {
 	lwsl_emit_stderr(level, line);
 }
@@ -181,9 +186,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	}
 	context->service_tid = context->service_tid_detected;
 
-	if (timeout_ms < 0)
-	{
-			if (lws_service_flag_pending(context, tsi)) {
+	if (timeout_ms < 0) {
+		if (lws_service_flag_pending(context, tsi)) {
 			/* any socket with events to service? */
 			for (n = 0; n < (int)pt->fds_count; n++) {
 				if (!pt->fds[n].revents)
@@ -219,6 +223,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		if (n)
 			i--;
 
+		/*
+		 * any wsi has truncated, force him signalled
+		 */
 		if (wsi->trunc_len)
 			WSASetEvent(pt->events[0]);
 	}
@@ -235,29 +242,30 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			timeout_ms = 0;
 	}
 
-	ev = WSAWaitForMultipleEvents( 1,  pt->events , FALSE, timeout_ms, FALSE);
+	ev = WSAWaitForMultipleEvents(1, pt->events, FALSE, timeout_ms, FALSE);
 	if (ev == WSA_WAIT_EVENT_0) {
-		unsigned int eIdx;
+		unsigned int eIdx, err;
 
 		WSAResetEvent(pt->events[0]);
 
 		for (eIdx = 0; eIdx < pt->fds_count; ++eIdx) {
-			if (WSAEnumNetworkEvents(pt->fds[eIdx].fd, 0, &networkevents) == SOCKET_ERROR) {
-				lwsl_err("WSAEnumNetworkEvents() failed with error %d\n", LWS_ERRNO);
+			if (WSAEnumNetworkEvents(pt->fds[eIdx].fd, 0,
+					&networkevents) == SOCKET_ERROR) {
+				lwsl_err("WSAEnumNetworkEvents() failed "
+					 "with error %d\n", LWS_ERRNO);
 				return -1;
 			}
 
 			pfd = &pt->fds[eIdx];
 			pfd->revents = (short)networkevents.lNetworkEvents;
 
+			err = networkevents.iErrorCode[FD_CONNECT_BIT];
+
 			if ((networkevents.lNetworkEvents & FD_CONNECT) &&
-				 networkevents.iErrorCode[FD_CONNECT_BIT] &&
-				 networkevents.iErrorCode[FD_CONNECT_BIT] != LWS_EALREADY &&
-				 networkevents.iErrorCode[FD_CONNECT_BIT] != LWS_EINPROGRESS &&
-				 networkevents.iErrorCode[FD_CONNECT_BIT] != LWS_EWOULDBLOCK &&
-				 networkevents.iErrorCode[FD_CONNECT_BIT] != WSAEINVAL) {
-				lwsl_debug("Unable to connect errno=%d\n",
-					   networkevents.iErrorCode[FD_CONNECT_BIT]);
+			     err && err != LWS_EALREADY &&
+			     err != LWS_EINPROGRESS && err != LWS_EWOULDBLOCK &&
+			     err != WSAEINVAL) {
+				lwsl_debug("Unable to connect errno=%d\n", err);
 				pfd->revents |= LWS_POLLHUP;
 			}
 
@@ -268,20 +276,18 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			}
 			 /* if something closed, retry this slot */
 			if (pfd->revents & LWS_POLLHUP)
-					--eIdx;
+				--eIdx;
 
-			if( pfd->revents != 0 ) {
+			if (pfd->revents)
 				lws_service_fd_tsi(context, pfd, tsi);
-
-			}
 		}
 	}
 
 	context->service_tid = 0;
 
-	if (ev == WSA_WAIT_TIMEOUT) {
+	if (ev == WSA_WAIT_TIMEOUT)
 		lws_service_fd(context, NULL);
-	}
+
 	return 0;;
 }
 
@@ -308,7 +314,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd)
 		/* enable keepalive on this socket */
 		optval = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
-						 (const char *)&optval, optlen) < 0)
+			       (const char *)&optval, optlen) < 0)
 			return 1;
 
 		alive.onoff = TRUE;
@@ -316,7 +322,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd)
 		alive.keepaliveinterval = vhost->ka_interval;
 
 		if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive),
-						  NULL, 0, &dwBytesRet, NULL, NULL))
+			     NULL, 0, &dwBytesRet, NULL, NULL))
 			return 1;
 	}
 

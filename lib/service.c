@@ -1162,6 +1162,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 	/* no, here to service a socket descriptor */
 	wsi = wsi_from_fd(context, pollfd->fd);
+
 	if (!wsi)
 		/* not lws connection ... leave revents alone and return */
 		return 0;
@@ -1216,6 +1217,41 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	/* okay, what we came here to do... */
 
 	switch (wsi->mode) {
+	case LWSCM_EVENT_PIPE:
+	{
+		struct lws_vhost *v = context->vhost_list;
+		char s[10];
+
+		/* discard the byte(s) that signaled us */
+		if (read(wsi->desc.sockfd, s, sizeof(s)) < 0)
+			goto close_and_handled;
+
+		/*
+		 * the poll() wait, or the event loop for libuv etc is a
+		 * process-wide resource that we interrupted.  So let every
+		 * protocol that may be interested in the pipe event know that
+		 * it happened.
+		 */
+		while (v) {
+			const struct lws_protocols *p = v->protocols;
+			wsi->vhost = v;
+
+			for (n = 0; n < v->count_protocols; n++) {
+				wsi->protocol = p;
+				if (p->callback && p->callback(wsi,
+					  LWS_CALLBACK_EVENT_WAIT_CANCELLED,
+					  NULL, NULL, 0)) {
+					lwsl_info("closed in event cancel\n");
+					goto close_and_handled;
+				}
+				p++;
+			}
+			v = v->vhost_next;
+		}
+		wsi->vhost = NULL;
+		wsi->protocol = NULL;
+		goto handled;
+	}
 	case LWSCM_HTTP_SERVING:
 	case LWSCM_HTTP_CLIENT:
 	case LWSCM_HTTP_SERVING_ACCEPTED:

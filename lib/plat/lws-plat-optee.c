@@ -4,6 +4,23 @@
  * included from libwebsockets.c for OPTEE builds
  */
 
+int
+lws_plat_pipe_create(struct lws *wsi)
+{
+	return 1;
+}
+
+int
+lws_plat_pipe_signal(struct lws *wsi)
+{
+	return 1;
+}
+
+void
+lws_plat_pipe_close(struct lws *wsi)
+{
+}
+
 void TEE_GenerateRandom(void *randomBuffer, uint32_t randomBufferLen);
 
 unsigned long long time_in_microseconds(void)
@@ -52,32 +69,6 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 	return 0;
 }
 
-LWS_VISIBLE void
-lws_cancel_service_pt(struct lws *wsi)
-{
-#if 0
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	char buf = 0;
-
-	if (write(pt->dummy_pipe_fds[1], &buf, sizeof(buf)) != 1)
-		lwsl_err("Cannot write to dummy pipe");
-#endif
-}
-
-LWS_VISIBLE void
-lws_cancel_service(struct lws_context *context)
-{
-#if 0
-	struct lws_context_per_thread *pt = &context->pt[0];
-	char buf = 0, m = context->count_threads;
-
-	while (m--) {
-		if (write(pt->dummy_pipe_fds[1], &buf, sizeof(buf)) != 1)
-			lwsl_err("Cannot write to dummy pipe");
-		pt++;
-	}
-#endif
-}
 #if 0
 LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 {

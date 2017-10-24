@@ -401,6 +401,10 @@ req_writable:
 		mirror_callback_all_in_mi_on_writable(pss->mi);
 		break;
 
+	case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+		lwsl_notice("LWS_CALLBACK_EVENT_WAIT_CANCELLED\n");
+		break;
+
 	default:
 		break;
 	}
