@@ -140,9 +140,9 @@ enum lejp_callbacks {
  *
  *  LEJPCB_OBJECT_END:	An object ended
  */
-LWS_EXTERN char _lejp_callback(struct lejp_ctx *ctx, char reason);
+LWS_EXTERN signed char _lejp_callback(struct lejp_ctx *ctx, char reason);
 
-typedef char (*lejp_callback)(struct lejp_ctx *ctx, char reason);
+typedef signed char (*lejp_callback)(struct lejp_ctx *ctx, char reason);
 
 #ifndef LEJP_MAX_DEPTH
 #define LEJP_MAX_DEPTH 12
@@ -179,7 +179,7 @@ struct lejp_ctx {
 	 * pointers
 	 */
 
-	char (*callback)(struct lejp_ctx *ctx, char reason);
+	signed char (*callback)(struct lejp_ctx *ctx, char reason);
 	void *user;
 	const char * const *paths;
 
@@ -215,8 +215,8 @@ struct lejp_ctx {
 
 LWS_VISIBLE LWS_EXTERN void
 lejp_construct(struct lejp_ctx *ctx,
-	       char (*callback)(struct lejp_ctx *ctx, char reason), void *user,
-	       const char * const *paths, unsigned char paths_count);
+	       signed char (*callback)(struct lejp_ctx *ctx, char reason),
+	       void *user, const char * const *paths, unsigned char paths_count);
 
 LWS_VISIBLE LWS_EXTERN void
 lejp_destruct(struct lejp_ctx *ctx);
@@ -226,7 +226,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len);
 
 LWS_VISIBLE LWS_EXTERN void
 lejp_change_callback(struct lejp_ctx *ctx,
-		       char (*callback)(struct lejp_ctx *ctx, char reason));
+		     signed char (*callback)(struct lejp_ctx *ctx, char reason));
 
 LWS_VISIBLE LWS_EXTERN int
 lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len);
