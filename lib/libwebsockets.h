@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -62,6 +62,7 @@ typedef unsigned long long lws_intptr_t;
 #include <ws2tcpip.h>
 #include <stddef.h>
 #include <basetsd.h>
+#include <io.h>
 #ifndef _WIN32_WCE
 #include <fcntl.h>
 #else
