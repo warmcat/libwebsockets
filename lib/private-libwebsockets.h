@@ -187,7 +187,7 @@ int kill(int pid, int sig);
 #include <hubbub/parser.h>
 #endif
 #if defined(LWS_BUILTIN_GETIFADDRS)
- #include <getifaddrs.h>
+ #include "./misc/getifaddrs.h"
 #else
  #if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
  #if defined(__HAIKU__)
