@@ -174,6 +174,7 @@ void sighandler(int sig)
 		 * port + 1
 		 */
 		dynamic_vhost_enable ^= 1;
+		lws_cancel_service(context);
 		lwsl_notice("SIGUSR1: dynamic_vhost_enable: %d\n",
 				dynamic_vhost_enable);
 		return;

@@ -834,6 +834,77 @@ lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 	return lws_context_init_client_ssl(&i, vhost);
 }
 
+LWS_VISIBLE void
+lws_cancel_service_pt(struct lws *wsi)
+{
+	lws_plat_pipe_signal(wsi);
+}
+
+LWS_VISIBLE void
+lws_cancel_service(struct lws_context *context)
+{
+	struct lws_context_per_thread *pt = &context->pt[0];
+	short m = context->count_threads;
+
+	lwsl_notice("%s\n", __func__);
+
+	while (m--) {
+		if (pt->pipe_wsi)
+			lws_plat_pipe_signal(pt->pipe_wsi);
+		pt++;
+	}
+}
+
+int
+lws_create_event_pipes(struct lws_context *context)
+{
+	struct lws *wsi;
+	int n;
+
+	/*
+	 * Create the pt event pipes... these are unique in that they are
+	 * not bound to a vhost or protocol (both are NULL)
+	 */
+
+	for (n = 0; n < context->count_threads; n++) {
+		if (context->pt[n].pipe_wsi)
+			continue;
+
+		wsi = lws_zalloc(sizeof(*wsi), "event pipe wsi");
+		if (!wsi) {
+			lwsl_err("Out of mem\n");
+			return 1;
+		}
+		wsi->context = context;
+		wsi->mode = LWSCM_EVENT_PIPE;
+		wsi->protocol = NULL;
+		wsi->tsi = n;
+		wsi->vhost = NULL;
+		wsi->event_pipe = 1;
+
+		if (lws_plat_pipe_create(wsi)) {
+			lws_free(wsi);
+			continue;
+		}
+		wsi->desc.sockfd = context->pt[n].dummy_pipe_fds[0];
+		lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
+
+		context->pt[n].pipe_wsi = wsi;
+
+		lws_libuv_accept(wsi, wsi->desc);
+		lws_libev_accept(wsi, wsi->desc);
+		lws_libevent_accept(wsi, wsi->desc);
+
+		if (insert_wsi_socket_into_fds(context, wsi))
+			return 1;
+
+		lws_change_pollfd(context->pt[n].pipe_wsi, 0, LWS_POLLIN);
+		context->count_wsi_allocated++;
+	}
+
+	return 0;
+}
+
 LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
 {
@@ -1155,6 +1226,16 @@ lws_create_context(struct lws_context_creation_info *info)
 	memcpy(context->caps, info->caps, sizeof(context->caps));
 	context->count_caps = info->count_caps;
 #endif
+
+	/*
+	 * The event libs handle doing this when their event loop starts,
+	 * if we are using the default poll() service, do it here
+	 */
+
+	if (!LWS_LIBEV_ENABLED(context) &&
+	    !LWS_LIBUV_ENABLED(context) &&
+	    !LWS_LIBEVENT_ENABLED(context) && lws_create_event_pipes(context))
+		goto bail;
 
 	/*
 	 * drop any root privs for this process
@@ -1515,9 +1596,15 @@ lws_context_destroy(struct lws_context *context)
 			if (!wsi)
 				continue;
 
-			lws_close_free_wsi(wsi,
-				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
-				/* no protocol close */);
+			if (wsi->event_pipe) {
+				lws_plat_pipe_close(wsi);
+				remove_wsi_socket_from_fds(wsi);
+				lws_free(wsi);
+				context->count_wsi_allocated--;
+			} else
+				lws_close_free_wsi(wsi,
+					LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
+					/* no protocol close */);
 			n--;
 		}
 		lws_pt_mutex_destroy(pt);
