@@ -160,7 +160,8 @@ lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len)
 
 	n = ctx->wild[wildcard];
 
-	while (--len && n < ctx->ppos && (n == ctx->wild[wildcard] || ctx->path[n] != '.'))
+	while (--len && n < ctx->ppos &&
+	       (n == ctx->wild[wildcard] || ctx->path[n] != '.'))
 		*dest++ = ctx->path[n++];
 
 	*dest = '\0';
