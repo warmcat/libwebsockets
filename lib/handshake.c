@@ -82,7 +82,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			 * we were accepting input but now we stopped doing so
 			 */
 			if (lws_is_flowcontrolled(wsi)) {
-				lws_rxflow_cache(wsi, buf, n, len);
+				lws_rxflow_cache(wsi, buf, (int)n, (int)len);
 
 				return 1;
 			}
@@ -271,7 +271,7 @@ read_ok:
 	/* Nothing more to do for now */
 	lwsl_info("%s: read_ok, used %ld\n", __func__, (long)(buf - oldbuf));
 
-	return buf - oldbuf;
+	return lws_ptr_diff(buf, oldbuf);
 
 bail:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);

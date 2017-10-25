@@ -626,7 +626,7 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 		assert ((char *)buf >= (char *)h2n->rx_scratch &&
 			(char *)&buf[len] <= (char *)&h2n->rx_scratch[LWS_H2_RX_SCRATCH_SIZE]);
 
-		h2n->rx_scratch_pos = ((char *)buf - (char *)h2n->rx_scratch);
+		h2n->rx_scratch_pos = lws_ptr_diff(buf, h2n->rx_scratch);
 		h2n->rx_scratch_len = len;
 
 		lwsl_info("%s: %p: pausing h2 rx_scratch\n", __func__, wsi);
@@ -1220,11 +1220,13 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 	case LWSCM_EVENT_PIPE:
 	{
 		struct lws_vhost *v = context->vhost_list;
+#if !defined(WIN32) && !defined(_WIN32)
 		char s[10];
 
 		/* discard the byte(s) that signaled us */
 		if (read(wsi->desc.sockfd, s, sizeof(s)) < 0)
 			goto close_and_handled;
+#endif
 
 		/*
 		 * the poll() wait, or the event loop for libuv etc is a

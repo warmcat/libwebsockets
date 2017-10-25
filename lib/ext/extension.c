@@ -121,7 +121,7 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 				return -1;
 			leap = LEAPS_SEEK_ARG_TERM;
 			if (oa.start)
-				oa.len = in - oa.start;
+				oa.len = lws_ptr_diff(in, oa.start);
 			if (len == 1)
 				oa.len++;
 
@@ -218,7 +218,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 	int ret, m, n = 0;
 
 	eff_buf.token = (char *)buf;
-	eff_buf.token_len = len;
+	eff_buf.token_len = (int)len;
 
 	/*
 	 * while we have original buf to spill ourselves, or extensions report
@@ -294,7 +294,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		ret = 0;
 	}
 
-	return len;
+	return (int)len;
 }
 
 int

@@ -95,7 +95,7 @@ dump_handshake_info(struct lws *wsi)
 
 const char * get_mimetype(const char *file)
 {
-	int n = strlen(file);
+	int n = (int)strlen(file);
 
 	if (n < 5)
 		return NULL;
@@ -149,7 +149,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		/* we get the original filename in @filename arg, but for
 		 * simple demo use a fixed name so we don't have to deal with
 		 * attacks  */
-		pss->post_fd = (lws_filefd_type)open("/tmp/post-file",
+		pss->post_fd = (lws_filefd_type)(long long)open("/tmp/post-file",
 			       O_CREAT | O_TRUNC | O_RDWR, 0600);
 		break;
 	case LWS_UFS_FINAL_CONTENT:
@@ -161,12 +161,12 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			if (pss->file_length > 100000)
 				return 1;
 
-			n = write((int)pss->post_fd, buf, len);
+			n = write((int)(long long)pss->post_fd, buf, len);
 			lwsl_notice("%s: write %d says %d\n", __func__, len, n);
 		}
 		if (state == LWS_UFS_CONTENT)
 			break;
-		close((int)pss->post_fd);
+		close((int)(long long)pss->post_fd);
 		pss->post_fd = LWS_INVALID_FILE;
 		break;
 	}
@@ -417,7 +417,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 							sizeof(leaf_path)))
 			return 1;
 #endif
-		n = (char *)p - leaf_path;
+		n = lws_ptr_diff(p, leaf_path);
 
 		n = lws_serve_http_file(wsi, buf, mimetype, other_headers, n);
 		if (n < 0)
@@ -450,7 +450,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		/* let it parse the POST data */
-		if (lws_spa_process(pss->spa, in, len))
+		if (lws_spa_process(pss->spa, in, (int)len))
 			return -1;
 		break;
 
@@ -482,7 +482,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				pss->filename, pss->file_length);
 
 		p += lws_snprintf((char *)p, end - p, "</body></html>");
-		pss->result_len = p - (unsigned char *)(pss->result + LWS_PRE);
+		pss->result_len = lws_ptr_diff(p, pss->result + LWS_PRE);
 
 		p = buffer + LWS_PRE;
 		start = p;
@@ -567,7 +567,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			n = sizeof(buffer) - LWS_PRE;
 
 			/* but if the peer told us he wants less, we can adapt */
-			m = lws_get_peer_write_allowance(wsi);
+			m = (int)lws_get_peer_write_allowance(wsi);
 
 			/* -1 means not using a protocol that has this info */
 			if (m == 0)
@@ -712,7 +712,7 @@ bail:
 		 * called before any other POLL related callback
 		 * if protecting wsi lifecycle change, len == 1
 		 */
-		test_server_lock(len);
+		test_server_lock((int)len);
 		break;
 
 	case LWS_CALLBACK_UNLOCK_POLL:
@@ -721,7 +721,7 @@ bail:
 		 * called after any other POLL related callback
 		 * if protecting wsi lifecycle change, len == 1
 		 */
-		test_server_unlock(len);
+		test_server_unlock((int)len);
 		break;
 
 #ifdef EXTERNAL_POLL

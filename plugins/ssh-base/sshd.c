@@ -62,7 +62,7 @@ lws_p32(uint8_t *p, uint32_t v)
 int
 lws_cstr(uint8_t **p, const char *s, uint32_t max)
 {
-	uint32_t n = strlen(s);
+	uint32_t n = (uint32_t)strlen(s);
 
 	if (n > max)
 		return 1;
@@ -122,7 +122,7 @@ void
 lws_pad_set_length(struct per_session_data__sshd *pss, void *start, uint8_t **p,
 		   struct lws_ssh_keys *keys)
 {
-	uint32_t len = *p - (uint8_t *)start;
+	uint32_t len = lws_ptr_diff(*p, start);
 	uint8_t padc = 4, *bs = start;
 
 	if (keys->full_length)
@@ -157,7 +157,7 @@ offer(struct per_session_data__sshd *pss, uint8_t *p, uint32_t len, int first,
 	char keyt[32];
 	uint8_t keybuf[256];
 
-	keylen = get_gen_server_key_25519(pss, keybuf, sizeof(keybuf));
+	keylen = (int)get_gen_server_key_25519(pss, keybuf, (int)sizeof(keybuf));
 	if (!keylen) {
 		lwsl_notice("get_gen_server_key failed\n");
 		return 1;
@@ -281,7 +281,7 @@ offer(struct per_session_data__sshd *pss, uint8_t *p, uint32_t len, int first,
 	*p++ = 0;
 	*p++ = 0;
 
-	len = p - op;
+	len = lws_ptr_diff(p, op);
 	if (payload_len)
 		/* starts at buf + 5 and excludes padding */
 		*payload_len = len - 5;
@@ -317,7 +317,7 @@ handle_name(struct per_session_data__sshd *pss)
 			kex->match_bitfield |= 1;
 		break;
 	case SSH_KEX_NL_SHK_ALGS:
-		len = get_gen_server_key_25519(pss, keybuf, sizeof(keybuf));
+		len = (int)get_gen_server_key_25519(pss, keybuf, (int)sizeof(keybuf));
 		if (!len)
 			break;
 		if (ed25519_key_parse(keybuf, len,
@@ -1174,12 +1174,12 @@ again:
 			 */
 			n = 4 + 32 +
 			    1 +
-			    4 + strlen(pss->ua->username) +
-			    4 + strlen(pss->ua->service) +
+			    4 + (int)strlen(pss->ua->username) +
+			    4 + (int)strlen(pss->ua->service) +
 			    4 + 9 +
 			    1 +
-			    4 + strlen(pss->ua->alg) +
-			    4 + pss->ua->pubkey_len;
+			    4 + (int)strlen(pss->ua->alg) +
+			    4 + (int)pss->ua->pubkey_len;
 
 			ps = sshd_zalloc(n);
 			if (!ps) {
@@ -1854,7 +1854,7 @@ parse(struct per_session_data__sshd *pss, uint8_t *p, size_t len)
 			uint8_t pt[2048];
 
 			len++;
-			cp = len;
+			cp = (uint32_t)len;
 
 			if (cp > l - pss->pa_pos)
 				cp = l - pss->pa_pos;
@@ -1920,7 +1920,7 @@ pad_and_encrypt(uint8_t *dest, void *ps, uint8_t *pp,
 
 	if (!skip_pad)
 		lws_pad_set_length(pss, ps, &pp, &pss->active_keys_stc);
-	n = pp - (uint8_t *)ps;
+	n = lws_ptr_diff(pp, ps);
 
 	if (!pss->active_keys_stc.valid) {
 		memcpy(dest, ps, n);
@@ -2165,9 +2165,9 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			pp = ps + 5;
 			*pp++ = SSH_MSG_USERAUTH_BANNER;
 			if (pss->vhd && pss->vhd->ops->banner)
-				n = pss->vhd->ops->banner((char *)&buf[650],
+				n = (int)pss->vhd->ops->banner((char *)&buf[650],
 							  150 - 1,
-							  lang, sizeof(lang));
+							  lang, (int)sizeof(lang));
 			lws_p32(pp, n);
 			pp += 4;
 			strcpy((char *)pp, (char *)&buf[650]);
@@ -2356,12 +2356,12 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			pp += pss->vhd->ops->tx(ch->priv, n, pp,
 						&buf[sizeof(buf) - 1] - pp);
 
-			lws_p32(ps + m - 4, pp - (ps + m));
+			lws_p32(ps + m - 4, lws_ptr_diff(pp, (ps + m)));
 
 			if (pss->vhd->ops->tx_waiting(ch->priv) > 0)
 				lws_callback_on_writable(wsi);
 
-			ch->window -= (pp - ps) - m;
+			ch->window -= lws_ptr_diff(pp, ps) - m;
 			//lwsl_debug("our send window: %d\n", ch->window);
 
 			/* fallthru */
@@ -2459,7 +2459,7 @@ bail:
 	case LWS_CALLBACK_CGI_PROCESS_ATTACH:
 		ch = ssh_get_server_ch(pss, pss->channel_doing_spawn);
 		if (ch) {
-			ch->spawn_pid = len; /* child process PID */
+			ch->spawn_pid = (int)len; /* child process PID */
 			lwsl_notice("associated PID %d to ch %d\n", (int)len,
 				    pss->channel_doing_spawn);
 		}
