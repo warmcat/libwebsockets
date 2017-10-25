@@ -190,7 +190,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 					    !strncmp(args, po->name,
 							    strlen(po->name))) {
 						oa.option_name = NULL;
-						oa.option_index = po - opts;
+						oa.option_index = (int)(po - opts);
 						oa.start = NULL;
 						lwsl_debug("setting %s\n", po->name);
 						if (!ext->callback(
@@ -303,7 +303,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	LWS_CPYAPP(p, "\x0d\x0a");
 
 	args.p = p;
-	args.max_len = ((char *)pt->serv_buf + context->pt_serv_buf_size) - p;
+	args.max_len = lws_ptr_diff((char *)pt->serv_buf +
+				    context->pt_serv_buf_size, p);
 	if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
 					LWS_CALLBACK_ADD_HEADERS,
 					wsi->user_space, &args, 0))
@@ -320,7 +321,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 		/* okay send the handshake response accepting the connection */
 
-		lwsl_parser("issuing resp pkt %d len\n", (int)(p - response));
+		lwsl_parser("issuing resp pkt %d len\n", lws_ptr_diff(p, response));
 #if defined(DEBUG) && ! defined(LWS_WITH_ESP8266)
 		fwrite(response, 1,  p - response, stderr);
 #endif

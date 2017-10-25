@@ -245,7 +245,7 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 		return 1;
 
 	if (p > vp && p < &vp[wsi->vhost->count_protocols])
-		lws_same_vh_protocol_insert(wsi, p - vp);
+		lws_same_vh_protocol_insert(wsi, (int)(p - vp));
 	else {
 		int n = wsi->vhost->count_protocols;
 		int hit = 0;
@@ -255,7 +255,7 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 		while (n--) {
 			if (p->name && vp->name && !strcmp(p->name, vp->name)) {
 				hit = 1;
-				lws_same_vh_protocol_insert(wsi, vp - vpo);
+				lws_same_vh_protocol_insert(wsi, (int)(vp - vpo));
 				break;
 			}
 			vp++;
@@ -847,7 +847,7 @@ lws_close_free_wsi_final(struct lws *wsi)
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
 {
-	int n = 0, sl = strlen(name);
+	int n = 0, sl = (int)strlen(name);
 
 	while (lws_hdr_copy_fragment(wsi, buf, len,
 			  WSI_TOKEN_HTTP_URI_ARGS, n) >= 0) {
@@ -1312,7 +1312,7 @@ lws_now_secs(void)
 
 #if LWS_POSIX
 
-LWS_VISIBLE int
+LWS_VISIBLE lws_sockfd_type
 lws_get_socket_fd(struct lws *wsi)
 {
 	if (!wsi)
@@ -1471,7 +1471,7 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 
 		strncpy(authstring, proxy, p - proxy);
 		// null termination not needed on input
-		if (lws_b64_encode_string(authstring, (p - proxy),
+		if (lws_b64_encode_string(authstring, lws_ptr_diff(p, proxy),
 				vhost->proxy_basic_auth_token,
 		    sizeof vhost->proxy_basic_auth_token) < 0)
 			goto auth_too_long;
@@ -1985,7 +1985,7 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
 		while (len-- && p < start + budget)
 			*p++ = *buf++;
 
-	wsi->u.ws.close_in_ping_buffer_len = p - start;
+	wsi->u.ws.close_in_ping_buffer_len = lws_ptr_diff(p, start);
 }
 
 LWS_EXTERN int
@@ -2552,7 +2552,7 @@ lws_snprintf(char *str, size_t size, const char *format, ...)
 	va_end(ap);
 
 	if (n >= (int)size)
-		return size;
+		return (int)size;
 
 	return n;
 }

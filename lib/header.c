@@ -196,7 +196,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 		if (lws_add_http_header_by_name(wsi,
 				(const unsigned char *)headers->name,
 				(unsigned char *)headers->value,
-				strlen(headers->value), p, end))
+				(int)strlen(headers->value), p, end))
 			return 1;
 
 		headers = headers->next;
@@ -242,7 +242,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 					 &p, end))
 		return 1;
 
-	len = 35 + strlen(html_body) + sprintf(slen, "%d", code);
+	len = 35 + (int)strlen(html_body) + sprintf(slen, "%d", code);
 	n = sprintf(slen, "%d", len);
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
@@ -270,7 +270,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		 * Solve it by writing the headers now...
 		 */
 		m = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
-		if (m != (int)(p - start))
+		if (m != lws_ptr_diff(p, start))
 			return 1;
 
 		/*
@@ -305,7 +305,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 				  "<html><body><h1>%u</h1>%s</body></html>",
 				  code, html_body);
 
-		n = (int)(p - start);
+		n = lws_ptr_diff(p, start);
 
 		m = lws_write(wsi, start, n, LWS_WRITE_HTTP);
 		if (m != n)

@@ -1,5 +1,8 @@
 environment:
   matrix:
+    - LWS_METHOD: x64
+      CMAKE_ARGS: -DCMAKE_GENERATOR_PLATFORM=x64 -DLWS_WITH_HTTP2=1 -DLWS_WITH_PLUGINS=1 -DLIBUV_INCLUDE_DIRS=C:\assets\libuv64\include -DLIBUV_LIBRARIES=C:\assets\libuv64\libuv.lib
+
     - LWS_METHOD: lwsws
       CMAKE_ARGS: -DLWS_WITH_LWSWS=1 -DSQLITE3_INCLUDE_DIRS=C:\assets\sqlite3 -DSQLITE3_LIBRARIES=C:\assets\sqlite3\sqlite3.lib -DLIBUV_INCLUDE_DIRS=C:\assets\libuv\include -DLIBUV_LIBRARIES=C:\assets\libuv\libuv.lib
 
@@ -21,6 +24,9 @@ install:
   - mkdir c:\assets
   - mkdir c:\assets\libuv
   - 7z x -oc:\assets\libuv win-libuv.zip
+  - appveyor DownloadFile https://libwebsockets.org:444/win-libuv64.zip
+  - mkdir c:\assets\libuv64
+  - 7z x -oc:\assets\libuv64 win-libuv64.zip
   - appveyor DownloadFile https://libwebsockets.org:444/nsis-3.0rc1-setup.exe
   - cmd /c start /wait nsis-3.0rc1-setup.exe /S /D=C:\nsis
   - appveyor DownloadFile https://libwebsockets.org:444/sqlite-dll-win32-x86-3130000.zip
