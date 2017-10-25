@@ -202,8 +202,8 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
 			 * in the worst case of all 0xff, doubling the size
 			 */
 			pu = buf + LWS_PRE + 400;
-			m = pss->vhd->ops->tx(pss->priv, LWS_STDOUT, pu,
-					(sizeof(buf) - LWS_PRE - n - 401) / 2);
+			m = (int)pss->vhd->ops->tx(pss->priv, LWS_STDOUT, pu,
+					((int)sizeof(buf) - LWS_PRE - n - 401) / 2);
 
 			/*
 			 * apply telnet line discipline and copy into place

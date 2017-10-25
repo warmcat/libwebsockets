@@ -38,7 +38,7 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 			 */
 			if (lws_is_flowcontrolled(wsi)) {
 				lwsl_debug("%s: caching %ld\n", __func__, (long)len);
-				lws_rxflow_cache(wsi, *buf, 0, len);
+				lws_rxflow_cache(wsi, *buf, 0, (int)len);
 				return 0;
 			}
 			if (wsi->u.ws.rx_draining_ext) {
@@ -308,7 +308,7 @@ start_ws_handshake:
 		/* send our request to the server */
 		lws_latency_pre(context, wsi);
 
-		n = lws_ssl_capable_write(wsi, (unsigned char *)sb, p - sb);
+		n = lws_ssl_capable_write(wsi, (unsigned char *)sb, (int)(p - sb));
 		lws_latency(context, wsi, "send lws_issue_raw", n,
 			    n == p - sb);
 		switch (n) {
@@ -789,7 +789,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	}
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL);
-	len = strlen(p);
+	len = (int)strlen(p);
 
 	while (pc && *pc && !okay) {
 		if (!strncmp(pc, p, len) &&
@@ -949,7 +949,7 @@ check_extensions:
 			if (ext_name[0] &&
 			    lws_ext_parse_options(ext, wsi, wsi->act_ext_user[
 						  wsi->count_act_ext], opts, ext_name,
-						  strlen(ext_name))) {
+						  (int)strlen(ext_name))) {
 				lwsl_err("%s: unable to parse user defaults '%s'",
 					 __func__, ext_name);
 				cce = "HS: EXT: failed parsing defaults";
@@ -961,7 +961,7 @@ check_extensions:
 			 */
 			if (a && lws_ext_parse_options(ext, wsi,
 					wsi->act_ext_user[wsi->count_act_ext],
-					opts, a, c - a)) {
+					opts, a, lws_ptr_diff(c, a))) {
 				lwsl_err("%s: unable to parse remote def '%s'",
 					 __func__, a);
 				cce = "HS: EXT: failed parsing options";
@@ -1042,7 +1042,7 @@ check_accept:
 	 * size mentioned in the protocol definition.  If 0 there, then
 	 * use a big default for compatibility
 	 */
-	n = wsi->protocol->rx_buffer_size;
+	n = (int)wsi->protocol->rx_buffer_size;
 	if (!n)
 		n = context->pt_serv_buf_size;
 	n += LWS_PRE;

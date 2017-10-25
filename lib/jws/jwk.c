@@ -207,7 +207,9 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 						      s->el.e[n].len, p,
 						      end - p - 4);
 			if (m < 0) {
-				lwsl_notice("%s: enc2 failed inlen %d outlen %d\n", __func__, (int)s->el.e[n].len, (int)(end-p-4));
+				lwsl_notice("%s: enc2 failed inlen %d outlen %d\n",
+						__func__, (int)s->el.e[n].len,
+						lws_ptr_diff(end, p) - 4);
 				return -1;
 			}
 			p += m;

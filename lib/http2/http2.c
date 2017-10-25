@@ -632,7 +632,8 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		h2n->we_told_goaway = 1;
 		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_GOAWAY, 0,
 				       LWS_H2_STREAM_ID_MASTER,
-				       p - &set[LWS_PRE], &set[LWS_PRE]);
+				       lws_ptr_diff(p, &set[LWS_PRE]),
+				       &set[LWS_PRE]);
 		if (n != 4) {
 			lwsl_info("send %d %d\n", n, m);
 			goto bail;

@@ -108,7 +108,8 @@ mirror_update_worst_tail(struct mirror_instance *mi)
 
 	lws_start_foreach_ll(struct per_session_data__lws_mirror *,
 			     pss, mi->same_mi_pss_list) {
-		wai = lws_ring_get_count_waiting_elements(mi->ring, &pss->tail);
+		wai = (uint32_t)lws_ring_get_count_waiting_elements(mi->ring,
+								&pss->tail);
 		if (wai >= worst) {
 			worst = wai;
 			worst_tail = pss->tail;
@@ -369,7 +370,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-		n = lws_ring_get_count_free_elements(pss->mi->ring);
+		n = (int)lws_ring_get_count_free_elements(pss->mi->ring);
 		if (!n) {
 			lwsl_notice("dropping!\n");
 			if (pss->mi->rx_enabled)

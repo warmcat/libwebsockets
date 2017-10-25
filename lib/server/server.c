@@ -240,11 +240,11 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	const char *p;
 	int n, m, colon;
 
-	n = strlen(servername);
+	n = (int)strlen(servername);
 	colon = n;
 	p = strchr(servername, ':');
 	if (p)
-		colon = p - servername;
+		colon = lws_ptr_diff(p, servername);
 
 	/* Priotity 1: first try exact matches */
 
@@ -266,7 +266,7 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	 */
 	vhost = context->vhost_list;
 	while (vhost) {
-		m = strlen(vhost->name);
+		m = (int)strlen(vhost->name);
 		if (port == vhost->listen_port &&
 		    m <= (colon - 2) &&
 		    servername[colon - m - 1] == '.' &&
@@ -298,7 +298,7 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 {
-	int n = strlen(file);
+	int n = (int)strlen(file);
 	const struct lws_protocol_vhost_options *pvo = NULL;
 
 	if (m)
@@ -549,7 +549,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	 * a protocol
 	 */
 	while (pvo) {
-		n = strlen(path);
+		n = (int)strlen(path);
 		if (n > (int)strlen(pvo->name) &&
 		    !strcmp(&path[n - strlen(pvo->name)], pvo->name)) {
 			wsi->sending_chunked = 1;
@@ -574,14 +574,15 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		if (lws_bind_protocol(wsi, pp))
 			return 1;
 		args.p = (char *)p;
-		args.max_len = end - p;
+		args.max_len = lws_ptr_diff(end, p);
 		if (pp->callback(wsi, LWS_CALLBACK_ADD_HEADERS,
 					  wsi->user_space, &args, 0))
 			return -1;
 		p = (unsigned char *)args.p;
 	}
 
-	n = lws_serve_http_file(wsi, path, mimetype, (char *)start, p - start);
+	n = lws_serve_http_file(wsi, path, mimetype, (char *)start,
+				lws_ptr_diff(p, start));
 
 	if (n < 0 || ((n > 0) && lws_http_transaction_completed(wsi)))
 		return -1; /* error or can't reuse connection: close the socket */
@@ -1195,7 +1196,7 @@ lws_http_action(struct lws *wsi)
 	}
 #endif
 
-	n = strlen(s);
+	n = (int)strlen(s);
 	if (s[0] == '\0' || (n == 1 && s[n - 1] == '/'))
 		s = (char *)hit->def;
 	if (!s)
@@ -1290,7 +1291,7 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 	 * a big default for compatibility
 	 */
 
-	n = wsi->protocol->rx_buffer_size;
+	n = (int)wsi->protocol->rx_buffer_size;
 	if (!n)
 		n = wsi->context->pt_serv_buf_size;
 	n += LWS_PRE;
@@ -2204,7 +2205,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 		goto bail;
 	}
 	memcpy(wsi->u.hdr.preamble_rx, readbuf, len);
-	wsi->u.hdr.preamble_rx_len = len;
+	wsi->u.hdr.preamble_rx_len = (int)len;
 
 	return wsi;
 
@@ -2545,9 +2546,9 @@ try_pollout:
 			 * we could, not accepting it due to PEER_LIMITS would
 			 * block the connect queue for other legit peers.
 			 */
-			accept_fd  = accept(pollfd->fd, (struct sockaddr *)&cli_addr,
+			accept_fd  = accept((int)pollfd->fd, (struct sockaddr *)&cli_addr,
 					    &clilen);
-			lws_latency(context, wsi, "listener accept", accept_fd,
+			lws_latency(context, wsi, "listener accept", (int)accept_fd,
 				    accept_fd >= 0);
 			if (accept_fd < 0) {
 				if (LWS_ERRNO == LWS_EAGAIN ||
@@ -2709,7 +2710,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	    content_type && content_type[0])
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 						 (unsigned char *)content_type,
-						 strlen(content_type), &p, end))
+						 (int)strlen(content_type), &p, end))
 			return -1;
 
 #if defined(LWS_WITH_RANGES)
@@ -2852,7 +2853,7 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		 * we were accepting input but now we stopped doing so
 		 */
 		if (wsi->rxflow_bitmap) {
-			lws_rxflow_cache(wsi, *buf, 0, len);
+			lws_rxflow_cache(wsi, *buf, 0, (int)len);
 			lwsl_parser("%s: cached %ld\n", __func__, (long)len);
 			return 1;
 		}
@@ -2956,7 +2957,7 @@ skip:
 				pc = s->replace(s->data, hit);
 				if (!pc)
 					pc = "NULL";
-				n = strlen(pc);
+				n = (int)strlen(pc);
 				s->swallow[s->pos] = '\0';
 				if (n != s->pos) {
 					memmove(s->start + n,

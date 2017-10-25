@@ -102,7 +102,7 @@ enter_state(struct sshd_instance_priv *priv, enum states state)
 	priv->state = state;
 	priv->ptr = strings[state];
 	priv->pos = 0;
-	priv->len = strlen(priv->ptr);
+	priv->len = (int)strlen(priv->ptr);
 
 	lws_callback_on_writable(priv->wsi);
 }
@@ -168,7 +168,7 @@ ssh_ops_tx(void *_priv, int stdch, uint8_t *buf, size_t len)
 		return 0;
 
 	memcpy(buf, priv->ptr + priv->pos, chunk);
-	priv->pos += chunk;
+	priv->pos += (int)chunk;
 
 	if (priv->state == SSH_TEST_DONE && priv->pos == priv->len) {
 		/*
@@ -208,7 +208,7 @@ ssh_ops_get_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 	int n;
 
 	lseek(vhd->privileged_fd, 0, SEEK_SET);
-	n = read(vhd->privileged_fd, buf, len);
+	n = read(vhd->privileged_fd, buf, (int)len);
 	if (n < 0) {
 		lwsl_err("%s: read failed: %d\n", __func__, n);
 		n = 0;
@@ -226,7 +226,7 @@ ssh_ops_set_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 						 lws_get_protocol(wsi));
 	int n;
 
-	n = write(vhd->privileged_fd, buf, len);
+	n = write(vhd->privileged_fd, buf, (int)len);
 	if (n < 0) {
 		lwsl_err("%s: read failed: %d\n", __func__, errno);
 		n = 0;
@@ -242,7 +242,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 				 const uint8_t *peer, int peer_len)
 {
 	char *aps = NULL, *p, *ps;
-	int n = strlen(type), alen = 2048, ret = 2, len;
+	int n = (int)strlen(type), alen = 2048, ret = 2, len;
 	size_t s = 0;
 
 	lwsl_info("%s: checking pubkey for %s\n", __func__, username);

@@ -357,7 +357,7 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 	if (index < (int)ARRAY_SIZE(static_token)) {
 		if (arg && index < (int)ARRAY_SIZE(http2_canned)) {
 			*arg = http2_canned[index];
-			*len = strlen(http2_canned[index]);
+			*len = (int)strlen(http2_canned[index]);
 		}
 		if (hdr_len)
 			*hdr_len = static_hdr_len[index];
@@ -1270,7 +1270,7 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 
 	lwsl_header("%s: %p  %s:%s\n", __func__, *p, name, value);
 
-	len = strlen((char *)name);
+	len = (int)strlen((char *)name);
 	if (len)
 		if (name[len - 1] == ':')
 			len--;
