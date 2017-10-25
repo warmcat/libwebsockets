@@ -163,11 +163,11 @@ cleanup_1:
 
 LWS_VISIBLE int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-			   size_t in_len, uint8_t *out, size_t out_max)
+			  size_t in_len, uint8_t *out, size_t out_max)
 {
 	uint32_t m;
 
-	m = RSA_public_decrypt(in_len, in, out, ctx->rsa, RSA_PKCS1_PADDING);
+	m = RSA_public_decrypt((int)in_len, in, out, ctx->rsa, RSA_PKCS1_PADDING);
 
 	/* the bignums are also freed by freeing the RSA */
 	RSA_free(ctx->rsa);
@@ -208,12 +208,12 @@ lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 size_t sig_len)
 {
 	int n = lws_genrsa_genrsa_hash_to_NID(hash_type),
-	    h = lws_genhash_size(hash_type);
+	    h = (int)lws_genhash_size(hash_type);
 
 	if (n < 0)
 		return -1;
 
-	n = RSA_verify(n, in, h, (uint8_t *)sig, sig_len, ctx->rsa);
+	n = RSA_verify(n, in, h, (uint8_t *)sig, (int)sig_len, ctx->rsa);
 	if (n != 1) {
 		lwsl_notice("%s: -0x%x\n", __func__, -n);
 
@@ -229,7 +229,7 @@ lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 size_t sig_len)
 {
 	int n = lws_genrsa_genrsa_hash_to_NID(hash_type),
-	    h = lws_genhash_size(hash_type);
+	    h = (int)lws_genhash_size(hash_type);
 	unsigned int used = 0;
 
 	if (n < 0)

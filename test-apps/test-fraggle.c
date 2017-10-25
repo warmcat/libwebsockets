@@ -99,7 +99,7 @@ callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 			for (n = 0; (unsigned int)n < len; n++)
 				psf->sum += p[n];
 
-			psf->total_message += len;
+			psf->total_message += (int)len;
 			psf->packets_left++;
 
 			if (lws_is_final_fragment(wsi))
