@@ -262,7 +262,7 @@ callback_lws_table_dirlisting(struct lws *wsi, enum lws_callback_reasons reason,
 				s1[0] = '\0';
 				q += strlen(q);
 			} else {
-				n = q1 - q;
+				n = lws_ptr_diff(q1, q);
 				if (n > (int)sizeof(s) - 1)
 					n = sizeof(s) - 1;
 				if (first) {
@@ -272,7 +272,7 @@ callback_lws_table_dirlisting(struct lws *wsi, enum lws_callback_reasons reason,
 					strncpy(s, q, n);
 					s[n] = '\0';
 
-					n = q1 - pss->reldir;
+					n = lws_ptr_diff(q1, pss->reldir);
 					if (n > (int)sizeof(s1) - 1)
 						n = sizeof(s1) - 1;
 					strncpy(s1, pss->reldir, n);
