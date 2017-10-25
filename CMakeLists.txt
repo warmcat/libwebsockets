@@ -1492,6 +1492,17 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			endif(WIN32)
 		endif()
 
+		if (LWS_WITH_LEJP)
+			create_test_app(
+				test-lejp
+				"test-apps/test-lejp.c"
+				""
+				""
+				""
+				""
+				"")
+		endif()
+
 		#
 		# test-server-v2.0
 		#
