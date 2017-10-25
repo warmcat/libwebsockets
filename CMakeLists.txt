@@ -1744,6 +1744,16 @@ endif(LWS_WITH_GENERIC_SESSIONS)
 				add_custom_command(TARGET ${TARGET_BIN}
 					POST_BUILD
 					COMMAND "${CMAKE_COMMAND}" -E copy "${SSLEAY_BIN}" "$<TARGET_FILE_DIR:${TARGET_BIN}>" VERBATIM)
+
+				#
+				# Win32: if we are using libuv, also need to copy it in the output dir
+				#
+				if (WIN32 AND LWS_WITH_LIBUV)
+					STRING(REPLACE ".lib" ".dll" LIBUV_BIN ${LIBUV_LIBRARIES})
+					add_custom_command(TARGET ${TARGET_BIN}
+						POST_BUILD
+						COMMAND "${CMAKE_COMMAND}" -E copy "${LIBUV_BIN}" "$<TARGET_FILE_DIR:${TARGET_BIN}>" VERBATIM)
+				endif()
 			endforeach()
 		endif()
 	endif()
