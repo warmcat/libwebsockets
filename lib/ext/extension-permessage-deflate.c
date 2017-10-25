@@ -51,7 +51,7 @@ lws_extension_pmdeflate_restrict_args(struct lws *wsi,
 
 	n = wsi->context->pt_serv_buf_size;
 	if (wsi->protocol->rx_buffer_size)
-		n =  wsi->protocol->rx_buffer_size;
+		n = (int)wsi->protocol->rx_buffer_size;
 
 	extra = 7;
 	while (n >= 1 << (extra + 1))
@@ -120,7 +120,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 		n = context->pt_serv_buf_size;
 		if (wsi->protocol->rx_buffer_size)
-			n =  wsi->protocol->rx_buffer_size;
+			n = (int)wsi->protocol->rx_buffer_size;
 
 		if (n < 128) {
 			lwsl_info(" permessage-deflate requires the protocol (%s) to have an RX buffer >= 128\n",
@@ -302,7 +302,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			priv->rx_held_valid = 1;
 		}
 
-		eff_buf->token_len = (char *)priv->rx.next_out - eff_buf->token;
+		eff_buf->token_len = lws_ptr_diff(priv->rx.next_out, eff_buf->token);
 		priv->count_rx_between_fin += eff_buf->token_len;
 
 		lwsl_ext("  %s: RX leaving with new effbuff len %d, "
@@ -398,8 +398,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			}
 		}
 		priv->compressed_out = 1;
-		eff_buf->token_len = (int)(priv->tx.next_out -
-					   (unsigned char *)eff_buf->token);
+		eff_buf->token_len = lws_ptr_diff(priv->tx.next_out,
+						  eff_buf->token);
 
 		/*
 		 * we must announce in our returncode now if there is more

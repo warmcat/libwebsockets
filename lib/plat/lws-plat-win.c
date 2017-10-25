@@ -148,7 +148,7 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 	FD_ZERO(&readfds);
 	FD_SET(fd->fd, &readfds);
 
-	return select(fd->fd + 1, &readfds, NULL, NULL, &tv);
+	return select(((int)fd->fd) + 1, &readfds, NULL, NULL, &tv);
 }
 
 LWS_VISIBLE void
@@ -427,7 +427,7 @@ lws_interface_to_sa(int ipv6,
 	if (address == INADDR_NONE)
 		return -1;
 
-	addr->sin_addr.s_addr = (lws_intptr_t)address;
+	addr->sin_addr.s_addr = (unsigned long)(lws_intptr_t)address;
 
 	return 0;
 }
@@ -547,7 +547,7 @@ LWS_VISIBLE int
 lws_plat_inet_pton(int af, const char *src, void *dst)
 {
 	WCHAR *buffer;
-	DWORD bufferlen = strlen(src) + 1;
+	DWORD bufferlen = (int)strlen(src) + 1;
 	BOOL ok = FALSE;
 
 	buffer = lws_malloc(bufferlen * 2, "inet_pton");

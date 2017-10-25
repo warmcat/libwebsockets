@@ -64,7 +64,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	/* just ignore sends after we cleared the truncation buffer */
 	if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE &&
 	    !wsi->trunc_len)
-		return len;
+		return (int)len;
 
 	if (wsi->trunc_len && (buf < wsi->trunc_alloc ||
 	    buf > (wsi->trunc_alloc + wsi->trunc_len + wsi->trunc_offset))) {
@@ -85,7 +85,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		return -1;
 	}
 
-	m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_TX_DO_SEND, &buf, len);
+	m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_TX_DO_SEND, &buf, (int)len);
 	if (m < 0)
 		return -1;
 	if (m) /* handled */ {
@@ -98,15 +98,15 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 	/* limit sending */
 	if (wsi->protocol->tx_packet_size)
-		n = wsi->protocol->tx_packet_size;
+		n = (int)wsi->protocol->tx_packet_size;
 	else {
-		n = wsi->protocol->rx_buffer_size;
+		n = (int)wsi->protocol->rx_buffer_size;
 		if (!n)
 			n = context->pt_serv_buf_size;
 	}
 	n += LWS_PRE + 4;
 	if (n > len)
-		n = len;
+		n = (int)len;
 #if defined(LWS_WITH_ESP8266)	
 	if (wsi->pending_send_completion) {
 		n = 0;
@@ -142,7 +142,7 @@ handle_truncated_send:
 		if (!wsi->trunc_len) {
 			lwsl_info("***** %p partial send completed\n", wsi);
 			/* done with it, but don't free it */
-			n = real_len;
+			n = (int)real_len;
 			if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
 				lwsl_info("***** %p signalling to close now\n", wsi);
 				return -1; /* retry closing now */
@@ -176,7 +176,7 @@ handle_truncated_send:
 	if (!wsi->trunc_alloc || real_len - n > wsi->trunc_alloc_len) {
 		lws_free(wsi->trunc_alloc);
 
-		wsi->trunc_alloc_len = real_len - n;
+		wsi->trunc_alloc_len = (unsigned int)(real_len - n);
 		wsi->trunc_alloc = lws_malloc(real_len - n, "truncated send alloc");
 		if (!wsi->trunc_alloc) {
 			lwsl_err("truncated send: unable to malloc %lu\n",
@@ -185,13 +185,13 @@ handle_truncated_send:
 		}
 	}
 	wsi->trunc_offset = 0;
-	wsi->trunc_len = real_len - n;
+	wsi->trunc_len = (unsigned int)(real_len - n);
 	memcpy(wsi->trunc_alloc, buf + n, real_len - n);
 
 	/* since something buffered, force it to get another chance to send */
 	lws_callback_on_writable(wsi);
 
-	return real_len;
+	return (int)real_len;
 }
 
 LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
@@ -219,7 +219,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 				(void *)&pas, 0))
 			return 1;
 
-		return len;
+		return (int)len;
 	}
 
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_LWS_WRITE, 1);
@@ -297,7 +297,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	 * interleaving of control frames and other connection service.
 	 */
 	eff_buf.token = (char *)buf;
-	eff_buf.token_len = len;
+	eff_buf.token_len = (int)len;
 
 	switch ((int)wp) {
 	case LWS_WRITE_PING:
@@ -353,7 +353,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 			if (!wsi->u.ws.stashed_write_pending)
 				wsi->u.ws.stashed_write_type = (char)wp & 0x3f;
 			wsi->u.ws.stashed_write_pending = 1;
-			return len;
+			return (int)len;
 		}
 		/*
 		 * extension recreated it:
@@ -523,7 +523,7 @@ send_raw:
 			}
 
 			return lws_h2_frame_write(wsi, n, flags,
-					wsi->u.h2.my_sid, len, buf);
+					wsi->u.h2.my_sid, (int)len, buf);
 		}
 #endif
 		return lws_issue_raw(wsi, (unsigned char *)buf - pre, len + pre);
@@ -558,7 +558,7 @@ send_raw:
 	if (n == (int)len + pre) {
 		/* everything in the buffer was handled (or rebuffered...) */
 		wsi->u.ws.inside_frame = 0;
-		return orig_len;
+		return (int)orig_len;
 	}
 
 	/*
@@ -682,7 +682,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		if (wsi->sending_chunked)
 			n = (int)amount;
 		else
-			n = (p - pstart) + (int)amount;
+			n = lws_ptr_diff(p, pstart) + (int)amount;
 
 		lwsl_debug("%s: sending %d\n", __func__, n);
 
