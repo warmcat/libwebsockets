@@ -333,7 +333,7 @@ lws_libuv_accept(struct lws *wsi, lws_sock_file_fd_type desc)
 	wsi->w_read.context = context;
 	if (wsi->mode == LWSCM_RAW_FILEDESC || wsi->event_pipe)
 		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher,
-			     (int)desc.filefd);
+			     (int)(long long)desc.filefd);
 	else
 		uv_poll_init_socket(pt->io_loop_uv, &wsi->w_read.uv_watcher,
 				    desc.sockfd);

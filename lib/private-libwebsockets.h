@@ -725,8 +725,8 @@ enum {
 struct lws_ring {
 	void *buf;
 	void (*destroy_element)(void *element);
-	size_t buflen;
-	size_t element_len;
+	uint32_t buflen;
+	uint32_t element_len;
 	uint32_t head;
 	uint32_t oldest_tail;
 };

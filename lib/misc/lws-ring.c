@@ -30,8 +30,8 @@ lws_ring_create(size_t element_len, size_t count,
 	if (!ring)
 		return NULL;
 
-	ring->buflen = count * element_len;
-	ring->element_len = element_len;
+	ring->buflen = (uint32_t)(count * element_len);
+	ring->element_len = (uint32_t)element_len;
 	ring->head = 0;
 	ring->oldest_tail = 0;
 	ring->destroy_element = destroy_element;
@@ -126,7 +126,7 @@ lws_ring_next_linear_insert_range(struct lws_ring *ring, void **start,
 	int n;
 
 	/* n is how many bytes the whole fifo can take */
-	n = lws_ring_get_count_free_elements(ring) * ring->element_len;
+	n = (int)(lws_ring_get_count_free_elements(ring) * ring->element_len);
 
 	if (!n)
 		return 1;
@@ -147,7 +147,7 @@ lws_ring_next_linear_insert_range(struct lws_ring *ring, void **start,
 LWS_VISIBLE LWS_EXTERN void
 lws_ring_bump_head(struct lws_ring *ring, size_t bytes)
 {
-	ring->head = (ring->head + bytes) % ring->buflen;
+	ring->head = (ring->head + (uint32_t)bytes) % ring->buflen;
 }
 
 LWS_VISIBLE LWS_EXTERN size_t
@@ -157,11 +157,11 @@ lws_ring_insert(struct lws_ring *ring, const void *src, size_t max_count)
 	int m, n;
 
 	/* n is how many bytes the whole fifo can take */
-	n = lws_ring_get_count_free_elements(ring) * ring->element_len;
+	n = (int)(lws_ring_get_count_free_elements(ring) * ring->element_len);
 
 	/* restrict n to how much we want to insert */
-	if ((size_t)n > max_count * ring->element_len)
-		n = max_count * ring->element_len;
+	if ((uint32_t)n > max_count * ring->element_len)
+		n = (int)(max_count * ring->element_len);
 
 	/*
 	 * n is legal to insert, but as an optimization we can cut the
@@ -206,11 +206,11 @@ lws_ring_consume(struct lws_ring *ring, uint32_t *tail, void *dest,
 	}
 
 	/* n is how many bytes the whole fifo has for us */
-	n = lws_ring_get_count_waiting_elements(ring, tail) * ring->element_len;
+	n = (int)(lws_ring_get_count_waiting_elements(ring, tail) * ring->element_len);
 
 	/* restrict n to how much we want to insert */
 	if ((size_t)n > max_count * ring->element_len)
-		n = max_count * ring->element_len;
+		n = (int)(max_count * ring->element_len);
 
 	if (!dest) {
 		*tail = ((*tail) + n) % ring->buflen;

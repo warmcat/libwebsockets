@@ -103,7 +103,7 @@ lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag,
 	strncpy(buf, info->ssl_private_key_password, size);
 	buf[size - 1] = '\0';
 
-	return strlen(buf);
+	return (int)strlen(buf);
 }
 
 void

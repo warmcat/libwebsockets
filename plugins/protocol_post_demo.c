@@ -77,7 +77,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		 * simple demo use a fixed name so we don't have to deal with
 		 * attacks  */
 #if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
-		pss->fd = (lws_filefd_type)open("/tmp/post-file",
+		pss->fd = (lws_filefd_type)(long long)open("/tmp/post-file",
 			       O_CREAT | O_TRUNC | O_RDWR, 0600);
 #endif
 		break;
@@ -91,7 +91,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 				return 1;
 
 #if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
-			n = write((int)pss->fd, buf, len);
+			n = write((int)(long long)pss->fd, buf, len);
 			lwsl_notice("%s: write %d says %d\n", __func__, len, n);
 #else
 			lwsl_notice("%s: Received chunk size %d\n", __func__, len);
@@ -100,7 +100,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		if (state == LWS_UFS_CONTENT)
 			break;
 #if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
-		close((int)pss->fd);
+		close((int)(long long)pss->fd);
 		pss->fd = LWS_INVALID_FILE;
 #endif
 		break;
@@ -134,7 +134,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		/* let it parse the POST data */
-		if (lws_spa_process(pss->spa, in, len))
+		if (lws_spa_process(pss->spa, in, (int)len))
 			return -1;
 		break;
 
@@ -160,7 +160,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 				pss->filename, pss->file_length);
 
 		p += lws_snprintf((char *)p, end - p, "</body></html>");
-		pss->result_len = p - (unsigned char *)(pss->result + LWS_PRE);
+		pss->result_len = lws_ptr_diff(p, pss->result + LWS_PRE);
 
 		n = LWS_PRE + 1024;
 		buffer = malloc(n);
