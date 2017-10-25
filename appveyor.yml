@@ -19,6 +19,7 @@ environment:
 
     - LWS_METHOD: nossl
       CMAKE_ARGS: -DLWS_WITH_SSL=OFF
+
 install:
   - appveyor DownloadFile https://libwebsockets.org:444/win-libuv.zip
   - mkdir c:\assets
@@ -33,7 +34,10 @@ install:
   - mkdir c:\assets\sqlite3
   - 7z x -oc:\assets\sqlite3 sqlite-dll-win32-x86-3130000.zip
   - SET PATH=C:\Program Files\NSIS\;C:\Program Files (x86)\NSIS\;c:\nsis;%PATH%
+
 build:
+  parallel: true
+  verbosity: minimal
 
 build_script:
   - md build
@@ -42,12 +46,13 @@ build_script:
   - cmake --build . --config Release
 
 after_build:
-   - 7z a lws.zip %APPVEYOR_BUILD_FOLDER%\build\lib\Release\websockets.lib %APPVEYOR_BUILD_FOLDER%\build\lib\Release\websockets.exp %APPVEYOR_BUILD_FOLDER%\build\bin\Release\websockets.dll %APPVEYOR_BUILD_FOLDER%\lib\libwebsockets.h  %APPVEYOR_BUILD_FOLDER%\build\lws_config.h  %APPVEYOR_BUILD_FOLDER%\build\bin\Release\*.exe
+  - cd %APPVEYOR_BUILD_FOLDER%
+  - mkdir staging
+  - cp -r %APPVEYOR_BUILD_FOLDER%\build\bin %APPVEYOR_BUILD_FOLDER%\build\lib staging
+  - 7z a build\lws-%LWS_METHOD%.zip %APPVEYOR_BUILD_FOLDER%\staging\*
 
 artifacts:
-  - path: lws.zip
-    name: lws.zip
-    type: Zip
+  - path: build\lws-%LWS_METHOD%.zip
 
 matrix:
   fast_finish: true
