@@ -440,6 +440,15 @@ h2spec tests pass.
 ```
 
 
+@section windowsprebuilt Using Windows binary builds on Appveyor
+
+The CI builds on Appveyor now produce usable binary outputs.  Visit
+
+[lws on Appveyor](https://ci.appveyor.com/project/lws-team/libwebsockets)
+
+and select one of the builds, then click on ARTIFACTS at the top right.  The zip file
+want to be unpacked into `C:\Program Files (x86)/libwebsockets`, after that, you should be able to run the test server, by running it from `bin/Release/libwebsockets-test-server.exe` and opening a browser on http://127.0.0.1:7681
+
 @section cross Cross compiling
 
 To enable cross-compiling **libwebsockets** using CMake you need to create

@@ -950,7 +950,7 @@ lws_create_context(struct lws_context_creation_info *info)
 #if defined(LWS_WITH_HTTP2)
 	lwsl_info(" HTTP2 support         : available\n");
 #else
-	lwsl_info(" HTTP2 support         : not configured");
+	lwsl_info(" HTTP2 support         : not configured\n");
 #endif
 	if (lws_plat_context_early_init())
 		return NULL;

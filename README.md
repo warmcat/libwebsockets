@@ -8,6 +8,9 @@ libwebsockets
 News
 ----
 
+32- and 64-bit Windows binary builds are available via Appveyor.  Visit [lws on Appveyor](https://ci.appveyor.com/project/lws-team/libwebsockets),
+click on a build, the ARTIFACTS, and unzip the zip file at `C:\Program Files (x86)/libwebsockets`.
+
  - v2.4 is out... HTTP/2 server support and mbedTLS as a TLS backend.
 
 see the changelog https://github.com/warmcat/libwebsockets/blob/v2.4-stable/changelog
