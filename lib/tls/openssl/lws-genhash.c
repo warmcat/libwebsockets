@@ -146,7 +146,7 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
         if (EVP_DigestInit_ex(ctx->ctx, md, NULL) != 1)
 		return -1;
 
-        pkey = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, key, key_len);
+        pkey = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, key, (int)key_len);
 
         if (EVP_DigestSignInit(ctx->ctx, NULL, md, NULL, pkey) != 1)
 		return -1;

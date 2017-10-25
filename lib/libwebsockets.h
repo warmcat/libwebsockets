@@ -4752,7 +4752,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
  *
  * \param wsi:	Websocket connection instance
  */
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN lws_sockfd_type
 lws_get_socket_fd(struct lws *wsi);
 
 /**
@@ -5129,6 +5129,18 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		it = &(*(it))->nxt; \
 	} \
 }
+
+/**
+ * lws_ptr_diff(): helper to report distance between pointers as an int
+ *
+ * \param head: the pointer with the larger address
+ * \param tail: the pointer with the smaller address
+ *
+ * This helper gives you an int representing the number of bytes further
+ * forward the first pointer is compared to the second pointer.
+ */
+#define lws_ptr_diff(head, tail) \
+			((int)((char *)(head) - (char *)(tail)))
 
 /**
  * lws_snprintf(): snprintf that truncates the returned length too
