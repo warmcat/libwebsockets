@@ -800,8 +800,6 @@ endif()
 if (LWS_WITH_LEJP)
 	list(APPEND SOURCES
 		lib/misc/lejp.c)
-	list(APPEND HDR_PUBLIC
-		lib/misc/lejp.h)
 endif()	
 if (LWS_WITH_LEJP_CONF)
 		list(APPEND SOURCES
