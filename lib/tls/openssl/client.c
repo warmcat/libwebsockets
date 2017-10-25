@@ -184,7 +184,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 #endif /* USE_WOLFSSL */
 
-	wsi->client_bio = BIO_new_socket(wsi->desc.sockfd, BIO_NOCLOSE);
+	wsi->client_bio = BIO_new_socket((int)(long long)wsi->desc.sockfd, BIO_NOCLOSE);
 	SSL_set_bio(wsi->ssl, wsi->client_bio, wsi->client_bio);
 
 #ifdef USE_WOLFSSL

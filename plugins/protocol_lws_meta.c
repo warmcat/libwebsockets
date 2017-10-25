@@ -112,7 +112,7 @@ lws_get_channel_wsi(struct per_session_data__lws_meta *pss, int ch)
 static int
 lws_get_channel_id(struct lws *wsi)
 {
-	return (lws_intptr_t)lws_get_opaque_parent_data(wsi);
+	return (int)(lws_intptr_t)lws_get_opaque_parent_data(wsi);
 }
 
 static void

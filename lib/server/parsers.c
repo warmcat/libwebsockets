@@ -1733,18 +1733,18 @@ lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf,
 	char *rx_ubuf;
 
 	if (wsi->protocol->rx_buffer_size)
-		buffer_size = wsi->protocol->rx_buffer_size;
+		buffer_size = (int)wsi->protocol->rx_buffer_size;
 	else
 		buffer_size = wsi->context->pt_serv_buf_size;
 	avail = buffer_size - wsi->u.ws.rx_ubuf_head;
 
 	/* do not consume more than we should */
 	if (avail > wsi->u.ws.rx_packet_length)
-		avail = wsi->u.ws.rx_packet_length;
+		avail = (unsigned int)wsi->u.ws.rx_packet_length;
 
 	/* do not consume more than what is in the buffer */
 	if (avail > *len)
-		avail = *len;
+		avail = (unsigned int)(*len);
 
 	/* we want to leave 1 byte for the parser to handle properly */
 	if (avail <= 1)
