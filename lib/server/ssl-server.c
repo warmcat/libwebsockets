@@ -73,8 +73,6 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	 * as a server, if we are requiring clients to identify themselves
 	 * then set the backend up for it
 	 */
-	lws_tls_server_client_cert_verify_config(info, vhost);
-
 	if (lws_check_opt(info->options,
 			  LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT))
 		/* Normally SSL listener rejects non-ssl, optionally allow */
@@ -87,6 +85,8 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	if (vhost->use_ssl) {
 		if (lws_tls_server_vhost_backend_init(info, vhost, &wsi))
 			return -1;
+
+		lws_tls_server_client_cert_verify_config(info, vhost);
 
 		vhost->protocols[0].callback(&wsi,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
