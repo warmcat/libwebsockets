@@ -330,11 +330,14 @@ lws_tls_mbedtls_time_to_unix(mbedtls_x509_time *xtime)
 {
 	struct tm t;
 
+	if (!xtime || !xtime->year || xtime->year < 0)
+		return (time_t)(long long)-1;
+
 	memset(&t, 0, sizeof(t));
 
 	t.tm_year = xtime->year - 1900;
-	t.tm_mon = xtime->mon;
-	t.tm_mday = xtime->day;
+	t.tm_mon = xtime->mon - 1; /* mbedtls months are 1+, tm are 0+ */
+	t.tm_mday = xtime->day - 1; /* mbedtls days are 1+, tm are 0+ */
 	t.tm_hour = xtime->hour;
 	t.tm_min = xtime->min;
 	t.tm_sec = xtime->sec;
@@ -376,13 +379,13 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VALIDITY_FROM:
 		buf->time = lws_tls_mbedtls_time_to_unix(&x509->valid_from);
-		if (buf->time == (time_t)-1)
+		if (buf->time == (time_t)(long long)-1)
 			return -1;
 		break;
 
 	case LWS_TLS_CERT_INFO_VALIDITY_TO:
 		buf->time = lws_tls_mbedtls_time_to_unix(&x509->valid_to);
-		if (buf->time == (time_t)-1)
+		if (buf->time == (time_t)(long long)-1)
 			return -1;
 		break;
 

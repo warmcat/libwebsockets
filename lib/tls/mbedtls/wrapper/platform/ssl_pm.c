@@ -319,7 +319,7 @@ int ssl_pm_handshake(SSL *ssl)
 mbedtls_x509_crt *
 ssl_ctx_get_mbedtls_x509_crt(SSL_CTX *ssl_ctx)
 {
-	struct x509_pm *x509_pm = (struct x509_pm *)ssl_ctx->cert->x509;
+	struct x509_pm *x509_pm = (struct x509_pm *)ssl_ctx->cert->x509->x509_pm;
 
 	if (!x509_pm)
 		return NULL;

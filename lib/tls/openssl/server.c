@@ -318,7 +318,6 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 	lwsl_notice(" OpenSSL doesn't support ECDH\n");
 #endif
 
-
 	return 0;
 }
 

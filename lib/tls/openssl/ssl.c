@@ -550,8 +550,11 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 
 	case LWS_TLS_CERT_INFO_COMMON_NAME:
 		xn = X509_get_subject_name(x509);
-		if (!xn)
+		if (!xn) {
+			lwsl_notice("get subject name failed\n");
+
 			return -1;
+		}
 		X509_NAME_oneline(xn, buf->ns.name, (int)len - 2);
 		p = strstr(buf->ns.name, "/CN=");
 		if (p)
@@ -561,8 +564,10 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 
 	case LWS_TLS_CERT_INFO_ISSUER_NAME:
 		xn = X509_get_issuer_name(x509);
-		if (!xn)
+		if (!xn) {
+			lwsl_notice("get issuer name failed\n");
 			return -1;
+		}
 		X509_NAME_oneline(xn, buf->ns.name, (int)len - 1);
 		buf->ns.len = (int)strlen(buf->ns.name);
 		return 0;
