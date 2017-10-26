@@ -316,6 +316,28 @@ int ssl_pm_handshake(SSL *ssl)
     return -1; /* openssl death */
 }
 
+mbedtls_x509_crt *
+ssl_ctx_get_mbedtls_x509_crt(SSL_CTX *ssl_ctx)
+{
+	struct x509_pm *x509_pm = (struct x509_pm *)ssl_ctx->cert->x509->x509_pm;
+
+	if (!x509_pm)
+		return NULL;
+
+	return x509_pm->x509_crt;
+}
+
+mbedtls_x509_crt *
+ssl_get_peer_mbedtls_x509_crt(SSL *ssl)
+{
+	struct x509_pm *x509_pm = (struct x509_pm *)ssl->session->peer->x509_pm;
+
+	if (!x509_pm)
+		return NULL;
+
+	return x509_pm->ex_crt;
+}
+
 int ssl_pm_shutdown(SSL *ssl)
 {
     int ret;
