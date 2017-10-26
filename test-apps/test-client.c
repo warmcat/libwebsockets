@@ -93,6 +93,9 @@ static int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
+#if defined(LWS_OPENSSL_SUPPORT)
+	union lws_tls_cert_info_results ci;
+#endif
 	const char *which = "http";
 	char which_wsi[10], buf[50 + LWS_PRE];
 	int n;
@@ -150,6 +153,26 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		lwsl_notice("lws_http_client_http_response %d\n",
 				lws_http_client_http_response(wsi));
+#if defined(LWS_OPENSSL_SUPPORT)
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
+					    &ci, sizeof(ci.ns.name)))
+			lwsl_notice(" Peer Cert CN        : %s\n", ci.ns.name);
+
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_ISSUER_NAME,
+					    &ci, sizeof(ci.ns.name)))
+			lwsl_notice(" Peer Cert issuer    : %s\n", ci.ns.name);
+
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_FROM,
+					    &ci, 0))
+			lwsl_notice(" Peer Cert Valid from: %s", ctime(&ci.time));
+
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_TO,
+					    &ci, 0))
+			lwsl_notice(" Peer Cert Valid to  : %s", ctime(&ci.time));
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_USAGE,
+					    &ci, 0))
+			lwsl_notice(" Peer Cert usage bits: 0x%x\n", ci.usage);
+#endif
 		break;
 
 	/* chunked content */
