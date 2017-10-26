@@ -1432,10 +1432,43 @@ lws_rx_flow_allow_all_protocol(const struct lws_context *context,
 	}
 }
 
+int
+lws_broadcast(struct lws_context *context, int reason, void *in, size_t len)
+{
+	struct lws_vhost *v = context->vhost_list;
+	struct lws wsi;
+	int n, ret = 0;
+
+	memset(&wsi, 0, sizeof(wsi));
+	wsi.context = context;
+
+	while (v) {
+		const struct lws_protocols *p = v->protocols;
+		wsi.vhost = v;
+
+		for (n = 0; n < v->count_protocols; n++) {
+			wsi.protocol = p;
+			if (p->callback &&
+			    p->callback(&wsi, reason, NULL, in, len))
+				ret |= 1;
+			p++;
+		}
+		v = v->vhost_next;
+	}
+
+	return ret;
+}
+
 LWS_VISIBLE extern const char *
 lws_canonical_hostname(struct lws_context *context)
 {
 	return (const char *)context->canonical_hostname;
+}
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_get_vhost_name(struct lws_vhost *vhost)
+{
+	return vhost->name;
 }
 
 int user_callback_handle_rxflow(lws_callback_function callback_function,

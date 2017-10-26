@@ -196,7 +196,7 @@ lws_protocol_init(struct lws_context *context)
 	struct lws_vhost *vh = context->vhost_list;
 	const struct lws_protocol_vhost_options *pvo, *pvo1;
 	struct lws wsi;
-	int n;
+	int n, any = 0;
 
 	if (context->doing_protocol_init)
 		return 0;
@@ -212,7 +212,8 @@ lws_protocol_init(struct lws_context *context)
 		wsi.vhost = vh;
 
 		/* only do the protocol init once for a given vhost */
-		if (vh->created_vhost_protocols)
+		if (vh->created_vhost_protocols ||
+		    (vh->options & LWS_SERVER_OPTION_SKIP_PROTOCOL_INIT))
 			goto next;
 
 		/* initialize supported protocols on this vhost */
@@ -260,6 +261,10 @@ lws_protocol_init(struct lws_context *context)
 				pvo = pvo1->options;
 			}
 
+#if defined(LWS_OPENSSL_SUPPORT)
+			any |= !!vh->ssl_ctx;
+#endif
+
 			/*
 			 * inform all the protocols that they are doing their
 			 * one-time initialization if they want to.
@@ -288,6 +293,9 @@ next:
 		lws_finalize_startup(context);
 
 	context->protocol_init_done = 1;
+
+	if (any)
+		lws_tls_check_all_cert_lifetimes(context);
 
 	return 0;
 }
@@ -1269,6 +1277,8 @@ lws_create_context(struct lws_context_creation_info *info)
 		if (lws_ext_cb_all_exts(context, NULL,
 			LWS_EXT_CB_CLIENT_CONTEXT_CONSTRUCT, NULL, 0) < 0)
 			goto bail;
+
+	time(&context->last_cert_check_s);
 
 #if defined(LWS_WITH_SELFTESTS)
 	lws_jws_selftest();
