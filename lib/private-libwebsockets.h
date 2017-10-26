@@ -2405,7 +2405,9 @@ LWS_EXTERN void
 lws_ssl_bind_passphrase(lws_tls_ctx *ssl_ctx, struct lws_context_creation_info *info);
 LWS_EXTERN void
 lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);
-
+LWS_EXTERN int
+lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
+			  union lws_tls_cert_info_results *buf, size_t len);
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,

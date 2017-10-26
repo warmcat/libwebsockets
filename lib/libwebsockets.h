@@ -5427,6 +5427,60 @@ lws_is_cgi(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN SSL*
 lws_get_ssl(struct lws *wsi);
 #endif
+
+enum lws_tls_cert_info {
+	LWS_TLS_CERT_INFO_VALIDITY_FROM,
+	LWS_TLS_CERT_INFO_VALIDITY_TO,
+	LWS_TLS_CERT_INFO_COMMON_NAME,
+	LWS_TLS_CERT_INFO_ISSUER_NAME,
+	LWS_TLS_CERT_INFO_USAGE,
+};
+
+union lws_tls_cert_info_results {
+	time_t time;
+	unsigned int usage;
+	struct {
+		int len;
+		char name[64]; /* KEEP LAST... name[] not allowed in union */
+	} ns;
+};
+
+/**
+ * lws_tls_peer_cert_info() - get information from the peer's TLS cert
+ *
+ * \param wsi: the connection to query
+ * \param type: one of LWS_TLS_CERT_INFO_
+ * \param buf: pointer to union to take result
+ * \param len: when result is a string, the true length of buf->ns.name[]
+ *
+ * lws_tls_peer_cert_info() lets you get hold of information from the peer
+ * certificate.
+ *
+ * This function works the same no matter if the TLS backend is OpenSSL or
+ * mbedTLS.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
+		       union lws_tls_cert_info_results *buf, size_t len);
+
+/**
+ * lws_tls_vhost_cert_info() - get information from the vhost's own TLS cert
+ *
+ * \param vhost: the vhost to query
+ * \param type: one of LWS_TLS_CERT_INFO_
+ * \param buf: pointer to union to take result
+ * \param len: when result is a string, the true length of buf->ns.name[]
+ *
+ * lws_tls_vhost_cert_info() lets you get hold of information from the vhost
+ * certificate.
+ *
+ * This function works the same no matter if the TLS backend is OpenSSL or
+ * mbedTLS.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
+		        union lws_tls_cert_info_results *buf, size_t len);
+
 ///@}
 
 /** \defgroup lws_ring LWS Ringbuffer APIs
