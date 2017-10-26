@@ -21,8 +21,9 @@
 
 #include "private-libwebsockets.h"
 
-int lws_alloc_vfs_file(struct lws_context *context, const char *filename, uint8_t **buf,
-		lws_filepos_t *amount)
+int
+lws_alloc_vfs_file(struct lws_context *context, const char *filename,
+		   uint8_t **buf, lws_filepos_t *amount)
 {
 	lws_filepos_t len;
 	lws_fop_flags_t	flags = LWS_O_RDONLY;
@@ -97,6 +98,45 @@ lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 	wsi->pending_read_list_next = NULL;
 }
 
+int
+lws_tls_check_cert_lifetime(struct lws_vhost *v)
+{
+	union lws_tls_cert_info_results ir;
+	time_t now = (time_t)lws_now_secs(), life;
+	int n;
+
+	if (!v->ssl_ctx)
+		return -1;
+
+	if (now < 1464083026) /* May 2016 */
+		/* our clock is wrong and we can't judge the certs */
+		return -1;
+
+	n = lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_TO, &ir, 0);
+	if (n)
+		return -1;
+
+	life = (ir.time - now) / (24 * 3600);
+	lwsl_notice("   vhost %s: cert expiry: %dd\n", v->name, (int)life);
+
+	lws_broadcast(v->context, LWS_CALLBACK_VHOST_CERT_AGING, v,
+		      (size_t)(ssize_t)life);
+
+	return 0;
+}
+
+int
+lws_tls_check_all_cert_lifetimes(struct lws_context *context)
+{
+	struct lws_vhost *v = context->vhost_list;
+
+	while (v) {
+		lws_tls_check_cert_lifetime(v);
+		v = v->vhost_next;
+	}
+
+	return 0;
+}
 
 int
 lws_gate_accepts(struct lws_context *context, int on)
