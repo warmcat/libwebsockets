@@ -411,6 +411,9 @@ callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		close(vhd->privileged_fd);
 		break;
 
+	case LWS_CALLBACK_VHOST_CERT_AGING:
+		break;
+
 	default:
 		if (!vhd->ssh_base_protocol) {
 			vhd->ssh_base_protocol = lws_vhost_name_to_protocol(
