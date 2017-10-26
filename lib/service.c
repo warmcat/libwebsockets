@@ -1159,6 +1159,14 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		}
 	}
 
+	/*
+	 * check the remaining cert lifetime daily
+	 */
+	if (context->last_cert_check_s < now - (24 * 60 * 60)) {
+		context->last_cert_check_s = now;
+
+		lws_tls_check_all_cert_lifetimes(context);
+	}
 
 	/* the socket we came to service timed out, nothing to do */
 	if (timed_out)
@@ -1227,7 +1235,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	switch (wsi->mode) {
 	case LWSCM_EVENT_PIPE:
 	{
-		struct lws_vhost *v = context->vhost_list;
 #if !defined(WIN32) && !defined(_WIN32)
 		char s[10];
 
@@ -1235,31 +1242,18 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		if (read(wsi->desc.sockfd, s, sizeof(s)) < 0)
 			goto close_and_handled;
 #endif
-
 		/*
 		 * the poll() wait, or the event loop for libuv etc is a
 		 * process-wide resource that we interrupted.  So let every
 		 * protocol that may be interested in the pipe event know that
 		 * it happened.
 		 */
-		while (v) {
-			const struct lws_protocols *p = v->protocols;
-			wsi->vhost = v;
-
-			for (n = 0; n < v->count_protocols; n++) {
-				wsi->protocol = p;
-				if (p->callback && p->callback(wsi,
-					  LWS_CALLBACK_EVENT_WAIT_CANCELLED,
-					  NULL, NULL, 0)) {
-					lwsl_info("closed in event cancel\n");
-					goto close_and_handled;
-				}
-				p++;
-			}
-			v = v->vhost_next;
+		if (lws_broadcast(context, LWS_CALLBACK_EVENT_WAIT_CANCELLED,
+				  NULL, 0)) {
+			lwsl_info("closed in event cancel\n");
+			goto close_and_handled;
 		}
-		wsi->vhost = NULL;
-		wsi->protocol = NULL;
+
 		goto handled;
 	}
 	case LWSCM_HTTP_SERVING:
