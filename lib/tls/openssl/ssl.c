@@ -600,5 +600,9 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 {
 	X509 *x509 = SSL_get_peer_certificate(wsi->ssl);
 
-	return lws_tls_openssl_cert_info(x509, type, buf, len);
+	int rc = lws_tls_openssl_cert_info(x509, type, buf, len);
+
+	X509_free(x509);
+
+	return rc;
 }
