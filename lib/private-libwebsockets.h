@@ -1080,6 +1080,7 @@ struct lws_peer {
 struct lws_context {
 	time_t last_timeout_check_s;
 	time_t last_ws_ping_pong_check_s;
+	time_t last_cert_check_s;
 	time_t time_up;
 	const struct lws_plat_file_ops *fops;
 	struct lws_plat_file_ops fops_platform;
@@ -2361,6 +2362,7 @@ LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 #define lws_ssl_remove_wsi_from_buffered_list(_a)
 #define lws_context_init_ssl_library(_a)
 #define lws_ssl_anybody_has_buffered_read_tsi(_a, _b) (0)
+#define lws_tls_check_all_cert_lifetimes(_a)
 #else
 #define LWS_SSL_ENABLED(context) (context->use_ssl)
 LWS_EXTERN int openssl_websocket_private_data_index;
@@ -2401,6 +2403,8 @@ lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);
 LWS_EXTERN int
 lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 			  union lws_tls_cert_info_results *buf, size_t len);
+LWS_EXTERN int
+lws_tls_check_all_cert_lifetimes(struct lws_context *context);
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
@@ -2518,6 +2522,9 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending_no_ssl(struct lws *wsi);
+
+int
+lws_tls_check_cert_lifetime(struct lws_vhost *vhost);
 
 int lws_jws_selftest(void);
 
@@ -2696,6 +2703,9 @@ LWS_EXTERN void
 lws_same_vh_protocol_remove(struct lws *wsi);
 LWS_EXTERN void
 lws_same_vh_protocol_insert(struct lws *wsi, int n);
+
+LWS_EXTERN int
+lws_broadcast(struct lws_context *context, int reason, void *in, size_t len);
 
 #if defined(LWS_WITH_STATS)
 void

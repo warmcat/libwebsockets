@@ -1422,6 +1422,12 @@ enum lws_callback_reasons {
 	 * callback is serialized in the lws event loop normally, even
 	 * if the lws_cancel_service[_pt]() call was from a different
 	 * thread. */
+	LWS_CALLBACK_VHOST_CERT_AGING				= 72,
+	/**< When a vhost TLS cert has its expiry checked, this callback
+	 * is broadcast to every protocol of every vhost in case the
+	 * protocol wants to take some action with this information.
+	 * \p in is the lws_vhost and \p len is the number of days left
+	 * before it expires, as a (ssize_t) */
 
 	/****** add new things just above ---^ ******/
 
@@ -2504,6 +2510,11 @@ enum lws_context_options {
 	 * LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS callback, which
 	 * provides the vhost SSL_CTX * in the user parameter.
 	 */
+	LWS_SERVER_OPTION_SKIP_PROTOCOL_INIT			= (1 << 25),
+	/**< (VH) You probably don't want this.  It forces this vhost to not
+	 * call LWS_CALLBACK_PROTOCOL_INIT on its protocols.  It's used in the
+	 * special case of a temporary vhost bound to a single protocol.
+	 */
 
 	/****** add new things just above ---^ ******/
 };
@@ -3012,6 +3023,14 @@ lws_vhost_get(struct lws *wsi) LWS_WARN_DEPRECATED;
  */
 LWS_VISIBLE LWS_EXTERN struct lws_vhost *
 lws_get_vhost(struct lws *wsi);
+
+/**
+ * lws_get_vhost_name() - returns the name of a vhost
+ *
+ * \param vhost: which vhost
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_get_vhost_name(struct lws_vhost *vhost);
 
 /**
  * lws_json_dump_vhost() - describe vhost state and stats in JSON
