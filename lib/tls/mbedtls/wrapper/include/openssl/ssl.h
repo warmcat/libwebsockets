@@ -35,6 +35,12 @@
 #define X509_CHECK_FLAG_MULTI_LABEL_WILDCARDS		(1 << 3)
 #define X509_CHECK_FLAG_SINGLE_LABEL_SUBDOMAINS		(1 << 4)
 
+ mbedtls_x509_crt *
+ ssl_ctx_get_mbedtls_x509_crt(SSL_CTX *ssl_ctx);
+
+ mbedtls_x509_crt *
+ ssl_get_peer_mbedtls_x509_crt(SSL *ssl);
+
 /**
  * @brief create a SSL context
  *
