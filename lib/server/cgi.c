@@ -116,7 +116,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	char *env_array[30], cgi_path[400], e[1024], *p = e,
 	     *end = p + sizeof(e) - 1, tok[256], *t;
 	struct lws_cgi *cgi;
-	int n, m, i, uritok = -1;
+	int n, m = 0, i, uritok = -1;
 
 	/*
 	 * give the master wsi a cgi struct
