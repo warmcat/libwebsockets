@@ -20,6 +20,7 @@
  */
 
 #include "private-libwebsockets.h"
+#include <mbedtls/oid.h>
 
 void
 lws_ssl_elaborate_error(void)
@@ -322,4 +323,100 @@ lws_tls_shutdown(struct lws *wsi)
 		}
 		return LWS_SSL_CAPABLE_ERROR;
 	}
+}
+
+static time_t
+lws_tls_mbedtls_time_to_unix(mbedtls_x509_time *xtime)
+{
+	struct tm t;
+
+	if (!xtime || !xtime->year || xtime->year < 0)
+		return (time_t)(long long)-1;
+
+	memset(&t, 0, sizeof(t));
+
+	t.tm_year = xtime->year - 1900;
+	t.tm_mon = xtime->mon - 1; /* mbedtls months are 1+, tm are 0+ */
+	t.tm_mday = xtime->day - 1; /* mbedtls days are 1+, tm are 0+ */
+	t.tm_hour = xtime->hour;
+	t.tm_min = xtime->min;
+	t.tm_sec = xtime->sec;
+	t.tm_isdst = -1;
+
+	return mktime(&t);
+}
+
+static int
+lws_tls_mbedtls_get_x509_name(mbedtls_x509_name *name,
+			      union lws_tls_cert_info_results *buf, size_t len)
+{
+	while (name) {
+		if (MBEDTLS_OID_CMP(MBEDTLS_OID_AT_CN, &name->oid)) {
+			name = name->next;
+			continue;
+		}
+
+		if (len - 1 < name->val.len)
+			return -1;
+
+		memcpy(&buf->ns.name[0], name->val.p, name->val.len);
+		buf->ns.name[name->val.len] = '\0';
+		buf->ns.len = name->val.len;
+
+		return 0;
+	}
+
+	return -1;
+}
+
+static int
+lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
+			  union lws_tls_cert_info_results *buf, size_t len)
+{
+	if (!x509)
+		return -1;
+
+	switch (type) {
+	case LWS_TLS_CERT_INFO_VALIDITY_FROM:
+		buf->time = lws_tls_mbedtls_time_to_unix(&x509->valid_from);
+		if (buf->time == (time_t)(long long)-1)
+			return -1;
+		break;
+
+	case LWS_TLS_CERT_INFO_VALIDITY_TO:
+		buf->time = lws_tls_mbedtls_time_to_unix(&x509->valid_to);
+		if (buf->time == (time_t)(long long)-1)
+			return -1;
+		break;
+
+	case LWS_TLS_CERT_INFO_COMMON_NAME:
+		return lws_tls_mbedtls_get_x509_name(&x509->subject, buf, len);
+
+	case LWS_TLS_CERT_INFO_ISSUER_NAME:
+		return lws_tls_mbedtls_get_x509_name(&x509->issuer, buf, len);
+
+	case LWS_TLS_CERT_INFO_USAGE:
+		buf->usage = x509->key_usage;
+		break;
+	}
+
+	return 0;
+}
+
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
+		        union lws_tls_cert_info_results *buf, size_t len)
+{
+	mbedtls_x509_crt *x509 = ssl_ctx_get_mbedtls_x509_crt(vhost->ssl_ctx);
+
+	return lws_tls_mbedtls_cert_info(x509, type, buf, len);
+}
+
+LWS_VISIBLE int
+lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
+		       union lws_tls_cert_info_results *buf, size_t len)
+{
+	mbedtls_x509_crt *x509 = ssl_get_peer_mbedtls_x509_crt(wsi->ssl);
+
+	return lws_tls_mbedtls_cert_info(x509, type, buf, len);
 }

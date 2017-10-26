@@ -30,6 +30,8 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	SSL *ssl;
 	int n;
 	struct lws *wsi;
+	union lws_tls_cert_info_results ir;
+	X509 *topcert = X509_STORE_CTX_get_current_cert(x509_ctx);
 
 	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
 		SSL_get_ex_data_X509_STORE_CTX_idx());
@@ -39,6 +41,13 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	 * static
 	 */
 	wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+
+	n = lws_tls_openssl_cert_info(topcert, LWS_TLS_CERT_INFO_COMMON_NAME, &ir,
+				   sizeof(ir.ns.name));
+	if (!n)
+		lwsl_info("%s: client cert CN '%s'\n", __func__, ir.ns.name);
+	else
+		lwsl_info("%s: couldn't get client cert CN\n", __func__);
 
 	n = wsi->vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
@@ -318,7 +327,6 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 	lwsl_notice(" OpenSSL doesn't support ECDH\n");
 #endif
 
-
 	return 0;
 }
 
@@ -383,10 +391,19 @@ lws_tls_server_abort_connection(struct lws *wsi)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
+	union lws_tls_cert_info_results ir;
 	int m, n = SSL_accept(wsi->ssl);
 
-	if (n == 1)
+	if (n == 1) {
+		n = lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, &ir,
+					   sizeof(ir.ns.name));
+		if (!n)
+			lwsl_notice("%s: client cert CN '%s'\n",
+				    __func__, ir.ns.name);
+		else
+			lwsl_info("%s: couldn't get client cert CN\n", __func__);
 		return LWS_SSL_CAPABLE_DONE;
+	}
 
 	m = lws_ssl_get_error(wsi, n);
 
