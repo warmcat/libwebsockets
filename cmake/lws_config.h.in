@@ -93,6 +93,8 @@
 #cmakedefine LWS_HAVE_SSL_CTX_set1_param
 #cmakedefine LWS_HAVE_X509_VERIFY_PARAM_set1_host
 #cmakedefine LWS_HAVE_RSA_SET0_KEY
+#cmakedefine LWS_HAVE_X509_get_key_usage
+#cmakedefine LWS_HAVE_SSL_CTX_get0_certificate
 
 #cmakedefine LWS_HAVE_UV_VERSION_H
 
