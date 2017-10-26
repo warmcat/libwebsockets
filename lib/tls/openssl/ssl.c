@@ -484,3 +484,121 @@ lws_tls_shutdown(struct lws *wsi)
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 }
+
+static int
+dec(char c)
+{
+	return c - '0';
+}
+
+static time_t
+lws_tls_openssl_asn1time_to_unix(ASN1_TIME *as)
+{
+	const char *p = (const char *)as->data;
+	struct tm t;
+
+	/* [YY]YYMMDDHHMMSSZ */
+
+	memset(&t, 0, sizeof(t));
+
+	if (strlen(p) == 13) {
+		t.tm_year = (dec(p[0]) * 10) + dec(p[1]) + 100;
+		p += 2;
+	} else {
+		t.tm_year = (dec(p[0]) * 1000) + (dec(p[1]) * 100) +
+			    (dec(p[2]) * 10) + dec(p[3]);
+		p += 4;
+	}
+	t.tm_mon = (dec(p[0]) * 10) + dec(p[1]) - 1;
+	p += 2;
+	t.tm_mday = (dec(p[0]) * 10) + dec(p[1]) - 1;
+	p += 2;
+	t.tm_hour = (dec(p[0]) * 10) + dec(p[1]);
+	p += 2;
+	t.tm_min = (dec(p[0]) * 10) + dec(p[1]);
+	p += 2;
+	t.tm_sec = (dec(p[0]) * 10) + dec(p[1]);
+	t.tm_isdst = 0;
+
+	return mktime(&t);
+}
+
+static int
+lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
+			  union lws_tls_cert_info_results *buf, size_t len)
+{
+	X509_NAME *xn;
+	char *p;
+
+	if (!x509)
+		return -1;
+
+	switch (type) {
+	case LWS_TLS_CERT_INFO_VALIDITY_FROM:
+		buf->time = lws_tls_openssl_asn1time_to_unix(
+					X509_get_notBefore(x509));
+		if (buf->time == (time_t)-1)
+			return -1;
+		break;
+
+	case LWS_TLS_CERT_INFO_VALIDITY_TO:
+		buf->time = lws_tls_openssl_asn1time_to_unix(
+					X509_get_notAfter(x509));
+		if (buf->time == (time_t)-1)
+			return -1;
+		break;
+
+	case LWS_TLS_CERT_INFO_COMMON_NAME:
+		xn = X509_get_subject_name(x509);
+		if (!xn)
+			return -1;
+		X509_NAME_oneline(xn, buf->ns.name, (int)len - 1);
+		p = strstr(buf->ns.name, "/CN=");
+		if (p)
+			strcpy(buf->ns.name, p + 4);
+		buf->ns.len = (int)strlen(buf->ns.name);
+		return 0;
+
+	case LWS_TLS_CERT_INFO_ISSUER_NAME:
+		xn = X509_get_issuer_name(x509);
+		if (!xn)
+			return -1;
+		X509_NAME_oneline(xn, buf->ns.name, (int)len - 1);
+		buf->ns.len = (int)strlen(buf->ns.name);
+		return 0;
+
+	case LWS_TLS_CERT_INFO_USAGE:
+#if defined(LWS_HAVE_X509_get_key_usage)
+		buf->usage = X509_get_key_usage(x509);
+		break;
+#else
+		return -1;
+#endif
+	}
+
+	return 0;
+}
+
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
+		        union lws_tls_cert_info_results *buf, size_t len)
+{
+#if defined(LWS_HAVE_SSL_CTX_get0_certificate)
+	X509 *x509 = SSL_CTX_get0_certificate(vhost->ssl_ctx);
+
+	return lws_tls_openssl_cert_info(x509, type, buf, len);
+#else
+	lwsl_notice("openssl is too old to support %s\n", __func__);
+
+	return -1;
+#endif
+}
+
+LWS_VISIBLE int
+lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
+		       union lws_tls_cert_info_results *buf, size_t len)
+{
+	X509 *x509 = SSL_get_peer_certificate(wsi->ssl);
+
+	return lws_tls_openssl_cert_info(x509, type, buf, len);
+}
