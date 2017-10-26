@@ -5441,7 +5441,19 @@ union lws_tls_cert_info_results {
 	unsigned int usage;
 	struct {
 		int len;
-		char name[64]; /* KEEP LAST... name[] not allowed in union */
+		/* KEEP LAST... notice the [64] is only there because
+		 * name[] is not allowed in a union.  The actual length of
+		 * name[] is arbitrary and is passed into the api using the
+		 * len parameter.  Eg
+		 *
+		 * char big[1024];
+		 * union lws_tls_cert_info_results *buf =
+		 * 	(union lws_tls_cert_info_results *)big;
+		 *
+		 * lws_tls_peer_cert_info(wsi, type, buf,
+		 * 			  sizeof(big) - sizeof(*buf) + 64);
+		 */
+		char name[64];
 	} ns;
 };
 

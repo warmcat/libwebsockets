@@ -552,10 +552,10 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		xn = X509_get_subject_name(x509);
 		if (!xn)
 			return -1;
-		X509_NAME_oneline(xn, buf->ns.name, (int)len - 1);
+		X509_NAME_oneline(xn, buf->ns.name, (int)len - 2);
 		p = strstr(buf->ns.name, "/CN=");
 		if (p)
-			strcpy(buf->ns.name, p + 4);
+			memmove(buf->ns.name, p + 4, strlen(p + 4) + 1);
 		buf->ns.len = (int)strlen(buf->ns.name);
 		return 0;
 
