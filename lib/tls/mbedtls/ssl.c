@@ -398,6 +398,8 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 	case LWS_TLS_CERT_INFO_USAGE:
 		buf->usage = x509->key_usage;
 		break;
+	default:
+		return -1;
 	}
 
 	return 0;
@@ -418,5 +420,16 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 {
 	mbedtls_x509_crt *x509 = ssl_get_peer_mbedtls_x509_crt(wsi->ssl);
 
-	return lws_tls_mbedtls_cert_info(x509, type, buf, len);
+	if (!x509)
+		return -1;
+
+	switch (type) {
+	case LWS_TLS_CERT_INFO_VERIFIED:
+		buf->verified = SSL_get_verify_result(wsi->ssl) == X509_V_OK;
+		return 0;
+	default:
+		return lws_tls_mbedtls_cert_info(x509, type, buf, len);
+	}
+
+	return -1;
 }
