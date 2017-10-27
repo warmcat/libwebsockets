@@ -574,6 +574,8 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 #else
 		return -1;
 #endif
+	default:
+		return -1;
 	}
 
 	return 0;
@@ -598,9 +600,19 @@ LWS_VISIBLE int
 lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 		       union lws_tls_cert_info_results *buf, size_t len)
 {
+	int rc = 0;
 	X509 *x509 = SSL_get_peer_certificate(wsi->ssl);
 
-	int rc = lws_tls_openssl_cert_info(x509, type, buf, len);
+	if (!x509)
+		return -1;
+
+	switch (type) {
+	case LWS_TLS_CERT_INFO_VERIFIED:
+		buf->verified = SSL_get_verify_result(wsi->ssl) == X509_V_OK;
+		break;
+	default:
+		rc = lws_tls_openssl_cert_info(x509, type, buf, len);
+	}
 
 	X509_free(x509);
 
