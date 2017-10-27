@@ -119,7 +119,8 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 	/* allocate the vh priv array only on demand */
 	if (!vhost->protocol_vh_privs) {
 		vhost->protocol_vh_privs = (void **)lws_zalloc(
-				vhost->count_protocols * sizeof(void *), "protocol_vh_privs");
+				vhost->count_protocols * sizeof(void *),
+				"protocol_vh_privs");
 		if (!vhost->protocol_vh_privs)
 			return NULL;
 	}
@@ -232,7 +233,9 @@ lws_protocol_init(struct lws_context *context)
 
 				while (pvo) {
 					lwsl_notice(
-						"    vhost \"%s\", protocol \"%s\", option \"%s\"\n",
+						"    vhost \"%s\", "
+						"protocol \"%s\", "
+						"option \"%s\"\n",
 							vh->name,
 							vh->protocols[n].name,
 							pvo->name);
@@ -325,14 +328,16 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				      LWS_CB_REASON_AUX_BF__CGI)) {
 			n = lws_cgi_write_split_stdout_headers(wsi);
 			if (n < 0) {
-				lwsl_debug("LWS_CB_REASON_AUX_BF__CGI forcing close\n");
+				lwsl_debug("AUX_BF__CGI forcing close\n");
 				return -1;
 			}
 			if (!n)
-				lws_rx_flow_control(wsi->cgi->stdwsi[LWS_STDOUT], 1);
+				lws_rx_flow_control(
+					wsi->cgi->stdwsi[LWS_STDOUT], 1);
 
 			if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_HEADERS)
-				wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__CGI_HEADERS;
+				wsi->reason_bf &=
+					~LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 			else
 				wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__CGI;
 			break;
@@ -341,12 +346,13 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_CHUNK_END) {
 			if (!wsi->http2_substream) {
 				memcpy(buf + LWS_PRE, "0\x0d\x0a\x0d\x0a", 5);
-				lwsl_debug("writing chunk terminator and exiting\n");
-				n = lws_write(wsi, (unsigned char *)buf + LWS_PRE,
-						5, LWS_WRITE_HTTP);
+				lwsl_debug("writing chunk term and exiting\n");
+				n = lws_write(wsi, (unsigned char *)buf +
+						   LWS_PRE, 5, LWS_WRITE_HTTP);
 			} else
-				n = lws_write(wsi, (unsigned char *)buf + LWS_PRE,
-					      0, LWS_WRITE_HTTP_FINAL);
+				n = lws_write(wsi, (unsigned char *)buf +
+						   LWS_PRE, 0,
+						   LWS_WRITE_HTTP_FINAL);
 
 			/* always close after sending it */
 			return -1;
@@ -366,7 +372,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__PROXY;
 			if (!lws_get_child(wsi))
 				break;
-			if (lws_http_client_read(lws_get_child(wsi), &px, &lenx) < 0)
+			if (lws_http_client_read(lws_get_child(wsi), &px,
+						 &lenx) < 0)
 				return -1;
 			break;
 		}
@@ -571,7 +578,8 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 	vh->iface = info->iface;
-#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
+#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32) && \
+    !defined(OPTEE_TA) && !defined(WIN32)
 	vh->bind_iface = info->bind_iface;
 #endif
 
@@ -599,9 +607,9 @@ lws_create_vhost(struct lws_context *context,
 	 * give the vhost a unified list of protocols including the
 	 * ones that came from plugins
 	 */
-	lwsp = lws_zalloc(sizeof(struct lws_protocols) *
-				   (vh->count_protocols +
-				   context->plugin_protocol_count + 1), "vhost-specific plugin table");
+	lwsp = lws_zalloc(sizeof(struct lws_protocols) * (vh->count_protocols +
+				   context->plugin_protocol_count + 1),
+				   "vhost-specific plugin table");
 	if (!lwsp) {
 		lwsl_err("OOM\n");
 		return NULL;
@@ -653,7 +661,8 @@ lws_create_vhost(struct lws_context *context,
 	}
 
 	vh->same_vh_protocol_list = (struct lws **)
-			lws_zalloc(sizeof(struct lws *) * vh->count_protocols, "same vh list");
+			lws_zalloc(sizeof(struct lws *) * vh->count_protocols,
+				   "same vh list");
 
 	vh->mount_list = info->mounts;
 
@@ -677,14 +686,15 @@ lws_create_vhost(struct lws_context *context,
 		/* convert interpreter protocol names to pointers */
 		pvo = mounts->interpret;
 		while (pvo) {
-			for (n = 0; n < vh->count_protocols; n++)
-				if (!strcmp(pvo->value, vh->protocols[n].name)) {
-					((struct lws_protocol_vhost_options *)pvo)->value =
-							(const char *)(lws_intptr_t)n;
-					break;
-				}
+			for (n = 0; n < vh->count_protocols; n++) {
+				if (strcmp(pvo->value, vh->protocols[n].name))
+					continue;
+				((struct lws_protocol_vhost_options *)pvo)->
+					value = (const char *)(lws_intptr_t)n;
+				break;
+			}
 			if (n == vh->count_protocols)
-				lwsl_err("ignoring unknown interpret protocol %s\n",
+				lwsl_err("ignoring unknown interp pr %s\n",
 					 pvo->value);
 			pvo = pvo->next;
 		}
@@ -705,8 +715,8 @@ lws_create_vhost(struct lws_context *context,
 		 * ones that came from plugins
 		 */
 		vh->extensions = lws_zalloc(sizeof(struct lws_extension) *
-					   (m +
-					   context->plugin_extension_count + 1), "extensions");
+				     (m + context->plugin_extension_count + 1),
+				     "extensions");
 		if (!vh->extensions)
 			return NULL;
 
@@ -809,6 +819,7 @@ lws_create_vhost(struct lws_context *context,
 		}
 		vh1 = &(*vh1)->vhost_next;
 	};
+
 	/* for the case we are adding a vhost much later, after server init */
 
 	if (context->protocol_init_done)
@@ -1015,7 +1026,8 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	context->time_up = time(NULL);
 
-	context->simultaneous_ssl_restriction = info->simultaneous_ssl_restriction;
+	context->simultaneous_ssl_restriction =
+			info->simultaneous_ssl_restriction;
 
 #ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {
@@ -1148,14 +1160,14 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->ip_limit_wsi = info->ip_limit_wsi;
 #endif
 
-	lwsl_info(" mem: context:         %5lu bytes (%ld ctx + (%ld thr x %d))\n",
+	lwsl_info(" mem: context:         %5lu B (%ld ctx + (%ld thr x %d))\n",
 		  (long)sizeof(struct lws_context) +
 		  (context->count_threads * context->pt_serv_buf_size),
 		  (long)sizeof(struct lws_context),
 		  (long)context->count_threads,
 		  context->pt_serv_buf_size);
 
-	lwsl_info(" mem: http hdr rsvd:   %5lu bytes (%u thr x (%u + %lu) x %u))\n",
+	lwsl_info(" mem: http hdr rsvd:   %5lu B (%u thr x (%u + %lu) x %u))\n",
 		    (long)(context->max_http_header_data +
 		     sizeof(struct allocated_headers)) *
 		    context->max_http_header_pool * context->count_threads,
@@ -1344,7 +1356,8 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	 */
 
 	if (vh->lserv_wsi)
-		lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
+		lws_start_foreach_ll(struct lws_vhost *, v,
+				     context->vhost_list) {
 			if (v != vh &&
 			    !v->being_destroyed &&
 			    v->listen_port == vh->listen_port &&
