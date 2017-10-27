@@ -5425,9 +5425,13 @@ enum lws_tls_cert_info {
 	LWS_TLS_CERT_INFO_COMMON_NAME,
 	LWS_TLS_CERT_INFO_ISSUER_NAME,
 	LWS_TLS_CERT_INFO_USAGE,
+	LWS_TLS_CERT_INFO_EXISTS,
+	LWS_TLS_CERT_INFO_VERIFIED,
 };
 
 union lws_tls_cert_info_results {
+	unsigned int exists;
+	unsigned int verified;
 	time_t time;
 	unsigned int usage;
 	struct {
