@@ -110,10 +110,10 @@ lws_gate_accepts(struct lws_context *context, int on)
 #endif
 
 	while (v) {
-		if (v->use_ssl &&  v->lserv_wsi) /* gate ability to accept incoming connections */
-			if (lws_change_pollfd(v->lserv_wsi, (LWS_POLLIN) * !on,
-					      (LWS_POLLIN) * on))
-				lwsl_info("Unable to set accept POLLIN %d\n", on);
+		if (v->use_ssl && v->lserv_wsi &&
+		    lws_change_pollfd(v->lserv_wsi, (LWS_POLLIN) * !on,
+				      (LWS_POLLIN) * on))
+			lwsl_info("Unable to set accept POLLIN %d\n", on);
 
 		v = v->vhost_next;
 	}

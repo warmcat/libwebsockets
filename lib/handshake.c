@@ -231,7 +231,7 @@ postbody_completion:
 			if (!wsi->cgi)
 #endif
 			{
-				lwsl_notice("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
+				lwsl_notice("HTTP_BODY_COMPLETION\n");
 				n = wsi->protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY_COMPLETION,
 					wsi->user_space, NULL, 0);
@@ -255,8 +255,9 @@ postbody_completion:
 		switch (wsi->mode) {
 		case LWSCM_WS_SERVING:
 
-			if (lws_interpret_incoming_packet(wsi, &buf, (size_t)len) < 0) {
-				lwsl_info("interpret_incoming_packet has bailed\n");
+			if (lws_interpret_incoming_packet(wsi, &buf,
+							  (size_t)len) < 0) {
+				lwsl_info("interpret_incoming_packet bailed\n");
 				goto bail;
 			}
 			break;
