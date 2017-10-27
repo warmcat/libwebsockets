@@ -125,7 +125,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		if (accept_fd == LWS_SOCK_INVALID)
 			assert(0);
 		if (context->simultaneous_ssl_restriction &&
-		    context->simultaneous_ssl >= context->simultaneous_ssl_restriction) {
+		    context->simultaneous_ssl >=
+		    	    context->simultaneous_ssl_restriction) {
 			lwsl_notice("unable to deal with SSL connection\n");
 			return 1;
 		}
@@ -137,7 +138,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		}
 
 		if (context->simultaneous_ssl_restriction &&
-		    ++context->simultaneous_ssl == context->simultaneous_ssl_restriction)
+		    ++context->simultaneous_ssl ==
+				    context->simultaneous_ssl_restriction)
 			/* that was the last allowed SSL connection */
 			lws_gate_accepts(context, 0);
 #if defined(LWS_WITH_STATS)
@@ -185,7 +187,6 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		 * SSL-level access control (eg, client-side certs) so leave
 		 * it disabled unless you know it's not a problem for you
 		 */
-
 			if (n >= 1 && pt->serv_buf[0] >= ' ') {
 				/*
 				* TLS content-type for Handshake is 0x16, and
@@ -221,7 +222,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				 * connection.
 				 */
 				if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
-					lwsl_info("%s: WANT_READ change_pollfd failed\n",
+					lwsl_info("%s: change_pollfd failed\n",
 						  __func__);
 					return -1;
 				}

@@ -24,12 +24,6 @@
 static int
 lws_0405_frame_mask_generate(struct lws *wsi)
 {
-#if 0
-	wsi->u.ws.mask[0] = 0;
-	wsi->u.ws.mask[1] = 0;
-	wsi->u.ws.mask[2] = 0;
-	wsi->u.ws.mask[3] = 0;
-#else
 	int n;
 	/* fetch the per-frame nonce */
 
@@ -39,7 +33,7 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 			    SYSTEM_RANDOM_FILEPATH, n);
 		return 1;
 	}
-#endif
+
 	/* start masking from first byte of masking key buffer */
 	wsi->u.ws.mask_idx = 0;
 
@@ -72,12 +66,12 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		strncpy(dump, (char *)buf, sizeof(dump) - 1);
 		dump[sizeof(dump) - 1] = '\0';
 #if defined(LWS_WITH_ESP8266)
-		lwsl_err("****** %p: Sending new %lu (%s), pending truncated ...\n",
+		lwsl_err("** %p: Sending new %lu (%s), pending truncated ...\n",
 			 wsi, (unsigned long)len, dump);
 #else
-		lwsl_err("****** %p: Sending new %lu (%s), pending truncated ...\n"
-			 "       It's illegal to do an lws_write outside of\n"
-			 "       the writable callback: fix your code\n",
+		lwsl_err("** %p: Sending new %lu (%s), pending truncated ...\n"
+			 "   It's illegal to do an lws_write outside of\n"
+			 "   the writable callback: fix your code\n",
 			 wsi, (unsigned long)len, dump);
 #endif
 		assert(0);
@@ -140,11 +134,11 @@ handle_truncated_send:
 		wsi->trunc_len -= n;
 
 		if (!wsi->trunc_len) {
-			lwsl_info("***** %p partial send completed\n", wsi);
+			lwsl_info("** %p partial send completed\n", wsi);
 			/* done with it, but don't free it */
 			n = (int)real_len;
 			if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
-				lwsl_info("***** %p signalling to close now\n", wsi);
+				lwsl_info("** %p signalling to close now\n", wsi);
 				return -1; /* retry closing now */
 			}
 		}
@@ -177,7 +171,8 @@ handle_truncated_send:
 		lws_free(wsi->trunc_alloc);
 
 		wsi->trunc_alloc_len = (unsigned int)(real_len - n);
-		wsi->trunc_alloc = lws_malloc(real_len - n, "truncated send alloc");
+		wsi->trunc_alloc = lws_malloc(real_len - n,
+					      "truncated send alloc");
 		if (!wsi->trunc_alloc) {
 			lwsl_err("truncated send: unable to malloc %lu\n",
 				 (unsigned long)(real_len - n));
@@ -314,7 +309,8 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 			lwsl_debug("drain len %d\n", (int)eff_buf.token_len);
 			/* extension requires further draining */
 			wsi->u.ws.tx_draining_ext = 1;
-			wsi->u.ws.tx_draining_ext_list = pt->tx_draining_ext_list;
+			wsi->u.ws.tx_draining_ext_list =
+					pt->tx_draining_ext_list;
 			pt->tx_draining_ext_list = wsi;
 			/* we must come back to do more */
 			lws_callback_on_writable(wsi);
@@ -487,7 +483,8 @@ send_raw:
 				n = LWS_H2_FRAME_TYPE_HEADERS;
 				if (!(wp & LWS_WRITE_NO_FIN))
 					flags = LWS_H2_FLAG_END_HEADERS;
-				if (wsi->u.h2.send_END_STREAM || (wp & LWS_WRITE_H2_STREAM_END)) {
+				if (wsi->u.h2.send_END_STREAM ||
+				    (wp & LWS_WRITE_H2_STREAM_END)) {
 					flags |= LWS_H2_FLAG_END_STREAM;
 					wsi->u.h2.send_END_STREAM = 1;
 				}
@@ -497,7 +494,8 @@ send_raw:
 				n = LWS_H2_FRAME_TYPE_CONTINUATION;
 				if (!(wp & LWS_WRITE_NO_FIN))
 					flags = LWS_H2_FLAG_END_HEADERS;
-				if (wsi->u.h2.send_END_STREAM || (wp & LWS_WRITE_H2_STREAM_END)) {
+				if (wsi->u.h2.send_END_STREAM ||
+				    (wp & LWS_WRITE_H2_STREAM_END)) {
 					flags |= LWS_H2_FLAG_END_STREAM;
 					wsi->u.h2.send_END_STREAM = 1;
 				}
@@ -510,12 +508,14 @@ send_raw:
 				lwsl_info("%s: content_remain = %llu\n", __func__,
 					  (unsigned long long)wsi->u.http.tx_content_remain);
 				if (!wsi->u.http.tx_content_remain) {
-					lwsl_info("%s: selecting final write mode\n", __func__);
+					lwsl_info("%s: selecting final write mode\n",
+						  __func__);
 					wp = LWS_WRITE_HTTP_FINAL;
 				}
 			}
 
-			if ((wp & 0x1f) == LWS_WRITE_HTTP_FINAL || (wp & LWS_WRITE_H2_STREAM_END)) {
+			if ((wp & 0x1f) == LWS_WRITE_HTTP_FINAL ||
+			    (wp & LWS_WRITE_H2_STREAM_END)) {
 			    //lws_get_network_wsi(wsi)->u.h2.END_STREAM) {
 				lwsl_info("%s: setting END_STREAM\n", __func__);
 				flags |= LWS_H2_FLAG_END_STREAM;
@@ -609,7 +609,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 #if defined(LWS_WITH_RANGES)
 		if (wsi->u.http.range.count_ranges && !wsi->u.http.range.inside) {
 
-			lwsl_notice("%s: doing range start %llu\n", __func__, wsi->u.http.range.start);
+			lwsl_notice("%s: doing range start %llu\n", __func__,
+				    wsi->u.http.range.start);
 
 			if ((long long)lws_vfs_file_seek_cur(wsi->u.http.fop_fd,
 						   wsi->u.http.range.start -
@@ -619,7 +620,9 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			wsi->u.http.filepos = wsi->u.http.range.start;
 
 			if (wsi->u.http.range.count_ranges > 1) {
-				n =  lws_snprintf((char *)p, context->pt_serv_buf_size - LWS_H2_FRAME_HEADER_LENGTH,
+				n =  lws_snprintf((char *)p,
+						context->pt_serv_buf_size -
+						LWS_H2_FRAME_HEADER_LENGTH,
 					"_lws\x0d\x0a"
 					"Content-Type: %s\x0d\x0a"
 					"Content-Range: bytes %llu-%llu/%llu\x0d\x0a"
@@ -697,8 +700,9 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				args.final = wsi->u.http.filepos + n ==
 					     wsi->u.http.filelen;
 				if (user_callback_handle_rxflow(
-				     wsi->vhost->protocols[(int)wsi->protocol_interpret_idx].callback, wsi,
-				     LWS_CALLBACK_PROCESS_HTML,
+				     wsi->vhost->protocols[
+				     (int)wsi->protocol_interpret_idx].callback,
+				     wsi, LWS_CALLBACK_PROCESS_HTML,
 				     wsi->user_space, &args, 0) < 0)
 					goto file_had_it;
 				n = args.len;

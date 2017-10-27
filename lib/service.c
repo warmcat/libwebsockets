@@ -502,7 +502,8 @@ next_child:
 		wsi2 = wa;
 	} while (wsi2 && *wsi2 && !lws_send_pipe_choked(wsi));
 
-	lwsl_info("%s: %p: children waiting for POLLOUT service: %p\n", __func__, wsi, wsi->u.h2.child_list);
+	lwsl_info("%s: %p: children waiting for POLLOUT service: %p\n",
+		  __func__, wsi, wsi->u.h2.child_list);
 	wsi2a = wsi->u.h2.child_list;
 	while (wsi2a) {
 		if (wsi2a->u.h2.requested_POLLOUT)
@@ -624,7 +625,8 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 		buf += n;
 		len -= n;
 		assert ((char *)buf >= (char *)h2n->rx_scratch &&
-			(char *)&buf[len] <= (char *)&h2n->rx_scratch[LWS_H2_RX_SCRATCH_SIZE]);
+			(char *)&buf[len] <=
+			    (char *)&h2n->rx_scratch[LWS_H2_RX_SCRATCH_SIZE]);
 
 		h2n->rx_scratch_pos = lws_ptr_diff(buf, h2n->rx_scratch);
 		h2n->rx_scratch_len = len;
@@ -895,7 +897,8 @@ spin_chunks:
 		if (user_callback_handle_rxflow(wsi->protocol->callback,
 				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 				wsi->user_space, *buf, n)) {
-			lwsl_debug("%s: LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ returned -1\n", __func__);
+			lwsl_debug("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",
+				   __func__);
 
 			return -1;
 		}
@@ -951,7 +954,8 @@ lws_is_ws_with_ext(struct lws *wsi)
 }
 
 LWS_VISIBLE int
-lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int tsi)
+lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
+		   int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	lws_sockfd_type our_fd = 0, tmp_fd;
@@ -1025,7 +1029,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 				if (tmp_fd == our_fd)
 					/* it was the guy we came to service! */
 					timed_out = 1;
-					/* he's gone, no need to mark as handled */
+				/* he's gone, no need to mark as handled */
 			}
 			wsi = wsi1;
 		}
@@ -1136,13 +1140,17 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 					    wsi->u.ws.time_next_ping_check &&
 					    wsi->u.ws.time_next_ping_check < now) {
 
-						lwsl_info("requesting ping-pong on wsi %p\n", wsi);
+						lwsl_info("req pp on wsi %p\n",
+							  wsi);
 						wsi->u.ws.send_check_ping = 1;
-						lws_set_timeout(wsi, PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
-								context->timeout_secs);
+						lws_set_timeout(wsi,
+					PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
+							context->timeout_secs);
 						lws_callback_on_writable(wsi);
-						wsi->u.ws.time_next_ping_check = now +
-								wsi->context->ws_ping_pong_interval;
+						wsi->u.ws.time_next_ping_check =
+							now +
+							wsi->context->
+							  ws_ping_pong_interval;
 					}
 					wsi = wsi->same_vh_protocol_next;
 				}
@@ -1418,8 +1426,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			struct lws_h2_netconn *h2n = wsi->u.h2.h2n;
 
 			if (h2n->rx_scratch_len) {
-				lwsl_info("%s: %p: resuming h2 rx_scratch pos = %d len = %d\n",
-					  __func__, wsi, h2n->rx_scratch_pos, h2n->rx_scratch_len);
+				lwsl_info("%s: %p: h2 rx pos = %d len = %d\n",
+					  __func__, wsi, h2n->rx_scratch_pos,
+					  h2n->rx_scratch_len);
 				eff_buf.token = (char *)h2n->rx_scratch +
 						h2n->rx_scratch_pos;
 				eff_buf.token_len = h2n->rx_scratch_len;
@@ -1455,15 +1464,20 @@ read:
 		} else {
 			if (wsi->mode != LWSCM_HTTP_CLIENT_ACCEPTED) {
 				/*
-				 * extension may not consume everything (eg, pmd may be constrained
-				 * as to what it can output...) has to go in per-wsi rx buf area.
+				 * extension may not consume everything
+				 * (eg, pmd may be constrained
+				 * as to what it can output...) has to go in
+				 * per-wsi rx buf area.
 				 * Otherwise in large temp serv_buf area.
 				 */
 
 #if defined(LWS_WITH_HTTP2)
 				if (wsi->upgraded_to_http2) {
 					if (!wsi->u.h2.h2n->rx_scratch) {
-						wsi->u.h2.h2n->rx_scratch = lws_malloc(LWS_H2_RX_SCRATCH_SIZE, "h2 rx scratch");
+						wsi->u.h2.h2n->rx_scratch =
+							lws_malloc(
+							 LWS_H2_RX_SCRATCH_SIZE,
+							 "h2 rx scratch");
 						if (!wsi->u.h2.h2n->rx_scratch)
 							goto close_and_handled;
 					}
@@ -1474,24 +1488,30 @@ read:
 				{
 					eff_buf.token = (char *)pt->serv_buf;
 					if (lws_is_ws_with_ext(wsi)) {
-						eff_buf.token_len = wsi->u.ws.rx_ubuf_alloc;
+						eff_buf.token_len =
+							wsi->u.ws.rx_ubuf_alloc;
 					} else {
-						eff_buf.token_len = context->pt_serv_buf_size;
+						eff_buf.token_len =
+						      context->pt_serv_buf_size;
 					}
 
-					if ((unsigned int)eff_buf.token_len > context->pt_serv_buf_size)
-						eff_buf.token_len = context->pt_serv_buf_size;
+					if ((unsigned int)eff_buf.token_len >
+						     context->pt_serv_buf_size)
+						eff_buf.token_len =
+						      context->pt_serv_buf_size;
 				}
 
 				if ((int)pending > eff_buf.token_len)
 					pending = eff_buf.token_len;
 
 				eff_buf.token_len = lws_ssl_capable_read(wsi,
-					(unsigned char *)eff_buf.token, pending ? (int)pending :
+					(unsigned char *)eff_buf.token,
+					pending ? (int)pending :
 					eff_buf.token_len);
 				switch (eff_buf.token_len) {
 				case 0:
-					lwsl_info("%s: zero length read\n", __func__);
+					lwsl_info("%s: zero length read\n",
+						  __func__);
 					goto close_and_handled;
 				case LWS_SSL_CAPABLE_MORE_SERVICE:
 					lwsl_info("SSL Capable more service\n");
