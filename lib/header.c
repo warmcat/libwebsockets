@@ -349,7 +349,8 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 	if (lws_finalize_http_header(wsi, p, end))
 		return -1;
 
-	n = lws_write(wsi, start, *p - start, LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
+	n = lws_write(wsi, start, *p - start, LWS_WRITE_HTTP_HEADERS |
+					      LWS_WRITE_H2_STREAM_END);
 
 	return n;
 }
