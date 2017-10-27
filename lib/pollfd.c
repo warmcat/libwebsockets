@@ -68,8 +68,9 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 		return 0;
 
 	if (wsi->vhost &&
-	    wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_CHANGE_MODE_POLL_FD,
-					   wsi->user_space, (void *)pa, 0)) {
+	    wsi->vhost->protocols[0].callback(wsi,
+			    	    	      LWS_CALLBACK_CHANGE_MODE_POLL_FD,
+					      wsi->user_space, (void *)pa, 0)) {
 		ret = -1;
 		goto bail;
 	}
@@ -281,7 +282,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	/* end guy's "position in fds table" is now the deletion guy's old one */
 	end_wsi = wsi_from_fd(context, v);
 	if (!end_wsi) {
-		lwsl_err("no wsi found for sock fd %d at pos %d, pt->fds_count=%d\n",
+		lwsl_err("no wsi found for fd %d at pos %d, pt->fds_count=%d\n",
 				(int)pt->fds[m].fd, m, pt->fds_count);
 		assert(0);
 	} else
@@ -332,7 +333,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 
 	if (wsi->vhost &&
 	    wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
-					      wsi->user_space,  (void *) &pa, 0))
+					      wsi->user_space, (void *) &pa, 0))
 		return -1;
 
 	pt = &context->pt[(int)wsi->tsi];
@@ -386,7 +387,8 @@ lws_callback_on_writable(struct lws *wsi)
 #if defined(LWS_WITH_STATS)
 	if (!wsi->active_writable_req_us) {
 		wsi->active_writable_req_us = time_in_microseconds();
-		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB_EFF_REQ, 1);
+		lws_stats_atomic_bump(wsi->context, pt,
+				      LWSSTATS_C_WRITEABLE_CB_EFF_REQ, 1);
 	}
 #endif
 
@@ -412,7 +414,8 @@ lws_callback_on_writable(struct lws *wsi)
 		 * Delay waiting for our POLLOUT until peer indicates he has
 		 * space for more using tx window command in http2 layer
 		 */
-		lwsl_notice("%s: %p: skint (%d)\n", __func__, wsi, wsi->u.h2.tx_cr);
+		lwsl_notice("%s: %p: skint (%d)\n", __func__, wsi,
+			    wsi->u.h2.tx_cr);
 		wsi->u.h2.skint = 1;
 		return 0;
 	}
@@ -442,7 +445,8 @@ network_sock:
 		return 1;
 
 	if (wsi->position_in_fds_table < 0) {
-		lwsl_debug("%s: failed to find socket %d\n", __func__, wsi->desc.sockfd);
+		lwsl_debug("%s: failed to find socket %d\n", __func__,
+			   wsi->desc.sockfd);
 		return -1;
 	}
 
@@ -534,7 +538,8 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 		assert(wsi->protocol == protocol);
 		assert(*wsi->same_vh_protocol_prev == wsi);
 		if (wsi->same_vh_protocol_next)
-			assert(wsi->same_vh_protocol_next->same_vh_protocol_prev ==
+			assert(wsi->same_vh_protocol_next->
+					same_vh_protocol_prev ==
 					&wsi->same_vh_protocol_next);
 
 		lws_callback_on_writable(wsi);

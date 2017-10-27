@@ -52,9 +52,11 @@ static void *_realloc(void *ptr, size_t size, const char *reason)
 {
 	if (size) {
 #if defined(LWS_PLAT_ESP32)
-		lwsl_notice("%s: size %lu: %s\n", __func__, (unsigned long)size, reason);
+		lwsl_notice("%s: size %lu: %s\n", __func__,
+			    (unsigned long)size, reason);
 #else
-		lwsl_debug("%s: size %lu: %s\n", __func__, (unsigned long)size, reason);
+		lwsl_debug("%s: size %lu: %s\n", __func__,
+			   (unsigned long)size, reason);
 #endif
 #if defined(LWS_PLAT_OPTEE)
 		return (void *)TEE_Realloc(ptr, size);
