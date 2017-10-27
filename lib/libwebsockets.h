@@ -5430,13 +5430,22 @@ lws_get_ssl(struct lws *wsi);
 
 enum lws_tls_cert_info {
 	LWS_TLS_CERT_INFO_VALIDITY_FROM,
+	/**< fills .time with the time_t the cert validity started from */
 	LWS_TLS_CERT_INFO_VALIDITY_TO,
+	/**< fills .time with the time_t the cert validity ends at */
 	LWS_TLS_CERT_INFO_COMMON_NAME,
+	/**< fills up to len bytes of .ns.name with the cert common name */
 	LWS_TLS_CERT_INFO_ISSUER_NAME,
+	/**< fills up to len bytes of .ns.name with the cert issuer name */
 	LWS_TLS_CERT_INFO_USAGE,
+	/**< fills verified with a bitfield asserting the valid uses */
+	LWS_TLS_CERT_INFO_VERIFIED,
+	/**< fills .verified with a bool representing peer cert validity,
+	 *   call returns -1 if no cert */
 };
 
 union lws_tls_cert_info_results {
+	unsigned int verified;
 	time_t time;
 	unsigned int usage;
 	struct {
@@ -5450,8 +5459,8 @@ union lws_tls_cert_info_results {
 		 * union lws_tls_cert_info_results *buf =
 		 * 	(union lws_tls_cert_info_results *)big;
 		 *
-		 * lws_tls_peer_cert_info(wsi, type, buf,
-		 * 			  sizeof(big) - sizeof(*buf) + 64);
+		 * lws_tls_peer_cert_info(wsi, type, buf, sizeof(big) -
+		 *			  sizeof(*buf) + sizeof(buf->ns.name));
 		 */
 		char name[64];
 	} ns;
@@ -5467,6 +5476,9 @@ union lws_tls_cert_info_results {
  *
  * lws_tls_peer_cert_info() lets you get hold of information from the peer
  * certificate.
+ *
+ * Return 0 if there is a result in \p buf, or -1 indicating there was no cert
+ * or another problem.
  *
  * This function works the same no matter if the TLS backend is OpenSSL or
  * mbedTLS.
@@ -5486,13 +5498,15 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
  * lws_tls_vhost_cert_info() lets you get hold of information from the vhost
  * certificate.
  *
+ * Return 0 if there is a result in \p buf, or -1 indicating there was no cert
+ * or another problem.
+ *
  * This function works the same no matter if the TLS backend is OpenSSL or
  * mbedTLS.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 		        union lws_tls_cert_info_results *buf, size_t len);
-
 ///@}
 
 /** \defgroup lws_ring LWS Ringbuffer APIs
