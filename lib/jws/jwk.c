@@ -78,8 +78,8 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 		return -1;
 
 	case JWK_KEY:
-		if (strcmp(s->keytype, "oct"))
-			return -1;
+//		if (strcmp(s->keytype, "oct"))
+//			return -1;
 		idx = JWK_KEY_E;
 		goto read_element1;
 
@@ -98,8 +98,9 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 	return 0;
 
 read_element:
-	if (strcmp(s->keytype, "RSA"))
-		return -1;
+/* kty is no longer first in lex order */
+//	if (strcmp(s->keytype, "RSA"))
+//		return -1;
 
 read_element1:
 
@@ -160,7 +161,12 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 	char *start = p, *end = &p[len - 1];
 	int n, m, limit = LWS_COUNT_RSA_ELEMENTS;
 
-	p += lws_snprintf(p, end - p, "{\"kty\":\"%s\",", s->keytype);
+	/* RFC7638 lexicographic order requires
+	 *  RSA: e -> kty -> n
+	 *  oct: k -> kty
+	 */
+
+	p += lws_snprintf(p, end - p, "{");
 
 	if (!strcmp(s->keytype, "oct")) {
 		if (!s->el.e[JWK_KEY_E].buf)
@@ -176,7 +182,7 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 		}
 		p += n;
 
-		p += lws_snprintf(p, end - p, "\"}");
+		p += lws_snprintf(p, end - p, "\",\"kty\":\"%s\"}", s->keytype);
 
 		return p - start;
 	}
@@ -188,7 +194,8 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 				 !s->el.e[JWK_KEY_P].buf ||
 				 !s->el.e[JWK_KEY_Q].buf))
 		) {
-			lwsl_notice("%s: not enough elements filled\n", __func__);
+			lwsl_notice("%s: not enough elements filled\n",
+				    __func__);
 			return -1;
 		}
 
@@ -207,11 +214,17 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 						      s->el.e[n].len, p,
 						      end - p - 4);
 			if (m < 0) {
-				lwsl_notice("%s: enc2 failed inlen %d outlen %d\n", __func__, (int)s->el.e[n].len, (int)(end-p-4));
+				lwsl_notice("%s: enc fail inlen %d outlen %d\n",
+						__func__, (int)s->el.e[n].len,
+						lws_ptr_diff(end, p) - 4);
 				return -1;
 			}
 			p += m;
 			*p++ = '\"';
+
+			if (!n) /* RFC7638 lexicographic order */
+				p += lws_snprintf(p, end - p, ",\"kty\":\"%s\"",
+						  s->keytype);
 		}
 
 		p += lws_snprintf(p, end - p, "}");
@@ -220,6 +233,40 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 	}
 
 	lwsl_err("%s: unknown key type %s\n", __func__, s->keytype);
+
+	return -1;
+}
+
+LWS_VISIBLE int
+lws_jwk_rfc7638_fingerprint(struct lws_jwk *s, char *digest32)
+{
+	struct lws_genhash_ctx hash_ctx;
+	int tmpsize = 2536, n;
+	char *tmp;
+
+	tmp = lws_malloc(tmpsize, "rfc7638 tmp");
+
+	n = lws_jwk_export(s, 0, tmp, tmpsize);
+	if (n < 0)
+		goto bail;
+
+	if (lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256))
+		goto bail;
+
+	if (lws_genhash_update(&hash_ctx, tmp, n)) {
+		lws_genhash_destroy(&hash_ctx, NULL);
+
+		goto bail;
+	}
+	lws_free(tmp);
+
+	if (lws_genhash_destroy(&hash_ctx, digest32))
+		return -1;
+
+	return 0;
+
+bail:
+	lws_free(tmp);
 
 	return -1;
 }

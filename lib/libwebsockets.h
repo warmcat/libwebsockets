@@ -1850,6 +1850,16 @@ lws_jwk_load(struct lws_jwk *s, const char *filename);
  */
 LWS_VISIBLE int
 lws_jwk_save(struct lws_jwk *s, const char *filename);
+
+/** lws_jwk_rfc7638_fingerprint() - jwk to RFC7638 compliant fingerprint
+ *
+ * \param s: the JWK object to fingerprint
+ * \param digest32: buffer to take 32-byte digest
+ *
+ * Returns 0 for OK or -1 for failure
+ */
+LWS_VISIBLE int
+lws_jwk_rfc7638_fingerprint(struct lws_jwk *s, char *digest32);
 ///@}
 
 
