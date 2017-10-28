@@ -96,7 +96,7 @@ explicit_bzero(void *p, size_t len)
 }
 
 int
-timingsafe_bcmp(const void *a, const void *b, uint32_t len)
+lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len)
 {
 	const uint8_t *pa = a, *pb = b;
 	uint8_t sum = 0;

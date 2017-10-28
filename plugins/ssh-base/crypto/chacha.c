@@ -321,7 +321,7 @@ chachapoly_crypt(struct lws_ssh_keys *keys, u_int seqnr, u_char *dest,
                 const u_char *tag = src + aadlen + len;
 
                 poly1305_auth(expected_tag, src, aadlen + len, poly_key);
-                if (timingsafe_bcmp(expected_tag, tag, POLY1305_TAGLEN) != 0) {
+                if (lws_timingsafe_bcmp(expected_tag, tag, POLY1305_TAGLEN)) {
                         r = 2;
                         goto out;
                 }
