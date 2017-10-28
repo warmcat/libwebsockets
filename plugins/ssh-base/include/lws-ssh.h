@@ -556,7 +556,7 @@ extern void
 explicit_bzero(void *p, size_t len);
 
 extern int
-timingsafe_bcmp(const void *a, const void *b, uint32_t len);
+lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len);
 
 extern const char *lws_V_S;
 
