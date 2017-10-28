@@ -946,6 +946,8 @@ struct http2_settings {
  *    SSL SNI -> wsi -> bind after SSL negotiation
  */
 
+struct lws_tls_ss_pieces;
+
 struct lws_vhost {
 #if !defined(LWS_WITH_ESP8266)
 	char http_proxy_address[128];
@@ -981,6 +983,7 @@ struct lws_vhost {
 #ifdef LWS_OPENSSL_SUPPORT
 	lws_tls_ctx *ssl_ctx;
 	lws_tls_ctx *ssl_client_ctx;
+	struct lws_tls_ss_pieces *ss; /* for acme tls certs */
 #endif
 #if defined(LWS_WITH_MBEDTLS)
 	lws_tls_x509 *x509_client_CA;
@@ -2348,6 +2351,7 @@ LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 #define lws_context_init_ssl_library(_a)
 #define lws_ssl_anybody_has_buffered_read_tsi(_a, _b) (0)
 #define lws_tls_check_all_cert_lifetimes(_a)
+#define lws_tls_acme_sni_cert_destroy(_a)
 #else
 #define LWS_SSL_ENABLED(context) (context->use_ssl)
 LWS_EXTERN int openssl_websocket_private_data_index;
@@ -2392,8 +2396,11 @@ lws_tls_check_all_cert_lifetimes(struct lws_context *context);
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost);
+void
+lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost);
 #else
 #define lws_context_init_server_ssl(_a, _b) (0)
+#define lws_tls_acme_sni_cert_destroy(_a)
 #endif
 LWS_EXTERN void
 lws_ssl_destroy(struct lws_vhost *vhost);
@@ -2433,6 +2440,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const char *ca_filepath,
 				    const char *cert_filepath,
 				    const char *private_key_filepath);
+
 LWS_EXTERN lws_tls_ctx *
 lws_tls_ctx_from_wsi(struct lws *wsi);
 LWS_EXTERN int

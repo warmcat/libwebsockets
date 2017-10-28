@@ -34,8 +34,7 @@ lws_jwk_destroy_genrsa_elements(struct lws_genrsa_elements *el)
 }
 
 LWS_VISIBLE int
-lws_genrsa_create(struct lws_genrsa_ctx *ctx,
-				 struct lws_genrsa_elements *el)
+lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_genrsa_elements *el)
 {
 	int n;
 
@@ -129,7 +128,8 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	{
 		const BIGNUM *mpi[5];
 
-		RSA_get0_key(ctx->rsa, &mpi[JWK_KEY_N], &mpi[JWK_KEY_E], &mpi[JWK_KEY_D]);
+		RSA_get0_key(ctx->rsa, &mpi[JWK_KEY_N], &mpi[JWK_KEY_E],
+			     &mpi[JWK_KEY_D]);
 		RSA_get0_factors(ctx->rsa, &mpi[JWK_KEY_P], &mpi[JWK_KEY_Q]);
 #else
 	{
