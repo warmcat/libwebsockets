@@ -91,7 +91,8 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 	 */
 	vh = context->vhost_list;
 	while (vh) {
-		if (!vh->being_destroyed && vh->ssl_ctx == SSL_get_SSL_CTX(ssl))
+		if (!vh->being_destroyed &&
+		    vh->ssl_ctx == SSL_get_SSL_CTX(ssl))
 			break;
 		vh = vh->vhost_next;
 	}
@@ -116,7 +117,7 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 		return SSL_TLSEXT_ERR_OK;
 	}
 
-	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);
+	lwsl_notice("SNI: Found: %s:%d\n", servername, vh->listen_port);
 
 	/* select the ssl ctx from the selected vhost for this conn */
 	SSL_set_SSL_CTX(ssl, vhost->ssl_ctx);
@@ -414,3 +415,149 @@ lws_tls_server_accept(struct lws *wsi)
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
+struct lws_tls_ss_pieces {
+	X509 *x509;
+	EVP_PKEY *pkey;
+	RSA *rsa;
+};
+
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
+			     const char *san_b)
+{
+	GENERAL_NAMES *gens = sk_GENERAL_NAME_new_null();
+	GENERAL_NAME *gen = NULL;
+	ASN1_IA5STRING *ia5 = NULL;
+	X509_NAME *name;
+	BIGNUM *bn;
+	int n;
+
+	if (!gens)
+		return 1;
+
+	vhost->ss = lws_zalloc(sizeof(*vhost->ss), "sni cert");
+	if (!vhost->ss) {
+		GENERAL_NAMES_free(gens);
+		return 1;
+	}
+
+	vhost->ss->x509 = X509_new();
+	if (!vhost->ss->x509)
+		goto bail;
+
+	ASN1_INTEGER_set(X509_get_serialNumber(vhost->ss->x509), 1);
+	X509_gmtime_adj(X509_get_notBefore(vhost->ss->x509), 0);
+	X509_gmtime_adj(X509_get_notAfter(vhost->ss->x509), 3600);
+
+	vhost->ss->pkey = EVP_PKEY_new();
+	if (!vhost->ss->pkey)
+		goto bail0;
+
+	bn = BN_new();
+	if (!bn)
+		goto bail1;
+	if (BN_set_word(bn, RSA_F4) != 1) {
+		BN_free(bn);
+		goto bail1;
+	}
+
+	vhost->ss->rsa = RSA_new();
+	if (!vhost->ss->rsa) {
+		BN_free(bn);
+		goto bail1;
+	}
+
+	n = RSA_generate_key_ex(vhost->ss->rsa, 4096, bn, NULL);
+	BN_free(bn);
+	if (n != 1)
+		goto bail2;
+
+	if (!EVP_PKEY_assign_RSA(vhost->ss->pkey, vhost->ss->rsa))
+		goto bail2;
+
+	X509_set_pubkey(vhost->ss->x509, vhost->ss->pkey);
+
+	name = X509_get_subject_name(vhost->ss->x509);
+	X509_NAME_add_entry_by_txt(name, "C",  MBSTRING_ASC,
+				   (unsigned char *)"GB",          -1, -1, 0);
+	X509_NAME_add_entry_by_txt(name, "O",  MBSTRING_ASC,
+				   (unsigned char *)"somecompany", -1, -1, 0);
+	if (X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_UTF8,
+				   (unsigned char *)"temp.acme.invalid",
+				   	   	   -1, -1, 0) != 1) {
+		lwsl_notice("failed to add CN\n");
+		goto bail2;
+	}
+	X509_set_issuer_name(vhost->ss->x509, name);
+
+	/* add the SAN payloads */
+
+	gen = GENERAL_NAME_new();
+	ia5 = ASN1_IA5STRING_new();
+	if (!ASN1_STRING_set(ia5, san_a, -1)) {
+		lwsl_notice("failed to set ia5\n");
+		GENERAL_NAME_free(gen);
+		goto bail2;
+	}
+	GENERAL_NAME_set0_value(gen, GEN_DNS, ia5);
+	sk_GENERAL_NAME_push(gens, gen);
+
+	if (X509_add1_ext_i2d(vhost->ss->x509, NID_subject_alt_name,
+			    gens, 0, X509V3_ADD_APPEND) != 1)
+		goto bail2;
+
+	GENERAL_NAMES_free(gens);
+
+	if (san_b && san_b[0]) {
+		gens = sk_GENERAL_NAME_new_null();
+		gen = GENERAL_NAME_new();
+		ia5 = ASN1_IA5STRING_new();
+		if (!ASN1_STRING_set(ia5, san_a, -1)) {
+			lwsl_notice("failed to set ia5\n");
+			GENERAL_NAME_free(gen);
+			goto bail2;
+		}
+		GENERAL_NAME_set0_value(gen, GEN_DNS, ia5);
+		sk_GENERAL_NAME_push(gens, gen);
+
+		if (X509_add1_ext_i2d(vhost->ss->x509, NID_subject_alt_name,
+				    gens, 0, X509V3_ADD_APPEND) != 1)
+			goto bail2;
+
+		GENERAL_NAMES_free(gens);
+	}
+
+	/* sign it with our private key */
+	if (!X509_sign(vhost->ss->x509, vhost->ss->pkey, EVP_sha256()))
+		goto bail2;
+
+	/* tell the vhost to use our crafted certificate */
+	SSL_CTX_use_certificate(vhost->ssl_ctx, vhost->ss->x509);
+	/* and to use our generated private key */
+	SSL_CTX_use_PrivateKey(vhost->ssl_ctx, vhost->ss->pkey);
+
+	return 0;
+
+bail2:
+	RSA_free(vhost->ss->rsa);
+bail1:
+	EVP_PKEY_free(vhost->ss->pkey);
+bail0:
+	X509_free(vhost->ss->x509);
+bail:
+	lws_free(vhost->ss);
+	GENERAL_NAMES_free(gens);
+
+	return 1;
+}
+
+void
+lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost)
+{
+	if (!vhost->ss)
+		return;
+
+	EVP_PKEY_free(vhost->ss->pkey);
+	X509_free(vhost->ss->x509);
+	lws_free_set_NULL(vhost->ss);
+}

@@ -1077,7 +1077,7 @@ enum lws_callback_reasons {
 	 * including OpenSSL support, this callback allows your user code
 	 * to load extra certifcates into the server which allow it to
 	 * verify the validity of certificates returned by clients.  user
-	 * is the server's OpenSSL SSL_CTX* */
+	 * is the server's OpenSSL SSL_CTX* and in is the lws_vhost * */
 	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION	= 23,
 	/**< if the libwebsockets vhost was created with the option
 	 * LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT, then this
@@ -1461,6 +1461,8 @@ lws_callback_function(struct lws *wsi, enum lws_callback_reasons reason,
 #define LWS_CB_REASON_AUX_BF__CGI_CHUNK_END	4
 #define LWS_CB_REASON_AUX_BF__CGI_HEADERS	8
 ///@}
+
+struct lws_vhost;
 
 /*! \defgroup generic hash
  * ## Generic Hash related functions
@@ -2219,8 +2221,6 @@ struct lws_protocols {
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility */
 };
-
-struct lws_vhost;
 
 /**
  * lws_vhost_name_to_protocol() - get vhost's protocol object from its name
@@ -5513,6 +5513,24 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 		        union lws_tls_cert_info_results *buf, size_t len);
+
+/**
+ * lws_tls_acme_sni_cert_create() - creates a temp selfsigned cert
+ *				    and attaches to a vhost
+ *
+ * \param vhost: the vhost to acquire the selfsigned cert
+ * \param san_a: SAN written into the certificate
+ * \param san_b: second SAN written into the certificate
+ *
+ *
+ * Returns 0 if created and attached to the vhost.  Returns -1 if problems and
+ * frees all allocations before returning.
+ *
+ * On success, any allocations are destroyed at vhost destruction automatically.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
+			     const char *san_b);
 ///@}
 
 /** \defgroup lws_ring LWS Ringbuffer APIs

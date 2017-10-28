@@ -322,3 +322,20 @@ lws_tls_server_accept(struct lws *wsi)
 }
 
 
+struct lws_tls_ss_pieces {
+	mbedtls_x509_crt x509;
+
+};
+
+LWS_VISIBLE int
+lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
+			     const char *san_b)
+{
+
+	return 1;
+}
+
+void
+lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost)
+{
+}
