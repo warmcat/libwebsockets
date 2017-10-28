@@ -90,7 +90,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 		vhost->protocols[0].callback(&wsi,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
-			vhost->ssl_ctx, NULL, 0);
+			vhost->ssl_ctx, vhost, 0);
 	}
 
 	if (vhost->use_ssl)
