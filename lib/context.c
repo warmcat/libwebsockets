@@ -233,7 +233,7 @@ lws_protocol_init(struct lws_context *context)
 				pvo = pvo1->options;
 
 				while (pvo) {
-					lwsl_notice(
+					lwsl_debug(
 						"    vhost \"%s\", "
 						"protocol \"%s\", "
 						"option \"%s\"\n",
@@ -242,14 +242,14 @@ lws_protocol_init(struct lws_context *context)
 							pvo->name);
 
 					if (!strcmp(pvo->name, "default")) {
-						lwsl_notice("Setting default "
+						lwsl_info("Setting default "
 						   "protocol for vh %s to %s\n",
 						   vh->name,
 						   vh->protocols[n].name);
 						vh->default_protocol_index = n;
 					}
 					if (!strcmp(pvo->name, "raw")) {
-						lwsl_notice("Setting raw "
+						lwsl_info("Setting raw "
 						   "protocol for vh %s to %s\n",
 						   vh->name,
 						   vh->protocols[n].name);
@@ -687,9 +687,9 @@ lws_create_vhost(struct lws_context *context,
 	mounts = info->mounts;
 	while (mounts) {
 		(void)mount_protocols[0];
-		lwsl_notice("   mounting %s%s to %s\n",
-				mount_protocols[mounts->origin_protocol],
-				mounts->origin, mounts->mountpoint);
+		lwsl_info("   mounting %s%s to %s\n",
+			  mount_protocols[mounts->origin_protocol],
+			  mounts->origin, mounts->mountpoint);
 
 		/* convert interpreter protocol names to pointers */
 		pvo = mounts->interpret;
