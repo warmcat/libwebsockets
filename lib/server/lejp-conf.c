@@ -378,7 +378,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->pvo->next = a->info->pvo;
 		a->info->pvo = a->pvo;
 		a->pvo->name = a->p;
-		lwsl_notice("  adding protocol %s\n", a->p);
+		lwsl_info("  adding protocol %s\n", a->p);
 		a->p += n;
 		a->pvo->value = a->p;
 		a->pvo->options = NULL;
