@@ -1471,6 +1471,24 @@ lws_get_vhost_name(struct lws_vhost *vhost)
 	return vhost->name;
 }
 
+LWS_VISIBLE LWS_EXTERN int
+lws_get_vhost_port(struct lws_vhost *vhost)
+{
+	return vhost->listen_port;
+}
+
+LWS_VISIBLE LWS_EXTERN void *
+lws_get_vhost_user(struct lws_vhost *vhost)
+{
+	return vhost->user;
+}
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_get_vhost_iface(struct lws_vhost *vhost)
+{
+	return vhost->iface;
+}
+
 int user_callback_handle_rxflow(lws_callback_function callback_function,
 				struct lws *wsi,
 				enum lws_callback_reasons reason, void *user,
