@@ -3020,6 +3020,30 @@ LWS_VISIBLE LWS_EXTERN const char *
 lws_get_vhost_name(struct lws_vhost *vhost);
 
 /**
+ * lws_get_vhost_port() - returns the port a vhost listens on, or -1
+ *
+ * \param vhost: which vhost
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_get_vhost_port(struct lws_vhost *vhost);
+
+/**
+ * lws_get_vhost_user() - returns the user pointer for the vhost
+ *
+ * \param vhost: which vhost
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lws_get_vhost_user(struct lws_vhost *vhost);
+
+/**
+ * lws_get_vhost_iface() - returns the binding for the vhost listen socket
+ *
+ * \param vhost: which vhost
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_get_vhost_iface(struct lws_vhost *vhost);
+
+/**
  * lws_json_dump_vhost() - describe vhost state and stats in JSON
  *
  * \param vh: the vhost
