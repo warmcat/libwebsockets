@@ -424,6 +424,26 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				}
 				goto add_stack_level;
 
+			case ']':
+				/* pop */
+				ctx->sp--;
+				if (ctx->st[ctx->sp].s != LEJP_MP_ARRAY_END) {
+					ret = LEJP_REJECT_MP_C_OR_E_NOTARRAY;
+					goto reject;
+				}
+				/* drop the path [n] bit */
+				ctx->ppos = ctx->st[ctx->sp - 1].p;
+				ctx->ipos = ctx->st[ctx->sp - 1].i;
+				ctx->path[ctx->ppos] = '\0';
+				if (ctx->path_match &&
+					       ctx->ppos <= ctx->path_match_len)
+					/*
+					 * we shrank the path to be
+					 * smaller than the matching point
+					 */
+					ctx->path_match = 0;
+				goto array_end;
+
 			case 't': /* true */
 				ctx->uni = 0;
 				ctx->st[ctx->sp].s = LEJP_MP_VALUE_TOK;
@@ -644,6 +664,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			goto reject;
 
 		case LEJP_MP_ARRAY_END:
+array_end:
 			ctx->path[ctx->ppos] = '\0';
 			if (c == ',') {
 				/* increment this stack level's index */
