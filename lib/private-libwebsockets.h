@@ -102,6 +102,11 @@ char *ets_strchr(const char *s, int c);
 #endif
 
 #if defined(WIN32) || defined(_WIN32)
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
 #if (WINVER < 0x0501)
 #undef WINVER
 #undef _WIN32_WINNT
