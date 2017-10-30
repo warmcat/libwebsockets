@@ -1042,7 +1042,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			const unsigned char *c;
 
 			if (!ah->in_use || !ah->wsi || !ah->assigned ||
-			    now - ah->assigned < 60) {
+			    (ah->wsi->vhost && now - ah->assigned <
+			    ah->wsi->vhost->timeout_secs_ah_idle + 60)) {
 				ah = ah->next;
 				continue;
 			}
