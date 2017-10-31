@@ -41,6 +41,8 @@ struct ssl_pm
     mbedtls_ssl_context ssl;
 
     mbedtls_entropy_context entropy;
+
+    SSL *owner;
 };
 
 struct x509_pm
@@ -108,6 +110,8 @@ int ssl_pm_new(SSL *ssl)
         SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "no enough memory > (ssl_pm)");
         goto no_mem;
     }
+
+    ssl_pm->owner = ssl;
 
     if (!ssl->ctx->read_buffer_len)
 	    ssl->ctx->read_buffer_len = 2048;
@@ -611,22 +615,27 @@ int x509_pm_load(X509 *x, const unsigned char *buffer, int len)
         }
     }
 
-    load_buf = ssl_mem_malloc(len + 1);
-    if (!load_buf) {
-        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "no enough memory > (load_buf)");
-        goto failed;
+    mbedtls_x509_crt_init(x509_pm->x509_crt);
+    if (buffer[0] != 0x30) {
+	    load_buf = ssl_mem_malloc(len + 1);
+	    if (!load_buf) {
+		SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "no enough memory > (load_buf)");
+		goto failed;
+	    }
+
+	    ssl_memcpy(load_buf, buffer, len);
+	    load_buf[len] = '\0';
+
+	    ret = mbedtls_x509_crt_parse(x509_pm->x509_crt, load_buf, len + 1);
+	    ssl_mem_free(load_buf);
+    } else {
+	    printf("parsing as der\n");
+
+	    ret = mbedtls_x509_crt_parse_der(x509_pm->x509_crt, buffer, len);
     }
 
-    ssl_memcpy(load_buf, buffer, len);
-    load_buf[len] = '\0';
-
-    mbedtls_x509_crt_init(x509_pm->x509_crt);
-
-    ret = mbedtls_x509_crt_parse(x509_pm->x509_crt, load_buf, len + 1);
-    ssl_mem_free(load_buf);
-
     if (ret) {
-        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_x509_crt_parse return -0x%x", -ret);
+        printf("mbedtls_x509_crt_parse return -0x%x", -ret);
         goto failed;
     }
 
@@ -791,3 +800,40 @@ void SSL_get0_alpn_selected(const SSL *ssl, const unsigned char **data,
 		*len = 0;
 }
 
+int SSL_set_sni_callback(SSL *ssl, int(*cb)(void *, mbedtls_ssl_context *,
+			 const unsigned char *, size_t), void *param)
+{
+	struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
+
+	mbedtls_ssl_conf_sni(&ssl_pm->conf, cb, param);
+
+	return 0;
+}
+
+SSL *SSL_SSL_from_mbedtls_ssl_context(mbedtls_ssl_context *msc)
+{
+	struct ssl_pm *ssl_pm = (struct ssl_pm *)((char *)msc - offsetof(struct ssl_pm, ssl));
+
+	return ssl_pm->owner;
+}
+
+#include "ssl_cert.h"
+
+void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
+{
+	struct ssl_pm *ssl_pm = ssl->ssl_pm;
+	struct x509_pm *x509_pm = (struct x509_pm *)ctx->cert->x509->x509_pm;
+	struct pkey_pm *pkey_pm = (struct pkey_pm *)ctx->cert->pkey->pkey_pm;
+
+	if (ssl->cert)
+		ssl_cert_free(ssl->cert);
+	ssl->ctx = ctx;
+	ssl->cert = __ssl_cert_new(ctx->cert);
+
+	/* apply new ctx cert to ssl */
+
+	mbedtls_ssl_set_hs_own_cert(&ssl_pm->ssl, x509_pm->x509_crt, pkey_pm->pkey);
+	mbedtls_ssl_set_hs_authmode(&ssl_pm->ssl, MBEDTLS_SSL_VERIFY_NONE);
+	mbedtls_ssl_set_hs_ca_chain(&ssl_pm->ssl, x509_pm->x509_crt, NULL);
+
+}
