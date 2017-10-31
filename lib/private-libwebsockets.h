@@ -292,6 +292,7 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
+#include <mbedtls/x509_csr.h>
 #include "tls/mbedtls/wrapper/include/openssl/ssl.h" /* wrapper !!!! */
 #else
 #include <openssl/ssl.h>
