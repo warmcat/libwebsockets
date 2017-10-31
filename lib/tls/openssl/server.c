@@ -175,7 +175,7 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 	if (info->ssl_cipher_list)
 		SSL_CTX_set_cipher_list(vhost->ssl_ctx, info->ssl_cipher_list);
 
-#if !defined(LWS_WITH_MBEDTLS) && !defined(OPENSSL_NO_TLSEXT)
+#if !defined(OPENSSL_NO_TLSEXT)
 	SSL_CTX_set_tlsext_servername_callback(vhost->ssl_ctx,
 					       lws_ssl_server_name_cb);
 	SSL_CTX_set_tlsext_servername_arg(vhost->ssl_ctx, vhost->context);
@@ -415,6 +415,37 @@ lws_tls_server_accept(struct lws *wsi)
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
+static int
+lws_tls_openssl_rsa_new_key(RSA **rsa, int bits)
+{
+	BIGNUM *bn = BN_new();
+	int n;
+
+	if (!bn)
+		return 1;
+
+	if (BN_set_word(bn, RSA_F4) != 1) {
+		BN_free(bn);
+		return 1;
+	}
+
+	*rsa = RSA_new();
+	if (!*rsa) {
+		BN_free(bn);
+		return 1;
+	}
+
+	n = RSA_generate_key_ex(*rsa, bits, bn, NULL);
+	BN_free(bn);
+	if (n == 1)
+		return 0;
+
+	RSA_free(*rsa);
+	*rsa = NULL;
+
+	return 1;
+}
+
 struct lws_tls_ss_pieces {
 	X509 *x509;
 	EVP_PKEY *pkey;
@@ -429,8 +460,6 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	GENERAL_NAME *gen = NULL;
 	ASN1_IA5STRING *ia5 = NULL;
 	X509_NAME *name;
-	BIGNUM *bn;
-	int n;
 
 	if (!gens)
 		return 1;
@@ -453,24 +482,8 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	if (!vhost->ss->pkey)
 		goto bail0;
 
-	bn = BN_new();
-	if (!bn)
+	if (lws_tls_openssl_rsa_new_key(&vhost->ss->rsa, 4096))
 		goto bail1;
-	if (BN_set_word(bn, RSA_F4) != 1) {
-		BN_free(bn);
-		goto bail1;
-	}
-
-	vhost->ss->rsa = RSA_new();
-	if (!vhost->ss->rsa) {
-		BN_free(bn);
-		goto bail1;
-	}
-
-	n = RSA_generate_key_ex(vhost->ss->rsa, 4096, bn, NULL);
-	BN_free(bn);
-	if (n != 1)
-		goto bail2;
 
 	if (!EVP_PKEY_assign_RSA(vhost->ss->pkey, vhost->ss->rsa))
 		goto bail2;
@@ -531,6 +544,15 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	if (!X509_sign(vhost->ss->x509, vhost->ss->pkey, EVP_sha256()))
 		goto bail2;
 
+#if 0
+	{/* useful to take a sample of a working cert for mbedtls to crib */
+		FILE *fp = fopen("/tmp/acme-temp-cert", "w+");
+
+		i2d_X509_fp(fp, vhost->ss->x509);
+		fclose(fp);
+	}
+#endif
+
 	/* tell the vhost to use our crafted certificate */
 	SSL_CTX_use_certificate(vhost->ssl_ctx, vhost->ss->x509);
 	/* and to use our generated private key */
@@ -560,4 +582,165 @@ lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost)
 	EVP_PKEY_free(vhost->ss->pkey);
 	X509_free(vhost->ss->x509);
 	lws_free_set_NULL(vhost->ss);
+}
+
+static int
+lws_tls_openssl_add_nid(X509_NAME *name, int nid, const char *value)
+{
+	X509_NAME_ENTRY *e;
+
+	if (!value || value[0] == '\0')
+		value = "none";
+
+	e = X509_NAME_ENTRY_create_by_NID(NULL, nid, MBSTRING_ASC,
+					  (unsigned char *)value, -1);
+	if (!e)
+		return 1;
+	if (X509_NAME_add_entry(name, e, -1, 0) != 1) {
+		X509_NAME_ENTRY_free(e);
+
+		return 1;
+	}
+
+	return 0;
+}
+
+static int nid_list[] = {
+	NID_countryName,		/* LWS_TLS_REQ_ELEMENT_COUNTRY */
+	NID_stateOrProvinceName,	/* LWS_TLS_REQ_ELEMENT_STATE */
+	NID_localityName,		/* LWS_TLS_REQ_ELEMENT_LOCALITY */
+	NID_organizationName,		/* LWS_TLS_REQ_ELEMENT_ORGANIZATION */
+	NID_commonName,			/* LWS_TLS_REQ_ELEMENT_COMMON_NAME */
+	NID_organizationalUnitName,	/* LWS_TLS_REQ_ELEMENT_EMAIL */
+};
+
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_acme_sni_csr_create(const char *elements[], uint8_t *csr, size_t csr_len,
+			    char **privkey_pem, size_t *privkey_len)
+{
+	uint8_t *csr_in = csr;
+	RSA *rsakey;
+	X509_REQ *req;
+	X509_NAME *subj;
+	EVP_PKEY *pkey;
+	char *p, *end;
+	BIO *bio;
+	long bio_len;
+	int n;
+
+	if (lws_tls_openssl_rsa_new_key(&rsakey, 4096))
+		return -1;
+
+	pkey = EVP_PKEY_new();
+	if (!pkey)
+		goto bail0;
+	if (!EVP_PKEY_set1_RSA(pkey, rsakey))
+		goto bail1;
+
+	req = X509_REQ_new();
+	if (!req)
+	        goto bail1;
+
+	X509_REQ_set_pubkey(req, pkey);
+
+	subj = X509_NAME_new();
+	if (!subj)
+		goto bail2;
+
+	for (n = 0; n < LWS_TLS_REQ_ELEMENT_COUNT; n++)
+		if (lws_tls_openssl_add_nid(subj, nid_list[n], elements[n])) {
+			lwsl_notice("%s: failed to add element %d\n", __func__, n);
+			goto bail3;
+		}
+
+	if (X509_REQ_set_subject_name(req, subj) != 1)
+		goto bail3;
+
+	if (!X509_REQ_sign(req, pkey, EVP_sha256()))
+		goto bail3;
+
+	/*
+	 * issue the CSR as PEM to a BIO, and translate to b64urlenc without
+	 * headers, trailers, or whitespace
+	 */
+
+	bio = BIO_new(BIO_s_mem());
+	if (!bio)
+		goto bail3;
+
+	if (PEM_write_bio_X509_REQ(bio, req) != 1) {
+		BIO_free(bio);
+		goto bail3;
+	}
+
+	bio_len = BIO_get_mem_data(bio, &p);
+	end = p + bio_len;
+
+	/* strip the header line */
+	while (p < end && *p != '\n')
+		p++;
+
+	while (p < end && csr_len) {
+		if (*p == '\n') {
+			p++;
+			continue;
+		}
+
+		if (*p == '-')
+			break;
+
+		if (*p == '+')
+			*csr++ = '-';
+		else
+			if (*p == '/')
+				*csr++ = '_';
+			else
+				*csr++ = *p;
+		p++;
+		csr_len--;
+	}
+	BIO_free(bio);
+	if (!csr_len) {
+		lwsl_notice("%s: need %ld for CSR\n", __func__, bio_len);
+		goto bail3;
+	}
+
+	/*
+	 * Also return the private key as a PEM in memory
+	 * (platform may not have a filesystem)
+	 */
+	bio = BIO_new(BIO_s_mem());
+	if (!bio)
+		goto bail3;
+
+	if (PEM_write_bio_PrivateKey(bio, pkey, NULL, NULL, 0, 0, NULL) != 1) {
+		BIO_free(bio);
+		goto bail3;
+	}
+	bio_len = BIO_get_mem_data(bio, &p);
+	*privkey_pem = malloc(bio_len);
+	*privkey_len = (size_t)bio_len;
+	if (!*privkey_pem) {
+		lwsl_notice("%s: need %ld for private key\n", __func__, bio_len);
+		BIO_free(bio);
+		goto bail3;
+	}
+	memcpy(*privkey_pem, p, bio_len);
+	BIO_free(bio);
+
+	EVP_PKEY_free(pkey);
+	X509_REQ_free(req);
+
+	return csr - csr_in;
+
+bail3:
+	X509_NAME_free(subj);
+bail2:
+	X509_REQ_free(req);
+bail1:
+	EVP_PKEY_free(pkey);
+bail0:
+	RSA_free(rsakey);
+
+	return -1;
 }

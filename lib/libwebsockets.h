@@ -5555,6 +5555,42 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 			     const char *san_b);
+
+enum {
+	LWS_TLS_REQ_ELEMENT_COUNTRY,
+	LWS_TLS_REQ_ELEMENT_STATE,
+	LWS_TLS_REQ_ELEMENT_LOCALITY,
+	LWS_TLS_REQ_ELEMENT_ORGANIZATION,
+	LWS_TLS_REQ_ELEMENT_COMMON_NAME,
+	LWS_TLS_REQ_ELEMENT_EMAIL,
+
+	LWS_TLS_REQ_ELEMENT_COUNT
+};
+
+/**
+ * lws_tls_acme_sni_csr_create() - creates a CSR and related private key PEM
+ *
+ * \param elements: array of LWS_TLS_REQ_ELEMENT_COUNT const char *
+ * \param csr: buffer that will get the b64URL(ASN-1 CSR)
+ * \param csr_len: max length of the csr buffer
+ * \param privkey_pem: pointer to pointer allocated to hold the privkey_pem
+ * \param privkey_len: pointer to size_t set to the length of the privkey_pem
+ *
+ * Creates a CSR according to the information in \p elements, and a private
+ * RSA key used to sign the CSR.
+ *
+ * The outputs are the b64URL(ASN-1 CSR) into csr, and the PEM private key into
+ * privkey_pem.
+ *
+ * Notice that \p elements points to an array of const char *s pointing to the
+ * information listed in the enum above.  If an entry is NULL or an empty
+ * string, the element is set to "none" in the CSR.
+ *
+ * Returns 0 on success or nonzero for failure.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_acme_sni_csr_create(const char *elements[], uint8_t *csr, size_t csr_len,
+			    char **privkey_pem, size_t *privkey_len);
 ///@}
 
 /** \defgroup lws_ring LWS Ringbuffer APIs
