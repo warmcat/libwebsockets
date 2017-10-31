@@ -25,7 +25,12 @@ int
 lws_tls_server_client_cert_verify_config(struct lws_context_creation_info *info,
 					 struct lws_vhost *vh)
 {
-	SSL_CTX_set_verify(vh->ssl_ctx, SSL_VERIFY_PEER, NULL);
+	int verify_options = SSL_VERIFY_PEER;
+
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
+		verify_options = SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+
+	SSL_CTX_set_verify(vh->ssl_ctx, verify_options, NULL);
 
 	return 0;
 }
