@@ -172,7 +172,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 
-	SSL_CTX_add_client_CA(vh->ssl_client_ctx, vh->x509_client_CA);
+	// SSL_CTX_add_client_CA(vh->ssl_client_ctx, vh->x509_client_CA);
+	SSL_CTX_add_client_CA(vh->ssl_ctx, vh->x509_client_CA);
 
 	lwsl_notice("client loaded CA for verification %s\n", ca_filepath);
 
