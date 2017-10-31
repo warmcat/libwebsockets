@@ -25,6 +25,8 @@ int
 lws_tls_server_client_cert_verify_config(struct lws_context_creation_info *info,
 					 struct lws_vhost *vh)
 {
+	SSL_CTX_set_verify(vh->ssl_ctx, SSL_VERIFY_PEER, NULL);
+
 	return 0;
 }
 
