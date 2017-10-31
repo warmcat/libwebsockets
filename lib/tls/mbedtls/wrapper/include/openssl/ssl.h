@@ -41,6 +41,13 @@
  mbedtls_x509_crt *
  ssl_get_peer_mbedtls_x509_crt(SSL *ssl);
 
+ int SSL_set_sni_callback(SSL *ssl, int(*cb)(void *, mbedtls_ssl_context *,
+ 				const unsigned char *, size_t), void *param);
+
+ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx);
+
+ SSL *SSL_SSL_from_mbedtls_ssl_context(mbedtls_ssl_context *msc);
+
 /**
  * @brief create a SSL context
  *
