@@ -20,6 +20,7 @@
  */
 
 #include "private-libwebsockets.h"
+#include <mbedtls/x509_csr.h>
 
 int
 lws_tls_server_client_cert_verify_config(struct lws_context_creation_info *info,
@@ -181,6 +182,50 @@ bail:
 	return 4;
 }
 
+static int
+lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
+		   const unsigned char *servername, size_t len)
+{
+	SSL *ssl = SSL_SSL_from_mbedtls_ssl_context(mbedtls_ctx);
+	struct lws_context *context = (struct lws_context *)arg;
+	struct lws_vhost *vhost, *vh;
+
+	lwsl_notice("%s: %s\n", __func__, servername);
+
+	/*
+	 * We can only get ssl accepted connections by using a vhost's ssl_ctx
+	 * find out which listening one took us and only match vhosts on the
+	 * same port.
+	 */
+	vh = context->vhost_list;
+	while (vh) {
+		if (!vh->being_destroyed &&
+		    vh->ssl_ctx == SSL_get_SSL_CTX(ssl))
+			break;
+		vh = vh->vhost_next;
+	}
+
+	if (!vh) {
+		assert(vh); /* can't match the incoming vh? */
+		return 0;
+	}
+
+	vhost = lws_select_vhost(context, vh->listen_port,
+				 (const char *)servername);
+	if (!vhost) {
+		lwsl_info("SNI: none: %s:%d\n", servername, vh->listen_port);
+
+		return 0;
+	}
+
+	lwsl_notice("SNI: Found: %s:%d\n", servername, vh->listen_port);
+
+	/* select the ssl ctx from the selected vhost for this conn */
+	SSL_set_SSL_CTX(ssl, vhost->ssl_ctx);
+
+	return 0;
+}
+
 int
 lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi)
@@ -188,7 +233,7 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 	const SSL_METHOD *method = TLS_server_method();
 	uint8_t *p;
 	lws_filepos_t flen;
-	int err;
+	int n, m, err;
 
 	vhost->ssl_ctx = SSL_CTX_new(method);	/* create context */
 	if (!vhost->ssl_ctx) {
@@ -209,6 +254,20 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 	 * happened just above and has the vhost SSL_CTX * in the user
 	 * parameter.
 	 */
+	n = lws_tls_use_any_upgrade_check_extant(info->ssl_cert_filepath);
+	if (n < 0)
+		return 1;
+	m = lws_tls_use_any_upgrade_check_extant(info->ssl_private_key_filepath);
+	if (m < 0)
+		return 1;
+	if ((n || m) && (info->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
+		lwsl_notice("Ignoring missing %s or %s\n",
+				info->ssl_cert_filepath,
+				info->ssl_private_key_filepath);
+		vhost->skipped_certs = 1;
+		return 0;
+	}
+
 	if (alloc_pem_to_der_file(vhost->context, info->ssl_cert_filepath, &p,
 					&flen)) {
 		lwsl_err("couldn't find cert file %s\n",
@@ -276,6 +335,8 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	if (wsi->vhost->ssl_info_event_mask)
 		SSL_set_info_callback(wsi->ssl, lws_ssl_info_callback);
 
+	SSL_set_sni_callback(wsi->ssl, lws_mbedtls_sni_cb, wsi->context);
+
 	return 0;
 }
 
@@ -336,21 +397,295 @@ lws_tls_server_accept(struct lws *wsi)
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
+/*
+ * mbedtls doesn't support SAN for cert creation.  So we use a known-good
+ * tls-sni-01 cert from OpenSSL that worked on Let's Encrypt, and just replace
+ * the pubkey n part and the signature part.
+ *
+ * This will need redoing for tls-sni-02...
+ */
 
-struct lws_tls_ss_pieces {
-	mbedtls_x509_crt x509;
+static uint8_t ss_cert_leadin[] = {
+	0x30, 0x82,
+	  0x05, 0x51 + 5, /* total length */
 
-};
+	0x30, 0x82, 0x03, 0x39 + 5,
+
+	/* addition: v3 cert (+5 bytes)*/
+	0xa0, 0x03,
+		0x02, 0x01, 0x02,
+
+	0x02, 0x01, 0x01,
+	0x30, 0x0d, 0x06, 0x09, 0x2a,
+	0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b, 0x05, 0x00, 0x30, 0x3f,
+	0x31, 0x0b, 0x30, 0x09, 0x06, 0x03, 0x55, 0x04, 0x06, 0x13, 0x02, 0x47,
+	0x42, 0x31, 0x14, 0x30, 0x12, 0x06, 0x03, 0x55, 0x04, 0x0a, 0x0c, 0x0b,
+	0x73, 0x6f, 0x6d, 0x65, 0x63, 0x6f, 0x6d, 0x70, 0x61, 0x6e, 0x79, 0x31,
+	0x1a, 0x30, 0x18, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 0x11, 0x74, 0x65,
+	0x6d, 0x70, 0x2e, 0x61, 0x63, 0x6d, 0x65, 0x2e, 0x69, 0x6e, 0x76, 0x61,
+	0x6c, 0x69, 0x64, 0x30, 0x1e, 0x17, 0x0d,
+
+	/* from 2017-10-29 ... */
+	0x31, 0x37, 0x31, 0x30, 0x32, 0x39, 0x31, 0x31, 0x34, 0x39, 0x34, 0x35,
+	0x5a, 0x17, 0x0d,
+
+	/* thru 2049 (we immediately discard the private key, no worries */
+	0x34, 0x39, 0x31, 0x30, 0x32, 0x39, 0x31, 0x32, 0x34, 0x39, 0x34, 0x35,
+	0x5a,
+
+	0x30, 0x3f, 0x31, 0x0b, 0x30, 0x09, 0x06, 0x03, 0x55, 0x04, 0x06, 0x13,
+	0x02, 0x47, 0x42, 0x31, 0x14, 0x30, 0x12, 0x06, 0x03, 0x55, 0x04, 0x0a,
+	0x0c, 0x0b, 0x73, 0x6f, 0x6d, 0x65, 0x63, 0x6f, 0x6d, 0x70, 0x61, 0x6e,
+	0x79, 0x31, 0x1a, 0x30, 0x18, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 0x11,
+	0x74, 0x65, 0x6d, 0x70, 0x2e, 0x61, 0x63, 0x6d, 0x65, 0x2e, 0x69, 0x6e,
+	0x76, 0x61, 0x6c, 0x69, 0x64, 0x30, 0x82, 0x02, 0x22, 0x30, 0x0d, 0x06,
+	0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
+	0x03, 0x82, 0x02, 0x0f, 0x00, 0x30, 0x82, 0x02, 0x0a, 0x02, 0x82,
+
+	0x02, 0x01, /* length of n in bytes (including leading 00 if any) */
+	},
+
+	/* 513 bytes - 0x00 + 512-byte n */
+
+	ss_cert_san_leadin[] = {
+		/* e - fixed */
+		0x02, 0x03, 0x01, 0x00, 0x01,
+
+		0xa3, 0x5d, 0x30, 0x5b, 0x30, 0x59, 0x06, 0x03, 0x55, 0x1d,
+		0x11, 0x04, 0x52, 0x30, 0x50, /* <-- SAN length + 2 */
+
+		0x82, 0x4e, /* <-- SAN length */
+	},
+
+	/* 78 bytes of SAN (tls-sni-01)
+	0x61, 0x64, 0x34, 0x31, 0x61, 0x66, 0x62, 0x65, 0x30, 0x63, 0x61, 0x34,
+	0x36, 0x34, 0x32, 0x66, 0x30, 0x61, 0x34, 0x34, 0x39, 0x64, 0x39, 0x63,
+	0x61, 0x37, 0x36, 0x65, 0x62, 0x61, 0x61, 0x62, 0x2e, 0x32, 0x38, 0x39,
+	0x34, 0x64, 0x34, 0x31, 0x36, 0x63, 0x39, 0x38, 0x33, 0x66, 0x31, 0x32,
+	0x65, 0x64, 0x37, 0x33, 0x31, 0x61, 0x33, 0x30, 0x66, 0x35, 0x63, 0x34,
+	0x34, 0x37, 0x37, 0x66, 0x65, 0x2e, 0x61, 0x63, 0x6d, 0x65, 0x2e, 0x69,
+	0x6e, 0x76, 0x61, 0x6c, 0x69, 0x64, */
+	ss_cert_sig_leadin[] = {
+		/* it's saying that the signature is SHA256 + RSA */
+		0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d,
+		0x01, 0x01, 0x0b, 0x05, 0x00, 0x03, 0x82, 0x02, 0x01, 0x00,
+	};
+
+	/* 512-byte / 4096-bit signature to end */
 
 LWS_VISIBLE int
 lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 			     const char *san_b)
 {
+	int buflen = 0x560;
+	uint8_t *buf = lws_malloc(buflen, "temp cert buf"), *p = buf, *pkey_asn1;
+	struct lws_genrsa_ctx ctx;
+	struct lws_genrsa_elements el;
+	uint8_t digest[32];
+	struct lws_genhash_ctx hash_ctx;
+	int pkey_asn1_len = 3 * 1024;
+	int n;
 
-	return 1;
+	if (!buf)
+		return 1;
+
+	n = lws_genrsa_new_keypair(vhost->context, &ctx, &el, 4096);
+	if (n < 0) {
+		lws_jwk_destroy_genrsa_elements(&el);
+		goto bail1;
+	}
+
+	memcpy(p, ss_cert_leadin, sizeof(ss_cert_leadin));
+	p += sizeof(ss_cert_leadin);
+
+	/* we need to drop 513 bytes of n in here 00 + 512-bytes */
+
+	*p++ = 0x00;
+	memcpy(p, el.e[JWK_KEY_N].buf, el.e[JWK_KEY_N].len);
+	p += 512;
+
+	memcpy(p, ss_cert_san_leadin, sizeof(ss_cert_san_leadin));
+	p += sizeof(ss_cert_san_leadin);
+
+	/* drop in 78 bytes of san_a */
+
+	memcpy(p, san_a, 78);
+	p += 78;
+	memcpy(p, ss_cert_sig_leadin, sizeof(ss_cert_sig_leadin));
+	p += sizeof(ss_cert_sig_leadin);
+
+	/* hash the cert plaintext */
+
+	if (lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256))
+		goto bail2;
+
+	if (lws_genhash_update(&hash_ctx, buf, lws_ptr_diff(p, buf))) {
+		lws_genhash_destroy(&hash_ctx, NULL);
+
+		goto bail2;
+	}
+	if (lws_genhash_destroy(&hash_ctx, digest))
+		goto bail2;
+
+	/* sign the hash */
+
+	n = lws_genrsa_public_sign(&ctx, digest, LWS_GENHASH_TYPE_SHA256, p,
+				 buflen - lws_ptr_diff(p, buf));
+	if (n < 0)
+		goto bail2;
+	p += n;
+
+	pkey_asn1 = lws_malloc(pkey_asn1_len, "mbed crt tmp");
+	if (!pkey_asn1)
+		goto bail2;
+
+	n = lws_genrsa_render_pkey_asn1(&ctx, 1, pkey_asn1, pkey_asn1_len);
+	if (n < 0) {
+		lws_free(pkey_asn1);
+		goto bail2;
+	}
+	lwsl_debug("private key\n");
+	lwsl_hexdump_level(LLL_DEBUG, pkey_asn1, n);
+
+	/* and to use our generated private key */
+	n = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, pkey_asn1, n);
+	lws_free(pkey_asn1);
+	if (n != 1) {
+		lwsl_notice("%s: SSL_CTX_use_PrivateKey_ASN1 failed\n",
+			    __func__);
+	}
+
+	lws_genrsa_destroy(&ctx);
+	lws_jwk_destroy_genrsa_elements(&el);
+
+	lwsl_hexdump_level(LLL_DEBUG, buf, lws_ptr_diff(p, buf));
+
+	n = SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx,
+					 lws_ptr_diff(p, buf), buf);
+	if (n != 1)
+		lwsl_notice("%s: generated cert failed to load 0x%x\n",
+			    __func__, -n);
+
+	lws_free(buf);
+
+	return n != 1;
+
+bail2:
+	lws_genrsa_destroy(&ctx);
+	lws_jwk_destroy_genrsa_elements(&el);
+bail1:
+	lws_free(buf);
+
+	return -1;
 }
 
 void
 lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost)
 {
 }
+
+#if defined(LWS_WITH_JWS)
+static int
+_rngf(void *context, unsigned char *buf, size_t len)
+{
+	if ((size_t)lws_get_random(context, buf, len) == len)
+		return 0;
+
+	return -1;
+}
+
+/*
+ * CSR is output formatted as b64url(DER)
+ * Private key is output as a PEM in memory
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
+			    uint8_t *dcsr, size_t csr_len, char **privkey_pem,
+			    size_t *privkey_len)
+{
+	mbedtls_x509write_csr csr;
+	char subject[200];
+	mbedtls_pk_context mpk;
+	int buf_size = 4096, n;
+	uint8_t *buf = malloc(buf_size); /* malloc because given to user code */
+
+	if (!buf)
+		return -1;
+
+	mbedtls_x509write_csr_init(&csr);
+
+	mbedtls_pk_init(&mpk);
+	if (mbedtls_pk_setup(&mpk, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA))) {
+		lwsl_notice("%s: pk_setup failed\n", __func__);
+		goto fail;
+	}
+
+	n = mbedtls_rsa_gen_key(mbedtls_pk_rsa(mpk), _rngf, context,
+				4096, 65537);
+	if (n) {
+		lwsl_notice("%s: failed to generate keys\n", __func__);
+
+		goto fail1;
+	}
+
+	/* subject must be formatted like "C=TW,O=warmcat,CN=myserver" */
+
+	lws_snprintf(subject, sizeof(subject) - 1,
+		     "C=%s,ST=%s,L=%s,O=%s,CN=%s",
+		     elements[LWS_TLS_REQ_ELEMENT_COUNTRY],
+		     elements[LWS_TLS_REQ_ELEMENT_STATE],
+		     elements[LWS_TLS_REQ_ELEMENT_LOCALITY],
+		     elements[LWS_TLS_REQ_ELEMENT_ORGANIZATION],
+		     elements[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
+	if (mbedtls_x509write_csr_set_subject_name(&csr, subject))
+		goto fail1;
+
+	mbedtls_x509write_csr_set_key(&csr, &mpk);
+	mbedtls_x509write_csr_set_md_alg(&csr, MBEDTLS_MD_SHA256);
+
+	/*
+	 * data is written at the end of the buffer! Use the
+	 * return value to determine where you should start
+	 * using the buffer
+	 */
+	n = mbedtls_x509write_csr_der(&csr, buf, buf_size, _rngf, context);
+	if (n < 0) {
+		lwsl_notice("%s: write csr der failed\n", __func__);
+		goto fail1;
+	}
+
+	/* we have it in DER, we need it in b64URL */
+
+	n = lws_jws_base64_enc((char *)(buf + buf_size) - n, n,
+			       (char *)dcsr, csr_len);
+	if (n < 0)
+		goto fail1;
+
+	/*
+	 * okay, the CSR is done, last we need the private key in PEM
+	 * re-use the DER CSR buf as the result buffer since we cn do it in
+	 * one step
+	 */
+
+	if (mbedtls_pk_write_key_pem(&mpk, buf, buf_size)) {
+		lwsl_notice("write key pem failed\n");
+		goto fail1;
+	}
+
+	*privkey_pem = (char *)buf;
+	*privkey_len = strlen((const char *)buf);
+
+	mbedtls_pk_free(&mpk);
+	mbedtls_x509write_csr_free(&csr);
+
+	return n;
+
+fail1:
+	mbedtls_pk_free(&mpk);
+fail:
+	mbedtls_x509write_csr_free(&csr);
+	free(buf);
+
+	return -1;
+}
+#endif
