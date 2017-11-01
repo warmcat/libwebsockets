@@ -102,22 +102,23 @@ int
 lws_tls_check_cert_lifetime(struct lws_vhost *v)
 {
 	union lws_tls_cert_info_results ir;
-	time_t now = (time_t)lws_now_secs(), life;
+	time_t now = (time_t)lws_now_secs(), life = 0;
 	int n;
 
-	if (!v->ssl_ctx)
-		return -1;
+	if (v->ssl_ctx && !v->skipped_certs) {
 
-	if (now < 1464083026) /* May 2016 */
-		/* our clock is wrong and we can't judge the certs */
-		return -1;
+		if (now < 1464083026) /* May 2016 */
+			/* our clock is wrong and we can't judge the certs */
+			return -1;
 
-	n = lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_TO, &ir, 0);
-	if (n)
-		return -1;
+		n = lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_TO, &ir, 0);
+		if (n)
+			return -1;
 
-	life = (ir.time - now) / (24 * 3600);
-	lwsl_notice("   vhost %s: cert expiry: %dd\n", v->name, (int)life);
+		life = (ir.time - now) / (24 * 3600);
+		lwsl_notice("   vhost %s: cert expiry: %dd\n", v->name, (int)life);
+	} else
+		lwsl_notice("   vhost %s: no cert\n", v->name);
 
 	lws_broadcast(v->context, LWS_CALLBACK_VHOST_CERT_AGING, v,
 		      (size_t)(ssize_t)life);
@@ -136,6 +137,86 @@ lws_tls_check_all_cert_lifetimes(struct lws_context *context)
 	}
 
 	return 0;
+}
+
+static int
+lws_tls_extant(const char *name)
+{
+	/* it exists if we can open it... */
+	int fd = open(name, O_RDONLY), n;
+	char buf[1];
+
+	if (fd < 0)
+		return 1;
+
+	/* and we can read at least one byte out of it */
+	n = read(fd, buf, 1);
+	close(fd);
+
+	return n != 1;
+}
+
+/*
+ * Returns 0 if the filepath "name" exists and can be read from.
+ *
+ * In addition, if "name".upd exists, backup "name" to "name.old.1"
+ * and rename "name".upd to "name" before reporting its existence.
+ *
+ * There are four situations and three results possible:
+ *
+ * 1) LWS_TLS_EXTANT_NO: There are no certs at all (we are waiting for them to
+ *    be provisioned)
+ *
+ * 2) There are provisioned certs written (xxx.upd) and we still have root
+ *    privs... in this case we rename any existing cert to have a backup name
+ *    and move the upd cert into place with the correct name.  This then becomes
+ *    situation 4 for the caller.
+ *
+ * 3) LWS_TLS_EXTANT_ALTERNATIVE: There are provisioned certs written (xxx.upd)
+ *    but we no longer have the privs needed to read or rename them.  In this
+ *    case, indicate that the caller should use temp copies if any we do have
+ *    rights to access.  This is normal after we have updated the cert.
+ *
+ * 4) LWS_TLS_EXTANT_YES: The certs are present with the correct name and we
+ *    have the rights to read them.
+ */
+
+enum lws_tls_extant
+lws_tls_use_any_upgrade_check_extant(const char *name)
+{
+	char buf[256];
+	int n;
+
+	lws_snprintf(buf, sizeof(buf) - 1, "%s.upd", name);
+	if (!lws_tls_extant(buf)) {
+		/* ah there is an updated file... how about the desired file? */
+		if (!lws_tls_extant(name)) {
+			/* rename the desired file */
+			for (n = 0; n < 50; n++) {
+				lws_snprintf(buf, sizeof(buf) - 1,
+					     "%s.old.%d", name, n);
+				if (!rename(name, buf))
+					break;
+			}
+			if (n == 50) {
+				lwsl_notice("unable to rename %s\n", name);
+
+				return LWS_TLS_EXTANT_ALTERNATIVE;
+			}
+			lws_snprintf(buf, sizeof(buf) - 1, "%s.upd", name);
+		}
+		/* desired file is out of the way, rename the updated file */
+		if (rename(buf, name)) {
+			lwsl_notice("unable to rename %s to %s\n", buf, name);
+
+			return LWS_TLS_EXTANT_ALTERNATIVE;
+		}
+	}
+
+	if (lws_tls_extant(name))
+		return LWS_TLS_EXTANT_NO;
+
+	return LWS_TLS_EXTANT_YES;
 }
 
 int

@@ -2515,6 +2515,12 @@ enum lws_context_options {
 	 * call LWS_CALLBACK_PROTOCOL_INIT on its protocols.  It's used in the
 	 * special case of a temporary vhost bound to a single protocol.
 	 */
+	LWS_SERVER_OPTION_IGNORE_MISSING_CERT			= (1 << 26),
+	/**< (VH) Don't fail if the vhost TLS cert or key are missing, just
+	 * continue.  The vhost won't be able to serve anything, but if for
+	 * example the ACME plugin was configured to fetch a cert, this lets
+	 * you bootstrap your vhost from having no cert to start with.
+	 */
 
 	/****** add new things just above ---^ ******/
 };
