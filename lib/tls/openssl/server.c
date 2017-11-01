@@ -224,12 +224,13 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 	 */
 
 	n = lws_tls_use_any_upgrade_check_extant(info->ssl_cert_filepath);
-	if (n < 0)
+	if (n == LWS_TLS_EXTANT_ALTERNATIVE)
 		return 1;
 	m = lws_tls_use_any_upgrade_check_extant(info->ssl_private_key_filepath);
-	if (m < 0)
+	if (m == LWS_TLS_EXTANT_ALTERNATIVE)
 		return 1;
-	if ((n || m) && (info->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
+	if ((n == LWS_TLS_EXTANT_NO || m == LWS_TLS_EXTANT_NO) &&
+	    (info->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
 		lwsl_notice("Ignoring missing %s or %s\n",
 				info->ssl_cert_filepath,
 				info->ssl_private_key_filepath);

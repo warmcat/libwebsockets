@@ -1042,6 +1042,7 @@ struct lws_vhost {
 
 	unsigned int created_vhost_protocols:1;
 	unsigned int being_destroyed:1;
+	unsigned int skipped_certs:1;
 
 	unsigned char default_protocol_index;
 	unsigned char raw_protocol_index;
@@ -2377,6 +2378,14 @@ LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 #define lws_tls_acme_sni_cert_destroy(_a)
 #else
 #define LWS_SSL_ENABLED(context) (context->use_ssl)
+
+enum lws_tls_extant {
+	LWS_TLS_EXTANT_NO,
+	LWS_TLS_EXTANT_YES,
+	LWS_TLS_EXTANT_ALTERNATIVE
+};
+LWS_EXTERN enum lws_tls_extant
+lws_tls_use_any_upgrade_check_extant(const char *name);
 LWS_EXTERN int openssl_websocket_private_data_index;
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len);

@@ -347,7 +347,11 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	/* support for client-side certificate authentication */
 	if (cert_filepath) {
-		lwsl_notice("%s: doing cert filepath\n", __func__);
+		if (lws_tls_use_any_upgrade_check_extant(cert_filepath) != LWS_TLS_EXTANT_YES &&
+		    (info->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT))
+			return 0;
+
+		lwsl_notice("%s: doing cert filepath %s\n", __func__, cert_filepath);
 		n = SSL_CTX_use_certificate_chain_file(vh->ssl_client_ctx,
 						       cert_filepath);
 		if (n < 1) {
