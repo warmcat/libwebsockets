@@ -98,6 +98,154 @@ lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 	wsi->pending_read_list_next = NULL;
 }
 
+#if defined(LWS_WITH_ESP32)
+int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
+	       lws_filepos_t *amount)
+{
+	nvs_handle nvh;
+	size_t s;
+	int n = 0;
+
+	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
+	if (nvs_get_blob(nvh, filename, NULL, &s) != ESP_OK) {
+		n = 1;
+		goto bail;
+	}
+	*buf = lws_malloc(s, "alloc_file");
+	if (!*buf) {
+		n = 2;
+		goto bail;
+	}
+	if (nvs_get_blob(nvh, filename, (char *)*buf, &s) != ESP_OK) {
+		lws_free(*buf);
+		n = 1;
+		goto bail;
+	}
+
+	*amount = s;
+
+bail:
+	nvs_close(nvh);
+
+	return n;
+}
+#else
+int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
+		lws_filepos_t *amount)
+{
+	FILE *f;
+	size_t s;
+	int n = 0;
+
+	f = fopen(filename, "rb");
+	if (f == NULL) {
+		n = 1;
+		goto bail;
+	}
+
+	if (fseek(f, 0, SEEK_END) != 0) {
+		n = 1;
+		goto bail;
+	}
+
+	s = ftell(f);
+	if (s == (size_t)-1) {
+		n = 1;
+		goto bail;
+	}
+
+	if (fseek(f, 0, SEEK_SET) != 0) {
+		n = 1;
+		goto bail;
+	}
+
+	*buf = lws_malloc(s, "alloc_file");
+	if (!*buf) {
+		n = 2;
+		goto bail;
+	}
+
+	if (fread(*buf, s, 1, f) != 1) {
+		lws_free(*buf);
+		n = 1;
+		goto bail;
+	}
+
+	*amount = s;
+
+bail:
+	if (f)
+		fclose(f);
+
+	return n;
+
+}
+#endif
+
+int
+lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
+			const char *inbuf, lws_filepos_t inlen,
+		      uint8_t **buf, lws_filepos_t *amount)
+{
+	const uint8_t *pem, *p, *end;
+	uint8_t *q;
+	lws_filepos_t len;
+	int n;
+
+	if (filename) {
+		n = alloc_file(context, filename, (uint8_t **)&pem, &len);
+		if (n)
+			return n;
+	} else {
+		pem = (const uint8_t *)inbuf;
+		len = inlen;
+	}
+
+	/* trim the first line */
+
+	p = pem;
+	end = p + len;
+	if (strncmp((char *)p, "-----", 5))
+		goto bail;
+	p += 5;
+	while (p < end && *p != '\n' && *p != '-')
+		p++;
+
+	if (*p != '-')
+		goto bail;
+
+	while (p < end && *p != '\n')
+		p++;
+
+	if (p >= end)
+		goto bail;
+
+	p++;
+
+	/* trim the last line */
+
+	q = (uint8_t *)end - 2;
+
+	while (q > pem && *q != '\n')
+		q--;
+
+	if (*q != '\n')
+		goto bail;
+
+	*q = '\0';
+
+	*amount = lws_b64_decode_string((char *)p, (char *)pem,
+					(int)(long long)len);
+	*buf = (uint8_t *)pem;
+
+	return 0;
+
+bail:
+	lws_free((uint8_t *)pem);
+
+	return 4;
+}
+
 int
 lws_tls_check_cert_lifetime(struct lws_vhost *v)
 {
@@ -165,7 +313,8 @@ lws_tls_extant(const char *name)
  * There are four situations and three results possible:
  *
  * 1) LWS_TLS_EXTANT_NO: There are no certs at all (we are waiting for them to
- *    be provisioned)
+ *    be provisioned).  We also feel like this if we need privs we don't have
+ *    any more to look in the directory.
  *
  * 2) There are provisioned certs written (xxx.upd) and we still have root
  *    privs... in this case we rename any existing cert to have a backup name
@@ -176,6 +325,10 @@ lws_tls_extant(const char *name)
  *    but we no longer have the privs needed to read or rename them.  In this
  *    case, indicate that the caller should use temp copies if any we do have
  *    rights to access.  This is normal after we have updated the cert.
+ *
+ *    But if we dropped privs, we can't detect the provisioned xxx.upd cert +
+ *    key, because we can't see in the dir.  So we have to upgrade NO to
+ *    ALTERNATIVE when we actually have the in-memory alternative.
  *
  * 4) LWS_TLS_EXTANT_YES: The certs are present with the correct name and we
  *    have the rights to read them.
@@ -218,6 +371,84 @@ lws_tls_use_any_upgrade_check_extant(const char *name)
 
 	return LWS_TLS_EXTANT_YES;
 }
+
+/*
+ * LWS_TLS_EXTANT_NO         : skip adding the cert
+ * LWS_TLS_EXTANT_YES        : use the cert and private key paths normally
+ * LWS_TLS_EXTANT_ALTERNATIVE: normal paths not usable, try alternate if poss
+ */
+enum lws_tls_extant
+lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
+			    const char *private_key)
+{
+	int n, m;
+
+	/*
+	 * The user code can choose to either pass the cert and
+	 * key filepaths using the info members like this, or it can
+	 * leave them NULL; force the vhost SSL_CTX init using the info
+	 * options flag LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX; and
+	 * set up the cert himself using the user callback
+	 * LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS, which
+	 * happened just above and has the vhost SSL_CTX * in the user
+	 * parameter.
+	 */
+
+	n = lws_tls_use_any_upgrade_check_extant(cert);
+	if (n == LWS_TLS_EXTANT_ALTERNATIVE)
+		return LWS_TLS_EXTANT_ALTERNATIVE;
+	m = lws_tls_use_any_upgrade_check_extant(private_key);
+	if (m == LWS_TLS_EXTANT_ALTERNATIVE)
+		return LWS_TLS_EXTANT_ALTERNATIVE;
+
+	if ((n == LWS_TLS_EXTANT_NO || m == LWS_TLS_EXTANT_NO) &&
+	    (vhost->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
+		lwsl_notice("Ignoring missing %s or %s\n", cert, private_key);
+		vhost->skipped_certs = 1;
+
+		return LWS_TLS_EXTANT_NO;
+	}
+
+	/*
+	 * the cert + key exist
+	 */
+
+	return LWS_TLS_EXTANT_YES;
+}
+
+#if !defined(LWS_NO_SERVER)
+/*
+ * update the cert for every vhost using the given path
+ */
+
+LWS_VISIBLE int
+lws_tls_cert_updated(struct lws_context *context, const char *certpath,
+		     const char *keypath,
+		     const char *mem_cert, size_t len_mem_cert,
+		     const char *mem_privkey, size_t len_mem_privkey)
+{
+	struct lws wsi;
+
+	wsi.context = context;
+
+	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
+		wsi.vhost = v;
+		if (v->alloc_cert_path && v->key_path &&
+		    !strcmp(v->alloc_cert_path, certpath) &&
+		    !strcmp(v->key_path, keypath)) {
+			lws_tls_server_certs_load(v, &wsi, certpath, keypath,
+						  mem_cert, len_mem_cert,
+						  mem_privkey, len_mem_privkey);
+
+			if (v->skipped_certs)
+				lwsl_notice("%s: vhost %s: cert unset\n",
+					    __func__, v->name);
+		}
+	} lws_end_foreach_ll(v, vhost_next);
+
+	return 0;
+}
+#endif
 
 int
 lws_gate_accepts(struct lws_context *context, int on)
