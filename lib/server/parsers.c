@@ -570,11 +570,15 @@ LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 		return 0;
 
 	do {
-		strcpy(dst,
-		       &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset]);
+		if (wsi->u.hdr.ah->frags[n].len >= len)
+			return -1;
+		strncpy(dst, &wsi->u.hdr.ah->data[wsi->u.hdr.ah->frags[n].offset],
+		        wsi->u.hdr.ah->frags[n].len);
 		dst += wsi->u.hdr.ah->frags[n].len;
+		len -= wsi->u.hdr.ah->frags[n].len;
 		n = wsi->u.hdr.ah->frags[n].nfrag;
 	} while (n);
+	*dst = '\0';
 
 	return toklen;
 }
