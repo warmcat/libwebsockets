@@ -126,7 +126,7 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 		return SSL_TLSEXT_ERR_OK;
 	}
 
-	lwsl_notice("SNI: Found: %s:%d\n", servername, vh->listen_port);
+	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);
 
 	/* select the ssl ctx from the selected vhost for this conn */
 	SSL_set_SSL_CTX(ssl, vhost->ssl_ctx);
@@ -135,10 +135,15 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 }
 #endif
 
+/*
+ * this may now get called after the vhost creation, when certs become
+ * available.
+ */
 int
-lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
-				  struct lws_vhost *vhost,
-				  struct lws *wsi)
+lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
+			  const char *cert, const char *private_key,
+			  const char *mem_cert, size_t len_mem_cert,
+			  const char *mem_privkey, size_t mem_privkey_len)
 {
 #if defined(LWS_HAVE_OPENSSL_ECDH_H)
 	const char *ecdh_curve = "prime256v1";
@@ -151,9 +156,177 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 	STACK_OF(X509) *extra_certs = NULL;
 #endif
 #endif
-	SSL_METHOD *method = (SSL_METHOD *)SSLv23_server_method();
 	unsigned long error;
-	int n, m;
+	uint8_t *p;
+	lws_filepos_t flen;
+
+	int n = lws_tls_generic_cert_checks(vhost, cert, private_key), m;
+
+	if (n == LWS_TLS_EXTANT_NO && (!mem_cert || !mem_privkey))
+		return 0;
+
+	if (n == LWS_TLS_EXTANT_NO)
+		n = LWS_TLS_EXTANT_ALTERNATIVE;
+
+	if (n == LWS_TLS_EXTANT_ALTERNATIVE && (!mem_cert || !mem_privkey))
+		return 1; /* no alternative */
+
+	if (n == LWS_TLS_EXTANT_ALTERNATIVE) {
+		/*
+		 * Although we have prepared update certs, we no longer have
+		 * the rights to read our own cert + key we saved.
+		 *
+		 * If we were passed copies in memory buffers, use those
+		 * instead.
+		 *
+		 * The passed memory-buffer cert image is in DER, and the
+		 * memory-buffer private key image is PEM.
+		 */
+		if (SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx,
+						 (int)len_mem_cert,
+						 (uint8_t *)mem_cert) != 1) {
+			lwsl_err("Problem loading update cert\n");
+
+			return 1;
+		}
+
+		if (lws_tls_alloc_pem_to_der_file(vhost->context, NULL,
+						  mem_privkey, mem_privkey_len,
+						  &p, &flen)) {
+			lwsl_notice("unable to convert memory privkey\n");
+
+			return 1;
+		}
+		if (SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_RSA, vhost->ssl_ctx,
+						p, (long)(long long)flen) != 1) {
+			lwsl_notice("unable to use memory privkey\n");
+
+			return 1;
+		}
+
+		goto check_key;
+	}
+
+	/* set the local certificate from CertFile */
+	m = SSL_CTX_use_certificate_chain_file(vhost->ssl_ctx, cert);
+	if (m != 1) {
+		error = ERR_get_error();
+		lwsl_err("problem getting cert '%s' %lu: %s\n",
+			 cert, error, ERR_error_string(error,
+			       (char *)vhost->context->pt[0].serv_buf));
+
+		return 1;
+	}
+
+	if (n != LWS_TLS_EXTANT_ALTERNATIVE && private_key) {
+		/* set the private key from KeyFile */
+		if (SSL_CTX_use_PrivateKey_file(vhost->ssl_ctx, private_key,
+					        SSL_FILETYPE_PEM) != 1) {
+			error = ERR_get_error();
+			lwsl_err("ssl problem getting key '%s' %lu: %s\n",
+				 private_key, error,
+				 ERR_error_string(error,
+				      (char *)vhost->context->pt[0].serv_buf));
+			return 1;
+		}
+	} else {
+		if (vhost->protocols[0].callback(wsi,
+		    LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
+		    vhost->ssl_ctx, NULL, 0)) {
+			lwsl_err("ssl private key not set\n");
+
+			return 1;
+		}
+	}
+
+check_key:
+	/* verify private key */
+	if (!SSL_CTX_check_private_key(vhost->ssl_ctx)) {
+		lwsl_err("Private SSL key doesn't match cert\n");
+
+		return 1;
+	}
+
+#if defined(LWS_HAVE_OPENSSL_ECDH_H)
+	if (vhost->ecdh_curve[0])
+		ecdh_curve = vhost->ecdh_curve;
+
+	ecdh_nid = OBJ_sn2nid(ecdh_curve);
+	if (NID_undef == ecdh_nid) {
+		lwsl_err("SSL: Unknown curve name '%s'", ecdh_curve);
+		return 1;
+	}
+
+	ecdh = EC_KEY_new_by_curve_name(ecdh_nid);
+	if (NULL == ecdh) {
+		lwsl_err("SSL: Unable to create curve '%s'", ecdh_curve);
+		return 1;
+	}
+	SSL_CTX_set_tmp_ecdh(vhost->ssl_ctx, ecdh);
+	EC_KEY_free(ecdh);
+
+	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
+
+	lwsl_notice(" SSL ECDH curve '%s'\n", ecdh_curve);
+
+	if (lws_check_opt(vhost->context->options, LWS_SERVER_OPTION_SSL_ECDH))
+		lwsl_notice(" Using ECDH certificate support\n");
+
+	/* Get X509 certificate from ssl context */
+#if !defined(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
+	x = sk_X509_value(vhost->ssl_ctx->extra_certs, 0);
+#else
+	SSL_CTX_get_extra_chain_certs_only(vhost->ssl_ctx, &extra_certs);
+	if (extra_certs)
+		x = sk_X509_value(extra_certs, 0);
+	else
+		lwsl_err("%s: no extra certs\n", __func__);
+#endif
+	if (!x) {
+		lwsl_err("%s: x is NULL\n", __func__);
+		goto post_ecdh;
+	}
+	/* Get the public key from certificate */
+	pkey = X509_get_pubkey(x);
+	if (!pkey) {
+		lwsl_err("%s: pkey is NULL\n", __func__);
+
+		return 1;
+	}
+	/* Get the key type */
+	KeyType = EVP_PKEY_type(EVP_PKEY_id(pkey));
+
+	if (EVP_PKEY_EC != KeyType) {
+		lwsl_notice("Key type is not EC\n");
+		return 0;
+	}
+	/* Get the key */
+	EC_key = EVP_PKEY_get1_EC_KEY(pkey);
+	/* Set ECDH parameter */
+	if (!EC_key) {
+		lwsl_err("%s: ECDH key is NULL \n", __func__);
+		return 1;
+	}
+	SSL_CTX_set_tmp_ecdh(vhost->ssl_ctx, EC_key);
+
+	EC_KEY_free(EC_key);
+#else
+	lwsl_notice(" OpenSSL doesn't support ECDH\n");
+#endif
+
+post_ecdh:
+	vhost->skipped_certs = 0;
+
+	return 0;
+}
+
+int
+lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
+				  struct lws_vhost *vhost,
+				  struct lws *wsi)
+{
+	unsigned long error;
+	SSL_METHOD *method = (SSL_METHOD *)SSLv23_server_method();
 
 	if (!method) {
 		error = ERR_get_error();
@@ -212,140 +385,9 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 
 	lws_ssl_bind_passphrase(vhost->ssl_ctx, info);
 
-	/*
-	 * The user code can choose to either pass the cert and
-	 * key filepaths using the info members like this, or it can
-	 * leave them NULL; force the vhost SSL_CTX init using the info
-	 * options flag LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX; and
-	 * set up the cert himself using the user callback
-	 * LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS, which
-	 * happened just above and has the vhost SSL_CTX * in the user
-	 * parameter.
-	 */
-
-	n = lws_tls_use_any_upgrade_check_extant(info->ssl_cert_filepath);
-	if (n == LWS_TLS_EXTANT_ALTERNATIVE)
-		return 1;
-	m = lws_tls_use_any_upgrade_check_extant(info->ssl_private_key_filepath);
-	if (m == LWS_TLS_EXTANT_ALTERNATIVE)
-		return 1;
-	if ((n == LWS_TLS_EXTANT_NO || m == LWS_TLS_EXTANT_NO) &&
-	    (info->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
-		lwsl_notice("Ignoring missing %s or %s\n",
-				info->ssl_cert_filepath,
-				info->ssl_private_key_filepath);
-		vhost->skipped_certs = 1;
-		return 0;
-	}
-
-	/* set the local certificate from CertFile */
-	n = SSL_CTX_use_certificate_chain_file(vhost->ssl_ctx,
-					       info->ssl_cert_filepath);
-	if (n != 1) {
-		error = ERR_get_error();
-		lwsl_err("problem getting cert '%s' %lu: %s\n",
-			 info->ssl_cert_filepath, error, ERR_error_string(error,
-			       (char *)vhost->context->pt[0].serv_buf));
-
-		return 1;
-	}
-
-	if (info->ssl_private_key_filepath != NULL) {
-		/* set the private key from KeyFile */
-		if (SSL_CTX_use_PrivateKey_file(vhost->ssl_ctx,
-						info->ssl_private_key_filepath,
-					        SSL_FILETYPE_PEM) != 1) {
-			error = ERR_get_error();
-			lwsl_err("ssl problem getting key '%s' %lu: %s\n",
-				 info->ssl_private_key_filepath, error,
-				 ERR_error_string(error,
-				      (char *)vhost->context->pt[0].serv_buf));
-			return 1;
-		}
-	} else
-		if (vhost->protocols[0].callback(wsi,
-			LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
-			vhost->ssl_ctx, NULL, 0)) {
-			lwsl_err("ssl private key not set\n");
-
-			return 1;
-		}
-
-	/* verify private key */
-	if (!SSL_CTX_check_private_key(vhost->ssl_ctx)) {
-		lwsl_err("Private SSL key doesn't match cert\n");
-
-		return 1;
-	}
-
-#if defined(LWS_HAVE_OPENSSL_ECDH_H)
-	if (info->ecdh_curve)
-		ecdh_curve = info->ecdh_curve;
-
-	ecdh_nid = OBJ_sn2nid(ecdh_curve);
-	if (NID_undef == ecdh_nid) {
-		lwsl_err("SSL: Unknown curve name '%s'", ecdh_curve);
-		return 1;
-	}
-
-	ecdh = EC_KEY_new_by_curve_name(ecdh_nid);
-	if (NULL == ecdh) {
-		lwsl_err("SSL: Unable to create curve '%s'", ecdh_curve);
-		return 1;
-	}
-	SSL_CTX_set_tmp_ecdh(vhost->ssl_ctx, ecdh);
-	EC_KEY_free(ecdh);
-
-	SSL_CTX_set_options(vhost->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
-
-	lwsl_notice(" SSL ECDH curve '%s'\n", ecdh_curve);
-
-	if (lws_check_opt(vhost->context->options, LWS_SERVER_OPTION_SSL_ECDH))
-		lwsl_notice(" Using ECDH certificate support\n");
-
-	/* Get X509 certificate from ssl context */
-#if !defined(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
-	x = sk_X509_value(vhost->ssl_ctx->extra_certs, 0);
-#else
-	SSL_CTX_get_extra_chain_certs_only(vhost->ssl_ctx, &extra_certs);
-	if (extra_certs)
-		x = sk_X509_value(extra_certs, 0);
-	else
-		lwsl_err("%s: no extra certs\n", __func__);
-#endif
-	if (!x) {
-		lwsl_err("%s: x is NULL\n", __func__);
-		return 0; // !!!
-	}
-	/* Get the public key from certificate */
-	pkey = X509_get_pubkey(x);
-	if (!pkey) {
-		lwsl_err("%s: pkey is NULL\n", __func__);
-
-		return 1;
-	}
-	/* Get the key type */
-	KeyType = EVP_PKEY_type(EVP_PKEY_id(pkey));
-
-	if (EVP_PKEY_EC != KeyType) {
-		lwsl_notice("Key type is not EC\n");
-		return 0;
-	}
-	/* Get the key */
-	EC_key = EVP_PKEY_get1_EC_KEY(pkey);
-	/* Set ECDH parameter */
-	if (!EC_key) {
-		lwsl_err("%s: ECDH key is NULL \n", __func__);
-		return 1;
-	}
-	SSL_CTX_set_tmp_ecdh(vhost->ssl_ctx, EC_key);
-
-	EC_KEY_free(EC_key);
-#else
-	lwsl_notice(" OpenSSL doesn't support ECDH\n");
-#endif
-
-	return 0;
+	return lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
+					 info->ssl_private_key_filepath,
+					 NULL, 0, NULL, 0);
 }
 
 int
@@ -761,7 +803,7 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 		BIO_free(bio);
 		goto bail3;
 	}
-	memcpy(*privkey_pem, p, bio_len);
+	memcpy(*privkey_pem, p, (int)(long long)bio_len);
 	BIO_free(bio);
 
 	ret = lws_ptr_diff(csr, csr_in);
