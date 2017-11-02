@@ -5612,6 +5612,29 @@ LWS_VISIBLE LWS_EXTERN int
 lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 			    uint8_t *csr, size_t csr_len, char **privkey_pem,
 			    size_t *privkey_len);
+
+/**
+ * lws_tls_cert_updated() - update every vhost using the given cert path
+ *
+ * \param context: our lws_context
+ * \param certpath: the filepath to the certificate
+ * \param keypath: the filepath to the private key of the certificate
+ * \param mem_cert: copy of the cert in memory
+ * \param len_mem_cert: length of the copy of the cert in memory
+ * \param mem_privkey: copy of the private key in memory
+ * \param len_mem_privkey: length of the copy of the private key in memory
+ *
+ * Checks every vhost to see if it is the using certificate described by the
+ * the given filepaths.  If so, it attempts to update the vhost ssl_ctx to use
+ * the new certificate.
+ *
+ * Returns 0 on success or nonzero for failure.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_cert_updated(struct lws_context *context, const char *certpath,
+		     const char *keypath,
+		     const char *mem_cert, size_t len_mem_cert,
+		     const char *mem_privkey, size_t len_mem_privkey);
 ///@}
 
 /** \defgroup lws_ring LWS Ringbuffer APIs

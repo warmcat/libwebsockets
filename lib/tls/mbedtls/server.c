@@ -42,146 +42,6 @@ lws_tls_server_client_cert_verify_config(struct lws_context_creation_info *info,
 	return 0;
 }
 
-#if defined(LWS_WITH_ESP32)
-int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
-	       lws_filepos_t *amount)
-{
-	nvs_handle nvh;
-	size_t s;
-	int n = 0;
-
-	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
-	if (nvs_get_blob(nvh, filename, NULL, &s) != ESP_OK) {
-		n = 1;
-		goto bail;
-	}
-	*buf = lws_malloc(s, "alloc_file");
-	if (!*buf) {
-		n = 2;
-		goto bail;
-	}
-	if (nvs_get_blob(nvh, filename, (char *)*buf, &s) != ESP_OK) {
-		lws_free(*buf);
-		n = 1;
-		goto bail;
-	}
-
-	*amount = s;
-
-bail:
-	nvs_close(nvh);
-
-	return n;
-}
-#else
-int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
-		lws_filepos_t *amount)
-{
-	FILE *f;
-	size_t s;
-	int n = 0;
-
-	f = fopen(filename, "rb");
-	if (f == NULL) {
-		n = 1;
-		goto bail;
-	}
-
-	if (fseek(f, 0, SEEK_END) != 0) {
-		n = 1;
-		goto bail;
-	}
-
-	s = ftell(f);
-	if (s == (size_t)-1) {
-		n = 1;
-		goto bail;
-	}
-
-	if (fseek(f, 0, SEEK_SET) != 0) {
-		n = 1;
-		goto bail;
-	}
-
-	*buf = lws_malloc(s, "alloc_file");
-	if (!*buf) {
-		n = 2;
-		goto bail;
-	}
-
-	if (fread(*buf, s, 1, f) != 1) {
-		lws_free(*buf);
-		n = 1;
-		goto bail;
-	}
-
-	*amount = s;
-
-bail:
-	if (f)
-		fclose(f);
-
-	return n;
-
-}
-#endif
-
-static int
-alloc_pem_to_der_file(struct lws_context *context, const char *filename,
-		      uint8_t **buf, lws_filepos_t *amount)
-{
-	uint8_t *pem, *p, *q, *end;
-	lws_filepos_t len;
-	int n;
-
-	n = alloc_file(context, filename, &pem, &len);
-	if (n)
-		return n;
-
-	/* trim the first line */
-
-	p = pem;
-	end = p + len;
-	if (strncmp((char *)p, "-----", 5))
-		goto bail;
-	p += 5;
-	while (p < end && *p != '\n' && *p != '-')
-		p++;
-
-	if (*p != '-')
-		goto bail;
-
-	while (p < end && *p != '\n')
-		p++;
-
-	if (p >= end)
-		goto bail;
-
-	p++;
-
-	/* trim the last line */
-
-	q = end - 2;
-
-	while (q > pem && *q != '\n')
-		q--;
-
-	if (*q != '\n')
-		goto bail;
-
-	*q = '\0';
-
-	*amount = lws_b64_decode_string((char *)p, (char *)pem, len);
-	*buf = pem;
-
-	return 0;
-
-bail:
-	lws_free(pem);
-
-	return 4;
-}
-
 static int
 lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		   const unsigned char *servername, size_t len)
@@ -227,13 +87,111 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 }
 
 int
+lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
+			  const char *cert, const char *private_key,
+			  const char *mem_cert, size_t len_mem_cert,
+			  const char *mem_privkey, size_t mem_privkey_len)
+{
+	int n = lws_tls_generic_cert_checks(vhost, cert, private_key), f = 0;
+	const char *filepath = private_key;
+	uint8_t *mem = NULL, *p = NULL;
+	size_t mem_len = 0;
+	lws_filepos_t flen;
+	long err;
+
+	if (n == LWS_TLS_EXTANT_NO && (!mem_cert || !mem_privkey))
+		return 0;
+
+	/*
+	 * we can't read the root-privs files.  But if mem_cert is provided,
+	 * we should use that.
+	 */
+	if (n == LWS_TLS_EXTANT_NO)
+		n = LWS_TLS_EXTANT_ALTERNATIVE;
+
+	if (n == LWS_TLS_EXTANT_ALTERNATIVE && (!mem_cert || !mem_privkey))
+		return 1; /* no alternative */
+
+	if (n == LWS_TLS_EXTANT_ALTERNATIVE) {
+		/*
+		 * Although we have prepared update certs, we no longer have
+		 * the rights to read our own cert + key we saved.
+		 *
+		 * If we were passed copies in memory buffers, use those
+		 * instead.
+		 *
+		 * The passed memory-buffer cert image is in DER, and the
+		 * memory-buffer private key image is PEM.
+		 */
+		/* mem cert is already DER */
+		p = (uint8_t *)mem_cert;
+		flen = len_mem_cert;
+		/* mem private key is PEM, so go through the motions */
+		mem = (uint8_t *)mem_privkey;
+		mem_len = mem_privkey_len;
+		filepath = NULL;
+	} else {
+		if (lws_tls_alloc_pem_to_der_file(vhost->context, cert, NULL,
+						  0, &p, &flen)) {
+			lwsl_err("couldn't find cert file %s\n", cert);
+
+			return 1;
+		}
+		f = 1;
+	}
+	err = SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx, flen, p);
+	if (!err) {
+		free(p);
+		lwsl_err("Problem loading cert\n");
+		return 1;
+	}
+
+	if (f)
+		free(p);
+	p = NULL;
+
+	if (private_key || n == LWS_TLS_EXTANT_ALTERNATIVE) {
+		if (lws_tls_alloc_pem_to_der_file(vhost->context, filepath,
+						  (char *)mem, mem_len, &p,
+						  &flen)) {
+			lwsl_err("couldn't find private key file %s\n",
+					private_key);
+
+			return 1;
+		}
+		err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
+		if (!err) {
+			free(p);
+			lwsl_err("Problem loading key\n");
+
+			return 1;
+		}
+	}
+
+	if (p && !mem_privkey) {
+		free(p);
+		p = NULL;
+	}
+
+	if (!private_key && !mem_privkey &&
+	    vhost->protocols[0].callback(wsi,
+			LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
+			vhost->ssl_ctx, NULL, 0)) {
+		lwsl_err("ssl private key not set\n");
+
+		return 1;
+	}
+
+	vhost->skipped_certs = 0;
+
+	return 0;
+}
+
+int
 lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi)
 {
 	const SSL_METHOD *method = TLS_server_method();
-	uint8_t *p;
-	lws_filepos_t flen;
-	int n, m, err;
 
 	vhost->ssl_ctx = SSL_CTX_new(method);	/* create context */
 	if (!vhost->ssl_ctx) {
@@ -244,79 +202,10 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 	if (!vhost->use_ssl || !info->ssl_cert_filepath)
 		return 0;
 
-	/*
-	 * The user code can choose to either pass the cert and
-	 * key filepaths using the info members like this, or it can
-	 * leave them NULL; force the vhost SSL_CTX init using the info
-	 * options flag LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX; and
-	 * set up the cert himself using the user callback
-	 * LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS, which
-	 * happened just above and has the vhost SSL_CTX * in the user
-	 * parameter.
-	 */
-	n = lws_tls_use_any_upgrade_check_extant(info->ssl_cert_filepath);
-	if (n == LWS_TLS_EXTANT_ALTERNATIVE)
-		return 1;
-	m = lws_tls_use_any_upgrade_check_extant(info->ssl_private_key_filepath);
-	if (m == LWS_TLS_EXTANT_ALTERNATIVE)
-		return 1;
-	if ((n == LWS_TLS_EXTANT_NO || m == LWS_TLS_EXTANT_NO) &&
-	    (info->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
-		lwsl_notice("Ignoring missing %s or %s\n",
-				info->ssl_cert_filepath,
-				info->ssl_private_key_filepath);
-		vhost->skipped_certs = 1;
-		return 0;
-	}
-
-	if (alloc_pem_to_der_file(vhost->context, info->ssl_cert_filepath, &p,
-					&flen)) {
-		lwsl_err("couldn't find cert file %s\n",
-			 info->ssl_cert_filepath);
-
-		return 1;
-	}
-	err = SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx, flen, p);
-	if (!err) {
-		lwsl_err("Problem loading cert\n");
-		return 1;
-	}
-#if !defined(LWS_WITH_ESP32)
-	free(p);
-	p = NULL;
-#endif
-
-	if (info->ssl_private_key_filepath) {
-		if (alloc_pem_to_der_file(vhost->context,
-					  info->ssl_private_key_filepath,
-					  &p, &flen)) {
-			lwsl_err("couldn't find cert file %s\n",
-				 info->ssl_cert_filepath);
-
-			return 1;
-		}
-		err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, p, flen);
-		if (!err) {
-			lwsl_err("Problem loading key\n");
-
-			return 1;
-		}
-	}
-
-#if !defined(LWS_WITH_ESP32)
-	free(p);
-	p = NULL;
-#endif
-
-	if (!info->ssl_private_key_filepath && vhost->protocols[0].callback(wsi,
-			LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
-			vhost->ssl_ctx, NULL, 0)) {
-		lwsl_err("ssl private key not set\n");
-
-		return 1;
-	}
-
-	return 0;
+	return lws_tls_server_certs_load(vhost, wsi,
+					 info->ssl_cert_filepath,
+					 info->ssl_private_key_filepath,
+					 NULL, 0, NULL, 0);
 }
 
 int

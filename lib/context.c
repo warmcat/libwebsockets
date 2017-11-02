@@ -611,6 +611,30 @@ lws_create_vhost(struct lws_context *context,
 	else
 		vh->timeout_secs_ah_idle = 10;
 
+#ifdef LWS_OPENSSL_SUPPORT
+	if (info->ecdh_curve)
+		strncpy(vh->ecdh_curve, info->ecdh_curve, sizeof(vh->ecdh_curve) - 1);
+#endif
+
+	/* carefully allocate and take a copy of cert + key paths if present */
+	n = 0;
+	if (info->ssl_cert_filepath)
+		n += (int)strlen(info->ssl_cert_filepath) + 1;
+	if (info->ssl_private_key_filepath)
+		n += (int)strlen(info->ssl_private_key_filepath) + 1;
+
+	if (n) {
+		vh->key_path = vh->alloc_cert_path = lws_malloc(n, "vh paths");
+		if (info->ssl_cert_filepath) {
+			n = (int)strlen(info->ssl_cert_filepath) + 1;
+			memcpy(vh->alloc_cert_path, info->ssl_cert_filepath, n);
+			vh->key_path += n;
+		}
+		if (info->ssl_private_key_filepath)
+			memcpy(vh->key_path, info->ssl_private_key_filepath,
+			       strlen(info->ssl_private_key_filepath) + 1);
+	}
+
 	/*
 	 * give the vhost a unified list of protocols including the
 	 * ones that came from plugins
@@ -1526,6 +1550,8 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 	if (vh->log_fd != (int)LWS_INVALID_FILE)
 		close(vh->log_fd);
 #endif
+
+	lws_free_set_NULL(vh->alloc_cert_path);
 
 	/*
 	 * although async event callbacks may still come for wsi handles with
