@@ -206,7 +206,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_get_urlarg_by_name(wsi, "mirror", name,
 					   sizeof(name) - 1))
 			lwsl_debug("get urlarg failed\n");
-		lwsl_info("%s: mirror name '%s'\n", __func__, name);
+		lwsl_notice("%s: mirror name '%s'\n", __func__, name);
 
 		/* is there already a mirror instance of this name? */
 
@@ -293,14 +293,13 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_start_foreach_llp(struct mirror_instance **,
 				pmi, v->mi_list) {
-			if (*pmi != mi)
-				continue;
+			if (*pmi == mi) {
+				*pmi = (*pmi)->next;
 
-			*pmi = (*pmi)->next;
-
-			lws_ring_destroy(mi->ring);
-			free(mi);
-			break;
+				lws_ring_destroy(mi->ring);
+				free(mi);
+				break;
+			}
 		} lws_end_foreach_llp(pmi, next);
 
 		break;
