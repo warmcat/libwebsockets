@@ -996,6 +996,8 @@ struct lws_vhost {
 	struct lws *lserv_wsi;
 	const char *name;
 	const char *iface;
+	char *alloc_cert_path;
+	char *key_path;
 #if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
 	int bind_iface;
 #endif
@@ -1008,6 +1010,7 @@ struct lws_vhost {
 	lws_tls_ctx *ssl_ctx;
 	lws_tls_ctx *ssl_client_ctx;
 	struct lws_tls_ss_pieces *ss; /* for acme tls certs */
+	char ecdh_curve[16];
 #endif
 #if defined(LWS_WITH_MBEDTLS)
 	lws_tls_x509 *x509_client_CA;
@@ -2426,6 +2429,18 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 			  union lws_tls_cert_info_results *buf, size_t len);
 LWS_EXTERN int
 lws_tls_check_all_cert_lifetimes(struct lws_context *context);
+LWS_EXTERN int
+lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
+			  const char *cert, const char *private_key,
+			  const char *mem_cert, size_t len_mem_cert,
+			  const char *mem_privkey, size_t mem_privkey_len);
+LWS_EXTERN enum lws_tls_extant
+lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
+			    const char *private_key);
+LWS_EXTERN int
+lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
+			const char *inbuf, lws_filepos_t inlen,
+		      uint8_t **buf, lws_filepos_t *amount);
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
 lws_context_init_server_ssl(struct lws_context_creation_info *info,
