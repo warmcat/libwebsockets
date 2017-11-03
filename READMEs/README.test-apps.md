@@ -74,7 +74,7 @@ terminates.
 
 To stop the daemon, do
 ```
-	$ kill cat /tmp/.lwsts-lock 
+       $ kill \`cat /tmp/.lwsts-lock\`
 ```
 If it finds a stale lock (the pid mentioned in the file does not exist
 any more) it will delete the lock and create a new one during startup.
@@ -82,6 +82,60 @@ any more) it will delete the lock and create a new one during startup.
 If the lock is valid, the daemon will exit with a note on stderr that
 it was already running.
 
+@section clicert Testing Client Certs
+
+Here is a very quick way to create a CA, and a client and server cert from it,
+for testing.
+
+```
+$ cp -rp ./scripts/client-ca /tmp
+$ cd /tmp/client-ca
+$ ./create-ca.sh
+$ ./create-server-cert.sh server
+$ ./create-client-cert.sh client
+```
+
+The last step wants an export password, you will need this password again to
+import the p12 format certificate into your browser.
+
+This will get you the following
+
+|name|function|
+|----|--------|
+|ca.pem|Your Certificate Authority cert|
+|ca.key|Private key for the CA cert|
+|client.pem|Client certificate, signed by your CA|
+|client.key|Client private key|
+|client.p12|combined client.pem + client.key in p12 format for browsers|
+|server.pem|Server cert, signed by your CA|
+|server.key|Server private key|
+
+You can confirm yourself the client and server certs are signed by the CA.
+
+```
+ $ openssl verify -verbose -trusted ca.pem server.pem
+ $ openssl verify -verbose -trusted ca.pem client.pem
+```
+
+Import the client.p12 file into your browser.  In FFOX57 it's
+
+ - preferences
+ - Privacy & Security
+ - Certificates | View Certificates
+ - Certificate Manager | Your Certificates | Import...
+ - Enter the password you gave when creating client1.p12
+ - Click OK.
+
+You can then run the test server like this:
+
+```
+ $ libwebsockets-test-server -s -A ca.pem -K server.key -C server.pem -v
+```
+
+When you connect your browser to https://localhost:7681 after accepting the
+selfsigned server cert, your browser will pop up a prompt to send the server
+your client cert (the -v switch enables this).  The server will only accept
+a client cert that has been signed by ca.pem.
 
 @section sssl Using SSL on the server side
 
