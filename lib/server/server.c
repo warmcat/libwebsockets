@@ -2867,16 +2867,29 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		/* account for what we're using in rxflow buffer */
 		if (wsi->rxflow_buffer) {
 			wsi->rxflow_pos++;
-			assert(wsi->rxflow_pos <= wsi->rxflow_len);
+			if (wsi->rxflow_pos > wsi->rxflow_len) {
+				lwsl_err("bumped rxflow buffer too far (%d / %d)", wsi->rxflow_pos, wsi->rxflow_len);
+				assert(0);
+			}
 		}
 
 		/* consume payload bytes efficiently */
-		if (
-		    wsi->lws_rx_parse_state ==
+		if (wsi->lws_rx_parse_state ==
 		    LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED) {
 			m = lws_payload_until_length_exhausted(wsi, buf, &len);
 			if (wsi->rxflow_buffer)
 				wsi->rxflow_pos += m;
+		}
+
+		if (wsi->rxflow_buffer && wsi->rxflow_pos == wsi->rxflow_len) {
+			lwsl_debug("%s: %p flow buf: drained\n", __func__, wsi);
+			lws_free_set_NULL(wsi->rxflow_buffer);
+			/* having drained the rxflow buffer, can rearm POLLIN */
+#ifdef LWS_NO_SERVER
+			m =
+#endif
+			_lws_rx_flow_control(wsi);
+			/* m ignored, needed for NO_SERVER case */
 		}
 
 		/* process the byte */

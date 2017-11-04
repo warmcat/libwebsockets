@@ -1504,14 +1504,12 @@ handle_first:
 		 * if there's no protocol max frame size given, we are
 		 * supposed to default to context->pt_serv_buf_size
 		 */
-
 		if (!wsi->protocol->rx_buffer_size &&
 		    wsi->u.ws.rx_ubuf_head != wsi->context->pt_serv_buf_size)
 			break;
-		else
-			if (wsi->protocol->rx_buffer_size &&
-					wsi->u.ws.rx_ubuf_head !=
-						  wsi->protocol->rx_buffer_size)
+
+		if (wsi->protocol->rx_buffer_size &&
+		    wsi->u.ws.rx_ubuf_head != wsi->protocol->rx_buffer_size)
 			break;
 
 		/* spill because we filled our rx buffer */
