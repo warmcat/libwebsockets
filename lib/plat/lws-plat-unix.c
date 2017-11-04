@@ -153,8 +153,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		context->service_tid_detected =
 			context->vhost_list->protocols[0].callback(
 			&_lws, LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+		context->service_tid = context->service_tid_detected;
+		context->service_tid_detected = 1;
 	}
-	context->service_tid = context->service_tid_detected;
 
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
@@ -171,8 +172,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	n = poll(pt->fds, pt->fds_count, timeout_ms);
 
 #ifdef LWS_OPENSSL_SUPPORT
-	if (!pt->rx_draining_ext_list &&
-	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi) && !n) {
+	if (!n && !pt->rx_draining_ext_list &&
+	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi)) {
 #else
 	if (!pt->rx_draining_ext_list && !n) /* poll timeout */ {
 #endif
