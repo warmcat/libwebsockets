@@ -5231,6 +5231,9 @@ lws_ring_next_linear_insert_range(struct lws_ring *ring, void **start,
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_ring_bump_head(struct lws_ring *ring, size_t bytes);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_ring_dump(struct lws_ring *ring, uint32_t *tail);
 ///@}
 
 /** \defgroup sha SHA and B64 helpers

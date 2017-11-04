@@ -278,3 +278,15 @@ lws_ring_get_oldest_tail(struct lws_ring *ring)
 {
 	return ring->oldest_tail;
 }
+
+LWS_VISIBLE LWS_EXTERN void
+lws_ring_dump(struct lws_ring *ring, uint32_t *tail)
+{
+	if (tail == NULL)
+		tail = &ring->oldest_tail;
+	lwsl_notice("ring %p: buflen %u, element_len %u, head %u, oldest_tail %u\n"
+		    "     free_elements: %u; for tail %u, waiting elements: %u\n",
+		    ring, ring->buflen, ring->element_len, ring->head,
+		    ring->oldest_tail, (int)lws_ring_get_count_free_elements(ring),
+		    *tail, (int)lws_ring_get_count_waiting_elements(ring, tail));
+}
