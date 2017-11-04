@@ -528,10 +528,15 @@ next_child:
 
 notify:
 #endif
-	wsi->handling_pollout = 0;
 	wsi->leave_pollout_active = 0;
 
-	return lws_calllback_as_writeable(wsi);
+	n = lws_calllback_as_writeable(wsi);
+	wsi->handling_pollout = 0;
+
+	if (wsi->leave_pollout_active)
+		lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+
+	return n;
 
 	/*
 	 * since these don't disable the POLLOUT, they are always doing the
@@ -1343,14 +1348,16 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 			break;
 
 #if defined(LWS_WITH_HTTP2)
-		wsi1 = lws_get_network_wsi(wsi);
-		if (wsi1 && wsi1->trunc_len)
-			/* We cannot deal with any kind of new RX
-			 * because we are dealing with a partial send
-			 * (new RX may trigger new http_action() that expect
-			 * to be able to send)
-			 */
-			break;
+		if (wsi->http2_substream || wsi->upgraded_to_http2) {
+			wsi1 = lws_get_network_wsi(wsi);
+			if (wsi1 && wsi1->trunc_len)
+				/* We cannot deal with any kind of new RX
+				 * because we are dealing with a partial send
+				 * (new RX may trigger new http_action() that
+				 * expect to be able to send)
+				 */
+				break;
+		}
 #endif
 
 		/* 2: RX Extension needs to be drained
@@ -1386,8 +1393,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 
 		if (wsi->rxflow_buffer) {
 			lwsl_info("draining rxflow (len %d)\n",
-				wsi->rxflow_len - wsi->rxflow_pos
-			);
+				wsi->rxflow_len - wsi->rxflow_pos);
 			assert(wsi->rxflow_pos < wsi->rxflow_len);
 			/* well, drain it */
 			eff_buf.token = (char *)wsi->rxflow_buffer +
