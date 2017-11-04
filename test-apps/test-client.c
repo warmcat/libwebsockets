@@ -37,12 +37,22 @@
 
 #include "../lib/libwebsockets.h"
 
+struct lws_poly_gen {
+	uint32_t cyc[2];
+};
+
+#define block_size (3 * 4096)
+
 static int deny_deflate, longlived, mirror_lifetime, test_post;
 static struct lws *wsi_dumb, *wsi_mirror;
 static struct lws *wsi_multi[3];
 static volatile int force_exit;
 static unsigned int opts, rl_multi[3];
-static int flag_no_mirror_traffic, justmirror;
+static int flag_no_mirror_traffic, justmirror, flag_echo;
+static uint32_t count_blocks = 1024, txb, rxb, rx_count, errs;
+static struct lws_poly_gen tx = { { 0xabcde, 0x23456789 } },
+			   rx = { { 0xabcde, 0x23456789 } }
+;
 
 #if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
 char crl_path[1024] = "";
@@ -70,6 +80,16 @@ enum demo_protocols {
 	DEMO_PROTOCOL_COUNT
 };
 
+static uint8_t
+lws_poly_rand(struct lws_poly_gen *p)
+{
+	p->cyc[0] = (p->cyc[0] & 1) ? (p->cyc[0] >> 1) ^ 0xb4bcd35c : p->cyc[0] >> 1;
+	p->cyc[0] = (p->cyc[0] & 1) ? (p->cyc[0] >> 1) ^ 0xb4bcd35c : p->cyc[0] >> 1;
+	p->cyc[1] = (p->cyc[1] & 1) ? (p->cyc[1] >> 1) ^ 0x7a5bc2e3 : p->cyc[1] >> 1;
+
+	return p->cyc[0] ^ p->cyc[1];
+}
+
 static void show_http_content(const char *p, size_t l)
 {
 	if (lwsl_visible(LLL_INFO)) {
@@ -93,6 +113,9 @@ static int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
+#if defined(LWS_OPENSSL_SUPPORT)
+	union lws_tls_cert_info_results ci;
+#endif
 	const char *which = "http";
 	char which_wsi[10], buf[50 + LWS_PRE];
 	int n;
@@ -150,6 +173,26 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		lwsl_notice("lws_http_client_http_response %d\n",
 				lws_http_client_http_response(wsi));
+#if defined(LWS_OPENSSL_SUPPORT)
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
+					    &ci, sizeof(ci.ns.name)))
+			lwsl_notice(" Peer Cert CN        : %s\n", ci.ns.name);
+
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_ISSUER_NAME,
+					    &ci, sizeof(ci.ns.name)))
+			lwsl_notice(" Peer Cert issuer    : %s\n", ci.ns.name);
+
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_FROM,
+					    &ci, 0))
+			lwsl_notice(" Peer Cert Valid from: %s", ctime(&ci.time));
+
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_TO,
+					    &ci, 0))
+			lwsl_notice(" Peer Cert Valid to  : %s", ctime(&ci.time));
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_USAGE,
+					    &ci, 0))
+			lwsl_notice(" Peer Cert usage bits: 0x%x\n", ci.usage);
+#endif
 		break;
 
 	/* chunked content */
@@ -259,7 +302,7 @@ static int
 callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
-	unsigned char buf[LWS_PRE + 4096];
+	unsigned char buf[LWS_PRE + block_size], *p;
 	unsigned int rands[4];
 	int l = 0;
 	int n;
@@ -268,6 +311,16 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 
 		lwsl_notice("mirror: LWS_CALLBACK_CLIENT_ESTABLISHED\n");
+
+		if (flag_echo) {
+			rxb = txb = 0;
+			rx.cyc[0] = tx.cyc[0] = 0xabcde;
+			rx.cyc[1] = tx.cyc[1] = 0x23456789;
+
+			lws_callback_on_writable(wsi);
+
+			break;
+		}
 
 		lws_get_random(lws_get_context(wsi), rands, sizeof(rands[0]));
 		mirror_lifetime = 16384 + (rands[0] & 65535);
@@ -292,13 +345,37 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		lwsl_notice("mirror: LWS_CALLBACK_CLOSED mirror_lifetime=%d\n", mirror_lifetime);
+		lwsl_notice("mirror: LWS_CALLBACK_CLOSED mirror_lifetime=%d, rxb %d, rx_count %d\n", mirror_lifetime, rxb, rx_count);
 		wsi_mirror = NULL;
+		if (flag_echo)
+			force_exit = 1;
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
 		if (flag_no_mirror_traffic)
 			return 0;
+
+		if (flag_echo) {
+			for (n = 0; n < (int)block_size; n++)
+				buf[LWS_PRE + n] = lws_poly_rand(&tx);
+
+			n = lws_write(wsi, &buf[LWS_PRE], block_size,
+				      opts | LWS_WRITE_TEXT);
+			if (n < 0) {
+				lwsl_err("Error sending\n");
+				return -1;
+			}
+
+			txb++;
+			if (txb != count_blocks)
+				lws_callback_on_writable(wsi);
+			else {
+				lwsl_notice("send completed: %d x %d\n",
+					    count_blocks, block_size);
+			}
+			break;
+		}
+
 		for (n = 0; n < 1; n++) {
 			lws_get_random(lws_get_context(wsi), rands, sizeof(rands));
 			l += sprintf((char *)&buf[LWS_PRE + l],
@@ -328,6 +405,28 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_callback_on_writable(wsi);
 		break;
 
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		if (flag_echo) {
+			p = (unsigned char *)in;
+			for (n = 0; n < (int)len; n++)
+				if (*p++ != lws_poly_rand(&rx)) {
+					lwsl_err("mismatch at rxb %d offset %d\n", rxb + (n / block_size), n % block_size);
+					errs++;
+					force_exit = 1;
+					return -1;
+				}
+			rx_count += (unsigned int)(unsigned long long)len;
+			while (rx_count >= block_size) {
+				rx_count -= block_size;
+				rxb++;
+			}
+			if (rx_count == 0 && rxb == count_blocks) {
+				lwsl_notice("Everything received: errs %d\n", errs);
+				force_exit = 1;
+				return -1;
+			}
+		}
+		break;
 	default:
 		break;
 	}
@@ -377,7 +476,7 @@ static const struct lws_protocols protocols[] = {
 		"lws-mirror-protocol",
 		callback_lws_mirror,
 		0,
-		128,
+		4096,
 	}, {
 		"lws-test-raw-client",
 		callback_test_raw_client,
@@ -416,6 +515,7 @@ static struct option options[] = {
 	{ "strict-ssl",	no_argument,		NULL, 'S' },
 	{ "version",	required_argument,	NULL, 'v' },
 	{ "undeflated",	no_argument,		NULL, 'u' },
+	{ "echo",	no_argument,		NULL, 'e' },
 	{ "multi-test",	no_argument,		NULL, 'm' },
 	{ "nomirror",	no_argument,		NULL, 'n' },
 	{ "justmirror",	no_argument,		NULL, 'j' },
@@ -457,17 +557,18 @@ int main(int argc, char **argv)
 	char cert_path[1024] = "";
 	char key_path[1024] = "";
 	char ca_path[1024] = "";
+	unsigned long last = lws_now_secs();
 
 	memset(&info, 0, sizeof info);
 
 	lwsl_notice("libwebsockets test client - license LGPL2.1+SLE\n");
-	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
+	lwsl_notice("(C) Copyright 2010-2017 Andy Green <andy@warmcat.com>\n");
 
 	if (argc < 2)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:mo", options, NULL);
+		n = getopt_long(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:moe", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -484,6 +585,9 @@ int main(int argc, char **argv)
 			break;
 		case 'p':
 			port = atoi(optarg);
+			break;
+		case 'e':
+			flag_echo = 1;
 			break;
 		case 'P':
 			pp_secs = atoi(optarg);
@@ -668,7 +772,7 @@ int main(int argc, char **argv)
 		} else {
 
 			if (do_ws) {
-				if (!justmirror && !wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
+				if (!flag_echo && !justmirror && !wsi_dumb && ratelimit_connects(&rl_dumb, 2u)) {
 					lwsl_notice("dumb: connecting\n");
 					i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;
 					i.pwsi = &wsi_dumb;
@@ -698,6 +802,11 @@ int main(int argc, char **argv)
 				lwsl_notice("doing lws_callback_on_writable_all_protocol\n");
 				lws_callback_on_writable_all_protocol(context, &protocols[PROTOCOL_DUMB_INCREMENT]);
 			}
+		}
+
+		if (flag_echo && lws_now_secs() != last) {
+			lwsl_notice("rxb %d, rx_count %d\n", rxb, rx_count);
+			last = lws_now_secs();
 		}
 	}
 

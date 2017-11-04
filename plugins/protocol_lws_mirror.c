@@ -31,7 +31,7 @@
 /* queue free space below this, rx flow is disabled */
 #define RXFLOW_MIN (4)
 /* queue free space above this, rx flow is enabled */
-#define RXFLOW_MAX (QUEUELEN / 3)
+#define RXFLOW_MAX ((2 * QUEUELEN) / 3)
 
 #define MAX_MIRROR_INSTANCES 3
 
@@ -122,13 +122,12 @@ mirror_update_worst_tail(struct mirror_instance *mi)
 	lws_ring_update_oldest_tail(mi->ring, worst_tail);
 	if (oldest == lws_ring_get_oldest_tail(mi->ring))
 		return 0;
-
 	/*
 	 * The oldest tail did move on.  Check if we should re-enable rx flow
 	 * for the mirror instance since we made some space now.
 	 */
 	if (!mi->rx_enabled && /* rx is disabled */
-	    lws_ring_get_count_free_elements(mi->ring) > RXFLOW_MAX)
+	    lws_ring_get_count_free_elements(mi->ring) >= RXFLOW_MAX)
 		/* there is enough space, let's re-enable rx for our instance */
 		mirror_rxflow_instance(mi, 1);
 
@@ -414,7 +413,7 @@ req_writable:
 		"lws-mirror-protocol", \
 		callback_lws_mirror, \
 		sizeof(struct per_session_data__lws_mirror), \
-		128, /* rx buf size must be >= permessage-deflate rx size */ \
+		4096, /* rx buf size must be >= permessage-deflate rx size */ \
 		0, NULL, 0 \
 	}
 
