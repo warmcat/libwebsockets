@@ -244,7 +244,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 			mi->next = v->mi_list;
 			v->mi_list = mi;
-			strcpy(mi->name, pn);
+			lws_snprintf(mi->name, sizeof(mi->name) - 1, "%s", pn);
 			mi->rx_enabled = 1;
 
 			lwsl_notice("Created new mi %p '%s'\n", mi, pn);

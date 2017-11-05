@@ -2104,6 +2104,8 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 
         case LWS_CALLBACK_RAW_ADOPT:
 		lwsl_info("LWS_CALLBACK_RAW_ADOPT\n");
+		if (!vhd)
+			return -1;
 		pss->next = vhd->live_pss_list;
 		vhd->live_pss_list = pss;
 		pss->parser_state = SSH_INITIALIZE_TRANSIENT;
@@ -2129,6 +2131,8 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
                 break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
+		if (!pss)
+			return -1;
 		lwsl_info("LWS_CALLBACK_RAW_CLOSE\n");
 		lws_kex_destroy(pss);
 		lws_ua_destroy(pss);
@@ -2151,6 +2155,8 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
+		if (!pss)
+			return -1;
 		if (parse(pss, in, len))
 			return -1;
 		break;
@@ -2551,6 +2557,8 @@ bail:
 		break;
 
 	case LWS_CALLBACK_CGI_TERMINATED:
+		if (!pss)
+			break;
 		if (pss->vhd && pss->vhd->ops &&
 		    pss->vhd->ops->child_process_terminated)
 		    pss->vhd->ops->child_process_terminated(pss->ch_temp->priv,
