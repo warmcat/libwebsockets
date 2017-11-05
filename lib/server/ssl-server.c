@@ -86,7 +86,7 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 		if (lws_tls_server_vhost_backend_init(info, vhost, &wsi))
 			return -1;
 
-		lws_tls_server_client_cert_verify_config(info, vhost);
+		lws_tls_server_client_cert_verify_config(vhost);
 
 		vhost->protocols[0].callback(&wsi,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,

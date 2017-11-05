@@ -23,19 +23,30 @@
 #include <mbedtls/x509_csr.h>
 
 int
-lws_tls_server_client_cert_verify_config(struct lws_context_creation_info *info,
-					 struct lws_vhost *vh)
+lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 {
 	int verify_options = SSL_VERIFY_PEER;
 
 	/* as a server, are we requiring clients to identify themselves? */
-
-	if (!lws_check_opt(info->options,
-			  LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT))
+	if (!lws_check_opt(vh->options,
+			  LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
+		lwsl_notice("no client cert required\n");
 		return 0;
+	}
 
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
+	/*
+	 * The wrapper has this messed-up mapping:
+	 *
+	 * 	   else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+	 *     mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
+	 *
+	 * ie the meaning is inverted.  So where we should test for ! we don't
+	 */
+	if (lws_check_opt(vh->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
 		verify_options = SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+
+	lwsl_notice("%s: vh %s requires client cert %d\n", __func__, vh->name,
+		    verify_options);
 
 	SSL_CTX_set_verify(vh->ssl_ctx, verify_options, NULL);
 
@@ -78,7 +89,8 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		return 0;
 	}
 
-	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);
+	lwsl_info("SNI: Found: %s:%d at vhost '%s'\n", servername,
+					vh->listen_port, vhost->name);
 
 	/* select the ssl ctx from the selected vhost for this conn */
 	SSL_set_SSL_CTX(ssl, vhost->ssl_ctx);
@@ -192,6 +204,8 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi)
 {
 	const SSL_METHOD *method = TLS_server_method();
+	uint8_t *p;
+	lws_filepos_t flen;
 
 	vhost->ssl_ctx = SSL_CTX_new(method);	/* create context */
 	if (!vhost->ssl_ctx) {
@@ -201,6 +215,26 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 
 	if (!vhost->use_ssl || !info->ssl_cert_filepath)
 		return 0;
+
+	if (info->ssl_ca_filepath) {
+		lwsl_notice("%s: vh %s: loading CA filepath %s\n", __func__,
+			    vhost->name, info->ssl_ca_filepath);
+		if (lws_tls_alloc_pem_to_der_file(vhost->context,
+				info->ssl_ca_filepath, NULL, 0, &p, &flen)) {
+			lwsl_err("couldn't find client CA file %s\n",
+					info->ssl_ca_filepath);
+
+			return 1;
+		}
+
+		if (SSL_CTX_add_client_CA_ASN1(vhost->ssl_ctx, (int)flen, p) != 1) {
+			lwsl_err("%s: SSL_CTX_add_client_CA_ASN1 unhappy\n",
+				 __func__);
+			free(p);
+			return 1;
+		}
+		free(p);
+	}
 
 	return lws_tls_server_certs_load(vhost, wsi,
 					 info->ssl_cert_filepath,
