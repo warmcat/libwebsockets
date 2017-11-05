@@ -2984,8 +2984,9 @@ lws_stats_log_dump(struct lws_context *context)
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	m = 0;
-	for (n = 0; n < context->pl_hash_elements; n++)	{
-		lws_start_foreach_llp(struct lws_peer **, peer, context->pl_hash_table[n]) {
+	for (n = 0; n < (int)context->pl_hash_elements; n++) {
+		lws_start_foreach_llp(struct lws_peer **, peer,
+				      context->pl_hash_table[n]) {
 			m++;
 		} lws_end_foreach_llp(peer, next);
 	}
@@ -2997,7 +2998,7 @@ lws_stats_log_dump(struct lws_context *context)
 	}
 
 	if (m) {
-		for (n = 0; n < context->pl_hash_elements; n++)	{
+		for (n = 0; n < (int)context->pl_hash_elements; n++) {
 			char buf[72];
 
 			lws_start_foreach_llp(struct lws_peer **, peer, context->pl_hash_table[n]) {
