@@ -6,6 +6,12 @@
 static struct lws_context *hacky_context;
 static unsigned int time_high, ot;
 
+int
+lws_plat_socket_offset(void)
+{
+	return 0;
+}
+
 /*
  * included from libwebsockets.c for esp8266 builds
  */
