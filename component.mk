@@ -6,20 +6,12 @@ COMPONENT_OWNBUILDTARGET:= 1
 CROSS_PATH1:=$(shell which xtensa-esp32-elf-gcc )
 CROSS_PATH:= $(shell dirname $(CROSS_PATH1) )/..
 
-#-DLWS_WITH_BORINGSSL=1 \
-#		-DOPENSSL_ROOT_DIR="${PWD}/../../boringssl" \
-#		-DOPENSSL_LIBRARIES="${PWD}/../../boringssl/build/ssl/libssl.a;${PWD}/../../boringssl/build/crypto/libcrypto.a" \
-#		-DOPENSSL_INCLUDE_DIRS="${PWD}/../../boringssl/include" \
-
-# -DNDEBUG=1 after cflags
-#		-DOPENSSL_LIBRARIES=x \
-#		-DCOMPONENT_PATH=$(COMPONENT_PATH) \
-
+# -DNDEBUG=1 after cflags stops debug etc being built
 .PHONY: build
 build:
 	cd $(COMPONENT_BUILD_DIR) ; \
 	echo "doing lws cmake" ; \
-	cmake $(COMPONENT_PATH)  -DLWS_C_FLAGS="$(CFLAGS) " \
+	cmake $(COMPONENT_PATH)  -DLWS_C_FLAGS="$(CFLAGS) -DNDEBUG=1" \
 		-DIDF_PATH=$(IDF_PATH) \
 		-DCROSS_PATH=$(CROSS_PATH) \
 		-DBUILD_DIR_BASE=$(BUILD_DIR_BASE) \

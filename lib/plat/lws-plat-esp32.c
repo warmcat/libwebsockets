@@ -24,6 +24,12 @@
 #include <esp_attr.h>
 #include <esp_system.h>
 
+int
+lws_plat_socket_offset(void)
+{
+	return LWIP_SOCKET_OFFSET;
+}
+
 /*
  * included from libwebsockets.c for unix builds
  */
@@ -90,16 +96,6 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 	FD_SET(fd->fd, &readfds);
 
 	return select(fd->fd + 1, &readfds, NULL, NULL, &tv);
-}
-
-LWS_VISIBLE void
-lws_cancel_service_pt(struct lws *wsi)
-{
-}
-
-LWS_VISIBLE void
-lws_cancel_service(struct lws_context *context)
-{
 }
 
 LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
@@ -611,7 +607,7 @@ LWS_VISIBLE void esp32_uvtimer_cb(TimerHandle_t t)
 
 /* helper functionality */
 
-#include "romfs.h"
+#include "misc/romfs.h"
 #include <esp_ota_ops.h>
 #include <tcpip_adapter.h>
 #include <esp_image_format.h>
@@ -622,7 +618,6 @@ LWS_VISIBLE void esp32_uvtimer_cb(TimerHandle_t t)
 struct lws_esp32 lws_esp32 = {
 	.model = CONFIG_LWS_MODEL_NAME,
 	.serial = "unknown",
-	.region = WIFI_COUNTRY_US, // default to safest option
 };
 
 /*
@@ -1355,7 +1350,7 @@ int
 lws_esp32_wlan_nvs_get(int retry)
 {
 	nvs_handle nvh;
-	char r[2], lws_esp32_force_ap = 0, slot[12];
+	char lws_esp32_force_ap = 0, slot[12];
 	size_t s;
 	uint8_t mac[6];
 	int n;
@@ -1393,11 +1388,6 @@ lws_esp32_wlan_nvs_get(int retry)
 	if (nvs_get_str(nvh, "opts", lws_esp32.opts, &s) != ESP_OK)
 		lws_esp32_force_ap = 1;
 
-	s = sizeof(r);
-	if (nvs_get_str(nvh, "region", r, &s) != ESP_OK)
-		lws_esp32_force_ap = 1;
-	else
-		lws_esp32.region = atoi(r);
 	lws_esp32.access_pw[0] = '\0';
 	nvs_get_str(nvh, "access_pw", lws_esp32.access_pw, &s);
 
@@ -1488,7 +1478,6 @@ lws_esp32_wlan_start_ap(void)
 
 	ESP_ERROR_CHECK( esp_wifi_init(&cfg));
 	ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM));
-	esp_wifi_set_country(lws_esp32.region);
 
 	ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_APSTA) );
 	ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_AP, &config) );
@@ -1513,7 +1502,6 @@ lws_esp32_wlan_start_station(void)
 
 	ESP_ERROR_CHECK( esp_wifi_init(&cfg));
 	ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM));
-	esp_wifi_set_country(lws_esp32.region);
 
 	ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA));
 	ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config));

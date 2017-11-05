@@ -288,6 +288,11 @@ lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #else
 #if defined(LWS_WITH_ESP32)
 #define OPENSSL_NO_TLSEXT
+#undef MBEDTLS_CONFIG_FILE
+#define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509_crt.h>
+#include "tls/mbedtls/wrapper/include/openssl/ssl.h" /* wrapper !!!! */
 #else
 #if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/ssl.h>
@@ -2153,9 +2158,9 @@ insert_wsi(struct lws_context *context, struct lws *wsi);
 LWS_EXTERN int
 delete_from_fd(struct lws_context *context, lws_sockfd_type fd);
 #else
-#define wsi_from_fd(A,B)  A->lws_lookup[B]
-#define insert_wsi(A,B)   assert(A->lws_lookup[B->desc.sockfd] == 0); A->lws_lookup[B->desc.sockfd]=B
-#define delete_from_fd(A,B) A->lws_lookup[B]=0
+#define wsi_from_fd(A,B)  A->lws_lookup[B - lws_plat_socket_offset()]
+#define insert_wsi(A,B)   assert(A->lws_lookup[B->desc.sockfd - lws_plat_socket_offset()] == 0); A->lws_lookup[B->desc.sockfd - lws_plat_socket_offset()]=B
+#define delete_from_fd(A,B) A->lws_lookup[B - lws_plat_socket_offset()]=0
 #endif
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
@@ -2289,6 +2294,9 @@ LWS_EXTERN const struct http2_settings lws_h2_defaults;
 #else
 #define lws_h2_configure_if_upgraded(x)
 #endif
+
+LWS_EXTERN int
+lws_plat_socket_offset(void);
 
 LWS_EXTERN int
 lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd);

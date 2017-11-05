@@ -120,8 +120,6 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
 
-		lwsl_hexdump(buf, (size_t)len);
-
 		if (lws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;
 

@@ -2077,6 +2077,8 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
+		if (!pss)
+			break;
 		n = 0;
 		o = pss->write_task[pss->wt_tail];
 		ch = pss->write_channel[pss->wt_tail];
@@ -2455,6 +2457,8 @@ bail:
 		break;
 
 	case LWS_CALLBACK_CGI:
+		if (!pss)
+			break;
 		if (pss->vhd && pss->vhd->ops &&
 		    pss->vhd->ops->child_process_io &&
 		    pss->vhd->ops->child_process_io(pss->ch_temp->priv,
@@ -2463,6 +2467,8 @@ bail:
 		break;
 
 	case LWS_CALLBACK_CGI_PROCESS_ATTACH:
+		if (!pss)
+			break;
 		ch = ssh_get_server_ch(pss, pss->channel_doing_spawn);
 		if (ch) {
 			ch->spawn_pid = (int)len; /* child process PID */
