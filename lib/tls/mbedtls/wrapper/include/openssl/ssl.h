@@ -46,6 +46,9 @@
 
  void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx);
 
+ int SSL_CTX_add_client_CA_ASN1(SSL_CTX *ssl, int len,
+                 const unsigned char *d);
+
  SSL *SSL_SSL_from_mbedtls_ssl_context(mbedtls_ssl_context *msc);
 
 /**
