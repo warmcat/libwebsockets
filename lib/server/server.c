@@ -1352,8 +1352,6 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		assert(0);
 	}
 
-	lwsl_hexdump(*buf, len);
-
 	while (len--) {
 		wsi->more_rx_waiting = !!len;
 

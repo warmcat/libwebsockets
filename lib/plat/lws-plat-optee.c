@@ -5,6 +5,12 @@
  */
 
 int
+lws_plat_socket_offset(void)
+{
+	return 0;
+}
+
+int
 lws_plat_pipe_create(struct lws *wsi)
 {
 	return 1;

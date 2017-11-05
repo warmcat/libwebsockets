@@ -30,6 +30,12 @@
 #include <dirent.h>
 
 int
+lws_plat_socket_offset(void)
+{
+	return 0;
+}
+
+int
 lws_plat_pipe_create(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
