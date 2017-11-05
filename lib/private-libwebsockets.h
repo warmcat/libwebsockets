@@ -2462,8 +2462,7 @@ lws_ssl_get_error_string(int status, int ret, char *buf, size_t len);
  */
 
 LWS_EXTERN int
-lws_tls_server_client_cert_verify_config(struct lws_context_creation_info *info,
-					 struct lws_vhost *vh);
+lws_tls_server_client_cert_verify_config(struct lws_vhost *vh);
 LWS_EXTERN int
 lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi);
