@@ -367,7 +367,9 @@ callback_messageboard(struct lws *wsi, enum lws_callback_reasons reason,
 
 	default:
 passthru:
-		return vhd->gsp->callback(wsi, reason, pss ? pss->pss_gs : NULL, in, len);
+		if (!pss)
+			break;
+		return vhd->gsp->callback(wsi, reason, pss->pss_gs, in, len);
 	}
 
 	return 0;

@@ -2389,6 +2389,9 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			goto try_pollout;
 		}
 		
+		if (len < 0) /* coverity */
+			goto fail;
+
 		if (wsi->mode == LWSCM_RAW) {
 			n = user_callback_handle_rxflow(wsi->protocol->callback,
 					wsi, LWS_CALLBACK_RAW_RX,

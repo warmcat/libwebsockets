@@ -27,6 +27,10 @@
 #define  _GNU_SOURCE
 #endif
 
+#if defined(__COVERITY__)
+typedef struct { long double x, y; } _Float128;
+#endif
+
 #ifdef LWS_HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif

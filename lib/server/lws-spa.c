@@ -333,6 +333,8 @@ retry_as_first:
 			if (!strcmp(s->temp, "name")) {
 				if (s->mp < sizeof(s->name) - 1)
 					s->name[s->mp++] = *in;
+				else
+					s->mp = (int)sizeof(s->name) - 1;
 				s->name[s->mp] = '\0';
 				goto done;
 			}
