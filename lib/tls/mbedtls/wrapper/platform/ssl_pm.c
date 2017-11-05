@@ -823,17 +823,32 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 {
 	struct ssl_pm *ssl_pm = ssl->ssl_pm;
 	struct x509_pm *x509_pm = (struct x509_pm *)ctx->cert->x509->x509_pm;
+	struct x509_pm *x509_pm_ca = (struct x509_pm *)ctx->client_CA->x509_pm;
+
 	struct pkey_pm *pkey_pm = (struct pkey_pm *)ctx->cert->pkey->pkey_pm;
+	int mode;
 
 	if (ssl->cert)
 		ssl_cert_free(ssl->cert);
 	ssl->ctx = ctx;
 	ssl->cert = __ssl_cert_new(ctx->cert);
 
+	    if (ctx->verify_mode == SSL_VERIFY_PEER)
+	        mode = MBEDTLS_SSL_VERIFY_REQUIRED;
+	    else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+	        mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
+	    else if (ctx->verify_mode == SSL_VERIFY_CLIENT_ONCE)
+	        mode = MBEDTLS_SSL_VERIFY_UNSET;
+	    else
+	        mode = MBEDTLS_SSL_VERIFY_NONE;
+
+	    // printf("ssl: %p, client ca x509_crt %p, mbedtls mode %d\n", ssl, x509_pm_ca->x509_crt, mode);
+
 	/* apply new ctx cert to ssl */
 
-	mbedtls_ssl_set_hs_own_cert(&ssl_pm->ssl, x509_pm->x509_crt, pkey_pm->pkey);
-	mbedtls_ssl_set_hs_authmode(&ssl_pm->ssl, MBEDTLS_SSL_VERIFY_NONE);
-	mbedtls_ssl_set_hs_ca_chain(&ssl_pm->ssl, x509_pm->x509_crt, NULL);
+	ssl->verify_mode = ctx->verify_mode;
 
+	mbedtls_ssl_set_hs_ca_chain(&ssl_pm->ssl, x509_pm_ca->x509_crt, NULL);
+	mbedtls_ssl_set_hs_own_cert(&ssl_pm->ssl, x509_pm->x509_crt, pkey_pm->pkey);
+	mbedtls_ssl_set_hs_authmode(&ssl_pm->ssl, mode);
 }
