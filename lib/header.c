@@ -20,11 +20,11 @@
  */
 
 #include "private-libwebsockets.h"
-
 #include "lextable-strings.h"
 
 
-const unsigned char *lws_token_to_string(enum lws_token_indexes token)
+const unsigned char *
+lws_token_to_string(enum lws_token_indexes token)
 {
 	if ((unsigned int)token >= ARRAY_SIZE(set))
 		return NULL;
@@ -93,6 +93,7 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 	name = lws_token_to_string(token);
 	if (!name)
 		return 1;
+
 	return lws_add_http_header_by_name(wsi, name, value, length, p, end);
 }
 
@@ -109,6 +110,9 @@ int lws_add_http_header_content_length(struct lws *wsi,
 		return 1;
 	wsi->u.http.tx_content_length = content_length;
 	wsi->u.http.tx_content_remain = content_length;
+
+	lwsl_info("%s: wsi %p: tx_content_length/remain %llu\n", __func__,
+			wsi, (unsigned long long)content_length);
 
 	return 0;
 }
@@ -171,10 +175,8 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 
 	if (code == 100)
 		description = "Continue";
-
 	if (code == 200)
 		description = "OK";
-
 	if (code == 304)
 		description = "Not Modified";
 	else
@@ -246,8 +248,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	n = sprintf(slen, "%d", len);
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
-					 (unsigned char *)slen, n,
-					 &p, end))
+					 (unsigned char *)slen, n, &p, end))
 		return 1;
 
 	if (lws_finalize_http_header(wsi, &p, end))
@@ -306,13 +307,10 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 				  code, html_body);
 
 		n = lws_ptr_diff(p, start);
-
 		m = lws_write(wsi, start, n, LWS_WRITE_HTTP);
 		if (m != n)
 			return 1;
 	}
-
-	lwsl_notice("%s: return\n", __func__);
 
 	return m != n;
 }
@@ -322,35 +320,29 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 		  unsigned char **p, unsigned char *end)
 {
 	unsigned char *start = *p;
-	int n;
 
 	if (lws_add_http_header_status(wsi, code, p, end))
 		return -1;
 
-	if (lws_add_http_header_by_token(wsi,
-			WSI_TOKEN_HTTP_LOCATION,
-			loc, len, p, end))
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, loc, len,
+					 p, end))
 		return -1;
 	/*
 	 * if we're going with http/1.1 and keepalive, we have to give fake
 	 * content metadata so the client knows we completed the transaction and
 	 * it can do the redirect...
 	 */
-	if (lws_add_http_header_by_token(wsi,
-			WSI_TOKEN_HTTP_CONTENT_TYPE,
-			(unsigned char *)"text/html", 9,
-			p, end))
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+					 (unsigned char *)"text/html", 9, p,
+					 end))
 		return -1;
-	if (lws_add_http_header_by_token(wsi,
-			WSI_TOKEN_HTTP_CONTENT_LENGTH,
-			(unsigned char *)"0", 1, p, end))
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					 (unsigned char *)"0", 1, p, end))
 		return -1;
 
 	if (lws_finalize_http_header(wsi, p, end))
 		return -1;
 
-	n = lws_write(wsi, start, *p - start, LWS_WRITE_HTTP_HEADERS |
-					      LWS_WRITE_H2_STREAM_END);
-
-	return n;
+	return lws_write(wsi, start, *p - start, LWS_WRITE_HTTP_HEADERS |
+						 LWS_WRITE_H2_STREAM_END);
 }

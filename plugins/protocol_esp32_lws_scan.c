@@ -574,7 +574,6 @@ scan_state_final:
 		}
 issue:
 //		lwsl_notice("issue: %d (%d)\n", p - start, n);
-		lwsl_hexdump(start, p - start);
 		m = lws_write(wsi, (unsigned char *)start, p - start, n);
 		if (m < 0) {
 			lwsl_err("ERROR %d writing to di socket\n", m);
