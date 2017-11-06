@@ -206,7 +206,8 @@ lws_ring_consume(struct lws_ring *ring, uint32_t *tail, void *dest,
 	}
 
 	/* n is how many bytes the whole fifo has for us */
-	n = (int)(lws_ring_get_count_waiting_elements(ring, tail) * ring->element_len);
+	n = (int)(lws_ring_get_count_waiting_elements(ring, tail) *
+							ring->element_len);
 
 	/* restrict n to how much we want to insert */
 	if ((size_t)n > max_count * ring->element_len)
@@ -284,9 +285,10 @@ lws_ring_dump(struct lws_ring *ring, uint32_t *tail)
 {
 	if (tail == NULL)
 		tail = &ring->oldest_tail;
-	lwsl_notice("ring %p: buflen %u, element_len %u, head %u, oldest_tail %u\n"
-		    "     free_elements: %u; for tail %u, waiting elements: %u\n",
+	lwsl_notice("ring %p: buflen %u, elem_len %u, head %u, oldest_tail %u\n"
+		    "     free_elems: %u; for tail %u, waiting elements: %u\n",
 		    ring, ring->buflen, ring->element_len, ring->head,
-		    ring->oldest_tail, (int)lws_ring_get_count_free_elements(ring),
-		    *tail, (int)lws_ring_get_count_waiting_elements(ring, tail));
+		    ring->oldest_tail,
+		    (int)lws_ring_get_count_free_elements(ring), *tail,
+		    (int)lws_ring_get_count_waiting_elements(ring, tail));
 }

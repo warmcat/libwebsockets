@@ -104,7 +104,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		/* leave POLLOUT active either way */
 		goto bail_ok;
 	} else
-		if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
+		if (wsi->state == LWSS_FLUSHING_SEND_BEFORE_CLOSE) {
 			wsi->socket_is_permanently_unusable = 1;
 			goto bail_die; /* retry closing now */
 		}
@@ -434,24 +434,30 @@ user_service_go_again:
 				lwsl_debug("w=%p, *wsi2 = %p\n", w, *wsi2);
 				if (w == *wsi2) /* we are already last */
 					break;
-				w->u.h2.sibling_list = *wsi2; /* last points to us as new last */
-				*wsi2 = (*wsi2)->u.h2.sibling_list; /* guy pointing to us until now points to our old next */
-				w->u.h2.sibling_list->u.h2.sibling_list = NULL; /* we point to nothing because we are last */
-				w = w->u.h2.sibling_list; /* w becomes us */
+				/* last points to us as new last */
+				w->u.h2.sibling_list = *wsi2;
+				/* guy pointing to us until now points to
+				 * our old next */
+				*wsi2 = (*wsi2)->u.h2.sibling_list;
+				/* we point to nothing because we are last */
+				w->u.h2.sibling_list->u.h2.sibling_list = NULL;
+				/* w becomes us */
+				w = w->u.h2.sibling_list;
 				break;
 			}
 			w = w->u.h2.sibling_list;
 		}
 
 		w->u.h2.requested_POLLOUT = 0;
-		lwsl_info("%s: child %p (state %d)\n", __func__, (*wsi2), (*wsi2)->state);
+		lwsl_info("%s: child %p (state %d)\n", __func__, (*wsi2),
+			  (*wsi2)->state);
 
 		if (w->u.h2.pending_status_body) {
 			w->u.h2.send_END_STREAM = 1;
-			n = lws_write(w,
-				      (uint8_t *)w->u.h2.pending_status_body + LWS_PRE,
-				      strlen(w->u.h2.pending_status_body + LWS_PRE),
-				      LWS_WRITE_HTTP_FINAL);
+			n = lws_write(w, (uint8_t *)w->u.h2.pending_status_body +
+				      	 LWS_PRE,
+				         strlen(w->u.h2.pending_status_body +
+					 LWS_PRE), LWS_WRITE_HTTP_FINAL);
 			lws_free_set_NULL(w->u.h2.pending_status_body);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS);
 			wa = &wsi->u.h2.child_list;
@@ -464,9 +470,9 @@ user_service_go_again:
 
 			/* >0 == completion, <0 == error
 			 *
-			 * We'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION callback when
-			 * it's done.  That's the case even if we just completed the
-			 * send, so wait for that.
+			 * We'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION
+			 * callback when it's done.  That's the case even if we
+			 * just completed the send, so wait for that.
 			 */
 			n = lws_serve_http_file_fragment(w);
 			lwsl_debug("lws_serve_http_file_fragment says %d\n", n);
@@ -1334,10 +1340,10 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		     wsi->state == LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS ||
 		     wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
 		     wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION ||
-		     wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE)) &&
+		     wsi->state == LWSS_FLUSHING_SEND_BEFORE_CLOSE)) &&
 		    lws_handle_POLLOUT_event(wsi, pollfd)) {
 			if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY)
-				wsi->state = LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE;
+				wsi->state = LWSS_FLUSHING_SEND_BEFORE_CLOSE;
 			lwsl_info("lws_service_fd: closing\n");
 			goto close_and_handled;
 		}

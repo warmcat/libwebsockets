@@ -56,7 +56,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!len)
 		return 0;
 	/* just ignore sends after we cleared the truncation buffer */
-	if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE &&
+	if (wsi->state == LWSS_FLUSHING_SEND_BEFORE_CLOSE &&
 	    !wsi->trunc_len)
 		return (int)len;
 
@@ -137,7 +137,7 @@ handle_truncated_send:
 			lwsl_info("** %p partial send completed\n", wsi);
 			/* done with it, but don't free it */
 			n = (int)real_len;
-			if (wsi->state == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE) {
+			if (wsi->state == LWSS_FLUSHING_SEND_BEFORE_CLOSE) {
 				lwsl_info("** %p signalling to close now\n", wsi);
 				return -1; /* retry closing now */
 			}
