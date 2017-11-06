@@ -467,7 +467,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	case LWSS_AWAITING_CLOSE_ACK:
 		goto just_kill_connection;
 
-	case LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE:
+	case LWSS_FLUSHING_SEND_BEFORE_CLOSE:
 		if (wsi->trunc_len) {
 			lws_callback_on_writable(wsi);
 			return;
@@ -477,7 +477,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	default:
 		if (wsi->trunc_len) {
 			lwsl_info("%p: FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
-			wsi->state = LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE;
+			wsi->state = LWSS_FLUSHING_SEND_BEFORE_CLOSE;
 			lws_set_timeout(wsi,
 				PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 			return;
@@ -759,7 +759,7 @@ just_kill_connection:
 	     wsi->state_pre_close == LWSS_RETURNED_CLOSE_ALREADY ||
 	     wsi->state_pre_close == LWSS_AWAITING_CLOSE_ACK ||
 	     wsi->state_pre_close == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION ||
-	     wsi->state_pre_close == LWSS_FLUSHING_STORED_SEND_BEFORE_CLOSE ||
+	     wsi->state_pre_close == LWSS_FLUSHING_SEND_BEFORE_CLOSE ||
 	    (wsi->mode == LWSCM_WS_CLIENT &&
 	     wsi->state_pre_close == LWSS_HTTP) ||
 	    (wsi->mode == LWSCM_WS_SERVING &&
