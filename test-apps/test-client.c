@@ -1,7 +1,7 @@
 /*
  * libwebsockets-test-client - libwebsockets test implementation
  *
- * Copyright (C) 2011-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2011-2017 Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -83,9 +83,12 @@ enum demo_protocols {
 static uint8_t
 lws_poly_rand(struct lws_poly_gen *p)
 {
-	p->cyc[0] = (p->cyc[0] & 1) ? (p->cyc[0] >> 1) ^ 0xb4bcd35c : p->cyc[0] >> 1;
-	p->cyc[0] = (p->cyc[0] & 1) ? (p->cyc[0] >> 1) ^ 0xb4bcd35c : p->cyc[0] >> 1;
-	p->cyc[1] = (p->cyc[1] & 1) ? (p->cyc[1] >> 1) ^ 0x7a5bc2e3 : p->cyc[1] >> 1;
+	p->cyc[0] = p->cyc[0] & 1 ? (p->cyc[0] >> 1) ^ 0xb4bcd35c :
+				    p->cyc[0] >> 1;
+	p->cyc[0] = p->cyc[0] & 1 ? (p->cyc[0] >> 1) ^ 0xb4bcd35c :
+				    p->cyc[0] >> 1;
+	p->cyc[1] = p->cyc[1] & 1 ? (p->cyc[1] >> 1) ^ 0x7a5bc2e3 :
+				    p->cyc[1] >> 1;
 
 	return p->cyc[0] ^ p->cyc[1];
 }
@@ -160,7 +163,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:
-		if ((strcmp((const char *)in, "deflate-stream") == 0) && deny_deflate) {
+		if ((strcmp((const char *)in, "deflate-stream") == 0) &&
+		    deny_deflate) {
 			lwsl_notice("denied deflate-stream extension\n");
 			return 1;
 		}
@@ -240,7 +244,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 			if (lws_add_http_header_by_token(wsi,
 					WSI_TOKEN_HTTP_CONTENT_TYPE,
-					(unsigned char *)"application/x-www-form-urlencoded", 33, p, end))
+					(unsigned char *)"application/x-www-form-urlencoded",
+					33, p, end))
 				return -1;
 
 			/* inform lws we have http body to send */
@@ -251,7 +256,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
 		strcpy(buf + LWS_PRE, "text=hello&send=Send+the+form");
-		n = lws_write(wsi, (unsigned char *)&buf[LWS_PRE], strlen(&buf[LWS_PRE]), LWS_WRITE_HTTP);
+		n = lws_write(wsi, (unsigned char *)&buf[LWS_PRE],
+			      strlen(&buf[LWS_PRE]), LWS_WRITE_HTTP);
 		if (n < 0)
 			return -1;
 		/* we only had one thing to send, so inform lws we are done
@@ -266,7 +272,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		force_exit = 1;
 		break;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param) && !defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param) && \
+	!defined(LWS_WITH_MBEDTLS)
 	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
 		if (crl_path[0]) {
 			/* Enable CRL checking of the server certificate */
@@ -274,13 +281,17 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			X509_VERIFY_PARAM_set_flags(param, X509_V_FLAG_CRL_CHECK);
 			SSL_CTX_set1_param((SSL_CTX*)user, param);
 			X509_STORE *store = SSL_CTX_get_cert_store((SSL_CTX*)user);
-			X509_LOOKUP *lookup = X509_STORE_add_lookup(store, X509_LOOKUP_file());
-			int n = X509_load_cert_crl_file(lookup, crl_path, X509_FILETYPE_PEM);
+			X509_LOOKUP *lookup = X509_STORE_add_lookup(store,
+							X509_LOOKUP_file());
+			int n = X509_load_cert_crl_file(lookup, crl_path,
+							X509_FILETYPE_PEM);
 			X509_VERIFY_PARAM_free(param);
 			if (n != 1) {
 				char errbuf[256];
 				n = ERR_get_error();
-				lwsl_err("LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS: SSL error: %s (%d)\n", ERR_error_string(n, errbuf), n);
+				lwsl_err("EXTRA_CLIENT_VERIFY_CERTS: "
+					 "SSL error: %s (%d)\n",
+					 ERR_error_string(n, errbuf), n);
 				return 1;
 			}
 		}
@@ -345,7 +356,9 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		lwsl_notice("mirror: LWS_CALLBACK_CLOSED mirror_lifetime=%d, rxb %d, rx_count %d\n", mirror_lifetime, rxb, rx_count);
+		lwsl_notice("mirror: LWS_CALLBACK_CLOSED mirror_lifetime=%d, "
+			    "rxb %d, rx_count %d\n", mirror_lifetime, rxb,
+			    rx_count);
 		wsi_mirror = NULL;
 		if (flag_echo)
 			force_exit = 1;
@@ -377,7 +390,8 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		for (n = 0; n < 1; n++) {
-			lws_get_random(lws_get_context(wsi), rands, sizeof(rands));
+			lws_get_random(lws_get_context(wsi), rands,
+				       sizeof(rands));
 			l += sprintf((char *)&buf[LWS_PRE + l],
 					"c #%06X %u %u %u;",
 					rands[0] & 0xffffff,	/* colour */
@@ -421,7 +435,8 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 				rxb++;
 			}
 			if (rx_count == 0 && rxb == count_blocks) {
-				lwsl_notice("Everything received: errs %d\n", errs);
+				lwsl_notice("Everything received: errs %d\n",
+					    errs);
 				force_exit = 1;
 				return -1;
 			}
@@ -548,7 +563,8 @@ static int ratelimit_connects(unsigned int *last, unsigned int secs)
 int main(int argc, char **argv)
 {
 	int n = 0, m, ret = 0, port = 7681, use_ssl = 0, ietf_version = -1;
-	unsigned int rl_dumb = 0, rl_mirror = 0, do_ws = 1, pp_secs = 0, do_multi = 0;
+	unsigned int rl_dumb = 0, rl_mirror = 0, do_ws = 1, pp_secs = 0,
+		     do_multi = 0;
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
@@ -568,7 +584,8 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:moe", options, NULL);
+		n = getopt_long(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:moe", options,
+				NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -800,7 +817,8 @@ int main(int argc, char **argv)
 			if (m == 10) {
 				m = 0;
 				lwsl_notice("doing lws_callback_on_writable_all_protocol\n");
-				lws_callback_on_writable_all_protocol(context, &protocols[PROTOCOL_DUMB_INCREMENT]);
+				lws_callback_on_writable_all_protocol(context,
+					   &protocols[PROTOCOL_DUMB_INCREMENT]);
 			}
 		}
 
