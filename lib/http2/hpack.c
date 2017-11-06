@@ -1188,6 +1188,7 @@ add_it:
 			return 1;
 
 		if (h2n->hpack_type == HPKT_LITERAL_HDR_VALUE ||
+		    h2n->hpack_type == HPKT_INDEXED_HDR_6_VALUE_INCR ||
 		    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_INCR ||
 		    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_NEVER) {
 			m = wsi->u.hdr.parser_state;
