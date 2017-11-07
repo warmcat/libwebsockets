@@ -99,6 +99,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].client-ssl-ca",
 	"vhosts[].client-ssl-ciphers",
 	"vhosts[].onlyraw",
+	"vhosts[].client-cert-required",
 };
 
 enum lejp_vhost_paths {
@@ -146,6 +147,7 @@ enum lejp_vhost_paths {
 	LEJPVP_CLIENT_SSL_CA,
 	LEJPVP_CLIENT_CIPHERS,
 	LEJPVP_FLAG_ONLYRAW,
+	LEJPVP_FLAG_CLIENT_CERT_REQUIRED,
 };
 
 static const char * const parser_errs[] = {
@@ -680,6 +682,12 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			a->info->options |= LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE;
 		else
 			a->info->options &= ~(LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
+		return 0;
+
+	case LEJPVP_FLAG_CLIENT_CERT_REQUIRED:
+		if (arg_to_bool(ctx->buf))
+			a->info->options |=
+			    LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT;
 		return 0;
 
 	case LEJPVP_SSL_OPTION_SET:
