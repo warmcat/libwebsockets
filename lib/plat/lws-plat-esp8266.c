@@ -713,7 +713,7 @@ lws_plat_init(struct lws_context *context,
 	return 0;
 }
 
-int
+LWS_VISIBLE int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 			int len)
 {
