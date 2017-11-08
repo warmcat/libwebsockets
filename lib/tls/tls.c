@@ -111,7 +111,7 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		n = 1;
 		goto bail;
 	}
-	*buf = lws_malloc(s, "alloc_file");
+	*buf = lws_malloc(s + 1, "alloc_file");
 	if (!*buf) {
 		n = 2;
 		goto bail;
@@ -123,6 +123,9 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 	}
 
 	*amount = s;
+	(*buf)[s] = '\0';
+
+	lwsl_notice("%s: nvs: read %s, %d bytes\n", __func__, filename, (int)s);
 
 bail:
 	nvs_close(nvh);
@@ -286,7 +289,7 @@ lws_tls_check_all_cert_lifetimes(struct lws_context *context)
 
 	return 0;
 }
-
+#if !defined(LWS_WITH_ESP32)
 static int
 lws_tls_extant(const char *name)
 {
@@ -303,7 +306,7 @@ lws_tls_extant(const char *name)
 
 	return n != 1;
 }
-
+#endif
 /*
  * Returns 0 if the filepath "name" exists and can be read from.
  *
@@ -337,8 +340,9 @@ lws_tls_extant(const char *name)
 enum lws_tls_extant
 lws_tls_use_any_upgrade_check_extant(const char *name)
 {
-	char buf[256];
 	int n;
+#if !defined(LWS_WITH_ESP32)
+	char buf[256];
 
 	lws_snprintf(buf, sizeof(buf) - 1, "%s.upd", name);
 	if (!lws_tls_extant(buf)) {
@@ -368,6 +372,21 @@ lws_tls_use_any_upgrade_check_extant(const char *name)
 
 	if (lws_tls_extant(name))
 		return LWS_TLS_EXTANT_NO;
+#else
+	nvs_handle nvh;
+	size_t s = 8192;
+
+	if (nvs_open("lws-station", NVS_READWRITE, &nvh)) {
+		lwsl_notice("%s: can't open nvs\n", __func__);
+		return LWS_TLS_EXTANT_NO;
+	}
+
+	n = nvs_get_blob(nvh, name, NULL, &s);
+	nvs_close(nvh);
+
+	if (n)
+		return LWS_TLS_EXTANT_NO;
+#endif
 
 	return LWS_TLS_EXTANT_YES;
 }

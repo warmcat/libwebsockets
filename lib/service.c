@@ -981,7 +981,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	int more;
 
 	if (!context->protocol_init_done)
-		lws_protocol_init(context);
+		if (lws_protocol_init(context))
+			return -1;
 
 	time(&now);
 
