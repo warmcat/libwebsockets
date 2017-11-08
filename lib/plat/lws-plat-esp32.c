@@ -1601,8 +1601,9 @@ lws_esp32_set_creation_defaults(struct lws_context_creation_info *info)
 	part = lws_esp_ota_get_boot_partition();
 	(void)part;
 
+	info->vhost_name = "default";
 	info->port = 443;
-	info->fd_limit_per_thread = 10;
+	info->fd_limit_per_thread = 30;
 	info->max_http_header_pool = 16;
 	info->max_http_header_data = 512;
 	info->pt_serv_buf_size = 2048;
@@ -1612,8 +1613,8 @@ lws_esp32_set_creation_defaults(struct lws_context_creation_info *info)
 	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
-	info->ssl_cert_filepath = "ssl-pub.pem";
-	info->ssl_private_key_filepath = "ssl-pri.pem";
+//	info->ssl_cert_filepath = "default-cert.pem";
+//	info->ssl_private_key_filepath = "default-key.pem";
 }
 
 int
@@ -1655,6 +1656,134 @@ lws_esp32_get_image_info(const esp_partition_t *part, struct lws_esp32_image *i,
 	return 0;
 }
 
+static int
+_rngf(void *context, unsigned char *buf, size_t len)
+{
+	if ((size_t)lws_get_random(context, buf, len) == len)
+		return 0;
+
+	return -1;
+}
+
+int
+lws_esp32_selfsigned(struct lws_vhost *vhost)
+{
+	mbedtls_x509write_cert crt;
+	char subject[200];
+	mbedtls_pk_context mpk;
+	int buf_size = 4096, n;
+	uint8_t *buf = malloc(buf_size); /* malloc because given to user code */
+	mbedtls_mpi mpi;
+	nvs_handle nvh;
+	size_t s;
+
+	lwsl_notice("%s: %s\n", __func__, vhost->name);
+
+	if (!buf)
+		return -1;
+
+	if (nvs_open("lws-station", NVS_READWRITE, &nvh)) {
+		lwsl_notice("%s: can't open nvs\n", __func__);
+		free(buf);
+		return 1;
+	}
+
+	n = 0;
+	if (!nvs_get_blob(nvh, vhost->alloc_cert_path, NULL, &s))
+		n |= 1;
+	if (!nvs_get_blob(nvh, vhost->key_path, NULL, &s))
+		n |= 2;
+
+	nvs_close(nvh);
+	if (n == 3) {
+		lwsl_notice("%s: certs exist\n", __func__);
+		return 0; /* certs already exist */
+	}
+
+	lwsl_notice("%s: creating selfsigned initial certs\n", __func__);
+
+	mbedtls_x509write_crt_init(&crt);
+
+	mbedtls_pk_init(&mpk);
+	if (mbedtls_pk_setup(&mpk, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA))) {
+		lwsl_notice("%s: pk_setup failed\n", __func__);
+		goto fail;
+	}
+	lwsl_notice("%s: generating 2048-bit RSA keys...\n", __func__);
+	n = mbedtls_rsa_gen_key(mbedtls_pk_rsa(mpk), _rngf, vhost->context,
+				2048, 65537);
+	if (n) {
+		lwsl_notice("%s: failed to generate keys\n", __func__);
+		goto fail1;
+	}
+	lwsl_notice("%s: keys done\n", __func__);
+
+	/* subject must be formatted like "C=TW,O=warmcat,CN=myserver" */
+
+	lws_snprintf(subject, sizeof(subject) - 1,
+		     "C=TW,ST=New Taipei City,L=Taipei,O=warmcat,CN=%s",
+		     lws_esp32.hostname);
+
+	if (mbedtls_x509write_crt_set_subject_name(&crt, subject)) {
+		lwsl_notice("set SN failed\n");
+		goto fail1;
+	}
+	mbedtls_x509write_crt_set_subject_key(&crt, &mpk);
+	if (mbedtls_x509write_crt_set_issuer_name(&crt, subject)) {
+		lwsl_notice("set IN failed\n");
+		goto fail1;
+	}
+	mbedtls_x509write_crt_set_issuer_key(&crt, &mpk);
+
+	mbedtls_mpi_init(&mpi);
+	mbedtls_mpi_read_string(&mpi, 10, "1");
+	mbedtls_x509write_crt_set_serial(&crt, &mpi);
+	mbedtls_mpi_free(&mpi);
+
+	mbedtls_x509write_crt_set_validity(&crt, "20171105235959",
+					   "20491231235959");
+
+	mbedtls_x509write_crt_set_key_usage(&crt,
+					    MBEDTLS_X509_KU_DIGITAL_SIGNATURE |
+					    MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
+
+
+	mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
+
+	n = mbedtls_x509write_crt_pem(&crt, buf, buf_size, _rngf,
+				      vhost->context);
+	if (n < 0) {
+		lwsl_notice("%s: write crt der failed\n", __func__);
+		goto fail1;
+	}
+
+	lws_plat_write_cert(vhost, 0, 0, buf, strlen((const char *)buf));
+
+	if (mbedtls_pk_write_key_pem(&mpk, buf, buf_size)) {
+		lwsl_notice("write key pem failed\n");
+		goto fail1;
+	}
+
+	lws_plat_write_cert(vhost, 1, 0, buf, strlen((const char *)buf));
+
+	mbedtls_pk_free(&mpk);
+	mbedtls_x509write_crt_free(&crt);
+
+	lwsl_notice("%s: cert creation complete\n", __func__);
+
+	return n;
+
+fail1:
+	mbedtls_pk_free(&mpk);
+fail:
+	mbedtls_x509write_crt_free(&crt);
+	free(buf);
+
+	nvs_close(nvh);
+
+	return -1;
+}
+
 struct lws_context *
 lws_esp32_init(struct lws_context_creation_info *info, struct lws_vhost **pvh)
 {
@@ -1662,27 +1791,8 @@ lws_esp32_init(struct lws_context_creation_info *info, struct lws_vhost **pvh)
 	struct lws_context *context;
 	struct lws_esp32_image i;
 	struct lws_vhost *vhost;
-	nvs_handle nvh;
+	struct lws wsi;
 	char buf[512];
-	size_t s;
-	int n;
-
-	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
-	n = 0;
-	s = 1;
-	if (nvs_get_blob(nvh, "ssl-pub.pem", NULL, &s) == ESP_OK)
-		n = 1;
-	s = 1;
-	if (nvs_get_blob(nvh, "ssl-pri.pem", NULL, &s) == ESP_OK)
-		n |= 2;
-	nvs_close(nvh);
-
-	if (n != 3) {
-		/* we are not configured for SSL yet... fall back to port 80 / http */
-		info->port = 80;
-		info->options &= ~LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-		lwsl_notice("No SSL certs... using port 80\n");
-	}
 
 	context = lws_create_context(info);
 	if (context == NULL) {
@@ -1706,16 +1816,28 @@ lws_esp32_init(struct lws_context_creation_info *info, struct lws_vhost **pvh)
 
 	lws_set_fops(context, &fops);
 
+	info->options |= LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX;
+
 	vhost = lws_create_vhost(context, info);
-	if (!vhost)
+	if (!vhost) {
 		lwsl_err("Failed to create vhost\n");
-	else
-		lws_init_vhost_client_ssl(info, vhost); 
+		return NULL;
+	}
+
+	lws_esp32_selfsigned(vhost);
+	wsi.context = vhost->context;
+	wsi.vhost = vhost;
+
+	lws_tls_server_certs_load(vhost, &wsi, info->ssl_cert_filepath,
+			info->ssl_private_key_filepath, NULL, 0, NULL, 0);
+
+	lws_init_vhost_client_ssl(info, vhost);
 
 	if (pvh)
 		*pvh = vhost;
 
-	lws_protocol_init(context);
+	if (lws_protocol_init(context))
+		return NULL;
 
 	return context;
 }
@@ -1763,24 +1885,31 @@ uint16_t lws_esp32_sine_interp(int n)
 
 /* we write vhostname.cert.pem and vhostname.key.pem, 0 return means OK */
 
-int
+LWS_VISIBLE int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 			int len)
 {
-	char name[64];
+	const char *name = vhost->alloc_cert_path;
+	nvs_handle nvh;
 	int n;
 
-	lws_snprintf(name, sizeof(name) - 1, "%s-%s.pem", vhost->name,
-		     is_key ? "key" : "cert");
+	if (is_key)
+		name = vhost->key_path;
 
-	if (nvs_open("lws-station", NVS_READWRITE, &nvh))
+	if (nvs_open("lws-station", NVS_READWRITE, &nvh)) {
+		lwsl_notice("%s: failed to open nvs\n", __func__);
 		return 1;
+	}
 
-	n = nvs_set_blob(nvh, ssl_names[n], pss->buffer, pss->file_length);
+	n = nvs_set_blob(nvh, name, buf, len);
 	if (n)
 		nvs_commit(nvh);
 
 	nvs_close(nvh);
 
+	lwsl_notice("%s: wrote %s\n", __func__, name);
+
 	return n;
 }
+
+
