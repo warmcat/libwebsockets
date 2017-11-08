@@ -275,10 +275,10 @@ lws_protocol_init(struct lws_context *context)
 			if (vh->protocols[n].callback(&wsi,
 					LWS_CALLBACK_PROTOCOL_INIT, NULL,
 					(void *)pvo, 0)) {
-				lwsl_err("%s: vhost %s failed init\n", __func__,
+				lws_free(vh->protocol_vh_privs[n]);
+				vh->protocol_vh_privs[n] = NULL;
+				lwsl_err("%s: protocol %s failed init\n", __func__,
 					 vh->protocols[n].name);
-				context->doing_protocol_init = 0;
-				return 1;
 			}
 		}
 
@@ -855,7 +855,8 @@ lws_create_vhost(struct lws_context *context,
 	/* for the case we are adding a vhost much later, after server init */
 
 	if (context->protocol_init_done)
-		lws_protocol_init(context);
+		if (lws_protocol_init(context))
+			goto bail;
 
 	return vh;
 
