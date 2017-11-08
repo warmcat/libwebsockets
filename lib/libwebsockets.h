@@ -4306,6 +4306,10 @@ lws_sql_purify(char *escaped, const char *string, int len);
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_json_purify(char *escaped, const char *string, int len);
+
+LWS_VISIBLE int
+lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
+			int len);
 ///@}
 
 /*! \defgroup ev libev helpers

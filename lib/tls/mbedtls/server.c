@@ -104,12 +104,19 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			  const char *mem_cert, size_t len_mem_cert,
 			  const char *mem_privkey, size_t mem_privkey_len)
 {
-	int n = lws_tls_generic_cert_checks(vhost, cert, private_key), f = 0;
+	int n, f = 0;
 	const char *filepath = private_key;
 	uint8_t *mem = NULL, *p = NULL;
 	size_t mem_len = 0;
 	lws_filepos_t flen;
 	long err;
+
+	if (!cert || !private_key) {
+		lwsl_notice("%s: no paths\n", __func__);
+		return 0;
+	}
+
+	n = lws_tls_generic_cert_checks(vhost, cert, private_key);
 
 	if (n == LWS_TLS_EXTANT_NO && (!mem_cert || !mem_privkey))
 		return 0;
@@ -613,3 +620,4 @@ fail:
 	return -1;
 }
 #endif
+
