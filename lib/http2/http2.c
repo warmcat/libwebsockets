@@ -170,6 +170,7 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	h2n->highest_sid_opened = sid;
 	wsi->u.h2.my_sid = sid;
 	wsi->http2_substream = 1;
+	wsi->seen_nonpseudoheader = 0;
 
 	wsi->u.h2.parent_wsi = parent_wsi;
 	/* new guy's sibling is whoever was the first child before */
@@ -1003,7 +1004,6 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		h2n->cont_exp = !(h2n->flags & LWS_H2_FLAG_END_HEADERS);
 		h2n->cont_exp_sid = h2n->sid;
 		h2n->cont_exp_headers = 1;
-		h2n->seen_nonpseudoheader = 0;
 		lws_header_table_reset(h2n->swsi, 0);
 
 update_end_headers:

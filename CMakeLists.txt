@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 2.8.9)
 
+# General Advice
+#
+# For selecting between DEBUG / RELEASE, use -DCMAKE_BUILD_TYPE=DEBUG or =RELEASE
+#   debug builds include source level debug info and extra logging
+
 if(NOT DEFINED CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
 endif()
