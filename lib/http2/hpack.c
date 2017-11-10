@@ -712,6 +712,38 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 	return 0;
 }
 
+static uint8_t lws_header_implies_psuedoheader_map[] = {
+	0x07, 0x00, 0x00, 0x00, 0xf8, 0x00, 0x00, 0x00, 0x00 /* <-64 */,
+	0x0e /* <- 72 */, 0x04 /* <- 80 */, 0, 0, 0, 0
+};
+
+static int
+lws_hpack_handle_pseudo_rules(struct lws *nwsi, struct lws *wsi, int m)
+{
+	if (m == LWS_HPACK_IGNORE_ENTRY || m == -1)
+		return 0;
+
+	if (wsi->seen_nonpseudoheader &&
+	    (lws_header_implies_psuedoheader_map[m >> 3] & (1 << (m & 7)))) {
+
+		lwsl_notice("lws tok %d seems to be a pseudoheader\n", m);
+
+		/*
+		 * it's not legal to see a
+		 * pseudoheader after normal
+		 * headers
+		 */
+		lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+			"Pseudoheader after normal hdrs");
+		return 1;
+	}
+
+	if (!(lws_header_implies_psuedoheader_map[m >> 3] & (1 << (m & 7))))
+		wsi->seen_nonpseudoheader = 1;
+
+	return 0;
+}
+
 int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
@@ -743,6 +775,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		h2n->ext_count = 0;
 		h2n->hpack_hdr_len = 0;
 		h2n->unknown_header = 0;
+		wsi->u.hdr.parser_state = 255;
 
 		if (c & 0x80) { /* 1....  indexed header field only */
 			/* just a possibly-extended integer */
@@ -762,6 +795,12 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 					      "hdr index 0 seen");
 					return 1;
 			}
+
+			m = lws_token_from_index(wsi, h2n->hdr_idx,
+						 NULL, NULL, NULL);
+			if (lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
+				return 1;
+
 			lwsl_header("HPKT_INDEXED_HDR_7: hdr %d\n", c & 0x7f);
 			if (lws_hpack_use_idx_hdr(wsi, c & 0x7f, -1)) {
 				lwsl_header("%s: idx hdr wr fail\n", __func__);
@@ -1113,6 +1152,7 @@ swallow:
 			    wsi->u.hdr.parser_state == WSI_TOKEN_SKIPPING) {
 				h2n->unknown_header = 1;
 				wsi->u.hdr.parser_state = -1;
+				wsi->seen_nonpseudoheader = 1;
 			}
 		}
 
@@ -1132,6 +1172,7 @@ swallow:
 		 * we have got both the header and value
 		 */
 
+		m = -1;
 		switch (h2n->hpack_type) {
 		/*
 		 * These are the only two that insert to the dyntable
@@ -1187,39 +1228,26 @@ add_it:
 		if (h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY && lws_frag_end(wsi))
 			return 1;
 
-		if (h2n->hpack_type == HPKT_LITERAL_HDR_VALUE ||
-		    h2n->hpack_type == HPKT_INDEXED_HDR_6_VALUE_INCR ||
-		    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_INCR ||
-		    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_NEVER) {
-			m = wsi->u.hdr.parser_state;
-			if (m == 255)
-				m = -1;
-		} else
-			m = lws_token_from_index(wsi, h2n->hdr_idx, NULL, NULL,
-						 NULL);
+		if (h2n->hpack_type != HPKT_INDEXED_HDR_6_VALUE_INCR) {
+
+			if (h2n->hpack_type == HPKT_LITERAL_HDR_VALUE ||
+			    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_INCR ||
+			    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_NEVER) {
+				m = wsi->u.hdr.parser_state;
+				if (m == 255)
+					m = -1;
+			} else {
+				m = lws_token_from_index(wsi, h2n->hdr_idx, NULL, NULL,
+							 NULL);
+				//lwsl_notice("token from index(%d) says %d\n", h2n->hdr_idx, m);
+			}
+		}
+
 		if (m != -1 && m != LWS_HPACK_IGNORE_ENTRY)
 			lws_dump_header(wsi, m);
 
-		if (h2n->seen_nonpseudoheader && (
-		     m == WSI_TOKEN_HTTP_COLON_AUTHORITY ||
-		     m == WSI_TOKEN_HTTP_COLON_METHOD ||
-		     m == WSI_TOKEN_HTTP_COLON_PATH ||
-		     m == WSI_TOKEN_HTTP_COLON_SCHEME)) {
-			/*
-			 * it's not legal to see a
-			 * pseudoheader after normal
-			 * headers
-			 */
-			lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
-				"Pseudoheader after normal hdrs");
+		if (lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
 			return 1;
-		}
-
-		if (m != WSI_TOKEN_HTTP_COLON_AUTHORITY &&
-		    m != WSI_TOKEN_HTTP_COLON_METHOD &&
-		    m != WSI_TOKEN_HTTP_COLON_PATH &&
-		    m != WSI_TOKEN_HTTP_COLON_SCHEME)
-			h2n->seen_nonpseudoheader = 1;
 
 		h2n->is_first_header_char = 1;
 		h2n->hpack = HPKS_TYPE;
@@ -1228,6 +1256,8 @@ add_it:
 
 	return 0;
 }
+
+
 
 static int
 lws_h2_num_start(int starting_bits, unsigned long num)

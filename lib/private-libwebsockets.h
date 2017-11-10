@@ -1681,7 +1681,6 @@ struct lws_h2_netconn {
 	unsigned int pad_length:1;
 	unsigned int collected_priority:1;
 	unsigned int is_first_header_char:1;
-	unsigned int seen_nonpseudoheader:1;
 	unsigned int zero_huff_padding:1;
 	unsigned int last_action_dyntable_resize:1;
 
@@ -1970,6 +1969,7 @@ struct lws {
 	unsigned int hdr_parsing_completed:1;
 	unsigned int http2_substream:1;
 	unsigned int upgraded_to_http2:1;
+	unsigned int seen_nonpseudoheader:1;
 	unsigned int listener:1;
 	unsigned int user_space_externally_allocated:1;
 	unsigned int socket_is_permanently_unusable:1;
