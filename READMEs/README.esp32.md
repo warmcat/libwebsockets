@@ -1,6 +1,8 @@
 ESP32 Support
 =============
 
+See \ref esp32 for details on how to build lws as a component in an ESP-IDF project.
+
 Lws provides a "factory" application
 
 https://github.com/warmcat/lws-esp32-factory
