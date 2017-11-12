@@ -1,0 +1,2 @@
+# libwebsockets build outputs some include files, add these to the global project includes
+CPPFLAGS += -I$(BUILD_DIR_BASE)/libwebsockets/include
