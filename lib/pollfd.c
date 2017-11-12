@@ -58,6 +58,64 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	assert(wsi->position_in_fds_table >= 0 &&
 	       wsi->position_in_fds_table < (int)pt->fds_count);
 
+#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && !defined(LWS_WITH_LIBEVENT)
+	/*
+	 * This only applies when we use the default poll() event loop.
+	 *
+	 * BSD can revert pa->events at any time, when the kernel decides to
+	 * exit from poll().  We can't protect against it using locking.
+	 *
+	 * Therefore we must check first if the service thread is in poll()
+	 * wait; if so, we know we must be being called from a foreign thread,
+	 * and we must keep a strictly ordered list of changes we made instead
+	 * of trying to apply them, since when poll() exits, which may happen
+	 * at any time it would revert our changes.
+	 *
+	 * The plat code will apply them when it leaves the poll() wait
+	 * before doing anything else.
+	 */
+	pt->foreign_spinlock = 1;
+
+	if (pt->inside_poll) {
+		struct lws_foreign_thread_pollfd *ftp, **ftp1;
+
+		/*
+		 * We are certainly a foreign thread trying to change events
+		 * while the service thread is in the poll() wait.
+		 *
+		 * Create a list of changes to be applied after poll() exit,
+		 * instead of trying to apply them now.
+		 */
+
+		ftp = lws_malloc(sizeof(*ftp), "ftp");
+		if (!ftp) {
+			pt->foreign_spinlock = 0;
+			ret = -1;
+			goto bail;
+		}
+
+		ftp->_and = _and;
+		ftp->_or = _or;
+		ftp->fd_index = wsi->position_in_fds_table;
+		ftp->next = NULL;
+
+		/* place at END of list to maintain order */
+		ftp1 = &pt->foreign_pfd_list;
+		while (*ftp1)
+			ftp1 = &(*ftp1)->next;
+
+		*ftp1 = ftp;
+
+		lws_cancel_service_pt(wsi);
+
+		pt->foreign_spinlock = 0;
+
+		return 0;
+	}
+
+	pt->foreign_spinlock = 0;
+#endif
+
 	pfd = &pt->fds[wsi->position_in_fds_table];
 	pa->fd = wsi->desc.sockfd;
 	lwsl_debug("%s: fd %d old events %d\n", __func__, pa->fd, pfd->events);

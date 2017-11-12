@@ -136,6 +136,7 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 LWS_VISIBLE LWS_EXTERN int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
+	struct lws_foreign_thread_pollfd *ftp, *next;
 	struct lws_context_per_thread *pt;
 	int n = -1, m, c;
 
@@ -180,7 +181,36 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			timeout_ms = 0;
 	}
 
+	pt->inside_poll = 1;
 	n = poll(pt->fds, pt->fds_count, timeout_ms);
+	pt->inside_poll = 0;
+
+	/* Collision will be extremely rare.  Just spin until it completes */
+	while (pt->foreign_spinlock)
+		;
+	/*
+	 * At this point we are not inside a foreign thread pollfd change,
+	 * and we have marked ourselves as outside the poll() wait.  So we
+	 * are the only guys that can modify the lws_foreign_thread_pollfd
+	 * list on the pt.  Drain the list and apply the changes to the
+	 * affected pollfds in the correct order.
+	 */
+	ftp = pt->foreign_pfd_list;
+	while (ftp) {
+		struct lws *wsi;
+		struct lws_pollfd *pfd;
+
+		next = ftp->next;
+		pfd = &pt->fds[ftp->fd_index];
+		if (lws_sockfd_valid(pfd->fd)) {
+			wsi = wsi_from_fd(context, pfd->fd);
+			if (wsi)
+				lws_change_pollfd(wsi, ftp->_and, ftp->_or);
+		}
+		lws_free(ftp);
+		ftp = next;
+	}
+	pt->foreign_pfd_list = NULL;
 
 #ifdef LWS_OPENSSL_SUPPORT
 	if (!n && !pt->rx_draining_ext_list &&
