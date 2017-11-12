@@ -38,3 +38,4 @@ ar-lib
 libwebsockets.pc
 build/
 *.swp
+doc
