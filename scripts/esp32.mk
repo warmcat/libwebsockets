@@ -8,6 +8,11 @@
 
 SHELL=/bin/bash
 
+# check genromfs is available
+GENROMFS := $(shell command -v genromfs 2> /dev/null)
+# check xxd is available
+XXD := $(shell command -v xxd 2> /dev/null)
+
 ESPPORT ?= $(CONFIG_ESPTOOLPY_PORT)
 
 LWS_BUILD_PATH=$(PROJECT_PATH)/build
@@ -22,6 +27,14 @@ export FAC
 DIRNAME:=$(shell basename $$(pwd) | tr -d '\n')
 
 $(LWS_BUILD_PATH)/pack.img: $(APP_BIN)
+	if [ -z "$(GENROMFS)" ]; then \
+		echo "ERROR: genromfs is unavailable, please install or compile genromfs" ; \
+		exit 1 ; \
+	fi; \
+	if [ -z "$(XXD)" ]; then \
+		echo "ERROR: xxd is unavailable, please install or compile xxd (usually provided by vim package)" ; \
+		exit 1 ; \
+	fi; \
 	GNUSTAT=stat ;\
 	if [ `which gstat 2>/dev/null` ] ; then GNUSTAT=gstat ; fi ;\
 	DIRNAME=$$(basename $$(pwd) | tr -d '\n') ;\
