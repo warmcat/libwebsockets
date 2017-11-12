@@ -1559,7 +1559,9 @@ lws_vhost_destroy(struct lws_vhost *vh)
 LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
 {
+	volatile struct lws_foreign_thread_pollfd *ftp, *next;
 	struct lws_context_per_thread *pt;
+	volatile struct lws_context_per_thread *vpt;
 	struct lws_vhost *vh = NULL;
 	struct lws wsi;
 	int n, m;
@@ -1590,6 +1592,15 @@ lws_context_destroy(struct lws_context *context)
 
 	while (m--) {
 		pt = &context->pt[m];
+		vpt = (volatile struct lws_context_per_thread *)pt;
+
+		ftp = vpt->foreign_pfd_list;
+		while (ftp) {
+			next = ftp->next;
+			lws_free((void *)ftp);
+			ftp = next;
+		}
+		vpt->foreign_pfd_list = NULL;
 
 		for (n = 0; (unsigned int)n < context->pt[m].fds_count; n++) {
 			struct lws *wsi = wsi_from_fd(context, pt->fds[n].fd);
