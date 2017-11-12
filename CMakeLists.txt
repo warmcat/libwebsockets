@@ -157,14 +157,6 @@ if(GIT_EXECUTABLE)
     message("Git commit hash: ${LWS_BUILD_HASH}")
 endif()
 
-macro(confirm_command CMD NOCMD)
-	find_program (HAVE_CMD_${CMD} ${CMD} )
-	if (NOT HAVE_CMD_${CMD})
-		message(FATAL_ERROR "Missing command ${CMD} required for build: ${NOCMD}" )
-	endif()
-endmacro()
-
-
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
  set(LWS_WITH_PLUGINS 1)
@@ -224,10 +216,6 @@ if (LWS_WITH_ESP8266)
 endif()
 
 if (LWS_WITH_ESP32)
-
-	confirm_command(xxd "usually found in vim package")
-	confirm_command(genromfs "install genromfs package")
-
  set(LWS_WITH_SHARED OFF)
  set(LWS_WITH_MBEDTLS ON)
   # set(LWS_WITHOUT_CLIENT ON)
