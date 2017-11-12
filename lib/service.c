@@ -76,9 +76,10 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	struct lws **wsi2, *wsi2a;
 #endif
 	int ret, m, n;
+	volatile struct lws *vwsi = (volatile struct lws *)wsi;
 
-	wsi->leave_pollout_active = 0;
-	wsi->handling_pollout = 1;
+	vwsi->leave_pollout_active = 0;
+	vwsi->handling_pollout = 1;
 	/*
 	 * if another thread wants POLLOUT on us, from here on while
 	 * handling_pollout is set, he will only set leave_pollout_active.
@@ -332,14 +333,14 @@ user_service:
 	/* one shot */
 
 	if (wsi->parent_carries_io) {
-		wsi->handling_pollout = 0;
-		wsi->leave_pollout_active = 0;
+		vwsi->handling_pollout = 0;
+		vwsi->leave_pollout_active = 0;
 
 		return lws_calllback_as_writeable(wsi);
 	}
 
 	if (pollfd) {
-		int eff = wsi->leave_pollout_active;
+		int eff = vwsi->leave_pollout_active;
 
 		if (!eff)
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
@@ -347,7 +348,7 @@ user_service:
 				goto bail_die;
 			}
 
-		wsi->handling_pollout = 0;
+		vwsi->handling_pollout = 0;
 
 		/* cannot get leave_pollout_active set after the above */
 		if (!eff && wsi->leave_pollout_active)
@@ -355,7 +356,7 @@ user_service:
 			 * handling_pollout, force POLLOUT on */
 			lws_calllback_as_writeable(wsi);
 
-		wsi->leave_pollout_active = 0;
+		vwsi->leave_pollout_active = 0;
 	}
 
 	if (wsi->mode != LWSCM_WSCL_ISSUE_HTTP_BODY &&
@@ -460,7 +461,7 @@ user_service_go_again:
 
 		if (w->state == LWSS_HTTP_ISSUING_FILE) {
 
-			w->leave_pollout_active = 0;
+			((volatile struct lws *)w)->leave_pollout_active = 0;
 
 			/* >0 == completion, <0 == error
 			 *
@@ -528,12 +529,13 @@ next_child:
 
 notify:
 #endif
-	wsi->leave_pollout_active = 0;
+	vwsi = (volatile struct lws *)wsi;
+	vwsi->leave_pollout_active = 0;
 
 	n = lws_calllback_as_writeable(wsi);
-	wsi->handling_pollout = 0;
+	vwsi->handling_pollout = 0;
 
-	if (wsi->leave_pollout_active)
+	if (vwsi->leave_pollout_active)
 		lws_change_pollfd(wsi, 0, LWS_POLLOUT);
 
 	return n;
@@ -544,14 +546,14 @@ notify:
 	 */
 
 bail_ok:
-	wsi->handling_pollout = 0;
-	wsi->leave_pollout_active = 0;
+	vwsi->handling_pollout = 0;
+	vwsi->leave_pollout_active = 0;
 
 	return 0;
 
 bail_die:
-	wsi->handling_pollout = 0;
-	wsi->leave_pollout_active = 0;
+	vwsi->handling_pollout = 0;
+	vwsi->leave_pollout_active = 0;
 
 	return -1;
 }

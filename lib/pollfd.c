@@ -24,6 +24,9 @@
 int
 _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 {
+#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && !defined(LWS_WITH_LIBEVENT)
+	volatile struct lws_context_per_thread *vpt;
+#endif
 	struct lws_context_per_thread *pt;
 	struct lws_context *context;
 	int ret = 0, pa_events = 1;
@@ -33,7 +36,8 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	if (!wsi || wsi->position_in_fds_table < 0)
 		return 0;
 
-	if (wsi->handling_pollout && !_and && _or == LWS_POLLOUT) {
+	if (((volatile struct lws *)wsi)->handling_pollout &&
+	    !_and && _or == LWS_POLLOUT) {
 		/*
 		 * Happening alongside service thread handling POLLOUT.
 		 * The danger is when he is finished, he will disable POLLOUT,
@@ -42,7 +46,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 		 * Instead of changing the fds, inform the service thread
 		 * what happened, and ask it to leave POLLOUT active on exit
 		 */
-		wsi->leave_pollout_active = 1;
+		((volatile struct lws *)wsi)->leave_pollout_active = 1;
 		/*
 		 * by definition service thread is not in poll wait, so no need
 		 * to cancel service
@@ -55,8 +59,71 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
+
 	assert(wsi->position_in_fds_table >= 0 &&
 	       wsi->position_in_fds_table < (int)pt->fds_count);
+
+#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && !defined(LWS_WITH_LIBEVENT)
+	/*
+	 * This only applies when we use the default poll() event loop.
+	 *
+	 * BSD can revert pa->events at any time, when the kernel decides to
+	 * exit from poll().  We can't protect against it using locking.
+	 *
+	 * Therefore we must check first if the service thread is in poll()
+	 * wait; if so, we know we must be being called from a foreign thread,
+	 * and we must keep a strictly ordered list of changes we made instead
+	 * of trying to apply them, since when poll() exits, which may happen
+	 * at any time it would revert our changes.
+	 *
+	 * The plat code will apply them when it leaves the poll() wait
+	 * before doing anything else.
+	 */
+
+	vpt = (volatile struct lws_context_per_thread *)pt;
+
+	vpt->foreign_spinlock = 1;
+	lws_memory_barrier();
+
+	if (vpt->inside_poll) {
+		struct lws_foreign_thread_pollfd *ftp, **ftp1;
+		/*
+		 * We are certainly a foreign thread trying to change events
+		 * while the service thread is in the poll() wait.
+		 *
+		 * Create a list of changes to be applied after poll() exit,
+		 * instead of trying to apply them now.
+		 */
+		ftp = lws_malloc(sizeof(*ftp), "ftp");
+		if (!ftp) {
+			vpt->foreign_spinlock = 0;
+			lws_memory_barrier();
+			ret = -1;
+			goto bail;
+		}
+
+		ftp->_and = _and;
+		ftp->_or = _or;
+		ftp->fd_index = wsi->position_in_fds_table;
+		ftp->next = NULL;
+
+		/* place at END of list to maintain order */
+		ftp1 = (struct lws_foreign_thread_pollfd **)
+						&vpt->foreign_pfd_list;
+		while (*ftp1)
+			ftp1 = &((*ftp1)->next);
+
+		*ftp1 = ftp;
+		vpt->foreign_spinlock = 0;
+		lws_memory_barrier();
+		lws_cancel_service_pt(wsi);
+
+		return 0;
+	}
+
+	vpt->foreign_spinlock = 0;
+	lws_memory_barrier();
+#endif
 
 	pfd = &pt->fds[wsi->position_in_fds_table];
 	pa->fd = wsi->desc.sockfd;
@@ -107,13 +174,11 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 #endif
 
 	if (pa_events) {
-
 		if (lws_plat_change_pollfd(context, wsi, pfd)) {
 			lwsl_info("%s failed\n", __func__);
 			ret = -1;
 			goto bail;
 		}
-
 		sampled_tid = context->service_tid;
 		if (sampled_tid && wsi->vhost) {
 			tid = wsi->vhost->protocols[0].callback(wsi,
@@ -126,6 +191,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 				lws_cancel_service_pt(wsi);
 		}
 	}
+
 bail:
 	return ret;
 }

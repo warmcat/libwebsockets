@@ -534,6 +534,14 @@ enum lws_ssl_capable_status {
 	LWS_SSL_CAPABLE_MORE_SERVICE = -4,	 /* general retry */
 };
 
+#if defined(__clang__)
+#define lws_memory_barrier() __sync_synchronize()
+#elif defined(__GNUC__)
+#define lws_memory_barrier() __sync_synchronize()
+#else
+#define lws_memory_barrier()
+#endif
+
 enum lws_websocket_opcodes_07 {
 	LWSWSOPC_CONTINUATION = 0,
 	LWSWSOPC_TEXT_FRAME = 1,
@@ -776,6 +784,13 @@ struct lws_fd_hashtable {
 };
 #endif
 
+struct lws_foreign_thread_pollfd {
+	struct lws_foreign_thread_pollfd *next;
+	int fd_index;
+	int _and;
+	int _or;
+};
+
 /*
  * This is totally opaque to code using the library.  It's exported as a
  * forward-reference pointer-only declaration; the user can use the pointer with
@@ -847,6 +862,7 @@ struct lws_context_per_thread {
 	pthread_mutex_t lock;
 #endif
 	struct lws_pollfd *fds;
+	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
 #if defined(LWS_WITH_ESP8266)
 	struct lws **lws_vs_fds_index;
 #endif
@@ -898,6 +914,9 @@ struct lws_context_per_thread {
 #endif
 	lws_sockfd_type dummy_pipe_fds[2];
 	struct lws *pipe_wsi;
+
+	volatile unsigned char inside_poll;
+	volatile unsigned char foreign_spinlock;
 
 	unsigned int fds_count;
 	uint32_t ah_pool_length;
@@ -2026,10 +2045,6 @@ struct lws {
 	unsigned int redirect_to_https:1;
 #endif
 
-	/* volatile to make sure code is aware other thread can change */
-	volatile unsigned int handling_pollout:1;
-	volatile unsigned int leave_pollout_active:1;
-
 #ifndef LWS_NO_CLIENT
 	unsigned short c_port;
 #endif
@@ -2059,6 +2074,9 @@ struct lws {
 #if defined(LWS_WITH_CGI) || !defined(LWS_NO_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
 #endif
+	/* volatile to make sure code is aware other thread can change */
+	volatile char handling_pollout;
+	volatile char leave_pollout_active;
 };
 
 #define lws_is_flowcontrolled(w) (!!(wsi->rxflow_bitmap))
