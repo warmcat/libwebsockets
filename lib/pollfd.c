@@ -461,7 +461,8 @@ lws_callback_on_writable(struct lws *wsi)
 #ifdef LWS_WITH_HTTP2
 	lwsl_info("%s: %p\n", __func__, wsi);
 
-	if (wsi->mode != LWSCM_HTTP2_SERVING)
+	if (wsi->mode != LWSCM_HTTP2_SERVING &&
+	    wsi->mode != LWSCM_HTTP2_WS_SERVING)
 		goto network_sock;
 
 	if (wsi->h2.requested_POLLOUT) {

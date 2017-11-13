@@ -99,6 +99,7 @@ STORE_IN_ROM static const char * const set[] = {
 	"head ",
 	"te:",		/* http/2 wants it to reject it */
 	"replay-nonce:", /* ACME */
+	":protocol",		/* defined in mcmanus-httpbis-h2-ws-02 */
 
 	"", /* not matchable */
 

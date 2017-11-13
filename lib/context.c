@@ -79,8 +79,11 @@ const struct http2_settings lws_h2_defaults = { {
 	 * including the length of the name and value in octets plus an
 	 * overhead of 32 octets for each header field.
 	 */
-
+	/* H2SET_RESERVED7 */				   0,
+	/* H2SET_ENABLE_CONNECT_PROTOCOL */		   0,
 }};
+
+/* these are the "lws defaults"... they can be overridden in plat */
 
 const struct http2_settings lws_h2_stock_settings = { {
 	1,
@@ -106,7 +109,8 @@ const struct http2_settings lws_h2_stock_settings = { {
 	 * including the length of the name and value in octets plus an
 	 * overhead of 32 octets for each header field.
 	 */
-
+	/* H2SET_RESERVED7 */				   0,
+	/* H2SET_ENABLE_CONNECT_PROTOCOL */		   1,
 }};
 #endif
 
