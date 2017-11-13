@@ -72,10 +72,15 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
 	case LWSS_HTTP2_ESTABLISHED:
 		n = 0;
-		//lwsl_debug("%s: starting new block of %d\n", __func__, (int)len);
 		/*
 		 * wsi here is always the network connection wsi, not a stream
-		 * wsi.
+		 * wsi.  Once we unpicked the framing we will find the right
+		 * swsi and make it the target of the frame.
+		 *
+		 * If it's ws over h2, the nwsi will get us here to do the h2
+		 * processing, and that will call us back with the swsi +
+		 * ESTABLISHED state for the inner payload, handled in a later
+		 * case.
 		 */
 		while (n < len) {
 			/*
@@ -252,6 +257,7 @@ postbody_completion:
 			goto bail;
 		switch (wsi->mode) {
 		case LWSCM_WS_SERVING:
+		case LWSCM_HTTP2_WS_SERVING:
 
 			if (lws_interpret_incoming_packet(wsi, &buf,
 							  (size_t)len) < 0) {

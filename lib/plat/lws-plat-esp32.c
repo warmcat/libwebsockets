@@ -567,6 +567,8 @@ const struct http2_settings const lws_h2_defaults_esp32 = { {
 	/* H2SET_INITIAL_WINDOW_SIZE */		       65535,
 	/* H2SET_MAX_FRAME_SIZE */		       16384,
 	/* H2SET_MAX_HEADER_LIST_SIZE */	 	 512,
+	/* H2SET_RESERVED7 */				   0,
+	/* H2SET_ENABLE_CONNECT_PROTOCOL */		   1,
 }};
 #endif
 

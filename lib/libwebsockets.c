@@ -423,19 +423,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 #endif
 
 #if !defined(LWS_NO_CLIENT)
-	if (wsi->mode == LWSCM_HTTP_CLIENT ||
-	    wsi->mode == LWSCM_WSCL_WAITING_CONNECT ||
-	    wsi->mode == LWSCM_WSCL_WAITING_PROXY_REPLY ||
-	    wsi->mode == LWSCM_WSCL_ISSUE_HANDSHAKE ||
-	    wsi->mode == LWSCM_WSCL_ISSUE_HANDSHAKE2 ||
-	    wsi->mode == LWSCM_WSCL_WAITING_SSL ||
-	    wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
-	    wsi->mode == LWSCM_WSCL_WAITING_EXTENSION_CONNECT ||
-	    wsi->mode == LWSCM_WSCL_WAITING_SOCKS_GREETING_REPLY ||
-	    wsi->mode == LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY ||
-	    wsi->mode == LWSCM_WSCL_WAITING_SOCKS_AUTH_REPLY)
-		if (wsi->stash)
-			lws_free_set_NULL(wsi->stash);
+	lws_free_set_NULL(wsi->stash);
 #endif
 
 	if (wsi->mode == LWSCM_RAW) {
@@ -560,7 +548,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	 * LWSS_AWAITING_CLOSE_ACK and will skip doing this a second time.
 	 */
 
-	if (wsi->state_pre_close == LWSS_ESTABLISHED &&
+	if (lws_state_is_ws(wsi->state_pre_close) &&
 	    (wsi->ws->close_in_ping_buffer_len || /* already a reason */
 	     (reason != LWS_CLOSE_STATUS_NOSTATUS &&
 	     (reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)))) {
@@ -704,11 +692,10 @@ just_kill_connection:
 #endif
 
 	wsi->state = LWSS_DEAD_SOCKET;
-
 	lws_free_set_NULL(wsi->rxflow_buffer);
-	if (wsi->state_pre_close == LWSS_ESTABLISHED ||
-	    wsi->mode == LWSCM_WS_SERVING ||
-	    wsi->mode == LWSCM_WS_CLIENT) {
+
+	if (lws_state_is_ws(wsi->state_pre_close) ||
+	    wsi->mode == LWSCM_WS_SERVING || wsi->mode == LWSCM_WS_CLIENT) {
 
 		if (wsi->ws->rx_draining_ext) {
 			struct lws **w = &pt->rx_draining_ext_list;
@@ -751,21 +738,8 @@ just_kill_connection:
 
 	/* tell the user it's all over for this guy */
 
-	if (!wsi->told_user_closed &&
-	    wsi->mode != LWSCM_RAW && wsi->protocol &&
-	    wsi->protocol->callback &&
-	    (wsi->state_pre_close == LWSS_ESTABLISHED ||
-	     wsi->state_pre_close == LWSS_HTTP2_ESTABLISHED ||
-	     wsi->state_pre_close == LWSS_HTTP_BODY ||
-	     wsi->state_pre_close == LWSS_HTTP ||
-	     wsi->state_pre_close == LWSS_RETURNED_CLOSE_ALREADY ||
-	     wsi->state_pre_close == LWSS_AWAITING_CLOSE_ACK ||
-	     wsi->state_pre_close == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION ||
-	     wsi->state_pre_close == LWSS_FLUSHING_SEND_BEFORE_CLOSE ||
-	    (wsi->mode == LWSCM_WS_CLIENT &&
-	     wsi->state_pre_close == LWSS_HTTP) ||
-	    (wsi->mode == LWSCM_WS_SERVING &&
-	     wsi->state_pre_close == LWSS_HTTP))) {
+	if (wsi->protocol && !wsi->told_user_closed && wsi->protocol->callback &&
+	    wsi->mode != LWSCM_RAW && (wsi->state_pre_close & _LSF_CCB)) {
 		lwsl_debug("calling back CLOSED %d %d\n", wsi->mode, wsi->state);
 		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 					wsi->user_space, NULL, 0);
@@ -2446,7 +2420,7 @@ lws_restart_ws_ping_pong_timer(struct lws *wsi)
 {
 	if (!wsi->context->ws_ping_pong_interval)
 		return;
-	if (wsi->state != LWSS_ESTABLISHED)
+	if (!lws_state_is_ws(wsi->state))
 		return;
 
 	wsi->ws->time_next_ping_check = (time_t)lws_now_secs() +

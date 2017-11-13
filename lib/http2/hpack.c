@@ -227,6 +227,7 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 	if ((hdr_token_idx == WSI_TOKEN_HTTP_COLON_AUTHORITY ||
 	     hdr_token_idx == WSI_TOKEN_HTTP_COLON_METHOD ||
 	     hdr_token_idx == WSI_TOKEN_HTTP_COLON_PATH ||
+	     hdr_token_idx == WSI_TOKEN_COLON_PROTOCOL ||
 	     hdr_token_idx == WSI_TOKEN_HTTP_COLON_SCHEME) &&
 	     ah->frag_index[hdr_token_idx]) {
 		if (!(ah->frags[ah->frag_index[hdr_token_idx]].flags & 1)) {
