@@ -198,7 +198,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	unsigned char *dropmask = NULL;
 	struct lws_tokens eff_buf;
 	size_t orig_len = len;
-	int pre = 0, n;
+	int pre = 0, n, wp1f = wp & 0x1f;
 
 	if (wsi->parent_carries_io) {
 		struct lws_write_passthru pas;
@@ -233,7 +233,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	if (wsi->vhost)
 		wsi->vhost->conn_stats.tx += len;
 
-	if (wsi->state == LWSS_ESTABLISHED && wsi->ws->tx_draining_ext) {
+	if (wsi->ws && wsi->ws->tx_draining_ext && lws_state_is_ws(wsi->state)) {
 		/* remove us from the list */
 		struct lws **w = &pt->tx_draining_ext_list;
 
@@ -249,21 +249,22 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		wsi->ws->tx_draining_ext_list = NULL;
 		wp = (wsi->ws->tx_draining_stashed_wp & 0xc0) |
 				LWS_WRITE_CONTINUATION;
+		wp1f = wp & 0x1f;
 
 		lwsl_ext("FORCED draining wp to 0x%02X\n", wp);
 	}
 
 	lws_restart_ws_ping_pong_timer(wsi);
 
-	if ((wp & 0x1f) == LWS_WRITE_HTTP ||
-	    (wp & 0x1f) == LWS_WRITE_HTTP_FINAL ||
-	    (wp & 0x1f) == LWS_WRITE_HTTP_HEADERS_CONTINUATION ||
-	    (wp & 0x1f) == LWS_WRITE_HTTP_HEADERS)
+	if (wp1f == LWS_WRITE_HTTP ||
+	    wp1f == LWS_WRITE_HTTP_FINAL ||
+	    wp1f == LWS_WRITE_HTTP_HEADERS_CONTINUATION ||
+	    wp1f == LWS_WRITE_HTTP_HEADERS)
 		goto send_raw;
 
 	/* if not in a state to send stuff, then just send nothing */
 
-	if (wsi->state != LWSS_ESTABLISHED &&
+	if (!lws_state_is_ws(wsi->state) &&
 	    ((wsi->state != LWSS_RETURNED_CLOSE_ALREADY &&
 	      wsi->state != LWSS_AWAITING_CLOSE_ACK) ||
 			    wp != LWS_WRITE_CLOSE))
@@ -331,6 +332,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		if (eff_buf.token_len && wsi->ws->stashed_write_pending) {
 			wsi->ws->stashed_write_pending = 0;
 			wp = (wp &0xc0) | (int)wsi->ws->stashed_write_type;
+			wp1f = wp & 0x1f;
 		}
 	}
 
@@ -465,7 +467,7 @@ do_more_inside_frame:
 	}
 
 send_raw:
-	switch ((int)(wp & 0x1f)) {
+	switch (wp1f) {
 	case LWS_WRITE_CLOSE:
 /*		lwsl_hexdump(&buf[-pre], len); */
 	case LWS_WRITE_HTTP:
@@ -475,11 +477,15 @@ send_raw:
 	case LWS_WRITE_PONG:
 	case LWS_WRITE_PING:
 #ifdef LWS_WITH_HTTP2
-		if (wsi->mode == LWSCM_HTTP2_SERVING) {
+		/*
+		 * ws-over-h2 ends up here after the ws framing applied
+		 */
+		if (wsi->mode == LWSCM_HTTP2_SERVING ||
+		    wsi->mode == LWSCM_HTTP2_WS_SERVING) {
 			unsigned char flags = 0;
 
 			n = LWS_H2_FRAME_TYPE_DATA;
-			if ((wp & 0x1f) == LWS_WRITE_HTTP_HEADERS) {
+			if (wp1f == LWS_WRITE_HTTP_HEADERS) {
 				n = LWS_H2_FRAME_TYPE_HEADERS;
 				if (!(wp & LWS_WRITE_NO_FIN))
 					flags = LWS_H2_FLAG_END_HEADERS;
@@ -490,7 +496,7 @@ send_raw:
 				}
 			}
 
-			if ((wp & 0x1f) == LWS_WRITE_HTTP_HEADERS_CONTINUATION) {
+			if (wp1f == LWS_WRITE_HTTP_HEADERS_CONTINUATION) {
 				n = LWS_H2_FRAME_TYPE_CONTINUATION;
 				if (!(wp & LWS_WRITE_NO_FIN))
 					flags = LWS_H2_FLAG_END_HEADERS;
@@ -501,20 +507,22 @@ send_raw:
 				}
 			}
 
-			if (((wp & 0x1f) == LWS_WRITE_HTTP ||
-			     (wp & 0x1f) == LWS_WRITE_HTTP_FINAL) &&
+			if ((wp1f == LWS_WRITE_HTTP ||
+			     wp1f == LWS_WRITE_HTTP_FINAL) &&
 			    wsi->http.tx_content_length) {
 				wsi->http.tx_content_remain -= len;
-				lwsl_info("%s: wsi %p: tx_content_remain = %llu\n", __func__, wsi,
+				lwsl_info("%s: wsi %p: tx_content_remain = %llu\n",
+					  __func__, wsi,
 					  (unsigned long long)wsi->http.tx_content_remain);
 				if (!wsi->http.tx_content_remain) {
 					lwsl_info("%s: selecting final write mode\n",
 						  __func__);
 					wp = LWS_WRITE_HTTP_FINAL;
+					wp1f = wp & 0x1f;
 				}
 			}
 
-			if ((wp & 0x1f) == LWS_WRITE_HTTP_FINAL ||
+			if (wp1f == LWS_WRITE_HTTP_FINAL ||
 			    (wp & LWS_WRITE_H2_STREAM_END)) {
 			    //lws_get_network_wsi(wsi)->h2.END_STREAM) {
 				lwsl_info("%s: setting END_STREAM\n", __func__);
@@ -522,8 +530,9 @@ send_raw:
 				wsi->h2.send_END_STREAM = 1;
 			}
 
-			return lws_h2_frame_write(wsi, n, flags,
-					wsi->h2.my_sid, (int)len, buf);
+			/* if any ws framing, account for that too */
+			return lws_h2_frame_write(wsi, n, flags, wsi->h2.my_sid,
+						  (int)len + pre, buf - pre);
 		}
 #endif
 		return lws_issue_raw(wsi, (unsigned char *)buf - pre, len + pre);

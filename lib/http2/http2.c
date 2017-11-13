@@ -1455,10 +1455,8 @@ lws_h2_parser(struct lws *wsi, unsigned char c)
 
 		case LWS_H2_FRAME_TYPE_DATA:
 			//lwsl_notice("incoming LWS_H2_FRAME_TYPE_DATA content\n");
-			if (!h2n->swsi) {
-				//lwsl_notice("data sid %d has no swsi\n", h2n->sid);
+			if (!h2n->swsi)
 				break;
-			}
 
 			h2n->swsi->state = LWSS_HTTP_BODY;
 			h2n->inside++;
@@ -1473,11 +1471,9 @@ lws_h2_parser(struct lws *wsi, unsigned char c)
 			}
 
 			n = lws_read(h2n->swsi, &c, 1);
-			if (n < 0) {
-			//	lws_h2_rst_stream(wsi, LWS_H2_PPS_RST_STREAM,
-			//			  "post body done");
+			if (n < 0)
 				break;
-			}
+
 			break;
 
 		case LWS_H2_FRAME_TYPE_PRIORITY:
@@ -1580,3 +1576,59 @@ try_frame_start:
 	return 0;
 }
 
+int
+lws_h2_ws_handshake(struct lws *wsi)
+{
+	uint8_t buf[256], *p = buf, *start = p, *end = &buf[sizeof(buf) - 1];
+	const struct lws_http_mount *hit;
+	const char * uri_ptr;
+	int n;
+
+	if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
+		return -1;
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) > 64)
+		return -1;
+
+	/* we can only return the protocol header if:
+	 *  - one came in, and ... */
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) &&
+	    /*  - it is not an empty string */
+	    wsi->protocol->name && wsi->protocol->name[0]) {
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
+					 (unsigned char *)wsi->protocol->name,
+					 strlen(wsi->protocol->name), &p, end))
+		return -1;
+	}
+
+	if (lws_finalize_http_header(wsi, &p, end))
+		return -1;
+
+	n = lws_write(wsi, start, lws_ptr_diff(p, start),
+		      LWS_WRITE_HTTP_HEADERS);
+	if (n != lws_ptr_diff(p, start)) {
+		lwsl_err("_write returned %d from %d\n", n,
+			 lws_ptr_diff(p, start));
+
+		return -1;
+	}
+
+	/*
+	 * alright clean up, set our state to generic ws established, the
+	 * mode / state of the nwsi will get the h2 processing done.
+	 */
+
+	wsi->state = LWSS_ESTABLISHED;
+	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+
+	uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+	n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+	hit = lws_find_mount(wsi, uri_ptr, n);
+
+	if (hit && hit->cgienv &&
+	    wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_PMO, wsi->user_space,
+				    (void *)hit->cgienv, 0))
+		return 1;
+
+	return 0;
+}

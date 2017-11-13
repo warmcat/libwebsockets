@@ -564,26 +564,43 @@ enum lws_websocket_opcodes_07 {
 
 
 enum lws_connection_states {
-	LWSS_HTTP,
-	LWSS_HTTP_ISSUING_FILE,
-	LWSS_HTTP_HEADERS,
-	LWSS_HTTP_BODY,
-	LWSS_DEAD_SOCKET,
-	LWSS_ESTABLISHED,
-	LWSS_CLIENT_HTTP_ESTABLISHED,
-	LWSS_CLIENT_UNCONNECTED,
-	LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION,
-	LWSS_RETURNED_CLOSE_ALREADY,
-	LWSS_AWAITING_CLOSE_ACK,
-	LWSS_FLUSHING_SEND_BEFORE_CLOSE,
-	LWSS_SHUTDOWN,
+	/* FLAG: one or another kind of ws link */
+	_LSF_WEBSOCKET					= (1 << 5),
+	/* FLAG: close callback */
+	_LSF_CCB					= (1 << 6),
+	/* FLAG: pollout capable */
+	_LSF_POLLOUT					= (1 << 7),
 
-	LWSS_HTTP2_AWAIT_CLIENT_PREFACE,
-	LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS,
-	LWSS_HTTP2_ESTABLISHED,
+	LWSS_HTTP					= _LSF_CCB | 0,
+	LWSS_HTTP_ISSUING_FILE				=  1,
+	LWSS_HTTP_HEADERS				=  2,
+	LWSS_HTTP_BODY					= _LSF_CCB | 3,
+	LWSS_DEAD_SOCKET				=  4,
+	LWSS_ESTABLISHED				= _LSF_CCB | 5 |
+							  _LSF_WEBSOCKET |
+							  _LSF_POLLOUT,
+	LWSS_CLIENT_HTTP_ESTABLISHED			=  6,
+	LWSS_CLIENT_UNCONNECTED				=  7,
+	LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION		= _LSF_CCB |  8 |
+							  _LSF_POLLOUT,
+	LWSS_RETURNED_CLOSE_ALREADY			= _LSF_CCB |  9 |
+							  _LSF_POLLOUT,
+	LWSS_AWAITING_CLOSE_ACK				= _LSF_CCB | 10,
+	LWSS_FLUSHING_SEND_BEFORE_CLOSE			= _LSF_CCB | 11 |
+							  _LSF_POLLOUT,
+	LWSS_SHUTDOWN					= 12,
 
-	LWSS_CGI,
+	LWSS_HTTP2_AWAIT_CLIENT_PREFACE			= 13,
+	LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS		= 14 | _LSF_POLLOUT,
+	LWSS_HTTP2_ESTABLISHED				= _LSF_CCB | 15 |
+							  _LSF_POLLOUT,
+	LWSS_HTTP2_ESTABLISHED_WS			= _LSF_CCB | 16 |
+							  _LSF_WEBSOCKET,
+
+	LWSS_CGI					= 17,
 };
+
+#define lws_state_is_ws(s) (!!(s & _LSF_WEBSOCKET))
 
 enum http_version {
 	HTTP_VERSION_1_0,
@@ -628,13 +645,15 @@ enum lws_rx_parse_state {
 
 enum connection_mode {
 	LWSCM_HTTP_SERVING,
-	LWSCM_HTTP_SERVING_ACCEPTED, /* actual HTTP service going on */
+	/* actual HTTP service going on */
+	LWSCM_HTTP_SERVING_ACCEPTED,
 	LWSCM_PRE_WS_SERVING_ACCEPT,
 
 	LWSCM_WS_SERVING,
 	LWSCM_WS_CLIENT,
 
 	LWSCM_HTTP2_SERVING,
+	LWSCM_HTTP2_WS_SERVING,
 
 	/* transient, ssl delay hiding */
 	LWSCM_SSL_ACK_PENDING,
@@ -667,8 +686,6 @@ enum connection_mode {
 	LWSCM_WSCL_WAITING_SOCKS_AUTH_REPLY,
 
 	/****** add new things just above ---^ ******/
-
-
 };
 
 /* enums of socks version */
@@ -957,6 +974,8 @@ enum lws_h2_settings {
 	H2SET_INITIAL_WINDOW_SIZE,
 	H2SET_MAX_FRAME_SIZE,
 	H2SET_MAX_HEADER_LIST_SIZE,
+	H2SET_RESERVED7,
+	H2SET_ENABLE_CONNECT_PROTOCOL, /* defined in mcmanus-httpbis-h2-ws-02 */
 
 	H2SET_COUNT /* always last */
 };
@@ -1973,12 +1992,14 @@ struct lws {
 	unsigned int hdr_parsing_completed:1;
 	unsigned int http2_substream:1;
 	unsigned int upgraded_to_http2:1;
+	unsigned int h2_stream_carries_ws:1;
 	unsigned int seen_nonpseudoheader:1;
 	unsigned int listener:1;
 	unsigned int user_space_externally_allocated:1;
 	unsigned int socket_is_permanently_unusable:1;
 	unsigned int rxflow_change_to:2;
-	unsigned int more_rx_waiting:1; /* has to live here since ah may stick to end */
+	/* has to live here since ah may stick to end */
+	unsigned int more_rx_waiting:1;
 	unsigned int conn_stat_done:1;
 	unsigned int cache_reuse:1;
 	unsigned int cache_revalidate:1;
@@ -2028,14 +2049,14 @@ struct lws {
 #ifndef LWS_NO_CLIENT
 	unsigned short c_port;
 #endif
+	uint8_t state; /* enum lws_connection_states */
+	uint8_t mode; /* enum connection_mode */
 
 	/* chars */
 #ifndef LWS_NO_EXTENSIONS
 	uint8_t count_act_ext;
 #endif
-	char mode; /* enum connection_mode */
-	char state; /* enum lws_connection_states */
-	char state_pre_close;
+	uint8_t state_pre_close;
 	char lws_rx_parse_state; /* enum lws_rx_parse_state */
 	char rx_frame_type; /* enum lws_write_protocol */
 	char pending_timeout; /* enum pending_timeout */
@@ -2266,6 +2287,8 @@ LWS_EXTERN void
 lws_pps_schedule(struct lws *wsi, struct lws_h2_protocol_send *pss);
 
 LWS_EXTERN const struct http2_settings lws_h2_defaults;
+LWS_EXTERN int
+lws_h2_ws_handshake(struct lws *wsi);
 #else
 #define lws_h2_configure_if_upgraded(x)
 #endif
