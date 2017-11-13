@@ -170,8 +170,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 	/* else, the send failed and we should just hang up */
 
-	if ((wsi->state == LWSS_ESTABLISHED &&
-	     wsi->ws->ping_pending_flag) ||
+	if ((lws_state_is_ws(wsi->state) && wsi->ws->ping_pending_flag) ||
 	    (wsi->state == LWSS_RETURNED_CLOSE_ALREADY &&
 	     wsi->ws->payload_is_close)) {
 
@@ -193,8 +192,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		goto bail_ok;
 	}
 
-	if (wsi->state == LWSS_ESTABLISHED &&
-	    !wsi->socket_is_permanently_unusable &&
+	if (lws_state_is_ws(wsi->state) && !wsi->socket_is_permanently_unusable &&
 	    wsi->ws->send_check_ping) {
 
 		lwsl_info("issuing ping on wsi %p\n", wsi);
@@ -229,7 +227,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 *	       payload ordering, but since they are always complete
 	 *	       fragments control packets can interleave OK.
 	 */
-	if (wsi->state == LWSS_ESTABLISHED && wsi->ws->tx_draining_ext) {
+	if (lws_state_is_ws(wsi->state) && wsi->ws->tx_draining_ext) {
 		lwsl_ext("SERVICING TX EXT DRAINING\n");
 		if (lws_write(wsi, NULL, 0, LWS_WRITE_CONTINUATION) < 0)
 			goto bail_die;
@@ -382,7 +380,8 @@ user_service_go_again:
 	 * notifications, so we can't hold pointers
 	 */
 
-	if (wsi->mode != LWSCM_HTTP2_SERVING) {
+	if (wsi->mode != LWSCM_HTTP2_SERVING &&
+	    wsi->mode != LWSCM_HTTP2_WS_SERVING) {
 		lwsl_info("%s: non http2\n", __func__);
 		goto notify;
 	}
@@ -961,8 +960,7 @@ lws_is_ws_with_ext(struct lws *wsi)
 #if defined(LWS_NO_EXTENSIONS)
 	return 0;
 #else
-	return wsi->state == LWSS_ESTABLISHED &&
-	       !!wsi->count_act_ext;
+	return lws_state_is_ws(wsi->state) && !!wsi->count_act_ext;
 #endif
 }
 
@@ -1148,7 +1146,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 				wsi = vh->same_vh_protocol_list[n];
 
 				while (wsi) {
-					if (wsi->state == LWSS_ESTABLISHED &&
+					if (lws_state_is_ws(wsi->state) &&
 					    !wsi->socket_is_permanently_unusable &&
 					    !wsi->ws->send_check_ping &&
 					    wsi->ws->time_next_ping_check &&
@@ -1333,17 +1331,13 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	case LWSCM_WS_SERVING:
 	case LWSCM_WS_CLIENT:
 	case LWSCM_HTTP2_SERVING:
+	case LWSCM_HTTP2_WS_SERVING:
 	case LWSCM_HTTP_CLIENT_ACCEPTED:
 
 		/* 1: something requested a callback when it was OK to write */
 
 		if ((pollfd->revents & LWS_POLLOUT) &&
-		    ((wsi->state == LWSS_ESTABLISHED ||
-		     wsi->state == LWSS_HTTP2_ESTABLISHED ||
-		     wsi->state == LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS ||
-		     wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
-		     wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION ||
-		     wsi->state == LWSS_FLUSHING_SEND_BEFORE_CLOSE)) &&
+		    (wsi->state & _LSF_POLLOUT) /* ...our state cares ... */ &&
 		    lws_handle_POLLOUT_event(wsi, pollfd)) {
 			if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY)
 				wsi->state = LWSS_FLUSHING_SEND_BEFORE_CLOSE;
@@ -1365,19 +1359,19 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		}
 
 		if (wsi->ws && wsi->ws->tx_draining_ext)
-			/* we cannot deal with new RX until the TX ext
-			 * path has been drained.  It's because new
-			 * rx will, eg, crap on the wsi rx buf that
-			 * may be needed to retain state.
+			/*
+			 * We cannot deal with new RX until the TX ext path has
+			 * been drained.  It's because new rx will, eg, crap on
+			 * the wsi rx buf that may be needed to retain state.
 			 *
-			 * TX ext drain path MUST go through event loop
-			 * to avoid blocking.
+			 * TX ext drain path MUST go through event loop to avoid
+			 * blocking.
 			 */
 			break;
 
 		if (lws_is_flowcontrolled(wsi))
-			/* We cannot deal with any kind of new RX
-			 * because we are RX-flowcontrolled.
+			/* We cannot deal with any kind of new RX because we are
+			 * RX-flowcontrolled.
 			 */
 			break;
 
@@ -1397,8 +1391,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		/* 2: RX Extension needs to be drained
 		 */
 
-		if (wsi->state == LWSS_ESTABLISHED &&
-		    wsi->ws->rx_draining_ext) {
+		if (lws_state_is_ws(wsi->state) && wsi->ws->rx_draining_ext) {
 
 			lwsl_ext("%s: RX EXT DRAINING: Service\n", __func__);
 #ifndef LWS_NO_CLIENT

@@ -1307,7 +1307,8 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 	lwsl_debug("Allocating RX buffer %d\n", n);
 
 #if LWS_POSIX && !defined(LWS_WITH_ESP32)
-	if (!wsi->parent_carries_io)
+	if (!wsi->parent_carries_io &&
+	    !wsi->h2_stream_carries_ws)
 		if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF,
 		       (const char *)&n, sizeof n)) {
 			lwsl_warn("Failed to set SNDBUF to %d", n);
@@ -1492,7 +1493,7 @@ raw_transition:
 				lwsl_info("Upgrade to ws\n");
 				goto upgrade_ws;
 			}
-#ifdef LWS_WITH_HTTP2
+#if defined(LWS_WITH_HTTP2)
 			if (!strcasecmp(lws_hdr_simple_ptr(wsi,
 							   WSI_TOKEN_UPGRADE),
 					"h2c")) {
@@ -1505,6 +1506,26 @@ raw_transition:
 			/* dunno what he wanted to upgrade to */
 			goto bail_nuke_ah;
 		}
+
+#if defined(LWS_WITH_HTTP2)
+		/*
+		 * with H2 there's also a way to upgrade a stream to something
+		 * else... :method is CONNECT and :protocol says the name of
+		 * the new protocol we want to carry.  We have to have sent a
+		 * SETTINGS saying that we support it though.
+		 */
+		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
+		if (wsi->h2.h2n->set.s[H2SET_ENABLE_CONNECT_PROTOCOL] &&
+		    p && !strcmp(p, "CONNECT")) {
+			p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_COLON_PROTOCOL);
+			if (p && !strcmp(p, "websocket")) {
+				wsi->vhost->conn_stats.ws_upg++;
+				lwsl_info("Upgrade h2 to ws\n");
+				wsi->h2_stream_carries_ws = 1;
+				goto upgrade_ws;
+			}
+		}
+#endif
 
 		/* no upgrade ack... he remained as HTTP */
 
@@ -1521,7 +1542,7 @@ raw_transition:
 
 		return n;
 
-#ifdef LWS_WITH_HTTP2
+#if defined(LWS_WITH_HTTP2)
 upgrade_h2c:
 		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP2_SETTINGS)) {
 			lwsl_info("missing http2_settings\n");
@@ -1571,6 +1592,7 @@ upgrade_h2c:
 		}
 
 		wsi->state = LWSS_HTTP2_AWAIT_CLIENT_PREFACE;
+		wsi->upgraded_to_http2 = 1;
 
 		return 0;
 #endif
@@ -1580,7 +1602,7 @@ upgrade_ws:
 			lwsl_err("NULL protocol at lws_read\n");
 
 		/*
-		 * It's websocket
+		 * It's either websocket or h2->websocket
 		 *
 		 * Select the first protocol we support from the list
 		 * the client sent us.
@@ -1689,10 +1711,20 @@ upgrade_ws:
 
 		switch (wsi->ws->ietf_spec_revision) {
 		case 13:
-			lwsl_parser("lws_parse calling handshake_04\n");
-			if (handshake_0405(context, wsi)) {
-				lwsl_info("hs0405 has failed the connection\n");
-				goto bail_nuke_ah;
+#if defined(LWS_WITH_HTTP2)
+			if (wsi->h2_stream_carries_ws) {
+				if (lws_h2_ws_handshake(wsi)) {
+					lwsl_info("h2 ws handshake failed\n");
+					goto bail_nuke_ah;
+				}
+			} else
+#endif
+			{
+				lwsl_parser("lws_parse calling handshake_04\n");
+				if (handshake_0405(context, wsi)) {
+					lwsl_info("hs0405 has failed the connection\n");
+					goto bail_nuke_ah;
+				}
 			}
 			break;
 
@@ -1704,7 +1736,7 @@ upgrade_ws:
 
 		lws_same_vh_protocol_insert(wsi, n);
 
-		/* we are upgrading to ws, so http/1.1 and keepalive +
+		/* we are upgrading to ws, so http/1.1 + h2 and keepalive +
 		 * pipelined header considerations about keeping the ah around
 		 * no longer apply.  However it's common for the first ws
 		 * protocol data to have been coalesced with the browser
@@ -1712,17 +1744,14 @@ upgrade_ws:
 		 */
 
 		lwsl_info("%s: %p: inheriting ws ah (rxpos:%d, rxlen:%d)\n",
-			  __func__, wsi, wsi->ah->rxpos,
-			  wsi->ah->rxlen);
+			  __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
 		lws_pt_lock(pt);
 
-		lws_union_transition(wsi, LWSCM_WS_SERVING);
+		if (wsi->h2_stream_carries_ws)
+			lws_union_transition(wsi, LWSCM_HTTP2_WS_SERVING);
+		else
+			lws_union_transition(wsi, LWSCM_WS_SERVING);
 		/*
-		 * first service is WS mode will notice this, use the RX and
-		 * then detach the ah (caution: we are not in u.hdr union
-		 * mode any more then... ah_temp member is at start the same
-		 * though)
-		 *
 		 * Because rxpos/rxlen shows something in the ah, we will get
 		 * service guaranteed next time around the event loop
 		 */
