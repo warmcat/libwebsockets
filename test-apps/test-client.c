@@ -43,7 +43,7 @@ struct lws_poly_gen {
 
 #define block_size (3 * 4096)
 
-static int deny_deflate, longlived, mirror_lifetime, test_post;
+static int deny_deflate, longlived, mirror_lifetime, test_post, once;
 static struct lws *wsi_dumb, *wsi_mirror;
 static struct lws *wsi_multi[3];
 static volatile int force_exit;
@@ -360,7 +360,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			    "rxb %d, rx_count %d\n", mirror_lifetime, rxb,
 			    rx_count);
 		wsi_mirror = NULL;
-		if (flag_echo)
+		if (flag_echo || once)
 			force_exit = 1;
 		break;
 
@@ -536,6 +536,7 @@ static struct option options[] = {
 	{ "justmirror",	no_argument,		NULL, 'j' },
 	{ "longlived",	no_argument,		NULL, 'l' },
 	{ "post",	no_argument,		NULL, 'o' },
+	{ "once",	no_argument,		NULL, 'O' },
 	{ "pingpong-secs", required_argument,	NULL, 'P' },
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
@@ -584,7 +585,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:moe", options,
+		n = getopt_long(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:moeO", options,
 				NULL);
 		if (n < 0)
 			continue;
@@ -627,6 +628,9 @@ int main(int argc, char **argv)
 			break;
 		case 'o':
 			test_post = 1;
+			break;
+		case 'O':
+			once = 1;
 			break;
 		case 'n':
 			flag_no_mirror_traffic = 1;

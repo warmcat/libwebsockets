@@ -22,35 +22,6 @@
 #include "private-libwebsockets.h"
 
 int
-lws_alloc_vfs_file(struct lws_context *context, const char *filename,
-		   uint8_t **buf, lws_filepos_t *amount)
-{
-	lws_filepos_t len;
-	lws_fop_flags_t	flags = LWS_O_RDONLY;
-	lws_fop_fd_t fops_fd = lws_vfs_file_open(
-				lws_get_fops(context), filename, &flags);
-	int ret = 1;
-
-	if (!fops_fd)
-		return 1;
-
-	len = lws_vfs_get_length(fops_fd);
-
-	*buf = lws_malloc((size_t)len, "lws_alloc_vfs_file");
-	if (!*buf)
-		goto bail;
-
-	if (lws_vfs_file_read(fops_fd, amount, *buf, len))
-		goto bail;
-
-	ret = 0;
-bail:
-	lws_vfs_file_close(&fops_fd);
-
-	return ret;
-}
-
-int
 lws_ssl_anybody_has_buffered_read_tsi(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];

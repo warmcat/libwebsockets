@@ -278,8 +278,9 @@ lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 
 	if (!vhost->user_supplied_ssl_ctx && vhost->ssl_client_ctx)
 		SSL_CTX_free(vhost->ssl_client_ctx);
-
+#if defined(LWS_WITH_ACME)
 	lws_tls_acme_sni_cert_destroy(vhost);
+#endif
 }
 
 void
