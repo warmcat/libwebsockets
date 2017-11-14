@@ -493,6 +493,7 @@ lws_tls_server_accept(struct lws *wsi)
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
+#if defined(LWS_WITH_ACME)
 static int
 lws_tls_openssl_rsa_new_key(RSA **rsa, int bits)
 {
@@ -818,3 +819,4 @@ bail0:
 
 	return ret;
 }
+#endif

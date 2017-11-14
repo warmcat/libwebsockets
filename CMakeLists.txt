@@ -20,12 +20,12 @@ option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_UNIX_SOCK "Compile with support for UNIX domain socket" OFF)
 option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions" OFF)
 option(LWS_WITH_HTTP_PROXY "Support for rewriting HTTP proxying (requires libhubbub)" OFF)
-option(LWS_WITH_ZIP_FOPS "Support serving pre-zipped files" ON)
+option(LWS_WITH_ZIP_FOPS "Support serving pre-zipped files" OFF)
 option(LWS_WITH_SOCKS5 "Allow use of SOCKS5 proxy on client connections" OFF)
 option(LWS_WITH_GENERIC_SESSIONS "With the Generic Sessions plugin" OFF)
 option(LWS_WITH_PEER_LIMITS "Track peers and restrict resources a single peer can allocate" OFF)
 option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OFF)
-option(LWS_WITH_RANGES "Support http ranges (RFC7233)" ON)
+option(LWS_WITH_RANGES "Support http ranges (RFC7233)" OFF)
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
 option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
 #
@@ -71,8 +71,8 @@ option(LWS_WITHOUT_TEST_FRAGGLE "Don't build the ping test application" OFF)
 #
 # Extensions (permessage-deflate)
 #
-option(LWS_WITHOUT_EXTENSIONS "Don't compile with extensions" OFF)
-option(LWS_WITH_ZLIB "Include zlib support (required for extensions)" ON)
+option(LWS_WITHOUT_EXTENSIONS "Don't compile with extensions" ON)
+option(LWS_WITH_ZLIB "Include zlib support (required for extensions)" OFF)
 option(LWS_WITH_BUNDLED_ZLIB "Use bundled zlib version (Windows only)" ${LWS_WITH_BUNDLED_ZLIB_DEFAULT})
 #
 # Helpers + misc
@@ -91,7 +91,10 @@ option(LWS_WITH_NO_LOGS "Disable all logging from being compiled in" OFF)
 option(LWS_AVOID_SIGPIPE_IGN "Android 7+ reportedly needs this" OFF)
 option(LWS_WITH_STATS "Keep statistics of lws internal operations" OFF)
 option(LWS_WITH_JWS "JSON Web Signature (RFC7515) API" OFF)
+option(LWS_WITH_GENHASH "Enable support for Generic Hash (SHA1 + SHA2 with api independent of TLS backend)" OFF)
+option(LWS_WITH_GENRSA "Enable support for Generic RSA (RSA with api independent of TLS backend)" OFF)
 option(LWS_WITH_SELFTESTS "Selftests run at context creation" OFF)
+option(LWS_WITH_GCOV "Build with gcc gcov coverage instrumentation" OFF)
 #
 # End of user settings
 #
@@ -176,6 +179,8 @@ endif()
 
 if (LWS_WITH_JWS)
  set(LWS_WITH_LEJP 1)
+ set(LWS_WITH_GENHASH 1)
+ set(LWS_WITH_GENRSA 1)
 endif()
 
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
@@ -186,6 +191,12 @@ endif()
 if (LWS_WITH_SMTP AND NOT LWS_WITH_LIBUV)
 message(STATUS "LWS_WITH_SMTP --> Enabling LWS_WITH_LIBUV")
  set(LWS_WITH_LIBUV 1)
+endif()
+
+if (LWS_WITH_PLUGINS OR LWS_WITH_CGI)
+	# sshd plugin
+ set(LWS_WITH_GENHASH 1)
+ set(LWS_WITH_GENRSA 1)
 endif()
 
 if (LWS_WITH_GENERIC_SESSIONS)
@@ -271,10 +282,8 @@ if (NOT (LWS_WITH_STATIC OR LWS_WITH_SHARED))
 	message(FATAL_ERROR "Makes no sense to compile with neither static nor shared libraries.")
 endif()
 
-if (NOT LWS_WITHOUT_EXTENSIONS)
-	if (NOT LWS_WITH_ZLIB)
-		message(FATAL_ERROR "zlib is required for extensions.")
-	endif()
+if (NOT LWS_WITHOUT_EXTENSIONS OR LWS_WITH_ZIP_FOPS)
+	set(LWS_WITH_ZLIB 1)
 endif()
 
 set(LWS_ZLIB_LIBRARIES CACHE PATH "Path to the zlib library")
@@ -728,15 +737,31 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				lib/tls/mbedtls/ssl.c
-				lib/tls/mbedtls/lws-genhash.c
-				lib/tls/mbedtls/lws-genrsa.c
 			)
+			if (LWS_WITH_GENHASH)
+				list(APPEND SOURCES
+					lib/tls/mbedtls/lws-genhash.c
+				)
+			endif()
+			if (LWS_WITH_GENRSA)
+				list(APPEND SOURCES
+					lib/tls/mbedtls/lws-genrsa.c
+				)
+			endif()
 		else()
 			list(APPEND SOURCES
 				lib/tls/openssl/ssl.c
-				lib/tls/openssl/lws-genhash.c
-				lib/tls/openssl/lws-genrsa.c
 			)
+			if (LWS_WITH_GENHASH)
+				list(APPEND SOURCES
+					lib/tls/openssl/lws-genhash.c
+				)
+			endif()
+			if (LWS_WITH_GENRSA)
+				list(APPEND SOURCES
+					lib/tls/openssl/lws-genrsa.c
+				)
+			endif()
 		endif()
 		
 	if (NOT LWS_WITHOUT_SERVER)
@@ -744,10 +769,10 @@ if (LWS_WITH_SSL)
 			lib/server/ssl-server.c)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
-				lib/tls/mbedtls/server.c)
+				lib/tls/mbedtls/mbedtls-server.c)
 		else()
 			list(APPEND SOURCES
-				lib/tls/openssl/server.c)
+				lib/tls/openssl/openssl-server.c)
 		endif()
 	endif()
 	if (NOT LWS_WITHOUT_CLIENT)
@@ -755,10 +780,10 @@ if (LWS_WITH_SSL)
 		lib/client/ssl-client.c)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
-				lib/tls/mbedtls/client.c)
+				lib/tls/mbedtls/mbedtls-client.c)
 		else()
 			list(APPEND SOURCES
-				lib/tls/openssl/client.c)
+				lib/tls/openssl/openssl-client.c)
 		endif()
 		
 	endif()
@@ -908,10 +933,13 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
     if (LWS_HAVE_VISIBILITY)
                 set(VISIBILITY_FLAG -fvisibility=hidden)
     endif()
+    if (LWS_WITH_GCOV)
+	    set (GCOV_FLAGS "-fprofile-arcs -ftest-coverage -O0")
+    endif()
     if ((UNIX OR LWS_WITH_ESP8266) AND NOT LWS_WITH_ESP32)
-	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${CMAKE_C_FLAGS}" )
+	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
     else()
-               set(CMAKE_C_FLAGS "-Wall ${VISIBILITY_FLAG} ${CMAKE_C_FLAGS}" )
+	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
     endif()
 endif ()
 

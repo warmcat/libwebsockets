@@ -328,6 +328,7 @@ lws_tls_server_accept(struct lws *wsi)
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
+#if defined(LWS_WITH_ACME)
 /*
  * mbedtls doesn't support SAN for cert creation.  So we use a known-good
  * tls-sni-01 cert from OpenSSL that worked on Let's Encrypt, and just replace
@@ -620,4 +621,4 @@ fail:
 	return -1;
 }
 #endif
-
+#endif

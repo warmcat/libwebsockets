@@ -431,14 +431,25 @@ Testing with h2spec (https://github.com/summerwind/h2spec)
         $ h2spec  -h 127.0.0.1 -p 7681 -t -k -v -o 1
 ```
 
-At the time of writing, http/2 support is not fully complete; however all the
-h2spec tests pass.
-
 ```
-145 tests, 144 passed, 1 skipped, 0 failed
+145 tests, 145 passed, 0 skipped, 0 failed
 
 ```
 
+@section coverage Automated Coverage Testing
+
+./test-apps/attack.sh contains scripted tests that are the basis
+of the automated test coverage assessment available for gcc and clang.
+
+To reproduce
+
+ $ cd build
+ $ cmake .. -DLWS_WITH_GCOV=1 -DCMAKE_BUILD_TYPE=DEBUG
+ $ ../scripts/build-gcov.sh
+ $ ../test-apps/attack.sh
+ $ ../scripts/gcov.sh
+...
+Lines executed:51.24% of 8279
 
 @section windowsprebuilt Using Windows binary builds on Appveyor
 
