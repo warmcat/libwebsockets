@@ -101,7 +101,6 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 	 */
 	new_wsi->protocol = context->vhost_list->protocols;
 	new_wsi->user_space = NULL;
-	new_wsi->ietf_spec_revision = 0;
 	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
 	context->count_wsi_allocated++;
 
