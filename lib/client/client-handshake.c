@@ -710,11 +710,22 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	 * not even be able to get ahold of an ah at this point.
 	 */
 
-	/* -1 means just use latest supported */
-	if (i->ietf_version_or_minus_one != -1 && i->ietf_version_or_minus_one)
-		v = i->ietf_version_or_minus_one;
+	if (!i->method) { /* ie, ws */
+		/* allocate the ws struct for the wsi */
+		wsi->ws = lws_zalloc(sizeof(*wsi->ws), "client ws struct");
+		if (!wsi->ws) {
+			lwsl_notice("OOM\n");
+			goto bail;
+		}
 
-	wsi->ietf_spec_revision = v;
+		/* -1 means just use latest supported */
+		if (i->ietf_version_or_minus_one != -1 &&
+		    i->ietf_version_or_minus_one)
+			v = i->ietf_version_or_minus_one;
+
+		wsi->ws->ietf_spec_revision = v;
+	}
+
 	wsi->user_space = NULL;
 	wsi->state = LWSS_CLIENT_UNCONNECTED;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;

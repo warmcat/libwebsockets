@@ -154,9 +154,9 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			case LWSS_HTTP_ISSUING_FILE:
 				goto read_ok;
 			case LWSS_HTTP_BODY:
-				wsi->u.http.rx_content_remain =
-						wsi->u.http.rx_content_length;
-				if (wsi->u.http.rx_content_remain)
+				wsi->http.rx_content_remain =
+						wsi->http.rx_content_length;
+				if (wsi->http.rx_content_remain)
 					goto http_postbody;
 
 				/* there is no POST content */
@@ -169,13 +169,13 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	case LWSS_HTTP_BODY:
 http_postbody:
 		//lwsl_notice("http post body\n");
-		while (len && wsi->u.http.rx_content_remain) {
+		while (len && wsi->http.rx_content_remain) {
 			/* Copy as much as possible, up to the limit of:
 			 * what we have in the read buffer (len)
 			 * remaining portion of the POST body (content_remain)
 			 */
-			body_chunk_len = min(wsi->u.http.rx_content_remain, len);
-			wsi->u.http.rx_content_remain -= body_chunk_len;
+			body_chunk_len = min(wsi->http.rx_content_remain, len);
+			wsi->http.rx_content_remain -= body_chunk_len;
 			len -= body_chunk_len;
 #ifdef LWS_WITH_CGI
 			if (wsi->cgi) {
@@ -207,7 +207,7 @@ http_postbody:
 #endif
 			buf += n;
 
-			if (wsi->u.http.rx_content_remain)  {
+			if (wsi->http.rx_content_remain)  {
 				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 						wsi->context->timeout_secs);
 				break;

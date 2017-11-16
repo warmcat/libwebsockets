@@ -77,7 +77,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
 		lws_snprintf(wsi->access_log.header_log, l,
 			 "%s - - [%s] \"%s %s %s\"",
 			 pa, da, me, uri_ptr,
-			 hver[wsi->u.http.request_version]);
+			 hver[wsi->http.request_version]);
 
 		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
 		if (l) {

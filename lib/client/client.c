@@ -41,7 +41,7 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 				lws_rxflow_cache(wsi, *buf, 0, (int)len);
 				return 0;
 			}
-			if (wsi->u.ws.rx_draining_ext) {
+			if (wsi->ws->rx_draining_ext) {
 #if !defined(LWS_NO_CLIENT)
 				if (wsi->mode == LWSCM_WS_CLIENT)
 					m = lws_client_rx_sm(wsi, 0);
@@ -474,7 +474,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 {
 	lwsl_debug("%s: wsi %p\n", __func__, wsi);
 	/* if we can't go back to accept new headers, drop the connection */
-	if (wsi->u.http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
+	if (wsi->http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
 		lwsl_info("%s: %p: close connection\n", __func__, wsi);
 		return 1;
 	}
@@ -485,7 +485,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	/* otherwise set ourselves up ready to go again */
 	wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
 	wsi->mode = LWSCM_HTTP_CLIENT_ACCEPTED;
-	wsi->u.http.rx_content_length = 0;
+	wsi->http.rx_content_length = 0;
 	wsi->hdr_parsing_completed = 0;
 
 	/* He asked for it to stay alive indefinitely */
@@ -568,7 +568,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	 *
 	 */
 
-	wsi->u.http.connection_type = HTTP_CONNECTION_KEEP_ALIVE;
+	wsi->http.connection_type = HTTP_CONNECTION_KEEP_ALIVE;
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
 	if (wsi->do_ws && !p) {
 		lwsl_info("no URI\n");
@@ -577,7 +577,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	}
 	if (!p) {
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP1_0);
-		wsi->u.http.connection_type = HTTP_CONNECTION_CLOSE;
+		wsi->http.connection_type = HTTP_CONNECTION_CLOSE;
 	}
 	if (!p) {
 		cce = "HS: URI missing";
@@ -697,17 +697,17 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-			wsi->u.http.rx_content_length =
+			wsi->http.rx_content_length =
 					atoll(lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_CONTENT_LENGTH));
 			lwsl_notice("%s: incoming content length %llu\n",
 				    __func__, (unsigned long long)
-					    wsi->u.http.rx_content_length);
-			wsi->u.http.rx_content_remain =
-					wsi->u.http.rx_content_length;
+					    wsi->http.rx_content_length);
+			wsi->http.rx_content_remain =
+					wsi->http.rx_content_length;
 		} else /* can't do 1.1 without a content length or chunked */
 			if (!wsi->chunked)
-				wsi->u.http.connection_type =
+				wsi->http.connection_type =
 							HTTP_CONNECTION_CLOSE;
 
 		/*
@@ -1063,14 +1063,14 @@ check_accept:
 	if (!n)
 		n = context->pt_serv_buf_size;
 	n += LWS_PRE;
-	wsi->u.ws.rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */,
+	wsi->ws->rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */,
 				"client frame buffer");
-	if (!wsi->u.ws.rx_ubuf) {
+	if (!wsi->ws->rx_ubuf) {
 		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
 		cce = "HS: OOM";
 		goto bail2;
 	}
-       wsi->u.ws.rx_ubuf_alloc = n;
+       wsi->ws->rx_ubuf_alloc = n;
 	lwsl_info("Allocating client RX buffer %d\n", n);
 
 #if !defined(LWS_WITH_ESP32)
@@ -1287,9 +1287,9 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			p += sprintf(p, "\x0d\x0a");
 #endif
 
-		if (wsi->ietf_spec_revision)
+		if (wsi->ws->ietf_spec_revision)
 			p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
-				     wsi->ietf_spec_revision);
+				     wsi->ws->ietf_spec_revision);
 
 		/* prepare the expected server accept response */
 
