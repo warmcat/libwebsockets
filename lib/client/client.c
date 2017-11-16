@@ -258,9 +258,10 @@ start_ws_handshake:
 #ifdef LWS_OPENSSL_SUPPORT
 		/* we can retry this... just cook the SSL BIO the first time */
 
-		if (wsi->use_ssl && !wsi->ssl) {
-			if (lws_ssl_client_bio_create(wsi))
-				return -1;
+		if (wsi->use_ssl && !wsi->ssl &&
+		    lws_ssl_client_bio_create(wsi) < 0) {
+			cce = "bio_create failed";
+			goto bail3;
 		}
 
 		if (wsi->use_ssl) {
