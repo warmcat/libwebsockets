@@ -127,13 +127,13 @@ int lws_h2_configure_if_upgraded(struct lws *wsi)
 
 	/* adopt the header info */
 
-	ah = wsi->u.hdr.ah;
+	ah = wsi->ah;
 
 	lws_union_transition(wsi, LWSCM_HTTP2_SERVING);
 	wsi->state = LWSS_HTTP2_AWAIT_CLIENT_PREFACE;
 
 	/* http2 union member has http union struct at start */
-	wsi->u.http.ah = ah;
+	wsi->ah = ah;
 
 	wsi->u.h2.h2n = lws_zalloc(sizeof(*wsi->u.h2.h2n), "h2n");
 	if (!wsi->u.h2.h2n)

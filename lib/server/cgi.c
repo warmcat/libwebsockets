@@ -196,7 +196,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 	if (lws_is_ssl(wsi))
 		env_array[n++] = "HTTPS=ON";
-	if (wsi->u.hdr.ah) {
+	if (wsi->ah) {
 		static const unsigned char meths[] = {
 			WSI_TOKEN_GET_URI,
 			WSI_TOKEN_POST_URI,

@@ -196,7 +196,7 @@ socks_reply_fail:
 			lwsl_client("socks connect OK\n");
 
 			/* free stash since we are done with it */
-			lws_free_set_NULL(wsi->u.hdr.stash);
+			lws_free_set_NULL(wsi->stash);
 			if (lws_hdr_simple_create(wsi,
 						  _WSI_TOKEN_CLIENT_PEER_ADDRESS,
 						  wsi->vhost->socks_proxy_address))
@@ -350,8 +350,8 @@ start_ws_handshake:
 			break;
 		}
 client_http_body_sent:
-		wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
-		wsi->u.hdr.lextable_pos = 0;
+		wsi->ah->parser_state = WSI_TOKEN_NAME_PART;
+		wsi->ah->lextable_pos = 0;
 		wsi->mode = LWSCM_WSCL_WAITING_SERVER_REPLY;
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				context->timeout_secs);
@@ -391,7 +391,7 @@ client_http_body_sent:
 		 * definitively ready from browser pov.
 		 */
 		len = 1;
-		while (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE &&
+		while (wsi->ah->parser_state != WSI_PARSING_COMPLETE &&
 		       len > 0) {
 			n = lws_ssl_capable_read(wsi, &c, 1);
 			lws_latency(context, wsi, "send lws_issue_raw", n,
@@ -416,7 +416,7 @@ client_http_body_sent:
 		 * libwebsocket timeout still active here too, so if parsing did
 		 * not complete just wait for next packet coming in this state
 		 */
-		if (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE)
+		if (wsi->ah->parser_state != WSI_PARSING_COMPLETE)
 			break;
 
 		/*
@@ -495,13 +495,13 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	 * As client, nothing new is going to come until we ask for it
 	 * we can drop the ah, if any
 	 */
-	if (wsi->u.hdr.ah) {
+	if (wsi->ah) {
 		lws_header_table_force_to_detachable_state(wsi);
 		lws_header_table_detach(wsi, 0);
 	}
 
 	/* If we're (re)starting on headers, need other implied init */
-	wsi->u.hdr.ues = URIES_IDLE;
+	wsi->ues = URIES_IDLE;
 
 	lwsl_info("%s: %p: keep-alive await new transaction\n", __func__, wsi);
 
@@ -512,10 +512,10 @@ lws_http_transaction_completed_client(struct lws *wsi)
 LWS_VISIBLE LWS_EXTERN unsigned int
 lws_http_client_http_response(struct lws *wsi)
 {
-	if (!wsi->u.http.ah)
+	if (!wsi->ah)
 		return 0;
 
-	return wsi->u.http.ah->http_response;
+	return wsi->ah->http_response;
 }
 
 int
@@ -539,16 +539,16 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	int more = 1;
 	void *v;
 #endif
-	if (wsi->u.hdr.stash)
-		lws_free_set_NULL(wsi->u.hdr.stash);
+	if (wsi->stash)
+		lws_free_set_NULL(wsi->stash);
 
-	ah = wsi->u.hdr.ah;
+	ah = wsi->ah;
 	if (!wsi->do_ws) {
 		/* we are being an http client...
 		 */
 		lws_union_transition(wsi, LWSCM_HTTP_CLIENT_ACCEPTED);
 		wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
-		wsi->u.http.ah = ah;
+		wsi->ah = ah;
 		ah->http_response = 0;
 	}
 
@@ -1017,9 +1017,9 @@ check_accept:
 	 */
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_ACCEPT);
-	if (strcmp(p, wsi->u.hdr.ah->initial_handshake_hash_base64)) {
+	if (strcmp(p, wsi->ah->initial_handshake_hash_base64)) {
 		lwsl_warn("lws_client_int_s_hs: accept '%s' wrong vs '%s'\n", p,
-				  wsi->u.hdr.ah->initial_handshake_hash_base64);
+				  wsi->ah->initial_handshake_hash_base64);
 		cce = "HS: Accept hash wrong";
 		goto bail2;
 	}
@@ -1300,8 +1300,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		lws_SHA1((unsigned char *)buf, n, (unsigned char *)hash);
 
 		lws_b64_encode_string(hash, 20,
-			  wsi->u.hdr.ah->initial_handshake_hash_base64,
-			  sizeof(wsi->u.hdr.ah->initial_handshake_hash_base64));
+			  wsi->ah->initial_handshake_hash_base64,
+			  sizeof(wsi->ah->initial_handshake_hash_base64));
 	}
 
 	/* give userland a chance to append, eg, cookies */

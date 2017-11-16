@@ -202,7 +202,7 @@ static int huftable_decode(int pos, char c)
 
 static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 {
-	struct allocated_headers *ah = wsi->u.h2.http.ah;
+	struct allocated_headers *ah = wsi->ah;
 
 	if (!ah) {
 		lwsl_notice("%s: no ah\n", __func__);
@@ -254,7 +254,7 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 
 static int lws_frag_append(struct lws *wsi, unsigned char c)
 {
-	struct allocated_headers * ah = wsi->u.h2.http.ah;
+	struct allocated_headers *ah = wsi->ah;
 
 	ah->data[ah->pos++] = c;
 	ah->frags[ah->nfrag].len++;
@@ -269,16 +269,16 @@ static int lws_frag_end(struct lws *wsi)
 		return 1;
 
 	/* don't account for the terminating NUL in the logical length */
-	wsi->u.h2.http.ah->frags[wsi->u.h2.http.ah->nfrag].len--;
+	wsi->ah->frags[wsi->ah->nfrag].len--;
 
-	wsi->u.h2.http.ah->nfrag++;
+	wsi->ah->nfrag++;
 	return 0;
 }
 
 int
 lws_hdr_extant(struct lws *wsi, enum lws_token_indexes h)
 {
-	struct allocated_headers *ah = wsi->u.h2.http.ah;
+	struct allocated_headers *ah = wsi->ah;
 	int n;
 
 	if (!ah)
@@ -748,7 +748,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	struct lws_h2_netconn *h2n = nwsi->u.h2.h2n;
-	struct allocated_headers *ah = wsi->u.h2.http.ah;
+	struct allocated_headers *ah = wsi->ah;
 	unsigned int prev;
 	unsigned char c1;
 	int n, m;
@@ -775,7 +775,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		h2n->ext_count = 0;
 		h2n->hpack_hdr_len = 0;
 		h2n->unknown_header = 0;
-		wsi->u.hdr.parser_state = 255;
+		ah->parser_state = 255;
 
 		if (c & 0x80) { /* 1....  indexed header field only */
 			/* just a possibly-extended integer */
@@ -963,8 +963,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 pre_data:
 		h2n->hpack = HPKS_DATA;
 		if (!h2n->value || !h2n->hdr_idx) {
-			wsi->u.hdr.parser_state = WSI_TOKEN_NAME_PART;
-			wsi->u.hdr.lextable_pos = 0;
+			ah->parser_state = WSI_TOKEN_NAME_PART;
+			ah->lextable_pos = 0;
 			h2n->unknown_header = 0;
 			break;
 		}
@@ -972,7 +972,7 @@ pre_data:
 		if (h2n->hpack_type == HPKT_LITERAL_HDR_VALUE ||
 		    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_INCR ||
 		    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_NEVER) {
-			n = wsi->u.hdr.parser_state;
+			n = ah->parser_state;
 			if (n == 255) {
 				n = -1;
 				h2n->hdr_idx = -1;
@@ -1091,7 +1091,7 @@ pre_data:
 				/*
 				 * Convert name using existing parser,
 			 	 * If h2n->unknown_header == 0, result is
-			 	 * in wsi->u.hdr.parser_state
+				 * in wsi->parser_state
 			 	 * using WSI_TOKEN_GET_URI.
 			 	 *
 			 	 * If unknown header h2n->unknown_header
@@ -1139,19 +1139,19 @@ swallow:
 		    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_INCR ||
 		    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_NEVER)) {
 			h2n->hdr_idx = LWS_HPACK_IGNORE_ENTRY;
-			lwsl_header("wsi->u.hdr.parser_state: %d\n",
-				    wsi->u.hdr.parser_state);
+			lwsl_header("wsi->parser_state: %d\n",
+					ah->parser_state);
 
-			if (wsi->u.hdr.parser_state == WSI_TOKEN_NAME_PART) {
+			if (ah->parser_state == WSI_TOKEN_NAME_PART) {
 				/* h2 headers come without the colon */
 				n = lws_parse(wsi, ':');
 				(void)n;
 			}
 
-			if (wsi->u.hdr.parser_state == WSI_TOKEN_NAME_PART ||
-			    wsi->u.hdr.parser_state == WSI_TOKEN_SKIPPING) {
+			if (ah->parser_state == WSI_TOKEN_NAME_PART ||
+			    ah->parser_state == WSI_TOKEN_SKIPPING) {
 				h2n->unknown_header = 1;
-				wsi->u.hdr.parser_state = -1;
+				ah->parser_state = -1;
 				wsi->seen_nonpseudoheader = 1;
 			}
 		}
@@ -1189,14 +1189,14 @@ swallow:
 			 * hdr is a new literal, so length is already in
 			 * h2n->hpack_hdr_len
 			 */
-			m = wsi->u.hdr.parser_state;
+			m = ah->parser_state;
 			if (h2n->unknown_header ||
-			    wsi->u.hdr.parser_state == WSI_TOKEN_NAME_PART ||
-			    wsi->u.hdr.parser_state == WSI_TOKEN_SKIPPING) {
+			    ah->parser_state == WSI_TOKEN_NAME_PART ||
+			    ah->parser_state == WSI_TOKEN_SKIPPING) {
 				if (h2n->first_hdr_char == ':') {
 					lwsl_info("HPKT_LITERAL_HDR_VALUE_INCR:"
 						  " end state %d unk hdr %d\n",
-						wsi->u.hdr.parser_state,
+						  ah->parser_state,
 						h2n->unknown_header);
 					/* unknown pseudoheaders are illegal */
 					lws_h2_goaway(nwsi,
@@ -1233,14 +1233,12 @@ add_it:
 			if (h2n->hpack_type == HPKT_LITERAL_HDR_VALUE ||
 			    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_INCR ||
 			    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_NEVER) {
-				m = wsi->u.hdr.parser_state;
+				m = ah->parser_state;
 				if (m == 255)
 					m = -1;
-			} else {
-				m = lws_token_from_index(wsi, h2n->hdr_idx, NULL, NULL,
-							 NULL);
-				//lwsl_notice("token from index(%d) says %d\n", h2n->hdr_idx, m);
-			}
+			} else
+				m = lws_token_from_index(wsi, h2n->hdr_idx,
+							 NULL, NULL, NULL);
 		}
 
 		if (m != -1 && m != LWS_HPACK_IGNORE_ENTRY)
