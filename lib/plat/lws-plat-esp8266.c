@@ -326,7 +326,7 @@ esp8266_cb_rx(void *arg, char *data, unsigned short len)
 	 * if we're doing HTTP headers, and we have no ah, check if there is
 	 * a free ah, if not, have to buffer it
 	 */
-	if (!wsi->hdr_parsing_completed && !wsi->u.hdr.ah) {
+	if (!wsi->hdr_parsing_completed && !wsi->ah) {
 		for (n = 0; n < wsi->context->max_http_header_pool; n++)
 			if (!pt->ah_pool[n].in_use)
 				break;

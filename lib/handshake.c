@@ -114,7 +114,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		/* fallthru */
 
 	case LWSS_HTTP_HEADERS:
-		if (!wsi->u.hdr.ah) {
+		if (!wsi->ah) {
 			lwsl_err("%s: LWSS_HTTP_HEADERS: NULL ah\n", __func__);
 			assert(0);
 		}

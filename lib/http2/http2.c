@@ -581,11 +581,11 @@ int lws_h2_do_pps_send(struct lws *wsi)
 				goto bail;
 
 			/* pass on the initial headers to SID 1 */
-			h2n->swsi->u.http.ah = wsi->u.http.ah;
-			wsi->u.http.ah = NULL;
+			h2n->swsi->ah = wsi->ah;
+			wsi->ah = NULL;
 
 			lwsl_info("%s: inherited headers %p\n", __func__,
-				  h2n->swsi->u.http.ah);
+				  h2n->swsi->ah);
 			h2n->swsi->u.h2.tx_cr =
 				h2n->set.s[H2SET_INITIAL_WINDOW_SIZE];
 			lwsl_info("initial tx credit on conn %p: %d\n",
@@ -973,7 +973,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * ah needs attaching to child wsi, even though
 		 * we only fill it from network wsi
 		 */
-		if (!h2n->swsi->u.hdr.ah)
+		if (!h2n->swsi->ah)
 			if (lws_header_table_attach(h2n->swsi, 0)) {
 				lwsl_err("%s: Failed to get ah\n", __func__);
 				return 1;
@@ -1191,8 +1191,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		p = lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_HTTP_COLON_METHOD);
 		if (!strcmp(p, "POST"))
-			h2n->swsi->u.hdr.ah->frag_index[WSI_TOKEN_POST_URI] =
-				h2n->swsi->u.hdr.ah->frag_index[WSI_TOKEN_HTTP_COLON_PATH];
+			h2n->swsi->ah->frag_index[WSI_TOKEN_POST_URI] =
+				h2n->swsi->ah->frag_index[WSI_TOKEN_HTTP_COLON_PATH];
 
 		wsi->vhost->conn_stats.h2_trans++;
 
