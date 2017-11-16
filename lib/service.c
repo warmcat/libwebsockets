@@ -601,7 +601,7 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 				  "(did hdr %d, ah %p, wl %d, pfd "
 				  "events %d) %llu vs %llu\n",
 				  (void *)wsi, wsi->pending_timeout,
-				  wsi->hdr_parsing_completed, wsi->u.hdr.ah,
+				  wsi->hdr_parsing_completed, wsi->ah,
 				  pt->ah_wait_list_length, n,
 				  (unsigned long long)sec,
 				  (unsigned long long)wsi->pending_timeout_limit);
@@ -1470,12 +1470,12 @@ read:
 		/* all the union members start with hdr, so even in ws mode
 		 * we can deal with the ah via u.hdr
 		 */
-		if (wsi->u.hdr.ah) {
+		if (wsi->ah) {
 			lwsl_info("%s: %p: inherited ah rx\n", __func__, wsi);
-			eff_buf.token_len = wsi->u.hdr.ah->rxlen -
-					    wsi->u.hdr.ah->rxpos;
-			eff_buf.token = (char *)wsi->u.hdr.ah->rx +
-					wsi->u.hdr.ah->rxpos;
+			eff_buf.token_len = wsi->ah->rxlen -
+					    wsi->ah->rxpos;
+			eff_buf.token = (char *)wsi->ah->rx +
+					wsi->ah->rxpos;
 		} else {
 			if (wsi->mode != LWSCM_HTTP_CLIENT_ACCEPTED) {
 				/*
@@ -1618,7 +1618,7 @@ drain:
 			eff_buf.token_len = 0;
 		} while (more);
 
-		if (wsi->u.hdr.ah) {
+		if (wsi->ah) {
 			lwsl_debug("%s: %p: detaching\n", __func__, wsi);
 			lws_header_table_force_to_detachable_state(wsi);
 			/* we can run the normal ah detach flow despite

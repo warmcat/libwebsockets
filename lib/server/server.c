@@ -488,7 +488,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_RANGE))
 		if (strcmp(sym, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_IF_RANGE)))
 			/* differs - defeat Range: */
-			wsi->u.http.ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
+			wsi->ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_NONE_MATCH)) {
 		/*
@@ -1334,11 +1334,9 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
-	int protocol_len, n = 0, hit, non_space_char_found = 0, m;
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	struct _lws_header_related hdr;
-	struct allocated_headers *ah;
+	int protocol_len, n = 0, hit, non_space_char_found = 0, m;
 	unsigned char *obuf = *buf;
 	char protocol_list[128];
 	char protocol_name[64];
@@ -1350,7 +1348,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		assert(0);
 	}
 
-	if (!wsi->u.hdr.ah) {
+	if (!wsi->ah) {
 		lwsl_err("%s: assert: NULL ah\n", __func__);
 		assert(0);
 	}
@@ -1401,7 +1399,7 @@ raw_transition:
 			goto bail_nuke_ah;
 		}
 
-		if (wsi->u.hdr.parser_state != WSI_PARSING_COMPLETE)
+		if (wsi->ah->parser_state != WSI_PARSING_COMPLETE)
 			continue;
 
 		lwsl_parser("%s: lws_parse sees parsing complete\n", __func__);
@@ -1511,16 +1509,13 @@ raw_transition:
 		/* no upgrade ack... he remained as HTTP */
 
 		lwsl_info("No upgrade\n");
-		ah = wsi->u.hdr.ah;
 
 		lws_union_transition(wsi, LWSCM_HTTP_SERVING_ACCEPTED);
 		wsi->state = LWSS_HTTP;
 		wsi->u.http.fop_fd = NULL;
 
-		/* expose it at the same offset as u.hdr */
-		wsi->u.http.ah = ah;
 		lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi,
-			   (void *)wsi->u.hdr.ah);
+			   (void *)wsi->ah);
 
 		n = lws_http_action(wsi);
 
@@ -1546,12 +1541,7 @@ upgrade_h2c:
 
 		/* adopt the header info */
 
-		ah = wsi->u.hdr.ah;
-
 		lws_union_transition(wsi, LWSCM_HTTP2_SERVING);
-
-		/* http2 union member has http union struct at start */
-		wsi->u.http.ah = ah;
 
 		if (!wsi->u.h2.h2n) {
 			wsi->u.h2.h2n = lws_zalloc(sizeof(*wsi->u.h2.h2n),
@@ -1712,10 +1702,9 @@ upgrade_ws:
 		 */
 
 		lwsl_info("%s: %p: inheriting ws ah (rxpos:%d, rxlen:%d)\n",
-			  __func__, wsi, wsi->u.hdr.ah->rxpos,
-			  wsi->u.hdr.ah->rxlen);
+			  __func__, wsi, wsi->ah->rxpos,
+			  wsi->ah->rxlen);
 		lws_pt_lock(pt);
-		hdr = wsi->u.hdr;
 
 		lws_union_transition(wsi, LWSCM_WS_SERVING);
 		/*
@@ -1726,12 +1715,8 @@ upgrade_ws:
 		 *
 		 * Because rxpos/rxlen shows something in the ah, we will get
 		 * service guaranteed next time around the event loop
-		 *
-		 * All union members begin with hdr, so we can use it even
-		 * though we transitioned to ws union mode (the ah detach
-		 * code uses it anyway).
 		 */
-		wsi->u.hdr = hdr;
+
 		lws_pt_unlock(pt);
 
 		lws_server_init_wsi_for_ws(wsi);
@@ -1893,7 +1878,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * that is already at least the start of another header set, simply
 	 * reset the existing header table and keep it.
 	 */
-	if (wsi->u.hdr.ah) {
+	if (wsi->ah) {
 		lwsl_debug("%s: wsi->more_rx_waiting=%d\n", __func__,
 				wsi->more_rx_waiting);
 
@@ -1930,7 +1915,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	}
 
 	/* If we're (re)starting on headers, need other implied init */
-	wsi->u.hdr.ues = URIES_IDLE;
+	wsi->ah->ues = URIES_IDLE;
 
 	lwsl_info("%s: %p: keep-alive await new transaction\n", __func__, wsi);
 
@@ -2173,8 +2158,8 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	 * readbuf data to wsi or ah yet, and we will do it next if we get
 	 * the ah.
 	 */
-	if (wsi->u.hdr.ah || !lws_header_table_attach(wsi, 0)) {
-		ah = wsi->u.hdr.ah;
+	if (wsi->ah || !lws_header_table_attach(wsi, 0)) {
+		ah = wsi->ah;
 		memcpy(ah->rx, readbuf, len);
 		ah->rxpos = 0;
 		ah->rxlen = (int16_t)len;
@@ -2204,13 +2189,13 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	 * later successful lws_header_table_attach() will apply the
 	 * below to the rx buffer (via lws_header_table_reset()).
 	 */
-	wsi->u.hdr.preamble_rx = lws_malloc(len, "preamble_rx");
-	if (!wsi->u.hdr.preamble_rx) {
+	wsi->preamble_rx = lws_malloc(len, "preamble_rx");
+	if (!wsi->preamble_rx) {
 		lwsl_err("OOM\n");
 		goto bail;
 	}
-	memcpy(wsi->u.hdr.preamble_rx, readbuf, len);
-	wsi->u.hdr.preamble_rx_len = (int)len;
+	memcpy(wsi->preamble_rx, readbuf, len);
+	wsi->preamble_rx_len = (int)len;
 
 	return wsi;
 
@@ -2304,14 +2289,14 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		if (wsi->mode != LWSCM_RAW && (wsi->state == LWSS_HTTP ||
 		    wsi->state == LWSS_HTTP_ISSUING_FILE ||
 		    wsi->state == LWSS_HTTP_HEADERS)) {
-			if (!wsi->u.hdr.ah) {
+			if (!wsi->ah) {
 				/* no autoservice beacuse we will do it next */
 				if (lws_header_table_attach(wsi, 0)) {
 					lwsl_info("wsi %p: ah get fail\n", wsi);
 					goto try_pollout;
 				}
 			}
-			ah = wsi->u.hdr.ah;
+			ah = wsi->ah;
 
 			/* if nothing in ah rx buffer, get some fresh rx */
 			if (ah->rxpos == ah->rxlen) {
@@ -2363,14 +2348,14 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			if (n < 0) /* we closed wsi */
 				return 1;
 
-			if (!wsi->u.hdr.ah)
+			if (!wsi->ah)
 				break;
-			if ( wsi->u.hdr.ah->rxlen)
-				 wsi->u.hdr.ah->rxpos += n;
+			if ( wsi->ah->rxlen)
+				 wsi->ah->rxpos += n;
 
 			lwsl_debug("%s: wsi %p: ah read rxpos %d, rxlen %d\n",
-				   __func__, wsi, wsi->u.hdr.ah->rxpos,
-				   wsi->u.hdr.ah->rxlen);
+				   __func__, wsi, wsi->ah->rxpos,
+				   wsi->ah->rxlen);
 
 			if (lws_header_table_is_in_detachable_state(wsi) &&
 			    (wsi->mode != LWSCM_HTTP_SERVING &&

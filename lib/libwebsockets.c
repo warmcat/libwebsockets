@@ -432,8 +432,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	    wsi->mode == LWSCM_WSCL_WAITING_SOCKS_GREETING_REPLY ||
 	    wsi->mode == LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY ||
 	    wsi->mode == LWSCM_WSCL_WAITING_SOCKS_AUTH_REPLY)
-		if (wsi->u.hdr.stash)
-			lws_free_set_NULL(wsi->u.hdr.stash);
+		if (wsi->stash)
+			lws_free_set_NULL(wsi->stash);
 #endif
 
 	if (wsi->mode == LWSCM_RAW) {
@@ -3075,7 +3075,7 @@ lws_stats_log_dump(struct lws_context *context)
 		wl = pt->ah_wait_list;
 		while (wl) {
 			m++;
-			wl = wl->u.hdr.ah_wait_list;
+			wl = wl->ah_wait_list;
 		}
 
 		lwsl_notice("  AH wait list count / actual:      %d / %d\n",

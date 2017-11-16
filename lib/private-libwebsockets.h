@@ -843,19 +843,27 @@ struct allocated_headers {
 #else
 	uint8_t rx[2048];
 #endif
-
-	int16_t rxpos;
-	int16_t rxlen;
-	uint32_t pos;
-	uint32_t http_response;
-	int hdr_token_idx;
-
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
 #endif
 
+	uint32_t pos;
+	uint32_t http_response;
+	uint32_t current_token_limit;
+	int hdr_token_idx;
+
+	int16_t rxpos;
+	int16_t rxlen;
+	int16_t lextable_pos;
+
 	uint8_t in_use;
 	uint8_t nfrag;
+	char /*enum uri_path_states */ ups;
+	char /*enum uri_esc_states */ ues;
+
+	char esc_stash;
+	char post_literal_equal;
+	uint8_t /* enum lws_token_indexes */ parser_state;
 };
 
 /*
@@ -1384,18 +1392,6 @@ enum uri_esc_states {
 	URIES_SEEN_PERCENT_H1,
 };
 
-/* notice that these union members:
- *
- *  hdr
- *  http
- *  http2
- *
- * all have a pointer to allocated_headers struct as their first member.
- *
- * It means for allocated_headers access, the three union paths can all be
- * used interchangeably to access the same data
- */
-
 
 #ifndef LWS_NO_CLIENT
 struct client_info_stash {
@@ -1408,25 +1404,6 @@ struct client_info_stash {
 	char iface[16];
 };
 #endif
-
-struct _lws_header_related {
-	/* MUST be first in struct */
-	struct allocated_headers *ah;
-	struct lws *ah_wait_list;
-	unsigned char *preamble_rx;
-#ifndef LWS_NO_CLIENT
-	struct client_info_stash *stash;
-#endif
-	unsigned int preamble_rx_len;
-	enum uri_path_states ups;
-	enum uri_esc_states ues;
-	short lextable_pos;
-	unsigned int current_token_limit;
-
-	char esc_stash;
-	char post_literal_equal;
-	unsigned char parser_state; /* enum lws_token_indexes */
-};
 
 #if defined(LWS_WITH_RANGES)
 enum range_states {
@@ -1456,14 +1433,6 @@ lws_ranges_reset(struct lws_range_parsing *rp);
 #endif
 
 struct _lws_http_mode_related {
-	/* MUST be first in struct */
-	struct allocated_headers *ah; /* mirroring  _lws_header_related */
-	struct lws *ah_wait_list;
-	unsigned char *preamble_rx;
-#ifndef LWS_NO_CLIENT
-	struct client_info_stash *stash;
-#endif
-	unsigned int preamble_rx_len;
 	struct lws *new_wsi_list;
 	lws_filepos_t filepos;
 	lws_filepos_t filelen;
@@ -1796,8 +1765,6 @@ struct _lws_h2_related {
 #endif
 
 struct _lws_websocket_related {
-	/* cheapest way to deal with ah overlap with ws union transition */
-	struct _lws_header_related hdr;
 	char *rx_ubuf;
 	unsigned int rx_ubuf_alloc;
 	struct lws *rx_draining_ext_list;
@@ -1912,8 +1879,8 @@ struct lws_access_log {
 #endif
 
 struct lws {
-
 	/* structs */
+
 	/* members with mutually exclusive lifetimes are unionized */
 
 	union u {
@@ -1921,7 +1888,6 @@ struct lws {
 #ifdef LWS_WITH_HTTP2
 		struct _lws_h2_related h2;
 #endif
-		struct _lws_header_related hdr;
 		struct _lws_websocket_related ws;
 	} u;
 
@@ -1955,7 +1921,12 @@ struct lws {
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *peer;
 #endif
-
+	struct allocated_headers *ah;
+	struct lws *ah_wait_list;
+	unsigned char *preamble_rx;
+#ifndef LWS_NO_CLIENT
+	struct client_info_stash *stash;
+#endif
 	void *user_space;
 	void *opaque_parent_data;
 	/* rxflow handling */
@@ -1996,6 +1967,7 @@ struct lws {
 	int position_in_fds_table;
 	uint32_t rxflow_len;
 	uint32_t rxflow_pos;
+	uint32_t preamble_rx_len;
 	unsigned int trunc_alloc_len; /* size of malloc */
 	unsigned int trunc_offset; /* where we are in terms of spilling */
 	unsigned int trunc_len; /* how much is buffered */
