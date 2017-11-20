@@ -95,6 +95,7 @@ option(LWS_WITH_GENHASH "Enable support for Generic Hash (SHA1 + SHA2 with api i
 option(LWS_WITH_GENRSA "Enable support for Generic RSA (RSA with api independent of TLS backend)" OFF)
 option(LWS_WITH_SELFTESTS "Selftests run at context creation" OFF)
 option(LWS_WITH_GCOV "Build with gcc gcov coverage instrumentation" OFF)
+option(LWS_WITH_EXPORT_LWSTARGETS "Export libwebsockets CMake targets.  Disable if they conflict with an outer cmake project." ON)
 #
 # End of user settings
 #
@@ -1893,8 +1894,11 @@ endif()
 set(LWS_INSTALL_CMAKE_DIR ${DEF_INSTALL_CMAKE_DIR} CACHE PATH "Installation directory for CMake files")
 
 # Export targets (This is used for other CMake projects to easily find the libraries and include files).
-export(TARGETS ${LWS_LIBRARIES}
-        FILE "${PROJECT_BINARY_DIR}/LibwebsocketsTargets.cmake")
+if (LWS_WITH_EXPORT_LWSTARGETS)
+    export(TARGETS ${LWS_LIBRARIES}
+            FILE "${PROJECT_BINARY_DIR}/LibwebsocketsTargets.cmake")
+endif()
+
 export(PACKAGE libwebsockets)
 
 # Generate the config file for the build-tree.
@@ -2037,8 +2041,10 @@ install(FILES
                DESTINATION "${LWS_INSTALL_CMAKE_DIR}" COMPONENT dev)
 
 # Install exports for the install-tree.
-install(EXPORT LibwebsocketsTargets
-		DESTINATION "${LWS_INSTALL_CMAKE_DIR}" COMPONENT dev)
+if (LWS_WITH_EXPORT_LWSTARGETS)
+    install(EXPORT LibwebsocketsTargets
+            DESTINATION "${LWS_INSTALL_CMAKE_DIR}" COMPONENT dev)
+endif()
 
 # build subdir is not part of sources
 set(CPACK_SOURCE_IGNORE_FILES $(CPACK_SOURCE_IGNORE_FILES) ".git" "build" "tgz" "tar.gz")
@@ -2115,6 +2121,7 @@ message(" LWS_HAVE_ATOLL = ${LWS_HAVE_ATOLL}")
 message(" LWS_HAVE__ATOI64 = ${LWS_HAVE__ATOI64}")
 message(" LWS_HAVE_STAT32I64 = ${LWS_HAVE_STAT32I64}")
 message(" LWS_HAS_INTPTR_T = ${LWS_HAS_INTPTR_T}")
+message(" LWS_WITH_EXPORT_LWSTARGETS = ${LWS_WITH_EXPORT_LWSTARGETS}")
 
 message("---------------------------------------------------------------------")
 
