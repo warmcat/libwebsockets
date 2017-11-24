@@ -565,7 +565,7 @@ bail_die:
 }
 
 int
-lws_service_timeout_check(struct lws *wsi, unsigned int sec)
+lws_service_timeout_check(struct lws *wsi, time_t sec)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int n = 0;
@@ -586,7 +586,8 @@ lws_service_timeout_check(struct lws *wsi, unsigned int sec)
 	 * if we went beyond the allowed time, kill the
 	 * connection
 	 */
-	if ((time_t)sec > wsi->pending_timeout_limit) {
+	if (lws_compare_time_t(wsi->context, sec, wsi->pending_timeout_set) >
+	    wsi->pending_timeout_limit) {
 
 		if (wsi->desc.sockfd != LWS_SOCK_INVALID &&
 		    wsi->position_in_fds_table >= 0)
@@ -993,8 +994,31 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	if (context->time_up < 1464083026 && now > 1464083026)
 		context->time_up = now;
 
-	/* TODO: if using libev, we should probably use timeout watchers... */
-	if (context->last_timeout_check_s != now) {
+	if (context->last_timeout_check_s &&
+	    now - context->last_timeout_check_s > 100) {
+		/*
+		 * There has been a discontiguity.  Any stored time that is
+		 * less than context->time_discontiguity should have context->
+		 * time_fixup added to it.
+		 *
+		 * Some platforms with no RTC will experience this as a normal
+		 * event when ntp sets their clock, but we can have started
+		 * long before that with a 0-based unix time.
+		 */
+
+		context->time_discontiguity = now;
+		context->time_fixup = now - context->last_timeout_check_s;
+
+		lwsl_notice("time discontiguity: at old time %llus, "
+			    "new time %llus: +%llus\n",
+			    (unsigned long long)context->last_timeout_check_s,
+			    (unsigned long long)context->time_discontiguity,
+			    (unsigned long long)context->time_fixup);
+
+		context->last_timeout_check_s = now - 1;
+	}
+
+	if (lws_compare_time_t(context, context->last_timeout_check_s, now)) {
 		context->last_timeout_check_s = now;
 
 #if defined(LWS_WITH_STATS)

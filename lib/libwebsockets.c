@@ -182,7 +182,8 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	}
 
 	lwsl_debug("%s: %p: %d secs\n", __func__, wsi, secs);
-	wsi->pending_timeout_limit = now + secs;
+	wsi->pending_timeout_limit = secs;
+	wsi->pending_timeout_set = now;
 	wsi->pending_timeout = reason;
 
 	lws_pt_unlock(pt);
@@ -1293,6 +1294,18 @@ lws_now_secs(void)
 	gettimeofday(&tv, NULL);
 
 	return tv.tv_sec;
+}
+
+LWS_VISIBLE LWS_EXTERN int
+lws_compare_time_t(struct lws_context *context, time_t t1, time_t t2)
+{
+	if (t1 < context->time_discontiguity)
+		t1 += context->time_fixup;
+
+	if (t2 < context->time_discontiguity)
+		t2 += context->time_fixup;
+
+	return (int)(t1 - t2);
 }
 
 
@@ -2423,8 +2436,7 @@ lws_restart_ws_ping_pong_timer(struct lws *wsi)
 	if (!lws_state_is_ws(wsi->state))
 		return;
 
-	wsi->ws->time_next_ping_check = (time_t)lws_now_secs() +
-				    wsi->context->ws_ping_pong_interval;
+	wsi->ws->time_next_ping_check = (time_t)lws_now_secs();
 }
 
 static const char *hex = "0123456789ABCDEF";
