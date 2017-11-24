@@ -174,7 +174,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 	case LWS_EXT_CB_PAYLOAD_RX:
 		lwsl_ext(" %s: LWS_EXT_CB_PAYLOAD_RX: in %d, existing in %d\n",
 			 __func__, eff_buf->token_len, priv->rx.avail_in);
-		if (!(wsi->u.ws.rsv_first_msg & 0x40))
+		if (!(wsi->ws->rsv_first_msg & 0x40))
 			return 0;
 
 #if 0
@@ -229,8 +229,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * ...then put back the 00 00 FF FF the sender stripped as our
 		 * input to zlib
 		 */
-		if (!priv->rx.avail_in && wsi->u.ws.final &&
-		    !wsi->u.ws.rx_packet_length) {
+		if (!priv->rx.avail_in && wsi->ws->final &&
+		    !wsi->ws->rx_packet_length) {
 			lwsl_ext("RX APPEND_TRAILER-DO\n");
 			was_fin = 1;
 			priv->rx.next_in = trail;
@@ -239,7 +239,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 		n = inflate(&priv->rx, Z_NO_FLUSH);
 		lwsl_ext("inflate ret %d, avi %d, avo %d, wsifinal %d\n", n,
-			 priv->rx.avail_in, priv->rx.avail_out, wsi->u.ws.final);
+			 priv->rx.avail_in, priv->rx.avail_out, wsi->ws->final);
 		switch (n) {
 		case Z_NEED_DICT:
 		case Z_STREAM_ERROR:
@@ -257,8 +257,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * being a FIN fragment, then do the FIN message processing
 		 * of faking up the 00 00 FF FF that the sender stripped.
 		 */
-		if (!priv->rx.avail_in && wsi->u.ws.final &&
-		    !wsi->u.ws.rx_packet_length && !was_fin &&
+		if (!priv->rx.avail_in && wsi->ws->final &&
+		    !wsi->ws->rx_packet_length && !was_fin &&
 		    priv->rx.avail_out /* ambiguous as to if it is the end */
 		) {
 			lwsl_ext("RX APPEND_TRAILER-DO\n");

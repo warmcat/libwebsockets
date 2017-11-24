@@ -245,7 +245,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 			 * extension recreated it:
 			 * need to buffer this if not all sent
 			 */
-			wsi->u.ws.clean_buffer = 0;
+			wsi->ws->clean_buffer = 0;
 
 		/* assuming they left us something to send, send it */
 
@@ -258,7 +258,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 			}
 
 			/* always either sent it all or privately buffered */
-			if (wsi->u.ws.clean_buffer)
+			if (wsi->ws->clean_buffer)
 				len = n;
 		}
 

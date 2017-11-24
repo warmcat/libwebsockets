@@ -117,13 +117,13 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	/*
 	 * Priority 2: protocol packets
 	 */
-	if (wsi->upgraded_to_http2 && wsi->u.h2.h2n->pps) {
+	if (wsi->upgraded_to_http2 && wsi->h2.h2n->pps) {
 		lwsl_info("servicing pps\n");
 		if (lws_h2_do_pps_send(wsi)) {
 			wsi->socket_is_permanently_unusable = 1;
 			goto bail_die;
 		}
-		if (wsi->u.h2.h2n->pps)
+		if (wsi->h2.h2n->pps)
 			goto bail_ok;
 
 		/* we can resume whatever we were doing */
@@ -154,8 +154,8 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	if (wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION) {
 		lwsl_debug("sending close packet\n");
 		wsi->waiting_to_send_close_frame = 0;
-		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[LWS_PRE],
-			      wsi->u.ws.close_in_ping_buffer_len,
+		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
+			      wsi->ws->close_in_ping_buffer_len,
 			      LWS_WRITE_CLOSE);
 		if (n >= 0) {
 			wsi->state = LWSS_AWAITING_CLOSE_ACK;
@@ -171,21 +171,21 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	/* else, the send failed and we should just hang up */
 
 	if ((wsi->state == LWSS_ESTABLISHED &&
-	     wsi->u.ws.ping_pending_flag) ||
+	     wsi->ws->ping_pending_flag) ||
 	    (wsi->state == LWSS_RETURNED_CLOSE_ALREADY &&
-	     wsi->u.ws.payload_is_close)) {
+	     wsi->ws->payload_is_close)) {
 
-		if (wsi->u.ws.payload_is_close)
+		if (wsi->ws->payload_is_close)
 			write_type = LWS_WRITE_CLOSE;
 
-		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[LWS_PRE],
-			      wsi->u.ws.ping_payload_len, write_type);
+		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
+			      wsi->ws->ping_payload_len, write_type);
 		if (n < 0)
 			goto bail_die;
 
 		/* well he is sent, mark him done */
-		wsi->u.ws.ping_pending_flag = 0;
-		if (wsi->u.ws.payload_is_close)
+		wsi->ws->ping_pending_flag = 0;
+		if (wsi->ws->payload_is_close)
 			/* oh... a close frame was it... then we are done */
 			goto bail_die;
 
@@ -195,11 +195,11 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 	if (wsi->state == LWSS_ESTABLISHED &&
 	    !wsi->socket_is_permanently_unusable &&
-	    wsi->u.ws.send_check_ping) {
+	    wsi->ws->send_check_ping) {
 
 		lwsl_info("issuing ping on wsi %p\n", wsi);
-		wsi->u.ws.send_check_ping = 0;
-		n = lws_write(wsi, &wsi->u.ws.ping_payload_buf[LWS_PRE],
+		wsi->ws->send_check_ping = 0;
+		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
 			      0, LWS_WRITE_PING);
 		if (n < 0)
 			goto bail_die;
@@ -229,7 +229,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 *	       payload ordering, but since they are always complete
 	 *	       fragments control packets can interleave OK.
 	 */
-	if (wsi->state == LWSS_ESTABLISHED && wsi->u.ws.tx_draining_ext) {
+	if (wsi->state == LWSS_ESTABLISHED && wsi->ws->tx_draining_ext) {
 		lwsl_ext("SERVICING TX EXT DRAINING\n");
 		if (lws_write(wsi, NULL, 0, LWS_WRITE_CONTINUATION) < 0)
 			goto bail_die;
@@ -387,8 +387,8 @@ user_service_go_again:
 		goto notify;
 	}
 
-	wsi->u.h2.requested_POLLOUT = 0;
-	if (!wsi->u.h2.initialized) {
+	wsi->h2.requested_POLLOUT = 0;
+	if (!wsi->h2.initialized) {
 		lwsl_info("pollout on uninitialized http2 conn\n");
 		goto bail_ok;
 	}
@@ -399,25 +399,25 @@ user_service_go_again:
 //	}
 
 	lwsl_info("%s: %p: children waiting for POLLOUT service:\n", __func__, wsi);
-	wsi2a = wsi->u.h2.child_list;
+	wsi2a = wsi->h2.child_list;
 	while (wsi2a) {
-		if (wsi2a->u.h2.requested_POLLOUT)
+		if (wsi2a->h2.requested_POLLOUT)
 			lwsl_debug("  * %p\n", wsi2a);
 		else
 			lwsl_debug("    %p\n", wsi2a);
 
-		wsi2a = wsi2a->u.h2.sibling_list;
+		wsi2a = wsi2a->h2.sibling_list;
 	}
 
-	wsi2 = &wsi->u.h2.child_list;
+	wsi2 = &wsi->h2.child_list;
 	if (!*wsi2)
 		goto bail_ok;
 
 	do {
 		struct lws *w, **wa;
 	
-		wa = &(*wsi2)->u.h2.sibling_list;
-		if (!(*wsi2)->u.h2.requested_POLLOUT) {
+		wa = &(*wsi2)->h2.sibling_list;
+		if (!(*wsi2)->h2.requested_POLLOUT) {
 			lwsl_debug("  child %p doesn't want POLLOUT\n", *wsi2);
 			goto next_child;
 		}
@@ -431,37 +431,37 @@ user_service_go_again:
 
 		w = *wsi2;
 		while (w) {
-			if (!w->u.h2.sibling_list) { /* w is the current last */
+			if (!w->h2.sibling_list) { /* w is the current last */
 				lwsl_debug("w=%p, *wsi2 = %p\n", w, *wsi2);
 				if (w == *wsi2) /* we are already last */
 					break;
 				/* last points to us as new last */
-				w->u.h2.sibling_list = *wsi2;
+				w->h2.sibling_list = *wsi2;
 				/* guy pointing to us until now points to
 				 * our old next */
-				*wsi2 = (*wsi2)->u.h2.sibling_list;
+				*wsi2 = (*wsi2)->h2.sibling_list;
 				/* we point to nothing because we are last */
-				w->u.h2.sibling_list->u.h2.sibling_list = NULL;
+				w->h2.sibling_list->h2.sibling_list = NULL;
 				/* w becomes us */
-				w = w->u.h2.sibling_list;
+				w = w->h2.sibling_list;
 				break;
 			}
-			w = w->u.h2.sibling_list;
+			w = w->h2.sibling_list;
 		}
 
-		w->u.h2.requested_POLLOUT = 0;
+		w->h2.requested_POLLOUT = 0;
 		lwsl_info("%s: child %p (state %d)\n", __func__, (*wsi2),
 			  (*wsi2)->state);
 
-		if (w->u.h2.pending_status_body) {
-			w->u.h2.send_END_STREAM = 1;
-			n = lws_write(w, (uint8_t *)w->u.h2.pending_status_body +
+		if (w->h2.pending_status_body) {
+			w->h2.send_END_STREAM = 1;
+			n = lws_write(w, (uint8_t *)w->h2.pending_status_body +
 				      	 LWS_PRE,
-				         strlen(w->u.h2.pending_status_body +
+				         strlen(w->h2.pending_status_body +
 					 LWS_PRE), LWS_WRITE_HTTP_FINAL);
-			lws_free_set_NULL(w->u.h2.pending_status_body);
+			lws_free_set_NULL(w->h2.pending_status_body);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS);
-			wa = &wsi->u.h2.child_list;
+			wa = &wsi->h2.child_list;
 			goto next_child;
 		}
 
@@ -482,10 +482,10 @@ user_service_go_again:
 			 * We will often hear about out having sent the final
 			 * DATA here... if so close the actual wsi
 			 */
-			if (n < 0 || w->u.h2.send_END_STREAM) {
+			if (n < 0 || w->h2.send_END_STREAM) {
 				lwsl_debug("Closing POLLOUT child %p\n", w);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS);
-				wa = &wsi->u.h2.child_list;
+				wa = &wsi->h2.child_list;
 				goto next_child;
 			}
 			if (n > 0)
@@ -493,16 +493,16 @@ user_service_go_again:
 					goto bail_die;
 			if (!n) {
 				lws_callback_on_writable(w);
-				(w)->u.h2.requested_POLLOUT = 1;
+				(w)->h2.requested_POLLOUT = 1;
 			}
 
 			goto next_child;
 		}
 
-		if (lws_calllback_as_writeable(w) || w->u.h2.send_END_STREAM) {
+		if (lws_calllback_as_writeable(w) || w->h2.send_END_STREAM) {
 			lwsl_debug("Closing POLLOUT child\n");
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS);
-			wa = &wsi->u.h2.child_list;
+			wa = &wsi->h2.child_list;
 		}
 
 next_child:
@@ -510,25 +510,25 @@ next_child:
 	} while (wsi2 && *wsi2 && !lws_send_pipe_choked(wsi));
 
 	lwsl_info("%s: %p: children waiting for POLLOUT service: %p\n",
-		  __func__, wsi, wsi->u.h2.child_list);
-	wsi2a = wsi->u.h2.child_list;
+		  __func__, wsi, wsi->h2.child_list);
+	wsi2a = wsi->h2.child_list;
 	while (wsi2a) {
-		if (wsi2a->u.h2.requested_POLLOUT)
+		if (wsi2a->h2.requested_POLLOUT)
 			lwsl_debug("  * %p\n", wsi2a);
 		else
 			lwsl_debug("    %p\n", wsi2a);
 
-		wsi2a = wsi2a->u.h2.sibling_list;
+		wsi2a = wsi2a->h2.sibling_list;
 	}
 
 
-	wsi2a = wsi->u.h2.child_list;
+	wsi2a = wsi->h2.child_list;
 	while (wsi2a) {
-		if (wsi2a->u.h2.requested_POLLOUT) {
+		if (wsi2a->h2.requested_POLLOUT) {
 			lws_change_pollfd(wsi, 0, LWS_POLLOUT);
 			break;
 		}
-		wsi2a = wsi2a->u.h2.sibling_list;
+		wsi2a = wsi2a->h2.sibling_list;
 	}
 
 	goto bail_ok;
@@ -632,7 +632,7 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 {
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->upgraded_to_http2) {
-		struct lws_h2_netconn *h2n = wsi->u.h2.h2n;
+		struct lws_h2_netconn *h2n = wsi->h2.h2n;
 
 		assert(h2n->rx_scratch);
 		buf += n;
@@ -751,7 +751,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 			forced = 1;
 			break;
 		}
-		wsi = wsi->u.ws.rx_draining_ext_list;
+		wsi = wsi->ws->rx_draining_ext_list;
 	}
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -891,9 +891,9 @@ spin_chunks:
 	if (wsi->chunked && !wsi->chunk_remaining)
 		return 0;
 
-	if (wsi->u.http.rx_content_remain &&
-	    wsi->u.http.rx_content_remain < (unsigned int)*len)
-		n = (int)wsi->u.http.rx_content_remain;
+	if (wsi->http.rx_content_remain &&
+	    wsi->http.rx_content_remain < (unsigned int)*len)
+		n = (int)wsi->http.rx_content_remain;
 	else
 		n = *len;
 
@@ -932,10 +932,10 @@ spin_chunks:
 		return 0;
 
 	/* if we know the content length, decrement the content remaining */
-	if (wsi->u.http.rx_content_length > 0)
-		wsi->u.http.rx_content_remain -= n;
+	if (wsi->http.rx_content_length > 0)
+		wsi->http.rx_content_remain -= n;
 
-	if (wsi->u.http.rx_content_remain || !wsi->u.http.rx_content_length)
+	if (wsi->http.rx_content_remain || !wsi->http.rx_content_length)
 		return 0;
 
 completed:
@@ -1150,18 +1150,18 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 				while (wsi) {
 					if (wsi->state == LWSS_ESTABLISHED &&
 					    !wsi->socket_is_permanently_unusable &&
-					    !wsi->u.ws.send_check_ping &&
-					    wsi->u.ws.time_next_ping_check &&
-					    wsi->u.ws.time_next_ping_check < now) {
+					    !wsi->ws->send_check_ping &&
+					    wsi->ws->time_next_ping_check &&
+					    wsi->ws->time_next_ping_check < now) {
 
 						lwsl_info("req pp on wsi %p\n",
 							  wsi);
-						wsi->u.ws.send_check_ping = 1;
+						wsi->ws->send_check_ping = 1;
 						lws_set_timeout(wsi,
 					PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
 							context->timeout_secs);
 						lws_callback_on_writable(wsi);
-						wsi->u.ws.time_next_ping_check =
+						wsi->ws->time_next_ping_check =
 							now +
 							wsi->context->
 							  ws_ping_pong_interval;
@@ -1360,10 +1360,11 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 			 * draining.
 			 */
 			lws_rx_flow_control(wsi, 1);
-			wsi->u.ws.tx_draining_ext = 0;
+			if (wsi->ws)
+				wsi->ws->tx_draining_ext = 0;
 		}
 
-		if (wsi->u.ws.tx_draining_ext)
+		if (wsi->ws && wsi->ws->tx_draining_ext)
 			/* we cannot deal with new RX until the TX ext
 			 * path has been drained.  It's because new
 			 * rx will, eg, crap on the wsi rx buf that
@@ -1397,7 +1398,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		 */
 
 		if (wsi->state == LWSS_ESTABLISHED &&
-		    wsi->u.ws.rx_draining_ext) {
+		    wsi->ws->rx_draining_ext) {
 
 			lwsl_ext("%s: RX EXT DRAINING: Service\n", __func__);
 #ifndef LWS_NO_CLIENT
@@ -1413,7 +1414,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 			goto handled;
 		}
 
-		if (wsi->u.ws.rx_draining_ext)
+		if (wsi->ws && wsi->ws->rx_draining_ext)
 			/*
 			 * We have RX EXT content to drain, but can't do it
 			 * right now.  That means we cannot do anything lower
@@ -1438,7 +1439,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 #if defined(LWS_WITH_HTTP2)
 		if (wsi->upgraded_to_http2) {
-			struct lws_h2_netconn *h2n = wsi->u.h2.h2n;
+			struct lws_h2_netconn *h2n = wsi->h2.h2n;
 
 			if (h2n->rx_scratch_len) {
 				lwsl_info("%s: %p: h2 rx pos = %d len = %d\n",
@@ -1488,15 +1489,15 @@ read:
 
 #if defined(LWS_WITH_HTTP2)
 				if (wsi->upgraded_to_http2) {
-					if (!wsi->u.h2.h2n->rx_scratch) {
-						wsi->u.h2.h2n->rx_scratch =
+					if (!wsi->h2.h2n->rx_scratch) {
+						wsi->h2.h2n->rx_scratch =
 							lws_malloc(
 							 LWS_H2_RX_SCRATCH_SIZE,
 							 "h2 rx scratch");
-						if (!wsi->u.h2.h2n->rx_scratch)
+						if (!wsi->h2.h2n->rx_scratch)
 							goto close_and_handled;
 					}
-					eff_buf.token = wsi->u.h2.h2n->rx_scratch;
+					eff_buf.token = wsi->h2.h2n->rx_scratch;
 					eff_buf.token_len = LWS_H2_RX_SCRATCH_SIZE;
 				} else
 #endif
@@ -1504,7 +1505,7 @@ read:
 					eff_buf.token = (char *)pt->serv_buf;
 					if (lws_is_ws_with_ext(wsi)) {
 						eff_buf.token_len =
-							wsi->u.ws.rx_ubuf_alloc;
+							wsi->ws->rx_ubuf_alloc;
 					} else {
 						eff_buf.token_len =
 						      context->pt_serv_buf_size;
@@ -1630,8 +1631,8 @@ drain:
 		pending = lws_ssl_pending(wsi);
 		if (pending) {
 			if (lws_is_ws_with_ext(wsi))
-				pending = pending > wsi->u.ws.rx_ubuf_alloc ?
-					wsi->u.ws.rx_ubuf_alloc : pending;
+				pending = pending > wsi->ws->rx_ubuf_alloc ?
+					wsi->ws->rx_ubuf_alloc : pending;
 			else
 				pending = pending > context->pt_serv_buf_size ?
 					context->pt_serv_buf_size : pending;

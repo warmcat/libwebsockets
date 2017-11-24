@@ -464,13 +464,13 @@ lws_callback_on_writable(struct lws *wsi)
 	if (wsi->mode != LWSCM_HTTP2_SERVING)
 		goto network_sock;
 
-	if (wsi->u.h2.requested_POLLOUT) {
+	if (wsi->h2.requested_POLLOUT) {
 		lwsl_info("already pending writable\n");
 		return 1;
 	}
 
 	/* is this for DATA or for control messages? */
-	if (wsi->upgraded_to_http2 && !wsi->u.h2.h2n->pps &&
+	if (wsi->upgraded_to_http2 && !wsi->h2.h2n->pps &&
 	    !lws_h2_tx_cr_get(wsi)) {
 		/*
 		 * other side is not able to cope with us sending DATA
@@ -481,22 +481,22 @@ lws_callback_on_writable(struct lws *wsi)
 		 * space for more using tx window command in http2 layer
 		 */
 		lwsl_notice("%s: %p: skint (%d)\n", __func__, wsi,
-			    wsi->u.h2.tx_cr);
-		wsi->u.h2.skint = 1;
+			    wsi->h2.tx_cr);
+		wsi->h2.skint = 1;
 		return 0;
 	}
 
-	wsi->u.h2.skint = 0;
+	wsi->h2.skint = 0;
 	network_wsi = lws_get_network_wsi(wsi);
-	already = network_wsi->u.h2.requested_POLLOUT;
+	already = network_wsi->h2.requested_POLLOUT;
 
 	/* mark everybody above him as requesting pollout */
 
 	wsi2 = wsi;
 	while (wsi2) {
-		wsi2->u.h2.requested_POLLOUT = 1;
+		wsi2->h2.requested_POLLOUT = 1;
 		lwsl_info("mark %p pending writable\n", wsi2);
-		wsi2 = wsi2->u.h2.parent_wsi;
+		wsi2 = wsi2->h2.parent_wsi;
 	}
 
 	/* for network action, act only on the network wsi */

@@ -108,8 +108,8 @@ int lws_add_http_header_content_length(struct lws *wsi,
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
 					 (unsigned char *)b, n, p, end))
 		return 1;
-	wsi->u.http.tx_content_length = content_length;
-	wsi->u.http.tx_content_remain = content_length;
+	wsi->http.tx_content_length = content_length;
+	wsi->http.tx_content_remain = content_length;
 
 	lwsl_info("%s: wsi %p: tx_content_length/remain %llu\n", __func__,
 			wsi, (unsigned long long)content_length);
@@ -183,8 +183,8 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 		if (code >= 300 && code < 400)
 			description = "Redirect";
 
-	if (wsi->u.http.request_version < ARRAY_SIZE(hver))
-		p1 = hver[wsi->u.http.request_version];
+	if (wsi->http.request_version < ARRAY_SIZE(hver))
+		p1 = hver[wsi->http.request_version];
 	else
 		p1 = hver[0];
 
@@ -282,15 +282,15 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		len = sprintf((char *)body,
 			      "<html><body><h1>%u</h1>%s</body></html>",
 			      code, html_body);
-		wsi->u.http.tx_content_length = len;
-		wsi->u.http.tx_content_remain = len;
+		wsi->http.tx_content_length = len;
+		wsi->http.tx_content_remain = len;
 
-		wsi->u.h2.pending_status_body = lws_malloc(len + LWS_PRE + 1,
+		wsi->h2.pending_status_body = lws_malloc(len + LWS_PRE + 1,
 							"pending status body");
-		if (!wsi->u.h2.pending_status_body)
+		if (!wsi->h2.pending_status_body)
 			return -1;
 
-		strcpy(wsi->u.h2.pending_status_body + LWS_PRE,
+		strcpy(wsi->h2.pending_status_body + LWS_PRE,
 		       (const char *)body);
 		lws_callback_on_writable(wsi);
 
