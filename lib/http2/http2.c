@@ -540,11 +540,11 @@ int lws_h2_do_pps_send(struct lws *wsi)
 	case LWS_H2_PPS_MY_SETTINGS:
 		/*
 		 * if any of our settings varies from h2 "default defaults"
-		 * then we must inform the perr
+		 * then we must inform the peer
 		 */
 		for (n = 1; n < H2SET_COUNT; n++)
 			if (h2n->set.s[n] != lws_h2_defaults.s[n]) {
-				lwsl_debug("sending SETTING %d 0x%x\n", n,
+				lwsl_notice("sending SETTING %d 0x%x\n", n,
 						wsi->h2.h2n->set.s[n]);
 				lws_h2_set_bin(wsi, n, &set[LWS_PRE + m]);
 				m += sizeof(h2n->one_setting);
