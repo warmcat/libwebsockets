@@ -5287,6 +5287,26 @@ LWS_VISIBLE LWS_EXTERN unsigned long
 lws_now_secs(void);
 
 /**
+ * lws_compare_time_t(): return relationship between two time_t
+ *
+ * \param context: struct lws_context
+ * \param t1: time_t 1
+ * \param t2: time_t 2
+ *
+ * returns <0 if t2 > t1; >0 if t1 > t2; or == 0 if t1 == t2.
+ *
+ * This is aware of clock discontiguities that may have affected either t1 or
+ * t2 and adapts the comparison for them.
+ *
+ * For the discontiguity detection to work, you must avoid any arithmetic on
+ * the times being compared.  For example to have a timeout that triggers
+ * 15s from when it was set, store the time it was set and compare like
+ * `if (lws_compare_time_t(context, now, set_time) > 15)`
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_compare_time_t(struct lws_context *context, time_t t1, time_t t2);
+
+/**
  * lws_get_context - Allow geting lws_context from a Websocket connection
  * instance
  *

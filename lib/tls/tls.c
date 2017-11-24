@@ -235,7 +235,7 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 
 		n = lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_TO, &ir, 0);
 		if (n)
-			return -1;
+			return 1;
 
 		life = (ir.time - now) / (24 * 3600);
 		lwsl_notice("   vhost %s: cert expiry: %dd\n", v->name, (int)life);
@@ -254,7 +254,8 @@ lws_tls_check_all_cert_lifetimes(struct lws_context *context)
 	struct lws_vhost *v = context->vhost_list;
 
 	while (v) {
-		lws_tls_check_cert_lifetime(v);
+		if (lws_tls_check_cert_lifetime(v) < 0)
+			return -1;
 		v = v->vhost_next;
 	}
 

@@ -1130,6 +1130,8 @@ struct lws_context {
 	time_t last_ws_ping_pong_check_s;
 	time_t last_cert_check_s;
 	time_t time_up;
+	time_t time_discontiguity;
+	time_t time_fixup;
 	const struct lws_plat_file_ops *fops;
 	struct lws_plat_file_ops fops_platform;
 #if defined(LWS_WITH_HTTP2)
@@ -1974,7 +1976,7 @@ struct lws {
 	uint64_t accept_start_us;
 #endif
 #endif
-	time_t pending_timeout_limit;
+	time_t pending_timeout_set;
 
 	/* ints */
 	int position_in_fds_table;
@@ -2049,6 +2051,8 @@ struct lws {
 #ifndef LWS_NO_CLIENT
 	unsigned short c_port;
 #endif
+	unsigned short pending_timeout_limit;
+
 	uint8_t state; /* enum lws_connection_states */
 	uint8_t mode; /* enum connection_mode */
 
@@ -2167,7 +2171,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_service_timeout_check(struct lws *wsi, unsigned int sec);
+lws_service_timeout_check(struct lws *wsi, time_t sec);
 
 LWS_EXTERN void
 lws_remove_from_timeout_list(struct lws *wsi);

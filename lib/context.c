@@ -1578,7 +1578,8 @@ lws_check_deferred_free(struct lws_context *context, int force)
 
 	lws_start_foreach_llp(struct lws_deferred_free **, pdf,
 			      context->deferred_free_list) {
-		if (now > (*pdf)->deadline || force) {
+		if (force ||
+		    lws_compare_time_t(context, now, (*pdf)->deadline) > 5) {
 			df = *pdf;
 			*pdf = df->next;
 			/* finalize vh destruction */
@@ -1605,7 +1606,7 @@ lws_vhost_destroy(struct lws_vhost *vh)
 	/* part 2 is deferred to allow all the handle closes to complete */
 
 	df->next = vh->context->deferred_free_list;
-	df->deadline = lws_now_secs() + 5;
+	df->deadline = lws_now_secs();
 	df->payload = vh;
 	vh->context->deferred_free_list = df;
 }
