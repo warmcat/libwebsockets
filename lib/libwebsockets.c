@@ -401,6 +401,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		goto async_close;
 	}
 
+	wsi->state_pre_close = wsi->state;
+
 #ifdef LWS_WITH_CGI
 	if (wsi->mode == LWSCM_CGI) {
 		/* we are not a network connection, but a handler for CGI io */
@@ -444,8 +446,6 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY ||
 	    wsi->state == LWSS_SHUTDOWN)
 		goto just_kill_connection;
-
-	wsi->state_pre_close = wsi->state;
 
 	switch (wsi->state_pre_close) {
 	case LWSS_DEAD_SOCKET:
