@@ -418,6 +418,7 @@ int ssl_pm_send(SSL *ssl, const void *buffer, int len)
     if (ret < 0) {
 	    SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_write() return -0x%x", -ret);
 	switch (ret) {
+	case MBEDTLS_ERR_NET_SEND_FAILED:
 	case MBEDTLS_ERR_NET_CONN_RESET:
 		ssl->err = SSL_ERROR_SYSCALL;
 		break;
