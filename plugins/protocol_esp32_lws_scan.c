@@ -69,8 +69,10 @@ struct per_vhost_data__esplws_scan {
 	long file_length;
 	long content_length;
 
+	int cert_remaining_days;
+
 	struct lws *cwsi;
-	char json[1024];
+	char json[2048];
 	int json_len;
 
 	uint16_t count_ap_records;
@@ -249,7 +251,7 @@ scan_finished(uint16_t count, wifi_ap_record_t *recs, void *v)
                esp_wifi_connect();
 }
 
-static const char *ssl_names[] = { "ssl-pub.pem", "ssl-pri.pem" };
+static const char *ssl_names[] = { "ap-cert.pem", "ap-key.pem" };
 
 static int
 file_upload_cb(void *data, const char *name, const char *filename,
@@ -292,6 +294,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		n = 0;
 		if (!strcmp(name, "pri"))
 			n = 1;
+		lwsl_notice("writing %s\n", ssl_names[n]);
 		n = nvs_set_blob(pss->nvh, ssl_names[n], pss->buffer, pss->file_length);
 		if (n == ESP_OK)
 			nvs_commit(pss->nvh);
@@ -316,6 +319,9 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_get_protocol(wsi));
 	unsigned char *start = pss->buffer + LWS_PRE - 1, *p = start,
 		      *end = pss->buffer + sizeof(pss->buffer) - 1;
+	union lws_tls_cert_info_results ir;
+	char subject[64];
+	const char *pp;
 	wifi_ap_record_t *r;
 	int n, m;
 	nvs_handle nvh;
@@ -362,7 +368,6 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-
 		if (vhd->autonomous_update_sampled) {
 			p += snprintf((char *)p, end - p,
 				      " {\n \"auton\":\"1\",\n \"pos\": \"%ld\",\n"
@@ -381,11 +386,15 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 			char img_factory[384], img_ota[384], group[16], role[16];
 			int grt;
 
+		case SCAN_STATE_NONE:
+
+			/* fallthru */
+
 		case SCAN_STATE_INITIAL:
 
 			gettimeofday(&t, NULL);
-			if (t.tv_sec - pss->last_send.tv_sec < 10)
-				return 0;
+		//	if (t.tv_sec - pss->last_send.tv_sec < 10)
+		//		return 0;
 
 			pss->last_send = t;
 
@@ -394,9 +403,9 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 			}
 			n = 0;
-			if (nvs_get_blob(nvh, "ssl-pub.pem", NULL, &s) == ESP_OK)
+			if (nvs_get_blob(nvh, "ap-cert.pem", NULL, &s) == ESP_OK)
 				n = 1;
-			if (nvs_get_blob(nvh, "ssl-pri.pem", NULL, &s) == ESP_OK)
+			if (nvs_get_blob(nvh, "ap-key.pem", NULL, &s) == ESP_OK)
 				n |= 2;
 			s = sizeof(group) - 1;
 			group[0] = '\0';
@@ -405,6 +414,26 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 			nvs_get_str(nvh, "role", role, &s);
 
 			nvs_close(nvh);
+
+			ir.ns.name[0] = '\0';
+			subject[0] = '\0';
+
+			if (t.tv_sec > 1464083026 &&
+			    !lws_tls_vhost_cert_info(vhd->vhost,
+				       LWS_TLS_CERT_INFO_VALIDITY_TO, &ir, 0)) {
+				vhd->cert_remaining_days =
+					     (ir.time - t.tv_sec) / (24 * 3600);
+				ir.ns.name[0] = '\0';
+				lws_tls_vhost_cert_info(vhd->vhost,
+					LWS_TLS_CERT_INFO_COMMON_NAME, &ir,
+						sizeof(ir.ns.name));
+				strncpy(subject, ir.ns.name, sizeof(subject) - 1);
+
+				ir.ns.name[0] = '\0';
+				lws_tls_vhost_cert_info(vhd->vhost,
+					LWS_TLS_CERT_INFO_ISSUER_NAME, &ir,
+						sizeof(ir.ns.name));
+			}
 
 			/*
 			 * this value in the JSON is just
@@ -418,7 +447,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 			strcpy(img_factory, " { \"date\": \"Empty\" }");
 			strcpy(img_ota, " { \"date\": \"Empty\" }");
 
-			if (grt != LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON) {
+	//		if (grt != LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON) {
 				lws_esp32_get_image_info(esp_partition_find_first(ESP_PARTITION_TYPE_APP,
 					ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL), &i,
 					img_factory, sizeof(img_factory) - 1);
@@ -432,7 +461,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				img_ota[sizeof(img_ota) - 1] = '\0';
 				if (img_ota[0] == 0xff || strlen(img_ota) < 8)
 					strcpy(img_ota, " { \"date\": \"Empty\" }");
-			}
+	//		}
 
 			p += snprintf((char *)p, end - p,
 				      "{ \"model\":\"%s\",\n"
@@ -448,6 +477,11 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				      " \"conn_ip\":\"%s\",\n"
 				      " \"conn_mask\":\"%s\",\n"
 				      " \"conn_gw\":\"%s\",\n"
+				      " \"certdays\":\"%d\",\n"
+				      " \"unixtime\":\"%llu\",\n"
+				      " \"certissuer\":\"%s\",\n"
+				      " \"certsubject\":\"%s\",\n"
+				      " \"button\":\"%d\",\n"
 				      " \"group\":\"%s\",\n"
 				      " \"role\":\"%s\",\n",
 				      lws_esp32.model,
@@ -462,6 +496,10 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				      lws_esp32.sta_ip,
 				      lws_esp32.sta_mask,
 				      lws_esp32.sta_gw,
+				      vhd->cert_remaining_days,
+				      (unsigned long long)t.tv_sec,
+				      ir.ns.name, subject,
+				      ((volatile struct lws_esp32 *)(&lws_esp32))->button_is_down,
 				      group, role);
 			p += snprintf((char *)p, end - p,
 				      " \"img_factory\": %s,\n"
@@ -573,7 +611,6 @@ scan_state_final:
 			return 0;
 		}
 issue:
-//		lwsl_notice("issue: %d (%d)\n", p - start, n);
 		m = lws_write(wsi, (unsigned char *)start, p - start, n);
 		if (m < 0) {
 			lwsl_err("ERROR %d writing to di socket\n", m);
@@ -755,7 +792,6 @@ auton:
 
 	case LWS_CALLBACK_HTTP_BODY:
 		/* create the POST argument parser if not already existing */
-		lwsl_notice("LWS_CALLBACK_HTTP_BODY (scan)\n");
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, param_names,
 					ARRAY_SIZE(param_names), 1024,
@@ -804,10 +840,13 @@ auton:
 		}
 		nvs_close(nvh);
 
+		pp = lws_spa_get_string(pss->spa, EPN_SERIAL);
+		if (!pp)
+			pp = "unknown";
 		pss->result_len = snprintf(pss->result + LWS_PRE, sizeof(pss->result) - LWS_PRE - 1,
 				"<html>Rebooting after storing certs...<br>connect to AP '<b>config-%s-%s</b>' and continue here: "
 				"<a href=\"https://192.168.4.1\">https://192.168.4.1</a></html>",
-				lws_esp32.model, lws_spa_get_string(pss->spa, EPN_SERIAL));
+				lws_esp32.model, pp);
 
 		if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
 			goto bail;
@@ -830,6 +869,8 @@ auton:
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		lwsl_debug("LWS_CALLBACK_HTTP_WRITEABLE: sending %d\n",
 			   pss->result_len);
+		if (!pss->result_len)
+			break;
 		n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,
 			      pss->result_len, LWS_WRITE_HTTP);
 		if (n < 0)

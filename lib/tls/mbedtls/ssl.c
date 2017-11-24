@@ -191,7 +191,6 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 
 		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->ssl)) {
 			lws_set_blocking_send(wsi);
-
 			lwsl_notice("%s: want write\n", __func__);
 
 			return LWS_SSL_CAPABLE_MORE_SERVICE;

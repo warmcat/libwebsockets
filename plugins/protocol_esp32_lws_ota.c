@@ -192,8 +192,8 @@ callback_esplws_ota(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_BODY:
 		/* create the POST argument parser if not already existing */
-		//lwsl_notice("LWS_CALLBACK_HTTP_BODY (ota) %d %d %p\n", (int)pss->file_length, (int)len, pss->spa);
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 5);
+		// lwsl_notice("LWS_CALLBACK_HTTP_BODY (ota) %d %d %p\n", (int)pss->file_length, (int)len, pss->spa);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, ota_param_names,
 					ARRAY_SIZE(ota_param_names), 4096,

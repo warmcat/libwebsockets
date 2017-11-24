@@ -63,7 +63,7 @@ LWS_VISIBLE int
 lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 {
 	unsigned char *last_char, *oldbuf = buf;
-	lws_filepos_t body_chunk_len, inlen = len;
+	lws_filepos_t body_chunk_len;
 	size_t n;
 
 	switch (wsi->state) {
@@ -105,7 +105,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			buf += body_chunk_len;
 			len -= body_chunk_len;
 		}
-		lwsl_debug("%s: used up block of %d\n", __func__, (int)inlen);
+		lwsl_debug("%s: used up block\n", __func__);
 		break;
 #endif
 
@@ -271,7 +271,7 @@ postbody_completion:
 		break;
 	default:
 		lwsl_err("%s: Unhandled state %d\n", __func__, wsi->state);
-		break;
+		goto bail;
 	}
 
 read_ok:

@@ -540,7 +540,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 	case LWS_H2_PPS_MY_SETTINGS:
 		/*
 		 * if any of our settings varies from h2 "default defaults"
-		 * then we must inform the perr
+		 * then we must inform the peer
 		 */
 		for (n = 1; n < H2SET_COUNT; n++)
 			if (h2n->set.s[n] != lws_h2_defaults.s[n]) {
@@ -691,7 +691,7 @@ bail:
 
 /*
  * The frame header part has just completely arrived.
- * Perform actions for frame completion.
+ * Perform actions for header completion.
  */
 static int
 lws_h2_parse_frame_header(struct lws *wsi)
@@ -1487,6 +1487,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 			in += n - 1;
 			h2n->inside += n;
 			h2n->count += n - 1;
+
+			lwsl_notice("%s: count %d len %d\n", __func__, (int)h2n->count, (int)h2n->length);
 
 			break;
 

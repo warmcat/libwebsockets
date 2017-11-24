@@ -594,12 +594,17 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 	dyn = &nwsi->h2.h2n->hpack_dyn_table;
 	lwsl_info("%s: from %d to %d, lim %d\n", __func__,
 		  (int)dyn->num_entries, size,
-		  nwsi->h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
+		  nwsi->vhost->set.s[H2SET_HEADER_TABLE_SIZE]);
 
-	if (size > (int)nwsi->h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]) {
+	if (size > (int)nwsi->vhost->set.s[H2SET_HEADER_TABLE_SIZE]) {
+		lwsl_notice("rejecting hpack dyn size %u\n", size);
+#if defined(LWS_WITH_ESP32)
+		size = nwsi->vhost->set.s[H2SET_HEADER_TABLE_SIZE];
+#else
 		lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 			"Asked for header table bigger than we told");
 		goto bail;
+#endif
 	}
 
 	dyn->virtual_payload_max = size;
@@ -614,6 +619,8 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 
 	if (dyn->num_entries < min)
 		min = dyn->num_entries;
+
+	// lwsl_notice("dte requested size %d\n", size);
 
 	dte = lws_zalloc(sizeof(*dte) * (size + 1), "dynamic table entries");
 	if (!dte)

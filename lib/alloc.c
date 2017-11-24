@@ -51,7 +51,7 @@ void lws_set_allocator(void *(*cb)(void *ptr, size_t size, const char *reason))
 static void *_realloc(void *ptr, size_t size, const char *reason)
 {
 	if (size) {
-#if defined(LWS_PLAT_ESP32)
+#if defined(LWS_WITH_ESP32)
 		lwsl_notice("%s: size %lu: %s\n", __func__,
 			    (unsigned long)size, reason);
 #else
