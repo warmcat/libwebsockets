@@ -1029,7 +1029,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 #endif
 
 		lws_plat_service_periodic(context);
-
 		lws_check_deferred_free(context, 0);
 
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -1060,7 +1059,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 			/* we have to take copies, because he may be deleted */
 			wsi1 = wsi->timeout_list;
 			tmp_fd = wsi->desc.sockfd;
-			if (lws_service_timeout_check(wsi, (unsigned int)now)) {
+			if (lws_service_timeout_check(wsi, now)) {
 				/* he did time out... */
 				if (tmp_fd == our_fd)
 					/* it was the guy we came to service! */
@@ -1082,8 +1081,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 			const unsigned char *c;
 
 			if (!ah->in_use || !ah->wsi || !ah->assigned ||
-			    (ah->wsi->vhost && now - ah->assigned <
-			     ah->wsi->vhost->timeout_secs_ah_idle + 60)) {
+			    (ah->wsi->vhost &&
+			     lws_compare_time_t(context, now, ah->assigned) <
+			     ah->wsi->vhost->timeout_secs_ah_idle + 360)) {
 				ah = ah->next;
 				continue;
 			}
@@ -1174,7 +1174,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 					    !wsi->socket_is_permanently_unusable &&
 					    !wsi->ws->send_check_ping &&
 					    wsi->ws->time_next_ping_check &&
-					    wsi->ws->time_next_ping_check < now) {
+					    lws_compare_time_t(context, now,
+						wsi->ws->time_next_ping_check) >
+					       context->ws_ping_pong_interval) {
 
 						lwsl_info("req pp on wsi %p\n",
 							  wsi);
@@ -1184,9 +1186,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 							context->timeout_secs);
 						lws_callback_on_writable(wsi);
 						wsi->ws->time_next_ping_check =
-							now +
-							wsi->context->
-							  ws_ping_pong_interval;
+							now;
 					}
 					wsi = wsi->same_vh_protocol_next;
 				}
@@ -1195,14 +1195,15 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		}
 	}
 
+#ifdef LWS_OPENSSL_SUPPORT
 	/*
 	 * check the remaining cert lifetime daily
 	 */
-	if (context->last_cert_check_s < now - (24 * 60 * 60)) {
+	n = lws_compare_time_t(context, now, context->last_cert_check_s);
+	if ((!context->last_cert_check_s || n > (24 * 60 * 60)) &&
+	    !lws_tls_check_all_cert_lifetimes(context))
 		context->last_cert_check_s = now;
-
-		lws_tls_check_all_cert_lifetimes(context);
-	}
+#endif
 
 	/* the socket we came to service timed out, nothing to do */
 	if (timed_out)
@@ -1214,7 +1215,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 	/* no, here to service a socket descriptor */
 	wsi = wsi_from_fd(context, pollfd->fd);
-
 	if (!wsi)
 		/* not lws connection ... leave revents alone and return */
 		return 0;
@@ -1639,9 +1639,6 @@ drain:
 		if (wsi->ah) {
 			lwsl_debug("%s: %p: detaching\n", __func__, wsi);
 			lws_header_table_force_to_detachable_state(wsi);
-			/* we can run the normal ah detach flow despite
-			 * being in ws union mode, since all union members
-			 * start with hdr */
 			lws_header_table_detach(wsi, 0);
 		}
 

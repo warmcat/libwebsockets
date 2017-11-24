@@ -377,8 +377,10 @@ int ssl_pm_read(SSL *ssl, void *buffer, int len)
 
     ret = mbedtls_ssl_read(&ssl_pm->ssl, buffer, len);
     if (ret < 0) {
+	    //printf("%s: mbedtls_ssl_read says -0x%x\n", __func__, -ret);
         SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_read() return -0x%x", -ret);
-        if (ret == MBEDTLS_ERR_NET_CONN_RESET)
+        if (ret == MBEDTLS_ERR_NET_CONN_RESET ||
+            ret <= MBEDTLS_ERR_SSL_NO_USABLE_CIPHERSUITE) /* fatal errors */
 		ssl->err = SSL_ERROR_SYSCALL;
         ret = -1;
     }

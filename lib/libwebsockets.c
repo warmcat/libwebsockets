@@ -740,7 +740,6 @@ just_kill_connection:
 
 	if (wsi->protocol && !wsi->told_user_closed && wsi->protocol->callback &&
 	    wsi->mode != LWSCM_RAW && (wsi->state_pre_close & _LSF_CCB)) {
-		lwsl_debug("calling back CLOSED %d %d\n", wsi->mode, wsi->state);
 		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 					wsi->user_space, NULL, 0);
 	} else if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED) {

@@ -658,6 +658,8 @@ struct lws_esp32 {
 	void *scan_consumer_arg;
 	struct lws_group_member *first;
 	int extant_group_members;
+
+	volatile char button_is_down;
 };
 
 struct lws_esp32_image {
