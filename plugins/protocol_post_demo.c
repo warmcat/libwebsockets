@@ -149,12 +149,18 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			"<html><body><h1>Form results (after urldecoding)</h1>"
 			"<table><tr><td>Name</td><td>Length</td><td>Value</td></tr>");
 
-		for (n = 0; n < (int)ARRAY_SIZE(param_names); n++)
-			p += lws_snprintf((char *)p, end - p,
+		for (n = 0; n < (int)ARRAY_SIZE(param_names); n++) {
+			if (!lws_spa_get_string(pss->spa, n))
+				p += lws_snprintf((char *)p, end - p,
+				    "<tr><td><b>%s</b></td><td>0</td><td>NULL</td></tr>",
+				    param_names[n]);
+			else
+				p += lws_snprintf((char *)p, end - p,
 				    "<tr><td><b>%s</b></td><td>%d</td><td>%s</td></tr>",
 				    param_names[n],
 				    lws_spa_get_length(pss->spa, n),
 				    lws_spa_get_string(pss->spa, n));
+		}
 
 		p += lws_snprintf((char *)p, end - p, "</table><br><b>filename:</b> %s, <b>length</b> %ld",
 				pss->filename, pss->file_length);
