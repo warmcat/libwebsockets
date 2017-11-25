@@ -63,7 +63,7 @@ LWS_VISIBLE int
 lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 {
 	unsigned char *last_char, *oldbuf = buf;
-	lws_filepos_t body_chunk_len;
+	lws_filepos_t body_chunk_len, inlen = len;
 	size_t n;
 
 	switch (wsi->state) {
@@ -71,7 +71,6 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
 	case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
 	case LWSS_HTTP2_ESTABLISHED:
-		n = 0;
 		/*
 		 * wsi here is always the network connection wsi, not a stream
 		 * wsi.  Once we unpicked the framing we will find the right
@@ -82,28 +81,31 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		 * ESTABLISHED state for the inner payload, handled in a later
 		 * case.
 		 */
-		while (n < len) {
+		while (len) {
 			/*
 			 * we were accepting input but now we stopped doing so
 			 */
 			if (lws_is_flowcontrolled(wsi)) {
-				lws_rxflow_cache(wsi, buf, (int)n, (int)len);
+				lws_rxflow_cache(wsi, buf, 0, (int)len);
 
 				return 1;
 			}
 
-			/* account for what we're using in rxflow buffer */
-			if (wsi->rxflow_buffer) {
-				wsi->rxflow_pos++;
-				assert(wsi->rxflow_pos <= wsi->rxflow_len);
-			}
-
-			if (lws_h2_parser(wsi, buf[n++])) {
+			if (lws_h2_parser(wsi, buf, len, &body_chunk_len)) {
 				lwsl_debug("%s: http2_parser bailed\n", __func__);
 				goto bail;
 			}
+
+			/* account for what we're using in rxflow buffer */
+			if (wsi->rxflow_buffer) {
+				wsi->rxflow_pos += (int)body_chunk_len;
+				assert(wsi->rxflow_pos <= wsi->rxflow_len);
+			}
+
+			buf += body_chunk_len;
+			len -= body_chunk_len;
 		}
-		lwsl_debug("%s: used up block of %d\n", __func__, (int)len);
+		lwsl_debug("%s: used up block of %d\n", __func__, (int)inlen);
 		break;
 #endif
 
@@ -274,7 +276,7 @@ postbody_completion:
 
 read_ok:
 	/* Nothing more to do for now */
-	lwsl_info("%s: read_ok, used %ld\n", __func__, (long)(buf - oldbuf));
+	lwsl_info("%s: %p: read_ok, used %ld (len %d, state %d)\n", __func__, wsi, (long)(buf - oldbuf), (int)len, wsi->state);
 
 	return lws_ptr_diff(buf, oldbuf);
 
