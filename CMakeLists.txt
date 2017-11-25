@@ -1980,9 +1980,12 @@ if (LWS_WITH_CGI)
 	endif()
 endif()
 
-install(FILES test-apps/lws-ssh-test-keys;test-apps/lws-ssh-test-keys.pub
-	DESTINATION share/libwebsockets-test-server
-	COMPONENT examples)
+
+if (NOT LWS_WITHOUT_TEST_SERVER AND NOT LWS_WITHOUT_SERVER AND NOT LWS_WITHOUT_TESTAPPS)
+	install(FILES test-apps/lws-ssh-test-keys;test-apps/lws-ssh-test-keys.pub
+		DESTINATION share/libwebsockets-test-server
+		COMPONENT examples)
+endif()
 
 # plugins
 
