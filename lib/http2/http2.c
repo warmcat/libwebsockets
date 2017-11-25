@@ -1319,19 +1319,25 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 }
 
 int
-lws_h2_parser(struct lws *wsi, unsigned char c)
+lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
+	      lws_filepos_t *inused)
 {
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
 	struct lws_h2_protocol_send *pps;
+	unsigned char c, *oldin = in;
 	int n;
 
 	if (!h2n)
-		return 1;
+		goto fail;
+
+	while (inlen--) {
+
+		c = *in++;
 
 	switch (wsi->state) {
 	case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
 		if (preface[h2n->count++] != c)
-			return 1;
+			goto fail;
 
 		if (preface[h2n->count])
 			break;
@@ -1348,7 +1354,7 @@ lws_h2_parser(struct lws *wsi, unsigned char c)
 		 */
 		pps = lws_h2_new_pps(LWS_H2_PPS_MY_SETTINGS);
 		if (!pps)
-			return 1;
+			goto fail;
 		lws_pps_schedule(wsi, pps);
 		break;
 
@@ -1421,7 +1427,7 @@ lws_h2_parser(struct lws *wsi, unsigned char c)
 				break;
 			if (lws_hpack_interpret(h2n->swsi, c)) {
 				lwsl_info("%s: hpack failed\n", __func__);
-				return 1;
+				goto fail;
 			}
 			break;
 
@@ -1458,8 +1464,11 @@ lws_h2_parser(struct lws *wsi, unsigned char c)
 			if (!h2n->swsi)
 				break;
 
-			h2n->swsi->state = LWSS_HTTP_BODY;
-			h2n->inside++;
+			if (h2n->swsi->state == LWSS_HTTP2_ESTABLISHED) {
+				h2n->swsi->state = LWSS_HTTP_BODY;
+				lwsl_notice("%s: setting swsi %p to LWSS_HTTP_BODY\n", __func__, h2n->swsi);
+			}
+
 			if (lws_hdr_total_length(h2n->swsi,
 						 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 			    h2n->swsi->http.rx_content_length &&
@@ -1470,9 +1479,14 @@ lws_h2_parser(struct lws *wsi, unsigned char c)
 				break;
 			}
 
-			n = lws_read(h2n->swsi, &c, 1);
+			n = lws_read(h2n->swsi, in - 1, inlen + 1);
 			if (n < 0)
 				break;
+
+			inlen -= n - 1;
+			in += n - 1;
+			h2n->inside += n;
+			h2n->count += n - 1;
 
 			break;
 
@@ -1520,7 +1534,7 @@ lws_h2_parser(struct lws *wsi, unsigned char c)
 			lwsl_notice("%s: unhandled frame type %d\n",
 				    __func__, h2n->type);
 
-			return 1;
+			goto fail;
 		}
 
 frame_end:
@@ -1531,7 +1545,7 @@ frame_end:
 		 * end of frame just happened
 		 */
 		if (lws_h2_parse_end_of_frame(wsi))
-			return 1;
+			goto fail;
 		break;
 
 try_frame_start:
@@ -1569,11 +1583,20 @@ try_frame_start:
 		}
 		if (h2n->frame_state == LWS_H2_FRAME_HEADER_LENGTH)
 			if (lws_h2_parse_frame_header(wsi))
-				return 1;
+				goto fail;
 		break;
 	}
 
+	}
+
+	*inused = in - oldin;
+
 	return 0;
+
+fail:
+	*inused = in - oldin;
+
+	return 1;
 }
 
 int
