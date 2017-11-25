@@ -28,7 +28,9 @@ implementations of timers, dynamic lib loading etc for plugins and lwsws.
 
 This method lets you configure web serving in code, instead of using lwsws.
 
-Plugins are still used, which implies libuv needed.
+Plugins are still used, but you have a choice whether to dynamically load
+them or statically include them.  In this example, they are dynamically
+loaded.
 
  $ cmake .. -DLWS_WITH_PLUGINS=1
 
@@ -42,6 +44,16 @@ combined code is all squidged together and is much less maintainable.
 
 This method is still supported in lws but all ongoing and future work is
 being done in protocol plugins only.
+
+You can simply include the plugin contents and have it buit statically into
+your server, just define this before including the plugin source
+
+```
+#define LWS_PLUGIN_STATIC
+```
+
+This gets you most of the advantages without needing dynamic loading +
+libuv.
 
 
 Notes about lws test apps
