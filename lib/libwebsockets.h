@@ -571,6 +571,8 @@ struct lws_esp32 {
 	char access_pw[16];
 	char hostname[32];
 	char mac[20];
+	char le_dns[64];
+	char le_email[64];
 	mdns_server_t *mdns;
        	char region;
        	char inet;
@@ -583,6 +585,8 @@ struct lws_esp32 {
 	void *scan_consumer_arg;
 	struct lws_group_member *first;
 	int extant_group_members;
+
+	char acme;
 
 	volatile char button_is_down;
 };
@@ -834,6 +838,45 @@ enum lws_meta_commands {
 struct lws_ssl_info {
 	int where;
 	int ret;
+};
+
+enum lws_cert_update_state {
+	LWS_CUS_IDLE,
+	LWS_CUS_STARTING,
+	LWS_CUS_SUCCESS,
+	LWS_CUS_FAILED,
+
+	LWS_CUS_CREATE_KEYS,
+	LWS_CUS_REG,
+	LWS_CUS_AUTH,
+	LWS_CUS_CHALLENGE,
+	LWS_CUS_CREATE_REQ,
+	LWS_CUS_REQ,
+	LWS_CUS_CONFIRM,
+	LWS_CUS_ISSUE,
+};
+
+enum {
+	LWS_TLS_REQ_ELEMENT_COUNTRY,
+	LWS_TLS_REQ_ELEMENT_STATE,
+	LWS_TLS_REQ_ELEMENT_LOCALITY,
+	LWS_TLS_REQ_ELEMENT_ORGANIZATION,
+	LWS_TLS_REQ_ELEMENT_COMMON_NAME,
+	LWS_TLS_REQ_ELEMENT_EMAIL,
+
+	LWS_TLS_REQ_ELEMENT_COUNT,
+
+	LWS_TLS_SET_DIR_URL = LWS_TLS_REQ_ELEMENT_COUNT,
+	LWS_TLS_SET_AUTH_PATH,
+	LWS_TLS_SET_CERT_PATH,
+	LWS_TLS_SET_KEY_PATH,
+
+	LWS_TLS_TOTAL_COUNT
+};
+
+struct lws_acme_cert_aging_args {
+	struct lws_vhost *vh;
+	const char *element_overrides[LWS_TLS_TOTAL_COUNT]; /* NULL = use pvo */
 };
 
 /*
@@ -1352,14 +1395,25 @@ enum lws_callback_reasons {
 	/**< When a vhost TLS cert has its expiry checked, this callback
 	 * is broadcast to every protocol of every vhost in case the
 	 * protocol wants to take some action with this information.
-	 * \p in is the lws_vhost and \p len is the number of days left
-	 * before it expires, as a (ssize_t) */
+	 * \p in is a pointer to a struct lws_acme_cert_aging_args,
+	 * and \p len is the number of days left before it expires, as
+	 * a (ssize_t).  In the struct lws_acme_cert_aging_args, vh
+	 * points to the vhost the cert aging information applies to,
+	 * and element_overrides[] is an optional way to update information
+	 * from the pvos... NULL in an index means use the information from
+	 * from the pvo for the cert renewal, non-NULL in the array index
+	 * means use that pointer instead for the index. */
 	LWS_CALLBACK_TIMER					= 73,
 	/**< When the time elapsed after a call to lws_set_timer(wsi, secs)
 	 * is up, the wsi will get one of these callbacks.  The deadline
 	 * can be continuously extended into the future by later calls
 	 * to lws_set_timer() before the deadline expires, or cancelled by
 	 * lws_set_timer(wsi, -1); */
+	LWS_CALLBACK_VHOST_CERT_UPDATE				= 74,
+	/**< When a vhost TLS cert is being updated, progress is
+	 * reported to the vhost in question here, including completion
+	 * and failure.  in points to optional JSON, and len represents the
+	 * connection state using enum lws_cert_update_state */
 
 	/****** add new things just above ---^ ******/
 
@@ -5492,6 +5546,17 @@ lws_is_ssl(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi);
 
+
+struct lws_wifi_scan { /* generic wlan scan item */
+	struct lws_wifi_scan *next;
+	char ssid[32];
+	int32_t rssi; /* divide by .count to get db */
+	uint8_t bssid[6];
+	uint8_t count;
+	uint8_t channel;
+	uint8_t authmode;
+};
+
 #if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
 /**
  * lws_get_ssl() - Return wsi's SSL context structure
@@ -5600,23 +5665,6 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 			     const char *san_b);
-
-enum {
-	LWS_TLS_REQ_ELEMENT_COUNTRY,
-	LWS_TLS_REQ_ELEMENT_STATE,
-	LWS_TLS_REQ_ELEMENT_LOCALITY,
-	LWS_TLS_REQ_ELEMENT_ORGANIZATION,
-	LWS_TLS_REQ_ELEMENT_COMMON_NAME,
-	LWS_TLS_REQ_ELEMENT_EMAIL,
-
-	LWS_TLS_REQ_ELEMENT_COUNT,
-	LWS_TLS_SET_DIR_URL = LWS_TLS_REQ_ELEMENT_COUNT,
-	LWS_TLS_SET_AUTH_PATH,
-	LWS_TLS_SET_CERT_PATH,
-	LWS_TLS_SET_KEY_PATH,
-
-	LWS_TLS_TOTAL_COUNT
-};
 
 /**
  * lws_tls_acme_sni_csr_create() - creates a CSR and related private key PEM
@@ -6614,31 +6662,31 @@ struct lejp_ctx {
 	/* arrays */
 
 	struct _lejp_stack st[LEJP_MAX_DEPTH];
-	unsigned short i[LEJP_MAX_INDEX_DEPTH]; /* index array */
-	unsigned short wild[LEJP_MAX_INDEX_DEPTH]; /* index array */
+	uint16_t i[LEJP_MAX_INDEX_DEPTH]; /* index array */
+	uint16_t wild[LEJP_MAX_INDEX_DEPTH]; /* index array */
 	char path[LEJP_MAX_PATH];
 	char buf[LEJP_STRING_CHUNK];
 
 	/* int */
 
-	unsigned int line;
+	uint32_t line;
 
 	/* short */
 
-	unsigned short uni;
+	uint16_t uni;
 
 	/* char */
 
-	unsigned char npos;
-	unsigned char dcount;
-	unsigned char f;
-	unsigned char sp; /* stack head */
-	unsigned char ipos; /* index stack depth */
-	unsigned char ppos;
-	unsigned char count_paths;
-	unsigned char path_match;
-	unsigned char path_match_len;
-	unsigned char wildcount;
+	uint8_t npos;
+	uint8_t dcount;
+	uint8_t f;
+	uint8_t sp; /* stack head */
+	uint8_t ipos; /* index stack depth */
+	uint8_t ppos;
+	uint8_t count_paths;
+	uint8_t path_match;
+	uint8_t path_match_len;
+	uint8_t wildcount;
 };
 
 LWS_VISIBLE LWS_EXTERN void

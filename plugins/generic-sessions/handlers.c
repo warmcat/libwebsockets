@@ -72,7 +72,8 @@ lwsgs_handler_confirm(struct per_vhost_data__gs *vhd, struct lws *wsi,
 	a.event = LWSGSE_CREATED;
 	a.username = u.username;
 	a.email = u.email;
-	lws_callback_vhost_protocols(wsi, LWS_CALLBACK_GS_EVENT, &a, 0);
+	lws_callback_vhost_protocols_vhost(lws_get_vhost(wsi),
+					   LWS_CALLBACK_GS_EVENT, &a, 0);
 
 	lws_snprintf(pss->onward, sizeof(pss->onward),
 		 "%s/post-verify-ok.html", vhd->email_confirm_url);
@@ -325,7 +326,8 @@ lwsgs_handler_change_password(struct per_vhost_data__gs *vhd, struct lws *wsi,
 		a.event = LWSGSE_DELETED;
 		a.username = u.username;
 		a.email = "";
-		lws_callback_vhost_protocols(wsi, LWS_CALLBACK_GS_EVENT, &a, 0);
+		lws_callback_vhost_protocols_vhost(lws_get_vhost(wsi),
+						   LWS_CALLBACK_GS_EVENT, &a, 0);
 
 		lws_snprintf(s, sizeof(s) - 1,
 			 "delete from users where username='%s';"

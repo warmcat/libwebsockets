@@ -1496,7 +1496,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 			h2n->inside += n;
 			h2n->count += n - 1;
 
-			lwsl_notice("%s: count %d len %d\n", __func__, (int)h2n->count, (int)h2n->length);
+			// lwsl_notice("%s: count %d len %d\n", __func__, (int)h2n->count, (int)h2n->length);
 
 			break;
 

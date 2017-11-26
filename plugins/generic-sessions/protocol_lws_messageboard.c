@@ -213,7 +213,7 @@ callback_messageboard(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd->pdb)
+		if (vhd && vhd->pdb)
 			sqlite3_close(vhd->pdb);
 		goto passthru;
 

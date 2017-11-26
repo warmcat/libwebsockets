@@ -88,9 +88,10 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 
 		lws_tls_server_client_cert_verify_config(vhost);
 
-		vhost->protocols[0].callback(&wsi,
-			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
-			vhost->ssl_ctx, vhost, 0);
+		if (vhost->protocols[0].callback(&wsi,
+			    LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
+			    vhost->ssl_ctx, vhost, 0))
+			return -1;
 	}
 
 	if (vhost->use_ssl)
@@ -142,6 +143,11 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				    context->simultaneous_ssl_restriction)
 			/* that was the last allowed SSL connection */
 			lws_gate_accepts(context, 0);
+
+		//lwsl_notice("%s: ssl restr %d, simul %d\n", __func__,
+		//		context->simultaneous_ssl_restriction,
+		//		context->simultaneous_ssl);
+
 #if defined(LWS_WITH_STATS)
 	context->updated = 1;
 #endif
