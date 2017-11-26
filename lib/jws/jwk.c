@@ -276,17 +276,12 @@ lws_jwk_load(struct lws_jwk *s, const char *filename)
 {
 	int buflen = 4096;
 	char *buf = lws_malloc(buflen, "jwk-load");
-	int fd, n;
+	int n;
 
 	if (!buf)
 		return -1;
 
-	fd = open(filename, O_RDONLY);
-	if (fd == -1)
-		goto bail;
-
-	n = read(fd, buf, buflen);
-	close(fd);
+	n = lws_plat_read_file(filename, buf, buflen);
 	if (n < 0)
 		goto bail;
 
@@ -305,25 +300,19 @@ lws_jwk_save(struct lws_jwk *s, const char *filename)
 {
 	int buflen = 4096;
 	char *buf = lws_malloc(buflen, "jwk-save");
-	int fd, n, m;
+	int n, m;
 
 	if (!buf)
 		return -1;
 
-	fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-	if (fd == -1)
-		goto bail;
-
 	n = lws_jwk_export(s, 1, buf, buflen);
-	if (n < 0) {
-		close(fd);
+	if (n < 0)
 		goto bail;
-	}
 
-	m = write(fd, buf, n);
-	close(fd);
+	m = lws_plat_write_file(filename, buf, n);
+
 	lws_free(buf);
-	if (m < 0 || m != n)
+	if (m)
 		return -1;
 
 	return 0;

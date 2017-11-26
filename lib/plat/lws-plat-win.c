@@ -767,3 +767,38 @@ lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 
 	return n != len;
 }
+
+LWS_VISIBLE int
+lws_plat_write_file(const char *filename, void *buf, int len)
+{
+	int m, fd;
+
+	fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+
+	if (fd == -1)
+		return -1;
+
+	m = write(fd, buf, len);
+	close(fd);
+
+	return m != len;
+}
+
+LWS_VISIBLE int
+lws_plat_read_file(const char *filename, void *buf, int len)
+{
+	int n, fd = open(filename, O_RDONLY);
+	if (fd == -1)
+		return -1;
+
+	n = read(fd, buf, len);
+	close(fd);
+
+	return n;
+}
+
+LWS_VISIBLE int
+lws_plat_recommended_rsa_bits(void)
+{
+	return 4096;
+}

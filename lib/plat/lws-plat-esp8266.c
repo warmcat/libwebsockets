@@ -719,4 +719,25 @@ lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 {
 	return 1;
 }
+
+LWS_VISIBLE int
+lws_plat_write_file(const char *filename, void *buf, int len)
+{
+	return 1;
+}
+
+LWS_VISIBLE int
+lws_plat_read_file(const char *filename, void *buf, int len)
+{
+	return -1;
+}
+
+LWS_VISIBLE int
+lws_plat_recommended_rsa_bits(void)
+{
+	/*
+	 * 2048-bit key generation takes up to a minute on ESP32, 4096
+	 * is like 15 minutes +
+	 */
+	return 2048;
 }

@@ -1949,6 +1949,28 @@ uint16_t lws_esp32_sine_interp(int n)
                 sine_lu((n >> 4) + 1) * (n & 15)) / 15;
 }
 
+LWS_VISIBLE int
+lws_plat_write_file(const char *filename, void *buf, int len)
+{
+	nvs_handle nvh;
+	int n;
+
+	if (nvs_open("lws-station", NVS_READWRITE, &nvh)) {
+		lwsl_notice("%s: failed to open nvs\n", __func__);
+		return 1;
+	}
+
+	n = nvs_set_blob(nvh, filename, buf, len);
+	if (n)
+		nvs_commit(nvh);
+
+	nvs_close(nvh);
+
+	lwsl_notice("%s: wrote %s\n", __func__, filename);
+
+	return n;
+}
+
 /* we write vhostname.cert.pem and vhostname.key.pem, 0 return means OK */
 
 LWS_VISIBLE int
@@ -1956,26 +1978,54 @@ lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 			int len)
 {
 	const char *name = vhost->alloc_cert_path;
-	nvs_handle nvh;
-	int n;
 
 	if (is_key)
 		name = vhost->key_path;
+
+	return lws_plat_write_file(name, buf, len);
+}
+
+LWS_VISIBLE int
+lws_plat_read_file(const char *filename, void *buf, int len)
+{
+	nvs_handle nvh;
+	size_t s = 0;
+	int n = 0;
 
 	if (nvs_open("lws-station", NVS_READWRITE, &nvh)) {
 		lwsl_notice("%s: failed to open nvs\n", __func__);
 		return 1;
 	}
 
-	n = nvs_set_blob(nvh, name, buf, len);
-	if (n)
-		nvs_commit(nvh);
+	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
+	if (nvs_get_blob(nvh, filename, NULL, &s) != ESP_OK)
+		goto bail;
+	if (s > (size_t)len)
+		goto bail;
+
+	n = nvs_get_blob(nvh, filename, buf, &s);
 
 	nvs_close(nvh);
 
-	lwsl_notice("%s: wrote %s\n", __func__, name);
+	lwsl_notice("%s: read %s (%d)\n", __func__, filename, (int)s);
 
-	return n;
+	if (n)
+		return -1;
+
+	return (int)s;
+
+bail:
+	nvs_close(nvh);
+
+	return -1;
 }
 
-
+LWS_VISIBLE int
+lws_plat_recommended_rsa_bits(void)
+{
+	/*
+	 * 2048-bit key generation takes up to a minute on ESP32, 4096
+	 * is like 15 minutes +
+	 */
+	return 2048;
+}
