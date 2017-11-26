@@ -282,7 +282,7 @@ check_key:
 		lwsl_err("%s: no extra certs\n", __func__);
 #endif
 	if (!x) {
-		lwsl_err("%s: x is NULL\n", __func__);
+		//lwsl_err("%s: x is NULL\n", __func__);
 		goto post_ecdh;
 	}
 	/* Get the public key from certificate */

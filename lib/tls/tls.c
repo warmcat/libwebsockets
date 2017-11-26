@@ -225,6 +225,7 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 {
 	union lws_tls_cert_info_results ir;
 	time_t now = (time_t)lws_now_secs(), life = 0;
+	struct lws_acme_cert_aging_args caa;
 	int n;
 
 	if (v->ssl_ctx && !v->skipped_certs) {
@@ -242,7 +243,9 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 	} else
 		lwsl_notice("   vhost %s: no cert\n", v->name);
 
-	lws_broadcast(v->context, LWS_CALLBACK_VHOST_CERT_AGING, v,
+	memset(&caa, 0, sizeof(caa));
+	caa.vh = v;
+	lws_broadcast(v->context, LWS_CALLBACK_VHOST_CERT_AGING, (void *)&caa,
 		      (size_t)(ssize_t)life);
 
 	return 0;
@@ -446,7 +449,7 @@ lws_gate_accepts(struct lws_context *context, int on)
 {
 	struct lws_vhost *v = context->vhost_list;
 
-	lwsl_info("gating accepts %d\n", on);
+	lwsl_notice("%s: on = %d\n", __func__, on);
 	context->ssl_gate_accepts = !on;
 #if defined(LWS_WITH_STATS)
 	context->updated = 1;
@@ -456,7 +459,7 @@ lws_gate_accepts(struct lws_context *context, int on)
 		if (v->use_ssl && v->lserv_wsi &&
 		    lws_change_pollfd(v->lserv_wsi, (LWS_POLLIN) * !on,
 				      (LWS_POLLIN) * on))
-			lwsl_info("Unable to set accept POLLIN %d\n", on);
+			lwsl_notice("Unable to set accept POLLIN %d\n", on);
 
 		v = v->vhost_next;
 	}
