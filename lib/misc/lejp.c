@@ -199,7 +199,6 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 
 	while (len--) {
 		c = *json++;
-
 		s = ctx->st[ctx->sp].s;
 
 		/* skip whitespace unless we should care */
@@ -615,8 +614,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					goto reject;
 				}
 				/* drop the path [n] bit */
-				ctx->ppos = ctx->st[ctx->sp - 1].p;
-				ctx->ipos = ctx->st[ctx->sp - 1].i;
+				if (ctx->sp) {
+					ctx->ppos = ctx->st[ctx->sp - 1].p;
+					ctx->ipos = ctx->st[ctx->sp - 1].i;
+				}
 				ctx->path[ctx->ppos] = '\0';
 				if (ctx->path_match &&
 					       ctx->ppos <= ctx->path_match_len)
@@ -642,8 +643,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				}
 				/* pop */
 				ctx->sp--;
-				ctx->ppos = ctx->st[ctx->sp - 1].p;
-				ctx->ipos = ctx->st[ctx->sp - 1].i;
+				if (ctx->sp) {
+					ctx->ppos = ctx->st[ctx->sp - 1].p;
+					ctx->ipos = ctx->st[ctx->sp - 1].i;
+				}
 				ctx->path[ctx->ppos] = '\0';
 				if (ctx->path_match &&
 					       ctx->ppos <= ctx->path_match_len)
