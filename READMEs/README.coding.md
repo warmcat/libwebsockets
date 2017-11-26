@@ -500,7 +500,7 @@ other reasons, if any of that happens you'll get a
 After attempting the connection and getting back a non-`NULL` `wsi` you should
 loop calling `lws_service()` until one of the above callbacks occurs.
 
-As usual, see [test-client.c](test-apps/test-client.c) for example code.
+As usual, see [test-client.c](../test-apps/test-client.c) for example code.
 
 Notice that the client connection api tries to progress the connection
 somewhat before returning.  That means it's possible to get callbacks like

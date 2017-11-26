@@ -2,7 +2,7 @@ Overview of lws test apps
 =========================
 
 Are you building a client?  You just need to look at the test client
-[libwebsockets-test-client](test-apps/test-client.c).
+[libwebsockets-test-client](../test-apps/test-client.c).
 
 If you are building a standalone server, there are three choices, in order of
 preferability.
@@ -13,12 +13,12 @@ Lws provides a generic web server app that can be configured with JSON
 config files.  https://libwebsockets.org itself uses this method.
 
 With lwsws handling the serving part, you only need to write an lws protocol
-plugin.  See [plugin-standalone](plugin-standalone) for an example of how
+plugin.  See [plugin-standalone](../plugin-standalone) for an example of how
 to do that outside lws itself, using lws public apis.
 
  $ cmake .. -DLWS_WITH_LWSWS=1
 
-See [README.lwsws.md](READMEs/README.lwsws.md) for information on how to configure
+See [README.lwsws.md](../READMEs/README.lwsws.md) for information on how to configure
 lwsws.
 
 NOTE this method implies libuv is used by lws, to provide crossplatform
@@ -32,7 +32,7 @@ Plugins are still used, which implies libuv needed.
 
  $ cmake .. -DLWS_WITH_PLUGINS=1
 
-See [test-server-v2.0.c](test-apps/test-server-v2.0.c)
+See [test-server-v2.0.c](../test-apps/test-server-v2.0.c)
 
 3) protocols in the server app
 
@@ -49,7 +49,7 @@ Notes about lws test apps
 
 @section tsb Testing server with a browser
 
-If you run [libwebsockets-test-server](test-apps/test-server.c) and point your browser
+If you run [libwebsockets-test-server](../test-apps/test-server.c) and point your browser
 (eg, Chrome) to
 
 	http://127.0.0.1:7681
@@ -154,7 +154,7 @@ certificates in the browser and the connection will proceed
 in first https and then websocket wss, acting exactly the
 same.
 
-[test-server.c](test-apps/test-server.c) is all that is needed to use libwebsockets for
+[test-server.c](../test-apps/test-server.c) is all that is needed to use libwebsockets for
 serving both the script html over http and websockets.
 
 @section lwstsdynvhost Dynamic Vhosts

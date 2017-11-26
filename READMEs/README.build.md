@@ -25,7 +25,7 @@ with SSL support (for OpenSSL/wolfSSL/BoringSSL):
 @section build1 Building the library and test apps
 
 The project settings used by CMake to generate the platform specific build
-files is called [CMakeLists.txt](CMakeLists.txt). CMake then uses one of its "Generators" to
+files is called [CMakeLists.txt](../CMakeLists.txt). CMake then uses one of its "Generators" to
 output a Visual Studio project or Make file for instance. To see a list of
 the available generators for your platform, simply run the "cmake" command.
 
@@ -54,7 +54,7 @@ see below on how to toggle compile options.
 ```
 **NOTE**: The `build/`` directory can have any name and be located anywhere
  on your filesystem, and that the argument `..` given to cmake is simply
- the source directory of **libwebsockets** containing the [CMakeLists.txt](CMakeLists.txt)
+ the source directory of **libwebsockets** containing the [CMakeLists.txt](../CMakeLists.txt)
  project file. All examples in this file assumes you use ".."
 
 **NOTE2**:
@@ -235,7 +235,7 @@ deleting build/CMakeCache.txt may be enough.
 ```
    (**NOTE**: The `build/`` directory can have any name and be located anywhere
     on your filesystem, and that the argument `..` given to cmake is simply
-    the source directory of **libwebsockets** containing the [CMakeLists.txt](CMakeLists.txt)
+    the source directory of **libwebsockets** containing the [CMakeLists.txt](../CMakeLists.txt)
     project file. All examples in this file assumes you use "..")
 
    **NOTE2**:
@@ -447,7 +447,7 @@ a "Toolchain file" that you supply to CMake when generating your build files.
 CMake will then use the cross compilers and build paths specified in this file
 to look for dependencies and such.
 
-**Libwebsockets** includes an example toolchain file [cross-arm-linux-gnueabihf.cmake](cross-arm-linux-gnueabihf.cmake)
+**Libwebsockets** includes an example toolchain file [cross-arm-linux-gnueabihf.cmake](../contrib/cross-arm-linux-gnueabihf.cmake)
 you can use as a starting point.
 
 The commandline to configure for cross with this would look like
