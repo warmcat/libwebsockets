@@ -339,9 +339,10 @@ lws_tls_server_accept(struct lws *wsi)
 
 static uint8_t ss_cert_leadin[] = {
 	0x30, 0x82,
-	  0x05, 0x51 + 5, /* total length */
+	  0x05, 0x56, /* total length: LEN1 (+2 / +3) (correct for 513 + 512)*/
 
-	0x30, 0x82, 0x03, 0x39 + 5,
+	0x30, 0x82, /* length: LEN2  (+6 / +7) (correct for 513) */
+		0x03, 0x3e,
 
 	/* addition: v3 cert (+5 bytes)*/
 	0xa0, 0x03,
@@ -361,7 +362,7 @@ static uint8_t ss_cert_leadin[] = {
 	0x31, 0x37, 0x31, 0x30, 0x32, 0x39, 0x31, 0x31, 0x34, 0x39, 0x34, 0x35,
 	0x5a, 0x17, 0x0d,
 
-	/* thru 2049 (we immediately discard the private key, no worries */
+	/* thru 2049-10-29 we immediately discard the private key, no worries */
 	0x34, 0x39, 0x31, 0x30, 0x32, 0x39, 0x31, 0x32, 0x34, 0x39, 0x34, 0x35,
 	0x5a,
 
@@ -370,14 +371,27 @@ static uint8_t ss_cert_leadin[] = {
 	0x0c, 0x0b, 0x73, 0x6f, 0x6d, 0x65, 0x63, 0x6f, 0x6d, 0x70, 0x61, 0x6e,
 	0x79, 0x31, 0x1a, 0x30, 0x18, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 0x11,
 	0x74, 0x65, 0x6d, 0x70, 0x2e, 0x61, 0x63, 0x6d, 0x65, 0x2e, 0x69, 0x6e,
-	0x76, 0x61, 0x6c, 0x69, 0x64, 0x30, 0x82, 0x02, 0x22, 0x30, 0x0d, 0x06,
-	0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
-	0x03, 0x82, 0x02, 0x0f, 0x00, 0x30, 0x82, 0x02, 0x0a, 0x02, 0x82,
+	0x76, 0x61, 0x6c, 0x69, 0x64, 0x30,
 
-	0x02, 0x01, /* length of n in bytes (including leading 00 if any) */
+	0x82,
+		0x02, 0x22, /* LEN3 (+C3 / C4) */
+	0x30, 0x0d, 0x06,
+	0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
+	0x03,
+
+	0x82,
+		0x02, 0x0f, /* LEN4 (+D6 / D7) */
+
+	0x00, 0x30, 0x82,
+
+		0x02, 0x0a, /* LEN5 (+ DB / DC) */
+
+	0x02, 0x82,
+
+	//0x02, 0x01, /* length of n in bytes (including leading 00 if any) */
 	},
 
-	/* 513 bytes - 0x00 + 512-byte n */
+	/* 1 + (keybits / 8) bytes N */
 
 	ss_cert_san_leadin[] = {
 		/* e - fixed */
@@ -397,53 +411,90 @@ static uint8_t ss_cert_leadin[] = {
 	0x65, 0x64, 0x37, 0x33, 0x31, 0x61, 0x33, 0x30, 0x66, 0x35, 0x63, 0x34,
 	0x34, 0x37, 0x37, 0x66, 0x65, 0x2e, 0x61, 0x63, 0x6d, 0x65, 0x2e, 0x69,
 	0x6e, 0x76, 0x61, 0x6c, 0x69, 0x64, */
+
+	/* end of LEN2 area */
+
 	ss_cert_sig_leadin[] = {
 		/* it's saying that the signature is SHA256 + RSA */
 		0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d,
-		0x01, 0x01, 0x0b, 0x05, 0x00, 0x03, 0x82, 0x02, 0x01, 0x00,
+		0x01, 0x01, 0x0b, 0x05, 0x00, 0x03,
+
+		0x82,
+			0x02, 0x01,
+		0x00,
 	};
 
-	/* 512-byte / 4096-bit signature to end */
+	/* (keybits / 8) bytes signature to end of LEN1 area */
+
+#define SAN_A_LENGTH 78
 
 LWS_VISIBLE int
 lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 			     const char *san_b)
 {
 	int buflen = 0x560;
-	uint8_t *buf = lws_malloc(buflen, "temp cert buf"), *p = buf, *pkey_asn1;
+	uint8_t *buf = lws_malloc(buflen, "tmp cert buf"), *p = buf, *pkey_asn1;
 	struct lws_genrsa_ctx ctx;
 	struct lws_genrsa_elements el;
 	uint8_t digest[32];
 	struct lws_genhash_ctx hash_ctx;
 	int pkey_asn1_len = 3 * 1024;
-	int n;
+	int n, keybits = lws_plat_recommended_rsa_bits(), adj;
 
 	if (!buf)
 		return 1;
 
-	n = lws_genrsa_new_keypair(vhost->context, &ctx, &el, 4096);
+	n = lws_genrsa_new_keypair(vhost->context, &ctx, &el, keybits);
 	if (n < 0) {
 		lws_jwk_destroy_genrsa_elements(&el);
 		goto bail1;
 	}
 
-	memcpy(p, ss_cert_leadin, sizeof(ss_cert_leadin));
-	p += sizeof(ss_cert_leadin);
+	n = sizeof(ss_cert_leadin);
+	memcpy(p, ss_cert_leadin, n);
+	p += n;
 
-	/* we need to drop 513 bytes of n in here 00 + 512-bytes */
+	adj = (0x0556 - 0x401) + (keybits / 4) + 1;
+	buf[2] = adj >> 8;
+	buf[3] = adj & 0xff;
+
+	adj = (0x033e - 0x201) + (keybits / 8) + 1;
+	buf[6] = adj >> 8;
+	buf[7] = adj & 0xff;
+
+	adj = (0x0222 - 0x201) + (keybits / 8) + 1;
+	buf[0xc3] = adj >> 8;
+	buf[0xc4] = adj & 0xff;
+
+	adj = (0x020f - 0x201) + (keybits / 8) + 1;
+	buf[0xd6] = adj >> 8;
+	buf[0xd7] = adj & 0xff;
+
+	adj = (0x020a - 0x201) + (keybits / 8) + 1;
+	buf[0xdb] = adj >> 8;
+	buf[0xdc] = adj & 0xff;
+
+	*p++ = ((keybits / 8) + 1) >> 8;
+	*p++ = ((keybits / 8) + 1) & 0xff;
+
+	/* we need to drop 1 + (keybits / 8) bytes of n in here, 00 + key */
 
 	*p++ = 0x00;
 	memcpy(p, el.e[JWK_KEY_N].buf, el.e[JWK_KEY_N].len);
-	p += 512;
+	p += el.e[JWK_KEY_N].len;
 
 	memcpy(p, ss_cert_san_leadin, sizeof(ss_cert_san_leadin));
 	p += sizeof(ss_cert_san_leadin);
 
 	/* drop in 78 bytes of san_a */
 
-	memcpy(p, san_a, 78);
-	p += 78;
+	memcpy(p, san_a, SAN_A_LENGTH);
+	p += SAN_A_LENGTH;
 	memcpy(p, ss_cert_sig_leadin, sizeof(ss_cert_sig_leadin));
+
+	p[17] = ((keybits / 8) + 1) >> 8;
+	p[18] = ((keybits / 8) + 1) & 0xff;
+
 	p += sizeof(ss_cert_sig_leadin);
 
 	/* hash the cert plaintext */
@@ -490,13 +541,15 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	lws_genrsa_destroy(&ctx);
 	lws_jwk_destroy_genrsa_elements(&el);
 
-	lwsl_hexdump_level(LLL_DEBUG, buf, lws_ptr_diff(p, buf));
+	if (n == 1) {
+		lwsl_hexdump_level(LLL_DEBUG, buf, lws_ptr_diff(p, buf));
 
-	n = SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx,
+		n = SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx,
 					 lws_ptr_diff(p, buf), buf);
-	if (n != 1)
-		lwsl_notice("%s: generated cert failed to load 0x%x\n",
-			    __func__, -n);
+		if (n != 1)
+			lwsl_notice("%s: generated cert failed to load 0x%x\n",
+					__func__, -n);
+	}
 
 	lws_free(buf);
 
@@ -553,7 +606,7 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 	}
 
 	n = mbedtls_rsa_gen_key(mbedtls_pk_rsa(mpk), _rngf, context,
-				4096, 65537);
+				lws_plat_recommended_rsa_bits(), 65537);
 	if (n) {
 		lwsl_notice("%s: failed to generate keys\n", __func__);
 
