@@ -1075,7 +1075,7 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS	= 22,
 	/**< if configured for
 	 * including OpenSSL support, this callback allows your user code
-	 * to load extra certifcates into the server which allow it to
+	 * to load extra certificates into the server which allow it to
 	 * verify the validity of certificates returned by clients.  user
 	 * is the server's OpenSSL SSL_CTX* and in is the lws_vhost * */
 	LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION	= 23,
@@ -5249,7 +5249,7 @@ LWS_VISIBLE LWS_EXTERN unsigned long
 lws_now_secs(void);
 
 /**
- * lws_get_context - Allow geting lws_context from a Websocket connection
+ * lws_get_context - Allow getting lws_context from a Websocket connection
  * instance
  *
  * With this function, users can access context in the callback function.
