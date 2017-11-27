@@ -750,7 +750,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		/* if it's data, either way no swsi means CLOSED state */
 		if (h2n->type == LWS_H2_FRAME_TYPE_DATA) {
 			lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
-				      "Data for nonexistant sid");
+				      "Data for nonexistent sid");
 			return 0;
 		}
 		/* if the sid is credible, treat as wsi for it closed */
@@ -761,7 +761,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			lwsl_info("%s: wsi %p, No child for sid %d, rx cmd %d\n",
 			  __func__, h2n->swsi, h2n->sid, h2n->type);
 			lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
-				     "Data for nonexistant sid");
+				     "Data for nonexistent sid");
 			return 0;
 		}
 	}
