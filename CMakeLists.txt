@@ -1687,12 +1687,13 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			      "plugins/protocol_post_demo.c" "" "")
 		create_plugin(protocol_lws_table_dirlisting ""
 			      "plugins/generic-table/protocol_table_dirlisting.c" "" "")
+if (LWS_WITH_SSL)
 		create_plugin(protocol_lws_ssh_base "plugins/ssh-base/include"
 			      "plugins/ssh-base/sshd.c;plugins/ssh-base/telnet.c;plugins/ssh-base/kex-25519.c" "plugins/ssh-base/crypto/chacha.c;plugins/ssh-base/crypto/ed25519.c;plugins/ssh-base/crypto/fe25519.c;plugins/ssh-base/crypto/ge25519.c;plugins/ssh-base/crypto/poly1305.c;plugins/ssh-base/crypto/sc25519.c;plugins/ssh-base/crypto/smult_curve25519_ref.c" "")
 		create_plugin(protocol_lws_sshd_demo "plugins/ssh-base/include" "plugins/protocol_lws_sshd_demo.c" "" "")
 
-
 		include_directories("${PROJECT_SOURCE_DIR}/plugins/ssh-base/include")
+endif()
 
 		if (NOT WIN32)
 			create_plugin(protocol_lws_raw_test ""
