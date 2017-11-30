@@ -325,7 +325,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 		lwsl_parser("issuing resp pkt %d len\n",
 			    lws_ptr_diff(p, response));
-#if defined(DEBUG) && ! defined(LWS_WITH_ESP8266)
+#if defined(DEBUG)
 		fwrite(response, 1,  p - response, stderr);
 #endif
 		n = lws_write(wsi, (unsigned char *)response,

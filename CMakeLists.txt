@@ -53,7 +53,6 @@ option(LWS_STATIC_PIC "Build the static version of the library with position-ind
 #
 # Specific platforms
 #
-option(LWS_WITH_ESP8266 "Build for ESP8266" OFF)
 option(LWS_WITH_ESP32 "Build for ESP32" OFF)
 option(LWS_PLAT_OPTEE "Build for OPTEE" OFF)
 #
@@ -208,23 +207,6 @@ endif()
 if (LWS_WITH_SMTP AND NOT LWS_WITH_LIBUV)
 message(STATUS "LWS_WITH_SMTP --> Enabling LWS_WITH_LIBUV")
  set(LWS_WITH_LIBUV 1)
-endif()
-
-if (LWS_WITH_ESP8266)
- set(LWS_WITH_SHARED OFF)
- set(LWS_WITH_SSL OFF)
- set(LWS_WITH_ZLIB OFF)
- set(LWS_WITHOUT_CLIENT ON)
- set(LWS_WITHOUT_TESTAPPS ON)
- set(LWS_WITHOUT_EXTENSIONS ON)
- set(LWS_WITH_PLUGINS OFF)
- set(LWS_WITH_RANGES OFF)
- # this implies no pthreads in the lib
- set(LWS_MAX_SMP 1)
- set(LWS_HAVE_MALLOC 1)
- set(LWS_HAVE_REALLOC 1)
- set(LWS_HAVE_GETIFADDRS 1)
- set(LWS_WITH_ZIP_FOPS 0)
 endif()
 
 if (LWS_WITH_ESP32)
@@ -480,10 +462,6 @@ if ("${LWS_MAX_SMP}" STREQUAL "")
 	set(LWS_MAX_SMP 1)
 endif()
 
-
-if (LWS_WITH_ESP8266)
-set(CMAKE_C_FLAGS "-nostdlib ${CMAKE_C_FLAGS}")
-endif()
 
 if (MINGW)
 	set(LWS_MINGW_SUPPORT 1)
@@ -808,22 +786,17 @@ if (WIN32)
 		lib/plat/lws-plat-win.c)
 else()
 
-	if (LWS_WITH_ESP8266)
+	if (LWS_PLAT_OPTEE)
 		list(APPEND SOURCES
-			lib/plat/lws-plat-esp8266.c)
+			lib/plat/lws-plat-optee.c)
 	else()
-		if (LWS_PLAT_OPTEE)
+		if (LWS_WITH_ESP32)
 			list(APPEND SOURCES
-				lib/plat/lws-plat-optee.c)
+				lib/plat/lws-plat-esp32.c
+				lib/misc/romfs.c)
 		else()
-			if (LWS_WITH_ESP32)
-				list(APPEND SOURCES
-					lib/plat/lws-plat-esp32.c
-					lib/misc/romfs.c)
-			else()
-				list(APPEND SOURCES
-					lib/plat/lws-plat-unix.c)
-			endif()
+			list(APPEND SOURCES
+				lib/plat/lws-plat-unix.c)
 		endif()
 	endif()
 endif()
@@ -937,7 +910,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
     if (LWS_WITH_GCOV)
 	    set (GCOV_FLAGS "-fprofile-arcs -ftest-coverage -O0")
     endif()
-    if ((UNIX OR LWS_WITH_ESP8266) AND NOT LWS_WITH_ESP32)
+    if (UNIX AND NOT LWS_WITH_ESP32)
 	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
     else()
 	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )

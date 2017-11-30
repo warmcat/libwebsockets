@@ -290,17 +290,6 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 		return;
 
 	lws_access_log(wsi);
-#if defined(LWS_WITH_ESP8266)
-	if (wsi->premature_rx)
-		lws_free(wsi->premature_rx);
-
-	if (wsi->pending_send_completion &&
-	    !wsi->close_is_pending_send_completion) {
-		lwsl_notice("delaying close\n");
-		wsi->close_is_pending_send_completion = 1;
-		return;
-	}
-#endif
 
 	/* we're closing, losing some rx is OK */
 	lws_header_table_force_to_detachable_state(wsi);
@@ -564,10 +553,6 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 				reason & 0xff;
 		}
 
-#if defined (LWS_WITH_ESP8266)
-		wsi->close_is_pending_send_completion = 1;
-#endif
-
 		lwsl_debug("waiting for chance to send close\n");
 		wsi->waiting_to_send_close_frame = 1;
 		wsi->state = LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION;
@@ -687,10 +672,6 @@ just_kill_connection:
 		remove_wsi_socket_from_fds(wsi);
 	else
 		lws_same_vh_protocol_remove(wsi);
-
-#if defined(LWS_WITH_ESP8266)
-	espconn_disconnect(wsi->desc.sockfd);
-#endif
 
 	wsi->state = LWSS_DEAD_SOCKET;
 	lws_free_set_NULL(wsi->rxflow_buffer);
@@ -990,11 +971,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 
 	return lws_plat_inet_ntop(af, q, name, namelen);
 #else
-#if defined(LWS_WITH_ESP8266)
-	return lws_plat_get_peer_simple(wsi, name, namelen);
-#else
 	return NULL;
-#endif
 #endif
 }
 #endif
@@ -1493,15 +1470,9 @@ int user_callback_handle_rxflow(lws_callback_function callback_function,
 	return n;
 }
 
-#if defined(LWS_WITH_ESP8266)
-#undef strchr
-#define strchr ets_strchr
-#endif
-
 LWS_VISIBLE int
 lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 {
-#if !defined(LWS_WITH_ESP8266)
 	char *p;
 	char authstring[96];
 
@@ -1555,7 +1526,7 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 
 auth_too_long:
 	lwsl_err("proxy auth too long\n");
-#endif
+
 	return -1;
 }
 
@@ -1563,7 +1534,6 @@ auth_too_long:
 LWS_VISIBLE int
 lws_set_socks(struct lws_vhost *vhost, const char *socks)
 {
-#if !defined(LWS_WITH_ESP8266)
 	char *p_at, *p_colon;
 	char user[96];
 	char password[96];
@@ -1628,7 +1598,6 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 	return 0;
 
 bail:
-#endif
 	return -1;
 }
 #endif
@@ -1757,7 +1726,6 @@ static const char * const colours[] = {
 #ifndef LWS_PLAT_OPTEE
 LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 {
-#if !defined(LWS_WITH_ESP8266)
 	char buf[50];
 	static char tty;
 	int n, m = ARRAY_SIZE(colours) - 1;
@@ -1778,17 +1746,12 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 		fprintf(stderr, "%c%s%s%s%c[0m", 27, colours[m], buf, line, 27);
 	} else
 		fprintf(stderr, "%s%s", buf, line);
-#endif
 }
 #endif
 
 LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 {
-#if defined(LWS_WITH_ESP8266)
-	char buf[128];
-#else
 	char buf[256];
-#endif
 	int n;
 
 	if (!(log_level & filter))
@@ -1796,15 +1759,11 @@ LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 
 	n = vsnprintf(buf, sizeof(buf) - 1, format, vl);
 	(void)n;
-#if defined(LWS_WITH_ESP8266)
-	buf[sizeof(buf) - 1] = '\0';
-#else
 	/* vnsprintf returns what it would have written, even if truncated */
 	if (n > (int)sizeof(buf) - 1)
 		n = sizeof(buf) - 1;
 	if (n > 0)
 		buf[n] = '\0';
-#endif
 
 	lwsl_emit(filter, buf);
 }

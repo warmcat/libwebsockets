@@ -590,7 +590,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 	vh->iface = info->iface;
-#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32) && \
+#if !defined(LWS_WITH_ESP32) && \
     !defined(OPTEE_TA) && !defined(WIN32)
 	vh->bind_iface = info->bind_iface;
 #endif
@@ -773,7 +773,6 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 	vh->listen_port = info->port;
-#if !defined(LWS_WITH_ESP8266)
 	vh->http_proxy_port = 0;
 	vh->http_proxy_address[0] = '\0';
 #if defined(LWS_WITH_SOCKS5)
@@ -810,7 +809,6 @@ lws_create_vhost(struct lws_context *context,
 			lws_set_socks(vh, p);
 #endif
 	}
-#endif
 #endif
 
 	vh->ka_time = info->ka_time;

@@ -39,12 +39,7 @@ extern "C" {
  * CARE: everything using cmake defines needs to be below here
  */
 
-#if defined(LWS_WITH_ESP8266)
-struct sockaddr_in;
-#define LWS_POSIX 0
-#else
 #define LWS_POSIX 1
-#endif
 
 #if defined(LWS_HAS_INTPTR_T)
 #include <stdint.h>
@@ -128,7 +123,7 @@ typedef unsigned long long lws_intptr_t;
 #define LWS_O_CREAT O_CREAT
 #define LWS_O_TRUNC O_TRUNC
 
-#if !defined(LWS_WITH_ESP8266) && !defined(OPTEE_TA) && !defined(LWS_WITH_ESP32)
+#if !defined(OPTEE_TA) && !defined(LWS_WITH_ESP32)
 #include <poll.h>
 #include <netdb.h>
 #define LWS_INVALID_FILE -1
@@ -282,10 +277,6 @@ lwsl_timestamp(int level, char *p, int len);
  *  active
  */
 
-#if defined(LWS_WITH_ESP8266)
-#undef _DEBUG
-#endif
-
 #ifdef _DEBUG
 #if defined(LWS_WITH_NO_LOGS)
 /* notice, warn and log are always compiled in */
@@ -436,72 +427,6 @@ struct lws_pollfd {
 #else
 
 
-#if defined(LWS_WITH_ESP8266)
-
-#include <user_interface.h>
-#include <espconn.h>
-
-typedef struct espconn * lws_sockfd_type;
-typedef void * lws_filefd_type;
-#define lws_sockfd_valid(sfd) (!!sfd)
-struct pollfd {
-	lws_sockfd_type fd; /**< fd related to */
-	short events; /**< which POLL... events to respond to */
-	short revents; /**< which POLL... events occurred */
-};
-#define POLLIN		0x0001
-#define POLLPRI		0x0002
-#define POLLOUT		0x0004
-#define POLLERR		0x0008
-#define POLLHUP		0x0010
-#define POLLNVAL	0x0020
-
-struct lws_vhost;
-
-lws_sockfd_type esp8266_create_tcp_listen_socket(struct lws_vhost *vh);
-void esp8266_tcp_stream_accept(lws_sockfd_type fd, struct lws *wsi);
-
-#include <os_type.h>
-#include <osapi.h>
-#include "ets_sys.h"
-
-int ets_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
-#define snprintf  ets_snprintf
-
-typedef os_timer_t uv_timer_t;
-typedef void uv_cb_t(uv_timer_t *);
-
-void os_timer_disarm(void *);
-void os_timer_setfn(os_timer_t *, os_timer_func_t *, void *);
-
-void ets_timer_arm_new(os_timer_t *, int, int, int);
-
-//void os_timer_arm(os_timer_t *, int, int);
-
-#define UV_VERSION_MAJOR 1
-
-#define lws_uv_getloop(a, b) (NULL)
-
-static inline void uv_timer_init(void *l, uv_timer_t *t)
-{
-	(void)l;
-	memset(t, 0, sizeof(*t));
-	os_timer_disarm(t);
-}
-
-static inline void uv_timer_start(uv_timer_t *t, uv_cb_t *cb, int first, int rep)
-{
-	os_timer_setfn(t, (os_timer_func_t *)cb, t);
-	/* ms, repeat */
-	os_timer_arm(t, first, !!rep);
-}
-
-static inline void uv_timer_stop(uv_timer_t *t)
-{
-	os_timer_disarm(t);
-}
-
-#else
 #if defined(LWS_WITH_ESP32)
 
 typedef int lws_sockfd_type;
@@ -707,7 +632,6 @@ extern void lws_esp32_leds_timer_cb(TimerHandle_t th);
 typedef int lws_sockfd_type;
 typedef int lws_filefd_type;
 #define lws_sockfd_valid(sfd) (sfd >= 0)
-#endif
 #endif
 
 #define lws_pollfd pollfd
@@ -5104,7 +5028,7 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen);
-#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32)
 /**
  * lws_interface_to_sa() - Convert interface name or IP to sockaddr struct
  *

@@ -49,54 +49,8 @@ typedef struct { long double x, y; } _Float128;
 #define SOMAXCONN 3
 #endif
 
-#if defined(LWS_WITH_ESP8266)
-#include <user_interface.h>
-#define assert(n)
-
-/* rom-provided stdc functions for free, ensure use these instead of libc ones */
-
-int ets_vsprintf(char *str, const char *format, va_list argptr);
-int ets_vsnprintf(char *buffer, size_t sizeOfBuffer,  const char *format, va_list argptr);
-int ets_snprintf(char *str, size_t size, const char *format, ...);
-int ets_sprintf(char *str, const char *format, ...);
-int os_printf_plus(const char *format, ...);
-#undef malloc
-#undef realloc
-#undef free
-void *pvPortMalloc(size_t s, const char *f, int line);
-#define malloc(s) pvPortMalloc(s, "", 0)
-void *pvPortRealloc(void *p, size_t s, const char *f, int line);
-#define realloc(p, s) pvPortRealloc(p, s, "", 0)
-void vPortFree(void *p, const char *f, int line);
-#define free(p) vPortFree(p, "", 0)
-#undef memcpy
-void *ets_memcpy(void *dest, const void *src, size_t n);
-#define memcpy ets_memcpy
-void *ets_memset(void *dest, int v, size_t n);
-#define memset ets_memset
-char *ets_strcpy(char *dest, const char *src);
-#define strcpy ets_strcpy
-char *ets_strncpy(char *dest, const char *src, size_t n);
-#define strncpy ets_strncpy
-char *ets_strstr(const char *haystack, const char *needle);
-#define strstr ets_strstr
-int ets_strcmp(const char *s1, const char *s2);
-int ets_strncmp(const char *s1, const char *s2, size_t n);
-#define strcmp ets_strcmp
-#define strncmp ets_strncmp
-size_t ets_strlen(const char *s);
-#define strlen ets_strlen
-void *ets_memmove(void *dest, const void *src, size_t n);
-#define memmove ets_memmove
-char *ets_strchr(const char *s, int c);
-#define strchr_ets_strchr
-#undef _DEBUG
-#include <osapi.h>
-
-#else
 #define STORE_IN_ROM
 #include <assert.h>
-#endif
 #if LWS_MAX_SMP > 1
 #include <pthread.h>
 #endif
@@ -180,17 +134,7 @@ int fork(void);
 #endif
 #include <netdb.h>
 #include <signal.h>
-#ifdef LWS_WITH_ESP8266
-#include <sockets.h>
-#define vsnprintf ets_vsnprintf
-#define snprintf ets_snprintf
-#define sprintf ets_sprintf
-
-int kill(int pid, int sig);
-
-#else
 #include <sys/socket.h>
-#endif
 #ifdef LWS_WITH_HTTP_PROXY
 #include <hubbub/hubbub.h>
 #include <hubbub/parser.h>
@@ -198,7 +142,7 @@ int kill(int pid, int sig);
 #if defined(LWS_BUILTIN_GETIFADDRS)
  #include "./misc/getifaddrs.h"
 #else
- #if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
+ #if !defined(LWS_WITH_ESP32)
  #if defined(__HAIKU__)
    #define _BSD_SOURCE
  #endif
@@ -211,12 +155,12 @@ int kill(int pid, int sig);
 #elif defined (__sun) || defined(__HAIKU__)
 #include <syslog.h>
 #else
-#if !defined(LWS_WITH_ESP8266)  && !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32)
 #include <sys/syslog.h>
 #endif
 #endif
 #include <netdb.h>
-#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32)
 #include <sys/mman.h>
 #include <sys/un.h>
 #include <netinet/in.h>
@@ -252,16 +196,8 @@ int kill(int pid, int sig);
 
 #define lws_set_blocking_send(wsi)
 
-#if defined(LWS_WITH_ESP8266)
-#define lws_socket_is_valid(x) ((x) != NULL)
-#define LWS_SOCK_INVALID (NULL)
-struct lws;
-const char *
-lws_plat_get_peer_simple(struct lws *wsi, char *name, int namelen);
-#else
 #define lws_socket_is_valid(x) (x >= 0)
 #define LWS_SOCK_INVALID (-1)
-#endif
 #endif
 
 #ifndef LWS_HAVE_BZERO
@@ -332,25 +268,6 @@ static inline int compatible_close(int fd) { return close(fd); }
 #if defined(WIN32) || defined(_WIN32)
 #include <gettimeofday.h>
 #endif
-
-#if defined(LWS_WITH_ESP8266)
-#undef compatible_close
-#define compatible_close(fd) { fd->state=ESPCONN_CLOSE; espconn_delete(fd); }
-lws_sockfd_type
-esp8266_create_tcp_stream_socket(void);
-void
-esp8266_tcp_stream_bind(lws_sockfd_type fd, int port, struct lws *wsi);
-#ifndef BIG_ENDIAN
-#define BIG_ENDIAN    4321  /* to show byte order (taken from gcc) */
-#endif
-#ifndef LITTLE_ENDIAN
-#define LITTLE_ENDIAN 1234
-#endif
-#ifndef BYTE_ORDER
-#define BYTE_ORDER LITTLE_ENDIAN
-#endif
-#endif
-
 
 #if defined(WIN32) || defined(_WIN32)
 
@@ -894,9 +811,6 @@ struct lws_context_per_thread {
 #endif
 	struct lws_pollfd *fds;
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
-#if defined(LWS_WITH_ESP8266)
-	struct lws **lws_vs_fds_index;
-#endif
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
 	struct lws *timeout_list;
@@ -1005,7 +919,6 @@ struct http2_settings {
 struct lws_tls_ss_pieces;
 
 struct lws_vhost {
-#if !defined(LWS_WITH_ESP8266)
 	char http_proxy_address[128];
 	char proxy_basic_auth_token[128];
 #if defined(LWS_WITH_HTTP2)
@@ -1016,11 +929,6 @@ struct lws_vhost {
 	char socks_user[96];
 	char socks_password[96];
 #endif
-#endif
-#if defined(LWS_WITH_ESP8266)
-	/* listen sockets need a place to hang their hat */
-	esp_tcp tcp;
-#endif
 	struct lws_conn_stats conn_stats;
 	struct lws_context *context;
 	struct lws_vhost *vhost_next;
@@ -1030,7 +938,7 @@ struct lws_vhost {
 	const char *iface;
 	char *alloc_cert_path;
 	char *key_path;
-#if !defined(LWS_WITH_ESP8266) && !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
+#if !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
 	int bind_iface;
 #endif
 	const struct lws_protocols *protocols;
@@ -1150,14 +1058,7 @@ struct lws_context {
 /* different implementation between unix and windows */
 	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
 #else
-#if defined(LWS_WITH_ESP8266)
-	struct espconn **connpool; /* .reverse points to the wsi */
-	void *rxd;
-	int rxd_len;
-	os_timer_t to_timer;
-#else
 	struct lws **lws_lookup;  /* fd to wsi */
-#endif
 #endif
 	struct lws_vhost *vhost_list;
 	struct lws_vhost *vhost_pending_destruction_list;
@@ -1948,11 +1849,6 @@ struct lws {
 	/* truncated send handling */
 	unsigned char *trunc_alloc; /* non-NULL means buffering in progress */
 
-#if defined (LWS_WITH_ESP8266)
-	void *premature_rx;
-	unsigned short prem_rx_size, prem_rx_pos;
-#endif
-
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
 	void *act_ext_user[LWS_MAX_EXTENSIONS_ACTIVE];
@@ -2019,10 +1915,6 @@ struct lws {
 	unsigned int rxflow_will_be_applied:1;
 	unsigned int event_pipe:1;
 
-#if defined(LWS_WITH_ESP8266)
-	unsigned int pending_send_completion:3;
-	unsigned int close_is_pending_send_completion:1;
-#endif
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
 #endif
@@ -2148,7 +2040,7 @@ lws_b64_selftest(void);
 LWS_EXTERN int
 lws_service_flag_pending(struct lws_context *context, int tsi);
 
-#if defined(_WIN32) || defined(LWS_WITH_ESP8266)
+#if defined(_WIN32)
 LWS_EXTERN struct lws *
 wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd);
 
@@ -2359,11 +2251,9 @@ LWS_EXTERN int get_daemonize_pid();
 #define get_daemonize_pid() (0)
 #endif
 
-#if !defined(LWS_WITH_ESP8266)
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 interface_to_sa(struct lws_vhost *vh, const char *ifname,
 		struct sockaddr_in *addr, size_t addrlen);
-#endif
 LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 
 #ifndef LWS_OPENSSL_SUPPORT

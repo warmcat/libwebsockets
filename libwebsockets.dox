@@ -109,7 +109,6 @@ INPUT                  = lib/libwebsockets.h \
 			 ./READMEs/README.lwsws.md \
 			 ./READMEs/README.coding.md \
 			 ./READMEs/README.esp32.md \
-			 ./READMEs/README.esp8266.md \
 			 ./READMEs/README.generic-sessions.md \
 			 ./READMEs/README.generic-table.md \
 			 ./READMEs/README.test-apps.md \

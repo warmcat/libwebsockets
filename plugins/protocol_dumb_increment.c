@@ -26,11 +26,7 @@
 
 #include <string.h>
 
-#if defined(LWS_WITH_ESP8266)
 #define DUMB_PERIOD 50
-#else
-#define DUMB_PERIOD 50
-#endif
 
 struct per_vhost_data__dumb_increment {
 	uv_timer_t timeout_watcher;

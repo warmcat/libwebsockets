@@ -28,14 +28,6 @@ const char * const method_names[] = {
 #endif
 	};
 
-#if defined (LWS_WITH_ESP8266)
-#undef memcpy
-void *memcpy(void *dest, const void *src, size_t n)
-{
-	return ets_memcpy(dest, src, n);
-}
-#endif
-
 int
 lws_context_init_server(struct lws_context_creation_info *info,
 			struct lws_vhost *vhost)
@@ -92,11 +84,6 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (sockfd == -1) {
-#else
-#if defined(LWS_WITH_ESP8266)
-	sockfd = esp8266_create_tcp_listen_socket(vhost);
-	if (!lws_sockfd_valid(sockfd)) {
-#endif
 #endif
 		lwsl_err("ERROR opening socket\n");
 		return 1;
@@ -207,9 +194,6 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	}
 	} /* for each thread able to independently listen */
 #else
-#if defined(LWS_WITH_ESP8266)
-	esp8266_tcp_stream_bind(wsi->desc.sockfd, info->port, wsi);
-#endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
 #ifdef LWS_WITH_UNIX_SOCK
@@ -227,11 +211,6 @@ bail:
 
 	return 1;
 }
-
-#if defined(LWS_WITH_ESP8266)
-#undef strchr
-#define strchr ets_strchr
-#endif
 
 struct lws_vhost *
 lws_select_vhost(struct lws_context *context, int port, const char *servername)
@@ -388,7 +367,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	const struct lws_protocol_vhost_options *pvo = m->interpret;
 	struct lws_process_html_args args;
 	const char *mimetype;
-#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266)
+#if !defined(_WIN32_WCE)
 	const struct lws_plat_file_ops *fops;
 	const char *vpath;
 	lws_fop_flags_t fflags = LWS_O_RDONLY;
@@ -409,7 +388,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
-#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP8266)
+#if !defined(_WIN32_WCE)
 
 	fflags |= lws_vfs_prepare_flags(wsi);
 
@@ -2066,11 +2045,6 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 					PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
 					context->timeout_secs);
 
-#if LWS_POSIX == 0
-#if defined(LWS_WITH_ESP8266)
-		esp8266_tcp_stream_accept(accept_fd, new_wsi);
-#endif
-#endif
 	} else /* file desc */
 		lwsl_debug("%s: new wsi %p, filefd %d\n", __func__, new_wsi,
 			   (int)(lws_intptr_t)fd.filefd);
@@ -2320,14 +2294,12 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		 * the POLLOUT), don't let that happen twice in a row...
 		 * next time we see the situation favour POLLOUT
 		 */
-#if !defined(LWS_WITH_ESP8266)
 		if (wsi->favoured_pollin &&
 		    (pollfd->revents & pollfd->events & LWS_POLLOUT)) {
 			lwsl_notice("favouring pollout\n");
 			wsi->favoured_pollin = 0;
 			goto try_pollout;
 		}
-#endif
 
 		/* these states imply we MUST have an ah attached */
 
