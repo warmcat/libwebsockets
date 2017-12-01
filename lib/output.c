@@ -27,7 +27,7 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 	int n;
 	/* fetch the per-frame nonce */
 
-	n = lws_get_random(lws_get_context(wsi), wsi->u.ws.mask, 4);
+	n = lws_get_random(lws_get_context(wsi), wsi->ws->mask, 4);
 	if (n != 4) {
 		lwsl_parser("Unable to read from random device %s %d\n",
 			    SYSTEM_RANDOM_FILEPATH, n);
@@ -35,7 +35,7 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 	}
 
 	/* start masking from first byte of masking key buffer */
-	wsi->u.ws.mask_idx = 0;
+	wsi->ws->mask_idx = 0;
 
 	return 0;
 }
@@ -233,21 +233,21 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	if (wsi->vhost)
 		wsi->vhost->conn_stats.tx += len;
 
-	if (wsi->state == LWSS_ESTABLISHED && wsi->u.ws.tx_draining_ext) {
+	if (wsi->state == LWSS_ESTABLISHED && wsi->ws->tx_draining_ext) {
 		/* remove us from the list */
 		struct lws **w = &pt->tx_draining_ext_list;
 
-		wsi->u.ws.tx_draining_ext = 0;
+		wsi->ws->tx_draining_ext = 0;
 		/* remove us from context draining ext list */
 		while (*w) {
 			if (*w == wsi) {
-				*w = wsi->u.ws.tx_draining_ext_list;
+				*w = wsi->ws->tx_draining_ext_list;
 				break;
 			}
-			w = &((*w)->u.ws.tx_draining_ext_list);
+			w = &((*w)->ws->tx_draining_ext_list);
 		}
-		wsi->u.ws.tx_draining_ext_list = NULL;
-		wp = (wsi->u.ws.tx_draining_stashed_wp & 0xc0) |
+		wsi->ws->tx_draining_ext_list = NULL;
+		wp = (wsi->ws->tx_draining_stashed_wp & 0xc0) |
 				LWS_WRITE_CONTINUATION;
 
 		lwsl_ext("FORCED draining wp to 0x%02X\n", wp);
@@ -271,12 +271,12 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 
 	/* if we are continuing a frame that already had its header done */
 
-	if (wsi->u.ws.inside_frame) {
+	if (wsi->ws->inside_frame) {
 		lwsl_debug("INSIDE FRAME\n");
 		goto do_more_inside_frame;
 	}
 
-	wsi->u.ws.clean_buffer = 1;
+	wsi->ws->clean_buffer = 1;
 
 	/*
 	 * give a chance to the extensions to modify payload
@@ -308,8 +308,8 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		if (n && eff_buf.token_len) {
 			lwsl_debug("drain len %d\n", (int)eff_buf.token_len);
 			/* extension requires further draining */
-			wsi->u.ws.tx_draining_ext = 1;
-			wsi->u.ws.tx_draining_ext_list =
+			wsi->ws->tx_draining_ext = 1;
+			wsi->ws->tx_draining_ext_list =
 					pt->tx_draining_ext_list;
 			pt->tx_draining_ext_list = wsi;
 			/* we must come back to do more */
@@ -319,7 +319,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 			 * action that has provoked generation of these
 			 * fragments, so the last guy can use its FIN state.
 			 */
-			wsi->u.ws.tx_draining_stashed_wp = wp;
+			wsi->ws->tx_draining_stashed_wp = wp;
 			/* this is definitely not actually the last fragment
 			 * because the extension asserted he has more coming
 			 * So make sure this intermediate one doesn't go out
@@ -328,9 +328,9 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 			wp |= LWS_WRITE_NO_FIN;
 		}
 
-		if (eff_buf.token_len && wsi->u.ws.stashed_write_pending) {
-			wsi->u.ws.stashed_write_pending = 0;
-			wp = (wp &0xc0) | (int)wsi->u.ws.stashed_write_type;
+		if (eff_buf.token_len && wsi->ws->stashed_write_pending) {
+			wsi->ws->stashed_write_pending = 0;
+			wp = (wp &0xc0) | (int)wsi->ws->stashed_write_type;
 		}
 	}
 
@@ -346,16 +346,16 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		 * replace the write type that was lost here the first time.
 		 */
 		if (len && !eff_buf.token_len) {
-			if (!wsi->u.ws.stashed_write_pending)
-				wsi->u.ws.stashed_write_type = (char)wp & 0x3f;
-			wsi->u.ws.stashed_write_pending = 1;
+			if (!wsi->ws->stashed_write_pending)
+				wsi->ws->stashed_write_type = (char)wp & 0x3f;
+			wsi->ws->stashed_write_pending = 1;
 			return (int)len;
 		}
 		/*
 		 * extension recreated it:
 		 * need to buffer this if not all sent
 		 */
-		wsi->u.ws.clean_buffer = 0;
+		wsi->ws->clean_buffer = 0;
 	}
 
 	buf = (unsigned char *)eff_buf.token;
@@ -366,7 +366,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		return -1;
 	}
 
-	switch (wsi->ietf_spec_revision) {
+	switch (wsi->ws->ietf_spec_revision) {
 	case 13:
 		if (masked7) {
 			pre += 4;
@@ -445,7 +445,7 @@ do_more_inside_frame:
 	 */
 
 	if (masked7) {
-		if (!wsi->u.ws.inside_frame)
+		if (!wsi->ws->inside_frame)
 			if (lws_0405_frame_mask_generate(wsi)) {
 				lwsl_err("frame mask generation failed\n");
 				return -1;
@@ -456,11 +456,11 @@ do_more_inside_frame:
 		 */
 		if (dropmask) { /* never set if already inside frame */
 			for (n = 4; n < (int)len + 4; n++)
-				dropmask[n] = dropmask[n] ^ wsi->u.ws.mask[
-					(wsi->u.ws.mask_idx++) & 3];
+				dropmask[n] = dropmask[n] ^ wsi->ws->mask[
+					(wsi->ws->mask_idx++) & 3];
 
 			/* copy the frame nonce into place */
-			memcpy(dropmask, wsi->u.ws.mask, 4);
+			memcpy(dropmask, wsi->ws->mask, 4);
 		}
 	}
 
@@ -483,10 +483,10 @@ send_raw:
 				n = LWS_H2_FRAME_TYPE_HEADERS;
 				if (!(wp & LWS_WRITE_NO_FIN))
 					flags = LWS_H2_FLAG_END_HEADERS;
-				if (wsi->u.h2.send_END_STREAM ||
+				if (wsi->h2.send_END_STREAM ||
 				    (wp & LWS_WRITE_H2_STREAM_END)) {
 					flags |= LWS_H2_FLAG_END_STREAM;
-					wsi->u.h2.send_END_STREAM = 1;
+					wsi->h2.send_END_STREAM = 1;
 				}
 			}
 
@@ -494,20 +494,20 @@ send_raw:
 				n = LWS_H2_FRAME_TYPE_CONTINUATION;
 				if (!(wp & LWS_WRITE_NO_FIN))
 					flags = LWS_H2_FLAG_END_HEADERS;
-				if (wsi->u.h2.send_END_STREAM ||
+				if (wsi->h2.send_END_STREAM ||
 				    (wp & LWS_WRITE_H2_STREAM_END)) {
 					flags |= LWS_H2_FLAG_END_STREAM;
-					wsi->u.h2.send_END_STREAM = 1;
+					wsi->h2.send_END_STREAM = 1;
 				}
 			}
 
 			if (((wp & 0x1f) == LWS_WRITE_HTTP ||
 			     (wp & 0x1f) == LWS_WRITE_HTTP_FINAL) &&
-			    wsi->u.http.tx_content_length) {
-				wsi->u.http.tx_content_remain -= len;
+			    wsi->http.tx_content_length) {
+				wsi->http.tx_content_remain -= len;
 				lwsl_info("%s: wsi %p: tx_content_remain = %llu\n", __func__, wsi,
-					  (unsigned long long)wsi->u.http.tx_content_remain);
-				if (!wsi->u.http.tx_content_remain) {
+					  (unsigned long long)wsi->http.tx_content_remain);
+				if (!wsi->http.tx_content_remain) {
 					lwsl_info("%s: selecting final write mode\n",
 						  __func__);
 					wp = LWS_WRITE_HTTP_FINAL;
@@ -516,14 +516,14 @@ send_raw:
 
 			if ((wp & 0x1f) == LWS_WRITE_HTTP_FINAL ||
 			    (wp & LWS_WRITE_H2_STREAM_END)) {
-			    //lws_get_network_wsi(wsi)->u.h2.END_STREAM) {
+			    //lws_get_network_wsi(wsi)->h2.END_STREAM) {
 				lwsl_info("%s: setting END_STREAM\n", __func__);
 				flags |= LWS_H2_FLAG_END_STREAM;
-				wsi->u.h2.send_END_STREAM = 1;
+				wsi->h2.send_END_STREAM = 1;
 			}
 
 			return lws_h2_frame_write(wsi, n, flags,
-					wsi->u.h2.my_sid, (int)len, buf);
+					wsi->h2.my_sid, (int)len, buf);
 		}
 #endif
 		return lws_issue_raw(wsi, (unsigned char *)buf - pre, len + pre);
@@ -545,19 +545,19 @@ send_raw:
 	 * callback returns 1 in case it wants to spill more buffers
 	 *
 	 * This takes care of holding the buffer if send is incomplete, ie,
-	 * if wsi->u.ws.clean_buffer is 0 (meaning an extension meddled with
-	 * the buffer).  If wsi->u.ws.clean_buffer is 1, it will instead
+	 * if wsi->ws->clean_buffer is 0 (meaning an extension meddled with
+	 * the buffer).  If wsi->ws->clean_buffer is 1, it will instead
 	 * return to the user code how much OF THE USER BUFFER was consumed.
 	 */
 
 	n = lws_issue_raw_ext_access(wsi, buf - pre, len + pre);
-	wsi->u.ws.inside_frame = 1;
+	wsi->ws->inside_frame = 1;
 	if (n <= 0)
 		return n;
 
 	if (n == (int)len + pre) {
 		/* everything in the buffer was handled (or rebuffered...) */
-		wsi->u.ws.inside_frame = 0;
+		wsi->ws->inside_frame = 0;
 		return (int)orig_len;
 	}
 
@@ -597,7 +597,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			continue;
 		}
 
-		if (wsi->u.http.filepos == wsi->u.http.filelen)
+		if (wsi->http.filepos == wsi->http.filelen)
 			goto all_sent;
 
 		n = 0;
@@ -607,19 +607,19 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		p = pstart;
 
 #if defined(LWS_WITH_RANGES)
-		if (wsi->u.http.range.count_ranges && !wsi->u.http.range.inside) {
+		if (wsi->http.range.count_ranges && !wsi->http.range.inside) {
 
 			lwsl_notice("%s: doing range start %llu\n", __func__,
-				    wsi->u.http.range.start);
+				    wsi->http.range.start);
 
-			if ((long long)lws_vfs_file_seek_cur(wsi->u.http.fop_fd,
-						   wsi->u.http.range.start -
-						   wsi->u.http.filepos) < 0)
+			if ((long long)lws_vfs_file_seek_cur(wsi->http.fop_fd,
+						   wsi->http.range.start -
+						   wsi->http.filepos) < 0)
 				goto file_had_it;
 
-			wsi->u.http.filepos = wsi->u.http.range.start;
+			wsi->http.filepos = wsi->http.range.start;
 
-			if (wsi->u.http.range.count_ranges > 1) {
+			if (wsi->http.range.count_ranges > 1) {
 				n =  lws_snprintf((char *)p,
 						context->pt_serv_buf_size -
 						LWS_H2_FRAME_HEADER_LENGTH,
@@ -627,23 +627,23 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 					"Content-Type: %s\x0d\x0a"
 					"Content-Range: bytes %llu-%llu/%llu\x0d\x0a"
 					"\x0d\x0a",
-					wsi->u.http.multipart_content_type,
-					wsi->u.http.range.start,
-					wsi->u.http.range.end,
-					wsi->u.http.range.extent);
+					wsi->http.multipart_content_type,
+					wsi->http.range.start,
+					wsi->http.range.end,
+					wsi->http.range.extent);
 				p += n;
 			}
 
-			wsi->u.http.range.budget = wsi->u.http.range.end -
-						   wsi->u.http.range.start + 1;
-			wsi->u.http.range.inside = 1;
+			wsi->http.range.budget = wsi->http.range.end -
+						   wsi->http.range.start + 1;
+			wsi->http.range.inside = 1;
 		}
 #endif
 
 		poss = context->pt_serv_buf_size - n - LWS_H2_FRAME_HEADER_LENGTH;
 
-		if (poss > wsi->u.http.tx_content_remain)
-			poss = wsi->u.http.tx_content_remain;
+		if (poss > wsi->http.tx_content_remain)
+			poss = wsi->http.tx_content_remain;
 
 		/*
 		 * if there is a hint about how much we will do well to send at one time,
@@ -668,11 +668,11 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_RANGES)
-		if (wsi->u.http.range.count_ranges) {
-			if (wsi->u.http.range.count_ranges > 1)
+		if (wsi->http.range.count_ranges) {
+			if (wsi->http.range.count_ranges > 1)
 				poss -= 7; /* allow for final boundary */
-			if (poss > wsi->u.http.range.budget)
-				poss = wsi->u.http.range.budget;
+			if (poss > wsi->http.range.budget)
+				poss = wsi->http.range.budget;
 		}
 #endif
 		if (wsi->sending_chunked) {
@@ -682,7 +682,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			poss -= 10 + 128;
 		}
 
-		if (lws_vfs_file_read(wsi->u.http.fop_fd, &amount, p, poss) < 0)
+		if (lws_vfs_file_read(wsi->http.fop_fd, &amount, p, poss) < 0)
 			goto file_had_it; /* caller will close */
 
 		if (wsi->sending_chunked)
@@ -700,8 +700,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				args.p = (char *)p;
 				args.len = n;
 				args.max_len = (unsigned int)poss + 128;
-				args.final = wsi->u.http.filepos + n ==
-					     wsi->u.http.filelen;
+				args.final = wsi->http.filepos + n ==
+					     wsi->http.filelen;
 				if (user_callback_handle_rxflow(
 				     wsi->vhost->protocols[
 				     (int)wsi->protocol_interpret_idx].callback,
@@ -714,34 +714,34 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				p = pstart;
 
 #if defined(LWS_WITH_RANGES)
-			if (wsi->u.http.range.send_ctr + 1 ==
-				wsi->u.http.range.count_ranges && // last range
-			    wsi->u.http.range.count_ranges > 1 && // was 2+ ranges (ie, multipart)
-			    wsi->u.http.range.budget - amount == 0) {// final part
+			if (wsi->http.range.send_ctr + 1 ==
+				wsi->http.range.count_ranges && // last range
+			    wsi->http.range.count_ranges > 1 && // was 2+ ranges (ie, multipart)
+			    wsi->http.range.budget - amount == 0) {// final part
 				n += lws_snprintf((char *)pstart + n, 6,
 					"_lws\x0d\x0a"); // append trailing boundary
 				lwsl_debug("added trailing boundary\n");
 			}
 #endif
 			m = lws_write(wsi, p, n,
-				      wsi->u.http.filepos == wsi->u.http.filelen ?
+				      wsi->http.filepos == wsi->http.filelen ?
 					LWS_WRITE_HTTP_FINAL :
 					LWS_WRITE_HTTP
 				);
 			if (m < 0)
 				goto file_had_it;
 
-			wsi->u.http.filepos += amount;
+			wsi->http.filepos += amount;
 
 #if defined(LWS_WITH_RANGES)
-			if (wsi->u.http.range.count_ranges >= 1) {
-				wsi->u.http.range.budget -= amount;
-				if (wsi->u.http.range.budget == 0) {
+			if (wsi->http.range.count_ranges >= 1) {
+				wsi->http.range.budget -= amount;
+				if (wsi->http.range.budget == 0) {
 					lwsl_notice("range budget exhausted\n");
-					wsi->u.http.range.inside = 0;
-					wsi->u.http.range.send_ctr++;
+					wsi->http.range.inside = 0;
+					wsi->http.range.send_ctr++;
 
-					if (lws_ranges_next(&wsi->u.http.range) < 1) {
+					if (lws_ranges_next(&wsi->http.range) < 1) {
 						finished = 1;
 						goto all_sent;
 					}
@@ -751,7 +751,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 			if (m != n) {
 				/* adjust for what was not sent */
-				if (lws_vfs_file_seek_cur(wsi->u.http.fop_fd,
+				if (lws_vfs_file_seek_cur(wsi->http.fop_fd,
 							   m - n) ==
 							     (lws_fileofs_t)-1)
 					goto file_had_it;
@@ -759,7 +759,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		}
 
 all_sent:
-		if ((!wsi->trunc_len && wsi->u.http.filepos >= wsi->u.http.filelen)
+		if ((!wsi->trunc_len && wsi->http.filepos >= wsi->http.filelen)
 #if defined(LWS_WITH_RANGES)
 		    || finished)
 #else
@@ -768,7 +768,7 @@ all_sent:
 		     {
 			wsi->state = LWSS_HTTP;
 			/* we might be in keepalive, so close it off here */
-			lws_vfs_file_close(&wsi->u.http.fop_fd);
+			lws_vfs_file_close(&wsi->http.fop_fd);
 			
 			lwsl_debug("file completed\n");
 
@@ -806,7 +806,7 @@ all_sent:
 	return 0; /* indicates further processing must be done */
 
 file_had_it:
-	lws_vfs_file_close(&wsi->u.http.fop_fd);
+	lws_vfs_file_close(&wsi->http.fop_fd);
 
 	return -1;
 }

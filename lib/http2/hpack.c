@@ -366,10 +366,10 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 
 	/* dynamic table only belongs to network wsi */
 	wsi = lws_get_network_wsi(wsi);
-	if (!wsi->u.h2.h2n)
+	if (!wsi->h2.h2n)
 		return -1;
 
-	dyn = &wsi->u.h2.h2n->hpack_dyn_table;
+	dyn = &wsi->h2.h2n->hpack_dyn_table;
 
 	if (index < 0)
 		return -1;
@@ -427,9 +427,9 @@ lws_h2_dynamic_table_dump(struct lws *wsi)
 	int n, m;
 	const char *p;
 
-	if (!nwsi->u.h2.h2n)
+	if (!nwsi->h2.h2n)
 		return 1;
-	dyn = &nwsi->u.h2.h2n->hpack_dyn_table;
+	dyn = &nwsi->h2.h2n->hpack_dyn_table;
 
 	lwsl_header("Dump dyn table for nwsi %p (%d / %d members, pos = %d, "
 		    "start index %d, virt used %d / %d)\n", nwsi,
@@ -492,9 +492,9 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 
 	/* dynamic table only belongs to network wsi */
 	wsi = lws_get_network_wsi(wsi);
-	if (!wsi->u.h2.h2n)
+	if (!wsi->h2.h2n)
 		return 1;
-	dyn = &wsi->u.h2.h2n->hpack_dyn_table;
+	dyn = &wsi->h2.h2n->hpack_dyn_table;
 
 	if (!dyn->entries) {
 		lwsl_err("%s: unsized dyn table\n", __func__);
@@ -587,15 +587,15 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 	 */
 
 	nwsi = lws_get_network_wsi(wsi);
-	if (!nwsi->u.h2.h2n)
+	if (!nwsi->h2.h2n)
 		goto bail;
 
-	dyn = &nwsi->u.h2.h2n->hpack_dyn_table;
+	dyn = &nwsi->h2.h2n->hpack_dyn_table;
 	lwsl_info("%s: from %d to %d, lim %d\n", __func__,
 		  (int)dyn->num_entries, size,
-		  nwsi->u.h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
+		  nwsi->h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
 
-	if (size > (int)nwsi->u.h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]) {
+	if (size > (int)nwsi->h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]) {
 		lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 			"Asked for header table bigger than we told");
 		goto bail;
@@ -664,10 +664,10 @@ lws_hpack_destroy_dynamic_header(struct lws *wsi)
 	struct hpack_dynamic_table *dyn;
 	int n;
 
-	if (!wsi->u.h2.h2n)
+	if (!wsi->h2.h2n)
 		return;
 
-	dyn = &wsi->u.h2.h2n->hpack_dyn_table;
+	dyn = &wsi->h2.h2n->hpack_dyn_table;
 
 	if (!dyn->entries)
 		return;
@@ -767,7 +767,7 @@ lws_hpack_handle_pseudo_rules(struct lws *nwsi, struct lws *wsi, int m)
 int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
-	struct lws_h2_netconn *h2n = nwsi->u.h2.h2n;
+	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
 	struct allocated_headers *ah = wsi->ah;
 	unsigned int prev;
 	unsigned char c1;
@@ -1373,7 +1373,7 @@ int lws_add_http2_header_status(struct lws *wsi, unsigned int code,
 	unsigned char status[10];
 	int n;
 
-	wsi->u.h2.send_END_STREAM = 0; // !!(code >= 400);
+	wsi->h2.send_END_STREAM = 0; // !!(code >= 400);
 
 	n = sprintf((char *)status, "%u", code);
 	if (lws_add_http2_header_by_token(wsi, WSI_TOKEN_HTTP_COLON_STATUS,

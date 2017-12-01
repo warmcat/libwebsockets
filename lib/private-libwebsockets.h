@@ -1724,12 +1724,6 @@ struct lws_h2_netconn {
 };
 
 struct _lws_h2_related {
-	/*
-	 * having this first lets us also re-use all HTTP union code
-	 * and in turn, http_mode_related has allocated headers in right
-	 * place so we can use the header apis on the wsi directly still
-	 */
-	struct _lws_http_mode_related http; /* MUST BE FIRST IN STRUCT */
 
 	struct lws_h2_netconn *h2n; /* malloc'd for root net conn */
 	struct lws *parent_wsi;
@@ -1754,38 +1748,40 @@ struct _lws_h2_related {
 
 	uint16_t round_robin_POLLOUT;
 	uint16_t count_POLLOUT_children;
+
 	uint8_t h2_state; /* the RFC7540 state of the connection */
 	uint8_t weight;
-
 	uint8_t initialized;
 };
 
-#define HTTP2_IS_TOPLEVEL_WSI(wsi) (!wsi->u.h2.parent_wsi)
+#define HTTP2_IS_TOPLEVEL_WSI(wsi) (!wsi->h2.parent_wsi)
 
 #endif
 
 struct _lws_websocket_related {
 	char *rx_ubuf;
-	unsigned int rx_ubuf_alloc;
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
+	/* Also used for close content... control opcode == < 128 */
+	uint8_t ping_payload_buf[128 - 3 + LWS_PRE];
+	uint8_t mask[4];
+
 	time_t time_next_ping_check;
 	size_t rx_packet_length;
-	unsigned int rx_ubuf_head;
-	unsigned char mask[4];
-	/* Also used for close content... control opcode == < 128 */
-	unsigned char ping_payload_buf[128 - 3 + LWS_PRE];
+	uint32_t rx_ubuf_head;
+	uint32_t rx_ubuf_alloc;
 
-	unsigned char ping_payload_len;
-	unsigned char mask_idx;
-	unsigned char opcode;
-	unsigned char rsv;
-	unsigned char rsv_first_msg;
+	uint8_t ping_payload_len;
+	uint8_t mask_idx;
+	uint8_t opcode;
+	uint8_t rsv;
+	uint8_t rsv_first_msg;
 	/* zero if no info, or length including 2-byte close code */
-	unsigned char close_in_ping_buffer_len;
-	unsigned char utf8;
-	unsigned char stashed_write_type;
-	unsigned char tx_draining_stashed_wp;
+	uint8_t close_in_ping_buffer_len;
+	uint8_t utf8;
+	uint8_t stashed_write_type;
+	uint8_t tx_draining_stashed_wp;
+	uint8_t ietf_spec_revision;
 
 	unsigned int final:1;
 	unsigned int frame_is_binary:1;
@@ -1831,17 +1827,19 @@ struct lws_cgi {
 	unsigned char *headers_pos;
 	unsigned char *headers_dumped;
 	unsigned char *headers_end;
+
 	lws_filepos_t content_length;
 	lws_filepos_t content_length_seen;
+
 	int pipe_fds[3][2];
 	int match[SIGNIFICANT_HDR_COUNT];
+	char l[12];
 	int pid;
 	int response_code;
 	int lp;
-	char l[12];
 
-	unsigned int being_closed:1;
-	unsigned int explicitly_chunked:1;
+	unsigned char being_closed:1;
+	unsigned char explicitly_chunked:1;
 
 	unsigned char chunked_grace;
 };
@@ -1881,15 +1879,10 @@ struct lws_access_log {
 struct lws {
 	/* structs */
 
-	/* members with mutually exclusive lifetimes are unionized */
-
-	union u {
-		struct _lws_http_mode_related http;
+	struct _lws_http_mode_related http;
 #ifdef LWS_WITH_HTTP2
-		struct _lws_h2_related h2;
+	struct _lws_h2_related h2;
 #endif
-		struct _lws_websocket_related ws;
-	} u;
 
 	/* lifetime members */
 
@@ -1902,7 +1895,6 @@ struct lws {
 #ifdef LWS_WITH_ACCESS_LOG
 	struct lws_access_log access_log;
 #endif
-	time_t pending_timeout_limit;
 
 	/* pointers */
 
@@ -1911,6 +1903,7 @@ struct lws {
 	struct lws *parent; /* points to parent, if any */
 	struct lws *child_list; /* points to first child */
 	struct lws *sibling_list; /* subsequent children at same level */
+	struct _lws_websocket_related *ws; /* allocated if we upgrade to ws */
 #ifdef LWS_WITH_CGI
 	struct lws_cgi *cgi; /* wsi being cgi master have one of these */
 #endif
@@ -1947,10 +1940,6 @@ struct lws {
 	lws_tls_conn *ssl;
 	lws_tls_bio *client_bio;
 	struct lws *pending_read_list_prev, *pending_read_list_next;
-#if defined(LWS_WITH_STATS)
-	uint64_t accept_start_us;
-	char seen_rx;
-#endif
 #endif
 #ifdef LWS_WITH_HTTP_PROXY
 	struct lws_rewrite *rw;
@@ -1962,7 +1951,12 @@ struct lws {
 	lws_sock_file_fd_type desc; /* .filefd / .sockfd */
 #if defined(LWS_WITH_STATS)
 	uint64_t active_writable_req_us;
+#if defined(LWS_OPENSSL_SUPPORT)
+	uint64_t accept_start_us;
 #endif
+#endif
+	time_t pending_timeout_limit;
+
 	/* ints */
 	int position_in_fds_table;
 	uint32_t rxflow_len;
@@ -2037,9 +2031,8 @@ struct lws {
 
 	/* chars */
 #ifndef LWS_NO_EXTENSIONS
-	unsigned char count_act_ext;
+	uint8_t count_act_ext;
 #endif
-	uint8_t ietf_spec_revision;
 	char mode; /* enum connection_mode */
 	char state; /* enum lws_connection_states */
 	char state_pre_close;
@@ -2059,6 +2052,9 @@ struct lws {
 #endif
 #if defined(LWS_WITH_CGI) || !defined(LWS_NO_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
+#endif
+#if defined(LWS_WITH_STATS) && defined(LWS_OPENSSL_SUPPORT)
+	char seen_rx;
 #endif
 	/* volatile to make sure code is aware other thread can change */
 	volatile char handling_pollout;

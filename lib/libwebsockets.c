@@ -79,6 +79,7 @@ lws_free_wsi(struct lws *wsi)
 
 	lws_free_set_NULL(wsi->rxflow_buffer);
 	lws_free_set_NULL(wsi->trunc_alloc);
+	lws_free_set_NULL(wsi->ws);
 
 	/* we may not have an ah, but may be on the waiting list... */
 	lwsl_info("ah det due to close\n");
@@ -111,8 +112,8 @@ lws_free_wsi(struct lws *wsi)
 	if (wsi->upgraded_to_http2 || wsi->http2_substream) {
 		lws_hpack_destroy_dynamic_header(wsi);
 
-		if (wsi->u.h2.h2n)
-			lws_free_set_NULL(wsi->u.h2.h2n);
+		if (wsi->h2.h2n)
+			lws_free_set_NULL(wsi->h2.h2n);
 	}
 #endif
 
@@ -323,73 +324,73 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 #if defined(LWS_WITH_HTTP2)
 
-	if (wsi->u.h2.parent_wsi) {
+	if (wsi->h2.parent_wsi) {
 		lwsl_info(" wsi: %p, his parent %p: siblings:\n", wsi,
-			  wsi->u.h2.parent_wsi);
+			  wsi->h2.parent_wsi);
 		lws_start_foreach_llp(struct lws **, w,
-				      wsi->u.h2.parent_wsi->u.h2.child_list) {
+				      wsi->h2.parent_wsi->h2.child_list) {
 			lwsl_info("   \\---- child %p\n", *w);
-		} lws_end_foreach_llp(w, u.h2.sibling_list);
+		} lws_end_foreach_llp(w, h2.sibling_list);
 	}
 
 	if (wsi->upgraded_to_http2 || wsi->http2_substream) {
-		lwsl_info("closing %p: parent %p\n", wsi, wsi->u.h2.parent_wsi);
+		lwsl_info("closing %p: parent %p\n", wsi, wsi->h2.parent_wsi);
 
-		if (wsi->u.h2.child_list) {
+		if (wsi->h2.child_list) {
 			lwsl_info(" parent %p: closing children: list:\n", wsi);
 			lws_start_foreach_llp(struct lws **, w,
-					      wsi->u.h2.child_list) {
+					      wsi->h2.child_list) {
 				lwsl_info("   \\---- child %p\n", *w);
-			} lws_end_foreach_llp(w, u.h2.sibling_list);
+			} lws_end_foreach_llp(w, h2.sibling_list);
 			/* trigger closing of all of our http2 children first */
 			lws_start_foreach_llp(struct lws **, w,
-					      wsi->u.h2.child_list) {
+					      wsi->h2.child_list) {
 				lwsl_info("   closing child %p\n", *w);
 				/* disconnect from siblings */
-				wsi2 = (*w)->u.h2.sibling_list;
-				(*w)->u.h2.sibling_list = NULL;
+				wsi2 = (*w)->h2.sibling_list;
+				(*w)->h2.sibling_list = NULL;
 				(*w)->socket_is_permanently_unusable = 1;
 				lws_close_free_wsi(*w, reason);
 				*w = wsi2;
 				continue;
-			} lws_end_foreach_llp(w, u.h2.sibling_list);
+			} lws_end_foreach_llp(w, h2.sibling_list);
 		}
 	}
 
 	if (wsi->upgraded_to_http2) {
 		/* remove pps */
-		struct lws_h2_protocol_send *w = wsi->u.h2.h2n->pps, *w1;
+		struct lws_h2_protocol_send *w = wsi->h2.h2n->pps, *w1;
 		while (w) {
-			w1 = wsi->u.h2.h2n->pps->next;
+			w1 = w->next;
 			free(w);
 			w = w1;
 		}
-		wsi->u.h2.h2n->pps = NULL;
+		wsi->h2.h2n->pps = NULL;
 	}
 
-	if (wsi->http2_substream && wsi->u.h2.parent_wsi) {
+	if (wsi->http2_substream && wsi->h2.parent_wsi) {
 		lwsl_info("  %p: disentangling from siblings\n", wsi);
 		lws_start_foreach_llp(struct lws **, w,
-				wsi->u.h2.parent_wsi->u.h2.child_list) {
+				wsi->h2.parent_wsi->h2.child_list) {
 			/* disconnect from siblings */
 			if (*w == wsi) {
-				wsi2 = (*w)->u.h2.sibling_list;
-				(*w)->u.h2.sibling_list = NULL;
+				wsi2 = (*w)->h2.sibling_list;
+				(*w)->h2.sibling_list = NULL;
 				*w = wsi2;
 				lwsl_info("  %p disentangled from sibling %p\n",
 					  wsi, wsi2);
 				break;
 			}
-		} lws_end_foreach_llp(w, u.h2.sibling_list);
-		wsi->u.h2.parent_wsi->u.h2.child_count--;
-		wsi->u.h2.parent_wsi = NULL;
-		if (wsi->u.h2.pending_status_body)
-			lws_free_set_NULL(wsi->u.h2.pending_status_body);
+		} lws_end_foreach_llp(w, h2.sibling_list);
+		wsi->h2.parent_wsi->h2.child_count--;
+		wsi->h2.parent_wsi = NULL;
+		if (wsi->h2.pending_status_body)
+			lws_free_set_NULL(wsi->h2.pending_status_body);
 	}
 
-	if (wsi->upgraded_to_http2 && wsi->u.h2.h2n &&
-	    wsi->u.h2.h2n->rx_scratch)
-		lws_free_set_NULL(wsi->u.h2.h2n->rx_scratch);
+	if (wsi->upgraded_to_http2 && wsi->h2.h2n &&
+	    wsi->h2.h2n->rx_scratch)
+		lws_free_set_NULL(wsi->h2.h2n->rx_scratch);
 #endif
 
 	if (wsi->mode == LWSCM_RAW_FILEDESC) {
@@ -446,8 +447,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 	if ((wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED ||
 	     wsi->mode == LWSCM_HTTP2_SERVING) &&
-	    wsi->u.http.fop_fd != NULL) {
-		lws_vfs_file_close(&wsi->u.http.fop_fd);
+	    wsi->http.fop_fd != NULL) {
+		lws_vfs_file_close(&wsi->http.fop_fd);
 		wsi->vhost->protocols->callback(wsi,
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;
@@ -560,17 +561,17 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	 */
 
 	if (wsi->state_pre_close == LWSS_ESTABLISHED &&
-	    (wsi->u.ws.close_in_ping_buffer_len || /* already a reason */
+	    (wsi->ws->close_in_ping_buffer_len || /* already a reason */
 	     (reason != LWS_CLOSE_STATUS_NOSTATUS &&
 	     (reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)))) {
 		lwsl_debug("sending close indication...\n");
 
 		/* if no prepared close reason, use 1000 and no aux data */
-		if (!wsi->u.ws.close_in_ping_buffer_len) {
-			wsi->u.ws.close_in_ping_buffer_len = 2;
-			wsi->u.ws.ping_payload_buf[LWS_PRE] =
+		if (!wsi->ws->close_in_ping_buffer_len) {
+			wsi->ws->close_in_ping_buffer_len = 2;
+			wsi->ws->ping_payload_buf[LWS_PRE] =
                                (reason >> 8) & 0xff;
-			wsi->u.ws.ping_payload_buf[LWS_PRE + 1] =
+			wsi->ws->ping_payload_buf[LWS_PRE + 1] =
 				reason & 0xff;
 		}
 
@@ -709,43 +710,43 @@ just_kill_connection:
 	    wsi->mode == LWSCM_WS_SERVING ||
 	    wsi->mode == LWSCM_WS_CLIENT) {
 
-		if (wsi->u.ws.rx_draining_ext) {
+		if (wsi->ws->rx_draining_ext) {
 			struct lws **w = &pt->rx_draining_ext_list;
 
-			wsi->u.ws.rx_draining_ext = 0;
+			wsi->ws->rx_draining_ext = 0;
 			/* remove us from context draining ext list */
 			while (*w) {
 				if (*w == wsi) {
-					*w = wsi->u.ws.rx_draining_ext_list;
+					*w = wsi->ws->rx_draining_ext_list;
 					break;
 				}
-				w = &((*w)->u.ws.rx_draining_ext_list);
+				w = &((*w)->ws->rx_draining_ext_list);
 			}
-			wsi->u.ws.rx_draining_ext_list = NULL;
+			wsi->ws->rx_draining_ext_list = NULL;
 		}
 
-		if (wsi->u.ws.tx_draining_ext) {
+		if (wsi->ws->tx_draining_ext) {
 			struct lws **w = &pt->tx_draining_ext_list;
 
-			wsi->u.ws.tx_draining_ext = 0;
+			wsi->ws->tx_draining_ext = 0;
 			/* remove us from context draining ext list */
 			while (*w) {
 				if (*w == wsi) {
-					*w = wsi->u.ws.tx_draining_ext_list;
+					*w = wsi->ws->tx_draining_ext_list;
 					break;
 				}
-				w = &((*w)->u.ws.tx_draining_ext_list);
+				w = &((*w)->ws->tx_draining_ext_list);
 			}
-			wsi->u.ws.tx_draining_ext_list = NULL;
+			wsi->ws->tx_draining_ext_list = NULL;
 		}
-		lws_free_set_NULL(wsi->u.ws.rx_ubuf);
+		lws_free_set_NULL(wsi->ws->rx_ubuf);
 
 		if (wsi->trunc_alloc)
 			/* not going to be completed... nuke it */
 			lws_free_set_NULL(wsi->trunc_alloc);
 
-		wsi->u.ws.ping_payload_len = 0;
-		wsi->u.ws.ping_pending_flag = 0;
+		wsi->ws->ping_payload_len = 0;
+		wsi->ws->ping_pending_flag = 0;
 	}
 
 	/* tell the user it's all over for this guy */
@@ -987,7 +988,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->http2_substream)
-		wsi = wsi->u.h2.parent_wsi;
+		wsi = wsi->h2.parent_wsi;
 #endif
 
 	if (wsi->parent_carries_io)
@@ -1115,8 +1116,8 @@ lws_get_network_wsi(struct lws *wsi)
 	if (!wsi->http2_substream)
 		return wsi;
 
-	while (wsi->u.h2.parent_wsi)
-		wsi = wsi->u.h2.parent_wsi;
+	while (wsi->h2.parent_wsi)
+		wsi = wsi->h2.parent_wsi;
 #endif
 
 	return wsi;
@@ -1656,22 +1657,22 @@ LWS_VISIBLE int
 lws_is_final_fragment(struct lws *wsi)
 {
        lwsl_info("%s: final %d, rx pk length %ld, draining %ld\n", __func__,
-			wsi->u.ws.final, (long)wsi->u.ws.rx_packet_length,
-			(long)wsi->u.ws.rx_draining_ext);
-	return wsi->u.ws.final && !wsi->u.ws.rx_packet_length &&
-	       !wsi->u.ws.rx_draining_ext;
+			wsi->ws->final, (long)wsi->ws->rx_packet_length,
+			(long)wsi->ws->rx_draining_ext);
+	return wsi->ws->final && !wsi->ws->rx_packet_length &&
+	       !wsi->ws->rx_draining_ext;
 }
 
 LWS_VISIBLE int
 lws_is_first_fragment(struct lws *wsi)
 {
-	return wsi->u.ws.first_fragment;
+	return wsi->ws->first_fragment;
 }
 
 LWS_VISIBLE unsigned char
 lws_get_reserved_bits(struct lws *wsi)
 {
-	return wsi->u.ws.rsv;
+	return wsi->ws->rsv;
 }
 
 int
@@ -1938,7 +1939,6 @@ LWS_VISIBLE void
 lws_union_transition(struct lws *wsi, enum connection_mode mode)
 {
 	lwsl_debug("%s: %p: mode %d\n", __func__, wsi, mode);
-	memset(&wsi->u, 0, sizeof(wsi->u));
 	wsi->mode = mode;
 }
 
@@ -2021,13 +2021,13 @@ lws_clear_child_pending_on_writable(struct lws *wsi)
 LWS_VISIBLE LWS_EXTERN int
 lws_get_close_length(struct lws *wsi)
 {
-	return wsi->u.ws.close_in_ping_buffer_len;
+	return wsi->ws->close_in_ping_buffer_len;
 }
 
 LWS_VISIBLE LWS_EXTERN unsigned char *
 lws_get_close_payload(struct lws *wsi)
 {
-	return &wsi->u.ws.ping_payload_buf[LWS_PRE];
+	return &wsi->ws->ping_payload_buf[LWS_PRE];
 }
 
 LWS_VISIBLE LWS_EXTERN void
@@ -2035,11 +2035,11 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
 		 unsigned char *buf, size_t len)
 {
 	unsigned char *p, *start;
-	int budget = sizeof(wsi->u.ws.ping_payload_buf) - LWS_PRE;
+	int budget = sizeof(wsi->ws->ping_payload_buf) - LWS_PRE;
 
 	assert(wsi->mode == LWSCM_WS_SERVING || wsi->mode == LWSCM_WS_CLIENT);
 
-	start = p = &wsi->u.ws.ping_payload_buf[LWS_PRE];
+	start = p = &wsi->ws->ping_payload_buf[LWS_PRE];
 
 	*p++ = (((int)status) >> 8) & 0xff;
 	*p++ = ((int)status) & 0xff;
@@ -2048,7 +2048,7 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
 		while (len-- && p < start + budget)
 			*p++ = *buf++;
 
-	wsi->u.ws.close_in_ping_buffer_len = lws_ptr_diff(p, start);
+	wsi->ws->close_in_ping_buffer_len = lws_ptr_diff(p, start);
 }
 
 LWS_EXTERN int
@@ -2449,7 +2449,7 @@ lws_restart_ws_ping_pong_timer(struct lws *wsi)
 	if (wsi->state != LWSS_ESTABLISHED)
 		return;
 
-	wsi->u.ws.time_next_ping_check = (time_t)lws_now_secs() +
+	wsi->ws->time_next_ping_check = (time_t)lws_now_secs() +
 				    wsi->context->ws_ping_pong_interval;
 }
 
