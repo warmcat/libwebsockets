@@ -247,7 +247,27 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 
 	ah->hdr_token_idx = hdr_token_idx;
 
-	ah->frag_index[hdr_token_idx] = ah->nfrag;
+	/*
+	 * Okay, but we could be, eg, the second or subsequent cookie: header
+	 */
+
+	if (ah->frag_index[hdr_token_idx]) {
+		int n;
+
+		/* find the last fragment for this header... */
+		n = ah->frag_index[hdr_token_idx];
+		while (ah->frags[n].nfrag)
+			n = ah->frags[n].nfrag;
+		/* and point it to continue in our continuation fragment */
+		ah->frags[n].nfrag = ah->nfrag;
+
+		/* cookie continuations need a separator token of ';' */
+		if (hdr_token_idx == WSI_TOKEN_HTTP_COOKIE) {
+			ah->data[ah->pos++] = ';';
+			ah->frags[ah->nfrag].len++;
+		}
+	} else
+		ah->frag_index[hdr_token_idx] = ah->nfrag;
 
 	return 0;
 }

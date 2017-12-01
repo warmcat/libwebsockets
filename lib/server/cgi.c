@@ -299,9 +299,11 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE)) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "HTTP_COOKIE=%s",
-			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COOKIE));
-		p++;
+		p += lws_snprintf(p, end - p, "HTTP_COOKIE=");
+		m = lws_hdr_copy(wsi, p, end - p, WSI_TOKEN_HTTP_COOKIE);
+		if (m > 0)
+			p += lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+		*p++ = '\0';
 	}
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
