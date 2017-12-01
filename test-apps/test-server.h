@@ -19,8 +19,14 @@
  */
 
 #if defined(_WIN32) && defined(EXTERNAL_POLL)
+
+#if (WINVER < 0x0600)
+#undef WINVER
+#undef _WIN32_WINNT
 #define WINVER 0x0600
-#define _WIN32_WINNT 0x0600
+#define _WIN32_WINNT WINVER
+#endif
+
 #define poll(fdArray, fds, timeout)  WSAPoll((LPWSAPOLLFD)(fdArray), (ULONG)(fds), (INT)(timeout))
 #endif
 

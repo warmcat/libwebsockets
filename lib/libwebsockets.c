@@ -27,6 +27,7 @@
 
 #ifdef LWS_WITH_IPV6
 #if defined(WIN32) || defined(_WIN32)
+#include <wincrypt.h>
 #include <Iphlpapi.h>
 #else
 #include <net/if.h>
