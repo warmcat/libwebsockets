@@ -1354,6 +1354,12 @@ enum lws_callback_reasons {
 	 * protocol wants to take some action with this information.
 	 * \p in is the lws_vhost and \p len is the number of days left
 	 * before it expires, as a (ssize_t) */
+	LWS_CALLBACK_TIMER					= 73,
+	/**< When the time elapsed after a call to lws_set_timer(wsi, secs)
+	 * is up, the wsi will get one of these callbacks.  The deadline
+	 * can be continuously extended into the future by later calls
+	 * to lws_set_timer() before the deadline expires, or cancelled by
+	 * lws_set_timer(wsi, -1); */
 
 	/****** add new things just above ---^ ******/
 
@@ -4404,6 +4410,22 @@ enum pending_timeout {
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
+
+/**
+ * lws_set_timer() - schedules a callback on the wsi in the future
+ *
+ * \param wsi:	Websocket connection instance
+ * \param secs:	-1 removes any existing scheduled callback, otherwise the
+ *		number of seconds in the future the callback will occur at.
+ *
+ * When the deadline expires, the wsi will get a callback of type
+ * LWS_CALLBACK_TIMER and the timer is exhausted.  The deadline may be
+ * continuously deferred by further calls to lws_set_timer() with a later
+ * deadline, or cancelled by lws_set_timer(wsi, -1)
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_set_timer(struct lws *wsi, int secs);
+
 ///@}
 
 /*! \defgroup sending-data Sending data

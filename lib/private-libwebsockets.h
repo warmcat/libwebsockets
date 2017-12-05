@@ -1831,6 +1831,7 @@ struct lws {
 #endif
 	const struct lws_protocols *protocol;
 	struct lws **same_vh_protocol_prev, *same_vh_protocol_next;
+	/* we get on the list if either the timeout or the timer is valid */
 	struct lws *timeout_list;
 	struct lws **timeout_list_prev;
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -1873,6 +1874,7 @@ struct lws {
 #endif
 #endif
 	time_t pending_timeout_set;
+	time_t pending_timer_set;
 
 	/* ints */
 	int position_in_fds_table;
@@ -1915,6 +1917,8 @@ struct lws {
 	unsigned int rxflow_will_be_applied:1;
 	unsigned int event_pipe:1;
 
+	unsigned int timer_active:1;
+
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
 #endif
@@ -1944,6 +1948,7 @@ struct lws {
 	unsigned short c_port;
 #endif
 	unsigned short pending_timeout_limit;
+	unsigned short pending_timer_limit;
 
 	uint8_t state; /* enum lws_connection_states */
 	uint8_t mode; /* enum connection_mode */
@@ -2001,6 +2006,9 @@ LWS_EXTERN int
 remove_wsi_socket_from_fds(struct lws *wsi);
 LWS_EXTERN int
 lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len);
+
+LWS_EXTERN int
+lws_should_be_on_timeout_list(struct lws *wsi);
 
 #ifndef LWS_LATENCY
 static inline void

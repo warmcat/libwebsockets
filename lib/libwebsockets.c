@@ -131,6 +131,12 @@ lws_free_wsi(struct lws *wsi)
 	lws_free(wsi);
 }
 
+int
+lws_should_be_on_timeout_list(struct lws *wsi)
+{
+	return wsi->timer_active || wsi->pending_timeout;
+}
+
 void
 lws_remove_from_timeout_list(struct lws *wsi)
 {
@@ -149,7 +155,53 @@ lws_remove_from_timeout_list(struct lws *wsi)
 	/* we're out of the list, we should not point anywhere any more */
 	wsi->timeout_list_prev = NULL;
 	wsi->timeout_list = NULL;
+
 	lws_pt_unlock(pt);
+}
+
+static void
+lws_add_to_timeout_list(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	if (wsi->timeout_list_prev)
+		return;
+
+	/* our next guy is current first guy */
+	wsi->timeout_list = pt->timeout_list;
+	/* if there is a next guy, set his prev ptr to our next ptr */
+	if (wsi->timeout_list)
+		wsi->timeout_list->timeout_list_prev = &wsi->timeout_list;
+	/* our prev ptr is first ptr */
+	wsi->timeout_list_prev = &pt->timeout_list;
+	/* set the first guy to be us */
+	*wsi->timeout_list_prev = wsi;
+}
+
+LWS_VISIBLE void
+lws_set_timer(struct lws *wsi, int secs)
+{
+	time_t now;
+
+	if (secs < 0) {
+		wsi->timer_active = 0;
+
+		if (!lws_should_be_on_timeout_list(wsi))
+			lws_remove_from_timeout_list(wsi);
+
+		return;
+	}
+
+	time(&now);
+
+	wsi->pending_timer_limit = secs;
+	wsi->pending_timer_set = now;
+
+	if (!wsi->timer_active) {
+		wsi->timer_active = 1;
+		if (!wsi->pending_timeout)
+			lws_add_to_timeout_list(wsi);
+	}
 }
 
 LWS_VISIBLE void
@@ -169,17 +221,8 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 
 	time(&now);
 
-	if (reason && !wsi->timeout_list_prev) {
-		/* our next guy is current first guy */
-		wsi->timeout_list = pt->timeout_list;
-		/* if there is a next guy, set his prev ptr to our next ptr */
-		if (wsi->timeout_list)
-			wsi->timeout_list->timeout_list_prev = &wsi->timeout_list;
-		/* our prev ptr is first ptr */
-		wsi->timeout_list_prev = &pt->timeout_list;
-		/* set the first guy to be us */
-		*wsi->timeout_list_prev = wsi;
-	}
+	if (reason)
+		lws_add_to_timeout_list(wsi);
 
 	lwsl_debug("%s: %p: %d secs\n", __func__, wsi, secs);
 	wsi->pending_timeout_limit = secs;
@@ -188,7 +231,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 
 	lws_pt_unlock(pt);
 
-	if (!reason)
+	if (!reason && !lws_should_be_on_timeout_list(wsi))
 		lws_remove_from_timeout_list(wsi);
 }
 

@@ -579,14 +579,36 @@ lws_service_timeout_check(struct lws *wsi, time_t sec)
 	if (lws_ext_cb_active(wsi, LWS_EXT_CB_1HZ, NULL, sec) < 0)
 		return 0;
 
-	if (!wsi->pending_timeout)
-		return 0;
+	/*
+	 * is there a timer callback we should be doing?
+	 */
+
+	if (wsi->timer_active &&
+	    lws_compare_time_t(wsi->context, sec, wsi->pending_timer_set) >
+	    wsi->pending_timer_limit) {
+		wsi->timer_active = 0;
+
+		if (wsi->protocol &&
+		    wsi->protocol->callback(wsi, LWS_CALLBACK_TIMER,
+					    wsi->user_space, NULL, 0)) {
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+
+					return 1;
+		}
+
+		if (!lws_should_be_on_timeout_list(wsi)) {
+			lws_remove_from_timeout_list(wsi);
+
+			return 0;
+		}
+	}
 
 	/*
 	 * if we went beyond the allowed time, kill the
 	 * connection
 	 */
-	if (lws_compare_time_t(wsi->context, sec, wsi->pending_timeout_set) >
+	if (wsi->pending_timeout &&
+	    lws_compare_time_t(wsi->context, sec, wsi->pending_timeout_set) >
 	    wsi->pending_timeout_limit) {
 
 		if (wsi->desc.sockfd != LWS_SOCK_INVALID &&

@@ -35,6 +35,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_ESTABLISHED:
 		pss->number = 0;
+		/* just to test the timer api */
+		lws_set_timer(wsi, 3);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -62,6 +64,12 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 		break;
+
+	case LWS_CALLBACK_TIMER:
+		lwsl_notice("%s: LWS_CALLBACK_TIMER\n", __func__);
+		lws_set_timer(wsi, 3);
+		break;
+
 	/*
 	 * this just demonstrates how to use the protocol filter. If you won't
 	 * study and reject connections based on header content, you don't need
