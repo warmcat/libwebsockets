@@ -515,6 +515,9 @@ enum lws_connection_states {
 							  _LSF_WEBSOCKET,
 
 	LWSS_CGI					= 17,
+
+	LWSS_HTTP2_DEFERRING_ACTION			= _LSF_CCB | 18 |
+							  _LSF_POLLOUT,
 };
 
 #define lws_state_is_ws(s) (!!(s & _LSF_WEBSOCKET))
@@ -1924,6 +1927,8 @@ struct lws {
 	unsigned int seen_zero_length_recv:1;
 	unsigned int rxflow_will_be_applied:1;
 	unsigned int event_pipe:1;
+
+	unsigned int could_have_pending:1; /* detect back-to-back writes */
 
 	unsigned int timer_active:1;
 

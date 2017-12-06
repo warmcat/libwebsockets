@@ -25,7 +25,7 @@ static int
 lws_calllback_as_writeable(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	int n;
+	int n, m;
 
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB, 1);
 #if defined(LWS_WITH_STATS)
@@ -62,9 +62,11 @@ lws_calllback_as_writeable(struct lws *wsi)
 		break;
 	}
 
-	return user_callback_handle_rxflow(wsi->protocol->callback,
+	m = user_callback_handle_rxflow(wsi->protocol->callback,
 					   wsi, (enum lws_callback_reasons) n,
 					   wsi->user_space, NULL, 0);
+
+	return m;
 }
 
 LWS_VISIBLE int
@@ -95,6 +97,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 *	       If anything else sent first the protocol would be
 	 *	       corrupted.
 	 */
+	wsi->could_have_pending = 0; /* clear back-to-back write detection */
 	if (wsi->trunc_len) {
 		//lwsl_notice("%s: completing partial\n", __func__);
 		if (lws_issue_raw(wsi, wsi->trunc_alloc + wsi->trunc_offset,
@@ -461,6 +464,38 @@ user_service_go_again:
 			lws_free_set_NULL(w->h2.pending_status_body);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS);
 			wa = &wsi->h2.child_list;
+			goto next_child;
+		}
+
+		if (w->state == LWSS_HTTP2_DEFERRING_ACTION) {
+
+			/*
+			 * we had to defer the http_action to the POLLOUT
+			 * handler, because we know it will send something and
+			 * only in the POLLOUT handler do we know for sure
+			 * that there is no partial pending on the network wsi.
+			 */
+
+			w->state = LWSS_HTTP2_ESTABLISHED;
+
+			lwsl_info("  h2 action start...\n");
+			n = lws_http_action(w);
+			lwsl_info("  h2 action result %d "
+				  "(wsi->http.rx_content_remain %lld)\n",
+				  n, w->http.rx_content_remain);
+
+			/*
+			 * Commonly we only managed to start a larger transfer
+			 * that will complete asynchronously under its own wsi
+			 * states.  In those cases we will hear about
+			 * END_STREAM going out in the POLLOUT handler.
+			 */
+			if (n || w->h2.send_END_STREAM) {
+				lwsl_info("closing stream after h2 action\n");
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS);
+				wa = &wsi->h2.child_list;
+			}
+
 			goto next_child;
 		}
 

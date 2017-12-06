@@ -598,13 +598,13 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 
 	if (size > (int)nwsi->vhost->set.s[H2SET_HEADER_TABLE_SIZE]) {
 		lwsl_notice("rejecting hpack dyn size %u\n", size);
-#if defined(LWS_WITH_ESP32)
+//#if defined(LWS_WITH_ESP32)
 		size = nwsi->vhost->set.s[H2SET_HEADER_TABLE_SIZE];
-#else
-		lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
-			"Asked for header table bigger than we told");
-		goto bail;
-#endif
+//#else
+//		lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+//			"Asked for header table bigger than we told");
+//		goto bail;
+//#endif
 	}
 
 	dyn->virtual_payload_max = size;

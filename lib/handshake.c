@@ -91,6 +91,28 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 				return 1;
 			}
 
+			/*
+			 * lws_h2_parser() may send something; when it gets the
+			 * whole frame, it will want to perform some action
+			 * involving a reply.  But we may be in a partial send
+			 * situation on the network wsi...
+			 *
+			 * Even though we may be in a partial send and unable to
+			 * send anything new, we still have to parse the network
+			 * wsi in order to gain tx credit to send, which is
+			 * potentially necessary to clear the old partial send.
+			 *
+			 * ALL network wsi-specific frames are sent by PPS
+			 * already, these are sent as a priority on the writable
+			 * handler, and so respect partial sends.  The only
+			 * problem is when a stream wsi wants to send an, eg,
+			 * reply headers frame in response to the parsing
+			 * we will do now... the *stream wsi* must stall in a
+			 * different state until it is able to do so from a
+			 * priority on the WRITABLE callback, same way that
+			 * file transfers operate.
+			 */
+
 			if (lws_h2_parser(wsi, buf, len, &body_chunk_len)) {
 				lwsl_debug("%s: http2_parser bailed\n", __func__);
 				goto bail;

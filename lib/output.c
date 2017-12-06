@@ -51,6 +51,23 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	unsigned int n;
 	int m;
 
+	/*
+	 * Detect if we got called twice without going through the
+	 * event loop to handle pending.  This would be caused by either
+	 * back-to-back writes in one WRITABLE (illegal) or calling lws_write()
+	 * from outside the WRITABLE callback (illegal).
+	 */
+	if (wsi->could_have_pending) {
+		lwsl_hexdump_level(LLL_ERR, buf, len);
+		lwsl_err("** %p: vh: %s, prot: %s, "
+			 "Illegal back-to-back write of %lu detected...\n",
+			 wsi, wsi->vhost->name, wsi->protocol->name,
+			 (unsigned long)len);
+		// assert(0);
+
+		return -1;
+	}
+
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_WRITE, 1);
 
 	if (!len)
@@ -62,13 +79,12 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 	if (wsi->trunc_len && (buf < wsi->trunc_alloc ||
 	    buf > (wsi->trunc_alloc + wsi->trunc_len + wsi->trunc_offset))) {
-		char dump[20];
-		strncpy(dump, (char *)buf, sizeof(dump) - 1);
-		dump[sizeof(dump) - 1] = '\0';
-		lwsl_err("** %p: Sending new %lu (%s), pending truncated ...\n"
+		lwsl_hexdump_level(LLL_ERR, buf, len);
+		lwsl_err("** %p: vh: %s, prot: %s, Sending new %lu, pending truncated ...\n"
 			 "   It's illegal to do an lws_write outside of\n"
 			 "   the writable callback: fix your code\n",
-			 wsi, (unsigned long)len, dump);
+			 wsi, wsi->vhost->name, wsi->protocol->name,
+			 (unsigned long)len);
 		assert(0);
 
 		return -1;
@@ -102,13 +118,20 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	n = lws_ssl_capable_write(wsi, buf, n);
 	lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
 
+	/* something got written, it can have been truncated now */
+	wsi->could_have_pending = 1;
+
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
 		/* we're going to close, let close know sends aren't possible */
 		wsi->socket_is_permanently_unusable = 1;
 		return -1;
 	case LWS_SSL_CAPABLE_MORE_SERVICE:
-		/* nothing got sent, not fatal, retry the whole thing later */
+		/*
+		 * nothing got sent, not fatal.  Retry the whole thing later,
+		 * ie, implying treat it was a truncated send so it gets
+		 * retried
+		 */
 		n = 0;
 		break;
 	}
@@ -143,7 +166,7 @@ handle_truncated_send:
 
 	/*
 	 * Newly truncated send.  Buffer the remainder (it will get
-	 * first priority next time the socket is writable)
+	 * first priority next time the socket is writable).
 	 */
 	lwsl_debug("%p new partial sent %d from %lu total\n", wsi, n,
 		    (unsigned long)real_len);

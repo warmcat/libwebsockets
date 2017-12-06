@@ -503,11 +503,9 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (n < 0)
 			return 1;
 
-		n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,
-			      pss->result_len, LWS_WRITE_HTTP);
-		if (n < 0)
-			return 1;
-		goto try_to_reuse;
+		lws_callback_on_writable(wsi);
+		break;
+
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
 		lwsl_debug("LWS_CALLBACK_HTTP_DROP_PROTOCOL\n");
 
@@ -526,7 +524,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (pss->client_finished)
 			return -1;
 
-		if (!lws_get_child(wsi) && !pss->fop_fd)
+		if (!lws_get_child(wsi) && !pss->fop_fd && !pss->result_len)
 			goto try_to_reuse;
 
 #ifndef LWS_NO_CLIENT
@@ -561,6 +559,17 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/*
 		 * we can send more of whatever it is we were sending
 		 */
+
+		if (pss->result_len) {
+			/* the result from the form */
+			n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,
+				      pss->result_len, LWS_WRITE_HTTP);
+			pss->result_len = 0;
+			if (n < 0)
+				return 1;
+			goto try_to_reuse;
+		}
+
 		sent = 0;
 		do {
 			/* we'd like the send this much */

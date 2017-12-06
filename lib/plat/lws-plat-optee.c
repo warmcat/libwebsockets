@@ -45,6 +45,19 @@ lws_get_random(struct lws_context *context, void *buf, int len)
 LWS_VISIBLE int
 lws_send_pipe_choked(struct lws *wsi)
 {
+	struct lws *wsi_eff = wsi;
+
+#if defined(LWS_WITH_HTTP2)
+	wsi_eff = lws_get_network_wsi(wsi);
+#endif
+
+	/* the fact we checked implies we avoided back-to-back writes */
+	wsi_eff->could_have_pending = 0;
+
+	/* treat the fact we got a truncated send pending as if we're choked */
+	if (wsi_eff->trunc_len)
+		return 1;
+
 #if 0
 	struct lws_pollfd fds;
 

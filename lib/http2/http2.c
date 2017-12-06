@@ -1038,6 +1038,13 @@ update_end_headers:
 /*
  * The last byte of the whole frame has been handled.
  * Perform actions for frame completion.
+ *
+ * This is the crunch time for parsing that may have occured on a network
+ * wsi with a pending partial send... we may call lws_http_action() to send
+ * a response, conflicting with the partial.
+ *
+ * So in that case we change the wsi state and do the lws_http_action() in the
+ * WRITABLE handler as a priority.
  */
 static int
 lws_h2_parse_end_of_frame(struct lws *wsi)
@@ -1196,22 +1203,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		wsi->vhost->conn_stats.h2_trans++;
 
-		lwsl_info("  action start...\n");
-		n = lws_http_action(h2n->swsi);
-		lwsl_info("  action result %d "
-			  "(wsi->http.rx_content_remain %lld)\n",
-			  n, h2n->swsi->http.rx_content_remain);
-
-		/*
-		 * Commonly we only managed to start a larger transfer that will
-		 * complete asynchronously.  In those cases we will hear about
-		 * END_STREAM going out in the POLLOUT handler.
-		 */
-		if (n || h2n->swsi->h2.send_END_STREAM) {
-			lws_close_free_wsi(h2n->swsi, 0);
-			h2n->swsi = NULL;
-			break;
-		}
+		h2n->swsi->state = LWSS_HTTP2_DEFERRING_ACTION;
+		lws_callback_on_writable(h2n->swsi);
 		break;
 
 	case LWS_H2_FRAME_TYPE_DATA:
@@ -1318,6 +1311,19 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * This may want to send something on the network wsi, which may be in the
+ * middle of a partial send.  PPS sends are OK because they are queued to
+ * go through the WRITABLE handler already.
+ *
+ * The read parser for the network wsi has no choice but to parse its stream
+ * anyway, because otherwise it will not be able to get tx credit window
+ * messages.
+ *
+ * Therefore if we will send non-PPS, ie, lws_http_action() for a stream
+ * wsi, we must change its state and handle it as a priority in the
+ * POLLOUT handler instead of writing it here.
+ */
 int
 lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 	      lws_filepos_t *inused)

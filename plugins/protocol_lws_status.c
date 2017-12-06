@@ -62,18 +62,15 @@ struct per_vhost_data__lws_status {
 static void
 trigger_resend(struct per_vhost_data__lws_status *vhd)
 {
-	struct per_session_data__lws_status *pss = vhd->live_pss_list;
-
-	while (pss) {
+	lws_start_foreach_ll(struct per_session_data__lws_status *, pss,
+			     vhd->live_pss_list) {
 		if (pss->walk == WALK_NONE) {
 			pss->subsequent = 0;
 			pss->walk_next = vhd->live_pss_list;
 			pss->walk = WALK_INITIAL;
 		} else
 			pss->changed_partway = 1;
-
-		pss = pss->next;
-	}
+	} lws_end_foreach_ll(pss, next);
 
 	lws_callback_on_writable_all_protocol(vhd->context, vhd->protocol);
 }
@@ -85,8 +82,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
 {
 	struct per_session_data__lws_status *pss =
-			(struct per_session_data__lws_status *)user,
-			*pss1, *pss2;
+			(struct per_session_data__lws_status *)user;
 	struct per_vhost_data__lws_status *vhd =
 			(struct per_vhost_data__lws_status *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
@@ -123,6 +119,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		strcpy(pss->user_agent, "unknown");
 		lws_hdr_copy(wsi, pss->user_agent, sizeof(pss->user_agent),
 			     WSI_TOKEN_HTTP_USER_AGENT);
+
 		trigger_resend(vhd);
 		break;
 
@@ -150,14 +147,14 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->subsequent = 1;
 
 			m = 0;
-			pss2 = vhd->live_pss_list;
-			while (pss2) {
+			lws_start_foreach_ll(struct per_session_data__lws_status *,
+					     pss2, vhd->live_pss_list) {
 				if (pss2 == pss->walk_next) {
 					m = 1;
 					break;
 				}
-				pss2 = pss2->next;
-			}
+			} lws_end_foreach_ll(pss2, next);
+
 			if (!m) {
 				/* our next guy went away */
 				pss->walk = WALK_FINAL;
@@ -181,6 +178,7 @@ walk_final:
 			n = LWS_WRITE_CONTINUATION;
 			p += sprintf(p, "]}");
 			if (pss->changed_partway) {
+				pss->changed_partway = 0;
 				pss->subsequent = 0;
 				pss->walk_next = vhd->live_pss_list;
 				pss->walk = WALK_INITIAL;
@@ -207,22 +205,15 @@ walk_final:
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		pss1 = vhd->live_pss_list;
-		pss2 = NULL;
-
-		while (pss1) {
-			if (pss1 == pss) {
-				if (pss2)
-					pss2->next = pss->next;
-				else
-					vhd->live_pss_list = pss->next;
-
+		// lwsl_debug("****** LWS_CALLBACK_CLOSED\n");
+		lws_start_foreach_llp(struct per_session_data__lws_status **,
+			ppss, vhd->live_pss_list) {
+			if (*ppss == pss) {
+				*ppss = pss->next;
 				break;
 			}
+		} lws_end_foreach_llp(ppss, next);
 
-			pss2 = pss1;
-			pss1 = pss1->next;
-		}
 		trigger_resend(vhd);
 		break;
 

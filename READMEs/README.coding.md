@@ -44,7 +44,7 @@ clients).
 If you want to send something, do NOT just send it but request a callback
 when the socket is writeable using
 
- - `lws_callback_on_writable(context, wsi)` for a specific `wsi`, or
+ - `lws_callback_on_writable(wsi)` for a specific `wsi`, or
  
  - `lws_callback_on_writable_all_protocol(protocol)` for all connections
 using that protocol to get a callback when next writeable.
@@ -67,6 +67,25 @@ or our connection to him, cannot handle anything new, we should not generate
 anything new for him.  This is how unix shell piping works, you may have
 `cat a.txt | grep xyz > remote", but actually that does not cat anything from
 a.txt while remote cannot accept anything new. 
+
+@section oneper Only one lws_write per WRITEABLE callback
+
+From v2.5, lws strictly enforces only one lws_write() per WRITEABLE callback.
+
+You will receive a message about "Illegal back-to-back write of ... detected"
+if there is a second lws_write() before returning to the event loop.
+
+This is because with http/2, the state of the network connection carrying a
+wsi is unrelated to any state of the wsi.  The situation on http/1 where a
+new request implied a new tcp connection and new SSL buffer, so you could
+assume some window for writes is no longer true.  Any lws_write() can fail
+and be buffered for completion by lws; it will be auto-completed by the
+event loop.
+
+Note that if you are handling your own http responses, writing the headers
+needs to be done with a separate lws_write() from writing any payload.  That
+means after writing the headers you must call `lws_callback_on_writable(wsi)`
+and send any payload from the writable callback.
 
 @section otherwr Do not rely on only your own WRITEABLE requests appearing
 

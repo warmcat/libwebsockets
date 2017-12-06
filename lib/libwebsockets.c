@@ -724,7 +724,7 @@ just_kill_connection:
 		    lws_sockfd_valid(wsi->desc.sockfd) &&
 		    !LWS_LIBUV_ENABLED(context)) {
 			lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
-			wsi->state = LWSS_SHUTDOWN;
+			wsi->state = (wsi->state & ~0x1f) | LWSS_SHUTDOWN;
 			lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
 					context->timeout_secs);
 
