@@ -298,12 +298,19 @@ postbody_completion:
 
 read_ok:
 	/* Nothing more to do for now */
-	lwsl_info("%s: %p: read_ok, used %ld (len %d, state %d)\n", __func__, wsi, (long)(buf - oldbuf), (int)len, wsi->state);
+	lwsl_info("%s: %p: read_ok, used %ld (len %d, state %d)\n", __func__,
+		  wsi, (long)(buf - oldbuf), (int)len, wsi->state);
 
 	return lws_ptr_diff(buf, oldbuf);
 
 bail:
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	/*
+	 * h2 / h2-ws calls us recursively in lws_read()->lws_h2_parser()->
+	 * lws_read() pattern.  Make sure that only the outer lws_read() does
+	 * the wsi close.
+	 */
+	if (!wsi->outer_will_close)
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
 	return -1;
 }

@@ -1485,9 +1485,11 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				break;
 			}
 
+			h2n->swsi->outer_will_close = 1;
 			n = lws_read(h2n->swsi, in - 1, inlen + 1);
+			h2n->swsi->outer_will_close = 0;
 			if (n < 0)
-				break;
+				goto fail;
 
 			inlen -= n - 1;
 			in += n - 1;

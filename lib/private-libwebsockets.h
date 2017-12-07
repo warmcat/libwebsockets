@@ -1931,6 +1931,7 @@ struct lws {
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
 
 	unsigned int timer_active:1;
+	unsigned int outer_will_close:1;
 
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
