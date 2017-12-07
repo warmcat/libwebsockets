@@ -238,7 +238,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		goto bail_ok;
 	}
 
-	/* Priority 6: user can get the callback
+	/* Priority 6: extensions
 	 */
 	m = lws_ext_cb_active(wsi, LWS_EXT_CB_IS_WRITEABLE, NULL, 0);
 	if (m)
@@ -330,6 +330,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 #ifndef LWS_NO_EXTENSIONS
 	wsi->extension_data_pending = 0;
 #endif
+
 user_service:
 	/* one shot */
 

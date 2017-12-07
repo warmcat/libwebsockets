@@ -291,6 +291,11 @@ postbody_completion:
 			break;
 		}
 		break;
+
+	case LWSS_HTTP_DEFERRING_ACTION:
+		lwsl_debug("%s: LWSS_HTTP_DEFERRING_ACTION\n", __func__);
+		break;
+
 	default:
 		lwsl_err("%s: Unhandled state %d\n", __func__, wsi->state);
 		goto bail;

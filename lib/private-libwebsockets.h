@@ -518,6 +518,9 @@ enum lws_connection_states {
 
 	LWSS_HTTP2_DEFERRING_ACTION			= _LSF_CCB | 18 |
 							  _LSF_POLLOUT,
+
+	LWSS_HTTP_DEFERRING_ACTION			= _LSF_CCB | 19 |
+							  _LSF_POLLOUT,
 };
 
 #define lws_state_is_ws(s) (!!(s & _LSF_WEBSOCKET))

@@ -1870,9 +1870,13 @@ lws_http_transaction_completed(struct lws *wsi)
 	if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0]))
 		return 1;
 
-	/* otherwise set ourselves up ready to go again */
-	wsi->state = LWSS_HTTP;
-	wsi->mode = LWSCM_HTTP_SERVING;
+	/*
+	 * otherwise set ourselves up ready to go again, but because we have no
+	 * idea about the wsi writability, we make put it in a holding state
+	 * until we can verify POLLOUT.  The part of this that confirms POLLOUT
+	 * with no partials is in lws_server_socket_service() below.
+	 */
+	wsi->state = LWSS_HTTP_DEFERRING_ACTION;
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
 	wsi->hdr_parsing_completed = 0;
@@ -1936,6 +1940,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	}
 
 	lwsl_info("%s: %p: keep-alive await new transaction\n", __func__, wsi);
+	lws_callback_on_writable(wsi);
 
 	return 0;
 }
@@ -2450,6 +2455,19 @@ try_pollout:
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_notice("%s a\n", __func__);
 			goto fail;
+		}
+
+		/* clear back-to-back write detection */
+		wsi->could_have_pending = 0;
+
+		if (wsi->state == LWSS_HTTP_DEFERRING_ACTION) {
+			lwsl_debug("%s: LWSS_HTTP_DEFERRING_ACTION now writable\n",
+				   __func__);
+			wsi->state = LWSS_HTTP;
+			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+				lwsl_info("failed at set pollfd\n");
+				goto fail;
+			}
 		}
 
 		if (wsi->mode == LWSCM_RAW) {
