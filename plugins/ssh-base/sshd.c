@@ -634,6 +634,10 @@ again:
 					pss->parser_state = SSH_KEX_STATE_SKIP;
 					break;
 				}
+				if (!pss->kex) {
+					lwsl_notice("%s: SSH_MSG_KEXINIT: NULL pss->kex\n", __func__);
+					goto bail;
+				}
 				pss->parser_state = SSH_KEX_STATE_COOKIE;
 				pss->kex->I_C_payload_len = 0;
 				pss->kex->I_C_alloc_len = pss->msg_len;
