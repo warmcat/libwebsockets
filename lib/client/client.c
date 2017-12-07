@@ -196,7 +196,7 @@ socks_reply_fail:
 			lwsl_client("socks connect OK\n");
 
 			/* free stash since we are done with it */
-			lws_free_set_NULL(wsi->stash);
+			lws_client_stash_destroy(wsi);
 			if (lws_hdr_simple_create(wsi,
 						  _WSI_TOKEN_CLIENT_PEER_ADDRESS,
 						  wsi->vhost->socks_proxy_address))
@@ -539,8 +539,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	int more = 1;
 	void *v;
 #endif
-	if (wsi->stash)
-		lws_free_set_NULL(wsi->stash);
+	lws_client_stash_destroy(wsi);
 
 	ah = wsi->ah;
 	if (!wsi->do_ws) {

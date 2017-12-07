@@ -1325,13 +1325,13 @@ enum uri_esc_states {
 
 #ifndef LWS_NO_CLIENT
 struct client_info_stash {
-	char address[256];
-	char path[4096];
-	char host[256];
-	char origin[256];
-	char protocol[256];
-	char method[16];
-	char iface[16];
+	char *address;
+	char *path;
+	char *host;
+	char *origin;
+	char *protocol;
+	char *method;
+	char *iface;
 };
 #endif
 
@@ -2108,6 +2108,9 @@ lws_client_connect_via_info2(struct lws *wsi);
 
 LWS_EXTERN int
 _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah);
+
+LWS_EXTERN void
+lws_client_stash_destroy(struct lws *wsi);
 
 /*
  * EXTENSIONS

@@ -494,7 +494,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 #endif
 
 #if !defined(LWS_NO_CLIENT)
-	lws_free_set_NULL(wsi->stash);
+	lws_client_stash_destroy(wsi);
 #endif
 
 	if (wsi->mode == LWSCM_RAW) {
@@ -663,7 +663,11 @@ just_kill_connection:
 	}
 
 	if (wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP) {
-		wsi->vhost->protocols[0].callback(wsi,
+		const struct lws_protocols *pro = wsi->protocol;
+
+		if (!wsi->protocol)
+			pro = &wsi->vhost->protocols[0];
+		pro->callback(wsi,
 					LWS_CALLBACK_CLOSED_CLIENT_HTTP,
 						  wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;
