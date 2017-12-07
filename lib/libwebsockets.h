@@ -4426,6 +4426,26 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 LWS_VISIBLE LWS_EXTERN void
 lws_set_timer(struct lws *wsi, int secs);
 
+/*
+ * lws_timed_callback_vh_protocol() - calls back a protocol on a vhost after
+ * 					the specified delay
+ *
+ * \param vh:	 the vhost to call back
+ * \param protocol: the protocol to call back
+ * \param reason: callback reason
+ * \param secs:	how many seconds in the future to do the callback.  Set to
+ *		-1 to cancel the timer callback.
+ *
+ * Callback the specified protocol with a fake wsi pointing to the specified
+ * vhost and protocol, with the specified reason, at the specified time in the
+ * future.
+ *
+ * Returns 0 if OK.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_timed_callback_vh_protocol(struct lws_vhost *vh,
+			       const struct lws_protocols *prot,
+			       int reason, int secs);
 ///@}
 
 /*! \defgroup sending-data Sending data
@@ -4750,9 +4770,31 @@ lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
  * - Which:  connections using this protocol on same VHOST as wsi ONLY
  * - When:   now
  * - What:   reason
+ *
+ * This is deprecated since v2.5, use lws_callback_vhost_protocols_vhost()
+ * which takes the pointer to the vhost directly without using or needing the
+ * wsi.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len);
+lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
+LWS_WARN_DEPRECATED;
+
+/**
+ * lws_callback_vhost_protocols_vhost() - Callback all protocols enabled on a vhost
+ *					with the given reason
+ *
+ * \param vh:		vhost that will get callbacks
+ * \param reason:	Callback reason index
+ * \param in:		in argument to callback
+ * \param len:		len argument to callback
+ *
+ * - Which:  connections using this protocol on same VHOST as wsi ONLY
+ * - When:   now
+ * - What:   reason
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, void *in,
+				   size_t len);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,

@@ -1176,6 +1176,35 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 			lwsl_notice("load: %s\n", s);
 		}
 #endif
+		/*
+		 * Phase 4: vhost / protocol timer callbacks
+		 */
+
+		wsi = NULL;
+		lws_start_foreach_ll(struct lws_vhost *, v,
+				     context->vhost_list) {
+			struct lws_timed_vh_protocol *nx;
+			if (v->timed_vh_protocol_list) {
+				lws_start_foreach_ll(struct lws_timed_vh_protocol *,
+						q, v->timed_vh_protocol_list) {
+					if (now >= q->time) {
+						if (!wsi)
+							wsi = lws_zalloc(sizeof(*wsi), "cbwsi");
+						wsi->context = context;
+						wsi->vhost = v;
+						wsi->protocol = q->protocol;
+						lwsl_notice("timed cb: vh %s, protocol %s, reason %d\n", v->name, q->protocol->name, q->reason);
+						q->protocol->callback(wsi, q->reason, NULL, NULL, 0);
+						nx = q->next;
+						lws_timed_callback_remove(v, q);
+						q = nx;
+						continue; /* we pointed ourselves to the next from the now-deleted guy */
+					}
+				} lws_end_foreach_ll(q, next);
+			}
+		} lws_end_foreach_ll(v, vhost_next);
+		if (wsi)
+			lws_free(wsi);
 	}
 
 	/*

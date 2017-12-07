@@ -898,6 +898,13 @@ struct http2_settings {
 	uint32_t s[H2SET_COUNT];
 };
 
+struct lws_timed_vh_protocol {
+	struct lws_timed_vh_protocol *next;
+	const struct lws_protocols *protocol;
+	time_t time;
+	int reason;
+};
+
 /*
  * virtual host -related context information
  *   vhostwide SSL context
@@ -958,6 +965,7 @@ struct lws_vhost {
 #ifndef LWS_NO_EXTENSIONS
 	const struct lws_extension *extensions;
 #endif
+	struct lws_timed_vh_protocol *timed_vh_protocol_list;
 	void *user;
 
 	int listen_port;
@@ -2047,6 +2055,9 @@ lws_b64_selftest(void);
 
 LWS_EXTERN int
 lws_service_flag_pending(struct lws_context *context, int tsi);
+
+LWS_EXTERN int
+lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p);
 
 #if defined(_WIN32)
 LWS_EXTERN struct lws *

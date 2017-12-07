@@ -1444,6 +1444,13 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	}
 
 	/*
+	 * destroy any pending timed events
+	 */
+
+	while (vh->timed_vh_protocol_list)
+		lws_timed_callback_remove(vh, vh->timed_vh_protocol_list);
+
+	/*
 	 * let the protocols destroy the per-vhost protocol objects
 	 */
 
