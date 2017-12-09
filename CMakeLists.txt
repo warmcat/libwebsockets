@@ -95,6 +95,7 @@ option(LWS_WITH_GENRSA "Enable support for Generic RSA (RSA with api independent
 option(LWS_WITH_SELFTESTS "Selftests run at context creation" OFF)
 option(LWS_WITH_GCOV "Build with gcc gcov coverage instrumentation" OFF)
 option(LWS_WITH_EXPORT_LWSTARGETS "Export libwebsockets CMake targets.  Disable if they conflict with an outer cmake project." ON)
+option(LWS_REPRODUCIBLE "Build libwebsockets reproducible. It removes the build user and hostname from the build" ON)
 #
 # End of user settings
 #
@@ -138,26 +139,32 @@ message(STATUS "CMAKE_TOOLCHAIN_FILE='${CMAKE_TOOLCHAIN_FILE}'")
 find_package(Git)
 if(GIT_EXECUTABLE)
 	execute_process(
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMAND "${GIT_EXECUTABLE}" describe
-    OUTPUT_VARIABLE GIT_HASH
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-	execute_process(
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMAND "whoami"
-    OUTPUT_VARIABLE GIT_USER
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-	execute_process(
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMAND "hostname"
-    OUTPUT_VARIABLE GIT_HOST
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-	string(REGEX REPLACE "([^\\])[\\]([^\\])" "\\1\\\\\\\\\\2" GIT_USER ${GIT_USER})
-    set(LWS_BUILD_HASH ${GIT_USER}@${GIT_HOST}-${GIT_HASH})
-    message("Git commit hash: ${LWS_BUILD_HASH}")
+		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+		COMMAND "${GIT_EXECUTABLE}" describe
+		OUTPUT_VARIABLE GIT_HASH
+		OUTPUT_STRIP_TRAILING_WHITESPACE
+		)
+	set(LWS_BUILD_HASH ${GIT_HASH})
+
+	# appen the build user and hostname
+	if(NOT LWS_REPRODUCIBLE)
+		execute_process(
+			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+			COMMAND "whoami"
+			OUTPUT_VARIABLE GIT_USER
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+			)
+		execute_process(
+			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+			COMMAND "hostname"
+			OUTPUT_VARIABLE GIT_HOST
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+			)
+		string(REGEX REPLACE "([^\\])[\\]([^\\])" "\\1\\\\\\\\\\2" GIT_USER ${GIT_USER})
+		set(LWS_BUILD_HASH ${GIT_USER}@${GIT_HOST}-${GIT_HASH})
+	endif()
+
+	message("Git commit hash: ${LWS_BUILD_HASH}")
 endif()
 
 if (LWS_WITH_LWSWS)
