@@ -110,7 +110,7 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 
 LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 {
-	printf("%d: %s", level, line);
+	lwsl_emit_stderr(level, line);
 }
 
 LWS_VISIBLE LWS_EXTERN int
@@ -135,10 +135,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			n = esp_get_free_heap_size();
 			if (n != context->last_free_heap) {
 				if (n > context->last_free_heap)
-					lwsl_notice(" heap :%d (+%d)\n", n,
+					lwsl_info(" heap :%d (+%d)\n", n,
 						    n - context->last_free_heap);
 				else
-					lwsl_notice(" heap :%d (-%d)\n", n,
+					lwsl_info(" heap :%d (-%d)\n", n,
 						    context->last_free_heap - n);
 				context->last_free_heap = n;
 			}
@@ -709,7 +709,7 @@ static const char *gapss_str[] = {
 };
 
 static romfs_t lws_esp32_romfs;
-static TimerHandle_t leds_timer, scan_timer, debounce_timer
+static TimerHandle_t leds_timer, scan_timer, debounce_timer, association_timer
 #if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
 , mdns_timer
 #endif
@@ -810,6 +810,28 @@ static void lws_esp32_scan_timer_cb(TimerHandle_t th)
 	if (n != ESP_OK)
 		lwsl_err("scan start failed %d\n", n);
 }
+
+static void lws_esp32_assoc_timer_cb(TimerHandle_t th)
+{
+	int n;
+
+	xTimerStop(association_timer, 0);
+
+	if (gapss == LWS_GAPSS_STAT_HAPPY) {
+		lwsl_debug("%s: saw we were happy\n", __func__);
+
+		return;
+	}
+
+	lwsl_notice("%s: forcing rescan\n", __func__);
+
+	lws_gapss_to(LWS_GAPSS_SCAN);
+	scan_ongoing = 0;
+	n = esp_wifi_scan_start(&scan_config, false);
+	if (n != ESP_OK)
+		lwsl_err("scan start failed %d\n", n);
+}
+
 
 #if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
 
@@ -1018,7 +1040,7 @@ end_scan()
 		goto passthru;
 
 	if (gapss != LWS_GAPSS_SCAN) {
-		lwsl_notice("ignoring scan as gapss %s\n", gapss_str[gapss]);
+		lwsl_info("ignoring scan as gapss %s\n", gapss_str[gapss]);
 		goto passthru;
 	}
 
@@ -1029,14 +1051,14 @@ end_scan()
 	    !lws_esp32.ssid[3][0])
 		goto passthru;
 
-	lwsl_notice("checking %d scan records\n", count_ap_records);
+	lwsl_info("checking %d scan records\n", count_ap_records);
 
 	for (n = 0; n < 4; n++) {
 
 		if (!lws_esp32.ssid[(n + try_slot + 1) & 3][0])
 			continue;
 
-		lwsl_notice("looking for %s\n",
+		lwsl_debug("looking for %s\n",
 			    lws_esp32.ssid[(n + try_slot + 1) & 3]);
 
 		/* this ssid appears in scan results? */
@@ -1053,7 +1075,7 @@ end_scan()
 hit:
 		m = (n + try_slot + 1) & 3;
 		try_slot = m;
-		lwsl_notice("Attempting connection with slot %d: %s:\n", m,
+		lwsl_info("Attempting connection with slot %d: %s:\n", m,
 				lws_esp32.ssid[m]);
 		/* set the ssid we last tried to connect to */
 		strncpy(lws_esp32.active_ssid, lws_esp32.ssid[m],
@@ -1068,6 +1090,8 @@ hit:
 		tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA,
 					   (const char *)&config.ap.ssid[7]);
 		lws_gapss_to(LWS_GAPSS_STAT);
+		xTimerStop(association_timer, 0);
+		xTimerStart(association_timer, 0);
 
 		esp_wifi_set_config(WIFI_IF_STA, &sta_config);
 		esp_wifi_connect();
@@ -1484,6 +1508,8 @@ lws_esp32_wlan_config(void)
 	};
 	int n;
 
+	lwsl_debug("%s\n", __func__);
+
 	ledc_timer_config(&ledc_timer);
 
 	lws_set_genled(LWSESP32_GENLED__INIT);
@@ -1496,6 +1522,8 @@ lws_esp32_wlan_config(void)
                           (TimerCallbackFunction_t)lws_esp32_scan_timer_cb);
         debounce_timer = xTimerCreate("lws_db", pdMS_TO_TICKS(100), 0, NULL,
                           (TimerCallbackFunction_t)lws_esp32_debounce_timer_cb);
+        association_timer = xTimerCreate("lws_assoc", pdMS_TO_TICKS(10000), 0, NULL,
+                          (TimerCallbackFunction_t)lws_esp32_assoc_timer_cb);
 
 #if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
         mdns_timer = xTimerCreate("lws_mdns", pdMS_TO_TICKS(5000), 0, NULL,
@@ -1667,13 +1695,13 @@ lws_esp32_set_creation_defaults(struct lws_context_creation_info *info)
 
 	info->vhost_name = "default";
 	info->port = 443;
-	info->fd_limit_per_thread = 30;
-	info->max_http_header_pool = 16;
-	info->max_http_header_data = 512;
-	info->pt_serv_buf_size = 2048;
+	info->fd_limit_per_thread = 16;
+	info->max_http_header_pool = 5;
+	info->max_http_header_data = 1024;
+	info->pt_serv_buf_size = 4096;
 	info->keepalive_timeout = 30;
 	info->timeout_secs = 30;
-	info->simultaneous_ssl_restriction = 4;
+	info->simultaneous_ssl_restriction = 2;
 	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		        LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 }
@@ -1851,6 +1879,22 @@ fail:
 	return -1;
 }
 
+void
+lws_esp32_update_acme_info(void)
+{
+        int n;
+
+	n = lws_plat_read_file("acme-email", lws_esp32.le_email,
+			       sizeof(lws_esp32.le_email) - 1);
+	if (n >= 0)
+		lws_esp32.le_email[n] = '\0';
+
+	n = lws_plat_read_file("acme-cn", lws_esp32.le_dns,
+			       sizeof(lws_esp32.le_dns) - 1);
+	if (n >= 0)
+		lws_esp32.le_dns[n] = '\0';
+}
+
 struct lws_context *
 lws_esp32_init(struct lws_context_creation_info *info, struct lws_vhost **pvh)
 {
@@ -1892,6 +1936,8 @@ lws_esp32_init(struct lws_context_creation_info *info, struct lws_vhost **pvh)
 		lwsl_err("Failed to create vhost\n");
 		return NULL;
 	}
+
+	lws_esp32_update_acme_info();
 
 	lws_esp32_selfsigned(vhost);
 	wsi.context = vhost->context;
@@ -1960,16 +2006,16 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 
 	if (nvs_open("lws-station", NVS_READWRITE, &nvh)) {
 		lwsl_notice("%s: failed to open nvs\n", __func__);
-		return 1;
+		return -1;
 	}
 
 	n = nvs_set_blob(nvh, filename, buf, len);
-	if (n)
+	if (n >= 0)
 		nvs_commit(nvh);
 
 	nvs_close(nvh);
 
-	lwsl_notice("%s: wrote %s\n", __func__, filename);
+	lwsl_notice("%s: wrote %s (%d)\n", __func__, filename, n);
 
 	return n;
 }
@@ -1985,7 +2031,7 @@ lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 	if (is_key)
 		name = vhost->key_path;
 
-	return lws_plat_write_file(name, buf, len);
+	return lws_plat_write_file(name, buf, len) < 0;
 }
 
 LWS_VISIBLE int

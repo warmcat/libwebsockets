@@ -401,6 +401,11 @@ lws_ssl_close(struct lws *wsi)
 			    wsi->context->simultaneous_ssl_restriction)
 		/* we made space and can do an accept */
 		lws_gate_accepts(wsi->context, 1);
+
+	// lwsl_notice("%s: ssl restr %d, simul %d\n", __func__,
+	//		wsi->context->simultaneous_ssl_restriction,
+	//		wsi->context->simultaneous_ssl);
+
 #if defined(LWS_WITH_STATS)
 	wsi->context->updated = 1;
 #endif

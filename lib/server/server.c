@@ -2540,10 +2540,13 @@ try_pollout:
 	case LWSCM_SERVER_LISTENER:
 
 #if LWS_POSIX
-		/* pollin means a client has connected to us then */
+		/* pollin means a client has connected to us then
+		 * pollout is a hack on esp32 for background accepts signalling
+		 * they completed
+		 * */
 
 		do {
-			if (!(pollfd->revents & LWS_POLLIN) ||
+			if (!(pollfd->revents & (LWS_POLLIN |LWS_POLLOUT)) ||
 			    !(pollfd->events & LWS_POLLIN))
 				break;
 

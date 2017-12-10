@@ -52,8 +52,8 @@ static void *_realloc(void *ptr, size_t size, const char *reason)
 {
 	if (size) {
 #if defined(LWS_WITH_ESP32)
-		lwsl_notice("%s: size %lu: %s\n", __func__,
-			    (unsigned long)size, reason);
+		lwsl_debug("%s: size %lu: %s (free heap %d)\n", __func__,
+			    (unsigned long)size, reason, (unsigned int)esp_get_free_heap_size() - (int)size);
 #else
 		lwsl_debug("%s: size %lu: %s\n", __func__,
 			   (unsigned long)size, reason);

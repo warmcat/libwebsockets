@@ -213,6 +213,7 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 	const SSL_METHOD *method = TLS_server_method();
 	uint8_t *p;
 	lws_filepos_t flen;
+	int n;
 
 	vhost->ssl_ctx = SSL_CTX_new(method);	/* create context */
 	if (!vhost->ssl_ctx) {
@@ -243,10 +244,13 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 		free(p);
 	}
 
-	return lws_tls_server_certs_load(vhost, wsi,
-					 info->ssl_cert_filepath,
-					 info->ssl_private_key_filepath,
-					 NULL, 0, NULL, 0);
+	n = lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
+				      info->ssl_private_key_filepath, NULL,
+				      0, NULL, 0);
+	if (n)
+		return n;
+
+	return 0;
 }
 
 int
@@ -284,9 +288,17 @@ enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
 	union lws_tls_cert_info_results ir;
-	int m, n = SSL_accept(wsi->ssl);
+	int m, n;
 
+	n = SSL_accept(wsi->ssl);
 	if (n == 1) {
+
+		if (strstr(wsi->vhost->name, ".invalid")) {
+			lwsl_notice("%s: vhost has .invalid, rejecting accept\n", __func__);
+
+			return LWS_SSL_CAPABLE_ERROR;
+		}
+
 		n = lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, &ir,
 					   sizeof(ir.ns.name));
 		if (!n)
@@ -298,6 +310,8 @@ lws_tls_server_accept(struct lws *wsi)
 	}
 
 	m = SSL_get_error(wsi->ssl, n);
+	lwsl_debug("%s: %p: accept SSL_get_error %d errno %d\n", __func__,
+		   wsi, m, errno);
 
 	// mbedtls wrapper only
 	if (m == SSL_ERROR_SYSCALL && errno == 11)
@@ -439,7 +453,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	uint8_t digest[32];
 	struct lws_genhash_ctx hash_ctx;
 	int pkey_asn1_len = 3 * 1024;
-	int n, keybits = lws_plat_recommended_rsa_bits(), adj;
+	int n, m, keybits = lws_plat_recommended_rsa_bits(), adj;
 
 	if (!buf)
 		return 1;
@@ -522,34 +536,34 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	if (!pkey_asn1)
 		goto bail2;
 
-	n = lws_genrsa_render_pkey_asn1(&ctx, 1, pkey_asn1, pkey_asn1_len);
-	if (n < 0) {
+	m = lws_genrsa_render_pkey_asn1(&ctx, 1, pkey_asn1, pkey_asn1_len);
+	if (m < 0) {
 		lws_free(pkey_asn1);
 		goto bail2;
 	}
-	lwsl_debug("private key\n");
-	lwsl_hexdump_level(LLL_DEBUG, pkey_asn1, n);
 
-	/* and to use our generated private key */
-	n = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, pkey_asn1, n);
-	lws_free(pkey_asn1);
+//	lwsl_hexdump_level(LLL_DEBUG, buf, lws_ptr_diff(p, buf));
+	n = SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx,
+				 lws_ptr_diff(p, buf), buf);
 	if (n != 1) {
-		lwsl_notice("%s: SSL_CTX_use_PrivateKey_ASN1 failed\n",
-			    __func__);
+		lws_free(pkey_asn1);
+		lwsl_err("%s: generated cert failed to load 0x%x\n",
+				__func__, -n);
+	} else {
+		//lwsl_debug("private key\n");
+		//lwsl_hexdump_level(LLL_DEBUG, pkey_asn1, n);
+
+		/* and to use our generated private key */
+		n = SSL_CTX_use_PrivateKey_ASN1(0, vhost->ssl_ctx, pkey_asn1, m);
+		lws_free(pkey_asn1);
+		if (n != 1) {
+			lwsl_err("%s: SSL_CTX_use_PrivateKey_ASN1 failed\n",
+				    __func__);
+		}
 	}
 
 	lws_genrsa_destroy(&ctx);
 	lws_jwk_destroy_genrsa_elements(&el);
-
-	if (n == 1) {
-		lwsl_hexdump_level(LLL_DEBUG, buf, lws_ptr_diff(p, buf));
-
-		n = SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx,
-					 lws_ptr_diff(p, buf), buf);
-		if (n != 1)
-			lwsl_notice("%s: generated cert failed to load 0x%x\n",
-					__func__, -n);
-	}
 
 	lws_free(buf);
 
@@ -579,6 +593,8 @@ _rngf(void *context, unsigned char *buf, size_t len)
 	return -1;
 }
 
+static const char *x5[] = { "C", "ST", "L", "O", "CN" };
+
 /*
  * CSR is output formatted as b64url(DER)
  * Private key is output as a PEM in memory
@@ -589,9 +605,9 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 			    size_t *privkey_len)
 {
 	mbedtls_x509write_csr csr;
-	char subject[200];
 	mbedtls_pk_context mpk;
 	int buf_size = 4096, n;
+	char subject[200], *p = subject, *end = p + sizeof(subject) - 1;
 	uint8_t *buf = malloc(buf_size); /* malloc because given to user code */
 
 	if (!buf)
@@ -615,13 +631,14 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 
 	/* subject must be formatted like "C=TW,O=warmcat,CN=myserver" */
 
-	lws_snprintf(subject, sizeof(subject) - 1,
-		     "C=%s,ST=%s,L=%s,O=%s,CN=%s",
-		     elements[LWS_TLS_REQ_ELEMENT_COUNTRY],
-		     elements[LWS_TLS_REQ_ELEMENT_STATE],
-		     elements[LWS_TLS_REQ_ELEMENT_LOCALITY],
-		     elements[LWS_TLS_REQ_ELEMENT_ORGANIZATION],
-		     elements[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
+	for (n = 0; n < ARRAY_SIZE(x5); n++) {
+		if (p != subject)
+			*p++ = ',';
+		if (elements[n])
+			p += lws_snprintf(p, end - p, "%s=%s", x5[n],
+					  elements[n]);
+	}
+
 	if (mbedtls_x509write_csr_set_subject_name(&csr, subject))
 		goto fail1;
 

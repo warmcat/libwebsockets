@@ -1000,7 +1000,7 @@ completed:
 	if (user_callback_handle_rxflow(wsi->protocol->callback,
 			wsi, LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
 			wsi->user_space, NULL, 0)) {
-		lwsl_debug("Completed call returned -1\n");
+		lwsl_debug("%s: Completed call returned nonzero (mode %d)\n", __func__, wsi->mode);
 		return -1;
 	}
 
