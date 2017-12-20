@@ -264,7 +264,7 @@ lws_tls_check_all_cert_lifetimes(struct lws_context *context)
 
 	return 0;
 }
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
 static int
 lws_tls_extant(const char *name)
 {
@@ -311,11 +311,13 @@ lws_tls_extant(const char *name)
  * 4) LWS_TLS_EXTANT_YES: The certs are present with the correct name and we
  *    have the rights to read them.
  */
-
 enum lws_tls_extant
 lws_tls_use_any_upgrade_check_extant(const char *name)
 {
+#if !defined(LWS_PLAT_OPTEE)
+
 	int n;
+
 #if !defined(LWS_WITH_ESP32)
 	char buf[256];
 
@@ -362,7 +364,7 @@ lws_tls_use_any_upgrade_check_extant(const char *name)
 	if (n)
 		return LWS_TLS_EXTANT_NO;
 #endif
-
+#endif
 	return LWS_TLS_EXTANT_YES;
 }
 

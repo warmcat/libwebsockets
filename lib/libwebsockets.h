@@ -123,7 +123,7 @@ typedef unsigned long long lws_intptr_t;
 #define LWS_O_CREAT O_CREAT
 #define LWS_O_TRUNC O_TRUNC
 
-#if !defined(OPTEE_TA) && !defined(LWS_WITH_ESP32)
+#if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_TA) && !defined(LWS_WITH_ESP32)
 #include <poll.h>
 #include <netdb.h>
 #define LWS_INVALID_FILE -1
@@ -1088,7 +1088,11 @@ enum lws_callback_reasons {
 	 * optional, if you don't handle it everything is fine.
 	 *
 	 * Notice the callback is coming to protocols[0] all the time,
-	 * because there is no specific protocol negotiated yet. */
+	 * because there is no specific protocol negotiated yet.
+	 *
+	 * See LWS_CALLBACK_ADD_HEADERS for adding headers to server
+	 * transactions.
+	 */
 	LWS_CALLBACK_CONFIRM_EXTENSION_OKAY			= 25,
 	/**< When the server handshake code
 	 * sees that it does support a requested extension, before
@@ -1275,10 +1279,13 @@ enum lws_callback_reasons {
 	 * bytes per buffer).
 	 *  */
 	LWS_CALLBACK_ADD_HEADERS				= 53,
-	/**< This gives your user code a chance to add headers to a
+	/**< This gives your user code a chance to add headers to a server
 	 * transaction bound to your protocol.  `in` points to a
 	 * `struct lws_process_html_args` describing a buffer and length
 	 * you can add headers into using the normal lws apis.
+	 *
+	 * (see LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER to add headers to
+	 * a client transaction)
 	 *
 	 * Only `args->p` and `args->len` are valid, and `args->p` should
 	 * be moved on by the amount of bytes written, if any.  Eg
@@ -4305,7 +4312,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_plat_read_file(const char *filename, void *buf, int len);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_plat_recommended_rsa_bits();
+lws_plat_recommended_rsa_bits(void);
 ///@}
 
 /*! \defgroup ev libev helpers
@@ -6756,9 +6763,9 @@ LWS_VISIBLE LWS_EXTERN void
 lws_stats_log_dump(struct lws_context *context);
 #else
 static LWS_INLINE uint64_t
-lws_stats_get(struct lws_context *context, int index) { return 0; }
+lws_stats_get(struct lws_context *context, int index) { (void)context; (void)index;  return 0; }
 static LWS_INLINE void
-lws_stats_log_dump(struct lws_context *context) { }
+lws_stats_log_dump(struct lws_context *context) { (void)context; }
 #endif
 
 #ifdef __cplusplus

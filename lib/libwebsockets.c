@@ -1811,10 +1811,14 @@ lwsl_timestamp(int level, char *p, int len)
 					(int)(now % 10000), log_level_names[n]);
 		return n;
 	}
+#else
+	p[0] = '\0';
 #endif
+
 	return 0;
 }
 
+#ifndef LWS_PLAT_OPTEE
 static const char * const colours[] = {
 	"[31;1m", /* LLL_ERR */
 	"[36;1m", /* LLL_WARN */
@@ -1829,16 +1833,14 @@ static const char * const colours[] = {
 	"[30;1m", /* LLL_USER */
 };
 
-#ifndef LWS_PLAT_OPTEE
 LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 {
 	char buf[50];
-	static char tty;
+	static char tty = 3;
 	int n, m = ARRAY_SIZE(colours) - 1;
 
 	if (!tty)
 		tty = isatty(2) | 2;
-
 	lwsl_timestamp(level, buf, sizeof(buf));
 
 	if (tty == 3) {

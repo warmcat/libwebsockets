@@ -492,16 +492,19 @@ lws_tls_shutdown(struct lws *wsi)
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 }
-
+#if !defined(LWS_PLAT_OPTEE)
 static int
 dec(char c)
 {
 	return c - '0';
 }
+#endif
 
 static time_t
 lws_tls_openssl_asn1time_to_unix(ASN1_TIME *as)
 {
+#if !defined(LWS_PLAT_OPTEE)
+
 	const char *p = (const char *)as->data;
 	struct tm t;
 
@@ -529,6 +532,9 @@ lws_tls_openssl_asn1time_to_unix(ASN1_TIME *as)
 	t.tm_isdst = 0;
 
 	return mktime(&t);
+#else
+	return (time_t)-1;
+#endif
 }
 
 int
@@ -536,7 +542,9 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 			  union lws_tls_cert_info_results *buf, size_t len)
 {
 	X509_NAME *xn;
+#if !defined(LWS_PLAT_OPTEE)
 	char *p;
+#endif
 
 	if (!x509)
 		return -1;
@@ -557,6 +565,9 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		break;
 
 	case LWS_TLS_CERT_INFO_COMMON_NAME:
+#if defined(LWS_PLAT_OPTEE)
+		return -1;
+#else
 		xn = X509_get_subject_name(x509);
 		if (!xn)
 			return -1;
@@ -566,7 +577,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 			memmove(buf->ns.name, p + 4, strlen(p + 4) + 1);
 		buf->ns.len = (int)strlen(buf->ns.name);
 		return 0;
-
+#endif
 	case LWS_TLS_CERT_INFO_ISSUER_NAME:
 		xn = X509_get_issuer_name(x509);
 		if (!xn)

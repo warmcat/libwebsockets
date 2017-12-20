@@ -1154,7 +1154,11 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 			 */
 			wsi = ah->wsi;
 			buf[0] = '\0';
+#if !defined(LWS_PLAT_OPTEE)
 			lws_get_peer_simple(wsi, buf, sizeof(buf));
+#else
+			buf[0] = '\0';
+#endif
 			lwsl_notice("ah excessive hold: wsi %p\n"
 				    "  peer address: %s\n"
 				    "  ah rxpos %u, rxlen %u, pos %u\n",

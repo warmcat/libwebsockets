@@ -163,7 +163,7 @@ faked_service:
 			c = n;
 
 	/* any socket with events to service? */
-	for (n = 0; n < pt->fds_count && c; n++) {
+	for (n = 0; n < (int)pt->fds_count && c; n++) {
 		if (!pt->fds[n].revents)
 			continue;
 
@@ -280,8 +280,8 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 }
 
 LWS_VISIBLE lws_fop_fd_t
-_lws_plat_file_open(lws_plat_file_open(struct lws_plat_file_ops *fops,
-		    const char *filename, lws_fop_flags_t *flags)
+_lws_plat_file_open(const struct lws_plat_file_ops *fops,
+		    const char *filename, const char *vpath, lws_fop_flags_t *flags)
 {
 	return NULL;
 }

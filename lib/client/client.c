@@ -517,6 +517,21 @@ lws_http_client_http_response(struct lws *wsi)
 
 	return wsi->ah->http_response;
 }
+#if defined(LWS_PLAT_OPTEE)
+char *
+strrchr(const char *s, int c)
+{
+	char *hit = NULL;
+
+	while (*s)
+		if (*(s++) == (char)c)
+		       hit = (char *)s - 1;
+
+	return hit;
+}
+
+#define atoll atoi
+#endif
 
 int
 lws_client_interpret_server_handshake(struct lws *wsi)

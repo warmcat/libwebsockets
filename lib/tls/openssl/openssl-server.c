@@ -272,6 +272,7 @@ check_key:
 		lwsl_notice(" Using ECDH certificate support\n");
 
 	/* Get X509 certificate from ssl context */
+#if !defined(LWS_WITH_BORINGSSL)
 #if !defined(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
 	x = sk_X509_value(vhost->ssl_ctx->extra_certs, 0);
 #else
@@ -285,6 +286,9 @@ check_key:
 		//lwsl_err("%s: x is NULL\n", __func__);
 		goto post_ecdh;
 	}
+#else
+	return 1;
+#endif
 	/* Get the public key from certificate */
 	pkey = X509_get_pubkey(x);
 	if (!pkey) {
@@ -312,8 +316,9 @@ check_key:
 #else
 	lwsl_notice(" OpenSSL doesn't support ECDH\n");
 #endif
-
+#if !defined(LWS_WITH_BORINGSSL)
 post_ecdh:
+#endif
 	vhost->skipped_certs = 0;
 
 	return 0;
@@ -378,7 +383,7 @@ lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
 		SSL_CTX_clear_options(vhost->ssl_ctx, info->ssl_options_clear);
 #endif
 
-	lwsl_info(" SSL options 0x%lX\n", SSL_CTX_get_options(vhost->ssl_ctx));
+	lwsl_info(" SSL options 0x%lX\n", (unsigned long)SSL_CTX_get_options(vhost->ssl_ctx));
 	if (!vhost->use_ssl || !info->ssl_cert_filepath)
 		return 0;
 
