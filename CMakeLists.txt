@@ -1585,7 +1585,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		endif()
 
 		# Data files for running the test server.
-		set(TEST_SERVER_DATA
+		list(APPEND TEST_SERVER_DATA
 			"${PROJECT_SOURCE_DIR}/test-apps/favicon.ico"
 			"${PROJECT_SOURCE_DIR}/test-apps/leaf.jpg"
 			"${PROJECT_SOURCE_DIR}/test-apps/candide.zip"
