@@ -226,7 +226,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 	lwsl_debug("%p: SSL_read says %d\n", wsi, n);
 	/* manpage: returning 0 means connection shut down */
-	if (!n) {
+	if (!n || (n == -1 && errno == ENOTCONN)) {
 		wsi->socket_is_permanently_unusable = 1;
 
 		return LWS_SSL_CAPABLE_ERROR;
