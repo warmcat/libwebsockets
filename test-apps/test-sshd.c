@@ -545,7 +545,7 @@ ssh_ops_child_process_terminated(void *priv, struct lws *wsi)
 }
 
 static int
-ssh_ops_exec(void *_priv, struct lws *wsi, const char *command)
+ssh_ops_exec(void *_priv, struct lws *wsi, const char *command, lws_ssh_finish_exec finish, void *finish_handle)
 {
 	lwsl_notice("%s: EXEC %s\n", __func__, command);
 
@@ -554,7 +554,7 @@ ssh_ops_exec(void *_priv, struct lws *wsi, const char *command)
 }
 
 static int
-ssh_ops_shell(void *_priv, struct lws *wsi)
+ssh_ops_shell(void *_priv, struct lws *wsi, lws_ssh_finish_exec finish, void *finish_handle)
 {
 	struct sshd_instance_priv *priv = _priv;
 	const char *cmd[] = {
@@ -614,7 +614,7 @@ static const struct lws_ssh_ops ssh_ops = {
 	.banner				= ssh_ops_banner,
 	.disconnect_reason		= ssh_ops_disconnect_reason,
 	.server_string			= "SSH-2.0-Libwebsockets",
-	.api_version			= 1,
+	.api_version			= 2,
 };
 
 /*

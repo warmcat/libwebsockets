@@ -24,7 +24,7 @@
 
 #define LWS_CALLBACK_SSH_UART_SET_RXFLOW (LWS_CALLBACK_USER + 800)
 
-#define LWS_SSH_OPS_VERSION 1
+#define LWS_SSH_OPS_VERSION 2
 
 struct lws_ssh_pty {
 	char term[16];
@@ -126,6 +126,8 @@ struct lws_ssh_pty {
  *  See also ./READMEs/README-plugin-sshd-base.md
  */
 ///@{
+
+typedef void (*lws_ssh_finish_exec)(void *handle, int retcode);
 
 struct lws_ssh_ops {
 	/**
@@ -243,21 +245,25 @@ struct lws_ssh_ops {
 	 * \param priv:	void * you set when this channel was created
 	 * \param wsi: the struct lws the connection belongs to
 	 * \param command:	string containing path to app and arguments
+	 * \param finish: function to call to indicate the exec finished
+	 * \param finish_handle: opaque handle identifying this exec for use with \p finish
 	 *
 	 * Client requested to exec something.  Return nonzero to fail.
 	 */
-	int (*exec)(void *priv, struct lws *wsi, const char *command);
+	int (*exec)(void *priv, struct lws *wsi, const char *command, lws_ssh_finish_exec finish, void *finish_handle);
 
 	/**
 	 * shell() - Spawn shell that is appropriate for user
 	 *
 	 * \param priv:	void * you set when this channel was created
 	 * \param wsi: the struct lws the connection belongs to
+	 * \param finish: function to call to indicate the exec finished
+	 * \param finish_handle: opaque handle identifying this exec for use with \p finish
 	 *
 	 * Spawn the appropriate shell for this user.  Return 0 for OK
 	 * or nonzero to fail.
 	 */
-	int (*shell)(void *priv, struct lws *wsi);
+	int (*shell)(void *priv, struct lws *wsi, lws_ssh_finish_exec finish, void *finish_handle);
 
 	/**
 	 * pty_req() - Create a Pseudo-TTY as described in pty

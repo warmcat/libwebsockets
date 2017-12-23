@@ -114,9 +114,20 @@ write_task(struct per_session_data__sshd *pss, struct lws_ssh_channel *ch,
 {
 	pss->write_task[pss->wt_head] = task;
 	pss->write_channel[pss->wt_head] = ch;
-	pss->wt_head = (pss->wt_head + 1) & 3;
+	pss->wt_head = (pss->wt_head + 1) & 7;
 	lws_callback_on_writable(pss->wsi);
 }
+
+void
+write_task_insert(struct per_session_data__sshd *pss, struct lws_ssh_channel *ch,
+	   int task)
+{
+	pss->wt_tail = (pss->wt_tail - 1) & 7;
+	pss->write_task[pss->wt_tail] = task;
+	pss->write_channel[pss->wt_tail] = ch;
+	lws_callback_on_writable(pss->wsi);
+}
+
 
 void
 lws_pad_set_length(struct per_session_data__sshd *pss, void *start, uint8_t **p,
@@ -520,6 +531,17 @@ ssh_destroy_channel(struct per_session_data__sshd *pss,
 	lwsl_notice("Failed to delete ch\n");
 }
 
+static void
+lws_ssh_exec_finish(void *finish_handle, int retcode)
+{
+	struct lws_ssh_channel *ch = (struct lws_ssh_channel *)finish_handle;
+	struct per_session_data__sshd *pss = ch->pss;
+
+	ch->retcode = retcode;
+	write_task(pss, ch, SSH_WT_EXIT_STATUS);
+	ch->scheduled_close = 1;
+	write_task(pss, ch, SSH_WT_CH_CLOSE);
+}
 
 static int
 lws_ssh_parse_plaintext(struct per_session_data__sshd *pss, uint8_t *p, size_t len)
@@ -1359,6 +1381,7 @@ again:
 				return -1;
 
 			pss->ch_temp->type = SSH_CH_TYPE_SESSION;
+			pss->ch_temp->pss = pss;
 			state_get_u32(pss, SSHS_NVC_CHOPEN_SENDER_CH);
 			break;
 
@@ -1425,9 +1448,11 @@ again:
 				pss->channel_doing_spawn = pss->ch_temp->server_ch;
 				if (pss->vhd->ops && pss->vhd->ops->shell &&
 				    !pss->vhd->ops->shell(pss->ch_temp->priv,
-						          pss->wsi)) {
+						          pss->wsi,
+						 lws_ssh_exec_finish, pss->ch_temp)) {
+
 					if (pss->rq_want_reply)
-						write_task(pss, pss->ch_temp,
+						write_task_insert(pss, pss->ch_temp,
 							   SSH_WT_CHRQ_SUCC);
 					pss->parser_state = SSHS_MSG_EAT_PADDING;
 					break;
@@ -1544,10 +1569,11 @@ again:
 
 			if (pss->vhd->ops && pss->vhd->ops->exec &&
 			    !pss->vhd->ops->exec(pss->ch_temp->priv, pss->wsi,
-					    	 (const char *)pss->last_alloc)) {
+					    	 (const char *)pss->last_alloc,
+						 lws_ssh_exec_finish, pss->ch_temp)) {
 				ssh_free(pss->last_alloc);
 				if (pss->rq_want_reply)
-					write_task(pss, pss->ch_temp,
+					write_task_insert(pss, pss->ch_temp,
 						   SSH_WT_CHRQ_SUCC);
 
 				pss->parser_state = SSHS_MSG_EAT_PADDING;
@@ -1737,11 +1763,14 @@ again:
 			 */
 			lwsl_notice("SSH_MSG_CHANNEL_EOF: %d\n", pss->ch_recip);
 			ch = ssh_get_server_ch(pss, pss->ch_recip);
-			if (!ch)
+			if (!ch) {
+				lwsl_notice("unknown ch %d\n", pss->ch_recip);
 				return -1;
+			}
 
-			if (!ch->had_eof) {
-				ch->had_eof = 1;
+			if (!ch->scheduled_close) {
+				lwsl_notice("scheduling CLOSE\n");
+				ch->scheduled_close = 1;
 				write_task(pss, ch, SSH_WT_CH_CLOSE);
 			}
 			pss->parser_state = SSHS_MSG_EAT_PADDING;
@@ -1781,6 +1810,7 @@ again:
 			}
 
 			ch->received_close = 1;
+			ch->scheduled_close = 1;
 			write_task(pss, ch, SSH_WT_CH_CLOSE);
 			break;
 
@@ -2015,7 +2045,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		 * The user code ops api_version has to be current
 		 */
 		if (vhd->ops->api_version != LWS_SSH_OPS_VERSION) {
-			lwsl_err("FATAL ops is api_version v%d but code is v%d",
+			lwsl_err("FATAL ops is api_version v%d but code is v%d\n",
 				vhd->ops->api_version, LWS_SSH_OPS_VERSION);
 			return 1;
 		}
@@ -2318,6 +2348,21 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_info("send SSH_MSG_CHANNEL_WINDOW_ADJUST\n");
 			goto pac;
 
+		case SSH_WT_EXIT_STATUS:
+			pp = ps + 5;
+			*pp++ = SSH_MSG_CHANNEL_REQUEST;
+			lws_p32(pp, ch->sender_ch);
+			pp += 4;
+			lws_p32(pp, 11);
+			pp += 4;
+			strcpy((char *)pp, "exit-status");
+			pp += 11;
+			*pp++ = 0;
+			lws_p32(pp, ch->retcode);
+			pp += 4;
+			lwsl_info("send SSH_MSG_CHANNEL_EXIT_STATUS\n");
+			goto pac;
+
 		case SSH_WT_NONE:
 		default:
 			/* sending payload */
@@ -2432,7 +2477,7 @@ bail:
 
 			if (o != SSH_WT_NONE)
 				pss->wt_tail =
-					(pss->wt_tail + 1) & 3;
+					(pss->wt_tail + 1) & 7;
 		} else
 			if (o == SSH_WT_UA_PK_OK) /* free it either way */
 				free(ps);
@@ -2498,6 +2543,7 @@ bail:
 			if (ch->spawn_pid == len) {
 				lwsl_notice("starting close of ch with PID %d\n",
 					    (int)len);
+				ch->scheduled_close = 1;
 				write_task(pss, ch, SSH_WT_CH_CLOSE);
 				break;
 			}

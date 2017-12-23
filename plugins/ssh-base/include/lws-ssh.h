@@ -194,6 +194,7 @@ enum {
 	SSH_WT_CH_CLOSE,
 	SSH_WT_CH_EOF,
 	SSH_WT_WINDOW_ADJUST,
+	SSH_WT_EXIT_STATUS,
 
 	/* RX parser states */
 
@@ -426,8 +427,13 @@ typedef union {
 	struct lws_subprotocol_scp scp;
 } lws_subprotocol;
 
+struct per_session_data__sshd;
+
 struct lws_ssh_channel {
 	struct lws_ssh_channel *next;
+
+	struct per_session_data__sshd *pss;
+
 	lws_subprotocol *sub; /* NULL, or allocated subprotocol state */
 	void *priv; /* owned by user code */
 	int type;
@@ -438,8 +444,9 @@ struct lws_ssh_channel {
 	uint32_t max_pkt;
 
 	uint32_t spawn_pid;
+	int retcode;
 
-	uint8_t had_eof:1;
+	uint8_t scheduled_close:1;
 	uint8_t sent_close:1;
 	uint8_t received_close:1;
 };
@@ -514,8 +521,8 @@ struct per_session_data__sshd {
 
 	uint8_t msg_id;
 	uint8_t msg_padding;
-	uint8_t write_task[4];
-	struct lws_ssh_channel *write_channel[4];
+	uint8_t write_task[8];
+	struct lws_ssh_channel *write_channel[8];
 	uint8_t wt_head, wt_tail;
 };
 

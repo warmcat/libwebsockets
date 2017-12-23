@@ -319,7 +319,7 @@ bail_p1:
 }
 
 static int
-ssh_ops_shell(void *_priv, struct lws *wsi)
+ssh_ops_shell(void *_priv, struct lws *wsi, lws_ssh_finish_exec finish, void *finish_handle)
 {
 	struct sshd_instance_priv *priv = _priv;
 
@@ -372,7 +372,7 @@ static const struct lws_ssh_ops ssh_ops = {
 	.banner				= ssh_ops_banner,
 	.disconnect_reason		= ssh_ops_disconnect_reason,
 	.server_string			= "SSH-2.0-Libwebsockets",
-	.api_version			= 1,
+	.api_version			= 2,
 };
 
 static int
