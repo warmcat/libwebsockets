@@ -1478,7 +1478,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 			if (lws_hdr_total_length(h2n->swsi,
 						 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 			    h2n->swsi->http.rx_content_length &&
-			    h2n->swsi->http.rx_content_remain == 1 && /* last */
+			    h2n->swsi->http.rx_content_remain < inlen + 1 && /* last */
 			    h2n->inside < h2n->length) { /* unread data in frame */
 				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 					      "More rx than content_length told");
@@ -1488,7 +1488,11 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 			h2n->swsi->outer_will_close = 1;
 			n = lws_read(h2n->swsi, in - 1, inlen + 1);
 			h2n->swsi->outer_will_close = 0;
-			if (n < 0)
+			/*
+			 * can return 0 in POST body with content len
+			 * exhausted somehow.
+			 */
+			if (n <= 0)
 				goto fail;
 
 			inlen -= n - 1;
