@@ -1195,7 +1195,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
-			ah = ah->next;
+			ah = pt->ah_list;
 		}
 
 #ifdef LWS_WITH_CGI
