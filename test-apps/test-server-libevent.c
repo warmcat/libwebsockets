@@ -257,7 +257,7 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	for (n = 0; n < ARRAY_SIZE(sigs); n++) {
+	for (n = 0; n < (int)ARRAY_SIZE(sigs); n++) {
 		signals[n] = evsignal_new(event_base_loop, sigs[n], signal_cb, event_base_loop);
 
 		evsignal_add(signals[n], NULL);
