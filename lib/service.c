@@ -1797,6 +1797,14 @@ drain:
 			break;
 		}
 #endif
+	/*
+	 * something went wrong with parsing the handshake, and
+	 * we ended up back in the event loop without completing it
+	 */
+	case LWSCM_PRE_WS_SERVING_ACCEPT:
+		wsi->socket_is_permanently_unusable = 1;
+		goto close_and_handled;
+
 	default:
 #ifdef LWS_NO_CLIENT
 		break;
