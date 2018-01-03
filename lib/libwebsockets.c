@@ -548,8 +548,9 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	    wsi->mode == LWSCM_WSCL_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
 
-	if (wsi->mode == LWSCM_HTTP_SERVING ||
-	    wsi->mode == LWSCM_HTTP2_SERVING) {
+	if (!wsi->told_user_closed &&
+	    (wsi->mode == LWSCM_HTTP_SERVING ||
+	     wsi->mode == LWSCM_HTTP2_SERVING)) {
 		if (wsi->user_space)
 			wsi->vhost->protocols->callback(wsi,
 						LWS_CALLBACK_HTTP_DROP_PROTOCOL,
@@ -646,7 +647,7 @@ just_kill_connection:
 	lws_remove_child_from_any_parent(wsi);
 	n = 0;
 
-	if (wsi->user_space) {
+	if (!wsi->told_user_closed && wsi->user_space) {
 	    lwsl_debug("%s: %p: DROP_PROTOCOL %s\n", __func__, wsi,
 		       wsi->protocol->name);
 		wsi->protocol->callback(wsi,
@@ -707,8 +708,10 @@ just_kill_connection:
 				  __func__, wsi, (int)(long)wsi->desc.sockfd,
 				  wsi->state);
 			if (!wsi->socket_is_permanently_unusable &&
-			    lws_sockfd_valid(wsi->desc.sockfd))
+			    lws_sockfd_valid(wsi->desc.sockfd)) {
+				wsi->socket_is_permanently_unusable = 1;
 				n = shutdown(wsi->desc.sockfd, SHUT_WR);
+			}
 		}
 		if (n)
 			lwsl_debug("closing: shutdown (state %d) ret %d\n",
