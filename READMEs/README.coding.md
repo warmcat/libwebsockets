@@ -161,6 +161,47 @@ you might simultaneously create more than one context from different threads.
 SSL_library_init() is called from the context create api and it also is not
 reentrant.  So at least create the contexts sequentially.
 
+@section anonprot Working without a protocol name
+
+Websockets allows connections to negotiate without a protocol name...
+in that case by default it will bind to the first protocol in your
+vhost protocols[] array.
+
+You can tell the vhost to use a different protocol by attaching a
+pvo (per-vhost option) to the 
+
+```
+/*
+ * this sets a per-vhost, per-protocol option name:value pair
+ * the effect is to set this protocol to be the default one for the vhost,
+ * ie, selected if no Protocol: header is sent with the ws upgrade.
+ */
+
+static const struct lws_protocol_vhost_options pvo_opt = {
+	NULL,
+	NULL,
+	"default",
+	"1"
+};
+
+static const struct lws_protocol_vhost_options pvo = {
+	NULL,
+	&pvo_opt,
+	"my-protocol",
+	""
+};
+
+...
+
+	context_info.pvo = &pvo;
+...
+
+```
+
+Will select "my-protocol" from your protocol list (even if it came
+in by plugin) as being the target of client connections that don't
+specify a protocol.
+
 @section closing Closing connections from the user side
 
 When you want to close a connection, you do it by returning `-1` from a
