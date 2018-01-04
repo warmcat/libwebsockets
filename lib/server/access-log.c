@@ -151,7 +151,7 @@ lws_access_log(struct lws *wsi)
 		if (write(wsi->vhost->log_fd, ass, l) != l)
 			lwsl_err("Failed to write log\n");
 	} else
-		lwsl_err("%s", ass);
+		lwsl_notice("%s", ass);
 
 	if (wsi->access_log.header_log) {
 		lws_free(wsi->access_log.header_log);
