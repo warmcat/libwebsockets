@@ -22,9 +22,10 @@
 #include <string.h>
 #include <getopt.h>
 #ifndef WIN32
+#include <stdlib.h>
+#include <string.h>
 #include <syslog.h>
 #endif
-#include <stdlib.h>
 
 /* windows has no SIGUSR1 */
 #if !defined(WIN32) && !defined(_WIN32)

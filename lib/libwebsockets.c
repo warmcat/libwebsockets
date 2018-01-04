@@ -2270,7 +2270,7 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
  * extensions disabled.
  */
 
-int
+LWS_VISIBLE int
 lws_extension_callback_pm_deflate(struct lws_context *context,
                                   const struct lws_extension *ext,
                                   struct lws *wsi,

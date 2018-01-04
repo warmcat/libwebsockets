@@ -113,7 +113,7 @@ typedef unsigned long long lws_intptr_t;
 #include <sys/capability.h>
 #endif
 
-#if defined(__NetBSD__) || defined(__FreeBSD__)
+#if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__QNX__)
 #include <netinet/in.h>
 #endif
 

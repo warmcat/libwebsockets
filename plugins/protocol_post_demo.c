@@ -24,6 +24,7 @@
 #include "../lib/libwebsockets.h"
 #endif
 
+#include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -32,7 +33,6 @@
 #include <io.h>
 #endif
 #include <stdio.h>
-#include <stdlib.h>
 
 struct per_session_data__post_demo {
 	struct lws_spa *spa;

@@ -152,7 +152,7 @@ int fork(void);
 #if defined (__ANDROID__)
 #include <syslog.h>
 #include <sys/resource.h>
-#elif defined (__sun) || defined(__HAIKU__)
+#elif defined (__sun) || defined(__HAIKU__) || defined(__QNX__)
 #include <syslog.h>
 #else
 #if !defined(LWS_WITH_ESP32)

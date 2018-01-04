@@ -70,6 +70,13 @@ lws_plat_pipe_close(struct lws *wsi)
 	pt->dummy_pipe_fds[0] = pt->dummy_pipe_fds[1] = -1;
 }
 
+#ifdef __QNX__
+# include "netinet/tcp_var.h"
+# define TCP_KEEPINTVL TCPCTL_KEEPINTVL
+# define TCP_KEEPIDLE  TCPCTL_KEEPIDLE
+# define TCP_KEEPCNT   TCPCTL_KEEPCNT
+#endif
+
 unsigned long long time_in_microseconds(void)
 {
 	struct timeval tv;
@@ -344,7 +351,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 
 	/* Disable Nagle */
 	optval = 1;
-#if defined (__sun)
+#if defined (__sun) || defined(__QNX__)
 	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
 		return 1;
 #elif !defined(__APPLE__) && \
