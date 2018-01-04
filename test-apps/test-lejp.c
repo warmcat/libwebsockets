@@ -89,7 +89,7 @@ main(int argc, char *argv[])
 
 	lws_set_log_level(7, NULL);
 
-	lwsl_notice("libwebsockets-test-lejp  (C)2017 andy@warmcat.com\n");
+	lwsl_notice("libwebsockets-test-lejp  (C) 2017 - 2018 andy@warmcat.com\n");
 	lwsl_notice("  usage: cat my.json | libwebsockets-test-lejp\n\n");
 
 	lejp_construct(&ctx, cb, NULL, tok, ARRAY_SIZE(tok));
