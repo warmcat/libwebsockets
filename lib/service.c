@@ -663,6 +663,10 @@ lws_service_timeout_check(struct lws *wsi, time_t sec)
 				  pt->ah_wait_list_length, n,
 				  (unsigned long long)sec,
 				  (unsigned long long)wsi->pending_timeout_limit);
+#if defined(LWS_WITH_CGI)
+		if (wsi->cgi)
+			lwsl_notice("CGI timeout: %s\n", wsi->cgi->summary);
+#endif
 
 		/*
 		 * Since he failed a timeout, he already had a chance to do

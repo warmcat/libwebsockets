@@ -1765,6 +1765,8 @@ struct lws_cgi {
 	unsigned char *headers_dumped;
 	unsigned char *headers_end;
 
+	char summary[128];
+
 	lws_filepos_t content_length;
 	lws_filepos_t content_length_seen;
 
