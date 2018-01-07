@@ -37,7 +37,7 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 		return 99;
 
 	m = SSL_get_error(wsi->ssl, n);
-	lwsl_debug("%s: %p %d -> %d\n", __func__, wsi->ssl, n, m);
+	lwsl_debug("%s: %p %d -> %d (errno %d)\n", __func__, wsi->ssl, n, m, errno);
 
 	return m;
 }

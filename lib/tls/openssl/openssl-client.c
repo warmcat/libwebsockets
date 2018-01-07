@@ -212,6 +212,9 @@ lws_tls_client_connect(struct lws *wsi)
 
 	m = lws_ssl_get_error(wsi, n);
 
+	if (m == SSL_ERROR_SYSCALL)
+		return LWS_SSL_CAPABLE_ERROR;
+
 	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl))
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 
