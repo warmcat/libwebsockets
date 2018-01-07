@@ -83,7 +83,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 #endif
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
-	if (sockfd == -1) {
+	if (sockfd == LWS_SOCK_INVALID) {
 #endif
 		lwsl_err("ERROR opening socket\n");
 		return 1;
@@ -2582,8 +2582,8 @@ try_pollout:
 					    (struct sockaddr *)&cli_addr,
 					    &clilen);
 			lws_latency(context, wsi, "listener accept",
-				    (int)accept_fd, accept_fd >= 0);
-			if (accept_fd < 0) {
+				    (int)accept_fd, accept_fd != LWS_SOCK_INVALID);
+			if (accept_fd == LWS_SOCK_INVALID) {
 				if (LWS_ERRNO == LWS_EAGAIN ||
 				    LWS_ERRNO == LWS_EWOULDBLOCK) {
 					break;
