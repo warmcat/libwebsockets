@@ -263,7 +263,7 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	for (n = 0; n < ARRAY_SIZE(sigs); n++) {
+	for (n = 0; n < (int)ARRAY_SIZE(sigs); n++) {
 		ev_init(&signals[n], signal_cb);
 		ev_signal_set(&signals[n], sigs[n]);
 		ev_signal_start(loop, &signals[n]);
@@ -279,7 +279,7 @@ int main(int argc, char **argv)
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
 
 	lwsl_notice("libwebsockets test server libev - license LGPL2.1+SLE\n");
-	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
+	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
 
 	printf("Using resource path \"%s\"\n", resource_path);
 
