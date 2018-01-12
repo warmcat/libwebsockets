@@ -455,7 +455,8 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lwsl_err("http doing 404 on %s\n", (const char *)in);
 		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
-		goto try_to_reuse;
+		return -1;
+		//goto try_to_reuse;
 
 	case LWS_CALLBACK_CHECK_ACCESS_RIGHTS:
 		n = 0;
