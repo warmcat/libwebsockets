@@ -87,7 +87,7 @@ const struct http2_settings lws_h2_defaults = { {
 
 const struct http2_settings lws_h2_stock_settings = { {
 	1,
-	/* H2SET_HEADER_TABLE_SIZE */			4096,
+	/* H2SET_HEADER_TABLE_SIZE */			65536, /* ffox */
 	/* *** This controls how many entries in the dynamic table ***
 	 * Allows the sender to inform the remote endpoint of the maximum
 	 * size of the header compression table used to decode header
@@ -102,7 +102,7 @@ const struct http2_settings lws_h2_stock_settings = { {
 	/* H2SET_MAX_CONCURRENT_STREAMS */		  24,
 	/* H2SET_INITIAL_WINDOW_SIZE */		       65535,
 	/* H2SET_MAX_FRAME_SIZE */		       16384,
-	/* H2SET_MAX_HEADER_LIST_SIZE */	  	4096,
+	/* H2SET_MAX_HEADER_LIST_SIZE */	        4096,
 	/*< This advisory setting informs a peer of the maximum size of
 	 * header list that the sender is prepared to accept, in octets.
 	 * The value is based on the uncompressed size of header fields,
