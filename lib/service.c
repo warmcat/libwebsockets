@@ -1174,6 +1174,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 				c = lws_token_to_string(m);
 				if (!c)
 					break;
+				if (!(*c))
+					break;
 
 				len = lws_hdr_total_length(wsi, m);
 				if (!len || len > (int)sizeof(buf) - 1) {
