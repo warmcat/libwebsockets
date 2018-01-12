@@ -1092,6 +1092,11 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd, int t
 				m++;
 			} while (1);
 
+			/* explicitly detach the ah */
+
+			lws_header_table_force_to_detachable_state(wsi);
+			lws_header_table_detach(wsi, 0);
+
 			/* ... and then drop the connection */
 
 			if (wsi->desc.sockfd == our_fd)
