@@ -73,7 +73,8 @@ callback_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 do_tx:
-
+		if ((int)pss->len == -1)
+			break;
 		n = LWS_WRITE_CONTINUATION;
 		if (!pss->continuation) {
 			if (pss->binary)
