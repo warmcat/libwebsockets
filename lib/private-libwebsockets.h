@@ -1921,6 +1921,7 @@ struct lws {
 	unsigned int cache_intermediaries:1;
 	unsigned int favoured_pollin:1;
 	unsigned int sending_chunked:1;
+	unsigned int interpreting:1;
 	unsigned int already_did_cce:1;
 	unsigned int told_user_closed:1;
 	unsigned int waiting_to_send_close_frame:1;

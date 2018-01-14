@@ -663,8 +663,9 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 		poss = context->pt_serv_buf_size - n - LWS_H2_FRAME_HEADER_LENGTH;
 
-		if (poss > wsi->http.tx_content_remain)
-			poss = wsi->http.tx_content_remain;
+		if (wsi->http.tx_content_length)
+			if (poss > wsi->http.tx_content_remain)
+				poss = wsi->http.tx_content_remain;
 
 		/*
 		 * if there is a hint about how much we will do well to send at one time,
@@ -717,12 +718,13 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 					context->timeout_secs);
 
-			if (wsi->sending_chunked) {
+			if (wsi->interpreting) {
 				args.p = (char *)p;
 				args.len = n;
 				args.max_len = (unsigned int)poss + 128;
 				args.final = wsi->http.filepos + n ==
 					     wsi->http.filelen;
+				args.chunked = wsi->sending_chunked;
 				if (user_callback_handle_rxflow(
 				     wsi->vhost->protocols[
 				     (int)wsi->protocol_interpret_idx].callback,
@@ -745,7 +747,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			}
 #endif
 			m = lws_write(wsi, p, n,
-				      wsi->http.filepos == wsi->http.filelen ?
+				      wsi->http.filepos + amount == wsi->http.filelen ?
 					LWS_WRITE_HTTP_FINAL :
 					LWS_WRITE_HTTP
 				);

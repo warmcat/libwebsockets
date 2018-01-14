@@ -3687,6 +3687,7 @@ struct lws_process_html_args {
 	int len; /**< length of the original data at p */
 	int max_len; /**< maximum length we can grow the data to */
 	int final; /**< set if this is the last chunk of the file */
+	int chunked; /**< 0 == unchunked, 1 == produce chunk headers (incompatible with HTTP/2) */
 };
 
 typedef const char *(*lws_process_html_state_cb)(void *data, int index);

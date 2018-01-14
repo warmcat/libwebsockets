@@ -531,7 +531,9 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		n = (int)strlen(path);
 		if (n > (int)strlen(pvo->name) &&
 		    !strcmp(&path[n - strlen(pvo->name)], pvo->name)) {
-			wsi->sending_chunked = 1;
+			wsi->interpreting = 1;
+			if (!wsi->http2_substream)
+				wsi->sending_chunked = 1;
 			wsi->protocol_interpret_idx =
 					(char)(lws_intptr_t)pvo->value;
 			lwsl_info("want %s interpreted by %s\n", path,
@@ -1125,6 +1127,7 @@ lws_http_action(struct lws *wsi)
 		args.len = uri_len;
 		args.max_len = hit->auth_mask;
 		args.final = 0; /* used to signal callback dealt with it */
+		args.chunked = 0;
 
 		n = wsi->protocol->callback(wsi,
 					    LWS_CALLBACK_CHECK_ACCESS_RIGHTS,
@@ -2865,17 +2868,19 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		return -1;
 #endif
 
-	if (!wsi->sending_chunked) {
-		if (lws_add_http_header_content_length(wsi,
-						       total_content_length,
-						       &p, end))
-			return -1;
-	} else {
-		if (lws_add_http_header_by_token(wsi,
+	if (!wsi->http2_substream) {
+		if (!wsi->sending_chunked) {
+			if (lws_add_http_header_content_length(wsi,
+						total_content_length,
+					       &p, end))
+				return -1;
+		} else {
+			if (lws_add_http_header_by_token(wsi,
 						 WSI_TOKEN_HTTP_TRANSFER_ENCODING,
 						 (unsigned char *)"chunked",
 						 7, &p, end))
-			return -1;
+				return -1;
+		}
 	}
 
 	if (wsi->cache_secs && wsi->cache_reuse) {
@@ -3075,31 +3080,33 @@ skip:
 		sp++;
 	}
 
-	/* no space left for final chunk trailer */
-	if (args->final && args->len + 7 >= args->max_len)
-		return -1;
+	if (args->chunked) {
+		/* no space left for final chunk trailer */
+		if (args->final && args->len + 7 >= args->max_len)
+			return -1;
 
-	n = sprintf(buffer, "%X\x0d\x0a", args->len);
+		n = sprintf(buffer, "%X\x0d\x0a", args->len);
 
-	args->p -= n;
-	memcpy(args->p, buffer, n);
-	args->len += n;
+		args->p -= n;
+		memcpy(args->p, buffer, n);
+		args->len += n;
 
-	if (args->final) {
-		sp = args->p + args->len;
-		*sp++ = '\x0d';
-		*sp++ = '\x0a';
-		*sp++ = '0';
-		*sp++ = '\x0d';
-		*sp++ = '\x0a';
-		*sp++ = '\x0d';
-		*sp++ = '\x0a';
-		args->len += 7;
-	} else {
-		sp = args->p + args->len;
-		*sp++ = '\x0d';
-		*sp++ = '\x0a';
-		args->len += 2;
+		if (args->final) {
+			sp = args->p + args->len;
+			*sp++ = '\x0d';
+			*sp++ = '\x0a';
+			*sp++ = '0';
+			*sp++ = '\x0d';
+			*sp++ = '\x0a';
+			*sp++ = '\x0d';
+			*sp++ = '\x0a';
+			args->len += 7;
+		} else {
+			sp = args->p + args->len;
+			*sp++ = '\x0d';
+			*sp++ = '\x0a';
+			args->len += 2;
+		}
 	}
 
 	return 0;
