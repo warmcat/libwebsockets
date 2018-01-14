@@ -781,10 +781,13 @@ kill -2 $CPID
 
 # coverage...
 # run the test client against mirror for one period and exit
+killall libwebsockets-test-server 2>/dev/null
 libwebsockets-test-server -s 2>> $LOG &
 CPID=$!
-
+sleep 1s
 libwebsockets-test-client 127.0.0.1 -s -O
+
+# https://github.com/curl/curl/issues/1587
 curl -v -F text=hello -F send=SEND -F upload=@../README.md https://127.0.0.1:7681/formtest -k
 
 kill -2 $CPID

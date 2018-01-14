@@ -1930,6 +1930,9 @@ lws_http_transaction_completed(struct lws *wsi)
 		/* If we're (re)starting on headers, need other implied init */
 		if (wsi->ah)
 			wsi->ah->ues = URIES_IDLE;
+
+		if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED)
+			wsi->mode = LWSCM_HTTP_SERVING;
 	} else
 		if (wsi->preamble_rx)
 			if (lws_header_table_attach(wsi, 0))
@@ -2284,6 +2287,9 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			 */
 			break;
 		}
+
+		if (wsi->state == LWSS_HTTP_DEFERRING_ACTION)
+			goto try_pollout;
 
 		/* any incoming data ready? */
 
