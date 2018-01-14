@@ -262,9 +262,10 @@ reply:
 		lwsl_err("_write returned %d from %ld\n", n, (long)(p - start));
 		return -1;
 	}
-	n = lws_write(wsi, (unsigned char *)s, 1, LWS_WRITE_HTTP);
-	if (n != 1)
-		return -1;
+	pss->check_response_value = s[0];
+	pss->check_response = 1;
+
+	lws_callback_on_writable(wsi);
 
 	return 0;
 }

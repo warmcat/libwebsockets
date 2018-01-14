@@ -41,6 +41,7 @@ struct per_session_data__gs_mb {
 	struct lws_spa *spa;
 	unsigned long last_idx;
 	unsigned int our_form:1;
+	char second_http_part;
 };
 
 static const char * const param_names[] = {
@@ -309,6 +310,16 @@ callback_messageboard(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (!pss->second_http_part)
+			break;
+		s[0] = '0';
+		n = lws_write(wsi, (unsigned char *)s, 1, LWS_WRITE_HTTP);
+		if (n != 1)
+			return -1;
+
+		goto try_to_reuse;
+
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		if (!pss->our_form)
 			goto passthru;
@@ -334,12 +345,10 @@ callback_messageboard(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_err("_write returned %d from %ld\n", n, (long)(p - start));
 			return -1;
 		}
-		s[0] = '0';
-		n = lws_write(wsi, (unsigned char *)s, 1, LWS_WRITE_HTTP);
-		if (n != 1)
-			return -1;
+		pss->second_http_part = 1;
 
-		goto try_to_reuse;
+		lws_callback_on_writable(wsi);
+		break;
 
 	case LWS_CALLBACK_HTTP_BIND_PROTOCOL:
 		if (!pss || pss->pss_gs)

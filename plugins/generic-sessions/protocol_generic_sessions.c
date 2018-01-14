@@ -420,6 +420,14 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+                if (!pss->check_response)
+                        break;
+		n = lws_write(wsi, (unsigned char *)&pss->check_response_value, 1, LWS_WRITE_HTTP_FINAL);
+		if (n != 1)
+			return -1;
+		goto try_to_reuse;
+
 	case LWS_CALLBACK_HTTP:
 		lwsl_info("LWS_CALLBACK_HTTP: %s\n", (const char *)in);
 
@@ -439,7 +447,8 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		if (!strcmp((const char *)in, "/lwsgs-check")) {
 			lwsgs_handler_check(vhd, wsi, pss);
-			goto try_to_reuse;
+			/* second, async part will complete transaction */
+			break;
 		}
 
 		if (!strcmp((const char *)in, "/lwsgs-login"))
