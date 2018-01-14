@@ -750,7 +750,8 @@ completion_flow:
 		lwsgw_expire_old_sessions(vhd);
 
 		args = (struct lws_process_html_args *)in;
-
+		if (!pss)
+			return 1;
 		if (pss->delete_session.id[0]) {
 			pc = cookie;
 			lwsgw_cookie_from_session(&pss->delete_session, 0, &pc,
