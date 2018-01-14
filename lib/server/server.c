@@ -1334,8 +1334,6 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	}
 
 	while (len--) {
-		wsi->more_rx_waiting = !!len;
-
 		if (wsi->mode != LWSCM_HTTP_SERVING &&
 		    wsi->mode != LWSCM_HTTP2_SERVING &&
 		    wsi->mode != LWSCM_HTTP_SERVING_ACCEPTED) {
@@ -1383,8 +1381,6 @@ raw_transition:
 			continue;
 
 		lwsl_parser("%s: lws_parse sees parsing complete\n", __func__);
-		lwsl_debug("%s: wsi->more_rx_waiting=%d\n", __func__,
-				wsi->more_rx_waiting);
 
 		/* select vhost */
 
@@ -1743,7 +1739,7 @@ upgrade_ws:
 			    wsi->ws->ietf_spec_revision);
 
 		/* !!! drop ah unreservedly after ESTABLISHED */
-		if (!wsi->more_rx_waiting) {
+		if (wsi->ah->rxpos == wsi->ah->rxlen ) {
 			lws_header_table_force_to_detachable_state(wsi);
 			lws_header_table_detach(wsi, 1);
 		}
@@ -1901,10 +1897,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * reset the existing header table and keep it.
 	 */
 	if (wsi->ah) {
-		lwsl_debug("%s: wsi->more_rx_waiting=%d\n", __func__,
-				wsi->more_rx_waiting);
-
-		if (!wsi->more_rx_waiting) {
+		if (wsi->ah->rxpos == wsi->ah->rxlen && !wsi->preamble_rx) {
 			lws_header_table_force_to_detachable_state(wsi);
 			lws_header_table_detach(wsi, 1);
 #ifdef LWS_OPENSSL_SUPPORT
@@ -2339,14 +2332,10 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					ah->rxlen = ah->rxpos = 0;
 					goto try_pollout;
 				}
-
-				/*
-				 *  make sure ah does not get detached if we
-				 * have live data in the rx
-				 */
-				if (ah->rxlen)
-					wsi->more_rx_waiting = 1;
 			}
+
+			// lwsl_notice("new read, rxpos %d / rxlen %d\n", ah->rxpos, ah->rxlen);
+			// lwsl_hexdump_level(LLL_NOTICE, ah->rx, ah->rxlen);
 
 			if (!(ah->rxpos != ah->rxlen && ah->rxlen)) {
 				lwsl_err("%s: assert: rxpos %d, rxlen %d\n",

@@ -1915,8 +1915,6 @@ struct lws {
 	unsigned int user_space_externally_allocated:1;
 	unsigned int socket_is_permanently_unusable:1;
 	unsigned int rxflow_change_to:2;
-	/* has to live here since ah may stick to end */
-	unsigned int more_rx_waiting:1;
 	unsigned int conn_stat_done:1;
 	unsigned int cache_reuse:1;
 	unsigned int cache_revalidate:1;

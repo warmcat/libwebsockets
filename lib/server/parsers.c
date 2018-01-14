@@ -367,10 +367,9 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 		 */
 		lwsl_debug("%s: wsi %p: ah held %ds, "
 			    "ah.rxpos %d, ah.rxlen %d, mode/state %d %d,"
-			    "wsi->more_rx_waiting %d\n", __func__, wsi,
+			    "\n", __func__, wsi,
 			    (int)(now - ah->assigned),
-			    ah->rxpos, ah->rxlen, wsi->mode, wsi->state,
-			    wsi->more_rx_waiting);
+			    ah->rxpos, ah->rxlen, wsi->mode, wsi->state);
 	}
 
 	ah->assigned = 0;
