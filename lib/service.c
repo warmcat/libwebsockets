@@ -770,10 +770,11 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	/* 3) if any ah has pending rx, do not wait in poll */
 	ah = pt->ah_list;
 	while (ah) {
-		if (ah->rxpos != ah->rxlen) {
+		if (ah->rxpos != ah->rxlen || (ah->wsi && ah->wsi->preamble_rx)) {
 			if (!ah->wsi) {
 				assert(0);
 			}
+			// lwsl_debug("ah pending force\n");
 			return 0;
 		}
 		ah = ah->next;
@@ -850,7 +851,8 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	 */
 	ah = pt->ah_list;
 	while (ah) {
-		if (ah->rxpos != ah->rxlen && !ah->wsi->hdr_parsing_completed) {
+		if ((ah->rxpos != ah->rxlen &&
+		    !ah->wsi->hdr_parsing_completed) || ah->wsi->preamble_rx) {
 			pt->fds[ah->wsi->position_in_fds_table].revents |=
 				pt->fds[ah->wsi->position_in_fds_table].events &
 					LWS_POLLIN;

@@ -107,7 +107,7 @@ function check {
 
 rm -rf $LOG
 killall libwebsockets-test-server 2>/dev/null
-libwebsockets-test-server -d127 2>> $LOG &
+libwebsockets-test-server -d1023 2>> $LOG &
 CPID=$!
 
 echo "Started server on PID $CPID"

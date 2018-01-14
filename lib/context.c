@@ -1117,6 +1117,14 @@ lws_create_context(struct lws_context_creation_info *info)
 					info->max_http_header_data2;
 		else
 			context->max_http_header_data = LWS_DEF_HEADER_LEN;
+
+	/*
+	 * HTTP/1 piplining after POST gets read in pt_serv_buf_size but
+	 * may need stashing in ah->rx, so ensure it's always big enough
+	 */
+	if ((int)context->max_http_header_data < (int)context->pt_serv_buf_size)
+		context->max_http_header_data = context->pt_serv_buf_size;
+
 	if (info->max_http_header_pool)
 		context->max_http_header_pool = info->max_http_header_pool;
 	else

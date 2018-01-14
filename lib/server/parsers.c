@@ -152,6 +152,8 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 		memcpy(ah->rx, wsi->preamble_rx, wsi->preamble_rx_len);
 		ah->rxlen = wsi->preamble_rx_len;
 		lws_free_set_NULL(wsi->preamble_rx);
+		wsi->preamble_rx_len = 0;
+		ah->rxpos = 0;
 
 		if (autoservice) {
 			lwsl_debug("%s: service on readbuf ah\n", __func__);
@@ -345,8 +347,10 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 		  (void *)wsi, (void *)ah, wsi->tsi,
 		  pt->ah_count_in_use);
 
-	if (wsi->preamble_rx)
+	if (wsi->preamble_rx) {
 		lws_free_set_NULL(wsi->preamble_rx);
+		wsi->preamble_rx_len = 0;
+	}
 
 	/* may not be detached while he still has unprocessed rx */
 	if (!lws_header_table_is_in_detachable_state(wsi)) {

@@ -1842,7 +1842,8 @@ lws_http_transaction_completed(struct lws *wsi)
 	int n = NO_PENDING_TIMEOUT;
 
 	lwsl_info("%s: wsi %p\n", __func__, wsi);
-
+	if (wsi->ah)
+		lwsl_info("ah attached, pos %d, len %d\n", wsi->ah->rxpos, wsi->ah->rxlen);
 	lws_access_log(wsi);
 
 	if (!wsi->hdr_parsing_completed) {
@@ -1850,7 +1851,6 @@ lws_http_transaction_completed(struct lws *wsi)
 		return 0;
 	}
 
-	lwsl_debug("%s: wsi %p\n", __func__, wsi);
 	/* if we can't go back to accept new headers, drop the connection */
 	if (wsi->http2_substream)
 		return 0;
@@ -1917,7 +1917,7 @@ lws_http_transaction_completed(struct lws *wsi)
 			}
 #endif
 		} else {
-			lws_header_table_reset(wsi, 1);
+			lws_header_table_reset(wsi, 0);
 			/*
 			 * If we kept the ah, we should restrict the amount
 			 * of time we are willing to keep it.  Otherwise it
@@ -1930,7 +1930,11 @@ lws_http_transaction_completed(struct lws *wsi)
 		/* If we're (re)starting on headers, need other implied init */
 		if (wsi->ah)
 			wsi->ah->ues = URIES_IDLE;
-	}
+	} else
+		if (wsi->preamble_rx)
+			if (lws_header_table_attach(wsi, 0))
+				lwsl_debug("acquired ah\n");
+
 
 	lwsl_info("%s: %p: keep-alive await new transaction\n", __func__, wsi);
 	lws_callback_on_writable(wsi);
@@ -2313,10 +2317,19 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			}
 			ah = wsi->ah;
 
+			assert(ah->rxpos <= ah->rxlen);
 			/* if nothing in ah rx buffer, get some fresh rx */
 			if (ah->rxpos == ah->rxlen) {
-				ah->rxlen = lws_ssl_capable_read(wsi, ah->rx,
+
+				if (wsi->preamble_rx) {
+					memcpy(ah->rx, wsi->preamble_rx, wsi->preamble_rx_len);
+					lws_free_set_NULL(wsi->preamble_rx);
+					ah->rxlen = wsi->preamble_rx_len;
+					wsi->preamble_rx_len = 0;
+				} else {
+					ah->rxlen = lws_ssl_capable_read(wsi, ah->rx,
 						   sizeof(ah->rx));
+				}
 				ah->rxpos = 0;
 				switch (ah->rxlen) {
 				case 0:
@@ -2377,23 +2390,36 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			break;
 		}
 
-		len = lws_ssl_capable_read(wsi, pt->serv_buf,
-					   context->pt_serv_buf_size);
-		lwsl_debug("%s: wsi %p read %d\r\n", __func__, wsi, len);
-		switch (len) {
-		case 0:
-			lwsl_info("%s: read 0 len b\n", __func__);
+		if (wsi->preamble_rx && wsi->preamble_rx_len) {
+			memcpy(pt->serv_buf, wsi->preamble_rx, wsi->preamble_rx_len);
+			lws_free_set_NULL(wsi->preamble_rx);
+			len = wsi->preamble_rx_len;
+			lwsl_debug("bringing %d out of stash\n", wsi->preamble_rx_len);
+			wsi->preamble_rx_len = 0;
+		} else {
 
-			/* fallthru */
-		case LWS_SSL_CAPABLE_ERROR:
-			goto fail;
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
-			goto try_pollout;
+			/*
+			 * ... in the case of pipelined HTTP, this may be
+			 * POST data followed by next headers...
+			 */
+
+			len = lws_ssl_capable_read(wsi, pt->serv_buf,
+						   context->pt_serv_buf_size);
+			lwsl_debug("%s: wsi %p read %d\r\n", __func__, wsi, len);
+			switch (len) {
+			case 0:
+				lwsl_info("%s: read 0 len b\n", __func__);
+
+				/* fallthru */
+			case LWS_SSL_CAPABLE_ERROR:
+				goto fail;
+			case LWS_SSL_CAPABLE_MORE_SERVICE:
+				goto try_pollout;
+			}
+			
+			if (len < 0) /* coverity */
+				goto fail;
 		}
-		
-		if (len < 0) /* coverity */
-			goto fail;
-
 		if (wsi->mode == LWSCM_RAW) {
 			n = user_callback_handle_rxflow(wsi->protocol->callback,
 							wsi, LWS_CALLBACK_RAW_RX,
@@ -2412,10 +2438,31 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			/*
 			 * this may want to send
 			 * (via HTTP callback for example)
+			 *
+			 * returns number of bytes used
 			 */
+
 			n = lws_read(wsi, pt->serv_buf, len);
 			if (n < 0) /* we closed wsi */
 				return 1;
+
+			if (n != len) {
+				if (wsi->preamble_rx) {
+					lwsl_err("DISCARDING %d (ah %p)\n", len - n, wsi->ah);
+
+					goto fail;
+				}
+				assert(n < len);
+				wsi->preamble_rx = lws_malloc(len - n, "preamble_rx");
+				if (!wsi->preamble_rx) {
+					lwsl_err("OOM\n");
+					goto fail;
+				}
+				memcpy(wsi->preamble_rx, pt->serv_buf + n, len - n);
+				wsi->preamble_rx_len = (int)len - n;
+				lwsl_debug("stashed %d\n", (int)wsi->preamble_rx_len);
+			}
+
 			/*
 			 *  he may have used up the
 			 * writability above, if we will defer POLLOUT
@@ -2452,6 +2499,10 @@ try_pollout:
 		if (wsi->state == LWSS_HTTP_DEFERRING_ACTION) {
 			lwsl_debug("%s: LWSS_HTTP_DEFERRING_ACTION now writable\n",
 				   __func__);
+
+			if (wsi->ah)
+				lwsl_debug("     existing ah rxpos %d / rxlen %d\n",
+				   wsi->ah->rxpos, wsi->ah->rxlen);
 			wsi->state = LWSS_HTTP;
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 				lwsl_info("failed at set pollfd\n");
