@@ -1685,6 +1685,7 @@ lws_context_destroy(struct lws_context *context)
 			if (wsi->event_pipe) {
 				lws_plat_pipe_close(wsi);
 				remove_wsi_socket_from_fds(wsi);
+				lws_libevent_accept_clean(wsi);
 				lws_free(wsi);
 				context->count_wsi_allocated--;
 			} else

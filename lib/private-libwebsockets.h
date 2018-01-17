@@ -1275,6 +1275,8 @@ LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info)
 #if defined(LWS_WITH_LIBEVENT)
 LWS_EXTERN void
 lws_libevent_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
+LWS_VISIBLE void
+lws_libevent_accept_clean(struct lws *wsi);
 LWS_EXTERN void
 lws_libevent_io(struct lws *wsi, int flags);
 LWS_EXTERN int
@@ -1287,6 +1289,7 @@ lws_libevent_run(const struct lws_context *context, int tsi);
 LWS_EXTERN void lws_feature_status_libevent(struct lws_context_creation_info *info);
 #else
 #define lws_libevent_accept(_a, _b) ((void) 0)
+#define lws_libevent_accept_clean(_a) ((void) 0)
 #define lws_libevent_io(_a, _b) ((void) 0)
 #define lws_libevent_init_fd_table(_a) (0)
 #define lws_libevent_run(_a, _b) ((void) 0)
