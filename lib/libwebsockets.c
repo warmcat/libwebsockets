@@ -128,6 +128,8 @@ lws_free_wsi(struct lws *wsi)
 	lwsl_debug("%s: %p, remaining wsi %d\n", __func__, wsi,
 			wsi->context->count_wsi_allocated);
 
+	lws_libevent_accept_clean(wsi);
+
 	lws_free(wsi);
 }
 
