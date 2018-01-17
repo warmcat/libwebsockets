@@ -958,6 +958,16 @@ lws_create_event_pipes(struct lws_context *context)
 	return 0;
 }
 
+static void
+lws_destroy_event_pipe(struct lws *wsi)
+{
+	lws_plat_pipe_close(wsi);
+	remove_wsi_socket_from_fds(wsi);
+	lws_libevent_destroy(wsi);
+	wsi->context->count_wsi_allocated--;
+	lws_free(wsi);
+}
+
 LWS_VISIBLE struct lws_context *
 lws_create_context(struct lws_context_creation_info *info)
 {
@@ -1682,12 +1692,9 @@ lws_context_destroy(struct lws_context *context)
 			if (!wsi)
 				continue;
 
-			if (wsi->event_pipe) {
-				lws_plat_pipe_close(wsi);
-				remove_wsi_socket_from_fds(wsi);
-				lws_free(wsi);
-				context->count_wsi_allocated--;
-			} else
+			if (wsi->event_pipe)
+				lws_destroy_event_pipe(wsi);
+			else
 				lws_close_free_wsi(wsi,
 					LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
 					/* no protocol close */);

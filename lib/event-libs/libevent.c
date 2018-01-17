@@ -186,6 +186,19 @@ lws_libevent_accept(struct lws *new_wsi, lws_sock_file_fd_type desc)
 }
 
 LWS_VISIBLE void
+lws_libevent_destroy(struct lws *wsi)
+{
+	if (!wsi)
+		return;
+
+	if(wsi->w_read.event_watcher)
+		event_free(wsi->w_read.event_watcher);
+
+	if(wsi->w_write.event_watcher)
+		event_free(wsi->w_write.event_watcher);
+}
+
+LWS_VISIBLE void
 lws_libevent_io(struct lws *wsi, int flags)
 {
 	struct lws_context *context = lws_get_context(wsi);
