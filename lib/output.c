@@ -270,9 +270,12 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 
 	if (wsi->state != LWSS_ESTABLISHED &&
 	    ((wsi->state != LWSS_RETURNED_CLOSE_ALREADY &&
+	      wsi->state != LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION &&
 	      wsi->state != LWSS_AWAITING_CLOSE_ACK) ||
-			    wp != LWS_WRITE_CLOSE))
+			    wp != LWS_WRITE_CLOSE)) {
+		lwsl_debug("binning\n");
 		return 0;
+	}
 
 	/* if we are continuing a frame that already had its header done */
 
