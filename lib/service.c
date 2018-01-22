@@ -1591,9 +1591,6 @@ read:
 			break;
 		}
 
-		/* all the union members start with hdr, so even in ws mode
-		 * we can deal with the ah via u.hdr
-		 */
 		if (wsi->ah) {
 			lwsl_info("%s: %p: inherited ah rx\n", __func__, wsi);
 			eff_buf.token_len = wsi->ah->rxlen -
