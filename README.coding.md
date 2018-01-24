@@ -220,10 +220,9 @@ external polling array.  That's needed if **libwebsockets** will
 cooperate with an existing poll array maintained by another
 server.
 
-Four callbacks `LWS_CALLBACK_ADD_POLL_FD`, `LWS_CALLBACK_DEL_POLL_FD`,
-`LWS_CALLBACK_SET_MODE_POLL_FD` and `LWS_CALLBACK_CLEAR_MODE_POLL_FD`
-appear in the callback for protocol 0 and allow interface code to
-manage socket descriptors in other poll loops.
+Three callbacks `LWS_CALLBACK_ADD_POLL_FD`, `LWS_CALLBACK_DEL_POLL_FD`
+and `LWS_CALLBACK_CHANGE_MODE_POLL_FD` appear in the callback for protocol 0
+and allow interface code to manage socket descriptors in other poll loops.
 
 You can pass all pollfds that need service to `lws_service_fd()`, even
 if the socket or file does not belong to **libwebsockets** it is safe.
