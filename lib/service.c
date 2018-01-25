@@ -1369,6 +1369,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		}
 	}
 #endif
+	wsi->could_have_pending = 0; /* clear back-to-back write detection */
 
 	/* okay, what we came here to do... */
 
