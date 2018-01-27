@@ -251,6 +251,12 @@ deleting build/CMakeCache.txt may be enough.
     $ make install
 ```
 
+@section distro Selecting CMake options useful for distros
+
+Distro packagers should select the CMake option "LWS_WITH_DISTRO_RECOMMENDED",
+which selects common additional options like support for various event libraries,
+plugins and lwsws.
+
 @section ssllib Choosing Your TLS Poison
 
  - If you are really restricted on memory, code size, or don't care about TLS

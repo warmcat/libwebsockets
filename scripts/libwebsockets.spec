@@ -30,7 +30,7 @@ Development files for libwebsockets
 %build
 mkdir -p build
 cd build
-%cmake ..
+%cmake .. -DLWS_WITH_DISTRO_RECOMMENDED=1
 make
 
 %install
@@ -54,13 +54,19 @@ rm -rf $RPM_BUILD_ROOT
 /usr/bin/libwebsockets-test-echo
 /usr/bin/libwebsockets-test-fraggle
 /usr/bin/libwebsockets-test-fuzxy
+/usr/bin/libwebsockets-test-lejp
+/usr/bin/libwebsockets-test-server-libev
+/usr/bin/libwebsockets-test-server-libevent
+/usr/bin/libwebsockets-test-server-libuv
+/usr/bin/libwebsockets-test-server-v2.0
+/usr/bin/libwebsockets-test-sshd
+/usr/bin/lwsws
 /%{_libdir}/libwebsockets.so.12
 /%{_libdir}/libwebsockets.so
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsConfig.cmake
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsConfigVersion.cmake
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsTargets.cmake
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsTargets-release.cmake
-
 /usr/share/libwebsockets-test-server
 %doc
 %files devel

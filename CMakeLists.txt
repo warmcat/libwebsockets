@@ -11,6 +11,11 @@ if(WIN32)
 endif()
 
 #
+# Select features recommended for PC distro packaging
+#
+option(LWS_WITH_DISTRO_RECOMMENDED "Enable features recommended for distro packaging" OFF)
+
+#
 # Major individual features
 #
 option(LWS_WITH_HTTP2 "Compile with server support for HTTP/2" OFF)
@@ -99,6 +104,24 @@ option(LWS_REPRODUCIBLE "Build libwebsockets reproducible. It removes the build 
 #
 # End of user settings
 #
+
+
+if(LWS_WITH_DISTRO_RECOMMENDED)
+	set(LWS_WITH_HTTP2 1)
+	set(LWS_WITH_LWSWS 1)
+	set(LWS_WITH_CGI 1)
+	set(LWS_IPV6 1)
+	set(LWS_WITH_ZIP_FOPS 1)
+	set(LWS_WITH_SOCKS5 1)
+	set(LWS_WITH_RANGES 1)
+	set(LWS_WITH_ACME 1)
+	set(LWS_WITH_SERVER_STATUS 1)
+	set(LWS_WITH_LIBUV 1)
+	set(LWS_WITH_LIBEV 1)
+	set(LWS_WITH_LIBEVENT 1)
+	set(LWS_WITHOUT_EXTENSIONS 0)
+endif()
+
 
 if(NOT DEFINED CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
