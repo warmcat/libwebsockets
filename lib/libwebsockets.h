@@ -573,7 +573,6 @@ struct lws_esp32 {
 	char mac[20];
 	char le_dns[64];
 	char le_email[64];
-	mdns_server_t *mdns;
        	char region;
        	char inet;
 	char conn_ap;

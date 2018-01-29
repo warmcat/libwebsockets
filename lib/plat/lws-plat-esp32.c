@@ -715,6 +715,7 @@ static TimerHandle_t leds_timer, scan_timer, debounce_timer, association_timer
 #endif
 ;
 static enum lws_gapss gapss = LWS_GAPSS_INITIAL;
+static mdns_result_t *mdns_results_head;
 
 #define GPIO_SW 14
 
@@ -853,27 +854,20 @@ void lws_group_member_event_call(int e, void *p)
 }
 
 static int
-get_txt_param(const char *txt, const char *param, char *result, int len)
+get_txt_param(const mdns_result_t *mr, const char *param, char *result, int len)
 {
 	const char *p;
 
-again:
-	p = strstr(txt, param);
+	*result = '\0';
+
+	p = strstr(mr->txt->key, param);
 	if (!p) {
 		*result = '\0';
 		return 1;
 	}
 
-	p += strlen(param);
-	if (*p != '=') {
-		txt = p;
-		goto again;
-	}
-	p++;
-	while (*p && *p != '&' && --len)
-		*result++ = *p++;
-
-	*result = '\0';
+	strncpy(result, mr->txt->value, len);
+	result[len - 1] = '\0';
 
 	return 0;
 }
@@ -882,28 +876,21 @@ static void lws_esp32_mdns_timer_cb(TimerHandle_t th)
 {
 	uint64_t now = time_in_microseconds(); 
 	struct lws_group_member *p, **p1;
-	const mdns_result_t *r;
-	int n, m;
+	const mdns_result_t *r = mdns_results_head;
 
-	if (!lws_esp32.mdns)
-		return;
-	n = mdns_query_end(lws_esp32.mdns);
-
-	for (m = 0; m < n; m++) {
+	while (r) {
 		char ch = 0, group[16];
 
-		r = mdns_result_get(lws_esp32.mdns, m);
-
-		get_txt_param(r->txt, "group", group, sizeof(group));
+		get_txt_param(r, "group", group, sizeof(group));
 		if (strcmp(group, lws_esp32.group)) /* not our group */ {
 			lwsl_notice("group %s vs %s  %s\n",
-					group, lws_esp32.group, r->txt);
+					group, lws_esp32.group, r->txt->value);
 			continue;
 		}
 
 		p = lws_esp32.first;
 		while (p) {
-			if (strcmp(r->host, p->host))
+			if (strcmp(r->hostname, p->host))
 				goto next;
 			if (memcmp(&r->addr, &p->addr, sizeof(r->addr)))
 				goto next;
@@ -919,19 +906,19 @@ next:
 			p = lws_malloc(sizeof(*p), "group");
 			if (!p)
 				continue;
-			strncpy(p->host, r->host, sizeof(p->host) - 1);
+			strncpy(p->host, r->hostname, sizeof(p->host) - 1);
 			p->host[sizeof(p->host) - 1] = '\0';
 
-			get_txt_param(r->txt, "model", p->model, sizeof(p->model));
-			get_txt_param(r->txt, "role", p->role, sizeof(p->role));
-			get_txt_param(r->txt, "mac", p->mac, sizeof(p->mac));
-			get_txt_param(r->txt, "width", temp, sizeof(temp));
+			get_txt_param(r, "model", p->model, sizeof(p->model));
+			get_txt_param(r, "role", p->role, sizeof(p->role));
+			get_txt_param(r, "mac", p->mac, sizeof(p->mac));
+			get_txt_param(r, "width", temp, sizeof(temp));
 			p->width = atoi(temp);
-			get_txt_param(r->txt, "height", temp, sizeof(temp));
+			get_txt_param(r, "height", temp, sizeof(temp));
 			p->height = atoi(temp);
 
 			memcpy(&p->addr, &r->addr, sizeof(p->addr));
-			memcpy(&p->addrv6, &r->addrv6, sizeof(p->addrv6));
+//			memcpy(&p->addrv6, &r->addrv6, sizeof(p->addrv6));
 			p->last_seen = now;
 			p->flags = 0;
 			p->next = lws_esp32.first;
@@ -944,16 +931,16 @@ next:
 				memcpy(&p->addr, &r->addr, sizeof(p->addr));
 				ch = 1;
 			}
-			if (memcmp(&p->addrv6, &r->addrv6, sizeof(p->addrv6))) {
+/*			if (memcmp(&p->addrv6, &r->addrv6, sizeof(p->addrv6))) {
 				memcpy(&p->addrv6, &r->addrv6, sizeof(p->addrv6));
 				ch = 1;
-			}
+			} */
 			if (ch)
 				lws_group_member_event_call(LWS_SYSTEM_GROUP_MEMBER_CHANGE, p);
 		}
 	}
 
-	mdns_result_free(lws_esp32.mdns);
+	mdns_query_results_free(mdns_results_head);
 
 	/* garbage-collect group members not seen for too long */
 	p1 = &lws_esp32.first;
@@ -971,7 +958,8 @@ next:
 		p1 = &(*p1)->next;
 	}
 
-	mdns_query(lws_esp32.mdns, "_lwsgrmem", "_tcp", 0);
+	mdns_query_txt(lws_esp32.group, "_lwsgrmem", "_tcp", 0,
+			       &mdns_results_head);
 	xTimerStart(mdns_timer, 0);
 }
 #endif
@@ -1189,10 +1177,7 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 		lws_esp32.sta_mask[0] = '\0';
 		lws_esp32.sta_gw[0] = '\0';
 		lws_gapss_to(LWS_GAPSS_SCAN);
-		if (lws_esp32.mdns)
-			mdns_service_remove_all(lws_esp32.mdns);
-		mdns_free(lws_esp32.mdns);
-		lws_esp32.mdns = NULL;
+		mdns_free();
 		lws_set_genled(LWSESP32_GENLED__LOST_NETWORK);
 		start_scan();
 		esp_wifi_connect();
@@ -1228,35 +1213,37 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 		lws_gapss_to(LWS_GAPSS_STAT_HAPPY);
 
 #if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
-		n = mdns_init(TCPIP_ADAPTER_IF_STA, &lws_esp32.mdns);
+		n = mdns_init();
 		if (!n) {
-			static char *txta[6];
+			static mdns_txt_item_t txta[6];
+			static char wh[2][6];
 			int w, h;
 
-			mdns_set_hostname(lws_esp32.mdns, lws_esp32.hostname);
-			mdns_set_instance(lws_esp32.mdns, lws_esp32.group);
-			mdns_service_add(lws_esp32.mdns, "_lwsgrmem", "_tcp", 443);
-			if (txta[0])
-				lws_free(txta[0]);
-			txta[0] = lws_malloc(32 * ARRAY_SIZE(txta), "group");
-			if (!txta[0]) {
-				lwsl_notice("mdns OOM\n");
-				break;
-			}
-			txta[1] = &txta[0][32];
-			txta[2] = &txta[1][32];
-			txta[3] = &txta[2][32];
-			txta[4] = &txta[3][32];
-			txta[5] = &txta[4][32];
+			mdns_hostname_set(lws_esp32.hostname);
+			mdns_instance_name_set(lws_esp32.group);
 
 			lws_get_iframe_size(&w, &h);
 
-			lws_snprintf(txta[0], 31, "model=%s", lws_esp32.model);
-			lws_snprintf(txta[1], 31, "group=%s", lws_esp32.group);
-			lws_snprintf(txta[2], 31, "role=%s", lws_esp32.role);
-			lws_snprintf(txta[3], 31, "mac=%s", lws_esp32.mac);
-			lws_snprintf(txta[4], 31, "width=%d", w);
-			lws_snprintf(txta[5], 31, "height=%d", h);
+			txta[0].key = "model";
+			txta[1].key = "group";
+			txta[2].key = "role";
+			txta[3].key = "mac";
+			txta[4].key = "width";
+			txta[5].key = "height";
+
+			txta[0].value = lws_esp32.model;
+			txta[1].value = lws_esp32.group;
+			txta[2].value = lws_esp32.role;
+			txta[3].value = lws_esp32.mac;
+			txta[4].value = wh[0];
+			txta[5].value = wh[1];
+
+			lws_snprintf(wh[0], 6, "%d", w);
+			lws_snprintf(wh[1], 6, "%d", h);
+
+			mdns_service_add(lws_esp32.group,
+					 "_lwsgrmem", "_tcp", 443, txta,
+					 ARRAY_SIZE(txta));
 
 			mem = lws_esp32.first;
 			while (mem) {
@@ -1301,15 +1288,11 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 					   LWS_SYSTEM_GROUP_MEMBER_CHANGE, mem);
 			}
 
-
-			if (mdns_service_txt_set(lws_esp32.mdns, "_lwsgrmem",
-						 "_tcp", ARRAY_SIZE(txta),
-						 (const char **)txta))
-				lwsl_notice("txt set failed\n");
 		} else
 			lwsl_err("unable to init mdns on STA: %d\n", n);
 
-		mdns_query(lws_esp32.mdns, "_lwsgrmem", "_tcp", 0);
+		mdns_query_txt(lws_esp32.group, "_lwsgrmem", "_tcp", 0,
+			       &mdns_results_head);
 		xTimerStart(mdns_timer, 0);
 #endif
 
