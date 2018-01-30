@@ -356,9 +356,6 @@ esp8266_tcp_stream_bind(lws_sockfd_type fd, int port, struct lws *wsi);
 #ifndef BYTE_ORDER
 #define BYTE_ORDER LITTLE_ENDIAN
 #endif
-#ifndef u_int64_t
-typedef unsigned __int64 u_int64_t;
-#endif
 
 #undef __P
 #ifndef __P
