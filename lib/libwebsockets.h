@@ -4517,9 +4517,6 @@ lws_timed_callback_vh_protocol(struct lws_vhost *vh,
 #if !defined(LWS_SIZEOFPTR)
 #define LWS_SIZEOFPTR ((int)sizeof (void *))
 #endif
-#if !defined(u_int64_t)
-#define u_int64_t unsigned long long
-#endif
 
 #if defined(__x86_64__)
 #define _LWS_PAD_SIZE 16	/* Intel recommended for best performance */
