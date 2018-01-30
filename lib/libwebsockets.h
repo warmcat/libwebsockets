@@ -3898,6 +3898,9 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi);
 LWS_VISIBLE LWS_EXTERN uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi);
 
+LWS_VISIBLE void
+lws_uv_timer_set_repeat(struct lws_context *context, int tsi, uint64_t repeat);
+
 LWS_VISIBLE LWS_EXTERN void
 lws_uv_sigint_cb(uv_signal_t *watcher, int signum);
 

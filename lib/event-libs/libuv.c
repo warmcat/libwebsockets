@@ -59,6 +59,7 @@ lws_uv_idle(uv_idle_t *handle
 static void
 lws_io_cb(uv_poll_t *watcher, int status, int revents)
 {
+
 	struct lws_io_watcher *lws_io = lws_container_of(watcher,
 					struct lws_io_watcher, uv_watcher);
 	struct lws *wsi = lws_container_of(lws_io, struct lws, w_read);
@@ -247,6 +248,12 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 	}
 
 	return status;
+}
+
+LWS_VISIBLE void
+lws_uv_timer_set_repeat(struct lws_context *context, int tsi, uint64_t repeat){
+    struct lws_context_per_thread *pt = &context->pt[tsi];
+    uv_timer_set_repeat(&pt->uv_timeout_watcher,repeat);
 }
 
 static void lws_uv_close_cb(uv_handle_t *handle)
