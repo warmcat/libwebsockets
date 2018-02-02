@@ -715,7 +715,9 @@ static TimerHandle_t leds_timer, scan_timer, debounce_timer, association_timer
 #endif
 ;
 static enum lws_gapss gapss = LWS_GAPSS_INITIAL;
+#if !defined(CONFIG_LWS_IS_FACTORY_APPLICATION)
 static mdns_result_t *mdns_results_head;
+#endif
 
 #define GPIO_SW 14
 

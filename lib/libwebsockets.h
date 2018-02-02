@@ -565,9 +565,9 @@ struct lws_esp32 {
 	char model[16];
 	char group[16];
 	char role[16];
-	char ssid[4][16];
-	char password[4][32];
-	char active_ssid[32];
+	char ssid[4][64];
+	char password[4][64];
+	char active_ssid[64];
 	char access_pw[16];
 	char hostname[32];
 	char mac[20];

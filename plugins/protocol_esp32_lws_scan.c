@@ -674,7 +674,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			for (m = 0; m < 4; m++) {
-				char name[10], ssid[32];
+				char name[10], ssid[65];
 				unsigned int pp = 0, use = 0;
 
 				if (m)
