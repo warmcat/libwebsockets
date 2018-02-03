@@ -174,6 +174,9 @@ scan_start(struct per_vhost_data__esplws_scan *vhd)
 	if (lws_esp32.acme)
 		return;
 
+	if (lws_esp32.upload)
+		return;
+
 	vhd->scan_ongoing = 1;
 	lws_esp32.scan_consumer = scan_finished;
 	lws_esp32.scan_consumer_arg = vhd;

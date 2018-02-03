@@ -586,6 +586,7 @@ struct lws_esp32 {
 	int extant_group_members;
 
 	char acme;
+	char upload;
 
 	volatile char button_is_down;
 };

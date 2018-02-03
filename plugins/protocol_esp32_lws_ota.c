@@ -208,6 +208,7 @@ callback_esplws_ota(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->filename[0] = '\0';
 			pss->file_length = 0;
 		}
+		lws_esp32.upload = 1;
 
 		/* let it parse the POST data */
 		if (lws_spa_process(pss->spa, in, len))
@@ -264,6 +265,7 @@ callback_esplws_ota(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
 		}
+		lws_esp32.upload = 0;
 		break;
 
 	default:
