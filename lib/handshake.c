@@ -127,7 +127,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			buf += body_chunk_len;
 			len -= body_chunk_len;
 		}
-		lwsl_debug("%s: used up block\n", __func__);
+//		lwsl_debug("%s: used up block\n", __func__);
 		break;
 #endif
 
@@ -170,7 +170,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		 * appropriately:
 		 */
 		len -= (buf - last_char);
-		lwsl_debug("%s: thinks we have used %ld\n", __func__, (long)len);
+//		lwsl_debug("%s: thinks we have used %ld\n", __func__, (long)len);
 
 		if (!wsi->hdr_parsing_completed)
 			/* More header content on the way */
@@ -303,8 +303,8 @@ postbody_completion:
 
 read_ok:
 	/* Nothing more to do for now */
-	lwsl_info("%s: %p: read_ok, used %ld (len %d, state %d)\n", __func__,
-		  wsi, (long)(buf - oldbuf), (int)len, wsi->state);
+//	lwsl_info("%s: %p: read_ok, used %ld (len %d, state %d)\n", __func__,
+//		  wsi, (long)(buf - oldbuf), (int)len, wsi->state);
 
 	return lws_ptr_diff(buf, oldbuf);
 
@@ -315,7 +315,7 @@ bail:
 	 * the wsi close.
 	 */
 	if (!wsi->outer_will_close)
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "lws_read bail");
 
 	return -1;
 }

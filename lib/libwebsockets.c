@@ -215,7 +215,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	if (secs == LWS_TO_KILL_SYNC) {
 		lws_remove_from_timeout_list(wsi);
 		lwsl_debug("synchronously killing %p\n", wsi);
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "to sync kill");
 		return;
 	}
 
@@ -357,7 +357,7 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 }
 
 void
-lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
+lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
 {
 	struct lws_context_per_thread *pt;
 	struct lws *wsi1, *wsi2;
@@ -365,7 +365,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 	struct lws_tokens eff_buf;
 	int n, m, ret;
 
-	lwsl_debug("%s: %p\n", __func__, wsi);
+	lwsl_debug("%s: %p: caller: %s\n", __func__, wsi, caller);
 
 	if (!wsi)
 		return;
@@ -387,7 +387,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 			wsi2->parent = NULL;
 			/* stop it doing shutdown processing */
 			wsi2->socket_is_permanently_unusable = 1;
-			lws_close_free_wsi(wsi2, reason);
+			lws_close_free_wsi(wsi2, reason, "general child recurse");
 			wsi2 = wsi1;
 		}
 		wsi->child_list = NULL;
@@ -421,7 +421,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 				wsi2 = (*w)->h2.sibling_list;
 				(*w)->h2.sibling_list = NULL;
 				(*w)->socket_is_permanently_unusable = 1;
-				lws_close_free_wsi(*w, reason);
+				lws_close_free_wsi(*w, reason, "h2 child recurse");
 				*w = wsi2;
 				continue;
 			} lws_end_foreach_llp(w, h2.sibling_list);

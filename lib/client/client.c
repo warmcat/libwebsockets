@@ -310,7 +310,7 @@ start_ws_handshake:
 				return 0;
 
 			lwsl_err("Failed to generate handshake for client\n");
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "chs");
 			return 0;
 		}
 
@@ -323,7 +323,7 @@ start_ws_handshake:
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_debug("ERROR writing to client socket\n");
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cws");
 			return 0;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			lws_callback_on_writable(wsi);
@@ -434,7 +434,7 @@ bail3:
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 			wsi->user_space, (void *)cce, cce ? strlen(cce) : 0);
 		wsi->already_did_cce = 1;
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
 		return -1;
 
 	case LWSCM_WSCL_WAITING_EXTENSION_CONNECT:
@@ -1140,7 +1140,7 @@ bail2:
 	lwsl_info("closing connection due to bail2 connection error\n");
 
 	/* closing will free up his parsing allocations */
-	lws_close_free_wsi(wsi, close_reason);
+	lws_close_free_wsi(wsi, close_reason, "c hs interp");
 
 	return 1;
 }

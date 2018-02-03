@@ -434,7 +434,7 @@ failed:
 		wsi->user_space, (void *)cce, strlen(cce));
 	wsi->already_did_cce = 1;
 failed1:
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client_connect2");
 
 	return NULL;
 }

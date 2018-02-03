@@ -2016,7 +2016,7 @@ lws_get_addr_scope(const char *ipaddr);
 #endif
 
 LWS_EXTERN void
-lws_close_free_wsi(struct lws *wsi, enum lws_close_status);
+lws_close_free_wsi(struct lws *wsi, enum lws_close_status, const char *caller);
 
 LWS_EXTERN void
 lws_free_wsi(struct lws *wsi);

@@ -2124,7 +2124,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 
 fail:
 	if (type & LWS_ADOPT_SOCKET)
-		lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS);
+		lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS, "adopt skt fail");
 
 	return NULL;
 
@@ -2227,7 +2227,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	return wsi;
 
 bail:
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "adopt skt readbuf fail");
 
 	return NULL;
 }
@@ -2700,7 +2700,7 @@ try_pollout:
 		return 0;
 
 fail:
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "server socket svc fail");
 
 	return 1;
 }

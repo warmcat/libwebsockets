@@ -655,11 +655,11 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		}
 		cwsi = lws_h2_wsi_from_id(wsi, pps->u.rs.sid);
 		if (cwsi)
-			lws_close_free_wsi(cwsi, 0);
+			lws_close_free_wsi(cwsi, 0, "reset stream");
 		break;
 
 	case LWS_H2_PPS_UPDATE_WINDOW:
-		lwsl_notice("LWS_H2_PPS_UPDATE_WINDOW: sid %d: add %d\n",
+		lwsl_notice("Issuing LWS_H2_PPS_UPDATE_WINDOW: sid %d: add %d\n",
 			    pps->u.update_window.sid,
 			    pps->u.update_window.credit);
 		*p++ = pps->u.update_window.credit >> 24;
@@ -992,7 +992,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		lws_start_foreach_ll(struct lws *, w, wsi->h2.child_list) {
 			if (w->h2.my_sid < h2n->sid &&
 			    w->h2.h2_state == LWS_H2_STATE_IDLE)
-				lws_close_free_wsi(w, 0);
+				lws_close_free_wsi(w, 0, "h2 sid close");
 		} lws_end_foreach_ll(w, h2.sibling_list);
 
 

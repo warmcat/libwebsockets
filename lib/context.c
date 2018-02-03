@@ -1364,7 +1364,7 @@ lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
 		wsi = vh->lserv_wsi;
 		if (wsi) {
 			wsi->socket_is_permanently_unusable = 1;
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "ctx deprecate");
 			wsi->context->deprecation_pending_listen_close_count++;
 			/*
 			 * other vhosts can share the listen port, they
@@ -1462,7 +1462,8 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 				continue;
 
 			lws_close_free_wsi(wsi,
-				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
+				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY,
+				"vh destroy"
 				/* no protocol close */);
 			n--;
 		}
@@ -1696,7 +1697,8 @@ lws_context_destroy(struct lws_context *context)
 				lws_destroy_event_pipe(wsi);
 			else
 				lws_close_free_wsi(wsi,
-					LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
+					LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY,
+					"ctx destroy"
 					/* no protocol close */);
 			n--;
 		}

@@ -943,7 +943,7 @@ handled:
 						(void *)&args, wsi->cgi->pid);
 		wsi->cgi->pid = -1;
 		if (n && !wsi->cgi->being_closed)
-			lws_close_free_wsi(wsi, 0);
+			lws_close_free_wsi(wsi, 0, "lws_cgi_kill");
 	}
 
 	return 0;

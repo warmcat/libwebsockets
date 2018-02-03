@@ -463,7 +463,7 @@ user_service_go_again:
 				         strlen(w->h2.pending_status_body +
 					 LWS_PRE), LWS_WRITE_HTTP_FINAL);
 			lws_free_set_NULL(w->h2.pending_status_body);
-			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream 1");
 			wa = &wsi->h2.child_list;
 			goto next_child;
 		}
@@ -493,7 +493,7 @@ user_service_go_again:
 			 */
 			if (n || w->h2.send_END_STREAM) {
 				lwsl_info("closing stream after h2 action\n");
-				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS);
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream");
 				wa = &wsi->h2.child_list;
 			}
 
@@ -519,7 +519,7 @@ user_service_go_again:
 			 */
 			if (n < 0 || w->h2.send_END_STREAM) {
 				lwsl_debug("Closing POLLOUT child %p\n", w);
-				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS);
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream file");
 				wa = &wsi->h2.child_list;
 				goto next_child;
 			}
@@ -536,7 +536,7 @@ user_service_go_again:
 
 		if (lws_calllback_as_writeable(w) || w->h2.send_END_STREAM) {
 			lwsl_debug("Closing POLLOUT child\n");
-			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 pollout handle");
 			wa = &wsi->h2.child_list;
 		}
 
@@ -627,7 +627,7 @@ lws_service_timeout_check(struct lws *wsi, time_t sec)
 		if (wsi->protocol &&
 		    wsi->protocol->callback(wsi, LWS_CALLBACK_TIMER,
 					    wsi->user_space, NULL, 0)) {
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timer cb errored");
 
 					return 1;
 		}
@@ -682,7 +682,7 @@ lws_service_timeout_check(struct lws *wsi, time_t sec)
 				wsi->user_space,
 				(void *)"Timed out waiting SSL", 21);
 
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timeout");
 
 		return 1;
 	}
@@ -1206,7 +1206,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 				/* it was the guy we came to service! */
 				timed_out = 1;
 
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "excessive ah");
 
 			ah = pt->ah_list;
 		}
@@ -1838,7 +1838,7 @@ drain:
 
 close_and_handled:
 	lwsl_debug("%p: Close and handled\n", wsi);
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "close_and_handled");
 	/*
 	 * pollfd may point to something else after the close
 	 * due to pollfd swapping scheme on delete on some platforms

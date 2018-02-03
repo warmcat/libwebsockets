@@ -461,7 +461,7 @@ lws_libuv_stop(struct lws_context *context)
 			if (!wsi)
 				continue;
 			lws_close_free_wsi(wsi,
-				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY
+				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY, __func__
 				/* no protocol close */);
 			n--;
 		}
