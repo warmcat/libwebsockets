@@ -813,19 +813,19 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		h2n->swsi->h2.peer_tx_cr_est -= h2n->length;
 		lwsl_debug("   peer_tx_cr_est %d\n",
 			   h2n->swsi->h2.peer_tx_cr_est);
-		if (h2n->swsi->h2.peer_tx_cr_est < 32768) {
-			h2n->swsi->h2.peer_tx_cr_est += 65536;
+		if (h2n->swsi->h2.peer_tx_cr_est < h2n->length + 265536) {
+			h2n->swsi->h2.peer_tx_cr_est += h2n->length + 265536;
 			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
 			if (!pps)
 				return 1;
 			pps->u.update_window.sid = h2n->sid;
-			pps->u.update_window.credit = 65536;
+			pps->u.update_window.credit = h2n->length + 265536;
 			lws_pps_schedule(wsi, pps);
 			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
 			if (!pps)
 				return 1;
 			pps->u.update_window.sid = 0;
-			pps->u.update_window.credit = 65536;
+			pps->u.update_window.credit = h2n->length + 265536;
 			lws_pps_schedule(wsi, pps);
 		}
 
