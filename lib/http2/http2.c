@@ -715,10 +715,10 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	}
 
 	/* let the network wsi live a bit longer if subs are active */
-	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 10);
+	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
 
 	/* let the network wsi live a bit longer if subs are active */
-	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 10);
+	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
 
 	if (h2n->sid)
 		h2n->swsi = lws_h2_wsi_from_id(wsi, h2n->sid);
@@ -1467,6 +1467,11 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 		case LWS_H2_FRAME_TYPE_DATA:
 			//lwsl_notice("incoming LWS_H2_FRAME_TYPE_DATA content\n");
+
+			/* let the network wsi live a bit longer if subs are active...
+			 * our frame may take a long time to chew through */
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
+
 			if (!h2n->swsi)
 				break;
 
