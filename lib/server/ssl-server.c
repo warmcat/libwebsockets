@@ -259,6 +259,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 					      LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
 	                lwsl_info("SSL_accept failed socket %u: %d\n",
 	                		wsi->desc.sockfd, n);
+			wsi->socket_is_permanently_unusable = 1;
 			goto fail;
 
 		default: /* MORE_SERVICE */
