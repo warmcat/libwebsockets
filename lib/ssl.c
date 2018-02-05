@@ -885,6 +885,7 @@ go_again:
 failed:
 		lws_stats_atomic_bump(wsi->context, pt,
 				      LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
+		wsi->socket_is_permanently_unusable = 1;
                 lwsl_info("SSL_accept failed socket %u: %s\n", wsi->desc.sockfd,
                          lws_ssl_get_error_string(m, n, buf, sizeof(buf)));
 		lws_ssl_elaborate_error();
