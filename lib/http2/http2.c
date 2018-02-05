@@ -826,9 +826,6 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			pps->u.update_window.credit = (2 * h2n->length) + 65536;
 			h2n->swsi->h2.peer_tx_cr_est += pps->u.update_window.credit; 
 			lws_pps_schedule(wsi, pps);
-			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-			if (!pps)
-				return 1;
 		}
 		if (wsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
 			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
@@ -978,6 +975,22 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 				return 1;
 			}
+
+			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
+			if (!pps)
+				return 1;
+			pps->u.update_window.sid = h2n->sid;
+			pps->u.update_window.credit = 4 * 65536;
+			h2n->swsi->h2.peer_tx_cr_est += pps->u.update_window.credit; 
+			lws_pps_schedule(wsi, pps);
+
+			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
+			if (!pps)
+				return 1;
+			pps->u.update_window.sid = 0;
+			pps->u.update_window.credit = 4 * 65536;
+			wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
+			lws_pps_schedule(wsi, pps);
 		}
 
 		/*
