@@ -158,6 +158,11 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
 
 message(STATUS "CMAKE_TOOLCHAIN_FILE='${CMAKE_TOOLCHAIN_FILE}'")
 
+if(WIN32)
+	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/win32port/version.rc.in ${CMAKE_CURRENT_BINARY_DIR}/win32port/version.rc @ONLY)
+	set(RESOURCES ${CMAKE_CURRENT_BINARY_DIR}/win32port/version.rc)
+endif()
+
 # Try to find the current Git hash.
 find_package(Git)
 if(GIT_EXECUTABLE)
@@ -964,6 +969,7 @@ endif()
 source_group("Headers Private"  FILES ${HDR_PRIVATE})
 source_group("Headers Public"   FILES ${HDR_PUBLIC})
 source_group("Sources"          FILES ${SOURCES})
+source_group("Resources"        FILES ${RESOURCES})
 
 #
 # Create the lib.
@@ -1004,7 +1010,8 @@ if (LWS_WITH_SHARED)
 	add_library(websockets_shared SHARED
 				${HDR_PRIVATE}
 				${HDR_PUBLIC}
-				${SOURCES})
+				${SOURCES}
+				${RESOURCES})
 	list(APPEND LWS_LIBRARIES websockets_shared)
 
 	# We want the shared lib to be named "libwebsockets"
