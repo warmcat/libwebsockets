@@ -185,15 +185,23 @@ scan_start(struct per_vhost_data__esplws_scan *vhd)
 		lwsl_err("scan start failed %d\n", n);
 }
 
-static char scan_defer;
+static int  scan_defer;
 
 static void timer_cb(TimerHandle_t t)
 {
 	struct per_vhost_data__esplws_scan *vhd = pvTimerGetTimerID(t);
 
-	if (!lws_esp32.inet && (scan_defer & 1)) {
-		/* if connected in AP mode, wait twice as long between scans */
-		return;
+//	if (!lws_esp32.inet && ((scan_defer++) & 1))
+/*
+ * AP mode + scan does not work well on ESP32... if we didn't connect to an AP
+ * ourselves, just scan once at boot.  Then leave us on the AP channel.
+ *
+ * Do the callback for everyone to keep the heartbeat alive.
+ */
+	if (!lws_esp32.inet && scan_defer++) {
+		 lws_callback_on_writable_all_protocol(vhd->context, vhd->protocol);
+
+		 return;
 	}
 
 	scan_start(vhd);

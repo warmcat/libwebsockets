@@ -723,7 +723,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	if (h2n->sid)
 		h2n->swsi = lws_h2_wsi_from_id(wsi, h2n->sid);
 
-	lwsl_info("%p (%p): fr hdr: typ 0x%x, flags 0x%x, sid 0x%x, len 0x%x\n",
+	lwsl_notice("%p (%p): fr hdr: typ 0x%x, flags 0x%x, sid 0x%x, len 0x%x\n",
 		  wsi, h2n->swsi, h2n->type, h2n->flags, h2n->sid,
 		  h2n->length);
 
@@ -802,39 +802,15 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	case LWS_H2_FRAME_TYPE_DATA:
 		lwsl_info("seen incoming LWS_H2_FRAME_TYPE_DATA start\n");
 		if (!h2n->sid) {
+			lwsl_notice("DATA: 0 sid\n");
 			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "DATA 0 sid");
 			break;
 		}
 		lwsl_info("Frame header DATA: sid %d\n", h2n->sid);
 
-		if (!h2n->swsi)
+		if (!h2n->swsi) {
+			lwsl_notice("DATA: NULL swsi\n");
 			break;
-
-		/* account for both network and stream wsi windows */
-
-		wsi->h2.peer_tx_cr_est -= h2n->length;
-		h2n->swsi->h2.peer_tx_cr_est -= h2n->length;
-
-		lwsl_debug("   peer_tx_cr_est %d, parent %d\n",
-			   h2n->swsi->h2.peer_tx_cr_est, wsi->h2.peer_tx_cr_est);
-
-		if (h2n->swsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
-			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-			if (!pps)
-				return 1;
-			pps->u.update_window.sid = h2n->sid;
-			pps->u.update_window.credit = (2 * h2n->length) + 65536;
-			h2n->swsi->h2.peer_tx_cr_est += pps->u.update_window.credit; 
-			lws_pps_schedule(wsi, pps);
-		}
-		if (wsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
-			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-			if (!pps)
-				return 1;
-			pps->u.update_window.sid = 0;
-			pps->u.update_window.credit = (2 * h2n->length) + 65536;
-			wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
-			lws_pps_schedule(wsi, pps);
 		}
 
 		if (
@@ -1490,7 +1466,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 			break;
 
 		case LWS_H2_FRAME_TYPE_DATA:
-			//lwsl_notice("incoming LWS_H2_FRAME_TYPE_DATA content\n");
+			// lwsl_notice("incoming LWS_H2_FRAME_TYPE_DATA content\n");
 
 			/* let the network wsi live a bit longer if subs are active...
 			 * our frame may take a long time to chew through */
@@ -1528,6 +1504,33 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 			in += n - 1;
 			h2n->inside += n;
 			h2n->count += n - 1;
+
+			/* account for both network and stream wsi windows */
+
+			wsi->h2.peer_tx_cr_est -= n;
+			h2n->swsi->h2.peer_tx_cr_est -= n;
+
+//			lwsl_notice("   peer_tx_cr_est %d, parent %d\n",
+//				   h2n->swsi->h2.peer_tx_cr_est, wsi->h2.peer_tx_cr_est);
+
+			if (h2n->swsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
+				pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
+				if (!pps)
+					return 1;
+				pps->u.update_window.sid = h2n->sid;
+				pps->u.update_window.credit = (2 * h2n->length + 65536);
+				h2n->swsi->h2.peer_tx_cr_est += pps->u.update_window.credit; 
+				lws_pps_schedule(wsi, pps);
+			}
+			if (wsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
+				pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
+				if (!pps)
+					return 1;
+				pps->u.update_window.sid = 0;
+				pps->u.update_window.credit = (2 * h2n->length + 65536);
+				wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
+				lws_pps_schedule(wsi, pps);
+			}
 
 			// lwsl_notice("%s: count %d len %d\n", __func__, (int)h2n->count, (int)h2n->length);
 
