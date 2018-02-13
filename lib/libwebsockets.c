@@ -1964,7 +1964,7 @@ lws_is_ssl(struct lws *wsi)
 #endif
 }
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
 LWS_VISIBLE lws_tls_conn*
 lws_get_ssl(struct lws *wsi)
 {
