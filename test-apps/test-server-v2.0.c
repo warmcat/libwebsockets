@@ -333,11 +333,6 @@ int main(int argc, char **argv)
 	int daemonize = 0;
 #endif
 
-	/*
-	 * take care to zero down the info struct, he contains random garbaage
-	 * from the stack otherwise
-	 */
-	memset(&info, 0, sizeof info);
 	info.port = 7681;
 
 	while (n >= 0) {
