@@ -723,7 +723,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	if (h2n->sid)
 		h2n->swsi = lws_h2_wsi_from_id(wsi, h2n->sid);
 
-	lwsl_notice("%p (%p): fr hdr: typ 0x%x, flags 0x%x, sid 0x%x, len 0x%x\n",
+	lwsl_debug("%p (%p): fr hdr: typ 0x%x, flags 0x%x, sid 0x%x, len 0x%x\n",
 		  wsi, h2n->swsi, h2n->type, h2n->flags, h2n->sid,
 		  h2n->length);
 
@@ -1340,298 +1340,311 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 		c = *in++;
 
-	switch (wsi->state) {
-	case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
-		if (preface[h2n->count++] != c)
-			goto fail;
+		switch (wsi->state) {
+		case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
+			if (preface[h2n->count++] != c)
+				goto fail;
 
-		if (preface[h2n->count])
+			if (preface[h2n->count])
+				break;
+
+			lwsl_info("http2: %p: established\n", wsi);
+			wsi->state = LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS;
+			h2n->count = 0;
+			wsi->h2.tx_cr = 65535;
+
+			/*
+			 * we must send a settings frame -- empty one is OK...
+			 * that must be the first thing sent by server
+			 * and the peer must send a SETTINGS with ACK flag...
+			 */
+			pps = lws_h2_new_pps(LWS_H2_PPS_MY_SETTINGS);
+			if (!pps)
+				goto fail;
+			lws_pps_schedule(wsi, pps);
 			break;
 
-		lwsl_info("http2: %p: established\n", wsi);
-		wsi->state = LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS;
-		h2n->count = 0;
-		wsi->h2.tx_cr = 65535;
+		case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
+		case LWSS_HTTP2_ESTABLISHED:
+			if (h2n->frame_state != LWS_H2_FRAME_HEADER_LENGTH)
+				goto try_frame_start;
 
-		/*
-		 * we must send a settings frame -- empty one is OK...
-		 * that must be the first thing sent by server
-		 * and the peer must send a SETTINGS with ACK flag...
-		 */
-		pps = lws_h2_new_pps(LWS_H2_PPS_MY_SETTINGS);
-		if (!pps)
-			goto fail;
-		lws_pps_schedule(wsi, pps);
-		break;
-
-	case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
-	case LWSS_HTTP2_ESTABLISHED:
-		if (h2n->frame_state != LWS_H2_FRAME_HEADER_LENGTH)
-			goto try_frame_start;
-
-		/*
-		 * post-header, preamble / payload / padding part
-		 */
-		h2n->count++;
-
-		if (h2n->flags & LWS_H2_FLAG_PADDED && !h2n->pad_length) {
 			/*
-			 * Get the padding count... actual padding is
-			 * at the end of the frame.
+			 * post-header, preamble / payload / padding part
 			 */
-			h2n->padding = c;
-			h2n->pad_length = 1;
-			h2n->preamble++;
+			h2n->count++;
 
-			if (h2n->padding > h2n->length - 1)
-				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-					      "execssive padding");
-			break; /* we consumed this */
-		}
+			if (h2n->flags & LWS_H2_FLAG_PADDED && !h2n->pad_length) {
+				/*
+				 * Get the padding count... actual padding is
+				 * at the end of the frame.
+				 */
+				h2n->padding = c;
+				h2n->pad_length = 1;
+				h2n->preamble++;
 
-		if (h2n->flags & LWS_H2_FLAG_PRIORITY &&
-		    !h2n->collected_priority) {
-			/* going to be 5 preamble bytes */
-
-			lwsl_debug("PRIORITY FLAG:  0x%x\n", c);
-
-			if (h2n->preamble++ - h2n->pad_length < 4) {
-				h2n->dep = ((h2n->dep) << 8) | c;
+				if (h2n->padding > h2n->length - 1)
+					lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+						      "execssive padding");
 				break; /* we consumed this */
 			}
-			h2n->weight_temp = c;
-			h2n->collected_priority = 1;
-			lwsl_debug("PRI FL: dep 0x%x, weight 0x%02X\n",
-				   h2n->dep, h2n->weight_temp);
-			break; /* we consumed this */
-		}
-		if (h2n->padding && h2n->count > (h2n->length - h2n->padding)) {
-			if (c) {
-				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-					      "nonzero padding");
-				break;
+
+			if (h2n->flags & LWS_H2_FLAG_PRIORITY &&
+			    !h2n->collected_priority) {
+				/* going to be 5 preamble bytes */
+
+				lwsl_debug("PRIORITY FLAG:  0x%x\n", c);
+
+				if (h2n->preamble++ - h2n->pad_length < 4) {
+					h2n->dep = ((h2n->dep) << 8) | c;
+					break; /* we consumed this */
+				}
+				h2n->weight_temp = c;
+				h2n->collected_priority = 1;
+				lwsl_debug("PRI FL: dep 0x%x, weight 0x%02X\n",
+					   h2n->dep, h2n->weight_temp);
+				break; /* we consumed this */
 			}
-			goto frame_end;
-		}
-
-		/* applies to wsi->h2.swsi which may be wsi */
-		switch(h2n->type) {
-
-		case LWS_H2_FRAME_TYPE_SETTINGS:
-			n = (h2n->count - 1 - h2n->preamble) %
-			     LWS_H2_SETTINGS_LEN;
-			h2n->one_setting[n] = c;
-			if (n != LWS_H2_SETTINGS_LEN - 1)
-				break;
-			lws_h2_settings(wsi, &h2n->set, h2n->one_setting,
-					LWS_H2_SETTINGS_LEN);
-			break;
-
-		case LWS_H2_FRAME_TYPE_CONTINUATION:
-		case LWS_H2_FRAME_TYPE_HEADERS:
-			if (!h2n->swsi)
-				break;
-			if (lws_hpack_interpret(h2n->swsi, c)) {
-				lwsl_info("%s: hpack failed\n", __func__);
-				goto fail;
+			if (h2n->padding && h2n->count > (h2n->length - h2n->padding)) {
+				if (c) {
+					lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+						      "nonzero padding");
+					break;
+				}
+				goto frame_end;
 			}
-			break;
 
-		case LWS_H2_FRAME_TYPE_GOAWAY:
-			switch (h2n->inside++) {
-			case 0:
-			case 1:
-			case 2:
-			case 3:
-				h2n->goaway_last_sid <<= 8;
-				h2n->goaway_last_sid |= c;
-				h2n->goaway_str[0] = '\0';
+			/* applies to wsi->h2.swsi which may be wsi */
+			switch(h2n->type) {
+
+			case LWS_H2_FRAME_TYPE_SETTINGS:
+				n = (h2n->count - 1 - h2n->preamble) %
+				     LWS_H2_SETTINGS_LEN;
+				h2n->one_setting[n] = c;
+				if (n != LWS_H2_SETTINGS_LEN - 1)
+					break;
+				lws_h2_settings(wsi, &h2n->set, h2n->one_setting,
+						LWS_H2_SETTINGS_LEN);
 				break;
 
-			case 4:
-			case 5:
-			case 6:
-			case 7:
-				h2n->goaway_err <<= 8;
-				h2n->goaway_err |= c;
+			case LWS_H2_FRAME_TYPE_CONTINUATION:
+			case LWS_H2_FRAME_TYPE_HEADERS:
+				if (!h2n->swsi)
+					break;
+				if (lws_hpack_interpret(h2n->swsi, c)) {
+					lwsl_info("%s: hpack failed\n", __func__);
+					goto fail;
+				}
+				break;
+
+			case LWS_H2_FRAME_TYPE_GOAWAY:
+				switch (h2n->inside++) {
+				case 0:
+				case 1:
+				case 2:
+				case 3:
+					h2n->goaway_last_sid <<= 8;
+					h2n->goaway_last_sid |= c;
+					h2n->goaway_str[0] = '\0';
+					break;
+
+				case 4:
+				case 5:
+				case 6:
+				case 7:
+					h2n->goaway_err <<= 8;
+					h2n->goaway_err |= c;
+					break;
+
+				default:
+					if (h2n->inside - 9 <
+					    sizeof(h2n->goaway_str) - 1)
+						h2n->goaway_str[h2n->inside - 9] = c;
+					h2n->goaway_str[sizeof(h2n->goaway_str) - 1] = '\0';
+					break;
+				}
+				break;
+
+			case LWS_H2_FRAME_TYPE_DATA:
+
+				/* let the network wsi live a bit longer if subs are active...
+				 * our frame may take a long time to chew through */
+				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
+
+				if (!h2n->swsi)
+					break;
+
+				if (h2n->swsi->state == LWSS_HTTP2_ESTABLISHED) {
+					h2n->swsi->state = LWSS_HTTP_BODY;
+					lwsl_notice("%s: setting swsi %p to LWSS_HTTP_BODY\n", __func__, h2n->swsi);
+				}
+
+				if (lws_hdr_total_length(h2n->swsi,
+							 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+				    h2n->swsi->http.rx_content_length &&
+				    h2n->swsi->http.rx_content_remain < inlen + 1 && /* last */
+				    h2n->inside < h2n->length) { /* unread data in frame */
+					lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+						      "More rx than content_length told");
+					break;
+				}
+
+				h2n->swsi->outer_will_close = 1;
+				/*
+				 * choose the length for this go so that we end at
+				 * the frame boundary, in the case there is already
+				 * more waiting leave it for next time around
+				 */
+				n = inlen + 1;
+				if (n > (int)(h2n->length - h2n->count + 1)) {
+					n = h2n->length - h2n->count + 1;
+					lwsl_debug("---- restricting len to %d vs %ld\n", n, (long)inlen + 1);
+				}
+				n = lws_read(h2n->swsi, in - 1, n);
+				h2n->swsi->outer_will_close = 0;
+				/*
+				 * can return 0 in POST body with content len
+				 * exhausted somehow.
+				 */
+				if (n <= 0)
+					goto fail;
+
+				inlen -= n - 1;
+				in += n - 1;
+				h2n->inside += n;
+				h2n->count += n - 1;
+
+				/* account for both network and stream wsi windows */
+
+				wsi->h2.peer_tx_cr_est -= n;
+				h2n->swsi->h2.peer_tx_cr_est -= n;
+
+	//			lwsl_notice("   peer_tx_cr_est %d, parent %d\n",
+	//				   h2n->swsi->h2.peer_tx_cr_est, wsi->h2.peer_tx_cr_est);
+
+				if (h2n->swsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
+					pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
+					if (!pps)
+						return 1;
+					pps->u.update_window.sid = h2n->sid;
+					pps->u.update_window.credit = (2 * h2n->length + 65536);
+					h2n->swsi->h2.peer_tx_cr_est += pps->u.update_window.credit; 
+					lws_pps_schedule(wsi, pps);
+				}
+				if (wsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
+					pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
+					if (!pps)
+						return 1;
+					pps->u.update_window.sid = 0;
+					pps->u.update_window.credit = (2 * h2n->length + 65536);
+					wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
+					lws_pps_schedule(wsi, pps);
+				}
+
+				// lwsl_notice("%s: count %d len %d\n", __func__, (int)h2n->count, (int)h2n->length);
+
+				break;
+
+			case LWS_H2_FRAME_TYPE_PRIORITY:
+				if (h2n->count <= 4) {
+					h2n->dep <<= 8;
+					h2n->dep |= c;
+				} else {
+					h2n->weight_temp = c;
+					lwsl_info("PRIORITY: dep 0x%x, weight 0x%02X\n",
+						  h2n->dep, h2n->weight_temp);
+
+					if ((h2n->dep & ~(1 << 31)) == h2n->sid) {
+						lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+							      "cant depend on own sid");
+						break;
+					}
+				}
+				break;
+
+			case LWS_H2_FRAME_TYPE_RST_STREAM:
+				break;
+
+			case LWS_H2_FRAME_TYPE_PUSH_PROMISE:
+				break;
+
+			case LWS_H2_FRAME_TYPE_PING:
+				if (h2n->flags & LWS_H2_FLAG_SETTINGS_ACK) { // ack
+				} else { /* they're sending us a ping request */
+					if (h2n->count > 8)
+						return 1;
+					h2n->ping_payload[h2n->count - 1] = c;
+				}
+				break;
+
+			case LWS_H2_FRAME_TYPE_WINDOW_UPDATE:
+				h2n->hpack_e_dep <<= 8;
+				h2n->hpack_e_dep |= c;
+				break;
+
+			case LWS_H2_FRAME_TYPE_COUNT: /* IGNORING FRAME */
 				break;
 
 			default:
-				if (h2n->inside - 9 <
-				    sizeof(h2n->goaway_str) - 1)
-					h2n->goaway_str[h2n->inside - 9] = c;
-				h2n->goaway_str[sizeof(h2n->goaway_str) - 1] = '\0';
-				break;
-			}
-			break;
+				lwsl_notice("%s: unhandled frame type %d\n",
+					    __func__, h2n->type);
 
-		case LWS_H2_FRAME_TYPE_DATA:
-			// lwsl_notice("incoming LWS_H2_FRAME_TYPE_DATA content\n");
-
-			/* let the network wsi live a bit longer if subs are active...
-			 * our frame may take a long time to chew through */
-			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
-
-			if (!h2n->swsi)
-				break;
-
-			if (h2n->swsi->state == LWSS_HTTP2_ESTABLISHED) {
-				h2n->swsi->state = LWSS_HTTP_BODY;
-				lwsl_notice("%s: setting swsi %p to LWSS_HTTP_BODY\n", __func__, h2n->swsi);
+				goto fail;
 			}
 
-			if (lws_hdr_total_length(h2n->swsi,
-						 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-			    h2n->swsi->http.rx_content_length &&
-			    h2n->swsi->http.rx_content_remain < inlen + 1 && /* last */
-			    h2n->inside < h2n->length) { /* unread data in frame */
-				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-					      "More rx than content_length told");
+frame_end:
+			if (h2n->count > h2n->length)
+				lwsl_notice("%d %d\n", h2n->count, h2n->length);
+			if (h2n->count != h2n->length)
 				break;
-			}
 
-			h2n->swsi->outer_will_close = 1;
-			n = lws_read(h2n->swsi, in - 1, inlen + 1);
-			h2n->swsi->outer_will_close = 0;
 			/*
-			 * can return 0 in POST body with content len
-			 * exhausted somehow.
+			 * end of frame just happened
 			 */
-			if (n <= 0)
+			if (lws_h2_parse_end_of_frame(wsi))
 				goto fail;
 
-			inlen -= n - 1;
-			in += n - 1;
-			h2n->inside += n;
-			h2n->count += n - 1;
-
-			/* account for both network and stream wsi windows */
-
-			wsi->h2.peer_tx_cr_est -= n;
-			h2n->swsi->h2.peer_tx_cr_est -= n;
-
-//			lwsl_notice("   peer_tx_cr_est %d, parent %d\n",
-//				   h2n->swsi->h2.peer_tx_cr_est, wsi->h2.peer_tx_cr_est);
-
-			if (h2n->swsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
-				pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-				if (!pps)
-					return 1;
-				pps->u.update_window.sid = h2n->sid;
-				pps->u.update_window.credit = (2 * h2n->length + 65536);
-				h2n->swsi->h2.peer_tx_cr_est += pps->u.update_window.credit; 
-				lws_pps_schedule(wsi, pps);
-			}
-			if (wsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
-				pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-				if (!pps)
-					return 1;
-				pps->u.update_window.sid = 0;
-				pps->u.update_window.credit = (2 * h2n->length + 65536);
-				wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
-				lws_pps_schedule(wsi, pps);
-			}
-
-			// lwsl_notice("%s: count %d len %d\n", __func__, (int)h2n->count, (int)h2n->length);
-
 			break;
 
-		case LWS_H2_FRAME_TYPE_PRIORITY:
-			if (h2n->count <= 4) {
-				h2n->dep <<= 8;
-				h2n->dep |= c;
-			} else {
-				h2n->weight_temp = c;
-				lwsl_info("PRIORITY: dep 0x%x, weight 0x%02X\n",
-					  h2n->dep, h2n->weight_temp);
+try_frame_start:
+			if (h2n->frame_state <= 8) {
 
-				if ((h2n->dep & ~(1 << 31)) == h2n->sid) {
-					lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-						      "cant depend on own sid");
+				switch (h2n->frame_state++) {
+				case 0:
+					h2n->pad_length = 0;
+					h2n->collected_priority = 0;
+					h2n->padding = 0;
+					h2n->preamble = 0;
+					h2n->length = c;
+					h2n->inside = 0;
+					break;
+				case 1:
+				case 2:
+					h2n->length <<= 8;
+					h2n->length |= c;
+					break;
+				case 3:
+					h2n->type = c;
+					break;
+				case 4:
+					h2n->flags = c;
+					break;
+
+				case 5:
+				case 6:
+				case 7:
+				case 8:
+					h2n->sid <<= 8;
+					h2n->sid |= c;
 					break;
 				}
 			}
+
+			if (h2n->frame_state == LWS_H2_FRAME_HEADER_LENGTH)
+				if (lws_h2_parse_frame_header(wsi))
+					goto fail;
 			break;
-
-		case LWS_H2_FRAME_TYPE_RST_STREAM:
-			break;
-
-		case LWS_H2_FRAME_TYPE_PUSH_PROMISE:
-			break;
-
-		case LWS_H2_FRAME_TYPE_PING:
-			if (h2n->flags & LWS_H2_FLAG_SETTINGS_ACK) { // ack
-			} else { /* they're sending us a ping request */
-				if (h2n->count > 8)
-					return 1;
-				h2n->ping_payload[h2n->count - 1] = c;
-			}
-			break;
-
-		case LWS_H2_FRAME_TYPE_WINDOW_UPDATE:
-			h2n->hpack_e_dep <<= 8;
-			h2n->hpack_e_dep |= c;
-			break;
-
-		case LWS_H2_FRAME_TYPE_COUNT: /* IGNORING FRAME */
-			break;
-
-		default:
-			lwsl_notice("%s: unhandled frame type %d\n",
-				    __func__, h2n->type);
-
-			goto fail;
 		}
-
-frame_end:
-		if (h2n->count != h2n->length)
-			break;
-
-		/*
-		 * end of frame just happened
-		 */
-		if (lws_h2_parse_end_of_frame(wsi))
-			goto fail;
-		break;
-
-try_frame_start:
-		if (h2n->frame_state <= 8) {
-
-			switch (h2n->frame_state++) {
-			case 0:
-				h2n->pad_length = 0;
-				h2n->collected_priority = 0;
-				h2n->padding = 0;
-				h2n->preamble = 0;
-				h2n->length = c;
-				h2n->inside = 0;
-				break;
-			case 1:
-			case 2:
-				h2n->length <<= 8;
-				h2n->length |= c;
-				break;
-			case 3:
-				h2n->type = c;
-				break;
-			case 4:
-				h2n->flags = c;
-				break;
-
-			case 5:
-			case 6:
-			case 7:
-			case 8:
-				h2n->sid <<= 8;
-				h2n->sid |= c;
-				break;
-			}
-		}
-		if (h2n->frame_state == LWS_H2_FRAME_HEADER_LENGTH)
-			if (lws_h2_parse_frame_header(wsi))
-				goto fail;
-		break;
-	}
 
 	}
 
