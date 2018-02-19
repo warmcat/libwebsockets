@@ -79,7 +79,6 @@ LWS_VISIBLE int
 lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 {
 	struct ev_signal *w_sigint = &context->pt[tsi].w_sigint.ev_watcher;
-	struct ev_io *w_accept = &context->pt[tsi].w_accept.ev_watcher;
 	struct lws_vhost *vh = context->vhost_list;
 	const char *backend_name;
 	int status = 0;
@@ -102,20 +101,23 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 	while (vh) {
 		if (vh->lserv_wsi) {
 			vh->lserv_wsi->w_read.context = context;
-			ev_io_init(w_accept, lws_accept_cb,
+			vh->w_accept.context = context;
+
+			ev_io_init(&vh->w_accept.ev_watcher, lws_accept_cb,
 				   vh->lserv_wsi->desc.sockfd, EV_READ);
+			ev_io_start(loop, &vh->w_accept.ev_watcher);
+
 		}
 		vh = vh->vhost_next;
 	}
-	ev_io_start(context->pt[tsi].io_loop_ev, w_accept);
 
 	/* Register the signal watcher unless the user says not to */
 	if (context->use_ev_sigint) {
 		ev_signal_init(w_sigint, context->lws_ev_sigint_cb, SIGINT);
-		ev_signal_start(context->pt[tsi].io_loop_ev, w_sigint);
+		ev_signal_start(loop, w_sigint);
 	}
-	backend = ev_backend(loop);
 
+	backend = ev_backend(loop);
 	switch (backend) {
 	case EVBACKEND_SELECT:
 		backend_name = "select";
@@ -150,6 +152,7 @@ void
 lws_libev_destroyloop(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_vhost *vh = context->vhost_list;
 
 	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEV))
 		return;
@@ -157,7 +160,11 @@ lws_libev_destroyloop(struct lws_context *context, int tsi)
 	if (!pt->io_loop_ev)
 		return;
 
-	ev_io_stop(pt->io_loop_ev, &pt->w_accept.ev_watcher);
+	while (vh) {
+		if (vh->lserv_wsi)
+			ev_io_stop(pt->io_loop_ev, &vh->w_accept.ev_watcher);
+		vh = vh->vhost_next;
+	}
 	if (context->use_ev_sigint)
 		ev_signal_stop(pt->io_loop_ev,
 		       &pt->w_sigint.ev_watcher);
@@ -223,10 +230,8 @@ lws_libev_init_fd_table(struct lws_context *context)
 	if (!LWS_LIBEV_ENABLED(context))
 		return 0;
 
-	for (n = 0; n < context->count_threads; n++) {
-		context->pt[n].w_accept.context = context;
+	for (n = 0; n < context->count_threads; n++)
 		context->pt[n].w_sigint.context = context;
-	}
 
 	return 1;
 }

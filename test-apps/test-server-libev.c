@@ -163,7 +163,6 @@ static struct option options[] = {
 	{ "allow-non-ssl",	no_argument,	NULL, 'a' },
 	{ "interface",  required_argument,	NULL, 'i' },
 	{ "closetest",  no_argument,		NULL, 'c' },
-	{ "libev",  no_argument,		NULL, 'e' },
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize", 	no_argument,		NULL, 'D' },
 #endif
@@ -200,13 +199,10 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:", options, NULL);
+		n = getopt_long(argc, argv, "ci:hsap:d:Dr:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
-		case 'e':
-			opts |= LWS_SERVER_OPTION_LIBEV;
-			break;
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;

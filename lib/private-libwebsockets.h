@@ -842,9 +842,6 @@ struct lws_context_per_thread {
 #if defined(LWS_WITH_LIBEVENT)
 	struct event_base *io_loop_event_base;
 #endif
-#if defined(LWS_WITH_LIBEV)
-	struct lws_io_watcher w_accept;
-#endif
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_signal_watcher w_sigint;
 	unsigned char ev_loop_foreign:1;
@@ -938,6 +935,9 @@ struct lws_vhost {
 	char socks_proxy_address[128];
 	char socks_user[96];
 	char socks_password[96];
+#endif
+#if defined(LWS_WITH_LIBEV)
+	struct lws_io_watcher w_accept;
 #endif
 	struct lws_conn_stats conn_stats;
 	struct lws_context *context;
