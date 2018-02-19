@@ -19,6 +19,8 @@
  *  MA  02110-1301  USA
  */
 
+#define LWS_HIDE_LIBEVENT
+
 #include "private-libwebsockets.h"
 
 void lws_feature_status_libev(struct lws_context_creation_info *info)

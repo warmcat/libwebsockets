@@ -162,7 +162,7 @@ typedef unsigned long long lws_intptr_t;
 
 #endif
 
-#ifdef LWS_WITH_LIBEV
+#if defined(LWS_WITH_LIBEV)
 #include <ev.h>
 #endif /* LWS_WITH_LIBEV */
 #ifdef LWS_WITH_LIBUV
@@ -171,7 +171,7 @@ typedef unsigned long long lws_intptr_t;
 #include <uv-version.h>
 #endif
 #endif /* LWS_WITH_LIBUV */
-#ifdef LWS_WITH_LIBEVENT
+#if defined(LWS_WITH_LIBEVENT) && !defined(LWS_HIDE_LIBEVENT)
 #include <event2/event.h>
 #endif /* LWS_WITH_LIBEVENT */
 
@@ -4324,7 +4324,7 @@ lws_plat_recommended_rsa_bits(void);
  */
 ///@{
 
-#ifdef LWS_WITH_LIBEV
+#if defined(LWS_WITH_LIBEV)
 typedef void (lws_ev_signal_cb_t)(EV_P_ struct ev_signal *w, int revents);
 
 LWS_VISIBLE LWS_EXTERN int
@@ -4383,7 +4383,7 @@ lws_close_all_handles_in_loop(uv_loop_t *loop);
  */
 ///@{
 
-#ifdef LWS_WITH_LIBEVENT
+#if defined(LWS_WITH_LIBEVENT) && !defined(LWS_HIDE_LIBEVENT)
 typedef void (lws_event_signal_cb_t) (evutil_socket_t sock_fd, short revents,
 		  void *ctx);
 

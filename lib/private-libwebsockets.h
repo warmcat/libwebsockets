@@ -168,13 +168,13 @@ int fork(void);
 #include <arpa/inet.h>
 #include <poll.h>
 #endif
-#ifdef LWS_WITH_LIBEV
+#if defined(LWS_WITH_LIBEV)
 #include <ev.h>
 #endif
 #ifdef LWS_WITH_LIBUV
 #include <uv.h>
 #endif
-#ifdef LWS_WITH_LIBEVENT
+#if defined(LWS_WITH_LIBEVENT) && !defined(LWS_HIDE_LIBEVENT)
 #include <event2/event.h>
 #endif
 
@@ -1102,7 +1102,11 @@ struct lws_context {
 	uv_loop_t pu_loop;
 #endif
 #if defined(LWS_WITH_LIBEVENT)
+#if defined(LWS_HIDE_LIBEVENT)
+	void * lws_event_sigint_cb;
+#else
 	lws_event_signal_cb_t * lws_event_sigint_cb;
+#endif
 #endif
 	char canonical_hostname[128];
 #ifdef LWS_LATENCY

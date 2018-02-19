@@ -118,7 +118,8 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_SERVER_STATUS 1)
 	set(LWS_WITH_LIBUV 1)
 	set(LWS_WITH_LIBEV 1)
-	set(LWS_WITH_LIBEVENT 1)
+	# libev + libevent cannot coexist at build-time
+	set(LWS_WITH_LIBEVENT 0)
 	set(LWS_WITHOUT_EXTENSIONS 0)
 endif()
 
@@ -427,6 +428,10 @@ if (LWS_WITH_SQLITE3)
 	endif()
 endif()
 
+
+if (LWS_WITH_LIBEV AND LWS_WITH_LIBEVENT)
+	message(FATAL_ERROR "Sorry libev and libevent conflict with each others' namespace, you can only have one or the other")
+endif()
 
 # The base dir where the test-apps look for the SSL certs.
 set(LWS_OPENSSL_CLIENT_CERTS ../share CACHE PATH "Server SSL certificate directory")

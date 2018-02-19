@@ -127,7 +127,7 @@ test_server_fops_open(const struct lws_plat_file_ops *fops,
 	/* call through to original platform implementation */
 	n = fops_plat.open(fops, vfs_path, vpath, flags);
 
-	lwsl_notice("%s: opening %s, ret %p\n", __func__, vfs_path, n);
+	lwsl_debug("%s: opening %s, ret %p\n", __func__, vfs_path, n);
 
 	return n;
 }
