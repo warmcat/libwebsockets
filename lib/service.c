@@ -456,6 +456,10 @@ user_service_go_again:
 		lwsl_info("%s: child %p (state %d)\n", __func__, (*wsi2),
 			  (*wsi2)->state);
 
+		/* if we arrived here, even by looping, we checked choked */
+		w->could_have_pending = 0;
+		wsi->could_have_pending = 0;
+
 		if (w->h2.pending_status_body) {
 			w->h2.send_END_STREAM = 1;
 			n = lws_write(w, (uint8_t *)w->h2.pending_status_body +
