@@ -353,10 +353,17 @@ user_service:
 		vwsi->handling_pollout = 0;
 
 		/* cannot get leave_pollout_active set after the above */
-		if (!eff && wsi->leave_pollout_active)
-			/* got set inbetween sampling eff and clearing
-			 * handling_pollout, force POLLOUT on */
-			lws_calllback_as_writeable(wsi);
+		if (!eff && wsi->leave_pollout_active) {
+			/*
+			 * got set inbetween sampling eff and clearing
+			 * handling_pollout, force POLLOUT on
+			 */
+			lwsl_debug("leave_pollout_active\n");
+			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
+				lwsl_info("failed at set pollfd\n");
+				goto bail_die;
+			}
+		}
 
 		vwsi->leave_pollout_active = 0;
 	}
