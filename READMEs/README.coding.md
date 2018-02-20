@@ -913,21 +913,35 @@ There is no knowledge or dependency in lws itself about pthreads.  How the
 locking is implemented is entirely up to the user code.
 
 
-@section libevuv Libev / Libuv support
+@section libevuv libev / libuv / libevent support
 
 You can select either or both
 
 	-DLWS_WITH_LIBEV=1
 	-DLWS_WITH_LIBUV=1
+	-DLWS_WITH_LIBEVENT=1
 
 at cmake configure-time.  The user application may use one of the
 context init options flags
 
 	LWS_SERVER_OPTION_LIBEV
 	LWS_SERVER_OPTION_LIBUV
+	LWS_SERVER_OPTION_LIBEVENT
 
-to indicate it will use either of the event libraries.
+to indicate it will use one of the event libraries at runtime.
 
+libev has some problems, its headers conflict with libevent, they both define
+critical constants like EV_READ to different values.  Attempts
+to discuss clearing that up with libevent and libev did not get anywhere useful.
+
+In addition building anything with libev using gcc spews warnings, the
+maintainer is aware of this for many years, and blames gcc.  We worked
+around this by disabling -Werror on the parts of lws that use libev.
+
+For these reasons and the response I got trying to raise these issues with
+them, if you have a choice about event loop, I would gently encourage you
+to avoid libev.  Where lws uses an event loop itself, eg in lwsws, we use
+libuv.
 
 @section extopts Extension option control from user code
 
