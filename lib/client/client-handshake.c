@@ -20,7 +20,6 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	{
 		hints.ai_family = PF_UNSPEC;
 		hints.ai_socktype = SOCK_STREAM;
-		hints.ai_flags = AI_CANONNAME;
 	}
 
 	return getaddrinfo(ads, NULL, &hints, result);

@@ -970,7 +970,6 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 		memset(&ai, 0, sizeof ai);
 		ai.ai_family = PF_UNSPEC;
 		ai.ai_socktype = SOCK_STREAM;
-		ai.ai_flags = AI_CANONNAME;
 #if !defined(LWS_WITH_ESP32)
 		if (getnameinfo((struct sockaddr *)ads,
 				sizeof(struct sockaddr_in),
