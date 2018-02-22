@@ -672,7 +672,6 @@ handle_accept(int n)
 			memset (&ai, 0, sizeof ai);
 			ai.ai_family = PF_UNSPEC;
 			ai.ai_socktype = SOCK_STREAM;
-			ai.ai_flags = AI_CANONNAME;
 
 			if (getaddrinfo(s->address, NULL, &ai, &result)) {
 				lwsl_notice("failed to lookup %s\n",
