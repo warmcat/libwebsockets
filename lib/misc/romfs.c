@@ -142,6 +142,9 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 			cp++;
 		}
 
+		while (*p && *p == '/' && p[1] == '/')
+			p++;
+
 		if (!*cp && (!*p || *p == '/') &&
 		    (ntohl(next_be) & 7) == RFST_HARDLINK) {
 			set_cache(i, sizeof(*i));
@@ -161,6 +164,9 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 
 		if (!*p && *cp == '/')
 			return NULL;
+
+		while (*p && *p == '/' && p[1] == '/')
+			p++;
 
 		if (*p == '/' && !*cp) {
 			set_cache(i, sizeof(*i));

@@ -607,7 +607,7 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 }
 
 #if LWS_POSIX
-
+#if !defined(LWS_WITH_ESP32)
 static int
 lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 {
@@ -651,6 +651,7 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 
 	return hit;
 }
+#endif
 
 static int
 lws_unauthorised_basic_auth(struct lws *wsi)

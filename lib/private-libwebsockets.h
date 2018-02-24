@@ -1305,6 +1305,11 @@ LWS_EXTERN void lws_feature_status_libevent(struct lws_context_creation_info *in
 #endif
 
 
+#if defined(LWS_WITH_ESP32)
+LWS_EXTERN int
+lws_find_string_in_file(const char *filename, const char *string, int stringlen);
+#endif
+
 #ifdef LWS_WITH_IPV6
 #define LWS_IPV6_ENABLED(vh) \
 	(!lws_check_opt(vh->context->options, LWS_SERVER_OPTION_DISABLE_IPV6) && \
