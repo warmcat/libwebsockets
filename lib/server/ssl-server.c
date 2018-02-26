@@ -207,6 +207,11 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				wsi->use_ssl = 0;
 
 				lws_tls_server_abort_connection(wsi);
+				/*
+				 * care... this creates wsi with no ssl
+				 * when ssl is enabled and normally
+				 * mandatory
+				 */
 				wsi->ssl = NULL;
 				if (lws_check_opt(context->options,
 				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS))
@@ -280,7 +285,7 @@ accepted:
 		/* adapt our vhost to match the SNI SSL_CTX that was chosen */
 		vh = context->vhost_list;
 		while (vh) {
-			if (!vh->being_destroyed &&
+			if (!vh->being_destroyed && wsi->ssl &&
 			    vh->ssl_ctx == lws_tls_ctx_from_wsi(wsi)) {
 				lwsl_info("setting wsi to vh %s\n", vh->name);
 				wsi->vhost = vh;

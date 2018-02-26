@@ -103,6 +103,9 @@ int lws_h2_configure_if_upgraded(struct lws *wsi)
 	char cstr[10];
 	unsigned len;
 
+	if (!wsi->ssl)
+		return 0;
+
 	SSL_get0_alpn_selected(wsi->ssl, &name, &len);
 	if (!len) {
 		lwsl_info("no ALPN upgrade\n");

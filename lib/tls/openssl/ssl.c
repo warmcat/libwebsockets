@@ -456,6 +456,9 @@ lws_ssl_context_destroy(struct lws_context *context)
 lws_tls_ctx *
 lws_tls_ctx_from_wsi(struct lws *wsi)
 {
+	if (!wsi->ssl)
+		return NULL;
+
 	return SSL_get_SSL_CTX(wsi->ssl);
 }
 
