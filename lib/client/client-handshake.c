@@ -423,6 +423,7 @@ oom4:
 		goto failed1;
 	lws_remove_from_timeout_list(wsi);
 	lws_header_table_detach(wsi, 0);
+	lws_client_stash_destroy(wsi);
 	lws_free(wsi);
 
 	return NULL;
