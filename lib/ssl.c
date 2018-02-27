@@ -904,7 +904,7 @@ accepted:
 		/* adapt our vhost to match the SNI SSL_CTX that was chosen */
 		vh = context->vhost_list;
 		while (vh) {
-			if (!vh->being_destroyed &&
+			if (!vh->being_destroyed && wsi->ssl &&
 			    vh->ssl_ctx == SSL_get_SSL_CTX(wsi->ssl)) {
 				lwsl_info("setting wsi to vh %s\n", vh->name);
 				wsi->vhost = vh;
