@@ -643,7 +643,7 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 	const char *p = strchr(string, ':'), *q;
 
 	if (!p)
-		return 1;
+		return 0;
 
 	q = string;
 	n = 0;
@@ -658,7 +658,7 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 	nvs_close(nvh);
 
 	if (n != ESP_OK)
-		return 2;
+		return 0;
 
 	return !strcmp(p + 1, result);
 }
