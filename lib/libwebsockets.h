@@ -215,6 +215,49 @@ typedef unsigned long long lws_intptr_t;
 #endif /* not USE_WOLFSSL */
 #endif
 
+/*
+ * Helpers for pthread mutex in user code... if lws is built for
+ * multiple service threads, these resolve to pthread mutex
+ * operations.  In the case LWS_MAX_SMP is 1 (the default), they
+ * are all NOPs and no pthread type or api is referenced.
+ */
+
+#if LWS_MAX_SMP > 1
+
+#define lws_pthread_mutex(name) pthread_mutex_t name
+
+static LWS_INLINE void
+lws_pthread_mutex_init(pthread_mutex_t *lock)
+{
+	pthread_mutex_init(lock, NULL);
+}
+
+static LWS_INLINE void
+lws_pthread_mutex_destroy(pthread_mutex_t *lock)
+{
+	pthread_mutex_destroy(lock);
+}
+
+static LWS_INLINE void
+lws_pthread_mutex_lock(pthread_mutex_t *lock)
+{
+	pthread_mutex_lock(lock);
+}
+
+static LWS_INLINE void
+lws_pthread_mutex_unlock(pthread_mutex_t *lock)
+{
+	pthread_mutex_unlock(lock);
+}
+
+#else
+#define lws_pthread_mutex(name)
+#define lws_pthread_mutex_init(_a)
+#define lws_pthread_mutex_destroy(_a)
+#define lws_pthread_mutex_lock(_a)
+#define lws_pthread_mutex_unlock(_a)
+#endif
+
 
 #define CONTEXT_PORT_NO_LISTEN -1
 #define CONTEXT_PORT_NO_LISTEN_SERVER -2

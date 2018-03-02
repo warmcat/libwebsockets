@@ -899,18 +899,43 @@ You can set fd_limit_per_thread to a nonzero number to control this manually, eg
 the overall supported fd limit is less than the process allowance.
 
 You can control the context basic data allocation for multithreading from Cmake
-using -DLWS_MAX_SMP=, if not given it's set to 32.  The serv_buf allocation
+using -DLWS_MAX_SMP=, if not given it's set to 1.  The serv_buf allocation
 for the threads (currently 4096) is made at runtime only for active threads.
 
 Because lws will limit the requested number of actual threads supported
 according to LWS_MAX_SMP, there is an api lws_get_count_threads(context) to
 discover how many threads were actually allowed when the context was created.
 
-It's required to implement locking in the user code in the same way that
-libwebsockets-test-server-pthread does it, for the FD locking callbacks.
+See the test-server-pthreads.c sample for how to use.
 
-There is no knowledge or dependency in lws itself about pthreads.  How the
-locking is implemented is entirely up to the user code.
+@section smplocking SMP Locking Helpers
+
+Lws provide a set of pthread mutex helpers that reduce to no code or
+variable footprint in the case that LWS_MAX_SMP == 1.
+
+Define your user mutex like this
+
+```
+	lws_pthread_mutex(name);
+```
+
+If LWS_MAX_SMP > 1, this produces `pthread_mutex_t name;`.  In the case
+LWS_MAX_SMP == 1, it produces nothing.
+
+Likewise these helpers for init, destroy, lock and unlock
+
+
+```
+	void lws_pthread_mutex_init(pthread_mutex_t *lock)
+	void lws_pthread_mutex_destroy(pthread_mutex_t *lock)
+	void lws_pthread_mutex_lock(pthread_mutex_t *lock)
+	void lws_pthread_mutex_unlock(pthread_mutex_t *lock)
+```
+
+resolve to nothing if LWS_MAX_SMP == 1, otherwise produce the equivalent
+pthread api.
+
+pthreads is required in lws only if LWS_MAX_SMP > 1.
 
 
 @section libevuv libev / libuv / libevent support
