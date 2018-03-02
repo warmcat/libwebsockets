@@ -55,8 +55,8 @@ rm -rf $RPM_BUILD_ROOT
 /usr/bin/libwebsockets-test-fraggle
 /usr/bin/libwebsockets-test-fuzxy
 /usr/bin/libwebsockets-test-lejp
+/usr/bin/libwebsockets-test-server-pthreads
 /usr/bin/libwebsockets-test-server-libev
-/usr/bin/libwebsockets-test-server-libevent
 /usr/bin/libwebsockets-test-server-libuv
 /usr/bin/libwebsockets-test-server-v2.0
 /usr/bin/libwebsockets-test-sshd

@@ -811,6 +811,8 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	struct lws *wsi;
 	int forced = 0;
 
+	lws_pt_lock(pt, __func__);
+
 	/* POLLIN faking */
 
 	/*
@@ -875,6 +877,8 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 		}
 		ah = ah->next;
 	}
+
+	lws_pt_unlock(pt);
 
 	return forced;
 }
@@ -1782,7 +1786,7 @@ drain:
 #ifdef LWS_NO_SERVER
 			n =
 #endif
-			_lws_rx_flow_control(wsi);
+			__lws_rx_flow_control(wsi);
 			/* n ignored, needed for NO_SERVER case */
 		}
 

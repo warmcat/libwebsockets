@@ -253,7 +253,7 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 					   wsi->user_space, (void *) &pa, 1))
 		return -1;
 
-	lws_pt_lock(pt);
+	lws_pt_lock(pt, __func__);
 	pt->count_conns++;
 	insert_wsi(context, wsi);
 	wsi->position_in_fds_table = pt->fds_count;
@@ -326,7 +326,7 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
 			  LWS_EV_PREPARE_DELETION);
 
-	lws_pt_lock(pt);
+	lws_pt_lock(pt, __func__);
 
 	lwsl_debug("%s: wsi=%p, sock=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
 		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,
@@ -374,9 +374,8 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 }
 
 int
-lws_change_pollfd(struct lws *wsi, int _and, int _or)
+__lws_change_pollfd(struct lws *wsi, int _and, int _or)
 {
-	struct lws_context_per_thread *pt;
 	struct lws_context *context;
 	struct lws_pollargs pa;
 	int ret = 0;
@@ -394,15 +393,26 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 					      wsi->user_space, (void *) &pa, 0))
 		return -1;
 
-	pt = &context->pt[(int)wsi->tsi];
-
-	lws_pt_lock(pt);
 	ret = _lws_change_pollfd(wsi, _and, _or, &pa);
-	lws_pt_unlock(pt);
 	if (wsi->vhost &&
 	    wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
 					   wsi->user_space, (void *) &pa, 0))
 		ret = -1;
+
+	return ret;
+}
+
+int
+lws_change_pollfd(struct lws *wsi, int _and, int _or)
+{
+	struct lws_context_per_thread *pt;
+	int ret = 0;
+
+	pt = &wsi->context->pt[(int)wsi->tsi];
+
+	lws_pt_lock(pt, __func__);
+	ret = __lws_change_pollfd(wsi, _and, _or);
+	lws_pt_unlock(pt);
 
 	return ret;
 }
@@ -509,11 +519,12 @@ network_sock:
 		return -1;
 	}
 
-	if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+	if (__lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 		return -1;
 
 	return 1;
 }
+
 
 /*
  * stitch protocol choice into the vh protocol linked list

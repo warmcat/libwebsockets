@@ -612,7 +612,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				goto bail;
 			}
 			if (m) /* while still active, extend timeout */
-				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 5);
+				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
 			sent += m;
 
 		} while (!lws_send_pipe_choked(wsi) && (sent < 1024 * 1024));

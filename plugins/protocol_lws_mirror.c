@@ -57,7 +57,7 @@ struct a_message {
 
 struct mirror_instance {
 	struct mirror_instance *next;
-	lws_pthread_mutex(lock); /* protects all mirror instance data */
+	lws_pthread_mutex(lock) /* protects all mirror instance data */
 	struct per_session_data__lws_mirror *same_mi_pss_list;
 	/**< must hold the the per_vhost_data__lws_mirror.lock as well
 	 * to change mi list membership */
@@ -68,7 +68,7 @@ struct mirror_instance {
 };
 
 struct per_vhost_data__lws_mirror {
-	lws_pthread_mutex(lock); /* protects mi_list membership changes */
+	lws_pthread_mutex(lock) /* protects mi_list membership changes */
 	struct mirror_instance *mi_list;
 };
 

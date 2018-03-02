@@ -224,7 +224,7 @@ typedef unsigned long long lws_intptr_t;
 
 #if LWS_MAX_SMP > 1
 
-#define lws_pthread_mutex(name) pthread_mutex_t name
+#define lws_pthread_mutex(name) pthread_mutex_t name;
 
 static LWS_INLINE void
 lws_pthread_mutex_init(pthread_mutex_t *lock)

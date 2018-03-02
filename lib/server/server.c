@@ -1725,7 +1725,7 @@ upgrade_ws:
 
 		lwsl_info("%s: %p: inheriting ws ah (rxpos:%d, rxlen:%d)\n",
 			  __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
-		lws_pt_lock(pt);
+		lws_pt_lock(pt, __func__);
 
 		if (wsi->h2_stream_carries_ws)
 			lws_union_transition(wsi, LWSCM_HTTP2_WS_SERVING);
@@ -2971,6 +2971,12 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 				wsi->rxflow_pos += m;
 		}
 
+		/* process the byte */
+		m = lws_rx_sm(wsi, *(*buf)++);
+		if (m < 0)
+			return -1;
+		len--;
+
 		if (wsi->rxflow_buffer && wsi->rxflow_pos == wsi->rxflow_len) {
 			lwsl_debug("%s: %p flow buf: drained\n", __func__, wsi);
 			lws_free_set_NULL(wsi->rxflow_buffer);
@@ -2978,15 +2984,9 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 #ifdef LWS_NO_SERVER
 			m =
 #endif
-			_lws_rx_flow_control(wsi);
+			__lws_rx_flow_control(wsi);
 			/* m ignored, needed for NO_SERVER case */
 		}
-
-		/* process the byte */
-		m = lws_rx_sm(wsi, *(*buf)++);
-		if (m < 0)
-			return -1;
-		len--;
 	}
 
 	lwsl_parser("%s: exit with %d unused\n", __func__, (int)len);

@@ -417,6 +417,10 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		/* get notified as soon as we can write again */
 		if (!justmirror)
 			lws_callback_on_writable(wsi);
+
+#if !defined(_WIN32) && !defined(WIN32)
+		usleep(250);
+#endif
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:

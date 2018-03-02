@@ -119,7 +119,7 @@ _lws_header_table_reset(struct allocated_headers *ah)
 // doesn't scrub the ah rxbuffer by default, parent must do if needed
 
 void
-lws_header_table_reset(struct lws *wsi, int autoservice)
+__lws_header_table_reset(struct lws *wsi, int autoservice)
 {
 	struct allocated_headers *ah = wsi->ah;
 	struct lws_context_per_thread *pt;
@@ -139,7 +139,7 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 	wsi->hdr_parsing_completed = 0;
 
 	/* while we hold the ah, keep a timeout on the wsi */
-	lws_set_timeout(wsi, PENDING_TIMEOUT_HOLDING_AH,
+	__lws_set_timeout(wsi, PENDING_TIMEOUT_HOLDING_AH,
 			wsi->vhost->timeout_secs_ah_idle);
 
 	time(&ah->assigned);
@@ -169,6 +169,18 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 			lws_service_fd_tsi(wsi->context, pfd, wsi->tsi);
 		}
 	}
+}
+
+void
+lws_header_table_reset(struct lws *wsi, int autoservice)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	lws_pt_lock(pt, __func__);
+
+	__lws_header_table_reset(wsi, autoservice);
+
+	lws_pt_unlock(pt);
 }
 
 static void
@@ -235,7 +247,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 		goto reset;
 	}
 
-	lws_pt_lock(pt);
+	lws_pt_lock(pt, __func__);
 
 	n = pt->ah_count_in_use == context->max_http_header_pool;
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -290,7 +302,7 @@ reset:
 	wsi->ah->rxpos = 0;
 	wsi->ah->rxlen = 0;
 
-	lws_header_table_reset(wsi, autoservice);
+	__lws_header_table_reset(wsi, autoservice);
 
 #ifndef LWS_NO_CLIENT
 	if (wsi->state == LWSS_CLIENT_UNCONNECTED)
@@ -336,7 +348,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	struct lws **pwsi, **pwsi_eligible;
 	time_t now;
 
-	lws_pt_lock(pt);
+	lws_pt_lock(pt, __func__);
 	__lws_remove_from_ah_waiting_list(wsi);
 	lws_pt_unlock(pt);
 
@@ -360,7 +372,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 		return 0;
 	}
 
-	lws_pt_lock(pt);
+	lws_pt_lock(pt, __func__);
 
 	/* we did have an ah attached */
 	time(&now);
@@ -431,7 +443,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	/* and reset the rx state */
 	ah->rxpos = 0;
 	ah->rxlen = 0;
-	lws_header_table_reset(wsi, autoservice);
+	__lws_header_table_reset(wsi, autoservice);
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (wsi->peer)
 		wsi->peer->count_ah++;

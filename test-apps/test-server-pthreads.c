@@ -346,6 +346,12 @@ int main(int argc, char **argv)
 	info.extensions = exts;
 	info.max_http_header_pool = 4;
 
+	/* when doing slow benchmarks with thousands of concurrent
+	 * connections, we need wait longer
+	 */
+	info.timeout_secs = 30;
+	info.keepalive_timeout = 30;
+
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
@@ -365,6 +371,8 @@ int main(int argc, char **argv)
 	 * so use lws_get_count_threads() to get the actual amount of threads
 	 * initialized.
 	 */
+
+	lwsl_notice("Service thread count: %d\n", lws_get_count_threads(context));
 
 	for (n = 0; n < lws_get_count_threads(context); n++)
 		if (pthread_create(&pthread_service[n], NULL, thread_service,

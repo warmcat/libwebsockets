@@ -41,8 +41,8 @@ lws_ssl_anybody_has_buffered_read_tsi(struct lws_context *context, int tsi)
 	return 0;
 }
 
-LWS_VISIBLE void
-lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
+void
+__lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -67,6 +67,16 @@ lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 
 	wsi->pending_read_list_prev = NULL;
 	wsi->pending_read_list_next = NULL;
+}
+
+void
+lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	lws_pt_lock(pt, __func__);
+	__lws_ssl_remove_wsi_from_buffered_list(wsi);
+	lws_pt_unlock(pt);
 }
 
 #if defined(LWS_WITH_ESP32)

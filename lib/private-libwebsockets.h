@@ -811,6 +811,7 @@ struct allocated_headers {
 struct lws_context_per_thread {
 #if LWS_MAX_SMP > 1
 	pthread_mutex_t lock;
+	pthread_mutex_t lock_stats;
 #endif
 	struct lws_pollfd *fds;
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
@@ -826,6 +827,9 @@ struct lws_context_per_thread {
 	void *http_header_data;
 	struct allocated_headers *ah_list;
 	struct lws *ah_wait_list;
+#if defined(LWS_HAVE_PTHREAD_H)
+	const char *last_lock_reason;
+#endif
 	int ah_wait_list_length;
 #ifdef LWS_OPENSSL_SUPPORT
 	struct lws *pending_read_list; /* linked list */
@@ -868,7 +872,9 @@ struct lws_context_per_thread {
 
 	short ah_count_in_use;
 	unsigned char tid;
-	unsigned char lock_depth;
+#if LWS_MAX_SMP > 1
+	pthread_t lock_owner;
+#endif
 };
 
 struct lws_conn_stats {
@@ -2254,6 +2260,8 @@ LWS_EXTERN void
 lws_header_table_reset(struct lws *wsi, int autoservice);
 void
 _lws_header_table_reset(struct allocated_headers *ah);
+void
+__lws_header_table_reset(struct lws *wsi, int autoservice);
 
 void
 lws_header_table_force_to_detachable_state(struct lws *wsi);
@@ -2444,43 +2452,65 @@ lws_context_init_http2_ssl(struct lws_vhost *vhost);
 #endif
 
 #if LWS_MAX_SMP > 1
+
 static LWS_INLINE void
 lws_pt_mutex_init(struct lws_context_per_thread *pt)
 {
 	pthread_mutex_init(&pt->lock, NULL);
+	pthread_mutex_init(&pt->lock_stats, NULL);
 }
 
 static LWS_INLINE void
 lws_pt_mutex_destroy(struct lws_context_per_thread *pt)
 {
+	pthread_mutex_destroy(&pt->lock_stats);
 	pthread_mutex_destroy(&pt->lock);
 }
 
 static LWS_INLINE void
-lws_pt_lock(struct lws_context_per_thread *pt)
+lws_pt_lock(struct lws_context_per_thread *pt, const char *reason)
 {
-	if (!pt->lock_depth++)
-		pthread_mutex_lock(&pt->lock);
+	if (pt->lock_owner == pthread_self()) {
+		lwsl_err("tid %d: lock collision: already held for %s, reacquiring for %s\n", pt->tid, pt->last_lock_reason, reason);
+		assert(0);
+	}
+	pthread_mutex_lock(&pt->lock);
+	pt->last_lock_reason = reason;
+	pt->lock_owner = pthread_self();
+	//lwsl_notice("tid %d: lock %s\n", pt->tid, reason);
 }
 
 static LWS_INLINE void
 lws_pt_unlock(struct lws_context_per_thread *pt)
 {
-	if (!(--pt->lock_depth))
-		pthread_mutex_unlock(&pt->lock);
+	pt->last_lock_reason ="free";
+	pt->lock_owner = 0;
+	//lwsl_notice("tid %d: unlock %s\n", pt->tid, pt->last_lock_reason);
+	pthread_mutex_unlock(&pt->lock);
 }
+
+static LWS_INLINE void
+lws_pt_stats_lock(struct lws_context_per_thread *pt)
+{
+	pthread_mutex_lock(&pt->lock_stats);
+}
+
+static LWS_INLINE void
+lws_pt_stats_unlock(struct lws_context_per_thread *pt)
+{
+	pthread_mutex_unlock(&pt->lock_stats);
+}
+
 static LWS_INLINE void
 lws_context_lock(struct lws_context *context)
 {
-	if (!context->lock_depth++)
-		pthread_mutex_lock(&context->lock);
+	pthread_mutex_lock(&context->lock);
 }
 
 static LWS_INLINE void
 lws_context_unlock(struct lws_context *context)
 {
-	if (!(--context->lock_depth))
-		pthread_mutex_unlock(&context->lock);
+	pthread_mutex_unlock(&context->lock);
 }
 
 static LWS_INLINE void
@@ -2499,12 +2529,14 @@ lws_vhost_unlock(struct lws_vhost *vhost)
 #else
 #define lws_pt_mutex_init(_a) (void)(_a)
 #define lws_pt_mutex_destroy(_a) (void)(_a)
-#define lws_pt_lock(_a) (void)(_a)
+#define lws_pt_lock(_a, b) (void)(_a)
 #define lws_pt_unlock(_a) (void)(_a)
 #define lws_context_lock(_a) (void)(_a)
 #define lws_context_unlock(_a) (void)(_a)
 #define lws_vhost_lock(_a) (void)(_a)
 #define lws_vhost_unlock(_a) (void)(_a)
+#define lws_pt_stats_lock(_a) (void)(_a)
+#define lws_pt_stats_unlock(_a) (void)(_a)
 #endif
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
@@ -2573,7 +2605,7 @@ lws_decode_ssl_error(void);
 #endif
 
 LWS_EXTERN int
-_lws_rx_flow_control(struct lws *wsi);
+__lws_rx_flow_control(struct lws *wsi);
 
 LWS_EXTERN int
 _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa);
@@ -2735,6 +2767,16 @@ void
 lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 		 struct lws *wsi);
 #endif
+
+
+void
+__lws_remove_from_timeout_list(struct lws *wsi);
+void
+__lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi);
+void
+__lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
+int
+__lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
 #ifdef __cplusplus
 };

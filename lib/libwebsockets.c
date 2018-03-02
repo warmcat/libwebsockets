@@ -90,7 +90,7 @@ lws_free_wsi(struct lws *wsi)
 	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
 		wsi->vhost->lserv_wsi = NULL;
 
-	lws_pt_lock(pt);
+	lws_pt_lock(pt, __func__);
 	ah = pt->ah_list;
 	while (ah) {
 		if (ah->in_use && ah->wsi == wsi) {
@@ -117,12 +117,14 @@ lws_free_wsi(struct lws *wsi)
 	}
 #endif
 
-	lws_pt_unlock(pt);
-
 	/* since we will destroy the wsi, make absolutely sure now */
 
-	lws_ssl_remove_wsi_from_buffered_list(wsi);
-	lws_remove_from_timeout_list(wsi);
+#if defined(LWS_WITH_OPENSSL)
+	__lws_ssl_remove_wsi_from_buffered_list(wsi);
+#endif
+	__lws_remove_from_timeout_list(wsi);
+
+	lws_pt_unlock(pt);
 
 	lws_libevent_destroy(wsi);
 
@@ -140,14 +142,11 @@ lws_should_be_on_timeout_list(struct lws *wsi)
 }
 
 void
-lws_remove_from_timeout_list(struct lws *wsi)
+__lws_remove_from_timeout_list(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-
 	if (!wsi->timeout_list_prev) /* ie, not part of the list */
 		return;
 
-	lws_pt_lock(pt);
 	/* if we have a next guy, set his prev to our prev */
 	if (wsi->timeout_list)
 		wsi->timeout_list->timeout_list_prev = wsi->timeout_list_prev;
@@ -157,12 +156,22 @@ lws_remove_from_timeout_list(struct lws *wsi)
 	/* we're out of the list, we should not point anywhere any more */
 	wsi->timeout_list_prev = NULL;
 	wsi->timeout_list = NULL;
+}
+
+void
+lws_remove_from_timeout_list(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	lws_pt_lock(pt, __func__);
+
+	__lws_remove_from_timeout_list(wsi);
 
 	lws_pt_unlock(pt);
 }
 
 static void
-lws_add_to_timeout_list(struct lws *wsi)
+__lws_add_to_timeout_list(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
@@ -183,6 +192,7 @@ lws_add_to_timeout_list(struct lws *wsi)
 LWS_VISIBLE void
 lws_set_timer(struct lws *wsi, int secs)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	time_t now;
 
 	if (secs < 0) {
@@ -201,16 +211,37 @@ lws_set_timer(struct lws *wsi, int secs)
 
 	if (!wsi->timer_active) {
 		wsi->timer_active = 1;
-		if (!wsi->pending_timeout)
-			lws_add_to_timeout_list(wsi);
+		if (!wsi->pending_timeout) {
+			lws_pt_lock(pt, __func__);
+			__lws_add_to_timeout_list(wsi);
+			lws_pt_unlock(pt);
+		}
 	}
+}
+
+void
+__lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
+{
+	time_t now;
+
+	time(&now);
+
+	if (reason)
+		__lws_add_to_timeout_list(wsi);
+
+	lwsl_debug("%s: %p: %d secs\n", __func__, wsi, secs);
+	wsi->pending_timeout_limit = secs;
+	wsi->pending_timeout_set = now;
+	wsi->pending_timeout = reason;
+
+	if (!reason && !lws_should_be_on_timeout_list(wsi))
+		__lws_remove_from_timeout_list(wsi);
 }
 
 LWS_VISIBLE void
 lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	time_t now;
 
 	if (secs == LWS_TO_KILL_SYNC) {
 		lws_remove_from_timeout_list(wsi);
@@ -219,22 +250,11 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 		return;
 	}
 
-	lws_pt_lock(pt);
+	lws_pt_lock(pt, __func__);
 
-	time(&now);
-
-	if (reason)
-		lws_add_to_timeout_list(wsi);
-
-	lwsl_debug("%s: %p: %d secs\n", __func__, wsi, secs);
-	wsi->pending_timeout_limit = secs;
-	wsi->pending_timeout_set = now;
-	wsi->pending_timeout = reason;
+	__lws_set_timeout(wsi, reason, secs);
 
 	lws_pt_unlock(pt);
-
-	if (!reason && !lws_should_be_on_timeout_list(wsi))
-		lws_remove_from_timeout_list(wsi);
 }
 
 int
@@ -1451,6 +1471,7 @@ lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
 LWS_VISIBLE int
 lws_rx_flow_control(struct lws *wsi, int _enable)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int en = _enable;
 
 	lwsl_info("%s: %p 0x%x\n", __func__, wsi, _enable);
@@ -1465,6 +1486,8 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 			en |= LWS_RXFLOW_REASON_APPLIES_ENABLE_BIT;
 	}
 
+	lws_pt_lock(pt, __func__);
+
 	/* any bit set in rxflow_bitmap DISABLEs rxflow control */
 	if (en & LWS_RXFLOW_REASON_APPLIES_ENABLE_BIT)
 		wsi->rxflow_bitmap &= ~(en & 0xff);
@@ -1473,7 +1496,7 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 
 	if ((LWS_RXFLOW_PENDING_CHANGE | (!wsi->rxflow_bitmap)) ==
 	    wsi->rxflow_change_to)
-		return 0;
+		goto skip;
 
 	wsi->rxflow_change_to = LWS_RXFLOW_PENDING_CHANGE | !wsi->rxflow_bitmap;
 
@@ -1481,8 +1504,15 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 		  wsi->rxflow_bitmap, en, wsi->rxflow_change_to);
 
 	if (_enable & LWS_RXFLOW_REASON_FLAG_PROCESS_NOW ||
-	    !wsi->rxflow_will_be_applied)
-		return _lws_rx_flow_control(wsi);
+	    !wsi->rxflow_will_be_applied) {
+		en = __lws_rx_flow_control(wsi);
+		lws_pt_unlock(pt);
+
+		return en;
+	}
+
+skip:
+	lws_pt_unlock(pt);
 
 	return 0;
 }
@@ -1575,7 +1605,7 @@ int user_callback_handle_rxflow(lws_callback_function callback_function,
 	n = callback_function(wsi, reason, user, in, len);
 	wsi->rxflow_will_be_applied = 0;
 	if (!n)
-		n = _lws_rx_flow_control(wsi);
+		n = __lws_rx_flow_control(wsi);
 
 	return n;
 }
@@ -2109,14 +2139,14 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
 }
 
 LWS_EXTERN int
-_lws_rx_flow_control(struct lws *wsi)
+__lws_rx_flow_control(struct lws *wsi)
 {
 	struct lws *wsic = wsi->child_list;
 
 	/* if he has children, do those if they were changed */
 	while (wsic) {
 		if (wsic->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE)
-			_lws_rx_flow_control(wsic);
+			__lws_rx_flow_control(wsic);
 
 		wsic = wsic->sibling_list;
 	}
@@ -2142,12 +2172,12 @@ _lws_rx_flow_control(struct lws *wsi)
 	/* adjust the pollfd for this wsi */
 
 	if (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW) {
-		if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+		if (__lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 			lwsl_info("%s: fail\n", __func__);
 			return -1;
 		}
 	} else
-		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+		if (__lws_change_pollfd(wsi, LWS_POLLIN, 0))
 			return -1;
 
 	return 0;
@@ -3123,7 +3153,7 @@ lws_stats_log_dump(struct lws_context *context)
 
 		lwsl_notice("PT %d\n", n + 1);
 
-		lws_pt_lock(pt);
+		lws_pt_lock(pt, __func__);
 
 		lwsl_notice("  AH in use / max:                  %d / %d\n",
 				pt->ah_count_in_use,
@@ -3185,23 +3215,23 @@ void
 lws_stats_atomic_bump(struct lws_context * context,
 		struct lws_context_per_thread *pt, int index, uint64_t bump)
 {
-	lws_pt_lock(pt);
+	lws_pt_stats_lock(pt);
 	context->lws_stats[index] += bump;
 	if (index != LWSSTATS_C_SERVICE_ENTRY)
 		context->updated = 1;
-	lws_pt_unlock(pt);
+	lws_pt_stats_unlock(pt);
 }
 
 void
 lws_stats_atomic_max(struct lws_context * context,
 		struct lws_context_per_thread *pt, int index, uint64_t val)
 {
-	lws_pt_lock(pt);
+	lws_pt_stats_lock(pt);
 	if (val > context->lws_stats[index]) {
 		context->lws_stats[index] = val;
 		context->updated = 1;
 	}
-	lws_pt_unlock(pt);
+	lws_pt_stats_unlock(pt);
 }
 
 #endif
