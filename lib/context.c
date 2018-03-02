@@ -570,6 +570,10 @@ lws_create_vhost(struct lws_context *context,
 	if (!vh)
 		return NULL;
 
+#if LWS_MAX_SMP > 1
+	pthread_mutex_init(&vh->lock, NULL);
+#endif
+
 	if (!info->protocols)
 		info->protocols = &protocols_dummy[0];
 
@@ -1588,6 +1592,10 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 #endif
 
 	lws_free_set_NULL(vh->alloc_cert_path);
+
+#if LWS_MAX_SMP > 1
+       pthread_mutex_destroy(&vh->lock);
+#endif
 
 	/*
 	 * although async event callbacks may still come for wsi handles with

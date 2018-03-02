@@ -532,6 +532,8 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 		lwsl_notice("Attempted to attach wsi twice to same vh prot\n");
 	}
 
+	lws_vhost_lock(wsi->vhost);
+
 	wsi->same_vh_protocol_prev = &wsi->vhost->same_vh_protocol_list[n];
 	/* old first guy is our next */
 	wsi->same_vh_protocol_next =  wsi->vhost->same_vh_protocol_list[n];
@@ -542,6 +544,8 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 		/* old first guy points back to us now */
 		wsi->same_vh_protocol_next->same_vh_protocol_prev =
 				&wsi->same_vh_protocol_next;
+
+	lws_vhost_unlock(wsi->vhost);
 }
 
 void
@@ -555,6 +559,11 @@ lws_same_vh_protocol_remove(struct lws *wsi)
 	 * OK to call on already-detached wsi
 	 */
 	lwsl_info("%s: removing same prot wsi %p\n", __func__, wsi);
+
+	if (!wsi->vhost)
+		return;
+
+	lws_vhost_lock(wsi->vhost);
 
 	if (wsi->same_vh_protocol_prev) {
 		assert (*(wsi->same_vh_protocol_prev) == wsi);
@@ -574,6 +583,8 @@ lws_same_vh_protocol_remove(struct lws *wsi)
 
 	wsi->same_vh_protocol_prev = NULL;
 	wsi->same_vh_protocol_next = NULL;
+
+	lws_vhost_unlock(wsi->vhost);
 }
 
 

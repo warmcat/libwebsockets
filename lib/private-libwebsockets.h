@@ -928,6 +928,9 @@ struct lws_tls_ss_pieces;
 struct lws_vhost {
 	char http_proxy_address[128];
 	char proxy_basic_auth_token[128];
+#if LWS_MAX_SMP > 1
+	pthread_mutex_t lock;
+#endif
 #if defined(LWS_WITH_HTTP2)
 	struct http2_settings set;
 #endif
@@ -2480,6 +2483,19 @@ lws_context_unlock(struct lws_context *context)
 		pthread_mutex_unlock(&context->lock);
 }
 
+static LWS_INLINE void
+lws_vhost_lock(struct lws_vhost *vhost)
+{
+	pthread_mutex_lock(&vhost->lock);
+}
+
+static LWS_INLINE void
+lws_vhost_unlock(struct lws_vhost *vhost)
+{
+	pthread_mutex_unlock(&vhost->lock);
+}
+
+
 #else
 #define lws_pt_mutex_init(_a) (void)(_a)
 #define lws_pt_mutex_destroy(_a) (void)(_a)
@@ -2487,6 +2503,8 @@ lws_context_unlock(struct lws_context *context)
 #define lws_pt_unlock(_a) (void)(_a)
 #define lws_context_lock(_a) (void)(_a)
 #define lws_context_unlock(_a) (void)(_a)
+#define lws_vhost_lock(_a) (void)(_a)
+#define lws_vhost_unlock(_a) (void)(_a)
 #endif
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT

@@ -868,6 +868,9 @@ check_extensions:
 	 * X <-> B
 	 * X <-> pAn <-> pB
 	 */
+
+	lws_vhost_lock(wsi->vhost);
+
 	wsi->same_vh_protocol_prev = /* guy who points to us */
 		&wsi->vhost->same_vh_protocol_list[n];
 	wsi->same_vh_protocol_next = /* old first guy is our next */
@@ -879,6 +882,8 @@ check_extensions:
 		/* old first guy points back to us now */
 		wsi->same_vh_protocol_next->same_vh_protocol_prev =
 				&wsi->same_vh_protocol_next;
+
+	lws_vhost_unlock(wsi->vhost);
 
 #ifndef LWS_NO_EXTENSIONS
 	/* instantiate the accepted extensions */

@@ -1281,6 +1281,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		context->last_ws_ping_pong_check_s = now;
 
 		while (vh) {
+
+			lws_vhost_lock(vh);
+
 			for (n = 0; n < vh->count_protocols; n++) {
 				wsi = vh->same_vh_protocol_list[n];
 
@@ -1306,6 +1309,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 					wsi = wsi->same_vh_protocol_next;
 				}
 			}
+
+			lws_vhost_unlock(vh);
+
 			vh = vh->vhost_next;
 		}
 	}
