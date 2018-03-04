@@ -1491,7 +1491,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		    lws_handle_POLLOUT_event(wsi, pollfd)) {
 			if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY)
 				wsi->state = LWSS_FLUSHING_SEND_BEFORE_CLOSE;
-			lwsl_notice("lws_service_fd: closing\n");
+			// lwsl_notice("lws_service_fd: closing\n");
 			/* the write failed... it's had it */
 			wsi->socket_is_permanently_unusable = 1;
 			goto close_and_handled;

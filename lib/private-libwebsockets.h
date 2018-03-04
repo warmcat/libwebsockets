@@ -1276,7 +1276,7 @@ LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info)
 #define LWS_LIBUV_ENABLED(context) (0)
 #if LWS_POSIX && !defined(LWS_WITH_ESP32)
 #define lws_feature_status_libuv(_a) \
-			lwsl_notice("libuv support not compiled in\n")
+			lwsl_info("libuv support not compiled in\n")
 #else
 #define lws_feature_status_libuv(_a)
 #endif
@@ -1307,7 +1307,7 @@ LWS_EXTERN void lws_feature_status_libevent(struct lws_context_creation_info *in
 #define LWS_LIBEVENT_ENABLED(context) (0)
 #if LWS_POSIX && !defined(LWS_WITH_ESP32)
 #define lws_feature_status_libevent(_a) \
-			lwsl_notice("libevent support not compiled in\n")
+			lwsl_info("libevent support not compiled in\n")
 #else
 #define lws_feature_status_libevent(_a)
 #endif
