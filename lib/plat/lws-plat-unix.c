@@ -217,6 +217,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	 * list on the pt.  Drain the list and apply the changes to the
 	 * affected pollfds in the correct order.
 	 */
+
+	lws_pt_lock(pt, __func__);
+
 	ftp = vpt->foreign_pfd_list;
 	//lwsl_notice("cleared list %p\n", ftp);
 	while (ftp) {
@@ -228,13 +231,15 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		if (lws_sockfd_valid(pfd->fd)) {
 			wsi = wsi_from_fd(context, pfd->fd);
 			if (wsi)
-				lws_change_pollfd(wsi, ftp->_and, ftp->_or);
+				__lws_change_pollfd(wsi, ftp->_and, ftp->_or);
 		}
 		lws_free((void *)ftp);
 		ftp = next;
 	}
 	vpt->foreign_pfd_list = NULL;
 	lws_memory_barrier();
+
+	lws_pt_unlock(pt);
 
 #ifdef LWS_OPENSSL_SUPPORT
 	if (!n && !pt->rx_draining_ext_list &&

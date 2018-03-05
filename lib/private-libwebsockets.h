@@ -1191,7 +1191,7 @@ lws_check_deferred_free(struct lws_context *context, int force);
 #define lws_get_vh_protocol(vh, x) vh->protocols[x]
 
 LWS_EXTERN void
-lws_close_free_wsi_final(struct lws *wsi);
+__lws_close_free_wsi_final(struct lws *wsi);
 LWS_EXTERN void
 lws_libuv_closehandle(struct lws *wsi);
 LWS_EXTERN void
@@ -2035,12 +2035,14 @@ lws_get_addr_scope(const char *ipaddr);
 
 LWS_EXTERN void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status, const char *caller);
+LWS_EXTERN void
+__lws_close_free_wsi(struct lws *wsi, enum lws_close_status, const char *caller);
 
 LWS_EXTERN void
-lws_free_wsi(struct lws *wsi);
+__lws_free_wsi(struct lws *wsi);
 
 LWS_EXTERN int
-remove_wsi_socket_from_fds(struct lws *wsi);
+__remove_wsi_socket_from_fds(struct lws *wsi);
 LWS_EXTERN int
 lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len);
 
@@ -2104,14 +2106,10 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd);
 #endif
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);
+__insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
-
-
-LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_service_timeout_check(struct lws *wsi, time_t sec);
 
 LWS_EXTERN void
 lws_remove_from_timeout_list(struct lws *wsi);
@@ -2255,6 +2253,8 @@ lws_header_table_attach(struct lws *wsi, int autoservice);
 
 LWS_EXTERN int
 lws_header_table_detach(struct lws *wsi, int autoservice);
+LWS_EXTERN int
+__lws_header_table_detach(struct lws *wsi, int autoservice);
 
 LWS_EXTERN void
 lws_header_table_reset(struct lws *wsi, int autoservice);
@@ -2322,6 +2322,7 @@ LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 #define lws_ssl_context_destroy(_a)
 #define lws_ssl_SSL_CTX_destroy(_a)
 #define lws_ssl_remove_wsi_from_buffered_list(_a)
+#define __lws_ssl_remove_wsi_from_buffered_list(_a)
 #define lws_context_init_ssl_library(_a)
 #define lws_ssl_anybody_has_buffered_read_tsi(_a, _b) (0)
 #define lws_tls_check_all_cert_lifetimes(_a)
@@ -2353,6 +2354,8 @@ LWS_EXTERN void
 lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost);
 LWS_EXTERN void
 lws_ssl_context_destroy(struct lws_context *context);
+void
+__lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi);
 LWS_VISIBLE void
 lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi);
 LWS_EXTERN int
@@ -2771,8 +2774,6 @@ lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 
 void
 __lws_remove_from_timeout_list(struct lws *wsi);
-void
-__lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi);
 void
 __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 int

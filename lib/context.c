@@ -952,7 +952,7 @@ lws_create_event_pipes(struct lws_context *context)
 		lws_libev_accept(wsi, wsi->desc);
 		lws_libevent_accept(wsi, wsi->desc);
 
-		if (insert_wsi_socket_into_fds(context, wsi))
+		if (__insert_wsi_socket_into_fds(context, wsi))
 			return 1;
 
 		lws_change_pollfd(context->pt[n].pipe_wsi, 0, LWS_POLLIN);
@@ -966,7 +966,7 @@ static void
 lws_destroy_event_pipe(struct lws *wsi)
 {
 	lws_plat_pipe_close(wsi);
-	remove_wsi_socket_from_fds(wsi);
+	__remove_wsi_socket_from_fds(wsi);
 	lws_libevent_destroy(wsi);
 	wsi->context->count_wsi_allocated--;
 	lws_free(wsi);

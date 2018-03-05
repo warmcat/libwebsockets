@@ -161,10 +161,12 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		else
 			wsi->mode = LWSCM_SSL_ACK_PENDING_RAW;
 
-		if (insert_wsi_socket_into_fds(context, wsi)) {
+		lws_pt_lock(pt, __func__);
+		if (__insert_wsi_socket_into_fds(context, wsi)) {
 			lwsl_err("%s: failed to insert into fds\n", __func__);
 			goto fail;
 		}
+		lws_pt_unlock(pt);
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
 				context->timeout_secs);

@@ -345,6 +345,7 @@ int main(int argc, char **argv)
 	info.count_threads = threads;
 	info.extensions = exts;
 	info.max_http_header_pool = 4;
+	info.pt_serv_buf_size = 128 * 1024;
 
 	/* when doing slow benchmarks with thousands of concurrent
 	 * connections, we need wait longer

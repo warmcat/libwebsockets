@@ -220,7 +220,7 @@ lws_accept_modulation(struct lws_context_per_thread *pt, int allow)
 #endif
 
 int
-insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
+__insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_pollargs pa = { wsi->desc.sockfd, LWS_POLLIN, 0 };
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -253,7 +253,6 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 					   wsi->user_space, (void *) &pa, 1))
 		return -1;
 
-	lws_pt_lock(pt, __func__);
 	pt->count_conns++;
 	insert_wsi(context, wsi);
 	wsi->position_in_fds_table = pt->fds_count;
@@ -278,7 +277,6 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1)
 		lws_accept_modulation(pt, 0);
 #endif
-	lws_pt_unlock(pt);
 
 	if (wsi->vhost &&
 	    wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,
@@ -289,7 +287,7 @@ insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 }
 
 int
-remove_wsi_socket_from_fds(struct lws *wsi)
+__remove_wsi_socket_from_fds(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_pollargs pa = { wsi->desc.sockfd, 0, 0 };
@@ -326,8 +324,6 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
 			  LWS_EV_PREPARE_DELETION);
 
-	lws_pt_lock(pt, __func__);
-
 	lwsl_debug("%s: wsi=%p, sock=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
 		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,
 		  pt->fds_count, pt->fds[pt->fds_count].fd);
@@ -363,7 +359,6 @@ remove_wsi_socket_from_fds(struct lws *wsi)
 	    (unsigned int)pt->fds_count < context->fd_limit_per_thread - 1)
 		lws_accept_modulation(pt, 1);
 #endif
-	lws_pt_unlock(pt);
 
 	if (wsi->vhost &&
 	    wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_UNLOCK_POLL,

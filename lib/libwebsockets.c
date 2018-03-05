@@ -59,14 +59,14 @@ static const char * const log_level_names[] = {
 #endif
 
 void
-lws_free_wsi(struct lws *wsi)
+__lws_free_wsi(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt;
 	struct allocated_headers *ah;
 
 	if (!wsi)
 		return;
-	
+
 	pt = &wsi->context->pt[(int)wsi->tsi];
 
 	/*
@@ -85,12 +85,11 @@ lws_free_wsi(struct lws *wsi)
 	lwsl_info("ah det due to close\n");
 	/* we're closing, losing some rx is OK */
 	lws_header_table_force_to_detachable_state(wsi);
-	lws_header_table_detach(wsi, 0);
+	__lws_header_table_detach(wsi, 0);
 
 	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
 		wsi->vhost->lserv_wsi = NULL;
 
-	lws_pt_lock(pt, __func__);
 	ah = pt->ah_list;
 	while (ah) {
 		if (ah->in_use && ah->wsi == wsi) {
@@ -123,8 +122,6 @@ lws_free_wsi(struct lws *wsi)
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 #endif
 	__lws_remove_from_timeout_list(wsi);
-
-	lws_pt_unlock(pt);
 
 	lws_libevent_destroy(wsi);
 
@@ -189,17 +186,17 @@ __lws_add_to_timeout_list(struct lws *wsi)
 	*wsi->timeout_list_prev = wsi;
 }
 
-LWS_VISIBLE void
-lws_set_timer(struct lws *wsi, int secs)
+void
+__lws_set_timer(struct lws *wsi, int secs)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+//	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	time_t now;
 
 	if (secs < 0) {
 		wsi->timer_active = 0;
 
 		if (!lws_should_be_on_timeout_list(wsi))
-			lws_remove_from_timeout_list(wsi);
+			__lws_remove_from_timeout_list(wsi);
 
 		return;
 	}
@@ -211,12 +208,19 @@ lws_set_timer(struct lws *wsi, int secs)
 
 	if (!wsi->timer_active) {
 		wsi->timer_active = 1;
-		if (!wsi->pending_timeout) {
-			lws_pt_lock(pt, __func__);
+		if (!wsi->pending_timeout)
 			__lws_add_to_timeout_list(wsi);
-			lws_pt_unlock(pt);
-		}
 	}
+}
+
+LWS_VISIBLE void
+lws_set_timer(struct lws *wsi, int secs)
+{
+	//struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+//	lws_pt_lock(pt, __func__);
+	__lws_set_timer(wsi, secs);
+//	lws_pt_unlock(pt);
 }
 
 void
@@ -377,7 +381,7 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 }
 
 void
-lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
+__lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
 {
 	struct lws_context_per_thread *pt;
 	struct lws *wsi1, *wsi2;
@@ -486,7 +490,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 
 	if (wsi->mode == LWSCM_RAW_FILEDESC) {
 		lws_remove_child_from_any_parent(wsi);
-		remove_wsi_socket_from_fds(wsi);
+		__remove_wsi_socket_from_fds(wsi);
 		wsi->protocol->callback(wsi,
 					LWS_CALLBACK_RAW_CLOSE_FILE,
 					wsi->user_space, NULL, 0);
@@ -772,12 +776,12 @@ just_kill_connection:
 	 * we won't be servicing or receiving anything further from this guy
 	 * delete socket from the internal poll list if still present
 	 */
-	lws_ssl_remove_wsi_from_buffered_list(wsi);
-	lws_remove_from_timeout_list(wsi);
+	__lws_ssl_remove_wsi_from_buffered_list(wsi);
+	__lws_remove_from_timeout_list(wsi);
 
 	/* checking return redundant since we anyway close */
 	if (wsi->desc.sockfd != LWS_SOCK_INVALID)
-		remove_wsi_socket_from_fds(wsi);
+		__remove_wsi_socket_from_fds(wsi);
 	else
 		lws_same_vh_protocol_remove(wsi);
 
@@ -875,11 +879,11 @@ async_close:
 		}
 #endif
 
-	lws_close_free_wsi_final(wsi);
+	__lws_close_free_wsi_final(wsi);
 }
 
 void
-lws_close_free_wsi_final(struct lws *wsi)
+__lws_close_free_wsi_final(struct lws *wsi)
 {
 	int n;
 
@@ -916,7 +920,18 @@ lws_close_free_wsi_final(struct lws *wsi)
 	}
 #endif
 
-	lws_free_wsi(wsi);
+	__lws_free_wsi(wsi);
+}
+
+
+void
+lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	lws_pt_lock(pt, __func__);
+	__lws_close_free_wsi(wsi, reason, caller);
+	lws_pt_unlock(pt);
 }
 
 LWS_VISIBLE LWS_EXTERN const char *

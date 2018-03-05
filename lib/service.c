@@ -611,8 +611,8 @@ bail_die:
 	return -1;
 }
 
-int
-lws_service_timeout_check(struct lws *wsi, time_t sec)
+static int
+__lws_service_timeout_check(struct lws *wsi, time_t sec)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int n = 0;
@@ -638,13 +638,14 @@ lws_service_timeout_check(struct lws *wsi, time_t sec)
 		if (wsi->protocol &&
 		    wsi->protocol->callback(wsi, LWS_CALLBACK_TIMER,
 					    wsi->user_space, NULL, 0)) {
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timer cb errored");
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "timer cb errored");
 
 					return 1;
 		}
 
 		if (!lws_should_be_on_timeout_list(wsi)) {
-			lws_remove_from_timeout_list(wsi);
+			__lws_remove_from_timeout_list(wsi);
 
 			return 0;
 		}
@@ -656,7 +657,7 @@ lws_service_timeout_check(struct lws *wsi, time_t sec)
 	 */
 	if (wsi->pending_timeout &&
 	    lws_compare_time_t(wsi->context, sec, wsi->pending_timeout_set) >
-	    wsi->pending_timeout_limit) {
+			       wsi->pending_timeout_limit) {
 
 		if (wsi->desc.sockfd != LWS_SOCK_INVALID &&
 		    wsi->position_in_fds_table >= 0)
@@ -693,7 +694,7 @@ lws_service_timeout_check(struct lws *wsi, time_t sec)
 				wsi->user_space,
 				(void *)"Timed out waiting SSL", 21);
 
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timeout");
+		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timeout");
 
 		return 1;
 	}
@@ -850,7 +851,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 			 * at the end of the service, he'll get put back on the
 			 * list then.
 			 */
-			lws_ssl_remove_wsi_from_buffered_list(wsi);
+			__lws_ssl_remove_wsi_from_buffered_list(wsi);
 		}
 
 		wsi = wsi_next;
@@ -1133,12 +1134,13 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		 * Phase 1: check every wsi on the timeout check list
 		 */
 
+		lws_pt_lock(pt, __func__);
 		wsi = context->pt[tsi].timeout_list;
 		while (wsi) {
 			/* we have to take copies, because he may be deleted */
 			wsi1 = wsi->timeout_list;
 			tmp_fd = wsi->desc.sockfd;
-			if (lws_service_timeout_check(wsi, now)) {
+			if (__lws_service_timeout_check(wsi, now)) {
 				/* he did time out... */
 				if (tmp_fd == our_fd)
 					/* it was the guy we came to service! */
@@ -1221,10 +1223,12 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 				/* it was the guy we came to service! */
 				timed_out = 1;
 
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "excessive ah");
+			__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "excessive ah");
 
 			ah = pt->ah_list;
 		}
+
+		lws_pt_unlock(pt);
 
 #ifdef LWS_WITH_CGI
 		/*
@@ -1430,6 +1434,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	case LWSCM_SERVER_LISTENER:
 	case LWSCM_SSL_ACK_PENDING:
 	case LWSCM_SSL_ACK_PENDING_RAW:
+
 		if (wsi->state == LWSS_CLIENT_HTTP_ESTABLISHED)
 			goto handled;
 
@@ -1668,7 +1673,7 @@ read:
 					eff_buf.token_len);
 				switch (eff_buf.token_len) {
 				case 0:
-					lwsl_info("%s: zero length read\n",
+					lwsl_notice("%s: zero length read\n",
 						  __func__);
 					goto close_and_handled;
 				case LWS_SSL_CAPABLE_MORE_SERVICE:

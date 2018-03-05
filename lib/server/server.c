@@ -177,7 +177,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		lws_uv_initvhost(vhost, wsi);
 #endif
 
-	if (insert_wsi_socket_into_fds(vhost->context, wsi))
+	if (__insert_wsi_socket_into_fds(vhost->context, wsi))
 		goto bail;
 
 	vhost->context->count_wsi_allocated++;
@@ -189,7 +189,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		lwsl_err("listen failed with error %d\n", LWS_ERRNO);
 		vhost->lserv_wsi = NULL;
 		vhost->context->count_wsi_allocated--;
-		remove_wsi_socket_from_fds(wsi);
+		__remove_wsi_socket_from_fds(wsi);
 		goto bail;
 	}
 	} /* for each thread able to independently listen */
@@ -402,7 +402,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		wsi->http.fop_fd = fops->LWS_FOP_OPEN(wsi->context->fops,
 							path, vpath, &fflags);
 		if (!wsi->http.fop_fd) {
-			lwsl_err("Unable to open '%s'\n", path);
+			lwsl_err("Unable to open '%s': errno %d\n", path, errno);
 
 			return -1;
 		}
@@ -2096,10 +2096,13 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	lws_libevent_accept(new_wsi, new_wsi->desc);
 
 	if (!ssl) {
-		if (insert_wsi_socket_into_fds(context, new_wsi)) {
+		lws_pt_lock(pt, __func__);
+		if (__insert_wsi_socket_into_fds(context, new_wsi)) {
+			lws_pt_unlock(pt);
 			lwsl_err("%s: fail inserting socket\n", __func__);
 			goto fail;
 		}
+		lws_pt_unlock(pt);
 	} else
 		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd)) {
 			lwsl_info("%s: fail ssl negotiation\n", __func__);
@@ -2340,6 +2343,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					ah->rxlen = lws_ssl_capable_read(wsi, ah->rx,
 						   sizeof(ah->rx));
 				}
+
 				ah->rxpos = 0;
 				switch (ah->rxlen) {
 				case 0:
@@ -2347,8 +2351,9 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 						   __func__);
 					wsi->seen_zero_length_recv = 1;
 					lws_change_pollfd(wsi, LWS_POLLIN, 0);
-					goto try_pollout;
-					/* fallthru */
+					// goto try_pollout;
+					goto fail;
+
 				case LWS_SSL_CAPABLE_ERROR:
 					goto fail;
 				case LWS_SSL_CAPABLE_MORE_SERVICE:
@@ -2742,7 +2747,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		wsi->http.fop_fd = fops->LWS_FOP_OPEN(wsi->context->fops,
 							file, vpath, &fflags);
 		if (!wsi->http.fop_fd) {
-			lwsl_err("Unable to open '%s'\n", file);
+			lwsl_err("Unable to open '%s': errno %d\n", file, errno);
 
 			return -1;
 		}

@@ -245,7 +245,7 @@ lws_client_connect_2(struct lws *wsi)
 		lws_libuv_accept(wsi, wsi->desc);
 		lws_libevent_accept(wsi, wsi->desc);
 
-		if (insert_wsi_socket_into_fds(context, wsi)) {
+		if (__insert_wsi_socket_into_fds(context, wsi)) {
 			compatible_close(wsi->desc.sockfd);
 			cce = "insert wsi failed";
 			goto oom4;
@@ -502,7 +502,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	compatible_close(wsi->desc.sockfd);
 #endif
 
-	remove_wsi_socket_from_fds(wsi);
+	__remove_wsi_socket_from_fds(wsi);
 
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = ssl;

@@ -339,7 +339,7 @@ lws_header_table_is_in_detachable_state(struct lws *wsi)
 	return ah && ah->rxpos == ah->rxlen && wsi->hdr_parsing_completed;
 }
 
-int lws_header_table_detach(struct lws *wsi, int autoservice)
+int __lws_header_table_detach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->context;
 	struct allocated_headers *ah = wsi->ah;
@@ -348,9 +348,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	struct lws **pwsi, **pwsi_eligible;
 	time_t now;
 
-	lws_pt_lock(pt, __func__);
 	__lws_remove_from_ah_waiting_list(wsi);
-	lws_pt_unlock(pt);
 
 	if (!ah)
 		return 0;
@@ -371,8 +369,6 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 			 ah->rxpos, ah->rxlen, wsi->hdr_parsing_completed);
 		return 0;
 	}
-
-	lws_pt_lock(pt, __func__);
 
 	/* we did have an ah attached */
 	time(&now);
@@ -485,8 +481,6 @@ bail:
 	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
 		  (void *)wsi, (void *)ah, pt->tid, pt->ah_count_in_use);
 
-	lws_pt_unlock(pt);
-
 	return 0;
 
 nobody_usable_waiting:
@@ -495,6 +489,19 @@ nobody_usable_waiting:
 	pt->ah_count_in_use--;
 
 	goto bail;
+}
+
+int lws_header_table_detach(struct lws *wsi, int autoservice)
+{
+	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	int n;
+
+	lws_pt_lock(pt, __func__);
+	n = __lws_header_table_detach(wsi, autoservice);
+	lws_pt_unlock(pt);
+
+	return n;
 }
 
 LWS_VISIBLE int
