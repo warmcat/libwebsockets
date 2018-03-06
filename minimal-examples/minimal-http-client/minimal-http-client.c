@@ -84,7 +84,8 @@ int main(int argc, char **argv)
 	struct lws_context *context;
 	int n = 0;
 
-	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER, NULL);
+	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER
+			/* | LLL_INFO */ /* | LLL_DEBUG */, NULL);
 	lwsl_user("LWS minimal http client\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */

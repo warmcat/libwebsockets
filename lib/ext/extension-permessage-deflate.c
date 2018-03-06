@@ -1,7 +1,7 @@
 /*
  * ./lib/extension-permessage-deflate.c
  *
- *  Copyright (C) 2016 Andy Green <andy@warmcat.com>
+ *  Copyright (C) 2016 - 2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -83,7 +83,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		if (!oa->option_name)
 			break;
 		for (n = 0; n < (int)ARRAY_SIZE(lws_ext_pm_deflate_options); n++)
-			if (!strcmp(lws_ext_pm_deflate_options[n].name, oa->option_name))
+			if (!strcmp(lws_ext_pm_deflate_options[n].name,
+				    oa->option_name))
 				break;
 
 		if (n == (int)ARRAY_SIZE(lws_ext_pm_deflate_options))
@@ -123,8 +124,9 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			n = (int)wsi->protocol->rx_buffer_size;
 
 		if (n < 128) {
-			lwsl_info(" permessage-deflate requires the protocol (%s) to have an RX buffer >= 128\n",
-					wsi->protocol->name);
+			lwsl_info(" permessage-deflate requires the protocol "
+				  "(%s) to have an RX buffer >= 128\n",
+				  wsi->protocol->name);
 			return -1;
 		}
 
@@ -186,14 +188,16 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		printf("\n");
 #endif
 		if (!priv->rx_init)
-			if (inflateInit2(&priv->rx, -priv->args[PMD_SERVER_MAX_WINDOW_BITS]) != Z_OK) {
+			if (inflateInit2(&priv->rx,
+			     -priv->args[PMD_SERVER_MAX_WINDOW_BITS]) != Z_OK) {
 				lwsl_err("%s: iniflateInit failed\n", __func__);
 				return -1;
 			}
 		priv->rx_init = 1;
 		if (!priv->buf_rx_inflated)
 			priv->buf_rx_inflated = lws_malloc(LWS_PRE + 7 + 5 +
-					    (1 << priv->args[PMD_RX_BUF_PWR2]), "pmd rx inflate buf");
+					    (1 << priv->args[PMD_RX_BUF_PWR2]),
+					    "pmd rx inflate buf");
 		if (!priv->buf_rx_inflated) {
 			lwsl_err("%s: OOM\n", __func__);
 			return -1;
@@ -205,7 +209,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * rx buffer by the caller, so this assumption is safe while
 		 * we block new rx while draining the existing rx
 		 */
-		if (!priv->rx.avail_in && eff_buf->token && eff_buf->token_len) {
+		if (!priv->rx.avail_in && eff_buf->token &&
+		    eff_buf->token_len) {
 			priv->rx.next_in = (unsigned char *)eff_buf->token;
 			priv->rx.avail_in = eff_buf->token_len;
 		}
@@ -266,8 +271,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			priv->rx.next_in = trail;
 			priv->rx.avail_in = sizeof(trail);
 			n = inflate(&priv->rx, Z_SYNC_FLUSH);
-			lwsl_ext("RX trailer inf returned %d, avi %d, avo %d\n", n,
-				 priv->rx.avail_in, priv->rx.avail_out);
+			lwsl_ext("RX trailer inf returned %d, avi %d, avo %d\n",
+				 n, priv->rx.avail_in, priv->rx.avail_out);
 			switch (n) {
 			case Z_NEED_DICT:
 			case Z_STREAM_ERROR:
@@ -302,7 +307,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			priv->rx_held_valid = 1;
 		}
 
-		eff_buf->token_len = lws_ptr_diff(priv->rx.next_out, eff_buf->token);
+		eff_buf->token_len = lws_ptr_diff(priv->rx.next_out,
+						  eff_buf->token);
 		priv->count_rx_between_fin += eff_buf->token_len;
 
 		lwsl_ext("  %s: RX leaving with new effbuff len %d, "
@@ -343,7 +349,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		priv->tx_init = 1;
 		if (!priv->buf_tx_deflated)
 			priv->buf_tx_deflated = lws_malloc(LWS_PRE + 7 + 5 +
-					    (1 << priv->args[PMD_TX_BUF_PWR2]), "pmd tx deflate buf");
+					    (1 << priv->args[PMD_TX_BUF_PWR2]),
+					    "pmd tx deflate buf");
 		if (!priv->buf_tx_deflated) {
 			lwsl_err("%s: OOM\n", __func__);
 			return -1;

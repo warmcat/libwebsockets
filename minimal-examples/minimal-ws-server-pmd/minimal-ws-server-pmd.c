@@ -1,5 +1,5 @@
 /*
- * lws-minimal-http-server
+ * lws-minimal-ws-server
  *
  * Copyright (C) 2018 Andy Green <andy@warmcat.com>
  *
@@ -15,6 +15,15 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+
+#define LWS_PLUGIN_STATIC
+#include "protocol_lws_minimal.c"
+
+static struct lws_protocols protocols[] = {
+	{ "http", lws_callback_http_dummy, 0, 0 },
+	LWS_PLUGIN_PROTOCOL_MINIMAL,
+	{ NULL, NULL, 0, 0 } /* terminator */
+};
 
 static int interrupted;
 
@@ -38,6 +47,17 @@ static const struct lws_http_mount mount = {
 	/* .basic_auth_login_file */	NULL,
 };
 
+static const struct lws_extension extensions[] = {
+	{
+		"permessage-deflate",
+		lws_extension_callback_pm_deflate,
+		"permessage-deflate"
+		 "; client_no_context_takeover"
+		 "; client_max_window_bits"
+	},
+	{ NULL, NULL, NULL /* terminator */ }
+};
+
 void sigint_handler(int sig)
 {
 	interrupted = 1;
@@ -54,11 +74,13 @@ int main(int argc, char **argv)
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
 	info.mounts = &mount;
+	info.protocols = protocols;
+	info.extensions = extensions;
 
 	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER
 			/* | LLL_INFO */ /* | LLL_DEBUG */, NULL);
 
-	lwsl_user("LWS minimal http server | visit http://localhost:7681\n");
+	lwsl_user("LWS minimal ws server + permessage-deflate | visit http://localhost:7681\n");
 
 	context = lws_create_context(&info);
 	if (!context) {
