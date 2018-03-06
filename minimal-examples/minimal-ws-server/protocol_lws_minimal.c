@@ -63,13 +63,12 @@ static int
 callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
-	struct per_session_data__minimal **ppss, *pss =
+	struct per_session_data__minimal *pss =
 			(struct per_session_data__minimal *)user;
 	struct per_vhost_data__minimal *vhd =
 			(struct per_vhost_data__minimal *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
-	uint32_t oldest;
 	int n, m;
 
 	switch (reason) {
@@ -111,8 +110,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		/* notice we allowed for LWS_PRE in the payload already */
 		m = lws_write(wsi, vhd->amsg.payload + LWS_PRE, vhd->amsg.len,
 			      LWS_WRITE_TEXT);
-		if (m < vhd->amsg.len) {
-			lwsl_err("ERROR %d writing to di socket\n", n);
+		if (m < (int)vhd->amsg.len) {
+			lwsl_err("ERROR %d writing to ws\n", n);
 			return -1;
 		}
 

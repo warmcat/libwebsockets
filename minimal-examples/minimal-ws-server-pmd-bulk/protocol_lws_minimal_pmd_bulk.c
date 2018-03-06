@@ -53,79 +53,37 @@ static const char * const redundant_string =
 /* this is how much we will send each time the connection is writable */
 #define MESSAGE_CHUNK_SIZE (1 * 1024)
 
-
 /* one of these is created for each client connecting to us */
 
 struct per_session_data__minimal_pmd_bulk {
-	struct per_session_data__minimal_pmd_bulk *pss_list;
-	struct lws *wsi;
 	int position; /* byte position we got up to sending the message */
 	uint64_t rng;
-};
-
-/* one of these is created for each vhost our protocol is used with */
-
-struct per_vhost_data__minimal_pmd_bulk {
-	struct lws_context *context;
-	struct lws_vhost *vhost;
-	const struct lws_protocols *protocol;
-
-	/* linked-list of live pss */
-	struct per_session_data__minimal_pmd_bulk *pss_list;
 };
 
 static int
 callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 			  void *user, void *in, size_t len)
 {
-	struct per_session_data__minimal_pmd_bulk **ppss, *pss =
+	struct per_session_data__minimal_pmd_bulk *pss =
 			(struct per_session_data__minimal_pmd_bulk *)user;
-	struct per_vhost_data__minimal_pmd_bulk *vhd =
-			(struct per_vhost_data__minimal_pmd_bulk *)
-			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
-					lws_get_protocol(wsi));
 	uint8_t buf[LWS_PRE + MESSAGE_CHUNK_SIZE], *p;
-	uint32_t oldest;
-	int n, m, s, msg_flag = LWS_WRITE_CONTINUATION;
+	int n, m, msg_flag;
 
 	switch (reason) {
-	case LWS_CALLBACK_PROTOCOL_INIT:
-		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
-				lws_get_protocol(wsi),
-				sizeof(struct per_vhost_data__minimal_pmd_bulk));
-		vhd->context = lws_get_context(wsi);
-		vhd->protocol = lws_get_protocol(wsi);
-		vhd->vhost = lws_get_vhost(wsi);
-		break;
-
 	case LWS_CALLBACK_ESTABLISHED:
-		/* add ourselves to the list of live pss held in the vhd */
-		pss->pss_list = vhd->pss_list;
-		vhd->pss_list = pss;
-		pss->wsi = wsi;
 		pss->position = 0;
 		pss->rng = 4;
 		lws_callback_on_writable(wsi);
 		break;
 
-	case LWS_CALLBACK_CLOSED:
-		/* remove our closing pss from the list of live pss */
-		lws_start_foreach_llp(struct per_session_data__minimal_pmd_bulk **,
-				      ppss, vhd->pss_list) {
-			if (*ppss == pss) {
-				*ppss = pss->pss_list;
-				break;
-			}
-		} lws_end_foreach_llp(ppss, pss_list);
-		break;
-
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-
 		if (pss->position == MESSAGE_SIZE)
 			break;
 
-		if (pss->position == 0)
+		if (!pss->position)
 			msg_flag = LWS_WRITE_TEXT;
+		else
+			msg_flag = LWS_WRITE_CONTINUATION;
 
 		/* fill up one chunk's worth of message content */
 
@@ -162,16 +120,12 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 
 		n = lws_ptr_diff(p, &buf[LWS_PRE]);
 		m = lws_write(wsi, &buf[LWS_PRE], n, msg_flag);
-		lwsl_notice("write done\n");
 		if (m < n) {
-			lwsl_err("ERROR %d writing to di socket\n", n);
+			lwsl_err("ERROR %d writing ws\n", n);
 			return -1;
 		}
 		if (pss->position != MESSAGE_SIZE) /* if more to do... */
 			lws_callback_on_writable(wsi);
-		break;
-
-	case LWS_CALLBACK_RECEIVE:
 		break;
 
 	default:

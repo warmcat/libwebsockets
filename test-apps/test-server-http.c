@@ -219,10 +219,10 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 						     WSI_TOKEN_HTTP_URI_ARGS, n) > 0) {
 				lwsl_notice("URI Arg %d: %s\n", ++n, buf);
 			}
-		}
 
-		if (lws_get_peer_simple(wsi, buf, sizeof(buf)))
-			lwsl_info("HTTP connect from %s\n", buf);
+			if (lws_get_peer_simple(wsi, buf, sizeof(buf)))
+				lwsl_info("HTTP connect from %s\n", buf);
+		}
 
 		if (len < 1) {
 			lws_return_http_status(wsi,
