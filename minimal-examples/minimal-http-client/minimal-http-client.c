@@ -21,8 +21,6 @@ static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
-	const char *p = in;
-
 	switch (reason) {
 
 	/* because we are protocols[0] ... */
@@ -36,11 +34,15 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
 #if 0  /* enable to dump the html */
-		while (len--)
-			if (*p < 0x7f)
-				putchar(*p++);
-			else
-				putchar('.');
+		{
+			const char *p = in;
+
+			while (len--)
+				if (*p < 0x7f)
+					putchar(*p++);
+				else
+					putchar('.');
+		}
 #endif
 		return 0; /* don't passthru */
 
