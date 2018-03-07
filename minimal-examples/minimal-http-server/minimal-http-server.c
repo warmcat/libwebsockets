@@ -54,6 +54,7 @@ int main(int argc, char **argv)
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
 	info.mounts = &mount;
+	info.error_document_404 = "/404.html";
 
 	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER
 			/* | LLL_INFO */ /* | LLL_DEBUG */, NULL);

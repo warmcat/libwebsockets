@@ -965,6 +965,7 @@ struct lws_vhost {
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocol_vhost_options *headers;
 	struct lws **same_vh_protocol_list;
+	const char *error_document_404;
 #ifdef LWS_OPENSSL_SUPPORT
 	lws_tls_ctx *ssl_ctx;
 	lws_tls_ctx *ssl_client_ctx;
@@ -1951,6 +1952,7 @@ struct lws {
 	unsigned int rxflow_will_be_applied:1;
 	unsigned int event_pipe:1;
 	unsigned int on_same_vh_list:1;
+	unsigned int handling_404;
 
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
 

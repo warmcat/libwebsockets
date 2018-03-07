@@ -233,6 +233,20 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	int n = 0, m = 0, len;
 	char slen[20];
 
+	if (wsi->vhost &&
+	    !wsi->handling_404 &&
+	    wsi->vhost->error_document_404 &&
+	    code == HTTP_STATUS_NOT_FOUND)
+		/* we should do a redirect, and do the 404 there */
+		if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,
+				       (uint8_t *)wsi->vhost->error_document_404,
+				       strlen(wsi->vhost->error_document_404),
+				       &p, end) > 0)
+			return 0;
+
+	/* if the redirect failed, just do a simple status */
+	p = start;
+
 	if (!html_body)
 		html_body = "";
 
