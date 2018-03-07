@@ -1495,7 +1495,7 @@ again:
 		/* CHRQ pty-req */
 
 		case SSHS_NVC_CHRQ_TERM:
-			strncpy(pss->args.pty.term, pss->name,
+			memcpy(pss->args.pty.term, pss->name,
 				sizeof(pss->args.pty.term) - 1);
 			state_get_u32(pss, SSHS_NVC_CHRQ_TW);
 			break;
@@ -1975,7 +1975,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 	struct per_session_data__sshd *pss =
 			(struct per_session_data__sshd *)user, **p;
 	struct per_vhost_data__sshd *vhd = NULL;
-	uint8_t buf[LWS_PRE + 1024], *pp, *ps = &buf[LWS_PRE + 512];
+	uint8_t buf[LWS_PRE + 1024], *pp, *ps = &buf[LWS_PRE + 512], *ps1 = NULL;
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocols *prot;
 	struct lws_ssh_channel *ch;
@@ -2233,13 +2233,13 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_notice("pubkey too large\n");
 				goto bail;
 			}
-			ps = sshd_zalloc(n);
-			if (!ps)
+			ps1 = sshd_zalloc(n);
+			if (!ps1)
 				goto bail;
-			pp = ps + 5;
+			pp = ps1 + 5;
 			*pp++ = SSH_MSG_USERAUTH_PK_OK;
 			if (lws_cstr(&pp, pss->ua->alg, 64)) {
-				free(ps);
+				free(ps1);
 				goto bail;
 			}
 			lws_p32(pp, pss->ua->pubkey_len);
@@ -2451,7 +2451,7 @@ bail:
 					lws_kex_destroy(pss);
 				break;
 			case SSH_WT_UA_PK_OK:
-				free(ps);
+				free(ps1);
 				break;
 			case SSH_WT_CH_CLOSE:
 				if (ch->received_close) {
@@ -2480,7 +2480,7 @@ bail:
 					(pss->wt_tail + 1) & 7;
 		} else
 			if (o == SSH_WT_UA_PK_OK) /* free it either way */
-				free(ps);
+				free(ps1);
 
 		ch = ssh_get_server_ch(pss, 0);
 

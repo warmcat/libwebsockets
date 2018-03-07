@@ -386,6 +386,13 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 #endif
 	int n;
 
+	lwsl_notice("uri %s\n", uri);
+
+	wsi->handling_404 = 0;
+	if (wsi->vhost && wsi->vhost->error_document_404 &&
+	    !strcmp(uri, wsi->vhost->error_document_404))
+		wsi->handling_404 = 1;
+
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
 #if !defined(_WIN32_WCE)
@@ -2735,6 +2742,9 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 #endif
 	const struct lws_plat_file_ops *fops;
 	const char *vpath;
+
+	if (wsi->handling_404)
+		n = HTTP_STATUS_NOT_FOUND;
 
 	/*
 	 * We either call the platform fops .open with first arg platform fops,

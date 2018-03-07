@@ -2850,6 +2850,10 @@ struct lws_context_creation_info {
 	 *	      platform default values.
 	 *	      Just leave all at 0 if you don't care.
 	 */
+	const char *error_document_404;
+	/**< VHOST: If non-NULL, when asked to serve a non-existent file,
+	 *          lws attempts to server this url path instead.  Eg,
+	 *          "/404.html" */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
