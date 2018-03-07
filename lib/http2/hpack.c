@@ -779,7 +779,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 	struct allocated_headers *ah = wsi->ah;
 	unsigned int prev;
 	unsigned char c1;
-	int n, m;
+	int n, m, plen;
 
 	if (!h2n)
 		return -1;
@@ -1138,7 +1138,9 @@ pre_data:
 						"Uppercase literal hpack hdr");
 					return 1;
 				}
-				if (!h2n->unknown_header && lws_parse(wsi, c1))
+				plen = 1;
+				if (!h2n->unknown_header &&
+				    lws_parse(wsi, &c1, &plen))
 					h2n->unknown_header = 1;
 			}
 swallow:
@@ -1172,7 +1174,9 @@ swallow:
 
 			if (ah->parser_state == WSI_TOKEN_NAME_PART) {
 				/* h2 headers come without the colon */
-				n = lws_parse(wsi, ':');
+				c1 = ':';
+				plen = 1;
+				n = lws_parse(wsi, &c1, &plen);
 				(void)n;
 			}
 

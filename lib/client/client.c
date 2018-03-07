@@ -393,6 +393,8 @@ client_http_body_sent:
 		len = 1;
 		while (wsi->ah->parser_state != WSI_PARSING_COMPLETE &&
 		       len > 0) {
+			int plen = 1;
+
 			n = lws_ssl_capable_read(wsi, &c, 1);
 			lws_latency(context, wsi, "send lws_issue_raw", n,
 				    n == 1);
@@ -405,7 +407,7 @@ client_http_body_sent:
 				return 0;
 			}
 
-			if (lws_parse(wsi, c)) {
+			if (lws_parse(wsi, &c, &plen)) {
 				lwsl_warn("problems parsing header\n");
 				goto bail3;
 			}
@@ -882,6 +884,7 @@ check_extensions:
 		/* old first guy points back to us now */
 		wsi->same_vh_protocol_next->same_vh_protocol_prev =
 				&wsi->same_vh_protocol_next;
+	wsi->on_same_vh_list = 1;
 
 	lws_vhost_unlock(wsi->vhost);
 

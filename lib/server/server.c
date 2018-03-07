@@ -1320,7 +1320,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int protocol_len, n = 0, hit, non_space_char_found = 0, m;
+	int protocol_len, n = 0, hit, non_space_char_found = 0, m, i;
 	unsigned char *obuf = *buf;
 	char protocol_list[128];
 	char protocol_name[64];
@@ -1337,7 +1337,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		assert(0);
 	}
 
-	while (len--) {
+	while (len) {
 		if (wsi->mode != LWSCM_HTTP_SERVING &&
 		    wsi->mode != LWSCM_HTTP2_SERVING &&
 		    wsi->mode != LWSCM_HTTP_SERVING_ACCEPTED) {
@@ -1345,7 +1345,9 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 			goto bail_nuke_ah;
 		}
 
-		m = lws_parse(wsi, *(*buf)++);
+		i = (int)len;
+		m = lws_parse(wsi, *buf, &i);
+		(*buf) += (int)len - i;
 		if (m) {
 			if (m == 2) {
 				/*

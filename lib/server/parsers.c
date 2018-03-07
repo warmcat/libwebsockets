@@ -21,44 +21,11 @@
 
 #include "private-libwebsockets.h"
 
-const unsigned char lextable[] = {
+static const unsigned char lextable[] = {
 	#include "lextable.h"
 };
 
 #define FAIL_CHAR 0x08
-
-int LWS_WARN_UNUSED_RESULT
-lextable_decode(int pos, char c)
-{
-	if (c >= 'A' && c <= 'Z')
-		c += 'a' - 'A';
-
-	while (1) {
-		if (lextable[pos] & (1 << 7)) { /* 1-byte, fail on mismatch */
-			if ((lextable[pos] & 0x7f) != c)
-				return -1;
-			/* fall thru */
-			pos++;
-			if (lextable[pos] == FAIL_CHAR)
-				return -1;
-			return pos;
-		}
-
-		if (lextable[pos] == FAIL_CHAR)
-			return -1;
-
-		/* b7 = 0, end or 3-byte */
-		if (lextable[pos] < FAIL_CHAR) /* terminal marker */
-			return pos;
-
-		if (lextable[pos] == c) /* goto */
-			return pos + (lextable[pos + 1]) +
-						(lextable[pos + 2] << 8);
-		/* fall thru goto */
-		pos += 3;
-		/* continue */
-	}
-}
 
 static struct allocated_headers *
 _lws_create_ah(struct lws_context_per_thread *pt, ah_data_idx_t data_size)
@@ -241,13 +208,13 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 		  (void *)wsi, (void *)wsi->ah, wsi->tsi,
 		  pt->ah_count_in_use);
 
+	lws_pt_lock(pt, __func__);
+
 	/* if we are already bound to one, just clear it down */
 	if (wsi->ah) {
 		lwsl_info("%s: cleardown\n", __func__);
 		goto reset;
 	}
-
-	lws_pt_lock(pt, __func__);
 
 	n = pt->ah_count_in_use == context->max_http_header_pool;
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -294,8 +261,6 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	lwsl_info("%s: did attach wsi %p: ah %p: count %d (on exit)\n", __func__,
 		  (void *)wsi, (void *)wsi->ah, pt->ah_count_in_use);
 
-	lws_pt_unlock(pt);
-
 reset:
 
 	/* and reset the rx state */
@@ -303,6 +268,8 @@ reset:
 	wsi->ah->rxlen = 0;
 
 	__lws_header_table_reset(wsi, autoservice);
+
+	lws_pt_unlock(pt);
 
 #ifndef LWS_NO_CLIENT
 	if (wsi->state == LWSS_CLIENT_UNCONNECTED)
@@ -615,7 +582,7 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 	return wsi->ah->data + wsi->ah->frags[n].offset;
 }
 
-int LWS_WARN_UNUSED_RESULT
+static int LWS_WARN_UNUSED_RESULT
 lws_pos_in_bounds(struct lws *wsi)
 {
 	if (wsi->ah->pos <
@@ -915,244 +882,295 @@ static const unsigned char methods[] = {
 	WSI_TOKEN_HEAD_URI,
 };
 
+/*
+ * possible returns:, -1 fail, 0 ok or 2, transition to raw
+ */
+
 int LWS_WARN_UNUSED_RESULT
-lws_parse(struct lws *wsi, unsigned char c)
+lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 {
 	struct allocated_headers *ah = wsi->ah;
 	struct lws_context *context = wsi->context;
 	unsigned int n, m;
-	int r;
+	unsigned char c;
+	int r, pos;
 
 	assert(wsi->ah);
 
-	switch (ah->parser_state) {
-	default:
+	do {
+		(*len)--;
+		c = *buf++;
 
-		lwsl_parser("WSI_TOK_(%d) '%c'\n", ah->parser_state, c);
+		switch (ah->parser_state) {
+		default:
 
-		/* collect into malloc'd buffers */
-		/* optional initial space swallow */
-		if (!ah->frags[ah->frag_index[ah->parser_state]].len &&
-		    c == ' ')
-			break;
+			lwsl_parser("WSI_TOK_(%d) '%c'\n", ah->parser_state, c);
 
-		for (m = 0; m < ARRAY_SIZE(methods); m++)
-			if (ah->parser_state == methods[m])
+			/* collect into malloc'd buffers */
+			/* optional initial space swallow */
+			if (!ah->frags[ah->frag_index[ah->parser_state]].len &&
+			    c == ' ')
 				break;
-		if (m == ARRAY_SIZE(methods))
-			/* it was not any of the methods */
-			goto check_eol;
 
-		/* special URI processing... end at space */
+			for (m = 0; m < ARRAY_SIZE(methods); m++)
+				if (ah->parser_state == methods[m])
+					break;
+			if (m == ARRAY_SIZE(methods))
+				/* it was not any of the methods */
+				goto check_eol;
 
-		if (c == ' ') {
-			/* enforce starting with / */
-			if (!ah->frags[ah->nfrag].len)
-				if (issue_char(wsi, '/') < 0)
-					return -1;
+			/* special URI processing... end at space */
 
-			if (ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
-				/*
-				 * back up one dir level if possible
-				 * safe against header fragmentation because
-				 * the method URI can only be in 1 fragment
-				 */
-				if (ah->frags[ah->nfrag].len > 2) {
-					ah->pos--;
-					ah->frags[ah->nfrag].len--;
-					do {
+			if (c == ' ') {
+				/* enforce starting with / */
+				if (!ah->frags[ah->nfrag].len)
+					if (issue_char(wsi, '/') < 0)
+						return -1;
+
+				if (ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
+					/*
+					 * back up one dir level if possible
+					 * safe against header fragmentation because
+					 * the method URI can only be in 1 fragment
+					 */
+					if (ah->frags[ah->nfrag].len > 2) {
 						ah->pos--;
 						ah->frags[ah->nfrag].len--;
-					} while (ah->frags[ah->nfrag].len > 1 &&
-						 ah->data[ah->pos] != '/');
+						do {
+							ah->pos--;
+							ah->frags[ah->nfrag].len--;
+						} while (ah->frags[ah->nfrag].len > 1 &&
+							 ah->data[ah->pos] != '/');
+					}
 				}
+
+				/* begin parsing HTTP version: */
+				if (issue_char(wsi, '\0') < 0)
+					return -1;
+				ah->parser_state = WSI_TOKEN_HTTP;
+				goto start_fragment;
 			}
 
-			/* begin parsing HTTP version: */
-			if (issue_char(wsi, '\0') < 0)
-				return -1;
-			ah->parser_state = WSI_TOKEN_HTTP;
-			goto start_fragment;
-		}
-
-		r = lws_parse_urldecode(wsi, &c);
-		switch (r) {
-		case LPUR_CONTINUE:
-			break;
-		case LPUR_SWALLOW:
-			goto swallow;
-		case LPUR_FORBID:
-			goto forbid;
-		case LPUR_EXCESSIVE:
-			goto excessive;
-		default:
-			return -1;
-		}
-check_eol:
-		/* bail at EOL */
-		if (ah->parser_state != WSI_TOKEN_CHALLENGE &&
-		    c == '\x0d') {
-			if (ah->ues != URIES_IDLE)
+			r = lws_parse_urldecode(wsi, &c);
+			switch (r) {
+			case LPUR_CONTINUE:
+				break;
+			case LPUR_SWALLOW:
+				goto swallow;
+			case LPUR_FORBID:
 				goto forbid;
+			case LPUR_EXCESSIVE:
+				goto excessive;
+			default:
+				return -1;
+			}
+check_eol:
+			/* bail at EOL */
+			if (ah->parser_state != WSI_TOKEN_CHALLENGE &&
+			    c == '\x0d') {
+				if (ah->ues != URIES_IDLE)
+					goto forbid;
 
-			c = '\0';
-			ah->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
-			lwsl_parser("*\n");
-		}
+				c = '\0';
+				ah->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
+				lwsl_parser("*\n");
+			}
 
-		n = issue_char(wsi, c);
-		if ((int)n < 0)
-			return -1;
-		if (n > 0)
-			ah->parser_state = WSI_TOKEN_SKIPPING;
+			n = issue_char(wsi, c);
+			if ((int)n < 0)
+				return -1;
+			if (n > 0)
+				ah->parser_state = WSI_TOKEN_SKIPPING;
 
 swallow:
-		/* per-protocol end of headers management */
-
-		if (ah->parser_state == WSI_TOKEN_CHALLENGE)
-			goto set_parsing_complete;
-		break;
-
-		/* collecting and checking a name part */
-	case WSI_TOKEN_NAME_PART:
-		lwsl_parser("WSI_TOKEN_NAME_PART '%c' 0x%02X (mode=%d) "
-			    "wsi->lextable_pos=%d\n", c, c, wsi->mode,
-			    ah->lextable_pos);
-
-		ah->lextable_pos = lextable_decode(ah->lextable_pos, c);
-		/*
-		 * Server needs to look out for unknown methods...
-		 */
-		if (ah->lextable_pos < 0 &&
-		    (wsi->mode == LWSCM_HTTP_SERVING)) {
-			/* this is not a header we know about */
-			for (m = 0; m < ARRAY_SIZE(methods); m++)
-				if (ah->frag_index[methods[m]]) {
-					/*
-					 * already had the method, no idea what
-					 * this crap from the client is, ignore
-					 */
-					ah->parser_state = WSI_TOKEN_SKIPPING;
-					break;
-				}
-			/*
-			 * hm it's an unknown http method from a client in fact,
-			 * it cannot be valid http
-			 */
-			if (m == ARRAY_SIZE(methods)) {
-				/*
-				 * are we set up to accept raw in these cases?
-				 */
-				if (lws_check_opt(wsi->vhost->options,
-					   LWS_SERVER_OPTION_FALLBACK_TO_RAW))
-					return 2; /* transition to raw */
-
-				lwsl_info("Unknown method - dropping\n");
-				goto forbid;
-			}
-			break;
-		}
-		/*
-		 * ...otherwise for a client, let him ignore unknown headers
-		 * coming from the server
-		 */
-		if (ah->lextable_pos < 0) {
-			ah->parser_state = WSI_TOKEN_SKIPPING;
-			break;
-		}
-
-		if (lextable[ah->lextable_pos] < FAIL_CHAR) {
-			/* terminal state */
-
-			n = ((unsigned int)lextable[ah->lextable_pos] << 8) |
-					lextable[ah->lextable_pos + 1];
-
-			lwsl_parser("known hdr %d\n", n);
-			for (m = 0; m < ARRAY_SIZE(methods); m++)
-				if (n == methods[m] &&
-				    ah->frag_index[methods[m]]) {
-					lwsl_warn("Duplicated method\n");
-					return -1;
-				}
-
-			/*
-			 * WSORIGIN is protocol equiv to ORIGIN,
-			 * JWebSocket likes to send it, map to ORIGIN
-			 */
-			if (n == WSI_TOKEN_SWORIGIN)
-				n = WSI_TOKEN_ORIGIN;
-
-			ah->parser_state = (enum lws_token_indexes)
-							(WSI_TOKEN_GET_URI + n);
-			ah->ups = URIPS_IDLE;
-
-			if (context->token_limits)
-				ah->current_token_limit = context->
-						token_limits->token_limit[
-					                      ah->parser_state];
-			else
-				ah->current_token_limit =
-					wsi->context->max_http_header_data;
+			/* per-protocol end of headers management */
 
 			if (ah->parser_state == WSI_TOKEN_CHALLENGE)
 				goto set_parsing_complete;
+			break;
 
-			goto start_fragment;
-		}
-		break;
+			/* collecting and checking a name part */
+		case WSI_TOKEN_NAME_PART:
+			lwsl_parser("WSI_TOKEN_NAME_PART '%c' 0x%02X (mode=%d) "
+				    "wsi->lextable_pos=%d\n", c, c, wsi->mode,
+				    ah->lextable_pos);
+
+			if (c >= 'A' && c <= 'Z')
+				c += 'a' - 'A';
+
+			pos = ah->lextable_pos;
+
+			while (1) {
+				if (lextable[pos] & (1 << 7)) { /* 1-byte, fail on mismatch */
+					if ((lextable[pos] & 0x7f) != c) {
+nope:
+						ah->lextable_pos = -1;
+						break;
+					}
+					/* fall thru */
+					pos++;
+					if (lextable[pos] == FAIL_CHAR)
+						goto nope;
+
+					ah->lextable_pos = pos;
+					break;
+				}
+
+				if (lextable[pos] == FAIL_CHAR)
+					goto nope;
+
+				/* b7 = 0, end or 3-byte */
+				if (lextable[pos] < FAIL_CHAR) { /* terminal marker */
+					ah->lextable_pos = pos;
+					break;
+				}
+
+				if (lextable[pos] == c) { /* goto */
+					ah->lextable_pos = pos + (lextable[pos + 1]) +
+							(lextable[pos + 2] << 8);
+					break;
+				}
+
+				/* fall thru goto */
+				pos += 3;
+				/* continue */
+			}
+
+			/*
+			 * Server needs to look out for unknown methods...
+			 */
+			if (ah->lextable_pos < 0 &&
+			    (wsi->mode == LWSCM_HTTP_SERVING)) {
+				/* this is not a header we know about */
+				for (m = 0; m < ARRAY_SIZE(methods); m++)
+					if (ah->frag_index[methods[m]]) {
+						/*
+						 * already had the method, no idea what
+						 * this crap from the client is, ignore
+						 */
+						ah->parser_state = WSI_TOKEN_SKIPPING;
+						break;
+					}
+				/*
+				 * hm it's an unknown http method from a client in fact,
+				 * it cannot be valid http
+				 */
+				if (m == ARRAY_SIZE(methods)) {
+					/*
+					 * are we set up to accept raw in these cases?
+					 */
+					if (lws_check_opt(wsi->vhost->options,
+						   LWS_SERVER_OPTION_FALLBACK_TO_RAW))
+						return 2; /* transition to raw */
+
+					lwsl_info("Unknown method - dropping\n");
+					goto forbid;
+				}
+				break;
+			}
+			/*
+			 * ...otherwise for a client, let him ignore unknown headers
+			 * coming from the server
+			 */
+			if (ah->lextable_pos < 0) {
+				ah->parser_state = WSI_TOKEN_SKIPPING;
+				break;
+			}
+
+			if (lextable[ah->lextable_pos] < FAIL_CHAR) {
+				/* terminal state */
+
+				n = ((unsigned int)lextable[ah->lextable_pos] << 8) |
+						lextable[ah->lextable_pos + 1];
+
+				lwsl_parser("known hdr %d\n", n);
+				for (m = 0; m < ARRAY_SIZE(methods); m++)
+					if (n == methods[m] &&
+					    ah->frag_index[methods[m]]) {
+						lwsl_warn("Duplicated method\n");
+						return -1;
+					}
+
+				/*
+				 * WSORIGIN is protocol equiv to ORIGIN,
+				 * JWebSocket likes to send it, map to ORIGIN
+				 */
+				if (n == WSI_TOKEN_SWORIGIN)
+					n = WSI_TOKEN_ORIGIN;
+
+				ah->parser_state = (enum lws_token_indexes)
+								(WSI_TOKEN_GET_URI + n);
+				ah->ups = URIPS_IDLE;
+
+				if (context->token_limits)
+					ah->current_token_limit = context->
+							token_limits->token_limit[
+								      ah->parser_state];
+				else
+					ah->current_token_limit =
+						wsi->context->max_http_header_data;
+
+				if (ah->parser_state == WSI_TOKEN_CHALLENGE)
+					goto set_parsing_complete;
+
+				goto start_fragment;
+			}
+			break;
 
 start_fragment:
-		ah->nfrag++;
+			ah->nfrag++;
 excessive:
-		if (ah->nfrag == ARRAY_SIZE(ah->frags)) {
-			lwsl_warn("More hdr frags than we can deal with\n");
-			return -1;
-		}
+			if (ah->nfrag == ARRAY_SIZE(ah->frags)) {
+				lwsl_warn("More hdr frags than we can deal with\n");
+				return -1;
+			}
 
-		ah->frags[ah->nfrag].offset = ah->pos;
-		ah->frags[ah->nfrag].len = 0;
-		ah->frags[ah->nfrag].nfrag = 0;
-		ah->frags[ah->nfrag].flags = 2;
+			ah->frags[ah->nfrag].offset = ah->pos;
+			ah->frags[ah->nfrag].len = 0;
+			ah->frags[ah->nfrag].nfrag = 0;
+			ah->frags[ah->nfrag].flags = 2;
 
-		n = ah->frag_index[ah->parser_state];
-		if (!n) { /* first fragment */
-			ah->frag_index[ah->parser_state] = ah->nfrag;
-			ah->hdr_token_idx = ah->parser_state;
+			n = ah->frag_index[ah->parser_state];
+			if (!n) { /* first fragment */
+				ah->frag_index[ah->parser_state] = ah->nfrag;
+				ah->hdr_token_idx = ah->parser_state;
+				break;
+			}
+			/* continuation */
+			while (ah->frags[n].nfrag)
+				n = ah->frags[n].nfrag;
+			ah->frags[n].nfrag = ah->nfrag;
+
+			if (issue_char(wsi, ' ') < 0)
+				return -1;
+			break;
+
+			/* skipping arg part of a name we didn't recognize */
+		case WSI_TOKEN_SKIPPING:
+			lwsl_parser("WSI_TOKEN_SKIPPING '%c'\n", c);
+
+			if (c == '\x0d')
+				ah->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
+			break;
+
+		case WSI_TOKEN_SKIPPING_SAW_CR:
+			lwsl_parser("WSI_TOKEN_SKIPPING_SAW_CR '%c'\n", c);
+			if (ah->ues != URIES_IDLE)
+				goto forbid;
+			if (c == '\x0a') {
+				ah->parser_state = WSI_TOKEN_NAME_PART;
+				ah->lextable_pos = 0;
+			} else
+				ah->parser_state = WSI_TOKEN_SKIPPING;
+			break;
+			/* we're done, ignore anything else */
+
+		case WSI_PARSING_COMPLETE:
+			lwsl_parser("WSI_PARSING_COMPLETE '%c'\n", c);
 			break;
 		}
-		/* continuation */
-		while (ah->frags[n].nfrag)
-			n = ah->frags[n].nfrag;
-		ah->frags[n].nfrag = ah->nfrag;
 
-		if (issue_char(wsi, ' ') < 0)
-			return -1;
-		break;
-
-		/* skipping arg part of a name we didn't recognize */
-	case WSI_TOKEN_SKIPPING:
-		lwsl_parser("WSI_TOKEN_SKIPPING '%c'\n", c);
-
-		if (c == '\x0d')
-			ah->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
-		break;
-
-	case WSI_TOKEN_SKIPPING_SAW_CR:
-		lwsl_parser("WSI_TOKEN_SKIPPING_SAW_CR '%c'\n", c);
-		if (ah->ues != URIES_IDLE)
-			goto forbid;
-		if (c == '\x0a') {
-			ah->parser_state = WSI_TOKEN_NAME_PART;
-			ah->lextable_pos = 0;
-		} else
-			ah->parser_state = WSI_TOKEN_SKIPPING;
-		break;
-		/* we're done, ignore anything else */
-
-	case WSI_PARSING_COMPLETE:
-		lwsl_parser("WSI_PARSING_COMPLETE '%c'\n", c);
-		break;
-	}
+	} while (*len);
 
 	return 0;
 

@@ -551,6 +551,8 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 		wsi->same_vh_protocol_next->same_vh_protocol_prev =
 				&wsi->same_vh_protocol_next;
 
+	wsi->on_same_vh_list = 1;
+
 	lws_vhost_unlock(wsi->vhost);
 }
 
@@ -566,7 +568,7 @@ lws_same_vh_protocol_remove(struct lws *wsi)
 	 */
 	lwsl_info("%s: removing same prot wsi %p\n", __func__, wsi);
 
-	if (!wsi->vhost)
+	if (!wsi->vhost || !wsi->on_same_vh_list)
 		return;
 
 	lws_vhost_lock(wsi->vhost);
@@ -589,6 +591,7 @@ lws_same_vh_protocol_remove(struct lws *wsi)
 
 	wsi->same_vh_protocol_prev = NULL;
 	wsi->same_vh_protocol_next = NULL;
+	wsi->on_same_vh_list = 0;
 
 	lws_vhost_unlock(wsi->vhost);
 }

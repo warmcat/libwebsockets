@@ -1950,6 +1950,7 @@ struct lws {
 	unsigned int seen_zero_length_recv:1;
 	unsigned int rxflow_will_be_applied:1;
 	unsigned int event_pipe:1;
+	unsigned int on_same_vh_list:1;
 
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
 
@@ -2073,7 +2074,7 @@ LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_client_rx_sm(struct lws *wsi, unsigned char c);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_parse(struct lws *wsi, unsigned char c);
+lws_parse(struct lws *wsi, unsigned char *buf, int *len);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_parse_urldecode(struct lws *wsi, uint8_t *_c);
