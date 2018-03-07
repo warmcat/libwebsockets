@@ -316,7 +316,7 @@ check_key:
 #else
 	lwsl_notice(" OpenSSL doesn't support ECDH\n");
 #endif
-#if !defined(LWS_WITH_BORINGSSL)
+#if defined(LWS_HAVE_OPENSSL_ECDH_H) && !defined(LWS_WITH_BORINGSSL)
 post_ecdh:
 #endif
 	vhost->skipped_certs = 0;
