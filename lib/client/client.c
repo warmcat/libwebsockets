@@ -728,6 +728,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		return 0;
 	}
 
+	if (p && !strncmp(p, "401", 3)) {
+		lwsl_warn(
+		       "lws_client_handshake: got bad HTTP response '%s'\n", p);
+		cce = "HS: ws upgrade unauthorized";
+		goto bail3;
+	}
+
 	if (p && strncmp(p, "101", 3)) {
 		lwsl_warn(
 		       "lws_client_handshake: got bad HTTP response '%s'\n", p);
