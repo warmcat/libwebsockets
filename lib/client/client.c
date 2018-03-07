@@ -728,16 +728,16 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		return 0;
 	}
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
-		lwsl_info("no ACCEPT\n");
-		cce = "HS: ACCEPT missing";
-		goto bail3;
-	}
-
 	if (p && strncmp(p, "101", 3)) {
 		lwsl_warn(
 		       "lws_client_handshake: got bad HTTP response '%s'\n", p);
 		cce = "HS: ws upgrade response not 101";
+		goto bail3;
+	}
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
+		lwsl_info("no ACCEPT\n");
+		cce = "HS: ACCEPT missing";
 		goto bail3;
 	}
 
