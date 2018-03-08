@@ -72,56 +72,55 @@ lws_context_init_server(struct lws_context_creation_info *info,
 
 	for (m = 0; m < limit; m++) {
 #ifdef LWS_WITH_UNIX_SOCK
-	if (LWS_UNIX_SOCK_ENABLED(vhost))
-		sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-	else
+		if (LWS_UNIX_SOCK_ENABLED(vhost))
+			sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+		else
 #endif
 #ifdef LWS_WITH_IPV6
-	if (LWS_IPV6_ENABLED(vhost))
-		sockfd = socket(AF_INET6, SOCK_STREAM, 0);
-	else
+		if (LWS_IPV6_ENABLED(vhost))
+			sockfd = socket(AF_INET6, SOCK_STREAM, 0);
+		else
 #endif
-		sockfd = socket(AF_INET, SOCK_STREAM, 0);
+			sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
-	if (sockfd == LWS_SOCK_INVALID) {
-#endif
-		lwsl_err("ERROR opening socket\n");
-		return 1;
-	}
+		if (sockfd == LWS_SOCK_INVALID) {
+#endif /* LWS_POSIX */
+			lwsl_err("ERROR opening socket\n");
+			return 1;
+		}
 #if LWS_POSIX && !defined(LWS_WITH_ESP32)
-
 #if (defined(WIN32) || defined(_WIN32)) && defined(SO_EXCLUSIVEADDRUSE)
-	/*
-	 * only accept that we are the only listener on the port
-	 * https://msdn.microsoft.com/zh-tw/library/
-	 *    windows/desktop/ms740621(v=vs.85).aspx
-	 *
-	 * for lws, to match Linux, we default to exclusive listen
-	 */
-	if (!lws_check_opt(vhost->options,
-			LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE)) {
-		if (setsockopt(sockfd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+		/*
+		 * only accept that we are the only listener on the port
+		 * https://msdn.microsoft.com/zh-tw/library/
+		 *    windows/desktop/ms740621(v=vs.85).aspx
+		 *
+		 * for lws, to match Linux, we default to exclusive listen
+		 */
+		if (!lws_check_opt(vhost->options,
+				LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE)) {
+			if (setsockopt(sockfd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+				       (const void *)&opt, sizeof(opt)) < 0) {
+				lwsl_err("reuseaddr failed\n");
+				compatible_close(sockfd);
+				return 1;
+			}
+		} else
+#endif
+
+		/*
+		 * allow us to restart even if old sockets in TIME_WAIT
+		 */
+		if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
 			       (const void *)&opt, sizeof(opt)) < 0) {
 			lwsl_err("reuseaddr failed\n");
 			compatible_close(sockfd);
 			return 1;
 		}
-	} else
-#endif
-
-	/*
-	 * allow us to restart even if old sockets in TIME_WAIT
-	 */
-	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
-		       (const void *)&opt, sizeof(opt)) < 0) {
-		lwsl_err("reuseaddr failed\n");
-		compatible_close(sockfd);
-		return 1;
-	}
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
-	if (LWS_IPV6_ENABLED(vhost)) {
-		if (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) {
+		if (LWS_IPV6_ENABLED(vhost) &&
+		    vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) {
 			int value = (vhost->options &
 				LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE) ? 1 : 0;
 			if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
@@ -130,17 +129,15 @@ lws_context_init_server(struct lws_context_creation_info *info,
 				return 1;
 			}
 		}
-	}
 #endif
 
 #if defined(__linux__) && defined(SO_REUSEPORT)
-	n = lws_check_opt(vhost->options, LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE);
+		n = lws_check_opt(vhost->options,
+				  LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE);
 #if LWS_MAX_SMP > 1
-	n = 1;
+		n = 1;
 #endif
-
-	if (n)
-		if (vhost->context->count_threads > 1)
+		if (n && vhost->context->count_threads > 1)
 			if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
 					(const void *)&opt, sizeof(opt)) < 0) {
 				compatible_close(sockfd);
@@ -148,52 +145,51 @@ lws_context_init_server(struct lws_context_creation_info *info,
 			}
 #endif
 #endif
-	lws_plat_set_socket_options(vhost, sockfd);
+		lws_plat_set_socket_options(vhost, sockfd);
 
 #if LWS_POSIX
-	n = lws_socket_bind(vhost, sockfd, info->port, info->iface);
-	if (n < 0)
-		goto bail;
-	info->port = n;
+		n = lws_socket_bind(vhost, sockfd, info->port, info->iface);
+		if (n < 0)
+			goto bail;
+		info->port = n;
 #endif
-	vhost->listen_port = info->port;
-	vhost->iface = info->iface;
+		vhost->listen_port = info->port;
+		vhost->iface = info->iface;
 
-	wsi = lws_zalloc(sizeof(struct lws), "listen wsi");
-	if (wsi == NULL) {
-		lwsl_err("Out of mem\n");
-		goto bail;
-	}
-	wsi->context = vhost->context;
-	wsi->desc.sockfd = sockfd;
-	wsi->mode = LWSCM_SERVER_LISTENER;
-	wsi->protocol = vhost->protocols;
-	wsi->tsi = m;
-	wsi->vhost = vhost;
-	wsi->listener = 1;
+		wsi = lws_zalloc(sizeof(struct lws), "listen wsi");
+		if (wsi == NULL) {
+			lwsl_err("Out of mem\n");
+			goto bail;
+		}
+		wsi->context = vhost->context;
+		wsi->desc.sockfd = sockfd;
+		wsi->mode = LWSCM_SERVER_LISTENER;
+		wsi->protocol = vhost->protocols;
+		wsi->tsi = m;
+		wsi->vhost = vhost;
+		wsi->listener = 1;
 
 #ifdef LWS_WITH_LIBUV
-	if (LWS_LIBUV_ENABLED(vhost->context))
-		lws_uv_initvhost(vhost, wsi);
+		if (LWS_LIBUV_ENABLED(vhost->context))
+			lws_uv_initvhost(vhost, wsi);
 #endif
 
-	if (__insert_wsi_socket_into_fds(vhost->context, wsi))
-		goto bail;
+		if (__insert_wsi_socket_into_fds(vhost->context, wsi))
+			goto bail;
 
-	vhost->context->count_wsi_allocated++;
-	vhost->lserv_wsi = wsi;
+		vhost->context->count_wsi_allocated++;
+		vhost->lserv_wsi = wsi;
 
 #if LWS_POSIX
-	n = listen(wsi->desc.sockfd, LWS_SOMAXCONN);
-	if (n < 0) {
-		lwsl_err("listen failed with error %d\n", LWS_ERRNO);
-		vhost->lserv_wsi = NULL;
-		vhost->context->count_wsi_allocated--;
-		__remove_wsi_socket_from_fds(wsi);
-		goto bail;
-	}
+		n = listen(wsi->desc.sockfd, LWS_SOMAXCONN);
+		if (n < 0) {
+			lwsl_err("listen failed with error %d\n", LWS_ERRNO);
+			vhost->lserv_wsi = NULL;
+			vhost->context->count_wsi_allocated--;
+			__remove_wsi_socket_from_fds(wsi);
+			goto bail;
+		}
 	} /* for each thread able to independently listen */
-#else
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
 #ifdef LWS_WITH_UNIX_SOCK
@@ -2130,6 +2126,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		else
 			lwsl_info("%s: waiting for ah\n", __func__);
 	}
+
+	lws_cancel_service_pt(new_wsi);
 
 	return new_wsi;
 

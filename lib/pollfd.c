@@ -63,7 +63,9 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	assert(wsi->position_in_fds_table >= 0 &&
 	       wsi->position_in_fds_table < (int)pt->fds_count);
 
-#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && !defined(LWS_WITH_LIBEVENT)
+#if !defined(LWS_WITH_LIBUV) && \
+    !defined(LWS_WITH_LIBEV) && \
+    !defined(LWS_WITH_LIBEVENT)
 	/*
 	 * This only applies when we use the default poll() event loop.
 	 *
@@ -198,24 +200,28 @@ bail:
 }
 
 #ifndef LWS_NO_SERVER
+/*
+ * Enable or disable listen sockets on this pt globally...
+ * it's modulated according to the pt having space for a new accept.
+ */
 static void
-lws_accept_modulation(struct lws_context_per_thread *pt, int allow)
+lws_accept_modulation(struct lws_context *context,
+		      struct lws_context_per_thread *pt, int allow)
 {
-// multithread listen seems broken
-#if 0
 	struct lws_vhost *vh = context->vhost_list;
 	struct lws_pollargs pa1;
 
 	while (vh) {
-		if (allow)
-			_lws_change_pollfd(pt->wsi_listening,
+		if (vh->lserv_wsi) {
+			if (allow)
+				_lws_change_pollfd(vh->lserv_wsi,
 					   0, LWS_POLLIN, &pa1);
-		else
-			_lws_change_pollfd(pt->wsi_listening,
+			else
+				_lws_change_pollfd(vh->lserv_wsi,
 					   LWS_POLLIN, 0, &pa1);
+		}
 		vh = vh->vhost_next;
 	}
-#endif
 }
 #endif
 
@@ -275,7 +281,7 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 #ifndef LWS_NO_SERVER
 	/* if no more room, defeat accepts on this thread */
 	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1)
-		lws_accept_modulation(pt, 0);
+		lws_accept_modulation(context, pt, 0);
 #endif
 
 	if (wsi->vhost &&
@@ -357,7 +363,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	if (!context->being_destroyed &&
 	    /* if this made some room, accept connects on this thread */
 	    (unsigned int)pt->fds_count < context->fd_limit_per_thread - 1)
-		lws_accept_modulation(pt, 1);
+		lws_accept_modulation(context, pt, 1);
 #endif
 
 	if (wsi->vhost &&
@@ -584,10 +590,9 @@ lws_same_vh_protocol_remove(struct lws *wsi)
 	}
 
 	/* our next should point back to our prev */
-	if (wsi->same_vh_protocol_next) {
+	if (wsi->same_vh_protocol_next)
 		wsi->same_vh_protocol_next->same_vh_protocol_prev =
 				wsi->same_vh_protocol_prev;
-	}
 
 	wsi->same_vh_protocol_prev = NULL;
 	wsi->same_vh_protocol_next = NULL;

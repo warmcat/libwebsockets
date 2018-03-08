@@ -21,7 +21,7 @@
 #include <string.h>
 #include <signal.h>
 
-#define COUNT_THREADS 10
+#define COUNT_THREADS 8
 
 static struct lws_context *context;
 static int interrupted;
@@ -48,7 +48,8 @@ static const struct lws_http_mount mount = {
 
 void *thread_service(void *threadid)
 {
-	while (lws_service_tsi(context, 50, (int)(lws_intptr_t)threadid) >= 0 &&
+	while (lws_service_tsi(context, 10000,
+			       (int)(lws_intptr_t)threadid) >= 0 &&
 	       !interrupted)
 		;
 
@@ -58,6 +59,7 @@ void *thread_service(void *threadid)
 void sigint_handler(int sig)
 {
 	interrupted = 1;
+	lws_cancel_service(context);
 }
 
 int main(int argc, char **argv)
@@ -72,12 +74,13 @@ int main(int argc, char **argv)
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
 	info.mounts = &mount;
+	// info.max_http_header_pool = 10;
 	info.count_threads = COUNT_THREADS;
 
 	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER
-			/* | LLL_INFO */ /* | LLL_DEBUG */, NULL);
+			  /* | LLL_INFO */ /* | LLL_DEBUG */, NULL);
 
-	lwsl_user("LWS minimal http server SMP | visit http://localhost:7681\n");
+	lwsl_user("LWS minimal http server SMP | visit http://127.0.0.1:7681\n");
 
 	context = lws_create_context(&info);
 	if (!context) {
