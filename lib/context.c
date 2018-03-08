@@ -1493,7 +1493,7 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	wsi.context = vh->context;
 	wsi.vhost = vh;
 	protocol = vh->protocols;
-	if (protocol) {
+	if (protocol && vh->created_vhost_protocols) {
 		n = 0;
 		while (n < vh->count_protocols) {
 			wsi.protocol = protocol;
