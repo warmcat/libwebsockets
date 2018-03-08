@@ -51,6 +51,10 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
 	time_t t = time(NULL);
 	int l = 256, m;
 
+	/* only worry about preparing it if we store it */
+	if (wsi->vhost && wsi->vhost->log_fd == (int)LWS_INVALID_FILE)
+		return;
+
 	if (wsi->access_log_pending)
 		lws_access_log(wsi);
 
@@ -123,6 +127,9 @@ lws_access_log(struct lws *wsi)
 	     *p1 = wsi->access_log.referrer;
 	int l;
 
+	if (wsi->vhost && wsi->vhost->log_fd == (int)LWS_INVALID_FILE)
+		return 0;
+
 	if (!wsi->access_log_pending)
 		return 0;
 
@@ -147,11 +154,8 @@ lws_access_log(struct lws *wsi)
 		p[sizeof(ass) - 6 - l] = '\0';
 	l += lws_snprintf(ass + l, sizeof(ass) - 1 - l, "\" \"%s\"\n", p);
 
-	if (wsi->vhost->log_fd != (int)LWS_INVALID_FILE) {
-		if (write(wsi->vhost->log_fd, ass, l) != l)
-			lwsl_err("Failed to write log\n");
-	} else
-		lwsl_notice("%s", ass);
+	if (write(wsi->vhost->log_fd, ass, l) != l)
+		lwsl_err("Failed to write log\n");
 
 	if (wsi->access_log.header_log) {
 		lws_free(wsi->access_log.header_log);
