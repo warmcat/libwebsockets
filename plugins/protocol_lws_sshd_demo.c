@@ -335,12 +335,12 @@ ssh_ops_shell(void *_priv, struct lws *wsi, lws_ssh_finish_exec finish, void *fi
 static size_t
 ssh_ops_banner(char *buf, size_t max_len, char *lang, size_t max_lang_len)
 {
-	int n = snprintf(buf, max_len, "\n"
+	int n = lws_snprintf(buf, max_len, "\n"
 		      " |\\---/|  lws-ssh Test Server\n"
 		      " | o_o |  SSH Terminal Server\n"
 		      "  \\_^_/   Copyright (C) 2017 Crash Barrier Ltd\n\n");
 
-	snprintf(lang, max_lang_len, "en/US");
+	lws_snprintf(lang, max_lang_len, "en/US");
 
 	return n;
 }

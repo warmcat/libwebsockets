@@ -95,16 +95,8 @@ typedef unsigned long long lws_intptr_t;
 #define LWS_O_CREAT _O_CREAT
 #define LWS_O_TRUNC _O_TRUNC
 
-#if !defined(__MINGW32__) && (!defined(_MSC_VER) || _MSC_VER < 1900) /* Visual Studio 2015 already defines this in <stdio.h> */
-#define lws_snprintf _snprintf
-#endif
-
 #ifndef __func__
 #define __func__ __FUNCTION__
-#endif
-
-#if !defined(__MINGW32__) &&(!defined(_MSC_VER) || _MSC_VER < 1900) && !defined(snprintf)
-#define snprintf(buf,len, format,...) _snprintf_s(buf, len,len, format, __VA_ARGS__)
 #endif
 
 #else /* NOT WIN32 */
