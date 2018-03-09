@@ -3445,6 +3445,10 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len);
  * \param wsi: client connection
  *
  * Returns the last server response code, eg, 200 for client http connections.
+ *
+ * You should capture this during the LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP
+ * callback, because after that the memory reserved for storing the related
+ * headers is freed and this value is lost.
  */
 LWS_VISIBLE LWS_EXTERN unsigned int
 lws_http_client_http_response(struct lws *wsi);
