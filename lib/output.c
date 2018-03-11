@@ -274,14 +274,15 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	    wp1f == LWS_WRITE_HTTP_HEADERS)
 		goto send_raw;
 
-	/* if not in a state to send stuff, then just send nothing */
+	/* if not in a state to send ws stuff, then just send nothing */
 
 	if (!lws_state_is_ws(wsi->state) &&
 	    ((wsi->state != LWSS_RETURNED_CLOSE_ALREADY &&
 	      wsi->state != LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION &&
 	      wsi->state != LWSS_AWAITING_CLOSE_ACK) ||
-			    wp != LWS_WRITE_CLOSE)) {
-		lwsl_debug("binning\n");
+			    wp1f != LWS_WRITE_CLOSE)) {
+		//assert(0);
+		lwsl_debug("binning %d %d\n", wsi->state, wp1f);
 		return 0;
 	}
 
@@ -483,6 +484,12 @@ do_more_inside_frame:
 
 send_raw:
 	switch (wp1f) {
+	case LWS_WRITE_TEXT:
+	case LWS_WRITE_BINARY:
+	case LWS_WRITE_CONTINUATION:
+		if (!wsi->h2_stream_carries_ws)
+			break;
+		/* fallthru */
 	case LWS_WRITE_CLOSE:
 /*		lwsl_hexdump(&buf[-pre], len); */
 	case LWS_WRITE_HTTP:
@@ -895,6 +902,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 
 	lwsl_debug("ERROR writing len %d to skt fd %d err %d / errno %d\n",
 			len, wsi->desc.sockfd, n, LWS_ERRNO);
+
 	return LWS_SSL_CAPABLE_ERROR;
 }
 #endif

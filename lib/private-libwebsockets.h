@@ -509,7 +509,8 @@ enum lws_connection_states {
 	LWSS_HTTP2_ESTABLISHED				= _LSF_CCB | 15 |
 							  _LSF_POLLOUT,
 	LWSS_HTTP2_ESTABLISHED_WS			= _LSF_CCB | 16 |
-							  _LSF_WEBSOCKET,
+							  _LSF_WEBSOCKET |
+							  _LSF_POLLOUT,
 
 	LWSS_CGI					= 17,
 
@@ -520,7 +521,7 @@ enum lws_connection_states {
 							  _LSF_POLLOUT,
 };
 
-#define lws_state_is_ws(s) (!!(s & _LSF_WEBSOCKET))
+#define lws_state_is_ws(s) (!!((s) & _LSF_WEBSOCKET))
 
 enum http_version {
 	HTTP_VERSION_1_0,
@@ -872,6 +873,7 @@ struct lws_context_per_thread {
 
 	short ah_count_in_use;
 	unsigned char tid;
+	unsigned char lock_depth;
 #if LWS_MAX_SMP > 1
 	pthread_t lock_owner;
 #endif
@@ -2018,6 +2020,7 @@ struct lws {
 #if defined(LWS_WITH_STATS) && defined(LWS_OPENSSL_SUPPORT)
 	char seen_rx;
 #endif
+	uint8_t ws_over_h2_count;
 	/* volatile to make sure code is aware other thread can change */
 	volatile char handling_pollout;
 	volatile char leave_pollout_active;
@@ -2188,6 +2191,8 @@ user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
 			    enum lws_callback_reasons reason, void *user,
 			    void *in, size_t len);
 #ifdef LWS_WITH_HTTP2
+int
+lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason);
 struct lws * lws_h2_get_nth_child(struct lws *wsi, int n);
 LWS_EXTERN void lws_h2_init(struct lws *wsi);
 LWS_EXTERN int
@@ -2428,7 +2433,7 @@ LWS_EXTERN enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi);
 
 LWS_EXTERN enum lws_ssl_capable_status
-lws_tls_shutdown(struct lws *wsi);
+__lws_tls_shutdown(struct lws *wsi);
 
 LWS_EXTERN enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi);
@@ -2477,8 +2482,8 @@ static LWS_INLINE void
 lws_pt_lock(struct lws_context_per_thread *pt, const char *reason)
 {
 	if (pt->lock_owner == pthread_self()) {
-		lwsl_err("tid %d: lock collision: already held for %s, reacquiring for %s\n", pt->tid, pt->last_lock_reason, reason);
-		assert(0);
+		pt->lock_depth++;
+		return;
 	}
 	pthread_mutex_lock(&pt->lock);
 	pt->last_lock_reason = reason;
@@ -2489,6 +2494,10 @@ lws_pt_lock(struct lws_context_per_thread *pt, const char *reason)
 static LWS_INLINE void
 lws_pt_unlock(struct lws_context_per_thread *pt)
 {
+	if (pt->lock_depth) {
+		pt->lock_depth--;
+		return;
+	}
 	pt->last_lock_reason ="free";
 	pt->lock_owner = 0;
 	//lwsl_notice("tid %d: unlock %s\n", pt->tid, pt->last_lock_reason);

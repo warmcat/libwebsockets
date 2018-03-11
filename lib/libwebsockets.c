@@ -389,7 +389,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	struct lws_tokens eff_buf;
 	int n, m, ret;
 
-	lwsl_debug("%s: %p: caller: %s\n", __func__, wsi, caller);
+	lwsl_info("%s: %p: caller: %s\n", __func__, wsi, caller);
 
 	if (!wsi)
 		return;
@@ -411,88 +411,16 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 			wsi2->parent = NULL;
 			/* stop it doing shutdown processing */
 			wsi2->socket_is_permanently_unusable = 1;
-			lws_close_free_wsi(wsi2, reason, "general child recurse");
+			__lws_close_free_wsi(wsi2, reason, "general child recurse");
 			wsi2 = wsi1;
 		}
 		wsi->child_list = NULL;
 	}
 
-#if defined(LWS_WITH_HTTP2)
-
-	if (wsi->h2.parent_wsi) {
-		lwsl_info(" wsi: %p, his parent %p: siblings:\n", wsi,
-			  wsi->h2.parent_wsi);
-		lws_start_foreach_llp(struct lws **, w,
-				      wsi->h2.parent_wsi->h2.child_list) {
-			lwsl_info("   \\---- child %p\n", *w);
-		} lws_end_foreach_llp(w, h2.sibling_list);
-	}
-
-	if (wsi->upgraded_to_http2 || wsi->http2_substream) {
-		lwsl_info("closing %p: parent %p\n", wsi, wsi->h2.parent_wsi);
-
-		if (wsi->h2.child_list) {
-			lwsl_info(" parent %p: closing children: list:\n", wsi);
-			lws_start_foreach_llp(struct lws **, w,
-					      wsi->h2.child_list) {
-				lwsl_info("   \\---- child %p\n", *w);
-			} lws_end_foreach_llp(w, h2.sibling_list);
-			/* trigger closing of all of our http2 children first */
-			lws_start_foreach_llp(struct lws **, w,
-					      wsi->h2.child_list) {
-				lwsl_info("   closing child %p\n", *w);
-				/* disconnect from siblings */
-				wsi2 = (*w)->h2.sibling_list;
-				(*w)->h2.sibling_list = NULL;
-				(*w)->socket_is_permanently_unusable = 1;
-				lws_close_free_wsi(*w, reason, "h2 child recurse");
-				*w = wsi2;
-				continue;
-			} lws_end_foreach_llp(w, h2.sibling_list);
-		}
-	}
-
-	if (wsi->upgraded_to_http2) {
-		/* remove pps */
-		struct lws_h2_protocol_send *w = wsi->h2.h2n->pps, *w1;
-		while (w) {
-			w1 = w->next;
-			free(w);
-			w = w1;
-		}
-		wsi->h2.h2n->pps = NULL;
-	}
-
-	if (wsi->http2_substream && wsi->h2.parent_wsi) {
-		lwsl_info("  %p: disentangling from siblings\n", wsi);
-		lws_start_foreach_llp(struct lws **, w,
-				wsi->h2.parent_wsi->h2.child_list) {
-			/* disconnect from siblings */
-			if (*w == wsi) {
-				wsi2 = (*w)->h2.sibling_list;
-				(*w)->h2.sibling_list = NULL;
-				*w = wsi2;
-				lwsl_info("  %p disentangled from sibling %p\n",
-					  wsi, wsi2);
-				break;
-			}
-		} lws_end_foreach_llp(w, h2.sibling_list);
-		wsi->h2.parent_wsi->h2.child_count--;
-		wsi->h2.parent_wsi = NULL;
-		if (wsi->h2.pending_status_body)
-			lws_free_set_NULL(wsi->h2.pending_status_body);
-	}
-
-	if (wsi->upgraded_to_http2 && wsi->h2.h2n &&
-	    wsi->h2.h2n->rx_scratch)
-		lws_free_set_NULL(wsi->h2.h2n->rx_scratch);
-#endif
-
 	if (wsi->mode == LWSCM_RAW_FILEDESC) {
 		lws_remove_child_from_any_parent(wsi);
 		__remove_wsi_socket_from_fds(wsi);
-		wsi->protocol->callback(wsi,
-					LWS_CALLBACK_RAW_CLOSE_FILE,
+		wsi->protocol->callback(wsi, LWS_CALLBACK_RAW_CLOSE_FILE,
 					wsi->user_space, NULL, 0);
 		goto async_close;
 	}
@@ -563,7 +491,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		if (wsi->trunc_len) {
 			lwsl_info("%p: FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
 			wsi->state = LWSS_FLUSHING_SEND_BEFORE_CLOSE;
-			lws_set_timeout(wsi,
+			__lws_set_timeout(wsi,
 				PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 			return;
 		}
@@ -662,13 +590,97 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		lwsl_debug("waiting for chance to send close\n");
 		wsi->waiting_to_send_close_frame = 1;
 		wsi->state = LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION;
-		lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 2);
+		__lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
 		lws_callback_on_writable(wsi);
 
 		return;
 	}
 
 just_kill_connection:
+
+#if defined(LWS_WITH_HTTP2)
+
+	if (wsi->http2_substream && wsi->h2_stream_carries_ws)
+		lws_h2_rst_stream(wsi, 0, "none");
+
+	if (wsi->h2.parent_wsi) {
+		lwsl_info(" wsi: %p, his parent %p: siblings:\n", wsi,
+			  wsi->h2.parent_wsi);
+		lws_start_foreach_llp(struct lws **, w,
+				      wsi->h2.parent_wsi->h2.child_list) {
+			lwsl_info("   \\---- child %p\n", *w);
+		} lws_end_foreach_llp(w, h2.sibling_list);
+	}
+
+	if (wsi->upgraded_to_http2 || wsi->http2_substream) {
+		lwsl_info("closing %p: parent %p\n", wsi, wsi->h2.parent_wsi);
+
+		if (wsi->h2.child_list) {
+			lwsl_info(" parent %p: closing children: list:\n", wsi);
+			lws_start_foreach_llp(struct lws **, w,
+					      wsi->h2.child_list) {
+				lwsl_info("   \\---- child %p\n", *w);
+			} lws_end_foreach_llp(w, h2.sibling_list);
+			/* trigger closing of all of our http2 children first */
+			lws_start_foreach_llp(struct lws **, w,
+					      wsi->h2.child_list) {
+				lwsl_info("   closing child %p\n", *w);
+				/* disconnect from siblings */
+				wsi2 = (*w)->h2.sibling_list;
+				(*w)->h2.sibling_list = NULL;
+				(*w)->socket_is_permanently_unusable = 1;
+				__lws_close_free_wsi(*w, reason, "h2 child recurse");
+				*w = wsi2;
+				continue;
+			} lws_end_foreach_llp(w, h2.sibling_list);
+		}
+	}
+
+	if (wsi->upgraded_to_http2) {
+		/* remove pps */
+		struct lws_h2_protocol_send *w = wsi->h2.h2n->pps, *w1;
+		while (w) {
+			w1 = w->next;
+			free(w);
+			w = w1;
+		}
+		wsi->h2.h2n->pps = NULL;
+	}
+
+	if (wsi->http2_substream && wsi->h2.parent_wsi) {
+		lwsl_info("  %p: disentangling from siblings\n", wsi);
+		lws_start_foreach_llp(struct lws **, w,
+				wsi->h2.parent_wsi->h2.child_list) {
+			/* disconnect from siblings */
+			if (*w == wsi) {
+				wsi2 = (*w)->h2.sibling_list;
+				(*w)->h2.sibling_list = NULL;
+				*w = wsi2;
+				lwsl_info("  %p disentangled from sibling %p\n",
+					  wsi, wsi2);
+				break;
+			}
+		} lws_end_foreach_llp(w, h2.sibling_list);
+		wsi->h2.parent_wsi->h2.child_count--;
+		wsi->h2.parent_wsi = NULL;
+		if (wsi->h2.pending_status_body)
+			lws_free_set_NULL(wsi->h2.pending_status_body);
+	}
+
+	if (wsi->h2_stream_carries_ws) {
+		struct lws *nwsi = lws_get_network_wsi(wsi);
+
+		nwsi->ws_over_h2_count++;
+		/* if no ws, then put a timeout on the parent wsi */
+		if (!nwsi->ws_over_h2_count)
+			__lws_set_timeout(nwsi,
+				PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
+	}
+
+	if (wsi->upgraded_to_http2 && wsi->h2.h2n &&
+	    wsi->h2.h2n->rx_scratch)
+		lws_free_set_NULL(wsi->h2.h2n->rx_scratch);
+#endif
 
 	lws_remove_child_from_any_parent(wsi);
 	n = 0;
@@ -719,7 +731,7 @@ just_kill_connection:
 #ifdef LWS_OPENSSL_SUPPORT
 	if (lws_is_ssl(wsi) && wsi->ssl) {
 		n = 0;
-		switch (lws_tls_shutdown(wsi)) {
+		switch (__lws_tls_shutdown(wsi)) {
 		case LWS_SSL_CAPABLE_DONE:
 		case LWS_SSL_CAPABLE_ERROR:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
@@ -753,9 +765,9 @@ just_kill_connection:
 		    lws_sockfd_valid(wsi->desc.sockfd) &&
 		    wsi->state != ((wsi->state & ~0x1f) | LWSS_SHUTDOWN) &&
 		    !LWS_LIBUV_ENABLED(context)) {
-			lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+			__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
 			wsi->state = (wsi->state & ~0x1f) | LWSS_SHUTDOWN;
-			lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
+			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
 					context->timeout_secs);
 
 			return;
@@ -790,7 +802,9 @@ just_kill_connection:
 	lws_free_set_NULL(wsi->rxflow_buffer);
 
 	if (lws_state_is_ws(wsi->state_pre_close) ||
-	    wsi->mode == LWSCM_WS_SERVING || wsi->mode == LWSCM_WS_CLIENT) {
+	    wsi->mode == LWSCM_WS_SERVING ||
+	    wsi->mode == LWSCM_HTTP2_WS_SERVING ||
+	    wsi->mode == LWSCM_WS_CLIENT) {
 
 		if (wsi->ws->rx_draining_ext) {
 			struct lws **w = &pt->rx_draining_ext_list;
@@ -833,8 +847,11 @@ just_kill_connection:
 
 	/* tell the user it's all over for this guy */
 
-	if (wsi->protocol && !wsi->told_user_closed && wsi->protocol->callback &&
-	    wsi->mode != LWSCM_RAW && (wsi->state_pre_close & _LSF_CCB)) {
+	if (wsi->protocol &&
+	    !wsi->told_user_closed &&
+	    wsi->protocol->callback &&
+	    wsi->mode != LWSCM_RAW &&
+	    (wsi->state_pre_close & _LSF_CCB)) {
 		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 					wsi->user_space, NULL, 0);
 	} else if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED) {
@@ -2136,7 +2153,9 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
 	unsigned char *p, *start;
 	int budget = sizeof(wsi->ws->ping_payload_buf) - LWS_PRE;
 
-	assert(wsi->mode == LWSCM_WS_SERVING || wsi->mode == LWSCM_WS_CLIENT);
+	assert(wsi->mode == LWSCM_WS_SERVING ||
+	       wsi->mode == LWSCM_HTTP2_WS_SERVING ||
+	       wsi->mode == LWSCM_WS_CLIENT);
 
 	start = p = &wsi->ws->ping_payload_buf[LWS_PRE];
 

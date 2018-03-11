@@ -8,6 +8,23 @@ libwebsockets
 News
 ----
 
+## Lws has the first official ws-over-h2 server support
+
+There's a new standard on the RFC track that enabled multiplexing ws connections
+over an http/2 link.  Compared to making individual tcp and tls connections for
+each ws link back to the same server, this makes your site start up radically
+faster, and since all the connections are in one tls tunnel, with much memory
+reduction serverside.
+
+To enable it on master you just need -DLWS_WITH_HTTP2=1 at cmake.  No changes to
+existing code are necessary for either http/2 (if you use the official header creation
+apis if you return your own headers, as shown in the test apps for several versions)
+or to take advantage of ws-over-h2.  When built with http/2 support, it automatically
+falls back to http/1 and traditional ws upgrade if that's all the client can handle.
+
+Currently only Chrome Canary v67 supports this ws-over-h2 encapsulation but the other
+browsers will catch up soon.
+
 ## New "minimal examples"
 
 https://github.com/warmcat/libwebsockets/tree/master/minimal-examples

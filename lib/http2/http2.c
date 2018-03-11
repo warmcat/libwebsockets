@@ -99,6 +99,8 @@ static const char * const h2_setting_names[] = {
 	"H2SET_INITIAL_WINDOW_SIZE",
 	"H2SET_MAX_FRAME_SIZE",
 	"H2SET_MAX_HEADER_LIST_SIZE",
+	"reserved",
+	"H2SET_ENABLE_CONNECT_PROTOCOL"
 };
 
 void
@@ -465,6 +467,9 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 	unsigned char *p = &buf[-LWS_H2_FRAME_HEADER_LENGTH];
 	int n;
 
+	//if (wsi->h2_stream_carries_ws)
+	// lwsl_hexdump_level(LLL_NOTICE, buf, len);
+
 	*p++ = len >> 16;
 	*p++ = len >> 8;
 	*p++ = len;
@@ -658,7 +663,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		break;
 
 	case LWS_H2_PPS_UPDATE_WINDOW:
-		lwsl_notice("Issuing LWS_H2_PPS_UPDATE_WINDOW: sid %d: add %d\n",
+		lwsl_debug("Issuing LWS_H2_PPS_UPDATE_WINDOW: sid %d: add %d\n",
 			    pps->u.update_window.sid,
 			    pps->u.update_window.credit);
 		*p++ = pps->u.update_window.credit >> 24;
@@ -714,10 +719,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	}
 
 	/* let the network wsi live a bit longer if subs are active */
-	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
-
-	/* let the network wsi live a bit longer if subs are active */
-	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
+	if (!wsi->ws_over_h2_count)
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
 
 	if (h2n->sid)
 		h2n->swsi = lws_h2_wsi_from_id(wsi, h2n->sid);
@@ -737,6 +740,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * peer sent us something bigger than we told
 		 * it we would allow
 		 */
+		lwsl_notice("received oversize frame %d\n", h2n->length);
 		lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
 			      "Peer ignored our frame size setting");
 		return 0;
@@ -749,9 +753,14 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	else {
 		/* if it's data, either way no swsi means CLOSED state */
 		if (h2n->type == LWS_H2_FRAME_TYPE_DATA) {
-			lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
+			if (h2n->sid <= h2n->highest_sid_opened) {
+				lwsl_notice("ignoring straggling data\n");
+				h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
+			} else {
+				lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
 				      "Data for nonexistent sid");
-			return 0;
+				return 0;
+			}
 		}
 		/* if the sid is credible, treat as wsi for it closed */
 		if (h2n->sid > h2n->highest_sid_opened &&
@@ -838,6 +847,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		break;
 
 	case LWS_H2_FRAME_TYPE_GOAWAY:
+		lwsl_debug("LWS_H2_FRAME_TYPE_GOAWAY received\n");
 		break;
 
 	case LWS_H2_FRAME_TYPE_RST_STREAM:
@@ -1022,6 +1032,8 @@ update_end_headers:
 			break;
 		}
 		lwsl_info("LWS_H2_FRAME_TYPE_WINDOW_UPDATE\n");
+		break;
+	case LWS_H2_FRAME_TYPE_COUNT:
 		break;
 	default:
 		lwsl_info("%s: ILLEGAL FRAME TYPE %d\n", __func__, h2n->type);
@@ -1303,6 +1315,11 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		return 1;
 
+	case LWS_H2_FRAME_TYPE_RST_STREAM:
+		lwsl_info("LWS_H2_FRAME_TYPE_RST_STREAM: sid %d: reason 0x%x\n",
+			    h2n->sid, h2n->hpack_e_dep);
+		break;
+
 	case LWS_H2_FRAME_TYPE_COUNT: /* IGNORING FRAME */
 		break;
 	}
@@ -1322,6 +1339,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
  * Therefore if we will send non-PPS, ie, lws_http_action() for a stream
  * wsi, we must change its state and handle it as a priority in the
  * POLLOUT handler instead of writing it here.
+ *
+ * About closing... for the main network wsi, it should return nonzero to
+ * close it all.  If it needs to close an swsi, it can do it here.
  */
 int
 lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
@@ -1468,7 +1488,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 				/* let the network wsi live a bit longer if subs are active...
 				 * our frame may take a long time to chew through */
-				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
+				if (!wsi->ws_over_h2_count)
+					lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
 
 				if (!h2n->swsi)
 					break;
@@ -1505,8 +1526,13 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				 * can return 0 in POST body with content len
 				 * exhausted somehow.
 				 */
-				if (n <= 0)
-					goto fail;
+				if (n <= 0) {
+					in += h2n->length - h2n->count;
+					h2n->inside = h2n->length;
+					h2n->count = h2n->length - 1;
+					lwsl_debug("%s: lws_read told %d\n", __func__, n);
+					goto close_swsi_and_return;
+				}
 
 				inlen -= n - 1;
 				in += n - 1;
@@ -1562,6 +1588,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				break;
 
 			case LWS_H2_FRAME_TYPE_RST_STREAM:
+				h2n->hpack_e_dep <<= 8;
+				h2n->hpack_e_dep |= c;
 				break;
 
 			case LWS_H2_FRAME_TYPE_PUSH_PROMISE:
@@ -1593,7 +1621,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 frame_end:
 			if (h2n->count > h2n->length)
-				lwsl_notice("%d %d\n", h2n->count, h2n->length);
+				lwsl_notice("%s: count > length %d %d\n",
+					    __func__, h2n->count, h2n->length);
 			if (h2n->count != h2n->length)
 				break;
 
@@ -1651,6 +1680,17 @@ try_frame_start:
 
 	return 0;
 
+close_swsi_and_return:
+
+	lws_close_free_wsi(h2n->swsi, 0, "close_swsi_and_return");
+	h2n->swsi = NULL;
+	h2n->frame_state = 0;
+	h2n->count = 0;
+
+	*inused = in - oldin;
+
+	return 2;
+
 fail:
 	*inused = in - oldin;
 
@@ -1660,10 +1700,11 @@ fail:
 int
 lws_h2_ws_handshake(struct lws *wsi)
 {
-	uint8_t buf[256], *p = buf, *start = p, *end = &buf[sizeof(buf) - 1];
+	uint8_t buf[LWS_PRE + 384], *p = buf + LWS_PRE, *start = p,
+		*end = &buf[sizeof(buf) - 1];
 	const struct lws_http_mount *hit;
 	const char * uri_ptr;
-	int n;
+	int n, m;
 
 	if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
 		return -1;
@@ -1678,18 +1719,18 @@ lws_h2_ws_handshake(struct lws *wsi)
 	    wsi->protocol->name && wsi->protocol->name[0]) {
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
 					 (unsigned char *)wsi->protocol->name,
-					 (int)strlen(wsi->protocol->name), &p, end))
+					 (int)strlen(wsi->protocol->name),
+					 &p, end))
 		return -1;
 	}
 
 	if (lws_finalize_http_header(wsi, &p, end))
 		return -1;
 
-	n = lws_write(wsi, start, lws_ptr_diff(p, start),
-		      LWS_WRITE_HTTP_HEADERS);
-	if (n != lws_ptr_diff(p, start)) {
-		lwsl_err("_write returned %d from %d\n", n,
-			 lws_ptr_diff(p, start));
+	m = lws_ptr_diff(p, start);
+	n = lws_write(wsi, start, m, LWS_WRITE_HTTP_HEADERS);
+	if (n != m) {
+		lwsl_err("_write returned %d from %d\n", n, m);
 
 		return -1;
 	}

@@ -54,6 +54,7 @@ lws_calllback_as_writeable(struct lws *wsi)
 	case LWSCM_WSCL_ISSUE_HTTP_BODY:
 		n = LWS_CALLBACK_CLIENT_HTTP_WRITEABLE;
 		break;
+	case LWSCM_HTTP2_WS_SERVING:
 	case LWSCM_WS_SERVING:
 		n = LWS_CALLBACK_SERVER_WRITEABLE;
 		break;
@@ -162,7 +163,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 			      LWS_WRITE_CLOSE);
 		if (n >= 0) {
 			wsi->state = LWSS_AWAITING_CLOSE_ACK;
-			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 1);
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 5);
 			lwsl_debug("sent close indication, awaiting ack\n");
 
 			goto bail_ok;
@@ -187,9 +188,11 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		/* well he is sent, mark him done */
 		wsi->ws->ping_pending_flag = 0;
-		if (wsi->ws->payload_is_close)
+		if (wsi->ws->payload_is_close) {
+			// assert(0);
 			/* oh... a close frame was it... then we are done */
 			goto bail_die;
+		}
 
 		/* otherwise for PING, leave POLLOUT active either way */
 		goto bail_ok;
@@ -412,9 +415,9 @@ user_service_go_again:
 	wsi2a = wsi->h2.child_list;
 	while (wsi2a) {
 		if (wsi2a->h2.requested_POLLOUT)
-			lwsl_debug("  * %p\n", wsi2a);
+			lwsl_debug("  * %p %s\n", wsi2a, wsi2a->protocol->name);
 		else
-			lwsl_debug("    %p\n", wsi2a);
+			lwsl_debug("    %p %s\n", wsi2a, wsi2a->protocol->name);
 
 		wsi2a = wsi2a->h2.sibling_list;
 	}
@@ -427,10 +430,8 @@ user_service_go_again:
 		struct lws *w, **wa;
 	
 		wa = &(*wsi2)->h2.sibling_list;
-		if (!(*wsi2)->h2.requested_POLLOUT) {
-			lwsl_debug("  child %p doesn't want POLLOUT\n", *wsi2);
+		if (!(*wsi2)->h2.requested_POLLOUT)
 			goto next_child;
-		}
 
 		/*
 		 * we're going to do writable callback for this child.
@@ -545,6 +546,57 @@ user_service_go_again:
 			goto next_child;
 		}
 
+		/* Notify peer that we decided to close */
+
+		if (w->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION) {
+			lwsl_debug("sending close packet\n");
+			w->waiting_to_send_close_frame = 0;
+			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
+				      w->ws->close_in_ping_buffer_len,
+				      LWS_WRITE_CLOSE);
+			if (n >= 0) {
+				w->state = LWSS_AWAITING_CLOSE_ACK;
+				lws_set_timeout(w, PENDING_TIMEOUT_CLOSE_ACK, 5);
+				lwsl_debug("sent close indication, awaiting ack\n");
+			}
+
+			goto next_child;
+		}
+
+		/* Acknowledge receipt of peer's notification he closed,
+		 * then logically close ourself */
+
+		if ((lws_state_is_ws(w->state) && w->ws->ping_pending_flag) ||
+		    (w->state == LWSS_RETURNED_CLOSE_ALREADY &&
+		     w->ws->payload_is_close)) {
+
+			if (w->ws->payload_is_close)
+				write_type = LWS_WRITE_CLOSE | LWS_WRITE_H2_STREAM_END;
+
+			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
+				      w->ws->ping_payload_len, write_type);
+			if (n < 0)
+				goto bail_die;
+
+			/* well he is sent, mark him done */
+			w->ws->ping_pending_flag = 0;
+			if (w->ws->payload_is_close) {
+				/* oh... a close frame was it... then we are done */
+				lwsl_debug("Acknowledged peer's close packet\n");
+				w->ws->payload_is_close = 0;
+				w->state = LWSS_RETURNED_CLOSE_ALREADY;
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "returned close packet");
+				wa = &wsi->h2.child_list;
+				goto next_child;
+			}
+
+			lws_callback_on_writable(w);
+			(w)->h2.requested_POLLOUT = 1;
+
+			/* otherwise for PING, leave POLLOUT active either way */
+			goto next_child;
+		}
+
 		if (lws_calllback_as_writeable(w) || w->h2.send_END_STREAM) {
 			lwsl_debug("Closing POLLOUT child\n");
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 pollout handle");
@@ -638,7 +690,7 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 		if (wsi->protocol &&
 		    wsi->protocol->callback(wsi, LWS_CALLBACK_TIMER,
 					    wsi->user_space, NULL, 0)) {
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+			__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "timer cb errored");
 
 					return 1;
@@ -1382,7 +1434,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 #ifdef LWS_OPENSSL_SUPPORT
 	if (wsi->state == LWSS_SHUTDOWN && lws_is_ssl(wsi) && wsi->ssl) {
 		n = 0;
-		switch (lws_tls_shutdown(wsi)) {
+		switch (__lws_tls_shutdown(wsi)) {
 		case LWS_SSL_CAPABLE_DONE:
 		case LWS_SSL_CAPABLE_ERROR:
 			goto close_and_handled;

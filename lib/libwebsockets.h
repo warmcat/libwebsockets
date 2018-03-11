@@ -347,10 +347,10 @@ lwsl_timestamp(int level, char *p, int len);
  * lwsl_hexdump() - helper to hexdump a buffer
  *
  * \param level: one of LLL_ constants
- * \param buf: buffer start to dump
+ * \param vbuf: buffer start to dump
  * \param len: length of buffer to dump
  *
- * If \p level is visible, does a nice hexdump -C style dump of \p buf for
+ * If \p level is visible, does a nice hexdump -C style dump of \p vbuf for
  * \p len bytes.  This can be extremely convenient while debugging.
  */
 LWS_VISIBLE LWS_EXTERN void
@@ -925,7 +925,11 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_ESTABLISHED				=  0,
 	/**< (VH) after the server completes a handshake with an incoming
 	 * client.  If you built the library with ssl support, in is a
-	 * pointer to the ssl struct associated with the connection or NULL.*/
+	 * pointer to the ssl struct associated with the connection or NULL.
+	 *
+	 * b0 of len is set if the connection was made using ws-over-h2
+	 *
+	 * */
 	LWS_CALLBACK_CLIENT_CONNECTION_ERROR			=  1,
 	/**< the request client connection has been unable to complete a
 	 * handshake with the remote server.  If in is non-NULL, you can

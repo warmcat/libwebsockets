@@ -1567,7 +1567,7 @@ spill:
 		switch (wsi->ws->opcode) {
 		case LWSWSOPC_CLOSE:
 
-			/* is this an acknowledgement of our close? */
+			/* is this an acknowledgment of our close? */
 			if (wsi->state == LWSS_AWAITING_CLOSE_ACK) {
 				/*
 				 * fine he has told us he is closing too, let's
@@ -1729,7 +1729,6 @@ drain_extension:
 			eff_buf.token[eff_buf.token_len] = '\0';
 
 			if (wsi->protocol->callback) {
-
 				if (callback_action == LWS_CALLBACK_RECEIVE_PONG)
 					lwsl_info("Doing pong callback\n");
 

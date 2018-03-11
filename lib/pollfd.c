@@ -462,7 +462,7 @@ lws_callback_on_writable(struct lws *wsi)
 #endif
 
 #ifdef LWS_WITH_HTTP2
-	lwsl_info("%s: %p\n", __func__, wsi);
+	lwsl_info("%s: %p (mode %d)\n", __func__, wsi, wsi->mode);
 
 	if (wsi->mode != LWSCM_HTTP2_SERVING &&
 	    wsi->mode != LWSCM_HTTP2_WS_SERVING)
