@@ -302,7 +302,7 @@ lws_tls_ctx_from_wsi(struct lws *wsi)
 }
 
 enum lws_ssl_capable_status
-lws_tls_shutdown(struct lws *wsi)
+__lws_tls_shutdown(struct lws *wsi)
 {
 	int n = SSL_shutdown(wsi->ssl);
 
@@ -314,7 +314,7 @@ lws_tls_shutdown(struct lws *wsi)
 		return LWS_SSL_CAPABLE_DONE;
 
 	case 0: /* needs a retry */
-		lws_change_pollfd(wsi, 0, LWS_POLLIN);
+		__lws_change_pollfd(wsi, 0, LWS_POLLIN);
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 
 	default: /* fatal error, or WANT */
@@ -322,12 +322,12 @@ lws_tls_shutdown(struct lws *wsi)
 		if (n != SSL_ERROR_SYSCALL && n != SSL_ERROR_SSL) {
 			if (SSL_want_read(wsi->ssl)) {
 				lwsl_debug("(wants read)\n");
-				lws_change_pollfd(wsi, 0, LWS_POLLIN);
+				__lws_change_pollfd(wsi, 0, LWS_POLLIN);
 				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 			}
 			if (SSL_want_write(wsi->ssl)) {
 				lwsl_debug("(wants write)\n");
-				lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+				__lws_change_pollfd(wsi, 0, LWS_POLLOUT);
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 			}
 		}

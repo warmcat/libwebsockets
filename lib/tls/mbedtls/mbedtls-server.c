@@ -278,7 +278,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 int
 lws_tls_server_abort_connection(struct lws *wsi)
 {
-	lws_tls_shutdown(wsi);
+	__lws_tls_shutdown(wsi);
 	SSL_free(wsi->ssl);
 
 	return 0;
