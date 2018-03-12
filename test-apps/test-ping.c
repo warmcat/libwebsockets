@@ -384,8 +384,7 @@ int main(int argc, char **argv)
 			port = atoi(optarg);
 			break;
 		case 'n':
-			strncpy(protocol_name, optarg, sizeof protocol_name);
-			protocol_name[(sizeof protocol_name) - 1] = '\0';
+			lws_strncpy(protocol_name, optarg, sizeof protocol_name);
 			protocols[PROTOCOL_LWS_MIRROR].name = protocol_name;
 			break;
 		case 'i':

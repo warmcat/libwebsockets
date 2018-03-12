@@ -218,8 +218,7 @@ int main(int argc, char **argv)
 			debug_level = atoi(optarg);
 			break;
 		case 'c':
-			strncpy(config_dir, optarg, sizeof(config_dir) - 1);
-			config_dir[sizeof(config_dir) - 1] = '\0';
+			lws_strncpy(config_dir, optarg, sizeof(config_dir) - 1);
 			break;
 		case 'h':
 			fprintf(stderr, "Usage: lwsws [-c <config dir>] "

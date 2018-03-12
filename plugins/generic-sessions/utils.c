@@ -206,8 +206,7 @@ lwsgs_lookup_callback(void *priv, int cols, char **col_val, char **col_name)
 	if (cols)
 		lla->results = 0;
 	if (col_val && col_val[0]) {
-		strncpy(lla->username, col_val[0], lla->len);
-		lla->username[lla->len - 1] = '\0';
+		lws_strncpy(lla->username, col_val[0], lla->len);
 		lwsl_info("%s: %s\n", __func__, lla->username);
 	}
 
@@ -246,13 +245,11 @@ lwsgs_lookup_callback_user(void *priv, int cols, char **col_val, char **col_name
 
 	for (n = 0; n < cols; n++) {
 		if (!strcmp(col_name[n], "username")) {
-			strncpy(u->username, col_val[n], sizeof(u->username) - 1);
-			u->username[sizeof(u->username) - 1] = '\0';
+			lws_strncpy(u->username, col_val[n], sizeof(u->username) - 1);
 			continue;
 		}
 		if (!strcmp(col_name[n], "ip")) {
-			strncpy(u->ip, col_val[n], sizeof(u->ip) - 1);
-			u->ip[sizeof(u->ip) - 1] = '\0';
+			lws_strncpy(u->ip, col_val[n], sizeof(u->ip) - 1);
 			continue;
 		}
 		if (!strcmp(col_name[n], "creation_time")) {
@@ -267,8 +264,7 @@ lwsgs_lookup_callback_user(void *priv, int cols, char **col_val, char **col_name
 			continue;
 		}
 		if (!strcmp(col_name[n], "email")) {
-			strncpy(u->email, col_val[n], sizeof(u->email) - 1);
-			u->email[sizeof(u->email) - 1] = '\0';
+			lws_strncpy(u->email, col_val[n], sizeof(u->email) - 1);
 			continue;
 		}
 		if (!strcmp(col_name[n], "verified")) {
@@ -276,18 +272,15 @@ lwsgs_lookup_callback_user(void *priv, int cols, char **col_val, char **col_name
 			continue;
 		}
 		if (!strcmp(col_name[n], "pwhash")) {
-			strncpy(u->pwhash.id, col_val[n], sizeof(u->pwhash.id) - 1);
-			u->pwhash.id[sizeof(u->pwhash.id) - 1] = '\0';
+			lws_strncpy(u->pwhash.id, col_val[n], sizeof(u->pwhash.id) - 1);
 			continue;
 		}
 		if (!strcmp(col_name[n], "pwsalt")) {
-			strncpy(u->pwsalt.id, col_val[n], sizeof(u->pwsalt.id) - 1);
-			u->pwsalt.id[sizeof(u->pwsalt.id) - 1] = '\0';
+			lws_strncpy(u->pwsalt.id, col_val[n], sizeof(u->pwsalt.id) - 1);
 			continue;
 		}
 		if (!strcmp(col_name[n], "token")) {
-			strncpy(u->token.id, col_val[n], sizeof(u->token.id) - 1);
-			u->token.id[sizeof(u->token.id) - 1] = '\0';
+			lws_strncpy(u->token.id, col_val[n], sizeof(u->token.id) - 1);
 			continue;
 		}
 	}

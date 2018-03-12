@@ -279,8 +279,7 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 
 	pps->u.ga.err = err;
 	pps->u.ga.highest_sid = h2n->highest_sid;
-	strncpy(pps->u.ga.str, reason, sizeof(pps->u.ga.str) - 1);
-	pps->u.ga.str[sizeof(pps->u.ga.str) - 1] = '\0';
+	lws_strncpy(pps->u.ga.str, reason, sizeof(pps->u.ga.str) - 1);
 	lws_pps_schedule(wsi, pps);
 
 	h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */

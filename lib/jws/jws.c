@@ -202,8 +202,7 @@ cb_hdr(struct lejp_ctx *ctx, char reason)
 			return -1;
 		break;
 	case JHP_ALG:
-		strncpy(s->alg, ctx->buf, sizeof(s->alg) - 1);
-		s->alg[sizeof(s->alg) - 1] = '\0';
+		lws_strncpy(s->alg, ctx->buf, sizeof(s->alg) - 1);
 		if (!strcmp(ctx->buf, "HS256")) {
 			s->hmac_type = LWS_GENHMAC_TYPE_SHA256;
 			break;

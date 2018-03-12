@@ -1066,14 +1066,10 @@ again:
 			}
 
 			pss->seen_auth_req_before = 1;
-			strncpy(pss->last_auth_req_username, pss->ua->username,
+			lws_strncpy(pss->last_auth_req_username, pss->ua->username,
 				sizeof(pss->last_auth_req_username) - 1);
-			pss->last_auth_req_username[
-			        sizeof(pss->last_auth_req_username) - 1] = '\0';
-			strncpy(pss->last_auth_req_service, pss->ua->service,
+			lws_strncpy(pss->last_auth_req_service, pss->ua->service,
 				sizeof(pss->last_auth_req_service) - 1);
-			pss->last_auth_req_service[
-			        sizeof(pss->last_auth_req_service) - 1] = '\0';
 
 			if (strcmp(pss->ua->service, "ssh-connection"))
 				goto ua_fail;

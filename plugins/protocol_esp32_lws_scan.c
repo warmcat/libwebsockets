@@ -374,8 +374,7 @@ scan_finished(uint16_t count, wifi_ap_record_t *recs, void *v)
 		lws.rssi = r->rssi;
 		lws.count = 1;
 		memcpy(&lws.bssid, r->bssid, 6);
-		strncpy(lws.ssid, (const char *)r->ssid, sizeof(lws.ssid) - 1);
-		lws.ssid[sizeof(lws.ssid) - 1] = '\0';
+		lws_strncpy(lws.ssid, (const char *)r->ssid, sizeof(lws.ssid) - 1);
 
 		lws_wifi_scan_insert_trim(&vhd->known_aps_list, &lws);
 	}
@@ -408,7 +407,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			return -1;
 
 		lwsl_notice("LWS_UFS_OPEN Filename %s\n", filename);
-		strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
+		lws_strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
 		if (!strcmp(name, "pub") || !strcmp(name, "pri")) {
 			if (nvs_open("lws-station", NVS_READWRITE, &pss->nvh))
 				return 1;
@@ -567,7 +566,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_tls_vhost_cert_info(vhd->vhost,
 					LWS_TLS_CERT_INFO_COMMON_NAME, &ir,
 						sizeof(ir.ns.name));
-				strncpy(subject, ir.ns.name, sizeof(subject) - 1);
+				lws_strncpy(subject, ir.ns.name, sizeof(subject) - 1);
 
 				ir.ns.name[0] = '\0';
 				lws_tls_vhost_cert_info(vhd->vhost,
@@ -785,8 +784,7 @@ issue:
 		lwsl_notice("LWS_CALLBACK_VHOST_CERT_UPDATE: %d\n", (int)len);
 		vhd->acme_state = (int)len;
 		if (in) {
-			strncpy(vhd->acme_msg, in, sizeof(vhd->acme_msg) - 1);
-			vhd->acme_msg[sizeof(vhd->acme_msg) - 1] = '\0';
+			lws_strncpy(vhd->acme_msg, in, sizeof(vhd->acme_msg) - 1);
 			lwsl_notice("acme_msg: %s\n", (char *)in);
 		}
 		lws_callback_on_writable_all_protocol_vhost(vhd->vhost, vhd->protocol);
@@ -843,20 +841,15 @@ issue:
 
 				if (si != -1 && n < 8) {
 					if (!(n & 1)) {
-						strncpy(lws_esp32.ssid[(n >> 1) & 3], p,
+						lws_strncpy(lws_esp32.ssid[(n >> 1) & 3], p,
 								sizeof(lws_esp32.ssid[0]));
-						lws_esp32.ssid[(n >> 1) & 3]
-							[sizeof(lws_esp32.ssid[0]) - 1] = '\0';
 						lws_snprintf(use, sizeof(use) - 1, "%duse", si);
 						lwsl_notice("resetting %s to 0\n", use);
 						nvs_set_u32(nvh, use, 0);
 
-					} else {
-						strncpy(lws_esp32.password[(n >> 1) & 3], p,
+					} else
+						lws_strncpy(lws_esp32.password[(n >> 1) & 3], p,
 								sizeof(lws_esp32.password[0]));
-						lws_esp32.password[(n >> 1) & 3]
-							[sizeof(lws_esp32.password[0]) - 1] = '\0';
-					}
 				}
 
 			}

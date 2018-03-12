@@ -641,22 +641,18 @@ int main(int argc, char **argv)
 			lwsl_notice("Disabled sending mirror data (for pingpong testing)\n");
 			break;
 		case 'C':
-			strncpy(cert_path, optarg, sizeof(cert_path) - 1);
-			cert_path[sizeof(cert_path) - 1] = '\0';
+			lws_strncpy(cert_path, optarg, sizeof(cert_path) - 1);
 			break;
 		case 'K':
-			strncpy(key_path, optarg, sizeof(key_path) - 1);
-			key_path[sizeof(key_path) - 1] = '\0';
+			lws_strncpy(key_path, optarg, sizeof(key_path) - 1);
 			break;
 		case 'A':
-			strncpy(ca_path, optarg, sizeof(ca_path) - 1);
-			ca_path[sizeof(ca_path) - 1] = '\0';
+			lws_strncpy(ca_path, optarg, sizeof(ca_path) - 1);
 			break;
 
 #if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
 		case 'R':
-			strncpy(crl_path, optarg, sizeof(crl_path) - 1);
-			crl_path[sizeof(crl_path) - 1] = '\0';
+			lws_strncpy(crl_path, optarg, sizeof(crl_path) - 1);
 			break;
 #endif
 		case 'h':
@@ -677,8 +673,7 @@ int main(int argc, char **argv)
 
 	/* add back the leading / on path */
 	path[0] = '/';
-	strncpy(path + 1, p, sizeof(path) - 2);
-	path[sizeof(path) - 1] = '\0';
+	lws_strncpy(path + 1, p, sizeof(path) - 2);
 	i.path = path;
 
 	if (!strcmp(prot, "http") || !strcmp(prot, "ws"))

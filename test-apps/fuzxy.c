@@ -794,8 +794,7 @@ main(int argc, char **argv)
 			port_local = atoi(optarg);
 			break;
 		case 'i':
-			strncpy(interface_name, optarg, sizeof interface_name);
-			interface_name[(sizeof interface_name) - 1] = '\0';
+			lws_strncpy(interface_name, optarg, sizeof interface_name);
 			break;
 		case 'h':
 			fprintf(stderr, "Usage: libwebsockets-test-fuzxy "

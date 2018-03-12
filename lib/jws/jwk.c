@@ -67,8 +67,7 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 
 	switch (ctx->path_match - 1) {
 	case JWK_KTY:
-		strncpy(s->keytype, ctx->buf, sizeof(s->keytype) - 1);
-		s->keytype[sizeof(s->keytype) - 1] = '\0';
+		lws_strncpy(s->keytype, ctx->buf, sizeof(s->keytype) - 1);
 		if (!strcmp(ctx->buf, "oct")) {
 			break;
 		}

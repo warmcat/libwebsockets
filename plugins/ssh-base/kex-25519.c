@@ -155,8 +155,7 @@ ed25519_key_parse(uint8_t *p, size_t len, char *type, size_t type_len,
 	m = l;
 	if (m > type_len)
 		m = (uint32_t)type_len -1 ;
-	strncpy(type, (const char *)p, m);
-	type[m] = '\0';
+	lws_strncpy(type, (const char *)p, m);
 
 	p += l;
 	l = lws_g32(&p); /* pub key length */

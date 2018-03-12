@@ -45,19 +45,19 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 char* lws_ssl_get_error_string(int status, int ret, char *buf, size_t len) {
 	switch (status) {
 	case SSL_ERROR_NONE:
-		return strncpy(buf, "SSL_ERROR_NONE", len);
+		return lws_strncpy(buf, "SSL_ERROR_NONE", len);
 	case SSL_ERROR_ZERO_RETURN:
-		return strncpy(buf, "SSL_ERROR_ZERO_RETURN", len);
+		return lws_strncpy(buf, "SSL_ERROR_ZERO_RETURN", len);
 	case SSL_ERROR_WANT_READ:
-		return strncpy(buf, "SSL_ERROR_WANT_READ", len);
+		return lws_strncpy(buf, "SSL_ERROR_WANT_READ", len);
 	case SSL_ERROR_WANT_WRITE:
-		return strncpy(buf, "SSL_ERROR_WANT_WRITE", len);
+		return lws_strncpy(buf, "SSL_ERROR_WANT_WRITE", len);
 	case SSL_ERROR_WANT_CONNECT:
-		return strncpy(buf, "SSL_ERROR_WANT_CONNECT", len);
+		return lws_strncpy(buf, "SSL_ERROR_WANT_CONNECT", len);
 	case SSL_ERROR_WANT_ACCEPT:
-		return strncpy(buf, "SSL_ERROR_WANT_ACCEPT", len);
+		return lws_strncpy(buf, "SSL_ERROR_WANT_ACCEPT", len);
 	case SSL_ERROR_WANT_X509_LOOKUP:
-		return strncpy(buf, "SSL_ERROR_WANT_X509_LOOKUP", len);
+		return lws_strncpy(buf, "SSL_ERROR_WANT_X509_LOOKUP", len);
 	case SSL_ERROR_SYSCALL:
 		switch (ret) {
                 case 0:

@@ -5316,6 +5316,19 @@ LWS_VISIBLE LWS_EXTERN int
 lws_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
 
 /**
+ * lws_strncpy(): strncpy that guarantees NUL on truncated copy
+ *
+ * \param dest: destination buffer
+ * \param src: source buffer
+ * \param size: bytes left in destination buffer
+ *
+ * This lets you correctly truncate buffers by concatenating lengths, if you
+ * reach the limit the reported length doesn't exceed the limit.
+ */
+LWS_VISIBLE LWS_EXTERN char *
+lws_strncpy(char *dest, const char *src, size_t size);
+
+/**
  * lws_get_random(): fill a buffer with platform random data
  *
  * \param context: the lws context

@@ -19,6 +19,9 @@
 #include "ssl_dbg.h"
 #include "ssl_port.h"
 
+char *
+lws_strncpy(char *dest, const char *src, size_t size);
+
 #define SSL_SEND_DATA_MAX_LENGTH 1460
 
 /**
@@ -1582,7 +1585,7 @@ void SSL_set_verify(SSL *ssl, int mode, int (*verify_callback)(int, X509_STORE_C
 
 void ERR_error_string_n(unsigned long e, char *buf, size_t len)
 {
-	strncpy(buf, "unknown", len);
+	lws_strncpy(buf, "unknown", len);
 }
 
 void ERR_free_strings(void)
