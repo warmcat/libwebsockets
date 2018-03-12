@@ -143,6 +143,8 @@ do_rx:
 			goto do_rx;
 #endif
 		lwsl_notice("Client RX: %s", (char *)in);
+		if (times == 0)
+			force_exit = 1;
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
