@@ -346,7 +346,7 @@ int main(int argc, char **argv)
 			_interface = interface_name;
 			break;
 		case 'n':
-			times = atoi(optarg);
+			times = atoi(optarg) + 1;
 			break;
 		case '?':
 		case 'h':
