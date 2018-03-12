@@ -463,19 +463,19 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
 	if (p)
-		strncpy(origin, p, sizeof(origin) - 1);
+		lws_strncpy(origin, p, sizeof(origin));
 
 	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
 	if (p)
-		strncpy(protocol, p, sizeof(protocol) - 1);
+		lws_strncpy(protocol, p, sizeof(protocol));
 
 	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 	if (p)
-		strncpy(method, p, sizeof(method) - 1);
+		lws_strncpy(method, p, sizeof(method));
 
 	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
 	if (p)
-		strncpy(method, p, sizeof(iface) - 1);
+		lws_strncpy(method, p, sizeof(iface));
 
 	lwsl_info("redirect ads='%s', port=%d, path='%s', ssl = %d\n",
 		   address, port, path, ssl);
@@ -1040,14 +1040,14 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 		/* length of the user name */
 		pt->serv_buf[len++] = n;
 		/* user name */
-		strncpy((char *)&pt->serv_buf[len], wsi->vhost->socks_user,
-			context->pt_serv_buf_size - len);
+		lws_strncpy((char *)&pt->serv_buf[len], wsi->vhost->socks_user,
+			context->pt_serv_buf_size - len + 1);
 		len += n;
 		/* length of the password */
 		pt->serv_buf[len++] = passwd_len;
 		/* password */
-		strncpy((char *)&pt->serv_buf[len], wsi->vhost->socks_password,
-			context->pt_serv_buf_size - len);
+		lws_strncpy((char *)&pt->serv_buf[len], wsi->vhost->socks_password,
+			context->pt_serv_buf_size - len + 1);
 		len += passwd_len;
 		break;
 
@@ -1066,8 +1066,8 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 		n = len++;
 
 		/* the address we tell SOCKS proxy to connect to */
-		strncpy((char *)&(pt->serv_buf[len]), wsi->stash->address,
-			context->pt_serv_buf_size - len);
+		lws_strncpy((char *)&(pt->serv_buf[len]), wsi->stash->address,
+			context->pt_serv_buf_size - len + 1);
 		len += strlen(wsi->stash->address);
 		net_num = htons(wsi->c_port);
 

@@ -60,8 +60,7 @@ lwsgs_lookup_callback_email(void *priv, int cols, char **col_val,
 
 	for (n = 0; n < cols; n++) {
 		if (!strcmp(col_name[n], "content")) {
-			strncpy(a->buf, col_val[n], a->len - 1);
-			a->buf[a->len - 1] = '\0';
+			lws_strncpy(a->buf, col_val[n], a->len);
 			continue;
 		}
 	}
@@ -82,7 +81,7 @@ lwsgs_email_cb_get_body(struct lws_email *email, char *buf, int len)
 		 "select content from email where username='%s';",
 		 lws_sql_purify(esc, vhd->u.username, sizeof(esc) - 1));
 
-	strncpy(buf, "failed", len);
+	lws_strncpy(buf, "failed", len);
 	if (sqlite3_exec(vhd->pdb, ss, lwsgs_lookup_callback_email, &a,
 			 NULL) != SQLITE_OK) {
 		lwsl_err("Unable to lookup email: %s\n",
@@ -178,7 +177,7 @@ lwsgs_email_cb_on_next(struct lws_email *email)
 		 */
 		return 1;
 
-	strncpy(email->email_to, vhd->u.email, sizeof(email->email_to) - 1);
+	lws_strncpy(email->email_to, vhd->u.email, sizeof(email->email_to));
 
 	return 0;
 }
@@ -221,7 +220,7 @@ lwsgs_subst(void *data, int index)
 	} else
 		lwsl_notice("no sid\n");
 
-	strncpy(a->pss->result + 32, u.email, 100);
+	lws_strncpy(a->pss->result + 32, u.email, 100);
 
 	switch (index) {
 	case 0:
@@ -285,38 +284,38 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		pvo = (const struct lws_protocol_vhost_options *)in;
 		while (pvo) {
 			if (!strcmp(pvo->name, "admin-user"))
-				strncpy(vhd->admin_user, pvo->value,
-					sizeof(vhd->admin_user) - 1);
+				lws_strncpy(vhd->admin_user, pvo->value,
+					sizeof(vhd->admin_user));
 			if (!strcmp(pvo->name, "admin-password-sha1"))
-				strncpy(vhd->admin_password_sha1.id, pvo->value,
-					sizeof(vhd->admin_password_sha1.id) - 1);
+				lws_strncpy(vhd->admin_password_sha1.id, pvo->value,
+					sizeof(vhd->admin_password_sha1.id));
 			if (!strcmp(pvo->name, "session-db"))
-				strncpy(vhd->session_db, pvo->value,
-					sizeof(vhd->session_db) - 1);
+				lws_strncpy(vhd->session_db, pvo->value,
+					sizeof(vhd->session_db));
 			if (!strcmp(pvo->name, "confounder"))
-				strncpy(vhd->confounder, pvo->value,
-					sizeof(vhd->confounder) - 1);
+				lws_strncpy(vhd->confounder, pvo->value,
+					sizeof(vhd->confounder));
 			if (!strcmp(pvo->name, "email-from"))
-				strncpy(vhd->email.email_from, pvo->value,
-					sizeof(vhd->email.email_from) - 1);
+				lws_strncpy(vhd->email.email_from, pvo->value,
+					sizeof(vhd->email.email_from));
 			if (!strcmp(pvo->name, "email-helo"))
-				strncpy(vhd->email.email_helo, pvo->value,
-					sizeof(vhd->email.email_helo) - 1);
+				lws_strncpy(vhd->email.email_helo, pvo->value,
+					sizeof(vhd->email.email_helo));
 			if (!strcmp(pvo->name, "email-template"))
-				strncpy(vhd->email_template, pvo->value,
-					sizeof(vhd->email_template) - 1);
+				lws_strncpy(vhd->email_template, pvo->value,
+					sizeof(vhd->email_template));
 			if (!strcmp(pvo->name, "email-title"))
-				strncpy(vhd->email_title, pvo->value,
-					sizeof(vhd->email_title) - 1);
+				lws_strncpy(vhd->email_title, pvo->value,
+					sizeof(vhd->email_title));
 			if (!strcmp(pvo->name, "email-contact-person"))
-				strncpy(vhd->email_contact_person, pvo->value,
-					sizeof(vhd->email_contact_person) - 1);
+				lws_strncpy(vhd->email_contact_person, pvo->value,
+					sizeof(vhd->email_contact_person));
 			if (!strcmp(pvo->name, "email-confirm-url-base"))
-				strncpy(vhd->email_confirm_url, pvo->value,
-					sizeof(vhd->email_confirm_url) - 1);
+				lws_strncpy(vhd->email_confirm_url, pvo->value,
+					sizeof(vhd->email_confirm_url));
 			if (!strcmp(pvo->name, "email-server-ip"))
-				strncpy(vhd->email.email_smtp_ip, pvo->value,
-					sizeof(vhd->email.email_smtp_ip) - 1);
+				lws_strncpy(vhd->email.email_smtp_ip, pvo->value,
+					sizeof(vhd->email.email_smtp_ip));
 
 			if (!strcmp(pvo->name, "timeout-idle-secs"))
 				vhd->timeout_idle_secs = atoi(pvo->value);
@@ -433,8 +432,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pss->login_session.id[0] = '\0';
 		pss->phs.pos = 0;
-		strncpy(pss->onward, (char *)in, sizeof(pss->onward) - 1);
-		pss->onward[sizeof(pss->onward) - 1] = '\0';
+		lws_strncpy(pss->onward, (char *)in, sizeof(pss->onward));
 
 		if (!strcmp((const char *)in, "/lwsgs-forgot")) {
 			lwsgs_handler_forgot(vhd, wsi, pss);
@@ -530,10 +528,9 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 				 sqlite3_errmsg(vhd->pdb));
 			break;
 		}
-		strncpy(sinfo->username, u.username, sizeof(sinfo->username) - 1);
-		sinfo->username[sizeof(sinfo->username) - 1] = '\0';
-		strncpy(sinfo->email, u.email, sizeof(sinfo->email) - 1);
-		strncpy(sinfo->session, sid.id, sizeof(sinfo->session) - 1);
+		lws_strncpy(sinfo->username, u.username, sizeof(sinfo->username));
+		lws_strncpy(sinfo->email, u.email, sizeof(sinfo->email));
+		lws_strncpy(sinfo->session, sid.id, sizeof(sinfo->session));
 		sinfo->mask = lwsgs_get_auth_level(vhd, username);
 		lws_get_peer_simple(wsi, sinfo->ip, sizeof(sinfo->ip));
 	}
@@ -600,7 +597,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 			cp = lws_spa_get_string(pss->spa, FGS_BAD);
 			lwsl_notice("user/password no good %s\n",
 				lws_spa_get_string(pss->spa, FGS_USERNAME));
-			strncpy(pss->onward, cp, sizeof(pss->onward) - 1);
+			lws_strncpy(pss->onward, cp, sizeof(pss->onward) - 1);
 			pss->onward[sizeof(pss->onward) - 1] = '\0';
 			goto completion_flow;
 		}
@@ -638,9 +635,8 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_email_check(&vhd->email);
 				}
 reg_done:
-				strncpy(pss->onward, lws_spa_get_string(pss->spa, n),
-					sizeof(pss->onward) - 1);
-				pss->onward[sizeof(pss->onward) - 1] = '\0';
+				lws_strncpy(pss->onward, lws_spa_get_string(pss->spa, n),
+					    sizeof(pss->onward));
 				pss->login_expires = 0;
 				pss->logging_out = 1;
 				goto completion_flow;
@@ -678,9 +674,8 @@ reg_done:
 				return -1;
 			}
 
-			strncpy(pss->onward, lws_spa_get_string(pss->spa, FGS_BAD),
-				sizeof(pss->onward) - 1);
-			pss->onward[sizeof(pss->onward) - 1] = '\0';
+			lws_strncpy(pss->onward, lws_spa_get_string(pss->spa, FGS_BAD),
+				    sizeof(pss->onward));
 			lwsl_debug("failed\n");
 
 			goto completion_flow;
@@ -702,8 +697,8 @@ reg_done:
 				return -1;
 			}
 
-			strncpy(pss->onward, lws_spa_get_string(pss->spa, FGS_GOOD), sizeof(pss->onward) - 1);
-			pss->onward[sizeof(pss->onward) - 1] = '\0';
+			lws_strncpy(pss->onward, lws_spa_get_string(pss->spa, FGS_GOOD),
+				    sizeof(pss->onward));
 
 			pss->login_expires = 0;
 			pss->logging_out = 1;
@@ -714,8 +709,7 @@ reg_done:
 		break;
 
 pass:
-		strncpy(pss->onward, cp, sizeof(pss->onward) - 1);
-		pss->onward[sizeof(pss->onward) - 1] = '\0';
+		lws_strncpy(pss->onward, cp, sizeof(pss->onward));
 
 		if (lwsgs_get_sid_from_wsi(wsi, &sid))
 			sid.id[0] = '\0';

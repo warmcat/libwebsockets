@@ -145,7 +145,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 
 	switch (state) {
 	case LWS_UFS_OPEN:
-		strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
+		lws_strncpy(pss->filename, filename, sizeof(pss->filename));
 		/* we get the original filename in @filename arg, but for
 		 * simple demo use a fixed name so we don't have to deal with
 		 * attacks  */

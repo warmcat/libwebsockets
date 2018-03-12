@@ -85,23 +85,19 @@ lookup_cb(void *priv, int cols, char **col_val, char **col_name)
 			continue;
 		}
 		if (!strcmp(col_name[n], "username")) {
-			strncpy(m->username, col_val[n], sizeof(m->username) - 1);
-			m->username[sizeof(m->username) - 1] = '\0';
+			lws_strncpy(m->username, col_val[n], sizeof(m->username));
 			continue;
 		}
 		if (!strcmp(col_name[n], "email")) {
-			strncpy(m->email, col_val[n], sizeof(m->email) - 1);
-			m->email[sizeof(m->email) - 1] = '\0';
+			lws_strncpy(m->email, col_val[n], sizeof(m->email));
 			continue;
 		}
 		if (!strcmp(col_name[n], "ip")) {
-			strncpy(m->ip, col_val[n], sizeof(m->ip) - 1);
-			m->ip[sizeof(m->ip) - 1] = '\0';
+			lws_strncpy(m->ip, col_val[n], sizeof(m->ip));
 			continue;
 		}
 		if (!strcmp(col_name[n], "content")) {
-			strncpy(m->content, col_val[n], sizeof(m->content) - 1);
-			m->content[sizeof(m->content) - 1] = '\0';
+			lws_strncpy(m->content, col_val[n], sizeof(m->content));
 			continue;
 		}
 	}

@@ -150,8 +150,9 @@ callback_client_loopback_test(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
-		strncpy(buf, in, sizeof(buf) - 1);
-		lwsl_notice("Client connection received %ld from server '%s'\n", (long)len, buf);
+		lws_strncpy(buf, in, sizeof(buf));
+		lwsl_notice("Client connection received %ld from server '%s'\n",
+			    (long)len, buf);
 
 		/* OK we are done with the client connection */
 		return -1;

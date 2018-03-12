@@ -114,7 +114,8 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 					(const struct lws_protocol_vhost_options *)in;
 			while (pvo) {
 				if (!strcmp(pvo->name, "fifo-path"))
-					strncpy(vhd->fifo_path, pvo->value, sizeof(vhd->fifo_path) - 1);
+					lws_strncpy(vhd->fifo_path, pvo->value,
+							sizeof(vhd->fifo_path));
 				pvo = pvo->next;
 			}
 			if (vhd->fifo_path[0] == '\0') {

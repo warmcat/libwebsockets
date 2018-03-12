@@ -626,7 +626,8 @@ lws_create_vhost(struct lws_context *context,
 
 #ifdef LWS_OPENSSL_SUPPORT
 	if (info->ecdh_curve)
-		strncpy(vh->ecdh_curve, info->ecdh_curve, sizeof(vh->ecdh_curve) - 1);
+		lws_strncpy(vh->ecdh_curve, info->ecdh_curve,
+			    sizeof(vh->ecdh_curve));
 #endif
 
 	/* carefully allocate and take a copy of cert + key paths if present */

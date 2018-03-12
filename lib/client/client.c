@@ -644,16 +644,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			port = wsi->c_port;
 			/* +1 as lws_client_reset expects leading / omitted */
 			path = new_path + 1;
-			strncpy(new_path, lws_hdr_simple_ptr(wsi,
-							 _WSI_TOKEN_CLIENT_URI),
-							 sizeof(new_path));
-			new_path[sizeof(new_path) - 1] = '\0';
+			lws_strncpy(new_path, lws_hdr_simple_ptr(wsi,
+				   _WSI_TOKEN_CLIENT_URI), sizeof(new_path));
 			q = strrchr(new_path, '/');
-			if (q) {
-				strncpy(q + 1, p, sizeof(new_path) -
-							(q - new_path) - 1);
-				new_path[sizeof(new_path) - 1] = '\0';
-			} else
+			if (q)
+				lws_strncpy(q + 1, p, sizeof(new_path) -
+							(q - new_path));
+			else
 				path = p;
 		}
 

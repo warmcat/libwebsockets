@@ -349,8 +349,7 @@ lws_fops_zip_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
 	m = sizeof(rp) - 1;
 	if ((vpath - vfs_path - 1) < m)
 		m = lws_ptr_diff(vpath, vfs_path) - 1;
-	strncpy(rp, vfs_path, m);
-	rp[m] = '\0';
+	lws_strncpy(rp, vfs_path, m + 1);
 
 	/* open the zip file itself using the incoming fops, not fops_zip */
 

@@ -290,22 +290,18 @@ int main(int argc, char **argv)
 			continue;
 		switch (n) {
 		case 'P':
-			strncpy(passphrase, optarg, sizeof(passphrase));
-			passphrase[sizeof(passphrase) - 1] = '\0';
+			lws_strncpy(passphrase, optarg, sizeof(passphrase));
 			info.ssl_private_key_password = passphrase;
 			break;
 		case 'C':
-			strncpy(ssl_cert, optarg, sizeof(ssl_cert));
-			ssl_cert[sizeof(ssl_cert) - 1] = '\0';
+			lws_strncpy(ssl_cert, optarg, sizeof(ssl_cert));
 			disallow_selfsigned = 1;
 			break;
 		case 'k':
-			strncpy(ssl_key, optarg, sizeof(ssl_key));
-			ssl_key[sizeof(ssl_key) - 1] = '\0';
+			lws_strncpy(ssl_key, optarg, sizeof(ssl_key));
 			break;
 		case 'u':
-			strncpy(uri, optarg, sizeof(uri));
-			uri[sizeof(uri) - 1] = '\0';
+			lws_strncpy(uri, optarg, sizeof(uri));
 			break;
 
 #ifndef LWS_NO_DAEMONIZE
@@ -319,8 +315,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_CLIENT
 		case 'c':
 			client = 1;
-			strncpy(address, optarg, sizeof(address) - 1);
-			address[sizeof(address) - 1] = '\0';
+			lws_strncpy(address, optarg, sizeof(address));
 			port = 80;
 			break;
 		case 'r':
@@ -345,8 +340,7 @@ int main(int argc, char **argv)
 			lwsl_err("using lws-echogen\n");
 			break;
 		case 'i':
-			strncpy(interface_name, optarg, sizeof interface_name);
-			interface_name[(sizeof interface_name) - 1] = '\0';
+			lws_strncpy(interface_name, optarg, sizeof interface_name);
 			_interface = interface_name;
 			break;
 		case 'n':

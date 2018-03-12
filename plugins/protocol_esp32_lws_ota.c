@@ -104,7 +104,7 @@ ota_file_upload_cb(void *data, const char *name, const char *filename,
 	switch (state) {
 	case LWS_UFS_OPEN:
 		lwsl_notice("LWS_UFS_OPEN Filename %s\n", filename);
-		strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
+		lws_strncpy(pss->filename, filename, sizeof(pss->filename));
 		if (strcmp(name, "ota"))
 			return 1;
 

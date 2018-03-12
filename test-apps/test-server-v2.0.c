@@ -373,8 +373,7 @@ int main(int argc, char **argv)
 			info.port = atoi(optarg);
 			break;
 		case 'i':
-			strncpy(interface_name, optarg, sizeof interface_name);
-			interface_name[(sizeof interface_name) - 1] = '\0';
+			lws_strncpy(interface_name, optarg, sizeof interface_name);
 			iface = interface_name;
 			break;
 		case 'r':
@@ -382,16 +381,13 @@ int main(int argc, char **argv)
 			printf("Setting resource path to \"%s\"\n", resource_path);
 			break;
 		case 'C':
-			strncpy(cert_path, optarg, sizeof(cert_path) - 1);
-			cert_path[sizeof(cert_path) - 1] = '\0';
+			lws_strncpy(cert_path, optarg, sizeof(cert_path));
 			break;
 		case 'K':
-			strncpy(key_path, optarg, sizeof(key_path) - 1);
-			key_path[sizeof(key_path) - 1] = '\0';
+			lws_strncpy(key_path, optarg, sizeof(key_path));
 			break;
 		case 'A':
-			strncpy(ca_path, optarg, sizeof(ca_path) - 1);
-			ca_path[sizeof(ca_path) - 1] = '\0';
+			lws_strncpy(ca_path, optarg, sizeof(ca_path));
 			break;
 #if defined(LWS_OPENSSL_SUPPORT)
 		case 'v':
@@ -401,8 +397,7 @@ int main(int argc, char **argv)
 
 #if defined(LWS_HAVE_SSL_CTX_set1_param)
 		case 'R':
-			strncpy(crl_path, optarg, sizeof(crl_path) - 1);
-			crl_path[sizeof(crl_path) - 1] = '\0';
+			lws_strncpy(crl_path, optarg, sizeof(crl_path));
 			break;
 #endif
 #endif

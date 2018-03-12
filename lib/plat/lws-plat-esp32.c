@@ -898,8 +898,7 @@ get_txt_param(const mdns_result_t *mr, const char *param, char *result, int len)
 		return 1;
 	}
 
-	strncpy(result, mr->txt->value, len);
-	result[len - 1] = '\0';
+	lws_strncpy(result, mr->txt->value, len);
 
 	return 0;
 }
@@ -938,8 +937,7 @@ next:
 			p = lws_malloc(sizeof(*p), "group");
 			if (!p)
 				continue;
-			strncpy(p->host, r->hostname, sizeof(p->host) - 1);
-			p->host[sizeof(p->host) - 1] = '\0';
+			lws_strncpy(p->host, r->hostname, sizeof(p->host));
 
 			get_txt_param(r, "model", p->model, sizeof(p->model));
 			get_txt_param(r, "role", p->role, sizeof(p->role));
@@ -1098,14 +1096,13 @@ hit:
 		lwsl_info("Attempting connection with slot %d: %s:\n", m,
 				lws_esp32.ssid[m]);
 		/* set the ssid we last tried to connect to */
-		strncpy(lws_esp32.active_ssid, lws_esp32.ssid[m],
-				sizeof(lws_esp32.active_ssid) - 1);
-		lws_esp32.active_ssid[sizeof(lws_esp32.active_ssid) - 1] = '\0';
+		lws_strncpy(lws_esp32.active_ssid, lws_esp32.ssid[m],
+				sizeof(lws_esp32.active_ssid));
 
-		strncpy((char *)sta_config.sta.ssid, lws_esp32.ssid[m],
-			sizeof(sta_config.sta.ssid) - 1);
-		strncpy((char *)sta_config.sta.password, lws_esp32.password[m],
-			sizeof(sta_config.sta.password) - 1);
+		lws_strncpy((char *)sta_config.sta.ssid, lws_esp32.ssid[m],
+			sizeof(sta_config.sta.ssid));
+		lws_strncpy((char *)sta_config.sta.password, lws_esp32.password[m],
+			sizeof(sta_config.sta.password));
 
 		tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA,
 					   (const char *)&config.ap.ssid[7]);

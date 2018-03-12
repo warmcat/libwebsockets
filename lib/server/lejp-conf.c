@@ -732,7 +732,7 @@ dostring:
 		n = p1 - p;
 		if (n > a->end - a->p)
 			n = a->end - a->p;
-		strncpy(a->p, p, n);
+		lws_strncpy(a->p, p, n + 1);
 		a->p += n;
 		a->p += lws_snprintf(a->p, a->end - a->p, "%s", LWS_INSTALL_DATADIR);
 		p += n + strlen(ESC_INSTALL_DATADIR);

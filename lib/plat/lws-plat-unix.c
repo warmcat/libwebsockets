@@ -513,8 +513,8 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 			}
 			plugin->list = context->plugin_list;
 			context->plugin_list = plugin;
-			strncpy(plugin->name, namelist[i]->d_name, sizeof(plugin->name) - 1);
-			plugin->name[sizeof(plugin->name) - 1] = '\0';
+			lws_strncpy(plugin->name, namelist[i]->d_name,
+				    sizeof(plugin->name));
 			plugin->l = l;
 			plugin->caps = lcaps;
 			context->plugin_protocol_count += lcaps.count_protocols;

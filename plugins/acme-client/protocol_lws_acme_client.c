@@ -241,20 +241,20 @@ cb_authz(struct lejp_ctx *ctx, char reason)
 		s->is_sni_02 = !strcmp(ctx->buf, "tls-sni-02");
 		break;
 	case JAAZ_CHALLENGES_STATUS:
-		strncpy(s->status, ctx->buf, sizeof(s->status) - 1);
+		lws_strncpy(s->status, ctx->buf, sizeof(s->status));
 		break;
 	case JAAZ_CHALLENGES_URI:
 		if (s->use) {
-			strncpy(s->challenge_uri, ctx->buf,
-				sizeof(s->challenge_uri) - 1);
+			lws_strncpy(s->challenge_uri, ctx->buf,
+				sizeof(s->challenge_uri));
 			s->yes |= 2;
 		}
 		break;
 	case JAAZ_CHALLENGES_TOKEN:
 		lwsl_notice("JAAZ_CHALLENGES_TOKEN: %s %d\n", ctx->buf, s->use);
 		if (s->use) {
-			strncpy(s->chall_token, ctx->buf,
-				sizeof(s->chall_token) - 1);
+			lws_strncpy(s->chall_token, ctx->buf,
+				sizeof(s->chall_token));
 			s->yes |= 1;
 		}
 		break;
@@ -299,14 +299,14 @@ cb_chac(struct lejp_ctx *ctx, char reason)
 			return 1;
 		break;
 	case JCAC_STATUS:
-		strncpy(s->status, ctx->buf, sizeof(s->status) - 1);
+		lws_strncpy(s->status, ctx->buf, sizeof(s->status));
 		break;
 	case JCAC_URI:
 		s->yes |= 2;
 		break;
 	case JCAC_TOKEN:
-		strncpy(s->chall_token, ctx->buf,
-				sizeof(s->chall_token) - 1);
+		lws_strncpy(s->chall_token, ctx->buf,
+				sizeof(s->chall_token));
 		s->yes |= 1;
 		break;
 	case JCAC_DETAIL:
@@ -363,8 +363,7 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 
 	memset(i, 0, sizeof(*i));
 	i->port = 443;
-	strncpy(_url, url, sizeof(_url) - 1);
-	_url[sizeof(_url) - 1] = '\0';
+	lws_strncpy(_url, url, sizeof(_url));
 	if (lws_parse_uri(_url, &prot, &i->address, &i->port, &p)) {
 		lwsl_err("unable to parse uri %s\n", url);
 
@@ -373,8 +372,7 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 
 	/* add back the leading / on path */
 	path[0] = '/';
-	strncpy(path + 1, p, sizeof(path) - 2);
-	path[sizeof(path) - 1] = '\0';
+	lws_strncpy(path + 1, p, sizeof(path) - 1);
 	i->path = path;
 	i->context = context;
 	i->vhost = vh;

@@ -1644,7 +1644,7 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 		if ((unsigned int)(p - proxy) > sizeof(authstring) - 1)
 			goto auth_too_long;
 
-		strncpy(authstring, proxy, p - proxy);
+		lws_strncpy(authstring, proxy, p - proxy + 1);
 		// null termination not needed on input
 		if (lws_b64_encode_string(authstring, lws_ptr_diff(p, proxy),
 				vhost->proxy_basic_auth_token,
@@ -1657,10 +1657,8 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 	} else
 		vhost->proxy_basic_auth_token[0] = '\0';
 
-	strncpy(vhost->http_proxy_address, proxy,
-				sizeof(vhost->http_proxy_address) - 1);
-	vhost->http_proxy_address[
-				sizeof(vhost->http_proxy_address) - 1] = '\0';
+	lws_strncpy(vhost->http_proxy_address, proxy,
+		    sizeof(vhost->http_proxy_address));
 
 	p = strchr(vhost->http_proxy_address, ':');
 	if (!p && !vhost->http_proxy_port) {
@@ -1720,9 +1718,9 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 				goto bail;
 			}
 
-			strncpy(vhost->socks_user, socks, p_colon - socks);
-			strncpy(vhost->socks_password, p_colon + 1,
-				p_at - (p_colon + 1));
+			lws_strncpy(vhost->socks_user, socks, p_colon - socks + 1);
+			lws_strncpy(vhost->socks_password, p_colon + 1,
+				p_at - (p_colon + 1) + 1);
 		}
 
 		lwsl_info(" Socks auth, user: %s, password: %s\n",
@@ -1731,10 +1729,8 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 		socks = p_at + 1;
 	}
 
-	strncpy(vhost->socks_proxy_address, socks,
-				sizeof(vhost->socks_proxy_address) - 1);
-	vhost->socks_proxy_address[sizeof(vhost->socks_proxy_address) - 1]
-		= '\0';
+	lws_strncpy(vhost->socks_proxy_address, socks,
+		    sizeof(vhost->socks_proxy_address));
 
 	p_colon = strchr(vhost->socks_proxy_address, ':');
 	if (!p_colon && !vhost->socks_proxy_port) {
@@ -2720,6 +2716,15 @@ lws_snprintf(char *str, size_t size, const char *format, ...)
 		return (int)size;
 
 	return n;
+}
+
+char *
+lws_strncpy(char *dest, const char *src, size_t size)
+{
+	strncpy(dest, src, size - 1);
+	dest[size - 1] = '\0';
+
+	return dest;
 }
 
 
