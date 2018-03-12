@@ -2346,6 +2346,17 @@ lws_adjust_protocol_psds(struct lws *wsi, size_t new_size);
 LWS_VISIBLE LWS_EXTERN int
 lws_finalize_startup(struct lws_context *context);
 
+/**
+ * lws_pvo_search() - helper to find a named pvo in a linked-list
+ *
+ * \param pvo:	the first pvo in the linked-list
+ * \param name: the name of the pvo to return if found
+ *
+ * Returns NULL, or a pointer to the name pvo in the linked-list
+ */
+const struct lws_protocol_vhost_options *
+lws_pvo_search(const struct lws_protocol_vhost_options *pvo, const char *name);
+
 LWS_VISIBLE LWS_EXTERN int
 lws_protocol_init(struct lws_context *context);
 

@@ -2737,7 +2737,18 @@ lws_is_cgi(struct lws *wsi) {
 #endif
 }
 
+const struct lws_protocol_vhost_options *
+lws_pvo_search(const struct lws_protocol_vhost_options *pvo, const char *name)
+{
+	while (pvo) {
+		if (!strcmp(pvo->name, name))
+			break;
 
+		pvo = pvo->next;
+	}
+
+	return pvo;
+}
 
 #ifdef LWS_NO_EXTENSIONS
 LWS_EXTERN int

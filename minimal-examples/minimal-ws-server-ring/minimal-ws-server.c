@@ -9,8 +9,9 @@
  * This demonstrates the most minimal http server you can make with lws,
  * with an added websocket chat server using a ringbuffer.
  *
- * To keep it simple, it serves stuff in the directory it was started in.
- * You can change that by changing mount.origin
+ * To keep it simple, it serves stuff in the subdirectory "./mount-origin" of
+ * the directory it was started in.
+ * You can change that by changing mount.origin.
  */
 
 #include <libwebsockets.h>
@@ -31,7 +32,7 @@ static int interrupted;
 static const struct lws_http_mount mount = {
 	/* .mount_next */		NULL,		/* linked-list "next" */
 	/* .mountpoint */		"/",		/* mountpoint URL */
-	/* .origin */			".",		/* serve from dir */
+	/* .origin */			"./mount-origin", /* serve from dir */
 	/* .def */			"index.html",	/* default filename */
 	/* .protocol */			NULL,
 	/* .cgienv */			NULL,
