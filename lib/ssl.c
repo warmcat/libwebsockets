@@ -818,12 +818,6 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 					wsi->redirect_to_https = 1;
 				goto accepted;
 			}
-			if (!n) /*
-				 * connection is gone, or nothing to read
-				 * if it's gone, we will timeout on
-				 * PENDING_TIMEOUT_SSL_ACCEPT
-				 */
-				break;
 			if (n < 0 && (LWS_ERRNO == LWS_EAGAIN ||
 				      LWS_ERRNO == LWS_EWOULDBLOCK)) {
 				/*
