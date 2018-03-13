@@ -1,0 +1,341 @@
+/*
+ * ws protocol handler plugin for "lws-minimal" demonstrating multithread
+ *
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
+ *
+ * This file is made available under the Creative Commons CC0 1.0
+ * Universal Public Domain Dedication.
+ */
+
+#if !defined (LWS_PLUGIN_STATIC)
+#define LWS_DLL
+#define LWS_INTERNAL
+#include <libwebsockets.h>
+#endif
+
+#include <string.h>
+
+/* one of these created for each message in the ringbuffer */
+
+struct msg {
+	void *payload; /* is malloc'd */
+	size_t len;
+};
+
+/*
+ * One of these is created for each client connecting to us.
+ *
+ * It is ONLY read or written from the lws service thread context.
+ */
+
+struct per_session_data__minimal {
+	struct per_session_data__minimal *pss_list;
+	struct lws *wsi;
+	uint32_t tail;
+};
+
+/* one of these is created for each vhost our protocol is used with */
+
+struct per_vhost_data__minimal {
+	struct lws_context *context;
+	struct lws_vhost *vhost;
+	const struct lws_protocols *protocol;
+
+	struct per_session_data__minimal *pss_list; /* linked-list of live pss*/
+	pthread_t pthread_spam[2];
+
+	pthread_mutex_t lock_ring; /* serialize access to the ring buffer */
+	struct lws_ring *ring; /* {lock_ring} ringbuffer holding unsent content */
+
+	const char *config;
+	char finished;
+};
+
+/*
+ * This runs under both lws service and "spam threads" contexts.
+ * Access is serialized by vhd->lock_ring.
+ */
+
+static void
+__minimal_destroy_message(void *_msg)
+{
+	struct msg *msg = _msg;
+
+	free(msg->payload);
+	msg->payload = NULL;
+	msg->len = 0;
+}
+
+/*
+ * This runs under the "spam thread" thread context only.
+ *
+ * We spawn two threads that generate messages with this.
+ *
+ */
+
+static void *
+thread_spam(void *d)
+{
+	struct per_vhost_data__minimal *vhd =
+			(struct per_vhost_data__minimal *)d;
+	struct msg amsg;
+	int len = 128, index = 1, n;
+
+	do {
+		/* don't generate output if nobody connected */
+		if (!vhd->pss_list)
+			goto wait;
+
+		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
+
+		/* only create if space in ringbuffer */
+		n = (int)lws_ring_get_count_free_elements(vhd->ring);
+		if (!n) {
+			lwsl_user("dropping!\n");
+			goto wait_unlock;
+		}
+
+		amsg.payload = malloc(LWS_PRE + len);
+		if (!amsg.payload) {
+			lwsl_user("OOM: dropping\n");
+			goto wait_unlock;
+		}
+		n = lws_snprintf((char *)amsg.payload + LWS_PRE, len,
+			         "%s: tid: %p, msg: %d", vhd->config,
+			         (void *)pthread_self(), index++);
+		amsg.len = n;
+		n = lws_ring_insert(vhd->ring, &amsg, 1);
+		if (n != 1) {
+			__minimal_destroy_message(&amsg);
+			lwsl_user("dropping!\n");
+		} else
+			/*
+			 * This will cause a LWS_CALLBACK_EVENT_WAIT_CANCELLED
+			 * in the lws service thread context.
+			 */
+			lws_cancel_service(vhd->context);
+
+wait_unlock:
+		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+
+wait:
+		usleep(100000);
+
+	} while (!vhd->finished);
+
+	lwsl_notice("thread_spam %p exiting\n", (void *)pthread_self());
+
+	pthread_exit(NULL);
+}
+
+/* this runs under the lws service thread context only */
+
+static int
+callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
+			void *user, void *in, size_t len)
+{
+	struct per_session_data__minimal *pss =
+			(struct per_session_data__minimal *)user;
+	struct per_vhost_data__minimal *vhd =
+			(struct per_vhost_data__minimal *)
+			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+					lws_get_protocol(wsi));
+	const struct lws_protocol_vhost_options *pvo;
+	const struct msg *pmsg;
+	uint32_t oldest;
+	void *retval;
+	int n, m, r = 0;
+
+	switch (reason) {
+	case LWS_CALLBACK_PROTOCOL_INIT:
+		/* create our per-vhost struct */
+		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+				lws_get_protocol(wsi),
+				sizeof(struct per_vhost_data__minimal));
+		if (!vhd)
+			return 1;
+
+		pthread_mutex_init(&vhd->lock_ring, NULL);
+
+		/* recover the pointer to the globals struct */
+		pvo = lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in,
+			"config");
+		if (!pvo || !pvo->value) {
+			lwsl_err("%s: Can't find \"config\" pvo\n", __func__);
+			return 1;
+		}
+		vhd->config = pvo->value;
+
+		vhd->context = lws_get_context(wsi);
+		vhd->protocol = lws_get_protocol(wsi);
+		vhd->vhost = lws_get_vhost(wsi);
+
+		vhd->ring = lws_ring_create(sizeof(struct msg), 8,
+					    __minimal_destroy_message);
+		if (!vhd->ring) {
+			lwsl_err("%s: failed to create ring\n", __func__);
+			return 1;
+		}
+
+		/* start the content-creating threads */
+
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
+			if (pthread_create(&vhd->pthread_spam[n], NULL,
+					   thread_spam, vhd)) {
+				lwsl_err("thread creation failed\n");
+				r = 1;
+				goto init_fail;
+			}
+		break;
+
+	case LWS_CALLBACK_PROTOCOL_DESTROY:
+init_fail:
+		vhd->finished = 1;
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
+			if (vhd->pthread_spam[n])
+				pthread_join(vhd->pthread_spam[n], &retval);
+
+		if (vhd->ring)
+			lws_ring_destroy(vhd->ring);
+
+		pthread_mutex_destroy(&vhd->lock_ring);
+		break;
+
+	case LWS_CALLBACK_ESTABLISHED:
+		/* add ourselves to the list of live pss held in the vhd */
+		pss->pss_list = vhd->pss_list;
+		vhd->pss_list = pss;
+		pss->tail = lws_ring_get_oldest_tail(vhd->ring);
+		pss->wsi = wsi;
+		break;
+
+	case LWS_CALLBACK_CLOSED:
+		/* remove our closing pss from the list of live pss */
+		lws_start_foreach_llp(struct per_session_data__minimal **,
+				      ppss, vhd->pss_list) {
+			if (*ppss == pss) {
+				*ppss = pss->pss_list;
+				break;
+			}
+		} lws_end_foreach_llp(ppss, pss_list);
+		break;
+
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+		pthread_mutex_lock(&vhd->lock_ring); /* --------- ring lock { */
+
+		pmsg = lws_ring_get_element(vhd->ring, &pss->tail);
+		if (!pmsg) {
+			pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+			break;
+		}
+
+		/* notice we allowed for LWS_PRE in the payload already */
+		m = lws_write(wsi, pmsg->payload + LWS_PRE, pmsg->len,
+			      LWS_WRITE_TEXT);
+		if (m < (int)pmsg->len) {
+			pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+			lwsl_err("ERROR %d writing to di socket\n", n);
+			return -1;
+		}
+
+		n = lws_ring_get_oldest_tail(vhd->ring) == pss->tail;
+		lws_ring_consume(vhd->ring, &pss->tail, NULL, 1);
+
+		if (n) { /* we may have been the oldest tail */
+			n = 0;
+			oldest = pss->tail;
+			lws_start_foreach_llp(
+					struct per_session_data__minimal **,
+					ppss, vhd->pss_list) {
+				m = lws_ring_get_count_waiting_elements(
+						vhd->ring, &(*ppss)->tail);
+				if (m > n) {
+					n = m;
+					oldest = (*ppss)->tail;
+				}
+			} lws_end_foreach_llp(ppss, pss_list);
+
+			/* this will delete any entries behind the new oldest */
+			lws_ring_update_oldest_tail(vhd->ring, oldest);
+		}
+
+		/* more to do? */
+		if (lws_ring_get_element(vhd->ring, &pss->tail))
+			/* come back as soon as we can write more */
+			lws_callback_on_writable(pss->wsi);
+
+		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
+		break;
+
+	case LWS_CALLBACK_RECEIVE:
+		break;
+
+	case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+		/*
+		 * When the "spam" threads add a message to the ringbuffer,
+		 * they create this event in the lws service thread context
+		 * using lws_cancel_service().
+		 *
+		 * We respond by scheduling a writable callback for all
+		 * connected clients.
+		 */
+		lws_start_foreach_llp(struct per_session_data__minimal **,
+				      ppss, vhd->pss_list) {
+			lws_callback_on_writable((*ppss)->wsi);
+		} lws_end_foreach_llp(ppss, pss_list);
+		break;
+
+	case LWS_CALLBACK_TIMER:
+		lwsl_notice("%s: LWS_CALLBACK_TIMER\n", __func__);
+		lws_set_timer(wsi, 3);
+		break;
+
+	default:
+		break;
+	}
+
+	return r;
+}
+
+#define LWS_PLUGIN_PROTOCOL_MINIMAL \
+	{ \
+		"lws-minimal", \
+		callback_minimal, \
+		sizeof(struct per_session_data__minimal), \
+		128, \
+		0, NULL, 0 \
+	}
+
+#if !defined (LWS_PLUGIN_STATIC)
+
+/* boilerplate needed if we are built as a dynamic plugin */
+
+static const struct lws_protocols protocols[] = {
+	LWS_PLUGIN_PROTOCOL_MINIMAL
+};
+
+LWS_EXTERN LWS_VISIBLE int
+init_protocol_minimal(struct lws_context *context,
+		      struct lws_plugin_capability *c)
+{
+	if (c->api_magic != LWS_PLUGIN_API_MAGIC) {
+		lwsl_err("Plugin API %d, library API %d", LWS_PLUGIN_API_MAGIC,
+			 c->api_magic);
+		return 1;
+	}
+
+	c->protocols = protocols;
+	c->count_protocols = ARRAY_SIZE(protocols);
+	c->extensions = NULL;
+	c->count_extensions = 0;
+
+	return 0;
+}
+
+LWS_EXTERN LWS_VISIBLE int
+destroy_protocol_minimal(struct lws_context *context)
+{
+	return 0;
+}
+#endif
