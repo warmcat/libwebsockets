@@ -218,14 +218,16 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				if (lws_check_opt(context->options,
 				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS))
 					wsi->redirect_to_https = 1;
+				lwsl_debug("accepted as non-ssl\n");
 				goto accepted;
 			}
-			if (!n) /*
-				 * connection is gone, or nothing to read
-				 * if it's gone, we will timeout on
-				 * PENDING_TIMEOUT_SSL_ACCEPT
+			if (!n) {
+				/*
+				 * connection is gone, fail out
 				 */
-				break;
+				lwsl_debug("PEEKed 0\n");
+				goto fail;
+			}
 			if (n < 0 && (LWS_ERRNO == LWS_EAGAIN ||
 				      LWS_ERRNO == LWS_EWOULDBLOCK)) {
 				/*
