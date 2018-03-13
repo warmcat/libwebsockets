@@ -674,6 +674,7 @@ just_kill_connection:
 		/* libuv: no event available to guarantee completion */
 		if (!wsi->socket_is_permanently_unusable &&
 		    lws_sockfd_valid(wsi->desc.sockfd) &&
+		    wsi->state != LWSS_SHUTDOWN &&
 		    !LWS_LIBUV_ENABLED(context)) {
 			lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
 			wsi->state = LWSS_SHUTDOWN;
