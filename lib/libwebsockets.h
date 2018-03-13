@@ -2354,7 +2354,7 @@ lws_finalize_startup(struct lws_context *context);
  *
  * Returns NULL, or a pointer to the name pvo in the linked-list
  */
-const struct lws_protocol_vhost_options *
+LWS_VISIBLE LWS_EXTERN const struct lws_protocol_vhost_options *
 lws_pvo_search(const struct lws_protocol_vhost_options *pvo, const char *name);
 
 LWS_VISIBLE LWS_EXTERN int
@@ -6554,6 +6554,7 @@ struct lejp_ctx;
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(_x) (sizeof(_x) / sizeof(_x[0]))
 #endif
+#define LWS_ARRAY_SIZE(_x) (sizeof(_x) / sizeof(_x[0]))
 #define LEJP_FLAG_WS_KEEP 64
 #define LEJP_FLAG_WS_COMMENTLINE 32
 
