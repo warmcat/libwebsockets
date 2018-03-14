@@ -1,5 +1,5 @@
 /*
- * lws-minimal-http-client
+ * lws-minimal-ws-client
  *
  * Copyright (C) 2018 Andy Green <andy@warmcat.com>
  *
@@ -8,8 +8,10 @@
  *
  * This demonstrates the a minimal http client using lws.
  *
- * It visits https://warmcat.com/ and receives the html page there.  You
- * can dump the page data by changing the #if 0 below.
+ * It connects to https://libwebsockets.org/ and makes a
+ * wss connection to the dumb-increment protocol there.  While
+ * connected, it prints the numbers it is being sent by
+ * dumb-increment protocol.
  */
 
 #include <libwebsockets.h>
@@ -20,7 +22,7 @@ static int interrupted;
 static struct lws *client_wsi;
 
 static int
-callback_http(struct lws *wsi, enum lws_callback_reasons reason,
+callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
 	switch (reason) {
@@ -32,35 +34,15 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		client_wsi = NULL;
 		break;
 
-	/* chunks of chunked content, with header removed */
-	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
-#if 0  /* enable to dump the html */
-		{
-			const char *p = in;
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		lwsl_user("%s: established\n", __func__);
+		break;
 
-			while (len--)
-				if (*p < 0x7f)
-					putchar(*p++);
-				else
-					putchar('.');
-		}
-#endif
-		return 0; /* don't passthru */
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		lwsl_user("RX: %s\n", (const char *)in);
+		break;
 
-	/* uninterpreted http content */
-	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
-		{
-			char buffer[1024 + LWS_PRE];
-			char *px = buffer + LWS_PRE;
-			int lenx = sizeof(buffer) - LWS_PRE;
-
-			if (lws_http_client_read(wsi, &px, &lenx) < 0)
-				return -1;
-		}
-		return 0; /* don't passthru */
-
-	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLOSED:
 		client_wsi = NULL;
 		break;
 
@@ -73,8 +55,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 static const struct lws_protocols protocols[] = {
 	{
-		"http",
-		callback_http,
+		"dumb-increment-protocol",
+		callback_dumb_increment,
 		0,
 		0,
 	},
@@ -95,9 +77,10 @@ int main(int argc, char **argv)
 	int n = 0;
 
 	signal(SIGINT, sigint_handler);
+
 	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER
 			/* | LLL_INFO */ /* | LLL_DEBUG */, NULL);
-	lwsl_user("LWS minimal http client\n");
+	lwsl_user("LWS minimal ws client\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -114,14 +97,13 @@ int main(int argc, char **argv)
 	i.context = context;
 
 	i.port = 443;
-	i.address = "warmcat.com";
+	i.address = "libwebsockets.org";
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
 	i.ssl_connection = 1;
-	i.method = "GET";
 
-	i.protocol = protocols[0].name;
+	i.protocol = protocols[0].name; /* "dumb-increment-protocol" */
 	i.pwsi = &client_wsi;
 	lws_client_connect_via_info(&i);
 
