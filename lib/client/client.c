@@ -816,7 +816,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	len = lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL);
 	if (!len) {
-		lwsl_info("lws_client_int_s_hs: WSI_TOKEN_PROTOCOL is null\n");
+		lwsl_info("%s: WSI_TOKEN_PROTOCOL is null\n", __func__);
 		/*
 		 * no protocol name to work from,
 		 * default to first protocol
@@ -842,7 +842,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	}
 
 	if (!okay) {
-		lwsl_err("lws_client_int_s_hs: got bad protocol %s\n", p);
+		lwsl_info("%s: got bad protocol %s\n", __func__, p);
 		cce = "HS: PROTOCOL malformed";
 		goto bail2;
 	}
@@ -851,20 +851,46 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	 * identify the selected protocol struct and set it
 	 */
 	n = 0;
-	wsi->protocol = NULL;
-	while (wsi->vhost->protocols[n].callback && !wsi->protocol) {
-		if (strcmp(p, wsi->vhost->protocols[n].name) == 0) {
+	/* keep client connection pre-bound protocol */
+	if (!(wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP))
+		wsi->protocol = NULL;
+
+	while (wsi->vhost->protocols[n].callback) {
+		if (!wsi->protocol &&
+		    strcmp(p, wsi->vhost->protocols[n].name) == 0) {
 			wsi->protocol = &wsi->vhost->protocols[n];
 			break;
 		}
 		n++;
 	}
 
-	if (wsi->protocol == NULL) {
-		lwsl_err("lws_client_int_s_hs: fail protocol %s\n", p);
-		cce = "HS: Cannot match protocol";
-		goto bail2;
+	if (!wsi->vhost->protocols[n].callback) { /* no match */
+		/* if server, that's already fatal */
+		if (!(wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP)) {
+			lwsl_info("%s: fail protocol %s\n", __func__, p);
+			cce = "HS: Cannot match protocol";
+			goto bail2;
+		}
+
+		/* for client, find the index of our pre-bound protocol */
+
+		n = 0;
+		while (wsi->vhost->protocols[n].callback) {
+			if (strcmp(wsi->protocol->name,
+				   wsi->vhost->protocols[n].name) == 0) {
+				wsi->protocol = &wsi->vhost->protocols[n];
+				break;
+			}
+			n++;
+		}
+
+		if (!wsi->vhost->protocols[n].callback) {
+			lwsl_err("Failed to match protocol %s\n", wsi->protocol->name);
+			goto bail2;
+		}
 	}
+
+	lwsl_debug("Selected protocol %s\n", wsi->protocol->name);
 
 check_extensions:
 	/*

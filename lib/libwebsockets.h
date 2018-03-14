@@ -3321,6 +3321,13 @@ struct lws_client_connect_info {
 	const char *iface;
 	/**< NULL to allow routing on any interface, or interface name or IP
 	 * to bind the socket to */
+	const char *local_protocol_name;
+	/**< NULL: .protocol is used both to select the local protocol handler
+	 *         to bind to and as the list of remote ws protocols we could
+	 *         accept.
+	 *   non-NULL: this protocol name is used to bind the connection to
+	 *             the local protocol handler.  .protocol is used for the
+	 *             list of remote ws protocols we could accept */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
