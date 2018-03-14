@@ -852,8 +852,12 @@ just_kill_connection:
 	    wsi->protocol->callback &&
 	    wsi->mode != LWSCM_RAW &&
 	    (wsi->state_pre_close & _LSF_CCB)) {
-		wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
-					wsi->user_space, NULL, 0);
+		if (wsi->mode == LWSCM_WS_CLIENT)
+			wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_CLOSED,
+						wsi->user_space, NULL, 0);
+		else
+			wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
+						wsi->user_space, NULL, 0);
 	} else if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED) {
 		lwsl_debug("calling back CLOSED_HTTP\n");
 		wsi->vhost->protocols->callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
