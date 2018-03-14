@@ -103,7 +103,7 @@ lws_client_connect_2(struct lws *wsi)
 	 * to whatever we decided to connect to
 	 */
 
-       lwsl_notice("%s: %p: address %s\n", __func__, wsi, ads);
+       lwsl_info("%s: %p: address %s\n", __func__, wsi, ads);
 
        n = lws_getaddrinfo46(wsi, ads, &result);
 
@@ -717,12 +717,20 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	struct lws *wsi;
 	int v = SPEC_LATEST_SUPPORTED;
 	const struct lws_protocols *p;
+	const char *local = i->protocol;
 
 	if (i->context->requested_kill)
 		return NULL;
 
 	if (!i->context->protocol_init_done)
 		lws_protocol_init(i->context);
+	/*
+	 * If we have .local_protocol_name, use it to select the
+	 * local protocol handler to bind to.  Otherwise use .protocol if
+	 * http[s].
+	 */
+	if (i->local_protocol_name)
+		local = i->local_protocol_name;
 
 	wsi = lws_zalloc(sizeof(struct lws), "client wsi");
 	if (wsi == NULL)
@@ -765,10 +773,19 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	wsi->protocol = &wsi->vhost->protocols[0];
 
-	/* for http[s] connection, allow protocol selection by name */
-
-	if (i->method && i->vhost && i->protocol) {
-		p = lws_vhost_name_to_protocol(i->vhost, i->protocol);
+	/*
+	 * 1) for http[s] connection, allow protocol selection by name
+	 * 2) for ws[s], if local_protocol_name given also use it for
+	 *    local protocol binding... this defeats the server
+	 *    protocol negotiation if so
+	 *
+	 * Otherwise leave at protocols[0]... the server will tell us
+	 * which protocol we are associated with since we can give it a
+	 * list.
+	 */
+	if ((i->method || i->local_protocol_name) && wsi->vhost && local) {
+		lwsl_info("binding to %s\n", local);
+		p = lws_vhost_name_to_protocol(wsi->vhost, local);
 		if (p)
 			wsi->protocol = p;
 	}
