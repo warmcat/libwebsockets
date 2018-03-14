@@ -413,7 +413,7 @@ oom4:
 	if (wsi->mode == LWSCM_HTTP_CLIENT ||
 	    wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED ||
 	    wsi->mode == LWSCM_WSCL_WAITING_CONNECT) {
-		wsi->vhost->protocols[0].callback(wsi,
+		wsi->protocol->callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 			wsi->user_space, (void *)cce, strlen(cce));
 		wsi->already_did_cce = 1;
@@ -429,7 +429,7 @@ oom4:
 	return NULL;
 
 failed:
-	wsi->vhost->protocols[0].callback(wsi,
+	wsi->protocol->callback(wsi,
 		LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 		wsi->user_space, (void *)cce, strlen(cce));
 	wsi->already_did_cce = 1;

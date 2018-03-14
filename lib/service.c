@@ -741,7 +741,7 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 		 */
 		wsi->socket_is_permanently_unusable = 1;
 		if (wsi->mode == LWSCM_WSCL_WAITING_SSL)
-			wsi->vhost->protocols[0].callback(wsi,
+			wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 				wsi->user_space,
 				(void *)"Timed out waiting SSL", 21);
@@ -1317,7 +1317,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 						wsi->context = context;
 						wsi->vhost = v;
 						wsi->protocol = q->protocol;
-						lwsl_notice("timed cb: vh %s, protocol %s, reason %d\n", v->name, q->protocol->name, q->reason);
+						lwsl_debug("timed cb: vh %s, protocol %s, reason %d\n", v->name, q->protocol->name, q->reason);
 						q->protocol->callback(wsi, q->reason, NULL, NULL, 0);
 						nx = q->next;
 						lws_timed_callback_remove(v, q);
