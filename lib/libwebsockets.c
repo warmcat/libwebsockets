@@ -696,7 +696,7 @@ just_kill_connection:
 	if ((wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
 			   wsi->mode == LWSCM_WSCL_WAITING_CONNECT) &&
 			   !wsi->already_did_cce) {
-				wsi->vhost->protocols[0].callback(wsi,
+				wsi->protocol->callback(wsi,
 					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 						wsi->user_space, NULL, 0);
 	}
