@@ -1462,6 +1462,8 @@ enum lws_callback_reasons {
 	 * reported to the vhost in question here, including completion
 	 * and failure.  in points to optional JSON, and len represents the
 	 * connection state using enum lws_cert_update_state */
+	LWS_CALLBACK_CLIENT_CLOSED				=  75,
+	/**< when a client websocket session ends */
 
 	/****** add new things just above ---^ ******/
 

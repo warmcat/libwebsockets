@@ -42,7 +42,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("RX: %s\n", (const char *)in);
 		break;
 
-	case LWS_CALLBACK_CLOSED:
+	case LWS_CALLBACK_CLIENT_CLOSED:
 		client_wsi = NULL;
 		break;
 
