@@ -1,6 +1,7 @@
 |Example|Demonstrates|
 ---|---
 minimal-http-server|Serves a directory over http/1 or http/2, custom 404 handler
+minimal-http-server-libuv|Same as minimal-http-server but libuv event loop
 minimal-http-server-smp|Multiple service threads
 minimal-ws-server|Serves an index.html over http that opens a ws shared chat client in a browser
 minimal-ws-server-pmd|Simple ws server with permessage-deflate support
