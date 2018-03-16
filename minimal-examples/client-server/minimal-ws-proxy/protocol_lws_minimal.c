@@ -89,7 +89,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_get_protocol(wsi));
 	const struct msg *pmsg;
 	struct msg amsg;
-	int n, m;
+	int m;
 
 	switch (reason) {
 
@@ -142,7 +142,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		m = lws_write(wsi, pmsg->payload + LWS_PRE, pmsg->len,
 			      LWS_WRITE_TEXT);
 		if (m < (int)pmsg->len) {
-			lwsl_err("ERROR %d writing to di socket\n", n);
+			lwsl_err("ERROR %d writing to ws socket\n", m);
 			return -1;
 		}
 
@@ -181,8 +181,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!vhd->pss_list)
 			break;
 
-		n = (int)lws_ring_get_count_free_elements(vhd->ring);
-		if (!n) {
+		if (!lws_ring_get_count_free_elements(vhd->ring)) {
 			lwsl_user("dropping!\n");
 			break;
 		}
@@ -210,7 +209,6 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 				      ppss, vhd->pss_list) {
 			lws_callback_on_writable((*ppss)->wsi);
 		} lws_end_foreach_llp(ppss, pss_list);
-
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:

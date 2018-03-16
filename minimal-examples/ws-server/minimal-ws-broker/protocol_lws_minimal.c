@@ -136,7 +136,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		m = lws_write(wsi, pmsg->payload + LWS_PRE, pmsg->len,
 			      LWS_WRITE_TEXT);
 		if (m < (int)pmsg->len) {
-			lwsl_err("ERROR %d writing to di socket\n", n);
+			lwsl_err("ERROR %d writing to ws socket\n", m);
 			return -1;
 		}
 

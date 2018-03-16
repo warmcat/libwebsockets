@@ -47,6 +47,11 @@
 
 /* Turn off websocket extensions */
 #cmakedefine LWS_NO_EXTENSIONS
+#cmakedefine LWS_WITHOUT_EXTENSIONS
+
+/* notice if client or server gone */
+#cmakedefine LWS_WITHOUT_SERVER
+#cmakedefine LWS_WITHOUT_CLIENT
 
 /* Enable libev io loop */
 #cmakedefine LWS_WITH_LIBEV

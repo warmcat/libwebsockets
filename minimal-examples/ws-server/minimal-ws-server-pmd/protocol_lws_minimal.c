@@ -69,7 +69,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 			(struct per_vhost_data__minimal *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
-	int n, m;
+	int m;
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
@@ -111,7 +111,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		m = lws_write(wsi, vhd->amsg.payload + LWS_PRE, vhd->amsg.len,
 			      LWS_WRITE_TEXT);
 		if (m < (int)vhd->amsg.len) {
-			lwsl_err("ERROR %d writing to di socket\n", n);
+			lwsl_err("ERROR %d writing to ws socket\n", m);
 			return -1;
 		}
 
