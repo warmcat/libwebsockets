@@ -108,12 +108,13 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
-		/* add ourselves to the list of live pss held in the vhd */
-		lws_ll_fwd_insert(pss, pss_list, vhd->pss_list);
 		pss->tail = lws_ring_get_oldest_tail(vhd->ring);
 		pss->wsi = wsi;
 		if (lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI) > 0)
 			pss->publishing = !strcmp(buf, "/publisher");
+		if (!pss->publishing)
+			/* add subscribers to the list of live pss held in the vhd */
+			lws_ll_fwd_insert(pss, pss_list, vhd->pss_list);
 		break;
 
 	case LWS_CALLBACK_CLOSED:
@@ -160,6 +161,13 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss->publishing)
 			break;
 
+		/*
+		 * For test, our policy is ignore publishing when there are
+		 * no subscribers connected.
+		 */
+		if (!vhd->pss_list)
+			break;
+
 		n = (int)lws_ring_get_count_free_elements(vhd->ring);
 		if (!n) {
 			lwsl_user("dropping!\n");
@@ -177,7 +185,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		memcpy((char *)amsg.payload + LWS_PRE, in, len);
 		if (!lws_ring_insert(vhd->ring, &amsg, 1)) {
 			__minimal_destroy_message(&amsg);
-			lwsl_user("dropping!\n");
+			lwsl_user("dropping 2!\n");
 			break;
 		}
 

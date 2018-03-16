@@ -1,9 +1,9 @@
 |name|demonstrates|
 ---|---
-server-http|Minimal examples providing an http server
-server-ws|Minimal examples providing a ws server (and an http server)
-client-http|Minimal examples providing an http client
-client-ws|Minimal examples providing a ws client
+http-server|Minimal examples providing an http server
+ws-server|Minimal examples providing a ws server (and an http server)
+http-client|Minimal examples providing an http client
+ws-client|Minimal examples providing a ws client
 client-server|Minimal examples providing client and server connections simultaneously
 
 ## FAQ
@@ -12,7 +12,7 @@ client-server|Minimal examples providing client and server connections simultane
 
 Build and install lws itself first, these examples all want to link to it.  Then
 
-`server-http/minimal-http-server`
+`http-server/minimal-http-server`
 
 ### Why are most of the sources split into a main C file file and a protocol file?
 
@@ -69,7 +69,7 @@ a list of live pss in the vhd... that means it's cleanly a list of
 pss opened **on that vhost**.  If another vhost has the protocol
 enabled, connections to that will point to a different vhd.
 
-The example "server/minimal-ws-server-threads" demonstrates how to deliver
+The example "ws-server/minimal-ws-server-threads" demonstrates how to deliver
 external configuration data to a specific vhost + protocol
 combination using code.  In lwsws, this is simply a matter of setting
 the desired JSON config.
