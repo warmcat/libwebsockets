@@ -101,6 +101,7 @@ option(LWS_WITH_SELFTESTS "Selftests run at context creation" OFF)
 option(LWS_WITH_GCOV "Build with gcc gcov coverage instrumentation" OFF)
 option(LWS_WITH_EXPORT_LWSTARGETS "Export libwebsockets CMake targets.  Disable if they conflict with an outer cmake project." ON)
 option(LWS_REPRODUCIBLE "Build libwebsockets reproducible. It removes the build user and hostname from the build" ON)
+option(LWS_WITH_MINIMAL_EXAMPLES "Also build the normally standalone minimal examples, for QA" OFF)
 #
 # End of user settings
 #
@@ -122,7 +123,6 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_LIBEVENT 0)
 	set(LWS_WITHOUT_EXTENSIONS 0)
 endif()
-
 
 if(NOT DEFINED CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
@@ -194,6 +194,10 @@ if(GIT_EXECUTABLE)
 	endif()
 
 	message("Git commit hash: ${LWS_BUILD_HASH}")
+endif()
+
+if (LWS_WITH_HTTP2 AND LWS_WITHOUT_SERVER)
+	message(FATAL_ERROR "HTTP2 can only be used with server at the moment")
 endif()
 
 if (LWS_WITH_LWSWS)
@@ -814,7 +818,7 @@ if (NOT LWS_WITHOUT_BUILTIN_SHA1)
 		lib/misc/sha-1.c)
 endif()
 
-if (LWS_WITH_HTTP2)
+if (LWS_WITH_HTTP2 AND NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
 		lib/http2/http2.c
 		lib/http2/hpack.c
@@ -1532,7 +1536,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					""
 					"")
 			endif()
-			if (UNIX AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang")) AND LWS_HAVE_PTHREAD_H)
+			if (UNIX AND NOT LWS_WITHOUT_SERVER AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang")) AND LWS_HAVE_PTHREAD_H)
 				create_test_app(test-server-pthreads
 					"test-apps/test-server-pthreads.c"
 					"test-apps/test-server-http.c"
@@ -1662,20 +1666,20 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		#
 		# test-fraggle
 		#
-		if (NOT LWS_WITHOUT_TEST_FRAGGLE)
+		if (NOT LWS_WITHOUT_TEST_FRAGGLE AND NOT LWS_WITHOUT_SERVER)
 			create_test_app(test-fraggle "test-apps/test-fraggle.c" "" "" "" "" "")
 		endif()
 
 		#
 		# test-ping
 		#
-		if (NOT LWS_WITHOUT_TEST_PING)
+		if (NOT LWS_WITHOUT_TEST_PING AND NOT LWS_WITHOUT_SERVER AND NOT LWS_WITHOUT_CLIENT)
 			create_test_app(test-ping "test-apps/test-ping.c" "" "" "" "" "")
 		endif()
 		#
 		# test-echo
 		#
-		if (NOT LWS_WITHOUT_TEST_ECHO)
+		if (NOT LWS_WITHOUT_TEST_ECHO AND NOT LWS_WITHOUT_SERVER AND NOT LWS_WITHOUT_CLIENT)
 			create_test_app(test-echo "test-apps/test-echo.c" "" "" "" "" "")
 		endif()
 
@@ -2156,6 +2160,33 @@ endif()
 if (LWS_WITH_SHARED)
 	set(LIBWEBSOCKETS_LIBRARIES_SHARED websockets_shared CACHE STRING "Libwebsocket shared library")
 endif()
+
+if (LWS_WITH_MINIMAL_EXAMPLES)
+	MACRO(SUBDIRLIST result curdir)
+	  FILE(GLOB children RELATIVE ${curdir} ${curdir}/*)
+	  SET(dirlist "")
+
+	  FOREACH(child ${children})
+	    IF(IS_DIRECTORY ${curdir}/${child})
+		LIST(APPEND dirlist ${child})
+	    ENDIF()
+	  ENDFOREACH()
+
+	  SET(${result} ${dirlist})
+	ENDMACRO()
+
+	SUBDIRLIST(SUBDIRS "${PROJECT_SOURCE_DIR}/minimal-examples")
+	FOREACH(subdir ${SUBDIRS})
+
+		SUBDIRLIST(SUBDIRS2 "${PROJECT_SOURCE_DIR}/minimal-examples/${subdir}")
+		FOREACH(subdir2 ${SUBDIRS2})
+			if (EXISTS "${PROJECT_SOURCE_DIR}/minimal-examples/${subdir}/${subdir2}/CMakeLists.txt")
+				message("Processing ${PROJECT_SOURCE_DIR}/minimal-examples/${subdir}/${subdir2}")
+				add_subdirectory("${PROJECT_SOURCE_DIR}/minimal-examples/${subdir}/${subdir2}")
+			endif()
+		ENDFOREACH()
+	ENDFOREACH()
+ENDIF()
 
 # This must always be last!
 include(CPack)

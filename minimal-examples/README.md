@@ -8,9 +8,11 @@ client-server|Minimal examples providing client and server connections simultane
 
 ## FAQ
 
-### What should I look at first
+### Getting started
 
-Build and install lws itself first, these examples all want to link to it.  Then
+Build and install lws itself first (note that after installing lws on \*nix, you need to run `ldconfig` one time so the OS can learn about the new library.  Lws installs in `/usr/local` by default, Debian / Ubuntu ldconfig knows to look there already, but Fedora / CentOS need you to add the line `/usr/local/lib` to `/etc/ld.so.conf` and run ldconfig)
+
+Then start with the simplest:
 
 `http-server/minimal-http-server`
 
@@ -37,7 +39,7 @@ You will notice a lot of the main C code is the same boilerplate
 repeated for each example.  The actual interesting part is in
 the protocol callback only.
 
-Lws provides a generic lightweight server app called 'lwsws' that
+Lws provides (-DLWS_WITH_LWSWS=1) a generic lightweight server app called 'lwsws' that
 can be configured by JSON.  Combined with your protocol as a plugin,
 it means you don't actually have to make a special server "app"
 part, you can just use lwsws and pass per-vhost configuration
@@ -46,9 +48,14 @@ an existing app you are bolting lws on to, then you don't care
 about this for that particular case).
 
 Because lwsws has no dependency on whatever your plugin does, it
-can mix and match different protocols without needing any code
+can mix and match different protocols randomly without needing any code
 changes.  It reduces the size of the task to just writing the
-code you care about in your protocol handler.
+code you care about in your protocol handler, and nothing else to write
+or maintain.
+
+Lwsws supports advanced features like reload, where it starts a new server
+instance with changed config or different plugins, while keeping the old
+instance around until the last connection to it closes.
 
 ### I get why there is a pss, but why is there a vhd?
 
@@ -67,7 +74,8 @@ provides a different vhd specific to the protocol instance on that
 vhost.  For example many of the samples keep a linked-list head to
 a list of live pss in the vhd... that means it's cleanly a list of
 pss opened **on that vhost**.  If another vhost has the protocol
-enabled, connections to that will point to a different vhd.
+enabled, connections to that will point to a different vhd, and the
+linked-list head on that vhd will only list connections to his vhost.
 
 The example "ws-server/minimal-ws-server-threads" demonstrates how to deliver
 external configuration data to a specific vhost + protocol

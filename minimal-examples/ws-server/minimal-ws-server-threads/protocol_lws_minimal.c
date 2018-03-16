@@ -228,7 +228,7 @@ init_fail:
 			      LWS_WRITE_TEXT);
 		if (m < (int)pmsg->len) {
 			pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
-			lwsl_err("ERROR %d writing to di socket\n", n);
+			lwsl_err("ERROR %d writing to ws socket\n", m);
 			return -1;
 		}
 

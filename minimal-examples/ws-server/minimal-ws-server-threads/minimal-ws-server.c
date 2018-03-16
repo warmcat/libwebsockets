@@ -21,6 +21,7 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#include <pthread.h>
 
 #define LWS_PLUGIN_STATIC
 #include "protocol_lws_minimal.c"
