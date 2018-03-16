@@ -5313,6 +5313,29 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 	} \
 }
 
+#define lws_ll_fwd_insert(\
+	___new_object,	/* pointer to new object */ \
+	___m_list,	/* member for next list object ptr */ \
+	___list_head	/* list head */ \
+		) {\
+		___new_object->___m_list = ___list_head; \
+		___list_head = ___new_object; \
+	}
+
+#define lws_ll_fwd_remove(\
+	___type,	/* type of listed object */ \
+	___m_list,	/* member for next list object ptr */ \
+	___target,	/* object to remove from list */ \
+	___list_head	/* list head */ \
+	) { \
+                lws_start_foreach_llp(___type **, ___ppss, ___list_head) { \
+                        if (*___ppss == ___target) { \
+                                *___ppss = ___target->___m_list; \
+                                break; \
+                        } \
+                } lws_end_foreach_llp(___ppss, ___m_list); \
+	}
+
 /**
  * lws_ptr_diff(): helper to report distance between pointers as an int
  *
@@ -6029,6 +6052,62 @@ lws_ring_bump_head(struct lws_ring *ring, size_t bytes);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_ring_dump(struct lws_ring *ring, uint32_t *tail);
+
+/*
+ * This is a helper that combines the common pattern of needing to consume
+ * some ringbuffer elements, move the consumer tail on, and check if that
+ * has moved any ringbuffer elements out of scope, because it was the last
+ * consumer that had not already consumed them.
+ *
+ * Elements that go out of scope because the oldest tail is now after them
+ * get garbage-collected by calling the destroy_element callback on them
+ * defined when the ringbuffer was created.
+ */
+
+#define lws_ring_consume_and_update_oldest_tail(\
+		___ring,    /* the lws_ring object */ \
+		___type,    /* type of objects with tails */ \
+		___ptail,   /* ptr to tail of obj with tail doing consuming */ \
+		___count,   /* count of payload objects being consumed */ \
+		___list_head,	/* head of list of objects with tails */ \
+		___mtail,   /* member name of tail in ___type */ \
+		___mlist  /* member name of next list member ptr in ___type */ \
+	) { \
+		int ___n, ___m; \
+	\
+	___n = lws_ring_get_oldest_tail(___ring) == *(___ptail); \
+	lws_ring_consume(___ring, ___ptail, NULL, ___count); \
+	if (___n) { \
+		uint32_t ___oldest; \
+		___n = 0; \
+		___oldest = *(___ptail); \
+		lws_start_foreach_llp(___type **, ___ppss, ___list_head) { \
+			___m = lws_ring_get_count_waiting_elements( \
+					___ring, &(*___ppss)->tail); \
+			if (___m >= ___n) { \
+				___n = ___m; \
+				___oldest = (*___ppss)->tail; \
+			} \
+		} lws_end_foreach_llp(___ppss, ___mlist); \
+	\
+		lws_ring_update_oldest_tail(___ring, ___oldest); \
+	} \
+}
+
+/*
+ * This does the same as the lws_ring_consume_and_update_oldest_tail()
+ * helper, but for the simpler case there is only one consumer, so one
+ * tail, and that tail is always the oldest tail.
+ */
+
+#define lws_ring_consume_single_tail(\
+		___ring,  /* the lws_ring object */ \
+		___ptail, /* ptr to tail of obj with tail doing consuming */ \
+		___count  /* count of payload objects being consumed */ \
+	) { \
+	lws_ring_consume(___ring, ___ptail, NULL, ___count); \
+	lws_ring_update_oldest_tail(___ring, *(___ptail)); \
+}
 ///@}
 
 /** \defgroup sha SHA and B64 helpers

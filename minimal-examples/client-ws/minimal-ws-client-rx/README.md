@@ -1,4 +1,4 @@
-# lws minimal ws client
+# lws minimal ws client rx
 
 ## build
 
@@ -12,9 +12,13 @@ The application goes to https://libwebsockets.org and makes a wss connection
 using the dumb-increment-protocol.  It shows the incrementing number it is
 being sent over ws as it arrives.
 
+This example only receives things to keep it simple.  See minimal-ws-client-tx
+for code related to sending things.  Of course rx and tx are supported in the
+same protocol.
+
 ```
-./lws-minimal-ws-client 
-[2018/03/14 11:57:24:0689] USER: LWS minimal ws client
+./lws-minimal-ws-client-rx
+[2018/03/14 11:57:24:0689] USER: LWS minimal ws client rx
 [2018/03/14 11:57:24:0705] NOTICE: Creating Vhost 'default' port -1, 1 protocols, IPv6 off
 [2018/03/14 11:57:24:0710] NOTICE: created client ssl context for default
 [2018/03/14 11:57:24:0788] NOTICE: lws_client_connect_2: 0x15b8310: address libwebsockets.org

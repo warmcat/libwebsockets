@@ -80,7 +80,7 @@ int main(int argc, char **argv)
 
 	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER
 			/* | LLL_INFO */ /* | LLL_DEBUG */, NULL);
-	lwsl_user("LWS minimal ws client\n");
+	lwsl_user("LWS minimal ws client rx\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
