@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8)
 
-set(SAMP lws-minimal-ws-server)
+set(SAMP lws-minimal-ws-server-ring)
 set(SRCS minimal-ws-server.c)
 
 if (UNIX)

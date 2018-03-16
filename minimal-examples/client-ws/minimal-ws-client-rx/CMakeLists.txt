@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8)
 
-set(SAMP lws-minimal-ws-client)
+set(SAMP lws-minimal-ws-client-rx)
 set(SRCS minimal-ws-client.c)
 
 if (UNIX)

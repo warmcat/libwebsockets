@@ -266,8 +266,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* add our pss to list of guys bound to this mi */
 
-		pss->same_mi_pss_list = mi->same_mi_pss_list;
-		mi->same_mi_pss_list = pss;
+		lws_ll_fwd_insert(pss, same_mi_pss_list, mi->same_mi_pss_list);
 
 		/* init the pss */
 
@@ -291,14 +290,8 @@ bail1:
 		lws_pthread_mutex_lock(&v->lock); /* vhost lock { */
 
 		/* remove our closing pss from its mirror instance list */
-		lws_start_foreach_llp(struct per_session_data__lws_mirror **,
-			ppss, mi->same_mi_pss_list) {
-			if (*ppss == pss) {
-				*ppss = pss->same_mi_pss_list;
-				break;
-			}
-		} lws_end_foreach_llp(ppss, same_mi_pss_list);
-
+		lws_ll_fwd_remove(struct per_session_data__lws_mirror,
+				  same_mi_pss_list, pss, mi->same_mi_pss_list);
 		pss->mi = NULL;
 
 		if (mi->same_mi_pss_list) {

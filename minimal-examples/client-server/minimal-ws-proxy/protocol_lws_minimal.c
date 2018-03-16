@@ -89,7 +89,6 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_get_protocol(wsi));
 	const struct msg *pmsg;
 	struct msg amsg;
-	uint32_t oldest;
 	int n, m;
 
 	switch (reason) {
@@ -106,6 +105,9 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 		vhd->ring = lws_ring_create(sizeof(struct msg), 8,
 					    __minimal_destroy_message);
+		if (!vhd->ring)
+			return 1;
+
 		if (connect_client(vhd))
 			lws_timed_callback_vh_protocol(vhd->vhost,
 						vhd->protocol,
@@ -120,21 +122,15 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_ESTABLISHED:
 		/* add ourselves to the list of live pss held in the vhd */
-		pss->pss_list = vhd->pss_list;
-		vhd->pss_list = pss;
+		lws_ll_fwd_insert(pss, pss_list, vhd->pss_list);
 		pss->tail = lws_ring_get_oldest_tail(vhd->ring);
 		pss->wsi = wsi;
 		break;
 
 	case LWS_CALLBACK_CLOSED:
 		/* remove our closing pss from the list of live pss */
-		lws_start_foreach_llp(struct per_session_data__minimal **,
-				      ppss, vhd->pss_list) {
-			if (*ppss == pss) {
-				*ppss = pss->pss_list;
-				break;
-			}
-		} lws_end_foreach_llp(ppss, pss_list);
+		lws_ll_fwd_remove(struct per_session_data__minimal, pss_list,
+				  pss, vhd->pss_list);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -150,26 +146,15 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		n = lws_ring_get_oldest_tail(vhd->ring) == pss->tail;
-		lws_ring_consume(vhd->ring, &pss->tail, NULL, 1);
-
-		if (n) { /* we may have been the oldest tail */
-			n = 0;
-			oldest = pss->tail;
-			lws_start_foreach_llp(
-					struct per_session_data__minimal **,
-					ppss, vhd->pss_list) {
-				m = lws_ring_get_count_waiting_elements(
-						vhd->ring, &(*ppss)->tail);
-				if (m > n) {
-					n = m;
-					oldest = (*ppss)->tail;
-				}
-			} lws_end_foreach_llp(ppss, pss_list);
-
-			/* this will delete any entries behind the new oldest */
-			lws_ring_update_oldest_tail(vhd->ring, oldest);
-		}
+		lws_ring_consume_and_update_oldest_tail(
+			vhd->ring,	/* lws_ring object */
+			struct per_session_data__minimal, /* type of objects with tails */
+			&pss->tail,	/* tail of guy doing the consuming */
+			1,		/* number of payload objects being consumed */
+			vhd->pss_list,	/* head of list of objects with tails */
+			tail,		/* member name of tail in objects with tails */
+			pss_list	/* member name of next object in objects with tails */
+		);
 
 		/* more to do? */
 		if (lws_ring_get_element(vhd->ring, &pss->tail))
