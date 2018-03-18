@@ -233,8 +233,12 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	int n = 0, m = 0, len;
 	char slen[20];
 
-	if (wsi->vhost &&
-	    !wsi->handling_404 &&
+	if (!wsi->vhost) {
+		lwsl_err("%s: wsi not bound to vhost\n", __func__);
+
+		return 1;
+	}
+	if (!wsi->handling_404 &&
 	    wsi->vhost->error_document_404 &&
 	    code == HTTP_STATUS_NOT_FOUND)
 		/* we should do a redirect, and do the 404 there */
