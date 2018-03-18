@@ -387,7 +387,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	struct lws *wsi1, *wsi2;
 	struct lws_context *context;
 	struct lws_tokens eff_buf;
-	int n, m, ret;
+	int n, m;
 
 	lwsl_info("%s: %p: caller: %s\n", __func__, wsi, caller);
 
@@ -530,7 +530,6 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	 * if there are problems with send, just nuke the connection
 	 */
 	do {
-		ret = 0;
 		eff_buf.token = NULL;
 		eff_buf.token_len = 0;
 
@@ -542,12 +541,6 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 			lwsl_ext("Extension reports fatal error\n");
 			goto just_kill_connection;
 		}
-		if (m)
-			/*
-			 * at least one extension told us he has more
-			 * to spill, so we will go around again after
-			 */
-			ret = 1;
 
 		/* assuming they left us something to send, send it */
 
@@ -558,7 +551,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 				lwsl_debug("close: ext spill failed\n");
 				goto just_kill_connection;
 			}
-	} while (ret);
+	} while (m);
 
 	/*
 	 * signal we are closing, lws_write will
