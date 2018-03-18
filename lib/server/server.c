@@ -383,7 +383,10 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	int n;
 
 	wsi->handling_404 = 0;
-	if (wsi->vhost && wsi->vhost->error_document_404 &&
+	if (!wsi->vhost)
+		return -1;
+
+	if (wsi->vhost->error_document_404 &&
 	    !strcmp(uri, wsi->vhost->error_document_404))
 		wsi->handling_404 = 1;
 
