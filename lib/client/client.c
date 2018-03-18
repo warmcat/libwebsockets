@@ -876,7 +876,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		n = 0;
 		while (wsi->vhost->protocols[n].callback) {
-			if (strcmp(wsi->protocol->name,
+			if (wsi->protocol && strcmp(wsi->protocol->name,
 				   wsi->vhost->protocols[n].name) == 0) {
 				wsi->protocol = &wsi->vhost->protocols[n];
 				break;
@@ -885,7 +885,10 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 		if (!wsi->vhost->protocols[n].callback) {
-			lwsl_err("Failed to match protocol %s\n", wsi->protocol->name);
+			if (wsi->protocol)
+				lwsl_err("Failed to match protocol %s\n", wsi->protocol->name);
+			else
+				lwsl_err("No protocol on client\n");
 			goto bail2;
 		}
 	}
