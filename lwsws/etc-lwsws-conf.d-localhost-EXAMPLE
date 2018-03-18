@@ -2,7 +2,8 @@
  "vhosts": [ {
      "name": "localhost",
      "port": "7681",
-     "interface": "lo",
+# by default, bind to all interfaces, but you can restrict it
+#     "interface": "lo",
 #     "host-ssl-key":  "/etc/pki/tls/private/libwebsockets.org.key",
 #     "host-ssl-cert": "/etc/pki/tls/certs/libwebsockets.org.crt",
 #     "host-ssl-ca":   "/etc/pki/tls/certs/libwebsockets.org.cer",
