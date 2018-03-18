@@ -127,7 +127,10 @@ lws_access_log(struct lws *wsi)
 	     *p1 = wsi->access_log.referrer;
 	int l;
 
-	if (wsi->vhost && wsi->vhost->log_fd == (int)LWS_INVALID_FILE)
+	if (!wsi->vhost)
+		return 0;
+
+	if (wsi->vhost->log_fd == (int)LWS_INVALID_FILE)
 		return 0;
 
 	if (!wsi->access_log_pending)
