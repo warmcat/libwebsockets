@@ -740,7 +740,7 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 		 * cleanup like flush partials.
 		 */
 		wsi->socket_is_permanently_unusable = 1;
-		if (wsi->mode == LWSCM_WSCL_WAITING_SSL)
+		if (wsi->mode == LWSCM_WSCL_WAITING_SSL && wsi->protocol)
 			wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 				wsi->user_space,
