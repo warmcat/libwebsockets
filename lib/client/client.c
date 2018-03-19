@@ -545,7 +545,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	struct allocated_headers *ah = NULL;
 	char *p, *q;
 	char new_path[300];
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *sb = (char *)&pt->serv_buf[0];
 	const struct lws_ext_options *opts;
@@ -922,7 +922,7 @@ check_extensions:
 
 	lws_vhost_unlock(wsi->vhost);
 
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	/* instantiate the accepted extensions */
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_EXTENSIONS)) {
@@ -1147,7 +1147,7 @@ check_accept:
 		cce = "HS: Rejected at CLIENT_ESTABLISHED";
 		goto bail3;
 	}
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	/*
 	 * inform all extensions, not just active ones since they
 	 * already know
@@ -1199,7 +1199,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	struct lws_context *context = wsi->context;
 	const char *meth;
 	int n;
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	const struct lws_extension *ext;
 	int ext_count = 0;
 #endif
@@ -1306,7 +1306,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 		/* tell the server what extensions we could support */
 
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 		ext = wsi->vhost->extensions;
 		while (ext && ext->callback) {
 			n = lws_ext_cb_all_exts(context, wsi,

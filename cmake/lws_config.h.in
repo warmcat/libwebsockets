@@ -46,7 +46,6 @@
 #cmakedefine LWS_OPENSSL_CLIENT_CERTS "${LWS_OPENSSL_CLIENT_CERTS}"
 
 /* Turn off websocket extensions */
-#cmakedefine LWS_NO_EXTENSIONS
 #cmakedefine LWS_WITHOUT_EXTENSIONS
 
 /* notice if client or server gone */

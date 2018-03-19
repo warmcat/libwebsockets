@@ -100,7 +100,7 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 			wsi->ws->rsv = (c & 0x70);
 			/* revisit if an extension wants them... */
 			if (
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 				!wsi->count_act_ext &&
 #endif
 				wsi->ws->rsv) {
@@ -557,7 +557,7 @@ utf8_fail:
 
 		if (
 				/* coverity says dead code otherwise */
-#if !defined(LWS_NO_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 				n &&
 #endif
 				eff_buf.token_len)

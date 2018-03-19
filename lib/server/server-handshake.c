@@ -23,7 +23,7 @@
 
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 static int
 lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 {
@@ -292,7 +292,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 		p += lws_snprintf(p, 128, "%s", wsi->protocol->name);
 	}
 
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	/*
 	 * Figure out which extensions the client has that we want to
 	 * enable on this connection, and give him back the list.

@@ -2157,7 +2157,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_set_extension_option(struct lws *wsi, const char *ext_name,
 			 const char *opt_name, const char *opt_val);
 
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 /* lws_get_internal_extensions() - DEPRECATED
  *
  * \Deprecated There is no longer a set internal extensions table.  The table is provided
