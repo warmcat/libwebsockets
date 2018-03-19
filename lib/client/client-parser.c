@@ -555,7 +555,12 @@ utf8_fail:
 		if (callback_action == LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			lwsl_info("Client doing pong callback\n");
 
-		if (n && eff_buf.token_len)
+		if (
+				/* coverity says dead code otherwise */
+#if !defined(LWS_NO_EXTENSIONS)
+				n &&
+#endif
+				eff_buf.token_len)
 			/* extension had more... main loop will come back
 			 * we want callback to be done with this set, if so,
 			 * because lws_is_final() hides it was final until the
