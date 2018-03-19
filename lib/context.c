@@ -748,7 +748,7 @@ lws_create_vhost(struct lws_context *context,
 		mounts = mounts->mount_next;
 	}
 
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 #ifdef LWS_WITH_PLUGINS
 	if (context->plugin_extension_count) {
 
@@ -1593,7 +1593,7 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 	}
 
 #ifdef LWS_WITH_PLUGINS
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (context->plugin_extension_count)
 		lws_free((void *)vh->extensions);
 #endif

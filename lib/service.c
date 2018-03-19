@@ -80,7 +80,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	int m, n;
 	volatile struct lws *vwsi = (volatile struct lws *)wsi;
 
-#if !defined(LWS_NO_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_tokens eff_buf;
 	int ret;
 #endif
@@ -249,7 +249,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	m = lws_ext_cb_active(wsi, LWS_EXT_CB_IS_WRITEABLE, NULL, 0);
 	if (m)
 		goto bail_die;
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (!wsi->extension_data_pending)
 		goto user_service;
 
@@ -1093,7 +1093,7 @@ completed:
 static int
 lws_is_ws_with_ext(struct lws *wsi)
 {
-#if defined(LWS_NO_EXTENSIONS)
+#if defined(LWS_WITHOUT_EXTENSIONS)
 	return 0;
 #else
 	return lws_state_is_ws(wsi->state) && !!wsi->count_act_ext;
@@ -1789,7 +1789,7 @@ drain:
 		 */
 		m = 0;
 		do {
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 			m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_RX_PREPARSE,
 					      &eff_buf, 0);
 			if (m < 0)

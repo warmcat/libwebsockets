@@ -449,10 +449,6 @@ else()
 	set(LWS_OPENSSL_CLIENT_CERTS /etc/pki/tls/certs/ CACHE PATH "Client SSL certificate directory")
 endif()
 
-if (LWS_WITHOUT_EXTENSIONS)
-	set(LWS_NO_EXTENSIONS 1)
-endif()
-
 if (LWS_WITH_SSL)
 	set(LWS_OPENSSL_SUPPORT 1)
 endif()

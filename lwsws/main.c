@@ -59,7 +59,7 @@ void lwsl_emit_stderr(int level, const char *line);
 #define LWSWS_CONFIG_STRING_SIZE (32 * 1024)
 
 static const struct lws_extension exts[] = {
-#if !defined(LWS_NO_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	{
 		"permessage-deflate",
 		lws_extension_callback_pm_deflate,

@@ -176,7 +176,7 @@ JNIEXPORT jboolean JNICALL jni_initLws(JNIEnv *env, jobject obj)
     memset(&info, 0, sizeof(info));
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.protocols = protocols;
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
     info.extensions = exts;
 #endif
     info.gid = -1;

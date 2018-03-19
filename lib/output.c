@@ -49,7 +49,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	size_t real_len = len;
 	unsigned int n;
-#if !defined(LWS_NO_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	int m;
 #endif
 
@@ -91,7 +91,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 		return -1;
 	}
-#if !defined(LWS_NO_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_TX_DO_SEND, &buf, (int)len);
 	if (m < 0)
 		return -1;
@@ -137,7 +137,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		n = 0;
 		break;
 	}
-#if !defined(LWS_NO_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 handle_truncated_send:
 #endif
 	/*
@@ -320,7 +320,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	case LWS_WRITE_CLOSE:
 		break;
 	default:
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 		lwsl_debug("LWS_EXT_CB_PAYLOAD_TX\n");
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_TX, &eff_buf, wp);
 		if (n < 0)

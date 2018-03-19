@@ -977,7 +977,7 @@ struct lws_vhost {
 #if defined(LWS_WITH_MBEDTLS)
 	lws_tls_x509 *x509_client_CA;
 #endif
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	const struct lws_extension *extensions;
 #endif
 	struct lws_timed_vh_protocol *timed_vh_protocol_list;
@@ -1888,7 +1888,7 @@ struct lws {
 	/* truncated send handling */
 	unsigned char *trunc_alloc; /* non-NULL means buffering in progress */
 
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	const struct lws_extension *active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
 	void *act_ext_user[LWS_MAX_EXTENSIONS_ACTIVE];
 #endif
@@ -1973,7 +1973,7 @@ struct lws {
 #ifdef LWS_WITH_HTTP_PROXY
 	unsigned int perform_rewrite:1;
 #endif
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	unsigned int extension_data_pending:1;
 #endif
 #ifdef LWS_OPENSSL_SUPPORT
@@ -1996,7 +1996,7 @@ struct lws {
 	uint8_t mode; /* enum connection_mode */
 
 	/* chars */
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	uint8_t count_act_ext;
 #endif
 	uint8_t state_pre_close;
@@ -2149,7 +2149,7 @@ lws_client_stash_destroy(struct lws *wsi);
  * EXTENSIONS
  */
 
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 LWS_VISIBLE void
 lws_context_init_extensions(struct lws_context_creation_info *info,
 			    struct lws_context *context);

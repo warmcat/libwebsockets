@@ -2322,7 +2322,7 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 	return 0;
 }
 
-#ifdef LWS_NO_EXTENSIONS
+#if defined(LWS_WITHOUT_EXTENSIONS)
 
 /* we need to provide dummy callbacks for internal exts
  * so user code runs when faced with a lib compiled with
@@ -2767,7 +2767,7 @@ lws_pvo_search(const struct lws_protocol_vhost_options *pvo, const char *name)
 	return pvo;
 }
 
-#ifdef LWS_NO_EXTENSIONS
+#if defined(LWS_WITHOUT_EXTENSIONS)
 LWS_EXTERN int
 lws_set_extension_option(struct lws *wsi, const char *ext_name,
 			 const char *opt_name, const char *opt_val)

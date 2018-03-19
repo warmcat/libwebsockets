@@ -439,7 +439,7 @@ int main(int argc, char **argv)
 
 	if (use_ssl)
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-#ifndef LWS_NO_EXTENSIONS
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	info.extensions = exts;
 #endif
 

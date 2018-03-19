@@ -1252,7 +1252,7 @@ lws_rx_sm(struct lws *wsi, unsigned char c)
 	int callback_action = LWS_CALLBACK_RECEIVE;
 	int ret = 0, rx_draining_ext = 0;
 	struct lws_tokens eff_buf;
-#if !defined(LWS_NO_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	int n;
 #endif
 
@@ -1703,7 +1703,7 @@ drain_extension:
 		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
 		    wsi->state == LWSS_AWAITING_CLOSE_ACK)
 			goto already_done;
-#if !defined(LWS_NO_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &eff_buf, 0);
 #endif
 		/*
@@ -1711,7 +1711,7 @@ drain_extension:
 		 * it's the output
 		 */
 		wsi->ws->first_fragment = 0;
-#if !defined(LWS_NO_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 		if (n < 0) {
 			/*
 			 * we may rely on this to get RX, just drop connection
@@ -1724,7 +1724,7 @@ drain_extension:
 			goto already_done;
 
 		if (
-#if !defined(LWS_NO_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 		    n &&
 #endif
 		    eff_buf.token_len)
