@@ -49,7 +49,9 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	size_t real_len = len;
 	unsigned int n;
+#if !defined(LWS_NO_EXTENSIONS)
 	int m;
+#endif
 
 	/*
 	 * Detect if we got called twice without going through the
