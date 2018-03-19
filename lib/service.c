@@ -77,12 +77,12 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 #ifdef LWS_WITH_HTTP2
 	struct lws **wsi2, *wsi2a;
 #endif
-	int m, n;
+	int n;
 	volatile struct lws *vwsi = (volatile struct lws *)wsi;
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_tokens eff_buf;
-	int ret;
+	int ret, m;
 #endif
 	vwsi->leave_pollout_active = 0;
 	vwsi->handling_pollout = 1;
@@ -246,10 +246,11 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 	/* Priority 6: extensions
 	 */
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	m = lws_ext_cb_active(wsi, LWS_EXT_CB_IS_WRITEABLE, NULL, 0);
 	if (m)
 		goto bail_die;
-#if !defined(LWS_WITHOUT_EXTENSIONS)
+
 	if (!wsi->extension_data_pending)
 		goto user_service;
 
