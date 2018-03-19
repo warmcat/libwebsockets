@@ -74,13 +74,16 @@ LWS_VISIBLE int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	int write_type = LWS_WRITE_PONG;
-	struct lws_tokens eff_buf;
 #ifdef LWS_WITH_HTTP2
 	struct lws **wsi2, *wsi2a;
 #endif
-	int ret, m, n;
+	int m, n;
 	volatile struct lws *vwsi = (volatile struct lws *)wsi;
 
+#if !defined(LWS_NO_EXTENSIONS)
+	struct lws_tokens eff_buf;
+	int ret;
+#endif
 	vwsi->leave_pollout_active = 0;
 	vwsi->handling_pollout = 1;
 	/*
@@ -249,7 +252,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 #ifndef LWS_NO_EXTENSIONS
 	if (!wsi->extension_data_pending)
 		goto user_service;
-#endif
+
 	/*
 	 * check in on the active extensions, see if they
 	 * had pending stuff to spill... they need to get the
@@ -330,7 +333,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		goto bail_ok;
 	}
-#ifndef LWS_NO_EXTENSIONS
+
 	wsi->extension_data_pending = 0;
 #endif
 
