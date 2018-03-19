@@ -715,7 +715,7 @@ lws_create_vhost(struct lws_context *context,
 #ifdef LWS_WITH_UNIX_SOCK
 	if (LWS_UNIX_SOCK_ENABLED(context)) {
 		lwsl_notice("Creating Vhost '%s' path \"%s\", %d protocols\n",
-				vh->name, info->iface, vh->count_protocols);
+				vh->name, vh->iface, vh->count_protocols);
 	} else
 #endif
 	lwsl_notice("Creating Vhost '%s' port %d, %d protocols, IPv6 %s\n",
@@ -1609,6 +1609,14 @@ lws_vhost_destroy2(struct lws_vhost *vh)
        pthread_mutex_destroy(&vh->lock);
 #endif
 
+#if defined(LWS_WITH_UNIX_SOCK)
+	if (LWS_UNIX_SOCK_ENABLED(context)) {
+		n = unlink(vh->iface);
+		if (n)
+			lwsl_info("Closing unix socket %s: errno %d\n",
+				  vh->iface, errno);
+	}
+#endif
 	/*
 	 * although async event callbacks may still come for wsi handles with
 	 * pending close in the case of asycn event library like libuv,

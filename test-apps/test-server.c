@@ -218,6 +218,7 @@ static struct option options[] = {
 #endif
 #endif
 	{ "libev",  no_argument,		NULL, 'e' },
+	{ "unix-socket",  required_argument,	NULL, 'U' },
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize",	no_argument,		NULL, 'D' },
 #endif
@@ -261,7 +262,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:P:k", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:P:kU:", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -298,6 +299,11 @@ int main(int argc, char **argv)
 		case 'i':
 			lws_strncpy(interface_name, optarg, sizeof interface_name);
 			iface = interface_name;
+			break;
+		case 'U':
+			lws_strncpy(interface_name, optarg, sizeof interface_name);
+			iface = interface_name;
+			opts |= LWS_SERVER_OPTION_UNIX_SOCK;
 			break;
 		case 'k':
 			info.bind_iface = 1;
