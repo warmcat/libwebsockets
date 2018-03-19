@@ -683,35 +683,10 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 		return 0;
 
 	/*
-	 * is there a timer callback we should be doing?
-	 */
-
-	if (wsi->timer_active &&
-	    lws_compare_time_t(wsi->context, sec, wsi->pending_timer_set) >
-	    wsi->pending_timer_limit) {
-		wsi->timer_active = 0;
-
-		if (wsi->protocol &&
-		    wsi->protocol->callback(wsi, LWS_CALLBACK_TIMER,
-					    wsi->user_space, NULL, 0)) {
-			__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "timer cb errored");
-
-					return 1;
-		}
-
-		if (!lws_should_be_on_timeout_list(wsi)) {
-			__lws_remove_from_timeout_list(wsi);
-
-			return 0;
-		}
-	}
-
-	/*
 	 * if we went beyond the allowed time, kill the
 	 * connection
 	 */
-	if (wsi->pending_timeout &&
+	if (wsi->dll_timeout.prev &&
 	    lws_compare_time_t(wsi->context, sec, wsi->pending_timeout_set) >
 			       wsi->pending_timeout_limit) {
 
@@ -1110,11 +1085,15 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	struct allocated_headers *ah;
 	struct lws_tokens eff_buf;
 	unsigned int pending = 0;
-	struct lws *wsi, *wsi1;
+	struct lws *wsi;
 	char draining_flow = 0;
 	int timed_out = 0;
 	time_t now;
 	int n = 0, m;
+
+#if defined(LWS_WITH_HTTP2)
+	struct lws *wsi1;
+#endif
 
 	if (!context->protocol_init_done)
 		if (lws_protocol_init(context))
@@ -1190,10 +1169,10 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		 */
 
 		lws_pt_lock(pt, __func__);
-		wsi = context->pt[tsi].timeout_list;
-		while (wsi) {
-			/* we have to take copies, because he may be deleted */
-			wsi1 = wsi->timeout_list;
+
+		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+					   context->pt[tsi].dll_head_timeout.next) {
+			wsi = lws_container_of(d, struct lws, dll_timeout);
 			tmp_fd = wsi->desc.sockfd;
 			if (__lws_service_timeout_check(wsi, now)) {
 				/* he did time out... */
@@ -1202,8 +1181,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 					timed_out = 1;
 				/* he's gone, no need to mark as handled */
 			}
-			wsi = wsi1;
-		}
+		} lws_end_foreach_dll_safe(d, d1);
 
 		/*
 		 * Phase 2: double-check active ah timeouts independent of wsi

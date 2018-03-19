@@ -804,6 +804,8 @@ struct allocated_headers {
 	uint8_t /* enum lws_token_indexes */ parser_state;
 };
 
+#define LWS_HRTIMER_NOWAIT (0x7fffffffffffffffll)
+
 /*
  * so we can have n connections being serviced simultaneously,
  * these things need to be isolated per-thread.
@@ -818,7 +820,8 @@ struct lws_context_per_thread {
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
-	struct lws *timeout_list;
+	struct lws_dll_lws dll_head_timeout;
+	struct lws_dll_lws dll_head_hrtimer;
 #if defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_context *context;
 #endif
@@ -842,6 +845,7 @@ struct lws_context_per_thread {
 	uv_loop_t *io_loop_uv;
 	uv_signal_t signals[8];
 	uv_timer_t uv_timeout_watcher;
+	uv_timer_t uv_hrtimer;
 	uv_idle_t uv_idle;
 #endif
 #if defined(LWS_WITH_LIBEVENT)
@@ -1870,8 +1874,8 @@ struct lws {
 	const struct lws_protocols *protocol;
 	struct lws **same_vh_protocol_prev, *same_vh_protocol_next;
 	/* we get on the list if either the timeout or the timer is valid */
-	struct lws *timeout_list;
-	struct lws **timeout_list_prev;
+	struct lws_dll_lws dll_timeout;
+	struct lws_dll_lws dll_hrtimer;
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *peer;
 #endif
@@ -1911,8 +1915,9 @@ struct lws {
 	uint64_t accept_start_us;
 #endif
 #endif
+	lws_usec_t pending_timer;
+
 	time_t pending_timeout_set;
-	time_t pending_timer_set;
 
 	/* ints */
 	int position_in_fds_table;
@@ -1957,8 +1962,6 @@ struct lws {
 	unsigned int handling_404;
 
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
-
-	unsigned int timer_active:1;
 	unsigned int outer_will_close:1;
 
 #ifdef LWS_WITH_ACCESS_LOG
@@ -1990,7 +1993,6 @@ struct lws {
 	unsigned short c_port;
 #endif
 	unsigned short pending_timeout_limit;
-	unsigned short pending_timer_limit;
 
 	uint8_t state; /* enum lws_connection_states */
 	uint8_t mode; /* enum connection_mode */
@@ -2051,9 +2053,6 @@ LWS_EXTERN int
 __remove_wsi_socket_from_fds(struct lws *wsi);
 LWS_EXTERN int
 lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len);
-
-LWS_EXTERN int
-lws_should_be_on_timeout_list(struct lws *wsi);
 
 #ifndef LWS_LATENCY
 static inline void
@@ -2786,6 +2785,10 @@ lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 
 void
 __lws_remove_from_timeout_list(struct lws *wsi);
+
+lws_usec_t
+__lws_hrtimer_service(struct lws_context_per_thread *pt);
+
 void
 __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 int

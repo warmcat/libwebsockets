@@ -91,8 +91,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_ESTABLISHED:
 		pss->number = 0;
-		/* just to test the timer api */
-		// lws_set_timer(wsi, 3);
+		lws_set_timer_usecs(wsi, 3 * LWS_USEC_PER_SEC);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -118,8 +117,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_TIMER:
-		lwsl_notice("%s: LWS_CALLBACK_TIMER\n", __func__);
-		lws_set_timer(wsi, 3);
+		lwsl_info("%s: LWS_CALLBACK_TIMER: %p\n", __func__, wsi);
+		lws_set_timer_usecs(wsi, 3 * LWS_USEC_PER_SEC);
 		break;
 
 	default:
