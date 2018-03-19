@@ -238,8 +238,10 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!mi) {
 
 			/* no existing mirror instance for name */
-			if (count_mi == MAX_MIRROR_INSTANCES)
+			if (count_mi == MAX_MIRROR_INSTANCES) {
+				lws_pthread_mutex_unlock(&v->lock); /* } vhost lock */
 				return -1;
+			}
 
 			/* create one with this name, and join it */
 			mi = malloc(sizeof(*mi));
