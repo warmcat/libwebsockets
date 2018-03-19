@@ -89,7 +89,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 		return -1;
 	}
-
+#if !defined(LWS_NO_EXTENSIONS)
 	m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_TX_DO_SEND, &buf, (int)len);
 	if (m < 0)
 		return -1;
@@ -97,7 +97,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		n = m;
 		goto handle_truncated_send;
 	}
-
+#endif
 	if (!wsi->http2_substream && !lws_socket_is_valid(wsi->desc.sockfd))
 		lwsl_warn("** error invalid sock but expected to send\n");
 
@@ -135,8 +135,9 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		n = 0;
 		break;
 	}
-
+#if !defined(LWS_NO_EXTENSIONS)
 handle_truncated_send:
+#endif
 	/*
 	 * we were already handling a truncated send?
 	 */
@@ -317,6 +318,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	case LWS_WRITE_CLOSE:
 		break;
 	default:
+#ifndef LWS_NO_EXTENSIONS
 		lwsl_debug("LWS_EXT_CB_PAYLOAD_TX\n");
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_TX, &eff_buf, wp);
 		if (n < 0)
@@ -344,7 +346,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 			 */
 			wp |= LWS_WRITE_NO_FIN;
 		}
-
+#endif
 		if (eff_buf.token_len && wsi->ws->stashed_write_pending) {
 			wsi->ws->stashed_write_pending = 0;
 			wp = (wp &0xc0) | (int)wsi->ws->stashed_write_type;
