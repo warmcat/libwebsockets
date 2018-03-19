@@ -508,6 +508,7 @@ ping_drop:
 			goto already_done;
 
 drain_extension:
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 		lwsl_ext("%s: passing %d to ext\n", __func__, eff_buf.token_len);
 
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &eff_buf, 0);
@@ -516,7 +517,9 @@ drain_extension:
 			wsi->socket_is_permanently_unusable = 1;
 			return -1;
 		}
-
+#else
+		n = 0;
+#endif
 		lwsl_ext("post inflate eff_buf len %d\n", eff_buf.token_len);
 
 		if (rx_draining_ext && !eff_buf.token_len) {
