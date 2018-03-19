@@ -771,6 +771,12 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	if (!wsi->vhost)
 		wsi->vhost = i->context->vhost_list;
 
+	if (!wsi->vhost) {
+		lwsl_err("At least one vhost in the context is required\n");
+
+		goto bail;
+	}
+
 	wsi->protocol = &wsi->vhost->protocols[0];
 
 	/*
@@ -783,7 +789,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	 * which protocol we are associated with since we can give it a
 	 * list.
 	 */
-	if ((i->method || i->local_protocol_name) && wsi->vhost && local) {
+	if ((i->method || i->local_protocol_name) && local) {
 		lwsl_info("binding to %s\n", local);
 		p = lws_vhost_name_to_protocol(wsi->vhost, local);
 		if (p)
