@@ -200,6 +200,15 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			timeout_ms = 0;
 	}
 
+	if (timeout_ms) {
+		lws_pt_lock(pt, __func__);
+		/* don't stay in poll wait longer than next hr timeout */
+		lws_usec_t t =  __lws_hrtimer_service(pt);
+		if (timeout_ms * 1000 > t)
+			timeout_ms = t / 1000;
+		lws_pt_unlock(pt);
+	}
+
 	vpt->inside_poll = 1;
 	lws_memory_barrier();
 	n = poll(pt->fds, pt->fds_count, timeout_ms);
@@ -238,6 +247,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	}
 	vpt->foreign_pfd_list = NULL;
 	lws_memory_barrier();
+
+	/* we have come out of a poll wait... check the hrtimer list */
+
+	__lws_hrtimer_service(pt);
 
 	lws_pt_unlock(pt);
 

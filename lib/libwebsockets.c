@@ -132,27 +132,80 @@ __lws_free_wsi(struct lws *wsi)
 	lws_free(wsi);
 }
 
-int
-lws_should_be_on_timeout_list(struct lws *wsi)
+void
+lws_dll_add_front(struct lws_dll *d, struct lws_dll *phead)
 {
-	return wsi->timer_active || wsi->pending_timeout;
+	if (d->prev)
+		return;
+
+	/* our next guy is current first guy */
+	d->next = phead->next;
+	/* if there is a next guy, set his prev ptr to our next ptr */
+	if (d->next)
+		d->next->prev = d;
+	/* our prev ptr is first ptr */
+	d->prev = phead;
+	/* set the first guy to be us */
+	phead->next = d;
+}
+
+/* situation is:
+ *
+ *  HEAD: struct lws_dll * = &entry1
+ *
+ *  Entry 1: struct lws_dll  .pprev = &HEAD , .next = Entry 2
+ *  Entry 2: struct lws_dll  .pprev = &entry1 , .next = &entry2
+ *  Entry 3: struct lws_dll  .pprev = &entry2 , .next = NULL
+ *
+ *  Delete Entry1:
+ *
+ *   - HEAD = &entry2
+ *   - Entry2: .pprev = &HEAD, .next = &entry3
+ *   - Entry3: .pprev = &entry2, .next = NULL
+ *
+ *  Delete Entry2:
+ *
+ *   - HEAD = &entry1
+ *   - Entry1: .pprev = &HEAD, .next = &entry3
+ *   - Entry3: .pprev = &entry1, .next = NULL
+ *
+ *  Delete Entry3:
+ *
+ *   - HEAD = &entry1
+ *   - Entry1: .pprev = &HEAD, .next = &entry2
+ *   - Entry2: .pprev = &entry1, .next = NULL
+ *
+ */
+
+void
+lws_dll_remove(struct lws_dll *d)
+{
+	if (!d->prev) /* ie, not part of the list */
+		return;
+
+	/*
+	 *  remove us
+	 *
+	 *  USp <-> us <-> USn  -->  USp <-> USn
+	 */
+
+	/* if we have a next guy, set his prev to our prev */
+	if (d->next)
+		d->next->prev = d->prev;
+
+	/* set our prev guy to our next guy instead of us */
+	if (d->prev)
+		d->prev->next = d->next;
+
+	/* we're out of the list, we should not point anywhere any more */
+	d->prev = NULL;
+	d->next = NULL;
 }
 
 void
 __lws_remove_from_timeout_list(struct lws *wsi)
 {
-	if (!wsi->timeout_list_prev) /* ie, not part of the list */
-		return;
-
-	/* if we have a next guy, set his prev to our prev */
-	if (wsi->timeout_list)
-		wsi->timeout_list->timeout_list_prev = wsi->timeout_list_prev;
-	/* set our prev guy to our next guy instead of us */
-	*wsi->timeout_list_prev = wsi->timeout_list;
-
-	/* we're out of the list, we should not point anywhere any more */
-	wsi->timeout_list_prev = NULL;
-	wsi->timeout_list = NULL;
+	lws_dll_lws_remove(&wsi->dll_timeout);
 }
 
 void
@@ -161,85 +214,169 @@ lws_remove_from_timeout_list(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
 	lws_pt_lock(pt, __func__);
-
 	__lws_remove_from_timeout_list(wsi);
-
 	lws_pt_unlock(pt);
 }
 
-static void
-__lws_add_to_timeout_list(struct lws *wsi)
+void
+lws_dll_dump(struct lws_dll_lws *head, const char *title)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	int n = 0;
 
-	if (wsi->timeout_list_prev)
-		return;
+	(void)n;
+	lwsl_notice("%s: %s (head.next %p)\n", __func__, title, head->next);
 
-	/* our next guy is current first guy */
-	wsi->timeout_list = pt->timeout_list;
-	/* if there is a next guy, set his prev ptr to our next ptr */
-	if (wsi->timeout_list)
-		wsi->timeout_list->timeout_list_prev = &wsi->timeout_list;
-	/* our prev ptr is first ptr */
-	wsi->timeout_list_prev = &pt->timeout_list;
-	/* set the first guy to be us */
-	*wsi->timeout_list_prev = wsi;
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1, head->next) {
+		struct lws *wsi = lws_container_of(d, struct lws, dll_hrtimer);
+
+		(void)wsi;
+
+		lwsl_notice("  %d: wsi %p: %llu\n", n++, wsi,
+				(unsigned long long)wsi->pending_timer);
+	} lws_end_foreach_dll_safe(d, d1);
 }
 
 void
-__lws_set_timer(struct lws *wsi, int secs)
+__lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 {
-//	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	time_t now;
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_dll_lws *dd = &pt->dll_head_hrtimer;
+	struct timeval now;
+	struct lws *wsi1;
+	int bef = 0;
 
-	if (secs < 0) {
-		wsi->timer_active = 0;
+	if (LWS_LIBEV_ENABLED(wsi->context))
+		lwsl_warn("%s: lws hrtimer not implemented for libev\n", __func__);
+	if (LWS_LIBEVENT_ENABLED(wsi->context))
+		lwsl_warn("%s: lws hrtimer not implemented for libevent\n", __func__);
 
-		if (!lws_should_be_on_timeout_list(wsi))
-			__lws_remove_from_timeout_list(wsi);
+	lws_dll_lws_remove(&wsi->dll_hrtimer);
 
+	if (usecs == LWS_SET_TIMER_USEC_CANCEL)
 		return;
+
+	gettimeofday(&now, NULL);
+	wsi->pending_timer = ((now.tv_sec * 1000000ll) + now.tv_usec) + usecs;
+
+	/*
+	 * we sort the hrtimer list with the earliest timeout first
+	 */
+
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+				   pt->dll_head_hrtimer.next) {
+		dd = d;
+		wsi1 = lws_container_of(d, struct lws, dll_hrtimer);
+
+		if (wsi1->pending_timer >= wsi->pending_timer) {
+			/* d, dprev's next, is >= our time */
+			bef = 1;
+			break;
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+
+	if (bef) {
+		/*
+		 *  we go before dd
+		 *  DDp <-> DD <-> DDn --> DDp <-> us <-> DD <-> DDn
+		 */
+		/* we point forward to dd */
+		wsi->dll_hrtimer.next = dd;
+		/* we point back to what dd used to point back to */
+		wsi->dll_hrtimer.prev = dd->prev;
+		/* DDp points forward to us now */
+		dd->prev->next = &wsi->dll_hrtimer;
+		/* DD points back to us now */
+		dd->prev = &wsi->dll_hrtimer;
+	} else {
+		/*
+		 *  we go after dd
+		 *  DDp <-> DD <-> DDn --> DDp <-> DD <-> us <-> DDn
+		 */
+		/* we point forward to what dd used to point forward to */
+		wsi->dll_hrtimer.next = dd->next;
+		/* we point back to dd */
+		wsi->dll_hrtimer.prev = dd;
+		/* DDn points back to us */
+		if (dd->next)
+			dd->next->prev = &wsi->dll_hrtimer;
+		/* DD points forward to us */
+		dd->next = &wsi->dll_hrtimer;
 	}
 
-	time(&now);
-
-	wsi->pending_timer_limit = secs;
-	wsi->pending_timer_set = now;
-
-	if (!wsi->timer_active) {
-		wsi->timer_active = 1;
-		if (!wsi->pending_timeout)
-			__lws_add_to_timeout_list(wsi);
-	}
+//	lws_dll_dump(&pt->dll_head_hrtimer, "after set_timer_usec");
 }
 
 LWS_VISIBLE void
-lws_set_timer(struct lws *wsi, int secs)
+lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 {
-	//struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	__lws_set_timer_usecs(wsi, usecs);
+}
 
-//	lws_pt_lock(pt, __func__);
-	__lws_set_timer(wsi, secs);
-//	lws_pt_unlock(pt);
+lws_usec_t
+__lws_hrtimer_service(struct lws_context_per_thread *pt)
+{
+	struct timeval now;
+	struct lws *wsi;
+	lws_usec_t t;
+
+	gettimeofday(&now, NULL);
+	t = (now.tv_sec * 1000000ll) + now.tv_usec;
+
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+				   pt->dll_head_hrtimer.next) {
+		wsi = lws_container_of(d, struct lws, dll_hrtimer);
+
+		/*
+		 * if we met one in the future, we are done, because the list
+		 * is sorted by time in the future.
+		 */
+		if (wsi->pending_timer > t)
+			break;
+
+		lws_set_timer_usecs(wsi, LWS_SET_TIMER_USEC_CANCEL);
+
+		/* it's time for the timer to be serviced */
+
+		if (wsi->protocol &&
+		    wsi->protocol->callback(wsi, LWS_CALLBACK_TIMER,
+					    wsi->user_space, NULL, 0))
+			__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					     "timer cb errored");
+	} lws_end_foreach_dll_safe(d, d1);
+
+	/* return an estimate how many us until next timer hit */
+
+	if (!pt->dll_head_hrtimer.next)
+		return LWS_HRTIMER_NOWAIT;
+
+	wsi = lws_container_of(pt->dll_head_hrtimer.next, struct lws, dll_hrtimer);
+
+	gettimeofday(&now, NULL);
+	t = (now.tv_sec * 1000000ll) + now.tv_usec;
+
+	if (wsi->pending_timer < t)
+		return 0;
+
+	return wsi->pending_timer - t;
 }
 
 void
 __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	time_t now;
 
 	time(&now);
-
-	if (reason)
-		__lws_add_to_timeout_list(wsi);
 
 	lwsl_debug("%s: %p: %d secs\n", __func__, wsi, secs);
 	wsi->pending_timeout_limit = secs;
 	wsi->pending_timeout_set = now;
 	wsi->pending_timeout = reason;
 
-	if (!reason && !lws_should_be_on_timeout_list(wsi))
-		__lws_remove_from_timeout_list(wsi);
+	if (!reason)
+		lws_dll_lws_remove(&wsi->dll_timeout);
+	else
+		lws_dll_lws_add_front(&wsi->dll_timeout, &pt->dll_head_timeout);
 }
 
 LWS_VISIBLE void
@@ -255,9 +392,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	}
 
 	lws_pt_lock(pt, __func__);
-
 	__lws_set_timeout(wsi, reason, secs);
-
 	lws_pt_unlock(pt);
 }
 
@@ -784,6 +919,7 @@ just_kill_connection:
 	 */
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 	__lws_remove_from_timeout_list(wsi);
+	lws_dll_lws_remove(&wsi->dll_hrtimer);
 
 	/* checking return redundant since we anyway close */
 	if (wsi->desc.sockfd != LWS_SOCK_INVALID)
