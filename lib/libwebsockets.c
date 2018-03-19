@@ -2373,6 +2373,8 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		n = sizeof(struct sockaddr_un);
 		bzero((char *) &serv_unix, sizeof(serv_unix));
 		serv_unix.sun_family = AF_UNIX;
+		if (!iface)
+			return -1;
 		if (sizeof(serv_unix.sun_path) <= strlen(iface)) {
 			lwsl_err("\"%s\" too long for UNIX domain socket\n",
 			         iface);
