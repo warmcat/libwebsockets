@@ -1250,8 +1250,11 @@ int
 lws_rx_sm(struct lws *wsi, unsigned char c)
 {
 	int callback_action = LWS_CALLBACK_RECEIVE;
-	int ret = 0, n, rx_draining_ext = 0;
+	int ret = 0, rx_draining_ext = 0;
 	struct lws_tokens eff_buf;
+#if !defined(LWS_NO_EXTENSIONS)
+	int n;
+#endif
 
 	eff_buf.token = NULL;
 	eff_buf.token_len = 0;
@@ -1700,13 +1703,15 @@ drain_extension:
 		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
 		    wsi->state == LWSS_AWAITING_CLOSE_ACK)
 			goto already_done;
-
+#if !defined(LWS_NO_EXTENSIONS)
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &eff_buf, 0);
+#endif
 		/*
 		 * eff_buf may be pointing somewhere completely different now,
 		 * it's the output
 		 */
 		wsi->ws->first_fragment = 0;
+#if !defined(LWS_NO_EXTENSIONS)
 		if (n < 0) {
 			/*
 			 * we may rely on this to get RX, just drop connection
@@ -1714,11 +1719,15 @@ drain_extension:
 			wsi->socket_is_permanently_unusable = 1;
 			return -1;
 		}
-
+#endif
 		if (rx_draining_ext && eff_buf.token_len == 0)
 			goto already_done;
 
-		if (n && eff_buf.token_len)
+		if (
+#if !defined(LWS_NO_EXTENSIONS)
+		    n &&
+#endif
+		    eff_buf.token_len)
 			/* extension had more... main loop will come back */
 			lws_add_wsi_to_draining_ext_list(wsi);
 		else
