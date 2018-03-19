@@ -177,6 +177,28 @@ to toggle the creation and destruction of an identical second vhost on port + 1.
 This is intended as a test and demonstration for how to bring up and remove
 vhosts dynamically.
 
+@section unixskt Testing Unix Socket Server support
+
+Start the test server with -U and the path to create the unix domain socket
+
+```
+ $ libwebsockets-test-server -U /tmp/uds
+```
+
+On exit, lws will delete the socket inode.
+
+To test the client side, eg
+
+```
+ $ nc -C -U /tmp/uds -i 30
+```
+
+and type
+
+`GET / HTTP/1.1`
+
+followed by two ENTER.  The contents of test.html should be returned.
+
 @section wscl Testing websocket client support
 
 If you run the test server as described above, you can also
