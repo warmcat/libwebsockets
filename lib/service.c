@@ -1114,7 +1114,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	int timed_out = 0;
 	time_t now;
 	int n = 0, m;
-	int more;
 
 	if (!context->protocol_init_done)
 		if (lws_protocol_init(context))
@@ -1788,15 +1787,14 @@ drain:
 		 * extension callback handling, just the normal input buffer is
 		 * used then so it is efficient.
 		 */
+		m = 0;
 		do {
-			more = 0;
-
+#ifndef LWS_NO_EXTENSIONS
 			m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_RX_PREPARSE,
 					      &eff_buf, 0);
 			if (m < 0)
 				goto close_and_handled;
-			if (m)
-				more = 1;
+#endif
 
 			/* service incoming data */
 
@@ -1819,7 +1817,7 @@ drain:
 
 			eff_buf.token = NULL;
 			eff_buf.token_len = 0;
-		} while (more);
+		} while (m);
 
 		if (wsi->ah) {
 			lwsl_debug("%s: %p: detaching\n", __func__, wsi);
