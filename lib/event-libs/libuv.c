@@ -31,6 +31,24 @@ lws_feature_status_libuv(struct lws_context_creation_info *info)
 }
 
 static void
+lws_uv_hrtimer_cb(uv_timer_t *timer
+#if UV_VERSION_MAJOR == 0
+		, int status
+#endif
+)
+{
+	struct lws_context_per_thread *pt = lws_container_of(timer,
+				struct lws_context_per_thread, uv_hrtimer);
+	lws_usec_t us;
+
+	lws_pt_lock(pt, __func__);
+	us =  __lws_hrtimer_service(pt);
+	if (us != LWS_HRTIMER_NOWAIT)
+		uv_timer_start(&pt->uv_hrtimer, lws_uv_hrtimer_cb, us / 1000, 0);
+	lws_pt_unlock(pt);
+}
+
+static void
 lws_uv_idle(uv_idle_t *handle
 #if UV_VERSION_MAJOR == 0
 		, int status
@@ -39,6 +57,7 @@ lws_uv_idle(uv_idle_t *handle
 {
 	struct lws_context_per_thread *pt = lws_container_of(handle,
 					struct lws_context_per_thread, uv_idle);
+	lws_usec_t us;
 
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
@@ -52,6 +71,14 @@ lws_uv_idle(uv_idle_t *handle
 		return;
 	}
 
+	/* account for hrtimer */
+
+	lws_pt_lock(pt, __func__);
+	us =  __lws_hrtimer_service(pt);
+	if (us != LWS_HRTIMER_NOWAIT)
+		uv_timer_start(&pt->uv_hrtimer, lws_uv_hrtimer_cb, us / 1000, 0);
+	lws_pt_unlock(pt);
+
 	/* there is nobody who needs service forcing, shut down idle */
 	uv_idle_stop(handle);
 }
@@ -63,6 +90,7 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 					struct lws_io_watcher, uv_watcher);
 	struct lws *wsi = lws_container_of(lws_io, struct lws, w_read);
 	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_pollfd eventfd;
 
 #if defined(WIN32) || defined(_WIN32)
@@ -97,7 +125,11 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	}
 	lws_service_fd(context, &eventfd);
 
-	uv_idle_start(&context->pt[(int)wsi->tsi].uv_idle, lws_uv_idle);
+	lws_pt_lock(pt, __func__);
+	__lws_hrtimer_service(pt);
+	lws_pt_unlock(pt);
+
+	uv_idle_start(&pt->uv_idle, lws_uv_idle);
 }
 
 LWS_VISIBLE void
@@ -247,6 +279,7 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 		uv_timer_init(pt->io_loop_uv, &pt->uv_timeout_watcher);
 		uv_timer_start(&pt->uv_timeout_watcher, lws_uv_timeout_cb,
 			       10, 1000);
+		uv_timer_init(pt->io_loop_uv, &pt->uv_hrtimer);
 	}
 
 	return status;
@@ -299,6 +332,8 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 
 	uv_timer_stop(&pt->uv_timeout_watcher);
 	uv_close((uv_handle_t *)&pt->uv_timeout_watcher, lws_uv_close_cb);
+	uv_timer_stop(&pt->uv_hrtimer);
+	uv_close((uv_handle_t *)&pt->uv_hrtimer, lws_uv_close_cb);
 
 	uv_idle_stop(&pt->uv_idle);
 	uv_close((uv_handle_t *)&pt->uv_idle, lws_uv_close_cb);

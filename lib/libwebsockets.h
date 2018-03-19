@@ -426,11 +426,12 @@ lwsl_visible(int level);
 #define lws_container_of(P,T,M)	((T *)((char *)(P) - offsetof(T, M)))
 #endif
 
-
 struct lws;
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 #endif
+
+typedef int64_t lws_usec_t;
 
 /* api change list for user code to test against */
 
@@ -1452,11 +1453,12 @@ enum lws_callback_reasons {
 	 * from the pvo for the cert renewal, non-NULL in the array index
 	 * means use that pointer instead for the index. */
 	LWS_CALLBACK_TIMER					= 73,
-	/**< When the time elapsed after a call to lws_set_timer(wsi, secs)
+	/**< When the time elapsed after a call to lws_set_timer_usecs(wsi, usecs)
 	 * is up, the wsi will get one of these callbacks.  The deadline
 	 * can be continuously extended into the future by later calls
-	 * to lws_set_timer() before the deadline expires, or cancelled by
-	 * lws_set_timer(wsi, -1); */
+	 * to lws_set_timer_usecs() before the deadline expires, or cancelled by
+	 * lws_set_timer_usecs(wsi, -1);   See the note on lws_set_timer_usecs()
+	 * about which event loops are supported. */
 	LWS_CALLBACK_VHOST_CERT_UPDATE				= 74,
 	/**< When a vhost TLS cert is being updated, progress is
 	 * reported to the vhost in question here, including completion
@@ -4587,20 +4589,38 @@ enum pending_timeout {
 LWS_VISIBLE LWS_EXTERN void
 lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 
+#define LWS_SET_TIMER_USEC_CANCEL ((lws_usec_t)-1ll)
+#define LWS_USEC_PER_SEC (1000000ll)
+
 /**
- * lws_set_timer() - schedules a callback on the wsi in the future
+ * lws_set_timer_usecs() - schedules a callback on the wsi in the future
  *
  * \param wsi:	Websocket connection instance
- * \param secs:	-1 removes any existing scheduled callback, otherwise the
- *		number of seconds in the future the callback will occur at.
+ * \param usecs:  LWS_SET_TIMER_USEC_CANCEL removes any existing scheduled
+ *		  callback, otherwise number of microseconds in the future
+ *		  the callback will occur at.
  *
- * When the deadline expires, the wsi will get a callback of type
+ * NOTE: event loop support for this:
+ *
+ *  default poll() loop:   yes
+ *  libuv event loop:      yes
+ *  libev:    not implemented (patch welcome)
+ *  libevent: not implemented (patch welcome)
+ *
+ * After the deadline expires, the wsi will get a callback of type
  * LWS_CALLBACK_TIMER and the timer is exhausted.  The deadline may be
- * continuously deferred by further calls to lws_set_timer() with a later
- * deadline, or cancelled by lws_set_timer(wsi, -1)
+ * continuously deferred by further calls to lws_set_timer_usecs() with a later
+ * deadline, or cancelled by lws_set_timer_usecs(wsi, -1).
+ *
+ * If the timer should repeat, lws_set_timer_usecs() must be called again from
+ * LWS_CALLBACK_TIMER.
+ *
+ * Accuracy depends on the platform and the load on the event loop or system...
+ * all that's guaranteed is the callback will come after the requested wait
+ * period.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_set_timer(struct lws *wsi, int secs);
+lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs);
 
 /*
  * lws_timed_callback_vh_protocol() - calls back a protocol on a vhost after
@@ -5382,6 +5402,60 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
                         } \
                 } lws_end_foreach_llp(___ppss, ___m_list); \
 	}
+
+/*
+ * doubly linked-list
+ */
+
+struct lws_dll { /* abstract */
+	struct lws_dll *prev;
+	struct lws_dll *next;
+};
+
+/*
+ * these all point to the composed list objects... you have to use the
+ * lws_container_of() helper to recover the start of the containing struct
+ */
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll_add_front(struct lws_dll *d, struct lws_dll *phead);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll_remove(struct lws_dll *d);
+
+struct lws_dll_lws { /* typed as struct lws * */
+	struct lws_dll_lws *prev;
+	struct lws_dll_lws *next;
+};
+
+static inline void
+lws_dll_lws_add_front(struct lws_dll_lws *_a, struct lws_dll_lws *_head)
+{
+	lws_dll_add_front((struct lws_dll *)_a, (struct lws_dll *)_head);
+}
+
+static inline void
+lws_dll_lws_remove(struct lws_dll_lws *_a)
+{
+	lws_dll_remove((struct lws_dll *)_a);
+}
+
+/*
+ * these are safe against the current container object getting deleted,
+ * since the hold his next in a temp and go to that next.  ___tmp is
+ * the temp.
+ */
+
+#define lws_start_foreach_dll_safe(___type, ___it, ___tmp, ___start) \
+{ \
+	___type ___it = ___start; \
+	while (___it) { \
+		___type ___tmp = (___it)->next;
+
+#define lws_end_foreach_dll_safe(___it, ___tmp) \
+		___it = ___tmp; \
+	} \
+}
 
 /**
  * lws_ptr_diff(): helper to report distance between pointers as an int
