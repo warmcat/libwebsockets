@@ -1474,7 +1474,9 @@ lws_http_action(struct lws *wsi)
 	wsi->cache_revalidate = hit->cache_revalidate;
 	wsi->cache_intermediaries = hit->cache_intermediaries;
 
-	n = lws_http_serve(wsi, s, hit->origin, hit);
+	n = 1;
+	if (hit->origin_protocol == LWSMPRO_FILE)
+		n = lws_http_serve(wsi, s, hit->origin, hit);
 	if (n) {
 		/*
 		 * lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
@@ -2795,7 +2797,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		wsi->http.fop_fd = fops->LWS_FOP_OPEN(wsi->context->fops,
 							file, vpath, &fflags);
 		if (!wsi->http.fop_fd) {
-			lwsl_err("Unable to open '%s': errno %d\n", file, errno);
+			lwsl_err("Unable to open: '%s': errno %d\n", file, errno);
 
 			return -1;
 		}
