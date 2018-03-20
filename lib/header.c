@@ -80,6 +80,25 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 }
 
 int
+lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,
+			       unsigned char **pp, unsigned char *end)
+{
+	unsigned char *p;
+	int len;
+
+	if (lws_finalize_http_header(wsi, pp, end))
+		return 1;
+
+	p = *pp;
+	len = lws_ptr_diff(p, start);
+
+	if (lws_write(wsi, start, len, LWS_WRITE_HTTP_HEADERS) != len)
+		return 1;
+
+	return 0;
+}
+
+int
 lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 			     const unsigned char *value, int length,
 			     unsigned char **p, unsigned char *end)
@@ -113,6 +132,23 @@ int lws_add_http_header_content_length(struct lws *wsi,
 
 	lwsl_info("%s: wsi %p: tx_content_length/remain %llu\n", __func__,
 			wsi, (unsigned long long)content_length);
+
+	return 0;
+}
+
+int
+lws_add_http_common_headers(struct lws *wsi, unsigned int code,
+			    const char *content_type, lws_filepos_t content_len,
+			    unsigned char **p, unsigned char *end)
+{
+	if (lws_add_http_header_status(wsi, code, p, end))
+		return 1;
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+		    			(unsigned char *)content_type,
+		    			strlen(content_type), p, end))
+		return 1;
+	if (lws_add_http_header_content_length(wsi, content_len, p, end))
+		return 1;
 
 	return 0;
 }

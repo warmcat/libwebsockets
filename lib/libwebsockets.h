@@ -4131,6 +4131,49 @@ lws_add_http_header_content_length(struct lws *wsi,
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 			 unsigned char *end);
+
+/**
+ * lws_finalize_write_http_header() - Helper finializing and writing http headers
+ *
+ * \param wsi: the connection to check
+ * \param start: pointer to the start of headers in the buffer, eg &buf[LWS_PRE]
+ * \param p: pointer to current position in buffer pointer
+ * \param end: pointer to end of buffer
+ *
+ * Terminates the headers correctly accoring to the protocol in use (h1 / h2)
+ * and writes the headers.  Returns nonzero for error.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,
+			       unsigned char **p, unsigned char *end);
+
+/**
+ * lws_add_http_common_headers() - Helper preparing common http headers
+ *
+ * \param wsi: the connection to check
+ * \param code: an HTTP code like 200, 404 etc (see enum http_status)
+ * \param content_type: the content type, like "text/html"
+ * \param content_len: the content length, in bytes
+ * \param p: pointer to current position in buffer pointer
+ * \param end: pointer to end of buffer
+ *
+ * Adds the initial response code, so should be called first.
+ *
+ * Code may additionally take OR'd flags:
+ *
+ *    LWSAHH_FLAG_NO_SERVER_NAME:  don't apply server name header this time
+ *
+ * This helper just calls public apis to simplify adding headers that are
+ * commonly needed.  If it doesn't fit your case, or you want to add additional
+ * headers just call the public apis directly yourself for what you want.
+ *
+ * It does not call lws_finalize_http_header(), to allow you to add further
+ * headers after calling this.  You will need to call that yourself at the end.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_add_http_common_headers(struct lws *wsi, unsigned int code,
+			    const char *content_type, lws_filepos_t content_len,
+			    unsigned char **p, unsigned char *end);
 ///@}
 
 /** \defgroup form-parsing  Form Parsing
