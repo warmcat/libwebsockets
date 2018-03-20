@@ -280,7 +280,7 @@ check_key:
 	if (extra_certs)
 		x = sk_X509_value(extra_certs, 0);
 	else
-		lwsl_err("%s: no extra certs\n", __func__);
+		lwsl_info("%s: no extra certs\n", __func__);
 #endif
 	if (!x) {
 		//lwsl_err("%s: x is NULL\n", __func__);

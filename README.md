@@ -10,10 +10,10 @@ News
 
 ## Lws has the first official ws-over-h2 server support
 
-There's a new standard on the RFC track that enabled multiplexing ws connections
+There's a new standard on the RFC track that enables multiplexing ws connections
 over an http/2 link.  Compared to making individual tcp and tls connections for
 each ws link back to the same server, this makes your site start up radically
-faster, and since all the connections are in one tls tunnel, with much memory
+faster, and since all the connections are in one tls tunnel, with considerable memory
 reduction serverside.
 
 To enable it on master you just need -DLWS_WITH_HTTP2=1 at cmake.  No changes to
@@ -22,16 +22,17 @@ apis if you return your own headers, as shown in the test apps for several versi
 or to take advantage of ws-over-h2.  When built with http/2 support, it automatically
 falls back to http/1 and traditional ws upgrade if that's all the client can handle.
 
-Currently only Chrome Canary v67 supports this ws-over-h2 encapsulation but the other
-browsers will catch up soon.
+Currently only Chrome Canary v67 supports this ws-over-h2 encapsulation (chrome
+must be started with `--enable-websocket-over-http2` switch to enable it currently)
+but the other browsers will catch up soon.
 
 ## New "minimal examples"
 
 https://github.com/warmcat/libwebsockets/tree/master/minimal-examples
 
-These are like the test apps, but focus on doing one thing, the best way, with the minimum amount of code.  For example the minimal-http-server serves the cwd on http/1 or http/2 in 50 LOC.
+These are like the test apps, but focus on doing one thing, the best way, with the minimum amount of code.  For example the minimal-http-server serves the cwd on http/1 or http/2 in 50 LOC.  Same thing with tls is just three more lines.
 
-They also build standalone, so it's easier to copy them directly to start your own project; they
+They build standalone, so it's easier to copy them directly to start your own project; they
 are CC0 licensed (public domain) to facilitate that.
 
 ## Windows binary builds
