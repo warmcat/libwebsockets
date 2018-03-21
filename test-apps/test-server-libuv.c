@@ -346,7 +346,7 @@ int main(int argc, char **argv)
 	}
 	info.gid = -1;
 	info.uid = -1;
-	info.max_http_header_pool = 1;
+	info.max_http_header_pool = 16;
 	info.timeout_secs = 5;
 	info.options = opts | LWS_SERVER_OPTION_LIBUV;
 
