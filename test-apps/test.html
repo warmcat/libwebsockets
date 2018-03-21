@@ -6,7 +6,7 @@
  <title>Minimal Websocket test app</title>
 <style type="text/css">
 	span.title { font-size:18pt; font-family: Arial; font-weight:normal; text-align:center; color:#000000; }
-	.browser { font-size:18pt; font-family: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; border-radius:10px;}
+	.browser { font-size:12pt; font-family: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; border-radius:10px;}
 	.group2 { vertical-align:middle;
 		text-align:center;
 		background:#f0f0e0; 
@@ -95,11 +95,11 @@
   <td valign=middle align=center>
    <a href="https://libwebsockets.org">
     <img src="libwebsockets.org-logo.png"></a></td><td>
-	<section class="browser">Detected Browser: 
+	<section class="browser">
 	<div id=brow>...</div></section>
   </td>
-  <td width="64" id="transport">
-  </td>
+  <td width="64" height="64" id="wstransport"></td>
+  <td width="64" height="64" id="transport"></td>
  </tr>
 
 </table>
@@ -525,7 +525,7 @@ if (location.search) {
         params[nv[0]] = nv[1] || true;
     }
 }
-
+window.onload = function() {
 var transport_protocol = "";
 
 if ( performance && performance.timing.nextHopProtocol ) {
@@ -545,7 +545,8 @@ var value = "nextHopProtocol" in p[i];
    console.log("transport protocol " + transport_protocol);
    
    if (transport_protocol == "h2")
-   	document.getElementById("transport").innerHTML = "<img src=\"/http2.png\">";
+   	document.getElementById("transport").innerHTML = "<img src=\"./http2.png\">";
+}
 
 var mirror_name = "";
 if (params.mirror)
@@ -627,6 +628,9 @@ document.getElementById("number").textContent = get_appropriate_ws_url(mirror_na
 			console.log(msg.data);
 			
 			jso = JSON.parse(msg.data);
+			
+			if (jso.wss_over_h2 == "1")
+				document.getElementById("wstransport").innerHTML = "<img src=\"./wss-over-h2.png\">";
 			
 			document.getElementById("servinfo").innerHTML = 
 				"<table><tr><td class=l>Build info</td><td>"+

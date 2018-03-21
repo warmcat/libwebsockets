@@ -49,6 +49,7 @@ struct per_session_data__lws_status {
 	struct per_session_data__lws_status *walk_next;
 	unsigned char subsequent:1;
 	unsigned char changed_partway:1;
+	unsigned char wss_over_h2:1;
 };
 
 struct per_vhost_data__lws_status {
@@ -114,6 +115,8 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->next = vhd->live_pss_list;
 		vhd->live_pss_list = pss;
 
+		pss->wss_over_h2 = !!len;
+
 		time(&pss->time_est);
 		pss->wsi = wsi;
 		strcpy(pss->user_agent, "unknown");
@@ -129,9 +132,11 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 			n = LWS_WRITE_TEXT | LWS_WRITE_NO_FIN;;
 			p += lws_snprintf(p, end - p,
 				      "{ \"version\":\"%s\","
+				      " \"wss_over_h2\":\"%d\","
 				      " \"hostname\":\"%s\","
 				      " \"wsi\":\"%d\", \"conns\":[",
 				      lws_get_library_version(),
+				      pss->wss_over_h2,
 				      lws_canonical_hostname(vhd->context),
 				      vhd->count_live_pss);
 			pss->walk = WALK_LIST;

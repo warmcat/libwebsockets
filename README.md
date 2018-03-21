@@ -10,6 +10,8 @@ News
 
 ## Lws has the first official ws-over-h2 server support
 
+![wss-over-h2](https://libwebsockets.org/sc-wss-over-h2.png)
+
 There's a new standard on the RFC track that enables multiplexing ws connections
 over an http/2 link.  Compared to making individual tcp and tls connections for
 each ws link back to the same server, this makes your site start up radically

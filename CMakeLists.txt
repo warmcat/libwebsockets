@@ -1633,6 +1633,7 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 			"${PROJECT_SOURCE_DIR}/test-apps/candide.zip"
 			"${PROJECT_SOURCE_DIR}/test-apps/libwebsockets.org-logo.png"
 			"${PROJECT_SOURCE_DIR}/test-apps/http2.png"
+			"${PROJECT_SOURCE_DIR}/test-apps/wss-over-h2.png"
 			"${PROJECT_SOURCE_DIR}/test-apps/lws-common.js"
 			"${PROJECT_SOURCE_DIR}/test-apps/test.html")
 
