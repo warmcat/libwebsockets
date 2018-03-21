@@ -17,6 +17,8 @@
 #include "ssl_dbg.h"
 #include "ssl_port.h"
 
+#include <assert.h>
+
 /**
  * @brief show X509 certification information
  */
@@ -155,7 +157,7 @@ int SSL_CTX_add_client_CA(SSL_CTX *ctx, X509 *x)
 {
     SSL_ASSERT1(ctx);
     SSL_ASSERT1(x);
-
+    assert(ctx);
     if (ctx->client_CA == x)
         return 1;
 

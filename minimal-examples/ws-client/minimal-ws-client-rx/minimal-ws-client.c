@@ -96,12 +96,12 @@ int main(int argc, char **argv)
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
 
-	i.port = 443;
-	i.address = "libwebsockets.org";
+	i.port = 7681;
+	i.address = "localhost";
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
-	i.ssl_connection = 1;
+	i.ssl_connection = 0;
 
 	i.protocol = protocols[0].name; /* "dumb-increment-protocol" */
 	i.pwsi = &client_wsi;
