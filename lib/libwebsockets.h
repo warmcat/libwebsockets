@@ -4644,6 +4644,8 @@ lws_timed_callback_vh_protocol(struct lws_vhost *vh,
 #define LWS_SEND_BUFFER_PRE_PADDING LWS_PRE
 #define LWS_SEND_BUFFER_POST_PADDING 0
 
+#define LWS_WRITE_RAW LWS_WRITE_HTTP
+
 /*
  * NOTE: These public enums are part of the abi.  If you want to add one,
  * add it at where specified so existing users are unaffected.

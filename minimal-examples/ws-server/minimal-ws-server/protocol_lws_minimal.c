@@ -83,21 +83,15 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_ESTABLISHED:
 		/* add ourselves to the list of live pss held in the vhd */
-		pss->pss_list = vhd->pss_list;
-		vhd->pss_list = pss;
+		lws_ll_fwd_insert(pss, pss_list, vhd->pss_list);
 		pss->wsi = wsi;
 		pss->last = vhd->current;
 		break;
 
 	case LWS_CALLBACK_CLOSED:
 		/* remove our closing pss from the list of live pss */
-		lws_start_foreach_llp(struct per_session_data__minimal **,
-				      ppss, vhd->pss_list) {
-			if (*ppss == pss) {
-				*ppss = pss->pss_list;
-				break;
-			}
-		} lws_end_foreach_llp(ppss, pss_list);
+		lws_ll_fwd_remove(struct per_session_data__minimal, pss_list,
+				  pss, vhd->pss_list);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
