@@ -549,6 +549,9 @@ static const struct lws_protocols protocols_dummy[] = {
 #undef LWS_HAVE_GETENV
 #endif
 
+static void
+lws_vhost_destroy2(struct lws_vhost *vh);
+
 LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 struct lws_context_creation_info *info)
@@ -880,6 +883,7 @@ lws_create_vhost(struct lws_context *context,
 
 bail1:
 	lws_vhost_destroy(vh);
+	lws_vhost_destroy2(vh);
 
 	return NULL;
 
@@ -1296,6 +1300,14 @@ lws_create_context(struct lws_context_creation_info *info)
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
 		if (!lws_create_vhost(context, info)) {
 			lwsl_err("Failed to create default vhost\n");
+			for (n = 0; n < context->count_threads; n++)
+				lws_free_set_NULL(context->pt[n].serv_buf);
+#if defined(LWS_WITH_PEER_LIMITS)
+			lws_free_set_NULL(context->pl_hash_table);
+#endif
+			lws_free_set_NULL(context->pt[0].fds);
+			lws_plat_context_late_destroy(context);
+			lws_free_set_NULL(context);
 			return NULL;
 		}
 
@@ -1356,6 +1368,7 @@ lws_create_context(struct lws_context_creation_info *info)
 
 bail:
 	lws_context_destroy(context);
+
 	return NULL;
 }
 
