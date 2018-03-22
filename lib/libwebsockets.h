@@ -3295,7 +3295,9 @@ struct lws_client_connect_info {
 	/**< UNUSED... provide in info.extensions at context creation time */
 	const char *method;
 	/**< if non-NULL, do this http method instead of ws[s] upgrade.
-	 * use "GET" to be a simple http client connection */
+	 * use "GET" to be a simple http client connection.  "RAW" gets
+	 * you a connected socket that lws itself will leave alone once
+	 * connected. */
 	struct lws *parent_wsi;
 	/**< if another wsi is responsible for this connection, give it here.
 	 * this is used to make sure if the parent closes so do any

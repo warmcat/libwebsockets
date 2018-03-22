@@ -70,8 +70,10 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	}
 #endif
 	rlen = sizeof(addr);
-	if (getpeername(sockfd, (struct sockaddr*)&addr, &rlen))
+	if (getpeername(sockfd, (struct sockaddr*)&addr, &rlen)) {
+		lwsl_notice("%s: getpeername failed\n", __func__);
 		return NULL;
+	}
 
 	if (af == AF_INET) {
 		struct sockaddr_in *s = (struct sockaddr_in *)&addr;
