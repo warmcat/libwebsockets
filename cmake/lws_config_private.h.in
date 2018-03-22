@@ -28,9 +28,6 @@
 /* Define to 1 if you have the <in6addr.h> header file. */
 #cmakedefine LWS_HAVE_IN6ADDR_H
 
-/* Define to 1 if you have the <inttypes.h> header file. */
-#cmakedefine LWS_HAVE_INTTYPES_H
-
 /* Define to 1 if you have the `ssl' library (-lssl). */
 //#cmakedefine LWS_HAVE_LIBSSL
 
