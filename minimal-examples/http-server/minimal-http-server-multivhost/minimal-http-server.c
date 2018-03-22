@@ -91,8 +91,13 @@ int main(int argc, char **argv)
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 
-	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER
-			  /* | LLL_INFO */ /* | LLL_DEBUG */, NULL);
+	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+			/* for LLL_ verbosity above NOTICE to be built into lws,
+			 * lws must have been configured and built with
+			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
+			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
+			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
+			/* | LLL_DEBUG */, NULL);
 
 	lwsl_user("LWS minimal http server-multivhost | visit http://localhost:7681 / 7682\n");
 

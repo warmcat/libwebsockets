@@ -1,10 +1,11 @@
 |name|demonstrates|
 ---|---
-http-server|Minimal examples providing an http server
-ws-server|Minimal examples providing a ws server (and an http server)
-http-client|Minimal examples providing an http client
-ws-client|Minimal examples providing a ws client
 client-server|Minimal examples providing client and server connections simultaneously
+http-client|Minimal examples providing an http client
+http-server|Minimal examples providing an http server
+raw|Minimal examples related to adopting raw file or socket descriptors into the event loop
+ws-client|Minimal examples providing a ws client
+ws-server|Minimal examples providing a ws server (and an http server)
 
 ## FAQ
 

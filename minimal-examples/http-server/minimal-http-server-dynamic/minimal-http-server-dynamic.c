@@ -164,8 +164,13 @@ int main(int argc, char **argv)
 	info.protocols = protocols;
 	info.mounts = &mount;
 
-	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER
-			/* | LLL_INFO */ /* | LLL_DEBUG */, NULL);
+	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+			/* for LLL_ verbosity above NOTICE to be built into lws,
+			 * lws must have been configured and built with
+			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
+			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
+			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
+			/* | LLL_DEBUG */, NULL);
 
 	lwsl_user("LWS minimal http server dynamic | visit http://localhost:7681\n");
 

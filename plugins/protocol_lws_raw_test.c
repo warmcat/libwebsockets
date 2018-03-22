@@ -136,7 +136,8 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lwsl_notice("FIFO %s created\n", vhd->fifo_path);
 		u.filefd = vhd->fifo;
-		if (!lws_adopt_descriptor_vhost(vhd->vhost, 0, u,
+		if (!lws_adopt_descriptor_vhost(vhd->vhost,
+						LWS_ADOPT_RAW_FILE_DESC, u,
 						"protocol-lws-raw-test",
 						NULL)) {
 			lwsl_err("Failed to adopt fifo descriptor\n");
@@ -149,7 +150,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (!vhd)
 			break;
-		if (vhd->fifo >- 0) {
+		if (vhd->fifo >= 0) {
 			close(vhd->fifo);
 			unlink(vhd->fifo_path);
 		}
