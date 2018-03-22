@@ -1,13 +1,13 @@
 # lws minimal ws server
 
 This demonstrates adopting a file descriptor into the lws event
-loop.  The filepath is given as an argument to the example app, eg
+loop.  The filepath to open and adopt is given as an argument to the example app, eg
 
 ```
  $ ./lws-minimal-raw-file <file>
 ```
 
-On a Linux system, some example files might be
+On a Linux system, some example files for testing might be
 
  - /proc/self/fd/0      (stdin)
  - /dev/ttyUSB0         (a USB <-> serial converter)
@@ -21,7 +21,7 @@ This isn't very useful standalone as shown here for clarity, but you can
 freely combine raw file descriptor adoption with other lws server
 and client features.
 
-Becuase raw file events have their own callback, the handlers can
+Becuase raw file events have their own callback reasons, the handlers can
 be integrated in a single protocol that also handles http and ws
 server and client callbacks without conflict.
 
