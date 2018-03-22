@@ -317,21 +317,39 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #endif
 
 	if (reason == LEJPCB_OBJECT_START && ctx->path_match == LEJPVP + 1) {
+		uint32_t i[4];
+		const char *ss;
+
 		/* set the defaults for this vhost */
 		a->valid = 1;
 		a->head = NULL;
 		a->last = NULL;
-		a->info->port = 0;
-		a->info->iface = NULL;
+
+		i[0] = a->info->count_threads;
+		i[1] = a->info->options & (
+			LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME |
+			LWS_SERVER_OPTION_LIBUV |
+			LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+			LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+			LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN |
+			LWS_SERVER_OPTION_LIBEVENT |
+			LWS_SERVER_OPTION_LIBEV
+				);
+		ss = a->info->server_string;
+		i[2] = a->info->ws_ping_pong_interval;
+		i[3] = a->info->timeout_secs;
+
+		memset(a->info, 0, sizeof(*a->info));
+
+		a->info->count_threads = i[0];
+		a->info->options = i[1];
+		a->info->server_string = ss;
+		a->info->ws_ping_pong_interval = i[2];
+		a->info->timeout_secs = i[3];
+
 		a->info->protocols = a->protocols;
 		a->info->extensions = a->extensions;
-		a->info->ssl_cert_filepath = NULL;
-		a->info->ssl_private_key_filepath = NULL;
-		a->info->ssl_ca_filepath = NULL;
 #ifdef LWS_OPENSSL_SUPPORT
-		a->info->client_ssl_cert_filepath = NULL;
-		a->info->client_ssl_private_key_filepath = NULL;
-		a->info->client_ssl_ca_filepath = NULL;
 		a->info->client_ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 			"ECDHE-RSA-AES256-GCM-SHA384:"
 			"DHE-RSA-AES256-GCM-SHA384:"
@@ -346,7 +364,6 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			"!AES256-GCM-SHA384:"
 			"!AES256-SHA256";
 #endif
-		a->info->timeout_secs = 5;
 		a->info->ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 				       "ECDHE-RSA-AES256-GCM-SHA384:"
 				       "DHE-RSA-AES256-GCM-SHA384:"
@@ -360,13 +377,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!DHE-RSA-AES256-SHA256:"
 				       "!AES256-GCM-SHA384:"
 				       "!AES256-SHA256";
-		a->info->pvo = NULL;
-		a->info->headers = NULL;
 		a->info->keepalive_timeout = 5;
-		a->info->log_filepath = NULL;
-		a->info->options &= ~(LWS_SERVER_OPTION_UNIX_SOCK |
-				      LWS_SERVER_OPTION_STS | LWS_SERVER_OPTION_ONLY_RAW);
-		a->enable_client_ssl = 0;
 	}
 
 	if (reason == LEJPCB_OBJECT_START &&
