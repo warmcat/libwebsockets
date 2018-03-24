@@ -565,6 +565,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	struct lws_protocols *lwsp;
 	int m, f = !info->pvo;
+	char buf[20];
 #ifdef LWS_HAVE_GETENV
 	char *p;
 #endif
@@ -720,10 +721,22 @@ lws_create_vhost(struct lws_context *context,
 				vh->name, vh->iface, vh->count_protocols);
 	} else
 #endif
-	lwsl_notice("Creating Vhost '%s' port %d, %d protocols, IPv6 %s\n",
-			vh->name, info->port, vh->count_protocols,
-			LWS_IPV6_ENABLED(vh) ? "on" : "off");
-
+	{
+		switch(info->port) {
+		case CONTEXT_PORT_NO_LISTEN:
+			strcpy(buf, "(serving disabled)");
+			break;
+		case CONTEXT_PORT_NO_LISTEN_SERVER:
+			strcpy(buf, "(no listener)");
+			break;
+		default:
+			lws_snprintf(buf, sizeof(buf), "port %u", info->port);
+			break;
+		}
+		lwsl_notice("Creating Vhost '%s' %s, %d protocols, IPv6 %s\n",
+				vh->name, buf, vh->count_protocols,
+				LWS_IPV6_ENABLED(vh) ? "on" : "off");
+	}
 	mounts = info->mounts;
 	while (mounts) {
 		(void)mount_protocols[0];

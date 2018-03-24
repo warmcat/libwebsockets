@@ -70,10 +70,9 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	}
 #endif
 	rlen = sizeof(addr);
-	if (getpeername(sockfd, (struct sockaddr*)&addr, &rlen)) {
-		lwsl_notice("%s: getpeername failed\n", __func__);
+	if (getpeername(sockfd, (struct sockaddr*)&addr, &rlen))
+		/* eg, udp doesn't have to have a peer */
 		return NULL;
-	}
 
 	if (af == AF_INET) {
 		struct sockaddr_in *s = (struct sockaddr_in *)&addr;
@@ -111,6 +110,7 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	peer = lws_zalloc(sizeof(*peer), "peer");
 	if (!peer) {
 		lws_context_unlock(context); /* === */
+		lwsl_err("%s: OOM for new peer\n", __func__);
 		return NULL;
 	}
 

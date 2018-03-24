@@ -1840,6 +1840,8 @@ struct lws_access_log {
 };
 #endif
 
+#define lws_wsi_is_udp(___wsi) (!!___wsi->udp)
+
 struct lws {
 	/* structs */
 
@@ -1881,6 +1883,7 @@ struct lws {
 #endif
 	struct allocated_headers *ah;
 	struct lws *ah_wait_list;
+	struct lws_udp *udp;
 	unsigned char *preamble_rx;
 #ifndef LWS_NO_CLIENT
 	struct client_info_stash *stash;

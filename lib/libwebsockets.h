@@ -4555,6 +4555,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_KILLED_BY_PARENT			= 23,
 	PENDING_TIMEOUT_CLOSE_SEND				= 24,
 	PENDING_TIMEOUT_HOLDING_AH				= 25,
+	PENDING_TIMEOUT_UDP_IDLE				= 26,
 
 	/****** add new things just above ---^ ******/
 
@@ -4998,7 +4999,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 /**
  * lws_get_socket_fd() - returns the socket file descriptor
  *
- * You will not need this unless you are doing something special
+ * This is needed to use sendto() on UDP raw sockets
  *
  * \param wsi:	Websocket connection instance
  */
@@ -5151,14 +5152,24 @@ typedef enum {
 	LWS_ADOPT_ALLOW_SSL = 4,	/* flag: if set requires LWS_ADOPT_SOCKET */
 	LWS_ADOPT_WS_PARENTIO = 8,	/* flag: ws mode parent handles IO
 					 *   if given must be only flag
-					 *   wsi put directly into ws mode
-					 */
+					 *   wsi put directly into ws mode */
+	LWS_ADOPT_FLAG_UDP = 16,	/* flag: socket is UDP */
+
+	LWS_ADOPT_RAW_SOCKET_UDP = LWS_ADOPT_SOCKET | LWS_ADOPT_FLAG_UDP,
 } lws_adoption_type;
 
 typedef union {
 	lws_sockfd_type sockfd;
 	lws_filefd_type filefd;
 } lws_sock_file_fd_type;
+
+struct lws_udp {
+	struct sockaddr sa;
+	socklen_t salen;
+
+	struct sockaddr sa_pending;
+	socklen_t salen_pending;
+};
 
 /*
 * lws_adopt_descriptor_vhost() - adopt foreign socket or file descriptor
@@ -5236,6 +5247,24 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost, lws_sockfd_type accept_fd,
                                const char *readbuf, size_t len);
+
+#define LWS_CAUDP_BIND 1
+
+/**
+ * lws_create_adopt_udp() - create, bind and adopt a UDP socket
+ *
+ * \param vhost:	 lws vhost
+ * \param port:		 UDP port to bind to, -1 means unbound
+ * \param flags:	 0 or LWS_CAUDP_NO_BIND
+ * \param protocol_name: Name of protocol on vhost to bind wsi to
+ * \param parent_wsi:	 NULL or parent wsi new wsi will be a child of
+ *
+ * Either returns new wsi bound to accept_fd, or closes accept_fd and
+ * returns NULL, having cleaned up any new wsi pieces.
+ * */
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
+		     const char *protocol_name, struct lws *parent_wsi);
 ///@}
 
 /** \defgroup net Network related helper APIs
@@ -5631,6 +5660,16 @@ lws_get_parent(const struct lws *wsi);
  */
 LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_get_child(const struct lws *wsi);
+
+/**
+ * lws_get_udp() - get wsi's udp struct
+ *
+ * \param wsi: lws connection
+ *
+ * Returns NULL or pointer to the wsi's UDP-specific information
+ */
+LWS_VISIBLE LWS_EXTERN const struct lws_udp * LWS_WARN_UNUSED_RESULT
+lws_get_udp(const struct lws *wsi);
 
 /**
  * lws_parent_carries_io() - mark wsi as needing to send messages via parent
