@@ -82,7 +82,10 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			  struct lws_pollfd *pollfd)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	char *p = (char *)&pt->serv_buf[0], ebuf[128];
+	char *p = (char *)&pt->serv_buf[0];
+#if defined(LWS_OPENSSL_SUPPORT)
+	char ebuf[128];
+#endif
 	const char *cce = NULL;
 	unsigned char c;
 	char *sb = p;

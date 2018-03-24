@@ -66,8 +66,8 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct per_session_data__minimal_pmd_bulk *pss =
 			(struct per_session_data__minimal_pmd_bulk *)user;
-	uint8_t buf[LWS_PRE + MESSAGE_CHUNK_SIZE], *p;
-	int n, m, msg_flag;
+	uint8_t buf[LWS_PRE + MESSAGE_CHUNK_SIZE], *start = &buf[LWS_PRE], *p;
+	int n, m, flags;
 
 	switch (reason) {
 	case LWS_CALLBACK_ESTABLISHED:
@@ -80,17 +80,16 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		if (pss->position == MESSAGE_SIZE)
 			break;
 
-		if (!pss->position)
-			msg_flag = LWS_WRITE_TEXT;
-		else
-			msg_flag = LWS_WRITE_CONTINUATION;
-
 		/* fill up one chunk's worth of message content */
 
-		p = &buf[LWS_PRE];
+		p = start;
 		n = MESSAGE_CHUNK_SIZE;
 		if (n > MESSAGE_SIZE - pss->position)
 			n = MESSAGE_SIZE - pss->position;
+
+		flags = lws_write_ws_flags(LWS_WRITE_TEXT, !pss->position,
+					   pss->position + n == MESSAGE_SIZE);
+
 		/*
 		 * select between producing compressible repeated text,
 		 * or uncompressible PRNG output
@@ -115,11 +114,9 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 			*p++ = 0x40 + ((pss->rng >> (n & 15)) & 0x3f);
 		}
 #endif
-		if (pss->position != MESSAGE_SIZE) /* if not the end, no FIN */
-			msg_flag |= LWS_WRITE_NO_FIN;
 
-		n = lws_ptr_diff(p, &buf[LWS_PRE]);
-		m = lws_write(wsi, &buf[LWS_PRE], n, msg_flag);
+		n = lws_ptr_diff(p, start);
+		m = lws_write(wsi, start, n, flags);
 		if (m < n) {
 			lwsl_err("ERROR %d writing ws\n", n);
 			return -1;

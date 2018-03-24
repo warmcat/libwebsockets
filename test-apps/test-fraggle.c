@@ -55,15 +55,11 @@ static int
 callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len)
 {
-	int n;
-	unsigned char buf[LWS_PRE + 8000];
+	unsigned char buf[LWS_PRE + 8000], *bp = &buf[LWS_PRE];
 	struct per_session_data__fraggle *psf = user;
-	int chunk;
-	int write_mode = LWS_WRITE_CONTINUATION;
-	unsigned long sum;
 	unsigned char *p = (unsigned char *)in;
-	unsigned char *bp = &buf[LWS_PRE];
-	int ran;
+	int n, chunk, flags, ran;
+	unsigned long sum;
 
 	switch (reason) {
 
@@ -138,7 +134,6 @@ callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 							     psf->packets_left);
 			psf->sum = 0;
 			psf->total_message = 0;
-			write_mode = LWS_WRITE_BINARY;
 			psf->state = FRAGSTATE_RANDOM_PAYLOAD;
 
 			/* fallthru */
@@ -160,18 +155,14 @@ callback_fraggle(struct lws *wsi, enum lws_callback_reasons reason,
 				psf->sum += bp[n];
 
 			psf->packets_left--;
-			if (psf->packets_left)
-				write_mode |= LWS_WRITE_NO_FIN;
-			else
+			flags = lws_write_ws_flags(LWS_WRITE_BINARY, !psf->sum,
+						   !psf->packets_left);
+			if (!psf->packets_left)
 				psf->state = FRAGSTATE_POST_PAYLOAD_SUM;
 
-			n = lws_write(wsi, bp, chunk, write_mode);
+			n = lws_write(wsi, bp, chunk, flags);
 			if (n < 0)
 				return -1;
-			if (n < chunk) {
-				lwsl_err("Partial write\n");
-				return -1;
-			}
 
 			lws_callback_on_writable(wsi);
 			break;

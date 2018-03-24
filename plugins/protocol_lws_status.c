@@ -129,7 +129,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		switch (pss->walk) {
 		case WALK_INITIAL:
-			n = LWS_WRITE_TEXT | LWS_WRITE_NO_FIN;;
+			n = LWS_WRITE_TEXT | LWS_WRITE_NO_FIN;
 			p += lws_snprintf(p, end - p,
 				      "{ \"version\":\"%s\","
 				      " \"wss_over_h2\":\"%d\","

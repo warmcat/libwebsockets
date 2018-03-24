@@ -60,7 +60,7 @@ callback_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 {
 	struct per_session_data__echo *pss =
 			(struct per_session_data__echo *)user;
-	int n;
+	int n, flags;
 
 	switch (reason) {
 
@@ -75,28 +75,18 @@ callback_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 do_tx:
 		if ((int)pss->len == -1)
 			break;
-		n = LWS_WRITE_CONTINUATION;
-		if (!pss->continuation) {
-			if (pss->binary)
-				n = LWS_WRITE_BINARY;
-			else
-				n = LWS_WRITE_TEXT;
-			pss->continuation = 1;
-		}
-		if (!pss->final)
-			n |= LWS_WRITE_NO_FIN;
+
+		flags = lws_write_ws_flags(pss->binary ? LWS_WRITE_BINARY :
+				LWS_WRITE_TEXT, pss->continuation, pss->final);
+
 		lwsl_info("+++ test-echo: writing %d, with final %d\n",
 			  pss->len, pss->final);
 
 		pss->tx += pss->len;
-		n = lws_write(wsi, &pss->buf[LWS_PRE], pss->len, n);
+		n = lws_write(wsi, &pss->buf[LWS_PRE], pss->len, flags);
 		if (n < 0) {
 			lwsl_err("ERROR %d writing to socket, hanging up\n", n);
 			return 1;
-		}
-		if (n < (int)pss->len) {
-			lwsl_err("Partial write\n");
-			return -1;
 		}
 		pss->len = -1;
 		if (pss->final)

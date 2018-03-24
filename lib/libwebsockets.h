@@ -4827,6 +4827,23 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 /* helper for case where buffer may be const */
 #define lws_write_http(wsi, buf, len) \
 	lws_write(wsi, (unsigned char *)(buf), len, LWS_WRITE_HTTP)
+
+/* helper for multi-frame ws message flags */
+static inline int
+lws_write_ws_flags(int initial, int is_start, int is_end)
+{
+	int r;
+
+	if (is_start)
+		r = initial;
+	else
+		r = LWS_WRITE_CONTINUATION;
+
+	if (!is_end)
+		r |= LWS_WRITE_NO_FIN;
+
+	return r;
+}
 ///@}
 
 /** \defgroup callback-when-writeable Callback when writeable
