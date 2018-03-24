@@ -1594,11 +1594,34 @@ void ERR_free_strings(void)
 
 char *ERR_error_string(unsigned long e, char *buf)
 {
-	if (buf) {
-		strcpy(buf, "unknown");
+	if (!buf)
+		return "unknown";
+
+	switch(e) {
+		case X509_V_ERR_INVALID_CA:
+			strcpy(buf, "CA is not trusted");
+			break;
+		case X509_V_ERR_HOSTNAME_MISMATCH:
+			strcpy(buf, "Hostname mismatch");
+			break;
+		case X509_V_ERR_CA_KEY_TOO_SMALL:
+			strcpy(buf, "CA key too small");
+			break;
+		case X509_V_ERR_CA_MD_TOO_WEAK:
+			strcpy(buf, "MD key too weak");
+			break;
+		case X509_V_ERR_CERT_NOT_YET_VALID:
+			strcpy(buf, "Cert from the future");
+			break;
+		case X509_V_ERR_CERT_HAS_EXPIRED:
+			strcpy(buf, "Cert expired");
+			break;
+		default:
+			strcpy(buf, "unknown");
+			break;
 	}
 
-	return "unknown";
+	return buf;
 }
 
 void *SSL_CTX_get_ex_data(const SSL_CTX *ctx, int idx)
