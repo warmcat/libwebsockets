@@ -80,6 +80,7 @@ __lws_free_wsi(struct lws *wsi)
 	lws_free_set_NULL(wsi->rxflow_buffer);
 	lws_free_set_NULL(wsi->trunc_alloc);
 	lws_free_set_NULL(wsi->ws);
+	lws_free_set_NULL(wsi->udp);
 
 	/* we may not have an ah, but may be on the waiting list... */
 	lwsl_info("ah det due to close\n");
@@ -1328,6 +1329,12 @@ LWS_VISIBLE const struct lws_protocols *
 lws_protocol_get(struct lws *wsi)
 {
 	return wsi->protocol;
+}
+
+LWS_VISIBLE const struct lws_udp *
+lws_get_udp(const struct lws *wsi)
+{
+	return wsi->udp;
 }
 
 LWS_VISIBLE struct lws *
@@ -2694,12 +2701,71 @@ lws_get_addr_scope(const char *ipaddr)
 }
 #endif
 
+#if !defined(LWS_NO_SERVER)
+
+LWS_EXTERN struct lws *
+lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
+		     const char *protocol_name, struct lws *parent_wsi)
+{
+	lws_sock_file_fd_type sock;
+	struct addrinfo h, *r, *rp;
+	struct lws *wsi = NULL;
+	char buf[16];
+	int n;
+
+	memset(&h, 0, sizeof(h));
+	h.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+	h.ai_socktype = SOCK_DGRAM;
+	h.ai_protocol = IPPROTO_UDP;
+	h.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
+
+	lws_snprintf(buf, sizeof(buf), "%u", port);
+	n = getaddrinfo(NULL, buf, &h, &r);
+	if (n) {
+		lwsl_info("%s: getaddrinfo error: %s\n", __func__,
+			  gai_strerror(n));
+		goto bail;
+	}
+
+	for (rp = r; rp; rp = rp->ai_next) {
+		sock.sockfd = socket(rp->ai_family, rp->ai_socktype,
+				     rp->ai_protocol);
+		if (sock.sockfd >= 0)
+			break;
+	}
+	if (!rp) {
+		lwsl_err("%s: unable to create INET socket\n", __func__);
+		goto bail1;
+	}
+
+	if ((flags & LWS_CAUDP_BIND) &&
+	    bind(sock.sockfd, rp->ai_addr, rp->ai_addrlen) ==-1) {
+		lwsl_err("%s: bind failed\n", __func__);
+		goto bail2;
+	}
+
+	wsi = lws_adopt_descriptor_vhost(vhost, LWS_ADOPT_RAW_SOCKET_UDP, sock,
+				        protocol_name, parent_wsi);
+	if (!wsi)
+		lwsl_err("%s: udp adoption failed\n", __func__);
+
+bail2:
+	if (!wsi)
+		close(sock.sockfd);
+bail1:
+	freeaddrinfo(r);
+
+bail:
+	return wsi;
+}
+
+#endif
+
 LWS_EXTERN void
 lws_restart_ws_ping_pong_timer(struct lws *wsi)
 {
-	if (!wsi->context->ws_ping_pong_interval)
-		return;
-	if (!lws_state_is_ws(wsi->state))
+	if (!wsi->context->ws_ping_pong_interval ||
+	    !lws_state_is_ws(wsi->state))
 		return;
 
 	wsi->ws->time_next_ping_check = (time_t)lws_now_secs();

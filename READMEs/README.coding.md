@@ -743,7 +743,9 @@ callbacks on the named protocol
 
 starting with LWS_CALLBACK_RAW_ADOPT_FILE.
 
-`protocol-lws-raw-test` plugin provides a method for testing this with
+The minimal example `raw/minimal-raw-file` demonstrates how to use it.
+
+`protocol-lws-raw-test` plugin also provides a method for testing this with
 `libwebsockets-test-server-v2.0`:
 
 The plugin creates a FIFO on your system called "/tmp/lws-test-raw"
@@ -826,6 +828,46 @@ and in another window, connect to it using the test client
 
 The connection should succeed, and text typed in the netcat window (including a CRLF)
 will be received in the client.
+
+@section rawudp RAW UDP socket integration
+
+Lws provides an api to create, optionally bind, and adopt a RAW UDP
+socket (RAW here means an uninterpreted normal UDP socket, not a
+"raw socket").
+
+```
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
+		     const char *protocol_name, struct lws *parent_wsi);
+```
+
+`flags` should be `LWS_CAUDP_BIND` if the socket will receive packets.
+
+The callbacks `LWS_CALLBACK_RAW_ADOPT`, `LWS_CALLBACK_RAW_CLOSE`,
+`LWS_CALLBACK_RAW_RX` and `LWS_CALLBACK_RAW_WRITEABLE` apply to the
+wsi.  But UDP is different than TCP in some fundamental ways.
+
+For receiving on a UDP connection, data becomes available at
+`LWS_CALLBACK_RAW_RX` as usual, but because there is no specific
+connection with UDP, it is necessary to also get the source address of
+the data separately, using `struct lws_udp * lws_get_udp(wsi)`.
+You should take a copy of the `struct lws_udp` itself (not the
+pointer) and save it for when you want to write back to that peer.
+
+Writing is also a bit different for UDP.  By default, the system has no
+idea about the receiver state and so asking for a `callback_on_writable()`
+always believes that the socket is writeable... the callback will
+happen next time around the event loop.
+
+With UDP, there is no single "connection".  You need to write with sendto() and
+direct the packets to a specific destination.  To return packets to a
+peer who sent something earlier and you copied his `struct lws_udp`, you
+use the .sa and .salen members as the last two parameters of the sendto().
+
+The kernel may not accept to buffer / write everything you wanted to send.
+So you are responsible to watch the result of sendto() and resend the
+unsent part next time (which may involve adding new protocol headers to
+the remainder depending on what you are doing).
 
 @section ecdh ECDH Support
 

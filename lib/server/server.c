@@ -2012,11 +2012,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	if (type & LWS_ADOPT_SOCKET && !(type & LWS_ADOPT_WS_PARENTIO)) {
 		peer = lws_get_or_create_peer(vh, fd.sockfd);
 
-		if (!peer) {
-			lwsl_err("OOM creating peer\n");
-			return NULL;
-		}
-		if (context->ip_limit_wsi &&
+		if (peer && context->ip_limit_wsi &&
 		    peer->count_wsi >= context->ip_limit_wsi) {
 			lwsl_notice("Peer reached wsi limit %d\n",
 					context->ip_limit_wsi);
@@ -2091,6 +2087,13 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	if (type & LWS_ADOPT_SOCKET) { /* socket desc */
 		lwsl_debug("%s: new wsi %p, sockfd %d\n", __func__, new_wsi,
 			   (int)(lws_intptr_t)fd.sockfd);
+
+		if (type & LWS_ADOPT_FLAG_UDP)
+			/*
+			 * these can be >128 bytes, so just alloc for UDP
+			 */
+			new_wsi->udp = lws_malloc(sizeof(*new_wsi->udp),
+						     "udp struct");
 
 		if (type & LWS_ADOPT_HTTP)
 			/* the transport is accepted...
