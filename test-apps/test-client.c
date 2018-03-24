@@ -724,8 +724,13 @@ int main(int argc, char **argv)
 #endif
 	}
 
-	if (use_ssl & LCCSCF_USE_SSL)
+	if (use_ssl & LCCSCF_USE_SSL) {
 		lwsl_notice(" Using SSL\n");
+#if defined(LWS_WITH_MBEDTLS)
+		lwsl_notice("   (NOTE: mbedtls needs to be given the remote\n");
+		lwsl_notice("    CA cert to trust (with -A) to validate it)\n");
+#endif
+	}
 	else
 		lwsl_notice(" SSL disabled\n");
 	if (use_ssl & LCCSCF_ALLOW_SELFSIGNED)

@@ -224,7 +224,7 @@ static int ssl_pm_reload_crt(SSL *ssl)
     struct x509_pm *crt_pm = (struct x509_pm *)ssl->cert->x509->x509_pm;
 
     if (ssl->verify_mode == SSL_VERIFY_PEER)
-        mode = MBEDTLS_SSL_VERIFY_REQUIRED;
+        mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
     else if (ssl->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
         mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
     else if (ssl->verify_mode == SSL_VERIFY_CLIENT_ONCE)
@@ -267,7 +267,7 @@ static int mbedtls_handshake( mbedtls_ssl_context *ssl )
     while (ssl->state != MBEDTLS_SSL_HANDSHAKE_OVER) {
         ret = mbedtls_ssl_handshake_step(ssl);
 
-        lwsl_notice("%s: ssl ret -%x state %d\n", __func__, -ret, ssl->state);
+        lwsl_info("%s: ssl ret -%x state %d\n", __func__, -ret, ssl->state);
 
         if (ret != 0)
             break;
@@ -282,8 +282,6 @@ int ssl_pm_handshake(SSL *ssl)
 {
     int ret;
     struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
-
-    lwsl_notice("%s\n", __func__);
 
     ssl->err = 0;
     errno = 0;
@@ -761,18 +759,44 @@ void ssl_pm_set_bufflen(SSL *ssl, int len)
 
 long ssl_pm_get_verify_result(const SSL *ssl)
 {
-    uint32_t ret;
-    long verify_result;
-    struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
+	uint32_t ret;
+	long verify_result;
+	struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
 
-    ret = mbedtls_ssl_get_verify_result(&ssl_pm->ssl);
-    if (ret) {
-        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_get_verify_result() return 0x%x", ret);
-        verify_result = X509_V_ERR_UNSPECIFIED;
-    } else
-        verify_result = X509_V_OK;
+	ret = mbedtls_ssl_get_verify_result(&ssl_pm->ssl);
+	if (!ret)
+		return X509_V_OK;
 
-    return verify_result;
+	if (ret & MBEDTLS_X509_BADCERT_NOT_TRUSTED ||
+		(ret & MBEDTLS_X509_BADCRL_NOT_TRUSTED))
+		verify_result = X509_V_ERR_INVALID_CA;
+
+	else if (ret & MBEDTLS_X509_BADCERT_CN_MISMATCH)
+		verify_result = X509_V_ERR_HOSTNAME_MISMATCH;
+
+	else if ((ret & MBEDTLS_X509_BADCERT_BAD_KEY) ||
+		(ret & MBEDTLS_X509_BADCRL_BAD_KEY))
+		verify_result = X509_V_ERR_CA_KEY_TOO_SMALL;
+
+	else if ((ret & MBEDTLS_X509_BADCERT_BAD_MD) ||
+		(ret & MBEDTLS_X509_BADCRL_BAD_MD))
+		verify_result = X509_V_ERR_CA_MD_TOO_WEAK;
+
+	else if ((ret & MBEDTLS_X509_BADCERT_FUTURE) ||
+		(ret & MBEDTLS_X509_BADCRL_FUTURE))
+		verify_result = X509_V_ERR_CERT_NOT_YET_VALID;
+
+	else if ((ret & MBEDTLS_X509_BADCERT_EXPIRED) ||
+		(ret & MBEDTLS_X509_BADCRL_EXPIRED))
+		verify_result = X509_V_ERR_CERT_HAS_EXPIRED;
+
+	else
+		verify_result = X509_V_ERR_UNSPECIFIED;
+
+	SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL,
+		  "mbedtls_ssl_get_verify_result() return 0x%x", ret);
+
+	return verify_result;
 }
 
 /**
@@ -856,13 +880,13 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 	ssl->ctx = ctx;
 	ssl->cert = __ssl_cert_new(ctx->cert);
 
-	    if (ctx->verify_mode == SSL_VERIFY_PEER)
-	        mode = MBEDTLS_SSL_VERIFY_REQUIRED;
-	    else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
-	        mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
-	    else if (ctx->verify_mode == SSL_VERIFY_CLIENT_ONCE)
-	        mode = MBEDTLS_SSL_VERIFY_UNSET;
-	    else
+	if (ctx->verify_mode == SSL_VERIFY_PEER)
+		mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
+	else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+		mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
+	else if (ctx->verify_mode == SSL_VERIFY_CLIENT_ONCE)
+		mode = MBEDTLS_SSL_VERIFY_UNSET;
+	else
 	        mode = MBEDTLS_SSL_VERIFY_NONE;
 
 	    // printf("ssl: %p, client ca x509_crt %p, mbedtls mode %d\n", ssl, x509_pm_ca->x509_crt, mode);

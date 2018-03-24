@@ -82,7 +82,7 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 			  struct lws_pollfd *pollfd)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	char *p = (char *)&pt->serv_buf[0];
+	char *p = (char *)&pt->serv_buf[0], ebuf[128];
 	const char *cce = NULL;
 	unsigned char c;
 	char *sb = p;
@@ -286,11 +286,11 @@ start_ws_handshake:
 	case LWSCM_WSCL_WAITING_SSL:
 
 		if (wsi->use_ssl) {
-			n = lws_ssl_client_connect2(wsi);
+			n = lws_ssl_client_connect2(wsi, ebuf, sizeof(ebuf));
 			if (!n)
 				return 0;
 			if (n < 0) {
-				cce = "lws_ssl_client_connect2 failed";
+				cce = ebuf;
 				goto bail3;
 			}
 		} else

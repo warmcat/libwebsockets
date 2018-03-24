@@ -2373,7 +2373,7 @@ lws_ssl_client_bio_create(struct lws *wsi);
 LWS_EXTERN int
 lws_ssl_client_connect1(struct lws *wsi);
 LWS_EXTERN int
-lws_ssl_client_connect2(struct lws *wsi);
+lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len);
 LWS_EXTERN void
 lws_ssl_elaborate_error(void);
 LWS_EXTERN int
@@ -2440,7 +2440,7 @@ __lws_tls_shutdown(struct lws *wsi);
 LWS_EXTERN enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi);
 LWS_EXTERN int
-lws_tls_client_confirm_peer_cert(struct lws *wsi);
+lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len);
 LWS_EXTERN int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    struct lws_context_creation_info *info,

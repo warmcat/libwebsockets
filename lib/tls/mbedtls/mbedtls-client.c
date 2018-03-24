@@ -72,12 +72,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 * use server name indication (SNI), if supported,
 	 * when establishing connection
 	 */
-	if (wsi->vhost->x509_client_CA)
-		SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER,
-			       OpenSSL_client_verify_callback);
-	else
-		SSL_set_verify(wsi->ssl, SSL_VERIFY_NONE,
-			       OpenSSL_client_verify_callback);
+	SSL_set_verify(wsi->ssl, SSL_VERIFY_PEER,
+		       OpenSSL_client_verify_callback);
 
 	SSL_set_fd(wsi->ssl, wsi->desc.sockfd);
 
@@ -112,9 +108,12 @@ lws_tls_client_connect(struct lws *wsi)
 }
 
 int
-lws_tls_client_confirm_peer_cert(struct lws *wsi)
+lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 {
+	int n;
 	X509 *peer = SSL_get_peer_certificate(wsi->ssl);
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	char *sb = (char *)&pt->serv_buf[0];
 
 	if (!peer) {
 		lwsl_info("peer did not provide cert\n");
@@ -123,7 +122,41 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi)
 	}
 	lwsl_info("peer provided cert\n");
 
-	return 0;
+	n = SSL_get_verify_result(wsi->ssl);
+	lws_latency(wsi->context, wsi,
+			"SSL_get_verify_result LWS_CONNMODE..HANDSHAKE", n, n > 0);
+
+        lwsl_debug("get_verify says %d\n", n);
+
+	if (n == X509_V_OK)
+		return 0;
+
+	if (n == X509_V_ERR_HOSTNAME_MISMATCH &&
+	    (wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+		lwsl_info("accepting certificate for invalid hostname\n");
+		return 0;
+	}
+
+	if (n == X509_V_ERR_INVALID_CA &&
+	    (wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED)) {
+		lwsl_info("accepting certificate from untrusted CA\n");
+		return 0;
+	}
+
+	if ((n == X509_V_ERR_CERT_NOT_YET_VALID ||
+	     n == X509_V_ERR_CERT_HAS_EXPIRED) &&
+	     (wsi->use_ssl & LCCSCF_ALLOW_EXPIRED)) {
+		lwsl_info("accepting expired or not yet valid certificate\n");
+
+		return 0;
+	}
+	lws_snprintf(ebuf, ebuf_len,
+		"server's cert didn't look good, X509_V_ERR = %d: %s\n",
+		 n, ERR_error_string(n, sb));
+	lwsl_info("%s\n", ebuf);
+	lws_ssl_elaborate_error();
+
+	return -1;
 }
 
 int

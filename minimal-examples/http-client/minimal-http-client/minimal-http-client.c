@@ -110,6 +110,14 @@ int main(int argc, char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
 
+#if defined(LWS_WITH_MBEDTLS)
+	/*
+	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
+	 * CA to trust explicitly.
+	 */
+	info.client_ssl_ca_filepath = "./warmcat.com.cer";
+#endif
+
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");

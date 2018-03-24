@@ -282,6 +282,13 @@ Lws supports both almost the same, so instead of taking my word for it you are
 invited to try it both ways and see which the results (including, eg, binary
 size and memory usage as well as speed) suggest you use.
 
+NOTE: one major difference with mbedTLS is it does not load the system trust
+store by default.  That has advantages and disadvantages, but the disadvantage
+is you must provide the CA cert to lws built against mbedTLS for it to be able
+to validate it, ie, use -A with the test client.  The minimal test clients
+have the CA cert for warmcat.com and libwebsockets.org and use it if they see
+they were built with mbedTLS.
+
 @section optee Building for OP-TEE
 
 OP-TEE is a "Secure World" Trusted Execution Environment.

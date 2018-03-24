@@ -228,9 +228,9 @@ lws_tls_client_connect(struct lws *wsi)
 }
 
 int
-lws_tls_client_confirm_peer_cert(struct lws *wsi)
+lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 {
-#ifndef USE_WOLFSSL
+#if !defined(USE_WOLFSSL)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];
 	char *sb = p;
@@ -243,28 +243,38 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi)
 
 	lwsl_debug("get_verify says %d\n", n);
 
-	if (n != X509_V_OK) {
-		if ((n == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
-		     n == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) &&
-		     (wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED)) {
-			lwsl_notice("accepting self-signed certificate\n");
-		} else if ((n == X509_V_ERR_CERT_NOT_YET_VALID ||
-		            n == X509_V_ERR_CERT_HAS_EXPIRED) &&
-		     (wsi->use_ssl & LCCSCF_ALLOW_EXPIRED)) {
-			lwsl_notice("accepting expired certificate\n");
-		} else if (n == X509_V_ERR_CERT_NOT_YET_VALID) {
-			lwsl_notice("Cert is from the future... "
-				    "probably our clock... accepting...\n");
-		} else {
-			lwsl_err("server's cert didn't look good, X509_V_ERR = %d: %s\n",
-				 n, ERR_error_string(n, sb));
-			lws_ssl_elaborate_error();
-			return -1;
-		}
-	}
-#endif /* USE_WOLFSSL */
+	if (n == X509_V_OK)
+		return 0;
 
+	if ((n == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
+	     n == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) &&
+	     (wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED)) {
+		lwsl_info("accepting self-signed certificate\n");
+
+		return 0;
+	}
+	if ((n == X509_V_ERR_CERT_NOT_YET_VALID ||
+	     n == X509_V_ERR_CERT_HAS_EXPIRED) &&
+	     (wsi->use_ssl & LCCSCF_ALLOW_EXPIRED)) {
+		lwsl_info("accepting expired certificate\n");
+		return 0;
+	}
+	if (n == X509_V_ERR_CERT_NOT_YET_VALID) {
+		lwsl_info("Cert is from the future... "
+			    "probably our clock... accepting...\n");
+		return 0;
+	}
+	lws_snprintf(ebuf, ebuf_len,
+		"server's cert didn't look good, X509_V_ERR = %d: %s\n",
+		 n, ERR_error_string(n, sb));
+	lwsl_info("%s\n", ebuf);
+	lws_ssl_elaborate_error();
+
+	return -1;
+
+#else /* USE_WOLFSSL */
 	return 0;
+#endif
 }
 
 int

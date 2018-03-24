@@ -6,7 +6,7 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * This demonstrates the a minimal http client using lws.
+ * This demonstrates the a minimal ws client using lws.
  *
  * It connects to https://libwebsockets.org/ and makes a
  * wss connection to the dumb-increment protocol there.  While
@@ -92,6 +92,13 @@ int main(int argc, char **argv)
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
+#if defined(LWS_WITH_MBEDTLS)
+	/*
+	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
+	 * CA to trust explicitly.
+	 */
+	info.client_ssl_ca_filepath = "./libwebsockets.org.cer";
+#endif
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -102,12 +109,12 @@ int main(int argc, char **argv)
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
 
-	i.port = 7681;
-	i.address = "localhost";
+	i.port = 443;
+	i.address = "libwebsockets.org";
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
-	i.ssl_connection = 0;
+	i.ssl_connection = 1;
 
 	i.protocol = protocols[0].name; /* "dumb-increment-protocol" */
 	i.pwsi = &client_wsi;

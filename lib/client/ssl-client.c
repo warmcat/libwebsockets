@@ -51,7 +51,7 @@ lws_ssl_client_connect1(struct lws *wsi)
 }
 
 int
-lws_ssl_client_connect2(struct lws *wsi)
+lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len)
 {
 	int n = 0;
 
@@ -65,6 +65,7 @@ lws_ssl_client_connect2(struct lws *wsi)
 
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
+			lws_snprintf(errbuf, len, "client connect failed");
 			return -1;
 		case LWS_SSL_CAPABLE_DONE:
 			break; /* connected */
@@ -79,7 +80,7 @@ lws_ssl_client_connect2(struct lws *wsi)
 		}
 	}
 
-	if (lws_tls_client_confirm_peer_cert(wsi))
+	if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len))
 		return -1;
 
 	return 1;
