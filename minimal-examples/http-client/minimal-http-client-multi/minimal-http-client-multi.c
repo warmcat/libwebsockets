@@ -12,6 +12,19 @@
  * Currently that takes the form of 8 individual simultaneous tcp and
  * tls connections, which happen concurrently.  Notice that the ordering
  * of the returned payload may be intermingled for the various connections.
+ *
+ * By default the connections happen all together at the beginning and operate
+ * concurrently, which is fast.  However this is resource-intenstive, there are
+ * 8 tcp connections, 8 tls tunnels on both the client and server.  You can
+ * instead opt to have the connections happen one after the other inside a
+ * single tcp connection and tls tunnel, using HTTP/1.1 pipelining.  To be
+ * eligible to be pipelined on another existing connection to the same server,
+ * the client connection must have the LCCSCF_PIPELINE flag on its
+ * info.ssl_connection member (this is independent of whether the connection
+ * is in ssl mode or not).
+ *
+ * Pipelined connections are slower (2.3s vs 1.6s for 8 connections), since the
+ * transfers are serialized, but it is much less resource-intensive.
  */
 
 #include <libwebsockets.h>
@@ -84,7 +97,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		if (++completed == COUNT) {
 			lwsl_user("Done: failed: %d\n", failed);
 			interrupted = 1;
-			/* so we exit without the poll wait */
+			/* so we exit immediately */
 			lws_cancel_service(lws_get_context(wsi));
 		}
 		break;
@@ -97,12 +110,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 static const struct lws_protocols protocols[] = {
-	{
-		"http",
-		callback_http,
-		0,
-		0,
-	},
+	{ "http", callback_http, 0, 0, },
 	{ NULL, NULL, 0, 0 }
 };
 
@@ -159,7 +167,8 @@ int main(int argc, char **argv)
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
-	i.ssl_connection = 1;
+	i.ssl_connection = LCCSCF_PIPELINE /* enables http1.1 pipelining */ |
+			   LCCSCF_USE_SSL;
 	i.method = "GET";
 
 	i.protocol = protocols[0].name;

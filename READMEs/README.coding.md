@@ -1080,7 +1080,29 @@ prepare the client SSL context for the vhost after creating the vhost, since
 this is not normally done if the vhost was set up to listen / serve.  Call
 the api lws_init_vhost_client_ssl() to also allow client SSL on the vhost.
 
+@section clipipe Pipelining Client Requests to same host
 
+If you are opening more client requests to the same host and port, you
+can give the flag LCCSCF_PIPELINE on `info.ssl_connection` to indicate
+you wish to pipeline them.
+
+Without the flag, the client connections will occur concurrently using a
+socket and tls wrapper if requested for each connection individually.
+That is fast, but resource-intensive.
+
+With the flag, lws will queue subsequent client connections on the first
+connection to the same host and port.  When it has confirmed from the
+first connection that pipelining / keep-alive is supported by the server,
+it lets the queued client pipeline connections send their headers ahead
+of time to create a pipeline of requests on the server side.
+
+In this way only one tcp connection and tls wrapper is required to transfer
+all the transactions sequentially.  It takes a little longer but it
+can make a significant difference to resources on both sides.
+
+If lws learns from the first response header that keepalive is not possible,
+then it marks itself with that information and detaches any queued clients
+to make their own individual connections as a fallback.
 
 @section vhosts Using lws vhosts
 

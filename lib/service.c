@@ -1018,14 +1018,18 @@ spin_chunks:
 		lws_rewrite_parse(wsi->rw, (unsigned char *)*buf, n);
 	else
 #endif
-		if (user_callback_handle_rxflow(wsi->protocol->callback,
-				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
-				wsi->user_space, *buf, n)) {
+	{
+		struct lws *wsi_eff = lws_client_wsi_effective(wsi);
+
+		if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
+				wsi_eff, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
+				wsi_eff->user_space, *buf, n)) {
 			lwsl_debug("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",
 				   __func__);
 
 			return -1;
 		}
+	}
 
 	if (wsi->chunked && wsi->chunk_remaining) {
 		(*buf) += n;
@@ -1050,12 +1054,6 @@ spin_chunks:
 		return 0;
 
 completed:
-	if (user_callback_handle_rxflow(wsi->protocol->callback,
-			wsi, LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
-			wsi->user_space, NULL, 0)) {
-		lwsl_debug("%s: Completed call returned nonzero (mode %d)\n", __func__, wsi->mode);
-		return -1;
-	}
 
 	if (lws_http_transaction_completed_client(wsi)) {
 		lwsl_notice("%s: transaction completed says -1\n", __func__);
@@ -1884,7 +1882,7 @@ drain:
 			goto close_and_handled;
 		}
 
-		n = lws_client_socket_service(context, wsi, pollfd);
+		n = lws_client_socket_service(wsi, pollfd, NULL);
 		if (n)
 			return 1;
 		goto handled;

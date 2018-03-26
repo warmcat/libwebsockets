@@ -28,15 +28,16 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 struct lws *
 lws_client_connect_2(struct lws *wsi)
 {
-	sockaddr46 sa46;
-	struct addrinfo *result;
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	const char *cce = "", *iface, *adsin, *meth;
+	struct lws *wsi_piggy = NULL;
+	struct addrinfo *result;
 	struct lws_pollfd pfd;
-	const char *cce = "", *iface;
-	int n, port;
 	ssize_t plen = 0;
 	const char *ads;
+	sockaddr46 sa46;
+	int n, port;
 #ifdef LWS_WITH_IPV6
 	char ipv6only = lws_check_opt(wsi->vhost->options,
 			LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
@@ -54,6 +55,61 @@ lws_client_connect_2(struct lws *wsi)
 		lwsl_err("%s\n", cce);
 		goto oom4;
 	}
+
+	/* we can only piggyback GET */
+
+	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+	if (meth && strcmp(meth, "GET"))
+		goto create_new_conn;
+
+	/* we only pipeline connections that said it was okay */
+
+	if (!wsi->client_pipeline)
+		goto create_new_conn;
+
+	/*
+	 * let's take a look first and see if there are any already-active
+	 * client connections we can piggy-back on.
+	 */
+
+	adsin = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+	lws_vhost_lock(wsi->vhost);
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+				   wsi->vhost->dll_active_client_conns.next) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 dll_active_client_conns);
+
+		if (w->ah && !strcmp(adsin, lws_hdr_simple_ptr(w,
+			    _WSI_TOKEN_CLIENT_PEER_ADDRESS)) &&
+		    wsi->c_port == w->c_port) {
+			/* someone else is already connected to the right guy */
+
+			/* do we know for a fact pipelining won't fly? */
+			if (w->keepalive_rejected) {
+				lwsl_info("defeating pipelining due to no KA on server\n");
+				goto create_new_conn;
+			}
+			/*
+			 * ...let's add ourselves to his transaction queue...
+			 */
+			lws_dll_lws_add_front(&wsi->dll_client_transaction_queue,
+				&w->dll_client_transaction_queue_head);
+			/*
+			 * pipeline our headers out on him, and wait for our
+			 * turn at client transaction_complete to take over
+			 * parsing the rx.
+			 */
+
+			wsi_piggy = w;
+
+			lws_vhost_unlock(wsi->vhost);
+			goto send_hs;
+		}
+
+	} lws_end_foreach_dll_safe(d, d1);
+	lws_vhost_unlock(wsi->vhost);
+
+create_new_conn:
 
 	/*
 	 * start off allowing ipv6 on connection if vhost allows it
@@ -378,31 +434,71 @@ lws_client_connect_2(struct lws *wsi)
 	}
 #endif
 
+send_hs:
+	if (!lws_dll_is_null(&wsi->dll_client_transaction_queue)) {
+		/*
+		 * We are pipelining on an already-established connection...
+		 * we can skip tls establishment.
+		 */
+		wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE2;
+
+		/*
+		 * we can't send our headers directly, because they have to
+		 * be sent when the parent is writeable.  The parent will check
+		 * for anybody on his client transaction queue that is in
+		 * LWSCM_WSCL_ISSUE_HANDSHAKE2, and let them write.
+		 *
+		 * If we are trying to do this too early, before the master
+		 * connection has written his own headers,
+		 */
+		lws_callback_on_writable(wsi_piggy);
+		lwsl_debug("wsi %p: waiting to send headers\n", wsi);
+	} else {
+		/* we are making our own connection */
+		wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE;
+
+		/*
+		 * provoke service to issue the handshake directly.
+		 *
+		 * we need to do it this way because in the proxy case, this is
+		 * the next state and executed only if and when we get a good
+		 * proxy response inside the state machine... but notice in
+		 * SSL case this may not have sent anything yet with 0 return,
+		 * and won't until many retries from main loop.  To stop that
+		 * becoming endless, cover with a timeout.
+		 */
+
+		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
+				AWAITING_TIMEOUT);
+
+		pfd.fd = wsi->desc.sockfd;
+		pfd.events = LWS_POLLIN;
+		pfd.revents = LWS_POLLIN;
+
+		n = lws_service_fd(context, &pfd);
+		if (n < 0) {
+			cce = "first service failed";
+			goto failed;
+		}
+		if (n) /* returns 1 on failure after closing wsi */
+			return NULL;
+	}
+
 	/*
-	 * provoke service to issue the handshake directly
-	 * we need to do it this way because in the proxy case, this is the
-	 * next state and executed only if and when we get a good proxy
-	 * response inside the state machine... but notice in SSL case this
-	 * may not have sent anything yet with 0 return, and won't until some
-	 * many retries from main loop.  To stop that becoming endless,
-	 * cover with a timeout.
+	 * If we made our own connection, and we're doing a method that can take
+	 * a pipeline, we are an "active client connection".
+	 *
+	 * Add ourselves to the vhost list of those so that others can
+	 * piggyback on our transaction queue
 	 */
 
-	lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
-			AWAITING_TIMEOUT);
-
-	wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE;
-	pfd.fd = wsi->desc.sockfd;
-	pfd.events = LWS_POLLIN;
-	pfd.revents = LWS_POLLIN;
-
-	n = lws_service_fd(context, &pfd);
-	if (n < 0) {
-		cce = "first service failed";
-		goto failed;
+	if (meth && !strcmp(meth, "GET") &&
+	    lws_dll_is_null(&wsi->dll_client_transaction_queue)) {
+		lws_vhost_lock(wsi->vhost);
+		lws_dll_lws_add_front(&wsi->dll_active_client_conns,
+				      &wsi->vhost->dll_active_client_conns);
+		lws_vhost_unlock(wsi->vhost);
 	}
-	if (n) /* returns 1 on failure after closing wsi */
-		return NULL;
 
 	return wsi;
 
@@ -452,7 +548,8 @@ LWS_VISIBLE struct lws *
 lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		 const char *path, const char *host)
 {
-	char origin[300] = "", protocol[300] = "", method[32] = "", iface[16] = "", *p;
+	char origin[300] = "", protocol[300] = "", method[32] = "",
+	     iface[16] = "", *p;
 	struct lws *wsi = *pwsi;
 
 	if (wsi->redirects == 3) {
@@ -778,6 +875,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	}
 
 	wsi->protocol = &wsi->vhost->protocols[0];
+	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
 
 	/*
 	 * 1) for http[s] connection, allow protocol selection by name

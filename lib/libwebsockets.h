@@ -800,6 +800,8 @@ enum lws_close_status {
       connection was closed due to a failure to perform a TLS handshake
       (e.g., the server certificate can't be verified). */
 
+	LWS_CLOSE_STATUS_CLIENT_TRANSACTION_DONE		= 2000,
+
 	/****** add new things just above ---^ ******/
 
 	LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY		= 9999,
@@ -3266,7 +3268,11 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_USE_SSL 				= (1 << 0),
 	LCCSCF_ALLOW_SELFSIGNED			= (1 << 1),
 	LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK	= (1 << 2),
-	LCCSCF_ALLOW_EXPIRED			= (1 << 3)
+	LCCSCF_ALLOW_EXPIRED			= (1 << 3),
+
+	LCCSCF_PIPELINE				= (1 << 16),
+		/**< Serialize / pipeline multiple client connections
+		 * on a single connection where possible. */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using
@@ -3280,7 +3286,7 @@ struct lws_client_connect_info {
 	int port;
 	/**< remote port to connect to */
 	int ssl_connection;
-	/**< nonzero for ssl */
+	/**< 0, or a combination of LCCSCF_ flags */
 	const char *path;
 	/**< uri path */
 	const char *host;
@@ -4556,6 +4562,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_CLOSE_SEND				= 24,
 	PENDING_TIMEOUT_HOLDING_AH				= 25,
 	PENDING_TIMEOUT_UDP_IDLE				= 26,
+	PENDING_TIMEOUT_CLIENT_CONN_IDLE			= 27,
 
 	/****** add new things just above ---^ ******/
 
@@ -5473,6 +5480,8 @@ struct lws_dll_lws { /* typed as struct lws * */
 	struct lws_dll_lws *prev;
 	struct lws_dll_lws *next;
 };
+
+#define lws_dll_is_null(___dll) (!(___dll)->prev && !(___dll)->next)
 
 static inline void
 lws_dll_lws_add_front(struct lws_dll_lws *_a, struct lws_dll_lws *_head)

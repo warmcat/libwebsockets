@@ -539,6 +539,35 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	pt = &context->pt[(int)wsi->tsi];
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_CLOSE, 1);
 
+#if !defined(LWS_NO_CLIENT)
+	/* we are no longer an active client connection that can piggyback */
+	lws_dll_lws_remove(&wsi->dll_active_client_conns);
+
+	/*
+	 * if we have wsi in our transaction queue, if we are closing we
+	 * must go through and close all those first
+	 */
+	lws_vhost_lock(wsi->vhost);
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+				wsi->dll_client_transaction_queue_head.next) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 dll_client_transaction_queue);
+
+		__lws_close_free_wsi(w, reason, "trans q leader closing");
+	} lws_end_foreach_dll_safe(d, d1);
+
+	/*
+	 * !!! If we are closing, but we have pending pipelined transaction
+	 * results we already sent headers for, that's going to destroy sync
+	 * for HTTP/1 and leave H2 stream with no live swsi.
+	 *
+	 * However this is normal if we are being closed because the transaction
+	 * queue leader is closing.
+	 */
+	lws_dll_lws_remove(&wsi->dll_client_transaction_queue);
+	lws_vhost_unlock(wsi->vhost);
+#endif
+
 	/* if we have children, close them first */
 	if (wsi->child_list) {
 		wsi2 = wsi->child_list;
@@ -823,12 +852,11 @@ just_kill_connection:
 	}
 
 	if ((wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
-			   wsi->mode == LWSCM_WSCL_WAITING_CONNECT) &&
-			   !wsi->already_did_cce) {
-				wsi->protocol->callback(wsi,
-					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+	     wsi->mode == LWSCM_WSCL_WAITING_CONNECT) &&
+	    !wsi->already_did_cce)
+		wsi->protocol->callback(wsi,
+				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 						wsi->user_space, NULL, 0);
-	}
 
 	if (wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP) {
 		const struct lws_protocols *pro = wsi->protocol;

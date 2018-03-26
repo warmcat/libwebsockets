@@ -77,12 +77,67 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 	wsi->client_http_body_pending = !!something_left_to_send;
 }
 
-int
-lws_client_socket_service(struct lws_context *context, struct lws *wsi,
-			  struct lws_pollfd *pollfd)
+/*
+ * return self, or queued client wsi we are acting on behalf of
+ */
+
+struct lws *
+lws_client_wsi_effective(struct lws *wsi)
 {
+	struct lws *wsi_eff = wsi;
+
+	if (!wsi->transaction_from_pipeline_queue ||
+	    !wsi->dll_client_transaction_queue_head.next)
+		return wsi;
+
+	/*
+	 * The head is the last queued transaction... so
+	 * the guy we are fulfilling here is the tail
+	 */
+
+	lws_vhost_lock(wsi->vhost);
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+				   wsi->dll_client_transaction_queue_head.next) {
+		if (d->next == NULL)
+			wsi_eff = lws_container_of(d, struct lws,
+					dll_client_transaction_queue);
+	} lws_end_foreach_dll_safe(d, d1);
+	lws_vhost_unlock(wsi->vhost);
+
+	return wsi_eff;
+}
+
+/*
+ * return self or the guy we are queued under
+ */
+
+struct lws *
+lws_client_wsi_master(struct lws *wsi)
+{
+	struct lws *wsi_eff = wsi;
+	struct lws_dll_lws *d;
+
+	lws_vhost_lock(wsi->vhost);
+	d = wsi->dll_client_transaction_queue.prev;
+	while (d) {
+		wsi_eff = lws_container_of(d, struct lws,
+					dll_client_transaction_queue_head);
+
+		d = d->prev;
+	}
+	lws_vhost_unlock(wsi->vhost);
+
+	return wsi_eff;
+}
+
+int
+lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
+			  struct lws *wsi_conn)
+{
+	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];
+	struct lws *w;
 #if defined(LWS_OPENSSL_SUPPORT)
 	char ebuf[128];
 #endif
@@ -94,6 +149,35 @@ lws_client_socket_service(struct lws_context *context, struct lws *wsi,
 #if defined(LWS_WITH_SOCKS5)
 	char conn_mode = 0, pending_timeout = 0;
 #endif
+
+	if ((pollfd->revents & LWS_POLLOUT) &&
+	     wsi->keepalive_active &&
+	     wsi->dll_client_transaction_queue_head.next) {
+
+		lwsl_debug("%s: pollout HANDSHAKE2\n", __func__);
+
+		/* we have a transaction queue that wants to pipeline */
+		lws_vhost_lock(wsi->vhost);
+		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+					   wsi->dll_client_transaction_queue_head.next) {
+			struct lws *w = lws_container_of(d, struct lws,
+						  dll_client_transaction_queue);
+
+			if (w->mode == LWSCM_WSCL_ISSUE_HANDSHAKE2) {
+				/*
+				 * pollfd has the master sockfd in it... we
+				 * need to use that in HANDSHAKE2 to understand
+				 * which wsi to actually write on
+				 */
+				lws_client_socket_service(w, pollfd, wsi);
+				lws_callback_on_writable(wsi);
+				break;
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+		lws_vhost_unlock(wsi->vhost);
+
+		return 0;
+	}
 
 	switch (wsi->mode) {
 
@@ -320,7 +404,11 @@ start_ws_handshake:
 		/* send our request to the server */
 		lws_latency_pre(context, wsi);
 
-		n = lws_ssl_capable_write(wsi, (unsigned char *)sb, (int)(p - sb));
+		w = lws_client_wsi_master(wsi);
+		lwsl_debug("%s: HANDSHAKE2: %p: sending headers on %p\n",
+				__func__, wsi, w);
+
+		n = lws_ssl_capable_write(w, (unsigned char *)sb, (int)(p - sb));
 		lws_latency(context, wsi, "send lws_issue_raw", n,
 			    n == p - sb);
 		switch (n) {
@@ -342,6 +430,8 @@ start_ws_handshake:
 			break;
 		}
 
+		lws_callback_on_writable(w);
+
 		goto client_http_body_sent;
 
 	case LWSCM_WSCL_ISSUE_HTTP_BODY:
@@ -353,6 +443,7 @@ start_ws_handshake:
 			break;
 		}
 client_http_body_sent:
+		/* prepare ourselves to do the parsing */
 		wsi->ah->parser_state = WSI_TOKEN_NAME_PART;
 		wsi->ah->lextable_pos = 0;
 		wsi->mode = LWSCM_WSCL_WAITING_SERVER_REPLY;
@@ -477,41 +568,89 @@ strtolower(char *s)
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi)
 {
-	lwsl_debug("%s: wsi %p\n", __func__, wsi);
-	/* if we can't go back to accept new headers, drop the connection */
-	if (wsi->http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
-		lwsl_info("%s: %p: close connection\n", __func__, wsi);
-		return 1;
+	struct lws *wsi_eff = lws_client_wsi_effective(wsi);
+
+	lwsl_info("%s: wsi: %p, wsi_eff: %p\n", __func__, wsi, wsi_eff);
+
+	if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
+			wsi_eff, LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
+			wsi_eff->user_space, NULL, 0)) {
+		lwsl_debug("%s: Completed call returned nonzero (mode %d)\n",
+						__func__, wsi_eff->mode);
+		return -1;
 	}
 
-	/* we don't support chained client connections yet */
-	return 1;
-#if 0
+	/*
+	 * Are we constitutionally capable of having a queue, ie, we are on
+	 * the "active client connections" list?
+	 *
+	 * If not, that's it for us.
+	 */
+
+	if (lws_dll_is_null(&wsi->dll_active_client_conns))
+		return -1;
+
+	/* if this was a queued guy, close him and remove from queue */
+
+	if (wsi->transaction_from_pipeline_queue) {
+		lwsl_debug("closing queued wsi %p\n", wsi_eff);
+		/* so the close doesn't trigger a CCE */
+		wsi_eff->already_did_cce = 1;
+		__lws_close_free_wsi(wsi_eff,
+			LWS_CLOSE_STATUS_CLIENT_TRANSACTION_DONE,
+			"queued client done");
+	}
+
+	/* after the first one, they can only be coming from the queue */
+	wsi->transaction_from_pipeline_queue = 1;
+
+	/* is there a new tail after removing that one? */
+	wsi_eff = lws_client_wsi_effective(wsi);
+
+	/*
+	 * Do we have something pipelined waiting?
+	 * it's OK if he hasn't managed to send his headers yet... he's next
+	 * in line to do that...
+	 */
+	if (wsi_eff == wsi) {
+		/*
+		 * Nothing pipelined... we should hang around a bit
+		 * in case something turns up...
+		 */
+		lwsl_info("%s: nothing pipelined waiting\n", __func__);
+		if (wsi->ah) {
+			lws_header_table_force_to_detachable_state(wsi);
+			lws_header_table_detach(wsi, 0);
+		}
+		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE, 5);
+
+		return 0;
+	}
+
+	/*
+	 * H1: we can serialize the queued guys into into the same ah
+	 * (H2: everybody needs their own ah until STREAM_END)
+	 */
+
 	/* otherwise set ourselves up ready to go again */
 	wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
-	wsi->mode = LWSCM_HTTP_CLIENT_ACCEPTED;
 	wsi->http.rx_content_length = 0;
 	wsi->hdr_parsing_completed = 0;
 
-	/* He asked for it to stay alive indefinitely */
-	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+	wsi->ah->parser_state = WSI_TOKEN_NAME_PART;
+	wsi->ah->lextable_pos = 0;
+	wsi->mode = LWSCM_WSCL_WAITING_SERVER_REPLY;
 
-	/*
-	 * As client, nothing new is going to come until we ask for it
-	 * we can drop the ah, if any
-	 */
-	if (wsi->ah) {
-		lws_header_table_force_to_detachable_state(wsi);
-		lws_header_table_detach(wsi, 0);
-	}
+	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+			wsi->context->timeout_secs);
 
 	/* If we're (re)starting on headers, need other implied init */
-	wsi->ues = URIES_IDLE;
+	wsi->ah->ues = URIES_IDLE;
 
-	lwsl_info("%s: %p: keep-alive await new transaction\n", __func__, wsi);
+	lwsl_info("%s: %p: new queued transaction as %p\n", __func__, wsi, wsi_eff);
+	lws_callback_on_writable(wsi);
 
 	return 0;
-#endif
 }
 
 LWS_VISIBLE LWS_EXTERN unsigned int
@@ -546,6 +685,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	struct lws_context *context = wsi->context;
 	const char *pc, *prot, *ads = NULL, *path, *cce = NULL;
 	struct allocated_headers *ah = NULL;
+	struct lws *w = lws_client_wsi_effective(wsi);
 	char *p, *q;
 	char new_path[300];
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -683,6 +823,48 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	if (!wsi->do_ws) {
 
+		/* if keepalive is allowed, enable the queued pipeline guys */
+
+		if (w == wsi) { /* ie, coming to this for the first time */
+			if (wsi->http.connection_type == HTTP_CONNECTION_KEEP_ALIVE)
+				wsi->keepalive_active = 1;
+			else {
+				/*
+				 * Ugh... now the main http connection has seen
+				 * both sides, we learn the server doesn't
+				 * support keepalive.
+				 *
+				 * That means any guys queued on us are going
+				 * to have to be restarted from connect2 with
+				 * their own connections.
+				 */
+
+				/*
+				 * stick around telling any new guys they can't
+				 * pipeline to this server
+				 */
+				wsi->keepalive_rejected = 1;
+
+				lws_vhost_lock(wsi->vhost);
+				lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+							   wsi->dll_client_transaction_queue_head.next) {
+					struct lws *ww = lws_container_of(d, struct lws,
+								  dll_client_transaction_queue);
+
+					/* remove him from our queue */
+					lws_dll_lws_remove(&ww->dll_client_transaction_queue);
+					/* give up on pipelining */
+					ww->client_pipeline = 0;
+
+					/* go back to "trying to connect" state */
+					lws_union_transition(ww, LWSCM_HTTP_CLIENT);
+					ww->user_space = NULL;
+					ww->state = LWSS_CLIENT_UNCONNECTED;
+				} lws_end_foreach_dll_safe(d, d1);
+				lws_vhost_unlock(wsi->vhost);
+			}
+		}
+
 #ifdef LWS_WITH_HTTP_PROXY
 		wsi->perform_rewrite = 0;
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
@@ -716,7 +898,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			wsi->http.rx_content_length =
 					atoll(lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_CONTENT_LENGTH));
-			lwsl_notice("%s: incoming content length %llu\n",
+			lwsl_info("%s: incoming content length %llu\n",
 				    __func__, (unsigned long long)
 					    wsi->http.rx_content_length);
 			wsi->http.rx_content_remain =
@@ -751,10 +933,18 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail3;
 		}
 
-		/* free up his parsing allocations */
-		lws_header_table_detach(wsi, 0);
+		/*
+		 * for pipelining, master needs to keep his ah... guys who
+		 * queued on him can drop it now though.
+		 */
 
-		lwsl_notice("%s: client connection up\n", __func__);
+		if (w != wsi) {
+			/* free up parsing allocations for queued guy */
+			lws_header_table_force_to_detachable_state(w);
+			lws_header_table_detach(w, 0);
+		}
+
+		lwsl_info("%s: client connection up\n", __func__);
 
 		return 0;
 	}

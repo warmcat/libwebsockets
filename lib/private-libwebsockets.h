@@ -971,6 +971,9 @@ struct lws_vhost {
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocol_vhost_options *headers;
 	struct lws **same_vh_protocol_list;
+#if !defined(LWS_NO_CLIENT)
+	struct lws_dll_lws dll_active_client_conns;
+#endif
 	const char *error_document_404;
 #ifdef LWS_OPENSSL_SUPPORT
 	lws_tls_ctx *ssl_ctx;
@@ -1875,7 +1878,7 @@ struct lws {
 #endif
 	const struct lws_protocols *protocol;
 	struct lws **same_vh_protocol_prev, *same_vh_protocol_next;
-	/* we get on the list if either the timeout or the timer is valid */
+
 	struct lws_dll_lws dll_timeout;
 	struct lws_dll_lws dll_hrtimer;
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -1887,6 +1890,9 @@ struct lws {
 	unsigned char *preamble_rx;
 #ifndef LWS_NO_CLIENT
 	struct client_info_stash *stash;
+	struct lws_dll_lws dll_active_client_conns;
+	struct lws_dll_lws dll_client_transaction_queue_head;
+	struct lws_dll_lws dll_client_transaction_queue;
 #endif
 	void *user_space;
 	void *opaque_parent_data;
@@ -1962,7 +1968,7 @@ struct lws {
 	unsigned int rxflow_will_be_applied:1;
 	unsigned int event_pipe:1;
 	unsigned int on_same_vh_list:1;
-	unsigned int handling_404;
+	unsigned int handling_404:1;
 
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
 	unsigned int outer_will_close:1;
@@ -1975,6 +1981,10 @@ struct lws {
 	unsigned int chunked:1; /* if the clientside connection is chunked */
 	unsigned int client_rx_avail:1;
 	unsigned int client_http_body_pending:1;
+	unsigned int transaction_from_pipeline_queue:1;
+	unsigned int keepalive_active:1;
+	unsigned int keepalive_rejected:1;
+	unsigned int client_pipeline:1;
 #endif
 #ifdef LWS_WITH_HTTP_PROXY
 	unsigned int perform_rewrite:1;
@@ -2596,9 +2606,11 @@ lws_rewrite_parse(struct lws_rewrite *r, const unsigned char *in, int in_len);
 #endif
 
 #ifndef LWS_NO_CLIENT
-LWS_EXTERN int lws_client_socket_service(struct lws_context *context,
-					 struct lws *wsi,
-					 struct lws_pollfd *pollfd);
+LWS_EXTERN int lws_client_socket_service(struct lws *wsi,
+					 struct lws_pollfd *pollfd,
+					 struct lws *wsi_conn);
+LWS_EXTERN struct lws *
+lws_client_wsi_effective(struct lws *wsi);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi);
 #ifdef LWS_OPENSSL_SUPPORT
