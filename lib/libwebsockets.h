@@ -3269,6 +3269,7 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_ALLOW_SELFSIGNED			= (1 << 1),
 	LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK	= (1 << 2),
 	LCCSCF_ALLOW_EXPIRED			= (1 << 3),
+	LCCSCF_NOT_H2				= (1 << 4),
 
 	LCCSCF_PIPELINE				= (1 << 16),
 		/**< Serialize / pipeline multiple client connections

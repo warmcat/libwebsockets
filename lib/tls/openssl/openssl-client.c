@@ -86,6 +86,12 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 }
 #endif
 
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
+static const unsigned char client_alpn_protocols[] = {
+	8, 'h', 't', 't', 'p', '/', '1', '.', '1'
+};
+#endif
+
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
@@ -93,6 +99,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	X509_VERIFY_PARAM *param;
 #endif
 	char hostname[128], *p;
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
+	const unsigned char *plist = client_alpn_protocols;
+	int n = sizeof(client_alpn_protocols);
+#endif
 
 	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
 			 _WSI_TOKEN_CLIENT_HOST) <= 0) {
@@ -121,6 +131,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		lws_ssl_elaborate_error();
 		return -1;
 	}
+
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
+	SSL_set_alpn_protos(wsi->ssl, plist, n);
+#endif
 
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
 	if (wsi->vhost->ssl_info_event_mask)
@@ -205,10 +219,36 @@ lws_ssl_client_bio_create(struct lws *wsi)
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi)
 {
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
+	const unsigned char *prot;
+	char a[32];
+	unsigned int len;
+#endif
 	int m, n = SSL_connect(wsi->ssl);
 
-	if (n == 1)
+	if (n == 1) {
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
+		SSL_get0_alpn_selected(wsi->ssl, &prot, &len);
+
+		if (len > sizeof(a))
+			len = sizeof(a) - 1;
+		memcpy(a, (const char *)prot, len);
+		a[len] = '\0';
+
+		if (prot && !strcmp(a, "http/1.1"))
+			/*
+			 * If alpn asserts it is http/1.1, KA is mandatory.
+			 *
+			 * Knowing this lets us proceed with sending
+			 * pipelined headers before we received the first
+			 * response headers.
+			 */
+			wsi->keepalive_active = 1;
+
+		lwsl_notice("client connect OK\n");
+#endif
 		return LWS_SSL_CAPABLE_DONE;
+	}
 
 	m = lws_ssl_get_error(wsi, n);
 

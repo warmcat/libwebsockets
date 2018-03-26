@@ -351,6 +351,9 @@ void SSL_free(SSL *ssl)
 
     SSL_SESSION_free(ssl->session);
 
+    if (ssl->alpn_protos)
+	    ssl_mem_free(ssl->alpn_protos);
+
     ssl_mem_free(ssl);
 }
 
@@ -1649,11 +1652,12 @@ struct alpn_ctx {
 	unsigned short len;
 };
 
-void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx, next_proto_cb cb, void *arg)
+static void
+_openssl_alpn_to_mbedtls(struct alpn_ctx *ac, char ***palpn_protos)
 {
-	struct alpn_ctx *ac = arg;
 	unsigned char *p = ac->data, *q;
 	unsigned char len;
+	char **alpn_protos;
 	int count = 0;
 
 	/* find out how many entries he gave us */
@@ -1675,18 +1679,20 @@ void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx, next_proto_cb cb, void *arg)
 
 	/* allocate space for count + 1 pointers and the data afterwards */
 
-	ctx->alpn_protos = ssl_mem_zalloc((count + 1) * sizeof(char *) + ac->len + 1);
-	if (!ctx->alpn_protos)
+	alpn_protos = ssl_mem_zalloc((count + 1) * sizeof(char *) + ac->len + 1);
+	if (!alpn_protos)
 		return;
+
+	*palpn_protos = alpn_protos;
 
 	/* convert to mbedtls format */
 
-	q = (unsigned char *)ctx->alpn_protos + (count + 1) * sizeof(char *);
+	q = (unsigned char *)alpn_protos + (count + 1) * sizeof(char *);
 	p = ac->data;
 	count = 0;
 
 	len = *p++;
-	ctx->alpn_protos[count] = (char *)q;
+	alpn_protos[count] = (char *)q;
 	while (p - ac->data < ac->len) {
 		if (len--) {
 			*q++ = *p++;
@@ -1695,11 +1701,27 @@ void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx, next_proto_cb cb, void *arg)
 		*q++ = '\0';
 		count++;
 		len = *p++;
-		ctx->alpn_protos[count] = (char *)q;
+		alpn_protos[count] = (char *)q;
 		if (!len)
 			break;
 	}
-	ctx->alpn_protos[count] = NULL; /* last pointer ends list with NULL */
+	alpn_protos[count] = NULL; /* last pointer ends list with NULL */
+}
+
+void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx, next_proto_cb cb, void *arg)
+{
+	struct alpn_ctx *ac = arg;
 
 	ctx->alpn_cb = cb;
+
+	_openssl_alpn_to_mbedtls(ac, (char ***)&ctx->alpn_protos);
+}
+
+void SSL_set_alpn_select_cb(SSL *ssl, void *arg)
+{
+	struct alpn_ctx *ac = arg;
+
+	_openssl_alpn_to_mbedtls(ac, (char ***)&ssl->alpn_protos);
+
+	_ssl_set_alpn_list(ssl);
 }

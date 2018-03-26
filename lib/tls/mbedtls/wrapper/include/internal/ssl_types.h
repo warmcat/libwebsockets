@@ -203,6 +203,8 @@ struct ssl_st
 
     const SSL_METHOD *method;
 
+    const char **alpn_protos;
+
     RECORD_LAYER rlayer;
 
     /* where we are */

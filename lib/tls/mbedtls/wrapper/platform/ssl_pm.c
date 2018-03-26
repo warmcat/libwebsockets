@@ -829,6 +829,12 @@ int X509_VERIFY_PARAM_set1_host(X509_VERIFY_PARAM *param,
 
 void _ssl_set_alpn_list(const SSL *ssl)
 {
+	if (ssl->alpn_protos) {
+		if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, ssl->alpn_protos))
+			fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols failed\n");
+
+		return;
+	}
 	if (!ssl->ctx->alpn_protos)
 		return;
 	if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, ssl->ctx->alpn_protos))

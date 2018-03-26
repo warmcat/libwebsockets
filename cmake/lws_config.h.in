@@ -163,6 +163,8 @@
 #cmakedefine LWS_HAVE_TLSV1_2_CLIENT_METHOD
 #cmakedefine LWS_HAVE_SSL_SET_INFO_CALLBACK
 #cmakedefine LWS_HAVE_SSL_EXTRA_CHAIN_CERTS
+#cmakedefine LWS_HAVE_SSL_get0_alpn_selected
+#cmakedefine LWS_HAVE_SSL_set_alpn_protos
 
 #cmakedefine LWS_HAS_INTPTR_T
 

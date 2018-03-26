@@ -27,6 +27,14 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	return 0;
 }
 
+struct alpn_ctx {
+	unsigned char *data;
+	unsigned short len;
+};
+
+static struct alpn_ctx protos = { (unsigned char *)
+				  "\x08http/1.1", 3 + 9 };
+
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
@@ -56,6 +64,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	wsi->ssl = SSL_new(wsi->vhost->ssl_client_ctx);
 	if (!wsi->ssl)
 		return -1;
+
+	SSL_set_alpn_select_cb(wsi->ssl, &protos);
 
 	if (wsi->vhost->ssl_info_event_mask)
 		SSL_set_info_callback(wsi->ssl, lws_ssl_info_callback);
@@ -89,9 +99,24 @@ enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi)
 {
 	int m, n = SSL_connect(wsi->ssl);
+	const unsigned char *prot;
+	unsigned int len;
 
-	if (n == 1)
+	if (n == 1) {
+		SSL_get0_alpn_selected(wsi->ssl, &prot, &len);
+
+		if (prot && !strcmp((char *)prot, "http/1.1"))
+			/*
+			 * If alpn asserts it is http/1.1, KA is mandatory.
+			 *
+			 * Knowing this lets us proceed with sending
+			 * pipelined headers before we received the first
+			 * response headers.
+			 */
+			wsi->keepalive_active = 1;
+
 		return LWS_SSL_CAPABLE_DONE;
+	}
 
 	m = SSL_get_error(wsi->ssl, n);
 
