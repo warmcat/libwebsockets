@@ -88,6 +88,9 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 
 #if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
 static const unsigned char client_alpn_protocols[] = {
+#if defined(LWS_WITH_HTTP2)
+	2, 'h', '2',
+#endif
 	8, 'h', 't', 't', 'p', '/', '1', '.', '1'
 };
 #endif
@@ -133,6 +136,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	}
 
 #if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
+	if (wsi->use_ssl & LCCSCF_NOT_H2) {
+		plist += 3;
+		n -= 3;
+	}
 	SSL_set_alpn_protos(wsi->ssl, plist, n);
 #endif
 
@@ -234,7 +241,12 @@ lws_tls_client_connect(struct lws *wsi)
 			len = sizeof(a) - 1;
 		memcpy(a, (const char *)prot, len);
 		a[len] = '\0';
-
+#if !defined(LWS_NO_CLIENT)
+		if (prot && !strcmp(a, "h2")) {
+			lwsl_info("%s: upgraded to H2\n", __func__);
+			wsi->client_h2_alpn = 1;
+		}
+#endif
 		if (prot && !strcmp(a, "http/1.1"))
 			/*
 			 * If alpn asserts it is http/1.1, KA is mandatory.
@@ -245,7 +257,7 @@ lws_tls_client_connect(struct lws *wsi)
 			 */
 			wsi->keepalive_active = 1;
 
-		lwsl_notice("client connect OK\n");
+		lwsl_info("client connect OK\n");
 #endif
 		return LWS_SSL_CAPABLE_DONE;
 	}

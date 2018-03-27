@@ -3282,7 +3282,12 @@ enum lws_client_connect_ssl_connection_flags {
 
 	LCCSCF_PIPELINE				= (1 << 16),
 		/**< Serialize / pipeline multiple client connections
-		 * on a single connection where possible. */
+		 * on a single connection where possible.
+		 *
+		 * HTTP/1.0: possible if Keep-Alive: yes sent by server
+		 * HTTP/1.1: always possible... uses pipelining
+		 * HTTP/2:   always possible... uses parallel streams
+		 * */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using

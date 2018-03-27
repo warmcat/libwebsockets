@@ -69,8 +69,13 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	int m;
 #endif
 
+	// lwsl_notice("%s: state %d\n", __func__, wsi->state);
+
 	switch (wsi->state) {
 #if defined(LWS_WITH_HTTP2)
+	case LWSS_HTTP2_CLIENT_ESTABLISHED:
+	case LWSS_HTTP2_CLIENT_SEND_SETTINGS:
+	case LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS:
 	case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
 	case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
 	case LWSS_HTTP2_ESTABLISHED:

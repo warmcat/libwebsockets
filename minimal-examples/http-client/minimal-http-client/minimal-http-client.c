@@ -61,6 +61,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
 		client_wsi = NULL;
 		break;
 
@@ -132,7 +133,7 @@ int main(int argc, char **argv)
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
-	i.ssl_connection = 1;
+	i.ssl_connection = /* LCCSCF_NOT_H2 | */ LCCSCF_USE_SSL;
 	i.method = "GET";
 
 	i.protocol = protocols[0].name;

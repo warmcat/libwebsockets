@@ -53,6 +53,8 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	int m;
 #endif
 
+	// lwsl_hexdump_notice(buf, len);
+
 	/*
 	 * Detect if we got called twice without going through the
 	 * event loop to handle pending.  This would be caused by either
@@ -510,10 +512,11 @@ send_raw:
 	case LWS_WRITE_PING:
 #ifdef LWS_WITH_HTTP2
 		/*
-		 * ws-over-h2 ends up here after the ws framing applied
+		 * ws-over-h2 also ends up here after the ws framing applied
 		 */
 		if (wsi->mode == LWSCM_HTTP2_SERVING ||
-		    wsi->mode == LWSCM_HTTP2_WS_SERVING) {
+		    wsi->mode == LWSCM_HTTP2_WS_SERVING ||
+		    wsi->mode == LWSCM_HTTP2_CLIENT_ACCEPTED) {
 			unsigned char flags = 0;
 
 			n = LWS_H2_FRAME_TYPE_DATA;
@@ -626,7 +629,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 	lwsl_debug("wsi->http2_substream %d\n", wsi->http2_substream);
 
-	while (!lws_send_pipe_choked(wsi)) {
+	do {
 
 		if (wsi->trunc_len) {
 			if (lws_issue_raw(wsi, wsi->trunc_alloc +
@@ -698,7 +701,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 #if defined(LWS_WITH_HTTP2)
 		m = lws_h2_tx_cr_get(wsi);
 		if (!m) {
-			lwsl_info("%s: came here with no tx credit", __func__);
+			lwsl_info("%s: came here with no tx credit\n", __func__);
 			return 0;
 		}
 		if ((lws_filepos_t)m < poss)
@@ -842,7 +845,7 @@ all_sent:
 
 			return 1;  /* >0 indicates completed */
 		}
-	}
+	} while (0); // while (!lws_send_pipe_choked(wsi))
 
 	lws_callback_on_writable(wsi);
 

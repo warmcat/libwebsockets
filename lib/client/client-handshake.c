@@ -79,25 +79,52 @@ lws_client_connect_2(struct lws *wsi)
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_active_client_conns);
 
-		if (w->ah && !strcmp(adsin, lws_hdr_simple_ptr(w,
-			    _WSI_TOKEN_CLIENT_PEER_ADDRESS)) &&
+		if (w->client_hostname_copy &&
+		    !strcmp(adsin, w->client_hostname_copy) &&
+#ifdef LWS_OPENSSL_SUPPORT
+		    (wsi->use_ssl & (LCCSCF_NOT_H2 | LCCSCF_USE_SSL)) ==
+		    (w->use_ssl & (LCCSCF_NOT_H2 | LCCSCF_USE_SSL)) &&
+#endif
 		    wsi->c_port == w->c_port) {
+
 			/* someone else is already connected to the right guy */
 
 			/* do we know for a fact pipelining won't fly? */
 			if (w->keepalive_rejected) {
-				lwsl_info("defeating pipelining due to no KA on server\n");
+				lwsl_notice("defeating pipelining due to no KA on server\n");
 				goto create_new_conn;
 			}
+#if defined (LWS_WITH_HTTP2)
+			/*
+			 * h2: in usable state already: just use it without
+			 *     going through the queue
+			 */
+			if (w->client_h2_alpn &&
+			    (w->state == LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS ||
+			     w->state == LWSS_HTTP2_CLIENT_ESTABLISHED)) {
+
+				lwsl_info("%s: just join h2 directly\n",
+						__func__);
+
+				lws_wsi_h2_adopt(w, wsi);
+				lws_vhost_unlock(wsi->vhost);
+
+				return wsi;
+			}
+#endif
+
+			lwsl_info("applying %p to txn queue on %p (%d)\n", wsi, w,
+					w->state);
 			/*
 			 * ...let's add ourselves to his transaction queue...
 			 */
 			lws_dll_lws_add_front(&wsi->dll_client_transaction_queue,
 				&w->dll_client_transaction_queue_head);
+
 			/*
-			 * pipeline our headers out on him, and wait for our
-			 * turn at client transaction_complete to take over
-			 * parsing the rx.
+			 * h1: pipeline our headers out on him,
+			 * and wait for our turn at client transaction_complete
+			 * to take over parsing the rx.
 			 */
 
 			wsi_piggy = w;
@@ -110,6 +137,17 @@ lws_client_connect_2(struct lws *wsi)
 	lws_vhost_unlock(wsi->vhost);
 
 create_new_conn:
+
+	/*
+	 * clients who will create their own fresh connection keep a copy of
+	 * the hostname they originally connected to, in case other connections
+	 * want to use it too
+	 */
+
+	if (!wsi->client_hostname_copy)
+		wsi->client_hostname_copy =
+			strdup(lws_hdr_simple_ptr(wsi,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS));
 
 	/*
 	 * start off allowing ipv6 on connection if vhost allows it
@@ -165,6 +203,8 @@ create_new_conn:
 
 #ifdef LWS_WITH_IPV6
 	if (wsi->ipv6) {
+		struct sockaddr_in6 *sa6 =
+				((struct sockaddr_in6 *)result->ai_addr);
 
 		if (n) {
 			/* lws_getaddrinfo46 failed, there is no usable result */
@@ -193,11 +233,10 @@ create_new_conn:
 			break;
 
 		case AF_INET6:
-			memcpy(&sa46.sa6.sin6_addr,
-			  &((struct sockaddr_in6 *)result->ai_addr)->sin6_addr,
+			memcpy(&sa46.sa6.sin6_addr, &sa6->sin6_addr,
 						sizeof(struct in6_addr));
-			sa46.sa6.sin6_scope_id = ((struct sockaddr_in6 *)result->ai_addr)->sin6_scope_id;
-			sa46.sa6.sin6_flowinfo = ((struct sockaddr_in6 *)result->ai_addr)->sin6_flowinfo;
+			sa46.sa6.sin6_scope_id = sa6->sin6_scope_id;
+			sa46.sa6.sin6_flowinfo = sa6->sin6_flowinfo;
 			break;
 		default:
 			lwsl_err("Unknown address family\n");
@@ -507,7 +546,9 @@ oom4:
 	lws_header_table_force_to_detachable_state(wsi);
 
 	if (wsi->mode == LWSCM_HTTP_CLIENT ||
+	    wsi->mode == LWSCM_HTTP2_CLIENT ||
 	    wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED ||
+	    wsi->mode == LWSCM_HTTP2_CLIENT_ACCEPTED ||
 	    wsi->mode == LWSCM_WSCL_WAITING_CONNECT) {
 		wsi->protocol->callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
@@ -520,6 +561,7 @@ oom4:
 	lws_remove_from_timeout_list(wsi);
 	lws_header_table_detach(wsi, 0);
 	lws_client_stash_destroy(wsi);
+	lws_free_set_NULL(wsi->client_hostname_copy);
 	lws_free(wsi);
 
 	return NULL;
@@ -887,7 +929,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	 * which protocol we are associated with since we can give it a
 	 * list.
 	 */
-	if ((i->method || i->local_protocol_name) && local) {
+	if (/*(i->method || i->local_protocol_name) && */local) {
 		lwsl_info("binding to %s\n", local);
 		p = lws_vhost_name_to_protocol(wsi->vhost, local);
 		if (p)
@@ -907,8 +949,11 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 #ifdef LWS_OPENSSL_SUPPORT
 	wsi->use_ssl = i->ssl_connection;
+
+	if (!i->method) /* !!! disallow ws for h2 right now */
+		wsi->use_ssl |= LCCSCF_NOT_H2;
 #else
-	if (i->ssl_connection) {
+	if (i->ssl_connection & LCCSCF_USE_SSL) {
 		lwsl_err("libwebsockets not configured for ssl\n");
 		goto bail;
 	}

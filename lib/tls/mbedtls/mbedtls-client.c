@@ -33,11 +33,21 @@ struct alpn_ctx {
 };
 
 static struct alpn_ctx protos = { (unsigned char *)
-				  "\x08http/1.1", 3 + 9 };
+#if defined(LWS_WITH_HTTP2)
+				   "\x02h2"
+#endif
+				  "\x08http/1.1", 3 +
+#if defined(LWS_WITH_HTTP2)
+				  3 +
+#endif
+				  9 };
+
+static struct alpn_ctx protos_h1 = { (unsigned char *)"\x08http/1.1", 3 + 9 };
 
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
+	struct alpn_ctx *apro = &protos;
 	X509_VERIFY_PARAM *param;
 	char hostname[128], *p;
 
@@ -65,7 +75,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	if (!wsi->ssl)
 		return -1;
 
-	SSL_set_alpn_select_cb(wsi->ssl, &protos);
+	if (wsi->use_ssl & LCCSCF_NOT_H2)
+		apro = &protos_h1;
+
+	SSL_set_alpn_select_cb(wsi->ssl, apro);
 
 	if (wsi->vhost->ssl_info_event_mask)
 		SSL_set_info_callback(wsi->ssl, lws_ssl_info_callback);
@@ -104,7 +117,10 @@ lws_tls_client_connect(struct lws *wsi)
 
 	if (n == 1) {
 		SSL_get0_alpn_selected(wsi->ssl, &prot, &len);
-
+#if !defined(LWS_NO_CLIENT)
+		if (prot && !strcmp((char *)prot, "h2"))
+			wsi->client_h2_alpn = 1;
+#endif
 		if (prot && !strcmp((char *)prot, "http/1.1"))
 			/*
 			 * If alpn asserts it is http/1.1, KA is mandatory.

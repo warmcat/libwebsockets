@@ -540,6 +540,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_CLOSE, 1);
 
 #if !defined(LWS_NO_CLIENT)
+
+	lws_free_set_NULL(wsi->client_hostname_copy);
 	/* we are no longer an active client connection that can piggyback */
 	lws_dll_lws_remove(&wsi->dll_active_client_conns);
 
@@ -770,7 +772,7 @@ just_kill_connection:
 		} lws_end_foreach_llp(w, h2.sibling_list);
 	}
 
-	if (wsi->upgraded_to_http2 || wsi->http2_substream) {
+	if (wsi->upgraded_to_http2 || wsi->http2_substream || wsi->client_h2_substream) {
 		lwsl_info("closing %p: parent %p\n", wsi, wsi->h2.parent_wsi);
 
 		if (wsi->h2.child_list) {
@@ -805,7 +807,8 @@ just_kill_connection:
 		wsi->h2.h2n->pps = NULL;
 	}
 
-	if (wsi->http2_substream && wsi->h2.parent_wsi) {
+	if ((wsi->client_h2_substream || wsi->http2_substream) &&
+	     wsi->h2.parent_wsi) {
 		lwsl_info("  %p: disentangling from siblings\n", wsi);
 		lws_start_foreach_llp(struct lws **, w,
 				wsi->h2.parent_wsi->h2.child_list) {
@@ -1372,7 +1375,7 @@ lws_get_network_wsi(struct lws *wsi)
 		return NULL;
 
 #if defined(LWS_WITH_HTTP2)
-	if (!wsi->http2_substream)
+	if (!wsi->http2_substream && !wsi->client_h2_substream)
 		return wsi;
 
 	while (wsi->h2.parent_wsi)
@@ -2183,7 +2186,7 @@ LWS_VISIBLE int
 lws_is_ssl(struct lws *wsi)
 {
 #ifdef LWS_OPENSSL_SUPPORT
-	return wsi->use_ssl;
+	return wsi->use_ssl & LCCSCF_USE_SSL;
 #else
 	(void)wsi;
 	return 0;
@@ -3109,7 +3112,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 			,
 			vh->name, vh->listen_port,
 #ifdef LWS_OPENSSL_SUPPORT
-			vh->use_ssl,
+			vh->use_ssl & LCCSCF_USE_SSL,
 #else
 			0,
 #endif

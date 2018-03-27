@@ -52,6 +52,8 @@ lws_calllback_as_writeable(struct lws *wsi)
 		n = LWS_CALLBACK_CLIENT_WRITEABLE;
 		break;
 	case LWSCM_WSCL_ISSUE_HTTP_BODY:
+	case LWSCM_HTTP2_CLIENT:
+	case LWSCM_HTTP2_CLIENT_ACCEPTED:
 		n = LWS_CALLBACK_CLIENT_HTTP_WRITEABLE;
 		break;
 	case LWSCM_HTTP2_WS_SERVING:
@@ -84,6 +86,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	struct lws_tokens eff_buf;
 	int ret, m;
 #endif
+
+	lwsl_info("%s: %p\n", __func__, wsi);
+
 	vwsi->leave_pollout_active = 0;
 	vwsi->handling_pollout = 1;
 	/*
@@ -124,7 +129,11 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	/*
 	 * Priority 2: protocol packets
 	 */
-	if (wsi->upgraded_to_http2 && wsi->h2.h2n->pps) {
+	if ((wsi->upgraded_to_http2
+#if !defined(LWS_NO_CLIENT)
+			|| wsi->client_h2_alpn
+#endif
+			) && wsi->h2.h2n->pps) {
 		lwsl_info("servicing pps\n");
 		if (lws_h2_do_pps_send(wsi)) {
 			wsi->socket_is_permanently_unusable = 1;
@@ -376,6 +385,7 @@ user_service:
 	}
 
 	if (wsi->mode != LWSCM_WSCL_ISSUE_HTTP_BODY &&
+	    wsi->mode != LWSCM_HTTP2_CLIENT_ACCEPTED &&
 	    !wsi->hdr_parsing_completed)
 		goto bail_ok;
 
@@ -399,10 +409,14 @@ user_service_go_again:
 	 */
 
 	if (wsi->mode != LWSCM_HTTP2_SERVING &&
-	    wsi->mode != LWSCM_HTTP2_WS_SERVING) {
+	    wsi->mode != LWSCM_HTTP2_WS_SERVING &&
+	    wsi->mode != LWSCM_HTTP2_CLIENT &&
+	    wsi->mode != LWSCM_HTTP2_CLIENT_ACCEPTED) {
 		lwsl_info("%s: non http2\n", __func__);
 		goto notify;
 	}
+
+	wsi = lws_get_network_wsi(wsi);
 
 	wsi->h2.requested_POLLOUT = 0;
 	if (!wsi->h2.initialized) {
@@ -465,8 +479,7 @@ user_service_go_again:
 		}
 
 		w->h2.requested_POLLOUT = 0;
-		lwsl_info("%s: child %p (state %d)\n", __func__, (*wsi2),
-			  (*wsi2)->state);
+		lwsl_info("%s: child %p (state %d)\n", __func__, w, w->state);
 
 		/* if we arrived here, even by looping, we checked choked */
 		w->could_have_pending = 0;
@@ -477,10 +490,17 @@ user_service_go_again:
 			n = lws_write(w, (uint8_t *)w->h2.pending_status_body +
 				      	 LWS_PRE,
 				         strlen(w->h2.pending_status_body +
-					 LWS_PRE), LWS_WRITE_HTTP_FINAL);
+					        LWS_PRE), LWS_WRITE_HTTP_FINAL);
 			lws_free_set_NULL(w->h2.pending_status_body);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream 1");
 			wa = &wsi->h2.child_list;
+			goto next_child;
+		}
+
+		if (w->state == LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS) {
+			if (lws_h2_client_handshake(w))
+				return -1;
+
 			goto next_child;
 		}
 
@@ -602,7 +622,7 @@ user_service_go_again:
 		}
 
 		if (lws_calllback_as_writeable(w) || w->h2.send_END_STREAM) {
-			lwsl_debug("Closing POLLOUT child\n");
+			lwsl_info("Closing POLLOUT child (end stream %d)\n", w->h2.send_END_STREAM);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 pollout handle");
 			wa = &wsi->h2.child_list;
 		}
@@ -1284,8 +1304,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		 */
 
 		wsi = NULL;
-		lws_start_foreach_ll(struct lws_vhost *, v,
-				     context->vhost_list) {
+		lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
 			struct lws_timed_vh_protocol *nx;
 			if (v->timed_vh_protocol_list) {
 				lws_start_foreach_ll(struct lws_timed_vh_protocol *,
@@ -1539,6 +1558,10 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	case LWSCM_HTTP2_SERVING:
 	case LWSCM_HTTP2_WS_SERVING:
 	case LWSCM_HTTP_CLIENT_ACCEPTED:
+	case LWSCM_HTTP2_CLIENT_ACCEPTED:
+	case LWSCM_HTTP2_CLIENT:
+
+		// lwsl_notice("%s: mode %d, state %d\n", __func__, wsi->mode, wsi->state);
 
 		/* 1: something requested a callback when it was OK to write */
 
@@ -1669,8 +1692,8 @@ read:
 			break;
 		}
 
-		if (wsi->ah) {
-			lwsl_info("%s: %p: inherited ah rx\n", __func__, wsi);
+		if (wsi->ah && wsi->ah->rxlen - wsi->ah->rxpos) {
+			lwsl_info("%s: %p: inherited ah rx %d\n", __func__, wsi, wsi->ah->rxlen - wsi->ah->rxpos);
 			eff_buf.token_len = wsi->ah->rxlen -
 					    wsi->ah->rxpos;
 			eff_buf.token = (char *)wsi->ah->rx +
@@ -1732,7 +1755,8 @@ read:
 					n = 0;
 					goto handled;
 				case LWS_SSL_CAPABLE_ERROR:
-					lwsl_info("Closing when error\n");
+					lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n",
+							__func__);
 					goto close_and_handled;
 				}
 				// lwsl_notice("Actual RX %d\n", eff_buf.token_len);
@@ -1741,7 +1765,8 @@ read:
 
 drain:
 #ifndef LWS_NO_CLIENT
-		if (wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED &&
+		if ((wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED ||
+		     wsi->mode == LWSS_HTTP2_CLIENT_ESTABLISHED) &&
 		    !wsi->told_user_closed) {
 
 			/*
@@ -1816,8 +1841,12 @@ drain:
 			eff_buf.token_len = 0;
 		} while (m);
 
-		if (wsi->ah) {
-			lwsl_debug("%s: %p: detaching\n", __func__, wsi);
+		if (wsi->ah
+#if !defined(LWS_NO_CLIENT)
+				&& !wsi->client_h2_alpn
+#endif
+				) {
+			lwsl_notice("%s: %p: detaching ah\n", __func__, wsi);
 			lws_header_table_force_to_detachable_state(wsi);
 			lws_header_table_detach(wsi, 0);
 		}

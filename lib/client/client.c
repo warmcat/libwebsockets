@@ -351,13 +351,13 @@ start_ws_handshake:
 #ifdef LWS_OPENSSL_SUPPORT
 		/* we can retry this... just cook the SSL BIO the first time */
 
-		if (wsi->use_ssl && !wsi->ssl &&
+		if ((wsi->use_ssl & LCCSCF_USE_SSL) && !wsi->ssl &&
 		    lws_ssl_client_bio_create(wsi) < 0) {
 			cce = "bio_create failed";
 			goto bail3;
 		}
 
-		if (wsi->use_ssl) {
+		if (wsi->use_ssl & LCCSCF_USE_SSL) {
 			n = lws_ssl_client_connect1(wsi);
 			if (!n)
 				return 0;
@@ -372,7 +372,7 @@ start_ws_handshake:
 
 	case LWSCM_WSCL_WAITING_SSL:
 
-		if (wsi->use_ssl) {
+		if (wsi->use_ssl & LCCSCF_USE_SSL) {
 			n = lws_ssl_client_connect2(wsi, ebuf, sizeof(ebuf));
 			if (!n)
 				return 0;
@@ -383,7 +383,30 @@ start_ws_handshake:
 		} else
 			wsi->ssl = NULL;
 #endif
+#if defined (LWS_WITH_HTTP2)
+		if (wsi->client_h2_alpn) {
+			/*
+			 * We connected to the server and set up tls, and
+			 * negotiated "h2".
+			 *
+			 * So this is it, we are an h2 master client connection
+			 * now, not an h1 client connection.
+			 */
+			lwsl_info("client connection upgraded to h2\n");
+			lws_h2_configure_if_upgraded(wsi);
 
+			lws_union_transition(wsi, LWSCM_HTTP2_CLIENT);
+			wsi->state = LWSS_HTTP2_CLIENT_SEND_SETTINGS;
+
+			/* send the H2 preface to legitimize the connection */
+			if (lws_h2_issue_preface(wsi)) {
+				cce = "error sending h2 preface";
+				goto bail3;
+			}
+
+			break;
+		}
+#endif
 		wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE2;
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 				context->timeout_secs);
@@ -705,7 +728,10 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	if (!wsi->do_ws) {
 		/* we are being an http client...
 		 */
-		lws_union_transition(wsi, LWSCM_HTTP_CLIENT_ACCEPTED);
+		if (wsi->client_h2_alpn)
+			lws_union_transition(wsi, LWSCM_HTTP2_CLIENT_ACCEPTED);
+		else
+			lws_union_transition(wsi, LWSCM_HTTP_CLIENT_ACCEPTED);
 		wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
 		wsi->ah = ah;
 		ah->http_response = 0;
@@ -722,27 +748,27 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	 * content-type:.text/html
 	 * content-length:.17703
 	 * set-cookie:.test=LWS_1456736240_336776_COOKIE;Max-Age=360000
-	 *
-	 *
-	 *
 	 */
 
 	wsi->http.connection_type = HTTP_CONNECTION_KEEP_ALIVE;
-	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
-	if (wsi->do_ws && !p) {
-		lwsl_info("no URI\n");
-		cce = "HS: URI missing";
-		goto bail3;
-	}
-	if (!p) {
-		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP1_0);
-		wsi->http.connection_type = HTTP_CONNECTION_CLOSE;
-	}
-	if (!p) {
-		cce = "HS: URI missing";
-		lwsl_info("no URI\n");
-		goto bail3;
-	}
+	if (!wsi->client_h2_substream) {
+		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
+		if (wsi->do_ws && !p) {
+			lwsl_info("no URI\n");
+			cce = "HS: URI missing";
+			goto bail3;
+		}
+		if (!p) {
+			p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP1_0);
+			wsi->http.connection_type = HTTP_CONNECTION_CLOSE;
+		}
+		if (!p) {
+			cce = "HS: URI missing";
+			lwsl_info("no URI\n");
+			goto bail3;
+		}
+	} else
+		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_STATUS);
 	n = atoi(p);
 	if (ah)
 		ah->http_response = n;
@@ -757,7 +783,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* Relative reference absolute path */
 		if (p[0] == '/') {
 #ifdef LWS_OPENSSL_SUPPORT
-			ssl = wsi->use_ssl;
+			ssl = wsi->use_ssl & LCCSCF_USE_SSL;
 #endif
 			ads = lws_hdr_simple_ptr(wsi,
 						 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
@@ -780,7 +806,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			/* This doesn't try to calculate an absolute path,
 			 * that will be left to the server */
 #ifdef LWS_OPENSSL_SUPPORT
-			ssl = wsi->use_ssl;
+			ssl = wsi->use_ssl & LCCSCF_USE_SSL;
 #endif
 			ads = lws_hdr_simple_ptr(wsi,
 						 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
@@ -798,7 +824,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 #ifdef LWS_OPENSSL_SUPPORT
-		if (wsi->use_ssl && !ssl) {
+		if ((wsi->use_ssl & LCCSCF_USE_SSL) && !ssl) {
 			cce = "HS: Redirect attempted SSL downgrade";
 			goto bail3;
 		}
@@ -823,9 +849,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	if (!wsi->do_ws) {
 
-		/* if keepalive is allowed, enable the queued pipeline guys */
+		/* if h1 KA is allowed, enable the queued pipeline guys */
 
-		if (w == wsi) { /* ie, coming to this for the first time */
+		if (!wsi->client_h2_alpn && !wsi->client_h2_substream && w == wsi) { /* ie, coming to this for the first time */
 			if (wsi->http.connection_type == HTTP_CONNECTION_KEEP_ALIVE)
 				wsi->keepalive_active = 1;
 			else {
@@ -947,6 +973,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		lwsl_info("%s: client connection up\n", __func__);
 
 		return 0;
+	}
+
+	if (wsi->client_h2_substream) {/* !!! client ws-over-h2 not there yet */
+		lwsl_warn("%s: client ws-over-h2 upgrade not supported yet\n",
+			  __func__);
+		cce = "HS: h2 / ws upgrade unsupported";
+		goto bail3;
 	}
 
 	if (p && !strncmp(p, "401", 3)) {
@@ -1079,7 +1112,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		if (!wsi->vhost->protocols[n].callback) {
 			if (wsi->protocol)
-				lwsl_err("Failed to match protocol %s\n", wsi->protocol->name);
+				lwsl_err("Failed to match protocol %s\n",
+						wsi->protocol->name);
 			else
 				lwsl_err("No protocol on client\n");
 			goto bail2;

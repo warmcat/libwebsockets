@@ -119,7 +119,7 @@ int lws_h2_configure_if_upgraded(struct lws *wsi)
 	cstr[len] = '\0';
 
 	lwsl_info("negotiated '%s' using ALPN\n", cstr);
-	wsi->use_ssl = 1;
+	wsi->use_ssl |= LCCSCF_USE_SSL;
 	if (strncmp((char *)name, "http/1.1", 8) == 0)
 		return 0;
 

@@ -442,7 +442,9 @@ int main(int argc, char **argv)
 
 	lwsl_notice(" Using resource path \"%s\"\n", resource_path);
 
+#if UV_VERSION_MAJOR > 0
 	uv_loop_init(&loop);
+#endif
 #if defined(TEST_DYNAMIC_VHOST)
 	uv_timer_init(&loop, &timeout_watcher);
 #endif
@@ -561,9 +563,9 @@ bail:
 #endif
 
 	/* nothing left in the foreign loop, destroy it */
-
+#if UV_VERSION_MAJOR > 0
 	uv_loop_close(&loop);
-
+#endif
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
 #ifndef _WIN32

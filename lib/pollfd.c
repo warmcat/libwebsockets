@@ -465,10 +465,16 @@ lws_callback_on_writable(struct lws *wsi)
 	lwsl_info("%s: %p (mode %d)\n", __func__, wsi, wsi->mode);
 
 	if (wsi->mode != LWSCM_HTTP2_SERVING &&
+	    wsi->mode != LWSCM_HTTP2_CLIENT &&
+	    wsi->mode != LWSCM_HTTP2_CLIENT_ACCEPTED &&
 	    wsi->mode != LWSCM_HTTP2_WS_SERVING)
 		goto network_sock;
 
-	if (wsi->h2.requested_POLLOUT) {
+	if (wsi->h2.requested_POLLOUT
+#if !defined(LWS_NO_CLIENT)
+			&& !wsi->client_h2_alpn
+#endif
+	) {
 		lwsl_info("already pending writable\n");
 		return 1;
 	}
@@ -506,7 +512,11 @@ lws_callback_on_writable(struct lws *wsi)
 	/* for network action, act only on the network wsi */
 
 	wsi = network_wsi;
-	if (already)
+	if (already && !wsi->client_h2_alpn
+#if !defined(LWS_NO_CLIENT)
+			&& !wsi->client_h2_substream
+#endif
+			)
 		return 1;
 network_sock:
 #endif

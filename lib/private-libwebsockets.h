@@ -521,6 +521,10 @@ enum lws_connection_states {
 
 	LWSS_HTTP_DEFERRING_ACTION			= _LSF_CCB | 19 |
 							  _LSF_POLLOUT,
+
+	LWSS_HTTP2_CLIENT_SEND_SETTINGS			= 20 | _LSF_POLLOUT,
+	LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS	= 21 | _LSF_POLLOUT,
+	LWSS_HTTP2_CLIENT_ESTABLISHED			= 22 | _LSF_POLLOUT,
 };
 
 #define lws_state_is_ws(s) (!!((s) & _LSF_WEBSOCKET))
@@ -595,6 +599,8 @@ enum connection_mode {
 	/* HTTP Client related */
 	LWSCM_HTTP_CLIENT = LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP,
 	LWSCM_HTTP_CLIENT_ACCEPTED, /* actual HTTP service going on */
+	LWSCM_HTTP2_CLIENT,
+	LWSCM_HTTP2_CLIENT_ACCEPTED,
 	LWSCM_WSCL_WAITING_CONNECT,
 	LWSCM_WSCL_WAITING_PROXY_REPLY,
 	LWSCM_WSCL_ISSUE_HANDSHAKE,
@@ -1200,6 +1206,7 @@ struct lws_context {
 	unsigned int protocol_init_done:1;
 	unsigned int ssl_gate_accepts:1;
 	unsigned int doing_protocol_init;
+	unsigned int done_protocol_destroy_cb;
 	/*
 	 * set to the Thread ID that's doing the service loop just before entry
 	 * to poll indicates service thread likely idling in poll()
@@ -1554,6 +1561,7 @@ enum lws_h2_states {
 
 #define LWS_H2_STREAM_ID_MASTER 0
 #define LWS_H2_SETTINGS_LEN 6
+#define LWS_H2_FLAG_SETTINGS_ACK 1
 
 enum http2_hpack_state {
 	HPKS_TYPE,
@@ -1916,6 +1924,7 @@ struct lws {
 	unsigned char *preamble_rx;
 #ifndef LWS_NO_CLIENT
 	struct client_info_stash *stash;
+	char *client_hostname_copy;
 	struct lws_dll_lws dll_active_client_conns;
 	struct lws_dll_lws dll_client_transaction_queue_head;
 	struct lws_dll_lws dll_client_transaction_queue;
@@ -2011,6 +2020,8 @@ struct lws {
 	unsigned int keepalive_active:1;
 	unsigned int keepalive_rejected:1;
 	unsigned int client_pipeline:1;
+	unsigned int client_h2_alpn:1;
+	unsigned int client_h2_substream:1;
 #endif
 #ifdef LWS_WITH_HTTP_PROXY
 	unsigned int perform_rewrite:1;
@@ -2019,7 +2030,7 @@ struct lws {
 	unsigned int extension_data_pending:1;
 #endif
 #ifdef LWS_OPENSSL_SUPPORT
-	unsigned int use_ssl:4;
+	unsigned int use_ssl;
 #endif
 #ifdef _WIN32
 	unsigned int sock_send_blocking:1;
@@ -2281,6 +2292,11 @@ lws_pps_schedule(struct lws *wsi, struct lws_h2_protocol_send *pss);
 LWS_EXTERN const struct http2_settings lws_h2_defaults;
 LWS_EXTERN int
 lws_h2_ws_handshake(struct lws *wsi);
+LWS_EXTERN int lws_h2_issue_preface(struct lws *wsi);
+LWS_EXTERN int
+lws_h2_client_handshake(struct lws *wsi);
+LWS_EXTERN struct lws *
+lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi);
 #else
 #define lws_h2_configure_if_upgraded(x)
 #endif

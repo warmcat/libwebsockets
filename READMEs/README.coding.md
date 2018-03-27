@@ -1104,6 +1104,18 @@ If lws learns from the first response header that keepalive is not possible,
 then it marks itself with that information and detaches any queued clients
 to make their own individual connections as a fallback.
 
+Lws can also intelligently combine multiple ongoing client connections to
+the same host and port into a single http/2 connection with multiple
+streams if the server supports it.
+
+Unlike http/1 pipelining, with http/2 the client connections all occur
+simultaneously using h2 stream multiplexing inside the one tcp + tls
+connection.
+
+You can turn off the h2 client support either by not building lws with
+`-DLWS_WITH_HTTP2=1` or giving the `LCCSCF_NOT_H2` flag in the client
+connection info struct `ssl_connection` member.
+
 @section vhosts Using lws vhosts
 
 If you set LWS_SERVER_OPTION_EXPLICIT_VHOSTS options flag when you create

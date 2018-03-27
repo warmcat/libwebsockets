@@ -257,6 +257,8 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 	lws_restart_ws_ping_pong_timer(wsi);
 
+	// lwsl_hexdump_err(buf, n);
+
 	/*
 	 * if it was our buffer that limited what we read,
 	 * check if SSL has additional data pending inside SSL buffers.
