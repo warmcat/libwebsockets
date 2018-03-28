@@ -20,11 +20,7 @@
  */
 
 #include "private-libwebsockets.h"
-
-/* workaround for mingw */
-#if !defined(ECONNABORTED)
-#define ECONNABORTED 103
-#endif
+#include <errno.h>
 
 int openssl_websocket_private_data_index,
 	   openssl_SSL_CTX_private_data_index;
