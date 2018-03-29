@@ -1522,7 +1522,7 @@ deal_body:
 			   (long long)wsi->http.rx_content_length,
 			   wsi->upgraded_to_http2, wsi->http2_substream);
 		if (wsi->http.rx_content_length > 0) {
-			lwsl_notice("%s: %p: LWSS_HTTP_BODY state set\n",
+			lwsl_info("%s: %p: LWSS_HTTP_BODY state set\n",
 				    __func__, wsi);
 			wsi->state = LWSS_HTTP_BODY;
 			wsi->http.rx_content_remain =

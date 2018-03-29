@@ -114,7 +114,7 @@ lws_urldecode_s_create(struct lws *wsi, char *out, int out_len, void *data,
 
 				s->mime_boundary[m] = '\0';
 
-				lwsl_notice("boundary '%s'\n", s->mime_boundary);
+				lwsl_info("boundary '%s'\n", s->mime_boundary);
 			}
 		}
 	}
@@ -568,7 +568,7 @@ lws_spa_destroy(struct lws_spa *spa)
 {
 	int n = 0;
 
-	lwsl_notice("%s: destroy spa %p\n", __func__, spa);
+	lwsl_info("%s: destroy spa %p\n", __func__, spa);
 
 	if (spa->s)
 		lws_urldecode_s_destroy(spa->s);

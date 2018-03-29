@@ -268,7 +268,7 @@ postbody_completion:
 			if (!wsi->cgi)
 #endif
 			{
-				lwsl_notice("HTTP_BODY_COMPLETION\n");
+				lwsl_info("HTTP_BODY_COMPLETION\n");
 				n = wsi->protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY_COMPLETION,
 					wsi->user_space, NULL, 0);
