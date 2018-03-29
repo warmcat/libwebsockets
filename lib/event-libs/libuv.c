@@ -338,11 +338,11 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 	uv_idle_stop(&pt->uv_idle);
 	uv_close((uv_handle_t *)&pt->uv_idle, lws_uv_close_cb);
 
-	if (pt->ev_loop_foreign)
-		return;
-
 	while (budget-- && uv_run(pt->io_loop_uv, UV_RUN_NOWAIT))
 		;
+
+	if (pt->ev_loop_foreign)
+		return;
 
 	uv_stop(pt->io_loop_uv);
 	uv_walk(pt->io_loop_uv, lws_uv_walk_cb, NULL);
@@ -502,7 +502,7 @@ lws_libuv_stop(struct lws_context *context)
 		}
 	}
 
-	lwsl_info("%s: feels everything closed\n", __func__);
+	lwsl_info("%s: started closing all wsi\n", __func__);
 	if (context->count_wsi_allocated == 0)
 		lws_libuv_kill(context);
 }
