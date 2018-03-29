@@ -4426,6 +4426,17 @@ lws_sql_purify(char *escaped, const char *string, int len);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_json_purify(char *escaped, const char *string, int len);
 
+/**
+ * lws_filename_purify_inplace() - replace scary filename chars with underscore
+ *
+ * \param filename: filename to be purified
+ *
+ * Replace scary characters in the filename (it should not be a path)
+ * with underscore, so it's safe to use.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_filename_purify_inplace(char *filename);
+
 LWS_VISIBLE LWS_EXTERN int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 			int len);

@@ -2850,6 +2850,27 @@ lws_json_purify(char *escaped, const char *string, int len)
 	return escaped;
 }
 
+LWS_VISIBLE LWS_EXTERN void
+lws_filename_purify_inplace(char *filename)
+{
+	while (*filename) {
+
+		if (*filename == '.' && filename[1] == '.') {
+			*filename = '_';
+			filename[1] = '_';
+		}
+
+		if (*filename == ':' ||
+		    *filename == '/' ||
+		    *filename == '\\' ||
+		    *filename == '$' ||
+		    *filename == '%')
+			*filename = '_';
+
+		filename++;
+	}
+}
+
 LWS_VISIBLE LWS_EXTERN const char *
 lws_urlencode(char *escaped, const char *string, int len)
 {
