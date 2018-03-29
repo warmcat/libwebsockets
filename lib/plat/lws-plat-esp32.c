@@ -387,7 +387,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		    size_t addrlen)
 {
 #if 0
-	int rc = -1;
+	int rc = LWS_ITOSA_NOT_EXIST;
 
 	struct ifaddrs *ifr;
 	struct ifaddrs *ifc;
@@ -433,26 +433,26 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		default:
 			continue;
 		}
-		rc = 0;
+		rc = LWS_ITOSA_USABLE;
 	}
 
 	freeifaddrs(ifr);
 
-	if (rc == -1) {
+	if (rc == LWS_ITOSA_NOT_EXIST) {
 		/* check if bind to IP address */
 #ifdef LWS_WITH_IPV6
 		if (inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1)
-			rc = 0;
+			rc = LWS_ITOSA_USABLE;
 		else
 #endif
 		if (inet_pton(AF_INET, ifname, &addr->sin_addr) == 1)
-			rc = 0;
+			rc = LWS_ITOSA_USABLE;
 	}
 
 	return rc;
 #endif
 
-	return -1;
+	return LWS_ITOSA_NOT_EXIST;
 }
 
 LWS_VISIBLE void

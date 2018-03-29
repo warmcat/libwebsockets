@@ -1308,6 +1308,26 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		} lws_end_foreach_ll(v, vhost_next);
 		if (wsi)
 			lws_free(wsi);
+
+		/*
+		 * Phase 5: check for unconfigured vhosts due to required
+		 *	    interface missing before
+		 */
+
+		lws_context_lock(context);
+		lws_start_foreach_llp(struct lws_vhost **, pv,
+				      context->no_listener_vhost_list) {
+			struct lws_vhost *v = *pv;
+			lwsl_debug("deferred iface: checking if on vh %s\n", (*pv)->name);
+			if (lws_context_init_server(NULL, *pv) == 0) {
+				/* became happy */
+				lwsl_notice("vh %s: became connected\n", v->name);
+				*pv = v->no_listener_vhost_list;
+				v->no_listener_vhost_list = NULL;
+				break;
+			}
+		} lws_end_foreach_llp(pv, no_listener_vhost_list);
+		lws_context_unlock(context);
 	}
 
 	/*

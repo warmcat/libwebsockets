@@ -2534,7 +2534,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 #ifndef LWS_PLAT_OPTEE
 	socklen_t len = sizeof(struct sockaddr_storage);
 #endif
-	int n;
+	int n, m;
 	struct sockaddr_storage sin;
 	struct sockaddr *v;
 
@@ -2563,10 +2563,17 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		n = sizeof(struct sockaddr_in6);
 		bzero((char *) &serv_addr6, sizeof(serv_addr6));
 		if (iface) {
-			if (interface_to_sa(vhost, iface,
-				    (struct sockaddr_in *)v, n) < 0) {
-				lwsl_err("Unable to find if %s\n", iface);
-				return -1;
+			m = interface_to_sa(vhost, iface,
+				    (struct sockaddr_in *)v, n);
+			if (m == LWS_ITOSA_NOT_USABLE) {
+				lwsl_info("%s: netif %s: Not usable\n",
+					 __func__, iface);
+				return m;
+			}
+			if (m == LWS_ITOSA_NOT_EXIST) {
+				lwsl_info("%s: netif %s: Does not exist\n",
+					 __func__, iface);
+				return m;
 			}
 			serv_addr6.sin6_scope_id = lws_get_addr_scope(iface);
 		}
@@ -2583,15 +2590,27 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		serv_addr4.sin_family = AF_INET;
 #if !defined(LWS_WITH_ESP32)
 
-		if (iface &&
-		    interface_to_sa(vhost, iface,
-				    (struct sockaddr_in *)v, n) < 0) {
-			lwsl_err("Unable to find interface %s\n", iface);
-			return -1;
+		if (iface) {
+		    m = interface_to_sa(vhost, iface,
+				    (struct sockaddr_in *)v, n);
+			if (m == LWS_ITOSA_NOT_USABLE) {
+				lwsl_info("%s: netif %s: Not usable\n",
+					 __func__, iface);
+				return m;
+			}
+			if (m == LWS_ITOSA_NOT_EXIST) {
+				lwsl_info("%s: netif %s: Does not exist\n",
+					 __func__, iface);
+				return m;
+			}
 		}
 #endif
 		serv_addr4.sin_port = htons(port);
 	} /* ipv4 */
+
+	/* just checking for the interface extant */
+	if (sockfd == LWS_SOCK_INVALID)
+		return 0;
 
 	n = bind(sockfd, v, n);
 #ifdef LWS_WITH_UNIX_SOCK

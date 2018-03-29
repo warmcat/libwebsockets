@@ -640,7 +640,7 @@ LWS_VISIBLE int
 lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		    size_t addrlen)
 {
-	int rc = -1;
+	int rc = LWS_ITOSA_NOT_EXIST;
 
 	struct ifaddrs *ifr;
 	struct ifaddrs *ifc;
@@ -653,12 +653,19 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		if (!ifc->ifa_addr)
 			continue;
 
-		lwsl_info(" interface %s vs %s\n", ifc->ifa_name, ifname);
+		lwsl_debug(" interface %s vs %s (fam %d) ipv6 %d\n", ifc->ifa_name, ifname, ifc->ifa_addr->sa_family, ipv6);
 
 		if (strcmp(ifc->ifa_name, ifname))
 			continue;
 
 		switch (ifc->ifa_addr->sa_family) {
+#if defined(AF_PACKET)
+		case AF_PACKET:
+			/* interface exists but is not usable */
+			rc = LWS_ITOSA_NOT_USABLE;
+			continue;
+#endif
+
 		case AF_INET:
 #ifdef LWS_WITH_IPV6
 			if (ipv6) {
@@ -686,20 +693,20 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		default:
 			continue;
 		}
-		rc = 0;
+		rc = LWS_ITOSA_USABLE;
 	}
 
 	freeifaddrs(ifr);
 
-	if (rc == -1) {
+	if (rc) {
 		/* check if bind to IP address */
 #ifdef LWS_WITH_IPV6
 		if (inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1)
-			rc = 0;
+			rc = LWS_ITOSA_USABLE;
 		else
 #endif
 		if (inet_pton(AF_INET, ifname, &addr->sin_addr) == 1)
-			rc = 0;
+			rc = LWS_ITOSA_USABLE;
 	}
 
 	return rc;

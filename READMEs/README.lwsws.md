@@ -223,7 +223,7 @@ See also "rawonly" below.
 
  - `keeplive-timeout` (in secs) defaults to 60 for lwsws, it may be set as a vhost option
 
- - `interface` lets you specify which network interface to listen on, if not given listens on all
+ - `interface` lets you specify which network interface to listen on, if not given listens on all.  If the network interface is not usable (eg, ethernet cable out) it will be logged at startup with such vhost not listening, and lws will poll for it and bind a listen socket to the interface if and when it becomes available.
 
  - "`unix-socket`": "1" causes the unix socket specified in the interface option to be used instead of an INET socket
 

@@ -971,6 +971,7 @@ struct lws_vhost {
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocol_vhost_options *headers;
 	struct lws **same_vh_protocol_list;
+	struct lws_vhost *no_listener_vhost_list;
 #if !defined(LWS_NO_CLIENT)
 	struct lws_dll_lws dll_active_client_conns;
 #endif
@@ -1092,6 +1093,7 @@ struct lws_context {
 	struct lws **lws_lookup;  /* fd to wsi */
 #endif
 	struct lws_vhost *vhost_list;
+	struct lws_vhost *no_listener_vhost_list;
 	struct lws_vhost *vhost_pending_destruction_list;
 	struct lws_plugin *plugin_list;
 	struct lws_deferred_free *deferred_free_list;

@@ -5353,16 +5353,30 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen);
 #if !defined(LWS_WITH_ESP32)
+
+#define LWS_ITOSA_NOT_EXIST -1
+#define LWS_ITOSA_NOT_USABLE -2
+#define LWS_ITOSA_USABLE 0
+
 /**
  * lws_interface_to_sa() - Convert interface name or IP to sockaddr struct
  *
- * \param ipv6:	Allow IPV6 addresses
+ * \param ipv6:		Allow IPV6 addresses
  * \param ifname:	Interface name or IP
- * \param addr:	struct sockaddr_in * to be written
+ * \param addr:		struct sockaddr_in * to be written
  * \param addrlen:	Length of addr
  *
  * This converts a textual network interface name to a sockaddr usable by
- * other network functions
+ * other network functions.
+ *
+ * If the network interface doesn't exist, it will return LWS_ITOSA_NOT_EXIST.
+ *
+ * If the network interface is not usable, eg ethernet cable is removed, it
+ * may logically exist but not have any IP address.  As such it will return
+ * LWS_ITOSA_NOT_USABLE.
+ *
+ * If the network interface exists and is usable, it will return
+ * LWS_ITOSA_USABLE.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,

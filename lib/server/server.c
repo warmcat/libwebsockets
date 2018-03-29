@@ -28,6 +28,12 @@ const char * const method_names[] = {
 #endif
 	};
 
+/*
+ * return 0: all done
+ *        1: nonfatal error
+ *       <0: fatal error
+ */
+
 int
 lws_context_init_server(struct lws_context_creation_info *info,
 			struct lws_vhost *vhost)
@@ -41,30 +47,90 @@ lws_context_init_server(struct lws_context_creation_info *info,
 	lws_sockfd_type sockfd;
 	struct lws_vhost *vh;
 	struct lws *wsi;
-	int m = 0;
+	int m = 0, is;
 
 	(void)method_names;
 	(void)opt;
+
+	if (info) {
+		vhost->iface = info->iface;
+		vhost->listen_port = info->port;
+	}
+
 	/* set up our external listening socket we serve on */
 
-	if (info->port == CONTEXT_PORT_NO_LISTEN ||
-	    info->port == CONTEXT_PORT_NO_LISTEN_SERVER)
+	if (vhost->listen_port == CONTEXT_PORT_NO_LISTEN ||
+	    vhost->listen_port == CONTEXT_PORT_NO_LISTEN_SERVER)
 		return 0;
 
 	vh = vhost->context->vhost_list;
 	while (vh) {
-		if (vh->listen_port == info->port) {
-			if ((!info->iface && !vh->iface) ||
-			    (info->iface && vh->iface &&
-			    !strcmp(info->iface, vh->iface))) {
-				vhost->listen_port = info->port;
-				vhost->iface = info->iface;
+		if (vh->listen_port == vhost->listen_port) {
+			if (((!vhost->iface && !vh->iface) ||
+			    (vhost->iface && vh->iface &&
+			    !strcmp(vhost->iface, vh->iface))) &&
+			   vh->lserv_wsi
+			) {
 				lwsl_notice(" using listen skt from vhost %s\n",
 					    vh->name);
 				return 0;
 			}
 		}
 		vh = vh->vhost_next;
+	}
+
+	if (vhost->iface) {
+		/*
+		 * let's check before we do anything else about the disposition
+		 * of the interface he wants to bind to...
+		 */
+		is = lws_socket_bind(vhost, LWS_SOCK_INVALID, vhost->listen_port, vhost->iface);
+		lwsl_debug("initial if check says %d\n", is);
+deal:
+		lws_context_lock(vhost->context);
+		lws_start_foreach_llp(struct lws_vhost **, pv,
+				      vhost->context->no_listener_vhost_list) {
+			if (is >= LWS_ITOSA_USABLE && *pv == vhost) {
+				/* on the list and shouldn't be: remove it */
+				lwsl_debug("deferred iface: removing vh %s\n", (*pv)->name);
+				*pv = vhost->no_listener_vhost_list;
+				vhost->no_listener_vhost_list = NULL;
+				goto done_list;
+			}
+			if (is < LWS_ITOSA_USABLE && *pv == vhost)
+				goto done_list;
+		} lws_end_foreach_llp(pv, no_listener_vhost_list);
+
+		/* not on the list... */
+
+		if (is < LWS_ITOSA_USABLE) {
+
+			/* ... but needs to be: so add it */
+
+			lwsl_debug("deferred iface: adding vh %s\n", vhost->name);
+			vhost->no_listener_vhost_list = vhost->context->no_listener_vhost_list;
+			vhost->context->no_listener_vhost_list = vhost;
+		}
+
+done_list:
+		lws_context_unlock(vhost->context);
+
+		switch (is) {
+		default:
+			break;
+		case LWS_ITOSA_NOT_EXIST:
+			/* can't add it */
+			if (info) /* first time */
+				lwsl_err("VH %s: iface %s port %d DOESN'T EXIST\n",
+				 vhost->name, vhost->iface, vhost->listen_port);
+			return 1;
+		case LWS_ITOSA_NOT_USABLE:
+			/* can't add it */
+			if (info) /* first time */
+				lwsl_err("VH %s: iface %s port %d NOT USABLE\n",
+				 vhost->name, vhost->iface, vhost->listen_port);
+			return 1;
+		}
 	}
 
 #if LWS_POSIX
@@ -106,7 +172,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 				       (const void *)&opt, sizeof(opt)) < 0) {
 				lwsl_err("reuseaddr failed\n");
 				compatible_close(sockfd);
-				return 1;
+				return -1;
 			}
 		} else
 #endif
@@ -118,7 +184,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 			       (const void *)&opt, sizeof(opt)) < 0) {
 			lwsl_err("reuseaddr failed\n");
 			compatible_close(sockfd);
-			return 1;
+			return -1;
 		}
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
@@ -129,7 +195,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 			if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
 				      (const void*)&value, sizeof(value)) < 0) {
 				compatible_close(sockfd);
-				return 1;
+				return -1;
 			}
 		}
 #endif
@@ -147,20 +213,28 @@ lws_context_init_server(struct lws_context_creation_info *info,
 			if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
 					(const void *)&opt, sizeof(opt)) < 0) {
 				compatible_close(sockfd);
-				return 1;
+				return -1;
 			}
 #endif
 #endif
 		lws_plat_set_socket_options(vhost, sockfd);
 
 #if LWS_POSIX
-		n = lws_socket_bind(vhost, sockfd, info->port, info->iface);
-		if (n < 0)
-			goto bail;
-		info->port = n;
+		is = lws_socket_bind(vhost, sockfd, vhost->listen_port, vhost->iface);
+		/*
+		 * There is a race where the network device may come up and then
+		 * go away and fail here.  So correctly handle unexpected failure
+		 * here despite we earlier confirmed it.
+		 */
+		if (is < 0) {
+			lwsl_info("%s: lws_socket_bind says %d\n", __func__, is);
+			compatible_close(sockfd);
+			goto deal;
+		}
+		vhost->listen_port = is;
+
+		lwsl_debug("%s: lws_socket_bind says %d\n", __func__, is);
 #endif
-		vhost->listen_port = info->port;
-		vhost->iface = info->iface;
 
 		wsi = lws_zalloc(sizeof(struct lws), "listen wsi");
 		if (wsi == NULL) {
@@ -180,8 +254,10 @@ lws_context_init_server(struct lws_context_creation_info *info,
 			lws_uv_initvhost(vhost, wsi);
 #endif
 
-		if (__insert_wsi_socket_into_fds(vhost->context, wsi))
+		if (__insert_wsi_socket_into_fds(vhost->context, wsi)) {
+			lwsl_notice("inserting wsi socket into fds failed\n");
 			goto bail;
+		}
 
 		vhost->context->count_wsi_allocated++;
 		vhost->lserv_wsi = wsi;
@@ -197,13 +273,13 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		}
 	} /* for each thread able to independently listen */
 #endif
-	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+	if (!lws_check_opt(vhost->context->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
 #ifdef LWS_WITH_UNIX_SOCK
 		if (LWS_UNIX_SOCK_ENABLED(vhost))
-			lwsl_info(" Listening on \"%s\"\n", info->iface);
+			lwsl_info(" Listening on \"%s\"\n", vhost->iface);
 		else
 #endif
-			lwsl_info(" Listening on port %d\n", info->port);
+			lwsl_info(" Listening on port %d\n", vhost->listen_port);
         }
 
 	return 0;
@@ -211,7 +287,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 bail:
 	compatible_close(sockfd);
 
-	return 1;
+	return -1;
 }
 
 struct lws_vhost *

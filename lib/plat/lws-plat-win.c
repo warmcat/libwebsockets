@@ -425,7 +425,7 @@ lws_interface_to_sa(int ipv6,
 
 	if (ipv6) {
 		if (lws_plat_inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1) {
-			return 0;
+			return LWS_ITOSA_USABLE;
 		}
 	}
 #endif
@@ -439,11 +439,11 @@ lws_interface_to_sa(int ipv6,
 	}
 
 	if (address == INADDR_NONE)
-		return -1;
+		return LWS_ITOSA_NOT_EXIST;
 
 	addr->sin_addr.s_addr = (unsigned long)(lws_intptr_t)address;
 
-	return 0;
+	return LWS_ITOSA_USABLE;
 }
 
 LWS_VISIBLE void
