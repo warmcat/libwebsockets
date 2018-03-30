@@ -240,6 +240,8 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 
 		pt->io_loop_uv = loop;
 		uv_idle_init(loop, &pt->uv_idle);
+		LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv_idle, context);
+
 
 		ns = ARRAY_SIZE(sigs);
 		if (lws_check_opt(context->options,
@@ -250,6 +252,8 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 			assert(ns <= (int)ARRAY_SIZE(pt->signals));
 			for (n = 0; n < ns; n++) {
 				uv_signal_init(loop, &pt->signals[n]);
+				LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->signals[n],
+								  context);
 				pt->signals[n].data = pt->context;
 				uv_signal_start(&pt->signals[n],
 						context->lws_uv_sigint_cb,
@@ -275,18 +279,87 @@ lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi)
 		vh = vh->vhost_next;
 	}
 
-	if (first) {
-		uv_timer_init(pt->io_loop_uv, &pt->uv_timeout_watcher);
-		uv_timer_start(&pt->uv_timeout_watcher, lws_uv_timeout_cb,
-			       10, 1000);
-		uv_timer_init(pt->io_loop_uv, &pt->uv_hrtimer);
-	}
+	if (!first)
+		return status;
+
+	uv_timer_init(pt->io_loop_uv, &pt->uv_timeout_watcher);
+	LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv_timeout_watcher, context);
+	uv_timer_start(&pt->uv_timeout_watcher, lws_uv_timeout_cb, 10, 1000);
+	uv_timer_init(pt->io_loop_uv, &pt->uv_hrtimer);
+	LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv_hrtimer, context);
 
 	return status;
 
 bail:
 	return -1;
 }
+
+/*
+ * Closing Phase 2: Close callback for a static UV asset
+ */
+
+static void
+lws_uv_close_cb_sa(uv_handle_t *handle)
+{
+	struct lws_context *context =
+			LWS_UV_REFCOUNT_STATIC_HANDLE_TO_CONTEXT(handle);
+	int n;
+
+	lwsl_info("%s: sa left %d: dyn left: %d\n", __func__,
+		    context->uv_count_static_asset_handles,
+		    context->count_wsi_allocated);
+
+	/* any static assets left? */
+
+	if (LWS_UV_REFCOUNT_STATIC_HANDLE_DESTROYED(handle) ||
+	    context->count_wsi_allocated)
+		return;
+
+	/*
+	 * That's it... all wsi were down, and now every
+	 * static asset lws had a UV handle for is down.
+	 *
+	 * Stop the loop so we can get out of here.
+	 */
+
+	for (n = 0; n < context->count_threads; n++) {
+		struct lws_context_per_thread *pt = &context->pt[n];
+
+		if (!pt->io_loop_uv || !LWS_LIBUV_ENABLED(context))
+			continue;
+
+		uv_stop(pt->io_loop_uv);
+
+		/*
+		 * we can't delete non-foreign loop here, because
+		 * the uv_stop() hasn't got us out of the uv_run()
+		 * yet.  So we do it in context destroy.
+		 */
+	}
+}
+
+/*
+ * These must be called by protocols that want to use libuv objects directly...
+ *
+ * .... when the libuv object is created...
+ */
+
+LWS_VISIBLE void
+lws_libuv_static_refcount_add(uv_handle_t *h, struct lws_context *context)
+{
+	LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(h, context);
+}
+
+/*
+ * ... and in the close callback when the object is closed.
+ */
+
+LWS_VISIBLE void
+lws_libuv_static_refcount_del(uv_handle_t *h)
+{
+	return lws_uv_close_cb_sa(h);
+}
+
 
 static void lws_uv_close_cb(uv_handle_t *handle)
 {
@@ -308,13 +381,20 @@ void
 lws_libuv_destroyloop(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	int m, budget = 100, ns;
+	int m, /* budget = 100, */ ns;
+
+	lwsl_info("%s: %d\n", __func__, tsi);
 
 	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
 		return;
 
 	if (!pt->io_loop_uv)
 		return;
+
+	if (pt->event_loop_destroy_processing_done)
+		return;
+
+	pt->event_loop_destroy_processing_done = 1;
 
 	if (context->use_ev_sigint) {
 		uv_signal_stop(&pt->w_sigint.uv_watcher);
@@ -326,34 +406,17 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi)
 
 		for (m = 0; m < ns; m++) {
 			uv_signal_stop(&pt->signals[m]);
-			uv_close((uv_handle_t *)&pt->signals[m], lws_uv_close_cb);
+			uv_close((uv_handle_t *)&pt->signals[m], lws_uv_close_cb_sa);
 		}
 	}
 
 	uv_timer_stop(&pt->uv_timeout_watcher);
-	uv_close((uv_handle_t *)&pt->uv_timeout_watcher, lws_uv_close_cb);
+	uv_close((uv_handle_t *)&pt->uv_timeout_watcher, lws_uv_close_cb_sa);
 	uv_timer_stop(&pt->uv_hrtimer);
-	uv_close((uv_handle_t *)&pt->uv_hrtimer, lws_uv_close_cb);
+	uv_close((uv_handle_t *)&pt->uv_hrtimer, lws_uv_close_cb_sa);
 
 	uv_idle_stop(&pt->uv_idle);
-	uv_close((uv_handle_t *)&pt->uv_idle, lws_uv_close_cb);
-
-	while (budget-- && uv_run(pt->io_loop_uv, UV_RUN_NOWAIT))
-		;
-
-	if (pt->ev_loop_foreign)
-		return;
-
-	uv_stop(pt->io_loop_uv);
-	uv_walk(pt->io_loop_uv, lws_uv_walk_cb, NULL);
-	while (uv_run(pt->io_loop_uv, UV_RUN_NOWAIT))
-		;
-#if UV_VERSION_MAJOR > 0
-	m = uv_loop_close(pt->io_loop_uv);
-	if (m == UV_EBUSY)
-		lwsl_err("%s: uv_loop_close: UV_EBUSY\n", __func__);
-#endif
-	lws_free(pt->io_loop_uv);
+	uv_close((uv_handle_t *)&pt->uv_idle, lws_uv_close_cb_sa);
 }
 
 void
@@ -456,15 +519,75 @@ lws_libuv_stop_without_kill(const struct lws_context *context, int tsi)
 		uv_stop(context->pt[tsi].io_loop_uv);
 }
 
-static void
-lws_libuv_kill(const struct lws_context *context)
-{
-	int n;
 
-	for (n = 0; n < context->count_threads; n++)
-		if (context->pt[n].io_loop_uv &&
-		    LWS_LIBUV_ENABLED(context))
-			uv_stop(context->pt[n].io_loop_uv);
+
+LWS_VISIBLE uv_loop_t *
+lws_uv_getloop(struct lws_context *context, int tsi)
+{
+	if (context->pt[tsi].io_loop_uv && LWS_LIBUV_ENABLED(context))
+		return context->pt[tsi].io_loop_uv;
+
+	return NULL;
+}
+
+static void
+lws_libuv_closewsi(uv_handle_t* handle)
+{
+	struct lws *n = NULL, *wsi = (struct lws *)(((char *)handle) -
+			  (char *)(&n->w_read.uv_watcher));
+	struct lws_context *context = lws_get_context(wsi);
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	int lspd = 0, m;
+
+	/*
+	 * We get called back here for every wsi that closes
+	 */
+
+	if (wsi->mode == LWSCM_SERVER_LISTENER &&
+	    wsi->context->deprecated) {
+		lspd = 1;
+		context->deprecation_pending_listen_close_count--;
+		if (!context->deprecation_pending_listen_close_count)
+			lspd = 2;
+	}
+
+	lws_pt_lock(pt, __func__);
+	__lws_close_free_wsi_final(wsi);
+	lws_pt_unlock(pt);
+
+	if (lspd == 2 && context->deprecation_cb) {
+		lwsl_notice("calling deprecation callback\n");
+		context->deprecation_cb();
+	}
+
+	lwsl_info("%s: sa left %d: dyn left: %d\n", __func__,
+		    context->uv_count_static_asset_handles,
+		    context->count_wsi_allocated);
+
+	/*
+	 * eventually, we closed all the wsi...
+	 */
+
+	if (context->requested_kill && !context->count_wsi_allocated) {
+		struct lws_vhost *vh = context->vhost_list;
+
+		/*
+		 * Start Closing Phase 2: close of static handles
+		 */
+
+		lwsl_info("%s: all lws dynamic handles down, closing static\n",
+			    __func__);
+
+		for (m = 0; m < context->count_threads; m++)
+			lws_libuv_destroyloop(context, m);
+
+		/* protocols may have initialized libuv objects */
+
+		while (vh) {
+			lws_vhost_destroy1(vh);
+			vh = vh->vhost_next;
+		}
+	}
 }
 
 /*
@@ -487,6 +610,10 @@ lws_libuv_stop(struct lws_context *context)
 	m = context->count_threads;
 	context->being_destroyed = 1;
 
+	/*
+	 * Phase 1: start the close of every dynamic uv handle
+	 */
+
 	while (m--) {
 		pt = &context->pt[m];
 
@@ -503,59 +630,15 @@ lws_libuv_stop(struct lws_context *context)
 	}
 
 	lwsl_info("%s: started closing all wsi\n", __func__);
-	if (context->count_wsi_allocated == 0)
-		lws_libuv_kill(context);
-}
 
-LWS_VISIBLE uv_loop_t *
-lws_uv_getloop(struct lws_context *context, int tsi)
-{
-	if (context->pt[tsi].io_loop_uv && LWS_LIBUV_ENABLED(context))
-		return context->pt[tsi].io_loop_uv;
-
-	return NULL;
-}
-
-static void
-lws_libuv_closewsi(uv_handle_t* handle)
-{
-	struct lws *n = NULL, *wsi = (struct lws *)(((char *)handle) -
-			  (char *)(&n->w_read.uv_watcher));
-	struct lws_context *context = lws_get_context(wsi);
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int lspd = 0;
-
-	if (wsi->mode == LWSCM_SERVER_LISTENER &&
-	    wsi->context->deprecated) {
-		lspd = 1;
-		context->deprecation_pending_listen_close_count--;
-		if (!context->deprecation_pending_listen_close_count)
-			lspd = 2;
-	}
-
-	lws_pt_lock(pt, __func__);
-	__lws_close_free_wsi_final(wsi);
-	lws_pt_unlock(pt);
-
-	if (lspd == 2 && context->deprecation_cb) {
-		lwsl_notice("calling deprecation callback\n");
-		context->deprecation_cb();
-	}
-
-	if (context->requested_kill && context->count_wsi_allocated == 0)
-		lws_libuv_kill(context);
+	/* we cannot have completed... there are at least the cancel pipes */
 }
 
 void
 lws_libuv_closehandle(struct lws *wsi)
 {
-	struct lws_context *context = lws_get_context(wsi);
-
 	/* required to defer actual deletion until libuv has processed it */
 	uv_close((uv_handle_t*)&wsi->w_read.uv_watcher, lws_libuv_closewsi);
-
-	if (context->requested_kill && context->count_wsi_allocated == 0)
-		lws_libuv_kill(context);
 }
 
 static void

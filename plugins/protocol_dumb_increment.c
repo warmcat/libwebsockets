@@ -76,6 +76,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 
 		uv_timer_init(lws_uv_getloop(vhd->context, 0),
 			      &vhd->timeout_watcher);
+		lws_libuv_static_refcount_add((uv_handle_t *)&vhd->timeout_watcher,
+				vhd->context);
 		uv_timer_start(&vhd->timeout_watcher,
 			       uv_timeout_cb_dumb_increment, DUMB_PERIOD, DUMB_PERIOD);
 
@@ -86,7 +88,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		lwsl_notice("di: LWS_CALLBACK_PROTOCOL_DESTROY: v=%p, ctx=%p\n", vhd, vhd->context);
 		uv_timer_stop(&vhd->timeout_watcher);
-		uv_close((uv_handle_t *)&vhd->timeout_watcher, NULL);
+		uv_close((uv_handle_t *)&vhd->timeout_watcher,
+					lws_libuv_static_refcount_del);
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:

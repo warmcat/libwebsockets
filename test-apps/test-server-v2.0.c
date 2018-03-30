@@ -324,6 +324,7 @@ int main(int argc, char **argv)
 	char ca_path[1024] = "";
 	int uid = -1, gid = -1;
 	int use_ssl = 0;
+	uv_loop_t loop;
 	int opts = 0;
 	int n = 0;
 #ifndef _WIN32
@@ -433,14 +434,18 @@ int main(int argc, char **argv)
 	openlog("lwsts", syslog_options, LOG_DAEMON);
 #endif
 
-	/* tell the library what debug level to emit and to send it to syslog */
-	lws_set_log_level(debug_level, lwsl_emit_syslog);
+	/* tell the library what debug level to emit */
+	lws_set_log_level(debug_level, NULL);
 
 	lwsl_notice("libwebsockets test server - license LGPL2.1+SLE\n");
 	lwsl_notice("(C) Copyright 2010-2017 Andy Green <andy@warmcat.com>\n");
 
 	lwsl_notice(" Using resource path \"%s\"\n", resource_path);
 
+	uv_loop_init(&loop);
+#if defined(TEST_DYNAMIC_VHOST)
+	uv_timer_init(&loop, &timeout_watcher);
+#endif
 	info.iface = iface;
 	info.protocols = NULL; /* all protocols from lib / plugins */
 	info.ssl_cert_filepath = NULL;
@@ -534,25 +539,31 @@ int main(int argc, char **argv)
 
 	/* libuv event loop */
 	lws_uv_sigint_cfg(context, 1, signal_cb);
-	if (lws_uv_initloop(context, NULL, 0)) {
+	if (lws_uv_initloop(context, &loop, 0)) {
 		lwsl_err("lws_uv_initloop failed\n");
 		goto bail;
 	}
 
-#if defined(TEST_DYNAMIC_VHOST)
-	uv_timer_init(lws_uv_getloop(context, 0), &timeout_watcher);
-#endif
 	lws_libuv_run(context, 0);
-
-#if defined(TEST_DYNAMIC_VHOST)
-	uv_timer_stop(&timeout_watcher);
-	uv_close((uv_handle_t *)&timeout_watcher, NULL);
-#endif
 
 bail:
 	/* when we decided to exit the event loop */
 	lws_context_destroy(context);
 	lws_context_destroy2(context);
+
+
+#if defined(TEST_DYNAMIC_VHOST)
+	uv_timer_stop(&timeout_watcher);
+	uv_close((uv_handle_t *)&timeout_watcher, NULL);
+
+	/* let it run until everything completed close */
+	uv_run(&loop, UV_RUN_DEFAULT);
+#endif
+
+	/* nothing left in the foreign loop, destroy it */
+
+	uv_loop_close(&loop);
+
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
 #ifndef _WIN32

@@ -4506,6 +4506,29 @@ lws_uv_sigint_cb(uv_signal_t *watcher, int signum);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_close_all_handles_in_loop(uv_loop_t *loop);
+
+/*
+ * Any direct libuv allocations in protocol handlers must participate in the
+ * lws reference counting scheme.  Two apis are provided:
+ *
+ * - lws_libuv_static_refcount_add(handle, context) to mark the handle with
+ *  a pointer to the context and increment the global uv object counter
+ *
+ * - lws_libuv_static_refcount_del() which should be used as the close callback
+ *   for your own libuv objects declared in the protocol scope.
+ *
+ * See the dumb increment plugin for an example of how to use them.
+ *
+ * Using the apis allows lws to detach itself from a libuv loop completely
+ * cleanly and at the moment all of its libuv objects have completed close.
+ */
+
+LWS_VISIBLE LWS_EXTERN void
+lws_libuv_static_refcount_add(uv_handle_t *, struct lws_context *context);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_libuv_static_refcount_del(uv_handle_t *);
+
 #endif /* LWS_WITH_LIBUV */
 ///@}
 

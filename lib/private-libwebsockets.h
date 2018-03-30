@@ -854,6 +854,7 @@ struct lws_context_per_thread {
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_signal_watcher w_sigint;
 	unsigned char ev_loop_foreign:1;
+	unsigned char event_loop_destroy_processing_done:1;
 #endif
 
 	unsigned long count_conns;
@@ -1058,6 +1059,25 @@ struct lws_peer {
 };
 #endif
 
+#if defined(LWS_WITH_LIBUV)
+/*
+ * All "static" (per-pt or per-context) uv handles must
+ *
+ *  - have their .data set to point to the context
+ *
+ *  - contribute to context->uv_count_static_asset_handles
+ *    counting
+ */
+#define LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(_x, _ctx) \
+		{ uv_handle_t *_uht = (uv_handle_t *)(_x); _uht->data = _ctx; \
+		_ctx->uv_count_static_asset_handles++; }
+#define LWS_UV_REFCOUNT_STATIC_HANDLE_TO_CONTEXT(_x) \
+		((struct lws_context *)((uv_handle_t *)((_x)->data)))
+#define LWS_UV_REFCOUNT_STATIC_HANDLE_DESTROYED(_x) \
+		(--(LWS_UV_REFCOUNT_STATIC_HANDLE_TO_CONTEXT(_x)-> \
+				uv_count_static_asset_handles))
+#endif
+
 /*
  * the rest is managed per-context, that includes
  *
@@ -1121,6 +1141,7 @@ struct lws_context {
 #if defined(LWS_WITH_LIBUV)
 	uv_signal_cb lws_uv_sigint_cb;
 	uv_loop_t pu_loop;
+	int uv_count_static_asset_handles;
 #endif
 #if defined(LWS_WITH_LIBEVENT)
 #if defined(LWS_HIDE_LIBEVENT)
@@ -1226,6 +1247,8 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
 int
 lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max);
 
+void
+lws_vhost_destroy1(struct lws_vhost *vh);
 
 enum {
 	LWS_EV_READ = (1 << 0),

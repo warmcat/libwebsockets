@@ -1436,7 +1436,7 @@ LWS_VISIBLE void
 lws_context_destroy2(struct lws_context *context);
 
 
-static void
+void
 lws_vhost_destroy1(struct lws_vhost *vh)
 {
 	const struct lws_protocols *protocol = NULL;
@@ -1700,8 +1700,8 @@ LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
 {
 	volatile struct lws_foreign_thread_pollfd *ftp, *next;
-	struct lws_context_per_thread *pt;
 	volatile struct lws_context_per_thread *vpt;
+	struct lws_context_per_thread *pt;
 	struct lws_vhost *vh = NULL;
 	struct lws wsi;
 	int n, m;
@@ -1797,6 +1797,19 @@ lws_context_destroy(struct lws_context *context)
 			_lws_destroy_ah(pt, pt->ah_list);
 	}
 	lws_plat_context_early_destroy(context);
+
+#if defined(LWS_WITH_LIBUV)
+	if (LWS_LIBUV_ENABLED(context))
+		for (n = 0; n < context->count_threads; n++) {
+			pt = &context->pt[n];
+			if (!pt->ev_loop_foreign) {
+#if UV_VERSION_MAJOR > 0
+				uv_loop_close(pt->io_loop_uv);
+#endif
+				lws_free_set_NULL(pt->io_loop_uv);
+			}
+		}
+#endif
 
 	if (context->pt[0].fds)
 		lws_free_set_NULL(context->pt[0].fds);

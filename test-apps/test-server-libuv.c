@@ -190,16 +190,6 @@ void outer_signal_cb(uv_signal_t *s, int signum)
 	uv_stop(s->loop);
 }
 
-static void lws_uv_close_cb(uv_handle_t *handle)
-{
-	//lwsl_err("%s\n", __func__);
-}
-
-static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
-{
-	uv_close(handle, lws_uv_close_cb);
-}
-
 /* --- end of foreign test code ---- */
 #endif
 
@@ -426,15 +416,14 @@ int main(int argc, char **argv)
 		/* we are here either because signal stopped us,
 		 * or outer timer expired */
 
-		/* close short timer */
+		/* stop short timer */
 		uv_timer_stop(&timer_inner);
-		uv_close((uv_handle_t*)&timer_inner, timer_close_cb);
-
 
 		lwsl_notice("Destroying lws context\n");
 
 		/* detach lws */
 		lws_context_destroy(context);
+		lws_context_destroy2(context);
 
 		lwsl_notice("Please wait while the outer libuv test continues for 10s\n");
 
@@ -452,29 +441,19 @@ int main(int argc, char **argv)
 		uv_timer_stop(&timer_outer);
 		uv_timer_stop(&timer_test_cancel);
 		uv_close((uv_handle_t*)&timer_outer, timer_close_cb);
+		uv_close((uv_handle_t*)&timer_inner, timer_close_cb);
 		uv_signal_stop(&signal_outer);
 
 		e = 100;
 		while (e--)
 			uv_run(&loop, UV_RUN_NOWAIT);
 
-		/* PHASE 2: close anything remaining */
-
-		uv_walk(&loop, lws_uv_walk_cb, NULL);
-
-		e = 100;
-		while (e--)
-			uv_run(&loop, UV_RUN_NOWAIT);
-
-		/* PHASE 3: close the UV loop itself */
+		/* PHASE 2: close the UV loop itself */
 
 		e = uv_loop_close(&loop);
 		lwsl_notice("uv loop close rc %s\n",
 			    e ? uv_strerror(e) : "ok");
 
-		/* PHASE 4: finalize context destruction */
-
-		lws_context_destroy2(context);
 	} else
 #endif
 	{
