@@ -343,8 +343,13 @@ lwsl_timestamp(int level, char *p, int len);
 
 #endif
 
+#define lwsl_hexdump_err(...) lwsl_hexdump_level(LLL_ERR, __VA_ARGS__)
+#define lwsl_hexdump_warn(...) lwsl_hexdump_level(LLL_WARN, __VA_ARGS__)
+#define lwsl_hexdump_notice(...) lwsl_hexdump_level(LLL_NOTICE, __VA_ARGS__)
+#define lwsl_hexdump_info(...) lwsl_hexdump_level(LLL_INFO, __VA_ARGS__)
+
 /**
- * lwsl_hexdump() - helper to hexdump a buffer
+ * lwsl_hexdump_level() - helper to hexdump a buffer at a selected debug level
  *
  * \param level: one of LLL_ constants
  * \param vbuf: buffer start to dump
