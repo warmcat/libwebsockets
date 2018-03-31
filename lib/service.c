@@ -744,7 +744,7 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 		len -= n;
 		assert ((char *)buf >= (char *)h2n->rx_scratch &&
 			(char *)&buf[len] <=
-			    (char *)&h2n->rx_scratch[LWS_H2_RX_SCRATCH_SIZE]);
+			    (char *)&h2n->rx_scratch[wsi->vhost->h2_rx_scratch_size]);
 
 		h2n->rx_scratch_pos = lws_ptr_diff(buf, h2n->rx_scratch);
 		h2n->rx_scratch_len = len;
@@ -1690,13 +1690,13 @@ read:
 					if (!wsi->h2.h2n->rx_scratch) {
 						wsi->h2.h2n->rx_scratch =
 							lws_malloc(
-							 LWS_H2_RX_SCRATCH_SIZE,
+							wsi->vhost->h2_rx_scratch_size,
 							 "h2 rx scratch");
 						if (!wsi->h2.h2n->rx_scratch)
 							goto close_and_handled;
 					}
 					eff_buf.token = wsi->h2.h2n->rx_scratch;
-					eff_buf.token_len = LWS_H2_RX_SCRATCH_SIZE;
+					eff_buf.token_len = wsi->vhost->h2_rx_scratch_size;
 				} else
 #endif
 				{

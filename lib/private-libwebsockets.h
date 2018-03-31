@@ -407,6 +407,8 @@ extern "C" {
 #define SYSTEM_RANDOM_FILEPATH "/dev/urandom"
 #endif
 
+#define LWS_H2_RX_SCRATCH_SIZE 512
+
 /*
  * Choose the SSL backend
  */
@@ -994,6 +996,7 @@ struct lws_vhost {
 
 	int listen_port;
 	unsigned int http_proxy_port;
+	unsigned int h2_rx_scratch_size;
 #if defined(LWS_WITH_SOCKS5)
 	unsigned int socks_proxy_port;
 #endif
@@ -1640,8 +1643,6 @@ struct lws_h2_ghost_sid {
 	struct lws_h2_ghost_sid *next;
 	uint32_t sid;
 };
-
-#define LWS_H2_RX_SCRATCH_SIZE 512
 
 /*
  * http/2 connection info that is only used by the root connection that has

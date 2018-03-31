@@ -617,6 +617,10 @@ lws_create_vhost(struct lws_context *context,
 	vh->pvo = info->pvo;
 	vh->headers = info->headers;
 	vh->user = info->user;
+	if (!info->h2_rx_scratch_size)
+		vh->h2_rx_scratch_size = LWS_H2_RX_SCRATCH_SIZE;
+	else
+		vh->h2_rx_scratch_size = info->h2_rx_scratch_size;
 	vh->ssl_info_event_mask = info->ssl_info_event_mask;
 	if (info->keepalive_timeout)
 		vh->keepalive_timeout = info->keepalive_timeout;
