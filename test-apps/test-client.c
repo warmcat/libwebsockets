@@ -365,6 +365,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		lwsl_user("LWS_CALLBACK_CLIENT_WRITEABLE\n");
 		if (flag_no_mirror_traffic)
 			return 0;
 

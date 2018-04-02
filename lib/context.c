@@ -966,7 +966,7 @@ lws_create_event_pipes(struct lws_context *context)
 			return 1;
 		}
 		wsi->context = context;
-		wsi->mode = LWSCM_EVENT_PIPE;
+		lwsi_set_role(wsi, LWSI_ROLE_EVENT_PIPE);
 		wsi->protocol = NULL;
 		wsi->tsi = n;
 		wsi->vhost = NULL;

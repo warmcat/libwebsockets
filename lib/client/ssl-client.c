@@ -29,8 +29,7 @@ lws_ssl_client_connect1(struct lws *wsi)
 
 	lws_latency_pre(context, wsi);
 	n = lws_tls_client_connect(wsi);
-	lws_latency(context, wsi,
-	  "SSL_connect LWSCM_WSCL_ISSUE_HANDSHAKE", n, n > 0);
+	lws_latency(context, wsi, "SSL_connect hs", n, n > 0);
 
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
@@ -41,7 +40,7 @@ lws_ssl_client_connect1(struct lws *wsi)
 		lws_callback_on_writable(wsi);
 		/* fallthru */
 	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		wsi->mode = LWSCM_WSCL_WAITING_SSL;
+		lwsi_set_state(wsi, LRS_WAITING_SSL);
 		break;
 	case LWS_SSL_CAPABLE_MORE_SERVICE:
 		break;
@@ -55,13 +54,13 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len)
 {
 	int n = 0;
 
-	if (wsi->mode == LWSCM_WSCL_WAITING_SSL) {
+	if (lwsi_state(wsi) == LRS_WAITING_SSL) {
 		lws_latency_pre(wsi->context, wsi);
 
 		n = lws_tls_client_connect(wsi);
 		lwsl_debug("%s: SSL_connect says %d\n", __func__, n);
 		lws_latency(wsi->context, wsi,
-			    "SSL_connect LWSCM_WSCL_WAITING_SSL", n, n > 0);
+			    "SSL_connect LRS_WAITING_SSL", n, n > 0);
 
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
@@ -73,7 +72,7 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len)
 			lws_callback_on_writable(wsi);
 			/* fallthru */
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-			wsi->mode = LWSCM_WSCL_WAITING_SSL;
+			lwsi_set_state(wsi, LRS_WAITING_SSL);
 			/* fallthru */
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			return 0;

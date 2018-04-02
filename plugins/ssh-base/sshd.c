@@ -1724,7 +1724,7 @@ again:
 			if (ch->peer_window_est < 32768) {
 				write_task(pss, ch, SSH_WT_WINDOW_ADJUST);
 				ch->peer_window_est += 32768;
-				lwsl_notice("extra peer WINDOW_ADJUST (~ %d)\n",
+				lwsl_info("extra peer WINDOW_ADJUST (~ %d)\n",
 					    ch->peer_window_est);
 			}
 

@@ -54,7 +54,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd->u.filefd != -1)
+		if (vhd && vhd->u.filefd != -1)
 			close(vhd->u.filefd);
 		break;
 

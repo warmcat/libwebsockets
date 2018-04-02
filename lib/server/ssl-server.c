@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -118,9 +118,9 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 	if (!LWS_SSL_ENABLED(wsi->vhost))
 		return 0;
 
-	switch (wsi->mode) {
-	case LWSCM_SSL_INIT:
-	case LWSCM_SSL_INIT_RAW:
+	switch (lwsi_state(wsi)) {
+	case LRS_SSL_INIT:
+
 		if (wsi->ssl)
 			lwsl_err("%s: leaking ssl\n", __func__);
 		if (accept_fd == LWS_SOCK_INVALID)
@@ -144,10 +144,6 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			/* that was the last allowed SSL connection */
 			lws_gate_accepts(context, 0);
 
-		//lwsl_notice("%s: ssl restr %d, simul %d\n", __func__,
-		//		context->simultaneous_ssl_restriction,
-		//		context->simultaneous_ssl);
-
 #if defined(LWS_WITH_STATS)
 	context->updated = 1;
 #endif
@@ -156,10 +152,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		 * as a live connection.  That way we can retry when more
 		 * pieces come if we're not sorted yet
 		 */
-		if (wsi->mode == LWSCM_SSL_INIT)
-			wsi->mode = LWSCM_SSL_ACK_PENDING;
-		else
-			wsi->mode = LWSCM_SSL_ACK_PENDING_RAW;
+		lwsi_set_state(wsi, LRS_SSL_ACK_PENDING);
 
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(context, wsi)) {
@@ -175,8 +168,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 		/* fallthru */
 
-	case LWSCM_SSL_ACK_PENDING:
-	case LWSCM_SSL_ACK_PENDING_RAW:
+	case LRS_SSL_ACK_PENDING:
+
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_err("%s: lws_change_pollfd failed\n", __func__);
 			goto fail;
@@ -258,7 +251,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				      LWSSTATS_C_SSL_CONNECTIONS_ACCEPT_SPIN, 1);
 		n = lws_tls_server_accept(wsi);
 		lws_latency(context, wsi,
-			"SSL_accept LWSCM_SSL_ACK_PENDING\n", n, n == 1);
+			"SSL_accept LRS_SSL_ACK_PENDING\n", n, n == 1);
 		lwsl_info("SSL_accept says %d\n", n);
 		switch (n) {
 		case LWS_SSL_CAPABLE_DONE:
@@ -302,15 +295,16 @@ accepted:
 		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
 				context->timeout_secs);
 
-		if (wsi->mode == LWSCM_SSL_ACK_PENDING_RAW)
-			wsi->mode = LWSCM_RAW;
-		else
-			wsi->mode = LWSCM_HTTP_SERVING;
+		lwsi_set_state(wsi, LRS_ESTABLISHED);
+
 #if defined(LWS_WITH_HTTP2)
 		if (lws_h2_configure_if_upgraded(wsi))
 			goto fail;
 #endif
 		lwsl_debug("accepted new SSL conn\n");
+		break;
+
+	default:
 		break;
 	}
 

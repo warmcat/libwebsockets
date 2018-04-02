@@ -428,7 +428,7 @@ lws_callback_on_writable(struct lws *wsi)
 #endif
 	int n;
 
-	if (wsi->state == LWSS_SHUTDOWN)
+	if (lwsi_state(wsi) == LRS_SHUTDOWN)
 		return 0;
 
 	if (wsi->socket_is_permanently_unusable)
@@ -462,12 +462,9 @@ lws_callback_on_writable(struct lws *wsi)
 #endif
 
 #ifdef LWS_WITH_HTTP2
-	lwsl_info("%s: %p (mode %d)\n", __func__, wsi, wsi->mode);
+	lwsl_info("%s: %p (role/state 0x%x)\n", __func__, wsi, wsi->wsistate);
 
-	if (wsi->mode != LWSCM_HTTP2_SERVING &&
-	    wsi->mode != LWSCM_HTTP2_CLIENT &&
-	    wsi->mode != LWSCM_HTTP2_CLIENT_ACCEPTED &&
-	    wsi->mode != LWSCM_HTTP2_WS_SERVING)
+	if (!lwsi_role_h2(wsi))
 		goto network_sock;
 
 	if (wsi->h2.requested_POLLOUT

@@ -88,22 +88,39 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
+static int findswitch(int argc, char **argv, const char *val)
+{
+	while (--argc > 0) {
+		if (!strcmp(argv[argc], val))
+			return argc;
+	}
+
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
-	int n = 0;
+	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+		   /*
+		    * For LLL_ verbosity above NOTICE to be built into lws,
+		    * lws must have been configured and built with
+		    * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE
+		    *
+		    * | LLL_INFO   | LLL_PARSER  | LLL_HEADER | LLL_EXT |
+		    *   LLL_CLIENT | LLL_LATENCY | LLL_DEBUG
+		    */ ;
+	int n = 0, m;
 
 	signal(SIGINT, sigint_handler);
-	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-			/* for LLL_ verbosity above NOTICE to be built into lws,
-			 * lws must have been configured and built with
-			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
-			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
-			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-			/* | LLL_DEBUG */, NULL);
+	/* you can set the log level on commandline with, eg, -d 15 */
+	m = findswitch(argc, argv, "-d");
+	if (m && m + 1 < argc)
+		logs = atoi(argv[m + 1]);
 
+	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS minimal http client\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */

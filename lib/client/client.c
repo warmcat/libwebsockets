@@ -26,47 +26,43 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	int m;
 
-	switch (wsi->mode) {
-	case LWSCM_WSCL_WAITING_PROXY_REPLY:
-	case LWSCM_WSCL_ISSUE_HANDSHAKE:
-	case LWSCM_WSCL_WAITING_SERVER_REPLY:
-	case LWSCM_WSCL_WAITING_EXTENSION_CONNECT:
-	case LWSCM_WS_CLIENT:
-		while (len) {
-			/*
-			 * we were accepting input but now we stopped doing so
-			 */
-			if (lws_is_flowcontrolled(wsi)) {
-				lwsl_debug("%s: caching %ld\n", __func__, (long)len);
-				lws_rxflow_cache(wsi, *buf, 0, (int)len);
-				return 0;
-			}
-			if (wsi->ws->rx_draining_ext) {
-#if !defined(LWS_NO_CLIENT)
-				if (wsi->mode == LWSCM_WS_CLIENT)
-					m = lws_client_rx_sm(wsi, 0);
-				else
-#endif
-					m = lws_rx_sm(wsi, 0);
-				if (m < 0)
-					return -1;
-				continue;
-			}
-			/* account for what we're using in rxflow buffer */
-			if (wsi->rxflow_buffer)
-				wsi->rxflow_pos++;
-
-			if (lws_client_rx_sm(wsi, *(*buf)++)) {
-				lwsl_debug("client_rx_sm exited\n");
-				return -1;
-			}
-			len--;
-		}
-		lwsl_debug("%s: finished with %ld\n", __func__, (long)len);
+	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
+	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
+	    (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY) &&
+	    !lwsi_role_client(wsi))
 		return 0;
-	default:
-		break;
+
+	while (len) {
+		/*
+		 * we were accepting input but now we stopped doing so
+		 */
+		if (lws_is_flowcontrolled(wsi)) {
+			lwsl_debug("%s: caching %ld\n", __func__, (long)len);
+			lws_rxflow_cache(wsi, *buf, 0, (int)len);
+			return 0;
+		}
+		if (wsi->ws->rx_draining_ext) {
+#if !defined(LWS_NO_CLIENT)
+			if (lwsi_role_client(wsi))
+				m = lws_client_rx_sm(wsi, 0);
+			else
+#endif
+				m = lws_rx_sm(wsi, 0);
+			if (m < 0)
+				return -1;
+			continue;
+		}
+		/* account for what we're using in rxflow buffer */
+		if (wsi->rxflow_buffer)
+			wsi->rxflow_pos++;
+
+		if (lws_client_rx_sm(wsi, *(*buf)++)) {
+			lwsl_debug("client_rx_sm exited\n");
+			return -1;
+		}
+		len--;
 	}
+	lwsl_debug("%s: finished with %ld\n", __func__, (long)len);
 
 	return 0;
 }
@@ -163,7 +159,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			struct lws *w = lws_container_of(d, struct lws,
 						  dll_client_transaction_queue);
 
-			if (w->mode == LWSCM_WSCL_ISSUE_HANDSHAKE2) {
+			if (lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2) {
 				/*
 				 * pollfd has the master sockfd in it... we
 				 * need to use that in HANDSHAKE2 to understand
@@ -179,9 +175,9 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		return 0;
 	}
 
-	switch (wsi->mode) {
+	switch (lwsi_state(wsi)) {
 
-	case LWSCM_WSCL_WAITING_CONNECT:
+	case LRS_WAITING_CONNECT:
 
 		/*
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
@@ -199,9 +195,9 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 
 #if defined(LWS_WITH_SOCKS5)
 	/* SOCKS Greeting Reply */
-	case LWSCM_WSCL_WAITING_SOCKS_GREETING_REPLY:
-	case LWSCM_WSCL_WAITING_SOCKS_AUTH_REPLY:
-	case LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY:
+	case LRS_WAITING_SOCKS_GREETING_REPLY:
+	case LRS_WAITING_SOCKS_AUTH_REPLY:
+	case LRS_WAITING_SOCKS_CONNECT_REPLY:
 
 		/* handle proxy hung up on us */
 
@@ -221,16 +217,16 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			goto bail3;
 		}
 
-		switch (wsi->mode) {
+		switch (lwsi_state(wsi)) {
 
-		case LWSCM_WSCL_WAITING_SOCKS_GREETING_REPLY:
+		case LRS_WAITING_SOCKS_GREETING_REPLY:
 			if (pt->serv_buf[0] != SOCKS_VERSION_5)
 				goto socks_reply_fail;
 
 			if (pt->serv_buf[1] == SOCKS_AUTH_NO_AUTH) {
 				lwsl_client("SOCKS GR: No Auth Method\n");
 				socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len);
-				conn_mode = LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY;
+				conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
 				pending_timeout =
 				   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
 				goto socks_send;
@@ -241,21 +237,21 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 				socks_generate_msg(wsi,
 						   SOCKS_MSG_USERNAME_PASSWORD,
 						   &len);
-				conn_mode = LWSCM_WSCL_WAITING_SOCKS_AUTH_REPLY;
+				conn_mode = LRS_WAITING_SOCKS_AUTH_REPLY;
 				pending_timeout =
 				      PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY;
 				goto socks_send;
 			}
 			goto socks_reply_fail;
 
-		case LWSCM_WSCL_WAITING_SOCKS_AUTH_REPLY:
+		case LRS_WAITING_SOCKS_AUTH_REPLY:
 			if (pt->serv_buf[0] != SOCKS_SUBNEGOTIATION_VERSION_1 ||
 			    pt->serv_buf[1] != SOCKS_SUBNEGOTIATION_STATUS_SUCCESS)
 				goto socks_reply_fail;
 
 			lwsl_client("SOCKS password OK, sending connect\n");
 			socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len);
-			conn_mode = LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY;
+			conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
 			pending_timeout =
 				   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
 socks_send:
@@ -267,7 +263,7 @@ socks_send:
 			}
 
 			lws_set_timeout(wsi, pending_timeout, AWAITING_TIMEOUT);
-			wsi->mode = conn_mode;
+			lwsi_set_state(wsi, conn_mode);
 			break;
 
 socks_reply_fail:
@@ -275,7 +271,7 @@ socks_reply_fail:
 				    pt->serv_buf[0], pt->serv_buf[1]);
 			goto bail3;
 
-		case LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY:
+		case LRS_WAITING_SOCKS_CONNECT_REPLY:
 			if (pt->serv_buf[0] != SOCKS_VERSION_5 ||
 			    pt->serv_buf[1] != SOCKS_REQUEST_REPLY_SUCCESS)
 				goto socks_reply_fail;
@@ -298,7 +294,7 @@ socks_reply_fail:
 		break;
 #endif
 
-	case LWSCM_WSCL_WAITING_PROXY_REPLY:
+	case LRS_WAITING_PROXY_REPLY:
 
 		/* handle proxy hung up on us */
 
@@ -333,7 +329,7 @@ socks_reply_fail:
 
 		/* fallthru */
 
-	case LWSCM_WSCL_ISSUE_HANDSHAKE:
+	case LRS_H1C_ISSUE_HANDSHAKE:
 
 		/*
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
@@ -370,7 +366,7 @@ start_ws_handshake:
 
 		/* fallthru */
 
-	case LWSCM_WSCL_WAITING_SSL:
+	case LRS_WAITING_SSL:
 
 		if (wsi->use_ssl & LCCSCF_USE_SSL) {
 			n = lws_ssl_client_connect2(wsi, ebuf, sizeof(ebuf));
@@ -395,8 +391,8 @@ start_ws_handshake:
 			lwsl_info("client connection upgraded to h2\n");
 			lws_h2_configure_if_upgraded(wsi);
 
-			lws_union_transition(wsi, LWSCM_HTTP2_CLIENT);
-			wsi->state = LWSS_HTTP2_CLIENT_SEND_SETTINGS;
+			lws_role_transition(wsi, LWSI_ROLE_H2_CLIENT,
+					    LRS_H2_CLIENT_SEND_SETTINGS);
 
 			/* send the H2 preface to legitimize the connection */
 			if (lws_h2_issue_preface(wsi)) {
@@ -407,16 +403,16 @@ start_ws_handshake:
 			break;
 		}
 #endif
-		wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE2;
+		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 				context->timeout_secs);
 
 		/* fallthru */
 
-	case LWSCM_WSCL_ISSUE_HANDSHAKE2:
+	case LRS_H1C_ISSUE_HANDSHAKE2:
 		p = lws_generate_client_handshake(wsi, p);
 		if (p == NULL) {
-			if (wsi->mode == LWSCM_RAW)
+			if (lwsi_role_raw(wsi))
 				return 0;
 
 			lwsl_err("Failed to generate handshake for client\n");
@@ -445,7 +441,7 @@ start_ws_handshake:
 		}
 
 		if (wsi->client_http_body_pending) {
-			wsi->mode = LWSCM_WSCL_ISSUE_HTTP_BODY;
+			lwsi_set_state(wsi, LRS_ISSUE_HTTP_BODY);
 			lws_set_timeout(wsi,
 					PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
 					context->timeout_secs);
@@ -457,7 +453,7 @@ start_ws_handshake:
 
 		goto client_http_body_sent;
 
-	case LWSCM_WSCL_ISSUE_HTTP_BODY:
+	case LRS_ISSUE_HTTP_BODY:
 		if (wsi->client_http_body_pending) {
 			lws_set_timeout(wsi,
 					PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
@@ -469,12 +465,12 @@ client_http_body_sent:
 		/* prepare ourselves to do the parsing */
 		wsi->ah->parser_state = WSI_TOKEN_NAME_PART;
 		wsi->ah->lextable_pos = 0;
-		wsi->mode = LWSCM_WSCL_WAITING_SERVER_REPLY;
+		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				context->timeout_secs);
 		break;
 
-	case LWSCM_WSCL_WAITING_SERVER_REPLY:
+	case LRS_WAITING_SERVER_REPLY:
 		/*
 		 * handle server hanging up on us...
 		 * but if there is POLLIN waiting, handle that first
@@ -556,13 +552,6 @@ bail3:
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
 		return -1;
 
-	case LWSCM_WSCL_WAITING_EXTENSION_CONNECT:
-		lwsl_ext("LWSCM_WSCL_WAITING_EXTENSION_CONNECT\n");
-		break;
-
-	case LWSCM_WSCL_PENDING_CANDIDATE_CHILD:
-		lwsl_ext("LWSCM_WSCL_PENDING_CANDIDATE_CHILD\n");
-		break;
 	default:
 		break;
 	}
@@ -598,8 +587,8 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
 			wsi_eff, LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
 			wsi_eff->user_space, NULL, 0)) {
-		lwsl_debug("%s: Completed call returned nonzero (mode %d)\n",
-						__func__, wsi_eff->mode);
+		lwsl_debug("%s: Completed call returned nonzero (role 0x%x)\n",
+						__func__, lwsi_role(wsi_eff));
 		return -1;
 	}
 
@@ -652,17 +641,16 @@ lws_http_transaction_completed_client(struct lws *wsi)
 
 	/*
 	 * H1: we can serialize the queued guys into into the same ah
-	 * (H2: everybody needs their own ah until STREAM_END)
+	 * H2: everybody needs their own ah until their own STREAM_END
 	 */
 
 	/* otherwise set ourselves up ready to go again */
-	wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
+	lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 	wsi->http.rx_content_length = 0;
 	wsi->hdr_parsing_completed = 0;
 
 	wsi->ah->parser_state = WSI_TOKEN_NAME_PART;
 	wsi->ah->lextable_pos = 0;
-	wsi->mode = LWSCM_WSCL_WAITING_SERVER_REPLY;
 
 	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 			wsi->context->timeout_secs);
@@ -729,10 +717,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* we are being an http client...
 		 */
 		if (wsi->client_h2_alpn)
-			lws_union_transition(wsi, LWSCM_HTTP2_CLIENT_ACCEPTED);
+			lws_role_transition(wsi, LWSI_ROLE_H2_CLIENT,
+						LRS_ESTABLISHED);
 		else
-			lws_union_transition(wsi, LWSCM_HTTP_CLIENT_ACCEPTED);
-		wsi->state = LWSS_CLIENT_HTTP_ESTABLISHED;
+			lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT,
+					    LRS_ESTABLISHED);
+
 		wsi->ah = ah;
 		ah->http_response = 0;
 	}
@@ -889,9 +879,10 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					ww->client_pipeline = 0;
 
 					/* go back to "trying to connect" state */
-					lws_union_transition(ww, LWSCM_HTTP_CLIENT);
+					lws_role_transition(ww,
+							LWSI_ROLE_H1_CLIENT,
+							LRS_UNCONNECTED);
 					ww->user_space = NULL;
-					ww->state = LWSS_CLIENT_UNCONNECTED;
 				} lws_end_foreach_dll_safe(d, d1);
 				lws_vhost_unlock(wsi->vhost);
 			}
@@ -1084,7 +1075,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	 */
 	n = 0;
 	/* keep client connection pre-bound protocol */
-	if (!(wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP))
+	if (!lwsi_role_client(wsi))
 		wsi->protocol = NULL;
 
 	while (wsi->vhost->protocols[n].callback) {
@@ -1098,7 +1089,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	if (!wsi->vhost->protocols[n].callback) { /* no match */
 		/* if server, that's already fatal */
-		if (!(wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP)) {
+		if (!lwsi_role_client(wsi)) {
 			lwsl_info("%s: fail protocol %s\n", __func__, p);
 			cce = "HS: Cannot match protocol";
 			goto bail2;
@@ -1336,8 +1327,7 @@ check_accept:
 	/* free up his parsing allocations */
 	lws_header_table_detach(wsi, 0);
 
-	lws_union_transition(wsi, LWSCM_WS_CLIENT);
-	wsi->state = LWSS_ESTABLISHED;
+	lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT, LRS_ESTABLISHED);
 	lws_restart_ws_ping_pong_timer(wsi);
 
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
@@ -1369,6 +1359,8 @@ check_accept:
 		goto bail3;
 	}
 #endif
+
+	lwsi_set_role(wsi, LWSI_ROLE_WS1_CLIENT);
 
 	lwsl_debug("handshake OK for protocol %s\n", wsi->protocol->name);
 
@@ -1470,7 +1462,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			return NULL;
 
 		lws_header_table_force_to_detachable_state(wsi);
-		lws_union_transition(wsi, LWSCM_RAW);
+		lws_role_transition(wsi, LWSI_ROLE_RAW_SOCKET, LRS_ESTABLISHED);
 		lws_header_table_detach(wsi, 1);
 
 		return NULL;

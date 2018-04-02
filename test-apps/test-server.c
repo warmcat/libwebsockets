@@ -253,6 +253,7 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
 #endif
+	char no_dumb_send = 0;
 
 	/*
 	 * take care to zero down the info struct, he contains random garbaage
@@ -262,7 +263,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:P:kU:", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:P:kU:n", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -285,6 +286,9 @@ int main(int argc, char **argv)
 			break;
 		case 'd':
 			debug_level = atoi(optarg);
+			break;
+		case 'n':
+			no_dumb_send = 1;
 			break;
 		case 's':
 			use_ssl = 1;
@@ -501,8 +505,9 @@ int main(int argc, char **argv)
 
 		ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
 		if ((ms - oldms) > 50) {
-			lws_callback_on_writable_all_protocol(context,
-				&protocols[PROTOCOL_DUMB_INCREMENT]);
+			if (!no_dumb_send)
+				lws_callback_on_writable_all_protocol(context,
+					&protocols[PROTOCOL_DUMB_INCREMENT]);
 			oldms = ms;
 		}
 

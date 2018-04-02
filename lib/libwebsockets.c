@@ -58,6 +58,22 @@ static const char * const log_level_names[] = {
 };
 #endif
 
+#if defined (_DEBUG)
+void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role)
+{
+	wsi->wsistate = (wsi->wsistate & (~LWSI_ROLE_MASK)) | role;
+
+	lwsl_debug("lwsi_set_role(%p, 0x%x)\n", wsi, wsi->wsistate);
+}
+
+void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs)
+{
+	wsi->wsistate = (wsi->wsistate & (~LRS_MASK)) | lrs;
+
+	lwsl_debug("lwsi_set_state(%p, 0x%x)\n", wsi, wsi->wsistate);
+}
+#endif
+
 void
 __lws_free_wsi(struct lws *wsi)
 {
@@ -588,7 +604,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		wsi->child_list = NULL;
 	}
 
-	if (wsi->mode == LWSCM_RAW_FILEDESC) {
+	if (lwsi_role(wsi) == LWSI_ROLE_RAW_FILE) {
 		lws_remove_child_from_any_parent(wsi);
 		__remove_wsi_socket_from_fds(wsi);
 		wsi->protocol->callback(wsi, LWS_CALLBACK_RAW_CLOSE_FILE,
@@ -596,10 +612,10 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		goto async_close;
 	}
 
-	wsi->state_pre_close = wsi->state;
+	wsi->wsistate_pre_close = wsi->wsistate;
 
 #ifdef LWS_WITH_CGI
-	if (wsi->mode == LWSCM_CGI) {
+	if (lwsi_role(wsi) == LWSI_ROLE_CGI) {
 		/* we are not a network connection, but a handler for CGI io */
 		if (wsi->parent && wsi->parent->cgi) {
 
@@ -622,16 +638,14 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	lws_client_stash_destroy(wsi);
 #endif
 
-	if (wsi->mode == LWSCM_RAW) {
+	if (lwsi_role(wsi) == LWSI_ROLE_RAW_SOCKET) {
 		wsi->protocol->callback(wsi,
 			LWS_CALLBACK_RAW_CLOSE, wsi->user_space, NULL, 0);
 		wsi->socket_is_permanently_unusable = 1;
 		goto just_kill_connection;
 	}
 
-	if ((wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED ||
-	     wsi->mode == LWSCM_HTTP2_SERVING) &&
-	    wsi->http.fop_fd != NULL) {
+	if (lwsi_role_http_server(wsi) && wsi->http.fop_fd != NULL) {
 		lws_vfs_file_close(&wsi->http.fop_fd);
 		wsi->vhost->protocols->callback(wsi,
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
@@ -639,29 +653,29 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	}
 	if (wsi->socket_is_permanently_unusable ||
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY ||
-	    wsi->state == LWSS_SHUTDOWN)
+	    lwsi_state(wsi) == LRS_SHUTDOWN)
 		goto just_kill_connection;
 
-	switch (wsi->state_pre_close) {
-	case LWSS_DEAD_SOCKET:
+	switch (wsi->wsistate_pre_close & LRS_MASK) {
+	case LRS_DEAD_SOCKET:
 		return;
 
 	/* we tried the polite way... */
-	case LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION:
-	case LWSS_AWAITING_CLOSE_ACK:
+	case LRS_WAITING_TO_SEND_CLOSE:
+	case LRS_AWAITING_CLOSE_ACK:
 		goto just_kill_connection;
 
-	case LWSS_FLUSHING_SEND_BEFORE_CLOSE:
+	case LRS_FLUSHING_BEFORE_CLOSE:
 		if (wsi->trunc_len) {
 			lws_callback_on_writable(wsi);
 			return;
 		}
-		lwsl_info("%p: end FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
+		lwsl_info("%p: end LRS_FLUSHING_BEFORE_CLOSE\n", wsi);
 		goto just_kill_connection;
 	default:
 		if (wsi->trunc_len) {
-			lwsl_info("%p: FLUSHING_STORED_SEND_BEFORE_CLOSE\n", wsi);
-			wsi->state = LWSS_FLUSHING_SEND_BEFORE_CLOSE;
+			lwsl_info("%p: LRS_FLUSHING_BEFORE_CLOSE\n", wsi);
+			lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
 			__lws_set_timeout(wsi,
 				PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 			return;
@@ -669,13 +683,11 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		break;
 	}
 
-	if (wsi->mode == LWSCM_WSCL_WAITING_CONNECT ||
-	    wsi->mode == LWSCM_WSCL_ISSUE_HANDSHAKE)
+	if (lwsi_state(wsi) == LRS_WAITING_CONNECT ||
+	    lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
 
-	if (!wsi->told_user_closed &&
-	    (wsi->mode == LWSCM_HTTP_SERVING ||
-	     wsi->mode == LWSCM_HTTP2_SERVING)) {
+	if (!wsi->told_user_closed && lwsi_role_http_server(wsi)) {
 		if (wsi->user_space && wsi->protocol_bind_balance) {
 			wsi->vhost->protocols->callback(wsi,
 						LWS_CALLBACK_HTTP_DROP_PROTOCOL,
@@ -731,14 +743,14 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	 * add any necessary version-specific stuff.  If the write fails,
 	 * no worries we are closing anyway.  If we didn't initiate this
 	 * close, then our state has been changed to
-	 * LWSS_RETURNED_CLOSE_ALREADY and we will skip this.
+	 * LRS_RETURNED_CLOSE and we will skip this.
 	 *
 	 * Likewise if it's a second call to close this connection after we
 	 * sent the close indication to the peer already, we are in state
-	 * LWSS_AWAITING_CLOSE_ACK and will skip doing this a second time.
+	 * LRS_AWAITING_CLOSE_ACK and will skip doing this a second time.
 	 */
 
-	if (lws_state_is_ws(wsi->state_pre_close) &&
+	if ((wsi->wsistate_pre_close & LWSIFR_WS) &&
 	    (wsi->ws->close_in_ping_buffer_len || /* already a reason */
 	     (reason != LWS_CLOSE_STATUS_NOSTATUS &&
 	     (reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)))) {
@@ -755,7 +767,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 
 		lwsl_debug("waiting for chance to send close\n");
 		wsi->waiting_to_send_close_frame = 1;
-		wsi->state = LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION;
+		lwsi_set_state(wsi, LRS_WAITING_TO_SEND_CLOSE);
 		__lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
 		lws_callback_on_writable(wsi);
 
@@ -862,21 +874,19 @@ just_kill_connection:
 		wsi->protocol_bind_balance = 0;
 	}
 
-	if ((wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||
-	     wsi->mode == LWSCM_WSCL_WAITING_CONNECT) &&
-	    !wsi->already_did_cce)
+	if ((lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY ||
+	     lwsi_state(wsi) == LRS_WAITING_CONNECT) && !wsi->already_did_cce)
 		wsi->protocol->callback(wsi,
-				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+				        LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 						wsi->user_space, NULL, 0);
 
-	if (wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP) {
+	if (lwsi_role_client(wsi) && !(lwsi_state(wsi) & LWSIFS_NOTEST)) {
 		const struct lws_protocols *pro = wsi->protocol;
 
 		if (!wsi->protocol)
 			pro = &wsi->vhost->protocols[0];
-		pro->callback(wsi,
-					LWS_CALLBACK_CLOSED_CLIENT_HTTP,
-						  wsi->user_space, NULL, 0);
+		pro->callback(wsi, LWS_CALLBACK_CLOSED_CLIENT_HTTP,
+			      wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;
 	}
 
@@ -889,10 +899,10 @@ just_kill_connection:
 	 * for the POLLIN to show a zero-size rx before coming back and doing
 	 * the actual close.
 	 */
-	if (wsi->mode != LWSCM_RAW &&
-	    !(wsi->mode & LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP) &&
-	    wsi->state != LWSS_SHUTDOWN &&
-	    wsi->state != LWSS_CLIENT_UNCONNECTED &&
+	if (lwsi_role(wsi) != LWSI_ROLE_RAW_SOCKET &&
+	    !lwsi_role_client(wsi) &&
+	    lwsi_state(wsi) != LRS_SHUTDOWN &&
+	    lwsi_state(wsi) != LRS_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !wsi->socket_is_permanently_unusable) {
 
@@ -910,9 +920,9 @@ just_kill_connection:
 	} else
 #endif
 		{
-			lwsl_info("%s: shutdown conn: %p (sock %d, state %d)\n",
+			lwsl_info("%s: shutdown conn: %p (sock %d, state 0x%x)\n",
 				  __func__, wsi, (int)(long)wsi->desc.sockfd,
-				  wsi->state);
+				  lwsi_state(wsi));
 			if (!wsi->socket_is_permanently_unusable &&
 			    lws_sockfd_valid(wsi->desc.sockfd)) {
 				wsi->socket_is_permanently_unusable = 1;
@@ -920,8 +930,8 @@ just_kill_connection:
 			}
 		}
 		if (n)
-			lwsl_debug("closing: shutdown (state %d) ret %d\n",
-				   wsi->state, LWS_ERRNO);
+			lwsl_debug("closing: shutdown (state 0x%x) ret %d\n",
+				   lwsi_state(wsi), LWS_ERRNO);
 
 		/*
 		 * This causes problems on WINCE / ESP32 with disconnection
@@ -931,10 +941,10 @@ just_kill_connection:
 		/* libuv: no event available to guarantee completion */
 		if (!wsi->socket_is_permanently_unusable &&
 		    lws_sockfd_valid(wsi->desc.sockfd) &&
-		    wsi->state != ((wsi->state & ~0x1f) | LWSS_SHUTDOWN) &&
+		    lwsi_state(wsi) != LRS_SHUTDOWN &&
 		    !LWS_LIBUV_ENABLED(context)) {
 			__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
-			wsi->state = (wsi->state & ~0x1f) | LWSS_SHUTDOWN;
+			lwsi_set_state(wsi, LRS_SHUTDOWN);
 			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
 					context->timeout_secs);
 
@@ -967,13 +977,10 @@ just_kill_connection:
 	else
 		lws_same_vh_protocol_remove(wsi);
 
-	wsi->state = LWSS_DEAD_SOCKET;
+	lwsi_set_state(wsi, LRS_DEAD_SOCKET);
 	lws_free_set_NULL(wsi->rxflow_buffer);
 
-	if (lws_state_is_ws(wsi->state_pre_close) ||
-	    wsi->mode == LWSCM_WS_SERVING ||
-	    wsi->mode == LWSCM_HTTP2_WS_SERVING ||
-	    wsi->mode == LWSCM_WS_CLIENT) {
+	if ((wsi->wsistate_pre_close & LWSIFR_WS) || lwsi_role_ws(wsi)) {
 
 		if (wsi->ws->rx_draining_ext) {
 			struct lws **w = &pt->rx_draining_ext_list;
@@ -1016,24 +1023,23 @@ just_kill_connection:
 
 	/* tell the user it's all over for this guy */
 
-	if (wsi->protocol &&
-	    !wsi->told_user_closed &&
+	if (wsi->protocol && !wsi->told_user_closed &&
 	    wsi->protocol->callback &&
-	    wsi->mode != LWSCM_RAW &&
-	    (wsi->state_pre_close & _LSF_CCB)) {
-		if (wsi->mode == LWSCM_WS_CLIENT)
+	    lwsi_role(wsi) != LWSI_ROLE_RAW_SOCKET &&
+	    !(wsi->wsistate_pre_close & LWSIFS_NOTEST)) {
+		if (lwsi_role_client(wsi))
 			wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_CLOSED,
 						wsi->user_space, NULL, 0);
 		else
 			wsi->protocol->callback(wsi, LWS_CALLBACK_CLOSED,
 						wsi->user_space, NULL, 0);
-	} else if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED) {
+	} else if (lwsi_role_http_server(wsi)) {
 		lwsl_debug("calling back CLOSED_HTTP\n");
 		wsi->vhost->protocols->callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0 );
 	} else
-		lwsl_debug("not calling back closed mode=%d state=%d\n",
-			   wsi->mode, wsi->state_pre_close);
+		lwsl_debug("not calling back closed role=0x%x state=0x%x\n",
+			   lwsi_role(wsi), wsi->wsistate_pre_close);
 
 	/* deallocate any active extension contexts */
 
@@ -1051,8 +1057,7 @@ async_close:
 	wsi->socket_is_permanently_unusable = 1;
 
 #ifdef LWS_WITH_LIBUV
-	if (!wsi->parent_carries_io &&
-	    lws_sockfd_valid(wsi->desc.sockfd))
+	if (!wsi->parent_carries_io && lws_sockfd_valid(wsi->desc.sockfd))
 		if (LWS_LIBUV_ENABLED(context)) {
 			if (wsi->listener) {
 				lwsl_debug("%s: stop listener poll\n", __func__);
@@ -1712,7 +1717,7 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 
 	wsi->rxflow_change_to = LWS_RXFLOW_PENDING_CHANGE | !wsi->rxflow_bitmap;
 
-	lwsl_info("%s: 0x%p: bitmap 0x%x: en 0x%x, ch 0x%x\n", __func__, wsi,
+	lwsl_info("%s: %p: bitmap 0x%x: en 0x%x, ch 0x%x\n", __func__, wsi,
 		  wsi->rxflow_bitmap, en, wsi->rxflow_change_to);
 
 	if (_enable & LWS_RXFLOW_REASON_FLAG_PROCESS_NOW ||
@@ -2220,7 +2225,7 @@ lws_get_peer_write_allowance(struct lws *wsi)
 {
 #ifdef LWS_WITH_HTTP2
 	/* only if we are using HTTP2 on this connection */
-	if (wsi->mode != LWSCM_HTTP2_SERVING)
+	if (!lwsi_role_h2(wsi))
 		return -1;
 
 	return lws_h2_tx_cr_get(wsi);
@@ -2231,10 +2236,11 @@ lws_get_peer_write_allowance(struct lws *wsi)
 }
 
 LWS_VISIBLE void
-lws_union_transition(struct lws *wsi, enum connection_mode mode)
+lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state)
 {
-	lwsl_debug("%s: %p: mode %d\n", __func__, wsi, mode);
-	wsi->mode = mode;
+	lwsl_debug("%s: %p: role 0x%x, state 0x%x\n", __func__, wsi, role, state);
+	lwsi_set_role(wsi, role);
+	lwsi_set_state(wsi, state);
 }
 
 LWS_VISIBLE struct lws_plat_file_ops *
@@ -2332,9 +2338,7 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
 	unsigned char *p, *start;
 	int budget = sizeof(wsi->ws->ping_payload_buf) - LWS_PRE;
 
-	assert(wsi->mode == LWSCM_WS_SERVING ||
-	       wsi->mode == LWSCM_HTTP2_WS_SERVING ||
-	       wsi->mode == LWSCM_WS_CLIENT);
+	assert(lwsi_role_ws(wsi));
 
 	start = p = &wsi->ws->ping_payload_buf[LWS_PRE];
 
@@ -2823,7 +2827,7 @@ LWS_EXTERN void
 lws_restart_ws_ping_pong_timer(struct lws *wsi)
 {
 	if (!wsi->context->ws_ping_pong_interval ||
-	    !lws_state_is_ws(wsi->state))
+	    !lwsi_role_ws(wsi))
 		return;
 
 	wsi->ws->time_next_ping_check = (time_t)lws_now_secs();

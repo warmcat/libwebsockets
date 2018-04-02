@@ -197,8 +197,8 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	wsi->h2.tx_cr = nwsi->h2.h2n->set.s[H2SET_INITIAL_WINDOW_SIZE];
 	wsi->h2.peer_tx_cr_est = nwsi->vhost->set.s[H2SET_INITIAL_WINDOW_SIZE];
 
-	wsi->state = LWSS_HTTP2_ESTABLISHED;
-	wsi->mode = parent_wsi->mode;
+	lwsi_set_state(wsi, LRS_ESTABLISHED);
+	lwsi_set_role(wsi, lwsi_role(parent_wsi));
 
 	wsi->protocol = &vh->protocols[0];
 	if (lws_ensure_user_space(wsi))
@@ -258,8 +258,9 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 	if (lws_ensure_user_space(wsi))
 		goto bail1;
 
-	wsi->state = LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS;
-	wsi->mode = LWSCM_HTTP2_CLIENT_ACCEPTED;
+	lwsi_set_role(wsi, LWSI_ROLE_H2_CLIENT);
+	lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+
 	lws_callback_on_writable(wsi);
 
 	wsi->vhost->conn_stats.h2_subs++;
@@ -289,8 +290,9 @@ int lws_h2_issue_preface(struct lws *wsi)
 		(int)strlen(preface))
 		return 1;
 
-	wsi->state = LWSS_HTTP2_CLIENT_ESTABLISHED;
-	wsi->mode = LWSCM_HTTP2_CLIENT_ACCEPTED;
+	lwsi_set_role(wsi, LWSI_ROLE_H2_CLIENT);
+	lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+
 	h2n->count = 0;
 	wsi->h2.tx_cr = 65535;
 
@@ -653,8 +655,8 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			goto bail;
 		}
 		/* this is the end of the preface dance then? */
-		if (wsi->state == LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS) {
-			wsi->state = LWSS_HTTP2_ESTABLISHED;
+		if (lwsi_state(wsi) == LRS_H2_AWAIT_SETTINGS) {
+			lwsi_set_state(wsi, LRS_ESTABLISHED);
 			wsi->http.fop_fd = NULL;
 			if (lws_is_ssl(lws_get_network_wsi(wsi)))
 				break;
@@ -825,7 +827,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		lwsl_notice("received oversize frame %d\n", h2n->length);
 		lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
 			      "Peer ignored our frame size setting");
-		return 0;
+		return 1;
 	}
 
 	if (h2n->swsi)
@@ -1198,11 +1200,11 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			assert(lws_h2_wsi_from_id(wsi, 1) == h2n->swsi);
 
-			wsi->state = LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS;
-			wsi->mode = LWSCM_HTTP2_CLIENT_ACCEPTED;
+			lwsi_set_role(wsi, LWSI_ROLE_H2_CLIENT);
+			lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
 
-			h2n->swsi->state = LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS;
-			h2n->swsi->mode = LWSCM_HTTP2_CLIENT_ACCEPTED;
+			lwsi_set_role(h2n->swsi, LWSI_ROLE_H2_CLIENT);
+			lwsi_set_state(h2n->swsi, LRS_H2_WAITING_TO_SEND_HEADERS);
 
 			/* pass on the initial headers to SID 1 */
 			h2n->swsi->ah = wsi->ah;
@@ -1244,7 +1246,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				struct lws *w = lws_container_of(d, struct lws,
 							  dll_client_transaction_queue);
 
-				if (w->mode == LWSCM_WSCL_ISSUE_HANDSHAKE2) {
+				if (lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2) {
 					lwsl_info("%s: client pipeq %p to be h2\n",
 							__func__, w);
 					/* remove ourselves from the client queue */
@@ -1400,7 +1402,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		wsi->vhost->conn_stats.h2_trans++;
 
-		h2n->swsi->state = LWSS_HTTP2_DEFERRING_ACTION;
+		lwsi_set_state(h2n->swsi, LRS_DEFERRING_ACTION);
 		lws_callback_on_writable(h2n->swsi);
 		break;
 
@@ -1434,8 +1436,14 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		    h2n->flags & LWS_H2_FLAG_END_STREAM) {
 			lwsl_info("%s: %p: DATA: end stream\n", __func__, h2n->swsi);
 
-			if (h2n->swsi->h2.h2_state == LWS_H2_STATE_OPEN)
+			if (h2n->swsi->h2.h2_state == LWS_H2_STATE_OPEN) {
 				lws_h2_state(h2n->swsi, LWS_H2_STATE_HALF_CLOSED_REMOTE);
+		//		lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
+		//				  "client done");
+
+		//		if (lws_http_transaction_completed_client(h2n->swsi))
+		//			lwsl_debug("tx completed returned close\n");
+			}
 
 			//if (h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_LOCAL)
 			{
@@ -1571,8 +1579,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 		// lwsl_notice("%s: 0x%x\n", __func__, c);
 
-		switch (wsi->state) {
-		case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
+		switch (lwsi_state(wsi)) {
+		case LRS_H2_AWAIT_PREFACE:
 			if (preface[h2n->count++] != c)
 				goto fail;
 
@@ -1580,7 +1588,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				break;
 
 			lwsl_info("http2: %p: established\n", wsi);
-			wsi->state = LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS;
+			lwsi_set_state(wsi, LRS_H2_AWAIT_SETTINGS);
 			h2n->count = 0;
 			wsi->h2.tx_cr = 65535;
 
@@ -1595,10 +1603,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 			lws_pps_schedule(wsi, pps);
 			break;
 
-		case LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS:
-		case LWSS_HTTP2_CLIENT_ESTABLISHED:
-		case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
-		case LWSS_HTTP2_ESTABLISHED:
+		case LRS_H2_WAITING_TO_SEND_HEADERS:
+		case LRS_ESTABLISHED:
+		case LRS_H2_AWAIT_SETTINGS:
 			if (h2n->frame_state != LWS_H2_FRAME_HEADER_LENGTH)
 				goto try_frame_start;
 
@@ -1700,6 +1707,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 			case LWS_H2_FRAME_TYPE_DATA:
 
+				// lwsl_notice("%s: LWS_H2_FRAME_TYPE_DATA\n", __func__);
+
 				/* let the network wsi live a bit longer if subs are active...
 				 * our frame may take a long time to chew through */
 				if (!wsi->ws_over_h2_count)
@@ -1708,9 +1717,11 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				if (!h2n->swsi)
 					break;
 
-				if (h2n->swsi->state == LWSS_HTTP2_ESTABLISHED) {
-					h2n->swsi->state = LWSS_HTTP_BODY;
-					lwsl_notice("%s: setting swsi %p to LWSS_HTTP_BODY\n", __func__, h2n->swsi);
+				if (lwsi_role_http(h2n->swsi) &&
+				    lwsi_state(h2n->swsi) == LRS_ESTABLISHED) {
+					lwsi_set_state(h2n->swsi, LRS_BODY);
+					lwsl_info("%s: setting swsi %p to LRS_BODY\n",
+							__func__, h2n->swsi);
 				}
 
 				if (lws_hdr_total_length(h2n->swsi,
@@ -1862,9 +1873,11 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 			}
 
 frame_end:
-			if (h2n->count > h2n->length)
+			if (h2n->count > h2n->length) {
 				lwsl_notice("%s: count > length %d %d\n",
 					    __func__, h2n->count, h2n->length);
+				goto fail;
+			}
 			if (h2n->count != h2n->length)
 				break;
 
@@ -1914,8 +1927,10 @@ try_frame_start:
 				if (lws_h2_parse_frame_header(wsi))
 					goto fail;
 			break;
-		}
 
+		default:
+			break;
+		}
 	}
 
 	*inused = in - oldin;
@@ -2031,7 +2046,7 @@ lws_h2_client_handshake(struct lws *wsi)
 	}
 
 	lws_h2_state(wsi, LWS_H2_STATE_OPEN);
-	wsi->state = LWSS_HTTP2_CLIENT_ESTABLISHED;
+	lwsi_set_state(wsi, LRS_ESTABLISHED);
 
 	return 0;
 }
@@ -2079,7 +2094,7 @@ lws_h2_ws_handshake(struct lws *wsi)
 	 * mode / state of the nwsi will get the h2 processing done.
 	 */
 
-	wsi->state = LWSS_ESTABLISHED;
+	lwsi_set_state(wsi, LRS_ESTABLISHED);
 	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 
 	uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);

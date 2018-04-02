@@ -479,55 +479,148 @@ enum lws_websocket_opcodes_07 {
 };
 
 
-enum lws_connection_states {
-	/* FLAG: one or another kind of ws link */
-	_LSF_WEBSOCKET					= (1 << 5),
-	/* FLAG: close callback */
-	_LSF_CCB					= (1 << 6),
-	/* FLAG: pollout capable */
-	_LSF_POLLOUT					= (1 << 7),
+typedef uint32_t lws_wsi_state_t;
 
-	LWSS_HTTP					= _LSF_CCB | 0,
-	LWSS_HTTP_ISSUING_FILE				=  1,
-	LWSS_HTTP_HEADERS				=  2,
-	LWSS_HTTP_BODY					= _LSF_CCB | 3,
-	LWSS_DEAD_SOCKET				=  4,
-	LWSS_ESTABLISHED				= _LSF_CCB | 5 |
-							  _LSF_WEBSOCKET |
-							  _LSF_POLLOUT,
-	LWSS_CLIENT_HTTP_ESTABLISHED			=  6,
-	LWSS_CLIENT_UNCONNECTED				=  7,
-	LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION		= _LSF_CCB |  8 |
-							  _LSF_POLLOUT,
-	LWSS_RETURNED_CLOSE_ALREADY			= _LSF_CCB |  9 |
-							  _LSF_POLLOUT,
-	LWSS_AWAITING_CLOSE_ACK				= _LSF_CCB | 10,
-	LWSS_FLUSHING_SEND_BEFORE_CLOSE			= _LSF_CCB | 11 |
-							  _LSF_POLLOUT,
-	LWSS_SHUTDOWN					= 12,
+/*
+ *  31     16 15      0
+ *  [  role ] [ state ]
+ *
+ * The role part is generally invariant for the lifetime of the wsi, although
+ * it can change if the connection role itself does, eg, if the connection
+ * upgrades from H1 -> WS1 the role is changed at that point.
+ *
+ * The state part reflects the dynamic connection state, and the states are
+ * reused between roles.
+ *
+ * None of the internal role or state representations are made available outside
+ * of lws internals.
+ */
 
-	LWSS_HTTP2_AWAIT_CLIENT_PREFACE			= 13,
-	LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS		= 14 | _LSF_POLLOUT,
-	LWSS_HTTP2_ESTABLISHED				= _LSF_CCB | 15 |
-							  _LSF_POLLOUT,
-	LWSS_HTTP2_ESTABLISHED_WS			= _LSF_CCB | 16 |
-							  _LSF_WEBSOCKET |
-							  _LSF_POLLOUT,
+#define _RS 16
 
-	LWSS_CGI					= 17,
+#define LWSIFR_HTTP	(0x008 << _RS)
+#define LWSIFR_H2	(0x010 << _RS)
+#define LWSIFR_CLIENT	(0x020 << _RS)
+#define LWSIFR_SERVER	(0x040 << _RS)
+#define LWSIFR_WS	(0x080 << _RS)
+#define LWSIFR_RAW	(0x100 << _RS)
 
-	LWSS_HTTP2_DEFERRING_ACTION			= _LSF_CCB | 18 |
-							  _LSF_POLLOUT,
+enum lwsi_role {
+	LWSI_ROLE_UNSET		= (0 << _RS),
 
-	LWSS_HTTP_DEFERRING_ACTION			= _LSF_CCB | 19 |
-							  _LSF_POLLOUT,
+	LWSI_ROLE_H1_SERVER	= (LWSIFR_SERVER | LWSIFR_HTTP            ),
+	LWSI_ROLE_H2_SERVER	= (LWSIFR_SERVER | LWSIFR_HTTP | LWSIFR_H2),
+	LWSI_ROLE_H1_CLIENT	= (LWSIFR_CLIENT | LWSIFR_HTTP            ),
+	LWSI_ROLE_H2_CLIENT	= (LWSIFR_CLIENT | LWSIFR_HTTP | LWSIFR_H2),
+	LWSI_ROLE_WS1_SERVER	= (LWSIFR_SERVER | LWSIFR_WS              ),
+	LWSI_ROLE_WS2_SERVER	= (LWSIFR_SERVER | LWSIFR_WS   | LWSIFR_H2),
+	LWSI_ROLE_WS1_CLIENT	= (LWSIFR_CLIENT | LWSIFR_WS              ),
+	LWSI_ROLE_WS2_CLIENT	= (LWSIFR_CLIENT | LWSIFR_WS   | LWSIFR_H2),
 
-	LWSS_HTTP2_CLIENT_SEND_SETTINGS			= 20 | _LSF_POLLOUT,
-	LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS	= 21 | _LSF_POLLOUT,
-	LWSS_HTTP2_CLIENT_ESTABLISHED			= 22 | _LSF_POLLOUT,
+	LWSI_ROLE_CGI		= (1 << _RS),
+	LWSI_ROLE_LISTEN_SOCKET	= (2 << _RS),
+	LWSI_ROLE_EVENT_PIPE	= (3 << _RS),
+	LWSI_ROLE_RAW_FILE	= (LWSIFR_RAW | (4 << _RS)),
+	LWSI_ROLE_RAW_SOCKET	= (LWSIFR_RAW | (5 << _RS)),
+
+	LWSI_ROLE_MASK					= (0xffff << _RS),
 };
 
-#define lws_state_is_ws(s) (!!((s) & _LSF_WEBSOCKET))
+#define lwsi_role(wsi) \
+			(wsi->wsistate & LWSI_ROLE_MASK)
+#if !defined (_DEBUG)
+#define lwsi_set_role(wsi, role) wsi->wsistate = \
+			(wsi->wsistate & (~LWSI_ROLE_MASK)) | role
+#else
+void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
+#endif
+#define lwsi_role_ws(wsi) (!!(wsi->wsistate & LWSIFR_WS))
+#define lwsi_role_ws_client(wsi) \
+			((wsi->wsistate & (LWSIFR_CLIENT | LWSIFR_WS))\
+				       == (LWSIFR_CLIENT | LWSIFR_WS))
+#define lwsi_role_non_ws_client(wsi) \
+			((wsi->wsistate & (LWSIFR_CLIENT | LWSIFR_WS))\
+				       == (LWSIFR_CLIENT))
+#define lwsi_role_client(wsi) (!!(wsi->wsistate & LWSIFR_CLIENT))
+#define lwsi_role_raw(wsi) (!!(wsi->wsistate & LWSIFR_RAW))
+#define lwsi_role_http_server(wsi) \
+			((wsi->wsistate & (LWSIFR_SERVER | LWSIFR_HTTP))\
+					 == (LWSIFR_SERVER | LWSIFR_HTTP))
+#define lwsi_role_http_client(wsi) \
+			((wsi->wsistate & (LWSIFR_CLIENT | LWSIFR_HTTP))\
+					 == (LWSIFR_CLIENT | LWSIFR_HTTP))
+#define lwsi_role_http(wsi) (!!(wsi->wsistate & LWSIFR_HTTP))
+#define lwsi_role_h2(wsi) (!!(wsi->wsistate & LWSIFR_H2))
+
+/* Pollout wants a callback in this state */
+#define LWSIFS_POCB		(0x100)
+/* Before any protocol connection was established */
+#define LWSIFS_NOTEST		(0x200)
+
+enum lwsi_state {
+
+	/* Phase 1: pre-transport */
+
+	LRS_UNCONNECTED				= LWSIFS_NOTEST | 0,
+	LRS_WAITING_CONNECT			= LWSIFS_NOTEST | 1,
+
+	/* Phase 2: establishing intermediaries on top of transport */
+
+	LRS_WAITING_PROXY_REPLY			= LWSIFS_NOTEST | 2,
+	LRS_WAITING_SSL				= LWSIFS_NOTEST | 3,
+	LRS_WAITING_SOCKS_GREETING_REPLY	= LWSIFS_NOTEST | 4,
+	LRS_WAITING_SOCKS_CONNECT_REPLY		= LWSIFS_NOTEST | 5,
+	LRS_WAITING_SOCKS_AUTH_REPLY		= LWSIFS_NOTEST | 6,
+
+	/* Phase 3: establishing tls tunnel */
+
+	LRS_SSL_INIT				= LWSIFS_NOTEST | 7,
+	LRS_SSL_ACK_PENDING			= LWSIFS_NOTEST | 8,
+	LRS_PRE_WS_SERVING_ACCEPT		= LWSIFS_NOTEST | 9,
+
+	/* Phase 4: connected */
+
+	LRS_WAITING_SERVER_REPLY		= LWSIFS_NOTEST | 10,
+	LRS_H2_AWAIT_PREFACE			= LWSIFS_NOTEST | 11,
+	LRS_H2_AWAIT_SETTINGS			= LWSIFS_NOTEST |
+						  LWSIFS_POCB | 12,
+
+	/* Phase 5: protocol logically established */
+
+	LRS_H2_CLIENT_SEND_SETTINGS		= LWSIFS_POCB | 13,
+	LRS_H2_WAITING_TO_SEND_HEADERS		= LWSIFS_POCB | 14,
+	LRS_DEFERRING_ACTION			= LWSIFS_POCB | 15,
+	LRS_H1C_ISSUE_HANDSHAKE			= 16,
+	LRS_H1C_ISSUE_HANDSHAKE2		= 17,
+	LRS_ISSUE_HTTP_BODY			= 18,
+	LRS_ISSUING_FILE			= 19,
+	LRS_HEADERS				= 20,
+	LRS_BODY				= 21,
+	LRS_ESTABLISHED				= LWSIFS_POCB | 22,
+
+	/* Phase 6: finishing */
+
+	LRS_WAITING_TO_SEND_CLOSE		= LWSIFS_POCB | 23,
+	LRS_RETURNED_CLOSE			= LWSIFS_POCB | 24,
+	LRS_AWAITING_CLOSE_ACK			= 25,
+	LRS_FLUSHING_BEFORE_CLOSE		= LWSIFS_POCB | 26,
+	LRS_SHUTDOWN				= 27,
+
+	/* Phase 7: dead */
+
+	LRS_DEAD_SOCKET				= 28,
+
+	LRS_MASK				= 0xffff
+};
+
+#define lwsi_state(wsi) ((enum lwsi_state)(wsi->wsistate & LRS_MASK))
+#define lwsi_state_est(wsi) (!(wsi->wsistate & LWSIFS_NOTEST))
+#if !defined (_DEBUG)
+#define lwsi_set_state(wsi, lrs) wsi->wsistate = \
+			  (wsi->wsistate & (~LRS_MASK)) | lrs
+#else
+void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
+#endif
 
 enum http_version {
 	HTTP_VERSION_1_0,
@@ -568,54 +661,6 @@ enum lws_rx_parse_state {
 	LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED
 };
 
-#define LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP 32
-
-enum connection_mode {
-	LWSCM_HTTP_SERVING,
-	/* actual HTTP service going on */
-	LWSCM_HTTP_SERVING_ACCEPTED,
-	LWSCM_PRE_WS_SERVING_ACCEPT,
-
-	LWSCM_WS_SERVING,
-	LWSCM_WS_CLIENT,
-
-	LWSCM_HTTP2_SERVING,
-	LWSCM_HTTP2_WS_SERVING,
-
-	/* transient, ssl delay hiding */
-	LWSCM_SSL_ACK_PENDING,
-	LWSCM_SSL_INIT,
-	/* as above, but complete into LWSCM_RAW */
-	LWSCM_SSL_ACK_PENDING_RAW,
-	LWSCM_SSL_INIT_RAW,
-
-	/* special internal types */
-	LWSCM_SERVER_LISTENER,
-	LWSCM_CGI, /* stdin, stdout, stderr for another cgi master wsi */
-	LWSCM_RAW, /* raw with bulk handling */
-	LWSCM_RAW_FILEDESC, /* raw without bulk handling */
-	LWSCM_EVENT_PIPE, /* event pipe with no vhost or protocol binding */
-
-	/* HTTP Client related */
-	LWSCM_HTTP_CLIENT = LWSCM_FLAG_IMPLIES_CALLBACK_CLOSED_CLIENT_HTTP,
-	LWSCM_HTTP_CLIENT_ACCEPTED, /* actual HTTP service going on */
-	LWSCM_HTTP2_CLIENT,
-	LWSCM_HTTP2_CLIENT_ACCEPTED,
-	LWSCM_WSCL_WAITING_CONNECT,
-	LWSCM_WSCL_WAITING_PROXY_REPLY,
-	LWSCM_WSCL_ISSUE_HANDSHAKE,
-	LWSCM_WSCL_ISSUE_HANDSHAKE2,
-	LWSCM_WSCL_ISSUE_HTTP_BODY,
-	LWSCM_WSCL_WAITING_SSL,
-	LWSCM_WSCL_WAITING_SERVER_REPLY,
-	LWSCM_WSCL_WAITING_EXTENSION_CONNECT,
-	LWSCM_WSCL_PENDING_CANDIDATE_CHILD,
-	LWSCM_WSCL_WAITING_SOCKS_GREETING_REPLY,
-	LWSCM_WSCL_WAITING_SOCKS_CONNECT_REPLY,
-	LWSCM_WSCL_WAITING_SOCKS_AUTH_REPLY,
-
-	/****** add new things just above ---^ ******/
-};
 
 /* enums of socks version */
 enum socks_version {
@@ -1966,6 +2011,9 @@ struct lws {
 
 	time_t pending_timeout_set;
 
+	lws_wsi_state_t	wsistate;
+	lws_wsi_state_t wsistate_pre_close;
+
 	/* ints */
 	int position_in_fds_table;
 	uint32_t rxflow_len;
@@ -2048,14 +2096,11 @@ struct lws {
 #endif
 	unsigned short pending_timeout_limit;
 
-	uint8_t state; /* enum lws_connection_states */
-	uint8_t mode; /* enum connection_mode */
-
 	/* chars */
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	uint8_t count_act_ext;
 #endif
-	uint8_t state_pre_close;
+
 	char lws_rx_parse_state; /* enum lws_rx_parse_state */
 	char rx_frame_type; /* enum lws_write_protocol */
 	char pending_timeout; /* enum pending_timeout */
@@ -2237,7 +2282,7 @@ LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
 
 LWS_EXTERN void
-lws_union_transition(struct lws *wsi, enum connection_mode mode);
+lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,

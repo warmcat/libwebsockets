@@ -339,7 +339,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	/* alright clean up and set ourselves into established state */
 
-	wsi->state = LWSS_ESTABLISHED;
+	lwsi_set_state(wsi, LRS_ESTABLISHED);
 	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 
 	{

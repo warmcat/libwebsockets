@@ -76,7 +76,7 @@ static int findswitch(int argc, char **argv, const char *val)
 {
 	while (--argc > 0) {
 		if (!strcmp(argv[argc], val))
-			return 1;
+			return argc;
 	}
 
 	return 0;
@@ -110,6 +110,7 @@ int main(int argc, char **argv)
 			/* | LLL_DEBUG */, NULL);
 
 	lwsl_user("LWS minimal ws client + permessage-deflate + multifragment bulk message\n");
+	lwsl_user("   needs minimal-ws-server-pmd-bulk running to communicate with\n");
 	lwsl_user("   %s [-n (no exts)] [-c (compressible)]\n", argv[0]);
 	context = lws_create_context(&info);
 	if (!context) {

@@ -100,8 +100,8 @@ lws_client_connect_2(struct lws *wsi)
 			 *     going through the queue
 			 */
 			if (w->client_h2_alpn &&
-			    (w->state == LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS ||
-			     w->state == LWSS_HTTP2_CLIENT_ESTABLISHED)) {
+			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
+			     lwsi_state(w) == LRS_ESTABLISHED)) {
 
 				lwsl_info("%s: just join h2 directly\n",
 						__func__);
@@ -114,7 +114,7 @@ lws_client_connect_2(struct lws *wsi)
 #endif
 
 			lwsl_info("applying %p to txn queue on %p (%d)\n", wsi, w,
-					w->state);
+					lwsi_state(w));
 			/*
 			 * ...let's add ourselves to his transaction queue...
 			 */
@@ -334,7 +334,7 @@ create_new_conn:
 			goto oom4;
 		}
 
-		wsi->mode = LWSCM_WSCL_WAITING_CONNECT;
+		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 
 		lws_libev_accept(wsi, wsi->desc);
 		lws_libuv_accept(wsi, wsi->desc);
@@ -449,7 +449,7 @@ create_new_conn:
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
 				AWAITING_TIMEOUT);
 
-		wsi->mode = LWSCM_WSCL_WAITING_PROXY_REPLY;
+		lwsi_set_state(wsi, LRS_WAITING_PROXY_REPLY);
 
 		return wsi;
 	}
@@ -467,7 +467,7 @@ create_new_conn:
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
 				AWAITING_TIMEOUT);
 
-		wsi->mode = LWSCM_WSCL_WAITING_SOCKS_GREETING_REPLY;
+		lwsi_set_state(wsi, LRS_WAITING_SOCKS_GREETING_REPLY);
 
 		return wsi;
 	}
@@ -480,13 +480,14 @@ send_hs:
 		 * We are pipelining on an already-established connection...
 		 * we can skip tls establishment.
 		 */
-		wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE2;
+
+		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 
 		/*
 		 * we can't send our headers directly, because they have to
 		 * be sent when the parent is writeable.  The parent will check
 		 * for anybody on his client transaction queue that is in
-		 * LWSCM_WSCL_ISSUE_HANDSHAKE2, and let them write.
+		 * LRS_H1C_ISSUE_HANDSHAKE2, and let them write.
 		 *
 		 * If we are trying to do this too early, before the master
 		 * connection has written his own headers,
@@ -495,7 +496,7 @@ send_hs:
 		lwsl_debug("wsi %p: waiting to send headers\n", wsi);
 	} else {
 		/* we are making our own connection */
-		wsi->mode = LWSCM_WSCL_ISSUE_HANDSHAKE;
+		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
 
 		/*
 		 * provoke service to issue the handshake directly.
@@ -546,11 +547,7 @@ oom4:
 	/* we're closing, losing some rx is OK */
 	lws_header_table_force_to_detachable_state(wsi);
 
-	if (wsi->mode == LWSCM_HTTP_CLIENT ||
-	    wsi->mode == LWSCM_HTTP2_CLIENT ||
-	    wsi->mode == LWSCM_HTTP_CLIENT_ACCEPTED ||
-	    wsi->mode == LWSCM_HTTP2_CLIENT_ACCEPTED ||
-	    wsi->mode == LWSCM_WSCL_WAITING_CONNECT) {
+	if (lwsi_role_client(wsi) && !(lwsi_state(wsi) & LWSIFS_NOTEST)) {
 		wsi->protocol->callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 			wsi->user_space, (void *)cce, strlen(cce));
@@ -654,7 +651,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #endif
 
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
-	wsi->state = LWSS_CLIENT_UNCONNECTED;
+	lwsi_set_state(wsi, LRS_UNCONNECTED);
 	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->c_port = port;
@@ -878,7 +875,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	wsi->context = i->context;
 	/* assert the mode and union status (hdr) clearly */
-	lws_union_transition(wsi, LWSCM_HTTP_CLIENT);
+	lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT, LRS_UNCONNECTED);
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
 	/* 1) fill up the wsi with stuff from the connect_info as far as it
@@ -903,7 +900,6 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	}
 
 	wsi->user_space = NULL;
-	wsi->state = LWSS_CLIENT_UNCONNECTED;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->position_in_fds_table = -1;
 	wsi->c_port = i->port;
@@ -919,6 +915,9 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	wsi->protocol = &wsi->vhost->protocols[0];
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
+
+	/* reasonable place to start */
+	lwsi_set_role(wsi, LWSI_ROLE_H1_CLIENT);
 
 	/*
 	 * 1) for http[s] connection, allow protocol selection by name
@@ -1093,27 +1092,6 @@ lws_client_connect_via_info2(struct lws *wsi)
 		lws_client_stash_destroy(wsi);
 #endif
 
-	/*
-	 * Check with each extension if it is able to route and proxy this
-	 * connection for us.  For example, an extension like x-google-mux
-	 * can handle this and then we don't need an actual socket for this
-	 * connection.
-	 */
-
-	if (lws_ext_cb_all_exts(wsi->context, wsi,
-				LWS_EXT_CB_CAN_PROXY_CLIENT_CONNECTION,
-				(void *)stash->address,
-				wsi->c_port) > 0) {
-		lwsl_client("lws_client_connect: ext handling conn\n");
-
-		lws_set_timeout(wsi,
-			PENDING_TIMEOUT_AWAITING_EXTENSION_CONNECT_RESPONSE,
-			        AWAITING_TIMEOUT);
-
-		wsi->mode = LWSCM_WSCL_WAITING_EXTENSION_CONNECT;
-		return wsi;
-	}
-	lwsl_client("lws_client_connect: direct conn\n");
 	wsi->context->count_wsi_allocated++;
 
 	return lws_client_connect_2(wsi);

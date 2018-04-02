@@ -779,6 +779,8 @@ echo
 echo "--- survived OK ---"
 kill -2 $CPID
 
+exit 0
+
 # coverage...
 # run the test client against mirror for one period and exit
 killall libwebsockets-test-server 2>/dev/null

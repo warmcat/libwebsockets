@@ -131,7 +131,7 @@ int main(int argc, char **argv)
 			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
 			/* | LLL_DEBUG */, NULL);
 
-	lwsl_user("LWS minimal raw vhost\n");
+	lwsl_user("LWS minimal raw vhost | nc localhost 7681\n");
 
 	context = lws_create_context(&info);
 	if (!context) {

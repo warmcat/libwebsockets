@@ -77,8 +77,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!len)
 		return 0;
 	/* just ignore sends after we cleared the truncation buffer */
-	if (wsi->state == LWSS_FLUSHING_SEND_BEFORE_CLOSE &&
-	    !wsi->trunc_len)
+	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE && !wsi->trunc_len)
 		return (int)len;
 
 	if (wsi->trunc_len && (buf < wsi->trunc_alloc ||
@@ -154,7 +153,7 @@ handle_truncated_send:
 			lwsl_info("** %p partial send completed\n", wsi);
 			/* done with it, but don't free it */
 			n = (int)real_len;
-			if (wsi->state == LWSS_FLUSHING_SEND_BEFORE_CLOSE) {
+			if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
 				lwsl_info("** %p signalling to close now\n", wsi);
 				return -1; /* retry closing now */
 			}
@@ -216,7 +215,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 			  enum lws_write_protocol wp)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	int masked7 = (wsi->mode == LWSCM_WS_CLIENT);
+	int masked7 = lwsi_role_client(wsi);
 	unsigned char is_masked_bit = 0;
 	unsigned char *dropmask = NULL;
 	struct lws_tokens eff_buf;
@@ -256,7 +255,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	if (wsi->vhost)
 		wsi->vhost->conn_stats.tx += len;
 
-	if (wsi->ws && wsi->ws->tx_draining_ext && lws_state_is_ws(wsi->state)) {
+	if (wsi->ws && wsi->ws->tx_draining_ext && lwsi_role_ws(wsi)) {
 		/* remove us from the list */
 		struct lws **w = &pt->tx_draining_ext_list;
 
@@ -287,13 +286,13 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 
 	/* if not in a state to send ws stuff, then just send nothing */
 
-	if (!lws_state_is_ws(wsi->state) &&
-	    ((wsi->state != LWSS_RETURNED_CLOSE_ALREADY &&
-	      wsi->state != LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION &&
-	      wsi->state != LWSS_AWAITING_CLOSE_ACK) ||
+	if (!lwsi_role_ws(wsi) &&
+	    ((lwsi_state(wsi) != LRS_RETURNED_CLOSE &&
+	      lwsi_state(wsi) != LRS_WAITING_TO_SEND_CLOSE &&
+	      lwsi_state(wsi) != LRS_AWAITING_CLOSE_ACK) ||
 			    wp1f != LWS_WRITE_CLOSE)) {
 		//assert(0);
-		lwsl_debug("binning %d %d\n", wsi->state, wp1f);
+		lwsl_debug("binning %d %d\n", lwsi_state(wsi), wp1f);
 		return 0;
 	}
 
@@ -514,9 +513,7 @@ send_raw:
 		/*
 		 * ws-over-h2 also ends up here after the ws framing applied
 		 */
-		if (wsi->mode == LWSCM_HTTP2_SERVING ||
-		    wsi->mode == LWSCM_HTTP2_WS_SERVING ||
-		    wsi->mode == LWSCM_HTTP2_CLIENT_ACCEPTED) {
+		if (lwsi_role_h2(wsi)) {
 			unsigned char flags = 0;
 
 			n = LWS_H2_FRAME_TYPE_DATA;
@@ -812,7 +809,7 @@ all_sent:
 		)
 #endif
 		     {
-			wsi->state = LWSS_HTTP;
+			lwsi_set_state(wsi, LRS_ESTABLISHED);
 			/* we might be in keepalive, so close it off here */
 			lws_vfs_file_close(&wsi->http.fop_fd);
 			

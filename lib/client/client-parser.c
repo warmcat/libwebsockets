@@ -352,8 +352,8 @@ spill:
 					   wsi->ws->rx_ubuf_head - 2))
 				goto utf8_fail;
 
-			/* is this an acknowledgement of our close? */
-			if (wsi->state == LWSS_AWAITING_CLOSE_ACK) {
+			/* is this an acknowledgment of our close? */
+			if (lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK) {
 				/*
 				 * fine he has told us he is closing too, let's
 				 * finish our close
@@ -404,7 +404,7 @@ spill:
 					  &wsi->ws->rx_ubuf[LWS_PRE],
 					  wsi->ws->rx_ubuf_head,
 					  LWS_WRITE_CLOSE);
-			wsi->state = LWSS_RETURNED_CLOSE_ALREADY;
+			lwsi_set_state(wsi, LRS_RETURNED_CLOSE);
 			/* close the connection */
 			return -1;
 
@@ -573,9 +573,9 @@ utf8_fail:
 		else
 			lws_remove_wsi_from_draining_ext_list(wsi);
 
-		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
-		    wsi->state == LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION ||
-		    wsi->state == LWSS_AWAITING_CLOSE_ACK)
+		if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
+		    lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE ||
+		    lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK)
 			goto already_done;
 
 		m = wsi->protocol->callback(wsi,

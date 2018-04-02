@@ -272,7 +272,7 @@ reset:
 	lws_pt_unlock(pt);
 
 #ifndef LWS_NO_CLIENT
-	if (wsi->state == LWSS_CLIENT_UNCONNECTED)
+	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)
 		if (!lws_client_connect_via_info2(wsi))
 			/* our client connect has failed, the wsi
 			 * has been closed
@@ -345,10 +345,10 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		 * unreasonably long time
 		 */
 		lwsl_debug("%s: wsi %p: ah held %ds, "
-			    "ah.rxpos %d, ah.rxlen %d, mode/state %d %d,"
+			    "ah.rxpos %d, ah.rxlen %d, role/state 0x%x 0x%x,"
 			    "\n", __func__, wsi,
 			    (int)(now - ah->assigned),
-			    ah->rxpos, ah->rxlen, wsi->mode, wsi->state);
+			    ah->rxpos, ah->rxlen, lwsi_role(wsi), lwsi_state(wsi));
 	}
 
 	ah->assigned = 0;
@@ -429,7 +429,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	pt->ah_wait_list_length--;
 
 #ifndef LWS_NO_CLIENT
-	if (wsi->state == LWSS_CLIENT_UNCONNECTED) {
+	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED) {
 		lws_pt_unlock(pt);
 
 		if (!lws_client_connect_via_info2(wsi)) {
@@ -991,8 +991,8 @@ swallow:
 
 			/* collecting and checking a name part */
 		case WSI_TOKEN_NAME_PART:
-			lwsl_parser("WSI_TOKEN_NAME_PART '%c' 0x%02X (mode=%d) "
-				    "wsi->lextable_pos=%d\n", c, c, wsi->mode,
+			lwsl_parser("WSI_TOKEN_NAME_PART '%c' 0x%02X (role=0x%x) "
+				    "wsi->lextable_pos=%d\n", c, c, lwsi_role(wsi),
 				    ah->lextable_pos);
 
 			if (c >= 'A' && c <= 'Z')
@@ -1037,10 +1037,11 @@ nope:
 			}
 
 			/*
-			 * Server needs to look out for unknown methods...
+			 * If it's h1, server needs to look out for unknown
+			 * methods...
 			 */
 			if (ah->lextable_pos < 0 &&
-			    (wsi->mode == LWSCM_HTTP_SERVING)) {
+			    lwsi_role(wsi) == LWSI_ROLE_H1_SERVER) {
 				/* this is not a header we know about */
 				for (m = 0; m < ARRAY_SIZE(methods); m++)
 					if (ah->frag_index[methods[m]]) {
@@ -1571,7 +1572,7 @@ spill:
 		case LWSWSOPC_CLOSE:
 
 			/* is this an acknowledgment of our close? */
-			if (wsi->state == LWSS_AWAITING_CLOSE_ACK) {
+			if (lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK) {
 				/*
 				 * fine he has told us he is closing too, let's
 				 * finish our close
@@ -1579,7 +1580,7 @@ spill:
 				lwsl_parser("seen client close ack\n");
 				return -1;
 			}
-			if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY)
+			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
 				/* if he sends us 2 CLOSE, kill him */
 				return -1;
 
@@ -1603,7 +1604,7 @@ spill:
 				return -1;
 
 			lwsl_parser("server sees client close packet\n");
-			wsi->state = LWSS_RETURNED_CLOSE_ALREADY;
+			lwsi_set_state(wsi, LRS_RETURNED_CLOSE);
 			/* deal with the close packet contents as a PONG */
 			wsi->ws->payload_is_close = 1;
 			goto process_as_ping;
@@ -1700,8 +1701,8 @@ ping_drop:
 drain_extension:
 		lwsl_ext("%s: passing %d to ext\n", __func__, eff_buf.token_len);
 
-		if (wsi->state == LWSS_RETURNED_CLOSE_ALREADY ||
-		    wsi->state == LWSS_AWAITING_CLOSE_ACK)
+		if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
+		    lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK)
 			goto already_done;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &eff_buf, 0);

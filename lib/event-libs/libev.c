@@ -185,7 +185,7 @@ lws_libev_accept(struct lws *new_wsi, lws_sock_file_fd_type desc)
 	if (!LWS_LIBEV_ENABLED(context))
 		return;
 
-	if (new_wsi->mode == LWSCM_RAW_FILEDESC)
+	if (lwsi_role(new_wsi) == LWSI_ROLE_RAW_FILE)
 		fd = desc.filefd;
 	else
 		fd = desc.sockfd;

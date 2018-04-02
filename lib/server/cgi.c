@@ -88,8 +88,8 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 
 	/* initialize the instance struct */
 
-	new_wsi->state = LWSS_CGI;
-	new_wsi->mode = LWSCM_CGI;
+	lws_role_transition(new_wsi, LWSI_ROLE_CGI, LRS_ESTABLISHED);
+
 	new_wsi->hdr_parsing_completed = 0;
 	new_wsi->position_in_fds_table = -1;
 

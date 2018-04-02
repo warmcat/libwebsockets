@@ -243,7 +243,7 @@ done_list:
 		}
 		wsi->context = vhost->context;
 		wsi->desc.sockfd = sockfd;
-		wsi->mode = LWSCM_SERVER_LISTENER;
+		lwsi_set_role(wsi, LWSI_ROLE_LISTEN_SOCKET);
 		wsi->protocol = vhost->protocols;
 		wsi->tsi = m;
 		wsi->vhost = vhost;
@@ -488,7 +488,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		wsi->http.fop_fd = fops->LWS_FOP_OPEN(wsi->context->fops,
 							path, vpath, &fflags);
 		if (!wsi->http.fop_fd) {
-			lwsl_err("Unable to open '%s': errno %d\n", path, errno);
+			lwsl_info("Unable to open '%s': errno %d\n", path, errno);
 
 			return -1;
 		}
@@ -806,7 +806,7 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 {
 	int n;
 
-	wsi->state = LWSS_ESTABLISHED;
+	lwsi_set_state(wsi, LRS_ESTABLISHED);
 	lws_restart_ws_ping_pong_timer(wsi);
 
 	/*
@@ -1016,9 +1016,9 @@ lws_process_ws_upgrade(struct lws *wsi)
 	lws_pt_lock(pt, __func__);
 
 	if (wsi->h2_stream_carries_ws)
-		lws_union_transition(wsi, LWSCM_HTTP2_WS_SERVING);
+		lws_role_transition(wsi, LWSI_ROLE_WS2_SERVER, LRS_ESTABLISHED);
 	else
-		lws_union_transition(wsi, LWSCM_WS_SERVING);
+		lws_role_transition(wsi, LWSI_ROLE_WS1_SERVER, LRS_ESTABLISHED);
 	/*
 	 * Because rxpos/rxlen shows something in the ah, we will get
 	 * service guaranteed next time around the event loop
@@ -1592,15 +1592,15 @@ deal_body:
 	 * In any case, return 0 and let lws_read decide how to
 	 * proceed based on state
 	 */
-	if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
+	if (lwsi_state(wsi) != LRS_ISSUING_FILE) {
 		/* Prepare to read body if we have a content length: */
 		lwsl_debug("wsi->http.rx_content_length %lld %d %d\n",
 			   (long long)wsi->http.rx_content_length,
 			   wsi->upgraded_to_http2, wsi->http2_substream);
 		if (wsi->http.rx_content_length > 0) {
-			lwsl_info("%s: %p: LWSS_HTTP_BODY state set\n",
-				    __func__, wsi);
-			wsi->state = LWSS_HTTP_BODY;
+			lwsi_set_state(wsi, LRS_BODY);
+			lwsl_info("%s: %p: LRS_BODY state set (0x%x)\n",
+				    __func__, wsi, wsi->wsistate);
 			wsi->http.rx_content_remain =
 					wsi->http.rx_content_length;
 		}
@@ -1645,10 +1645,9 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	}
 
 	while (len) {
-		if (wsi->mode != LWSCM_HTTP_SERVING &&
-		    wsi->mode != LWSCM_HTTP2_SERVING &&
-		    wsi->mode != LWSCM_HTTP_SERVING_ACCEPTED) {
-			lwsl_err("%s: bad wsi mode %d\n", __func__, wsi->mode);
+		if (!lwsi_role_http_server(wsi)) {
+			lwsl_err("%s: bad wsi role 0x%x\n", __func__,
+					lwsi_role(wsi));
 			goto bail_nuke_ah;
 		}
 
@@ -1677,7 +1676,8 @@ raw_transition:
 					goto bail_nuke_ah;
 
 				lws_header_table_force_to_detachable_state(wsi);
-				lws_union_transition(wsi, LWSCM_RAW);
+				lws_role_transition(wsi, LWSI_ROLE_RAW_SOCKET,
+						LRS_ESTABLISHED);
 				lws_header_table_detach(wsi, 1);
 
 				if (m == 2 && (wsi->protocol->callback)(wsi,
@@ -1708,7 +1708,7 @@ raw_transition:
 		} else
 			lwsl_info("no host\n");
 
-		if (wsi->mode != LWSCM_HTTP2_SERVING) {
+		if (lwsi_role(wsi) != LWSI_ROLE_H2_SERVER) {
 			wsi->vhost->conn_stats.h1_trans++;
 			if (!wsi->conn_stat_done) {
 				wsi->vhost->conn_stats.h1_conn++;
@@ -1769,7 +1769,7 @@ raw_transition:
 			goto raw_transition;
 		}
 
-		wsi->mode = LWSCM_PRE_WS_SERVING_ACCEPT;
+		lwsi_set_state(wsi, LRS_PRE_WS_SERVING_ACCEPT);
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		/* is this websocket protocol or normal http 1.0? */
@@ -1800,8 +1800,7 @@ raw_transition:
 
 		lwsl_info("No upgrade\n");
 
-		lws_union_transition(wsi, LWSCM_HTTP_SERVING_ACCEPTED);
-		wsi->state = LWSS_HTTP;
+		lwsi_set_state(wsi, LRS_ESTABLISHED);
 		wsi->http.fop_fd = NULL;
 
 		lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi,
@@ -1830,8 +1829,6 @@ upgrade_h2c:
 
 		/* adopt the header info */
 
-		lws_union_transition(wsi, LWSCM_HTTP2_SERVING);
-
 		if (!wsi->h2.h2n) {
 			wsi->h2.h2n = lws_zalloc(sizeof(*wsi->h2.h2n),
 						   "h2n");
@@ -1858,7 +1855,7 @@ upgrade_h2c:
 			return 1;
 		}
 
-		wsi->state = LWSS_HTTP2_AWAIT_CLIENT_PREFACE;
+		lwsi_set_state(wsi, LRS_H2_AWAIT_PREFACE);
 		wsi->upgraded_to_http2 = 1;
 
 		return 0;
@@ -1930,8 +1927,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost)
 
 	/* initialize the instance struct */
 
-	new_wsi->state = LWSS_HTTP;
-	new_wsi->mode = LWSCM_HTTP_SERVING;
+	lwsi_set_state(new_wsi, LRS_UNCONNECTED);
 	new_wsi->hdr_parsing_completed = 0;
 
 #ifdef LWS_OPENSSL_SUPPORT
@@ -1997,7 +1993,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * until we can verify POLLOUT.  The part of this that confirms POLLOUT
 	 * with no partials is in lws_server_socket_service() below.
 	 */
-	wsi->state = LWSS_HTTP_DEFERRING_ACTION;
+	lwsi_set_state(wsi, LRS_DEFERRING_ACTION);
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
 	wsi->hdr_parsing_completed = 0;
@@ -2056,8 +2052,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		if (wsi->ah)
 			wsi->ah->ues = URIES_IDLE;
 
-		if (wsi->mode == LWSCM_HTTP_SERVING_ACCEPTED)
-			wsi->mode = LWSCM_HTTP_SERVING;
+		lwsi_set_state(wsi, LRS_ESTABLISHED);
 	} else
 		if (wsi->preamble_rx)
 			if (lws_header_table_attach(wsi, 0))
@@ -2139,7 +2134,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			new_wsi->desc.sockfd = LWS_SOCK_INVALID;
 			lwsl_debug("binding to %s\n", new_wsi->protocol->name);
 			lws_bind_protocol(new_wsi, new_wsi->protocol);
-			lws_union_transition(new_wsi, LWSCM_WS_SERVING);
+			lws_role_transition(new_wsi, LWSI_ROLE_WS1_SERVER, LRS_ESTABLISHED);
 			/* allocate the ws struct for the wsi */
 			new_wsi->ws = lws_zalloc(sizeof(*new_wsi->ws), "ws struct");
 			if (!new_wsi->ws) {
@@ -2157,7 +2152,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		else { /* this is the only time he will transition */
 			lws_bind_protocol(new_wsi,
 				&vh->protocols[vh->raw_protocol_index]);
-			lws_union_transition(new_wsi, LWSCM_RAW);
+			lws_role_transition(new_wsi, LWSI_ROLE_RAW_SOCKET,
+					LRS_ESTABLISHED);
 		}
 
 	if (type & LWS_ADOPT_SOCKET) { /* socket desc */
@@ -2201,19 +2197,25 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		/* non-SSL */
 		if (!(type & LWS_ADOPT_HTTP)) {
 			if (!(type & LWS_ADOPT_SOCKET))
-				new_wsi->mode = LWSCM_RAW_FILEDESC;
+				lwsi_set_role(new_wsi, LWSI_ROLE_RAW_FILE);
 			else
-				new_wsi->mode = LWSCM_RAW;
+				lwsi_set_role(new_wsi, LWSI_ROLE_RAW_SOCKET);
+		} else {
+			lwsi_set_role(new_wsi, LWSI_ROLE_H1_SERVER);
+			lwsi_set_state(new_wsi, LRS_HEADERS);
 		}
 	} else {
 		/* SSL */
 		if (!(type & LWS_ADOPT_HTTP))
-			new_wsi->mode = LWSCM_SSL_INIT_RAW;
+			lwsi_set_role(new_wsi, LWSI_ROLE_RAW_SOCKET);
 		else
-			new_wsi->mode = LWSCM_SSL_INIT;
+			lwsi_set_role(new_wsi, LWSI_ROLE_H1_SERVER);
 
+		lwsi_set_state(new_wsi, LRS_SSL_INIT);
 		ssl = 1;
 	}
+
+	lwsl_debug("new wsi wsistate 0x%x\n", new_wsi->wsistate);
 
 	lws_libev_accept(new_wsi, new_wsi->desc);
 	lws_libuv_accept(new_wsi, new_wsi->desc);
@@ -2394,12 +2396,12 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 #endif
 	int n, len;
 
-	switch (wsi->mode) {
+	switch (lwsi_role(wsi)) {
 
-	case LWSCM_HTTP_SERVING:
-	case LWSCM_HTTP_SERVING_ACCEPTED:
-	case LWSCM_HTTP2_SERVING:
-	case LWSCM_RAW:
+	case LWSI_ROLE_H1_SERVER:
+	case LWSI_ROLE_H2_SERVER:
+	case LWSI_ROLE_RAW_SOCKET:
+	case LWSI_ROLE_RAW_FILE:
 
 		/* handle http headers coming in */
 
@@ -2421,7 +2423,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			break;
 		}
 
-		if (wsi->state == LWSS_HTTP_DEFERRING_ACTION)
+		if (lwsi_state(wsi) == LRS_DEFERRING_ACTION)
 			goto try_pollout;
 
 		/* any incoming data ready? */
@@ -2442,11 +2444,19 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			goto try_pollout;
 		}
 
+		/*
+		 * We haven't processed that the tunnel is set up yet, so
+		 * defer reading
+		 */
+		if (lwsi_state(wsi) == LRS_SSL_ACK_PENDING)
+			break;
+
 		/* these states imply we MUST have an ah attached */
 
-		if (wsi->mode != LWSCM_RAW && (wsi->state == LWSS_HTTP ||
-		    wsi->state == LWSS_HTTP_ISSUING_FILE ||
-		    wsi->state == LWSS_HTTP_HEADERS)) {
+		if (!lwsi_role_raw(wsi) &&
+		    (lwsi_state(wsi) == LRS_ESTABLISHED ||
+		     lwsi_state(wsi) == LRS_ISSUING_FILE ||
+		     lwsi_state(wsi) == LRS_HEADERS)) {
 			if (!wsi->ah) {
 				/* no autoservice beacuse we will do it next */
 				if (lws_header_table_attach(wsi, 0)) {
@@ -2488,9 +2498,6 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 				}
 			}
 
-			// lwsl_notice("new read, rxpos %d / rxlen %d\n", ah->rxpos, ah->rxlen);
-			// lwsl_hexdump_level(LLL_NOTICE, ah->rx, ah->rxlen);
-
 			if (!(ah->rxpos != ah->rxlen && ah->rxlen)) {
 				lwsl_err("%s: assert: rxpos %d, rxlen %d\n",
 					 __func__, ah->rxpos, ah->rxlen);
@@ -2499,8 +2506,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			}
 			
 			/* just ignore incoming if waiting for close */
-			if (wsi->state == LWSS_FLUSHING_SEND_BEFORE_CLOSE ||
-			    wsi->state == LWSS_HTTP_ISSUING_FILE)
+			if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE ||
+			    lwsi_state(wsi) == LRS_ISSUING_FILE)
 				goto try_pollout;
 
 			/*
@@ -2523,9 +2530,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 				   wsi->ah->rxlen);
 
 			if (lws_header_table_is_in_detachable_state(wsi) &&
-			    (wsi->mode != LWSCM_HTTP_SERVING &&
-			     wsi->mode != LWSCM_HTTP_SERVING_ACCEPTED &&
-			     wsi->mode != LWSCM_HTTP2_SERVING))
+				lwsi_role_raw(wsi)) // ???
 				lws_header_table_detach(wsi, 1);
 
 			break;
@@ -2546,7 +2551,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 
 			len = lws_ssl_capable_read(wsi, pt->serv_buf,
 						   context->pt_serv_buf_size);
-			lwsl_debug("%s: wsi %p read %d\r\n", __func__, wsi, len);
+			lwsl_debug("%s: wsi %p read %d (wsistate 0x%x)\n",
+					__func__, wsi, len, wsi->wsistate);
 			switch (len) {
 			case 0:
 				lwsl_info("%s: read 0 len b\n", __func__);
@@ -2561,7 +2567,7 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			if (len < 0) /* coverity */
 				goto fail;
 		}
-		if (wsi->mode == LWSCM_RAW) {
+		if (lwsi_role_raw(wsi)) {
 			n = user_callback_handle_rxflow(wsi->protocol->callback,
 							wsi, LWS_CALLBACK_RAW_RX,
 							wsi->user_space,
@@ -2574,8 +2580,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 		}
 
 		/* just ignore incoming if waiting for close */
-		if (wsi->state != LWSS_FLUSHING_SEND_BEFORE_CLOSE &&
-		    wsi->state != LWSS_HTTP_ISSUING_FILE) {
+		if (lwsi_state(wsi) != LRS_FLUSHING_BEFORE_CLOSE &&
+		    lwsi_state(wsi) != LRS_ISSUING_FILE) {
 			/*
 			 * this may want to send
 			 * (via HTTP callback for example)
@@ -2637,21 +2643,21 @@ try_pollout:
 		/* clear back-to-back write detection */
 		wsi->could_have_pending = 0;
 
-		if (wsi->state == LWSS_HTTP_DEFERRING_ACTION) {
-			lwsl_debug("%s: LWSS_HTTP_DEFERRING_ACTION now writable\n",
+		if (lwsi_state(wsi) == LRS_DEFERRING_ACTION) {
+			lwsl_debug("%s: LRS_DEFERRING_ACTION now writable\n",
 				   __func__);
 
 			if (wsi->ah)
 				lwsl_debug("     existing ah rxpos %d / rxlen %d\n",
 				   wsi->ah->rxpos, wsi->ah->rxlen);
-			wsi->state = LWSS_HTTP;
+			lwsi_set_state(wsi, LRS_ESTABLISHED);
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 				lwsl_info("failed at set pollfd\n");
 				goto fail;
 			}
 		}
 
-		if (wsi->mode == LWSCM_RAW) {
+		if (lwsi_role_raw(wsi)) {
 			lws_stats_atomic_bump(wsi->context, pt,
 						LWSSTATS_C_WRITEABLE_CB, 1);
 #if defined(LWS_WITH_STATS)
@@ -2679,7 +2685,7 @@ try_pollout:
 		if (!wsi->hdr_parsing_completed)
 			break;
 
-		if (wsi->state != LWSS_HTTP_ISSUING_FILE) {
+		if (lwsi_state(wsi) != LRS_ISSUING_FILE) {
 
 			lws_stats_atomic_bump(wsi->context, pt,
 						LWSSTATS_C_WRITEABLE_CB, 1);
@@ -2718,7 +2724,7 @@ try_pollout:
 
 		break;
 
-	case LWSCM_SERVER_LISTENER:
+	case LWSI_ROLE_LISTEN_SOCKET:
 
 #if LWS_POSIX
 		/* pollin means a client has connected to us then
@@ -2876,7 +2882,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		wsi->http.fop_fd = fops->LWS_FOP_OPEN(wsi->context->fops,
 							file, vpath, &fflags);
 		if (!wsi->http.fop_fd) {
-			lwsl_err("Unable to open: '%s': errno %d\n", file, errno);
+			lwsl_info("Unable to open: '%s': errno %d\n", file, errno);
 
 			return -1;
 		}
@@ -3056,7 +3062,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	}
 
 	wsi->http.filepos = 0;
-	wsi->state = LWSS_HTTP_ISSUING_FILE;
+	lwsi_set_state(wsi, LRS_ISSUING_FILE);
 
 	lws_callback_on_writable(wsi);
 

@@ -65,20 +65,17 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	unsigned char *last_char, *oldbuf = buf;
 	lws_filepos_t body_chunk_len;
 	size_t n;
-#if defined(LWS_WITH_HTTP2)
-	int m;
-#endif
 
-	// lwsl_notice("%s: state %d\n", __func__, wsi->state);
-
-	switch (wsi->state) {
 #if defined(LWS_WITH_HTTP2)
-	case LWSS_HTTP2_CLIENT_ESTABLISHED:
-	case LWSS_HTTP2_CLIENT_SEND_SETTINGS:
-	case LWSS_HTTP2_CLIENT_WAITING_TO_SEND_HEADERS:
-	case LWSS_HTTP2_AWAIT_CLIENT_PREFACE:
-	case LWSS_HTTP2_ESTABLISHED_PRE_SETTINGS:
-	case LWSS_HTTP2_ESTABLISHED:
+
+	if (lwsi_role_h2(wsi) &&
+	    !lwsi_role_ws(wsi) &&
+	    lwsi_state(wsi) != LRS_BODY) {
+		int m;
+
+		// lwsl_notice("%s: h2 path: wsistate 0x%x len %d\n", __func__,
+		//		wsi->wsistate, (int)len);
+
 		/*
 		 * wsi here is always the network connection wsi, not a stream
 		 * wsi.  Once we unpicked the framing we will find the right
@@ -143,23 +140,32 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			len -= body_chunk_len;
 		}
 //		lwsl_debug("%s: used up block\n", __func__);
-		break;
+		goto read_ok;
+	}
 #endif
 
-	case LWSS_HTTP_ISSUING_FILE:
+	// lwsl_notice("%s: h1 path: wsi state 0x%x\n", __func__, lwsi_state(wsi));
+
+	switch (lwsi_state(wsi)) {
+
+	case LRS_ISSUING_FILE:
 		return 0;
 
-	case LWSS_CLIENT_HTTP_ESTABLISHED:
-		break;
+	case LRS_ESTABLISHED:
 
-	case LWSS_HTTP:
+		if (lwsi_role_non_ws_client(wsi))
+			break;
+
+		if (lwsi_role_ws(wsi))
+			goto ws_mode;
+
 		wsi->hdr_parsing_completed = 0;
 
 		/* fallthru */
 
-	case LWSS_HTTP_HEADERS:
+	case LRS_HEADERS:
 		if (!wsi->ah) {
-			lwsl_err("%s: LWSS_HTTP_HEADERS: NULL ah\n", __func__);
+			lwsl_err("%s: LRS_HEADERS: NULL ah\n", __func__);
 			assert(0);
 		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
@@ -173,7 +179,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			goto bail;
 
 		/* we might have transitioned to RAW */
-		if (wsi->mode == LWSCM_RAW)
+		if (lwsi_role_raw(wsi))
 			 /* we gave the read buffer to RAW handler already */
 			goto read_ok;
 
@@ -191,13 +197,13 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			/* More header content on the way */
 			goto read_ok;
 
-		switch (wsi->state) {
-			case LWSS_HTTP:
-			case LWSS_HTTP_HEADERS:
+		switch (lwsi_state(wsi)) {
+			case LRS_ESTABLISHED:
+			case LRS_HEADERS:
 				goto read_ok;
-			case LWSS_HTTP_ISSUING_FILE:
+			case LRS_ISSUING_FILE:
 				goto read_ok;
-			case LWSS_HTTP_BODY:
+			case LRS_BODY:
 				wsi->http.rx_content_remain =
 						wsi->http.rx_content_length;
 				if (wsi->http.rx_content_remain)
@@ -210,7 +216,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		}
 		break;
 
-	case LWSS_HTTP_BODY:
+	case LRS_BODY:
 http_postbody:
 		//lwsl_notice("http post body\n");
 		while (len && wsi->http.rx_content_remain) {
@@ -281,24 +287,25 @@ postbody_completion:
 					goto bail;
 
 				if (wsi->http2_substream)
-					wsi->state = LWSS_HTTP2_ESTABLISHED;
+					lwsi_set_state(wsi, LRS_ESTABLISHED);
 			}
 
 			break;
 		}
 		break;
 
-	case LWSS_ESTABLISHED:
-	case LWSS_AWAITING_CLOSE_ACK:
-	case LWSS_WAITING_TO_SEND_CLOSE_NOTIFICATION:
-	case LWSS_SHUTDOWN:
-	case LWSS_SHUTDOWN | _LSF_POLLOUT | _LSF_CCB:
+	case LRS_AWAITING_CLOSE_ACK:
+	case LRS_WAITING_TO_SEND_CLOSE:
+	case LRS_SHUTDOWN:
+
+ws_mode:
+
 		if (lws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;
 
-		switch (wsi->mode) {
-		case LWSCM_WS_SERVING:
-		case LWSCM_HTTP2_WS_SERVING:
+		switch (lwsi_role(wsi)) {
+		case LWSI_ROLE_WS1_SERVER:
+		case LWSI_ROLE_WS2_SERVER:
 			/*
 			 * for h2 we are on the swsi
 			 */
@@ -311,17 +318,20 @@ postbody_completion:
 		}
 		break;
 
-	case LWSS_HTTP_DEFERRING_ACTION:
-		lwsl_debug("%s: LWSS_HTTP_DEFERRING_ACTION\n", __func__);
+	case LRS_DEFERRING_ACTION:
+		lwsl_debug("%s: LRS_DEFERRING_ACTION\n", __func__);
 		break;
 
-	case LWSS_DEAD_SOCKET:
-		lwsl_err("%s: Unhandled state LWSS_DEAD_SOCKET\n", __func__);
+	case LRS_SSL_ACK_PENDING:
+		break;
+
+	case LRS_DEAD_SOCKET:
+		lwsl_err("%s: Unhandled state LRS_DEAD_SOCKET\n", __func__);
 		assert(0);
 		/* fallthru */
 
 	default:
-		lwsl_err("%s: Unhandled state %d\n", __func__, wsi->state);
+		lwsl_err("%s: Unhandled state %d\n", __func__, lwsi_state(wsi));
 		goto bail;
 	}
 

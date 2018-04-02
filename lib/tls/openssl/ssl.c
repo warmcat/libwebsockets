@@ -659,7 +659,7 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 	x509 = SSL_get_peer_certificate(wsi->ssl);
 
 	if (!x509) {
-		lwsl_notice("no peer cert\n");
+		lwsl_debug("no peer cert\n");
 
 		return -1;
 	}
