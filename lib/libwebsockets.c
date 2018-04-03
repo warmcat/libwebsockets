@@ -473,9 +473,11 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 //		return 0;
 	const struct lws_protocols *vp = wsi->vhost->protocols, *vpo;
 
-	if (wsi->protocol)
+	if (wsi->protocol && wsi->protocol_bind_balance) {
 		wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_DROP_PROTOCOL,
 					wsi->user_space, NULL, 0);
+		wsi->protocol_bind_balance = 0;
+	}
 	if (!wsi->user_space_externally_allocated)
 		lws_free_set_NULL(wsi->user_space);
 
@@ -512,6 +514,8 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 	if (wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_BIND_PROTOCOL,
 				    wsi->user_space, NULL, 0))
 		return 1;
+
+	wsi->protocol_bind_balance = 1;
 
 	return 0;
 }
@@ -672,10 +676,12 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	if (!wsi->told_user_closed &&
 	    (wsi->mode == LWSCM_HTTP_SERVING ||
 	     wsi->mode == LWSCM_HTTP2_SERVING)) {
-		if (wsi->user_space)
+		if (wsi->user_space && wsi->protocol_bind_balance) {
 			wsi->vhost->protocols->callback(wsi,
 						LWS_CALLBACK_HTTP_DROP_PROTOCOL,
 					       wsi->user_space, NULL, 0);
+			wsi->protocol_bind_balance = 0;
+		}
 		wsi->vhost->protocols->callback(wsi, LWS_CALLBACK_CLOSED_HTTP,
 					       wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;
@@ -846,12 +852,14 @@ just_kill_connection:
 	lws_remove_child_from_any_parent(wsi);
 	n = 0;
 
-	if (!wsi->told_user_closed && wsi->user_space) {
-	    lwsl_debug("%s: %p: DROP_PROTOCOL %s\n", __func__, wsi,
+	if (!wsi->told_user_closed && wsi->user_space &&
+	    wsi->protocol_bind_balance) {
+		lwsl_debug("%s: %p: DROP_PROTOCOL %s\n", __func__, wsi,
 		       wsi->protocol->name);
 		wsi->protocol->callback(wsi,
 				        LWS_CALLBACK_HTTP_DROP_PROTOCOL,
 				        wsi->user_space, NULL, 0);
+		wsi->protocol_bind_balance = 0;
 	}
 
 	if ((wsi->mode == LWSCM_WSCL_WAITING_SERVER_REPLY ||

@@ -2004,6 +2004,7 @@ struct lws {
 	unsigned int event_pipe:1;
 	unsigned int on_same_vh_list:1;
 	unsigned int handling_404:1;
+	unsigned int protocol_bind_balance:1;
 
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
 	unsigned int outer_will_close:1;
