@@ -229,7 +229,7 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 //		return 0;
 	const struct lws_protocols *vp = wsi->vhost->protocols, *vpo;
 
-	if (wsi->protocol)
+	if (wsi->protocol && wsi->user_space)
 		wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_DROP_PROTOCOL,
 					wsi->user_space, NULL, 0);
 	if (!wsi->user_space_externally_allocated)
