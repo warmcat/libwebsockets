@@ -621,11 +621,13 @@ user_service_go_again:
 			goto next_child;
 		}
 
-		if (lws_calllback_as_writeable(w) || w->h2.send_END_STREAM) {
+		if (lws_calllback_as_writeable(w)) {
 			lwsl_info("Closing POLLOUT child (end stream %d)\n", w->h2.send_END_STREAM);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 pollout handle");
 			wa = &wsi->h2.child_list;
-		}
+		} else
+			 if (w->h2.send_END_STREAM)
+				lws_h2_state(w, LWS_H2_STATE_HALF_CLOSED_LOCAL);
 
 next_child:
 		wsi2 = wa;

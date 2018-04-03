@@ -1559,6 +1559,9 @@ enum lws_h2_states {
 	 */
 };
 
+void
+lws_h2_state(struct lws *wsi, enum lws_h2_states s);
+
 #define LWS_H2_STREAM_ID_MASTER 0
 #define LWS_H2_SETTINGS_LEN 6
 #define LWS_H2_FLAG_SETTINGS_ACK 1

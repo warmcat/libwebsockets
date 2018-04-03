@@ -134,7 +134,7 @@ void lws_h2_init(struct lws *wsi)
 	wsi->h2.h2n->set = wsi->vhost->set;
 }
 
-static void
+void
 lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 {
 	if (!wsi)
@@ -1022,6 +1022,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			if (h2n->sid) {
 				h2n->swsi = lws_h2_wsi_from_id(wsi, h2n->sid);
 				lwsl_info("HEADERS: nwsi %p: sid %d mapped to wsi %p\n", wsi, h2n->sid, h2n->swsi);
+				if (!h2n->swsi)
+					break;
 			}
 			goto update_end_headers;
 		}
@@ -1259,6 +1261,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 	case LWS_H2_FRAME_TYPE_CONTINUATION:
 	case LWS_H2_FRAME_TYPE_HEADERS:
+
+		if (!h2n->swsi)
+			break;
 
 		/* service the http request itself */
 
