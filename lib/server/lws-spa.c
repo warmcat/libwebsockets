@@ -35,6 +35,8 @@ enum urldecode_stateful {
 	MT_TYPE,
 	MT_IGNORE1,
 	MT_IGNORE2,
+	MT_IGNORE3,
+	MT_COMPLETED,
 };
 
 static const char * const mp_hdr[] = {
@@ -49,6 +51,7 @@ typedef int (*lws_urldecode_stateful_cb)(void *data,
 struct lws_urldecode_stateful {
 	char *out;
 	void *data;
+	struct lws *wsi;
 	char name[LWS_MAX_ELEM_NAME];
 	char temp[LWS_MAX_ELEM_NAME];
 	char content_type[32];
@@ -92,6 +95,7 @@ lws_urldecode_s_create(struct lws *wsi, char *out, int out_len, void *data,
 	s->state = US_NAME;
 	s->name[0] = '\0';
 	s->data = data;
+	s->wsi = wsi;
 
 	if (lws_hdr_copy(wsi, buf, sizeof(buf),
 			 WSI_TOKEN_HTTP_CONTENT_TYPE) > 0) {
@@ -363,6 +367,8 @@ done:
 		case MT_IGNORE1:
 			if (*in == '\x0d')
 				s->state = MT_IGNORE2;
+			if (*in == '-')
+				s->state = MT_IGNORE3;
 			in++;
 			break;
 
@@ -371,6 +377,18 @@ done:
 			if (*in == '\x0a')
 				s->state = MT_HNAME;
 			in++;
+			break;
+
+		case MT_IGNORE3:
+			if (*in == '\x0d')
+				s->state = MT_IGNORE1;
+			if (*in == '-') {
+				s->state = MT_COMPLETED;
+				s->wsi->http.rx_content_remain = 0;
+			}
+			in++;
+			break;
+		case MT_COMPLETED:
 			break;
 		}
 	}
