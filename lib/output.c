@@ -638,7 +638,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				lwsl_info("%s: closing\n", __func__);
 				goto file_had_it;
 			}
-			continue;
+			break;
 		}
 
 		if (wsi->http.filepos == wsi->http.filelen)
