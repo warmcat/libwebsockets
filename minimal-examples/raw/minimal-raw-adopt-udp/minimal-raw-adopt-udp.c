@@ -38,6 +38,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
 	ssize_t n;
+	int fd;
 
 	switch (reason) {
 
@@ -79,6 +80,11 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!sendlen)
 			break;
+
+		fd = lws_get_socket_fd(wsi);
+		if (fd < 0) /* keep Coverity happy: actually it cannot be < 0 */
+			break;
+
 		/*
 		 * We can write directly on the UDP socket, specifying
 		 * the peer the write is directed to.
@@ -90,8 +96,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		 *
 		 * For clarity partial sends just drop the remainder here.
 		 */
-		n = sendto(lws_get_socket_fd(wsi), sendbuf, sendlen, 0, &udp.sa,
-			   udp.salen);
+		n = sendto(fd, sendbuf, sendlen, 0, &udp.sa, udp.salen);
 		if (n < (ssize_t)len)
 			lwsl_notice("%s: send returned %d\n", __func__, (int)n);
 		break;
