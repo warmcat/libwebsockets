@@ -240,7 +240,7 @@ lws_tls_client_connect(struct lws *wsi)
 #if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
 		SSL_get0_alpn_selected(wsi->ssl, &prot, &len);
 
-		if (len > sizeof(a))
+		if (len >= sizeof(a))
 			len = sizeof(a) - 1;
 		memcpy(a, (const char *)prot, len);
 		a[len] = '\0';
