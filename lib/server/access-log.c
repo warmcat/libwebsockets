@@ -51,8 +51,11 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
 	time_t t = time(NULL);
 	int l = 256, m;
 
+	if (!wsi->vhost)
+		return;
+
 	/* only worry about preparing it if we store it */
-	if (wsi->vhost && wsi->vhost->log_fd == (int)LWS_INVALID_FILE)
+	if (wsi->vhost->log_fd == (int)LWS_INVALID_FILE)
 		return;
 
 	if (wsi->access_log_pending)
