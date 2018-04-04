@@ -204,7 +204,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		lws_pt_lock(pt, __func__);
 		/* don't stay in poll wait longer than next hr timeout */
 		lws_usec_t t =  __lws_hrtimer_service(pt);
-		if (timeout_ms * 1000 > t)
+		if ((lws_usec_t)timeout_ms * 1000 > t)
 			timeout_ms = t / 1000;
 		lws_pt_unlock(pt);
 	}
