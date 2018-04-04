@@ -77,7 +77,7 @@ function check {
 	fi
 
 	if [ "$1" == "1" ] ; then
-		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 1\: | tr -s ' ' | cut -d' ' -f5-`"
+		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 1\: | tr -s ' ' | cut -d' ' -f7-`"
 		if [ "$a" != "$2" ] ; then
 			echo "Arg 1 '$a' not $2"
 			exit 1
@@ -85,14 +85,14 @@ function check {
 	fi
 
 	if [ "$1" == "2" ] ; then
-		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 2\: | tr -s ' ' | cut -d' ' -f5-`"
+		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 2\: | tr -s ' ' | cut -d' ' -f7-`"
 		if [ "$a" != "$2" ] ; then
 			echo "Arg 2 '$a' not $2"
 			exit 1
 		fi
 	fi
 	if [ "$1" == "3" ] ; then
-		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 3\: | tr -s ' ' | cut -d' ' -f5-`"
+		a="`dd if=$LOG bs=1 skip=$LEN 2>/dev/null |grep URI\ Arg\ 3\: | tr -s ' ' | cut -d' ' -f7-`"
 		if [ "$a" != "$2" ] ; then
 			echo "Arg 3 '$a' not $2"
 			exit 1
@@ -343,7 +343,7 @@ for i in \
 /...// \
 /.../a \
 /.../w \
-/.../? \
+"/.../?" \
 /.../% \
 /../.. \
 /.././ \
@@ -355,7 +355,7 @@ for i in \
 /../// \
 /..//a \
 /..//w \
-/..//? \
+"/..//?" \
 /..//% \
 /../a. \
 /../a/ \
@@ -551,7 +551,7 @@ echo ==== $R
 
 
 if [ "$R" != "403" ]; then
-	U=`cat $LOG | grep lws_http_serve | tail -n 1 | cut -d':' -f3 | cut -d' ' -f2`
+	U=`cat $LOG | grep lws_http_serve | tail -n 1 | cut -d':' -f6 | cut -d' ' -f2`
 	echo $U
 	echo "- \"$i\" -> $R \"$U\"" >>/tmp/results
 else
@@ -577,7 +577,7 @@ cat <<EOF >/tmp/lwsresult1
 - "/..///" -> 200 "/"
 - "/..//a" -> 415 "/a"
 - "/..//w" -> 415 "/w"
-- "/..//1" -> 415 "/1"
+- "/..//?" -> 200 "/"
 - "/..//%" -> 403
 - "/../a." -> 415 "/a."
 - "/../a/" -> 406 "/a/"
@@ -628,7 +628,7 @@ cat <<EOF >/tmp/lwsresult1
 - "//..//" -> 200 "/"
 - "//../a" -> 415 "/a"
 - "//../w" -> 415 "/w"
-- "//../1" -> 415 "/1"
+- "//../?" -> 200 "/"
 - "//../%" -> 403
 - "//..a." -> 415 "/..a."
 - "//..a/" -> 406 "/..a/"

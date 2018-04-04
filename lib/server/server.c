@@ -2477,8 +2477,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 						   __func__);
 					wsi->seen_zero_length_recv = 1;
 					lws_change_pollfd(wsi, LWS_POLLIN, 0);
-					// goto try_pollout;
-					goto fail;
+					 goto try_pollout;
+					//goto fail;
 
 				case LWS_SSL_CAPABLE_ERROR:
 					goto fail;

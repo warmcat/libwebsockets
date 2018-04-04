@@ -339,7 +339,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		if (longlived)
 			mirror_lifetime += 500000;
 
-		lwsl_info("opened mirror connection with "
+		lwsl_notice("opened mirror connection with "
 			  "%d lifetime\n", mirror_lifetime);
 
 		/*
@@ -355,7 +355,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_callback_on_writable(wsi);
 		break;
 
-	case LWS_CALLBACK_CLOSED:
+	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_notice("mirror: LWS_CALLBACK_CLOSED mirror_lifetime=%d, "
 			    "rxb %d, rx_count %d\n", mirror_lifetime, rxb,
 			    rx_count);
@@ -411,12 +411,11 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!justmirror)
 			mirror_lifetime--;
 		if (!mirror_lifetime) {
-			lwsl_info("closing mirror session\n");
+			lwsl_notice("closing mirror session\n");
 			return -1;
 		}
 		/* get notified as soon as we can write again */
-		if (!justmirror)
-			lws_callback_on_writable(wsi);
+		lws_callback_on_writable(wsi);
 
 #if !defined(_WIN32) && !defined(WIN32)
 		usleep(250);
@@ -583,7 +582,7 @@ int main(int argc, char **argv)
 	memset(&info, 0, sizeof info);
 
 	lwsl_notice("libwebsockets test client - license LGPL2.1+SLE\n");
-	lwsl_notice("(C) Copyright 2010-2017 Andy Green <andy@warmcat.com>\n");
+	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
 
 	if (argc < 2)
 		goto usage;

@@ -135,11 +135,14 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
+    defined(LWS_HAVE_SSL_get0_alpn_selected)
+#if defined(LWS_WITH_HTTP2)
 	if (wsi->use_ssl & LCCSCF_NOT_H2) {
 		plist += 3;
 		n -= 3;
 	}
+#endif
 	SSL_set_alpn_protos(wsi->ssl, plist, n);
 #endif
 
