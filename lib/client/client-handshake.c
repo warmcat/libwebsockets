@@ -474,7 +474,8 @@ create_new_conn:
 #endif
 
 send_hs:
-	if (!lws_dll_is_null(&wsi->dll_client_transaction_queue)) {
+	if (wsi_piggy &&
+	    !lws_dll_is_null(&wsi->dll_client_transaction_queue)) {
 		/*
 		 * We are pipelining on an already-established connection...
 		 * we can skip tls establishment.
