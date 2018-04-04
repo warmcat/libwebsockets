@@ -61,17 +61,49 @@ struct per_session_data__minimal_pmd_bulk {
 };
 
 struct vhd_minimal_pmd_bulk {
-        int *interrupted;
-	int *options;	/* b0 = 1: test compressible text, = 0: test uncompressible binary */
+	struct lws_context *context;
+	struct lws_vhost *vhost;
+	struct lws *client_wsi;
+
+	int *interrupted;
+	int *options;
 };
 
 static uint64_t rng(uint64_t *r)
 {
-	*r ^= *r << 21;
-	*r ^= *r >> 35;
-	*r ^= *r << 4;
+        *r ^= *r << 21;
+        *r ^= *r >> 35;
+        *r ^= *r << 4;
 
-	return *r;
+        return *r;
+}
+
+static int
+connect_client(struct vhd_minimal_pmd_bulk *vhd)
+{
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof(i));
+
+	i.context = vhd->context;
+	i.port = 7681;
+	i.address = "localhost";
+	i.path = "/";
+	i.host = i.address;
+	i.origin = i.address;
+	i.ssl_connection = 0;
+	i.vhost = vhd->vhost;
+	i.protocol = "lws-minimal-pmd-bulk";
+	i.pwsi = &vhd->client_wsi;
+
+	return !lws_client_connect_via_info(&i);
+}
+
+static void
+schedule_callback(struct lws *wsi, int reason, int secs)
+{
+	lws_timed_callback_vh_protocol(lws_get_vhost(wsi),
+		lws_get_protocol(wsi), reason, secs);
 }
 
 static int
@@ -80,36 +112,48 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct per_session_data__minimal_pmd_bulk *pss =
 			(struct per_session_data__minimal_pmd_bulk *)user;
-        struct vhd_minimal_pmd_bulk *vhd = (struct vhd_minimal_pmd_bulk *)
-                        lws_protocol_vh_priv_get(lws_get_vhost(wsi),
-                                lws_get_protocol(wsi));
+	struct vhd_minimal_pmd_bulk *vhd = (struct vhd_minimal_pmd_bulk *)
+			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+				lws_get_protocol(wsi));
 	uint8_t buf[LWS_PRE + MESSAGE_CHUNK_SIZE], *start = &buf[LWS_PRE], *p;
-	int n, m, flags, olen;
+	int n, m, flags;
 
 	switch (reason) {
-        case LWS_CALLBACK_PROTOCOL_INIT:
-                vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
-                                lws_get_protocol(wsi),
-                                sizeof(struct vhd_minimal_pmd_bulk));
-                if (!vhd)
-                        return -1;
 
-                /* get the pointer to "interrupted" we were passed in pvo */
-                vhd->interrupted = (int *)lws_pvo_search(
-                        (const struct lws_protocol_vhost_options *)in,
-                        "interrupted")->value;
-                vhd->options = (int *)lws_pvo_search(
-                        (const struct lws_protocol_vhost_options *)in,
-                        "options")->value;
-                break;
+	case LWS_CALLBACK_PROTOCOL_INIT:
+		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+				lws_get_protocol(wsi),
+				sizeof(struct vhd_minimal_pmd_bulk));
+		if (!vhd)
+			return -1;
 
-	case LWS_CALLBACK_ESTABLISHED:
+		vhd->context = lws_get_context(wsi);
+		vhd->vhost = lws_get_vhost(wsi);
+
+		/* get the pointer to "interrupted" we were passed in pvo */
+		vhd->interrupted = (int *)lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in,
+			"interrupted")->value;
+		vhd->options = (int *)lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in,
+			"options")->value;
+
+		if (connect_client(vhd))
+			schedule_callback(wsi, LWS_CALLBACK_USER, 1);
+		break;
+
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		pss->rng_tx = 4;
 		pss->rng_rx = 4;
 		lws_callback_on_writable(wsi);
 		break;
 
-	case LWS_CALLBACK_SERVER_WRITEABLE:
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+
+		/*
+		 * when we connect, we will send the server a message
+		 */
+
 		if (pss->position_tx == MESSAGE_SIZE)
 			break;
 
@@ -150,22 +194,31 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		n = lws_ptr_diff(p, start);
 		m = lws_write(wsi, start, n, flags);
 		if (m < n) {
-			lwsl_err("ERROR %d writing ws\n", n);
+			lwsl_err("ERROR %d writing ws\n", m);
 			return -1;
 		}
 		if (pss->position_tx != MESSAGE_SIZE) /* if more to do... */
 			lws_callback_on_writable(wsi);
+		else
+			/* if we sent and received everything */
+			if (pss->position_rx == MESSAGE_SIZE)
+				*vhd->interrupted = 2;
 		break;
 
-	case LWS_CALLBACK_RECEIVE:
-		lwsl_user("LWS_CALLBACK_RECEIVE: %4d (pss->pos=%d, rpp %5d, last %d)\n",
-				(int)len, (int)pss->position_rx, (int)lws_remaining_packet_payload(wsi),
-				lws_is_final_fragment(wsi));
-		olen = len;
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+
+		/*
+		 * When we connect, the server will send us a message too
+		 */
+
+		lwsl_user("LWS_CALLBACK_CLIENT_RECEIVE: %4d (rpp %5d, last %d)\n",
+			(int)len, (int)lws_remaining_packet_payload(wsi),
+			lws_is_final_fragment(wsi));
 
 		if (*vhd->options & 1) {
 			while (len) {
 				size_t s;
+
 				m = pss->position_rx % REPEAT_STRING_LEN;
 				s = REPEAT_STRING_LEN - m;
 				if (s > len)
@@ -181,18 +234,39 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		} else {
 			p = (uint8_t *)in;
 			pss->position_rx += len;
-			while (len--) {
+			while (len--)
 				if (*p++ != (uint8_t)rng(&pss->rng_rx)) {
-					lwsl_user("echo'd data doesn't match: 0x%02X 0x%02X (%d)\n",
-						*(p - 1), (int)(0x40 + (pss->rng_rx & 0x3f)),
-						(int)((pss->position_rx - olen) + olen - len));
-					lwsl_hexdump_notice(in, olen);
+					lwsl_user("echo'd data doesn't match\n");
 					return -1;
 				}
-			}
-			if (pss->position_rx == MESSAGE_SIZE)
-				pss->position_rx = 0;
 		}
+
+		/* if we sent and received everything */
+
+		if (pss->position_rx == MESSAGE_SIZE &&
+		    pss->position_tx == MESSAGE_SIZE)
+			*vhd->interrupted = 2;
+
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
+			 in ? (char *)in : "(null)");
+		vhd->client_wsi = NULL;
+		schedule_callback(wsi, LWS_CALLBACK_USER, 1);
+		break;
+
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		vhd->client_wsi = NULL;
+		schedule_callback(wsi, LWS_CALLBACK_USER, 1);
+		break;
+
+	/* rate-limited client connect retries */
+
+	case LWS_CALLBACK_USER:
+		lwsl_notice("%s: LWS_CALLBACK_USER\n", __func__);
+		if (connect_client(vhd))
+			schedule_callback(wsi, LWS_CALLBACK_USER, 1);
 		break;
 
 	default:

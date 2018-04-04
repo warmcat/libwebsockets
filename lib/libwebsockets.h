@@ -5159,19 +5159,22 @@ lws_rx_flow_allow_all_protocol(const struct lws_context *context,
 
 /**
  * lws_remaining_packet_payload() - Bytes to come before "overall"
- *					      rx packet is complete
+ *					      rx fragment is complete
  * \param wsi:		Websocket instance (available from user callback)
  *
- *	This function is intended to be called from the callback if the
- *  user code is interested in "complete packets" from the client.
- *  libwebsockets just passes through payload as it comes and issues a buffer
- *  additionally when it hits a built-in limit.  The LWS_CALLBACK_RECEIVE
- *  callback handler can use this API to find out if the buffer it has just
- *  been given is the last piece of a "complete packet" from the client --
- *  when that is the case lws_remaining_packet_payload() will return
- *  0.
+ * This tracks how many bytes are left in the current ws fragment, according
+ * to the ws length given in the fragment header.
  *
- *  Many protocols won't care becuse their packets are always small.
+ * If the message was in a single fragment, and there is no compression, this
+ * is the same as "how much data is left to read for this message".
+ *
+ * However, if the message is being sent in multiple fragments, this will
+ * reflect the unread amount of the current **fragment**, not the message.  With
+ * ws, it is legal to not know the length of the message before it completes.
+ *
+ * Additionally if the message is sent via the negotiated permessage-deflate
+ * extension, this number only tells the amount of **compressed** data left to
+ * be read, since that is the only information available at the ws layer.
  */
 LWS_VISIBLE LWS_EXTERN size_t
 lws_remaining_packet_payload(struct lws *wsi);

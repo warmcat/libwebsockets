@@ -61,9 +61,12 @@ try {
 	ws.onmessage =function got_packet(msg) {
 		console.log("Received ws message len " + msg.data.length);
 		document.getElementById("r").value =
-			document.getElementById("r").value + msg.data + "\n";
+			document.getElementById("r").value + "\nReceived: " + msg.data.length + " bytes\n";
 		document.getElementById("r").scrollTop =
 			document.getElementById("r").scrollHeight;
+
+		/* echo it back */
+		ws.send(msg.data);
 	} 
 
 	ws.onclose = function(){

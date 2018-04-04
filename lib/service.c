@@ -1749,7 +1749,7 @@ read:
 					eff_buf.token_len);
 				switch (eff_buf.token_len) {
 				case 0:
-					lwsl_notice("%s: zero length read\n",
+					lwsl_info("%s: zero length read\n",
 						  __func__);
 					goto close_and_handled;
 				case LWS_SSL_CAPABLE_MORE_SERVICE:

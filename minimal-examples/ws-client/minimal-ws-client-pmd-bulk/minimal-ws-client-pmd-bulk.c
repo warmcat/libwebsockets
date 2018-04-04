@@ -1,16 +1,22 @@
 /*
- * lws-minimal-ws-server
+ * lws-minimal-ws-client-pmd-bulk
  *
  * Copyright (C) 2018 Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * This demonstrates the most minimal http server you can make with lws.
+ * This demonstrates a ws client that sends bulk data in multiple
+ * ws fragments, in a way compatible with per-message deflate.
  *
- * To keep it simple, it serves stuff in the subdirectory "./mount-origin" of
- * the directory it was started in.
- * You can change that by changing mount.origin.
+ * It shows how to send huge messages without needing a lot of memory.
+ * 
+ * Build and start the minimal-examples/ws-server/minmal-ws-server-pmd-bulk
+ * example first.  Running this sends a large message to the server and
+ * exits.
+ *
+ * If you give both sides the -n commandline option, it disables permessage-
+ * deflate compression extension.
  */
 
 #include <libwebsockets.h>
@@ -31,46 +37,25 @@ static int interrupted, options;
 /* pass pointers to shared vars to the protocol */
 
 static const struct lws_protocol_vhost_options pvo_options = {
-        NULL,
-        NULL,
-        "options",              /* pvo name */
-        (void *)&options        /* pvo value */
+	NULL,
+	NULL,
+	"options",		/* pvo name */
+	(void *)&options	/* pvo value */
 };
 
 static const struct lws_protocol_vhost_options pvo_interrupted = {
-        &pvo_options,
-        NULL,
-        "interrupted",          /* pvo name */
-        (void *)&interrupted    /* pvo value */
+	&pvo_options,
+	NULL,
+	"interrupted",		/* pvo name */
+	(void *)&interrupted	/* pvo value */
 };
 
 static const struct lws_protocol_vhost_options pvo = {
-        NULL,           /* "next" pvo linked-list */
-        &pvo_interrupted,       /* "child" pvo linked-list */
-        "lws-minimal-pmd-bulk", /* protocol name we belong to on this vhost */
-        ""              /* ignored */
+	NULL,		/* "next" pvo linked-list */
+	&pvo_interrupted,	/* "child" pvo linked-list */
+	"lws-minimal-pmd-bulk",	/* protocol name we belong to on this vhost */
+	""		/* ignored */
 };
-
-static const struct lws_http_mount mount = {
-	/* .mount_next */		NULL,		/* linked-list "next" */
-	/* .mountpoint */		"/",		/* mountpoint URL */
-	/* .origin */			"./mount-origin", /* serve from dir */
-	/* .def */			"index.html",	/* default filename */
-	/* .protocol */			NULL,
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		NULL,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
-	/* .mountpoint_len */		1,		/* char count */
-	/* .basic_auth_login_file */	NULL,
-};
-
 static const struct lws_extension extensions[] = {
 	{
 		"permessage-deflate",
@@ -106,18 +91,15 @@ int main(int argc, char **argv)
 	signal(SIGINT, sigint_handler);
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	info.port = 7681;
-	info.mounts = &mount;
+	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
 	info.pvo = &pvo;
-
 	if (!findswitch(argc, argv, "-n"))
 		info.extensions = extensions;
+	info.pt_serv_buf_size = 32 * 1024;
 
 	if (!findswitch(argc, argv, "-c"))
 		options |= 1;
-
-	info.pt_serv_buf_size = 32 * 1024;
 
 	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
 			/* for LLL_ verbosity above NOTICE to be built into lws,
@@ -127,7 +109,7 @@ int main(int argc, char **argv)
 			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
 			/* | LLL_DEBUG */, NULL);
 
-	lwsl_user("LWS minimal ws server + permessage-deflate | visit http://localhost:7681\n");
+	lwsl_user("LWS minimal ws client + permessage-deflate + multifragment bulk message\n");
 	lwsl_user("   %s [-n (no exts)] [-c (compressible)]\n", argv[0]);
 	context = lws_create_context(&info);
 	if (!context) {
@@ -140,5 +122,7 @@ int main(int argc, char **argv)
 
 	lws_context_destroy(context);
 
-	return 0;
+	lwsl_user("Completed %s\n", interrupted == 2 ? "OK" : "failed");
+
+	return interrupted != 2;
 }
