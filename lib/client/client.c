@@ -767,8 +767,14 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			lwsl_info("no URI\n");
 			goto bail3;
 		}
-	} else
+	} else {
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_STATUS);
+		if (!p) {
+			cce = "HS: :status missing";
+			lwsl_info("no status\n");
+			goto bail3;
+		}
+	}
 	n = atoi(p);
 	if (ah)
 		ah->http_response = n;
