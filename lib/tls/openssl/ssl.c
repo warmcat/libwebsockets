@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -594,6 +594,37 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 #else
 		return -1;
 #endif
+
+	case LWS_TLS_CERT_INFO_OPAQUE_PUBLIC_KEY:
+	{
+		size_t klen = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(x509), NULL);
+		uint8_t *tmp, *ptmp;
+
+		if (klen <= 0 || klen > len)
+			return -1;
+
+		tmp = (uint8_t *)OPENSSL_malloc(klen);
+		if (!tmp)
+			return -1;
+
+		ptmp = tmp;
+		if (i2d_X509_PUBKEY(
+			      X509_get_X509_PUBKEY(x509), &ptmp) != (int)klen ||
+		    !ptmp || lws_ptr_diff(ptmp, tmp) != (int)klen) {
+			lwsl_info("%s: cert public key extraction failed\n",
+				  __func__);
+			if (ptmp)
+				OPENSSL_free(tmp);
+
+			return -1;
+		}
+
+		buf->ns.len = klen;
+		memcpy(buf->ns.name, tmp, klen);
+		OPENSSL_free(tmp);
+
+		return 0;
+	}
 	default:
 		return -1;
 	}
@@ -621,10 +652,17 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 		       union lws_tls_cert_info_results *buf, size_t len)
 {
 	int rc = 0;
-	X509 *x509 = SSL_get_peer_certificate(wsi->ssl);
+	X509 *x509;
 
-	if (!x509)
+	wsi = lws_get_network_wsi(wsi);
+
+	x509 = SSL_get_peer_certificate(wsi->ssl);
+
+	if (!x509) {
+		lwsl_notice("no peer cert\n");
+
 		return -1;
+	}
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VERIFIED:

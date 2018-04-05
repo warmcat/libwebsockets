@@ -5944,6 +5944,12 @@ enum lws_tls_cert_info {
 	LWS_TLS_CERT_INFO_VERIFIED,
 	/**< fills .verified with a bool representing peer cert validity,
 	 *   call returns -1 if no cert */
+	LWS_TLS_CERT_INFO_OPAQUE_PUBLIC_KEY,
+	/**< the certificate's public key, as an opaque bytestream.  These
+	 * opaque bytestreams can only be compared with each other using the
+	 * same tls backend, ie, OpenSSL or mbedTLS.  The different backends
+	 * produce different, incompatible representations for the same cert.
+	 */
 };
 
 union lws_tls_cert_info_results {

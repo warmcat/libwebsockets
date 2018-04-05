@@ -408,6 +408,56 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 	case LWS_TLS_CERT_INFO_USAGE:
 		buf->usage = x509->key_usage;
 		break;
+
+	case LWS_TLS_CERT_INFO_OPAQUE_PUBLIC_KEY:
+	{
+		char *p = buf->ns.name;
+		size_t r = len, u;
+
+		switch (mbedtls_pk_get_type(&x509->pk)) {
+		case MBEDTLS_PK_RSA:
+		{
+			mbedtls_rsa_context *rsa = mbedtls_pk_rsa(x509->pk);
+
+			if (mbedtls_mpi_write_string(&rsa->N, 16, p, r, &u))
+				return -1;
+			r -= u;
+			p += u;
+			if (mbedtls_mpi_write_string(&rsa->E, 16, p, r, &u))
+				return -1;
+
+			p += u;
+			buf->ns.len = lws_ptr_diff(p, buf->ns.name);
+			break;
+		}
+		case MBEDTLS_PK_ECKEY:
+		{
+			mbedtls_ecp_keypair *ecp = mbedtls_pk_ec(x509->pk);
+
+			if (mbedtls_mpi_write_string(&ecp->Q.X, 16, p, r, &u))
+				 return -1;
+			r -= u;
+			p += u;
+			if (mbedtls_mpi_write_string(&ecp->Q.Y, 16, p, r, &u))
+				 return -1;
+			r -= u;
+			p += u;
+			if (mbedtls_mpi_write_string(&ecp->Q.Z, 16, p, r, &u))
+				 return -1;
+			p += u;
+			buf->ns.len = lws_ptr_diff(p, buf->ns.name);
+			break;
+		}
+		default:
+			lwsl_notice("%s: x509 has unsupported pubkey type %d\n",
+				    __func__,
+				    mbedtls_pk_get_type(&x509->pk));
+
+			return -1;
+		}
+		break;
+	}
+
 	default:
 		return -1;
 	}
@@ -428,7 +478,11 @@ LWS_VISIBLE int
 lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 		       union lws_tls_cert_info_results *buf, size_t len)
 {
-	mbedtls_x509_crt *x509 = ssl_get_peer_mbedtls_x509_crt(wsi->ssl);
+	mbedtls_x509_crt *x509;
+
+	wsi = lws_get_network_wsi(wsi);
+
+	x509 = ssl_get_peer_mbedtls_x509_crt(wsi->ssl);
 
 	if (!x509)
 		return -1;

@@ -1425,6 +1425,11 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		    h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_LOCAL)
 			lws_h2_state(h2n->swsi, LWS_H2_STATE_CLOSED);
 
+		/*
+		 * client... remote END_STREAM implies we weren't going to
+		 * send anything else anyway.
+		 */
+
 		if (h2n->swsi->client_h2_substream &&
 		    h2n->flags & LWS_H2_FLAG_END_STREAM) {
 			lwsl_info("%s: %p: DATA: end stream\n", __func__, h2n->swsi);
@@ -1432,7 +1437,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			if (h2n->swsi->h2.h2_state == LWS_H2_STATE_OPEN)
 				lws_h2_state(h2n->swsi, LWS_H2_STATE_HALF_CLOSED_REMOTE);
 
-			if (h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_LOCAL) {
+			//if (h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_LOCAL)
+			{
 				lws_h2_state(h2n->swsi, LWS_H2_STATE_CLOSED);
 
 				lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
@@ -1442,7 +1448,6 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 					lwsl_debug("tx completed returned close\n");
 			}
 		}
-
 		break;
 
 	case LWS_H2_FRAME_TYPE_PING:
