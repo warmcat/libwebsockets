@@ -205,7 +205,8 @@ ssh_ops_rx(void *_priv, struct lws *wsi, const uint8_t *buf, uint32_t len)
 		if (write(fd, buf, len) != len)
 			return -1;
 		if (priv->pty_in_echo) {
-			lws_ring_insert(priv->ring_stdout, buf, 1);
+			if (!lws_ring_insert(priv->ring_stdout, buf, 1))
+				lwsl_notice("dropping...\n");
 			lws_callback_on_writable(wsi);
 		}
 	} else {
@@ -217,7 +218,8 @@ ssh_ops_rx(void *_priv, struct lws *wsi, const uint8_t *buf, uint32_t len)
 		if (priv->pty_in_echo) {
 			bbuf[0] = 0x0d;
 			bbuf[1] = 0x0a;
-			lws_ring_insert(priv->ring_stdout, bbuf, 2);
+			if (!lws_ring_insert(priv->ring_stdout, bbuf, 2))
+				lwsl_notice("dropping...\n");
 			lws_callback_on_writable(wsi);
 		}
 	}
