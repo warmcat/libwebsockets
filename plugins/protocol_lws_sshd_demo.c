@@ -299,7 +299,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 	 * <len32>E<len32>N that the peer sends us
 	 */
 	if (memcmp(peer, ps, peer_len)) {
-		lwsl_info("factors mismatch\n");
+		lwsl_info("%s: factors mismatch, rejecting key\n", __func__);
 		goto bail;
 	}
 
