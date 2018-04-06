@@ -377,7 +377,7 @@ ssh_cgi_env_add(struct sshd_instance_priv *priv, const char *name,
 		return 1;
 	}
 
-	pvo->value = malloc(strlen(name) + 1);
+	pvo->value = malloc(strlen(value) + 1);
 	if (!pvo->value) {
 		free((char *)pvo->name);
 		free(pvo);

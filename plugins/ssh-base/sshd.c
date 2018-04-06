@@ -405,6 +405,8 @@ ssh_free(void *p)
 	free(p);
 }
 
+#define ssh_free_set_NULL(x) if (x) { ssh_free(x); (x) = NULL; }
+
 static void
 lws_ua_destroy(struct per_session_data__sshd *pss)
 {
@@ -1412,7 +1414,7 @@ again:
 				pss->vhd->ops->disconnect_reason(
 					pss->disconnect_reason,
 					pss->disconnect_desc, pss->name);
-			ssh_free(pss->last_alloc);
+			ssh_free_set_NULL(pss->last_alloc);
 			break;
 
 			/*
@@ -1571,7 +1573,7 @@ again:
 			if (pss->vhd->ops && pss->vhd->ops->pty_req)
 				n = pss->vhd->ops->pty_req(pss->ch_temp->priv,
 							&pss->args.pty);
-			ssh_free(pss->last_alloc);
+			ssh_free_set_NULL(pss->last_alloc);
 			if (n)
 				goto chrq_fail;
 			if (pss->rq_want_reply)
@@ -1618,7 +1620,7 @@ again:
 			if (pss->vhd->ops && pss->vhd->ops->exec &&
 			    !pss->vhd->ops->exec(pss->ch_temp->priv, pss->wsi,
 					    	 (const char *)pss->last_alloc)) {
-				ssh_free(pss->last_alloc);
+				ssh_free_set_NULL(pss->last_alloc);
 				if (pss->rq_want_reply)
 					write_task(pss, pss->ch_temp,
 						   SSH_WT_CHRQ_SUCC);
@@ -1641,7 +1643,7 @@ again:
 				/* disallow it */
 				n = 0;
 
-			ssh_free(pss->last_alloc);
+			ssh_free_set_NULL(pss->last_alloc);
 			if (!n)
 				goto chrq_fail;
 
@@ -1675,7 +1677,7 @@ again:
 				n = 1;
 			}
 #endif
-			ssh_free(pss->last_alloc);
+			ssh_free_set_NULL(pss->last_alloc);
 //			if (!n)
 				goto ch_fail;
 #if 0
@@ -1766,7 +1768,7 @@ again:
 				break;
 			}
 			if (pss->parser_state == SSHS_NVC_CD_DATA_ALLOC)
-				ssh_free(pss->last_alloc);
+				ssh_free_set_NULL(pss->last_alloc);
 
 			if (ch->peer_window_est < 32768) {
 				write_task(pss, ch, SSH_WT_WINDOW_ADJUST);
@@ -2134,6 +2136,8 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_info("LWS_CALLBACK_RAW_CLOSE\n");
 		lws_kex_destroy(pss);
 		lws_ua_destroy(pss);
+
+		ssh_free_set_NULL(pss->last_alloc);
 
 		while (pss->ch_list)
 			ssh_destroy_channel(pss, pss->ch_list);
