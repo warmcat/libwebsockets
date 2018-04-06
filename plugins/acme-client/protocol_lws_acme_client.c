@@ -1530,6 +1530,8 @@ poll_again:
 		break;
 
 		case LWS_CALLBACK_USER + 0xac33:
+			if (!vhd)
+				break;
 			cwsi = lws_acme_client_connect(vhd->context, vhd->vhost,
 						       &ac->cwsi, &ac->i,
 						       ac->challenge_uri,
