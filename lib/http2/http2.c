@@ -1772,7 +1772,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					 * more waiting leave it for next time around
 					 */
 
-					n = lws_read(h2n->swsi, in - 1, n);
+					n = lws_read_h1(h2n->swsi, in - 1, n);
 					h2n->swsi->outer_will_close = 0;
 					/*
 					 * can return 0 in POST body with content len
@@ -2105,6 +2105,343 @@ lws_h2_ws_handshake(struct lws *wsi)
 	    wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_PMO, wsi->user_space,
 				    (void *)hit->cgienv, 0))
 		return 1;
+
+	return 0;
+}
+
+int
+lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
+{
+	unsigned char *oldbuf = buf;
+	lws_filepos_t body_chunk_len;
+	int m;
+
+	// lwsl_notice("%s: h2 path: wsistate 0x%x len %d\n", __func__,
+	//		wsi->wsistate, (int)len);
+
+	/*
+	 * wsi here is always the network connection wsi, not a stream
+	 * wsi.  Once we unpicked the framing we will find the right
+	 * swsi and make it the target of the frame.
+	 *
+	 * If it's ws over h2, the nwsi will get us here to do the h2
+	 * processing, and that will call us back with the swsi +
+	 * ESTABLISHED state for the inner payload, handled in a later
+	 * case.
+	 */
+	while (len) {
+		/*
+		 * we were accepting input but now we stopped doing so
+		 */
+		if (lws_is_flowcontrolled(wsi)) {
+			lws_rxflow_cache(wsi, buf, 0, (int)len);
+
+			return 1;
+		}
+
+		/*
+		 * lws_h2_parser() may send something; when it gets the
+		 * whole frame, it will want to perform some action
+		 * involving a reply.  But we may be in a partial send
+		 * situation on the network wsi...
+		 *
+		 * Even though we may be in a partial send and unable to
+		 * send anything new, we still have to parse the network
+		 * wsi in order to gain tx credit to send, which is
+		 * potentially necessary to clear the old partial send.
+		 *
+		 * ALL network wsi-specific frames are sent by PPS
+		 * already, these are sent as a priority on the writable
+		 * handler, and so respect partial sends.  The only
+		 * problem is when a stream wsi wants to send an, eg,
+		 * reply headers frame in response to the parsing
+		 * we will do now... the *stream wsi* must stall in a
+		 * different state until it is able to do so from a
+		 * priority on the WRITABLE callback, same way that
+		 * file transfers operate.
+		 */
+
+		m = lws_h2_parser(wsi, buf, len, &body_chunk_len);
+		if (m && m != 2) {
+			lwsl_debug("%s: http2_parser bailed\n", __func__);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "lws_read_h2 bail");
+
+			return -1;
+		}
+		if (m == 2) {
+			/* swsi has been closed */
+			buf += body_chunk_len;
+			len -= body_chunk_len;
+			break;
+		}
+
+		/* account for what we're using in rxflow buffer */
+		if (wsi->rxflow_buffer) {
+			wsi->rxflow_pos += (int)body_chunk_len;
+			assert(wsi->rxflow_pos <= wsi->rxflow_len);
+		}
+
+		buf += body_chunk_len;
+		len -= body_chunk_len;
+	}
+
+	return lws_ptr_diff(buf, oldbuf);
+}
+
+/*
+ * we are the 'network wsi' for potentially many muxed child wsi with
+ * no network connection of their own, who have to use us for all their
+ * network actions.  So we use a round-robin scheme to share out the
+ * POLLOUT notifications to our children.
+ *
+ * But because any child could exhaust the socket's ability to take
+ * writes, we can only let one child get notified each time.
+ *
+ * In addition children may be closed / deleted / added between POLLOUT
+ * notifications, so we can't hold pointers
+ */
+
+int
+lws_handle_POLLOUT_event_h2(struct lws *wsi)
+{
+	struct lws **wsi2, *wsi2a;
+	int write_type = LWS_WRITE_PONG, n;
+
+	wsi = lws_get_network_wsi(wsi);
+
+	wsi->h2.requested_POLLOUT = 0;
+	if (!wsi->h2.initialized) {
+		lwsl_info("pollout on uninitialized http2 conn\n");
+		return 0;
+	}
+
+	lwsl_info("%s: %p: children waiting for POLLOUT service:\n", __func__, wsi);
+	wsi2a = wsi->h2.child_list;
+	while (wsi2a) {
+		if (wsi2a->h2.requested_POLLOUT)
+			lwsl_debug("  * %p %s\n", wsi2a, wsi2a->protocol->name);
+		else
+			lwsl_debug("    %p %s\n", wsi2a, wsi2a->protocol->name);
+
+		wsi2a = wsi2a->h2.sibling_list;
+	}
+
+	wsi2 = &wsi->h2.child_list;
+	if (!*wsi2)
+		return 0;
+
+	do {
+		struct lws *w, **wa;
+
+		wa = &(*wsi2)->h2.sibling_list;
+		if (!(*wsi2)->h2.requested_POLLOUT)
+			goto next_child;
+
+		/*
+		 * we're going to do writable callback for this child.
+		 * move him to be the last child
+		 */
+
+		lwsl_debug("servicing child %p\n", *wsi2);
+
+		w = *wsi2;
+		while (w) {
+			if (!w->h2.sibling_list) { /* w is the current last */
+				lwsl_debug("w=%p, *wsi2 = %p\n", w, *wsi2);
+				if (w == *wsi2) /* we are already last */
+					break;
+				/* last points to us as new last */
+				w->h2.sibling_list = *wsi2;
+				/* guy pointing to us until now points to
+				 * our old next */
+				*wsi2 = (*wsi2)->h2.sibling_list;
+				/* we point to nothing because we are last */
+				w->h2.sibling_list->h2.sibling_list = NULL;
+				/* w becomes us */
+				w = w->h2.sibling_list;
+				break;
+			}
+			w = w->h2.sibling_list;
+		}
+
+		w->h2.requested_POLLOUT = 0;
+		lwsl_info("%s: child %p (state %d)\n", __func__, w, lwsi_state(w));
+
+		/* if we arrived here, even by looping, we checked choked */
+		w->could_have_pending = 0;
+		wsi->could_have_pending = 0;
+
+		if (w->h2.pending_status_body) {
+			w->h2.send_END_STREAM = 1;
+			n = lws_write(w, (uint8_t *)w->h2.pending_status_body +
+				      	 LWS_PRE,
+				         strlen(w->h2.pending_status_body +
+					        LWS_PRE), LWS_WRITE_HTTP_FINAL);
+			lws_free_set_NULL(w->h2.pending_status_body);
+			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream 1");
+			wa = &wsi->h2.child_list;
+			goto next_child;
+		}
+
+		if (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
+			if (lws_h2_client_handshake(w))
+				return -1;
+
+			goto next_child;
+		}
+
+		if (lwsi_state(w) == LRS_DEFERRING_ACTION) {
+
+			/*
+			 * we had to defer the http_action to the POLLOUT
+			 * handler, because we know it will send something and
+			 * only in the POLLOUT handler do we know for sure
+			 * that there is no partial pending on the network wsi.
+			 */
+
+			lwsi_set_state(w, LRS_ESTABLISHED);
+
+			lwsl_info("  h2 action start...\n");
+			n = lws_http_action(w);
+			lwsl_info("  h2 action result %d "
+				  "(wsi->http.rx_content_remain %lld)\n",
+				  n, w->http.rx_content_remain);
+
+			/*
+			 * Commonly we only managed to start a larger transfer
+			 * that will complete asynchronously under its own wsi
+			 * states.  In those cases we will hear about
+			 * END_STREAM going out in the POLLOUT handler.
+			 */
+			if (n || w->h2.send_END_STREAM) {
+				lwsl_info("closing stream after h2 action\n");
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream");
+				wa = &wsi->h2.child_list;
+			}
+
+			goto next_child;
+		}
+
+		if (lwsi_state(w) == LRS_ISSUING_FILE) {
+
+			((volatile struct lws *)w)->leave_pollout_active = 0;
+
+			/* >0 == completion, <0 == error
+			 *
+			 * We'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION
+			 * callback when it's done.  That's the case even if we
+			 * just completed the send, so wait for that.
+			 */
+			n = lws_serve_http_file_fragment(w);
+			lwsl_debug("lws_serve_http_file_fragment says %d\n", n);
+
+			/*
+			 * We will often hear about out having sent the final
+			 * DATA here... if so close the actual wsi
+			 */
+			if (n < 0 || w->h2.send_END_STREAM) {
+				lwsl_debug("Closing POLLOUT child %p\n", w);
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream file");
+				wa = &wsi->h2.child_list;
+				goto next_child;
+			}
+			if (n > 0)
+				if (lws_http_transaction_completed(w))
+					return -1;
+			if (!n) {
+				lws_callback_on_writable(w);
+				(w)->h2.requested_POLLOUT = 1;
+			}
+
+			goto next_child;
+		}
+
+		/* Notify peer that we decided to close */
+
+		if (lwsi_state(w) == LRS_WAITING_TO_SEND_CLOSE) {
+			lwsl_debug("sending close packet\n");
+			w->waiting_to_send_close_frame = 0;
+			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
+				      w->ws->close_in_ping_buffer_len,
+				      LWS_WRITE_CLOSE);
+			if (n >= 0) {
+				lwsi_set_state(w, LRS_AWAITING_CLOSE_ACK);
+				lws_set_timeout(w, PENDING_TIMEOUT_CLOSE_ACK, 5);
+				lwsl_debug("sent close indication, awaiting ack\n");
+			}
+
+			goto next_child;
+		}
+
+		/* Acknowledge receipt of peer's notification he closed,
+		 * then logically close ourself */
+
+		if ((lwsi_role_ws(w) && w->ws->ping_pending_flag) ||
+		    (lwsi_state(w) == LRS_RETURNED_CLOSE &&
+		     w->ws->payload_is_close)) {
+
+			if (w->ws->payload_is_close)
+				write_type = LWS_WRITE_CLOSE |
+					     LWS_WRITE_H2_STREAM_END;
+
+			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
+				      w->ws->ping_payload_len, write_type);
+			if (n < 0)
+				return -1;
+
+			/* well he is sent, mark him done */
+			w->ws->ping_pending_flag = 0;
+			if (w->ws->payload_is_close) {
+				/* oh... a close frame was it... then we are done */
+				lwsl_debug("Acknowledged peer's close packet\n");
+				w->ws->payload_is_close = 0;
+				lwsi_set_state(w, LRS_RETURNED_CLOSE);
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "returned close packet");
+				wa = &wsi->h2.child_list;
+				goto next_child;
+			}
+
+			lws_callback_on_writable(w);
+			(w)->h2.requested_POLLOUT = 1;
+
+			/* otherwise for PING, leave POLLOUT active either way */
+			goto next_child;
+		}
+
+		if (lws_calllback_as_writeable(w)) {
+			lwsl_info("Closing POLLOUT child (end stream %d)\n", w->h2.send_END_STREAM);
+			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 pollout handle");
+			wa = &wsi->h2.child_list;
+		} else
+			 if (w->h2.send_END_STREAM)
+				lws_h2_state(w, LWS_H2_STATE_HALF_CLOSED_LOCAL);
+
+next_child:
+		wsi2 = wa;
+	} while (wsi2 && *wsi2 && !lws_send_pipe_choked(wsi));
+
+	lwsl_info("%s: %p: children waiting for POLLOUT service: %p\n",
+		  __func__, wsi, wsi->h2.child_list);
+	wsi2a = wsi->h2.child_list;
+	while (wsi2a) {
+		if (wsi2a->h2.requested_POLLOUT)
+			lwsl_debug("  * %p\n", wsi2a);
+		else
+			lwsl_debug("    %p\n", wsi2a);
+
+		wsi2a = wsi2a->h2.sibling_list;
+	}
+
+
+	wsi2a = wsi->h2.child_list;
+	while (wsi2a) {
+		if (wsi2a->h2.requested_POLLOUT) {
+			lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+			break;
+		}
+		wsi2a = wsi2a->h2.sibling_list;
+	}
 
 	return 0;
 }

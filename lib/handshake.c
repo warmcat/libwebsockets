@@ -59,88 +59,12 @@
  * Returns <0 for error or length of chars consumed from buf (up to len)
  */
 
-LWS_VISIBLE int
-lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
+int
+lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 {
 	unsigned char *last_char, *oldbuf = buf;
 	lws_filepos_t body_chunk_len;
 	size_t n;
-
-#if defined(LWS_WITH_HTTP2)
-
-	if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY) {
-		int m;
-
-		// lwsl_notice("%s: h2 path: wsistate 0x%x len %d\n", __func__,
-		//		wsi->wsistate, (int)len);
-
-		/*
-		 * wsi here is always the network connection wsi, not a stream
-		 * wsi.  Once we unpicked the framing we will find the right
-		 * swsi and make it the target of the frame.
-		 *
-		 * If it's ws over h2, the nwsi will get us here to do the h2
-		 * processing, and that will call us back with the swsi +
-		 * ESTABLISHED state for the inner payload, handled in a later
-		 * case.
-		 */
-		while (len) {
-			/*
-			 * we were accepting input but now we stopped doing so
-			 */
-			if (lws_is_flowcontrolled(wsi)) {
-				lws_rxflow_cache(wsi, buf, 0, (int)len);
-
-				return 1;
-			}
-
-			/*
-			 * lws_h2_parser() may send something; when it gets the
-			 * whole frame, it will want to perform some action
-			 * involving a reply.  But we may be in a partial send
-			 * situation on the network wsi...
-			 *
-			 * Even though we may be in a partial send and unable to
-			 * send anything new, we still have to parse the network
-			 * wsi in order to gain tx credit to send, which is
-			 * potentially necessary to clear the old partial send.
-			 *
-			 * ALL network wsi-specific frames are sent by PPS
-			 * already, these are sent as a priority on the writable
-			 * handler, and so respect partial sends.  The only
-			 * problem is when a stream wsi wants to send an, eg,
-			 * reply headers frame in response to the parsing
-			 * we will do now... the *stream wsi* must stall in a
-			 * different state until it is able to do so from a
-			 * priority on the WRITABLE callback, same way that
-			 * file transfers operate.
-			 */
-
-			m = lws_h2_parser(wsi, buf, len, &body_chunk_len);
-			if (m && m != 2) {
-				lwsl_debug("%s: http2_parser bailed\n", __func__);
-				goto bail;
-			}
-			if (m && m == 2) {
-				/* swsi has been closed */
-				buf += body_chunk_len;
-				len -= body_chunk_len;
-				goto read_ok;
-			}
-
-			/* account for what we're using in rxflow buffer */
-			if (wsi->rxflow_buffer) {
-				wsi->rxflow_pos += (int)body_chunk_len;
-				assert(wsi->rxflow_pos <= wsi->rxflow_len);
-			}
-
-			buf += body_chunk_len;
-			len -= body_chunk_len;
-		}
-//		lwsl_debug("%s: used up block\n", __func__);
-		goto read_ok;
-	}
-#endif
 
 	// lwsl_notice("%s: h1 path: wsi state 0x%x\n", __func__, lwsi_state(wsi));
 

@@ -880,7 +880,7 @@ just_kill_connection:
 				        LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 						wsi->user_space, NULL, 0);
 
-	if (lwsi_role_client(wsi) && !(lwsi_state(wsi) & LWSIFS_NOTEST)) {
+	if (lwsi_role_client(wsi) && lwsi_state_est(wsi)) {
 		const struct lws_protocols *pro = wsi->protocol;
 
 		if (!wsi->protocol)

@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-static int
+int
 lws_calllback_as_writeable(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
@@ -76,9 +76,6 @@ LWS_VISIBLE int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	int write_type = LWS_WRITE_PONG;
-#ifdef LWS_WITH_HTTP2
-	struct lws **wsi2, *wsi2a;
-#endif
 	int n;
 	volatile struct lws *vwsi = (volatile struct lws *)wsi;
 
@@ -127,7 +124,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 #ifdef LWS_WITH_HTTP2
 	/*
-	 * Priority 2: protocol packets
+	 * Priority 2: H2 protocol packets
 	 */
 	if ((wsi->upgraded_to_http2
 #if !defined(LWS_NO_CLIENT)
@@ -393,270 +390,18 @@ user_service:
 user_service_go_again:
 #endif
 
-#ifdef LWS_WITH_HTTP2
-	/*
-	 * we are the 'network wsi' for potentially many muxed child wsi with
-	 * no network connection of their own, who have to use us for all their
-	 * network actions.  So we use a round-robin scheme to share out the
-	 * POLLOUT notifications to our children.
-	 *
-	 * But because any child could exhaust the socket's ability to take
-	 * writes, we can only let one child get notified each time.
-	 *
-	 * In addition children may be closed / deleted / added between POLLOUT
-	 * notifications, so we can't hold pointers
-	 */
+#if defined(LWS_WITH_HTTP2)
+	/* this is the network wsi */
+	if (lwsi_role_h2(wsi)) {
+		if (lws_handle_POLLOUT_event_h2(wsi) == -1)
+			goto bail_die;
 
-	if (!lwsi_role_h2(wsi)) {
-		lwsl_info("%s: non http2\n", __func__);
-		goto notify;
-	}
-
-	wsi = lws_get_network_wsi(wsi);
-
-	wsi->h2.requested_POLLOUT = 0;
-	if (!wsi->h2.initialized) {
-		lwsl_info("pollout on uninitialized http2 conn\n");
 		goto bail_ok;
 	}
-
-//	if (SSL_want_read(wsi->ssl) || SSL_want_write(wsi->ssl)) {
-//		lws_callback_on_writable(wsi);
-//		goto bail_ok;
-//	}
-
-	lwsl_info("%s: %p: children waiting for POLLOUT service:\n", __func__, wsi);
-	wsi2a = wsi->h2.child_list;
-	while (wsi2a) {
-		if (wsi2a->h2.requested_POLLOUT)
-			lwsl_debug("  * %p %s\n", wsi2a, wsi2a->protocol->name);
-		else
-			lwsl_debug("    %p %s\n", wsi2a, wsi2a->protocol->name);
-
-		wsi2a = wsi2a->h2.sibling_list;
-	}
-
-	wsi2 = &wsi->h2.child_list;
-	if (!*wsi2)
-		goto bail_ok;
-
-	do {
-		struct lws *w, **wa;
-	
-		wa = &(*wsi2)->h2.sibling_list;
-		if (!(*wsi2)->h2.requested_POLLOUT)
-			goto next_child;
-
-		/*
-		 * we're going to do writable callback for this child.
-		 * move him to be the last child
-		 */
-
-		lwsl_debug("servicing child %p\n", *wsi2);
-
-		w = *wsi2;
-		while (w) {
-			if (!w->h2.sibling_list) { /* w is the current last */
-				lwsl_debug("w=%p, *wsi2 = %p\n", w, *wsi2);
-				if (w == *wsi2) /* we are already last */
-					break;
-				/* last points to us as new last */
-				w->h2.sibling_list = *wsi2;
-				/* guy pointing to us until now points to
-				 * our old next */
-				*wsi2 = (*wsi2)->h2.sibling_list;
-				/* we point to nothing because we are last */
-				w->h2.sibling_list->h2.sibling_list = NULL;
-				/* w becomes us */
-				w = w->h2.sibling_list;
-				break;
-			}
-			w = w->h2.sibling_list;
-		}
-
-		w->h2.requested_POLLOUT = 0;
-		lwsl_info("%s: child %p (state %d)\n", __func__, w, lwsi_state(w));
-
-		/* if we arrived here, even by looping, we checked choked */
-		w->could_have_pending = 0;
-		wsi->could_have_pending = 0;
-
-		if (w->h2.pending_status_body) {
-			w->h2.send_END_STREAM = 1;
-			n = lws_write(w, (uint8_t *)w->h2.pending_status_body +
-				      	 LWS_PRE,
-				         strlen(w->h2.pending_status_body +
-					        LWS_PRE), LWS_WRITE_HTTP_FINAL);
-			lws_free_set_NULL(w->h2.pending_status_body);
-			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream 1");
-			wa = &wsi->h2.child_list;
-			goto next_child;
-		}
-
-		if (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
-			if (lws_h2_client_handshake(w))
-				return -1;
-
-			goto next_child;
-		}
-
-		if (lwsi_state(w) == LRS_DEFERRING_ACTION) {
-
-			/*
-			 * we had to defer the http_action to the POLLOUT
-			 * handler, because we know it will send something and
-			 * only in the POLLOUT handler do we know for sure
-			 * that there is no partial pending on the network wsi.
-			 */
-
-			lwsi_set_state(w, LRS_ESTABLISHED);
-
-			lwsl_info("  h2 action start...\n");
-			n = lws_http_action(w);
-			lwsl_info("  h2 action result %d "
-				  "(wsi->http.rx_content_remain %lld)\n",
-				  n, w->http.rx_content_remain);
-
-			/*
-			 * Commonly we only managed to start a larger transfer
-			 * that will complete asynchronously under its own wsi
-			 * states.  In those cases we will hear about
-			 * END_STREAM going out in the POLLOUT handler.
-			 */
-			if (n || w->h2.send_END_STREAM) {
-				lwsl_info("closing stream after h2 action\n");
-				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream");
-				wa = &wsi->h2.child_list;
-			}
-
-			goto next_child;
-		}
-
-		if (lwsi_state(w) == LRS_ISSUING_FILE) {
-
-			((volatile struct lws *)w)->leave_pollout_active = 0;
-
-			/* >0 == completion, <0 == error
-			 *
-			 * We'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION
-			 * callback when it's done.  That's the case even if we
-			 * just completed the send, so wait for that.
-			 */
-			n = lws_serve_http_file_fragment(w);
-			lwsl_debug("lws_serve_http_file_fragment says %d\n", n);
-
-			/*
-			 * We will often hear about out having sent the final
-			 * DATA here... if so close the actual wsi
-			 */
-			if (n < 0 || w->h2.send_END_STREAM) {
-				lwsl_debug("Closing POLLOUT child %p\n", w);
-				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream file");
-				wa = &wsi->h2.child_list;
-				goto next_child;
-			}
-			if (n > 0)
-				if (lws_http_transaction_completed(w))
-					goto bail_die;
-			if (!n) {
-				lws_callback_on_writable(w);
-				(w)->h2.requested_POLLOUT = 1;
-			}
-
-			goto next_child;
-		}
-
-		/* Notify peer that we decided to close */
-
-		if (lwsi_state(w) == LRS_WAITING_TO_SEND_CLOSE) {
-			lwsl_debug("sending close packet\n");
-			w->waiting_to_send_close_frame = 0;
-			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
-				      w->ws->close_in_ping_buffer_len,
-				      LWS_WRITE_CLOSE);
-			if (n >= 0) {
-				lwsi_set_state(w, LRS_AWAITING_CLOSE_ACK);
-				lws_set_timeout(w, PENDING_TIMEOUT_CLOSE_ACK, 5);
-				lwsl_debug("sent close indication, awaiting ack\n");
-			}
-
-			goto next_child;
-		}
-
-		/* Acknowledge receipt of peer's notification he closed,
-		 * then logically close ourself */
-
-		if ((lwsi_role_ws(w) && w->ws->ping_pending_flag) ||
-		    (lwsi_state(w) == LRS_RETURNED_CLOSE &&
-		     w->ws->payload_is_close)) {
-
-			if (w->ws->payload_is_close)
-				write_type = LWS_WRITE_CLOSE |
-					     LWS_WRITE_H2_STREAM_END;
-
-			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
-				      w->ws->ping_payload_len, write_type);
-			if (n < 0)
-				goto bail_die;
-
-			/* well he is sent, mark him done */
-			w->ws->ping_pending_flag = 0;
-			if (w->ws->payload_is_close) {
-				/* oh... a close frame was it... then we are done */
-				lwsl_debug("Acknowledged peer's close packet\n");
-				w->ws->payload_is_close = 0;
-				lwsi_set_state(w, LRS_RETURNED_CLOSE);
-				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "returned close packet");
-				wa = &wsi->h2.child_list;
-				goto next_child;
-			}
-
-			lws_callback_on_writable(w);
-			(w)->h2.requested_POLLOUT = 1;
-
-			/* otherwise for PING, leave POLLOUT active either way */
-			goto next_child;
-		}
-
-		if (lws_calllback_as_writeable(w)) {
-			lwsl_info("Closing POLLOUT child (end stream %d)\n", w->h2.send_END_STREAM);
-			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 pollout handle");
-			wa = &wsi->h2.child_list;
-		} else
-			 if (w->h2.send_END_STREAM)
-				lws_h2_state(w, LWS_H2_STATE_HALF_CLOSED_LOCAL);
-
-next_child:
-		wsi2 = wa;
-	} while (wsi2 && *wsi2 && !lws_send_pipe_choked(wsi));
-
-	lwsl_info("%s: %p: children waiting for POLLOUT service: %p\n",
-		  __func__, wsi, wsi->h2.child_list);
-	wsi2a = wsi->h2.child_list;
-	while (wsi2a) {
-		if (wsi2a->h2.requested_POLLOUT)
-			lwsl_debug("  * %p\n", wsi2a);
-		else
-			lwsl_debug("    %p\n", wsi2a);
-
-		wsi2a = wsi2a->h2.sibling_list;
-	}
-
-
-	wsi2a = wsi->h2.child_list;
-	while (wsi2a) {
-		if (wsi2a->h2.requested_POLLOUT) {
-			lws_change_pollfd(wsi, 0, LWS_POLLOUT);
-			break;
-		}
-		wsi2a = wsi2a->h2.sibling_list;
-	}
-
-	goto bail_ok;
-
-
-notify:
 #endif
+	
+	lwsl_info("%s: non http2\n", __func__);
+
 	vwsi = (volatile struct lws *)wsi;
 	vwsi->leave_pollout_active = 0;
 
@@ -1093,24 +838,17 @@ lws_is_ws_with_ext(struct lws *wsi)
 #endif
 }
 
-LWS_VISIBLE int
-lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
-		   int tsi)
+static int
+lws_service_periodic_checks(struct lws_context *context,
+			    struct lws_pollfd *pollfd, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	lws_sockfd_type our_fd = 0, tmp_fd;
 	struct allocated_headers *ah;
-	struct lws_tokens eff_buf;
-	unsigned int pending = 0;
 	struct lws *wsi;
-	char draining_flow = 0;
 	int timed_out = 0;
 	time_t now;
 	int n = 0, m;
-
-#if defined(LWS_WITH_HTTP2)
-	struct lws *wsi1;
-#endif
 
 	if (!context->protocol_init_done)
 		if (lws_protocol_init(context))
@@ -1149,204 +887,211 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		context->last_timeout_check_s = now - 1;
 	}
 
-	if (lws_compare_time_t(context, context->last_timeout_check_s, now)) {
-		context->last_timeout_check_s = now;
+	if (!lws_compare_time_t(context, context->last_timeout_check_s, now))
+		return 0;
+
+	context->last_timeout_check_s = now;
 
 #if defined(LWS_WITH_STATS)
-		if (!tsi && now - context->last_dump > 10) {
-			lws_stats_log_dump(context);
-			context->last_dump = now;
-		}
+	if (!tsi && now - context->last_dump > 10) {
+		lws_stats_log_dump(context);
+		context->last_dump = now;
+	}
 #endif
 
-		lws_plat_service_periodic(context);
-		lws_check_deferred_free(context, 0);
+	lws_plat_service_periodic(context);
+	lws_check_deferred_free(context, 0);
 
 #if defined(LWS_WITH_PEER_LIMITS)
-		lws_peer_cull_peer_wait_list(context);
+	lws_peer_cull_peer_wait_list(context);
 #endif
 
-		/* retire unused deprecated context */
+	/* retire unused deprecated context */
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_ESP32)
 #if LWS_POSIX && !defined(_WIN32)
-		if (context->deprecated && !context->count_wsi_allocated) {
-			lwsl_notice("%s: ending deprecated context\n", __func__);
-			kill(getpid(), SIGINT);
-			return 0;
+	if (context->deprecated && !context->count_wsi_allocated) {
+		lwsl_notice("%s: ending deprecated context\n", __func__);
+		kill(getpid(), SIGINT);
+		return 0;
+	}
+#endif
+#endif
+	/* global timeout check once per second */
+
+	if (pollfd)
+		our_fd = pollfd->fd;
+
+	/*
+	 * Phase 1: check every wsi on the timeout check list
+	 */
+
+	lws_pt_lock(pt, __func__);
+
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+				   context->pt[tsi].dll_head_timeout.next) {
+		wsi = lws_container_of(d, struct lws, dll_timeout);
+		tmp_fd = wsi->desc.sockfd;
+		if (__lws_service_timeout_check(wsi, now)) {
+			/* he did time out... */
+			if (tmp_fd == our_fd)
+				/* it was the guy we came to service! */
+				timed_out = 1;
+			/* he's gone, no need to mark as handled */
 		}
-#endif
-#endif
-		/* global timeout check once per second */
+	} lws_end_foreach_dll_safe(d, d1);
 
-		if (pollfd)
-			our_fd = pollfd->fd;
+	/*
+	 * Phase 2: double-check active ah timeouts independent of wsi
+	 *	    timeout status
+	 */
 
-		/*
-		 * Phase 1: check every wsi on the timeout check list
-		 */
+	ah = pt->ah_list;
+	while (ah) {
+		int len;
+		char buf[256];
+		const unsigned char *c;
 
-		lws_pt_lock(pt, __func__);
-
-		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-					   context->pt[tsi].dll_head_timeout.next) {
-			wsi = lws_container_of(d, struct lws, dll_timeout);
-			tmp_fd = wsi->desc.sockfd;
-			if (__lws_service_timeout_check(wsi, now)) {
-				/* he did time out... */
-				if (tmp_fd == our_fd)
-					/* it was the guy we came to service! */
-					timed_out = 1;
-				/* he's gone, no need to mark as handled */
-			}
-		} lws_end_foreach_dll_safe(d, d1);
+		if (!ah->in_use || !ah->wsi || !ah->assigned ||
+		    (ah->wsi->vhost &&
+		     lws_compare_time_t(context, now, ah->assigned) <
+		     ah->wsi->vhost->timeout_secs_ah_idle + 360)) {
+			ah = ah->next;
+			continue;
+		}
 
 		/*
-		 * Phase 2: double-check active ah timeouts independent of wsi
-		 *	    timeout status
+		 * a single ah session somehow got held for
+		 * an unreasonable amount of time.
+		 *
+		 * Dump info on the connection...
 		 */
+		wsi = ah->wsi;
+		buf[0] = '\0';
+#if !defined(LWS_PLAT_OPTEE)
+		lws_get_peer_simple(wsi, buf, sizeof(buf));
+#else
+		buf[0] = '\0';
+#endif
+		lwsl_notice("ah excessive hold: wsi %p\n"
+			    "  peer address: %s\n"
+			    "  ah rxpos %u, rxlen %u, pos %u\n",
+			    wsi, buf, ah->rxpos, ah->rxlen,
+			    ah->pos);
+		buf[0] = '\0';
+		m = 0;
+		do {
+			c = lws_token_to_string(m);
+			if (!c)
+				break;
+			if (!(*c))
+				break;
 
-		ah = pt->ah_list;
-		while (ah) {
-			int len;
-			char buf[256];
-			const unsigned char *c;
-
-			if (!ah->in_use || !ah->wsi || !ah->assigned ||
-			    (ah->wsi->vhost &&
-			     lws_compare_time_t(context, now, ah->assigned) <
-			     ah->wsi->vhost->timeout_secs_ah_idle + 360)) {
-				ah = ah->next;
+			len = lws_hdr_total_length(wsi, m);
+			if (!len || len > (int)sizeof(buf) - 1) {
+				m++;
 				continue;
 			}
 
-			/*
-			 * a single ah session somehow got held for
-			 * an unreasonable amount of time.
-			 *
-			 * Dump info on the connection...
-			 */
-			wsi = ah->wsi;
-			buf[0] = '\0';
-#if !defined(LWS_PLAT_OPTEE)
-			lws_get_peer_simple(wsi, buf, sizeof(buf));
-#else
-			buf[0] = '\0';
-#endif
-			lwsl_notice("ah excessive hold: wsi %p\n"
-				    "  peer address: %s\n"
-				    "  ah rxpos %u, rxlen %u, pos %u\n",
-				    wsi, buf, ah->rxpos, ah->rxlen,
-				    ah->pos);
-			buf[0] = '\0';
-			m = 0;
-			do {
-				c = lws_token_to_string(m);
-				if (!c)
-					break;
-				if (!(*c))
-					break;
+			if (lws_hdr_copy(wsi, buf,
+					 sizeof buf, m) > 0) {
+				buf[sizeof(buf) - 1] = '\0';
 
-				len = lws_hdr_total_length(wsi, m);
-				if (!len || len > (int)sizeof(buf) - 1) {
-					m++;
-					continue;
-				}
+				lwsl_notice("   %s = %s\n",
+					    (const char *)c, buf);
+			}
+			m++;
+		} while (1);
 
-				if (lws_hdr_copy(wsi, buf,
-						 sizeof buf, m) > 0) {
-					buf[sizeof(buf) - 1] = '\0';
+		/* explicitly detach the ah */
 
-					lwsl_notice("   %s = %s\n",
-						    (const char *)c, buf);
-				}
-				m++;
-			} while (1);
+		lws_header_table_force_to_detachable_state(wsi);
+		lws_header_table_detach(wsi, 0);
 
-			/* explicitly detach the ah */
+		/* ... and then drop the connection */
 
-			lws_header_table_force_to_detachable_state(wsi);
-			lws_header_table_detach(wsi, 0);
+		m = 0;
+		if (wsi->desc.sockfd == our_fd) {
+			m = timed_out;
 
-			/* ... and then drop the connection */
-
-			if (wsi->desc.sockfd == our_fd)
-				/* it was the guy we came to service! */
-				timed_out = 1;
-
-			__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "excessive ah");
-
-			ah = pt->ah_list;
+			/* it was the guy we came to service! */
+			timed_out = 1;
 		}
 
-		lws_pt_unlock(pt);
+		if (!m) /* if he didn't already timeout */
+			__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					     "excessive ah");
+
+		ah = pt->ah_list;
+	}
+
+	lws_pt_unlock(pt);
 
 #ifdef LWS_WITH_CGI
-		/*
-		 * Phase 3: handle cgi timeouts
-		 */
-		lws_cgi_kill_terminated(pt);
+	/*
+	 * Phase 3: handle cgi timeouts
+	 */
+	lws_cgi_kill_terminated(pt);
 #endif
 #if 0
-		{
-			char s[300], *p = s;
+	{
+		char s[300], *p = s;
 
-			for (n = 0; n < context->count_threads; n++)
-				p += sprintf(p, " %7lu (%5d), ",
-					     context->pt[n].count_conns,
-					     context->pt[n].fds_count);
+		for (n = 0; n < context->count_threads; n++)
+			p += sprintf(p, " %7lu (%5d), ",
+				     context->pt[n].count_conns,
+				     context->pt[n].fds_count);
 
-			lwsl_notice("load: %s\n", s);
-		}
-#endif
-		/*
-		 * Phase 4: vhost / protocol timer callbacks
-		 */
-
-		wsi = NULL;
-		lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
-			struct lws_timed_vh_protocol *nx;
-			if (v->timed_vh_protocol_list) {
-				lws_start_foreach_ll(struct lws_timed_vh_protocol *,
-						q, v->timed_vh_protocol_list) {
-					if (now >= q->time) {
-						if (!wsi)
-							wsi = lws_zalloc(sizeof(*wsi), "cbwsi");
-						wsi->context = context;
-						wsi->vhost = v;
-						wsi->protocol = q->protocol;
-						lwsl_debug("timed cb: vh %s, protocol %s, reason %d\n", v->name, q->protocol->name, q->reason);
-						q->protocol->callback(wsi, q->reason, NULL, NULL, 0);
-						nx = q->next;
-						lws_timed_callback_remove(v, q);
-						q = nx;
-						continue; /* we pointed ourselves to the next from the now-deleted guy */
-					}
-				} lws_end_foreach_ll(q, next);
-			}
-		} lws_end_foreach_ll(v, vhost_next);
-		if (wsi)
-			lws_free(wsi);
-
-		/*
-		 * Phase 5: check for unconfigured vhosts due to required
-		 *	    interface missing before
-		 */
-
-		lws_context_lock(context);
-		lws_start_foreach_llp(struct lws_vhost **, pv,
-				      context->no_listener_vhost_list) {
-			struct lws_vhost *v = *pv;
-			lwsl_debug("deferred iface: checking if on vh %s\n", (*pv)->name);
-			if (lws_context_init_server(NULL, *pv) == 0) {
-				/* became happy */
-				lwsl_notice("vh %s: became connected\n", v->name);
-				*pv = v->no_listener_vhost_list;
-				v->no_listener_vhost_list = NULL;
-				break;
-			}
-		} lws_end_foreach_llp(pv, no_listener_vhost_list);
-		lws_context_unlock(context);
+		lwsl_notice("load: %s\n", s);
 	}
+#endif
+	/*
+	 * Phase 4: vhost / protocol timer callbacks
+	 */
+
+	wsi = NULL;
+	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
+		struct lws_timed_vh_protocol *nx;
+		if (v->timed_vh_protocol_list) {
+			lws_start_foreach_ll(struct lws_timed_vh_protocol *,
+					q, v->timed_vh_protocol_list) {
+				if (now >= q->time) {
+					if (!wsi)
+						wsi = lws_zalloc(sizeof(*wsi), "cbwsi");
+					wsi->context = context;
+					wsi->vhost = v;
+					wsi->protocol = q->protocol;
+					lwsl_debug("timed cb: vh %s, protocol %s, reason %d\n", v->name, q->protocol->name, q->reason);
+					q->protocol->callback(wsi, q->reason, NULL, NULL, 0);
+					nx = q->next;
+					lws_timed_callback_remove(v, q);
+					q = nx;
+					continue; /* we pointed ourselves to the next from the now-deleted guy */
+				}
+			} lws_end_foreach_ll(q, next);
+		}
+	} lws_end_foreach_ll(v, vhost_next);
+	if (wsi)
+		lws_free(wsi);
+
+	/*
+	 * Phase 5: check for unconfigured vhosts due to required
+	 *	    interface missing before
+	 */
+
+	lws_context_lock(context);
+	lws_start_foreach_llp(struct lws_vhost **, pv,
+			      context->no_listener_vhost_list) {
+		struct lws_vhost *v = *pv;
+		lwsl_debug("deferred iface: checking if on vh %s\n", (*pv)->name);
+		if (lws_context_init_server(NULL, *pv) == 0) {
+			/* became happy */
+			lwsl_notice("vh %s: became connected\n", v->name);
+			*pv = v->no_listener_vhost_list;
+			v->no_listener_vhost_list = NULL;
+			break;
+		}
+	} lws_end_foreach_llp(pv, no_listener_vhost_list);
+	lws_context_unlock(context);
 
 	/*
 	 * at intervals, check for ws connections needing ping-pong checks
@@ -1388,7 +1133,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 			}
 
 			lws_vhost_unlock(vh);
-
 			vh = vh->vhost_next;
 		}
 	}
@@ -1403,12 +1147,26 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		context->last_cert_check_s = now;
 #endif
 
-	/* the socket we came to service timed out, nothing to do */
-	if (timed_out)
-		return 0;
+	return timed_out;
+}
 
-	/* just here for timeout management? */
-	if (!pollfd)
+LWS_VISIBLE int
+lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
+		   int tsi)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_tokens eff_buf;
+	unsigned int pending = 0;
+	struct lws *wsi;
+	char draining_flow = 0;
+	int n = 0, m;
+
+#if defined(LWS_WITH_HTTP2)
+	struct lws *wsi1;
+#endif
+
+	/* the socket we came to service timed out, nothing to do */
+	if (lws_service_periodic_checks(context, pollfd, tsi) || !pollfd)
 		return 0;
 
 	/* no, here to service a socket descriptor */
@@ -1467,8 +1225,6 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 	/* okay, what we came here to do... */
 
-	// lwsl_err("x 0x%x\n", wsi->wsistate);
-
 	switch (lwsi_role(wsi)) {
 	case LWSI_ROLE_EVENT_PIPE:
 	{
@@ -1500,15 +1256,46 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		goto handled;
 	}
 
-	case LWSI_ROLE_H1_CLIENT:
+#ifdef LWS_WITH_CGI
+	case LWSI_ROLE_CGI: /* we exist to handle a cgi's stdin/out/err data...
+			 * do the callback on our master wsi
+			 */
+		{
+			struct lws_cgi_args args;
 
-		if (lwsi_state(wsi) == LRS_ESTABLISHED)
-			goto handled;
+			if (wsi->cgi_channel >= LWS_STDOUT &&
+			    !(pollfd->revents & pollfd->events & LWS_POLLIN))
+				break;
+			if (wsi->cgi_channel == LWS_STDIN &&
+			    !(pollfd->revents & pollfd->events & LWS_POLLOUT))
+				break;
 
-		goto do_client;
+			if (wsi->cgi_channel == LWS_STDIN)
+				if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+					lwsl_info("failed at set pollfd\n");
+					return 1;
+				}
+
+			args.ch = wsi->cgi_channel;
+			args.stdwsi = &wsi->parent->cgi->stdwsi[0];
+			args.hdr_state = wsi->hdr_state;
+
+			lwsl_debug("CGI LWS_STDOUT %p role 0x%x state 0x%x\n",
+				   wsi->parent, lwsi_role(wsi->parent),
+				   lwsi_state(wsi->parent));
+
+			if (user_callback_handle_rxflow(
+					wsi->parent->protocol->callback,
+					wsi->parent, LWS_CALLBACK_CGI,
+					wsi->parent->user_space,
+					(void *)&args, 0))
+				return 1;
+
+			break;
+		}
+#endif
 
 	case LWSI_ROLE_H1_SERVER:
-	case LWSI_ROLE_LISTEN_SOCKET:
 
 #ifdef LWS_WITH_CGI
 		if (wsi->cgi && (pollfd->revents & LWS_POLLOUT)) {
@@ -1519,10 +1306,13 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		}
 #endif
 		/* fallthru */
+
+	case LWSI_ROLE_LISTEN_SOCKET:
 	case LWSI_ROLE_RAW_SOCKET:
 		n = lws_server_socket_service(context, wsi, pollfd);
 		if (n) /* closed by above */
 			return 1;
+
 		goto handled;
 
 	case LWSI_ROLE_RAW_FILE:
@@ -1554,6 +1344,25 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		n = 0;
 		goto handled;
 
+	case LWSI_ROLE_H1_CLIENT:
+
+		if (lwsi_state(wsi) == LRS_ESTABLISHED)
+			goto handled;
+
+do_client:
+#if !defined(LWS_NO_CLIENT)
+		if ((pollfd->revents & LWS_POLLOUT) &&
+		    lws_handle_POLLOUT_event(wsi, pollfd)) {
+			lwsl_debug("POLLOUT event closed it\n");
+			goto close_and_handled;
+		}
+
+		n = lws_client_socket_service(wsi, pollfd, NULL);
+		if (n)
+			return 1;
+#endif
+		goto handled;
+
 	case LWSI_ROLE_WS1_SERVER:
 	case LWSI_ROLE_WS1_CLIENT:
 	case LWSI_ROLE_H2_SERVER:
@@ -1579,11 +1388,10 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		/* 1: something requested a callback when it was OK to write */
 
 		if ((pollfd->revents & LWS_POLLOUT) &&
-		    (lwsi_state(wsi) & LWSIFS_POCB) /* ...our state cares ... */ &&
+		    lwsi_state_can_handle_POLLOUT(wsi) &&
 		    lws_handle_POLLOUT_event(wsi, pollfd)) {
 			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
 				lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
-			// lwsl_notice("lws_service_fd: closing\n");
 			/* the write failed... it's had it */
 			wsi->socket_is_permanently_unusable = 1;
 			goto close_and_handled;
@@ -1782,8 +1590,7 @@ read:
 
 drain:
 #ifndef LWS_NO_CLIENT
-		if (lwsi_role_http_client(wsi) &&
-				wsi->hdr_parsing_completed &&
+		if (lwsi_role_http_client(wsi) && wsi->hdr_parsing_completed &&
 		    !wsi->told_user_closed) {
 
 			/*
@@ -1845,8 +1652,14 @@ drain:
 				 * around again it will pick up from where it
 				 * left off.
 				 */
-				n = lws_read(wsi, (unsigned char *)eff_buf.token,
-					     eff_buf.token_len);
+
+				if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
+					n = lws_read_h2(wsi, (unsigned char *)eff_buf.token,
+						     eff_buf.token_len);
+				else
+					n = lws_read_h1(wsi, (unsigned char *)eff_buf.token,
+						     eff_buf.token_len);
+
 				if (n < 0) {
 					/* we closed wsi */
 					n = 0;
@@ -1892,61 +1705,10 @@ drain:
 		}
 
 		break;
-#ifdef LWS_WITH_CGI
-	case LWSI_ROLE_CGI: /* we exist to handle a cgi's stdin/out/err data...
-			 * do the callback on our master wsi
-			 */
-		{
-			struct lws_cgi_args args;
 
-			if (wsi->cgi_channel >= LWS_STDOUT &&
-			    !(pollfd->revents & pollfd->events & LWS_POLLIN))
-				break;
-			if (wsi->cgi_channel == LWS_STDIN &&
-			    !(pollfd->revents & pollfd->events & LWS_POLLOUT))
-				break;
-
-			if (wsi->cgi_channel == LWS_STDIN)
-				if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-					lwsl_info("failed at set pollfd\n");
-					return 1;
-				}
-
-			args.ch = wsi->cgi_channel;
-			args.stdwsi = &wsi->parent->cgi->stdwsi[0];
-			args.hdr_state = wsi->hdr_state;
-
-			lwsl_debug("CGI LWS_STDOUT %p role 0x%x state 0x%x\n",
-				   wsi->parent, lwsi_role(wsi->parent),
-				   lwsi_state(wsi->parent));
-
-			if (user_callback_handle_rxflow(
-					wsi->parent->protocol->callback,
-					wsi->parent, LWS_CALLBACK_CGI,
-					wsi->parent->user_space,
-					(void *)&args, 0))
-				return 1;
-
-			break;
-		}
-#endif
 	}
 
 	n = 0;
-	goto handled;
-
-do_client:
-#if !defined(LWS_NO_CLIENT)
-	if ((pollfd->revents & LWS_POLLOUT) &&
-	    lws_handle_POLLOUT_event(wsi, pollfd)) {
-		lwsl_debug("POLLOUT event closed it\n");
-		goto close_and_handled;
-	}
-
-	n = lws_client_socket_service(wsi, pollfd, NULL);
-	if (n)
-		return 1;
-#endif
 	goto handled;
 
 close_and_handled:
@@ -1961,6 +1723,7 @@ close_and_handled:
 
 handled:
 	pollfd->revents = 0;
+
 	return n;
 }
 

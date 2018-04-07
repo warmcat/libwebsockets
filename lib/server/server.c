@@ -2515,8 +2515,12 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			 * according to the connection state
 			 */
 
-			n = lws_read(wsi, ah->rx + ah->rxpos,
-				     ah->rxlen - ah->rxpos);
+			if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
+				n = lws_read_h2(wsi, ah->rx + ah->rxpos,
+						ah->rxlen - ah->rxpos);
+			else
+				n = lws_read_h1(wsi, ah->rx + ah->rxpos,
+						ah->rxlen - ah->rxpos);
 			if (n < 0) /* we closed wsi */
 				return 1;
 
@@ -2589,7 +2593,10 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 			 * returns number of bytes used
 			 */
 
-			n = lws_read(wsi, pt->serv_buf, len);
+			if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
+				n = lws_read_h2(wsi, pt->serv_buf, len);
+			else
+				n = lws_read_h1(wsi, pt->serv_buf, len);
 			if (n < 0) /* we closed wsi */
 				return 1;
 

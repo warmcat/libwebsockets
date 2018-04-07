@@ -5931,14 +5931,6 @@ lws_get_close_payload(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN
 struct lws *lws_get_network_wsi(struct lws *wsi);
 
-/*
- * \deprecated DEPRECATED Note: this is not normally needed as a user api.
- * It's provided in case it is
- * useful when integrating with other app poll loop service code.
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
-
 /**
  * lws_set_allocator() - custom allocator support
  *

@@ -655,6 +655,7 @@ enum lwsi_state {
 #define lwsi_state_PRE_CLOSE(wsi) ((enum lwsi_state)(wsi->wsistate & LRS_MASK))
 #define lwsi_state_est(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
 #define lwsi_state_est_PRE_CLOSE(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
+#define lwsi_state_can_handle_POLLOUT(wsi) (wsi->wsistate & LWSIFS_POCB)
 #if !defined (_DEBUG)
 #define lwsi_set_state(wsi, lrs) wsi->wsistate = \
 			  (wsi->wsistate & (~LRS_MASK)) | lrs
@@ -2386,6 +2387,10 @@ LWS_EXTERN int
 lws_h2_client_handshake(struct lws *wsi);
 LWS_EXTERN struct lws *
 lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi);
+int
+lws_handle_POLLOUT_event_h2(struct lws *wsi);
+int
+lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
 #else
 #define lws_h2_configure_if_upgraded(x)
 #endif
@@ -2939,6 +2944,11 @@ void
 __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 int
 __lws_change_pollfd(struct lws *wsi, int _and, int _or);
+
+int
+lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
+int
+lws_calllback_as_writeable(struct lws *wsi);
 
 #ifdef __cplusplus
 };
