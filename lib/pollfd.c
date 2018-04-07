@@ -464,7 +464,7 @@ lws_callback_on_writable(struct lws *wsi)
 #ifdef LWS_WITH_HTTP2
 	lwsl_info("%s: %p (role/state 0x%x)\n", __func__, wsi, wsi->wsistate);
 
-	if (!lwsi_role_h2(wsi))
+	if (!lwsi_role_h2(wsi) && !lwsi_role_h2_ENCAPSULATION(wsi))
 		goto network_sock;
 
 	if (wsi->h2.requested_POLLOUT

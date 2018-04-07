@@ -68,9 +68,7 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 
 #if defined(LWS_WITH_HTTP2)
 
-	if (lwsi_role_h2(wsi) &&
-	    !lwsi_role_ws(wsi) &&
-	    lwsi_state(wsi) != LRS_BODY) {
+	if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY) {
 		int m;
 
 		// lwsl_notice("%s: h2 path: wsistate 0x%x len %d\n", __func__,

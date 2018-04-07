@@ -38,7 +38,7 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			    unsigned char **p, unsigned char *end)
 {
 #ifdef LWS_WITH_HTTP2
-	if (lwsi_role_h2(wsi))
+	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi))
 		return lws_add_http2_header_by_name(wsi, name,
 						    value, length, p, end);
 #else
@@ -66,7 +66,7 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 			     unsigned char *end)
 {
 #ifdef LWS_WITH_HTTP2
-	if (lwsi_role_h2(wsi))
+	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi))
 		return 0;
 #else
 	(void)wsi;
@@ -105,7 +105,7 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 {
 	const unsigned char *name;
 #ifdef LWS_WITH_HTTP2
-	if (lwsi_role_h2(wsi))
+	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi))
 		return lws_add_http2_header_by_token(wsi, token, value,
 						     length, p, end);
 #endif
@@ -201,7 +201,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 #endif
 
 #ifdef LWS_WITH_HTTP2
-	if (lwsi_role_h2(wsi))
+	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi))
 		return lws_add_http2_header_status(wsi, code, p, end);
 #endif
 	if (code >= 400 && code < (400 + ARRAY_SIZE(err400)))

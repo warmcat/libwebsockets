@@ -482,107 +482,145 @@ enum lws_websocket_opcodes_07 {
 typedef uint32_t lws_wsi_state_t;
 
 /*
- *  31     16 15      0
- *  [  role ] [ state ]
+ *   31     16 15      0
+ *   [  role ] [ state ]
  *
  * The role part is generally invariant for the lifetime of the wsi, although
  * it can change if the connection role itself does, eg, if the connection
  * upgrades from H1 -> WS1 the role is changed at that point.
  *
+ * The format inside the 16-bit role is
+ *
+ *   15     12 11        8 7        4 3        0
+ *   [ flags ]  [ encap ]   [ prot ]   [ type ]
+ *
+ *   encap has the same format as prot, but describes the parent protocol
+ *   that encapsulates this one, if any
+ *
  * The state part reflects the dynamic connection state, and the states are
  * reused between roles.
  *
  * None of the internal role or state representations are made available outside
- * of lws internals.
+ * of lws internals.  Even for lws internals, if you add stuff here, please keep
+ * the constants inside this header only by adding necessary helpers here and
+ * use the helpers in the actual code.  This is to ease any future refactors.
+ *
+ * Notice LWSIFR_ENCAP means we have a parent wsi that actually carries our
+ * data as a stream inside a different protocol.
  */
 
 #define _RS 16
 
-#define LWSIFR_HTTP	(0x008 << _RS)
-#define LWSIFR_H2	(0x010 << _RS)
-#define LWSIFR_CLIENT	(0x020 << _RS)
-#define LWSIFR_SERVER	(0x040 << _RS)
-#define LWSIFR_WS	(0x080 << _RS)
-#define LWSIFR_RAW	(0x100 << _RS)
+#define LWSIFR_CLIENT	(0x1000 << _RS) /* client side */
+#define LWSIFR_SERVER	(0x2000 << _RS) /* server side */
+
+/* protocol spoken on this wsi */
+
+#define LWSIFR_P_UNSET	(0x0000 << _RS)
+#define LWSIFR_P_RAW	(0x0010 << _RS)	/* lws doesn't handle any protocol */
+#define LWSIFR_P_H1	(0x0020 << _RS)	/* HTTP/1.x */
+#define LWSIFR_P_H2	(0x0030 << _RS)	/* HTTP/2 */
+#define LWSIFR_P_WS	(0x0040 << _RS)	/* Websockets */
 
 enum lwsi_role {
 	LWSI_ROLE_UNSET		= (0 << _RS),
 
-	LWSI_ROLE_H1_SERVER	= (LWSIFR_SERVER | LWSIFR_HTTP            ),
-	LWSI_ROLE_H2_SERVER	= (LWSIFR_SERVER | LWSIFR_HTTP | LWSIFR_H2),
-	LWSI_ROLE_H1_CLIENT	= (LWSIFR_CLIENT | LWSIFR_HTTP            ),
-	LWSI_ROLE_H2_CLIENT	= (LWSIFR_CLIENT | LWSIFR_HTTP | LWSIFR_H2),
-	LWSI_ROLE_WS1_SERVER	= (LWSIFR_SERVER | LWSIFR_WS              ),
-	LWSI_ROLE_WS2_SERVER	= (LWSIFR_SERVER | LWSIFR_WS   | LWSIFR_H2),
-	LWSI_ROLE_WS1_CLIENT	= (LWSIFR_CLIENT | LWSIFR_WS              ),
-	LWSI_ROLE_WS2_CLIENT	= (LWSIFR_CLIENT | LWSIFR_WS   | LWSIFR_H2),
+	LWSI_ROLE_H1_SERVER	= LWSIFR_SERVER | LWSIFR_P_H1,
+	LWSI_ROLE_H2_SERVER	= LWSIFR_SERVER | LWSIFR_P_H2,
+	LWSI_ROLE_H1_CLIENT	= LWSIFR_CLIENT | LWSIFR_P_H1,
+	LWSI_ROLE_H2_CLIENT	= LWSIFR_CLIENT | LWSIFR_P_H2,
+	LWSI_ROLE_WS1_SERVER	= LWSIFR_SERVER | LWSIFR_P_WS,
+	LWSI_ROLE_WS2_SERVER	= LWSIFR_SERVER | LWSIFR_P_WS |
+				    (LWSIFR_P_H2 << 4) /* h2 parent encap */,
+	LWSI_ROLE_WS1_CLIENT	= LWSIFR_CLIENT | LWSIFR_P_WS,
+	LWSI_ROLE_WS2_CLIENT	= LWSIFR_CLIENT | LWSIFR_P_WS |
+				    (LWSIFR_P_H2 << 4) /* h2 parent encap */,
 
-	LWSI_ROLE_CGI		= (1 << _RS),
-	LWSI_ROLE_LISTEN_SOCKET	= (2 << _RS),
-	LWSI_ROLE_EVENT_PIPE	= (3 << _RS),
-	LWSI_ROLE_RAW_FILE	= (LWSIFR_RAW | (4 << _RS)),
-	LWSI_ROLE_RAW_SOCKET	= (LWSIFR_RAW | (5 << _RS)),
+	LWSI_ROLE_CGI		= 				  (1 << _RS),
+	LWSI_ROLE_LISTEN_SOCKET	=				  (2 << _RS),
+	LWSI_ROLE_EVENT_PIPE	=				  (3 << _RS),
+	LWSI_ROLE_RAW_FILE	=		  LWSIFR_P_RAW  | (4 << _RS),
+	LWSI_ROLE_RAW_SOCKET	=		  LWSIFR_P_RAW  | (5 << _RS),
 
-	LWSI_ROLE_MASK					= (0xffff << _RS),
+	LWSI_ROLE_MASK		=			     (0xffff << _RS),
+	LWSI_ROLE_PROTOCOL_MASK	=			     (0x00f0 << _RS),
+	LWSI_ROLE_ENCAP_MASK	=			     (0x0f00 << _RS),
 };
 
-#define lwsi_role(wsi) \
-			(wsi->wsistate & LWSI_ROLE_MASK)
+#define lwsi_role(wsi) (wsi->wsistate & LWSI_ROLE_MASK)
 #if !defined (_DEBUG)
 #define lwsi_set_role(wsi, role) wsi->wsistate = \
 			(wsi->wsistate & (~LWSI_ROLE_MASK)) | role
 #else
 void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
 #endif
-#define lwsi_role_ws(wsi) (!!(wsi->wsistate & LWSIFR_WS))
+
+/* wsi's role is WS protocol */
+#define lwsi_role_ws(wsi) \
+		((wsi->wsistate & LWSI_ROLE_PROTOCOL_MASK) == LWSIFR_P_WS)
+
+#define lwsi_role_ws_PRE_CLOSE(wsi) \
+		((wsi->wsistate & LWSI_ROLE_PROTOCOL_MASK) == LWSIFR_P_WS)
+
 #define lwsi_role_ws_client(wsi) \
-			((wsi->wsistate & (LWSIFR_CLIENT | LWSIFR_WS))\
-				       == (LWSIFR_CLIENT | LWSIFR_WS))
+		((wsi->wsistate & (LWSIFR_CLIENT | LWSI_ROLE_PROTOCOL_MASK))\
+					   == (LWSIFR_CLIENT | LWSIFR_P_WS))
 #define lwsi_role_non_ws_client(wsi) \
-			((wsi->wsistate & (LWSIFR_CLIENT | LWSIFR_WS))\
-				       == (LWSIFR_CLIENT))
+		((wsi->wsistate & LWSIFR_CLIENT) && \
+		 (wsi->wsistate & LWSI_ROLE_PROTOCOL_MASK) != LWSIFR_P_WS)
+
 #define lwsi_role_client(wsi) (!!(wsi->wsistate & LWSIFR_CLIENT))
-#define lwsi_role_raw(wsi) (!!(wsi->wsistate & LWSIFR_RAW))
+
+#define lwsi_role_raw(wsi) \
+		((wsi->wsistate & LWSI_ROLE_PROTOCOL_MASK) == LWSIFR_P_RAW)
+
+#define lwsi_role_http(wsi) \
+		 ((wsi->wsistate & LWSI_ROLE_PROTOCOL_MASK) == LWSIFR_P_H1 || \
+		  (wsi->wsistate & LWSI_ROLE_PROTOCOL_MASK) == LWSIFR_P_H2)
+
 #define lwsi_role_http_server(wsi) \
-			((wsi->wsistate & (LWSIFR_SERVER | LWSIFR_HTTP))\
-					 == (LWSIFR_SERVER | LWSIFR_HTTP))
+		((wsi->wsistate & LWSIFR_SERVER) && lwsi_role_http(wsi))
+
 #define lwsi_role_http_client(wsi) \
-			((wsi->wsistate & (LWSIFR_CLIENT | LWSIFR_HTTP))\
-					 == (LWSIFR_CLIENT | LWSIFR_HTTP))
-#define lwsi_role_http(wsi) (!!(wsi->wsistate & LWSIFR_HTTP))
-#define lwsi_role_h2(wsi) (!!(wsi->wsistate & LWSIFR_H2))
+		((wsi->wsistate & LWSIFR_CLIENT) && lwsi_role_http(wsi))
+
+#define lwsi_role_h2(wsi) \
+		((wsi->wsistate & LWSI_ROLE_PROTOCOL_MASK) == LWSIFR_P_H2)
+
+#define lwsi_role_h2_ENCAPSULATION(wsi) \
+		((wsi->wsistate & LWSI_ROLE_ENCAP_MASK) >> 4 == LWSIFR_P_H2)
 
 /* Pollout wants a callback in this state */
 #define LWSIFS_POCB		(0x100)
 /* Before any protocol connection was established */
-#define LWSIFS_NOTEST		(0x200)
+#define LWSIFS_NOT_EST		(0x200)
 
 enum lwsi_state {
 
 	/* Phase 1: pre-transport */
 
-	LRS_UNCONNECTED				= LWSIFS_NOTEST | 0,
-	LRS_WAITING_CONNECT			= LWSIFS_NOTEST | 1,
+	LRS_UNCONNECTED				= LWSIFS_NOT_EST | 0,
+	LRS_WAITING_CONNECT			= LWSIFS_NOT_EST | 1,
 
 	/* Phase 2: establishing intermediaries on top of transport */
 
-	LRS_WAITING_PROXY_REPLY			= LWSIFS_NOTEST | 2,
-	LRS_WAITING_SSL				= LWSIFS_NOTEST | 3,
-	LRS_WAITING_SOCKS_GREETING_REPLY	= LWSIFS_NOTEST | 4,
-	LRS_WAITING_SOCKS_CONNECT_REPLY		= LWSIFS_NOTEST | 5,
-	LRS_WAITING_SOCKS_AUTH_REPLY		= LWSIFS_NOTEST | 6,
+	LRS_WAITING_PROXY_REPLY			= LWSIFS_NOT_EST | 2,
+	LRS_WAITING_SSL				= LWSIFS_NOT_EST | 3,
+	LRS_WAITING_SOCKS_GREETING_REPLY	= LWSIFS_NOT_EST | 4,
+	LRS_WAITING_SOCKS_CONNECT_REPLY		= LWSIFS_NOT_EST | 5,
+	LRS_WAITING_SOCKS_AUTH_REPLY		= LWSIFS_NOT_EST | 6,
 
 	/* Phase 3: establishing tls tunnel */
 
-	LRS_SSL_INIT				= LWSIFS_NOTEST | 7,
-	LRS_SSL_ACK_PENDING			= LWSIFS_NOTEST | 8,
-	LRS_PRE_WS_SERVING_ACCEPT		= LWSIFS_NOTEST | 9,
+	LRS_SSL_INIT				= LWSIFS_NOT_EST | 7,
+	LRS_SSL_ACK_PENDING			= LWSIFS_NOT_EST | 8,
+	LRS_PRE_WS_SERVING_ACCEPT		= LWSIFS_NOT_EST | 9,
 
 	/* Phase 4: connected */
 
-	LRS_WAITING_SERVER_REPLY		= LWSIFS_NOTEST | 10,
-	LRS_H2_AWAIT_PREFACE			= LWSIFS_NOTEST | 11,
-	LRS_H2_AWAIT_SETTINGS			= LWSIFS_NOTEST |
+	LRS_WAITING_SERVER_REPLY		= LWSIFS_NOT_EST | 10,
+	LRS_H2_AWAIT_PREFACE			= LWSIFS_NOT_EST | 11,
+	LRS_H2_AWAIT_SETTINGS			= LWSIFS_NOT_EST |
 						  LWSIFS_POCB | 12,
 
 	/* Phase 5: protocol logically established */
@@ -614,7 +652,9 @@ enum lwsi_state {
 };
 
 #define lwsi_state(wsi) ((enum lwsi_state)(wsi->wsistate & LRS_MASK))
-#define lwsi_state_est(wsi) (!(wsi->wsistate & LWSIFS_NOTEST))
+#define lwsi_state_PRE_CLOSE(wsi) ((enum lwsi_state)(wsi->wsistate & LRS_MASK))
+#define lwsi_state_est(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
+#define lwsi_state_est_PRE_CLOSE(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
 #if !defined (_DEBUG)
 #define lwsi_set_state(wsi, lrs) wsi->wsistate = \
 			  (wsi->wsistate & (~LRS_MASK)) | lrs

@@ -656,7 +656,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	    lwsi_state(wsi) == LRS_SHUTDOWN)
 		goto just_kill_connection;
 
-	switch (wsi->wsistate_pre_close & LRS_MASK) {
+	switch (lwsi_state_PRE_CLOSE(wsi)) {
 	case LRS_DEAD_SOCKET:
 		return;
 
@@ -750,7 +750,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	 * LRS_AWAITING_CLOSE_ACK and will skip doing this a second time.
 	 */
 
-	if ((wsi->wsistate_pre_close & LWSIFR_WS) &&
+	if (lwsi_role_ws_PRE_CLOSE(wsi) &&
 	    (wsi->ws->close_in_ping_buffer_len || /* already a reason */
 	     (reason != LWS_CLOSE_STATUS_NOSTATUS &&
 	     (reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)))) {
@@ -980,7 +980,7 @@ just_kill_connection:
 	lwsi_set_state(wsi, LRS_DEAD_SOCKET);
 	lws_free_set_NULL(wsi->rxflow_buffer);
 
-	if ((wsi->wsistate_pre_close & LWSIFR_WS) || lwsi_role_ws(wsi)) {
+	if (lwsi_role_ws_PRE_CLOSE(wsi) || lwsi_role_ws(wsi)) {
 
 		if (wsi->ws->rx_draining_ext) {
 			struct lws **w = &pt->rx_draining_ext_list;
@@ -1024,9 +1024,8 @@ just_kill_connection:
 	/* tell the user it's all over for this guy */
 
 	if (wsi->protocol && !wsi->told_user_closed &&
-	    wsi->protocol->callback &&
-	    lwsi_role(wsi) != LWSI_ROLE_RAW_SOCKET &&
-	    !(wsi->wsistate_pre_close & LWSIFS_NOTEST)) {
+	    wsi->protocol->callback && lwsi_role(wsi) != LWSI_ROLE_RAW_SOCKET &&
+	    lwsi_state_est_PRE_CLOSE(wsi)) {
 		if (lwsi_role_client(wsi))
 			wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_CLOSED,
 						wsi->user_space, NULL, 0);
@@ -2225,7 +2224,7 @@ lws_get_peer_write_allowance(struct lws *wsi)
 {
 #ifdef LWS_WITH_HTTP2
 	/* only if we are using HTTP2 on this connection */
-	if (!lwsi_role_h2(wsi))
+	if (!lwsi_role_h2(wsi) && !lwsi_role_h2_ENCAPSULATION(wsi))
 		return -1;
 
 	return lws_h2_tx_cr_get(wsi);

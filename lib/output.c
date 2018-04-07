@@ -513,7 +513,7 @@ send_raw:
 		/*
 		 * ws-over-h2 also ends up here after the ws framing applied
 		 */
-		if (lwsi_role_h2(wsi)) {
+		if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi)) {
 			unsigned char flags = 0;
 
 			n = LWS_H2_FRAME_TYPE_DATA;
