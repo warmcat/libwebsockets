@@ -161,10 +161,8 @@ read:
 	if (wsi->ah && wsi->ah->rxlen - wsi->ah->rxpos) {
 		lwsl_info("%s: %p: inherited ah rx %d\n", __func__,
 				wsi, wsi->ah->rxlen - wsi->ah->rxpos);
-		eff_buf.token_len = wsi->ah->rxlen -
-				    wsi->ah->rxpos;
-		eff_buf.token = (char *)wsi->ah->rx +
-				wsi->ah->rxpos;
+		eff_buf.token_len = wsi->ah->rxlen - wsi->ah->rxpos;
+		eff_buf.token = (char *)wsi->ah->rx + wsi->ah->rxpos;
 	} else {
 		if (!(lwsi_role_client(wsi) &&
 		      (lwsi_state(wsi) != LRS_ESTABLISHED &&

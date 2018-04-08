@@ -363,7 +363,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		if (!wsi->ah)
 			return LWS_HPI_RET_HANDLED;
-		if ( wsi->ah->rxlen)
+		if (wsi->ah->rxlen)
 			 wsi->ah->rxpos += n;
 
 		lwsl_debug("%s: wsi %p: ah read rxpos %d, rxlen %d\n",
@@ -373,6 +373,16 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		if (lws_header_table_is_in_detachable_state(wsi) &&
 			lwsi_role_raw(wsi)) // ???
 			lws_header_table_detach(wsi, 1);
+
+		/* during the parsing we upgraded to ws */
+
+		if (wsi->ah && wsi->ah->rxpos == wsi->ah->rxlen &&
+		    lwsi_role_ws(wsi)) {
+			lwsl_info("%s: %p: dropping ah on ws post-upgrade\n",
+				  __func__, wsi);
+			lws_header_table_force_to_detachable_state(wsi);
+			lws_header_table_detach(wsi, 0);
+		}
 
 		return LWS_HPI_RET_HANDLED;
 	}

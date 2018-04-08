@@ -1005,11 +1005,13 @@ lws_process_ws_upgrade(struct lws *wsi)
 
 	lws_same_vh_protocol_insert(wsi, n);
 
-	/* we are upgrading to ws, so http/1.1 + h2 and keepalive +
-	 * pipelined header considerations about keeping the ah around
-	 * no longer apply.  However it's common for the first ws
-	 * protocol data to have been coalesced with the browser
-	 * upgrade request and to already be in the ah rx buffer.
+	/*
+	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined
+	 * header considerations about keeping the ah around no longer apply.
+	 *
+	 * However it's common for the first ws protocol data to have been
+	 * coalesced with the browser upgrade request and to already be in the
+	 * ah rx buffer.
 	 */
 
 	lwsl_debug("%s: %p: inheriting ws ah (rxpos:%d, rxlen:%d)\n",
@@ -1030,14 +1032,16 @@ lws_process_ws_upgrade(struct lws *wsi)
 	lws_pt_unlock(pt);
 
 	lws_server_init_wsi_for_ws(wsi);
-	lwsl_parser("accepted v%02d connection\n",
-		    wsi->ws->ietf_spec_revision);
+	lwsl_parser("accepted v%02d connection\n", wsi->ws->ietf_spec_revision);
 
 	/* !!! drop ah unreservedly after ESTABLISHED */
-	if (wsi->ah->rxpos == wsi->ah->rxlen ) {
+	if (wsi->ah->rxpos == wsi->ah->rxlen) {
+		lwsl_info("%s: %p: dropping ah on ws upgrade\n", __func__, wsi);
 		lws_header_table_force_to_detachable_state(wsi);
 		lws_header_table_detach(wsi, 1);
-	}
+	} else
+		lwsl_info("%s: %p: unable to drop ah at ws upgrade %d vs %d\n",
+			    __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
 
 	return 0;
 }
@@ -1656,6 +1660,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 
 		i = (int)len;
 		m = lws_parse(wsi, *buf, &i);
+		lwsl_info("%s: parsed count %d\n", __func__, (int)len - i);
 		(*buf) += (int)len - i;
 		len = i;
 		if (m) {

@@ -191,7 +191,7 @@ wops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * notice if rx flow going off raced poll(), rx flow wins
 	 */
 
-	if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
+	if (!(pollfd->revents & pollfd->events & LWS_POLLIN) && !wsi->ah)
 		return LWS_HPI_RET_HANDLED;
 
 read:
@@ -201,13 +201,21 @@ read:
 		return LWS_HPI_RET_HANDLED;
 	}
 
+	if (wsi->ah && wsi->ah->rxlen == wsi->ah->rxpos) {
+		/* we drained the excess data in the ah */
+		lwsl_info("%s: %p: dropping ah on ws post-upgrade\n", __func__, wsi);
+		lws_header_table_force_to_detachable_state(wsi);
+		lws_header_table_detach(wsi, 0);
+	} else
+		if (wsi->ah)
+			lwsl_info("%s: %p: unable to drop yet %d vs %d\n",
+				    __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
+
 	if (wsi->ah && wsi->ah->rxlen - wsi->ah->rxpos) {
 		lwsl_info("%s: %p: inherited ah rx %d\n", __func__,
 				wsi, wsi->ah->rxlen - wsi->ah->rxpos);
-		eff_buf.token_len = wsi->ah->rxlen -
-				    wsi->ah->rxpos;
-		eff_buf.token = (char *)wsi->ah->rx +
-				wsi->ah->rxpos;
+		eff_buf.token_len = wsi->ah->rxlen - wsi->ah->rxpos;
+		eff_buf.token = (char *)wsi->ah->rx + wsi->ah->rxpos;
 	} else {
 		if (!(lwsi_role_client(wsi) &&
 		      (lwsi_state(wsi) != LRS_ESTABLISHED &&
