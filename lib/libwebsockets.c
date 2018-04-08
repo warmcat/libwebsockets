@@ -2235,11 +2235,14 @@ lws_get_peer_write_allowance(struct lws *wsi)
 }
 
 LWS_VISIBLE void
-lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state)
+lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
+		struct lws_protocol_ops *ops)
 {
 	lwsl_debug("%s: %p: role 0x%x, state 0x%x\n", __func__, wsi, role, state);
 	lwsi_set_role(wsi, role);
 	lwsi_set_state(wsi, state);
+	if (ops)
+		wsi->pops = ops;
 }
 
 LWS_VISIBLE struct lws_plat_file_ops *

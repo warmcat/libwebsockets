@@ -132,7 +132,8 @@ int lws_h2_configure_if_upgraded(struct lws *wsi)
 
 	ah = wsi->ah;
 
-	lws_role_transition(wsi, LWSI_ROLE_H2_SERVER, LRS_H2_AWAIT_PREFACE);
+	lws_role_transition(wsi, LWSI_ROLE_H2_SERVER, LRS_H2_AWAIT_PREFACE,
+				&wire_ops_h2);
 
 	/* http2 union member has http union struct at start */
 	wsi->ah = ah;

@@ -673,7 +673,6 @@ set(HDR_PUBLIC
 
 set(SOURCES
 	lib/misc/base64-decode.c
-	lib/handshake.c
 	lib/libwebsockets.c
 	lib/service.c
 	lib/pollfd.c
@@ -682,11 +681,15 @@ set(SOURCES
 	lib/context.c
 	lib/alloc.c
 	lib/header.c
+	lib/wire-protocol/h1/ops-h1.c
+	lib/wire-protocol/raw/ops-raw.c
+	lib/wire-protocol/ws/ops-ws.c
 	lib/misc/lws-ring.c)
 
 if (LWS_WITH_CGI)
 	list(APPEND SOURCES
-		lib/server/cgi.c)
+		lib/server/cgi.c
+		lib/wire-protocol/cgi/ops-cgi.c)
 endif()
 
 if (LWS_WITH_ACCESS_LOG)
@@ -815,9 +818,10 @@ endif()
 
 if (LWS_WITH_HTTP2 AND NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
-		lib/http2/http2.c
-		lib/http2/hpack.c
-		lib/http2/ssl-http2.c)
+		lib/wire-protocol/h2/http2.c
+		lib/wire-protocol/h2/hpack.c
+		lib/wire-protocol/h2/ssl-http2.c
+		lib/wire-protocol/h2/ops-h2.c)
 endif()
 # select the active platform files
 

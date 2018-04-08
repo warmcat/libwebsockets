@@ -75,14 +75,8 @@ lws_calllback_as_writeable(struct lws *wsi)
 LWS_VISIBLE int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 {
-	int write_type = LWS_WRITE_PONG;
-	int n;
 	volatile struct lws *vwsi = (volatile struct lws *)wsi;
-
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	struct lws_tokens eff_buf;
-	int ret, m;
-#endif
+	int n;
 
 	lwsl_info("%s: %p\n", __func__, wsi);
 
@@ -93,17 +87,17 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 * handling_pollout is set, he will only set leave_pollout_active.
 	 * If we are going to disable POLLOUT, we will check that first.
 	 */
+	wsi->could_have_pending = 0; /* clear back-to-back write detection */
 
 	/*
 	 * user callback is lowest priority to get these notifications
 	 * actually, since other pending things cannot be disordered
-	 */
-
-	/* Priority 1: pending truncated sends are incomplete ws fragments
+	 *
+	 * Priority 1: pending truncated sends are incomplete ws fragments
 	 *	       If anything else sent first the protocol would be
 	 *	       corrupted.
 	 */
-	wsi->could_have_pending = 0; /* clear back-to-back write detection */
+
 	if (wsi->trunc_len) {
 		//lwsl_notice("%s: completing partial\n", __func__);
 		if (lws_issue_raw(wsi, wsi->trunc_alloc + wsi->trunc_offset,
@@ -119,35 +113,11 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 			goto bail_die; /* retry closing now */
 		}
 
-	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
-		goto user_service;
-
-#ifdef LWS_WITH_HTTP2
-	/*
-	 * Priority 2: H2 protocol packets
-	 */
-	if ((wsi->upgraded_to_http2
-#if !defined(LWS_NO_CLIENT)
-			|| wsi->client_h2_alpn
-#endif
-			) && wsi->h2.h2n->pps) {
-		lwsl_info("servicing pps\n");
-		if (lws_h2_do_pps_send(wsi)) {
-			wsi->socket_is_permanently_unusable = 1;
-			goto bail_die;
-		}
-		if (wsi->h2.h2n->pps)
-			goto bail_ok;
-
-		/* we can resume whatever we were doing */
-		lws_rx_flow_control(wsi, LWS_RXFLOW_REASON_APPLIES_ENABLE |
-					 LWS_RXFLOW_REASON_H2_PPS_PENDING);
-
-		goto bail_ok; /* leave POLLOUT active */
-	}
-#endif
-
 #ifdef LWS_WITH_CGI
+	/*
+	 * A cgi master's wire protocol remains h1 or h2.  He is just getting
+	 * his data from his child cgis.
+	 */
 	if (wsi->cgi) {
 		/* also one shot */
 		if (pollfd)
@@ -159,192 +129,20 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	}
 #endif
 
-	/* Priority 3: pending control packets (pong or close)
-	 *
-	 * 3a: close notification packet requested from close api
-	 */
+	/* if we got here, we should have wire protocol ops set on the wsi */
+	assert(wsi->pops);
 
-	if (lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE) {
-		lwsl_debug("sending close packet\n");
-		wsi->waiting_to_send_close_frame = 0;
-		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
-			      wsi->ws->close_in_ping_buffer_len,
-			      LWS_WRITE_CLOSE);
-		if (n >= 0) {
-			lwsi_set_state(wsi, LRS_AWAITING_CLOSE_ACK);
-			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 5);
-			lwsl_debug("sent close indication, awaiting ack\n");
-
-			goto bail_ok;
-		}
-
+	switch ((wsi->pops->handle_POLLOUT)(wsi)) {
+	case LWS_HP_RET_BAIL_OK:
+		goto bail_ok;
+	case LWS_HP_RET_BAIL_DIE:
 		goto bail_die;
+	case LWS_HP_RET_USER_SERVICE:
+		break;
+	default:
+		assert(0);
 	}
 
-	/* else, the send failed and we should just hang up */
-
-	if ((lwsi_role_ws(wsi) && wsi->ws->ping_pending_flag) ||
-	    (lwsi_state(wsi) == LRS_RETURNED_CLOSE &&
-	     wsi->ws->payload_is_close)) {
-
-		if (wsi->ws->payload_is_close)
-			write_type = LWS_WRITE_CLOSE;
-
-		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
-			      wsi->ws->ping_payload_len, write_type);
-		if (n < 0)
-			goto bail_die;
-
-		/* well he is sent, mark him done */
-		wsi->ws->ping_pending_flag = 0;
-		if (wsi->ws->payload_is_close) {
-			// assert(0);
-			/* oh... a close frame was it... then we are done */
-			goto bail_die;
-		}
-
-		/* otherwise for PING, leave POLLOUT active either way */
-		goto bail_ok;
-	}
-
-	if (lwsi_role_ws_client(wsi) && !wsi->socket_is_permanently_unusable &&
-	    wsi->ws->send_check_ping) {
-
-		lwsl_info("issuing ping on wsi %p\n", wsi);
-		wsi->ws->send_check_ping = 0;
-		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
-			      0, LWS_WRITE_PING);
-		if (n < 0)
-			goto bail_die;
-
-		/*
-		 * we apparently were able to send the PING in a reasonable time
-		 * now reset the clock on our peer to be able to send the
-		 * PONG in a reasonable time.
-		 */
-
-		lws_set_timeout(wsi, PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG,
-				wsi->context->timeout_secs);
-
-		goto bail_ok;
-	}
-
-	/* Priority 4: if we are closing, not allowed to send more data frags
-	 *	       which means user callback or tx ext flush banned now
-	 */
-	if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
-		goto user_service;
-
-	/* Priority 5: Tx path extension with more to send
-	 *
-	 *	       These are handled as new fragments each time around
-	 *	       So while we must block new writeable callback to enforce
-	 *	       payload ordering, but since they are always complete
-	 *	       fragments control packets can interleave OK.
-	 */
-	if (lwsi_role_ws_client(wsi) && wsi->ws->tx_draining_ext) {
-		lwsl_ext("SERVICING TX EXT DRAINING\n");
-		if (lws_write(wsi, NULL, 0, LWS_WRITE_CONTINUATION) < 0)
-			goto bail_die;
-		/* leave POLLOUT active */
-		goto bail_ok;
-	}
-
-	/* Priority 6: extensions
-	 */
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	m = lws_ext_cb_active(wsi, LWS_EXT_CB_IS_WRITEABLE, NULL, 0);
-	if (m)
-		goto bail_die;
-
-	if (!wsi->extension_data_pending)
-		goto user_service;
-
-	/*
-	 * check in on the active extensions, see if they
-	 * had pending stuff to spill... they need to get the
-	 * first look-in otherwise sequence will be disordered
-	 *
-	 * NULL, zero-length eff_buf means just spill pending
-	 */
-
-	ret = 1;
-	if (lwsi_role_raw(wsi))
-		ret = 0;
-
-	while (ret == 1) {
-
-		/* default to nobody has more to spill */
-
-		ret = 0;
-		eff_buf.token = NULL;
-		eff_buf.token_len = 0;
-
-		/* give every extension a chance to spill */
-
-		m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_TX_PRESEND,
-				      &eff_buf, 0);
-		if (m < 0) {
-			lwsl_err("ext reports fatal error\n");
-			goto bail_die;
-		}
-		if (m)
-			/*
-			 * at least one extension told us he has more
-			 * to spill, so we will go around again after
-			 */
-			ret = 1;
-
-		/* assuming they gave us something to send, send it */
-
-		if (eff_buf.token_len) {
-			n = lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-					  eff_buf.token_len);
-			if (n < 0) {
-				lwsl_info("closing from POLLOUT spill\n");
-				goto bail_die;
-			}
-			/*
-			 * Keep amount spilled small to minimize chance of this
-			 */
-			if (n != eff_buf.token_len) {
-				lwsl_err("Unable to spill ext %d vs %d\n",
-							  eff_buf.token_len, n);
-				goto bail_die;
-			}
-		} else
-			continue;
-
-		/* no extension has more to spill */
-
-		if (!ret)
-			continue;
-
-		/*
-		 * There's more to spill from an extension, but we just sent
-		 * something... did that leave the pipe choked?
-		 */
-
-		if (!lws_send_pipe_choked(wsi))
-			/* no we could add more */
-			continue;
-
-		lwsl_info("choked in POLLOUT service\n");
-
-		/*
-		 * Yes, he's choked.  Leave the POLLOUT masked on so we will
-		 * come back here when he is unchoked.  Don't call the user
-		 * callback to enforce ordering of spilling, he'll get called
-		 * when we come back here and there's nothing more to spill.
-		 */
-
-		goto bail_ok;
-	}
-
-	wsi->extension_data_pending = 0;
-#endif
-
-user_service:
 	/* one shot */
 
 	if (wsi->parent_carries_io) {
@@ -381,8 +179,9 @@ user_service:
 		vwsi->leave_pollout_active = 0;
 	}
 
-	if (lwsi_role_client(wsi) && !wsi->hdr_parsing_completed &&
-			lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS)
+	if (lwsi_role_client(wsi) &&
+	    !wsi->hdr_parsing_completed &&
+	     lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS)
 		goto bail_ok;
 
 
@@ -393,6 +192,7 @@ user_service_go_again:
 #if defined(LWS_WITH_HTTP2)
 	/* this is the network wsi */
 	if (lwsi_role_h2(wsi)) {
+		/* distribute his writeability amongst his children */
 		if (lws_handle_POLLOUT_event_h2(wsi) == -1)
 			goto bail_die;
 
@@ -678,155 +478,6 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 
 	return forced;
 }
-
-#ifndef LWS_NO_CLIENT
-
-LWS_VISIBLE int
-lws_http_client_read(struct lws *wsi, char **buf, int *len)
-{
-	int rlen, n;
-
-	rlen = lws_ssl_capable_read(wsi, (unsigned char *)*buf, *len);
-	*len = 0;
-
-	/* allow the source to signal he has data again next time */
-	lws_change_pollfd(wsi, 0, LWS_POLLIN);
-
-	if (rlen == LWS_SSL_CAPABLE_ERROR) {
-		lwsl_notice("%s: SSL capable error\n", __func__);
-		return -1;
-	}
-
-	if (rlen == 0)
-		return -1;
-
-	if (rlen < 0)
-		return 0;
-
-	*len = rlen;
-	wsi->client_rx_avail = 0;
-
-	/*
-	 * server may insist on transfer-encoding: chunked,
-	 * so http client must deal with it
-	 */
-spin_chunks:
-	while (wsi->chunked && (wsi->chunk_parser != ELCP_CONTENT) && *len) {
-		switch (wsi->chunk_parser) {
-		case ELCP_HEX:
-			if ((*buf)[0] == '\x0d') {
-				wsi->chunk_parser = ELCP_CR;
-				break;
-			}
-			n = char_to_hex((*buf)[0]);
-			if (n < 0) {
-				lwsl_debug("chunking failure\n");
-				return -1;
-			}
-			wsi->chunk_remaining <<= 4;
-			wsi->chunk_remaining |= n;
-			break;
-		case ELCP_CR:
-			if ((*buf)[0] != '\x0a') {
-				lwsl_debug("chunking failure\n");
-				return -1;
-			}
-			wsi->chunk_parser = ELCP_CONTENT;
-			lwsl_info("chunk %d\n", wsi->chunk_remaining);
-			if (wsi->chunk_remaining)
-				break;
-			lwsl_info("final chunk\n");
-			goto completed;
-
-		case ELCP_CONTENT:
-			break;
-
-		case ELCP_POST_CR:
-			if ((*buf)[0] != '\x0d') {
-				lwsl_debug("chunking failure\n");
-
-				return -1;
-			}
-
-			wsi->chunk_parser = ELCP_POST_LF;
-			break;
-
-		case ELCP_POST_LF:
-			if ((*buf)[0] != '\x0a')
-				return -1;
-
-			wsi->chunk_parser = ELCP_HEX;
-			wsi->chunk_remaining = 0;
-			break;
-		}
-		(*buf)++;
-		(*len)--;
-	}
-
-	if (wsi->chunked && !wsi->chunk_remaining)
-		return 0;
-
-	if (wsi->http.rx_content_remain &&
-	    wsi->http.rx_content_remain < (unsigned int)*len)
-		n = (int)wsi->http.rx_content_remain;
-	else
-		n = *len;
-
-	if (wsi->chunked && wsi->chunk_remaining &&
-	    wsi->chunk_remaining < n)
-		n = wsi->chunk_remaining;
-
-#ifdef LWS_WITH_HTTP_PROXY
-	/* hubbub */
-	if (wsi->perform_rewrite)
-		lws_rewrite_parse(wsi->rw, (unsigned char *)*buf, n);
-	else
-#endif
-	{
-		struct lws *wsi_eff = lws_client_wsi_effective(wsi);
-
-		if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
-				wsi_eff, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
-				wsi_eff->user_space, *buf, n)) {
-			lwsl_debug("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",
-				   __func__);
-
-			return -1;
-		}
-	}
-
-	if (wsi->chunked && wsi->chunk_remaining) {
-		(*buf) += n;
-		wsi->chunk_remaining -= n;
-		*len -= n;
-	}
-
-	if (wsi->chunked && !wsi->chunk_remaining)
-		wsi->chunk_parser = ELCP_POST_CR;
-
-	if (wsi->chunked && *len)
-		goto spin_chunks;
-
-	if (wsi->chunked)
-		return 0;
-
-	/* if we know the content length, decrement the content remaining */
-	if (wsi->http.rx_content_length > 0)
-		wsi->http.rx_content_remain -= n;
-
-	if (wsi->http.rx_content_remain || !wsi->http.rx_content_length)
-		return 0;
-
-completed:
-
-	if (lws_http_transaction_completed_client(wsi)) {
-		lwsl_notice("%s: transaction completed says -1\n", __func__);
-		return -1;
-	}
-
-	return 0;
-}
-#endif
 
 static int
 lws_is_ws_with_ext(struct lws *wsi)

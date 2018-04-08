@@ -1016,9 +1016,11 @@ lws_process_ws_upgrade(struct lws *wsi)
 	lws_pt_lock(pt, __func__);
 
 	if (wsi->h2_stream_carries_ws)
-		lws_role_transition(wsi, LWSI_ROLE_WS2_SERVER, LRS_ESTABLISHED);
+		lws_role_transition(wsi, LWSI_ROLE_WS2_SERVER, LRS_ESTABLISHED,
+				    &wire_ops_ws);
 	else
-		lws_role_transition(wsi, LWSI_ROLE_WS1_SERVER, LRS_ESTABLISHED);
+		lws_role_transition(wsi, LWSI_ROLE_WS1_SERVER, LRS_ESTABLISHED,
+				    &wire_ops_ws);
 	/*
 	 * Because rxpos/rxlen shows something in the ah, we will get
 	 * service guaranteed next time around the event loop
@@ -1677,7 +1679,7 @@ raw_transition:
 
 				lws_header_table_force_to_detachable_state(wsi);
 				lws_role_transition(wsi, LWSI_ROLE_RAW_SOCKET,
-						LRS_ESTABLISHED);
+						LRS_ESTABLISHED, &wire_ops_raw);
 				lws_header_table_detach(wsi, 1);
 
 				if (m == 2 && (wsi->protocol->callback)(wsi,
@@ -2134,7 +2136,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			new_wsi->desc.sockfd = LWS_SOCK_INVALID;
 			lwsl_debug("binding to %s\n", new_wsi->protocol->name);
 			lws_bind_protocol(new_wsi, new_wsi->protocol);
-			lws_role_transition(new_wsi, LWSI_ROLE_WS1_SERVER, LRS_ESTABLISHED);
+			lws_role_transition(new_wsi, LWSI_ROLE_WS1_SERVER,
+					    LRS_ESTABLISHED, &wire_ops_ws);
 			/* allocate the ws struct for the wsi */
 			new_wsi->ws = lws_zalloc(sizeof(*new_wsi->ws), "ws struct");
 			if (!new_wsi->ws) {
@@ -2146,14 +2149,16 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			return new_wsi;
                }
 	} else
-		if (type & LWS_ADOPT_HTTP) /* he will transition later */
+		if (type & LWS_ADOPT_HTTP) {/* he will transition later */
 			new_wsi->protocol =
 				&vh->protocols[vh->default_protocol_index];
+			new_wsi->pops = &wire_ops_h1;
+		}
 		else { /* this is the only time he will transition */
 			lws_bind_protocol(new_wsi,
 				&vh->protocols[vh->raw_protocol_index]);
 			lws_role_transition(new_wsi, LWSI_ROLE_RAW_SOCKET,
-					LRS_ESTABLISHED);
+					    LRS_ESTABLISHED, &wire_ops_raw);
 		}
 
 	if (type & LWS_ADOPT_SOCKET) { /* socket desc */

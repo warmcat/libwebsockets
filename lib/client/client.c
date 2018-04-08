@@ -392,7 +392,8 @@ start_ws_handshake:
 			lws_h2_configure_if_upgraded(wsi);
 
 			lws_role_transition(wsi, LWSI_ROLE_H2_CLIENT,
-					    LRS_H2_CLIENT_SEND_SETTINGS);
+					    LRS_H2_CLIENT_SEND_SETTINGS,
+					    &wire_ops_h2);
 
 			/* send the H2 preface to legitimize the connection */
 			if (lws_h2_issue_preface(wsi)) {
@@ -718,10 +719,10 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 */
 		if (wsi->client_h2_alpn)
 			lws_role_transition(wsi, LWSI_ROLE_H2_CLIENT,
-						LRS_ESTABLISHED);
+					    LRS_ESTABLISHED, &wire_ops_h2);
 		else
 			lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT,
-					    LRS_ESTABLISHED);
+					    LRS_ESTABLISHED, &wire_ops_h1);
 
 		wsi->ah = ah;
 		ah->http_response = 0;
@@ -881,7 +882,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					/* go back to "trying to connect" state */
 					lws_role_transition(ww,
 							LWSI_ROLE_H1_CLIENT,
-							LRS_UNCONNECTED);
+							LRS_UNCONNECTED,
+							&wire_ops_h1);
 					ww->user_space = NULL;
 				} lws_end_foreach_dll_safe(d, d1);
 				lws_vhost_unlock(wsi->vhost);
@@ -1327,7 +1329,8 @@ check_accept:
 	/* free up his parsing allocations */
 	lws_header_table_detach(wsi, 0);
 
-	lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT, LRS_ESTABLISHED);
+	lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT, LRS_ESTABLISHED,
+			    &wire_ops_h1);
 	lws_restart_ws_ping_pong_timer(wsi);
 
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
@@ -1462,7 +1465,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			return NULL;
 
 		lws_header_table_force_to_detachable_state(wsi);
-		lws_role_transition(wsi, LWSI_ROLE_RAW_SOCKET, LRS_ESTABLISHED);
+		lws_role_transition(wsi, LWSI_ROLE_RAW_SOCKET, LRS_ESTABLISHED,
+				    &wire_ops_raw);
 		lws_header_table_detach(wsi, 1);
 
 		return NULL;
@@ -1599,4 +1603,150 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	p += sprintf(p, "\x0d\x0a");
 
 	return p;
+}
+
+LWS_VISIBLE int
+lws_http_client_read(struct lws *wsi, char **buf, int *len)
+{
+	int rlen, n;
+
+	rlen = lws_ssl_capable_read(wsi, (unsigned char *)*buf, *len);
+	*len = 0;
+
+	/* allow the source to signal he has data again next time */
+	lws_change_pollfd(wsi, 0, LWS_POLLIN);
+
+	if (rlen == LWS_SSL_CAPABLE_ERROR) {
+		lwsl_notice("%s: SSL capable error\n", __func__);
+		return -1;
+	}
+
+	if (rlen == 0)
+		return -1;
+
+	if (rlen < 0)
+		return 0;
+
+	*len = rlen;
+	wsi->client_rx_avail = 0;
+
+	/*
+	 * server may insist on transfer-encoding: chunked,
+	 * so http client must deal with it
+	 */
+spin_chunks:
+	while (wsi->chunked && (wsi->chunk_parser != ELCP_CONTENT) && *len) {
+		switch (wsi->chunk_parser) {
+		case ELCP_HEX:
+			if ((*buf)[0] == '\x0d') {
+				wsi->chunk_parser = ELCP_CR;
+				break;
+			}
+			n = char_to_hex((*buf)[0]);
+			if (n < 0) {
+				lwsl_debug("chunking failure\n");
+				return -1;
+			}
+			wsi->chunk_remaining <<= 4;
+			wsi->chunk_remaining |= n;
+			break;
+		case ELCP_CR:
+			if ((*buf)[0] != '\x0a') {
+				lwsl_debug("chunking failure\n");
+				return -1;
+			}
+			wsi->chunk_parser = ELCP_CONTENT;
+			lwsl_info("chunk %d\n", wsi->chunk_remaining);
+			if (wsi->chunk_remaining)
+				break;
+			lwsl_info("final chunk\n");
+			goto completed;
+
+		case ELCP_CONTENT:
+			break;
+
+		case ELCP_POST_CR:
+			if ((*buf)[0] != '\x0d') {
+				lwsl_debug("chunking failure\n");
+
+				return -1;
+			}
+
+			wsi->chunk_parser = ELCP_POST_LF;
+			break;
+
+		case ELCP_POST_LF:
+			if ((*buf)[0] != '\x0a')
+				return -1;
+
+			wsi->chunk_parser = ELCP_HEX;
+			wsi->chunk_remaining = 0;
+			break;
+		}
+		(*buf)++;
+		(*len)--;
+	}
+
+	if (wsi->chunked && !wsi->chunk_remaining)
+		return 0;
+
+	if (wsi->http.rx_content_remain &&
+	    wsi->http.rx_content_remain < (unsigned int)*len)
+		n = (int)wsi->http.rx_content_remain;
+	else
+		n = *len;
+
+	if (wsi->chunked && wsi->chunk_remaining &&
+	    wsi->chunk_remaining < n)
+		n = wsi->chunk_remaining;
+
+#ifdef LWS_WITH_HTTP_PROXY
+	/* hubbub */
+	if (wsi->perform_rewrite)
+		lws_rewrite_parse(wsi->rw, (unsigned char *)*buf, n);
+	else
+#endif
+	{
+		struct lws *wsi_eff = lws_client_wsi_effective(wsi);
+
+		if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
+				wsi_eff, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
+				wsi_eff->user_space, *buf, n)) {
+			lwsl_debug("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",
+				   __func__);
+
+			return -1;
+		}
+	}
+
+	if (wsi->chunked && wsi->chunk_remaining) {
+		(*buf) += n;
+		wsi->chunk_remaining -= n;
+		*len -= n;
+	}
+
+	if (wsi->chunked && !wsi->chunk_remaining)
+		wsi->chunk_parser = ELCP_POST_CR;
+
+	if (wsi->chunked && *len)
+		goto spin_chunks;
+
+	if (wsi->chunked)
+		return 0;
+
+	/* if we know the content length, decrement the content remaining */
+	if (wsi->http.rx_content_length > 0)
+		wsi->http.rx_content_remain -= n;
+
+	if (wsi->http.rx_content_remain || !wsi->http.rx_content_length)
+		return 0;
+
+completed:
+
+	if (lws_http_transaction_completed_client(wsi)) {
+		lwsl_notice("%s: transaction completed says -1\n", __func__);
+		return -1;
+	}
+
+	return 0;
 }

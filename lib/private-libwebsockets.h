@@ -663,6 +663,26 @@ enum lwsi_state {
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 #endif
 
+/*
+ * internal protocol-specific ops
+ */
+
+struct lws_protocol_ops {
+	const char *name;
+
+	int (*handle_POLLOUT)(struct lws *wsi);
+
+};
+
+extern struct lws_protocol_ops wire_ops_h1, wire_ops_h2, wire_ops_raw,
+			       wire_ops_ws, wire_ops_cgi;
+
+enum {
+	LWS_HP_RET_BAIL_OK,
+	LWS_HP_RET_BAIL_DIE,
+	LWS_HP_RET_USER_SERVICE
+};
+
 enum http_version {
 	HTTP_VERSION_1_0,
 	HTTP_VERSION_1_1,
@@ -2048,6 +2068,9 @@ struct lws {
 	uint64_t accept_start_us;
 #endif
 #endif
+
+	struct lws_protocol_ops *pops;
+
 	lws_usec_t pending_timer;
 
 	time_t pending_timeout_set;
@@ -2323,7 +2346,8 @@ LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
 
 LWS_EXTERN void
-lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state);
+lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
+			struct lws_protocol_ops *ops);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,

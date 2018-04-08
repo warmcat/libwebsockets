@@ -875,7 +875,8 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	wsi->context = i->context;
 	/* assert the mode and union status (hdr) clearly */
-	lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT, LRS_UNCONNECTED);
+	lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT, LRS_UNCONNECTED,
+			    &wire_ops_h2);
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
 	/* 1) fill up the wsi with stuff from the connect_info as far as it
