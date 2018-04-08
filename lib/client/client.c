@@ -1329,8 +1329,8 @@ check_accept:
 	/* free up his parsing allocations */
 	lws_header_table_detach(wsi, 0);
 
-	lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT, LRS_ESTABLISHED,
-			    &wire_ops_h1);
+	lws_role_transition(wsi, LWSI_ROLE_WS1_CLIENT, LRS_ESTABLISHED,
+			    &wire_ops_ws);
 	lws_restart_ws_ping_pong_timer(wsi);
 
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
@@ -1362,8 +1362,6 @@ check_accept:
 		goto bail3;
 	}
 #endif
-
-	lwsi_set_role(wsi, LWSI_ROLE_WS1_CLIENT);
 
 	lwsl_debug("handshake OK for protocol %s\n", wsi->protocol->name);
 

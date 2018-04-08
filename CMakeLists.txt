@@ -684,6 +684,8 @@ set(SOURCES
 	lib/wire-protocol/h1/ops-h1.c
 	lib/wire-protocol/raw/ops-raw.c
 	lib/wire-protocol/ws/ops-ws.c
+	lib/wire-protocol/listen/ops-listen.c
+	lib/wire-protocol/pipe/ops-pipe.c
 	lib/misc/lws-ring.c)
 
 if (LWS_WITH_CGI)

@@ -666,21 +666,27 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 /*
  * internal protocol-specific ops
  */
-
+struct lws_context_per_thread;
 struct lws_protocol_ops {
 	const char *name;
 
+	int (*handle_POLLIN)(struct lws_context_per_thread *pt, struct lws *wsi,
+			     struct lws_pollfd *pollfd);
 	int (*handle_POLLOUT)(struct lws *wsi);
-
 };
 
 extern struct lws_protocol_ops wire_ops_h1, wire_ops_h2, wire_ops_raw,
-			       wire_ops_ws, wire_ops_cgi;
+			       wire_ops_ws, wire_ops_cgi, wire_ops_listen,
+			       wire_ops_pipe;
 
 enum {
 	LWS_HP_RET_BAIL_OK,
 	LWS_HP_RET_BAIL_DIE,
-	LWS_HP_RET_USER_SERVICE
+	LWS_HP_RET_USER_SERVICE,
+
+	LWS_HPI_RET_DIE,
+	LWS_HPI_RET_HANDLED,
+	LWS_HPI_RET_CLOSE_HANDLED,
 };
 
 enum http_version {
@@ -2801,12 +2807,11 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa);
 
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
-lws_server_socket_service(struct lws_context *context, struct lws *wsi,
-			  struct lws_pollfd *pollfd);
+lws_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd);
 LWS_EXTERN int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
 #else
-#define lws_server_socket_service(_a, _b, _c) (0)
+#define lws_server_socket_service(_b, _c) (0)
 #define lws_handshake_server(_a, _b, _c) (0)
 #endif
 
@@ -2973,7 +2978,8 @@ int
 lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
 int
 lws_calllback_as_writeable(struct lws *wsi);
-
+int
+lws_read_or_use_preamble(struct lws_context_per_thread *pt, struct lws *wsi);
 #ifdef __cplusplus
 };
 #endif

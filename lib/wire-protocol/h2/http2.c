@@ -258,8 +258,8 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 	if (lws_ensure_user_space(wsi))
 		goto bail1;
 
-	lwsi_set_role(wsi, LWSI_ROLE_H2_CLIENT);
-	lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+	lws_role_transition(wsi, LWSI_ROLE_H2_CLIENT,
+			    LRS_H2_WAITING_TO_SEND_HEADERS, &wire_ops_h2);
 
 	lws_callback_on_writable(wsi);
 
@@ -290,8 +290,8 @@ int lws_h2_issue_preface(struct lws *wsi)
 		(int)strlen(preface))
 		return 1;
 
-	lwsi_set_role(wsi, LWSI_ROLE_H2_CLIENT);
-	lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+	lws_role_transition(wsi, LWSI_ROLE_H2_CLIENT,
+			    LRS_H2_WAITING_TO_SEND_HEADERS, &wire_ops_h2);
 
 	h2n->count = 0;
 	wsi->h2.tx_cr = 65535;
@@ -1200,11 +1200,13 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			assert(lws_h2_wsi_from_id(wsi, 1) == h2n->swsi);
 
-			lwsi_set_role(wsi, LWSI_ROLE_H2_CLIENT);
-			lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+			lws_role_transition(wsi, LWSI_ROLE_H2_CLIENT,
+					    LRS_H2_WAITING_TO_SEND_HEADERS,
+					    &wire_ops_h2);
 
-			lwsi_set_role(h2n->swsi, LWSI_ROLE_H2_CLIENT);
-			lwsi_set_state(h2n->swsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+			lws_role_transition(h2n->swsi, LWSI_ROLE_H2_CLIENT,
+					    LRS_H2_WAITING_TO_SEND_HEADERS,
+					    &wire_ops_h2);
 
 			/* pass on the initial headers to SID 1 */
 			h2n->swsi->ah = wsi->ah;

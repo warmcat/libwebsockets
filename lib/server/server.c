@@ -243,7 +243,8 @@ done_list:
 		}
 		wsi->context = vhost->context;
 		wsi->desc.sockfd = sockfd;
-		lwsi_set_role(wsi, LWSI_ROLE_LISTEN_SOCKET);
+		lws_role_transition(wsi, LWSI_ROLE_LISTEN_SOCKET,
+				    LRS_UNCONNECTED, &wire_ops_listen);
 		wsi->protocol = vhost->protocols;
 		wsi->tsi = m;
 		wsi->vhost = vhost;
@@ -2202,21 +2203,27 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		/* non-SSL */
 		if (!(type & LWS_ADOPT_HTTP)) {
 			if (!(type & LWS_ADOPT_SOCKET))
-				lwsi_set_role(new_wsi, LWSI_ROLE_RAW_FILE);
+				lws_role_transition(new_wsi, LWSI_ROLE_RAW_FILE,
+						    LRS_UNCONNECTED,
+						    &wire_ops_raw);
 			else
-				lwsi_set_role(new_wsi, LWSI_ROLE_RAW_SOCKET);
-		} else {
-			lwsi_set_role(new_wsi, LWSI_ROLE_H1_SERVER);
-			lwsi_set_state(new_wsi, LRS_HEADERS);
-		}
+				lws_role_transition(new_wsi,
+						    LWSI_ROLE_RAW_SOCKET,
+						    LRS_UNCONNECTED,
+						    &wire_ops_raw);
+		} else
+			lws_role_transition(new_wsi, LWSI_ROLE_H1_SERVER,
+					    LRS_HEADERS, &wire_ops_h1);
 	} else {
 		/* SSL */
 		if (!(type & LWS_ADOPT_HTTP))
-			lwsi_set_role(new_wsi, LWSI_ROLE_RAW_SOCKET);
+			lws_role_transition(new_wsi,
+					    LWSI_ROLE_RAW_SOCKET,
+					    LRS_SSL_INIT, &wire_ops_raw);
 		else
-			lwsi_set_role(new_wsi, LWSI_ROLE_H1_SERVER);
+			lws_role_transition(new_wsi, LWSI_ROLE_H1_SERVER,
+					    LRS_SSL_INIT, &wire_ops_h1);
 
-		lwsi_set_state(new_wsi, LRS_SSL_INIT);
 		ssl = 1;
 	}
 
@@ -2386,11 +2393,57 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
         			    readbuf, len);
 }
 
-LWS_VISIBLE int
-lws_server_socket_service(struct lws_context *context, struct lws *wsi,
-			  struct lws_pollfd *pollfd)
+/*
+ * may return -1 for failed connection, 0 for retry later, or the number of
+ * bytes copied into pt->serv_buf
+ */
+
+int
+lws_read_or_use_preamble(struct lws_context_per_thread *pt, struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	int len;
+
+	if (wsi->preamble_rx && wsi->preamble_rx_len) {
+		memcpy(pt->serv_buf, wsi->preamble_rx, wsi->preamble_rx_len);
+		lws_free_set_NULL(wsi->preamble_rx);
+		len = wsi->preamble_rx_len;
+		lwsl_debug("bringing %d out of stash\n", wsi->preamble_rx_len);
+		wsi->preamble_rx_len = 0;
+
+		return len;
+	}
+
+	/*
+	 * ... in the case of pipelined HTTP, this may be
+	 * POST data followed by next headers...
+	 */
+
+	len = lws_ssl_capable_read(wsi, pt->serv_buf,
+				   wsi->context->pt_serv_buf_size);
+	lwsl_debug("%s: wsi %p read %d (wsistate 0x%x)\n",
+			__func__, wsi, len, wsi->wsistate);
+	switch (len) {
+	case 0:
+		lwsl_info("%s: read 0 len b\n", __func__);
+
+		/* fallthru */
+	case LWS_SSL_CAPABLE_ERROR:
+		return -1;
+	case LWS_SSL_CAPABLE_MORE_SERVICE:
+		return 0;
+	}
+
+	if (len < 0) /* coverity */
+		return -1;
+
+	return len;
+}
+
+LWS_VISIBLE int
+lws_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context *context = wsi->context;
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
 	struct allocated_headers *ah;
 	lws_sock_file_fd_type fd;
@@ -2400,6 +2453,8 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 	socklen_t clilen;
 #endif
 	int n, len;
+
+	//lwsl_notice("%s\n", __func__);
 
 	switch (lwsi_role(wsi)) {
 

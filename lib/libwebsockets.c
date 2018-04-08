@@ -2238,11 +2238,16 @@ LWS_VISIBLE void
 lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 		struct lws_protocol_ops *ops)
 {
-	lwsl_debug("%s: %p: role 0x%x, state 0x%x\n", __func__, wsi, role, state);
+	const char *name = "(unset)";
+
 	lwsi_set_role(wsi, role);
 	lwsi_set_state(wsi, state);
 	if (ops)
 		wsi->pops = ops;
+	if (wsi->pops)
+		name = wsi->pops->name;
+	lwsl_debug("%s: %p: role 0x%x, state 0x%x, ops %s\n", __func__, wsi,
+		   role, state, name);
 }
 
 LWS_VISIBLE struct lws_plat_file_ops *
