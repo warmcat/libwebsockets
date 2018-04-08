@@ -117,7 +117,7 @@ try_pollout:
 	case LWSI_ROLE_RAW_FILE:
 
 		if (pollfd->revents & LWS_POLLOUT) {
-			n = lws_calllback_as_writeable(wsi);
+			n = lws_callback_as_writeable(wsi);
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 				lwsl_info("failed at set pollfd\n");
 				return LWS_HPI_RET_DIE;

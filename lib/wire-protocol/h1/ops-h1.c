@@ -519,6 +519,8 @@ static int
 wops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
+	int n;
+
 #ifdef LWS_WITH_CGI
 	if (wsi->cgi && (pollfd->revents & LWS_POLLOUT)) {
 		if (lws_handle_POLLOUT_event(wsi, pollfd))
@@ -528,9 +530,15 @@ wops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #endif
 
-	if (lwsi_role(wsi) != LWSI_ROLE_H1_CLIENT)
-		if (lws_h1_server_socket_service(wsi, pollfd))
-			return LWS_HPI_RET_DIE;
+	if (lwsi_role(wsi) != LWSI_ROLE_H1_CLIENT) {
+		lwsl_notice("%s: %p: wsistate 0x%x\n", __func__, wsi, wsi->wsistate);
+		n = lws_h1_server_socket_service(wsi, pollfd);
+		if (n != LWS_HPI_RET_HANDLED)
+			return n;
+		if (lwsi_state(wsi) != LRS_SSL_INIT)
+			if (lws_server_socket_service_ssl(wsi, LWS_SOCK_INVALID))
+				return LWS_HPI_RET_DIE;
+	}
 
 	if (lwsi_role(wsi) != LWSI_ROLE_H1_CLIENT)
 		return LWS_HPI_RET_HANDLED;

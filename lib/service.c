@@ -22,7 +22,7 @@
 #include "private-libwebsockets.h"
 
 int
-lws_calllback_as_writeable(struct lws *wsi)
+lws_callback_as_writeable(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int n, m;
@@ -66,8 +66,8 @@ lws_calllback_as_writeable(struct lws *wsi)
 	}
 
 	m = user_callback_handle_rxflow(wsi->protocol->callback,
-					   wsi, (enum lws_callback_reasons) n,
-					   wsi->user_space, NULL, 0);
+					wsi, (enum lws_callback_reasons) n,
+					wsi->user_space, NULL, 0);
 
 	return m;
 }
@@ -149,7 +149,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		vwsi->handling_pollout = 0;
 		vwsi->leave_pollout_active = 0;
 
-		return lws_calllback_as_writeable(wsi);
+		return lws_callback_as_writeable(wsi);
 	}
 
 	if (pollfd) {
@@ -200,12 +200,13 @@ user_service_go_again:
 	}
 #endif
 	
-	lwsl_info("%s: non http2\n", __func__);
+	lwsl_debug("%s: %p: non http2: wsistate 0x%x, ops %s\n", __func__, wsi,
+		   wsi->wsistate, wsi->pops->name);
 
 	vwsi = (volatile struct lws *)wsi;
 	vwsi->leave_pollout_active = 0;
 
-	n = lws_calllback_as_writeable(wsi);
+	n = lws_callback_as_writeable(wsi);
 	vwsi->handling_pollout = 0;
 
 	if (vwsi->leave_pollout_active)

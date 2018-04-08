@@ -2411,7 +2411,7 @@ lws_handle_POLLOUT_event_h2(struct lws *wsi)
 			goto next_child;
 		}
 
-		if (lws_calllback_as_writeable(w)) {
+		if (lws_callback_as_writeable(w)) {
 			lwsl_info("Closing POLLOUT child (end stream %d)\n", w->h2.send_END_STREAM);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 pollout handle");
 			wa = &wsi->h2.child_list;

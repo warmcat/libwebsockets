@@ -856,10 +856,10 @@ endif()
 
 if (NOT LWS_WITHOUT_EXTENSIONS)
 	list(APPEND HDR_PRIVATE
-		lib/ext/extension-permessage-deflate.h)
+		lib/wire-protocol/ws/ext/extension-permessage-deflate.h)
 	list(APPEND SOURCES
-		lib/ext/extension.c
-		lib/ext/extension-permessage-deflate.c)
+		lib/wire-protocol/ws/ext/extension.c
+		lib/wire-protocol/ws/ext/extension-permessage-deflate.c)
 endif()
 
 if (LWS_WITH_HTTP_PROXY)

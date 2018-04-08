@@ -133,8 +133,8 @@ wops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			lws_close_free_wsi(cwsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "listen svc fail");
 
-		lwsl_notice("%s: wsistate 0x%x, pops %s\n", __func__,
-			    cwsi->wsistate, cwsi->pops->name);
+		lwsl_notice("%s: new wsi %p: wsistate 0x%x, pops %s\n",
+			    __func__, cwsi, cwsi->wsistate, cwsi->pops->name);
 
 	} while (pt->fds_count < context->fd_limit_per_thread - 1 &&
 		 lws_poll_listen_fd(&pt->fds[wsi->position_in_fds_table]) > 0);

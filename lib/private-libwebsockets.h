@@ -2975,7 +2975,7 @@ __lws_change_pollfd(struct lws *wsi, int _and, int _or);
 int
 lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
 int
-lws_calllback_as_writeable(struct lws *wsi);
+lws_callback_as_writeable(struct lws *wsi);
 int
 lws_read_or_use_preamble(struct lws_context_per_thread *pt, struct lws *wsi);
 #ifdef __cplusplus
