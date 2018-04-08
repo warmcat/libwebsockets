@@ -2807,8 +2807,6 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa);
 
 #ifndef LWS_NO_SERVER
 LWS_EXTERN int
-lws_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd);
-LWS_EXTERN int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
 #else
 #define lws_server_socket_service(_b, _c) (0)
