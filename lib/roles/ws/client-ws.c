@@ -182,7 +182,7 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 		goto bail3;
 	}
 
-	if (wsi->ah->http_response != 401) {
+	if (wsi->ah->http_response == 401) {
 		lwsl_warn(
 		       "lws_client_handshake: got bad HTTP response '%d'\n",
 		       wsi->ah->http_response);
