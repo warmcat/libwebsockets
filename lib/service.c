@@ -391,6 +391,49 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	return timeout_ms;
 }
 
+
+int
+lws_read_or_use_preamble(struct lws_context_per_thread *pt, struct lws *wsi)
+{
+	int len;
+
+	if (wsi->preamble_rx && wsi->preamble_rx_len) {
+		memcpy(pt->serv_buf, wsi->preamble_rx, wsi->preamble_rx_len);
+		lws_free_set_NULL(wsi->preamble_rx);
+		len = wsi->preamble_rx_len;
+		lwsl_debug("bringing %d out of stash\n", wsi->preamble_rx_len);
+		wsi->preamble_rx_len = 0;
+
+		return len;
+	}
+
+	/*
+	 * ... in the case of pipelined HTTP, this may be
+	 * POST data followed by next headers...
+	 */
+
+	len = lws_ssl_capable_read(wsi, pt->serv_buf,
+				   wsi->context->pt_serv_buf_size);
+	lwsl_debug("%s: wsi %p read %d (wsistate 0x%x)\n",
+			__func__, wsi, len, wsi->wsistate);
+	switch (len) {
+	case 0:
+		lwsl_info("%s: read 0 len b\n", __func__);
+
+		/* fallthru */
+	case LWS_SSL_CAPABLE_ERROR:
+		return -1;
+	case LWS_SSL_CAPABLE_MORE_SERVICE:
+		return 0;
+	}
+
+	if (len < 0) /* coverity */
+		return -1;
+
+	return len;
+}
+
+
 /*
  * guys that need POLLIN service again without waiting for network action
  * can force POLLIN here if not flowcontrolled, so they will get service.
@@ -403,9 +446,8 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 
 #if defined(LWS_WITH_TLS)
-	struct lws *wsi_next;
+	struct lws *wsi, *wsi_next;
 #endif
-	struct lws *wsi;
 	int forced = 0;
 
 	lws_pt_lock(pt, __func__);
@@ -464,7 +506,10 @@ lws_service_periodic_checks(struct lws_context *context,
 	struct lws *wsi;
 	int timed_out = 0;
 	time_t now;
-	int n = 0, m;
+#if defined(LWS_WITH_TLS)
+	int n = 0;
+#endif
+	int m;
 
 	if (!context->protocol_init_done)
 		if (lws_protocol_init(context))
@@ -818,8 +863,9 @@ close_and_handled:
 	default:
 		assert(0);
 	}
-
+#if defined(LWS_WITH_TLS)
 handled:
+#endif
 	pollfd->revents = 0;
 
 	return 0;

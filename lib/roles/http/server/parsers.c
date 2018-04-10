@@ -22,7 +22,7 @@
 #include "private-libwebsockets.h"
 
 static const unsigned char lextable[] = {
-	#include "lextable.h"
+	#include "../lextable.h"
 };
 
 #define FAIL_CHAR 0x08

@@ -691,17 +691,20 @@ set(SOURCES
 	lib/service.c
 	lib/pollfd.c
 	lib/output.c
-	lib/server/parsers.c
+	lib/roles/http/server/parsers.c
 	lib/context.c
 	lib/alloc.c
-	lib/header.c
-	lib/roles/listen/ops-listen.c
+	lib/roles/http/header.c
 	lib/roles/pipe/ops-pipe.c
 	lib/misc/lws-ring.c)
 
 if (LWS_ROLE_H1)
 	list(APPEND SOURCES
 		lib/roles/h1/ops-h1.c)
+	if (NOT LWS_WITHOUT_CLIENT)
+		list(APPEND SOURCES
+			lib/roles/h1/client-h1.c)
+	endif()
 endif()
 
 if (LWS_ROLE_WS)
@@ -731,21 +734,24 @@ endif()
 
 if (LWS_WITH_ACCESS_LOG)
 	list(APPEND SOURCES
-		lib/server/access-log.c)
+		lib/roles/http/server/access-log.c)
 endif()
 
 if (LWS_WITH_PEER_LIMITS)
 	list(APPEND SOURCES
-		lib/server/peer-limits.c)
+		lib/misc/peer-limits.c)
 endif()
 
 if (NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
-		lib/client/client.c
-		lib/client/client-handshake.c)
+		lib/roles/http/client/client.c
+		lib/roles/http/client/client-handshake.c)
 endif()
 
-
+if (NOT LWS_WITHOUT_SERVER)
+	list(APPEND SOURCES
+		lib/roles/listen/ops-listen.c)
+endif()
 
 if (LWS_WITH_MBEDTLS)
  	set(LWS_WITH_SSL ON)
@@ -826,7 +832,7 @@ if (LWS_WITH_SSL)
 		
 	if (NOT LWS_WITHOUT_SERVER)
 		list(APPEND SOURCES
-			lib/server/ssl-server.c)
+			lib/tls/tls-server.c)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				lib/tls/mbedtls/mbedtls-server.c)
@@ -837,7 +843,7 @@ if (LWS_WITH_SSL)
 	endif()
 	if (NOT LWS_WITHOUT_CLIENT)
 		list(APPEND SOURCES
-		lib/client/ssl-client.c)
+			lib/tls/tls-client.c)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				lib/tls/mbedtls/mbedtls-client.c)
@@ -885,8 +891,8 @@ endif()
 
 if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
-		lib/server/server.c
-		lib/server/lws-spa.c)
+		lib/roles/http/server/server.c
+		lib/roles/http/server/lws-spa.c)
 endif()
 
 if (NOT LWS_WITHOUT_EXTENSIONS)
@@ -899,7 +905,7 @@ endif()
 
 if (LWS_WITH_HTTP_PROXY)
 	list(APPEND SOURCES
-		lib/server/rewrite.c)
+		lib/roles/http/server/rewrite.c)
 endif()
 
 if (LWS_WITH_LIBEV)
@@ -923,7 +929,7 @@ if (LWS_WITH_LEJP)
 endif()	
 if (LWS_WITH_LEJP_CONF)
 		list(APPEND SOURCES
-			"lib/server/lejp-conf.c"
+			"lib/roles/http/server/lejp-conf.c"
 		)
 endif()
 
@@ -934,13 +940,13 @@ endif()
 
 if (LWS_WITH_RANGES)
 	list(APPEND SOURCES
-		lib/server/ranges.c)
+		lib/roles/http/server/ranges.c)
 endif()
 
 if (LWS_WITH_ZIP_FOPS)
        if (LWS_WITH_ZLIB)
                list(APPEND SOURCES
-                       lib/server/fops-zip.c)
+                       lib/roles/http/server/fops-zip.c)
        else()
                message(FATAL_ERROR "Pre-zipped file support (LWS_WITH_ZIP_FOPS) requires ZLIB (LWS_WITH_ZLIB)")
        endif()
@@ -971,7 +977,7 @@ else()
 	# Unix.
 	if (NOT LWS_WITHOUT_DAEMONIZE)
 		list(APPEND SOURCES
-			lib/server/daemonize.c)
+			lib/misc/daemonize.c)
 	endif()
 endif()
 

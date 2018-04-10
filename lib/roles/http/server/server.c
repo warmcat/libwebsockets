@@ -2128,47 +2128,6 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
         			    readbuf, len);
 }
 
-int
-lws_read_or_use_preamble(struct lws_context_per_thread *pt, struct lws *wsi)
-{
-	int len;
-
-	if (wsi->preamble_rx && wsi->preamble_rx_len) {
-		memcpy(pt->serv_buf, wsi->preamble_rx, wsi->preamble_rx_len);
-		lws_free_set_NULL(wsi->preamble_rx);
-		len = wsi->preamble_rx_len;
-		lwsl_debug("bringing %d out of stash\n", wsi->preamble_rx_len);
-		wsi->preamble_rx_len = 0;
-
-		return len;
-	}
-
-	/*
-	 * ... in the case of pipelined HTTP, this may be
-	 * POST data followed by next headers...
-	 */
-
-	len = lws_ssl_capable_read(wsi, pt->serv_buf,
-				   wsi->context->pt_serv_buf_size);
-	lwsl_debug("%s: wsi %p read %d (wsistate 0x%x)\n",
-			__func__, wsi, len, wsi->wsistate);
-	switch (len) {
-	case 0:
-		lwsl_info("%s: read 0 len b\n", __func__);
-
-		/* fallthru */
-	case LWS_SSL_CAPABLE_ERROR:
-		return -1;
-	case LWS_SSL_CAPABLE_MORE_SERVICE:
-		return 0;
-	}
-
-	if (len < 0) /* coverity */
-		return -1;
-
-	return len;
-}
-
 LWS_VISIBLE int
 lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		    const char *other_headers, int other_headers_len)

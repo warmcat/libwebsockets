@@ -26,53 +26,6 @@
 #endif
 
 
-int
-lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
-{
-	int m;
-
-	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
-	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
-	    (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY) &&
-	    !lwsi_role_client(wsi))
-		return 0;
-
-	while (len) {
-		/*
-		 * we were accepting input but now we stopped doing so
-		 */
-		if (lws_is_flowcontrolled(wsi)) {
-			lwsl_debug("%s: caching %ld\n", __func__, (long)len);
-			lws_rxflow_cache(wsi, *buf, 0, (int)len);
-			return 0;
-		}
-		if (wsi->ws->rx_draining_ext) {
-#if !defined(LWS_NO_CLIENT)
-			if (lwsi_role_client(wsi))
-				m = lws_client_rx_sm(wsi, 0);
-			else
-#endif
-				m = lws_ws_rx_sm(wsi, 0);
-			if (m < 0)
-				return -1;
-			continue;
-		}
-		/* account for what we're using in rxflow buffer */
-		if (wsi->rxflow_buffer)
-			wsi->rxflow_pos++;
-
-		if (lws_client_rx_sm(wsi, *(*buf)++)) {
-			lwsl_debug("client_rx_sm exited\n");
-			return -1;
-		}
-		len--;
-	}
-	lwsl_debug("%s: finished with %ld\n", __func__, (long)len);
-
-	return 0;
-}
-
-
 /*
  * We have to take care about parsing because the headers may be split
  * into multiple fragments.  They may contain unknown headers with arbitrary
@@ -303,7 +256,7 @@ bail:
 	return -1;
 }
 
-static int
+int
 lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
@@ -580,7 +533,6 @@ static int
 rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
-	int n;
 
 //	lwsl_notice("%s: %p: wsistate 0x%x %s, revents 0x%x\n", __func__, wsi,
 //			wsi->wsistate, wsi->pops->name, pollfd->revents);
@@ -613,7 +565,10 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
                  */
 		return LWS_HPI_RET_HANDLED;
 
+#if !defined(LWS_NO_SERVER)
 	if (lwsi_role(wsi) != LWSI_ROLE_H1_CLIENT) {
+		int n;
+
 		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi, wsi->wsistate);
 		n = lws_h1_server_socket_service(wsi, pollfd);
 		if (n != LWS_HPI_RET_HANDLED)
@@ -624,6 +579,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		return LWS_HPI_RET_HANDLED;
 	}
+#endif
 
 #ifndef LWS_NO_CLIENT
 	if ((pollfd->revents & LWS_POLLIN) &&
@@ -669,7 +625,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		lwsl_debug("POLLOUT event closed it\n");
 		return LWS_HPI_RET_CLOSE_HANDLED;
 	}
-//lwsl_notice("xxx\n");
+
 	if (lws_client_socket_service(wsi, pollfd, NULL))
 		return LWS_HPI_RET_DIE;
 #endif
