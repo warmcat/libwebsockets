@@ -254,7 +254,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	lws_pt_unlock(pt);
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	if (!n && !pt->rx_draining_ext_list &&
 	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi)) {
 #else

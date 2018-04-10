@@ -140,7 +140,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 #if 1
 	n = poll(pt->fds, pt->fds_count, timeout_ms);
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	if (!pt->rx_draining_ext_list &&
 	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi) && !n) {
 #else

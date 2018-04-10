@@ -134,7 +134,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];
 	struct lws *w;
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 	char ebuf[128];
 #endif
 	const char *cce = NULL;
@@ -344,7 +344,7 @@ start_ws_handshake:
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			return -1;
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 		/* we can retry this... just cook the SSL BIO the first time */
 
 		if ((wsi->use_ssl & LCCSCF_USE_SSL) && !wsi->ssl &&
@@ -796,7 +796,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		/* Relative reference absolute path */
 		if (p[0] == '/') {
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 			ssl = wsi->use_ssl & LCCSCF_USE_SSL;
 #endif
 			ads = lws_hdr_simple_ptr(wsi,
@@ -819,7 +819,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		else {
 			/* This doesn't try to calculate an absolute path,
 			 * that will be left to the server */
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 			ssl = wsi->use_ssl & LCCSCF_USE_SSL;
 #endif
 			ads = lws_hdr_simple_ptr(wsi,
@@ -837,7 +837,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				path = p;
 		}
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 		if ((wsi->use_ssl & LCCSCF_USE_SSL) && !ssl) {
 			cce = "HS: Redirect attempted SSL downgrade";
 			goto bail3;

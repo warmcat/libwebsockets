@@ -367,7 +367,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	if (pt->rx_draining_ext_list)
 		return 0;
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	/* 2) if we know we have non-network pending data, do not wait in poll */
 	if (lws_ssl_anybody_has_buffered_read_tsi(context, tsi)) {
 		lwsl_info("ssl buffered read\n");
@@ -402,7 +402,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct allocated_headers *ah;
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	struct lws *wsi_next;
 #endif
 	struct lws *wsi;
@@ -427,7 +427,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 		wsi = wsi->ws->rx_draining_ext_list;
 	}
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	/*
 	 * 2) For all guys with buffered SSL read data already saved up, if they
 	 * are not flowcontrolled, fake their POLLIN status so they'll get
@@ -742,7 +742,7 @@ lws_service_periodic_checks(struct lws_context *context,
 	/*
 	 * Phase 6: check the remaining cert lifetime daily
 	 */
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	n = lws_compare_time_t(context, now, context->last_cert_check_s);
 	if ((!context->last_cert_check_s || n > (24 * 60 * 60)) &&
 	    !lws_tls_check_all_cert_lifetimes(context))
@@ -800,7 +800,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		goto close_and_handled;
 	}
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	if (lwsi_state(wsi) == LRS_SHUTDOWN && lws_is_ssl(wsi) && wsi->ssl) {
 		switch (__lws_tls_shutdown(wsi)) {
 		case LWS_SSL_CAPABLE_DONE:

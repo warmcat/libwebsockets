@@ -83,7 +83,7 @@ lws_client_connect_2(struct lws *wsi)
 
 		if (w != wsi && w->client_hostname_copy &&
 		    !strcmp(adsin, w->client_hostname_copy) &&
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 		    (wsi->use_ssl & (LCCSCF_NOT_H2 | LCCSCF_USE_SSL)) ==
 		     (w->use_ssl & (LCCSCF_NOT_H2 | LCCSCF_USE_SSL)) &&
 #endif
@@ -625,7 +625,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	/* close the connection by hand */
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	lws_ssl_close(wsi);
 #endif
 
@@ -647,7 +647,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	__remove_wsi_socket_from_fds(wsi);
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	wsi->use_ssl = ssl;
 #else
 	if (ssl) {
@@ -955,7 +955,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 			if (lws_ensure_user_space(wsi))
 				goto bail;
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	wsi->use_ssl = i->ssl_connection;
 
 	if (!i->method) /* !!! disallow ws for h2 right now */

@@ -843,7 +843,7 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 	if (wsi->protocol->callback)
 		if (wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
 					    wsi->user_space,
-#ifdef LWS_OPENSSL_SUPPORT
+#ifdef LWS_WITH_TLS
 					    wsi->ssl,
 #else
 					    NULL,
@@ -1229,7 +1229,7 @@ lws_http_action(struct lws *wsi)
 	 */
 	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 			wsi->context->timeout_secs);
-#ifdef LWS_OPENSSL_SUPPORT
+#ifdef LWS_WITH_TLS
 	if (wsi->redirect_to_https) {
 		/*
 		 * we accepted http:// only so we could redirect to
@@ -1938,7 +1938,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost)
 	lwsi_set_state(new_wsi, LRS_UNCONNECTED);
 	new_wsi->hdr_parsing_completed = 0;
 
-#ifdef LWS_OPENSSL_SUPPORT
+#ifdef LWS_WITH_TLS
 	new_wsi->use_ssl = LWS_SSL_ENABLED(vhost);
 #endif
 
@@ -2029,7 +2029,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		if (wsi->ah->rxpos == wsi->ah->rxlen && !wsi->preamble_rx) {
 			lws_header_table_force_to_detachable_state(wsi);
 			lws_header_table_detach(wsi, 1);
-#ifdef LWS_OPENSSL_SUPPORT
+#ifdef LWS_WITH_TLS
 			/*
 			 * additionally... if we are hogging an SSL instance
 			 * with no pending pipelined headers (or ah now), and

@@ -210,7 +210,7 @@ int fork(void);
 #define strerror(x) ""
 #endif
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
@@ -413,7 +413,7 @@ extern "C" {
  * Choose the SSL backend
  */
 
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 #if defined(LWS_WITH_MBEDTLS________)
 struct lws_tls_mbed_ctx {
 
@@ -956,7 +956,7 @@ struct lws_context_per_thread {
 	const char *last_lock_reason;
 #endif
 	int ah_wait_list_length;
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	struct lws *pending_read_list; /* linked list */
 #endif
 #if defined(LWS_WITH_LIBEV)
@@ -1098,7 +1098,7 @@ struct lws_vhost {
 	struct lws_dll_lws dll_active_client_conns;
 #endif
 	const char *error_document_404;
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	lws_tls_ctx *ssl_ctx;
 	lws_tls_ctx *ssl_client_ctx;
 	struct lws_tls_ss_pieces *ss; /* for acme tls certs */
@@ -1131,7 +1131,7 @@ struct lws_vhost {
 	int log_fd;
 #endif
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	int use_ssl;
 	int allow_non_ssl_on_ssl_port;
 	unsigned int user_supplied_ssl_ctx:1;
@@ -2056,7 +2056,7 @@ struct lws {
 	const struct lws_extension *active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
 	void *act_ext_user[LWS_MAX_EXTENSIONS_ACTIVE];
 #endif
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	lws_tls_conn *ssl;
 	lws_tls_bio *client_bio;
 	struct lws *pending_read_list_prev, *pending_read_list_next;
@@ -2071,7 +2071,7 @@ struct lws {
 	lws_sock_file_fd_type desc; /* .filefd / .sockfd */
 #if defined(LWS_WITH_STATS)
 	uint64_t active_writable_req_us;
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 	uint64_t accept_start_us;
 #endif
 #endif
@@ -2152,13 +2152,13 @@ struct lws {
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	unsigned int extension_data_pending:1;
 #endif
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	unsigned int use_ssl;
 #endif
 #ifdef _WIN32
 	unsigned int sock_send_blocking:1;
 #endif
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	unsigned int redirect_to_https:1;
 #endif
 
@@ -2189,7 +2189,7 @@ struct lws {
 #if defined(LWS_WITH_CGI) || !defined(LWS_NO_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
 #endif
-#if defined(LWS_WITH_STATS) && defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_STATS) && defined(LWS_WITH_TLS)
 	char seen_rx;
 #endif
 	uint8_t ws_over_h2_count;
@@ -2496,7 +2496,7 @@ interface_to_sa(struct lws_vhost *vh, const char *ifname,
 		struct sockaddr_in *addr, size_t addrlen);
 LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 
-#ifndef LWS_OPENSSL_SUPPORT
+#if !defined(LWS_WITH_TLS)
 #define LWS_SSL_ENABLED(context) (0)
 #define lws_context_init_server_ssl(_a, _b) (0)
 #define lws_ssl_destroy(_a)
@@ -2780,7 +2780,7 @@ LWS_EXTERN struct lws *
 lws_client_wsi_effective(struct lws *wsi);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi);
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 LWS_EXTERN int
 lws_context_init_client_ssl(struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost);

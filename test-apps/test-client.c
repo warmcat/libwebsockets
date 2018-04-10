@@ -54,7 +54,7 @@ static struct lws_poly_gen tx = { { 0xabcde, 0x23456789 } },
 			   rx = { { 0xabcde, 0x23456789 } }
 ;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 char crl_path[1024] = "";
 #endif
 
@@ -116,7 +116,7 @@ static int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 	union lws_tls_cert_info_results ci;
 #endif
 	const char *which = "http";
@@ -177,7 +177,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		lwsl_notice("lws_http_client_http_response %d\n",
 				lws_http_client_http_response(wsi));
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
 					    &ci, sizeof(ci.ns.name)))
 			lwsl_notice(" Peer Cert CN        : %s\n", ci.ns.name);
@@ -272,7 +272,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		force_exit = 1;
 		break;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param) && \
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param) && \
 	!defined(LWS_WITH_MBEDTLS)
 	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
 		if (crl_path[0]) {
@@ -545,7 +545,7 @@ static struct option options[] = {
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
 	{ "ssl-ca",  required_argument,		NULL, 'A' },
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 	{ "ssl-crl",  required_argument,		NULL, 'R' },
 #endif
 	{ NULL, 0, 0, 0 }
@@ -650,7 +650,7 @@ int main(int argc, char **argv)
 			lws_strncpy(ca_path, optarg, sizeof(ca_path));
 			break;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 		case 'R':
 			lws_strncpy(crl_path, optarg, sizeof(crl_path));
 			break;
@@ -697,7 +697,7 @@ int main(int argc, char **argv)
 	info.ws_ping_pong_interval = pp_secs;
 	info.extensions = exts;
 
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
 
@@ -718,7 +718,7 @@ int main(int argc, char **argv)
 		if (ca_path[0])
 			info.client_ssl_ca_filepath = ca_path;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 		else if (crl_path[0])
 			lwsl_notice("WARNING, providing a CRL requires a CA cert!\n");
 #endif

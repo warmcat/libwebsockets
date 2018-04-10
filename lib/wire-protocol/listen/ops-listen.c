@@ -45,7 +45,7 @@ wops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		    !(pollfd->events & LWS_POLLIN))
 			break;
 
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 		/*
 		 * can we really accept it, with regards to SSL limit?
 		 * another vhost may also have had POLLIN on his

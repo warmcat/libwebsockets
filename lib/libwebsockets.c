@@ -906,7 +906,7 @@ just_kill_connection:
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !wsi->socket_is_permanently_unusable) {
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	if (lws_is_ssl(wsi) && wsi->ssl) {
 		n = 0;
 		switch (__lws_tls_shutdown(wsi)) {
@@ -2197,7 +2197,7 @@ lwsl_hexdump(const void *vbuf, size_t len)
 LWS_VISIBLE int
 lws_is_ssl(struct lws *wsi)
 {
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	return wsi->use_ssl & LCCSCF_USE_SSL;
 #else
 	(void)wsi;
@@ -2205,7 +2205,7 @@ lws_is_ssl(struct lws *wsi)
 #endif
 }
 
-#if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
 LWS_VISIBLE lws_tls_conn*
 lws_get_ssl(struct lws *wsi)
 {
@@ -3129,7 +3129,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 			" \"h2_subs\":\"%lu\""
 			,
 			vh->name, vh->listen_port,
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 			vh->use_ssl & LCCSCF_USE_SSL,
 #else
 			0,

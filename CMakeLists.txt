@@ -461,8 +461,10 @@ else()
 	set(LWS_OPENSSL_CLIENT_CERTS /etc/pki/tls/certs/ CACHE PATH "Client SSL certificate directory")
 endif()
 
-if (LWS_WITH_SSL)
+# LWS_OPENSSL_SUPPORT deprecated... use LWS_WITH_TLS
+if (LWS_WITH_SSL OR LWS_WITH_MBEDTLS)
 	set(LWS_OPENSSL_SUPPORT 1)
+	set(LWS_WITH_TLS 1)
 endif()
 
 if (LWS_SSL_CLIENT_USE_OS_CA_CERTS)

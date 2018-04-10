@@ -50,7 +50,7 @@
 #include "private-libwebsockets.h"
 
 #if !defined(LWS_NO_SERVER)
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 
 #if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L)

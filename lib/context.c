@@ -265,7 +265,7 @@ lws_protocol_init(struct lws_context *context)
 				pvo = pvo1->options;
 			}
 
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 			any |= !!vh->ssl_ctx;
 #endif
 
@@ -632,7 +632,7 @@ lws_create_vhost(struct lws_context *context,
 	else
 		vh->timeout_secs_ah_idle = 10;
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	if (info->ecdh_curve)
 		lws_strncpy(vh->ecdh_curve, info->ecdh_curve,
 			    sizeof(vh->ecdh_curve));
