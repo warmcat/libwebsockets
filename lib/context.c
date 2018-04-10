@@ -967,7 +967,7 @@ lws_create_event_pipes(struct lws_context *context)
 		}
 		wsi->context = context;
 		lws_role_transition(wsi, LWSI_ROLE_EVENT_PIPE,
-				    LRS_UNCONNECTED, &wire_ops_pipe);
+				    LRS_UNCONNECTED, &role_ops_pipe);
 		wsi->protocol = NULL;
 		wsi->tsi = n;
 		wsi->vhost = NULL;

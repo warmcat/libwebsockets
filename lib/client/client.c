@@ -347,7 +347,7 @@ start_ws_handshake:
 
 			lws_role_transition(wsi, LWSI_ROLE_H2_CLIENT,
 					    LRS_H2_CLIENT_SEND_SETTINGS,
-					    &wire_ops_h2);
+					    &role_ops_h2);
 
 			/* send the H2 preface to legitimize the connection */
 			if (lws_h2_issue_preface(wsi)) {
@@ -664,11 +664,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #if defined(LWS_ROLE_H2)
 		if (wsi->client_h2_alpn)
 			lws_role_transition(wsi, LWSI_ROLE_H2_CLIENT,
-					    LRS_ESTABLISHED, &wire_ops_h2);
+					    LRS_ESTABLISHED, &role_ops_h2);
 		else
 #endif
 			lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT,
-					    LRS_ESTABLISHED, &wire_ops_h1);
+					    LRS_ESTABLISHED, &role_ops_h1);
 
 		wsi->ah = ah;
 		ah->http_response = 0;
@@ -829,7 +829,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					lws_role_transition(ww,
 							LWSI_ROLE_H1_CLIENT,
 							LRS_UNCONNECTED,
-							&wire_ops_h1);
+							&role_ops_h1);
 					ww->user_space = NULL;
 				} lws_end_foreach_dll_safe(d, d1);
 				lws_vhost_unlock(wsi->vhost);
@@ -958,14 +958,8 @@ bail2:
 char *
 lws_generate_client_handshake(struct lws *wsi, char *pkt)
 {
-	char buf[128], hash[20], key_b64[40], *p = pkt;
-	struct lws_context *context = wsi->context;
+	char *p = pkt;
 	const char *meth;
-	int n;
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	const struct lws_extension *ext;
-	int ext_count = 0;
-#endif
 	const char *pp = lws_hdr_simple_ptr(wsi,
 				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
 
@@ -995,31 +989,16 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			lws_bind_protocol(wsi, pr);
 		}
 
-		if ((wsi->protocol->callback)(wsi,
-				LWS_CALLBACK_RAW_ADOPT,
-				wsi->user_space, NULL, 0))
+		if ((wsi->protocol->callback)(wsi, LWS_CALLBACK_RAW_ADOPT,
+					      wsi->user_space, NULL, 0))
 			return NULL;
 
 		lws_header_table_force_to_detachable_state(wsi);
 		lws_role_transition(wsi, LWSI_ROLE_RAW_SOCKET, LRS_ESTABLISHED,
-				    &wire_ops_raw);
+				    &role_ops_raw);
 		lws_header_table_detach(wsi, 1);
 
 		return NULL;
-	}
-
-	if (wsi->do_ws) {
-		/*
-		 * create the random key
-		 */
-		n = lws_get_random(context, hash, 16);
-		if (n != 16) {
-			lwsl_err("Unable to read from random dev %s\n",
-				 SYSTEM_RANDOM_FILEPATH);
-			return NULL;
-		}
-
-		lws_b64_encode_string(hash, 16, key_b64, sizeof(key_b64));
 	}
 
 	/*
@@ -1045,7 +1024,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
 
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN)) {
-		if (lws_check_opt(context->options,
+		if (lws_check_opt(wsi->context->options,
 				  LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN))
 			p += sprintf(p, "Origin: %s\x0d\x0a",
 				     lws_hdr_simple_ptr(wsi,
@@ -1056,84 +1035,15 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 	}
 
-	if (wsi->do_ws) {
-		p += sprintf(p, "Upgrade: websocket\x0d\x0a"
-				"Connection: Upgrade\x0d\x0a"
-				"Sec-WebSocket-Key: ");
-		strcpy(p, key_b64);
-		p += strlen(key_b64);
-		p += sprintf(p, "\x0d\x0a");
-		if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS))
-			p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
-			     lws_hdr_simple_ptr(wsi,
-					     _WSI_TOKEN_CLIENT_SENT_PROTOCOLS));
-
-		/* tell the server what extensions we could support */
-
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-		ext = wsi->vhost->extensions;
-		while (ext && ext->callback) {
-			n = lws_ext_cb_all_exts(context, wsi,
-				   LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION,
-				   (char *)ext->name, 0);
-			if (n) { /* an extension vetos us */
-				lwsl_ext("ext %s vetoed\n", (char *)ext->name);
-				ext++;
-				continue;
-			}
-			n = wsi->vhost->protocols[0].callback(wsi,
-				LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
-					wsi->user_space, (char *)ext->name, 0);
-
-			/*
-			 * zero return from callback means go ahead and allow
-			 * the extension, it's what we get if the callback is
-			 * unhandled
-			 */
-
-			if (n) {
-				ext++;
-				continue;
-			}
-
-			/* apply it */
-
-			if (ext_count)
-				*p++ = ',';
-			else
-				p += sprintf(p, "Sec-WebSocket-Extensions: ");
-			p += sprintf(p, "%s", ext->client_offer);
-			ext_count++;
-
-			ext++;
-		}
-		if (ext_count)
-			p += sprintf(p, "\x0d\x0a");
-#endif
-
-		if (wsi->ws->ietf_spec_revision)
-			p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
-				     wsi->ws->ietf_spec_revision);
-
-		/* prepare the expected server accept response */
-
-		key_b64[39] = '\0'; /* enforce composed length below buf sizeof */
-		n = sprintf(buf, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
-				  key_b64);
-
-		lws_SHA1((unsigned char *)buf, n, (unsigned char *)hash);
-
-		lws_b64_encode_string(hash, 20,
-			  wsi->ah->initial_handshake_hash_base64,
-			  sizeof(wsi->ah->initial_handshake_hash_base64));
-	}
+	if (wsi->do_ws)
+		p = lws_generate_client_ws_handshake(wsi, p);
 
 	/* give userland a chance to append, eg, cookies */
 
 	if (wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 				wsi->user_space, &p,
-				(pkt + context->pt_serv_buf_size) - p - 12))
+				(pkt + wsi->context->pt_serv_buf_size) - p - 12))
 		return NULL;
 
 	p += sprintf(p, "\x0d\x0a");

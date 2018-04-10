@@ -22,7 +22,7 @@
 #include <private-libwebsockets.h>
 
 static int
-wops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
+rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			  struct lws_pollfd *pollfd)
 {
 	struct lws_context *context = wsi->context;
@@ -142,15 +142,15 @@ wops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
-int wops_handle_POLLOUT_listen(struct lws *wsi)
+int rops_handle_POLLOUT_listen(struct lws *wsi)
 {
 	return LWS_HP_RET_USER_SERVICE;
 }
 
-struct lws_protocol_ops wire_ops_listen = {
+struct lws_role_ops role_ops_listen = {
 	"listen",
-	wops_handle_POLLIN_listen,
-	wops_handle_POLLOUT_listen,
+	rops_handle_POLLIN_listen,
+	rops_handle_POLLOUT_listen,
 	NULL,
 	NULL,
 	NULL,

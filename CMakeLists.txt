@@ -695,38 +695,38 @@ set(SOURCES
 	lib/context.c
 	lib/alloc.c
 	lib/header.c
-	lib/wire-protocol/listen/ops-listen.c
-	lib/wire-protocol/pipe/ops-pipe.c
+	lib/roles/listen/ops-listen.c
+	lib/roles/pipe/ops-pipe.c
 	lib/misc/lws-ring.c)
 
 if (LWS_ROLE_H1)
 	list(APPEND SOURCES
-		lib/wire-protocol/h1/ops-h1.c)
+		lib/roles/h1/ops-h1.c)
 endif()
 
 if (LWS_ROLE_WS)
 	list(APPEND SOURCES
-		lib/wire-protocol/ws/ops-ws.c)
+		lib/roles/ws/ops-ws.c)
 	if (NOT LWS_WITHOUT_CLIENT)
 		list(APPEND SOURCES
-			lib/wire-protocol/ws/client-ws.c
-			lib/wire-protocol/ws/client-parser.c)
+			lib/roles/ws/client-ws.c
+			lib/roles/ws/client-parser.c)
 	endif()
 	if (NOT LWS_WITHOUT_SERVER)
 		list(APPEND SOURCES
-			lib/wire-protocol/ws/server-ws.c)
+			lib/roles/ws/server-ws.c)
 	endif()
 endif()
 
 if (LWS_ROLE_RAW)
 	list(APPEND SOURCES
-		lib/wire-protocol/raw/ops-raw.c)
+		lib/roles/raw/ops-raw.c)
 endif()
 
 if (LWS_ROLE_CGI)
 	list(APPEND SOURCES
-		lib/wire-protocol/cgi/cgi-server.c
-		lib/wire-protocol/cgi/ops-cgi.c)
+		lib/roles/cgi/cgi-server.c
+		lib/roles/cgi/ops-cgi.c)
 endif()
 
 if (LWS_WITH_ACCESS_LOG)
@@ -856,10 +856,10 @@ endif()
 
 if (LWS_WITH_HTTP2 AND NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
-		lib/wire-protocol/h2/http2.c
-		lib/wire-protocol/h2/hpack.c
-		lib/wire-protocol/h2/ssl-http2.c
-		lib/wire-protocol/h2/ops-h2.c)
+		lib/roles/h2/http2.c
+		lib/roles/h2/hpack.c
+		lib/roles/h2/ssl-http2.c
+		lib/roles/h2/ops-h2.c)
 endif()
 # select the active platform files
 
@@ -891,10 +891,10 @@ endif()
 
 if (NOT LWS_WITHOUT_EXTENSIONS)
 	list(APPEND HDR_PRIVATE
-		lib/wire-protocol/ws/ext/extension-permessage-deflate.h)
+		lib/roles/ws/ext/extension-permessage-deflate.h)
 	list(APPEND SOURCES
-		lib/wire-protocol/ws/ext/extension.c
-		lib/wire-protocol/ws/ext/extension-permessage-deflate.c)
+		lib/roles/ws/ext/extension.c
+		lib/roles/ws/ext/extension-permessage-deflate.c)
 endif()
 
 if (LWS_WITH_HTTP_PROXY)

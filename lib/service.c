@@ -411,7 +411,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	lws_pt_lock(pt, __func__);
 
 #if defined(LWS_ROLE_WS)
-	forced |= wire_ops_ws.service_flag_pending(context, tsi);
+	forced |= role_ops_ws.service_flag_pending(context, tsi);
 #endif
 
 #if defined(LWS_WITH_TLS)
@@ -442,10 +442,10 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 #endif
 
 #if defined(LWS_ROLE_H1)
-	forced |= wire_ops_h1.service_flag_pending(context, tsi);
+	forced |= role_ops_h1.service_flag_pending(context, tsi);
 #else /* they do the same thing... only need one or the other if h1 and h2 */
 #if defined(LWS_ROLE_H2)
-	forced |= wire_ops_h2.service_flag_pending(context, tsi);
+	forced |= role_ops_h2.service_flag_pending(context, tsi);
 #endif
 #endif
 
@@ -707,10 +707,10 @@ lws_service_periodic_checks(struct lws_context *context,
 	 * Phase 5: role periodic checks
 	 */
 #if defined(LWS_ROLE_WS)
-	wire_ops_ws.periodic_checks(context, tsi, now);
+	role_ops_ws.periodic_checks(context, tsi, now);
 #endif
 #if defined(LWS_ROLE_CGI)
-	wire_ops_cgi.periodic_checks(context, tsi, now);
+	role_ops_cgi.periodic_checks(context, tsi, now);
 #endif
 
 	/*

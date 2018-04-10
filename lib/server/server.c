@@ -244,7 +244,7 @@ done_list:
 		wsi->context = vhost->context;
 		wsi->desc.sockfd = sockfd;
 		lws_role_transition(wsi, LWSI_ROLE_LISTEN_SOCKET,
-				    LRS_UNCONNECTED, &wire_ops_listen);
+				    LRS_UNCONNECTED, &role_ops_listen);
 		wsi->protocol = vhost->protocols;
 		wsi->tsi = m;
 		wsi->vhost = vhost;
@@ -1416,7 +1416,7 @@ raw_transition:
 
 				lws_header_table_force_to_detachable_state(wsi);
 				lws_role_transition(wsi, LWSI_ROLE_RAW_SOCKET,
-						LRS_ESTABLISHED, &wire_ops_raw);
+						LRS_ESTABLISHED, &role_ops_raw);
 				lws_header_table_detach(wsi, 1);
 
 				if (m == 2 && (wsi->protocol->callback)(wsi,
@@ -1874,7 +1874,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			lwsl_debug("binding to %s\n", new_wsi->protocol->name);
 			lws_bind_protocol(new_wsi, new_wsi->protocol);
 			lws_role_transition(new_wsi, LWSI_ROLE_WS1_SERVER,
-					    LRS_ESTABLISHED, &wire_ops_ws);
+					    LRS_ESTABLISHED, &role_ops_ws);
 			/* allocate the ws struct for the wsi */
 			new_wsi->ws = lws_zalloc(sizeof(*new_wsi->ws), "ws struct");
 			if (!new_wsi->ws) {
@@ -1889,13 +1889,13 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		if (type & LWS_ADOPT_HTTP) {/* he will transition later */
 			new_wsi->protocol =
 				&vh->protocols[vh->default_protocol_index];
-			new_wsi->pops = &wire_ops_h1;
+			new_wsi->pops = &role_ops_h1;
 		}
 		else { /* this is the only time he will transition */
 			lws_bind_protocol(new_wsi,
 				&vh->protocols[vh->raw_protocol_index]);
 			lws_role_transition(new_wsi, LWSI_ROLE_RAW_SOCKET,
-					    LRS_ESTABLISHED, &wire_ops_raw);
+					    LRS_ESTABLISHED, &role_ops_raw);
 		}
 
 	if (type & LWS_ADOPT_SOCKET) { /* socket desc */
@@ -1941,23 +1941,23 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			if (!(type & LWS_ADOPT_SOCKET))
 				lws_role_transition(new_wsi, LWSI_ROLE_RAW_FILE,
 						    LRS_UNCONNECTED,
-						    &wire_ops_raw);
+						    &role_ops_raw);
 			else
 				lws_role_transition(new_wsi,
 						    LWSI_ROLE_RAW_SOCKET,
 						    LRS_UNCONNECTED,
-						    &wire_ops_raw);
+						    &role_ops_raw);
 		} else
 			lws_role_transition(new_wsi, LWSI_ROLE_H1_SERVER,
-					    LRS_HEADERS, &wire_ops_h1);
+					    LRS_HEADERS, &role_ops_h1);
 	} else {
 		/* SSL */
 		if (!(type & LWS_ADOPT_HTTP))
 			lws_role_transition(new_wsi, LWSI_ROLE_RAW_SOCKET,
-					    LRS_SSL_INIT, &wire_ops_raw);
+					    LRS_SSL_INIT, &role_ops_raw);
 		else
 			lws_role_transition(new_wsi, LWSI_ROLE_H1_SERVER,
-					    LRS_SSL_INIT, &wire_ops_h1);
+					    LRS_SSL_INIT, &role_ops_h1);
 
 		ssl = 1;
 	}

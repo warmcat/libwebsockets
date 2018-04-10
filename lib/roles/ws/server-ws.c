@@ -393,10 +393,10 @@ lws_process_ws_upgrade(struct lws *wsi)
 
 	if (wsi->h2_stream_carries_ws)
 		lws_role_transition(wsi, LWSI_ROLE_WS2_SERVER, LRS_ESTABLISHED,
-				    &wire_ops_ws);
+				    &role_ops_ws);
 	else
 		lws_role_transition(wsi, LWSI_ROLE_WS1_SERVER, LRS_ESTABLISHED,
-				    &wire_ops_ws);
+				    &role_ops_ws);
 	/*
 	 * Because rxpos/rxlen shows something in the ah, we will get
 	 * service guaranteed next time around the event loop

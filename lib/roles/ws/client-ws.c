@@ -40,6 +40,123 @@ strtolower(char *s)
 }
 
 int
+lws_create_client_ws_object(struct lws_client_connect_info *i, struct lws *wsi)
+{
+	int v = SPEC_LATEST_SUPPORTED;
+
+	/* allocate the ws struct for the wsi */
+	wsi->ws = lws_zalloc(sizeof(*wsi->ws), "client ws struct");
+	if (!wsi->ws) {
+		lwsl_notice("OOM\n");
+		return 1;
+	}
+
+	/* -1 means just use latest supported */
+	if (i->ietf_version_or_minus_one != -1 &&
+	    i->ietf_version_or_minus_one)
+		v = i->ietf_version_or_minus_one;
+
+	wsi->ws->ietf_spec_revision = v;
+
+	return 0;
+}
+
+char *
+lws_generate_client_ws_handshake(struct lws *wsi, char *p)
+{
+	char buf[128], hash[20], key_b64[40];
+	int n;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	const struct lws_extension *ext;
+	int ext_count = 0;
+#endif
+
+	/*
+	 * create the random key
+	 */
+	n = lws_get_random(wsi->context, hash, 16);
+	if (n != 16) {
+		lwsl_err("Unable to read from random dev %s\n",
+			 SYSTEM_RANDOM_FILEPATH);
+		return NULL;
+	}
+
+	lws_b64_encode_string(hash, 16, key_b64, sizeof(key_b64));
+
+	p += sprintf(p, "Upgrade: websocket\x0d\x0a"
+			"Connection: Upgrade\x0d\x0a"
+			"Sec-WebSocket-Key: ");
+	strcpy(p, key_b64);
+	p += strlen(key_b64);
+	p += sprintf(p, "\x0d\x0a");
+	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS))
+		p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
+		     lws_hdr_simple_ptr(wsi,
+				     _WSI_TOKEN_CLIENT_SENT_PROTOCOLS));
+
+	/* tell the server what extensions we could support */
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	ext = wsi->vhost->extensions;
+	while (ext && ext->callback) {
+		n = lws_ext_cb_all_exts(wsi->context, wsi,
+			   LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION,
+			   (char *)ext->name, 0);
+		if (n) { /* an extension vetos us */
+			lwsl_ext("ext %s vetoed\n", (char *)ext->name);
+			ext++;
+			continue;
+		}
+		n = wsi->vhost->protocols[0].callback(wsi,
+			LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
+				wsi->user_space, (char *)ext->name, 0);
+
+		/*
+		 * zero return from callback means go ahead and allow
+		 * the extension, it's what we get if the callback is
+		 * unhandled
+		 */
+
+		if (n) {
+			ext++;
+			continue;
+		}
+
+		/* apply it */
+
+		if (ext_count)
+			*p++ = ',';
+		else
+			p += sprintf(p, "Sec-WebSocket-Extensions: ");
+		p += sprintf(p, "%s", ext->client_offer);
+		ext_count++;
+
+		ext++;
+	}
+	if (ext_count)
+		p += sprintf(p, "\x0d\x0a");
+#endif
+
+	if (wsi->ws->ietf_spec_revision)
+		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
+			     wsi->ws->ietf_spec_revision);
+
+	/* prepare the expected server accept response */
+
+	key_b64[39] = '\0'; /* enforce composed length below buf sizeof */
+	n = sprintf(buf, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
+			  key_b64);
+
+	lws_SHA1((unsigned char *)buf, n, (unsigned char *)hash);
+
+	lws_b64_encode_string(hash, 20,
+		  wsi->ah->initial_handshake_hash_base64,
+		  sizeof(wsi->ah->initial_handshake_hash_base64));
+
+	return p;
+}
+
+int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 {
 	int n, len, okay = 0;
@@ -416,7 +533,7 @@ check_accept:
 	lws_header_table_detach(wsi, 0);
 
 	lws_role_transition(wsi, LWSI_ROLE_WS1_CLIENT, LRS_ESTABLISHED,
-			    &wire_ops_ws);
+			    &role_ops_ws);
 	lws_restart_ws_ping_pong_timer(wsi);
 
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;

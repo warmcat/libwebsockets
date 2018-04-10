@@ -858,7 +858,6 @@ LWS_VISIBLE struct lws *
 lws_client_connect_via_info(struct lws_client_connect_info *i)
 {
 	struct lws *wsi;
-	int v = SPEC_LATEST_SUPPORTED;
 	const struct lws_protocols *p;
 	const char *local = i->protocol;
 
@@ -882,7 +881,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->context = i->context;
 	/* assert the mode and union status (hdr) clearly */
 	lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT, LRS_UNCONNECTED,
-			    &wire_ops_h1);
+			    &role_ops_h1);
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
 	/* 1) fill up the wsi with stuff from the connect_info as far as it
@@ -890,21 +889,13 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	 * not even be able to get ahold of an ah at this point.
 	 */
 
-	if (!i->method) { /* ie, ws */
-		/* allocate the ws struct for the wsi */
-		wsi->ws = lws_zalloc(sizeof(*wsi->ws), "client ws struct");
-		if (!wsi->ws) {
-			lwsl_notice("OOM\n");
-			goto bail;
-		}
-
-		/* -1 means just use latest supported */
-		if (i->ietf_version_or_minus_one != -1 &&
-		    i->ietf_version_or_minus_one)
-			v = i->ietf_version_or_minus_one;
-
-		wsi->ws->ietf_spec_revision = v;
-	}
+	if (!i->method) /* ie, ws */
+#if defined(LWS_ROLE_WS)
+		if (lws_create_client_ws_object(i, wsi))
+			return NULL;
+#else
+		return NULL;
+#endif
 
 	wsi->user_space = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
@@ -925,7 +916,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	/* reasonable place to start */
 	lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT,
-			    LRS_UNCONNECTED, &wire_ops_h1);
+			    LRS_UNCONNECTED, &role_ops_h1);
 
 	/*
 	 * 1) for http[s] connection, allow protocol selection by name

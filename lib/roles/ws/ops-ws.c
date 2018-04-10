@@ -880,7 +880,7 @@ lws_is_ws_with_ext(struct lws *wsi)
 }
 
 static int
-wops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
+rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
 	struct lws_tokens eff_buf;
@@ -1251,7 +1251,7 @@ drain:
 }
 
 
-int wops_handle_POLLOUT_ws(struct lws *wsi)
+int rops_handle_POLLOUT_ws(struct lws *wsi)
 {
 	int write_type = LWS_WRITE_PONG;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -1451,7 +1451,7 @@ int wops_handle_POLLOUT_ws(struct lws *wsi)
 }
 
 static int
-wops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
+rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 {
 	struct lws_vhost *vh;
 
@@ -1501,7 +1501,7 @@ wops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 }
 
 static int
-wops_service_flag_pending_ws(struct lws_context *context, int tsi)
+rops_service_flag_pending_ws(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws *wsi;
@@ -1527,7 +1527,7 @@ wops_service_flag_pending_ws(struct lws_context *context, int tsi)
 }
 
 static int
-wops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
+rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 {
 	if (!wsi->ws->close_in_ping_buffer_len && /* already a reason */
 	     (reason == LWS_CLOSE_STATUS_NOSTATUS ||
@@ -1553,7 +1553,7 @@ wops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 }
 
 static int
-wops_close_role_ws(struct lws_context_per_thread *pt, struct lws *wsi)
+rops_close_role_ws(struct lws_context_per_thread *pt, struct lws *wsi)
 {
 	if (wsi->ws->rx_draining_ext) {
 		struct lws **w = &pt->rx_draining_ext_list;
@@ -1597,7 +1597,7 @@ wops_close_role_ws(struct lws_context_per_thread *pt, struct lws *wsi)
 }
 
 static int
-wops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
+rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
@@ -1901,14 +1901,14 @@ send_raw:
 	return lws_issue_raw(wsi, (unsigned char *)buf - pre, len + pre);
 }
 
-struct lws_protocol_ops wire_ops_ws = {
+struct lws_role_ops role_ops_ws = {
 	"ws",
-	wops_handle_POLLIN_ws,
-	wops_handle_POLLOUT_ws,
-	wops_periodic_checks_ws,
-	wops_service_flag_pending_ws,
-	wops_close_via_role_protocol_ws,
-	wops_close_role_ws,
-	wops_write_role_protocol_ws,
+	rops_handle_POLLIN_ws,
+	rops_handle_POLLOUT_ws,
+	rops_periodic_checks_ws,
+	rops_service_flag_pending_ws,
+	rops_close_via_role_protocol_ws,
+	rops_close_role_ws,
+	rops_write_role_protocol_ws,
 	NULL
 };

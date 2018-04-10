@@ -22,7 +22,7 @@
 #include <private-libwebsockets.h>
 
 static int
-wops_handle_POLLIN_raw(struct lws_context_per_thread *pt, struct lws *wsi,
+rops_handle_POLLIN_raw(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
 	int len, n;
@@ -155,15 +155,18 @@ fail:
 	return LWS_HPI_RET_CLOSE_HANDLED;
 }
 
-int wops_handle_POLLOUT_raw(struct lws *wsi)
+int rops_handle_POLLOUT_raw(struct lws *wsi)
 {
 	return LWS_HP_RET_USER_SERVICE;
 }
 
-struct lws_protocol_ops wire_ops_raw = {
+struct lws_role_ops role_ops_raw = {
 	"raw",
-	wops_handle_POLLIN_raw,
-	wops_handle_POLLOUT_raw,
-	NULL,
-	NULL
+	rops_handle_POLLIN_raw,
+	rops_handle_POLLOUT_raw,
+	NULL, /* periodic_checks */
+	NULL, /* service_flag_pending */
+	NULL, /* close_via_role_protocol */
+	NULL, /* close_role */
+	NULL, /* write role_protocols */
 };

@@ -668,23 +668,35 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
  * internal protocol-specific ops
  */
 struct lws_context_per_thread;
-struct lws_protocol_ops {
+struct lws_role_ops {
 	const char *name;
+	/* an fd using this role has POLLIN signalled */
 	int (*handle_POLLIN)(struct lws_context_per_thread *pt, struct lws *wsi,
 			     struct lws_pollfd *pollfd);
+	/* an fd using the role wanted a POLLOUT callback and now has it */
 	int (*handle_POLLOUT)(struct lws *wsi);
+	/* generic 1Hz callback for the role itself */
 	int (*periodic_checks)(struct lws_context *context, int tsi, time_t now);
+	/* chance for the role to force POLLIN without network activity */
 	int (*service_flag_pending)(struct lws_context *context, int tsi);
+	/* chance for the role to handle close in the protocol */
 	int (*close_via_role_protocol)(struct lws *wsi, enum lws_close_status reason);
+	/* role-specific close processing */
 	int (*close_role)(struct lws_context_per_thread *pt, struct lws *wsi);
+	/* role-specific write formatting */
 	int (*write_role_protocol)(struct lws *wsi, unsigned char *buf, size_t len,
 				   enum lws_write_protocol *wp);
+	/*
+	 * After http headers have parsed, this is the last chance for a role
+	 * to upgrade the connection to something else using the headers.
+	 * ws-over-h2 is upgraded from h2 like this.
+	 */
 	int (*check_upgrades)(struct lws *wsi);
 };
 
-extern struct lws_protocol_ops wire_ops_h1, wire_ops_h2, wire_ops_raw,
-			       wire_ops_ws, wire_ops_cgi, wire_ops_listen,
-			       wire_ops_pipe;
+extern struct lws_role_ops role_ops_h1, role_ops_h2, role_ops_raw,
+			       role_ops_ws, role_ops_cgi, role_ops_listen,
+			       role_ops_pipe;
 
 enum {
 	LWS_HP_RET_BAIL_OK,
@@ -2086,7 +2098,7 @@ struct lws {
 #endif
 #endif
 
-	struct lws_protocol_ops *pops;
+	struct lws_role_ops *pops;
 
 	lws_usec_t pending_timer;
 
@@ -2364,7 +2376,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
 
 LWS_EXTERN void
 lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
-			struct lws_protocol_ops *ops);
+			struct lws_role_ops *ops);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
@@ -2993,9 +3005,12 @@ int
 lws_server_init_wsi_for_ws(struct lws *wsi);
 int
 handshake_0405(struct lws_context *context, struct lws *wsi);
-
+char *
+lws_generate_client_ws_handshake(struct lws *wsi, char *p);
 int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce);
+int
+lws_create_client_ws_object(struct lws_client_connect_info *i, struct lws *wsi);
 #ifdef __cplusplus
 };
 #endif

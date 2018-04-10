@@ -22,7 +22,7 @@
 #include <private-libwebsockets.h>
 
 static int
-wops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
+rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 			struct lws_pollfd *pollfd)
 {
 #if !defined(WIN32) && !defined(_WIN32)
@@ -55,15 +55,15 @@ wops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 }
 
 static int
-wops_handle_POLLOUT_pipe(struct lws *wsi)
+rops_handle_POLLOUT_pipe(struct lws *wsi)
 {
 	return LWS_HP_RET_USER_SERVICE;
 }
 
-struct lws_protocol_ops wire_ops_pipe = {
+struct lws_role_ops role_ops_pipe = {
 	"pipe",
-	wops_handle_POLLIN_pipe,
-	wops_handle_POLLOUT_pipe,
+	rops_handle_POLLIN_pipe,
+	rops_handle_POLLOUT_pipe,
 	NULL,
 	NULL,
 	NULL,

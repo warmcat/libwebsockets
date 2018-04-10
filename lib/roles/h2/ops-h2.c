@@ -22,7 +22,7 @@
 #include <private-libwebsockets.h>
 
 static int
-wops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
+rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
 	struct lws_tokens eff_buf;
@@ -316,7 +316,7 @@ drain:
 	return LWS_HPI_RET_HANDLED;
 }
 
-int wops_handle_POLLOUT_h2(struct lws *wsi)
+int rops_handle_POLLOUT_h2(struct lws *wsi)
 {
 	// lwsl_notice("%s\n", __func__);
 
@@ -356,7 +356,7 @@ int wops_handle_POLLOUT_h2(struct lws *wsi)
 }
 
 static int
-wops_service_flag_pending_h2(struct lws_context *context, int tsi)
+rops_service_flag_pending_h2(struct lws_context *context, int tsi)
 {
 	/* h1 will deal with this if both h1 and h2 enabled */
 
@@ -396,7 +396,7 @@ wops_service_flag_pending_h2(struct lws_context *context, int tsi)
 }
 
 static int
-wops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
+rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
 {
 	unsigned char flags = 0;
@@ -472,7 +472,7 @@ wops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 }
 
 static int
-wops_check_upgrades_h2(struct lws *wsi)
+rops_check_upgrades_h2(struct lws *wsi)
 {
 #if defined(LWS_ROLE_WS)
 	struct lws *nwsi;
@@ -514,14 +514,14 @@ wops_check_upgrades_h2(struct lws *wsi)
 #endif
 }
 
-struct lws_protocol_ops wire_ops_h2 = {
+struct lws_role_ops role_ops_h2 = {
 	"h2",
-	wops_handle_POLLIN_h2,
-	wops_handle_POLLOUT_h2,
+	rops_handle_POLLIN_h2,
+	rops_handle_POLLOUT_h2,
 	NULL,
-	wops_service_flag_pending_h2,
+	rops_service_flag_pending_h2,
 	NULL,
 	NULL,
-	wops_write_role_protocol_h2,
-	wops_check_upgrades_h2,
+	rops_write_role_protocol_h2,
+	rops_check_upgrades_h2,
 };

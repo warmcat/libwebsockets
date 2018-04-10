@@ -577,7 +577,7 @@ fail:
 }
 
 static int
-wops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
+rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
 	int n;
@@ -677,7 +677,7 @@ wops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
-int wops_handle_POLLOUT_h1(struct lws *wsi)
+int rops_handle_POLLOUT_h1(struct lws *wsi)
 {
 	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
 		return LWS_HP_RET_USER_SERVICE;
@@ -689,7 +689,7 @@ int wops_handle_POLLOUT_h1(struct lws *wsi)
 }
 
 static int
-wops_service_flag_pending_h1(struct lws_context *context, int tsi)
+rops_service_flag_pending_h1(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct allocated_headers *ah;
@@ -723,7 +723,7 @@ wops_service_flag_pending_h1(struct lws_context *context, int tsi)
 }
 
 static int
-wops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
+rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
 {
 #if 0
@@ -741,14 +741,14 @@ wops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 	return lws_issue_raw(wsi, (unsigned char *)buf, len);
 }
 
-struct lws_protocol_ops wire_ops_h1 = {
+struct lws_role_ops role_ops_h1 = {
 	"h1",
-	wops_handle_POLLIN_h1,
-	wops_handle_POLLOUT_h1,
+	rops_handle_POLLIN_h1,
+	rops_handle_POLLOUT_h1,
 	NULL,
-	wops_service_flag_pending_h1,
+	rops_service_flag_pending_h1,
 	NULL,
 	NULL,
-	wops_write_role_protocol_h1,
+	rops_write_role_protocol_h1,
 	NULL
 };
