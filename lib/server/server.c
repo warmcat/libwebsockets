@@ -2222,8 +2222,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	} else {
 		/* SSL */
 		if (!(type & LWS_ADOPT_HTTP))
-			lws_role_transition(new_wsi,
-					    LWSI_ROLE_RAW_SOCKET,
+			lws_role_transition(new_wsi, LWSI_ROLE_RAW_SOCKET,
 					    LRS_SSL_INIT, &wire_ops_raw);
 		else
 			lws_role_transition(new_wsi, LWSI_ROLE_H1_SERVER,

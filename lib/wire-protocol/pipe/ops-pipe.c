@@ -63,5 +63,6 @@ wops_handle_POLLOUT_pipe(struct lws *wsi)
 struct lws_protocol_ops wire_ops_pipe = {
 	"pipe",
 	wops_handle_POLLIN_pipe,
-	wops_handle_POLLOUT_pipe
+	wops_handle_POLLOUT_pipe,
+	NULL
 };

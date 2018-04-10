@@ -668,12 +668,6 @@ lws_service_periodic_checks(struct lws_context *context,
 
 	lws_pt_unlock(pt);
 
-#ifdef LWS_WITH_CGI
-	/*
-	 * Phase 3: handle cgi timeouts
-	 */
-	lws_cgi_kill_terminated(pt);
-#endif
 #if 0
 	{
 		char s[300], *p = s;
@@ -687,7 +681,7 @@ lws_service_periodic_checks(struct lws_context *context,
 	}
 #endif
 	/*
-	 * Phase 4: vhost / protocol timer callbacks
+	 * Phase 3: vhost / protocol timer callbacks
 	 */
 
 	wsi = NULL;
@@ -716,7 +710,7 @@ lws_service_periodic_checks(struct lws_context *context,
 		lws_free(wsi);
 
 	/*
-	 * Phase 5: check for unconfigured vhosts due to required
+	 * Phase 4: check for unconfigured vhosts due to required
 	 *	    interface missing before
 	 */
 
@@ -736,53 +730,19 @@ lws_service_periodic_checks(struct lws_context *context,
 	lws_context_unlock(context);
 
 	/*
-	 * at intervals, check for ws connections needing ping-pong checks
+	 * Phase 5: role periodic checks
 	 */
+#if defined(LWS_ROLE_WS)
+	wire_ops_ws.periodic_checks(context, tsi, now);
+#endif
+#if defined(LWS_ROLE_CGI)
+	wire_ops_cgi.periodic_checks(context, tsi, now);
+#endif
 
-	if (context->ws_ping_pong_interval &&
-	    context->last_ws_ping_pong_check_s < now + 10) {
-		struct lws_vhost *vh = context->vhost_list;
-		context->last_ws_ping_pong_check_s = now;
-
-		while (vh) {
-
-			lws_vhost_lock(vh);
-
-			for (n = 0; n < vh->count_protocols; n++) {
-				wsi = vh->same_vh_protocol_list[n];
-
-				while (wsi) {
-					if (lwsi_role_ws(wsi) &&
-					    !wsi->socket_is_permanently_unusable &&
-					    !wsi->ws->send_check_ping &&
-					    wsi->ws->time_next_ping_check &&
-					    lws_compare_time_t(context, now,
-						wsi->ws->time_next_ping_check) >
-					       context->ws_ping_pong_interval) {
-
-						lwsl_info("req pp on wsi %p\n",
-							  wsi);
-						wsi->ws->send_check_ping = 1;
-						lws_set_timeout(wsi,
-					PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
-							context->timeout_secs);
-						lws_callback_on_writable(wsi);
-						wsi->ws->time_next_ping_check =
-							now;
-					}
-					wsi = wsi->same_vh_protocol_next;
-				}
-			}
-
-			lws_vhost_unlock(vh);
-			vh = vh->vhost_next;
-		}
-	}
-
-#ifdef LWS_OPENSSL_SUPPORT
 	/*
-	 * check the remaining cert lifetime daily
+	 * Phase 6: check the remaining cert lifetime daily
 	 */
+#ifdef LWS_OPENSSL_SUPPORT
 	n = lws_compare_time_t(context, now, context->last_cert_check_s);
 	if ((!context->last_cert_check_s || n > (24 * 60 * 60)) &&
 	    !lws_tls_check_all_cert_lifetimes(context))

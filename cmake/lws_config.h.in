@@ -8,6 +8,12 @@
 
 #define LWS_INSTALL_DATADIR "${CMAKE_INSTALL_PREFIX}/share"
 
+#cmakedefine LWS_ROLE_H1
+#cmakedefine LWS_ROLE_WS
+#cmakedefine LWS_ROLE_RAW
+#cmakedefine LWS_ROLE_H2
+#cmakedefine LWS_ROLE_CGI
+
 /* Define to 1 to use wolfSSL/CyaSSL as a replacement for OpenSSL.
  * LWS_OPENSSL_SUPPORT needs to be set also for this to work. */
 #cmakedefine USE_WOLFSSL

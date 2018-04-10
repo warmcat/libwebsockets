@@ -31,7 +31,7 @@ lws_client_connect_2(struct lws *wsi)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	const char *cce = "", *iface, *adsin, *meth;
-	struct lws *wsi_piggy = NULL;
+	struct lws *wsi_piggyback = NULL;
 	struct addrinfo *result;
 	struct lws_pollfd pfd;
 	ssize_t plen = 0;
@@ -48,7 +48,7 @@ lws_client_connect_2(struct lws *wsi)
 #endif
 #endif
 
-	lwsl_client("%s\n", __func__);
+	lwsl_client("%s: %p\n", __func__, wsi);
 
 	if (!wsi->ah) {
 		cce = "ah was NULL at cc2";
@@ -79,11 +79,13 @@ lws_client_connect_2(struct lws *wsi)
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_active_client_conns);
 
-		if (w->client_hostname_copy &&
+		lwsl_debug("%s: check %s %s %d %d\n", __func__, adsin, w->client_hostname_copy, wsi->c_port, w->c_port);
+
+		if (w != wsi && w->client_hostname_copy &&
 		    !strcmp(adsin, w->client_hostname_copy) &&
 #ifdef LWS_OPENSSL_SUPPORT
 		    (wsi->use_ssl & (LCCSCF_NOT_H2 | LCCSCF_USE_SSL)) ==
-		    (w->use_ssl & (LCCSCF_NOT_H2 | LCCSCF_USE_SSL)) &&
+		     (w->use_ssl & (LCCSCF_NOT_H2 | LCCSCF_USE_SSL)) &&
 #endif
 		    wsi->c_port == w->c_port) {
 
@@ -91,7 +93,8 @@ lws_client_connect_2(struct lws *wsi)
 
 			/* do we know for a fact pipelining won't fly? */
 			if (w->keepalive_rejected) {
-				lwsl_notice("defeating pipelining due to no KA on server\n");
+				lwsl_info("defeating pipelining due to no "
+					    "keepalive on server\n");
 				goto create_new_conn;
 			}
 #if defined (LWS_WITH_HTTP2)
@@ -113,8 +116,8 @@ lws_client_connect_2(struct lws *wsi)
 			}
 #endif
 
-			lwsl_info("applying %p to txn queue on %p (%d)\n", wsi, w,
-					lwsi_state(w));
+			lwsl_info("applying %p to txn queue on %p (wsistate 0x%x)\n", wsi, w,
+				w->wsistate);
 			/*
 			 * ...let's add ourselves to his transaction queue...
 			 */
@@ -127,7 +130,7 @@ lws_client_connect_2(struct lws *wsi)
 			 * to take over parsing the rx.
 			 */
 
-			wsi_piggy = w;
+			wsi_piggyback = w;
 
 			lws_vhost_unlock(wsi->vhost);
 			goto send_hs;
@@ -148,6 +151,23 @@ create_new_conn:
 		wsi->client_hostname_copy =
 			strdup(lws_hdr_simple_ptr(wsi,
 					_WSI_TOKEN_CLIENT_PEER_ADDRESS));
+
+	/*
+	 * If we made our own connection, and we're doing a method that can take
+	 * a pipeline, we are an "active client connection".
+	 *
+	 * Add ourselves to the vhost list of those so that others can
+	 * piggyback on our transaction queue
+	 */
+
+	if (meth && !strcmp(meth, "GET") &&
+	    lws_dll_is_null(&wsi->dll_client_transaction_queue) &&
+	    lws_dll_is_null(&wsi->dll_active_client_conns)) {
+		lws_vhost_lock(wsi->vhost);
+		lws_dll_lws_add_front(&wsi->dll_active_client_conns,
+				      &wsi->vhost->dll_active_client_conns);
+		lws_vhost_unlock(wsi->vhost);
+	}
 
 	/*
 	 * start off allowing ipv6 on connection if vhost allows it
@@ -383,7 +403,7 @@ create_new_conn:
 		sa46.sa4.sin_port = htons(port);
 		n = sizeof(struct sockaddr);
 	}
-
+lwsl_notice("%s: CONNECT\n", __func__);
 	if (connect(wsi->desc.sockfd, (const struct sockaddr *)&sa46, n) == -1 ||
 	    LWS_ERRNO == LWS_EISCONN) {
 		if (LWS_ERRNO == LWS_EALREADY ||
@@ -474,7 +494,7 @@ create_new_conn:
 #endif
 
 send_hs:
-	if (wsi_piggy &&
+	if (wsi_piggyback &&
 	    !lws_dll_is_null(&wsi->dll_client_transaction_queue)) {
 		/*
 		 * We are pipelining on an already-established connection...
@@ -492,9 +512,11 @@ send_hs:
 		 * If we are trying to do this too early, before the master
 		 * connection has written his own headers,
 		 */
-		lws_callback_on_writable(wsi_piggy);
-		lwsl_debug("wsi %p: waiting to send headers\n", wsi);
+		lws_callback_on_writable(wsi_piggyback);
+		lwsl_info("wsi %p: waiting to send headers\n", wsi);
 	} else {
+		lwsl_info("wsi %p: client creating own connection\n", wsi);
+
 		/* we are making our own connection */
 		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
 
@@ -523,22 +545,6 @@ send_hs:
 		}
 		if (n) /* returns 1 on failure after closing wsi */
 			return NULL;
-	}
-
-	/*
-	 * If we made our own connection, and we're doing a method that can take
-	 * a pipeline, we are an "active client connection".
-	 *
-	 * Add ourselves to the vhost list of those so that others can
-	 * piggyback on our transaction queue
-	 */
-
-	if (meth && !strcmp(meth, "GET") &&
-	    lws_dll_is_null(&wsi->dll_client_transaction_queue)) {
-		lws_vhost_lock(wsi->vhost);
-		lws_dll_lws_add_front(&wsi->dll_active_client_conns,
-				      &wsi->vhost->dll_active_client_conns);
-		lws_vhost_unlock(wsi->vhost);
 	}
 
 	return wsi;
@@ -918,7 +924,8 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
 
 	/* reasonable place to start */
-	lwsi_set_role(wsi, LWSI_ROLE_H1_CLIENT);
+	lws_role_transition(wsi, LWSI_ROLE_H1_CLIENT,
+			    LRS_UNCONNECTED, &wire_ops_h1);
 
 	/*
 	 * 1) for http[s] connection, allow protocol selection by name

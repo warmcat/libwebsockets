@@ -358,5 +358,6 @@ int wops_handle_POLLOUT_h2(struct lws *wsi)
 struct lws_protocol_ops wire_ops_h2 = {
 	"h2",
 	wops_handle_POLLIN_h2,
-	wops_handle_POLLOUT_h2
+	wops_handle_POLLOUT_h2,
+	NULL
 };

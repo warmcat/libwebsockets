@@ -522,7 +522,7 @@ try_pollout:
 fail:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "server socket svc fail");
 
-	return LWS_HPI_RET_CLOSE_HANDLED;
+	return LWS_HPI_RET_DIE;
 }
 
 static int
@@ -530,6 +530,9 @@ wops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
 	int n;
+
+//	lwsl_notice("%s: %p: wsistate 0x%x %s, revents 0x%x\n", __func__, wsi,
+//			wsi->wsistate, wsi->pops->name, pollfd->revents);
 
 #ifdef LWS_WITH_CGI
 	if (wsi->cgi && (pollfd->revents & LWS_POLLOUT)) {
@@ -540,21 +543,74 @@ wops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #endif
 
+        if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
+            lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE ||
+            lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK) {
+                /*
+                 * we stopped caring about anything except control
+                 * packets.  Force flow control off, defeat tx
+                 * draining.
+                 */
+                lws_rx_flow_control(wsi, 1);
+                if (wsi->ws)
+                        wsi->ws->tx_draining_ext = 0;
+        }
+
+        if (lws_is_flowcontrolled(wsi))
+                /* We cannot deal with any kind of new RX because we are
+                 * RX-flowcontrolled.
+                 */
+		return LWS_HPI_RET_HANDLED;
+
 	if (lwsi_role(wsi) != LWSI_ROLE_H1_CLIENT) {
-		lwsl_notice("%s: %p: wsistate 0x%x\n", __func__, wsi, wsi->wsistate);
+		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi, wsi->wsistate);
 		n = lws_h1_server_socket_service(wsi, pollfd);
 		if (n != LWS_HPI_RET_HANDLED)
 			return n;
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
 			if (lws_server_socket_service_ssl(wsi, LWS_SOCK_INVALID))
 				return LWS_HPI_RET_DIE;
+
+		return LWS_HPI_RET_HANDLED;
 	}
 
-	if (lwsi_role(wsi) != LWSI_ROLE_H1_CLIENT)
-		return LWS_HPI_RET_HANDLED;
+#ifndef LWS_NO_CLIENT
+	if ((pollfd->revents & LWS_POLLIN) &&
+	     wsi->hdr_parsing_completed && !wsi->told_user_closed) {
 
-	if (lwsi_state(wsi) == LRS_ESTABLISHED)
+		/*
+		 * In SSL mode we get POLLIN notification about
+		 * encrypted data in.
+		 *
+		 * But that is not necessarily related to decrypted
+		 * data out becoming available; in may need to perform
+		 * other in or out before that happens.
+		 *
+		 * simply mark ourselves as having readable data
+		 * and turn off our POLLIN
+		 */
+		wsi->client_rx_avail = 1;
+		lws_change_pollfd(wsi, LWS_POLLIN, 0);
+
+		//lwsl_notice("calling back %s\n", wsi->protocol->name);
+
+		/* let user code know, he'll usually ask for writeable
+		 * callback and drain / re-enable it there
+		 */
+		if (user_callback_handle_rxflow(
+				wsi->protocol->callback,
+				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
+				wsi->user_space, NULL, 0)) {
+			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
+			return LWS_HPI_RET_CLOSE_HANDLED;
+		}
+
 		return LWS_HPI_RET_HANDLED;
+	}
+#endif
+
+//	if (lwsi_state(wsi) == LRS_ESTABLISHED)
+//		return LWS_HPI_RET_HANDLED;
 
 #if !defined(LWS_NO_CLIENT)
 	if ((pollfd->revents & LWS_POLLOUT) &&
@@ -562,7 +618,7 @@ wops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		lwsl_debug("POLLOUT event closed it\n");
 		return LWS_HPI_RET_CLOSE_HANDLED;
 	}
-
+//lwsl_notice("xxx\n");
 	if (lws_client_socket_service(wsi, pollfd, NULL))
 		return LWS_HPI_RET_DIE;
 #endif
@@ -575,11 +631,15 @@ int wops_handle_POLLOUT_h1(struct lws *wsi)
 	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
 		return LWS_HP_RET_USER_SERVICE;
 
+	if (lwsi_role(wsi) == LWSI_ROLE_H1_CLIENT)
+		return LWS_HP_RET_USER_SERVICE;
+
 	return LWS_HP_RET_BAIL_OK;
 }
 
 struct lws_protocol_ops wire_ops_h1 = {
 	"h1",
 	wops_handle_POLLIN_h1,
-	wops_handle_POLLOUT_h1
+	wops_handle_POLLOUT_h1,
+	NULL
 };

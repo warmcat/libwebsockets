@@ -628,25 +628,26 @@ enum lwsi_state {
 	LRS_H2_CLIENT_SEND_SETTINGS		= LWSIFS_POCB | 13,
 	LRS_H2_WAITING_TO_SEND_HEADERS		= LWSIFS_POCB | 14,
 	LRS_DEFERRING_ACTION			= LWSIFS_POCB | 15,
-	LRS_H1C_ISSUE_HANDSHAKE			= 16,
-	LRS_H1C_ISSUE_HANDSHAKE2		= 17,
-	LRS_ISSUE_HTTP_BODY			= 18,
-	LRS_ISSUING_FILE			= 19,
-	LRS_HEADERS				= 20,
-	LRS_BODY				= 21,
-	LRS_ESTABLISHED				= LWSIFS_POCB | 22,
+	LRS_IDLING				= 16,
+	LRS_H1C_ISSUE_HANDSHAKE			= 17,
+	LRS_H1C_ISSUE_HANDSHAKE2		= 18,
+	LRS_ISSUE_HTTP_BODY			= 19,
+	LRS_ISSUING_FILE			= 20,
+	LRS_HEADERS				= 21,
+	LRS_BODY				= 22,
+	LRS_ESTABLISHED				= LWSIFS_POCB | 23,
 
 	/* Phase 6: finishing */
 
-	LRS_WAITING_TO_SEND_CLOSE		= LWSIFS_POCB | 23,
-	LRS_RETURNED_CLOSE			= LWSIFS_POCB | 24,
-	LRS_AWAITING_CLOSE_ACK			= 25,
-	LRS_FLUSHING_BEFORE_CLOSE		= LWSIFS_POCB | 26,
-	LRS_SHUTDOWN				= 27,
+	LRS_WAITING_TO_SEND_CLOSE		= LWSIFS_POCB | 24,
+	LRS_RETURNED_CLOSE			= LWSIFS_POCB | 25,
+	LRS_AWAITING_CLOSE_ACK			= 26,
+	LRS_FLUSHING_BEFORE_CLOSE		= LWSIFS_POCB | 27,
+	LRS_SHUTDOWN				= 28,
 
 	/* Phase 7: dead */
 
-	LRS_DEAD_SOCKET				= 28,
+	LRS_DEAD_SOCKET				= 29,
 
 	LRS_MASK				= 0xffff
 };
@@ -669,10 +670,10 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 struct lws_context_per_thread;
 struct lws_protocol_ops {
 	const char *name;
-
 	int (*handle_POLLIN)(struct lws_context_per_thread *pt, struct lws *wsi,
 			     struct lws_pollfd *pollfd);
 	int (*handle_POLLOUT)(struct lws *wsi);
+	int (*periodic_checks)(struct lws_context *context, int tsi, time_t now);
 };
 
 extern struct lws_protocol_ops wire_ops_h1, wire_ops_h2, wire_ops_raw,

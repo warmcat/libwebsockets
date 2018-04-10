@@ -59,13 +59,25 @@ wops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
-int wops_handle_POLLOUT_cgi(struct lws *wsi)
+static int
+wops_handle_POLLOUT_cgi(struct lws *wsi)
 {
 	return LWS_HP_RET_USER_SERVICE;
+}
+
+static int
+wops_periodic_checks_cgi(struct lws_context *context, int tsi, time_t now)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+
+	lws_cgi_kill_terminated(pt);
+
+	return 0;
 }
 
 struct lws_protocol_ops wire_ops_cgi = {
 	"cgi",
 	wops_handle_POLLIN_cgi,
-	wops_handle_POLLOUT_cgi
+	wops_handle_POLLOUT_cgi,
+	wops_periodic_checks_cgi
 };

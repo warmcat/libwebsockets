@@ -196,6 +196,18 @@ if(GIT_EXECUTABLE)
 	message("Git commit hash: ${LWS_BUILD_HASH}")
 endif()
 
+# translate old functionality enables to set up ROLE enables so nothing changes
+
+set(LWS_ROLE_H1 1)
+set(LWS_ROLE_WS 1)
+set(LWS_ROLE_RAW 1)
+if (LWS_WITH_HTTP2)
+	set(LWS_ROLE_H2 1)
+endif()
+if (LWS_WITH_CGI)
+	set(LWS_ROLE_CGI 1)
+endif()
+
 if (LWS_WITH_HTTP2 AND LWS_WITHOUT_SERVER)
 	message(FATAL_ERROR "HTTP2 can only be used with server at the moment")
 endif()
@@ -681,16 +693,32 @@ set(SOURCES
 	lib/context.c
 	lib/alloc.c
 	lib/header.c
-	lib/wire-protocol/h1/ops-h1.c
-	lib/wire-protocol/raw/ops-raw.c
-	lib/wire-protocol/ws/ops-ws.c
 	lib/wire-protocol/listen/ops-listen.c
 	lib/wire-protocol/pipe/ops-pipe.c
 	lib/misc/lws-ring.c)
 
-if (LWS_WITH_CGI)
+if (LWS_ROLE_H1)
 	list(APPEND SOURCES
-		lib/server/cgi.c
+		lib/wire-protocol/h1/ops-h1.c)
+endif()
+
+if (LWS_ROLE_WS)
+	list(APPEND SOURCES
+		lib/wire-protocol/ws/ops-ws.c)
+	if (NOT LWS_WITHOUT_CLIENT)
+		list(APPEND SOURCES
+			lib/wire-protocol/ws/client-parser.c)
+	endif()
+endif()
+
+if (LWS_ROLE_RAW)
+	list(APPEND SOURCES
+		lib/wire-protocol/raw/ops-raw.c)
+endif()
+
+if (LWS_ROLE_CGI)
+	list(APPEND SOURCES
+		lib/wire-protocol/cgi/cgi-server.c
 		lib/wire-protocol/cgi/ops-cgi.c)
 endif()
 
@@ -707,9 +735,10 @@ endif()
 if (NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
 		lib/client/client.c
-		lib/client/client-handshake.c
-		lib/client/client-parser.c)
+		lib/client/client-handshake.c)
 endif()
+
+
 
 if (LWS_WITH_MBEDTLS)
  	set(LWS_WITH_SSL ON)

@@ -425,8 +425,8 @@ start_ws_handshake:
 		lws_latency_pre(context, wsi);
 
 		w = lws_client_wsi_master(wsi);
-		lwsl_debug("%s: HANDSHAKE2: %p: sending headers on %p\n",
-				__func__, wsi, w);
+		lwsl_debug("%s: HANDSHAKE2: %p: sending headers on %p (wsistate 0x%x 0x%x)\n",
+				__func__, wsi, w, wsi->wsistate, w->wsistate);
 
 		n = lws_ssl_capable_write(w, (unsigned char *)sb, (int)(p - sb));
 		lws_latency(context, wsi, "send lws_issue_raw", n,
@@ -449,6 +449,22 @@ start_ws_handshake:
 			/* user code must ask for writable callback */
 			break;
 		}
+
+		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+		wsi->hdr_parsing_completed = 0;
+
+		if (lwsi_state(w) == LRS_IDLING) {
+			lwsi_set_state(w, LRS_WAITING_SERVER_REPLY);
+			w->hdr_parsing_completed = 0;
+
+			w->ah->parser_state = WSI_TOKEN_NAME_PART;
+			w->ah->lextable_pos = 0;
+			/* If we're (re)starting on headers, need other implied init */
+			wsi->ah->ues = URIES_IDLE;
+		}
+
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+				wsi->context->timeout_secs);
 
 		lws_callback_on_writable(w);
 
@@ -484,7 +500,7 @@ client_http_body_sent:
 			cce = "Peer hung up";
 			goto bail3;
 		}
-
+		lwsl_notice("eeee\n");
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
@@ -534,6 +550,8 @@ client_http_body_sent:
 		 */
 		if (wsi->ah->parser_state != WSI_PARSING_COMPLETE)
 			break;
+
+
 
 		/*
 		 * otherwise deal with the handshake.  If there's any
@@ -617,6 +635,9 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	/* after the first one, they can only be coming from the queue */
 	wsi->transaction_from_pipeline_queue = 1;
 
+	wsi->http.rx_content_length = 0;
+	wsi->hdr_parsing_completed = 0;
+
 	/* is there a new tail after removing that one? */
 	wsi_eff = lws_client_wsi_effective(wsi);
 
@@ -631,24 +652,20 @@ lws_http_transaction_completed_client(struct lws *wsi)
 		 * in case something turns up...
 		 */
 		lwsl_info("%s: nothing pipelined waiting\n", __func__);
-		if (wsi->ah) {
-			lws_header_table_force_to_detachable_state(wsi);
-			lws_header_table_detach(wsi, 0);
-		}
+		lwsi_set_state(wsi, LRS_IDLING);
+
 		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE, 5);
 
 		return 0;
 	}
 
 	/*
-	 * H1: we can serialize the queued guys into into the same ah
+	 * H1: we can serialize the queued guys into the same ah
 	 * H2: everybody needs their own ah until their own STREAM_END
 	 */
 
 	/* otherwise set ourselves up ready to go again */
 	lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
-	wsi->http.rx_content_length = 0;
-	wsi->hdr_parsing_completed = 0;
 
 	wsi->ah->parser_state = WSI_TOKEN_NAME_PART;
 	wsi->ah->lextable_pos = 0;
@@ -1611,6 +1628,8 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	rlen = lws_ssl_capable_read(wsi, (unsigned char *)*buf, *len);
 	*len = 0;
 
+	// lwsl_notice("%s: rlen %d\n", __func__, rlen);
+
 	/* allow the source to signal he has data again next time */
 	lws_change_pollfd(wsi, 0, LWS_POLLIN);
 
@@ -1735,6 +1754,9 @@ spin_chunks:
 	/* if we know the content length, decrement the content remaining */
 	if (wsi->http.rx_content_length > 0)
 		wsi->http.rx_content_remain -= n;
+
+	// lwsl_notice("rx_content_remain %lld, rx_content_length %lld\n",
+	//	wsi->http.rx_content_remain, wsi->http.rx_content_length);
 
 	if (wsi->http.rx_content_remain || !wsi->http.rx_content_length)
 		return 0;

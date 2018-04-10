@@ -601,8 +601,59 @@ int wops_handle_POLLOUT_ws(struct lws *wsi)
 	return LWS_HP_RET_USER_SERVICE;
 }
 
+static int
+wops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
+{
+	struct lws_vhost *vh;
+
+	if (!context->ws_ping_pong_interval ||
+	    context->last_ws_ping_pong_check_s >= now + 10)
+		return 0;
+
+	vh = context->vhost_list;
+	context->last_ws_ping_pong_check_s = now;
+
+	while (vh) {
+		int n;
+
+		lws_vhost_lock(vh);
+
+		for (n = 0; n < vh->count_protocols; n++) {
+			struct lws *wsi = vh->same_vh_protocol_list[n];
+
+			while (wsi) {
+				if (lwsi_role_ws(wsi) &&
+				    !wsi->socket_is_permanently_unusable &&
+				    !wsi->ws->send_check_ping &&
+				    wsi->ws->time_next_ping_check &&
+				    lws_compare_time_t(context, now,
+					wsi->ws->time_next_ping_check) >
+				       context->ws_ping_pong_interval) {
+
+					lwsl_info("req pp on wsi %p\n",
+						  wsi);
+					wsi->ws->send_check_ping = 1;
+					lws_set_timeout(wsi,
+					PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
+						context->timeout_secs);
+					lws_callback_on_writable(wsi);
+					wsi->ws->time_next_ping_check =
+						now;
+				}
+				wsi = wsi->same_vh_protocol_next;
+			}
+		}
+
+		lws_vhost_unlock(vh);
+		vh = vh->vhost_next;
+	}
+
+	return 0;
+}
+
 struct lws_protocol_ops wire_ops_ws = {
 	"ws",
 	wops_handle_POLLIN_ws,
-	wops_handle_POLLOUT_ws
+	wops_handle_POLLOUT_ws,
+	wops_periodic_checks_ws
 };
