@@ -25,6 +25,54 @@
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
+
+int
+lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
+{
+	int m;
+
+	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
+	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
+	    (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY) &&
+	    !lwsi_role_client(wsi))
+		return 0;
+
+	while (len) {
+		/*
+		 * we were accepting input but now we stopped doing so
+		 */
+		if (lws_is_flowcontrolled(wsi)) {
+			lwsl_debug("%s: caching %ld\n", __func__, (long)len);
+			lws_rxflow_cache(wsi, *buf, 0, (int)len);
+			return 0;
+		}
+		if (wsi->ws->rx_draining_ext) {
+#if !defined(LWS_NO_CLIENT)
+			if (lwsi_role_client(wsi))
+				m = lws_client_rx_sm(wsi, 0);
+			else
+#endif
+				m = lws_ws_rx_sm(wsi, 0);
+			if (m < 0)
+				return -1;
+			continue;
+		}
+		/* account for what we're using in rxflow buffer */
+		if (wsi->rxflow_buffer)
+			wsi->rxflow_pos++;
+
+		if (lws_client_rx_sm(wsi, *(*buf)++)) {
+			lwsl_debug("client_rx_sm exited\n");
+			return -1;
+		}
+		len--;
+	}
+	lwsl_debug("%s: finished with %ld\n", __func__, (long)len);
+
+	return 0;
+}
+
+
 /*
  * We have to take care about parsing because the headers may be split
  * into multiple fragments.  They may contain unknown headers with arbitrary
@@ -199,7 +247,7 @@ ws_mode:
 
 		if (lws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;
-
+#if defined(LWS_ROLE_WS)
 		switch (lwsi_role(wsi)) {
 		case LWSI_ROLE_WS1_SERVER:
 		case LWSI_ROLE_WS2_SERVER:
@@ -213,6 +261,7 @@ ws_mode:
 			}
 			break;
 		}
+#endif
 		break;
 
 	case LRS_DEFERRING_ACTION:
@@ -351,11 +400,12 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * otherwise give it to whoever wants it
 		 * according to the connection state
 		 */
-
+#if defined(LWS_ROLE_H2)
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
 			n = lws_read_h2(wsi, ah->rx + ah->rxpos,
 					ah->rxlen - ah->rxpos);
 		else
+#endif
 			n = lws_read_h1(wsi, ah->rx + ah->rxpos,
 					ah->rxlen - ah->rxpos);
 		if (n < 0) /* we closed wsi */
@@ -403,10 +453,11 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 *
 		 * returns number of bytes used
 		 */
-
+#if defined(LWS_ROLE_H2)
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
 			n = lws_read_h2(wsi, pt->serv_buf, len);
 		else
+#endif
 			n = lws_read_h1(wsi, pt->serv_buf, len);
 		if (n < 0) /* we closed wsi */
 			return LWS_HPI_RET_DIE;

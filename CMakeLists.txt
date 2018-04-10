@@ -709,7 +709,12 @@ if (LWS_ROLE_WS)
 		lib/wire-protocol/ws/ops-ws.c)
 	if (NOT LWS_WITHOUT_CLIENT)
 		list(APPEND SOURCES
+			lib/wire-protocol/ws/client-ws.c
 			lib/wire-protocol/ws/client-parser.c)
+	endif()
+	if (NOT LWS_WITHOUT_SERVER)
+		list(APPEND SOURCES
+			lib/wire-protocol/ws/server-ws.c)
 	endif()
 endif()
 

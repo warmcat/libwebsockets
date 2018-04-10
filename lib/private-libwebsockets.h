@@ -2991,6 +2991,11 @@ int
 lws_process_ws_upgrade(struct lws *wsi);
 int
 lws_server_init_wsi_for_ws(struct lws *wsi);
+int
+handshake_0405(struct lws_context *context, struct lws *wsi);
+
+int
+lws_client_ws_upgrade(struct lws *wsi, const char **cce);
 #ifdef __cplusplus
 };
 #endif
